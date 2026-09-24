@@ -76,7 +76,7 @@ export default function ProyectosObumaPage() {
   const [ocAbierta, setOcAbierta] = useState<string | null>(null);
   const [itemsPorFolio, setItemsPorFolio] = useState<Record<string, EstadoItems>>({});
 
-  const puedeVer = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial;
+  const puedeVer = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial || !!usuario?.permisos?.compras_ver;
 
   const cargar = useCallback(async (forzar = false) => {
     if (forzar) setActualizando(true); else setLoading(true);

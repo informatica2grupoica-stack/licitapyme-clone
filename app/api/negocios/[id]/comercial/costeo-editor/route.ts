@@ -11,7 +11,7 @@
 //          (origen='editor') — misma alerta, mismo auto-precarga del checklist que el Excel.
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
+import { puedeVerNegocioAsignado, permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { adaptarViabilidadACosteo } from '@/app/lib/generar-costeo';
 import {
@@ -51,6 +51,13 @@ function soloAdmin(rol: string | null) {
     : NextResponse.json({ error: 'El costeo del sistema está habilitado solo para administradores.' }, { status: 403 });
 }
 
+// Perfil de Compras: puede VER el costeo (GET), nunca modificarlo (PUT y ficha-producto siguen
+// siendo solo admin). Lee los permisos guardados de verdad, ignorando el rol.
+async function esVisorCompras(userId: number): Promise<boolean> {
+  const p = await permisosCrudosDeUsuario(userId);
+  return !!(p.compras_ver || p.compras_todo || p.compras);
+}
+
 async function estadoGuardado(negocioId: number): Promise<EstadoCosteoEditor | null> {
   const [rows] = await pool.query(
     `SELECT modalidad, datos_json FROM negocio_costeo_editor WHERE negocio_id = ? LIMIT 1`,
@@ -77,14 +84,16 @@ function estadoDesdeViabilidad(negocio: { id: number; licitacion_codigo: string 
 export async function GET(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  const noAdmin = soloAdmin(rol);
+  // Solo lectura para el perfil de Compras (ve todos los negocios del módulo, no modifica).
+  const soloLectura = rol !== 'admin' && await esVisorCompras(userId);
+  const noAdmin = soloLectura ? null : soloAdmin(rol);
   if (noAdmin) return noAdmin;
   const { id } = await params;
 
   try {
     const negocio = await cargarNegocio(id);
     if (!negocio) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
-    if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
+    if (!soloLectura && !(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     const params2 = new URL(request.url).searchParams;
@@ -163,7 +172,8 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({
       success: true, estado, sinGuardar, agregados, reclasificados, presupuestoPublicado, presupuestosPorLinea,
       sinViabilidad: !guardado && !desdeViab,
-      congelado: await yaCongelado(negocio.id, rol),
+      // congelado = el editor deshabilita todos los campos: así el perfil de Compras lo ve sin poder tocarlo.
+      congelado: soloLectura || await yaCongelado(negocio.id, rol),
     });
   } catch (error) {
     console.error('[comercial/costeo-editor][GET]', String(error));

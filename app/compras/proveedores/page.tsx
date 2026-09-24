@@ -86,7 +86,9 @@ export default function ProveedoresPage() {
 
   // "Ser admin" ya no alcanza solo (pedido explícito, 10-sep-2026) — mismo criterio que el backend
   // (app/api/compras/proveedores/route.ts).
-  const puedeVer = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial;
+  // Solo lectura (permiso compras_ver sin ninguno de operación): ve el catálogo, no lo modifica.
+  const soloLectura = usuario?.rol !== 'admin' && !usuario?.permisos?.compras && !usuario?.permisos?.compras_todo && !usuario?.permisos?.aprobar_comercial;
+  const puedeVer = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial || !!usuario?.permisos?.compras_ver;
 
   const cargar = useCallback(async (busqueda?: string) => {
     try {
@@ -273,12 +275,12 @@ export default function ProveedoresPage() {
               <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar nombre o RUT…"
                 className="pl-8 pr-3 py-2 text-[12.5px] border border-zinc-200 rounded-lg outline-none focus:ring-1 focus:ring-teal-500 w-56" />
             </div>
-            <button onClick={sincronizarObuma} disabled={sincronizando || sincronizandoItems} className="flex items-center gap-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 px-3 py-2 rounded-lg">
+            {!soloLectura && <button onClick={sincronizarObuma} disabled={sincronizando || sincronizandoItems} className="flex items-center gap-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 px-3 py-2 rounded-lg">
               {sincronizando ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Sincronizar con Obuma
-            </button>
-            <button onClick={() => setFormAbierto(v => !v)} className="flex items-center gap-1.5 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-3 py-2 rounded-lg">
+            </button>}
+            {!soloLectura && <button onClick={() => setFormAbierto(v => !v)} className="flex items-center gap-1.5 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-3 py-2 rounded-lg">
               <Plus size={14} /> Agregar
-            </button>
+            </button>}
           </div>
         </div>
 

@@ -22,7 +22,7 @@ export default function CompraDetallePage() {
   // "Ser admin" ya no alcanza solo (pedido explícito, 10-sep-2026) — mismo criterio que el backend
   // (app/api/compras/[negocioId]/route.ts).
   const puedeVer = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial
-    || !!usuario?.permisos?.compras_administracion || !!usuario?.permisos?.compras_bodega;
+    || !!usuario?.permisos?.compras_administracion || !!usuario?.permisos?.compras_bodega || !!usuario?.permisos?.compras_ver;
 
   useEffect(() => {
     if (cargandoSesion) return;

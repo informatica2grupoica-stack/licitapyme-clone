@@ -28,6 +28,8 @@ export interface UsuarioSession {
     compras_todo?: boolean;
     // Perfil de Compras: menú y páginas limitados a los módulos de Compras.
     solo_compras?: boolean;
+    // Compras en SOLO LECTURA: ve el módulo y sus catálogos, no puede modificar nada.
+    compras_ver?: boolean;
   };
   // Frente C.1: ¿ve por defecto solo la Tarjeta de Decisión (resumen) en vez de los 4 módulos
   // de detalle? El propio usuario puede graduarse desde el botón "Ver análisis completo".

@@ -45,7 +45,7 @@ interface InformeIA {
   score_0_100?: number; semaforo?: string; area_negocio?: string;
   meta?: { id?: string; nombre?: string; organismo?: string; region?: string; linea_negocio?: string };
   exclusion?: { excluido?: boolean; categoria?: string | null; motivo?: string; fuente?: string; destino?: string };
-  presupuesto?: { bruto?: number | null; neto?: number | null; con_iva?: boolean; regimen_fora?: boolean; presupuesto_exento?: boolean; es_excluyente?: boolean; fuente?: string; gate?: string };
+  presupuesto?: { bruto?: number | null; neto?: number | null; con_iva?: boolean; regimen_fora?: boolean; presupuesto_exento?: boolean; es_excluyente?: boolean; fuente?: string; gate?: string; por_linea?: { linea: number; bruto: number; neto: number }[] };
   modalidad?: { tipo?: string; estado?: string; evidencia?: string; fuente?: string; confianza?: number; libertad_de_pricing?: boolean; como_se_adjudica?: string; heterogeneidad?: string; cotizar_100_obligatorio?: boolean; evaluacion_puntaje?: string };
   // v3: "a quién se adjudica" vive acá, NO en modalidad (que en v3 queda reducida a { tipo } como
   // puente al costeo, sin fuente). Leer modalidad para esto dejaba la tarjeta sin cita.
@@ -812,6 +812,13 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
           {adm.presupuesto?.tipo === 'excluyente'
             ? <span title="Si la oferta supera este monto queda inadmisible (fuera de bases)" className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700 cursor-help">EXCLUYENTE</span>
             : <span title="Monto de referencia: se puede ofertar por sobre él, aunque puede restar competitividad" className="text-[9px] font-bold px-1 py-0.5 rounded bg-slate-100 text-slate-500 cursor-help">referencial</span>}
+          {Array.isArray(informe.presupuesto?.por_linea) && informe.presupuesto.por_linea.length >= 2 && (
+            <div className="mt-1 space-y-0.5">
+              {informe.presupuesto.por_linea.map((l: any) => (
+                <p key={l.linea} className="text-[10px] text-slate-500"><span className="font-semibold">Línea {l.linea}</span> {fmt(l.bruto)}</p>
+              ))}
+            </div>
+          )}
         </div>
         <div className={`border rounded-xl p-3 ${adj.estado === 'REVISION_HUMANA' ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'}`}>
           <p className={`text-[10px] font-bold uppercase ${adj.estado === 'REVISION_HUMANA' ? 'text-amber-600' : 'text-slate-400'}`}>Cómo se adjudica</p>
@@ -1669,6 +1676,13 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
                   : <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-slate-100 text-slate-500">referencial</span>}
                 {informe.presupuesto?.regimen_fora && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-violet-100 text-violet-700">FORA</span>}
               </div>
+              {Array.isArray(informe.presupuesto?.por_linea) && informe.presupuesto.por_linea.length >= 2 && (
+                <div className="mt-1 space-y-0.5">
+                  {informe.presupuesto.por_linea.map((l: any) => (
+                    <p key={l.linea} className="text-[10px] text-slate-500"><span className="font-semibold">Línea {l.linea}</span> {fmt(l.bruto)}</p>
+                  ))}
+                </div>
+              )}
               {hrefCita(informe.presupuesto?.fuente)
                 ? <a href={hrefCita(informe.presupuesto?.fuente)} target="_blank" rel="noopener noreferrer" className="block text-[10px] text-indigo-600 hover:underline truncate" title={informe.presupuesto?.fuente}>{informe.presupuesto?.bruto ? (informe.presupuesto?.regimen_fora ? 'exento · ' : 'IVA incl. · ') : ''}{informe.presupuesto?.fuente}</a>
                 : <p className="text-[10px] text-slate-400 truncate" title={informe.presupuesto?.fuente}>{informe.presupuesto?.bruto ? (informe.presupuesto?.regimen_fora ? 'exento · ' : 'IVA incl. · ') : ''}{informe.presupuesto?.fuente}</p>}

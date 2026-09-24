@@ -47,7 +47,7 @@ export async function puedeOperarCompras(userId: number, rol: string | null, asi
 export async function puedeVerCompras(userId: number, rol: string | null, asignadoA: number | null): Promise<boolean> {
   if (await puedeOperarCompras(userId, rol, asignadoA)) return true;
   const p = await permisosCrudosDeUsuario(userId);
-  return !!(p.compras_administracion || p.compras_bodega);
+  return !!(p.compras_administracion || p.compras_bodega || p.compras_ver);
 }
 
 export async function GET(request: NextRequest, { params }: Params) {

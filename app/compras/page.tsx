@@ -1037,7 +1037,7 @@ export default function ComprasPage() {
   // "Ser admin" ya no alcanza solo (pedido explícito, 10-sep-2026) — mismo criterio que el backend
   // (app/api/compras/route.ts, app/api/compras/[negocioId]/asignar/route.ts).
   const puedeVer = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial
-    || !!usuario?.permisos?.compras_administracion || !!usuario?.permisos?.compras_bodega;
+    || !!usuario?.permisos?.compras_administracion || !!usuario?.permisos?.compras_bodega || !!usuario?.permisos?.compras_ver;
   const esJefeDeVentas = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.aprobar_comercial;
   // Pedido explícito del usuario, 15-sep-2026: CAMBIAR un encargado que ya tiene otro asignado
   // es solo de admin (el backend en /api/compras/[negocioId]/asignar/route.ts hace el mismo

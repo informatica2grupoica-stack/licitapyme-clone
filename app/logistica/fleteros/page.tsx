@@ -48,7 +48,10 @@ export default function FleterosPage() {
   const [buscando, setBuscando] = useState(false);
 
   const esAdmin = usuario?.rol === 'admin';
-  const puedeVer = esAdmin || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial;
+  // Solo lectura (permiso compras_ver sin ninguno de operación): ve el catálogo, no lo modifica.
+  const soloLectura = usuario?.rol !== 'admin' && !usuario?.permisos?.compras && !usuario?.permisos?.compras_todo && !usuario?.permisos?.aprobar_comercial;
+
+  const puedeVer = esAdmin || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial || !!usuario?.permisos?.compras_ver;
 
   const cargar = useCallback(async () => {
     try {
@@ -185,9 +188,9 @@ export default function FleterosPage() {
               <p className="text-[12px] text-zinc-500">{fleteros.length} fletero(s) en el catálogo</p>
             </div>
           </div>
-          <button onClick={() => setFormAbierto(v => !v)} className="flex items-center gap-1.5 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-3 py-2 rounded-lg">
+          {!soloLectura && <button onClick={() => setFormAbierto(v => !v)} className="flex items-center gap-1.5 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-3 py-2 rounded-lg">
             <Plus size={14} /> Agregar fletero
-          </button>
+          </button>}
         </div>
 
         {formAbierto && (

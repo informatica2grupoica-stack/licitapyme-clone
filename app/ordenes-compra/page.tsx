@@ -241,7 +241,7 @@ function AccionesDocumento({ codigo, nombre, pdfUrlInicial, onVer }: { codigo: s
   );
 }
 
-function FilaOrden({ oc, onVer, onEnviarExperiencia }: { oc: OrdenCompra; onVer: (doc: VisorDoc) => void; onEnviarExperiencia: (oc: OrdenCompra) => void }) {
+function FilaOrden({ oc, onVer, onEnviarExperiencia }: { oc: OrdenCompra; onVer: (doc: VisorDoc) => void; onEnviarExperiencia?: (oc: OrdenCompra) => void }) {
   const [abierto, setAbierto] = useState(false);
   const c = colorEstado(oc.codigoEstado);
   const fecha = fmtFecha(oc.fechaEnvio) || fmtFecha(oc.fechaCreacion);
@@ -288,11 +288,11 @@ function FilaOrden({ oc, onVer, onEnviarExperiencia }: { oc: OrdenCompra; onVer:
           </button>
         )}
         <div className="ml-auto flex items-center gap-3">
-          <button onClick={() => onEnviarExperiencia(oc)}
+          {onEnviarExperiencia && <button onClick={() => onEnviarExperiencia(oc)}
             className="text-[11.5px] font-semibold text-slate-600 hover:text-indigo-600 inline-flex items-center gap-1"
             title="Copiar a Documentos Propios de otra licitación">
             <FolderInput size={13} /> Usar como experiencia
-          </button>
+          </button>}
           <AccionesDocumento codigo={oc.codigo} nombre={`OC_${oc.codigo}.pdf`} pdfUrlInicial={oc.pdfUrl} onVer={onVer} />
           <a href={oc.url} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-semibold text-indigo-600 hover:text-indigo-700 inline-flex items-center gap-1">
             <ExternalLink size={12} /> Mercado Público
@@ -321,7 +321,9 @@ export default function OrdenesCompraPage() {
   const { usuario, cargando: cargandoSesion } = useSession();
   const router = useRouter();
   // Admin, o perfil de Compras (permiso compras / compras_todo).
-  const puedeVer = usuario?.rol === 'admin' || !!usuario?.permisos?.compras || !!usuario?.permisos?.compras_todo;
+  // Solo lectura: no puede copiar OC como experiencia a otras licitaciones.
+  const soloLectura = usuario?.rol !== 'admin' && !usuario?.permisos?.compras && !usuario?.permisos?.compras_todo;
+  const puedeVer = usuario?.rol === 'admin' || !!usuario?.permisos?.compras || !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras_ver;
 
   const [ordenes, setOrdenes] = useState<OrdenCompra[]>([]);
   const [total, setTotal] = useState(0);
@@ -466,7 +468,7 @@ export default function OrdenesCompraPage() {
           <>
             <div className="space-y-2">
               {ordenes.map(oc => (
-                <FilaOrden key={oc.codigo} oc={oc} onVer={setVisorDoc} onEnviarExperiencia={setExperienciaOC} />
+                <FilaOrden key={oc.codigo} oc={oc} onVer={setVisorDoc} onEnviarExperiencia={soloLectura ? undefined : setExperienciaOC} />
               ))}
             </div>
             {ordenes.length < total && (

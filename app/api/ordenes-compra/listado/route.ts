@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   if (rol !== 'admin') {
     const p = await permisosDeUsuario(userId, rol);
-    if (!p.compras && !p.compras_todo) return NextResponse.json({ error: 'Sin acceso a las órdenes de compra.' }, { status: 403 });
+    if (!p.compras && !p.compras_todo && !p.compras_ver) return NextResponse.json({ error: 'Sin acceso a las órdenes de compra.' }, { status: 403 });
   }
 
   const sp = request.nextUrl.searchParams;

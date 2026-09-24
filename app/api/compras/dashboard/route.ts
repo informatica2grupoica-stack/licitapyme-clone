@@ -21,7 +21,7 @@ async function esJefatura(userId: number, _rol: string | null): Promise<boolean>
   // `permisosCrudosDeUsuario` para que `aprobar_comercial` tampoco se auto-otorgue por ser admin.
   // Ver el comentario largo en app/api/compras/[negocioId]/route.ts.
   const p = await permisosCrudosDeUsuario(userId);
-  return !!(p.compras_todo || p.aprobar_comercial);
+  return !!(p.compras_todo || p.aprobar_comercial || p.compras_ver);
 }
 
 export async function GET(request: NextRequest) {

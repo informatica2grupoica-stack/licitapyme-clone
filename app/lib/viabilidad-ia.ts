@@ -2442,6 +2442,12 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
         return { ...it, presupuesto_linea: monto };
       });
       if (rellenados > 0) console.log(`[viabilidad-ia-v3] ${codigo}: presupuesto_linea rellenado desde tabla de distribución para ${rellenados} ítem(s).`);
+      // Desglose por línea en el informe (la UI lo muestra bajo el presupuesto total). Solo con ≥2
+      // líneas presupuestadas; los montos se publican CON IVA, el neto es su derivado ÷1,19.
+      const usaIva = p3.presupuesto?.con_iva !== false;
+      const porLinea = [...presupuestosTabla.entries()].sort((a, b) => a[0] - b[0])
+        .map(([linea, monto]) => ({ linea, bruto: monto, neto: Math.round(usaIva ? monto / 1.19 : monto) }));
+      if (porLinea.length >= 2 && p3.presupuesto && typeof p3.presupuesto === 'object') p3.presupuesto.por_linea = porLinea;
     }
   } catch (e) { console.warn(`[viabilidad-ia-v3] ${codigo}: backfill presupuesto_linea falló:`, String(e).slice(0, 140)); }
 

@@ -26,7 +26,7 @@ async function puedeVerCompras(userId: number, rol: string | null): Promise<bool
   const p = await permisosCrudosDeUsuario(userId);
   // administración/bodega (§2.2) también entran al listado: necesitan llegar a SU negocio para
   // operar su sección angosta, aunque no sean el encargado de compras/entrega.
-  return !!(p.compras_todo || p.compras || p.aprobar_comercial || p.compras_administracion || p.compras_bodega);
+  return !!(p.compras_todo || p.compras || p.aprobar_comercial || p.compras_administracion || p.compras_bodega || p.compras_ver);
 }
 
 export async function GET(request: NextRequest) {

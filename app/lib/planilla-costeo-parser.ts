@@ -759,8 +759,24 @@ export function extraerPresupuestoPorLineaTabla(docs: { texto: string }[]): Map<
   // como "S" mayúscula) — se acepta como alternativa (no "s" minúscula, para no enganchar
   // palabras sueltas de la prosa circundante).
   const reProsa = /monto\s+(?:disponible|m[aá]ximo|asignado)\s+[^\n\d]{0,10}n[°ºo*]\s*(\d{1,3})[^\d$S\n]{0,10}[$S]\s*([\d][\d.,]*)/gi;
+  // 24-sep-2026 (caso real 1171317-88-LE26): dos redacciones más, ambas en PROSA —
+  //  · bases: "distribuido por líneas de la siguiente forma: A) LÍNEA N°1: $30.407.287.- IMPUESTOS INCLUIDOS"
+  //  · formulario económico: "LÍNEA N°2 MÁQUINAS Y EQUIPOS. PRESUPUESTO MÁXIMO DISPONIBLE $ 5.152.024 IVA INCLUIDO"
+  // Ninguna traía "monto disponible Item N°X", así que el presupuesto por línea quedaba vacío y
+  // el análisis mostraba solo el total. La primera aparición de cada línea gana.
+  const reLineaMonto = /l[ií]nea\s*n?[°ºo*]?\s*(\d{1,3})\s*[:\-)]\s*[$S]\s*([\d][\d.,]*)/gi;
+  const reFormulario = /l[ií]nea\s*n[°ºo*]?\s*(\d{1,3})[^$]{0,160}?presupuesto\s+m[aá]ximo\s+disponible[^$\d]{0,12}\$\s*([\d][\d.,]*)/gi;
   for (const d of docs) {
     if (!d.texto) continue;
+    for (const re of [reLineaMonto, reFormulario]) {
+      re.lastIndex = 0;
+      let mm: RegExpExecArray | null;
+      while ((mm = re.exec(d.texto)) !== null) {
+        const linea = parseInt(mm[1], 10);
+        const monto = parseInt(mm[2].replace(/[.,]/g, ''), 10);
+        if (linea > 0 && monto >= 1000 && !mapa.has(linea)) mapa.set(linea, monto);
+      }
+    }
     if (/<tr[\s>]/i.test(d.texto)) {
       reTabla.lastIndex = 0;
       let m: RegExpExecArray | null;

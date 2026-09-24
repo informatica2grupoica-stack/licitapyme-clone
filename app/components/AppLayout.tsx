@@ -301,7 +301,7 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
   // ver por todos los admin, ahora solo asesor y yo"). `compras_todo` es el único permiso que un
   // admin NO trae gratis — ver el comentario largo en app/api/compras/[negocioId]/route.ts.
   const puedeVerCompras = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial
-    || !!usuario?.permisos?.compras_administracion || !!usuario?.permisos?.compras_bodega;
+    || !!usuario?.permisos?.compras_administracion || !!usuario?.permisos?.compras_bodega || !!usuario?.permisos?.compras_ver;
   const [totalPuente, setTotalPuente] = useState(0);
   useEffect(() => {
     if (!puedeRepartir) return;

@@ -23,10 +23,17 @@ async function puedeVerProveedores(userId: number): Promise<boolean> {
   return !!(p.compras_todo || p.compras || p.aprobar_comercial);
 }
 
+// Solo lectura (permiso compras_ver): puede consultar el catálogo pero no crear ni editar.
+async function puedeLeerProveedores(userId: number): Promise<boolean> {
+  if (await puedeVerProveedores(userId)) return true;
+  const p = await permisosCrudosDeUsuario(userId);
+  return !!p.compras_ver;
+}
+
 export async function GET(request: NextRequest) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (!(await puedeVerProveedores(userId))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
+  if (!(await puedeLeerProveedores(userId))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
   try {
     // Histórico de compras a ESTE proveedor en OBUMA por RUT (pedido explícito del usuario: avisar

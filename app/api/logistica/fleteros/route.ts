@@ -22,10 +22,17 @@ async function puedeVerLogistica(userId: number, rol: string | null): Promise<bo
   return !!(p.compras || p.aprobar_comercial);
 }
 
+// Solo lectura (permiso compras_ver): puede consultar el catálogo pero no crear ni editar.
+async function puedeLeerLogistica(userId: number, rol: string | null): Promise<boolean> {
+  if (await puedeVerLogistica(userId, rol)) return true;
+  const p = await permisosDeUsuario(userId, rol);
+  return !!p.compras_ver;
+}
+
 export async function GET(request: NextRequest) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (!(await puedeVerLogistica(userId, rol))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
+  if (!(await puedeLeerLogistica(userId, rol))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
   try {
     // Búsqueda de identidad en OBUMA por RUT (spec §13.3, "se puebla desde OBUMA") — separada del
