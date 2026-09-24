@@ -10,6 +10,7 @@
 import { useState } from 'react';
 import { IconCheck as Check, IconX as X, IconTool as Wrench, IconArrowBackUp as Undo2, IconLoader2 as Loader2, IconUpload as Upload, IconTrash as Trash2 } from '@tabler/icons-react';
 import { ModalAuditorLineaTecnica } from '@/app/components/ModalAuditorLineaTecnica';
+import { ejecutarComparador } from '@/app/lib/auditor-comparador-cliente';
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
 
@@ -89,8 +90,8 @@ export function FilaLineaTecnica({ item, negocioId, licitacionCodigo, puedeAprob
   // memoria project_ficha_por_linea_ago2026). Acá el documento nunca sale de ESTA línea.
   //
   // Varios archivos a la vez porque una línea puede traer más de un producto (hasta 30+ bajo la
-  // misma línea de precio) — cada ficha se compara una por una, en orden, contra el trozo de
-  // texto que le corresponde a su producto (ver comparar_ficha en el route de características).
+  // misma línea de precio) o varias fichas de un mismo equipo — el comparador las recibe juntas y
+  // cada producto se compara contra el trozo de texto que le corresponde (ver .../comparador).
   const procesarFichasSoltadas = async (files: FileList) => {
     setSubiendoFicha(true);
     try {
@@ -101,27 +102,30 @@ export function FilaLineaTecnica({ item, negocioId, licitacionCodigo, puedeAprob
         if (!rVal.ok) { toast.error(dVal.error || 'No se pudo clasificar la línea'); return; }
       }
 
+      // Se suben TODAS las fichas y se comparan juntas en una sola pasada del comparador (PROMPT 4):
+      // inventario → asignación → comparación → segunda lectura de los CUMPLE críticos. Comparar de a
+      // una ficha era comparar cada archivo como si fuera el único de la línea.
       const lista = Array.from(files);
-      let comparadas = 0;
+      const docs: Array<{ url: string; nombre: string }> = [];
       for (let i = 0; i < lista.length; i++) {
         const file = lista[i];
-        setProgreso(lista.length > 1 ? `Comparando ${i + 1}/${lista.length}: ${file.name}` : `Comparando "${file.name}"…`);
+        setProgreso(lista.length > 1 ? `Subiendo ${i + 1}/${lista.length}: ${file.name}` : `Subiendo "${file.name}"…`);
         const fd = new FormData();
         fd.append('licitacionCodigo', licitacionCodigo);
         fd.append('files', file);
         const rSubida = await fetch('/api/documentos/subir', { method: 'POST', body: fd });
         const dSubida = await rSubida.json().catch(() => ({}));
         if (!rSubida.ok || !dSubida.documentos?.length) { toast.error(dSubida.error || `No se pudo subir "${file.name}"`); continue; }
-        const doc = dSubida.documentos[0];
-        const rComp = await fetch(base, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ accion: 'comparar_ficha', documentoUrl: doc.url, documentoNombre: doc.nombre }),
-        });
-        const dComp = await rComp.json().catch(() => ({}));
-        if (!rComp.ok) { toast.error(dComp.error || `No se pudo comparar "${file.name}"`); continue; }
-        comparadas++;
+        docs.push({ url: dSubida.documentos[0].url, nombre: dSubida.documentos[0].nombre });
       }
-      if (comparadas > 0) toast.success(comparadas === 1 ? 'Ficha comparada' : `${comparadas} fichas comparadas`, item.titulo);
+      if (!docs.length) return;
+      setProgreso(docs.length > 1 ? `Comparando ${docs.length} fichas contra las bases…` : `Comparando "${docs[0].nombre}" contra las bases…`);
+      const r = await ejecutarComparador(negocioId, item.id, docs);
+      if (!r.ok) { toast.error(r.error || 'No se pudo comparar la ficha', item.titulo); return; }
+      if (r.requiereConfirmacion) { toast.error('Falta elegir el modelo', 'El documento trae varios modelos: confirma cuál se ofrece.'); setModalAbierto(true); return; }
+      if (r.sinFichas) { toast.error('Ninguna ficha sirvió', 'Ninguna quedó asignada a esta línea (ilegible o ajena).'); setModalAbierto(true); return; }
+      if (r.aviso || r.rectificados) toast.error(r.rectificados ? `${r.rectificados} ítem(s) rectificado(s) en la segunda lectura` : 'Comparación lista con avisos', r.aviso || item.titulo);
+      else toast.success(docs.length === 1 ? 'Ficha comparada' : `${docs.length} fichas comparadas`, item.titulo);
     } catch (e) {
       toast.error('Error de red', String(e));
     } finally {

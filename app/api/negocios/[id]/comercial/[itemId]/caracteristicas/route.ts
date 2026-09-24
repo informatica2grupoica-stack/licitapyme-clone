@@ -35,6 +35,7 @@ import {
 import { cargarNegocio, leerInforme, esAsesor, bitacora, nombreDe, COLS, agregarDocumentos } from '../../route';
 import { extraerProductoOfertado } from '@/app/lib/producto-ofertado';
 import { productosCrudosDeLinea } from '@/app/lib/auditor-tecnico-core';
+import { parseAnalisis, criticidadP4, estadoDeFila, ambitoDe, type FilaComparador } from '@/app/lib/auditor-comparador-core';
 import {
   guardarProductoLeidoDeFicha, leerProductoOfertado, leerProductosDeLinea, confirmarProductoOfertado,
   confirmarImagenProducto, quitarImagenProducto, type ProductoDeLinea,
@@ -59,7 +60,7 @@ const COLS_CARACT = `id, item_id, producto_index, negocio_id, clave_caracteristi
   valor_ofertado_texto, valor_ofertado_numero, unidad_ofertada_original, valor_convertido_numero,
   veredicto, pendiente_confirmacion_proveedor, fundamento_documento, fundamento_cita, confianza,
   origen, veredicto_ia, corregido_por, corregido_por_nombre, corregido_at, comentario_correccion,
-  respuesta_manual, adjunto_url, adjunto_nombre`;
+  respuesta_manual, adjunto_url, adjunto_nombre, analisis_json`;
 
 async function migracion50Aplicada(): Promise<boolean> {
   try { await pool.query('SELECT 1 FROM checklist_comercial_caracteristicas LIMIT 1'); return true; }
@@ -125,12 +126,29 @@ async function migracion83Aplicada(): Promise<boolean> {
   return m83;
 }
 
-async function leerCaracteristicas(itemId: number) {
+// La migración 127 (analisis_json, comparador de fichas) — mismo patrón tolerante que 72 y 83.
+let m127: boolean | null = null;
+export async function migracion127Aplicada(): Promise<boolean> {
+  if (m127 !== null) return m127;
+  try {
+    const [rows] = await pool.query<Array<{ n: number }> & RowDataPacket[]>(
+      `SELECT COUNT(*) AS n FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'checklist_comercial_caracteristicas'
+          AND COLUMN_NAME = 'analisis_json'`,
+    );
+    m127 = Number(rows[0]?.n || 0) === 1;
+  } catch { m127 = false; }
+  return m127;
+}
+
+export async function leerCaracteristicas(itemId: number) {
   const sinM72 = (c: string) => c.replace(/,\s*respuesta_manual, adjunto_url, adjunto_nombre/, '');
+  const sinM127 = (c: string) => c.replace(/,\s*analisis_json/, '');
   const sinM83 = (c: string) => c.replace(/,\s*producto_index/, '');
   let cols = COLS_CARACT;
   if (!(await migracion72Aplicada())) cols = sinM72(cols);
   if (!(await migracion83Aplicada())) cols = sinM83(cols);
+  if (!(await migracion127Aplicada())) cols = sinM127(cols);
   const [rows] = await pool.query(
     `SELECT ${cols} FROM checklist_comercial_caracteristicas WHERE item_id = ? ORDER BY orden, id`,
     [itemId],
@@ -142,6 +160,7 @@ async function leerCaracteristicas(itemId: number) {
     respuesta_manual: !!r.respuesta_manual,
     adjunto_url: r.adjunto_url ?? null,
     adjunto_nombre: r.adjunto_nombre ?? null,
+    analisis: parseAnalisis(r.analisis_json),
     valor_requerido_numero: r.valor_requerido_numero === null ? null : Number(r.valor_requerido_numero),
     valor_requerido_numero_max: r.valor_requerido_numero_max === null ? null : Number(r.valor_requerido_numero_max),
     valor_ofertado_numero: r.valor_ofertado_numero === null ? null : Number(r.valor_ofertado_numero),
@@ -171,6 +190,12 @@ export async function intentarAutoTransicion(item: any, negocioId: number, userI
   if (!r || Number(r.total) === 0) return;
   if (Number(r.sin_evaluar) > 0 || Number(r.pendientes) > 0) return;
 
+  // Comparador de fichas (PROMPT 4): un CUMPLE que espera reverificación, habilitación del EM,
+  // respaldo, confirmación de un emparejamiento o el check de un compromiso NO cierra la línea.
+  // Solo aplica a líneas que ya pasaron por el comparador — las anteriores siguen como siempre.
+  const filasCmp = await filasDelComparador(item);
+  if (filasCmp.some(f => f.analisis.origen_dato) && filasCmp.some(f => estadoDeFila(f) === 'PENDIENTE')) return;
+
   const ahora = ahoraChileSQL();
   const todoCumple = Number(r.no_cumplen) === 0 && Number(r.con_complemento) === 0;
 
@@ -196,6 +221,14 @@ export async function intentarAutoTransicion(item: any, negocioId: number, userI
     [userId, nombreActor, ahora, item.id],
   );
   await bitacora(item.id, negocioId, 'CARGAR', item.estado, 'CARGADO', `${Number(r.total)}/${Number(r.total)} características evaluadas`, userId, nombreActor);
+}
+
+/** Las características de la línea como las usa el comparador (con su ámbito y criticidad heredada).
+ *  `ambito` se resuelve acá y se deja en `analisis` para que estadoDeFila() no tenga que releerlo. */
+export async function filasDelComparador(item: { id: number; criticidad?: string | null }): Promise<FilaComparador[]> {
+  const criticidad = criticidadP4(item.criticidad);
+  const filas = await leerCaracteristicas(item.id);
+  return filas.map((c: any) => ({ ...c, criticidad, analisis: { ...c.analisis, ambito: ambitoDe(c, c.analisis) } }) as FilaComparador);
 }
 
 /** Un veredicto de UN modelo candidato para UNA característica — la misma forma que el reporte de
@@ -373,6 +406,8 @@ export async function POST(request: NextRequest, { params }: Params) {
         return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
 
       const [delRows] = await pool.query(`DELETE FROM checklist_comercial_caracteristicas WHERE item_id = ?`, [item.id]) as any;
+      // Inventario/mapa de fichas del comparador: la línea vuelve a estar "como nueva".
+      try { await pool.query(`DELETE FROM auditor_comparador_linea WHERE item_id = ?`, [item.id]); } catch { /* migración 127 sin aplicar */ }
       // También la foto y la marca/modelo leídos de la ficha vieja (linea_producto_ofertado): si
       // quedaban, la línea "limpia" seguía mostrando la imagen del producto anterior y había que
       // entrar a borrarla a mano, producto por producto. Las fichas adjuntas (documentos) no se tocan.
@@ -435,7 +470,16 @@ export async function POST(request: NextRequest, { params }: Params) {
               c.fundamentoCita, c.confianza,
             ],
           ) as any;
-          if ((r as any).affectedRows) nuevas++;
+          if ((r as any).affectedRows) {
+            nuevas++;
+            // Ámbito (técnico / técnico-administrativo) que devolvió el clasificador — PARTE VIII.
+            if ((c.ambito || c.materia) && (await migracion127Aplicada())) {
+              await pool.query(
+                `UPDATE checklist_comercial_caracteristicas SET analisis_json = ? WHERE id = ?`,
+                [JSON.stringify({ ambito: c.ambito, materia: c.materia || undefined }), (r as any).insertId],
+              );
+            }
+          }
         }
       }
 
@@ -906,7 +950,7 @@ interface SegmentoProducto {
  * que nada); el resto de los productos sin sección propia queda con texto vacío — no hay de dónde
  * sacarlo automáticamente, se completa a mano.
  */
-async function prepararSegmentosDeLaFicha(args: {
+export async function prepararSegmentosDeLaFicha(args: {
   licitacionCodigo: string; lineaNumero: number | null;
   documentoUrl: string; documentoNombre: string; textoCompleto: string;
 }): Promise<{ segmentos: SegmentoProducto[]; bufferPdf: Buffer | null }> {
@@ -950,7 +994,7 @@ async function prepararSegmentosDeLaFicha(args: {
  * (guardarProductoLeidoDeFicha se abstiene en ese caso). Best-effort en la foto: un fallo ahí no
  * debe tumbar marca/modelo, que no depende de mupdf.
  */
-async function procesarProductosDeLaFicha(args: {
+export async function procesarProductosDeLaFicha(args: {
   itemId: number; negocioId: number; licitacionCodigo: string; documentoNombre: string;
   segmentos: SegmentoProducto[]; bufferPdf: Buffer | null;
 }): Promise<void> {

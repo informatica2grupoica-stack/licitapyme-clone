@@ -51,15 +51,19 @@ TIPOS DE REQUISITO:
 - TECHO: un máximo permitido (cumple si el valor ofertado es igual o menor). Ej: "peso máximo 500 kg", "nivel de ruido máximo 70 dB".
 - EXACTO: un valor único admisible, sin margen. Ej: "voltaje 220V", "certificación ISO 9001".
 - RANGO: el valor ofertado debe caer entre dos límites. Ej: "altura regulable entre 0.7 y 1.1 m".
+- CUALITATIVO: atributo no medible ("robusto", "de reconocida calidad", "apto para uso hospitalario", "de fácil mantención"). No se compara contra una ficha: se declara.
+- NORMATIVO: una norma, certificación o marca de conformidad exigida. Ej: "cumple norma ISO 9001", "certificación SEC", "marca CE".
 
 REGLA DE PARTICIÓN: puedes DIVIDIR una característica que mezcle dos exigencias verificables por separado en dos filas (ej. "Ancho 1.2 m y altura regulable 0.7-1.1 m" → una fila EXACTO + una RANGO), pero NUNCA inventes una característica que no esté en el texto de entrada, ni fusiones dos características distintas en una sola. Clasifica cada característica de entrada exactamente una vez (o dos, si la dividiste).
+
+ÁMBITO (campo "ambito"): "administrativo" si para responder hay que mirar lo que NOSOTROS nos comprometemos a hacer y no la ficha del producto — capacitación, despacho y flete, plazos de entrega, instalación y puesta en marcha, postventa, garantías, mantenciones, repuestos, manuales y documentación de entrega. "tecnico" si para responder hay que mirar la ficha del producto (una certificación del equipo es técnica normativa: es atributo del equipo). En "materia" pon capacitacion|despacho|plazo|instalacion|postventa|garantia|mantencion|repuestos|documentacion|otro solo si es administrativo.
 
 Si el valor es numérico, extrae el número y su unidad tal como aparece en las bases (mm, cm, m, kg, litros, kw, etc.) en unidad_requerida. Si el requisito es categórico/no numérico (una certificación, un material, un documento), deja los campos numéricos en null y usa solo valor_requerido_texto.
 
 confianza: un ENTERO entre 0 y 100 (nunca una fracción entre 0 y 1 — si tu confianza es "alta", escribe 95, no 0.95).
 
 Devuelve SOLO JSON, sin markdown ni texto adicional:
-{"caracteristicas":[{"descripcion":"","tipo":"PISO|TECHO|EXACTO|RANGO","valor_requerido_texto":"","valor_requerido_numero":null,"valor_requerido_numero_max":null,"unidad_requerida":"","fundamento_cita":"","confianza":0}]}`;
+{"caracteristicas":[{"descripcion":"","tipo":"PISO|TECHO|EXACTO|RANGO|CUALITATIVO|NORMATIVO","ambito":"tecnico|administrativo","materia":"","valor_requerido_texto":"","valor_requerido_numero":null,"valor_requerido_numero_max":null,"unidad_requerida":"","fundamento_cita":"","confianza":0}]}`;
 
 /** Agente 1 — clasifica las características libres de una línea. Modelo preferido: glm-5.2. */
 export async function clasificarCaracteristicasLinea(
@@ -97,7 +101,7 @@ function normalizarClasificada(c: any): CaracteristicaClasificada | null {
   const descripcion = String(c?.descripcion || '').trim();
   if (!descripcion) return null;
   const tipoRaw = String(c?.tipo || '').toUpperCase();
-  const tipoIA: TipoRequisitoTecnico = (['PISO', 'TECHO', 'EXACTO', 'RANGO'].includes(tipoRaw) ? tipoRaw : 'EXACTO') as TipoRequisitoTecnico;
+  const tipoIA: TipoRequisitoTecnico = (['PISO', 'TECHO', 'EXACTO', 'RANGO', 'CUALITATIVO', 'NORMATIVO'].includes(tipoRaw) ? tipoRaw : 'EXACTO') as TipoRequisitoTecnico;
   // Guardarraíl determinista sobre lo que dijo la IA: una tolerancia ("Precisión: al menos ±2,5%")
   // es un TECHO, y clasificarla como PISO invierte el veredicto. Ver corregirTipoDeTolerancia.
   const tipo = corregirTipoDeTolerancia(
@@ -114,6 +118,8 @@ function normalizarClasificada(c: any): CaracteristicaClasificada | null {
     unidadRequerida: c?.unidad_requerida ? String(c.unidad_requerida).slice(0, 40) : null,
     fundamentoCita: c?.fundamento_cita ? String(c.fundamento_cita).slice(0, 500) : null,
     confianza: normalizarConfianza(c?.confianza),
+    ambito: c?.ambito === 'administrativo' ? 'administrativo' : c?.ambito === 'tecnico' ? 'tecnico' : undefined,
+    materia: c?.materia ? String(c.materia).slice(0, 40) : null,
   };
 }
 
@@ -141,7 +147,7 @@ Devuelve SOLO JSON, sin markdown ni texto adicional:
 // Parametriza compararFichaProveedor() para que la reuse también compararFichasMultiModelo() (más
 // abajo, camino "100% IA" con Kimi K3) sin duplicar la llamada, el prompt ni el parseo — solo
 // cambia QUÉ modelo de IA responde y cuánto presupuesto de tokens se le da.
-interface MotorComparacion {
+export interface MotorComparacion {
   proveedorPreferido?: string;   // 'kimi' → Moonshot K3 (ver PROVEEDORES_TEXTO en gemini.ts)
   modeloPreferido?: string;      // GLM específico dentro de la cuenta Z.AI (comportamiento de siempre)
   timeoutMs: number;
@@ -149,7 +155,7 @@ interface MotorComparacion {
   loteMax: number;               // tope de características por llamada — ver la nota de abajo
   sinRespaldo?: boolean;         // true → si este modelo falla, error visible: NO cae en silencio a otro modelo
 }
-const MOTOR_GLM: MotorComparacion = { modeloPreferido: 'glm-5.2', timeoutMs: 90_000, maxTokens: 6_000, loteMax: MAX_CARACT_POR_LLAMADA };
+export const MOTOR_GLM: MotorComparacion = { modeloPreferido: 'glm-5.2', timeoutMs: 90_000, maxTokens: 6_000, loteMax: MAX_CARACT_POR_LLAMADA };
 // Kimi K3 razona SIEMPRE — no se puede apagar, solo graduar (ver reasoningEffort en gemini.ts) — y
 // ese razonamiento se cobra y ocupa el MISMO presupuesto de max_tokens que el JSON final. Sin más
 // margen que GLM se repetiría el bug de "JSON cortado a la mitad" que ya obligó a lotear (ver
@@ -168,7 +174,7 @@ function textoExigido(c: Pick<CaracteristicaClasificada, 'tipo' | 'valorRequerid
   const u = c.unidadRequerida ? ` ${c.unidadRequerida}` : '';
   const partes: string[] = [];
   if (c.valorRequeridoNumero != null) {
-    const min = { PISO: 'mínimo ', TECHO: 'máximo ', EXACTO: 'exactamente ', RANGO: '' }[c.tipo] ?? '';
+    const min = ({ PISO: 'mínimo ', TECHO: 'máximo ', EXACTO: 'exactamente ', RANGO: '' } as Record<string, string>)[c.tipo] ?? '';
     partes.push(c.tipo === 'RANGO' && c.valorRequeridoNumeroMax != null
       ? `entre ${c.valorRequeridoNumero} y ${c.valorRequeridoNumeroMax}${u}`
       : `${min}${c.valorRequeridoNumero}${u}`);

@@ -9,7 +9,9 @@
 // el punto de import seguro para código puro; auditor-tecnico.ts sigue siendo dueño de las
 // funciones que llaman IA y re-exporta lo de aquí para no romper a sus consumidores existentes.
 
-export type TipoRequisitoTecnico = 'PISO' | 'TECHO' | 'EXACTO' | 'RANGO';
+// CUALITATIVO y NORMATIVO los agrega el comparador de fichas (PROMPT 4): no son numéricos, así que
+// evaluarCaracteristicaDeterminista() los deja pasar sin resolver (cae en su `default: return null`).
+export type TipoRequisitoTecnico = 'PISO' | 'TECHO' | 'EXACTO' | 'RANGO' | 'CUALITATIVO' | 'NORMATIVO';
 export type VeredictoTecnico = 'CUMPLE' | 'NO_CUMPLE' | 'CUMPLE_CON_COMPLEMENTO';
 export type OrigenCaracteristica = 'interrogatorio' | 'ficha' | 'manual';
 
@@ -33,6 +35,9 @@ export interface CaracteristicaClasificada {
   unidadRequerida: string | null;
   fundamentoCita: string | null;
   confianza: number;   // 0-100
+  /** Comparador de fichas (PROMPT 4, PARTE VIII): técnico vs técnico-administrativo. */
+  ambito?: 'tecnico' | 'administrativo';
+  materia?: string | null;
 }
 
 export interface VeredictoCaracteristica {

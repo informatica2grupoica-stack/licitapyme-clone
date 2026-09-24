@@ -20,6 +20,9 @@ import { IconX as X, IconLoader2 as Loader2, IconCheck as Check, IconHelpCircle 
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
+import { ComparadorFichasPanel } from '@/app/components/ComparadorFichasPanel';
+import { ejecutarComparador, leerComparador, type EstadoComparador } from '@/app/lib/auditor-comparador-cliente';
+import type { AnalisisCaracteristica } from '@/app/lib/auditor-comparador-core';
 
 type Veredicto = 'CUMPLE' | 'NO_CUMPLE' | 'CUMPLE_CON_COMPLEMENTO';
 type EstadoItem = 'PENDIENTE' | 'CARGADO' | 'APROBADO' | 'OBSERVADO';
@@ -29,7 +32,7 @@ interface Caracteristica {
   /** A cuál producto de la línea pertenece (0 en el caso normal de 1 solo producto — migración 83). */
   producto_index: number;
   descripcion: string;
-  tipo: 'PISO' | 'TECHO' | 'EXACTO' | 'RANGO';
+  tipo: 'PISO' | 'TECHO' | 'EXACTO' | 'RANGO' | 'CUALITATIVO' | 'NORMATIVO';
   valor_requerido_texto: string | null;
   valor_requerido_numero: number | null;
   valor_requerido_numero_max: number | null;
@@ -49,6 +52,8 @@ interface Caracteristica {
   /** Respaldo de ESTA casilla (certificado de capacitación, garantía), no de la línea completa. */
   adjunto_url?: string | null;
   adjunto_nombre?: string | null;
+  /** Origen del dato, SOBRECUMPLE y notas del comparador de fichas (PROMPT 4) — vacío en filas anteriores. */
+  analisis?: AnalisisCaracteristica;
 }
 
 interface ItemHeader {
@@ -88,19 +93,6 @@ const fmtFecha = (s: string | null) => {
 interface ComercialLigado {
   precio: { valorNumero: number | null; estado: EstadoItem } | null;
   plazo: { valorTexto: string | null; estado: EstadoItem } | null;
-}
-
-// ─── "Auditar con IA" — un solo botón, N fichas a la vez (pedido del usuario, 08-sep-2026): el
-// sistema decide solo si son fichas COMPLEMENTARIAS (cada una cubre su parte, ej. camión + grúa +
-// canastillo) o ALTERNATIVAS compitiendo por la línea (varios tractores) — ver auditar_fichas en
-// la API. Siempre devuelve una narrativa de auditor: qué se cubrió, qué falta, qué no coincide.
-interface CandidatoAuditoriaUI { fichaNombre: string; resumen: { total: number; cumplen: number; noCumplen: number; conComplemento: number; sinEvaluar: number }; cumpleTodo: boolean }
-interface ConflictoAuditoriaUI { caracteristicaId: number; descripcion: string; respuestas: Array<{ fichaNombre: string; valorTexto: string | null; veredicto: Veredicto | null }> }
-interface AuditoriaResultado {
-  modo: 'unica' | 'complementaria' | 'competencia';
-  faltantes: Array<{ id: number; descripcion: string }>;
-  conflictos: ConflictoAuditoriaUI[];
-  candidatosPorProducto?: Record<number, { candidatos: CandidatoAuditoriaUI[]; recomendado: string | null }>;
 }
 
 const VEREDICTO_STYLE: Record<Veredicto, { bg: string; text: string; label: string }> = {
@@ -163,8 +155,8 @@ export function ModalAuditorLineaTecnica({
   const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
   const [validando, setValidando] = useState(false);
   const [auditando, setAuditando] = useState(false);
-  const [narrativaAuditoria, setNarrativaAuditoria] = useState<string | null>(null);
-  const [auditoria, setAuditoria] = useState<AuditoriaResultado | null>(null);
+  // Estado del comparador de fichas (PROMPT 4): null = migración 127 sin aplicar o línea sin comparar.
+  const [cmp, setCmp] = useState<EstadoComparador | null>(null);
   const [arrastrandoAuditor, setArrastrandoAuditor] = useState(false);
   const [reiniciando, setReiniciando] = useState(false);
   const [progreso, setProgreso] = useState<string | null>(null);
@@ -206,6 +198,7 @@ export function ModalAuditorLineaTecnica({
         plazo: plazo ? { valorTexto: plazo.valor_texto, estado: plazo.estado } : null,
       });
     }
+    setCmp(await leerComparador(negocioId, itemId));
     if (dCaract.success) {
       setCaracteristicas(dCaract.caracteristicas || []);
       setProductos(dCaract.productos || []);
@@ -231,6 +224,7 @@ export function ModalAuditorLineaTecnica({
       const d = await r.json();
       if (!r.ok) { toast.error(d.error || 'No se pudo validar la línea'); return false; }
       setCaracteristicas(d.caracteristicas || []);
+      leerComparador(negocioId, itemId).then(setCmp);
       if (avisar) toast.success(d.nuevas ? `${d.nuevas} característica(s) clasificada(s)` : 'Ya estaba clasificada');
       onCambio?.();
       return true;
@@ -240,23 +234,35 @@ export function ModalAuditorLineaTecnica({
     } finally {
       setValidando(false);
     }
-  }, [base, toast, onCambio]);
+  }, [base, toast, onCambio, negocioId, itemId]);
 
-  const compararFicha = useCallback(async (documentoUrl: string, documentoNombre: string, avisar = true): Promise<boolean> => {
-    const r = await fetch(base, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accion: 'comparar_ficha', documentoUrl, documentoNombre }),
-    });
-    const d = await r.json();
-    if (!r.ok) { toast.error(d.error || 'No se pudo comparar la ficha'); return false; }
-    setCaracteristicas(d.caracteristicas || []);
-    // Las casillas contestadas a mano quedan fuera de la comparación (migration-72): se avisa
-    // para que no parezca que la IA "no las miró" — es a propósito, y son intocables.
-    if (avisar) toast.success('Ficha comparada', d.respetadas
-      ? `${d.respetadas} respuesta(s) manual(es) quedaron intactas.` : undefined);
+  // Refresca lo que muestra el modal tras cualquier cambio del comparador o de una casilla.
+  const refrescarComparador = useCallback(async () => {
+    const [rCaract, estado] = await Promise.all([fetch(base).then(r => r.json()).catch(() => null), leerComparador(negocioId, itemId)]);
+    if (rCaract?.success) setCaracteristicas(rCaract.caracteristicas || []);
+    setCmp(estado);
+  }, [base, negocioId, itemId]);
+
+  const correrComparador = useCallback(async (docs: Array<{ url: string; nombre: string }>, modelosConfirmados?: Record<string, string>, avisar = true): Promise<boolean> => {
+    const r = await ejecutarComparador(negocioId, itemId, docs, modelosConfirmados);
+    if (!r.ok) { toast.error(r.error || 'No se pudo comparar la ficha'); return false; }
+    await refrescarComparador();
+    if (avisar) {
+      if (r.requiereConfirmacion) toast.error('Falta elegir el modelo', 'El documento trae varios modelos: confirma cuál se ofrece.');
+      else if (r.sinFichas) toast.error('Ninguna ficha sirvió', 'Ninguna quedó asignada a esta línea (ilegible o ajena). Revisa el detalle de las fichas.');
+      else if (r.aviso || r.rectificados) toast.error(r.rectificados ? `Comparación lista — ${r.rectificados} ítem(s) rectificado(s) en la segunda lectura` : 'Comparación lista con avisos', r.aviso);
+      else toast.success('Ficha comparada');
+    }
     onCambio?.();
     return true;
-  }, [base, toast, onCambio]);
+  }, [negocioId, itemId, toast, onCambio, refrescarComparador]);
+
+  // Comparador de fichas (PROMPT 4): inventario + asignación + comparación, y luego la segunda
+  // lectura de los CUMPLE críticos. Si hay un catálogo con varios modelos NO compara todavía: una
+  // persona tiene que elegir cuál se ofrece (el panel muestra los candidatos).
+  const compararFicha = useCallback(async (documentoUrl: string, documentoNombre: string, avisar = true): Promise<boolean> => {
+    return correrComparador([{ url: documentoUrl, nombre: documentoNombre }], undefined, avisar);
+  }, [correrComparador]);
 
   // Camino "Enviar al Auditor" desde Documentos: llega con el archivo ya elegido — valida la
   // línea si hace falta y compara automáticamente, sin esperar un clic más del usuario.
@@ -275,15 +281,11 @@ export function ModalAuditorLineaTecnica({
     })();
   }, [cargando, documentoInicial, caracteristicas.length, validar, compararFicha]);
 
-  // "Auditar con IA" — UN botón, N fichas (pedido del usuario, 08-sep-2026). Sube todos los
-  // archivos juntos y llama a 'auditar_fichas': el backend decide solo si son complementarias
-  // (partes de un mismo equipo) o alternativas compitiendo, y devuelve una narrativa de auditor
-  // (cobertura, qué falta, qué no coincide) además de escribir los veredictos en el checklist.
+  // "Auditar con IA" — UN botón, N fichas: se suben juntas y el comparador las inventaría, propone
+  // la asignación y compara contra las bases (PROMPT 4).
   const auditarConIA = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setAuditando(true);
-    setNarrativaAuditoria(null);
-    setAuditoria(null);
     try {
       const fd = new FormData();
       fd.append('licitacionCodigo', licitacionCodigo);
@@ -292,26 +294,14 @@ export function ModalAuditorLineaTecnica({
       const dSubida = await rSubida.json();
       if (!rSubida.ok || !dSubida.documentos?.length) { toast.error(dSubida.error || 'No se pudo subir la(s) ficha(s)'); return; }
       if (caracteristicas.length === 0) await validar(false);
-      const r = await fetch(base, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accion: 'auditar_fichas', documentos: dSubida.documentos.map((d: { url: string; nombre: string }) => ({ url: d.url, nombre: d.nombre })) }),
-      });
-      const d = await r.json();
-      if (!r.ok) { toast.error(d.error || 'No se pudo auditar las fichas'); return; }
-      setCaracteristicas(d.caracteristicas || []);
-      setAuditoria(d.auditoria || null);
-      setNarrativaAuditoria(d.narrativa || null);
-      const sinNovedad = !d.auditoria?.faltantes?.length && !d.auditoria?.conflictos?.length;
-      if (sinNovedad) toast.success('Auditoría completa', d.narrativa);
-      else toast.error('Auditoría con pendientes', d.narrativa);
-      onCambio?.();
+      await correrComparador(dSubida.documentos.map((d: { url: string; nombre: string }) => ({ url: d.url, nombre: d.nombre })));
     } catch (e) {
       toast.error('Error de red', String(e));
     } finally {
       setAuditando(false);
       if (fileRefAuditor.current) fileRefAuditor.current.value = '';
     }
-  }, [base, toast, onCambio, licitacionCodigo, caracteristicas.length, validar]);
+  }, [toast, licitacionCodigo, caracteristicas.length, validar, correrComparador]);
 
   // Confirmar la foto que quedó de la extracción automática (o de una confirmación anterior).
   // Probado contra fichas reales: a veces la extracción trae la imagen equivocada, así que esto
@@ -391,6 +381,7 @@ export function ModalAuditorLineaTecnica({
       const d = await r.json();
       if (!r.ok) { toast.error(d.error || 'No se pudo reiniciar la línea'); return; }
       setCaracteristicas([]);
+      setCmp(null);
       toast.success('Línea reiniciada', 'Ya puedes validar de nuevo o subir otra ficha.');
       onCambio?.();
       await cargarTodo();
@@ -429,6 +420,7 @@ export function ModalAuditorLineaTecnica({
     const d = await r.json();
     if (!r.ok) { toast.error(d.error || 'No se pudo guardar la respuesta'); return; }
     setCaracteristicas(d.caracteristicas || []);
+    leerComparador(negocioId, itemId).then(setCmp);
     onCambio?.();
   };
 
@@ -456,6 +448,7 @@ export function ModalAuditorLineaTecnica({
     const d = await r.json();
     if (!r.ok) { toast.error(d.error || 'No se pudo corregir'); return; }
     setCaracteristicas(d.caracteristicas || []);
+    leerComparador(negocioId, itemId).then(setCmp);
     onCambio?.();
   };
 
@@ -468,6 +461,86 @@ export function ModalAuditorLineaTecnica({
     noCumplen: caracteristicas.filter(c => c.veredicto === 'NO_CUMPLE').length,
     complemento: caracteristicas.filter(c => c.veredicto === 'CUMPLE_CON_COMPLEMENTO').length,
   };
+
+  const tablaClasica = (
+caracteristicas.length === 0 ? (
+    // VISTA PREVIA DE LO QUE PIDEN LAS BASES. Antes acá solo había una frase gris y
+    // la línea se veía vacía aunque el informe ya tuviera todas sus especificaciones
+    // leídas — el reclamo del usuario en 1271359-92-LE26 ("no me muestra nada", y su
+    // canasta tenía 5 productos con 55 exigencias). Comparar sigue siendo un paso
+    // aparte; esto es solo poder LEER lo exigido, sin gastar una llamada de IA.
+    <div className="py-2">
+      {exigencias.length === 0 ? (
+        <p className="text-[12px] text-zinc-400 py-1">Sin características clasificadas todavía. Pulsa "Validar" o sube la ficha del producto.</p>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-[11.5px] text-zinc-500">
+            Esto es lo que piden las bases para esta línea ({exigencias.reduce((n, p) => n + p.items.length, 0)} especificación(es)
+            {exigencias.length > 1 ? ` en ${exigencias.length} productos` : ''}). Todavía nadie las comparó: pulsa "Validar" o sube la ficha del producto.
+          </p>
+          {exigencias.map(p => (
+            <div key={p.index} className="border border-zinc-100 rounded-lg overflow-hidden">
+              <div className="px-3 py-2 bg-zinc-100/70 text-[11px] font-bold text-zinc-600">
+                {p.nombre || `Producto ${p.index + 1}`}
+              </div>
+              <ul className="divide-y divide-zinc-100">
+                {p.items.map((c, i) => (
+                  <li key={i} className="px-3 py-1.5 text-[11.5px] text-zinc-700 leading-snug">{c}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+                ) : productos.length > 1 ? (
+    // Línea-paquete (migración 83): una tabla POR PRODUCTO, con su propio subtítulo
+    // — sin esto no había forma de saber cuál fila de "lo que pide" era de cuál
+    // producto (caso real 2446-240-LE26: Hidrolavadora vs. Vacuolavadora mezcladas).
+    <div className="space-y-3">
+      {productos.map(p => {
+        const delGrupo = caracteristicas.filter(c => c.producto_index === p.index);
+        if (!delGrupo.length) return null;
+        return (
+          <div key={p.index} className="border border-zinc-100 rounded-lg overflow-hidden">
+            <div className="px-3 py-2 bg-zinc-100/70 text-[11px] font-bold text-zinc-600">
+              {p.nombre || `Producto ${p.index + 1}`}
+            </div>
+            <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_auto] gap-x-3 px-3 py-2 bg-zinc-50 text-[10px] font-bold text-zinc-400 uppercase tracking-wide">
+              <span>Lo que pide el producto</span>
+              <span>Lo que subió el asistente</span>
+              <span>Resultado</span>
+            </div>
+            <div className="divide-y divide-zinc-100">
+              {delGrupo.map(c => (
+                <FilaComparacion key={c.id} c={c} puedeAprobar={puedeAprobar} bloqueado={bloqueado}
+                  onResponder={responder} onCorregir={corregir}
+                  onAdjuntar={adjuntarACaracteristica} onQuitarAdjunto={quitarAdjunto}
+                  onVerAdjunto={doc => setVisorDoc(doc)} />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+                ) : (
+    <div className="border border-zinc-100 rounded-lg overflow-hidden">
+      <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_auto] gap-x-3 px-3 py-2 bg-zinc-50 text-[10px] font-bold text-zinc-400 uppercase tracking-wide">
+        <span>Lo que pide el producto</span>
+        <span>Lo que subió el asistente</span>
+        <span>Resultado</span>
+      </div>
+      <div className="divide-y divide-zinc-100">
+        {caracteristicas.map(c => (
+          <FilaComparacion key={c.id} c={c} puedeAprobar={puedeAprobar} bloqueado={bloqueado}
+            onResponder={responder} onCorregir={corregir}
+            onAdjuntar={adjuntarACaracteristica} onQuitarAdjunto={quitarAdjunto}
+            onVerAdjunto={doc => setVisorDoc(doc)} />
+        ))}
+      </div>
+    </div>
+                )
+  );
 
   return createPortal(
     <div
@@ -701,136 +774,14 @@ export function ModalAuditorLineaTecnica({
                   </div>
                 )}
 
-                {narrativaAuditoria && (
-                  <div className={`mb-3 border rounded-xl p-3 space-y-2 ${
-                    auditoria && (auditoria.faltantes.length || auditoria.conflictos.length) ? 'border-amber-200 bg-amber-50/60' : 'border-emerald-200 bg-emerald-50/60'
-                  }`}>
-                    <p className={`text-[11px] font-bold uppercase tracking-wide ${
-                      auditoria && (auditoria.faltantes.length || auditoria.conflictos.length) ? 'text-amber-800' : 'text-emerald-800'
-                    }`}>Veredicto del auditor</p>
-                    <p className="text-[11.5px] text-zinc-700 leading-snug">{narrativaAuditoria}</p>
-
-                    {!!auditoria?.faltantes.length && (
-                      <div>
-                        <p className="text-[10.5px] font-bold text-amber-700 uppercase tracking-wide mb-1">Falta ficha para</p>
-                        <ul className="space-y-0.5">
-                          {auditoria.faltantes.map(f => (
-                            <li key={f.id} className="text-[11px] text-zinc-600">• {f.descripcion}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {!!auditoria?.conflictos.length && (
-                      <div>
-                        <p className="text-[10.5px] font-bold text-rose-700 uppercase tracking-wide mb-1">Datos que no coinciden entre fichas</p>
-                        <ul className="space-y-1">
-                          {auditoria.conflictos.map(c => (
-                            <li key={c.caracteristicaId} className="text-[11px] text-zinc-600">
-                              <span className="font-semibold text-zinc-700">{c.descripcion}:</span>{' '}
-                              {c.respuestas.map((r, i) => (
-                                <span key={i}>{i > 0 ? ' vs. ' : ''}<span className="italic">{r.fichaNombre}</span> dice &ldquo;{r.valorTexto ?? '—'}&rdquo;</span>
-                              ))}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {auditoria?.modo === 'competencia' && auditoria.candidatosPorProducto && Object.values(auditoria.candidatosPorProducto).map((grupo, gi) => (
-                      <div key={gi} className="space-y-1">
-                        <p className="text-[10.5px] font-bold text-violet-700 uppercase tracking-wide mb-1">Ranking de fichas competidoras</p>
-                        {[...grupo.candidatos].sort((a, b) => b.resumen.cumplen - a.resumen.cumplen).map(c => (
-                          <div key={c.fichaNombre} className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-[11.5px] ${c.cumpleTodo ? 'bg-emerald-100/70' : 'bg-white'}`}>
-                            <span className={`font-semibold truncate ${c.cumpleTodo ? 'text-emerald-700' : 'text-zinc-700'}`}>{c.fichaNombre}</span>
-                            <span className={`font-semibold flex-shrink-0 ${c.cumpleTodo ? 'text-emerald-700' : 'text-zinc-500'}`}>
-                              {c.resumen.cumplen}/{c.resumen.total} cumple
-                              {c.resumen.noCumplen > 0 && <span className="text-rose-600"> · {c.resumen.noCumplen} no</span>}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {caracteristicas.length === 0 ? (
-                  // VISTA PREVIA DE LO QUE PIDEN LAS BASES. Antes acá solo había una frase gris y
-                  // la línea se veía vacía aunque el informe ya tuviera todas sus especificaciones
-                  // leídas — el reclamo del usuario en 1271359-92-LE26 ("no me muestra nada", y su
-                  // canasta tenía 5 productos con 55 exigencias). Comparar sigue siendo un paso
-                  // aparte; esto es solo poder LEER lo exigido, sin gastar una llamada de IA.
-                  <div className="py-2">
-                    {exigencias.length === 0 ? (
-                      <p className="text-[12px] text-zinc-400 py-1">Sin características clasificadas todavía. Pulsa "Validar" o sube la ficha del producto.</p>
-                    ) : (
-                      <div className="space-y-3">
-                        <p className="text-[11.5px] text-zinc-500">
-                          Esto es lo que piden las bases para esta línea ({exigencias.reduce((n, p) => n + p.items.length, 0)} especificación(es)
-                          {exigencias.length > 1 ? ` en ${exigencias.length} productos` : ''}). Todavía nadie las comparó: pulsa "Validar" o sube la ficha del producto.
-                        </p>
-                        {exigencias.map(p => (
-                          <div key={p.index} className="border border-zinc-100 rounded-lg overflow-hidden">
-                            <div className="px-3 py-2 bg-zinc-100/70 text-[11px] font-bold text-zinc-600">
-                              {p.nombre || `Producto ${p.index + 1}`}
-                            </div>
-                            <ul className="divide-y divide-zinc-100">
-                              {p.items.map((c, i) => (
-                                <li key={i} className="px-3 py-1.5 text-[11.5px] text-zinc-700 leading-snug">{c}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : productos.length > 1 ? (
-                  // Línea-paquete (migración 83): una tabla POR PRODUCTO, con su propio subtítulo
-                  // — sin esto no había forma de saber cuál fila de "lo que pide" era de cuál
-                  // producto (caso real 2446-240-LE26: Hidrolavadora vs. Vacuolavadora mezcladas).
-                  <div className="space-y-3">
-                    {productos.map(p => {
-                      const delGrupo = caracteristicas.filter(c => c.producto_index === p.index);
-                      if (!delGrupo.length) return null;
-                      return (
-                        <div key={p.index} className="border border-zinc-100 rounded-lg overflow-hidden">
-                          <div className="px-3 py-2 bg-zinc-100/70 text-[11px] font-bold text-zinc-600">
-                            {p.nombre || `Producto ${p.index + 1}`}
-                          </div>
-                          <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_auto] gap-x-3 px-3 py-2 bg-zinc-50 text-[10px] font-bold text-zinc-400 uppercase tracking-wide">
-                            <span>Lo que pide el producto</span>
-                            <span>Lo que subió el asistente</span>
-                            <span>Resultado</span>
-                          </div>
-                          <div className="divide-y divide-zinc-100">
-                            {delGrupo.map(c => (
-                              <FilaComparacion key={c.id} c={c} puedeAprobar={puedeAprobar} bloqueado={bloqueado}
-                                onResponder={responder} onCorregir={corregir}
-                                onAdjuntar={adjuntarACaracteristica} onQuitarAdjunto={quitarAdjunto}
-                                onVerAdjunto={doc => setVisorDoc(doc)} />
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="border border-zinc-100 rounded-lg overflow-hidden">
-                    <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_auto] gap-x-3 px-3 py-2 bg-zinc-50 text-[10px] font-bold text-zinc-400 uppercase tracking-wide">
-                      <span>Lo que pide el producto</span>
-                      <span>Lo que subió el asistente</span>
-                      <span>Resultado</span>
-                    </div>
-                    <div className="divide-y divide-zinc-100">
-                      {caracteristicas.map(c => (
-                        <FilaComparacion key={c.id} c={c} puedeAprobar={puedeAprobar} bloqueado={bloqueado}
-                          onResponder={responder} onCorregir={corregir}
-                          onAdjuntar={adjuntarACaracteristica} onQuitarAdjunto={quitarAdjunto}
-                          onVerAdjunto={doc => setVisorDoc(doc)} />
-                      ))}
-                    </div>
-                  </div>
-                )}
+                {cmp?.usado ? (
+                  <ComparadorFichasPanel
+                    estado={cmp} negocioId={negocioId} itemId={itemId} puedeAprobar={puedeAprobar} bloqueado={bloqueado}
+                    onEstado={e => { setCmp(e); refrescarComparador(); onCambio?.(); }}
+                    onElegirModelo={async (archivo, modelo) => { await correrComparador([], { [archivo]: modelo }); }}
+                    renderTabla={() => tablaClasica}
+                  />
+                ) : tablaClasica}
               </div>
 
               <div>
@@ -1039,13 +990,22 @@ function FilaComparacion({ c, puedeAprobar, bloqueado, onResponder, onCorregir, 
         className="w-full grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_auto] gap-x-3 items-start px-3 py-2.5 text-left hover:bg-zinc-50 transition-colors"
       >
         <div className="min-w-0">
-          <p className="text-[10px] text-zinc-400 leading-snug">{c.descripcion}</p>
+          <p className="text-[10px] text-zinc-400 leading-snug">
+            {c.descripcion}
+            {(c.tipo === 'CUALITATIVO' || c.tipo === 'NORMATIVO') && <span className="ml-1 font-bold text-violet-500">{c.tipo}</span>}
+          </p>
           <p className="text-[12.5px] font-medium text-zinc-800 leading-snug mt-0.5 break-words">{exigido}</p>
         </div>
         <div className="min-w-0">
           <p className="text-[12.5px] text-zinc-700 leading-snug break-words whitespace-pre-wrap">{ofertadoDe(c)}</p>
           {c.pendiente_confirmacion_proveedor && (
             <p className="text-[10px] text-amber-600 flex items-center gap-1 mt-0.5"><HelpCircle size={10} /> Por confirmar</p>
+          )}
+          {c.analisis?.sobrecumple && (
+            <p className="text-[10px] text-zinc-500 mt-0.5" title={c.analisis.sobrecumple_detalle}>SOBRECUMPLE: {c.analisis.sobrecumple_detalle}</p>
+          )}
+          {c.analisis?.origen_dato && c.analisis.origen_dato !== 'FICHA' && (
+            <p className="text-[10px] text-amber-700 mt-0.5">origen: {c.analisis.origen_dato.toLowerCase().replace(/_/g, ' ')}</p>
           )}
           {c.adjunto_url && (
             <p className="text-[10px] text-violet-600 flex items-center gap-1 mt-0.5 truncate">

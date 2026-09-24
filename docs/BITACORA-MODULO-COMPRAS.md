@@ -2174,3 +2174,16 @@ modelo NO se adivinan (el Auditor Técnico no los guarda). Solo rellena campos v
 guarda nada. Verificado en pantalla con el negocio #994 (611669-17-LE26, 14/14 CUMPLE, ficha LS-150) y
 6 pruebas nuevas. Aclaración de datos: el "auditor completo" del #994 es el Técnico; el de Compras
 está vacío (0 cotizaciones).
+
+### 18.3 Producto duplicado por línea tardía + carga masiva de cotizaciones (24-sep-2026)
+
+- **Bug (#994 "calibracion" ×2):** `sincronizarProductosConCosteo` emparejaba solo por número de línea;
+  una fila que ganó su línea DESPUÉS de crearse el producto generaba uno nuevo y dejaba huérfano el viejo.
+  Ahora `emparejarProductos` (`compras-producto-sync.ts`, 6 pruebas) reutiliza el producto sin correlativo
+  con la misma descripción, le asigna el correlativo y borra los duplicados heredados SOLO si no tienen
+  cotizaciones/veredicto/auditoría, siguen PENDIENTE y sin renuncia. Verificado en pantalla: #994 quedó "0 de 2".
+- **Carga masiva:** botón "Cargar varias" en el Auditor de Compras (`CotizacionesMasivas.tsx`). Suelta
+  hasta 30 PDF/imágenes (20 MB c/u), de a 2 en paralelo, por el mismo `POST /cotizaciones` que el
+  formulario individual (OCR + registro + homologación IA). Un documento sin proveedor identificable NO se
+  registra (se avisa). Muestra por archivo a qué producto(s) asignó la IA y con qué veredicto.
+  **Probado solo la pantalla; falta probar con cotizaciones reales.**

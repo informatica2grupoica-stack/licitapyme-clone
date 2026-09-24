@@ -11,6 +11,7 @@
 //
 // ORIGEN GEOGRÁFICO FIJO (§8.10.1): todas las distancias se calculan desde la bodega de Talagante
 // (Epeira 575), no desde Santiago ni la casa matriz. Viaje interno local = $40.000 (§8.10.2).
+import { precioClpDeItemIA } from '@/app/lib/compras-precio-homologacion';
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
@@ -501,6 +502,7 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
   let escritos = 0;
   const ahora = ahoraChileSQL();
   const tipoCambio = cotiz.tipo_cambio_usado != null ? Number(cotiz.tipo_cambio_usado) : null;
+  const itemsValidos = items.filter((x: any) => productos[Number(x?.producto) - 1] && cumples.includes(x?.cumple)).length;
   for (const it of items) {
     const idx = Number(it?.producto);
     const producto = productos[idx - 1];
@@ -510,13 +512,13 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     // documento (se le pidió explícitamente que no convirtiera) y hay que pasarlo por el mismo
     // tipo de cambio que se congeló al registrar la cotización; si no asignó nada, cae al precio
     // unitario CLP ya calculado a nivel de cotización.
-    const asignadoIA = Number(it.precioUnitarioAsignado);
-    const precioClpCrudo = Number.isFinite(asignadoIA)
-      ? (tipoCambio ? Math.round(asignadoIA * tipoCambio) : asignadoIA)
-      : (cotiz.precio_unitario_clp ?? null);
-    // Blindaje contra NaN: si la IA devolvió algo no numérico en precioUnitarioAsignado, no se
-    // deja pasar crudo a la consulta (mismo bug real que en registrarCotizacion, arriba).
-    const precioClp = precioClpCrudo != null && Number.isFinite(precioClpCrudo) ? precioClpCrudo : null;
+    // Number(null) es 0: antes un producto SIN precio propio quedaba guardado con precio $0 (caso real
+    // PanTai/#994). La regla vive en compras-precio-homologacion.ts, con pruebas.
+    const precioClp = precioClpDeItemIA({
+      precioUnitarioAsignado: it.precioUnitarioAsignado, tipoCambio,
+      precioClpCotizacion: cotiz.precio_unitario_clp != null ? Number(cotiz.precio_unitario_clp) : null,
+      totalItemsAsignados: itemsValidos,
+    });
     await pool.query(
       `INSERT INTO compras_cotizacion_item (cotizacion_id, producto_id, precio_unitario, cumple, detalle_desviacion)
        VALUES (?,?,?,?,?)

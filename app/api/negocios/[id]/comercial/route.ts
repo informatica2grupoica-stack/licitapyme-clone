@@ -30,6 +30,7 @@ import { leerCachePreguntas } from '@/app/lib/preguntas-respuestas';
 import { revisarDeltaForo } from '@/app/lib/control-foro';
 import { leerCongelamiento, yaCongelado } from '@/app/lib/congelamiento';
 import { agregarDocumentos, bitacora } from '@/app/lib/checklist-comercial-db';
+import { causalesAbiertasDeLinea } from '@/app/lib/auditor-comparador-db';
 import { leerLineasOfertadas, lineasExcluidasDeNegocio, reproyectarDecisionGuardada } from '@/app/lib/lineas-oferta';
 
 import { decidirGeneracion, type DocumentoCandidato, type BloqueGenerable } from '@/app/lib/auditor-generacion';
@@ -951,6 +952,20 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       const v = validarPlazoOfertado(texto, rangoPlazoDeDescripcion(item.descripcion));
       if (v.nivel === 'error')
         return NextResponse.json({ error: v.mensaje }, { status: 400 });
+    }
+
+    // Certificado de admisibilidad del comparador de fichas (PROMPT 4, PARTE IX): una línea con causales
+    // de inadmisibilidad NO cumplidas o pendientes no se aprueba — "debe permitir señalar el ítem
+    // exacto que impide subir la oferta". Solo aplica a líneas que ya pasaron por el comparador, y un
+    // administrador conserva la potestad total.
+    if (accion === 'APROBAR' && item.tipo === 'linea_tecnica' && rol !== 'admin') {
+      const abiertas = await causalesAbiertasDeLinea(item.id, item.criticidad);
+      if (abiertas?.length) {
+        const detalle = abiertas.slice(0, 3).map(c => `"${c.causal.slice(0, 70)}" (${c.estado.replace('_', ' ').toLowerCase()})`).join('; ');
+        return NextResponse.json({
+          error: `No se puede aprobar la línea: ${abiertas.length} causal(es) de inadmisibilidad sin cerrar — ${detalle}${abiertas.length > 3 ? '…' : ''}. Ver el certificado de admisibilidad.`,
+        }, { status: 409 });
+      }
     }
 
     const nuevo = transicion(anterior, accion);

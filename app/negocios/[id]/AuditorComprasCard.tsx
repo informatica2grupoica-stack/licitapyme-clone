@@ -11,6 +11,7 @@ import { Banner } from '@/app/components/ui/Banner';
 import { parsearMontoCL } from '@/app/lib/numeros';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { AuditoriaCotizacionPanel, type AuditoriaUI } from './AuditoriaCotizacionPanel';
+import { CotizacionesMasivas } from './CotizacionesMasivas';
 import { IconGavel as Gavel, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconSparkles as Sparkles, IconTrendingDown as TrendingDown, IconTruck as Truck, IconBolt as Zap, IconScale as Scale, IconCurrencyDollar as DollarSign, IconCircleCheck as CheckCircle2, IconPaperclip as Paperclip, IconListCheck as ListChecks, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconLink as Link2, IconShieldCheck as ShieldCheck, IconPencil as Pencil, IconTrash as Trash2, IconRobot as Bot, IconEye as Eye } from '@tabler/icons-react';
 
 type Origen = 'pdf' | 'imagen' | 'whatsapp' | 'texto' | 'correo' | 'llamada';
@@ -79,6 +80,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   const [homologando, setHomologando] = useState<number | null>(null);
   const [eligiendo, setEligiendo] = useState<TipoEscenario | null>(null);
   const [formAbierto, setFormAbierto] = useState(false);
+  const [masivaAbierta, setMasivaAbierta] = useState(false);
   const [guardandoForm, setGuardandoForm] = useState(false);
   const [archivo, setArchivo] = useState<File | null>(null);
   // Pedido explícito del usuario (11-sep-2026): la extracción del documento (spec §8.2) ya existía,
@@ -609,11 +611,21 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
         <div className="flex items-center justify-between gap-3 px-4 py-3 bg-zinc-50 border-b border-zinc-100">
           <p className="text-[12.5px] font-bold text-zinc-700 flex items-center gap-1.5"><Gavel size={14} /> Auditor de Compras — cotizaciones</p>
           {puedeOperar && (
-            <button onClick={() => (formAbierto ? cancelarFormulario() : setFormAbierto(true))} className="flex items-center gap-1 text-[11.5px] font-semibold text-teal-700 hover:text-teal-800">
-              <Plus size={13} /> Registrar cotización
-            </button>
+            <div className="flex items-center gap-4">
+              <button onClick={() => setMasivaAbierta(v => !v)} className="flex items-center gap-1 text-[11.5px] font-semibold text-indigo-700 hover:text-indigo-800">
+                <Paperclip size={13} /> Cargar varias
+              </button>
+              <button onClick={() => (formAbierto ? cancelarFormulario() : setFormAbierto(true))} className="flex items-center gap-1 text-[11.5px] font-semibold text-teal-700 hover:text-teal-800">
+                <Plus size={13} /> Registrar cotización
+              </button>
+            </div>
           )}
         </div>
+
+        {masivaAbierta && puedeOperar && (
+          <CotizacionesMasivas negocioId={negocioId} productos={productos}
+            onTerminado={async () => { await cargar(); recargarCompartido(); }} onCerrar={() => setMasivaAbierta(false)} />
+        )}
 
         {formAbierto && (
           <div className="border-b border-zinc-100 px-4 py-3 space-y-2 bg-zinc-50/60">
