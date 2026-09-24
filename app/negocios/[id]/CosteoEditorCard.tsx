@@ -643,6 +643,7 @@ export function CosteoEditorCard({
   const [estado, setEstado] = useState<EstadoEditor | null>(estadoHeredado?.estado ?? null);
   const [guardado, setGuardado] = useState<EstadoEditor | null>(estadoHeredado ? estadoHeredado.guardado : null); // última versión persistida — para detectar cambios sin guardar
   const [sinViabilidad, setSinViabilidad] = useState(false);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
   // Presupuesto publicado en el informe de viabilidad — valor por defecto del cuadro comparativo
   // (el mismo que usa la alerta "Sobre presupuesto" del Motor Comercial).
   const [presupuestoPublicado, setPresupuestoPublicado] = useState<number | null>(null);
@@ -671,6 +672,10 @@ export function CosteoEditorCard({
     try {
       const r = await fetch(`/api/negocios/${negocioId}/comercial/costeo-editor`);
       const d = await r.json();
+      // Respuesta de error del servidor (sin acceso, sesión vencida, etc.): mostrarla tal cual en vez
+      // de caer en "Sin ítems todavía", que hace creer que el manifiesto está vacío.
+      if (!r.ok) { setErrorCarga(d?.error || `No se pudo cargar el costeo (error ${r.status}).`); return; }
+      setErrorCarga(null);
       if (d.migracionPendiente) { setMigracionPendiente(true); return; }
       setSinViabilidad(!!d.sinViabilidad);
       setCongelado(!!d.congelado);
@@ -886,6 +891,14 @@ export function CosteoEditorCard({
   if (migracionPendiente) return (
     <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-[13px] text-amber-800">
       Falta aplicar la <strong>migración 85</strong> (<code>docs/migration-85-costeo-editor.sql</code>) en la base de datos.
+    </div>
+  );
+
+  if (!estado && errorCarga) return (
+    <div className="bg-white rounded-xl border border-red-200 p-10 text-center">
+      <Calculator size={26} className="text-red-300 mx-auto mb-3" />
+      <p className="text-[13px] font-semibold text-red-700 mb-1">No se pudo abrir el costeo</p>
+      <p className="text-[12px] text-zinc-500 max-w-sm mx-auto">{errorCarga}</p>
     </div>
   );
 
