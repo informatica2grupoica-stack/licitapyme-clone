@@ -4,8 +4,29 @@ import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import pool from '@/app/lib/db';
 import { SignJWT } from 'jose';
+import { validarContacto } from '@/app/lib/perfil-datos';
 
 const EXPIRY_SECONDS = 60 * 60 * 24 * 7;
+
+const MIGRACION_FALTA = { error: 'Falta la migración 125: ejecuta  node scripts/aplicar-migration-125.mjs', migration_needed: true };
+
+// GET — datos completos del propio perfil (teléfono, RUT, cargo, área). La foto va aparte
+// (/api/perfil/foto) para no inflar esta respuesta.
+export async function GET(request: NextRequest) {
+  const userId = request.headers.get('x-user-id');
+  if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  try {
+    const [rows] = await pool.query(
+      'SELECT nombre, empresa, email, telefono, rut, cargo, area, foto IS NOT NULL AS tiene_foto FROM usuarios WHERE id = ? LIMIT 1',
+      [parseInt(userId, 10)]);
+    const u = (rows as any[])[0];
+    if (!u) return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
+    return NextResponse.json({ success: true, perfil: { ...u, tiene_foto: !!u.tiene_foto } });
+  } catch (e: any) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR') return NextResponse.json(MIGRACION_FALTA, { status: 503 });
+    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
+  }
+}
 
 export async function PATCH(request: NextRequest) {
   try {
@@ -13,13 +34,18 @@ export async function PATCH(request: NextRequest) {
     if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
     const id = parseInt(userId, 10);
 
-    const { nombre, empresa, passwordActual, passwordNuevo } = await request.json();
+    const body = await request.json();
+    const { nombre, empresa, passwordActual, passwordNuevo } = body;
 
     const updates: string[] = [];
     const values: any[] = [];
 
     if (nombre !== undefined) { updates.push('nombre = ?'); values.push(nombre?.trim() || null); }
     if (empresa !== undefined) { updates.push('empresa = ?'); values.push(empresa?.trim() || null); }
+
+    const { datos, errores } = validarContacto(body);
+    if (errores.length) return NextResponse.json({ error: errores[0] }, { status: 400 });
+    for (const [campo, valor] of Object.entries(datos)) { updates.push(`${campo} = ?`); values.push(valor); }
 
     if (passwordNuevo) {
       if (!passwordActual) return NextResponse.json({ error: 'Se requiere la contraseña actual' }, { status: 400 });
@@ -39,7 +65,12 @@ export async function PATCH(request: NextRequest) {
     if (updates.length === 0) return NextResponse.json({ error: 'Sin cambios para guardar' }, { status: 400 });
 
     values.push(id);
-    await pool.query(`UPDATE usuarios SET ${updates.join(', ')} WHERE id = ?`, values);
+    try {
+      await pool.query(`UPDATE usuarios SET ${updates.join(', ')} WHERE id = ?`, values);
+    } catch (e: any) {
+      if (e?.code === 'ER_BAD_FIELD_ERROR') return NextResponse.json(MIGRACION_FALTA, { status: 503 });
+      throw e;
+    }
 
     // Obtener usuario actualizado para renovar el token
     const [rows] = await pool.query('SELECT id, email, nombre, empresa, rol FROM usuarios WHERE id = ? LIMIT 1', [id]);

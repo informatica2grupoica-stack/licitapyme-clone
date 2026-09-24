@@ -20,6 +20,18 @@ async function leerModoPrincipiante(userId: number): Promise<boolean> {
   }
 }
 
+// Datos de contacto para el aviso "completa tu perfil" y el avatar. Tolerante a que la
+// migración 125 aún no esté aplicada (columnas ausentes): en ese caso no hay aviso.
+async function leerContacto(userId: number) {
+  try {
+    const [rows] = await pool.query('SELECT telefono, cargo, foto IS NOT NULL AS tiene_foto FROM usuarios WHERE id = ? LIMIT 1', [userId]);
+    const r = (rows as any[])[0];
+    return { telefono: r?.telefono ?? null, cargo: r?.cargo ?? null, tieneFoto: !!r?.tiene_foto, perfilPendiente: !r?.telefono };
+  } catch {
+    return { telefono: null, cargo: null, tieneFoto: false, perfilPendiente: false };
+  }
+}
+
 export async function GET() {
   try {
     const cookieStore = await cookies();
@@ -32,9 +44,10 @@ export async function GET() {
       return NextResponse.json({ autenticado: false, usuario: null });
     }
     // Permisos efectivos: admin → todos; usuario → los que el admin le otorgó.
-    const [permisos, modoPrincipiante] = await Promise.all([
+    const [permisos, modoPrincipiante, contacto] = await Promise.all([
       permisosDeUsuario(payload.userId as number, payload.rol as string),
       leerModoPrincipiante(payload.userId as number),
+      leerContacto(payload.userId as number),
     ]);
     return NextResponse.json({
       autenticado: true,
@@ -46,6 +59,7 @@ export async function GET() {
         rol:     payload.rol,
         permisos,
         modoPrincipiante,
+        ...contacto,
       },
     });
   } catch {

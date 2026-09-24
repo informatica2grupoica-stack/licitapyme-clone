@@ -117,7 +117,8 @@ const AVATAR_BG: Record<string, string> = {
 const AVATAR_SEEDS = ['indigo', 'violet', 'cyan', 'teal', 'grape', 'blue'];
 function colorDe(seed: string) { return AVATAR_SEEDS[(seed?.charCodeAt(0) || 0) % AVATAR_SEEDS.length]; }
 
-function AvatarIcon({ initials, color, size = 34 }: { initials: string; color: string; size?: number }) {
+function AvatarIcon({ initials, color, size = 34, fotoUrl }: { initials: string; color: string; size?: number; fotoUrl?: string | null }) {
+  if (fotoUrl) return <img src={fotoUrl} alt="" className="rounded-lg object-cover flex-shrink-0" style={{ width: size, height: size }} />;
   return (
     <div
       className={`rounded-lg flex items-center justify-center text-white font-semibold flex-shrink-0 ${AVATAR_BG[color] || 'bg-indigo-600'}`}
@@ -154,7 +155,7 @@ function UserMenu({ dark = false, angosto = false }: { dark?: boolean; angosto?:
           className={`w-full rounded-xl p-2 transition-colors text-left ${dark ? 'hover:bg-white/[0.06]' : 'hover:bg-slate-100'}`}
         >
           <div className={`flex items-center gap-2.5 ${angosto ? 'lg:justify-center lg:gap-0' : ''}`}>
-            <AvatarIcon initials={initials} color={colorDe(usuario.email)} />
+            <AvatarIcon initials={initials} color={colorDe(usuario.email)} fotoUrl={usuario.tieneFoto ? `/api/perfil/foto?id=${usuario.id}` : null} />
             <div className={`min-w-0 overflow-hidden flex-1 transition-all duration-300
               ${angosto ? 'lg:flex-none lg:w-0 lg:opacity-0' : 'opacity-100'}`}>
               <p className={`text-[12.5px] font-semibold truncate leading-tight ${dark ? 'text-slate-100' : 'text-slate-800'}`}>
@@ -683,6 +684,8 @@ export function AppLayout({ children, breadcrumb }: AppLayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { usuario } = useSession();
   const router = useRouter();
+  const pathname = usePathname();
+  const [avisoPerfilCerrado, setAvisoPerfilCerrado] = useState(false);
 
   // Atajo ⌘K / Ctrl+K → buscador (solo admin, que es quien tiene acceso a "/").
   // Hace real el hint que muestra la búsqueda rápida del sidebar.
@@ -703,6 +706,15 @@ export function AppLayout({ children, breadcrumb }: AppLayoutProps) {
       <Sidebar mobileOpen={mobileOpen} onCloseMobile={() => setMobileOpen(false)} />
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <TopBar breadcrumb={breadcrumb} onOpenMobile={() => setMobileOpen(true)} />
+        {/* No bloqueante: falta el teléfono de contacto (perfil profesional, migración 125) */}
+        {usuario?.perfilPendiente && !avisoPerfilCerrado && pathname !== '/perfil' && (
+          <div className="flex items-center gap-3 px-4 py-2 bg-indigo-50 dark:bg-indigo-500/10 border-b border-indigo-100 dark:border-indigo-500/20 text-[12.5px] text-indigo-800 dark:text-indigo-200">
+            <User size={14} className="flex-shrink-0" />
+            <span className="flex-1 min-w-0">Completa tu perfil: falta tu teléfono de contacto.</span>
+            <Link href="/perfil" className="font-semibold underline underline-offset-2 whitespace-nowrap">Completar ahora</Link>
+            <button onClick={() => setAvisoPerfilCerrado(true)} aria-label="Cerrar aviso" className="p-0.5 hover:bg-indigo-100 dark:hover:bg-white/10 rounded"><X size={13} /></button>
+          </div>
+        )}
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
       {/* Bloqueante: licitaciones vencidas sin resolver (postulada/descartadas) */}

@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/app/components/AppLayout';
-import { IconUsers as Users, IconPlus as Plus, IconShieldCheck as ShieldCheck, IconUser as User, IconCircleCheck as CheckCircle, IconCircleX as XCircle, IconLoader2 as Loader2, IconTrash as Trash2, IconEdit as Edit3, IconX as X, IconAlertCircle as AlertCircle, IconMail as Mail, IconLock as Lock, IconBriefcase as Briefcase, IconEye as Eye, IconEyeOff as EyeOff, IconCalendar as Calendar, IconSparkles as Sparkles, IconSchool as GraduationCap } from '@tabler/icons-react';
+import { IconUsers as Users, IconPlus as Plus, IconShieldCheck as ShieldCheck, IconUser as User, IconCircleCheck as CheckCircle, IconCircleX as XCircle, IconLoader2 as Loader2, IconTrash as Trash2, IconEdit as Edit3, IconX as X, IconAlertCircle as AlertCircle, IconMail as Mail, IconLock as Lock, IconBriefcase as Briefcase, IconEye as Eye, IconEyeOff as EyeOff, IconCalendar as Calendar, IconSparkles as Sparkles, IconSchool as GraduationCap, IconPhone as Phone, IconId as IdCard, IconBadge as Badge } from '@tabler/icons-react';
+import { formatearRut, formatearTelefono } from '@/app/lib/perfil-datos';
 import { useSession } from '@/app/lib/session-context';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
@@ -30,6 +31,11 @@ interface UsuarioAdmin {
   email: string;
   nombre: string | null;
   empresa: string | null;
+  telefono?: string | null;
+  rut?: string | null;
+  cargo?: string | null;
+  area?: string | null;
+  tiene_foto?: boolean | number | null;
   rol: 'admin' | 'usuario' | 'externo';
   permisos?: Permisos | string | null;
   modo_principiante?: boolean | number | null;
@@ -332,6 +338,10 @@ function ModalEditarUsuario({ usuario, onGuardado, onCerrar }: {
     empresa: usuario.empresa || '',
     email: usuario.email,
     rol: usuario.rol,
+    telefono: formatearTelefono(usuario.telefono),
+    rut: formatearRut(usuario.rut),
+    cargo: usuario.cargo || '',
+    area: usuario.area || '',
   });
   const [password, setPassword] = useState('');           // vacío = no cambiar la clave
   const [mostrarPass, setMostrarPass] = useState(false);
@@ -345,6 +355,11 @@ function ModalEditarUsuario({ usuario, onGuardado, onCerrar }: {
     setCargando(true);
     try {
       const body: any = { id: usuario.id, nombre: form.nombre, empresa: form.empresa, email: form.email, rol: form.rol };
+      // Solo si cambió algo: un PATCH con estos campos exige la migración 125.
+      if (form.telefono !== formatearTelefono(usuario.telefono)) body.telefono = form.telefono;
+      if (form.rut !== formatearRut(usuario.rut)) body.rut = form.rut;
+      if (form.cargo !== (usuario.cargo || '')) body.cargo = form.cargo;
+      if (form.area !== (usuario.area || '')) body.area = form.area;
       if (password) body.password = password;  // solo se envía si el admin escribió una clave
       const res = await fetch('/api/admin/usuarios', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -395,6 +410,24 @@ function ModalEditarUsuario({ usuario, onGuardado, onCerrar }: {
               <input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
                 required className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
             </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {([
+              { k: 'telefono', label: 'Teléfono', icon: Phone, ph: '+56 9 1234 5678', type: 'tel' },
+              { k: 'rut', label: 'RUT', icon: IdCard, ph: '12.345.678-5', type: 'text' },
+              { k: 'cargo', label: 'Cargo', icon: Badge, ph: 'Ejecutivo comercial', type: 'text' },
+              { k: 'area', label: 'Área', icon: Briefcase, ph: 'Compras', type: 'text' },
+            ] as const).map(({ k, label, icon: Icon, ph, type }) => (
+              <div key={k}>
+                <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">{label}</label>
+                <div className="relative">
+                  <Icon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
+                  <input type={type} value={form[k]} onChange={e => setForm(p => ({ ...p, [k]: e.target.value }))}
+                    placeholder={ph} maxLength={k === 'cargo' || k === 'area' ? 100 : 20}
+                    className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+              </div>
+            ))}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">Rol</label>
@@ -548,9 +581,13 @@ export default function AdminUsuariosPage() {
                     <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-white/[0.03] transition-colors">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                            {(u.nombre || u.email)[0].toUpperCase()}
-                          </div>
+                          {u.tiene_foto ? (
+                            <img src={`/api/perfil/foto?id=${u.id}`} alt="" className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                              {(u.nombre || u.email)[0].toUpperCase()}
+                            </div>
+                          )}
                           <div>
                             <p className="text-sm font-medium text-gray-900 dark:text-zinc-100">{u.nombre || '—'}</p>
                             <p className="text-xs text-gray-400 dark:text-zinc-500">{u.email}</p>
@@ -559,6 +596,11 @@ export default function AdminUsuariosPage() {
                       </td>
                       <td className="px-4 py-3">
                         <span className="text-sm text-gray-600 dark:text-zinc-400">{u.empresa || '—'}</span>
+                        {(u.cargo || u.telefono) && (
+                          <p className="text-xs text-gray-400 dark:text-zinc-500">
+                            {[u.cargo, u.telefono ? formatearTelefono(u.telefono) : null].filter(Boolean).join(' · ')}
+                          </p>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${

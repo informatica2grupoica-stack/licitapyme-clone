@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import pool from '@/app/lib/db';
 import { esAdmin } from '@/app/lib/api-auth';
+import { validarContacto } from '@/app/lib/perfil-datos';
 
 const NO_AUTORIZADO = () => NextResponse.json({ error: 'Sin permisos de administrador' }, { status: 403 });
 
@@ -17,6 +18,17 @@ export async function GET(request: NextRequest) {
     // Intentar con las columnas permisos (migración 28) y modo_principiante (migración 56);
     // si alguna no existe todavía, se degrada sin ella (mismo patrón tolerante de siempre).
     try {
+      // Migración 125 (teléfono/RUT/cargo/área/foto); sin ella cae al SELECT anterior.
+      try {
+        const [rows] = await pool.query(
+          `SELECT id, email, nombre, empresa, telefono, rut, cargo, area, foto IS NOT NULL AS tiene_foto,
+                  rol, permisos, modo_principiante, activo, ultimo_login, created_at
+           FROM usuarios ORDER BY created_at DESC`
+        );
+        return NextResponse.json({ success: true, usuarios: rows });
+      } catch (e: any) {
+        if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      }
       const [rows] = await pool.query(
         `SELECT id, email, nombre, empresa, rol, permisos, modo_principiante, activo, ultimo_login, created_at
          FROM usuarios ORDER BY created_at DESC`
@@ -75,7 +87,8 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   if (!(await esAdmin(request))) return NO_AUTORIZADO();
   try {
-    const { id, activo, rol, nombre, empresa, permisos, modoPrincipiante, email, password } = await request.json();
+    const body = await request.json();
+    const { id, activo, rol, nombre, empresa, permisos, modoPrincipiante, email, password } = body;
 
     if (!id) return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
 
@@ -86,6 +99,10 @@ export async function PATCH(request: NextRequest) {
     if (rol !== undefined)    { updates.push('rol = ?');    values.push(rol); }
     if (nombre !== undefined) { updates.push('nombre = ?'); values.push(nombre || null); }
     if (empresa !== undefined){ updates.push('empresa = ?');values.push(empresa || null); }
+    // Datos de contacto (teléfono, RUT, cargo, área). Requiere migración 125.
+    const contacto = validarContacto(body);
+    if (contacto.errores.length) return NextResponse.json({ error: contacto.errores[0] }, { status: 400 });
+    for (const [campo, valor] of Object.entries(contacto.datos)) { updates.push(`${campo} = ?`); values.push(valor); }
     // Permisos granulares (JSON). Requiere migración 28.
     if (permisos !== undefined) { updates.push('permisos = ?'); values.push(permisos == null ? null : JSON.stringify(permisos)); }
     // Frente C.1 — vista resumida de viabilidad por defecto. Requiere migración 56.
@@ -123,6 +140,12 @@ export async function PATCH(request: NextRequest) {
     } catch (e: any) {
       // La columna aún no existe (falta la migración): mensaje claro en vez del error
       // crudo de MySQL, para que el admin sepa qué hacer.
+      if (e?.code === 'ER_BAD_FIELD_ERROR' && Object.keys(contacto.datos).length > 0) {
+        return NextResponse.json({
+          error: 'Falta la migración 125: ejecuta  node scripts/aplicar-migration-125.mjs',
+          migration_needed: true,
+        }, { status: 503 });
+      }
       if (e?.code === 'ER_BAD_FIELD_ERROR' && permisos !== undefined) {
         return NextResponse.json({
           error: 'Falta la migración 28: ejecuta en tu base de datos  ALTER TABLE usuarios ADD COLUMN permisos JSON NULL AFTER rol;',

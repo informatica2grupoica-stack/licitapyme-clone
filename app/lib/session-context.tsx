@@ -30,6 +30,11 @@ export interface UsuarioSession {
   // Frente C.1: ¿ve por defecto solo la Tarjeta de Decisión (resumen) en vez de los 4 módulos
   // de detalle? El propio usuario puede graduarse desde el botón "Ver análisis completo".
   modoPrincipiante?: boolean;
+  // Datos de contacto (migración 125). `perfilPendiente` = aún no tiene teléfono → aviso en el layout.
+  telefono?: string | null;
+  cargo?: string | null;
+  tieneFoto?: boolean;
+  perfilPendiente?: boolean;
 }
 
 interface SessionContextType {
