@@ -49,7 +49,7 @@ type Params = { params: Promise<{ codigo: string }> };
 // en silencio sin decir jamás qué pasó. Persistir en BD sobrevive el reinicio; y si de verdad
 // el proceso murió a mitad de camino, `jobHuerfano()` en el GET lo detecta por el `actualizado_at`
 // congelado y lo marca error explícito en vez de fingir que no pasó nada.
-const VIABILIDAD_JOB_TIMEOUT_MS = Math.max(120_000, Number(process.env.VIABILIDAD_JOB_TIMEOUT_MS) || 10 * 60_000);
+const VIABILIDAD_JOB_TIMEOUT_MS = Math.max(120_000, Number(process.env.VIABILIDAD_JOB_TIMEOUT_MS) || 20 * 60_000);
 const HUERFANO_MARGEN_MS = 90_000; // margen sobre el tope antes de declarar un job huérfano (reloj del server vs. del setInterval de fondo)
 
 type FilaJob = {

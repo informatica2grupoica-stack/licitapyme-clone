@@ -601,7 +601,7 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
         // VIABILIDAD_STREAM_IDLE_MS (45s) se pasa al siguiente eslabón. Topes totales por eslabón:
         // primario 330s, respaldos 240s (siempre acotados por deadlineMs).
         streamIdleMs: Math.max(20_000, Number(process.env.VIABILIDAD_STREAM_IDLE_MS) || 45_000),
-        streamCapMsPrimario: Math.max(120_000, Number(process.env.VIABILIDAD_STREAM_CAP_MS_PRIMARIO) || 330_000),
+        streamCapMsPrimario: Math.max(120_000, Number(process.env.VIABILIDAD_STREAM_CAP_MS_PRIMARIO) || 150_000),
         streamCapMs: Math.max(90_000, Number(process.env.VIABILIDAD_STREAM_CAP_MS) || 240_000),
         soloGlm: true,
         // ÚLTIMO RECURSO DEEPSEEK (20-ago-2026, pedido explícito del usuario tras 2422-144-LE26:
@@ -623,7 +623,10 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
         // error por tope duro, y el usuario vería "falló" aunque el análisis real llegara segundos
         // después. Con margen de 120s (para guardar el informe, regenerar el costeo, etc.), un
         // resultado real siempre llega ANTES de que el job se dé por vencido.
-        deadlineMs: Math.max(180_000, Number(process.env.VIABILIDAD_LLM_DEADLINE_MS) || 480_000),
+        // 25-sep-2026 (4305-18-LE26, prompt de 242k chars): con 480s y el primario gastando 330s, a los
+        // respaldos les quedaban ~150s: glm-5 murió por presupuesto y DeepSeek/Gemini NUNCA se probaron.
+        // Primario 150s + hasta 4 respaldos de 240s caben en 1080s; el tope del job (route.ts) queda 120s encima.
+        deadlineMs: Math.max(180_000, Number(process.env.VIABILIDAD_LLM_DEADLINE_MS) || 1_080_000),
       });
     } catch (e: any) {
       // La CADENA completa (primario + los 2 respaldos GLM) ya se agotó dentro de crearChatIA —
