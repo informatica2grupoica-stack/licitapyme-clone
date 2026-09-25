@@ -422,6 +422,14 @@ async function completarStreaming(cfg: ProveedorTexto, params: any, sdkOpts: any
       if (d?.finish_reason) finish = d.finish_reason;
       if (ch?.usage) usage = ch.usage;
     }
+    // 25-sep-2026 (caso 4305-18-LE26: flashx 330.0s = el tope, in=0 out=0 finish=null): el iterador
+    // del SDK de OpenAI NO lanza al abortar, solo termina el `for await`. Sin este chequeo la
+    // respuesta cortada a medias se entregaba como completa, parseJsonIA la "reparaba" y la
+    // viabilidad quedaba sin Cómo ganar/Riesgos/etc. Abortado o sin finish_reason = fallo: cae
+    // al siguiente modelo de la cadena.
+    if (ac.signal.aborted || !finish) {
+      throw Object.assign(new Error(`timeout: ${motivo || 'stream cortado sin finish_reason'}`), { code: 'ETIMEDOUT' });
+    }
     return { choices: [{ message: { role: 'assistant', content }, finish_reason: finish }], usage };
   } catch (e: any) {
     // El abort del SDK llega como "Request was aborted." sin status; se re-etiqueta como timeout

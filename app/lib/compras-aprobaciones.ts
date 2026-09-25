@@ -22,6 +22,8 @@ import { registrarEvento } from '@/app/lib/historial';
 import { obtenerAsignacion, listarProductosCompra } from '@/app/lib/compras';
 import { obtenerOrigenCompra, calcularCostoAterrizado } from '@/app/lib/compras-importacion';
 import { crearProductoObuma, siguienteSkuMercadoPublico, listarProductosObuma } from '@/app/lib/obuma';
+import { crearChatIA } from '@/app/lib/gemini';
+import { parseJsonIA } from '@/app/lib/json-ia';
 
 async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
   const [rows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
@@ -342,6 +344,48 @@ export async function costoEscenarioParaProducto(negocioId: number, productoId: 
 export interface SugerenciaSkuProducto {
   proveedorNombre: string | null; descripcionLibre: string | null;
   archivoUrl: string | null; archivoNombre: string | null;
+  // Campos leídos del documento para ESTE producto (25-sep-2026). Cada uno solo viene si aparece
+  // literal en el texto de la cotización; la UI los prellena en campos vacíos y quedan editables.
+  marca: string | null; modelo: string | null; skuProveedor: string | null;
+  tipo: string | null; atributo: string | null;
+}
+
+/** El OCR deja basura de imágenes ("![](page=0,bbox=[...])") y marcas de encabezado markdown. */
+function limpiarTextoOcr(t: string | null): string {
+  return (t || '').replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/^#{1,6}\s*/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+const SYS_SKU_DESDE_COTIZACION = `Lees una cotización de proveedor (texto transcrito) y un producto que la empresa necesita comprar. Identifica QUÉ línea de la cotización corresponde a ese producto y extrae SOLO lo que aparezca literal en el texto:
+- tipo: qué es el producto en 1-3 palabras (ej. "Luminancímetro", "Notebook").
+- marca: la marca del fabricante, si figura.
+- modelo: el código/nombre de modelo, si figura.
+- skuProveedor: el código/referencia/part number del proveedor para esa línea, si figura.
+- atributo: una característica distintiva corta (ej. "Sumergible", "Core i5"), si figura.
+Si un dato no está con certeza, usa null — NUNCA inventes ni deduzcas. Responde SOLO JSON: {"tipo":<string|null>,"marca":<string|null>,"modelo":<string|null>,"skuProveedor":<string|null>,"atributo":<string|null>}`;
+
+async function extraerCamposSku(texto: string, descripcionProducto: string) {
+  const vacio = { marca: null, modelo: null, skuProveedor: null, tipo: null, atributo: null };
+  if (texto.length < 20) return vacio;
+  try {
+    const completion: any = await crearChatIA({
+      messages: [
+        { role: 'system', content: SYS_SKU_DESDE_COTIZACION },
+        { role: 'user', content: `PRODUCTO A COMPRAR: ${descripcionProducto}\n\nCOTIZACIÓN:\n${texto.slice(0, 12_000)}` },
+      ],
+      temperature: 0, stream: false, max_tokens: 300, response_format: { type: 'json_object' },
+    }, { timeoutMs: 30_000, modeloPreferido: 'glm-4.7', soloGlm: true });
+    const p: any = parseJsonIA(String(completion.choices?.[0]?.message?.content ?? '')) || {};
+    const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ');
+    const textoN = norm(texto);
+    // Guardarraíl: marca/modelo/SKU deben estar literales en el documento (no se manda a Obuma
+    // algo que la IA "dedujo"). Tipo/atributo son descriptivos, se aceptan tal cual.
+    const literal = (v: unknown) => (typeof v === 'string' && v.trim() && textoN.includes(norm(v.trim())) ? v.trim() : null);
+    const libre = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 80) : null);
+    return { marca: literal(p.marca), modelo: literal(p.modelo), skuProveedor: literal(p.skuProveedor), tipo: libre(p.tipo), atributo: libre(p.atributo) };
+  } catch (e) {
+    console.error('[compras-aprobaciones] extracción de campos SKU falló:', String(e).slice(0, 200));
+    return vacio;
+  }
 }
 
 /** Pedido explícito del usuario (15-sep-2026): al crear el SKU, en vez de retipear a mano lo que
@@ -356,7 +400,7 @@ export async function sugerenciaSkuParaProducto(negocioId: number, productoId: n
   const costo = await costoEscenarioParaProducto(negocioId, productoId).catch(() => null);
 
   const [rows] = await pool.query(
-    `SELECT c.proveedor_nombre, c.descripcion_libre, c.archivo_url, c.archivo_nombre
+    `SELECT c.proveedor_nombre, c.descripcion_libre, c.texto_documento, c.archivo_url, c.archivo_nombre
        FROM compras_cotizacion_item ci
        JOIN compras_cotizacion c ON c.id = ci.cotizacion_id
       WHERE ci.producto_id = ? AND c.negocio_id = ?
@@ -366,9 +410,12 @@ export async function sugerenciaSkuParaProducto(negocioId: number, productoId: n
   ) as any;
   const r = (rows as any[])[0];
   if (!r) return null;
+  const textoLimpio = limpiarTextoOcr(r.texto_documento) || limpiarTextoOcr(r.descripcion_libre);
+  const producto = (await listarProductosCompra(negocioId)).find(p => p.id === productoId);
+  const campos = await extraerCamposSku(textoLimpio, producto?.descripcion || '');
   return {
-    proveedorNombre: r.proveedor_nombre || null, descripcionLibre: r.descripcion_libre || null,
-    archivoUrl: r.archivo_url || null, archivoNombre: r.archivo_nombre || null,
+    proveedorNombre: r.proveedor_nombre || null, descripcionLibre: limpiarTextoOcr(r.descripcion_libre) || null,
+    archivoUrl: r.archivo_url || null, archivoNombre: r.archivo_nombre || null, ...campos,
   };
 }
 

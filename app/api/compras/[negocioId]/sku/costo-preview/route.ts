@@ -37,7 +37,9 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     const [costo, sugerencia] = await Promise.all([
       costoEscenarioParaProducto(id, productoId),
-      sugerenciaSkuParaProducto(id, productoId).catch(() => null),
+      // La UI pide el costo por un lado y la sugerencia (que llama a la IA) por otro: sugerencia=0
+      // evita pagar esa lectura dos veces.
+      request.nextUrl.searchParams.get('sugerencia') === '0' ? Promise.resolve(null) : sugerenciaSkuParaProducto(id, productoId).catch(() => null),
     ]);
     if (!costo) return NextResponse.json({ success: true, costo: null, sugerencia });
     return NextResponse.json({ success: true, costo: costo.costoUnitario, escenarioTipo: costo.escenarioTipo, sugerencia });

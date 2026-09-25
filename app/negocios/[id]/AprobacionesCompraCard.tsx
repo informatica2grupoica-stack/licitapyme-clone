@@ -249,7 +249,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
     if (!formSku.crearEnObuma || !formSkuProducto) { setCostoPreview({ estado: 'idle', monto: null, escenarioTipo: null }); return; }
     let cancelado = false;
     setCostoPreview({ estado: 'cargando', monto: null, escenarioTipo: null });
-    fetch(`/api/compras/${negocioId}/sku/costo-preview?productoId=${formSkuProducto}`)
+    fetch(`/api/compras/${negocioId}/sku/costo-preview?productoId=${formSkuProducto}&sugerencia=0`)
       .then(r => r.json())
       .then(data => {
         if (cancelado) return;
@@ -279,9 +279,18 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
           estado: 'listo', proveedorNombre: s.proveedorNombre, descripcionLibre: s.descripcionLibre,
           archivoUrl: s.archivoUrl, archivoNombre: s.archivoNombre,
         });
-        // Solo prellena Proveedor (dato literal de la cotización) — nunca pisa lo que la persona
-        // ya escribió a mano.
-        if (s.proveedorNombre) setFormSku(f => f.proveedorNombre.trim() ? f : { ...f, proveedorNombre: s.proveedorNombre });
+        // Prellena solo campos vacíos (nunca pisa lo que la persona escribió a mano). Marca/modelo/
+        // SKU proveedor vienen validados como literales del documento (compras-aprobaciones.ts);
+        // el preview de Obuma sigue exigiendo revisión y confirmación antes de guardar.
+        setFormSku(f => ({
+          ...f,
+          proveedorNombre: f.proveedorNombre.trim() ? f.proveedorNombre : (s.proveedorNombre || f.proveedorNombre),
+          marca: f.marca.trim() ? f.marca : (s.marca || f.marca),
+          modelo: f.modelo.trim() ? f.modelo : (s.modelo || f.modelo),
+          skuProveedor: f.skuProveedor.trim() ? f.skuProveedor : (s.skuProveedor || f.skuProveedor),
+          obTipo: f.obTipo.trim() ? f.obTipo : (s.tipo || f.obTipo),
+          obAtributo: f.obAtributo.trim() ? f.obAtributo : (s.atributo || f.obAtributo),
+        }));
       })
       .catch(() => { if (!cancelado) setSugerenciaSku({ estado: 'idle' }); });
     return () => { cancelado = true; };
@@ -548,7 +557,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
                           leído para copiar el nombre exacto sin volver a abrir el PDF. */}
                       {sugerenciaSku.estado === 'listo' && (sugerenciaSku.descripcionLibre || sugerenciaSku.archivoUrl) && (
                         <div className="text-[10.5px] text-indigo-700 bg-indigo-50/60 border border-indigo-100 rounded-lg px-2.5 py-2">
-                          <p className="font-semibold mb-0.5 flex items-center gap-1"><Zap size={10} /> Del documento ya leído — copia Marca/Modelo de acá si aparecen:</p>
+                          <p className="font-semibold mb-0.5 flex items-center gap-1"><Zap size={10} /> Del documento ya leído — se prellenaron los campos vacíos; revísalos:</p>
                           {sugerenciaSku.descripcionLibre && (
                             <p className="text-zinc-600 line-clamp-3 whitespace-pre-line">{sugerenciaSku.descripcionLibre}</p>
                           )}
