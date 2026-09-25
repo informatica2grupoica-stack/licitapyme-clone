@@ -808,3 +808,26 @@ test('decidirReemplazoPorCanonica: manifiesto con ruido real (criterios colados)
   assert.equal(d.reemplazar, true, `debería reemplazar cuando hay ruido real: ${d.motivo}`);
   assert.ok(d.fraccionRuido >= 0.3, 'las filas de criterios deberían contar como ruido no cubierto');
 });
+
+// ─── 4305-18-LE26: anexos por GRUPO (6-A…6-F) ────────────────────────────────────────────────
+import { numeracionTablaIncompleta } from '../zai-ocr';
+
+const tablaGrupo = (g: number, limite: string, desde: number, hasta: number) =>
+  `# ANEXO N.° 6-${'ABCDEF'[g - 1]}\n\nGrupo N.° ${g}: "Materiales del grupo ${g}"\n\nLímite presupuestario Grupo N.° ${g}: $${limite} I.V.A incluido.\n\n<table border="1"><tr><td>N°</td><td>Descripción</td><td>Cantidad</td><td>Unidad</td><td>Valor unitario</td><td>Valor Total</td></tr>`
+  + Array.from({ length: hasta - desde + 1 }, (_, i) => `<tr><td>${desde + i}</td><td>Producto ${g}-${desde + i} distinto</td><td>${i + 2}</td><td>unidad</td><td></td><td></td></tr>`).join('')
+  + '</table>';
+
+test('numeracionTablaIncompleta: parte en 24 = incompleta; 1..N y reinicios = completa', () => {
+  assert.equal(numeracionTablaIncompleta(tablaGrupo(1, '30.000.000', 24, 53)), true);
+  assert.equal(numeracionTablaIncompleta(tablaGrupo(1, '30.000.000', 1, 54)), false);
+  assert.equal(numeracionTablaIncompleta(tablaGrupo(1, '1', 1, 5) + tablaGrupo(2, '1', 1, 4)), false);
+  assert.equal(numeracionTablaIncompleta('<tr><td>1</td></tr><tr><td>2</td></tr><tr><td>5</td></tr>'), true);
+});
+
+test('anexos por grupo: la línea es el "Grupo N°" que declara cada anexo, no el orden de lectura', () => {
+  const docs = [6, 1, 4, 2].map(g => ({ nombre: `Anexo_N.°6-${'ABCDEF'[g - 1]}_Oferta_Economica.pdf`, texto: tablaGrupo(g, '1.000.000', 1, 10 + g) }));
+  const r = parsearPlanillaCosteo(docs as any)!;
+  assert.deepEqual(r.lineas, [1, 2, 4, 6]);
+  assert.equal(r.items.filter(i => i.linea === 6).length, 16);
+  assert.equal(r.items.filter(i => i.linea === 1).length, 11);
+});

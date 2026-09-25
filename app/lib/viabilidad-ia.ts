@@ -29,7 +29,7 @@ import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUni
 export { esFilaNoProducto };
 import { planillaReconoceElListado } from '@/app/lib/fila-no-producto';
 import { evaluarCoberturaLectura, resumirCobertura, esFormatoLegible, esDocumentoCritico } from '@/app/lib/lectura-documentos';
-import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
+import { ocrTieneHuecos, esTextoBasuraOCR, numeracionTablaIncompleta, leidoConOcrLocal, glmOcrDisponible } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
 import { validarInformeViabilidad, autocorregirHallazgos, escalarARevisionHumana } from '@/app/lib/validador-viabilidad';
 import { analizarRemisionACriterios, hayTablaDeCriterios, motivoCriteriosNoConfiables, extraerSeccionCriteriosEvaluacion } from '@/app/lib/criterios-en-anexo';
@@ -258,7 +258,10 @@ async function cargarDocumentos(codigo: string): Promise<DocLeido[]> {
       // EXCEPCIÓN (auto-sanación): si el OCR cacheado quedó INCOMPLETO (marca de hueco) o
       // es BASURA (capa de texto ilegible del escáner — caso 2731-21-LE26), NO lo reusamos:
       // se re-extrae (document-extraction ahora enruta la basura a GLM-OCR) y se persiste.
-      if (cacheTxt.length >= 50 && !ocrTieneHuecos(cacheTxt) && !esTextoBasuraOCR(cacheTxt)) {
+      // También se re-lee si quedó por OCR local (Tesseract) o con la numeración de la tabla rota
+      // (ítems 1..N que empiezan en 24): ahí el relleno tapó un hueco real. Solo si GLM-OCR responde.
+      const sospechoso = glmOcrDisponible() && (leidoConOcrLocal(d.metodo_extraccion) || numeracionTablaIncompleta(cacheTxt));
+      if (cacheTxt.length >= 50 && !ocrTieneHuecos(cacheTxt) && !esTextoBasuraOCR(cacheTxt) && !sospechoso) {
         console.log(`[viabilidad-ia] ${codigo}: [${pos}/${docs.length}] "${d.documento_nombre}" — ya está en caché (${cacheTxt.length} chars), no se vuelve a leer.`);
         return { nombre: d.documento_nombre, categoria: d.categoria, texto: cacheTxt, metodo: d.metodo_extraccion || 'cache', ok: true } as DocLeido;
       }
@@ -269,6 +272,11 @@ async function cargarDocumentos(codigo: string): Promise<DocLeido[]> {
       const texto = (r?.texto || '').replace(/\s+\n/g, '\n').trim();
       const metodo = r?.metodo || 'error';
       const segs = ((Date.now() - t0doc) / 1000).toFixed(1);
+      // Re-lectura por "sospechoso" que falló: no se pierde el texto que ya había.
+      if (sospechoso && texto.length < 50 && cacheTxt.length >= 50) {
+        console.warn(`[viabilidad-ia] ${codigo}: [${pos}/${docs.length}] "${d.documento_nombre}" — la re-lectura falló, se conserva el texto en caché.`);
+        return { nombre: d.documento_nombre, categoria: d.categoria, texto: cacheTxt, metodo: d.metodo_extraccion || 'cache', ok: true } as DocLeido;
+      }
       console.log(texto.length >= 50
         ? `[viabilidad-ia] ${codigo}: [${pos}/${docs.length}] "${d.documento_nombre}" leído en ${segs}s → ${texto.length} chars (método=${metodo}).`
         : `[viabilidad-ia] ${codigo}: [${pos}/${docs.length}] "${d.documento_nombre}" NO se pudo leer (${segs}s, método=${metodo}) — queda sin texto.`);

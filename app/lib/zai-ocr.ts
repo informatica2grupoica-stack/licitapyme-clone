@@ -64,6 +64,26 @@ export function ocrTieneHuecos(texto: string): boolean {
   return typeof texto === 'string' && texto.includes(MARCA_HUECO);
 }
 
+// 25-sep-2026 (caso 4305-18-LE26, Anexo 6-A "Grupo 1"): el OCR perdió las páginas con los ítems 1-23
+// y un relleno de Tesseract tapó el hueco, así que la marca de hueco desapareció y la tabla llegó
+// empezando en el ítem 24 — el Grupo 1 (54 ítems) se costeó con 30. Un listado numerado que NO parte
+// en 1, o que salta números dentro de una corrida creciente, está incompleto aunque no diga "hueco".
+// Los reinicios (1..n, 1..m: varias tablas/líneas en el mismo documento) no cuentan como salto.
+export function numeracionTablaIncompleta(texto: string): boolean {
+  if (typeof texto !== 'string') return false;
+  const nums = [...texto.matchAll(/<tr>\s*<td>\s*(\d{1,3})\s*<\/td>/gi)].map(m => Number(m[1]));
+  if (nums.length < 3) return false;
+  if (nums[0] > 1) return true;
+  for (let i = 1; i < nums.length; i++) if (nums[i] > nums[i - 1] + 1) return true;
+  return false;
+}
+
+// Texto que quedó leído (en todo o en parte) por el OCR local de respaldo: menor precisión, y es
+// justo donde nacen los ítems perdidos o ilegibles. Se reintenta con GLM cuando esté disponible.
+export function leidoConOcrLocal(metodo: string | null | undefined): boolean {
+  return /tesseract/i.test(metodo || '');
+}
+
 // ─── Relleno de huecos con OCR local (Tesseract) ─────────────────────────────────
 // Tras las 3 pasadas contra Z.AI, un hueco que persiste ya no es "un 429 que se va a despejar
 // solo" — puede serlo, pero no hay por qué esperar a la próxima corrida para saberlo. Estas dos
