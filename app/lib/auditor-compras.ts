@@ -173,7 +173,7 @@ function construirUsuarioL1(e: EntradaLinea): string {
   const l = e.linea;
   const partes: string[] = [];
   partes.push(`FECHA DE HOY (auditoría): ${e.hoyISO}`);
-  partes.push(`A) LÍNEA DEL COSTEO registrada por el asistente:\n- ítem ${l.item} · hoja "${l.grupo}" · línea real ${l.lineaReal ?? 'n/d'}\n- detalle: ${l.detalle}\n- unidad de medida: ${l.unidad || 'n/d'} · SKU del proveedor: ${l.sku || 'n/d'} · cantidad: ${l.cantidad ?? 'n/d'}\n- valor con IVA (referencia del asistente): ${fmt(l.valorConIva)} · costo unitario neto estimado: ${fmt(l.costoEstimadoNeto)} · costo unitario neto REAL cargado por Compras: ${fmt(l.costoRealUnitario)}\n- costo unitario neto que hoy está costeado (lo que se audita): ${fmt(l.costoRegistradoNeto)}\n- costo total neto costeado: ${l.costoRegistradoNeto != null && l.cantidad != null ? fmt(l.costoRegistradoNeto * l.cantidad) : '—'}\n- ruta: (decídela tú con la PARTE V)${l.esGastoExtra ? '\n- OJO: es un GASTO EXTRA agregado por Compras (no se vende), solo se audita su respaldo.' : ''}`);
+  partes.push(`A) LÍNEA DEL COSTEO registrada por el asistente:\n- ítem ${l.item} · hoja "${l.grupo}" · línea real ${l.lineaReal ?? 'n/d'}\n- detalle: ${l.detalle}\n- unidad de medida: ${l.unidad || 'n/d'} · SKU del proveedor: ${l.sku || 'n/d'} · cantidad: ${l.cantidad ?? 'n/d'}\n- valor con IVA (referencia del asistente): ${fmt(l.valorConIva)} · costo unitario neto estimado: ${fmt(l.costoEstimadoNeto)} · costo unitario neto REAL cargado por Compras: ${fmt(l.costoRealUnitario)}\n- costo unitario neto que hoy está costeado (lo que se audita): ${fmt(l.costoRegistradoNeto)}\n- costo total neto costeado: ${l.costoRegistradoNeto != null && l.cantidad != null ? fmt(l.costoRegistradoNeto * l.cantidad) : '—'}\n- ruta: ${e.cotizaciones.some(c => c.moneda !== 'CLP') ? 'B (importación): el sistema detectó cotización(es) en moneda extranjera (' + [...new Set(e.cotizaciones.filter(c => c.moneda !== 'CLP').map(c => c.moneda))].join(', ') + '); aplica la PARTE V y llena ruta_b' : '(decídela tú con la PARTE V)'}${l.esGastoExtra ? '\n- OJO: es un GASTO EXTRA agregado por Compras (no se vende), solo se audita su respaldo.' : ''}`);
   partes.push(`B) LÍNEA DE LA LICITACIÓN (publicada por el organismo): ${e.licitacion ? `${e.licitacion.producto} — cantidad ${e.licitacion.cantidad ?? 'n/d'} ${e.licitacion.unidad ?? ''}` : 'no disponible (sin acta/línea cacheada)'}`);
   partes.push(`C) PRODUCTO DEL AUDITOR TÉCNICO: estado=${e.tecnico.estado}${e.tecnico.marca || e.tecnico.modelo ? ` · marca=${e.tecnico.marca || 'n/d'} · modelo=${e.tecnico.modelo || 'n/d'}` : ''}${e.tecnico.titulo ? ` · línea técnica "${e.tecnico.titulo}"` : ''}\n   ACCESORIOS (CUMPLE CON COMPLEMENTO) que deben estar cotizados: ${e.tecnico.accesorios.length ? e.tecnico.accesorios.join('; ') : 'ninguno'}`);
   const rs: string[] = [];
@@ -255,7 +255,10 @@ export async function auditarLinea(negocioId: number, filaId: string, opts: Opci
 
     const corpus = { porRespaldo: {} as Record<string, string>, texto: [...capturas.map(c => c.texto), ...cotizaciones.map(c => c.texto), ...historico.map(h => `${h.nombre} ${h.precio}`)].join('\n\n') };
     const g = aplicarGuardarrailes(salida, corpus, { tokensProducto: tokens, candidatasBusqueda: candidatas.map(c => ({ url: c.url, nombre: c.nombre, precio: c.precio, tienda: c.tienda })) });
-    salida = g.salida; avisos = g.avisos; precioNoVerificado = g.precioNoVerificado;
+    salida = g.salida; avisos = g.avisos;
+    // Una cotización en moneda extranjera es una importación: la ruta la fija el sistema, no el modelo.
+    if (cotizaciones.some(c => c.moneda !== 'CLP') && salida.ruta !== 'B') { salida.ruta = 'B'; avisos.push('Ruta B forzada por el sistema: hay cotización en moneda extranjera.'); }
+    if (salida.ruta === 'B' && salida.ruta_b && !salida.ruta_b.moneda) { const m = cotizaciones.find(c => c.moneda !== 'CLP')?.moneda; if (m) salida.ruta_b.moneda = m; } precioNoVerificado = g.precioNoVerificado;
 
     // Lo que el sistema sabe con certeza pisa lo que el modelo diga: estado del link, referencias con precio real y V9.
     salida.respaldos = (salida.respaldos || []).map(r => {
@@ -486,7 +489,8 @@ export async function generarLecturaPosicion(negocioId: number): Promise<PanelAu
   if (!panel.posicion) return panel;
   const { lectura: _l, ...datos } = panel.posicion; void _l;
   const sys = `${P.PARTE_I}\n\n${P.PARTE_IX}\n\nTu tarea ahora es SOLO la lectura L3: redacta en lenguaje simple (máximo 8 líneas) la lectura de este resumen ya calculado por el sistema. Declara la solidez de cada nivel (cuántos datos, de qué fechas, si es el mismo producto o comparable), marca los comparables como "dato débil", no calcules ni recomiendes un precio exacto. Responde SOLO JSON: {"lectura":"..."}`;
-  const out = await llamarModelo(sys, `RESUMEN CALCULADO POR EL SISTEMA (JSON):\n${JSON.stringify(datos)}\nParámetros: margen mínimo ${PARAMS.margenMinimo}%, mínimo de OC para dato sólido ${PARAMS.minDatosMercadoPublico}.`, 2_500);
+  const out = await llamarModelo(sys, `RESUMEN CALCULADO POR EL SISTEMA (JSON):\n${JSON.stringify(datos)}\nParámetros: margen mínimo ${PARAMS.margenMinimo}%, mínimo de OC para dato sólido ${PARAMS.minDatosMercadoPublico}.
+OJO: costo_verificado.lineas_pendientes es la cantidad de líneas cuyo costo NO está verificado; el monto usa el costo costeado para esas líneas. Si hay pendientes, di que el costo NO está verificado del todo (no digas que lo está).`, 2_500);
   const lectura = String(out.lectura || '').trim();
   return recalcularProyecto(negocioId, { lectura: lectura || null });
 }

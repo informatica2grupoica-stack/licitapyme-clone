@@ -628,7 +628,7 @@ export interface Escenario {
   fleteSinConfirmar: boolean;
 }
 
-interface EleccionPorProducto { productoId: number; descripcion: string; cantidad: number | null; item: CotizacionFila['items'][number] & { proveedor: string; plazoEntregaDias: number | null; incluyeFlete: boolean | null; fleteMonto: number | null } }
+interface EleccionPorProducto { productoId: number; descripcion: string; cantidad: number | null; item: CotizacionFila['items'][number] & { cotizacionId: number; moneda: string; tipoCambioUsado: number | null; proveedor: string; plazoEntregaDias: number | null; incluyeFlete: boolean | null; fleteMonto: number | null } }
 
 // BUG REAL (11-sep-2026, reportado por el usuario contra el negocio 717): los 4 escenarios
 // ordenaban candidatos SOLO por precio/plazo/agrupación, sin mirar `cumple` — así que una cotización
@@ -658,7 +658,7 @@ function elegirCandidatos(productos: ProductoCompra[], cotizaciones: CotizacionF
     for (const it of c.items) {
       if (it.cumple === 'NO_ES_EL_PRODUCTO' || it.precioUnitario == null) continue;
       const arr = porProducto.get(it.productoId) || [];
-      arr.push({ ...it, proveedor: c.proveedorNombre, plazoEntregaDias: c.plazoEntregaDias, incluyeFlete: c.incluyeFlete, fleteMonto: c.fleteMonto });
+      arr.push({ ...it, cotizacionId: c.id, moneda: c.moneda, tipoCambioUsado: c.tipoCambioUsado, proveedor: c.proveedorNombre, plazoEntregaDias: c.plazoEntregaDias, incluyeFlete: c.incluyeFlete, fleteMonto: c.fleteMonto });
       porProducto.set(it.productoId, arr);
     }
   }
@@ -757,6 +757,155 @@ export async function calcularEscenarios(negocioId: number): Promise<Escenario[]
   // cada vez que alguien miraba la pestaña (la tabla crecía sin límite y sin ningún valor: nadie
   // consulta ese histórico). La única escritura real ocurre en `elegirEscenario`, que es el único
   // momento con significado de negocio (§8.10.4).
+}
+
+// ── TODAS las combinaciones posibles (pedido del usuario, 25-sep-2026) ─────────────────────────────
+// Los 4 escenarios de arriba son 4 heurísticas: cada una elige UNA cotización por producto con su propio
+// criterio y muchas veces coinciden entre sí (con 2 productos y 3 cotizaciones, "Equilibrado" y "Mínimo
+// precio" daban lo mismo). Acá se enumeran TODAS las formas de comprar: el producto cartesiano de las
+// cotizaciones que cubren cada producto. Cada combinación trae su costo desglosado (mercadería + flete),
+// viajes, plazo, proveedores y avisos; y se marca cuál(es) de los 4 escenarios clásicos es.
+export interface ItemCombinacion {
+  productoId: number; descripcion: string; cotizacionId: number; proveedor: string; cumple: CumpleItem; detalleDesviacion: string | null;
+  moneda: string; tipoCambioUsado: number | null; precioUnitario: number | null; cantidad: number | null; subtotal: number | null;
+  plazoEntregaDias: number | null; incluyeFlete: boolean | null; fleteMonto: number | null;
+}
+export interface Combinacion {
+  clave: string; costoMercaderia: number; costoLogistico: number; costoTotal: number; diasEstimados: number | null; viajes: number;
+  nProveedores: number; proveedores: string[]; peorCumple: CumpleItem; fleteSinConfirmar: boolean; proveedoresSinPlazo: string[];
+  items: ItemCombinacion[]; etiquetas: TipoEscenario[]; diferenciaVsMasBarata: number; diferenciaPctVsMasBarata: number | null; avisos: string[];
+  detalle: DetalleEscenario & { clave: string };
+}
+export interface ResultadoCombinaciones {
+  combinaciones: Combinacion[]; totalPosibles: number; truncado: boolean;
+  productosSinOferta: Array<{ productoId: number; descripcion: string }>; productosCubiertos: number;
+}
+
+const LIMITE_ENUMERACION = 3000;
+const LIMITE_DEVUELTAS = 500;
+const CUMPLE_TXT: Record<CumpleItem, string> = { CUMPLE: 'cumple', MEJORA: 'mejora lo pedido', INFERIOR_NEGOCIABLE: 'inferior (negociable)', INFERIOR_INSALVABLE: 'inferior (insalvable)', NO_ES_EL_PRODUCTO: 'no es el producto' };
+
+export async function enumerarCombinaciones(negocioId: number): Promise<ResultadoCombinaciones> {
+  const vacio: ResultadoCombinaciones = { combinaciones: [], totalPosibles: 0, truncado: false, productosSinOferta: [], productosCubiertos: 0 };
+  const productos = (await listarProductosCompra(negocioId)).filter(p => p.subestado !== 'RENUNCIADO');
+  if (productos.length === 0) return vacio;
+  const cotizaciones = await listarCotizaciones(negocioId);
+  if (cotizaciones.length === 0) return vacio;
+  const porProducto = elegirCandidatos(productos, cotizaciones);
+  const cubiertos = productos.filter(p => (porProducto.get(p.id) || []).length > 0);
+  const sinOferta = productos.filter(p => (porProducto.get(p.id) || []).length === 0).map(p => ({ productoId: p.id, descripcion: p.descripcion }));
+  if (cubiertos.length === 0) return { ...vacio, productosSinOferta: sinOferta };
+
+  // Todas las combinaciones = producto cartesiano. Si explota (> LIMITE), se poda por producto a las mejores
+  // (cumplimiento → precio) más la más rápida, y se avisa que es una vista recortada.
+  let listas = cubiertos.map(p => porProducto.get(p.id) || []);
+  const totalPosibles = listas.reduce((n, l) => n * l.length, 1);
+  let truncado = false;
+  if (totalPosibles > LIMITE_ENUMERACION) {
+    truncado = true;
+    const k = Math.max(2, Math.floor(Math.pow(LIMITE_ENUMERACION, 1 / listas.length)));
+    listas = listas.map(l => {
+      const orden = [...l].sort((a, b) => tierCumple(a.cumple) - tierCumple(b.cumple) || (a.precioUnitario ?? Infinity) - (b.precioUnitario ?? Infinity));
+      const rapida = [...l].sort((a, b) => (a.plazoEntregaDias ?? 999) - (b.plazoEntregaDias ?? 999))[0];
+      const sel = orden.slice(0, k);
+      if (rapida && !sel.includes(rapida)) sel[sel.length - 1] = rapida;
+      return sel;
+    });
+  }
+
+  const todas: Combinacion[] = [];
+  const elegidos: EleccionPorProducto['item'][] = new Array(cubiertos.length);
+  const recorrer = (i: number) => {
+    if (i === cubiertos.length) { todas.push(armarCombinacion(cubiertos, elegidos)); return; }
+    for (const c of listas[i]) { elegidos[i] = c; recorrer(i + 1); }
+  };
+  recorrer(0);
+
+  // Orden: primero las que cumplen mejor, y dentro, la más barata.
+  todas.sort((a, b) => tierCumple(a.peorCumple) - tierCumple(b.peorCumple) || a.costoTotal - b.costoTotal);
+  const masBarata = todas.length ? Math.min(...todas.map(c => c.costoTotal)) : 0;
+  for (const c of todas) { c.diferenciaVsMasBarata = c.costoTotal - masBarata; c.diferenciaPctVsMasBarata = masBarata > 0 ? Math.round(((c.costoTotal - masBarata) / masBarata) * 1000) / 10 : null; }
+
+  // Marca cuál(es) de los 4 escenarios clásicos coincide con cada combinación.
+  const clasicos = await calcularEscenarios(negocioId).catch(() => [] as Escenario[]);
+  for (const e of clasicos) {
+    const firma = e.detalle.porProducto.filter(d => d.proveedor).map(d => `${d.productoId}:${d.proveedor}:${d.precioUnitario}`).sort().join('|');
+    for (const c of todas) if (c.items.map(x => `${x.productoId}:${x.proveedor}:${x.precioUnitario}`).sort().join('|') === firma) c.etiquetas.push(e.tipo);
+  }
+  return { combinaciones: todas.slice(0, LIMITE_DEVUELTAS), totalPosibles, truncado: truncado || todas.length > LIMITE_DEVUELTAS, productosSinOferta: sinOferta, productosCubiertos: cubiertos.length };
+}
+
+function armarCombinacion(productos: ProductoCompra[], elegidos: EleccionPorProducto['item'][]): Combinacion {
+  const items: ItemCombinacion[] = productos.map((p, i) => {
+    const e = elegidos[i];
+    return {
+      productoId: p.id, descripcion: p.descripcion, cotizacionId: e.cotizacionId, proveedor: e.proveedor, cumple: e.cumple, detalleDesviacion: e.detalleDesviacion ?? null,
+      moneda: e.moneda, tipoCambioUsado: e.tipoCambioUsado, precioUnitario: e.precioUnitario, cantidad: p.cantidad, subtotal: (e.precioUnitario || 0) * (p.cantidad || 1),
+      plazoEntregaDias: e.plazoEntregaDias, incluyeFlete: e.incluyeFlete, fleteMonto: e.fleteMonto,
+    };
+  });
+  const costoMercaderia = items.reduce((s, x) => s + (x.subtotal || 0), 0);
+  // Mismo criterio que armar(): un viaje por proveedor cuyo flete no viene incluido; si trae monto, ese es el cargo real.
+  const viaje = new Map<string, number | null>();
+  for (const x of items) if (x.incluyeFlete !== true) { const a = viaje.get(x.proveedor); if (a === undefined || (a == null && x.fleteMonto != null)) viaje.set(x.proveedor, x.fleteMonto); }
+  const fleteSinConfirmar = [...viaje.values()].some(m => m == null);
+  const costoLogistico = [...viaje.values()].reduce((s: number, m) => s + (m ?? 0), 0);
+  const proveedores = [...new Set(items.map(x => x.proveedor))];
+  const dias = items.reduce((m, x) => Math.max(m, x.plazoEntregaDias ?? 0), 0);
+  const sinPlazo = proveedores.filter(pv => items.filter(x => x.proveedor === pv).every(x => x.plazoEntregaDias == null));
+  const peor = items.reduce<CumpleItem>((w, x) => (tierCumple(x.cumple) > tierCumple(w) ? x.cumple : w), 'CUMPLE');
+
+  const avisos: string[] = [];
+  for (const x of items) if (tierCumple(x.cumple) > 0) avisos.push(`"${x.descripcion.slice(0, 40)}" con ${x.proveedor}: ${CUMPLE_TXT[x.cumple]}${x.detalleDesviacion ? ` — ${x.detalleDesviacion.slice(0, 160)}` : ''}.`);
+  if (fleteSinConfirmar) avisos.push('Hay proveedores que necesitan viaje y nadie cargó cuánto cuesta: el flete cuenta como $0 sin confirmar.');
+  if (sinPlazo.length) avisos.push(`Sin plazo de entrega declarado: ${sinPlazo.join(', ')} (los días de esta combinación pueden ser mayores).`);
+  const ext = [...new Set(items.filter(x => x.moneda !== 'CLP').map(x => x.moneda))];
+  if (ext.length) avisos.push(`Incluye precios en ${ext.join('/')} convertidos a pesos con el tipo de cambio de la cotización: es una importación (internación, flete y plazos aparte).`);
+  if (proveedores.length > 1) avisos.push(`${proveedores.length} proveedores distintos: ${proveedores.length} compras y coordinaciones separadas.`);
+
+  const clave = items.map(x => `${x.productoId}:${x.cotizacionId}`).join('|');
+  return {
+    clave, costoMercaderia, costoLogistico, costoTotal: costoMercaderia + costoLogistico, diasEstimados: dias || null, viajes: viaje.size,
+    nProveedores: proveedores.length, proveedores, peorCumple: peor, fleteSinConfirmar, proveedoresSinPlazo: sinPlazo, items, etiquetas: [],
+    diferenciaVsMasBarata: 0, diferenciaPctVsMasBarata: null, avisos,
+    detalle: {
+      clave, proveedoresInvolucrados: proveedores,
+      porProducto: items.map(x => ({ productoId: x.productoId, descripcion: x.descripcion, proveedor: x.proveedor, precioUnitario: x.precioUnitario, cantidad: x.cantidad, subtotal: x.subtotal, plazoEntregaDias: x.plazoEntregaDias, incluyeFlete: x.incluyeFlete, fleteMonto: x.fleteMonto })),
+    },
+  };
+}
+
+/** Elige UNA combinación concreta (no solo uno de los 4 escenarios clásicos). Pide justificación salvo que
+ *  coincida con "Más rápido". Se guarda como tipo COMBINACION con el mismo formato de detalle, así que
+ *  aprobaciones, importación y reparto la leen igual que a cualquier escenario. */
+export async function elegirCombinacion(
+  negocioId: number, clave: string, justificacion: string | null, actorId: number, actorNombre: string | null,
+): Promise<void> {
+  const { combinaciones } = await enumerarCombinaciones(negocioId);
+  const c = combinaciones.find(x => x.clave === clave);
+  if (!c) throw new Error('Esa combinación ya no existe (cambiaron las cotizaciones). Recarga y vuelve a elegir.');
+  if (!c.etiquetas.includes('MAS_RAPIDO') && !justificacion?.trim()) throw new Error('Elegir una combinación distinta de "Más rápido" requiere justificación (spec §8.10.4).');
+  const ahora = ahoraChileSQL();
+  await pool.query(`UPDATE compras_escenario SET elegido = 0 WHERE negocio_id = ?`, [negocioId]);
+  await pool.query(
+    `INSERT INTO compras_escenario (negocio_id, tipo, detalle_json, costo_total, dias_estimados, viajes_estimados, generado_at, elegido, elegido_justificacion, elegido_por, elegido_por_nombre, elegido_at)
+     VALUES (?,?,?,?,?,?,?,1,?,?,?,?)`,
+    [negocioId, 'COMBINACION', JSON.stringify(c.detalle), c.costoTotal, c.diasEstimados, c.viajes, ahora, justificacion || null, actorId, actorNombre, ahora],
+  );
+  await invalidarAprobacionesCompras(negocioId, 'Se eligió una combinación de compra distinta.');
+  await registrarEvento({
+    tipo: 'COMPRAS_ESCENARIO_ELEGIDO', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
+    mensaje: `Se eligió una combinación de compra con ${c.proveedores.join(' + ')} (${fmtMonto(c.costoTotal)})${justificacion ? `: ${justificacion}` : ''}.`,
+    metadata: { negocio_id: negocioId, tipo: 'COMBINACION', clave, costoTotal: c.costoTotal },
+  });
+}
+
+/** La clave de la combinación elegida hoy (null si lo elegido fue uno de los 4 escenarios clásicos o nada). */
+export async function combinacionElegidaClave(negocioId: number): Promise<string | null> {
+  const [rows] = await pool.query(`SELECT tipo, detalle_json FROM compras_escenario WHERE negocio_id = ? AND elegido = 1 ORDER BY generado_at DESC LIMIT 1`, [negocioId]) as any;
+  const r = (rows as any[])[0];
+  if (!r || r.tipo !== 'COMBINACION') return null;
+  try { return JSON.parse(r.detalle_json)?.clave ?? null; } catch { return null; }
 }
 
 /** §8.10.4 — el encargado puede salirse del escenario sugerido, pero debe justificarlo. Recalcula

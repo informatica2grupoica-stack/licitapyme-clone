@@ -12,6 +12,7 @@ import { parsearMontoCL } from '@/app/lib/numeros';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { AuditoriaCotizacionPanel, type AuditoriaUI } from './AuditoriaCotizacionPanel';
 import { CotizacionesMasivas } from './CotizacionesMasivas';
+import { CombinacionesCompra, type DatosCombinaciones } from './CombinacionesCompra';
 import { IconGavel as Gavel, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconSparkles as Sparkles, IconTrendingDown as TrendingDown, IconTruck as Truck, IconBolt as Zap, IconScale as Scale, IconCurrencyDollar as DollarSign, IconCircleCheck as CheckCircle2, IconPaperclip as Paperclip, IconListCheck as ListChecks, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconLink as Link2, IconShieldCheck as ShieldCheck, IconPencil as Pencil, IconTrash as Trash2, IconRobot as Bot, IconEye as Eye } from '@tabler/icons-react';
 
 type Origen = 'pdf' | 'imagen' | 'whatsapp' | 'texto' | 'correo' | 'llamada';
@@ -144,6 +145,10 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   const [usoAgente, setUsoAgente] = useState<{ llamadas: number; tope: number; agotado: boolean } | null>(null);
   // Dictámenes del auditor (compras-auditoria-cotizacion.ts), uno por cotización × producto.
   const [auditorias, setAuditorias] = useState<AuditoriaUI[]>([]);
+  // Todas las combinaciones posibles de compra (una cotización por producto) — ver CombinacionesCompra.tsx.
+  const [combinaciones, setCombinaciones] = useState<DatosCombinaciones | null>(null);
+  const [combinacionElegida, setCombinacionElegida] = useState<string | null>(null);
+  const [eligiendoComb, setEligiendoComb] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -156,6 +161,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
       if (dEsc.success) {
         setCuadro(dEsc.cuadro || []); setNegociacion(dEsc.negociacion || []); setEscenarios(dEsc.escenarios || []);
         setElegidoTipo(dEsc.elegidoTipo || null); setElegidoCostoGuardado(dEsc.elegidoCostoGuardado ?? null);
+        setCombinaciones(dEsc.combinaciones || null); setCombinacionElegida(dEsc.combinacionElegidaClave ?? null);
       }
       if (dProd.success) setProductos((dProd.productos || []).filter((p: any) => p.subestado !== 'RENUNCIADO'));
       if (dSug.success) setSugerenciasHistorial(dSug.productos || []);
@@ -577,6 +583,23 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
       toast.error('No se pudo elegir el escenario', e.message);
     } finally {
       setEligiendo(null);
+    }
+  };
+
+  const elegirCombinacion = async (clave: string, justificacion: string | null) => {
+    setEligiendoComb(clave);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/escenarios`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tipo: 'COMBINACION', clave, justificacion }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo elegir');
+      toast.success('Combinación elegida', 'Queda registrada para la aprobación de compra.');
+      await cargar();
+    } catch (e: any) {
+      toast.error('No se pudo elegir la combinación', e.message);
+    } finally {
+      setEligiendoComb(null);
     }
   };
 
@@ -1206,6 +1229,11 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           })}
         </div>
         </>
+      )}
+
+      {combinaciones && (combinaciones.combinaciones.length > 0 || combinaciones.productosSinOferta.length > 0) && (
+        <CombinacionesCompra datos={combinaciones} elegidaClave={combinacionElegida} puedeOperar={puedeOperar} eligiendo={eligiendoComb}
+          onElegir={(clave, justificacion) => elegirCombinacion(clave, justificacion)} />
       )}
     </div>
   );

@@ -4,7 +4,7 @@
 // PATCH elige uno (§8.10.4 — justificación obligatoria si no es "Más rápido").
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
-import { cuadroComparativo, detectarEspacioNegociacion, calcularEscenarios, elegirEscenario, escenarioElegidoTipo, type TipoEscenario } from '@/app/lib/compras-auditor';
+import { cuadroComparativo, detectarEspacioNegociacion, calcularEscenarios, elegirEscenario, escenarioElegidoTipo, enumerarCombinaciones, elegirCombinacion, combinacionElegidaClave, type TipoEscenario } from '@/app/lib/compras-auditor';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 
 export const runtime = 'nodejs';
@@ -31,10 +31,10 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
-    const [cuadro, negociacion, escenarios, elegido] = await Promise.all([
-      cuadroComparativo(id), detectarEspacioNegociacion(id), calcularEscenarios(id), escenarioElegidoTipo(id),
+    const [cuadro, negociacion, escenarios, elegido, combinaciones, claveElegida] = await Promise.all([
+      cuadroComparativo(id), detectarEspacioNegociacion(id), calcularEscenarios(id), escenarioElegidoTipo(id), enumerarCombinaciones(id), combinacionElegidaClave(id),
     ]);
-    return NextResponse.json({ success: true, cuadro, negociacion, escenarios, elegidoTipo: elegido?.tipo ?? null, elegidoCostoGuardado: elegido?.costoTotal ?? null });
+    return NextResponse.json({ success: true, cuadro, negociacion, escenarios, elegidoTipo: elegido?.tipo ?? null, elegidoCostoGuardado: elegido?.costoTotal ?? null, combinaciones, combinacionElegidaClave: claveElegida });
   } catch (error) {
     console.error('[compras/escenarios][GET]', String(error));
     return NextResponse.json({ error: 'No se pudieron calcular los escenarios.' }, { status: 500 });
@@ -54,7 +54,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const body = await request.json();
-    await elegirEscenario(id, body.tipo as TipoEscenario, body.justificacion || null, userId, nombre);
+    if (body.tipo === 'COMBINACION') await elegirCombinacion(id, String(body.clave || ''), body.justificacion || null, userId, nombre);
+    else await elegirEscenario(id, body.tipo as TipoEscenario, body.justificacion || null, userId, nombre);
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('[compras/escenarios][PATCH]', String(error));

@@ -487,11 +487,12 @@ export function derivarLinea(linea: LineaCosteo, g: LineaGuardada, ctx: Contexto
 
   // V2 / V3
   const v2 = v.V2_unidad;
-  if (v2?.estado === 'ERROR') add({ codigo: 'V2_UNIDAD', mensaje: `Unidad, empaque o cantidad no calzan con la licitación (${v2.unidad_respaldo || '?'}${v2.contenido_empaque ? `, ${v2.contenido_empaque}` : ''}).`, salida: SALIDA.unidad });
+  // En Ruta B el precio viene en USD por diseño: la conversión la hace la fórmula del sistema, no es un error de unidad.
+  if (v2?.estado === 'ERROR' && !(g.modelo.ruta === 'B' && /usd|us\$|d[oó]lar|eur/i.test(String(v2.unidad_respaldo || '')))) add({ codigo: 'V2_UNIDAD', mensaje: `Unidad, empaque o cantidad no calzan con la licitación (${v2.unidad_respaldo || '?'}${v2.contenido_empaque ? `, ${v2.contenido_empaque}` : ''}).`, salida: SALIDA.unidad });
   else if (v2?.estado === 'NO_DECLARADO') alerta('V2_NO_DECLARADO', 'amarillo', 'El respaldo no dice claramente la unidad de venta: confírmala con el proveedor.');
   const v3 = v.V3_iva_moneda;
   if (v3?.estado === 'DOBLE_IVA' || v3?.estado === 'IVA_OMITIDO') add({ codigo: 'V3_' + v3.estado, mensaje: v3.estado === 'DOBLE_IVA' ? 'Se le sumó el 19% a un precio que ya incluía IVA (doble IVA).' : 'Un precio con IVA se registró como neto (IVA omitido): el costo real es distinto.', salida: SALIDA.iva });
-  else if (v3?.estado === 'MONEDA_NO_CONVERTIDA') add({ codigo: 'V3_MONEDA', mensaje: 'El respaldo está en otra moneda y no se convirtió a CLP.', salida: SALIDA.iva });
+  else if (v3?.estado === 'MONEDA_NO_CONVERTIDA' && g.modelo.ruta !== 'B') add({ codigo: 'V3_MONEDA', mensaje: 'El respaldo está en otra moneda y no se convirtió a CLP.', salida: SALIDA.iva });
   else if (v3?.estado === 'IVA_NO_DECLARADO') alerta('V3_IVA_NO_DECLARADO', 'amarillo', 'El respaldo no dice si el precio es neto o con IVA: no se supone. Pregúntale al proveedor.');
 
   // V4 + V5: el costo real mayor que el costeado bloquea SOLO si le pega al margen del proyecto (R1 / R2).
