@@ -866,7 +866,6 @@ function armarCombinacion(productos: ProductoCompra[], elegidos: EleccionPorProd
   const peor = items.reduce<CumpleItem>((w, x) => (tierCumple(x.cumple) > tierCumple(w) ? x.cumple : w), 'CUMPLE');
 
   const avisos: string[] = [];
-  for (const x of items) if (tierCumple(x.cumple) > 0) avisos.push(`"${x.descripcion.slice(0, 40)}" con ${x.proveedor}: ${CUMPLE_TXT[x.cumple]}${x.detalleDesviacion ? ` — ${x.detalleDesviacion.slice(0, 160)}` : ''}.`);
   if (fleteSinConfirmar) avisos.push('Hay proveedores que necesitan viaje y nadie cargó cuánto cuesta: el flete cuenta como $0 sin confirmar.');
   if (sinPlazo.length) avisos.push(`Sin plazo de entrega declarado: ${sinPlazo.join(', ')} (los días de esta combinación pueden ser mayores).`);
   const ext = [...new Set(items.filter(x => x.moneda !== 'CLP').map(x => x.moneda))];

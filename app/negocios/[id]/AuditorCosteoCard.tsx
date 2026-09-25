@@ -463,13 +463,47 @@ function EvidenciaModal({ negocioId, filaId, cita, titulo, respaldoId, onClose }
                 </span>
               </div>
               <div className="px-3 py-1.5 text-[11px] text-zinc-500 border-b border-zinc-100">{r.meta.join(' · ')}</div>
-              <pre className="px-3 py-2 text-[11.5px] text-zinc-700 whitespace-pre-wrap font-sans max-h-72 overflow-y-auto">
-                {r.texto ? resaltar(r.texto, cita).map((x, i) => x.m ? <mark key={i} className="bg-yellow-200 rounded px-0.5">{x.t}</mark> : <span key={i}>{x.t}</span>) : '(no se pudo leer texto de este respaldo)'}
-              </pre>
+              <TextoLegible texto={r.texto} cita={cita} />
             </div>
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+
+/** El texto que se lee de un PDF trae tablas en HTML, códigos de imagen y marcas de título. Aquí se muestra como lo vería una
+ *  persona: tablas reales, sin códigos, con títulos en negrita y la cita resaltada. Solo se extrae texto (nunca se inserta HTML). */
+function celdasDeTabla(html: string): string[][] {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return [...doc.querySelectorAll('tr')].map(tr => [...tr.querySelectorAll('th,td')].map(c => (c.textContent || '').replace(/\s+/g, ' ').trim()));
+}
+function Marcado({ texto, cita }: { texto: string; cita: string | null }) {
+  return <>{resaltar(texto, cita).map((x, i) => x.m ? <mark key={i} className="bg-yellow-200 rounded px-0.5">{x.t}</mark> : <span key={i}>{x.t}</span>)}</>;
+}
+function TextoLegible({ texto, cita }: { texto: string; cita: string | null }) {
+  if (!texto) return <div className="px-3 py-2 text-[11.5px] text-zinc-500">(no se pudo leer texto de este respaldo)</div>;
+  const partes = texto.split(/(<table[\s\S]*?<\/table>)/gi);
+  return (
+    <div className="px-3 py-2 text-[11.5px] text-zinc-700 max-h-80 overflow-y-auto space-y-1.5">
+      {partes.map((p, i) => {
+        if (/^<table/i.test(p)) {
+          const filas = celdasDeTabla(p).filter(f => f.some(c => c));
+          return (
+            <div key={i} className="overflow-x-auto">
+              <table className="w-full border border-zinc-200 text-[11.5px]"><tbody>
+                {filas.map((f, r) => <tr key={r} className={r === 0 ? 'bg-zinc-50 font-semibold' : 'border-t border-zinc-100'}>{f.map((c, k) => <td key={k} className="px-2 py-1 border-l border-zinc-100 first:border-l-0 align-top"><Marcado texto={c} cita={cita} /></td>)}</tr>)}
+              </tbody></table>
+            </div>
+          );
+        }
+        const limpio = p.replace(/!\[\]\([^)]*\)/g, '').replace(/<[^>]+>/g, ' ');
+        return limpio.split(/\n{2,}/).map(b => b.trim()).filter(Boolean).map((b, k) => {
+          const titulo = /^#{1,6}\s+/.test(b);
+          return <p key={`${i}-${k}`} className={`whitespace-pre-wrap ${titulo ? 'font-bold text-zinc-800' : ''}`}><Marcado texto={b.replace(/^#{1,6}\s+/, '')} cita={cita} /></p>;
+        });
+      })}
     </div>
   );
 }
