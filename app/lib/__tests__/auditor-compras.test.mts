@@ -257,3 +257,35 @@ test('lineasDelCosteo: el costo registrado es el REAL de Compras y el gasto extr
   assert.equal(ls[0].costoEstimadoNeto, 100_000); assert.equal(ls[0].costoRegistradoNeto, 90_000);
   assert.equal(ls[1].esGastoExtra, true); assert.equal(ls[1].precioVentaUnitario, null);
 });
+
+// ── preparación, acción y cita de cada bloqueo ────────────────────────────────────────────────────
+import { diagnosticarPreparacion } from '../auditor-compras-core';
+test('preparación: dice qué falta y cómo se arregla (moneda sin tipo de cambio, RUT propio, sin producto, sin plazo)', () => {
+  const l = linea({ links: [] });
+  const p = diagnosticarPreparacion(
+    [{ linea: l, tecnico: { estado: 'no_existe', marca: '', modelo: '' }, cotizaciones: [
+      { id: 30, proveedor: 'PanTai', rut: null, rutEsPropio: true, moneda: 'USD', tipoCambio: null, plazoDias: null, fleteMonto: null, incluyeFlete: null, vigencia: null, tieneTexto: true, asignadaAProductos: 1 },
+    ] }],
+    [{ id: 31, proveedor: 'Otro' }], { presupuestoNeto: null, relojDefinido: false, dolarDisponible: true });
+  const textos = p.items.map(i => i.texto).join(' | ');
+  assert.equal(p.lista, false);
+  assert.ok(textos.includes('sin tipo de cambio') || textos.includes('no tiene tipo de cambio'));
+  assert.ok(textos.includes('RUT del proveedor es el de TU empresa'));
+  assert.ok(textos.includes('no está asignada a ningún producto'));
+  assert.ok(p.items.every(i => i.nivel === 'ok' || i.comoSolucionar.length > 5));
+});
+test('preparación: una línea completa y una cotización buena = lista', () => {
+  const p = diagnosticarPreparacion(
+    [{ linea: linea(), tecnico: { estado: 'aprobado', marca: 'Karcher', modelo: 'HDS' }, cotizaciones: [
+      { id: 1, proveedor: 'X', rut: '76.000.000-0', rutEsPropio: false, moneda: 'CLP', tipoCambio: null, plazoDias: 3, fleteMonto: 1000, incluyeFlete: false, vigencia: '2026-12-01', tieneTexto: true, asignadaAProductos: 1 },
+    ] }], [], { presupuestoNeto: 1_000_000, relojDefinido: true, dolarDisponible: true });
+  assert.equal(p.lista, true); assert.equal(p.resumen.faltas, 0);
+});
+test('cada bloqueo trae quién debe actuar y la cita del documento', () => {
+  const l = linea(); const s = ok(); s.verificaciones!.V3_iva_moneda = { estado: 'DOBLE_IVA', cita: 'Valor neto $4.150.000 + IVA' };
+  const d = derivarLinea(l, guardada(l, s), ctx());
+  const b = d.bloqueos.find(x => x.codigo === 'V3_DOBLE_IVA')!;
+  assert.equal(b.accion, 'corregir_costeo'); assert.equal(b.cita, 'Valor neto $4.150.000 + IVA');
+  const sinResp = derivarLinea(l, guardada(l, ok({ respaldos: [] })), ctx());
+  assert.equal(sinResp.bloqueos.find(x => x.codigo === 'SIN_RESPALDO')!.accion, 'subir');
+});

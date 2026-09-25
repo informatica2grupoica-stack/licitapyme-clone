@@ -13,6 +13,8 @@
 // (Epeira 575), no desde Santiago ni la casa matriz. Viaje interno local = $40.000 (§8.10.2).
 import { precioClpDeItemIA } from '@/app/lib/compras-precio-homologacion';
 import pool from '@/app/lib/db';
+import { esRutPropio } from '@/app/lib/auditor-compras-datos';
+import { filasDeCotizacion, programarAuditoria } from '@/app/lib/auditor-compras';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { crearChatIA } from '@/app/lib/gemini';
@@ -77,11 +79,14 @@ export async function registrarCotizacion(
   // Si viene de un proveedor del catálogo, ESA ficha manda sobre lo tipeado a mano — es la fuente
   // de verdad una vez que el proveedor está dado de alta (compras-proveedores.ts).
   let proveedorNombre = datos.proveedorNombre; let proveedorRut = datos.proveedorRut ?? null;
+  // El lector a veces toma el RUT del COMPRADOR (nosotros) como el del proveedor (caso real PanTai, #994): nunca es válido.
+  if (await esRutPropio(proveedorRut)) proveedorRut = null;
   let proveedorId = datos.proveedorId ?? null;
   if (proveedorId) {
     const [pRows] = await pool.query(`SELECT nombre_empresa, rut FROM compras_proveedor WHERE id = ?`, [proveedorId]) as any;
     const p = (pRows as any[])[0];
     if (p) { proveedorNombre = p.nombre_empresa; proveedorRut = p.rut; }
+    if (await esRutPropio(proveedorRut)) proveedorRut = null;
   } else if (proveedorNombre?.trim()) {
     // Proveedor "nuevo" tipeado a mano: se le da de alta en el catálogo (ficha mínima, editable
     // después en /compras/proveedores) — sin esto se perdía todo salvo nombre/RUT en ESTA
@@ -236,11 +241,13 @@ export async function actualizarCotizacion(
 
   let proveedorNombre = datos.proveedorNombre.trim();
   let proveedorRut = datos.proveedorRut ?? null;
+  if (await esRutPropio(proveedorRut)) proveedorRut = null; // ver registrarCotizacion
   const proveedorId = await obtenerOCrearProveedor(proveedorNombre, proveedorRut, actorId, actorNombre).catch(() => null);
   if (proveedorId) {
     const [pRows] = await pool.query(`SELECT nombre_empresa, rut FROM compras_proveedor WHERE id = ?`, [proveedorId]) as any;
     const p = (pRows as any[])[0];
     if (p) { proveedorNombre = p.nombre_empresa; proveedorRut = p.rut; }
+    if (await esRutPropio(proveedorRut)) proveedorRut = null;
   }
 
   if (datos.precioUnitario != null && !Number.isFinite(datos.precioUnitario)) datos.precioUnitario = null;
@@ -312,8 +319,11 @@ export async function eliminarCotizacion(negocioId: number, cotizacionId: number
   const c = (rows as any[])[0];
   if (!c) throw new Error('Cotización no encontrada.');
 
+  // Auditor de Compras: las líneas que se apoyaban en esta cotización se re-auditan sin ella.
+  const filasAfectadas = await filasDeCotizacion(negocioId, cotizacionId).catch(() => [] as string[]);
   await pool.query(`DELETE FROM compras_cotizacion_item WHERE cotizacion_id = ?`, [cotizacionId]);
   await pool.query(`DELETE FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cotizacionId, negocioId]);
+  for (const f of filasAfectadas) programarAuditoria(negocioId, f, { id: actorId, nombre: actorNombre });
 
   await invalidarAprobacionesCompras(negocioId, 'Se eliminó una cotización que puede afectar el costo.');
   await registrarEvento({

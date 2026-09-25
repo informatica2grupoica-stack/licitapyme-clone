@@ -31,6 +31,7 @@ import { parseJsonIA } from '@/app/lib/json-ia';
 import { listarProductosCompra, invalidarAprobacionesCompras, type ProductoCompra } from '@/app/lib/compras';
 import { obtenerEstadoReloj } from '@/app/lib/compras-reloj';
 import { extraerDatosCotizacionDeDocumento } from '@/app/lib/compras-cotizacion-ocr';
+import { filasDeCotizacion, programarAuditoria } from '@/app/lib/auditor-compras';
 
 export type CumpleAuditado = 'CUMPLE' | 'MEJORA' | 'INFERIOR_NEGOCIABLE' | 'INFERIOR_INSALVABLE' | 'NO_ES_EL_PRODUCTO';
 export type Dictamen = 'APTA' | 'CON_OBSERVACIONES' | 'NO_APTA' | 'NO_ES_EL_PRODUCTO' | 'NO_VERIFICABLE';
@@ -482,6 +483,9 @@ export async function auditarCotizacion(
 
 /** Corre el auditor en segundo plano sin bloquear a quien llama (mismo patrón que la homologación). */
 export function auditarCotizacionEnSegundoPlano(negocioId: number, cotizacionId: number, actor?: { id: number; nombre: string | null }): void {
+  // Cada vez que se sube, edita, asigna u homologa una cotización, también se vuelve a auditar el COSTEO de las líneas afectadas
+  // (Auditor de Compras, PROMPT 5): las cosas cambian y el resultado tiene que seguirlas.
+  filasDeCotizacion(negocioId, cotizacionId).then(fs => fs.forEach(f => programarAuditoria(negocioId, f, actor ?? null))).catch(() => {});
   auditarCotizacion(negocioId, cotizacionId, { actor }).catch(e =>
     console.error(`[auditoria-cotizacion] falló en segundo plano (cotización ${cotizacionId}):`, String(e).slice(0, 200)));
 }

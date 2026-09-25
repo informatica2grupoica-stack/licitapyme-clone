@@ -766,9 +766,12 @@ export function extraerPresupuestoPorLineaTabla(docs: { texto: string }[]): Map<
   // el análisis mostraba solo el total. La primera aparición de cada línea gana.
   const reLineaMonto = /l[ií]nea\s*n?[°ºo*]?\s*(\d{1,3})\s*[:\-)]\s*[$S]\s*([\d][\d.,]*)/gi;
   const reFormulario = /l[ií]nea\s*n[°ºo*]?\s*(\d{1,3})[^$]{0,160}?presupuesto\s+m[aá]ximo\s+disponible[^$\d]{0,12}\$\s*([\d][\d.,]*)/gi;
+  // 25-sep-2026 (caso real 4305-18-LE26): las bases llaman GRUPOS a las líneas y cada anexo trae
+  // "Límite presupuestario Grupo N°X: $ 1.750.000 I.V.A incluido" (el OCR ensucia el "N°").
+  const reGrupoLimite = /l[ií]mite\s+presupuestario\s+grupo\s+n[^\d\n]{0,24}?(\d{1,2})(?!\d)\s*:?\s*[$S]?\s*([\d][\d.,]*)/gi;
   for (const d of docs) {
     if (!d.texto) continue;
-    for (const re of [reLineaMonto, reFormulario]) {
+    for (const re of [reLineaMonto, reFormulario, reGrupoLimite]) {
       re.lastIndex = 0;
       let mm: RegExpExecArray | null;
       while ((mm = re.exec(d.texto)) !== null) {
@@ -1945,6 +1948,12 @@ function autoridadDe(doc: DocTexto): number {
   return AUTORIDAD_FUENTE.OMNIBUS;
 }
 
+// Número de "Grupo N°X" con el que abre un anexo económico (tolera el OCR: "N?", "N.*", "N. $ ^{\circ} $").
+function numeroGrupoDoc(texto: string): number | null {
+  const m = /Grupo\s+N[^\d\n]{0,24}?(\d{1,2})(?!\d)/i.exec(texto || '');
+  return m ? Number(m[1]) : null;
+}
+
 export function parsearPlanillaCosteo(docs: DocTexto[]): PlanillaParseResult | null {
   const mejorScore = (m: PlanillaParseResult) => m.items.length * 100 + m.lineas.length * 10 + m.categorias.length;
   // Se parsean TODOS los candidatos y se conservan TODOS: ninguno se descarta en silencio.
@@ -1981,6 +1990,22 @@ export function parsearPlanillaCosteo(docs: DocTexto[]): PlanillaParseResult | n
       return repetidos / c.r.items.length < 0.2;
     });
     if (complementarios.length) {
+      // Cada anexo económico trae su propio "Grupo N°X" (caso real 4305-18-LE26: Anexos 6-A…6-F =
+      // Grupos 1…6). Si TODAS las partes lo declaran y son distintos, ESE es el número de línea:
+      // renumerar por orden de lectura las mezclaba (y si un anexo se leía mal, el resto se corría).
+      const partes = [ganador, ...complementarios];
+      const grupos = partes.map(c => numeroGrupoDoc(c.doc.texto));
+      const gruposOk = grupos.every(g => g !== null) && new Set(grupos).size === partes.length
+        && partes.every(c => new Set(c.r.items.map(i => i.linea || 1)).size === 1);
+      if (gruposOk) {
+        const items = partes.flatMap((c, k) => c.r.items.map(i => ({ ...i, linea: grupos[k] as number })));
+        ganador.r = {
+          ...ganador.r, items,
+          lineas: [...new Set(items.map(i => i.linea))].sort((a, b) => a - b),
+          estructura: 'por_linea',
+          fuenteDoc: partes.map(c => c.r.fuenteDoc || c.doc.nombre).join(' + '),
+        };
+      } else {
       const items = ganador.r.items.slice();
       let maxLinea = Math.max(...items.map(i => i.linea || 1));
       for (const c of complementarios) {
@@ -1995,6 +2020,7 @@ export function parsearPlanillaCosteo(docs: DocTexto[]): PlanillaParseResult | n
         estructura: 'por_linea',
         fuenteDoc: [ganador, ...complementarios].map(c => c.r.fuenteDoc || c.doc.nombre).join(' + '),
       };
+      }
     }
     const unidos = new Set<typeof candidatos[number]>(complementarios);
 
@@ -2011,6 +2037,19 @@ export function parsearPlanillaCosteo(docs: DocTexto[]): PlanillaParseResult | n
       .filter(c => c !== ganador && !unidos.has(c) && c.r.items.length !== ganador.r.items.length)
       .map(c => `"${c.r.fuenteDoc || c.doc.nombre}" lista ${c.r.items.length} ítems y la fuente elegida `
         + `"${ganador.r.fuenteDoc || ganador.doc.nombre}" lista ${ganador.r.items.length}`);
+    // Anexo que declara su "Grupo N°X" pero no dio ni un ítem (típico: OCR local ilegible): esa línea
+    // NO existe en el manifiesto y hay que decirlo, no dejar que parezca que el listado está completo.
+    if (ganador.r.estructura === 'por_linea') {
+      const leidas = new Set(ganador.r.lineas);
+      for (const doc of docs) {
+        if (!doc.texto || !esCandidato(doc) || candidatos.some(c => c.doc === doc)) continue;
+        const g = numeroGrupoDoc(doc.texto);
+        if (g !== null && !leidas.has(g)) {
+          ganador.r.discrepancias = [...(ganador.r.discrepancias || []),
+            `"${doc.nombre}" declara el Grupo N°${g} pero no se pudo leer ningún ítem de su tabla (texto ilegible${doc.metodo ? ` — ${doc.metodo}` : ''}): esa línea NO está en el manifiesto.`];
+        }
+      }
+    }
     return ganador.r;
   }
   let mejor: PlanillaParseResult | null = null;

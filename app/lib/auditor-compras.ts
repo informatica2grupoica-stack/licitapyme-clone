@@ -16,11 +16,13 @@ import { MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor } from '@/app/lib/costeo-
 import { obtenerEstadoReloj } from '@/app/lib/compras-reloj';
 import { construirResumenEjecutivoCompras } from '@/app/lib/compras';
 import { capturarLinks, type CapturaGuardada } from '@/app/lib/auditor-compras-captura';
-import { dolarDelDia, historialProveedorMP, buscarReferencias, preciosMercadoPublico, type CandidataBusqueda, type HistorialProveedorMP } from '@/app/lib/auditor-compras-datos';
+import { createHash } from 'node:crypto';
+import { dolarDelDia, esRutPropio, historialProveedorMP, buscarReferencias, preciosMercadoPublico, type CandidataBusqueda, type HistorialProveedorMP } from '@/app/lib/auditor-compras-datos';
 import * as P from '@/app/lib/auditor-compras-prompts';
 import {
   PARAMS, aplicarGuardarrailes, calcularPosicionPrecio, calcularSistemaLinea, cambiosEntreAuditorias, derivarLinea, lineasDelCosteo,
-  margenProyecto, mensajesPorProveedor, tokensDeProducto,
+  margenProyecto, mensajesPorProveedor, tokensDeProducto, diagnosticarPreparacion,
+  type Preparacion, type PrepLinea, type RespaldoInfo,
   type Habilitacion, type LineaCosteo, type LineaDerivada, type LineaGuardada, type PosicionPrecio, type SalidaModelo, type PrecioMercadoPublico,
 } from '@/app/lib/auditor-compras-core';
 
@@ -80,7 +82,7 @@ async function lineaDeLaLicitacion(licitacionCodigo: string | null, lineaReal: n
   } catch { return null; }
 }
 
-interface CotizacionRespaldo { id: number; proveedor: string; rut: string | null; fecha: string; vigencia: string | null; moneda: string; precioUnitario: number | null; plazoTexto: string | null; plazoDias: number | null; incluyeFlete: boolean | null; texto: string; origen: string }
+interface CotizacionRespaldo { id: number; proveedor: string; rut: string | null; rutEsPropio: boolean; fecha: string; vigencia: string | null; moneda: string; precioUnitario: number | null; precioOriginal: number | null; tipoCambio: number | null; fleteMonto: number | null; archivoUrl: string | null; archivoNombre: string | null; plazoTexto: string | null; plazoDias: number | null; incluyeFlete: boolean | null; texto: string; origen: string }
 
 async function cotizacionesDeLaLinea(negocioId: number, l: LineaCosteo): Promise<CotizacionRespaldo[]> {
   try {
@@ -91,13 +93,16 @@ async function cotizacionesDeLaLinea(negocioId: number, l: LineaCosteo): Promise
     if (!p) return [];
     const [rows] = await pool.query(
       `SELECT c.id, c.proveedor_nombre, c.proveedor_rut, c.origen, c.descripcion_libre, c.texto_documento, c.moneda, c.plazo_entrega_texto, c.plazo_entrega_dias,
-              c.incluye_flete, DATE_FORMAT(c.tomada_at, '%Y-%m-%d') AS tomada, DATE_FORMAT(c.vigencia_at, '%Y-%m-%d') AS vigencia, i.precio_unitario
+              c.precio_unitario AS precio_original, c.tipo_cambio_usado, c.flete_monto, c.archivo_url, c.archivo_nombre, c.incluye_flete, DATE_FORMAT(c.tomada_at, '%Y-%m-%d') AS tomada, DATE_FORMAT(c.vigencia_at, '%Y-%m-%d') AS vigencia, i.precio_unitario
          FROM compras_cotizacion c JOIN compras_cotizacion_item i ON i.cotizacion_id = c.id
         WHERE c.negocio_id = ? AND i.producto_id = ? ORDER BY c.tomada_at DESC LIMIT 3`,
       [negocioId, p.id],
     ) as any;
-    return (rows as any[]).map(r => ({
-      id: r.id, proveedor: r.proveedor_nombre, rut: r.proveedor_rut, fecha: r.tomada, vigencia: r.vigencia, moneda: r.moneda || 'CLP',
+    const propio = await Promise.all((rows as any[]).map(r => esRutPropio(r.proveedor_rut)));
+    return (rows as any[]).map((r, i) => ({
+      id: r.id, proveedor: r.proveedor_nombre, rut: propio[i] ? null : r.proveedor_rut, rutEsPropio: propio[i],
+      precioOriginal: r.precio_original != null ? Number(r.precio_original) : null, tipoCambio: r.tipo_cambio_usado != null ? Number(r.tipo_cambio_usado) : null,
+      fleteMonto: r.flete_monto != null ? Number(r.flete_monto) : null, archivoUrl: r.archivo_url, archivoNombre: r.archivo_nombre, fecha: r.tomada, vigencia: r.vigencia, moneda: r.moneda || 'CLP',
       precioUnitario: r.precio_unitario != null ? Number(r.precio_unitario) : null, plazoTexto: r.plazo_entrega_texto, plazoDias: r.plazo_entrega_dias,
       incluyeFlete: r.incluye_flete == null ? null : !!r.incluye_flete, origen: r.origen,
       texto: [r.texto_documento, r.descripcion_libre].filter(Boolean).join('\n\n').slice(0, MAX_TEXTO_COT),
@@ -143,6 +148,7 @@ const ADENDA = `
 - Responde SOLO con el JSON de la PARTE X, sin markdown ni texto alrededor.
 - El sistema te entrega los respaldos ya LEÍDOS (texto de cada link capturado en vivo y texto de cada cotización) con un id: "R1".."R3" para los links, "COT<n>" para cotizaciones, "HIS<n>" para compras históricas. Usa esos ids en "respaldos[].id" y en "id_respaldo". Cita SOLO texto que esté en esos respaldos: el sistema verifica cada precio contra el texto y descarta lo que no encuentre.
 - CAMPOS EXTRA que el sistema necesita (el sistema hace las cuentas; tú solo los extraes):
+  · respaldos[].cantidad_cotizada: número o null. Para cada COT/proforma: la CANTIDAD de unidades que ese documento cotiza (p. ej. 1 si el documento cotiza 1 unidad y la licitación pide 3). Compárala con la cantidad de la licitación en V2.
   · verificaciones.V2_unidad.factor_unidades: número. Cuántas unidades DE LA LICITACIÓN trae el precio del respaldo (1 si el precio es por la unidad pedida; 10 si es una caja de 10 y se pide la unidad). null si no puedes determinarlo.
   · verificaciones.V5_costos_ocultos[].monto_neto_clp_total: número o null. Monto NETO en CLP de ese cargo para TODA la cantidad a comprar (no por unidad), solo si el respaldo lo dice.
   · verificaciones.V8_plazo.plazo_proveedor_dias: número o null (los días tal como los dice el proveedor; el sistema convierte hábiles a corridos).
@@ -159,7 +165,7 @@ function sistemaL1(): string {
 const fmt = (n: number | null | undefined) => (n == null ? '—' : `$${Math.round(n).toLocaleString('es-CL')}`);
 
 // ── L1 · Auditoría de UNA línea ───────────────────────────────────────────────────────────────────
-export interface OpcionesAuditoria { actor?: { id: number; nombre: string | null } | null; pasada?: 'linea' | 'final' }
+export interface OpcionesAuditoria { actor?: { id: number; nombre: string | null } | null; pasada?: 'linea' | 'final'; forzar?: boolean }
 
 interface EntradaLinea {
   linea: LineaCosteo; licitacion: Awaited<ReturnType<typeof lineaDeLaLicitacion>>; tecnico: ProductoTecnico;
@@ -181,7 +187,7 @@ function construirUsuarioL1(e: EntradaLinea): string {
     rs.push(`--- RESPALDO R${i + 1} · tipo LINK_WEB · url ${c.url}${c.urlFinal && c.urlFinal !== c.url ? ` (URL final: ${c.urlFinal})` : ''} · captura_id C${c.id} · capturada ${c.capturadoAt} · estado detectado por el sistema: ${c.estado} (HTTP ${c.httpStatus ?? 'sin respuesta'})${c.error ? ` · error: ${c.error}` : ''}\nTEXTO CAPTURADO:\n${c.texto.slice(0, MAX_TEXTO_LINK) || '(vacío: la página no entregó texto)'}`);
   });
   for (const c of e.cotizaciones) {
-    rs.push(`--- RESPALDO COT${c.id} · tipo ${c.origen === 'pdf' || c.origen === 'imagen' ? 'COTIZACION_FORMAL' : 'RESPALDO_INFORMAL'} (origen cargado: ${c.origen}) · proveedor "${c.proveedor}" RUT ${c.rut || 'n/d'} · tomada ${c.fecha} · vigencia declarada ${c.vigencia || 'no declara'} · moneda ${c.moneda} · precio unitario asignado a este producto ${fmt(c.precioUnitario)} · plazo ${c.plazoTexto || (c.plazoDias != null ? `${c.plazoDias} días` : 'n/d')} · flete incluido: ${c.incluyeFlete == null ? 'n/d' : c.incluyeFlete ? 'sí' : 'no'}\nTEXTO:\n${c.texto || '(sin texto legible)'}`);
+    rs.push(`--- RESPALDO COT${c.id} · tipo ${c.origen === 'pdf' || c.origen === 'imagen' ? 'COTIZACION_FORMAL' : 'RESPALDO_INFORMAL'} (origen cargado: ${c.origen}) · proveedor "${c.proveedor}" RUT ${c.rut || 'n/d'} · tomada ${c.fecha} · vigencia declarada ${c.vigencia || 'no declara'} · moneda ${c.moneda}${c.moneda !== 'CLP' ? ` (precio original ${c.precioOriginal ?? 'n/d'} ${c.moneda}, convertido con tipo de cambio ${c.tipoCambio ?? 'n/d'}) ` : ' '}· precio unitario asignado a este producto en pesos ${fmt(c.precioUnitario)}${c.fleteMonto ? ` · flete cobrado aparte ${fmt(c.fleteMonto)}` : ''} · plazo ${c.plazoTexto || (c.plazoDias != null ? `${c.plazoDias} días` : 'n/d')} · flete incluido: ${c.incluyeFlete == null ? 'n/d' : c.incluyeFlete ? 'sí' : 'no'}\nTEXTO:\n${c.texto || '(sin texto legible)'}`);
   }
   for (const h of e.historico) rs.push(`--- RESPALDO HIS${h.id} · tipo HISTORICO_INTERNO · compra nuestra (Obuma) folio ${h.folio || 'n/d'} · fecha ${h.fecha || 'n/d'} · producto "${h.nombre}" · precio unitario ${fmt(h.precio)} (según la OC de compra; IVA no declarado en el dato)`);
   partes.push(`D/E) RESPALDOS CARGADOS Y CAPTURAS DEL SISTEMA (${e.capturas.length} link(s), ${e.cotizaciones.length} cotización(es), ${e.historico.length} histórico(s)):\n${rs.join('\n\n') || '(no hay ningún respaldo cargado: SIN_RESPALDO)'}`);
@@ -230,6 +236,15 @@ export async function auditarLinea(negocioId: number, filaId: string, opts: Opci
   ]);
 
   const sinNada = capturas.length === 0 && cotizaciones.length === 0 && historico.length === 0;
+  // Huella de TODO lo que se le da al modelo: si no cambió nada desde la última auditoría, no se gasta otra llamada a la IA
+  // (se recalcula solo lo del sistema: dólar, margen, plazos). Es lo que hace barata la pasada final y las re-auditorías.
+  const huella = createHash('sha256').update(JSON.stringify({
+    l: [linea.detalle, linea.unidad, linea.sku, linea.cantidad, linea.costoRegistradoNeto, linea.links], lic: licitacion, tec: tecnico,
+    caps: capturas.map(c => [c.url, c.estado, createHash('sha256').update(c.texto).digest('hex')]),
+    cots: cotizaciones.map(c => [c.id, c.precioUnitario, c.precioOriginal, c.moneda, c.tipoCambio, c.fleteMonto, c.plazoDias, c.vigencia, c.rut, c.texto]),
+    his: historico.map(h => [h.id, h.precio, h.fecha]),
+  })).digest('hex');
+  const reutilizar = !opts.forzar && !sinNada && !!previo?.modelo && previo.huella === huella;
   let salida: SalidaModelo; let avisos: string[] = []; let precioNoVerificado = false;
   let candidatas: CandidataBusqueda[] = []; let historiales: Record<string, HistorialProveedorMP | null> = {};
   let mp: PrecioMercadoPublico | null = null; let modeloUsado = MODELO;
@@ -237,7 +252,10 @@ export async function auditarLinea(negocioId: number, filaId: string, opts: Opci
   const tokens = tokensDeProducto(linea.detalle, linea.sku, tecnico.marca, tecnico.modelo,
     ...capturas.flatMap(c => [...c.texto.matchAll(/sku="([^"]+)"/g)].map(m => m[1])));
 
-  if (sinNada) {
+  if (reutilizar && previo) {
+    salida = previo.modelo; avisos = [...previo.sistema.guardarrailes]; precioNoVerificado = previo.sistema.precioNoVerificado;
+    mp = previo.sistema.precioMercadoPublico; modeloUsado = previo.modeloIA; candidatas = [];
+  } else if (sinNada) {
     salida = respaldoVacio(linea); modeloUsado = 'sin-modelo';
     mp = await preciosMercadoPublico(tokens).catch(() => null);
   } else {
@@ -281,10 +299,10 @@ export async function auditarLinea(negocioId: number, filaId: string, opts: Opci
   });
 
   // V10-b lo decide el SISTEMA (dispersión sobre la mediana): si no hay dispersión, lo que el modelo haya marcado no vale.
-  if (!sistema.dispersion?.activa && salida.verificaciones?.V10b_discordancia) salida.verificaciones.V10b_discordancia = { activa: false };
+  if (!reutilizar && !sistema.dispersion?.activa && salida.verificaciones?.V10b_discordancia) salida.verificaciones.V10b_discordancia = { activa: false };
 
   // L2 · triangulación cuando los precios del MISMO producto se separan de la mediana (V10-b).
-  if (!sinNada && sistema.dispersion?.activa) {
+  if (!sinNada && !reutilizar && sistema.dispersion?.activa) {
     try {
       const adic = await buscarReferencias(`${tokens.slice(0, 2).join(' ')} ${linea.detalle.split(/\s+/).slice(0, 4).join(' ')} precio`);
       const nuevas = adic.candidatas.filter(c => !candidatas.some(x => x.url === c.url) && (tokens.length === 0 || tokens.some(k => c.nombre.toLowerCase().replace(/[^a-z0-9]/g, '').includes(k)))).slice(0, 4);
@@ -308,6 +326,17 @@ export async function auditarLinea(negocioId: number, filaId: string, opts: Opci
     fila: { id: linea.id, item: linea.item, lineaReal: linea.lineaReal, detalle: linea.detalle, unidad: linea.unidad, sku: linea.sku, cantidad: linea.cantidad, grupo: linea.grupo },
     auditadoAt: ahoraChileSQL(), modeloIA: modeloUsado, pasada: opts.pasada || 'linea', modelo: salida, sistema,
     capturas: capturas.map(c => ({ id: c.id, url: c.url, estado: c.estado, capturadoAt: c.capturadoAt, hayImagen: !!c.imagen })),
+    huella,
+    respaldosInfo: [
+      ...cotizaciones.map((c): RespaldoInfo => ({
+        id: `COT${c.id}`, tipo: 'COTIZACION', etiqueta: `Cotización #${c.id} · ${c.proveedor}`, proveedor: c.proveedor, rut: c.rut, rutEsPropio: c.rutEsPropio,
+        moneda: c.moneda, precioOriginal: c.precioOriginal, tipoCambio: c.tipoCambio, precioClp: c.precioUnitario, fleteMonto: c.fleteMonto, plazoDias: c.plazoDias,
+        vigencia: c.vigencia, fecha: c.fecha, archivoUrl: c.archivoUrl, cotizacionId: c.id,
+        cantidadCotizada: (salida.respaldos || []).find(r => r.id === `COT${c.id}`)?.cantidad_cotizada ?? null,
+      })),
+      ...capturas.map((c, i): RespaldoInfo => ({ id: `R${i + 1}`, tipo: 'LINK', etiqueta: `Link ${i + 1} · ${c.url.replace(/^https?:\/\//, '').slice(0, 60)}`, fecha: c.capturadoAt, archivoUrl: c.url })),
+      ...historico.map((h): RespaldoInfo => ({ id: `HIS${h.id}`, tipo: 'HISTORICO', etiqueta: `Compra anterior · ${h.nombre.slice(0, 50)}`, precioOriginal: h.precio, fecha: h.fecha })),
+    ],
   };
   guardada.cambiosVsAnterior = cambiosEntreAuditorias(previo, guardada);
 
@@ -333,14 +362,59 @@ export async function auditarLinea(negocioId: number, filaId: string, opts: Opci
   return guardada;
 }
 
-/** Corre el auditor de una línea sin bloquear a quien llama (disparo continuo: al agregar o cambiar un link o un costo). */
+/** Corre el auditor de una línea sin bloquear a quien llama (disparo continuo: al agregar o cambiar un link o un costo).
+ *  Si ya hay una auditoría de esa línea en curso, no se pierde el aviso: se vuelve a correr apenas termine. */
 const enCurso = new Set<string>();
+const volverACorrer = new Map<string, { id: number; nombre: string | null } | null>();
 export function auditarLineaEnSegundoPlano(negocioId: number, filaId: string, actor?: { id: number; nombre: string | null } | null): void {
+  const k = `${negocioId}:${filaId}`;
+  if (enCurso.has(k)) { volverACorrer.set(k, actor ?? null); return; }
+  enCurso.add(k);
+  auditarLinea(negocioId, filaId, { actor }).catch(e => console.error(`[auditor-compras] falló en segundo plano (${k}):`, String(e).slice(0, 200))).finally(() => {
+    enCurso.delete(k);
+    if (volverACorrer.has(k)) { const a = volverACorrer.get(k); volverACorrer.delete(k); auditarLineaEnSegundoPlano(negocioId, filaId, a); }
+  });
+}
+
+/** Auditoría manual forzada (ignora la huella): corre completa con IA aunque nada haya cambiado. */
+export function forzarAuditoria(negocioId: number, filaId: string, actor?: { id: number; nombre: string | null } | null): void {
   const k = `${negocioId}:${filaId}`;
   if (enCurso.has(k)) return;
   enCurso.add(k);
-  auditarLinea(negocioId, filaId, { actor }).catch(e => console.error(`[auditor-compras] falló en segundo plano (${k}):`, String(e).slice(0, 200))).finally(() => enCurso.delete(k));
+  auditarLinea(negocioId, filaId, { actor, forzar: true }).catch(e => console.error(`[auditor-compras] falló (${k}):`, String(e).slice(0, 200))).finally(() => enCurso.delete(k));
 }
+
+/** Como auditarLineaEnSegundoPlano, pero espera unos segundos a que pare la actividad: al subir 3 cotizaciones seguidas
+ *  se audita UNA vez (con las 3), no tres veces. */
+const timers = new Map<string, ReturnType<typeof setTimeout>>();
+export function programarAuditoria(negocioId: number, filaId: string, actor?: { id: number; nombre: string | null } | null, esperaMs = 15_000): void {
+  const k = `${negocioId}:${filaId}`;
+  const previo = timers.get(k); if (previo) clearTimeout(previo);
+  timers.set(k, setTimeout(() => { timers.delete(k); auditarLineaEnSegundoPlano(negocioId, filaId, actor); }, esperaMs));
+}
+export function auditoriasProgramadas(negocioId: number): string[] {
+  return [...timers.keys()].filter(k => k.startsWith(`${negocioId}:`)).map(k => k.split(':')[1]);
+}
+
+/** Qué líneas del costeo usan una cotización (por los productos a los que está asignada). */
+export async function filasDeCotizacion(negocioId: number, cotizacionId: number): Promise<string[]> {
+  const estado = await cargarEstadoCosteo(negocioId);
+  if (!estado) return [];
+  const [items] = await pool.query(`SELECT i.producto_id FROM compras_cotizacion_item i JOIN compras_cotizacion c ON c.id = i.cotizacion_id WHERE i.cotizacion_id = ? AND c.negocio_id = ?`, [cotizacionId, negocioId]) as any;
+  const ids = new Set((items as any[]).map(x => x.producto_id));
+  if (ids.size === 0) return [];
+  const [prods] = await pool.query(`SELECT id, correlativo, descripcion FROM compras_producto WHERE negocio_id = ?`, [negocioId]) as any;
+  const norm = (x: string) => x.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 80);
+  const out: string[] = [];
+  for (const l of lineasDelCosteo(estado)) {
+    if (l.esGastoExtra) continue;
+    const p = (prods as any[]).find(x => l.lineaReal != null && x.correlativo === l.lineaReal && (prods as any[]).filter(y => y.correlativo === l.lineaReal).length === 1)
+      ?? (prods as any[]).find(x => norm(String(x.descripcion)) === norm(l.detalle));
+    if (p && ids.has(p.id)) out.push(l.id);
+  }
+  return out;
+}
+
 // Lotes ("auditar todo" y pasada final) en segundo plano: una auditoría por línea son 1-3 minutos con el modelo.
 const lotes = new Map<number, { tipo: 'todo' | 'final'; total: number; hechas: number; error: string | null }>();
 export function estadoLote(negocioId: number) { return lotes.get(negocioId) ?? null; }
@@ -395,6 +469,7 @@ export interface PanelAuditorCompras {
   pasadaFinal: { at: string; pasa: boolean; bloqueadas: number; cambios: Array<{ item: number; detalle: string; cambios: string[] }> } | null;
   parametros: typeof PARAMS; migracionAplicada: boolean;
   lote: { tipo: 'todo' | 'final'; total: number; hechas: number; error: string | null } | null;
+  preparacion: Preparacion | null; programadas: string[];
 }
 
 async function filasGuardadas(negocioId: number) {
@@ -439,10 +514,10 @@ export async function recalcularProyecto(negocioId: number, opts: { lectura?: st
 export async function armarPanel(negocioId: number, lecturaNueva?: string | null): Promise<PanelAuditorCompras> {
   const estado = await cargarEstadoCosteo(negocioId);
   const parametros = PARAMS;
-  if (!estado) return { negocioId, hayCostea: false, lineas: [], margen: null, posicion: null, mensajesProveedor: [], resumen: { total: 0, verificadas: 0, conAlertas: 0, bloqueadas: 0, sinAuditar: 0, pendientes: 0, pasaAnexosOk: false }, pasadaFinal: null, parametros, migracionAplicada: true, lote: null };
+  if (!estado) return { negocioId, hayCostea: false, lineas: [], margen: null, posicion: null, mensajesProveedor: [], resumen: { total: 0, verificadas: 0, conAlertas: 0, bloqueadas: 0, sinAuditar: 0, pendientes: 0, pasaAnexosOk: false }, pasadaFinal: null, parametros, migracionAplicada: true, lote: null, preparacion: null, programadas: [] };
   const lineas = lineasDelCosteo(estado);
   let guardadas: Map<string, any>;
-  try { guardadas = await filasGuardadas(negocioId); } catch { return { negocioId, hayCostea: true, lineas: lineas.map(l => ({ linea: l, guardada: null, derivada: null, justificacionAhorro: null, justificacionPor: null, habilitacion: null, auditando: false })), margen: null, posicion: null, mensajesProveedor: [], resumen: { total: lineas.length, verificadas: 0, conAlertas: 0, bloqueadas: 0, sinAuditar: lineas.length, pendientes: 0, pasaAnexosOk: false }, pasadaFinal: null, parametros, migracionAplicada: false, lote: null }; }
+  try { guardadas = await filasGuardadas(negocioId); } catch { return { negocioId, hayCostea: true, lineas: lineas.map(l => ({ linea: l, guardada: null, derivada: null, justificacionAhorro: null, justificacionPor: null, habilitacion: null, auditando: false })), margen: null, posicion: null, mensajesProveedor: [], resumen: { total: lineas.length, verificadas: 0, conAlertas: 0, bloqueadas: 0, sinAuditar: lineas.length, pendientes: 0, pasaAnexosOk: false }, pasadaFinal: null, parametros, migracionAplicada: false, lote: null, preparacion: null, programadas: [] }; }
 
   const verificados: Record<string, number | undefined> = {};
   for (const l of lineas) { const g = guardadas.get(l.id)?.guardada; if (g?.sistema.verificadoNeto != null) verificados[l.id] = g.sistema.verificadoNeto; }
@@ -480,7 +555,50 @@ export async function armarPanel(negocioId: number, lecturaNueva?: string | null
     pasaAnexosOk: auditadasN.length === evaluables.length && auditadasN.every(p => p.derivada!.pasaAnexosOk),
   };
   const mensajesProveedor = mensajesPorProveedor(panelLineas.filter(p => p.guardada && p.derivada).map(p => ({ linea: p.guardada!, derivada: p.derivada! })));
-  return { negocioId, hayCostea: true, lineas: panelLineas, margen, posicion, mensajesProveedor, resumen, pasadaFinal, parametros, migracionAplicada: true, lote: estadoLote(negocioId) };
+  return { negocioId, hayCostea: true, lineas: panelLineas, margen, posicion, mensajesProveedor, resumen, pasadaFinal, parametros, migracionAplicada: true, lote: estadoLote(negocioId), preparacion: await armarPreparacion(negocioId, lineas, pres.neto).catch(() => null), programadas: auditoriasProgramadas(negocioId) };
+}
+
+// ── ¿Está lista la licitación para auditarse? ────────────────────────────────────────────────────
+async function armarPreparacion(negocioId: number, lineas: LineaCosteo[], presupuesto: number | null): Promise<Preparacion> {
+  const prep: PrepLinea[] = [];
+  for (const l of lineas) {
+    if (l.esGastoExtra) continue;
+    const [tecnico, cots] = await Promise.all([productoTecnico(negocioId, l.lineaReal), cotizacionesDeLaLinea(negocioId, l)]);
+    prep.push({
+      linea: l, tecnico: { estado: tecnico.estado, marca: tecnico.marca, modelo: tecnico.modelo },
+      cotizaciones: cots.map(c => ({ id: c.id, proveedor: c.proveedor, rut: c.rut, rutEsPropio: c.rutEsPropio, moneda: c.moneda, tipoCambio: c.tipoCambio, plazoDias: c.plazoDias, fleteMonto: c.fleteMonto, incluyeFlete: c.incluyeFlete, vigencia: c.vigencia, tieneTexto: c.texto.trim().length > 40, asignadaAProductos: 1 })),
+    });
+  }
+  const [sinProd] = await pool.query(`SELECT c.id, c.proveedor_nombre FROM compras_cotizacion c LEFT JOIN compras_cotizacion_item i ON i.cotizacion_id = c.id WHERE c.negocio_id = ? AND i.id IS NULL`, [negocioId]) as any;
+  const [reloj, dolar] = await Promise.all([obtenerEstadoReloj(negocioId).catch(() => null), dolarDelDia().catch(() => null)]);
+  return diagnosticarPreparacion(prep, (sinProd as any[]).map(x => ({ id: x.id, proveedor: x.proveedor_nombre })),
+    { presupuestoNeto: presupuesto, relojDefinido: !!reloj?.fechaLimiteVigente, dolarDisponible: !!dolar?.usado });
+}
+
+// ── Evidencia: de dónde salió una conclusión ("el ojo") ───────────────────────────────────────────
+export interface EvidenciaRespaldo { id: string; tipo: 'COTIZACION' | 'LINK'; titulo: string; archivoUrl: string | null; capturaId: number | null; fecha: string | null; texto: string; contieneCita: boolean; meta: string[] }
+export async function obtenerEvidencia(negocioId: number, filaId: string, cita: string | null): Promise<{ respaldos: EvidenciaRespaldo[]; cita: string | null }> {
+  const estado = await cargarEstadoCosteo(negocioId);
+  const linea = estado ? lineasDelCosteo(estado).find(l => l.id === filaId) : null;
+  if (!linea) throw new Error('No encontré esa línea.');
+  const out: EvidenciaRespaldo[] = [];
+  const { citaExiste } = await import('@/app/lib/auditor-compras-core');
+  for (const c of await cotizacionesDeLaLinea(negocioId, linea)) {
+    out.push({
+      id: `COT${c.id}`, tipo: 'COTIZACION', titulo: `Cotización #${c.id} · ${c.proveedor}`, archivoUrl: c.archivoUrl, capturaId: null, fecha: c.fecha, texto: c.texto,
+      contieneCita: !!cita && citaExiste(c.texto, cita),
+      meta: [`Moneda: ${c.moneda}${c.moneda !== 'CLP' ? ` · precio original ${c.precioOriginal ?? 'n/d'} · tipo de cambio ${c.tipoCambio ?? 'n/d'} · en pesos ${c.precioUnitario ?? 'n/d'}` : ''}`, `Plazo: ${c.plazoTexto || c.plazoDias || 'no declarado'}`, `Vigencia: ${c.vigencia || 'no registrada'}`, c.rutEsPropio ? 'El RUT que traía era el de tu empresa: se ignora' : `RUT: ${c.rut || 'no informado'}`],
+    });
+  }
+  const [caps] = await pool.query(
+    `SELECT c.id, c.url, DATE_FORMAT(c.capturado_at, '%Y-%m-%d %H:%i') AS f, c.estado_link, c.texto, (c.imagen IS NOT NULL) AS hay
+       FROM compras_auditor_costeo_captura c
+       JOIN (SELECT url, MAX(id) mid FROM compras_auditor_costeo_captura WHERE negocio_id = ? AND fila_id = ? GROUP BY url) u ON u.mid = c.id`, [negocioId, filaId]) as any;
+  for (const c of caps as any[]) {
+    out.push({ id: `C${c.id}`, tipo: 'LINK', titulo: `Link · ${String(c.url).replace(/^https?:\/\//, '').slice(0, 70)}`, archivoUrl: c.url, capturaId: c.hay ? c.id : null, fecha: c.f, texto: String(c.texto || ''),
+      contieneCita: !!cita && citaExiste(String(c.texto || ''), cita), meta: [`Estado del link al capturar: ${c.estado_link}`, `Capturado el ${c.f}`] });
+  }
+  return { respaldos: out.sort((a, b) => Number(b.contieneCita) - Number(a.contieneCita)), cita };
 }
 
 // ── L3 · lectura del resumen ──────────────────────────────────────────────────────────────────────

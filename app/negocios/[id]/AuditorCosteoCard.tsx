@@ -9,18 +9,33 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import {
   IconLoader2 as Loader2, IconShieldCheck as ShieldCheck, IconAlertTriangle as AlertTriangle, IconRefresh as RefreshCw, IconChevronDown as ChevronDown,
-  IconChevronUp as ChevronUp, IconExternalLink as ExternalLink, IconCopy as Copy, IconPhoto as Photo, IconScale as Scale, IconFlag as Flag,
+  IconChevronUp as ChevronUp, IconEye as Eye, IconX as X, IconFileText as FileText, IconExternalLink as ExternalLink, IconCopy as Copy, IconPhoto as Photo, IconScale as Scale, IconFlag as Flag,
 } from '@tabler/icons-react';
 
 type Veredicto = 'VERIFICADO' | 'VERIFICADO_CON_ALERTAS' | 'REQUIERE_HABILITACION' | 'NO_VERIFICADO' | 'SIN_RESPALDO' | 'PENDIENTE_CRUCE_TECNICO';
-interface Bloqueo { codigo: string; mensaje: string; salida: string }
-interface Alerta { codigo: string; nivel: 'rojo' | 'amarillo' | 'info'; mensaje: string }
+type Accion = 'subir' | 'pedir_proveedor' | 'corregir_costeo' | 'justificar' | 'habilitar' | 'revisar';
+interface Bloqueo { codigo: string; mensaje: string; salida: string; accion?: Accion; cita?: string }
+interface Alerta { codigo: string; nivel: 'rojo' | 'amarillo' | 'info'; mensaje: string; cita?: string; accion?: Accion }
+interface RespaldoInfo {
+  id: string; tipo: 'COTIZACION' | 'LINK' | 'HISTORICO'; etiqueta: string; proveedor?: string; rut?: string | null; rutEsPropio?: boolean; moneda?: string;
+  precioOriginal?: number | null; tipoCambio?: number | null; precioClp?: number | null; fleteMonto?: number | null; plazoDias?: number | null;
+  vigencia?: string | null; fecha?: string | null; archivoUrl?: string | null; cantidadCotizada?: number | null;
+}
+interface ItemPrep { nivel: 'falta' | 'aviso' | 'ok'; texto: string; comoSolucionar: string; item?: number; donde?: string }
+interface Preparacion { lista: boolean; items: ItemPrep[]; resumen: { faltas: number; avisos: number } }
+interface EvidenciaResp { id: string; tipo: 'COTIZACION' | 'LINK'; titulo: string; archivoUrl: string | null; capturaId: number | null; fecha: string | null; texto: string; contieneCita: boolean; meta: string[] }
+const ACCION: Record<Accion, { txt: string; cls: string }> = {
+  subir: { txt: 'Sube un documento', cls: 'bg-sky-50 text-sky-700 border-sky-200' }, pedir_proveedor: { txt: 'Pídeselo al proveedor', cls: 'bg-violet-50 text-violet-700 border-violet-200' },
+  corregir_costeo: { txt: 'Corrige el costeo', cls: 'bg-amber-50 text-amber-800 border-amber-200' }, justificar: { txt: 'Justifica por escrito', cls: 'bg-zinc-50 text-zinc-700 border-zinc-200' },
+  habilitar: { txt: 'Pide habilitación', cls: 'bg-violet-50 text-violet-700 border-violet-200' }, revisar: { txt: 'Revisa y decide', cls: 'bg-zinc-50 text-zinc-700 border-zinc-200' },
+};
 interface Opcion { opcion: string; origen: 'asistente' | 'auditor'; costo_bodega: number | null; neto_unitario: number | null; motivo_sin_normalizar: string | null; stock?: string; tipo_respaldo?: string; url?: string; despacho?: string }
 interface LineaPanel {
   linea: { id: string; item: number; detalle: string; unidad: string; sku: string; cantidad: number | null; costoRegistradoNeto: number | null; links: string[]; esGastoExtra: boolean; grupo: string };
   guardada: null | {
     auditadoAt: string; modeloIA: string; pasada: string; cambiosVsAnterior?: string[];
     capturas: Array<{ id: number; url: string; estado: string; capturadoAt: string; hayImagen: boolean }>;
+    respaldosInfo?: RespaldoInfo[];
     modelo: { ruta?: string; ayuda?: { diagnostico?: string; causa_probable?: string; pregunta_proveedor?: string; accion_concreta?: string }; verificaciones?: { V9_proveedor_mp?: { evidencia?: string; alerta_competidor?: boolean }; V10_referencias?: { descartadas_no_mismo_producto?: Array<{ url?: string; motivo?: string }> } }; no_pude_leer?: Array<{ que?: string; donde?: string }> };
     sistema: { costeadoNeto: number | null; verificadoNeto: number | null; diffPct: number | null; diffMonto: number | null; direccion: string | null; comparador: Opcion[]; guardarrailes: string[]; dolar: { usado: number | null; fecha: string | null }; precioMercadoPublico: { neto: number | null; n: number; calidad: string } | null; refMediana: number | null };
   };
@@ -46,6 +61,7 @@ interface Panel {
   resumen: { total: number; verificadas: number; conAlertas: number; bloqueadas: number; sinAuditar: number; pasaAnexosOk: boolean };
   pasadaFinal: null | { at: string; pasa: boolean; bloqueadas: number; cambios: Array<{ item: number; detalle: string; cambios: string[] }> };
   lote: null | { tipo: 'todo' | 'final'; total: number; hechas: number; error: string | null };
+  preparacion: Preparacion | null; programadas: string[];
 }
 
 const clp = (n: number | null | undefined) => (n == null ? '—' : `$${Math.round(n).toLocaleString('es-CL')}`);
@@ -67,6 +83,7 @@ export function AuditorCosteoCard({ negocioId, puedeOperar }: { negocioId: numbe
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [textos, setTextos] = useState<Record<string, string>>({});
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [ojo, setOjo] = useState<{ filaId: string; cita: string | null; titulo: string; respaldoId?: string } | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -79,7 +96,7 @@ export function AuditorCosteoCard({ negocioId, puedeOperar }: { negocioId: numbe
 
   useEffect(() => { cargar(); }, [cargar]);
   // Mientras hay algo auditándose (línea suelta, lote o pasada final) se refresca solo cada 4 s.
-  const trabajando = !!panel && (panel.lineas.some(l => l.auditando) || (!!panel.lote && panel.lote.hechas < panel.lote.total) || (!!panel.lote && panel.lote.total === 0 && !panel.lote.error));
+  const trabajando = !!panel && (panel.programadas.length > 0 || panel.lineas.some(l => l.auditando) || (!!panel.lote && panel.lote.hechas < panel.lote.total) || (!!panel.lote && panel.lote.total === 0 && !panel.lote.error));
   useEffect(() => {
     if (!trabajando) return;
     timer.current = setTimeout(cargar, 4000);
@@ -147,6 +164,8 @@ export function AuditorCosteoCard({ negocioId, puedeOperar }: { negocioId: numbe
         )}
       </div>
 
+      {panel.preparacion && <PreparacionCard prep={panel.preparacion} />}
+
       {pos && <PosicionPrecioCard pos={pos} puedeOperar={puedeOperar} ocupado={ocupado === 'lectura'} onLectura={() => accion({ accion: 'lectura' }, 'lectura')} />}
 
       <div className="space-y-2">
@@ -163,6 +182,7 @@ export function AuditorCosteoCard({ negocioId, puedeOperar }: { negocioId: numbe
                   <span className="block text-[11px] text-zinc-500">{lp.linea.cantidad ?? '—'} {lp.linea.unidad} · costeado {clp(lp.linea.costoRegistradoNeto)} neto/u{s?.verificadoNeto != null ? ` · verificado ${clp(s.verificadoNeto)}` : ''}{s?.diffPct != null && Math.abs(s.diffPct) >= 0.5 ? <b className={s.diffPct > 0 ? 'text-rose-600' : 'text-emerald-600'}> ({s.diffPct > 0 ? '+' : ''}{s.diffPct}%)</b> : null}</span>
                 </span>
                 {lp.auditando ? <span className="flex items-center gap-1 text-[11px] text-teal-700"><Loader2 size={12} className="animate-spin" /> Auditando…</span>
+                  : panel.programadas.includes(lp.linea.id) ? <span className="flex items-center gap-1 text-[11px] text-teal-700"><Loader2 size={12} className="animate-spin" /> Cambió algo: se re-audita sola…</span>
                   : v ? <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border ${VER[v].cls}`}>{VER[v].txt}{lp.derivada!.bloqueos.length ? ` · ${lp.derivada!.bloqueos.length} bloqueo(s)` : ''}</span>
                   : <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full border bg-zinc-50 text-zinc-500 border-zinc-200">Sin auditar</span>}
                 {abiertaEsta ? <ChevronUp size={14} className="text-zinc-400" /> : <ChevronDown size={14} className="text-zinc-400" />}
@@ -172,17 +192,19 @@ export function AuditorCosteoCard({ negocioId, puedeOperar }: { negocioId: numbe
                   {puedeOperar && (
                     <div className="flex justify-end">
                       <button onClick={() => accion({ accion: 'auditar', filaId: lp.linea.id }, `a-${lp.linea.id}`, 'Auditando la línea…')} disabled={!!ocupado || lp.auditando}
-                        className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-teal-300 text-teal-800 hover:bg-teal-50 disabled:opacity-50"><RefreshCw size={12} /> {lp.guardada ? 'Volver a auditar esta línea' : 'Auditar esta línea'}</button>
+                        className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-teal-300 text-teal-800 hover:bg-teal-50 disabled:opacity-50"><RefreshCw size={12} /> {lp.guardada ? 'Volver a auditar (forzar)' : 'Auditar esta línea'}</button>
                     </div>
                   )}
                   {!lp.guardada && <p className="text-[12px] text-zinc-500">Esta línea todavía no se audita. {lp.linea.links.length === 0 && 'Le falta el link del producto (Link 1) o una cotización cargada.'}</p>}
-                  {lp.guardada && lp.derivada && <DetalleLinea lp={lp} negocioId={negocioId} puedeOperar={puedeOperar} ocupado={ocupado} textos={textos} setTextos={setTextos} accion={accion} />}
+                  {lp.guardada && lp.derivada && <DetalleLinea lp={lp} negocioId={negocioId} puedeOperar={puedeOperar} ocupado={ocupado} textos={textos} setTextos={setTextos} accion={accion} verOjo={(cita, titulo, respaldoId) => setOjo({ filaId: lp.linea.id, cita, titulo, respaldoId })} />}
                 </div>
               )}
             </div>
           );
         })}
       </div>
+
+      {ojo && <EvidenciaModal negocioId={negocioId} filaId={ojo.filaId} cita={ojo.cita} titulo={ojo.titulo} respaldoId={ojo.respaldoId} onClose={() => setOjo(null)} />}
 
       {panel.mensajesProveedor.length > 0 && (
         <div className="bg-white rounded-xl border border-zinc-200 p-3.5 space-y-2">
@@ -232,7 +254,8 @@ function PosicionPrecioCard({ pos, puedeOperar, ocupado, onLectura }: { pos: Pos
   );
 }
 
-function DetalleLinea({ lp, negocioId, puedeOperar, ocupado, textos, setTextos, accion }: {
+function DetalleLinea({ lp, negocioId, puedeOperar, ocupado, textos, setTextos, accion, verOjo }: {
+  verOjo: (cita: string | null, titulo: string, respaldoId?: string) => void;
   lp: LineaPanel; negocioId: number; puedeOperar: boolean; ocupado: string | null; textos: Record<string, string>;
   setTextos: (f: (t: Record<string, string>) => Record<string, string>) => void; accion: (b: Record<string, unknown>, k: string, ok?: string) => Promise<void>;
 }) {
@@ -246,12 +269,24 @@ function DetalleLinea({ lp, negocioId, puedeOperar, ocupado, textos, setTextos, 
 
       {d.bloqueos.map((b, i) => (
         <div key={i} className="rounded-lg border border-rose-200 bg-rose-50 p-2.5">
-          <p className="text-[12px] font-semibold text-rose-800">🔴 {b.mensaje}</p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-[12px] font-semibold text-rose-800">🔴 {b.mensaje}</p>
+            <span className="flex items-center gap-1 shrink-0">
+              {b.accion && <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${ACCION[b.accion].cls}`}>{ACCION[b.accion].txt}</span>}
+              <button onClick={() => verOjo(b.cita ?? null, b.mensaje)} title="Ver de dónde sacó esta conclusión" className="p-1 rounded-md border border-rose-200 bg-white text-rose-700 hover:bg-rose-100"><Eye size={13} /></button>
+            </span>
+          </div>
           <p className="text-[11.5px] text-rose-700 mt-0.5">↳ Cómo salir: {b.salida}</p>
+          {b.cita && <p className="text-[11px] text-rose-600/80 mt-0.5 italic">Según el documento: «{b.cita.slice(0, 220)}»</p>}
         </div>
       ))}
       {d.v4.caidaPuntos != null && d.v4.margenAntes != null && d.bloqueos.some(b => b.codigo === 'V4_ALZA_IMPORTANTE') && <p className="text-[11.5px] text-rose-700">Margen del proyecto: {d.v4.margenAntes}% → {d.v4.margenDespues}% ({d.v4.caidaPuntos} puntos).</p>}
-      {d.alertas.map((a, i) => <p key={i} className={`text-[11.5px] px-2 py-1 rounded border ${NIVEL_ALERTA[a.nivel]}`}>{a.nivel === 'rojo' ? '🔴 ' : a.nivel === 'amarillo' ? '🟡 ' : 'ℹ️ '}{a.mensaje}</p>)}
+      {d.alertas.map((a, i) => (
+        <p key={i} className={`text-[11.5px] px-2 py-1 rounded border flex items-start justify-between gap-2 ${NIVEL_ALERTA[a.nivel]}`}>
+          <span>{a.nivel === 'rojo' ? '🔴 ' : a.nivel === 'amarillo' ? '🟡 ' : 'ℹ️ '}{a.mensaje}</span>
+          {a.cita && <button onClick={() => verOjo(a.cita ?? null, a.mensaje)} title="Ver de dónde sacó esto" className="shrink-0 p-0.5 rounded border border-current/20 bg-white/70 hover:bg-white"><Eye size={12} /></button>}
+        </p>
+      ))}
 
       {d.impactoCostoTotalNeto != null && d.impactoCostoTotalNeto !== 0 && <p className="text-[11.5px] text-zinc-600">Impacto si se corrige: <b>{d.impactoCostoTotalNeto > 0 ? '+' : ''}{clp(d.impactoCostoTotalNeto)}</b> en el costo total neto de la línea.</p>}
 
@@ -263,6 +298,8 @@ function DetalleLinea({ lp, negocioId, puedeOperar, ocupado, textos, setTextos, 
           {ayuda.pregunta_proveedor && <p><b>Pregunta al proveedor:</b> {ayuda.pregunta_proveedor}</p>}
         </div>
       )}
+
+      {g.respaldosInfo && g.respaldosInfo.length > 0 && <RespaldosLeidos respaldos={g.respaldosInfo} cantidadRequerida={lp.linea.cantidad} dolarUsado={g.sistema.dolar.usado} verOjo={verOjo} />}
 
       {g.sistema.comparador.length > 0 && (
         <div className="overflow-x-auto">
@@ -277,7 +314,7 @@ function DetalleLinea({ lp, negocioId, puedeOperar, ocupado, textos, setTextos, 
         </div>
       )}
       {g.modelo.verificaciones?.V10_referencias?.descartadas_no_mismo_producto?.length ? (
-        <details className="text-[11px] text-zinc-500"><summary className="cursor-pointer">Referencias descartadas ({g.modelo.verificaciones.V10_referencias.descartadas_no_mismo_producto.length}): un un "similar" no es referenciaquot;similarun "similar" no es referenciaquot; no es referencia</summary>
+        <details className="text-[11px] text-zinc-500"><summary className="cursor-pointer">Referencias descartadas ({g.modelo.verificaciones.V10_referencias.descartadas_no_mismo_producto.length}): un &quot;similar&quot; no es referencia</summary>
           {g.modelo.verificaciones.V10_referencias.descartadas_no_mismo_producto.map((x, i) => <p key={i} className="mt-0.5">• {x.url} — {x.motivo}</p>)}</details>) : null}
       {g.modelo.verificaciones?.V9_proveedor_mp?.evidencia && <p className="text-[11px] text-zinc-500"><b>Proveedor en MercadoPública:</b> {g.modelo.verificaciones.V9_proveedor_mp.evidencia}</p>}
       {g.sistema.precioMercadoPublico?.neto != null && <p className="text-[11px] text-zinc-500"><b>Mercado público:</b> el Estado compró este producto a {clp(g.sistema.precioMercadoPublico.neto)} neto (mediana de {g.sistema.precioMercadoPublico.n} dato(s)).</p>}
@@ -322,6 +359,117 @@ function DetalleLinea({ lp, negocioId, puedeOperar, ocupado, textos, setTextos, 
           </div>
         )}
       {!d.pasaAnexosOk && <p className="text-[11.5px] font-bold text-rose-600 flex items-center gap-1"><AlertTriangle size={12} /> Línea bloqueada para ANEXOS OK</p>}
+    </div>
+  );
+}
+
+
+function PreparacionCard({ prep }: { prep: Preparacion }) {
+  const [abierta, setAbierta] = useState(!prep.lista);
+  const faltas = prep.items.filter(i => i.nivel === 'falta'), avisos = prep.items.filter(i => i.nivel === 'aviso');
+  return (
+    <div className={`rounded-xl border overflow-hidden ${prep.lista ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-300 bg-amber-50/50'}`}>
+      <button onClick={() => setAbierta(a => !a)} className="w-full flex items-center justify-between gap-2 px-3.5 py-2.5 text-left">
+        <span className="text-[12.5px] font-bold text-zinc-800">
+          {prep.lista ? '✅ Tiene lo necesario para auditarse' : `⚠️ Falta cargar ${faltas.length} cosa(s) para que la auditoría sea completa`}
+          <span className="ml-2 text-[11px] font-normal text-zinc-500">{avisos.length} aviso(s)</span>
+        </span>
+        {abierta ? <ChevronUp size={14} className="text-zinc-400" /> : <ChevronDown size={14} className="text-zinc-400" />}
+      </button>
+      {abierta && (
+        <div className="px-3.5 pb-3 space-y-1.5 border-t border-black/5 pt-2">
+          <p className="text-[11px] text-zinc-500">Se revisa sola cada vez que subes o cambias algo. Lo de «falta» impide auditar bien; lo de «aviso» se puede auditar igual, pero con menos certeza.</p>
+          {[...faltas, ...avisos].map((i, k) => (
+            <div key={k} className={`rounded-lg border px-2.5 py-1.5 text-[11.5px] ${i.nivel === 'falta' ? 'border-rose-200 bg-white' : 'border-amber-200 bg-white'}`}>
+              <p className="font-semibold text-zinc-800">{i.nivel === 'falta' ? '🔴' : '🟡'} {i.texto}{i.donde && <span className="ml-1.5 text-[10px] font-bold text-zinc-400 uppercase">{i.donde}</span>}</p>
+              <p className="text-zinc-600">↳ Cómo se arregla: {i.comoSolucionar}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RespaldosLeidos({ respaldos, cantidadRequerida, dolarUsado, verOjo }: { respaldos: RespaldoInfo[]; cantidadRequerida: number | null; dolarUsado: number | null; verOjo: (cita: string | null, titulo: string, respaldoId?: string) => void }) {
+  const cots = respaldos.filter(r => r.tipo === 'COTIZACION');
+  if (cots.length === 0) return null;
+  return (
+    <div className="overflow-x-auto">
+      <p className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide mb-1">Cotizaciones leídas · cantidad a comprar: <span className="text-zinc-800">{cantidadRequerida ?? '—'}</span>{dolarUsado ? <span className="normal-case font-normal"> · dólar BCCh + $10 para importación: ${dolarUsado.toLocaleString('es-CL')}</span> : null}</p>
+      <table className="w-full text-[11.5px]">
+        <thead><tr className="text-left text-zinc-400"><th className="py-1 pr-2">Cotización</th><th className="pr-2">Cantidad que cotiza</th><th className="pr-2 text-right">Precio original</th><th className="pr-2 text-right">Tipo de cambio</th><th className="pr-2 text-right">Unitario en pesos</th><th className="pr-2">Plazo / vigencia</th><th></th></tr></thead>
+        <tbody>{cots.map(r => {
+          const distinta = r.cantidadCotizada != null && cantidadRequerida != null && r.cantidadCotizada !== cantidadRequerida;
+          return (
+            <tr key={r.id} className="border-t border-zinc-100 align-top">
+              <td className="py-1 pr-2"><span className="font-semibold text-zinc-800">{r.etiqueta}</span>{r.rutEsPropio && <span className="block text-[10px] text-amber-600">El RUT que traía era el de tu empresa: se ignora</span>}</td>
+              <td className={`pr-2 ${distinta ? 'text-rose-600 font-bold' : 'text-zinc-600'}`}>{r.cantidadCotizada ?? 'no identificada'}{distinta && ' ≠ ' + cantidadRequerida}</td>
+              <td className="pr-2 text-right tabular-nums">{r.precioOriginal != null ? `${r.moneda && r.moneda !== 'CLP' ? r.moneda + ' ' : '$'}${r.precioOriginal.toLocaleString('es-CL')}` : '—'}</td>
+              <td className="pr-2 text-right tabular-nums text-zinc-500">{r.moneda && r.moneda !== 'CLP' ? (r.tipoCambio ? `$${r.tipoCambio.toLocaleString('es-CL')}` : <b className="text-rose-600">sin tipo de cambio</b>) : '—'}</td>
+              <td className="pr-2 text-right tabular-nums font-semibold">{r.precioClp != null ? `$${Math.round(r.precioClp).toLocaleString('es-CL')}` : '—'}{r.fleteMonto ? <span className="block text-[10px] font-normal text-zinc-400">+ flete ${Math.round(r.fleteMonto).toLocaleString('es-CL')}</span> : null}</td>
+              <td className="pr-2 text-zinc-500">{r.plazoDias != null ? `${r.plazoDias} d` : 'sin plazo'} · {r.vigencia || 'sin vigencia'}</td>
+              <td className="whitespace-nowrap">
+                <button onClick={() => verOjo(null, r.etiqueta, r.id)} title="Ver el documento y el texto que se leyó" className="p-1 rounded-md border border-zinc-200 hover:bg-zinc-50"><Eye size={13} /></button>
+                {r.archivoUrl && <a href={r.archivoUrl} target="_blank" rel="noreferrer" title="Abrir el archivo original" className="ml-1 inline-flex p-1 rounded-md border border-zinc-200 hover:bg-zinc-50 align-middle"><FileText size={13} /></a>}
+              </td>
+            </tr>
+          );
+        })}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function resaltar(texto: string, cita: string | null): Array<{ t: string; m: boolean }> {
+  if (!cita) return [{ t: texto, m: false }];
+  const palabras = cita.trim().split(/\s+/).filter(Boolean).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  if (palabras.length === 0) return [{ t: texto, m: false }];
+  const m = new RegExp(palabras.join('[^a-zA-Z0-9áéíóúñÁÉÍÓÚÑ]+'), 'i').exec(texto);
+  if (!m) return [{ t: texto, m: false }];
+  return [{ t: texto.slice(0, m.index), m: false }, { t: m[0], m: true }, { t: texto.slice(m.index + m[0].length), m: false }];
+}
+
+function EvidenciaModal({ negocioId, filaId, cita, titulo, respaldoId, onClose }: { negocioId: number; filaId: string; cita: string | null; titulo: string; respaldoId?: string; onClose: () => void }) {
+  const [data, setData] = useState<{ respaldos: EvidenciaResp[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    fetch(`/api/compras/${negocioId}/auditor-costeo/evidencia?filaId=${encodeURIComponent(filaId)}${cita ? `&cita=${encodeURIComponent(cita)}` : ''}`)
+      .then(r => r.json()).then(d => { if (!vivo) return; if (!d.success) setError(d.error || 'No se pudo leer la evidencia.'); else setData(d); })
+      .catch(e => vivo && setError(String(e.message || e)));
+    return () => { vivo = false; };
+  }, [negocioId, filaId, cita]);
+  return (
+    <div className="fixed inset-0 z-[80] bg-black/40 flex items-start justify-center p-3 overflow-y-auto" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl my-6" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-zinc-100">
+          <div><p className="text-[13px] font-bold text-zinc-800 flex items-center gap-1.5"><Eye size={15} /> De dónde salió esta conclusión</p>
+            <p className="text-[11.5px] text-zinc-500 mt-0.5">{titulo}</p>
+            {cita && <p className="text-[11.5px] mt-1 px-2 py-1 rounded bg-yellow-50 border border-yellow-200 text-yellow-900">Cita literal buscada: «{cita}»</p>}</div>
+          <button onClick={onClose} className="p-1 rounded-md hover:bg-zinc-100"><X size={16} /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          {!data && !error && <p className="text-[12px] text-zinc-500 flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Buscando en los documentos…</p>}
+          {error && <p className="text-[12px] text-rose-700">{error}</p>}
+          {data && data.respaldos.length === 0 && <p className="text-[12px] text-zinc-500">Esta línea no tiene respaldos leídos todavía.</p>}
+          {data && [...data.respaldos].sort((a, b) => Number(b.id === respaldoId) - Number(a.id === respaldoId)).map(r => (
+            <div key={r.id} className={`rounded-lg border ${r.contieneCita ? 'border-yellow-300 ring-1 ring-yellow-200' : 'border-zinc-200'}`}>
+              <div className="flex items-center justify-between gap-2 px-3 py-2 bg-zinc-50 rounded-t-lg">
+                <p className="text-[12px] font-semibold text-zinc-800">{r.titulo}{r.contieneCita && <span className="ml-2 text-[10px] font-bold text-yellow-800 bg-yellow-100 px-1.5 py-0.5 rounded-full">contiene la cita</span>}</p>
+                <span className="flex gap-2 text-[11px]">
+                  {r.archivoUrl && <a href={r.archivoUrl} target="_blank" rel="noreferrer" className="font-semibold text-teal-700 inline-flex items-center gap-1"><ExternalLink size={12} /> {r.tipo === 'COTIZACION' ? 'Abrir el documento original' : 'Abrir el link'}</a>}
+                  {r.capturaId && <a href={`/api/compras/${negocioId}/auditor-costeo/captura/${r.capturaId}`} target="_blank" rel="noreferrer" className="font-semibold text-teal-700 inline-flex items-center gap-1"><Photo size={12} /> Ver la captura</a>}
+                </span>
+              </div>
+              <div className="px-3 py-1.5 text-[11px] text-zinc-500 border-b border-zinc-100">{r.meta.join(' · ')}</div>
+              <pre className="px-3 py-2 text-[11.5px] text-zinc-700 whitespace-pre-wrap font-sans max-h-72 overflow-y-auto">
+                {r.texto ? resaltar(r.texto, cita).map((x, i) => x.m ? <mark key={i} className="bg-yellow-200 rounded px-0.5">{x.t}</mark> : <span key={i}>{x.t}</span>) : '(no se pudo leer texto de este respaldo)'}
+              </pre>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

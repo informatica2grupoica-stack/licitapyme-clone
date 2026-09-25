@@ -16,6 +16,24 @@ function variantesRut(rut: string): string[] {
   return [...new Set([`${conPuntos}-${dv}`, `${cuerpo}-${dv}`, `${conPuntos}-${dv.toLowerCase()}`, `${cuerpo}-${dv.toLowerCase()}`])];
 }
 
+// ── RUT de NUESTRAS empresas ──────────────────────────────────────────────────────────────────────
+// En las proformas y cotizaciones el RUT del COMPRADOR (nosotros) aparece junto al del proveedor; si el lector
+// se equivoca, el "proveedor" queda con nuestro propio RUT (caso real PanTai en #994) y se le ve como competidor.
+let cacheRutsPropios: { at: number; ruts: Set<string> } | null = null;
+export async function rutsPropios(): Promise<Set<string>> {
+  if (cacheRutsPropios && Date.now() - cacheRutsPropios.at < 5 * 60_000) return cacheRutsPropios.ruts;
+  const ruts = new Set<string>();
+  try {
+    const [rows] = await pool.query(`SELECT rut FROM empresas WHERE rut IS NOT NULL AND rut <> ''`) as any;
+    for (const r of rows as any[]) ruts.add(normRut(r.rut));
+  } catch { /* sin tabla de empresas: no se filtra nada */ }
+  cacheRutsPropios = { at: Date.now(), ruts };
+  return ruts;
+}
+export async function esRutPropio(rut: string | null | undefined): Promise<boolean> {
+  return !!rut && (await rutsPropios()).has(normRut(rut));
+}
+
 // ── S2 · Dólar ────────────────────────────────────────────────────────────────────────────────────
 /** Dólar observado (Banco Central, vía mindicador.cl) del día + $10 — la regla del prompt (V5/Ruta B). */
 export async function dolarDelDia(): Promise<{ observado: number | null; usado: number | null; fecha: string | null; fuente: string | null }> {

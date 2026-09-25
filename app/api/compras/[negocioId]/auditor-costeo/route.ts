@@ -13,7 +13,7 @@ import { obtenerAsignacion } from '@/app/lib/compras';
 import { puedeOperarCompras, puedeVerCompras } from '@/app/api/compras/[negocioId]/route';
 import { esAsesor } from '@/app/api/negocios/[id]/comercial/route';
 import {
-  armarPanel, auditarLineaEnSegundoPlano, generarLecturaPosicion, iniciarLoteEnSegundoPlano, registrarHabilitacion, registrarJustificacionAhorro,
+  armarPanel, forzarAuditoria, generarLecturaPosicion, iniciarLoteEnSegundoPlano, registrarHabilitacion, registrarJustificacionAhorro,
 } from '@/app/lib/auditor-compras';
 
 export const runtime = 'nodejs';
@@ -56,7 +56,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     switch (body?.accion) {
       case 'auditar': {
         if (!body.filaId) return NextResponse.json({ error: 'Falta la línea.' }, { status: 400 });
-        auditarLineaEnSegundoPlano(negId, String(body.filaId), actor);
+        // «Volver a auditar» a mano fuerza la corrida completa con IA aunque nada haya cambiado.
+        forzarAuditoria(negId, String(body.filaId), actor);
         return NextResponse.json({ success: true, iniciado: true });
       }
       case 'auditar_todo': case 'pasada_final': {

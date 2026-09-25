@@ -41,7 +41,7 @@ export interface SalidaModelo {
     id?: string; tipo?: string; archivo_o_url?: string; captura_id?: string;
     emisor?: { razon_social?: string; rut?: string; vendedor?: string };
     fecha?: string; vigencia?: string; estado_link?: string; legibilidad?: 'completa' | 'parcial' | 'nula';
-    no_legible_detalle?: string; sostiene_costo?: boolean;
+    no_legible_detalle?: string; sostiene_costo?: boolean; cantidad_cotizada?: number | null;
   }>;
   conflicto_respaldos?: { existe?: boolean; versiones?: Array<{ respaldo?: string; valor?: string; cita?: string }> };
   verificaciones?: {
@@ -282,6 +282,17 @@ export interface LineaGuardada {
   modelo: SalidaModelo; sistema: DatosSistemaLinea;
   capturas: Array<{ id: number; url: string; estado: string; capturadoAt: string; hayImagen: boolean }>;
   cambiosVsAnterior?: string[];
+  /** Las cotizaciones que se leyeron para esta línea, con lo que el SISTEMA sabe de ellas (moneda, tipo de cambio,
+   *  RUT propio, archivo) — se ven en pantalla junto al veredicto. */
+  respaldosInfo?: RespaldoInfo[];
+  /** Huella de todo lo que se le dio al modelo: si no cambió, no se vuelve a llamar a la IA (ver auditarLinea). */
+  huella?: string;
+}
+export interface RespaldoInfo {
+  id: string; tipo: 'COTIZACION' | 'LINK' | 'HISTORICO'; etiqueta: string; proveedor?: string; rut?: string | null; rutEsPropio?: boolean;
+  moneda?: string; precioOriginal?: number | null; tipoCambio?: number | null; precioClp?: number | null; fleteMonto?: number | null;
+  plazoDias?: number | null; vigencia?: string | null; fecha?: string | null; archivoUrl?: string | null; cotizacionId?: number;
+  cantidadCotizada?: number | null;
 }
 
 // ── Guardarraíles: el código verifica lo que dice el modelo ───────────────────────────────────────
@@ -431,8 +442,13 @@ export function calcularSistemaLinea(
 
 // ── Veredicto y matriz de bloqueo (Parte VIII) ────────────────────────────────────────────────────
 export type Veredicto = 'VERIFICADO' | 'VERIFICADO_CON_ALERTAS' | 'REQUIERE_HABILITACION' | 'NO_VERIFICADO' | 'SIN_RESPALDO' | 'PENDIENTE_CRUCE_TECNICO';
-export interface Bloqueo { codigo: string; mensaje: string; salida: string }
-export interface Alerta { codigo: string; nivel: 'rojo' | 'amarillo' | 'info'; mensaje: string }
+/** Qué tipo de gestión resuelve el problema: subir un documento, pedirle algo al proveedor, corregir el costeo,
+ *  justificar por escrito, pedir una habilitación, o revisar/decidir entre respaldos. */
+export type AccionSolucion = 'subir' | 'pedir_proveedor' | 'corregir_costeo' | 'justificar' | 'habilitar' | 'revisar';
+/** `cita` es el fragmento literal del respaldo de donde salió la conclusión (el "ojo" de la pantalla lo busca en los
+ *  documentos y lo resalta); `accion` dice quién tiene que hacer qué. */
+export interface Bloqueo { codigo: string; mensaje: string; salida: string; accion?: AccionSolucion; cita?: string }
+export interface Alerta { codigo: string; nivel: 'rojo' | 'amarillo' | 'info'; mensaje: string; cita?: string; accion?: AccionSolucion }
 export interface Habilitacion { nivel: 'EM' | 'CA'; porNombre: string | null; motivo: string; at: string }
 export interface ContextoLinea {
   margen: MargenProyecto | null;
@@ -559,6 +575,18 @@ export function derivarLinea(linea: LineaCosteo, g: LineaGuardada, ctx: Contexto
   const falt = v.V11_datos_oc?.faltantes || [];
   if (falt.length) alerta('V11_DATOS_OC', 'amarillo', `Faltan datos para la orden de compra: ${falt.join(', ')}.`);
   for (const t of g.modelo.no_pude_leer || []) if (t.que) alerta('NO_LEGIBLE', 'amarillo', `No se pudo leer: ${t.que}${t.donde ? ` (${t.donde})` : ''}.`);
+
+  // A cada bloqueo se le agrega quién tiene que hacer qué (accion) y de dónde salió la conclusión (cita).
+  const enr: Record<string, { accion: AccionSolucion; cita?: string }> = {
+    SIN_RESPALDO: { accion: 'subir' }, CONFLICTO_RESPALDOS: { accion: 'revisar', cita: g.modelo.conflicto_respaldos?.versiones?.[0]?.cita },
+    V1_NO_COINCIDE: { accion: 'pedir_proveedor', cita: v1?.cita }, V1_NO_VERIFICABLE: { accion: 'pedir_proveedor', cita: v1?.cita }, V1_ACCESORIO: { accion: 'corregir_costeo' },
+    V2_UNIDAD: { accion: 'pedir_proveedor', cita: v2?.cita }, V3_DOBLE_IVA: { accion: 'corregir_costeo', cita: v3?.cita }, V3_IVA_OMITIDO: { accion: 'corregir_costeo', cita: v3?.cita },
+    V3_MONEDA: { accion: 'corregir_costeo', cita: v3?.cita }, V4_ALZA_IMPORTANTE: { accion: 'corregir_costeo', cita: v.V4_precio?.cita }, V4_PRECIO_SIN_CITA: { accion: 'subir' },
+    V10_AHORRO: { accion: 'justificar' }, RUTA_B_INCOTERM: { accion: 'pedir_proveedor', cita: g.modelo.ruta_b?.cita },
+  };
+  for (const b of bloqueos) { const e = enr[b.codigo]; if (e) { b.accion = e.accion; if (e.cita) b.cita = e.cita; } }
+  const citaDe: Record<string, string | undefined> = { V6_SIN_STOCK: v.V6_stock?.cita, V6_POCAS: v.V6_stock?.cita, V8_NO_DECLARADO: v.V8_plazo?.cita, V8_PLAZO: v.V8_plazo?.cita };
+  for (const a of alertas) { if (citaDe[a.codigo]) a.cita = citaDe[a.codigo]; if (a.codigo.startsWith('V5_')) a.cita = (v.V5_costos_ocultos || []).find(c => 'V5_' + String(c.tipo).toUpperCase() === a.codigo)?.cita; }
 
   // Veredicto
   const hayBloqueo = bloqueos.length > 0;
@@ -697,3 +725,48 @@ export function cambiosEntreAuditorias(antes: LineaGuardada | null, ahora: Linea
 }
 
 export type { FilaEditorCosteo };
+
+
+// ── ¿Está lista la licitación para auditarse? ─────────────────────────────────────────────────────
+// Antes de gastar una auditoría, el sistema dice qué falta y cómo se arregla. Es puro: recibe lo que ya se leyó.
+export interface PrepCotizacion {
+  id: number; proveedor: string; rut: string | null; rutEsPropio: boolean; moneda: string; tipoCambio: number | null;
+  plazoDias: number | null; fleteMonto: number | null; incluyeFlete: boolean | null; vigencia: string | null; tieneTexto: boolean; asignadaAProductos: number;
+}
+export interface PrepLinea { linea: LineaCosteo; tecnico: { estado: 'aprobado' | 'pendiente' | 'no_existe'; marca: string; modelo: string }; cotizaciones: PrepCotizacion[] }
+export interface ItemPreparacion { nivel: 'falta' | 'aviso' | 'ok'; texto: string; comoSolucionar: string; item?: number; donde?: string }
+export interface Preparacion { lista: boolean; items: ItemPreparacion[]; resumen: { faltas: number; avisos: number } }
+
+export function diagnosticarPreparacion(
+  lineas: PrepLinea[], cotizacionesSinProducto: Array<{ id: number; proveedor: string }>,
+  global: { presupuestoNeto: number | null; relojDefinido: boolean; dolarDisponible: boolean },
+): Preparacion {
+  const items: ItemPreparacion[] = [];
+  const add = (nivel: ItemPreparacion['nivel'], texto: string, comoSolucionar: string, item?: number, donde?: string) => items.push({ nivel, texto, comoSolucionar, item, donde });
+  for (const { linea: l, tecnico, cotizaciones } of lineas) {
+    if (l.esGastoExtra) continue;
+    const et = `Línea ${l.item} (${l.detalle.slice(0, 40)})`;
+    if (l.cantidad == null) add('falta', `${et}: no tiene cantidad.`, 'Complétala en «Ver costeo».', l.item, 'Costeo');
+    if (l.costoRegistradoNeto == null) add('falta', `${et}: no tiene costo (ni valor con IVA ni costo real).`, 'Carga el valor o el «Costo unit. REAL» en «Ver costeo».', l.item, 'Costeo');
+    if (l.links.length === 0 && cotizaciones.length === 0) add('falta', `${et}: no tiene ningún respaldo (ni link ni cotización).`, 'Pega el Link 1 del producto en «Ver costeo» o sube la cotización y asígnala a este producto.', l.item, 'Costeo / Cotizaciones');
+    else if (l.links.length === 0) add('aviso', `${et}: no tiene link del producto (solo cotizaciones).`, 'Pega el Link 1 en «Ver costeo» si el producto está publicado en una tienda.', l.item, 'Costeo');
+    if (tecnico.estado === 'no_existe') add('aviso', `${et}: el Auditor Técnico no tiene marca y modelo confirmados.`, 'Confirma marca y modelo del producto en el Auditor Técnico; sin eso la identidad (V1) queda «pendiente de cruce técnico».', l.item, 'Auditor Técnico');
+    else if (tecnico.estado === 'pendiente') add('aviso', `${et}: el producto técnico (${tecnico.marca} ${tecnico.modelo}) aún no está aprobado.`, 'Aprueba la línea en el Auditor Técnico.', l.item, 'Auditor Técnico');
+    for (const c of cotizaciones) {
+      const ce = `Cotización #${c.id} de ${c.proveedor}`;
+      if (c.moneda !== 'CLP' && !c.tipoCambio) add('falta', `${ce}: está en ${c.moneda} y no tiene tipo de cambio: no se puede pasar a pesos.`, 'Edita la cotización y guárdala de nuevo (se toma el dólar del día).', l.item, 'Cotizaciones');
+      if (c.rutEsPropio) add('aviso', `${ce}: el RUT del proveedor es el de TU empresa (el comprador), no el del proveedor.`, 'Edita la cotización y deja el RUT del proveedor vacío (o pon el real).', l.item, 'Cotizaciones');
+      if (!c.tieneTexto) add('falta', `${ce}: no se pudo leer el contenido del documento.`, 'Sube una versión legible (PDF con texto) o escribe lo que dice en el campo de detalle.', l.item, 'Cotizaciones');
+      if (c.plazoDias == null) add('aviso', `${ce}: no trae plazo de entrega.`, 'Pregúntaselo al proveedor y complétalo (mensaje listo más abajo).', l.item, 'Cotizaciones');
+      if (c.incluyeFlete == null && c.fleteMonto == null) add('aviso', `${ce}: no dice si incluye flete ni cuánto cuesta.`, 'Confírmalo con el proveedor y complétalo: sin eso el flete cuenta como $0 sin confirmar.', l.item, 'Cotizaciones');
+      if (!c.vigencia) add('aviso', `${ce}: sin fecha de vigencia registrada.`, 'Anótala en la cotización (Válida hasta …).', l.item, 'Cotizaciones');
+    }
+  }
+  for (const c of cotizacionesSinProducto) add('falta', `Cotización #${c.id} de ${c.proveedor}: no está asignada a ningún producto.`, 'Pulsa «Homologar con IA» o «Asignar productos» en esa cotización.', undefined, 'Cotizaciones');
+  if (global.presupuestoNeto == null) add('aviso', 'No hay presupuesto del organismo informado.', 'La posición de precio funciona igual, pero sin el presupuesto no hay espacio de maniobra.', undefined, 'Resumen ejecutivo');
+  if (!global.relojDefinido) add('aviso', 'No está fijado el plazo de entrega al cliente (reloj).', 'Defínelo en la pestaña Tareas («Reloj de entrega») para poder medir el plazo de los proveedores.', undefined, 'Tareas');
+  if (!global.dolarDisponible) add('aviso', 'No se pudo obtener el dólar del día.', 'Reintenta en unos minutos: sin dólar la Ruta B (importación) no se puede calcular.', undefined, 'Sistema');
+  const faltas = items.filter(i => i.nivel === 'falta').length, avisos = items.filter(i => i.nivel === 'aviso').length;
+  if (items.length === 0) add('ok', 'Todo lo necesario está cargado.', '');
+  return { lista: faltas === 0, items, resumen: { faltas, avisos } };
+}
