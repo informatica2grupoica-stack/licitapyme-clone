@@ -26,6 +26,7 @@ import { ingresarVersionCosteo } from '../costeo/route';
 import { yaCongelado } from '@/app/lib/congelamiento';
 import { obtenerAsignacion, sincronizarProductosConCosteo } from '@/app/lib/compras';
 import { fusionarEdicionCompras, cambiosDeCompras, mensajeCambiosCompras } from '@/app/lib/costeo-compras';
+import { auditarFilasCambiadasEnSegundoPlano } from '@/app/lib/auditor-compras';
 import { registrarEvento } from '@/app/lib/historial';
 import { publicarCambio } from '@/app/lib/sse-bus';
 
@@ -229,7 +230,10 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       });
     }
     obtenerAsignacion(negocio.id).then(asig => {
-      if (asig) return sincronizarProductosConCosteo(negocio.id);
+      if (!asig) return;
+      // Auditor de Compras (PROMPT 5): al cambiar un link o un costo, se audita esa línea en segundo plano.
+      auditarFilasCambiadasEnSegundoPlano(negocio.id, guardado, r.estado, { id: userId, nombre: nombreActor });
+      return sincronizarProductosConCosteo(negocio.id);
     }).catch(e => console.error('[comercial/costeo-editor][PATCH] no se pudo sincronizar Productos y cobertura (no crítico):', String(e).slice(0, 150)));
     publicarCambio('compras'); // el costo real consolidado y el dashboard de Compras se actualizan solos
     return NextResponse.json({ success: true, estado: r.estado });
@@ -280,6 +284,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
     const nombreActor = request.headers.get('x-user-nombre') || (await nombreDe(userId)) || 'Usuario';
     const ahora = ahoraChileSQL();
 
+    const estadoPrevio = await estadoGuardado(negocio.id);
     await pool.query(
       `INSERT INTO negocio_costeo_editor (negocio_id, modalidad, datos_json, actualizado_por, actualizado_por_nombre, actualizado_at)
        VALUES (?, ?, ?, ?, ?, ?)
@@ -304,7 +309,9 @@ export async function PUT(request: NextRequest, { params }: Params) {
     // esto, guardar un costeo nuevo/corregido DESPUÉS de ganar no se reflejaba ahí hasta apretar el
     // botón manual "Sincronizar con costeo". No crítico: si falla, el costeo igual quedó guardado.
     obtenerAsignacion(negocio.id).then(asig => {
-      if (asig) return sincronizarProductosConCosteo(negocio.id);
+      if (!asig) return;
+      auditarFilasCambiadasEnSegundoPlano(negocio.id, estadoPrevio, estado, { id: userId, nombre: nombreActor });
+      return sincronizarProductosConCosteo(negocio.id);
     }).catch(e => console.error('[comercial/costeo-editor] no se pudo sincronizar Productos y cobertura (no crítico):', String(e).slice(0, 150)));
 
     publicarCambio('compras'); // idem: el admin también carga costo real desde acá

@@ -129,7 +129,8 @@ async function migracion83Aplicada(): Promise<boolean> {
 // La migración 127 (analisis_json, comparador de fichas) — mismo patrón tolerante que 72 y 83.
 let m127: boolean | null = null;
 export async function migracion127Aplicada(): Promise<boolean> {
-  if (m127 !== null) return m127;
+  // Solo se cachea el SÍ: un NO se vuelve a chequear, así aplicar la migración no exige reiniciar.
+  if (m127) return true;
   try {
     const [rows] = await pool.query<Array<{ n: number }> & RowDataPacket[]>(
       `SELECT COUNT(*) AS n FROM INFORMATION_SCHEMA.COLUMNS
@@ -138,7 +139,7 @@ export async function migracion127Aplicada(): Promise<boolean> {
     );
     m127 = Number(rows[0]?.n || 0) === 1;
   } catch { m127 = false; }
-  return m127;
+  return !!m127;
 }
 
 export async function leerCaracteristicas(itemId: number) {

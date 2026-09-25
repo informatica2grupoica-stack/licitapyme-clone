@@ -17,6 +17,7 @@ import { DocumentosLicitacionCard } from '@/app/negocios/[id]/DocumentosLicitaci
 import { AuditoriaAgenteNegocioCard } from '@/app/negocios/[id]/AuditoriaAgenteNegocioCard';
 import { ProductosCompraCard } from '@/app/negocios/[id]/ProductosCompraCard';
 import { AuditorComprasCard } from '@/app/negocios/[id]/AuditorComprasCard';
+import { AuditorCosteoCard } from '@/app/negocios/[id]/AuditorCosteoCard';
 import { AprobacionesCompraCard } from '@/app/negocios/[id]/AprobacionesCompraCard';
 import { RepartoAdminCard } from '@/app/negocios/[id]/RepartoAdminCard';
 import { ResumenGastosCard } from '@/app/negocios/[id]/ResumenGastosCard';
@@ -653,6 +654,8 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             {faseActiva === 'costeo' && (
               <div className="space-y-3">
                 <ProductosCompraCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
+                {/* PROMPT 5: verifica cada línea de la tabla de costeo (respaldo real, producto, unidad, IVA, costos ocultos) y da la posición de precio. */}
+                <AuditorCosteoCard negocioId={negocioId} puedeOperar={puedeOperar} />
                 <AuditorComprasCard negocioId={negocioId} puedeOperar={puedeOperar} />
               </div>
             )}
