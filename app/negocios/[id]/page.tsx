@@ -1334,10 +1334,14 @@ function DetalleContent() {
   // cuando el asistente empieza a armar la oferta. Se queda visible en las etapas posteriores
   // (postulada, adjudicada) a propósito: ahí es donde hay que poder mostrar quién aprobó qué.
   //
-  // Módulo todavía en desarrollo (24-jul-2026): oculto para perfiles normales — solo lo ve el
-  // admin mientras se sigue trabajando. El resto del flujo (subir docs, avanzar de etapa,
-  // postular) no depende de esto en ningún punto, así que ocultarlo no bloquea nada.
-  const hayComercial = isAdmin && tieneInformacionComercial(negocio.estado_pipeline);
+  // Costeo y Auditor Técnico eran 100% admin-only "mientras se seguía trabajando" (24-jul-2026).
+  // 28-sep-2026, pedido explícito: en vez de abrirlos a todos, cada uno se habilita por separado a
+  // un asistente puntual con su propio permiso (otorgado desde /admin/usuarios) — mismo patrón que
+  // `hayCompras` más abajo. El resto del flujo (subir docs, avanzar de etapa, postular) no depende
+  // de esto en ningún punto, así que restringirlos no bloquea nada más.
+  const infoComercialLista = tieneInformacionComercial(negocio.estado_pipeline);
+  const hayCosteo = (isAdmin || !!usuario?.permisos?.costeo_editor) && infoComercialLista;
+  const hayAuditorTecnico = (isAdmin || !!usuario?.permisos?.auditor_tecnico) && infoComercialLista;
   // "Compras" solo aparece cuando el negocio ganó (Módulo de Compras, spec §3.1: "solo las líneas
   // efectivamente adjudicadas") y para quien puede operarlo: jefe de ventas (aprobar_comercial),
   // un Encargado de Compras (permiso compras), o `compras_todo` real — "ser admin" YA NO alcanza
@@ -1357,12 +1361,12 @@ function DetalleContent() {
     { key: 'comentarios',  label: 'Comentarios',        count: null },
     // "Costeo" va justo ARRIBA de "Auditor Técnico" (pedido del usuario, 02-sep-2026): es el
     // paso previo — se arma el precio acá, y el Auditor Técnico (Motor Comercial) ya lo ve
-    // reflejado apenas se guarda, sin tener que subir ningún Excel. Mismo gate que el Auditor
-    // Técnico por ahora (admin, desde que hay Información Comercial): es la misma etapa de trabajo.
-    ...(hayComercial
+    // reflejado apenas se guarda, sin tener que subir ningún Excel. Cada uno con su propio gate
+    // (hayCosteo / hayAuditorTecnico) desde que hay Información Comercial.
+    ...(hayCosteo
       ? [{ key: 'costeo' as Seccion, label: 'Costeo', count: null }]
       : []),
-    ...(hayComercial
+    ...(hayAuditorTecnico
       ? [{ key: 'comercial' as Seccion, label: 'Auditor Técnico', count: comercialPorAprobar || null, alerta: comercialPorAprobar > 0 }]
       : []),
   ];
@@ -1533,10 +1537,10 @@ function DetalleContent() {
                 onEstadoChanged={sincronizarEstadoPipeline}
               />
             )}
-            {seccion === 'costeo' && hayComercial && (
+            {seccion === 'costeo' && hayCosteo && (
               <CosteoEditorCard negocioId={negocio.id} licitacionCodigo={negocio.licitacion_codigo} />
             )}
-            {seccion === 'comercial' && hayComercial && (
+            {seccion === 'comercial' && hayAuditorTecnico && (
               <InformacionComercialSection
                 negocioId={negocio.id}
                 licitacionCodigo={negocio.licitacion_codigo}

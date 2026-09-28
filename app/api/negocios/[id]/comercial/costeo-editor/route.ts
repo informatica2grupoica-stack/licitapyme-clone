@@ -41,18 +41,22 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol };
 }
 
-// EL COSTEO DEL SISTEMA ES ADMIN-ONLY POR AHORA (03-sep-2026, decisión del usuario: "ese costeo
-// solo debe estar habilitado para los admin de momento, después será habilitado para todos").
-// La pestaña "Costeo" del negocio ya se pinta solo para admin (page.tsx, `hayComercial`), pero el
-// gate vivía SOLO en el front: cualquiera con acceso al negocio podía leer y escribir el costeo
-// llamando a esta ruta directo. Se cierra acá, que es donde de verdad manda.
-//
-// PARA ABRIRLO A TODOS: borrar esta función y sus 2 llamadas (GET y PUT), y sacar `isAdmin &&` de
-// `hayComercial` en app/negocios/[id]/page.tsx. Son los dos únicos lugares.
-function soloAdmin(rol: string | null) {
-  return rol === 'admin'
-    ? null
-    : NextResponse.json({ error: 'El costeo del sistema está habilitado solo para administradores.' }, { status: 403 });
+// EL COSTEO DEL SISTEMA ERA ADMIN-ONLY (03-sep-2026, decisión del usuario: "ese costeo solo debe
+// estar habilitado para los admin de momento, después será habilitado para todos"). 28-sep-2026,
+// pedido explícito: en vez de abrirlo a todos, un asistente puntual puede trabajarlo igual que un
+// admin si tiene el permiso `costeo_editor` (se otorga desde /admin/usuarios) — la pestaña "Costeo"
+// del negocio ya lo refleja (page.tsx, `hayCosteo`), pero el gate real vive acá: cualquiera con
+// acceso al negocio podía leer y escribir el costeo llamando a esta ruta directo sin este chequeo.
+async function tienePermisoCosteoEditor(userId: number): Promise<boolean> {
+  const p = await permisosCrudosDeUsuario(userId);
+  return !!p.costeo_editor;
+}
+
+function sinAccesoCosteo() {
+  return NextResponse.json(
+    { error: 'El costeo del sistema está habilitado solo para administradores o para quien tenga el permiso "Costeo — trabajarlo".' },
+    { status: 403 },
+  );
 }
 
 // Perfil de Compras: puede VER el costeo (GET), nunca modificarlo (PUT y ficha-producto siguen
@@ -95,10 +99,11 @@ function estadoDesdeViabilidad(negocio: { id: number; licitacion_codigo: string 
 export async function GET(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  // Solo lectura para el perfil de Compras (ve todos los negocios del módulo, no modifica).
-  const soloLectura = rol !== 'admin' && await esVisorCompras(userId);
-  const noAdmin = soloLectura ? null : soloAdmin(rol);
-  if (noAdmin) return noAdmin;
+  const puedeTrabajarCosteo = rol === 'admin' || await tienePermisoCosteoEditor(userId);
+  // Solo lectura para el perfil de Compras (ve todos los negocios del módulo, no modifica) — no
+  // aplica si ya puede trabajarlo completo (admin o `costeo_editor`).
+  const soloLectura = !puedeTrabajarCosteo && await esVisorCompras(userId);
+  if (!puedeTrabajarCosteo && !soloLectura) return sinAccesoCosteo();
   const { id } = await params;
 
   try {
@@ -247,8 +252,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 export async function PUT(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  const noAdmin = soloAdmin(rol);
-  if (noAdmin) return noAdmin;
+  if (rol !== 'admin' && !(await tienePermisoCosteoEditor(userId))) return sinAccesoCosteo();
   const { id } = await params;
 
   try {

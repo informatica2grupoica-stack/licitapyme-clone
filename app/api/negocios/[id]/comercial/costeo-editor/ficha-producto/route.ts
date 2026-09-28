@@ -7,7 +7,7 @@
 // no relee negocio_costeo_editor acá: evita depender de que la fila ya esté guardada.
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
+import { puedeVerNegocioAsignado, permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { extraerFichaDeUrl, generarFichaProductoPdf, slugArchivo } from '@/app/lib/costeo-ficha-producto';
 import { cargarNegocio } from '../../route';
@@ -25,11 +25,15 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol };
 }
 
-// Mismo gate que el resto de comercial/costeo-editor: admin-only por ahora.
-function soloAdmin(rol: string | null) {
-  return rol === 'admin'
-    ? null
-    : NextResponse.json({ error: 'El costeo del sistema está habilitado solo para administradores.' }, { status: 403 });
+// Mismo gate que el resto de comercial/costeo-editor: admin, o el permiso puntual `costeo_editor`.
+async function sinAccesoCosteo(rol: string | null, userId: number): Promise<NextResponse | null> {
+  if (rol === 'admin') return null;
+  const p = await permisosCrudosDeUsuario(userId);
+  if (p.costeo_editor) return null;
+  return NextResponse.json(
+    { error: 'El costeo del sistema está habilitado solo para administradores o para quien tenga el permiso "Costeo — trabajarlo".' },
+    { status: 403 },
+  );
 }
 
 const CONTENT_TYPE_PDF = 'application/pdf';
@@ -37,7 +41,7 @@ const CONTENT_TYPE_PDF = 'application/pdf';
 export async function POST(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  const noAdmin = soloAdmin(rol);
+  const noAdmin = await sinAccesoCosteo(rol, userId);
   if (noAdmin) return noAdmin;
   const { id } = await params;
 

@@ -129,13 +129,22 @@ export async function puedeVerLicitacion(req: NextRequest, codigo: string): Prom
 //                       sistema. Los perfiles operativos (compras/compras_administracion/
 //                       compras_bodega/aprobar_comercial, o ser el encargado asignado a un negocio
 //                       puntual) siguen funcionando exactamente igual, sean o no admin.
-export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente' | 'compras' | 'compras_administracion' | 'compras_bodega' | 'compras_todo' | 'solo_compras' | 'compras_ver';
+//   costeo_editor      → (28-sep-2026, pedido explícito) el Costeo del sistema (pestaña "Costeo"
+//                       del negocio) era admin-only "mientras se seguía trabajando" — con esto un
+//                       asistente puntual puede trabajarlo igual que un admin (ver y guardar), sin
+//                       abrirlo a todo el mundo. Se otorga desde /admin/usuarios.
+//   auditor_tecnico    → mismo criterio que costeo_editor, pero para la pestaña "Auditor Técnico"
+//                       (checklist técnico/comercial, comparador de fichas). Deja CARGAR ítems;
+//                       APROBAR sigue exigiendo `aprobar_comercial` (o admin) como siempre — esto
+//                       no toca esa regla.
+export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente' | 'compras' | 'compras_administracion' | 'compras_bodega' | 'compras_todo' | 'solo_compras' | 'compras_ver' | 'costeo_editor' | 'auditor_tecnico';
 export type Permisos = Partial<Record<Permiso, boolean>>;
 const PERMISOS_ADMIN: Record<Permiso, boolean> = {
   ver_otros_negocios: true, acceso_radar: true, comentar_viabilidad: true, exportar: true, alertas_anexos: true,
   aprobar_comercial: true, entrega_proyectos: true, viabilidad_automatica: true, repartir_puente: true, compras: true,
   compras_administracion: true, compras_bodega: true,
   compras_ver: true,
+  costeo_editor: true, auditor_tecnico: true,
   solo_compras: false, // restricción, no privilegio: un admin nunca queda encerrado en Compras.
   compras_todo: false, // OJO: distinto de todo lo demás en este objeto — ver permisosDeUsuario, se sobreescribe con el dato real incluso para admin.
 };
