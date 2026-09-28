@@ -72,7 +72,8 @@ async function guardarLinea(itemId: number, negocioId: number, data: LineaJson) 
 }
 
 // ─── Estado completo (todo lo derivado se calcula acá, por código) ──────────────────────────────
-async function armarEstado(item: any) {
+// Exportado: reusado por la ruta hermana .../comparador/pdf (exportar la comparación a PDF).
+export async function armarEstado(item: any) {
   const filas = await filasDelComparador(item);
   const linea = await leerLinea(item.id);
   const tecnicas = filas.filter(f => f.analisis.ambito === 'tecnico');
