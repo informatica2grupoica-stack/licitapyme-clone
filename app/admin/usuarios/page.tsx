@@ -28,6 +28,7 @@ interface Permisos {
   compras_ver?: boolean;
   costeo_editor?: boolean;
   auditor_tecnico?: boolean;
+  auditor_compra?: boolean;
 }
 
 interface UsuarioAdmin {
@@ -70,6 +71,7 @@ const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string; cat
   // puntualmente a un asistente sin abrirlos a todo el mundo (pedido explícito, 28-sep-2026).
   { key: 'costeo_editor',       label: 'Costeo — trabajarlo',                 desc: 'Ve y guarda la pestaña "Costeo" del negocio (editor integrado), igual que un admin. Sin este permiso, un perfil normal no ve esa pestaña.', categoria: 'comercial' },
   { key: 'auditor_tecnico',     label: 'Auditor Técnico — trabajarlo',        desc: 'Ve y carga la pestaña "Auditor Técnico" (checklist técnico/comercial, comparador de fichas). Aprobar sigue exigiendo "Aprobar Información Comercial" aparte.', categoria: 'comercial' },
+  { key: 'auditor_compra',      label: 'Auditor de Compra — trabajarlo',      desc: 'Ve y carga la pestaña "Auditor de Compra" (aparece cuando el negocio ganó): link, precio web y documento de cotización por producto.', categoria: 'comercial' },
   { key: 'repartir_puente',     label: 'Puente del Radar (repartir trabajo)', desc: 'Puede empujar licitaciones del radar al puente y repartirlas entre varios perfiles.', categoria: 'comercial' },
   { key: 'entrega_proyectos',   label: 'Circuito de Entrega de Proyectos',    desc: 'Recibe el aviso cuando ganamos una licitación y debe acusar recibo del proyecto.', categoria: 'comercial' },
   { key: 'compras',             label: 'Encargado de Compras',                desc: 'Candidato a que le asignen negocios ganados (Módulo de Compras): entra al pool de asignación automática y puede operar TODO el negocio (perfil "compras y entrega").', categoria: 'comercial' },

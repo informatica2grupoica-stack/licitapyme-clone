@@ -30,10 +30,11 @@ import { Oportunidad } from '@/app/types/search.types';
 import { TIPO_LICITACION_MAP, MONEDA_LABEL_MAP } from '@/app/types/mercado-publico.types';
 import { RecorridoNegocio } from './RecorridoNegocio';
 import { GestionAside } from './GestionAside';
-import { MenuNegocioLateral, construirNavSeccionesNegocio, SeccionTabs } from '@/app/components/MenuNegocioLateral';
+import { MenuNegocioLateral, construirNavSeccionesNegocio, useFlujoNegocio, SeccionTabs } from '@/app/components/MenuNegocioLateral';
 import OfertasCompetencia from '@/app/components/OfertasCompetencia';
 import { InformacionComercialSection } from './InformacionComercialSection';
 import { CosteoEditorCard } from './CosteoEditorCard';
+import { AuditorCompraCard } from './AuditorCompraCard';
 import { SelectorLineasOferta } from './SelectorLineasOferta';
 import { tieneInformacionComercial } from '@/app/lib/checklist-comercial';
 import { registrarVerSeccion } from '@/app/lib/actividad-cliente';
@@ -173,7 +174,7 @@ interface AnalisisIA {
   actualizado: string;
 }
 
-type Seccion = 'resumen' | 'resultado' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'preguntas' | 'competencia' | 'comentarios' | 'costeo' | 'comercial' | 'compras';
+type Seccion = 'resumen' | 'resultado' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'preguntas' | 'competencia' | 'comentarios' | 'costeo' | 'comercial' | 'auditor_compra' | 'compras';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function fmt(n: number | null | undefined): string {
@@ -1302,6 +1303,61 @@ function DetalleContent() {
   const sincronizarEstadoPipeline = (estadoId: string) =>
     setNegocio(prev => prev ? { ...prev, estado_pipeline: estadoId } : prev);
 
+  // Costeo y Auditor Técnico eran 100% admin-only "mientras se seguía trabajando" (24-jul-2026).
+  // 28-sep-2026, pedido explícito: en vez de abrirlos a todos, cada uno se habilita por separado a
+  // un asistente puntual con su propio permiso (otorgado desde /admin/usuarios) — mismo patrón que
+  // `hayCompras` más abajo. El resto del flujo (subir docs, avanzar de etapa, postular) no depende
+  // de esto en ningún punto, así que restringirlos no bloquea nada más.
+  //
+  // Este bloque va ANTES del guard de loading/error (aunque `negocio` pueda ser null acá) porque
+  // useFlujoNegocio es un hook: llamarlo después de un `return` condicional violaría las reglas de
+  // hooks (se llamarían menos hooks mientras carga que una vez cargado el negocio).
+  const infoComercialLista = tieneInformacionComercial(negocio?.estado_pipeline);
+  const hayCosteo = (isAdmin || !!usuario?.permisos?.costeo_editor) && infoComercialLista;
+  const hayAuditorTecnico = (isAdmin || !!usuario?.permisos?.auditor_tecnico) && infoComercialLista;
+  // "Compras" solo aparece cuando el negocio ganó (Módulo de Compras, spec §3.1: "solo las líneas
+  // efectivamente adjudicadas") y para quien puede operarlo: jefe de ventas (aprobar_comercial),
+  // un Encargado de Compras (permiso compras), o `compras_todo` real — "ser admin" YA NO alcanza
+  // solo (pedido explícito, 10-sep-2026, ver ComprasSection.tsx/AppLayout.tsx). El propio encargado
+  // asignado a ESTE negocio entra igual aunque no tenga ninguno de estos (lo resuelve la API).
+  const hayGanado   = esGanado(negocio?.estado_pipeline);
+  const hayCompras  = hayGanado && (!!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial);
+  // Auditor de Compra es un ítem DISTINTO de Auditor Técnico (pedido explícito, 28-sep-2026: "son
+  // distintos, que no estén juntos"). A diferencia de Auditor Técnico, el ÍTEM se ve desde que se
+  // asigna (mismo criterio que costeo_editor/auditor_tecnico), no recién al ganar — así nunca
+  // "desaparece" del menú; queda deshabilitado ("Al ganar") hasta que el negocio gane de verdad.
+  const puedeVerAuditorCompra = (isAdmin || !!usuario?.permisos?.auditor_compra) && infoComercialLista;
+  const hayAuditorCompra = puedeVerAuditorCompra && hayGanado;
+  // Resultado/Competencia/Preguntas quedan ocultas hasta que el negocio pase a Ganada o Perdida
+  // (antes de eso no hay nada real que mostrar ahí). Fechas, Criterios y Comentarios ya no son
+  // ítems propios del menú: son pestañas DENTRO de "Resumen" (ver más abajo, sección de render).
+  const hayResultado = tieneResultado(negocio?.estado_pipeline);
+  const NAV_SECTIONS = construirNavSeccionesNegocio({
+    documentosCount: documentos.length,
+    hayResultado,
+    itemsCount: analisisIA?.especificacionesTecnicas?.length || licitacion?.Items?.length,
+    hayCosteo,
+    hayAuditorTecnico,
+    auditorCount: comercialPorAprobar,
+    auditorAlerta: comercialPorAprobar > 0,
+    hayGanado,
+    puedeVerAuditorCompra,
+  });
+  // El sidebar solo tiene "resumen"/"resultado" como ítems clickeables cuyo grupo incluye otras
+  // pestañas: Fechas/Criterios/Comentarios y Competencia son pestañas internas de Resumen/Resultado.
+  // Auditor Técnico y Auditor de Compra son ítems propios (no agrupados).
+  const grupoActivo: Seccion = (seccion === 'fechas' || seccion === 'criterios' || seccion === 'comentarios') ? 'resumen'
+    : seccion === 'competencia' ? 'resultado'
+    : seccion;
+  // Línea de avance del negocio: qué pasos del menú ya se vieron (persistido por licitación) y
+  // aviso suave si se entra a uno habiéndose saltado otro anterior sin ver.
+  const visitados = useFlujoNegocio({
+    negocioKey: negocio?.licitacion_codigo,
+    items: NAV_SECTIONS,
+    seccionActual: grupoActivo,
+    toast,
+  });
+
   // ── Loading / Error ───────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -1332,50 +1388,14 @@ function DetalleContent() {
   // licitacion.Url viejo con el formato roto.
   const mpUrl = `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(negocio.licitacion_codigo)}`;
 
+
   // Negocios = vista breve para el usuario asignado. El análisis profundo (viabilidad,
   // IA de documentos) vive SOLO en el Radar (admin). Aquí solo brief + ítems + comentarios.
   const documentosAnalizables = documentos.filter(d => esUrlAnalizable(d.url_local || d.url));
 
-  // Orden definido por el equipo (negocio, sin Postulación ni Asistente):
-  // Resumen · Documentos · Viabilidad · Criterios · Ítems · Fechas · Preguntas · Comentarios.
-  //
-  // "Información Comercial" es la excepción: solo aparece de la etapa ANEXOS en adelante, que es
-  // cuando el asistente empieza a armar la oferta. Se queda visible en las etapas posteriores
-  // (postulada, adjudicada) a propósito: ahí es donde hay que poder mostrar quién aprobó qué.
-  //
-  // Costeo y Auditor Técnico eran 100% admin-only "mientras se seguía trabajando" (24-jul-2026).
-  // 28-sep-2026, pedido explícito: en vez de abrirlos a todos, cada uno se habilita por separado a
-  // un asistente puntual con su propio permiso (otorgado desde /admin/usuarios) — mismo patrón que
-  // `hayCompras` más abajo. El resto del flujo (subir docs, avanzar de etapa, postular) no depende
-  // de esto en ningún punto, así que restringirlos no bloquea nada más.
-  const infoComercialLista = tieneInformacionComercial(negocio.estado_pipeline);
-  const hayCosteo = (isAdmin || !!usuario?.permisos?.costeo_editor) && infoComercialLista;
-  const hayAuditorTecnico = (isAdmin || !!usuario?.permisos?.auditor_tecnico) && infoComercialLista;
-  // "Compras" solo aparece cuando el negocio ganó (Módulo de Compras, spec §3.1: "solo las líneas
-  // efectivamente adjudicadas") y para quien puede operarlo: jefe de ventas (aprobar_comercial),
-  // un Encargado de Compras (permiso compras), o `compras_todo` real — "ser admin" YA NO alcanza
-  // solo (pedido explícito, 10-sep-2026, ver ComprasSection.tsx/AppLayout.tsx). El propio encargado
-  // asignado a ESTE negocio entra igual aunque no tenga ninguno de estos (lo resuelve la API).
-  const hayCompras = esGanado(negocio.estado_pipeline) && (!!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial);
-  // Resultado/Competencia/Preguntas quedan ocultas hasta que el negocio pase a Ganada o Perdida
-  // (antes de eso no hay nada real que mostrar ahí). Fechas y Criterios ya no son ítems propios
-  // del menú: son pestañas DENTRO de "Resumen" (ver más abajo, sección de render).
-  const hayResultado = tieneResultado(negocio.estado_pipeline);
-  const NAV_SECTIONS = construirNavSeccionesNegocio({
-    documentosCount: documentos.length,
-    hayResultado,
-    itemsCount: analisisIA?.especificacionesTecnicas?.length || licitacion?.Items?.length,
-    hayCosteo,
-    hayAuditorTecnico,
-    auditorCount: comercialPorAprobar,
-    auditorAlerta: comercialPorAprobar > 0,
-  }) as ReadonlyArray<{ key: Seccion; label: string; count: number | null; alerta?: boolean }>;
-  // El sidebar solo tiene "resumen"/"resultado" como ítems clickeables; Fechas/Criterios y
-  // Competencia son pestañas internas de esos grupos, pero el ítem del grupo debe seguir
-  // resaltado mientras se está viendo cualquiera de sus pestañas.
-  const grupoActivo: Seccion = (seccion === 'fechas' || seccion === 'criterios' || seccion === 'comentarios') ? 'resumen'
-    : seccion === 'competencia' ? 'resultado'
-    : seccion;
+  // "Información Comercial" (Costeo/Auditor Técnico), hayGanado/hayCompras, hayResultado,
+  // NAV_SECTIONS, grupoActivo y visitados ya se calcularon ANTES del guard de loading/error
+  // (useFlujoNegocio es un hook: ver el comentario ahí arriba).
 
   return (
     <AppLayout breadcrumb={[
@@ -1391,11 +1411,15 @@ function DetalleContent() {
           onSelect={k => setSeccion(k as Seccion)}
           volverHref="/negocios"
           cargandoContadores={loadingLic}
+          visitados={visitados}
         />
 
         {/* ── MAIN CONTENT ───────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto min-w-0">
-          <div className={`p-5 sm:p-7 mx-auto w-full ${seccion === 'documentos' ? 'max-w-6xl' : 'max-w-3xl'}`}>
+          {/* Sin max-w: cada módulo ocupa todo el ancho disponible entre los dos sidebars (pedido
+              del usuario, 28-sep-2026) — el propio grid/flex de cada sección se encarga de
+              reacomodarse en pantallas chicas, así que no rompe el responsive. */}
+          <div className="p-5 sm:p-7 w-full">
             {/* Header */}
             <div className="mb-5">
               <div className="flex items-center gap-2 mb-3 lg:hidden">
@@ -1445,10 +1469,18 @@ function DetalleContent() {
 
             {/* Mobile tabs */}
             <div className="flex gap-1 mb-5 lg:hidden overflow-x-auto pb-1">
-              {NAV_SECTIONS.map(s => (
+              {NAV_SECTIONS.map(s => s.disabled ? (
+                <span
+                  key={s.key}
+                  title="Se habilita cuando el negocio gane"
+                  className="flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold text-zinc-300 cursor-not-allowed"
+                >
+                  {s.label}
+                </span>
+              ) : (
                 <button
                   key={s.key}
-                  onClick={() => setSeccion(s.key)}
+                  onClick={() => setSeccion(s.key as Seccion)}
                   className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold transition-colors ${
                     grupoActivo === s.key
                       ? 'bg-zinc-900 text-white'
@@ -1584,6 +1616,15 @@ function DetalleContent() {
                 empresaId={negocio.empresa_id}
                 estadoPipeline={negocio.estado_pipeline}
                 onEmpresaChange={empresa_id => setNegocio(prev => prev ? { ...prev, empresa_id } : prev)}
+              />
+            )}
+            {seccion === 'auditor_compra' && hayAuditorCompra && (
+              <AuditorCompraCard
+                negocioId={negocio.id}
+                licitacionCodigo={negocio.licitacion_codigo}
+                cotizacionesExistentes={documentos
+                  .filter(d => d.subcategoria === 'cotizaciones')
+                  .map(d => ({ url: d.url_local || d.url, nombre: d.nombre }))}
               />
             )}
           </div>

@@ -28,7 +28,7 @@ import { InteligenciaSection } from './sections/InteligenciaSection';
 import OfertasCompetencia from '@/app/components/OfertasCompetencia';
 import { ResultadoSection } from './sections/ResultadoSection';
 import { Resaltar } from '@/app/components/Resaltar';
-import { MenuNegocioLateral, construirNavSeccionesNegocio, SeccionTabs } from '@/app/components/MenuNegocioLateral';
+import { MenuNegocioLateral, construirNavSeccionesNegocio, useFlujoNegocio, SeccionTabs } from '@/app/components/MenuNegocioLateral';
 import { tieneResultado } from '@/app/lib/pipeline';
 
 // Menú unificado con /negocios/[id] (mismo aside angosto, mismo orden de tabs).
@@ -36,7 +36,7 @@ import { tieneResultado } from '@/app/lib/pipeline';
 // llega por el link "Ver análisis completo" dentro de CriteriosSection.
 type SeccionLicitacion =
   | 'resumen' | 'resultado' | 'documentos' | 'viabilidad' | 'criterios'
-  | 'items' | 'fechas' | 'preguntas' | 'comentarios' | 'inteligencia' | 'competencia';
+  | 'items' | 'fechas' | 'preguntas' | 'comentarios' | 'inteligencia' | 'competencia' | 'auditor_compra';
 
 // ======================================================
 // PÁGINA PRINCIPAL
@@ -47,7 +47,7 @@ export default function LicitacionDetallePage() {
   const router   = useRouter();
   const { isFavorite, toggleFavorite } = useFavorites();
   const { usuario } = useSession();
-  const { success: toastSuccess, error: toastError, warning: toastWarning } = useToast();
+  const { success: toastSuccess, error: toastError, warning: toastWarning, info: toastInfo } = useToast();
 
   const [licitacion,      setLicitacion]      = useState<Oportunidad | null>(null);
   const [loading,         setLoading]         = useState(true);
@@ -88,6 +88,34 @@ export default function LicitacionDetallePage() {
     if (gated && !hayResultado) setActiveSection('resumen');
   }, [negocioGestionCargado, hayResultado, activeSection]);
 
+  const codigo         = params.codigo as string;
+  const codigoDecoded  = decodeURIComponent(codigo);
+  const isAdmin        = usuario?.rol === 'admin';
+
+  // Menú unificado con /negocios/[id]: misma función arma el orden, las etiquetas y el criterio
+  // de visibilidad para ambas páginas (esta página no tiene Costeo ni Auditor Técnico/Compra).
+  const NAV_SECTIONS = construirNavSeccionesNegocio({
+    documentosCount: documentosCache.length,
+    hayResultado,
+    itemsCount: licitacion?.items?.length,
+  });
+  // El sidebar solo tiene "resumen"/"resultado" como ítems clickeables; Fechas/Criterios/Comentarios
+  // y Competencia son pestañas internas de esos grupos, pero el ítem del grupo debe seguir
+  // resaltado mientras se está viendo cualquiera de sus pestañas.
+  const grupoActivo: SeccionLicitacion = (activeSection === 'fechas' || activeSection === 'criterios' || activeSection === 'comentarios') ? 'resumen'
+    : activeSection === 'competencia' ? 'resultado'
+    : activeSection;
+  // Línea de avance del negocio: qué pasos del menú ya se vieron (persistido por licitación) y
+  // aviso suave si se entra a uno habiéndose saltado otro anterior sin ver. Va ANTES del guard de
+  // loading/error (aunque `licitacion` pueda ser null acá): useFlujoNegocio es un hook, y llamarlo
+  // después de un `return` condicional violaría las reglas de hooks.
+  const visitados = useFlujoNegocio({
+    negocioKey: codigoDecoded,
+    items: NAV_SECTIONS,
+    seccionActual: grupoActivo,
+    toast: { info: toastInfo },
+  });
+
   // --- ESTADO PARA DESCARGA AUTOMÁTICA ---
   const [descargandoAuto, setDescargandoAuto] = useState(false);
 
@@ -110,10 +138,6 @@ export default function LicitacionDetallePage() {
   const [clasificando,         setClasificando]         = useState(false);
   const [resumenClasificacion, setResumenClasificacion] = useState<{estado:'completo'|'incompleto';falta:string[]} | null>(null);
   const clasificacionDisparada = useRef(false);
-
-  const codigo         = params.codigo as string;
-  const codigoDecoded  = decodeURIComponent(codigo);
-  const isAdmin        = usuario?.rol === 'admin';
 
   // useMemo: es dependencia de efectos de auto-disparo y de calcularViabilidad; sin
   // identidad estable esos efectos se re-ejecutaban en cada render.
@@ -496,23 +520,8 @@ export default function LicitacionDetallePage() {
     { label: 'Adjudicación',             fecha: licitacion.fecha_adjudicacion },
   ].filter(f => f.fecha && formatDateTime(f.fecha));
 
-  // Menú unificado con /negocios/[id]: misma función arma el orden, las etiquetas y el criterio
-  // de visibilidad para ambas páginas (antes cada una tenía su propio NAV_SECTIONS). Competencia
-  // ya no va siempre visible: pasa a ser pestaña interna de "Resultado" y espera al resultado
-  // igual que allá (pedido del usuario, 28-sep-2026 — reemplaza la decisión anterior de dejarla
-  // siempre visible "para ver por qué no hay datos").
-  const itemsNav = construirNavSeccionesNegocio({
-    documentosCount: documentosCache.length,
-    hayResultado,
-    itemsCount: licitacion.items?.length,
-  });
-  const NAV_SECTIONS = itemsNav as unknown as { key: SeccionLicitacion; label: string; count: number | null }[];
-  // El sidebar solo tiene "resumen"/"resultado" como ítems clickeables; Fechas/Criterios y
-  // Competencia son pestañas internas de esos grupos, pero el ítem del grupo debe seguir
-  // resaltado mientras se está viendo cualquiera de sus pestañas.
-  const grupoActivo: SeccionLicitacion = (activeSection === 'fechas' || activeSection === 'criterios' || activeSection === 'comentarios') ? 'resumen'
-    : activeSection === 'competencia' ? 'resultado'
-    : activeSection;
+  // NAV_SECTIONS, grupoActivo y visitados ya se calcularon ANTES del guard de
+  // loading/error (useFlujoNegocio es un hook: ver el comentario ahí arriba).
 
   return (
     <AppLayout breadcrumb={[
@@ -528,11 +537,15 @@ export default function LicitacionDetallePage() {
           activa={grupoActivo}
           onSelect={k => setActiveSection(k as SeccionLicitacion)}
           onVolver={() => router.back()}
+          visitados={visitados}
         />
 
         {/* ── MAIN CONTENT ─────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto min-w-0">
-          <div className={`p-5 sm:p-7 mx-auto w-full ${activeSection === 'documentos' ? 'max-w-6xl' : 'max-w-3xl'}`}>
+          {/* Sin max-w: cada módulo ocupa todo el ancho disponible entre los dos sidebars (pedido
+              del usuario, 28-sep-2026) — el propio grid/flex de cada sección se reacomoda en
+              pantallas chicas, así que no rompe el responsive. */}
+          <div className="p-5 sm:p-7 w-full">
             {asignarOpen && (
               <AsignarNegocioModal
                 licitacion={licitacion}
@@ -626,7 +639,7 @@ export default function LicitacionDetallePage() {
               {NAV_SECTIONS.map(s => (
                 <button
                   key={s.key}
-                  onClick={() => setActiveSection(s.key)}
+                  onClick={() => setActiveSection(s.key as SeccionLicitacion)}
                   className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold transition-colors ${
                     grupoActivo === s.key ? 'bg-zinc-900 text-white' : 'bg-zinc-100 text-zinc-500 hover:text-zinc-700'
                   }`}
