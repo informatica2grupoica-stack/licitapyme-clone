@@ -16,6 +16,7 @@
 // igual desde un lugar que ya tenía el item cargado (la pestaña) que desde uno que no (Documentos).
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { domToCanvas } from 'modern-screenshot';
 import { IconX as X, IconLoader2 as Loader2, IconCheck as Check, IconHelpCircle as HelpCircle, IconUpload as Upload, IconRefresh as RefreshCw, IconArrowBackUp as Undo2, IconFileText as FileText, IconTool as Wrench, IconTrash as Trash2, IconEye as Eye, IconPaperclip as Paperclip, IconCopy as Copy, IconPhoto as ImageIcon } from '@tabler/icons-react';
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
@@ -173,20 +174,39 @@ export function ModalAuditorLineaTecnica({
   // null cuando ninguno está en curso.
   const [recomparandoId, setRecomparandoId] = useState<number | null>(null);
   const [eliminandoDocId, setEliminandoDocId] = useState<number | null>(null);
-  // Ref sobre encabezado+cuerpo (sin el pie de acciones) para el botón "Copiar" — copia el texto
-  // visible tal cual, sin reconstruir a mano cada campo (pedido del usuario, 28-sep-2026).
+  // Ref sobre encabezado+cuerpo (sin el pie de acciones) para el botón "Copiar" — saca una FOTO de
+  // todo el contenido (no solo texto) y la deja en el portapapeles, para pegarla donde sea (pedido
+  // del usuario, 28-sep-2026: quería "una captura del contenido, más lo copiado").
   const contenidoRef = useRef<HTMLDivElement>(null);
+  const [copiando, setCopiando] = useState(false);
   const [copiadoTodo, setCopiadoTodo] = useState(false);
 
   const copiarTodo = async () => {
-    const texto = contenidoRef.current?.innerText?.trim();
-    if (!texto) return;
+    const nodo = contenidoRef.current;
+    if (!nodo || copiando) return;
+    setCopiando(true);
+    // El cuerpo tiene "overflow-y-auto" (solo se ve lo que entra en el modal) — para que la foto
+    // salga completa se clona fuera de pantalla y se le saca el límite de alto ahí, sin tocar el
+    // modal real que el usuario está viendo.
+    const clon = nodo.cloneNode(true) as HTMLElement;
+    const cuerpoClon = clon.querySelector<HTMLElement>('[data-cuerpo-modal]');
+    if (cuerpoClon) { cuerpoClon.style.overflow = 'visible'; cuerpoClon.style.maxHeight = 'none'; cuerpoClon.style.flex = 'none'; }
+    const envoltorio = document.createElement('div');
+    envoltorio.style.cssText = `position:fixed; top:0; left:-99999px; width:${nodo.offsetWidth}px; background:#fff;`;
+    envoltorio.appendChild(clon);
+    document.body.appendChild(envoltorio);
     try {
-      await navigator.clipboard.writeText(texto);
+      const canvas = await domToCanvas(clon, { backgroundColor: '#ffffff', scale: 2 });
+      const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/png'));
+      if (!blob) { toast.error('No se pudo generar la imagen'); return; }
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
       setCopiadoTodo(true);
       setTimeout(() => setCopiadoTodo(false), 1500);
-    } catch {
-      toast.error('No se pudo copiar', 'El navegador bloqueó el acceso al portapapeles.');
+    } catch (e) {
+      toast.error('No se pudo copiar la imagen', String(e));
+    } finally {
+      document.body.removeChild(envoltorio);
+      setCopiando(false);
     }
   };
 
@@ -565,7 +585,7 @@ caracteristicas.length === 0 ? (
     >
       {/* El clic en el fondo NO cierra: acá se sube ficha, se corrigen casillas y se aprueba una
           línea, así que un clic afuera por descuido perdía trabajo. Solo cierra la X o "Cerrar". */}
-      <div className="w-full max-w-6xl max-h-[94vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="w-[96vw] max-w-[1400px] h-[94vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col">
         <div ref={contenidoRef} className="flex flex-col flex-1 min-h-0">
         <div className="px-5 py-4 border-b border-zinc-100 flex items-start gap-3 flex-shrink-0">
           <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0"><Wrench size={15} className="text-violet-600" /></div>
@@ -586,14 +606,14 @@ caracteristicas.length === 0 ? (
               </p>
             )}
           </div>
-          <button onClick={copiarTodo} title="Copiar todo el contenido de este panel"
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-semibold text-zinc-500 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors flex-shrink-0">
-            <Copy size={14} /> {copiadoTodo ? 'Copiado' : 'Copiar'}
+          <button onClick={copiarTodo} disabled={copiando} title="Copiar una foto de todo el contenido de este panel"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-semibold text-zinc-500 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors flex-shrink-0 disabled:opacity-50">
+            {copiando ? <Loader2 size={14} className="animate-spin" /> : <Copy size={14} />} {copiadoTodo ? 'Copiado' : copiando ? 'Copiando…' : 'Copiar'}
           </button>
           <button onClick={onClose} className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-lg transition-colors flex-shrink-0" aria-label="Cerrar"><X size={16} /></button>
         </div>
 
-        <div className="px-5 py-4 overflow-y-auto flex-1 space-y-5">
+        <div data-cuerpo-modal className="px-5 py-4 overflow-y-auto flex-1 space-y-5">
           {cargando ? (
             <div className="flex items-center justify-center gap-2 text-[12.5px] text-zinc-400 py-10"><Loader2 size={14} className="animate-spin" /> Cargando comparación…</div>
           ) : (
