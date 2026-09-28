@@ -801,6 +801,13 @@ export function AnexoRellenoModal({
 
   useEffect(() => { setForzarAplica(false); setPaso('formulario'); setPdfParaFirmar(null); setErrorGenerar(null); setErrorFirmado(null); }, [doc]);
 
+  // `onClose` llega como función inline del padre y cambia de identidad en cada uno de sus
+  // renders (por ejemplo, cada refresco de `useRealtime` cada 60s o por SSE) — sin este ref, esa
+  // sola identidad nueva entraba en las dependencias de abajo y reiniciaba TODO el análisis en
+  // curso (ver comentario de `errorGenerar` más arriba: "cuando lo dejo hay como que se recarga").
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     if (!doc) return;
     setCargando(true);
@@ -808,7 +815,7 @@ export function AnexoRellenoModal({
     setAnalisis(null);
     setRespuestas(forzarAplica ? { anexoAplica: '1' } : {});
 
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCloseRef.current(); };
     window.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -839,7 +846,7 @@ export function AnexoRellenoModal({
       .finally(() => setCargando(false));
 
     return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prevOverflow; };
-  }, [doc, codigo, empresaId, onClose, forzarAplica]);
+  }, [doc, codigo, empresaId, forzarAplica]);
 
   if (!doc) return null;
 
