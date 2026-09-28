@@ -23,7 +23,7 @@
 // seguimiento manual, que da control total y no depende de que el navegador "autorice" nada.
 // Reescrito completo sobre ese patrón: nunca más un drop "prohibido".
 import { useEffect, useRef, useState } from 'react';
-import { IconLoader2 as Loader2, IconX as X, IconPlus as Plus, IconMinus as Minus, IconArrowLeft as ArrowLeft, IconSignature as FileSignature } from '@tabler/icons-react';
+import { IconLoader2 as Loader2, IconX as X, IconPlus as Plus, IconMinus as Minus, IconArrowLeft as ArrowLeft, IconSignature as FileSignature, IconAlertTriangle as AlertTriangle } from '@tabler/icons-react';
 
 export interface EstampaColocada {
   tipo: 'firma' | 'timbre';
@@ -241,7 +241,7 @@ function EstampaColocadaUI({
 }
 
 export function AnexoFirmarPdf({
-  pdfBytes, firmaUrl, timbreUrl, firmas, firmaRequerida, generando, onConfirmar, onVolver,
+  pdfBytes, firmaUrl, timbreUrl, firmas, firmaRequerida, generando, errorGeneracion, onConfirmar, onVolver,
 }: {
   pdfBytes: ArrayBuffer;
   /** La firma PRINCIPAL de la empresa (espejo de `empresas.firma_url`) — sigue siendo el fallback
@@ -257,6 +257,9 @@ export function AnexoFirmarPdf({
    *  usuario quiere agregarla igual, pero nunca bloquea. */
   firmaRequerida: boolean;
   generando: boolean;
+  /** Error PERSISTENTE de la generación anterior (no un toast que desaparece solo — ver el mismo
+   *  problema resuelto en AnexoRellenoModal): si falló, se queda visible hasta el próximo intento. */
+  errorGeneracion?: string | null;
   onConfirmar: (estampas: EstampaColocada[]) => void;
   onVolver: () => void;
 }) {
@@ -641,6 +644,15 @@ export function AnexoFirmarPdf({
         />
       )}
 
+      {errorGeneracion && (
+        <div className="flex items-start gap-2.5 px-4 py-2.5 border-t border-rose-200 bg-rose-50 flex-shrink-0">
+          <AlertTriangle size={14} className="text-rose-500 flex-shrink-0 mt-0.5" />
+          <p className="text-[12px] text-rose-800 flex-1">
+            <span className="font-semibold">No se pudo generar el anexo firmado:</span> {errorGeneracion}
+            <span className="block text-rose-600 mt-0.5">Las firmas colocadas siguen acá — puedes volver a intentarlo.</span>
+          </p>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-200 bg-slate-50 flex-shrink-0">
         <p className={`text-[11px] ${bloqueadoPorFirma ? 'text-amber-700 font-medium' : 'text-slate-400'}`}>
           {bloqueadoPorFirma

@@ -752,6 +752,16 @@ export function AnexoRellenoModal({
   const [analisis, setAnalisis] = useState<Analisis | null>(null);
   const [respuestas, setRespuestas] = useState<Record<string, string>>({});
   const [generando, setGenerando] = useState(false);
+  // Error de generación/firma PERSISTENTE en pantalla (no solo un toast). BUG REAL (28-sep-2026,
+  // reportado por el usuario: "pincho para que realice el anexo... cuando lo dejo hay como que se
+  // recarga"): el catch de abajo solo mostraba un toast, que se autodestruye a los 6s (ver
+  // toast.tsx) — si el usuario se alejaba de la pantalla justo cuando algo lento del backend
+  // (conversor .doc→.docx, base de datos remota) fallaba por timeout, volvía y encontraba el botón
+  // de vuelta en su estado inicial sin ningún rastro de qué pasó: parecía que la pantalla se había
+  // recargado sola. Las respuestas ya tecleadas NUNCA se pierden en un fallo (no se tocan acá) —
+  // el mensaje lo aclara para que sepa que puede reintentar sin perder nada.
+  const [errorGenerar, setErrorGenerar] = useState<string | null>(null);
+  const [errorFirmado, setErrorFirmado] = useState<string | null>(null);
   // Paso de firma libre sobre PDF (ver AnexoFirmarPdf) — solo existe cuando el documento tiene
   // al menos un lugar de firma/timbre detectado. `pdfParaFirmar` se pide recién al pulsar
   // "Continuar", nunca antes: convertir a PDF cuesta una llamada al conversor y no tiene sentido
@@ -789,7 +799,7 @@ export function AnexoRellenoModal({
   // generación tome la misma decisión que la pantalla mostró.
   const [forzarAplica, setForzarAplica] = useState(false);
 
-  useEffect(() => { setForzarAplica(false); setPaso('formulario'); setPdfParaFirmar(null); }, [doc]);
+  useEffect(() => { setForzarAplica(false); setPaso('formulario'); setPdfParaFirmar(null); setErrorGenerar(null); setErrorFirmado(null); }, [doc]);
 
   useEffect(() => {
     if (!doc) return;
@@ -907,6 +917,7 @@ export function AnexoRellenoModal({
   // hay nada que posicionar — se genera el .docx directo, sin pasar por el paso de firma sobre PDF.
   const handleGenerar = async () => {
     setGenerando(true);
+    setErrorGenerar(null);
     try {
       const r = await fetch('/api/anexos/generar', {
         method: 'POST',
@@ -918,6 +929,7 @@ export function AnexoRellenoModal({
       avisarYCerrar(data);
     } catch (e: any) {
       toast.error('No se pudo generar el anexo', e.message);
+      setErrorGenerar(e.message || 'No se pudo generar el documento.');
     } finally {
       setGenerando(false);
     }
@@ -927,6 +939,7 @@ export function AnexoRellenoModal({
   // vista previa en PDF (texto ya puesto, sin firma) y se pasa al paso de firma libre.
   const handleContinuarAFirma = async () => {
     setCargandoPdf(true);
+    setErrorGenerar(null);
     try {
       const r = await fetch('/api/anexos/vista-previa-pdf', {
         method: 'POST',
@@ -941,6 +954,7 @@ export function AnexoRellenoModal({
       setPaso('firma');
     } catch (e: any) {
       toast.error('No se pudo pasar al paso de firma', e.message);
+      setErrorGenerar(e.message || 'No se pudo preparar el PDF para firmar.');
     } finally {
       setCargandoPdf(false);
     }
@@ -949,6 +963,7 @@ export function AnexoRellenoModal({
   const handleGenerarFirmado = async (estampas: { tipo: 'firma' | 'timbre'; pagina: number; xPct: number; yPct: number; anchoPct: number }[]) => {
     if (!pdfParaFirmar) return;
     setGenerando(true);
+    setErrorFirmado(null);
     try {
       // Se manda el MISMO PDF que el usuario tenía delante al posicionar (nunca se regenera del
       // lado del servidor) — BUG REAL (29-ago-2026, reportado con video): regenerar el .docx→PDF
@@ -966,6 +981,7 @@ export function AnexoRellenoModal({
       avisarYCerrar(data);
     } catch (e: any) {
       toast.error('No se pudo generar el anexo firmado', e.message);
+      setErrorFirmado(e.message || 'No se pudo generar el documento firmado.');
     } finally {
       setGenerando(false);
     }
@@ -1021,8 +1037,9 @@ export function AnexoRellenoModal({
             firmas={analisis?.firma.firmas ?? []}
             firmaRequerida={(analisis?.firma.lugares.length ?? 0) > 0}
             generando={generando}
+            errorGeneracion={errorFirmado}
             onConfirmar={handleGenerarFirmado}
-            onVolver={() => setPaso('formulario')}
+            onVolver={() => { setErrorFirmado(null); setPaso('formulario'); }}
           />
         ) : (
         <>
@@ -1174,6 +1191,19 @@ export function AnexoRellenoModal({
         </div>
 
         {/* Pie */}
+        {/* Error de generación PERSISTENTE (no un toast que se autodestruye a los 6s — ver el
+            comentario largo en `errorGenerar` más arriba): si el usuario se aleja justo cuando algo
+            lento del backend falla, esto sigue acá cuando vuelva, en vez de que la pantalla parezca
+            haberse "recargado" sola sin explicación. */}
+        {!cargando && !error && analisis && errorGenerar && (
+          <div className="flex items-start gap-2.5 px-4 py-2.5 border-t border-rose-200 bg-rose-50 flex-shrink-0">
+            <AlertTriangle size={14} className="text-rose-500 flex-shrink-0 mt-0.5" />
+            <p className="text-[12px] text-rose-800 flex-1">
+              <span className="font-semibold">No se pudo generar el anexo:</span> {errorGenerar}
+              <span className="block text-rose-600 mt-0.5">Tus respuestas siguen acá — puedes volver a intentarlo.</span>
+            </p>
+          </div>
+        )}
         {/* "Continuar a firma" queda SIEMPRE disponible, pida o no el documento firma explícitamente
             (pedido explícito del usuario, 1-sep-2026): "por si deseamos poner firma a un anexo que
             no lo esté pidiendo". Cuando el documento NO pide firma, "Generar documento" (.docx
