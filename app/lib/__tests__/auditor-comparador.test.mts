@@ -123,14 +123,11 @@ test('conflicto entre fichas: no se elige', () => {
   assert.equal(r.analisis.conflicto_fuentes?.existe, true);
 });
 
-test('todo ítem no cerrado avisa si su ayuda viene incompleta', () => {
+test('la ayuda de un ítem no cerrado es tal cual la puso la IA, sin relleno ni aviso de campos faltantes', () => {
   const r = procesarItemComparador(fila(), crudo({ ofertado_valor: '70', ayuda: { diagnostico: 'faltan 10 HP' } }), 'Engine power 70 HP');
   assert.equal(r.columnas.veredicto, 'NO_CUMPLE');
-  assert.ok(r.analisis.notas_sistema?.some(n => n.startsWith('Ayuda incompleta')));
-  const completa = procesarItemComparador(fila(), crudo({ ofertado_valor: '70', ayuda: {
-    diagnostico: 'faltan 10 HP', hipotesis_causa: ['existe versión XE'], pregunta_proveedor: '¿Hay versión de 93 HP?',
-    veredicto_equivalencia: 'No satisface BBTT 4.1', ruta: 'SALVABLE', accion_concreta: 'Pedir ficha XE' } }), 'Engine power 70 HP');
-  assert.ok(!completa.analisis.notas_sistema?.some(n => n.startsWith('Ayuda incompleta')));
+  assert.equal(r.analisis.ayuda?.diagnostico, 'faltan 10 HP');
+  assert.ok(!r.analisis.notas_sistema?.some(n => n.startsWith('Ayuda incompleta')));
 });
 
 test('estadoDeFila: un CUMPLE crítico de ficha espera reverificación; luego cierra', () => {

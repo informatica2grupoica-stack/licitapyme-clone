@@ -229,18 +229,6 @@ function ayudaNormalizada(a: Partial<AyudaItem> | null | undefined): AyudaItem |
   };
 }
 
-/** Los campos de ayuda que faltan — "ninguno es opcional". */
-export function ayudaFaltante(a: AyudaItem | undefined): string[] {
-  if (!a) return ['diagnóstico', 'hipótesis de causa', 'pregunta al proveedor', 'veredicto de equivalencia', 'ruta'];
-  const f: string[] = [];
-  if (!a.diagnostico) f.push('diagnóstico');
-  if (!a.hipotesis_causa.length) f.push('hipótesis de causa');
-  if (!a.pregunta_proveedor) f.push('pregunta al proveedor');
-  if (!a.veredicto_equivalencia) f.push('veredicto de equivalencia');
-  if (!a.ruta) f.push('ruta (salvable / insalvable)');
-  return f;
-}
-
 /**
  * Pasa lo que dijo la IA por las reglas del prompt. `fichaTexto` es el texto real de la(s)
  * ficha(s) contra las que se comparó: el valor que la IA dice haber leído tiene que existir ahí.
@@ -286,7 +274,6 @@ export function procesarItemComparador(fila: FilaComparador, crudo: ItemCrudoIA,
 
   // ── CUALITATIVO: no se compara, se DECLARA ───────────────────────────────────────────────────────
   if (tipo === 'CUALITATIVO' && veredicto) {
-    notas.push('Requisito CUALITATIVO: no se da por cumplido por "sonar razonable". Va a declaración humana con respaldo.');
     veredicto = null;
   }
 
@@ -312,8 +299,6 @@ export function procesarItemComparador(fila: FilaComparador, crudo: ItemCrudoIA,
           fuente_equivalencia: fuente, veredicto_propuesto: veredicto === 'NO_CUMPLE' ? 'NO_CUMPLE' : 'CUMPLE', confirmado: null,
         };
         notas.push('Norma distinta a la exigida: equivalencia PROPUESTA con fuente; la confirma una persona.');
-      } else {
-        notas.push('Norma distinta a la exigida y sin fuente verificable de equivalencia: no se propone; queda sin veredicto.');
       }
       veredicto = null;
     }
@@ -391,14 +376,9 @@ export function procesarItemComparador(fila: FilaComparador, crudo: ItemCrudoIA,
     }
   }
 
-  // ── Ayuda: cinco campos por cada ítem que no quedó cerrado como CUMPLE ─────────────────────────
-  let ayuda = ayudaNormalizada(crudo.ayuda);
+  // ── Ayuda: cinco campos por cada ítem que no quedó cerrado como CUMPLE, tal cual los puso la IA ──
+  const ayuda = ayudaNormalizada(crudo.ayuda);
   const noCerrado = veredicto !== 'CUMPLE';
-  if (noCerrado) {
-    if (!ayuda?.diagnostico && notas.length) ayuda = { ...(ayuda || ayudaNormalizada({})!), diagnostico: notas[0].slice(0, 600) };
-    const falta = ayudaFaltante(ayuda);
-    if (falta.length) notas.push(`Ayuda incompleta (falta: ${falta.join(', ')}). Volver a comparar o completarla a mano.`);
-  }
 
   const noLeido = origen === 'NO_LEGIBLE';
   const analisis: AnalisisCaracteristica = {
