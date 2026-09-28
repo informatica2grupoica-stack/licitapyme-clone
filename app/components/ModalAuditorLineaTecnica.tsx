@@ -173,6 +173,22 @@ export function ModalAuditorLineaTecnica({
   // null cuando ninguno está en curso.
   const [recomparandoId, setRecomparandoId] = useState<number | null>(null);
   const [eliminandoDocId, setEliminandoDocId] = useState<number | null>(null);
+  // Ref sobre encabezado+cuerpo (sin el pie de acciones) para el botón "Copiar" — copia el texto
+  // visible tal cual, sin reconstruir a mano cada campo (pedido del usuario, 28-sep-2026).
+  const contenidoRef = useRef<HTMLDivElement>(null);
+  const [copiadoTodo, setCopiadoTodo] = useState(false);
+
+  const copiarTodo = async () => {
+    const texto = contenidoRef.current?.innerText?.trim();
+    if (!texto) return;
+    try {
+      await navigator.clipboard.writeText(texto);
+      setCopiadoTodo(true);
+      setTimeout(() => setCopiadoTodo(false), 1500);
+    } catch {
+      toast.error('No se pudo copiar', 'El navegador bloqueó el acceso al portapapeles.');
+    }
+  };
 
   const cargarTodo = useCallback(async () => {
     const [rHeader, rCaract] = await Promise.all([
@@ -549,7 +565,8 @@ caracteristicas.length === 0 ? (
     >
       {/* El clic en el fondo NO cierra: acá se sube ficha, se corrigen casillas y se aprueba una
           línea, así que un clic afuera por descuido perdía trabajo. Solo cierra la X o "Cerrar". */}
-      <div className="w-full max-w-3xl max-h-[88vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="w-full max-w-6xl max-h-[94vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+        <div ref={contenidoRef} className="flex flex-col flex-1 min-h-0">
         <div className="px-5 py-4 border-b border-zinc-100 flex items-start gap-3 flex-shrink-0">
           <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0"><Wrench size={15} className="text-violet-600" /></div>
           <div className="min-w-0 flex-1">
@@ -569,6 +586,10 @@ caracteristicas.length === 0 ? (
               </p>
             )}
           </div>
+          <button onClick={copiarTodo} title="Copiar todo el contenido de este panel"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-semibold text-zinc-500 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors flex-shrink-0">
+            <Copy size={14} /> {copiadoTodo ? 'Copiado' : 'Copiar'}
+          </button>
           <button onClick={onClose} className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-lg transition-colors flex-shrink-0" aria-label="Cerrar"><X size={16} /></button>
         </div>
 
@@ -860,6 +881,7 @@ caracteristicas.length === 0 ? (
               )}
             </>
           )}
+        </div>
         </div>
 
         {!cargando && (
