@@ -166,7 +166,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
   // manda tal cual a Obuma — se muestran como texto de referencia para copiar a mano.
   const [sugerenciaSku, setSugerenciaSku] = useState<
     { estado: 'idle' } | { estado: 'cargando' } |
-    { estado: 'listo'; proveedorNombre: string | null; descripcionLibre: string | null; archivoUrl: string | null; archivoNombre: string | null }
+    { estado: 'listo'; proveedorNombre: string | null; descripcionLibre: string | null; archivoUrl: string | null; archivoNombre: string | null; motivo: string | null }
   >({ estado: 'idle' });
   const [verificandoObumaId, setVerificandoObumaId] = useState<number | null>(null);
 
@@ -277,7 +277,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
         if (!data.success || !s) { setSugerenciaSku({ estado: 'idle' }); return; }
         setSugerenciaSku({
           estado: 'listo', proveedorNombre: s.proveedorNombre, descripcionLibre: s.descripcionLibre,
-          archivoUrl: s.archivoUrl, archivoNombre: s.archivoNombre,
+          archivoUrl: s.archivoUrl, archivoNombre: s.archivoNombre, motivo: s.motivo ?? null,
         });
         // Prellena solo campos vacíos (nunca pisa lo que la persona escribió a mano). Marca/modelo/
         // SKU proveedor vienen validados como literales del documento (compras-aprobaciones.ts);
@@ -555,6 +555,9 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
                           no se autocompletan solos (el documento no los trae como campos separados,
                           adivinarlos sería inventar), pero se muestra el texto del documento ya
                           leído para copiar el nombre exacto sin volver a abrir el PDF. */}
+                      {sugerenciaSku.estado === 'listo' && sugerenciaSku.motivo && (
+                        <p className="text-[10.5px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-2">{sugerenciaSku.motivo}</p>
+                      )}
                       {sugerenciaSku.estado === 'listo' && (sugerenciaSku.descripcionLibre || sugerenciaSku.archivoUrl) && (
                         <div className="text-[10.5px] text-indigo-700 bg-indigo-50/60 border border-indigo-100 rounded-lg px-2.5 py-2">
                           <p className="font-semibold mb-0.5 flex items-center gap-1"><Zap size={10} /> Del documento ya leído — se prellenaron los campos vacíos; revísalos:</p>

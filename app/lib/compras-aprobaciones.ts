@@ -348,6 +348,8 @@ export interface SugerenciaSkuProducto {
   // literal en el texto de la cotización; la UI los prellena en campos vacíos y quedan editables.
   marca: string | null; modelo: string | null; skuProveedor: string | null;
   tipo: string | null; atributo: string | null;
+  /** Por qué Marca/Modelo quedaron vacíos (null si se leyeron). */
+  motivo?: string | null;
 }
 
 /** El OCR deja basura de imágenes ("![](page=0,bbox=[...])") y marcas de encabezado markdown. */
@@ -409,13 +411,26 @@ export async function sugerenciaSkuParaProducto(negocioId: number, productoId: n
     [productoId, negocioId, costo?.proveedorNombre || ''],
   ) as any;
   const r = (rows as any[])[0];
-  if (!r) return null;
+  const vacio = { marca: null, modelo: null, skuProveedor: null, tipo: null, atributo: null };
+  if (!r) {
+    // Sin cotización asignada al producto: el escenario elegido igual sabe el proveedor.
+    if (!costo?.proveedorNombre) return null;
+    return {
+      proveedorNombre: costo.proveedorNombre, descripcionLibre: null, archivoUrl: null, archivoNombre: null, ...vacio,
+      motivo: 'Este producto no tiene una cotización asignada (Costeo y Auditoría → Cotizaciones), así que no hay documento del que leer Marca/Modelo. Solo se prellenó el proveedor del escenario elegido.',
+    };
+  }
   const textoLimpio = limpiarTextoOcr(r.texto_documento) || limpiarTextoOcr(r.descripcion_libre);
   const producto = (await listarProductosCompra(negocioId)).find(p => p.id === productoId);
   const campos = await extraerCamposSku(textoLimpio, producto?.descripcion || '');
+  const motivo = textoLimpio.length < 20
+    ? 'La cotización no tiene texto legible (¿PDF escaneado sin OCR?), no se pudo leer Marca/Modelo — escríbelos a mano.'
+    : (!campos.marca && !campos.modelo)
+      ? 'Se leyó la cotización pero Marca/Modelo no aparecen literales en el texto (o la IA no respondió) — escríbelos a mano.'
+      : null;
   return {
-    proveedorNombre: r.proveedor_nombre || null, descripcionLibre: limpiarTextoOcr(r.descripcion_libre) || null,
-    archivoUrl: r.archivo_url || null, archivoNombre: r.archivo_nombre || null, ...campos,
+    proveedorNombre: r.proveedor_nombre || costo?.proveedorNombre || null, descripcionLibre: limpiarTextoOcr(r.descripcion_libre) || null,
+    archivoUrl: r.archivo_url || null, archivoNombre: r.archivo_nombre || null, ...campos, motivo,
   };
 }
 

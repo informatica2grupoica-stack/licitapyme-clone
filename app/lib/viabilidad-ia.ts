@@ -1714,13 +1714,30 @@ function derivarV3(inf: any): { score: number; semaforo: string; area: string; c
   // v3.1: el SCORE GLOBAL (0-100) lo calcula el modelo y MANDA (coherente con el veredicto:
   // 70-100 MUY_VIABLE · 50-69 VIABLE · 35-49 POCO_VIABLE · 0-34 DESCARTE). Se toma directo del
   // esquema. Compat: informes v3.0 traían el puntaje 0-15 en atractivo.score_total → se reescala.
-  const scoreGlobal = Number(inf?.score_global ?? inf?.veredicto?.score_global);
+  const scoreGlobalRaw = inf?.score_global ?? inf?.veredicto?.score_global;
+  const ausente = scoreGlobalRaw === undefined || scoreGlobalRaw === null || scoreGlobalRaw === '';
+  const scoreGlobal = Number(scoreGlobalRaw);
   let score: number;
-  if (Number.isFinite(scoreGlobal) && scoreGlobal > 0) {
+  if (!ausente && Number.isFinite(scoreGlobal) && scoreGlobal > 0) {
     score = clamp(scoreGlobal);
+  } else if (!ausente && Number.isFinite(scoreGlobal) && scoreGlobal === 0) {
+    score = 0; // descarte explícito del modelo (score_global:0) — valor legítimo, no un fallback.
   } else {
+    // score_global AUSENTE o no numérico (undefined/null/""/texto no parseable): el esquema v3.1
+    // YA NO TIENE el campo de respaldo atractivo.score_total (era de v3.0), así que hasta ahora
+    // esto caía en `(0/15)*100 = 0` en silencio — una licitación con documentos normales se
+    // guardaba como "0/100 · DEFINITIVO" sin ningún rastro de error (caso real: negocio 1237 /
+    // 1030-19-LE26, 28-sep-2026, causado por una respuesta del modelo que no trajo el campo). En
+    // vez de inventar un descarte, se fuerza REVISION_HUMANA con motivo explícito para que la
+    // pantalla avise en vez de aparentar un análisis completo.
     const scoreTot = Number(inf?.atractivo?.score_total ?? inf?.atractivo?._interno?.score_total) || 0; // 0-15 (compat v3.0)
-    score = clamp((scoreTot / 15) * 100);
+    score = scoreTot > 0 ? clamp((scoreTot / 15) * 100) : 50; // neutro: nunca 0 fabricado
+    if (inf && typeof inf === 'object') {
+      if (!inf.veredicto || typeof inf.veredicto !== 'object') inf.veredicto = {};
+      inf.veredicto.estado_veredicto = 'REVISION_HUMANA';
+      if (!Array.isArray(inf.veredicto.motivos_revision)) inf.veredicto.motivos_revision = [];
+      inf.veredicto.motivos_revision.push('El modelo no devolvió score_global válido (0-100) — no se pudo calcular el puntaje real de este análisis; confirmar manualmente antes de descartar o priorizar esta licitación.');
+    }
   }
   const pres = inf?.presupuesto || {};
   const nItems = Array.isArray(inf?.productos?.items) ? inf.productos.items.length

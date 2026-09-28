@@ -23,7 +23,7 @@ const BS = String.fromCharCode(92);
 const esc = s => s.split(BS).join(BS + BS).split('`').join(BS + '`').split('${').join(BS + '${');
 let out = `// app/lib/auditor-comparador-prompts.ts
 // GENERADO por scripts/generar-prompts-comparador.mjs desde docs/PROMPT_4_AUDITOR_TECNICO_COMPARADOR.md
-// (PROMPT 4 — Auditor Técnico · Comparador de fichas, v1.0). NO EDITAR A MANO: se edita el .md y se
+// (PROMPT 4 — Auditor Técnico · Comparador de fichas, v1.1). NO EDITAR A MANO: se edita el .md y se
 // vuelve a generar. Cada constante es el bloque de código de esa PARTE, sin tocar.
 `;
 for (const p of esperadas) out += `\nexport const PARTE_${p} = \`${esc(bloques[p])}\`;\n`;
