@@ -79,6 +79,14 @@ export function esGanado(id: string | null | undefined): boolean {
   return normalizarEstado(id) === 'ADJUDICADA';
 }
 
+// ¿Ya sabemos el resultado (ganamos o perdimos)? Puerta de entrada a las pestañas
+// Resultado/Competencia/Preguntas del menú del negocio: antes de eso no hay nada real que
+// mostrar ahí (pedido del usuario, 28-sep-2026 — antes esas pestañas estaban siempre visibles).
+export function tieneResultado(id: string | null | undefined): boolean {
+  const n = normalizarEstado(id);
+  return n === 'ADJUDICADA' || n === 'PERDIDA';
+}
+
 export function getEstadoPipeline(id: string | null | undefined): EstadoPipeline | null {
   if (!id) return null;
   const key = ALIAS_LEGADO[id] ?? id;

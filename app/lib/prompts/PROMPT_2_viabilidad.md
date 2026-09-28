@@ -152,6 +152,7 @@ Los criterios de evaluación **y SU FORMA DE APLICACIÓN** son insumo sin el cua
 - **Ancla estructural (principal):** localiza la sección que **reparte el 100% del puntaje** entre factores con ponderaciones y describe cómo se asigna la nota — **se llame como se llame**.
 - **Ancla léxica (refuerzo):** reconoce la sección bajo cualquiera de sus nombres: *Criterios de Evaluación, Factores de Evaluación, Factores y Ponderadores, Subfactores, Mecanismo de Evaluación de las Ofertas, Parámetros de Evaluación, Tablas de Variables y Ponderadores, Criterios de Ponderación, Metodología / Pauta de Evaluación.*
 - La **estructura manda sobre el título.** La bandera `contiene_criterios_evaluacion` de Fase 1 es solo una **pista para priorizar dónde mirar**, nunca una condición para buscar.
+- **"PTOS"/"PUNTOS" NO es "no hay ponderación".** Muchas bases (municipales/DAEM en particular) reparten el puntaje en **puntos sobre 100** en vez de "%" — ej. tabla "DESCRIPCIÓN / PUNTAJE": *Oferta Económica 40 PTOS, Garantía Técnica 15 PTOS, Plazo de Entrega 30 PTOS… TOTAL: 100 PTOS* y fórmulas del tipo `... x 100 x 0,40` (con la letra "x", no "×" ni "*"). Cuando el total de la tabla es 100 puntos, **cada "N PTOS" equivale exactamente a N% de ponderación** — conviértelo así, nunca marques `fuente_datos='incompleto'` solo porque la tabla dice "PTOS" en vez de "%".
 
 **Cascada de fuente (en orden estricto):**
 1. **Las bases** (cualquier documento donde estén). Aquí está la **forma de aplicación** y, casi siempre, los **subfactores**.

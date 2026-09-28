@@ -98,6 +98,36 @@ test('reconoce la tabla escrita como fórmulas ponderadas, sin columna de porcen
   assert.equal(hayTablaDeCriterios(texto), true);
 });
 
+// REGRESIÓN (4205-14-LE26, 28-sep-2026, Municipalidad de Curacaví): la tabla de ponderaciones está
+// en el CUERPO de las bases (sección 10), pero usa "PTOS" en vez de "%" y la fórmula usa la letra
+// "x" como signo de multiplicación ("... x 100 x 0,40") en vez de "*". El modelo la marcó como
+// "no hay tabla de ponderaciones" y devolvió los 3 criterios con ponderación 0.
+test('reconoce la tabla escrita en "PTOS" (puntos sobre 100) en vez de "%"', () => {
+  const texto = `
+    DESCRIPCION PUNTAJE
+    OFERTA ECONÓMICA 40 PTOS.
+    GARANTÍA TÉCNICA 15 PTOS.
+    PLAZO DE ENTREGA 30 PTOS.
+    COMPORTAMIENTO CONTRACTUAL ANTERIOR 5 PTOS.
+    CUMPLIMIENTO PROGRAMA DE INTEGRIDAD 5 PTOS.
+    CUMPLIMIENTO DE REQUISITOS FORMALES 5 PTOS.
+    TOTAL: 100 PTOS.
+  `;
+  assert.equal(hayTablaDeCriterios(texto), true);
+  assert.equal(criteriosNoConfiables(analizarRemisionACriterios(texto)), false);
+});
+
+test('reconoce la fórmula ponderada escrita con "x" (letra) en vez de "*"', () => {
+  const texto = `
+    P. T. Criterio Oferta Económica = Oferta de menor valor Ofertado x 100 x 0,40
+    P. T. Criterio Plazo de Entrega = Menor cantidad de días corridos ofertados x100 x 0,30
+    Puntaje criterio Garantía Técnica, puntaje obtenido x 0,15
+    Puntaje criterio Programa de Integridad x 0,10
+    Puntaje criterio Requisitos Formales x 0,05
+  `;
+  assert.equal(hayTablaDeCriterios(texto), true);
+});
+
 test('una mención suelta a "anexo" no cuenta como remisión de criterios', () => {
   const texto = `
     El oferente deberá presentar el Anexo N°3 debidamente firmado, y adjuntar el Anexo N°5

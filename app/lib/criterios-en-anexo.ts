@@ -69,15 +69,23 @@ const RE_REMISION_INVERSA = new RegExp(
 // —ni siquiera en licitaciones cuyos criterios estaban perfectamente extraídos (falso positivo
 // real: 813-71-LR26, con siete criterios citados por cláusula)— y habría borrado datos buenos.
 // El sesgo correcto es el contrario: ante la duda, dar la tabla por presente y no tocar nada.
+// "%" es la forma más común, pero bases municipales/DAEM suelen repartir el puntaje en PUNTOS
+// SOBRE 100 ("OFERTA ECONÓMICA 40 PTOS", "TOTAL: 100 PTOS") en vez de usar el símbolo "%". Cuando
+// la tabla suma 100, "N PTOS" equivale exactamente a N% — se reconoce igual. Caso real: bases de
+// la Municipalidad de Curacaví (adquisición equipamiento electricidad), tabla 40/15/30/5/5/5 PTOS
+// que el modelo marcó como "no hay tabla de ponderaciones" por no traer el símbolo "%".
 const RE_LINEA_CRITERIO_PCT = new RegExp(
   '(?:precio|econ[oó]mic|plazo|entrega|garant[ií]a|experiencia|t[eé]cnic|calidad|inclusi[oó]n|'
-  + 'g[eé]nero|integridad|compliance|sustentab|formal|administrativ)[\\s\\S]{0,140}?(\\d{1,3})\\s*%',
+  + 'g[eé]nero|integridad|compliance|sustentab|formal|administrativ|contractual)[\\s\\S]{0,140}?'
+  + '(\\d{1,3})\\s*(?:%|pts?\\.?|ptos?\\.?|puntos?)',
   'gi',
 );
 // Sin exigir el paréntesis de cierre: la misma tabla mezcla las dos formas — "…*100)*0.60)" para
 // los criterios con fórmula de proporción, y "Total criterio = Puntaje*0.05" para los de puntaje
 // directo. Pidiendo el paréntesis se perdían justo los dos criterios de 5% y la suma daba 90.
-const RE_FORMULA_PONDERADA = /\*\s*0[.,](\d{2})\b/g;
+// También se acepta la letra "x"/"X" como signo de multiplicación (no solo "*"): varias bases
+// municipales escriben la fórmula "... x 100 x 0,40" en vez de "*100)*0.40)" (mismo caso Curacaví).
+const RE_FORMULA_PONDERADA = /[*xX]\s*0[.,](\d{2})\b/g;
 
 const MIN_CRITERIOS_PARA_TABLA = 3;
 

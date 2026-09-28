@@ -28,7 +28,8 @@ import { InteligenciaSection } from './sections/InteligenciaSection';
 import OfertasCompetencia from '@/app/components/OfertasCompetencia';
 import { ResultadoSection } from './sections/ResultadoSection';
 import { Resaltar } from '@/app/components/Resaltar';
-import { MenuNegocioLateral, ordenarMenuNegocio } from '@/app/components/MenuNegocioLateral';
+import { MenuNegocioLateral, construirNavSeccionesNegocio, SeccionTabs } from '@/app/components/MenuNegocioLateral';
+import { tieneResultado } from '@/app/lib/pipeline';
 
 // Menú unificado con /negocios/[id] (mismo aside angosto, mismo orden de tabs).
 // 'inteligencia' NO aparece en NAV_SECTIONS (queda oculta, como en negocio): solo se
@@ -72,6 +73,20 @@ export default function LicitacionDetallePage() {
   const [negocioGestion, setNegocioGestion] = useState<NegocioGestion | null>(null);
   const [negocioGestionCargado, setNegocioGestionCargado] = useState(false);
   const [historialLigero, setHistorialLigero] = useState<EventoLic[]>([]);
+
+  // ¿Ya sabemos el resultado (Ganada o Perdida)? Sin negocio asignado todavía no hay pipeline,
+  // así que tampoco hay resultado. Puerta de Resultado/Competencia/Preguntas — igual que en
+  // /negocios/[id] (menú unificado, mismo criterio).
+  const hayResultado = tieneResultado(negocioGestion?.estado_pipeline);
+
+  // Resultado/Competencia/Preguntas se ocultan del menú hasta que hay resultado: si un link viejo
+  // (o la carga de negocioGestion) deja la pantalla parada en una de esas pestañas sin que ya
+  // corresponda, se vuelve a Resumen en vez de quedar en blanco.
+  useEffect(() => {
+    if (!negocioGestionCargado) return;
+    const gated = activeSection === 'resultado' || activeSection === 'competencia' || activeSection === 'preguntas';
+    if (gated && !hayResultado) setActiveSection('resumen');
+  }, [negocioGestionCargado, hayResultado, activeSection]);
 
   // --- ESTADO PARA DESCARGA AUTOMÁTICA ---
   const [descargandoAuto, setDescargandoAuto] = useState(false);
@@ -481,22 +496,23 @@ export default function LicitacionDetallePage() {
     { label: 'Adjudicación',             fecha: licitacion.fecha_adjudicacion },
   ].filter(f => f.fecha && formatDateTime(f.fecha));
 
-  // Menú unificado con /negocios/[id]: mismo orden y mismo criterio de badges de conteo.
-  const NAV_SECTIONS: { key: SeccionLicitacion; label: string; count: number | null }[] = [
-    { key: 'resumen',     label: 'Resumen',     count: null },
-    { key: 'resultado',   label: 'Resultado',   count: null },
-    { key: 'documentos',  label: 'Documentos',  count: documentosCache.length || null },
-    { key: 'viabilidad',  label: 'Viabilidad',  count: null },
-    { key: 'criterios',   label: 'Criterios',   count: licitacion.criterios_evaluacion?.length || analisisIA?.criteriosEvaluacion?.length || null },
-    { key: 'items',       label: 'Líneas',      count: licitacion.items?.length || null },
-    { key: 'fechas',      label: 'Fechas',      count: fechasAdic.length || null },
-    { key: 'preguntas',   label: 'Preguntas',   count: null },
-    // Competencia (F.2): las ofertas de los demás oferentes y sus anexos, leídas de la apertura.
-    // Va siempre visible —no solo cuando hay apertura— para que se pueda entrar a ver POR QUÉ
-    // todavía no hay datos, en vez de que el tab desaparezca sin explicación.
-    { key: 'competencia', label: 'Competencia', count: null },
-    { key: 'comentarios', label: 'Comentarios', count: null },
-  ];
+  // Menú unificado con /negocios/[id]: misma función arma el orden, las etiquetas y el criterio
+  // de visibilidad para ambas páginas (antes cada una tenía su propio NAV_SECTIONS). Competencia
+  // ya no va siempre visible: pasa a ser pestaña interna de "Resultado" y espera al resultado
+  // igual que allá (pedido del usuario, 28-sep-2026 — reemplaza la decisión anterior de dejarla
+  // siempre visible "para ver por qué no hay datos").
+  const itemsNav = construirNavSeccionesNegocio({
+    documentosCount: documentosCache.length,
+    hayResultado,
+    itemsCount: licitacion.items?.length,
+  });
+  const NAV_SECTIONS = itemsNav as unknown as { key: SeccionLicitacion; label: string; count: number | null }[];
+  // El sidebar solo tiene "resumen"/"resultado" como ítems clickeables; Fechas/Criterios y
+  // Competencia son pestañas internas de esos grupos, pero el ítem del grupo debe seguir
+  // resaltado mientras se está viendo cualquiera de sus pestañas.
+  const grupoActivo: SeccionLicitacion = (activeSection === 'fechas' || activeSection === 'criterios' || activeSection === 'comentarios') ? 'resumen'
+    : activeSection === 'competencia' ? 'resultado'
+    : activeSection;
 
   return (
     <AppLayout breadcrumb={[
@@ -508,8 +524,8 @@ export default function LicitacionDetallePage() {
 
         {/* ── LEFT NAV — menú único compartido con /negocios/[id] ── */}
         <MenuNegocioLateral
-          items={ordenarMenuNegocio(NAV_SECTIONS)}
-          activa={activeSection}
+          items={NAV_SECTIONS}
+          activa={grupoActivo}
           onSelect={k => setActiveSection(k as SeccionLicitacion)}
           onVolver={() => router.back()}
         />
@@ -612,7 +628,7 @@ export default function LicitacionDetallePage() {
                   key={s.key}
                   onClick={() => setActiveSection(s.key)}
                   className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold transition-colors ${
-                    activeSection === s.key ? 'bg-zinc-900 text-white' : 'bg-zinc-100 text-zinc-500 hover:text-zinc-700'
+                    grupoActivo === s.key ? 'bg-zinc-900 text-white' : 'bg-zinc-100 text-zinc-500 hover:text-zinc-700'
                   }`}
                 >
                   {s.label}
@@ -623,21 +639,64 @@ export default function LicitacionDetallePage() {
 
             {/* Sections */}
             <div key={activeSection} className="fade-in">
-              {activeSection === 'resumen' && (
-                <ResumenSection
-                  licitacion={licitacion}
-                  tipoLabel={tipoLabel}
-                  diasRestantes={diasRestantes}
-                  analisisIA={analisisIA}
-                  analizandoIA={analizandoIA}
-                  keywords={keywords}
-                />
+              {/* Resumen agrupa Resumen/Fechas/Criterios/Comentarios en pestañas internas. */}
+              {(activeSection === 'resumen' || activeSection === 'fechas' || activeSection === 'criterios' || activeSection === 'comentarios') && (
+                <>
+                  <SeccionTabs
+                    items={[
+                      { key: 'resumen', label: 'Resumen' },
+                      { key: 'fechas', label: 'Fechas', count: fechasAdic.length },
+                      { key: 'criterios', label: 'Criterios', count: licitacion.criterios_evaluacion?.length || analisisIA?.criteriosEvaluacion?.length },
+                      { key: 'comentarios', label: 'Comentarios' },
+                    ]}
+                    activo={activeSection}
+                    onSelect={k => setActiveSection(k as SeccionLicitacion)}
+                  />
+                  {activeSection === 'resumen' && (
+                    <ResumenSection
+                      licitacion={licitacion}
+                      tipoLabel={tipoLabel}
+                      diasRestantes={diasRestantes}
+                      analisisIA={analisisIA}
+                      analizandoIA={analizandoIA}
+                      keywords={keywords}
+                    />
+                  )}
+                  {activeSection === 'fechas' && (
+                    <FechasSection fechas={fechasAdic} />
+                  )}
+                  {activeSection === 'criterios' && (
+                    <CriteriosSection
+                      criterios={licitacion.criterios_evaluacion}
+                      analisisIA={analisisIA}
+                      criteriosViabilidad={informeViabIA?.criterios_evaluacion?.criterios}
+                      analizandoIA={analizandoIA}
+                      onIrAInteligencia={() => setActiveSection('inteligencia')}
+                    />
+                  )}
+                  {activeSection === 'comentarios' && (
+                    <ComentariosSection codigoDecoded={codigoDecoded} />
+                  )}
+                </>
               )}
-              {activeSection === 'resultado' && (
-                <ResultadoSection codigo={codigoDecoded} mpUrl={mpUrl} />
-              )}
-              {activeSection === 'fechas' && (
-                <FechasSection fechas={fechasAdic} />
+              {/* Resultado agrupa Resultado/Competencia; solo existe una vez que hay resultado. */}
+              {hayResultado && (activeSection === 'resultado' || activeSection === 'competencia') && (
+                <>
+                  <SeccionTabs
+                    items={[
+                      { key: 'resultado', label: 'Resultado' },
+                      { key: 'competencia', label: 'Competencia' },
+                    ]}
+                    activo={activeSection}
+                    onSelect={k => setActiveSection(k as SeccionLicitacion)}
+                  />
+                  {activeSection === 'resultado' && (
+                    <ResultadoSection codigo={codigoDecoded} mpUrl={mpUrl} />
+                  )}
+                  {activeSection === 'competencia' && (
+                    <OfertasCompetencia codigo={codigoDecoded} isAdmin={usuario?.rol === 'admin'} />
+                  )}
+                </>
               )}
               {activeSection === 'items' && (
                 <ItemsSection items={licitacion.items} keywords={keywords} />
@@ -657,23 +716,8 @@ export default function LicitacionDetallePage() {
                   empresaId={negocioGestion?.empresa_id ?? null}
                 />
               )}
-              {activeSection === 'preguntas' && (
+              {hayResultado && activeSection === 'preguntas' && (
                 <PreguntasSection codigoDecoded={codigoDecoded} mpUrl={mpUrl} />
-              )}
-              {activeSection === 'criterios' && (
-                <CriteriosSection
-                  criterios={licitacion.criterios_evaluacion}
-                  analisisIA={analisisIA}
-                  criteriosViabilidad={informeViabIA?.criterios_evaluacion?.criterios}
-                  analizandoIA={analizandoIA}
-                  onIrAInteligencia={() => setActiveSection('inteligencia')}
-                />
-              )}
-              {activeSection === 'competencia' && (
-                <OfertasCompetencia codigo={codigoDecoded} isAdmin={usuario?.rol === 'admin'} />
-              )}
-              {activeSection === 'comentarios' && (
-                <ComentariosSection codigoDecoded={codigoDecoded} />
               )}
               {activeSection === 'viabilidad' && (
                 // La IA es la fuente ÚNICA de la viabilidad: entrega el score, el veredicto

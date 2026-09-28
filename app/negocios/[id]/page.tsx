@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { AppLayout }  from '@/app/components/AppLayout';
 import { useToast }   from '@/app/components/ui/toast';
 import { useSession } from '@/app/lib/session-context';
-import { getEstadoPipeline, esGanado } from '@/app/lib/pipeline';
+import { getEstadoPipeline, esGanado, tieneResultado } from '@/app/lib/pipeline';
 import { estadoEfectivoCodigo, estadoEfectivoNombre } from '@/app/lib/estado-mp';
 
 // Colores del badge de estado de Mercado Público (por código efectivo).
@@ -30,7 +30,7 @@ import { Oportunidad } from '@/app/types/search.types';
 import { TIPO_LICITACION_MAP, MONEDA_LABEL_MAP } from '@/app/types/mercado-publico.types';
 import { RecorridoNegocio } from './RecorridoNegocio';
 import { GestionAside } from './GestionAside';
-import { MenuNegocioLateral } from '@/app/components/MenuNegocioLateral';
+import { MenuNegocioLateral, construirNavSeccionesNegocio, SeccionTabs } from '@/app/components/MenuNegocioLateral';
 import OfertasCompetencia from '@/app/components/OfertasCompetencia';
 import { InformacionComercialSection } from './InformacionComercialSection';
 import { CosteoEditorCard } from './CosteoEditorCard';
@@ -1085,6 +1085,15 @@ function DetalleContent() {
     if (seccionInicial === 'compras' && negocio?.id) router.replace(`/compras/${negocio.id}`);
   }, [seccionInicial, negocio?.id, router]);
 
+  // Resultado/Competencia/Preguntas se ocultan del menú hasta que hay resultado (ver
+  // tieneResultado): si un link viejo (o un cambio de estado en vivo) deja la pantalla parada en
+  // una de esas pestañas sin que ya corresponda, se vuelve a Resumen en vez de quedar en blanco.
+  useEffect(() => {
+    if (!negocio) return;
+    const gated = seccion === 'resultado' || seccion === 'competencia' || seccion === 'preguntas';
+    if (gated && !tieneResultado(negocio.estado_pipeline)) setSeccion('resumen');
+  }, [negocio, seccion]);
+
   // Documentos
   const [documentos, setDocumentos]           = useState<DocumentoLocal[]>([]);
   const [loadingDocs, setLoadingDocs]         = useState(false);
@@ -1348,28 +1357,25 @@ function DetalleContent() {
   // solo (pedido explícito, 10-sep-2026, ver ComprasSection.tsx/AppLayout.tsx). El propio encargado
   // asignado a ESTE negocio entra igual aunque no tenga ninguno de estos (lo resuelve la API).
   const hayCompras = esGanado(negocio.estado_pipeline) && (!!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial);
-  const NAV_SECTIONS: ReadonlyArray<{ key: Seccion; label: string; count: number | null; alerta?: boolean }> = [
-    { key: 'resumen',      label: 'Resumen',            count: null },
-    { key: 'resultado',    label: 'Resultado',          count: null },
-    { key: 'documentos',   label: 'Documentos',         count: documentos.length || null },
-    { key: 'viabilidad',   label: 'Viabilidad',         count: null },
-    { key: 'criterios',    label: 'Criterios',          count: analisisIA?.criteriosEvaluacion?.length || null },
-    { key: 'items',        label: 'Líneas',              count: (analisisIA?.especificacionesTecnicas?.length || licitacion?.Items?.length || null) },
-    { key: 'fechas',       label: 'Fechas',             count: licitacion ? Object.entries(licitacion).filter(([k,v]) => k.startsWith('Fecha') && v).length : null },
-    { key: 'preguntas',    label: 'Preguntas',          count: null },
-    { key: 'competencia',  label: 'Competencia',        count: null },
-    { key: 'comentarios',  label: 'Comentarios',        count: null },
-    // "Costeo" va justo ARRIBA de "Auditor Técnico" (pedido del usuario, 02-sep-2026): es el
-    // paso previo — se arma el precio acá, y el Auditor Técnico (Motor Comercial) ya lo ve
-    // reflejado apenas se guarda, sin tener que subir ningún Excel. Cada uno con su propio gate
-    // (hayCosteo / hayAuditorTecnico) desde que hay Información Comercial.
-    ...(hayCosteo
-      ? [{ key: 'costeo' as Seccion, label: 'Costeo', count: null }]
-      : []),
-    ...(hayAuditorTecnico
-      ? [{ key: 'comercial' as Seccion, label: 'Auditor Técnico', count: comercialPorAprobar || null, alerta: comercialPorAprobar > 0 }]
-      : []),
-  ];
+  // Resultado/Competencia/Preguntas quedan ocultas hasta que el negocio pase a Ganada o Perdida
+  // (antes de eso no hay nada real que mostrar ahí). Fechas y Criterios ya no son ítems propios
+  // del menú: son pestañas DENTRO de "Resumen" (ver más abajo, sección de render).
+  const hayResultado = tieneResultado(negocio.estado_pipeline);
+  const NAV_SECTIONS = construirNavSeccionesNegocio({
+    documentosCount: documentos.length,
+    hayResultado,
+    itemsCount: analisisIA?.especificacionesTecnicas?.length || licitacion?.Items?.length,
+    hayCosteo,
+    hayAuditorTecnico,
+    auditorCount: comercialPorAprobar,
+    auditorAlerta: comercialPorAprobar > 0,
+  }) as ReadonlyArray<{ key: Seccion; label: string; count: number | null; alerta?: boolean }>;
+  // El sidebar solo tiene "resumen"/"resultado" como ítems clickeables; Fechas/Criterios y
+  // Competencia son pestañas internas de esos grupos, pero el ítem del grupo debe seguir
+  // resaltado mientras se está viendo cualquiera de sus pestañas.
+  const grupoActivo: Seccion = (seccion === 'fechas' || seccion === 'criterios' || seccion === 'comentarios') ? 'resumen'
+    : seccion === 'competencia' ? 'resultado'
+    : seccion;
 
   return (
     <AppLayout breadcrumb={[
@@ -1381,7 +1387,7 @@ function DetalleContent() {
         {/* ── LEFT NAV — menú único compartido con /licitacion/[codigo] ── */}
         <MenuNegocioLateral
           items={NAV_SECTIONS.map(x => ({ ...x }))}
-          activa={seccion}
+          activa={grupoActivo}
           onSelect={k => setSeccion(k as Seccion)}
           volverHref="/negocios"
           cargandoContadores={loadingLic}
@@ -1444,7 +1450,7 @@ function DetalleContent() {
                   key={s.key}
                   onClick={() => setSeccion(s.key)}
                   className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold transition-colors ${
-                    seccion === s.key
+                    grupoActivo === s.key
                       ? 'bg-zinc-900 text-white'
                       : 'bg-zinc-100 text-zinc-500 hover:text-zinc-700'
                   }`}
@@ -1476,31 +1482,74 @@ function DetalleContent() {
             )}
 
             {/* Sections */}
-            {seccion === 'resumen' && (
-              <SeccionResumen
-                negocio={negocio}
-                licitacion={licitacion}
-                oportunidad={oportunidad}
-                onMontoChange={guardarMonto}
-                etiquetas={etiquetas}
-                viabIA={viabIA}
-                onIrViabilidad={() => setSeccion('viabilidad')}
-                analisisIA={analisisIA}
-              />
+            {/* Resumen agrupa Resumen/Fechas/Criterios/Comentarios en pestañas internas (línea de
+                avance del negocio: primero el resumen, luego cuándo pasa cada hito, luego con qué
+                se evalúa, y la conversación del equipo sobre esta licitación). */}
+            {(seccion === 'resumen' || seccion === 'fechas' || seccion === 'criterios' || seccion === 'comentarios') && (
+              <>
+                <SeccionTabs
+                  items={[
+                    { key: 'resumen', label: 'Resumen' },
+                    { key: 'fechas', label: 'Fechas', count: licitacion ? Object.entries(licitacion).filter(([k, v]) => k.startsWith('Fecha') && v).length : null },
+                    { key: 'criterios', label: 'Criterios', count: analisisIA?.criteriosEvaluacion?.length },
+                    { key: 'comentarios', label: 'Comentarios' },
+                  ]}
+                  activo={seccion}
+                  onSelect={k => setSeccion(k as Seccion)}
+                />
+                {seccion === 'resumen' && (
+                  <SeccionResumen
+                    negocio={negocio}
+                    licitacion={licitacion}
+                    oportunidad={oportunidad}
+                    onMontoChange={guardarMonto}
+                    etiquetas={etiquetas}
+                    viabIA={viabIA}
+                    onIrViabilidad={() => setSeccion('viabilidad')}
+                    analisisIA={analisisIA}
+                  />
+                )}
+                {seccion === 'fechas' && <SeccionFechas licitacion={licitacion} />}
+                {seccion === 'criterios' && (
+                  <CriteriosSection
+                    criterios={oportunidad?.criterios_evaluacion}
+                    analisisIA={analisisIA as any}
+                    criteriosViabilidad={viabIA?.criterios_evaluacion?.criterios}
+                    analizandoIA={false}
+                    onIrAInteligencia={() => setSeccion('analisis')}
+                  />
+                )}
+                {seccion === 'comentarios' && (
+                  <ComentariosSection
+                    codigoDecoded={negocio.licitacion_codigo}
+                    negocioId={negocio.id}
+                    estadoActual={negocio.estado_pipeline}
+                    isAdmin={isAdmin}
+                    onEstadoChanged={sincronizarEstadoPipeline}
+                  />
+                )}
+              </>
             )}
-            {seccion === 'resultado' && (
-              <ResultadoSection codigo={negocio.licitacion_codigo} mpUrl={mpUrl} />
+            {/* Resultado agrupa Resultado/Competencia; solo existe una vez que el negocio ya
+                Ganó o Perdió (hayResultado, ver arriba). */}
+            {hayResultado && (seccion === 'resultado' || seccion === 'competencia') && (
+              <>
+                <SeccionTabs
+                  items={[
+                    { key: 'resultado', label: 'Resultado' },
+                    { key: 'competencia', label: 'Competencia' },
+                  ]}
+                  activo={seccion}
+                  onSelect={k => setSeccion(k as Seccion)}
+                />
+                {seccion === 'resultado' && (
+                  <ResultadoSection codigo={negocio.licitacion_codigo} mpUrl={mpUrl} />
+                )}
+                {seccion === 'competencia' && (
+                  <OfertasCompetencia codigo={negocio.licitacion_codigo} isAdmin={isAdmin} />
+                )}
+              </>
             )}
-            {seccion === 'criterios' && (
-              <CriteriosSection
-                criterios={oportunidad?.criterios_evaluacion}
-                analisisIA={analisisIA as any}
-                criteriosViabilidad={viabIA?.criterios_evaluacion?.criterios}
-                analizandoIA={false}
-                onIrAInteligencia={() => setSeccion('analisis')}
-              />
-            )}
-            {seccion === 'fechas' && <SeccionFechas licitacion={licitacion} />}
             {seccion === 'items' && <SeccionItems licitacion={licitacion} analisisIA={analisisIA} />}
             {seccion === 'viabilidad' && <ViabilidadIAPanel codigo={negocio.licitacion_codigo} onComplete={fetchViabIA} />}
             {seccion === 'documentos' && (
@@ -1522,20 +1571,8 @@ function DetalleContent() {
             {seccion === 'analisis' && (
               <InteligenciaSection codigo={negocio.licitacion_codigo} documentosAnalizables={documentosAnalizables as any} nombreLicitacion={negocio.licitacion_nombre || negocio.licitacion_codigo} />
             )}
-            {seccion === 'preguntas' && (
+            {hayResultado && seccion === 'preguntas' && (
               <PreguntasSection codigoDecoded={negocio.licitacion_codigo} mpUrl={mpUrl} />
-            )}
-            {seccion === 'competencia' && (
-              <OfertasCompetencia codigo={negocio.licitacion_codigo} isAdmin={isAdmin} />
-            )}
-            {seccion === 'comentarios' && (
-              <ComentariosSection
-                codigoDecoded={negocio.licitacion_codigo}
-                negocioId={negocio.id}
-                estadoActual={negocio.estado_pipeline}
-                isAdmin={isAdmin}
-                onEstadoChanged={sincronizarEstadoPipeline}
-              />
             )}
             {seccion === 'costeo' && hayCosteo && (
               <CosteoEditorCard negocioId={negocio.id} licitacionCodigo={negocio.licitacion_codigo} />

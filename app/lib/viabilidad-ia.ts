@@ -494,10 +494,11 @@ async function extraerPonderacionesCriteriosIA(
 ): Promise<{ nombre: string; ponderacion_pct: number }[]> {
   const sys = `Eres un extractor de tablas de ponderación de criterios de evaluación de licitaciones públicas chilenas.
 Te doy la sección "CRITERIOS DE EVALUACIÓN" de unas bases, extraída de un PDF por OCR de baja calidad: puede traer fórmulas ilegibles, palabras partidas por saltos de columna o de página, y "N*" en vez de "N°". A pesar del ruido, el nombre de cada criterio numerado (1, 2, 3…) y su ponderación en % SIGUEN presentes en el texto.
-TU ÚNICA TAREA: listar cada criterio numerado con su nombre corto y su ponderación en %. Reglas ESTRICTAS:
+IMPORTANTE: algunas bases (municipales/DAEM) NO usan "%" sino PUNTOS SOBRE 100 ("OFERTA ECONÓMICA 40 PTOS", "TOTAL: 100 PTOS") y fórmulas con "x 100 x 0,40" en vez de "%". Si la tabla suma 100 puntos, trata cada "N PTOS"/"N PUNTOS" como N% — es la misma ponderación, solo escrita distinto.
+TU ÚNICA TAREA: listar cada criterio numerado con su nombre corto y su ponderación en % (o su equivalente en puntos sobre 100). Reglas ESTRICTAS:
 - Usa el nombre del encabezado numerado ("1) Precio", "2) Plazo de entrega", etc.) para "nombre", no una frase suelta de alrededor.
 - La ponderación de un criterio suele aparecer DOS VECES (junto al nombre y de nuevo en la frase "la ponderación asignada a este ítem es de: NN%") — es EL MISMO número, no lo sumes ni lo dupliques.
-- Si un criterio numerado no muestra su % en ninguna parte del texto, OMÍTELO — no inventes un número.
+- Si un criterio numerado no muestra su % ni su puntaje en ninguna parte del texto, OMÍTELO — no inventes un número.
 - NO inventes criterios que no estén en el texto. NO agregues el criterio "genérico" de requisitos administrativos si no aparece numerado como los demás.
 Devuelve SOLO JSON válido: {"criterios":[{"nombre":"Precio","ponderacion_pct":45}, ...]}.`;
   const user = `Extrae los criterios y su ponderación de esta sección de bases:\n\n${seccionTexto}`;
@@ -1238,6 +1239,11 @@ Ubica y extrae criterios y SU FORMA DE APLICACIÓN (insumo innegociable; aliment
   Metodología/Pauta). LA ESTRUCTURA MANDA SOBRE EL TÍTULO. Tabla aplanada (PDF nativo) → reconstruye.
 • CASCADA: 1) bases (forma de aplicación + subfactores; obligatoria); 2) API solo criterio + ponderación
   general; 3) si falta la forma de aplicación → ALERTA + acción.
+• "PTOS"/"PUNTOS" NO ES "SIN PONDERACIÓN": bases municipales/DAEM suelen repartir el puntaje en PUNTOS
+  SOBRE 100 en vez de "%" — ej. "OFERTA ECONÓMICA 40 PTOS · GARANTÍA TÉCNICA 15 PTOS · PLAZO DE ENTREGA
+  30 PTOS … TOTAL: 100 PTOS" y fórmulas del tipo "... x 100 x 0,40" (letra "x", no "×" ni "*"). Si el
+  total de la tabla es 100 puntos, cada "N PTOS" = N% de ponderación exacto — conviértelo así. NUNCA
+  marques fuente_datos='incompleto' solo porque la tabla dice "PTOS" en vez de "%".
 • JERARQUÍA: PONDERACIÓN EFECTIVA = padre × relativa.
 • POR CADA CRITERIO: nombre · ponderación REAL · FORMA DE APLICACIÓN (fórmula, tramos, qué acredita cada
   puntaje, medio de verificación; consolídala aunque viva en otra sección) · CLASE DE EVALUACIÓN · Fuente.
