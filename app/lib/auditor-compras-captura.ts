@@ -62,7 +62,7 @@ function detectarEstado(urlOriginal: string, urlFinal: string, http: number | nu
   return 'activo';
 }
 
-async function capturarConNavegador(browser: any, url: string): Promise<Captura> {
+export async function capturarConNavegador(browser: any, url: string): Promise<Captura> {
   const capturadoAt = ahoraChileSQL();
   const page = await browser.newPage();
   try {
@@ -87,7 +87,7 @@ async function capturarConNavegador(browser: any, url: string): Promise<Captura>
   } finally { await page.close().catch(() => {}); }
 }
 
-async function capturarConFetch(url: string): Promise<Captura> {
+export async function capturarConFetch(url: string): Promise<Captura> {
   const capturadoAt = ahoraChileSQL();
   try {
     const res = await fetch(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'es-CL,es;q=0.9' }, redirect: 'follow', signal: AbortSignal.timeout(20_000) });
@@ -144,6 +144,40 @@ export async function capturarLinks(negocioId: number, filaId: string, urls: str
         [negocioId, filaId, url.slice(0, 1000), cap.capturadoAt, cap.httpStatus, cap.estado, cap.titulo, cap.texto, hash, cap.imagen],
       ) as any;
       out.push({ ...cap, id: (r as any).insertId });
+    }
+  } finally { if (browser) await browser.close().catch(() => {}); }
+  return out;
+}
+
+/** Igual que capturarLinks pero SIN guardar nada en las tablas de Compras: devuelve las capturas para que
+ *  quien llama (el AUDITOR de la licitación, auditor_captura) las guarde donde corresponde. Mismo criterio:
+ *  un solo navegador, respaldo con fetch y nunca lanza (un link que no abre queda `caido` con su error). */
+export async function visitarLinks(urls: string[]): Promise<Captura[]> {
+  const limpias = [...new Set(urls.map(normalizarUrl))].slice(0, 3);
+  if (limpias.length === 0) return [];
+  let browser: any = null;
+  try {
+    const puppeteerCore = (await import('puppeteer-core')).default;
+    const { addExtra } = await import('puppeteer-extra');
+    const StealthPlugin = (await import('puppeteer-extra-plugin-stealth')).default;
+    const { resolverChromium } = await import('@/app/lib/mp-descarga-browser');
+    const pp: any = addExtra(puppeteerCore as any); pp.use(StealthPlugin());
+    const { executablePath, args } = await resolverChromium();
+    browser = await pp.launch({ args, executablePath, headless: true });
+  } catch (e) {
+    console.warn('[auditor-captura] sin navegador, se usa fetch simple:', String((e as Error).message || e).slice(0, 160));
+  }
+  const out: Captura[] = [];
+  try {
+    for (const url of limpias) {
+      let cap: Captura;
+      try { cap = browser ? await capturarConNavegador(browser, url) : await capturarConFetch(url); }
+      catch { cap = await capturarConFetch(url); }
+      if (cap.texto.length < 300 && cap.estado === 'activo' && cap.metodo === 'navegador') {
+        const alt = await capturarConFetch(url);
+        if (alt.texto.length > cap.texto.length) cap = { ...alt, imagen: cap.imagen };
+      }
+      out.push(cap);
     }
   } finally { if (browser) await browser.close().catch(() => {}); }
   return out;

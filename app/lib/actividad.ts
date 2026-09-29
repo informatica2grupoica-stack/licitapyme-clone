@@ -42,6 +42,7 @@ export type AccionActividad =
 // Pestañas del detalle de la licitación que se registran como 'ver_seccion'.
 export const SECCIONES_ACTIVIDAD = [
   'resumen', 'viabilidad', 'criterios', 'fechas', 'items', 'documentos', 'analisis', 'comentarios',
+  'costeo', 'comercial', 'auditor_compra',
 ] as const;
 export type SeccionActividad = (typeof SECCIONES_ACTIVIDAD)[number];
 
@@ -49,6 +50,7 @@ export const LABEL_SECCION: Record<SeccionActividad, string> = {
   resumen: 'Resumen', viabilidad: 'Viabilidad', criterios: 'Criterios de evaluación',
   fechas: 'Fechas', items: 'Ítems y cantidades', documentos: 'Documentos',
   analisis: 'ankIA', comentarios: 'Comentarios',
+  costeo: 'Costeo', comercial: 'Auditor Técnico', auditor_compra: 'Auditor de Compra',
 };
 
 export interface EventoActividad {

@@ -207,6 +207,12 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Descarga de documentos + viabilidad automática en segundo plano (cola serial, no bloquea).
+    if (agregadas.length > 0) {
+      const { encolarViabilidadPuente } = await import('@/app/lib/viabilidad-al-asignar');
+      void encolarViabilidadPuente(agregadas);
+    }
+
     const [[{ total }]] = await pool.query(`SELECT COUNT(*) AS total FROM puente_radar`) as any[];
     return NextResponse.json({
       success: true,

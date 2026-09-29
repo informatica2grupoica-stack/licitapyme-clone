@@ -1,0 +1,121 @@
+// app/api/negocios/[id]/auditor/route.ts
+// AUDITOR unificado de la licitación (pestaña "Compra" del ítem Auditor): opciones por línea, lectura de
+// las cotizaciones de Documentos con el Lector (Prompt 6), verificación por código y firma → aprobación.
+// Lógica en app/lib/auditor-opciones.ts. Mismo acceso que el Auditor de Compra: admin o permiso
+// `auditor_compra` (ver app/lib/auditor-acceso.ts). Aprobar exige ser EM (admin o `aprobar_comercial`).
+//
+//   GET  → panel: líneas del costeo con sus opciones (respaldos + verificación), las cotizaciones de
+//          Documentos y el mensaje único por proveedor.
+//   POST → { accion, ... }: leer_documento · emparejar_documento · asignar_producto · cambiar_via ·
+//          verificar_tecnico · habilitar_item_tecnico · declarar_item_tecnico · agregar_link · no_ofertar · reofertar · agregar/estimar/anular/restaurar_costo_asociado · descartar · restaurar · firmar · quitar_firma · solicitar_aprobacion · aprobar · rechazar
+import { NextRequest, NextResponse } from 'next/server';
+import pool from '@/app/lib/db';
+import { contextoAuditor } from '@/app/lib/auditor-acceso';
+import {
+  armarPanelAuditor, leerDocumentoYCrearOpciones, crearOpcionesDesdeExtraccion, asignarProductoALinea, cambiarVia, descartarOpcion, restaurarOpcion,
+  firmarOpcion, quitarFirma, solicitarAprobacion, resolverAprobacion, agregarLinkALinea,
+  verificarTecnicoDeOpcion, habilitarItemTecnico, declararItemTecnico,
+} from '@/app/lib/auditor-opciones';
+import {
+  marcarNoOfertada, reofertarLinea, agregarCostoAsociado, estimarCostoAsociado, anularCostoAsociado, restaurarCostoAsociado,
+} from '@/app/lib/auditor-lineas';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
+
+type Params = { params: Promise<{ id: string }> };
+
+export async function GET(request: NextRequest, { params }: Params) {
+  const c = await contextoAuditor(request, params);
+  if (c instanceof NextResponse) return c;
+  try {
+    return NextResponse.json({ success: true, ...(await armarPanelAuditor(c.negocio.id, c.negocio.licitacion_codigo)) });
+  } catch (e) {
+    console.error('[auditor][GET]', String(e));
+    return NextResponse.json({ error: String(e) }, { status: 500 });
+  }
+}
+
+export async function POST(request: NextRequest, { params }: Params) {
+  const c = await contextoAuditor(request, params);
+  if (c instanceof NextResponse) return c;
+  const { negocio, actor, perm } = c;
+  const body = await request.json().catch(() => ({}));
+  const accion = String(body.accion || '');
+  const opcionId = Number(body.opcionId);
+
+  try {
+    switch (accion) {
+      case 'leer_documento': {
+        const url = String(body.url || '');
+        // Solo se leen documentos que de verdad están en la caja de cotizaciones de ESTA licitación.
+        const [rows] = await pool.query(
+          `SELECT documento_nombre FROM documentos_cache WHERE licitacion_codigo = ? AND subcategoria = 'cotizaciones' AND documento_url_local = ? LIMIT 1`,
+          [negocio.licitacion_codigo, url]) as any;
+        if (!(rows as any[]).length) return NextResponse.json({ error: 'Ese documento no es una cotización de esta licitación.' }, { status: 404 });
+        const r = await leerDocumentoYCrearOpciones(negocio.id, url, (rows as any[])[0].documento_nombre, actor);
+        return NextResponse.json({ ...r, success: !r.error });
+      }
+      case 'emparejar_documento': {
+        // Re-aplica el emparejamiento sobre una extracción YA leída (sin volver a llamar a la IA).
+        const r = await crearOpcionesDesdeExtraccion(negocio.id, Number(body.extraccionId), actor);
+        return NextResponse.json({ success: true, ...r });
+      }
+      case 'asignar_producto': {
+        const id = await asignarProductoALinea(negocio.id, Number(body.extraccionId), Number(body.productoIdx), String(body.filaId || ''), actor);
+        return NextResponse.json({ success: true, opcionId: id });
+      }
+      case 'cambiar_via':
+        if (body.via !== 'liviana' && body.via !== 'completa') return NextResponse.json({ error: 'Vía inválida' }, { status: 400 });
+        await cambiarVia(negocio.id, opcionId, body.via); break;
+      case 'descartar': await descartarOpcion(negocio.id, opcionId, String(body.motivo || '')); break;
+      case 'restaurar': await restaurarOpcion(negocio.id, opcionId); break;
+      case 'firmar': await firmarOpcion(negocio.id, negocio.licitacion_codigo, opcionId, actor, perm.esEM); break;
+      case 'quitar_firma': await quitarFirma(negocio.id, opcionId); break;
+      case 'solicitar_aprobacion': {
+        const r = await solicitarAprobacion(negocio.id, negocio.licitacion_codigo, opcionId, actor);
+        return NextResponse.json({ success: true, cambios: r.cambios });
+      }
+      case 'no_ofertar': await marcarNoOfertada(negocio.id, String(body.filaId || ''), String(body.motivo || ''), actor); break;
+      case 'reofertar': await reofertarLinea(negocio.id, String(body.filaId || ''), actor); break;
+      case 'agregar_costo_asociado': {
+        const materia = String(body.materia || '').trim();
+        if (!materia) return NextResponse.json({ error: 'Indica la materia del costo (capacitación, instalación, despacho…).' }, { status: 400 });
+        const id = await agregarCostoAsociado(negocio.id, {
+          filaId: body.filaId ? String(body.filaId) : null, materia, exigeBaseLiteral: body.exigeBaseLiteral ? String(body.exigeBaseLiteral) : null,
+          fuenteBases: body.fuenteBases ? String(body.fuenteBases) : null, cuantificacion: body.cuantificacion ? String(body.cuantificacion) : null,
+          montoEstimado: body.montoEstimado != null && body.montoEstimado !== '' ? Number(body.montoEstimado) : null, origen: 'manual',
+        }, actor);
+        return NextResponse.json({ success: true, id });
+      }
+      case 'estimar_costo_asociado':
+        await estimarCostoAsociado(negocio.id, Number(body.id), body.monto === null || body.monto === '' || body.monto === undefined ? null : Number(body.monto), actor); break;
+      case 'anular_costo_asociado': await anularCostoAsociado(negocio.id, Number(body.id), String(body.comentario || ''), actor); break;
+      case 'restaurar_costo_asociado': await restaurarCostoAsociado(negocio.id, Number(body.id), actor); break;
+      case 'verificar_tecnico': {
+        const r = await verificarTecnicoDeOpcion(negocio.id, negocio.licitacion_codigo, opcionId, actor);
+        return NextResponse.json({ success: true, ...r });
+      }
+      case 'habilitar_item_tecnico':
+        if (!perm.esEM) return NextResponse.json({ error: 'Habilitar un dato requiere ser EM (jefe de ventas o admin).' }, { status: 403 });
+        await habilitarItemTecnico(negocio.id, opcionId, Number(body.n), body.habilitado !== false, actor); break;
+      case 'declarar_item_tecnico': await declararItemTecnico(negocio.id, opcionId, Number(body.n), String(body.texto || ''), String(body.respaldo || ''), actor); break;
+      case 'agregar_link': {
+        const r = await agregarLinkALinea(negocio.id, String(body.filaId || ''), String(body.url || ''), actor);
+        return NextResponse.json({ success: true, ...r });
+      }
+      case 'aprobar':
+      case 'rechazar':
+        if (!perm.esEM) return NextResponse.json({ error: 'Aprobar o rechazar requiere ser EM (jefe de ventas o admin).' }, { status: 403 });
+        await resolverAprobacion(negocio.id, opcionId, accion, body.comentario ? String(body.comentario) : null, actor); break;
+      default:
+        return NextResponse.json({ error: `Acción desconocida: ${accion}` }, { status: 400 });
+    }
+    return NextResponse.json({ success: true });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[auditor][POST]', accion, msg);
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
+}

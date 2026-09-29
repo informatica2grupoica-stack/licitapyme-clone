@@ -17,8 +17,9 @@ export interface ItemMenuNegocio {
   // Otro color para marcar una fase distinta del flujo (Auditor Técnico y Auditor de Compra son
   // "auditorías", no pasos de armado de la oferta — pedido del usuario, 28-sep-2026).
   variante?: 'compra';
-  // Ítem visible pero todavía no aplicable (Auditor de Compra antes de que el negocio gane): se ve
-  // en su lugar del flujo — para que no "aparezca de la nada" al ganar — pero no es clickeable.
+  // Ítem visible pero todavía no clickeable. Sin uso hoy (Auditor de Compra pasó a estar activo
+  // en todo momento, pedido del usuario, 29-sep-2026) — se deja el soporte por si vuelve a hacer
+  // falta para otro ítem futuro.
   disabled?: boolean;
 }
 
@@ -31,14 +32,14 @@ export interface NavSeccionesNegocioInput {
   hayAuditorTecnico?: boolean;
   auditorCount?: number | null;
   auditorAlerta?: boolean;
-  // ¿Ganamos? (esGanado()) — el ítem de Auditor de Compra se ve desde antes (si el usuario puede
-  // verlo) pero queda deshabilitado hasta que esto sea true.
+  // ¿Ganamos? (esGanado()) — ya no condiciona el ítem de Auditor de Compra (ver
+  // puedeVerAuditorCompra); se deja el campo por si una fase futura vuelve a necesitarlo.
   hayGanado?: boolean;
-  // ¿Puede este usuario ver la pestaña Auditor de Compra en algún momento? (admin o permiso
-  // `auditor_compra`, ver app/lib/api-auth.ts) — a diferencia de Auditor Técnico, NO depende de
-  // hayGanado para decidir si el ítem se ve: se ve siempre que corresponda, deshabilitado hasta
-  // ganar (pedido del usuario, 28-sep-2026: "no me sale el auditor compra" cuando no había ganado
-  // — la solución es mostrarlo siempre, no ocultarlo). Solo /negocios/[id] lo pasa.
+  // ¿Puede este usuario ver y trabajar la pestaña Auditor de Compra? (admin o permiso
+  // `auditor_compra`, ver app/lib/api-auth.ts) — mismo criterio que Auditor Técnico: activo en todo
+  // momento desde que hay información comercial, sin esperar a que el negocio gane (pedido
+  // explícito del usuario, 29-sep-2026 — "después lo vemos si lo activamos con algún estado"). Solo
+  // /negocios/[id] lo pasa.
   puedeVerAuditorCompra?: boolean;
 }
 
@@ -53,7 +54,7 @@ export interface NavSeccionesNegocioInput {
 // Resultado/Preguntas (solo con Ganada o Perdida) → Costeo → Auditor Técnico → Auditor de Compra
 // (disponibles desde que se asigna, ver tieneInformacionComercial en checklist-comercial.ts).
 export function construirNavSeccionesNegocio(input: NavSeccionesNegocioInput): ItemMenuNegocio[] {
-  const { documentosCount, hayResultado, itemsCount, hayCosteo, hayAuditorTecnico, auditorCount, auditorAlerta, hayGanado, puedeVerAuditorCompra } = input;
+  const { documentosCount, hayResultado, itemsCount, hayCosteo, hayAuditorTecnico, auditorCount, auditorAlerta, puedeVerAuditorCompra } = input;
   return [
     { key: 'resumen',    label: 'Resumen',    count: null },
     { key: 'documentos', label: 'Documentos', count: documentosCount || null },
@@ -62,11 +63,10 @@ export function construirNavSeccionesNegocio(input: NavSeccionesNegocioInput): I
     ...(hayResultado ? [{ key: 'resultado', label: 'Resultado', count: null }] : []),
     ...(hayResultado ? [{ key: 'preguntas', label: 'Preguntas', count: null }] : []),
     ...(hayCosteo ? [{ key: 'costeo', label: 'Costeo', count: null }] : []),
-    ...(hayAuditorTecnico
-      ? [{ key: 'comercial', label: 'Auditor Técnico', count: auditorCount || null, alerta: !!auditorAlerta, variante: 'compra' as const }]
-      : []),
-    ...(puedeVerAuditorCompra
-      ? [{ key: 'auditor_compra', label: 'Auditor de Compra', count: null, disabled: !hayGanado, variante: 'compra' as const }]
+    // Un solo ítem "Auditor" con pestañas Técnico / Compra por dentro (módulo AUDITOR unificado,
+    // 29-sep-2026). Se mantiene la key 'comercial' para no romper los deep-links de /aprobaciones.
+    ...(hayAuditorTecnico || puedeVerAuditorCompra
+      ? [{ key: 'comercial', label: 'Auditor', count: auditorCount || null, alerta: !!auditorAlerta, variante: 'compra' as const }]
       : []),
   ];
 }
@@ -192,11 +192,10 @@ export function MenuNegocioLateral({ items, activa, onSelect, volverHref, onVolv
               return (
                 <div
                   key={s.key}
-                  title="Se habilita cuando el negocio gane"
+                  title="Todavía no disponible"
                   className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[12.5px] text-zinc-300 font-medium cursor-not-allowed select-none"
                 >
                   <span>{s.label}</span>
-                  <span className="text-[8.5px] uppercase font-bold tracking-wide text-zinc-300">Al ganar</span>
                 </div>
               );
             }

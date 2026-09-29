@@ -21,7 +21,7 @@ import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO, conAcumuladorCostoIA, costoAcumuladoActual } from '@/app/lib/gemini';
 import { leerClausulaAdjudicacion } from '@/app/lib/clausulas-adjudicacion';
-import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, detectarLicitacionTipoMultiple, extraerPresupuestoPorLineaTabla, extraerListadoCanonicoBases, decidirReemplazoPorCanonica, esFilaNoProducto } from '@/app/lib/planilla-costeo-parser';
+import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, seccionesSonFichasDeCaracteristicas, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, detectarLicitacionTipoMultiple, extraerPresupuestoPorLineaTabla, extraerListadoCanonicoBases, decidirReemplazoPorCanonica, esFilaNoProducto } from '@/app/lib/planilla-costeo-parser';
 
 // Re-export para no romper a quien lo importaba desde acá (el filtro vive ahora en
 // planilla-costeo-parser.ts, módulo PURO sin dependencias, para que generar-costeo.ts también
@@ -453,6 +453,7 @@ TU ÚNICA TAREA: listar TODOS y CADA UNO de los productos de CADA línea. Reglas
 - Reconstruye el nombre completo del producto aunque esté partido en varias líneas (ej. "Canaleta PVC blanco tira 4 m P-25").
 - "cantidad" = el número entero de la columna Cantidad. "unidad" = la unidad de medida (Unidad, Tira, Caja, Metros, etc.).
 - Subtítulos como "1)Captación", "2)Kit Venturi", "3)Nodo de riego" son GRUPOS dentro de la línea: NO son productos, pero los productos que les siguen SÍ.
+- Las CARACTERÍSTICAS / especificaciones técnicas de un producto (procesador, memoria, sistema operativo, pantalla, cables incluidos, conectividad…) NO son productos: son atributos del producto que las encabeza. Un notebook con su lista de specs es UN solo ítem.
 - NO inventes productos que no estén en el texto. Si una cantidad no aparece, pon null.
 Devuelve SOLO JSON válido: {"lineas":[{"linea":1,"items":[{"descripcion":"...","unidad":"...","cantidad":8}, ...]}, ...]}.`;
 
@@ -2449,7 +2450,11 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
     try {
       const secciones = extraerSeccionesLineaProducto(leidos.map(d => ({ nombre: d.nombre, texto: d.texto })));
       // Solo si el manifiesto actual quedó chico (el LLM resumió): ~1 ítem por línea.
-      if (secciones.length >= 2 && manifiesto.length <= secciones.length * 2) {
+      // Fichas de características (1 producto por línea + lista de specs): esta extracción las
+      // desarmaría en un ítem por spec (5586-145-LE26). El manifiesto del análisis general manda.
+      const sonFichas = seccionesSonFichasDeCaracteristicas(secciones);
+      if (sonFichas) console.log(`[viabilidad-ia-v3] ${codigo}: secciones "LÍNEA" son fichas de características — se omite la extracción dedicada.`);
+      if (!sonFichas && secciones.length >= 2 && manifiesto.length <= secciones.length * 2) {
         const extra = await extraerItemsLineasProductoIA(secciones);
         if (extra.length > manifiesto.length && extra.length >= secciones.length * 2) {
           console.log(`[viabilidad-ia-v3] ${codigo}: extracción dedicada "LÍNEA DE PRODUCTO" → ${extra.length} ítems (antes ${manifiesto.length}), ${secciones.length} líneas.`);

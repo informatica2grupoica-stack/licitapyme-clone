@@ -218,6 +218,56 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   const [generandoItem, setGenerandoItem] = useState<Item | null>(null);
   const [anexoDocSeleccionado, setAnexoDocSeleccionado] = useState<AnexoDoc | null>(null);
   const [generandoFicha, setGenerandoFicha] = useState(false);
+  // UN PDF con las especificaciones de TODOS los ítems: se sube una vez, el servidor lo parte por
+  // producto, lo empareja con cada línea por nombre y compara cada una solo contra su bloque.
+  const [comparandoTodas, setComparandoTodas] = useState(false);
+  const [progresoTodas, setProgresoTodas] = useState<string | null>(null);
+  const pdfTodasRef = useRef<HTMLInputElement>(null);
+  const compararPdfTodasLasLineas = async (file: File) => {
+    setComparandoTodas(true);
+    try {
+      setProgresoTodas(`Subiendo "${file.name}"…`);
+      const fd = new FormData();
+      fd.append('licitacionCodigo', licitacionCodigo);
+      fd.append('files', file);
+      const rs = await fetch('/api/documentos/subir', { method: 'POST', body: fd });
+      const ds = await rs.json().catch(() => ({}));
+      if (!rs.ok || !ds.documentos?.length) { toast.error(ds.error || `No se pudo subir "${file.name}"`); return; }
+      // Una línea sin validar no tiene requisitos clasificados que comparar: se validan primero (de a 3).
+      const sinValidar = items.filter(i => i.tipo === 'linea_tecnica' && i.ofertamos !== false && (!i.resumen_tecnico || i.resumen_tecnico.total === 0));
+      let hechas = 0;
+      const noValidadas: string[] = [];
+      for (let k = 0; k < sinValidar.length; k += 3) {
+        setProgresoTodas(`Clasificando las bases de cada línea (${hechas}/${sinValidar.length})…`);
+        await Promise.all(sinValidar.slice(k, k + 3).map(async i => {
+          try {
+            const rv = await fetch(`/api/negocios/${negocioId}/comercial/${i.id}/caracteristicas`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'validar' }),
+            });
+            if (!rv.ok) noValidadas.push(`${i.titulo}: ${(await rv.json().catch(() => ({}))).error || 'no se pudo validar'}`);
+          } catch { noValidadas.push(`${i.titulo}: error de red`); }
+          hechas++;
+        }));
+      }
+      if (noValidadas.length) toast.warning(`${noValidadas.length} línea(s) no se pudieron validar`, `${noValidadas.slice(0, 3).join(' · ')}${noValidadas.length > 3 ? '…' : ''}`);
+      setProgresoTodas('Separando por ítem y comparando cada línea…');
+      const r = await fetch(`/api/negocios/${negocioId}/comercial/documento-todas`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ documento: { url: ds.documentos[0].url, nombre: ds.documentos[0].nombre } }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.success) { toast.error(d.error || 'No se pudo comparar el documento'); return; }
+      const comparadas = (d.resultados || []).filter((x: any) => x.comparados > 0).length;
+      const sin = (d.lineasSinBloque || []).length;
+      const detalle = `${comparadas} línea(s) comparadas${sin ? ` · ${sin} sin bloque en el PDF (quedaron intactas: ${d.lineasSinBloque.slice(0, 6).map((x: any) => `L${x.linea}`).join(', ')}${sin > 6 ? '…' : ''})` : ''}${(d.bloquesSinLinea || []).length ? ` · ${d.bloquesSinLinea.length} bloque(s) del PDF sin línea` : ''}`;
+      if (sin || (d.resultados || []).some((x: any) => x.aviso)) toast.warning('Comparación lista con avisos', detalle);
+      else toast.success('Documento comparado contra todas las líneas', detalle);
+    } catch (e: any) {
+      toast.error('Error de red', String(e));
+    } finally {
+      setComparandoTodas(false); setProgresoTodas(null); cargar();
+    }
+  };
   // Limpia el auditor y la imagen de TODAS las líneas técnicas (de a una, en orden: cada una es su
   // propia petición). Antes había que entrar línea por línea al modal para borrarlas.
   const limpiarTodasLasLineas = async () => {
@@ -649,6 +699,23 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
                       SU línea (ver FilaLineaTecnica) — antes este botón comparaba UN documento
                       contra TODAS las líneas de una vez, y una ficha de una sola línea producía
                       falsos "0 de N cumple" en las demás (ver memoria project_ficha_por_linea_ago2026). */}
+                  {puedeAprobar && !bloqueadoPorEmpresa && (
+                    <>
+                      <input
+                        ref={pdfTodasRef} type="file" accept=".pdf,.doc,.docx" className="hidden"
+                        onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) compararPdfTodasLasLineas(f); }}
+                      />
+                      <button
+                        onClick={() => pdfTodasRef.current?.click()}
+                        disabled={comparandoTodas}
+                        title="Un solo PDF con las especificaciones de todos los ítems: se separa por producto y cada línea se compara solo contra su parte"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 px-2.5 py-1 text-[11px] font-semibold text-violet-700 transition-colors hover:bg-violet-50 disabled:opacity-50"
+                      >
+                        {comparandoTodas ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                        {comparandoTodas ? (progresoTodas || 'Comparando…') : 'PDF de todos los ítems'}
+                      </button>
+                    </>
+                  )}
                   <button
                     onClick={generarFichaPropia}
                     disabled={generandoFicha}

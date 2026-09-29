@@ -1,6 +1,8 @@
 // app/api/negocios/[id]/comercial/auditor-compra/route.ts
 // AUDITOR DE COMPRA (etapa comercial, ver app/lib/auditor-compra.ts) — pestaña del negocio, debajo
-// del Auditor Técnico, visible solo cuando el negocio ganó.
+// del Auditor Técnico. Activa en todo momento igual que Auditor Técnico (pedido explícito del
+// usuario, 29-sep-2026: "no se debe activar [recién al ganar]... se activa en todo momento" — no
+// depende de esGanado; más adelante se verá si se la condiciona a algún estado puntual).
 //
 //   GET   → cada fila del Costeo ya guardado, con su link/precio web y lo guardado acá (cotizado,
 //           precio cotizado, documento). Si el negocio todavía no tiene Costeo guardado, lista vacía.
@@ -10,7 +12,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { puedeVerNegocioAsignado, permisosCrudosDeUsuario } from '@/app/lib/api-auth';
-import { esGanado } from '@/app/lib/pipeline';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor } from '@/app/lib/costeo-editor';
 import { lineasAuditorCompra, guardarLineaAuditorCompra, crearCotizacionAuditorCompra } from '@/app/lib/auditor-compra';
@@ -67,8 +68,6 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!negocio) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
     if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
-    if (!esGanado(negocio.estado_pipeline))
-      return NextResponse.json({ error: 'El Auditor de Compra solo está disponible en negocios ganados.' }, { status: 409 });
 
     const estadoCosteo = await estadoCosteoGuardado(negocio.id);
     const lineas = await lineasAuditorCompra(negocio.id, estadoCosteo);
@@ -92,8 +91,6 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (!negocio) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
     if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
-    if (!esGanado(negocio.estado_pipeline))
-      return NextResponse.json({ error: 'El Auditor de Compra solo está disponible en negocios ganados.' }, { status: 409 });
 
     const body = await request.json().catch(() => ({}));
     const filaId = String(body.filaId || '').trim();
@@ -135,8 +132,6 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (!negocio) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
     if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
-    if (!esGanado(negocio.estado_pipeline))
-      return NextResponse.json({ error: 'El Auditor de Compra solo está disponible en negocios ganados.' }, { status: 409 });
 
     const body = await request.json().catch(() => ({}));
     const documentoUrl = String(body.documentoUrl || '').trim();

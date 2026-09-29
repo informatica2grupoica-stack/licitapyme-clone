@@ -27,8 +27,37 @@ function habilitado(): boolean {
 /** Tope por análisis. Si se pasa, se abandona y queda para el cron — no bloquea la cola. */
 const TOPE_MS = Math.max(120_000, Number(process.env.VIABILIDAD_AL_ASIGNAR_TIMEOUT_MS) || 15 * 60_000);
 
-const cola: Array<{ codigo: string; usuarioId: number }> = [];
+// `descargar`: viene del PUENTE (todavía no hay dueño ni documentos) → antes de la viabilidad se
+// bajan los documentos y se calienta el OCR. Al asignar los documentos ya vienen bajados.
+const cola: Array<{ codigo: string; usuarioId: number; descargar?: boolean }> = [];
 let corriendo = false;
+
+/** Descarga los documentos (si no hay) y calienta el OCR. false = no hay nada que analizar. */
+async function asegurarDocumentos(codigo: string): Promise<boolean> {
+  const [dc] = await pool.query<RowDataPacket[]>(
+    `SELECT 1 FROM documentos_cache WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);
+  if (dc.length > 0) return true;
+  const { descargarDocumentosLicitacion } = await import('@/app/lib/mp-descarga-orquestador');
+  const res = await descargarDocumentosLicitacion(codigo);
+  if (!res.exito) return false;
+  if (process.env.PRE_OCR_AL_ASIGNAR !== 'false') {
+    try {
+      const { calentarCacheDocumentos } = await import('@/app/lib/viabilidad-ia');
+      await calentarCacheDocumentos(codigo);
+    } catch (e) { console.warn(`[viabilidad-al-asignar] pre-OCR ${codigo}:`, String(e)); }
+  }
+  return true;
+}
+
+/** El puente congela el semáforo al entrar (vacío si aún no había análisis): se refresca al terminar. */
+async function refrescarSemaforoPuente(codigo: string): Promise<void> {
+  try {
+    await pool.query(
+      `UPDATE puente_radar SET viabilidad_semaforo =
+         (SELECT semaforo FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1)
+       WHERE licitacion_codigo = ?`, [codigo, codigo]);
+  } catch { /* puente sin la fila (ya repartida) o tabla ausente: no importa */ }
+}
 
 /** ¿El perfil al que se le asignó tiene el permiso del piloto? Se lee el JSON de permisos igual
  *  que el cron (GATE_PERMISO), no la lógica de PERMISOS_ADMIN: acá manda lo que está guardado,
@@ -56,12 +85,24 @@ async function vaciarCola(): Promise<void> {
   corriendo = true;
   try {
     while (cola.length) {
-      const { codigo } = cola.shift()!;
+      const { codigo, descargar } = cola.shift()!;
       // Se re-chequea acá y no solo al encolar: entre que entró a la cola y le llegó el turno,
       // el usuario pudo haber apretado "Analizar" a mano, o el cron pudo habérsela llevado.
       if (await yaTieneViabilidad(codigo)) {
         console.log(`[viabilidad-al-asignar] ${codigo}: ya tiene informe, se omite.`);
+        await refrescarSemaforoPuente(codigo);
         continue;
+      }
+      if (descargar) {
+        try {
+          if (!(await asegurarDocumentos(codigo))) {
+            console.warn(`[viabilidad-al-asignar] ${codigo}: sin documentos descargables — queda para reintentar al asignar.`);
+            continue;
+          }
+        } catch (e) {
+          console.warn(`[viabilidad-al-asignar] ${codigo}: descarga falló — ${String(e).slice(0, 160)}`);
+          continue;
+        }
       }
       const t0 = Date.now();
       console.log(`[viabilidad-al-asignar] ${codigo}: analizando… (${cola.length} en cola)`);
@@ -71,7 +112,7 @@ async function vaciarCola(): Promise<void> {
           new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`tope de ${Math.round(TOPE_MS / 60_000)} min`)), TOPE_MS)),
         ]);
         const segs = ((Date.now() - t0) / 1000).toFixed(1);
-        if (r?.ok) console.log(`[viabilidad-al-asignar] ${codigo}: listo en ${segs}s.`);
+        if (r?.ok) { console.log(`[viabilidad-al-asignar] ${codigo}: listo en ${segs}s.`); await refrescarSemaforoPuente(codigo); }
         else console.warn(`[viabilidad-al-asignar] ${codigo}: sin informe tras ${segs}s — ${r?.error ?? 'motivo desconocido'} (queda para el cron).`);
       } catch (e) {
         console.warn(`[viabilidad-al-asignar] ${codigo}: abandonado tras ${((Date.now() - t0) / 1000).toFixed(1)}s — ${String(e).slice(0, 160)} (queda para el cron).`);
@@ -79,6 +120,26 @@ async function vaciarCola(): Promise<void> {
     }
   } finally {
     corriendo = false;
+  }
+}
+
+/**
+ * PUENTE: al empujar licitaciones del radar al puente se descargan sus documentos y luego se
+ * analiza la viabilidad, en la misma cola serial. Sin gate de permiso: aún no hay perfil dueño
+ * (quien puede empujar ya está autorizado por `repartir_puente`). No espera y NUNCA lanza.
+ */
+export async function encolarViabilidadPuente(codigos: string[]): Promise<void> {
+  try {
+    if (!habilitado()) return;
+    for (const codigo of codigos) {
+      if (!codigo || cola.some(c => c.codigo === codigo)) continue;
+      if (await yaTieneViabilidad(codigo)) continue;
+      cola.push({ codigo, usuarioId: 0, descargar: true });
+    }
+    console.log(`[viabilidad-al-asignar] puente: ${cola.length} en cola.`);
+    void vaciarCola();
+  } catch (e) {
+    console.error('[viabilidad-al-asignar] no se pudo encolar desde el puente:', String(e).slice(0, 200));
   }
 }
 

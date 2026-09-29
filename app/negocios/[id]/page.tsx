@@ -35,6 +35,7 @@ import OfertasCompetencia from '@/app/components/OfertasCompetencia';
 import { InformacionComercialSection } from './InformacionComercialSection';
 import { CosteoEditorCard } from './CosteoEditorCard';
 import { AuditorCompraCard } from './AuditorCompraCard';
+import { AuditorOpcionesPanel } from './AuditorOpcionesPanel';
 import { SelectorLineasOferta } from './SelectorLineasOferta';
 import { tieneInformacionComercial } from '@/app/lib/checklist-comercial';
 import { registrarVerSeccion } from '@/app/lib/actividad-cliente';
@@ -1076,7 +1077,7 @@ function DetalleContent() {
   // La bandeja de aprobación transversal (/aprobaciones) deep-linkea acá con ?seccion=comercial
   // para llevar directo a la pestaña Auditor Técnico. Cualquier valor fuera del catálogo cae al
   // default en vez de dejar la pantalla en un estado inválido.
-  const SECCIONES_VALIDAS = new Set<Seccion>(['resumen', 'resultado', 'viabilidad', 'criterios', 'fechas', 'items', 'documentos', 'analisis', 'preguntas', 'competencia', 'comentarios', 'costeo', 'comercial', 'compras']);
+  const SECCIONES_VALIDAS = new Set<Seccion>(['resumen', 'resultado', 'viabilidad', 'criterios', 'fechas', 'items', 'documentos', 'analisis', 'preguntas', 'competencia', 'comentarios', 'costeo', 'comercial', 'auditor_compra', 'compras']);
   const seccionInicial = searchParams.get('seccion') as Seccion | null;
   const [seccion, setSeccion]       = useState<Seccion>(seccionInicial && seccionInicial !== 'compras' && SECCIONES_VALIDAS.has(seccionInicial) ? seccionInicial : 'resumen');
 
@@ -1323,11 +1324,11 @@ function DetalleContent() {
   const hayGanado   = esGanado(negocio?.estado_pipeline);
   const hayCompras  = hayGanado && (!!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial);
   // Auditor de Compra es un ítem DISTINTO de Auditor Técnico (pedido explícito, 28-sep-2026: "son
-  // distintos, que no estén juntos"). A diferencia de Auditor Técnico, el ÍTEM se ve desde que se
-  // asigna (mismo criterio que costeo_editor/auditor_tecnico), no recién al ganar — así nunca
-  // "desaparece" del menú; queda deshabilitado ("Al ganar") hasta que el negocio gane de verdad.
+  // distintos, que no estén juntos"), pero activo en todo momento igual que él (pedido explícito,
+  // 29-sep-2026: "eso no se debe de activar [recién al ganar]... se activa en todo momento al igual
+  // que el auditor técnico" — más adelante se verá si se lo condiciona a algún estado puntual).
   const puedeVerAuditorCompra = (isAdmin || !!usuario?.permisos?.auditor_compra) && infoComercialLista;
-  const hayAuditorCompra = puedeVerAuditorCompra && hayGanado;
+  const hayAuditorCompra = puedeVerAuditorCompra;
   // Resultado/Competencia/Preguntas quedan ocultas hasta que el negocio pase a Ganada o Perdida
   // (antes de eso no hay nada real que mostrar ahí). Fechas, Criterios y Comentarios ya no son
   // ítems propios del menú: son pestañas DENTRO de "Resumen" (ver más abajo, sección de render).
@@ -1346,8 +1347,13 @@ function DetalleContent() {
   // El sidebar solo tiene "resumen"/"resultado" como ítems clickeables cuyo grupo incluye otras
   // pestañas: Fechas/Criterios/Comentarios y Competencia son pestañas internas de Resumen/Resultado.
   // Auditor Técnico y Auditor de Compra son ítems propios (no agrupados).
+  // Pestaña activa dentro del ítem "Auditor": si solo tiene permiso de Compra, cae ahí aunque la
+  // sección pedida sea 'comercial' (deep-links de /aprobaciones).
+  const tabAuditor: 'comercial' | 'auditor_compra' =
+    seccion === 'auditor_compra' && hayAuditorCompra ? 'auditor_compra' : hayAuditorTecnico ? 'comercial' : 'auditor_compra';
   const grupoActivo: Seccion = (seccion === 'fechas' || seccion === 'criterios' || seccion === 'comentarios') ? 'resumen'
     : seccion === 'competencia' ? 'resultado'
+    : seccion === 'auditor_compra' ? 'comercial'
     : seccion;
   // Línea de avance del negocio: qué pasos del menú ya se vieron (persistido por licitación) y
   // aviso suave si se entra a uno habiéndose saltado otro anterior sin ver.
@@ -1609,7 +1615,17 @@ function DetalleContent() {
             {seccion === 'costeo' && hayCosteo && (
               <CosteoEditorCard negocioId={negocio.id} licitacionCodigo={negocio.licitacion_codigo} />
             )}
-            {seccion === 'comercial' && hayAuditorTecnico && (
+            {(seccion === 'comercial' || seccion === 'auditor_compra') && (hayAuditorTecnico || hayAuditorCompra) && (
+              <SeccionTabs
+                items={[
+                  ...(hayAuditorTecnico ? [{ key: 'comercial', label: 'Técnico', count: comercialPorAprobar }] : []),
+                  ...(hayAuditorCompra ? [{ key: 'auditor_compra', label: 'Compra' }] : []),
+                ]}
+                activo={tabAuditor}
+                onSelect={k => setSeccion(k as Seccion)}
+              />
+            )}
+            {tabAuditor === 'comercial' && (seccion === 'comercial' || seccion === 'auditor_compra') && hayAuditorTecnico && (
               <InformacionComercialSection
                 negocioId={negocio.id}
                 licitacionCodigo={negocio.licitacion_codigo}
@@ -1618,14 +1634,23 @@ function DetalleContent() {
                 onEmpresaChange={empresa_id => setNegocio(prev => prev ? { ...prev, empresa_id } : prev)}
               />
             )}
-            {seccion === 'auditor_compra' && hayAuditorCompra && (
-              <AuditorCompraCard
-                negocioId={negocio.id}
-                licitacionCodigo={negocio.licitacion_codigo}
-                cotizacionesExistentes={documentos
-                  .filter(d => d.subcategoria === 'cotizaciones')
-                  .map(d => ({ url: d.url_local || d.url, nombre: d.nombre }))}
-              />
+            {tabAuditor === 'auditor_compra' && (seccion === 'comercial' || seccion === 'auditor_compra') && hayAuditorCompra && (
+              <div className="space-y-4">
+                <AuditorOpcionesPanel negocioId={negocio.id} puedeAprobar={isAdmin || !!usuario?.permisos?.aprobar_comercial} />
+                {/* Registro manual anterior (cotizado sí/no + documento/precio por fila): se conserva intacto. */}
+                <details className="group">
+                  <summary className="cursor-pointer text-[12.5px] font-semibold text-zinc-500 hover:text-zinc-800 px-1 py-1">Registro manual de cotizaciones (anterior)</summary>
+                  <div className="mt-2">
+                    <AuditorCompraCard
+                      negocioId={negocio.id}
+                      licitacionCodigo={negocio.licitacion_codigo}
+                      cotizacionesExistentes={documentos
+                        .filter(d => d.subcategoria === 'cotizaciones')
+                        .map(d => ({ url: d.url_local || d.url, nombre: d.nombre }))}
+                    />
+                  </div>
+                </details>
+              </div>
             )}
           </div>
         </div>

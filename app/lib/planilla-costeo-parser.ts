@@ -864,7 +864,22 @@ export function detectarLineasProductoTecnicas(docs: { texto: string }[]): numbe
 // Fix: los TRES patrones se prueban SIEMPRE (no en cascada "para en el primero que matchee ≥2") y
 // compiten por PISO igual que ya competían los documentos entre sí — así el candidato con tablas
 // reales le gana al candidato con solo etiquetas sueltas, sea cual sea el orden en que aparecen.
-export function extraerSeccionesLineaProducto(docs: { nombre?: string; texto?: string | null }[]): { linea: number; nombre: string; texto: string }[] {
+// ¿Las secciones "LÍNEA N" son FICHAS DE CARACTERÍSTICAS (un producto por línea con su lista de
+// specs) y no tablas de productos? (29-sep-2026, caso 5586-145-LE26: notebook/mini PC/kit de
+// videoconferencia con "Características: Procesador…, Windows…" — la extracción dedicada, que asume
+// "cada fila = un producto", convirtió cada spec en un ítem a costear: 116 filas en vez de 8.)
+// Señal: sin encabezado "Unidad de medida" (el de una tabla de productos) y con un rótulo
+// "Características…" o una lista larga de viñetas. Basta que lo sea la mitad de las secciones.
+export function seccionesSonFichasDeCaracteristicas(secciones: { texto: string }[]): boolean {
+  if (secciones.length < 2) return false;
+  const fichas = secciones.filter(s =>
+    !/unidad\s+de\s+medida/i.test(s.texto)
+    && (/^\s*caracter[ií]sticas\b/im.test(s.texto) || (s.texto.match(/^\s*[●•▪]/gm) || []).length >= 8),
+  ).length;
+  return fichas >= secciones.length / 2;
+}
+
+export function extraerSeccionesLineaProducto(docs:{ nombre?: string; texto?: string | null }[]): { linea: number; nombre: string; texto: string }[] {
   const RE_ESTRICTO = /(?:(\d{1,2})\.(\d{1,2})\.?\s*)?L[ÍI]NEA\s+DE\s+PRODUCTO\s+N[°º]\s*(\d{1,2})\s*[:–\-]?\s*([^\n]{0,60})/gi;
   // Encabezado CORTO "LÍNEA 1: Nombre" (sin "DE PRODUCTO" ni "N°") — el Anexo N°2 Económico de
   // proyectos PMU lo usa así. Sin "DE PRODUCTO"/"N°" de por medio, el ÚNICO ancla estructural que
