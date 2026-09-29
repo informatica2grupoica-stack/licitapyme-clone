@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { contextoAuditor } from '@/app/lib/auditor-acceso';
 import {
-  armarPanelAuditor, leerDocumentoYCrearOpciones, crearOpcionesDesdeExtraccion, asignarProductoALinea, cambiarVia, descartarOpcion, restaurarOpcion,
+  armarPanelAuditor, leerDocumentoYCrearOpciones, crearOpcionesDesdeExtraccion, asignarProductoALinea, cambiarVia, descartarOpcion, restaurarOpcion, moverOpcionALinea,
   firmarOpcion, quitarFirma, solicitarAprobacion, resolverAprobacion, agregarLinkALinea,
   verificarTecnicoDeOpcion, habilitarItemTecnico, declararItemTecnico,
 } from '@/app/lib/auditor-opciones';
@@ -71,6 +71,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         await cambiarVia(negocio.id, opcionId, body.via); break;
       case 'descartar': await descartarOpcion(negocio.id, opcionId, String(body.motivo || '')); break;
       case 'restaurar': await restaurarOpcion(negocio.id, opcionId); break;
+      case 'mover_linea': await moverOpcionALinea(negocio.id, opcionId, String(body.filaId || ''), actor); break;
       case 'firmar': await firmarOpcion(negocio.id, negocio.licitacion_codigo, opcionId, actor, perm.esEM); break;
       case 'quitar_firma': await quitarFirma(negocio.id, opcionId); break;
       case 'solicitar_aprobacion': {

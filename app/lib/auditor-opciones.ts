@@ -415,6 +415,21 @@ export async function descartarOpcion(negocioId: number, opcionId: number, motiv
   await evento(negocioId, opcionId, 'descartada', 'asistente', motivo.trim().slice(0, 480));
 }
 
+/** Cambia una opción a OTRA línea del costeo (cuando el documento o el link quedó en la línea equivocada). Solo si aún no se firmó:
+ *  la verificación técnica guardada era contra los requisitos de la línea anterior, así que se retira; la de costo se recalcula sola. */
+export async function moverOpcionALinea(negocioId: number, opcionId: number, filaId: string, actor: Actor): Promise<void> {
+  const o = await opcionDe(negocioId, opcionId);
+  if (['definitiva', 'en_aprobacion', 'aprobada'].includes(o.estado)) throw new Error('Esta opción ya se firmó: quita la firma antes de moverla de línea.');
+  if (o.fila_id === filaId) return;
+  const destino = lineasAuditables(await cargarEstadoCosteo(negocioId)).find(l => l.id === filaId);
+  if (!destino) throw new Error('La línea de destino no existe en el Costeo.');
+  const nuevoEstado = o.estado === 'descartada' ? 'descartada' : (o.origen === 'link' ? 'tanteo' : 'formalizada');
+  await pool.query(`UPDATE auditor_opcion SET fila_id = ?, estado = ?, actualizado_at = ? WHERE id = ?`, [filaId, nuevoEstado, ahoraChileSQL(), opcionId]);
+  const [del] = await pool.query(`DELETE FROM auditor_verificacion_tecnica WHERE opcion_id = ?`, [opcionId]) as any;
+  await evento(negocioId, opcionId, 'movida_de_linea', actor.nombre ? 'asistente' : 'sistema',
+    `De la línea ${o.fila_id} a "${destino.detalle.split(' - ')[0]}" (${filaId}) por ${actor.nombre}. Se retiraron ${del?.affectedRows ?? 0} verificación(es) técnica(s) hechas contra la línea anterior.`);
+}
+
 export async function restaurarOpcion(negocioId: number, opcionId: number): Promise<void> {
   const o = await opcionDe(negocioId, opcionId);
   if (o.estado !== 'descartada') return;

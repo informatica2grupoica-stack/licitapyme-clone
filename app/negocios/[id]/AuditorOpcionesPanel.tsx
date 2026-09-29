@@ -4,13 +4,13 @@
 // OPCIONES por línea del costeo (línea + producto + proveedor), verificación calculada por código,
 // cuadro comparativo de costo por línea y el ciclo firma → aprobación.
 // Spec: docs/ESPECIFICACION_AUDITOR_v1.md. Backend: app/api/negocios/[id]/auditor/route.ts.
-import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Modal } from '@/app/components/ui/Modal';
 import {
   IconLoader2 as Loader2, IconFileText as FileText, IconSparkles as Sparkles, IconChevronDown as ChevronDown,
   IconChevronRight as ChevronRight, IconAlertTriangle as Alerta, IconCircleCheck as Check, IconExternalLink as ExternalLink,
-  IconRefresh as Refresh,
+  IconRefresh as Refresh, IconUpload as Upload,
 } from '@tabler/icons-react';
 import type { PanelAuditorDTO, LineaAuditorDTO, OpcionDTO, DocumentoCotizacionDTO } from '@/app/lib/auditor-opciones';
 
@@ -42,7 +42,7 @@ async function post(negocioId: number, body: Record<string, unknown>) {
   return data;
 }
 
-export function AuditorOpcionesPanel({ negocioId, puedeAprobar }: { negocioId: number; puedeAprobar: boolean }) {
+export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar }: { negocioId: number; licitacionCodigo: string; puedeAprobar: boolean }) {
   const toast = useToast();
   const [panel, setPanel] = useState<PanelAuditorDTO | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -87,6 +87,50 @@ export function AuditorOpcionesPanel({ negocioId, puedeAprobar }: { negocioId: n
 
   const leerTodas = async () => {
     for (const d of (panel?.documentos || []).filter(x => !x.leido)) await leerDocumento(d);
+  };
+
+  // Subir cotizaciones (una o varias, con botón o arrastrando): quedan en la caja «Cotizaciones» de Documentos Propios
+  // (la misma que usa la pestaña Documentos) y se leen con el Lector en cuanto termina la subida.
+  const [subiendo, setSubiendo] = useState<{ actual: number; total: number; nombre: string } | null>(null);
+  const [arrastrando, setArrastrando] = useState(false);
+  const inputCotRef = useRef<HTMLInputElement>(null);
+  const EXT_OK = /\.(pdf|png|jpe?g|webp|docx?|xlsx?)$/i;
+
+  const subirCotizaciones = async (archivos: File[]) => {
+    const validos = archivos.filter(f => EXT_OK.test(f.name));
+    const rechazados = archivos.length - validos.length;
+    if (rechazados) toast.error(`${rechazados} archivo(s) no se subieron`, 'Solo PDF, imágenes, Word o Excel.');
+    if (!validos.length) return;
+    const subidos: DocumentoCotizacionDTO[] = [];
+    for (let i = 0; i < validos.length; i++) {
+      const f = validos[i];
+      setSubiendo({ actual: i + 1, total: validos.length, nombre: f.name });
+      try {
+        if (f.size > 100 * 1024 * 1024) throw new Error(`"${f.name}" supera los 100 MB.`);
+        if (f.size === 0) throw new Error(`"${f.name}" está vacío (0 bytes): vuelve a exportarlo o descargarlo.`);
+        const tipo = f.type || 'application/octet-stream';
+        const pres = await fetch('/api/documentos/presign', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ licitacionCodigo, filename: f.name, contentType: tipo, size: f.size }),
+        });
+        const p = await pres.json();
+        if (!pres.ok || !p.uploadUrl) throw new Error(p.error || 'No se pudo preparar la subida');
+        const put = await fetch(p.uploadUrl, { method: 'PUT', headers: { 'Content-Type': tipo }, body: f });
+        if (!put.ok) throw new Error('Falló la subida del archivo');
+        const save = await fetch('/api/documentos/guardar', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ licitacionCodigo, documentoNombre: f.name, url: p.publicUrl, size: f.size, categoria: 'DOCUMENTOS_PROPIOS', subcategoria: 'cotizaciones' }),
+        });
+        if (!save.ok) throw new Error('No se pudo registrar el documento');
+        subidos.push({ url: p.publicUrl, nombre: f.name } as DocumentoCotizacionDTO);
+      } catch (e: any) {
+        toast.error(`No se pudo subir "${f.name}"`, e.message);
+      }
+    }
+    setSubiendo(null);
+    if (!subidos.length) return;
+    toast.success(`${subidos.length} cotización(es) subida(s)`, 'Leyéndolas con el Lector…');
+    for (const d of subidos) await leerDocumento(d);
   };
 
   const agregarLink = async (filaId: string, url: string): Promise<boolean> => {
@@ -211,20 +255,33 @@ export function AuditorOpcionesPanel({ negocioId, puedeAprobar }: { negocioId: n
       </div>
 
       {/* ── Cotizaciones en Documentos ── */}
-      <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
+      <div
+        onDragOver={e => { if (!subiendo && e.dataTransfer.types.includes('Files')) { e.preventDefault(); setArrastrando(true); } }}
+        onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setArrastrando(false); }}
+        onDrop={e => { e.preventDefault(); setArrastrando(false); if (!subiendo && e.dataTransfer.files.length) subirCotizaciones(Array.from(e.dataTransfer.files)); }}
+        className={`bg-white rounded-2xl border overflow-hidden transition-colors ${arrastrando ? 'border-indigo-400 ring-2 ring-indigo-200 bg-indigo-50/40' : 'border-zinc-200'}`}>
         <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center gap-2">
           <FileText size={16} className="text-amber-600" />
           <h3 className="text-[13.5px] font-bold text-zinc-900">Cotizaciones en Documentos</h3>
           <span className="text-[11.5px] text-zinc-400">— el Lector las lee una sola vez y las empareja con su línea</span>
-          {sinLeer > 0 && (
-            <button onClick={leerTodas} disabled={leyendo.size > 0}
-              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-[12px] font-semibold hover:bg-amber-700 disabled:opacity-50">
-              <Sparkles size={13} /> Leer {sinLeer} sin leer
+          <div className="ml-auto flex items-center gap-2">
+            {sinLeer > 0 && (
+              <button onClick={leerTodas} disabled={leyendo.size > 0 || !!subiendo}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-[12px] font-semibold hover:bg-amber-700 disabled:opacity-50">
+                <Sparkles size={13} /> Leer {sinLeer} sin leer
+              </button>
+            )}
+            <input ref={inputCotRef} type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx" className="hidden"
+              onChange={e => { const fs = Array.from(e.target.files || []); e.target.value = ''; if (fs.length) subirCotizaciones(fs); }} />
+            <button onClick={() => inputCotRef.current?.click()} disabled={!!subiendo}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-[12px] font-semibold hover:bg-indigo-100 disabled:opacity-50">
+              {subiendo ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+              {subiendo ? `Subiendo ${subiendo.actual}/${subiendo.total}…` : 'Subir cotizaciones'}
             </button>
-          )}
+          </div>
         </div>
         {panel.documentos.length === 0 ? (
-          <p className="px-5 py-6 text-[12.5px] text-zinc-400">No hay cotizaciones subidas en la caja «Cotizaciones» de Documentos Propios.</p>
+          <p className="px-5 py-6 text-[12.5px] text-zinc-400">No hay cotizaciones todavía. Arrastra aquí uno o varios archivos, o usa «Subir cotizaciones»: quedan en la caja «Cotizaciones» de Documentos y se leen solas.</p>
         ) : (
           <ul className="divide-y divide-zinc-100">
             {panel.documentos.map(d => (

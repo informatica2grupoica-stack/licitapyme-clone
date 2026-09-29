@@ -1636,7 +1636,7 @@ function DetalleContent() {
             )}
             {tabAuditor === 'auditor_compra' && (seccion === 'comercial' || seccion === 'auditor_compra') && hayAuditorCompra && (
               <div className="space-y-4">
-                <AuditorOpcionesPanel negocioId={negocio.id} puedeAprobar={isAdmin || !!usuario?.permisos?.aprobar_comercial} />
+                <AuditorOpcionesPanel negocioId={negocio.id} licitacionCodigo={negocio.licitacion_codigo} puedeAprobar={isAdmin || !!usuario?.permisos?.aprobar_comercial} />
                 {/* Registro manual anterior (cotizado sí/no + documento/precio por fila): se conserva intacto. */}
                 <details className="group">
                   <summary className="cursor-pointer text-[12.5px] font-semibold text-zinc-500 hover:text-zinc-800 px-1 py-1">Registro manual de cotizaciones (anterior)</summary>

@@ -2153,12 +2153,20 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
   // plantilla ("se puede ingresar un cuadro por línea") que no implica adjudicación múltiple real.
   const itemsParaConteo: any[] = Array.isArray(p3.productos?.items) ? p3.productos.items
     : Array.isArray(p3.costeo?.items) ? p3.costeo.items : [];
-  if (itemsParaConteo.length === 1) {
+  //
+  // LÍNEAS DE LA API (29-sep-2026, caso 2950-49-LE26): la API de Mercado Público adjudica por línea
+  // del portal, así que con 1 sola línea solo puede haber UN adjudicado = GLOBAL, aunque el anexo
+  // traiga 38 ítems por dentro y las bases repitan la frase de plantilla "se adjudicará a un
+  // proveedor por línea de oferta". Con 2+ líneas en la API sí se buscan las bases. Si la API no
+  // respondió (0 líneas) no se sabe nada: no se fuerza. El manifiesto de 1 ítem sigue valiendo.
+  const lineasApi = Array.isArray(ctx.itemsMP) ? ctx.itemsMP.length : 0;
+  if (lineasApi === 1 || itemsParaConteo.length === 1) {
     const comoLLM = String(adj.como_se_adjudica || '').toUpperCase();
-    if (comoLLM !== 'GLOBAL') console.log(`[viabilidad-ia-v3] ${codigo}: adjudicación forzada a GLOBAL — un solo ítem, "por línea" es imposible con 1 sola línea (LLM decía "${comoLLM || '—'}").`);
+    const origen = lineasApi === 1 ? 'la API de Mercado Público trae 1 sola línea' : 'un solo ítem/línea detectado en el manifiesto';
+    if (comoLLM !== 'GLOBAL') console.log(`[viabilidad-ia-v3] ${codigo}: adjudicación forzada a GLOBAL — ${origen}, "por línea" es imposible con 1 sola línea (LLM decía "${comoLLM || '—'}").`);
     adj.como_se_adjudica = 'GLOBAL';
     adj.estado = 'DETERMINADA';
-    adj.evidencia = 'un solo ítem/línea detectado en el manifiesto — no puede haber adjudicación por línea con una sola línea, es GLOBAL por definición';
+    adj.evidencia = `${origen} — no puede haber adjudicación por línea con una sola línea, es GLOBAL por definición`;
   } else {
   const det = veredictoAdjudicacionDeterminista(ofertaSubconjunto, formulariosPorArchivo, participacionParcialPorLinea, presupuestoPorLinea, tipoAdjudicacionMultiple, licitacionTipoMultiple);
   // LECTOR DE CLÁUSULA CON CITA VERIFICADA (24-sep-2026, caso 1171317-88-LE26): solo se consulta
