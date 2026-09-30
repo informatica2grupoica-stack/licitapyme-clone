@@ -20,7 +20,10 @@ export interface EstadoPipeline {
 export const ESTADOS_PIPELINE: EstadoPipeline[] = [
   { id: 'ASIGNADO',     label: 'ASIGNADO',    color: '#4F63D2' },
   { id: 'EN_PROCESO',   label: 'EN PROCESO',  color: '#9333EA' },
-  { id: 'ANEXOS',       label: 'ANEXOS',      color: '#EA580C' },
+  // 30-sep-2026: la etapa ANEXOS pasa a llamarse PRE-POSTULACIÓN (spec del AUDITOR unificado, §2): ahí se arman los anexos, se confirma el bloque
+  // técnico-administrativo y se cierra el certificado de admisibilidad. Mismo criterio que GANADA: la CLAVE ('ANEXOS') no cambia —está en la BD, en
+  // los permisos de alerta y en los filtros—; solo el texto visible.
+  { id: 'ANEXOS',       label: 'PRE-POSTULACIÓN', color: '#EA580C' },
   { id: 'ANEXO_LISTO',  label: 'ANEXO LISTO', color: '#0D9488' },
   { id: 'VISADO',       label: 'VISADO',      color: '#0369A1' },
   { id: 'POSTULADA',    label: 'POSTULADA',   color: '#B45309' },

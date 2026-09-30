@@ -35,8 +35,9 @@ import OfertasCompetencia from '@/app/components/OfertasCompetencia';
 import { InformacionComercialSection } from './InformacionComercialSection';
 import { CosteoEditorCard } from './CosteoEditorCard';
 import { AuditorOpcionesPanel } from './AuditorOpcionesPanel';
+import { PrePostulacionPanel } from './PrePostulacionPanel';
 import { SelectorLineasOferta } from './SelectorLineasOferta';
-import { tieneInformacionComercial } from '@/app/lib/checklist-comercial';
+import { tieneInformacionComercial, tieneAnexosAuditor } from '@/app/lib/checklist-comercial';
 import { registrarVerSeccion } from '@/app/lib/actividad-cliente';
 import { IconArrowLeft as ArrowLeft, IconBuilding as Building2, IconCalendar as Calendar, IconCurrencyDollar as DollarSign, IconMapPin as MapPin, IconTag as Tag, IconLoader2 as Loader2, IconAlertCircle as AlertCircle, IconExternalLink as ExternalLink, IconFileText as FileText, IconCheck as Check, IconX as X, IconPackage as Package, IconHash as Hash, IconEdit as Edit3, IconClock as Clock, IconGlobe as Globe, IconUsers as Users, IconMail as Mail, IconPhone as Phone, IconThumbUp as ThumbsUp, IconDownload as Download, IconRobot as Bot, IconBrain as Brain, IconRefresh as RefreshCw, IconEye as Eye, IconSparkles as Sparkles, IconChartBar as BarChart3, IconBook2 as BookOpen, IconAlertTriangle as AlertTriangle, IconListCheck as ListChecks, IconTrendingUp as TrendingUp, IconCircleCheck as CheckCircle, IconUpload as Upload, IconChevronRight as ChevronRight, IconFiles as Files, IconShieldExclamation as ShieldAlert, IconAward as Award, IconTool as Wrench, IconShoppingCart as ShoppingCart, IconArrowUpRight as ArrowUpRight } from '@tabler/icons-react';
 
@@ -174,7 +175,7 @@ interface AnalisisIA {
   actualizado: string;
 }
 
-type Seccion = 'resumen' | 'resultado' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'preguntas' | 'competencia' | 'comentarios' | 'costeo' | 'comercial' | 'auditor_compra' | 'auditor_anexos' | 'compras';
+type Seccion = 'resumen' | 'resultado' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'preguntas' | 'competencia' | 'comentarios' | 'costeo' | 'comercial' | 'auditor_compra' | 'prepostulacion' | 'auditor_anexos' | 'compras';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function fmt(n: number | null | undefined): string {
@@ -1076,7 +1077,7 @@ function DetalleContent() {
   // La bandeja de aprobación transversal (/aprobaciones) deep-linkea acá con ?seccion=comercial
   // para llevar directo a la pestaña Auditor Técnico. Cualquier valor fuera del catálogo cae al
   // default en vez de dejar la pantalla en un estado inválido.
-  const SECCIONES_VALIDAS = new Set<Seccion>(['resumen', 'resultado', 'viabilidad', 'criterios', 'fechas', 'items', 'documentos', 'analisis', 'preguntas', 'competencia', 'comentarios', 'costeo', 'comercial', 'auditor_compra', 'auditor_anexos', 'compras']);
+  const SECCIONES_VALIDAS = new Set<Seccion>(['resumen', 'resultado', 'viabilidad', 'criterios', 'fechas', 'items', 'documentos', 'analisis', 'preguntas', 'competencia', 'comentarios', 'costeo', 'comercial', 'auditor_compra', 'prepostulacion', 'auditor_anexos', 'compras']);
   const seccionInicial = searchParams.get('seccion') as Seccion | null;
   const [seccion, setSeccion]       = useState<Seccion>(seccionInicial && seccionInicial !== 'compras' && SECCIONES_VALIDAS.has(seccionInicial) ? seccionInicial : 'resumen');
 
@@ -1328,6 +1329,8 @@ function DetalleContent() {
   // que el auditor técnico" — más adelante se verá si se lo condiciona a algún estado puntual).
   const puedeVerAuditorCompra = (isAdmin || !!usuario?.permisos?.auditor_compra) && infoComercialLista;
   const hayAuditorCompra = puedeVerAuditorCompra;
+  // PRE-POSTULACIÓN (30-sep-2026, reemplaza a ANEXOS): certificado de admisibilidad + bloque técnico-administrativo sobre las opciones aprobadas del Auditor.
+  const hayPrePostulacion = hayAuditorCompra && tieneAnexosAuditor(negocio?.estado_pipeline);
   // Resultado/Competencia/Preguntas quedan ocultas hasta que el negocio pase a Ganada o Perdida
   // (antes de eso no hay nada real que mostrar ahí). Fechas, Criterios y Comentarios ya no son
   // ítems propios del menú: son pestañas DENTRO de "Resumen" (ver más abajo, sección de render).
@@ -1352,7 +1355,7 @@ function DetalleContent() {
   const primeraTabAuditor: 'auditor_compra' | 'costeo' | 'comercial' = hayAuditorCompra ? 'auditor_compra' : hayCosteo ? 'costeo' : 'comercial';
   const grupoActivo: Seccion = (seccion === 'fechas' || seccion === 'criterios' || seccion === 'comentarios') ? 'resumen'
     : seccion === 'competencia' ? 'resultado'
-    : seccion === 'auditor_compra' || seccion === 'costeo' || seccion === 'auditor_anexos' ? 'comercial'
+    : seccion === 'auditor_compra' || seccion === 'costeo' || seccion === 'prepostulacion' || seccion === 'auditor_anexos' ? 'comercial'
     : seccion;
   // Línea de avance del negocio: qué pasos del menú ya se vieron (persistido por licitación) y
   // aviso suave si se entra a uno habiéndose saltado otro anterior sin ver.
@@ -1613,9 +1616,10 @@ function DetalleContent() {
             )}
             {/* AUDITOR unificado (29-sep-2026): un solo módulo con el flujo en pestañas ARRIBA: Auditor (compra y técnico juntos, cada opción con sus dos
                 verificadores) → Costeo → Checklist → Anexos. El checklist y los anexos salen del Auditor Técnico anterior (mismo componente, dos vistas). */}
-            {(seccion === 'comercial' || seccion === 'auditor_compra' || seccion === 'costeo' || seccion === 'auditor_anexos') && (hayAuditorTecnico || hayAuditorCompra || hayCosteo) && (() => {
+            {(seccion === 'comercial' || seccion === 'auditor_compra' || seccion === 'costeo' || seccion === 'prepostulacion' || seccion === 'auditor_anexos') && (hayAuditorTecnico || hayAuditorCompra || hayCosteo) && (() => {
               const tab = seccion === 'auditor_compra' && hayAuditorCompra ? 'auditor_compra'
                 : seccion === 'costeo' && hayCosteo ? 'costeo'
+                : seccion === 'prepostulacion' && hayPrePostulacion ? 'prepostulacion'
                 : seccion === 'auditor_anexos' && hayAuditorTecnico ? 'auditor_anexos'
                 : seccion === 'comercial' && hayAuditorTecnico ? 'comercial'
                 : primeraTabAuditor;
@@ -1625,6 +1629,7 @@ function DetalleContent() {
                     items={[
                       ...(hayAuditorCompra ? [{ key: 'auditor_compra', label: 'Auditor · compra y técnico' }] : []),
                       ...(hayCosteo ? [{ key: 'costeo', label: 'Costeo' }] : []),
+                      ...(hayPrePostulacion ? [{ key: 'prepostulacion', label: 'Pre-postulación' }] : []),
                       ...(hayAuditorTecnico ? [{ key: 'comercial', label: 'Checklist', count: comercialPorAprobar }, { key: 'auditor_anexos', label: 'Anexos' }] : []),
                     ]}
                     activo={tab}
@@ -1634,6 +1639,7 @@ function DetalleContent() {
                     <AuditorOpcionesPanel negocioId={negocio.id} licitacionCodigo={negocio.licitacion_codigo} puedeAprobar={isAdmin || !!usuario?.permisos?.aprobar_comercial} />
                   )}
                   {tab === 'costeo' && hayCosteo && <CosteoEditorCard negocioId={negocio.id} licitacionCodigo={negocio.licitacion_codigo} />}
+                  {tab === 'prepostulacion' && hayPrePostulacion && <PrePostulacionPanel negocioId={negocio.id} onIrAlAuditor={() => setSeccion('auditor_compra')} onIrAAnexos={() => setSeccion('auditor_anexos')} />}
                   {(tab === 'comercial' || tab === 'auditor_anexos') && hayAuditorTecnico && (
                     <InformacionComercialSection
                       key={tab}

@@ -34,6 +34,9 @@ import { causalesAbiertasDeLinea } from '@/app/lib/auditor-comparador-db';
 import { leerLineasOfertadas, lineasExcluidasDeNegocio, reproyectarDecisionGuardada } from '@/app/lib/lineas-oferta';
 
 import { decidirGeneracion, type DocumentoCandidato, type BloqueGenerable } from '@/app/lib/auditor-generacion';
+import { candadoDelNegocio } from '@/app/lib/auditor-prepostulacion';
+import { motivoCandado } from '@/app/lib/auditor-prepostulacion-core';
+import { normalizarEstado } from '@/app/lib/pipeline';
 import { recalcularAlertasCosteo } from '@/app/lib/motor-comercial-recalculo';
 import { presupuestoDeLaOferta } from '@/app/lib/motor-comercial';
 import { productosCrudosDeLinea } from '@/app/lib/auditor-tecnico-core';
@@ -696,6 +699,17 @@ export async function GET(request: NextRequest, { params }: Params) {
     const { semaforo, causales, horasRestantes } = semaforoDelNegocio(negocio, items);
     const congelamiento = await leerCongelamiento(negocio.id, rol);
     const generacion = await decidirGeneracionDeBloques(negocio);
+
+    // PRE-POSTULACIÓN (30-sep-2026): mientras el certificado de admisibilidad tenga causales abiertas o quede un compromiso
+    // técnico-administrativo sin confirmar, no se generan los anexos. Solo aplica en las etapas previas a postular y a los negocios
+    // que ya trabajan con el Auditor unificado (candadoDelNegocio devuelve null si no: el flujo anterior no se toca).
+    const enPrePostulacion = ['ANEXOS', 'ANEXO_LISTO', 'VISADO'].includes(normalizarEstado(negocio.estado_pipeline));
+    const candado = activo && enPrePostulacion ? await candadoDelNegocio(negocio.id, negocio.licitacion_codigo) : null;
+    if (candado && !candado.puedeGenerarAnexos) {
+      const motivo = motivoCandado(candado);
+      for (const b of ['COMERCIAL', 'TECNICO'] as const) generacion[b] = { puede: false, motivo, documentoSugerido: null, alternativas: [] };
+      causales.push(...candado.causales.map(c => ({ codigo: c.codigo, descripcion: c.descripcion, rutaDesbloqueo: c.rutaDesbloqueo })));
+    }
 
     return NextResponse.json({
       success: true,
