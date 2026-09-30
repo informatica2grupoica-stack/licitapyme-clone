@@ -413,3 +413,10 @@ test('IVA sin declarar: en un LINK se asume incluido y se saca; en una cotizaci�
   const neto = normalizarProductos({ productos: [{ comercial: { precios: [{ valor: '$100.000' }], iva: 'neto', iva_texto_literal: '+ IVA' } }] }, '', true)[0];
   assert.equal(neto.iva, 'neto'); assert.equal(neto.ivaSupuesto, false);
 });
+
+test('precio pegado a la cantidad: si la cuenta cuadra con el total del documento, deja de ser ambiguo aunque el Lector lo marcara así', () => {
+  const salida: SalidaLector = { productos: [{ producto: { marca: 'Epson', modelo: 'PowerLite E24' }, comercial: { precios: [{ valor: '17.374.000', condicion: 'actual', numero_ambiguo: true }], iva: 'neto', iva_texto_literal: '+ IVA' } }] } as any;
+  const p = normalizarProductos(salida, TEXTO_MAVE)[0];
+  assert.equal(p.precio, 374_000); assert.equal(p.precioAmbiguo, false); assert.equal(p.cantidadCotizada, 17);
+  assert.equal(normalizarProductos(salida)[0].precioAmbiguo, true);   // sin el texto del documento no hay cómo comprobarlo
+});

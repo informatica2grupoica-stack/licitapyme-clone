@@ -7,7 +7,6 @@
 //     forma de pago y banco van como TEXTO: OBUMA los pide como ID de catálogo y ese catálogo aún no está
 //     cargado (pendiente P-8), por lo que la columna queda vacía y el texto viaja en `pendientes_catalogo`.
 import type { OpcionDTO, LineaAuditorDTO } from '@/app/lib/auditor-opciones';
-import { faltantesProveedor } from '@/app/lib/auditor-opciones-core';
 
 const clp = (n: number | null | undefined) => (n == null ? '' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n));
 
@@ -21,35 +20,12 @@ function nombreProducto(o: OpcionDTO): string {
   return [o.marca, o.modelo].filter(Boolean).join(' ') || o.producto?.nombre || 'el producto cotizado';
 }
 
-/** Preguntas para el proveedor sobre UNA opción, ya redactadas, con las que bloquean primero. */
-export interface PreguntaProveedor { texto: string; bloquea: boolean; /** 'plazo' se junta en UNA pregunta por proveedor */ clave?: 'plazo'; sujeto?: string }
+/** Preguntas para el proveedor sobre UNA opción. Comparador técnico v3.0 (Paso 4): SOLO técnicas —❓ en características principales, o pedir la ficha—, nunca por
+ *  IVA, vigencia, stock, plazo ni datos de la empresa (la auditoría de costo pasa a Precompra). Las arma el comparador (máx. 3 por proveedor); aquí solo se leen. */
+export interface PreguntaProveedor { texto: string; bloquea: boolean }
 
-export function preguntasDeOpcion(o: OpcionDTO, linea: LineaAuditorDTO): PreguntaProveedor[] {
-  const v = o.verificacion, p = o.producto;
-  if (!v) return [];
-  const prod = nombreProducto(o), sku = p?.sku ? ` (código ${p.sku})` : '';
-  const out: PreguntaProveedor[] = [];
-  // Preguntas TÉCNICAS del verificador técnico (solo sobre lo abierto, nunca sobre lo cualitativo): entran al mismo mensaje.
-  for (const q of o.tecnico?.resultado?.preguntas ?? []) out.push({ bloquea: q.bloquea, texto: q.texto });
-  const hay = (codigo: string) => v.bloqueos.some(b => b.codigo === codigo);
-  const alerta = (codigo: string) => v.alertas.find(a => a.codigo === codigo && a.accion === 'pedir_proveedor');
-
-  if (hay('V1')) out.push({ bloquea: true, texto: `¿Nos confirman la marca y el modelo exactos de ${prod}${sku}? La cotización no los indica con claridad.` });
-  if (hay('V3') && (p?.moneda || 'CLP') === 'CLP') out.push({ bloquea: true, texto: `El precio unitario de ${prod}${p?.precio != null ? ` (${clp(p.precio)})` : ''}: ¿es neto o incluye IVA?` });
-  if (hay('V2') && p?.moq != null) out.push({ bloquea: true, texto: `Para ${prod} piden un mínimo de compra de ${p.moq} unidades y necesitamos ${linea.cantidad}. ¿Pueden vendernos esa cantidad?` });
-  if (hay('SIN_RESPALDO')) out.push({ bloquea: true, texto: `¿Nos pueden enviar la cotización formal de ${prod} con el precio, la marca/modelo y si el valor es neto o con IVA?` });
-
-  // La pregunta de la IA de costo (Prompt 5, campo ③) entra al mismo mensaje cuando la opción está bloqueada y las reglas de código no armaron ninguna.
-  const qIA = o.costoIA?.ayuda?.preguntaProveedor?.trim();
-  if (qIA && v.bloqueos.length > 0 && out.length === 0) out.push({ bloquea: true, texto: qIA });
-
-  const v2 = alerta('V2');
-  if (v2 && p?.cantidadCotizada != null) out.push({ bloquea: false, texto: `La cotización de ${prod} es por ${p.cantidadCotizada} unidades y necesitamos ${linea.cantidad}: ¿mantienen el precio unitario para ${linea.cantidad}?` });
-  else if (v2) out.push({ bloquea: false, texto: `Para ${prod}: ¿nos confirman cuántas unidades trae el precio cotizado y si lo mantienen para ${linea.cantidad}?` });
-  if (alerta('V7')) out.push({ bloquea: false, texto: `¿Pueden revalidar el precio y la vigencia de la cotización de ${prod}? ${v.alertas.find(a => a.codigo === 'V7')?.mensaje.startsWith('La cotización venció') ? 'La actual ya venció.' : 'Nos gustaría confirmar que sigue vigente.'}` });
-  if (alerta('V6')) out.push({ bloquea: false, texto: `¿Tienen stock de ${prod} para ${linea.cantidad} unidades? Y, si es así, ¿en qué plazo pueden entregar?` });
-  else if (!p?.plazoTexto) out.push({ bloquea: false, clave: 'plazo', sujeto: prod, texto: `¿Cuál es el plazo de entrega de ${prod}?` });
-  return out;
+export function preguntasDeOpcion(o: OpcionDTO, _linea?: LineaAuditorDTO): PreguntaProveedor[] {
+  return (o.tecnico?.resultado?.preguntas ?? []).map(q => ({ bloquea: q.bloquea, texto: q.texto }));
 }
 
 // ── Quién es «el mismo proveedor» ────────────────────────────────────────────────────────────────
@@ -68,6 +44,9 @@ export function mismoProveedor(a: { rut?: string | null; nombre?: string | null 
   return na === nb || (Math.min(na.length, nb.length) >= 8 && (na.includes(nb) || nb.includes(na)));
 }
 
+/** Tope de preguntas por proveedor (comparador técnico v3.0, Paso 4). */
+export const MAX_PREGUNTAS_MENSAJE = 3;
+
 export function mensajesUnificadosPorProveedor(lineas: LineaAuditorDTO[]): MensajeProveedor[] {
   const grupos: Array<{ rut: string; nombres: string[]; opciones: Array<{ o: OpcionDTO; l: LineaAuditorDTO }> }> = [];
   for (const l of lineas) for (const o of l.opciones) {
@@ -82,31 +61,23 @@ export function mensajesUnificadosPorProveedor(lineas: LineaAuditorDTO[]): Mensa
   for (const { opciones } of grupos) {
     const primero = (opciones.find(x => x.o.proveedorRut) || opciones[0]).o;
     const datos = opciones.map(x => x.o.proveedorDatos).find(Boolean) || null;
-    const bloqueantes: string[] = [], otras: string[] = [], sujetosPlazo: string[] = [];
-    for (const { o, l } of opciones) for (const q of preguntasDeOpcion(o, l)) {
-      if (q.clave === 'plazo') sujetosPlazo.push(q.sujeto || '');
-      else (q.bloquea ? bloqueantes : otras).push(q.texto);
-    }
-    // El plazo se pregunta UNA vez por proveedor, nombrando todos los productos.
-    if (sujetosPlazo.length) otras.push(sujetosPlazo.length === 1 ? `¿Cuál es el plazo de entrega de ${sujetosPlazo[0]}?` : `¿Cuál es el plazo de entrega de cada uno de estos productos: ${sujetosPlazo.join('; ')}?`);
-    const faltantes = faltantesProveedor(datos);
-    if (!bloqueantes.length && !otras.length && !faltantes.length) continue;
+    // Un solo mensaje corto por proveedor: primero las que piden ficha (las que más pesan), sin repetidas, y máximo MAX_PREGUNTAS.
+    const todas = [...new Set(opciones.flatMap(({ o, l }) => preguntasDeOpcion(o, l).map(q => q.texto)))];
+    const fichas = todas.filter(q => /ficha t[eé]cnica/i.test(q)), otras = todas.filter(q => !/ficha t[eé]cnica/i.test(q));
+    const preguntas = [...fichas, ...otras].slice(0, MAX_PREGUNTAS_MENSAJE);
+    if (!preguntas.length) continue;
 
-    const lista = (xs: string[], desde: number) => xs.map((t, i) => `${desde + i}. ${t}`).join('\n');
-    const partes: string[] = [];
     const vendedor = datos?.vendedor?.valor?.trim();
     const doc = opciones.map(x => x.o.documentoInfo).find(d => d?.numero);
-    partes.push(`Hola${vendedor ? ` ${vendedor.split(/\s+/)[0]}` : ''}, buenos días. Junto con saludar, revisando su cotización${doc?.numero ? ` N° ${doc.numero}` : ''}${doc?.fechaEmision ? ` del ${doc.fechaEmision}` : ''} necesitamos confirmar lo siguiente:`);
-    const preguntas = [...bloqueantes, ...otras];
-    if (preguntas.length) partes.push(lista(preguntas, 1));
-    if (faltantes.length) partes.push(`Además, para poder registrarlos como proveedor necesitamos estos datos de su empresa: ${faltantes.join(', ')}.`);
-    partes.push('Muchas gracias, quedamos atentos.');
-
+    const texto = [
+      `Hola${vendedor ? ` ${vendedor.split(/\s+/)[0]}` : ''}, buenos días. Junto con saludar, revisando su cotización${doc?.numero ? ` N° ${doc.numero}` : ''}${doc?.fechaEmision ? ` del ${doc.fechaEmision}` : ''} necesitamos confirmar lo siguiente:`,
+      preguntas.map((t, i) => `${i + 1}. ${t}`).join('\n'),
+      'Muchas gracias, quedamos atentos.',
+    ].join('\n\n');
     out.push({
       proveedor: primero.proveedorRazonSocial || primero.proveedorRut || 'Proveedor', rut: primero.proveedorRut,
       vendedor: vendedor || null, email: datos?.email?.valor || null, telefono: datos?.celular?.valor || datos?.telefono?.valor || null,
-      opcionIds: opciones.map(x => x.o.id), bloquea: bloqueantes.length > 0, preguntas: preguntas.length + (faltantes.length ? 1 : 0),
-      texto: partes.join('\n\n'),
+      opcionIds: opciones.map(x => x.o.id), bloquea: true, preguntas: preguntas.length, texto,
     });
   }
   return out.sort((a, b) => Number(b.bloquea) - Number(a.bloquea));

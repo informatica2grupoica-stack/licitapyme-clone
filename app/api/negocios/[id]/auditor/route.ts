@@ -7,16 +7,17 @@
 //   GET  → panel: líneas del costeo con sus opciones (respaldos + verificación), las cotizaciones de
 //          Documentos y el mensaje único por proveedor.
 //   POST → { accion, ... }: leer_documento · releer_documento · emparejar_documento · asignar_producto · cambiar_via ·
-//          crear_opcion · agregar_ficha · verificar_mercado · verificar_costo_ia · justificar_ahorro · posicion_precio · verificar_tecnico · habilitar_item_tecnico · declarar_item_tecnico · agregar_link · no_ofertar · reofertar · agregar/estimar/anular/restaurar_costo_asociado · descartar · restaurar · firmar · quitar_firma · solicitar_aprobacion · aprobar · rechazar
+//          crear_opcion · agregar_ficha · verificar_mercado · verificar_costo_ia · justificar_ahorro · posicion_precio · verificar_tecnico (compara la línea de la opción) · confirmar_celda · agregar_link · no_ofertar · reofertar · agregar/estimar/anular/restaurar_costo_asociado · descartar · restaurar · firmar · quitar_firma · solicitar_aprobacion · aprobar · rechazar
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { contextoAuditor } from '@/app/lib/auditor-acceso';
 import {
-  armarPanelAuditor, leerDocumentoYCrearOpciones, crearOpcionesDesdeExtraccion, asignarProductoALinea, cambiarVia, descartarOpcion, restaurarOpcion, moverOpcionALinea,
-  firmarOpcion, quitarFirma, solicitarAprobacion, resolverAprobacion, agregarLinkALinea, crearOpcionManual, agregarFichaAOpcion, verificarMercadoDeOpcion, justificarAhorroDeOpcion, verificarCostoIADeOpcion, releerDocumento,
-  verificarTecnicoDeOpcion, habilitarItemTecnico, declararItemTecnico,
+  armarPanelAuditor, cargarEstadoCosteo, leerDocumentoYCrearOpciones, crearOpcionesDesdeExtraccion, asignarProductoALinea, cambiarVia, descartarOpcion, restaurarOpcion, moverOpcionALinea,
+  firmarOpcion, quitarFirma, solicitarAprobacion, resolverAprobacion, agregarLinkALinea, sugerirLineasDelNegocio, ignorarProductoSinLinea, crearOpcionManual, agregarFichaAOpcion, buscarFichaEnLink, traerFichaDeLink, verificarMercadoDeOpcion, justificarAhorroDeOpcion, verificarCostoIADeOpcion, releerDocumento,
+  verificarTecnicoDeOpcion, confirmarCeldaTecnica,
 } from '@/app/lib/auditor-opciones';
 import { generarPosicionAuditor, ultimaPosicion } from '@/app/lib/auditor-posicion';
+import { presupuestoNeto } from '@/app/lib/auditor-compras';
 import {
   marcarNoOfertada, reofertarLinea, agregarCostoAsociado, estimarCostoAsociado, anularCostoAsociado, restaurarCostoAsociado,
 } from '@/app/lib/auditor-lineas';
@@ -31,8 +32,9 @@ export async function GET(request: NextRequest, { params }: Params) {
   const c = await contextoAuditor(request, params);
   if (c instanceof NextResponse) return c;
   try {
-    const [panel, posicion] = await Promise.all([armarPanelAuditor(c.negocio.id, c.negocio.licitacion_codigo), ultimaPosicion(c.negocio.id).catch(() => null)]);
-    return NextResponse.json({ success: true, ...panel, posicion });
+    const [panel, posicion, estadoCosteo] = await Promise.all([armarPanelAuditor(c.negocio.id, c.negocio.licitacion_codigo), ultimaPosicion(c.negocio.id).catch(() => null), cargarEstadoCosteo(c.negocio.id)]);
+    const pres = estadoCosteo ? await presupuestoNeto(c.negocio.id, estadoCosteo).catch(() => null) : null;
+    return NextResponse.json({ success: true, ...panel, posicion, presupuesto: pres ? { neto: pres.neto, fuente: pres.fuente } : null });
   } catch (e) {
     console.error('[auditor][GET]', String(e));
     return NextResponse.json({ error: String(e) }, { status: 500 });
@@ -78,6 +80,12 @@ export async function POST(request: NextRequest, { params }: Params) {
         const id = await asignarProductoALinea(negocio.id, Number(body.extraccionId), Number(body.productoIdx), String(body.filaId || ''), actor);
         return NextResponse.json({ success: true, opcionId: id });
       }
+      case 'sugerir_lineas': {
+        const r = await sugerirLineasDelNegocio(negocio.id, actor);
+        return NextResponse.json({ success: true, ...r });
+      }
+      case 'ignorar_producto':
+        await ignorarProductoSinLinea(negocio.id, Number(body.extraccionId), Number(body.productoIdx), body.ignorado !== false, actor); break;
       case 'cambiar_via':
         if (body.via !== 'liviana' && body.via !== 'completa') return NextResponse.json({ error: 'Vía inválida' }, { status: 400 });
         await cambiarVia(negocio.id, opcionId, body.via); break;
@@ -124,10 +132,9 @@ export async function POST(request: NextRequest, { params }: Params) {
       }
       case 'justificar_ahorro':
         await justificarAhorroDeOpcion(negocio.id, opcionId, String(body.texto || ''), actor); break;
-      case 'habilitar_item_tecnico':
-        if (!perm.esEM) return NextResponse.json({ error: 'Habilitar un dato requiere ser EM (jefe de ventas o admin).' }, { status: 403 });
-        await habilitarItemTecnico(negocio.id, opcionId, Number(body.n), body.habilitado !== false, actor); break;
-      case 'declarar_item_tecnico': await declararItemTecnico(negocio.id, opcionId, Number(body.n), String(body.texto || ''), String(body.respaldo || ''), actor); break;
+      case 'confirmar_celda':
+        // El asistente cierra un ❓ con un clic (comparador técnico v3.0): sin respaldo, queda quién y cuándo.
+        await confirmarCeldaTecnica(negocio.id, opcionId, Number(body.n), body.confirmada !== false, actor, String(body.motivo || '')); break;
       case 'crear_opcion': {
         // Opción SIN link ni cotización (el producto no está en la web): línea + marca/modelo. Después se le sube la ficha técnica.
         const id = await crearOpcionManual(negocio.id, String(body.filaId || ''), {
@@ -148,6 +155,16 @@ export async function POST(request: NextRequest, { params }: Params) {
           url, nombre: (rows as any[])[0].documento_nombre,
           productoIdx: body.productoIdx != null && body.productoIdx !== '' ? Number(body.productoIdx) : null, forzar: body.forzar === true, actor,
         });
+        return NextResponse.json({ ...r, success: r.estado !== 'error' });
+      }
+      case 'buscar_ficha_link': {
+        // Solo MIRA la página del link y lista las fichas que ofrece: no descarga nada.
+        const r = await buscarFichaEnLink(negocio.id, opcionId);
+        return NextResponse.json({ success: true, ...r });
+      }
+      case 'traer_ficha_link': {
+        // Descarga la ficha que la persona aceptó en pantalla (solo una de las que la búsqueda ofreció).
+        const r = await traerFichaDeLink(negocio.id, opcionId, String(body.url || ''), actor);
         return NextResponse.json({ ...r, success: r.estado !== 'error' });
       }
       case 'agregar_link': {

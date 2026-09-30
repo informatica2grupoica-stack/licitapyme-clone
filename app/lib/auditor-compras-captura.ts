@@ -187,3 +187,58 @@ export async function imagenDeCaptura(capturaId: number, negocioId: number): Pro
   const [rows] = await pool.query(`SELECT imagen FROM compras_auditor_costeo_captura WHERE id = ? AND negocio_id = ? LIMIT 1`, [capturaId, negocioId]) as any;
   return (rows as any[])[0]?.imagen ?? null;
 }
+
+
+// ── Fichas técnicas descargables que ofrece una página de producto ─────────────────────────────────
+export interface EnlaceFicha { url: string; texto: string; nombre: string }
+const RE_FICHA = /ficha|datasheet|data sheet|especificaci|manual|brochure|cat[aá]logo|hoja t[eé]cnica|technical/i;
+const RE_NO_FICHA = /pol[ií]tica|t[eé]rminos|condiciones|devoluci|garant[ií]a|privacidad|reclamos|cambios|despacho|bases|boleta|factura/i;
+
+/** Dirección que el servidor puede bajar sin riesgo: http(s), nunca localhost ni redes privadas (evita que un link mande al servidor a leer algo interno). */
+export async function urlPublicaSegura(url: string): Promise<boolean> {
+  try {
+    const u = new URL(url);
+    if (!/^https?:$/.test(u.protocol)) return false;
+    const { lookup } = await import('node:dns/promises');
+    const dirs = await lookup(u.hostname, { all: true });
+    return dirs.length > 0 && dirs.every(d => !/^(10\.|127\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$|fc|fd|fe80)/i.test(d.address));
+  } catch { return false; }
+}
+
+/** Abre la página del producto y devuelve los enlaces que parecen una ficha técnica (PDF o texto «ficha técnica», «datasheet», «manual»…). No descarga nada. */
+export async function buscarFichasEnPagina(url: string): Promise<EnlaceFicha[]> {
+  let browser: any = null;
+  try {
+    const puppeteerCore = (await import('puppeteer-core')).default;
+    const { addExtra } = await import('puppeteer-extra');
+    const StealthPlugin = (await import('puppeteer-extra-plugin-stealth')).default;
+    const { resolverChromium } = await import('@/app/lib/mp-descarga-browser');
+    const pp: any = addExtra(puppeteerCore as any); pp.use(StealthPlugin());
+    const { executablePath, args } = await resolverChromium();
+    browser = await pp.launch({ args, executablePath, headless: true });
+    const page = await browser.newPage();
+    await page.setUserAgent(UA);
+    await page.setExtraHTTPHeaders({ 'Accept-Language': 'es-CL,es;q=0.9' });
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30_000 }).catch(() => page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20_000 }));
+    await new Promise(r => setTimeout(r, 1200));
+    const crudos: Array<{ href: string; texto: string }> = await page.evaluate(() =>
+      [...document.querySelectorAll('a[href]')].map(a => ({ href: (a as HTMLAnchorElement).href, texto: (a.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120) })));
+    const vistos = new Set<string>(), out: EnlaceFicha[] = [];
+    for (const c of crudos) {
+      if (!/^https?:/i.test(c.href)) continue;
+      const esPdf = /\.pdf(\?|#|$)/i.test(c.href);
+      const pareceFicha = RE_FICHA.test(c.texto) || RE_FICHA.test(decodeURIComponent(c.href).split('/').pop() || '');
+      if (!(esPdf || pareceFicha) || RE_NO_FICHA.test(c.texto)) continue;
+      if (!esPdf && !/\.(pdf|docx?)/i.test(c.href) && !/download|descarg|file|archivo|media|uploads|assets/i.test(c.href)) continue;   // un enlace «manual» a otra página no es un archivo
+      const clave = c.href.split('#')[0];
+      if (vistos.has(clave)) continue; vistos.add(clave);
+      const nombre = decodeURIComponent(clave.split('?')[0].split('/').pop() || 'ficha.pdf').slice(0, 120) || 'ficha.pdf';
+      out.push({ url: clave, texto: c.texto || nombre, nombre });
+      if (out.length >= 8) break;
+    }
+    return out;
+  } catch (e) {
+    console.warn('[auditor-captura] buscar fichas falló:', String((e as Error).message || e).slice(0, 160));
+    return [];
+  } finally { try { await browser?.close(); } catch { /* */ } }
+}

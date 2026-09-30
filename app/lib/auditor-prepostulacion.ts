@@ -10,7 +10,7 @@ import { parseJsonIA } from '@/app/lib/json-ia';
 import { MOTOR_KIMI_ESTRICTO } from '@/app/lib/auditor-tecnico';
 import { citaExiste } from '@/app/lib/auditor-compras-core';
 import { criticidadDe } from '@/app/lib/auditor-tecnico-v2-core';
-import { requisitosDeLinea, segundaPasadaTecnica } from '@/app/lib/auditor-tecnico-v2';
+import { requisitosDeLinea } from '@/app/lib/auditor-tecnico-v2';
 import { armarPanelAuditor, type PanelAuditorDTO } from '@/app/lib/auditor-opciones';
 import { agregarCostoAsociado, type CostoAsociadoDTO } from '@/app/lib/auditor-lineas';
 import { SYS_TECADM, MATERIAS_TECADM } from '@/app/lib/auditor-prepostulacion-prompts';
@@ -272,12 +272,9 @@ export async function agregarItemManual(negocioId: number, d: { filaId: string |
 }
 
 // ── Segunda pasada (la consume el certificado) ──────────────────────────────────────────────────
-/** Corre (o repite) la segunda pasada de rojos sobre la opción aprobada: relee los documentos ORIGINALES y reconfirma cada 🔴 declarado CUMPLE. */
-export async function correrSegundaPasada(negocioId: number, opcionId: number, actor: ActorPP): Promise<{ revisados: number; rectificados: number }> {
-  const [rows] = await pool.query(`SELECT estado FROM auditor_opcion WHERE id = ? AND negocio_id = ?`, [opcionId, negocioId]) as any;
-  if (!(rows as any[]).length) throw new Error('La opción no existe en este negocio.');
-  if ((rows as any[])[0].estado !== 'aprobada') throw new Error('La segunda pasada del certificado se corre sobre la opción aprobada.');
-  return segundaPasadaTecnica({ negocioId, opcionId, actor });
+/** El comparador técnico v3.0 no tiene segunda pasada (decisión CA 30-09-2026): el certificado usa el cuadro tal cual, con lo que el asistente confirmó. */
+export async function correrSegundaPasada(_negocioId: number, _opcionId: number, _actor: ActorPP): Promise<{ revisados: number; rectificados: number }> {
+  throw new Error('La comparación técnica v3.0 ya no usa segunda pasada: el certificado se arma con el cuadro de la opción aprobada.');
 }
 
 // ── Candado hacia el resto de la app ────────────────────────────────────────────────────────────

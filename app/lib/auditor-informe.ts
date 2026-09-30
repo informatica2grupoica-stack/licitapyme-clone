@@ -21,8 +21,8 @@ const fecha = (f: string | null | undefined) => (f ? String(f).slice(0, 16).repl
 const v = (x: string | number | null | undefined) => (x == null || x === '' ? '—' : String(x));
 const ESTADO_OPCION: Record<string, string> = { tanteo: 'Tanteo', formalizada: 'Formalizada', verificada: 'Verificada', definitiva: 'Definitiva (firmada)', en_aprobacion: 'En aprobación', aprobada: 'Aprobada', descartada: 'Descartada' };
 const VEREDICTO_COSTO: Record<string, string> = { VERIFICADO: 'Verificado', VERIFICADO_CON_ALERTAS: 'Verificado con alertas', REQUIERE_HABILITACION: 'Requiere habilitación del EM', NO_VERIFICADO: 'No verificado', SIN_RESPALDO: 'Sin respaldo', PENDIENTE_CRUCE_TECNICO: 'Pendiente de cruce técnico' };
-const VEREDICTO_TEC: Record<string, string> = { CUMPLE: 'CUMPLE', NO_CUMPLE: 'NO CUMPLE', CUMPLE_CON_COMPLEMENTO: 'CUMPLE CON COMPLEMENTO', SIN_VEREDICTO: 'SIN VEREDICTO' };
-const ESTADO_TEC: Record<string, string> = { CUMPLE: 'Cumple todo', CON_PENDIENTES: 'Con pendientes', NO_CUMPLE: 'No cumple', NO_CORRIDO: 'Sin verificar', SIN_REQUISITOS: 'Sin requisitos heredados', NO_APLICA: 'Vía liviana: no corre', SIN_EVALUAR: 'Sin evaluar' };
+const VEREDICTO_TEC: Record<string, string> = { CUMPLE: 'CUMPLE', NO_CUMPLE: 'NO CUMPLE', CUMPLE_CON_COMPLEMENTO: 'CUMPLE CON COMPLEMENTO', SIN_VEREDICTO: 'FALTA DATO' };
+const ESTADO_TEC: Record<string, string> = { CUMPLE: 'Cumple', CON_PENDIENTES: 'Falta dato', NO_CUMPLE: 'No cumple', NO_CORRIDO: 'Sin comparar', SIN_REQUISITOS: 'Sin requisitos heredados', NO_APLICA: 'Vía liviana: no corre', SIN_EVALUAR: 'Sin evaluar' };
 const ORIGEN_TEC: Record<string, string> = { FICHA: 'ficha', FICHA_WEB: 'página web', CONFIRMACION_INFORMAL: 'informal', DECLARADO: 'declarado', CONTRADICE_FICHA: 'contradice la ficha', HEREDADO: 'heredado', NO_LEGIBLE: 'no legible' };
 const NIVEL: Record<string, string> = { rojo: 'ROJO', amarillo: 'AMARILLO', info: 'INFO', ok: 'OK' };
 const nombreOpcion = (o: OpcionDTO) => [o.marca, o.modelo].filter(Boolean).join(' ') || o.producto?.nombre || 'Producto sin identificar';
@@ -77,10 +77,10 @@ function detalleOpcion(o: OpcionDTO, l: LineaAuditorDTO): Bloque[] {
 
   // Verificación técnica
   const t = o.tecnico, r = t.resultado;
-  b.push({ t: 'h3', texto: `Verificación técnica (opción #${o.id})` });
+  b.push({ t: 'h3', texto: `Comparación técnica (opción #${o.id})` });
   b.push({ t: 'p', texto: `Estado: ${ESTADO_TEC[t.estado] || t.estado}${t.corridoAt ? ` · verificada el ${fecha(t.corridoAt)}` : ''}${t.segundaPasadaAt ? ` · segunda pasada el ${fecha(t.segundaPasadaAt)}` : ''} · ${t.requisitosTotal} requisito(s) heredado(s) en la línea.${t.error ? ` Error: ${t.error}` : ''}` });
   if (r) {
-    b.push({ t: 'p', texto: `Resumen: ${r.resumen.cumple} cumplen · ${r.resumen.conComplemento} con complemento · ${r.resumen.noCumple} no cumplen · ${r.resumen.sinVeredicto} sin veredicto (${r.resumen.riesgo} riesgo, ${r.resumen.porAfinar} por afinar) · ${r.resumen.rojosAbiertos} exigencias críticas abiertas · ${r.resumen.requiereEM} requieren al EM.` });
+    b.push({ t: 'p', texto: `Resumen: ${r.resumen.cumple} cumplen · ${r.resumen.noCumple} no cumplen · ${r.resumen.sinVeredicto} con falta de dato.` });
     if (r.alertas.length) b.push({ t: 'lista', items: r.alertas.map(a => `${NIVEL[a.nivel]}: ${a.texto}`) });
     if (r.productoOrigen.activa) b.push({ t: 'p', texto: r.productoOrigen.mensaje });
     if (r.sobredimensionamiento.activa) b.push({ t: 'p', texto: r.sobredimensionamiento.mensaje });

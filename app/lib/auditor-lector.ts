@@ -60,11 +60,14 @@ export interface SalidaLector {
 export interface ExtraccionGuardada { modo: ModoLector; salida: SalidaLector; texto: string; metodoTexto: string }
 
 // ── 1) Transcribir el archivo ────────────────────────────────────────────────────────────────────
+const MIME_DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const MIME_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
 function mimeDe(url: string, contentType: string | null): string {
   const ct = (contentType || '').split(';')[0].trim().toLowerCase();
   if (ct && ct !== 'application/octet-stream') return ct;
   const ext = url.split('?')[0].split('.').pop()?.toLowerCase() || '';
-  return ({ pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' } as Record<string, string>)[ext] || 'application/octet-stream';
+  return ({ pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', txt: 'text/plain', csv: 'text/csv', docx: MIME_DOCX, doc: 'application/msword', xlsx: MIME_XLSX, xls: 'application/vnd.ms-excel' } as Record<string, string>)[ext] || 'application/octet-stream';
 }
 
 /** Marca con la que empieza el texto cuando trae DOS transcripciones OCR del mismo archivo (re-análisis). */
@@ -118,6 +121,32 @@ export async function transcribirDocumento(url: string, opts: { combinar?: boole
     const t = (await ocrImagenLocalTesseract(buffer).catch(() => '')).trim();
     if (t.length >= 20) return { texto: t, metodo: 'tesseract' };
     throw new Error('no se pudo leer la imagen (el OCR no transcribió texto legible)');
+  }
+  // Documentos con texto propio (no necesitan OCR): txt/csv, Word y Excel.
+  const ext = url.split('?')[0].split('.').pop()?.toLowerCase() || '';
+  if (mime.startsWith('text/') || ext === 'txt' || ext === 'csv') {
+    const t = buffer.toString('utf8').trim();
+    if (t.length >= 20) return { texto: t, metodo: 'texto' };
+    throw new Error('el archivo de texto está vacío o es demasiado corto');
+  }
+  if (mime === MIME_DOCX || ext === 'docx') {
+    const mammoth = await import('mammoth');
+    const t = ((await mammoth.extractRawText({ buffer })).value || '').trim();
+    if (t.length >= 20) return { texto: t, metodo: 'word' };
+    throw new Error('el Word no tiene texto legible (¿es una imagen pegada? sube la imagen o el PDF)');
+  }
+  if (mime === 'application/msword' || ext === 'doc') {
+    const WordExtractor = (await import('word-extractor')).default;
+    const t = ((await new WordExtractor().extract(buffer)).getBody() || '').trim();
+    if (t.length >= 20) return { texto: t, metodo: 'word' };
+    throw new Error('el Word no tiene texto legible');
+  }
+  if (mime === MIME_XLSX || mime === 'application/vnd.ms-excel' || ext === 'xlsx' || ext === 'xls') {
+    const XLSX = await import('xlsx');
+    const wb = XLSX.read(buffer, { type: 'buffer' });
+    const t = wb.SheetNames.map(n => ['HOJA: ' + n, XLSX.utils.sheet_to_csv(wb.Sheets[n], { blankrows: false })].join(String.fromCharCode(10))).join(String.fromCharCode(10, 10)).trim();
+    if (t.length >= 20) return { texto: t, metodo: 'excel' };
+    throw new Error('la planilla está vacía');
   }
   throw new Error(`formato no soportado por el Lector (${mime})`);
 }

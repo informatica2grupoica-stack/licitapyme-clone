@@ -6,19 +6,21 @@
 // Tablas: migration-131/132 (auditor_opcion, auditor_respaldo, auditor_extraccion, auditor_evento).
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
-import { lineasDelCosteo, type LineaCosteo, type MargenProyecto } from '@/app/lib/auditor-compras-core';
+import { lineasDelCosteo, precioNetoUnitario, type LineaCosteo, type MargenProyecto } from '@/app/lib/auditor-compras-core';
 import { MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor } from '@/app/lib/costeo-editor';
 import { leerYGuardarDocumento, leerYGuardarPaginaWeb, extraccionPorId, extraccionesPorIds, type ExtraccionGuardada, type SalidaLector } from '@/app/lib/auditor-lector';
-import { visitarLinks, normalizarUrl } from '@/app/lib/auditor-compras-captura';
+import { visitarLinks, normalizarUrl, buscarFichasEnPagina, urlPublicaSegura, type EnlaceFicha } from '@/app/lib/auditor-compras-captura';
 import { createHash } from 'node:crypto';
 import { mensajesUnificadosPorProveedor, type MensajeProveedor } from '@/app/lib/auditor-proveedor';
 import {
-  ultimasVerificaciones, habilitacionesYDeclaraciones, estadoTecnicoDe, verificarTecnicoOpcion, segundaPasadaTecnica, contarRequisitosPorLinea,
+  contarRequisitosPorLinea,
 } from '@/app/lib/auditor-tecnico-v2';
+import { ultimasCorridasV3, confirmacionesTecnicas, estadoTecnicoV3, verificarLineaV3, confirmarCelda, type ResumenCorridaV3 } from '@/app/lib/auditor-comparador-v3';
 import type { ResultadoTecnico } from '@/app/lib/auditor-tecnico-v2-core';
 import { ultimosMercados, opcionesConJustificacion, verificarMercadoOpcion, justificarAhorro } from '@/app/lib/auditor-mercado';
 import { evaluarMercado, aplicarEvaluacion, type ReferenciaMercado, type ReferenciaDescartada, type CompetidorMP, type FuenteComparador } from '@/app/lib/auditor-mercado-core';
 import type { PrecioMercadoPublico } from '@/app/lib/auditor-compras-core';
+import { sugerirLineas, type SugerenciaLinea } from '@/app/lib/auditor-sugerir-linea';
 import { ultimasCostoIA, verificarCostoIAOpcion } from '@/app/lib/auditor-costo-ia';
 import type { AyudaCosto } from '@/app/lib/auditor-costo-ia-core';
 import { estadosDeLineas, lineasQueExigenViaCompleta, listarCostosAsociados, totalCostosAsociados, type CostoAsociadoDTO } from '@/app/lib/auditor-lineas';
@@ -79,7 +81,12 @@ export interface LineaAuditorDTO {
 export interface DocumentoCotizacionDTO {
   documentoId: number; nombre: string; url: string; extraccionId: number | null; leido: boolean; error: string | null;
   proveedor: string | null; rut: string | null; fechaEmision: string | null; formalidad: string | null;
-  productos: Array<{ idx: number; nombre: string; precio: number | null; iva: string; cantidad: number | null; esCargo: boolean; opcionId: number | null; filaId: string | null }>;
+  productos: Array<{ idx: number; nombre: string; precio: number | null; iva: string; cantidad: number | null; esCargo: boolean; opcionId: number | null; filaId: string | null;
+    /** Línea que la IA propone (confianza media) — un clic la acepta. */
+    sugerencia?: { filaId: string; item: number; confianza: string; motivo: string } | null;
+    /** La IA (o una persona) decidió que no corresponde a ninguna línea. */
+    noCorresponde?: { motivo: string; por: string } | null;
+  }>;
 }
 export interface PanelAuditorDTO {
   lineas: LineaAuditorDTO[];
@@ -94,6 +101,8 @@ export interface PanelAuditorDTO {
   sinCosteo: boolean;
   /** Última posición de precio calculada (la agrega el GET; no forma parte de armarPanelAuditor para no crear un ciclo de módulos). */
   posicion?: import('@/app/lib/auditor-posicion').PosicionGuardadaDTO | null;
+  /** Presupuesto neto del organismo (lo agrega el GET; lo usa el resumen de la licitación). */
+  presupuesto?: { neto: number | null; fuente: string } | null;
 }
 
 // ── Utilidades ───────────────────────────────────────────────────────────────────────────────────
@@ -136,7 +145,7 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
   const hoyISO = ahoraChileSQL().slice(0, 10);
   // Todas las lecturas son independientes: van EN PARALELO (la base es remota; una a una el panel tardaba segundos).
   const [estado, estadosLinea, verifTec, habTec, reqPorLinea, exigenCompleta, costosAsociados, mercados, justificadas, costosIA, opRes, reRes, caRes] = await Promise.all([
-    cargarEstadoCosteo(negocioId), estadosDeLineas(negocioId), ultimasVerificaciones(negocioId), habilitacionesYDeclaraciones(negocioId),
+    cargarEstadoCosteo(negocioId), estadosDeLineas(negocioId), ultimasCorridasV3(negocioId), confirmacionesTecnicas(negocioId),
     contarRequisitosPorLinea(negocioId, licitacionCodigo), lineasQueExigenViaCompleta(negocioId), listarCostosAsociados(negocioId),
     ultimosMercados(negocioId), opcionesConJustificacion(negocioId), ultimasCostoIA(negocioId),
     pool.query(`SELECT * FROM auditor_opcion WHERE negocio_id = ? ORDER BY id`, [negocioId]) as Promise<any>,
@@ -187,11 +196,11 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
       })
       : null;
 
-    const est = estadoTecnicoDe(verifTec.get(o.id), habTec.get(o.id));
+    const est = estadoTecnicoV3(verifTec.get(o.id), habTec.get(o.id));
     const reqTotal = linea?.lineaReal != null ? (reqPorLinea.get(linea.lineaReal) ?? 0) : 0;
     const tecnico: TecnicoDTO = {
       estado: o.via === 'liviana' ? 'NO_APLICA' : reqTotal === 0 && !est.resultado ? 'SIN_REQUISITOS' : est.resultado ? est.resultado.estado : 'NO_CORRIDO',
-      corridoAt: est.corridoAt, error: est.error, segundaPasadaAt: est.segundaPasadaAt, requisitosTotal: reqTotal, resultado: est.resultado,
+      corridoAt: est.corridoAt, error: est.error, segundaPasadaAt: null, requisitosTotal: reqTotal, resultado: est.resultado,
     };
     // Mercado (V9 competidor, V10 referencia más barata ≥ 5% sin justificar, V10-b dispersión): si ya se buscó, suma sus bloqueos y alertas.
     const m = mercados.get(o.id) ?? null;
@@ -212,9 +221,6 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
       if (verificacion && ci.resultado?.alertas.length) { const nv = aplicarEvaluacion(verificacion, { bloqueos: [], alertas: ci.resultado.alertas }); verificacion.alertas = nv.alertas; verificacion.veredicto = nv.veredicto; }
       costoIA = { creadoAt: ci.creadoAt, error: ci.error, ayuda: ci.resultado?.ayuda ?? null, descartados: ci.resultado?.descartados ?? [], noPudeLeer: ci.resultado?.noPudeLeer ?? [], alertas: ci.resultado?.alertas.length ?? 0 };
     }
-    // Accesorio o documento de tercero que el verificador técnico exige y nadie costeó = costo oculto (Prompt 5 V1/V5).
-    if (verificacion && est.resultado) for (const e of est.resultado.eventos) if (e.tipo === 'complemento_requerido' && e.costeado === false)
-      verificacion.alertas.push({ codigo: 'V5', nivel: 'rojo', mensaje: `El verificador técnico exige un complemento que no está costeado: ${e.detalle}. Suma al costo real de compra.`, accion: 'corregir_costeo' });
 
     let estadoOp: EstadoOpcion = o.estado;
     // Transiciones automáticas (solo entre tanteo/formalizada/verificada): el resto las decide una persona.
@@ -290,6 +296,7 @@ async function armarDocumentos(negocioId: number, codigo: string, opcionesPorFil
     if (r.vigente && r.extraccionId != null && r.productoIdx != null) opcionPorProducto.set(`${r.extraccionId}:${r.productoIdx}`, { opcionId: o.id, filaId });
 
   const cargadas = await extraccionesPorIds([...ultimaPorUrl.values()].filter(e => !e.error).map(e => e.id));
+  const decisiones = await decisionesSinLinea(negocioId);
   const out: DocumentoCotizacionDTO[] = [];
   for (const d of docs as any[]) {
     const e = ultimaPorUrl.get(d.documento_url_local) || null;
@@ -306,7 +313,12 @@ async function armarDocumentos(negocioId: number, codigo: string, opcionesPorFil
         base.formalidad = data.salida.documento?.formalidad || null;
         base.productos = normalizarExtraccion(data).map(p => {
           const enlace = opcionPorProducto.get(`${e.id}:${p.idx}`);
-          return { idx: p.idx, nombre: p.nombre, precio: p.precio, iva: p.iva, cantidad: p.cantidadCotizada, esCargo: p.esCargo, opcionId: enlace?.opcionId ?? null, filaId: enlace?.filaId ?? null };
+          const dec = enlace ? null : decisiones.get(`${e.id}:${p.idx}`) ?? null;
+          return {
+            idx: p.idx, nombre: p.nombre, precio: p.precio, iva: p.iva, cantidad: p.cantidadCotizada, esCargo: p.esCargo, opcionId: enlace?.opcionId ?? null, filaId: enlace?.filaId ?? null,
+            sugerencia: dec && dec.filaId && dec.tipo === 'sugerida' ? { filaId: dec.filaId, item: dec.item ?? 0, confianza: dec.confianza, motivo: dec.motivo } : null,
+            noCorresponde: dec && (dec.tipo === 'ninguna' || dec.tipo === 'ignorado') ? { motivo: dec.motivo, por: dec.por } : null,
+          };
         });
       }
     }
@@ -383,6 +395,78 @@ async function crearOpcionDesdeProducto(params: {
 
 /** Empareja los productos de una extracción con las líneas del costeo y crea una opción por cada match que
  *  todavía no tiene opción. Devuelve lo creado y lo que quedó sin emparejar (para asignar a mano). */
+// ── Productos sin línea: lo que decidió la IA (o una persona) ──────────────────────────────────────
+interface DecisionSinLinea { tipo: 'sugerida' | 'ninguna' | 'ignorado'; filaId: string | null; item: number | null; confianza: string; motivo: string; por: string }
+/** Última decisión por producto (`extraccion:idx`). Son eventos del negocio (opcion_id = 0): no hace falta una tabla nueva. */
+async function decisionesSinLinea(negocioId: number): Promise<Map<string, DecisionSinLinea>> {
+  const [rows] = await pool.query(`SELECT tipo, detalle FROM auditor_evento WHERE negocio_id = ? AND opcion_id = 0 AND tipo IN ('sugerencia_linea','producto_ignorado') ORDER BY id`, [negocioId]) as any;
+  const out = new Map<string, DecisionSinLinea>();
+  for (const r of rows as any[]) {
+    try {
+      const d = JSON.parse(r.detalle || '{}'); const k = `${d.extraccionId}:${d.idx}`;
+      if (r.tipo === 'producto_ignorado') { if (d.ignorado === false) out.delete(k); else out.set(k, { tipo: 'ignorado', filaId: null, item: null, confianza: '', motivo: String(d.motivo || 'Marcado como «no va en ninguna línea».'), por: String(d.por || '') }); }
+      else out.set(k, { tipo: d.filaId ? 'sugerida' : 'ninguna', filaId: d.filaId ?? null, item: d.item ?? null, confianza: String(d.confianza || ''), motivo: String(d.motivo || ''), por: 'la IA' });
+    } catch { /* evento mal formado */ }
+  }
+  return out;
+}
+
+/** Productos de una extracción que todavía no son una opción (con precio, sin ser un cargo) y sobre los que nadie decidió nada. */
+async function productosPendientesDeLinea(negocioId: number, extraccionId: number, data: ExtraccionGuardada, soloNuevos: boolean) {
+  const [ya] = await pool.query(`SELECT r.producto_idx FROM auditor_respaldo r JOIN auditor_opcion o ON o.id = r.opcion_id WHERE r.extraccion_id = ? AND r.vigente = 1 AND o.estado <> 'descartada'`, [extraccionId]) as any;
+  const asignados = new Set((ya as any[]).map(r => r.producto_idx));
+  const dec = await decisionesSinLinea(negocioId);
+  return normalizarExtraccion(data).filter(p => !p.esCargo && p.precio != null && !asignados.has(p.idx) && (!soloNuevos || !dec.has(`${extraccionId}:${p.idx}`)));
+}
+
+/** La IA lee los productos sin línea de UNA cotización: los de confianza ALTA se asignan solos (queda el motivo en el historial de la opción);
+ *  los demás quedan sugeridos (un clic) o como «no corresponde a ninguna línea». Nunca lanza: si la IA falla, todo queda como estaba. */
+export async function sugerirYAsignarSinLinea(negocioId: number, extraccionId: number, actor: Actor, soloNuevos = true): Promise<{ asignados: number; sugeridos: number; ninguna: number; error: string | null }> {
+  const res = { asignados: 0, sugeridos: 0, ninguna: 0, error: null as string | null };
+  try {
+    const ex = await extraccionPorId(extraccionId);
+    if (!ex?.data) return res;
+    const pend = await productosPendientesDeLinea(negocioId, extraccionId, ex.data, soloNuevos);
+    if (!pend.length) return res;
+    const lineas = lineasAuditables(await cargarEstadoCosteo(negocioId));
+    const proveedor = ex.data.salida.proveedor?.razon_social?.valor || '';
+    const sug: SugerenciaLinea[] = await sugerirLineas(
+      pend.map(p => ({ idx: p.idx, nombre: p.nombre, precioNeto: p.precio != null ? precioNetoUnitario({ precio: p.precio, iva: p.iva, moneda: p.moneda, factor_unidades: p.unidadesPorEmpaque }).neto : null, cantidad: p.cantidadCotizada, proveedor })),
+      lineas.map(l => ({ item: l.item, filaId: l.id, detalle: l.detalle, cantidad: l.cantidad, costoNeto: l.costoEstimadoNeto })));
+    for (const x of sug) {
+      let guardar: SugerenciaLinea = x;
+      if (x.filaId && x.confianza === 'alta') {
+        try {
+          const opcionId = await asignarProductoALinea(negocioId, extraccionId, x.idx, x.filaId, actor);
+          await evento(negocioId, opcionId, 'asignacion_ia', 'asistente', JSON.stringify({ item: x.item, motivo: x.motivo }));
+          res.asignados++; continue;
+        } catch { guardar = { ...x, confianza: 'media' }; }   // no se pudo asignar sola: queda como sugerencia
+      }
+      await pool.query(`INSERT INTO auditor_evento (negocio_id, opcion_id, tipo, emisor, detalle, creado_at) VALUES (?, 0, 'sugerencia_linea', 'asistente', ?, ?)`,
+        [negocioId, JSON.stringify({ extraccionId, idx: guardar.idx, filaId: guardar.filaId, item: guardar.item, confianza: guardar.confianza, motivo: guardar.motivo }), ahoraChileSQL()]);
+      if (guardar.filaId) res.sugeridos++; else res.ninguna++;
+    }
+  } catch (e) { res.error = (e instanceof Error ? e.message : String(e)).slice(0, 200); console.warn('[auditor-opciones] sugerir líneas:', res.error); }
+  return res;
+}
+
+/** «Sugerir líneas» sobre todas las cotizaciones leídas del negocio (botón), incluidas las que ya tenían una decisión. */
+export async function sugerirLineasDelNegocio(negocioId: number, actor: Actor): Promise<{ asignados: number; sugeridos: number; ninguna: number; error: string | null }> {
+  const [exts] = await pool.query(`SELECT MAX(id) AS id FROM auditor_extraccion WHERE negocio_id = ? AND documento_url IS NOT NULL AND error IS NULL AND modo = 'comercial' GROUP BY documento_url`, [negocioId]) as any;
+  const tot = { asignados: 0, sugeridos: 0, ninguna: 0, error: null as string | null };
+  for (const e of exts as any[]) {
+    const r = await sugerirYAsignarSinLinea(negocioId, e.id, actor, false);
+    tot.asignados += r.asignados; tot.sugeridos += r.sugeridos; tot.ninguna += r.ninguna; tot.error = tot.error || r.error;
+  }
+  return tot;
+}
+
+/** «Este producto no va en ninguna línea» (o deshacerlo): sale de la lista de pendientes. */
+export async function ignorarProductoSinLinea(negocioId: number, extraccionId: number, idx: number, ignorado: boolean, actor: Actor): Promise<void> {
+  await pool.query(`INSERT INTO auditor_evento (negocio_id, opcion_id, tipo, emisor, detalle, creado_at) VALUES (?, 0, 'producto_ignorado', 'asistente', ?, ?)`,
+    [negocioId, JSON.stringify({ extraccionId, idx, ignorado, por: actor.nombre, motivo: 'Marcado a mano: no va en ninguna línea.' }), ahoraChileSQL()]);
+}
+
 export async function crearOpcionesDesdeExtraccion(negocioId: number, extraccionId: number, actor: Actor): Promise<{ creadas: Array<Emparejamiento & { opcionId: number }>; sinEmparejar: number[] }> {
   const ex = await extraccionPorId(extraccionId);
   if (!ex?.data || !ex.documentoUrl) throw new Error('La extracción no existe o no se pudo leer.');
@@ -396,6 +480,8 @@ export async function crearOpcionesDesdeExtraccion(negocioId: number, extraccion
     const { opcionId } = await crearOpcionDesdeProducto({ negocioId, filaId: a.filaId, extraccionId, productoIdx: a.productoIdx, data: ex.data, documentoUrl: ex.documentoUrl, documentoNombre: ex.documentoNombre || 'documento', actor });
     creadas.push({ ...a, opcionId });
   }
+  // Lo que las palabras no resolvieron lo mira la IA (asigna sola solo con confianza alta).
+  if (sinEmparejar.length) await sugerirYAsignarSinLinea(negocioId, extraccionId, actor);
   return { creadas, sinEmparejar };
 }
 
@@ -555,10 +641,7 @@ export async function solicitarAprobacion(negocioId: number, licitacionCodigo: s
   if (o.estado !== 'definitiva') throw new Error('Solo se solicita aprobación de una opción definitiva (firmada).');
   // PASADA FINAL automática (spec §11.2): revisita el link que sostiene el costo y compara contra la captura anterior.
   const cambios = await revisitarLinkDeOpcion(negocioId, opcionId, actor);
-  // Segunda pasada de rojos (Prompt 4 v2.0 Parte IX): relee los documentos ORIGINALES y reconfirma cada 🔴 declarado CUMPLE.
-  let l2: { revisados: number; rectificados: number } | null = null;
-  try { l2 = await segundaPasadaTecnica({ negocioId, opcionId, actor }); } catch (e) { cambios.push(`No se pudo completar la segunda pasada técnica: ${e instanceof Error ? e.message : String(e)}`); }
-  if (l2?.rectificados) cambios.push(`La segunda pasada rectificó ${l2.rectificados} de ${l2.revisados} ítems críticos.`);
+  // El comparador técnico v3.0 no tiene segunda pasada (decisión CA 30-09-2026: etapa ágil). Lo técnico se revalida con lo que hay en el cuadro.
   const actual = await verificacionActual(negocioId, licitacionCodigo, opcionId);
   const v = actual.verificacion;
   const bloqTec = actual.tecnico.resultado?.bloqueos ?? [];
@@ -740,8 +823,9 @@ export async function agregarLinkALinea(negocioId: number, filaId: string, urlEn
   const [cap] = await visitarLinks([url]);
   const capturaId = await guardarCaptura(negocioId, cap, 'alta');
   if (cap.estado === 'caido' || cap.estado === 'redirige' || cap.estado === 'login') {
-    const opcionId = await crearOpcionSinLectura(negocioId, filaId, url, cap.titulo, capturaId, actor);
-    return { opcionId, estadoLink: cap.estado, error: null };
+    // Un link que no abre no es una opción: se le avisa a quien lo pegó y no queda una columna vacía en la línea.
+    const porque = cap.estado === 'caido' ? 'La página no carga o el producto ya no existe.' : cap.estado === 'login' ? 'La página pide iniciar sesión, el sistema no puede verla.' : 'El link lleva a otra página (el producto ya no está ahí).';
+    return { opcionId: null, estadoLink: cap.estado, error: `${porque} Prueba con otro link, sube la cotización o la ficha técnica del producto.` };
   }
   const lectura = await leerYGuardarPaginaWeb({ negocioId, url, titulo: cap.titulo, texto: cap.texto, modo: 'completo' });
   const ex = lectura.error ? null : await extraccionPorId(lectura.id);
@@ -756,6 +840,36 @@ export async function agregarLinkALinea(negocioId: number, filaId: string, urlEn
     documentoNombre: cap.titulo || hostDe(url), actor, link: { capturaId },
   });
   return { opcionId, estadoLink: cap.estado, error: null };
+}
+
+// ── Ficha técnica que ofrece la página del link ───────────────────────────────────────────────────
+const cacheFichasLink = new Map<number, { at: number; fichas: EnlaceFicha[] }>();   // lo encontrado por opción (10 min): solo se descarga lo que se ofreció
+async function linkDeOpcion(negocioId: number, opcionId: number): Promise<string> {
+  await opcionDe(negocioId, opcionId);
+  const [r] = await pool.query(`SELECT url FROM auditor_respaldo WHERE opcion_id = ? AND tipo = 'link_web' AND vigente = 1 AND url IS NOT NULL ORDER BY id DESC LIMIT 1`, [opcionId]) as any;
+  if (!(r as any[]).length) throw new Error('Esta opción no tiene un link de producto: sube la ficha técnica a mano.');
+  return String((r as any[])[0].url);
+}
+/** Mira la página del link y lista las fichas descargables que ofrece. NO descarga nada: quien usa la pantalla decide. */
+export async function buscarFichaEnLink(negocioId: number, opcionId: number): Promise<{ link: string; fichas: EnlaceFicha[] }> {
+  const link = await linkDeOpcion(negocioId, opcionId);
+  const fichas = await buscarFichasEnPagina(link);
+  cacheFichasLink.set(opcionId, { at: Date.now(), fichas });
+  return { link, fichas };
+}
+/** Descarga (lee) la ficha que la persona aceptó y la deja como ficha técnica de la opción. Solo acepta un archivo que la búsqueda ofreció. */
+export async function traerFichaDeLink(negocioId: number, opcionId: number, urlFicha: string, actor: Actor) {
+  const c = cacheFichasLink.get(opcionId);
+  const ofrecida = c && Date.now() - c.at < 10 * 60_000 ? c.fichas.find(f => f.url === urlFicha) : null;
+  if (!ofrecida) throw new Error('Esa ficha no figura en la búsqueda reciente: vuelve a buscar las fichas de la página.');
+  if (!(await urlPublicaSegura(urlFicha))) throw new Error('Esa dirección no se puede descargar desde el servidor.');
+  const head = await fetch(urlFicha, { method: 'GET', headers: { Range: 'bytes=0-0' }, redirect: 'follow' }).catch(() => null);
+  if (!head || !head.ok && head.status !== 206) throw new Error('El archivo no se pudo descargar (la página lo rechazó).');
+  const tipo = (head.headers.get('content-type') || '').toLowerCase();
+  const total = Number((head.headers.get('content-range') || '').split('/')[1] || head.headers.get('content-length') || 0);
+  if (total > 30 * 1024 * 1024) throw new Error('El archivo pesa más de 30 MB: descárgalo y súbelo a mano.');
+  if (!/pdf|image\//.test(tipo) && !/\.(pdf|png|jpe?g|webp)(\?|$)/i.test(urlFicha)) throw new Error('El enlace no es un PDF ni una imagen (la lectura solo admite esos formatos): ábrelo y sube el archivo a mano.');
+  return agregarFichaAOpcion({ negocioId, opcionId, url: urlFicha, nombre: ofrecida.nombre, actor });
 }
 
 /** Links del Costeo (link1..link3 de cada fila) que todavía no son una opción: lo que "Traer links del costeo" registra. */
@@ -841,28 +955,18 @@ export async function verificarCostoIADeOpcion(negocioId: number, licitacionCodi
 }
 
 // ── Verificación técnica: acciones ───────────────────────────────────────────────────────────────
-/** Corre el verificador técnico (L1) sobre UNA opción y ejecuta sus eventos (costos asociados, descarte por ruta insalvable…). */
-export async function verificarTecnicoDeOpcion(negocioId: number, licitacionCodigo: string, opcionId: number, actor: Actor) {
+/** Corre el comparador técnico v3.0 sobre la LÍNEA de la opción: una sola llamada compara todas las opciones de la línea contra sus requisitos. */
+export async function verificarTecnicoDeOpcion(negocioId: number, licitacionCodigo: string, opcionId: number, actor: Actor): Promise<ResumenCorridaV3> {
   const o = await opcionDe(negocioId, opcionId);
   const linea = lineasAuditables(await cargarEstadoCosteo(negocioId)).find(l => l.id === o.fila_id);
   if (!linea) throw new Error('La línea de esta opción ya no existe en el Costeo.');
-  return verificarTecnicoOpcion({
-    negocioId, licitacionCodigo, opcionId, actor, lineaReal: linea.lineaReal, nombreLinea: linea.detalle.split(' - ')[0] || linea.detalle, cantidad: linea.cantidad, unidad: linea.unidad,
+  return verificarLineaV3({
+    negocioId, licitacionCodigo, filaId: linea.id, lineaReal: linea.lineaReal, nombreLinea: linea.detalle.split(' - ')[0] || linea.detalle, cantidad: linea.cantidad, unidad: linea.unidad, actor,
   });
 }
 
-/** El Encargado de Mercado Público habilita un dato cuya fuente no es una ficha formal (FICHA_WEB en un 🔴, informal, declarado). */
-export async function habilitarItemTecnico(negocioId: number, opcionId: number, n: number, habilitado: boolean, actor: Actor): Promise<void> {
+/** El asistente cierra un ❓ con un clic («lo confirmo»), sin respaldo. Queda quién y cuándo; el EM ve la lista. */
+export async function confirmarCeldaTecnica(negocioId: number, opcionId: number, n: number, confirmada: boolean, actor: Actor, motivo = ''): Promise<void> {
   await opcionDe(negocioId, opcionId);
-  await pool.query(`INSERT INTO auditor_evento (negocio_id, opcion_id, tipo, emisor, detalle, creado_at) VALUES (?, ?, 'habilitacion_tecnica', 'em', ?, ?)`,
-    [negocioId, opcionId, JSON.stringify({ n, habilitado, por: actor.nombre }), ahoraChileSQL()]);
-}
-
-/** El asistente declara un ítem que la ficha no puede probar (cualitativo o que la ficha calla). SIEMPRE con respaldo adjunto: sin respaldo no cuenta. */
-export async function declararItemTecnico(negocioId: number, opcionId: number, n: number, texto: string, respaldo: string, actor: Actor): Promise<void> {
-  await opcionDe(negocioId, opcionId);
-  if (!texto.trim()) throw new Error('Escribe la declaración.');
-  if (!respaldo.trim()) throw new Error('Una declaración exige un respaldo adjunto (documento, foto o captura): sin respaldo no se acepta.');
-  await pool.query(`INSERT INTO auditor_evento (negocio_id, opcion_id, tipo, emisor, detalle, creado_at) VALUES (?, ?, 'declaracion_tecnica', 'asistente', ?, ?)`,
-    [negocioId, opcionId, JSON.stringify({ n, texto: texto.trim().slice(0, 600), respaldo: respaldo.trim().slice(0, 500), por: actor.nombre }), ahoraChileSQL()]);
+  await confirmarCelda(negocioId, opcionId, n, confirmada, actor, motivo);
 }

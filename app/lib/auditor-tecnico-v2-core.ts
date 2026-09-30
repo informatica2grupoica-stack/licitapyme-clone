@@ -69,6 +69,8 @@ export interface FilaTecnica {
   habilitacion: 'no' | 'EM'; habilitado: boolean; motivoHabilitacion: string | null;
   cerrada: boolean; motivoPendiente: 'RIESGO' | 'POR_AFINAR' | null; ayuda: AyudaFila | null; ayudaIncompleta: boolean;
   valorCorto: string; sobrecumple: boolean; rojo: boolean; rutaCierre: string; cambio: string; rectificacion: string; reverificado: boolean;
+  /** Solo comparador v3.0 (auditor-comparador-v3-core.ts): ❓ que el asistente cerró con un clic; número sin unidad marcado para revisión; cita que el modelo dio pero no figura en el documento; estado de la celda tal como se ve. */
+  confirmada?: { por: string; at: string } | null; revisar?: boolean; citaNoVerificada?: boolean; estadoCelda?: 'CUMPLE' | 'SOBRECUMPLE' | 'NO_CUMPLE' | 'FALTA_DATO';
 }
 export interface BloqueoTec { codigo: string; item: number | null; mensaje: string; salida: string }
 export interface EventoTec { tipo: 'producto_cambiado' | 'complemento_requerido' | 'compromiso_con_costo' | 'ruta_insalvable' | 'sobredimensionamiento'; itemRef: string; detalle: string; /** complemento_requerido: ¿ya está cotizado o respaldado? */ costeado?: boolean }
@@ -85,6 +87,8 @@ export interface ResultadoTecnico {
   sobredimensionamiento: { activa: boolean; sobrecumplen: number; medibles: number; mensaje: string };
   productoOrigen: { activa: boolean; coinciden: number; total: number; mensaje: string };
   noPudeLeer: Array<{ que: string; donde: string }>;
+  /** Solo comparador v3.0: notas del producto (máx. 3) y si el producto no tiene ficha técnica. */
+  notas?: string[]; sinFicha?: boolean;
 }
 
 /** Mínimo de características medibles para que la alerta de sobredimensionamiento (≥ 50%) tenga sentido. */

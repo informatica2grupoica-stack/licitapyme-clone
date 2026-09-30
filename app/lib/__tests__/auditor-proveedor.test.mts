@@ -45,22 +45,25 @@ test('rutValido: dígito verificador módulo 11', () => {
   assert.equal(rutValido('11.111.111-1'), true);
 });
 
-test('mensaje: pregunta lo que bloquea primero (IVA, mínimo), luego alertas, y al final los datos del proveedor', () => {
-  const [m] = mensajesUnificadosPorProveedor([linea([opcion(1, prod())])]);
+// Comparador técnico v3.0: el mensaje lleva SOLO preguntas técnicas (máx. 3 por proveedor), nunca IVA, vigencia, stock, plazo ni datos de la empresa.
+const conPreguntas = (o: OpcionDTO, textos: string[]): OpcionDTO => ({ ...o, tecnico: { ...o.tecnico, estado: 'CON_PENDIENTES', resultado: { preguntas: textos.map(t => ({ n: 0, texto: t, bloquea: true })) } as any } });
+
+test('mensaje: solo las preguntas técnicas del comparador, sin IVA ni vigencia ni datos de la empresa', () => {
+  const o = conPreguntas(opcion(1, prod()), ['¿Nos pueden enviar la ficha técnica del fabricante del Benq MX560C?']);
+  const [m] = mensajesUnificadosPorProveedor([linea([o])]);
   assert.ok(m, 'debe generar un mensaje');
   assert.equal(m.bloquea, true);
-  const iBloq = m.texto.indexOf('neto o incluye IVA'), iAlerta = m.texto.indexOf('revalidar'), iDatos = m.texto.indexOf('registrarlos como proveedor');
-  assert.ok(iBloq > 0 && iAlerta > iBloq && iDatos > iAlerta, `orden incorrecto: ${iBloq} ${iAlerta} ${iDatos}`);
   assert.match(m.texto, /^Hola Alvaro/);
   assert.match(m.texto, /N° 100\.084\.222/);
-  assert.match(m.texto, /Benq MX560C/);
-  assert.match(m.texto, /giro|dirección|cuenta bancaria/);   // faltantes del proveedor
+  assert.match(m.texto, /ficha técnica del fabricante del Benq MX560C/);
+  assert.doesNotMatch(m.texto, /IVA|revalidar|vigencia|stock|plazo|registrarlos como proveedor|cuenta bancaria|giro/i);
   assert.equal(m.email, 'apena@pcfactory.cl');
+  assert.equal(m.preguntas, 1);
 });
 
-test('mensaje: UN solo mensaje por proveedor aunque tenga varias opciones', () => {
-  const o1 = opcion(1, prod());
-  const o2 = opcion(2, prod({ idx: 1, nombre: 'Webcam Kensington W2000', marca: 'Kensington', modelo: 'W2000', tipo: 'Webcam', precio: 53_101 }), { filaId: 'f5' });
+test('mensaje: UN solo mensaje por proveedor aunque tenga varias opciones, con las preguntas de todas', () => {
+  const o1 = conPreguntas(opcion(1, prod()), ['¿Nos pueden enviar la ficha técnica del fabricante del Benq MX560C?']);
+  const o2 = conPreguntas(opcion(2, prod({ idx: 1, nombre: 'Webcam Kensington W2000', marca: 'Kensington', modelo: 'W2000', tipo: 'Webcam', precio: 53_101 }), { filaId: 'f5' }), ['¿La webcam Kensington W2000 tiene zoom digital?']);
   const ms = mensajesUnificadosPorProveedor([linea([o1, o2])]);
   assert.equal(ms.length, 1);
   assert.deepEqual(ms[0].opcionIds, [1, 2]);
@@ -68,16 +71,24 @@ test('mensaje: UN solo mensaje por proveedor aunque tenga varias opciones', () =
   assert.match(ms[0].texto, /Kensington W2000/);
 });
 
-test('mensaje: no incluye opciones descartadas ni proveedores sin nada que preguntar', () => {
-  const descartada = opcion(1, prod(), { estado: 'descartada' });
-  assert.equal(mensajesUnificadosPorProveedor([linea([descartada])]).length, 0);
+test('mensaje: máximo 3 preguntas por proveedor, y las que piden ficha van primero', () => {
+  const o = conPreguntas(opcion(1, prod()), ['¿Tiene puerto USB?', '¿Tiene HDMI?', '¿Trae control remoto?', '¿Nos pueden enviar la ficha técnica del fabricante del Benq MX560C?', '¿Tiene altavoz?']);
+  const [m] = mensajesUnificadosPorProveedor([linea([o])]);
+  assert.equal(m.preguntas, 3);
+  assert.match(m.texto, /1\. ¿Nos pueden enviar la ficha técnica/);
+  assert.doesNotMatch(m.texto, /\n4\. /);
 });
 
-test('preguntas: cotizar menos unidades que las pedidas y vigencia vencida', () => {
-  const o = opcion(1, prod({ iva: 'neto', ivaTexto: '+ IVA', cantidadCotizada: 10 }));
-  const t = preguntasDeOpcion(o, linea([o])).map(q => q.texto).join('\n');
-  assert.match(t, /10 unidades y necesitamos 17/);
-  assert.match(t, /venció|ya venció/);
+test('mensaje: no incluye opciones descartadas ni proveedores sin nada que preguntar', () => {
+  const descartada = conPreguntas(opcion(1, prod(), { estado: 'descartada' }), ['¿Tiene HDMI?']);
+  assert.equal(mensajesUnificadosPorProveedor([linea([descartada])]).length, 0);
+  assert.equal(mensajesUnificadosPorProveedor([linea([opcion(2, prod())])]).length, 0);   // sin preguntas técnicas no hay mensaje (ni por IVA ni por vigencia)
+});
+
+test('preguntas de una opción: son exactamente las técnicas del comparador', () => {
+  const o = conPreguntas(opcion(1, prod({ cantidadCotizada: 10 })), ['¿Tiene HDMI?']);
+  assert.deepEqual(preguntasDeOpcion(o, linea([o])).map(q => q.texto), ['¿Tiene HDMI?']);
+  assert.deepEqual(preguntasDeOpcion(opcion(2, prod()), linea([])), []);
 });
 
 test('OBUMA proveedor: RUT válido, catálogo va como pendiente (no se adivina el ID) y observación con bodega y licitación', () => {
@@ -121,21 +132,14 @@ test('aCSV: separador ; y comillas escapadas', () => {
   assert.equal(aCSV([]), '');
 });
 
-test('mensaje: el plazo de entrega se pregunta UNA vez por proveedor, nombrando los productos', () => {
-  const sinPlazo = (id: number, nombre: string, modelo: string) => opcion(id, prod({ nombre, modelo, marca: 'X', iva: 'neto', ivaTexto: '+ IVA', plazoTexto: '', cantidadCotizada: 17 }), {}, { formalidad: 'formal', fecha_emision: '2026-09-28', vigencia: '30 días', legibilidad: 'completa' });
-  const ms = mensajesUnificadosPorProveedor([linea([sinPlazo(1, 'Proyector A', 'A1'), sinPlazo(2, 'Proyector B', 'B2')])]);
-  assert.equal(ms.length, 1);
-  assert.equal((ms[0].texto.match(/plazo de entrega/g) || []).length, 1);
-  assert.match(ms[0].texto, /X A1; X B2/);
-});
-
 test('mensaje: la misma empresa con distinto nombre (Spa/SpA, tienda/razón social) recibe UN solo mensaje', () => {
   const cot = opcion(1, prod(), { proveedorRazonSocial: 'Sociedad de Inversiones Audiofans Spa', proveedorRut: '76.773.918-4' });
   const link = opcion(2, prod({ idx: 1, nombre: 'SKP UHF 600 PRO', marca: 'SKP', modelo: 'UHF 600 PRO', precio: 138_990 }), { proveedorRazonSocial: 'Sociedad de Inversiones Audiofans SpA', proveedorRut: null });
   const foto = opcion(3, prod({ idx: 2 }), { proveedorRazonSocial: 'HorizontalFoto', proveedorRut: null });
   const horizontal = opcion(4, prod({ idx: 3 }), { proveedorRazonSocial: 'HORIZONTAL SPA', proveedorRut: '76.895.668-5' });
   const otra = opcion(5, prod({ idx: 4 }), { proveedorRazonSocial: 'Dinon Tecnología', proveedorRut: null });
-  const ms = mensajesUnificadosPorProveedor([linea([cot, link, foto, horizontal, otra])]);
+  const q = (o: OpcionDTO) => conPreguntas(o, ['¿Nos pueden enviar la ficha técnica del fabricante?']);
+  const ms = mensajesUnificadosPorProveedor([linea([q(cot), q(link), q(foto), q(horizontal), q(otra)])]);
   assert.equal(ms.length, 3);
   assert.deepEqual(ms.map(m => m.opcionIds.sort()).sort(), [[1, 2], [3, 4], [5]]);
 });
@@ -143,5 +147,6 @@ test('mensaje: la misma empresa con distinto nombre (Spa/SpA, tienda/razón soci
 test('mensaje: dos proveedores con RUT distinto no se juntan aunque el nombre se parezca', () => {
   const a = opcion(1, prod(), { proveedorRazonSocial: 'Tecnología Norte Ltda', proveedorRut: '76.111.111-1' });
   const b = opcion(2, prod({ idx: 1 }), { proveedorRazonSocial: 'Tecnología Norte SpA', proveedorRut: '77.222.222-2' });
-  assert.equal(mensajesUnificadosPorProveedor([linea([a, b])]).length, 2);
+  const q = (o: OpcionDTO) => conPreguntas(o, ['¿Tiene HDMI?']);
+  assert.equal(mensajesUnificadosPorProveedor([linea([q(a), q(b)])]).length, 2);
 });

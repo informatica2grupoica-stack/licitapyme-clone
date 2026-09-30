@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, Fragment, createCont
 import { useToast } from '@/app/components/ui/toast';
 import { Modal } from '@/app/components/ui/Modal';
 import { useConfirm } from '@/app/components/ui/confirm';
+import { resumenLicitacion, type LineaParaResumen } from '@/app/lib/auditor-resumen-licitacion';
 import {
   IconLoader2 as Loader2, IconFileText as FileText, IconSparkles as Sparkles, IconChevronDown as ChevronDown,
   IconChevronRight as ChevronRight, IconAlertTriangle as Alerta, IconCircleCheck as Check, IconExternalLink as ExternalLink,
@@ -46,18 +47,23 @@ async function post(negocioId: number, body: Record<string, unknown>) {
 /** Modo impresión (?imprimir=1): el servidor abre esta MISMA pantalla y la imprime a PDF. Todo se muestra desplegado, tal cual la vista. */
 const ImprimirCtx = createContext(false);
 
-export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar }: { negocioId: number; licitacionCodigo: string; puedeAprobar: boolean }) {
+export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar, panelInicial }: {
+  negocioId: number; licitacionCodigo: string; puedeAprobar: boolean;
+  /** Solo para revisar la pantalla sin sesión (script de vista previa): si viene, no se pide el panel al servidor. */
+  panelInicial?: PanelAuditorDTO;
+}) {
   const toast = useToast();
   const confirmar = useConfirm();
-  const [panel, setPanel] = useState<PanelAuditorDTO | null>(null);
+  const [panel, setPanel] = useState<PanelAuditorDTO | null>(panelInicial ?? null);
   const panelRef = useRef<PanelAuditorDTO | null>(null);
   const yaIntentadasCosto = useRef<Set<number>>(new Set());
   const yaIntentadas = useRef<Set<number>>(new Set());   // opciones a las que la verificación automática ya lo intentó en esta sesión
   panelRef.current = panel;
-  const [cargando, setCargando] = useState(true);
+  const [cargando, setCargando] = useState(!panelInicial);
   const [leyendo, setLeyendo] = useState<Set<string>>(new Set());
   const [ocupado, setOcupado] = useState<number | null>(null);
-  const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
+  const [abiertas, setAbiertas] = useState<Set<string>>(() => new Set<string>());
+  const [docAbierto, setDocAbierto] = useState<number | null>(null);   // cotización abierta en el detalle
   const [imprimir, setImprimir] = useState(false);
   useEffect(() => { if (new URLSearchParams(window.location.search).has('imprimir')) setImprimir(true); }, []);
   const [cotizacionesAbierto, setCotizacionesAbierto] = useState(true);   // la lista de cotizaciones se puede esconder
@@ -76,7 +82,6 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cargar');
       setPanel(data);
-      if (!silencioso) setAbiertas(new Set((data.lineas as LineaAuditorDTO[]).filter(l => l.opciones.length > 0).map(l => l.filaId)));
       return data as PanelAuditorDTO;
     } catch (e: any) {
       toast.error('No se pudo cargar el Auditor', e.message);
@@ -85,7 +90,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
       setCargando(false);
     }
   }, [negocioId, toast]);
-  useEffect(() => { cargar(); }, [cargar]);
+  useEffect(() => { if (!panelInicial) cargar(); }, [cargar, panelInicial]);
 
   const leerDocumento = async (d: DocumentoCotizacionDTO, auto = true) => {
     setLeyendo(prev => new Set(prev).add(d.url));
@@ -129,7 +134,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   const [subiendo, setSubiendo] = useState<{ actual: number; total: number; nombre: string } | null>(null);
   const [arrastrando, setArrastrando] = useState(false);
   const inputCotRef = useRef<HTMLInputElement>(null);
-  const EXT_OK = /\.(pdf|png|jpe?g|webp|docx?|xlsx?)$/i;
+  const EXT_OK = /\.(pdf|png|jpe?g|webp|docx?|xlsx?|txt|csv)$/i;
 
   // Sube UN archivo a Documentos Propios (subcategoría dada) y devuelve su URL pública. Lanza si algo falla.
   const subirADocumentos = async (f: File, subcategoria: 'cotizaciones' | 'fichas_tecnicas'): Promise<string> => {
@@ -155,7 +160,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   const subirCotizaciones = async (archivos: File[]) => {
     const validos = archivos.filter(f => EXT_OK.test(f.name));
     const rechazados = archivos.length - validos.length;
-    if (rechazados) toast.error(`${rechazados} archivo(s) no se subieron`, 'Solo PDF, imágenes, Word o Excel.');
+    if (rechazados) toast.error(`${rechazados} archivo(s) no se subieron`, 'Solo PDF, imágenes, Word, Excel o texto (.txt).');
     if (!validos.length) return;
     const subidos: DocumentoCotizacionDTO[] = [];
     for (let i = 0; i < validos.length; i++) {
@@ -182,9 +187,9 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
     try {
       const r = await post(negocioId, { accion: 'agregar_link', filaId, url });
       if (r.estadoLink === 'ya_registrado') toast.success('Ese link ya estaba registrado en esta línea');
-      else if (r.error) toast.error('Link registrado, pero no se pudo leer el precio', r.error);
-      else if (['caido', 'redirige', 'login'].includes(r.estadoLink)) toast.error('El link no sirve como respaldo', `Estado: ${r.estadoLink}`);
-      else toast.success('Link registrado como opción en tanteo');
+      else if (r.opcionId == null) toast.error('No se agregó el link', r.error || 'La página no se pudo leer.');
+      else if (r.error) toast.error('Link agregado, pero no se pudo leer el precio', r.error);
+      else toast.success('Link agregado como opción de tanteo', 'El precio es el de la web: cuando tengas la cotización del proveedor, súbela y reemplaza este dato.');
       return true;
     } catch (e: any) { toast.error('No se pudo registrar el link', e.message); return false; }
     finally { setAgregandoLink(null); const data = await cargar(true); if (auto) await autoVerificar(data); }
@@ -238,22 +243,25 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
     finally { await cargar(true); }
   };
 
-  // Verificación técnica (Prompt 4 v2.0): una llamada de IA por opción, puede tardar 1-3 minutos.
+  // Comparador técnico (Prompt 4 v3.0): UNA llamada por LÍNEA compara todas sus opciones contra los requisitos. Puede tardar 1-3 minutos.
   const verificarTecnico = async (opcionId: number) => {
-    setVerificando(prev => new Set(prev).add(opcionId));
+    const linea = (panelRef.current?.lineas || []).find(l => l.opciones.some(o => o.id === opcionId));
+    const ids = linea ? linea.opciones.filter(o => o.via === 'completa' && o.estado !== 'descartada').map(o => o.id) : [opcionId];
+    setVerificando(prev => new Set([...prev, ...ids]));
     try {
       let r: any;
       try { r = await post(negocioId, { accion: 'verificar_tecnico', opcionId }); }
       catch (e: any) {
         // La IA a veces se cae por tiempo (caso real: «Request timed out»): se reintenta UNA vez antes de molestar al asistente.
         if (!/timed? ?out|timeout|tiempo|429|502|503|504|fetch failed|Failed to fetch/i.test(String(e?.message))) throw e;
-        toast.info('La IA tardó demasiado', 'Reintentando la verificación técnica…');
+        toast.info('La IA tardó demasiado', 'Reintentando la comparación técnica…');
         r = await post(negocioId, { accion: 'verificar_tecnico', opcionId });
       }
-      const e = { CUMPLE: 'cumple todo', CON_PENDIENTES: 'quedó con pendientes', NO_CUMPLE: 'no cumple', SIN_EVALUAR: 'sin evaluar' }[r.estado as string] || r.estado;
-      toast.success(`Verificación técnica lista: ${e}`, [r.costosCreados ? `${r.costosCreados} costo${r.costosCreados === 1 ? '' : 's'} asociado${r.costosCreados === 1 ? '' : 's'} creado${r.costosCreados === 1 ? '' : 's'}.` : '', r.descartada ? 'La opción quedó descartada: ruta insalvable.' : ''].filter(Boolean).join(' ') || undefined);
-    } catch (e: any) { toast.error('No se pudo verificar lo técnico', e.message); }
-    finally { setVerificando(prev => { const n = new Set(prev); n.delete(opcionId); return n; }); await cargar(true); }
+      const ops: Array<{ estado: string }> = r.opciones || [];
+      const n = (e: string) => ops.filter(x => x.estado === e).length;
+      toast.success('Línea comparada', `${n('CUMPLE')} cumple${n('CUMPLE') === 1 ? '' : 'n'} · ${n('FALTA_DATO')} con falta de dato · ${n('NO_CUMPLE')} no cumple${n('NO_CUMPLE') === 1 ? '' : 'n'}.`);
+    } catch (e: any) { toast.error('No se pudo comparar la línea', e.message); }
+    finally { setVerificando(prev => { const n = new Set(prev); for (const id of ids) n.delete(id); return n; }); await cargar(true); }
   };
 
   // Verificador de costo con IA (Prompt 5 v2.0, L1-C): costos ocultos, unidad/empaque, producto distinto, plazo y la ayuda de cinco campos.
@@ -322,9 +330,14 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   // vía completa que todavía no se verificaron. Se llama después de agregar un link, leer una cotización o subir una ficha.
   const autoVerificar = async (data: PanelAuditorDTO | null) => {
     if (!data) return;
-    const pend = data.lineas.flatMap(l => l.opciones.filter(o => o.via === 'completa' && o.estado !== 'descartada' && !['aprobada', 'en_aprobacion'].includes(o.estado)
-      && o.tecnico.estado === 'NO_CORRIDO' && !o.tecnico.error && o.tecnico.requisitosTotal > 0 && o.respaldos.some(r => r.extraccionId != null) && !yaIntentadas.current.has(o.id)));
-    for (const o of pend) { yaIntentadas.current.add(o.id); await verificarTecnico(o.id); }
+    // Una llamada por LÍNEA: si varias opciones de la misma línea esperan, se compara la línea una sola vez.
+    for (const l of data.lineas) {
+      const pend = l.opciones.filter(o => o.via === 'completa' && o.estado !== 'descartada' && !['aprobada', 'en_aprobacion'].includes(o.estado)
+        && o.tecnico.estado === 'NO_CORRIDO' && !o.tecnico.error && o.tecnico.requisitosTotal > 0 && o.respaldos.some(r => r.extraccionId != null) && !yaIntentadas.current.has(o.id));
+      if (!pend.length) continue;
+      for (const o of l.opciones) yaIntentadas.current.add(o.id);
+      await verificarTecnico(pend[0].id);
+    }
     // El verificador de costo con IA corre sobre las opciones con un respaldo de costo leído que todavía no pasaron por él.
     const sinCosto = data.lineas.flatMap(l => l.opciones.filter(o => o.via === 'completa' && o.estado !== 'descartada' && !['aprobada', 'en_aprobacion'].includes(o.estado)
       && o.costoIA == null && o.respaldos.some(r => r.tipo !== 'ficha_tecnica' && r.extraccionId != null) && !yaIntentadasCosto.current.has(o.id)));
@@ -332,8 +345,10 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   };
 
   const verificarTodoTecnico = async () => {
-    const pend = (panel?.lineas || []).flatMap(l => l.opciones.filter(o => o.via === 'completa' && o.estado !== 'descartada' && o.tecnico.estado === 'NO_CORRIDO' && o.tecnico.requisitosTotal > 0 && o.respaldos.some(r => r.extraccionId != null)));
-    for (const o of pend) await verificarTecnico(o.id);
+    for (const l of panel?.lineas || []) {
+      const pend = l.opciones.filter(o => o.via === 'completa' && o.estado !== 'descartada' && o.tecnico.estado === 'NO_CORRIDO' && o.tecnico.requisitosTotal > 0 && o.respaldos.some(r => r.extraccionId != null));
+      if (pend.length) await verificarTecnico(pend[0].id);
+    }
   };
 
   // Registra de a uno los links que el Costeo ya trae (link1..link3 de cada fila): cada uno se visita, se captura y se lee.
@@ -381,6 +396,22 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
     finally { await cargar(true); }
   };
 
+  const sugerirLineasIA = async () => {
+    setSugiriendo(true);
+    try {
+      const r = await post(negocioId, { accion: 'sugerir_lineas' });
+      if (r.error) toast.error('La IA no pudo revisar los productos', r.error);
+      else toast.success('Productos revisados', `${r.asignados} asignado(s) solos · ${r.sugeridos} con sugerencia · ${r.ninguna} que no van en ninguna línea`);
+    } catch (e: any) { toast.error('No se pudo sugerir', e.message); }
+    finally { setSugiriendo(false); await cargar(true); }
+  };
+  const ignorarProducto = async (d: DocumentoCotizacionDTO, productoIdx: number, ignorado: boolean) => {
+    if (d.extraccionId == null) return;
+    try { await post(negocioId, { accion: 'ignorar_producto', extraccionId: d.extraccionId, productoIdx, ignorado }); }
+    catch (e: any) { toast.error('No se pudo guardar', e.message); }
+    finally { await cargar(true); }
+  };
+
   const confirmarModal = async () => {
     if (!modal) return;
     const { tipo, ref } = modal;
@@ -406,6 +437,16 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   const sinLeer = panel.documentos.filter(d => !d.leido).length;
   const r = panel.resumen;
 
+  const sinLineaTodos = panel.documentos.flatMap(d => d.productos.filter(p => !p.filaId && !p.esCargo && p.precio != null).map(p => ({ d, p })));
+  const productosSinLinea = sinLineaTodos.filter(({ p }) => !p.noCorresponde);          // los que siguen esperando una decisión
+  const productosSobrantes = sinLineaTodos.filter(({ p }) => !!p.noCorresponde);        // cotizados de más: no van en ninguna línea
+  const [sugiriendo, setSugiriendo] = useState(false);
+  const resumenDeLinea = new Map(resumenLicitacion(lineasParaResumen(panel), panel.presupuesto?.neto ?? null).filas.map(f => [f.filaId, f]));
+  // Desde el resumen se salta a la línea: se abre y la pantalla baja hasta ella.
+  const irALinea = (filaId: string) => {
+    setAbiertas(prev => new Set(prev).add(filaId));
+    setTimeout(() => document.getElementById(`linea-${filaId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+  };
   const cotAbierta = cotizacionesAbierto || imprimir;
   const msgAbierto = mensajesAbierto || imprimir;
   const msgAbiertos = imprimir ? new Set(panel.mensajes.map(m => m.opcionIds.join('-'))) : mensajesAbiertos;
@@ -413,144 +454,251 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   return (
     <ImprimirCtx.Provider value={imprimir}>
     <div className="space-y-4" data-auditor-panel data-auditor-listo="1">
-      {/* ── Resumen ── */}
-      {/* ── Resumen ── */}
-      <div className="bg-white rounded-2xl border border-zinc-200 px-5 py-4 flex flex-wrap items-center gap-x-6 gap-y-2">
+      {/* ── Encabezado: lo esencial y las acciones de la pantalla ── */}
+      <div className="bg-white rounded-2xl border border-zinc-200 px-5 py-4 flex flex-wrap items-center gap-x-6 gap-y-3">
         <div>
-          <h2 className="text-[15px] font-bold text-zinc-900">Auditor · Compra</h2>
-          <p className="text-[11.5px] text-zinc-400">Opciones por línea, verificación de costo y aprobación</p>
+          <h2 className="text-[15px] font-bold text-zinc-900">Auditor</h2>
+          <p className="text-[11.5px] text-zinc-400">1 · Sube las cotizaciones · 2 · Compara cada línea · 3 · Firma la opción que se oferta</p>
         </div>
         <Stat label="Líneas con opción" valor={`${r.conOpcion}/${r.lineas}`} />
-        <Stat label="Definitivas" valor={String(r.definitivas)} />
+        <Stat label="Firmadas" valor={String(r.definitivas + r.aprobadas)} />
         <Stat label="Aprobadas" valor={String(r.aprobadas)} />
-        <Stat label="Con bloqueos" valor={String(r.bloqueadas)} rojo={r.bloqueadas > 0} />
-        {panel.margen?.margenFinal != null && (
-          <Stat label={`Margen con definitivas${panel.margen.margenBase != null ? ` (base ${panel.margen.margenBase}%)` : ''}`} valor={`${panel.margen.margenFinal}%`} rojo={panel.margen.margenFinal < 20} />
-        )}
-        <div className="ml-auto flex items-center gap-3 text-[11.5px]">
-          <span className="text-zinc-400">Datos OBUMA (opciones firmadas):</span>
-          <a href={`/api/negocios/${negocioId}/auditor/obuma?tipo=proveedores&incluir=firmadas`} className="text-indigo-600 hover:underline">Proveedores CSV</a>
-          <a href={`/api/negocios/${negocioId}/auditor/obuma?tipo=productos&incluir=firmadas`} className="text-indigo-600 hover:underline">Productos CSV</a>
+        <div className="ml-auto flex items-center gap-2 text-[11.5px]">
           <button data-no-pdf onClick={copiarInforme} disabled={exportando !== null} title="Copiar TODO el contenido del Auditor como texto (con todo desplegado)"
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-zinc-200 text-zinc-700 font-semibold hover:bg-zinc-50 disabled:opacity-50">
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-zinc-200 text-zinc-700 font-semibold hover:bg-zinc-50 disabled:opacity-50">
             {exportando === 'copiar' ? <Loader2 size={13} className="animate-spin" /> : <Copy size={13} />} Copiar todo
           </button>
           <button data-no-pdf onClick={descargarInformePdf} disabled={exportando !== null} title="Descargar TODO el contenido del Auditor en PDF (con todo desplegado)"
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-zinc-200 text-zinc-700 font-semibold hover:bg-zinc-50 disabled:opacity-50">
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-zinc-200 text-zinc-700 font-semibold hover:bg-zinc-50 disabled:opacity-50">
             {exportando === 'pdf' ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />} PDF
           </button>
-          <button onClick={() => cargar(true)} className="text-zinc-400 hover:text-zinc-700" title="Actualizar"><Refresh size={16} /></button>
+          <button data-no-pdf onClick={() => cargar(true)} className="text-zinc-400 hover:text-zinc-700" title="Actualizar"><Refresh size={16} /></button>
         </div>
       </div>
 
-      <PosicionPrecioCard posicion={panel.posicion ?? null} calculando={calculandoPosicion} onCalcular={calcularPosicion} />
-
-      {/* ── Cotizaciones en Documentos ── */}
+      {/* ── 1 · Cotizaciones: una tarjeta por archivo; al abrirla se ve y se corrige todo lo de esa cotización ── */}
       <div
         onDragOver={e => { if (!subiendo && e.dataTransfer.types.includes('Files')) { e.preventDefault(); setArrastrando(true); } }}
         onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setArrastrando(false); }}
         onDrop={e => { e.preventDefault(); setArrastrando(false); if (!subiendo && e.dataTransfer.files.length) subirCotizaciones(Array.from(e.dataTransfer.files)); }}
         className={`bg-white rounded-2xl border overflow-hidden transition-colors ${arrastrando ? 'border-indigo-400 ring-2 ring-indigo-200 bg-indigo-50/40' : 'border-zinc-200'}`}>
-        <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center gap-2">
-          <button onClick={() => setCotizacionesAbierto(v => !v)} className="flex items-center gap-2 text-left min-w-0" title={cotAbierta ? 'Esconder la lista' : 'Mostrar la lista'}>
+        <div className="px-5 py-3.5 flex items-center gap-2 flex-wrap">
+          <button onClick={() => setCotizacionesAbierto(v => !v)} className="flex items-center gap-2 text-left min-w-0" title={cotAbierta ? 'Esconder las tarjetas' : 'Mostrar las tarjetas'}>
             {cotAbierta ? <ChevronDown size={14} className="text-zinc-400 shrink-0" /> : <ChevronRight size={14} className="text-zinc-400 shrink-0" />}
             <FileText size={16} className="text-amber-600 shrink-0" />
-            <h3 className="text-[13.5px] font-bold text-zinc-900 whitespace-nowrap">Cotizaciones en Documentos</h3>
+            <h3 className="text-[13.5px] font-bold text-zinc-900 whitespace-nowrap">1 · Cotizaciones</h3>
           </button>
-          <span className="text-[11.5px] text-zinc-400 truncate">{cotAbierta
-            ? '— el Lector las lee una sola vez y las empareja con su línea'
-            : `— ${panel.documentos.length} cotización${panel.documentos.length === 1 ? '' : 'es'}${sinLeer ? ` · ${sinLeer} sin leer` : ''} · puedes seguir arrastrando archivos aquí`}</span>
+          <span className="text-[11.5px] text-zinc-500">
+            {panel.documentos.length} archivo{panel.documentos.length === 1 ? '' : 's'}
+            {sinLeer > 0 && <> · <b className="text-amber-700">{sinLeer} sin leer</b></>}
+            {productosSinLinea.length > 0 && <> · <b className="text-amber-700">{productosSinLinea.length} producto{productosSinLinea.length === 1 ? '' : 's'} sin línea</b></>}
+            {sinLeer === 0 && productosSinLinea.length === 0 && panel.documentos.length > 0 && <> · <span className="text-emerald-700">todo leído y con su línea</span></>}
+          </span>
           <div className="ml-auto flex items-center gap-2">
             {sinLeer > 0 && (
-              <button onClick={leerTodas} disabled={leyendo.size > 0 || !!subiendo}
+              <button data-no-pdf onClick={leerTodas} disabled={leyendo.size > 0 || !!subiendo}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-[12px] font-semibold hover:bg-amber-700 disabled:opacity-50">
                 <Sparkles size={13} /> Leer {sinLeer} sin leer
               </button>
             )}
-            <input ref={inputCotRef} type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx" className="hidden"
+            <input ref={inputCotRef} type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv" className="hidden"
               onChange={e => { const fs = Array.from(e.target.files || []); e.target.value = ''; if (fs.length) subirCotizaciones(fs); }} />
-            <button onClick={() => inputCotRef.current?.click()} disabled={!!subiendo}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-[12px] font-semibold hover:bg-indigo-100 disabled:opacity-50">
+            <button data-no-pdf onClick={() => inputCotRef.current?.click()} disabled={!!subiendo}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[12px] font-semibold hover:bg-indigo-700 disabled:opacity-50">
               {subiendo ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
               {subiendo ? `Subiendo ${subiendo.actual}/${subiendo.total}…` : 'Subir cotizaciones'}
             </button>
           </div>
         </div>
-        {!cotAbierta ? null : panel.documentos.length === 0 ? (
-          <p className="px-5 py-6 text-[12.5px] text-zinc-400">No hay cotizaciones todavía. Arrastra aquí uno o varios archivos, o usa «Subir cotizaciones»: quedan en la caja «Cotizaciones» de Documentos y se leen solas.</p>
+        {cotAbierta && (panel.documentos.length === 0 ? (
+          <p className="px-5 pb-5 text-[12.5px] text-zinc-400">Todavía no hay cotizaciones. Arrastra aquí uno o varios archivos (PDF, imagen, Word, Excel o .txt) o usa «Subir cotizaciones»: se leen solas y cada producto se asigna a su línea.</p>
         ) : (
-          <ul className="divide-y divide-zinc-100">
-            {panel.documentos.map(d => (
-              <li key={d.documentoId} className="px-5 py-3">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <a href={d.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[12.5px] font-semibold text-indigo-600 hover:underline">
-                    <FileText size={13} /> {d.nombre}
-                  </a>
-                  {d.leido && <span className="text-[11px] text-zinc-500">{d.proveedor || 'proveedor sin identificar'}{d.rut ? ` · ${d.rut}` : ''}{d.fechaEmision ? ` · ${d.fechaEmision}` : ''}{d.formalidad === 'informal' ? ' · informal' : ''}</span>}
-                  {d.error && <span className="flex items-center gap-1 text-[11.5px] text-red-600"><Alerta size={12} /> {d.error}</span>}
-                  <div className="ml-auto">
-                    {leyendo.has(d.url) ? (
-                      <span className="flex items-center gap-1.5 text-[12px] text-amber-700"><Loader2 size={13} className="animate-spin" /> Leyendo con el Lector…</span>
-                    ) : !d.leido ? (
-                      <button onClick={() => leerDocumento(d)} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-[12px] font-semibold hover:bg-amber-100">
-                        <Sparkles size={12} /> {d.error ? 'Reintentar' : 'Leer con IA'}
-                      </button>
+          <div className="px-5 pb-4 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+            {panel.documentos.map(d => {
+              const productos = d.productos.filter(p => !p.esCargo);
+              const sinLinea = productos.filter(p => !p.filaId && p.precio != null).length;
+              const leyendoEste = leyendo.has(d.url);
+              return (
+                <button key={d.documentoId} onClick={() => setDocAbierto(d.documentoId)} title="Abrir esta cotización"
+                  className="text-left rounded-xl border border-zinc-200 px-3.5 py-3 hover:border-indigo-300 hover:bg-indigo-50/30 transition-colors">
+                  <div className="flex items-start gap-2">
+                    <FileText size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <p className="text-[12.5px] font-semibold text-zinc-900 truncate">{d.proveedor || d.nombre}</p>
+                      <p className="text-[11px] text-zinc-400 truncate">{d.nombre}{d.fechaEmision ? ` · ${d.fechaEmision}` : ''}</p>
+                    </div>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10.5px] font-semibold">
+                    {leyendoEste ? <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Leyendo…</span>
+                      : d.error ? <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700">No se pudo leer</span>
+                      : !d.leido ? <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">Sin leer</span>
+                      : <>
+                          <span className="px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600">{productos.length} producto{productos.length === 1 ? '' : 's'}</span>
+                          {sinLinea > 0 ? <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">⚠ {sinLinea} sin línea</span> : <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">✓ con su línea</span>}
+                          {d.formalidad === 'informal' && <span className="px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-500">informal</span>}
+                        </>}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+
+      {/* ── Documentos sin línea (Prompt 4 v3.0, salida 3): lo que se leyó pero no se sabe a qué línea va ── */}
+      {(productosSinLinea.length > 0 || productosSobrantes.length > 0) && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/60 px-5 py-3.5">
+          {productosSinLinea.length > 0 && <>
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-[12.5px] font-bold text-amber-900">Productos sin línea ({productosSinLinea.length})</p>
+              <span className="text-[11.5px] text-amber-800/80">— cotizados por un proveedor pero no se sabe a qué línea van. La IA los revisa sola al leer la cotización.</span>
+              <button data-no-pdf onClick={sugerirLineasIA} disabled={sugiriendo}
+                className="ml-auto flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-600 text-white text-[11.5px] font-semibold hover:bg-amber-700 disabled:opacity-60">
+                {sugiriendo ? <><Loader2 size={12} className="animate-spin" /> Revisando…</> : <><Sparkles size={12} /> Revisar con IA</>}
+              </button>
+            </div>
+            <ul className="mt-2 space-y-2">
+              {productosSinLinea.map(({ d, p }) => {
+                const linea = p.sugerencia ? panel.lineas.find(l => l.filaId === p.sugerencia!.filaId) : null;
+                return (
+                  <li key={`${d.documentoId}-${p.idx}`} className="text-[12px] text-zinc-700">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-zinc-900">{p.nombre}</span>
+                      <span className="text-zinc-500">{fmtCLP(p.precio)}{p.iva === 'no_declarado' ? '' : p.iva === 'incluido' ? ' con IVA' : ' + IVA'}</span>
+                      <span className="text-zinc-400 text-[11px]">de {d.proveedor || d.nombre}</span>
+                      <select defaultValue="" onChange={e => asignar(d, p.idx, e.target.value)} className="ml-auto text-[11.5px] border border-amber-300 rounded-md px-1.5 py-0.5 bg-white text-zinc-700">
+                        <option value="">Asignar a la línea…</option>
+                        {lineasSinAsignar.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+                      </select>
+                      <button data-no-pdf onClick={() => ignorarProducto(d, p.idx, true)} title="Es un producto cotizado de más (accesorio, otra capacidad…): sale de esta lista"
+                        className="text-[11px] text-zinc-500 hover:text-red-600 underline">No va en ninguna línea</button>
+                    </div>
+                    {p.sugerencia && linea && (
+                      <div className="mt-1 ml-0 flex items-center gap-2 flex-wrap rounded-md bg-white/70 border border-amber-200 px-2 py-1">
+                        <span className="text-[11.5px]">🤖 La IA cree que va en la <b>línea {p.sugerencia.item}</b>{p.sugerencia.motivo ? <span className="text-zinc-500"> — {p.sugerencia.motivo}</span> : null}</span>
+                        <button data-no-pdf onClick={() => asignar(d, p.idx, p.sugerencia!.filaId)} className="ml-auto px-2 py-0.5 rounded bg-emerald-600 text-white text-[11px] font-semibold hover:bg-emerald-700">Aceptar</button>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </>}
+          {productosSobrantes.length > 0 && (
+            <details className={productosSinLinea.length > 0 ? 'mt-3' : ''} open={imprimir}>
+              <summary className="cursor-pointer text-[12px] font-semibold text-zinc-600">{productosSobrantes.length} producto{productosSobrantes.length === 1 ? '' : 's'} cotizado{productosSobrantes.length === 1 ? '' : 's'} que no van en ninguna línea</summary>
+              <ul className="mt-1.5 space-y-1">
+                {productosSobrantes.map(({ d, p }) => (
+                  <li key={`${d.documentoId}-${p.idx}`} className="flex items-center gap-2 flex-wrap text-[11.5px] text-zinc-500">
+                    <span className="font-medium text-zinc-700">{p.nombre}</span><span>{fmtCLP(p.precio)}</span><span className="text-zinc-400">de {d.proveedor || d.nombre}</span>
+                    <span className="italic">— {p.noCorresponde!.motivo}</span>
+                    <select data-no-pdf defaultValue="" onChange={e => asignar(d, p.idx, e.target.value)} className="ml-auto text-[11px] border border-zinc-200 rounded-md px-1.5 py-0.5 bg-white">
+                      <option value="">Asignar igual a una línea…</option>
+                      {lineasSinAsignar.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+                    </select>
+                    {p.noCorresponde!.por !== 'la IA' && <button data-no-pdf onClick={() => ignorarProducto(d, p.idx, false)} className="text-[11px] underline hover:text-zinc-800">deshacer</button>}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+
+      {/* ── 2 · Resumen de la licitación ── */}
+      <ResumenLicitacionCard panel={panel} onIrALinea={irALinea} />
+
+      {/* ── Líneas con su cuadro comparativo ── */}
+      <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center gap-2">
+          <h3 className="text-[13.5px] font-bold text-zinc-900">3 · Líneas</h3>
+          <span className="text-[11.5px] text-zinc-400">— abre una línea para comparar sus opciones, confirmar datos y firmar</span>
+          {(() => {
+            const pend = panel.lineas.filter(l => l.opciones.some(o => o.via === 'completa' && o.estado !== 'descartada' && o.tecnico.estado === 'NO_CORRIDO' && o.tecnico.requisitosTotal > 0 && o.respaldos.some(r => r.extraccionId != null))).length;
+            return pend > 0 ? (
+              <button data-no-pdf onClick={verificarTodoTecnico} disabled={verificando.size > 0}
+                className={`${(panel.linksPendientes?.length ?? 0) > 0 ? '' : 'ml-auto'} flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-700 text-[12px] font-semibold hover:bg-indigo-50 disabled:opacity-60`}>
+                {verificando.size > 0 ? <><Loader2 size={13} className="animate-spin" /> Comparando…</> : <>Comparar las {pend} {pend === 1 ? 'línea pendiente' : 'líneas pendientes'}</>}
+              </button>
+            ) : null;
+          })()}
+          {(panel.linksPendientes?.length ?? 0) > 0 && (
+            <button onClick={traerLinksDelCosteo} disabled={!!traiendo || leyendo.size > 0}
+              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-[12px] font-semibold hover:bg-amber-700 disabled:opacity-60">
+              {traiendo ? <><Loader2 size={13} className="animate-spin" /> Leyendo link {traiendo.actual} de {traiendo.total}…</> : <><Sparkles size={13} /> Traer {panel.linksPendientes.length} link{panel.linksPendientes.length === 1 ? '' : 's'} del costeo</>}
+            </button>
+          )}
+        </div>
+        <ul className="divide-y divide-zinc-100">
+          {panel.lineas.map(l => {
+            const abierta = abiertas.has(l.filaId) || imprimir;
+            const activas = l.opciones.filter(o => o.estado !== 'descartada');
+            return (
+              <li key={l.filaId} id={`linea-${l.filaId}`} className={l.noOfertada ? 'opacity-60' : ''}>
+                <button onClick={() => setAbiertas(prev => { const n = new Set(prev); if (n.has(l.filaId)) n.delete(l.filaId); else n.add(l.filaId); return n; })}
+                  className="w-full flex items-center gap-2 px-5 py-3 text-left hover:bg-zinc-50">
+                  {abierta ? <ChevronDown size={14} className="text-zinc-400" /> : <ChevronRight size={14} className="text-zinc-400" />}
+                  <span className="text-[11px] font-bold text-zinc-400 w-8">#{l.item}</span>
+                  <span className="text-[12.5px] font-semibold text-zinc-800 truncate flex-1">{l.detalle}</span>
+                  <span className="text-[11.5px] text-zinc-400 whitespace-nowrap">x{l.cantidad}</span>
+                  {l.noOfertada && <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full bg-zinc-200 text-zinc-600">NO OFERTADA</span>}
+                  {(() => {
+                    const f = resumenDeLinea.get(l.filaId);
+                    if (l.noOfertada) return null;
+                    if (!f?.mejor) {
+                      const nunca = activas.some(o => o.via === 'completa') && !activas.some(o => o.tecnico.resultado);
+                      return <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${nunca ? 'bg-amber-50 text-amber-700' : 'bg-zinc-100 text-zinc-500'}`}>{!activas.length ? 'sin opciones' : nunca ? 'sin comparar' : 'ninguna cumple todavía'}</span>;
+                    }
+                    return <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${f.faltaDato ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{f.faltaDato ? 'FALTA DATO' : 'CUMPLE'} · {fmtCLP(f.mejor.costoUnitNeto)}</span>;
+                  })()}
+                  {l.opcionDefinitivaId != null && <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">firmada</span>}
+                  <span className="text-[10.5px] text-zinc-400 whitespace-nowrap">{activas.length === 1 ? '1 opción' : `${activas.length} opciones`}</span>
+                </button>
+                {abierta && (
+                  <div className="px-5 pb-4">
+                    {l.noOfertada && <p className="text-[12px] text-zinc-500 ml-6 mb-2">No se oferta: {l.motivoNoOfertada}</p>}
+                    <div className="flex items-center gap-2 flex-wrap mb-3">
+                      {(() => {
+                        const comparables = l.opciones.filter(o => o.via === 'completa' && ['tanteo', 'formalizada', 'verificada', 'definitiva'].includes(o.estado) && o.respaldos.some(r => r.extraccionId != null));
+                        if (!comparables.length || l.noOfertada) return null;
+                        const ocupada = comparables.some(o => verificando.has(o.id));
+                        return (
+                          <button data-no-pdf onClick={() => verificarTecnico(comparables[0].id)} disabled={ocupada}
+                            title="Compara todas las opciones de esta línea contra sus requisitos (una sola consulta a la IA, tarda 1-3 minutos)"
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[12px] font-semibold hover:bg-indigo-700 disabled:opacity-60">
+                            {ocupada ? <><Loader2 size={13} className="animate-spin" /> Comparando… (1-3 min)</> : l.opciones.some(o => o.tecnico.resultado) ? 'Volver a comparar la línea' : 'Comparar la línea'}
+                          </button>
+                        );
+                      })()}
+                      {l.noOfertada
+                        ? <button data-no-pdf onClick={() => accionLinea('reofertar', { filaId: l.filaId }, 'Línea vuelve a ofertarse')} className="text-[11.5px] font-semibold text-indigo-600 hover:underline">Volver a ofertar</button>
+                        : <button data-no-pdf onClick={() => { setTexto(''); setModal({ tipo: 'no_ofertar', ref: l.filaId }); }} className="text-[11.5px] font-semibold text-zinc-500 hover:text-red-600">No ofertar esta línea</button>}
+                    </div>
+                    <details data-no-pdf className="mb-3 rounded-lg border border-zinc-200 bg-zinc-50/60" open={l.opciones.length === 0}>
+                      <summary className="cursor-pointer px-3 py-2 text-[12px] font-semibold text-zinc-600 hover:text-zinc-900">＋ ¿No hay cotización para esta línea? Agrega el producto con su link o su ficha técnica</summary>
+                      <div className="px-3 pt-2 pb-1">
+                        <p className="text-[11.5px] text-zinc-500 mb-2"><b>Lo ideal es la cotización del proveedor</b> (súbela en «1 · Cotizaciones»: PDF, foto, Word, Excel o .txt). Si todavía no la tienes, con el <b>link del producto</b> o su <b>ficha técnica</b> igual se puede hacer la comparación técnica: el precio del link queda como tanteo y después lo reemplazas con la cotización.</p>
+                      <div className="flex items-start gap-x-6 gap-y-2 flex-wrap">
+                        <AgregarLink filaId={l.filaId} ocupado={agregandoLink === l.filaId} onAgregar={agregarLink} />
+                        <OpcionSinLink filaId={l.filaId} ocupadoFicha={subiendoFicha !== null} onCrear={crearOpcionManual} onSubirFicha={(f) => subirFichas(f, { filaId: l.filaId })} />
+                      </div>
+                      </div>
+                    </details>
+                    {l.opciones.length === 0 ? (
+                      <p className="text-[12px] text-zinc-400">Esta línea todavía no tiene productos. Primero sube la cotización en «1 · Cotizaciones»; si no la tienes, agrega el link o la ficha técnica del producto con el recuadro de más arriba.{l.links.length > 0 && <> Link de referencia: <a href={l.links[0]} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline inline-flex items-center gap-0.5">abrir <ExternalLink size={10} /></a></>}</p>
                     ) : (
-                      <span className="flex items-center gap-2 text-[11.5px] text-emerald-600"><Check size={13} /> Leída · {d.productos.length} producto{d.productos.length === 1 ? '' : 's'}
-                        {d.productos.some(p => !p.filaId && !p.esCargo && p.precio != null) && (
-                          <button onClick={() => emparejarDeNuevo(d)} className="text-amber-700 underline decoration-dotted hover:text-amber-900">Emparejar de nuevo</button>
-                        )}
-                        <button onClick={() => releerDocumento(d)} title="Analizar de nuevo esta cotización (los dos lectores de texto a la vez)" className="text-indigo-600 underline decoration-dotted hover:text-indigo-800">Volver a leer</button>
-                      </span>
+                      <CuadroLinea negocioId={negocioId} linea={l} ocupado={ocupado} verificando={verificando} onVerificar={verificarTecnico} puedeAprobar={puedeAprobar}
+                        subiendoFicha={subiendoFicha} onSubirFicha={(opcionId, f) => subirFichas(f, { opcionId })}
+                        buscandoMercado={buscandoMercado} onMercado={buscarMercado} verificandoCosto={verificandoCosto} onCostoIA={(id) => verificarCostoIA(id)}
+                        onAccion={accion} onModal={(tipo, opcionId) => { setTexto(''); setModal({ tipo, ref: opcionId }); }} />
                     )}
                   </div>
-                </div>
-                {d.leido && d.productos.length > 0 && (
-                  <ul className="mt-2 ml-5 space-y-1">
-                    {d.productos.map(p => (
-                      <li key={p.idx} className="flex items-center gap-2 text-[12px] text-zinc-600 flex-wrap">
-                        <span className="font-medium text-zinc-800">{p.nombre}</span>
-                        <span>{fmtCLP(p.precio)}{p.iva === 'no_declarado' ? ' · IVA no declarado' : p.iva === 'incluido' ? ' con IVA' : ' + IVA'}</span>
-                        {p.cantidad != null && <span className="text-zinc-400">x{p.cantidad}</span>}
-                        {p.filaId ? (
-                          <select value={p.filaId} title="Cambiar la línea de este producto, o quitarlo de ella"
-                            onChange={e => {
-                              if (p.opcionId == null) return;
-                              if (e.target.value === '__quitar') accion(p.opcionId, 'descartar', { motivo: 'Emparejada con la línea equivocada: se quitó de la línea (el producto queda libre para asignarlo).' }, 'Producto quitado de la línea');
-                              else accion(p.opcionId, 'mover_linea', { filaId: e.target.value }, 'Producto movido a otra línea');
-                            }}
-                            className="text-[11.5px] border border-emerald-200 rounded-md px-1.5 py-0.5 bg-emerald-50/50 text-emerald-700 font-semibold">
-                            {lineasSinAsignar.map(l => <option key={l.id} value={l.id}>→ {l.label}</option>)}
-                            <option value="__quitar">✕ Quitar de la línea</option>
-                          </select>
-                        ) : p.esCargo ? (
-                          <span className="text-zinc-400">cargo aparte (flete/despacho): no es un producto</span>
-                        ) : p.precio != null ? (
-                          <select defaultValue="" onChange={e => asignar(d, p.idx, e.target.value)} className="text-[11.5px] border border-zinc-200 rounded-md px-1.5 py-0.5 bg-white text-zinc-600">
-                            <option value="">Sin emparejar — asignar a línea…</option>
-                            {lineasSinAsignar.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
-                          </select>
-                        ) : <span className="text-zinc-400">sin precio legible</span>}
-                      </li>
-                    ))}
-                  </ul>
                 )}
               </li>
-            ))}
-          </ul>
-        )}
+            );
+          })}
+        </ul>
       </div>
-
-      {/* ── Avance a PRE-POSTULACIÓN (avance parcial permitido salvo licitación GLOBAL) ── */}
-      <div className={`rounded-2xl border px-5 py-3 text-[12.5px] ${panel.avance.puede ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-zinc-200 bg-white text-zinc-600'}`}>
-        <span className="font-bold">{panel.avance.puede ? '✓ Listo para PRE-POSTULACIÓN' : 'Avance a PRE-POSTULACIÓN'}</span>
-        <span className="ml-2">{panel.avance.mensaje}</span>
-        <span className="ml-2 text-zinc-400">({panel.avance.aprobadas} de {panel.avance.ofertadas} líneas ofertadas con opción aprobada)</span>
-      </div>
-
-      {/* ── Costos asociados (compromisos de las bases con costo) ── */}
-      <CostosAsociados costos={panel.costosAsociados} total={panel.totalCostosAsociados} lineas={panel.lineas}
-        onAccion={accionLinea} onAnular={id => { setTexto(''); setModal({ tipo: 'anular_costo', ref: id }); }} />
 
       {/* ── Mensaje único por proveedor: la tarjeta y cada mensaje se pliegan (la lista es larga) ── */}
       {panel.mensajes.length > 0 && (
@@ -595,69 +743,93 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
         </div>
       )}
 
-      {/* ── Líneas con su cuadro comparativo ── */}
-      <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center gap-2">
-          <h3 className="text-[13.5px] font-bold text-zinc-900">Líneas y opciones</h3>
-          <span className="text-[11.5px] text-zinc-400">— costo unitario neto de cada opción frente a lo costeado</span>
-          {(() => {
-            const pend = panel.lineas.flatMap(l => l.opciones.filter(o => o.via === 'completa' && o.estado !== 'descartada' && o.tecnico.estado === 'NO_CORRIDO' && o.tecnico.requisitosTotal > 0)).length;
-            return pend > 0 ? (
-              <button onClick={verificarTodoTecnico} disabled={verificando.size > 0}
-                className={`${(panel.linksPendientes?.length ?? 0) > 0 ? '' : 'ml-auto'} flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-700 text-[12px] font-semibold hover:bg-indigo-50 disabled:opacity-60`}>
-                {verificando.size > 0 ? <><Loader2 size={13} className="animate-spin" /> Verificando…</> : <>Verificar técnico ({pend} {pend === 1 ? 'opción' : 'opciones'})</>}
-              </button>
-            ) : null;
-          })()}
-          {(panel.linksPendientes?.length ?? 0) > 0 && (
-            <button onClick={traerLinksDelCosteo} disabled={!!traiendo || leyendo.size > 0}
-              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-[12px] font-semibold hover:bg-amber-700 disabled:opacity-60">
-              {traiendo ? <><Loader2 size={13} className="animate-spin" /> Leyendo link {traiendo.actual} de {traiendo.total}…</> : <><Sparkles size={13} /> Traer {panel.linksPendientes.length} link{panel.linksPendientes.length === 1 ? '' : 's'} del costeo</>}
-            </button>
-          )}
-        </div>
-        <ul className="divide-y divide-zinc-100">
-          {panel.lineas.map(l => {
-            const abierta = abiertas.has(l.filaId) || imprimir;
-            const activas = l.opciones.filter(o => o.estado !== 'descartada');
-            return (
-              <li key={l.filaId} className={l.noOfertada ? 'opacity-60' : ''}>
-                <button onClick={() => setAbiertas(prev => { const n = new Set(prev); if (n.has(l.filaId)) n.delete(l.filaId); else n.add(l.filaId); return n; })}
-                  className="w-full flex items-center gap-2 px-5 py-3 text-left hover:bg-zinc-50">
-                  {abierta ? <ChevronDown size={14} className="text-zinc-400" /> : <ChevronRight size={14} className="text-zinc-400" />}
-                  <span className="text-[11px] font-bold text-zinc-400 w-8">#{l.item}</span>
-                  <span className="text-[12.5px] font-semibold text-zinc-800 truncate flex-1">{l.detalle}</span>
-                  <span className="text-[11.5px] text-zinc-400 whitespace-nowrap">x{l.cantidad} · costeado {fmtCLP(l.costeadoNeto)}</span>
-                  {l.noOfertada && <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full bg-zinc-200 text-zinc-600">NO OFERTADA</span>}
-                  {l.opcionDefinitivaId != null && <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">definitiva</span>}
-                  <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full ${activas.length ? 'bg-amber-100 text-amber-700' : 'bg-zinc-100 text-zinc-400'}`}>{activas.length === 1 ? '1 opción' : `${activas.length} opciones`}</span>
-                </button>
-                {abierta && (
-                  <div className="px-5 pb-4">
-                    {l.noOfertada && <p className="text-[12px] text-zinc-500 ml-6 mb-2">No se oferta: {l.motivoNoOfertada}</p>}
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <AgregarLink filaId={l.filaId} ocupado={agregandoLink === l.filaId} onAgregar={agregarLink} />
-                      <OpcionSinLink filaId={l.filaId} ocupadoFicha={subiendoFicha !== null} onCrear={crearOpcionManual} onSubirFicha={(f) => subirFichas(f, { filaId: l.filaId })} />
-                      {l.noOfertada
-                        ? <button onClick={() => accionLinea('reofertar', { filaId: l.filaId }, 'Línea vuelve a ofertarse')} className="mb-3 text-[11.5px] font-semibold text-indigo-600 hover:underline">Volver a ofertar</button>
-                        : <button onClick={() => { setTexto(''); setModal({ tipo: 'no_ofertar', ref: l.filaId }); }} className="mb-3 text-[11.5px] font-semibold text-zinc-500 hover:text-red-600">No ofertar esta línea</button>}
-                    </div>
-                    {l.opciones.length === 0 ? (
-                      <p className="text-[12px] text-zinc-400 ml-6">Sin opciones todavía. Lee una cotización de arriba o asigna un producto a esta línea.{l.links.length > 0 && <> Link de referencia: <a href={l.links[0]} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline inline-flex items-center gap-0.5">abrir <ExternalLink size={10} /></a></>}</p>
-                    ) : (
-                      <CuadroLinea negocioId={negocioId} linea={l} ocupado={ocupado} verificando={verificando} onVerificar={verificarTecnico} puedeAprobar={puedeAprobar}
-                        subiendoFicha={subiendoFicha} onSubirFicha={(opcionId, f) => subirFichas(f, { opcionId })}
-                        buscandoMercado={buscandoMercado} onMercado={buscarMercado} verificandoCosto={verificandoCosto} onCostoIA={(id) => verificarCostoIA(id)}
-                        onAccion={accion} onModal={(tipo, opcionId) => { setTexto(''); setModal({ tipo, ref: opcionId }); }} />
-                    )}
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+      {/* ── Más herramientas: lo que NO pide el comparador técnico, guardado aparte para no estorbar ── */}
+      <details className="bg-white rounded-2xl border border-zinc-200 overflow-hidden" open={imprimir}>
+        <summary className="cursor-pointer px-5 py-3.5 text-[13.5px] font-bold text-zinc-900 flex items-center gap-2">
+          Más herramientas <span className="text-[11.5px] font-normal text-zinc-400">— posición de precio, costos asociados, avance a PRE-POSTULACIÓN y datos para OBUMA</span>
+        </summary>
+        <div className="p-4 space-y-4 border-t border-zinc-100 bg-zinc-50/40">
+          <PosicionPrecioCard posicion={panel.posicion ?? null} calculando={calculandoPosicion} onCalcular={calcularPosicion} />
+      {/* ── Avance a PRE-POSTULACIÓN (avance parcial permitido salvo licitación GLOBAL) ── */}
+      <div className={`rounded-2xl border px-5 py-3 text-[12.5px] ${panel.avance.puede ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-zinc-200 bg-white text-zinc-600'}`}>
+        <span className="font-bold">{panel.avance.puede ? '✓ Listo para PRE-POSTULACIÓN' : 'Avance a PRE-POSTULACIÓN'}</span>
+        <span className="ml-2">{panel.avance.mensaje}</span>
+        <span className="ml-2 text-zinc-400">({panel.avance.aprobadas} de {panel.avance.ofertadas} líneas ofertadas con opción aprobada)</span>
       </div>
 
+      {/* ── Costos asociados (compromisos de las bases con costo) ── */}
+      <CostosAsociados costos={panel.costosAsociados} total={panel.totalCostosAsociados} lineas={panel.lineas}
+        onAccion={accionLinea} onAnular={id => { setTexto(''); setModal({ tipo: 'anular_costo', ref: id }); }} />
+
+          <div className="flex items-center gap-3 text-[11.5px]">
+            <span className="text-zinc-400">Datos OBUMA (opciones firmadas):</span>
+            <a href={`/api/negocios/${negocioId}/auditor/obuma?tipo=proveedores&incluir=firmadas`} className="text-indigo-600 hover:underline">Proveedores CSV</a>
+            <a href={`/api/negocios/${negocioId}/auditor/obuma?tipo=productos&incluir=firmadas`} className="text-indigo-600 hover:underline">Productos CSV</a>
+          </div>
+        </div>
+      </details>
+
+      <Modal open={docAbierto !== null} onClose={() => setDocAbierto(null)} size="xl" title={panel.documentos.find(x => x.documentoId === docAbierto)?.nombre || 'Cotización'}
+        subtitle={(() => { const d = panel.documentos.find(x => x.documentoId === docAbierto); return d ? [d.proveedor, d.rut, d.fechaEmision, d.formalidad === 'informal' ? 'informal' : d.leido ? 'formal' : ''].filter(Boolean).join(' · ') : undefined; })()}
+        footer={(() => {
+          const d = panel.documentos.find(x => x.documentoId === docAbierto);
+          if (!d) return null;
+          const ocupadaDoc = leyendo.has(d.url);
+          return (
+            <div className="flex items-center gap-2 flex-wrap w-full">
+              <a href={d.url} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 rounded-lg border border-zinc-200 text-zinc-700 text-[12.5px] font-semibold hover:bg-zinc-50 flex items-center gap-1.5"><ExternalLink size={13} /> Ver el archivo</a>
+              {!d.leido && <button onClick={() => leerDocumento(d)} disabled={ocupadaDoc} className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-[12.5px] font-semibold hover:bg-amber-700 disabled:opacity-60 flex items-center gap-1.5"><Sparkles size={13} /> {d.error ? 'Reintentar la lectura' : 'Leer con IA'}</button>}
+              {d.leido && <button onClick={() => releerDocumento(d)} disabled={ocupadaDoc} title="Analiza de nuevo esta cotización con los dos lectores de texto a la vez (útil cuando el Lector leyó mal)" className="px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-700 text-[12.5px] font-semibold hover:bg-indigo-50 disabled:opacity-60">Volver a leer</button>}
+              {d.leido && d.productos.some(p => !p.filaId && !p.esCargo && p.precio != null) && <button onClick={() => emparejarDeNuevo(d)} className="px-3 py-1.5 rounded-lg border border-amber-200 text-amber-800 text-[12.5px] font-semibold hover:bg-amber-50">Emparejar de nuevo</button>}
+              {ocupadaDoc && <span className="flex items-center gap-1.5 text-[12px] text-amber-700"><Loader2 size={13} className="animate-spin" /> Leyendo…</span>}
+              <button onClick={() => setDocAbierto(null)} className="ml-auto px-4 py-1.5 text-[13px] font-semibold text-zinc-600 hover:text-zinc-900">Cerrar</button>
+            </div>
+          );
+        })()}>
+        {(() => {
+          const d = panel.documentos.find(x => x.documentoId === docAbierto);
+          if (!d) return null;
+          if (d.error) return <p className="text-[12.5px] text-red-600 flex items-center gap-1.5"><Alerta size={14} /> {d.error}</p>;
+          if (!d.leido) return <p className="text-[12.5px] text-zinc-500">Esta cotización todavía no se lee. Usa «Leer con IA» para que el Lector saque sus productos y precios.</p>;
+          return (
+            <div className="overflow-x-auto">
+              <table className="w-full text-[12px] border-collapse">
+                <thead><tr className="text-left text-[10.5px] uppercase tracking-wide text-zinc-400"><th className="py-2 pr-3 font-bold">Producto</th><th className="py-2 pr-3 font-bold text-right">Precio</th><th className="py-2 pr-3 font-bold">IVA</th><th className="py-2 pr-3 font-bold">Cant.</th><th className="py-2 font-bold">Línea a la que va</th></tr></thead>
+                <tbody>
+                  {d.productos.map(p => (
+                    <tr key={p.idx} className="border-t border-zinc-100 align-top">
+                      <td className="py-2 pr-3 font-medium text-zinc-900">{p.nombre}</td>
+                      <td className="py-2 pr-3 text-right text-zinc-700 whitespace-nowrap">{p.precio != null ? fmtCLP(p.precio) : <span className="text-zinc-400">sin precio legible</span>}</td>
+                      <td className="py-2 pr-3 text-zinc-500 whitespace-nowrap">{p.precio == null ? '' : p.iva === 'no_declarado' ? 'no declarado' : p.iva === 'incluido' ? 'con IVA' : '+ IVA'}</td>
+                      <td className="py-2 pr-3 text-zinc-500">{p.cantidad ?? '—'}</td>
+                      <td className="py-2">
+                        {p.esCargo ? <span className="text-zinc-400">cargo aparte (flete/despacho): no es un producto</span>
+                          : p.filaId ? (
+                            <select value={p.filaId} title="Cambiar la línea de este producto, o quitarlo de ella"
+                              onChange={e => {
+                                if (p.opcionId == null) return;
+                                if (e.target.value === '__quitar') accion(p.opcionId, 'descartar', { motivo: 'Emparejada con la línea equivocada: se quitó de la línea (el producto queda libre para asignarlo).' }, 'Producto quitado de la línea');
+                                else accion(p.opcionId, 'mover_linea', { filaId: e.target.value }, 'Producto movido a otra línea');
+                              }}
+                              className="text-[11.5px] border border-emerald-200 rounded-md px-1.5 py-1 bg-emerald-50/50 text-emerald-700 font-semibold max-w-[320px]">
+                              {lineasSinAsignar.map(l => <option key={l.id} value={l.id}>→ {l.label}</option>)}
+                              <option value="__quitar">✕ Quitar de la línea</option>
+                            </select>
+                          ) : p.precio != null ? (
+                            <select defaultValue="" onChange={e => asignar(d, p.idx, e.target.value)} className="text-[11.5px] border border-amber-300 rounded-md px-1.5 py-1 bg-amber-50 text-amber-900 max-w-[320px]">
+                              <option value="">Sin línea — asignar a…</option>
+                              {lineasSinAsignar.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+                            </select>
+                          ) : <span className="text-zinc-400">sin precio: no se puede asignar</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
+      </Modal>
       <Modal open={fichaPorResolver !== null} onClose={() => setFichaPorResolver(null)} title={fichaPorResolver?.res.estado === 'producto_distinto' ? 'La ficha es de otro producto' : 'Elige el producto de la ficha'} size="md"
         footer={<button onClick={() => setFichaPorResolver(null)} className="px-4 py-2 text-[13px] font-semibold text-zinc-600 hover:text-zinc-900">Cancelar</button>}>
         {fichaPorResolver?.res.estado === 'producto_distinto' ? (
@@ -762,7 +934,7 @@ function AgregarLink({ filaId, ocupado, onAgregar }: { filaId: string; ocupado: 
   return (
     <div className="flex items-center gap-2 mb-3 ml-6">
       <input value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') enviar(); }} disabled={ocupado}
-        placeholder="Pegar el link de un producto para esta línea (tanteo)…"
+        placeholder="Pega aquí el link del producto (precio de tanteo + técnico)…"
         className="flex-1 max-w-xl text-[12px] border border-zinc-200 rounded-lg px-3 py-1.5 outline-none focus:border-amber-400 disabled:opacity-50" />
       <button onClick={enviar} disabled={ocupado || !url.trim()}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-[12px] font-semibold hover:bg-amber-100 disabled:opacity-40">
@@ -859,6 +1031,67 @@ function MercadoOpcion({ o, buscando, onBuscar, onAccion }: {
   );
 }
 
+/** Las líneas del panel en la forma que pide el resumen de la licitación (Prompt 4 v3.0, Paso 5). */
+function lineasParaResumen(panel: PanelAuditorDTO): LineaParaResumen[] {
+  return panel.lineas.map(l => ({
+    filaId: l.filaId, item: l.item, nombre: l.detalle.split(' - ')[0] || l.detalle, cantidad: l.cantidad, noOfertada: l.noOfertada,
+    opciones: l.opciones.filter(o => o.estado !== 'descartada').map(o => ({
+      opcionId: o.id, etiqueta: `${[o.marca, o.modelo].filter(Boolean).join(' ') || 'Producto sin identificar'} · ${o.proveedorRazonSocial || 'proveedor sin identificar'}`,
+      costoUnitNeto: o.verificacion?.costoNetoUnitario ?? null,
+      // Vía liviana: no pasa por el comparador técnico (compite por precio). Vía completa sin comparar: todavía no compite.
+      estado: o.via === 'liviana' ? 'CUMPLE' as const : o.tecnico.resultado ? (o.tecnico.resultado.estado === 'CUMPLE' ? 'CUMPLE' as const : o.tecnico.resultado.estado === 'NO_CUMPLE' ? 'NO_CUMPLE' as const : 'FALTA_DATO' as const) : 'SIN_VERIFICAR' as const,
+    })).filter(o => o.estado !== 'SIN_VERIFICAR'),
+  }));
+}
+
+// Resumen de la licitación (Prompt 4 v3.0, Paso 5): por línea la opción más barata que CUMPLE (si no hay, la más barata con FALTA DATO, marcada), y el costo
+// total contra el presupuesto del organismo. Lo calcula el código (auditor-resumen-licitacion.ts), nunca el modelo.
+function ResumenLicitacionCard({ panel, onIrALinea }: { panel: PanelAuditorDTO; onIrALinea: (filaId: string) => void }) {
+  const lineas = lineasParaResumen(panel);
+  const r = resumenLicitacion(lineas, panel.presupuesto?.neto ?? null);
+  const sinComparar = panel.lineas.filter(l => !l.noOfertada && l.opciones.some(o => o.estado !== 'descartada' && o.via === 'completa' && !o.tecnico.resultado)).length;
+  const ALERTA = { rojo: ['🔴', 'text-red-600', 'El costo total supera el presupuesto'], amarillo: ['🟡', 'text-amber-700', 'Queda menos del 20% del presupuesto'], verde: ['✅', 'text-emerald-600', 'Queda el 20% o más del presupuesto'], sin_presupuesto: ['ℹ️', 'text-zinc-500', 'Sin presupuesto del organismo'] }[r.alerta];
+  return (
+    <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center gap-2">
+        <h3 className="text-[13.5px] font-bold text-zinc-900">Resumen de la licitación</h3>
+        <span className="text-[11.5px] text-zinc-400">— la opción más barata que cumple en cada línea, y el costo total contra el presupuesto</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[12px] border-collapse">
+          <thead><tr className="text-left text-[10.5px] uppercase tracking-wide text-zinc-400"><th className="px-5 py-2 font-bold">Línea</th><th className="py-2 pr-3 font-bold">Cant.</th><th className="py-2 pr-3 font-bold">Mejor opción</th><th className="py-2 pr-3 font-bold">Estado</th><th className="py-2 pr-3 font-bold text-right">Costo unit. neto</th><th className="py-2 pr-5 font-bold text-right">Total neto</th></tr></thead>
+          <tbody>
+            {r.filas.map(f => (
+              <tr key={f.filaId} onClick={() => onIrALinea(f.filaId)} title="Abrir esta línea" className="border-t border-zinc-100 cursor-pointer hover:bg-indigo-50/40">
+                <td className="px-5 py-1.5 text-zinc-800"><span className="text-zinc-400 font-bold mr-1.5">#{f.item}</span>{f.nombre}</td>
+                <td className="py-1.5 pr-3 text-zinc-600">{f.cantidad ?? '—'}</td>
+                <td className="py-1.5 pr-3 text-zinc-700">{f.mejor ? f.mejor.etiqueta : (() => {
+                  const l = panel.lineas.find(x => x.filaId === f.filaId);
+                  const vivas = (l?.opciones || []).filter(o => o.estado !== 'descartada');
+                  if (!vivas.length) return <span className="text-zinc-400">sin opciones: sube una cotización</span>;
+                  if (vivas.some(o => o.via === 'completa' && !o.tecnico.resultado)) return <span className="text-amber-700 font-medium">falta comparar la línea</span>;
+                  return <span className="text-zinc-400">ninguna cumple todavía</span>;
+                })()}</td>
+                <td className="py-1.5 pr-3">{f.mejor ? <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full ${f.faltaDato ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{f.faltaDato ? 'FALTA DATO' : 'CUMPLE'}</span> : '—'}</td>
+                <td className="py-1.5 pr-3 text-right text-zinc-700">{fmtCLP(f.mejor?.costoUnitNeto ?? null)}</td>
+                <td className="py-1.5 pr-5 text-right font-semibold text-zinc-900">{fmtCLP(f.totalNeto)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="px-5 py-3 border-t border-zinc-100 text-[12.5px] text-zinc-700">
+        <b>COSTO TOTAL {r.completo ? '' : '(parcial) '}{fmtCLP(r.costoTotal)}</b> · PRESUPUESTO {r.presupuesto != null ? fmtCLP(r.presupuesto) : '—'}
+        {r.completo && r.queda != null && <> · QUEDA {fmtCLP(r.queda)}{r.quedaPct != null ? ` (${r.quedaPct}%)` : ''}</>}
+        {(r.completo || r.alerta === 'rojo')
+          ? <span className={`ml-2 font-semibold ${ALERTA[1]}`}>{ALERTA[0]} {ALERTA[2]}</span>
+          : <span className="ml-2 font-semibold text-zinc-500">ℹ️ Total parcial: todavía no se puede comparar con el presupuesto</span>}
+        {(r.lineasSinOpcion > 0 || sinComparar > 0) && <p className="mt-1 text-[11.5px] text-zinc-500">{r.lineasSinOpcion > 0 && <>Faltan {r.lineasSinOpcion} línea(s) con una opción que cumpla (o que se compare): no suman al total. </>}{sinComparar > 0 && <>{sinComparar} línea(s) tienen opciones sin comparar con los requisitos.</>}</p>}
+      </div>
+    </div>
+  );
+}
+
 // Posición de precio (Prompt 5 Parte IX): presupuesto ≥ precio mercado público > precio mercado privado ≥ nuestro costo. Todo calculado por el sistema.
 function PosicionPrecioCard({ posicion, calculando, onCalcular }: { posicion: import('@/app/lib/auditor-posicion').PosicionGuardadaDTO | null; calculando: boolean; onCalcular: () => void }) {
   const p = posicion?.posicion;
@@ -899,6 +1132,46 @@ function PosicionPrecioCard({ posicion, calculando, onCalcular }: { posicion: im
 }
 
 // Botón que abre el selector de archivos (o recibe arrastrados) para subir una ficha técnica.
+// Ficha técnica que ofrece la página del link: primero se MIRA la página y se listan los archivos; solo se descarga el que la persona acepta.
+function BuscarFichaLink({ negocioId, opcionId, ocupado, onTraer }: { negocioId: number; opcionId: number; ocupado: boolean; onTraer: (url: string, nombre: string) => void }) {
+  const toast = useToast();
+  const confirmar = useConfirm();
+  const [buscando, setBuscando] = useState(false);
+  const [fichas, setFichas] = useState<Array<{ url: string; texto: string; nombre: string }> | null>(null);
+  const buscar = async () => {
+    setBuscando(true);
+    try { const r = await post(negocioId, { accion: 'buscar_ficha_link', opcionId }); setFichas(r.fichas || []); }
+    catch (e: any) { toast.error('No se pudo revisar la página', e.message); }
+    finally { setBuscando(false); }
+  };
+  const traer = async (f: { url: string; texto: string; nombre: string }) => {
+    const ok = await confirmar({
+      titulo: `¿Descargar «${f.nombre}»?`,
+      mensaje: `La página ofrece este archivo («${f.texto}»). Si aceptas, el sistema lo descarga, lo lee y lo usa como ficha técnica de esta opción. Origen: ${(() => { try { return new URL(f.url).hostname; } catch { return f.url; } })()}`,
+      confirmarLabel: 'Sí, descargar',
+    });
+    if (ok) { setFichas(null); onTraer(f.url, f.nombre); }
+  };
+  return (
+    <div data-no-pdf className="mt-1">
+      {fichas === null
+        ? <button onClick={buscar} disabled={buscando || ocupado} className="text-[11px] font-semibold text-indigo-600 hover:underline disabled:opacity-50">{buscando ? 'Mirando la página…' : 'Buscar ficha en la página del link'}</button>
+        : fichas.length === 0
+          ? <span className="text-[11px] text-zinc-500">La página no ofrece una ficha para descargar. <button onClick={() => setFichas(null)} className="underline">cerrar</button></span>
+          : <ul className="space-y-1">
+              <li className="text-[11px] text-zinc-500">La página ofrece:</li>
+              {fichas.map(f => (
+                <li key={f.url} className="flex items-center gap-1.5 text-[11.5px]">
+                  <span className="truncate max-w-[150px] text-zinc-700" title={f.url}>{f.texto}</span>
+                  <button onClick={() => traer(f)} className="px-1.5 py-0.5 rounded border border-indigo-200 bg-indigo-50 text-[10.5px] font-semibold text-indigo-700 hover:bg-indigo-100">Descargar…</button>
+                </li>
+              ))}
+              <li><button onClick={() => setFichas(null)} className="text-[10.5px] text-zinc-400 underline">cerrar</button></li>
+            </ul>}
+    </div>
+  );
+}
+
 function BotonSubirFicha({ ocupado, etiqueta, onArchivos }: { ocupado: boolean; etiqueta: string; onArchivos: (f: File[]) => void }) {
   const ref = useRef<HTMLInputElement>(null);
   return (
@@ -924,7 +1197,7 @@ function OpcionSinLink({ filaId, ocupadoFicha, onCrear, onSubirFicha }: {
   const crear = async () => { setCreando(true); const ok = await onCrear(filaId, d); setCreando(false); if (ok) { setD({ marca: '', modelo: '', proveedor: '' }); setAbierto(false); } };
   return (
     <div className="flex items-center gap-2 mb-3 flex-wrap">
-      <BotonSubirFicha ocupado={ocupadoFicha} etiqueta="Subir ficha técnica (crea la opción)" onArchivos={onSubirFicha} />
+      <BotonSubirFicha ocupado={ocupadoFicha} etiqueta="Subir la ficha técnica del producto" onArchivos={onSubirFicha} />
       {!abierto
         ? <button onClick={() => setAbierto(true)} className="mt-1 text-[11.5px] font-semibold text-indigo-600 hover:underline">+ Opción sin link (marca y modelo)</button>
         : <>
@@ -956,8 +1229,13 @@ function CuadroLinea({ negocioId, linea, ocupado, verificando, onVerificar, pued
   const minimo = costos.length > 1 ? Math.min(...costos) : null;
   const columnas = [...vivas, ...linea.opciones.filter(o => o.estado === 'descartada')];
 
+  const imprimirLinea = useContext(ImprimirCtx);
   return (
-    <div className="overflow-x-auto ml-6">
+    <div>
+      <CuadroTecnico linea={linea} ocupado={ocupado} puedeAprobar={puedeAprobar} verificando={verificando} subiendoFicha={subiendoFicha} onSubirFicha={onSubirFicha} onAccion={onAccion} onModal={onModal} />
+      <details className="mt-4 rounded-lg border border-zinc-200" open={imprimirLinea}>
+        <summary className="cursor-pointer px-3 py-2 text-[12px] font-semibold text-zinc-600 hover:text-zinc-900">Detalle avanzado — respaldos, costo frente a lo costeado, mercado, verificación de costo con IA y vía</summary>
+        <div className="overflow-x-auto p-3 pt-1">
       <table className="w-full text-[12px] border-collapse">
         <thead>
           <tr className="text-left align-top">
@@ -1009,6 +1287,7 @@ function CuadroLinea({ negocioId, linea, ocupado, verificando, onVerificar, pued
                     ? <span className="text-[11px] text-zinc-400">{o.respaldos.some(r => r.tipo === 'link_web') ? 'Se usa la página del link' : 'Sin ficha: sube la del producto'}</span>
                     : fichas.map(f => <a key={f.id} href={f.documentoUrl || '#'} target="_blank" rel="noopener noreferrer" className="block text-indigo-600 hover:underline truncate max-w-[200px]">{f.documentoNombre || 'Ficha'}</a>)}
                   {editable && <BotonSubirFicha ocupado={subiendoFicha !== null} etiqueta={fichas.length ? 'Agregar otra ficha' : 'Subir ficha técnica'} onArchivos={f => onSubirFicha(o.id, f)} />}
+                  {editable && o.respaldos.some(r => r.tipo === 'link_web' && r.vigente) && <BuscarFichaLink negocioId={negocioId} opcionId={o.id} ocupado={ocupado === o.id} onTraer={(url, nombre) => onAccion(o.id, 'traer_ficha_link', { url }, `Ficha «${nombre}» agregada. Ahora pulsa «Comparar la línea».`)} />}
                 </td>
               );
             })}
@@ -1039,21 +1318,22 @@ function CuadroLinea({ negocioId, linea, ocupado, verificando, onVerificar, pued
               </td>
             ))}
           </Fila>
-          <Fila etiqueta="Acciones">
-            {columnas.map(o => <td key={o.id} className="py-2 pr-4"><Acciones o={o} exigeViaCompleta={linea.exigeViaCompleta} ocupado={ocupado === o.id} puedeAprobar={puedeAprobar} onAccion={onAccion} onModal={onModal} /></td>)}
+          <Fila etiqueta="Vía de verificación">
+            {columnas.map(o => <td key={o.id} className="py-2 pr-4"><Acciones modo="via" o={o} exigeViaCompleta={linea.exigeViaCompleta} ocupado={ocupado === o.id} puedeAprobar={puedeAprobar} onAccion={onAccion} onModal={onModal} /></td>)}
           </Fila>
         </tbody>
       </table>
-      <CuadroTecnico linea={linea} puedeAprobar={puedeAprobar} onAccion={onAccion} />
+        </div>
+      </details>
     </div>
   );
 }
 
 const CHIP_TECNICO: Record<string, { label: string; cls: string }> = {
-  CUMPLE: { label: 'Cumple todo', cls: 'bg-emerald-100 text-emerald-700' },
-  CON_PENDIENTES: { label: 'Con pendientes', cls: 'bg-amber-100 text-amber-800' },
-  NO_CUMPLE: { label: 'No cumple', cls: 'bg-red-100 text-red-700' },
-  NO_CORRIDO: { label: 'Sin verificar', cls: 'bg-zinc-100 text-zinc-600' },
+  CUMPLE: { label: 'CUMPLE', cls: 'bg-emerald-100 text-emerald-700' },
+  CON_PENDIENTES: { label: 'FALTA DATO', cls: 'bg-amber-100 text-amber-800' },
+  NO_CUMPLE: { label: 'NO CUMPLE', cls: 'bg-red-100 text-red-700' },
+  NO_CORRIDO: { label: 'Sin comparar', cls: 'bg-zinc-100 text-zinc-600' },
   SIN_REQUISITOS: { label: 'Sin requisitos heredados', cls: 'bg-zinc-100 text-zinc-500' },
   NO_APLICA: { label: 'Vía liviana: no corre', cls: 'bg-zinc-100 text-zinc-500' },
   SIN_EVALUAR: { label: 'Sin evaluar', cls: 'bg-zinc-100 text-zinc-600' },
@@ -1068,158 +1348,214 @@ function EstadoTecnico({ o, ocupado, onVerificar }: { o: OpcionDTO; ocupado: boo
   return (
     <div>
       <span className={`inline-block text-[10.5px] font-bold px-2 py-0.5 rounded-full ${CHIP_TECNICO[t.estado]?.cls}`}>{CHIP_TECNICO[t.estado]?.label}</span>
-      {r && <span className="ml-1.5 text-[11px] text-zinc-500">{r.resumen.cumple + r.resumen.conComplemento} ✅ · {r.resumen.noCumple} ❌ · {r.resumen.riesgo} 🔴 · {r.resumen.porAfinar} 🔧</span>}
+      {r && <span className="ml-1.5 text-[11px] text-zinc-500">{r.resumen.cumple} ✅ · {r.resumen.noCumple} ❌ · {r.resumen.sinVeredicto} ❓</span>}
       {t.error && <p className="text-[11px] text-red-600 mt-0.5">{t.error}</p>}
-      {t.corridoAt && <p className="text-[10.5px] text-zinc-400">Verificado {t.corridoAt.slice(0, 16).replace('T', ' ')}{t.segundaPasadaAt ? ' · 2ª pasada hecha' : ''}</p>}
+      {t.corridoAt && <p className="text-[10.5px] text-zinc-400">Comparado {t.corridoAt.slice(0, 16).replace('T', ' ')}</p>}
       {puede && (
         <button onClick={() => onVerificar(o.id)} disabled={ocupado}
           className="mt-1 flex items-center gap-1 px-2 py-0.5 rounded-md border border-indigo-200 text-indigo-700 text-[11px] font-semibold hover:bg-indigo-50 disabled:opacity-50">
-          {ocupado ? <><Loader2 size={11} className="animate-spin" /> Verificando…</> : t.corridoAt ? 'Volver a verificar' : 'Verificar técnico'}
+          {ocupado ? <><Loader2 size={11} className="animate-spin" /> Comparando…</> : t.corridoAt ? 'Volver a comparar la línea' : 'Comparar la línea'}
         </button>
       )}
     </div>
   );
 }
 
-// ── Cuadro comparativo TÉCNICO de una línea: filas = requisitos (texto literal de las bases), columnas = opciones ────
-function CuadroTecnico({ linea, puedeAprobar, onAccion }: {
-  linea: LineaAuditorDTO; puedeAprobar: boolean;
+// ── Cuadro comparativo TÉCNICO de una línea (Prompt 4 v3.0): filas = requisitos (texto de las bases), columnas = opciones ────
+// ✅ cumple · 🟩 sobrecumple (dato ofertado entre paréntesis, verde oscuro) · ❌ no cumple (dato entre paréntesis) · ❓ falta dato (se cierra con un clic).
+// Penúltima fila: ESTADO del producto. Última fila: COSTO UNIT. NETO. Debajo, máximo 3 notas por producto. La cita NO se muestra (queda guardada para el EM).
+function CeldaTecnica({ f, editable, onConfirmar }: { f: any; editable: boolean; onConfirmar: (confirmada: boolean, motivo?: string) => void }) {
+  const estado: string = f.estadoCelda ?? (f.veredicto === 'NO_CUMPLE' ? 'NO_CUMPLE' : f.veredicto === 'SIN_VEREDICTO' ? 'FALTA_DATO' : f.sobrecumple ? 'SOBRECUMPLE' : 'CUMPLE');
+  const dato = f.valorCorto && !f.confirmada ? ` (${f.valorCorto})` : '';
+  const aviso = f.revisar ? <span title="Número sin unidad que no calza con lo exigido: revisa el dato." className="ml-1 text-amber-600">⚠</span> : null;
+  const [abierto, setAbierto] = useState(false);
+  const [motivo, setMotivo] = useState('');
+  const corregido = f.confirmada && f.valorCorto === 'corregido a mano';
+  if (f.confirmada) return (
+    <span className="text-emerald-700">✅ <span className="text-[11px] text-zinc-500">{corregido ? 'corregido' : 'confirmado'} por {f.confirmada.por || 'el asistente'}</span>
+      {f.confirmada.motivo && <span className="block text-[11px] text-zinc-500 italic">«{f.confirmada.motivo}»</span>}
+      {corregido && f.partes?.[0]?.ofertadoValor && <span className="block text-[10.5px] text-zinc-400">el documento decía: {f.partes[0].ofertadoValor}</span>}
+      {editable && <button onClick={() => onConfirmar(false)} className="text-[10.5px] text-zinc-400 underline hover:text-zinc-700">deshacer</button>}</span>
+  );
+  if (estado === 'SOBRECUMPLE') return <span className="font-semibold text-emerald-800">🟩{dato}{aviso}</span>;
+  if (estado === 'CUMPLE') return <span className="text-emerald-700">✅{f.valorCorto ? <span className="text-[11px] text-zinc-400"> ({f.valorCorto})</span> : null}{aviso}</span>;
+  const noCumple = estado === 'NO_CUMPLE';
+  const guardar = () => { onConfirmar(true, motivo.trim()); setAbierto(false); setMotivo(''); };
+  return (
+    <span className={noCumple ? 'font-semibold text-red-600' : 'text-amber-700'}>{noCumple ? <>❌{dato}{aviso}</> : '❓'}
+      {editable && !abierto && (noCumple
+        ? <button onClick={() => setAbierto(true)} title="Si sabes que sí lo cumple (el proveedor te lo confirmó, hay otra ficha…), dalo por cumplido dejando el motivo"
+            className="ml-1.5 px-1.5 py-0.5 rounded border border-red-200 bg-red-50 text-[10.5px] font-semibold text-red-700 hover:bg-red-100">Sí cumple…</button>
+        : <button onClick={() => setAbierto(true)} title="Sé que lo cumple: lo doy por cumplido (queda registrado quién y cuándo)"
+            className="ml-1.5 px-1.5 py-0.5 rounded border border-amber-300 bg-amber-50 text-[10.5px] font-semibold text-amber-800 hover:bg-amber-100">Lo confirmo</button>)}
+      {editable && abierto && (
+        <span className="mt-1.5 block font-normal">
+          <textarea value={motivo} onChange={e => setMotivo(e.target.value)} rows={2} autoFocus
+            placeholder={noCumple ? 'Motivo obligatorio: ¿por qué sí cumple? (ej. «el proveedor confirmó por teléfono que trae AM»)' : 'Detalle (opcional): ¿cómo lo sabes?'}
+            className="w-full min-w-[200px] text-[11.5px] text-zinc-700 border border-zinc-200 rounded-md px-2 py-1 outline-none focus:border-amber-400" />
+          <span className="flex gap-2 mt-1">
+            <button onClick={guardar} disabled={noCumple && motivo.trim().length < 8} className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[11px] font-semibold hover:bg-emerald-700 disabled:opacity-40">Dar por cumplido</button>
+            <button onClick={() => { setAbierto(false); setMotivo(''); }} className="text-[11px] text-zinc-400 hover:text-zinc-700">Cancelar</button>
+          </span>
+        </span>
+      )}
+    </span>
+  );
+}
+
+function CuadroTecnico({ linea, ocupado, puedeAprobar, verificando, subiendoFicha, onSubirFicha, onAccion, onModal }: {
+  linea: LineaAuditorDTO; ocupado: number | null; puedeAprobar: boolean; verificando: Set<number>; subiendoFicha: string | null;
+  onSubirFicha: (opcionId: number, archivos: File[]) => void;
   onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void;
+  onModal: (tipo: 'descartar' | 'rechazar', opcionId: number) => void;
 }) {
-  const imprimirTec = useContext(ImprimirCtx);
-  const [abiertos, setAbiertos] = useState<Set<number>>(new Set());
-  const [declarando, setDeclarando] = useState<{ opcionId: number; n: number } | null>(null);
-  const [textoDecl, setTextoDecl] = useState('');
-  const [respaldoDecl, setRespaldoDecl] = useState('');
-  const columnas = linea.opciones.filter(o => o.estado !== 'descartada' && o.tecnico.resultado);
-  if (columnas.length === 0) return null;
-  const base = columnas[0].tecnico.resultado!.filas;
-  const alertas = columnas.flatMap(o => (o.tecnico.resultado!.alertas || []).filter(a => a.nivel !== 'info').map(a => ({ ...a, opcion: o })));
-  const costos = columnas.map(o => o.verificacion?.costoNetoUnitario ?? null);
-  const minimo = costos.filter((x): x is number => x != null).length > 1 ? Math.min(...costos.filter((x): x is number => x != null)) : null;
-  const fila = (o: OpcionDTO, n: number) => o.tecnico.resultado!.filas.find(f => f.n === n);
+  const columnas = linea.opciones.filter(o => o.estado !== 'descartada');
+  const descartadas = linea.opciones.filter(o => o.estado === 'descartada');
+  if (columnas.length === 0) return descartadas.length ? <p className="text-[12px] text-zinc-500">Todas las opciones de esta línea están descartadas ({descartadas.length}). Restaura una o agrega otro producto.</p> : null;
+  const conResultado = columnas.filter(o => o.tecnico.resultado);
+  const base = conResultado[0]?.tecnico.resultado!.filas ?? [];
+  const fila = (o: OpcionDTO, n: number) => o.tecnico.resultado?.filas.find(f => f.n === n);
+  const editable = (o: OpcionDTO) => !['descartada', 'en_aprobacion', 'aprobada'].includes(o.estado);
+  const COLOR_ESTADO: Record<string, string> = { CUMPLE: 'bg-emerald-100 text-emerald-800', NO_CUMPLE: 'bg-red-100 text-red-700', CON_PENDIENTES: 'bg-amber-100 text-amber-800', SIN_EVALUAR: 'bg-zinc-100 text-zinc-600' };
+  const TEXTO_ESTADO: Record<string, string> = { CUMPLE: 'CUMPLE', NO_CUMPLE: 'NO CUMPLE', CON_PENDIENTES: 'FALTA DATO', SIN_EVALUAR: 'SIN EVALUAR' };
+  const costos = columnas.map(o => o.verificacion?.costoNetoUnitario ?? null).filter((x): x is number => x != null);
+  const minimo = costos.length > 1 ? Math.min(...costos) : null;
+  const n = (resultado: any, e: string) => resultado.filas.filter((f: any) => (f.estadoCelda ?? (f.veredicto === 'NO_CUMPLE' ? 'NO_CUMPLE' : f.veredicto === 'SIN_VEREDICTO' ? 'FALTA_DATO' : 'CUMPLE')) === e).length;
 
   return (
-    <div className="ml-6 mt-4">
-      <p className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide mb-1.5">Cuadro comparativo técnico · {base.length} requisitos</p>
-      {alertas.slice(0, 4).map((a, i) => (
-        <p key={i} className={`text-[11.5px] mb-1 ${a.nivel === 'rojo' ? 'text-red-600' : 'text-amber-700'}`}>{a.nivel === 'rojo' ? '🔴' : '🟡'} {columnas.length > 1 ? `[${o_nombre(a.opcion)}] ` : ''}{a.texto}</p>
-      ))}
-      <div className="overflow-x-auto">
+    <div>
+      <p className="text-[11px] text-zinc-500 mb-2 flex flex-wrap gap-x-4 gap-y-0.5">
+        <span><b className="text-zinc-700">Cuadro comparativo</b>{base.length ? ` · ${base.length} requisitos` : ''}</span>
+        <span>✅ cumple</span><span>🟩 supera lo exigido</span><span>❌ no cumple</span><span>❓ falta dato (puedes confirmarlo con un clic)</span>
+      </p>
+      <div className="overflow-x-auto rounded-xl border border-zinc-200">
         <table className="w-full text-[12px] border-collapse">
-          <thead>
+          <thead className="bg-zinc-50">
             <tr className="text-left align-top">
-              <th className="pr-3 pb-1.5 text-[10.5px] uppercase tracking-wide text-zinc-400 font-bold min-w-[260px]">Requerimiento (literal de las bases)</th>
-              {columnas.map(o => <th key={o.id} className="pb-1.5 pr-3 min-w-[150px] font-semibold text-zinc-700">{o_nombre(o)}</th>)}
+              <th className="px-3 py-2.5 font-semibold text-zinc-500 min-w-[250px] max-w-[330px]">Requisito (texto de las bases)</th>
+              {columnas.map(o => (
+                <th key={o.id} className="px-3 py-2.5 min-w-[190px] font-normal border-l border-zinc-200">
+                  <p className="font-bold text-zinc-900 leading-tight">{[o.marca, o.modelo].filter(Boolean).join(' ') || o.producto?.nombre || 'Producto sin identificar'}</p>
+                  <p className="text-zinc-500 text-[11.5px]">{o.proveedorRazonSocial || 'Proveedor sin identificar'}</p>
+                  <span className={`inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${ESTADO_OPCION[o.estado]?.cls}`}>{ESTADO_OPCION[o.estado]?.label}</span>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody className="align-top">
-            {base.map(f0 => {
-              const abierto = abiertos.has(f0.n) || imprimirTec;
-              return (
-                <Fragment key={f0.n}>
-                  <tr className={`border-t border-zinc-100 cursor-pointer hover:bg-zinc-50 ${f0.rojo ? 'bg-red-50/40' : ''}`}
-                    onClick={() => setAbiertos(prev => { const nx = new Set(prev); if (nx.has(f0.n)) nx.delete(f0.n); else nx.add(f0.n); return nx; })}>
-                    <td className="pr-3 py-1.5 text-zinc-700">{f0.rojo && <span title="Puede dejarnos fuera (INADMISIBLE)">🔴 </span>}{f0.requeridoTexto}<span className="block text-[10.5px] text-zinc-400">{f0.fuenteBases}</span></td>
-                    {columnas.map(o => {
-                      const f = fila(o, f0.n);
-                      if (!f) return <td key={o.id} className="pr-3 py-1.5 text-zinc-300">—</td>;
-                      return (
-                        <td key={o.id} className="pr-3 py-1.5">
-                          <span title={f.resumenPartes}>{ICONO_VEREDICTO[f.veredicto]}</span>{f.origen && MARCA_ORIGEN[f.origen] && <span className="ml-1" title={f.origen}>{MARCA_ORIGEN[f.origen]}</span>}
-                          {f.habilitacion === 'EM' && !f.habilitado && <span className="ml-1 text-[10px] font-bold text-violet-600" title={f.motivoHabilitacion || ''}>EM</span>}
-                          {f.sobrecumple && <span className="ml-1 text-[10px] text-sky-600">sobrecumple</span>}
-                          <span className="block text-[11px] text-zinc-500">{f.valorCorto}</span>
-                          {!f.cerrada && f.motivoPendiente && <span className="text-[10px] font-bold text-amber-700">{f.motivoPendiente === 'RIESGO' ? '🔴 RIESGO' : '🔧 POR AFINAR'}</span>}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                  {abierto && (
-                    <tr className="bg-zinc-50/60">
-                      <td colSpan={columnas.length + 1} className="px-3 py-2">
-                        <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${columnas.length}, minmax(0, 1fr))` }}>
-                          {columnas.map(o => {
-                            const f = fila(o, f0.n);
-                            if (!f) return <div key={o.id} />;
-                            return (
-                              <div key={o.id} className="text-[11.5px] text-zinc-600 space-y-1">
-                                <p className="font-semibold text-zinc-700">{o_nombre(o)} · {f.resumenPartes}</p>
-                                {f.partes.filter(p => p.citaOriginal).slice(0, 2).map((p, i) => <p key={i} className="text-zinc-500">«{p.citaOriginal}»{p.citaTraduccion ? ` (${p.citaTraduccion})` : ''}{p.calculo ? ` — ${p.calculo}` : ''}</p>)}
-                                {f.partes.flatMap(p => p.guardarrailes).map((g, i) => <p key={`g${i}`} className="text-amber-700">⚙ {g}</p>)}
-                                {f.rectificacion && <p className="text-red-600 font-semibold">Rectificación: {f.rectificacion}</p>}
-                                {!f.cerrada && f.ayuda && (<>
-                                  {f.ayuda.diagnostico && <p><b>Diagnóstico:</b> {f.ayuda.diagnostico}</p>}
-                                  {f.ayuda.hipotesisCausa.length > 0 && <p><b>Causa probable:</b> {f.ayuda.hipotesisCausa[0]}</p>}
-                                  {f.ayuda.veredictoEquivalencia && <p><b>Frente a las bases:</b> {f.ayuda.veredictoEquivalencia}</p>}
-                                  {f.ayuda.preguntaProveedor && <p><b>Pregunta al proveedor:</b> {f.ayuda.preguntaProveedor}</p>}
-                                  {f.ayuda.declaracionPropuesta && <p><b>Declaración propuesta:</b> {f.ayuda.declaracionPropuesta}</p>}
-                                </>)}
-                                {!f.cerrada && <p><b>Ruta ({f.ayuda?.ruta || 'SALVABLE'}):</b> {f.rutaCierre}</p>}
-                                <div className="flex gap-2 flex-wrap pt-0.5">
-                                  {f.habilitacion === 'EM' && puedeAprobar && !f.habilitado && f.veredicto !== 'SIN_VEREDICTO' && f.veredicto !== 'NO_CUMPLE' &&
-                                    <button onClick={e => { e.stopPropagation(); onAccion(o.id, 'habilitar_item_tecnico', { n: f.n }, 'Dato habilitado'); }} className="px-2 py-0.5 rounded-md bg-violet-600 text-white font-semibold text-[11px]">Habilitar (EM)</button>}
-                                  {!f.cerrada && f.veredicto !== 'NO_CUMPLE' && (
-                                    <button onClick={e => { e.stopPropagation(); setDeclarando({ opcionId: o.id, n: f.n }); setTextoDecl(''); setRespaldoDecl(''); }} className="px-2 py-0.5 rounded-md border border-zinc-300 text-zinc-600 font-semibold text-[11px]">Declarar con respaldo</button>)}
-                                </div>
-                                {declarando && declarando.opcionId === o.id && declarando.n === f.n && (
-                                  <div className="space-y-1 border border-zinc-200 rounded-md p-2 bg-white" onClick={e => e.stopPropagation()}>
-                                    <textarea value={textoDecl} onChange={e => setTextoDecl(e.target.value)} rows={2} placeholder="Declaración (qué afirmas del producto)…" className="w-full border border-zinc-200 rounded px-2 py-1 text-[11.5px]" />
-                                    <input value={respaldoDecl} onChange={e => setRespaldoDecl(e.target.value)} placeholder="Respaldo obligatorio: link o nombre del documento adjunto…" className="w-full border border-zinc-200 rounded px-2 py-1 text-[11.5px]" />
-                                    <div className="flex gap-2">
-                                      <button onClick={() => { onAccion(o.id, 'declarar_item_tecnico', { n: f.n, texto: textoDecl, respaldo: respaldoDecl }, 'Declaración registrada (pasa por el EM)'); setDeclarando(null); }} className="px-2 py-0.5 rounded bg-amber-600 text-white text-[11px] font-semibold">Guardar</button>
-                                      <button onClick={() => setDeclarando(null)} className="text-[11px] text-zinc-500">Cancelar</button>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              );
-            })}
-            <tr className="border-t-2 border-zinc-300">
-              <td className="pr-3 py-2 text-[11px] font-bold uppercase tracking-wide text-zinc-600">Costo unitario neto</td>
-              {columnas.map((o, i) => <td key={o.id} className={`pr-3 py-2 text-[13px] font-bold ${costos[i] != null && costos[i] === minimo ? 'text-emerald-600' : 'text-zinc-800'}`}>{fmtCLP(costos[i])}</td>)}
+            {base.length === 0 && (
+              <tr className="border-t border-zinc-200"><td colSpan={columnas.length + 1} className="px-3 py-5 text-center text-[12.5px] text-zinc-500">
+                {columnas.some(o => o.via === 'completa') ? <>Esta línea todavía no se compara. Pulsa <b>«Comparar la línea»</b> (arriba): la IA revisa cada producto contra los requisitos de las bases.</> : 'Las opciones de esta línea van por vía liviana: no pasan por el comparador técnico.'}
+              </td></tr>
+            )}
+            {base.map(f0 => (
+              <tr key={f0.n} className="border-t border-zinc-100 even:bg-zinc-50/60">
+                <td className="px-3 py-2 text-zinc-700 leading-snug">{f0.n}. {f0.requeridoTexto}</td>
+                {columnas.map(o => { const f = fila(o, f0.n); return <td key={o.id} className="px-3 py-2 border-l border-zinc-100 text-[13px]">{f ? <CeldaTecnica f={f} editable={editable(o)} onConfirmar={(c, motivo) => onAccion(o.id, 'confirmar_celda', { n: f0.n, confirmada: c, motivo: motivo || '' }, c ? 'Requisito dado por cumplido' : 'Cambio deshecho')} /> : <span className="text-zinc-300">—</span>}</td>; })}
+              </tr>
+            ))}
+            {base.length > 0 && (
+              <tr className="border-t-2 border-zinc-300 bg-white">
+                <td className="px-3 py-2.5 text-[10.5px] uppercase tracking-wide font-bold text-zinc-500">Estado</td>
+                {columnas.map(o => { const r = o.tecnico.resultado; return (
+                  <td key={o.id} className="px-3 py-2.5 border-l border-zinc-100">
+                    {r ? <><span className={`inline-block text-[11px] font-bold px-2.5 py-0.5 rounded-full ${COLOR_ESTADO[r.estado]}`}>{TEXTO_ESTADO[r.estado]}</span>
+                      <span className="ml-1.5 text-[11px] text-zinc-500">{n(r, 'CUMPLE') + n(r, 'SOBRECUMPLE')} ✅ · {n(r, 'NO_CUMPLE')} ❌ · {n(r, 'FALTA_DATO')} ❓</span></>
+                      : <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-500">SIN COMPARAR</span>}
+                    {verificando.has(o.id) && <span className="ml-1.5 text-[11px] text-amber-700 inline-flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> comparando…</span>}
+                    {[...(r?.notas || []).slice(0, 3), ...(r?.alertas.filter(a => a.nivel !== 'info').slice(0, 1).map(a => a.texto) || [])].map((t, i) => <p key={i} className="mt-1 text-[11px] leading-snug text-zinc-500">• {t}</p>)}
+                  </td>); })}
+              </tr>
+            )}
+            <tr className="border-t border-zinc-200 bg-white">
+              <td className="px-3 py-2.5 text-[10.5px] uppercase tracking-wide font-bold text-zinc-500">Costo unit. neto</td>
+              {columnas.map(o => { const c = o.verificacion?.costoNetoUnitario ?? null; return (
+                <td key={o.id} className="px-3 py-2.5 border-l border-zinc-100">
+                  <span className={`text-[15px] font-bold ${c != null && c === minimo ? 'text-emerald-600' : 'text-zinc-900'}`}>{fmtCLP(c)}</span>
+                  {c != null && c === minimo && <span className="ml-1.5 text-[10px] text-emerald-600 font-bold">MÁS BARATA</span>}
+                  {c == null && o.producto?.precio != null && <span className="block text-[11px] text-zinc-400">el documento dice {fmtCLP(o.producto.precio)} (IVA sin definir)</span>}
+                  {c != null && o.producto?.ivaSupuesto && <span className="block text-[10.5px] text-zinc-400">IVA asumido (página web): ya descontado</span>}
+                </td>); })}
+            </tr>
+            <tr className="border-t border-zinc-100 bg-white">
+              <td className="px-3 py-2 text-[10.5px] uppercase tracking-wide font-bold text-zinc-500">Costo</td>
+              {columnas.map(o => { const v = o.verificacion; return (
+                <td key={o.id} className="px-3 py-2 border-l border-zinc-100">
+                  {v ? <span className={`inline-block text-[10.5px] font-bold px-2 py-0.5 rounded-full ${VEREDICTO[v.veredicto]?.cls}`}>{VEREDICTO[v.veredicto]?.label}</span> : <span className="text-zinc-300">—</span>}
+                  {(v?.bloqueos || []).slice(0, 2).map((b, i) => <p key={i} className="mt-1 text-[11px] text-red-600 leading-snug">🔴 {b.mensaje}<span className="block text-red-500/70">→ {b.salida}</span></p>)}
+                  {(v?.bloqueos.length ?? 0) > 2 && <p className="text-[10.5px] text-zinc-400">+{(v?.bloqueos.length ?? 0) - 2} más en el detalle avanzado</p>}
+                </td>); })}
+            </tr>
+            <tr className="border-t border-zinc-200 bg-zinc-50/70" data-no-pdf>
+              <td className="px-3 py-2.5 text-[10.5px] uppercase tracking-wide font-bold text-zinc-500">Qué hacer</td>
+              {columnas.map(o => (
+                <td key={o.id} className="px-3 py-2.5 border-l border-zinc-100">
+                  <Acciones o={o} exigeViaCompleta={linea.exigeViaCompleta} ocupado={ocupado === o.id} puedeAprobar={puedeAprobar} onAccion={onAccion} onModal={onModal} />
+                  {editable(o) && <BotonSubirFicha ocupado={subiendoFicha !== null} etiqueta={o.respaldos.some(r => r.tipo === 'ficha_tecnica') ? 'Agregar otra ficha técnica' : 'Subir ficha técnica'} onArchivos={f => onSubirFicha(o.id, f)} />}
+                </td>
+              ))}
             </tr>
           </tbody>
         </table>
       </div>
+      {descartadas.length > 0 && (
+        <details className="mt-2" data-no-pdf>
+          <summary className="cursor-pointer text-[11.5px] text-zinc-400 hover:text-zinc-700">{descartadas.length} opción{descartadas.length === 1 ? '' : 'es'} descartada{descartadas.length === 1 ? '' : 's'}</summary>
+          <ul className="mt-1 space-y-1">
+            {descartadas.map(o => (
+              <li key={o.id} className="flex items-center gap-2 text-[11.5px] text-zinc-500">
+                <span>{o_nombre(o)}{o.motivoDescarte ? ` — ${o.motivoDescarte}` : ''}</span>
+                <button onClick={() => onAccion(o.id, 'restaurar', {}, 'Opción restaurada')} className="px-2 py-0.5 rounded-md border border-zinc-200 text-zinc-600 font-semibold hover:bg-zinc-50">Restaurar</button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }
+
 const o_nombre = (o: OpcionDTO) => [o.proveedorRazonSocial, [o.marca, o.modelo].filter(Boolean).join(' ')].filter(Boolean).join(' · ') || `Opción #${o.id}`;
 
 function Fila({ etiqueta, children }: { etiqueta: string; children: React.ReactNode }) {
   return <tr className="border-t border-zinc-100"><td className="pr-3 py-1.5 text-[10.5px] uppercase tracking-wide text-zinc-400 font-bold align-top">{etiqueta}</td>{children}</tr>;
 }
 
-function Acciones({ o, exigeViaCompleta, ocupado, puedeAprobar, onAccion, onModal }: {
+/** Por qué todavía no se puede firmar esta opción (en lenguaje simple), o null si se puede. */
+function motivoNoFirmable(o: OpcionDTO): string | null {
+  const v = o.verificacion, t = o.tecnico;
+  if ((v?.bloqueos.length ?? 0) > 0) return `el costo tiene ${v!.bloqueos.length === 1 ? '1 problema' : `${v!.bloqueos.length} problemas`} por resolver (mira la fila «Costo»)`;
+  if (t.estado === 'NO_CORRIDO') return 'Falta comparar la línea';
+  if (t.resultado?.bloqueos.length) return t.resultado.estado === 'NO_CUMPLE' ? 'No cumple un requisito' : 'Falta confirmar un ❓ o pedir el dato al proveedor';
+  if (o.estado !== 'verificada' && v?.veredicto !== 'REQUIERE_HABILITACION') return 'Todavía no está verificada';
+  return null;
+}
+
+function Acciones({ o, exigeViaCompleta, ocupado, puedeAprobar, onAccion, onModal, modo = 'principal' }: {
   o: OpcionDTO; exigeViaCompleta: boolean; ocupado: boolean; puedeAprobar: boolean;
   onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void;
   onModal: (tipo: 'descartar' | 'rechazar', opcionId: number) => void;
+  /** 'via' = solo el selector de vía (vive en el detalle avanzado); 'principal' = firmar, aprobar, descartar… */
+  modo?: 'principal' | 'via';
 }) {
   const btn = 'px-2.5 py-1 rounded-md text-[11.5px] font-semibold disabled:opacity-40';
   if (ocupado) return <Loader2 size={14} className="animate-spin text-zinc-400" />;
-  const bloqueada = (o.verificacion?.bloqueos.length ?? 0) > 0;
+  const viaEditable = !['descartada', 'aprobada', 'en_aprobacion', 'definitiva'].includes(o.estado);
+  if (modo === 'via') return viaEditable ? (
+    <select value={o.via} onChange={e => onAccion(o.id, 'cambiar_via', { via: e.target.value })}
+      title={exigeViaCompleta ? 'Esta línea tiene exigencias que pueden dejarnos fuera: requiere verificación completa.' : 'Vía de verificación de esta opción'}
+      className="text-[11px] border border-zinc-200 rounded-md px-1.5 py-1 bg-white text-zinc-600">
+      <option value="completa">Vía completa</option>
+      <option value="liviana" disabled={exigeViaCompleta}>Vía liviana{exigeViaCompleta ? ' (no permitida)' : ''}</option>
+    </select>
+  ) : <span className="text-zinc-400">{o.via === 'liviana' ? 'Liviana' : 'Completa'}</span>;
+  const motivo = ['tanteo', 'formalizada', 'verificada'].includes(o.estado) ? motivoNoFirmable(o) : null;
   return (
     <div className="flex flex-wrap gap-1.5">
-      {!['descartada', 'aprobada', 'en_aprobacion', 'definitiva'].includes(o.estado) && (
-        <select value={o.via} onChange={e => onAccion(o.id, 'cambiar_via', { via: e.target.value })}
-          title={exigeViaCompleta ? 'Esta línea tiene exigencias que pueden dejarnos fuera: requiere verificación completa.' : 'Vía de verificación de esta opción'}
-          className="text-[11px] border border-zinc-200 rounded-md px-1.5 py-1 bg-white text-zinc-600">
-          <option value="completa">Vía completa</option>
-          <option value="liviana" disabled={exigeViaCompleta}>Vía liviana{exigeViaCompleta ? ' (no permitida)' : ''}</option>
-        </select>
-      )}
       {o.estado === 'descartada' && <button className={`${btn} border border-zinc-200 text-zinc-600`} onClick={() => onAccion(o.id, 'restaurar')}>Restaurar</button>}
       {['tanteo', 'formalizada', 'verificada'].includes(o.estado) && (
-        <button className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`} disabled={bloqueada || o.estado !== 'verificada' && o.verificacion?.veredicto !== 'REQUIERE_HABILITACION'}
-          title={bloqueada ? 'Hay bloqueos abiertos' : 'Firmar como la opción a ofertar'} onClick={() => onAccion(o.id, 'firmar', {}, 'Opción firmada como definitiva')}>Firmar</button>
+        <button className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`} disabled={!!motivo}
+          title={motivo ?? 'Firmar como la opción a ofertar'} onClick={() => onAccion(o.id, 'firmar', {}, 'Opción firmada como definitiva')}>Firmar esta opción</button>
       )}
       {o.estado === 'definitiva' && <>
         <button className={`${btn} bg-amber-600 text-white hover:bg-amber-700`} onClick={() => onAccion(o.id, 'solicitar_aprobacion', {}, 'Pasada final correcta: en aprobación')}>Solicitar aprobación</button>
@@ -1232,6 +1568,7 @@ function Acciones({ o, exigeViaCompleta, ocupado, puedeAprobar, onAccion, onModa
       {o.estado === 'en_aprobacion' && !puedeAprobar && <span className="text-[11.5px] text-amber-700">Esperando al EM</span>}
       {o.estado === 'aprobada' && <span className="text-[11.5px] text-emerald-700 font-semibold">✓ Aprobada</span>}
       {!['descartada', 'aprobada', 'en_aprobacion'].includes(o.estado) && <button className={`${btn} border border-zinc-200 text-zinc-500 hover:text-red-600`} onClick={() => onModal('descartar', o.id)}>Descartar</button>}
+      {motivo && <p className="w-full text-[10.5px] text-zinc-400">Aún no se puede firmar: {motivo.charAt(0).toLowerCase()}{motivo.slice(1)}</p>}
       {o.firmadaPorNombre && <p className="w-full text-[10.5px] text-zinc-400">Firmada por {o.firmadaPorNombre}</p>}
     </div>
   );

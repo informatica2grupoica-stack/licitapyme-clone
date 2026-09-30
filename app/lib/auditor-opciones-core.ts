@@ -133,7 +133,7 @@ export function normalizarProductos(salida: SalidaLector, texto?: string, esWeb 
     const elegido = elegirPrecio(p, parsearMonto(cantTexto));
     let { precio } = elegido; const { ambiguo, otros } = elegido;
     let cantidadCorregida: number | null = null, correccion: string | null = null;
-    const pegado = texto && precio != null && !ambiguo ? separarPrecioPegadoACantidad(texto, precio) : null;
+    const pegado = texto && precio != null ? separarPrecioPegadoACantidad(texto, precio) : null;   // si la cuenta cuadra con el total del documento, deja de ser ambiguo
     if (pegado) {
       correccion = `El precio venía pegado a la cantidad («${precio!.toLocaleString('es-CL')}»): se separó en ${pegado.cantidad} unidades × $${pegado.precioUnitario.toLocaleString('es-CL')}, porque el total del documento ($${pegado.total.toLocaleString('es-CL')}) lo confirma.`;
       precio = pegado.precioUnitario; cantidadCorregida = pegado.cantidad;
@@ -150,7 +150,7 @@ export function normalizarProductos(salida: SalidaLector, texto?: string, esWeb 
       nombre,
       tipo: d.tipo || '', marca: d.marca || '', modelo: d.modelo || '', version: d.version || '',
       sku: d.sku_fabricante || d.sku_proveedor || '',
-      precio, preciosMultiples: otros, precioAmbiguo: ambiguo,
+      precio, preciosMultiples: otros, precioAmbiguo: pegado ? false : ambiguo,
       moneda: (c.moneda || 'CLP').toUpperCase().replace(/^\$$/, 'CLP').replace(/PESOS?/, 'CLP'),
       iva, ivaSupuesto, ivaTexto: c.iva_texto_literal || '',
       unidadPrecio: c.unidad_precio || '', contenidoEmpaque: c.contenido_empaque || '',
@@ -392,8 +392,8 @@ export function verificarOpcion(e: EntradaVerificacion): ResultadoVerificacion {
   // Un precio AMBIGUO (¿1.022.000 o 1.022? ¿miles o decimales?) no se usa para nada: ni costo, ni diferencia, ni margen. Si entrara,
   // una mala lectura hunde el margen del proyecto entero (caso real: un proyector leído a $840 millones). Se bloquea y pide confirmarlo.
   if (p.precioAmbiguo) {
-    bloqueos.push({ codigo: 'LECTURA', mensaje: 'El precio del documento es ambiguo (no se sabe si el punto o la coma separan miles o decimales): no se usa para calcular el costo ni el margen.',
-      salida: 'Compara el precio contra el documento original, o pide al proveedor la cotización con el precio claro.', accion: 'revisar' });
+    bloqueos.push({ codigo: 'LECTURA', mensaje: 'El precio es ambiguo (¿el punto o la coma son de miles?): no se usa hasta confirmarlo.',
+      salida: 'Compáralo con el documento original, o pide la cotización con el precio claro.', accion: 'revisar' });
   } else base.costoNetoUnitario = neto;
   if (!p.precioAmbiguo && neto != null && costeadoNeto != null && costeadoNeto > 0) {
     base.diffMonto = neto - costeadoNeto; base.diffPct = r1((base.diffMonto / costeadoNeto) * 100);
