@@ -6,10 +6,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import pool from '@/app/lib/db';
-import { esAdmin } from '@/app/lib/api-auth';
+import { esAdmin, getAuthedUser } from '@/app/lib/api-auth';
 import { validarContacto } from '@/app/lib/perfil-datos';
 
 const NO_AUTORIZADO = () => NextResponse.json({ error: 'Sin permisos de administrador' }, { status: 403 });
+
+// Super usuario (dueño). Todo admin puede hacer TODO en la plataforma (30-sep-2026), con una sola
+// excepción: nadie más que él puede borrarlo, desactivarlo, bajarle el rol ni tocar su email/clave.
+const EMAIL_SUPER_USUARIO = 'tobaralexis.89@gmail.com';
+async function esSuperUsuarioId(id: unknown): Promise<boolean> {
+  const [rows] = await pool.query('SELECT email FROM usuarios WHERE id = ? LIMIT 1', [id]);
+  return String((rows as any[])[0]?.email || '').toLowerCase() === EMAIL_SUPER_USUARIO;
+}
+const PROTEGIDO = (msg: string) => NextResponse.json({ error: msg }, { status: 403 });
 
 // GET — listar todos los usuarios
 export async function GET(request: NextRequest) {
@@ -114,6 +123,14 @@ export async function PATCH(request: NextRequest) {
 
     if (!id) return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
 
+    // Perfil del super usuario: solo él mismo puede modificar sus datos de acceso/estado.
+    if (await esSuperUsuarioId(id)) {
+      const yo = await getAuthedUser(request);
+      if (yo?.email?.toLowerCase() !== EMAIL_SUPER_USUARIO && (activo !== undefined || rol !== undefined || email !== undefined || (password !== undefined && password !== null && password !== ''))) {
+        return PROTEGIDO('El perfil de super usuario está protegido: no se puede desactivar, cambiar de rol, ni modificar su email o contraseña.');
+      }
+    }
+
     const updates: string[] = [];
     const values: any[] = [];
 
@@ -196,6 +213,7 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
+    if (await esSuperUsuarioId(id)) return PROTEGIDO('El perfil de super usuario no se puede eliminar.');
 
     await pool.query('DELETE FROM usuarios WHERE id = ?', [id]);
     return NextResponse.json({ success: true });

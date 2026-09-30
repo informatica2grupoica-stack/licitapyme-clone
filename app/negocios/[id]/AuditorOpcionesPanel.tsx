@@ -4,14 +4,14 @@
 // OPCIONES por línea del costeo (línea + producto + proveedor), verificación calculada por código,
 // cuadro comparativo de costo por línea y el ciclo firma → aprobación.
 // Spec: docs/ESPECIFICACION_AUDITOR_v1.md. Backend: app/api/negocios/[id]/auditor/route.ts.
-import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment, createContext, useContext } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Modal } from '@/app/components/ui/Modal';
 import { useConfirm } from '@/app/components/ui/confirm';
 import {
   IconLoader2 as Loader2, IconFileText as FileText, IconSparkles as Sparkles, IconChevronDown as ChevronDown,
   IconChevronRight as ChevronRight, IconAlertTriangle as Alerta, IconCircleCheck as Check, IconExternalLink as ExternalLink,
-  IconRefresh as Refresh, IconUpload as Upload,
+  IconRefresh as Refresh, IconUpload as Upload, IconCopy as Copy, IconDownload as Download,
 } from '@tabler/icons-react';
 import type { PanelAuditorDTO, LineaAuditorDTO, OpcionDTO, DocumentoCotizacionDTO } from '@/app/lib/auditor-opciones';
 
@@ -43,6 +43,9 @@ async function post(negocioId: number, body: Record<string, unknown>) {
   return data;
 }
 
+/** Modo impresión (?imprimir=1): el servidor abre esta MISMA pantalla y la imprime a PDF. Todo se muestra desplegado, tal cual la vista. */
+const ImprimirCtx = createContext(false);
+
 export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar }: { negocioId: number; licitacionCodigo: string; puedeAprobar: boolean }) {
   const toast = useToast();
   const confirmar = useConfirm();
@@ -55,6 +58,8 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   const [leyendo, setLeyendo] = useState<Set<string>>(new Set());
   const [ocupado, setOcupado] = useState<number | null>(null);
   const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
+  const [imprimir, setImprimir] = useState(false);
+  useEffect(() => { if (new URLSearchParams(window.location.search).has('imprimir')) setImprimir(true); }, []);
   const [cotizacionesAbierto, setCotizacionesAbierto] = useState(true);   // la lista de cotizaciones se puede esconder
   const [mensajesAbierto, setMensajesAbierto] = useState(false);          // la tarjeta de mensajes parte plegada
   const [mensajesAbiertos, setMensajesAbiertos] = useState<Set<string>>(new Set());
@@ -274,6 +279,37 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
     finally { setBuscandoMercado(prev => { const n = new Set(prev); n.delete(opcionId); return n; }); await cargar(true); }
   };
 
+  // Informe COMPLETO (todo desplegado, sin que falte nada): «Copiar todo» lo deja como texto en el portapapeles y «PDF» lo descarga. Salen del servidor,
+  // de los mismos datos que la pantalla, así que no dependen de qué esté plegado.
+  const [exportando, setExportando] = useState<'copiar' | 'pdf' | null>(null);
+  const copiarInforme = async () => {
+    setExportando('copiar');
+    try {
+      const res = await fetch(`/api/negocios/${negocioId}/auditor/informe?formato=texto`);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'No se pudo armar el informe');
+      const texto = await res.text();
+      await navigator.clipboard.writeText(texto);
+      toast.success('Informe completo copiado', `${texto.length.toLocaleString('es-CL')} caracteres, con todo desplegado.`);
+    } catch (e: any) { toast.error('No se pudo copiar el informe', e.message); }
+    finally { setExportando(null); }
+  };
+  const descargarInformePdf = async () => {
+    setExportando('pdf');
+    try {
+      const res = await fetch(`/api/negocios/${negocioId}/auditor/informe?formato=pdf`);
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        if (d.alternativa) { toast.error(d.error || 'No se pudo generar el PDF', 'Se descarga la versión en documento.'); window.open(d.alternativa, '_blank'); return; }
+        throw new Error(d.error || 'No se pudo generar el PDF');
+      }
+      const blob = await res.blob();
+      const nombre = res.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1] || `Auditor_${licitacionCodigo}.pdf`;
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+    } catch (e: any) { toast.error('No se pudo descargar el PDF', e.message); }
+    finally { setExportando(null); }
+  };
+
   const [calculandoPosicion, setCalculandoPosicion] = useState(false);
   const calcularPosicion = async () => {
     setCalculandoPosicion(true);
@@ -370,8 +406,14 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   const sinLeer = panel.documentos.filter(d => !d.leido).length;
   const r = panel.resumen;
 
+  const cotAbierta = cotizacionesAbierto || imprimir;
+  const msgAbierto = mensajesAbierto || imprimir;
+  const msgAbiertos = imprimir ? new Set(panel.mensajes.map(m => m.opcionIds.join('-'))) : mensajesAbiertos;
+
   return (
-    <div className="space-y-4">
+    <ImprimirCtx.Provider value={imprimir}>
+    <div className="space-y-4" data-auditor-panel data-auditor-listo="1">
+      {/* ── Resumen ── */}
       {/* ── Resumen ── */}
       <div className="bg-white rounded-2xl border border-zinc-200 px-5 py-4 flex flex-wrap items-center gap-x-6 gap-y-2">
         <div>
@@ -389,6 +431,14 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
           <span className="text-zinc-400">Datos OBUMA (opciones firmadas):</span>
           <a href={`/api/negocios/${negocioId}/auditor/obuma?tipo=proveedores&incluir=firmadas`} className="text-indigo-600 hover:underline">Proveedores CSV</a>
           <a href={`/api/negocios/${negocioId}/auditor/obuma?tipo=productos&incluir=firmadas`} className="text-indigo-600 hover:underline">Productos CSV</a>
+          <button data-no-pdf onClick={copiarInforme} disabled={exportando !== null} title="Copiar TODO el contenido del Auditor como texto (con todo desplegado)"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-zinc-200 text-zinc-700 font-semibold hover:bg-zinc-50 disabled:opacity-50">
+            {exportando === 'copiar' ? <Loader2 size={13} className="animate-spin" /> : <Copy size={13} />} Copiar todo
+          </button>
+          <button data-no-pdf onClick={descargarInformePdf} disabled={exportando !== null} title="Descargar TODO el contenido del Auditor en PDF (con todo desplegado)"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-zinc-200 text-zinc-700 font-semibold hover:bg-zinc-50 disabled:opacity-50">
+            {exportando === 'pdf' ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />} PDF
+          </button>
           <button onClick={() => cargar(true)} className="text-zinc-400 hover:text-zinc-700" title="Actualizar"><Refresh size={16} /></button>
         </div>
       </div>
@@ -402,12 +452,12 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
         onDrop={e => { e.preventDefault(); setArrastrando(false); if (!subiendo && e.dataTransfer.files.length) subirCotizaciones(Array.from(e.dataTransfer.files)); }}
         className={`bg-white rounded-2xl border overflow-hidden transition-colors ${arrastrando ? 'border-indigo-400 ring-2 ring-indigo-200 bg-indigo-50/40' : 'border-zinc-200'}`}>
         <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center gap-2">
-          <button onClick={() => setCotizacionesAbierto(v => !v)} className="flex items-center gap-2 text-left min-w-0" title={cotizacionesAbierto ? 'Esconder la lista' : 'Mostrar la lista'}>
-            {cotizacionesAbierto ? <ChevronDown size={14} className="text-zinc-400 shrink-0" /> : <ChevronRight size={14} className="text-zinc-400 shrink-0" />}
+          <button onClick={() => setCotizacionesAbierto(v => !v)} className="flex items-center gap-2 text-left min-w-0" title={cotAbierta ? 'Esconder la lista' : 'Mostrar la lista'}>
+            {cotAbierta ? <ChevronDown size={14} className="text-zinc-400 shrink-0" /> : <ChevronRight size={14} className="text-zinc-400 shrink-0" />}
             <FileText size={16} className="text-amber-600 shrink-0" />
             <h3 className="text-[13.5px] font-bold text-zinc-900 whitespace-nowrap">Cotizaciones en Documentos</h3>
           </button>
-          <span className="text-[11.5px] text-zinc-400 truncate">{cotizacionesAbierto
+          <span className="text-[11.5px] text-zinc-400 truncate">{cotAbierta
             ? '— el Lector las lee una sola vez y las empareja con su línea'
             : `— ${panel.documentos.length} cotización${panel.documentos.length === 1 ? '' : 'es'}${sinLeer ? ` · ${sinLeer} sin leer` : ''} · puedes seguir arrastrando archivos aquí`}</span>
           <div className="ml-auto flex items-center gap-2">
@@ -426,7 +476,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
             </button>
           </div>
         </div>
-        {!cotizacionesAbierto ? null : panel.documentos.length === 0 ? (
+        {!cotAbierta ? null : panel.documentos.length === 0 ? (
           <p className="px-5 py-6 text-[12.5px] text-zinc-400">No hay cotizaciones todavía. Arrastra aquí uno o varios archivos, o usa «Subir cotizaciones»: quedan en la caja «Cotizaciones» de Documentos y se leen solas.</p>
         ) : (
           <ul className="divide-y divide-zinc-100">
@@ -507,21 +557,21 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
         <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
           <div className="px-5 py-3 flex items-center gap-2">
             <button onClick={() => setMensajesAbierto(v => !v)} className="flex items-center gap-2 text-left flex-1 min-w-0">
-              {mensajesAbierto ? <ChevronDown size={14} className="text-zinc-400 shrink-0" /> : <ChevronRight size={14} className="text-zinc-400 shrink-0" />}
+              {msgAbierto ? <ChevronDown size={14} className="text-zinc-400 shrink-0" /> : <ChevronRight size={14} className="text-zinc-400 shrink-0" />}
               <h3 className="text-[13.5px] font-bold text-zinc-900 whitespace-nowrap">Mensaje al proveedor</h3>
               <span className="text-[11.5px] text-zinc-400 truncate">— {panel.mensajes.length} proveedor{panel.mensajes.length === 1 ? '' : 'es'}{panel.mensajes.some(m => m.bloquea) ? ` · ${panel.mensajes.filter(m => m.bloquea).length} con algo que bloquea` : ''}. Lo envías tú.</span>
             </button>
-            {mensajesAbierto && (
+            {msgAbierto && (
               <button onClick={() => setMensajesAbiertos(prev => prev.size === panel.mensajes.length ? new Set() : new Set(panel.mensajes.map(m => m.opcionIds.join('-'))))}
                 className="text-[11.5px] font-semibold text-indigo-600 hover:underline whitespace-nowrap">
-                {mensajesAbiertos.size === panel.mensajes.length ? 'Plegar todos' : 'Desplegar todos'}
+                {msgAbiertos.size === panel.mensajes.length ? 'Plegar todos' : 'Desplegar todos'}
               </button>
             )}
           </div>
-          {mensajesAbierto && (
+          {msgAbierto && (
             <ul className="divide-y divide-zinc-100 border-t border-zinc-100">
               {panel.mensajes.map(m => {
-                const clave = m.opcionIds.join('-'), abierto = mensajesAbiertos.has(clave);
+                const clave = m.opcionIds.join('-'), abierto = msgAbiertos.has(clave);
                 return (
                   <li key={clave} className="px-5 py-2.5">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -568,7 +618,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
         </div>
         <ul className="divide-y divide-zinc-100">
           {panel.lineas.map(l => {
-            const abierta = abiertas.has(l.filaId);
+            const abierta = abiertas.has(l.filaId) || imprimir;
             const activas = l.opciones.filter(o => o.estado !== 'descartada');
             return (
               <li key={l.filaId} className={l.noOfertada ? 'opacity-60' : ''}>
@@ -641,6 +691,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
           className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-[13px] outline-none focus:border-amber-400" />
       </Modal>
     </div>
+    </ImprimirCtx.Provider>
   );
 }
 
@@ -723,6 +774,7 @@ function AgregarLink({ filaId, ocupado, onAgregar }: { filaId: string; ocupado: 
 
 // Verificador de costo con IA de UNA opción: ayuda de cinco campos (solo si no quedó verificada) y qué hallazgos del modelo se descartaron por no tener cita.
 function CostoIAOpcion({ o, verificando, onVerificar }: { o: OpcionDTO; verificando: boolean; onVerificar: (opcionId: number) => void }) {
+  const imprimirIA = useContext(ImprimirCtx);
   const c = o.costoIA;
   const puede = o.via === 'completa' && o.estado !== 'descartada' && !['aprobada', 'en_aprobacion'].includes(o.estado) && o.respaldos.some(r => r.tipo !== 'ficha_tecnica' && r.extraccionId != null);
   const a = o.verificacion?.veredicto !== 'VERIFICADO' ? c?.ayuda : null;
@@ -741,7 +793,7 @@ function CostoIAOpcion({ o, verificando, onVerificar }: { o: OpcionDTO; verifica
         </div>
       )}
       {c && c.descartados.length > 0 && (
-        <details className="mt-1"><summary className="cursor-pointer text-[10.5px] text-zinc-400">{c.descartados.length} hallazgo{c.descartados.length === 1 ? '' : 's'} de la IA descartado{c.descartados.length === 1 ? '' : 's'} (sin cita en el documento)</summary>
+        <details className="mt-1" open={imprimirIA}><summary className="cursor-pointer text-[10.5px] text-zinc-400">{c.descartados.length} hallazgo{c.descartados.length === 1 ? '' : 's'} de la IA descartado{c.descartados.length === 1 ? '' : 's'} (sin cita en el documento)</summary>
           <ul className="text-[10.5px] text-zinc-400 list-disc ml-4">{c.descartados.slice(0, 6).map((d, i) => <li key={i}>{d}</li>)}</ul></details>
       )}
       {puede && (
@@ -1033,6 +1085,7 @@ function CuadroTecnico({ linea, puedeAprobar, onAccion }: {
   linea: LineaAuditorDTO; puedeAprobar: boolean;
   onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void;
 }) {
+  const imprimirTec = useContext(ImprimirCtx);
   const [abiertos, setAbiertos] = useState<Set<number>>(new Set());
   const [declarando, setDeclarando] = useState<{ opcionId: number; n: number } | null>(null);
   const [textoDecl, setTextoDecl] = useState('');
@@ -1061,7 +1114,7 @@ function CuadroTecnico({ linea, puedeAprobar, onAccion }: {
           </thead>
           <tbody className="align-top">
             {base.map(f0 => {
-              const abierto = abiertos.has(f0.n);
+              const abierto = abiertos.has(f0.n) || imprimirTec;
               return (
                 <Fragment key={f0.n}>
                   <tr className={`border-t border-zinc-100 cursor-pointer hover:bg-zinc-50 ${f0.rojo ? 'bg-red-50/40' : ''}`}
