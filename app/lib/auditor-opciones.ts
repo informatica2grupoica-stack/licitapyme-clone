@@ -23,7 +23,7 @@ import { ultimasCostoIA, verificarCostoIAOpcion } from '@/app/lib/auditor-costo-
 import type { AyudaCosto } from '@/app/lib/auditor-costo-ia-core';
 import { estadosDeLineas, lineasQueExigenViaCompleta, listarCostosAsociados, totalCostosAsociados, type CostoAsociadoDTO } from '@/app/lib/auditor-lineas';
 import {
-  normalizarProductos, emparejarProductos, coincidenciaIdentidad, emparejarProductoReleido, verificarOpcion, margenProyectoConOpciones, evaluarAvance, type ResultadoAvance,
+  normalizarProductos, normalizarExtraccion, emparejarProductos, coincidenciaIdentidad, emparejarProductoReleido, verificarOpcion, margenProyectoConOpciones, evaluarAvance, type ResultadoAvance,
   type ProductoNormalizado, type ResultadoVerificacion, type Emparejamiento,
 } from '@/app/lib/auditor-opciones-core';
 
@@ -173,7 +173,7 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
     const vigentesDeCosto = respaldosRaw.filter(r => r.vigente && r.tipo !== 'ficha_tecnica').reverse();
     const sostiene = vigentesDeCosto.find(r => r.sostiene_costo) || vigentesDeCosto[0] || null;
     const data = sostiene?.extraccion_id != null ? ext.get(sostiene.extraccion_id) ?? null : null;
-    const producto = data && sostiene?.producto_idx != null ? normalizarProductos(data.salida, data.texto)[sostiene.producto_idx] ?? null : null;
+    const producto = data && sostiene?.producto_idx != null ? normalizarExtraccion(data)[sostiene.producto_idx] ?? null : null;
     const capturas = capturasPorOpcion.get(o.id) || [];
     const capSostiene = sostiene?.tipo === 'link_web' ? capturas.find(c => c.respaldoId === sostiene.id) ?? null : null;
     const docBase = data?.salida.documento ?? null;
@@ -304,7 +304,7 @@ async function armarDocumentos(negocioId: number, codigo: string, opcionesPorFil
         base.rut = data.salida.proveedor?.rut?.valor || null;
         base.fechaEmision = data.salida.documento?.fecha_emision || null;
         base.formalidad = data.salida.documento?.formalidad || null;
-        base.productos = normalizarProductos(data.salida, data.texto).map(p => {
+        base.productos = normalizarExtraccion(data).map(p => {
           const enlace = opcionPorProducto.get(`${e.id}:${p.idx}`);
           return { idx: p.idx, nombre: p.nombre, precio: p.precio, iva: p.iva, cantidad: p.cantidadCotizada, esCargo: p.esCargo, opcionId: enlace?.opcionId ?? null, filaId: enlace?.filaId ?? null };
         });
@@ -326,7 +326,7 @@ async function crearOpcionDesdeProducto(params: {
 }): Promise<{ opcionId: number; respaldoId: number }> {
   const { negocioId, filaId, extraccionId, productoIdx, data, documentoUrl, documentoNombre, actor, link } = params;
   const ahora = ahoraChileSQL();
-  const prod = normalizarProductos(data.salida, data.texto)[productoIdx];
+  const prod = normalizarExtraccion(data)[productoIdx];
   const prov = data.salida.proveedor || {};
   const formal = data.salida.documento?.formalidad !== 'informal';
   const tipoDoc = data.salida.documento?.tipo;
@@ -387,7 +387,7 @@ export async function crearOpcionesDesdeExtraccion(negocioId: number, extraccion
   const ex = await extraccionPorId(extraccionId);
   if (!ex?.data || !ex.documentoUrl) throw new Error('La extracción no existe o no se pudo leer.');
   const lineas = lineasAuditables(await cargarEstadoCosteo(negocioId));
-  const productos = normalizarProductos(ex.data.salida, ex.data.texto).filter(p => p.precio != null);
+  const productos = normalizarExtraccion(ex.data).filter(p => p.precio != null);
   const [ya] = await pool.query(`SELECT r.producto_idx FROM auditor_respaldo r JOIN auditor_opcion o ON o.id = r.opcion_id WHERE r.extraccion_id = ? AND r.vigente = 1 AND o.estado <> 'descartada'`, [extraccionId]) as any;
   const yaAsignados = new Set((ya as any[]).map(r => r.producto_idx));
   const { asignaciones, sinEmparejar } = emparejarProductos(productos.filter(p => !yaAsignados.has(p.idx)), lineas);
@@ -405,7 +405,7 @@ export async function asignarProductoALinea(negocioId: number, extraccionId: num
   if (!ex?.data || !ex.documentoUrl) throw new Error('La extracción no existe o no se pudo leer.');
   const lineas = lineasAuditables(await cargarEstadoCosteo(negocioId));
   if (!lineas.some(l => l.id === filaId)) throw new Error('Esa línea no existe en el Costeo de este negocio.');
-  if (!normalizarProductos(ex.data.salida, ex.data.texto)[productoIdx]) throw new Error('Ese producto no existe en la extracción.');
+  if (!normalizarExtraccion(ex.data)[productoIdx]) throw new Error('Ese producto no existe en la extracción.');
   const [ya] = await pool.query(`SELECT r.id FROM auditor_respaldo r JOIN auditor_opcion o ON o.id = r.opcion_id WHERE r.extraccion_id = ? AND r.producto_idx = ? AND r.vigente = 1 AND o.estado <> 'descartada'`, [extraccionId, productoIdx]) as any;
   if ((ya as any[]).length) throw new Error('Ese producto ya está asignado a una opción: cámbiale la línea o quítalo primero.');
   return (await crearOpcionDesdeProducto({ negocioId, filaId, extraccionId, productoIdx, data: ex.data, documentoUrl: ex.documentoUrl, documentoNombre: ex.documentoNombre || 'documento', actor })).opcionId;
@@ -439,7 +439,7 @@ export async function releerDocumento(negocioId: number, url: string, nombre: st
   if (lectura.error) return { ...vacio, error: lectura.error };
   const nueva = await extraccionPorId(lectura.id);
   if (!nueva?.data) return { ...vacio, error: 'La lectura nueva quedó vacía.' };
-  const nuevos = normalizarProductos(nueva.data.salida, nueva.data.texto);
+  const nuevos = normalizarExtraccion(nueva.data);
   let actualizadas = 0, sinEquivalente = 0;
 
   if (idsViejos.length) {
@@ -447,7 +447,7 @@ export async function releerDocumento(negocioId: number, url: string, nombre: st
     const [resp] = await pool.query(`SELECT * FROM auditor_respaldo WHERE extraccion_id IN (?) AND vigente = 1`, [idsViejos]) as any;
     const ahora = ahoraChileSQL();
     for (const r of resp as any[]) {
-      const viejo = viejasData.get(r.extraccion_id)?.data ? normalizarProductos(viejasData.get(r.extraccion_id)!.data!.salida, viejasData.get(r.extraccion_id)!.data!.texto)[r.producto_idx] : null;
+      const viejo = viejasData.get(r.extraccion_id)?.data ? normalizarExtraccion(viejasData.get(r.extraccion_id)!.data!)[r.producto_idx] : null;
       const idxNuevo = viejo ? emparejarProductoReleido(viejo, nuevos) : null;
       await pool.query(`UPDATE auditor_respaldo SET vigente = 0, sostiene_costo = 0 WHERE id = ?`, [r.id]);   // el viejo se conserva con su precio: historial
       if (idxNuevo == null) { sinEquivalente++; await evento(negocioId, r.opcion_id, 'documento_nuevo', 'lector', `Re-análisis de ${nombre}: el producto ya no aparece en la lectura nueva; el respaldo anterior quedó sin vigencia.`); continue; }
@@ -639,7 +639,7 @@ export async function agregarFichaAOpcion(params: {
   }
   const ex = await extraccionPorId(extraccionId);
   if (!ex?.data) return { estado: 'error', error: 'La ficha se leyó, pero la extracción quedó vacía.' };
-  const productos = normalizarProductos(ex.data.salida, ex.data.texto).filter(p => !p.esCargo);
+  const productos = normalizarExtraccion(ex.data).filter(p => !p.esCargo);
   if (productos.length === 0) return { estado: 'error', error: 'No se encontró ningún producto en la ficha (¿es un documento legible?).' };
 
   const idOpcion = { marca: opcion?.marca, modelo: opcion?.modelo, sku: opcion?.sku_proveedor };
@@ -745,7 +745,7 @@ export async function agregarLinkALinea(negocioId: number, filaId: string, urlEn
   }
   const lectura = await leerYGuardarPaginaWeb({ negocioId, url, titulo: cap.titulo, texto: cap.texto, modo: 'completo' });
   const ex = lectura.error ? null : await extraccionPorId(lectura.id);
-  const productos = ex?.data ? normalizarProductos(ex.data.salida, ex.data.texto) : [];
+  const productos = ex?.data ? normalizarExtraccion(ex.data) : [];
   const idxPrincipal = Math.max(0, (ex?.data?.salida.productos || []).findIndex(p => p.es_producto_principal));
   if (!ex?.data || ex.data.salida.documento?.es_listado_web || !productos[idxPrincipal] || productos[idxPrincipal].precio == null) {
     const opcionId = await crearOpcionSinLectura(negocioId, filaId, url, cap.titulo, capturaId, actor);
@@ -792,7 +792,7 @@ export async function revisitarLinkDeOpcion(negocioId: number, opcionId: number,
   const lectura = await leerYGuardarPaginaWeb({ negocioId, url: r.url, titulo: cap.titulo, texto: cap.texto, modo: 'completo', opcionId, respaldoId: r.id });
   if (lectura.error) { cambios.push(`No se pudo releer el link: ${lectura.error}`); return cambios; }
   const ex = await extraccionPorId(lectura.id);
-  const productos = ex?.data ? normalizarProductos(ex.data.salida, ex.data.texto) : [];
+  const productos = ex?.data ? normalizarExtraccion(ex.data) : [];
   const nuevo = productos[Math.max(0, (ex?.data?.salida.productos || []).findIndex(p => p.es_producto_principal))];
   if (!ex?.data || !nuevo || nuevo.precio == null) { cambios.push('La página se cargó pero ya no muestra un precio legible.'); return cambios; }
   const anterior = num(r.precio_declarado);

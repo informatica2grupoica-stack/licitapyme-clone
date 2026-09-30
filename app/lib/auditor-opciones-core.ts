@@ -69,6 +69,8 @@ export interface ProductoNormalizado {
   preciosMultiples: string[];     // otros precios visibles con su condición (para alertar)
   precioAmbiguo: boolean;
   moneda: string; iva: 'incluido' | 'neto' | 'no_declarado'; ivaTexto: string;
+  /** Precio de un LINK de tienda sin IVA declarado: se asumió CON IVA (así publican las tiendas) y el costo neto se calcula sacándoselo. */
+  ivaSupuesto?: boolean;
   unidadPrecio: string; contenidoEmpaque: string; unidadesPorEmpaque: number | null;
   cantidadCotizada: number | null; moq: number | null;
   stock: string; plazoTexto: string; plazoDias: number | null; tipoDias: string; despacho: string; incoterm: string;
@@ -123,7 +125,7 @@ export function separarPrecioPegadoACantidad(texto: string, precio: number): { c
   return null;
 }
 
-export function normalizarProductos(salida: SalidaLector, texto?: string): ProductoNormalizado[] {
+export function normalizarProductos(salida: SalidaLector, texto?: string, esWeb = false): ProductoNormalizado[] {
   return (salida.productos || []).map((p, idx) => {
     const c = p.comercial || {}, d = p.producto || {};
     const condiciones = (c.condiciones_generales || []).map(x => x.texto || '').filter(Boolean);
@@ -136,7 +138,10 @@ export function normalizarProductos(salida: SalidaLector, texto?: string): Produ
       correccion = `El precio venía pegado a la cantidad («${precio!.toLocaleString('es-CL')}»): se separó en ${pegado.cantidad} unidades × $${pegado.precioUnitario.toLocaleString('es-CL')}, porque el total del documento ($${pegado.total.toLocaleString('es-CL')}) lo confirma.`;
       precio = pegado.precioUnitario; cantidadCorregida = pegado.cantidad;
     }
-    const iva = ivaConfiable(c.iva, c.iva_texto_literal);
+    let iva = ivaConfiable(c.iva, c.iva_texto_literal), ivaSupuesto = false;
+    // Regla del usuario (30-sep-2026): las páginas de tienda publican el precio CON IVA salvo que digan lo contrario; las cotizaciones formales traen su IVA explícito
+    // y NO se suponen. Si el Lector vio "neto" pero sin frase válida, tampoco se supone: queda pendiente de confirmar.
+    if (esWeb && iva === 'no_declarado' && c.iva !== 'neto') { iva = 'incluido'; ivaSupuesto = true; }
     const plazoTexto = c.plazo_entrega || '';
     const nombre = [d.tipo, d.marca, d.modelo, d.version].filter(Boolean).join(' ').trim() || d.sku_proveedor || `Producto ${idx + 1}`;
     return {
@@ -147,7 +152,7 @@ export function normalizarProductos(salida: SalidaLector, texto?: string): Produ
       sku: d.sku_fabricante || d.sku_proveedor || '',
       precio, preciosMultiples: otros, precioAmbiguo: ambiguo,
       moneda: (c.moneda || 'CLP').toUpperCase().replace(/^\$$/, 'CLP').replace(/PESOS?/, 'CLP'),
-      iva, ivaTexto: c.iva_texto_literal || '',
+      iva, ivaSupuesto, ivaTexto: c.iva_texto_literal || '',
       unidadPrecio: c.unidad_precio || '', contenidoEmpaque: c.contenido_empaque || '',
       unidadesPorEmpaque: parsearMonto(c.unidades_por_empaque),
       cantidadCotizada: parsearMonto(cantTexto) ?? cantidadCorregida, moq: parsearMonto(c.moq), correccion,
@@ -157,6 +162,11 @@ export function normalizarProductos(salida: SalidaLector, texto?: string): Produ
       garantia: c.garantia || '', condiciones,
     };
   });
+}
+
+/** Igual que normalizarProductos, sabiendo si la extracción viene de la captura de un link (ahí el IVA sin declarar se asume incluido). */
+export function normalizarExtraccion(d: { salida: SalidaLector; texto: string; metodoTexto?: string }): ProductoNormalizado[] {
+  return normalizarProductos(d.salida, d.texto, d.metodoTexto === 'captura-web');
 }
 
 // ── Emparejar producto de la cotización ↔ línea del costeo ──────────────────────────────────────
@@ -376,6 +386,9 @@ export function verificarOpcion(e: EntradaVerificacion): ResultadoVerificacion {
   // ── V4 precio (regla por impacto en el margen) ──
   const norm = precioNetoUnitario({ precio: p.precio, iva: p.iva, moneda: p.moneda, factor_unidades: p.unidadesPorEmpaque });
   const neto = esRutaB ? netoRutaB : norm.neto;
+  if (p.ivaSupuesto && !esRutaB && norm.neto != null) {
+    alertas.push({ codigo: 'V3', nivel: 'info', mensaje: `Precio del link $${p.precio.toLocaleString('es-CL')}: la página no dice si incluye IVA y las tiendas publican con IVA, así que se asumió CON IVA y se le sacó → neto $${norm.neto.toLocaleString('es-CL')}.`, accion: 'revisar' });
+  }
   // Un precio AMBIGUO (¿1.022.000 o 1.022? ¿miles o decimales?) no se usa para nada: ni costo, ni diferencia, ni margen. Si entrara,
   // una mala lectura hunde el margen del proyecto entero (caso real: un proyector leído a $840 millones). Se bloquea y pide confirmarlo.
   if (p.precioAmbiguo) {
