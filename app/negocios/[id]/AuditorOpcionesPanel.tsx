@@ -323,7 +323,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   const autoVerificar = async (data: PanelAuditorDTO | null) => {
     if (!data) return;
     const pend = data.lineas.flatMap(l => l.opciones.filter(o => o.via === 'completa' && o.estado !== 'descartada' && !['aprobada', 'en_aprobacion'].includes(o.estado)
-      && o.tecnico.estado === 'NO_CORRIDO' && !o.tecnico.error && o.tecnico.requisitosTotal > 0 && !yaIntentadas.current.has(o.id)));
+      && o.tecnico.estado === 'NO_CORRIDO' && !o.tecnico.error && o.tecnico.requisitosTotal > 0 && o.respaldos.some(r => r.extraccionId != null) && !yaIntentadas.current.has(o.id)));
     for (const o of pend) { yaIntentadas.current.add(o.id); await verificarTecnico(o.id); }
     // El verificador de costo con IA corre sobre las opciones con un respaldo de costo leído que todavía no pasaron por él.
     const sinCosto = data.lineas.flatMap(l => l.opciones.filter(o => o.via === 'completa' && o.estado !== 'descartada' && !['aprobada', 'en_aprobacion'].includes(o.estado)
@@ -332,7 +332,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   };
 
   const verificarTodoTecnico = async () => {
-    const pend = (panel?.lineas || []).flatMap(l => l.opciones.filter(o => o.via === 'completa' && o.estado !== 'descartada' && o.tecnico.estado === 'NO_CORRIDO' && o.tecnico.requisitosTotal > 0));
+    const pend = (panel?.lineas || []).flatMap(l => l.opciones.filter(o => o.via === 'completa' && o.estado !== 'descartada' && o.tecnico.estado === 'NO_CORRIDO' && o.tecnico.requisitosTotal > 0 && o.respaldos.some(r => r.extraccionId != null)));
     for (const o of pend) await verificarTecnico(o.id);
   };
 

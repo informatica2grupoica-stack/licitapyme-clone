@@ -403,3 +403,13 @@ test('normalizarProductos con el texto del documento corrige el precio pegado y 
   assert.equal(v.costoNetoUnitario, 374_000);
   assert.ok(v.alertas.some(a => a.codigo === 'LECTURA' && /pegado a la cantidad/.test(a.mensaje)));
 });
+
+test('IVA sin declarar: en un LINK se asume incluido y se saca; en una cotización NO se supone', () => {
+  const salida: SalidaLector = { productos: [{ comercial: { precios: [{ valor: '$569.990', condicion: 'actual' }], moneda: 'CLP', iva: 'no_declarado' }, producto: { marca: 'Aiwa', modelo: '70' } }] };
+  const web = normalizarProductos(salida, '', true)[0];
+  assert.equal(web.iva, 'incluido'); assert.equal(web.ivaSupuesto, true);
+  const cot = normalizarProductos(salida, '', false)[0];
+  assert.equal(cot.iva, 'no_declarado'); assert.equal(cot.ivaSupuesto, false);
+  const neto = normalizarProductos({ productos: [{ comercial: { precios: [{ valor: '$100.000' }], iva: 'neto', iva_texto_literal: '+ IVA' } }] }, '', true)[0];
+  assert.equal(neto.iva, 'neto'); assert.equal(neto.ivaSupuesto, false);
+});
