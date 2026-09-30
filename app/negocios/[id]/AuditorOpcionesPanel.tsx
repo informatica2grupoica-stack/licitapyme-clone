@@ -67,6 +67,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   const [imprimir, setImprimir] = useState(false);
   useEffect(() => { if (new URLSearchParams(window.location.search).has('imprimir')) setImprimir(true); }, []);
   const [cotizacionesAbierto, setCotizacionesAbierto] = useState(true);   // la lista de cotizaciones se puede esconder
+  const [sugiriendo, setSugiriendo] = useState(false);   // «Revisar con IA» de los productos sin línea
   const [mensajesAbierto, setMensajesAbierto] = useState(false);          // la tarjeta de mensajes parte plegada
   const [mensajesAbiertos, setMensajesAbiertos] = useState<Set<string>>(new Set());
   const [traiendo, setTraiendo] = useState<{ actual: number; total: number } | null>(null);
@@ -440,7 +441,6 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   const sinLineaTodos = panel.documentos.flatMap(d => d.productos.filter(p => !p.filaId && !p.esCargo && p.precio != null).map(p => ({ d, p })));
   const productosSinLinea = sinLineaTodos.filter(({ p }) => !p.noCorresponde);          // los que siguen esperando una decisión
   const productosSobrantes = sinLineaTodos.filter(({ p }) => !!p.noCorresponde);        // cotizados de más: no van en ninguna línea
-  const [sugiriendo, setSugiriendo] = useState(false);
   const resumenDeLinea = new Map(resumenLicitacion(lineasParaResumen(panel), panel.presupuesto?.neto ?? null).filas.map(f => [f.filaId, f]));
   // Desde el resumen se salta a la línea: se abre y la pantalla baja hasta ella.
   const irALinea = (filaId: string) => {
