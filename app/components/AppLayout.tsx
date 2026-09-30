@@ -297,9 +297,8 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
   // consulta si el perfil puede usarlo.
   const puedeRepartir = usuario?.rol === 'admin' || !!usuario?.permisos?.repartir_puente;
   // Compras: jefe de ventas (aprobar_comercial), Encargado de Compras (permiso `compras`),
-  // administración/bodega — NO "ser admin" a secas (pedido explícito, 10-sep-2026: "antes se podía
-  // ver por todos los admin, ahora solo asesor y yo"). `compras_todo` es el único permiso que un
-  // admin NO trae gratis — ver el comentario largo en app/api/compras/[negocioId]/route.ts.
+  // administración/bodega y, desde el 30-sep-2026, TODO admin (`compras_todo` viene incluido para admin —
+  // revierte el pedido del 10-sep "solo asesor y yo"; ver permisosDeUsuario en app/lib/api-auth.ts).
   const puedeVerCompras = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial
     || !!usuario?.permisos?.compras_administracion || !!usuario?.permisos?.compras_bodega || !!usuario?.permisos?.compras_ver;
   const [totalPuente, setTotalPuente] = useState(0);

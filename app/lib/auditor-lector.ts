@@ -67,7 +67,15 @@ function mimeDe(url: string, contentType: string | null): string {
   return ({ pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' } as Record<string, string>)[ext] || 'application/octet-stream';
 }
 
-export async function transcribirDocumento(url: string): Promise<{ texto: string; metodo: string }> {
+/** Marca con la que empieza el texto cuando trae DOS transcripciones OCR del mismo archivo (re-análisis). */
+export const MARCA_OCR_COMBINADO = 'TRANSCRIPCIÓN 1 (GLM-OCR';
+function unirTranscripciones(glm: string, tesseract: string): string {
+  return `${MARCA_OCR_COMBINADO}: conserva la estructura del documento pero puede perder textos, p. ej. cifras grandes o de color)\n${glm.trim() || '(no entregó texto)'}\n\nTRANSCRIPCIÓN 2 (Tesseract: texto suelto, sin estructura; las columnas de una tabla quedan en una misma línea, en el mismo orden que en el documento)\n${tesseract.trim() || '(no entregó texto)'}`;
+}
+
+/** @param opts.combinar re-análisis: para imágenes y PDFs escaneados junta GLM-OCR y Tesseract, porque cada uno pierde cosas distintas
+ *  (caso real: una lista de precios donde GLM-OCR perdió los precios vigentes y Tesseract los tenía todos). */
+export async function transcribirDocumento(url: string, opts: { combinar?: boolean } = {}): Promise<{ texto: string; metodo: string }> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`no se pudo descargar el documento (HTTP ${res.status})`);
   const buffer = Buffer.from(await res.arrayBuffer());
@@ -82,6 +90,13 @@ export async function transcribirDocumento(url: string): Promise<{ texto: string
       const t = ((await pdfParse(buffer)).text || '').trim();
       if (t.length >= 150) return { texto: t, metodo: 'pdf-parse' };
     } catch (e) { console.warn('[auditor-lector] pdf-parse falló:', String(e).slice(0, 120)); }
+    if (opts.combinar) {
+      const [g, t] = await Promise.all([
+        extraerTextoPdfPorUrlConGlmOcr(url, 0).catch(() => ''),
+        ocrPdfLocalTesseract(buffer).catch(() => ''),
+      ]);
+      if ((g + t).trim().length >= 50) return { texto: unirTranscripciones(g, t), metodo: 'glm-ocr+tesseract' };
+    }
     // 2º GLM-OCR por URL pública (escaneados), 3º Tesseract local.
     try {
       const t = (await extraerTextoPdfPorUrlConGlmOcr(url, 0)).trim();
@@ -93,6 +108,11 @@ export async function transcribirDocumento(url: string): Promise<{ texto: string
   }
 
   if (mime.startsWith('image/')) {
+    if (opts.combinar) {
+      const [g, t] = await Promise.all([ocrImagenConGlmOcr(buffer, mime).catch(() => ''), ocrImagenLocalTesseract(buffer).catch(() => '')]);
+      if ((g + t).trim().length >= 20) return { texto: unirTranscripciones(g, t), metodo: 'glm-ocr+tesseract' };
+      throw new Error('no se pudo leer la imagen (ningún OCR transcribió texto legible)');
+    }
     const g = (await ocrImagenConGlmOcr(buffer, mime).catch(() => '')).trim();
     if (g.length >= 20) return { texto: g, metodo: 'glm-ocr' };
     const t = (await ocrImagenLocalTesseract(buffer).catch(() => '')).trim();
@@ -125,9 +145,12 @@ function promptSistema(modo: ModoLector, esWeb = false): string {
   ].join('\n\n');
 }
 
+const NOTA_OCR_COMBINADO = `NOTA: este documento trae DOS transcripciones OCR del MISMO archivo. Una puede haber perdido texto que la otra conserva (por ejemplo precios grandes o de color): usa lo que aparezca en CUALQUIERA de las dos y no inventes nada que no esté en ninguna. En una lista de precios por columnas (cada modelo o capacidad es una columna), la transcripción 2 deja los valores de una misma fila en una sola línea, en el orden de las columnas: asigna cada valor a SU columna. Un precio precedido por "ANTES" o tachado es el precio anterior, no el vigente: el vigente es el otro de esa columna. Si una columna no tiene precio vigente legible, déjalo sin precio.`;
+
 async function llamarLector(texto: string, nombre: string, modo: ModoLector, esWeb = false): Promise<SalidaLector> {
   const system = promptSistema(modo, esWeb);
-  const user = `${esWeb ? 'PÁGINA WEB' : 'DOCUMENTO'}: ${nombre}\n\n${esWeb ? 'TEXTO CAPTURADO DE LA PÁGINA' : 'TEXTO TRANSCRITO DEL DOCUMENTO'}:\n${texto.slice(0, MAX_CHARS_TEXTO)}`;
+  const combinado = texto.startsWith(MARCA_OCR_COMBINADO);
+  const user = `${esWeb ? 'PÁGINA WEB' : 'DOCUMENTO'}: ${nombre}\n\n${combinado ? NOTA_OCR_COMBINADO + '\n\n' : ''}${esWeb ? 'TEXTO CAPTURADO DE LA PÁGINA' : 'TEXTO TRANSCRITO DEL DOCUMENTO'}:\n${texto.slice(0, MAX_CHARS_TEXTO)}`;
   let ultimo = '';
   for (let intento = 1; intento <= 2; intento++) {
     const completion: any = await crearChatIA({
@@ -150,11 +173,13 @@ async function llamarLector(texto: string, nombre: string, modo: ModoLector, esW
 export async function leerYGuardarDocumento(params: {
   negocioId: number; url: string; nombre: string; modo?: ModoLector;
   opcionId?: number | null; respaldoId?: number | null;
+  /** Re-análisis: transcribe con los dos OCR y los junta (ver transcribirDocumento). */
+  combinarOCR?: boolean;
 }): Promise<{ id: number; error: string | null }> {
-  const { negocioId, url, nombre, modo = 'comercial', opcionId = null, respaldoId = null } = params;
+  const { negocioId, url, nombre, modo = 'comercial', opcionId = null, respaldoId = null, combinarOCR = false } = params;
   const ahora = ahoraChileSQL();
   try {
-    const { texto, metodo } = await transcribirDocumento(url);
+    const { texto, metodo } = await transcribirDocumento(url, { combinar: combinarOCR });
     const salida = await llamarLector(texto, nombre, modo);
     const guardada: ExtraccionGuardada = { modo, salida, texto: texto.slice(0, MAX_CHARS_TEXTO), metodoTexto: metodo };
     const [ins] = await pool.query(

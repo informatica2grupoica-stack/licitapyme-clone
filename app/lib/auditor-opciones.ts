@@ -16,9 +16,14 @@ import {
   ultimasVerificaciones, habilitacionesYDeclaraciones, estadoTecnicoDe, verificarTecnicoOpcion, segundaPasadaTecnica, contarRequisitosPorLinea,
 } from '@/app/lib/auditor-tecnico-v2';
 import type { ResultadoTecnico } from '@/app/lib/auditor-tecnico-v2-core';
+import { ultimosMercados, opcionesConJustificacion, verificarMercadoOpcion, justificarAhorro } from '@/app/lib/auditor-mercado';
+import { evaluarMercado, aplicarEvaluacion, type ReferenciaMercado, type ReferenciaDescartada, type CompetidorMP, type FuenteComparador } from '@/app/lib/auditor-mercado-core';
+import type { PrecioMercadoPublico } from '@/app/lib/auditor-compras-core';
+import { ultimasCostoIA, verificarCostoIAOpcion } from '@/app/lib/auditor-costo-ia';
+import type { AyudaCosto } from '@/app/lib/auditor-costo-ia-core';
 import { estadosDeLineas, lineasQueExigenViaCompleta, listarCostosAsociados, totalCostosAsociados, type CostoAsociadoDTO } from '@/app/lib/auditor-lineas';
 import {
-  normalizarProductos, emparejarProductos, verificarOpcion, margenProyectoConOpciones, evaluarAvance, type ResultadoAvance,
+  normalizarProductos, emparejarProductos, coincidenciaIdentidad, emparejarProductoReleido, verificarOpcion, margenProyectoConOpciones, evaluarAvance, type ResultadoAvance,
   type ProductoNormalizado, type ResultadoVerificacion, type Emparejamiento,
 } from '@/app/lib/auditor-opciones-core';
 
@@ -46,6 +51,16 @@ export interface OpcionDTO {
   estadoLink: string | null;
   /** Verificación técnica (Prompt 4 v2.0) de la opción, calculada por código sobre la última corrida. */
   tecnico: TecnicoDTO;
+  /** Mercado (Prompt 5 V9/V10/V10-b/V10-c): referencias del MISMO producto, competidor y mercado público. null = todavía no se buscó. */
+  mercado: MercadoDTO | null;
+  costoIA: CostoIADTO | null;
+}
+/** Verificador de costo con IA (Prompt 5 v2.0): hallazgos con cita verificada (ya sumados a las alertas de la opción) y la ayuda de cinco campos. */
+export interface CostoIADTO { creadoAt: string; error: string | null; ayuda: AyudaCosto | null; descartados: string[]; noPudeLeer: Array<{ que: string; donde: string }>; alertas: number }
+export interface MercadoDTO {
+  creadoAt: string; consulta: string; error: string | null;
+  referencias: ReferenciaMercado[]; descartadas: ReferenciaDescartada[]; competidor: CompetidorMP | null; mercadoPublico: PrecioMercadoPublico | null;
+  comparador: FuenteComparador[]; medianaReferencias: number | null; dispersionActiva: boolean; ahorroMaximoPct: number | null; justificada: boolean;
 }
 export interface TecnicoDTO {
   estado: ResultadoTecnico['estado'] | 'NO_CORRIDO' | 'SIN_REQUISITOS' | 'NO_APLICA';
@@ -77,6 +92,8 @@ export interface PanelAuditorDTO {
   avance: ResultadoAvance;
   resumen: { lineas: number; conOpcion: number; definitivas: number; aprobadas: number; bloqueadas: number };
   sinCosteo: boolean;
+  /** Última posición de precio calculada (la agrega el GET; no forma parte de armarPanelAuditor para no crear un ciclo de módulos). */
+  posicion?: import('@/app/lib/auditor-posicion').PosicionGuardadaDTO | null;
 }
 
 // ── Utilidades ───────────────────────────────────────────────────────────────────────────────────
@@ -118,9 +135,10 @@ async function cargarExtracciones(ids: number[]): Promise<Map<number, Extraccion
 export async function armarPanelAuditor(negocioId: number, licitacionCodigo: string): Promise<PanelAuditorDTO> {
   const hoyISO = ahoraChileSQL().slice(0, 10);
   // Todas las lecturas son independientes: van EN PARALELO (la base es remota; una a una el panel tardaba segundos).
-  const [estado, estadosLinea, verifTec, habTec, reqPorLinea, exigenCompleta, costosAsociados, opRes, reRes, caRes] = await Promise.all([
+  const [estado, estadosLinea, verifTec, habTec, reqPorLinea, exigenCompleta, costosAsociados, mercados, justificadas, costosIA, opRes, reRes, caRes] = await Promise.all([
     cargarEstadoCosteo(negocioId), estadosDeLineas(negocioId), ultimasVerificaciones(negocioId), habilitacionesYDeclaraciones(negocioId),
     contarRequisitosPorLinea(negocioId, licitacionCodigo), lineasQueExigenViaCompleta(negocioId), listarCostosAsociados(negocioId),
+    ultimosMercados(negocioId), opcionesConJustificacion(negocioId), ultimasCostoIA(negocioId),
     pool.query(`SELECT * FROM auditor_opcion WHERE negocio_id = ? ORDER BY id`, [negocioId]) as Promise<any>,
     pool.query(`SELECT * FROM auditor_respaldo WHERE negocio_id = ? ORDER BY id`, [negocioId]) as Promise<any>,
     pool.query(`SELECT id, opcion_id, respaldo_id, url, estado_link, titulo, capturado_at, (imagen IS NOT NULL) AS hay_imagen FROM auditor_captura WHERE negocio_id = ? ORDER BY id DESC`, [negocioId]) as Promise<any>,
@@ -151,9 +169,11 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
       cargadoAt: fechaS(r.cargado_at) || '', cargadoPorNombre: s(r.cargado_por_nombre), extraccionId: r.extraccion_id, productoIdx: r.producto_idx,
     }));
     // El respaldo que sostiene el costo: el marcado; si no, el más reciente vigente.
-    const sostiene = respaldosRaw.filter(r => r.vigente).reverse().find(r => r.sostiene_costo) || respaldosRaw.filter(r => r.vigente).reverse()[0] || null;
+    // Una ficha técnica NO sostiene un costo (no trae precio): solo cuenta como respaldo de costo lo que puede tenerlo.
+    const vigentesDeCosto = respaldosRaw.filter(r => r.vigente && r.tipo !== 'ficha_tecnica').reverse();
+    const sostiene = vigentesDeCosto.find(r => r.sostiene_costo) || vigentesDeCosto[0] || null;
     const data = sostiene?.extraccion_id != null ? ext.get(sostiene.extraccion_id) ?? null : null;
-    const producto = data && sostiene?.producto_idx != null ? normalizarProductos(data.salida)[sostiene.producto_idx] ?? null : null;
+    const producto = data && sostiene?.producto_idx != null ? normalizarProductos(data.salida, data.texto)[sostiene.producto_idx] ?? null : null;
     const capturas = capturasPorOpcion.get(o.id) || [];
     const capSostiene = sostiene?.tipo === 'link_web' ? capturas.find(c => c.respaldoId === sostiene.id) ?? null : null;
     const docBase = data?.salida.documento ?? null;
@@ -173,6 +193,25 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
       estado: o.via === 'liviana' ? 'NO_APLICA' : reqTotal === 0 && !est.resultado ? 'SIN_REQUISITOS' : est.resultado ? est.resultado.estado : 'NO_CORRIDO',
       corridoAt: est.corridoAt, error: est.error, segundaPasadaAt: est.segundaPasadaAt, requisitosTotal: reqTotal, resultado: est.resultado,
     };
+    // Mercado (V9 competidor, V10 referencia más barata ≥ 5% sin justificar, V10-b dispersión): si ya se buscó, suma sus bloqueos y alertas.
+    const m = mercados.get(o.id) ?? null;
+    let mercado: MercadoDTO | null = null;
+    if (m) {
+      const nombreOp = [o.marca, o.modelo].filter(Boolean).join(' ') || 'la opción';
+      const ev = evaluarMercado(m, verificacion?.costoNetoUnitario ?? null, nombreOp, justificadas.has(o.id));
+      if (verificacion) { const nv = aplicarEvaluacion(verificacion, ev); verificacion.bloqueos = nv.bloqueos; verificacion.alertas = nv.alertas; verificacion.veredicto = nv.veredicto; }
+      mercado = {
+        creadoAt: m.creadoAt, consulta: m.consulta, error: m.error, referencias: m.referencias, descartadas: m.descartadas, competidor: m.competidor, mercadoPublico: m.mercadoPublico,
+        comparador: ev.comparador, medianaReferencias: ev.medianaReferencias, dispersionActiva: ev.dispersion.activa, ahorroMaximoPct: ev.ahorroMaximoPct, justificada: justificadas.has(o.id),
+      };
+    }
+    // Verificador de costo con IA: solo suma ALERTAS (con cita literal ya verificada); jamás un bloqueo ni el veredicto.
+    const ci = costosIA.get(o.id) ?? null;
+    let costoIA: CostoIADTO | null = null;
+    if (ci) {
+      if (verificacion && ci.resultado?.alertas.length) { const nv = aplicarEvaluacion(verificacion, { bloqueos: [], alertas: ci.resultado.alertas }); verificacion.alertas = nv.alertas; verificacion.veredicto = nv.veredicto; }
+      costoIA = { creadoAt: ci.creadoAt, error: ci.error, ayuda: ci.resultado?.ayuda ?? null, descartados: ci.resultado?.descartados ?? [], noPudeLeer: ci.resultado?.noPudeLeer ?? [], alertas: ci.resultado?.alertas.length ?? 0 };
+    }
     // Accesorio o documento de tercero que el verificador técnico exige y nadie costeó = costo oculto (Prompt 5 V1/V5).
     if (verificacion && est.resultado) for (const e of est.resultado.eventos) if (e.tipo === 'complemento_requerido' && e.costeado === false)
       verificacion.alertas.push({ codigo: 'V5', nivel: 'rojo', mensaje: `El verificador técnico exige un complemento que no está costeado: ${e.detalle}. Suma al costo real de compra.`, accion: 'corregir_costeo' });
@@ -197,7 +236,7 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
       respaldos, producto, verificacion,
       proveedorDatos: data?.salida.proveedor ?? null,
       documentoInfo: data ? { numero: data.salida.documento?.numero || null, fechaEmision: data.salida.documento?.fecha_emision || null, tipo: data.salida.documento?.tipo || null } : null,
-      capturas, estadoLink: capSostiene?.estado ?? null, tecnico,
+      capturas, estadoLink: capSostiene?.estado ?? null, tecnico, mercado, costoIA,
     };
     (opcionesPorFila.get(o.fila_id) || opcionesPorFila.set(o.fila_id, []).get(o.fila_id)!).push(dto);
   }
@@ -247,8 +286,8 @@ async function armarDocumentos(negocioId: number, codigo: string, opcionesPorFil
   for (const e of exts as any[]) if (!ultimaPorUrl.has(e.documento_url)) ultimaPorUrl.set(e.documento_url, e);
 
   const opcionPorProducto = new Map<string, { opcionId: number; filaId: string }>(); // `${extraccionId}:${idx}`
-  for (const [filaId, ops] of opcionesPorFila) for (const o of ops) for (const r of o.respaldos)
-    if (r.extraccionId != null && r.productoIdx != null) opcionPorProducto.set(`${r.extraccionId}:${r.productoIdx}`, { opcionId: o.id, filaId });
+  for (const [filaId, ops] of opcionesPorFila) for (const o of ops) if (o.estado !== 'descartada') for (const r of o.respaldos)
+    if (r.vigente && r.extraccionId != null && r.productoIdx != null) opcionPorProducto.set(`${r.extraccionId}:${r.productoIdx}`, { opcionId: o.id, filaId });
 
   const cargadas = await extraccionesPorIds([...ultimaPorUrl.values()].filter(e => !e.error).map(e => e.id));
   const out: DocumentoCotizacionDTO[] = [];
@@ -265,7 +304,7 @@ async function armarDocumentos(negocioId: number, codigo: string, opcionesPorFil
         base.rut = data.salida.proveedor?.rut?.valor || null;
         base.fechaEmision = data.salida.documento?.fecha_emision || null;
         base.formalidad = data.salida.documento?.formalidad || null;
-        base.productos = normalizarProductos(data.salida).map(p => {
+        base.productos = normalizarProductos(data.salida, data.texto).map(p => {
           const enlace = opcionPorProducto.get(`${e.id}:${p.idx}`);
           return { idx: p.idx, nombre: p.nombre, precio: p.precio, iva: p.iva, cantidad: p.cantidadCotizada, esCargo: p.esCargo, opcionId: enlace?.opcionId ?? null, filaId: enlace?.filaId ?? null };
         });
@@ -287,7 +326,7 @@ async function crearOpcionDesdeProducto(params: {
 }): Promise<{ opcionId: number; respaldoId: number }> {
   const { negocioId, filaId, extraccionId, productoIdx, data, documentoUrl, documentoNombre, actor, link } = params;
   const ahora = ahoraChileSQL();
-  const prod = normalizarProductos(data.salida)[productoIdx];
+  const prod = normalizarProductos(data.salida, data.texto)[productoIdx];
   const prov = data.salida.proveedor || {};
   const formal = data.salida.documento?.formalidad !== 'informal';
   const tipoDoc = data.salida.documento?.tipo;
@@ -348,8 +387,8 @@ export async function crearOpcionesDesdeExtraccion(negocioId: number, extraccion
   const ex = await extraccionPorId(extraccionId);
   if (!ex?.data || !ex.documentoUrl) throw new Error('La extracción no existe o no se pudo leer.');
   const lineas = lineasAuditables(await cargarEstadoCosteo(negocioId));
-  const productos = normalizarProductos(ex.data.salida).filter(p => p.precio != null);
-  const [ya] = await pool.query(`SELECT producto_idx FROM auditor_respaldo WHERE extraccion_id = ?`, [extraccionId]) as any;
+  const productos = normalizarProductos(ex.data.salida, ex.data.texto).filter(p => p.precio != null);
+  const [ya] = await pool.query(`SELECT r.producto_idx FROM auditor_respaldo r JOIN auditor_opcion o ON o.id = r.opcion_id WHERE r.extraccion_id = ? AND r.vigente = 1 AND o.estado <> 'descartada'`, [extraccionId]) as any;
   const yaAsignados = new Set((ya as any[]).map(r => r.producto_idx));
   const { asignaciones, sinEmparejar } = emparejarProductos(productos.filter(p => !yaAsignados.has(p.idx)), lineas);
   const creadas: Array<Emparejamiento & { opcionId: number }> = [];
@@ -366,9 +405,9 @@ export async function asignarProductoALinea(negocioId: number, extraccionId: num
   if (!ex?.data || !ex.documentoUrl) throw new Error('La extracción no existe o no se pudo leer.');
   const lineas = lineasAuditables(await cargarEstadoCosteo(negocioId));
   if (!lineas.some(l => l.id === filaId)) throw new Error('Esa línea no existe en el Costeo de este negocio.');
-  if (!normalizarProductos(ex.data.salida)[productoIdx]) throw new Error('Ese producto no existe en la extracción.');
-  const [ya] = await pool.query(`SELECT id FROM auditor_respaldo WHERE extraccion_id = ? AND producto_idx = ?`, [extraccionId, productoIdx]) as any;
-  if ((ya as any[]).length) throw new Error('Ese producto ya está asignado a una opción.');
+  if (!normalizarProductos(ex.data.salida, ex.data.texto)[productoIdx]) throw new Error('Ese producto no existe en la extracción.');
+  const [ya] = await pool.query(`SELECT r.id FROM auditor_respaldo r JOIN auditor_opcion o ON o.id = r.opcion_id WHERE r.extraccion_id = ? AND r.producto_idx = ? AND r.vigente = 1 AND o.estado <> 'descartada'`, [extraccionId, productoIdx]) as any;
+  if ((ya as any[]).length) throw new Error('Ese producto ya está asignado a una opción: cámbiale la línea o quítalo primero.');
   return (await crearOpcionDesdeProducto({ negocioId, filaId, extraccionId, productoIdx, data: ex.data, documentoUrl: ex.documentoUrl, documentoNombre: ex.documentoNombre || 'documento', actor })).opcionId;
 }
 
@@ -385,6 +424,46 @@ export async function leerDocumentoYCrearOpciones(negocioId: number, url: string
   if (lectura.error) return { extraccionId: lectura.id, error: lectura.error, yaLeida: false, creadas: [] as Array<Emparejamiento & { opcionId: number }>, sinEmparejar: [] as number[] };
   const r = await crearOpcionesDesdeExtraccion(negocioId, lectura.id, actor);
   return { extraccionId: lectura.id, error: null, yaLeida: false, ...r };
+}
+
+export interface ResultadoReanalisis { error: string | null; extraccionId: number | null; actualizadas: number; sinEquivalente: number; creadas: number; sinEmparejar: number; metodo: string | null }
+
+/** RE-ANÁLISIS de UNA cotización (botón «Volver a leer»): la lee de nuevo con los dos OCR juntos, sin tocar la lectura anterior (queda en el historial).
+ *  Los respaldos de opciones que salían de la lectura vieja pasan a la nueva cuando el producto se reconoce (el respaldo viejo queda NO vigente, con su precio,
+ *  y nace uno nuevo: el costo no se sobrescribe). Lo que no tiene equivalente en la lectura nueva queda como estaba pero sin vigencia, para que se vea. */
+export async function releerDocumento(negocioId: number, url: string, nombre: string, actor: Actor): Promise<ResultadoReanalisis> {
+  const vacio = { extraccionId: null, actualizadas: 0, sinEquivalente: 0, creadas: 0, sinEmparejar: 0, metodo: null as string | null };
+  const [viejas] = await pool.query(`SELECT id FROM auditor_extraccion WHERE negocio_id = ? AND documento_url = ? AND error IS NULL`, [negocioId, url]) as any;
+  const idsViejos = (viejas as any[]).map(r => r.id as number);
+  const lectura = await leerYGuardarDocumento({ negocioId, url, nombre, modo: 'comercial', combinarOCR: true });
+  if (lectura.error) return { ...vacio, error: lectura.error };
+  const nueva = await extraccionPorId(lectura.id);
+  if (!nueva?.data) return { ...vacio, error: 'La lectura nueva quedó vacía.' };
+  const nuevos = normalizarProductos(nueva.data.salida, nueva.data.texto);
+  let actualizadas = 0, sinEquivalente = 0;
+
+  if (idsViejos.length) {
+    const viejasData = await extraccionesPorIds(idsViejos);
+    const [resp] = await pool.query(`SELECT * FROM auditor_respaldo WHERE extraccion_id IN (?) AND vigente = 1`, [idsViejos]) as any;
+    const ahora = ahoraChileSQL();
+    for (const r of resp as any[]) {
+      const viejo = viejasData.get(r.extraccion_id)?.data ? normalizarProductos(viejasData.get(r.extraccion_id)!.data!.salida, viejasData.get(r.extraccion_id)!.data!.texto)[r.producto_idx] : null;
+      const idxNuevo = viejo ? emparejarProductoReleido(viejo, nuevos) : null;
+      await pool.query(`UPDATE auditor_respaldo SET vigente = 0, sostiene_costo = 0 WHERE id = ?`, [r.id]);   // el viejo se conserva con su precio: historial
+      if (idxNuevo == null) { sinEquivalente++; await evento(negocioId, r.opcion_id, 'documento_nuevo', 'lector', `Re-análisis de ${nombre}: el producto ya no aparece en la lectura nueva; el respaldo anterior quedó sin vigencia.`); continue; }
+      const p = nuevos[idxNuevo];
+      await pool.query(
+        `INSERT INTO auditor_respaldo (opcion_id, negocio_id, tipo, url, documento_url, documento_nombre, precio_declarado, precio_iva, vigente, sostiene_costo,
+           origen, cargado_por, cargado_por_nombre, cargado_at, extraccion_id, producto_idx)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 'lector', ?, ?, ?, ?, ?)`,
+        [r.opcion_id, negocioId, r.tipo, r.url, r.documento_url, r.documento_nombre, p.precio, p.iva, r.sostiene_costo, actor.id, actor.nombre, ahora, lectura.id, idxNuevo]);
+      actualizadas++;
+      const antes = num(r.precio_declarado);
+      await evento(negocioId, r.opcion_id, 'documento_nuevo', 'lector', `Re-análisis de ${nombre}: ${p.nombre} pasó de ${antes != null ? '$' + Math.round(antes).toLocaleString('es-CL') : 'sin precio'} a ${p.precio != null ? '$' + Math.round(p.precio).toLocaleString('es-CL') : 'sin precio'}.`);
+    }
+  }
+  const r = await crearOpcionesDesdeExtraccion(negocioId, lectura.id, actor);
+  return { error: null, extraccionId: lectura.id, actualizadas, sinEquivalente, creadas: r.creadas.length, sinEmparejar: r.sinEmparejar.length, metodo: nueva.data.metodoTexto };
 }
 
 // ── Ciclo de vida: vía, descarte, firma, aprobación ──────────────────────────────────────────────
@@ -423,7 +502,7 @@ export async function moverOpcionALinea(negocioId: number, opcionId: number, fil
   if (o.fila_id === filaId) return;
   const destino = lineasAuditables(await cargarEstadoCosteo(negocioId)).find(l => l.id === filaId);
   if (!destino) throw new Error('La línea de destino no existe en el Costeo.');
-  const nuevoEstado = o.estado === 'descartada' ? 'descartada' : (o.origen === 'link' ? 'tanteo' : 'formalizada');
+  const nuevoEstado = o.estado === 'descartada' ? 'descartada' : (['link', 'manual', 'ficha'].includes(o.origen) ? 'tanteo' : 'formalizada');
   await pool.query(`UPDATE auditor_opcion SET fila_id = ?, estado = ?, actualizado_at = ? WHERE id = ?`, [filaId, nuevoEstado, ahoraChileSQL(), opcionId]);
   const [del] = await pool.query(`DELETE FROM auditor_verificacion_tecnica WHERE opcion_id = ?`, [opcionId]) as any;
   await evento(negocioId, opcionId, 'movida_de_linea', actor.nombre ? 'asistente' : 'sistema',
@@ -437,7 +516,7 @@ export async function restaurarOpcion(negocioId: number, opcionId: number): Prom
 }
 
 /** Estado calculado hoy de la opción (para validar firma sin depender de que el panel esté al día). */
-async function verificacionActual(negocioId: number, licitacionCodigo: string, opcionId: number): Promise<OpcionDTO> {
+export async function verificacionActual(negocioId: number, licitacionCodigo: string, opcionId: number): Promise<OpcionDTO> {
   const panel = await armarPanelAuditor(negocioId, licitacionCodigo);
   for (const l of panel.lineas) { const o = l.opciones.find(x => x.id === opcionId); if (o) return o; }
   throw new Error('La opción no está en el panel (¿su línea ya no existe en el Costeo?).');
@@ -503,6 +582,122 @@ export async function resolverAprobacion(negocioId: number, opcionId: number, de
   await evento(negocioId, opcionId, 'aprobada', 'em', `Aprobada por ${actor.nombre}${comentario?.trim() ? `: ${comentario.trim().slice(0, 400)}` : ''}`);
 }
 
+// ── Opción manual y ficha técnica ────────────────────────────────────────────────────────────────
+/** Crea una opción SIN link ni cotización (el producto no está en la web): línea + marca/modelo (+ proveedor si se sabe).
+ *  Sirve de base para subirle después la ficha técnica y compararla contra las bases. */
+export async function crearOpcionManual(negocioId: number, filaId: string,
+  d: { marca?: string | null; modelo?: string | null; sku?: string | null; proveedor?: string | null }, actor: Actor): Promise<number> {
+  const lineas = lineasAuditables(await cargarEstadoCosteo(negocioId));
+  if (!lineas.some(l => l.id === filaId)) throw new Error('Esa línea no existe en el Costeo de este negocio.');
+  const marca = (d.marca || '').trim().slice(0, 120), modelo = (d.modelo || '').trim().slice(0, 160);
+  const sku = (d.sku || '').trim().slice(0, 120), proveedor = (d.proveedor || '').trim().slice(0, 200);
+  if (!marca && !modelo) throw new Error('Indica al menos la marca o el modelo del producto.');
+  const [existentes] = await pool.query(
+    `SELECT id, marca, modelo, proveedor_razon_social FROM auditor_opcion WHERE negocio_id = ? AND fila_id = ? AND estado <> 'descartada'`, [negocioId, filaId]) as any;
+  const igual = (existentes as any[]).find(o => coincidenciaIdentidad({ marca: o.marca, modelo: o.modelo }, { marca, modelo }) === 'coincide'
+    && (o.proveedor_razon_social || '').trim().toLowerCase() === proveedor.toLowerCase());
+  if (igual) return igual.id;
+  const ahora = ahoraChileSQL();
+  const [ins] = await pool.query(
+    `INSERT INTO auditor_opcion (negocio_id, fila_id, marca, modelo, sku_proveedor, proveedor_razon_social, via, estado, origen, creado_por, creado_por_nombre, creado_at, actualizado_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'completa', 'tanteo', 'manual', ?, ?, ?, ?)`,
+    [negocioId, filaId, marca || null, modelo || null, sku || null, proveedor || null, actor.id, actor.nombre, ahora, ahora]) as any;
+  await evento(negocioId, ins.insertId, 'opcion_creada', 'asistente', `Opción manual creada por ${actor.nombre}`);
+  return ins.insertId as number;
+}
+
+export type ResultadoFicha =
+  | { estado: 'agregada'; opcionId: number; opcionCreada: boolean; avisos: string[] }
+  | { estado: 'elegir_producto'; extraccionId: number; opcionId: number | null; productos: Array<{ idx: number; nombre: string }>; motivo: string }
+  | { estado: 'producto_distinto'; extraccionId: number; opcionId: number; productoIdx: number; marca: string; modelo: string }
+  | { estado: 'error'; error: string };
+
+/** Sube una FICHA TÉCNICA (PDF o imagen) a una opción — o a una línea, y entonces la opción nace de la ficha —. El Lector la lee en modo
+ *  COMPLETO (todas las características) y queda como respaldo `ficha_tecnica` (origen FICHA para el verificador técnico). Una ficha no
+ *  trae precio, así que nunca sostiene el costo. Antes de aceptarla se confirma que corresponde al producto de la opción (Prompt 4 v2.0
+ *  Parte III): otro modelo → evento `producto_cambiado` y NO se usa contra la opción; catálogo con varios modelos → hay que elegir. */
+export async function agregarFichaAOpcion(params: {
+  negocioId: number; opcionId?: number | null; filaId?: string | null; url: string; nombre: string;
+  productoIdx?: number | null; forzar?: boolean; actor: Actor;
+}): Promise<ResultadoFicha> {
+  const { negocioId, url, nombre, actor, forzar = false } = params;
+  let opcion: any = null, filaId = params.filaId || null;
+  if (params.opcionId) { opcion = await opcionDe(negocioId, params.opcionId); filaId = opcion.fila_id; }
+  if (!filaId) return { estado: 'error', error: 'Indica la opción o la línea a la que pertenece la ficha.' };
+  if (opcion?.estado === 'descartada') return { estado: 'error', error: 'La opción está descartada: restáurala antes de subirle una ficha.' };
+  if (opcion && ['en_aprobacion', 'aprobada'].includes(opcion.estado)) return { estado: 'error', error: 'La opción ya está en aprobación: pide rechazarla antes de cambiar sus documentos.' };
+  if (!lineasAuditables(await cargarEstadoCosteo(negocioId)).some(l => l.id === filaId)) return { estado: 'error', error: 'Esa línea no existe en el Costeo de este negocio.' };
+
+  // El Lector lee UNA sola vez cada documento.
+  const [previas] = await pool.query(`SELECT id FROM auditor_extraccion WHERE negocio_id = ? AND documento_url = ? AND error IS NULL AND modo = 'completo' ORDER BY id DESC LIMIT 1`, [negocioId, url]) as any;
+  let extraccionId: number;
+  if ((previas as any[]).length) extraccionId = (previas as any[])[0].id;
+  else {
+    const lectura = await leerYGuardarDocumento({ negocioId, url, nombre, modo: 'completo' });
+    if (lectura.error) return { estado: 'error', error: `No se pudo leer la ficha: ${lectura.error}` };
+    extraccionId = lectura.id;
+  }
+  const ex = await extraccionPorId(extraccionId);
+  if (!ex?.data) return { estado: 'error', error: 'La ficha se leyó, pero la extracción quedó vacía.' };
+  const productos = normalizarProductos(ex.data.salida, ex.data.texto).filter(p => !p.esCargo);
+  if (productos.length === 0) return { estado: 'error', error: 'No se encontró ningún producto en la ficha (¿es un documento legible?).' };
+
+  const idOpcion = { marca: opcion?.marca, modelo: opcion?.modelo, sku: opcion?.sku_proveedor };
+  let elegido = params.productoIdx != null ? productos.find(p => p.idx === params.productoIdx) : undefined;
+  if (params.productoIdx != null && !elegido) return { estado: 'error', error: 'Ese producto no está en la ficha.' };
+  if (!elegido) {
+    if (opcion) {
+      const coinciden = productos.filter(p => coincidenciaIdentidad(idOpcion, p) === 'coincide');
+      if (coinciden.length === 1) elegido = coinciden[0];
+      else if (coinciden.length > 1) return { estado: 'elegir_producto', extraccionId, opcionId: opcion.id, productos: coinciden.map(p => ({ idx: p.idx, nombre: p.nombre })), motivo: 'Hay más de un producto que calza con la opción: elige el que corresponde.' };
+      else if (productos.length === 1) {
+        const c = coincidenciaIdentidad(idOpcion, productos[0]);
+        if (c === 'distinto' && !forzar) {
+          await evento(negocioId, opcion.id, 'producto_cambiado', 'sistema', `La ficha "${nombre}" es de ${productos[0].marca} ${productos[0].modelo}; la opción es ${opcion.marca || ''} ${opcion.modelo || ''}. No se usó contra la opción.`);
+          return { estado: 'producto_distinto', extraccionId, opcionId: opcion.id, productoIdx: productos[0].idx, marca: productos[0].marca, modelo: productos[0].modelo };
+        }
+        elegido = productos[0];
+      } else return { estado: 'elegir_producto', extraccionId, opcionId: opcion.id, productos: productos.map(p => ({ idx: p.idx, nombre: p.nombre })), motivo: 'El documento trae varios modelos y ninguno calza con la opción: elige la columna que corresponde (o sube la ficha del modelo correcto).' };
+    } else if (productos.length === 1) elegido = productos[0];
+    else return { estado: 'elegir_producto', extraccionId, opcionId: null, productos: productos.map(p => ({ idx: p.idx, nombre: p.nombre })), motivo: 'El documento trae varios modelos: elige para cuál es esta opción.' };
+  }
+
+  const avisos: string[] = [];
+  let opcionCreada = false;
+  if (!opcion) {
+    // Sin opción de partida: si la línea ya tiene una del mismo producto, la ficha se suma a esa; si no, nace la opción de la ficha.
+    const [existentes] = await pool.query(`SELECT * FROM auditor_opcion WHERE negocio_id = ? AND fila_id = ? AND estado NOT IN ('descartada','en_aprobacion','aprobada')`, [negocioId, filaId]) as any;
+    opcion = (existentes as any[]).find(o => coincidenciaIdentidad({ marca: o.marca, modelo: o.modelo, sku: o.sku_proveedor }, elegido!) === 'coincide') || null;
+    if (!opcion) {
+      if (!elegido.marca && !elegido.modelo) return { estado: 'error', error: 'La ficha no dice la marca ni el modelo del producto: crea la opción a mano (marca y modelo) y súbela ahí.' };
+      const id = await crearOpcionManual(negocioId, filaId, { marca: elegido.marca, modelo: elegido.modelo, sku: elegido.sku }, actor);
+      await pool.query(`UPDATE auditor_opcion SET origen = 'ficha', version_producto = ? WHERE id = ?`, [elegido.version || null, id]);
+      opcion = await opcionDe(negocioId, id);
+      opcionCreada = true;
+    }
+  } else if (coincidenciaIdentidad(idOpcion, elegido) === 'sin_dato' && (idOpcion.marca || idOpcion.modelo)) {
+    avisos.push('La ficha no identifica claramente el modelo: se usó porque nada la contradice. Revisa que sea la del producto.');
+  }
+
+  const [ya] = await pool.query(`SELECT id FROM auditor_respaldo WHERE opcion_id = ? AND documento_url = ? AND producto_idx = ?`, [opcion.id, url, elegido.idx]) as any;
+  if (!(ya as any[]).length) {
+    const ahora = ahoraChileSQL();
+    const [r] = await pool.query(
+      `INSERT INTO auditor_respaldo (opcion_id, negocio_id, tipo, url, documento_url, documento_nombre, precio_declarado, precio_iva, vigente, sostiene_costo,
+         origen, cargado_por, cargado_por_nombre, cargado_at, extraccion_id, producto_idx)
+       VALUES (?, ?, 'ficha_tecnica', NULL, ?, ?, NULL, 'no_declarado', 1, 0, 'ficha', ?, ?, ?, ?, ?)`,
+      [opcion.id, negocioId, url, nombre.slice(0, 300), actor.id, actor.nombre, ahora, extraccionId, elegido.idx]) as any;
+    await pool.query(`UPDATE auditor_extraccion SET opcion_id = ?, respaldo_id = ? WHERE id = ? AND opcion_id IS NULL`, [opcion.id, r.insertId, extraccionId]).catch(() => { /* la extracción puede servir a varias opciones */ });
+    // Lo que la opción no traía (manual sin modelo, por ejemplo) se completa desde la ficha; nunca se pisa lo que ya tenía.
+    await pool.query(
+      `UPDATE auditor_opcion SET marca = COALESCE(NULLIF(marca, ''), ?), modelo = COALESCE(NULLIF(modelo, ''), ?), version_producto = COALESCE(NULLIF(version_producto, ''), ?),
+         sku_proveedor = COALESCE(NULLIF(sku_proveedor, ''), ?), actualizado_at = ? WHERE id = ?`,
+      [elegido.marca || null, elegido.modelo || null, elegido.version || null, elegido.sku || null, ahoraChileSQL(), opcion.id]);
+    await evento(negocioId, opcion.id, 'documento_nuevo', 'lector', `Ficha técnica: ${nombre}`);
+  }
+  return { estado: 'agregada', opcionId: opcion.id, opcionCreada, avisos };
+}
+
 // ── Links: captura fechada → Lector → opción en TANTEO ───────────────────────────────────────────
 async function guardarCaptura(negocioId: number, cap: Awaited<ReturnType<typeof visitarLinks>>[number], origen: 'alta' | 'pasada_final'): Promise<number> {
   const hash = createHash('sha256').update(cap.texto || '').digest('hex');
@@ -550,7 +745,7 @@ export async function agregarLinkALinea(negocioId: number, filaId: string, urlEn
   }
   const lectura = await leerYGuardarPaginaWeb({ negocioId, url, titulo: cap.titulo, texto: cap.texto, modo: 'completo' });
   const ex = lectura.error ? null : await extraccionPorId(lectura.id);
-  const productos = ex?.data ? normalizarProductos(ex.data.salida) : [];
+  const productos = ex?.data ? normalizarProductos(ex.data.salida, ex.data.texto) : [];
   const idxPrincipal = Math.max(0, (ex?.data?.salida.productos || []).findIndex(p => p.es_producto_principal));
   if (!ex?.data || ex.data.salida.documento?.es_listado_web || !productos[idxPrincipal] || productos[idxPrincipal].precio == null) {
     const opcionId = await crearOpcionSinLectura(negocioId, filaId, url, cap.titulo, capturaId, actor);
@@ -597,7 +792,7 @@ export async function revisitarLinkDeOpcion(negocioId: number, opcionId: number,
   const lectura = await leerYGuardarPaginaWeb({ negocioId, url: r.url, titulo: cap.titulo, texto: cap.texto, modo: 'completo', opcionId, respaldoId: r.id });
   if (lectura.error) { cambios.push(`No se pudo releer el link: ${lectura.error}`); return cambios; }
   const ex = await extraccionPorId(lectura.id);
-  const productos = ex?.data ? normalizarProductos(ex.data.salida) : [];
+  const productos = ex?.data ? normalizarProductos(ex.data.salida, ex.data.texto) : [];
   const nuevo = productos[Math.max(0, (ex?.data?.salida.productos || []).findIndex(p => p.es_producto_principal))];
   if (!ex?.data || !nuevo || nuevo.precio == null) { cambios.push('La página se cargó pero ya no muestra un precio legible.'); return cambios; }
   const anterior = num(r.precio_declarado);
@@ -620,6 +815,30 @@ export async function imagenDeCapturaAuditor(negocioId: number, capturaId: numbe
   return (rows as any[])[0]?.imagen ?? null;
 }
 
+
+// ── Mercado: buscar referencias del MISMO producto y justificar el ahorro no usado ───────────────
+export async function verificarMercadoDeOpcion(negocioId: number, opcionId: number, actor: Actor) {
+  await opcionDe(negocioId, opcionId);
+  return verificarMercadoOpcion({ negocioId, opcionId, actor });
+}
+export async function justificarAhorroDeOpcion(negocioId: number, opcionId: number, texto: string, actor: Actor): Promise<void> {
+  await opcionDe(negocioId, opcionId);
+  await justificarAhorro(negocioId, opcionId, texto, actor);
+}
+
+/** Corre el verificador de costo con IA (Prompt 5 v2.0) sobre UNA opción, con lo que el código ya calculó como contexto. */
+export async function verificarCostoIADeOpcion(negocioId: number, licitacionCodigo: string, opcionId: number, actor: Actor) {
+  const o = await opcionDe(negocioId, opcionId);
+  const panel = await armarPanelAuditor(negocioId, licitacionCodigo);
+  const linea = panel.lineas.find(l => l.filaId === o.fila_id), dto = linea?.opciones.find(x => x.id === opcionId);
+  if (!linea || !dto) throw new Error('La opción no está en el panel (¿su línea ya no existe en el Costeo?).');
+  return verificarCostoIAOpcion({
+    negocioId, opcionId, actor: { id: actor.id },
+    linea: { detalle: linea.detalle, unidad: linea.unidad, cantidad: linea.cantidad, costeadoNeto: linea.costeadoNeto },
+    opcion: { marca: dto.marca, modelo: dto.modelo, proveedor: dto.proveedorRazonSocial, veredicto: dto.verificacion?.veredicto ?? 'SIN_RESPALDO' },
+    alertasCodigo: dto.verificacion?.alertas ?? [], bloqueosCodigo: dto.verificacion?.bloqueos ?? [],
+  });
+}
 
 // ── Verificación técnica: acciones ───────────────────────────────────────────────────────────────
 /** Corre el verificador técnico (L1) sobre UNA opción y ejecuta sus eventos (costos asociados, descarte por ruta insalvable…). */

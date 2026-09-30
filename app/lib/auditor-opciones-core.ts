@@ -9,7 +9,7 @@
 // proyecto con R1/R2, tokens de modelo. Spec: docs/ESPECIFICACION_AUDITOR_v1.md §5 y §8.
 import {
   PARAMS, precioNetoUnitario, margenProyecto, mesesEntre, tokensDeProducto, costoRutaB,
-  type LineaCosteo, type Veredicto, type Bloqueo, type Alerta, type MargenProyecto,
+  type LineaCosteo, type Veredicto, type Bloqueo, type Alerta, type MargenProyecto, numerosDelTexto,
 } from '@/app/lib/auditor-compras-core';
 import type { SalidaLector, ProductoLector } from '@/app/lib/auditor-lector';
 
@@ -76,6 +76,8 @@ export interface ProductoNormalizado {
   garantia: string; condiciones: string[];
   /** Flete, despacho, instalación… cobrado como línea aparte: no es un producto y no se empareja con una línea. */
   esCargo: boolean;
+  /** El código corrigió lo que leyó el Lector (p. ej. precio pegado a la cantidad); se muestra como alerta. */
+  correccion?: string | null;
 }
 
 const CONDICIONES_NO_RIGEN = new Set(['tachado', 'tarjeta', 'desde']);
@@ -104,12 +106,36 @@ function elegirPrecio(p: ProductoLector, cantidad: number | null): { precio: num
   return { precio: elegido.n as number, ambiguo: !!elegido.numero_ambiguo, otros };
 }
 
-export function normalizarProductos(salida: SalidaLector): ProductoNormalizado[] {
+/** Cuando la capa de texto de un PDF pega la cantidad con el precio unitario ("17" + "374.000" → "17374.000"), el Lector lee $17.374.000. Se detecta con
+ *  ARITMÉTICA sobre el propio documento: si el precio es «cantidad ‖ unitario» y la cantidad × el unitario aparece como número en el texto (el total
+ *  de la línea), el precio real es el unitario. Sin ese total en el documento no se toca nada (un precio dudoso se deja como está). */
+export function separarPrecioPegadoACantidad(texto: string, precio: number): { cantidad: number; precioUnitario: number; total: number } | null {
+  if (!Number.isInteger(precio) || precio < 10_000) return null;
+  const digitos = String(precio);
+  if (!texto.replace(/[.,\s]/g, '').includes(digitos)) return null;           // el número tiene que estar tal cual en el documento
+  const numeros = new Set(numerosDelTexto(texto));
+  for (let k = 1; k <= 3 && k < digitos.length - 3; k++) {
+    const cantidad = Number(digitos.slice(0, k)), resto = digitos.slice(k);
+    if (cantidad < 2 || resto[0] === '0') continue;
+    const unitario = Number(resto), total = cantidad * unitario;
+    if (unitario >= 1 && numeros.has(total)) return { cantidad, precioUnitario: unitario, total };
+  }
+  return null;
+}
+
+export function normalizarProductos(salida: SalidaLector, texto?: string): ProductoNormalizado[] {
   return (salida.productos || []).map((p, idx) => {
     const c = p.comercial || {}, d = p.producto || {};
     const condiciones = (c.condiciones_generales || []).map(x => x.texto || '').filter(Boolean);
     const cantTexto = condiciones.map(t => t.match(/cantidad\s*cotizada\s*[:=]?\s*([\d.,]+)/i)?.[1]).find(Boolean);
-    const { precio, ambiguo, otros } = elegirPrecio(p, parsearMonto(cantTexto));
+    const elegido = elegirPrecio(p, parsearMonto(cantTexto));
+    let { precio } = elegido; const { ambiguo, otros } = elegido;
+    let cantidadCorregida: number | null = null, correccion: string | null = null;
+    const pegado = texto && precio != null && !ambiguo ? separarPrecioPegadoACantidad(texto, precio) : null;
+    if (pegado) {
+      correccion = `El precio venía pegado a la cantidad («${precio!.toLocaleString('es-CL')}»): se separó en ${pegado.cantidad} unidades × $${pegado.precioUnitario.toLocaleString('es-CL')}, porque el total del documento ($${pegado.total.toLocaleString('es-CL')}) lo confirma.`;
+      precio = pegado.precioUnitario; cantidadCorregida = pegado.cantidad;
+    }
     const iva = ivaConfiable(c.iva, c.iva_texto_literal);
     const plazoTexto = c.plazo_entrega || '';
     const nombre = [d.tipo, d.marca, d.modelo, d.version].filter(Boolean).join(' ').trim() || d.sku_proveedor || `Producto ${idx + 1}`;
@@ -124,7 +150,7 @@ export function normalizarProductos(salida: SalidaLector): ProductoNormalizado[]
       iva, ivaTexto: c.iva_texto_literal || '',
       unidadPrecio: c.unidad_precio || '', contenidoEmpaque: c.contenido_empaque || '',
       unidadesPorEmpaque: parsearMonto(c.unidades_por_empaque),
-      cantidadCotizada: parsearMonto(cantTexto), moq: parsearMonto(c.moq),
+      cantidadCotizada: parsearMonto(cantTexto) ?? cantidadCorregida, moq: parsearMonto(c.moq), correccion,
       stock: c.stock || '', plazoTexto, plazoDias: diasDelTexto(plazoTexto), tipoDias: c.tipo_dias || 'no_declarado',
       despacho: c.despacho || '', incoterm: (c.incoterm || '').trim(),
       costosAdicionales: (c.costos_adicionales || []).map(x => ({ detalle: x.detalle || '', monto: parsearMonto(x.monto), texto: x.monto || '' })),
@@ -136,7 +162,7 @@ export function normalizarProductos(salida: SalidaLector): ProductoNormalizado[]
 // ── Emparejar producto de la cotización ↔ línea del costeo ──────────────────────────────────────
 const STOP = new Set(['de', 'del', 'la', 'el', 'los', 'las', 'con', 'para', 'por', 'sin', 'una', 'uno', 'y', 'o', 'en', 'al', 'tipo', 'set', 'kit', 'sistema', 'equipo', 'unidad', 'incluye', 'marca', 'modelo']);
 function palabras(s: string): string[] {
-  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/["”“']/g, ' pulg ').replace(/[^a-z0-9]+/g, ' ').split(' ')
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/(\d)[.,](\d{3})(?!\d)/g, '$1$2').replace(/["”“']/g, ' pulg ').replace(/[^a-z0-9]+/g, ' ').split(' ')
     .filter(w => w.length >= 2 && !STOP.has(w));
 }
 
@@ -164,7 +190,8 @@ export function puntuar(prod: ProductoNormalizado, linea: LineaCosteo): { puntaj
   if (numsCoinciden.length) { puntaje += 0.25 * numsCoinciden.length; motivos.push(`mismo valor: ${numsCoinciden.join(', ')}`); }
   if (numsChocan.length && !numsCoinciden.length) { puntaje -= 0.3; motivos.push(`número distinto: ${numsChocan.join(', ')}`); }
   // Modelo/SKU escrito en la línea.
-  const tk = tokensDeProducto(prod.modelo, prod.sku);
+  // Un número suelto ("12000" de "12.000 BTUH") no es un modelo: el token debe mezclar letras y dígitos, o coincidiría con cualquier «12,000 horas».
+  const tk = tokensDeProducto(prod.modelo, prod.sku).filter(k => /[a-z]/.test(k));
   const tl = textoLinea.toLowerCase().replace(/[^a-z0-9]/g, '');
   if (tk.some(k => tl.includes(k))) { puntaje += 0.5; motivos.push('modelo/SKU coincide'); }
   // Cantidad cotizada = cantidad de la línea.
@@ -349,8 +376,13 @@ export function verificarOpcion(e: EntradaVerificacion): ResultadoVerificacion {
   // ── V4 precio (regla por impacto en el margen) ──
   const norm = precioNetoUnitario({ precio: p.precio, iva: p.iva, moneda: p.moneda, factor_unidades: p.unidadesPorEmpaque });
   const neto = esRutaB ? netoRutaB : norm.neto;
-  base.costoNetoUnitario = neto;
-  if (neto != null && costeadoNeto != null && costeadoNeto > 0) {
+  // Un precio AMBIGUO (¿1.022.000 o 1.022? ¿miles o decimales?) no se usa para nada: ni costo, ni diferencia, ni margen. Si entrara,
+  // una mala lectura hunde el margen del proyecto entero (caso real: un proyector leído a $840 millones). Se bloquea y pide confirmarlo.
+  if (p.precioAmbiguo) {
+    bloqueos.push({ codigo: 'LECTURA', mensaje: 'El precio del documento es ambiguo (no se sabe si el punto o la coma separan miles o decimales): no se usa para calcular el costo ni el margen.',
+      salida: 'Compara el precio contra el documento original, o pide al proveedor la cotización con el precio claro.', accion: 'revisar' });
+  } else base.costoNetoUnitario = neto;
+  if (!p.precioAmbiguo && neto != null && costeadoNeto != null && costeadoNeto > 0) {
     base.diffMonto = neto - costeadoNeto; base.diffPct = r1((base.diffMonto / costeadoNeto) * 100);
     base.direccion = Math.abs(base.diffPct) < 0.5 ? 'IGUAL' : base.diffMonto > 0 ? 'MAS_CARO' : 'MAS_BARATO';
     base.margen = margenConAsociados(margenProyecto(e.lineasProyecto, { [linea.id]: neto }), e.costosAsociadosNeto || 0);
@@ -367,7 +399,7 @@ export function verificarOpcion(e: EntradaVerificacion): ResultadoVerificacion {
       alertas.push({ codigo: 'V4', nivel: 'info', mensaje: `El respaldo cuesta ${Math.abs(base.diffPct)}% menos que lo costeado: quizá se sobrecosteó.`, accion: 'corregir_costeo' });
     }
   }
-  if (p.precioAmbiguo) alertas.push({ codigo: 'LECTURA', nivel: 'rojo', mensaje: 'El Lector marcó el precio como ambiguo (separador de miles/decimales): revísalo contra el documento.', accion: 'revisar' });
+  if (p.correccion) alertas.push({ codigo: 'LECTURA', nivel: 'amarillo', mensaje: p.correccion, accion: 'revisar' });
   if (p.preciosMultiples.length) alertas.push({ codigo: 'V5', nivel: 'amarillo', mensaje: `El documento muestra otros precios para este producto (${p.preciosMultiples.slice(0, 3).join(' · ')}): confirma cuál rige.`, accion: 'revisar' });
 
   // ── V5 costos ocultos (los que el documento cobra aparte) ──
@@ -407,4 +439,38 @@ export function verificarOpcion(e: EntradaVerificacion): ResultadoVerificacion {
   else if (alertas.some(a => a.nivel !== 'info')) base.veredicto = 'VERIFICADO_CON_ALERTAS';
   else base.veredicto = 'VERIFICADO';
   return base;
+}
+
+// ── Identidad ficha ↔ opción (Prompt 4 v2.0 Parte III ②) ────────────────────────────────────────────
+// ¿La ficha que se sube a una opción es del MISMO producto? Compara marca, modelo y SKU sin distinguir mayúsculas, tildes ni
+// separadores ("LS-150" = "LS150"). Un modelo contenido en el otro ("EOS Rebel T7" ⊂ "Canon EOS Rebel T7 Kit") cuenta como el mismo.
+export type CoincidenciaProducto = 'coincide' | 'distinto' | 'sin_dato';
+const idNorm = (v: string | null | undefined) => (v || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '');
+const mismoOContiene = (a: string, b: string) => a === b || (Math.min(a.length, b.length) >= 3 && (a.includes(b) || b.includes(a)));
+
+export function coincidenciaIdentidad(
+  opcion: { marca?: string | null; modelo?: string | null; sku?: string | null },
+  ficha: { marca?: string | null; modelo?: string | null; sku?: string | null },
+): CoincidenciaProducto {
+  const oMarca = idNorm(opcion.marca), oModelo = idNorm(opcion.modelo), oSku = idNorm(opcion.sku);
+  const fMarca = idNorm(ficha.marca), fModelo = idNorm(ficha.modelo), fSku = idNorm(ficha.sku);
+  if (!oMarca && !oModelo && !oSku) return 'sin_dato';
+  if (!fMarca && !fModelo && !fSku) return 'sin_dato';
+  if (oMarca && fMarca && !mismoOContiene(oMarca, fMarca)) return 'distinto';
+  if (oModelo && fModelo) return mismoOContiene(oModelo, fModelo) ? 'coincide' : 'distinto';
+  if (oSku && fSku) return oSku === fSku ? 'coincide' : 'distinto';
+  return 'sin_dato';
+}
+
+// ── Re-análisis de un documento: ¿qué producto de la lectura nueva es el que ya estaba en una opción? ──
+const nombreNorm = (v: string) => v.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/(\d)[.,](\d{3})(?!\d)/g, '$1$2').replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean).sort().join(' ');
+/** Devuelve el idx del producto NUEVO que corresponde al VIEJO (mismo nombre, o mismo modelo/SKU con la misma marca), o null si no hay equivalente. */
+export function emparejarProductoReleido(viejo: Pick<ProductoNormalizado, 'nombre' | 'marca' | 'modelo' | 'sku'>, nuevos: Array<Pick<ProductoNormalizado, 'idx' | 'nombre' | 'marca' | 'modelo' | 'sku'>>): number | null {
+  const n = nombreNorm(viejo.nombre);
+  if (n) { const igual = nuevos.find(x => nombreNorm(x.nombre) === n); if (igual) return igual.idx; }
+  if (viejo.modelo || viejo.sku) {
+    const cand = nuevos.filter(x => coincidenciaIdentidad(viejo, x) === 'coincide');
+    if (cand.length === 1) return cand[0].idx;
+  }
+  return null;
 }

@@ -28,6 +28,7 @@ import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUni
 // pueda usarlo sin crear una importación circular — ver el comentario de la función).
 export { esFilaNoProducto };
 import { planillaReconoceElListado } from '@/app/lib/fila-no-producto';
+import { desplegarItemsDesdeCaracteristicas } from '@/app/lib/manifiesto-desde-caracteristicas';
 import { evaluarCoberturaLectura, resumirCobertura, esFormatoLegible, esDocumentoCritico } from '@/app/lib/lectura-documentos';
 import { ocrTieneHuecos, esTextoBasuraOCR, numeracionTablaIncompleta, leidoConOcrLocal, glmOcrDisponible } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
@@ -387,6 +388,19 @@ async function cargarContexto(codigo: string) {
       itemsMP = (lic.Items || []).map((it: any) => ({ nombre: it.NombreProducto || '', descripcion: it.Descripcion || '', categoria: it.Categoria || '', cantidad: it.Cantidad ?? null, unidad: it.Unidad || it.UnidadMedida || null })).filter((it: any) => it.nombre || it.descripcion);
     }
   } catch { /* noop */ }
+
+  // Respaldo: si la API no respondió a tiempo (timeout de 12 s), las líneas de la última
+  // sincronización siguen valiendo. Sin esto, la regla "1 línea en la API = GLOBAL" se apagaba en
+  // silencio cada vez que la API fallaba (caso 2950-49-LE26: volvió a POR_LINEAS al reanalizar).
+  if (itemsMP.length === 0) {
+    try {
+      const [r] = await pool.query(`SELECT items_json FROM licitaciones_cache WHERE codigo = ? LIMIT 1`, [codigo]);
+      const arr = JSON.parse((r as any[])[0]?.items_json || '[]');
+      if (Array.isArray(arr)) {
+        itemsMP = arr.map((it: any) => ({ nombre: it.NombreProducto || '', descripcion: it.Descripcion || '', categoria: it.Categoria || '', cantidad: it.Cantidad ?? null, unidad: it.UnidadMedida || it.Unidad || null })).filter((it: any) => it.nombre || it.descripcion);
+      }
+    } catch { /* sin caché: la guardia queda apagada, como antes */ }
+  }
 
   return { meta, estructurado, itemsMP };
 }
@@ -2337,8 +2351,12 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
   // y, si no existe (informe legado/respaldo), caemos a costeo.items. El mapeo tolera AMBOS nombres de
   // campo (nombre/descripcion_exacta, marca_modelo_referencia/marca_modelo, clasificacion/tipo) para
   // que el manifiesto —y por tanto el Excel de costeo— salga idéntico venga del shape que venga.
-  const itemsFuente: any[] = Array.isArray(p3.productos?.items) ? p3.productos.items
+  const itemsFuenteCrudos: any[] = Array.isArray(p3.productos?.items) ? p3.productos.items
     : Array.isArray(p3.costeo?.items) ? p3.costeo.items : [];
+  // Listado real dejado como texto en `caracteristicas` de un ítem genérico sin cantidad (3477-80-LE26).
+  const itemsDesplegados = desplegarItemsDesdeCaracteristicas(itemsFuenteCrudos);
+  if (itemsDesplegados) console.log(`[viabilidad-ia-v3] ${codigo}: ${itemsFuenteCrudos.length} ítem(s) del modelo traían el listado de productos como texto en "caracteristicas" → desplegados a ${itemsDesplegados.length} ítems.`);
+  const itemsFuente = itemsDesplegados ?? itemsFuenteCrudos;
   let manifiesto: ManifiestoLinea[] = itemsFuente.map((it: any) => ({
     linea: _lineaNum(it.linea), categoria: it.categoria ?? null,
     descripcion: _str(it.nombre || it.descripcion_exacta || it.descripcion),

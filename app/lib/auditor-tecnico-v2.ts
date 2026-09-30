@@ -119,7 +119,7 @@ export async function contarRequisitosPorLinea(negocioId: number, licitacionCodi
 export interface DocumentoOpcion { etiqueta: string; texto: string; tipo: string; formalidad: string; nombre: string; resumen: string }
 
 export async function documentosDeOpcion(opcionId: number): Promise<DocumentoOpcion[]> {
-  const [rs] = await pool.query(`SELECT extraccion_id, tipo FROM auditor_respaldo WHERE opcion_id = ? AND vigente = 1 AND extraccion_id IS NOT NULL ORDER BY id`, [opcionId]) as any;
+  const [rs] = await pool.query(`SELECT extraccion_id, tipo, producto_idx FROM auditor_respaldo WHERE opcion_id = ? AND vigente = 1 AND extraccion_id IS NOT NULL ORDER BY id`, [opcionId]) as any;
   const vistos = new Set<number>(), out: DocumentoOpcion[] = [];
   for (const r of rs as any[]) {
     if (vistos.has(r.extraccion_id)) continue;
@@ -128,7 +128,9 @@ export async function documentosDeOpcion(opcionId: number): Promise<DocumentoOpc
     if (!ex?.data) continue;
     const doc = ex.data.salida.documento || {};
     const tipo = r.tipo === 'link_web' ? 'link_web' : s(doc.tipo, 40) || 'otro';
-    const prods = ex.data.salida.productos || [];
+    // Documento con varios productos (catálogo de familia, cotización de varios ítems): solo se le muestra al verificador el de ESTA opción.
+    const todos = ex.data.salida.productos || [];
+    const prods = todos.length > 1 && r.producto_idx != null && todos[r.producto_idx] ? [todos[r.producto_idx]] : todos;
     const carac = prods.flatMap(p => (p.caracteristicas || []).slice(0, 80).map(c => `${s(c.nombre, 80)}: ${s(c.valor, 60)} ${s(c.unidad, 20)}${c.cita ? ` [${s(c.cita, 60)}]` : ''}`));
     const accs = prods.flatMap(p => [...(p.producto?.accesorios_estandar || []).map(a => `estándar: ${s(a.item, 80)}`), ...(p.producto?.accesorios_opcionales || []).map(a => `opcional: ${s(a.item, 80)}`)]);
     out.push({

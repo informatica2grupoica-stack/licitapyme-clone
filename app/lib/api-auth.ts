@@ -119,7 +119,8 @@ export async function puedeVerLicitacion(req: NextRequest, codigo: string): Prom
 //   compras_bodega    → perfil "bodega" de §2.2, mismo momento. ADITIVO: abre solo la verificación
 //                       física de la entrega (§16.4, "hoy la ejecuta el propio encargado de
 //                       compras; cuando exista bodeguero, él dará el visto bueno").
-//   compras_todo      → CASO ESPECIAL (sep-2026, pedido explícito del usuario): "antes se podía ver
+//   compras_todo      → (30-sep-2026: TODO admin lo tiene; a los no-admin se les otorga desde /admin/usuarios.)
+//                       Historia: el 10-sep se restringió a "solo asesor y yo" — ya no. CASO ESPECIAL (sep-2026, pedido explícito del usuario): "antes se podía ver
 //                       [Compras] por todos los admin, ahora solo el perfil de asesor... y yo el
 //                       super user". A diferencia de TODOS los demás permisos de esta lista, este
 //                       NO se hereda gratis por ser admin — ver el comentario en permisosDeUsuario
@@ -150,7 +151,7 @@ const PERMISOS_ADMIN: Record<Permiso, boolean> = {
   compras_ver: true,
   costeo_editor: true, auditor_tecnico: true, auditor_compra: true,
   solo_compras: false, // restricción, no privilegio: un admin nunca queda encerrado en Compras.
-  compras_todo: false, // OJO: distinto de todo lo demás en este objeto — ver permisosDeUsuario, se sobreescribe con el dato real incluso para admin.
+  compras_todo: true,  // 30-sep-2026 (pedido explícito): TODO admin ve y opera el módulo de Compras completo. Revierte el "solo asesor y yo" del 10-sep.
 };
 
 /** Permisos SIN el auto-otorgamiento de admin — lee lo que de verdad tiene guardado el usuario,
@@ -161,26 +162,23 @@ const PERMISOS_ADMIN: Record<Permiso, boolean> = {
  *  evitar ese auto-otorgamiento para un permiso puntual. */
 export async function permisosCrudosDeUsuario(userId: number): Promise<Permisos> {
   try {
-    const [rows] = await pool.query('SELECT permisos FROM usuarios WHERE id = ? LIMIT 1', [userId]);
-    const raw = (rows as any[])[0]?.permisos;
-    if (!raw) return {};
-    const p = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    return (p && typeof p === 'object') ? p : {};
+    const [rows] = await pool.query('SELECT permisos, rol FROM usuarios WHERE id = ? LIMIT 1', [userId]);
+    const fila = (rows as any[])[0];
+    const raw = fila?.permisos;
+    const p = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : {};
+    const base: Permisos = (p && typeof p === 'object') ? p : {};
+    // Todo admin tiene `compras_todo` (30-sep-2026): es el ÚNICO permiso que se hereda por ser admin en esta lectura "cruda";
+    // `compras`, `aprobar_comercial`, etc. siguen sin auto-otorgarse (los gates de Compras lo aceptan con `compras_todo`).
+    return fila?.rol === 'admin' ? { ...base, compras_todo: true } : base;
   } catch {
     return {}; // columna aún no existe (migración pendiente) → sin permisos extra
   }
 }
 
-/** Lee los permisos efectivos de un usuario por id+rol. Admin → todos, CON UNA EXCEPCIÓN:
- *  `compras_todo` nunca se hereda gratis por ser admin (pedido explícito, ver el comentario del
- *  catálogo de permisos arriba) — se lee de la ficha real del usuario incluso para admin, para que
- *  "ser admin" y "ver el módulo de Compras completo" dejen de ser la misma cosa. Todo lo demás
- *  sigue exactamente igual que antes para cualquier admin. */
+/** Lee los permisos efectivos de un usuario por id+rol. Admin → todos, incluido `compras_todo`
+ *  (desde el 30-sep-2026 todo admin ve y opera el módulo de Compras completo). */
 export async function permisosDeUsuario(userId: number, rol?: string | null): Promise<Permisos> {
-  if (rol === 'admin') {
-    const real = await permisosCrudosDeUsuario(userId);
-    return { ...PERMISOS_ADMIN, compras_todo: !!real.compras_todo };
-  }
+  if (rol === 'admin') return { ...PERMISOS_ADMIN };
   return permisosCrudosDeUsuario(userId);
 }
 

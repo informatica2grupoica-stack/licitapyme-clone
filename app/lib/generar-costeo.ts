@@ -13,6 +13,7 @@ import path from 'path';
 import ExcelJS from 'exceljs';
 import type { ManifiestoLinea, ViabilidadIAResult } from '@/app/lib/viabilidad-ia';
 import { esFilaNoProducto } from '@/app/lib/planilla-costeo-parser';
+import { desplegarItemsDesdeCaracteristicas } from '@/app/lib/manifiesto-desde-caracteristicas';
 
 export type ModalidadCosteo = 'suma_alzada' | 'por_linea' | 'por_categoria';
 
@@ -414,9 +415,36 @@ export function adaptarViabilidadACosteo(
   // sigue vivo en el informe y en estos casos es justamente el correcto: el manifiesto lo había
   // pisado el parser. Se mapea con los MISMOS alias de campo que usa el análisis, para que el Excel
   // salga idéntico venga del shape que venga.
+  const itemsLLMGuardados: any[] = Array.isArray((informe as any).productos?.items) ? (informe as any).productos.items
+    : Array.isArray((informe as any).costeo?.items) ? (informe as any).costeo.items : [];
+  // Mismo mapeo (alias de campo del análisis) para los dos rescates de abajo.
+  const desdeItemLLM = (it: any) => ({
+    linea: Number(String(it?.linea ?? 1).replace(/\D/g, '')) || 1,
+    categoria: it?.categoria ?? null,
+    descripcion: String(it?.nombre || it?.descripcion_exacta || it?.descripcion || '').trim(),
+    modelo: String(it?.marca_modelo_referencia || it?.marca_modelo || '').trim(),
+    cantidad: Number(it?.cantidad) || null,
+    unidad_medida: String(it?.unidad_medida || '').trim(),
+    unidad_inferida: !!it?.unidad_inferida,
+    presupuesto_linea: Number(it?.presupuesto_linea) || null,
+    tipo: String(it?.clasificacion || it?.tipo || 'generico'),
+    ruta: String(it?.ruta || ''),
+  });
+
+  // RESCATE DEL MANIFIESTO COLAPSADO (30-sep-2026, 3477-80-LE26): informe guardado antes del fix en
+  // el análisis, con un ítem genérico por línea (cantidad 0) y los productos reales como texto en
+  // `caracteristicas` de `productos.items`. Regenerar el costeo no re-analiza, así que se despliegan
+  // acá también. Solo si NINGÚN ítem del manifiesto trae cantidad (un manifiesto sano no se toca).
+  if (manifiesto.length && manifiesto.every(m => !m.cantidad)) {
+    const desplegados = desplegarItemsDesdeCaracteristicas(itemsLLMGuardados);
+    if (desplegados) {
+      console.warn(`[costeo] ${codigo}: manifiesto colapsado (${manifiesto.length} ítems sin cantidad) — se despliegan ${desplegados.length} productos desde productos.items[].caracteristicas.`);
+      manifiesto = desplegados.map(desdeItemLLM).filter(it => it.descripcion && !esFilaNoProducto(it.descripcion)) as typeof manifiesto;
+    }
+  }
+
   if (!manifiesto.length && descartados.length) {
-    const itemsLLM: any[] = Array.isArray((informe as any).productos?.items) ? (informe as any).productos.items
-      : Array.isArray((informe as any).costeo?.items) ? (informe as any).costeo.items : [];
+    const itemsLLM = itemsLLMGuardados;
     const rescatados = itemsLLM
       .map((it: any) => ({
         linea: Number(String(it?.linea ?? 1).replace(/\D/g, '')) || 1,

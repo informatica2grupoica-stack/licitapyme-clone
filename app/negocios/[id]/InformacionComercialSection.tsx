@@ -178,7 +178,9 @@ function BannerCambioForo({ negocioId, snapshot }: {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
-export function InformacionComercialSection({ negocioId, licitacionCodigo, empresaId, estadoPipeline, onEmpresaChange }: {
+export function InformacionComercialSection({ negocioId, licitacionCodigo, empresaId, estadoPipeline, onEmpresaChange, vista = 'todo' }: {
+  /** 'checklist' = bloques Técnico y Comercial + alertas · 'anexos' = bloque Administrativo (anexos) y la empresa · 'todo' = como siempre. */
+  vista?: 'todo' | 'checklist' | 'anexos';
   negocioId: number;
   licitacionCodigo: string;
   empresaId: number | null;
@@ -601,13 +603,15 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
       )}
 
       {/* ── Empresa con la que se postula ────────────────────────────────────── */}
-      <BloqueEmpresa
-        empresa={empresa}
-        empresas={empresas}
-        onElegir={elegirEmpresa}
-        toast={toast}
-        bloqueado={!!congelado}
-      />
+      {vista !== 'checklist' && (
+        <BloqueEmpresa
+          empresa={empresa}
+          empresas={empresas}
+          onElegir={elegirEmpresa}
+          toast={toast}
+          bloqueado={!!congelado}
+        />
+      )}
 
       {/* El plazo comprometido es tipo 'dato' pero NO es una alerta: es lo que se oferta junto
           con el precio, y el asistente lo llena en el mismo momento. Vivía abajo, entre las
@@ -618,7 +622,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
           debajo de todo — ver la sección "Alertas de cumplimiento". Antes vivían mezcladas con
           los anexos reales a subir, en la misma lista, y no había forma de distinguir "esto hay
           que adjuntarlo" de "esto solo hay que tenerlo presente" (pedido 24-ago-2026). */}
-      {BLOQUES.map(b => {
+      {BLOQUES.filter(b => vista === 'todo' || (vista === 'anexos' ? b.key === 'ADMINISTRATIVO' : b.key !== 'ADMINISTRATIVO')).map(b => {
         const delBloque = items.filter(i => i.bloque === b.key && !esAlerta(i));
         if (delBloque.length === 0) return null;
         const Icono = b.icon;
@@ -798,7 +802,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
         // Anexos, aunque ya esté generada.
         const bloqueVisible = (bq: Item['bloque']) => (bq !== 'ADMINISTRATIVO' && bq !== 'TECNICO') || tieneAnexosAuditor(estadoPipeline);
         const alertas = items.filter(i => esAlerta(i) && bloqueVisible(i.bloque));
-        if (alertas.length === 0) return null;
+        if (alertas.length === 0 || vista === 'anexos') return null;
         return (
           <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
             <div className="px-4 py-3 border-b border-zinc-100 flex items-center gap-2">

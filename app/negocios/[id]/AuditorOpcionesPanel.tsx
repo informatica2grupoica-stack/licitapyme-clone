@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Modal } from '@/app/components/ui/Modal';
+import { useConfirm } from '@/app/components/ui/confirm';
 import {
   IconLoader2 as Loader2, IconFileText as FileText, IconSparkles as Sparkles, IconChevronDown as ChevronDown,
   IconChevronRight as ChevronRight, IconAlertTriangle as Alerta, IconCircleCheck as Check, IconExternalLink as ExternalLink,
@@ -44,18 +45,26 @@ async function post(negocioId: number, body: Record<string, unknown>) {
 
 export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar }: { negocioId: number; licitacionCodigo: string; puedeAprobar: boolean }) {
   const toast = useToast();
+  const confirmar = useConfirm();
   const [panel, setPanel] = useState<PanelAuditorDTO | null>(null);
+  const panelRef = useRef<PanelAuditorDTO | null>(null);
+  const yaIntentadasCosto = useRef<Set<number>>(new Set());
+  const yaIntentadas = useRef<Set<number>>(new Set());   // opciones a las que la verificación automática ya lo intentó en esta sesión
+  panelRef.current = panel;
   const [cargando, setCargando] = useState(true);
   const [leyendo, setLeyendo] = useState<Set<string>>(new Set());
   const [ocupado, setOcupado] = useState<number | null>(null);
   const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
+  const [cotizacionesAbierto, setCotizacionesAbierto] = useState(true);   // la lista de cotizaciones se puede esconder
+  const [mensajesAbierto, setMensajesAbierto] = useState(false);          // la tarjeta de mensajes parte plegada
+  const [mensajesAbiertos, setMensajesAbiertos] = useState<Set<string>>(new Set());
   const [traiendo, setTraiendo] = useState<{ actual: number; total: number } | null>(null);
   const [agregandoLink, setAgregandoLink] = useState<string | null>(null);
   const [verificando, setVerificando] = useState<Set<number>>(new Set());
   const [modal, setModal] = useState<{ tipo: 'descartar' | 'rechazar' | 'no_ofertar' | 'anular_costo'; ref: number | string } | null>(null);
   const [texto, setTexto] = useState('');
 
-  const cargar = useCallback(async (silencioso = false) => {
+  const cargar = useCallback(async (silencioso = false): Promise<PanelAuditorDTO | null> => {
     if (!silencioso) setCargando(true);
     try {
       const res = await fetch(`/api/negocios/${negocioId}/auditor`);
@@ -63,15 +72,17 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cargar');
       setPanel(data);
       if (!silencioso) setAbiertas(new Set((data.lineas as LineaAuditorDTO[]).filter(l => l.opciones.length > 0).map(l => l.filaId)));
+      return data as PanelAuditorDTO;
     } catch (e: any) {
       toast.error('No se pudo cargar el Auditor', e.message);
+      return null;
     } finally {
       setCargando(false);
     }
   }, [negocioId, toast]);
   useEffect(() => { cargar(); }, [cargar]);
 
-  const leerDocumento = async (d: DocumentoCotizacionDTO) => {
+  const leerDocumento = async (d: DocumentoCotizacionDTO, auto = true) => {
     setLeyendo(prev => new Set(prev).add(d.url));
     try {
       const r = await post(negocioId, { accion: 'leer_documento', url: d.url });
@@ -81,12 +92,31 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
       toast.error(`No se pudo leer "${d.nombre}"`, e.message);
     } finally {
       setLeyendo(prev => { const n = new Set(prev); n.delete(d.url); return n; });
-      await cargar(true);
+      const data = await cargar(true);
+      if (auto) await autoVerificar(data);
     }
   };
 
+  // «Volver a leer»: análisis nuevo de UNA cotización con los dos OCR juntos (para cuando el Lector leyó mal, p. ej. una imagen con precios grandes).
+  // No repara nada solo: rehace la lectura y, si el producto se reconoce, el respaldo pasa a la lectura nueva (el anterior queda en el historial).
+  const releerDocumento = async (d: DocumentoCotizacionDTO) => {
+    const ok = await confirmar({
+      titulo: `¿Volver a leer «${d.nombre}»?`,
+      mensaje: 'Se analiza de nuevo solo esta cotización, usando los dos lectores de texto a la vez. Los productos que ya estaban en una opción pasan a la lectura nueva (con su precio nuevo) y la lectura anterior queda en el historial. Puede tardar un minuto.',
+      confirmarLabel: 'Volver a leer',
+    });
+    if (!ok) return;
+    setLeyendo(prev => new Set(prev).add(d.url));
+    try {
+      const r = await post(negocioId, { accion: 'releer_documento', url: d.url });
+      toast.success(`"${d.nombre}" leída de nuevo`, [`${r.actualizadas} respaldo${r.actualizadas === 1 ? '' : 's'} actualizado${r.actualizadas === 1 ? '' : 's'}`, r.creadas ? `${r.creadas} opción(es) nueva(s)` : '', r.sinEmparejar ? `${r.sinEmparejar} producto(s) sin emparejar` : '', r.sinEquivalente ? `${r.sinEquivalente} ya no aparece(n) en la lectura nueva` : ''].filter(Boolean).join(' · ') + '.');
+    } catch (e: any) { toast.error(`No se pudo volver a leer "${d.nombre}"`, e.message); }
+    finally { setLeyendo(prev => { const n = new Set(prev); n.delete(d.url); return n; }); const data = await cargar(true); await autoVerificar(data); }
+  };
+
   const leerTodas = async () => {
-    for (const d of (panel?.documentos || []).filter(x => !x.leido)) await leerDocumento(d);
+    for (const d of (panel?.documentos || []).filter(x => !x.leido)) await leerDocumento(d, false);
+    await autoVerificar(await cargar(true));
   };
 
   // Subir cotizaciones (una o varias, con botón o arrastrando): quedan en la caja «Cotizaciones» de Documentos Propios
@@ -95,6 +125,27 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   const [arrastrando, setArrastrando] = useState(false);
   const inputCotRef = useRef<HTMLInputElement>(null);
   const EXT_OK = /\.(pdf|png|jpe?g|webp|docx?|xlsx?)$/i;
+
+  // Sube UN archivo a Documentos Propios (subcategoría dada) y devuelve su URL pública. Lanza si algo falla.
+  const subirADocumentos = async (f: File, subcategoria: 'cotizaciones' | 'fichas_tecnicas'): Promise<string> => {
+    if (f.size > 100 * 1024 * 1024) throw new Error(`"${f.name}" supera los 100 MB.`);
+    if (f.size === 0) throw new Error(`"${f.name}" está vacío (0 bytes): vuelve a exportarlo o descargarlo.`);
+    const tipo = f.type || 'application/octet-stream';
+    const pres = await fetch('/api/documentos/presign', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ licitacionCodigo, filename: f.name, contentType: tipo, size: f.size }),
+    });
+    const p = await pres.json();
+    if (!pres.ok || !p.uploadUrl) throw new Error(p.error || 'No se pudo preparar la subida');
+    const put = await fetch(p.uploadUrl, { method: 'PUT', headers: { 'Content-Type': tipo }, body: f });
+    if (!put.ok) throw new Error('Falló la subida del archivo');
+    const save = await fetch('/api/documentos/guardar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ licitacionCodigo, documentoNombre: f.name, url: p.publicUrl, size: f.size, categoria: 'DOCUMENTOS_PROPIOS', subcategoria }),
+    });
+    if (!save.ok) throw new Error('No se pudo registrar el documento');
+    return p.publicUrl as string;
+  };
 
   const subirCotizaciones = async (archivos: File[]) => {
     const validos = archivos.filter(f => EXT_OK.test(f.name));
@@ -108,21 +159,8 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
       try {
         if (f.size > 100 * 1024 * 1024) throw new Error(`"${f.name}" supera los 100 MB.`);
         if (f.size === 0) throw new Error(`"${f.name}" está vacío (0 bytes): vuelve a exportarlo o descargarlo.`);
-        const tipo = f.type || 'application/octet-stream';
-        const pres = await fetch('/api/documentos/presign', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ licitacionCodigo, filename: f.name, contentType: tipo, size: f.size }),
-        });
-        const p = await pres.json();
-        if (!pres.ok || !p.uploadUrl) throw new Error(p.error || 'No se pudo preparar la subida');
-        const put = await fetch(p.uploadUrl, { method: 'PUT', headers: { 'Content-Type': tipo }, body: f });
-        if (!put.ok) throw new Error('Falló la subida del archivo');
-        const save = await fetch('/api/documentos/guardar', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ licitacionCodigo, documentoNombre: f.name, url: p.publicUrl, size: f.size, categoria: 'DOCUMENTOS_PROPIOS', subcategoria: 'cotizaciones' }),
-        });
-        if (!save.ok) throw new Error('No se pudo registrar el documento');
-        subidos.push({ url: p.publicUrl, nombre: f.name } as DocumentoCotizacionDTO);
+        const url = await subirADocumentos(f, 'cotizaciones');
+        subidos.push({ url, nombre: f.name } as DocumentoCotizacionDTO);
       } catch (e: any) {
         toast.error(`No se pudo subir "${f.name}"`, e.message);
       }
@@ -130,10 +168,11 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
     setSubiendo(null);
     if (!subidos.length) return;
     toast.success(`${subidos.length} cotización(es) subida(s)`, 'Leyéndolas con el Lector…');
-    for (const d of subidos) await leerDocumento(d);
+    for (const d of subidos) await leerDocumento(d, false);
+    await autoVerificar(await cargar(true));
   };
 
-  const agregarLink = async (filaId: string, url: string): Promise<boolean> => {
+  const agregarLink = async (filaId: string, url: string, auto = true): Promise<boolean> => {
     setAgregandoLink(filaId);
     try {
       const r = await post(negocioId, { accion: 'agregar_link', filaId, url });
@@ -143,18 +182,117 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
       else toast.success('Link registrado como opción en tanteo');
       return true;
     } catch (e: any) { toast.error('No se pudo registrar el link', e.message); return false; }
-    finally { setAgregandoLink(null); await cargar(true); }
+    finally { setAgregandoLink(null); const data = await cargar(true); if (auto) await autoVerificar(data); }
+  };
+
+
+  // ── Ficha técnica: se sube a la OPCIÓN (o a la LÍNEA, y entonces la opción nace de la ficha). El Lector la lee completa y el
+  //    verificador técnico la compara contra las bases en cuanto queda cargada. ──
+  const [subiendoFicha, setSubiendoFicha] = useState<string | null>(null);
+  const [fichaPorResolver, setFichaPorResolver] = useState<{ res: any; ref: { opcionId?: number; filaId?: string }; url: string; nombre: string } | null>(null);
+  const procesarResultadoFicha = async (r: any, ref: { opcionId?: number; filaId?: string }, url: string, nombre: string) => {
+    if (r.estado === 'elegir_producto' || r.estado === 'producto_distinto') { setFichaPorResolver({ res: r, ref, url, nombre }); return; }
+    setFichaPorResolver(null);
+    toast.success(r.opcionCreada ? 'Opción creada desde la ficha' : 'Ficha técnica agregada a la opción', [...(r.avisos || []), 'Comparándola con las bases…'].join(' '));
+    await cargar(true);
+    const opc = (panelRef.current?.lineas || []).flatMap(l => l.opciones).find(o => o.id === r.opcionId);
+    if (opc && opc.via === 'completa' && opc.tecnico.requisitosTotal > 0) await verificarTecnico(r.opcionId);
+  };
+  const subirFichas = async (archivos: File[], ref: { opcionId?: number; filaId?: string }) => {
+    const validos = archivos.filter(f => /\.(pdf|png|jpe?g|webp)$/i.test(f.name));
+    if (validos.length < archivos.length) toast.error('Solo se aceptan fichas en PDF o imagen (JPG, PNG, WEBP).');
+    for (const f of validos) {
+      setSubiendoFicha(f.name);
+      try {
+        const url = await subirADocumentos(f, 'fichas_tecnicas');
+        const r = await post(negocioId, { accion: 'agregar_ficha', url, ...ref });
+        await procesarResultadoFicha(r, ref, url, f.name);
+      } catch (e: any) { toast.error(`No se pudo agregar "${f.name}"`, e.message); }
+      finally { setSubiendoFicha(null); await cargar(true); }
+    }
+  };
+  const subirFichasDesdeUrl = async (url: string, nombre: string, ref: { opcionId?: number; filaId?: string }) => {
+    setSubiendoFicha(nombre);
+    try { const r = await post(negocioId, { accion: 'agregar_ficha', url, ...ref, productoIdx: fichaPorResolver?.res.productoIdx }); await procesarResultadoFicha(r, ref, url, nombre); }
+    catch (e: any) { toast.error('No se pudo agregar la ficha', e.message); }
+    finally { setSubiendoFicha(null); await cargar(true); }
+  };
+  const resolverFicha = async (extra: { productoIdx?: number; forzar?: boolean }) => {
+    if (!fichaPorResolver) return;
+    const { ref, url, nombre } = fichaPorResolver;
+    setSubiendoFicha(nombre);
+    try {
+      const r = await post(negocioId, { accion: 'agregar_ficha', url, ...ref, ...extra });
+      await procesarResultadoFicha(r, ref, url, nombre);
+    } catch (e: any) { toast.error('No se pudo agregar la ficha', e.message); }
+    finally { setSubiendoFicha(null); await cargar(true); }
+  };
+  const crearOpcionManual = async (filaId: string, d: { marca: string; modelo: string; proveedor: string }): Promise<boolean> => {
+    try { await post(negocioId, { accion: 'crear_opcion', filaId, ...d }); toast.success('Opción creada', 'Sube su ficha técnica para compararla con las bases.'); return true; }
+    catch (e: any) { toast.error('No se pudo crear la opción', e.message); return false; }
+    finally { await cargar(true); }
   };
 
   // Verificación técnica (Prompt 4 v2.0): una llamada de IA por opción, puede tardar 1-3 minutos.
   const verificarTecnico = async (opcionId: number) => {
     setVerificando(prev => new Set(prev).add(opcionId));
     try {
-      const r = await post(negocioId, { accion: 'verificar_tecnico', opcionId });
+      let r: any;
+      try { r = await post(negocioId, { accion: 'verificar_tecnico', opcionId }); }
+      catch (e: any) {
+        // La IA a veces se cae por tiempo (caso real: «Request timed out»): se reintenta UNA vez antes de molestar al asistente.
+        if (!/timed? ?out|timeout|tiempo|429|502|503|504|fetch failed|Failed to fetch/i.test(String(e?.message))) throw e;
+        toast.info('La IA tardó demasiado', 'Reintentando la verificación técnica…');
+        r = await post(negocioId, { accion: 'verificar_tecnico', opcionId });
+      }
       const e = { CUMPLE: 'cumple todo', CON_PENDIENTES: 'quedó con pendientes', NO_CUMPLE: 'no cumple', SIN_EVALUAR: 'sin evaluar' }[r.estado as string] || r.estado;
       toast.success(`Verificación técnica lista: ${e}`, [r.costosCreados ? `${r.costosCreados} costo${r.costosCreados === 1 ? '' : 's'} asociado${r.costosCreados === 1 ? '' : 's'} creado${r.costosCreados === 1 ? '' : 's'}.` : '', r.descartada ? 'La opción quedó descartada: ruta insalvable.' : ''].filter(Boolean).join(' ') || undefined);
     } catch (e: any) { toast.error('No se pudo verificar lo técnico', e.message); }
     finally { setVerificando(prev => { const n = new Set(prev); n.delete(opcionId); return n; }); await cargar(true); }
+  };
+
+  // Verificador de costo con IA (Prompt 5 v2.0, L1-C): costos ocultos, unidad/empaque, producto distinto, plazo y la ayuda de cinco campos.
+  const [verificandoCosto, setVerificandoCosto] = useState<Set<number>>(new Set());
+  const verificarCostoIA = async (opcionId: number, silencioso = false) => {
+    setVerificandoCosto(prev => new Set(prev).add(opcionId));
+    try {
+      const r = await post(negocioId, { accion: 'verificar_costo_ia', opcionId });
+      if (!silencioso) toast.success('Verificación de costo lista', `${r.alertas} alerta${r.alertas === 1 ? '' : 's'} nueva${r.alertas === 1 ? '' : 's'}${r.descartados ? ` · ${r.descartados} hallazgo(s) descartado(s) por no tener cita en el documento` : ''}.`);
+    } catch (e: any) { if (!silencioso) toast.error('No se pudo verificar el costo con la IA', e.message); }
+    finally { setVerificandoCosto(prev => { const n = new Set(prev); n.delete(opcionId); return n; }); await cargar(true); }
+  };
+
+  // Mercado (Prompt 5 V9/V10/V10-b/V10-c): busca referencias del MISMO producto en la web, el historial del proveedor en MercadoPúblico y precios de mercado público.
+  const [buscandoMercado, setBuscandoMercado] = useState<Set<number>>(new Set());
+  const buscarMercado = async (opcionId: number) => {
+    setBuscandoMercado(prev => new Set(prev).add(opcionId));
+    try {
+      const r = await post(negocioId, { accion: 'verificar_mercado', opcionId });
+      if (r.error) toast.error('Mercado: no se pudo completar la búsqueda', r.error);
+      else toast.success(`Mercado revisado: ${r.referencias} referencia${r.referencias === 1 ? '' : 's'} del mismo producto`, r.descartadas ? `${r.descartadas} descartada${r.descartadas === 1 ? '' : 's'} por no ser el mismo modelo.` : undefined);
+    } catch (e: any) { toast.error('No se pudo revisar el mercado', e.message); }
+    finally { setBuscandoMercado(prev => { const n = new Set(prev); n.delete(opcionId); return n; }); await cargar(true); }
+  };
+
+  const [calculandoPosicion, setCalculandoPosicion] = useState(false);
+  const calcularPosicion = async () => {
+    setCalculandoPosicion(true);
+    try { await post(negocioId, { accion: 'posicion_precio' }); toast.success('Posición de precio calculada'); }
+    catch (e: any) { toast.error('No se pudo calcular la posición de precio', e.message); }
+    finally { setCalculandoPosicion(false); await cargar(true); }
+  };
+
+  // Verificación automática (spec: cada documento nuevo dispara el verificador técnico de su opción): corre sola sobre las opciones de
+  // vía completa que todavía no se verificaron. Se llama después de agregar un link, leer una cotización o subir una ficha.
+  const autoVerificar = async (data: PanelAuditorDTO | null) => {
+    if (!data) return;
+    const pend = data.lineas.flatMap(l => l.opciones.filter(o => o.via === 'completa' && o.estado !== 'descartada' && !['aprobada', 'en_aprobacion'].includes(o.estado)
+      && o.tecnico.estado === 'NO_CORRIDO' && !o.tecnico.error && o.tecnico.requisitosTotal > 0 && !yaIntentadas.current.has(o.id)));
+    for (const o of pend) { yaIntentadas.current.add(o.id); await verificarTecnico(o.id); }
+    // El verificador de costo con IA corre sobre las opciones con un respaldo de costo leído que todavía no pasaron por él.
+    const sinCosto = data.lineas.flatMap(l => l.opciones.filter(o => o.via === 'completa' && o.estado !== 'descartada' && !['aprobada', 'en_aprobacion'].includes(o.estado)
+      && o.costoIA == null && o.respaldos.some(r => r.tipo !== 'ficha_tecnica' && r.extraccionId != null) && !yaIntentadasCosto.current.has(o.id)));
+    for (const o of sinCosto) { yaIntentadasCosto.current.add(o.id); await verificarCostoIA(o.id, true); }
   };
 
   const verificarTodoTecnico = async () => {
@@ -167,9 +305,10 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
     const lista = panel?.linksPendientes || [];
     for (let i = 0; i < lista.length; i++) {
       setTraiendo({ actual: i + 1, total: lista.length });
-      await agregarLink(lista[i].filaId, lista[i].url);
+      await agregarLink(lista[i].filaId, lista[i].url, false);
     }
     setTraiendo(null);
+    await autoVerificar(await cargar(true));
   };
 
   const accion = async (opcionId: number, a: string, extra: Record<string, unknown> = {}, ok?: string) => {
@@ -254,6 +393,8 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
         </div>
       </div>
 
+      <PosicionPrecioCard posicion={panel.posicion ?? null} calculando={calculandoPosicion} onCalcular={calcularPosicion} />
+
       {/* ── Cotizaciones en Documentos ── */}
       <div
         onDragOver={e => { if (!subiendo && e.dataTransfer.types.includes('Files')) { e.preventDefault(); setArrastrando(true); } }}
@@ -261,9 +402,14 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
         onDrop={e => { e.preventDefault(); setArrastrando(false); if (!subiendo && e.dataTransfer.files.length) subirCotizaciones(Array.from(e.dataTransfer.files)); }}
         className={`bg-white rounded-2xl border overflow-hidden transition-colors ${arrastrando ? 'border-indigo-400 ring-2 ring-indigo-200 bg-indigo-50/40' : 'border-zinc-200'}`}>
         <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center gap-2">
-          <FileText size={16} className="text-amber-600" />
-          <h3 className="text-[13.5px] font-bold text-zinc-900">Cotizaciones en Documentos</h3>
-          <span className="text-[11.5px] text-zinc-400">— el Lector las lee una sola vez y las empareja con su línea</span>
+          <button onClick={() => setCotizacionesAbierto(v => !v)} className="flex items-center gap-2 text-left min-w-0" title={cotizacionesAbierto ? 'Esconder la lista' : 'Mostrar la lista'}>
+            {cotizacionesAbierto ? <ChevronDown size={14} className="text-zinc-400 shrink-0" /> : <ChevronRight size={14} className="text-zinc-400 shrink-0" />}
+            <FileText size={16} className="text-amber-600 shrink-0" />
+            <h3 className="text-[13.5px] font-bold text-zinc-900 whitespace-nowrap">Cotizaciones en Documentos</h3>
+          </button>
+          <span className="text-[11.5px] text-zinc-400 truncate">{cotizacionesAbierto
+            ? '— el Lector las lee una sola vez y las empareja con su línea'
+            : `— ${panel.documentos.length} cotización${panel.documentos.length === 1 ? '' : 'es'}${sinLeer ? ` · ${sinLeer} sin leer` : ''} · puedes seguir arrastrando archivos aquí`}</span>
           <div className="ml-auto flex items-center gap-2">
             {sinLeer > 0 && (
               <button onClick={leerTodas} disabled={leyendo.size > 0 || !!subiendo}
@@ -280,7 +426,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
             </button>
           </div>
         </div>
-        {panel.documentos.length === 0 ? (
+        {!cotizacionesAbierto ? null : panel.documentos.length === 0 ? (
           <p className="px-5 py-6 text-[12.5px] text-zinc-400">No hay cotizaciones todavía. Arrastra aquí uno o varios archivos, o usa «Subir cotizaciones»: quedan en la caja «Cotizaciones» de Documentos y se leen solas.</p>
         ) : (
           <ul className="divide-y divide-zinc-100">
@@ -304,6 +450,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                         {d.productos.some(p => !p.filaId && !p.esCargo && p.precio != null) && (
                           <button onClick={() => emparejarDeNuevo(d)} className="text-amber-700 underline decoration-dotted hover:text-amber-900">Emparejar de nuevo</button>
                         )}
+                        <button onClick={() => releerDocumento(d)} title="Analizar de nuevo esta cotización (los dos lectores de texto a la vez)" className="text-indigo-600 underline decoration-dotted hover:text-indigo-800">Volver a leer</button>
                       </span>
                     )}
                   </div>
@@ -316,7 +463,16 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                         <span>{fmtCLP(p.precio)}{p.iva === 'no_declarado' ? ' · IVA no declarado' : p.iva === 'incluido' ? ' con IVA' : ' + IVA'}</span>
                         {p.cantidad != null && <span className="text-zinc-400">x{p.cantidad}</span>}
                         {p.filaId ? (
-                          <span className="text-emerald-600">→ ítem {panel.lineas.find(l => l.filaId === p.filaId)?.item}</span>
+                          <select value={p.filaId} title="Cambiar la línea de este producto, o quitarlo de ella"
+                            onChange={e => {
+                              if (p.opcionId == null) return;
+                              if (e.target.value === '__quitar') accion(p.opcionId, 'descartar', { motivo: 'Emparejada con la línea equivocada: se quitó de la línea (el producto queda libre para asignarlo).' }, 'Producto quitado de la línea');
+                              else accion(p.opcionId, 'mover_linea', { filaId: e.target.value }, 'Producto movido a otra línea');
+                            }}
+                            className="text-[11.5px] border border-emerald-200 rounded-md px-1.5 py-0.5 bg-emerald-50/50 text-emerald-700 font-semibold">
+                            {lineasSinAsignar.map(l => <option key={l.id} value={l.id}>→ {l.label}</option>)}
+                            <option value="__quitar">✕ Quitar de la línea</option>
+                          </select>
                         ) : p.esCargo ? (
                           <span className="text-zinc-400">cargo aparte (flete/despacho): no es un producto</span>
                         ) : p.precio != null ? (
@@ -346,27 +502,46 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
       <CostosAsociados costos={panel.costosAsociados} total={panel.totalCostosAsociados} lineas={panel.lineas}
         onAccion={accionLinea} onAnular={id => { setTexto(''); setModal({ tipo: 'anular_costo', ref: id }); }} />
 
-      {/* ── Mensaje único por proveedor ── */}
+      {/* ── Mensaje único por proveedor: la tarjeta y cada mensaje se pliegan (la lista es larga) ── */}
       {panel.mensajes.length > 0 && (
         <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center gap-2">
-            <h3 className="text-[13.5px] font-bold text-zinc-900">Mensaje al proveedor</h3>
-            <span className="text-[11.5px] text-zinc-400">— uno por proveedor: lo que bloquea primero, los datos para crearlo al final. Lo envías tú.</span>
+          <div className="px-5 py-3 flex items-center gap-2">
+            <button onClick={() => setMensajesAbierto(v => !v)} className="flex items-center gap-2 text-left flex-1 min-w-0">
+              {mensajesAbierto ? <ChevronDown size={14} className="text-zinc-400 shrink-0" /> : <ChevronRight size={14} className="text-zinc-400 shrink-0" />}
+              <h3 className="text-[13.5px] font-bold text-zinc-900 whitespace-nowrap">Mensaje al proveedor</h3>
+              <span className="text-[11.5px] text-zinc-400 truncate">— {panel.mensajes.length} proveedor{panel.mensajes.length === 1 ? '' : 'es'}{panel.mensajes.some(m => m.bloquea) ? ` · ${panel.mensajes.filter(m => m.bloquea).length} con algo que bloquea` : ''}. Lo envías tú.</span>
+            </button>
+            {mensajesAbierto && (
+              <button onClick={() => setMensajesAbiertos(prev => prev.size === panel.mensajes.length ? new Set() : new Set(panel.mensajes.map(m => m.opcionIds.join('-'))))}
+                className="text-[11.5px] font-semibold text-indigo-600 hover:underline whitespace-nowrap">
+                {mensajesAbiertos.size === panel.mensajes.length ? 'Plegar todos' : 'Desplegar todos'}
+              </button>
+            )}
           </div>
-          <ul className="divide-y divide-zinc-100">
-            {panel.mensajes.map(m => (
-              <li key={m.opcionIds.join('-')} className="px-5 py-3">
-                <div className="flex items-center gap-2 flex-wrap mb-1.5">
-                  <span className="text-[12.5px] font-semibold text-zinc-800">{m.proveedor}</span>
-                  {m.bloquea && <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">responde algo que bloquea</span>}
-                  <span className="text-[11.5px] text-zinc-400">{[m.vendedor, m.email, m.telefono].filter(Boolean).join(' · ')}</span>
-                  <button onClick={() => { navigator.clipboard?.writeText(m.texto); toast.success('Mensaje copiado'); }}
-                    className="ml-auto px-2.5 py-1 rounded-md border border-zinc-200 text-[11.5px] font-semibold text-zinc-600 hover:bg-zinc-50">Copiar</button>
-                </div>
-                <pre className="whitespace-pre-wrap text-[12px] text-zinc-600 bg-zinc-50 rounded-lg px-3 py-2 font-sans">{m.texto}</pre>
-              </li>
-            ))}
-          </ul>
+          {mensajesAbierto && (
+            <ul className="divide-y divide-zinc-100 border-t border-zinc-100">
+              {panel.mensajes.map(m => {
+                const clave = m.opcionIds.join('-'), abierto = mensajesAbiertos.has(clave);
+                return (
+                  <li key={clave} className="px-5 py-2.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button onClick={() => setMensajesAbiertos(prev => { const n = new Set(prev); if (n.has(clave)) n.delete(clave); else n.add(clave); return n; })}
+                        className="flex items-center gap-1.5 text-left min-w-0">
+                        {abierto ? <ChevronDown size={13} className="text-zinc-400 shrink-0" /> : <ChevronRight size={13} className="text-zinc-400 shrink-0" />}
+                        <span className="text-[12.5px] font-semibold text-zinc-800">{m.proveedor}</span>
+                      </button>
+                      {m.bloquea && <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">responde algo que bloquea</span>}
+                      <span className="text-[11px] text-zinc-400">{m.preguntas} pregunta{m.preguntas === 1 ? '' : 's'}</span>
+                      <span className="text-[11.5px] text-zinc-400 truncate">{[m.vendedor, m.email, m.telefono].filter(Boolean).join(' · ')}</span>
+                      <button onClick={() => { navigator.clipboard?.writeText(m.texto); toast.success('Mensaje copiado'); }}
+                        className="ml-auto px-2.5 py-1 rounded-md border border-zinc-200 text-[11.5px] font-semibold text-zinc-600 hover:bg-zinc-50">Copiar</button>
+                    </div>
+                    {abierto && <pre className="mt-2 whitespace-pre-wrap text-[12px] text-zinc-600 bg-zinc-50 rounded-lg px-3 py-2 font-sans">{m.texto}</pre>}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       )}
 
@@ -380,7 +555,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
             return pend > 0 ? (
               <button onClick={verificarTodoTecnico} disabled={verificando.size > 0}
                 className={`${(panel.linksPendientes?.length ?? 0) > 0 ? '' : 'ml-auto'} flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-700 text-[12px] font-semibold hover:bg-indigo-50 disabled:opacity-60`}>
-                {verificando.size > 0 ? <><Loader2 size={13} className="animate-spin" /> Verificando…</> : <>Verificar técnico ({pend} opción{pend === 1 ? '' : 'es'})</>}
+                {verificando.size > 0 ? <><Loader2 size={13} className="animate-spin" /> Verificando…</> : <>Verificar técnico ({pend} {pend === 1 ? 'opción' : 'opciones'})</>}
               </button>
             ) : null;
           })()}
@@ -412,6 +587,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                     {l.noOfertada && <p className="text-[12px] text-zinc-500 ml-6 mb-2">No se oferta: {l.motivoNoOfertada}</p>}
                     <div className="flex items-center gap-3 flex-wrap">
                       <AgregarLink filaId={l.filaId} ocupado={agregandoLink === l.filaId} onAgregar={agregarLink} />
+                      <OpcionSinLink filaId={l.filaId} ocupadoFicha={subiendoFicha !== null} onCrear={crearOpcionManual} onSubirFicha={(f) => subirFichas(f, { filaId: l.filaId })} />
                       {l.noOfertada
                         ? <button onClick={() => accionLinea('reofertar', { filaId: l.filaId }, 'Línea vuelve a ofertarse')} className="mb-3 text-[11.5px] font-semibold text-indigo-600 hover:underline">Volver a ofertar</button>
                         : <button onClick={() => { setTexto(''); setModal({ tipo: 'no_ofertar', ref: l.filaId }); }} className="mb-3 text-[11.5px] font-semibold text-zinc-500 hover:text-red-600">No ofertar esta línea</button>}
@@ -420,6 +596,8 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                       <p className="text-[12px] text-zinc-400 ml-6">Sin opciones todavía. Lee una cotización de arriba o asigna un producto a esta línea.{l.links.length > 0 && <> Link de referencia: <a href={l.links[0]} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline inline-flex items-center gap-0.5">abrir <ExternalLink size={10} /></a></>}</p>
                     ) : (
                       <CuadroLinea negocioId={negocioId} linea={l} ocupado={ocupado} verificando={verificando} onVerificar={verificarTecnico} puedeAprobar={puedeAprobar}
+                        subiendoFicha={subiendoFicha} onSubirFicha={(opcionId, f) => subirFichas(f, { opcionId })}
+                        buscandoMercado={buscandoMercado} onMercado={buscarMercado} verificandoCosto={verificandoCosto} onCostoIA={(id) => verificarCostoIA(id)}
                         onAccion={accion} onModal={(tipo, opcionId) => { setTexto(''); setModal({ tipo, ref: opcionId }); }} />
                     )}
                   </div>
@@ -430,6 +608,29 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
         </ul>
       </div>
 
+      <Modal open={fichaPorResolver !== null} onClose={() => setFichaPorResolver(null)} title={fichaPorResolver?.res.estado === 'producto_distinto' ? 'La ficha es de otro producto' : 'Elige el producto de la ficha'} size="md"
+        footer={<button onClick={() => setFichaPorResolver(null)} className="px-4 py-2 text-[13px] font-semibold text-zinc-600 hover:text-zinc-900">Cancelar</button>}>
+        {fichaPorResolver?.res.estado === 'producto_distinto' ? (
+          <div className="space-y-3 text-[13px] text-zinc-700">
+            <p>«{fichaPorResolver.nombre}» corresponde a <b>{[fichaPorResolver.res.marca, fichaPorResolver.res.modelo].filter(Boolean).join(' ') || 'otro producto'}</b>, no al de esta opción. No se comparó contra ella.</p>
+            <div className="flex flex-wrap gap-2">
+              {fichaPorResolver.ref.opcionId != null && (() => {
+                const filaId = (panel?.lineas || []).find(l => l.opciones.some(o => o.id === fichaPorResolver.ref.opcionId))?.filaId;
+                return filaId ? <button onClick={() => { const { url, nombre } = fichaPorResolver; setFichaPorResolver(null); subirFichasDesdeUrl(url, nombre, { filaId }); }}
+                  className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-[12.5px] font-semibold hover:bg-amber-700">Crear una opción nueva con esta ficha</button> : null;
+              })()}
+              <button onClick={() => resolverFicha({ forzar: true })} className="px-3 py-1.5 rounded-lg border border-zinc-200 text-zinc-700 text-[12.5px] font-semibold hover:bg-zinc-50">Es el mismo producto: usarla igual</button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2 text-[13px] text-zinc-700">
+            <p>{fichaPorResolver?.res.motivo}</p>
+            {(fichaPorResolver?.res.productos || []).map((p: { idx: number; nombre: string }) => (
+              <button key={p.idx} onClick={() => resolverFicha({ productoIdx: p.idx })} className="block w-full text-left px-3 py-2 rounded-lg border border-zinc-200 hover:bg-amber-50 hover:border-amber-300">{p.nombre}</button>
+            ))}
+          </div>
+        )}
+      </Modal>
       <Modal open={modal !== null} onClose={() => setModal(null)} title={({ descartar: 'Descartar opción', rechazar: 'Rechazar con comentario', no_ofertar: 'Marcar línea como NO OFERTADA', anular_costo: 'Anular costo asociado' } as Record<string, string>)[modal?.tipo || 'descartar']} size="md"
         footer={<>
           <button onClick={() => setModal(null)} className="px-4 py-2 text-[13px] font-semibold text-zinc-600 hover:text-zinc-900">Cancelar</button>
@@ -520,13 +721,181 @@ function AgregarLink({ filaId, ocupado, onAgregar }: { filaId: string; ocupado: 
   );
 }
 
+// Verificador de costo con IA de UNA opción: ayuda de cinco campos (solo si no quedó verificada) y qué hallazgos del modelo se descartaron por no tener cita.
+function CostoIAOpcion({ o, verificando, onVerificar }: { o: OpcionDTO; verificando: boolean; onVerificar: (opcionId: number) => void }) {
+  const c = o.costoIA;
+  const puede = o.via === 'completa' && o.estado !== 'descartada' && !['aprobada', 'en_aprobacion'].includes(o.estado) && o.respaldos.some(r => r.tipo !== 'ficha_tecnica' && r.extraccionId != null);
+  const a = o.verificacion?.veredicto !== 'VERIFICADO' ? c?.ayuda : null;
+  return (
+    <div className="text-[11.5px] text-zinc-600">
+      {!c && <p className="text-zinc-400">{o.via !== 'completa' ? 'Vía liviana: no corre' : puede ? 'Aún no se verifica' : 'Sin respaldo de costo leído'}</p>}
+      {c?.error && <p className="text-red-600">{c.error}</p>}
+      {c && !c.error && <p className="text-zinc-400">{c.alertas} alerta{c.alertas === 1 ? '' : 's'} agregada{c.alertas === 1 ? '' : 's'} · {c.creadoAt.slice(0, 16).replace('T', ' ')}</p>}
+      {a && (
+        <div className="mt-1 rounded-md bg-indigo-50/60 border border-indigo-100 px-2 py-1.5 space-y-0.5">
+          {a.diagnostico && <p><b>Diagnóstico:</b> {a.diagnostico}</p>}
+          {a.causaProbable && <p><b>Causa probable:</b> {a.causaProbable}</p>}
+          {a.preguntaProveedor && <p><b>Pregunta al proveedor:</b> {a.preguntaProveedor}</p>}
+          {a.accionConcreta && <p><b>Qué hacer:</b> {a.accionConcreta}</p>}
+          {a.datosParaImpacto && <p className="text-zinc-500"><b>Impacto:</b> {a.datosParaImpacto}</p>}
+        </div>
+      )}
+      {c && c.descartados.length > 0 && (
+        <details className="mt-1"><summary className="cursor-pointer text-[10.5px] text-zinc-400">{c.descartados.length} hallazgo{c.descartados.length === 1 ? '' : 's'} de la IA descartado{c.descartados.length === 1 ? '' : 's'} (sin cita en el documento)</summary>
+          <ul className="text-[10.5px] text-zinc-400 list-disc ml-4">{c.descartados.slice(0, 6).map((d, i) => <li key={i}>{d}</li>)}</ul></details>
+      )}
+      {puede && (
+        <button onClick={() => onVerificar(o.id)} disabled={verificando}
+          className="mt-1 flex items-center gap-1 px-2 py-0.5 rounded-md border border-indigo-200 text-indigo-700 text-[11px] font-semibold hover:bg-indigo-50 disabled:opacity-50">
+          {verificando ? <><Loader2 size={11} className="animate-spin" /> Verificando…</> : c ? 'Volver a verificar' : 'Verificar costo con IA'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Mercado de UNA opción: referencias del MISMO producto (V10), comparador por costo neto (V10-c) y, si la más barata pesa ≥ 5%, la justificación que exige V10.
+function MercadoOpcion({ o, buscando, onBuscar, onAccion }: {
+  o: OpcionDTO; buscando: boolean; onBuscar: (opcionId: number) => void;
+  onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void;
+}) {
+  const [justificando, setJustificando] = useState(false);
+  const [texto, setTexto] = useState('');
+  const m = o.mercado;
+  const puede = o.via === 'completa' && o.estado !== 'descartada' && !['aprobada', 'en_aprobacion'].includes(o.estado) && !!(o.modelo || o.sku);
+  const pideJustificar = !!o.verificacion?.bloqueos.some(b => b.codigo === 'V10');
+  return (
+    <div className="text-[11.5px] text-zinc-600">
+      {!m && <p className="text-zinc-400">{o.via !== 'completa' ? 'Vía liviana: no corre' : !(o.modelo || o.sku) ? 'Sin modelo ni SKU no se puede buscar el mismo producto' : 'Aún no se busca'}</p>}
+      {m && (
+        <>
+          {m.error && <p className="text-zinc-500">{m.error}</p>}
+          {m.comparador.length > 0 && (
+            <ul className="mb-1">
+              {m.comparador.slice(0, 5).map((f, i) => (
+                <li key={i} className={f.origen === 'opcion' ? 'font-semibold text-zinc-800' : ''}>
+                  {fmtCLP(f.precioNeto)} · {f.origen === 'opcion' ? 'esta opción' : f.url ? <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">{f.nombre}</a> : f.nombre}
+                </li>
+              ))}
+            </ul>
+          )}
+          {m.medianaReferencias != null && <p className="text-zinc-400">Mediana de {m.referencias.length} referencia{m.referencias.length === 1 ? '' : 's'}: {fmtCLP(m.medianaReferencias)}</p>}
+          {m.mercadoPublico?.neto != null && m.mercadoPublico.n > 0 && <p className="text-zinc-400">Mercado público: {fmtCLP(m.mercadoPublico.neto)} ({m.mercadoPublico.n} OC · {m.mercadoPublico.calidad === 'mismo_producto' ? 'mismo producto' : 'comparable, dato débil'})</p>}
+          {m.descartadas.length > 0 && <p className="text-zinc-400">{m.descartadas.length} descartada{m.descartadas.length === 1 ? '' : 's'} (no eran el mismo modelo)</p>}
+          <p className="text-[10.5px] text-zinc-400">Buscado {m.creadoAt.slice(0, 16).replace('T', ' ')}</p>
+        </>
+      )}
+      {puede && (
+        <button onClick={() => onBuscar(o.id)} disabled={buscando}
+          className="mt-1 flex items-center gap-1 px-2 py-0.5 rounded-md border border-indigo-200 text-indigo-700 text-[11px] font-semibold hover:bg-indigo-50 disabled:opacity-50">
+          {buscando ? <><Loader2 size={11} className="animate-spin" /> Buscando…</> : m ? 'Volver a buscar' : 'Buscar referencias de mercado'}
+        </button>
+      )}
+      {pideJustificar && (
+        <div className="mt-1.5">
+          {!justificando
+            ? <button onClick={() => setJustificando(true)} className="text-[11px] font-semibold text-red-600 hover:underline">Justificar por qué no usaste la referencia más barata</button>
+            : <>
+                <textarea value={texto} onChange={e => setTexto(e.target.value)} rows={2} placeholder="Plazo, garantía, respaldo formal, confiabilidad, stock, despacho, factura…"
+                  className="w-full text-[11.5px] border border-zinc-200 rounded-md px-2 py-1 outline-none focus:border-amber-400" />
+                <button onClick={() => { onAccion(o.id, 'justificar_ahorro', { texto }, 'Justificación registrada'); setJustificando(false); setTexto(''); }} disabled={texto.trim().length < 10}
+                  className="mt-1 px-2 py-0.5 rounded-md bg-amber-600 text-white text-[11px] font-semibold disabled:opacity-40">Guardar justificación</button>
+              </>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Posición de precio (Prompt 5 Parte IX): presupuesto ≥ precio mercado público > precio mercado privado ≥ nuestro costo. Todo calculado por el sistema.
+function PosicionPrecioCard({ posicion, calculando, onCalcular }: { posicion: import('@/app/lib/auditor-posicion').PosicionGuardadaDTO | null; calculando: boolean; onCalcular: () => void }) {
+  const p = posicion?.posicion;
+  const monto = (n: number | null | undefined) => (n == null ? '—' : fmtCLP(n));
+  const color = { rojo: 'text-red-600', amarillo: 'text-amber-700', info: 'text-zinc-500', ok: 'text-emerald-600' } as Record<string, string>;
+  const icono = { rojo: '🔴', amarillo: '🟡', info: 'ℹ️', ok: '✅' } as Record<string, string>;
+  return (
+    <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center gap-2">
+        <h3 className="text-[13.5px] font-bold text-zinc-900">Posición de precio</h3>
+        <span className="text-[11.5px] text-zinc-400">— dónde está nuestro costo frente al mercado y al presupuesto, para fijar el precio de venta</span>
+        <button onClick={onCalcular} disabled={calculando}
+          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-200 text-indigo-700 text-[12px] font-semibold hover:bg-indigo-50 disabled:opacity-60">
+          {calculando ? <><Loader2 size={13} className="animate-spin" /> Calculando…</> : p ? 'Recalcular' : 'Calcular posición de precio'}
+        </button>
+      </div>
+      {!p ? <p className="px-5 py-4 text-[12px] text-zinc-400">Todavía no se calculó. Conviene hacerlo con el mercado ya revisado en las opciones.</p> : (
+        <div className="px-5 py-4 space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2">
+            <Stat label={`Presupuesto organismo${p.presupuesto.nivel ? ` (${p.presupuesto.nivel})` : ''}`} valor={monto(p.presupuesto.monto_neto)} />
+            <Stat label={`Mercado público${p.mercado_publico.n_datos ? ` · ${p.mercado_publico.n_datos} OC` : ''}`} valor={p.mercado_publico.calidad === 'sin_datos' ? 'sin datos' : monto(p.mercado_publico.monto_neto)} />
+            <Stat label={`Mercado privado${p.mercado_privado.lineas_con_referencias ? ` · ${p.mercado_privado.lineas_con_referencias} línea(s)` : ''}`} valor={monto(p.mercado_privado.monto_neto)} />
+            <Stat label={`Nuestro costo${p.costo_verificado.lineas_pendientes ? ` · ${p.costo_verificado.lineas_pendientes} sin verificar` : ''}`} valor={monto(p.costo_verificado.monto_neto)} />
+          </div>
+          <p className="text-[12px] text-zinc-600">
+            Espacio de maniobra: <b>{monto(p.espacio_maniobra.monto)}</b>{p.espacio_maniobra.pct_sobre_costo != null && <> ({p.espacio_maniobra.pct_sobre_costo}% sobre el costo)</>}
+            {p.margen.con_precio_venta != null && <> · margen con el precio de venta registrado: <b className={p.margen.con_precio_venta < 20 ? 'text-red-600' : ''}>{p.margen.con_precio_venta}%</b></>}
+            {p.orden_sano != null && <> · {p.orden_sano ? '✅ orden sano' : '⚠️ el orden presupuesto ≥ público > privado ≥ costo no se cumple'}</>}
+          </p>
+          {posicion.provisorias > 0 && <p className="text-[11.5px] text-amber-700">{posicion.provisorias} línea{posicion.provisorias === 1 ? '' : 's'} sin opción firmada: su costo es PROVISORIO (la opción más avanzada).</p>}
+          {p.alertas.length > 0 && <ul className="space-y-0.5">{p.alertas.map((a, i) => <li key={i} className={`text-[12px] ${color[a.nivel]}`}>{icono[a.nivel]} {a.detalle}{a.lineas_que_mas_aportan.length > 0 && <> (líneas que más aportan: {a.lineas_que_mas_aportan.join(', ')})</>}</li>)}</ul>}
+          {p.lectura && <p className="text-[12.5px] text-zinc-700 bg-zinc-50 rounded-lg px-3 py-2 whitespace-pre-line">{p.lectura}</p>}
+          <p className="text-[10.5px] text-zinc-400">Calculada {posicion.creadoAt.slice(0, 16).replace('T', ' ')}. No es el precio de venta: es la referencia para fijarlo (lo aprueba CA o el EM).</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Botón que abre el selector de archivos (o recibe arrastrados) para subir una ficha técnica.
+function BotonSubirFicha({ ocupado, etiqueta, onArchivos }: { ocupado: boolean; etiqueta: string; onArchivos: (f: File[]) => void }) {
+  const ref = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <input ref={ref} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple className="hidden"
+        onChange={e => { if (e.target.files?.length) onArchivos(Array.from(e.target.files)); e.target.value = ''; }} />
+      <button onClick={() => ref.current?.click()} disabled={ocupado}
+        className="mt-1 flex items-center gap-1 px-2 py-0.5 rounded-md border border-amber-200 bg-amber-50 text-amber-700 text-[11px] font-semibold hover:bg-amber-100 disabled:opacity-50">
+        {ocupado ? <><Loader2 size={11} className="animate-spin" /> Leyendo ficha…</> : <><Upload size={11} /> {etiqueta}</>}
+      </button>
+    </>
+  );
+}
+
+// Producto que no está en la web: se crea la opción a mano (marca y modelo) o se sube su ficha técnica y la opción nace de ella.
+function OpcionSinLink({ filaId, ocupadoFicha, onCrear, onSubirFicha }: {
+  filaId: string; ocupadoFicha: boolean; onCrear: (filaId: string, d: { marca: string; modelo: string; proveedor: string }) => Promise<boolean>; onSubirFicha: (f: File[]) => void;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const [d, setD] = useState({ marca: '', modelo: '', proveedor: '' });
+  const [creando, setCreando] = useState(false);
+  const campo = 'text-[12px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:border-amber-400 w-36';
+  const crear = async () => { setCreando(true); const ok = await onCrear(filaId, d); setCreando(false); if (ok) { setD({ marca: '', modelo: '', proveedor: '' }); setAbierto(false); } };
+  return (
+    <div className="flex items-center gap-2 mb-3 flex-wrap">
+      <BotonSubirFicha ocupado={ocupadoFicha} etiqueta="Subir ficha técnica (crea la opción)" onArchivos={onSubirFicha} />
+      {!abierto
+        ? <button onClick={() => setAbierto(true)} className="mt-1 text-[11.5px] font-semibold text-indigo-600 hover:underline">+ Opción sin link (marca y modelo)</button>
+        : <>
+            <input value={d.marca} onChange={e => setD({ ...d, marca: e.target.value })} placeholder="Marca" className={campo} />
+            <input value={d.modelo} onChange={e => setD({ ...d, modelo: e.target.value })} placeholder="Modelo" className={campo} />
+            <input value={d.proveedor} onChange={e => setD({ ...d, proveedor: e.target.value })} placeholder="Proveedor (opcional)" className={campo} />
+            <button onClick={crear} disabled={creando || (!d.marca.trim() && !d.modelo.trim())} className="px-2.5 py-1.5 rounded-lg bg-amber-600 text-white text-[12px] font-semibold hover:bg-amber-700 disabled:opacity-40">{creando ? 'Creando…' : 'Crear opción'}</button>
+            <button onClick={() => setAbierto(false)} className="text-[11.5px] text-zinc-400 hover:text-zinc-700">Cancelar</button>
+          </>}
+    </div>
+  );
+}
+
 function Stat({ label, valor, rojo }: { label: string; valor: string; rojo?: boolean }) {
   return <div><p className="text-[10.5px] uppercase tracking-wide text-zinc-400 font-bold">{label}</p><p className={`text-[15px] font-bold ${rojo ? 'text-red-600' : 'text-zinc-800'}`}>{valor}</p></div>;
 }
 
 // ── Cuadro comparativo de UNA línea: columnas = opciones, filas = costo y verificación ────────────
-function CuadroLinea({ negocioId, linea, ocupado, verificando, onVerificar, puedeAprobar, onAccion, onModal }: {
+function CuadroLinea({ negocioId, linea, ocupado, verificando, onVerificar, puedeAprobar, subiendoFicha, onSubirFicha, buscandoMercado, onMercado, verificandoCosto, onCostoIA, onAccion, onModal }: {
   negocioId: number; linea: LineaAuditorDTO; ocupado: number | null; verificando: Set<number>; onVerificar: (opcionId: number) => void; puedeAprobar: boolean;
+  subiendoFicha: string | null; onSubirFicha: (opcionId: number, archivos: File[]) => void;
+  buscandoMercado: Set<number>; onMercado: (opcionId: number) => void;
+  verificandoCosto: Set<number>; onCostoIA: (opcionId: number) => void;
   onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void;
   onModal: (tipo: 'descartar' | 'rechazar', opcionId: number) => void;
 }) {
@@ -577,8 +946,28 @@ function CuadroLinea({ negocioId, linea, ocupado, verificando, onVerificar, pued
                 {o.capturas[0] && <><br /><span className="text-[11px] text-zinc-400">captura {o.capturas[0].capturadoAt.slice(0, 16).replace('T', ' ')} · {o.capturas[0].estado}{o.capturas[0].hayImagen && <> · <a href={`/api/negocios/${negocioId}/auditor/captura/${o.capturas[0].id}`} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">ver</a></>}</span></>}</td>;
             })}
           </Fila>
+          <Fila etiqueta="Ficha técnica">
+            {columnas.map(o => {
+              const fichas = o.respaldos.filter(r => r.tipo === 'ficha_tecnica' && r.vigente);
+              const editable = !['descartada', 'en_aprobacion', 'aprobada'].includes(o.estado);
+              return (
+                <td key={o.id} className="py-1.5 pr-4 text-zinc-600">
+                  {fichas.length === 0
+                    ? <span className="text-[11px] text-zinc-400">{o.respaldos.some(r => r.tipo === 'link_web') ? 'Se usa la página del link' : 'Sin ficha: sube la del producto'}</span>
+                    : fichas.map(f => <a key={f.id} href={f.documentoUrl || '#'} target="_blank" rel="noopener noreferrer" className="block text-indigo-600 hover:underline truncate max-w-[200px]">{f.documentoNombre || 'Ficha'}</a>)}
+                  {editable && <BotonSubirFicha ocupado={subiendoFicha !== null} etiqueta={fichas.length ? 'Agregar otra ficha' : 'Subir ficha técnica'} onArchivos={f => onSubirFicha(o.id, f)} />}
+                </td>
+              );
+            })}
+          </Fila>
           <Fila etiqueta="Stock · Plazo">
             {columnas.map(o => <td key={o.id} className="py-1.5 pr-4 text-zinc-600">{o.producto?.stock || '—'}<br /><span className="text-[11px] text-zinc-400">{o.producto?.plazoTexto || 'plazo no declarado'}</span></td>)}
+          </Fila>
+          <Fila etiqueta="Costo (IA)">
+            {columnas.map(o => <td key={o.id} className="py-1.5 pr-4"><CostoIAOpcion o={o} verificando={verificandoCosto.has(o.id)} onVerificar={onCostoIA} /></td>)}
+          </Fila>
+          <Fila etiqueta="Mercado">
+            {columnas.map(o => <td key={o.id} className="py-1.5 pr-4"><MercadoOpcion o={o} buscando={buscandoMercado.has(o.id)} onBuscar={onMercado} onAccion={onAccion} /></td>)}
           </Fila>
           <Fila etiqueta="Bloqueos y alertas">
             {columnas.map(o => (

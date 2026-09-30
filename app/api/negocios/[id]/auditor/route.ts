@@ -6,16 +6,17 @@
 //
 //   GET  → panel: líneas del costeo con sus opciones (respaldos + verificación), las cotizaciones de
 //          Documentos y el mensaje único por proveedor.
-//   POST → { accion, ... }: leer_documento · emparejar_documento · asignar_producto · cambiar_via ·
-//          verificar_tecnico · habilitar_item_tecnico · declarar_item_tecnico · agregar_link · no_ofertar · reofertar · agregar/estimar/anular/restaurar_costo_asociado · descartar · restaurar · firmar · quitar_firma · solicitar_aprobacion · aprobar · rechazar
+//   POST → { accion, ... }: leer_documento · releer_documento · emparejar_documento · asignar_producto · cambiar_via ·
+//          crear_opcion · agregar_ficha · verificar_mercado · verificar_costo_ia · justificar_ahorro · posicion_precio · verificar_tecnico · habilitar_item_tecnico · declarar_item_tecnico · agregar_link · no_ofertar · reofertar · agregar/estimar/anular/restaurar_costo_asociado · descartar · restaurar · firmar · quitar_firma · solicitar_aprobacion · aprobar · rechazar
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { contextoAuditor } from '@/app/lib/auditor-acceso';
 import {
   armarPanelAuditor, leerDocumentoYCrearOpciones, crearOpcionesDesdeExtraccion, asignarProductoALinea, cambiarVia, descartarOpcion, restaurarOpcion, moverOpcionALinea,
-  firmarOpcion, quitarFirma, solicitarAprobacion, resolverAprobacion, agregarLinkALinea,
+  firmarOpcion, quitarFirma, solicitarAprobacion, resolverAprobacion, agregarLinkALinea, crearOpcionManual, agregarFichaAOpcion, verificarMercadoDeOpcion, justificarAhorroDeOpcion, verificarCostoIADeOpcion, releerDocumento,
   verificarTecnicoDeOpcion, habilitarItemTecnico, declararItemTecnico,
 } from '@/app/lib/auditor-opciones';
+import { generarPosicionAuditor, ultimaPosicion } from '@/app/lib/auditor-posicion';
 import {
   marcarNoOfertada, reofertarLinea, agregarCostoAsociado, estimarCostoAsociado, anularCostoAsociado, restaurarCostoAsociado,
 } from '@/app/lib/auditor-lineas';
@@ -30,7 +31,8 @@ export async function GET(request: NextRequest, { params }: Params) {
   const c = await contextoAuditor(request, params);
   if (c instanceof NextResponse) return c;
   try {
-    return NextResponse.json({ success: true, ...(await armarPanelAuditor(c.negocio.id, c.negocio.licitacion_codigo)) });
+    const [panel, posicion] = await Promise.all([armarPanelAuditor(c.negocio.id, c.negocio.licitacion_codigo), ultimaPosicion(c.negocio.id).catch(() => null)]);
+    return NextResponse.json({ success: true, ...panel, posicion });
   } catch (e) {
     console.error('[auditor][GET]', String(e));
     return NextResponse.json({ error: String(e) }, { status: 500 });
@@ -55,6 +57,16 @@ export async function POST(request: NextRequest, { params }: Params) {
           [negocio.licitacion_codigo, url]) as any;
         if (!(rows as any[]).length) return NextResponse.json({ error: 'Ese documento no es una cotización de esta licitación.' }, { status: 404 });
         const r = await leerDocumentoYCrearOpciones(negocio.id, url, (rows as any[])[0].documento_nombre, actor);
+        return NextResponse.json({ ...r, success: !r.error });
+      }
+      case 'releer_documento': {
+        // Re-análisis de UNA cotización (botón «Volver a leer»): OCR doble y rehace el emparejamiento sin perder el historial.
+        const url = String(body.url || '');
+        const [rows] = await pool.query(
+          `SELECT documento_nombre FROM documentos_cache WHERE licitacion_codigo = ? AND subcategoria = 'cotizaciones' AND documento_url_local = ? LIMIT 1`,
+          [negocio.licitacion_codigo, url]) as any;
+        if (!(rows as any[]).length) return NextResponse.json({ error: 'Ese documento no es una cotización de esta licitación.' }, { status: 404 });
+        const r = await releerDocumento(negocio.id, url, (rows as any[])[0].documento_nombre, actor);
         return NextResponse.json({ ...r, success: !r.error });
       }
       case 'emparejar_documento': {
@@ -98,10 +110,46 @@ export async function POST(request: NextRequest, { params }: Params) {
         const r = await verificarTecnicoDeOpcion(negocio.id, negocio.licitacion_codigo, opcionId, actor);
         return NextResponse.json({ success: true, ...r });
       }
+      case 'posicion_precio': {
+        const p = await generarPosicionAuditor(negocio.id, negocio.licitacion_codigo, actor);
+        return NextResponse.json({ success: true, posicion: p });
+      }
+      case 'verificar_costo_ia': {
+        const r = await verificarCostoIADeOpcion(negocio.id, negocio.licitacion_codigo, opcionId, actor);
+        return NextResponse.json({ success: !r.error, error: r.error, alertas: r.resultado?.alertas.length ?? 0, ayuda: !!r.resultado?.ayuda, descartados: r.resultado?.descartados.length ?? 0 });
+      }
+      case 'verificar_mercado': {
+        const m = await verificarMercadoDeOpcion(negocio.id, opcionId, actor);
+        return NextResponse.json({ success: true, referencias: m.referencias.length, descartadas: m.descartadas.length, error: m.error });
+      }
+      case 'justificar_ahorro':
+        await justificarAhorroDeOpcion(negocio.id, opcionId, String(body.texto || ''), actor); break;
       case 'habilitar_item_tecnico':
         if (!perm.esEM) return NextResponse.json({ error: 'Habilitar un dato requiere ser EM (jefe de ventas o admin).' }, { status: 403 });
         await habilitarItemTecnico(negocio.id, opcionId, Number(body.n), body.habilitado !== false, actor); break;
       case 'declarar_item_tecnico': await declararItemTecnico(negocio.id, opcionId, Number(body.n), String(body.texto || ''), String(body.respaldo || ''), actor); break;
+      case 'crear_opcion': {
+        // Opción SIN link ni cotización (el producto no está en la web): línea + marca/modelo. Después se le sube la ficha técnica.
+        const id = await crearOpcionManual(negocio.id, String(body.filaId || ''), {
+          marca: body.marca ? String(body.marca) : null, modelo: body.modelo ? String(body.modelo) : null,
+          sku: body.sku ? String(body.sku) : null, proveedor: body.proveedor ? String(body.proveedor) : null,
+        }, actor);
+        return NextResponse.json({ success: true, opcionId: id });
+      }
+      case 'agregar_ficha': {
+        // Ficha técnica (PDF/imagen) subida a la caja «Fichas técnicas» de Documentos Propios de ESTA licitación.
+        const url = String(body.url || '');
+        const [rows] = await pool.query(
+          `SELECT documento_nombre FROM documentos_cache WHERE licitacion_codigo = ? AND subcategoria = 'fichas_tecnicas' AND documento_url_local = ? LIMIT 1`,
+          [negocio.licitacion_codigo, url]) as any;
+        if (!(rows as any[]).length) return NextResponse.json({ error: 'Ese documento no es una ficha técnica de esta licitación.' }, { status: 404 });
+        const r = await agregarFichaAOpcion({
+          negocioId: negocio.id, opcionId: Number.isFinite(opcionId) ? opcionId : null, filaId: body.filaId ? String(body.filaId) : null,
+          url, nombre: (rows as any[])[0].documento_nombre,
+          productoIdx: body.productoIdx != null && body.productoIdx !== '' ? Number(body.productoIdx) : null, forzar: body.forzar === true, actor,
+        });
+        return NextResponse.json({ ...r, success: r.estado !== 'error' });
+      }
       case 'agregar_link': {
         const r = await agregarLinkALinea(negocio.id, String(body.filaId || ''), String(body.url || ''), actor);
         return NextResponse.json({ success: true, ...r });

@@ -482,7 +482,7 @@ async function filasGuardadas(negocioId: number) {
   return m;
 }
 
-async function presupuestoNeto(negocioId: number, estado: EstadoCosteoEditor): Promise<{ neto: number | null; nivel: 'linea' | 'proyecto' | null; fuente: string }> {
+export async function presupuestoNeto(negocioId: number, estado: EstadoCosteoEditor): Promise<{ neto: number | null; nivel: 'linea' | 'proyecto' | null; fuente: string }> {
   const grupos = estado.grupos.filter(g => g.ofertamos !== false);
   const conPres = grupos.filter(g => g.presupuestoNeto != null && g.presupuestoNeto > 0);
   if (grupos.length > 0 && conPres.length === grupos.length) return { neto: Math.round(conPres.reduce((s, g) => s + (g.presupuestoNeto as number), 0)), nivel: 'linea', fuente: 'Presupuesto por línea del costeo (bases de la licitación)' };

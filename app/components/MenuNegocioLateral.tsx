@@ -62,10 +62,9 @@ export function construirNavSeccionesNegocio(input: NavSeccionesNegocioInput): I
     { key: 'viabilidad', label: 'Viabilidad', count: null },
     ...(hayResultado ? [{ key: 'resultado', label: 'Resultado', count: null }] : []),
     ...(hayResultado ? [{ key: 'preguntas', label: 'Preguntas', count: null }] : []),
-    ...(hayCosteo ? [{ key: 'costeo', label: 'Costeo', count: null }] : []),
-    // Un solo ítem "Auditor" con pestañas Técnico / Compra por dentro (módulo AUDITOR unificado,
-    // 29-sep-2026). Se mantiene la key 'comercial' para no romper los deep-links de /aprobaciones.
-    ...(hayAuditorTecnico || puedeVerAuditorCompra
+    // Un solo ítem "Auditor" (módulo AUDITOR unificado, 29-sep-2026) que también contiene el Costeo: ya no es
+    // un ítem propio del menú. Se mantiene la key 'comercial' para no romper los deep-links de /aprobaciones.
+    ...(hayAuditorTecnico || puedeVerAuditorCompra || hayCosteo
       ? [{ key: 'comercial', label: 'Auditor', count: auditorCount || null, alerta: !!auditorAlerta, variante: 'compra' as const }]
       : []),
   ];

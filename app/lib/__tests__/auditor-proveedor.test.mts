@@ -28,7 +28,7 @@ const opcion = (id: number, p: ProductoNormalizado, extra: Partial<OpcionDTO> = 
     verificacion: verificarOpcion({ linea: l, lineasProyecto: [l], producto: p, documento: doc, proveedor: {}, opcion: { marca: p.marca, modelo: p.modelo }, hoyISO: '2026-09-29' }),
     proveedorDatos: { razon_social: { valor: 'PERSONAL COMPUTER FACTORY S.A.' }, rut: { valor: '78.885.550-8' }, vendedor: { valor: 'Alvaro Peña P.' }, email: { valor: 'apena@pcfactory.cl' }, condiciones_pago: { valor: 'Deposito' } },
     documentoInfo: { numero: '100.084.222', fechaEmision: '22 de Septiembre de 2026', tipo: 'cotizacion_formal' },
-    capturas: [], estadoLink: null,
+    capturas: [], estadoLink: null, mercado: null, costoIA: null,
     tecnico: { estado: 'NO_CORRIDO', corridoAt: null, error: null, segundaPasadaAt: null, requisitosTotal: 0, resultado: null },
     ...extra,
   };
@@ -127,4 +127,21 @@ test('mensaje: el plazo de entrega se pregunta UNA vez por proveedor, nombrando 
   assert.equal(ms.length, 1);
   assert.equal((ms[0].texto.match(/plazo de entrega/g) || []).length, 1);
   assert.match(ms[0].texto, /X A1; X B2/);
+});
+
+test('mensaje: la misma empresa con distinto nombre (Spa/SpA, tienda/razón social) recibe UN solo mensaje', () => {
+  const cot = opcion(1, prod(), { proveedorRazonSocial: 'Sociedad de Inversiones Audiofans Spa', proveedorRut: '76.773.918-4' });
+  const link = opcion(2, prod({ idx: 1, nombre: 'SKP UHF 600 PRO', marca: 'SKP', modelo: 'UHF 600 PRO', precio: 138_990 }), { proveedorRazonSocial: 'Sociedad de Inversiones Audiofans SpA', proveedorRut: null });
+  const foto = opcion(3, prod({ idx: 2 }), { proveedorRazonSocial: 'HorizontalFoto', proveedorRut: null });
+  const horizontal = opcion(4, prod({ idx: 3 }), { proveedorRazonSocial: 'HORIZONTAL SPA', proveedorRut: '76.895.668-5' });
+  const otra = opcion(5, prod({ idx: 4 }), { proveedorRazonSocial: 'Dinon Tecnología', proveedorRut: null });
+  const ms = mensajesUnificadosPorProveedor([linea([cot, link, foto, horizontal, otra])]);
+  assert.equal(ms.length, 3);
+  assert.deepEqual(ms.map(m => m.opcionIds.sort()).sort(), [[1, 2], [3, 4], [5]]);
+});
+
+test('mensaje: dos proveedores con RUT distinto no se juntan aunque el nombre se parezca', () => {
+  const a = opcion(1, prod(), { proveedorRazonSocial: 'Tecnología Norte Ltda', proveedorRut: '76.111.111-1' });
+  const b = opcion(2, prod({ idx: 1 }), { proveedorRazonSocial: 'Tecnología Norte SpA', proveedorRut: '77.222.222-2' });
+  assert.equal(mensajesUnificadosPorProveedor([linea([a, b])]).length, 2);
 });

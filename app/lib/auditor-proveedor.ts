@@ -39,6 +39,10 @@ export function preguntasDeOpcion(o: OpcionDTO, linea: LineaAuditorDTO): Pregunt
   if (hay('V2') && p?.moq != null) out.push({ bloquea: true, texto: `Para ${prod} piden un mínimo de compra de ${p.moq} unidades y necesitamos ${linea.cantidad}. ¿Pueden vendernos esa cantidad?` });
   if (hay('SIN_RESPALDO')) out.push({ bloquea: true, texto: `¿Nos pueden enviar la cotización formal de ${prod} con el precio, la marca/modelo y si el valor es neto o con IVA?` });
 
+  // La pregunta de la IA de costo (Prompt 5, campo ③) entra al mismo mensaje cuando la opción está bloqueada y las reglas de código no armaron ninguna.
+  const qIA = o.costoIA?.ayuda?.preguntaProveedor?.trim();
+  if (qIA && v.bloqueos.length > 0 && out.length === 0) out.push({ bloquea: true, texto: qIA });
+
   const v2 = alerta('V2');
   if (v2 && p?.cantidadCotizada != null) out.push({ bloquea: false, texto: `La cotización de ${prod} es por ${p.cantidadCotizada} unidades y necesitamos ${linea.cantidad}: ¿mantienen el precio unitario para ${linea.cantidad}?` });
   else if (v2) out.push({ bloquea: false, texto: `Para ${prod}: ¿nos confirman cuántas unidades trae el precio cotizado y si lo mantienen para ${linea.cantidad}?` });
@@ -48,17 +52,35 @@ export function preguntasDeOpcion(o: OpcionDTO, linea: LineaAuditorDTO): Pregunt
   return out;
 }
 
+// ── Quién es «el mismo proveedor» ────────────────────────────────────────────────────────────────
+// Una opción sale de una cotización (con razón social y RUT) y otra de un link (con el nombre de la tienda): «Sociedad de Inversiones
+// Audiofans Spa» y «Sociedad de Inversiones Audiofans SpA», o «HORIZONTAL SPA» y «HorizontalFoto», son la misma empresa y reciben UN mensaje.
+const SUFIJO_LEGAL = /\b(spa|s\.?a\.?|ltda\.?|limitada|e\.?i\.?r\.?l\.?|sociedad an[oó]nima|y cia\.?|chile)\b/g;
+export const nombreProveedorNorm = (n: string | null | undefined) =>
+  (n || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(SUFIJO_LEGAL, ' ').replace(/[^a-z0-9]+/g, '');
+const rutNorm = (r: string | null | undefined) => (r || '').replace(/[.\s]/g, '').toUpperCase();
+
+export function mismoProveedor(a: { rut?: string | null; nombre?: string | null }, b: { rut?: string | null; nombre?: string | null }): boolean {
+  const ra = rutNorm(a.rut), rb = rutNorm(b.rut);
+  if (ra && rb) return ra === rb;
+  const na = nombreProveedorNorm(a.nombre), nb = nombreProveedorNorm(b.nombre);
+  if (!na || !nb) return false;
+  return na === nb || (Math.min(na.length, nb.length) >= 8 && (na.includes(nb) || nb.includes(na)));
+}
+
 export function mensajesUnificadosPorProveedor(lineas: LineaAuditorDTO[]): MensajeProveedor[] {
-  const grupos = new Map<string, { opciones: Array<{ o: OpcionDTO; l: LineaAuditorDTO }> }>();
+  const grupos: Array<{ rut: string; nombres: string[]; opciones: Array<{ o: OpcionDTO; l: LineaAuditorDTO }> }> = [];
   for (const l of lineas) for (const o of l.opciones) {
     if (['descartada', 'aprobada', 'en_aprobacion'].includes(o.estado)) continue;
-    const clave = (o.proveedorRut || o.proveedorRazonSocial || '').trim().toLowerCase();
-    if (!clave) continue;
-    (grupos.get(clave) || grupos.set(clave, { opciones: [] }).get(clave)!).opciones.push({ o, l });
+    const ref = { rut: o.proveedorRut, nombre: o.proveedorRazonSocial };
+    if (!rutNorm(ref.rut) && !nombreProveedorNorm(ref.nombre)) continue;
+    const g = grupos.find(x => (x.rut && rutNorm(ref.rut) ? x.rut === rutNorm(ref.rut) : x.nombres.some(n => mismoProveedor({ nombre: n }, { nombre: ref.nombre }))));
+    if (g) { g.opciones.push({ o, l }); if (!g.rut) g.rut = rutNorm(ref.rut); if (ref.nombre) g.nombres.push(ref.nombre); }
+    else grupos.push({ rut: rutNorm(ref.rut), nombres: ref.nombre ? [ref.nombre] : [], opciones: [{ o, l }] });
   }
   const out: MensajeProveedor[] = [];
-  for (const { opciones } of grupos.values()) {
-    const primero = opciones[0].o;
+  for (const { opciones } of grupos) {
+    const primero = (opciones.find(x => x.o.proveedorRut) || opciones[0]).o;
     const datos = opciones.map(x => x.o.proveedorDatos).find(Boolean) || null;
     const bloqueantes: string[] = [], otras: string[] = [], sujetosPlazo: string[] = [];
     for (const { o, l } of opciones) for (const q of preguntasDeOpcion(o, l)) {

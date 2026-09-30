@@ -80,7 +80,7 @@ const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string; cat
   // ÚNICO permiso de todo el catálogo que un admin NO trae gratis (10-sep-2026, pedido explícito:
   // "antes se podía ver [Compras] por todos los admin, ahora solo Asesor y yo") — ver el comentario
   // largo en app/lib/api-auth.ts. Por eso se muestra SIEMPRE, incluso cuando el usuario es admin.
-  { key: 'compras_todo',        label: 'Compras — ver y operar TODO el módulo', desc: 'Sin este permiso, ni siquiera un admin ve el módulo de Compras completo: solo entra si además es el encargado asignado de un negocio puntual, o tiene compras/aprobar_comercial por separado.', categoria: 'comercial' },
+  { key: 'compras_todo',        label: 'Compras — ver y operar TODO el módulo', desc: 'Todo admin ya lo tiene. Para un usuario que no es admin: le deja ver y operar el módulo de Compras completo (si no, solo entra a los negocios donde es el encargado, o con compras/aprobar_comercial por separado).', categoria: 'comercial' },
   // Lectura pura: el perfil "supervisor" de Compras que mira todo y no toca nada.
   { key: 'compras_ver',         label: 'Compras — solo ver (sin modificar)', desc: 'Ve Compras, Proyectos (Obuma), Órdenes de compra, Proveedores y Fleteros en modo lectura: no puede crear, editar ni marcar tareas. Para ver también las licitaciones de otros perfiles, actívale además "Ver licitaciones de otros perfiles".', categoria: 'comercial' },
   // Restricción, no privilegio: encierra al perfil en los módulos de Compras. No da acceso a

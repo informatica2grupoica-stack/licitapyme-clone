@@ -48,7 +48,7 @@ export async function verificarMercadoOpcion(params: { negocioId: number; opcion
 export async function ultimosMercados(negocioId: number): Promise<Map<number, ResultadoMercado>> {
   const [rows] = await pool.query(`SELECT opcion_id, resultado_json FROM auditor_verificacion_costo WHERE negocio_id = ? ORDER BY id`, [negocioId]) as any;
   const out = new Map<number, ResultadoMercado>();
-  for (const r of rows as any[]) { try { out.set(r.opcion_id, JSON.parse(r.resultado_json)); } catch { /* fila con error */ } }
+  for (const r of rows as any[]) { try { const j = JSON.parse(r.resultado_json); if (!j?.tipo_ia) out.set(r.opcion_id, j); } catch { /* fila con error */ } }   // las filas `tipo_ia` son del verificador de costo con IA
   return out;
 }
 

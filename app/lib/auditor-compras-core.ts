@@ -648,6 +648,8 @@ export function calcularPosicionPrecio(
   lineas: LineaCosteo[],
   auditadas: Record<string, LineaGuardada | undefined>,
   presupuesto: { neto: number | null; nivel: 'linea' | 'proyecto' | null; fuente: string },
+  /** Costos asociados de las bases (capacitación, instalación, despacho…): suben el costo sin llevar margen. Solo los usa el AUDITOR. */
+  costoAsociadosNeto = 0,
 ): PosicionPrecio {
   const utiles = lineas.filter(l => !l.esGastoExtra && l.ofertamos && l.cantidad != null && l.cantidad > 0);
   let costo = 0, pendientes = 0, priv = 0, costoCubierto = 0, nRefs = 0, lineasRef = 0, pub = 0, nPub = 0, lineasPub = 0, ventaNeta = 0;
@@ -673,7 +675,7 @@ export function calcularPosicionPrecio(
       calidadPub = mp.calidad === 'mismo_producto' && calidadPub !== 'comparable' ? 'mismo_producto' : mp.calidad === 'comparable' ? 'comparable' : calidadPub;
     }
   }
-  costo = r0(costo); priv = r0(priv); pub = r0(pub);
+  costo = r0(costo + costoAsociadosNeto); priv = r0(priv); pub = r0(pub);
   const pres = presupuesto.neto;
   const tienePriv = lineasRef > 0, tienePub = lineasPub > 0;
   const espacio = pres != null && costo > 0 ? pres - costo : null;

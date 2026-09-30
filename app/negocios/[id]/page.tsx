@@ -34,7 +34,6 @@ import { MenuNegocioLateral, construirNavSeccionesNegocio, useFlujoNegocio, Secc
 import OfertasCompetencia from '@/app/components/OfertasCompetencia';
 import { InformacionComercialSection } from './InformacionComercialSection';
 import { CosteoEditorCard } from './CosteoEditorCard';
-import { AuditorCompraCard } from './AuditorCompraCard';
 import { AuditorOpcionesPanel } from './AuditorOpcionesPanel';
 import { SelectorLineasOferta } from './SelectorLineasOferta';
 import { tieneInformacionComercial } from '@/app/lib/checklist-comercial';
@@ -175,7 +174,7 @@ interface AnalisisIA {
   actualizado: string;
 }
 
-type Seccion = 'resumen' | 'resultado' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'preguntas' | 'competencia' | 'comentarios' | 'costeo' | 'comercial' | 'auditor_compra' | 'compras';
+type Seccion = 'resumen' | 'resultado' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'preguntas' | 'competencia' | 'comentarios' | 'costeo' | 'comercial' | 'auditor_compra' | 'auditor_anexos' | 'compras';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function fmt(n: number | null | undefined): string {
@@ -1077,7 +1076,7 @@ function DetalleContent() {
   // La bandeja de aprobación transversal (/aprobaciones) deep-linkea acá con ?seccion=comercial
   // para llevar directo a la pestaña Auditor Técnico. Cualquier valor fuera del catálogo cae al
   // default en vez de dejar la pantalla en un estado inválido.
-  const SECCIONES_VALIDAS = new Set<Seccion>(['resumen', 'resultado', 'viabilidad', 'criterios', 'fechas', 'items', 'documentos', 'analisis', 'preguntas', 'competencia', 'comentarios', 'costeo', 'comercial', 'auditor_compra', 'compras']);
+  const SECCIONES_VALIDAS = new Set<Seccion>(['resumen', 'resultado', 'viabilidad', 'criterios', 'fechas', 'items', 'documentos', 'analisis', 'preguntas', 'competencia', 'comentarios', 'costeo', 'comercial', 'auditor_compra', 'auditor_anexos', 'compras']);
   const seccionInicial = searchParams.get('seccion') as Seccion | null;
   const [seccion, setSeccion]       = useState<Seccion>(seccionInicial && seccionInicial !== 'compras' && SECCIONES_VALIDAS.has(seccionInicial) ? seccionInicial : 'resumen');
 
@@ -1349,11 +1348,11 @@ function DetalleContent() {
   // Auditor Técnico y Auditor de Compra son ítems propios (no agrupados).
   // Pestaña activa dentro del ítem "Auditor": si solo tiene permiso de Compra, cae ahí aunque la
   // sección pedida sea 'comercial' (deep-links de /aprobaciones).
-  const tabAuditor: 'comercial' | 'auditor_compra' =
-    seccion === 'auditor_compra' && hayAuditorCompra ? 'auditor_compra' : hayAuditorTecnico ? 'comercial' : 'auditor_compra';
+  // El ítem «Auditor» del menú abre la sección de compra si existe; si no, cae en la que el usuario pueda ver.
+  const primeraTabAuditor: 'auditor_compra' | 'costeo' | 'comercial' = hayAuditorCompra ? 'auditor_compra' : hayCosteo ? 'costeo' : 'comercial';
   const grupoActivo: Seccion = (seccion === 'fechas' || seccion === 'criterios' || seccion === 'comentarios') ? 'resumen'
     : seccion === 'competencia' ? 'resultado'
-    : seccion === 'auditor_compra' ? 'comercial'
+    : seccion === 'auditor_compra' || seccion === 'costeo' || seccion === 'auditor_anexos' ? 'comercial'
     : seccion;
   // Línea de avance del negocio: qué pasos del menú ya se vieron (persistido por licitación) y
   // aviso suave si se entra a uno habiéndose saltado otro anterior sin ver.
@@ -1414,7 +1413,7 @@ function DetalleContent() {
         <MenuNegocioLateral
           items={NAV_SECTIONS.map(x => ({ ...x }))}
           activa={grupoActivo}
-          onSelect={k => setSeccion(k as Seccion)}
+          onSelect={k => setSeccion(k === 'comercial' ? primeraTabAuditor : k as Seccion)}
           volverHref="/negocios"
           cargandoContadores={loadingLic}
           visitados={visitados}
@@ -1612,46 +1611,43 @@ function DetalleContent() {
             {hayResultado && seccion === 'preguntas' && (
               <PreguntasSection codigoDecoded={negocio.licitacion_codigo} mpUrl={mpUrl} />
             )}
-            {seccion === 'costeo' && hayCosteo && (
-              <CosteoEditorCard negocioId={negocio.id} licitacionCodigo={negocio.licitacion_codigo} />
-            )}
-            {(seccion === 'comercial' || seccion === 'auditor_compra') && (hayAuditorTecnico || hayAuditorCompra) && (
-              <SeccionTabs
-                items={[
-                  ...(hayAuditorTecnico ? [{ key: 'comercial', label: 'Técnico', count: comercialPorAprobar }] : []),
-                  ...(hayAuditorCompra ? [{ key: 'auditor_compra', label: 'Compra' }] : []),
-                ]}
-                activo={tabAuditor}
-                onSelect={k => setSeccion(k as Seccion)}
-              />
-            )}
-            {tabAuditor === 'comercial' && (seccion === 'comercial' || seccion === 'auditor_compra') && hayAuditorTecnico && (
-              <InformacionComercialSection
-                negocioId={negocio.id}
-                licitacionCodigo={negocio.licitacion_codigo}
-                empresaId={negocio.empresa_id}
-                estadoPipeline={negocio.estado_pipeline}
-                onEmpresaChange={empresa_id => setNegocio(prev => prev ? { ...prev, empresa_id } : prev)}
-              />
-            )}
-            {tabAuditor === 'auditor_compra' && (seccion === 'comercial' || seccion === 'auditor_compra') && hayAuditorCompra && (
-              <div className="space-y-4">
-                <AuditorOpcionesPanel negocioId={negocio.id} licitacionCodigo={negocio.licitacion_codigo} puedeAprobar={isAdmin || !!usuario?.permisos?.aprobar_comercial} />
-                {/* Registro manual anterior (cotizado sí/no + documento/precio por fila): se conserva intacto. */}
-                <details className="group">
-                  <summary className="cursor-pointer text-[12.5px] font-semibold text-zinc-500 hover:text-zinc-800 px-1 py-1">Registro manual de cotizaciones (anterior)</summary>
-                  <div className="mt-2">
-                    <AuditorCompraCard
+            {/* AUDITOR unificado (29-sep-2026): un solo módulo con el flujo en pestañas ARRIBA: Auditor (compra y técnico juntos, cada opción con sus dos
+                verificadores) → Costeo → Checklist → Anexos. El checklist y los anexos salen del Auditor Técnico anterior (mismo componente, dos vistas). */}
+            {(seccion === 'comercial' || seccion === 'auditor_compra' || seccion === 'costeo' || seccion === 'auditor_anexos') && (hayAuditorTecnico || hayAuditorCompra || hayCosteo) && (() => {
+              const tab = seccion === 'auditor_compra' && hayAuditorCompra ? 'auditor_compra'
+                : seccion === 'costeo' && hayCosteo ? 'costeo'
+                : seccion === 'auditor_anexos' && hayAuditorTecnico ? 'auditor_anexos'
+                : seccion === 'comercial' && hayAuditorTecnico ? 'comercial'
+                : primeraTabAuditor;
+              return (
+                <div className="space-y-4">
+                  <SeccionTabs
+                    items={[
+                      ...(hayAuditorCompra ? [{ key: 'auditor_compra', label: 'Auditor · compra y técnico' }] : []),
+                      ...(hayCosteo ? [{ key: 'costeo', label: 'Costeo' }] : []),
+                      ...(hayAuditorTecnico ? [{ key: 'comercial', label: 'Checklist', count: comercialPorAprobar }, { key: 'auditor_anexos', label: 'Anexos' }] : []),
+                    ]}
+                    activo={tab}
+                    onSelect={k => setSeccion(k as Seccion)}
+                  />
+                  {tab === 'auditor_compra' && hayAuditorCompra && (
+                    <AuditorOpcionesPanel negocioId={negocio.id} licitacionCodigo={negocio.licitacion_codigo} puedeAprobar={isAdmin || !!usuario?.permisos?.aprobar_comercial} />
+                  )}
+                  {tab === 'costeo' && hayCosteo && <CosteoEditorCard negocioId={negocio.id} licitacionCodigo={negocio.licitacion_codigo} />}
+                  {(tab === 'comercial' || tab === 'auditor_anexos') && hayAuditorTecnico && (
+                    <InformacionComercialSection
+                      key={tab}
+                      vista={tab === 'auditor_anexos' ? 'anexos' : 'checklist'}
                       negocioId={negocio.id}
                       licitacionCodigo={negocio.licitacion_codigo}
-                      cotizacionesExistentes={documentos
-                        .filter(d => d.subcategoria === 'cotizaciones')
-                        .map(d => ({ url: d.url_local || d.url, nombre: d.nombre }))}
+                      empresaId={negocio.empresa_id}
+                      estadoPipeline={negocio.estado_pipeline}
+                      onEmpresaChange={empresa_id => setNegocio(prev => prev ? { ...prev, empresa_id } : prev)}
                     />
-                  </div>
-                </details>
-              </div>
-            )}
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
 

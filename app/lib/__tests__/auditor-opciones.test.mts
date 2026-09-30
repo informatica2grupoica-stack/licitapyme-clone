@@ -3,7 +3,7 @@
 // bloqueo (V1, V2, V3, V4 con R1/R2, V6, V7). Correr con: npx tsx --test app/lib/__tests__/auditor-opciones.test.mts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parsearMonto, fechaISO, normalizarProductos, emparejarProductos, puntuar, verificarOpcion, faltantesProveedor, margenProyectoConOpciones, margenConAsociados, evaluarAvance, type ProductoNormalizado } from '../auditor-opciones-core';
+import { parsearMonto, fechaISO, normalizarProductos, emparejarProductos, puntuar, verificarOpcion, faltantesProveedor, coincidenciaIdentidad, emparejarProductoReleido, separarPrecioPegadoACantidad, margenProyectoConOpciones, margenConAsociados, evaluarAvance, type ProductoNormalizado } from '../auditor-opciones-core';
 import type { LineaCosteo } from '../auditor-compras-core';
 import type { SalidaLector } from '../auditor-lector';
 
@@ -324,4 +324,82 @@ test('Ruta B: Incoterm distinto de FOB o sin dólar del día bloquea con su ruta
   // USD sin ser proforma de importación: sigue bloqueando (moneda no convertida)
   const suelta = verificarOpcion(entrada(prod({ precio: 2_000, moneda: 'USD' })));
   assert.ok(suelta.bloqueos.some(b => b.mensaje.includes('USD')));
+});
+
+test('coincidenciaIdentidad: ficha del mismo modelo, de otro modelo y sin datos', () => {
+  assert.equal(coincidenciaIdentidad({ marca: 'Konica Minolta', modelo: 'LS-150' }, { marca: 'Konica Minolta', modelo: 'LS150' }), 'coincide');
+  assert.equal(coincidenciaIdentidad({ marca: 'Canon', modelo: 'EOS Rebel T7' }, { marca: 'Canon', modelo: 'Canon EOS Rebel T7 Kit' }), 'coincide');
+  assert.equal(coincidenciaIdentidad({ marca: 'Konica Minolta', modelo: 'LS-150' }, { marca: 'Konica Minolta', modelo: 'LS-160' }), 'distinto');
+  assert.equal(coincidenciaIdentidad({ marca: 'Epson', modelo: 'E24' }, { marca: 'BenQ', modelo: 'E24' }), 'distinto');
+  assert.equal(coincidenciaIdentidad({ marca: 'Canon', modelo: 'T7' }, { marca: '', modelo: '', sku: '' }), 'sin_dato');
+  assert.equal(coincidenciaIdentidad({}, { marca: 'Canon', modelo: 'T7' }), 'sin_dato');
+  assert.equal(coincidenciaIdentidad({ marca: 'Canon' }, { marca: 'Canon' }), 'sin_dato');
+  assert.equal(coincidenciaIdentidad({ modelo: 'X1', sku: 'ABC-1' }, { modelo: '', sku: 'abc1' }), 'coincide');
+});
+
+test('precio ambiguo: bloquea y NO entra al costo ni al margen (caso Epson E24 leído a $840 millones)', () => {
+  const r = verificarOpcion(entrada(prod({ precio: 840_336_134, precioAmbiguo: true })));
+  assert.equal(r.costoNetoUnitario, null);
+  assert.equal(r.diffPct, null);
+  assert.equal(r.margen, null);
+  assert.ok(codigos(r.bloqueos).includes('LECTURA'));
+  assert.ok(!codigos(r.bloqueos).includes('V4'));
+  assert.equal(r.veredicto, 'NO_VERIFICADO');
+});
+
+test('re-análisis: el producto viejo se reconoce en la lectura nueva por nombre o por modelo, y si no hay equivalente queda sin emparejar', () => {
+  const p = (idx: number, nombre: string, marca = '', modelo = '', sku = '') => ({ idx, nombre, marca, modelo, sku });
+  const nuevos = [p(0, 'Equipo Split Muro Eco Flow Inverter R32 9.000 BTUH'), p(1, 'Equipo Split Muro Eco Flow Inverter R32 12.000 BTUH'), p(2, 'Proyector Epson E24', 'Epson', 'E24')];
+  assert.equal(emparejarProductoReleido(p(1, 'Equipo Split Muro Eco Flow Inverter R32 9.000 BTUH'), nuevos), 0);
+  assert.equal(emparejarProductoReleido(p(4, 'equipo split muro ECO FLOW inverter r32 12.000 btuh'), nuevos), 1);
+  assert.equal(emparejarProductoReleido(p(3, 'Proyector de tiro estándar Epson PowerLite E24', 'Epson', 'PowerLite E24'), nuevos), 2);
+  assert.equal(emparejarProductoReleido(p(3, 'Proyector Epson PowerLite E28', 'Epson', 'PowerLite E28'), nuevos), null);
+  assert.equal(emparejarProductoReleido(p(3, 'Proyector Epson', 'Epson', 'E24'), nuevos), 2);
+  assert.equal(emparejarProductoReleido(p(9, 'Equipo Split Muro Eco Flow Inverter R32 36.000 BTUH'), nuevos), null);
+});
+
+test('emparejar: «12.000» es UN número; un producto de 12.000 BTUH no se cuela en el proyector que dice «12,000 horas» (caso Eco Flow)', () => {
+  const proyector = linea({ id: 'proy', item: 5, detalle: 'PROYECTOR - Proyector XGA 3400 lumenes, resolución 1024x768, aspecto 4:3, lámpara vida útil 12,000 horas, conectividad HDMI y USB', costoEstimadoNeto: 402_513, costoRegistradoNeto: 402_513, cantidad: 17 });
+  const aire = linea({ id: 'aire', item: 13, detalle: 'EQUIPO CLIMATIZACIÓN - Aire acondicionado split inverter 9000 BTU, sistema purificación de aire, incluye unidad interior y exterior', costoEstimadoNeto: 352_857, costoRegistradoNeto: 352_857, cantidad: 2 });
+  const p9 = prod({ idx: 0, nombre: 'Equipo Split Muro Eco Flow 9.000 BTUH Inverter R32', tipo: 'Equipo Split Muro', marca: 'Eco Flow', modelo: '9.000 BTUH Inverter R32', sku: '', precio: 426_990, iva: 'incluido', cantidadCotizada: null });
+  const p12 = prod({ idx: 1, nombre: 'Equipo Split Muro Eco Flow 12.000 BTUH Inverter R32', tipo: 'Equipo Split Muro', marca: 'Eco Flow', modelo: '12.000 BTUH Inverter R32', sku: '', precio: 439_990, iva: 'incluido', cantidadCotizada: null });
+  const r = emparejarProductos([p9, p12], [proyector, aire]);
+  assert.deepEqual(r.asignaciones.map(a => [a.productoIdx, a.filaId]), [[0, 'aire']]);
+  assert.deepEqual(r.sinEmparejar, [1]);
+});
+
+test('re-análisis: el nombre se compara como conjunto de palabras (la lectura nueva cambia el orden)', () => {
+  const p = (idx: number, nombre: string) => ({ idx, nombre, marca: '', modelo: '', sku: '' });
+  assert.equal(emparejarProductoReleido(p(1, 'Equipo Split Muro Eco Flow Inverter R32 12.000 BTUH'), [p(0, 'Equipo Split Muro Eco Flow 9.000 BTUH Inverter R32'), p(1, 'Equipo Split Muro Eco Flow 12.000 BTUH Inverter R32')]), 1);
+});
+
+const TEXTO_MAVE = `Proyector Epson PowerLite E24 3600 Lúm. XGA 3LCD HDMI USB Altavoz.
+17374.000$           
+ $              6.358.000 
+6.358.000$          
+1.208.020$          
+TOTAL7.566.020$          `;
+
+test('precio pegado a la cantidad: «17374.000» es 17 × $374.000 porque el total del documento lo confirma (caso MAVE / Epson E24)', () => {
+  assert.deepEqual(separarPrecioPegadoACantidad(TEXTO_MAVE, 17_374_000), { cantidad: 17, precioUnitario: 374_000, total: 6_358_000 });
+});
+
+test('precio pegado: sin un total que lo confirme, o con un precio que no está en el documento, NO se toca', () => {
+  assert.equal(separarPrecioPegadoACantidad('Proyector Epson E24 17374.000$ sin más datos', 17_374_000), null);
+  assert.equal(separarPrecioPegadoACantidad(TEXTO_MAVE, 17_000_000), null);
+  assert.equal(separarPrecioPegadoACantidad('Notebook 1.204.990 total 1.204.990', 1_204_990), null);
+  assert.equal(separarPrecioPegadoACantidad(TEXTO_MAVE, 900), null);
+});
+
+test('normalizarProductos con el texto del documento corrige el precio pegado y lo avisa; sin texto queda como lo leyó el Lector', () => {
+  const salida: SalidaLector = { productos: [{ producto: { marca: 'Epson', modelo: 'PowerLite E24' }, comercial: { precios: [{ valor: '17.374.000', condicion: 'actual' }], iva: 'neto', iva_texto_literal: '+ IVA' } }] } as any;
+  const con = normalizarProductos(salida, TEXTO_MAVE)[0];
+  assert.equal(con.precio, 374_000);
+  assert.equal(con.cantidadCotizada, 17);
+  assert.match(con.correccion || '', /17 unidades × \$374\.000/);
+  assert.equal(normalizarProductos(salida)[0].precio, 17_374_000);
+  const l = linea({ cantidad: 17, costoRegistradoNeto: 402_513, costoEstimadoNeto: 402_513 });
+  const v = verificarOpcion(entrada({ ...con, iva: 'neto' }, { linea: l, lineasProyecto: [l] }));
+  assert.equal(v.costoNetoUnitario, 374_000);
+  assert.ok(v.alertas.some(a => a.codigo === 'LECTURA' && /pegado a la cantidad/.test(a.mensaje)));
 });
