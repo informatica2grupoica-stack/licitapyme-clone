@@ -26,7 +26,7 @@
 // Los ítems iniciales salen del manifiesto de viabilidad (adaptarViabilidadACosteo, mismo
 // adaptador que usa generar-costeo.ts): una sola hoja si la licitación es global (suma alzada), o
 // una hoja por línea si es por línea — el backend ya decide cuál corresponde.
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
@@ -713,6 +713,17 @@ export function CosteoEditorCard({
 
   useEffect(() => { cargar(); }, [cargar]);
 
+  // BUG real (1-oct-2026): el editor de la pestaña sigue montado mientras se trabaja en la burbuja flotante. La burbuja guarda y avisa con
+  // 'costeo-guardado', pero nadie escuchaba: al cerrarla (o volver a la pestaña) se veía la copia vieja, como si no se hubiera guardado nada.
+  // Las instancias que NO son la burbuja recargan lo guardado cuando llega el aviso de ESE negocio. La burbuja no se recarga a sí misma:
+  // pisaría lo que se escribió después de guardar.
+  useEffect(() => {
+    if (modoFlotanteGlobal) return;
+    const alGuardar = (e: Event) => { if ((e as CustomEvent).detail?.negocioId === negocioId) void cargar(); };
+    window.addEventListener('costeo-guardado', alGuardar);
+    return () => window.removeEventListener('costeo-guardado', alGuardar);
+  }, [modoFlotanteGlobal, negocioId, cargar]);
+
   // Escape cierra la pantalla completa — como cualquier editor de verdad. En pestaña propia no:
   // detrás no hay nada que mostrar, cerrarla dejaría la página en blanco.
   useEffect(() => {
@@ -742,6 +753,12 @@ export function CosteoEditorCard({
   // otro lado ahora mismo? Si sí, acá no se edita nada — solo se avisa (ver el return de más
   // abajo) para nunca tener dos editores del mismo negocio divergiendo a la vez.
   const esNegocioActivoGlobal = !standalone && !modoFlotanteGlobal && flot.activo?.negocioId === negocioId;
+  // Segundo seguro del mismo bug: al cerrarse la burbuja de ESTE negocio, la pestaña lee de nuevo lo guardado (no se queda con su copia de antes).
+  const eraActivoGlobal = useRef(false);
+  useEffect(() => {
+    if (eraActivoGlobal.current && !esNegocioActivoGlobal) void cargar();
+    eraActivoGlobal.current = esNegocioActivoGlobal;
+  }, [esNegocioActivoGlobal, cargar]);
 
   // Escape en la burbuja abierta la MINIMIZA, no la cierra: minimizar nunca pierde nada (el
   // componente sigue montado), así que no hace falta pedir confirmación acá.
@@ -907,6 +924,10 @@ export function CosteoEditorCard({
       setUltimoGuardado(new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }));
       if ((d.alertas || []).length > 0) toast.warning(`Costeo guardado — ${d.alertas.length} alerta(s) del Motor Comercial`, d.alertas.map((a: Alerta) => a.descripcion).join(' · '));
       else toast.success('Costeo guardado sin alertas');
+    } catch (e) {
+      // Sin esto, un corte de red o un error del servidor dejaba el botón en silencio y parecía que había guardado.
+      toast.error('No se pudo guardar el costeo', 'Se cortó la conexión o el servidor no respondió. Tus cambios siguen aquí: vuelve a pulsar Guardar.');
+      console.error('[costeo] guardar falló:', e);
     } finally { setGuardando(false); }
   };
 

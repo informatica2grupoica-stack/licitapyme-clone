@@ -94,6 +94,7 @@ interface Adjudicacion {
   fechaAperturaTecnica?: string | null;
   ganamos?: boolean;
   montoNuestro?: number | null;
+  ocCodigos?: string[];   // N° de nuestras OC de esta licitación (la más reciente primero)
   adjudicacion?: {
     tipo?: number;
     numeroResolucion?: string | null;
@@ -227,6 +228,24 @@ function FechaPostulacionChip({ iso }: { iso?: string | null }) {
 // adjudicó, muestra la fecha real; si sigue en evaluación, la ESTIMADA de la ficha MP con
 // el "en X días" para saber de un vistazo cuál se resuelve antes. El color sube de tono a
 // medida que se acerca (o si ya se pasó la fecha estimada sin resultado).
+// N° de OC con botón "Ir": abre la ficha de la orden en Mercado Público.
+function ChipsOc({ codigos }: { codigos?: string[] }) {
+  if (!codigos?.length) return null;
+  return (
+    <>
+      {codigos.map(c => (
+        <a key={c} href={`https://www.mercadopublico.cl/PurchaseOrder/Modules/PO/DetailsPurchaseOrder.aspx?codigoOC=${encodeURIComponent(c)}`}
+          target="_blank" rel="noopener noreferrer"
+          onClick={e => e.stopPropagation()}
+          title={`Ir a la orden de compra ${c} en Mercado Público`}
+          className="inline-flex items-center gap-1 text-[10.5px] font-mono font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-full pl-2 pr-1.5 py-px transition-colors flex-shrink-0">
+          OC {c} <span className="font-sans font-bold">Ir</span> <ExternalLink size={10} />
+        </a>
+      ))}
+    </>
+  );
+}
+
 function FechaAdjChip({ adj }: { adj: Adjudicacion | null }) {
   if (!adj) return null;
   const iso = adj.esAdjudicada ? adj.fechaAdjudicacion : adj.fechaEstimadaAdjudicacion;
@@ -520,6 +539,7 @@ function PostuladaCard({ n, adj, cargandoAdj, docsIniciales, index, isAdmin, emp
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-[10.5px] font-mono font-semibold text-slate-400 flex-shrink-0">{n.licitacion_codigo}</span>
             <h3 className="text-[13px] font-semibold text-slate-800 truncate">{n.licitacion_nombre || 'Sin nombre'}</h3>
+            {r === 'ganada' && <ChipsOc codigos={adj?.ocCodigos} />}
           </div>
           <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400">
             <span className="inline-flex items-center gap-1 min-w-0"><Building2 size={11} className="flex-shrink-0" /><span className="truncate max-w-[220px]">{n.licitacion_organismo || '—'}</span></span>
@@ -1088,6 +1108,8 @@ export default function PostuladasPage() {
           'N° resolución':      a?.adjudicacion?.numeroResolucion || '',
           'Empresa':            n.empresa_nombre || '',
           'Perfil':             n.usuario_nombre || n.usuario_email || '',
+          'N° OC':              (a?.ocCodigos || []).join(', '),
+          'Link OC':            (a?.ocCodigos || []).map(c => `https://www.mercadopublico.cl/PurchaseOrder/Modules/PO/DetailsPurchaseOrder.aspx?codigoOC=${encodeURIComponent(c)}`).join(' | '),
           'Docs propios':       (docsPropiosMap[n.licitacion_codigo] || []).length || '',
           'URL acta':           a?.adjudicacion?.urlActa || '',
           'URL':                `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(n.licitacion_codigo)}`,
@@ -1103,7 +1125,7 @@ export default function PostuladasPage() {
         { wch: 18 }, { wch: 12 }, { wch: 18 }, { wch: 16 },                // cierre, fechas de decisión
         { wch: 16 }, { wch: 16 }, { wch: 22 }, { wch: 22 },               // montos
         { wch: 12 }, { wch: 12 }, { wch: 40 }, { wch: 12 }, { wch: 18 },  // líneas, adjudicatarios
-        { wch: 24 }, { wch: 22 }, { wch: 12 }, { wch: 60 }, { wch: 60 },  // empresa…URLs
+        { wch: 24 }, { wch: 22 }, { wch: 22 }, { wch: 60 }, { wch: 12 }, { wch: 60 }, { wch: 60 },  // empresa, perfil, OC, docs, URLs
       ];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Postuladas');

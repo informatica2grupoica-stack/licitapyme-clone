@@ -29,6 +29,7 @@ import {
 } from '@/app/lib/checklist-comercial';
 import { calcularSemaforo, causalesDeBloqueo } from '@/app/lib/semaforo-auditor';
 import { esAsesor, bitacora, nombreDe, cargarNegocio, COLS } from '@/app/api/negocios/[id]/comercial/route';
+import { idsEquivalentes } from '@/app/lib/pipeline';
 import { yaCongelado } from '@/app/lib/congelamiento';
 
 export const runtime = 'nodejs';
@@ -57,6 +58,10 @@ interface FilaChecklist {
  * OBSERVADO: si nadie cargó nada todavía, no es "pendiente de aprobación", es trabajo que ni
  * siquiera empezó.
  */
+// Solo los negocios que TODAVÍA se están preparando: una licitación descartada, perdida, ganada, postulada (ya congelada), revocada o
+// desierta no tiene nada que aprobar — antes la bandeja las listaba igual y hasta dejaba el botón «Aprobar» activo (1-oct-2026).
+const ESTADOS_QUE_SE_APRUEBAN = ['ASIGNADO', 'EN_PROCESO', 'ANEXOS', 'ANEXO_LISTO', 'VISADO'];
+
 export async function construirBandeja() {
   const [rows] = await pool.query(
     `SELECT n.id AS negocio_id, n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo,
@@ -67,7 +72,9 @@ export async function construirBandeja() {
        JOIN checklist_comercial c ON c.negocio_id = n.id AND c.bloque IN ('TECNICO','COMERCIAL')
        LEFT JOIN usuarios u ON u.id = n.asignado_a
       WHERE n.activo = TRUE AND n.oculto_aprobaciones = 0
+        AND COALESCE(n.estado_pipeline, 'ASIGNADO') IN (?)
       ORDER BY n.id, c.bloque, c.orden`,
+    [ESTADOS_QUE_SE_APRUEBAN.flatMap(idsEquivalentes)],
   ) as any;
 
   const [filasCaract] = await pool.query(

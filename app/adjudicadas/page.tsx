@@ -61,7 +61,7 @@ interface LineaAdjudicada {
   montoUnitario: number | null; rutProveedor: string | null; proveedor: string | null; esNuestra?: boolean;
 }
 interface Adjudicacion {
-  esAdjudicada: boolean; estado?: string | null; fechaAdjudicacion?: string | null; ganamos?: boolean; montoNuestro?: number | null;
+  esAdjudicada: boolean; estado?: string | null; fechaAdjudicacion?: string | null; fechaOcLlegada?: string | null; fechaOcAceptada?: string | null; ocCodigos?: string[]; ganamos?: boolean; montoNuestro?: number | null;
   adjudicacion?: { numeroResolucion?: string | null; numeroOferentes?: number | null; urlActa?: string | null } | null;
   lineasAdjudicadas?: LineaAdjudicada[]; montoAdjudicadoTotal?: number | null;
 }
@@ -76,6 +76,26 @@ function fmtFecha(s: string | null | undefined, formato = 'DD/MM/YYYY') {
   const d = dayjs(s);
   return d.isValid() ? d.format(formato) : '—';
 }
+// Ficha pública de la orden de compra en Mercado Público (la misma que abre el portal).
+const urlOc = (codigo: string) => `https://www.mercadopublico.cl/PurchaseOrder/Modules/PO/DetailsPurchaseOrder.aspx?codigoOC=${encodeURIComponent(codigo)}`;
+
+// N° de OC con botón "Ir" que abre la ficha en Mercado Público. Una chip por orden (casi siempre una).
+function ChipsOc({ codigos }: { codigos?: string[] }) {
+  if (!codigos?.length) return null;
+  return (
+    <>
+      {codigos.map(c => (
+        <a key={c} href={urlOc(c)} target="_blank" rel="noopener noreferrer"
+          onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}
+          title={`Ir a la orden de compra ${c} en Mercado Público`}
+          className="inline-flex items-center gap-1 text-[10.5px] font-mono font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-full pl-2 pr-1.5 py-px transition-colors">
+          OC {c} <span className="font-sans font-bold">Ir</span> <ExternalLink size={10} />
+        </a>
+      ))}
+    </>
+  );
+}
+
 const tsDe = (s: string | null | undefined) => { const d = dayjs(s ?? ''); return d.isValid() ? d.valueOf() : 0; };
 
 const META: Record<Resultado, { label: string; short: string; color: string; icon: typeof Trophy }> = {
@@ -209,6 +229,7 @@ function Card({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion 
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className="text-[11px] font-mono font-semibold text-slate-500">{n.licitacion_codigo}</span>
             <BadgeResultado r={r} />
+            {r === 'ganada' && <ChipsOc codigos={adj?.ocCodigos} />}
             {isAdmin && <ChipPerfil n={n} />}
           </div>
           <h3 className="text-[14px] font-semibold text-slate-800 line-clamp-2 leading-snug" title={n.licitacion_nombre}>{n.licitacion_nombre || 'Sin nombre'}</h3>
@@ -257,8 +278,8 @@ function Card({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion 
 // ── Vista LISTA (fila expandible) ─────────────────────────────────────────────
 // Los templates del grid se declaran COMPLETOS (Tailwind los extrae estáticamente):
 // para no-admin la columna Perfil no existe (evita un hueco muerto de 150px).
-const GRID_ADMIN = 'lg:grid-cols-[minmax(0,1fr)_150px_170px_130px_96px_96px_70px]';
-const GRID_USER  = 'lg:grid-cols-[minmax(0,1fr)_170px_130px_96px_96px_70px]';
+const GRID_ADMIN = 'lg:grid-cols-[minmax(0,1fr)_150px_170px_130px_96px_150px_96px_96px_96px_70px]';
+const GRID_USER  = 'lg:grid-cols-[minmax(0,1fr)_170px_130px_96px_150px_96px_96px_96px_70px]';
 
 function Fila({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion | null; cargandoAdj: boolean; isAdmin: boolean }) {
   const [abierta, setAbierta] = useState(false);
@@ -291,6 +312,7 @@ function Fila({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion 
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[10.5px] font-mono font-semibold text-slate-500">{n.licitacion_codigo}</span>
             <BadgeResultado r={r} />
+            <span className="contents lg:hidden">{r === 'ganada' && <ChipsOc codigos={adj?.ocCodigos} />}</span>
             {r === 'ganada' && nuestras > 0 && (
               <span className="hidden sm:inline-flex text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 py-px">
                 {nuestras} línea{nuestras !== 1 ? 's' : ''}
@@ -321,6 +343,24 @@ function Fila({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion 
         <div className="hidden lg:block text-right">
           <p className="text-[10px] uppercase tracking-wide font-semibold text-slate-500">Adjudicación</p>
           <p className="text-[12px] font-semibold text-slate-600 tabular-nums">{adj?.esAdjudicada && adj.fechaAdjudicacion ? fmtFecha(adj.fechaAdjudicacion, 'DD/MM/YY') : '—'}</p>
+        </div>
+
+        {/* N° de OC con botón Ir (solo las ganadas tienen) */}
+        <div className="hidden lg:flex flex-col items-end gap-1 min-w-0">
+          <p className="text-[10px] uppercase tracking-wide font-semibold text-slate-500">N° OC</p>
+          {r === 'ganada' && adj?.ocCodigos?.length
+            ? <ChipsOc codigos={adj.ocCodigos} />
+            : <p className="text-[12px] font-semibold text-slate-600">—</p>}
+        </div>
+
+        {/* OC: cuándo llegó y cuándo se aceptó (solo las ganadas tienen) */}
+        <div className="hidden lg:block text-right">
+          <p className="text-[10px] uppercase tracking-wide font-semibold text-slate-500">OC llegó</p>
+          <p className="text-[12px] font-semibold text-slate-600 tabular-nums">{adj?.fechaOcLlegada ? fmtFecha(adj.fechaOcLlegada, 'DD/MM/YY') : '—'}</p>
+        </div>
+        <div className="hidden lg:block text-right">
+          <p className="text-[10px] uppercase tracking-wide font-semibold text-slate-500">OC aceptada</p>
+          <p className="text-[12px] font-semibold text-slate-600 tabular-nums">{adj?.fechaOcAceptada ? fmtFecha(adj.fechaOcAceptada, 'DD/MM/YY') : '—'}</p>
         </div>
 
         {/* Fecha cierre */}
@@ -354,6 +394,7 @@ function Fila({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion 
             <span className="font-bold text-slate-700 tabular-nums">{cargandoAdj ? '…' : fmtCLP(monto)}</span>
           </span>
           {adj?.esAdjudicada && adj.fechaAdjudicacion && <span className="inline-flex items-center gap-1" title="Fecha de adjudicación"><Trophy size={10} />{fmtFecha(adj.fechaAdjudicacion, 'DD/MM/YY')}</span>}
+          {adj?.fechaOcLlegada && <span className="inline-flex items-center gap-1" title="OC llegó / aceptada">OC {fmtFecha(adj.fechaOcLlegada, 'DD/MM/YY')}{adj.fechaOcAceptada ? ` · acept. ${fmtFecha(adj.fechaOcAceptada, 'DD/MM/YY')}` : ''}</span>}
           {n.licitacion_cierre && <span className="inline-flex items-center gap-1" title="Cierre"><Calendar size={10} />{fmtFecha(n.licitacion_cierre, 'DD/MM/YY')}</span>}
         </div>
       </div>
@@ -734,6 +775,10 @@ export default function AdjudicadasPage() {
           'Cierre (fecha)':     cierre.fecha,
           'Cierre (hora)':      cierre.hora,
           'Fecha adjudicación': fechaHoraParaExcel(a?.esAdjudicada ? a.fechaAdjudicacion : null).fecha,
+          'N° OC':              (a?.ocCodigos || []).join(', '),
+          'Link OC':            (a?.ocCodigos || []).map(urlOc).join(' | '),
+          'OC llegó':           fechaHoraParaExcel(a?.fechaOcLlegada ?? null).fecha,
+          'OC aceptada':        fechaHoraParaExcel(a?.fechaOcAceptada ?? null).fecha,
           'Presupuesto MP':     n.licitacion_monto ?? '',
           'Monto ofertado':     n.monto_ofertado ?? '',
           'Monto resultado':    montoResultado(n, a, r) ?? '',
@@ -755,7 +800,7 @@ export default function AdjudicadasPage() {
       ws['!cols'] = [
         { wch: 18 }, { wch: 48 }, { wch: 30 }, { wch: 8 },  { wch: 22 },  // código…región
         { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 11 }, { wch: 18 }, { wch: 18 },  // resultado…apertura
-        { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 18 },  // fechas
+        { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 18 }, { wch: 22 }, { wch: 60 }, { wch: 12 }, { wch: 12 },  // fechas, N° y link OC
         { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 22 }, { wch: 22 },  // montos
         { wch: 12 }, { wch: 12 }, { wch: 40 }, { wch: 12 }, { wch: 18 },  // líneas, adjudicatarios
         { wch: 24 }, { wch: 22 }, { wch: 60 }, { wch: 60 },               // empresa…URLs
@@ -1008,6 +1053,9 @@ export default function AdjudicadasPage() {
                     <span>Empresa</span>
                     <span className="text-right">Resultado $</span>
                     <span className="text-right">Adjudicación</span>
+                    <span className="text-right">N° OC</span>
+                    <span className="text-right">OC llegó</span>
+                    <span className="text-right">OC aceptada</span>
                     <span className="text-right">Cierre</span>
                     <span />
                   </div>

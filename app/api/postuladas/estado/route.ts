@@ -64,6 +64,19 @@ export async function GET(request: NextRequest) {
       for (const r of apRows as any[]) aperturaPorCodigo.set(r.licitacion_codigo, !!r.aperturada);
     } catch { /* migración pendiente → todo sin apertura */ }
 
+    // 3) Orden de compra NUESTRA: cuándo llegó (envío) y cuándo se aceptó. Si hay varias, la última.
+    const ocPorCodigo = new Map<string, { llegada: string | null; aceptada: string | null; codigos: string[] }>();
+    try {
+      const [ocRows] = await pool.query(
+        `SELECT licitacion_codigo, DATE_FORMAT(MAX(COALESCE(fecha_envio, fecha_creacion)), '%Y-%m-%d') AS llegada,
+                DATE_FORMAT(MAX(fecha_aceptacion), '%Y-%m-%d') AS aceptada,
+                GROUP_CONCAT(codigo ORDER BY COALESCE(fecha_envio, fecha_creacion) DESC, codigo DESC SEPARATOR ',') AS codigos
+           FROM ordenes_compra WHERE es_nuestra = 1 AND licitacion_codigo IN (${ph}) GROUP BY licitacion_codigo`,
+        codigos,
+      ) as any[];
+      for (const r of ocRows as any[]) ocPorCodigo.set(r.licitacion_codigo, { llegada: r.llegada ?? null, aceptada: r.aceptada ?? null, codigos: r.codigos ? String(r.codigos).split(',') : [] });
+    } catch { /* migración 64 pendiente → sin fechas de OC */ }
+
     // Construir la respuesta. enriquecer() usa el set de RUT nuestros (memoizado) → sin IO extra.
     const estados: Record<string, any> = {};
     for (const codigo of codigos) {
@@ -87,6 +100,10 @@ export async function GET(request: NextRequest) {
         montoNuestro: adj?.montoNuestro ?? null,
         montoAdjudicadoTotal: adj?.montoAdjudicadoTotal ?? null,
         fechaAdjudicacion: adj?.fechaAdjudicacion ?? null,
+        fechaOcLlegada: ocPorCodigo.get(codigo)?.llegada ?? null,
+        fechaOcAceptada: ocPorCodigo.get(codigo)?.aceptada ?? null,
+        // N° de nuestras OC de esta licitación (la más reciente primero) — el cliente arma el link a la ficha.
+        ocCodigos: ocPorCodigo.get(codigo)?.codigos ?? [],
         // Fechas estimadas de la ficha (planificación del organismo) — para ordenar y mostrar
         // "cuándo se decide cada una" en /postuladas, aunque aún no haya resultado.
         fechaEstimadaAdjudicacion: adj?.fechaEstimadaAdjudicacion ?? null,
