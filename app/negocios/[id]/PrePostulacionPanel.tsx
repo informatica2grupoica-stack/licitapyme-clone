@@ -16,6 +16,7 @@ import {
 } from '@tabler/icons-react';
 import type { PrePostulacionDTO, LineaPrePostDTO } from '@/app/lib/auditor-prepostulacion';
 import type { ItemPrePost, CausalCertificado } from '@/app/lib/auditor-prepostulacion-core';
+import { materiaLegible } from '@/app/lib/auditor-prepostulacion-core';
 
 type Dato = PrePostulacionDTO | { migracionPendiente: true };
 
@@ -38,10 +39,10 @@ const ORIGEN_LABEL: Record<string, { label: string; cls: string }> = {
 };
 const MOTIVO_LABEL: Record<string, string> = { RIESGO: 'Riesgo', POR_AFINAR: 'Por afinar', SEGUNDA_PASADA: 'Falta la segunda pasada', SIN_VERIFICAR: 'Sin verificar' };
 
-export function PrePostulacionPanel({ negocioId, onIrAlAuditor, onIrAAnexos }: { negocioId: number; onIrAlAuditor: () => void; onIrAAnexos: () => void }) {
+export function PrePostulacionPanel({ negocioId, onIrAlAuditor, datoInicial, documentosSlot }: { negocioId: number; onIrAlAuditor: () => void; datoInicial?: PrePostulacionDTO; documentosSlot?: React.ReactNode }) {
   const toast = useToast();
-  const [dato, setDato] = useState<Dato | null>(null);
-  const [cargando, setCargando] = useState(true);
+  const [dato, setDato] = useState<Dato | null>(datoInicial ?? null);   // datoInicial: vista previa en servidor (scripts/scratch/_preview-pp.tsx)
+  const [cargando, setCargando] = useState(!datoInicial);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
   const [modal, setModal] = useState<{ tipo: 'no_aplica'; id: number } | { tipo: 'agregar'; filaId: string } | null>(null);
@@ -58,7 +59,7 @@ export function PrePostulacionPanel({ negocioId, onIrAlAuditor, onIrAAnexos }: {
     } catch (e: any) { toast.error('No se pudo cargar Pre-postulación', e.message); }
     finally { setCargando(false); }
   }, [negocioId, toast]);
-  useEffect(() => { cargar(); }, [cargar]);
+  useEffect(() => { if (!datoInicial) cargar(); }, [cargar, datoInicial]);
 
   const accion = async (clave: string, body: Record<string, unknown>, ok?: string) => {
     setOcupado(clave);
@@ -98,7 +99,15 @@ export function PrePostulacionPanel({ negocioId, onIrAlAuditor, onIrAAnexos }: {
   const itemsDe = (filaId: string) => (itemsPorLinea.get(filaId) || []).filter(i => !(i.origen === 'costo_asociado' && i.costo?.anulado));
   const generales = (itemsPorLinea.get('') || []).filter(i => !(i.origen === 'costo_asociado' && i.costo?.anulado));
   const alternar = (k: string) => setAbiertas(prev => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const docsOferta = d.documentosOferta ?? [];
   const hayPorRevisar = d.lineas.some(l => !l.noOfertada && l.opcionAprobadaId != null && !l.revisada);
+  const imprimir = false;
+  const compromisosVigentes = candado.resumen.total - candado.resumen.noAplica;
+  const pasos = [
+    { n: 1, titulo: 'Líneas con opción aprobada', avance: `${d.avance.aprobadas} de ${d.avance.ofertadas}`, ok: d.avance.puede },
+    { n: 2, titulo: 'Certificado de admisibilidad', avance: certificado.total ? `${certificado.cumplidas} de ${certificado.total} causales cumplidas` : 'sin causales', ok: certificado.noCumplidas === 0 && certificado.pendientes === 0 },
+    { n: 3, titulo: 'Compromisos confirmados', avance: `${candado.resumen.confirmados} de ${compromisosVigentes}`, ok: candado.resumen.abiertos === 0 && !hayPorRevisar },
+  ];
 
   const confirmarModal = async () => {
     if (!modal) return;
@@ -119,33 +128,69 @@ export function PrePostulacionPanel({ negocioId, onIrAlAuditor, onIrAAnexos }: {
         <div className="flex items-center gap-2 flex-wrap">
           {candado.puedeGenerarAnexos ? <LockOpen size={16} className="text-emerald-700" /> : <Lock size={16} className="text-rose-700" />}
           <h3 className={`text-[14px] font-bold ${candado.puedeGenerarAnexos ? 'text-emerald-800' : 'text-rose-800'}`}>
-            {candado.puedeGenerarAnexos ? 'Listo: se pueden generar los anexos' : `Generación de anexos bloqueada — ${candado.causales.length} ${candado.causales.length === 1 ? 'pendiente' : 'pendientes'}`}
+            {candado.puedeGenerarAnexos ? 'Listo: se pueden generar los anexos económico y técnico' : `Anexos económico y técnico bloqueados — ${candado.causales.length} ${candado.causales.length === 1 ? 'pendiente' : 'pendientes'}`}
           </h3>
           <div className="ml-auto flex gap-2">
             {!d.avance.puede && <button onClick={onIrAlAuditor} className="px-3 py-1.5 rounded-lg border border-zinc-300 bg-white text-[12px] font-semibold text-zinc-700 hover:bg-zinc-50">Ir al Auditor</button>}
-            <button onClick={onIrAAnexos} className="px-3 py-1.5 rounded-lg border border-zinc-300 bg-white text-[12px] font-semibold text-zinc-700 hover:bg-zinc-50">Ir a Anexos</button>
           </div>
         </div>
+        {/* Tres pasos, con su avance */}
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          {pasos.map(p => (
+            <div key={p.n} className={`rounded-xl border px-3 py-2 bg-white/80 ${p.ok ? 'border-emerald-200' : 'border-rose-200'}`}>
+              <p className="text-[10.5px] uppercase tracking-wide font-bold text-zinc-400">Paso {p.n}</p>
+              <p className="text-[12.5px] font-semibold text-zinc-800">{p.titulo}</p>
+              <p className={`text-[12px] font-semibold ${p.ok ? 'text-emerald-700' : 'text-rose-700'}`}>{p.ok ? '✓ ' : ''}{p.avance}</p>
+            </div>
+          ))}
+        </div>
         {candado.causales.length > 0 && (
-          <ul className="mt-2 space-y-1.5">
+          <ul className="mt-3 space-y-1.5">
             {candado.causales.map(c => (
               <li key={c.codigo} className="text-[12.5px] text-rose-800 leading-snug">
-                <span className="font-semibold">{c.descripcion}.</span> <span className="text-rose-700/90">→ {c.rutaDesbloqueo}</span>
+                <span className="font-semibold">{c.descripcion.replace(/\.+$/, '')}.</span> <span className="text-rose-700/90">→ {c.rutaDesbloqueo}</span>
               </li>
             ))}
           </ul>
         )}
         {candado.alertas.length > 0 && (
-          <ul className="mt-2 space-y-1">
-            {candado.alertas.map((a, i) => (
-              <li key={i} className={`flex items-start gap-1.5 text-[12px] ${a.nivel === 'amarillo' ? 'text-amber-800' : 'text-zinc-600'}`}><Alerta size={12} className="mt-0.5 shrink-0" /> {a.texto}</li>
+          <details className="mt-3" open={imprimir}>
+            <summary className="cursor-pointer text-[12px] font-semibold text-zinc-600">Avisos que no bloquean ({candado.alertas.length})</summary>
+            <ul className="mt-1.5 space-y-1">
+              {candado.alertas.map((a, i) => (
+                <li key={i} className={`flex items-start gap-1.5 text-[12px] ${a.nivel === 'amarillo' ? 'text-amber-800' : 'text-zinc-600'}`}><Alerta size={12} className="mt-0.5 shrink-0" /> <span>{a.texto}{a.veces && a.veces > 1 ? <b className="ml-1 text-zinc-500">×{a.veces}</b> : null}</span></li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </div>
+
+      {/* ── Documentos de la oferta: TODO lo que se sube a Mercado Público (con «Generar anexo» en cada punto) ── */}
+      {documentosSlot && <div className="space-y-2"><div className="px-1"><h3 className="text-[13.5px] font-bold text-zinc-900">Documentos para subir a Mercado Público</h3><p className="text-[11.5px] text-zinc-500">Genera cada anexo aquí: se rellena con los datos de la empresa y la firma, y queda cargado en su punto.</p></div>{documentosSlot}</div>}
+      {!documentosSlot && <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
+        <div className="px-5 py-3 border-b border-zinc-100 flex items-center gap-2 flex-wrap">
+          <h3 className="text-[13.5px] font-bold text-zinc-900">Documentos para subir a Mercado Público</h3>
+          <span className="text-[11.5px] text-zinc-400">{docsOferta.filter(x => x.documentos.length > 0).length} de {docsOferta.length} ya tienen su archivo</span>
+        </div>
+        {docsOferta.length === 0 ? <p className="px-5 py-5 text-[12.5px] text-zinc-400">El checklist de Anexos todavía no tiene documentos para esta licitación.</p> : (
+          <ul className="divide-y divide-zinc-100">
+            {docsOferta.map(x => (
+              <li key={x.itemId} className="px-5 py-2.5 flex items-start gap-3">
+                <span className="mt-0.5 shrink-0">{x.documentos.length > 0 ? '✅' : '⬜'}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[12.5px] font-semibold text-zinc-800 leading-snug">{x.titulo} <span className="ml-1 text-[10.5px] font-normal text-zinc-400">{({ ADMINISTRATIVO: 'Administrativo', TECNICO: 'Técnico', COMERCIAL: 'Comercial' } as Record<string, string>)[x.bloque] || x.bloque}</span></p>
+                  {x.documentos.length === 0
+                    ? <p className="text-[11.5px] text-amber-700">Falta el archivo{x.estado === 'OBSERVADO' ? ' (observado: hay que corregirlo)' : ''}.</p>
+                    : x.documentos.map(d => <a key={d.id} href={d.url} target="_blank" rel="noopener noreferrer" className="block truncate text-[11.5px] text-indigo-600 hover:underline" title={d.nombre}>{d.nombre}</a>)}
+                </div>
+                <span className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${x.estado === 'APROBADO' ? 'bg-emerald-100 text-emerald-700' : x.estado === 'CARGADO' ? 'bg-indigo-100 text-indigo-700' : x.estado === 'OBSERVADO' ? 'bg-orange-100 text-orange-700' : 'bg-zinc-100 text-zinc-500'}`}>
+                  {x.estado === 'APROBADO' ? 'Aprobado' : x.estado === 'CARGADO' ? 'Por aprobar' : x.estado === 'OBSERVADO' ? 'Observado' : 'Pendiente'}
+                </span>
+              </li>
             ))}
           </ul>
         )}
-        <p className="mt-2 text-[11.5px] text-zinc-500">
-          {d.avance.aprobadas} de {d.avance.ofertadas} líneas ofertadas con opción aprobada · {certificado.cumplidas} de {certificado.total} causales de inadmisibilidad cumplidas · {candado.resumen.confirmados} de {candado.resumen.total - candado.resumen.noAplica} compromisos confirmados.
-        </p>
-      </div>
+      </div>}
 
       {/* ── Certificado de admisibilidad ── */}
       <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
@@ -157,7 +202,14 @@ export function PrePostulacionPanel({ negocioId, onIrAlAuditor, onIrAAnexos }: {
           <p className="px-5 py-6 text-[12.5px] text-zinc-400">No hay líneas ofertadas todavía.</p>
         ) : (
           <ul className="divide-y divide-zinc-100">
-            {certificado.lineas.map(l => (
+            {certificado.lineas.some(l => l.sinOpcion) && (
+              <li className="px-5 py-3 text-[12.5px] text-zinc-600">
+                <span className="font-bold text-zinc-800">Sin opción aprobada: </span>
+                {certificado.lineas.filter(l => l.sinOpcion).map(l => `línea ${l.linea}`).join(', ')}.
+                <button onClick={onIrAlAuditor} className="ml-2 text-indigo-600 font-semibold hover:underline">Ir al Auditor a aprobarlas</button>
+              </li>
+            )}
+            {certificado.lineas.filter(l => !l.sinOpcion).map(l => (
               <li key={l.filaId} className="px-5 py-3">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-[12.5px] font-bold text-zinc-800">Línea {l.linea}</span>
@@ -173,7 +225,10 @@ export function PrePostulacionPanel({ negocioId, onIrAlAuditor, onIrAAnexos }: {
                     </button>
                   )}
                 </div>
-                {l.causales.length > 0 && <ul className="mt-2 space-y-1.5">{l.causales.map((c, i) => <Causal key={`${c.item}-${i}`} c={c} />)}</ul>}
+                {l.causales.length > 0 && (l.causales.every(c => c.estado === 'CUMPLIDA')
+                  ? <details className="mt-1.5"><summary className="cursor-pointer text-[11.5px] font-semibold text-emerald-700">Ver las {l.causales.length} exigencias cumplidas</summary>
+                      <ul className="mt-2 space-y-1.5">{l.causales.map((c, i) => <Causal key={`${c.item}-${i}`} c={c} />)}</ul></details>
+                  : <ul className="mt-2 space-y-1.5">{l.causales.map((c, i) => <Causal key={`${c.item}-${i}`} c={c} />)}</ul>)}
               </li>
             ))}
           </ul>
@@ -191,7 +246,14 @@ export function PrePostulacionPanel({ negocioId, onIrAlAuditor, onIrAAnexos }: {
           </button>
         </div>
         <ul className="divide-y divide-zinc-100">
-          {d.lineas.filter(l => !l.noOfertada).map(l => <LineaCompromisos key={l.filaId} l={l} items={itemsDe(l.filaId)} abierta={abiertas.has(l.filaId)} onAlternar={() => alternar(l.filaId)}
+          {d.lineas.some(l => !l.noOfertada && l.opcionAprobadaId == null) && (
+            <li className="px-5 py-3 text-[12.5px] text-zinc-600">
+              <span className="font-bold text-zinc-800">Sin opción aprobada todavía: </span>
+              {d.lineas.filter(l => !l.noOfertada && l.opcionAprobadaId == null).map(l => `línea ${l.item}`).join(', ')}.
+              <span className="text-zinc-400"> Sus compromisos se revisan cuando se apruebe su opción en el Auditor.</span>
+            </li>
+          )}
+          {d.lineas.filter(l => !l.noOfertada && l.opcionAprobadaId != null).map(l => <LineaCompromisos key={l.filaId} l={l} items={itemsDe(l.filaId)} abierta={abiertas.has(l.filaId)} onAlternar={() => alternar(l.filaId)}
             ocupado={ocupado} onRevisar={() => revisar(l.filaId)} onConfirmar={(id, v) => accion(`it-${id}`, { accion: v ? 'confirmar' : 'desconfirmar', id })}
             onConfirmarTodos={ids => accion(`lote-${l.filaId}`, { accion: 'confirmar_varios', ids }, 'Compromisos confirmados')}
             onNoAplica={id => { setTexto(''); setModal({ tipo: 'no_aplica', id }); }} onRestaurar={id => accion(`it-${id}`, { accion: 'restaurar', id })}
@@ -299,7 +361,7 @@ function ItemFila({ i, ocupado, onConfirmar, onNoAplica, onRestaurar }: { i: Ite
         <input type="checkbox" checked={i.confirmado} disabled={i.noAplica || ocupado === `it-${i.id}`} onChange={e => onConfirmar(e.target.checked)} className="mt-1 h-4 w-4 shrink-0 accent-emerald-600" title="Confirmo este compromiso" />
         <div className="min-w-0 flex-1 space-y-0.5">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[12.5px] font-semibold text-zinc-800">{MATERIA_LABEL[i.materia] || i.materia}</span>
+            <span className="text-[12.5px] font-semibold text-zinc-800">{materiaLegible(i.materia)}</span>
             <span className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded ${o.cls}`}>{o.label}</span>
             {i.criticidad && i.criticidad !== 'SIN_CLASIFICAR' && <span className="text-[10.5px] text-zinc-400">{i.criticidad.toLowerCase()}</span>}
             {i.noAplica && <span className="text-[10.5px] font-bold px-1.5 py-0.5 rounded bg-zinc-200 text-zinc-600">No aplica</span>}

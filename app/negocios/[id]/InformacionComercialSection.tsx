@@ -20,6 +20,7 @@ import { useConfirm } from '@/app/components/ui/confirm';
 import { Banner } from '@/app/components/ui/Banner';
 import { urlDescarga } from '@/app/lib/descargas-cliente';
 import { Select } from '@/app/components/ui/Select';
+import { Modal } from '@/app/components/ui/Modal';
 import { useRealtime } from '@/app/lib/use-realtime';
 import { useSession } from '@/app/lib/session-context';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
@@ -30,7 +31,7 @@ import { repartirArchivosGenerados } from '@/app/lib/anexos-match';
 import { FilaLineaTecnica } from './FilaLineaTecnica';
 import { MotorComercialCard } from './MotorComercialCard';
 import {
-  tieneAnexosAuditor, CLAVE_ITEM_PLAZO, rangoPlazoDeDescripcion, validarPlazoOfertado,
+  CLAVE_ITEM_PLAZO, rangoPlazoDeDescripcion, validarPlazoOfertado,
   esAlertaDeCumplimiento,
 } from '@/app/lib/checklist-comercial';
 import { IconShieldCheck as ShieldCheck, IconBuilding as Building2, IconCheck as Check, IconX as X, IconUpload as Upload, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconCopy as Copy, IconFileText as FileText, IconCurrencyDollar as DollarSign, IconTool as Wrench, IconClipboardCheck as ClipboardCheck, IconRefresh as RefreshCw, IconArrowBackUp as Undo2, IconSparkles as Sparkles, IconEye as Eye, IconDownload as Download, IconTrash as Trash2, IconHistory as History } from '@tabler/icons-react';
@@ -180,7 +181,7 @@ function BannerCambioForo({ negocioId, snapshot }: {
 // ════════════════════════════════════════════════════════════════════════════════
 export function InformacionComercialSection({ negocioId, licitacionCodigo, empresaId, estadoPipeline, onEmpresaChange, vista = 'todo' }: {
   /** 'checklist' = bloques Técnico y Comercial + alertas · 'anexos' = bloque Administrativo (anexos) y la empresa · 'todo' = como siempre. */
-  vista?: 'todo' | 'checklist' | 'anexos';
+  vista?: 'todo' | 'checklist' | 'anexos' | 'oferta';
   negocioId: number;
   licitacionCodigo: string;
   empresaId: number | null;
@@ -522,6 +523,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
         </>
       )}
 
+      {vista !== 'oferta' && (<>
       {/* ── Cabecera + avance ────────────────────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-zinc-200 p-4">
         <div className="flex items-start justify-between gap-3 mb-3">
@@ -586,6 +588,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
           </>
         )}
       </div>
+      </>)}
 
       {sinViabilidad && (
         <Banner variante="warning">
@@ -603,7 +606,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
       )}
 
       {/* ── Empresa con la que se postula ────────────────────────────────────── */}
-      {vista !== 'checklist' && (
+      {(vista === 'todo' || vista === 'anexos') && (
         <BloqueEmpresa
           empresa={empresa}
           empresas={empresas}
@@ -622,31 +625,13 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
           debajo de todo — ver la sección "Alertas de cumplimiento". Antes vivían mezcladas con
           los anexos reales a subir, en la misma lista, y no había forma de distinguir "esto hay
           que adjuntarlo" de "esto solo hay que tenerlo presente" (pedido 24-ago-2026). */}
-      {BLOQUES.filter(b => vista === 'todo' || (vista === 'anexos' ? b.key === 'ADMINISTRATIVO' : b.key !== 'ADMINISTRATIVO')).map(b => {
+      {BLOQUES.filter(b => vista === 'todo' || (vista === 'anexos' || vista === 'oferta' ? b.key === 'ADMINISTRATIVO' : b.key !== 'ADMINISTRATIVO')).map(b => {
         const delBloque = items.filter(i => i.bloque === b.key && !esAlerta(i));
         if (delBloque.length === 0) return null;
         const Icono = b.icon;
         const bloqueadoPorEmpresa = b.key === 'ADMINISTRATIVO' && sinEmpresa;
 
-        // Administrativo/Técnico (los anexos) recién se trabajan cuando la licitación entra a
-        // ANEXOS — antes de eso lo único que importa es fijar el precio con el asesor (bloque
-        // Comercial, ver tieneAnexosAuditor). Los ítems YA están generados desde la viabilidad,
-        // solo se ocultan — así no hay que volver a sincronizar ni arriesgar perderlos al llegar
-        // a ANEXOS. Se deja el encabezado colapsado (no null) para que quede claro que ya están
-        // listos y no parezca que faltan.
-        const esAnexo = b.key === 'ADMINISTRATIVO' || b.key === 'TECNICO';
-        if (esAnexo && !tieneAnexosAuditor(estadoPipeline)) {
-          return (
-            <div key={b.key} className="bg-white rounded-xl border border-zinc-200 overflow-hidden opacity-60">
-              <div className="px-4 py-3 flex items-center gap-2">
-                <Icono size={14} className="text-zinc-400" />
-                <h3 className="text-[13px] font-bold text-zinc-800">{b.label}</h3>
-                <span className="text-[10.5px] text-zinc-400">{delBloque.length} punto{delBloque.length !== 1 ? 's' : ''} listo{delBloque.length !== 1 ? 's' : ''} para cuando pase a Anexos</span>
-              </div>
-            </div>
-          );
-        }
-
+        // Sin restricción por etapa (1-oct-2026): los bloques Administrativo y Técnico se trabajan siempre.
         return (
           <div key={b.key} className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
             <div className="px-4 py-3 border-b border-zinc-100 flex items-center gap-2">
@@ -800,9 +785,9 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
         // Mismo criterio de "¿ya toca mostrar esto?" que cada bloque de origen: una alerta que
         // nació del informe administrativo no debe aparecer antes de que la licitación entre a
         // Anexos, aunque ya esté generada.
-        const bloqueVisible = (bq: Item['bloque']) => (bq !== 'ADMINISTRATIVO' && bq !== 'TECNICO') || tieneAnexosAuditor(estadoPipeline);
+        const bloqueVisible = (_bq: Item['bloque']) => true;   // sin restricción por etapa
         const alertas = items.filter(i => esAlerta(i) && bloqueVisible(i.bloque));
-        if (alertas.length === 0 || vista === 'anexos') return null;
+        if (alertas.length === 0 || vista === 'anexos' || vista === 'oferta') return null;
         return (
           <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
             <div className="px-4 py-3 border-b border-zinc-100 flex items-center gap-2">
@@ -880,6 +865,7 @@ function BloqueEmpresa({ empresa, empresas, onElegir, toast, bloqueado }: {
   bloqueado?: boolean;
 }) {
   const [cambiando, setCambiando] = useState(false);
+  const [verDatos, setVerDatos] = useState(false);
 
   const copiar = (valor: string | null, etiqueta: string) => {
     if (!valor) return;
@@ -940,36 +926,29 @@ function BloqueEmpresa({ empresa, empresas, onElegir, toast, bloqueado }: {
   ];
 
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 p-4">
-      <div className="flex items-center gap-2 mb-3">
+    <div className="bg-white rounded-xl border border-zinc-200 px-4 py-3">
+      <div className="flex items-center gap-2 flex-wrap">
         <Building2 size={15} className="text-zinc-400" />
         <h3 className="text-[13px] font-bold text-zinc-800">Se postula con {empresa.razon_social}</h3>
-        <span className="text-[10.5px] text-zinc-400">· datos para llenar los anexos</span>
+        <button onClick={() => setVerDatos(true)} className="text-[11.5px] font-semibold text-indigo-600 hover:text-indigo-700">Ver datos</button>
         {!bloqueado && (
-          <button
-            onClick={() => setCambiando(true)}
-            className="ml-auto text-[11.5px] font-semibold text-indigo-600 hover:text-indigo-700"
-          >
-            Cambiar empresa
-          </button>
+          <button onClick={() => setCambiando(true)} className="ml-auto text-[11.5px] font-semibold text-zinc-500 hover:text-zinc-800">Cambiar empresa</button>
         )}
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-        {campos.filter(([, v]) => v).map(([label, valor]) => (
-          <button
-            key={label}
-            onClick={() => copiar(valor, label)}
-            className="group flex items-center gap-2 text-left px-2.5 py-1.5 rounded-lg hover:bg-zinc-50 transition-colors"
-            title={`Copiar ${label.toLowerCase()}`}
-          >
-            <div className="min-w-0 flex-1">
-              <p className="text-[9.5px] text-zinc-400 uppercase font-bold tracking-wide">{label}</p>
-              <p className="text-[12px] text-zinc-700 font-medium truncate">{valor}</p>
-            </div>
-            <Copy size={12} className="text-zinc-300 group-hover:text-zinc-500 flex-shrink-0" />
-          </button>
-        ))}
-      </div>
+      <Modal open={verDatos} onClose={() => setVerDatos(false)} title={empresa.razon_social} size="md"
+        footer={<button onClick={() => setVerDatos(false)} className="px-4 py-2 text-[13px] font-semibold text-zinc-600 hover:text-zinc-900">Cerrar</button>}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+          {campos.filter(([, v]) => v).map(([label, valor]) => (
+            <button key={label} onClick={() => copiar(valor, label)} className="group flex items-center gap-2 text-left px-2.5 py-1.5 rounded-lg hover:bg-zinc-50 transition-colors" title={`Copiar ${label.toLowerCase()}`}>
+              <div className="min-w-0 flex-1">
+                <p className="text-[9.5px] text-zinc-400 uppercase font-bold tracking-wide">{label}</p>
+                <p className="text-[12px] text-zinc-700 font-medium break-words">{valor}</p>
+              </div>
+              <Copy size={12} className="text-zinc-300 group-hover:text-zinc-500 flex-shrink-0" />
+            </button>
+          ))}
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -1257,6 +1236,24 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
                   )}
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* «Generar anexo» A LA VISTA (antes solo aparecía dentro del modo edición): abre el mismo modal de Documentos, lo rellena con los datos de la
+              empresa y la firma, y el archivo queda cargado aquí mismo. */}
+          {item.generable && item.tipo === 'documento' && onGenerar && !editando && (
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
+              <button type="button" disabled={bloqueado}
+                onClick={async () => {
+                  // Un anexo ya aprobado se puede generar de nuevo (p. ej. para probar o corregir), pero vuelve a «Por aprobar».
+                  if (item.estado === 'APROBADO' && !(await confirmar({ titulo: '¿Generar este anexo de nuevo?', mensaje: `«${item.titulo}» ya está aprobado. Si lo generas otra vez, el archivo nuevo se suma y el punto vuelve a «Por aprobar».`, confirmarLabel: 'Sí, generar' }))) return;
+                  onGenerar(item);
+                }}
+                title={bloqueado ? 'Elige primero la empresa con la que se postula (en Documentos)' : 'Rellena el anexo con los datos de la empresa y la firma; queda cargado aquí'}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${item.estado === 'APROBADO' ? 'border border-indigo-200 text-indigo-600 hover:bg-indigo-50' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
+                <Sparkles size={13} /> {item.documentos.length > 0 ? 'Volver a generar' : 'Generar anexo'}
+              </button>
+              {bloqueado && <span className="text-[11px] text-amber-700">Elige primero la empresa (en Documentos).</span>}
             </div>
           )}
 

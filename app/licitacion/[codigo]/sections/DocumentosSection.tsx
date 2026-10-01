@@ -1886,15 +1886,8 @@ export function DocumentosSection({
             continuar();
           } else {
             fetchDocumentos();
-            // Pedido explícito del usuario (8-sep-2026): al generar UN anexo (fuera de "Generar
-            // todos"), que vaya derecho al Auditor Técnico — pero bien, sin adivinar a qué punto
-            // corresponde. Se abre el MISMO selector que usa el botón manual "Enviar al Auditor"
-            // (SelectorPuntoAuditor), así el usuario solo confirma el punto correcto; nunca se
-            // asigna solo. Si el anexo trajo varios formularios pegados (se dividió en más de un
-            // archivo), no se adivina cuál va a cuál punto — quedan en Documentos Propios y se
-            // mandan a mano, uno por uno, como siempre. Tampoco aplica sin negocio (licitación
-            // suelta, sin Auditor Técnico) ni fuera de admin.
-            if (isAdmin && negocioId && archivos.length === 1) setEnviandoDoc(archivos[0]);
+            // Cambio de flujo (1-oct-2026): los anexos para la oferta se generan y se cargan desde Auditor → Anexos («Generar anexo» en cada punto).
+            // Lo que se genere aquí queda en Documentos Propios y ya no abre el selector de «enviar al Auditor» (sigue el botón manual si hace falta).
           }
         }}
         onClose={() => {

@@ -12,10 +12,10 @@ import { citaExiste } from '@/app/lib/auditor-compras-core';
 import { criticidadDe } from '@/app/lib/auditor-tecnico-v2-core';
 import { requisitosDeLinea } from '@/app/lib/auditor-tecnico-v2';
 import { armarPanelAuditor, type PanelAuditorDTO } from '@/app/lib/auditor-opciones';
-import { agregarCostoAsociado, type CostoAsociadoDTO } from '@/app/lib/auditor-lineas';
+import { agregarCostoAsociado, anularCostoAsociado, type CostoAsociadoDTO } from '@/app/lib/auditor-lineas';
 import { SYS_TECADM, MATERIAS_TECADM } from '@/app/lib/auditor-prepostulacion-prompts';
 import {
-  armarCertificado, evaluarCandado, claveDeCompromiso, itemVigente,
+  armarCertificado, evaluarCandado, claveDeCompromiso, itemVigente, repetidosDeCompromisos,
   type Certificado, type ItemPrePost, type ResultadoCandado, type LineaParaCertificado, type OrigenItem,
 } from '@/app/lib/auditor-prepostulacion-core';
 
@@ -42,8 +42,12 @@ export interface LineaPrePostDTO {
   opcionAprobadaId: number | null; producto: string | null; proveedor: string | null;
   revisada: boolean; revisadaAt: string | null; revisadaPorNombre: string | null; errorRevision: string | null;
 }
+/** Un documento de la oferta (anexo, formulario, garantía…) tal como está en el checklist de Anexos, con los archivos ya cargados. */
+export interface DocumentoOfertaDTO { itemId: number; bloque: string; titulo: string; criticidad: string; estado: string; documentos: Array<{ id: number; nombre: string; url: string }> }
 export interface PrePostulacionDTO {
   migracionPendiente: false;
+  /** TODO lo que se sube a Mercado Público, con su estado (cargado / aprobado / falta). */
+  documentosOferta: DocumentoOfertaDTO[];
   /** El negocio ya trabaja con el AUDITOR unificado (tiene al menos una opción viva): solo entonces el candado aplica. */
   activo: boolean;
   lineas: LineaPrePostDTO[];
@@ -84,8 +88,33 @@ async function sincronizarCostosAsociados(negocioId: number, costos: CostoAsocia
   return true;
 }
 
+/** Anula (con motivo, reversible) los costos asociados que son el MISMO compromiso repetido: el comparador anterior los creaba de nuevo en cada corrida. Se queda uno por grupo. */
+export async function anularCompromisosRepetidos(negocioId: number): Promise<number> {
+  const [rows] = await pool.query(
+    `SELECT c.id, c.fila_id, c.materia, c.exige_base_literal, COALESCE(MAX(i.confirmado), 0) AS conf
+     FROM auditor_costo_asociado c LEFT JOIN auditor_prepost_item i ON i.costo_asociado_id = c.id AND i.negocio_id = c.negocio_id
+     WHERE c.negocio_id = ? AND c.anulado = 0 GROUP BY c.id`, [negocioId]) as any;
+  const grupos = repetidosDeCompromisos((rows as any[]).map(r => ({ id: r.id, filaId: r.fila_id, materia: r.materia, texto: r.exige_base_literal || '', prioridad: r.conf ? 0 : 1 })));
+  let n = 0;
+  for (const g of grupos) for (const id of g.sobran) { await anularCostoAsociado(negocioId, id, `Repetido: es el mismo compromiso que el #${g.queda} (se conserva uno solo).`, { id: 0, nombre: 'Sistema' }); n++; }
+  return n;
+}
+
+/** Documentos de la oferta: los puntos de tipo «documento» del checklist (Anexos) con sus archivos. Si el checklist aún no existe, lista vacía. */
+async function documentosDeLaOferta(negocioId: number): Promise<DocumentoOfertaDTO[]> {
+  try {
+    const [items] = await pool.query(
+      `SELECT id, bloque, titulo, criticidad, estado, ofertamos FROM checklist_comercial WHERE negocio_id = ? AND tipo = 'documento' ORDER BY FIELD(bloque,'ADMINISTRATIVO','TECNICO','COMERCIAL'), orden, id`, [negocioId]) as any;
+    const [docs] = await pool.query(`SELECT id, item_id, nombre, url FROM checklist_comercial_documentos WHERE negocio_id = ? ORDER BY subido_at, id`, [negocioId]) as any;
+    const porItem = new Map<number, Array<{ id: number; nombre: string; url: string }>>();
+    for (const d of docs as any[]) (porItem.get(d.item_id) || porItem.set(d.item_id, []).get(d.item_id)!).push({ id: d.id, nombre: d.nombre, url: d.url });
+    return (items as any[]).filter(i => i.ofertamos !== 0).map(i => ({ itemId: i.id, bloque: i.bloque, titulo: i.titulo, criticidad: i.criticidad || '', estado: i.estado, documentos: porItem.get(i.id) || [] }));
+  } catch { return []; }
+}
+
 export async function armarPrePostulacion(negocioId: number, licitacionCodigo: string, panelPrevio?: PanelAuditorDTO): Promise<PrePostulacionDTO> {
-  const panel = panelPrevio ?? await armarPanelAuditor(negocioId, licitacionCodigo);
+  const repetidos = await anularCompromisosRepetidos(negocioId).catch(() => 0);
+  const panel = panelPrevio && !repetidos ? panelPrevio : await armarPanelAuditor(negocioId, licitacionCodigo);
   const costos = new Map(panel.costosAsociados.map(c => [c.id, c]));
 
   let [rows] = await pool.query(`SELECT * FROM auditor_prepost_item WHERE negocio_id = ? ORDER BY id`, [negocioId]) as any;
@@ -121,6 +150,7 @@ export async function armarPrePostulacion(negocioId: number, licitacionCodigo: s
 
   return {
     migracionPendiente: false,
+    documentosOferta: await documentosDeLaOferta(negocioId),
     activo: panel.lineas.some(l => l.opciones.some(o => o.estado !== 'descartada')),
     lineas, items, certificado, candado, avance: panel.avance,
     costosAsociados: { total: vigentesCosto.length, sinEstimar: vigentesCosto.filter(i => i.costo && i.costo.montoEstimado == null).length },

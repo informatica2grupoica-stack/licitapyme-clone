@@ -112,9 +112,34 @@ export function claveDeCompromiso(filaId: string | null, materia: string, exigeB
   return `${filaId || '-'}|${n(materia)}|${n(exigeBaseLiteral)}`;
 }
 
+// ── Compromisos repetidos ─────────────────────────────────────────────────────────────────────
+export const MATERIA_LABEL: Record<string, string> = {
+  capacitacion: 'Capacitación', despacho: 'Despacho', plazo: 'Plazo', instalacion: 'Instalación', postventa: 'Postventa', garantia: 'Garantía',
+  garantia_extendida: 'Garantía extendida', mantencion: 'Mantención', repuestos: 'Repuestos', documentacion: 'Documentación', otro: 'Otro',
+};
+export const materiaLegible = (m: string): string => MATERIA_LABEL[m] || m.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+
+const PALABRAS_VACIAS = new Set(['para', 'como', 'desde', 'hasta', 'sobre', 'entre', 'esta', 'este', 'esto', 'esos', 'esas', 'segun', 'donde', 'cuando', 'ser', 'sera', 'debe', 'deben', 'con', 'del', 'los', 'las', 'una', 'uno', 'por', 'que']);
+const palabrasDe = (t: string) => new Set(t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').filter(w => w.length > 3 && !PALABRAS_VACIAS.has(w)));
+const similitud = (a: Set<string>, b: Set<string>) => { if (!a.size || !b.size) return 0; let n = 0; for (const w of a) if (b.has(w)) n++; return n / (a.size + b.size - n); };
+
+export interface CompromisoParaAgrupar { id: number; filaId: string | null; materia: string; texto: string; /** menor = se prefiere conservarlo (p. ej. el que ya está confirmado) */ prioridad: number }
+/** El mismo compromiso detectado varias veces (una por cada corrida del comparador sobre cada opción) con el texto apenas distinto: se queda UNO por grupo.
+ *  Mismo ámbito (línea o general) y misma materia, y textos de las bases con bastantes palabras en común (30 %; 50 % si la materia es «otro»). */
+export function repetidosDeCompromisos(xs: CompromisoParaAgrupar[]): Array<{ queda: number; sobran: number[] }> {
+  const grupos: Array<{ k: string; items: Array<CompromisoParaAgrupar & { w: Set<string> }> }> = [];
+  for (const x of [...xs].sort((a, b) => a.prioridad - b.prioridad || a.id - b.id)) {
+    const w = palabrasDe(x.texto), k = `${x.filaId ?? ''}|${x.materia}`;
+    const umbral = x.materia === 'otro' ? 0.5 : 0.3;   // «otro» mezcla cosas distintas (póliza, seriedad…): ahí se exige más parecido
+    const g = grupos.find(g => g.k === k && g.items.some(y => similitud(w, y.w) >= umbral));
+    if (g) g.items.push({ ...x, w }); else grupos.push({ k, items: [{ ...x, w }] });
+  }
+  return grupos.filter(g => g.items.length > 1).map(g => ({ queda: g.items[0].id, sobran: g.items.slice(1).map(i => i.id) }));
+}
+
 // ── 3. El candado ────────────────────────────────────────────────────────────────────────────────
 export interface CausalPrePost { codigo: string; descripcion: string; rutaDesbloqueo: string }
-export interface AlertaPrePost { nivel: 'rojo' | 'amarillo' | 'info'; texto: string }
+export interface AlertaPrePost { nivel: 'rojo' | 'amarillo' | 'info'; texto: string; /** cuántas veces se repite el mismo aviso (se muestra una sola vez) */ veces?: number }
 
 export interface EntradaCandado {
   avance: ResultadoAvance;
@@ -167,12 +192,17 @@ export function evaluarCandado(e: EntradaCandado): ResultadoCandado {
   // Avisos que no bloquean.
   for (const i of vigentes) {
     if (i.origen === 'costo_asociado' && i.costo && i.costo.montoEstimado == null)
-      alertas.push({ nivel: 'amarillo', texto: `El compromiso «${i.materia}» tiene costo pero nadie lo estimó en el costeo: el margen real está sobreestimado hasta que se estime.` });
+      alertas.push({ nivel: 'amarillo', texto: `«${materiaLegible(i.materia)}» tiene costo pero nadie lo estimó en el costeo: el margen real está sobreestimado hasta que se estime.` });
     if (i.cuantificacion && /no cuantificado/i.test(i.cuantificacion))
-      alertas.push({ nivel: 'info', texto: `«${i.materia}»: las bases no cuantifican el compromiso. Comprométete solo a lo que exigen, sin agregar más (estricta sujeción a las bases).` });
+      alertas.push({ nivel: 'info', texto: `«${materiaLegible(i.materia)}»: las bases no cuantifican el compromiso. Comprométete solo a lo que exigen, sin agregar más (estricta sujeción a las bases).` });
   }
   if (cert.lineas.some(l => l.requiereSegundaPasada))
     alertas.push({ nivel: 'amarillo', texto: 'Hay exigencias que pueden dejarnos fuera declaradas CUMPLE sin segunda pasada: el certificado las deja pendientes hasta releer el documento original.' });
+
+  // El mismo aviso no se repite: se muestra una vez con «×N».
+  const unicas = new Map<string, AlertaPrePost>();
+  for (const a of alertas) { const u = unicas.get(a.texto); if (u) u.veces = (u.veces ?? 1) + 1; else unicas.set(a.texto, { ...a }); }
+  alertas.splice(0, alertas.length, ...unicas.values());
 
   return {
     puedeGenerarAnexos: causales.length === 0, causales, alertas,

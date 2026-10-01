@@ -215,7 +215,11 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
     let legado = false;
     if (!est.resultado && !est.error && verifLegado.has(o.id)) {
       const l = estadoTecnicoDe(verifLegado.get(o.id), hdLegado.get(o.id));
-      if (l.resultado) { est = l; legado = true; }
+      if (l.resultado) {
+        // Igual que el comparador v3.0 (etapa ágil, sin segunda pasada): el certificado usa el cuadro tal cual, no deja exigencias «pendientes de segunda pasada».
+        for (const f of l.resultado.filas) f.reverificado = true;
+        est = l; legado = true;
+      }
     }
     const reqTotal = linea?.lineaReal != null ? (reqPorLinea.get(linea.lineaReal) ?? 0) : 0;
     const tecnico: TecnicoDTO = {

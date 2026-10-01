@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  armarCertificado, evaluarCandado, claveDeCompromiso, itemAbierto, itemVigente, motivoCandado,
+  armarCertificado, evaluarCandado, claveDeCompromiso, repetidosDeCompromisos, materiaLegible, itemAbierto, itemVigente, motivoCandado,
   type LineaParaCertificado, type ItemPrePost,
 } from '../auditor-prepostulacion-core';
 import type { FilaTecnica, ResultadoTecnico } from '../auditor-tecnico-v2-core';
@@ -145,4 +145,28 @@ test('licitación GLOBAL con una línea no ofertada: el avance lo bloquea y el c
   const r = evaluarCandado({ avance, certificado: certLimpio, items: [], lineasSinRevisar: [] });
   assert.equal(r.puedeGenerarAnexos, false);
   assert.match(r.causales[0].descripcion, /GLOBAL/);
+});
+
+test('compromisos repetidos: el mismo compromiso detectado varias veces con el texto apenas distinto queda UNO; materias o ámbitos distintos no se mezclan', () => {
+  const x = (id: number, materia: string, texto: string, filaId: string | null = null, prioridad = 1) => ({ id, filaId, materia, texto, prioridad });
+  const r = repetidosDeCompromisos([
+    x(1, 'garantia_extendida', 'Garantía Extendida (meses) declarada en Anexo N°5; puntaje = garantía evaluada / mayor garantía ofertada'),
+    x(2, 'garantia_extendida', "Criterio 'Garantía Extendida': Puntaje = (garantía evaluada / mayor garantía ofertada) x 7 en el Anexo N°5"),
+    x(3, 'garantia_extendida', 'Garantía Extendida (meses) — Anexo N°5 Propuesta Técnica; garantía evaluada contra la mayor garantía ofertada', null, 0),   // confirmado: es el que se conserva
+    x(4, 'despacho', 'Plazo de entrega máximo 20 días hábiles'),
+    x(5, 'garantia_extendida', 'Garantía Extendida (meses) declarada en Anexo N°5; puntaje = garantía evaluada / mayor garantía ofertada', 'f1'),   // otra línea: no se mezcla
+    x(6, 'otro', 'Garantía de fiel cumplimiento exigida (5% del valor neto), en forma de póliza'),
+    x(7, 'otro', 'Seriedad de la oferta exigida'),                                                                                                       // «otro» exige más parecido
+  ]);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].queda, 3); assert.deepEqual(r[0].sobran.sort(), [1, 2]);
+  assert.equal(materiaLegible('garantia_extendida'), 'Garantía extendida'); assert.equal(materiaLegible('cosa_rara'), 'Cosa rara');
+});
+
+test('candado: el mismo aviso no se repite, se cuenta (×N) y la materia sale legible', () => {
+  const item = (id: number): ItemPrePost => ({ id, filaId: null, origen: 'costo_asociado', materia: 'garantia_extendida', exigeBaseLiteral: 'x', fuenteBases: '', seCompromete: 'no cuantificado', cuantificacion: 'no cuantificado', criticidad: 'PUNTAJE', costoAsociadoId: id, confirmado: false, confirmadoPorNombre: null, confirmadoAt: null, noAplica: false, nota: null, costo: { anulado: false, montoEstimado: null } });
+  const c = evaluarCandado({ avance: { puede: true, mensaje: '', ofertadas: 1, aprobadas: 1, noOfertadas: 0, pendientes: [] } as any, certificado: { lineas: [], total: 0, cumplidas: 0, noCumplidas: 0, pendientes: 0, limpio: true }, items: [item(1), item(2), item(3)], lineasSinRevisar: [] });
+  assert.equal(c.alertas.length, 2);                       // «tiene costo sin estimar» + «no cuantifican», cada una UNA vez
+  assert.ok(c.alertas.every(a => a.veces === 3));
+  assert.match(c.alertas[0].texto, /Garantía extendida/);
 });
