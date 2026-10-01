@@ -99,7 +99,6 @@ export function PrePostulacionPanel({ negocioId, onIrAlAuditor, datoInicial, doc
   const itemsDe = (filaId: string) => (itemsPorLinea.get(filaId) || []).filter(i => !(i.origen === 'costo_asociado' && i.costo?.anulado));
   const generales = (itemsPorLinea.get('') || []).filter(i => !(i.origen === 'costo_asociado' && i.costo?.anulado));
   const alternar = (k: string) => setAbiertas(prev => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
-  const docsOferta = d.documentosOferta ?? [];
   const hayPorRevisar = d.lineas.some(l => !l.noOfertada && l.opcionAprobadaId != null && !l.revisada);
   const imprimir = false;
   const compromisosVigentes = candado.resumen.total - candado.resumen.noAplica;
@@ -165,32 +164,8 @@ export function PrePostulacionPanel({ negocioId, onIrAlAuditor, datoInicial, doc
         )}
       </div>
 
-      {/* ── Documentos de la oferta: TODO lo que se sube a Mercado Público (con «Generar anexo» en cada punto) ── */}
-      {documentosSlot && <div className="space-y-2"><div className="px-1"><h3 className="text-[13.5px] font-bold text-zinc-900">Documentos para subir a Mercado Público</h3><p className="text-[11.5px] text-zinc-500">Genera cada anexo aquí: se rellena con los datos de la empresa y la firma, y queda cargado en su punto.</p></div>{documentosSlot}</div>}
-      {!documentosSlot && <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
-        <div className="px-5 py-3 border-b border-zinc-100 flex items-center gap-2 flex-wrap">
-          <h3 className="text-[13.5px] font-bold text-zinc-900">Documentos para subir a Mercado Público</h3>
-          <span className="text-[11.5px] text-zinc-400">{docsOferta.filter(x => x.documentos.length > 0).length} de {docsOferta.length} ya tienen su archivo</span>
-        </div>
-        {docsOferta.length === 0 ? <p className="px-5 py-5 text-[12.5px] text-zinc-400">El checklist de Anexos todavía no tiene documentos para esta licitación.</p> : (
-          <ul className="divide-y divide-zinc-100">
-            {docsOferta.map(x => (
-              <li key={x.itemId} className="px-5 py-2.5 flex items-start gap-3">
-                <span className="mt-0.5 shrink-0">{x.documentos.length > 0 ? '✅' : '⬜'}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[12.5px] font-semibold text-zinc-800 leading-snug">{x.titulo} <span className="ml-1 text-[10.5px] font-normal text-zinc-400">{({ ADMINISTRATIVO: 'Administrativo', TECNICO: 'Técnico', COMERCIAL: 'Comercial' } as Record<string, string>)[x.bloque] || x.bloque}</span></p>
-                  {x.documentos.length === 0
-                    ? <p className="text-[11.5px] text-amber-700">Falta el archivo{x.estado === 'OBSERVADO' ? ' (observado: hay que corregirlo)' : ''}.</p>
-                    : x.documentos.map(d => <a key={d.id} href={d.url} target="_blank" rel="noopener noreferrer" className="block truncate text-[11.5px] text-indigo-600 hover:underline" title={d.nombre}>{d.nombre}</a>)}
-                </div>
-                <span className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${x.estado === 'APROBADO' ? 'bg-emerald-100 text-emerald-700' : x.estado === 'CARGADO' ? 'bg-indigo-100 text-indigo-700' : x.estado === 'OBSERVADO' ? 'bg-orange-100 text-orange-700' : 'bg-zinc-100 text-zinc-500'}`}>
-                  {x.estado === 'APROBADO' ? 'Aprobado' : x.estado === 'CARGADO' ? 'Por aprobar' : x.estado === 'OBSERVADO' ? 'Observado' : 'Pendiente'}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>}
+      {/* ── Anexos a generar: «Generar anexo» en cada punto; lo generado queda cargado y aparece en la pestaña Postulación ── */}
+      {documentosSlot && <div className="space-y-2"><div className="px-1"><h3 className="text-[13.5px] font-bold text-zinc-900">Anexos a generar</h3><p className="text-[11.5px] text-zinc-500">Genera cada anexo aquí: se rellena con los datos de la empresa y la firma. Los PDF listos para subir quedan en la pestaña Postulación.</p></div>{documentosSlot}</div>}
 
       {/* ── Certificado de admisibilidad ── */}
       <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">

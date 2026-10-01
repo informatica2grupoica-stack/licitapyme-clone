@@ -37,6 +37,8 @@ import { CosteoEditorCard } from './CosteoEditorCard';
 import { AuditorOpcionesPanel } from './AuditorOpcionesPanel';
 import { PrePostulacionPanel } from './PrePostulacionPanel';
 import { EmpresaPostulacionCard } from './EmpresaPostulacionCard';
+import { PostulacionPanel } from './PostulacionPanel';
+import { ResumenAuditorPanel } from './ResumenAuditorPanel';
 import { SelectorLineasOferta } from './SelectorLineasOferta';
 import { tieneInformacionComercial } from '@/app/lib/checklist-comercial';
 import { registrarVerSeccion } from '@/app/lib/actividad-cliente';
@@ -176,7 +178,7 @@ interface AnalisisIA {
   actualizado: string;
 }
 
-type Seccion = 'resumen' | 'resultado' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'preguntas' | 'competencia' | 'comentarios' | 'costeo' | 'comercial' | 'auditor_compra' | 'prepostulacion' | 'auditor_anexos' | 'compras';
+type Seccion = 'resumen' | 'resultado' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'preguntas' | 'competencia' | 'comentarios' | 'costeo' | 'comercial' | 'auditor_compra' | 'prepostulacion' | 'postulacion' | 'resumen_auditor' | 'auditor_anexos' | 'compras';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function fmt(n: number | null | undefined): string {
@@ -1078,7 +1080,7 @@ function DetalleContent() {
   // La bandeja de aprobación transversal (/aprobaciones) deep-linkea acá con ?seccion=comercial
   // para llevar directo a la pestaña Auditor Técnico. Cualquier valor fuera del catálogo cae al
   // default en vez de dejar la pantalla en un estado inválido.
-  const SECCIONES_VALIDAS = new Set<Seccion>(['resumen', 'resultado', 'viabilidad', 'criterios', 'fechas', 'items', 'documentos', 'analisis', 'preguntas', 'competencia', 'comentarios', 'costeo', 'comercial', 'auditor_compra', 'prepostulacion', 'auditor_anexos', 'compras']);
+  const SECCIONES_VALIDAS = new Set<Seccion>(['resumen', 'resultado', 'viabilidad', 'criterios', 'fechas', 'items', 'documentos', 'analisis', 'preguntas', 'competencia', 'comentarios', 'costeo', 'comercial', 'auditor_compra', 'prepostulacion', 'postulacion', 'resumen_auditor', 'auditor_anexos', 'compras']);
   const seccionInicial = searchParams.get('seccion') as Seccion | null;
   const [seccion, setSeccion]       = useState<Seccion>(seccionInicial && seccionInicial !== 'compras' && SECCIONES_VALIDAS.has(seccionInicial) ? seccionInicial : 'resumen');
 
@@ -1357,7 +1359,7 @@ function DetalleContent() {
   const primeraTabAuditor: 'auditor_compra' | 'costeo' | 'comercial' = hayAuditorCompra ? 'auditor_compra' : hayCosteo ? 'costeo' : 'comercial';
   const grupoActivo: Seccion = (seccion === 'fechas' || seccion === 'criterios' || seccion === 'comentarios') ? 'resumen'
     : seccion === 'competencia' ? 'resultado'
-    : seccion === 'auditor_compra' || seccion === 'costeo' || seccion === 'prepostulacion' || seccion === 'auditor_anexos' ? 'comercial'
+    : seccion === 'auditor_compra' || seccion === 'costeo' || seccion === 'prepostulacion' || seccion === 'postulacion' || seccion === 'resumen_auditor' || seccion === 'auditor_anexos' ? 'comercial'
     : seccion;
   // Línea de avance del negocio: qué pasos del menú ya se vieron (persistido por licitación) y
   // aviso suave si se entra a uno habiéndose saltado otro anterior sin ver.
@@ -1622,9 +1624,10 @@ function DetalleContent() {
             )}
             {/* AUDITOR unificado (29-sep-2026): un solo módulo con el flujo en pestañas ARRIBA: Auditor (compra y técnico juntos, cada opción con sus dos
                 verificadores) → Costeo → Checklist → Anexos. El checklist y los anexos salen del Auditor Técnico anterior (mismo componente, dos vistas). */}
-            {(seccion === 'comercial' || seccion === 'auditor_compra' || seccion === 'costeo' || seccion === 'prepostulacion' || seccion === 'auditor_anexos') && (hayAuditorTecnico || hayAuditorCompra || hayCosteo) && (() => {
+            {(seccion === 'comercial' || seccion === 'auditor_compra' || seccion === 'costeo' || seccion === 'prepostulacion' || seccion === 'postulacion' || seccion === 'resumen_auditor' || seccion === 'auditor_anexos') && (hayAuditorTecnico || hayAuditorCompra || hayCosteo) && (() => {
               const tab = seccion === 'auditor_compra' && hayAuditorCompra ? 'auditor_compra'
                 : seccion === 'costeo' && hayCosteo ? 'costeo'
+                : (seccion === 'postulacion' || seccion === 'resumen_auditor') && hayPrePostulacion ? 'postulacion'
                 : (seccion === 'prepostulacion' || seccion === 'auditor_anexos') && hayPrePostulacion ? 'prepostulacion'
                 : seccion === 'comercial' && hayAuditorTecnico ? 'comercial'
                 : primeraTabAuditor;
@@ -1635,7 +1638,7 @@ function DetalleContent() {
                       ...(hayAuditorCompra ? [{ key: 'auditor_compra', label: 'Auditor · compra y técnico' }] : []),
                       ...(hayCosteo ? [{ key: 'costeo', label: 'Costeo' }] : []),
                       ...(hayAuditorTecnico ? [{ key: 'comercial', label: 'Checklist', count: comercialPorAprobar }] : []),
-                      ...(hayPrePostulacion ? [{ key: 'prepostulacion', label: 'Pre-postulación' }] : []),
+                      ...(hayPrePostulacion ? [{ key: 'prepostulacion', label: 'Pre-postulación' }, { key: 'postulacion', label: 'Postulación' }] : []),
                     ]}
                     activo={tab}
                     onSelect={k => setSeccion(k as Seccion)}
@@ -1650,6 +1653,12 @@ function DetalleContent() {
                         <InformacionComercialSection key="oferta" vista="oferta" negocioId={negocio.id} licitacionCodigo={negocio.licitacion_codigo} empresaId={negocio.empresa_id}
                           estadoPipeline={negocio.estado_pipeline} onEmpresaChange={empresa_id => setNegocio(prev => prev ? { ...prev, empresa_id } : prev)} />
                       ) : undefined} />
+                  )}
+                  {tab === 'postulacion' && hayPrePostulacion && (
+                    <div className="space-y-4">
+                      <PostulacionPanel negocioId={negocio.id} onIrAPrePostulacion={() => setSeccion('prepostulacion')} />
+                      <ResumenAuditorPanel negocioId={negocio.id} onIrAlAuditor={() => setSeccion('auditor_compra')} />
+                    </div>
                   )}
                   {tab === 'comercial' && hayAuditorTecnico && (
                     <InformacionComercialSection
