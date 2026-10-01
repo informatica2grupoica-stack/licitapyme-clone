@@ -64,7 +64,7 @@ const GATE_PERMISO =
 // Mismo set que RESUELTOS_CARGA de app/api/negocios/route.ts:170 — "vigente" = en trabajo, no
 // resuelta. Una licitación ya postulada/adjudicada/perdida no necesita viabilidad automática:
 // esa decisión ya se tomó (a mano o antes de que existiera este piloto).
-const ESTADOS_RESUELTOS = `'POSTULADA','DESCARTADA','ADJUDICADA','POSIBLE_ADJ','PERDIDA'`;
+const ESTADOS_RESUELTOS = `'POSTULADA','DESCARTADA','ADJUDICADA','POSIBLE_ADJ','PERDIDA','REVOCADA','DESIERTA'`;
 
 async function pendientes(limit?: number, incluirVencidas = false): Promise<string[]> {
   const ahora = ahoraChileSQL();

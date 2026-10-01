@@ -14,7 +14,7 @@
 import pool from '@/app/lib/db';
 
 /** Estados que sacan una licitación de la carga vigente (ya se resolvió). */
-export const RESUELTOS_CARGA = new Set(['POSTULADA', 'DESCARTADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA']);
+export const RESUELTOS_CARGA = new Set(['POSTULADA', 'DESCARTADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA', 'REVOCADA', 'DESIERTA']);
 
 /** Fila cruda: una por negocio activo (lo que devuelve el query de más abajo). */
 export interface FilaCarga {

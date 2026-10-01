@@ -64,7 +64,7 @@ interface EstadoAdj {
   montoAdjudicadoTotal: number | null;
 }
 
-const RESUELTOS = new Set(['POSTULADA', 'DESCARTADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA']);
+const RESUELTOS = new Set(['POSTULADA', 'DESCARTADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA', 'REVOCADA', 'DESIERTA']);
 // Universo que pasó por postulación: solo de aquí puede salir un resultado ganada/perdida.
 const UNIVERSO_POSTULADA = new Set(['POSTULADA', 'POSIBLE_ADJ', 'ADJUDICADA', 'PERDIDA']);
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -90,7 +90,7 @@ const diasHasta = (s: string | null): number | null => {
 };
 // Estados que ya salieron de la mesa de trabajo: o se resolvió (ganó/perdió/descartó) o la
 // oferta ya está presentada y no hay nada que gestionar.
-const FUERA_DE_TRABAJO = new Set(['DESCARTADA', 'POSTULADA', 'POSIBLE_ADJ', 'ADJUDICADA', 'PERDIDA']);
+const FUERA_DE_TRABAJO = new Set(['DESCARTADA', 'POSTULADA', 'POSIBLE_ADJ', 'ADJUDICADA', 'PERDIDA', 'REVOCADA', 'DESIERTA']);
 const labelDe = (estado: string) => getEstadoPipeline(estado)?.label || estado || 'ASIGNADO';
 const idDe = (estado: string) => getEstadoPipeline(estado)?.id || estado || 'ASIGNADO';
 // Clave del perfil responsable. Una sola definición: antes el selector agrupaba con fallback

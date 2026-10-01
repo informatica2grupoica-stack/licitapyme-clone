@@ -31,6 +31,11 @@ export const ESTADOS_PIPELINE: EstadoPipeline[] = [
   { id: 'ADJUDICADA',   label: 'GANADA',      color: '#16A34A' },
   { id: 'POSIBLE_ADJ',  label: 'POSIBLE ADJ', color: '#6366F1' },
   { id: 'PERDIDA',      label: 'PERDIDA',     color: '#9F1239' },
+  // 1-oct-2026: MP revocó (REVOCADA) o declaró desierta (DESIERTA) una licitación en la que ya habíamos postulado. NO es una
+  // pérdida contra un competidor, así que va aparte: fuera de Postuladas y de los KPIs/análisis (no entra
+  // en ningún UNIVERSO_POSTULADA) pero visible en Negocios. La pone el cron (procesar-postuladas.ts).
+  { id: 'REVOCADA',     label: 'REVOCADA',    color: '#64748B' },
+  { id: 'DESIERTA',     label: 'DESIERTA',    color: '#78716C' },
 ];
 
 // ALIAS LEGADO: mapeo de los ids ANTIGUOS (con prefijo numérico / sufijos _JV/_CG)
@@ -109,7 +114,7 @@ export function getEstadoPipeline(id: string | null | undefined): EstadoPipeline
 // Postulada/Posible adjudicación, no un paso uno-antes-del-otro.
 const ORDEN_PIPELINE: Record<string, number> = {
   ASIGNADO: 0, EN_PROCESO: 1, ANEXOS: 2, ANEXO_LISTO: 3, VISADO: 4,
-  POSTULADA: 5, POSIBLE_ADJ: 6, ADJUDICADA: 7, PERDIDA: 7,
+  POSTULADA: 5, POSIBLE_ADJ: 6, ADJUDICADA: 7, PERDIDA: 7, REVOCADA: 7, DESIERTA: 7,
 };
 
 export interface ChequeoCambioEstado { permitido: boolean; motivo?: string }

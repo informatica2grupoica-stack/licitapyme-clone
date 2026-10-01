@@ -2,6 +2,7 @@
 // IMPORTANTE: Solo importar desde auth-edge.ts (Edge-compatible, sin next/headers)
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionFromRequest } from '@/app/lib/auth-edge';
+import { rolVigente } from '@/app/lib/rol-vigente';
 
 // Rutas que NO requieren autenticación
 const RUTAS_PUBLICAS = [
@@ -85,6 +86,9 @@ export async function proxy(request: NextRequest) {
     loginUrl.searchParams.set('returnUrl', pathname);
     return NextResponse.redirect(loginUrl);
   }
+
+  // El rol del JWT puede estar viejo (7 días): se toma el vigente de la BD.
+  usuario.rol = await rolVigente(usuario.id, usuario.rol);
 
   // Rutas admin: verificar rol
   if (RUTAS_ADMIN.some(r => pathname.startsWith(r)) && usuario.rol !== 'admin') {

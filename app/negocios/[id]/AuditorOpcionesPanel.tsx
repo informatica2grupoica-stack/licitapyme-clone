@@ -199,7 +199,10 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
 
   // ── Ficha técnica: se sube a la OPCIÓN (o a la LÍNEA, y entonces la opción nace de la ficha). El Lector la lee completa y el
   //    verificador técnico la compara contra las bases en cuanto queda cargada. ──
-  const [subiendoFicha, setSubiendoFicha] = useState<string | null>(null);
+  // Qué opciones (o líneas, si la ficha crea la opción) están leyendo una ficha: cada una muestra su propio «Leyendo ficha…».
+  const [subiendoFicha, setSubiendoFicha] = useState<Set<string>>(new Set());
+  const claveFicha = (ref: { opcionId?: number; filaId?: string }) => ref.opcionId != null ? `o${ref.opcionId}` : `l${ref.filaId ?? ''}`;
+  const marcarFicha = (ref: { opcionId?: number; filaId?: string }, on: boolean) => setSubiendoFicha(prev => { const n = new Set(prev); if (on) n.add(claveFicha(ref)); else n.delete(claveFicha(ref)); return n; });
   const [fichaPorResolver, setFichaPorResolver] = useState<{ res: any; ref: { opcionId?: number; filaId?: string }; url: string; nombre: string } | null>(null);
   const procesarResultadoFicha = async (r: any, ref: { opcionId?: number; filaId?: string }, url: string, nombre: string) => {
     if (r.estado === 'elegir_producto' || r.estado === 'producto_distinto') { setFichaPorResolver({ res: r, ref, url, nombre }); return; }
@@ -207,36 +210,36 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
     toast.success(r.opcionCreada ? 'Opción creada desde la ficha' : 'Ficha técnica agregada a la opción', [...(r.avisos || []), 'Comparándola con las bases…'].join(' '));
     await cargar(true);
     const opc = (panelRef.current?.lineas || []).flatMap(l => l.opciones).find(o => o.id === r.opcionId);
-    if (opc && opc.via === 'completa' && opc.tecnico.requisitosTotal > 0) await verificarTecnico(r.opcionId);
+    if (opc && opc.via === 'completa' && opc.tecnico.requisitosTotal > 0) await verificarTecnico(r.opcionId, true);
   };
   const subirFichas = async (archivos: File[], ref: { opcionId?: number; filaId?: string }) => {
     const validos = archivos.filter(f => /\.(pdf|png|jpe?g|webp)$/i.test(f.name));
     if (validos.length < archivos.length) toast.error('Solo se aceptan fichas en PDF o imagen (JPG, PNG, WEBP).');
     for (const f of validos) {
-      setSubiendoFicha(f.name);
+      marcarFicha(ref, true);
       try {
         const url = await subirADocumentos(f, 'fichas_tecnicas');
         const r = await post(negocioId, { accion: 'agregar_ficha', url, ...ref });
         await procesarResultadoFicha(r, ref, url, f.name);
       } catch (e: any) { toast.error(`No se pudo agregar "${f.name}"`, e.message); }
-      finally { setSubiendoFicha(null); await cargar(true); }
+      finally { marcarFicha(ref, false); await cargar(true); }
     }
   };
   const subirFichasDesdeUrl = async (url: string, nombre: string, ref: { opcionId?: number; filaId?: string }) => {
-    setSubiendoFicha(nombre);
+    marcarFicha(ref, true);
     try { const r = await post(negocioId, { accion: 'agregar_ficha', url, ...ref, productoIdx: fichaPorResolver?.res.productoIdx }); await procesarResultadoFicha(r, ref, url, nombre); }
     catch (e: any) { toast.error('No se pudo agregar la ficha', e.message); }
-    finally { setSubiendoFicha(null); await cargar(true); }
+    finally { marcarFicha(ref, false); await cargar(true); }
   };
   const resolverFicha = async (extra: { productoIdx?: number; forzar?: boolean }) => {
     if (!fichaPorResolver) return;
     const { ref, url, nombre } = fichaPorResolver;
-    setSubiendoFicha(nombre);
+    marcarFicha(ref, true);
     try {
       const r = await post(negocioId, { accion: 'agregar_ficha', url, ...ref, ...extra });
       await procesarResultadoFicha(r, ref, url, nombre);
     } catch (e: any) { toast.error('No se pudo agregar la ficha', e.message); }
-    finally { setSubiendoFicha(null); await cargar(true); }
+    finally { marcarFicha(ref, false); await cargar(true); }
   };
   const crearOpcionManual = async (filaId: string, d: { marca: string; modelo: string; proveedor: string }): Promise<boolean> => {
     try { await post(negocioId, { accion: 'crear_opcion', filaId, ...d }); toast.success('Opción creada', 'Sube su ficha técnica para compararla con las bases.'); return true; }
@@ -245,22 +248,23 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   };
 
   // Comparador técnico (Prompt 4 v3.0): UNA llamada por LÍNEA compara todas sus opciones contra los requisitos. Puede tardar 1-3 minutos.
-  const verificarTecnico = async (opcionId: number) => {
+  // `solo`: compara únicamente esa opción (la que recibió una ficha o un link): más rápido y no toca el resultado de las demás.
+  const verificarTecnico = async (opcionId: number, solo = false) => {
     const linea = (panelRef.current?.lineas || []).find(l => l.opciones.some(o => o.id === opcionId));
-    const ids = linea ? linea.opciones.filter(o => o.via === 'completa' && o.estado !== 'descartada').map(o => o.id) : [opcionId];
+    const ids = solo || !linea ? [opcionId] : linea.opciones.filter(o => o.via === 'completa' && o.estado !== 'descartada').map(o => o.id);
     setVerificando(prev => new Set([...prev, ...ids]));
     try {
       let r: any;
-      try { r = await post(negocioId, { accion: 'verificar_tecnico', opcionId }); }
+      try { r = await post(negocioId, { accion: 'verificar_tecnico', opcionId, solo }); }
       catch (e: any) {
         // La IA a veces se cae por tiempo (caso real: «Request timed out»): se reintenta UNA vez antes de molestar al asistente.
         if (!/timed? ?out|timeout|tiempo|429|502|503|504|fetch failed|Failed to fetch/i.test(String(e?.message))) throw e;
         toast.info('La IA tardó demasiado', 'Reintentando la comparación técnica…');
-        r = await post(negocioId, { accion: 'verificar_tecnico', opcionId });
+        r = await post(negocioId, { accion: 'verificar_tecnico', opcionId, solo });
       }
       const ops: Array<{ estado: string }> = r.opciones || [];
       const n = (e: string) => ops.filter(x => x.estado === e).length;
-      toast.success('Línea comparada', `${n('CUMPLE')} cumple${n('CUMPLE') === 1 ? '' : 'n'} · ${n('FALTA_DATO')} con falta de dato · ${n('NO_CUMPLE')} no cumple${n('NO_CUMPLE') === 1 ? '' : 'n'}.`);
+      toast.success(solo ? 'Opción comparada' : 'Línea comparada', `${n('CUMPLE')} cumple${n('CUMPLE') === 1 ? '' : 'n'} · ${n('FALTA_DATO')} con falta de dato · ${n('NO_CUMPLE')} no cumple${n('NO_CUMPLE') === 1 ? '' : 'n'}.`);
     } catch (e: any) { toast.error('No se pudo comparar la línea', e.message); }
     finally { setVerificando(prev => { const n = new Set(prev); for (const id of ids) n.delete(id); return n; }); await cargar(true); }
   };
@@ -337,7 +341,9 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
         && o.tecnico.estado === 'NO_CORRIDO' && !o.tecnico.error && o.tecnico.requisitosTotal > 0 && o.respaldos.some(r => r.extraccionId != null) && !yaIntentadas.current.has(o.id));
       if (!pend.length) continue;
       for (const o of l.opciones) yaIntentadas.current.add(o.id);
-      await verificarTecnico(pend[0].id);
+      // Si la línea ya tenía comparación, solo se compara lo nuevo; si nunca se comparó, va completa (una sola llamada).
+      const yaComparada = l.opciones.some(o => o.tecnico.resultado);
+      if (yaComparada) { for (const o of pend) await verificarTecnico(o.id, true); } else await verificarTecnico(pend[0].id);
     }
     // El verificador de costo con IA corre sobre las opciones con un respaldo de costo leído que todavía no pasaron por él.
     const sinCosto = data.lineas.flatMap(l => l.opciones.filter(o => o.via === 'completa' && o.estado !== 'descartada' && !['aprobada', 'en_aprobacion'].includes(o.estado)
@@ -680,7 +686,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                         <p className="text-[11.5px] text-zinc-500 mb-2"><b>Lo ideal es la cotización del proveedor</b> (súbela en «1 · Cotizaciones»: PDF, foto, Word, Excel o .txt). Si todavía no la tienes, con el <b>link del producto</b> o su <b>ficha técnica</b> igual se puede hacer la comparación técnica: el precio del link queda como tanteo y después lo reemplazas con la cotización.</p>
                       <div className="flex items-start gap-x-6 gap-y-2 flex-wrap">
                         <AgregarLink filaId={l.filaId} ocupado={agregandoLink === l.filaId} onAgregar={agregarLink} />
-                        <OpcionSinLink filaId={l.filaId} ocupadoFicha={subiendoFicha !== null} onCrear={crearOpcionManual} onSubirFicha={(f) => subirFichas(f, { filaId: l.filaId })} />
+                        <OpcionSinLink filaId={l.filaId} ocupadoFicha={subiendoFicha.has(`l${l.filaId}`)} onCrear={crearOpcionManual} onSubirFicha={(f) => subirFichas(f, { filaId: l.filaId })} />
                       </div>
                       </div>
                     </details>
@@ -830,18 +836,21 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
           );
         })()}
       </Modal>
-      <Modal open={fichaPorResolver !== null} onClose={() => setFichaPorResolver(null)} title={fichaPorResolver?.res.estado === 'producto_distinto' ? 'La ficha es de otro producto' : 'Elige el producto de la ficha'} size="md"
+      <Modal open={fichaPorResolver !== null} onClose={() => setFichaPorResolver(null)} title={fichaPorResolver?.res.estado === 'producto_distinto' ? (fichaPorResolver.res.parecido ? '¿Es el mismo producto?' : 'La ficha es de otro producto') : 'Elige el producto de la ficha'} size="md"
         footer={<button onClick={() => setFichaPorResolver(null)} className="px-4 py-2 text-[13px] font-semibold text-zinc-600 hover:text-zinc-900">Cancelar</button>}>
         {fichaPorResolver?.res.estado === 'producto_distinto' ? (
           <div className="space-y-3 text-[13px] text-zinc-700">
-            <p>«{fichaPorResolver.nombre}» corresponde a <b>{[fichaPorResolver.res.marca, fichaPorResolver.res.modelo].filter(Boolean).join(' ') || 'otro producto'}</b>, no al de esta opción. No se comparó contra ella.</p>
+            {fichaPorResolver.res.parecido
+              ? <p>La ficha «{fichaPorResolver.nombre}» es del modelo <b>{[fichaPorResolver.res.marca, fichaPorResolver.res.modelo].filter(Boolean).join(' ')}</b> y esta opción está como <b>{fichaPorResolver.res.modeloOpcion}</b>. Se diferencian en una sola letra o número: <b>probablemente es el mismo producto</b> y la cotización o la ficha tiene un error de tipeo. Si lo es, úsala igual.</p>
+              : <p>«{fichaPorResolver.nombre}» corresponde a <b>{[fichaPorResolver.res.marca, fichaPorResolver.res.modelo].filter(Boolean).join(' ') || 'otro producto'}</b>, no a <b>{fichaPorResolver.res.modeloOpcion || 'el de esta opción'}</b>. Todavía no se comparó contra ella.</p>}
             <div className="flex flex-wrap gap-2">
+              {fichaPorResolver.res.parecido && <button onClick={() => resolverFicha({ forzar: true })} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[12.5px] font-semibold hover:bg-emerald-700">Sí, es el mismo: usar la ficha</button>}
               {fichaPorResolver.ref.opcionId != null && (() => {
                 const filaId = (panel?.lineas || []).find(l => l.opciones.some(o => o.id === fichaPorResolver.ref.opcionId))?.filaId;
                 return filaId ? <button onClick={() => { const { url, nombre } = fichaPorResolver; setFichaPorResolver(null); subirFichasDesdeUrl(url, nombre, { filaId }); }}
                   className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-[12.5px] font-semibold hover:bg-amber-700">Crear una opción nueva con esta ficha</button> : null;
               })()}
-              <button onClick={() => resolverFicha({ forzar: true })} className="px-3 py-1.5 rounded-lg border border-zinc-200 text-zinc-700 text-[12.5px] font-semibold hover:bg-zinc-50">Es el mismo producto: usarla igual</button>
+              <button onClick={() => resolverFicha({ forzar: true })} className={`px-3 py-1.5 rounded-lg border border-zinc-200 text-zinc-700 text-[12.5px] font-semibold hover:bg-zinc-50 ${fichaPorResolver.res.parecido ? 'hidden' : ''}`}>Es el mismo producto: usarla igual</button>
             </div>
           </div>
         ) : (
@@ -1133,6 +1142,44 @@ function PosicionPrecioCard({ posicion, calculando, onCalcular }: { posicion: im
 
 // Botón que abre el selector de archivos (o recibe arrastrados) para subir una ficha técnica.
 // Ficha técnica que ofrece la página del link: primero se MIRA la página y se listan los archivos; solo se descarga el que la persona acepta.
+// «Corregir precio o IVA»: cuando el Lector no pudo decidir (el documento no dice si el precio lleva IVA, o la página muestra un precio de relleno)
+// la persona lo fija a mano. El motivo es obligatorio y queda registrado; se puede deshacer.
+function CorregirCosto({ o, editable, ocupado, onAccion }: { o: OpcionDTO; editable: boolean; ocupado: boolean; onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void }) {
+  const [abierto, setAbierto] = useState(false);
+  const [precio, setPrecio] = useState('');
+  const [iva, setIva] = useState('');
+  const [motivo, setMotivo] = useState('');
+  const c = o.correccionCosto;
+  const campo = 'text-[11.5px] border border-zinc-200 rounded-md px-2 py-1 outline-none focus:border-amber-400';
+  if (c) return (
+    <div className="mt-1.5 text-[11px] text-zinc-500">
+      ✏️ Corregido a mano por {c.por}: {[c.precio != null ? `precio ${fmtCLP(c.precio)}` : '', c.iva ? (c.iva === 'neto' ? 'el precio es NETO' : 'el precio INCLUYE IVA') : ''].filter(Boolean).join(' · ')}
+      <span className="block italic">«{c.motivo}»</span>
+      {c.leido.precio != null ? <span className="block text-zinc-400">el documento decía: {fmtCLP(c.leido.precio)} ({c.leido.iva === 'no_declarado' ? 'IVA sin definir' : c.leido.iva})</span> : <span className="block text-amber-700">Sin documento: es un precio de tanteo hasta tener la cotización.</span>}
+      {editable && <button data-no-pdf onClick={() => onAccion(o.id, 'quitar_correccion_costo', {}, 'Corrección deshecha')} disabled={ocupado} className="underline hover:text-zinc-800">deshacer</button>}
+    </div>
+  );
+  if (!editable) return null;
+  const sinDocumento = !o.producto || o.producto.precio == null;   // no hay cotización ni link con precio: se ingresa el precio a mano
+  if (!abierto) return <button data-no-pdf onClick={() => setAbierto(true)} className="mt-1.5 text-[11px] font-semibold text-indigo-600 hover:underline">{sinDocumento ? '＋ Ingresar precio a mano…' : 'Corregir precio o IVA…'}</button>;
+  const guardar = () => { onAccion(o.id, 'corregir_costo', { precio: precio ? Number(precio.replace(/\./g, '').replace(',', '.')) : null, iva: iva || null, motivo: motivo.trim() }, 'Costo corregido a mano'); setAbierto(false); };
+  return (
+    <div data-no-pdf className="mt-1.5 space-y-1.5 rounded-md border border-amber-200 bg-amber-50/50 p-2">
+      <label className="block text-[10.5px] text-zinc-500">{sinDocumento ? '¿El precio que ingresas incluye IVA?' : '¿El precio del documento incluye IVA?'}
+        <select value={iva} onChange={e => setIva(e.target.value)} className={`${campo} block w-full mt-0.5 bg-white`}>
+          <option value="">— no cambiar —</option><option value="neto">No: es precio NETO (+ IVA)</option><option value="incluido">Sí: ya INCLUYE IVA</option>
+        </select></label>
+      <label className="block text-[10.5px] text-zinc-500">{sinDocumento ? 'Precio unitario (obligatorio)' : 'Precio unitario correcto (opcional)'}
+        <input value={precio} onChange={e => setPrecio(e.target.value)} inputMode="numeric" placeholder="ej. 346546" className={`${campo} block w-full mt-0.5`} /></label>
+      <textarea value={motivo} onChange={e => setMotivo(e.target.value)} rows={2} placeholder={sinDocumento ? 'Motivo (obligatorio): ej. «precio que me dio el proveedor por teléfono»' : 'Motivo (obligatorio): ej. «la cotización suma el IVA aparte al final»'} className={`${campo} block w-full`} />
+      <div className="flex gap-2">
+        <button onClick={guardar} disabled={motivo.trim().length < 8 || (sinDocumento ? !(iva && precio) : (!iva && !precio))} className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[11px] font-semibold hover:bg-emerald-700 disabled:opacity-40">Guardar</button>
+        <button onClick={() => setAbierto(false)} className="text-[11px] text-zinc-400 hover:text-zinc-700">Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
 function BuscarFichaLink({ negocioId, opcionId, ocupado, onTraer }: { negocioId: number; opcionId: number; ocupado: boolean; onTraer: (url: string, nombre: string) => void }) {
   const toast = useToast();
   const confirmar = useConfirm();
@@ -1218,7 +1265,7 @@ function Stat({ label, valor, rojo }: { label: string; valor: string; rojo?: boo
 // ── Cuadro comparativo de UNA línea: columnas = opciones, filas = costo y verificación ────────────
 function CuadroLinea({ negocioId, linea, ocupado, verificando, onVerificar, puedeAprobar, subiendoFicha, onSubirFicha, buscandoMercado, onMercado, verificandoCosto, onCostoIA, onAccion, onModal }: {
   negocioId: number; linea: LineaAuditorDTO; ocupado: number | null; verificando: Set<number>; onVerificar: (opcionId: number) => void; puedeAprobar: boolean;
-  subiendoFicha: string | null; onSubirFicha: (opcionId: number, archivos: File[]) => void;
+  subiendoFicha: Set<string>; onSubirFicha: (opcionId: number, archivos: File[]) => void;
   buscandoMercado: Set<number>; onMercado: (opcionId: number) => void;
   verificandoCosto: Set<number>; onCostoIA: (opcionId: number) => void;
   onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void;
@@ -1286,7 +1333,7 @@ function CuadroLinea({ negocioId, linea, ocupado, verificando, onVerificar, pued
                   {fichas.length === 0
                     ? <span className="text-[11px] text-zinc-400">{o.respaldos.some(r => r.tipo === 'link_web') ? 'Se usa la página del link' : 'Sin ficha: sube la del producto'}</span>
                     : fichas.map(f => <a key={f.id} href={f.documentoUrl || '#'} target="_blank" rel="noopener noreferrer" className="block text-indigo-600 hover:underline truncate max-w-[200px]">{f.documentoNombre || 'Ficha'}</a>)}
-                  {editable && <BotonSubirFicha ocupado={subiendoFicha !== null} etiqueta={fichas.length ? 'Agregar otra ficha' : 'Subir ficha técnica'} onArchivos={f => onSubirFicha(o.id, f)} />}
+                  {editable && <BotonSubirFicha ocupado={subiendoFicha.has(`o${o.id}`)} etiqueta={fichas.length ? 'Agregar otra ficha' : 'Subir ficha técnica'} onArchivos={f => onSubirFicha(o.id, f)} />}
                   {editable && o.respaldos.some(r => r.tipo === 'link_web' && r.vigente) && <BuscarFichaLink negocioId={negocioId} opcionId={o.id} ocupado={ocupado === o.id} onTraer={(url, nombre) => onAccion(o.id, 'traer_ficha_link', { url }, `Ficha «${nombre}» agregada. Ahora pulsa «Comparar la línea».`)} />}
                 </td>
               );
@@ -1404,7 +1451,7 @@ function CeldaTecnica({ f, editable, onConfirmar }: { f: any; editable: boolean;
 }
 
 function CuadroTecnico({ linea, ocupado, puedeAprobar, verificando, subiendoFicha, onSubirFicha, onAccion, onModal }: {
-  linea: LineaAuditorDTO; ocupado: number | null; puedeAprobar: boolean; verificando: Set<number>; subiendoFicha: string | null;
+  linea: LineaAuditorDTO; ocupado: number | null; puedeAprobar: boolean; verificando: Set<number>; subiendoFicha: Set<string>;
   onSubirFicha: (opcionId: number, archivos: File[]) => void;
   onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void;
   onModal: (tipo: 'descartar' | 'rechazar', opcionId: number) => void;
@@ -1463,6 +1510,7 @@ function CuadroTecnico({ linea, ocupado, puedeAprobar, verificando, subiendoFich
                       <span className="ml-1.5 text-[11px] text-zinc-500">{n(r, 'CUMPLE') + n(r, 'SOBRECUMPLE')} ✅ · {n(r, 'NO_CUMPLE')} ❌ · {n(r, 'FALTA_DATO')} ❓</span></>
                       : <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-500">SIN COMPARAR</span>}
                     {verificando.has(o.id) && <span className="ml-1.5 text-[11px] text-amber-700 inline-flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> comparando…</span>}
+                    {o.tecnico.legado && <p className="mt-1 text-[10.5px] italic text-zinc-400">Comparación anterior, hecha antes del comparador nuevo. Se conserva como estaba.</p>}
                     {[...(r?.notas || []).slice(0, 3), ...(r?.alertas.filter(a => a.nivel !== 'info').slice(0, 1).map(a => a.texto) || [])].map((t, i) => <p key={i} className="mt-1 text-[11px] leading-snug text-zinc-500">• {t}</p>)}
                   </td>); })}
               </tr>
@@ -1484,6 +1532,7 @@ function CuadroTecnico({ linea, ocupado, puedeAprobar, verificando, subiendoFich
                   {v ? <span className={`inline-block text-[10.5px] font-bold px-2 py-0.5 rounded-full ${VEREDICTO[v.veredicto]?.cls}`}>{VEREDICTO[v.veredicto]?.label}</span> : <span className="text-zinc-300">—</span>}
                   {(v?.bloqueos || []).slice(0, 2).map((b, i) => <p key={i} className="mt-1 text-[11px] text-red-600 leading-snug">🔴 {b.mensaje}<span className="block text-red-500/70">→ {b.salida}</span></p>)}
                   {(v?.bloqueos.length ?? 0) > 2 && <p className="text-[10.5px] text-zinc-400">+{(v?.bloqueos.length ?? 0) - 2} más en el detalle avanzado</p>}
+                  <CorregirCosto o={o} editable={editable(o)} ocupado={ocupado === o.id} onAccion={onAccion} />
                 </td>); })}
             </tr>
             <tr className="border-t border-zinc-200 bg-zinc-50/70" data-no-pdf>
@@ -1491,7 +1540,7 @@ function CuadroTecnico({ linea, ocupado, puedeAprobar, verificando, subiendoFich
               {columnas.map(o => (
                 <td key={o.id} className="px-3 py-2.5 border-l border-zinc-100">
                   <Acciones o={o} exigeViaCompleta={linea.exigeViaCompleta} ocupado={ocupado === o.id} puedeAprobar={puedeAprobar} onAccion={onAccion} onModal={onModal} />
-                  {editable(o) && <BotonSubirFicha ocupado={subiendoFicha !== null} etiqueta={o.respaldos.some(r => r.tipo === 'ficha_tecnica') ? 'Agregar otra ficha técnica' : 'Subir ficha técnica'} onArchivos={f => onSubirFicha(o.id, f)} />}
+                  {editable(o) && <BotonSubirFicha ocupado={subiendoFicha.has(`o${o.id}`)} etiqueta={o.respaldos.some(r => r.tipo === 'ficha_tecnica') ? 'Agregar otra ficha técnica' : 'Subir ficha técnica'} onArchivos={f => onSubirFicha(o.id, f)} />}
                 </td>
               ))}
             </tr>

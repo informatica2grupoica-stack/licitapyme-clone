@@ -215,8 +215,9 @@ async function guardar(negocioId: number, opcionId: number, pasada: 'L1' | 'L2',
      VALUES (?, ?, ?, ?, ?, ?, 'v2.0', ?, ?, ?)`, [negocioId, opcionId, pasada, JSON.stringify(datos), estado, motor, error, userId, ahoraChileSQL()]);
 }
 
-export async function ultimasVerificaciones(negocioId: number): Promise<Map<number, { l1: VerificacionGuardada | null; l2: { rectificados: Map<number, string>; confirmados: Set<number>; at: string } | null }>> {
-  const [rows] = await pool.query(`SELECT id, opcion_id, pasada, resultado_json, error, creado_at FROM auditor_verificacion_tecnica WHERE negocio_id = ? ORDER BY id`, [negocioId]) as any;
+/** @param soloV2 true = solo las corridas hechas con el prompt v2.0 (historial: las del comparador v3.0 se guardan en otra forma). */
+export async function ultimasVerificaciones(negocioId: number, soloV2 = false): Promise<Map<number, { l1: VerificacionGuardada | null; l2: { rectificados: Map<number, string>; confirmados: Set<number>; at: string } | null }>> {
+  const [rows] = await pool.query(`SELECT id, opcion_id, pasada, resultado_json, error, creado_at FROM auditor_verificacion_tecnica WHERE negocio_id = ?${soloV2 ? " AND version_prompt = 'v2.0'" : ''} ORDER BY id`, [negocioId]) as any;
   const out = new Map<number, { l1: VerificacionGuardada | null; l2: { rectificados: Map<number, string>; confirmados: Set<number>; at: string } | null }>();
   for (const r of rows as any[]) {
     const cur = out.get(r.opcion_id) || { l1: null, l2: null };

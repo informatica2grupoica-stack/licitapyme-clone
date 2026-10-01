@@ -9,7 +9,7 @@ import { ahoraChileSQL } from '@/app/lib/tz';
 // Estados que "cierran el ciclo": ya no se exige resolución.
 const ESTADOS_RESUELTOS = [
   'POSTULADA', 'DESCARTADA',
-  'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA',
+  'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA', 'REVOCADA', 'DESIERTA',
 ];
 
 function getUser(req: NextRequest) {
@@ -46,6 +46,8 @@ export async function GET(request: NextRequest) {
          AND n.licitacion_cierre IS NOT NULL
          AND n.licitacion_cierre < ?
          AND COALESCE(n.estado_pipeline, 'ASIGNADO') NOT IN (${ph})
+         -- Revocada/Desierta en MP: no hay nada que postular ni descartar, aunque el pipeline siga en ASIGNADO/etc.
+         AND COALESCE(n.licitacion_estado, '') NOT IN ('Revocada', 'Desierta', '7', '15', '18')
          ${filtroUsuario}
        ORDER BY n.licitacion_cierre ASC`,
       params,

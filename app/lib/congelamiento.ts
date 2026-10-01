@@ -43,7 +43,7 @@ export interface PaqueteTraspaso {
 // si se vuelve a postular el bloqueo vuelve solo. Reportado 25-ago-2026: 986278-14-LE26 se postuló,
 // se reabrió, y el Auditor quedó de solo lectura para siempre.
 export const ESTADOS_OFERTA_ENVIADA = [
-  'POSTULADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA',
+  'POSTULADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA', 'REVOCADA', 'DESIERTA',
   '7POSTULADO_JV', '7POSTULADO_CG', 'ADJ_JV', 'ADJ_CG', '8POSIBLE_ADJ', '9PERDIDA',
 ];
 

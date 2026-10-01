@@ -28,7 +28,7 @@ const opcion = (id: number, p: ProductoNormalizado, extra: Partial<OpcionDTO> = 
     verificacion: verificarOpcion({ linea: l, lineasProyecto: [l], producto: p, documento: doc, proveedor: {}, opcion: { marca: p.marca, modelo: p.modelo }, hoyISO: '2026-09-29' }),
     proveedorDatos: { razon_social: { valor: 'PERSONAL COMPUTER FACTORY S.A.' }, rut: { valor: '78.885.550-8' }, vendedor: { valor: 'Alvaro Peña P.' }, email: { valor: 'apena@pcfactory.cl' }, condiciones_pago: { valor: 'Deposito' } },
     documentoInfo: { numero: '100.084.222', fechaEmision: '22 de Septiembre de 2026', tipo: 'cotizacion_formal' },
-    capturas: [], estadoLink: null, mercado: null, costoIA: null,
+    capturas: [], estadoLink: null, mercado: null, costoIA: null, correccionCosto: null,
     tecnico: { estado: 'NO_CORRIDO', corridoAt: null, error: null, segundaPasadaAt: null, requisitosTotal: 0, resultado: null },
     ...extra,
   };

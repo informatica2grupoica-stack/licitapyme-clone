@@ -16,6 +16,7 @@ import {
 } from '@/app/lib/auditor-comparador-v3-core';
 import type { ResultadoTecnico } from '@/app/lib/auditor-tecnico-v2-core';
 
+const TEXTO_CON_RESUMEN = 9_000;
 const TOPE_TEXTO_TOTAL = 40_000;
 const ESTADOS_QUE_SE_COMPARAN = ['tanteo', 'formalizada', 'verificada', 'definitiva'];
 
@@ -51,11 +52,13 @@ export interface ResumenCorridaV3 { opciones: Array<{ opcionId: number; estado: 
 /** Compara TODAS las opciones vivas de una línea contra sus requisitos, con una sola llamada. */
 export async function verificarLineaV3(params: {
   negocioId: number; licitacionCodigo: string; filaId: string; lineaReal: number | null; nombreLinea: string; cantidad: number | null; unidad: string; actor: { id: number };
+  /** Solo estas opciones (p. ej. la que recién recibió una ficha): las demás conservan su última comparación. Sin esto se compara la línea completa. */
+  soloOpcionIds?: number[];
 }): Promise<ResumenCorridaV3> {
-  const { negocioId, licitacionCodigo, filaId, lineaReal, nombreLinea, cantidad, unidad, actor } = params;
+  const { negocioId, licitacionCodigo, filaId, lineaReal, nombreLinea, cantidad, unidad, actor, soloOpcionIds } = params;
   const [ors] = await pool.query(
     `SELECT * FROM auditor_opcion WHERE negocio_id = ? AND fila_id = ? AND via = 'completa' AND estado IN (?) ORDER BY id`, [negocioId, filaId, ESTADOS_QUE_SE_COMPARAN]) as any;
-  const opciones = ors as any[];
+  const opciones = (ors as any[]).filter(o => !soloOpcionIds?.length || soloOpcionIds.includes(o.id));
   if (opciones.length === 0) throw new Error('La línea no tiene opciones en vía completa para comparar (las de vía liviana no pasan por el comparador técnico).');
   const ctx = await requisitosDeLinea(negocioId, licitacionCodigo, lineaReal);
   if (!ctx || ctx.requisitos.length === 0) throw new Error('Esta línea no tiene requisitos técnicos heredados del análisis: no hay contra qué comparar.');
@@ -66,9 +69,11 @@ export async function verificarLineaV3(params: {
 
   const requisitos: RequisitoV3[] = ctx.requisitos.map(r => ({ n: r.n, texto: r.texto, fuente: r.fuente, criticidad: r.criticidad }));
   const porDoc = Math.floor(TOPE_TEXTO_TOTAL / Math.max(1, conDocs.reduce((n, x) => n + x.docs.length, 0)));
+  // Si el Lector ya extrajo las características del producto (con su texto original), no hace falta mandar el documento entero: va el resumen y un tramo del texto.
+  const largoTexto = (d: DocumentoOpcion) => Math.min(porDoc, d.resumen.length >= 400 ? TEXTO_CON_RESUMEN : porDoc);
   const bloqueOpciones = conDocs.map(({ o, docs }) => {
     const cab = `=== OPCIÓN P${o.id} · ${[o.marca, o.modelo].filter(Boolean).join(' ') || '(marca y modelo sin identificar)'} · proveedor: ${o.proveedor_razon_social || '-'} ===`;
-    const cuerpo = docs.map(d => `[${d.etiqueta}] archivo: "${d.nombre}" · tipo: ${docOrigen(d)}\n${d.resumen ? d.resumen + '\n' : ''}TEXTO COMPLETO:\n${d.texto.slice(0, porDoc)}`).join('\n\n');
+    const cuerpo = docs.map(d => `[${d.etiqueta}] archivo: "${d.nombre}" · tipo: ${docOrigen(d)}\n${d.resumen ? d.resumen + '\n' : ''}${d.resumen.length >= 400 && d.texto.length > TEXTO_CON_RESUMEN ? 'TEXTO (primeras páginas; las características completas están arriba)' : 'TEXTO COMPLETO'}:\n${d.texto.slice(0, largoTexto(d))}`).join('\n\n');
     return `${cab}\n${cuerpo}`;
   }).join('\n\n');
   const user = `FORMATO: JSON
@@ -86,7 +91,9 @@ ${bloqueOpciones}`;
 
   let salida: SalidaV3;
   try {
+    const t0 = Date.now();
     salida = await llamarJSON(sistemaComparadorV3(), user);
+    console.log(`[comparador-v3] línea ${filaId}: ${conDocs.length} opción(es), ${user.length} car. enviados, ${Math.round((Date.now() - t0) / 1000)} s`);
     if (!Array.isArray(salida?.lineas) || !salida.lineas[0]?.productos?.length) throw new Error('El modelo no devolvió el cuadro de la línea (respuesta vacía o ilegible).');
   } catch (e) {
     const msg = (e instanceof Error ? e.message : String(e)).slice(0, 480);

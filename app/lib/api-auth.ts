@@ -9,10 +9,13 @@
 import { type NextRequest } from 'next/server';
 import { getSessionFromRequest, type UsuarioSession } from '@/app/lib/auth-edge';
 import pool from '@/app/lib/db';
+import { rolVigente } from '@/app/lib/rol-vigente';
 
 /** Usuario autenticado verificando el JWT de la cookie (fuente de verdad). */
 export async function getAuthedUser(req: NextRequest): Promise<UsuarioSession | null> {
-  return getSessionFromRequest(req);
+  const u = await getSessionFromRequest(req);
+  if (!u) return null;
+  return { ...u, rol: await rolVigente(u.id, u.rol) };
 }
 
 /** ¿Es admin? Verificado contra el JWT (no contra el header del cliente). */

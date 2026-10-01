@@ -79,10 +79,10 @@ export interface ItemChecklist extends Omit<ItemGenerado, 'fuenteCita' | 'claveO
 // sincroniza — esto es solo qué se MUESTRA en cada etapa, para no tener que reabrir sincronizar()
 // otra vez al llegar a ANEXOS ni arriesgar perder ítems ya generados.
 const ETAPAS_CON_COMERCIAL = new Set([
-  'ASIGNADO', 'EN_PROCESO', 'ANEXOS', 'ANEXO_LISTO', 'VISADO', 'POSTULADA', 'POSIBLE_ADJ', 'ADJUDICADA', 'PERDIDA',
+  'ASIGNADO', 'EN_PROCESO', 'ANEXOS', 'ANEXO_LISTO', 'VISADO', 'POSTULADA', 'POSIBLE_ADJ', 'ADJUDICADA', 'PERDIDA', 'REVOCADA', 'DESIERTA',
 ]);
 const ETAPAS_CON_ANEXOS = new Set([
-  'ANEXOS', 'ANEXO_LISTO', 'VISADO', 'POSTULADA', 'POSIBLE_ADJ', 'ADJUDICADA', 'PERDIDA',
+  'ANEXOS', 'ANEXO_LISTO', 'VISADO', 'POSTULADA', 'POSIBLE_ADJ', 'ADJUDICADA', 'PERDIDA', 'REVOCADA', 'DESIERTA',
 ]);
 
 export function tieneInformacionComercial(estadoPipeline?: string | null): boolean {

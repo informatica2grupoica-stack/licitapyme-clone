@@ -34,6 +34,7 @@ import { abrirComprasSiCorresponde } from '@/app/lib/compras';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { idsEquivalentes, normalizarEstado } from '@/app/lib/pipeline';
 import { avisarResultadoLicitacion } from '@/app/lib/avisar-resultado-licitacion';
+import { estadoDefinitivoCanonico, persistirYNotificar } from '@/app/lib/refrescar-estados';
 
 // IDs (vigente + legados) que cuentan como "postulada" / "adjudicada" / "perdida" — ver misma
 // nota en detectar-aperturas.ts.
@@ -364,6 +365,32 @@ export async function procesarPostuladas(
       await guardarCache(codigo, adj);
 
       if (adj.esAdjudicada && promover) await promoverYAvisar(codigo, negocios, adj, stats);
+
+      // Revocada/Desierta: MP cerró el proceso SIN adjudicar a nadie → terminal para siempre. Antes
+      // solo quedaba en adjudicacion_cache (chip en Postuladas): no se escribía licitacion_estado,
+      // no se avisaba y el negocio se quedaba en POSTULADA consultándose cada ciclo (caso
+      // 3280-20-LE26). Mismo criterio que scripts/verificar-postuladas-mp.mts: pasa a REVOCADA o DESIERTA según MP (estados aparte: no ensucia los KPIs de ganadas/perdidas).
+      if (promover && !adj.esAdjudicada) {
+        const terminal = estadoDefinitivoCanonico(lic);
+        if (terminal === 'Revocada' || terminal === 'Desierta') {
+          await persistirYNotificar(codigo, terminal, true, lic);   // estado visible + campana/correo (una sola vez)
+          const estadoNuevo = terminal === 'Revocada' ? 'REVOCADA' : 'DESIERTA';
+          for (const n of negocios) {
+            const [upd] = await pool.query(
+              `UPDATE negocios SET estado_pipeline = ?, updated_at = NOW()
+               WHERE id = ? AND estado_pipeline IN (${IN_POSTULADA})`,
+              [estadoNuevo, n.id, ...ESTADOS_POSTULADA],
+            ) as any;
+            if (!upd?.affectedRows) continue;
+            publicarCambio('negocio');
+            // Queda también en el hilo de comentarios del negocio (best-effort).
+            await pool.query(
+              `INSERT INTO comentarios_negocio (negocio_id, usuario_id, pipeline_estado, comentario, created_at) VALUES (?, ?, ?, ?, ?)`,
+              [n.id, n.asignado_a, estadoNuevo, `Mercado Público marcó la licitación como ${terminal}.`, ahoraChileSQL()],
+            ).catch(() => {});
+          }
+        }
+      }
     } catch (e) {
       stats.errores++;
       console.error(`[procesar-postuladas] "${codigo}" falló:`, String(e));

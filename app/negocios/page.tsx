@@ -60,7 +60,7 @@ interface Carga { usuario_id: number; nombre?: string; email?: string; total: nu
 
 // Estados del pipeline que "cierran el ciclo": ya no cuentan como carga vigente ni salen
 // en el calendario/semana (son historia, no trabajo pendiente).
-const RESUELTOS_NEGOCIO = new Set(['POSTULADA', 'DESCARTADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA']);
+const RESUELTOS_NEGOCIO = new Set(['POSTULADA', 'DESCARTADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA', 'REVOCADA', 'DESIERTA']);
 
 // Semáforo de viabilidad (colores/labels compactos para las tarjetas).
 const SEMAFORO: Record<string, { label: string; color: string; bg: string; text: string }> = {
@@ -1468,7 +1468,11 @@ function NegociosContent() {
         n.etiquetas.some(e => filtroEtiqueta.includes(String(e.id)));
       const tipoDelCodigo = extractTipoFromCodigo(n.licitacion_codigo || '');
       const matchTipo = filtroTipo.length === 0 || filtroTipo.includes(tipoDelCodigo);
-      const matchEstado = filtroEstado.length === 0 || filtroEstado.includes(n.estado_pipeline || 'ASIGNADO');
+      // REVOCADA (Revocada/Desierta en MP) queda invisible en el listado: solo aparece si se filtra
+      // explícitamente por ese estado.
+      const matchEstado = filtroEstado.length === 0
+        ? !(n.estado_pipeline === 'REVOCADA' || n.estado_pipeline === 'DESIERTA')
+        : filtroEstado.includes(n.estado_pipeline || 'ASIGNADO');
       const matchUsuario = filtroUsuarios.length === 0 || (!!n.usuario_email && filtroUsuarios.includes(n.usuario_email));
       const matchRegion = filtroRegion.length === 0 || (!!n.licitacion_region && filtroRegion.includes(n.licitacion_region));
       // Rango por fecha de cierre (inclusive). Sin cierre → se excluye si hay filtro de fecha.

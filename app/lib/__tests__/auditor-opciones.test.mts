@@ -3,7 +3,7 @@
 // bloqueo (V1, V2, V3, V4 con R1/R2, V6, V7). Correr con: npx tsx --test app/lib/__tests__/auditor-opciones.test.mts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parsearMonto, fechaISO, normalizarProductos, emparejarProductos, puntuar, verificarOpcion, faltantesProveedor, coincidenciaIdentidad, emparejarProductoReleido, separarPrecioPegadoACantidad, margenProyectoConOpciones, margenConAsociados, evaluarAvance, type ProductoNormalizado } from '../auditor-opciones-core';
+import { parsearMonto, fechaISO, normalizarProductos, emparejarProductos, puntuar, verificarOpcion, faltantesProveedor, coincidenciaIdentidad, modelosParecidos, emparejarProductoReleido, separarPrecioPegadoACantidad, margenProyectoConOpciones, margenConAsociados, evaluarAvance, type ProductoNormalizado } from '../auditor-opciones-core';
 import type { LineaCosteo } from '../auditor-compras-core';
 import type { SalidaLector } from '../auditor-lector';
 
@@ -419,4 +419,23 @@ test('precio pegado a la cantidad: si la cuenta cuadra con el total del document
   const p = normalizarProductos(salida, TEXTO_MAVE)[0];
   assert.equal(p.precio, 374_000); assert.equal(p.precioAmbiguo, false); assert.equal(p.cantidadCotizada, 17);
   assert.equal(normalizarProductos(salida)[0].precioAmbiguo, true);   // sin el texto del documento no hay cómo comprobarlo
+});
+
+test('precio de relleno ($999.999.999 de producto agotado): bloquea con mensaje propio y NO entra como costo; con el precio corregido a mano sí', () => {
+  const l: any = { id: 'f', item: 5, lineaReal: 5, detalle: 'PROYECTOR', cantidad: 17, costoEstimadoNeto: 402_513, margen: 20 };
+  const prod = (precio: number, extra: any = {}): any => ({ idx: 0, nombre: 'Epson E24', tipo: '', marca: 'Epson', modelo: 'E24', version: '', sku: '', precio, preciosMultiples: [], precioAmbiguo: true, moneda: 'CLP', iva: 'incluido', ivaTexto: 'IVA incluido', unidadPrecio: '', contenidoEmpaque: '', unidadesPorEmpaque: null, cantidadCotizada: null, moq: null, stock: '', plazoTexto: '', plazoDias: null, tipoDias: 'no_declarado', despacho: '', incoterm: '', costosAdicionales: [], garantia: '', condiciones: [], esCargo: false, ...extra });
+  const malo = verificarOpcion({ linea: l, lineasProyecto: [l], producto: prod(999_999_999), documento: { tipo: 'link_web' } as any, proveedor: {}, opcion: { marca: 'Epson', modelo: 'E24' }, hoyISO: '2026-09-30' });
+  assert.equal(malo.costoNetoUnitario, null);
+  assert.match(malo.bloqueos.find(b => b.codigo === 'LECTURA')!.mensaje, /relleno/);
+  // corrección manual: el producto llega con el precio fijado y sin ambigüedad (así lo arma armarPanelAuditor)
+  const bueno = verificarOpcion({ linea: l, lineasProyecto: [l], producto: prod(449_990, { precioAmbiguo: false }), documento: { tipo: 'link_web' } as any, proveedor: {}, opcion: { marca: 'Epson', modelo: 'E24' }, hoyISO: '2026-09-30' });
+  assert.ok(bueno.costoNetoUnitario != null && bueno.costoNetoUnitario > 300_000);
+});
+
+test('modelosParecidos: una letra de diferencia con la misma marca (WM-2802V/W) es casi seguro el mismo producto; modelos realmente distintos no', () => {
+  assert.equal(modelosParecidos({ marca: 'Baretone', modelo: 'WM-2802V' }, { marca: 'BARETONE', modelo: 'WM-2802W' }), true);
+  assert.equal(modelosParecidos({ marca: 'Baretone', modelo: 'WM-2802V' }, { marca: 'Baretone', modelo: 'WM-2802V' }), false);   // iguales: no es «parecido», es lo mismo
+  assert.equal(modelosParecidos({ marca: 'Epson', modelo: 'E24' }, { marca: 'Epson', modelo: 'E25' }), false);                    // modelo demasiado corto: puede ser otro
+  assert.equal(modelosParecidos({ marca: 'Baretone', modelo: 'WM-2802V' }, { marca: 'Sony', modelo: 'WM-2802W' }), false);       // otra marca
+  assert.equal(modelosParecidos({ marca: 'Benq', modelo: 'MX560C' }, { marca: 'Benq', modelo: 'MX631ST' }), false);
 });

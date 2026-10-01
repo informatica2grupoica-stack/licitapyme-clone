@@ -66,7 +66,7 @@ const ESTADOS_DEFINITIVOS = new Set([6, 7, 8, 18, 19]);
 const ESTADOS_CON_CORREO = new Set(['Cerrada', 'Revocada', 'Desierta']);
 
 // Estados del pipeline YA resueltos: no se refrescan aquí (POSTULADA la maneja procesar-postuladas).
-const PIPELINE_RESUELTOS = ['POSTULADA', 'ADJUDICADA', 'PERDIDA', 'DESCARTADA'];
+const PIPELINE_RESUELTOS = ['POSTULADA', 'ADJUDICADA', 'PERDIDA', 'REVOCADA', 'DESIERTA', 'DESCARTADA'];
 
 // Detección de estado terminal por NOMBRE. IMPORTANTE: MP usa códigos INCONSISTENTES para el mismo
 // estado (verificado en vivo: 2831-17-LR26 "Revocada" llega como CodigoEstado 15, no 18), así que
@@ -90,7 +90,7 @@ const fmtCLP = (n: number) =>
 
 // Nombre canónico del estado DEFINITIVO de la licitación (uno de los 5 terminales), o null si sigue
 // publicada / no es terminal. Por NOMBRE primero (robusto ante códigos MP variables), luego por código.
-function estadoDefinitivoCanonico(lic: { EstadoNombre?: string; CodigoEstado?: number | null }): string | null {
+export function estadoDefinitivoCanonico(lic: { EstadoNombre?: string; CodigoEstado?: number | null }): string | null {
   const texto = normNombre(lic.EstadoNombre);
   for (const [re, nombre] of TERMINALES_POR_NOMBRE) if (re.test(texto)) return nombre;
   const cod = codigoEstadoMP(lic.CodigoEstado ?? null);
@@ -209,7 +209,7 @@ async function persistirCambioFechaCierre(codigo: string, fechaCierreRaw: string
 // notificar: si dispara campana/correo/historial cuando hay transición. true para asignadas en vivo
 // (cron/on-demand); false para BACKFILL inicial (evita inundar de correos por cambios históricos) y
 // para el barrido del radar (no hay a quién avisar de 10k licitaciones no asignadas).
-async function persistirYNotificar(codigo: string, nombre: string, notificar = true, lic?: Licitacion): Promise<boolean> {
+export async function persistirYNotificar(codigo: string, nombre: string, notificar = true, lic?: Licitacion): Promise<boolean> {
   const [res] = await pool.query(
     `UPDATE negocios SET licitacion_estado = ?, updated_at = NOW()
      WHERE licitacion_codigo = ? AND activo = TRUE

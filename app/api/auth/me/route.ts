@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { verificarToken } from '@/app/lib/auth-edge';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
+import { rolVigente } from '@/app/lib/rol-vigente';
 import pool from '@/app/lib/db';
 
 export const runtime = 'nodejs';
@@ -43,9 +44,10 @@ export async function GET() {
     if (!payload) {
       return NextResponse.json({ autenticado: false, usuario: null });
     }
+    const rol = await rolVigente(payload.userId as number, payload.rol);
     // Permisos efectivos: admin → todos; usuario → los que el admin le otorgó.
     const [permisos, modoPrincipiante, contacto] = await Promise.all([
-      permisosDeUsuario(payload.userId as number, payload.rol as string),
+      permisosDeUsuario(payload.userId as number, rol),
       leerModoPrincipiante(payload.userId as number),
       leerContacto(payload.userId as number),
     ]);
@@ -56,7 +58,7 @@ export async function GET() {
         email:   payload.email,
         nombre:  payload.nombre,
         empresa: payload.empresa,
-        rol:     payload.rol,
+        rol,
         permisos,
         modoPrincipiante,
         ...contacto,

@@ -13,7 +13,7 @@ import pool from '@/app/lib/db';
 import { contextoAuditor } from '@/app/lib/auditor-acceso';
 import {
   armarPanelAuditor, cargarEstadoCosteo, leerDocumentoYCrearOpciones, crearOpcionesDesdeExtraccion, asignarProductoALinea, cambiarVia, descartarOpcion, restaurarOpcion, moverOpcionALinea,
-  firmarOpcion, quitarFirma, solicitarAprobacion, resolverAprobacion, agregarLinkALinea, sugerirLineasDelNegocio, ignorarProductoSinLinea, crearOpcionManual, agregarFichaAOpcion, buscarFichaEnLink, traerFichaDeLink, verificarMercadoDeOpcion, justificarAhorroDeOpcion, verificarCostoIADeOpcion, releerDocumento,
+  firmarOpcion, quitarFirma, solicitarAprobacion, resolverAprobacion, agregarLinkALinea, sugerirLineasDelNegocio, ignorarProductoSinLinea, crearOpcionManual, agregarFichaAOpcion, corregirCostoOpcion, quitarCorreccionCosto, buscarFichaEnLink, traerFichaDeLink, verificarMercadoDeOpcion, justificarAhorroDeOpcion, verificarCostoIADeOpcion, releerDocumento,
   verificarTecnicoDeOpcion, confirmarCeldaTecnica,
 } from '@/app/lib/auditor-opciones';
 import { generarPosicionAuditor, ultimaPosicion } from '@/app/lib/auditor-posicion';
@@ -115,7 +115,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       case 'anular_costo_asociado': await anularCostoAsociado(negocio.id, Number(body.id), String(body.comentario || ''), actor); break;
       case 'restaurar_costo_asociado': await restaurarCostoAsociado(negocio.id, Number(body.id), actor); break;
       case 'verificar_tecnico': {
-        const r = await verificarTecnicoDeOpcion(negocio.id, negocio.licitacion_codigo, opcionId, actor);
+        const r = await verificarTecnicoDeOpcion(negocio.id, negocio.licitacion_codigo, opcionId, actor, body.solo === true);
         return NextResponse.json({ success: true, ...r });
       }
       case 'posicion_precio': {
@@ -167,6 +167,10 @@ export async function POST(request: NextRequest, { params }: Params) {
         const r = await traerFichaDeLink(negocio.id, opcionId, String(body.url || ''), actor);
         return NextResponse.json({ ...r, success: r.estado !== 'error' });
       }
+      case 'corregir_costo':
+        // Precio y/o IVA fijado a mano, con motivo obligatorio (queda quién y cuándo; se puede deshacer).
+        await corregirCostoOpcion(negocio.id, opcionId, { precio: body.precio != null && body.precio !== '' ? Number(body.precio) : null, iva: body.iva ? String(body.iva) : null, motivo: String(body.motivo || '') }, actor); break;
+      case 'quitar_correccion_costo': await quitarCorreccionCosto(negocio.id, opcionId, actor); break;
       case 'agregar_link': {
         const r = await agregarLinkALinea(negocio.id, String(body.filaId || ''), String(body.url || ''), actor);
         return NextResponse.json({ success: true, ...r });

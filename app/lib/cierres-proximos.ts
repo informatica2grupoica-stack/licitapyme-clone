@@ -18,7 +18,7 @@ import { publicar } from '@/app/lib/sse-bus';
 import { enviarDigestCierresProximos } from '@/app/lib/email';
 
 // Estados que "cierran el ciclo" → ya no se avisa (mismos que el modal de vencidas).
-const ESTADOS_RESUELTOS = ['POSTULADA', 'DESCARTADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA'];
+const ESTADOS_RESUELTOS = ['POSTULADA', 'DESCARTADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA', 'REVOCADA', 'DESIERTA'];
 
 interface FilaCierre {
   id: number; licitacion_codigo: string; licitacion_nombre: string | null;

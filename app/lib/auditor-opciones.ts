@@ -13,7 +13,7 @@ import { visitarLinks, normalizarUrl, buscarFichasEnPagina, urlPublicaSegura, ty
 import { createHash } from 'node:crypto';
 import { mensajesUnificadosPorProveedor, type MensajeProveedor } from '@/app/lib/auditor-proveedor';
 import {
-  contarRequisitosPorLinea,
+  contarRequisitosPorLinea, ultimasVerificaciones, habilitacionesYDeclaraciones, estadoTecnicoDe,
 } from '@/app/lib/auditor-tecnico-v2';
 import { ultimasCorridasV3, confirmacionesTecnicas, estadoTecnicoV3, verificarLineaV3, confirmarCelda, type ResumenCorridaV3 } from '@/app/lib/auditor-comparador-v3';
 import type { ResultadoTecnico } from '@/app/lib/auditor-tecnico-v2-core';
@@ -25,7 +25,7 @@ import { ultimasCostoIA, verificarCostoIAOpcion } from '@/app/lib/auditor-costo-
 import type { AyudaCosto } from '@/app/lib/auditor-costo-ia-core';
 import { estadosDeLineas, lineasQueExigenViaCompleta, listarCostosAsociados, totalCostosAsociados, type CostoAsociadoDTO } from '@/app/lib/auditor-lineas';
 import {
-  normalizarProductos, normalizarExtraccion, emparejarProductos, coincidenciaIdentidad, emparejarProductoReleido, verificarOpcion, margenProyectoConOpciones, evaluarAvance, type ResultadoAvance,
+  normalizarProductos, normalizarExtraccion, emparejarProductos, coincidenciaIdentidad, modelosParecidos, emparejarProductoReleido, verificarOpcion, margenProyectoConOpciones, evaluarAvance, type ResultadoAvance,
   type ProductoNormalizado, type ResultadoVerificacion, type Emparejamiento,
 } from '@/app/lib/auditor-opciones-core';
 
@@ -56,7 +56,10 @@ export interface OpcionDTO {
   /** Mercado (Prompt 5 V9/V10/V10-b/V10-c): referencias del MISMO producto, competidor y mercado público. null = todavía no se buscó. */
   mercado: MercadoDTO | null;
   costoIA: CostoIADTO | null;
+  /** Precio y/o IVA que una persona corrigió a mano (con su motivo): rige por sobre lo que leyó el Lector. */
+  correccionCosto: CorreccionCosto | null;
 }
+export interface CorreccionCosto { precio: number | null; iva: 'incluido' | 'neto' | null; motivo: string; por: string; at: string; leido: { precio: number | null; iva: string } }
 /** Verificador de costo con IA (Prompt 5 v2.0): hallazgos con cita verificada (ya sumados a las alertas de la opción) y la ayuda de cinco campos. */
 export interface CostoIADTO { creadoAt: string; error: string | null; ayuda: AyudaCosto | null; descartados: string[]; noPudeLeer: Array<{ que: string; donde: string }>; alertas: number }
 export interface MercadoDTO {
@@ -68,6 +71,8 @@ export interface TecnicoDTO {
   estado: ResultadoTecnico['estado'] | 'NO_CORRIDO' | 'SIN_REQUISITOS' | 'NO_APLICA';
   corridoAt: string | null; error: string | null; segundaPasadaAt: string | null; requisitosTotal: number;
   resultado: ResultadoTecnico | null;
+  /** true = el resultado es de la comparación anterior (prompt v2.0), guardada antes del comparador v3.0: se muestra como historial. */
+  legado?: boolean;
 }
 export interface CapturaDTO { id: number; respaldoId: number | null; url: string; estado: string; titulo: string | null; capturadoAt: string; hayImagen: boolean }
 export interface LineaAuditorDTO {
@@ -153,6 +158,8 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
     pool.query(`SELECT id, opcion_id, respaldo_id, url, estado_link, titulo, capturado_at, (imagen IS NOT NULL) AS hay_imagen FROM auditor_captura WHERE negocio_id = ? ORDER BY id DESC`, [negocioId]) as Promise<any>,
   ]);
   const [opRows] = opRes, [reRows] = reRes, [caRows] = caRes;
+  const correcciones = await correccionesDeCosto(negocioId);
+  const [verifLegado, hdLegado] = await Promise.all([ultimasVerificaciones(negocioId, true), habilitacionesYDeclaraciones(negocioId)]);
   const lineas = lineasAuditables(estado);
   const totalAsociados = totalCostosAsociados(costosAsociados);
   // Una línea NO OFERTADA sale del margen y de las verificaciones (sigue en el histórico).
@@ -182,25 +189,38 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
     const vigentesDeCosto = respaldosRaw.filter(r => r.vigente && r.tipo !== 'ficha_tecnica').reverse();
     const sostiene = vigentesDeCosto.find(r => r.sostiene_costo) || vigentesDeCosto[0] || null;
     const data = sostiene?.extraccion_id != null ? ext.get(sostiene.extraccion_id) ?? null : null;
-    const producto = data && sostiene?.producto_idx != null ? normalizarExtraccion(data)[sostiene.producto_idx] ?? null : null;
+    const productoLeido = data && sostiene?.producto_idx != null ? normalizarExtraccion(data)[sostiene.producto_idx] ?? null : null;
+    const correccionCosto = correcciones.get(o.id) ?? null;
+    // Sin documento con precio (solo ficha, link caído u opción creada a mano): si la persona ingresó precio e IVA, ese precio rige como tanteo.
+    const manualSinDocumento = !productoLeido && correccionCosto?.precio != null && correccionCosto.iva != null;
+    const producto: ProductoNormalizado | null = manualSinDocumento ? productoManual(o, correccionCosto!) : productoLeido && correccionCosto
+      ? { ...productoLeido, ...(correccionCosto.precio != null ? { precio: correccionCosto.precio, precioAmbiguo: false } : {}), ...(correccionCosto.iva ? { iva: correccionCosto.iva, ivaSupuesto: false } : {}) }
+      : productoLeido;
+    if (correccionCosto && productoLeido) correccionCosto.leido = { precio: productoLeido.precio, iva: productoLeido.iva };
     const capturas = capturasPorOpcion.get(o.id) || [];
     const capSostiene = sostiene?.tipo === 'link_web' ? capturas.find(c => c.respaldoId === sostiene.id) ?? null : null;
     const docBase = data?.salida.documento ?? null;
     const verificacion = linea && o.estado !== 'descartada'
       ? verificarOpcion({
         linea, lineasProyecto: lineasVivas, producto, costosAsociadosNeto: totalAsociados,
-        documento: sostiene?.tipo === 'link_web' ? { ...(docBase || {}), tipo: 'link_web' } : docBase,
+        documento: manualSinDocumento ? { tipo: 'precio_manual', formalidad: 'informal' } as any : sostiene?.tipo === 'link_web' ? { ...(docBase || {}), tipo: 'link_web' } : docBase,
         proveedor: data?.salida.proveedor ?? null,
         opcion: { marca: o.marca, modelo: o.modelo }, hoyISO,
         estadoLink: (capSostiene?.estado as any) ?? null, capturadoAt: capSostiene?.capturadoAt ?? null,
       })
       : null;
 
-    const est = estadoTecnicoV3(verifTec.get(o.id), habTec.get(o.id));
+    let est: { resultado: ResultadoTecnico | null; corridoAt: string | null; error: string | null } = estadoTecnicoV3(verifTec.get(o.id), habTec.get(o.id));
+    // Una opción comparada ANTES del comparador v3.0 (p. ej. la ya aprobada) conserva su cuadro: se lee del historial v2.0.
+    let legado = false;
+    if (!est.resultado && !est.error && verifLegado.has(o.id)) {
+      const l = estadoTecnicoDe(verifLegado.get(o.id), hdLegado.get(o.id));
+      if (l.resultado) { est = l; legado = true; }
+    }
     const reqTotal = linea?.lineaReal != null ? (reqPorLinea.get(linea.lineaReal) ?? 0) : 0;
     const tecnico: TecnicoDTO = {
       estado: o.via === 'liviana' ? 'NO_APLICA' : reqTotal === 0 && !est.resultado ? 'SIN_REQUISITOS' : est.resultado ? est.resultado.estado : 'NO_CORRIDO',
-      corridoAt: est.corridoAt, error: est.error, segundaPasadaAt: null, requisitosTotal: reqTotal, resultado: est.resultado,
+      corridoAt: est.corridoAt, error: est.error, segundaPasadaAt: null, requisitosTotal: reqTotal, resultado: est.resultado, legado,
     };
     // Mercado (V9 competidor, V10 referencia más barata ≥ 5% sin justificar, V10-b dispersión): si ya se buscó, suma sus bloqueos y alertas.
     const m = mercados.get(o.id) ?? null;
@@ -242,7 +262,7 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
       respaldos, producto, verificacion,
       proveedorDatos: data?.salida.proveedor ?? null,
       documentoInfo: data ? { numero: data.salida.documento?.numero || null, fechaEmision: data.salida.documento?.fecha_emision || null, tipo: data.salida.documento?.tipo || null } : null,
-      capturas, estadoLink: capSostiene?.estado ?? null, tecnico, mercado, costoIA,
+      capturas, estadoLink: capSostiene?.estado ?? null, tecnico, mercado, costoIA, correccionCosto,
     };
     (opcionesPorFila.get(o.fila_id) || opcionesPorFila.set(o.fila_id, []).get(o.fila_id)!).push(dto);
   }
@@ -351,14 +371,18 @@ async function crearOpcionDesdeProducto(params: {
   // más de esa opción (el costo evoluciona: nunca se duplica la opción ni se pisa el respaldo anterior).
   const rut = (prov.rut?.valor || '').trim(), razon = (prov.razon_social?.valor || prov.nombre_fantasia?.valor || (link ? hostDe(documentoUrl) : '') || '').trim();
   const [existentes] = await pool.query(
-    `SELECT id, marca, modelo, sku_proveedor, proveedor_rut, proveedor_razon_social FROM auditor_opcion WHERE negocio_id = ? AND fila_id = ? AND estado <> 'descartada'`, [negocioId, filaId]) as any;
-  const mismo = (existentes as any[]).find(o => {
+    `SELECT id, estado, marca, modelo, sku_proveedor, proveedor_rut, proveedor_razon_social FROM auditor_opcion WHERE negocio_id = ? AND fila_id = ? AND estado <> 'descartada'`, [negocioId, filaId]) as any;
+  const coincide = (existentes as any[]).filter(o => {
     const mismoProveedor = (rut && o.proveedor_rut && rut === o.proveedor_rut) || (razon && o.proveedor_razon_social && razon.toLowerCase() === String(o.proveedor_razon_social).toLowerCase());
     const mismoProducto = (prod.modelo && o.modelo && prod.modelo.toLowerCase() === String(o.modelo).toLowerCase())
       || (prod.sku && o.sku_proveedor && prod.sku.toLowerCase() === String(o.sku_proveedor).toLowerCase())
       || (!prod.modelo && !o.modelo && (prod.marca || '').toLowerCase() === String(o.marca || '').toLowerCase());
     return mismoProveedor && mismoProducto;
   });
+  // Una opción FIRMADA o en aprobación no cambia de costo en silencio: la cotización nueva (p. ej. con mejor precio) entra como OTRA opción de la línea.
+  // Para reemplazar la firmada hay que quitarle la firma (o rechazar la aprobación); entonces el documento nuevo sí se suma a ella.
+  const mismo = coincide.find(o => !['definitiva', 'en_aprobacion', 'aprobada'].includes(o.estado));
+  const bloqueada = coincide.find(o => ['definitiva', 'en_aprobacion', 'aprobada'].includes(o.estado));
   const insertarRespaldo = async (opcionId: number): Promise<number> => {
     const [r] = await pool.query(
       `INSERT INTO auditor_respaldo (opcion_id, negocio_id, tipo, url, documento_url, documento_nombre, precio_declarado, precio_iva, vigente, sostiene_costo,
@@ -379,6 +403,7 @@ async function crearOpcionDesdeProducto(params: {
     return { opcionId: mismo.id, respaldoId };
   }
 
+  if (bloqueada) await evento(negocioId, bloqueada.id, 'documento_nuevo_aparte', 'lector', `Llegó ${documentoNombre} (mismo producto y proveedor); como esta opción está ${bloqueada.estado === 'aprobada' ? 'aprobada' : 'firmada'}, se creó otra opción en la línea para compararla.`);
   const [ins] = await pool.query(
     `INSERT INTO auditor_opcion (negocio_id, fila_id, marca, modelo, version_producto, sku_proveedor, proveedor_razon_social, proveedor_rut,
        via, estado, origen, creado_por, creado_por_nombre, creado_at, actualizado_at)
@@ -465,6 +490,47 @@ export async function sugerirLineasDelNegocio(negocioId: number, actor: Actor): 
 export async function ignorarProductoSinLinea(negocioId: number, extraccionId: number, idx: number, ignorado: boolean, actor: Actor): Promise<void> {
   await pool.query(`INSERT INTO auditor_evento (negocio_id, opcion_id, tipo, emisor, detalle, creado_at) VALUES (?, 0, 'producto_ignorado', 'asistente', ?, ?)`,
     [negocioId, JSON.stringify({ extraccionId, idx, ignorado, por: actor.nombre, motivo: 'Marcado a mano: no va en ninguna línea.' }), ahoraChileSQL()]);
+}
+
+// ── Corrección manual de precio / IVA ───────────────────────────────────────────────────────────
+/** Producto «de cartón» para una opción que no tiene documento con precio: solo lleva lo que la persona ingresó. */
+function productoManual(o: any, c: CorreccionCosto): ProductoNormalizado {
+  return {
+    idx: 0, nombre: [o.marca, o.modelo].filter(Boolean).join(' ') || 'Producto sin documento', tipo: '', marca: o.marca || '', modelo: o.modelo || '', version: '', sku: o.sku_proveedor || '',
+    precio: c.precio, preciosMultiples: [], precioAmbiguo: false, moneda: 'CLP', iva: c.iva || 'no_declarado', ivaTexto: 'ingresado a mano', unidadPrecio: '', contenidoEmpaque: '', unidadesPorEmpaque: null,
+    cantidadCotizada: null, moq: null, stock: '', plazoTexto: '', plazoDias: null, tipoDias: 'no_declarado', despacho: '', incoterm: '', costosAdicionales: [], garantia: '', condiciones: [], esCargo: false,
+  } as ProductoNormalizado;
+}
+/** Última corrección de cada opción (eventos `correccion_costo`; `quitar: true` la deshace). */
+async function correccionesDeCosto(negocioId: number): Promise<Map<number, CorreccionCosto>> {
+  const [rows] = await pool.query(`SELECT opcion_id, detalle, creado_at FROM auditor_evento WHERE negocio_id = ? AND tipo = 'correccion_costo' ORDER BY id`, [negocioId]) as any;
+  const out = new Map<number, CorreccionCosto>();
+  for (const r of rows as any[]) {
+    try {
+      const d = JSON.parse(r.detalle || '{}');
+      if (d.quitar) out.delete(r.opcion_id);
+      else out.set(r.opcion_id, { precio: d.precio != null ? Number(d.precio) : null, iva: d.iva === 'incluido' || d.iva === 'neto' ? d.iva : null, motivo: String(d.motivo || ''), por: String(d.por || ''), at: fechaS(r.creado_at) || '', leido: { precio: null, iva: '' } });
+    } catch { /* evento mal formado */ }
+  }
+  return out;
+}
+
+/** Una persona fija el precio (unitario, tal como lo muestra el documento) y/o si incluye IVA. Exige motivo; queda quién y cuándo, y se puede deshacer. */
+export async function corregirCostoOpcion(negocioId: number, opcionId: number, d: { precio?: number | null; iva?: string | null; motivo: string }, actor: Actor): Promise<void> {
+  const o = await opcionDe(negocioId, opcionId);
+  if (['en_aprobacion', 'aprobada'].includes(o.estado)) throw new Error('La opción ya está en aprobación: pide rechazarla antes de cambiarle el costo.');
+  const motivo = (d.motivo || '').trim().slice(0, 500);
+  if (motivo.length < 8) throw new Error('Escribe el motivo (por ejemplo: «el proveedor confirmó por correo que el precio es neto»).');
+  const precio = d.precio != null && Number.isFinite(Number(d.precio)) && Number(d.precio) > 0 ? Math.round(Number(d.precio)) : null;
+  const iva = d.iva === 'incluido' || d.iva === 'neto' ? d.iva : null;
+  if (precio == null && !iva) throw new Error('Indica el precio correcto o si el precio incluye IVA.');
+  const [conDoc] = await pool.query(`SELECT id FROM auditor_respaldo WHERE opcion_id = ? AND vigente = 1 AND tipo <> 'ficha_tecnica' AND extraccion_id IS NOT NULL AND producto_idx IS NOT NULL LIMIT 1`, [opcionId]) as any;
+  if (!(conDoc as any[]).length && (precio == null || !iva)) throw new Error('Esta opción no tiene un documento con precio: ingresa el precio unitario y si incluye IVA o es neto.');
+  await evento(negocioId, opcionId, 'correccion_costo', 'asistente', JSON.stringify({ precio, iva, motivo, por: actor.nombre }));
+}
+export async function quitarCorreccionCosto(negocioId: number, opcionId: number, actor: Actor): Promise<void> {
+  await opcionDe(negocioId, opcionId);
+  await evento(negocioId, opcionId, 'correccion_costo', 'asistente', JSON.stringify({ quitar: true, por: actor.nombre }));
 }
 
 export async function crearOpcionesDesdeExtraccion(negocioId: number, extraccionId: number, actor: Actor): Promise<{ creadas: Array<Emparejamiento & { opcionId: number }>; sinEmparejar: number[] }> {
@@ -692,7 +758,7 @@ export async function crearOpcionManual(negocioId: number, filaId: string,
 export type ResultadoFicha =
   | { estado: 'agregada'; opcionId: number; opcionCreada: boolean; avisos: string[] }
   | { estado: 'elegir_producto'; extraccionId: number; opcionId: number | null; productos: Array<{ idx: number; nombre: string }>; motivo: string }
-  | { estado: 'producto_distinto'; extraccionId: number; opcionId: number; productoIdx: number; marca: string; modelo: string }
+  | { estado: 'producto_distinto'; extraccionId: number; opcionId: number; productoIdx: number; marca: string; modelo: string; modeloOpcion: string; parecido: boolean }
   | { estado: 'error'; error: string };
 
 /** Sube una FICHA TÉCNICA (PDF o imagen) a una opción — o a una línea, y entonces la opción nace de la ficha —. El Lector la lee en modo
@@ -737,7 +803,7 @@ export async function agregarFichaAOpcion(params: {
         const c = coincidenciaIdentidad(idOpcion, productos[0]);
         if (c === 'distinto' && !forzar) {
           await evento(negocioId, opcion.id, 'producto_cambiado', 'sistema', `La ficha "${nombre}" es de ${productos[0].marca} ${productos[0].modelo}; la opción es ${opcion.marca || ''} ${opcion.modelo || ''}. No se usó contra la opción.`);
-          return { estado: 'producto_distinto', extraccionId, opcionId: opcion.id, productoIdx: productos[0].idx, marca: productos[0].marca, modelo: productos[0].modelo };
+          return { estado: 'producto_distinto', extraccionId, opcionId: opcion.id, productoIdx: productos[0].idx, marca: productos[0].marca, modelo: productos[0].modelo, modeloOpcion: [opcion.marca, opcion.modelo].filter(Boolean).join(' '), parecido: modelosParecidos(idOpcion, productos[0]) };
         }
         elegido = productos[0];
       } else return { estado: 'elegir_producto', extraccionId, opcionId: opcion.id, productos: productos.map(p => ({ idx: p.idx, nombre: p.nombre })), motivo: 'El documento trae varios modelos y ninguno calza con la opción: elige la columna que corresponde (o sube la ficha del modelo correcto).' };
@@ -956,12 +1022,14 @@ export async function verificarCostoIADeOpcion(negocioId: number, licitacionCodi
 
 // ── Verificación técnica: acciones ───────────────────────────────────────────────────────────────
 /** Corre el comparador técnico v3.0 sobre la LÍNEA de la opción: una sola llamada compara todas las opciones de la línea contra sus requisitos. */
-export async function verificarTecnicoDeOpcion(negocioId: number, licitacionCodigo: string, opcionId: number, actor: Actor): Promise<ResumenCorridaV3> {
+/** @param solo true = compara SOLO esta opción (ficha o link recién agregado: el resto de la línea no cambió); false = toda la línea. */
+export async function verificarTecnicoDeOpcion(negocioId: number, licitacionCodigo: string, opcionId: number, actor: Actor, solo = false): Promise<ResumenCorridaV3> {
   const o = await opcionDe(negocioId, opcionId);
   const linea = lineasAuditables(await cargarEstadoCosteo(negocioId)).find(l => l.id === o.fila_id);
   if (!linea) throw new Error('La línea de esta opción ya no existe en el Costeo.');
   return verificarLineaV3({
     negocioId, licitacionCodigo, filaId: linea.id, lineaReal: linea.lineaReal, nombreLinea: linea.detalle.split(' - ')[0] || linea.detalle, cantidad: linea.cantidad, unidad: linea.unidad, actor,
+    soloOpcionIds: solo ? [opcionId] : undefined,
   });
 }
 
