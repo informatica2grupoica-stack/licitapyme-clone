@@ -131,7 +131,7 @@ function detectarHeader(celdas: string[]): ColMap | null {
   const buscar = (claves: string[]) => n.findIndex((h, i) => i !== num && h && h.length <= 60 && claves.some(k => h.includes(k)));
   // 'bienes': formularios municipales de suministro ("Bienes o Servicios Requeridos" es la
   // columna del NOMBRE del ítem; la de "Descripción..." suele venir vacía — caso 2731-21-LE26).
-  const desc = buscar(['detalle', 'descrip', 'producto', 'material', 'articulo', 'glosa', 'insumo', 'item a', 'nombre', 'elemento', 'bienes']);
+  const desc = buscar(['detalle', 'descrip', 'producto', 'material', 'articulo', 'glosa', 'insumo', 'item a', 'nombre', 'elemento', 'bienes', 'requerimiento']);
   const cant = buscar(['cantidad', 'cant', 'cdad']);
   if (desc < 0 || cant < 0 || desc === cant) return null;
   const unidad = buscar(['unidad', 'medida']);
@@ -162,7 +162,9 @@ function esHeaderEspecificaciones(celdas: string[]): boolean {
 //  - marcador de hoja Excel: "--- Hoja: Línea 3 ---"
 //  - encabezado en el texto: "LÍNEA 3:", "LINEA N° 3", "LOTE 2", "ITEM 2:" (como grupo)
 function detectarLinea(lineaCruda: string): number | null {
-  const t = limpiarCelda(lineaCruda);
+  // Un título de línea con comas viene entre comillas en el CSV de la hoja ("LÍNEA N° 2 - A, B y C"):
+  // la comilla inicial hacía que la línea NO se reconociera y sus ítems caían en la anterior.
+  const t = limpiarCelda(lineaCruda).replace(/^"+\s*/, '');
   let m = t.match(/^-{0,3}\s*hoja:\s*l[ií]nea\s*n?\s*[°º]?\s*(\d{1,3})/i);
   if (m) return parseInt(m[1], 10);
   m = t.match(/^\s*l[ií]nea\s*n?\s*[°º]?\s*(\d{1,3})\s*[:\-.)]/i);

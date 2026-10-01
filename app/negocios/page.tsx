@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'rea
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
-import { fechaHoraParaExcel, ordenarPorFecha } from '@/app/lib/exportar-fechas';
+import { fechaHoraParaExcel, ordenarPorFecha, hojaDeFilas } from '@/app/lib/exportar-fechas';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
@@ -45,6 +45,9 @@ interface Negocio {
   adj_es_adjudicada?: number;   // MP ya adjudicó el proceso (a alguien)
   adj_ganamos?: number;         // una de NUESTRAS empresas ganó ≥1 línea (RUT)
   adj_monto_nuestro?: number | null;
+  adj_fecha_adjudicacion?: string | null;  // fecha del acta de adjudicación (solo si MP adjudicó)
+  postulada_en?: string | null;
+  empresa_nombre?: string | null;
   // Apertura detectada por el poller del portal (tabla licitacion_apertura, migración 41).
   // El endpoint la rellena para TODAS las asignadas, no solo las postuladas.
   aperturada?: number;
@@ -1581,10 +1584,20 @@ function NegociosContent() {
     setExportando(true);
     try {
       const XLSX = await import('xlsx');
-      const filas = negociosLista.map(n => {
-        // Fecha y hora en columnas SEPARADAS, en ISO — ver app/lib/exportar-fechas.ts.
+      // Una fila por licitación, ya ordenada por día de cierre (pedido del usuario 18-ago-2026):
+      // las del mismo día quedan juntas y las sin cierre al final. Se ordena ANTES de armar las
+      // filas porque las fechas del Excel son fechas reales (no texto ordenable).
+      const ordenadas = ordenarPorFecha(negociosLista,
+        n => fechaHoraParaExcel(n.licitacion_cierre).iso, n => fechaHoraParaExcel(n.licitacion_cierre).hora);
+      const filas = ordenadas.map(n => {
+        // Fecha (dd-mm-aaaa, fecha real de Excel) y hora en columnas SEPARADAS — ver app/lib/exportar-fechas.ts.
         const cierre = fechaHoraParaExcel(n.licitacion_cierre);
         const apertura = fechaHoraParaExcel(n.apertura_detectada_en);
+        const preguntas = fechaHoraParaExcel(n.fecha_fin_preguntas);
+        const asignada = fechaHoraParaExcel(n.created_at);
+        const postulada = fechaHoraParaExcel(n.postulada_en);
+        const adjudicacion = fechaHoraParaExcel(n.adj_fecha_adjudicacion);
+        const actualizada = fechaHoraParaExcel(n.updated_at);
         return ({
         'Código':            n.licitacion_codigo,
         'Nombre':            n.licitacion_nombre || '',
@@ -1600,31 +1613,42 @@ function NegociosContent() {
         'Apertura detectada (fecha)': apertura.fecha,
         'Apertura detectada (hora)':  apertura.hora,
         'Estado gestión':    getEstadoPipeline(n.estado_pipeline || 'ASIGNADO')?.label || n.estado_pipeline || '',
+        'Viabilidad':        n.viabilidad_semaforo ? (SEMAFORO[n.viabilidad_semaforo]?.label || n.viabilidad_semaforo) : '',
+        'Score viabilidad':  n.viabilidad_score ?? '',
+        'Tiene documentos':  n.tiene_documentos ? 'Sí' : 'No',
         'Monto (CLP)':       n.licitacion_monto ?? '',
         'Monto ofertado':    n.monto_ofertado ?? '',
         'Monto adjudicado a nosotros': n.adj_monto_nuestro ?? '',
+        'Asignada (fecha)':  asignada.fecha,
+        'Fin de preguntas (fecha)': preguntas.fecha,
+        'Fin de preguntas (hora)':  preguntas.hora,
         'Cierre (fecha)':    cierre.fecha,
         'Cierre (hora)':     cierre.hora,
+        'Postulada (fecha)': postulada.fecha,
+        'Postulada (hora)':  postulada.hora,
+        'Fecha adjudicación': adjudicacion.fecha,
+        'Última actualización (fecha)': actualizada.fecha,
         'Región':            n.licitacion_region || '',
         'Líneas de negocio': (n.etiquetas || []).map(e => e.nombre).join(', '),
         'Asignada a':        n.usuario_nombre || n.usuario_email || '',
+        'Empresa':           n.empresa_nombre || '',
         'URL':               `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(n.licitacion_codigo)}`,
       });
       });
-      // Agrupadas por día de cierre (pedido del usuario 18-ago-2026): las del mismo día juntas.
-      const ordenadas = ordenarPorFecha(filas, f => f['Cierre (fecha)'], f => f['Cierre (hora)']);
-      const ws = XLSX.utils.json_to_sheet(ordenadas);
+      const ws = hojaDeFilas(XLSX, filas);
       // Anchos en el MISMO orden que las claves de `filas` (si se agrega una columna, va también aquí).
       ws['!cols'] = [
         { wch: 18 }, { wch: 48 }, { wch: 30 }, { wch: 8 },  { wch: 12 },  // código…estado MP
-        { wch: 22 }, { wch: 11 }, { wch: 20 },                            // resultado, aperturada, apertura detectada
-        { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 22 },               // estado gestión, montos
-        { wch: 20 }, { wch: 20 }, { wch: 28 }, { wch: 22 }, { wch: 60 },  // cierre…URL
+        { wch: 22 }, { wch: 11 }, { wch: 20 }, { wch: 20 },               // resultado, aperturada, apertura detectada
+        { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 12 },               // estado gestión, viabilidad, score, documentos
+        { wch: 16 }, { wch: 16 }, { wch: 22 },                            // montos
+        { wch: 16 }, { wch: 20 }, { wch: 20 }, { wch: 16 }, { wch: 16 },  // asignada, preguntas, cierre, postulada (fecha/hora)
+        { wch: 20 }, { wch: 24 }, { wch: 22 }, { wch: 28 }, { wch: 22 }, { wch: 28 }, { wch: 60 },  // adjudicación…URL
       ];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Negocios');
       const hoy = new Date().toLocaleDateString('es-CL').replace(/\//g, '-');
-      XLSX.writeFile(wb, `negocios-${hoy}.xlsx`);
+      XLSX.writeFile(wb, `negocios-${hoy}.xlsx`, { cellDates: true });
       toast.success(`Exportadas ${filas.length} licitación${filas.length !== 1 ? 'es' : ''}`, 'Se descargó el Excel con los filtros actuales.');
     } catch (e) {
       console.error('[negocios] exportar Excel falló:', e);

@@ -5,7 +5,9 @@
 // datos, misma caché de 5 min.
 import { NextRequest, NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
+import pool from '@/app/lib/db';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
+import { FORMATO_FECHA_EXCEL } from '@/app/lib/exportar-fechas';
 import { listarProyectosObuma } from '@/app/lib/compras-proyectos-obuma';
 import { ESTADOS_PROYECTO_OBUMA } from '@/app/lib/obuma';
 
@@ -15,6 +17,39 @@ export const maxDuration = 60;
 
 const CONTENT_TYPE_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const urlOcEnObuma = (compraOcId: string) => `https://app.obuma.cl/obuma2.0/mod-compras/oc/iframe-main.php?id=${compraOcId}`;
+
+// "2026-08-10 12:00:00" / "2026-08-10" → fecha de Excel (el día tal cual viene de Obuma, sin corrimiento
+// de zona horaria). Vacío o '0000-00-00' → celda vacía. Se muestra dd-mm-aaaa con FORMATO_FECHA_EXCEL.
+function diaObuma(v: string | Date | null | undefined): Date | '' {
+  if (!v) return '';
+  const m = (v instanceof Date ? v.toISOString() : String(v)).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m || m[1] === '0000') return '';
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+}
+
+// Fecha del ACTA de adjudicación por código de licitación (solo procesos ya adjudicados: en
+// Desierta/Revocada ese campo del cache no significa nada). Tolerante: sin la tabla, columna vacía.
+async function fechasAdjudicacion(codigos: string[]): Promise<Map<string, Date>> {
+  const mapa = new Map<string, Date>();
+  if (!codigos.length) return mapa;
+  try {
+    const [rows] = await pool.query(
+      `SELECT licitacion_codigo, fecha_adjudicacion FROM adjudicacion_cache
+        WHERE es_adjudicada = 1 AND fecha_adjudicacion IS NOT NULL AND licitacion_codigo IN (${codigos.map(() => '?').join(',')})`,
+      codigos);
+    for (const r of rows as any[]) {
+      const d = new Date(r.fecha_adjudicacion);
+      if (!Number.isNaN(d.getTime())) {
+        // Día calendario de Chile (la fecha viene como instante; en UTC podría caer un día antes/después).
+        const iso = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+        mapa.set(r.licitacion_codigo, diaObuma(iso) as Date);
+      }
+    }
+  } catch (e) {
+    console.warn('[compras/proyectos-obuma/exportar] fechas de adjudicación no disponibles:', String(e).slice(0, 150));
+  }
+  return mapa;
+}
 
 function getUser(req: NextRequest) {
   const id = req.headers.get('x-user-id');
@@ -33,6 +68,8 @@ export async function GET(request: NextRequest) {
 
   try {
     const { proyectos } = await listarProyectosObuma(false);
+    const fechasAdj = await fechasAdjudicacion(
+      Array.from(new Set(proyectos.flatMap(p => p.negociosCoincidentes.map(n => n.licitacionCodigo)))));
 
     const wb = new ExcelJS.Workbook();
     wb.creator = 'Licitank';
@@ -48,6 +85,7 @@ export async function GET(request: NextRequest) {
       { header: 'Estado', key: 'estado', width: 12 },
       { header: 'Fecha ingreso', key: 'fechaIngreso', width: 18 },
       { header: 'Fecha inicio', key: 'fechaInicio', width: 18 },
+      { header: 'Fecha adjudicación (negocio)', key: 'fechaAdjudicacion', width: 22 },
       { header: 'Presupuesto', key: 'presupuesto', width: 15 },
       { header: 'Costo', key: 'costo', width: 15 },
       { header: 'Precio neto (venta)', key: 'precioNeto', width: 16 },
@@ -71,8 +109,17 @@ export async function GET(request: NextRequest) {
         cliente: p.cliente || '',
         referencia: p.referencia || '',
         estado: p.estado ? `${p.estado}` : '',
-        fechaIngreso: p.fechaIngreso || '',
-        fechaInicio: p.fechaInicio || '',
+        fechaIngreso: diaObuma(p.fechaIngreso),
+        fechaInicio: diaObuma(p.fechaInicio),
+        // Un negocio asociado → la fecha; varios → "código: fecha" por cada uno que ya se adjudicó.
+        fechaAdjudicacion: (() => {
+          const con = p.negociosCoincidentes.filter(n => fechasAdj.has(n.licitacionCodigo));
+          if (con.length === 1 && p.negociosCoincidentes.length === 1) return fechasAdj.get(con[0].licitacionCodigo)!;
+          return con.map(n => {
+            const d = fechasAdj.get(n.licitacionCodigo)!;
+            return `${n.licitacionCodigo}: ${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${d.getUTCFullYear()}`;
+          }).join(' | ');
+        })(),
         presupuesto: p.presupuesto ?? '',
         costo: p.costo ?? '',
         precioNeto: p.precioNeto ?? '',
@@ -87,6 +134,10 @@ export async function GET(request: NextRequest) {
     }
     for (const col of ['presupuesto', 'costo', 'precioNeto', 'facturadoMonto', 'totalGastado', 'totalFacturado']) {
       hojaP.getColumn(col).numFmt = '#,##0';
+    }
+    // Fechas día-mes-año (pedido del usuario 1-oct-2026); son fechas reales, así que Excel las ordena bien.
+    for (const col of ['fechaIngreso', 'fechaInicio', 'fechaAdjudicacion']) {
+      hojaP.getColumn(col).numFmt = FORMATO_FECHA_EXCEL;
     }
 
     const hojaOc = wb.addWorksheet('Órdenes de compra');
@@ -111,7 +162,7 @@ export async function GET(request: NextRequest) {
           folio: oc.folio || '',
           proveedor: oc.proveedorNombre || '',
           rut: oc.proveedorRut || '',
-          fecha: oc.fecha ? oc.fecha.slice(0, 10) : '',
+          fecha: diaObuma(oc.fecha),
           estado: oc.estado || '',
           total: oc.total,
         });
@@ -120,9 +171,11 @@ export async function GET(request: NextRequest) {
       }
     }
     hojaOc.getColumn('total').numFmt = '#,##0';
+    hojaOc.getColumn('fecha').numFmt = FORMATO_FECHA_EXCEL;
 
     const buffer = await wb.xlsx.writeBuffer();
-    const fecha = new Date().toISOString().slice(0, 10);
+    const hoy = new Date();
+    const fecha = `${String(hoy.getDate()).padStart(2, '0')}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${hoy.getFullYear()}`;
     return new NextResponse(buffer, {
       headers: {
         'Content-Type': CONTENT_TYPE_XLSX,

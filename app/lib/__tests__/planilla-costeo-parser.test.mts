@@ -831,3 +831,16 @@ test('anexos por grupo: la línea es el "Grupo N°" que declara cada anexo, no e
   assert.equal(r.items.filter(i => i.linea === 6).length, 16);
   assert.equal(r.items.filter(i => i.linea === 1).length, 11);
 });
+
+// ─── 1079563-32-LE26: Excel con una hoja por línea, columna "REQUERIMIENTOS" y título entre comillas ──
+test('hoja por línea: "REQUERIMIENTOS" es la columna de descripción y un título de línea con comas (entre comillas) también cuenta', () => {
+  const hoja = (nombre: string, titulo: string, n: number, prod: string) =>
+    `--- Hoja: ${nombre} ---\n,,,,\n${titulo},,,,\n,,,,\nNº,REQUERIMIENTOS,CANTIDAD,CUMPLE,NO CUMPLE\n`
+    + Array.from({ length: n }, (_, i) => `${i + 1},${prod} ${i + 1} DISTINTO,${i + 2},,`).join('\n') + '\n';
+  const texto = hoja('Saicar', 'LÍNEA N° 1 - ADQUISICIÓN MATERIALES DE CONSTRUCCIÓN - SECCIÓN ASUNTOS INTERNOS', 5, 'MELAMINA')
+    + hoja('Centauro', '"LÍNEA N° 2 - ADQUISICIÓN MATERIALES DE CONSTRUCCIÓN, GASFITERÍA Y ELÉCTRICOS - SECCIÓN CENTAURO"', 6, 'PORCELANATO');
+  const r = parsearPlanillaCosteo([{ nombre: 'Anexo_N°_1_-_Requerimientos_Técnicos.xls', categoria: 'BASES_TECNICAS', texto, metodo: 'excel' }] as any)!;
+  assert.deepEqual(r.lineas, [1, 2]);
+  assert.equal(r.items.filter(i => i.linea === 1).length, 5);
+  assert.equal(r.items.filter(i => i.linea === 2).length, 6);
+});

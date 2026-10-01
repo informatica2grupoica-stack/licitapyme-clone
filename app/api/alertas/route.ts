@@ -140,7 +140,7 @@ export async function GET(request: NextRequest) {
     // (resumen/ventaja/recomendación) vía JSON_EXTRACT (guardado con JSON_VALID por si
     // alguna fila trae JSON malformado). Aislado en allSettled: si la BD no soporta
     // funciones JSON, el radar sigue mostrando el semáforo/score sin el popover.
-    const [asigRes, descRes, docsRes, countRes, resumenRes, puenteRes] = await Promise.allSettled([
+    const [asigRes, descRes, docsRes, countRes, resumenRes, puenteRes, adjRes] = await Promise.allSettled([
       pool.query(
         `SELECT n.licitacion_codigo, n.asignado_a, u.nombre AS asignado_nombre, u.email AS asignado_email
          FROM negocios n JOIN usuarios u ON u.id = n.asignado_a WHERE n.activo = TRUE`),
@@ -156,6 +156,9 @@ export async function GET(request: NextRequest) {
       // Puente del radar: las que ya están esperando reparto se marcan en la tarjeta para no
       // empujarlas dos veces (migración 73 — tolerante si aún no está aplicada).
       pool.query(`SELECT licitacion_codigo FROM puente_radar`),
+      // Fecha del acta de adjudicación (solo procesos ya adjudicados: en Desierta/Revocada ese campo
+      // del cache es basura). Solo para la columna "Fecha adjudicación" del Excel del radar.
+      pool.query(`SELECT licitacion_codigo, fecha_adjudicacion FROM adjudicacion_cache WHERE es_adjudicada = 1 AND fecha_adjudicacion IS NOT NULL`),
     ]);
 
     const lista = rows as any[];
@@ -174,6 +177,10 @@ export async function GET(request: NextRequest) {
     const setPuente = new Set<string>();
     if (puenteRes.status === 'fulfilled') {
       for (const r of ((puenteRes.value as any)[0] as any[])) setPuente.add(r.licitacion_codigo);
+    }
+    const mapAdjFecha = new Map<string, any>();
+    if (adjRes.status === 'fulfilled') {
+      for (const r of ((adjRes.value as any)[0] as any[])) mapAdjFecha.set(r.licitacion_codigo, r.fecha_adjudicacion);
     }
     // Mapa código → resumen recortado (solo los 3 campos del popover).
     const mapResumen = new Map<string, any>();
@@ -196,6 +203,8 @@ export async function GET(request: NextRequest) {
       a.descartada = setDesc.has(a.licitacion_codigo);
       a.tiene_documentos = setDocs.has(a.licitacion_codigo) ? 1 : 0;
       a.en_puente = setPuente.has(a.licitacion_codigo);
+      const fAdj = mapAdjFecha.get(a.licitacion_codigo);
+      a.fecha_adjudicacion = fAdj ? new Date(fAdj).toISOString() : null;
       // viabilidad_informe recortado: mantiene el popover funcionando sin el JSON pesado.
       a.viabilidad_informe = mapResumen.get(a.licitacion_codigo) ?? null;
     }

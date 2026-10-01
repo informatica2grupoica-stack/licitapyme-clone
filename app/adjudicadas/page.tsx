@@ -25,7 +25,11 @@ import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { Select } from '@/app/components/ui/Select';
 import { Banner } from '@/app/components/ui/Banner';
 import { StatCard } from '@/app/components/ui/StatCard';
-import { IconTrophy as Trophy, IconCircleX as XCircle, IconExternalLink as ExternalLink, IconBuilding as Building2, IconCalendar as Calendar, IconInbox as Inbox, IconAward as Award, IconUsers as Users, IconFileCheck as FileCheck2, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCircleCheck as CheckCircle2, IconWallet as Wallet, IconTarget as Target, IconSearch as Search, IconLayoutList as LayoutList, IconLayoutGrid as LayoutGrid, IconX as X, IconArrowsUpDown as ArrowUpDown, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight } from '@tabler/icons-react';
+import { IconTrophy as Trophy, IconCircleX as XCircle, IconExternalLink as ExternalLink, IconBuilding as Building2, IconCalendar as Calendar, IconInbox as Inbox, IconAward as Award, IconUsers as Users, IconFileCheck as FileCheck2, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCircleCheck as CheckCircle2, IconWallet as Wallet, IconTarget as Target, IconSearch as Search, IconLayoutList as LayoutList, IconLayoutGrid as LayoutGrid, IconX as X, IconArrowsUpDown as ArrowUpDown, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconDownload as Download, IconLoader2 as Loader2 } from '@tabler/icons-react';
+import { useToast } from '@/app/components/ui/toast';
+import { getEstadoPipeline } from '@/app/lib/pipeline';
+import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
+import { fechaHoraParaExcel, hojaDeFilas } from '@/app/lib/exportar-fechas';
 import dayjs from 'dayjs';
 
 type Resultado = 'ganada' | 'perdida';
@@ -45,13 +49,19 @@ interface Negocio {
   empresa_nombre?: string | null;
   usuario_nombre?: string;
   usuario_email?: string;
+  licitacion_estado?: string | null;
+  licitacion_region?: string | null;
+  created_at?: string | null;
+  postulada_en?: string | null;
+  aperturada?: number;
+  apertura_detectada_en?: string | null;
 }
 interface LineaAdjudicada {
   correlativo?: number; producto?: string; descripcion?: string; cantidad?: number;
   montoUnitario: number | null; rutProveedor: string | null; proveedor: string | null; esNuestra?: boolean;
 }
 interface Adjudicacion {
-  esAdjudicada: boolean; fechaAdjudicacion?: string | null; ganamos?: boolean; montoNuestro?: number | null;
+  esAdjudicada: boolean; estado?: string | null; fechaAdjudicacion?: string | null; ganamos?: boolean; montoNuestro?: number | null;
   adjudicacion?: { numeroResolucion?: string | null; numeroOferentes?: number | null; urlActa?: string | null } | null;
   lineasAdjudicadas?: LineaAdjudicada[]; montoAdjudicadoTotal?: number | null;
 }
@@ -247,8 +257,8 @@ function Card({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion 
 // ── Vista LISTA (fila expandible) ─────────────────────────────────────────────
 // Los templates del grid se declaran COMPLETOS (Tailwind los extrae estáticamente):
 // para no-admin la columna Perfil no existe (evita un hueco muerto de 150px).
-const GRID_ADMIN = 'lg:grid-cols-[minmax(0,1fr)_150px_170px_130px_96px_70px]';
-const GRID_USER  = 'lg:grid-cols-[minmax(0,1fr)_170px_130px_96px_70px]';
+const GRID_ADMIN = 'lg:grid-cols-[minmax(0,1fr)_150px_170px_130px_96px_96px_70px]';
+const GRID_USER  = 'lg:grid-cols-[minmax(0,1fr)_170px_130px_96px_96px_70px]';
 
 function Fila({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion | null; cargandoAdj: boolean; isAdmin: boolean }) {
   const [abierta, setAbierta] = useState(false);
@@ -307,6 +317,12 @@ function Fila({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion 
           <p className="text-[13px] font-bold text-slate-800 tabular-nums">{cargandoAdj ? '…' : fmtCLP(monto)}</p>
         </div>
 
+        {/* Fecha de adjudicación (la que ordena la lista) */}
+        <div className="hidden lg:block text-right">
+          <p className="text-[10px] uppercase tracking-wide font-semibold text-slate-500">Adjudicación</p>
+          <p className="text-[12px] font-semibold text-slate-600 tabular-nums">{adj?.esAdjudicada && adj.fechaAdjudicacion ? fmtFecha(adj.fechaAdjudicacion, 'DD/MM/YY') : '—'}</p>
+        </div>
+
         {/* Fecha cierre */}
         <div className="hidden lg:block text-right">
           <p className="text-[10px] uppercase tracking-wide font-semibold text-slate-500">Cierre</p>
@@ -337,7 +353,8 @@ function Fila({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion 
             <span className="font-semibold uppercase text-[9.5px] tracking-wide" style={{ color: m.color }}>{r === 'ganada' ? 'Ganamos' : 'Adjudicado'}</span>
             <span className="font-bold text-slate-700 tabular-nums">{cargandoAdj ? '…' : fmtCLP(monto)}</span>
           </span>
-          {n.licitacion_cierre && <span className="inline-flex items-center gap-1"><Calendar size={10} />{fmtFecha(n.licitacion_cierre, 'DD/MM/YY')}</span>}
+          {adj?.esAdjudicada && adj.fechaAdjudicacion && <span className="inline-flex items-center gap-1" title="Fecha de adjudicación"><Trophy size={10} />{fmtFecha(adj.fechaAdjudicacion, 'DD/MM/YY')}</span>}
+          {n.licitacion_cierre && <span className="inline-flex items-center gap-1" title="Cierre"><Calendar size={10} />{fmtFecha(n.licitacion_cierre, 'DD/MM/YY')}</span>}
         </div>
       </div>
 
@@ -480,6 +497,8 @@ export default function AdjudicadasPage() {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [errorCruce, setErrorCruce] = useState(false);
+  const toast = useToast();
+  const [exportando, setExportando] = useState(false);
 
   // ── Estado de la UI (vista, buscador, filtros, orden, paginación) ──────────
   const [vista, setVista] = useState<Vista>('lista');
@@ -665,14 +684,97 @@ export default function AdjudicadasPage() {
   const visibles = useMemo(() => {
     const lista = base.filter(n => !resultadoSel || resultadoDe(n, adjMap[n.licitacion_codigo]) === resultadoSel);
     const val = (n: Negocio) => montoResultado(n, adjMap[n.licitacion_codigo] ?? null, resultadoDe(n, adjMap[n.licitacion_codigo])) ?? -1;
+    // El orden por fecha usa la ADJUDICACIÓN (cuándo se resolvió); si MP aún no la trae, el cierre.
+    const fecha = (n: Negocio) => { const a = adjMap[n.licitacion_codigo]; return tsDe((a?.esAdjudicada && a.fechaAdjudicacion) || n.licitacion_cierre); };
     switch (orden) {
-      case 'antiguas':     return lista.sort((a, b) => tsDe(a.licitacion_cierre) - tsDe(b.licitacion_cierre));
+      case 'antiguas':     return lista.sort((a, b) => fecha(a) - fecha(b));
       case 'monto_ganado': return lista.sort((a, b) => val(b) - val(a));
       case 'presupuesto':  return lista.sort((a, b) => (b.licitacion_monto ?? -1) - (a.licitacion_monto ?? -1));
       case 'nombre':       return lista.sort((a, b) => (a.licitacion_nombre || '').localeCompare(b.licitacion_nombre || '', 'es'));
-      default:             return lista.sort((a, b) => tsDe(b.licitacion_cierre) - tsDe(a.licitacion_cierre));
+      default:             return lista.sort((a, b) => fecha(b) - fecha(a));
     }
   }, [base, resultadoSel, adjMap, orden]);
+
+  // ── Exportar Excel ──────────────────────────────────────────────────────────
+  // Exporta `visibles`: la MISMA vista de la pantalla (pestaña Ganadas/Perdidas/Todas + búsqueda +
+  // perfil + empresa), SIN paginar, en el orden elegido. Una fila por licitación resuelta, con el
+  // detalle del acta de adjudicación. Las fechas salen dd-mm-aaaa (ver app/lib/exportar-fechas.ts).
+  const exportarExcel = async () => {
+    if (exportando) return;
+    if (visibles.length === 0) {
+      toast.error('No hay licitaciones para exportar', 'Ajusta o limpia los filtros e inténtalo de nuevo.');
+      return;
+    }
+    setExportando(true);
+    try {
+      const XLSX = await import('xlsx');
+      const filas = visibles.map(n => {
+        const a = adjMap[n.licitacion_codigo] ?? null;
+        const r = resultadoDe(n, a);
+        const lineas = a?.lineasAdjudicadas || [];
+        const adjudicatarios = Array.from(new Set(lineas.map(l => l.proveedor).filter(Boolean))) as string[];
+        const cierre = fechaHoraParaExcel(n.licitacion_cierre);
+        const apertura = fechaHoraParaExcel(n.apertura_detectada_en);
+        const postulada = fechaHoraParaExcel(n.postulada_en);
+        return {
+          'Código':             n.licitacion_codigo,
+          'Nombre':             n.licitacion_nombre || '',
+          'Organismo':          n.licitacion_organismo || '',
+          'Tipo':               extractTipoFromCodigo(n.licitacion_codigo || '') || '',
+          'Región':             n.licitacion_region || '',
+          'Resultado':          META[r].label,
+          'Estado MP':          a?.estado || n.licitacion_estado || '',
+          'Estado gestión':     getEstadoPipeline(n.estado_pipeline || '')?.label || n.estado_pipeline || '',
+          'Aperturada':         n.aperturada ? 'Sí' : 'No',
+          'Apertura detectada (fecha)': apertura.fecha,
+          'Apertura detectada (hora)':  apertura.hora,
+          'Asignada (fecha)':   fechaHoraParaExcel(n.created_at).fecha,
+          'Postulada (fecha)':  postulada.fecha,
+          'Postulada (hora)':   postulada.hora,
+          'Cierre (fecha)':     cierre.fecha,
+          'Cierre (hora)':      cierre.hora,
+          'Fecha adjudicación': fechaHoraParaExcel(a?.esAdjudicada ? a.fechaAdjudicacion : null).fecha,
+          'Presupuesto MP':     n.licitacion_monto ?? '',
+          'Monto ofertado':     n.monto_ofertado ?? '',
+          'Monto resultado':    montoResultado(n, a, r) ?? '',
+          'Monto adjudicado a nosotros': a?.montoNuestro ?? '',
+          'Monto adjudicado total':      a?.montoAdjudicadoTotal ?? '',
+          'Líneas adjudicadas':          lineas.length || '',
+          'Líneas ganadas por nosotros': lineas.filter(l => l.esNuestra).length || '',
+          'Adjudicatarios':     adjudicatarios.join(', '),
+          'N° oferentes':       a?.adjudicacion?.numeroOferentes ?? '',
+          'N° resolución':      a?.adjudicacion?.numeroResolucion || '',
+          'Empresa':            n.empresa_nombre || '',
+          'Perfil':             n.usuario_nombre || n.usuario_email || '',
+          'URL acta':           a?.adjudicacion?.urlActa || '',
+          'URL':                `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(n.licitacion_codigo)}`,
+        };
+      });
+      const ws = hojaDeFilas(XLSX, filas);
+      // Anchos en el MISMO orden que las claves de arriba.
+      ws['!cols'] = [
+        { wch: 18 }, { wch: 48 }, { wch: 30 }, { wch: 8 },  { wch: 22 },  // código…región
+        { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 11 }, { wch: 18 }, { wch: 18 },  // resultado…apertura
+        { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 18 },  // fechas
+        { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 22 }, { wch: 22 },  // montos
+        { wch: 12 }, { wch: 12 }, { wch: 40 }, { wch: 12 }, { wch: 18 },  // líneas, adjudicatarios
+        { wch: 24 }, { wch: 22 }, { wch: 60 }, { wch: 60 },               // empresa…URLs
+      ];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, resultadoSel ? META[resultadoSel].short : 'Ganadas y perdidas');
+      const etiqueta = resultadoSel === 'ganada' ? 'ganadas' : resultadoSel === 'perdida' ? 'perdidas' : 'ganadas-perdidas';
+      XLSX.writeFile(wb, `${etiqueta}-${dayjs().format('DD-MM-YYYY')}.xlsx`);
+      toast.success(
+        `Exportadas ${filas.length} licitación${filas.length !== 1 ? 'es' : ''}`,
+        'Se descargó el Excel con los filtros actuales.',
+      );
+    } catch (e) {
+      console.error('[adjudicadas] exportar Excel falló:', e);
+      toast.error('No se pudo exportar el Excel', String((e as any)?.message || e));
+    } finally {
+      setExportando(false);
+    }
+  };
 
   // ── Paginación en cliente sobre el resultado filtrado/ordenado ──────────────
   const totalPaginas = Math.max(1, Math.ceil(visibles.length / porPagina));
@@ -809,6 +911,13 @@ export default function AdjudicadasPage() {
 
                   <div className="flex-1 min-w-[160px]" />
 
+                  <button onClick={exportarExcel} disabled={exportando || visibles.length === 0}
+                    title="Exportar a Excel las licitaciones con los filtros actuales (incluye la fecha de adjudicación)"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[12.5px] font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    {exportando ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                    Exportar Excel
+                  </button>
+
                   {/* Conmutador de vista */}
                   <div className="flex items-center gap-0.5 bg-slate-100 rounded-xl p-0.5" role="group" aria-label="Tipo de vista">
                     <button onClick={() => cambiarVista('lista')} title="Vista de lista" aria-pressed={vista === 'lista'}
@@ -898,6 +1007,7 @@ export default function AdjudicadasPage() {
                     {isAdmin && <span>Perfil</span>}
                     <span>Empresa</span>
                     <span className="text-right">Resultado $</span>
+                    <span className="text-right">Adjudicación</span>
                     <span className="text-right">Cierre</span>
                     <span />
                   </div>

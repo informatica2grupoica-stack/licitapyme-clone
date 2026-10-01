@@ -9,7 +9,7 @@ import { Select } from '@/app/components/ui/Select';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { StatCard } from '@/app/components/ui/StatCard';
 import { useSession } from '@/app/lib/session-context';
-import { fechaHoraParaExcel, ordenarPorFecha } from '@/app/lib/exportar-fechas';
+import { fechaHoraParaExcel, ordenarPorFecha, hojaDeFilas } from '@/app/lib/exportar-fechas';
 import { IconRadar as Radar, IconPlus as Plus, IconTrash as Trash2, IconExternalLink as ExternalLink, IconTag as Tag, IconChecks as CheckCheck, IconBuilding as Building2, IconCalendar as Calendar, IconCurrencyDollar as DollarSign, IconLoader2 as Loader2, IconBellOff as BellOff, IconX as X, IconClock as Clock, IconSearch as Search, IconBolt as Zap, IconToggleLeft as ToggleLeft, IconToggleRight as ToggleRight, IconSparkles as Sparkles, IconFilter as Filter, IconChevronDown as ChevronDown, IconFileText as FileText, IconDownload as Download, IconMapPin as MapPin, IconArrowsUpDown as ArrowUpDown, IconEye as Eye, IconEyeOff as EyeOff, IconAlertCircle as AlertCircle, IconFlame as Flame, IconAdjustmentsHorizontal as SlidersHorizontal, IconSquareCheck as CheckSquare, IconSquare as Square, IconUserPlus as UserPlus, IconArrowBackUp as Undo2, IconUserCheck as UserCheck, IconBan as Ban, IconCircleMinus as MinusCircle, IconHistory as History, IconArrowsShuffle as Shuffle } from '@tabler/icons-react';
 import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS } from '@/app/lib/tipos-licitacion';
 import { estadoEfectivoNombre } from '@/app/lib/estado-mp';
@@ -67,6 +67,7 @@ interface Alerta {
   asignado_nombre?: string | null;
   descartada?: boolean;
   en_puente?: boolean;      // ya está en el puente esperando reparto
+  fecha_adjudicacion?: string | null;  // acta de adjudicación (solo si MP ya adjudicó)
 }
 
 interface Usuario  { id: number; nombre: string | null; email: string; empresa: string | null; rol?: string; }
@@ -1744,10 +1745,17 @@ export default function RadarPage() {
     setExportando(true);
     try {
       const XLSX = await import('xlsx');
-      const filas = alertasFiltradas.map(a => {
-        // Fecha y hora en columnas SEPARADAS y la fecha en ISO — ver app/lib/exportar-fechas.ts.
+      // Agrupadas por día de cierre: todas las del 13 juntas, las del 11 juntas… (pedido explícito
+      // del usuario 18-ago-2026). Las que no tienen cierre publicado van al final. Se ordena ANTES
+      // de armar las filas porque las fechas del Excel son fechas reales (no texto ordenable).
+      const ordenadas = ordenarPorFecha(alertasFiltradas,
+        a => fechaHoraParaExcel(a.licitacion_cierre).iso, a => fechaHoraParaExcel(a.licitacion_cierre).hora);
+      const filas = ordenadas.map(a => {
+        // Fecha (dd-mm-aaaa, fecha real de Excel) y hora en columnas SEPARADAS — ver app/lib/exportar-fechas.ts.
         const cierre = fechaHoraParaExcel(a.licitacion_cierre);
         const detectada = fechaHoraParaExcel(a.created_at);
+        const publicada = fechaHoraParaExcel(a.licitacion_fecha_publicacion);
+        const adjudicacion = fechaHoraParaExcel(a.fecha_adjudicacion);
         return ({
         'Código':           a.licitacion_codigo,
         'Nombre':           a.licitacion_nombre,
@@ -1756,8 +1764,10 @@ export default function RadarPage() {
         'Tipo':             getTipoLicitacion(extractTipoFromCodigo(a.licitacion_codigo))?.label || extractTipoFromCodigo(a.licitacion_codigo) || '',
         'Región':           a.licitacion_region || '',
         'Monto (CLP)':      a.licitacion_monto ?? '',
+        'Publicada (fecha)': publicada.fecha,
         'Cierre (fecha)':   cierre.fecha,
         'Cierre (hora)':    cierre.hora,
+        'Fecha adjudicación': adjudicacion.fecha,
         'Días restantes':   diasAlCierre(a.licitacion_cierre) ?? '',
         'Prefiltro':        a.prefiltro_decision ? (PREFILTRO_CFG[a.prefiltro_decision]?.label || a.prefiltro_decision) : '',
         'Prefiltro motivo': a.prefiltro_categoria ? (CATEGORIA_LABEL[a.prefiltro_categoria] || a.prefiltro_categoria) : '',
@@ -1773,13 +1783,10 @@ export default function RadarPage() {
         'URL':              `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(a.licitacion_codigo)}`,
       });
       });
-      // Agrupadas por día de cierre: todas las del 13 juntas, las del 11 juntas… (pedido explícito
-      // del usuario 18-ago-2026). Las que no tienen cierre publicado van al final.
-      const ordenadas = ordenarPorFecha(filas, f => f['Cierre (fecha)'], f => f['Cierre (hora)']);
-      const ws = XLSX.utils.json_to_sheet(ordenadas);
+      const ws = hojaDeFilas(XLSX, filas);
       ws['!cols'] = [
         { wch: 18 }, { wch: 50 }, { wch: 32 }, { wch: 12 }, { wch: 34 },
-        { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 10 }, { wch: 12 },
+        { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 10 }, { wch: 18 }, { wch: 12 },
         { wch: 14 }, { wch: 22 },
         { wch: 14 }, { wch: 14 }, { wch: 14 },
         { wch: 16 }, { wch: 12 }, { wch: 20 }, { wch: 8 },

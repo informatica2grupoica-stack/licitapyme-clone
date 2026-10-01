@@ -3,18 +3,39 @@
 //   npx tsx --test app/lib/__tests__/exportar-fechas.test.mts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fechaHoraParaExcel, ordenarPorFecha } from '../exportar-fechas';
+import * as XLSX from 'xlsx';
+import { fechaHoraParaExcel, ordenarPorFecha, hojaDeFilas } from '../exportar-fechas';
 
-test('fechaHoraParaExcel: separa en dos columnas, fecha en ISO y hora de Chile', () => {
+test('fechaHoraParaExcel: separa en dos columnas, fecha real (día de Chile) y hora de Chile', () => {
   // 17:00 UTC = 13:00 en Chile (UTC-4). El cierre real de 2296-48-LE26.
   const r = fechaHoraParaExcel('2026-08-18T17:00:00.000Z');
-  assert.equal(r.fecha, '2026-08-18');
+  assert.equal(r.iso, '2026-08-18');
   assert.equal(r.hora, '13:00');
+  const f = r.fecha as Date;
+  assert.deepEqual([f.getFullYear(), f.getMonth() + 1, f.getDate()], [2026, 8, 18]);
+});
+
+// 02:00 UTC del 19 sigue siendo el 18 por la noche en Chile: la fecha NO debe correrse un día.
+test('fechaHoraParaExcel: usa el día de Chile, no el de UTC', () => {
+  assert.equal(fechaHoraParaExcel('2026-08-19T02:00:00.000Z').iso, '2026-08-18');
+});
+
+test('hoja de Excel: la fecha sale como fecha real con formato dd-mm-yyyy', () => {
+  const ws = hojaDeFilas(XLSX, [{ Cierre: fechaHoraParaExcel('2026-08-09T17:00:00.000Z').fecha }]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'x');
+  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const leido = XLSX.read(buf, { type: 'buffer', cellNF: true });
+  const celda = leido.Sheets['x']['A2'];
+  assert.equal(celda.t, 'n');
+  assert.equal(celda.v, 46243); // 9-ago-2026 como serie de Excel, entera (sin hora)
+  assert.equal(celda.z, 'dd-mm-yyyy');
+  assert.equal(XLSX.utils.format_cell(celda), '09-08-2026');
 });
 
 test('fechaHoraParaExcel: valores vacíos o inválidos no producen "Invalid Date"', () => {
   for (const v of [null, undefined, '', 'no es fecha']) {
-    assert.deepEqual(fechaHoraParaExcel(v as any), { fecha: '', hora: '' });
+    assert.deepEqual(fechaHoraParaExcel(v as any), { fecha: '', hora: '', iso: '' });
   }
 });
 

@@ -160,6 +160,8 @@ export async function GET(request: NextRequest) {
           n.adj_es_adjudicada = adj.esAdjudicada ? 1 : 0;
           n.adj_ganamos       = adj.ganamos ? 1 : 0;
           n.adj_monto_nuestro = adj.montoNuestro ?? null;
+          // Solo con acta real: en Desierta/Revocada esta fecha del cache es basura (ver Adjudicadas).
+          n.adj_fecha_adjudicacion = adj.esAdjudicada ? (adj.fechaAdjudicacion ?? null) : null;
         }
       }
       if (postRes.status === 'fulfilled') {
