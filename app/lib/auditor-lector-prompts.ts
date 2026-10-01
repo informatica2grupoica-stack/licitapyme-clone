@@ -31,6 +31,12 @@ REGLAS ABSOLUTAS:
 - VARIOS PRODUCTOS: si el documento trae varios productos o modelos (catálogo de familia, cotización
   con varios ítems), extrae cada uno por separado. Nunca mezcles datos de dos productos. En un
   catálogo con columnas por modelo, cada valor va con el modelo de SU columna.
+- UN EQUIPO CON VARIOS APARTADOS: una ficha cuya tabla se reparte en secciones ("Parámetros de
+  rendimiento", "Configuración", "Capacidades", "Motor", "Dimensiones"...) describe UN solo producto. Un
+  título de sección NO cierra la ficha ni inicia otro producto: sigue leyendo hasta el final del documento
+  y extrae TODAS las filas de TODOS los apartados. Solo hay un producto nuevo si cambia el modelo. En el
+  texto, las celdas de una fila vienen separadas con " | " o " ‖ " (etiqueta | unidad | valor); un valor suelto
+  sin etiqueta (cotas de un dibujo) no es una característica.
 
 IDIOMA: los documentos llegan en cualquier idioma. Guarda el texto original de cada característica y
 su traducción al español. Toda tu salida descriptiva va en español. Si el documento es una traducción

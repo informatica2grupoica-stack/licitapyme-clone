@@ -29,6 +29,7 @@ import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUni
 export { esFilaNoProducto };
 import { planillaReconoceElListado } from '@/app/lib/fila-no-producto';
 import { desplegarItemsDesdeCaracteristicas } from '@/app/lib/manifiesto-desde-caracteristicas';
+import { seccionesDeEquipos } from '@/app/lib/caracteristicas-seccion';
 import { evaluarCoberturaLectura, resumirCobertura, esFormatoLegible, esDocumentoCritico } from '@/app/lib/lectura-documentos';
 import { ocrTieneHuecos, esTextoBasuraOCR, numeracionTablaIncompleta, leidoConOcrLocal, glmOcrDisponible } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
@@ -493,6 +494,49 @@ Devuelve SOLO JSON válido: {"lineas":[{"linea":1,"items":[{"descripcion":"...",
     }
   }
   return manifiesto;
+}
+
+// ─── SEGUNDA PASADA: TODOS los requisitos de cada equipo específico ───────────────────────────────
+// El análisis general resume las `caracteristicas` cuando el equipo trae muchos requisitos repartidos en apartados (caso 2369-74-LR26: la
+// cisterna tenía ~120 y el informe guardó 64; el minicargador ~60 y guardó 33). Aquí, por cada ítem específico, se recorta SU sección en las
+// bases (caracteristicas-seccion.ts) y se pide la transcripción literal de TODAS las filas de TODOS los apartados. Solo reemplaza si la lista
+// nueva es más larga que la del análisis general; si algo falla, queda lo que ya había.
+export async function completarCaracteristicasLiterales(items: any[], docs: DocLeido[], codigo: string): Promise<void> {
+  const candidatos = items.filter(it => /espec/i.test(String(it?.clasificacion || it?.tipo || '')) && _str(it?.nombre).length >= 4);
+  if (!candidatos.length) return;
+  const textos = docs.filter(d => d.ok && (d.categoria || '').toUpperCase() !== 'DOCUMENTOS_PROPIOS' && !/^COSTEO_/i.test(d.nombre));
+  const nombres = candidatos.map(it => _str(it.nombre));
+  let secciones = new Map<string, string>();
+  for (const d of textos) {
+    const m = seccionesDeEquipos(d.texto, nombres);
+    // Una sola fuente: la que ubica más equipos (las bases técnicas), para no mezclar documentos.
+    if (m.size > secciones.size) secciones = m;
+  }
+  if (!secciones.size) return;
+  const sys = `Eres un transcriptor EXHAUSTIVO de requisitos técnicos de bases de licitaciones públicas chilenas.
+Recibes la sección de UN equipo. Su descripción está repartida en varios apartados (antecedentes, características del vehículo, equipo, cabina, motor, transmisión, seguridad, carrocería, equipamiento, documentación, garantía, mantención, capacitación, tablas "Ítem | Característica mínima requerida", viñetas, etc.). El texto viene de un PDF: las tablas pueden venir partidas en renglones sueltos.
+TAREA: devuelve TODOS los requisitos del equipo, uno por elemento, en el orden del documento. Reglas ESTRICTAS:
+- Lee la sección COMPLETA hasta el final: un título de apartado NO termina la lista; revisa cada apartado y cada viñeta.
+- Transcribe literal con su valor ("Potencia mínima: 140 HP", "Garantía mínima: 12 meses"). NO resumas, NO agrupes varios requisitos en uno, NO omitas ninguno, NO inventes ninguno.
+- Una fila de tabla "Ítem | Característica" es UN requisito ("Ítem: valor"). Una viñeta es UN requisito. Si una viñeta lista varios elementos independientes (p. ej. extintor, baliza, cuñas), sepáralos.
+- Incluye lo "deseable", lo "o equivalente" y lo documental (certificados, manuales, capacitación, garantía, mantenciones). Excluye solo prosa que no exige nada (introducciones, destino de uso).
+Devuelve SOLO JSON: {"caracteristicas":["...", "..."]}.`;
+  await Promise.all(candidatos.map(async it => {
+    const sec = secciones.get(_str(it.nombre));
+    if (!sec) return;
+    try {
+      const r = await llamarGeminiJSON(sys, `EQUIPO: ${_str(it.nombre)}
+
+SECCIÓN DE LAS BASES:
+${sec}`);
+      const lista: string[] = (Array.isArray(r?.caracteristicas) ? r.caracteristicas : []).map((c: any) => _str(c).trim()).filter((c: string) => c.length >= 3);
+      const antes = Array.isArray(it.caracteristicas) ? it.caracteristicas.length : 0;
+      if (lista.length > antes) {
+        console.log(`[viabilidad-ia-v3] ${codigo}: "${_str(it.nombre)}" características completadas ${antes} → ${lista.length} (segunda pasada literal).`);
+        it.caracteristicas = lista;
+      }
+    } catch (e) { console.warn(`[viabilidad-ia-v3] ${codigo}: segunda pasada de "${_str(it.nombre)}" falló:`, String(e).slice(0, 120)); }
+  }));
 }
 
 // EXTRACCIÓN DEDICADA de la tabla de PONDERACIONES DE CRITERIOS DE EVALUACIÓN, para cuando la
@@ -2353,6 +2397,7 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
   // que el manifiesto —y por tanto el Excel de costeo— salga idéntico venga del shape que venga.
   const itemsFuenteCrudos: any[] = Array.isArray(p3.productos?.items) ? p3.productos.items
     : Array.isArray(p3.costeo?.items) ? p3.costeo.items : [];
+  await completarCaracteristicasLiterales(itemsFuenteCrudos, docs, codigo);
   // Listado real dejado como texto en `caracteristicas` de un ítem genérico sin cantidad (3477-80-LE26).
   const itemsDesplegados = desplegarItemsDesdeCaracteristicas(itemsFuenteCrudos);
   if (itemsDesplegados) console.log(`[viabilidad-ia-v3] ${codigo}: ${itemsFuenteCrudos.length} ítem(s) del modelo traían el listado de productos como texto en "caracteristicas" → desplegados a ${itemsDesplegados.length} ítems.`);

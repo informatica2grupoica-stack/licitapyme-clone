@@ -274,7 +274,7 @@ async function responderConGemini(contexto: string, historial: MensajeHistorial[
     contents,
     // thinkingBudget:0 → sin tokens de "thinking" (un chat sobre contexto dado no lo necesita):
     // ahorra tokens y evita que el thinking se coma el presupuesto y devuelva texto vacío.
-    generationConfig: { temperature: 0.1, maxOutputTokens: 4_000, thinkingConfig: { thinkingBudget: 0 } },
+    generationConfig: { temperature: 0.1, maxOutputTokens: 8_000, thinkingConfig: { thinkingBudget: 0 } },
   });
 
   const MODELOS = [MODELO_GEMINI, 'gemini-flash-latest'];
@@ -325,12 +325,21 @@ async function responderConIA(contexto: string, historial: MensajeHistorial[], p
     })),
     { role: 'user' as const, content: pregunta },
   ];
-  const completion = await crearChatIA(
-    { messages, temperature: 0.1, stream: false, max_tokens: 4_000 },
-    { modeloPreferido: MODELO_CHAT_PRINCIPAL },
-  );
-  const texto = (completion.choices[0]?.message?.content ?? '').trim();
-  if (!texto) throw new Error(`${MODELO_CHAT_PRINCIPAL}: respuesta vacía`);
+  // Una respuesta larga (p. ej. "todas las características de cada equipo") se cortaba a mitad de tabla por el tope de salida. Si el modelo
+  // termina por largo (finish_reason=length), se le pide que continúe exactamente donde quedó y se unen los tramos.
+  let texto = '';
+  for (let ronda = 0; ronda < 5; ronda++) {
+    const completion: any = await crearChatIA(
+      { messages: ronda === 0 ? messages : [...messages, { role: 'assistant' as const, content: texto }, { role: 'user' as const, content: 'Continúa EXACTAMENTE donde quedaste, sin repetir lo ya escrito ni saludar. Si estabas dentro de una tabla, sigue con la siguiente fila.' }],
+        temperature: 0.1, stream: false, max_tokens: 8_000 },
+      { modeloPreferido: MODELO_CHAT_PRINCIPAL },
+    );
+    const tramo = (completion.choices[0]?.message?.content ?? '').trim();
+    if (!tramo && ronda === 0) throw new Error(`${MODELO_CHAT_PRINCIPAL}: respuesta vacía`);
+    texto = ronda === 0 ? tramo : `${texto}
+${tramo}`;
+    if (!tramo || completion.choices[0]?.finish_reason !== 'length') break;
+  }
   return texto;
 }
 

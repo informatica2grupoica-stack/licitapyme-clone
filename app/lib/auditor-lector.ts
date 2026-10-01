@@ -90,7 +90,8 @@ export async function transcribirDocumento(url: string, opts: { combinar?: boole
     // 1º capa de texto real (exacta y gratis).
     try {
       const pdfParse = (await import('pdf-parse')).default;
-      const t = ((await pdfParse(buffer)).text || '').trim();
+      const { renderPaginaPorFilas } = await import('@/app/lib/pdf-texto-por-filas');
+      const t = ((await pdfParse(buffer, { pagerender: renderPaginaPorFilas })).text || '').trim();
       if (t.length >= 150) return { texto: t, metodo: 'pdf-parse' };
     } catch (e) { console.warn('[auditor-lector] pdf-parse falló:', String(e).slice(0, 120)); }
     if (opts.combinar) {
