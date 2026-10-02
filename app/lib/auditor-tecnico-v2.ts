@@ -217,7 +217,13 @@ async function guardar(negocioId: number, opcionId: number, pasada: 'L1' | 'L2',
 
 /** @param soloV2 true = solo las corridas hechas con el prompt v2.0 (historial: las del comparador v3.0 se guardan en otra forma). */
 export async function ultimasVerificaciones(negocioId: number, soloV2 = false): Promise<Map<number, { l1: VerificacionGuardada | null; l2: { rectificados: Map<number, string>; confirmados: Set<number>; at: string } | null }>> {
-  const [rows] = await pool.query(`SELECT id, opcion_id, pasada, resultado_json, error, creado_at FROM auditor_verificacion_tecnica WHERE negocio_id = ?${soloV2 ? " AND version_prompt = 'v2.0'" : ''} ORDER BY id`, [negocioId]) as any;
+  // Solo la última L1 de cada opción y lo posterior (una L1 nueva descarta todo lo anterior): el historial completo eran cientos de KB.
+  const filtro = soloV2 ? " AND version_prompt = 'v2.0'" : '';
+  const [rows] = await pool.query(
+    `SELECT t.id, t.opcion_id, t.pasada, t.resultado_json, t.error, t.creado_at FROM auditor_verificacion_tecnica t
+      WHERE t.negocio_id = ?${filtro.replace('version_prompt', 't.version_prompt')}
+        AND t.id >= COALESCE((SELECT MAX(l.id) FROM auditor_verificacion_tecnica l WHERE l.negocio_id = t.negocio_id AND l.opcion_id = t.opcion_id AND l.pasada = 'L1'${filtro.replace('version_prompt', 'l.version_prompt')}), 0)
+      ORDER BY t.id`, [negocioId]) as any;
   const out = new Map<number, { l1: VerificacionGuardada | null; l2: { rectificados: Map<number, string>; confirmados: Set<number>; at: string } | null }>();
   for (const r of rows as any[]) {
     const cur = out.get(r.opcion_id) || { l1: null, l2: null };

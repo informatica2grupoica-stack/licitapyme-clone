@@ -6,21 +6,27 @@ import { useEffect, useState } from 'react';
 import { IconLoader2 as Loader2, IconFileTypePdf as Pdf, IconEye as Eye, IconDownload as Download } from '@tabler/icons-react';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import type { DocumentoOfertaDTO } from '@/app/lib/auditor-prepostulacion';
+import { pedirJson, ultimoJson } from '@/app/lib/pedir-json';
 
 const ESTADO: Record<string, { label: string; cls: string }> = {
   APROBADO: { label: 'Aprobado', cls: 'bg-emerald-100 text-emerald-700' }, CARGADO: { label: 'Por aprobar', cls: 'bg-indigo-100 text-indigo-700' },
   OBSERVADO: { label: 'Observado', cls: 'bg-orange-100 text-orange-700' }, PENDIENTE: { label: 'Pendiente', cls: 'bg-zinc-100 text-zinc-500' },
 };
 
+const docsDeCache = (negocioId: number): DocumentoOfertaDTO[] | null => {
+  const d = ultimoJson(`/api/negocios/${negocioId}/prepostulacion`);
+  return d ? (d.migracionPendiente ? [] : (d.documentosOferta ?? [])) : null;
+};
+
 export function PostulacionPanel({ negocioId, onIrAPrePostulacion, documentosIniciales }: { negocioId: number; onIrAPrePostulacion: () => void; documentosIniciales?: DocumentoOfertaDTO[] }) {
-  const [docs, setDocs] = useState<DocumentoOfertaDTO[] | null>(documentosIniciales ?? null);
+  const [docs, setDocs] = useState<DocumentoOfertaDTO[] | null>(documentosIniciales ?? docsDeCache(negocioId));
   const [error, setError] = useState<string | null>(null);
   const [visor, setVisor] = useState<VisorDoc | null>(null);
 
   useEffect(() => {
     if (documentosIniciales) return;
     let vivo = true;
-    fetch(`/api/negocios/${negocioId}/prepostulacion`).then(r => r.json()).then(d => {
+    pedirJson(`/api/negocios/${negocioId}/prepostulacion`).then(d => {
       if (!vivo) return;
       if (!d?.success) throw new Error(d?.error || 'No se pudo cargar');
       setDocs(d.migracionPendiente ? [] : (d.documentosOferta ?? []));

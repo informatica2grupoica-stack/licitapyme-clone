@@ -122,7 +122,9 @@ export interface CorridaGuardadaV3 { guardada: GuardadaV3 | null; corridoAt: str
 
 export async function ultimasCorridasV3(negocioId: number): Promise<Map<number, CorridaGuardadaV3>> {
   const [rows] = await pool.query(
-    `SELECT opcion_id, resultado_json, error, creado_at FROM auditor_verificacion_tecnica WHERE negocio_id = ? AND pasada = 'L1' AND version_prompt = 'v3.0' ORDER BY id`, [negocioId]) as any;
+    `SELECT opcion_id, resultado_json, error, creado_at FROM auditor_verificacion_tecnica WHERE negocio_id = ? AND pasada = 'L1' AND version_prompt = 'v3.0'
+        AND id IN (SELECT m FROM (SELECT MAX(id) AS m FROM auditor_verificacion_tecnica WHERE negocio_id = ? AND pasada = 'L1' AND version_prompt = 'v3.0' GROUP BY opcion_id) x)
+      ORDER BY id`, [negocioId, negocioId]) as any;  // solo la última por opción: el historial completo eran cientos de KB que se descartaban
   const out = new Map<number, CorridaGuardadaV3>();
   for (const r of rows as any[]) {
     let g: GuardadaV3 | null = null;

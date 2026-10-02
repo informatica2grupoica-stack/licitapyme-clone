@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { IconLoader2 as Loader2 } from '@tabler/icons-react';
 import type { PanelAuditorDTO, OpcionDTO } from '@/app/lib/auditor-opciones';
 import type { PrePostulacionDTO } from '@/app/lib/auditor-prepostulacion';
+import { pedirJson, ultimoJson } from '@/app/lib/pedir-json';
 
 const clp = (n: number | null | undefined) => (n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n));
 const ESTADO_OP: Record<string, { label: string; cls: string }> = {
@@ -24,9 +25,12 @@ export function ResumenAuditorPanel({ negocioId, onIrAlAuditor, panelInicial, pr
   /** Vista previa en servidor (scripts/scratch/_preview-post.tsx): evita el fetch. */
   panelInicial?: PanelAuditorDTO & { presupuesto?: { neto: number | null } | null }; preInicial?: PrePostulacionDTO;
 }) {
-  const [panel, setPanel] = useState<(PanelAuditorDTO & { presupuesto?: { neto: number | null } | null }) | null>(panelInicial ?? null);
-  const [pre, setPre] = useState<PrePostulacionDTO | null>(preInicial ?? null);
-  const [cargando, setCargando] = useState(!panelInicial);
+  // Lo último que se vio se pinta al tiro (y se refresca por detrás): volver a esta pestaña ya no empieza de cero.
+  const panelVisto = panelInicial ?? ultimoJson<any>(`/api/negocios/${negocioId}/auditor`);
+  const preVisto = preInicial ?? (() => { const p = ultimoJson<any>(`/api/negocios/${negocioId}/prepostulacion`); return p && !p.migracionPendiente ? p : null; })();
+  const [panel, setPanel] = useState<(PanelAuditorDTO & { presupuesto?: { neto: number | null } | null }) | null>(panelVisto ?? null);
+  const [pre, setPre] = useState<PrePostulacionDTO | null>(preVisto ?? null);
+  const [cargando, setCargando] = useState(!panelVisto);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -35,8 +39,8 @@ export function ResumenAuditorPanel({ negocioId, onIrAlAuditor, panelInicial, pr
     (async () => {
       try {
         const [a, p] = await Promise.all([
-          fetch(`/api/negocios/${negocioId}/auditor`).then(r => r.json()),
-          fetch(`/api/negocios/${negocioId}/prepostulacion`).then(r => r.json()).catch(() => null),
+          pedirJson(`/api/negocios/${negocioId}/auditor`),
+          pedirJson(`/api/negocios/${negocioId}/prepostulacion`).catch(() => null),
         ]);
         if (!vivo) return;
         if (!a?.success) throw new Error(a?.error || 'No se pudo cargar el resumen del Auditor');

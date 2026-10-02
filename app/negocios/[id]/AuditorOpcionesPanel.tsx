@@ -14,6 +14,7 @@ import {
   IconChevronRight as ChevronRight, IconAlertTriangle as Alerta, IconCircleCheck as Check, IconExternalLink as ExternalLink,
   IconRefresh as Refresh, IconUpload as Upload, IconCopy as Copy, IconDownload as Download,
 } from '@tabler/icons-react';
+import { pedirJson, ultimoJson } from '@/app/lib/pedir-json';
 import type { PanelAuditorDTO, LineaAuditorDTO, OpcionDTO, DocumentoCotizacionDTO } from '@/app/lib/auditor-opciones';
 
 const fmtCLP = (n: number | null | undefined) =>
@@ -54,12 +55,12 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
 }) {
   const toast = useToast();
   const confirmar = useConfirm();
-  const [panel, setPanel] = useState<PanelAuditorDTO | null>(panelInicial ?? null);
+  const [panel, setPanel] = useState<PanelAuditorDTO | null>(panelInicial ?? ultimoJson<PanelAuditorDTO>(`/api/negocios/${negocioId}/auditor`) ?? null);   // lo último visto se pinta al tiro y se refresca por detrás
   const panelRef = useRef<PanelAuditorDTO | null>(null);
   const yaIntentadasCosto = useRef<Set<number>>(new Set());
   const yaIntentadas = useRef<Set<number>>(new Set());   // opciones a las que la verificación automática ya lo intentó en esta sesión
   panelRef.current = panel;
-  const [cargando, setCargando] = useState(!panelInicial);
+  const [cargando, setCargando] = useState(!panelInicial && !ultimoJson(`/api/negocios/${negocioId}/auditor`));
   const [leyendo, setLeyendo] = useState<Set<string>>(new Set());
   const [ocupado, setOcupado] = useState<number | null>(null);
   const [abiertas, setAbiertas] = useState<Set<string>>(() => new Set<string>());
@@ -77,11 +78,10 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   const [texto, setTexto] = useState('');
 
   const cargar = useCallback(async (silencioso = false): Promise<PanelAuditorDTO | null> => {
-    if (!silencioso) setCargando(true);
+    if (!silencioso && !ultimoJson(`/api/negocios/${negocioId}/auditor`)) setCargando(true);
     try {
-      const res = await fetch(`/api/negocios/${negocioId}/auditor`);
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cargar');
+      const data = await pedirJson(`/api/negocios/${negocioId}/auditor`, { fresco: silencioso });   // silencioso = tras una acción: lectura nueva
+      if (!data.success) throw new Error(data.error || 'No se pudo cargar');
       setPanel(data);
       return data as PanelAuditorDTO;
     } catch (e: any) {

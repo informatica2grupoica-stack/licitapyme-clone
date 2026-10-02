@@ -17,6 +17,7 @@ import {
 import type { PrePostulacionDTO, LineaPrePostDTO } from '@/app/lib/auditor-prepostulacion';
 import type { ItemPrePost, CausalCertificado } from '@/app/lib/auditor-prepostulacion-core';
 import { materiaLegible } from '@/app/lib/auditor-prepostulacion-core';
+import { pedirJson, ultimoJson } from '@/app/lib/pedir-json';
 
 type Dato = PrePostulacionDTO | { migracionPendiente: true };
 
@@ -41,8 +42,8 @@ const MOTIVO_LABEL: Record<string, string> = { RIESGO: 'Riesgo', POR_AFINAR: 'Po
 
 export function PrePostulacionPanel({ negocioId, onIrAlAuditor, datoInicial, documentosSlot }: { negocioId: number; onIrAlAuditor: () => void; datoInicial?: PrePostulacionDTO; documentosSlot?: React.ReactNode }) {
   const toast = useToast();
-  const [dato, setDato] = useState<Dato | null>(datoInicial ?? null);   // datoInicial: vista previa en servidor (scripts/scratch/_preview-pp.tsx)
-  const [cargando, setCargando] = useState(!datoInicial);
+  const [dato, setDato] = useState<Dato | null>(datoInicial ?? ultimoJson<Dato>(`/api/negocios/${negocioId}/prepostulacion`) ?? null);   // datoInicial: vista previa en servidor (scripts/scratch/_preview-pp.tsx)
+  const [cargando, setCargando] = useState(!datoInicial && !ultimoJson(`/api/negocios/${negocioId}/prepostulacion`));
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
   const [modal, setModal] = useState<{ tipo: 'no_aplica'; id: number } | { tipo: 'agregar'; filaId: string } | null>(null);
@@ -50,11 +51,11 @@ export function PrePostulacionPanel({ negocioId, onIrAlAuditor, datoInicial, doc
   const [nuevo, setNuevo] = useState({ materia: 'capacitacion', exigeBaseLiteral: '', seCompromete: '', fuenteBases: '', conCosto: false });
 
   const cargar = useCallback(async (silencioso = false) => {
-    if (!silencioso) setCargando(true);
+    if (!silencioso && !ultimoJson(`/api/negocios/${negocioId}/prepostulacion`)) setCargando(true);
     try {
-      const res = await fetch(`/api/negocios/${negocioId}/prepostulacion`);
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cargar');
+      // silencioso = recarga tras una acción: lectura nueva, no la compartida (podría haber empezado antes del cambio).
+      const data = await pedirJson(`/api/negocios/${negocioId}/prepostulacion`, { fresco: silencioso });
+      if (!data.success) throw new Error(data.error || 'No se pudo cargar');
       setDato(data);
     } catch (e: any) { toast.error('No se pudo cargar Pre-postulación', e.message); }
     finally { setCargando(false); }

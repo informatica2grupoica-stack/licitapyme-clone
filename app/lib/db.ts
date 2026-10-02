@@ -33,6 +33,9 @@ function crearPool() {
     connectionLimit,
     queueLimit: 24,           // cola generosa: preferimos que una ráfaga espere a que se rechace
     connectTimeout: 10000,
+    // La base está lejos (~155 ms por consulta) y varias filas son JSON grandes (extracciones, verificaciones: cientos de KB por lectura).
+    // Con compresión del protocolo esas lecturas bajan a la mitad o menos (medido 2-oct: 1,8 s → 0,3 s). DB_COMPRESS=0 la apaga.
+    compress: process.env.DB_COMPRESS !== '0',
     enableKeepAlive: true,
     keepAliveInitialDelay: 0,
   });
