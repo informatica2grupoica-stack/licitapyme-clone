@@ -85,8 +85,13 @@ function firmaSet(f: string): Set<string> { return new Set((f || '').split('|').
 
 // ¿Dos firmas describen el MISMO formato de documento? Jaccard ≥ 0.5 con al menos 2 marcadores
 // compartidos (evita matches por un solo marcador genérico como "kit").
+// v4.0 (P12): los marcadores que aparecen en casi toda licitación NO cuentan para decidir que dos
+// documentos se parecen — con ellos, reglas de otra licitación entraban con "prioridad absoluta"
+// por coincidencias genéricas.
+const MARCADORES_GENERICOS = new Set(['anexo_economico', 'caracteristicas_tecnicas', 'subtotal_iva_total', 'cumple_si_no']);
 export function firmasSimilares(a: string, b: string): boolean {
-  const A = firmaSet(a), B = firmaSet(b);
+  const sinGenericos = (f: string) => new Set([...firmaSet(f)].filter(x => !MARCADORES_GENERICOS.has(x)));
+  const A = sinGenericos(a), B = sinGenericos(b);
   if (A.size < 2 || B.size < 2) return false;
   let inter = 0; for (const x of A) if (B.has(x)) inter++;
   const union = A.size + B.size - inter;
@@ -104,11 +109,14 @@ export async function firmaDeLicitacion(codigo: string): Promise<string> {
 }
 
 // Destila el comentario libre del experto en UNA regla breve y GENERAL (sin el nombre de la
-// licitación concreta), apta para inyectarse en el prompt. Si DeepSeek falla o no hay API key,
-// se usa el comentario tal cual (fallback seguro: siempre queda algo accionable).
-async function destilarRegla(comentario: string, veredictoHumano: string | null, veredictoIA: string | null): Promise<string> {
+// licitación concreta), apta para inyectarse en el prompt.
+// v4.0 (P12, prompt auxiliar F.1): la regla habla de qué LEER, REPORTAR o ADVERTIR — nunca de un
+// veredicto, un nivel de atractivo, un puntaje ni de cómo se adjudica (eso lo decide el sistema).
+// Si la IA falla o no puede expresarla así, devuelve '' y la regla queda `sin_destilar` (no se
+// inyecta hasta que CA la revise). Ya no se guarda el comentario crudo como regla.
+async function destilarRegla(comentario: string, nivelIA: string | null): Promise<string> {
   const limpio = comentario.trim();
-  if (!iaTextoConfigurada()) return limpio;
+  if (!iaTextoConfigurada()) return '';
   try {
     const completion = await crearChatIA({
       temperature: 0.2,
@@ -117,15 +125,22 @@ async function destilarRegla(comentario: string, veredictoHumano: string | null,
       messages: [
         {
           role: 'system',
-          content: `Conviertes la corrección de un experto en licitaciones públicas chilenas en UNA regla breve, general y accionable para que un analista IA NO repita el error.
-La regla debe: (1) ser CONDICIONAL cuando aplique ("Si ... entonces ..."), (2) NO mencionar el ID/nombre de la licitación concreta (generalízala para casos futuros), (3) estar pensada para una empresa que VENDE bienes/equipamiento con bodega en Santiago, (4) máximo 240 caracteres.
+          content: `Conviertes la corrección de CA (experto en licitaciones públicas chilenas) en
+UNA regla breve, general y accionable para que el analista IA no repita el
+error al LEER y REPORTAR los datos de las bases.
+La regla debe: (1) ser CONDICIONAL cuando aplique ("Si las bases ... entonces
+..."); (2) referirse a qué leer, qué reportar o qué advertir, nunca a un
+veredicto, un nivel de atractivo, un puntaje ni a cómo se adjudica (eso lo
+decide el sistema); (3) NO mencionar el ID ni el nombre de la licitación; (4) estar
+pensada para una empresa que VENDE bienes y equipamiento con bodega en
+Santiago; (5) máximo 240 caracteres.
+Si la corrección no se puede expresar así, devuelve {"regla": ""}.
 Devuelve SOLO JSON: {"regla": "..."}.`,
         },
         {
           role: 'user',
-          content: `Veredicto de la IA: ${veredictoIA || '(desconocido)'}
-Veredicto correcto según el experto: ${veredictoHumano || '(no especificado)'}
-Explicación del experto: ${limpio}
+          content: `Nivel de atractivo que mostró el sistema: ${nivelIA || '(desconocido)'}
+Explicación de CA: ${limpio}
 
 Devuelve {"regla": "..."} con UNA sola regla general.`,
         },
@@ -135,17 +150,18 @@ Devuelve {"regla": "..."} con UNA sola regla general.`,
     const ini = txt.indexOf('{'); const fin = txt.lastIndexOf('}');
     const obj = JSON.parse(ini !== -1 ? txt.slice(ini, fin + 1) : txt);
     const regla = String(obj?.regla || '').trim();
-    return regla.length >= 8 ? regla.slice(0, 240) : limpio;
+    return regla.length >= 8 ? regla.slice(0, 240) : '';
   } catch (e) {
-    console.warn('[viabilidad-feedback] destilación falló, uso el comentario crudo:', String(e).slice(0, 120));
-    return limpio;
+    console.warn('[viabilidad-feedback] destilación falló, la regla queda sin destilar:', String(e).slice(0, 120));
+    return '';
   }
 }
 
 // Ámbitos de las reglas aprendidas:
 //   'global'  → reglas de VIABILIDAD/DESCARTE (afectan el veredicto de negocio). Ámbito por defecto.
 //   'lectura' → reglas de LECTURA/EXTRACCIÓN de documentos (cómo se leen planillas, ítems,
-//               cantidades, unidades y la modalidad suma_alzada vs por_línea). Mejoran el COSTEO.
+//               cantidades, unidades y qué frases reportar como evidencia). Mejoran el COSTEO.
+//               v4.0: ya no dicen cómo se adjudica — eso lo decide el código con las evidencias.
 export type AmbitoRegla = 'global' | 'lectura';
 export const AMBITOS_VALIDOS: AmbitoRegla[] = ['global', 'lectura'];
 
@@ -154,7 +170,7 @@ export const AMBITOS_VALIDOS: AmbitoRegla[] = ['global', 'lectura'];
 // de datos: ítems, cantidades, unidades, columnas y la modalidad de la oferta económica.
 async function destilarReglaLectura(comentario: string): Promise<string> {
   const limpio = comentario.trim();
-  if (!iaTextoConfigurada()) return limpio;
+  if (!iaTextoConfigurada()) return '';
   try {
     const completion = await crearChatIA({
       temperature: 0.2,
@@ -163,8 +179,18 @@ async function destilarReglaLectura(comentario: string): Promise<string> {
       messages: [
         {
           role: 'system',
-          content: `Conviertes la corrección de un experto sobre CÓMO SE LEE/EXTRAE un documento de una licitación pública chilena (planilla de cotización, anexo económico, listado de ítems, formulario ETT) en UNA regla breve, general y accionable para que un analista IA extraiga MEJOR los datos la próxima vez.
-La regla debe: (1) referirse a la LECTURA/EXTRACCIÓN de datos del documento (ítems, cantidad, unidad de medida, columnas, marca/modelo, o la modalidad suma alzada vs por línea), NO al veredicto de negocio; (2) ser CONDICIONAL cuando aplique ("Si el documento tiene ... entonces ..."); (3) NO mencionar el ID/nombre de la licitación concreta (generalízala para documentos parecidos); (4) máximo 240 caracteres.
+          content: `Conviertes la corrección de CA sobre CÓMO SE LEE un documento de licitación
+pública chilena (planilla de cotización, anexo económico, listado de ítems,
+formulario técnico) en UNA regla breve, general y accionable para que el
+analista IA extraiga mejor los datos.
+La regla debe: (1) referirse a la LECTURA de datos (ítems, cantidades,
+unidades, columnas, marca o modelo de referencia, características, o qué
+frases reportar como evidencia), nunca a conclusiones; (2) NO decir cómo se
+adjudica (GLOBAL o por línea): eso lo decide el sistema con las evidencias;
+(3) ser CONDICIONAL cuando aplique ("Si el documento tiene ... entonces ...");
+(4) NO mencionar el ID ni el nombre de la licitación; (5) máximo 240
+caracteres.
+Si la corrección no se puede expresar así, devuelve {"regla": ""}.
 Devuelve SOLO JSON: {"regla": "..."}.`,
         },
         {
@@ -180,10 +206,10 @@ Devuelve {"regla": "..."} con UNA sola regla general de lectura.`,
     const ini = txt.indexOf('{'); const fin = txt.lastIndexOf('}');
     const obj = JSON.parse(ini !== -1 ? txt.slice(ini, fin + 1) : txt);
     const regla = String(obj?.regla || '').trim();
-    return regla.length >= 8 ? regla.slice(0, 240) : limpio;
+    return regla.length >= 8 ? regla.slice(0, 240) : '';
   } catch (e) {
-    console.warn('[viabilidad-feedback] destilación de lectura falló, uso el comentario crudo:', String(e).slice(0, 120));
-    return limpio;
+    console.warn('[viabilidad-feedback] destilación de lectura falló, la regla queda sin destilar:', String(e).slice(0, 120));
+    return '';
   }
 }
 
@@ -191,36 +217,52 @@ export async function guardarFeedback(input: {
   codigo: string; usuarioId: number | null; comentario: string;
   veredictoHumano: string | null; veredictoIA: string | null;
   ambito?: AmbitoRegla;
-}): Promise<{ regla: string }> {
+}): Promise<{ regla: string; sinDestilar: boolean }> {
   await ensureTable();
   const ambito: AmbitoRegla = input.ambito === 'lectura' ? 'lectura' : 'global';
-  // La regla de lectura no depende del veredicto de negocio; la global sí.
+  // v4.0: `veredictoIA` guarda el NIVEL de atractivo que vio el experto (la escala GANABLE/NO VAMOS
+  // desapareció). `veredictoHumano` deja de llenarse en la pantalla (se sacaron los botones).
   const regla = ambito === 'lectura'
     ? await destilarReglaLectura(input.comentario)
-    : await destilarRegla(input.comentario, input.veredictoHumano, input.veredictoIA);
+    : await destilarRegla(input.comentario, input.veredictoIA);
+  const sinDestilar = !regla;
   const veredictoHumano = ambito === 'lectura' ? null : input.veredictoHumano;
   const veredictoIA = ambito === 'lectura' ? null : input.veredictoIA;
   // Solo las reglas de LECTURA guardan la firma del formato del documento (para reconocer casos
   // parecidos). Se calcula de los documentos cacheados de la licitación corregida.
   const firma = ambito === 'lectura' ? await firmaDeLicitacion(input.codigo) : '';
-  await pool.query(
-    `INSERT INTO viabilidad_feedback (licitacion_codigo, usuario_id, veredicto_ia, veredicto_humano, comentario, regla, ambito, firma)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [input.codigo, input.usuarioId, veredictoIA, veredictoHumano, input.comentario.trim(), regla, ambito, firma || null],
-  );
-  return { regla };
+  const valores = [input.codigo, input.usuarioId, veredictoIA, veredictoHumano, input.comentario.trim(), regla, ambito, firma || null];
+  try {
+    await pool.query(
+      `INSERT INTO viabilidad_feedback (licitacion_codigo, usuario_id, veredicto_ia, veredicto_humano, comentario, regla, ambito, firma, sin_destilar)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [...valores, sinDestilar ? 1 : 0]);
+  } catch {
+    // Antes de migration-137 la columna no existe: una regla sin destilar queda INACTIVA para que
+    // igual no se inyecte el comentario crudo.
+    await pool.query(
+      `INSERT INTO viabilidad_feedback (licitacion_codigo, usuario_id, veredicto_ia, veredicto_humano, comentario, regla, ambito, firma, activa)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [...valores, sinDestilar ? 0 : 1]);
+  }
+  return { regla, sinDestilar };
 }
 
 export async function listarFeedback(codigo: string): Promise<Feedback[]> {
   try {
+    // Solo las activas: una regla desactivada queda en el historial (pantalla de reglas), no acá.
     const [rows] = await pool.query(
-      `SELECT * FROM viabilidad_feedback WHERE licitacion_codigo = ? ORDER BY created_at DESC`, [codigo]);
+      `SELECT * FROM viabilidad_feedback WHERE licitacion_codigo = ? AND activa = 1 ORDER BY created_at DESC`, [codigo]);
     return rows as Feedback[];
   } catch { return []; }
 }
 
-export async function eliminarFeedback(id: number): Promise<void> {
-  try { await pool.query(`DELETE FROM viabilidad_feedback WHERE id = ?`, [id]); } catch { /* tabla puede no existir */ }
+// v4.0 (P12, decisión de CA): BORRAR = DESACTIVAR. La regla queda en el historial con quién y
+// cuándo la desactivó; nunca se hace DELETE.
+export async function eliminarFeedback(id: number, usuarioId: number | null = null): Promise<void> {
+  try {
+    await pool.query(`UPDATE viabilidad_feedback SET activa = 0, desactivada_por = ?, desactivada_en = NOW() WHERE id = ?`, [usuarioId, id]);
+  } catch {
+    try { await pool.query(`UPDATE viabilidad_feedback SET activa = 0 WHERE id = ?`, [id]); } catch { /* tabla puede no existir */ }
+  }
 }
 
 // Reglas activas de un ÁMBITO para inyectar en el prompt (las más recientes primero). Resiliente:
@@ -228,11 +270,31 @@ export async function eliminarFeedback(id: number): Promise<void> {
 // Las reglas guardadas antes de existir la columna 'ambito' quedan como 'global' (default de la
 // tabla), así que el ámbito 'global' sigue leyendo todo lo histórico sin migración.
 export async function cargarReglasAprendidas(ambito: AmbitoRegla = 'global', limite = MAX_REGLAS_INYECTADAS): Promise<string[]> {
+  return (await cargarReglasAprendidasConId(ambito, limite)).map(r => r.regla);
+}
+
+// Consulta de reglas activas e inyectables. Las `sin_destilar` no entran (v4.0). Antes de
+// migration-137 la columna no existe: se reintenta sin ella en vez de devolver cero reglas.
+async function consultarReglas(ambito: AmbitoRegla, limite: number, conFirma: boolean): Promise<any[]> {
+  const cols = `id, regla${conFirma ? ", COALESCE(firma, '') AS firma" : ''}`;
   try {
     const [rows] = await pool.query(
-      `SELECT regla FROM viabilidad_feedback WHERE activa = 1 AND ambito = ? ORDER BY created_at DESC LIMIT ?`,
-      [ambito, limite]);
-    return (rows as any[]).map(r => String(r.regla || '').trim()).filter(Boolean);
+      `SELECT ${cols} FROM viabilidad_feedback WHERE activa = 1 AND sin_destilar = 0 AND ambito = ? ORDER BY created_at DESC LIMIT ?`, [ambito, limite + 1]);
+    return rows as any[];
+  } catch {
+    const [rows] = await pool.query(
+      `SELECT ${cols} FROM viabilidad_feedback WHERE activa = 1 AND ambito = ? ORDER BY created_at DESC LIMIT ?`, [ambito, limite + 1]);
+    return rows as any[];
+  }
+}
+
+// v4.0 (P11/P12): devuelve también el `id` para guardar en cada informe qué reglas actuaron
+// (`_reglas_activas`). Si hay más activas que el tope, se avisa en el log: nada sale en silencio.
+export async function cargarReglasAprendidasConId(ambito: AmbitoRegla = 'global', limite = MAX_REGLAS_INYECTADAS): Promise<{ id: number; regla: string }[]> {
+  try {
+    const rows = await consultarReglas(ambito, limite, false);
+    if (rows.length > limite) console.warn(`[viabilidad-feedback] hay más de ${limite} reglas activas de ${ambito}: las más antiguas quedan fuera del prompt (revisar en la pantalla de reglas).`);
+    return rows.slice(0, limite).map(r => ({ id: Number(r.id), regla: String(r.regla || '').trim() })).filter(r => r.regla);
   } catch { return []; }
 }
 
@@ -242,13 +304,12 @@ export async function cargarReglasLectura(limite = MAX_REGLAS_INYECTADAS): Promi
 }
 
 // Reglas de lectura CON su firma de formato, para reconocer documentos parecidos al analizar.
-export async function cargarReglasLecturaConFirma(limite = MAX_REGLAS_INYECTADAS): Promise<{ regla: string; firma: string }[]> {
+export async function cargarReglasLecturaConFirma(limite = MAX_REGLAS_INYECTADAS): Promise<{ id: number; regla: string; firma: string }[]> {
   try {
-    const [rows] = await pool.query(
-      `SELECT regla, COALESCE(firma, '') AS firma FROM viabilidad_feedback
-       WHERE activa = 1 AND ambito = 'lectura' ORDER BY created_at DESC LIMIT ?`, [limite]);
-    return (rows as any[])
-      .map(r => ({ regla: String(r.regla || '').trim(), firma: String(r.firma || '') }))
+    const rows = await consultarReglas('lectura', limite, true);
+    if (rows.length > limite) console.warn(`[viabilidad-feedback] hay más de ${limite} reglas de lectura activas: las más antiguas quedan fuera del prompt.`);
+    return rows.slice(0, limite)
+      .map(r => ({ id: Number(r.id), regla: String(r.regla || '').trim(), firma: String(r.firma || '') }))
       .filter(r => r.regla);
   } catch { return []; }
 }
@@ -257,7 +318,12 @@ export async function cargarReglasLecturaConFirma(limite = MAX_REGLAS_INYECTADAS
 export function bloqueReglasAprendidas(reglas: string[]): string {
   if (!reglas.length) return '';
   const lista = reglas.map((r, i) => `${i + 1}. ${r}`).join('\n');
-  return `REGLAS APRENDIDAS DEL EXPERTO (PRIORIDAD MÁXIMA — el equipo corrigió análisis previos de la IA; aplícalas SIEMPRE y NO repitas esos errores. Si una regla aplica al caso, ajusta el veredicto y el score en consecuencia y menciónala en las advertencias):
+  // v4.0 (prompt auxiliar F.3): jerarquía única — lo que decide el código manda sobre cualquier regla.
+  return `REGLAS DEL EXPERTO (correcciones de CA a análisis anteriores). Aplícalas al
+leer y reportar los datos de ESTE análisis. No cambian lo que decide el
+sistema (adjudicación, exclusión, nivel). Si una regla choca con una
+instrucción de este prompt, manda el prompt. Si aplicaste una regla,
+menciónala en veredicto.advertencias, en palabras simples, sin códigos.
 ${lista}
 
 `;
@@ -269,10 +335,10 @@ export function bloqueReglasLecturaSimilares(reglas: string[]): string {
   if (!reglas.length) return '';
   const lista = reglas.map((r, i) => `${i + 1}. ${r}`).join('\n');
   return `
-════════ ⚠️ ESTE DOCUMENTO SE PARECE A UNO QUE EL EXPERTO YA CORRIGIÓ ════════
-El FORMATO/ESTRUCTURA de estos documentos coincide con casos donde el equipo ya te enseñó cómo
-leerlos. APLICA ESTAS REGLAS CON PRIORIDAD ABSOLUTA al EXTRAER ítems, cantidades y unidades, y al
-determinar la modalidad (suma alzada vs por línea). NO repitas el error de lectura anterior:
+ESTE DOCUMENTO TIENE EL MISMO FORMATO QUE UNO QUE CA YA CORRIGIÓ. Aplica estas
+reglas primero al extraer ítems, cantidades, unidades y evidencias. No cambian
+lo que decide el sistema. Si una regla choca con una instrucción de este
+prompt, manda el prompt:
 ${lista}
 `;
 }
@@ -282,10 +348,10 @@ export function bloqueReglasLectura(reglas: string[]): string {
   if (!reglas.length) return '';
   const lista = reglas.map((r, i) => `${i + 1}. ${r}`).join('\n');
   return `
-═══════════════════════ REGLAS DE LECTURA APRENDIDAS DEL EXPERTO ═══════════════════════
-PRIORIDAD MÁXIMA — el equipo corrigió cómo la IA leyó documentos parecidos antes. Aplícalas al
-EXTRAER ítems, cantidades, unidades de medida, marcas/modelos y al determinar la modalidad
-(suma alzada vs por línea) de ESTE análisis. NO repitas esos errores de lectura:
+REGLAS DE LECTURA DEL EXPERTO. Aplícalas al extraer ítems, cantidades,
+unidades, marcas o modelos de referencia y evidencias de ESTE análisis. No
+cambian lo que decide el sistema. Si una regla choca con una instrucción de
+este prompt, manda el prompt:
 ${lista}
 `;
 }

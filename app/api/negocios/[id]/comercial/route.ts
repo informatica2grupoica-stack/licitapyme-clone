@@ -744,7 +744,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         porLinea: informe ? esPorLinea(informe) : false,
         dudosa: informe ? modalidadDudosa(informe) : true,
         tipo: informe?.modalidad?.tipo ?? null,
-        comoSeAdjudica: informe?.modalidad?.como_se_adjudica ?? null,
+        comoSeAdjudica: informe?.adjudicacion?.resultado ?? informe?.modalidad?.como_se_adjudica ?? null,
       },
       empresa: negocio.empresa_id ? {
         id: negocio.empresa_id, razon_social: negocio.razon_social, rut: negocio.rut,

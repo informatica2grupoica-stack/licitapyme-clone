@@ -65,7 +65,15 @@ export function repararJSONTruncado(s: string): string {
 //   2) Saneando caracteres de control.
 //   3) Reparando truncado + saneando.
 export function parseJsonIA<T = any>(raw: string | null | undefined): T | null {
-  if (raw == null) return null;
+  return parseJsonIAConTraza<T>(raw).valor;
+}
+
+// Igual que parseJsonIA, pero dice si hubo que REPARAR un JSON truncado (P11, viabilidad v4.0):
+// un informe reparado puede parecer completo y no estarlo, así que quien lo use debe marcarlo
+// (`_json_reparado: true`) y mandarlo a revisión humana. El saneo de caracteres de control o el
+// recorte de ```fences``` no cuentan como reparación: no se pierde contenido.
+export function parseJsonIAConTraza<T = any>(raw: string | null | undefined): { valor: T | null; reparado: boolean } {
+  if (raw == null) return { valor: null, reparado: false };
   const limpio = String(raw).trim()
     .replace(/^\s*```(?:json)?\s*/i, '')
     .replace(/\s*```\s*$/i, '');
@@ -76,20 +84,21 @@ export function parseJsonIA<T = any>(raw: string | null | undefined): T | null {
   };
 
   // 1) La cadena completa (soporta tanto objeto {…} como array […] top-level).
-  let r = tryParse(limpio) ?? tryParse(sanearControlChars(limpio));
-  if (r) return r;
+  const r = tryParse(limpio) ?? tryParse(sanearControlChars(limpio));
+  if (r) return { valor: r, reparado: false };
 
   // 2) Recorte al bloque JSON exterior (el que abra primero), sea { o [.
   const firsts = [limpio.indexOf('{'), limpio.indexOf('[')].filter((i) => i >= 0);
-  if (!firsts.length) return null;
+  if (!firsts.length) return { valor: null, reparado: false };
   const start = Math.min(...firsts);
   const end = Math.max(limpio.lastIndexOf('}'), limpio.lastIndexOf(']'));
   // Si hay cierre, recortamos; si NO hay ningún cierre (truncado duro), usamos desde el inicio
   // del bloque para que el reparador cierre las estructuras.
   const cand = end > start ? limpio.slice(start, end + 1) : limpio.slice(start);
 
-  return tryParse(cand)
-      ?? tryParse(sanearControlChars(cand))
-      // 3) Reparar truncado (cierra estructuras abiertas) + sanear.
-      ?? tryParse(sanearControlChars(repararJSONTruncado(limpio.slice(start))));
+  const r2 = tryParse(cand) ?? tryParse(sanearControlChars(cand));
+  if (r2) return { valor: r2, reparado: false };
+  // 3) Reparar truncado (cierra estructuras abiertas) + sanear.
+  const r3 = tryParse(sanearControlChars(repararJSONTruncado(limpio.slice(start))));
+  return { valor: r3, reparado: !!r3 };
 }

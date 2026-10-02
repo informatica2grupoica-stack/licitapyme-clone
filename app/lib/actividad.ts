@@ -26,6 +26,7 @@ export type AccionActividad =
   | 'fecha_cierre_mp' // Mercado Público cambió la fecha de cierre (extensión de plazo/aclaración)
   | 'descarte_radar'  // descartó/restauró una licitación del radar (nivel empresa)
   | 'feedback_viabilidad' // el experto corrigió/eliminó una corrección de viabilidad
+  | 'viabilidad_nivel'    // confirmó un dato dudoso o recalculó el nivel de atractivo (v4.1)
   | 'chat_ia'         // consultó al chatbot IA de la licitación
   | 'informe'         // generó el informe técnico PDF
   | 'busqueda_equipamiento' // generó el prompt de búsqueda de equipamiento

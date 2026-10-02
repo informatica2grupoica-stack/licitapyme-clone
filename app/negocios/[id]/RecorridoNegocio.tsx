@@ -15,7 +15,7 @@ interface Recorrido {
   radar: { primera: string; n_perfiles: number; palabras: string | null } | null;
   prefiltro: { decision: string; categoria: string | null; confianza: number | null; motivo: string | null; created_at: string } | null;
   asignacion: { fecha: string; a_nombre: string | null; por_nombre: string | null };
-  viabilidad: { score_total: number | null; semaforo: string | null; created_at: string; updated_at: string; veredicto_v3?: string | null; score_v3?: string | null } | null;
+  viabilidad: { score_total: number | null; semaforo: string | null; created_at: string; updated_at: string; veredicto_v3?: string | null; score_v3?: string | null; nivel_v4?: string | null } | null;
   eventos: Array<{ accion: string; descripcion: string | null; created_at: string; actor_nombre: string | null; actor_email: string | null }>;
   estado_actual: string;
   activo: boolean;
@@ -147,7 +147,10 @@ export function RecorridoNegocio({ negocioId }: { negocioId: number | string }) 
     const reanalisis = rec.viabilidad.updated_at && rec.viabilidad.updated_at !== rec.viabilidad.created_at;
     hitos.push({
       key: 'viab', fecha: rec.viabilidad.created_at, color: SEM_COLOR[rec.viabilidad.semaforo || ''] || '#d97706', icon: <Sparkles size={13} />,
-      titulo: `Viabilidad IA: ${score}/100${ver ? ` · ${ver}` : ''}`,
+      // v4.1: el análisis ya no da un número 0-100 sino un nivel de atractivo.
+      titulo: rec.viabilidad.nivel_v4 && rec.viabilidad.nivel_v4 !== 'null'
+        ? `Viabilidad IA: nivel ${rec.viabilidad.nivel_v4.replace(/_/g, ' ')}`
+        : `Viabilidad IA: ${score}/100${ver ? ` · ${ver}` : ''}`,
       detalle: reanalisis ? <>último re-análisis: {fechaCorta(rec.viabilidad.updated_at)}</> : undefined,
     });
   }

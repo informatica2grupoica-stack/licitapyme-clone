@@ -170,7 +170,7 @@ export async function procesarLicitacionCompleta(
         const t0 = Date.now();
         const v3 = await analizarYGuardarViabilidadIA(codigo);
         const segs = ((Date.now() - t0) / 1000).toFixed(1);
-        if (v3) console.log(`[pipeline] ${codigo}: informe v3 listo en ${segs}s (score ${v3.score_0_100 ?? '?'}).`);
+        if (v3) console.log(`[pipeline] ${codigo}: informe IA listo en ${segs}s (nivel ${v3.score?.nivel ?? '?'}).`);
         else console.warn(`[pipeline] ${codigo}: v3 no devolvió informe tras ${segs}s — queda el híbrido del paso 3.`);
       } catch (e) {
         console.warn(`[pipeline] ${codigo}: informe v3 falló (queda el híbrido del paso 3):`, String(e).slice(0, 200));

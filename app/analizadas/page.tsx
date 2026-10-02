@@ -19,6 +19,8 @@ interface Analizada {
   analizado_at: string; creado_at: string | null; reanalizada: boolean;
   score: number | null; semaforo: string | null; area: string | null;
   resultado: string | null; titular: string | null;
+  // v4.1: nivel de atractivo (lo calcula el código) y la acción del asistente.
+  nivel?: string | null; nivel_num?: number | null; nivel_presupuesto_neto?: number | null; accion?: string | null;
   presupuesto: number | null; modalidad: string | null; n_lineas: number | null;
   confianza: number | null; esquema: string;
   owner_nombre: string | null; owner_email: string | null; estado_pipeline: string | null;
@@ -37,13 +39,21 @@ const RES: Record<string, { label: string; bg: string; hex: string }> = {
   GANABLE:   { label: 'GANABLE',   bg: 'bg-emerald-600', hex: '#16a34a' },
   PUEDE_SER: { label: 'PUEDE SER', bg: 'bg-yellow-500',  hex: '#d97706' },
   NO_VAMOS:  { label: 'NO VAMOS',  bg: 'bg-red-600',     hex: '#dc2626' },
+  // v4.1 · niveles de atractivo (informes analizados con la v4).
+  MUY_ALTO:   { label: 'MUY ALTO',   bg: 'bg-emerald-600', hex: '#059669' },
+  ALTO:       { label: 'ALTO',       bg: 'bg-emerald-500', hex: '#10b981' },
+  MEDIO_ALTO: { label: 'MEDIO ALTO', bg: 'bg-yellow-500',  hex: '#eab308' },
+  MEDIO:      { label: 'MEDIO',      bg: 'bg-yellow-500',  hex: '#ca8a04' },
+  MEDIO_BAJO: { label: 'MEDIO BAJO', bg: 'bg-orange-500',  hex: '#f97316' },
+  BAJO:       { label: 'BAJO',       bg: 'bg-red-500',     hex: '#ef4444' },
+  EXCLUIDO:   { label: 'EXCLUIDO',   bg: 'bg-red-700',     hex: '#b91c1c' },
 };
 const fmt = (n?: number | null) => n != null ? new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n) : '—';
 const soloFecha = (s?: string | null) => s ? new Date(s).toLocaleDateString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 const fechaHora = (s?: string | null) => s ? new Date(s).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
 const modalidadLabel = (m?: string | null) => (m ? String(m).replace(/_/g, ' ') : '—');
 
-type Orden = 'reciente' | 'antiguo' | 'score_desc' | 'score_asc' | 'cierre' | 'presupuesto';
+type Orden = 'reciente' | 'antiguo' | 'nivel' | 'score_desc' | 'score_asc' | 'cierre' | 'presupuesto';
 
 export default function AnalizadasPage() {
   const { usuario, cargando: cargandoSesion } = useSession();
@@ -87,7 +97,7 @@ export default function AnalizadasPage() {
       if (key) { const cur = own.get(key) || { nombre: l.owner_nombre || l.owner_email || key, n: 0 }; cur.n++; own.set(key, cur); }
     }
     const ordenSem = ['VERDE', 'AMARILLO', 'NARANJA', 'ROJO', 'ROJO_DURO'];
-    const ordenRes = ['GANABLE', 'PUEDE_SER', 'NO_VAMOS'];
+    const ordenRes = ['MUY_ALTO', 'ALTO', 'MEDIO_ALTO', 'MEDIO', 'MEDIO_BAJO', 'BAJO', 'EXCLUIDO', 'GANABLE', 'PUEDE_SER', 'NO_VAMOS'];
     return {
       semaforo: [...sem.entries()].sort((a, b) => ordenSem.indexOf(a[0]) - ordenSem.indexOf(b[0]))
         .map(([v, c]) => ({ value: v, label: SEM[v]?.label || v, color: SEM_HEX[v], count: c })),
@@ -111,6 +121,8 @@ export default function AnalizadasPage() {
     arrSorted.sort((a, b) => {
       switch (orden) {
         case 'antiguo':     return t(a.analizado_at) - t(b.analizado_at);
+        // v4.1 §5.5: por nivel y, dentro del mismo nivel, por presupuesto neto de mayor a menor.
+        case 'nivel':       return ((b.nivel_num ?? -1) - (a.nivel_num ?? -1)) || ((b.nivel_presupuesto_neto ?? 0) - (a.nivel_presupuesto_neto ?? 0));
         case 'score_desc':  return (b.score ?? -1) - (a.score ?? -1);
         case 'score_asc':   return (a.score ?? 999) - (b.score ?? 999);
         case 'cierre': {    // cierre más cercano primero; sin cierre al final
@@ -177,6 +189,7 @@ export default function AnalizadasPage() {
                 options={[
                   { value: 'reciente', label: 'Análisis reciente' },
                   { value: 'antiguo', label: 'Análisis más antiguo' },
+                  { value: 'nivel', label: 'Nivel de atractivo' },
                   { value: 'score_desc', label: 'Score (mayor)' },
                   { value: 'score_asc', label: 'Score (menor)' },
                   { value: 'cierre', label: 'Cierre más cercano' },
@@ -213,11 +226,17 @@ export default function AnalizadasPage() {
                 <Link key={l.codigo} href={`/licitacion/${encodeURIComponent(l.codigo)}`}
                   style={{ '--stagger-i': Math.min(i, 12) } as React.CSSProperties}
                   className="stagger-item flex items-stretch gap-3.5 bg-white border border-slate-200 rounded-xl p-3.5 hover:border-violet-300 hover:shadow-sm transition-all group">
-                  {/* Score */}
+                  {/* Nivel (v4) o score (análisis anteriores) */}
+                  {l.nivel && RES[l.nivel] ? (
+                    <div className={`w-12 h-12 rounded-xl ${RES[l.nivel].bg} flex items-center justify-center text-white flex-shrink-0 self-center text-center px-0.5`} title={l.accion || ''}>
+                      <span className="text-[9.5px] font-black leading-tight">{RES[l.nivel].label}</span>
+                    </div>
+                  ) : (
                   <div className={`w-12 h-12 rounded-xl ${sem.bg} flex flex-col items-center justify-center text-white flex-shrink-0 self-center`}>
                     <span className="text-[15px] font-black leading-none">{l.score ?? '—'}</span>
                     <span className="text-[8px] opacity-80">/100</span>
                   </div>
+                  )}
 
                   {/* Identidad + análisis */}
                   <div className="min-w-0 flex-1">

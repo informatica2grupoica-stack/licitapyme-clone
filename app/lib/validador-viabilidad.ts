@@ -386,6 +386,172 @@ function v17_expedienteCompleto(inf: any, push: (h: HallazgoValidador) => void):
   });
 }
 
+// ═══ REGLAS v4.0 (02-oct-2026, especificación 1 §7 y especificación 2 §10) ═════════════════════
+// Para informes `_schema: 'v4'`. Ninguna regla escribe el nivel de atractivo: solo calcularNivel
+// (score-viabilidad.ts). V-02, V-06, V-11, V-13 y V-14 se retiran en la v4: reescribían el
+// veredicto/la tarjeta o miraban "líneas a atacar", que ya no existen.
+
+const mayus = (e: unknown) => String(e ?? '').toUpperCase();
+
+// V-03 (reescrita) — PLAZO PREVIO: el total no puede ser menor que la suma de sus hitos, y un hito
+// EXISTE debe traer su plazo. Sin eso el plazo previo que se muestra no es confiable.
+function v03_plazoPrevio(inf: any, push: (h: HallazgoValidador) => void): void {
+  const pl = inf?.plazos;
+  if (!pl || !Array.isArray(pl.hitos)) return;
+  const sinPlazo = pl.hitos.filter((h: any) => mayus(h?.estado) === 'EXISTE' && (h?.plazo == null || String(h.plazo).trim() === ''));
+  if (sinPlazo.length) push({ regla: 'V-03', severidad: 'error', mensaje: `${sinPlazo.length} hito(s) del plazo previo existen en las bases pero sin plazo legible (${sinPlazo.map((h: any) => h.hito).join(', ')}): el total puede estar subestimado.` });
+  const pp = pl.plazo_previo;
+  if (pp && Array.isArray(pp.desglose)) {
+    const suma = pp.desglose.reduce((a: number, d: any) => a + (Number(d?.dias_corridos) || 0), 0);
+    if (Number(pp.total_dias_corridos) < suma) push({ regla: 'V-03', severidad: 'error', mensaje: `Plazo previo total (${pp.total_dias_corridos} días) menor que la suma de sus hitos (${suma}).` });
+  }
+}
+
+// V-05 (reescrita) — el estado de un hito o garantía contradice el texto: el código detectó una
+// negación ("no se exigirá…") y el modelo había dicho EXISTE, o la frase citada para NO_EXISTE no
+// sostiene la negación. Ya no escribe `cadena` (la cadena desapareció).
+function v05_estadoContraTexto(inf: any, push: (h: HallazgoValidador) => void): void {
+  const malos: string[] = [];
+  for (const h of Array.isArray(inf?.plazos?.hitos) ? inf.plazos.hitos : []) {
+    if (mayus(h?.corregido_por_negacion) === 'EXISTE') malos.push(`${h.hito}: el modelo dijo que existe y las bases lo descartan`);
+    if (mayus(h?.estado) === 'NO_EXISTE' && h?.cita?.semantica === 'NO') malos.push(`${h.hito}: la frase citada no dice que se descarte`);
+  }
+  const g = inf?.requisitos_admisibilidad?.garantias || {};
+  for (const k of ['seriedad', 'fiel_cumplimiento', 'contrato']) {
+    if (mayus(g?.[k]?.corregido_por_negacion) === 'EXISTE') malos.push(`${k}: el modelo dijo que existe y las bases lo descartan`);
+  }
+  if (malos.length) push({ regla: 'V-05', severidad: 'error', mensaje: `Estado de garantías/contrato contradice el texto de las bases (ya corregido por el detector de negación): ${malos.join(' · ')}.` });
+}
+
+// V-08 / V-08b — POR LÍNEA o GLOBAL sin evidencia que cuente (fuera de la regla de 1 línea en la API).
+const LADO_GLOBAL = new Set(['COTIZAR_TOTALIDAD', 'ADJUDICA_GLOBAL', 'SUMA_ALZADA', 'FORMULARIO_TOTAL']);
+function v08_adjudicacionConEvidencia(inf: any, push: (h: HallazgoValidador) => void): void {
+  const adj = inf?.adjudicacion;
+  if (!adj) return;
+  const res = mayus(adj.resultado);
+  const ev: any[] = Array.isArray(adj.evidencias) ? adj.evidencias.filter((e: any) => e?.cuenta) : [];
+  if (res === 'POR_LINEAS' && !ev.some(e => !LADO_GLOBAL.has(mayus(e.tipo)))) {
+    push({ regla: 'V-08', severidad: 'aviso', mensaje: 'Adjudicación POR LÍNEA sin una evidencia válida que lo sostenga.' });
+  }
+  if (res === 'GLOBAL' && Number(adj.regla_aplicada) !== 1 && !ev.some(e => LADO_GLOBAL.has(mayus(e.tipo)))) {
+    push({ regla: 'V-08b', severidad: 'aviso', mensaje: 'Adjudicación GLOBAL sin una evidencia válida que lo sostenga (y la API no trae una sola línea).' });
+  }
+}
+
+// V-10 (v4) — criterios sin cita verificable (lee `cita`, no `fuente`).
+function v10_criteriosConCita(inf: any, push: (h: HallazgoValidador) => void): void {
+  const criterios = inf?.criterios_evaluacion?.criterios;
+  if (!Array.isArray(criterios) || criterios.length === 0) return;
+  const sin = criterios.filter((c: any) => !String(c?.cita?.frase || '').trim()).length;
+  if (sin > 0) push({ regla: 'V-10', severidad: 'aviso', mensaje: `${sin}/${criterios.length} criterios sin frase citada — no corroborables en el documento.` });
+}
+
+// V-12 (v4) — manifiesto colapsado: lee `adjudicacion.resultado` en vez de `como_se_adjudica`.
+function v12_v4(inf: any, push: (h: HallazgoValidador) => void): void {
+  v12_manifiestoNoColapsadoPorLinea({ ...inf, adjudicacion: { como_se_adjudica: mayus(inf?.adjudicacion?.resultado) } }, push);
+}
+
+// V-18 — la respuesta de la IA llegó cortada y se reparó: el informe puede estar incompleto.
+function v18_jsonReparado(inf: any, push: (h: HallazgoValidador) => void): void {
+  if (inf?._json_reparado) push({ regla: 'V-18', severidad: 'error', mensaje: 'La respuesta de la IA llegó cortada y se reparó: puede faltar información al final del informe.' });
+}
+
+// V-21 — conteo de productos: total declarado ≠ largo real, o las fuentes no cuadran entre sí.
+function v21_conteoCruzado(inf: any, push: (h: HallazgoValidador) => void): void {
+  const c = inf?.productos?.conteo_cruzado;
+  if (c && c.cuadra === false) push({ regla: 'V-21', severidad: 'aviso', mensaje: `Conteo de productos no cuadra: ${c.detalle || 'revisar las fuentes'}.` });
+}
+
+// V-22 — la suma de los presupuestos por línea no cuadra con el total.
+function v22_sumaPorLinea(inf: any, push: (h: HallazgoValidador) => void): void {
+  if (inf?.presupuesto?.suma_lineas_cuadra === false) {
+    const l: any[] = inf.presupuesto.por_linea_interpretado || [];
+    const suma = l.reduce((a, x) => a + (Number(x?.monto_pesos) || 0), 0);
+    push({ regla: 'V-22', severidad: 'error', mensaje: `La suma de los presupuestos por línea ($${suma.toLocaleString('es-CL')}) no cuadra con el total ($${Number(inf.presupuesto.bruto || 0).toLocaleString('es-CL')}).` });
+  }
+}
+
+// V-23 — calidad mínima del manifiesto (encabezados, números de fila, sin unidades, cortado).
+function v23_calidadManifiesto(inf: any, push: (h: HallazgoValidador) => void): void {
+  const p: string[] = Array.isArray(inf?.productos?.problemas_calidad) ? inf.productos.problemas_calidad : [];
+  if (p.length) push({ regla: 'V-23', severidad: 'error', mensaje: `El listado de productos no pasa el control de calidad: ${p.join('; ')}.` });
+}
+
+// V-24 — un criterio BINARIO con más de dos resultados no es binario (Transductor: EETT con 11
+// características 10+5+10… marcada BINARIO → "empate" falso). Se reclasifica en la autocorrección.
+function puntajesDistintos(forma: unknown): number {
+  return new Set([...String(forma ?? '').matchAll(/(\d{1,3}(?:[.,]\d+)?)\s*(?:pts?\.?|puntos?)\b/gi)].map(m => m[1])).size;
+}
+function v24_binarioFalso(inf: any, push: (h: HallazgoValidador) => void): void {
+  for (const c of Array.isArray(inf?.criterios_evaluacion?.criterios) ? inf.criterios_evaluacion.criterios : []) {
+    if (mayus(c?.clase) === 'BINARIO' && puntajesDistintos(c?.forma_aplicacion) > 2) {
+      push({ regla: 'V-24', severidad: 'aviso', mensaje: `Criterio "${c?.nombre || ''}" marcado BINARIO pero su forma de aplicación tiene más de dos puntajes.` });
+    }
+  }
+}
+
+// V-25 — dato crítico con cita no verificada (no se encontró la frase, o la frase no lo sostiene).
+// Críticos: carácter del presupuesto, puntaje mínimo, hitos del plazo previo, causales de
+// admisibilidad y multa por atraso (las evidencias de adjudicación no verificadas ya no cuentan).
+function v25_datoCriticoNoVerificado(inf: any, push: (h: HallazgoValidador) => void): void {
+  const malos: string[] = [];
+  const mira = (nombre: string, cita: any) => {
+    if (!cita || typeof cita !== 'object' || !String(cita.frase || '').trim()) return;
+    if (cita.verificada === false || cita.semantica === 'NO' || cita.semantica === 'PARCIAL') malos.push(nombre);
+  };
+  const car = mayus(inf?.presupuesto?.caracter);
+  if (car === 'EXCLUYENTE' || car === 'REFERENCIAL') mira('carácter del presupuesto', inf?.presupuesto?.cita);
+  mira('puntaje mínimo total', inf?.criterios_evaluacion?.puntaje_minimo_total?.cita);
+  for (const c of Array.isArray(inf?.criterios_evaluacion?.criterios) ? inf.criterios_evaluacion.criterios : []) if (c?.puntaje_minimo?.valor) mira(`puntaje mínimo de ${c.nombre}`, c.puntaje_minimo.cita);
+  for (const h of Array.isArray(inf?.plazos?.hitos) ? inf.plazos.hitos : []) if (mayus(h?.estado) !== 'NO_INDICADO') mira(`hito ${h.hito}`, h.cita);
+  for (const r of Array.isArray(inf?.requisitos_admisibilidad?.requisitos) ? inf.requisitos_admisibilidad.requisitos : []) if (r?.origen !== 'sistema') mira(`causal "${String(r?.que || '').slice(0, 50)}"`, r.cita);
+  if (inf?.multas?.atraso?.existe !== false) mira('multa por atraso', inf?.multas?.atraso?.cita);
+  if (malos.length) push({ regla: 'V-25', severidad: 'error', mensaje: `${malos.length} dato(s) crítico(s) con cita no verificada: ${malos.slice(0, 6).join(', ')}${malos.length > 6 ? '…' : ''}.` });
+}
+
+// V-26 — frases de consecuencia de las bases que el modelo no cubrió (barrido de consecuencias).
+function v26_causalesSinAnalizar(inf: any, push: (h: HallazgoValidador) => void): void {
+  const n = Array.isArray(inf?.requisitos_admisibilidad?.posibles_causales_sin_analizar) ? inf.requisitos_admisibilidad.posibles_causales_sin_analizar.length : 0;
+  if (n) push({ regla: 'V-26', severidad: 'aviso', mensaje: `${n} posible(s) causal(es) de inadmisibilidad en las bases que el análisis no cubrió: se muestran en Admisibilidad para revisarlas.` });
+}
+
+/** V-27 — el nivel se calculó con un dato dudoso que no quedó en `score.datos_dudosos`. Corre
+ *  DESPUÉS de calcularNivel (por eso va aparte del set de reglas). */
+export function validarNivelV27(inf: any): HallazgoValidador | null {
+  const s = inf?.score;
+  if (!s) return null;
+  const claves = new Set((Array.isArray(s.datos_dudosos) ? s.datos_dudosos : []).map((d: any) => d?.clave));
+  const confirmados = new Set((Array.isArray(inf?.score_confirmaciones) ? inf.score_confirmaciones : []).map((c: any) => c?.clave));
+  const faltan: string[] = [];
+  const excluidoDuro = s.motivo_exclusion && (s.motivo_exclusion.filtro === 'F1' || s.motivo_exclusion.filtro === 'F2');
+  if (!excluidoDuro && mayus(inf?.adjudicacion?.resultado) === 'NO_CLARO' && !claves.has('adjudicacion') && !confirmados.has('adjudicacion')) faltan.push('cómo se adjudica');
+  if (!excluidoDuro && inf?._json_reparado && !claves.has('informe') && !confirmados.has('informe')) faltan.push('informe reparado');
+  if (!faltan.length) return null;
+  return { regla: 'V-27', severidad: 'error', mensaje: `El nivel se calculó con datos dudosos que no quedaron marcados: ${faltan.join(', ')}.` };
+}
+
+const REGLAS_V4: ReglaFn[] = [
+  v01_sumaPonderaciones,
+  v03_plazoPrevio,
+  v04_tramosSinExtremos,
+  v05_estadoContraTexto,
+  v07_presupuestoNetoCoherente,
+  v08_adjudicacionConEvidencia,
+  v09_manifiestoNoVacio,
+  v10_criteriosConCita,
+  v12_v4,
+  v15_fuentesManifiestoConcuerdan,
+  v16_manifiestoSoloProductos,
+  v17_expedienteCompleto,
+  v18_jsonReparado,
+  v21_conteoCruzado,
+  v22_sumaPorLinea,
+  v23_calidadManifiesto,
+  v24_binarioFalso,
+  v25_datoCriticoNoVerificado,
+  v26_causalesSinAnalizar,
+];
+
 // Set completo de reglas V-01..V-17. Se agrega una nueva simplemente empujando una función más
 // (misma firma) a este array — no requiere tocar el resto del pipeline.
 type ReglaFn = (inf: any, push: (h: HallazgoValidador) => void, score: number) => void;
@@ -409,13 +575,14 @@ const REGLAS: ReglaFn[] = [
   v17_expedienteCompleto,
 ];
 
-// Corre TODAS las reglas sobre un informe v3 ya ensamblado (post-overrides deterministas).
-// `score` debe ser el score_0_100 YA derivado (derivarV3) para que V-02/V-06 chequeen el
-// resultado final, no el score crudo del modelo.
-export function validarInformeViabilidad(inf: any, score: number): ResultadoValidador {
+// Corre TODAS las reglas sobre un informe ya ensamblado (post-overrides deterministas). Informes
+// v4 usan REGLAS_V4 (sin score); los v3 guardados siguen con el set de siempre, donde `score` debe
+// ser el score_0_100 YA derivado para que V-02/V-06 chequeen el resultado final.
+export function validarInformeViabilidad(inf: any, score = 0): ResultadoValidador {
   const hallazgos: HallazgoValidador[] = [];
   const push = (h: HallazgoValidador) => hallazgos.push(h);
-  for (const regla of REGLAS) {
+  const reglas: ReglaFn[] = inf?._schema === 'v4' ? REGLAS_V4 : REGLAS;
+  for (const regla of reglas) {
     try { regla(inf, push, score); }
     catch (e) { push({ regla: 'V-??', severidad: 'aviso', mensaje: `Regla falló al ejecutar: ${String(e).slice(0, 120)}` }); }
   }
@@ -446,9 +613,45 @@ export interface CorreccionAplicada { regla: string; detalle: string }
 // (a) AUTO-CORRECCIÓN. Recibe los hallazgos de la corrida ANTERIOR de validarInformeViabilidad y
 // MUTA `inf` in-place para las reglas que tienen arreglo directo. El caller debe volver a correr
 // validarInformeViabilidad después de esto para obtener el `_validador` final y consistente.
-export function autocorregirHallazgos(inf: any, hallazgos: HallazgoValidador[], score: number): CorreccionAplicada[] {
+export function autocorregirHallazgos(inf: any, hallazgos: HallazgoValidador[], score = 0): CorreccionAplicada[] {
   const aplicadas: CorreccionAplicada[] = [];
   const tiene = (regla: string) => hallazgos.some(h => h.regla === regla);
+
+  if (inf?._schema === 'v4') {
+    // v4: ninguna autocorrección toca veredicto, tarjeta ni nivel.
+    // V-16 — filas que no son productos: se sacan del manifiesto y de la lista única.
+    if (tiene('V-16') && Array.isArray(inf?.manifiesto_productos)) {
+      const antes = inf.manifiesto_productos.length;
+      const limpio = inf.manifiesto_productos.filter((p: any) => !esFilaNoProducto(String(p?.descripcion || '')));
+      if (limpio.length && limpio.length < antes) {
+        inf.manifiesto_productos = limpio;
+        if (Array.isArray(inf?.productos?.items)) inf.productos.items = inf.productos.items.filter((p: any) => !esFilaNoProducto(String(p?.nombre || p?.descripcion || '')));
+        aplicadas.push({ regla: 'V-16', detalle: `${antes - limpio.length} fila(s) que no eran productos removidas (quedan ${limpio.length})` });
+      }
+    }
+    // V-07 — neto ≠ bruto/1,19: fórmula fija.
+    if (tiene('V-07') && inf?.presupuesto && typeof inf.presupuesto === 'object') {
+      const pres = inf.presupuesto;
+      const bruto = _num(pres.bruto);
+      if (bruto != null && bruto > 0) {
+        const exento = !!pres.presupuesto_exento || !!pres.regimen_fora || pres.con_iva === false;
+        pres.neto = Math.round(exento ? bruto : bruto / 1.19);
+        aplicadas.push({ regla: 'V-07', detalle: `presupuesto.neto corregido a ${pres.neto}` });
+      }
+    }
+    // V-24 — binario con más de dos resultados → ACUMULATIVO si suma por requisito, si no POR_TRAMOS.
+    if (tiene('V-24')) {
+      for (const c of Array.isArray(inf?.criterios_evaluacion?.criterios) ? inf.criterios_evaluacion.criterios : []) {
+        if (String(c?.clase || '').toUpperCase() === 'BINARIO' && puntajesDistintos(c?.forma_aplicacion) > 2) {
+          const nueva = /por\s+cada|suma|sumatoria|acumul|RC\s*\/\s*RT/i.test(String(c.forma_aplicacion || '')) ? 'ACUMULATIVO' : 'POR_TRAMOS';
+          c.clase_modelo = 'BINARIO';
+          c.clase = nueva;
+          aplicadas.push({ regla: 'V-24', detalle: `"${c.nombre}" reclasificado BINARIO → ${nueva}` });
+        }
+      }
+    }
+    return aplicadas;
+  }
 
   // V-02 — veredicto no coincide con el score: se recalcula con la MISMA fórmula que usa la regla
   // para detectar el error (ya existe en derivarV3; esto es la red de seguridad final).
@@ -549,9 +752,12 @@ export function autocorregirHallazgos(inf: any, hallazgos: HallazgoValidador[], 
 // que rescatar, hay que volver al documento. Y aun en el caso (a), que el manifiesto viniera
 // contaminado significa que el listado se leyó de un documento equivocado: vale que alguien mire.
 const REGLAS_A_REVISION_HUMANA = new Set(['V-01', 'V-03', 'V-08', 'V-10', 'V-11', 'V-15', 'V-16', 'V-17']);
+// v4 (especificación 1 §7): V-23 escala solo si falla el reintento (lo hace el orquestador).
+const REGLAS_A_REVISION_HUMANA_V4 = new Set(['V-01', 'V-03', 'V-05', 'V-08', 'V-08b', 'V-10', 'V-15', 'V-16', 'V-17', 'V-18', 'V-22', 'V-25']);
 
 export function escalarARevisionHumana(inf: any, hallazgos: HallazgoValidador[]): string[] {
-  const disparadas = hallazgos.filter(h => REGLAS_A_REVISION_HUMANA.has(h.regla));
+  const set = inf?._schema === 'v4' ? REGLAS_A_REVISION_HUMANA_V4 : REGLAS_A_REVISION_HUMANA;
+  const disparadas = hallazgos.filter(h => set.has(h.regla));
   if (disparadas.length === 0) return [];
   if (inf?.veredicto && typeof inf.veredicto === 'object') {
     inf.veredicto.estado_veredicto = 'REVISION_HUMANA';

@@ -14,7 +14,7 @@ import { analizarYGuardarViabilidadIA, calcularDocsHash } from '@/app/lib/viabil
 import { getAuthedUser, tomarLock, liberarLock, permitido, puedeVerLicitacion } from '@/app/lib/api-auth';
 import { iaTextoConfigurada } from '@/app/lib/gemini';
 import { registrarActividad } from '@/app/lib/actividad';
-import { validarInformeViabilidad } from '@/app/lib/validador-viabilidad';
+import { validarInformeViabilidad, validarNivelV27 } from '@/app/lib/validador-viabilidad';
 
 // Recalcula el validador (código puro, sin IA) sobre un informe YA guardado, para que las
 // correcciones de reglas se vean al instante en pantalla sin gastar un re-análisis con IA. El
@@ -22,8 +22,16 @@ import { validarInformeViabilidad } from '@/app/lib/validador-viabilidad';
 // snapshot con el resultado fresco al servir el informe (mismo criterio de "código barato,
 // recalcular siempre" del score determinista).
 function conValidadorFresco(informeIA: any): any {
-  if (!informeIA || informeIA._schema !== 'v3') return informeIA;
+  if (!informeIA) return informeIA;
   try {
+    if (informeIA._schema === 'v4') {
+      // v4: sin score del modelo; V-27 (nivel con dato dudoso sin marcar) corre aparte del set.
+      const v = validarInformeViabilidad(informeIA);
+      const v27 = validarNivelV27(informeIA);
+      if (v27) { v.hallazgos.push(v27); v.ok = false; }
+      return { ...informeIA, _validador: v };
+    }
+    if (informeIA._schema !== 'v3') return informeIA;
     return { ...informeIA, _validador: validarInformeViabilidad(informeIA, Number(informeIA.score_0_100) || 0) };
   } catch { return informeIA; }
 }

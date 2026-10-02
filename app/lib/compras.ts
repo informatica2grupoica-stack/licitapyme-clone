@@ -140,6 +140,26 @@ export function leerPlazosDelInforme(informe: any): PlazosDelInforme {
   const lt = nucleo.linea_tiempo;
   const out: PlazosDelInforme = { ...vacio };
 
+  // Viabilidad v4.0 (P3): hitos fijos en su unidad original + inicio y rango del plazo de entrega.
+  // Nada se infiere: si las bases no indican el plazo de aceptación de la OC, se dice así.
+  if (nucleo._schema === 'v4' && p) {
+    const ini = p.inicio_plazo_entrega;
+    if (ini?.evento) {
+      const d = ini.desfase?.cantidad != null ? ` (+${ini.desfase.cantidad} ${ini.desfase.unidad || ''})`.trimEnd() : '';
+      out.hitoInicioPlazo = `${ini.evento}${d}`;
+    }
+    const pe = p.plazo_entrega;
+    if (pe && (pe.max || pe.min)) {
+      out.plazoEntregaTexto = [pe.min ? `mínimo ${pe.min}` : '', pe.max ? `máximo ${pe.max}` : ''].filter(Boolean).join(' · ') + (pe.unidad ? ` ${pe.unidad}` : '');
+      const n = /(\d+)/.exec(String(pe.max || pe.min));
+      if (n) out.plazoEntregaDias = Number(n[1]);
+    }
+    const acept = Array.isArray(p.hitos) ? p.hitos.find((h: any) => h?.hito === 'ACEPTACION_OC') : null;
+    if (acept?.estado === 'EXISTE' && acept.plazo != null) out.plazoAceptacionOC = `${acept.plazo} ${acept.unidad_original || ''}`.trim();
+    else if (acept?.estado === 'NO_INDICADO') out.plazoAceptacionOC = 'No indicado en las bases (aceptar la OC el mismo día)';
+    return out;
+  }
+
   // Desde cuándo corre el plazo: `plazos.frontera` (v3) o `linea_tiempo.frontera_inicio_computo`.
   const frontera = p?.frontera || lt?.frontera_inicio_computo;
   if (frontera) {
@@ -235,7 +255,11 @@ export async function construirResumenEjecutivoCompras(
     // versión que analizó esta licitación puede venir directo o envuelto en _informe_ia(_v3).
     const nucleo = informe?._informe_ia_v3 || informe?._informe_ia || informe;
     const adm = nucleo?.requisitos_admisibilidad;
-    if (adm) {
+    if (adm && nucleo?._schema === 'v4') {
+      // v4.0 (P6): garantías y contrato con estado EXISTE / NO_EXISTE / NO_INDICADO.
+      requiereBoletaFielCumplimiento = adm.garantias?.fiel_cumplimiento?.estado === 'EXISTE';
+      requiereFirmaContrato = adm.garantias?.contrato?.estado === 'EXISTE';
+    } else if (adm) {
       requiereBoletaFielCumplimiento = !!(adm.fiel_cumplimiento?.exige ?? adm.boleta?.aplica);
       requiereFirmaContrato = !!adm.contrato?.exige;
     }

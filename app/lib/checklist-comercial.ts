@@ -9,6 +9,7 @@
 // los puntos nuevos sin duplicar ni pisar lo que el asesor ya aprobó.
 
 import { lineasTecnicasDelInforme, numeroDeLinea } from '@/app/lib/auditor-tecnico-core';
+import { citaATexto } from '@/app/lib/viabilidad-v4/citas';
 
 export type BloqueChecklist = 'ADMINISTRATIVO' | 'TECNICO' | 'COMERCIAL';
 export type TipoItem = 'documento' | 'dato' | 'precio' | 'linea_tecnica';
@@ -546,13 +547,60 @@ export function lineasOfertablesDelInforme(informe: any): Array<{ linea: number;
 // ═══ GENERACIÓN ═════════════════════════════════════════════════════════════════
 
 /**
+ * Viabilidad v4.0 (P6/P10): traduce el bloque de admisibilidad nuevo a la forma que ya consume
+ * el checklist, para no duplicar la generación:
+ *  · Grupo 2 (anexos del organismo, `documentos_solicitados` con anexo_del_organismo) y Grupo 3
+ *    (documentos a crear, compromisos nuestros) → orden de trabajo de anexos.
+ *  · Garantías y contrato con estado EXISTE → exigencias; firma a mano/original → firma.
+ *  · Requisitos que dejan fuera → bloqueantes (el "cotizar 100 %" solo si P1 lo derivó).
+ * Las citas estructuradas se pasan a texto ("doc · numeral · pág. N · «frase»").
+ */
+function admDesdeV4(informe: any): any {
+  const a = informe?.requisitos_admisibilidad || {};
+  const g = a.garantias || {};
+  const existe = (x: any) => String(x?.estado || '').toUpperCase() === 'EXISTE';
+  const firma = String(a.firma?.estado || '').toUpperCase();
+  const requisitos: any[] = Array.isArray(a.requisitos) ? a.requisitos : [];
+  const cotizar100 = requisitos.find(r => r?.origen === 'sistema' && /cotizar el 100/i.test(String(r?.que || '')));
+  return {
+    orden_anexos_propios: [
+      ...(Array.isArray(a.documentos_solicitados) ? a.documentos_solicitados : []).filter((d: any) => d?.anexo_del_organismo).map((d: any) => ({
+        que_crear: d.nombre, que_debe_contener: [d.copias ? `Copias: ${d.copias}` : '', d.antiguedad_maxima ? `Antigüedad máxima: ${d.antiguedad_maxima}` : ''].filter(Boolean).join(' · '),
+        fuente: citaATexto(d.cita), criticidad: 'ADMISIBILIDAD_DURA',
+      })),
+      ...(Array.isArray(a.documentos_a_crear) ? a.documentos_a_crear : []).map((d: any) => ({
+        que_crear: d.que_crear, que_debe_contener: d.contenido_exigido, fuente: citaATexto(d.cita), criticidad: 'COMPROMISO_EJECUCION',
+      })),
+    ],
+    seriedad_oferta: { exige: existe(g.seriedad), fuente: citaATexto(g.seriedad?.cita) },
+    fiel_cumplimiento: { exige: existe(g.fiel_cumplimiento), forma: g.fiel_cumplimiento?.monto || '', fuente: citaATexto(g.fiel_cumplimiento?.cita) },
+    contrato: { exige: existe(g.contrato), fuente: citaATexto(g.contrato?.cita) },
+    firma_puno_y_letra: {
+      exigida: firma === 'MANO_Y_ESCANEO' || firma === 'ORIGINAL_NOTARIAL',
+      evidencia_textual: firma === 'ORIGINAL_NOTARIAL' ? 'Piden entrega física del original o firma ante notario.' : 'Imprimir, firmar a mano y escanear.',
+      fuente: citaATexto(a.firma?.cita),
+    },
+    cotizar_100: { aplica: !!cotizar100, fuente: citaATexto(cotizar100?.cita) },
+    plazo_entrega_rango: informe?.plazos?.plazo_entrega ? {
+      min: informe.plazos.plazo_entrega.min || '', max: informe.plazos.plazo_entrega.max || '',
+      fuera_de_rango_inadmisible: informe.plazos.plazo_entrega.fuera_de_rango_inadmisible !== false,
+      fuente: citaATexto(informe.plazos.plazo_entrega.cita),
+    } : null,
+    // El 100 % y el rango de plazo ya tienen su propia casilla (arriba y en el bloque comercial).
+    bloqueantes: requisitos.filter(r => r?.origen !== 'sistema' || !/cotizar el 100|plazo de entrega dentro/i.test(String(r?.que || '')))
+      .map(r => ({ item: String(r?.que || '').trim(), efecto: r?.consecuencia || '', fuente: citaATexto(r?.cita) }))
+      .filter(b => b.item),
+  };
+}
+
+/**
  * Traduce el informe de viabilidad al checklist de trabajo.
  * Tolera v2 y v3: los campos cambiaron de sitio entre versiones (requisitos_admisibilidad vs
  * capa_c_admisibilidad, orden_anexos_propios vs documentos_infaltables) y aquí se leen ambos.
  */
 export function generarItemsDesdeViabilidad(informe: any, lineasOfertadas?: number[] | null): ItemGenerado[] {
   const items: ItemGenerado[] = [];
-  const adm = informe?.requisitos_admisibilidad || {};
+  const adm = informe?._schema === 'v4' ? admDesdeV4(informe) : (informe?.requisitos_admisibilidad || {});
   const capaC = informe?.capa_c_admisibilidad || {};
   let orden = 0;
   const push = (it: Omit<ItemGenerado, 'orden'>) => {
@@ -771,7 +819,7 @@ export function generarItemsDesdeViabilidad(informe: any, lineasOfertadas?: numb
       if (desc && !(yaExiste.descripcion || '').includes(desc)) {
         yaExiste.descripcion = [yaExiste.descripcion, `Se evalúa: ${desc}`].filter(Boolean).join(' · ').slice(0, 1000);
       }
-      if (!yaExiste.fuenteCita && c?.fuente) yaExiste.fuenteCita = c.fuente;
+      if (!yaExiste.fuenteCita && (c?.fuente || c?.cita)) yaExiste.fuenteCita = c?.fuente || citaATexto(c?.cita) || null;
       continue;
     }
     if (criterioEsAnexo) registroAdmin.registrar(nombre);
@@ -783,7 +831,7 @@ export function generarItemsDesdeViabilidad(informe: any, lineasOfertadas?: numb
       // Si el plazo además tiene rango excluyente, manda la admisibilidad: no basta con
       // "sacar menos puntos", fuera de rango la oferta se cae.
       criticidad: esPlazo && hayRango ? 'ADMISIBILIDAD_DURA' : 'PUNTAJE_CONDICIONANTE',
-      ponderacion: pond, fuenteCita: c?.fuente || rango?.fuente || null, origen: 'viabilidad',
+      ponderacion: pond, fuenteCita: c?.fuente || citaATexto(c?.cita) || rango?.fuente || null, origen: 'viabilidad',
       claveOrigen: esPlazo ? CLAVE_PLAZO : `criterio:${slug(nombre)}`,
       generable: criterioEsAnexo, lineaNumero: null,
     });

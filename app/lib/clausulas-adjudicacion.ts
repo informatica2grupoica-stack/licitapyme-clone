@@ -14,19 +14,28 @@
 //  3. VERIFICACIÓN determinista: la cita debe existir literalmente en el documento (normalizada).
 //     Si el modelo inventa o parafrasea, la respuesta se descarta — mismo principio anti-invento
 //     del Auditor de cotizaciones. Solo una cita verificada cuenta como evidencia.
+//
+// v4.0 (02-oct-2026, especificación 1 P1 + prompt auxiliar A): ya NO responde un modo
+// (POR_LINEAS/GLOBAL/INDETERMINADO). Entrega EVIDENCIAS TIPADAS en los dos sentidos, que se suman
+// a las del analizador y pasan por la tabla de decisión del código (viabilidad-v4/adjudicacion.ts).
+// Antes solo se usaba la rama POR_LINEAS: una frase que decía "a un solo oferente" se perdía.
 
-export type ModoAdjudicacion = 'POR_LINEAS' | 'GLOBAL' | 'INDETERMINADO';
+export const TIPOS_CLAUSULA = ['COTIZAR_TOTALIDAD', 'ADJUDICA_GLOBAL', 'ADJUDICA_POR_LINEA', 'TOTAL_O_PARCIAL', 'OFERTA_POR_BIEN', 'DESIERTA_POR_LINEA'] as const;
+export type TipoClausula = typeof TIPOS_CLAUSULA[number];
+
+export interface EvidenciaClausula {
+  tipo: TipoClausula;
+  cita: { documento: string; numeral: string; frase: string };
+}
 
 export interface ClausulaAdjudicacion {
-  modo: ModoAdjudicacion;
-  cita: string | null;        // frase textual verificada en el documento
-  documento: string | null;
-  verificada: boolean;        // true solo si la cita existe literalmente en algún documento
+  evidencias: EvidenciaClausula[];   // solo las que tienen frase verificada literal
+  descartadas: number;               // frases que el modelo citó y no existen en los documentos
 }
 
 export interface DocClausula { nombre: string; texto: string }
 
-const INDETERMINADA: ClausulaAdjudicacion = { modo: 'INDETERMINADO', cita: null, documento: null, verificada: false };
+const VACIA: ClausulaAdjudicacion = { evidencias: [], descartadas: 0 };
 
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 
@@ -45,8 +54,10 @@ function prioridad(nombre: string): number {
 // Frase "fuerte": habla de líneas/lotes Y de cómo se postula, evalúa o adjudica. Es la que casi
 // siempre contiene la cláusula; se incluye primero para que una base enorme (200 págs.) no agote el
 // presupuesto de fragmentos con frases genéricas ("oferta", "ítems") antes de llegar a ella.
-const RE_LINEA = /l[ií]neas?|lotes?/i;
-const RE_ACCION = /adjudic|postul|ofert|evalu|independ|separad|inadmisible|conjunto|ambas|un\s+solo/i;
+// v4.0: además de línea/lote, "bien(es)", "ítem(s)", "total o parcialmente", "por separado" y
+// "desierta" (Cholchol: "en caso de ofertar más de un bien…"; Arica: "adjudicar total o parcialmente").
+const RE_LINEA = /l[ií]neas?|lotes?|\bbienes?\b|[ií]tems?|total\s+o\s+parcial|parcialmente|por\s+separado|desiert/i;
+const RE_ACCION = /adjudic|postul|ofert|evalu|independ|separad|inadmisible|conjunto|ambas|un\s+solo|totalidad|parcial|desiert/i;
 const esFuerte = (f: string) => RE_LINEA.test(f) && RE_ACCION.test(f);
 
 /** Frases relevantes de TODOS los documentos, con su vecina anterior/siguiente para dar contexto. */
@@ -87,19 +98,33 @@ export function extraerFragmentosClave(docs: DocClausula[], maxChars = 14_000): 
   return salida;
 }
 
-const SYSTEM = `Eres un lector de bases de licitación pública chilena. Responde UNA pregunta cerrada sobre cómo se ADJUDICA, citando textualmente.
+// Prompt auxiliar A (PROMPTS_Auxiliares_Fase2_v4_0), texto íntegro.
+const SYSTEM = `Eres un lector de bases de licitaciones públicas chilenas. Tu única tarea es
+encontrar frases que digan si el conjunto de líneas (o ítems, lotes o bienes)
+puede repartirse entre distintos proveedores.
 
-Definiciones:
-- POR_LINEAS: las bases dividen lo licitado en líneas/lotes/ítems que se evalúan y adjudican de forma independiente (un oferente puede postular a una o algunas líneas, o cada línea puede ganarla un proveedor distinto).
-- GLOBAL: hay un solo adjudicatario para el conjunto; la oferta es todo-o-nada.
-- INDETERMINADO: los fragmentos no lo dicen claramente.
+Reporta cada frase que encuentres de estos tipos:
+- COTIZAR_TOTALIDAD: obliga a ofertar todas las líneas ("no se aceptan ofertas
+  parciales").
+- ADJUDICA_GLOBAL: se adjudica a un solo oferente o por el total.
+- ADJUDICA_POR_LINEA: se adjudica por línea, ítem, lote o bien.
+- TOTAL_O_PARCIAL: "se reserva el derecho de adjudicar total o parcialmente".
+- OFERTA_POR_BIEN: permite ofertar uno o más bienes ("en caso de ofertar más de
+  un bien… por separado").
+- DESIERTA_POR_LINEA: permite declarar desierta una o más líneas.
 
 Reglas:
-- La "cita" debe ser una frase COPIADA LITERALMENTE de los fragmentos (máx. 300 caracteres), sin parafrasear ni unir frases de lugares distintos.
-- Que la evaluación de puntaje sea "por línea" NO basta si no dice que la adjudicación también es independiente por línea.
-- Si dudas, responde INDETERMINADO con cita null.
+- La "frase" se copia LITERAL de los fragmentos (máximo 300 caracteres), sin
+  parafrasear ni unir frases de lugares distintos. No copies los marcadores
+  [[PÁGINA N]].
+- "documento": nombre exacto del documento; "numeral": artículo o punto, si
+  aparece en el fragmento (si no, vacío).
+- Que el puntaje se evalúe por línea NO es ninguno de estos tipos.
+- No concluyas GLOBAL ni POR LÍNEA. Si no hay frases de estos tipos, devuelve
+  la lista vacía.
 
-Responde SOLO JSON: {"modo":"POR_LINEAS|GLOBAL|INDETERMINADO","cita":"...","documento":"nombre exacto del documento"}`;
+Responde SOLO JSON:
+{"evidencias":[{"tipo":"…","cita":{"documento":"","numeral":"","frase":""}}]}`;
 
 /** Verifica que la cita exista literalmente (normalizada) en algún documento; devuelve el nombre. */
 export function verificarCita(cita: string, docs: DocClausula[], preferido?: string | null): string | null {
@@ -113,7 +138,7 @@ export function verificarCita(cita: string, docs: DocClausula[], preferido?: str
 /**
  * Lee la cláusula de adjudicación. `preguntar` recibe (system, user) y devuelve el JSON ya
  * parseado del modelo (inyectado para poder probar sin red). Nunca lanza: ante cualquier fallo
- * devuelve INDETERMINADO y el flujo sigue con el resto de las señales.
+ * devuelve la lista vacía y el flujo sigue con el resto de las evidencias.
  */
 export async function leerClausulaAdjudicacion(
   docs: DocClausula[],
@@ -121,17 +146,23 @@ export async function leerClausulaAdjudicacion(
 ): Promise<ClausulaAdjudicacion> {
   try {
     const fragmentos = extraerFragmentosClave(docs);
-    if (!fragmentos.length) return INDETERMINADA;
+    if (!fragmentos.length) return VACIA;
     const user = fragmentos.map(f => `### DOCUMENTO: ${f.doc}\n${f.texto}`).join('\n\n')
-      + '\n\nPregunta: ¿la adjudicación es POR_LINEAS, GLOBAL o INDETERMINADO? Cita la frase textual que lo dice.';
+      + '\n\nPregunta: lista las frases de los tipos indicados, cada una con su cita (documento exacto, numeral y frase literal).';
     const r = await preguntar(SYSTEM, user);
-    const modo = String(r?.modo ?? '').toUpperCase() as ModoAdjudicacion;
-    if (modo !== 'POR_LINEAS' && modo !== 'GLOBAL') return INDETERMINADA;
-    const cita = typeof r?.cita === 'string' ? r.cita.trim() : '';
-    const documento = cita ? verificarCita(cita, docs, typeof r?.documento === 'string' ? r.documento : null) : null;
-    if (!documento) return INDETERMINADA; // cita inventada o parafraseada → no cuenta
-    return { modo, cita, documento, verificada: true };
+    const crudas: any[] = Array.isArray(r?.evidencias) ? r.evidencias : [];
+    const out: EvidenciaClausula[] = [];
+    let descartadas = 0;
+    for (const e of crudas) {
+      const tipo = String(e?.tipo ?? '').toUpperCase() as TipoClausula;
+      if (!TIPOS_CLAUSULA.includes(tipo)) continue;
+      const frase = String(e?.cita?.frase ?? e?.frase ?? '').replace(/\[\[P[ÁA]GINA[^\]]*\]\]/gi, ' ').trim();
+      const documento = frase ? verificarCita(frase, docs, typeof e?.cita?.documento === 'string' ? e.cita.documento : null) : null;
+      if (!documento) { descartadas++; continue; }   // frase inventada o parafraseada → no cuenta
+      out.push({ tipo, cita: { documento, numeral: String(e?.cita?.numeral ?? ''), frase } });
+    }
+    return { evidencias: out, descartadas };
   } catch {
-    return INDETERMINADA;
+    return VACIA;
   }
 }

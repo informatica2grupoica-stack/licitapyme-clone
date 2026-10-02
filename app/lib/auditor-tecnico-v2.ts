@@ -69,6 +69,24 @@ async function leerInforme(codigo: string): Promise<any | null> {
   } catch { return null; }
 }
 
+// Viabilidad v4.0 (P8/P10): el bloque técnico-administrativo recibe los REQUISITOS GENERALES de los
+// productos (garantía, capacitación, manuales…), los DOCUMENTOS A CREAR (compromisos nuestros, con el
+// contenido que exigen las bases) y las causales de admisibilidad, sin el resto del bloque. Los
+// informes v3 siguen mandando su requisitos_admisibilidad completo.
+function requisitosGeneralesDelInforme(informe: any): string | null {
+  if (informe?._schema === 'v4') {
+    const adm = informe?.requisitos_admisibilidad || {};
+    const compacto = {
+      requisitos_generales: (informe?.productos?.requisitos_generales || []).map((r: any) => r?.producto ? `${r.producto}: ${r.texto}` : r?.texto).filter(Boolean),
+      documentos_a_crear: (adm.documentos_a_crear || []).map((d: any) => ({ que_crear: d?.que_crear, contenido_exigido: d?.contenido_exigido })),
+      requisitos_admisibilidad: (adm.requisitos || []).map((r: any) => ({ que: r?.que, cuanto: r?.cuanto, cuando: r?.cuando, consecuencia: r?.consecuencia })),
+      garantias: adm.garantias || null,
+    };
+    return JSON.stringify(compacto).slice(0, 5000);
+  }
+  return informe?.requisitos_admisibilidad ? JSON.stringify(informe.requisitos_admisibilidad).slice(0, 5000) : null;
+}
+
 export interface ContextoRequisitos {
   requisitos: RequisitoHeredado[]; nombreLinea: string; criticidadLinea: Criticidad;
   criterios: string | null; requisitosGenerales: string | null; foro: string | null; presupuestoNeto: number | null;
@@ -96,7 +114,7 @@ export async function requisitosDeLinea(negocioId: number, licitacionCodigo: str
   return {
     requisitos, nombreLinea: productos.map(p => p.nombre).join(' + ') || `Línea ${lineaReal}`, criticidadLinea,
     criterios: cri ? JSON.stringify(cri).slice(0, 6000) : null,
-    requisitosGenerales: informe?.requisitos_admisibilidad ? JSON.stringify(informe.requisitos_admisibilidad).slice(0, 5000) : null,
+    requisitosGenerales: requisitosGeneralesDelInforme(informe),
     foro: foro ? (typeof foro === 'string' ? foro : JSON.stringify(foro)).slice(0, 6000) : null,
     presupuestoNeto: Number(informe?.presupuesto?.neto) || null,
   };

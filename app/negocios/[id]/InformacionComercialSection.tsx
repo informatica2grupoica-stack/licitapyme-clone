@@ -21,6 +21,7 @@ import { Banner } from '@/app/components/ui/Banner';
 import { urlDescarga } from '@/app/lib/descargas-cliente';
 import { Select } from '@/app/components/ui/Select';
 import { Modal } from '@/app/components/ui/Modal';
+import { pedirJson, ultimoJson } from '@/app/lib/pedir-json';
 import { useRealtime } from '@/app/lib/use-realtime';
 import { useSession } from '@/app/lib/session-context';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
@@ -337,32 +338,40 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
     } finally { setGenerandoFicha(false); }
   };
 
+  const aplicar = useCallback((d: any) => {
+    setItems(d.items || []);
+    setResumen(d.resumen || null);
+    setSemaforo(d.semaforo || 'VERDE');
+    setGeneracion(d.generacion || null);
+    setCausalesBloqueo(d.causalesBloqueo || []);
+    setForoSnapshot(d.foroSnapshot || null);
+    setCongelado(d.congelado || null);
+    setEmpresa(d.empresa || null);
+    setModalidad(d.modalidad || null);
+    setPuedeAprobar(!!d.puedeAprobar);
+    setSinViabilidad(!!d.sinViabilidad);
+    setMigracionPendiente(!!d.migracionPendiente);
+    setError(null);
+  }, []);
+
   const cargar = useCallback(async () => {
     try {
-      const r = await fetch(`/api/negocios/${negocioId}/comercial`);
-      const d = await r.json();
-      if (!r.ok) { setError(d.error || 'No se pudo cargar'); return; }
-      setItems(d.items || []);
-      setResumen(d.resumen || null);
-      setSemaforo(d.semaforo || 'VERDE');
-      setGeneracion(d.generacion || null);
-      setCausalesBloqueo(d.causalesBloqueo || []);
-      setForoSnapshot(d.foroSnapshot || null);
-      setCongelado(d.congelado || null);
-      setEmpresa(d.empresa || null);
-      setModalidad(d.modalidad || null);
-      setPuedeAprobar(!!d.puedeAprobar);
-      setSinViabilidad(!!d.sinViabilidad);
-      setMigracionPendiente(!!d.migracionPendiente);
-      setError(null);
+      const d = await pedirJson(`/api/negocios/${negocioId}/comercial`, { fresco: true });   // siempre lectura nueva; guarda lo último visto
+      if (!d.success) { setError(d.error || 'No se pudo cargar'); return; }
+      aplicar(d);
     } catch (e) {
       setError(String(e));
     } finally {
       setCargando(false);
     }
-  }, [negocioId]);
+  }, [negocioId, aplicar]);
 
-  useEffect(() => { cargar(); }, [cargar]);
+  // Al volver a la pestaña se pinta al tiro lo último que se vio y se refresca por detrás (ya no «Cargando…» desde cero).
+  useEffect(() => {
+    const visto = ultimoJson(`/api/negocios/${negocioId}/comercial`);
+    if (visto) { aplicar(visto); setCargando(false); }
+    cargar();
+  }, [cargar, aplicar, negocioId]);
   // El asesor tiene que poder aprobar el mismo día, en el momento: si el asistente carga algo
   // mientras esta pantalla está abierta, aparece solo.
   useRealtime(cargar);

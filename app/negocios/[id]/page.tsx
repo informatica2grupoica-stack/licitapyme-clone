@@ -313,6 +313,15 @@ function SeccionResumen({
     NO_VAMOS:  { label: 'NO VAMOS',  cls: 'bg-red-600' },
   };
   const ver3 = tarjeta3 ? VER3[tarjeta3.veredicto] : null;
+  // v4.1: NIVEL de atractivo + acción del asistente (lo calcula el código; sin número 0-100).
+  const esV4 = viabIA?._schema === 'v4';
+  const sc4 = viabIA?.score;
+  const NIV4: Record<string, { label: string; cls: string }> = {
+    MUY_ALTO: { label: 'MUY ALTO', cls: 'bg-emerald-600' }, ALTO: { label: 'ALTO', cls: 'bg-emerald-500' },
+    MEDIO_ALTO: { label: 'MEDIO ALTO', cls: 'bg-yellow-500' }, MEDIO: { label: 'MEDIO', cls: 'bg-yellow-500' },
+    MEDIO_BAJO: { label: 'MEDIO BAJO', cls: 'bg-orange-500' }, BAJO: { label: 'BAJO', cls: 'bg-red-500' }, EXCLUIDO: { label: 'EXCLUIDO', cls: 'bg-red-700' },
+  };
+  const niv4 = esV4 && sc4 ? NIV4[sc4.nivel] : null;
   // Monto oficial de MP (del negocio o de la ficha en vivo): si existe, manda sobre la IA.
   const montoMP = Number(negocio.licitacion_monto) || Number(oportunidad?.monto_total || oportunidad?.monto_estimado) || 0;
   const adm3 = viabIA?.requisitos_admisibilidad || {};
@@ -330,12 +339,29 @@ function SeccionResumen({
             {onIrViabilidad && <button onClick={onIrViabilidad} className="text-[12px] text-violet-600 hover:underline flex items-center gap-0.5">Ver análisis completo <ChevronRight size={13} /></button>}
           </div>
           <div className="flex items-center gap-4">
+            {niv4 ? (
+              <div className={`w-20 h-14 rounded-2xl ${niv4.cls} flex items-center justify-center text-white flex-shrink-0 px-1 text-center`}>
+                <span className="text-[12px] font-black leading-tight">{niv4.label}</span>
+              </div>
+            ) : (
             <div className={`w-14 h-14 rounded-2xl ${sSemColor} flex flex-col items-center justify-center text-white flex-shrink-0`}>
               <span className="text-lg font-black leading-none">{sScore}</span>
               <span className="text-[9px] opacity-80">/100</span>
             </div>
+            )}
             <div className="min-w-0">
-              {esV3 && ver3 ? (
+              {niv4 ? (
+                <>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[12px] font-bold text-zinc-800">{sc4.accion_texto}</span>
+                    {Number(viabIA?.requisitos_admisibilidad?.conteo) > 0
+                      ? <span className="text-[11px] font-bold text-red-600">⛔ {viabIA.requisitos_admisibilidad.conteo} requisito(s) pueden dejarte fuera</span>
+                      : <span className="text-[11px] text-emerald-600">sin requisitos que dejen fuera</span>}
+                  </div>
+                  {sc4.resumen_pantalla && <p className="text-[13px] font-semibold text-zinc-800 leading-snug line-clamp-2 mt-1">{String(sc4.resumen_pantalla).replace(/^[A-ZÁÉÍÓÚ ]+ · /, '')}</p>}
+                  {sc4.motivo_exclusion?.texto && <p className="text-[12px] text-red-600 leading-snug line-clamp-2 mt-0.5">{sc4.motivo_exclusion.texto}</p>}
+                </>
+              ) : esV3 && ver3 ? (
                 <>
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className={`text-[11px] font-black text-white px-2 py-0.5 rounded ${ver3.cls}`}>{ver3.label}</span>
@@ -370,6 +396,7 @@ function SeccionResumen({
               title={[
                 viabIA?.adjudicacion?.fuente && `Fuente: ${viabIA.adjudicacion.fuente}`,
                 viabIA?.adjudicacion?.evidencia,
+                esV4 && viabIA?.adjudicacion?.motivo,
                 'Clic para ver la cita en Viabilidad',
               ].filter(Boolean).join('\n')}
               className="bg-zinc-50 hover:bg-zinc-100 rounded-lg px-3 py-2 text-left transition-colors group"
@@ -379,8 +406,10 @@ function SeccionResumen({
                 <Eye size={10} className="text-violet-400 group-hover:text-violet-600" />
               </p>
               <p className="text-[13px] font-semibold text-zinc-700">
-                {String(viabIA?.adjudicacion?.como_se_adjudica || viabIA?.modalidad?.general || viabIA?.modalidad?.tipo || '—').replace(/_/g, ' ')}
-                {viabIA?.adjudicacion?.estado === 'REVISION_HUMANA' ? <span className="text-amber-500" title="Sin certeza: confírmalo en las bases"> ⚠</span> : null}
+                {esV4
+                  ? (viabIA?.adjudicacion?.resultado === 'POR_LINEAS' ? 'Por línea' : viabIA?.adjudicacion?.resultado === 'GLOBAL' ? 'Global' : 'No está claro')
+                  : String(viabIA?.adjudicacion?.como_se_adjudica || viabIA?.modalidad?.general || viabIA?.modalidad?.tipo || '—').replace(/_/g, ' ')}
+                {viabIA?.adjudicacion?.estado === 'REVISION_HUMANA' || viabIA?.adjudicacion?.resultado === 'NO_CLARO' ? <span className="text-amber-500" title="Sin certeza: confírmalo en las bases"> ⚠</span> : null}
               </p>
             </button>
             <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Productos</p><p className="text-[13px] font-bold text-zinc-700">{viabIA?.manifiesto_productos?.length || viabIA?.productos?.items?.length || viabIA?.costeo?.items?.length || '—'}</p></div>

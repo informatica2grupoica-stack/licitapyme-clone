@@ -1,0 +1,135 @@
+// app/lib/viabilidad-v4/productos.ts
+// P8 · PRODUCTOS Y FICHAS + P11 · UNA SOLA LISTA.
+//
+//  · Cada característica debe existir LITERAL en las bases. Lo que no se encuentra queda en
+//    `caracteristicas_no_encontradas` ("no encontrada en bases") y NO pasa al AUDITOR como
+//    requisito hasta revisarla. Antes `completarCaracteristicasLiterales` reemplazaba la lista si
+//    la nueva era más larga, y el AUDITOR recibía fichas resumidas o reescritas.
+//  · Una sola lista: `productos.items` (con ficha) y `manifiesto_productos` (puente al costeo) salen
+//    de la MISMA lista final, después de todas las correcciones. Antes convivían dos listas
+//    distintas y la pestaña mostraba una mientras el costeo usaba otra.
+//  · Conteo cruzado entre fuentes ("N de N") y control de calidad del manifiesto (V-23: Valdivia
+//    traía 21 "ítems" que eran membretes y encabezados con 97 % de confianza).
+
+import { LocalizadorCitas } from '@/app/lib/viabilidad-v4/citas';
+import { esFilaNoProducto } from '@/app/lib/fila-no-producto';
+
+const norm = (s: unknown) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+
+/** ¿La característica existe literal en las bases? En "Ítem: valor" cada parte debe existir. */
+export function caracteristicaEnBases(car: string, loc: LocalizadorCitas): boolean {
+  const partes = car.split(/\s*[:：]\s*/).map(p => p.trim()).filter(p => norm(p).length >= 2);
+  if (!partes.length) return false;
+  return partes.every(p => loc.localizar({ frase: p }).verificada === true);
+}
+
+/** Separa las características encontradas de las que no (muta los ítems). Devuelve el conteo. */
+export function verificarCaracteristicasLiterales(items: any[], loc: LocalizadorCitas): { revisadas: number; no_encontradas: number } {
+  let revisadas = 0, noEnc = 0;
+  for (const it of items) {
+    const cs: string[] = Array.isArray(it?.caracteristicas) ? it.caracteristicas.map((c: any) => String(c ?? '').trim()).filter(Boolean) : [];
+    if (!cs.length) continue;
+    const ok: string[] = [];
+    const fuera: string[] = Array.isArray(it.caracteristicas_no_encontradas) ? [...it.caracteristicas_no_encontradas] : [];
+    for (const c of cs) {
+      revisadas++;
+      if (caracteristicaEnBases(c, loc)) ok.push(c);
+      else { fuera.push(c); noEnc++; }
+    }
+    it.caracteristicas = ok;
+    if (fuera.length) it.caracteristicas_no_encontradas = [...new Set(fuera)];
+  }
+  return { revisadas, no_encontradas: noEnc };
+}
+
+// ─── Lista única ──────────────────────────────────────────────────────────────────────────
+export interface FilaManifiesto {
+  linea: number; categoria: string | null; descripcion: string; modelo: string; cantidad: number | null;
+  unidad_medida: string; unidad_inferida: boolean; presupuesto_linea: number | null; tipo: string; ruta: string;
+}
+
+const numLinea = (x: unknown) => { const m = String(x ?? '').match(/\d+/); return m ? Number(m[0]) : 1; };
+
+/**
+ * Arma la lista ÚNICA: las filas del manifiesto final (que pudo ganar la planilla, la tabla
+ * canónica o la extracción dedicada) con la ficha del modelo pegada por descripción, o por línea
+ * cuando la línea no está saturada (si en una línea hay más filas que fichas, la clave no
+ * discrimina y se prefiere dejar la ficha vacía antes que mostrar la de otro producto — bug
+ * 2920-30-LE26 / 1414396-21-LP26).
+ */
+export function construirListaUnica(manifiesto: FilaManifiesto[], itemsModelo: any[]): any[] {
+  const porDesc = new Map<string, any>();
+  const porLinea = new Map<number, any[]>();
+  for (const it of itemsModelo) {
+    const d = norm(it?.nombre ?? it?.descripcion);
+    if (d && !porDesc.has(d)) porDesc.set(d, it);
+    const l = numLinea(it?.linea);
+    if (!porLinea.has(l)) porLinea.set(l, []);
+    porLinea.get(l)!.push(it);
+  }
+  const filasPorLinea = new Map<number, number>();
+  for (const m of manifiesto) filasPorLinea.set(m.linea, (filasPorLinea.get(m.linea) || 0) + 1);
+  const pos = new Map<number, number>();
+  return manifiesto.map(m => {
+    let mod = porDesc.get(norm(m.descripcion));
+    if (!mod) {
+      const fichas = porLinea.get(m.linea) || [];
+      if (fichas.length && (filasPorLinea.get(m.linea) || 0) <= fichas.length) {
+        const p = pos.get(m.linea) || 0;
+        mod = fichas[Math.min(p, fichas.length - 1)];
+        pos.set(m.linea, p + 1);
+      }
+    }
+    return {
+      linea: `L${m.linea}`,
+      nombre: m.descripcion,
+      familia: mod?.familia ?? '',
+      clasificacion: mod?.clasificacion ?? (m.tipo || 'generico'),
+      marca_modelo_referencia: m.modelo || mod?.marca_modelo_referencia || '',
+      libertad_de_oferta: !!mod?.libertad_de_oferta,
+      caracteristicas: Array.isArray(mod?.caracteristicas) ? mod.caracteristicas : [],
+      ...(Array.isArray(mod?.caracteristicas_no_encontradas) && mod.caracteristicas_no_encontradas.length ? { caracteristicas_no_encontradas: mod.caracteristicas_no_encontradas } : {}),
+      cantidad: m.cantidad,
+      cantidad_variable: mod?.cantidad_variable ?? null,
+      unidad_medida: m.unidad_medida,
+      unidad_inferida: m.unidad_inferida,
+      presupuesto_linea: m.presupuesto_linea,
+      libertad_de_pricing: m.presupuesto_linea == null ? true : !!mod?.libertad_de_pricing,
+      cita: mod?.cita ?? null,
+    };
+  });
+}
+
+// ─── Conteo cruzado (V-21) ────────────────────────────────────────────────────────────────
+export interface ConteoCruzado { final: number; declarado: number | null; fuentes: Array<{ documento: string; rol: string; n_items: number }>; api_lineas: number; cuadra: boolean; detalle: string }
+
+export function conteoCruzado(productos: any, final: number, apiLineas: number): ConteoCruzado {
+  const mapa: any[] = Array.isArray(productos?.mapa_items) ? productos.mapa_items : [];
+  const fuentes = mapa
+    .filter(m => /principal|parcial|espejo/i.test(String(m?.rol || '')) && Number(m?.n_items) > 0)
+    .map(m => ({ documento: String(m.documento || ''), rol: String(m.rol || ''), n_items: Number(m.n_items) }));
+  const declarado = Number.isFinite(Number(productos?.total_items)) && Number(productos?.total_items) > 0 ? Number(productos.total_items) : null;
+  const distintos = new Set(fuentes.map(f => f.n_items));
+  const cuadra = (declarado == null || declarado === final) && distintos.size <= 1 && (distintos.size === 0 || distintos.has(final));
+  const partes: string[] = [];
+  if (declarado != null && declarado !== final) partes.push(`el análisis declaró ${declarado} y la lista final tiene ${final}`);
+  if (distintos.size > 1 || (distintos.size === 1 && !distintos.has(final))) partes.push(`las fuentes no coinciden: ${fuentes.map(f => `${f.documento} (${f.n_items})`).join(' · ')}`);
+  return { final, declarado, fuentes, api_lineas: apiLineas, cuadra, detalle: partes.join('; ') };
+}
+
+// ─── Control de calidad del manifiesto (V-23) ─────────────────────────────────────────────
+export function problemasCalidadManifiesto(man: FilaManifiesto[]): string[] {
+  if (man.length < 3) return [];
+  const p: string[] = [];
+  const rotulos = man.filter(m => esFilaNoProducto(m.descripcion)).length;
+  if (rotulos >= Math.max(2, man.length * 0.3)) p.push(`${rotulos} de ${man.length} filas son encabezados o rótulos, no productos`);
+  const comoFila = man.filter((m, i) => m.cantidad === i + 1).length;
+  if (man.length >= 5 && comoFila >= man.length * 0.8) p.push('las cantidades parecen el número de fila (1, 2, 3…)');
+  const sinUnidad = man.filter(m => !String(m.unidad_medida || '').trim()).length;
+  const sinCantidad = man.filter(m => m.cantidad == null).length;
+  if (sinUnidad === man.length && sinCantidad >= man.length * 0.8) p.push('ninguna fila trae unidad y casi ninguna trae cantidad');
+  // Palabra partida por el salto de línea del PDF ("Motonivela-"): huella de una fila cortada.
+  const cortadas = man.filter(m => /[a-záéíóúñ]-$/i.test(String(m.descripcion).trim())).length;
+  if (cortadas >= Math.max(3, man.length * 0.4)) p.push(`${cortadas} descripciones parecen cortadas a media palabra`);
+  return p;
+}

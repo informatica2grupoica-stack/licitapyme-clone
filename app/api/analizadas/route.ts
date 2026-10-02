@@ -51,7 +51,9 @@ export async function GET(request: NextRequest) {
 
     // Normaliza el veredicto de negocio a un único vocabulario (GANABLE / PUEDE_SER / NO_VAMOS),
     // venga el informe en esquema v3 (tarjeta_decision) o v2 (veredicto.gana_probable).
+    // v4.1: el "resultado" es el NIVEL de atractivo que calcula el código (MUY_ALTO…EXCLUIDO).
     const normResultado = (inf: any, esV3: boolean): string | null => {
+      if (inf?._schema === 'v4') return inf.score?.nivel || null;
       if (esV3) return inf.tarjeta_decision?.veredicto || null; // ya es GANABLE/PUEDE_SER/NO_VAMOS
       const g = (inf.veredicto?.gana_probable || '').toLowerCase();
       return g === 'si' ? 'GANABLE' : g === 'no' ? 'NO_VAMOS' : g ? 'PUEDE_SER' : null;
@@ -66,7 +68,10 @@ export async function GET(request: NextRequest) {
       const presupuesto = esV3
         ? (inf.presupuesto?.bruto ?? inf.presupuesto?.neto ?? null)
         : (inf.presupuesto?.neto ?? inf.presupuesto?.bruto ?? null);
-      const modalidad = esV3
+      const esV4 = inf?._schema === 'v4';
+      const modalidad = esV4
+        ? ({ GLOBAL: 'global', POR_LINEAS: 'por línea', NO_CLARO: 'adjudicación no clara' } as Record<string, string>)[inf.adjudicacion?.resultado] || null
+        : esV3
         ? (inf.adjudicacion?.como_se_adjudica || null)
         : (inf.modalidad?.tipo || null);
       const nLineas = (inf.productos?.items?.length
@@ -85,12 +90,16 @@ export async function GET(request: NextRequest) {
         semaforo: r.semaforo,
         area: r.area_negocio,
         resultado: normResultado(inf, esV3),
-        titular: esV3 ? (inf.tarjeta_decision?.titular || null) : null,
+        titular: esV4 ? (inf.score?.resumen_pantalla ? String(inf.score.resumen_pantalla).replace(/^[A-ZÁÉÍÓÚ ]+ · /, '') : null) : esV3 ? (inf.tarjeta_decision?.titular || null) : null,
+        nivel: esV4 ? (inf.score?.nivel || null) : null,
+        nivel_num: esV4 && Number.isFinite(Number(inf.score?.nivel_num)) ? Number(inf.score.nivel_num) : null,
+        nivel_presupuesto_neto: esV4 ? (inf.score?.presupuesto_neto_orden ?? null) : null,
+        accion: esV4 ? (inf.score?.accion_texto || null) : null,
         presupuesto,
         modalidad,
         n_lineas: nLineas,
         confianza: inf.confianza_global ?? (r.confianza_analisis != null ? Number(r.confianza_analisis) : null),
-        esquema: esV3 ? 'v3' : 'v2',
+        esquema: esV4 ? 'v4' : esV3 ? 'v3' : 'v2',
         owner_nombre: r.owner_nombre || null,
         owner_email: r.owner_email || null,
         estado_pipeline: r.estado_pipeline || null,

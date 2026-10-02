@@ -21,36 +21,38 @@ test('extrae la frase de las bases aunque esté partida en líneas del PDF', () 
   assert.match(f[0].texto, /postular a una o a ambas líneas/);
 });
 
-test('cita textual verificada → se acepta', async () => {
-  const r = await leerClausulaAdjudicacion([BASES, RELLENO], async () => ({ modo: 'POR_LINEAS', cita: CITA_REAL, documento: BASES.nombre }));
-  assert.equal(r.modo, 'POR_LINEAS');
-  assert.equal(r.verificada, true);
-  assert.equal(r.documento, BASES.nombre);
+const ev = (tipo: string, frase: string, documento = BASES.nombre) => ({ evidencias: [{ tipo, cita: { documento, numeral: 'Art. 9', frase } }] });
+
+test('v4: evidencia tipada con frase verificada → se acepta', async () => {
+  const r = await leerClausulaAdjudicacion([BASES, RELLENO], async () => ev('ADJUDICA_POR_LINEA', CITA_REAL));
+  assert.equal(r.evidencias.length, 1);
+  assert.equal(r.evidencias[0].tipo, 'ADJUDICA_POR_LINEA');
+  assert.equal(r.evidencias[0].cita.documento, BASES.nombre);
+  assert.equal(r.descartadas, 0);
 });
 
-test('cita inventada → se descarta (el modelo no puede afirmar sin respaldo)', async () => {
-  const r = await leerClausulaAdjudicacion([BASES], async () => ({ modo: 'POR_LINEAS', cita: 'Cada línea se adjudicará a un proveedor distinto en todos los casos', documento: BASES.nombre }));
-  assert.equal(r.modo, 'INDETERMINADO');
-  assert.equal(r.verificada, false);
+test('v4: frase inventada → se descarta (el modelo no puede afirmar sin respaldo)', async () => {
+  const r = await leerClausulaAdjudicacion([BASES], async () => ev('ADJUDICA_POR_LINEA', 'Cada línea se adjudicará a un proveedor distinto en todos los casos'));
+  assert.equal(r.evidencias.length, 0);
+  assert.equal(r.descartadas, 1);
 });
 
-test('el documento citado por el modelo puede estar mal: se busca en todos', async () => {
-  const r = await leerClausulaAdjudicacion([RELLENO, BASES], async () => ({ modo: 'POR_LINEAS', cita: CITA_REAL, documento: 'otro.pdf' }));
-  assert.equal(r.verificada, true);
-  assert.equal(r.documento, BASES.nombre);
+test('v4: el documento citado por el modelo puede estar mal: se busca en todos', async () => {
+  const r = await leerClausulaAdjudicacion([RELLENO, BASES], async () => ev('ADJUDICA_POR_LINEA', CITA_REAL, 'otro.pdf'));
+  assert.equal(r.evidencias[0].cita.documento, BASES.nombre);
 });
 
-test('respuesta INDETERMINADO, sin cita o error del modelo → INDETERMINADO sin lanzar', async () => {
-  assert.equal((await leerClausulaAdjudicacion([BASES], async () => ({ modo: 'INDETERMINADO', cita: null }))).modo, 'INDETERMINADO');
-  assert.equal((await leerClausulaAdjudicacion([BASES], async () => ({ modo: 'GLOBAL', cita: '' }))).verificada, false);
-  assert.equal((await leerClausulaAdjudicacion([BASES], async () => { throw new Error('timeout'); })).modo, 'INDETERMINADO');
+test('v4: tipos fuera del catálogo, lista vacía o error del modelo → sin evidencias y sin lanzar', async () => {
+  assert.equal((await leerClausulaAdjudicacion([BASES], async () => ev('GLOBAL', CITA_REAL))).evidencias.length, 0);
+  assert.equal((await leerClausulaAdjudicacion([BASES], async () => ({ evidencias: [] }))).evidencias.length, 0);
+  assert.equal((await leerClausulaAdjudicacion([BASES], async () => { throw new Error('timeout'); })).evidencias.length, 0);
 });
 
 test('sin fragmentos relevantes no se llama al modelo', async () => {
   let llamadas = 0;
   const r = await leerClausulaAdjudicacion([RELLENO], async () => { llamadas++; return {}; });
   assert.equal(llamadas, 0);
-  assert.equal(r.modo, 'INDETERMINADO');
+  assert.equal(r.evidencias.length, 0);
 });
 
 test('verificarCita ignora tildes, mayúsculas y saltos de línea; rechaza citas cortas', () => {

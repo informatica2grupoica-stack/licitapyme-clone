@@ -16,7 +16,9 @@ import { ahoraChileSQL } from '@/app/lib/tz';
 export interface TipoCambio { valor: number; fecha: string; fuente: string }
 
 const FUENTE = 'mindicador.cl';
-const CODIGO_MINDICADOR: Record<string, string> = { USD: 'dolar', EUR: 'euro' };
+// UF y UTM (02-oct-2026, viabilidad v4 P7): la multa por atraso se calcula en código con el valor
+// oficial del día; mismo caché y misma regla — sin fuente, null, nunca un valor fijo.
+const CODIGO_MINDICADOR: Record<string, string> = { USD: 'dolar', EUR: 'euro', UF: 'uf', UTM: 'utm' };
 
 /** Cuántos CLP vale 1 unidad de `moneda`, para el día de hoy (hora de Chile). `null` si la moneda
  *  es CLP (no hay nada que convertir) o si no se pudo obtener el dato de ninguna fuente — nunca

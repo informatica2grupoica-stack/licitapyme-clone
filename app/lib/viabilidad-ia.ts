@@ -1,10 +1,14 @@
 // app/lib/viabilidad-ia.ts
-// VIABILIDAD v3.1 — Analista IA (PROMPT 2 consolidado).
+// VIABILIDAD v4.0 + NIVEL DE ATRACTIVO v4.1 (02-oct-2026) — "el modelo extrae; el código decide".
+// El prompt v4.0 (viabilidad-v4/prompt-v4.ts) solo EXTRAE datos con su cita {documento, numeral,
+// frase}; el código decide adjudicación (tabla de decisión), exclusión por suministro, plazo
+// previo, multa en pesos, conteos, admisibilidad y el NIVEL (score-viabilidad.ts). El prompt v3.4
+// quedó sin uso en viabilidad-prompt-v3-respaldo.ts.
+//
+// (Historia, v3.1) Analista IA (PROMPT 2 consolidado).
 // STACK ACTUAL (2026-07): GLM de Z.AI end-to-end. El ANÁLISIS lo hace MODELO_TEXTO
 // (glm-4.7-flashx, respaldo DeepSeek) vía crearChatIA; los documentos ESCANEADOS se leen con
 // GLM-OCR (IA_OCR_PROVIDER=zai) que preserva tablas y numera cada página con [[PÁGINA N]].
-// El modelo emite el Informe de Viabilidad COMPLETO con FUENTE (documento + artículo + página)
-// en cada dato y el SCORE GLOBAL 0-100 que manda sobre el veredicto.
 //
 // GEMINI ESTÁ RETIRADO: los caminos gemini (llamarGeminiNativoJSON, extracción por visión)
 // solo corren si se reactiva a propósito (IA_TEXT_PROVIDER=gemini / GEMINI_HABILITADO=1 + key).
@@ -16,12 +20,12 @@
 import { createHash } from 'crypto';
 import pool from '@/app/lib/db';
 import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
-import { parseJsonIA } from '@/app/lib/json-ia';
+import { parseJsonIA, parseJsonIAConTraza } from '@/app/lib/json-ia';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO, conAcumuladorCostoIA, costoAcumuladoActual } from '@/app/lib/gemini';
 import { leerClausulaAdjudicacion } from '@/app/lib/clausulas-adjudicacion';
-import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, seccionesSonFichasDeCaracteristicas, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, detectarLicitacionTipoMultiple, extraerPresupuestoPorLineaTabla, extraerListadoCanonicoBases, decidirReemplazoPorCanonica, esFilaNoProducto } from '@/app/lib/planilla-costeo-parser';
+import { parsearPlanillaCosteo, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, extraerSeccionesLineaProducto, seccionesSonFichasDeCaracteristicas, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, detectarLicitacionTipoMultiple, extraerPresupuestoPorLineaTabla, extraerListadoCanonicoBases, decidirReemplazoPorCanonica, esFilaNoProducto } from '@/app/lib/planilla-costeo-parser';
 
 // Re-export para no romper a quien lo importaba desde acá (el filtro vive ahora en
 // planilla-costeo-parser.ts, módulo PURO sin dependencias, para que generar-costeo.ts también
@@ -32,9 +36,22 @@ import { desplegarItemsDesdeCaracteristicas } from '@/app/lib/manifiesto-desde-c
 import { seccionesDeEquipos } from '@/app/lib/caracteristicas-seccion';
 import { evaluarCoberturaLectura, resumirCobertura, esFormatoLegible, esDocumentoCritico } from '@/app/lib/lectura-documentos';
 import { ocrTieneHuecos, esTextoBasuraOCR, numeracionTablaIncompleta, leidoConOcrLocal, glmOcrDisponible } from '@/app/lib/zai-ocr';
-import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
-import { validarInformeViabilidad, autocorregirHallazgos, escalarARevisionHumana } from '@/app/lib/validador-viabilidad';
+import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidasConId, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
+import { validarInformeViabilidad, autocorregirHallazgos, escalarARevisionHumana, validarNivelV27 } from '@/app/lib/validador-viabilidad';
 import { analizarRemisionACriterios, hayTablaDeCriterios, motivoCriteriosNoConfiables, extraerSeccionCriteriosEvaluacion } from '@/app/lib/criterios-en-anexo';
+import { obtenerTipoCambio } from '@/app/lib/tipo-cambio';
+import { calcularNivel } from '@/app/lib/score-viabilidad';
+import { nombresFamilias } from '@/app/lib/viabilidad-v4/config';
+import { cargarConfigViabilidad } from '@/app/lib/viabilidad-v4/cargar-config';
+import { PROMPT_VERSION_V4, SYSTEM_PROMPT_V4, BLOQUE_BARRIDO_V4, construirUserPromptV4 } from '@/app/lib/viabilidad-v4/prompt-v4';
+import { LocalizadorCitas, localizarCitasInforme } from '@/app/lib/viabilidad-v4/citas';
+import { CATALOGO, decidirAdjudicacion, deduplicarEvidencias, evidenciasDeDetectores, evidenciasDelModelo, marcarEvidenciasQueCuentan, type EvidenciaAdj, type SenalesDetectores } from '@/app/lib/viabilidad-v4/adjudicacion';
+import { HITO_LABEL, NOTA_ACEPTACION_OC, calcularPlazoPrevio, detectarNegaciones, feriadosPara, normalizarHitos, type HitoInforme } from '@/app/lib/viabilidad-v4/plazo-previo';
+import { calcularMulta, indicadorNecesario } from '@/app/lib/viabilidad-v4/multa';
+import { NOTA_ART_32, interpretarMonto, interpretarPorLinea, normalizarCaracter, sumaLineasCuadra } from '@/app/lib/viabilidad-v4/presupuesto';
+import { barridoConsecuencias, decidirSuministro, detectarSenalesSuministro, esObviedad } from '@/app/lib/viabilidad-v4/admisibilidad';
+import { construirListaUnica, conteoCruzado, problemasCalidadManifiesto, verificarCaracteristicasLiterales } from '@/app/lib/viabilidad-v4/productos';
+import { verificarSemantica, type ParSemantico } from '@/app/lib/viabilidad-v4/verificador-semantico';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
 // Fallback ante el 503 "high demand": `gemini-2.5-flash` se satura seguido en requests
@@ -67,13 +84,6 @@ async function volcarDebug(codigo: string, sufijo: string, contenido: string): P
     await fs.writeFile(f, contenido, 'utf8');
     console.log(`[viab-dbg] volcado → ${f} (${contenido.length} chars)`);
   } catch (e) { console.warn('[viab-dbg] no se pudo volcar', e instanceof Error ? e.message : e); }
-}
-
-// UTM vigente (CLP) para el gate de presupuesto por tipo cuando no hay monto explícito.
-// Configurable por mes vía env; el modelo NO conoce el valor vigente, hay que inyectarlo.
-function utmVigente(): number {
-  const n = Number(process.env.UTM_CLP);
-  return Number.isFinite(n) && n > 0 ? n : 69_000;
 }
 
 // ─── Tipos del Informe de Viabilidad (PROMPT 2 v2.1 — esquema canónico) ──────────────
@@ -159,11 +169,10 @@ export interface ViabilidadIAResult {
   pendientes_fase3: string[];
   veredicto: { nivel: string; gana_probable: string; estado_veredicto: string; motivos_revision: string[]; acciones_AC: string[]; advertencias: string[] };
 
-  // ── Derivados en código (no salen del modelo v2.0) ──
-  score_0_100: number;       // derivado de capa_a + gates, para el radar
-  semaforo: string;          // VERDE | AMARILLO | NARANJA | ROJO | ROJO_DURO (umbral del score)
+  // ── Derivados en código (no salen del modelo) ──
+  // v4.1: el score 0-100 y el semáforo de la IA salieron; entra el NIVEL de atractivo (score-viabilidad.ts).
+  score?: import('@/app/lib/score-viabilidad').ScoreV4;
   area_negocio: string;      // FERRETERIA | EQUIPAMIENTO | MIXTO (de meta.linea_negocio)
-  confianza_global: number;  // promedio de confianzas (exclusión/modalidad)
   documentos_leidos: string[];
   documentos_no_leidos: string[];
   docs_hash?: string;        // huella del conjunto de documentos; permite cachear y evitar re-análisis
@@ -366,13 +375,13 @@ export async function calentarCacheDocumentos(codigo: string): Promise<{ leidos:
 
 // ─── Materia prima estructurada (DeepSeek / análisis exhaustivo + API MP) ─────────
 async function cargarContexto(codigo: string) {
-  let meta = { nombre: '', organismo: '', region: '', monto: null as number | null, cierre: null as any };
+  let meta = { nombre: '', organismo: '', region: '', monto: null as number | null, cierre: null as any, fechaAdjudicacion: null as string | null };
   try {
     const [r] = await pool.query(
       `SELECT licitacion_nombre, licitacion_organismo, licitacion_region, licitacion_monto, licitacion_cierre
        FROM alertas_licitaciones WHERE licitacion_codigo = ? ORDER BY created_at DESC LIMIT 1`, [codigo]);
     const a = (r as any[])[0];
-    if (a) meta = { nombre: a.licitacion_nombre || '', organismo: a.licitacion_organismo || '', region: a.licitacion_region || '', monto: a.licitacion_monto ?? null, cierre: a.licitacion_cierre ?? null };
+    if (a) meta = { ...meta, nombre: a.licitacion_nombre || '', organismo: a.licitacion_organismo || '', region: a.licitacion_region || '', monto: a.licitacion_monto ?? null, cierre: a.licitacion_cierre ?? null };
   } catch { /* noop */ }
 
   let estructurado: any = null;
@@ -386,6 +395,9 @@ async function cargarContexto(codigo: string) {
     const lic = await getMercadoPublicoClient().obtenerPorCodigoRapido(codigo, 12_000);
     if (lic) {
       if (!meta.monto && lic.MontoEstimado) meta.monto = Number(lic.MontoEstimado);
+      // v4.0 (P3): el plazo previo se suma desde la adjudicación estimada que publica MP.
+      const fAdj = (lic as any).Fechas?.FechaAdjudicacion;
+      if (fAdj) meta.fechaAdjudicacion = String(fAdj);
       itemsMP = (lic.Items || []).map((it: any) => ({ nombre: it.NombreProducto || '', descripcion: it.Descripcion || '', categoria: it.Categoria || '', cantidad: it.Cantidad ?? null, unidad: it.Unidad || it.UnidadMedida || null })).filter((it: any) => it.nombre || it.descripcion);
     }
   } catch { /* noop */ }
@@ -441,8 +453,10 @@ function repararJSONTruncado(txt: string): string | null {
 // Proveedor activo (IA_TEXT_PROVIDER): GLM de Z.AI (vía crearChatIA, chat compatible
 // OpenAI, con respaldo DeepSeek). El camino Gemini nativo SOLO se usa si se fuerza
 // IA_TEXT_PROVIDER=gemini (retirado: sin key no funciona).
-async function llamarGeminiJSON(systemPrompt: string, userPrompt: string): Promise<any> {
-  if (IA_TEXT_PROVIDER !== 'gemini') return llamarGlmJSON(systemPrompt, userPrompt);
+// P11 · trazabilidad: qué modelo respondió de verdad y si el JSON vino cortado y se reparó.
+export interface TrazaLlamada { modelo?: string; reparado?: boolean }
+async function llamarGeminiJSON(systemPrompt: string, userPrompt: string, traza?: TrazaLlamada): Promise<any> {
+  if (IA_TEXT_PROVIDER !== 'gemini') return llamarGlmJSON(systemPrompt, userPrompt, traza);
   return llamarGeminiNativoJSON(systemPrompt, userPrompt);
 }
 
@@ -499,9 +513,12 @@ Devuelve SOLO JSON válido: {"lineas":[{"linea":1,"items":[{"descripcion":"...",
 // ─── SEGUNDA PASADA: TODOS los requisitos de cada equipo específico ───────────────────────────────
 // El análisis general resume las `caracteristicas` cuando el equipo trae muchos requisitos repartidos en apartados (caso 2369-74-LR26: la
 // cisterna tenía ~120 y el informe guardó 64; el minicargador ~60 y guardó 33). Aquí, por cada ítem específico, se recorta SU sección en las
-// bases (caracteristicas-seccion.ts) y se pide la transcripción literal de TODAS las filas de TODOS los apartados. Solo reemplaza si la lista
-// nueva es más larga que la del análisis general; si algo falla, queda lo que ya había.
-export async function completarCaracteristicasLiterales(items: any[], docs: DocLeido[], codigo: string): Promise<void> {
+// bases (caracteristicas-seccion.ts) y se pide la transcripción literal de TODAS las filas de TODOS los apartados.
+// v4.0 (P8, prompt auxiliar C): la transcripción separa CARACTERÍSTICAS del equipo de REQUISITOS GENERALES (garantía, capacitación,
+// manuales…), que van a `productos.requisitos_generales`. Ya NO gana "la lista más larga": la segunda pasada reemplaza la del análisis
+// general y después el código verifica cada característica literal contra las bases (verificarCaracteristicasLiterales) — lo que no
+// exista queda "no encontrada en bases" y no pasa al AUDITOR. Si la pasada falla o no devuelve nada, queda la lista del análisis general.
+export async function completarCaracteristicasLiterales(items: any[], docs: DocLeido[], codigo: string, requisitosGenerales: any[] = []): Promise<void> {
   const candidatos = items.filter(it => /espec/i.test(String(it?.clasificacion || it?.tipo || '')) && _str(it?.nombre).length >= 4);
   if (!candidatos.length) return;
   const textos = docs.filter(d => d.ok && (d.categoria || '').toUpperCase() !== 'DOCUMENTOS_PROPIOS' && !/^COSTEO_/i.test(d.nombre));
@@ -513,14 +530,35 @@ export async function completarCaracteristicasLiterales(items: any[], docs: DocL
     if (m.size > secciones.size) secciones = m;
   }
   if (!secciones.size) return;
-  const sys = `Eres un transcriptor EXHAUSTIVO de requisitos técnicos de bases de licitaciones públicas chilenas.
-Recibes la sección de UN equipo. Su descripción está repartida en varios apartados (antecedentes, características del vehículo, equipo, cabina, motor, transmisión, seguridad, carrocería, equipamiento, documentación, garantía, mantención, capacitación, tablas "Ítem | Característica mínima requerida", viñetas, etc.). El texto viene de un PDF: las tablas pueden venir partidas en renglones sueltos.
-TAREA: devuelve TODOS los requisitos del equipo, uno por elemento, en el orden del documento. Reglas ESTRICTAS:
-- Lee la sección COMPLETA hasta el final: un título de apartado NO termina la lista; revisa cada apartado y cada viñeta.
-- Transcribe literal con su valor ("Potencia mínima: 140 HP", "Garantía mínima: 12 meses"). NO resumas, NO agrupes varios requisitos en uno, NO omitas ninguno, NO inventes ninguno.
-- Una fila de tabla "Ítem | Característica" es UN requisito ("Ítem: valor"). Una viñeta es UN requisito. Si una viñeta lista varios elementos independientes (p. ej. extintor, baliza, cuñas), sepáralos.
-- Incluye lo "deseable", lo "o equivalente" y lo documental (certificados, manuales, capacitación, garantía, mantenciones). Excluye solo prosa que no exige nada (introducciones, destino de uso).
-Devuelve SOLO JSON: {"caracteristicas":["...", "..."]}.`;
+  const sys = `Eres un transcriptor EXHAUSTIVO de requisitos técnicos de bases de licitaciones
+públicas chilenas.
+Recibes la sección de UN equipo. Su descripción está repartida en varios
+apartados (antecedentes, características del vehículo, equipo, cabina, motor,
+transmisión, seguridad, carrocería, equipamiento, documentación, garantía,
+mantención, capacitación, tablas "Ítem | Característica mínima requerida",
+viñetas, etc.). El texto viene de un PDF: las tablas pueden venir partidas en
+renglones sueltos.
+TAREA: devuelve TODOS los requisitos del equipo, en el orden del documento,
+separados en dos listas:
+- "caracteristicas": lo que describe al equipo mismo (medidas, potencia,
+  capacidad, componentes, accesorios, materiales, desempeño).
+- "requisitos_generales": lo que se exige alrededor del equipo (garantía,
+  capacitación, manuales, documentación, certificados, mantenciones,
+  inscripción, logos, servicio técnico, entrega).
+Reglas ESTRICTAS:
+- Lee la sección COMPLETA hasta el final: un título de apartado NO termina la
+  lista; revisa cada apartado y cada viñeta.
+- Copia cada requisito TAL CUAL las bases, con su valor ("Potencia mínima:
+  140 HP"). NO resumas, NO agrupes varios requisitos en uno, NO omitas
+  ninguno, NO inventes ninguno, NO corrijas palabras.
+- Una fila de tabla "Ítem | Característica" es UN requisito ("Ítem: valor").
+  Una viñeta es UN requisito. Si una viñeta lista varios elementos
+  independientes (p. ej. extintor, baliza, cuñas), sepáralos.
+- Incluye lo "deseable". Excluye solo prosa que no exige nada (introducciones,
+  destino de uso).
+- El sistema verifica que cada texto exista en las bases: lo que no esté
+  literal queda marcado para revisión.
+Devuelve SOLO JSON: {"caracteristicas":["..."],"requisitos_generales":["..."]}.`;
   await Promise.all(candidatos.map(async it => {
     const sec = secciones.get(_str(it.nombre));
     if (!sec) return;
@@ -529,13 +567,16 @@ Devuelve SOLO JSON: {"caracteristicas":["...", "..."]}.`;
 
 SECCIÓN DE LAS BASES:
 ${sec}`);
-      const lista: string[] = (Array.isArray(r?.caracteristicas) ? r.caracteristicas : []).map((c: any) => _str(c).trim()).filter((c: string) => c.length >= 3);
+      const limpiar = (arr: any) => (Array.isArray(arr) ? arr : []).map((c: any) => _str(c).trim()).filter((c: string) => c.length >= 3);
+      const lista: string[] = limpiar(r?.caracteristicas);
+      const generales: string[] = limpiar(r?.requisitos_generales);
       const antes = Array.isArray(it.caracteristicas) ? it.caracteristicas.length : 0;
-      if (lista.length > antes) {
-        console.log(`[viabilidad-ia-v3] ${codigo}: "${_str(it.nombre)}" características completadas ${antes} → ${lista.length} (segunda pasada literal).`);
+      if (lista.length) {
+        console.log(`[viabilidad-ia-v4] ${codigo}: "${_str(it.nombre)}" características transcritas en segunda pasada: ${antes} → ${lista.length}${generales.length ? ` (+${generales.length} requisitos generales aparte)` : ''}.`);
         it.caracteristicas = lista;
       }
-    } catch (e) { console.warn(`[viabilidad-ia-v3] ${codigo}: segunda pasada de "${_str(it.nombre)}" falló:`, String(e).slice(0, 120)); }
+      for (const g of generales) requisitosGenerales.push({ texto: g, producto: _str(it.nombre), cita: { documento: '', numeral: '', frase: g } });
+    } catch (e) { console.warn(`[viabilidad-ia-v4] ${codigo}: segunda pasada de "${_str(it.nombre)}" falló:`, String(e).slice(0, 120)); }
   }));
 }
 
@@ -606,7 +647,7 @@ Devuelve SOLO JSON válido: {"criterios":[{"nombre":"Precio","ponderacion_pct":4
 // livianos fallan ahí. Configurable por si el umbral resulta muy agresivo/laxo en la práctica.
 const UMBRAL_PROMPT_GRANDE_CHARS = Math.max(50_000, Number(process.env.VIABILIDAD_UMBRAL_PROMPT_GRANDE) || 200_000);
 
-async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<any> {
+async function llamarGlmJSON(systemPrompt: string, userPrompt: string, traza?: TrazaLlamada): Promise<any> {
   const MAX_INTENTOS_JSON = 2; // 1 reintento si el modelo respondió pero el JSON salió roto
   const promptTotalChars = systemPrompt.length + userPrompt.length;
   // 20-ago-2026 (pedido explícito del usuario tras 3459-24-LE26): YA NO se salta directo a un
@@ -738,9 +779,13 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
     );
     dbg(`llamarGlmJSON: respuesta finish=${finish} · usage=${JSON.stringify(completion.usage ?? {})}`);
     const txt = String(completion.choices?.[0]?.message?.content ?? '');
-    // Parser tolerante compartido: sanea caracteres de control y repara truncado.
-    const parsed = parseJsonIA(txt);
-    if (parsed) return parsed;
+    // Parser tolerante compartido: sanea caracteres de control y repara truncado. v4.0 (P11): si
+    // hubo que reparar (o el modelo cortó por largo), queda registrado en la traza.
+    const { valor: parsed, reparado } = parseJsonIAConTraza(txt);
+    if (parsed) {
+      if (traza) { traza.modelo = modeloReal; traza.reparado = reparado || finish === 'length'; }
+      return parsed;
+    }
     // Sin esto, un JSON inválido es indiagnosticable: deja ver QUÉ devolvió el modelo.
     console.warn(`[viabilidad-ia] JSON inválido (${txt.length} chars). Inicio: ${JSON.stringify(txt.slice(0, 250))} … Fin: ${JSON.stringify(txt.slice(-250))}`);
     ultimoErr = `${modeloReal}: JSON inválido (finish=${finish})`;
@@ -827,138 +872,6 @@ async function llamarGeminiNativoJSON(systemPrompt: string, userPrompt: string):
     console.warn(`[viabilidad-ia] ${modelo} ${res.status} transitorio, reintento ${intento + 1}/${ESPERAS.length}...`);
   }
   throw new Error(`Gemini saturado (reintentos agotados): ${ultimoErr}`);
-}
-
-// Señal DETERMINISTA de modalidad a partir de la estructura del listado (parser). Es un
-// hecho calculado que se inyecta al prompt para aterrizar al modelo débil (no depende de
-// que "capte el matiz"). No es vinculante: el modelo puede contradecirla con evidencia.
-function construirSenalModalidad(
-  planilla: ReturnType<typeof parsearPlanillaCosteo>,
-  lineasFormulario: number[] = [],
-  ofertaTotalUnico = false,
-  lenguajePorLinea: string | null = null,
-  presupuestoPorLinea: string | null = null,
-  ofertaSubconjunto: string | null = null,
-  cuadroPorLinea: string | null = null,
-  formulariosPorArchivo: number[] = [],
-  licitacionTipoMultiple: string | null = null,
-): string {
-  // PRIORIDAD MÁXIMA ABSOLUTA — cada línea trae su PROPIO archivo de formulario económico
-  // (ej. "01_FORMULARIO_ECONÓMICO_LÍNEA_1.xlsx" … "_8.xlsx"): estructuralmente NO puede existir
-  // un total único consolidado si cada línea se cotiza en un archivo aparte. Caso real
-  // 2446-167-LP26 (equipos veterinarios).
-  if (formulariosPorArchivo.length >= 2) {
-    return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de los NOMBRES de archivo): la licitación trae ${formulariosPorArchivo.length} FORMULARIOS ECONÓMICOS SEPARADOS, uno por línea (líneas ${formulariosPorArchivo.slice(0, 10).join(', ')}${formulariosPorArchivo.length > 10 ? '…' : ''}), cada uno un archivo distinto. Esto determina modalidad = por_linea de forma estructural: si cada línea se cotiza en su propio archivo, no puede existir un total único consolidado. El costeo debe ir POR LÍNEA (una hoja por línea, alineada con cada formulario).`;
-  }
-  // PRIORIDAD MÁXIMA — LICITACIÓN DECLARADA "DE TIPO MÚLTIPLE" (campo formal de Mercado
-  // Público): el proveedor puede ofertar TODOS los productos o SÓLO ALGUNOS, con un
-  // precio/monto/presupuesto disponible IVA incluido POR CADA LÍNEA (si se sobrepasa, esa
-  // línea queda inadmisible). Es la misma idea que "oferta por subconjunto" con la redacción
-  // propia y estándar de MP.
-  if (licitacionTipoMultiple) {
-    return `SEÑAL DETERMINISTA DE MODALIDAD (declaración formal de las bases): "${licitacionTipoMultiple}". La licitación está declarada de TIPO MÚLTIPLE: el proveedor puede ofertar todos los productos solicitados o SÓLO ALGUNOS de ellos, indicando un precio/monto disponible IVA incluido POR CADA LÍNEA de producto (si la oferta de una línea supera ese monto, esa línea se declara inadmisible). Esto determina modalidad = por_linea: cada línea se cotiza y se evalúa contra su propio tope, independiente de las demás. El costeo debe ir POR LÍNEA (una hoja por línea).`;
-  }
-  // PRIORIDAD MÁXIMA — SE PUEDE OFERTAR A UN SUBCONJUNTO de ítems/líneas. Descarta suma alzada
-  // por definición (todo-o-nada) aunque el formulario económico cierre con Subtotal/IVA/Total.
-  if (ofertaSubconjunto) {
-    return `SEÑAL DETERMINISTA DE MODALIDAD (lenguaje explícito de las bases): el texto dice literalmente "${ofertaSubconjunto}", o sea que un oferente PUEDE POSTULAR SOLO A ALGUNOS ítems/líneas y omitir el resto. Eso determina modalidad = por_linea: suma alzada significa todo-o-nada, así que poder ofertar a un subconjunto la descarta. OJO: si el formulario de oferta económica cierra con "Subtotal / IVA / Total", ese NO es un gran total consolidado de suma alzada — es la suma de LO QUE CADA OFERENTE ELIGIÓ ofertar. El costeo debe ir POR LÍNEA (una hoja por ítem/línea).`;
-  }
-  // PRIORIDAD 0.B — CUADRO ECONÓMICO POR LÍNEA: el formulario económico trae una tabla POR
-  // LÍNEA, cada una con su PROPIO cierre TOTAL/IVA/TOTAL y sin gran total consolidado. Por la
-  // regla maestra (el formato de la oferta económica manda), eso ES por_linea.
-  if (cuadroPorLinea) {
-    return `SEÑAL DETERMINISTA DE MODALIDAD (calculada del FORMULARIO DE OFERTA ECONÓMICA): ${cuadroPorLinea}. Cada línea se cotiza y CIERRA por separado (su propio Total/IVA/Total) y NO hay un gran total que las sume: por la regla maestra ("el formato de la oferta económica manda") esto determina modalidad = por_linea, aunque otras cláusulas hablen de la oferta "global" o el correlativo de ítems sea continuo. El costeo debe ir POR LÍNEA (una hoja por línea).`;
-  }
-  // PRIORIDAD 0.A — PRESUPUESTO/MONTO MÁXIMO POR LÍNEA con ≥2 líneas presupuestadas: cada línea
-  // tiene su propio monto máximo y su propio destino (lotes independientes). Es evidencia dura de
-  // por_linea aunque el formulario económico venga en blanco o los ítems estén dispersos.
-  if (presupuestoPorLinea && !ofertaTotalUnico) {
-    return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de las bases): las bases fijan un MONTO MÁXIMO POR LÍNEA con presupuesto INDEPENDIENTE por línea ("${presupuestoPorLinea}") y listan ≥2 líneas, cada una con su propio total. Esto determina modalidad = por_linea (cada línea es un lote con su presupuesto y se oferta/adjudica por separado). El costeo debe ir POR LÍNEA (una hoja por línea).`;
-  }
-  // PRIORIDAD 0 — LENGUAJE EXPLÍCITO de las bases (la declaración más directa del "cómo se
-  // cotiza"): "ofertar por la línea de producto", "se evaluará cada línea de manera
-  // individual", "se evaluarán únicamente las líneas que…". Es la señal MÁS confiable: si
-  // las bases dicen que se oferta/evalúa por línea, es por_linea (aunque la numeración de
-  // ítems sea correlativa 1..N, que por sí sola NO decide).
-  if (lenguajePorLinea) {
-    const notaTotal = ofertaTotalUnico
-      ? ' NOTA: el formato económico también trae la palabra "total"; verifica si es un ÚNICO gran total AL PIE (entonces reevalúa a suma_alzada) o solo la columna "total" de una planilla por-ítem (sigue por_linea).'
-      : '';
-    return `SEÑAL DETERMINISTA DE MODALIDAD (lenguaje explícito de las bases): el texto dice literalmente "${lenguajePorLinea}", lo que significa que se OFERTA y EVALÚA cada línea/producto por separado (se pueden omitir líneas). Esto determina modalidad = por_linea. OJO: NO te dejes confundir por la numeración correlativa 1..N de los ítems (un listado por-línea también numera de corrido cuando cada ítem se cotiza con su precio unitario) ni por la columna "TOTAL" de la planilla (es el total POR ÍTEM, no un gran total al pie).${notaTotal}`;
-  }
-  // REGLA MAESTRA del experto: el FORMATO DE LA OFERTA ECONÓMICA manda sobre cómo se
-  // adjudica. Si el formulario económico es UNA planilla integrada con un ÚNICO total
-  // consolidado ("Monto total neto/IVA incluido" al pie), la modalidad es SUMA ALZADA,
-  // aunque las bases digan "se podrá adjudicar por línea" (eso es adjudicación múltiple
-  // —a quién—, no cómo se cotiza) y aunque los productos vengan rotulados "LÍNEA N".
-  if (ofertaTotalUnico) {
-    return `SEÑAL DETERMINISTA DE MODALIDAD (calculada del FORMULARIO DE OFERTA ECONÓMICA): el formulario económico es UNA planilla integrada con TODOS los productos de corrido y un ÚNICO total consolidado al pie ("Monto total neto" / "Monto total IVA incluido"). Esto determina modalidad = suma_alzada. OJO: NO te confundas con frases como "se podrá adjudicar a un solo proveedor por línea" (eso es adjudicación múltiple — a quién se adjudica — y NO cambia cómo se cotiza) ni con productos rotulados "LÍNEA N" en fichas técnicas o listados (es solo el correlativo del ítem). El formato de la oferta económica MANDA: modalidad = suma_alzada.`;
-  }
-  if (!planilla || planilla.items.length < 8) {
-    // Sin planilla de cotización parseable, pero los documentos traen VARIAS fichas
-    // "FORMULARIO Línea N°X" (una por producto) → señal fuerte de adjudicación por línea.
-    if (lineasFormulario.length >= 2) {
-      return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de la estructura documental): los documentos contienen ${lineasFormulario.length} formularios/fichas técnicas independientes titulados "Línea N°X" (líneas ${lineasFormulario.slice(0, 8).join(', ')}${lineasFormulario.length > 8 ? '…' : ''}), cada una con su propio producto. Esto indica modalidad = por_linea (se oferta y adjudica por línea), SALVO que el formato de oferta económica exija un ÚNICO total consolidado. Verifícalo y decide. OJO: las tablas "Ítem | Características técnicas | Cumple Sí/No" son requisitos de cumplimiento, NO productos: el manifiesto de productos debe tener UNA entrada por línea (el equipo/producto de esa línea con su cantidad), no las filas del checklist.`;
-    }
-    return '';
-  }
-  // por_linea REAL: el correlativo se reinicia/repite por lote (no basta con títulos "Línea N").
-  if (planilla.estructura === 'por_linea' && planilla.lineas.length >= 2 && planilla.numeracion === 'reinicia') {
-    return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de la estructura del listado): los ítems vienen agrupados en ${planilla.lineas.length} LÍNEAS/LOTES distintos y la NUMERACIÓN SE REINICIA/REPITE por línea (cada línea vuelve a empezar en 1 o un mismo número agrupa varios ítems). Esto indica modalidad = por_linea, SALVO que el formato de oferta económica exija un ÚNICO total consolidado (entonces suma_alzada). Verifícalo y decide.`;
-  }
-  // Rubros/categorías de producto bajo un mismo total → suma alzada (costeo desglosado por rubro).
-  if (planilla.estructura === 'por_categoria') {
-    return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de la estructura del listado): los ${planilla.items.length} ítems están agrupados en ${planilla.categorias.length} RUBROS/CATEGORÍAS de producto (${planilla.categorias.slice(0, 4).join(', ')}${planilla.categorias.length > 4 ? '…' : ''}), numerados por rubro pero SIN lotes de adjudicación independientes. Esto indica modalidad = suma_alzada (un único total, con el costeo desglosado por rubro), NO por_linea. Verifícalo con el formato de oferta económica y decide.`;
-  }
-  // Numeración CORRELATIVA CONTINUA 1..N (de corrido) → INDICIO de suma alzada, aunque venga
-  // partida en hojas/secciones tituladas "Línea N" (son una MISMA planilla integrada, no lotes).
-  // OJO: la numeración continua por sí sola NO es concluyente — un listado POR LÍNEA también
-  // numera 1..N cuando cada ítem se cotiza con precio unitario y se pueden omitir líneas. Manda
-  // el FORMATO DE LA OFERTA ECONÓMICA (total único al pie = suma_alzada; precio unitario por
-  // ítem sin gran total = por_linea) y el lenguaje explícito de las bases.
-  return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de la estructura del listado): los ${planilla.items.length} ítems tienen numeración CORRELATIVA CONTINUA 1..N (de corrido, no se reinicia por línea), aunque el documento venga partido en hojas/secciones tituladas "Línea N". Esto es INDICIO de suma_alzada (las hojas separadas NO son lotes de adjudicación), PERO la numeración por sí sola NO decide: si el FORMATO DE OFERTA ECONÓMICA cotiza precio UNITARIO por ítem sin un gran total al pie, o las bases dicen "se oferta/evalúa por línea", es por_linea. Verifícalo con el formato de oferta económica y el lenguaje de las bases, y decide.`;
-}
-
-// VEREDICTO DETERMINISTA DE ADJUDICACIÓN — "¿A QUIÉN se adjudica?" (GLOBAL = un solo oferente gana
-// TODO el paquete · POR_LINEAS = pueden ganar oferentes DISTINTOS por línea/lote/ítem). Corrección
-// del 21-jul-2026 (caso real detectado por CA): la función `veredictoModalidadDeterminista` de más
-// abajo decidía ESTO MISMO mirando señales que en realidad son sobre CÓMO SE COTIZA/organiza el
-// costeo (total único al pie, numeración del listado, tabla por línea) — dos preguntas que el
-// propio dueño del negocio identificó como NO relacionadas: "el costeo no tiene nada que ver con
-// quién se adjudica la licitación". Esta función SOLO usa evidencia que responde directamente "¿se
-// puede ofertar/ganar solo una parte, o es todo-o-nada para UN oferente?" — la ANCLA PRIMARIA de
-// A.3 del prompt. "Adjudicación por ítem" cuenta como POR_LINEAS (mismo concepto en jerga distinta:
-// puede haber un ganador distinto por cada ítem).
-function veredictoAdjudicacionDeterminista(
-  ofertaSubconjunto: string | null,
-  formulariosPorArchivo: number[],
-  lenguajePorLinea: string | null,
-  presupuestoPorLinea: string | null,
-  tipoAdjudicacionMultiple: string | null,
-  licitacionTipoMultiple: string | null = null,
-): { tipo: 'GLOBAL' | 'POR_LINEAS'; motivo: string } | null {
-  // Prioridad: evidencia más directa e inequívoca primero.
-  if (formulariosPorArchivo.length >= 2) {
-    return { tipo: 'POR_LINEAS', motivo: `${formulariosPorArchivo.length} formularios económicos en archivos separados, uno por línea (líneas ${formulariosPorArchivo.slice(0, 10).join(', ')}) — cada línea se presenta y evalúa por separado` };
-  }
-  if (tipoAdjudicacionMultiple) {
-    return { tipo: 'POR_LINEAS', motivo: `declaración explícita de las bases: "${tipoAdjudicacionMultiple}"` };
-  }
-  if (licitacionTipoMultiple) {
-    return { tipo: 'POR_LINEAS', motivo: `licitación declarada de TIPO MÚLTIPLE (se puede ofertar solo a algunas líneas, con tope de monto independiente por línea): "${licitacionTipoMultiple.slice(0, 120)}"` };
-  }
-  if (ofertaSubconjunto) {
-    return { tipo: 'POR_LINEAS', motivo: `las bases permiten ofertar/ganar solo un subconjunto de ítems/líneas: "${ofertaSubconjunto.slice(0, 80)}"` };
-  }
-  if (lenguajePorLinea) {
-    return { tipo: 'POR_LINEAS', motivo: `lenguaje explícito de participación por línea: "${lenguajePorLinea.slice(0, 80)}"` };
-  }
-  if (presupuestoPorLinea) {
-    return { tipo: 'POR_LINEAS', motivo: `presupuesto independiente por línea (lotes separados): "${presupuestoPorLinea.slice(0, 80)}"` };
-  }
-  // Sin evidencia de participación/adjudicación repartida → sin veredicto vinculante; se respeta
-  // el juicio del LLM (guiado por el ancla del prompt) o la red de seguridad de más abajo.
-  return null;
 }
 
 // VEREDICTO DETERMINISTA de COSTEO/COTIZACIÓN (VINCULANTE, no solo pista) — "¿CÓMO se cotiza?", NO
@@ -1118,714 +1031,6 @@ const _bool = (x: any): boolean => x === true || x === 'true' || x === 1;
 const _lineaNum = (x: any): number => { const m = String(x ?? '').match(/\d+/); return m ? Number(m[0]) : 1; };
 
 
-// Recalcula el gate de presupuesto con la regla de las bases (PROMPT 2, PASO 0.B). El piso
-// se aplica SOBRE EL NETO: "Normaliza a neto (÷1,19) … < $8.000.000 → NO_CALIFICA". Por eso
-// usamos NETO preferente; si el modelo solo trajo bruto (con IVA), derivamos el neto (÷1,19),
-// salvo régimen exento/FORA donde neto = bruto. Devuelve null cuando no hay monto fiable → el
-// llamador respeta el gate del modelo. El "salvo ≤5 especializados" no es computable aquí, así
-// que solo aplicamos el "salvo <15 productos".
-function gatePresupuestoDeterminista(bruto: number | null, neto: number | null, nProductos: number, exento = false): string | null {
-  const montoNeto = (neto && neto > 0)
-    ? neto
-    : (bruto && bruto > 0) ? Math.round(exento ? bruto : bruto / 1.19) : null;
-  if (montoNeto == null) return null;              // reservado/desconocido → respetar el modelo
-  if (montoNeto < 8_000_000) return 'NO_CALIFICA';
-  if (montoNeto <= 15_000_000) {
-    if (nProductos > 0 && nProductos < 15) return 'OK'; // pocos productos: no lo condicionamos
-    return 'DESCARTE_CONDICIONAL';
-  }
-  return 'OK';
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// VIABILIDAD v3.1 MODULAR — ÚNICO ANALIZADOR. Construye el informe con la arquitectura de 9
-// módulos + Tarjeta de Decisión + SCORE GLOBAL 0-100 del prompt v3.3 consolidado (SYSTEM_PROMPT_V3). El stack:
-// prompt (SYSTEM_PROMPT_V3), esquema (esquemaV3), override determinista de adjudicación +
-// puente al costeo (analizarViabilidadIAV3), guardado (_informe_ia_v3), lectura (la ruta lee v3)
-// y UI (VistaV3 en ViabilidadIAPanel, se activa con _schema:'v3'). El v2.1 se retiró por completo.
-// ═══════════════════════════════════════════════════════════════════════════════
-
-// ─── PROMPT 2 v3.3 (consolidado) — texto íntegro de sistema ────────────────────────
-// Integrado tal cual el documento fuente (PROMPT_2_Analizador_Viabilidad_v3.3 - 09-07-2026).
-// Reemplaza por completo la versión anterior. Motor de análisis: MODELO_TEXTO (glm-4.7-flashx,
-// respaldo deepseek); escaneados vía OCR (glm-ocr). El esquema JSON canónico se adjunta en el user
-// prompt. Cambios v3.3 sobre v3.2: (1) CRITERIOS POR TRAMOS (clase derivada mecánicamente: continuo →
-// LEY DEL MÍNIMO/MÁXIMO; escalonado → POR TRAMOS con borde cómodo); (2) MÓDULO DE PRODUCTOS rediseñado
-// como base del scraping (Fase 3): desglose vertical y literal, separa GENÉRICOS de ESPECÍFICOS con
-// ficha técnica completa, dos entregables Word. En el esquema: criterios.tipo_aplicacion→clase (+
-// tramo_max_puntaje, rango_admisibilidad); costeo→productos (items scraping-ready). El PUENTE AL COSTEO
-// tolera ambos shapes (productos.items nuevo / costeo.items histórico) para no romper informes guardados.
-//
-// VERSIÓN DEL PROMPT (Frente A.1 — trazabilidad de cambios). Sube este número CADA VEZ que se edita
-// el texto de SYSTEM_PROMPT_V3 o esquemaV3 (no en cambios de código alrededor). Se guarda en cada
-// informe (_prompt_version) para que el golden set y el histórico puedan comparar "qué versión
-// produjo qué resultado" — sin esto, una regresión detectada no se puede atribuir a un cambio.
-// v3.4 (2026-07-21): A.3 reescrita — separa explícitamente "a quién se adjudica" de "cómo se cotiza"
-// y "cómo se evalúa el puntaje" como TRES preguntas independientes con evidencia propia. Antes el
-// texto decía literalmente '"suma alzada" = global en jerga interna', instruyendo al modelo a tratar
-// las tres cosas como una sola pregunta — la raíz de varios bugs de modalidad encontrados hoy
-// (1057499-37-LE26, 2446-167-LP26 y otros), que hasta ahora solo se parchaban con señales
-// deterministas después del hecho, nunca corrigiendo la causa en el prompt.
-const PROMPT_VERSION = '3.4';
-const SYSTEM_PROMPT_V3 = `ROL Y OBJETIVO
-Eres un analista experto en licitaciones públicas chilenas (MercadoPúblico) con 8 años de
-adjudicaciones. Tu trabajo NO es resumir partidas documentales: es DECIDIR SI CONVIENE PARTICIPAR en
-esta licitación y CÓMO ganarla. Lees las bases ya clasificadas de UNA licitación y emites un INFORME DE
-VIABILIDAD que permita a un asistente comercial —incluso SIN experiencia— tomar esa decisión sin dudas.
-No describes la licitación: la diagnosticas como oportunidad de negocio.
-
-Tu veredicto sobre lo que se lee en las bases es DEFINITIVO. Lo que dependa de buscar productos/precios
-en internet lo marcas "PENDIENTE FASE 3"; no lo inventas. Trabajas sobre el texto de las bases en
-Markdown (nativos ya convertidos; escaneados vía OCR que preserva tablas). NO usas web.
-
-═══════════════════════ PRINCIPIO DE SISTEMA INTEGRADO (columna vertebral) ═══════════════════════
-El informe es UNA UNIDAD DE ANÁLISIS, no una suma de módulos aislados. Los módulos CONVERSAN ENTRE SÍ:
-lo que un módulo detecta OBLIGA y ALIMENTA a los demás. El SCORE GLOBAL y la TARJETA del encabezado son
-la SÍNTESIS REAL de esa interacción — reflejan la decisión de participar o no. Interacciones obligatorias
-(verifica que se cumplan antes de emitir):
- - Si ADMISIBILIDAD detecta garantía de fiel cumplimiento y/o contrato → PLAZOS usa cadena LARGA y suma
-   esos hitos al colchón.
- - Si ADJUDICACIÓN es GLOBAL/LOTE → la causal de cotizar el 100% aparece coherente en ADMISIBILIDAD,
-   LÍNEAS A ATACAR y ACCIONES.
- - Si CRITERIOS marca LEY DEL MÍNIMO en plazo → ESTRATEGIA lo trata como oportunidad y PLAZOS dice si
-   hay colchón para sostenerlo; colchón 0 → "⚠ EXIGE STOCK/RESPALDO".
- - Si CRITERIOS dice que todo lo secundario es POR TRAMOS/BINARIO → ESTRATEGIA/DÓNDE SE DECIDE dice "se
-   decide en precio" y el SCORE penaliza la ventaja competitiva si no hay ventaja de costo.
- - Si PLAZOS calcula colchón > 10 días y COSTEO marca el ítem importable → VENTANA DE IMPORTACIÓN "sí"
-   (nunca "sin ventana" con colchón largo e importable).
- - ATRACTIVO + ESTRATEGIA + ADMISIBILIDAD determinan el SCORE GLOBAL; el SCORE determina el VEREDICTO.
-Ante cualquier incoherencia entre módulos, corrígela: el informe cuenta UNA SOLA HISTORIA sobre si
-conviene participar.
-
-═══════════════════════ PRINCIPIOS INNEGOCIABLES ═══════════════════════
-1. AUTOMATIZAR SIN ARRIESGAR LA ADJUDICACIÓN. Si algo no queda claro, márcalo para revisión humana; no
-   cortes el flujo (ver GATES DE CIERRE).
-2. ESTRICTA SUJECIÓN A LAS BASES = ofrecer y declarar SOLO lo que las bases dicen EXPRESAMENTE. Nunca
-   amarrarse, nunca ofrecer de más si no da puntaje, nunca asumir una exigencia que el texto no declara.
-   Este principio gobierna cómo se rellenan y firman los documentos Y cómo se transcriben los productos.
-3. VERACIDAD: nunca inventes datos, montos, artículos, cifras ni características de producto. Cada dato
-   CITA su artículo/punto exacto (cita + documento + página/numeral). Sin fuente, no es válido.
-4. VERIFICA DOS VECES los datos críticos y la COHERENCIA ENTRE MÓDULOS.
-5. Logística SIEMPRE desde Santiago. No asumas ventaja ni desventaja por cercanía.
-6. Ante duda entre afirmar o marcar pendiente → marca pendiente.
-7. ATENCIÓN PERMANENTE A LA ADMISIBILIDAD, en cada paso.
-
-GATES DE CIERRE (no cortan el flujo): el análisis se construye SIEMPRE hasta el final. Solo cambia el
-estado_veredicto a REVISION_HUMANA, con alerta, si: (a) "cómo se adjudica" no queda fehaciente, (b) falta
-la forma de aplicación de algún criterio, o (c) la suma de ponderaciones no da 100%. Se acumulan; también
-disparan el escalado a un modelo mayor.
-
-═══════════════════════ PASO A — GATES PREVIOS ═══════════════════════
-
-A.1 EXCLUSIÓN (por NATURALEZA del objeto, no por palabra clave): se excluye si el objeto principal es
-servicio (incl. SERVICIO de aseo), consultoría/asesoría/capacitación pura, obra civil/construcción,
-convenio de suministro de largo horizonte (salvo RM → revisión), commodity puro de alta oferta, o
-insumo/consumible (dental, tóner, artículos de aseo). NO se excluye si el núcleo es provisión de
-bienes/equipamiento (aunque incluya instalación/capacitación accesorias). PROTECCIÓN: la MAQUINARIA de
-aseo (barredoras, vacuolavadoras, hidrolavadoras, fregadoras) NUNCA se excluye. Ante duda → REVISION_HUMANA.
-
-A.2 PRESUPUESTO + RÉGIMEN: TOTAL (no por línea). Normaliza a NETO (÷1,19 si con IVA). Detecta FORA
-(oferta exenta) y si es EXCLUYENTE o REFERENCIAL. Gate: <$8M → NO_CALIFICA (sin descartar); $8M–$15M →
-sigue si (productos <15) o (≤5 especializados); >$15M → normal; reservado/desconocido → sigue
-(presupuesto_incierto).
-CIFRAS QUE NO CALZAN ENTRE DOCUMENTOS: no asumas que el documento "más oficial" (Resolución que
-aprueba las bases) es automáticamente el correcto — puede haber un error de redacción ahí mismo.
-Prioriza la cifra que tenga RESPALDO ARITMÉTICO verificable (un desglose por línea/ítem que sume
-exactamente a ese total) sobre una cifra en prosa sin desglose, aunque la prosa esté en un documento
-de mayor jerarquía formal. Si ninguna cifra tiene desglose que la confirme, o dos documentos igual de
-jerárquicos se contradicen sin forma de arbitrar, dejar presupuesto_incierto y pedir REVISION_HUMANA
-en vez de elegir a ciegas. Caso real 4524-2-LP26: las Bases Técnicas (numeral 3.6) desglosan 4 líneas
-de producto que suman exactamente "$108.000.000" (y el CDP/SAC coinciden en esa cifra), pero las Bases
-Administrativas (numeral 10.4.1) dicen en prosa "$125.800.000... a repartir en cuatro líneas según el
-numeral 3.6" — una cifra que el propio numeral 3.6 que cita NO sostiene. Es una contradicción interna
-de las bases, no un documento "más correcto" que otro: manda el desglose que sí suma ($108.000.000).
-
-A.3 A QUIÉN SE ADJUDICA vs CÓMO SE COTIZA — SON DOS PREGUNTAS DISTINTAS, NUNCA LA MISMA. Suelen coincidir
-(la mayoría de las veces si es GLOBAL también se cotiza con un total único), pero NO SIEMPRE. Determina
-cada una con SU PROPIA evidencia textual; JAMÁS infieras una a partir de la otra ("es GLOBAL, por lo
-tanto suma alzada" es un error — verifícalo aparte). Registra las dos, cada una con su fuente.
-
-① A QUIÉN SE ADJUDICA (como_se_adjudica) — ¿puede haber un GANADOR DISTINTO por línea/lote, o un solo
-proveedor se lleva TODO el paquete? GLOBAL · POR LÍNEAS (incl. multiproveedor y mixto) · POR LOTES.
-ANCLA PRIMARIA (conductual): ¿permiten ofertar solo una parte? Sí → repartido (POR_LINEAS/POR_LOTES); No
-("no se aceptan ofertas parciales", "por la totalidad") → GLOBAL. Confirma en el artículo de adjudicación.
-Si no es fehaciente → REVISION_HUMANA. GLOBAL/LOTE → causal de cotizar 100%.
-
-② CÓMO SE COTIZA (modalidad_pago_interna; uso interno, NO se muestra al usuario) — ¿el FORMULARIO DE
-OFERTA ECONÓMICA pide UN monto total consolidado, o un precio por cada línea/ítem? ANCLA: mira el
-FORMATO del formulario económico (dónde se escribe el precio), NO el artículo de adjudicación. Un total
-único al pie ("Monto total neto/IVA incluido") = suma_alzada. Precio unitario por línea sin gran total
-consolidado (o "Subtotal/IVA/Total" que se repite por cada línea) = precios_unitarios.
-
-③ CÓMO SE EVALÚA EL PUNTAJE (evaluacion_puntaje) — al_total (los criterios se aplican sobre la oferta
-completa) o por_linea (cada línea se evalúa y puntúa por separado, aunque después se sume/promedie a un
-resultado único). PUEDE SER por_linea AUNQUE LA ADJUDICACIÓN SEA GLOBAL: es real y frecuente que un solo
-proveedor se lleve todo el paquete (GLOBAL) pero que cada línea se punteé individualmente antes de sumar
-el puntaje total — eso NO cambia que sea un solo ganador. No lo confundas con "cómo se adjudica".
-
-Ejemplo de las tres coexistiendo SIN coincidir (caso real): las bases dicen "no se aceptan ofertas
-parciales" (→ GLOBAL) y también "estos criterios deberán ser aplicados por cada línea de productos"
-(→ evaluacion_puntaje=por_linea), y el formulario económico trae un total único al pie (→
-modalidad_pago_interna=suma_alzada). Las tres son correctas y coexisten: no "corrijas" una para que
-calce con las otras.
-
-A.4 LÍNEA DE NEGOCIO: Ferretería/Materiales o Equipamiento/Complejos; puede haber mezcla.
-
-═══════════════════════ SCORE GLOBAL DE VIABILIDAD (0-100) ═══════════════════════
-Síntesis de la interacción entre módulos: mide si CONVIENE PARTICIPAR. Se calcula SIEMPRE, se muestra en
-el encabezado, es REALISTA y CONSERVADOR. Tres dimensiones:
-  A) CONVENIENCIA/ATRACTIVO (0-40): presupuesto, complejidad, cantidad/tipo, ejecución (barrera a los
-     demás), modificador de adjudicación (GLOBAL suma; fragmentado resta).
-  B) VENTAJA COMPETITIVA (0-40): ¿tenemos con qué ganar DONDE SE DECIDE? Ventaja de costo (importable o
-     marca propia), leyes del mín/máx a favor CON respaldo real (colchón, servicio técnico propio),
-     barreras que dejan fuera a los chicos. Se decide en precio y sin ventaja de costo → BAJA.
-  C) VÍA LIBRE DE ADMISIBILIDAD (0-20): sin bloqueantes. Bloqueante sin salida → 0.
-SCORE = A + B + C. CALIBRACIÓN: techo realista (100 casi nunca; excelente real ~80-85; no infles, ante
-duda elige el MENOR). Piso con sentido (un proyecto que pasó los gates no queda en 0; un GANABLE nunca
-baja de 50). COHERENCIA veredicto ↔ score (el veredicto SE DERIVA del score):
-   70-100 → MUY VIABLE → 🟢 GANABLE · 50-69 → VIABLE → 🟢 GANABLE · 35-49 → POCO VIABLE → 🟡 PUEDE SER ·
-   0-34 → DESCARTE → 🔴 NO VAMOS. PROHIBIDO GANABLE <50 o NO VAMOS alto. El score se muestra; el desglose
-   queda interno.
-
-═══════════════════════ CONTENIDO DEL INFORME (orden fijo) ═══════════════════════
-La TARJETA y el SCORE se generan AL FINAL (síntesis) y se muestran ARRIBA. No uses términos internos.
-
-──────── 1. CRITERIOS DE EVALUACIÓN ────────
-Ubica y extrae criterios y SU FORMA DE APLICACIÓN (insumo innegociable; alimenta Estrategia y Score).
-• DOBLE ANCLA (barrido propio): ESTRUCTURAL (la sección que REPARTE EL 100% del puntaje, aunque el
-  título sea inédito) + LÉXICA (Criterios/Factores de Evaluación, Factores y Ponderadores, Subfactores,
-  Mecanismo de Evaluación, Parámetros, Tablas de Variables y Ponderadores, Criterios de Ponderación,
-  Metodología/Pauta). LA ESTRUCTURA MANDA SOBRE EL TÍTULO. Tabla aplanada (PDF nativo) → reconstruye.
-• CASCADA: 1) bases (forma de aplicación + subfactores; obligatoria); 2) API solo criterio + ponderación
-  general; 3) si falta la forma de aplicación → ALERTA + acción.
-• "PTOS"/"PUNTOS" NO ES "SIN PONDERACIÓN": bases municipales/DAEM suelen repartir el puntaje en PUNTOS
-  SOBRE 100 en vez de "%" — ej. "OFERTA ECONÓMICA 40 PTOS · GARANTÍA TÉCNICA 15 PTOS · PLAZO DE ENTREGA
-  30 PTOS … TOTAL: 100 PTOS" y fórmulas del tipo "... x 100 x 0,40" (letra "x", no "×" ni "*"). Si el
-  total de la tabla es 100 puntos, cada "N PTOS" = N% de ponderación exacto — conviértelo así. NUNCA
-  marques fuente_datos='incompleto' solo porque la tabla dice "PTOS" en vez de "%".
-• JERARQUÍA: PONDERACIÓN EFECTIVA = padre × relativa.
-• POR CADA CRITERIO: nombre · ponderación REAL · FORMA DE APLICACIÓN (fórmula, tramos, qué acredita cada
-  puntaje, medio de verificación; consolídala aunque viva en otra sección) · CLASE DE EVALUACIÓN · Fuente.
-
-  ══ CLASE DE EVALUACIÓN — determina la ORDEN estratégica (crítico; no la confundas) ══
-  Mira CÓMO asigna el puntaje y en qué DIRECCIÓN:
-   • CONTINUO / PROPORCIONAL → el extremo se lleva el 100% y el resto se evalúa proporcionalmente (fórmula
-     tipo mejor_oferta / oferta_evaluada). Cada unidad de agresividad suma puntaje. Es:
-        ⭐ LEY DEL MÍNIMO  si menor valor gana (plazo, precio, tasa de fallas, tiempo de respuesta…).
-        ⭐ LEY DEL MÁXIMO  si mayor valor gana (garantía, mantenciones incluidas, cobertura…).
-   • POR TRAMOS → el puntaje viene en escalones fijos (ej. 1-5 días=100, 6-10=60, 11-15=30). DENTRO del
-     escalón, todas las ofertas valen igual. NO es continuo aunque la variable sea la misma.
-   REGLA DURA: si hay escalones/tramos con puntajes fijos, es POR TRAMOS, NO ley del mín/máx. Si la
-   fórmula es continua sin escalones, es LEY DEL MÍNIMO/MÁXIMO. (Un criterio puede tener además un RANGO
-   DE ADMISIBILIDAD —mín/máx fuera del cual la oferta es inadmisible—; anótalo aparte, no lo confundas
-   con los tramos de puntaje.)
-   Registra, para cada criterio POR TRAMOS, el TRAMO DE MÁXIMO PUNTAJE y sus bordes (ej. "100 pts = 1-5
-   días"), porque de ahí sale la orden concreta en Estrategia.
-• SUMA = 100%: si no da 100% (±1%) → alerta + REVISION_HUMANA.
-• Indica si el puntaje se evalúa AL TOTAL o LÍNEA POR LÍNEA.
-
-──────── 2. ATRACTIVO (veredicto comercial, SIN números) ────────
-Calcula internamente (no lo muestras salvo el presupuesto) presupuesto, cantidad/tipo, complejidad,
-ejecución (barrera a los demás; logística ex-Santiago no es problema propio) y modificador de
-adjudicación: GLOBAL heterogéneo → MÁXIMA cancha · GLOBAL homogéneo → buena · POR LOTES → buena si
-heterogéneo · POR LÍNEAS con líneas de buen presupuesto/especializadas → mini-proyectos, no penaliza ·
-POR LÍNEAS de migajas (bajo presupuesto Y commodity) → PIERDE. GLOBAL suma; fragmentado resta. La
-cantidad no penaliza si es especializada.
-SALIDA: VEREDICTO en tres niveles SIN números (salvo PRESUPUESTO, en pesos): ALTO · MEDIO · BAJO +
-LECTURA COMERCIAL (2-4 frases con punch). El campo de atractivo del encabezado NUNCA queda vacío.
-PRESUPUESTO QUE SE MUESTRA (presupuesto_mostrar): el monto CON IVA (bruto), rotulado "IVA incl."
-(o "(exento)" si el régimen es exento/FORA, donde no se suma IVA). El neto es SOLO interno (gate).
-
-──────── 3. ESTRATEGIA (dónde se gana y qué hacer) ────────
-JUGADAS, no descripciones. La ORDEN de cada criterio se DERIVA de su CLASE DE EVALUACIÓN (no se escribe
-libre):
-
-  • CONTINUO, menor gana (⭐ LEY DEL MÍNIMO): "OFERTA EL MENOR [X] QUE PUEDAS CUMPLIR CON SEGURIDAD".
-     Nos despegamos con el COLCHÓN. Sin colchón/stock → "⚠ EXIGE STOCK/RESPALDO". No sugieras un número.
-  • CONTINUO, mayor gana (⭐ LEY DEL MÁXIMO): "OFERTA EL MAYOR [X] QUE PUEDAS SOSTENER".
-     Nos despegamos con el SERVICIO TÉCNICO PROPIO.
-  • POR TRAMOS: identifica el TRAMO DE MÁXIMO PUNTAJE y ordena ofertar su BORDE MÁS CÓMODO (el valor que
-     nos exige/cuesta/arriesga MENOS y aún da el máximo). Da el NÚMERO CONCRETO:
-        - menor es mejor (ej. plazo 1-5=100): "OFERTA [borde ALTO del tramo, ej. 5 DÍAS] — DA EL MISMO
-          PUNTAJE MÁXIMO QUE [extremo] CON MENOS RIESGO".
-        - mayor es mejor (ej. garantía 12+ meses=100): "OFERTA [borde BAJO del tramo, ej. 12 MESES] — DA
-          EL MISMO PUNTAJE MÁXIMO CON MENOS COSTO".
-     PROHIBIDO ABSOLUTO: ordenar el extremo (ej. 1 día, 36 meses) cuando un valor más cómodo cae en el
-     MISMO tramo de máximo puntaje. En POR TRAMOS NUNCA se oferta "el mínimo/máximo posible": se oferta
-     el borde cómodo del tramo ganador. (No aplicamos lógica de desempate: en la práctica no ocurre.)
-  • BINARIO: "PRESENTA [lo que pide] PARA NO REGALAR ESTE PUNTAJE".
-
-Etiquetas: 🟢 OPORTUNIDAD (leyes del mín/máx a favor con respaldo) · 🟡 RESOLVER (condicionante con vía) ·
-⚪ EMPATE (POR TRAMOS/BINARIO: todos llegan al máximo) · 🔴 EN CONTRA. Cada jugada: etiqueta + una línea
-de lectura + la ORDEN en texto imperativo MAYÚSCULA (NUNCA un número/índice) + Fuente.
-• GEOGRAFÍA/presencia local: si exige algo que no tenemos, revisa TERCERO DECLARATIVO (partner) → RESOLVER;
-  si no → obstáculo. Toda condicionante con su vía de solución.
-• CIERRE OBLIGATORIO — DÓNDE SE DECIDE: si TODO lo distinto del precio es POR TRAMOS/BINARIO → se traslada
-  al PRECIO: con ventaja de costo "SE DECIDE EN PRECIO. ENTRA AGRESIVO, TENEMOS CON QUÉ"; sin ventaja
-  "GUERRA DE PRECIO. EVALUAR SI VALE LA PENA". Si hay criterios continuos a favor: "NO ES SOLO PRECIO:
-  NOS DIFERENCIAMOS EN [criterio(s)]". PROHIBIDA la contradicción interna: si un criterio es POR TRAMOS,
-  NO puede aparecer como diferenciador (todos empatan en el tramo).
-
-──────── 4. REQUISITOS DE ADMISIBILIDAD (+ documentos propios a crear) ────────
-Barre Bases Administrativas Y Técnicas. Lo que detectes ALIMENTA a Plazos (fiel cumplimiento/contrato) y
-a Acciones. CHECKLIST:
-• FIRMA DE PUÑO Y LETRA — ESTRICTA SUJECIÓN: la firma ELECTRÓNICA (simple/avanzada) es VÁLIDA por defecto
-  (Ley 19.799). Solo "PUÑO Y LETRA EXIGIDA" si las bases lo dicen EXPRESAMENTE (firma manuscrita/ológrafa/
-  de puño y letra/ante notario). UNA LÍNEA PARA FIRMAR NO ES EVIDENCIA. Declara SIEMPRE el resultado: sin
-  exigencia expresa → "Firma: electrónica válida — no se exige puño y letra ✓"; con exigencia expresa →
-  "⚠ FIRMA DE PUÑO Y LETRA EXIGIDA" + cita literal.
-• GARANTÍA DE FIEL CUMPLIMIENTO (alimenta Plazos): detecta si la exigen EN CUALQUIER FORMA (boleta,
-  PÓLIZA, vale vista, certificado de fianza, depósito, retención). No busques solo "boleta". Anota su
-  plazo. SI EXISTE → Plazos cadena LARGA.
-• SUSCRIPCIÓN DE CONTRATO (alimenta Plazos): si la exigen y sus plazos. SI EXISTE → Plazos cadena LARGA.
-• GARANTÍA DE SERIEDAD DE LA OFERTA (no confundir con fiel cumplimiento). PRESUPUESTO EXCLUYENTE vs
-  REFERENCIAL. COTIZAR EL 100% (global/lote). BOLETA/umbral 1.000 UTM (manda el texto). PLAZO
-  MÁXIMO/MÍNIMO de entrega (fuera de rango = inadmisible). MARCA EXCLUSIVA vs "o equivalente" (primer
-  orden). Registro/formato/garantía mínima → BLOQUEANTE si nos bloquea. Carpeta tributaria → EN CONTRA por
-  política. Complejidad documental = barrera a los chicos = A FAVOR. Bloqueante sin salida → DESCARTE
-  (score <35).
-ORDEN DE TRABAJO — DOCUMENTOS/ANEXOS PROPIOS A CREAR (ejecutable a mano si Fase 4 no existe; contenido
-según lo que la base exige EXPRESAMENTE). Por CADA uno: ① QUÉ CREAR · ② POR QUÉ (cita + Fuente) · ③ QUÉ
-DEBE CONTENER (concreto) · ④ QUÉ CUBRE. Clasifica 🔴 ADMISIBILIDAD DURA · 🟡 PUNTAJE/CONDICIONANTE · 🟢
-COMPROMISO DE EJECUCIÓN; ordena 🔴 arriba.
-
-──────── 5. PLAZOS ────────
-El COLCHÓN es el tiempo administrativo GRATIS entre la ADJUDICACIÓN y el inicio del plazo de entrega.
-REGLA MADRE: el plazo de entrega NO es colchón.
-• CONSULTA OBLIGATORIA A ADMISIBILIDAD: si detectó FIEL CUMPLIMIENTO (cualquier forma) y/o CONTRATO → la
-  cadena es LARGA sí o sí. Incoherente marcar corta si el análisis ya encontró fiel cumplimiento/contrato.
-• DOS CADENAS (LINEALES; gatillo = lo que EXIGEN las bases, no el monto):
-    CORTA: Adjudicación → Emisión OC → Aceptación OC.
-    LARGA: Adjudicación → Entrega Garantía de Fiel Cumplimiento → Firma de Contrato → Emisión OC →
-      Aceptación OC.
-  LINEAL Y SECUENCIAL: SUMA los hitos entre adjudicación y frontera. ÚNICA EXCEPCIÓN: paralelo declarado
-  EXPRESAMENTE (raro). NUNCA incluyas hitos anteriores a la adjudicación: el colchón EMPIEZA en la
-  adjudicación.
-• FRONTERA (destácala SIEMPRE): desde cuándo corre el plazo de entrega. Todo lo anterior = colchón. Fuente.
-• EXTRACCIÓN: cada plazo literal + Fuente. ACEPTACIÓN DE OC SE DESCRIBE SIEMPRE; si no está → 5 días
-  corridos (Ley de Compras, inferido). Otro hito ausente → "no especificado" + alerta.
-• UNIDAD — REGLA DURA (horas vs. días): si un plazo viene en HORAS, conviértelo a días (48 h = 2 días)
-  ANTES de sumar. PROHIBIDO tratar horas como días. Sensatez: aceptación de OC > ~10 días hábiles es
-  sospechosa de venir en horas → revísala. "Días hábiles" = L-V; hábiles→corridos con factor 7/5. COLCHÓN
-  TOTAL en DÍAS CORRIDOS REALES, TRUNCADO HACIA ABAJO.
-• VENTANA DE IMPORTACIÓN (coherente con Costeo): colchón > 10 días corridos Y ítem importable (ruta B) →
-  "VENTANA PARA IMPORTAR". PROHIBIDO "sin ventana" con colchón largo e importable.
-
-──────── 6. MULTAS (pegado a Plazos) ────────
-Del artículo de sanciones, con Fuente: ESTRUCTURA; COSTO POR DÍA DE ATRASO EN PESOS (si es UTM, usa valor
-UTM vigente e indícalo); TOPE y qué pasa al superarlo; otras multas si existen. Si no hay → decláralo; NO
-inventes.
-
-──────── 7. PRODUCTOS REQUERIDOS (base de la búsqueda / scraping) ────────
-Este módulo es la MATERIA PRIMA de la búsqueda (Fase 3): si no podemos conseguir el producto, no vale la
-pena seguir. Extrae de las BASES TÉCNICAS (y de los TTR / Términos Técnicos de Referencia donde el
-detalle esté). FIDELIDAD LITERAL ABSOLUTA: transcribe las características TAL CUAL las bases, SIN AGRUPAR,
-SIN OMITIR, SIN RESUMIR, SIN "optimizar la presentación", EN EL MISMO ORDEN de lo requerido. Cero
-invención: si las bases no especifican, se declara explícitamente (ver abajo). LISTA TODOS los ítems (el
-total debe coincidir con lo que exige la licitación).
-
-UNA LÍNEA/ÍTEM DE MERCADO PÚBLICO PUEDE EMPAQUETAR VARIOS PRODUCTOS DISTINTOS. Dos casos reales, dos
-formas distintas en que las bases lo escriben — la señal que importa es la MISMA en ambos, no el formato:
-
-  · 2495-17-B226 "Sistema de trasplante de árboles": Mercado Público lista UN ítem, pero la tabla de
-    "Características del equipo" trae columnas TIPO | IMPLEMENTO | REQUISITO, con 6 componentes con
-    especificaciones PROPIAS — Tractor, Sistema de trasplante, Barre nieve, Trompo para sal, Carro de
-    transporte, Carro para regado.
-  · 2446-225-LR26 "Camiones con Grúa Hidráulica y Canastillo Alza Hombre": Mercado Público lista UN
-    ítem, y las bases NO traen tabla — van con encabezados de sección por subsistema (Motor, CHASIS,
-    SEGURIDAD, CARROCERÍA, luego "Grúa Hidráulica Articulada equivalente a modelo F95B0.24 de Fassi",
-    luego "CANASTILLO ALZA HOMBRE"). Motor/Chasis/Seguridad/Carrocería SÍ son del mismo vehículo (no se
-    separan: ninguno cita una marca/modelo propia, todos describen EL MISMO camión) — pero la Grúa y el
-    Canastillo cada uno cita SU PROPIA marca/modelo de referencia, distinta a la del camión: son
-    productos aparte, típicamente de otro fabricante, que se le monta encima al vehículo.
-
-LA SEÑAL GENERALIZABLE (no el formato de tabla, que es solo UNA forma de presentarla): dentro de una
-misma línea, ¿hay un bloque de especificaciones que cita SU PROPIA marca/modelo de referencia ("equivalente
-a modelo X de Y", "marca Z", un código de modelo propio), DISTINTA de la marca/modelo del resto de la
-línea? Si sí, ese bloque es un componente/producto APARTE, sin importar si las bases lo presentan como
-fila de tabla, encabezado de sección, o párrafo suelto. Si un bloque de especificaciones NO cita marca ni
-modelo propios y solo describe una dimensión/parte del MISMO equipo ya identificado (motor, chasis,
-seguridad de un mismo camión; refrigeración, embrague, dirección de un mismo tractor), NO se separa —
-sigue siendo parte de ese único producto.
-
-Cuando detectes 2+ componentes por esta señal: NO los fusiones en un solo ítem con todas las
-características mezcladas — emite un ítem de productos.items[] POR CADA componente, TODOS con el MISMO
-valor de "linea" (ej. "L1"), cada uno con nombre = el nombre del componente específico ("Camión"/
-"Tractor", "Grúa Hidráulica", "Canastillo Alza Hombre", etc.) y SOLO sus propias características — nunca
-las de otro componente de la misma línea. Esto es lo que permite comparar después la ficha técnica de
-CADA equipo contra SUS propias exigencias, en vez de mezclar los requisitos del camión con los de la grúa
-en una sola bolsa de 30+ características donde ninguna ficha del proveedor las cubre todas. Fusionar aquí
-es el error — separar por componente es lo correcto, aunque Mercado Público solo cuente esa línea como
-"1 ítem".
-
-PASO 0, ANTES DE CLASIFICAR (obligatorio, por cada línea de Mercado Público): ¿esta línea trae un bloque
-de especificaciones que cita SU PROPIA marca/modelo ("equivalente a modelo X de Y"), distinta de la del
-resto? Si SÍ → esa línea es 2+ ítems de productos.items[] (mismo "linea", un nombre por componente). NO
-uses el conteo de ítems de Mercado Público como excusa para fusionarlos — MP puede contar 1 y las bases
-describir 6 productos (tractor+implementos) o 3 (camión+grúa+canastillo). Falla común a evitar: quedarse
-con 1 solo ítem "porque así lo cuenta Mercado Público" cuando las bases técnicas claramente describen
-componentes con marcas distintas — eso es el error exacto que este párrafo existe para prevenir.
-
-Clasifica cada ítem y trátalo distinto:
-
-  ══ ESPECÍFICO (tiene marca/modelo de referencia o características técnicas detalladas) ══
-  Emite una FICHA TÉCNICA con las características en LISTA VERTICAL (una por renglón), literal, en orden.
-  Busca las características DONDE ESTÉN (tabla de productos, TTR, anexos técnicos) y transcríbelas todas.
-  Formato:
-      FICHA TÉCNICA — L[n]
-      Producto: [nombre exacto]
-      Marca/Modelo de referencia: [lo que digan las bases]
-      ¿Admite equivalente?: SÍ ("o similar/o equivalente/referencial") | NO (marca exacta exigida)
-      Características requeridas (literal de bases):
-        • [característica 1: valor]
-        • [característica 2: valor]
-        • [incluye: accesorios/rotulación/capacitación/… si las bases lo dicen]
-      Fuente: [documento, pág.]
-
-  ══ GENÉRICO (pedido "a secas" o con características mínimas) ══
-  Basta el NOMBRE. Si las bases NO detallan características, es LIBERTAD DE OFERTA = VENTAJA COMERCIAL
-  (podemos ofertar el que queramos): márcalo "🟢 LIBERTAD DE OFERTA". No inventes specs. Formato:
-      L[n] · [nombre exacto] · Cant: [n] · Ruta [A/B]
-        Características en bases: [las que haya, literal] | "sin especificaciones adicionales — 🟢 LIBERTAD DE OFERTA"
-
-Por cada ítem, además: CANTIDAD ORIGINAL (tal cual) · UNIDAD (textual; si falta → unidad básica +
-unidad_inferida) · PRESUPUESTO LÍNEA/LOTE (o "precio libre") · RUTA (A local / B importación; marca exacta
-sin "o equivalente" → ruta B con marca_exclusiva=true).
-
-DOS ENTREGABLES WORD (orden de trabajo; el backend/Fase 4 los genera del JSON — se separan para poder
-delegar a dos personas distintas):
-   • WORD "GENÉRICOS": lista de genéricos con nombre + características mínimas (búsqueda por nombre).
-   • WORD "ESPECÍFICOS": las fichas técnicas verticales completas, scraping-ready (copiar-pegar en el
-     buscador o entregar a un humano).
-
-ENGANCHE CON EL COSTEO: el archivo de Costeo NO recibe las fichas largas de específicos (por longitud);
-para específicos, el Costeo queda solo para rellenar costos y las fichas viven en el Word de específicos.
-Para genéricos, basta el nombre (el buscador admite adjuntar las bases técnicas como contexto).
-NÚMERO DE HOJAS DEL COSTEO = según adjudicación: GLOBAL → 1 · POR LOTES → 1/lote · POR LÍNEAS → 1/línea.
-PROHIBIDO buscar precios/proveedores aquí (eso es Fase 3).
-
-──────── 8. LÍNEAS A ATACAR ────────
-GLOBAL/LOTES: "Se ataca el paquete completo; no se puede elegir líneas. Cotizar el 100% o quedas fuera."
-POR LÍNEAS: cada línea es un mini-proyecto; ATACAR (≥$5M, o especializada, o importable con margen) o
-SOLTAR (bajo presupuesto <$5M Y commodity, AND), con motivo comercial. Un veredicto único.
-
-──────── 9. ACCIONES Y ADVERTENCIAS (remate) ────────
-VARA DURA: solo lo que nos DEJA FUERA, nos HACE GANAR o nos HACE PERDER. PROHIBIDAS las obviedades
-("verifica stock", "analiza el flete", "confirma disponibilidad", "revisa el precio").
-• ACCIONES PARA POSTULAR (por prioridad), desde Estrategia + Admisibilidad + Plazos: ORDEN en texto
-  imperativo (NUNCA un número/índice), con su porqué. Las órdenes de criterios respetan la clase (POR
-  TRAMOS → borde cómodo con número concreto; leyes → extremo que podamos cumplir/sostener).
-• ADVERTENCIAS (por gravedad): causales que matan la oferta (excluyente ajustado, cotizar 100%, firma
-  puño y letra EXIGIDA EXPRESAMENTE, plazo fuera de rango, fiel cumplimiento a entregar en X días,
-  boleta) y riesgos de margen (marca exclusiva sin equivalente, guerra de precio sin ventaja). Cada una
-  con Fuente y consecuencia concreta.
-
-──────── TARJETA DE DECISIÓN (se genera al final; se muestra ARRIBA, junto al score) ────────
-Síntesis de la interacción de todos los módulos: la decisión de participar o no, en 5 respuestas en
-lenguaje de ORDEN, en una pantalla de celular. NO introduce datos nuevos ni contradice el detalle.
-① TITULAR. ② VEREDICTO derivado del SCORE: 🟢 GANABLE (≥50) · 🟡 PUEDE SER (35-49) · 🔴 NO VAMOS (<35).
-③ SE GANA EN. ④ PARA GANAR (jugadas numeradas, texto imperativo real; en POR TRAMOS el número concreto
-del borde cómodo; nunca "el mínimo posible"). ⑤ NO QUEDES FUERA (causales reales). ⑥ ANTES DE IR (qué
-confirmar en Fase 3 que MUEVA LA AGUJA: importabilidad real, margen, tiempo de importación dentro del
-colchón; PROHIBIDO "verifica stock"). ADAPTATIVO: 🔴 NO VAMOS → solo TITULAR + VEREDICTO + "POR QUÉ NO".
-
-═══════════════════════ SALIDA ═══════════════════════
-DOS bloques: (A) JSON canónico; (B) informe legible (visual, sucinto, con Fuente; recomendaciones finales
-en MAYÚSCULA), con SCORE + Tarjeta arriba y los 9 bloques en orden. Exclusión o gate de presupuesto → no
-emitas el informe completo: registra categoria/motivo + Fuente + destino.
-
-JSON canónico (orden):
-{
-  "meta": { "id":"", "nombre":"", "organismo":"", "region":"", "linea_negocio":"" },
-  "score_global": 0,
-  "exclusion": { "excluido":false, "categoria":"", "motivo":"", "fuente":"", "confianza":0.0, "destino":"OK|NO_REALIZAMOS|REVISION_HUMANA" },
-  "presupuesto": { "bruto":0, "neto":0, "con_iva":true, "regimen_fora":false, "es_excluyente":false, "fuente":"", "gate":"OK|NO_CALIFICA|DESCARTE_CONDICIONAL|INCIERTO" },
-  "adjudicacion": { "como_se_adjudica":"GLOBAL|POR_LINEAS|POR_LOTES", "heterogeneidad":"alta|baja|na", "modalidad_pago_interna":"suma_alzada|precios_unitarios", "estado":"DETERMINADA|REVISION_HUMANA", "cotizar_100_obligatorio":false, "libertad_de_pricing":false, "evaluacion_puntaje":"al_total|por_linea", "fuente":"", "confianza":0.0 },
-  "criterios_evaluacion": { "fuente_datos":"bases|api|mixto|incompleto", "forma_aplicacion_completa":true, "suma_ponderaciones_real":100, "suma_valida":true, "evaluacion_puntaje":"al_total|por_linea",
-    "criterios":[ { "nombre":"", "ponderacion_nominal":0, "ponderacion_efectiva":0, "clase":"LEY_DEL_MINIMO|LEY_DEL_MAXIMO|POR_TRAMOS|BINARIO", "tramo_max_puntaje":{ "descripcion":"", "borde_comodo":"" }, "rango_admisibilidad":{ "min":"", "max":"" }, "forma_aplicacion":"", "medio_verificacion":"", "fuente":"", "subfactores":[ { "nombre":"", "ponderacion_relativa":0, "ponderacion_efectiva":0, "clase":"", "forma_aplicacion":"", "medio_verificacion":"", "fuente":"" } ] } ], "alertas":[] },
-  "atractivo": { "veredicto":"ALTO|MEDIO|BAJO", "lectura_comercial":"", "presupuesto_neto":0, "presupuesto_mostrar":"$__ IVA incl.", "_interno":{ "dim_atractivo_0_40":0, "dim_ventaja_0_40":0, "dim_admisibilidad_0_20":0, "nivel_tecnico":"MUY_VIABLE|VIABLE|POCO_VIABLE|DESCARTE" } },
-  "estrategia": { "jugadas":[ { "criterio":"", "etiqueta":"OPORTUNIDAD|RESOLVER|EMPATE|EN_CONTRA", "clase":"", "lectura":"", "orden":"", "valor_a_ofertar":"", "exige_respaldo":false, "fuente":"" } ], "donde_se_decide":{ "todo_paridad_salvo_precio":false, "se_decide_en":"precio|criterios_continuos|mixto", "tenemos_ventaja_costo":"si|no|na", "criterios_diferenciadores":[], "orden_final":"" } },
-  "requisitos_admisibilidad": { "firma_puno_y_letra":{ "exigida":false, "mostrar_alerta":false, "evidencia_textual":"", "fuente":"" }, "fiel_cumplimiento":{ "exige":false, "forma":"boleta|poliza|vale_vista|fianza|retencion|otra", "plazo_entrega":"", "fuente":"" }, "contrato":{ "exige":false, "plazos":"", "fuente":"" }, "seriedad_oferta":{ "exige":false, "fuente":"" }, "presupuesto":{ "tipo":"excluyente|referencial", "fuente":"" }, "cotizar_100":{ "aplica":false, "fuente":"" }, "boleta":{ "aplica":false, "umbral_utm":1000, "exigida_bajo_umbral":false, "detalle":"", "fuente":"" }, "plazo_entrega_rango":{ "min":"", "max":"", "fuera_de_rango_inadmisible":true, "fuente":"" }, "marca_exclusiva":{ "es_exclusiva":false, "admite_equivalente":false, "evidencia":"", "fuente":"" }, "bloqueantes":[], "a_favor":[],
-    "orden_anexos_propios":[ { "que_crear":"", "por_que":"", "fuente":"", "que_debe_contener":"", "que_cubre":"", "criticidad":"ADMISIBILIDAD_DURA|PUNTAJE_CONDICIONANTE|COMPROMISO_EJECUCION", "responsable":"fase4|operador|partner_externo" } ] },
-  "plazos": { "cadena":"corta|larga", "gatillo_cadena_larga":{ "exige_fiel_cumplimiento":false, "exige_contrato":false, "fuente":"" }, "frontera":{ "descripcion":"", "base_computo":"emision_oc|aceptacion_oc|firma_contrato|decreto", "fuente":"" }, "hitos":[ { "hito":"", "duracion":0, "unidad":"horas|habiles|corridos", "duracion_corridos":0, "desde":"", "inferido":false, "fuente":"" } ], "aceptacion_oc":{ "duracion":0, "unidad":"horas|habiles|corridos", "duracion_corridos":0, "inferido":false, "fuente":"" }, "colchon_dias_corridos":0, "plazo_entrega_ofertable":{ "valor":"", "unidad":"", "fuente":"" }, "ventana_importacion":false, "alertas":[] },
-  "multas": { "detectadas":true, "estructura":"", "costo_por_dia_pesos":"", "valor_utm_usado":"", "tope":"", "efecto_al_superar_tope":"", "otras":[], "fuente":"" },
-  "productos": { "total_items":0, "entregables_word":["GENERICOS","ESPECIFICOS"],
-    "items":[ { "linea":"L1", "nombre":"", "clasificacion":"especifico|generico", "marca_modelo_referencia":"", "admite_equivalente":true, "libertad_de_oferta":false, "caracteristicas":[ "" ], "cantidad":0, "unidad_medida":"", "unidad_inferida":false, "presupuesto_linea":0, "libertad_de_pricing":false, "ruta":"A|B", "marca_exclusiva":false, "fuente":"" } ],
-    "hojas_costeo_segun_adjudicacion":"GLOBAL:1|POR_LOTES:n|POR_LINEAS:n",
-    "mapa_items":[ { "documento":"", "rol":"principal|parcial|especificaciones|espejo|sin_items", "que_contiene":"", "n_items":0 } ],
-    "hallazgos_formato":[] },
-  "lineas_a_atacar": { "aplica":true, "modo":"POR_LINEAS|GLOBAL|POR_LOTES", "mensaje_global_o_lote":"", "lineas":[ { "linea":"L1", "decision":"atacar|soltar", "motivo":"" } ] },
-  "acciones_y_advertencias": { "acciones":[ { "orden":"", "por_que":"", "prioridad":1, "fuente":"" } ], "advertencias":[ { "riesgo":"", "consecuencia":"", "gravedad":"alta|media", "fuente":"" } ] },
-  "tarjeta_decision": { "titular":"", "veredicto":"GANABLE|PUEDE_SER|NO_VAMOS", "se_gana_en":"", "para_ganar":[], "no_quedes_fuera":[], "antes_de_ir":"", "leyes_detectadas":[ { "criterio":"", "clase":"LEY_DEL_MINIMO|LEY_DEL_MAXIMO", "exige_respaldo":false } ], "porque_no":"" },
-  "pendientes_fase3": [],
-  "veredicto": { "score_global":0, "nivel":"MUY_VIABLE|VIABLE|POCO_VIABLE|DESCARTE", "estado_veredicto":"DEFINITIVO|REVISION_HUMANA", "motivos_revision":[], "acciones_AC":[], "advertencias":[] }
-}
-
-AUTOCHEQUEO FINAL — COHERENCIA DE SISTEMA:
-- Los módulos cuentan UNA SOLA HISTORIA: fiel cumplimiento/contrato → cadena larga; GLOBAL/LOTE →
-  cotizar 100% coherente; ley del mínimo en plazo + colchón 0 → "⚠ EXIGE STOCK/RESPALDO"; colchón largo +
-  importable → ventana "sí"; score y veredicto coherentes (GANABLE ≥50).
-- CRITERIOS: clase bien asignada. CONTINUO (sin escalones) → LEY DEL MÍNIMO/MÁXIMO. POR ESCALONES → POR
-  TRAMOS con su tramo de máximo puntaje y borde cómodo registrado. Suma 100%.
-- ESTRATEGIA/ACCIONES/TARJETA: la orden de cada criterio respeta su clase. POR TRAMOS → número concreto
-  del borde cómodo (ej. 5 días), NUNCA "el mínimo posible". Ningún POR TRAMOS aparece como diferenciador
-  en "dónde se decide". Los tres lugares dicen el MISMO número.
-- PRODUCTOS: TODOS los ítems, literales, en orden, sin agrupar ni omitir. Específicos con ficha vertical
-  completa; genéricos "a secas" marcados 🟢 LIBERTAD DE OFERTA (ventaja comercial). Dos entregables Word
-  (genéricos / específicos). Costeo de específicos sin fichas largas.
-- Plazos: unidades correctas (horas→días); colchón sin plazo de entrega ni hitos pre-adjudicación;
-  frontera destacada. Firma puño y letra solo si expresa. Score con techo realista. Atractivo nunca vacío.
-- Cada resultado con Fuente. Cada ORDEN es texto imperativo real, nunca un número. Sin obviedades.
-- El análisis se completó hasta el final; estado_veredicto correcto.`;
-
-// ─── v3.5: BARRIDO MULTI-DOCUMENTO (CRITERIOS + ÍTEMS) — se APPENDEA a SYSTEM_PROMPT_V3 ───
-// 100% ADITIVO: no toca ninguna línea del prompt v3. Refuerza dos módulos donde el modelo
-// tiende a agarrar el documento equivocado: (1) los CRITERIOS DE EVALUACIÓN (caso real
-// 2126-107-LE26: colapsó 7 criterios de las BASES en un 60/40 inventado del anexo técnico),
-// y (2) el LISTADO DE ÍTEMS/PRODUCTOS. Como Z.AI cachea el prefijo idéntico, el costo
-// marginal es ~0 desde la 2ª llamada. Kill-switch: VIABILIDAD_BARRIDO_V35=0.
-const BLOQUE_BARRIDO_V35 = `
-═══════════════════════ ANEXO v3.5 — BARRIDO MULTI-DOCUMENTO ═══════════════════════
-Refuerza los módulos 1 (CRITERIOS DE EVALUACIÓN) y 7 (PRODUCTOS). No reemplaza reglas; las endurece.
-
-──── A. CRITERIOS DE EVALUACIÓN — NO COLAPSES LA TABLA ────
-REGLA DURA: la tabla que REPARTE EL 100% del puntaje entre criterios CON NOMBRE Y % PROPIO vive en
-las BASES ADMINISTRATIVAS (o el decreto que las aprueba), NO en un formulario/anexo de oferta.
-• Una tabla "EVALUACIÓN TÉCNICA / Cumple / Puntaje" dentro de un ANEXO o FORMULARIO editable es el
-  DETALLE INTERNO de UN criterio (Oferta Técnica / Especificaciones), NO la distribución de criterios.
-  NO la confundas con la lista de criterios ni cites el formulario como fuente de la distribución.
-• PROHIBIDO colapsar los criterios en "Técnica X% / Económica Y%" si las bases enumeran MÁS criterios
-  con ponderación propia (ej. Oferta Económica 20 + Oferta Técnica 25 + Especificaciones Técnicas 30 +
-  Plazo 10 + Experiencia 10 + Requisitos Formales 3 + Integridad 2 = 100). Emítelos TODOS, uno por uno.
-• VERIFICACIÓN DURA (suma=100 NO basta — una tabla inventada también suma 100): localiza en el texto
-  de las bases los pares "nombre de criterio + %" que totalizan 100 y confirma que tu lista los cubre
-  TODOS. Si emites MENOS criterios de nivel superior que los que las bases enumeran → es ERROR:
-  reconstruye la lista completa antes de cerrar el módulo.
-• Si tras barrer las bases NO logras reconstruir la tabla real con certeza → criterios_evaluacion.
-  fuente_datos="incompleto", agrega alerta, y estado_veredicto=REVISION_HUMANA con motivo
-  "criterios de evaluación no reconstruidos con certeza". NUNCA inventes una distribución plausible.
-
-──── B. ÍTEMS / PRODUCTOS — LOS ÍTEMS NO TIENEN DOMICILIO FIJO ────
-El listado de productos puede vivir en CUALQUIER documento: bases administrativas, bases técnicas/EETT,
-TTR, un ANEXO EXCEL, un formulario, el DECRETO que aprueba las bases, o un PDF de imágenes. PROHIBIDO
-emitir el módulo de productos habiendo mirado solo las bases técnicas: ANTES de listar, BARRE TODOS los
-documentos y construye el MAPA DE ÍTEMS (qué documento contiene qué listado) → productos.mapa_items.
-PASO 1 — MAPEO: por CADA documento, registra si contiene (a) el LISTADO PRINCIPAL con cantidades,
-(b) un listado PARCIAL/espejo (formulario de oferta que repite ítems), (c) solo ESPECIFICACIONES de
-ítems listados en otro doc, o (d) nada. Señales: columnas Ítem/Descripción/Cantidad/Unidad, "ARTÍCULOS
-QUE LO COMPONEN", "Bien o Servicio Requerido", "Se consulta el suministro de…".
-PASO 2 — FUENTE CANÓNICA: el documento con el listado MÁS DETALLADO Y CUANTIFICADO es la fuente del
-manifiesto (suele ser el anexo Excel o la tabla de la EETT, NO las bases administrativas). Si DOS
-documentos listan ítems, extrae del más completo y CRUZA los totales; si difieren, decláralo en las
-alertas con ambos conteos. Los ítems de la API MP son REFERENCIA de cruce, nunca la fuente.
-PASO 3 — FORMATOS (identifícalos y trátalos así):
-① DECRETO QUE EMBEBE LAS BASES: un "Decreto/Resolución que APRUEBA bases" suele CONTENER bases+anexos+
-   EETT íntegros. Bárrelo COMPLETO; no lo descartes como trámite. Cita el documento suelto si existe.
-② ANEXO EXCEL DE CANTIDADES: CADA HOJA es un ámbito propio (barre todas). SETS/KITS: el set NO es el
-   producto; los productos son las FILAS que lo componen (emite cada fila con el set como su línea).
-   CANTIDADES EN MATRIZ (producto × varias columnas de cantidad por set/tamaño): NO colapses ni elijas
-   una columna; emite el producto UNA VEZ POR VARIANTE (misma descripción, línea distinta por set,
-   cantidad de ESA columna). "EQUIVALENTE O SUPERIOR A: [marcas]" → marca de referencia, admite
-   equivalente, NO exclusiva. Columnas de precio vacías = formulario a llenar, NO presupuesto.
-③ TABLA JERÁRQUICA (1 / 1.1 / 1.2…): filas sin subnivel cuyas celdas REPITEN el mismo texto en todas
-   las columnas son CAPÍTULOS/PARTIDAS, NO productos; los productos son las filas x.y con cantidad y
-   unidad propias. Si mezcla BIENES con SERVICIOS/FAENAS (retiro/instalación), lístalo todo marcando el
-   tipo y evalúa en EXCLUSIÓN si el objeto principal es OBRA/servicio (no lo maquilles como venta).
-④ TTR/EETT POR SECCIONES ("Se consulta el suministro de: Excavadora… o similar"): cada sección = UN
-   ítem con su ficha técnica completa. "o similar/equivalente" → admite equivalente. Pocos ítems con
-   ficha larga es NORMAL en equipamiento; no inventes accesorios como ítems salvo cantidad propia.
-⑤ PDF DE IMÁGENES REFERENCIALES: los NOMBRES de los bienes SÍ son parte del listado (cruza cantidades
-   con el listado principal). Si un ítem solo aparece ahí sin cantidad → emítelo con cantidad null+alerta.
-⑥ DOCUMENTO CENTRAL ILEGIBLE: si el doc que DEBERÍA traer los ítems (por su nombre: bases/EETT/
-   cantidades) llega vacío/cortado (OCR fallido), NO lo compenses inventando ni desde la API MP: emite
-   los ítems con respaldo, declara el hueco en alertas y baja la confianza del módulo (el código escala
-   a revisión humana).
-⑦ CATÁLOGO DE SUMINISTRO SIN CANTIDADES (formularios "Solicitud de Compra" / "Bienes o Servicios
-   Requeridos" de contratos de suministro, a menudo ESCANEADOS): una lista larga de productos donde la
-   columna Cantidad viene VACÍA en todas las filas. CADA FILA ES UN ÍTEM: emítelos TODOS con cantidad
-   null (o 1 como base) y unidad_inferida=true. PROHIBIDO listar solo los primeros N como muestra: si el
-   listado es muy largo, total_items debe reflejar el conteo REAL de filas y, si no alcanzas a emitir
-   cada ficha, decláralo en alertas/hallazgos_formato — NUNCA presentes 3 ítems como si fueran todos.
-⑧ TABLA HTML (OCR) CON PRESUPUESTO COMPARTIDO VÍA rowspan: una tabla <table> por línea donde la
-   columna de "Monto/Presupuesto disponible" trae UNA celda con rowspan="N" que abarca TODAS las
-   filas de esa línea (ej. <td rowspan="27">$2.300.000.- Iva incluido</td> cubriendo 27 filas de
-   productos). Ese rowspan NO significa "esto es un solo producto": significa que el PRESUPUESTO es
-   compartido/tope de la línea completa, pero CADA FILA sigue siendo un producto individual con su
-   propia descripción y cantidad — cópialas todas y asígnales el MISMO presupuesto_linea (el del
-   rowspan). Una línea puede partirse en VARIAS tablas <table> consecutivas (el OCR corta por
-   página): trátalas como continuación de la MISMA línea, no como líneas nuevas. PROHIBIDO colapsar
-   la tabla completa en un ítem genérico con el texto del rowspan como "característica" — ese es
-   precisamente el error a evitar (caso real 2920-30-LE26, 6 líneas/117 productos con presupuesto
-   compartido por rowspan, colapsadas 2 veces seguidas a 6 ítems genéricos "Línea").
-⑨ TABLA DE CRITERIOS DE EVALUACIÓN DISFRAZADA DE PRODUCTOS (BUG REAL, 14-ago-2026, caso 2345-128-LP26:
-   10 productos reales + 20 filas de la tabla de criterios coladas como si fueran productos, con el
-   PUNTAJE leído como si fuera "cantidad"). La tabla de CRITERIOS/PUNTAJE tiene números en sus filas
-   igual que una tabla de productos — NUNCA la confundas, aunque venga en un anexo/formulario y no en
-   las bases mismas.
-   ══ LA SEÑAL DECISIVA ES EL ENCABEZADO DE LA COLUMNA NUMÉRICA ══ (evidencia del caso real: UN MISMO
-   archivo de anexos traía las DOS tablas, ambas con primera columna llamada "Ítem"):
-     · "Ítem | Valor Unitario Neto | CANTIDAD | Valor Total Neto"  → TABLA DE PRODUCTOS (Anexo de
-       Oferta Económica). Su columna numérica es CANTIDAD → productos.items. ✔
-     · "Ítem | PUNTAJE"  ·  "Documento | PUNTAJE"  ·  "Órdenes de Compra… | PUNTAJE"  → TABLA DE
-       EVALUACIÓN (Anexo "Metodología y Pauta de Evaluación"). Su columna numérica es PUNTAJE, NO
-       cantidad → criterios_evaluacion. ✘ JAMÁS a productos.items.
-   Que la primera columna diga "Ítem" NO convierte una tabla en listado de productos: mira SIEMPRE
-   cómo se llama la columna de números. Si dice "Puntaje"/"Puntos"/"Ponderación"/"%", es evaluación.
-   Refuerzo por TÍTULO DEL ANEXO: un anexo titulado "Metodología y Pauta de Evaluación", "Criterios
-   de Evaluación" o "Resumen de Evaluación" NO aporta NI UN ítem al manifiesto de productos, por más
-   tablas con números que traiga. El anexo que SÍ los aporta es el de "Oferta Económica"/listado de
-   bienes, con su columna Cantidad.
-   Señales de que una fila es CRITERIO, no producto (si calza CUALQUIERA, va al
-   módulo 1 "criterios_evaluacion", JAMÁS a "productos.items"):
-     • Ponderaciones/pesos de los ejes de evaluación: "Oferta Técnica", "Oferta Económica", "Oferta
-       Administrativa" con un % o puntaje al lado (ej. 70/26/4) — son los pesos del criterio, no
-       "cantidad" de nada comprable.
-     • Tramos de puntaje por rango: "15 o más", "Entre 10 y 14", "Entre 5 y 9" con un puntaje asociado
-       — es la escala POR TRAMOS de un criterio (ver módulo 1), no un producto llamado "Entre 10 y 14".
-     • Rankings de posición: "1er Lugar", "2do Lugar", "3er Lugar" con puntaje decreciente — es la
-       forma de aplicación de un criterio comparativo (ej. plazo de entrega), no cuatro productos.
-     • Declaraciones de cumplimiento binario ("El oferente… acredita que cuenta con Programa de
-       Integridad…" / su contraparte "no acredita…", "Presenta todos los antecedentes en el plazo
-       ordinario" / "No presenta…", "Sin Información") — son las DOS CARAS de un criterio BINARIO
-       (cumple/no cumple), nunca una lista de productos a costear.
-   La prueba rápida: si la "descripción" del supuesto ítem es una CONDICIÓN, un RANGO, un RANKING o
-   un TEXTO LEGAL de acreditación — no un OBJETO físico con marca/modelo/especificación técnica que se
-   pueda cotizar — es un criterio, no un producto. Ante la duda, PROHIBIDO emitirlo en productos.items.
-PASO 4 — CIERRE: total_items = suma del mapa; cruza con la API MP (si trae MÁS líneas, revisa qué doc
-no barriste). Cada FILA con cantidad y unidad propia es UN producto; un SET/KIT jamás se emite como un
-solo ítem si el documento desglosa su contenido. Una celda con rowspan que cubre varias filas NUNCA
-reduce esas filas a un solo producto (ver ⑧): rowspan = dato compartido, no fusión de filas.
-
-SALIDA ADITIVA (claves nuevas dentro de "productos"; si no aplican, arrays vacíos):
-  "mapa_items": [ { "documento":"", "rol":"principal|parcial|especificaciones|espejo|sin_items",
-                    "que_contiene":"", "n_items":0 } ],
-  "hallazgos_formato": [ "patrón de formato detectado en ESTA licitación, como regla reutilizable y
-                          SIN datos de esta licitación (formato, no contenido)" ]`;
-
-// Esquema JSON canónico v3.3 (bloque SALIDA del prompt). El modelo debe devolver EXACTAMENTE estas
-// claves, sin agregar ni quitar. Novedades v3.3 sobre v3.2: criterios[].clase (LEY_DEL_MINIMO|
-// LEY_DEL_MAXIMO|POR_TRAMOS|BINARIO) + tramo_max_puntaje + rango_admisibilidad (reemplazan
-// tipo_aplicacion/piso_o_tope); estrategia.jugadas[].valor_a_ofertar y donde_se_decide con
-// criterios_continuos; el bloque `costeo` pasa a `productos` (scraping-ready: clasificacion
-// especifico/generico, caracteristicas[], libertad_de_oferta, entregables_word). `score_global`
-// (0-100) manda sobre el veredicto. El puente al costeo tolera productos.items y costeo.items (legado).
-function esquemaV3(codigo: string): string {
-  return `{
-  "meta": { "id":"${codigo}", "nombre":"", "organismo":"", "region":"", "linea_negocio":"" },
-  "score_global": 0,
-  "exclusion": { "excluido":false, "categoria":"", "motivo":"", "fuente":"", "confianza":0.0, "destino":"OK|NO_REALIZAMOS|REVISION_HUMANA" },
-  "presupuesto": { "bruto":0, "neto":0, "con_iva":true, "regimen_fora":false, "es_excluyente":false, "fuente":"", "gate":"OK|NO_CALIFICA|DESCARTE_CONDICIONAL|INCIERTO" },
-  "adjudicacion": { "como_se_adjudica":"GLOBAL|POR_LINEAS|POR_LOTES", "heterogeneidad":"alta|baja|na", "modalidad_pago_interna":"suma_alzada|precios_unitarios", "estado":"DETERMINADA|REVISION_HUMANA", "cotizar_100_obligatorio":false, "libertad_de_pricing":false, "evaluacion_puntaje":"al_total|por_linea", "fuente":"", "confianza":0.0 },
-  "criterios_evaluacion": { "fuente_datos":"bases|api|mixto|incompleto", "forma_aplicacion_completa":true, "suma_ponderaciones_real":100, "suma_valida":true, "evaluacion_puntaje":"al_total|por_linea",
-    "criterios":[ { "nombre":"", "ponderacion_nominal":0, "ponderacion_efectiva":0, "clase":"LEY_DEL_MINIMO|LEY_DEL_MAXIMO|POR_TRAMOS|BINARIO", "tramo_max_puntaje":{ "descripcion":"", "borde_comodo":"" }, "rango_admisibilidad":{ "min":"", "max":"" }, "forma_aplicacion":"", "medio_verificacion":"", "fuente":"", "subfactores":[ { "nombre":"", "ponderacion_relativa":0, "ponderacion_efectiva":0, "clase":"", "forma_aplicacion":"", "medio_verificacion":"", "fuente":"" } ] } ], "alertas":[] },
-  "atractivo": { "veredicto":"ALTO|MEDIO|BAJO", "lectura_comercial":"", "presupuesto_neto":0, "presupuesto_mostrar":"$__ IVA incl.", "_interno":{ "dim_atractivo_0_40":0, "dim_ventaja_0_40":0, "dim_admisibilidad_0_20":0, "nivel_tecnico":"MUY_VIABLE|VIABLE|POCO_VIABLE|DESCARTE" } },
-  "estrategia": { "jugadas":[ { "criterio":"", "etiqueta":"OPORTUNIDAD|RESOLVER|EMPATE|EN_CONTRA", "clase":"", "lectura":"", "orden":"", "valor_a_ofertar":"", "exige_respaldo":false, "fuente":"" } ], "donde_se_decide":{ "todo_paridad_salvo_precio":false, "se_decide_en":"precio|criterios_continuos|mixto", "tenemos_ventaja_costo":"si|no|na", "criterios_diferenciadores":[], "orden_final":"" } },
-  "requisitos_admisibilidad": { "firma_puno_y_letra":{ "exigida":false, "mostrar_alerta":false, "evidencia_textual":"", "fuente":"" }, "fiel_cumplimiento":{ "exige":false, "forma":"boleta|poliza|vale_vista|fianza|retencion|otra", "plazo_entrega":"", "fuente":"" }, "contrato":{ "exige":false, "plazos":"", "fuente":"" }, "seriedad_oferta":{ "exige":false, "fuente":"" }, "presupuesto":{ "tipo":"excluyente|referencial", "fuente":"" }, "cotizar_100":{ "aplica":false, "fuente":"" }, "boleta":{ "aplica":false, "umbral_utm":1000, "exigida_bajo_umbral":false, "detalle":"", "fuente":"" }, "plazo_entrega_rango":{ "min":"", "max":"", "fuera_de_rango_inadmisible":true, "fuente":"" }, "marca_exclusiva":{ "es_exclusiva":false, "admite_equivalente":false, "evidencia":"", "fuente":"" }, "bloqueantes":[], "a_favor":[],
-    "orden_anexos_propios":[ { "que_crear":"", "por_que":"", "fuente":"", "que_debe_contener":"", "que_cubre":"", "criticidad":"ADMISIBILIDAD_DURA|PUNTAJE_CONDICIONANTE|COMPROMISO_EJECUCION", "responsable":"fase4|operador|partner_externo" } ] },
-  "plazos": { "cadena":"corta|larga", "gatillo_cadena_larga":{ "exige_fiel_cumplimiento":false, "exige_contrato":false, "fuente":"" }, "frontera":{ "descripcion":"", "base_computo":"emision_oc|aceptacion_oc|firma_contrato|decreto", "fuente":"" }, "hitos":[ { "hito":"", "duracion":0, "unidad":"horas|habiles|corridos", "duracion_corridos":0, "desde":"", "inferido":false, "fuente":"" } ], "aceptacion_oc":{ "duracion":0, "unidad":"horas|habiles|corridos", "duracion_corridos":0, "inferido":false, "fuente":"" }, "colchon_dias_corridos":0, "plazo_entrega_ofertable":{ "valor":"", "unidad":"", "fuente":"" }, "ventana_importacion":false, "alertas":[] },
-  "multas": { "detectadas":true, "estructura":"", "costo_por_dia_pesos":"", "valor_utm_usado":"", "tope":"", "efecto_al_superar_tope":"", "otras":[], "fuente":"" },
-  "productos": { "total_items":0, "entregables_word":["GENERICOS","ESPECIFICOS"],
-    "items":[ { "linea":"L1", "nombre":"", "clasificacion":"especifico|generico", "marca_modelo_referencia":"", "admite_equivalente":true, "libertad_de_oferta":false, "caracteristicas":[ "" ], "cantidad":0, "unidad_medida":"", "unidad_inferida":false, "presupuesto_linea":0, "libertad_de_pricing":false, "ruta":"A|B", "marca_exclusiva":false, "fuente":"" } ],
-    "hojas_costeo_segun_adjudicacion":"GLOBAL:1|POR_LOTES:n|POR_LINEAS:n",
-    "mapa_items":[ { "documento":"", "rol":"principal|parcial|especificaciones|espejo|sin_items", "que_contiene":"", "n_items":0 } ],
-    "hallazgos_formato":[] },
-  "lineas_a_atacar": { "aplica":true, "modo":"POR_LINEAS|GLOBAL|POR_LOTES", "mensaje_global_o_lote":"", "lineas":[ { "linea":"L1", "decision":"atacar|soltar", "motivo":"" } ] },
-  "acciones_y_advertencias": { "acciones":[ { "orden":"", "por_que":"", "prioridad":1, "fuente":"" } ], "advertencias":[ { "riesgo":"", "consecuencia":"", "gravedad":"alta|media", "fuente":"" } ] },
-  "tarjeta_decision": { "titular":"", "veredicto":"GANABLE|PUEDE_SER|NO_VAMOS", "se_gana_en":"", "para_ganar":[], "no_quedes_fuera":[], "antes_de_ir":"", "leyes_detectadas":[ { "criterio":"", "clase":"LEY_DEL_MINIMO|LEY_DEL_MAXIMO", "exige_respaldo":false } ], "porque_no":"" },
-  "pendientes_fase3": [],
-  "veredicto": { "score_global":0, "nivel":"MUY_VIABLE|VIABLE|POCO_VIABLE|DESCARTE", "estado_veredicto":"DEFINITIVO|REVISION_HUMANA", "motivos_revision":[], "acciones_AC":[], "advertencias":[] }
-}`;
-}
-
-// User prompt v3: mismos documentos (ordenados por precedencia, sin documentos propios) + esquema v3.
-function construirUserPromptV3(codigo: string, ctx: any, docs: DocLeido[], senalModalidad = '', docFuentePlanilla?: string): string {
-  const leidos = docs.filter(d => d.ok)
-    .filter(d => (d.categoria || '').toUpperCase() !== 'DOCUMENTOS_PROPIOS' && !/^COSTEO_/i.test(d.nombre))
-    .slice()
-    .sort((a, b) => prioridadDoc(a.nombre, a.categoria) - prioridadDoc(b.nombre, b.categoria));
-  const itemsMPTxt = (ctx.itemsMP || []).slice(0, 40).map((it: any, i: number) =>
-    `${i + 1}. ${it.nombre || it.descripcion}${it.categoria ? ` [${it.categoria}]` : ''}${it.cantidad ? ` (cant ${it.cantidad}${it.unidad ? ' ' + it.unidad : ''})` : ''}`).join('\n') || '(la API MP no entregó ítems)';
-  const { texto: docsTexto } = recortarDocsParaAnalisis(leidos, docFuentePlanilla);
-  const tipoLic = extractTipoFromCodigo(codigo) || '(desconocido)';
-  const utm = utmVigente();
-  return `LICITACIÓN: ${codigo}
-TIPO DE LICITACIÓN (del ID): ${tipoLic}
-UTM_VIGENTE: $${utm.toLocaleString('es-CL')} CLP
-NOMBRE: ${ctx.meta.nombre || '(sin nombre)'}
-ORGANISMO: ${ctx.meta.organismo || '(sin organismo)'}
-REGIÓN: ${ctx.meta.region || '(sin región)'}
-PRESUPUESTO PORTADA (API MP): ${ctx.meta.monto ? '$' + Number(ctx.meta.monto).toLocaleString('es-CL') : 'reservado / no informado'}
-
-ÍTEMS SEGÚN API MERCADO PÚBLICO (referencia):
-${itemsMPTxt}
-${senalModalidad ? `\n${senalModalidad}\n` : ''}
-DOCUMENTOS DE LA LICITACIÓN (texto completo; escaneados ya leídos por OCR). Cada página trae [[PÁGINA N]] — usa ESE número al citar.
-${docsTexto || '(no se pudo extraer texto)'}
-
-REGLAS DE CITA (FUENTE) — OBLIGATORIAS para que el usuario pueda CORROBORAR cada dato en el PDF:
-1. Cada "fuente" DEBE tener este formato exacto: "<NOMBRE EXACTO DEL DOCUMENTO> · <artículo/punto/numeral> · pág. N".
-2. <NOMBRE EXACTO DEL DOCUMENTO> = cópialo TAL CUAL aparece tras "===== DOCUMENTO: " (mismo texto, sin abreviar, traducir ni renombrar). NO uses nombres genéricos como "Bases Administrativas" si el archivo se llama distinto: usa el nombre del separador.
-3. pág. N = el número del marcador [[PÁGINA N]] MÁS CERCANO (arriba) del texto que citas. REGLA DURA: el ÚNICO origen válido del número de página es el marcador [[PÁGINA N]]. PROHIBIDO usar el número IMPRESO en el pie/encabezado del documento ("Página 29", "- 4 -", "Pág. 19 de 40", el artículo/numeral, etc.): ese número NO es la página del archivo y manda al usuario a la página equivocada. Antes de escribir "pág. N", verifica que exista literalmente un marcador [[PÁGINA N]] con ESE número en ese documento; si el número que ibas a poner no aparece como marcador, es que lo tomaste del texto impreso → NO lo uses, usa el del marcador más cercano. Si el marcador más cercano es un rango [[PÁGINA a-b]], escribe "pág. a (aprox. rango a-b)".
-4. Sin página no hay cita corroborable: si de verdad no hay marcador, escribe "pág. no especificada" y BAJA la confianza de ese dato.
-5. Incluye en la fuente la frase textual breve de donde sale el dato (cita literal), para poder resaltarla en la página.
-
-Analiza TODO y devuelve EXACTAMENTE este JSON (v3; cada resultado con su FUENTE en el formato de la regla 1; no inventes):
-${esquemaV3(codigo)}`;
-}
-
-// Deriva score/semáforo/área/confianza del informe v3.1 (usa score_global 0-100 + veredicto + gate).
-function derivarV3(inf: any): { score: number; semaforo: string; area: string; confianza: number } {
-  const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
-  // v3.1: el SCORE GLOBAL (0-100) lo calcula el modelo y MANDA (coherente con el veredicto:
-  // 70-100 MUY_VIABLE · 50-69 VIABLE · 35-49 POCO_VIABLE · 0-34 DESCARTE). Se toma directo del
-  // esquema. Compat: informes v3.0 traían el puntaje 0-15 en atractivo.score_total → se reescala.
-  const scoreGlobalRaw = inf?.score_global ?? inf?.veredicto?.score_global;
-  const ausente = scoreGlobalRaw === undefined || scoreGlobalRaw === null || scoreGlobalRaw === '';
-  const scoreGlobal = Number(scoreGlobalRaw);
-  let score: number;
-  if (!ausente && Number.isFinite(scoreGlobal) && scoreGlobal > 0) {
-    score = clamp(scoreGlobal);
-  } else if (!ausente && Number.isFinite(scoreGlobal) && scoreGlobal === 0) {
-    score = 0; // descarte explícito del modelo (score_global:0) — valor legítimo, no un fallback.
-  } else {
-    // score_global AUSENTE o no numérico (undefined/null/""/texto no parseable): el esquema v3.1
-    // YA NO TIENE el campo de respaldo atractivo.score_total (era de v3.0), así que hasta ahora
-    // esto caía en `(0/15)*100 = 0` en silencio — una licitación con documentos normales se
-    // guardaba como "0/100 · DEFINITIVO" sin ningún rastro de error (caso real: negocio 1237 /
-    // 1030-19-LE26, 28-sep-2026, causado por una respuesta del modelo que no trajo el campo). En
-    // vez de inventar un descarte, se fuerza REVISION_HUMANA con motivo explícito para que la
-    // pantalla avise en vez de aparentar un análisis completo.
-    const scoreTot = Number(inf?.atractivo?.score_total ?? inf?.atractivo?._interno?.score_total) || 0; // 0-15 (compat v3.0)
-    score = scoreTot > 0 ? clamp((scoreTot / 15) * 100) : 50; // neutro: nunca 0 fabricado
-    if (inf && typeof inf === 'object') {
-      if (!inf.veredicto || typeof inf.veredicto !== 'object') inf.veredicto = {};
-      inf.veredicto.estado_veredicto = 'REVISION_HUMANA';
-      if (!Array.isArray(inf.veredicto.motivos_revision)) inf.veredicto.motivos_revision = [];
-      inf.veredicto.motivos_revision.push('El modelo no devolvió score_global válido (0-100) — no se pudo calcular el puntaje real de este análisis; confirmar manualmente antes de descartar o priorizar esta licitación.');
-    }
-  }
-  const pres = inf?.presupuesto || {};
-  const nItems = Array.isArray(inf?.productos?.items) ? inf.productos.items.length
-    : Array.isArray(inf?.costeo?.items) ? inf.costeo.items.length : 0;
-  const gateEf = gatePresupuestoDeterminista(pres.bruto ?? null, pres.neto ?? null, nItems, !!pres.presupuesto_exento || !!pres.regimen_fora) ?? pres.gate;
-  const nivel = String(inf?.veredicto?.nivel || inf?.atractivo?.nivel || inf?.atractivo?._interno?.nivel_tecnico || '').toUpperCase();
-  const gateDuro = !!inf?.exclusion?.excluido || gateEf === 'NO_CALIFICA' || nivel === 'DESCARTE';
-  if (gateDuro) score = Math.min(score, 19);
-  else if (gateEf === 'DESCARTE_CONDICIONAL' || nivel === 'POCO_VIABLE') score = Math.min(score, 39);
-  const semaforo = score >= 80 ? 'VERDE' : score >= 60 ? 'AMARILLO' : score >= 40 ? 'NARANJA' : score >= 20 ? 'ROJO' : 'ROJO_DURO';
-  const area = String(inf?.meta?.linea_negocio || 'mixto').toUpperCase();
-  const areaNorm = area.startsWith('FERR') ? 'FERRETERIA' : area.startsWith('EQUIP') ? 'EQUIPAMIENTO' : 'MIXTO';
-  const confs = [inf?.exclusion?.confianza, inf?.adjudicacion?.confianza].filter((n: any) => typeof n === 'number' && n > 0);
-  let confianza = confs.length ? confs.reduce((a: number, b: number) => a + b, 0) / confs.length : 0.7;
-  // Caso real 1057499-37-LE26: adjudicacion.confianza venía en 1 (falso) mientras adjudicacion.evidencia
-  // decía textualmente "requiere confirmación humana" — el promedio con exclusion.confianza tapaba la
-  // incertidumbre. Si la ADJUDICACIÓN quedó incierta (aunque el veredicto de negocio no), la confianza
-  // global también debe bajar: el usuario no puede confiar 100% en un informe que no sabe si es GLOBAL
-  // o POR_LÍNEAS.
-  if (inf?.veredicto?.estado_veredicto === 'REVISION_HUMANA' || inf?.adjudicacion?.estado === 'REVISION_HUMANA') confianza = Math.min(confianza, 0.55);
-  return { score, semaforo, area: areaNorm, confianza: Math.round(confianza * 100) / 100 };
-}
-
 // ─── CORRECTOR DETERMINISTA DE PÁGINAS DE CITA ───────────────────────────────────
 // El modelo cita a veces la página IMPRESA del PDF (footer "Página 7 de 36", que arranca tras
 // portadas/decreto), NO la página física. Aunque el prompt lo prohíbe, el modelo débil la sigue
@@ -1931,15 +1136,19 @@ export function corregirPaginasCitas(inf: any, leidos: { nombre: string; texto: 
 //   V-12 — manifiesto COLAPSADO (cada línea/lote resumida a un ítem genérico).
 //   V-09 — manifiesto VACÍO (0 ítems, sin exclusión) — agregado 28-jul-2026, mismo nivel de
 //   gravedad que V-12 (nada que costear), antes solo se guardaba en _validador sin reintentar nada.
-function _reglaManifiestoQueFalla(r: any): 'V-09' | 'V-12' | null {
+//   V-23 — (v4.0, P8) calidad mínima del manifiesto: encabezados como producto, cantidades que son
+//   el número de fila, sin unidades, texto cortado (Valdivia: 21 "ítems" que eran membretes).
+function _reglaManifiestoQueFalla(r: any): 'V-09' | 'V-12' | 'V-23' | null {
   const hallazgos = r?._validador?.hallazgos;
   if (!Array.isArray(hallazgos)) return null;
   if (hallazgos.some((h: any) => h?.regla === 'V-12' && h?.severidad === 'error')) return 'V-12';
   if (hallazgos.some((h: any) => h?.regla === 'V-09' && h?.severidad === 'error')) return 'V-09';
+  if (hallazgos.some((h: any) => h?.regla === 'V-23' && h?.severidad === 'error')) return 'V-23';
   return null;
 }
 
-// Orquestación v3 + REINTENTO AUTOMÁTICO SI EL MANIFIESTO COLAPSÓ (Frente A.2, 21-jul-2026). Caso
+// Orquestación (v4.0; el nombre analizarViabilidadIAV3 se conserva porque lo usan los scripts de
+// regresión) + REINTENTO AUTOMÁTICO SI EL MANIFIESTO COLAPSÓ (Frente A.2, 21-jul-2026). Caso
 // real 2920-30-LE26: el 1er intento cayó a un modelo de respaldo por timeout del principal y devolvió
 // 6 ítems genéricos (uno por línea, "unidad_medida: Línea") en vez de los 117 productos reales — el
 // validador (V-12) lo detecta, pero por sí solo NO arregla nada: hasta hoy se guardaba igual y el
@@ -1975,12 +1184,12 @@ export async function analizarViabilidadIAV3(codigo: string, onFase?: (fase: Fas
 
 async function _orquestarAnalisisV3(codigo: string, onFase?: (fase: FaseAnalisisIA) => void): Promise<any | null> {
   console.log(`[viabilidad-ia] ${codigo}: ▶ arrancando análisis de viabilidad IA…`);
-  const primero = await _analizarViabilidadIAV3Intento(codigo, onFase);
+  const primero = await _analizarViabilidadIAV4Intento(codigo, onFase);
   const problemaPrimero = primero ? _reglaManifiestoQueFalla(primero) : null;
   if (!primero || !problemaPrimero) return primero;
 
   console.warn(`[viabilidad-ia-v3] ${codigo}: manifiesto de productos con problema (${problemaPrimero}) en el 1er intento → reintentando análisis completo una vez más antes de guardar.`);
-  const segundo = await _analizarViabilidadIAV3Intento(codigo, onFase);
+  const segundo = await _analizarViabilidadIAV4Intento(codigo, onFase);
   if (!segundo) return primero; // el reintento no produjo nada (docs/red) → nos quedamos con el primero
 
   const problemaSegundo = _reglaManifiestoQueFalla(segundo);
@@ -1999,15 +1208,19 @@ async function _orquestarAnalisisV3(codigo: string, onFase?: (fase: FaseAnalisis
     if (!Array.isArray(elegido.veredicto.motivos_revision)) elegido.veredicto.motivos_revision = [];
     const detalle = problemaElegido === 'V-09'
       ? 'manifiesto de productos VACÍO (V-09) tras 2 intentos de análisis — no hay base para costear; revisar el documento fuente.'
+      : problemaElegido === 'V-23'
+      ? 'el listado de productos no pasó el control de calidad (V-23) tras 2 intentos — revisar el documento fuente antes de costear.'
       : 'manifiesto de productos posiblemente colapsado por línea/lote (V-12) tras 2 intentos de análisis — confirmar contra el documento fuente antes de costear.';
     elegido.veredicto.motivos_revision.push(detalle);
   }
+  // El nivel se recalcula sobre el informe elegido (por si el reintento cambió un dato que usa).
+  try { await aplicarNivel(elegido, codigo); } catch { /* el nivel del intento queda igual */ }
   return elegido;
 }
 
-// Un intento completo de análisis v3 (lectura de documentos + llamada al modelo + overrides +
-// validador). Reusa la carga de documentos/contexto/señal del v2, cambia prompt+esquema.
-async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: FaseAnalisisIA) => void): Promise<any | null> {
+// Un intento completo de análisis v4.0 (lectura de documentos + UNA llamada al modelo que EXTRAE +
+// el código que DECIDE + validador + nivel de atractivo). Especificación 1 (P1-P11) y 2 (score).
+async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: FaseAnalisisIA) => void): Promise<any | null> {
   console.log(`[viabilidad-ia] ${codigo}: === FASE leyendo_documentos ===`);
   try { onFase?.('leyendo_documentos'); } catch { /* noop */ }
   const docs = await cargarDocumentos(codigo);
@@ -2015,11 +1228,8 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
   if (leidos.length === 0) return null;
 
   // ─── PORTERO DE LECTURA ──────────────────────────────────────────────────────────────────
-  // (26-ago-2026.) Se mide la cobertura ANTES de gastar la primera llamada de IA. Analizar un
-  // expediente incompleto cuesta exactamente lo mismo que analizarlo completo, y el informe que
-  // sale de ahí no sirve: si faltaron las bases, el veredicto es una adivinanza con formato de
-  // certeza. La cobertura viaja al informe SIEMPRE (esté completa o no) para que el validador la
-  // pueda mirar y el usuario la pueda ver.
+  // (26-ago-2026.) Se mide la cobertura ANTES de gastar la primera llamada de IA. La cobertura viaja
+  // al informe SIEMPRE (esté completa o no) para que el validador la pueda mirar y el usuario la vea.
   const cobertura = evaluarCoberturaLectura(docs.map(d => ({ nombre: d.nombre, categoria: d.categoria, texto: d.texto, metodo: d.metodo })));
   console.log(`[viabilidad-ia] ${codigo}: lectura — ${resumirCobertura(cobertura)}`);
   if (!cobertura.completa) {
@@ -2028,74 +1238,54 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
   }
 
   const ctx = await cargarContexto(codigo);
+  const cfg = await cargarConfigViabilidad();
 
-  // FUENTES OFICIALES para las señales deterministas: NUNCA nuestros propios archivos. El Excel
-  // de costeo que genera este sistema queda en documentos_cache (DOCUMENTOS_PROPIOS) y trae un
-  // total al pie POR CONSTRUCCIÓN → si entrara aquí, dispararía "total único" y confirmaría la
-  // suma alzada que nosotros mismos escribimos: un bucle que se auto-refuerza. El parser ya lo
-  // excluía; las demás señales leían `leidos` (todo) y quedaban expuestas.
+  // FUENTES OFICIALES para las señales deterministas: NUNCA nuestros propios archivos (el Excel de
+  // costeo que genera este sistema trae un total al pie por construcción y confirmaría lo que
+  // nosotros mismos escribimos — bucle que se auto-refuerza).
   const fuentes = leidos.filter(d => (d.categoria || '').toUpperCase() !== 'DOCUMENTOS_PROPIOS' && !/^COSTEO_/i.test(d.nombre));
 
   let planilla: ReturnType<typeof parsearPlanillaCosteo> = null;
   try {
     planilla = parsearPlanillaCosteo(fuentes.map(d => ({ nombre: d.nombre, categoria: d.categoria, texto: d.texto, metodo: d.metodo })));
   } catch { /* opcional */ }
-  let lineasForm: number[] = [];
-  let totalUnico = false;
-  let lenguajePorLinea: string | null = null;
-  let participacionParcialPorLinea: string | null = null;
-  let presupuestoPorLinea: string | null = null;
-  let ofertaSubconjunto: string | null = null;
-  let cuadroPorLinea: string | null = null;
-  let formulariosPorArchivo: number[] = [];
-  let tipoAdjudicacionMultiple: string | null = null;
-  let licitacionTipoMultiple: string | null = null;
+  // DETECTORES DE LA v3 → EVIDENCIAS de adjudicación (P1) y señales de costeo. Ya NO se inyectan
+  // al prompt como "señal de modalidad": alimentan al código.
+  const senales: SenalesDetectores = {
+    tipoAdjudicacionMultiple: null, licitacionTipoMultiple: null, ofertaSubconjunto: null,
+    participacionParcialPorLinea: null, lenguajePorLinea: null, presupuestoPorLinea: null,
+    formulariosPorArchivo: [], cuadroPorLinea: null, totalUnico: false,
+  };
   try {
-    lineasForm = detectarLineasFormulario(fuentes);
-    // "LÍNEA DE PRODUCTO N°X" en bases técnicas = lotes independientes (mismo peso que las
-    // fichas "FORMULARIO Línea N°X"): se fusionan como señal estructural de por_linea.
-    const lineasProducto = detectarLineasProductoTecnicas(fuentes);
-    if (lineasProducto.length) lineasForm = [...new Set([...lineasForm, ...lineasProducto])].sort((a, b) => a - b);
-    totalUnico = detectarOfertaTotalUnico(fuentes);
-    lenguajePorLinea = detectarLenguajePorLinea(fuentes);
-    // Caso real 1250623-4-LE26 (21-jul-2026, detectado por CA leyendo las bases a mano): esta
-    // licitación dispara lenguajePorLinea con "se evaluará por línea de producto" —eso es sobre el
-    // PUNTAJE, no sobre quién gana— pero SE ADJUDICA A UN SOLO OFERENTE (Art. 13º/15º de sus
-    // bases). lenguajePorLinea (arriba) sigue sirviendo para costeo/hints al LLM; para decidir
-    // ADJUDICACIÓN se usa esta versión angosta, que excluye las frases de "se evaluará por línea".
-    participacionParcialPorLinea = detectarParticipacionParcialPorLinea(fuentes);
-    presupuestoPorLinea = detectarPresupuestoPorLinea(fuentes);
-    ofertaSubconjunto = detectarOfertaSubconjuntoItems(fuentes);
-    cuadroPorLinea = detectarCuadroEconomicoPorLinea(fuentes);
-    // Caso real 2446-167-LP26: 8 archivos "FORMULARIO_ECONÓMICO_LÍNEA_N.xlsx" separados (evidencia
-    // dura de cómo se cotiza) + "TIPO DE ADJUDICACIÓN Múltiple (Por líneas)" declarado en las bases
-    // (evidencia formal de cómo se adjudica) — ninguna señal existente los reconocía.
-    formulariosPorArchivo = detectarFormulariosEconomicosPorArchivo(fuentes);
-    tipoAdjudicacionMultiple = detectarTipoAdjudicacionMultiple(fuentes);
-    licitacionTipoMultiple = detectarLicitacionTipoMultiple(fuentes);
+    senales.totalUnico = detectarOfertaTotalUnico(fuentes);
+    senales.lenguajePorLinea = detectarLenguajePorLinea(fuentes);
+    senales.participacionParcialPorLinea = detectarParticipacionParcialPorLinea(fuentes);
+    senales.presupuestoPorLinea = detectarPresupuestoPorLinea(fuentes);
+    senales.ofertaSubconjunto = detectarOfertaSubconjuntoItems(fuentes);
+    senales.cuadroPorLinea = detectarCuadroEconomicoPorLinea(fuentes);
+    senales.formulariosPorArchivo = detectarFormulariosEconomicosPorArchivo(fuentes);
+    senales.tipoAdjudicacionMultiple = detectarTipoAdjudicacionMultiple(fuentes);
+    senales.licitacionTipoMultiple = detectarLicitacionTipoMultiple(fuentes);
   } catch { /* señal opcional */ }
-  const senal = construirSenalModalidad(planilla, lineasForm, totalUnico, lenguajePorLinea, presupuestoPorLinea, ofertaSubconjunto, cuadroPorLinea, formulariosPorArchivo, licitacionTipoMultiple);
 
-  const userPrompt = construirUserPromptV3(codigo, ctx, docs, senal, planilla?.fuenteDoc);
-  // REGLAS APRENDIDAS DEL EXPERTO — se INYECTAN al final del prompt para que el análisis mejore
-  // con el tiempo sin tocar el prompt base. Dos canales:
-  //   • global  → correcciones del VEREDICTO/DESCARTE (ajustan viabilidad y score).
-  //   • lectura → correcciones de CÓMO SE LEE el documento (ítems/cantidades/unidades/modalidad),
-  //               lo que mejora directamente el costeo.
-  // v3.5: barrido multi-documento (criterios + ítems). Aditivo, cacheable con el prefijo.
-  // Kill-switch: VIABILIDAD_BARRIDO_V35=0 vuelve al prompt v3 puro.
-  let systemPrompt = SYSTEM_PROMPT_V3 + (process.env.VIABILIDAD_BARRIDO_V35 === '0' ? '' : BLOQUE_BARRIDO_V35);
+  // ─── PROMPT v4.0 ───────────────────────────────────────────────────────────────────────────
+  const ordenados = fuentes.slice().sort((a, b) => prioridadDoc(a.nombre, a.categoria) - prioridadDoc(b.nombre, b.categoria));
+  const itemsMPTxt = (ctx.itemsMP || []).slice(0, 40).map((it: any, i: number) =>
+    `${i + 1}. ${it.nombre || it.descripcion}${it.categoria ? ` [${it.categoria}]` : ''}${it.cantidad ? ` (cant ${it.cantidad}${it.unidad ? ' ' + it.unidad : ''})` : ''}`).join('\n') || '(la API MP no entregó ítems)';
+  const { texto: docsTexto } = recortarDocsParaAnalisis(ordenados, planilla?.fuenteDoc);
+  const userPrompt = construirUserPromptV4({ codigo, tipoLic: extractTipoFromCodigo(codigo) || '(desconocido)', meta: ctx.meta, itemsMPTxt, docsTexto });
+  // Kill-switch del barrido: VIABILIDAD_BARRIDO_V35=0 lo quita (mismo interruptor que en la v3).
+  let systemPrompt = SYSTEM_PROMPT_V4.replace('{{FAMILIAS}}', nombresFamilias(cfg))
+    + (process.env.VIABILIDAD_BARRIDO_V35 === '0' ? '' : BLOQUE_BARRIDO_V4);
+  // REGLAS APRENDIDAS (prompts auxiliares F.3-F.5): se agregan DESPUÉS del barrido. No cambian lo
+  // que decide el código. Se guardan sus ids en el informe (`_reglas_activas`).
+  const reglasActivas: number[] = [];
   try {
     const [reglasGlobal, reglasLecturaFirma] = await Promise.all([
-      cargarReglasAprendidas('global'),
+      cargarReglasAprendidasConId('global'),
       cargarReglasLecturaConFirma(),
     ]);
-    if (reglasGlobal.length) systemPrompt += '\n\n' + bloqueReglasAprendidas(reglasGlobal);
-
-    // APRENDIZAJE POR FIRMA: si este documento se parece (mismo formato) a uno que el experto ya
-    // corrigió, esas reglas van en un bloque de PRIORIDAD ABSOLUTA ("este documento es como uno ya
-    // corregido"); las demás reglas de lectura van en el bloque genérico. Las que no tienen firma
-    // guardada (históricas) van siempre al genérico.
+    if (reglasGlobal.length) systemPrompt += '\n\n' + bloqueReglasAprendidas(reglasGlobal.map(r => r.regla));
     const firmaActual = calcularFirmaDocumentos(leidos.map(d => ({ texto: d.texto })));
     const similares: string[] = [];
     const genericas: string[] = [];
@@ -2105,376 +1295,288 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
     }
     if (similares.length) systemPrompt += bloqueReglasLecturaSimilares(similares);
     if (genericas.length) systemPrompt += bloqueReglasLectura(genericas);
-    if (reglasGlobal.length || reglasLecturaFirma.length) {
-      console.log(`[viabilidad-ia-v3] ${codigo}: reglas del experto inyectadas — ${reglasGlobal.length} de viabilidad, ${genericas.length} de lectura${similares.length ? `, ${similares.length} de lectura POR FIRMA (documento parecido a uno ya corregido)` : ''}.`);
+    reglasActivas.push(...reglasGlobal.map(r => r.id), ...reglasLecturaFirma.map(r => r.id));
+    if (reglasActivas.length) {
+      console.log(`[viabilidad-ia-v4] ${codigo}: reglas del experto inyectadas — ${reglasGlobal.length} de viabilidad, ${genericas.length} de lectura${similares.length ? `, ${similares.length} de lectura POR FORMATO PARECIDO` : ''}.`);
     }
   } catch { /* las reglas son opcionales: si fallan, se analiza igual con el prompt base */ }
-  console.log(`[viabilidad-ia] ${codigo}: === FASE analizando_ia === (prompt ${userPrompt.length} chars, ${leidos.length} documento(s) legible(s)) — llamando al modelo…`);
+  // P11 · trazabilidad: hash del system prompt COMPLETO (con barrido y reglas inyectadas).
+  const promptHash = createHash('sha256').update(systemPrompt).digest('hex');
+
+  console.log(`[viabilidad-ia] ${codigo}: === FASE analizando_ia === (prompt v4 ${userPrompt.length} chars, ${leidos.length} documento(s) legible(s)) — llamando al modelo…`);
   try { onFase?.('analizando_ia'); } catch { /* noop */ }
   const tIA0 = Date.now();
-  const parsed = await llamarGeminiJSON(systemPrompt, userPrompt);
-  console.log(`[viabilidad-ia] ${codigo}: modelo respondió en ${((Date.now() - tIA0) / 1000).toFixed(1)}s${parsed ? '' : ' — SIN respuesta utilizable'}.`);
+  const traza: TrazaLlamada = {};
+  const parsed = await llamarGeminiJSON(systemPrompt, userPrompt, traza);
+  console.log(`[viabilidad-ia] ${codigo}: modelo ${traza.modelo || '?'} respondió en ${((Date.now() - tIA0) / 1000).toFixed(1)}s${parsed ? '' : ' — SIN respuesta utilizable'}${traza.reparado ? ' — JSON REPARADO' : ''}.`);
   if (!parsed || typeof parsed !== 'object') return null;
   console.log(`[viabilidad-ia] ${codigo}: === FASE verificando ===`);
   try { onFase?.('verificando'); } catch { /* noop */ }
 
-  // CORRECCIÓN DETERMINISTA DE PÁGINAS DE CITA: el modelo a veces cita la página IMPRESA del PDF
-  // (footer), no la física; reescribimos cada "fuente" a la página del marcador [[PÁGINA N]] real
-  // ubicando la sección en el documento. Requiere marcadores por página (OCR ventana=1).
-  try {
-    const { corregidas, total } = corregirPaginasCitas(parsed, leidos.map(d => ({ nombre: d.nombre, texto: d.texto })));
-    if (corregidas) console.log(`[viabilidad-ia-v3] ${codigo}: ${corregidas}/${total} páginas de cita corregidas al marcador real.`);
-  } catch (e) { console.warn(`[viabilidad-ia-v3] ${codigo}: corrección de citas falló:`, String(e).slice(0, 120)); }
-
-  // OVERRIDE DETERMINISTA de "cómo se adjudica" (mismo criterio que el v2.1, adaptado al eje
-  // GLOBAL/POR_LINEAS del v3): el listado de ítems MANDA sobre el LLM cuando es concluyente.
   const p3 = parsed as any;
+  const obj = (k: string) => (p3[k] && typeof p3[k] === 'object' && !Array.isArray(p3[k]) ? p3[k] : (p3[k] = {}));
+  const veredicto = obj('veredicto');
+  if (!Array.isArray(veredicto.motivos_revision)) veredicto.motivos_revision = [];
+  if (!veredicto.estado_veredicto) veredicto.estado_veredicto = 'DEFINITIVO';
+  const aRevision = (motivo: string) => {
+    veredicto.estado_veredicto = 'REVISION_HUMANA';
+    if (!veredicto.motivos_revision.includes(motivo)) veredicto.motivos_revision.push(motivo);
+  };
+  // El esquema v4 ya no trae estos campos; si un modelo los repite, se quitan para que ninguna
+  // pantalla vuelva a leer un score o un veredicto puestos por el modelo.
+  delete p3.score_global; delete veredicto.score_global; delete veredicto.nivel; delete p3.lineas_a_atacar;
+  if (p3.atractivo && typeof p3.atractivo === 'object') { delete p3.atractivo.veredicto; delete p3.atractivo._interno; }
+  if (p3.tarjeta_decision && typeof p3.tarjeta_decision === 'object') { delete p3.tarjeta_decision.veredicto; delete p3.tarjeta_decision.porque_no; }
+  if (p3.presupuesto && typeof p3.presupuesto === 'object') delete p3.presupuesto.gate;
+  if (p3.productos && typeof p3.productos === 'object') { delete p3.productos.entregables_word; delete p3.productos.hojas_costeo_segun_adjudicacion; }
+  if (traza.reparado) {
+    p3._json_reparado = true;
+    aRevision('La respuesta de la IA llegó cortada y se reparó: puede faltar información al final del informe.');
+  }
 
-  // BACKFILL DEL PRESUPUESTO TOTAL cuando el modelo lo dejó en 0/vacío: si las bases traen un
-  // desglose de presupuesto por línea (tabla HTML o prosa — mismo extractor que rellena
-  // presupuesto_linea más abajo), su suma ES el presupuesto total (viene "IVA incluido" en ambos
-  // formatos soportados). Caso real 1079650-47-LE26: presupuesto.bruto/neto quedaron en 0 pese a
-  // que las bases declaran "Monto total: $7.559.999" y el desglose de las 9 líneas que lo forman —
-  // el modelo solo miró la portada de la API MP (que no trae presupuesto para esta licitación) y
-  // no cruzó con el texto de las bases. Nunca pisa un bruto que el modelo SÍ trajo.
+  // ─── P2 · PRESUPUESTO (el código interpreta el monto y el "M$") ───────────────────────────
+  const pres = obj('presupuesto');
+  pres.caracter = normalizarCaracter(pres.caracter);
+  const exentoPres = !!pres.presupuesto_exento || !!pres.regimen_fora || pres.con_iva === false;
+  {
+    // Bruto desde el monto tal cual si el modelo no lo trajo (o lo trajo sin interpretar "M$").
+    const it = interpretarMonto(pres.monto_texto);
+    const brutoModelo = _num(pres.bruto);
+    if (it.pesos && (brutoModelo == null || brutoModelo <= 0 || (it.miles && Math.abs(brutoModelo * 1000 - it.pesos) < 1000))) {
+      if (brutoModelo !== it.pesos) console.log(`[viabilidad-ia-v4] ${codigo}: presupuesto desde "${pres.monto_texto}" → $${it.pesos.toLocaleString('es-CL')}${it.miles ? ' (M$ = miles de pesos)' : ''}.`);
+      pres.bruto = it.pesos;
+    }
+  }
   try {
-    const presB = p3.presupuesto && typeof p3.presupuesto === 'object' ? p3.presupuesto : (p3.presupuesto = {});
-    const brutoActual = _num(presB.bruto);
-    if (brutoActual == null || brutoActual <= 0) {
+    // Respaldo: si el modelo no trajo total, la suma del desglose por línea de las bases (tabla).
+    if (!(_num(pres.bruto) && Number(pres.bruto) > 0)) {
       const tabla = extraerPresupuestoPorLineaTabla(leidos.map(d => ({ texto: d.texto })));
       if (tabla && tabla.size >= 2) {
-        const brutoSuma = [...tabla.values()].reduce((a, b) => a + b, 0);
-        if (brutoSuma > 0) {
-          presB.bruto = brutoSuma;
-          if (!presB.fuente) presB.fuente = `suma de ${tabla.size} línea(s) presupuestadas detectadas en las bases`;
-          console.log(`[viabilidad-ia-v3] ${codigo}: presupuesto.bruto rellenado desde la suma de ${tabla.size} línea(s) presupuestadas: $${brutoSuma.toLocaleString('es-CL')}.`);
-        }
+        pres.bruto = [...tabla.values()].reduce((a, b) => a + b, 0);
+        console.log(`[viabilidad-ia-v4] ${codigo}: presupuesto.bruto desde la suma de ${tabla.size} línea(s) presupuestadas: $${Number(pres.bruto).toLocaleString('es-CL')}.`);
       }
     }
-  } catch (e) { console.warn(`[viabilidad-ia-v3] ${codigo}: backfill de presupuesto total falló:`, String(e).slice(0, 140)); }
-
-  // NORMALIZACIÓN DETERMINISTA DEL PRESUPUESTO NETO. El neto es un DERIVADO del bruto (regla del
-  // prompt: "Normaliza a NETO ÷1,19 si con IVA"), NO un dato que el modelo deba calcular: a veces
-  // se equivoca en la aritmética (ej. dividió por 11,9 y dejó el neto 10× chico), y un neto falso
-  // <$8M dispara el gate NO_CALIFICA que CAPA el score a 19 aunque el score_global real sea 65
-  // (caso 2674-33-LE26: bruto 27M correcto, neto 2,27M erróneo → ROJO_DURO + "GANABLE"). Por eso
-  // recalculamos el neto desde el bruto y sincronizamos el display del atractivo.
+  } catch (e) { console.warn(`[viabilidad-ia-v4] ${codigo}: backfill de presupuesto total falló:`, String(e).slice(0, 140)); }
+  // El NETO es un derivado del bruto (÷1,19 salvo exento/FORA), nunca un dato del modelo.
   {
-    const pres = p3.presupuesto && typeof p3.presupuesto === 'object' ? p3.presupuesto : (p3.presupuesto = {});
     const bruto = _num(pres.bruto);
-    if (bruto != null && bruto > 0) {
-      const exento = !!pres.presupuesto_exento || !!pres.regimen_fora || pres.con_iva === false;
-      const netoCalc = Math.round(exento ? bruto : bruto / 1.19);
-      const netoModelo = _num(pres.neto);
-      if (netoModelo == null || netoCalc === 0 || Math.abs(netoModelo - netoCalc) / netoCalc > 0.02) {
-        if (netoModelo != null) console.log(`[viabilidad-ia-v3] ${codigo}: presupuesto neto corregido ${netoModelo} → ${netoCalc} (bruto ${bruto}, ${exento ? 'exento' : '÷1,19'}).`);
-        pres.neto = netoCalc;
-      }
-      // Alinear el display del atractivo. IMPORTANTE: el GATE/score siguen sobre el NETO (los
-      // umbrales $8M/$15M de compras públicas son netos) → NO se toca pres.neto para la lógica.
-      // Pero lo que se MUESTRA al usuario es el monto CON IVA (bruto): así se lee "precio con IVA".
-      // Cuando el régimen es exento/FORA no hay IVA que sumar (bruto == neto) → se rotula "(exento)".
-      if (p3.atractivo && typeof p3.atractivo === 'object') {
-        p3.atractivo.presupuesto_neto = pres.neto;         // interno (gate/score)
-        const conIva = Number(bruto);                       // bruto = total CON IVA (o == neto si exento)
-        p3.atractivo.presupuesto_mostrar = exento
-          ? `$${conIva.toLocaleString('es-CL')} (exento)`
-          : `$${conIva.toLocaleString('es-CL')} IVA incl.`;
-      }
-    } else {
-      // El modelo no trajo bruto pero sí neto → reconstruimos el bruto (con IVA) para MOSTRARLO.
-      // Sin sumar IVA cuando el régimen es exento/FORA (no corresponde).
-      const netoN = _num(pres.neto);
-      if (netoN != null && netoN > 0) {
-        const exento = !!pres.presupuesto_exento || !!pres.regimen_fora || pres.con_iva === false;
-        const conIva = exento ? netoN : Math.round(netoN * 1.19);
-        if (pres.bruto == null || Number(pres.bruto) <= 0) pres.bruto = conIva; // para el fallback del front
-        if (p3.atractivo && typeof p3.atractivo === 'object') {
-          p3.atractivo.presupuesto_neto = netoN;
-          p3.atractivo.presupuesto_mostrar = exento
-            ? `$${conIva.toLocaleString('es-CL')} (exento)`
-            : `$${conIva.toLocaleString('es-CL')} IVA incl.`;
-        }
+    if (bruto != null && bruto > 0) pres.neto = Math.round(exentoPres ? bruto : bruto / 1.19);
+    else if (_num(pres.neto) != null && Number(pres.neto) > 0) pres.bruto = exentoPres ? Number(pres.neto) : Math.round(Number(pres.neto) * 1.19);
+    if (_num(pres.bruto) && Number(pres.bruto) > 0) {
+      const atr = obj('atractivo');
+      atr.presupuesto_neto = pres.neto;
+      atr.presupuesto_mostrar = `$${Number(pres.bruto).toLocaleString('es-CL')} ${exentoPres ? '(exento)' : 'IVA incl.'}`;
+    }
+  }
+  // Presupuesto por línea: los montos tal cual del modelo; si no hay, la tabla de distribución.
+  let porLinea = interpretarPorLinea(pres.por_linea, exentoPres);
+  if (porLinea.length < 2) {
+    try {
+      const tabla = extraerPresupuestoPorLineaTabla(leidos.map(d => ({ texto: d.texto })));
+      if (tabla && tabla.size >= 2) porLinea = interpretarPorLinea([...tabla.entries()].map(([l, m]) => ({ linea: `L${l}`, bruto: m })), exentoPres);
+    } catch { /* opcional */ }
+  }
+  pres.por_linea_interpretado = porLinea;
+  pres.suma_lineas_cuadra = sumaLineasCuadra(porLinea, _num(pres.bruto));
+  if (pres.caracter !== 'EXCLUYENTE') pres.nota_art_32 = NOTA_ART_32;
+
+  // ─── P5 · CITAS: el código ubica cada frase y pone la página ───────────────────────────────
+  const loc = new LocalizadorCitas(fuentes.map(d => ({ nombre: d.nombre, texto: d.texto, categoria: d.categoria })));
+  const statsCitas = localizarCitasInforme(p3, loc);
+  // Respaldo de la heurística anterior: sin frase encontrada, la página del encabezado del numeral.
+  respaldoPaginaPorNumeral(p3, fuentes);
+  console.log(`[viabilidad-ia-v4] ${codigo}: citas — ${statsCitas.verificadas}/${statsCitas.total} verificadas en los documentos${statsCitas.sin_frase ? `, ${statsCitas.sin_frase} sin frase` : ''}.`);
+
+  // ─── P3/P6 · Negaciones de garantías y contrato (detector en código) ──────────────────────
+  const adm = obj('requisitos_admisibilidad');
+  const garantias = adm.garantias && typeof adm.garantias === 'object' ? adm.garantias : (adm.garantias = {});
+  const plazos = obj('plazos');
+  plazos.hitos = normalizarHitos(plazos.hitos);
+  const negaciones = detectarNegaciones(fuentes);
+  for (const [clave, neg] of Object.entries(negaciones)) {
+    if (!neg) continue;
+    const g = garantias[clave] && typeof garantias[clave] === 'object' ? garantias[clave] : (garantias[clave] = {});
+    if (String(g.estado || '').toUpperCase() !== 'NO_EXISTE') {
+      console.log(`[viabilidad-ia-v4] ${codigo}: ${clave} → NO_EXISTE por negación en las bases: "${neg.frase}".`);
+      g.corregido_por_negacion = g.estado || 'NO_INDICADO';
+      g.estado = 'NO_EXISTE';
+      g.cita = loc.localizar({ documento: neg.documento, numeral: '', frase: neg.frase });
+    }
+    const hitosAfectados = clave === 'fiel_cumplimiento' ? ['GARANTIA_FIEL_CUMPLIMIENTO'] : clave === 'contrato' ? ['FIRMA_CONTRATO_PROVEEDOR', 'FIRMA_CONTRATO_ORGANISMO'] : [];
+    for (const h of plazos.hitos as HitoInforme[]) {
+      if (hitosAfectados.includes(String(h.hito)) && String(h.estado || '').toUpperCase() !== 'NO_EXISTE') {
+        h.corregido_por_negacion = String(h.estado || 'NO_INDICADO');
+        h.estado = 'NO_EXISTE'; h.plazo = null;
+        h.cita = loc.localizar({ documento: neg.documento, numeral: '', frase: neg.frase });
       }
     }
   }
 
-  const adj = p3.adjudicacion && typeof p3.adjudicacion === 'object' ? p3.adjudicacion : (p3.adjudicacion = {});
-  // ADJUDICACIÓN ("¿a quién?") — SOLO evidencia de participación/ganador repartido. Corrección
-  // 21-jul-2026: antes esto se decidía con señales de COSTEO (total único, numeración del listado,
-  // tabla por línea) — dos preguntas distintas que CA identificó como no relacionadas. Ver
-  // veredictoAdjudicacionDeterminista arriba.
-  //
-  // GUARDIA DE UN SOLO ÍTEM (prioridad máxima, antes de cualquier señal): con 1 solo ítem/línea
-  // no existe "por línea" posible — no hay una segunda línea con la que repartir la adjudicación.
-  // Caso real 1180828-26-LE26: 1 ítem, pero "por línea" salió de un formulario genérico de
-  // plantilla ("se puede ingresar un cuadro por línea") que no implica adjudicación múltiple real.
-  const itemsParaConteo: any[] = Array.isArray(p3.productos?.items) ? p3.productos.items
-    : Array.isArray(p3.costeo?.items) ? p3.costeo.items : [];
-  //
-  // LÍNEAS DE LA API (29-sep-2026, caso 2950-49-LE26): la API de Mercado Público adjudica por línea
-  // del portal, así que con 1 sola línea solo puede haber UN adjudicado = GLOBAL, aunque el anexo
-  // traiga 38 ítems por dentro y las bases repitan la frase de plantilla "se adjudicará a un
-  // proveedor por línea de oferta". Con 2+ líneas en la API sí se buscan las bases. Si la API no
-  // respondió (0 líneas) no se sabe nada: no se fuerza. El manifiesto de 1 ítem sigue valiendo.
+  // ─── P1 · ADJUDICACIÓN: evidencias tipadas + chequeo semántico + tabla de decisión ─────────
+  const adj = obj('adjudicacion');
+  let evidencias: EvidenciaAdj[] = deduplicarEvidencias([
+    ...evidenciasDelModelo(adj.evidencias, 'modelo'),
+    ...evidenciasDeDetectores(senales).map(e => { if (e.cita.frase) loc.localizar(e.cita as any); return e; }),
+  ]);
+  // Señales de suministro: si el modelo no reportó ninguna, el detector del código.
+  const exc = obj('exclusion');
+  if (!Array.isArray(exc.senales_suministro) || !exc.senales_suministro.length) {
+    exc.senales_suministro = detectarSenalesSuministro(fuentes).map(s => ({ ...s, cita: loc.localizar(s.cita), origen: 'detector' }));
+  }
+
+  // CHEQUEO SEMÁNTICO de los datos críticos — UNA llamada con todos los pares (prompt auxiliar B).
+  const preguntarCorto = (s: string, u: string) => Promise.race([
+    llamarGlmJSON(s, u),
+    new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout verificador de citas')), 120_000)),
+  ]);
+  const pares = construirParesSemanticos(p3, evidencias);
+  const sem = await verificarSemantica(pares, preguntarCorto);
+  if (sem.fallo) console.warn(`[viabilidad-ia-v4] ${codigo}: chequeo semántico no disponible (${sem.fallo}) — las frases cuentan solo por existir literal.`);
+  else if (pares.length) console.log(`[viabilidad-ia-v4] ${codigo}: chequeo semántico — ${sem.evaluados}/${pares.length} pares evaluados.`);
+  p3._chequeo_semantico = { pares: pares.length, evaluados: sem.evaluados, fallo: sem.fallo };
+
+  marcarEvidenciasQueCuentan(evidencias);
   const lineasApi = Array.isArray(ctx.itemsMP) ? ctx.itemsMP.length : 0;
-  if (lineasApi === 1 || itemsParaConteo.length === 1) {
-    const comoLLM = String(adj.como_se_adjudica || '').toUpperCase();
-    const origen = lineasApi === 1 ? 'la API de Mercado Público trae 1 sola línea' : 'un solo ítem/línea detectado en el manifiesto';
-    if (comoLLM !== 'GLOBAL') console.log(`[viabilidad-ia-v3] ${codigo}: adjudicación forzada a GLOBAL — ${origen}, "por línea" es imposible con 1 sola línea (LLM decía "${comoLLM || '—'}").`);
-    adj.como_se_adjudica = 'GLOBAL';
-    adj.estado = 'DETERMINADA';
-    adj.evidencia = `${origen} — no puede haber adjudicación por línea con una sola línea, es GLOBAL por definición`;
-  } else {
-  const det = veredictoAdjudicacionDeterminista(ofertaSubconjunto, formulariosPorArchivo, participacionParcialPorLinea, presupuestoPorLinea, tipoAdjudicacionMultiple, licitacionTipoMultiple);
-  // LECTOR DE CLÁUSULA CON CITA VERIFICADA (24-sep-2026, caso 1171317-88-LE26): solo se consulta
-  // cuando los detectores regex no concluyeron. Recorre el texto COMPLETO de todos los documentos
-  // y exige una cita literal; con tope de 90 s para no comerse el plazo del análisis.
-  const clausula = det ? null : await leerClausulaAdjudicacion(
-    fuentes.map(d => ({ nombre: d.nombre, texto: d.texto })),
-    (s, u) => Promise.race([
-      llamarGlmJSON(s, u),
-      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout lector de cláusula')), 90_000)),
-    ]),
-  );
-  if (det) {
-    const comoDet = det.tipo; // 'GLOBAL' | 'POR_LINEAS' — ya viene en el vocabulario de adjudicación
-    const comoLLM = String(adj.como_se_adjudica || '').toUpperCase();
-    // No pisar POR_LOTES del modelo (el detector no distingue lotes de global, solo "repartido").
-    if (!(comoDet === 'GLOBAL' && comoLLM.includes('LOTE'))) {
-      if (comoLLM !== comoDet) console.log(`[viabilidad-ia-v3] ${codigo}: adjudicación corregida por evidencia de participación: "${comoLLM || '—'}" → "${comoDet}" (${det.motivo}).`);
-      adj.como_se_adjudica = comoDet;
-      adj.estado = 'DETERMINADA';
-      adj.evidencia = adj.evidencia ? `${adj.evidencia} [ajuste por evidencia de adjudicación: ${det.motivo}]` : `derivado de evidencia de adjudicación: ${det.motivo}`;
-    }
-  } else if (clausula?.verificada && clausula.modo === 'POR_LINEAS') {
-    // Evidencia POSITIVA y verificable: el modelo citó una frase que existe literalmente en las bases.
-    console.log(`[viabilidad-ia-v3] ${codigo}: adjudicación POR_LINEAS por cláusula citada y verificada en "${clausula.documento}": "${clausula.cita?.slice(0, 120)}"`);
-    adj.como_se_adjudica = 'POR_LINEAS';
-    adj.estado = 'DETERMINADA';
-    adj.fuente = clausula.documento;
-    adj.evidencia = `cláusula verificada en ${clausula.documento}: "${clausula.cita}"`;
-  } else {
-    // RED DE SEGURIDAD (doctrina del proyecto: "por_linea exige EVIDENCIA POSITIVA"). Cuando no hay
-    // evidencia de ADJUDICACIÓN concluyente y el LLM eligió POR_LINEAS SIN respaldo objetivo, NO le
-    // creemos: ese es el falso positivo más común (el modelo confunde "se adjudica por línea" —a
-    // quién— con "se cotiza/organiza por línea" —cómo—, que es un eje aparte). Default SEGURO =
-    // GLOBAL (un solo oferente gana todo) y se marca REVISION_HUMANA para que un humano confirme.
-    const comoLLM = String(adj.como_se_adjudica || '').toUpperCase();
-    // CORROBORACIÓN POR EL MANIFIESTO DEL LLM (evidencia MEDIA, no 100% determinista): si el modelo
-    // agrupó los ítems en ≥2 LÍNEAS distintas y cada línea trae su PROPIO presupuesto, eso sugiere
-    // LOTES independientes que podrían adjudicarse por separado — no es prueba dura de adjudicación,
-    // por eso queda con REVISION_HUMANA, no DETERMINADA.
-    const itemsLLM: any[] = Array.isArray(p3.productos?.items) ? p3.productos.items
-      : Array.isArray(p3.costeo?.items) ? p3.costeo.items : []; // v3.3 productos / v3.2 costeo
-    const lineasLLM = new Set(itemsLLM.map(it => _lineaNum(it?.linea)).filter(n => Number.isFinite(n) && n > 0));
-    const presupuestosLLM = new Set(
-      itemsLLM.map(it => _num(it?.presupuesto_linea)).filter((n): n is number => n != null && n > 0),
+  const hayDecisiva = evidencias.some(e => e.cuenta && CATALOGO[e.tipo].peso === 'DECISIVA');
+  if (!hayDecisiva && lineasApi !== 1) {
+    // LECTOR DE CLÁUSULA (prompt auxiliar A): solo si nadie trajo evidencia decisiva. Recorre el texto
+    // COMPLETO de todos los documentos y exige frase literal; tope de 90 s.
+    const clausula = await leerClausulaAdjudicacion(
+      fuentes.map(d => ({ nombre: d.nombre, texto: d.texto })),
+      (s, u) => Promise.race([
+        llamarGlmJSON(s, u),
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout lector de cláusula')), 90_000)),
+      ]),
     );
-    // CLAVE — distinguir "líneas/lotes reales" de "correlativo 1..N de una planilla suma alzada".
-    // por_linea REAL agrupa VARIOS ítems por línea (pocas líneas, muchos ítems): 3480 = 2 líneas /
-    // 108 ítems = 54 ítems/línea. En cambio, UN ítem por línea (177 líneas / 177 ítems = 1) es el
-    // correlativo continuo de UNA planilla integrada = SUMA ALZADA (el LLM numeró cada ítem y le
-    // puso su precio de referencia; NO son 177 lotes). Exigimos ≥3 ítems por línea en promedio para
-    // que el manifiesto cuente como evidencia de lotes. (Doctrina "correlativo 1..N = suma alzada".)
-    //
-    // OJO 28-jul-2026 (pedido explícito de CA tras el caso 1057536-83-LE26): esta corroboración es
-    // SOLO para ADJUDICACIÓN (a quién) y debe salir SOLO de evidencia de reparto real (¿puede ganar
-    // más de un oferente?), NUNCA de cómo el LLM agrupó los productos en líneas — eso es evidencia de
-    // COSTEO, un eje aparte (ver el "PUENTE AL COSTEO" más abajo, que SÍ usa la heterogeneidad de
-    // líneas/presupuestos del manifiesto para decidir cuántas hojas lleva el Excel). Mezclar ambas
-    // aquí fue un error de esta misma sesión: se corrigió después de que CA aclarara "primero hay que
-    // ver si se adjudica a un solo oferente o a varios — eso sale de las bases; el costeo por línea es
-    // aparte y aplica igual sea global o repartida la adjudicación".
-    const itemsPorLinea = lineasLLM.size > 0 ? itemsLLM.length / lineasLLM.size : 0;
-    const manifiestoPorLinea = lineasLLM.size >= 2 && presupuestosLLM.size >= 2 && itemsLLM.length >= 8 && itemsPorLinea >= 3;
-    // NO incluye cuadroPorLinea/lineasForm/planilla.estructura-numeracion (señales de CÓMO SE
-    // COTIZA/organiza el costeo, no de a quién se adjudica) NI lenguajePorLinea completo (incluye
-    // "se evaluará por línea", que es del PUNTAJE — caso real 1250623-4-LE26, ver comentario arriba).
-    // Solo participacionParcialPorLinea (la versión angosta: puede ofertar/omitir/ganar solo una parte).
-    const hayEvidenciaPorLinea = !!participacionParcialPorLinea
-      || !!presupuestoPorLinea
-      || !!ofertaSubconjunto
-      || formulariosPorArchivo.length >= 2
-      || !!tipoAdjudicacionMultiple
-      || !!licitacionTipoMultiple
-      || manifiestoPorLinea;
-    if (comoLLM.includes('LINEA') && manifiestoPorLinea && !presupuestoPorLinea && !lenguajePorLinea) {
-      // Evidencia MEDIA (viene del manifiesto del LLM, no de una señal 100% determinista): se
-      // RESPETA por_linea (para que el costeo salga por línea) pero se marca REVISION_HUMANA
-      // para que el experto confirme. Evita tanto el costeo global equivocado como confiar a
-      // ciegas en el modelo.
-      console.log(`[viabilidad-ia-v3] ${codigo}: POR_LINEAS sostenido por el manifiesto del LLM (${lineasLLM.size} líneas, ${presupuestosLLM.size} presupuestos independientes) → se respeta por_linea + REVISION_HUMANA.`);
-      adj.como_se_adjudica = 'POR_LINEAS';
-      adj.estado = 'REVISION_HUMANA';
-      adj.evidencia = adj.evidencia
-        ? `${adj.evidencia} [por_linea sostenido por el manifiesto: ${lineasLLM.size} líneas con presupuesto independiente; requiere confirmación humana]`
-        : `por_linea sostenido por la estructura del manifiesto (${lineasLLM.size} líneas con presupuesto independiente); requiere confirmación humana`;
-    }
-    if (comoLLM.includes('LINEA') && !hayEvidenciaPorLinea) {
-      console.log(`[viabilidad-ia-v3] ${codigo}: POR_LINEAS del LLM SIN evidencia objetiva → default seguro GLOBAL (suma_alzada) + REVISION_HUMANA.`);
-      adj.como_se_adjudica = 'GLOBAL';
-      adj.estado = 'REVISION_HUMANA';
-      adj.evidencia = adj.evidencia
-        ? `${adj.evidencia} [sin evidencia de participación repartida → default GLOBAL; requiere confirmación humana]`
-        : `sin evidencia objetiva de que se pueda ganar solo una parte (ni lenguaje explícito, ni presupuesto por línea, ni formularios separados, ni declaración de adjudicación múltiple) → default GLOBAL; requiere confirmación humana`;
+    if (clausula.evidencias.length) {
+      const nuevas: EvidenciaAdj[] = clausula.evidencias.map(e => ({ tipo: e.tipo, origen: 'clausula', cita: loc.localizar({ ...e.cita }) }));
+      const paresC = nuevas.map((e, i) => ({ id: i + 1, afirmacion: CATALOGO[e.tipo].afirmacion, documento: String(e.cita.documento || ''), numeral: String(e.cita.numeral || ''), frase: String(e.cita.frase || ''), cita: e.cita as any }));
+      await verificarSemantica(paresC, preguntarCorto);
+      evidencias = deduplicarEvidencias([...evidencias, ...marcarEvidenciasQueCuentan(nuevas)]);
+      console.log(`[viabilidad-ia-v4] ${codigo}: lector de cláusula aportó ${nuevas.length} evidencia(s)${clausula.descartadas ? ` (${clausula.descartadas} frase(s) inventada(s) descartadas)` : ''}.`);
     }
   }
+  const decision = decidirAdjudicacion(evidencias, lineasApi);
+  Object.assign(adj, {
+    evidencias,
+    resultado: decision.resultado,
+    regla_aplicada: decision.regla_aplicada,
+    motivo: decision.motivo,
+    cotizar_100: decision.cotizar_100,
+    cotizar_100_texto: decision.cotizar_100_texto,
+    pregunta_foro: decision.pregunta_foro,
+  });
+  delete adj.como_se_adjudica; delete adj.modalidad_pago_interna; delete adj.estado; delete adj.cotizar_100_obligatorio;
+  delete adj.evaluacion_puntaje; delete adj.confianza; delete adj.libertad_de_pricing;
+  console.log(`[viabilidad-ia-v4] ${codigo}: adjudicación ${decision.resultado} (regla ${decision.regla_aplicada}: ${decision.motivo}) — ${evidencias.filter(e => e.cuenta).length}/${evidencias.length} evidencia(s) válidas.`);
+  if (decision.resultado === 'NO_CLARO') aRevision('No está claro cómo se adjudica: confirmar en las bases o preguntar en el foro antes de armar la oferta.');
+
+  // ─── P2 · Exclusión por contrato de suministro (decide el código) ─────────────────────────
+  const sum = decidirSuministro(exc.senales_suministro);
+  const categoriaModelo = String(exc.categoria || '').toUpperCase().trim();
+  if (sum.excluido) {
+    exc.excluido = true;
+    exc.categoria = 'CONTRATO_SUMINISTRO';
+    if (categoriaModelo && categoriaModelo !== 'CONTRATO_SUMINISTRO') exc.categoria_modelo = categoriaModelo;
+    exc.motivo = String(sum.senal?.cita?.frase || exc.motivo || '').slice(0, 220);
+    exc.cita = sum.senal?.cita ?? exc.cita;
+    console.log(`[viabilidad-ia-v4] ${codigo}: EXCLUIDO — contrato de suministro ("${exc.motivo.slice(0, 100)}").`);
+  } else {
+    exc.excluido = false;   // las demás categorías se muestran como aviso; el servicio lo toma el techo del nivel
   }
 
-  // ── GATILLO DETERMINISTA DE CADENA LARGA ──────────────────────────────────────
-  // Caso real 1057489-203-LP26: las bases exigen garantía de fiel cumplimiento "previo a la
-  // firma del Contrato" (Art. 27, 10 días hábiles) y el modelo igual informó cadena CORTA,
-  // colchón 0 y gatillos en false. Solo corrige con evidencia textual inequívoca; NO inventa
-  // números: marca los gatillos, fuerza cadena larga y deja una alerta para que el colchón
-  // se relea con ese dato a la vista.
+  // ─── P3 · PLAZO PREVIO (el código suma, en orden fijo) ────────────────────────────────────
+  {
+    const base = fechaBaseAdjudicacion(ctx.meta);
+    const calc = calcularPlazoPrevio(plazos.hitos, plazos.inicio_plazo_entrega?.desfase, base.fecha, base.origen, feriadosPara(cfg, ctx.meta.region));
+    plazos.plazo_previo = calc;
+    const acept = (plazos.hitos as HitoInforme[]).find(h => h.hito === 'ACEPTACION_OC');
+    if (acept && String(acept.estado || '').toUpperCase() === 'NO_INDICADO') plazos.nota_aceptacion_oc = NOTA_ACEPTACION_OC;
+    delete plazos.cadena; delete plazos.gatillo_cadena_larga; delete plazos.frontera; delete plazos.aceptacion_oc;
+    delete plazos.colchon_dias_corridos; delete plazos.plazo_entrega_ofertable; delete plazos.ventana_importacion;
+  }
+
+  // ─── P7 · MULTA POR ATRASO (el código calcula con UF/UTM oficial) ─────────────────────────
   try {
-    const plzObj = p3.plazos && typeof p3.plazos === 'object' ? p3.plazos : null;
-    if (plzObj) {
-      const reFiel = /garant[ií]a\s+(?:de\s+|por\s+)?fiel\s+cumplimiento[\s\S]{0,600}?(?:previo\s+a\s+la\s+(?:firma|suscripci[oó]n)\s+del?\s+contrato|deber[aá]\s+(?:entregar|presentar))/i;
-      const reFielInv = /previo\s+a\s+la\s+(?:firma|suscripci[oó]n)\s+del?\s+contrato[\s\S]{0,300}?fiel\s+cumplimiento/i;
-      const docGatillo = fuentes.find(d => d.texto && (reFiel.test(d.texto) || reFielInv.test(d.texto)));
-      if (docGatillo) {
-        const g = (plzObj.gatillo_cadena_larga && typeof plzObj.gatillo_cadena_larga === 'object') ? plzObj.gatillo_cadena_larga : (plzObj.gatillo_cadena_larga = {});
-        const yaLarga = String(plzObj.cadena || '').toLowerCase() === 'larga' && g.exige_fiel_cumplimiento;
-        if (!yaLarga) {
-          console.log(`[viabilidad-ia-v3] ${codigo}: cadena corregida a LARGA (las bases exigen garantía de fiel cumplimiento previo a la firma del contrato — ${docGatillo.nombre}).`);
-          g.exige_fiel_cumplimiento = true;
-          g.exige_contrato = true;
-          if (!g.fuente) g.fuente = docGatillo.nombre;
-          plzObj.cadena = 'larga';
-          if (!Array.isArray(plzObj.alertas)) plzObj.alertas = [];
-          plzObj.alertas.push('Corrección determinista: las bases exigen garantía de fiel cumplimiento previo a la firma del contrato (cadena LARGA). El colchón informado puede estar subestimado — verificar los plazos de contrato y garantía.');
-        }
-      }
-    }
-  } catch { /* corrección opcional */ }
+    const mul = obj('multas');
+    const atraso = mul.atraso && typeof mul.atraso === 'object' ? mul.atraso : null;
+    const ind = indicadorNecesario(atraso);
+    const valorInd = ind ? await obtenerTipoCambio(ind) : null;
+    if (atraso) atraso.calculo = calcularMulta(atraso, { bruto: _num(pres.bruto), neto: _num(pres.neto) }, valorInd);
+  } catch (e) { console.warn(`[viabilidad-ia-v4] ${codigo}: cálculo de multa falló:`, String(e).slice(0, 140)); }
 
-  // PUENTE AL COSTEO (shape v2): autoGenerarCosteo/adaptarViabilidadACosteo consumen
-  // manifiesto_productos + modalidad.tipo + estructura_costeo. El parser da el listado fiel con
-  // línea/categoría reales (misma regla que el v2.1: si trae ≥ ítems que el modelo, su manifiesto manda).
-  const comoFinal = String(adj.como_se_adjudica || '').toUpperCase();
-  let tipoCosteo: 'suma_alzada' | 'por_linea' = comoFinal.includes('LINEA') ? 'por_linea' : 'suma_alzada';
-  // RECONEXIÓN 28-jul-2026 (caso real de CA): el costeo es un eje INDEPENDIENTE de la adjudicación
-  // (ver veredictoModalidadDeterminista arriba, "pendiente reconectar"). Un solo oferente puede
-  // ganar TODO (adjudicación GLOBAL) y aun así la licitación tener varias líneas reales — el costeo
-  // debe seguir yendo por línea. Solo PROMUEVE GLOBAL→por_linea con evidencia dura del FORMATO de
-  // la oferta económica (cuadro por línea, presupuesto por línea, formularios separados, etc.);
-  // nunca al revés — si la adjudicación ya es POR_LINEAS, el costeo se queda por_linea sin tocar.
+  // ─── PUENTE AL COSTEO: cómo se cotiza (eje aparte de la adjudicación) ──────────────────────
+  // POR_LINEAS → una hoja por línea. GLOBAL o NO_CLARO → total único, salvo que el FORMATO de la
+  // oferta económica tenga evidencia dura de por línea (veredictoModalidadDeterminista) o las
+  // líneas sean heterogéneas con presupuesto propio. Esto NO vuelve a influir en la adjudicación.
+  let tipoCosteo: 'suma_alzada' | 'por_linea' = decision.resultado === 'POR_LINEAS' ? 'por_linea' : 'suma_alzada';
   if (tipoCosteo === 'suma_alzada') {
-    const detCosteo = veredictoModalidadDeterminista(planilla, totalUnico, lenguajePorLinea, presupuestoPorLinea, ofertaSubconjunto, cuadroPorLinea, formulariosPorArchivo, licitacionTipoMultiple);
+    const detCosteo = veredictoModalidadDeterminista(planilla, senales.totalUnico, senales.lenguajePorLinea, senales.presupuestoPorLinea, senales.ofertaSubconjunto, senales.cuadroPorLinea, senales.formulariosPorArchivo, senales.licitacionTipoMultiple);
     if (detCosteo?.tipo === 'por_linea') {
-      console.log(`[viabilidad-ia-v3] ${codigo}: costeo promovido a por_linea aunque la adjudicación es GLOBAL (${detCosteo.motivo}).`);
+      console.log(`[viabilidad-ia-v4] ${codigo}: costeo por línea aunque la adjudicación es ${decision.resultado} (${detCosteo.motivo}).`);
       tipoCosteo = 'por_linea';
-    } else {
-      // CASO NUEVO 28-jul-2026 (real: 1057536-83-LE26, CESFAM Frutillar; aclarado por CA — esto es
-      // SOLO costeo, no toca adjudicación, que se decide arriba únicamente con evidencia de las
-      // bases). El manifiesto del propio LLM puede mostrar líneas HETEROGÉNEAS (equipamiento médico
-      // distinto entre sí — báscula, camilla, carro de resucitación...) cada una con su PROPIO
-      // presupuesto, aunque el formulario económico cierre con un total consolidado (lo que hace
-      // ganar la regla maestra de arriba y deja tipoCosteo en suma_alzada). Para el COSTEO (nunca
-      // para a quién se adjudica) igual conviene una hoja por línea: cada producto tiene su propio
-      // precio de referencia y su propio margen que vigilar, sea la adjudicación global o repartida.
-      // Exige presupuesto en TODAS las líneas + tope de líneas razonable para no reabrir el catálogo
-      // de 177 ítems casi idénticos que NO se etiqueta heterogéneo (ver comentario de "catalogoConLotes"
-      // en la corroboración de adjudicación, arriba — ese caso es aparte y no usa heterogeneidad).
-      const itemsLLMCosteo: any[] = Array.isArray(p3.productos?.items) ? p3.productos.items
-        : Array.isArray(p3.costeo?.items) ? p3.costeo.items : [];
-      const lineasLLMCosteo = new Set(itemsLLMCosteo.map(it => _lineaNum(it?.linea)).filter(n => Number.isFinite(n) && n > 0));
-      const presupuestosLLMCosteo = new Set(
-        itemsLLMCosteo.map(it => _num(it?.presupuesto_linea)).filter((n): n is number => n != null && n > 0),
-      );
-      const heterogeneidadAlta = String(adj.heterogeneidad || '').toLowerCase() === 'alta';
-      if (heterogeneidadAlta && lineasLLMCosteo.size >= 2 && lineasLLMCosteo.size <= 20 && presupuestosLLMCosteo.size === lineasLLMCosteo.size) {
-        console.log(`[viabilidad-ia-v3] ${codigo}: costeo promovido a por_linea por líneas heterogéneas con presupuesto propio en el manifiesto (${lineasLLMCosteo.size} líneas), aunque el formato económico traiga un total consolidado.`);
-        tipoCosteo = 'por_linea';
-      }
+    } else if (String(adj.heterogeneidad || '').toLowerCase() === 'alta' && porLinea.length >= 2 && porLinea.length <= 20) {
+      console.log(`[viabilidad-ia-v4] ${codigo}: costeo por línea por líneas heterogéneas con presupuesto propio (${porLinea.length} líneas).`);
+      tipoCosteo = 'por_linea';
     }
   }
-  // v3.3: el bloque de ítems pasó de `costeo` a `productos` (scraping-ready). Tomamos productos.items
-  // y, si no existe (informe legado/respaldo), caemos a costeo.items. El mapeo tolera AMBOS nombres de
-  // campo (nombre/descripcion_exacta, marca_modelo_referencia/marca_modelo, clasificacion/tipo) para
-  // que el manifiesto —y por tanto el Excel de costeo— salga idéntico venga del shape que venga.
-  const itemsFuenteCrudos: any[] = Array.isArray(p3.productos?.items) ? p3.productos.items
-    : Array.isArray(p3.costeo?.items) ? p3.costeo.items : [];
-  await completarCaracteristicasLiterales(itemsFuenteCrudos, docs, codigo);
+
+  // ─── P8 · PRODUCTOS: segunda pasada literal + manifiesto + UNA SOLA LISTA ──────────────────
+  const prod = obj('productos');
+  const itemsFuenteCrudos: any[] = Array.isArray(prod.items) ? prod.items : [];
+  const reqGenerales: any[] = Array.isArray(prod.requisitos_generales) ? prod.requisitos_generales : [];
+  await completarCaracteristicasLiterales(itemsFuenteCrudos, docs, codigo, reqGenerales);
+  for (const r of reqGenerales) if (r?.cita && typeof r.cita === 'object' && r.cita.verificada === undefined) loc.localizar(r.cita);
+  prod.requisitos_generales = reqGenerales;
+  // Cada característica debe existir LITERAL en las bases; las demás no pasan al AUDITOR.
+  const lit = verificarCaracteristicasLiterales(itemsFuenteCrudos, loc);
+  if (lit.no_encontradas) console.warn(`[viabilidad-ia-v4] ${codigo}: ${lit.no_encontradas}/${lit.revisadas} característica(s) no se encontraron literales en las bases — quedan marcadas y fuera del AUDITOR hasta revisarlas.`);
   // Listado real dejado como texto en `caracteristicas` de un ítem genérico sin cantidad (3477-80-LE26).
   const itemsDesplegados = desplegarItemsDesdeCaracteristicas(itemsFuenteCrudos);
-  if (itemsDesplegados) console.log(`[viabilidad-ia-v3] ${codigo}: ${itemsFuenteCrudos.length} ítem(s) del modelo traían el listado de productos como texto en "caracteristicas" → desplegados a ${itemsDesplegados.length} ítems.`);
+  if (itemsDesplegados) console.log(`[viabilidad-ia-v4] ${codigo}: ${itemsFuenteCrudos.length} ítem(s) traían el listado como texto en "caracteristicas" → desplegados a ${itemsDesplegados.length} ítems.`);
   const itemsFuente = itemsDesplegados ?? itemsFuenteCrudos;
+  const presupuestoDeLinea = (n: number) => porLinea.find(l => l.numero === n)?.monto_pesos ?? null;
   let manifiesto: ManifiestoLinea[] = itemsFuente.map((it: any) => ({
     linea: _lineaNum(it.linea), categoria: it.categoria ?? null,
     descripcion: _str(it.nombre || it.descripcion_exacta || it.descripcion),
     modelo: _str(it.marca_modelo_referencia || it.marca_modelo),
     cantidad: _num(it.cantidad), unidad_medida: _str(it.unidad_medida), unidad_inferida: _bool(it.unidad_inferida),
-    presupuesto_linea: _num(it.presupuesto_linea), tipo: _str(it.clasificacion || it.tipo) || 'generico', ruta: _str(it.ruta),
+    // El modelo ya no escribe presupuesto_linea: lo llena el código desde presupuesto.por_linea.
+    presupuesto_linea: presupuestoDeLinea(_lineaNum(it.linea)), tipo: _str(it.clasificacion || it.tipo) || 'generico', ruta: '',
   }));
-  // ORIGEN del manifiesto — de dónde salió la versión FINAL, no solo si se intentó una fuente.
-  // (26-ago-2026.) Nace en 'modelo' (lo que trajo el LLM) y cambia en el ÚNICO lugar donde
-  // `manifiesto` se REEMPLAZA por otra fuente completa (no los que solo filtran/completan el que
-  // ya había). Viaja siempre en `_fuentes_manifiesto`, exista o no una planilla: antes esa traza
-  // solo se escribía cuando había planilla, y como el 70% de las licitaciones no la tiene, la
-  // traza cubría el 3% de los informes — la red de seguridad (V-15) que debía avisar cuando las
-  // fuentes se contradicen casi nunca tenía con qué avisar.
   let origenManifiesto: 'modelo' | 'tabla_canonica' | 'planilla' | 'extraccion_lineas_producto' = 'modelo';
-  // Filtro determinista de filas de la tabla de CRITERIOS coladas como productos — ver
-  // esFilaDeCriterioNoProducto arriba (caso real 2345-128-LP26: 20 de 30 "productos" eran
-  // ponderaciones/tramos/rankings/declaraciones juradas). Va ANTES del gate de la planilla a
-  // propósito: ese gate compara `planilla.items.length >= manifiesto.length`, y con el manifiesto
-  // inflado por criterios la planilla (que SÍ es fiel) perdía la comparación y nunca reemplazaba.
   {
+    // Filas de la tabla de CRITERIOS coladas como productos (2345-128-LP26). Va ANTES del gate de la
+    // planilla: con el manifiesto inflado, la planilla (fiel) perdía la comparación.
     const antes = manifiesto.length;
     const descartados = manifiesto.filter(m => esFilaNoProducto(m.descripcion));
     if (descartados.length) {
       manifiesto = manifiesto.filter(m => !esFilaNoProducto(m.descripcion));
-      console.warn(`[viabilidad-ia-v3] ${codigo}: ${descartados.length}/${antes} "producto(s)" descartado(s) por ser filas de la tabla de CRITERIOS DE EVALUACIÓN, no ítems a cotizar —`,
+      console.warn(`[viabilidad-ia-v4] ${codigo}: ${descartados.length}/${antes} "producto(s)" descartado(s) por ser filas de criterios o rótulos —`,
         descartados.slice(0, 8).map(d => `"${d.descripcion.slice(0, 60)}"`).join(', '));
     }
   }
-
-  // ── CONTRASTE CONTRA LA TABLA CANÓNICA DE LAS BASES TÉCNICAS ────────────────────────────
-  // (17-ago-2026, ampliado 3-sep-2026.) El listado autoritativo de QUÉ se compra vive en las
-  // bases técnicas — como tabla "Producto | Cantidad" o como lista numerada "N.- Producto /
-  // Cantidad total" (ver extraerListadoCanonicoBases) — extraíble de forma 100% determinista,
-  // sin IA. Se usa como CONTROL del manifiesto del LLM/planilla, vía decidirReemplazoPorCanonica:
-  //   · Si el manifiesto trae los mismos productos MÁS un montón de filas que no calzan con
-  //     NINGÚN producto canónico, esas son ruido (criterios, requisitos, notas) y manda la tabla
-  //     canónica.
-  //   · Si el manifiesto es más largo pero CADA fila de más SÍ calza con algún producto
-  //     canónico, no es ruido: es la misma lista desagregada por otro eje (ej. por edificio de
-  //     entrega, caso real 2408-162-LE26 — bases técnicas listan 10 productos con el total
-  //     agregado del proyecto, el Anexo Económico los desagrega en 28 filas por destino de
-  //     entrega, y ambos suman exactamente lo mismo) — ahí NO se pisa, se perdería el desglose.
-  //   · Si el manifiesto trae MENOS o distinto sin relación, tampoco se pisa: la canónica puede
-  //     ser un resumen y el detalle real vivir en otro documento — ahí el LLM/planilla aporta.
+  // CONTRASTE CONTRA LA TABLA CANÓNICA DE LAS BASES TÉCNICAS (17-ago / 3-sep-2026).
   try {
     const canonica = extraerListadoCanonicoBases(fuentes.map(d => ({ nombre: d.nombre, categoria: d.categoria, texto: d.texto, metodo: d.metodo })));
     if (canonica.length >= 3 && manifiesto.length > 0) {
-      const decision = decidirReemplazoPorCanonica(manifiesto, canonica);
-      if (decision.reemplazar) {
-        console.warn(`[viabilidad-ia-v3] ${codigo}: el manifiesto traía ${manifiesto.length} ítems pero la tabla canónica de las bases lista ${canonica.length} (${decision.motivo}) → se recorta a la canónica.`);
+      const dec = decidirReemplazoPorCanonica(manifiesto, canonica);
+      if (dec.reemplazar) {
+        console.warn(`[viabilidad-ia-v4] ${codigo}: el manifiesto traía ${manifiesto.length} ítems pero la tabla canónica de las bases lista ${canonica.length} (${dec.motivo}) → se recorta a la canónica.`);
         manifiesto = canonica.map(c => ({
           linea: 1, categoria: null, descripcion: c.descripcion, modelo: '',
           cantidad: c.cantidad, unidad_medida: '', unidad_inferida: true,
-          presupuesto_linea: null, tipo: 'generico', ruta: '',
+          presupuesto_linea: presupuestoDeLinea(1), tipo: 'generico', ruta: '',
         }));
         origenManifiesto = 'tabla_canonica';
-      } else if (canonica.length !== manifiesto.length) {
-        console.log(`[viabilidad-ia-v3] ${codigo}: tabla canónica de bases = ${canonica.length} ítems vs manifiesto = ${manifiesto.length} (${decision.motivo}) — se conserva el manifiesto.`);
       }
     }
-  } catch (e) { console.warn(`[viabilidad-ia-v3] ${codigo}: contraste con tabla canónica falló:`, String(e).slice(0, 140)); }
+  } catch (e) { console.warn(`[viabilidad-ia-v4] ${codigo}: contraste con tabla canónica falló:`, String(e).slice(0, 140)); }
 
   let estructuraCosteo: 'por_categoria' | null = null;
-  // GATE DE CALIDAD para que el parser pise al LLM (caso real 2178-14-LE26: un Excel CSV mal
-  // mapeado daba 15 "ítems" basura que reemplazaban los 10 productos correctos del modelo):
-  //  (a) sus descripciones deben ser mayoritariamente reales (con letras, no correlativos), y
-  //  (b) si la modalidad final es POR LÍNEA y el LLM trae ≥2 líneas pero la planilla las perdió
-  //      (todo línea 1), el reemplazo destruiría las hojas del costeo → se conserva el del LLM.
-  // (c) [25-ago-2026, caso 2981-225-LE26] sus filas deben ser PRODUCTOS. Si el parser arrastró
-  //     rótulos de formulario ("Nombre:", "FIRMA:") o tramos de criterio ("Más de 40%"), no es una
-  //     planilla de cotización sino un anexo administrativo: no puede pisar al LLM. El umbral es
-  //     bajo a propósito — una planilla real no trae NINGUNA de estas filas.
+  // GATE DE CALIDAD para que el parser de planilla pise al modelo (2178-14-LE26, 2981-225-LE26,
+  // 1057922-23-LE26): descripciones reales, sin rótulos, sin degradar las líneas, y que RECONOZCA el
+  // listado que el modelo ya identificó.
   const planillaSana = !!planilla
     && planilla.items.filter(i => /[a-záéíóúñ]/i.test(i.descripcion)).length >= planilla.items.length * 0.7
     && planilla.items.filter(i => esFilaNoProducto(i.descripcion)).length < planilla.items.length * 0.1;
@@ -2482,196 +1584,72 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
     && tipoCosteo === 'por_linea'
     && new Set(planilla.items.map(i => i.linea || 1)).size < 2
     && new Set(manifiesto.map(m => m.linea)).size >= 2;
-  // (d) [25-ago-2026, caso 1057922-23-LE26] LA PLANILLA TIENE QUE RECONOCER LO QUE EL MODELO YA
-  // IDENTIFICÓ. Es la red de seguridad genérica detrás de (a)-(c): esos filtros persiguen FORMAS
-  // conocidas de basura (rótulos, criterios, cronograma) y siempre aparece una forma nueva — van
-  // cuatro. Este gate no mira vocabulario: compara las dos lecturas del MISMO expediente. Ver
-  // planillaReconoceElListado (fila-no-producto.ts) para el caso real y los umbrales.
   const solape = planilla
     ? planillaReconoceElListado(planilla.items.map(i => i.descripcion), manifiesto.map(m => m.descripcion))
     : { reconoce: true, solape: 1, minimo: 0 };
   if (planilla && !solape.reconoce) {
-    console.warn(`[viabilidad-ia-v3] ${codigo}: la planilla "${planilla.fuenteDoc}" (${planilla.items.length} filas) NO reconoce el listado del modelo `
-      + `(solape ${Math.round(solape.solape * 100)}% de ${manifiesto.length} ítems, mínimo ${Math.round(solape.minimo * 100)}%) — no se usa para el manifiesto; `
-      + `está leyendo otra cosa (prosa de las bases, un anexo administrativo o una tabla que no es el listado a cotizar).`);
+    console.warn(`[viabilidad-ia-v4] ${codigo}: la planilla "${planilla.fuenteDoc}" (${planilla.items.length} filas) NO reconoce el listado del modelo `
+      + `(solape ${Math.round(solape.solape * 100)}%, mínimo ${Math.round(solape.minimo * 100)}%) — no se usa para el manifiesto.`);
   }
   const planillaReconoceAlLLM = solape.reconoce;
-  // Se nombra la condición completa (antes vivía solo dentro del if) porque la traza de fuentes
-  // la necesita DESPUÉS para saber si la planilla realmente ganó: `planilla` queda con el
-  // resultado del parseo exista o no gane, así que `_fuentes_manifiesto.elegida` no puede
-  // asumir "hubo planilla ⇒ ganó la planilla" — antes de este fix decía exactamente eso.
   const planillaGanaManifiesto = !!(planilla && planillaSana && !planillaDegradaLineas && planillaReconoceAlLLM
       && planilla.items.length >= manifiesto.length && planilla.items.length >= 8);
   if (planillaGanaManifiesto) {
     manifiesto = planilla!.items.map(it => ({
       linea: it.linea || 1, categoria: it.categoria, descripcion: it.descripcion, modelo: '',
       cantidad: it.cantidad, unidad_medida: it.unidad, unidad_inferida: !it.unidad,
-      presupuesto_linea: null, tipo: 'generico', ruta: '',
+      presupuesto_linea: presupuestoDeLinea(it.linea || 1), tipo: 'generico', ruta: '',
     }));
     origenManifiesto = 'planilla';
     if (planilla!.estructura === 'por_categoria') estructuraCosteo = 'por_categoria';
-    console.log(`[viabilidad-ia-v3] ${codigo}: manifiesto desde planilla "${planilla!.fuenteDoc}" — ${planilla!.items.length} ítems (${planilla!.estructura}).`);
+    console.log(`[viabilidad-ia-v4] ${codigo}: manifiesto desde planilla "${planilla!.fuenteDoc}" — ${planilla!.items.length} ítems (${planilla!.estructura}).`);
   }
-
-  // EXTRACCIÓN DEDICADA para bases técnicas "LÍNEA DE PRODUCTO N°X": el parser tabular no puede
-  // con este formato en prosa y el LLM del análisis general resume cada línea a UN ítem (el nombre
-  // del kit). Si el parser no dio manifiesto y hay ≥2 secciones "LÍNEA DE PRODUCTO", corremos un
-  // paso de extracción ENFOCADO (solo esas secciones) que sí lista los productos fila por fila.
+  // EXTRACCIÓN DEDICADA para bases técnicas "LÍNEA DE PRODUCTO N°X" (el modelo resume cada línea a un ítem).
   if (!(planilla && planilla.items.length >= 8)) {
     try {
       const secciones = extraerSeccionesLineaProducto(leidos.map(d => ({ nombre: d.nombre, texto: d.texto })));
-      // Solo si el manifiesto actual quedó chico (el LLM resumió): ~1 ítem por línea.
-      // Fichas de características (1 producto por línea + lista de specs): esta extracción las
-      // desarmaría en un ítem por spec (5586-145-LE26). El manifiesto del análisis general manda.
       const sonFichas = seccionesSonFichasDeCaracteristicas(secciones);
-      if (sonFichas) console.log(`[viabilidad-ia-v3] ${codigo}: secciones "LÍNEA" son fichas de características — se omite la extracción dedicada.`);
       if (!sonFichas && secciones.length >= 2 && manifiesto.length <= secciones.length * 2) {
         const extra = await extraerItemsLineasProductoIA(secciones);
         if (extra.length > manifiesto.length && extra.length >= secciones.length * 2) {
-          console.log(`[viabilidad-ia-v3] ${codigo}: extracción dedicada "LÍNEA DE PRODUCTO" → ${extra.length} ítems (antes ${manifiesto.length}), ${secciones.length} líneas.`);
+          console.log(`[viabilidad-ia-v4] ${codigo}: extracción dedicada "LÍNEA DE PRODUCTO" → ${extra.length} ítems (antes ${manifiesto.length}), ${secciones.length} líneas.`);
+          for (const m of extra) m.presupuesto_linea = presupuestoDeLinea(m.linea);
           manifiesto = extra;
           origenManifiesto = 'extraccion_lineas_producto';
         }
       }
-    } catch (e) { console.warn(`[viabilidad-ia-v3] ${codigo}: extracción dedicada falló:`, String(e).slice(0, 140)); }
+    } catch (e) { console.warn(`[viabilidad-ia-v4] ${codigo}: extracción dedicada falló:`, String(e).slice(0, 140)); }
   }
+  // UNA SOLA LISTA (P11): productos.items y manifiesto_productos salen de la misma lista final.
+  prod.items = construirListaUnica(manifiesto, itemsFuente);
+  p3.manifiesto_productos = manifiesto;
+  prod.conteo_cruzado = conteoCruzado(prod, manifiesto.length, lineasApi);
+  prod.problemas_calidad = problemasCalidadManifiesto(manifiesto);
+  if (prod.problemas_calidad.length) console.warn(`[viabilidad-ia-v4] ${codigo}: calidad del manifiesto (V-23): ${prod.problemas_calidad.join('; ')}.`);
 
-  // BACKFILL de presupuesto_linea desde la tabla de distribución presupuestaria (si la Resolución
-  // trae una): rellena SOLO los ítems sin monto (0/null) — nunca pisa un valor que el LLM ya trajo.
-  // No reemplaza el manifiesto (descripciones/cantidades quedan como estén), solo completa esta
-  // columna. Ver [[project_costeo_plantilla_v3]]/generar-costeo.ts (F27 por línea).
+  // ─── P4 · CRITERIOS (anexo ausente / tabla presente leída en 0 / binarios falsos) ──────────
+  // OVERRIDE — CRITERIOS QUE VIVEN EN UN ANEXO QUE NO LEÍMOS (2981-214-LE26): si las bases REMITEN
+  // a un anexo y en ningún documento leído aparece una distribución de criterios, la lista del
+  // modelo no puede haber salido del texto. Se descarta y va a revisión humana con la frase exacta.
   try {
-    const presupuestosTabla = extraerPresupuestoPorLineaTabla(leidos.map(d => ({ texto: d.texto })));
-    if (presupuestosTabla) {
-      let rellenados = 0;
-      manifiesto = manifiesto.map(it => {
-        if (it.presupuesto_linea) return it;
-        const monto = presupuestosTabla.get(it.linea);
-        if (!monto) return it;
-        rellenados++;
-        return { ...it, presupuesto_linea: monto };
-      });
-      if (rellenados > 0) console.log(`[viabilidad-ia-v3] ${codigo}: presupuesto_linea rellenado desde tabla de distribución para ${rellenados} ítem(s).`);
-      // Desglose por línea en el informe (la UI lo muestra bajo el presupuesto total). Solo con ≥2
-      // líneas presupuestadas; los montos se publican CON IVA, el neto es su derivado ÷1,19.
-      const usaIva = p3.presupuesto?.con_iva !== false;
-      const porLinea = [...presupuestosTabla.entries()].sort((a, b) => a[0] - b[0])
-        .map(([linea, monto]) => ({ linea, bruto: monto, neto: Math.round(usaIva ? monto / 1.19 : monto) }));
-      if (porLinea.length >= 2 && p3.presupuesto && typeof p3.presupuesto === 'object') p3.presupuesto.por_linea = porLinea;
-    }
-  } catch (e) { console.warn(`[viabilidad-ia-v3] ${codigo}: backfill presupuesto_linea falló:`, String(e).slice(0, 140)); }
-
-  // Refleja la adjudicación corregida en el string de hojas del costeo (display v3). v3.3 lo guarda
-  // en productos.hojas_costeo_segun_adjudicacion; v3.2 en costeo.hojas_segun_adjudicacion. Escribimos
-  // en el bloque que exista para que el display coincida con la adjudicación ya corregida.
-  {
-    const nLineas = new Set(manifiesto.map(m => m.linea)).size || 1;
-    const hojas = tipoCosteo === 'por_linea' ? `POR_LINEAS:${nLineas}` : (comoFinal.includes('LOTE') ? `POR_LOTES:${nLineas}` : 'GLOBAL:1');
-    if (p3.productos && typeof p3.productos === 'object') p3.productos.hojas_costeo_segun_adjudicacion = hojas;
-    if (p3.costeo && typeof p3.costeo === 'object') p3.costeo.hojas_segun_adjudicacion = hojas;
-  }
-
-  // COHERENCIA veredicto ↔ adjudicación: la UI muestra un único badge "DEFINITIVO / REVISIÓN
-  // HUMANA" leyendo veredicto.estado_veredicto — pero la adjudicación (GLOBAL/POR_LINEAS/POR_LOTES)
-  // tiene SU PROPIO estado de certeza (adjudicacion.estado) que puede quedar en REVISION_HUMANA
-  // mientras el veredicto de negocio queda DEFINITIVO. Caso real 1057499-37-LE26: adjudicación
-  // incierta ("sin evidencia objetiva... requiere confirmación humana") pero el badge mostraba
-  // DEFINITIVO y confianza 100%, ocultando justo la duda que el propio modelo detectó. Si la
-  // adjudicación quedó incierta, el veredicto GLOBAL del informe también debe mostrarse como
-  // REVISIÓN HUMANA (nunca al revés: no bajamos un REVISION_HUMANA de negocio a DEFINITIVO).
-  if (p3.adjudicacion?.estado === 'REVISION_HUMANA' && p3.veredicto && typeof p3.veredicto === 'object' && p3.veredicto.estado_veredicto !== 'REVISION_HUMANA') {
-    console.log(`[viabilidad-ia-v3] ${codigo}: veredicto.estado_veredicto DEFINITIVO → REVISION_HUMANA (la adjudicación quedó incierta).`);
-    p3.veredicto.estado_veredicto = 'REVISION_HUMANA';
-    if (Array.isArray(p3.veredicto.motivos_revision) && !p3.veredicto.motivos_revision.some((m: any) => /adjudicaci/i.test(String(m)))) {
-      p3.veredicto.motivos_revision.push('Cómo se adjudica (GLOBAL/POR_LÍNEAS/POR_LOTES) no quedó determinado con evidencia objetiva de las bases — confirmar antes de armar la estrategia.');
-    }
-  }
-
-  const { score, semaforo, area, confianza } = derivarV3(parsed);
-
-  // COHERENCIA score ↔ veredicto (regla del prompt: "el veredicto SE DERIVA del score"). Si el gate
-  // determinista capó el score, la tarjeta y el nivel deben reflejarlo — nunca "GANABLE" con score 19.
-  {
-    const vd = score >= 50 ? 'GANABLE' : score >= 35 ? 'PUEDE_SER' : 'NO_VAMOS';
-    if (p3.tarjeta_decision && typeof p3.tarjeta_decision === 'object' && p3.tarjeta_decision.veredicto !== vd) {
-      console.log(`[viabilidad-ia-v3] ${codigo}: tarjeta veredicto ${p3.tarjeta_decision.veredicto} → ${vd} (coherencia con score ${score}).`);
-      p3.tarjeta_decision.veredicto = vd;
-    }
-    const nivel = score >= 70 ? 'MUY_VIABLE' : score >= 50 ? 'VIABLE' : score >= 35 ? 'POCO_VIABLE' : 'DESCARTE';
-    if (p3.veredicto && typeof p3.veredicto === 'object') p3.veredicto.nivel = nivel;
-    if (p3.atractivo?._interno) p3.atractivo._interno.nivel_tecnico = nivel;
-  }
-
-  completarOrdenAnexosConLosPublicados(p3, docs, codigo);
-
-  // OVERRIDE DETERMINISTA — CRITERIOS QUE VIVEN EN UN ANEXO QUE NO LEÍMOS (ver
-  // criterios-en-anexo.ts). Caso real 2981-214-LE26: las bases remiten dos veces al ANEXO "TABLA DE
-  // PONDERACIÓN Y CRITERIOS DE EVALUACIÓN DE OFERTAS", la tabla real (60/20/10/5/5) está en las
-  // páginas 47-48 de un PDF de 68, y el OCR se cortó en la 40. El modelo, en vez de declararse
-  // incompleto como le exige el prompt, emitió tres criterios inventados (30/30/40) con citas a
-  // artículos que existen pero hablan de otra cosa — y como sumaban 100, V-01 los dio por buenos.
-  //
-  // Acá el código hace lo que el prompt pide y el modelo incumplió: si las bases REMITEN a un anexo
-  // y en NINGÚN documento leído aparece una distribución de criterios, la lista que haya emitido el
-  // modelo no puede haber salido del texto. Se descarta y se manda a revisión humana con la frase
-  // exacta que lo prueba. Es preferible un informe que dice "no pude leer los criterios" a uno que
-  // muestra cinco criterios falsos con aire de certeza.
-  try {
-    const remision = analizarRemisionACriterios(
-      leidos.filter(d => /BASES/i.test(String(d.categoria || ''))).map(d => d.texto).join('\n\n'),
-    );
-    // La tabla puede estar en un anexo suelto que SÍ bajamos (otro documento de la licitación): se
-    // busca en todo lo leído antes de concluir que no está en ninguna parte.
+    const remision = analizarRemisionACriterios(leidos.filter(d => /BASES/i.test(String(d.categoria || ''))).map(d => d.texto).join('\n\n'));
     const tablaEnAlgunDocumento = hayTablaDeCriterios(leidos.map(d => d.texto).join('\n\n'));
     if (remision.remite && !tablaEnAlgunDocumento) {
       const motivo = motivoCriteriosNoConfiables(remision);
-      const emitidos = Array.isArray(p3?.criterios_evaluacion?.criterios) ? p3.criterios_evaluacion.criterios.length : 0;
-      console.warn(`[viabilidad-ia-v3] ${codigo}: criterios remitidos a un anexo que no está en el texto — se descartan los ${emitidos} criterios emitidos. ${motivo}`);
+      console.warn(`[viabilidad-ia-v4] ${codigo}: criterios remitidos a un anexo que no está en el texto — se descartan. ${motivo}`);
       p3.criterios_evaluacion = {
-        ...(p3.criterios_evaluacion || {}),
-        criterios: [],
-        fuente_datos: 'incompleto',
-        suma_ponderaciones_real: 0,
-        suma_valida: false,
+        ...(p3.criterios_evaluacion || {}), criterios: [], fuente_datos: 'incompleto', suma_ponderaciones_real: 0, suma_valida: false,
         alertas: [...(p3.criterios_evaluacion?.alertas || []), motivo],
-        // Se conserva lo descartado para poder auditar QUÉ había inventado el modelo.
         _descartado_por_anexo_ausente: p3.criterios_evaluacion?.criterios || [],
       };
-      // MISMO campo y convención que usa escalarARevisionHumana (validador-viabilidad.ts): el
-      // estado vive en `veredicto.estado_veredicto` y los motivos en `veredicto.motivos_revision`.
-      // Escribirlo en la raíz del informe habría dejado la escalada invisible para la pantalla.
-      if (p3.veredicto && typeof p3.veredicto === 'object') {
-        p3.veredicto.estado_veredicto = 'REVISION_HUMANA';
-        if (!Array.isArray(p3.veredicto.motivos_revision)) p3.veredicto.motivos_revision = [];
-        p3.veredicto.motivos_revision.push(`CRITERIOS-EN-ANEXO: ${motivo}`);
-      }
+      aRevision(`Criterios de evaluación: ${motivo}`);
     }
-  } catch (e) {
-    console.warn(`[viabilidad-ia-v3] ${codigo}: chequeo de criterios-en-anexo falló, se omite:`, String(e).slice(0, 140));
-  }
-
-  // RECUPERACIÓN DETERMINISTA — TABLA DE PONDERACIONES QUE SÍ ESTÁ EN LAS BASES pero el modelo no
-  // la leyó (caso OPUESTO al de arriba: acá no falta ningún anexo). Caso real 1079650-47-LE26: la
-  // tabla "20. CRITERIOS DE EVALUACIÓN" está en el cuerpo de las bases con 6 criterios (Precio 45%,
-  // Plazo de entrega 20%, Garantía 20%, Comportamiento Contractual 5%, Programas de integridad,
-  // Cumplimiento de requisitos formales 5%), pero la página quedó con OCR local de baja calidad
-  // (Tesseract) y muy destrozada — el modelo, con 133.000 caracteres de bases delante, se distrajo
-  // y citó el Formulario 2 (el que llena el OFERENTE, sin %) en vez de esta tabla: devolvió 3 de
-  // los 6 criterios reales, todos con ponderacion_nominal=0, y una alerta "no se encontró tabla de
-  // ponderaciones" que es falsa.
-  //
-  // Solo se activa cuando: (a) NO es el caso de arriba (no remite a un anexo ausente — sería
-  // contradictorio); (b) hayTablaDeCriterios confirma que SÍ hay una distribución real en el texto;
-  // (c) los criterios que emitió el modelo están efectivamente inservibles (todos en 0). Ahí se
-  // recorta la sección (extraerSeccionCriteriosEvaluacion) y se lee con un extractor ENFOCADO
-  // (extraerPonderacionesCriteriosIA) — solo se aplica si el resultado tiene ≥3 criterios y su suma
-  // ronda 100 (mismo criterio de confianza que hayTablaDeCriterios). Preserva del informe del
-  // modelo lo que sí sirve (forma_aplicacion, clase, fuente) por coincidencia de nombre; para
-  // criterios que el modelo nunca emitió, rellena con valores neutros — quien revise sabrá que
-  // vinieron de una recuperación automática por el texto del alertas[].
+  } catch (e) { console.warn(`[viabilidad-ia-v4] ${codigo}: chequeo de criterios-en-anexo falló:`, String(e).slice(0, 140)); }
+  // RECUPERACIÓN — TABLA DE PONDERACIONES QUE SÍ ESTÁ EN LAS BASES pero el modelo la leyó en 0
+  // (1079650-47-LE26, OCR local de baja calidad): extracción enfocada de la sección.
   try {
-    const textoBasesCriterios = leidos.filter(d => /BASES/i.test(String(d.categoria || ''))).map(d => d.texto).join('\n\n');
-    const remiteAAnexo = analizarRemisionACriterios(textoBasesCriterios).remite;
+    const textoBases = leidos.filter(d => /BASES/i.test(String(d.categoria || ''))).map(d => d.texto).join('\n\n');
+    const remiteAAnexo = analizarRemisionACriterios(textoBases).remite;
     const tablaPresente = hayTablaDeCriterios(leidos.map(d => d.texto).join('\n\n'));
     const criteriosLLM: any[] = Array.isArray(p3?.criterios_evaluacion?.criterios) ? p3.criterios_evaluacion.criterios : [];
     const todosEnCero = tablaPresente && (criteriosLLM.length === 0 || criteriosLLM.every((c: any) => !(Number(c?.ponderacion_nominal) > 0)));
@@ -2682,108 +1660,113 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
         const extraidos = await extraerPonderacionesCriteriosIA(seccion);
         const suma = extraidos.reduce((a, c) => a + c.ponderacion_pct, 0);
         if (extraidos.length >= 3 && Math.abs(suma - 100) <= 5) {
-          console.log(`[viabilidad-ia-v3] ${codigo}: tabla de ponderaciones SÍ está en las bases pero el modelo la leyó en 0 — extracción enfocada recuperó ${extraidos.length} criterios (suma ${suma}%).`);
+          console.log(`[viabilidad-ia-v4] ${codigo}: tabla de ponderaciones recuperada con lectura enfocada — ${extraidos.length} criterios (suma ${suma}%).`);
           const porNombre = new Map(criteriosLLM.map((c: any) => [_str(c?.nombre).toLowerCase(), c]));
           const nuevos = extraidos.map(e => {
             const clave = e.nombre.toLowerCase();
-            const prev = porNombre.get(clave)
-              ?? [...porNombre.values()].find((c: any) => {
-                const n = _str(c?.nombre).toLowerCase();
-                return n.length >= 3 && (n.includes(clave) || clave.includes(n));
-              });
+            const prev = porNombre.get(clave) ?? [...porNombre.values()].find((c: any) => {
+              const n = _str(c?.nombre).toLowerCase();
+              return n.length >= 3 && (n.includes(clave) || clave.includes(n));
+            });
             return {
-              clase: 'POR_TRAMOS', subfactores: [],
-              tramo_max_puntaje: { descripcion: '', borde_comodo: '' },
-              rango_admisibilidad: { min: '', max: '' },
-              medio_verificacion: '', forma_aplicacion: '',
+              clase: 'POR_TRAMOS', tema: 'OTRO', subfactores: [],
+              tramo_max_puntaje: { descripcion: '', borde_comodo: '' }, rango_admisibilidad: { min: '', max: '' },
+              medio_verificacion: '', forma_aplicacion: '', cita: { documento: '', numeral: '', frase: '' },
               ...(prev || {}),
-              nombre: e.nombre,
-              ponderacion_nominal: e.ponderacion_pct,
-              ponderacion_efectiva: e.ponderacion_pct,
-              fuente: prev?.fuente || 'sección "CRITERIOS DE EVALUACIÓN" de las bases (extracción enfocada — la página venía con OCR local de baja calidad)',
+              nombre: e.nombre, ponderacion_nominal: e.ponderacion_pct, ponderacion_efectiva: e.ponderacion_pct,
             };
           });
           p3.criterios_evaluacion = {
-            ...(p3.criterios_evaluacion || {}),
-            criterios: nuevos,
-            fuente_datos: 'bases',
-            suma_ponderaciones_real: Math.round(suma),
-            suma_valida: true,
-            forma_aplicacion_completa: false,
+            ...(p3.criterios_evaluacion || {}), criterios: nuevos, fuente_datos: 'bases',
+            suma_ponderaciones_real: Math.round(suma), suma_valida: true, forma_aplicacion_completa: false,
             alertas: [
               ...(p3.criterios_evaluacion?.alertas || []).filter((a: string) => !/no se encontr[oó] tabla de ponderaciones/i.test(a)),
-              'Ponderaciones recuperadas con una lectura enfocada de la sección "CRITERIOS DE EVALUACIÓN" (la página venía con OCR local de baja calidad) — verificar contra las bases antes de decidir.',
+              'Ponderaciones recuperadas con una lectura enfocada de la sección "CRITERIOS DE EVALUACIÓN" (la página venía con OCR de baja calidad) — verificar contra las bases antes de decidir.',
             ],
           };
-        } else if (extraidos.length > 0) {
-          console.warn(`[viabilidad-ia-v3] ${codigo}: extracción enfocada de criterios devolvió ${extraidos.length} criterios pero la suma (${suma}%) no cuadra — se descarta, se deja el 0 original.`);
         }
       }
     }
-  } catch (e) {
-    console.warn(`[viabilidad-ia-v3] ${codigo}: recuperación enfocada de criterios falló, se omite:`, String(e).slice(0, 140));
+  } catch (e) { console.warn(`[viabilidad-ia-v4] ${codigo}: recuperación enfocada de criterios falló:`, String(e).slice(0, 140)); }
+
+  // ─── P6 · ADMISIBILIDAD: requisitos del sistema + barrido de consecuencias + conteo ────────
+  {
+    const requisitos: any[] = (Array.isArray(adm.requisitos) ? adm.requisitos : []).filter((r: any) => r && typeof r === 'object').map((r: any) => ({ ...r, origen: 'modelo' }));
+    const delSistema = (r: any) => requisitos.push({ que: '', cuanto: '', cuando: '', como: '', consecuencia: '', ...r, origen: 'sistema' });
+    // Puntajes mínimos (P4) → requisito.
+    const crit = p3.criterios_evaluacion || {};
+    const pmTotal = crit.puntaje_minimo_total;
+    if (pmTotal && String(pmTotal.valor ?? '').trim()) delSistema({ que: `Puntaje mínimo total: ${pmTotal.valor} ${pmTotal.unidad || ''}`.trim(), consecuencia: pmTotal.consecuencia || 'bajo ese puntaje la oferta no se adjudica', cita: pmTotal.cita });
+    for (const c of Array.isArray(crit.criterios) ? crit.criterios : []) {
+      const pm = c?.puntaje_minimo;
+      if (pm && String(pm.valor ?? '').trim()) delSistema({ que: `Puntaje mínimo en ${c.nombre}: ${pm.valor} ${pm.unidad || ''}`.trim(), consecuencia: pm.consecuencia || 'bajo ese puntaje la oferta queda fuera', cita: pm.cita ?? c.cita });
+    }
+    // Cotizar el 100 %: se deriva de P1 (solo si se reportó COTIZAR_TOTALIDAD).
+    const totalidad = evidencias.find(e => e.cuenta && e.tipo === 'COTIZAR_TOTALIDAD');
+    if (totalidad) delSistema({ que: 'Cotizar el 100 % de las líneas', consecuencia: 'si falta una línea la oferta queda fuera', cita: totalidad.cita });
+    // Presupuesto excluyente.
+    if (pres.caracter === 'EXCLUYENTE') delSistema({ que: 'No superar el presupuesto disponible', cuanto: atrMostrar(p3), consecuencia: 'sobre el presupuesto la oferta queda fuera de bases', cita: pres.cita });
+    // Plazo de entrega fuera de rango.
+    const pe = plazos.plazo_entrega;
+    if (pe && pe.fuera_de_rango_inadmisible && (String(pe.min ?? '').trim() || String(pe.max ?? '').trim())) {
+      delSistema({ que: 'Ofertar un plazo de entrega dentro del rango', cuanto: [pe.min ? `mínimo ${pe.min}` : '', pe.max ? `máximo ${pe.max}` : ''].filter(Boolean).join(' · ') + (pe.unidad ? ` ${pe.unidad}` : ''), consecuencia: 'fuera de rango la oferta es inadmisible', cita: pe.cita });
+    }
+    adm.requisitos = requisitos;
+    adm.posibles_causales_sin_analizar = barridoConsecuencias(fuentes, requisitos, cfg)
+      .map(c => ({ ...c, cita: loc.localizar({ ...c.cita }) }));
+    adm.conteo = requisitos.length;
+    // Campos de la v3 que ya no corresponden (se recalculan arriba o salen del esquema).
+    for (const k of ['firma_puno_y_letra', 'marca_exclusiva', 'cotizar_100', 'presupuesto', 'boleta', 'bloqueantes', 'a_favor', 'plazo_entrega_rango', 'seriedad_oferta', 'fiel_cumplimiento', 'contrato', 'orden_anexos_propios']) delete adm[k];
+  }
+  completarAnexosPublicadosV4(p3, docs, codigo);
+
+  // ─── P10 · Filtro de obviedades sobre acciones, advertencias y la tarjeta ─────────────────
+  {
+    const acc = obj('acciones_y_advertencias');
+    let filtradas = 0;
+    const filtrar = (arr: any, campo: (x: any) => string) => {
+      if (!Array.isArray(arr)) return arr;
+      const out = arr.filter(x => !esObviedad(campo(x), cfg));
+      filtradas += arr.length - out.length;
+      return out;
+    };
+    acc.acciones = filtrar(acc.acciones, x => `${x?.orden || ''} ${x?.por_que || ''}`);
+    acc.advertencias = filtrar(acc.advertencias, x => `${x?.riesgo || ''}`);
+    const t = p3.tarjeta_decision;
+    if (t && typeof t === 'object') {
+      t.para_ganar = filtrar(t.para_ganar, x => String(x));
+      t.no_quedes_fuera = filtrar(t.no_quedes_fuera, x => String(x));
+      if (t.antes_de_ir && esObviedad(t.antes_de_ir, cfg)) { t.antes_de_ir = ''; filtradas++; }
+    }
+    if (filtradas) console.log(`[viabilidad-ia-v4] ${codigo}: ${filtradas} obviedad(es) filtradas de acciones/advertencias.`);
   }
 
-  // VALIDADOR POST-FASE 2 (Frente A.2) — revisor automático por código, sin IA. Corre sobre el
-  // informe YA ensamblado con todos los overrides deterministas aplicados arriba.
-  //
-  // 28-jul-2026: hasta hoy un FAIL solo se guardaba en _validador para la pantalla (salvo V-12,
-  // que ya reintentaba desde el 21-jul). El plan (Frente A.2) exige que TODO FAIL termine en algo:
-  // auto-corrección (el dato correcto ya está en otra parte del informe), re-análisis (V-09/V-12,
-  // en _orquestarAnalisisV3 más abajo), o revisión humana citando la regla. Orden: se corrige lo
-  // auto-corregible, se vuelve a validar sobre el informe YA corregido (para que _validador refleje
-  // la realidad post-fix, no la de antes), y recién ahí se decide si algo sigue necesitando
-  // revisión humana.
-  // EL MANIFIESTO ENTRA AL INFORME **ANTES** DE VALIDAR (25-ago-2026). No es cosmético: hasta hoy
-  // `manifiesto_productos` se agregaba recién en el objeto de retorno, de modo que cuando corría el
-  // validador el campo NO EXISTÍA todavía. Cualquier regla que mirara el manifiesto veía un array
-  // vacío y se iba sin hacer nada — así nació V-16 muerta: habría cazado los 16 rótulos de
-  // 2981-225-LE26 en un informe ya guardado, pero jamás durante el análisis que los produce.
-  //
-  // Por qué no basta con validar `productos.items` (que sí está en p3, y es lo que miran V-09/V-12):
-  // el manifiesto NO siempre viene del LLM. Cuando el parser de planilla le gana (que es
-  // exactamente lo que pasó en 2981-225-LE26), `productos.items` está impecable y la contaminación
-  // vive solo en el manifiesto. Validar la entrada del LLM no vería nada.
-  //
-  // p3 es el MISMO objeto que `parsed`, así que asignarlo acá también lo deja en el `...parsed` del
-  // retorno; el retorno usa `p3.manifiesto_productos` para devolver la versión YA autocorregida.
-  p3.manifiesto_productos = manifiesto;
-
-  let _validador = validarInformeViabilidad(p3, score);
-  const _correcciones = autocorregirHallazgos(p3, _validador.hallazgos, score);
+  // ─── VALIDADOR POST-FASE 2 (v4) ────────────────────────────────────────────────────────────
+  // Corre sobre el informe YA armado. Autocorrige lo que tiene arreglo, re-valida y escala a
+  // revisión humana lo que no. Ninguna regla escribe el nivel: solo calcularNivel (abajo).
+  p3._schema = 'v4';
+  p3._cobertura_lectura = cobertura;
+  let _validador = validarInformeViabilidad(p3);
+  const _correcciones = autocorregirHallazgos(p3, _validador.hallazgos);
   if (_correcciones.length > 0) {
-    console.log(`[viabilidad-ia-v3] ${codigo}: validador auto-corrigió ${_correcciones.length} campo(s) —`,
-      _correcciones.map(c => `${c.regla}: ${c.detalle}`).join(' | '));
-    _validador = validarInformeViabilidad(p3, score); // re-valida sobre el informe ya corregido
+    console.log(`[viabilidad-ia-v4] ${codigo}: validador auto-corrigió ${_correcciones.length} campo(s) —`, _correcciones.map(c => `${c.regla}: ${c.detalle}`).join(' | '));
+    _validador = validarInformeViabilidad(p3);
   }
   const _reglasARevision = escalarARevisionHumana(p3, _validador.hallazgos);
-  if (_reglasARevision.length > 0) {
-    console.warn(`[viabilidad-ia-v3] ${codigo}: validador escaló a REVISION_HUMANA por: ${_reglasARevision.join(', ')}.`);
-  }
-  if (!_validador.ok) {
-    console.warn(`[viabilidad-ia-v3] ${codigo}: validador detectó ${_validador.hallazgos.filter(h => h.severidad === 'error').length} error(es) —`,
-      _validador.hallazgos.filter(h => h.severidad === 'error').map(h => `${h.regla}: ${h.mensaje}`).join(' | '));
-  }
+  if (_reglasARevision.length > 0) console.warn(`[viabilidad-ia-v4] ${codigo}: validador escaló a REVISION_HUMANA por: ${_reglasARevision.join(', ')}.`);
 
-  return {
+  const resultado = {
     ...parsed,
-    _schema: 'v3',
-    _prompt_version: PROMPT_VERSION,
+    _schema: 'v4',
+    _prompt_version: PROMPT_VERSION_V4,
+    _prompt_hash: promptHash,
+    _reglas_activas: reglasActivas,
+    _modelo_respondio: traza.modelo ?? null,
+    _json_reparado: !!traza.reparado,
+    _citas: statsCitas,
     _validador,
-    score_0_100: score, semaforo, area_negocio: area, confianza_global: confianza,
-    // Puente al costeo (shape v2) — no se muestra en la pantalla v3, alimenta el Excel de costeo.
-    // Se devuelve `p3.manifiesto_productos` y NO la variable `manifiesto`: el validador pudo haberlo
-    // limpiado (V-16 saca las filas que no son productos), y esa corrección se perdería si acá se
-    // reasignara el array original.
+    area_negocio: areaNegocio(p3),
     manifiesto_productos: p3.manifiesto_productos,
-    // TRAZA DE FUENTES del listado de productos — SE ESCRIBE SIEMPRE, no solo cuando hay planilla.
-    // (26-ago-2026: antes era `planilla ? {...} : null`, y como el 70% de las licitaciones no
-    // tiene planilla parseable, la traza cubría el 3% de los informes reales — V-15, la regla que
-    // debía escalar a revisión humana cuando las fuentes se contradicen, casi nunca tenía con qué
-    // opinar.) `origen` dice de qué salió la versión FINAL del manifiesto (modelo/tabla_canonica/
-    // planilla/extraccion_lineas_producto); `planillaConsiderada` queda aparte porque una planilla
-    // puede haberse LEÍDO sin haber GANADO — antes esto se confundía y la traza podía decir
-    // "elegida: X" con X en realidad rechazado.
     _fuentes_manifiesto: {
       origen: origenManifiesto,
       elegida: origenManifiesto === 'planilla' ? planilla!.fuenteDoc
@@ -2792,7 +1775,6 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
         : 'listado directo del modelo (sin planilla que lo reemplazara)',
       candidatos: planilla?.candidatos ?? [],
       discrepancias: planilla?.discrepancias ?? [],
-      // Se leyó una planilla pero NO ganó: por qué, para que quede trazado en vez de silencioso.
       planillaRechazada: (planilla && !planillaGanaManifiesto) ? {
         fuenteDoc: planilla.fuenteDoc,
         items: planilla.items.length,
@@ -2802,16 +1784,115 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
           : `trae menos ítems (${planilla.items.length}) que el modelo (${manifiesto.length})`,
       } : null,
     },
-    modalidad: { tipo: tipoCosteo },
+    // Con la adjudicación NO CLARA y sin evidencia de formato por línea, el costeo queda en total
+    // único "por confirmar": el checklist pide al asesor resolverlo antes de cargar precios.
+    modalidad: { tipo: tipoCosteo, ...(decision.resultado === 'NO_CLARO' && tipoCosteo === 'suma_alzada' ? { estado: 'REVISION_HUMANA' } : {}) },
     estructura_costeo: estructuraCosteo,
     documentos_leidos: leidos.map(d => d.nombre),
     documentos_no_leidos: docs.filter(d => !d.ok).map(d => `${d.nombre} (${d.metodo})`),
-    // COBERTURA DE LECTURA — se escribe SIEMPRE, completa o no. Es lo que permite al validador
-    // (V-16) mandar a revisión humana un informe hecho sin las bases, y al usuario ver en pantalla
-    // sobre qué se analizó. Que la lectura salió completa es un dato tan valioso como el aviso.
     _cobertura_lectura: cobertura,
     docs_hash: await calcularDocsHash(codigo),
   };
+  // ─── NIVEL DE ATRACTIVO (v4.1): AL FINAL, después del validador y las escaladas ────────────
+  await aplicarNivel(resultado, codigo, cfg);
+  return resultado;
+}
+
+// Presupuesto que se muestra (con IVA) para textos de requisitos.
+function atrMostrar(inf: any): string {
+  return String(inf?.atractivo?.presupuesto_mostrar || '');
+}
+
+function areaNegocio(inf: any): string {
+  const area = String(inf?.meta?.linea_negocio || 'mixto').toUpperCase();
+  return area.startsWith('FERR') ? 'FERRETERIA' : area.startsWith('EQUIP') ? 'EQUIPAMIENTO' : 'MIXTO';
+}
+
+// Fecha desde la que se suma el plazo previo: la adjudicación estimada que publica Mercado Público;
+// si no la hay, el cierre de la licitación; si tampoco, hoy. Va rotulada en el informe.
+function fechaBaseAdjudicacion(meta: any): { fecha: Date; origen: string } {
+  const valida = (x: any) => { const d = x ? new Date(x) : null; return d && !isNaN(d.getTime()) ? d : null; };
+  const adj = valida(meta?.fechaAdjudicacion);
+  if (adj) return { fecha: adj, origen: 'fecha estimada de adjudicación (Mercado Público)' };
+  const cierre = valida(meta?.cierre);
+  if (cierre) return { fecha: cierre, origen: 'fecha de cierre de la licitación (no hay fecha estimada de adjudicación)' };
+  return { fecha: new Date(), origen: 'hoy (no hay fecha de adjudicación ni de cierre)' };
+}
+
+// Respaldo de la heurística de páginas (spec P5): una cita cuya frase NO se encontró, pero que trae
+// el numeral, toma como página aproximada la del encabezado de ese numeral. Queda "no verificada".
+function respaldoPaginaPorNumeral(inf: any, docs: { nombre: string; texto: string }[]): void {
+  const mapas = new Map<string, Map<string, number>>();
+  for (const d of docs) if (d.texto && /\[\[P[ÁA]GINA/i.test(d.texto)) mapas.set(d.nombre, mapaArticulos(d.texto));
+  if (!mapas.size) return;
+  const walk = (o: any) => {
+    if (!o || typeof o !== 'object') return;
+    if (Array.isArray(o)) { o.forEach(walk); return; }
+    for (const [k, v] of Object.entries(o)) {
+      if (k === 'cita' && v && typeof v === 'object' && !Array.isArray(v)) {
+        const c = v as any;
+        if (c.verificada === false && c.metodo === 'no_encontrada' && c.numeral) {
+          const n = String(c.numeral).match(/\d{1,2}(?:\.\d{1,2})?/)?.[0];
+          const mapa = mapas.get(c.documento) ?? [...mapas.values()][0];
+          const pag = n ? mapa?.get(n) : undefined;
+          if (pag) c.pagina_aprox = pag;
+        }
+      } else walk(v);
+    }
+  };
+  walk(inf);
+}
+
+// Pares (afirmación, frase) de los DATOS CRÍTICOS para el chequeo semántico (prompt auxiliar B).
+// Solo frases que el código ya encontró en los documentos: verificar una frase inexistente no sirve.
+function construirParesSemanticos(inf: any, evidencias: EvidenciaAdj[]): ParSemantico[] {
+  const pares: ParSemantico[] = [];
+  const add = (afirmacion: string, cita: any) => {
+    if (!cita || typeof cita !== 'object' || !cita.frase || cita.verificada !== true || !afirmacion) return;
+    pares.push({ id: pares.length + 1, afirmacion, documento: String(cita.documento_real || cita.documento || ''), numeral: String(cita.numeral || ''), frase: String(cita.frase).slice(0, 400), cita });
+  };
+  for (const e of evidencias) if (e.tipo !== 'FORMULARIOS_SEPARADOS') add(CATALOGO[e.tipo].afirmacion, e.cita);
+  const afirmSuministro: Record<string, string> = {
+    VIGENCIA_CON_PEDIDOS: 'El contrato dura un periodo y las compras se hacen por pedidos u órdenes de compra según requerimiento',
+    HASTA_AGOTAR_MONTO: 'El contrato rige hasta agotar el presupuesto',
+    CANTIDADES_REFERENCIALES: 'Las cantidades son referenciales o estimadas',
+  };
+  for (const s of Array.isArray(inf?.exclusion?.senales_suministro) ? inf.exclusion.senales_suministro : []) add(afirmSuministro[String(s?.tipo || '').toUpperCase()] || '', s?.cita);
+  const car = String(inf?.presupuesto?.caracter || '');
+  if (car === 'EXCLUYENTE') add('Una oferta sobre el presupuesto queda fuera', inf?.presupuesto?.cita);
+  if (car === 'REFERENCIAL') add('El presupuesto es estimado o referencial', inf?.presupuesto?.cita);
+  const crit = inf?.criterios_evaluacion || {};
+  const pm = (p: any) => p && String(p.valor ?? '').trim() ? `Se exige un mínimo de ${p.valor} ${p.unidad || ''} para ${p.consecuencia || 'ser evaluado o adjudicado'}` : '';
+  add(pm(crit.puntaje_minimo_total), crit.puntaje_minimo_total?.cita);
+  for (const c of Array.isArray(crit.criterios) ? crit.criterios : []) add(pm(c?.puntaje_minimo), c?.puntaje_minimo?.cita);
+  for (const h of Array.isArray(inf?.plazos?.hitos) ? inf.plazos.hitos : []) {
+    const nombre = HITO_LABEL[String(h?.hito) as keyof typeof HITO_LABEL] || String(h?.hito || '');
+    const est = String(h?.estado || '').toUpperCase();
+    if (est === 'EXISTE') add(`Se exige ${nombre.toLowerCase()} en ${h.plazo ?? '?'} ${h.unidad_original || ''} desde ${h.desde || 'el evento indicado'}`, h.cita);
+    if (est === 'NO_EXISTE' && !h.corregido_por_negacion) add(`Las bases dicen que no se exige ${nombre.toLowerCase()}`, h.cita);
+  }
+  for (const r of Array.isArray(inf?.requisitos_admisibilidad?.requisitos) ? inf.requisitos_admisibilidad.requisitos : []) {
+    if (r?.que) add(`Si no se cumple "${String(r.que).slice(0, 160)}", la oferta queda fuera`, r.cita);
+  }
+  const a = inf?.multas?.atraso;
+  if (a && a.existe !== false && a.valor) add(`La multa por atraso es ${a.valor} ${a.unidad || ''} por ${String(a.periodo || 'día').toLowerCase().replace(/_/g, ' ')}`, a.cita);
+  return pares.slice(0, 80);
+}
+
+// Agrega al informe el NIVEL DE ATRACTIVO v4.1 (y su chequeo V-27). Se usa al terminar el análisis
+// y cada vez que cambia un dato que el nivel lee (confirmación del asistente, configuración).
+export async function aplicarNivel(inf: any, codigo: string, cfg?: Awaited<ReturnType<typeof cargarConfigViabilidad>>): Promise<void> {
+  const config = cfg ?? await cargarConfigViabilidad();
+  let utm: number | null = null;
+  try { utm = (await obtenerTipoCambio('UTM'))?.valor ?? null; } catch { /* sin UTM: solo afecta el aviso de rango */ }
+  const confirmados: string[] = Array.isArray(inf?.score_confirmaciones) ? inf.score_confirmaciones.map((c: any) => String(c?.clave || '')).filter(Boolean) : [];
+  inf.score = calcularNivel(inf, config, { codigo, utm, confirmados });
+  const v27 = validarNivelV27(inf);
+  if (v27 && inf._validador && Array.isArray(inf._validador.hallazgos)) {
+    inf._validador.hallazgos = inf._validador.hallazgos.filter((h: any) => h?.regla !== 'V-27').concat(v27);
+    inf._validador.ok = !inf._validador.hallazgos.some((h: any) => h?.severidad === 'error');
+  }
+  console.log(`[viabilidad-ia-v4] ${codigo}: nivel ${inf.score.nivel} · ${inf.score.accion_texto}${inf.score.datos_dudosos.length ? ` (dudoso: ${inf.score.datos_dudosos.map((d: any) => d.dato).join(', ')})` : ''}.`);
 }
 
 // ── El checklist de anexos se cruza contra los anexos REALMENTE PUBLICADOS ────────────────────
@@ -2846,13 +1927,17 @@ function tituloDeAnexo(texto: string): string {
   return siguiente && siguiente.length <= 120 && !/^#*\s*anexo\b/i.test(siguiente) ? siguiente : '';
 }
 
-export function completarOrdenAnexosConLosPublicados(informe: any, docs: DocLeido[], codigo: string): void {
+// v4.0 (P10, Grupo 2 — anexos del organismo): el cruce se hace contra
+// `requisitos_admisibilidad.documentos_solicitados` (los marcados como anexo del organismo). Los
+// anexos publicados que el informe no nombra se agregan con `_agregado_por_cruce`, sin inventarles
+// copias ni antigüedad. Los documentos A CREAR (Grupo 3) van aparte, en `documentos_a_crear`.
+export function completarAnexosPublicadosV4(informe: any, docs: DocLeido[], codigo: string): void {
   const adm = informe?.requisitos_admisibilidad;
   if (!adm || typeof adm !== 'object') return;
-  if (!Array.isArray(adm.orden_anexos_propios)) adm.orden_anexos_propios = [];
+  if (!Array.isArray(adm.documentos_solicitados)) adm.documentos_solicitados = [];
 
   const yaListados = new Set<number>(
-    adm.orden_anexos_propios.flatMap((d: any) => numerosDeAnexoEn(`${d?.que_crear || ''} ${d?.que_cubre || ''} ${d?.por_que || ''}`)),
+    adm.documentos_solicitados.flatMap((d: any) => numerosDeAnexoEn(`${d?.nombre || ''}`)),
   );
 
   const publicados = new Map<number, DocLeido>();
@@ -2868,50 +1953,63 @@ export function completarOrdenAnexosConLosPublicados(informe: any, docs: DocLeid
 
   for (const [n, doc] of faltantes) {
     const titulo = tituloDeAnexo(doc.texto);
-    adm.orden_anexos_propios.push({
-      que_crear: `Anexo N°${n}${titulo ? `: ${titulo}` : ''}`,
-      por_que: 'El organismo lo publicó entre los documentos de la licitación y el análisis de las bases no lo listó — confirmar en las bases si es obligatorio y con qué contenido.',
-      fuente: `Archivo publicado en Mercado Público: ${doc.nombre}`,
-      que_debe_contener: 'Ver el propio anexo: se completa sobre el formato que entrega el organismo (el Anexo Creator lo detecta y rellena lo que sale de la ficha).',
-      que_cubre: 'Presentación de la oferta',
-      criticidad: 'PUNTAJE_CONDICIONANTE',
-      responsable: 'fase4',
+    adm.documentos_solicitados.push({
+      nombre: `Anexo N°${n}${titulo ? `: ${titulo}` : ''}`,
+      anexo_del_organismo: true,
+      copias: '',
+      antiguedad_maxima: '',
+      cita: { documento: doc.nombre, numeral: '', frase: '' },
       _agregado_por_cruce: true,
     });
   }
-  console.log(`[viabilidad-ia-v3] ${codigo}: checklist de anexos completado con ${faltantes.length} anexo(s) publicado(s) que el informe no listaba: ${faltantes.map(([n]) => `N°${n}`).join(', ')}.`);
+  console.log(`[viabilidad-ia-v4] ${codigo}: anexos del organismo completados con ${faltantes.length} anexo(s) publicado(s) que el informe no listaba: ${faltantes.map(([n]) => `N°${n}`).join(', ')}.`);
 }
 
-// Guarda el informe v3 bajo _informe_ia_v3 (NO pisa _informe_ia del v2). Actualiza también
-// score/semáforo/área para que el radar refleje el análisis probado con el flag.
-async function guardarViabilidadIAV3(codigo: string, r: any): Promise<void> {
+// Guarda el informe bajo `_informe_ia_v3` — la clave del "informe IA activo" que leen todos los
+// módulos (Compras, Auditor, costeo, anexos); el esquema real va en `_schema: 'v4'`. NO pisa
+// _informe_ia (v2).
+// v4.1 (decisión del usuario, 02-oct-2026): el NIVEL va en columnas propias (migration-137);
+// `score_total`/`semaforo` quedan con el puntaje del perfil inicial y el análisis IA ya no los pisa.
+async function guardarViabilidadIAV4(codigo: string, r: any): Promise<void> {
   const [rows] = await pool.query(`SELECT informe_ejecutivo, desglose FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);
   const fila = (rows as any[])[0];
+  const modelo = `ia+v4+${r?._modelo_respondio || MODELO_TEXTO}`.slice(0, 100);
   if (fila) {
     let ie: any = {};
     try { ie = typeof fila.informe_ejecutivo === 'string' ? JSON.parse(fila.informe_ejecutivo) : (fila.informe_ejecutivo || {}); } catch { ie = {}; }
     ie._informe_ia_v3 = r;
-    // SINCRONIZAR el desglose determinista con el veredicto de adjudicación del v3: la tarjeta
-    // "Productos y modalidad" del front lee desglose.modalidad_adjudicacion, que se calcula solo
-    // con la ficha de la API MP (casi siempre "no_especificada — se asume suma alzada"). El v3 sí
-    // lee las bases (señales deterministas + LLM), así que su veredicto manda cuando existe.
-    // Caso real: 1250623-4-LE26 quedó POR_LINEAS en el informe IA pero la tarjeta seguía en ámbar.
+    // La tarjeta "Productos y modalidad" lee desglose.modalidad_adjudicacion (calculado solo con la
+    // API MP). El análisis de las bases manda: global · por_linea · no_claro, sin "suma alzada"
+    // como forma de adjudicar (P1).
     let desg: any = null;
     try { desg = typeof fila.desglose === 'string' ? JSON.parse(fila.desglose) : fila.desglose; } catch { desg = null; }
-    const comoV3 = String(r?.adjudicacion?.como_se_adjudica || '').toUpperCase();
-    if (desg?.modalidad_adjudicacion && comoV3) {
-      const esPorLinea = comoV3.includes('LINEA');
-      desg.modalidad_adjudicacion.modalidad = esPorLinea ? 'por_linea' : 'suma_alzada';
+    const res = String(r?.adjudicacion?.resultado || '').toUpperCase();
+    if (desg?.modalidad_adjudicacion && res) {
+      const esPorLinea = res === 'POR_LINEAS';
+      desg.modalidad_adjudicacion.modalidad = esPorLinea ? 'por_linea' : res === 'GLOBAL' ? 'global' : 'no_claro';
       desg.modalidad_adjudicacion.es_por_linea = esPorLinea;
-      desg.modalidad_adjudicacion.notas = `${esPorLinea ? 'Por línea' : 'Suma alzada'} — según análisis IA de las bases${r?.adjudicacion?.evidencia ? ` (${String(r.adjudicacion.evidencia).slice(0, 160)})` : ''}.`;
+      desg.modalidad_adjudicacion.notas = `${esPorLinea ? 'Por línea' : res === 'GLOBAL' ? 'Global' : 'No está claro cómo se adjudica'} — según análisis IA de las bases${r?.adjudicacion?.motivo ? ` (${String(r.adjudicacion.motivo).slice(0, 160)})` : ''}.`;
     }
     await pool.query(
-      `UPDATE viabilidad_licitacion SET informe_ejecutivo = ?, desglose = COALESCE(?, desglose), score_total = ?, semaforo = ?, area_negocio = ?, confianza_analisis = ?, modelo = ? WHERE licitacion_codigo = ?`,
-      [JSON.stringify(ie), desg ? JSON.stringify(desg) : null, r.score_0_100, r.semaforo, r.area_negocio, r.confianza_global ?? null, `ia+v3+${MODELO_TEXTO}`, codigo]);
+      `UPDATE viabilidad_licitacion SET informe_ejecutivo = ?, desglose = COALESCE(?, desglose), area_negocio = ?, modelo = ? WHERE licitacion_codigo = ?`,
+      [JSON.stringify(ie), desg ? JSON.stringify(desg) : null, r.area_negocio, modelo, codigo]);
   } else {
     await pool.query(
-      `INSERT INTO viabilidad_licitacion (licitacion_codigo, informe_ejecutivo, score_total, semaforo, area_negocio, confianza_analisis, modelo) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [codigo, JSON.stringify({ _informe_ia_v3: r }), r.score_0_100, r.semaforo, r.area_negocio, r.confianza_global ?? null, `ia+v3+${MODELO_TEXTO}`]);
+      `INSERT INTO viabilidad_licitacion (licitacion_codigo, informe_ejecutivo, area_negocio, modelo) VALUES (?, ?, ?, ?)`,
+      [codigo, JSON.stringify({ _informe_ia_v3: r }), r.area_negocio, modelo]);
+  }
+  await guardarColumnasNivel(codigo, r?.score);
+}
+
+/** Escribe nivel/acción en sus columnas (migration-137). Sin la migración, solo avisa. */
+export async function guardarColumnasNivel(codigo: string, score: any): Promise<void> {
+  if (!score) return;
+  try {
+    await pool.query(
+      `UPDATE viabilidad_licitacion SET nivel_atractivo = ?, nivel_num = ?, accion_asistente = ?, nivel_presupuesto_neto = ?, nivel_calculado_en = NOW() WHERE licitacion_codigo = ?`,
+      [score.nivel, score.nivel_num, score.accion_asistente, score.presupuesto_neto_orden ?? null, codigo]);
+  } catch (e) {
+    console.warn(`[viabilidad-ia-v4] ${codigo}: no se pudieron guardar las columnas del nivel (¿falta aplicar migration-137?):`, String(e).slice(0, 140));
   }
 }
 
@@ -2920,14 +2018,14 @@ async function guardarViabilidadIAV3(codigo: string, r: any): Promise<void> {
 // leyendo_documentos → analizando_ia → verificando → guardando.
 export type FaseAnalisisIA = 'leyendo_documentos' | 'analizando_ia' | 'verificando' | 'guardando';
 export async function analizarYGuardarViabilidadIA(codigo: string, onFase?: (fase: FaseAnalisisIA) => void): Promise<ViabilidadIAResult | null> {
-  // Analizador ÚNICO v3: prompt/esquema modular, override determinista de adjudicación y puente
-  // al costeo (manifiesto_productos/modalidad/estructura_costeo que arma analizarViabilidadIAV3).
+  // Analizador ÚNICO v4.0 + nivel v4.1: el modelo extrae, el código decide; puente al costeo
+  // (manifiesto_productos/modalidad/estructura_costeo que arma el análisis).
   const rv3 = await analizarViabilidadIAV3(codigo, onFase);
   if (!rv3) return null;
-  console.log(`[viabilidad-ia] ${codigo}: === FASE guardando === (informe listo, score=${rv3.score_0_100 ?? '?'}, guardando en BD y generando costeo)…`);
+  console.log(`[viabilidad-ia] ${codigo}: === FASE guardando === (informe v4 listo, nivel=${rv3.score?.nivel ?? '?'}, guardando en BD y generando costeo)…`);
   try { onFase?.('guardando'); } catch { /* noop */ }
-  try { await guardarViabilidadIAV3(codigo, rv3); }
-  catch (e) { console.error('[viabilidad-ia-v3] guardar falló:', String(e).slice(0, 200)); }
+  try { await guardarViabilidadIAV4(codigo, rv3); }
+  catch (e) { console.error('[viabilidad-ia-v4] guardar falló:', String(e).slice(0, 200)); }
   // Vuelca ítems al negocio y genera el Excel de costeo.
   try { await volcarManifiestoAItems(codigo, rv3 as any); }
   catch (e) { console.error('[viabilidad-ia-v3] volcar ítems falló:', String(e).slice(0, 200)); }

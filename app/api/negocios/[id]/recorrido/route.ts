@@ -59,7 +59,8 @@ export async function GET(request: NextRequest, { params }: Params) {
       pool.query(
         `SELECT score_total, semaforo, created_at, updated_at,
                 JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo, '$.tarjeta_decision.veredicto')) AS veredicto_v3,
-                JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo, '$.score_0_100')) AS score_v3
+                JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo, '$.score_0_100')) AS score_v3,
+                JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo, '$._informe_ia_v3.score.nivel')) AS nivel_v4
          FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`, [codigo]
       ).then(([r]: any) => (r as any[])[0] || null)
         // informe_ejecutivo con JSON inválido → reintento sin los JSON_EXTRACT.

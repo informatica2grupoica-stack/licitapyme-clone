@@ -5,13 +5,15 @@
 // análisis con su FUENTE. Front profesional: hero con score + veredicto + datos clave,
 // y el detalle en secciones plegables (acordeón) para que no sea un muro de información.
 
-import { createContext, useContext, useCallback, useEffect, useRef, useState, Fragment } from 'react';
+import { useContext, useCallback, useEffect, useRef, useState, Fragment } from 'react';
 import { createPortal } from 'react-dom';
-import { IconSparkles as Sparkles, IconFileSearch as FileSearch, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconBan as Ban, IconShieldCheck as ShieldCheck, IconPackage as Package, IconScale as Scale, IconGavel as Gavel, IconTarget as Target, IconListCheck as ListChecks, IconExternalLink as ExternalLink, IconSchool as GraduationCap, IconTrash as Trash2, IconSend as Send, IconSquare as Square, IconEye as Eye, IconX as X, IconClipboardCheck as ClipboardCheck, IconCompass as Compass, IconSwords as Swords, IconShip as Ship, IconSearch as Search } from '@tabler/icons-react';
+import { IconSparkles as Sparkles, IconFileSearch as FileSearch, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconBan as Ban, IconShieldCheck as ShieldCheck, IconPackage as Package, IconScale as Scale, IconGavel as Gavel, IconTarget as Target, IconListCheck as ListChecks, IconExternalLink as ExternalLink, IconSchool as GraduationCap, IconTrash as Trash2, IconSend as Send, IconSquare as Square, IconEye as Eye, IconX as X, IconClipboardCheck as ClipboardCheck, IconCompass as Compass, IconSwords as Swords, IconShip as Ship } from '@tabler/icons-react';
 import { useSession } from '@/app/lib/session-context';
 import { DocScanLoader } from '@/app/components/ui/DocScanLoader';
 import { registrarVerCita } from '@/app/lib/actividad-cliente';
 import { esFilaNoProducto } from '@/app/lib/fila-no-producto';
+import { FuenteDocsContext, VisorContext, Seccion, PanelValidador, HintOjo, BotonBuscarEquipo, type DocRef, type VisorOpts } from './viabilidad-ui-comun';
+import { VistaV4 } from './VistaViabilidadV4';
 
 // Copia local del tipo de app/lib/viabilidad-ia.ts (server-only por gemini.ts/node:async_hooks —
 // ver [[project_gemini_server_only_boundary]] — no se puede importar directo en un Client Component).
@@ -79,8 +81,6 @@ const fmt = (n?: number | null) => n != null ? new Intl.NumberFormat('es-CL', { 
 const cap = (s?: string) => (s || '').replace(/_/g, ' ');
 
 // ─── Explicabilidad: resolver una cita ("doc, art, pág N") al PDF en esa página ──
-interface DocRef { nombre: string; url: string; categoria?: string }
-const FuenteDocsContext = createContext<DocRef[]>([]);
 
 const _norm = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
@@ -206,8 +206,6 @@ function Gauge({ score, sem }: { score: number; sem: { ring: string } }) {
 // Visor de fuente: al hacer clic en el ojo de una cita, abre un MODAL grande con la
 // imagen de la página citada (renderizada por /api/pdf-pagina con mupdf) y, si se pasa
 // `q`, RESALTA en amarillo el texto de donde sale el dato. Antes era un hover diminuto.
-interface VisorOpts { url: string; pagina: number | null; paginas?: number[]; q?: string; titulo?: string }
-const VisorContext = createContext<((o: VisorOpts) => void) | null>(null);
 
 // UNA página del documento renderizada a imagen (con resaltado amarillo del texto `q`). Maneja su
 // propio estado de carga/error/zoom, así el visor puede apilar VARIAS páginas cuando la cita abarca
@@ -415,63 +413,7 @@ function anclaAdjudicacion(fuente?: string, evidencia?: string): string | undefi
   return entrecomillado || anclaDeFuente(fuente || '');
 }
 
-function Seccion({ icon, titulo, badge, children, defaultOpen = false }: { icon: React.ReactNode; titulo: string; badge?: string; children: React.ReactNode; defaultOpen?: boolean }) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
-      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors">
-        <span className="flex items-center gap-2 text-[13px] font-semibold text-slate-700">{icon}{titulo}{badge ? <span className="text-[11px] font-normal text-slate-400">· {badge}</span> : null}</span>
-        <ChevronDown size={16} className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {open && <div className="px-4 pb-4 pt-1">{children}</div>}
-    </div>
-  );
-}
-
 const estadoColor = (e?: string) => e === 'VENTAJA' ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : e === 'DESVENTAJA' ? 'text-red-700 bg-red-50 border-red-200' : 'text-slate-500 bg-slate-50 border-slate-200';
-
-// Botón "Buscar en IA": para un producto de MAQUINARIA/EQUIPO, pide al backend que filtre las specs
-// reales y arme un prompt de búsqueda exhaustivo (3 homólogos/superiores en Chile o China), lo COPIA
-// al portapapeles y abre AI Studio en otra pestaña (no admite prellenar por URL). Si el copiado
-// falla, deja el prompt visible para copiarlo a mano.
-function BotonBuscarEquipo({ codigo, producto, region }: { codigo: string; producto: { descripcion: string; caracteristicas: string[]; cantidad?: any }; region?: string }) {
-  const [estado, setEstado] = useState<'idle' | 'cargando' | 'ok' | 'error'>('idle');
-  const [prompt, setPrompt] = useState('');
-  const buscar = async () => {
-    setEstado('cargando'); setPrompt('');
-    try {
-      const r = await fetch(`/api/viabilidad/buscar-equipamiento/${encodeURIComponent(codigo)}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nombre: producto.descripcion, caracteristicas: producto.caracteristicas, cantidad: producto.cantidad, region }),
-      });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.prompt_busqueda) { setEstado('error'); return; }
-      setPrompt(j.prompt_busqueda);
-      let copiado = false;
-      try { await navigator.clipboard.writeText(j.prompt_busqueda); copiado = true; } catch { /* sin permiso de clipboard */ }
-      window.open('https://aistudio.google.com/prompts/new_chat', '_blank', 'noopener,noreferrer');
-      setEstado(copiado ? 'ok' : 'error');
-    } catch { setEstado('error'); }
-  };
-  return (
-    <div className="mt-2">
-      <button type="button" onClick={buscar} disabled={estado === 'cargando'}
-        title="Genera un prompt con las specs limpias, lo copia y abre AI Studio para buscar 3 proveedores chilenos"
-        className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 disabled:opacity-60 px-3.5 py-2 rounded-lg shadow-sm shadow-violet-200 transition-all">
-        {estado === 'cargando' ? <><Loader2 size={14} className="animate-spin" /> Generando prompt…</> : <><Search size={14} /> Buscar proveedor en IA</>}
-      </button>
-      {estado === 'ok' && <span className="text-[10px] text-emerald-600 ml-2">✓ Prompt copiado — pégalo en AI Studio (se abrió en otra pestaña)</span>}
-      {estado === 'error' && !prompt && <span className="text-[10px] text-red-600 ml-2">No se pudo generar. Reintenta.</span>}
-      {prompt && (
-        <details className="mt-1" open={estado === 'error'}>
-          <summary className="text-[10px] text-violet-600 cursor-pointer select-none">{estado === 'error' ? 'Copia el prompt manualmente (no se pudo copiar solo)' : 'Ver / copiar el prompt'}</summary>
-          <textarea readOnly value={prompt} onClick={e => (e.target as HTMLTextAreaElement).select()}
-            className="w-full mt-1 text-[10px] p-1.5 border border-slate-200 rounded bg-slate-50 h-28 font-mono" />
-        </details>
-      )}
-    </div>
-  );
-}
 
 // ─── VISTA v3 (esquema modular: 9 módulos + Tarjeta de Decisión) ─────────────────
 // Se renderiza cuando el informe trae `_schema:'v3'` (flag VIABILIDAD_V3). Reusa Fuente
@@ -542,57 +484,8 @@ function TrazaFuentes({ fuentes }: { fuentes?: { origen?: string; elegida?: stri
   );
 }
 
-interface HallazgoValidador { regla: string; severidad: 'error' | 'aviso'; mensaje: string }
-function PanelValidador({ validador }: { validador?: { ok?: boolean; hallazgos?: HallazgoValidador[] } | null }) {
-  const hallazgos = validador?.hallazgos || [];
-  const errores = hallazgos.filter(h => h.severidad === 'error');
-  const avisos = hallazgos.filter(h => h.severidad !== 'error');
-  // Hooks SIEMPRE antes de cualquier return temprano (si no, React #310 cuando llegan hallazgos después).
-  const [abierto, setAbierto] = useState(errores.length > 0);
-  if (hallazgos.length === 0) return null;
-  const hayErrores = errores.length > 0;
-  return (
-    <div className={`rounded-xl border ${hayErrores ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
-      <button onClick={() => setAbierto(o => !o)} className="w-full flex items-center gap-2 px-3 py-2 text-left">
-        <AlertTriangle size={14} className={hayErrores ? 'text-red-600' : 'text-amber-600'} />
-        <p className={`flex-1 text-[12.5px] font-semibold ${hayErrores ? 'text-red-700' : 'text-amber-700'}`}>
-          El validador automático detectó {hallazgos.length} {hallazgos.length === 1 ? 'inconsistencia' : 'inconsistencias'}
-          {errores.length > 0 && ` (${errores.length} para revisar antes de confiar en el informe)`}
-        </p>
-        <ChevronDown size={14} className={`text-slate-400 transition-transform ${abierto ? 'rotate-180' : ''}`} />
-      </button>
-      {abierto && (
-        <div className="px-3 pb-3 space-y-1.5">
-          {[...errores, ...avisos].map((h, i) => (
-            <div key={i} className={`flex items-start gap-2 text-[12px] rounded-lg px-2.5 py-1.5 ${h.severidad === 'error' ? 'bg-red-100/60 text-red-800' : 'bg-amber-100/50 text-amber-800'}`}>
-              <span className="font-mono font-bold flex-shrink-0">{h.regla}</span>
-              <span className="flex-1 leading-snug">{h.mensaje}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // Hint de primera vez: le explica a un usuario nuevo que el "ojo" de cada cita abre la
 // página exacta del documento. Se muestra una sola vez (persistido en localStorage).
-function HintOjo() {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    try { if (!localStorage.getItem('licitank_hint_ojo_visto')) setVisible(true); } catch { /* sin storage */ }
-  }, []);
-  if (!visible) return null;
-  const cerrar = () => { setVisible(false); try { localStorage.setItem('licitank_hint_ojo_visto', '1'); } catch { /* noop */ } };
-  return (
-    <div className="flex items-center gap-2.5 text-[12.5px] text-violet-800 bg-violet-50 border border-violet-200 rounded-lg px-3 py-2">
-      <Eye size={15} className="flex-shrink-0 text-violet-500" />
-      <p className="flex-1 leading-snug">Cada dato de este análisis trae su fuente: haz clic en el ojo <Eye size={12} className="inline align-[-1px] text-violet-500" /> de cualquier cita para ver la página exacta de las bases donde aparece, con el texto resaltado.</p>
-      <button onClick={cerrar} className="text-violet-400 hover:text-violet-700 flex-shrink-0" title="Entendido, no volver a mostrar"><X size={15} /></button>
-    </div>
-  );
-}
-
 function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: React.ReactNode }) {
   // Frente C.1: modo principiante — por defecto, un perfil nuevo ve SOLO la Tarjeta de
   // Decisión (Capa 1); el detalle de 4 módulos (Capa 2) queda a un clic con "Ver análisis
@@ -1176,8 +1069,9 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
   const abortRef = useRef<AbortController | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);  // poll de resultado tras timeout del proxy
   // Huella liviana del informe para detectar cuándo el server terminó un re-análisis.
+  // v4.1: la huella incluye el nivel y cuándo se calculó (antes score_0_100/semáforo, que la v4 ya no trae).
   const fpInforme = (inf: InformeIA | null) =>
-    inf ? `${inf.score_0_100}|${inf.semaforo}|${(inf as any).docs_hash || ''}|${JSON.stringify(inf.veredicto || {})}` : '';
+    inf ? `${(inf as any).score?.nivel ?? inf.score_0_100}|${(inf as any).score?.calculado_en ?? inf.semaforo}|${(inf as any).docs_hash || ''}|${JSON.stringify(inf.veredicto || {})}` : '';
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
   // POLLING del resultado. El análisis corre en SEGUNDO PLANO en el server (dura 1-3 min normal).
@@ -1327,7 +1221,6 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
   // ── Feedback loop (enseñar a la IA) ───────────────────────────────────────────
   const [feedback, setFeedback]   = useState<Feedback[]>([]);
   const [fbComentario, setFbComentario] = useState('');
-  const [fbVeredicto, setFbVeredicto]   = useState<string>('');
   const [fbAmbito, setFbAmbito]         = useState<'global' | 'lectura'>('global');
   const [fbEnviando, setFbEnviando]     = useState(false);
   const [fbOk, setFbOk]                 = useState<string | null>(null);
@@ -1348,15 +1241,14 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           comentario: fbComentario.trim(),
-          veredicto_humano: fbAmbito === 'lectura' ? null : (fbVeredicto || null),
           ambito: fbAmbito,
         }),
       });
       const j = await r.json();
       if (!r.ok) { setFbOk(j.error || 'No se pudo guardar.'); return; }
       if (Array.isArray(j.feedback)) setFeedback(j.feedback);
-      setFbComentario(''); setFbVeredicto('');
-      setFbOk(`Aprendido. Regla: "${j.regla}". Se aplicará en los próximos análisis.`);
+      setFbComentario('');
+      setFbOk(j.sin_destilar ? (j.aviso || 'Guardado para revisión: no se usará hasta que CA lo revise.') : `Aprendido. Regla: "${j.regla}". Se aplicará en los próximos análisis.`);
     } catch (e: any) { setFbOk(String(e?.message || e)); }
     finally { setFbEnviando(false); }
   };
@@ -1478,15 +1370,12 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
           ))}
         </div>
 
+        {/* v4.0 (P12): se sacaron los botones "Sí es viable / No es viable / Parcial" — el nivel lo
+            calcula el sistema; la regla solo enseña qué leer, reportar o advertir. */}
         {fbAmbito === 'global' ? (
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {([['viable', 'Sí es viable'], ['no_viable', 'No es viable'], ['parcial', 'Parcial']] as const).map(([v, lbl]) => (
-              <button key={v} onClick={() => setFbVeredicto(fbVeredicto === v ? '' : v)}
-                className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${fbVeredicto === v ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-600 border-slate-200 hover:border-violet-300'}`}>
-                {lbl}
-              </button>
-            ))}
-          </div>
+          <p className="text-[11.5px] text-violet-700 bg-violet-50 border border-violet-100 rounded-lg px-2.5 py-2 mb-2">
+            Explica <strong>qué debió leer, reportar o advertir</strong> el análisis. La regla no cambia el nivel ni la adjudicación: eso lo decide el sistema.
+          </p>
         ) : (
           <p className="text-[11.5px] text-violet-700 bg-violet-50 border border-violet-100 rounded-lg px-2.5 py-2 mb-2">
             Explica <strong>cómo debe leerse el documento</strong> para que la extracción de ítems y el costeo salgan bien. Se aplica al leer las planillas y anexos de futuras licitaciones.
@@ -1496,7 +1385,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
         <textarea value={fbComentario} onChange={e => setFbComentario(e.target.value)}
           placeholder={fbAmbito === 'lectura'
             ? 'Ej: En listados con encabezado "Cantidad solicitada", esa columna es la cantidad. / Si la descripción trae "MARCA SUGERIDA:", esa es referencial, no obligatoria. / Ignorar las filas de "Solped" y "Material" como si fueran ítems.'
-            : 'Ej: No es viable porque exigen certificación ISO-9001 que no manejamos. / Descartar siempre que pidan fianza bancaria en UTM.'}
+            : 'Ej: Si las bases piden certificación ISO-9001 del oferente, repórtala como requisito de admisibilidad. / Advertir cuando la garantía se exige en UTM.'}
           rows={3}
           className="w-full text-[13px] rounded-lg border border-slate-200 p-2.5 focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 outline-none resize-y" />
 
@@ -1528,7 +1417,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
                   </p>
                   {f.comentario && f.comentario !== f.regla && <p className="text-slate-400 text-[11px] mt-0.5">{f.comentario}</p>}
                 </div>
-                <button onClick={() => borrarFeedback(f.id)} title="Eliminar lección" className="text-slate-300 hover:text-red-500 flex-shrink-0"><Trash2 size={13} /></button>
+                <button onClick={() => borrarFeedback(f.id)} title="Desactivar lección (queda en el historial)" className="text-slate-300 hover:text-red-500 flex-shrink-0"><Trash2 size={13} /></button>
               </div>
             ))}
           </div>
@@ -1616,7 +1505,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
         <div className="flex flex-col items-center justify-center py-14 bg-white rounded-2xl border border-slate-200 text-center">
           <div className="w-12 h-12 rounded-xl bg-violet-50 flex items-center justify-center mb-3"><Sparkles size={22} className="text-violet-500" /></div>
           <p className="text-[14px] font-semibold text-slate-700">Aún sin análisis</p>
-          <p className="text-[12px] text-slate-400 max-w-xs mt-1">Pulsa “Analizar”: se leerán todos los documentos y se entregará el score, el veredicto y todo el detalle con su fuente.</p>
+          <p className="text-[12px] text-slate-400 max-w-xs mt-1">Pulsa “Analizar”: se leerán todos los documentos y se entregará el nivel de atractivo, qué hacer con el proyecto y todo el detalle con su fuente.</p>
         </div>
       )}
 
@@ -1634,7 +1523,8 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
       {informe && (
         <FuenteDocsContext.Provider value={docs}>
          <VisorContext.Provider value={abrirVisor}>
-          {(informe as any)._schema === 'v3' ? <VistaV3 informe={informe as any} feedbackPanel={panelFeedback} /> : (<>
+          {(informe as any)._schema === 'v4' ? <VistaV4 informe={informe as any} codigo={codigo} feedbackPanel={panelFeedback} onInformeCambio={inf => setInforme(inf)} />
+          : (informe as any)._schema === 'v3' ? <VistaV3 informe={informe as any} feedbackPanel={panelFeedback} /> : (<>
           {/* HERO: score + veredicto */}
           <div className={`rounded-2xl border p-4 ${sem.soft}`}>
             <div className="flex items-center gap-4">
@@ -1928,7 +1818,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
 
       {/* Feedback loop: en la vista v3 vive dentro de la pestaña Preparación; aquí solo se
           muestra para la vista v2 legada o cuando aún no hay informe. */}
-      {(!informe || (informe as any)._schema !== 'v3') && panelFeedback}
+      {(!informe || !['v3', 'v4'].includes((informe as any)._schema)) && panelFeedback}
     </div>
   );
 }

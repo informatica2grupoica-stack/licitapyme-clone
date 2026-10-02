@@ -13,20 +13,22 @@ export const maxDuration = 60;
 
 type Params = { params: Promise<{ codigo: string }> };
 
-// Snapshot del veredicto que dio la IA (para registrar contra qué se corrigió).
+// Snapshot de lo que mostró el sistema (para registrar contra qué se corrigió). v4.0 (P12): el
+// NIVEL de atractivo (`score.nivel`) — la escala GANABLE/NO VAMOS desapareció. Informes viejos
+// (v3) caen al semáforo/score de antes.
 async function veredictoIAActual(codigo: string): Promise<string | null> {
   try {
     const [rows] = await pool.query(
       `SELECT informe_ejecutivo, score_total, semaforo FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);
     const row = (rows as any[])[0];
     if (!row) return null;
-    let gana = '';
     try {
       const ie = typeof row.informe_ejecutivo === 'string' ? JSON.parse(row.informe_ejecutivo) : row.informe_ejecutivo;
-      gana = ie?._informe_ia?.veredicto?.gana_probable || '';
+      const nivel = ie?._informe_ia_v3?.score?.nivel;
+      if (nivel) return String(nivel).slice(0, 32);
     } catch { /* noop */ }
-    const partes = [row.semaforo, row.score_total != null ? `${row.score_total}/100` : '', gana ? `gana:${gana}` : ''].filter(Boolean);
-    return partes.join(' ') || null;
+    const partes = [row.semaforo, row.score_total != null ? `${row.score_total}/100` : ''].filter(Boolean);
+    return partes.join(' ').slice(0, 32) || null;
   } catch { return null; }
 }
 
@@ -61,7 +63,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     // Solo tiene sentido registrar el veredicto de la IA cuando la regla es de negocio (global).
     const veredictoIA = ambito === 'lectura' ? null : await veredictoIAActual(codigoDecoded);
-    const { regla } = await guardarFeedback({
+    const { regla, sinDestilar } = await guardarFeedback({
       codigo: codigoDecoded, usuarioId: usuario.id, comentario, veredictoHumano, veredictoIA, ambito,
     });
     registrarActividad({
@@ -71,7 +73,10 @@ export async function POST(request: NextRequest, { params }: Params) {
       metadata: { licitacion_codigo: codigoDecoded, ambito, veredicto_humano: veredictoHumano || undefined },
     });
     const feedback = await listarFeedback(codigoDecoded);
-    return NextResponse.json({ success: true, regla, feedback });
+    return NextResponse.json({
+      success: true, regla, feedback, sin_destilar: sinDestilar,
+      ...(sinDestilar ? { aviso: 'La IA no pudo convertir el comentario en una regla general: quedó guardado para revisión y no se usará hasta que CA lo revise.' } : {}),
+    });
   } catch (error) {
     console.error('[viabilidad-feedback:POST]', String(error));
     return NextResponse.json({ error: 'No se pudo guardar el feedback.' }, { status: 500 });
@@ -87,12 +92,12 @@ export async function DELETE(request: NextRequest, { params }: Params) {
   const { codigo } = await params;
   const id = parseInt(new URL(request.url).searchParams.get('id') || '', 10);
   if (!id) return NextResponse.json({ error: 'id requerido' }, { status: 400 });
-  await eliminarFeedback(id);
+  await eliminarFeedback(id, usuario.id);   // v4.0: desactiva (queda en el historial), no borra
   registrarActividad({
     usuarioId: usuario.id, accion: 'feedback_viabilidad',
     entidadTipo: 'licitacion', entidadId: decodeURIComponent(codigo),
-    descripcion: `Eliminó una corrección de viabilidad de ${decodeURIComponent(codigo)}`,
-    metadata: { licitacion_codigo: decodeURIComponent(codigo), feedback_id: id, eliminado: true },
+    descripcion: `Desactivó una corrección de viabilidad de ${decodeURIComponent(codigo)}`,
+    metadata: { licitacion_codigo: decodeURIComponent(codigo), feedback_id: id, desactivado: true },
   });
   const feedback = await listarFeedback(decodeURIComponent(codigo));
   return NextResponse.json({ success: true, feedback });

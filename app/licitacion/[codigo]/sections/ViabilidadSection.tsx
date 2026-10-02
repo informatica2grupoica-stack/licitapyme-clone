@@ -332,7 +332,11 @@ export function ViabilidadSection({
             const mod = desglose.modalidad_adjudicacion;
             const prods = ln?.items || [];
             const porLinea = mod?.es_por_linea;
+            // v4.0 (P1): el análisis IA sincroniza global · por_linea · no_claro ("suma alzada" ya
+            // no es una forma de adjudicar); los valores antiguos se siguen mostrando como estaban.
             const modLabel = porLinea ? 'Por línea'
+              : mod?.modalidad === 'global' ? 'Global'
+              : mod?.modalidad === 'no_claro' ? 'No está claro'
               : mod?.modalidad === 'suma_alzada' ? 'Suma alzada'
               : mod?.modalidad === 'suma_alzada_items_obligatorios' ? 'Suma alzada (ítems obligatorios)'
               : 'No especificada';
