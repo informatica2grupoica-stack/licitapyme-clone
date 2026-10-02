@@ -11,7 +11,8 @@ import { MOTOR_KIMI_ESTRICTO } from '@/app/lib/auditor-tecnico';
 import { citaExiste } from '@/app/lib/auditor-compras-core';
 import { criticidadDe } from '@/app/lib/auditor-tecnico-v2-core';
 import { requisitosDeLinea } from '@/app/lib/auditor-tecnico-v2';
-import { armarPanelAuditor, correrSegundaPasadaDeOpcion, type PanelAuditorDTO } from '@/app/lib/auditor-opciones';
+import { compartirEnVuelo } from '@/app/lib/en-vuelo';
+import { armarPanelAuditor, armarPanelAuditorCompartido, correrSegundaPasadaDeOpcion, type PanelAuditorDTO } from '@/app/lib/auditor-opciones';
 import { agregarCostoAsociado, anularCostoAsociado, type CostoAsociadoDTO } from '@/app/lib/auditor-lineas';
 import { SYS_TECADM, MATERIAS_TECADM } from '@/app/lib/auditor-prepostulacion-prompts';
 import {
@@ -103,18 +104,24 @@ export async function anularCompromisosRepetidos(negocioId: number): Promise<num
 /** Documentos de la oferta: los puntos de tipo «documento» del checklist (Anexos) con sus archivos. Si el checklist aún no existe, lista vacía. */
 async function documentosDeLaOferta(negocioId: number): Promise<DocumentoOfertaDTO[]> {
   try {
-    const [items] = await pool.query(
-      `SELECT id, bloque, titulo, criticidad, estado, ofertamos FROM checklist_comercial WHERE negocio_id = ? AND tipo = 'documento' ORDER BY FIELD(bloque,'ADMINISTRATIVO','TECNICO','COMERCIAL'), orden, id`, [negocioId]) as any;
-    const [docs] = await pool.query(`SELECT id, item_id, nombre, url FROM checklist_comercial_documentos WHERE negocio_id = ? ORDER BY subido_at, id`, [negocioId]) as any;
+    const [[items], [docs]] = await Promise.all([
+      pool.query(`SELECT id, bloque, titulo, criticidad, estado, ofertamos FROM checklist_comercial WHERE negocio_id = ? AND tipo = 'documento' ORDER BY FIELD(bloque,'ADMINISTRATIVO','TECNICO','COMERCIAL'), orden, id`, [negocioId]) as Promise<any>,
+      pool.query(`SELECT id, item_id, nombre, url FROM checklist_comercial_documentos WHERE negocio_id = ? ORDER BY subido_at, id`, [negocioId]) as Promise<any>,
+    ]);
     const porItem = new Map<number, Array<{ id: number; nombre: string; url: string }>>();
     for (const d of docs as any[]) (porItem.get(d.item_id) || porItem.set(d.item_id, []).get(d.item_id)!).push({ id: d.id, nombre: d.nombre, url: d.url });
     return (items as any[]).filter(i => i.ofertamos !== 0).map(i => ({ itemId: i.id, bloque: i.bloque, titulo: i.titulo, criticidad: i.criticidad || '', estado: i.estado, documentos: porItem.get(i.id) || [] }));
   } catch { return []; }
 }
 
+/** Lectura de pantalla: si ya se está armando la MISMA Pre-postulación (3 componentes la piden a la vez) comparte esa lectura. */
+export const armarPrePostulacionCompartida = (negocioId: number, licitacionCodigo: string): Promise<PrePostulacionDTO> =>
+  compartirEnVuelo(`prepost:${negocioId}:${licitacionCodigo}`, () => armarPrePostulacion(negocioId, licitacionCodigo));
+
 export async function armarPrePostulacion(negocioId: number, licitacionCodigo: string, panelPrevio?: PanelAuditorDTO): Promise<PrePostulacionDTO> {
-  const repetidos = await anularCompromisosRepetidos(negocioId).catch(() => 0);
-  const panel = panelPrevio && !repetidos ? panelPrevio : await armarPanelAuditor(negocioId, licitacionCodigo);
+  // La limpieza de repetidos y el panel se leen a la vez; si la limpieza cambió algo, el panel se vuelve a armar (caso raro).
+  const [repetidos, panelLeido] = await Promise.all([anularCompromisosRepetidos(negocioId).catch(() => 0), panelPrevio ? null : armarPanelAuditorCompartido(negocioId, licitacionCodigo)]);
+  const panel = repetidos ? await armarPanelAuditor(negocioId, licitacionCodigo) : (panelPrevio ?? panelLeido!);
   const costos = new Map(panel.costosAsociados.map(c => [c.id, c]));
 
   let [rows] = await pool.query(`SELECT * FROM auditor_prepost_item WHERE negocio_id = ? ORDER BY id`, [negocioId]) as any;
@@ -122,7 +129,10 @@ export async function armarPrePostulacion(negocioId: number, licitacionCodigo: s
   if (await sincronizarCostosAsociados(negocioId, panel.costosAsociados, yaTienen)) [rows] = await pool.query(`SELECT * FROM auditor_prepost_item WHERE negocio_id = ? ORDER BY id`, [negocioId]) as any;
   const items = (rows as FilaItemDB[]).map(r => itemDeFila(r, costos));
 
-  const [lrows] = await pool.query(`SELECT fila_id, revisado_at, revisado_por_nombre, error FROM auditor_prepost_linea WHERE negocio_id = ?`, [negocioId]) as any;
+  const [[lrows], documentosOferta] = await Promise.all([
+    pool.query(`SELECT fila_id, revisado_at, revisado_por_nombre, error FROM auditor_prepost_linea WHERE negocio_id = ?`, [negocioId]) as Promise<any>,
+    documentosDeLaOferta(negocioId),
+  ]);
   const revisadas = new Map<string, any>((lrows as any[]).map(r => [r.fila_id, r]));
 
   const lineas: LineaPrePostDTO[] = panel.lineas.map(l => {
@@ -150,7 +160,7 @@ export async function armarPrePostulacion(negocioId: number, licitacionCodigo: s
 
   return {
     migracionPendiente: false,
-    documentosOferta: await documentosDeLaOferta(negocioId),
+    documentosOferta,
     activo: panel.lineas.some(l => l.opciones.some(o => o.estado !== 'descartada')),
     lineas, items, certificado, candado, avance: panel.avance,
     costosAsociados: { total: vigentesCosto.length, sinEstimar: vigentesCosto.filter(i => i.costo && i.costo.montoEstimado == null).length },
@@ -313,7 +323,7 @@ export async function correrSegundaPasada(negocioId: number, opcionId: number, a
 export async function candadoDelNegocio(negocioId: number, licitacionCodigo: string): Promise<ResultadoCandado | null> {
   try {
     if (!(await migracionAplicada())) return null;
-    const dto = await armarPrePostulacion(negocioId, licitacionCodigo);
+    const dto = await armarPrePostulacionCompartida(negocioId, licitacionCodigo);
     return dto.activo ? dto.candado : null;
   } catch (e) {
     console.warn('[prepostulacion] candado no disponible:', String(e).slice(0, 160));

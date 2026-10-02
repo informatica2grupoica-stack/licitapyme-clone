@@ -8,6 +8,7 @@ import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { lineasDelCosteo, precioNetoUnitario, type LineaCosteo, type MargenProyecto } from '@/app/lib/auditor-compras-core';
 import { MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor } from '@/app/lib/costeo-editor';
+import { compartirEnVuelo } from '@/app/lib/en-vuelo';
 import { leerYGuardarDocumento, leerYGuardarPaginaWeb, extraccionPorId, extraccionesPorIds, type ExtraccionGuardada, type SalidaLector } from '@/app/lib/auditor-lector';
 import { visitarLinks, normalizarUrl, buscarFichasEnPagina, urlPublicaSegura, type EnlaceFicha } from '@/app/lib/auditor-compras-captura';
 import { createHash } from 'node:crypto';
@@ -140,27 +141,31 @@ export function lineasAuditables(estado: EstadoCosteoEditor | null): LineaCosteo
   return lineasDelCosteo(estado).filter(l => !l.esGastoExtra && l.ofertamos && l.cantidad != null);
 }
 
-async function cargarExtracciones(ids: number[]): Promise<Map<number, ExtraccionGuardada | null>> {
-  const todas = await extraccionesPorIds(ids);
-  return new Map([...todas].map(([id, v]) => [id, v.data]));
-}
-
 // ── Panel ────────────────────────────────────────────────────────────────────────────────────────
+/** Igual que armarPanelAuditor, pero si ya se está armando el MISMO panel (la pantalla pide /auditor y /prepostulacion a la vez) comparte esa lectura. Solo para GET de pantalla. */
+export const armarPanelAuditorCompartido = (negocioId: number, licitacionCodigo: string): Promise<PanelAuditorDTO> =>
+  compartirEnVuelo(`panel:${negocioId}:${licitacionCodigo}`, () => armarPanelAuditor(negocioId, licitacionCodigo));
+
 export async function armarPanelAuditor(negocioId: number, licitacionCodigo: string): Promise<PanelAuditorDTO> {
   const hoyISO = ahoraChileSQL().slice(0, 10);
-  // Todas las lecturas son independientes: van EN PARALELO (la base es remota; una a una el panel tardaba segundos).
-  const [estado, estadosLinea, verifTec, habTec, reqPorLinea, exigenCompleta, costosAsociados, mercados, justificadas, costosIA, opRes, reRes, caRes] = await Promise.all([
-    cargarEstadoCosteo(negocioId), estadosDeLineas(negocioId), ultimasCorridasV3(negocioId), confirmacionesTecnicas(negocioId),
+  // Todas las lecturas son independientes: van EN PARALELO (la base es remota, ~155 ms por consulta: una a una el panel tardaba segundos).
+  const estadoP = cargarEstadoCosteo(negocioId);
+  const [estado, estadosLinea, verifTec, habTec, reqPorLinea, exigenCompleta, costosAsociados, mercados, justificadas, costosIA, opRes, reRes, caRes,
+    correcciones, segundasPasadas, verifLegado, hdLegado, docsRes, extsRes, decisiones, linksPendientes] = await Promise.all([
+    estadoP, estadosDeLineas(negocioId), ultimasCorridasV3(negocioId), confirmacionesTecnicas(negocioId),
     contarRequisitosPorLinea(negocioId, licitacionCodigo), lineasQueExigenViaCompleta(negocioId), listarCostosAsociados(negocioId),
     ultimosMercados(negocioId), opcionesConJustificacion(negocioId), ultimasCostoIA(negocioId),
     pool.query(`SELECT * FROM auditor_opcion WHERE negocio_id = ? ORDER BY id`, [negocioId]) as Promise<any>,
     pool.query(`SELECT * FROM auditor_respaldo WHERE negocio_id = ? ORDER BY id`, [negocioId]) as Promise<any>,
     pool.query(`SELECT id, opcion_id, respaldo_id, url, estado_link, titulo, capturado_at, (imagen IS NOT NULL) AS hay_imagen FROM auditor_captura WHERE negocio_id = ? ORDER BY id DESC`, [negocioId]) as Promise<any>,
+    correccionesDeCosto(negocioId), ultimasSegundasPasadasV3(negocioId), ultimasVerificaciones(negocioId, true), habilitacionesYDeclaraciones(negocioId),
+    pool.query(`SELECT id, documento_nombre, documento_url_local FROM documentos_cache
+     WHERE licitacion_codigo = ? AND subcategoria = 'cotizaciones' AND documento_url_local IS NOT NULL ORDER BY created_at ASC`, [licitacionCodigo]) as Promise<any>,
+    pool.query(`SELECT id, documento_url, error FROM auditor_extraccion WHERE negocio_id = ? AND documento_url IS NOT NULL ORDER BY id DESC`, [negocioId]) as Promise<any>,
+    decisionesSinLinea(negocioId),
+    estadoP.then(e => linksPendientesDelCosteo(negocioId, lineasAuditables(e))),
   ]);
   const [opRows] = opRes, [reRows] = reRes, [caRows] = caRes;
-  const correcciones = await correccionesDeCosto(negocioId);
-  const segundasPasadas = await ultimasSegundasPasadasV3(negocioId);
-  const [verifLegado, hdLegado] = await Promise.all([ultimasVerificaciones(negocioId, true), habilitacionesYDeclaraciones(negocioId)]);
   const lineas = lineasAuditables(estado);
   const totalAsociados = totalCostosAsociados(costosAsociados);
   // Una línea NO OFERTADA sale del margen y de las verificaciones (sigue en el histórico).
@@ -170,8 +175,11 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
   for (const c of caRows as any[]) if (c.opcion_id != null)
     (capturasPorOpcion.get(c.opcion_id) || capturasPorOpcion.set(c.opcion_id, []).get(c.opcion_id)!).push({
       id: c.id, respaldoId: c.respaldo_id, url: c.url, estado: c.estado_link, titulo: s(c.titulo), capturadoAt: fechaS(c.capturado_at) || '', hayImagen: !!c.hay_imagen });
+  const ultimaPorUrl = new Map<string, any>();
+  for (const e of extsRes[0] as any[]) if (!ultimaPorUrl.has(e.documento_url)) ultimaPorUrl.set(e.documento_url, e);
   const extIds = (reRows as any[]).map(r => r.extraccion_id).filter((x: any) => x != null);
-  const ext = await cargarExtracciones(extIds);
+  const cargadas = await extraccionesPorIds([...extIds, ...[...ultimaPorUrl.values()].filter(e => !e.error).map(e => e.id)]);
+  const ext = new Map([...cargadas].map(([id, v]) => [id, v.data]));
 
   const respaldosPorOpcion = new Map<number, any[]>();
   for (const r of reRows as any[]) (respaldosPorOpcion.get(r.opcion_id) || respaldosPorOpcion.set(r.opcion_id, []).get(r.opcion_id)!).push(r);
@@ -285,7 +293,7 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
     };
   });
 
-  const documentos = await armarDocumentos(negocioId, licitacionCodigo, opcionesPorFila);
+  const documentos = armarDocumentos(docsRes[0], ultimaPorUrl, cargadas, decisiones, opcionesPorFila);
   const margen = margenProyectoConOpciones(lineasVivas, lineasDTO.filter(l => !l.noOfertada).flatMap(l => l.opciones
     .filter(o => ['definitiva', 'en_aprobacion', 'aprobada'].includes(o.estado) && o.verificacion?.costoNetoUnitario != null)
     .map(o => ({ filaId: l.filaId, neto: o.verificacion!.costoNetoUnitario as number }))), totalAsociados);
@@ -296,7 +304,7 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
 
   const activas = lineasDTO.flatMap(l => l.opciones.filter(o => o.estado !== 'descartada'));
   return {
-    lineas: lineasDTO, documentos, margen, sinCosteo: !estado, mensajes: mensajesUnificadosPorProveedor(lineasDTO), linksPendientes: await linksPendientesDelCosteo(negocioId, lineas),
+    lineas: lineasDTO, documentos, margen, sinCosteo: !estado, mensajes: mensajesUnificadosPorProveedor(lineasDTO), linksPendientes,
     costosAsociados, totalCostosAsociados: totalAsociados, avance,
     resumen: {
       lineas: lineasDTO.length,
@@ -308,21 +316,14 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
   };
 }
 
-async function armarDocumentos(negocioId: number, codigo: string, opcionesPorFila: Map<string, OpcionDTO[]>): Promise<DocumentoCotizacionDTO[]> {
-  const [docs] = await pool.query(
-    `SELECT id, documento_nombre, documento_url_local FROM documentos_cache
-     WHERE licitacion_codigo = ? AND subcategoria = 'cotizaciones' AND documento_url_local IS NOT NULL ORDER BY created_at ASC`, [codigo]) as any;
-  const [exts] = await pool.query(
-    `SELECT id, documento_url, error FROM auditor_extraccion WHERE negocio_id = ? AND documento_url IS NOT NULL ORDER BY id DESC`, [negocioId]) as any;
-  const ultimaPorUrl = new Map<string, any>();
-  for (const e of exts as any[]) if (!ultimaPorUrl.has(e.documento_url)) ultimaPorUrl.set(e.documento_url, e);
-
+function armarDocumentos(
+  docs: any[], ultimaPorUrl: Map<string, any>, cargadas: Awaited<ReturnType<typeof extraccionesPorIds>>,
+  decisiones: Map<string, DecisionSinLinea>, opcionesPorFila: Map<string, OpcionDTO[]>,
+): DocumentoCotizacionDTO[] {
   const opcionPorProducto = new Map<string, { opcionId: number; filaId: string }>(); // `${extraccionId}:${idx}`
   for (const [filaId, ops] of opcionesPorFila) for (const o of ops) if (o.estado !== 'descartada') for (const r of o.respaldos)
     if (r.vigente && r.extraccionId != null && r.productoIdx != null) opcionPorProducto.set(`${r.extraccionId}:${r.productoIdx}`, { opcionId: o.id, filaId });
 
-  const cargadas = await extraccionesPorIds([...ultimaPorUrl.values()].filter(e => !e.error).map(e => e.id));
-  const decisiones = await decisionesSinLinea(negocioId);
   const out: DocumentoCotizacionDTO[] = [];
   for (const d of docs as any[]) {
     const e = ultimaPorUrl.get(d.documento_url_local) || null;

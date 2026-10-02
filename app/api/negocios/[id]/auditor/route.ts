@@ -10,9 +10,10 @@
 //          crear_opcion · agregar_ficha · verificar_mercado · verificar_costo_ia · justificar_ahorro · posicion_precio · verificar_tecnico (compara la línea de la opción) · confirmar_celda · agregar_link · no_ofertar · reofertar · agregar/estimar/anular/restaurar_costo_asociado · descartar · restaurar · firmar · quitar_firma · solicitar_aprobacion · aprobar · rechazar
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { invalidarEnVuelo } from '@/app/lib/en-vuelo';
 import { contextoAuditor } from '@/app/lib/auditor-acceso';
 import {
-  armarPanelAuditor, cargarEstadoCosteo, leerDocumentoYCrearOpciones, crearOpcionesDesdeExtraccion, asignarProductoALinea, cambiarVia, descartarOpcion, restaurarOpcion, moverOpcionALinea,
+  armarPanelAuditorCompartido, cargarEstadoCosteo, leerDocumentoYCrearOpciones, crearOpcionesDesdeExtraccion, asignarProductoALinea, cambiarVia, descartarOpcion, restaurarOpcion, moverOpcionALinea,
   firmarOpcion, quitarFirma, solicitarAprobacion, resolverAprobacion, agregarLinkALinea, sugerirLineasDelNegocio, ignorarProductoSinLinea, crearOpcionManual, agregarFichaAOpcion, corregirCostoOpcion, quitarCorreccionCosto, buscarFichaEnLink, traerFichaDeLink, verificarMercadoDeOpcion, justificarAhorroDeOpcion, verificarCostoIADeOpcion, releerDocumento,
   verificarTecnicoDeOpcion, confirmarCeldaTecnica,
 } from '@/app/lib/auditor-opciones';
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   const c = await contextoAuditor(request, params);
   if (c instanceof NextResponse) return c;
   try {
-    const [panel, posicion, estadoCosteo] = await Promise.all([armarPanelAuditor(c.negocio.id, c.negocio.licitacion_codigo), ultimaPosicion(c.negocio.id).catch(() => null), cargarEstadoCosteo(c.negocio.id)]);
+    const [panel, posicion, estadoCosteo] = await Promise.all([armarPanelAuditorCompartido(c.negocio.id, c.negocio.licitacion_codigo), ultimaPosicion(c.negocio.id).catch(() => null), cargarEstadoCosteo(c.negocio.id)]);
     const pres = estadoCosteo ? await presupuestoNeto(c.negocio.id, estadoCosteo).catch(() => null) : null;
     return NextResponse.json({ success: true, ...panel, posicion, presupuesto: pres ? { neto: pres.neto, fuente: pres.fuente } : null });
   } catch (e) {
@@ -49,6 +50,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   const accion = String(body.accion || '');
   const opcionId = Number(body.opcionId);
 
+  invalidarEnVuelo(negocio.id);
   try {
     switch (accion) {
       case 'leer_documento': {
@@ -187,5 +189,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error('[auditor][POST]', accion, msg);
     return NextResponse.json({ error: msg }, { status: 400 });
+  } finally {
+    invalidarEnVuelo(negocio.id);
   }
 }

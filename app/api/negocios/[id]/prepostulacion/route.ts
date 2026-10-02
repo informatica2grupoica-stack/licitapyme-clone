@@ -7,8 +7,9 @@
 //   POST → { accion, ... }: revisar_linea · revisar_todas · confirmar · desconfirmar · confirmar_varios · no_aplica · restaurar · agregar_item · segunda_pasada
 import { NextRequest, NextResponse } from 'next/server';
 import { contextoAuditor } from '@/app/lib/auditor-acceso';
+import { invalidarEnVuelo } from '@/app/lib/en-vuelo';
 import {
-  migracionAplicada, armarPrePostulacion, revisarCompromisosDeLinea, revisarTodasLasLineas, confirmarItem, confirmarItems,
+  migracionAplicada, armarPrePostulacionCompartida, revisarCompromisosDeLinea, revisarTodasLasLineas, confirmarItem, confirmarItems,
   marcarItemNoAplica, agregarItemManual, correrSegundaPasada,
 } from '@/app/lib/auditor-prepostulacion';
 
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (c instanceof NextResponse) return c;
   try {
     if (!(await migracionAplicada())) return NextResponse.json({ success: true, migracionPendiente: true });
-    const dto = await armarPrePostulacion(c.negocio.id, c.negocio.licitacion_codigo);
+    const dto = await armarPrePostulacionCompartida(c.negocio.id, c.negocio.licitacion_codigo);
     return NextResponse.json({ success: true, ...dto });
   } catch (e) {
     console.error('[prepostulacion][GET]', String(e));
@@ -38,6 +39,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   const body = await request.json().catch(() => ({}));
   const accion = String(body.accion || '');
 
+  invalidarEnVuelo(negocio.id);
   try {
     if (!(await migracionAplicada())) return NextResponse.json({ error: 'Falta aplicar la migración 135 (node scripts/aplicar-migration-135.mjs).' }, { status: 409 });
     switch (accion) {
@@ -76,5 +78,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error('[prepostulacion][POST]', accion, msg);
     return NextResponse.json({ error: msg }, { status: 400 });
+  } finally {
+    invalidarEnVuelo(negocio.id);
   }
 }
