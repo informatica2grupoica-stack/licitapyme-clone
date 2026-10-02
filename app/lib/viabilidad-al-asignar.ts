@@ -18,6 +18,7 @@
 import type { RowDataPacket } from 'mysql2';
 import pool from '@/app/lib/db';
 import { procesarLicitacionCompleta } from '@/app/lib/pipeline-licitacion';
+import { ahoraChileSQL } from '@/app/lib/tz';
 
 /** Kill-switch: VIABILIDAD_AL_ASIGNAR=false apaga este camino (el cron sigue funcionando igual). */
 function habilitado(): boolean {
@@ -26,6 +27,57 @@ function habilitado(): boolean {
 
 /** Tope por análisis. Si se pasa, se abandona y queda para el cron — no bloquea la cola. */
 const TOPE_MS = Math.max(120_000, Number(process.env.VIABILIDAD_AL_ASIGNAR_TIMEOUT_MS) || 15 * 60_000);
+
+/** Tope de la descarga + pre-OCR de una licitación del puente (antes no tenía: una descarga colgada
+ *  bloqueaba toda la cola). */
+const TOPE_DESCARGA_MS = Math.max(120_000, Number(process.env.PUENTE_DESCARGA_TIMEOUT_MS) || 10 * 60_000);
+
+// ── COLA DURABLE DEL PUENTE (migration-136, tabla `puente_cola`) ────────────────────────────
+// La cola en memoria se pierde si el servidor reinicia. Cada licitación empujada al puente queda
+// también en BD con su estado e intentos; el job del scheduler (/api/cron/puente-cola) la retoma
+// aunque se apague el PC o se cierre el navegador. Todo best-effort: sin la tabla (migración sin
+// aplicar) el camino en memoria sigue funcionando como antes.
+const MAX_INTENTOS_PUENTE = 6;
+const BACKOFF_MIN = [10, 30, 120, 360, 720];   // espera tras el fallo n° 1, 2, 3...
+
+async function persistirEncolada(codigo: string, yaListo: boolean): Promise<void> {
+  try {
+    await pool.query(
+      `INSERT INTO puente_cola (licitacion_codigo, estado, intentos, proximo_intento)
+       VALUES (?, ?, 0, ?)
+       ON DUPLICATE KEY UPDATE estado = VALUES(estado), intentos = 0, ultimo_error = NULL,
+                               proximo_intento = VALUES(proximo_intento)`,
+      [codigo, yaListo ? 'LISTO' : 'PENDIENTE', ahoraChileSQL()]);
+  } catch { /* tabla ausente: solo cola en memoria */ }
+}
+
+async function persistirResultado(
+  codigo: string,
+  r: { ok: true } | { ok: false; error: string; terminal?: boolean },
+): Promise<void> {
+  try {
+    if (r.ok) {
+      await pool.query(`UPDATE puente_cola SET estado='LISTO', ultimo_error=NULL WHERE licitacion_codigo=?`, [codigo]);
+      return;
+    }
+    if (r.terminal) {
+      await pool.query(`UPDATE puente_cola SET estado='EXCLUIDA', ultimo_error=? WHERE licitacion_codigo=?`,
+        [r.error.slice(0, 300), codigo]);
+      return;
+    }
+    const [filas] = await pool.query<RowDataPacket[]>(
+      `SELECT intentos FROM puente_cola WHERE licitacion_codigo=?`, [codigo]);
+    const intentos = Number(filas[0]?.intentos ?? 0) + 1;
+    const agotada = intentos >= MAX_INTENTOS_PUENTE;
+    const espera = BACKOFF_MIN[Math.min(intentos - 1, BACKOFF_MIN.length - 1)];
+    await pool.query(
+      `UPDATE puente_cola SET estado=?, intentos=?, ultimo_error=?,
+              proximo_intento = DATE_ADD(?, INTERVAL ? MINUTE)
+        WHERE licitacion_codigo=?`,
+      [agotada ? 'AGOTADA' : 'PENDIENTE', intentos, r.error.slice(0, 300), ahoraChileSQL(), espera, codigo]);
+    if (agotada) console.error(`[viabilidad-al-asignar] ${codigo}: AGOTADA tras ${intentos} intentos — ${r.error.slice(0, 160)}`);
+  } catch { /* tabla ausente */ }
+}
 
 // `descargar`: viene del PUENTE (todavía no hay dueño ni documentos) → antes de la viabilidad se
 // bajan los documentos y se calienta el OCR. Al asignar los documentos ya vienen bajados.
@@ -91,16 +143,23 @@ async function vaciarCola(): Promise<void> {
       if (await yaTieneViabilidad(codigo)) {
         console.log(`[viabilidad-al-asignar] ${codigo}: ya tiene informe, se omite.`);
         await refrescarSemaforoPuente(codigo);
+        if (descargar) await persistirResultado(codigo, { ok: true });
         continue;
       }
       if (descargar) {
         try {
-          if (!(await asegurarDocumentos(codigo))) {
-            console.warn(`[viabilidad-al-asignar] ${codigo}: sin documentos descargables — queda para reintentar al asignar.`);
+          const hay = await Promise.race([
+            asegurarDocumentos(codigo),
+            new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`descarga/OCR sobre el tope de ${Math.round(TOPE_DESCARGA_MS / 60_000)} min`)), TOPE_DESCARGA_MS)),
+          ]);
+          if (!hay) {
+            console.warn(`[viabilidad-al-asignar] ${codigo}: sin documentos descargables — se reintenta.`);
+            await persistirResultado(codigo, { ok: false, error: 'sin documentos descargables' });
             continue;
           }
         } catch (e) {
           console.warn(`[viabilidad-al-asignar] ${codigo}: descarga falló — ${String(e).slice(0, 160)}`);
+          await persistirResultado(codigo, { ok: false, error: `descarga: ${String(e).slice(0, 250)}` });
           continue;
         }
       }
@@ -112,10 +171,18 @@ async function vaciarCola(): Promise<void> {
           new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`tope de ${Math.round(TOPE_MS / 60_000)} min`)), TOPE_MS)),
         ]);
         const segs = ((Date.now() - t0) / 1000).toFixed(1);
-        if (r?.ok) { console.log(`[viabilidad-al-asignar] ${codigo}: listo en ${segs}s.`); await refrescarSemaforoPuente(codigo); }
-        else console.warn(`[viabilidad-al-asignar] ${codigo}: sin informe tras ${segs}s — ${r?.error ?? 'motivo desconocido'} (queda para el cron).`);
+        if (r?.ok) {
+          console.log(`[viabilidad-al-asignar] ${codigo}: listo en ${segs}s.`);
+          await refrescarSemaforoPuente(codigo);
+          if (descargar) await persistirResultado(codigo, { ok: true });
+        } else {
+          const motivo = r?.error ?? 'motivo desconocido';
+          console.warn(`[viabilidad-al-asignar] ${codigo}: sin informe tras ${segs}s — ${motivo} (queda para reintento).`);
+          if (descargar) await persistirResultado(codigo, { ok: false, error: motivo, terminal: /EXCLUIDA/i.test(motivo) });
+        }
       } catch (e) {
-        console.warn(`[viabilidad-al-asignar] ${codigo}: abandonado tras ${((Date.now() - t0) / 1000).toFixed(1)}s — ${String(e).slice(0, 160)} (queda para el cron).`);
+        console.warn(`[viabilidad-al-asignar] ${codigo}: abandonado tras ${((Date.now() - t0) / 1000).toFixed(1)}s — ${String(e).slice(0, 160)} (queda para reintento).`);
+        if (descargar) await persistirResultado(codigo, { ok: false, error: String(e).slice(0, 250) });
       }
     }
   } finally {
@@ -133,7 +200,9 @@ export async function encolarViabilidadPuente(codigos: string[]): Promise<void> 
     if (!habilitado()) return;
     for (const codigo of codigos) {
       if (!codigo || cola.some(c => c.codigo === codigo)) continue;
-      if (await yaTieneViabilidad(codigo)) continue;
+      const listo = await yaTieneViabilidad(codigo);
+      await persistirEncolada(codigo, listo);
+      if (listo) continue;
       cola.push({ codigo, usuarioId: 0, descargar: true });
     }
     console.log(`[viabilidad-al-asignar] puente: ${cola.length} en cola.`);
@@ -158,5 +227,42 @@ export async function encolarViabilidadAlAsignar(codigo: string, usuarioId: numb
     void vaciarCola();
   } catch (e) {
     console.error('[viabilidad-al-asignar] no se pudo encolar:', String(e).slice(0, 200));
+  }
+}
+
+/**
+ * Retoma lo que quedó a medias o falló (lo llama el scheduler cada pocos minutos). Siembra la cola
+ * durable con lo que ya estaba en el puente antes de existir la tabla, y encola lo PENDIENTE cuyo
+ * reintento ya toca. Si la cola en memoria está trabajando no hace nada: ya hay un proceso vivo.
+ * No espera a que termine el análisis (dura minutos) y nunca lanza.
+ */
+export async function reanudarPuenteCola(): Promise<{ corriendo: boolean; encoladas: number; pendientes: number }> {
+  try {
+    if (!habilitado()) return { corriendo: false, encoladas: 0, pendientes: 0 };
+    await pool.query(
+      `INSERT IGNORE INTO puente_cola (licitacion_codigo, estado, proximo_intento)
+       SELECT pr.licitacion_codigo, 'PENDIENTE', ? FROM puente_radar pr
+        WHERE NOT EXISTS (SELECT 1 FROM viabilidad_licitacion v WHERE v.licitacion_codigo = pr.licitacion_codigo)`,
+      [ahoraChileSQL()]);
+    const [tot] = await pool.query<RowDataPacket[]>(
+      `SELECT COUNT(*) AS n FROM puente_cola WHERE estado='PENDIENTE'`);
+    const pendientes = Number(tot[0]?.n ?? 0);
+    if (corriendo) return { corriendo: true, encoladas: 0, pendientes };
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT licitacion_codigo FROM puente_cola
+        WHERE estado='PENDIENTE' AND proximo_intento <= ?
+        ORDER BY proximo_intento ASC LIMIT 30`, [ahoraChileSQL()]);
+    let encoladas = 0;
+    for (const r of rows) {
+      const codigo = r.licitacion_codigo as string;
+      if (cola.some(c => c.codigo === codigo)) continue;
+      cola.push({ codigo, usuarioId: 0, descargar: true });
+      encoladas++;
+    }
+    if (encoladas > 0) void vaciarCola();
+    return { corriendo: false, encoladas, pendientes };
+  } catch (e) {
+    console.error('[viabilidad-al-asignar] reanudar cola del puente:', String(e).slice(0, 200));
+    return { corriendo: false, encoladas: 0, pendientes: 0 };
   }
 }

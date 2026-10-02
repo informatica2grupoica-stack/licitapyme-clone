@@ -133,8 +133,13 @@ export function esUrlAnalizable(url?: string) {
   return ['pdf', 'doc', 'docx', 'xls', 'xlsx'].includes(ext) && url.startsWith('https://');
 }
 
+// Se inyecta con dangerouslySetInnerHTML y el texto viene de la IA (que lee documentos de terceros):
+// se ESCAPA el HTML antes de convertir **negritas**, para que una respuesta con <img onerror=…> no corra.
 export function formatNegritas(texto: string) {
-  return texto.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  const seguro = texto
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  return seguro.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 }
 
 // ======================================================

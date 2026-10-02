@@ -230,7 +230,7 @@ export default function LicitacionDetallePage() {
           })));
         }
       }
-    } catch {}
+    } catch (e) { console.error('[licitacion] no se pudieron cargar los documentos:', e); }
     finally { setCargandoDocs(false); }
   }, [codigoDecoded]);
 
@@ -240,7 +240,7 @@ export default function LicitacionDetallePage() {
       const res = await fetch(`/api/licitacion-ia/${encodeURIComponent(codigoDecoded)}`);
       const data = await res.json();
       if (data.success) setAnalisisIA(data.analisis);
-    } catch {}
+    } catch (e) { console.error('[licitacion] no se pudo cargar el análisis IA:', e); }
     finally { setAnalisisIACargado(true); }
   }, [codigoDecoded]);
 
@@ -250,7 +250,7 @@ export default function LicitacionDetallePage() {
       const res = await fetch(`/api/licitacion-viabilidad/${encodeURIComponent(codigoDecoded)}`);
       const data = await res.json();
       if (data.success) setViabilidad(data.viabilidad);
-    } catch {}
+    } catch (e) { console.error('[licitacion] no se pudo cargar la viabilidad:', e); }
     finally { setViabilidadCargada(true); }
   }, [codigoDecoded]);
 
@@ -426,7 +426,7 @@ export default function LicitacionDetallePage() {
         if (data.resumen_licitacion) setResumenClasificacion(data.resumen_licitacion);
         await fetchDocumentos();
       }
-    } catch {}
+    } catch (e) { console.error('[licitacion] falló la clasificación de documentos:', e); }
     finally { setClasificando(false); }
   }, [codigoDecoded, fetchDocumentos]);
 

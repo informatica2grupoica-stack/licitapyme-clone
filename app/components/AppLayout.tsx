@@ -13,6 +13,7 @@ import { useTheme } from '@/app/lib/theme-context';
 import { EntregaPendienteModal } from '@/app/components/EntregaPendienteModal';
 import { CierreVencidoModal } from '@/app/components/CierreVencidoModal';
 import { AprobacionPendienteModal } from '@/app/components/AprobacionPendienteModal';
+import { pedirResumenAprobaciones } from '@/app/lib/aprobaciones-resumen';
 
 function tiempoRel(iso?: string) {
   if (!iso) return '';
@@ -285,7 +286,7 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
   useEffect(() => {
     if (!puedeAprobar) return;
     const cargar = () => {
-      fetch('/api/aprobaciones/resumen').then(r => r.json()).then(d => {
+      pedirResumenAprobaciones().then(d => {
         if (d.success) setTotalAprobacionesPendientes(d.totalPendientes || 0);
       }).catch(() => {});
     };

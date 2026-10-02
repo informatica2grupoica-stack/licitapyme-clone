@@ -521,7 +521,7 @@ export default function AdminUsuariosPage() {
       const res = await fetch('/api/admin/usuarios');
       const data = await res.json();
       if (data.success) setUsuarios(data.usuarios);
-    } catch { }
+    } catch (e) { console.error('[admin/usuarios] no se pudo cargar la lista:', e); }
     finally { setCargando(false); }
   };
 
@@ -576,7 +576,7 @@ export default function AdminUsuariosPage() {
               Administración de Usuarios
             </h1>
             <p className="text-sm text-gray-500 dark:text-zinc-400 mt-1">
-              {usuarios.length} usuario{usuarios.length !== 1 ? 's' : ''} registrado{usuarios.length !== 1 ? 's' : ''}
+              {cargando ? 'Cargando usuarios…' : `${usuarios.length} usuario${usuarios.length !== 1 ? 's' : ''} registrado${usuarios.length !== 1 ? 's' : ''}`}
             </p>
           </div>
           <button

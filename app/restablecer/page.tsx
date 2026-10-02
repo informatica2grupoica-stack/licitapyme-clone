@@ -108,10 +108,11 @@ function RestablecerContent() {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">Contraseña nueva</label>
+                <label htmlFor="restablecer-password" className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">Contraseña nueva</label>
                 <div className="relative">
                   <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
+                    id="restablecer-password"
                     type={mostrarPass ? 'text' : 'password'}
                     value={form.password}
                     onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
@@ -119,6 +120,7 @@ function RestablecerContent() {
                     className="w-full pl-10 pr-10 py-2.5 border border-slate-200 bg-white rounded-xl text-[13px] focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all shadow-sm"
                   />
                   <button type="button" onClick={() => setMostrarPass(!mostrarPass)}
+                    aria-label={mostrarPass ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                     className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
                     {mostrarPass ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
@@ -126,10 +128,11 @@ function RestablecerContent() {
               </div>
 
               <div>
-                <label className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">Repetir contraseña</label>
+                <label htmlFor="restablecer-confirm" className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">Repetir contraseña</label>
                 <div className="relative">
                   <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
+                    id="restablecer-confirm"
                     type={mostrarPass ? 'text' : 'password'}
                     value={form.confirm}
                     onChange={e => setForm(p => ({ ...p, confirm: e.target.value }))}

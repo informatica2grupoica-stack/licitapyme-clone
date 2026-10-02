@@ -1404,6 +1404,9 @@ function DetalleContent() {
           <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-[13px]">
             <AlertCircle size={14} /> {error || 'No encontrado'}
           </div>
+          <Link href="/negocios" className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-indigo-600 hover:underline">
+            <ArrowLeft size={14} /> Volver a Negocios
+          </Link>
         </div>
       </AppLayout>
     );

@@ -69,12 +69,13 @@ export default function RecuperarPage() {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">
+                <label htmlFor="recuperar-email" className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">
                   Correo electrónico
                 </label>
                 <div className="relative">
                   <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
+                    id="recuperar-email"
                     type="email"
                     value={email}
                     onChange={e => setEmail(e.target.value)}

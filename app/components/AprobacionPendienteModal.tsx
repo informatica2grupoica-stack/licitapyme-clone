@@ -11,6 +11,7 @@ import { useRouter } from 'next/navigation';
 import { IconClipboardCheck as ClipboardCheck, IconX as X } from '@tabler/icons-react';
 import { useSession } from '@/app/lib/session-context';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
+import { pedirResumenAprobaciones } from '@/app/lib/aprobaciones-resumen';
 
 const clave = (userId: number) => `aprobaciones-popup-visto-${userId}`;
 
@@ -25,8 +26,7 @@ export function AprobacionPendienteModal() {
   const cargar = useCallback(async () => {
     if (!usuario || !puedeAprobar) return;
     try {
-      const res = await fetch('/api/aprobaciones/resumen');
-      const data = await res.json();
+      const data = await pedirResumenAprobaciones();
       if (!data.success) return;
       const total = data.totalPendientes || 0;
       setTotalPendientes(total);

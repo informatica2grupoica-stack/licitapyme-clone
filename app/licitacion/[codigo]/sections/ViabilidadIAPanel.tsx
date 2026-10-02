@@ -545,10 +545,11 @@ function TrazaFuentes({ fuentes }: { fuentes?: { origen?: string; elegida?: stri
 interface HallazgoValidador { regla: string; severidad: 'error' | 'aviso'; mensaje: string }
 function PanelValidador({ validador }: { validador?: { ok?: boolean; hallazgos?: HallazgoValidador[] } | null }) {
   const hallazgos = validador?.hallazgos || [];
-  if (hallazgos.length === 0) return null;
   const errores = hallazgos.filter(h => h.severidad === 'error');
   const avisos = hallazgos.filter(h => h.severidad !== 'error');
+  // Hooks SIEMPRE antes de cualquier return temprano (si no, React #310 cuando llegan hallazgos después).
   const [abierto, setAbierto] = useState(errores.length > 0);
+  if (hallazgos.length === 0) return null;
   const hayErrores = errores.length > 0;
   return (
     <div className={`rounded-xl border ${hayErrores ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>

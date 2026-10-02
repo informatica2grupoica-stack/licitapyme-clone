@@ -132,12 +132,13 @@ function LoginContent() {
 
             <form onSubmit={handleSubmit} className="mt-6 space-y-4">
               <div>
-                <label className="mb-1.5 block text-[12px] font-semibold uppercase tracking-wider text-zinc-500">
+                <label htmlFor="login-email" className="mb-1.5 block text-[12px] font-semibold uppercase tracking-wider text-zinc-500">
                   Correo electrónico
                 </label>
                 <div className="relative">
                   <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
                   <input
+                    id="login-email"
                     type="email"
                     value={form.email}
                     onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
@@ -150,12 +151,13 @@ function LoginContent() {
               </div>
 
               <div>
-                <label className="mb-1.5 block text-[12px] font-semibold uppercase tracking-wider text-zinc-500">
+                <label htmlFor="login-password" className="mb-1.5 block text-[12px] font-semibold uppercase tracking-wider text-zinc-500">
                   Contraseña
                 </label>
                 <div className="relative">
                   <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
                   <input
+                    id="login-password"
                     type={mostrarPass ? 'text' : 'password'}
                     value={form.password}
                     onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
@@ -165,6 +167,7 @@ function LoginContent() {
                     className={`${inputCls} pr-10`}
                   />
                   <button type="button" onClick={() => setMostrarPass(!mostrarPass)}
+                    aria-label={mostrarPass ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                     className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-400 transition-colors hover:text-zinc-600">
                     {mostrarPass ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>

@@ -668,7 +668,7 @@ function DestacadaCard({ d, isAdmin }: { d: Destacada; isAdmin: boolean }) {
   const col = colorUsuario(neg.usuario_email || neg.usuario_nombre);
   const m = DESTACADA_META[tipo];
   const diasPreguntas = tipo === 'preguntas' && neg.fecha_fin_preguntas
-    ? Math.max(0, Math.ceil((new Date(neg.fecha_fin_preguntas).getTime() - Date.now()) / 86400000))
+    ? Math.max(0, dayjs(neg.fecha_fin_preguntas).startOf('day').diff(dayjs().startOf('day'), 'day'))
     : null;
   const esAlerta = tipo === 'preguntas'; // cierre de preguntas: siempre dentro de 1-2 días → destaca
 

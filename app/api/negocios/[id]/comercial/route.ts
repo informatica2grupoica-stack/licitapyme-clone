@@ -176,13 +176,16 @@ async function leerResumenesTecnicos(negocioId: number): Promise<Map<number, any
 // no lo necesitan — sus respuestas no repintan esa lista, así que no vale la pena leer el informe
 // en cada PATCH.
 export async function leerItems(negocioId: number, licitacionCodigo?: string) {
-  const [rows] = await pool.query(
-    `SELECT ${COLS} FROM checklist_comercial WHERE negocio_id = ? ORDER BY bloque, orden, id`,
-    [negocioId],
-  ) as any;
-  const documentos = await leerDocumentosPorItem(negocioId);
-  const resumenesTecnicos = await leerResumenesTecnicos(negocioId);
-  const informe = licitacionCodigo ? await leerInforme(licitacionCodigo).catch(() => null) : null;
+  // Independientes entre sí: en paralelo (la base es remota, ~155 ms por consulta).
+  const [[rows], documentos, resumenesTecnicos, informe] = await Promise.all([
+    pool.query(
+      `SELECT ${COLS} FROM checklist_comercial WHERE negocio_id = ? ORDER BY bloque, orden, id`,
+      [negocioId],
+    ) as Promise<any>,
+    leerDocumentosPorItem(negocioId),
+    leerResumenesTecnicos(negocioId),
+    licitacionCodigo ? leerInforme(licitacionCodigo).catch(() => null) : null,
+  ]);
   return ordenarAnexosPorNumero(rows as any[]).map(r => ({
     ...r,
     generable: !!r.generable,
@@ -555,25 +558,27 @@ const CATEGORIA_CAJA_A_ANEXO: Record<string, DocumentoCandidato['categoria']> = 
   ANEXOS_OFERENTE: 'sin_clasificar',
 };
 
-async function decidirGeneracionDeBloques(negocio: any) {
-  const [docRows] = await pool.query(
-    `SELECT id, documento_nombre, categoria, documento_url_local FROM documentos_cache
-      WHERE licitacion_codigo = ? AND categoria <> 'DOCUMENTOS_PROPIOS'
-        AND (documento_nombre LIKE '%.docx' OR documento_nombre LIKE '%.doc')`,
-    [negocio.licitacion_codigo],
-  ) as any;
+async function decidirGeneracionDeBloques(negocio: any, itemsYa?: any[]) {
+  const [[docRows], [costeoRows], items] = await Promise.all([
+    pool.query(
+      `SELECT id, documento_nombre, categoria, documento_url_local FROM documentos_cache
+        WHERE licitacion_codigo = ? AND categoria <> 'DOCUMENTOS_PROPIOS'
+          AND (documento_nombre LIKE '%.docx' OR documento_nombre LIKE '%.doc')`,
+      [negocio.licitacion_codigo],
+    ) as Promise<any>,
+    pool.query(
+      `SELECT id FROM checklist_comercial_costeo WHERE negocio_id = ? AND vigente = 1 LIMIT 1`,
+      [negocio.id],
+    ) as Promise<any>,
+    // Los items que el GET ya leyó (solo usa estado/bloque/ofertamos/valor_*): no se vuelven a pedir.
+    itemsYa ?? leerItems(negocio.id, negocio.licitacion_codigo),
+  ]);
   const documentos: DocumentoCandidato[] = (docRows as any[]).map(d => ({
     id: d.id, nombre: d.documento_nombre, url: d.documento_url_local,
     categoria: CATEGORIA_CAJA_A_ANEXO[d.categoria] ?? 'sin_clasificar',
   }));
-
-  const [costeoRows] = await pool.query(
-    `SELECT id FROM checklist_comercial_costeo WHERE negocio_id = ? AND vigente = 1 LIMIT 1`,
-    [negocio.id],
-  ) as any;
   const hayCosteoVigente = (costeoRows as any[]).length > 0;
 
-  const items = await leerItems(negocio.id, negocio.licitacion_codigo);
   // Sin las alertas de cumplimiento: viven en su propia sección y no son parte del bloque que
   // genera el anexo (ver esAlertaDeCumplimiento). Con ellas dentro, el mensaje decía "faltan 31
   // puntos" mientras el encabezado del bloque mostraba 28.
@@ -605,7 +610,11 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
-    if (!(await migracionAplicada())) {
+    const activo = tieneInformacionComercial(negocio.estado_pipeline);
+    // Tres lecturas independientes a la vez (la base es remota). La del foro es solo el caché que ya dejó el cron.
+    const foroCacheP = activo ? leerCachePreguntas(negocio.licitacion_codigo).catch(() => null) : Promise.resolve(null);
+    const [migracionOk, informe] = await Promise.all([migracionAplicada(), leerInforme(negocio.licitacion_codigo)]);
+    if (!migracionOk) {
       return NextResponse.json({
         success: true, migracionPendiente: true, activo: tieneInformacionComercial(negocio.estado_pipeline),
         items: [], resumen: resumirChecklist([]), puedeAprobar: false, sinViabilidad: false,
@@ -613,9 +622,6 @@ export async function GET(request: NextRequest, { params }: Params) {
         semaforo: 'VERDE' as const, causalesBloqueo: [], horasRestantesCierre: null,
       });
     }
-
-    const activo = tieneInformacionComercial(negocio.estado_pipeline);
-    const informe = await leerInforme(negocio.licitacion_codigo);
 
     let items = await leerItems(negocio.id);
     // Primera entrada a ANEXOS: se materializa el checklist. Solo si la etapa está activa,
@@ -651,7 +657,10 @@ export async function GET(request: NextRequest, { params }: Params) {
     // o pasa a CARGADO para que el asesor la apruebe. Un camino que escribía veredictos sin
     // reevaluar la línea la dejó atascada, sin botón para aprobarla.
     if (activo) {
-      const atascadas = items.filter((i: any) => i.tipo === 'linea_tecnica' && i.estado === 'PENDIENTE');
+      // intentarAutoTransicion vuelve sin hacer nada si la línea no tiene características, o le queda alguna sin evaluar o por confirmar
+      // al proveedor: esos datos ya vienen en resumen_tecnico, así que no se consulta línea por línea (eran ~12 consultas en cada carga).
+      const atascadas = items.filter((i: any) => i.tipo === 'linea_tecnica' && i.estado === 'PENDIENTE'
+        && i.resumen_tecnico && i.resumen_tecnico.total > 0 && i.resumen_tecnico.sinEvaluar === 0 && i.resumen_tecnico.pendientesProveedor === 0);
       if (atascadas.length > 0) {
         try {
           const { intentarAutoTransicion } = await import('./[itemId]/caracteristicas/route');
@@ -669,7 +678,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     let cambiosForo: Awaited<ReturnType<typeof revisarDeltaForo>> = [];
     if (activo) {
       try {
-        const foroCache = await leerCachePreguntas(negocio.licitacion_codigo);
+        const foroCache = await foroCacheP;
         if (foroCache && foroCache.preguntas.length > 0) {
           cambiosForo = await revisarDeltaForo({
             negocioId: negocio.id, licitacionCodigo: negocio.licitacion_codigo, licitacionNombre: negocio.licitacion_nombre,
@@ -680,31 +689,37 @@ export async function GET(request: NextRequest, { params }: Params) {
         }
       } catch (e) { console.error('[comercial][GET] control-foro falló:', String(e)); }
     }
-    let foroSnapshotInfo: { ultimoDelta: any[]; ultimoDeltaAt: string | null; bloquesRevertidos: string[] } | null = null;
-    try {
-      const [rows] = await pool.query(
-        `SELECT ultimo_delta, ultimo_delta_at, bloques_revertidos FROM checklist_comercial_foro_snapshot WHERE negocio_id = ? LIMIT 1`,
-        [negocio.id],
-      ) as any;
-      const row = (rows as any[])[0];
-      if (row?.ultimo_delta) {
-        foroSnapshotInfo = {
-          ultimoDelta: JSON.parse(row.ultimo_delta),
-          ultimoDeltaAt: row.ultimo_delta_at,
-          bloquesRevertidos: row.bloques_revertidos ? row.bloques_revertidos.split(',') : [],
-        };
-      }
-    } catch { /* migración 54 pendiente */ }
+    // Lecturas finales independientes entre sí → a la vez (antes eran ~10 consultas una tras otra).
+    const enPrePostulacion = ['ANEXOS', 'ANEXO_LISTO', 'VISADO'].includes(normalizarEstado(negocio.estado_pipeline));
+    const [foroSnapshotInfo, congelamiento, generacion, puedeAprobar, candado] = await Promise.all([
+      (async () => {
+        let info: { ultimoDelta: any[]; ultimoDeltaAt: string | null; bloquesRevertidos: string[] } | null = null;
+        try {
+          const [rows] = await pool.query(
+            `SELECT ultimo_delta, ultimo_delta_at, bloques_revertidos FROM checklist_comercial_foro_snapshot WHERE negocio_id = ? LIMIT 1`,
+            [negocio.id],
+          ) as any;
+          const row = (rows as any[])[0];
+          if (row?.ultimo_delta) {
+            info = {
+              ultimoDelta: JSON.parse(row.ultimo_delta),
+              ultimoDeltaAt: row.ultimo_delta_at,
+              bloquesRevertidos: row.bloques_revertidos ? row.bloques_revertidos.split(',') : [],
+            };
+          }
+        } catch { /* migración 54 pendiente */ }
+        return info;
+      })(),
+      leerCongelamiento(negocio.id, rol),
+      decidirGeneracionDeBloques(negocio, items),
+      esAsesor(userId, rol),
+      // PRE-POSTULACIÓN (30-sep-2026): mientras el certificado de admisibilidad tenga causales abiertas o quede un compromiso
+      // técnico-administrativo sin confirmar, no se generan los anexos. Solo aplica en las etapas previas a postular y a los negocios
+      // que ya trabajan con el Auditor unificado (candadoDelNegocio devuelve null si no: el flujo anterior no se toca).
+      activo && enPrePostulacion ? candadoDelNegocio(negocio.id, negocio.licitacion_codigo) : Promise.resolve(null),
+    ]);
 
     const { semaforo, causales, horasRestantes } = semaforoDelNegocio(negocio, items);
-    const congelamiento = await leerCongelamiento(negocio.id, rol);
-    const generacion = await decidirGeneracionDeBloques(negocio);
-
-    // PRE-POSTULACIÓN (30-sep-2026): mientras el certificado de admisibilidad tenga causales abiertas o quede un compromiso
-    // técnico-administrativo sin confirmar, no se generan los anexos. Solo aplica en las etapas previas a postular y a los negocios
-    // que ya trabajan con el Auditor unificado (candadoDelNegocio devuelve null si no: el flujo anterior no se toca).
-    const enPrePostulacion = ['ANEXOS', 'ANEXO_LISTO', 'VISADO'].includes(normalizarEstado(negocio.estado_pipeline));
-    const candado = activo && enPrePostulacion ? await candadoDelNegocio(negocio.id, negocio.licitacion_codigo) : null;
     if (candado && !candado.puedeGenerarAnexos) {
       const motivo = motivoCandado(candado);
       for (const b of ['COMERCIAL', 'TECNICO'] as const) generacion[b] = { puede: false, motivo, documentoSugerido: null, alternativas: [] };
@@ -723,7 +738,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       // ¿Ya se puede generar el anexo económico / técnico desde acá? Ver auditor-generacion.ts:
       // la UI muestra el botón o el motivo por el que todavía no, nunca un botón muerto.
       generacion,
-      puedeAprobar: await esAsesor(userId, rol),
+      puedeAprobar,
       esAsignado: Number(negocio.asignado_a) === Number(userId),
       modalidad: {
         porLinea: informe ? esPorLinea(informe) : false,

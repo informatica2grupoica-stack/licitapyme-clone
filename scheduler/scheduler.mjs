@@ -110,6 +110,9 @@ async function jobViabilidad() { await loop('viabilidad',       '/api/cron/viabi
 // Piloto: mismo trabajo pero acotado a los perfiles con permisos.viabilidad_automatica=true
 // (hoy solo "Asesor"). Va DESPUÉS del cron de sistema para no competir por el mismo cupo de IA
 // en el mismo instante; universo chico → lote/pasadas bajos.
+// Puente: retoma descarga + viabilidad de lo empujado que falló o quedó a medias (cola durable,
+// migration-136). Solo arranca la cola en el servidor; el trabajo sigue ahí aunque este job termine.
+async function jobPuenteCola() { await loop('puente (reintentos)', '/api/cron/puente-cola', { maxPasadas: 1 }); }
 async function jobViabilidadPerfil() { await loop('viabilidad (perfil piloto)', '/api/cron/viabilidad-perfil', { lote: 2, maxPasadas: 3 }); }
 
 // ── RESULTADO (ganamos/perdimos): lo más importante, pero ya NO cada 5 min ────────────────
@@ -183,6 +186,7 @@ const opts = { timezone: TZ };
 cron.schedule('0 */4 * * *',    jobIntake,     opts);   // 00,04,08,12,16,20
 cron.schedule('30 */4 * * *',   jobEnriquecer, opts);   // +30 min
 cron.schedule('0 1-23/4 * * *', jobPrefiltro,  opts);   // 01,05,09,13,17,21 (1h después del intake)
+cron.schedule('*/10 * * * *',   () => sinSolapar('puente-cola', jobPuenteCola), opts); // cada 10 min: reintenta lo del puente
 cron.schedule('0 */2 * * *',    jobDocsNeg,    opts);   // cada 2h: reintenta descargas de asignadas
 // CADA 30 MINUTOS: resultado de adjudicación (ganamos/perdimos) — lo más importante, bajado desde
 // 5 min el 2026-09-15 porque agotaba la cuota diaria del ticket de MP (ver comentario en jobGanadaPerdida).
