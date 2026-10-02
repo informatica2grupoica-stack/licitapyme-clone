@@ -7,7 +7,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { IconArrowLeft as ArrowLeft, IconCheck as Check } from '@tabler/icons-react';
+import { IconArrowLeft as ArrowLeft, IconCheck as Check, IconCalculator as Calculator } from '@tabler/icons-react';
 
 export interface ItemMenuNegocio {
   key: string;
@@ -21,6 +21,8 @@ export interface ItemMenuNegocio {
   // en todo momento, pedido del usuario, 29-sep-2026) — se deja el soporte por si vuelve a hacer
   // falta para otro ítem futuro.
   disabled?: boolean;
+  // Sub-ítem: se pinta sangrado bajo el ítem anterior (Postulación bajo Auditor).
+  sub?: boolean;
 }
 
 export interface NavSeccionesNegocioInput {
@@ -41,6 +43,8 @@ export interface NavSeccionesNegocioInput {
   // explícito del usuario, 29-sep-2026 — "después lo vemos si lo activamos con algún estado"). Solo
   // /negocios/[id] lo pasa.
   puedeVerAuditorCompra?: boolean;
+  // Postulación (PDFs a subir + resumen del Auditor): sub-ítem bajo Auditor.
+  hayPostulacion?: boolean;
 }
 
 // Arma la lista de ítems del menú lateral: MISMO orden, MISMAS etiquetas y MISMO criterio de
@@ -54,7 +58,7 @@ export interface NavSeccionesNegocioInput {
 // Resultado/Preguntas (solo con Ganada o Perdida) → Costeo → Auditor Técnico → Auditor de Compra
 // (disponibles desde que se asigna, ver tieneInformacionComercial en checklist-comercial.ts).
 export function construirNavSeccionesNegocio(input: NavSeccionesNegocioInput): ItemMenuNegocio[] {
-  const { documentosCount, hayResultado, itemsCount, hayCosteo, hayAuditorTecnico, auditorCount, auditorAlerta, puedeVerAuditorCompra } = input;
+  const { documentosCount, hayResultado, itemsCount, hayCosteo, hayAuditorTecnico, auditorCount, auditorAlerta, puedeVerAuditorCompra, hayPostulacion } = input;
   return [
     { key: 'resumen',    label: 'Resumen',    count: null },
     { key: 'documentos', label: 'Documentos', count: documentosCount || null },
@@ -67,6 +71,7 @@ export function construirNavSeccionesNegocio(input: NavSeccionesNegocioInput): I
     ...(hayAuditorTecnico || puedeVerAuditorCompra || hayCosteo
       ? [{ key: 'comercial', label: 'Auditor', count: auditorCount || null, alerta: !!auditorAlerta, variante: 'compra' as const }]
       : []),
+    ...(hayPostulacion ? [{ key: 'postulacion', label: 'Postulación', count: null, variante: 'compra' as const, sub: true }] : []),
   ];
 }
 
@@ -166,9 +171,11 @@ interface Props {
   // Claves ya visitadas en el flujo (ver useFlujoNegocio) — se pintan de otro color aunque no
   // estén activas, para que se note el avance ("línea de realización").
   visitados?: Set<string>;
+  // Acceso rápido fijo bajo el menú (Costeo: abre la burbuja flotante sin salir de la sección actual).
+  accesoRapido?: { label: string; onClick: () => void };
 }
 
-export function MenuNegocioLateral({ items, activa, onSelect, volverHref, onVolver, cargandoContadores, visitados }: Props) {
+export function MenuNegocioLateral({ items, activa, onSelect, volverHref, onVolver, cargandoContadores, visitados, accesoRapido }: Props) {
   const clsVolver = 'flex items-center gap-1.5 text-[12px] text-zinc-500 hover:text-zinc-900 transition-colors font-medium';
   return (
     <aside className="hidden lg:flex flex-col w-44 border-r border-zinc-200/80 bg-white flex-shrink-0 overflow-y-auto">
@@ -203,7 +210,7 @@ export function MenuNegocioLateral({ items, activa, onSelect, volverHref, onVolv
               <button
                 key={s.key}
                 onClick={() => onSelect(s.key)}
-                className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[12.5px] transition-all ${
+                className={`w-full flex items-center justify-between py-2 rounded-lg text-[12.5px] transition-all ${s.sub ? 'pl-6 pr-2.5' : 'px-2.5'} ${
                   activo
                     ? (esCompra ? 'bg-amber-50 text-amber-700 font-bold' : 'bg-indigo-50 text-indigo-700 font-bold')
                     : visitado
@@ -228,6 +235,17 @@ export function MenuNegocioLateral({ items, activa, onSelect, volverHref, onVolv
           })}
         </nav>
       </div>
+      {accesoRapido && (
+        <div className="px-3 pb-3 mt-auto">
+          <button
+            onClick={accesoRapido.onClick}
+            title="Abre el costeo digital sin salir de esta sección"
+            className="w-full flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-[12.5px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors"
+          >
+            <Calculator size={14} /> {accesoRapido.label}
+          </button>
+        </div>
+      )}
     </aside>
   );
 }

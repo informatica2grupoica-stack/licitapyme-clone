@@ -27,6 +27,7 @@ import { Banner } from '@/app/components/ui/Banner';
 import { StatCard } from '@/app/components/ui/StatCard';
 import { IconTrophy as Trophy, IconCircleX as XCircle, IconExternalLink as ExternalLink, IconBuilding as Building2, IconCalendar as Calendar, IconInbox as Inbox, IconAward as Award, IconUsers as Users, IconFileCheck as FileCheck2, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCircleCheck as CheckCircle2, IconWallet as Wallet, IconTarget as Target, IconSearch as Search, IconLayoutList as LayoutList, IconLayoutGrid as LayoutGrid, IconX as X, IconArrowsUpDown as ArrowUpDown, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconDownload as Download, IconLoader2 as Loader2 } from '@tabler/icons-react';
 import { useToast } from '@/app/components/ui/toast';
+import { ChipsOc } from '@/app/components/OcChips';
 import { getEstadoPipeline } from '@/app/lib/pipeline';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { fechaHoraParaExcel, hojaDeFilas } from '@/app/lib/exportar-fechas';
@@ -76,25 +77,8 @@ function fmtFecha(s: string | null | undefined, formato = 'DD/MM/YYYY') {
   const d = dayjs(s);
   return d.isValid() ? d.format(formato) : '—';
 }
-// Ficha pública de la orden de compra en Mercado Público (la misma que abre el portal).
+// Ficha pública de la OC en Mercado Público — solo para la columna «Link OC» del Excel (en pantalla la OC se ve en el visor).
 const urlOc = (codigo: string) => `https://www.mercadopublico.cl/PurchaseOrder/Modules/PO/DetailsPurchaseOrder.aspx?codigoOC=${encodeURIComponent(codigo)}`;
-
-// N° de OC con botón "Ir" que abre la ficha en Mercado Público. Una chip por orden (casi siempre una).
-function ChipsOc({ codigos }: { codigos?: string[] }) {
-  if (!codigos?.length) return null;
-  return (
-    <>
-      {codigos.map(c => (
-        <a key={c} href={urlOc(c)} target="_blank" rel="noopener noreferrer"
-          onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}
-          title={`Ir a la orden de compra ${c} en Mercado Público`}
-          className="inline-flex items-center gap-1 text-[10.5px] font-mono font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-full pl-2 pr-1.5 py-px transition-colors">
-          OC {c} <span className="font-sans font-bold">Ir</span> <ExternalLink size={10} />
-        </a>
-      ))}
-    </>
-  );
-}
 
 const tsDe = (s: string | null | undefined) => { const d = dayjs(s ?? ''); return d.isValid() ? d.valueOf() : 0; };
 

@@ -31,6 +31,7 @@ import { extractTipoFromCodigo, getTipoLicitacion } from '@/app/lib/tipos-licita
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
+import { ChipsOc } from '@/app/components/OcChips';
 import { Select } from '@/app/components/ui/Select';
 import { StatCard } from '@/app/components/ui/StatCard';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
@@ -228,24 +229,6 @@ function FechaPostulacionChip({ iso }: { iso?: string | null }) {
 // adjudicó, muestra la fecha real; si sigue en evaluación, la ESTIMADA de la ficha MP con
 // el "en X días" para saber de un vistazo cuál se resuelve antes. El color sube de tono a
 // medida que se acerca (o si ya se pasó la fecha estimada sin resultado).
-// N° de OC con botón "Ir": abre la ficha de la orden en Mercado Público.
-function ChipsOc({ codigos }: { codigos?: string[] }) {
-  if (!codigos?.length) return null;
-  return (
-    <>
-      {codigos.map(c => (
-        <a key={c} href={`https://www.mercadopublico.cl/PurchaseOrder/Modules/PO/DetailsPurchaseOrder.aspx?codigoOC=${encodeURIComponent(c)}`}
-          target="_blank" rel="noopener noreferrer"
-          onClick={e => e.stopPropagation()}
-          title={`Ir a la orden de compra ${c} en Mercado Público`}
-          className="inline-flex items-center gap-1 text-[10.5px] font-mono font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-full pl-2 pr-1.5 py-px transition-colors flex-shrink-0">
-          OC {c} <span className="font-sans font-bold">Ir</span> <ExternalLink size={10} />
-        </a>
-      ))}
-    </>
-  );
-}
-
 function FechaAdjChip({ adj }: { adj: Adjudicacion | null }) {
   if (!adj) return null;
   const iso = adj.esAdjudicada ? adj.fechaAdjudicacion : adj.fechaEstimadaAdjudicacion;

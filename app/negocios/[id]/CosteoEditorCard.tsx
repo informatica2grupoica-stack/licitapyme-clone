@@ -1111,7 +1111,7 @@ export function CosteoEditorCard({
           </button>
           {standalone ? (
             <a
-              href={`/negocios/${negocioId}?seccion=costeo`}
+              href={`/negocios/${negocioId}`}
               title="Volver a la ficha del negocio en esta misma pestaña"
               className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-bold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors"
             >
