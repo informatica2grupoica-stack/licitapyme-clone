@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  estadoCeldaDe, numeroSospechoso, parsearSalidaV3, construirResultadoTecnico, estadoDeProducto, preguntaSinFicha,
+  estadoCeldaDe, numeroSospechoso, parsearSalidaV3, construirResultadoTecnico, estadoDeProducto, preguntaSinFicha, cierraSoloEM, esExigenciaRoja,
   type SalidaV3, type RequisitoV3, type OpcionParaV3, type GuardadaV3,
 } from '../auditor-comparador-v3-core';
 import { resumenLicitacion } from '../auditor-resumen-licitacion';
@@ -68,7 +68,7 @@ test('estado del producto: CUMPLE si todo ✅/🟩 · NO CUMPLE si hay un ❌ ·
   assert.equal(estadoDeProducto(celdas(['NO_CUMPLE', 'CUMPLE', 'CUMPLE', 'CUMPLE']), new Map([[1, { por: 'Ana', at: '', motivo: 'confirmado por el proveedor' }]])), 'CUMPLE');
 });
 
-test('adaptador: NO CUMPLE y FALTA DATO bloquean la firma; ✅/🟩 no; lo confirmado destraba; sin segunda pasada los rojos quedan reverificados', () => {
+test('adaptador: NO CUMPLE y FALTA DATO bloquean la firma; ✅/🟩 no; lo confirmado destraba; los rojos declarados CUMPLE esperan su segunda pasada', () => {
   const g: GuardadaV3 = { version: 'v3.0', requisitos: REQ, motor: 't', opcion: { opcionId: 1, notas: ['hay precio con tarjeta $1'], preguntas: ['¿Tiene puerto USB?'], sinFicha: false, asignacion: 'segura',
     celdas: [
       { n: 1, estado: 'SOBRECUMPLE', datoOfertado: '4.000 lm', cita: 'x', citaNoVerificada: false, revisar: false, origen: 'FICHA' },
@@ -81,7 +81,8 @@ test('adaptador: NO CUMPLE y FALTA DATO bloquean la firma; ✅/🟩 no; lo confi
   assert.deepEqual(r.bloqueos.map(b => `${b.codigo}:${b.item}`), ['NO_CUMPLE:2', 'FALTA_DATO:3']);
   assert.equal(r.filas[0].veredicto, 'CUMPLE'); assert.equal(r.filas[0].sobrecumple, true); assert.equal(r.filas[0].valorCorto, '4.000 lm');
   assert.equal(r.filas[1].valorCorto, 'WXGA 1280x800');
-  assert.ok(r.filas.every(f => f.reverificado));
+  // Fila 1 es INADMISIBLE y está cerrada (🟩): necesita segunda pasada. Las ❌/❓ y las no rojas no.
+  assert.deepEqual(r.filas.map(f => f.reverificado), [false, true, true, true]);
   assert.deepEqual(r.notas, ['hay precio con tarjeta $1']);
   assert.equal(r.preguntas[0].texto, '¿Tiene puerto USB?');
   const c = construirResultadoTecnico({ ...g, opcion: { ...g.opcion, celdas: g.opcion.celdas.map(x => x.n === 2 ? { ...x, estado: 'CUMPLE' as const } : x) } }, new Map([[3, { por: 'Ana', at: '2026-09-30 10:00:00' }]]));
@@ -145,4 +146,39 @@ test('un ❌ corregido a mano (con motivo) se da por cumplido y recuerda el moti
   const celdas = [{ n: 1, estado: 'NO_CUMPLE', datoOfertado: 'solo FM', cita: '', citaNoVerificada: false, revisar: false, origen: null }, { n: 2, estado: 'CUMPLE', datoOfertado: 'x', cita: '', citaNoVerificada: false, revisar: false, origen: null }] as any;
   assert.equal(estadoDeProducto(celdas, new Map()), 'NO_CUMPLE');
   assert.equal(estadoDeProducto(celdas, new Map([[1, { por: 'Ana', at: '', motivo: 'el proveedor confirmó que trae AM' }]])), 'CUMPLE');
+});
+
+test('decisión CA 1-oct: un ❌ (siempre) y un ❓ de exigencia inadmisible solo los cierra el EM; un ❓ no rojo lo cierra quien cotiza', () => {
+  assert.equal(cierraSoloEM('NO_CUMPLE', 'PUNTAJE'), true);
+  assert.equal(cierraSoloEM('NO_CUMPLE', 'INADMISIBLE'), true);
+  assert.equal(cierraSoloEM('FALTA_DATO', 'INADMISIBLE'), true);
+  assert.equal(cierraSoloEM('FALTA_DATO', 'SIN_CLASIFICAR'), true);        // sin clasificar = se trata como inadmisible
+  assert.equal(cierraSoloEM('FALTA_DATO', 'PUNTAJE'), false);
+  assert.equal(cierraSoloEM('FALTA_DATO', 'COMPROMISO'), false);
+  assert.equal(cierraSoloEM('CUMPLE', 'INADMISIBLE'), false);
+  assert.equal(esExigenciaRoja('INADMISIBLE'), true); assert.equal(esExigenciaRoja('PUNTAJE'), false);
+});
+
+test('segunda pasada de rojos: confirmada o cerrada por el EM = reverificado; rectificada = el CUMPLE cae a FALTA DATO con alerta grave; opción aprobada con v2 = reverificado', () => {
+  const g: GuardadaV3 = { version: 'v3.0', requisitos: REQ, motor: 't', opcion: { opcionId: 1, notas: [], preguntas: [], sinFicha: false, asignacion: 'segura',
+    celdas: [
+      { n: 1, estado: 'CUMPLE', datoOfertado: '3400', cita: 'x', citaNoVerificada: false, revisar: false, origen: 'FICHA' },
+      { n: 2, estado: 'CUMPLE', datoOfertado: 'XGA', cita: 'y', citaNoVerificada: false, revisar: false, origen: 'FICHA' },
+      { n: 3, estado: 'CUMPLE', datoOfertado: '', cita: '', citaNoVerificada: false, revisar: false, origen: 'FICHA' },
+      { n: 4, estado: 'CUMPLE', datoOfertado: '', cita: '', citaNoVerificada: false, revisar: false, origen: 'FICHA' },
+    ] } };
+  const sin = construirResultadoTecnico(g);
+  assert.deepEqual(sin.filas.map(f => f.reverificado), [false, false, true, true]);          // los dos rojos esperan su pasada
+  const seg = new Map<number, any>([[1, { estado: 'confirmada', texto: '' }], [2, { estado: 'rectificada', texto: 'el dato no aparece en la p.2' }]]);
+  const con = construirResultadoTecnico(g, new Map(), seg);
+  assert.equal(con.filas[0].reverificado, true);
+  assert.equal(con.filas[1].veredicto, 'SIN_VEREDICTO');                                       // se cayó
+  assert.equal(con.estado, 'CON_PENDIENTES');
+  assert.match(con.alertas[0].texto, /HALLAZGO GRAVE.*ítem 2/);
+  assert.ok(con.bloqueos.some(b => b.item === 2));
+  // el EM puede cerrarlo a mano después
+  const em = construirResultadoTecnico(g, new Map([[2, { por: 'EM', at: '', motivo: 'ficha oficial p.4 lo dice' }]]), seg);
+  assert.equal(em.filas[1].veredicto, 'CUMPLE'); assert.equal(em.filas[1].reverificado, true);
+  // opción ya aprobada con el comparador anterior: sus rojos cuentan como reverificados
+  assert.ok(construirResultadoTecnico(g, new Map(), new Map(), true).filas.every(f => f.reverificado));
 });

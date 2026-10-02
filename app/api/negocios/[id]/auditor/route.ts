@@ -134,7 +134,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         await justificarAhorroDeOpcion(negocio.id, opcionId, String(body.texto || ''), actor); break;
       case 'confirmar_celda':
         // El asistente cierra un ❓ con un clic (comparador técnico v3.0): sin respaldo, queda quién y cuándo.
-        await confirmarCeldaTecnica(negocio.id, opcionId, Number(body.n), body.confirmada !== false, actor, String(body.motivo || '')); break;
+        await confirmarCeldaTecnica(negocio.id, opcionId, Number(body.n), body.confirmada !== false, actor, String(body.motivo || ''), perm.esEM); break;
       case 'crear_opcion': {
         // Opción SIN link ni cotización (el producto no está en la web): línea + marca/modelo. Después se le sube la ficha técnica.
         const id = await crearOpcionManual(negocio.id, String(body.filaId || ''), {

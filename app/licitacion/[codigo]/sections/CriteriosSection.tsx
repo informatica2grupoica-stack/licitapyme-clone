@@ -37,8 +37,10 @@ export function CriteriosSection({ criterios, analisisIA, criteriosViabilidad, a
     }));
 
   const tieneCriteriosMP   = !!criterios && criterios.length > 0;
-  const tieneCriteriosIA   = !tieneCriteriosMP && !!criteriosIA && criteriosIA.length > 0;
-  const tieneCriteriosViab = !tieneCriteriosMP && !tieneCriteriosIA && criteriosViab.length > 0;
+  // La Viabilidad IA es el análisis más reciente y completo (se re-genera en cada re-análisis), así
+  // que manda sobre el análisis genérico guardado, que queda viejo.
+  const tieneCriteriosViab = !tieneCriteriosMP && criteriosViab.length > 0;
+  const tieneCriteriosIA   = !tieneCriteriosMP && !tieneCriteriosViab && !!criteriosIA && criteriosIA.length > 0;
 
   if (!tieneCriteriosMP && !tieneCriteriosIA && !tieneCriteriosViab) {
     return (
@@ -84,8 +86,8 @@ export function CriteriosSection({ criterios, analisisIA, criteriosViabilidad, a
   }
 
   const criteriosMostrados = tieneCriteriosMP ? criterios!
-    : tieneCriteriosIA ? criteriosIA!
-    : criteriosViab;
+    : tieneCriteriosViab ? criteriosViab
+    : criteriosIA!;
   const esExtraidoIA = tieneCriteriosIA || tieneCriteriosViab;
   const total = criteriosMostrados.reduce((acc, c) => acc + (c.ponderacion || 0), 0) || 100;
 

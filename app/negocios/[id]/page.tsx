@@ -1222,6 +1222,11 @@ function DetalleContent() {
     } catch { /* silencioso */ }
   }, [negocio?.licitacion_codigo]);
   useEffect(() => { fetchViabIA(); }, [fetchViabIA]);
+  // Un (re)análisis puede terminar con el panel de Viabilidad desmontado (u otra pestaña/usuario):
+  // al entrar a Resumen/Criterios se vuelve a leer el informe para mostrar siempre los criterios actuales.
+  useEffect(() => {
+    if (seccion === 'criterios' || seccion === 'resumen') fetchViabIA();
+  }, [seccion, fetchViabIA]);
 
   // Contador del menú: cuántos puntos comerciales esperan visto bueno. Solo se pide cuando
   // la etapa lo amerita, para no generar el checklist en licitaciones que aún están en análisis.
@@ -1535,7 +1540,7 @@ function DetalleContent() {
                   items={[
                     { key: 'resumen', label: 'Resumen' },
                     { key: 'fechas', label: 'Fechas', count: licitacion ? Object.entries(licitacion).filter(([k, v]) => k.startsWith('Fecha') && v).length : null },
-                    { key: 'criterios', label: 'Criterios', count: analisisIA?.criteriosEvaluacion?.length },
+                    { key: 'criterios', label: 'Criterios', count: (oportunidad?.criterios_evaluacion?.length || viabIA?.criterios_evaluacion?.criterios?.length || analisisIA?.criteriosEvaluacion?.length) },
                     { key: 'comentarios', label: 'Comentarios' },
                   ]}
                   activo={seccion}

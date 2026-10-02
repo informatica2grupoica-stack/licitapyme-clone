@@ -141,7 +141,7 @@ export async function documentosDeOpcion(opcionId: number): Promise<DocumentoOpc
   return out;
 }
 
-function bloqueDocumentos(docs: DocumentoOpcion[]): { texto: string; enviado: string } {
+export function bloqueDocumentos(docs: DocumentoOpcion[]): { texto: string; enviado: string } {
   const porDoc = Math.floor(TOPE_TEXTO / Math.max(1, docs.length));
   const partes = docs.map(d => `[${d.etiqueta}] archivo: "${d.nombre}" · tipo: ${d.tipo} · ${d.formalidad}\n${d.resumen ? d.resumen + '\n' : ''}TEXTO COMPLETO:\n${d.texto.slice(0, porDoc)}`);
   return { texto: partes.join('\n\n'), enviado: docs.map(d => d.texto.slice(0, porDoc)).join('\n') };

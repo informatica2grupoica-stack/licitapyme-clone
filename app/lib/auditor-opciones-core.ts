@@ -125,6 +125,15 @@ export function separarPrecioPegadoACantidad(texto: string, precio: number): { c
   return null;
 }
 
+/**
+ * REGLA ÚNICA DE IVA (decisión CA, 1-oct-2026). Es la ÚNICA: el comparador técnico v3.0 (Paso 3 del prompt) y el verificador de costo (V3) se rigen por esto,
+ * porque el costo sale del código con la extracción del Lector, no del modelo.
+ *   1. El documento DICE si el precio incluye IVA («+ IVA», «neto», «IVA incluido»…) → se respeta tal cual.
+ *   2. Link de tienda web SIN declararlo → se asume CON IVA (así publican las tiendas chilenas), se descuenta y queda marcado «IVA asumido».
+ *   3. Cotización o documento SIN declararlo → NO se supone: el costo queda bloqueado (V3) hasta que se declare. Quien cotiza lo declara con
+ *      «Corregir precio o IVA…» (motivo obligatorio, queda registrado) o se le pregunta al proveedor.
+ *   4. Precio ingresado a mano: siempre con su IVA declarado (neto o incluido) y motivo.
+ */
 export function normalizarProductos(salida: SalidaLector, texto?: string, esWeb = false): ProductoNormalizado[] {
   return (salida.productos || []).map((p, idx) => {
     const c = p.comercial || {}, d = p.producto || {};

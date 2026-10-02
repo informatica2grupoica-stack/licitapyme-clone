@@ -8,10 +8,10 @@ import { ahoraChileSQL } from '@/app/lib/tz';
 import { crearChatIA } from '@/app/lib/gemini';
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { MOTOR_KIMI_ESTRICTO } from '@/app/lib/auditor-tecnico';
-import { requisitosDeLinea, documentosDeOpcion, type DocumentoOpcion } from '@/app/lib/auditor-tecnico-v2';
+import { requisitosDeLinea, documentosDeOpcion, bloqueDocumentos, SYS_L2_TEC, type DocumentoOpcion } from '@/app/lib/auditor-tecnico-v2';
 import { PROMPT_V3, ESQUEMA_V3 } from '@/app/lib/auditor-comparador-v3-prompts';
 import {
-  parsearSalidaV3, construirResultadoTecnico, estadoDeProducto,
+  parsearSalidaV3, construirResultadoTecnico, estadoDeProducto, esExigenciaRoja, cierraSoloEM, type SegundaPasadaCelda,
   type SalidaV3, type GuardadaV3, type Confirmacion, type OpcionParaV3, type RequisitoV3,
 } from '@/app/lib/auditor-comparador-v3-core';
 import type { ResultadoTecnico } from '@/app/lib/auditor-tecnico-v2-core';
@@ -148,22 +148,93 @@ export async function confirmacionesTecnicas(negocioId: number): Promise<Map<num
   return out;
 }
 
-export async function confirmarCelda(negocioId: number, opcionId: number, n: number, confirmada: boolean, actor: { id: number; nombre: string }, motivo = ''): Promise<void> {
+export async function confirmarCelda(negocioId: number, opcionId: number, n: number, confirmada: boolean, actor: { id: number; nombre: string }, motivo = '', esEM = false): Promise<void> {
   const [ors] = await pool.query(`SELECT estado FROM auditor_opcion WHERE id = ? AND negocio_id = ?`, [opcionId, negocioId]) as any;
   if (!(ors as any[]).length) throw new Error('La opción no existe en este negocio.');
   if (['en_aprobacion', 'aprobada'].includes((ors as any[])[0].estado)) throw new Error('La opción ya está en aprobación: pide rechazarla antes de cambiarle datos.');
   const corrida = (await ultimasCorridasV3(negocioId)).get(opcionId);
   const celda = corrida?.guardada?.opcion.celdas.find(c => c.n === n);
   if (!celda) throw new Error('Ese requisito no está en la última comparación de la opción.');
+  const criticidad = corrida?.guardada?.requisitos.find(r => r.n === n)?.criticidad;
+  // Un CUMPLE que la segunda pasada rectificó vale como «falta dato» de una exigencia inadmisible: solo el EM lo cierra.
+  const rectificada = (await ultimasSegundasPasadasV3(negocioId)).get(opcionId)?.celdas.get(n)?.estado === 'rectificada';
+  const estadoReal = rectificada && (celda.estado === 'CUMPLE' || celda.estado === 'SOBRECUMPLE') ? 'FALTA_DATO' as const : celda.estado;
+  // Decisión CA (1-oct-2026): ❌ y ❓ de exigencias inadmisibles = solo el EM (también para deshacerlo).
+  if (cierraSoloEM(estadoReal, criticidad) && !esEM)
+    throw new Error(estadoReal === 'NO_CUMPLE'
+      ? 'Dar por cumplido un ❌ lo decide el Encargado de Mercado Público (EM). Pídeselo con el motivo, o cambia de producto.'
+      : 'Este requisito puede dejarnos fuera de la licitación (inadmisible): lo cierra el Encargado de Mercado Público (EM), con respaldo.');
   const razon = motivo.trim().slice(0, 500);
-  if (confirmada && celda.estado === 'NO_CUMPLE' && razon.length < 8) throw new Error('Para dar por cumplido un ❌ escribe el motivo (por ejemplo: «el proveedor confirmó por teléfono que trae AM» o «la ficha oficial lo dice en la pág. 2»).');
+  if (confirmada && cierraSoloEM(estadoReal, criticidad) && razon.length < 8) throw new Error('Escribe el motivo y el respaldo (por ejemplo: «el proveedor confirmó por correo que trae AM; correo adjunto en la opción»).');
   await pool.query(`INSERT INTO auditor_evento (negocio_id, opcion_id, tipo, emisor, detalle, creado_at) VALUES (?, ?, 'confirmacion_tecnica', 'asistente', ?, ?)`,
-    [negocioId, opcionId, JSON.stringify({ n, confirmada, por: actor.nombre, motivo: razon || undefined, antes: celda.estado }), ahoraChileSQL()]);
+    [negocioId, opcionId, JSON.stringify({ n, confirmada, por: actor.nombre, motivo: razon || undefined, antes: celda.estado, em: esEM || undefined }), ahoraChileSQL()]);
+}
+
+// ── Segunda pasada de ROJOS (pasada final, al solicitar la aprobación) ───────────────────────────────
+// Spec ESP §11.2 y RES: los ítems INADMISIBLE declarados CUMPLE se releen en el DOCUMENTO ORIGINAL. Si el dato no está donde se citó, el CUMPLE se cae.
+export async function ultimasSegundasPasadasV3(negocioId: number): Promise<Map<number, { celdas: Map<number, SegundaPasadaCelda>; at: string }>> {
+  const [rows] = await pool.query(`SELECT opcion_id, detalle, creado_at FROM auditor_evento WHERE negocio_id = ? AND tipo = 'segunda_pasada_v3' ORDER BY id`, [negocioId]) as any;
+  const out = new Map<number, { celdas: Map<number, SegundaPasadaCelda>; at: string }>();
+  for (const r of rows as any[]) {
+    try {
+      const d = JSON.parse(r.detalle || '{}');
+      const cur = out.get(r.opcion_id) || { celdas: new Map<number, SegundaPasadaCelda>(), at: '' };
+      for (const n of d.confirmados || []) cur.celdas.set(Number(n), { estado: 'confirmada', texto: '' });
+      for (const x of d.rectificados || []) cur.celdas.set(Number(x.n), { estado: 'rectificada', texto: String(x.texto || '') });
+      cur.at = r.creado_at instanceof Date ? r.creado_at.toISOString() : String(r.creado_at);
+      out.set(r.opcion_id, cur);
+    } catch { /* evento mal formado */ }
+  }
+  return out;
+}
+
+/** Cuántos rojos declarados CUMPLE de la última comparación todavía no pasaron por la segunda pasada ni los cerró el EM. */
+export async function rojosPendientesDeSegundaPasada(negocioId: number, opcionId: number): Promise<number[]> {
+  const corrida = (await ultimasCorridasV3(negocioId)).get(opcionId);
+  const g = corrida?.guardada; if (!g) return [];
+  const conf = (await confirmacionesTecnicas(negocioId)).get(opcionId) ?? new Map();
+  const seg = (await ultimasSegundasPasadasV3(negocioId)).get(opcionId)?.celdas ?? new Map();
+  return g.requisitos.filter(r => esExigenciaRoja(r.criticidad)).map(r => r.n).filter(n => {
+    const c = g.opcion.celdas.find(x => x.n === n);
+    return c && (c.estado === 'CUMPLE' || c.estado === 'SOBRECUMPLE') && !conf.has(n) && !seg.has(n);
+  });
+}
+
+export async function segundaPasadaRojosV3(params: { negocioId: number; opcionId: number; actor: { id: number } }): Promise<{ revisados: number; rectificados: number }> {
+  const { negocioId, opcionId } = params;
+  const pend = await rojosPendientesDeSegundaPasada(negocioId, opcionId);
+  if (!pend.length) return { revisados: 0, rectificados: 0 };
+  const g = (await ultimasCorridasV3(negocioId)).get(opcionId)!.guardada!;
+  const docs = await documentosDeOpcion(opcionId);
+  if (!docs.length) throw new Error('La opción no tiene documentos para releer en la segunda pasada.');
+  const { texto } = bloqueDocumentos(docs);
+  const items = pend.map(n => ({ r: g.requisitos.find(x => x.n === n)!, c: g.opcion.celdas.find(x => x.n === n)! }));
+  const user = `ÍTEMS A REVERIFICAR (INADMISIBLE, declarados CUMPLE en la primera pasada):
+${items.map(({ r, c }) => `n=${r.n} · ${r.texto} · valor ofertado declarado: (no lo tomes de aquí) · ubicación citada: ${c.cita || '(sin cita)'}`).join('\n')}
+
+DOCUMENTOS ORIGINALES:
+${texto}`;
+  const t0 = Date.now();
+  const parsed = await llamarJSON(SYS_L2_TEC, user);
+  const arr: any[] = Array.isArray(parsed?.reverificacion) ? parsed.reverificacion : [];
+  if (!arr.length) throw new Error('La segunda pasada no devolvió resultados legibles: vuelve a intentarlo.');
+  const rectificados: Array<{ n: number; texto: string }> = [], confirmados: number[] = [];
+  for (const x of arr) {
+    const n = Number(x?.n);
+    if (!pend.includes(n)) continue;
+    if (x.confirmado === false) rectificados.push({ n, texto: String(x.rectificacion || 'El dato no aparece donde se citó.').slice(0, 400) });
+    else confirmados.push(n);
+  }
+  // Un ítem que el modelo no devolvió NO se da por confirmado: queda pendiente y la pasada se puede repetir.
+  console.log(`[segunda-pasada-v3] opción ${opcionId}: ${pend.length} rojo(s), ${rectificados.length} rectificado(s), ${Math.round((Date.now() - t0) / 1000)} s`);
+  await pool.query(`INSERT INTO auditor_evento (negocio_id, opcion_id, tipo, emisor, detalle, creado_at) VALUES (?, ?, 'segunda_pasada_v3', 'asistente', ?, ?)`,
+    [negocioId, opcionId, JSON.stringify({ confirmados, rectificados }), ahoraChileSQL()]);
+  return { revisados: pend.length, rectificados: rectificados.length };
 }
 
 /** Recalcula el estado técnico de una opción a partir de su última corrida v3 y sus confirmaciones. */
-export function estadoTecnicoV3(v: CorridaGuardadaV3 | undefined, conf: Map<number, Confirmacion> | undefined): { resultado: ResultadoTecnico | null; corridoAt: string | null; error: string | null } {
+export function estadoTecnicoV3(v: CorridaGuardadaV3 | undefined, conf: Map<number, Confirmacion> | undefined, segunda?: Map<number, SegundaPasadaCelda>): { resultado: ResultadoTecnico | null; corridoAt: string | null; error: string | null } {
   if (!v) return { resultado: null, corridoAt: null, error: null };
   if (v.error || !v.guardada) return { resultado: null, corridoAt: v.corridoAt, error: v.error || 'sin resultado' };
-  return { resultado: construirResultadoTecnico(v.guardada, conf ?? new Map()), corridoAt: v.corridoAt, error: null };
+  return { resultado: construirResultadoTecnico(v.guardada, conf ?? new Map(), segunda ?? new Map()), corridoAt: v.corridoAt, error: null };
 }

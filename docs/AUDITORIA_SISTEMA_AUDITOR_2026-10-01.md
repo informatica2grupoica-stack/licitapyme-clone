@@ -1,6 +1,8 @@
 # AUDITORÍA DEL SISTEMA AUDITOR — paquete de 7 documentos
 ## Licitank · 1-oct-2026 · Auditoría de consistencia, flujo y trazabilidad
 
+> **Estado (2-oct-2026):** las correcciones y decisiones de esta auditoría se aplicaron a los 7 documentos; ver `CAMBIOS_PAQUETE_AUDITOR_2026-10-02.md` (en la carpeta del paquete).
+
 **Documentos auditados:** `ESPECIFICACION_AUDITOR_v1` (v1.1) · `NOTA_PROGRAMADOR_Unificacion_AUDITOR` · `PROMPT_4_Verificador_Tecnico_v2_0` · `PROMPT_4_Comparador_Tecnico_v3_0` · `PROMPT_5_Verificador_Costo_v2_0` · `PROMPT_6_Lector_Respaldos_v1_0` · `RESERVA_PREPOSTULACION_Bloque_TecAdm_y_Certificado`.
 Citas: **ESP** = Especificación · **NOTA** = Nota al programador · **P4v2 / P4v3 / P5 / P6** = prompts · **RES** = Reserva.
 
@@ -272,15 +274,24 @@ Para cada anexo, lo mismo: **precondiciones** (qué aprobaciones y datos necesit
 
 ---
 
-## 11. DECISIONES QUE NECESITO DE CA
+## 11. DECISIONES DE CA (1-oct-2026) Y LO QUE QUEDA ABIERTO
 
-1. ¿El comparador v3 **reemplaza** a v2 en EN PROCESO, o convive (v3 rápido + gate de rojos al aprobar)?
-2. **Regla de IVA** única (¿la web se supone con IVA? ¿una cotización sin IVA declarado bloquea?).
-3. ¿Quién puede cerrar un ❓ y un ❌ en una exigencia **inadmisible**? ¿Siempre EM?
-4. ¿El **precio manual sin documento** se permite? ¿Hasta qué estado?
-5. ¿El **costo comparado** incluye despacho e instalación?
-6. ¿El mensaje al proveedor incluye lo comercial y los datos OBUMA, o solo lo técnico (máx. 3)?
-7. ¿Qué son **CA**, **EM** y **asesor** en el sistema (usuarios y permisos)?
-8. Estados **ANEXOS OK** y **VISADO**: ¿se eliminan o se redefinen? ¿Cuándo pasa a POSTULADO?
-9. ¿Una línea puede dividirse en dos opciones definitivas (dos productos/proveedores)?
-10. ¿Se agregan **servicios** al alcance del AUDITOR?
+### Resueltas (ya aplicadas en el sistema)
+| # | Decisión | Aplicación |
+|---|---|---|
+| 1 | El comparador v3.0 **convive** con una **pasada de rojos al aprobar** (v3 rápido en EN PROCESO + segunda pasada de los requisitos inadmisibles al solicitar la aprobación) | `segundaPasadaRojosV3` (relee el documento original; lo que no se sostiene cae a «falta dato» con alerta grave). Se corre sola en «solicitar aprobación» y con el botón «Correr segunda pasada» de Pre-postulación. Revierte el desvío D-3. Probada con datos reales (8 exigencias, 41 s) |
+| 2 | **Una sola regla de IVA** | Documentada en `normalizarProductos` (`auditor-opciones-core.ts`): lo que el documento declare se respeta; link web sin declarar → con IVA asumido y marcado; cotización sin declarar → no se supone y bloquea hasta declararlo (con motivo); precio manual siempre con su IVA |
+| 3 | Un ❌ y un ❓ de exigencia **inadmisible** los cierra **solo el EM**. Un ❓ de exigencia no inadmisible lo cierra quien cotiza | `cierraSoloEM` en el servidor (también para deshacerlo) y en la pantalla («lo cierra el EM»); motivo y respaldo obligatorios. Revierte el desvío D-2 |
+| 4 | **Precio manual sin documento: permitido** | Se mantiene como estaba: queda en TANTEO, con aviso, no firmable hasta tener la cotización. Desvío D-1 **aceptado** |
+| 5 | **EM** = Encargado de Mercado Público. **Asesor** = perfil asesor. **AC** = Asistente Comercial (el «CA» de los documentos probablemente es un cambio de letras de AC; 2-oct) | EM se reconoce hoy por el permiso `aprobar_comercial` (o admin). Falta confirmar si el «CA/AC» de los documentos es el mismo «asistente» que cotiza y qué potestad tiene (los documentos dicen «CA tiene potestad total», lo que choca con que quien cotiza no pueda cerrar un ❌) |
+
+### Abiertas
+- **AC / «CA»**: ¿es el mismo «asistente» que cotiza? Los documentos le dan «potestad total» y las decisiones de diseño llevan su firma (¿persona que decide el producto, o perfil operativo?).
+- A-2: ¿el costo comparado incluye despacho e instalación?
+- A-3: mensaje al proveedor (¿solo técnico, máx. 3, o también comercial y datos OBUMA?).
+- Estados **ANEXOS OK** y **VISADO**, y cuándo pasa a POSTULADO.
+- División de una línea entre dos productos; **servicios** como tipo de opción.
+- Pendientes del plan P0: `OFERTA_LINEA` y `EMPRESA_POSTULANTE` (snapshot) con anexos que lean solo eso; ID estable de requisito y versión de bases; detección de compromisos con costo antes de fijar el precio.
+
+### Efecto sobre los desvíos de la sección 9
+D-1 aceptado · D-2 resuelto · D-3 resuelto · D-4, D-5, D-6, D-7 siguen pendientes de decisión.

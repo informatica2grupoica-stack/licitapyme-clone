@@ -15,7 +15,7 @@ import { mensajesUnificadosPorProveedor, type MensajeProveedor } from '@/app/lib
 import {
   contarRequisitosPorLinea, ultimasVerificaciones, habilitacionesYDeclaraciones, estadoTecnicoDe,
 } from '@/app/lib/auditor-tecnico-v2';
-import { ultimasCorridasV3, confirmacionesTecnicas, estadoTecnicoV3, verificarLineaV3, confirmarCelda, type ResumenCorridaV3 } from '@/app/lib/auditor-comparador-v3';
+import { ultimasCorridasV3, confirmacionesTecnicas, estadoTecnicoV3, verificarLineaV3, confirmarCelda, ultimasSegundasPasadasV3, segundaPasadaRojosV3, rojosPendientesDeSegundaPasada, type ResumenCorridaV3 } from '@/app/lib/auditor-comparador-v3';
 import type { ResultadoTecnico } from '@/app/lib/auditor-tecnico-v2-core';
 import { ultimosMercados, opcionesConJustificacion, verificarMercadoOpcion, justificarAhorro } from '@/app/lib/auditor-mercado';
 import { evaluarMercado, aplicarEvaluacion, type ReferenciaMercado, type ReferenciaDescartada, type CompetidorMP, type FuenteComparador } from '@/app/lib/auditor-mercado-core';
@@ -159,6 +159,7 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
   ]);
   const [opRows] = opRes, [reRows] = reRes, [caRows] = caRes;
   const correcciones = await correccionesDeCosto(negocioId);
+  const segundasPasadas = await ultimasSegundasPasadasV3(negocioId);
   const [verifLegado, hdLegado] = await Promise.all([ultimasVerificaciones(negocioId, true), habilitacionesYDeclaraciones(negocioId)]);
   const lineas = lineasAuditables(estado);
   const totalAsociados = totalCostosAsociados(costosAsociados);
@@ -210,21 +211,22 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
       })
       : null;
 
-    let est: { resultado: ResultadoTecnico | null; corridoAt: string | null; error: string | null } = estadoTecnicoV3(verifTec.get(o.id), habTec.get(o.id));
+    let est: { resultado: ResultadoTecnico | null; corridoAt: string | null; error: string | null } = estadoTecnicoV3(verifTec.get(o.id), habTec.get(o.id), segundasPasadas.get(o.id)?.celdas);
     // Una opción comparada ANTES del comparador v3.0 (p. ej. la ya aprobada) conserva su cuadro: se lee del historial v2.0.
     let legado = false;
     if (!est.resultado && !est.error && verifLegado.has(o.id)) {
       const l = estadoTecnicoDe(verifLegado.get(o.id), hdLegado.get(o.id));
       if (l.resultado) {
-        // Igual que el comparador v3.0 (etapa ágil, sin segunda pasada): el certificado usa el cuadro tal cual, no deja exigencias «pendientes de segunda pasada».
-        for (const f of l.resultado.filas) f.reverificado = true;
+        // Una opción que ya pasó su pasada final con el comparador anterior (v2.0) tuvo su segunda pasada: sus rojos cuentan como reverificados.
+        // Las que NO llegaron a esa etapa conservan la bandera real.
+        if (['definitiva', 'en_aprobacion', 'aprobada'].includes(o.estado)) for (const f of l.resultado.filas) f.reverificado = true;
         est = l; legado = true;
       }
     }
     const reqTotal = linea?.lineaReal != null ? (reqPorLinea.get(linea.lineaReal) ?? 0) : 0;
     const tecnico: TecnicoDTO = {
       estado: o.via === 'liviana' ? 'NO_APLICA' : reqTotal === 0 && !est.resultado ? 'SIN_REQUISITOS' : est.resultado ? est.resultado.estado : 'NO_CORRIDO',
-      corridoAt: est.corridoAt, error: est.error, segundaPasadaAt: null, requisitosTotal: reqTotal, resultado: est.resultado, legado,
+      corridoAt: est.corridoAt, error: est.error, segundaPasadaAt: segundasPasadas.get(o.id)?.at ?? null, requisitosTotal: reqTotal, resultado: est.resultado, legado,
     };
     // Mercado (V9 competidor, V10 referencia más barata ≥ 5% sin justificar, V10-b dispersión): si ya se buscó, suma sus bloqueos y alertas.
     const m = mercados.get(o.id) ?? null;
@@ -711,6 +713,10 @@ export async function solicitarAprobacion(negocioId: number, licitacionCodigo: s
   if (o.estado !== 'definitiva') throw new Error('Solo se solicita aprobación de una opción definitiva (firmada).');
   // PASADA FINAL automática (spec §11.2): revisita el link que sostiene el costo y compara contra la captura anterior.
   const cambios = await revisitarLinkDeOpcion(negocioId, opcionId, actor);
+  // Segunda pasada de ROJOS (decisión CA 1-oct-2026): los requisitos inadmisibles declarados CUMPLE se releen en el documento original antes de aprobar.
+  // Si un CUMPLE no se sostiene, cae a «falta dato» y la solicitud no avanza (ESP §11.2).
+  const rojos = await rojosPendientesDeSegundaPasada(negocioId, opcionId);
+  if (rojos.length) { try { await segundaPasadaRojosV3({ negocioId, opcionId, actor }); } catch (e) { throw new Error(`No se pudo hacer la segunda pasada de los requisitos inadmisibles (${rojos.length}): ${(e instanceof Error ? e.message : String(e)).slice(0, 160)}`); } }
   // El comparador técnico v3.0 no tiene segunda pasada (decisión CA 30-09-2026: etapa ágil). Lo técnico se revalida con lo que hay en el cuadro.
   const actual = await verificacionActual(negocioId, licitacionCodigo, opcionId);
   const v = actual.verificacion;
@@ -1038,7 +1044,10 @@ export async function verificarTecnicoDeOpcion(negocioId: number, licitacionCodi
 }
 
 /** El asistente cierra un ❓ con un clic («lo confirmo»), sin respaldo. Queda quién y cuándo; el EM ve la lista. */
-export async function confirmarCeldaTecnica(negocioId: number, opcionId: number, n: number, confirmada: boolean, actor: Actor, motivo = ''): Promise<void> {
+export async function confirmarCeldaTecnica(negocioId: number, opcionId: number, n: number, confirmada: boolean, actor: Actor, motivo = '', esEM = false): Promise<void> {
   await opcionDe(negocioId, opcionId);
-  await confirmarCelda(negocioId, opcionId, n, confirmada, actor, motivo);
+  await confirmarCelda(negocioId, opcionId, n, confirmada, actor, motivo, esEM);
 }
+
+/** Segunda pasada de rojos de UNA opción (botón «Correr segunda pasada» de Pre-postulación). */
+export const correrSegundaPasadaDeOpcion = (negocioId: number, opcionId: number, actor: Actor) => segundaPasadaRojosV3({ negocioId, opcionId, actor });

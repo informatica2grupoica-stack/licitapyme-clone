@@ -11,7 +11,7 @@ import { MOTOR_KIMI_ESTRICTO } from '@/app/lib/auditor-tecnico';
 import { citaExiste } from '@/app/lib/auditor-compras-core';
 import { criticidadDe } from '@/app/lib/auditor-tecnico-v2-core';
 import { requisitosDeLinea } from '@/app/lib/auditor-tecnico-v2';
-import { armarPanelAuditor, type PanelAuditorDTO } from '@/app/lib/auditor-opciones';
+import { armarPanelAuditor, correrSegundaPasadaDeOpcion, type PanelAuditorDTO } from '@/app/lib/auditor-opciones';
 import { agregarCostoAsociado, anularCostoAsociado, type CostoAsociadoDTO } from '@/app/lib/auditor-lineas';
 import { SYS_TECADM, MATERIAS_TECADM } from '@/app/lib/auditor-prepostulacion-prompts';
 import {
@@ -303,8 +303,8 @@ export async function agregarItemManual(negocioId: number, d: { filaId: string |
 
 // ── Segunda pasada (la consume el certificado) ──────────────────────────────────────────────────
 /** El comparador técnico v3.0 no tiene segunda pasada (decisión CA 30-09-2026): el certificado usa el cuadro tal cual, con lo que el asistente confirmó. */
-export async function correrSegundaPasada(_negocioId: number, _opcionId: number, _actor: ActorPP): Promise<{ revisados: number; rectificados: number }> {
-  throw new Error('La comparación técnica v3.0 ya no usa segunda pasada: el certificado se arma con el cuadro de la opción aprobada.');
+export async function correrSegundaPasada(negocioId: number, opcionId: number, actor: ActorPP): Promise<{ revisados: number; rectificados: number }> {
+  return correrSegundaPasadaDeOpcion(negocioId, opcionId, actor);
 }
 
 // ── Candado hacia el resto de la app ────────────────────────────────────────────────────────────

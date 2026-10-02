@@ -44,6 +44,17 @@ export interface CorridaOpcionV3 {
 /** Fila de auditor_verificacion_tecnica (resultado_json) de una opción con la v3. */
 export interface GuardadaV3 { version: 'v3.0'; requisitos: RequisitoV3[]; opcion: CorridaOpcionV3; motor: string }
 export interface Confirmacion { por: string; at: string; motivo?: string }
+/** Resultado de la segunda pasada de rojos para UN requisito (se relee el documento ORIGINAL en la pasada final). */
+export interface SegundaPasadaCelda { estado: 'confirmada' | 'rectificada'; texto: string }
+
+/** Exigencia que puede dejarnos fuera (INADMISIBLE) o sin clasificar: se trata como inadmisible hasta que alguien diga lo contrario. */
+export const esExigenciaRoja = (criticidad: string | null | undefined): boolean => criticidad === 'INADMISIBLE' || criticidad === 'SIN_CLASIFICAR';
+
+/** DECISIÓN CA (1-oct-2026): un ❌ (siempre) y un ❓ de una exigencia inadmisible solo los cierra el EM (Encargado de Mercado Público).
+ *  Un ❓ de una exigencia que no deja fuera lo puede cerrar quien cotiza con «Lo confirmo». */
+export function cierraSoloEM(estado: EstadoCeldaV3, criticidad: string | null | undefined): boolean {
+  return estado === 'NO_CUMPLE' || (estado === 'FALTA_DATO' && esExigenciaRoja(criticidad));
+}
 
 export interface DocumentoParaV3 { texto: string; tipo: string }
 export interface OpcionParaV3 { opcionId: number; marca: string | null; modelo: string | null; proveedor: string | null; proveedorRut: string | null; docs: DocumentoParaV3[] }
@@ -149,23 +160,29 @@ export function parsearSalidaV3(salida: SalidaV3, requisitos: RequisitoV3[], opc
 const RUTA_NO_CUMPLE = 'Cambia de producto, o confirma con el proveedor si la ficha estaba desactualizada.';
 const RUTA_FALTA_DATO = 'Confírmalo con un clic («lo confirmo») si sabes que lo cumple, o pregúntale al proveedor.';
 
-export function estadoEfectivo(c: CeldaV3, confirmada: boolean): EstadoCeldaV3 {
-  return (c.estado === 'FALTA_DATO' || c.estado === 'NO_CUMPLE') && confirmada ? 'CUMPLE' : c.estado;
+export function estadoEfectivo(c: CeldaV3, confirmada: boolean, rectificada = false): EstadoCeldaV3 {
+  if (confirmada && (c.estado === 'FALTA_DATO' || c.estado === 'NO_CUMPLE' || rectificada)) return 'CUMPLE';   // el EM puede cerrar a mano lo que la segunda pasada tiró abajo
+  // La segunda pasada no encontró el dato donde se citó: el CUMPLE se cae a «falta dato» (salvo que el EM lo cierre a mano).
+  if (rectificada && (c.estado === 'CUMPLE' || c.estado === 'SOBRECUMPLE')) return 'FALTA_DATO';
+  return c.estado;
 }
 
-export function estadoDeProducto(celdas: CeldaV3[], confirmaciones: Map<number, Confirmacion>): EstadoProductoV3 {
-  const ef = celdas.map(c => estadoEfectivo(c, confirmaciones.has(c.n)));
+export function estadoDeProducto(celdas: CeldaV3[], confirmaciones: Map<number, Confirmacion>, rectificadas: Set<number> = new Set()): EstadoProductoV3 {
+  const ef = celdas.map(c => estadoEfectivo(c, confirmaciones.has(c.n), rectificadas.has(c.n)));
   if (ef.includes('NO_CUMPLE')) return 'NO_CUMPLE';
   if (ef.includes('FALTA_DATO')) return 'FALTA_DATO';
   return 'CUMPLE';
 }
 
-export function construirResultadoTecnico(g: GuardadaV3, confirmaciones: Map<number, Confirmacion> = new Map()): ResultadoTecnico {
+/** @param segunda  resultado de la segunda pasada de rojos por requisito (vacío = todavía no corrió).
+ *  @param aprobadaAntes la opción ya pasó su pasada final con el comparador anterior (v2.0): sus rojos cuentan como reverificados. */
+export function construirResultadoTecnico(g: GuardadaV3, confirmaciones: Map<number, Confirmacion> = new Map(), segunda: Map<number, SegundaPasadaCelda> = new Map(), aprobadaAntes = false): ResultadoTecnico {
   const o = g.opcion;
   const filas: FilaTecnica[] = g.requisitos.map(r => {
     const c = o.celdas.find(x => x.n === r.n) ?? { n: r.n, estado: 'FALTA_DATO' as const, datoOfertado: '', cita: '', citaNoVerificada: false, revisar: false, origen: null };
     const conf = confirmaciones.get(r.n);
-    const ef = estadoEfectivo(c, !!conf);
+    const sp = segunda.get(r.n);
+    const ef = estadoEfectivo(c, !!conf, sp?.estado === 'rectificada');
     const veredicto: VeredictoTec = ef === 'NO_CUMPLE' ? 'NO_CUMPLE' : ef === 'FALTA_DATO' ? 'SIN_VEREDICTO' : 'CUMPLE';
     const cerrada = ef === 'CUMPLE' || ef === 'SOBRECUMPLE';
     const rojo = r.criticidad === 'INADMISIBLE' || r.criticidad === 'SIN_CLASIFICAR';
@@ -182,9 +199,10 @@ export function construirResultadoTecnico(g: GuardadaV3, confirmaciones: Map<num
       cerrada, motivoPendiente: null, ayuda: null, ayudaIncompleta: false,
       valorCorto: conf ? (c.estado === 'NO_CUMPLE' ? 'corregido a mano' : 'confirmado a mano') : c.datoOfertado, sobrecumple: ef === 'SOBRECUMPLE', rojo,
       rutaCierre: ef === 'NO_CUMPLE' ? RUTA_NO_CUMPLE : ef === 'FALTA_DATO' ? RUTA_FALTA_DATO : '',
-      cambio: '', rectificacion: '',
-      // v3.0 no tiene segunda pasada: el dato se da por reverificado para que PRE-POSTULACIÓN no la exija.
-      reverificado: true,
+      cambio: '', rectificacion: sp?.estado === 'rectificada' ? sp.texto : '',
+      // Un ROJO declarado CUMPLE necesita su segunda pasada (se corre en la pasada final, al solicitar la aprobación) o que el EM lo haya cerrado a mano.
+      // Lo demás (❌, ❓, no rojo) no la necesita.
+      reverificado: !(rojo && cerrada) || !!conf || sp?.estado === 'confirmada' || aprobadaAntes,
       confirmada: conf ?? null, revisar: c.revisar, citaNoVerificada: c.citaNoVerificada, estadoCelda: ef,
     };
   });
@@ -194,6 +212,7 @@ export function construirResultadoTecnico(g: GuardadaV3, confirmaciones: Map<num
   const alertas: ResultadoTecnico['alertas'] = [];
   const revisar = filas.filter(f => f.revisar), sinCita = filas.filter(f => f.citaNoVerificada);
   if (revisar.length) alertas.push({ nivel: 'amarillo', texto: `Revisar el dato ofertado de ${revisar.length === 1 ? 'la fila' : 'las filas'} ${revisar.map(f => f.n).join(', ')}: es un número sin unidad que no calza con lo exigido.` });
+  for (const f of filas.filter(x => x.rectificacion)) alertas.unshift({ nivel: 'rojo', texto: `HALLAZGO GRAVE de la segunda pasada — ítem ${f.n}: ${f.rectificacion}` });
   if (sinCita.length) alertas.push({ nivel: 'info', texto: `La cita de ${sinCita.length === 1 ? 'la fila' : 'las filas'} ${sinCita.map(f => f.n).join(', ')} no figura textual en los documentos (queda guardada para el EM).` });
   return {
     filas, estado,

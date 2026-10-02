@@ -117,13 +117,37 @@ export async function licitacionesOfertadas(): Promise<Map<string, NegocioOferta
   return mapa;
 }
 
-/** Fecha "DD-MM-YYYY hh:mm:ss" de la API → DATETIME de MySQL. null si no parsea. */
-function fechaMySQL(v: unknown): string | null {
+/**
+ * Fecha de la API → DATETIME de MySQL, TAL CUAL la entrega Mercado Público: hora de pared de Chile,
+ * sin conversión. La API manda "2026-08-31T11:41:02.767" (sin zona) y esa es la hora que vale.
+ *
+ * BUG real (1-oct-2026, comparado contra la API en 38 OC ganadas): esto hacía `new Date(s)
+ * .toISOString()`, que pasa a UTC, y el sistema entero guarda hora de Chile (ver lib/db.ts). Resultado:
+ * toda fecha quedaba +3/+4 h, y una OC aceptada a las 22:31 del 10 se guardaba como el 11. Con esta
+ * versión el día guardado es el que dice la API, sin depender de la zona del proceso.
+ * Acepta también "DD-MM-YYYY hh:mm:ss". Si trae zona explícita (Z / ±hh:mm) se convierte a Chile.
+ */
+export function fechaMySQL(v: unknown): string | null {
   const s = String(v || '').trim();
   if (!s) return null;
-  const d = new Date(s);
-  if (!Number.isFinite(d.getTime())) return null;
-  return d.toISOString().slice(0, 19).replace('T', ' ');
+  const pad = (n: string) => n.padStart(2, '0');
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?$/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}`;
+  m = s.match(/^(\d{2})-(\d{2})-(\d{4})[T ](\d{2}):(\d{2}):(\d{2})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]} ${m[4]}:${m[5]}:${m[6]}`;
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]} 00:00:00`;
+  // Con zona explícita: se lleva a hora de Chile.
+  if (/(Z|[+-]\d{2}:?\d{2})$/.test(s)) {
+    const d = new Date(s);
+    if (!Number.isFinite(d.getTime())) return null;
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Santiago', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    }).formatToParts(d).map(x => [x.type, x.value]));
+    return `${p.year}-${pad(p.month)}-${pad(p.day)} ${pad(p.hour)}:${pad(p.minute)}:${pad(p.second)}`;
+  }
+  return null;
 }
 
 function num(v: unknown): number | null {
