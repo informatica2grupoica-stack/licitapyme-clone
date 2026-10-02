@@ -32,7 +32,7 @@ const ENRICH_TTL_DIAS  = 7;      // re-enriquecer activas si el caché es más v
 const PRESUPUESTO_MS   = 52_000; // margen bajo maxDuration=60
 
 function autorizado(req: NextRequest): boolean {
-  if (req.headers.get('x-vercel-cron') === '1') return true;
+  if (process.env.VERCEL && req.headers.get('x-vercel-cron') === '1') return true;
   const secret =
     req.nextUrl.searchParams.get('secret') ||
     req.headers.get('x-cron-secret') ||

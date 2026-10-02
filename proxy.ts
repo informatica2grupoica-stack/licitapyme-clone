@@ -2,11 +2,10 @@
 // IMPORTANTE: Solo importar desde auth-edge.ts (Edge-compatible, sin next/headers)
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionFromRequest } from '@/app/lib/auth-edge';
-import { rolVigente } from '@/app/lib/rol-vigente';
+import { estadoVigente } from '@/app/lib/rol-vigente';
 
 // Rutas que NO requieren autenticación
 const RUTAS_PUBLICAS = [
-  '/dev-test-firma', // TEMPORAL: banco de pruebas del componente de firma. BORRAR.
   '/bienvenida',                // landing pública de presentación (antes del login)
   '/login',
   '/recuperar',                 // solicitar recuperación de contraseña
@@ -16,7 +15,6 @@ const RUTAS_PUBLICAS = [
   '/api/auth/restablecer',      // valida el token y cambia la clave
   '/api/auth/me',
   '/api/auth/logout',
-  '/api/pdf-pagina',     // render de una página a PNG; solo PDFs ya públicos en R2/MercadoPúblico (anti-SSRF propio)
   '/api/cron/',          // cron job protegido con su propio secret
   '/api/admin/prefiltro', // prefiltro masivo protegido con CRON_SECRET
   '/api/admin/clasificar-test', // TEMPORAL: prueba clasificador, protegido con CRON_SECRET
@@ -88,7 +86,16 @@ export async function proxy(request: NextRequest) {
   }
 
   // El rol del JWT puede estar viejo (7 días): se toma el vigente de la BD.
-  usuario.rol = await rolVigente(usuario.id, usuario.rol);
+  const vigente = await estadoVigente(usuario.id, usuario.rol);
+  usuario.rol = vigente.rol;
+
+  // Cuenta desactivada después de emitido el JWT: se corta el acceso al tiro.
+  if (!vigente.activo) {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Cuenta desactivada. Contacta al administrador.', code: 'UNAUTHENTICATED' }, { status: 401 });
+    }
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
 
   // Rutas admin: verificar rol
   if (RUTAS_ADMIN.some(r => pathname.startsWith(r)) && usuario.rol !== 'admin') {
@@ -115,6 +122,10 @@ export async function proxy(request: NextRequest) {
   requestHeaders.set('x-user-id',    String(usuario.id));
   requestHeaders.set('x-user-email', usuario.email);
   requestHeaders.set('x-user-rol',   usuario.rol);
+  // x-user-nombre lo leen varias rutas para atribuir acciones: NUNCA debe venir del cliente.
+  // Se fija desde el JWT verificado (solo Latin-1: Headers.set revienta con otros caracteres).
+  if (usuario.nombre && /^[ -ÿ]+$/.test(usuario.nombre)) requestHeaders.set('x-user-nombre', usuario.nombre);
+  else requestHeaders.delete('x-user-nombre');
 
   return NextResponse.next({ request: { headers: requestHeaders } });
 }

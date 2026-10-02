@@ -21,7 +21,6 @@ services:
         # NEXT_PUBLIC_* deben existir EN BUILD (se incrustan en el bundle del front).
         NEXT_PUBLIC_BASE_URL: ${NEXT_PUBLIC_BASE_URL}
         NEXT_PUBLIC_AUTOMATIZACION_PAUSADA: ${NEXT_PUBLIC_AUTOMATIZACION_PAUSADA}
-        NEXT_PUBLIC_CRON_SECRET: ${NEXT_PUBLIC_CRON_SECRET}
     image: licitapyme-local
     container_name: licitapyme
     restart: unless-stopped          # vuelve solo tras reinicio/caída del notebook

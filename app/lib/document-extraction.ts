@@ -1,3 +1,4 @@
+import { esUrlR2Propia } from '@/app/lib/url-propia';
 // app/lib/document-extraction.ts
 // Extracción de texto de documentos de licitación (PDF/Word/Excel), con OCR
 // como fallback para PDFs escaneados. Usado por /api/analizar-documento y
@@ -726,7 +727,7 @@ async function _descargarYExtraerTextoImpl(url: string, nombre: string, opts: { 
   if (!formatosPermitidos.includes(extension)) return null;
 
   let fetchUrl: string;
-  const esUrlPropia = url.includes('.r2.dev') || url.includes(process.env.R2_ACCOUNT_ID || '__no__');
+  const esUrlPropia = esUrlR2Propia(url);
   if (esUrlPropia) {
     fetchUrl = url;
   } else {

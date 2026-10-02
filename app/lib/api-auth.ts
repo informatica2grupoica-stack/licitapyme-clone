@@ -9,13 +9,15 @@
 import { type NextRequest } from 'next/server';
 import { getSessionFromRequest, type UsuarioSession } from '@/app/lib/auth-edge';
 import pool from '@/app/lib/db';
-import { rolVigente } from '@/app/lib/rol-vigente';
+import { estadoVigente } from '@/app/lib/rol-vigente';
 
 /** Usuario autenticado verificando el JWT de la cookie (fuente de verdad). */
 export async function getAuthedUser(req: NextRequest): Promise<UsuarioSession | null> {
   const u = await getSessionFromRequest(req);
   if (!u) return null;
-  return { ...u, rol: await rolVigente(u.id, u.rol) };
+  const v = await estadoVigente(u.id, u.rol);
+  if (!v.activo) return null; // cuenta desactivada: el JWT viejo ya no vale
+  return { ...u, rol: v.rol };
 }
 
 /** ¿Es admin? Verificado contra el JWT (no contra el header del cliente). */

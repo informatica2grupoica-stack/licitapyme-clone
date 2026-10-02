@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { descargarDocumentosLicitacion } from '@/app/lib/mp-descarga-orquestador';
 import { procesarLicitacionCompleta } from '@/app/lib/pipeline-licitacion';
 import { iaTextoConfigurada } from '@/app/lib/gemini';
+import { puedeVerLicitacion } from '@/app/lib/api-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,6 +17,9 @@ export async function POST(request: NextRequest) {
 
     if (!licitacionCodigo) {
       return NextResponse.json({ error: 'licitacionCodigo requerido' }, { status: 400 });
+    }
+    if (!(await puedeVerLicitacion(request, String(licitacionCodigo)))) {
+      return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
     }
 
     const resultado = await descargarDocumentosLicitacion(licitacionCodigo);

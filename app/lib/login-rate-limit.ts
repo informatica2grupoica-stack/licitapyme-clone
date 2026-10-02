@@ -21,13 +21,13 @@ const MAX_POR_IP    = 30;  // fallidos por IP en la ventana → bloqueo de esa I
 /** IP del cliente. Cubre Vercel (x-forwarded-for), Cloudflare Tunnel (cf-connecting-ip)
  *  y proxies comunes. Toma la PRIMERA IP de x-forwarded-for (el cliente real). */
 export function ipDeRequest(req: NextRequest): string {
+  // Cloudflare (túnel) fija cf-connecting-ip con la IP real y el cliente no puede falsearla; el
+  // PRIMER valor de x-forwarded-for sí lo controla el cliente (evadía el tope por IP). Va de respaldo.
+  const cf = req.headers.get('cf-connecting-ip') || req.headers.get('x-real-ip');
+  if (cf) return cf.trim().slice(0, 64);
   const xff = req.headers.get('x-forwarded-for');
   if (xff) return xff.split(',')[0].trim().slice(0, 64);
-  return (
-    req.headers.get('cf-connecting-ip') ||
-    req.headers.get('x-real-ip') ||
-    'desconocida'
-  ).slice(0, 64);
+  return 'desconocida';
 }
 
 export type EstadoBloqueo = { bloqueado: boolean; motivo?: 'email' | 'ip'; esperaMin: number };

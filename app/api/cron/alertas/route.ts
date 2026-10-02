@@ -261,7 +261,7 @@ async function batchInsertAlertas(
 // ── GET handler ───────────────────────────────────────────────────────────────
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
-  const isCron     = request.headers.get('x-vercel-cron') === '1';
+  const isCron     = !!process.env.VERCEL && request.headers.get('x-vercel-cron') === '1';
   const isManual   = CRON_SECRET !== '' && authHeader === `Bearer ${CRON_SECRET}`;
 
   if (!isCron && !isManual) {

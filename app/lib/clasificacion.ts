@@ -17,6 +17,7 @@
 //   • Preview aumentado a 2000 chars. Sin omitirOCR.
 
 import pool from '@/app/lib/db';
+import { esUrlR2Propia } from '@/app/lib/url-propia';
 import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
 import { crearChatIA, geminiHabilitado } from '@/app/lib/gemini';
 import { parseJsonIA } from '@/app/lib/json-ia';
@@ -366,7 +367,7 @@ async function extraerParaClasificar(
   // + key). Sin eso, la primera página queda sin OCR de respaldo (GLM-OCR es el motor).
   if (esPdf && !textoPrimeraPagina && geminiHabilitado()) {
     try {
-      const fetchUrl = url.includes('.r2.dev') || url.includes(process.env.R2_ACCOUNT_ID || '__no__')
+      const fetchUrl = esUrlR2Propia(url)
         ? url
         : `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/proxy?url=${encodeURIComponent(url)}`;
       const res = await fetch(fetchUrl);

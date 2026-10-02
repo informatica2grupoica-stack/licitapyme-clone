@@ -12,6 +12,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { r2Client } from '@/app/lib/r2';
+import { puedeVerLicitacion } from '@/app/lib/api-auth';
+import { codigoLicitacionSeguro, MAX_BYTES_DOCUMENTO } from '@/app/lib/validar-entrada';
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,6 +21,15 @@ export async function POST(request: NextRequest) {
 
     if (!licitacionCodigo || !filename) {
       return NextResponse.json({ error: 'licitacionCodigo y filename requeridos' }, { status: 400 });
+    }
+    if (!codigoLicitacionSeguro(licitacionCodigo) || typeof filename !== 'string') {
+      return NextResponse.json({ error: 'licitacionCodigo o filename inválido' }, { status: 400 });
+    }
+    if (size && Number(size) > MAX_BYTES_DOCUMENTO) {
+      return NextResponse.json({ error: 'El archivo supera el tamaño máximo permitido' }, { status: 413 });
+    }
+    if (!(await puedeVerLicitacion(request, licitacionCodigo))) {
+      return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
     }
 
     const timestamp = Date.now();

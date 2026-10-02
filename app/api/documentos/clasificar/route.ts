@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { puedeVerLicitacion } from '@/app/lib/api-auth';
 import { clasificarLicitacion } from '@/app/lib/clasificacion';
 import { leerInforme, sincronizar } from '@/app/api/negocios/[id]/comercial/route';
 
@@ -22,6 +23,9 @@ export async function POST(req: NextRequest) {
     if (!codigo) throw new Error('Falta código');
   } catch {
     return NextResponse.json({ error: 'Body inválido — se espera { codigo: string }' }, { status: 400 });
+  }
+  if (!(await puedeVerLicitacion(req, codigo))) {
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
   }
 
   try {
@@ -57,6 +61,9 @@ export async function PATCH(req: NextRequest) {
     const { codigo, documento_nombre, nueva_categoria } = await req.json();
     if (!codigo || !documento_nombre || !nueva_categoria) {
       return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 });
+    }
+    if (!(await puedeVerLicitacion(req, String(codigo)))) {
+      return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
     }
     try {
       await pool.query(

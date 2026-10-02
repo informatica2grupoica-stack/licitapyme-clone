@@ -33,7 +33,7 @@ const MAX_POR_CORRIDA = 12;   // tope duro de análisis IA por pasada (control d
 const PRESUPUESTO_MS  = 240_000; // margen bajo maxDuration
 
 function autorizado(req: NextRequest): boolean {
-  if (req.headers.get('x-vercel-cron') === '1') return true;
+  if (process.env.VERCEL && req.headers.get('x-vercel-cron') === '1') return true;
   const secret =
     req.nextUrl.searchParams.get('secret') ||
     req.headers.get('x-cron-secret') ||

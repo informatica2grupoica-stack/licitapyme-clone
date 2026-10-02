@@ -6,19 +6,30 @@ import pool from '@/app/lib/db';
 
 type Rol = 'admin' | 'usuario' | 'externo';
 const TTL_MS = 30_000;
-const cache = new Map<number, { rol: Rol | null; hasta: number }>();
+const cache = new Map<number, { rol: Rol | null; activo: boolean; hasta: number }>();
 
-/** Rol vigente en BD; si la BD falla o el usuario no existe/está inactivo, devuelve el del token. */
-export async function rolVigente(userId: number, rolToken: Rol): Promise<Rol> {
+/**
+ * Rol y estado vigentes en BD. Un usuario DESACTIVADO (activo=0) no debe seguir entrando con un JWT
+ * emitido antes (dura 7 días): se informa `activo:false` y proxy/getAuthedUser lo rechazan.
+ * Fail-open ante error de BD (igual que antes): no se bloquea a nadie por una caída de la base.
+ */
+export async function estadoVigente(userId: number, rolToken: Rol): Promise<{ rol: Rol; activo: boolean }> {
   const c = cache.get(userId);
-  if (c && c.hasta > Date.now()) return c.rol ?? rolToken;
+  if (c && c.hasta > Date.now()) return { rol: c.rol ?? rolToken, activo: c.activo };
   try {
-    const [rows] = await pool.query('SELECT rol FROM usuarios WHERE id = ? LIMIT 1', [userId]);
-    const r = (rows as any[])[0]?.rol;
+    const [rows] = await pool.query('SELECT rol, activo FROM usuarios WHERE id = ? LIMIT 1', [userId]);
+    const fila = (rows as any[])[0];
+    const r = fila?.rol;
     const rol: Rol | null = r === 'admin' || r === 'usuario' || r === 'externo' ? r : null;
-    cache.set(userId, { rol, hasta: Date.now() + TTL_MS });
-    return rol ?? rolToken;
+    const activo = fila ? !!fila.activo : true; // sin fila: se mantiene el comportamiento previo
+    cache.set(userId, { rol, activo, hasta: Date.now() + TTL_MS });
+    return { rol: rol ?? rolToken, activo };
   } catch {
-    return rolToken;
+    return { rol: rolToken, activo: true };
   }
+}
+
+/** Rol vigente en BD; si la BD falla o el usuario no existe, devuelve el del token. */
+export async function rolVigente(userId: number, rolToken: Rol): Promise<Rol> {
+  return (await estadoVigente(userId, rolToken)).rol;
 }

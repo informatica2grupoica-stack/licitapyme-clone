@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { guardarDocumentoEnCache } from '@/app/services/documentosService.server';
 import { registrarActividad, userIdFromHeaders } from '@/app/lib/actividad';
+import { puedeVerLicitacion } from '@/app/lib/api-auth';
+import { codigoLicitacionSeguro, MAX_BYTES_DOCUMENTO } from '@/app/lib/validar-entrada';
 
 const CONTENT_TYPES: Record<string, string> = {
   pdf:  'application/pdf',
@@ -24,6 +26,12 @@ export async function POST(request: NextRequest) {
     if (!licitacionCodigo) {
       return NextResponse.json({ error: 'licitacionCodigo requerido' }, { status: 400 });
     }
+    if (!codigoLicitacionSeguro(licitacionCodigo)) {
+      return NextResponse.json({ error: 'licitacionCodigo inválido' }, { status: 400 });
+    }
+    if (!(await puedeVerLicitacion(request, licitacionCodigo))) {
+      return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
+    }
 
     const files = formData.getAll('files') as File[];
     if (!files || files.length === 0) {
@@ -37,6 +45,9 @@ export async function POST(request: NextRequest) {
       const ext = nombre.split('.').pop()?.toLowerCase() || 'bin';
       const contentType = file.type || CONTENT_TYPES[ext] || 'application/octet-stream';
 
+      if (file.size > MAX_BYTES_DOCUMENTO) {
+        return NextResponse.json({ error: `"${nombre}" supera el tamaño máximo permitido` }, { status: 413 });
+      }
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
 

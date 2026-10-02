@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTextFromDocument, descargarYExtraerTexto } from '@/app/lib/document-extraction';
 import { crearChatIA } from '@/app/lib/gemini';
+import { esUrlR2Propia } from '@/app/lib/url-propia';
 
 // ======================================================
 // TIPOS - DEFINICIONES COMPLETAS Y FLEXIBLES
@@ -384,7 +385,7 @@ export async function POST(request: NextRequest) {
 
     // ========== DESCARGA DEL DOCUMENTO ==========
     let fetchUrl: string;
-    const esUrlPropia = pdfUrl.includes('.r2.dev') || pdfUrl.includes(process.env.R2_ACCOUNT_ID || '__no__');
+    const esUrlPropia = esUrlR2Propia(pdfUrl);
     
     if (esUrlPropia) {
       fetchUrl = pdfUrl;
