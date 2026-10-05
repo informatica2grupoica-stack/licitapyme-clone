@@ -400,7 +400,7 @@ function v03_plazoPrevio(inf: any, push: (h: HallazgoValidador) => void): void {
   if (!pl || !Array.isArray(pl.hitos)) return;
   // Un hito que las bases fijan por evento ("una vez suscrito el contrato…", sin días) no trae plazo legible
   // a propósito: solo cuenta si su propia frase habla de días/plazo y el modelo no lo extrajo.
-  const sinPlazo = pl.hitos.filter((h: any) => mayus(h?.estado) === 'EXISTE' && (h?.plazo == null || String(h.plazo).trim() === '') && /d[ií]as?|plazo|horas?/i.test(String(h?.cita?.frase || '')));
+  const sinPlazo = pl.hitos.filter((h: any) => mayus(h?.estado) === 'EXISTE' && (h?.plazo == null || String(h.plazo).trim() === '') && /d[ií]as?|plazo|horas?/i.test(String(h?.cita?.frase || '')));
   if (sinPlazo.length) push({ regla: 'V-03', severidad: 'error', mensaje: `${sinPlazo.length} hito(s) del plazo previo existen en las bases pero sin plazo legible (${sinPlazo.map((h: any) => h.hito).join(', ')}): el total puede estar subestimado.` });
   const pp = pl.plazo_previo;
   if (pp && Array.isArray(pp.desglose)) {
