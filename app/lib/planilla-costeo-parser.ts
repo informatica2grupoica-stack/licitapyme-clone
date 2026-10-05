@@ -1135,7 +1135,14 @@ function depurarSegmentosInferidos(items: ItemPlanilla[], docNombre: string): It
 
   // (2) Colapsar los segmentos que listan lo MISMO. Contención sobre el más chico (no Jaccard):
   // un anexo puede omitir un par de ítems del otro y sigue siendo la misma lista repetida.
-  const claves = segmentos.map(s => new Set(s.filas.map(f => normalizarDescripcion(f.descripcion)).filter(Boolean)));
+  // La comparación ignora (a) el TEXTO CORRIDO que el parser pegó como "producto" (el descriptor se
+  // trunca a 120: una fila que llega a 120 es un párrafo, no un nombre) y (b) los espacios, porque el
+  // extractor de PDF parte palabras ("ALMACENAMIEN TO"). Caso real 1057448-45-LP26: la misma tabla
+  // de 6 ítems en dos páginas, una copia con 2 párrafos colados y la otra con palabras partidas →
+  // solo 4 de 6 calzaban (66 %) y la lista repetida se leyó como "2 líneas" (13 productos).
+  const esTextoCorrido = (f: ItemPlanilla) => f.descripcion.length >= 120;
+  const claveSinEspacios = (d: string) => normalizarDescripcion(d).replace(/ /g, '');
+  const claves = segmentos.map(s => new Set(s.filas.filter(f => !esTextoCorrido(f)).map(f => claveSinEspacios(f.descripcion)).filter(Boolean)));
   const dueño = segmentos.map((_, i) => i);
   const raiz = (i: number): number => (dueño[i] === i ? i : (dueño[i] = raiz(dueño[i])));
   for (let a = 0; a < segmentos.length; a++) {
@@ -1159,7 +1166,7 @@ function depurarSegmentosInferidos(items: ItemPlanilla[], docNombre: string): It
     // ÚLTIMA. El anexo de OFERTA ECONÓMICA —el único que de verdad se cotiza— va al final del
     // formulario; las copias de arriba son para plazos, garantía o representación de marca.
     const mejor = miembros.reduce((x, y) => {
-      const cx = conCantidadReal(segmentos[x].filas), cy = conCantidadReal(segmentos[y].filas);
+      const cx = conCantidadReal(segmentos[x].filas.filter(f => !esTextoCorrido(f))), cy = conCantidadReal(segmentos[y].filas.filter(f => !esTextoCorrido(f)));
       if (cy > cx) return y;
       if (cy < cx) return x;
       return segmentos[y].filas.length >= segmentos[x].filas.length ? y : x;
@@ -1167,6 +1174,7 @@ function depurarSegmentosInferidos(items: ItemPlanilla[], docNombre: string): It
     console.warn(`[planilla-costeo] ${docNombre}: los segmentos ${miembros.map(i => segmentos[i].linea).join(', ')} listan el MISMO `
       + `catálogo (el documento lo repite una vez por anexo) — no son líneas distintas; se conserva el segmento `
       + `${segmentos[mejor].linea} (${conCantidadReal(segmentos[mejor].filas)} cantidades reales) y se descartan las copias.`);
+    segmentos[mejor].filas = segmentos[mejor].filas.filter(f => !esTextoCorrido(f));
     conservados.push(mejor);
   }
 
