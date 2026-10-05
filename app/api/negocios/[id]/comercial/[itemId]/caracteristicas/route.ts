@@ -1,7 +1,7 @@
 // app/api/negocios/[id]/comercial/[itemId]/caracteristicas/route.ts
 // AGENTE TÉCNICO — comparación de especificaciones de UNA línea técnica del checklist (item de
 // checklist_comercial con tipo='linea_tecnica'). Hermana de .../comercial/route.ts, reusa sus
-// helpers (cargarNegocio, leerInforme, esAsesor, bitacora, nombreDe, COLS) para no duplicar SQL.
+// helpers (cargarNegocio, leerInforme, puedeAprobarAuditor, bitacora, nombreDe, COLS) para no duplicar SQL.
 //
 //   GET   → detalle completo de las características de la línea (nivel 3 de la UI)
 //   POST  → { accion: 'validar' }                         Agente 1: clasifica caracteristicas[]
@@ -32,7 +32,7 @@ import {
   evaluarCaracteristicaDeterminista, combinarConCalculo, evaluarCaracteristicaConIA, slugCaracteristica,
   type VeredictoCaracteristica, type ConflictoCaracteristica, type CandidatoAuditoria,
 } from '@/app/lib/auditor-tecnico';
-import { cargarNegocio, leerInforme, esAsesor, bitacora, nombreDe, COLS, agregarDocumentos } from '../../route';
+import { cargarNegocio, leerInforme, puedeAprobarAuditor, bitacora, nombreDe, COLS, agregarDocumentos } from '../../route';
 import { extraerProductoOfertado } from '@/app/lib/producto-ofertado';
 import { productosCrudosDeLinea } from '@/app/lib/auditor-tecnico-core';
 import { parseAnalisis, criticidadP4, estadoDeFila, ambitoDe, type FilaComparador } from '@/app/lib/auditor-comparador-core';
@@ -1081,7 +1081,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       // sistema o el asesor, que es lo que sostiene la doble firma del checklist.
       const veredictoPedido = String(body.veredicto || '').toUpperCase();
       const veredictoManual = ['CUMPLE', 'NO_CUMPLE', 'CUMPLE_CON_COMPLEMENTO'].includes(veredictoPedido)
-        && (await esAsesor(userId, rol)) ? veredictoPedido : null;
+        && (await puedeAprobarAuditor(userId, rol)) ? veredictoPedido : null;
 
       let veredicto: string; let convertido: number | null; let confianza: number;
       if (veredictoManual) {
@@ -1132,7 +1132,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     // ── El asesor corrige un veredicto (loop de aprendizaje) ──────────────────────────────────
     if (accion === 'corregir') {
-      if (!(await esAsesor(userId, rol)))
+      if (!(await puedeAprobarAuditor(userId, rol)))
         return NextResponse.json({ error: 'Solo el asesor puede corregir un veredicto.' }, { status: 403 });
 
       const caracteristicaId = Number(body.caracteristicaId);

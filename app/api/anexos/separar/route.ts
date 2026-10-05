@@ -27,7 +27,7 @@
 // organismo, así que recortarlo es correcto y reconstruirlo en Word no lo sería.
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { getAuthedUser, puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
+import { getAuthedUser, puedeVerLicitacion, tienePermiso } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { cargarDocumentoParaSeparar } from '@/app/lib/anexos-datos';
 import { abrirDocx, verificarXmlBienFormado, normalizarParaIds } from '@/app/lib/anexos-docx';
@@ -88,10 +88,10 @@ export async function POST(request: NextRequest) {
   if (!(await puedeVerLicitacion(request, codigo))) {
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
   }
-  // Mismo criterio que /api/anexos/generar (admin-only, pedido explícito jul-2026, ver ese
-  // archivo) — separar anexos es parte del mismo flujo, todavía no abierto a otros roles.
-  if (!(await esAdmin(request))) {
-    return NextResponse.json({ error: 'Separar anexos está disponible solo para administradores por ahora' }, { status: 403 });
+  // Mismo criterio que /api/anexos/generar (admin o permiso "Anexos") — separar anexos es parte
+  // del mismo flujo.
+  if (!(await tienePermiso(request, 'anexos'))) {
+    return NextResponse.json({ error: 'Generar anexos requiere ser administrador o tener el permiso "Anexos".' }, { status: 403 });
   }
 
   try {

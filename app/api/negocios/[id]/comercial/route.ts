@@ -95,6 +95,14 @@ export async function esAsesor(userId: number, rol: string | null): Promise<bool
   return !!p.aprobar_comercial;
 }
 
+/** ¿Puede aprobar DENTRO del Auditor? Quien visa (esAsesor) o quien tenga solo `auditor_aprobar`
+ *  (05-oct-2026): aprueba en el Auditor sin abrirse la bandeja de Aprobaciones ni Compras. */
+export async function puedeAprobarAuditor(userId: number, rol: string | null): Promise<boolean> {
+  if (rol === 'admin') return true;
+  const p = await permisosDeUsuario(userId, rol);
+  return !!(p.aprobar_comercial || p.auditor_aprobar);
+}
+
 /** A quién avisar cuando el asistente carga algo: todos los que pueden visar. */
 export async function asesores(): Promise<Array<{ id: number; nombre: string }>> {
   try {
@@ -712,7 +720,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       })(),
       leerCongelamiento(negocio.id, rol),
       decidirGeneracionDeBloques(negocio, items),
-      esAsesor(userId, rol),
+      puedeAprobarAuditor(userId, rol),
       // PRE-POSTULACIÓN (30-sep-2026): mientras el certificado de admisibilidad tenga causales abiertas o quede un compromiso
       // técnico-administrativo sin confirmar, no se generan los anexos. Solo aplica en las etapas previas a postular y a los negocios
       // que ya trabajan con el Auditor unificado (candadoDelNegocio devuelve null si no: el flujo anterior no se toca).
@@ -896,7 +904,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       return NextResponse.json({ success: true, items, resumen: resumirChecklist(items) });
     }
 
-    const visa = await esAsesor(userId, rol);
+    const visa = await puedeAprobarAuditor(userId, rol);
     if ((accion === 'APROBAR' || accion === 'OBSERVAR' || accion === 'REABRIR') && !visa)
       return NextResponse.json({ error: 'Solo el asesor puede visar los puntos.' }, { status: 403 });
     if (accion === 'ELIMINAR_ITEM' && !visa)

@@ -147,14 +147,19 @@ export async function puedeVerLicitacion(req: NextRequest, codigo: string): Prom
 //                       aparece recién cuando el negocio ganó (hayGanado), debajo del Auditor
 //                       Técnico — cada producto del Costeo con su link/precio web, si se cotizó y,
 //                       si se cotizó fuera de la web, el documento de cotización formal.
-export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente' | 'compras' | 'compras_administracion' | 'compras_bodega' | 'compras_todo' | 'solo_compras' | 'compras_ver' | 'costeo_editor' | 'auditor_tecnico' | 'auditor_compra';
+//   auditor_aprobar    → (05-oct-2026, pedido explícito) aprobar/visar DENTRO del Auditor (checklist técnico/
+//                       comercial, comparador de fichas, opciones del Auditor unificado) sin ser jefe de
+//                       ventas: `aprobar_comercial` además abre la bandeja de Aprobaciones y Compras.
+//   anexos             → (05-oct-2026, pedido explícito) generar, separar y rellenar anexos (el creador de
+//                       anexos era admin-only "mientras se decidía quiénes más lo usaban").
+export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente' | 'compras' | 'compras_administracion' | 'compras_bodega' | 'compras_todo' | 'solo_compras' | 'compras_ver' | 'costeo_editor' | 'auditor_tecnico' | 'auditor_compra' | 'auditor_aprobar' | 'anexos';
 export type Permisos = Partial<Record<Permiso, boolean>>;
 const PERMISOS_ADMIN: Record<Permiso, boolean> = {
   ver_otros_negocios: true, acceso_radar: true, comentar_viabilidad: true, exportar: true, alertas_anexos: true,
   aprobar_comercial: true, entrega_proyectos: true, viabilidad_automatica: true, repartir_puente: true, compras: true,
   compras_administracion: true, compras_bodega: true,
   compras_ver: true,
-  costeo_editor: true, auditor_tecnico: true, auditor_compra: true,
+  costeo_editor: true, auditor_tecnico: true, auditor_compra: true, auditor_aprobar: true, anexos: true,
   solo_compras: false, // restricción, no privilegio: un admin nunca queda encerrado en Compras.
   compras_todo: true,  // 30-sep-2026 (pedido explícito): TODO admin ve y opera el módulo de Compras completo. Revierte el "solo asesor y yo" del 10-sep.
 };

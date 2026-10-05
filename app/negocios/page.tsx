@@ -223,7 +223,7 @@ function ModalAsignar({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 rounded-t-2xl">
           <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
@@ -998,7 +998,7 @@ function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Nego
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       role="dialog" aria-modal="true" aria-label={neg.licitacion_nombre || 'Detalle del negocio'}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden" onClick={ev => ev.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden" onClick={ev => ev.stopPropagation()}>
         {/* Header */}
         <div className="flex items-start gap-3 px-6 py-4 border-b border-slate-100 flex-shrink-0" style={{ borderLeft: `4px solid ${col}` }}>
           <div className="min-w-0 flex-1">
@@ -1940,7 +1940,7 @@ function NegociosContent() {
       {/* Modal del día del calendario */}
       {!!diaSel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
               <p className="font-bold text-slate-800">
                 Cierres del {dayjs(diaSel).format('DD/MM/YYYY')}

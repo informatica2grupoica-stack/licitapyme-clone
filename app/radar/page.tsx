@@ -927,7 +927,7 @@ function AsignarModal({ usuarios, count, unaNombre = null, onClose, onConfirm, l
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-2xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
           <div className="min-w-0">
             <h3 className="text-[15px] font-bold text-slate-800">Asignar {count} licitación{count !== 1 ? 'es' : ''}</h3>

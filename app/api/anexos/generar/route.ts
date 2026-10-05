@@ -7,7 +7,7 @@
 // con el mismo Ver/Descargar que cualquier otro documento propio.
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { getAuthedUser, puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
+import { getAuthedUser, puedeVerLicitacion, tienePermiso } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { cargarDocumentoYEmpresa, obtenerItemsCosteoParaAnexo, obtenerTextoBasesParaAnexo, obtenerExperienciaOcParaAnexo, obtenerDatosAuditorParaAnexo } from '@/app/lib/anexos-datos';
 import { generarAnexoFinal } from '@/app/lib/anexos-rellenar';
@@ -90,10 +90,10 @@ export async function POST(request: NextRequest) {
   if (!(await puedeVerLicitacion(request, codigo))) {
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
   }
-  // El creador de anexos queda restringido a admin por ahora (pedido explícito, jul-2026)
-  // mientras se decide quiénes más lo van a usar — reforzado acá, no solo ocultando el botón.
-  if (!(await esAdmin(request))) {
-    return NextResponse.json({ error: 'El creador de anexos está disponible solo para administradores por ahora' }, { status: 403 });
+  // Creador de anexos: admin o permiso "Anexos" (05-oct-2026; antes admin-only desde jul-2026) —
+  // reforzado acá, no solo ocultando el botón.
+  if (!(await tienePermiso(request, 'anexos'))) {
+    return NextResponse.json({ error: 'Generar anexos requiere ser administrador o tener el permiso "Anexos".' }, { status: 403 });
   }
 
   // Guardarraíl real (antes era solo el botón de la UI, no una regla del backend — auditoría
@@ -106,9 +106,9 @@ export async function POST(request: NextRequest) {
       [codigo],
     ) as any;
     const negocio = (rows as any[])[0];
-    // Ya se validó esAdmin() arriba: pasar 'admin' deja que también el creador de anexos
-    // permita reemplazar/generar sobre negocios postulados cuando quien pide es el admin de pruebas.
-    if (negocio && (await yaCongelado(negocio.id, 'admin'))) {
+    // Solo un admin puede seguir generando sobre un negocio ya postulado (admin de pruebas); quien
+    // genera con el permiso "Anexos" respeta el congelamiento.
+    if (negocio && (await yaCongelado(negocio.id, (await getAuthedUser(request))?.rol))) {
       return NextResponse.json(
         { error: 'Este negocio ya se postuló y su Auditor Técnico quedó congelado — ya no se pueden generar más anexos.' },
         { status: 409 },

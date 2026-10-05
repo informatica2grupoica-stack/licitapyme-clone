@@ -12,7 +12,7 @@
 // criterio humano — sobre todo tratándose de una licitación pública.
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { getAuthedUser, puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
+import { getAuthedUser, puedeVerLicitacion, tienePermiso } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { cargarDocumentoPdfYEmpresa } from '@/app/lib/anexos-datos';
 import { rellenarAnexoPdfEscaneado } from '@/app/lib/anexos-pdf-rellenar';
@@ -41,9 +41,9 @@ export async function POST(request: NextRequest) {
   if (!(await puedeVerLicitacion(request, codigo))) {
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
   }
-  // Mismo criterio que /api/anexos/generar: admin-only mientras se decide quiénes más lo usan.
-  if (!(await esAdmin(request))) {
-    return NextResponse.json({ error: 'El relleno de anexos está disponible solo para administradores por ahora' }, { status: 403 });
+  // Mismo criterio que /api/anexos/generar: admin o permiso "Anexos".
+  if (!(await tienePermiso(request, 'anexos'))) {
+    return NextResponse.json({ error: 'Generar anexos requiere ser administrador o tener el permiso "Anexos".' }, { status: 403 });
   }
 
   try {
@@ -52,8 +52,8 @@ export async function POST(request: NextRequest) {
       [codigo],
     ) as any;
     const negocio = (rows as any[])[0];
-    // Ya se validó esAdmin() arriba: mismo bypass que /api/anexos/generar.
-    if (negocio && (await yaCongelado(negocio.id, 'admin'))) {
+    // Mismo criterio que /api/anexos/generar: solo el admin salta el congelamiento.
+    if (negocio && (await yaCongelado(negocio.id, (await getAuthedUser(request))?.rol))) {
       return NextResponse.json(
         { error: 'Este negocio ya se postuló y su Auditor Técnico quedó congelado — ya no se pueden generar más anexos.' },
         { status: 409 },

@@ -148,7 +148,7 @@ function EnviarExperienciaModal({ oc, onClose }: { oc: OrdenCompra; onClose: () 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-center justify-center p-4 overlay-in"
       role="dialog" aria-modal="true">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md modal-in">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl modal-in">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 bg-indigo-50 rounded-xl flex items-center justify-center"><FolderInput size={16} className="text-indigo-600" /></div>

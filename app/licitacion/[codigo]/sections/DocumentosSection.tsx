@@ -1435,10 +1435,12 @@ export function DocumentosSection({
   negocioId?: number | null;
 }) {
   const toast = useToast();
-  // Rellenar anexos (creador) y "Enviar al Auditor" — por pedido explícito del usuario, solo
-  // admin por ahora, mientras se decide quiénes más lo van a usar.
+  // Rellenar/separar anexos: admin o permiso "Anexos". "Enviar al Auditor": admin o quien trabaje el
+  // Auditor (Técnico o de Compra). Antes ambos eran admin-only (05-oct-2026, pedido explícito).
   const { usuario } = useSession();
   const isAdmin = usuario?.rol === 'admin';
+  const puedeAnexos = isAdmin || !!usuario?.permisos?.anexos;
+  const puedeEnviarAuditor = isAdmin || !!usuario?.permisos?.auditor_tecnico || !!usuario?.permisos?.auditor_compra;
   const yaClasificados = documentosCache.some(d => (d as any).categoria);
   // Separación en dos apartados: "Documentos y Bases" (los de la licitación) vs "Documentos Propios"
   // (los que NOSOTROS creamos o editamos: costeo, informe, y lo que subamos).
@@ -1807,10 +1809,10 @@ export function DocumentosSection({
               onView={verYRegistrar}
               onOpenIA={setIaDoc}
               onRefrescar={fetchDocumentos}
-              onRellenarAnexo={isAdmin ? handleRellenarAnexo : undefined}
-              onSepararAnexo={isAdmin ? true : undefined}
-              onEnviarAuditor={isAdmin && negocioId ? setEnviandoDoc : undefined}
-              onRellenarTodos={isAdmin ? handleGenerarTodos : undefined}
+              onRellenarAnexo={puedeAnexos ? handleRellenarAnexo : undefined}
+              onSepararAnexo={puedeAnexos ? true : undefined}
+              onEnviarAuditor={puedeEnviarAuditor && negocioId ? setEnviandoDoc : undefined}
+              onRellenarTodos={puedeAnexos ? handleGenerarTodos : undefined}
               modo="licitacion"
               urlsEnAuditor={urlsEnAuditor}
             />
@@ -1837,7 +1839,7 @@ export function DocumentosSection({
           codigoDecoded={codigoDecoded}
           onView={verYRegistrar}
           onRefrescar={fetchDocumentos}
-          onEnviarAuditor={isAdmin && negocioId ? (doc => esCosteo(doc) ? enviarCosteoAlMotorComercial(doc) : setEnviandoDoc(doc)) : undefined}
+          onEnviarAuditor={puedeEnviarAuditor && negocioId ? (doc => esCosteo(doc) ? enviarCosteoAlMotorComercial(doc) : setEnviandoDoc(doc)) : undefined}
           urlsEnAuditor={urlsEnAuditor}
         />
       </div>
@@ -1918,7 +1920,7 @@ export function DocumentosSection({
           fetchDocumentos();
           // Mismo criterio que el anexo Word/PDF de arriba: derecho al selector del Auditor
           // Técnico, nunca asignado a ciegas.
-          if (isAdmin && negocioId) setEnviandoDoc(archivo);
+          if (puedeEnviarAuditor && negocioId) setEnviandoDoc(archivo);
         }}
         onClose={() => setAnexoXlsxDoc(null)}
       />

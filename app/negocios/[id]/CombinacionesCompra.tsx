@@ -122,7 +122,7 @@ function ModalCombinacion({ c, elegida, puedeOperar, eligiendo, onClose, onElegi
   const esMasRapido = c.etiquetas.includes('MAS_RAPIDO');
   return (
     <div className="fixed inset-0 z-[80] bg-black/40 flex items-start justify-center p-3 overflow-y-auto" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl my-6" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-6xl my-6" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-zinc-100">
           <div>
             <p className="text-[14px] font-bold text-zinc-800">{c.proveedores.join(' + ')}</p>

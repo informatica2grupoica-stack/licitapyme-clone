@@ -37,6 +37,9 @@ export interface UsuarioSession {
     // Auditor de Compra del negocio (28-sep-2026): mismo criterio, gateado por hayGanado en vez
     // de infoComercialLista.
     auditor_compra?: boolean;
+    // Aprobar dentro del Auditor sin ser jefe de ventas, y el creador de anexos (05-oct-2026).
+    auditor_aprobar?: boolean;
+    anexos?: boolean;
   };
   // Frente C.1: ¿ve por defecto solo la Tarjeta de Decisión (resumen) en vez de los 4 módulos
   // de detalle? El propio usuario puede graduarse desde el botón "Ver análisis completo".

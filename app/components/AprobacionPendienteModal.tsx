@@ -55,7 +55,7 @@ export function AprobacionPendienteModal() {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
         <div className="px-6 py-5 flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl bg-violet-50 border border-violet-200 flex items-center justify-center flex-shrink-0">
             <ClipboardCheck size={18} className="text-violet-600" />

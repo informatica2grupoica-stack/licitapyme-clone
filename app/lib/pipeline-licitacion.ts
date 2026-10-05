@@ -80,11 +80,12 @@ async function limpiarFallo(codigo: string): Promise<void> {
 // Procesa una licitación de punta a punta. `forzar` re-genera el análisis aunque exista.
 export async function procesarLicitacionCompleta(
   codigo: string,
-  opts: { forzar?: boolean } = {},
+  opts: { forzar?: boolean; ignorarPrefiltro?: boolean } = {},
 ): Promise<ResultadoPipeline> {
   // 0. Gate de prefiltro — si fue EXCLUIDA, no se procesa (ni clasificación ni viabilidad).
-  //    `forzar` permite re-procesar manualmente aunque esté excluida.
-  if (!opts.forzar && await estaExcluidaPorPrefiltro(codigo)) {
+  //    `forzar` permite re-procesar manualmente aunque esté excluida. `ignorarPrefiltro` solo salta
+  //    el gate (sin rehacer lo ya analizado): lo usa el puente, donde el asesor ya decidió que se hace.
+  if (!opts.forzar && !opts.ignorarPrefiltro && await estaExcluidaPorPrefiltro(codigo)) {
     return { ok: false, error: 'Licitación EXCLUIDA por el prefiltro (Fase 0).' };
   }
 

@@ -192,10 +192,10 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   const toast = useToast();
   const confirmarLimpieza = useConfirm();
   const [limpiandoTodas, setLimpiandoTodas] = useState(false);
-  // El "Generar" (creador de anexos) queda solo para admin por ahora, mismo pedido que en
-  // Documentos — mientras se decide quiénes más lo van a usar.
+  // El "Generar" (creador de anexos): admin o permiso "Anexos", mismo criterio que en Documentos
+  // (05-oct-2026; antes admin-only).
   const { usuario } = useSession();
-  const isAdmin = usuario?.rol === 'admin';
+  const puedeAnexos = usuario?.rol === 'admin' || !!usuario?.permisos?.anexos;
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<Item[]>([]);
@@ -662,7 +662,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
                 documento que consume TODAS las líneas del bloque (12 líneas de precio = un solo
                 anexo económico). El backend ya decidió si se puede y con qué documento de la
                 LICITACIÓN — nunca una plantilla nuestra. Ver app/lib/auditor-generacion.ts. */}
-            {isAdmin && (b.key === 'COMERCIAL' || b.key === 'TECNICO') && generacion?.[b.key] && (
+            {puedeAnexos && (b.key === 'COMERCIAL' || b.key === 'TECNICO') && generacion?.[b.key] && (
               <GenerarAnexoDeBloque
                 decision={generacion[b.key]!}
                 etiqueta={b.key === 'COMERCIAL' ? 'económico' : 'técnico'}
@@ -754,7 +754,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
                     ocupado={ocupado === item.id}
                     onAccion={accionar}
                     onVer={setVisorDoc}
-                    onGenerar={isAdmin ? setGenerandoItem : undefined}
+                    onGenerar={puedeAnexos ? setGenerandoItem : undefined}
                     toast={toast}
                   />
                 );

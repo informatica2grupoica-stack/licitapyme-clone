@@ -189,7 +189,7 @@ export function CierreVencidoModal() {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="bg-slate-50 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden">
+      <div className="bg-slate-50 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
         {/* Header — sin botón de cerrar: es obligatorio resolver */}
         <div className="px-6 py-4 bg-white border-b border-slate-200 flex items-start gap-3 flex-shrink-0">
           <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center flex-shrink-0">

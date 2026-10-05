@@ -82,7 +82,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
         >
           <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={() => cerrar(false)} />
 
-          <div className="relative w-full max-w-sm bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl modal-in overflow-hidden">
+          <div className="relative w-full max-w-lg bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl modal-in overflow-hidden">
             <div className="px-5 pt-5 pb-4">
               <div className="flex items-start gap-3">
                 <div className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center ${

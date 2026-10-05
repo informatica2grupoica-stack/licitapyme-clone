@@ -1,6 +1,6 @@
 // app/lib/auditor-acceso.ts
 // Acceso común a las rutas del AUDITOR unificado (app/api/negocios/[id]/auditor/**): usuario, permiso
-// `auditor_compra` (o admin), negocio y si puede aprobar (EM = admin o `aprobar_comercial`).
+// `auditor_compra` o `auditor_tecnico` (o admin), negocio y si puede aprobar (EM = admin, `aprobar_comercial` o `auditor_aprobar`).
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { puedeVerNegocioAsignado, permisosCrudosDeUsuario } from '@/app/lib/api-auth';
@@ -31,8 +31,10 @@ export async function contextoAuditor(request: NextRequest, params: Promise<{ id
   const userId = idH ? parseInt(idH) : null;
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   let perm = { acceso: true, esEM: true };
-  if (rol !== 'admin') { const p = await permisosCrudosDeUsuario(userId); perm = { acceso: !!p.auditor_compra, esEM: !!p.aprobar_comercial }; }
-  if (!perm.acceso) return NextResponse.json({ error: 'El Auditor está habilitado solo para administradores o para quien tenga el permiso "Auditor de Compra — trabajarlo".' }, { status: 403 });
+  if (rol !== 'admin') { const p = await permisosCrudosDeUsuario(userId); perm = { acceso: !!(p.auditor_compra || p.auditor_tecnico), esEM: !!(p.aprobar_comercial || p.auditor_aprobar) }; }
+  // Auditor Técnico también entra (05-oct-2026): el menú ya le mostraba Pre-postulación/Postulación con
+  // cualquiera de los dos permisos, pero estas rutas le respondían 403.
+  if (!perm.acceso) return NextResponse.json({ error: 'El Auditor requiere ser administrador o tener el permiso "Auditor Técnico" o "Auditor de Compra".' }, { status: 403 });
   const { id } = await params;
   const negocio = await cargarNegocio(id);
   if (!negocio) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });

@@ -115,7 +115,7 @@ function ModalAsignar({
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4"
     >
-      <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl shadow-2xl scale-in overflow-hidden">
+      <div className="bg-white w-full sm:max-w-2xl rounded-t-3xl sm:rounded-2xl shadow-2xl scale-in overflow-hidden">
         <div className="flex justify-center pt-3 sm:hidden">
           <div className="w-10 h-1 bg-zinc-200 rounded-full" />
         </div>

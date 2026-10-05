@@ -21,7 +21,7 @@ import { ahoraChileSQL } from '@/app/lib/tz';
 import { yaCongelado } from '@/app/lib/congelamiento';
 import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
 import { agregarDocumentos } from '@/app/lib/checklist-comercial-db';
-import { cargarNegocio, leerInforme, esAsesor, bitacora, nombreDe } from '../../route';
+import { cargarNegocio, leerInforme, puedeAprobarAuditor, bitacora, nombreDe } from '../../route';
 import {
   cargarItemLineaTecnica, filasDelComparador, intentarAutoTransicion, migracion127Aplicada,
   prepararSegmentosDeLaFicha, procesarProductosDeLaFicha,
@@ -428,7 +428,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     // ── Habilitación del Encargado de Mercado Público (datos que no vienen de una ficha formal) ─
     if (accion === 'habilitar') {
-      if (!(await esAsesor(userId, rol)))
+      if (!(await puedeAprobarAuditor(userId, rol)))
         return NextResponse.json({ error: 'Solo el Encargado de Mercado Público (o un administrador) puede habilitar este dato.' }, { status: 403 });
       const filas = await filasDelComparador(item);
       const f = filas.find(x => x.id === Number(body.caracteristicaId));

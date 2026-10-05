@@ -1268,14 +1268,15 @@ function DetalleContent() {
 
   // Contador del menú: cuántos puntos comerciales esperan visto bueno. Solo se pide cuando
   // la etapa lo amerita, para no generar el checklist en licitaciones que aún están en análisis.
-  // Módulo en desarrollo: oculto para perfiles normales, así que ni siquiera se consulta para ellos.
+  // Se consulta para quien trabaje el Auditor (admin, Técnico o de Compra) — 05-oct-2026, antes solo admin.
+  const veAuditor = isAdmin || !!usuario?.permisos?.auditor_tecnico || !!usuario?.permisos?.auditor_compra;
   useEffect(() => {
-    if (!isAdmin || !negocio?.id || !tieneInformacionComercial(negocio.estado_pipeline)) { setComercialPorAprobar(0); return; }
+    if (!veAuditor || !negocio?.id || !tieneInformacionComercial(negocio.estado_pipeline)) { setComercialPorAprobar(0); return; }
     fetch(`/api/negocios/${negocio.id}/comercial`)
       .then(r => r.json())
       .then(d => setComercialPorAprobar(Number(d?.resumen?.porAprobar) || 0))
       .catch(() => { /* silencioso */ });
-  }, [isAdmin, negocio?.id, negocio?.estado_pipeline]);
+  }, [veAuditor, negocio?.id, negocio?.estado_pipeline]);
 
   // Clasificar documentos con Gemini
   const handleClasificar = useCallback(async () => {
@@ -1392,7 +1393,7 @@ function DetalleContent() {
     auditorAlerta: comercialPorAprobar > 0,
     hayGanado,
     puedeVerAuditorCompra,
-    hayPostulacion: hayPrePostulacion,
+    hayPostulacion: isAdmin && hayPrePostulacion, // Postulación: solo admin (05-oct-2026, pedido explícito)
   });
   // El sidebar solo tiene "resumen"/"resultado" como ítems clickeables cuyo grupo incluye otras
   // pestañas: Fechas/Criterios/Comentarios y Competencia son pestañas internas de Resumen/Resultado.
@@ -1696,7 +1697,7 @@ function DetalleContent() {
                     onSelect={k => setSeccion(k as Seccion)}
                   />
                   {tab === 'auditor_compra' && hayAuditorCompra && (
-                    <AuditorOpcionesPanel negocioId={negocio.id} licitacionCodigo={negocio.licitacion_codigo} puedeAprobar={isAdmin || !!usuario?.permisos?.aprobar_comercial} />
+                    <AuditorOpcionesPanel negocioId={negocio.id} licitacionCodigo={negocio.licitacion_codigo} puedeAprobar={isAdmin || !!usuario?.permisos?.aprobar_comercial || !!usuario?.permisos?.auditor_aprobar} />
                   )}
                   {tab === 'prepostulacion' && hayPrePostulacion && (
                     <PrePostulacionPanel negocioId={negocio.id} onIrAlAuditor={() => setSeccion('auditor_compra')}
@@ -1719,7 +1720,7 @@ function DetalleContent() {
                 </div>
               );
             })()}
-            {(seccion === 'postulacion' || seccion === 'resumen_auditor') && hayPrePostulacion && (
+            {(seccion === 'postulacion' || seccion === 'resumen_auditor') && isAdmin && hayPrePostulacion && (
               <div className="space-y-4">
                 <PostulacionPanel negocioId={negocio.id} onIrAPrePostulacion={() => setSeccion('prepostulacion')} />
                 <ResumenAuditorPanel negocioId={negocio.id} onIrAlAuditor={() => setSeccion('auditor_compra')} />

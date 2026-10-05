@@ -260,7 +260,7 @@ function VisorPagina({ estado, onClose }: { estado: VisorOpts; onClose: () => vo
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
       role="dialog" aria-modal="true" aria-label={estado.titulo || 'Fuente del análisis'}>
-      <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[92vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-2xl max-w-7xl w-full max-h-[92vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-slate-200 flex-shrink-0">
           <div className="min-w-0">
             <p className="text-[13px] font-semibold text-slate-800 truncate">{estado.titulo || 'Fuente del análisis'}</p>

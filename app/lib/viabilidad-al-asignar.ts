@@ -138,6 +138,8 @@ async function vaciarCola(): Promise<void> {
   try {
     while (cola.length) {
       const { codigo, descargar } = cola.shift()!;
+      // Lo que viene del puente lo decidió el asesor: el prefiltro no lo puede bloquear.
+      const ignorarPrefiltro = !!descargar;
       // Se re-chequea acá y no solo al encolar: entre que entró a la cola y le llegó el turno,
       // el usuario pudo haber apretado "Analizar" a mano, o el cron pudo habérsela llevado.
       if (await yaTieneViabilidad(codigo)) {
@@ -167,7 +169,7 @@ async function vaciarCola(): Promise<void> {
       console.log(`[viabilidad-al-asignar] ${codigo}: analizando… (${cola.length} en cola)`);
       try {
         const r = await Promise.race([
-          procesarLicitacionCompleta(codigo),
+          procesarLicitacionCompleta(codigo, { ignorarPrefiltro }),
           new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`tope de ${Math.round(TOPE_MS / 60_000)} min`)), TOPE_MS)),
         ]);
         const segs = ((Date.now() - t0) / 1000).toFixed(1);

@@ -442,7 +442,7 @@ function EvidenciaModal({ negocioId, filaId, cita, titulo, respaldoId, onClose }
   }, [negocioId, filaId, cita]);
   return (
     <div className="fixed inset-0 z-[80] bg-black/40 flex items-start justify-center p-3 overflow-y-auto" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl my-6" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-6xl my-6" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-zinc-100">
           <div><p className="text-[13px] font-bold text-zinc-800 flex items-center gap-1.5"><Eye size={15} /> De dónde salió esta conclusión</p>
             <p className="text-[11.5px] text-zinc-500 mt-0.5">{titulo}</p>

@@ -579,7 +579,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar }: { negocioId: number
 
       {modalProveedorAbierto && (
         <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4" onClick={() => setModalProveedorAbierto(false)}>
-          <div className="bg-white rounded-xl border border-zinc-200 shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-xl border border-zinc-200 shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <p className="px-4 py-3 text-[12px] font-bold text-zinc-800 border-b border-zinc-100 flex items-center gap-1.5">
               <Zap size={13} className="text-indigo-600" /> Crear proveedor en Obuma
             </p>
@@ -715,7 +715,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar }: { negocioId: number
 
       {verOcAbierto && (
         <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4 print:static print:bg-white print:p-0" onClick={() => setVerOcAbierto(false)}>
-          <div className="bg-white rounded-xl border border-zinc-200 shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto print:max-h-none print:max-w-none print:shadow-none print:border-0" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-xl border border-zinc-200 shadow-xl w-full max-w-5xl max-h-[90vh] overflow-y-auto print:max-h-none print:max-w-none print:shadow-none print:border-0" onClick={e => e.stopPropagation()}>
             <div className="px-4 py-3 border-b border-zinc-100 flex items-center justify-between print:hidden">
               <p className="text-[12px] font-bold text-zinc-800 flex items-center gap-1.5"><FileText size={13} className="text-teal-600" /> Orden(es) de compra</p>
               <div className="flex items-center gap-3">

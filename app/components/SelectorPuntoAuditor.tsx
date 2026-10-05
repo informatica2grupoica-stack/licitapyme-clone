@@ -68,7 +68,7 @@ export function SelectorPuntoAuditor({
       aria-modal="true"
       aria-label="Enviar documento al Auditor Técnico"
     >
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 bg-slate-50">
           <Send size={15} className="text-emerald-600 flex-shrink-0" />
           <div className="min-w-0 flex-1">

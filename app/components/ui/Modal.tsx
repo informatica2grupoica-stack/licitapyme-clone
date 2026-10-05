@@ -14,10 +14,10 @@ interface ModalProps {
 }
 
 const sizeMap = {
-  sm: 'max-w-sm',
-  md: 'max-w-md',
-  lg: 'max-w-lg',
-  xl: 'max-w-4xl',
+  sm: 'max-w-lg',
+  md: 'max-w-2xl',
+  lg: 'max-w-3xl',
+  xl: 'max-w-7xl',
 };
 
 export function Modal({
@@ -52,7 +52,7 @@ export function Modal({
         ref={ref}
         className={`
           relative w-full ${sizeMap[size]}
-          max-h-[88vh] flex flex-col
+          max-h-[92vh] flex flex-col
           bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl
           modal-in overflow-hidden
         `}

@@ -3,7 +3,7 @@
 // casilla que la IA rellenó mal (o dejó como quiso otro valor), la corrección se destila en una
 // regla general por TIPO de etiqueta y se inyecta en el prompt de cada análisis futuro.
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthedUser, esAdmin, puedeVerLicitacion } from '@/app/lib/api-auth';
+import { getAuthedUser, esAdmin, puedeVerLicitacion, tienePermiso } from '@/app/lib/api-auth';
 import { guardarFeedbackAnexo, listarFeedbackAnexo, eliminarFeedbackAnexo, esEtiquetaAprendible } from '@/app/lib/anexos-feedback';
 import { cargarFichaEmpresaDeLicitacion } from '@/app/lib/anexos-datos';
 import { registrarActividad } from '@/app/lib/actividad';
@@ -22,8 +22,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const usuario = await getAuthedUser(request);
   if (!usuario) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (!(await esAdmin(request))) {
-    return NextResponse.json({ error: 'El creador de anexos está disponible solo para administradores por ahora' }, { status: 403 });
+  if (!(await tienePermiso(request, 'anexos'))) {
+    return NextResponse.json({ error: 'Generar anexos requiere ser administrador o tener el permiso "Anexos".' }, { status: 403 });
   }
 
   let body: any;

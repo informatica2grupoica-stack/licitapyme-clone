@@ -29,6 +29,8 @@ interface Permisos {
   costeo_editor?: boolean;
   auditor_tecnico?: boolean;
   auditor_compra?: boolean;
+  auditor_aprobar?: boolean;
+  anexos?: boolean;
 }
 
 interface UsuarioAdmin {
@@ -49,44 +51,51 @@ interface UsuarioAdmin {
   created_at: string;
 }
 
-type CategoriaPermiso = 'acceso' | 'viabilidad' | 'comercial';
+type CategoriaPermiso = 'auditor' | 'acceso' | 'viabilidad' | 'gestion' | 'compras';
 
-const CATEGORIAS_PERMISOS: { key: CategoriaPermiso; label: string; icon: React.ElementType }[] = [
-  { key: 'acceso',     label: 'Acceso y visibilidad', icon: Eye },
-  { key: 'viabilidad', label: 'Viabilidad y alertas',  icon: Sparkles },
-  { key: 'comercial',  label: 'Flujo comercial',       icon: Briefcase },
+// Grupos del modal (05-oct-2026, pedido explícito: "más específico para ir dándole los permisos").
+// "Auditor y Anexos" va primero y a lo ancho: es lo que más se otorga a los asistentes.
+const CATEGORIAS_PERMISOS: { key: CategoriaPermiso; label: string; resumen: string; icon: React.ElementType }[] = [
+  { key: 'auditor',    label: 'Auditor y Anexos',       resumen: 'Trabajar una licitación por dentro: costeo, auditores, aprobación y anexos.', icon: ShieldCheck },
+  { key: 'acceso',     label: 'Acceso y visibilidad',   resumen: 'Qué licitaciones y pantallas ve.', icon: Eye },
+  { key: 'viabilidad', label: 'Viabilidad y alertas',   resumen: 'Análisis de viabilidad y avisos que recibe.', icon: Sparkles },
+  { key: 'gestion',    label: 'Aprobaciones y reparto', resumen: 'Jefatura: aprobar negocios, repartir trabajo y entregas.', icon: Briefcase },
+  { key: 'compras',    label: 'Compras',                resumen: 'Módulo de Compras de los negocios ganados.', icon: Briefcase },
 ];
 
 const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string; categoria: CategoriaPermiso }[] = [
-  { key: 'ver_otros_negocios',  label: 'Ver licitaciones de otros perfiles', desc: 'Por defecto solo ve las suyas asignadas.', categoria: 'acceso' },
-  { key: 'acceso_radar',        label: 'Acceso al radar',                     desc: 'El radar es solo de admin por defecto.', categoria: 'acceso' },
-  { key: 'exportar',            label: 'Exportar a Excel',                    desc: 'Descargar listados en Excel.', categoria: 'acceso' },
-  { key: 'comentar_viabilidad', label: 'Comentar / corregir viabilidad',      desc: 'Corregir y afinar el análisis de viabilidad.', categoria: 'viabilidad' },
-  { key: 'viabilidad_automatica', label: 'Viabilidad automática al asignar', desc: 'Piloto: sus licitaciones asignadas y activas se analizan solas, sin esperar el botón "Analizar".', categoria: 'viabilidad' },
-  { key: 'alertas_anexos',      label: 'Recibir alertas de etapa ANEXOS',     desc: 'Le llega campana y correo cuando un perfil mueve una licitación a la etapa ANEXOS.', categoria: 'viabilidad' },
-  // Estos dos existían en el backend (api-auth.ts) pero faltaban acá, así que no se podían
-  // otorgar desde el panel: el permiso existía y era inalcanzable.
-  { key: 'aprobar_comercial',   label: 'Aprobar Información Comercial',       desc: 'Visar los puntos del checklist comercial (rol "asesor"). El admin ya lo tiene.', categoria: 'comercial' },
-  // Ambos eran admin-only "mientras se seguía trabajando" (jul-2026) — ahora se pueden otorgar
-  // puntualmente a un asistente sin abrirlos a todo el mundo (pedido explícito, 28-sep-2026).
-  { key: 'costeo_editor',       label: 'Costeo — trabajarlo',                 desc: 'Ve y guarda la pestaña "Costeo" del negocio (editor integrado), igual que un admin. Sin este permiso, un perfil normal no ve esa pestaña.', categoria: 'comercial' },
-  { key: 'auditor_tecnico',     label: 'Auditor Técnico — trabajarlo',        desc: 'Ve y carga la pestaña "Auditor Técnico" (checklist técnico/comercial, comparador de fichas). Aprobar sigue exigiendo "Aprobar Información Comercial" aparte.', categoria: 'comercial' },
-  { key: 'auditor_compra',      label: 'Auditor de Compra — trabajarlo',      desc: 'Ve y carga la pestaña "Compra" dentro de "Auditor" (activa desde que hay información comercial, sin esperar a que el negocio gane): link, precio web y documento de cotización por producto.', categoria: 'comercial' },
-  { key: 'repartir_puente',     label: 'Puente del Radar (repartir trabajo)', desc: 'Puede empujar licitaciones del radar al puente y repartirlas entre varios perfiles.', categoria: 'comercial' },
-  { key: 'entrega_proyectos',   label: 'Circuito de Entrega de Proyectos',    desc: 'Recibe el aviso cuando ganamos una licitación y debe acusar recibo del proyecto.', categoria: 'comercial' },
-  { key: 'compras',             label: 'Encargado de Compras',                desc: 'Candidato a que le asignen negocios ganados (Módulo de Compras): entra al pool de asignación automática y puede operar TODO el negocio (perfil "compras y entrega").', categoria: 'comercial' },
-  { key: 'compras_administracion', label: 'Compras — Administración (pagos/facturación)', desc: 'Solo el Proceso Administrativo (§11: OC emitida, pago, anticipo, factura, carpeta de proyecto, provisión de fondos). No hace falta ser el encargado del negocio.', categoria: 'comercial' },
-  { key: 'compras_bodega',      label: 'Compras — Bodega',                    desc: 'Solo la verificación física de la entrega (§16.4: producto correcto y en buenas condiciones). No hace falta ser el encargado del negocio.', categoria: 'comercial' },
-  // ÚNICO permiso de todo el catálogo que un admin NO trae gratis (10-sep-2026, pedido explícito:
-  // "antes se podía ver [Compras] por todos los admin, ahora solo Asesor y yo") — ver el comentario
-  // largo en app/lib/api-auth.ts. Por eso se muestra SIEMPRE, incluso cuando el usuario es admin.
-  { key: 'compras_todo',        label: 'Compras — ver y operar TODO el módulo', desc: 'Todo admin ya lo tiene. Para un usuario que no es admin: le deja ver y operar el módulo de Compras completo (si no, solo entra a los negocios donde es el encargado, o con compras/aprobar_comercial por separado).', categoria: 'comercial' },
-  // Lectura pura: el perfil "supervisor" de Compras que mira todo y no toca nada.
-  { key: 'compras_ver',         label: 'Compras — solo ver (sin modificar)', desc: 'Ve Compras, Proyectos (Obuma), Órdenes de compra, Proveedores y Fleteros en modo lectura: no puede crear, editar ni marcar tareas. Para ver también las licitaciones de otros perfiles, actívale además "Ver licitaciones de otros perfiles".', categoria: 'comercial' },
-  // Restricción, no privilegio: encierra al perfil en los módulos de Compras. No da acceso a
-  // negocios por sí solo — se combina con los permisos de Compras de arriba.
-  { key: 'solo_compras',        label: 'Perfil de Compras (solo ve módulos de Compras)', desc: 'Su menú queda limitado a Compras, Proyectos (Obuma), Proveedores, Fleteros, Órdenes de compra y Entregas, más el detalle de las licitaciones ganadas para tener la información. Actívalo junto con los permisos de Compras.', categoria: 'comercial' },
+  // ── Auditor y Anexos ──
+  { key: 'costeo_editor',       label: 'Costeo',                         desc: 'Ve y guarda la pestaña "Costeo" del negocio.', categoria: 'auditor' },
+  { key: 'auditor_tecnico',     label: 'Auditor Técnico',                desc: 'Ve y carga el checklist técnico/comercial y el comparador de fichas, Pre-postulación y Postulación. También puede "Enviar al Auditor" desde Documentos.', categoria: 'auditor' },
+  { key: 'auditor_compra',      label: 'Auditor de Compra', desc: 'Ve y trabaja la pestaña "Auditor · compra y técnico" (opciones, links, precios, cotizaciones), Pre-postulación y Postulación.', categoria: 'auditor' },
+  { key: 'auditor_aprobar',     label: 'Aprobar en el Auditor',          desc: 'Aprueba, observa o rechaza puntos y opciones del Auditor. NO le abre la bandeja de Aprobaciones ni Compras.', categoria: 'auditor' },
+  { key: 'anexos',              label: 'Anexos (generar, separar, rellenar)', desc: 'Usa el creador de anexos en Documentos: separar, rellenar uno o todos, firmar y vista previa. Gasta IA.', categoria: 'auditor' },
+  // ── Acceso y visibilidad ──
+  { key: 'ver_otros_negocios',  label: 'Ver licitaciones de otros perfiles', desc: 'Sin esto solo ve las suyas y las sin asignar; no puede abrir (ni auditar) las asignadas a otro.', categoria: 'acceso' },
+  { key: 'acceso_radar',        label: 'Radar',                          desc: 'Entra al Radar de licitaciones.', categoria: 'acceso' },
+  { key: 'exportar',            label: 'Exportar a Excel',               desc: 'Descarga listados en Excel.', categoria: 'acceso' },
+  // ── Viabilidad y alertas ──
+  { key: 'comentar_viabilidad', label: 'Corregir viabilidad',            desc: 'Comenta y corrige el análisis de viabilidad.', categoria: 'viabilidad' },
+  { key: 'viabilidad_automatica', label: 'Viabilidad automática',        desc: 'Piloto: sus licitaciones asignadas se analizan solas, sin apretar "Analizar".', categoria: 'viabilidad' },
+  { key: 'alertas_anexos',      label: 'Alertas de etapa ANEXOS',        desc: 'Recibe campana y correo cuando una licitación pasa a ANEXOS.', categoria: 'viabilidad' },
+  // ── Aprobaciones y reparto ──
+  { key: 'aprobar_comercial',   label: 'Jefe de ventas (aprobar Información Comercial)', desc: 'Bandeja de Aprobaciones, aprobar en el Auditor y acceso a Compras como jefatura.', categoria: 'gestion' },
+  { key: 'repartir_puente',     label: 'Puente (repartir trabajo)',      desc: 'Empuja licitaciones del Radar al Puente y las reparte entre perfiles.', categoria: 'gestion' },
+  { key: 'entrega_proyectos',   label: 'Entrega de Proyectos',           desc: 'Recibe el aviso cuando ganamos y debe acusar recibo del proyecto.', categoria: 'gestion' },
+  // ── Compras ──
+  { key: 'compras',             label: 'Encargado de Compras',           desc: 'Entra al pool de asignación de negocios ganados y opera todo el negocio.', categoria: 'compras' },
+  { key: 'compras_administracion', label: 'Administración (pagos/facturación)', desc: 'Solo el Proceso Administrativo: OC emitida, pago, anticipo, factura, carpeta y fondos.', categoria: 'compras' },
+  { key: 'compras_bodega',      label: 'Bodega',                         desc: 'Solo la verificación física de la entrega.', categoria: 'compras' },
+  // ÚNICO permiso que se muestra también a un admin (ver el comentario largo en app/lib/api-auth.ts).
+  { key: 'compras_todo',        label: 'Todo el módulo de Compras',      desc: 'Ve y opera Compras completo (si no, solo los negocios donde es encargado). Todo admin ya lo tiene.', categoria: 'compras' },
+  { key: 'compras_ver',         label: 'Compras solo lectura',           desc: 'Ve Compras, Proyectos, Órdenes de compra, Proveedores y Fleteros sin poder modificar.', categoria: 'compras' },
+  // Restricción, no privilegio: no se activa con "Activar todo".
+  { key: 'solo_compras',        label: 'Encerrar en Compras (restricción)', desc: 'Su menú queda limitado a los módulos de Compras. Úsalo junto con los permisos de arriba.', categoria: 'compras' },
 ];
+
+/** Permisos que "Activar todo" del grupo enciende/apaga (deja fuera las restricciones). */
+const clavesDeGrupo = (cat: CategoriaPermiso) =>
+  CATALOGO_PERMISOS.filter(p => p.categoria === cat && p.key !== 'solo_compras').map(p => p.key);
 
 const CLAVE_COMPRAS_TODO: keyof Permisos = 'compras_todo';
 
@@ -106,6 +115,8 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
   const [error, setError] = useState<string | null>(null);
 
   const toggle = (k: keyof Permisos) => setPermisos(p => ({ ...p, [k]: !p[k] }));
+  const fijarGrupo = (cat: CategoriaPermiso, valor: boolean) =>
+    setPermisos(p => ({ ...p, ...Object.fromEntries(clavesDeGrupo(cat).map(k => [k, valor])) }));
 
   const guardar = async () => {
     setCargando(true); setError(null);
@@ -125,7 +136,7 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overlay-in">
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col modal-in">
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col modal-in">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-white/10 flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -172,26 +183,47 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
             </>
           ) : (
             <>
-              <p className="text-xs text-gray-500 dark:text-zinc-400">Marca lo que este usuario podrá hacer. Sin permisos, solo ve sus licitaciones asignadas.</p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {CATEGORIAS_PERMISOS.map(cat => (
-                  <div key={cat.key} className="rounded-xl border border-gray-100 dark:border-white/10 bg-gray-50/70 dark:bg-white/[0.03] p-3">
-                    <div className="flex items-center gap-1.5 mb-1 text-[10.5px] font-bold uppercase tracking-wide text-gray-400 dark:text-zinc-500">
-                      <cat.icon size={12} /> {cat.label}
-                    </div>
-                    <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
-                      {CATALOGO_PERMISOS.filter(p => p.categoria === cat.key).map(p => (
-                        <div key={p.key} className="flex items-start justify-between gap-2 py-2.5">
-                          <span className="min-w-0">
-                            <span className="block text-[12.5px] font-medium text-gray-800 dark:text-zinc-200 leading-snug">{p.label}</span>
-                            <span className="block text-[11px] text-gray-400 dark:text-zinc-500 leading-snug mt-0.5">{p.desc}</span>
-                          </span>
-                          <Switch checked={!!permisos[p.key]} onChange={() => toggle(p.key)} label={p.label} />
+              <p className="text-sm text-gray-600 dark:text-zinc-400">Activa lo que este usuario podrá hacer. Sin permisos, solo ve sus licitaciones asignadas.</p>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {CATEGORIAS_PERMISOS.map(cat => {
+                  const claves = clavesDeGrupo(cat.key);
+                  const activos = claves.filter(k => permisos[k]).length;
+                  const todos = activos === claves.length;
+                  const destacado = cat.key === 'auditor';
+                  return (
+                    <div key={cat.key} className={`rounded-xl border p-4 ${destacado
+                      ? 'lg:col-span-2 border-blue-200 dark:border-blue-500/30 bg-blue-50/50 dark:bg-blue-500/[0.06]'
+                      : 'border-gray-200 dark:border-white/10 bg-gray-50/70 dark:bg-white/[0.03]'}`}>
+                      <div className="flex items-start justify-between gap-3 mb-1">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 text-[15px] font-bold text-gray-900 dark:text-zinc-100">
+                            <cat.icon size={17} className={destacado ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-zinc-500'} />
+                            {cat.label}
+                            <span className="text-xs font-medium text-gray-400 dark:text-zinc-500">{activos} de {claves.length}</span>
+                          </div>
+                          <p className="text-[13px] text-gray-500 dark:text-zinc-400 mt-0.5">{cat.resumen}</p>
                         </div>
-                      ))}
+                        <button type="button" onClick={() => fijarGrupo(cat.key, !todos)}
+                          className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-[13px] font-semibold transition-colors ${todos
+                            ? 'border border-gray-200 dark:border-white/15 text-gray-600 dark:text-zinc-300 hover:bg-white dark:hover:bg-white/5'
+                            : destacado ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'border border-blue-200 dark:border-blue-500/30 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-500/10'}`}>
+                          {todos ? 'Quitar todo' : destacado ? 'Dar acceso completo al Auditor' : 'Activar todo'}
+                        </button>
+                      </div>
+                      <div className={`grid gap-x-6 ${destacado ? 'md:grid-cols-2' : ''}`}>
+                        {CATALOGO_PERMISOS.filter(p => p.categoria === cat.key).map(p => (
+                          <div key={p.key} className="flex items-start justify-between gap-3 py-3 border-t border-gray-100 dark:border-white/[0.06]">
+                            <span className="min-w-0">
+                              <span className="block text-sm font-semibold text-gray-800 dark:text-zinc-200 leading-snug">{p.label}</span>
+                              <span className="block text-[12.5px] text-gray-500 dark:text-zinc-400 leading-snug mt-0.5">{p.desc}</span>
+                            </span>
+                            <Switch checked={!!permisos[p.key]} onChange={() => toggle(p.key)} label={p.label} />
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           )}
@@ -269,7 +301,7 @@ function ModalNuevoUsuario({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overlay-in">
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md modal-in">
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-2xl modal-in">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-white/10">
           <h3 className="font-bold text-gray-900 dark:text-zinc-100 text-lg">Nuevo usuario</h3>
           <button onClick={onCerrar} className="p-1.5 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors">
@@ -411,7 +443,7 @@ function ModalEditarUsuario({ usuario, onGuardado, onCerrar }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overlay-in">
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md modal-in">
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-2xl modal-in">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-white/10">
           <h3 className="font-bold text-gray-900 dark:text-zinc-100 text-lg">Editar usuario</h3>
           <button onClick={onCerrar} className="p-1.5 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-colors">

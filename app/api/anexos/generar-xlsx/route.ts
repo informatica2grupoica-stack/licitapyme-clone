@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
 import pool from '@/app/lib/db';
-import { getAuthedUser, puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
+import { getAuthedUser, puedeVerLicitacion, tienePermiso } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { cargarDocumentoXlsx, obtenerItemsCosteoParaAnexo, obtenerDatosAuditorParaAnexo } from '@/app/lib/anexos-datos';
 import {
@@ -60,8 +60,8 @@ export async function POST(request: NextRequest) {
   if (!(await puedeVerLicitacion(request, codigo))) {
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
   }
-  if (!(await esAdmin(request))) {
-    return NextResponse.json({ error: 'El creador de anexos está disponible solo para administradores por ahora' }, { status: 403 });
+  if (!(await tienePermiso(request, 'anexos'))) {
+    return NextResponse.json({ error: 'Generar anexos requiere ser administrador o tener el permiso "Anexos".' }, { status: 403 });
   }
 
   // Mismo guardarraíl que /api/anexos/generar: negocio postulado y congelado no genera más anexos.
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       [codigo],
     ) as any;
     const negocio = (rows as any[])[0];
-    if (negocio && (await yaCongelado(negocio.id, 'admin'))) {
+    if (negocio && (await yaCongelado(negocio.id, (await getAuthedUser(request))?.rol))) {
       return NextResponse.json(
         { error: 'Este negocio ya se postuló y su Auditor Técnico quedó congelado — ya no se pueden generar más anexos.' },
         { status: 409 },

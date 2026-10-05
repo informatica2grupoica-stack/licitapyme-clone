@@ -5,7 +5,7 @@
 // app/lib/anexos-excel-precios.ts.
 import { NextRequest, NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
-import { puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
+import { puedeVerLicitacion, tienePermiso } from '@/app/lib/api-auth';
 import { cargarDocumentoXlsx, obtenerItemsCosteoParaAnexo, obtenerDatosAuditorParaAnexo } from '@/app/lib/anexos-datos';
 import {
   detectarTablaPrecios, matchearPreciosExcel, detectarPie,
@@ -26,9 +26,9 @@ export async function GET(request: NextRequest) {
   if (!(await puedeVerLicitacion(request, codigo))) {
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
   }
-  // Mismo gate que el resto del Anexo Creator (admin-only por ahora).
-  if (!(await esAdmin(request))) {
-    return NextResponse.json({ error: 'El creador de anexos está disponible solo para administradores por ahora' }, { status: 403 });
+  // Mismo gate que el resto del Anexo Creator (admin o permiso "Anexos").
+  if (!(await tienePermiso(request, 'anexos'))) {
+    return NextResponse.json({ error: 'Generar anexos requiere ser administrador o tener el permiso "Anexos".' }, { status: 403 });
   }
 
   try {

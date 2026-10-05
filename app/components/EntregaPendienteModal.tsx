@@ -91,7 +91,7 @@ export function EntregaPendienteModal() {
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden">
         {/* Cabecera celebratoria: ganar es una buena noticia, no una alerta de error. */}
         <div className="px-6 py-5 bg-gradient-to-br from-amber-50 to-orange-50 border-b border-amber-100 flex items-start gap-3">
           <div className="w-11 h-11 rounded-xl bg-white border border-amber-200 flex items-center justify-center flex-shrink-0 shadow-sm">
