@@ -647,6 +647,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                   <span className="text-[11px] font-bold text-zinc-400 w-8">#{l.item}</span>
                   <span className="text-[12.5px] font-semibold text-zinc-800 truncate flex-1">{l.detalle}</span>
                   <span className="text-[11.5px] text-zinc-400 whitespace-nowrap">x{l.cantidad}</span>
+                  {l.costeadoNeto != null && <span title="Costo unitario neto que quedó en el Costeo para esta línea" className="text-[11px] text-zinc-500 whitespace-nowrap">Costeo <b className="text-zinc-700">{fmtCLP(l.costeadoNeto)}</b></span>}
                   {l.noOfertada && <span className="text-[10.5px] font-bold px-2 py-0.5 rounded-full bg-zinc-200 text-zinc-600">NO OFERTADA</span>}
                   {(() => {
                     const f = resumenDeLinea.get(l.filaId);
@@ -1053,6 +1054,15 @@ function lineasParaResumen(panel: PanelAuditorDTO): LineaParaResumen[] {
   }));
 }
 
+// Diferencia de un costo cotizado contra lo que quedó en el Costeo (neto unitario): rojo = más caro que el costeo, verde = más barato.
+function DifCosteo({ costo, costeo, conTexto }: { costo: number | null; costeo: number | null; conTexto?: boolean }) {
+  if (costo == null || costeo == null || costeo <= 0) return null;
+  const pct = Math.round(((costo - costeo) / costeo) * 1000) / 10;
+  const cls = pct > 0 ? 'text-red-600' : pct < 0 ? 'text-emerald-600' : 'text-zinc-400';
+  const txt = pct > 0 ? 'más caro que el costeo' : pct < 0 ? 'más barato que el costeo' : 'igual al costeo';
+  return <span className={`${conTexto ? 'block' : 'ml-1.5'} text-[11px] font-semibold ${cls}`}>{pct > 0 ? '+' : ''}{pct}%{conTexto && <> ({fmtCLP(costo - costeo)}) {txt}</>}</span>;
+}
+
 // Resumen de la licitación (Prompt 4 v3.0, Paso 5): por línea la opción más barata que CUMPLE (si no hay, la más barata con FALTA DATO, marcada), y el costo
 // total contra el presupuesto del organismo. Lo calcula el código (auditor-resumen-licitacion.ts), nunca el modelo.
 function ResumenLicitacionCard({ panel, onIrALinea }: { panel: PanelAuditorDTO; onIrALinea: (filaId: string) => void }) {
@@ -1068,7 +1078,7 @@ function ResumenLicitacionCard({ panel, onIrALinea }: { panel: PanelAuditorDTO; 
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-[12px] border-collapse">
-          <thead><tr className="text-left text-[10.5px] uppercase tracking-wide text-zinc-400"><th className="px-5 py-2 font-bold">Línea</th><th className="py-2 pr-3 font-bold">Cant.</th><th className="py-2 pr-3 font-bold">Mejor opción</th><th className="py-2 pr-3 font-bold">Estado</th><th className="py-2 pr-3 font-bold text-right">Costo unit. neto</th><th className="py-2 pr-5 font-bold text-right">Total neto</th></tr></thead>
+          <thead><tr className="text-left text-[10.5px] uppercase tracking-wide text-zinc-400"><th className="px-5 py-2 font-bold">Línea</th><th className="py-2 pr-3 font-bold">Cant.</th><th className="py-2 pr-3 font-bold">Mejor opción</th><th className="py-2 pr-3 font-bold">Estado</th><th className="py-2 pr-3 font-bold text-right">Costeo unit.</th><th className="py-2 pr-3 font-bold text-right">Costo unit. neto</th><th className="py-2 pr-5 font-bold text-right">Total neto</th></tr></thead>
           <tbody>
             {r.filas.map(f => (
               <tr key={f.filaId} onClick={() => onIrALinea(f.filaId)} title="Abrir esta línea" className="border-t border-zinc-100 cursor-pointer hover:bg-indigo-50/40">
@@ -1082,7 +1092,14 @@ function ResumenLicitacionCard({ panel, onIrALinea }: { panel: PanelAuditorDTO; 
                   return <span className="text-zinc-400">ninguna cumple todavía</span>;
                 })()}</td>
                 <td className="py-1.5 pr-3">{f.mejor ? <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full ${f.faltaDato ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{f.faltaDato ? 'FALTA DATO' : 'CUMPLE'}</span> : '—'}</td>
-                <td className="py-1.5 pr-3 text-right text-zinc-700">{fmtCLP(f.mejor?.costoUnitNeto ?? null)}</td>
+                {(() => {
+                  const costeo = panel.lineas.find(x => x.filaId === f.filaId)?.costeadoNeto ?? null;
+                  const c = f.mejor?.costoUnitNeto ?? null;
+                  return <>
+                    <td className="py-1.5 pr-3 text-right text-zinc-500">{fmtCLP(costeo)}</td>
+                    <td className="py-1.5 pr-3 text-right text-zinc-700">{fmtCLP(c)}<DifCosteo costo={c} costeo={costeo} /></td>
+                  </>;
+                })()}
                 <td className="py-1.5 pr-5 text-right font-semibold text-zinc-900">{fmtCLP(f.totalNeto)}</td>
               </tr>
             ))}
@@ -1519,10 +1536,12 @@ function CuadroTecnico({ linea, ocupado, puedeAprobar, verificando, subiendoFich
               </tr>
             )}
             <tr className="border-t border-zinc-200 bg-white">
-              <td className="px-3 py-2.5 text-[10.5px] uppercase tracking-wide font-bold text-zinc-500">Costo unit. neto</td>
+              <td className="px-3 py-2.5 text-[10.5px] uppercase tracking-wide font-bold text-zinc-500">Costo unit. neto
+                <span className="block normal-case tracking-normal font-semibold text-[11.5px] text-zinc-600 mt-0.5">En el Costeo: {fmtCLP(linea.costeadoNeto)}</span></td>
               {columnas.map(o => { const c = o.verificacion?.costoNetoUnitario ?? null; return (
                 <td key={o.id} className="px-3 py-2.5 border-l border-zinc-100">
                   <span className={`text-[15px] font-bold ${c != null && c === minimo ? 'text-emerald-600' : 'text-zinc-900'}`}>{fmtCLP(c)}</span>
+                  <DifCosteo costo={c} costeo={linea.costeadoNeto} conTexto />
                   {c != null && c === minimo && <span className="ml-1.5 text-[10px] text-emerald-600 font-bold">MÁS BARATA</span>}
                   {c == null && o.producto?.precio != null && <span className="block text-[11px] text-zinc-400">el documento dice {fmtCLP(o.producto.precio)} (IVA sin definir)</span>}
                   {c != null && o.producto?.ivaSupuesto && <span className="block text-[10.5px] text-zinc-400">IVA asumido (página web): ya descontado</span>}

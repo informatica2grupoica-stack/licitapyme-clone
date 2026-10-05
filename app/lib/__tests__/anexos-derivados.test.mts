@@ -146,3 +146,12 @@ test('camposDelCodigoLicitacion: sin código, o con otra forma, los tres quedan 
     assert.deepEqual([r.licitacion_codigo_p1, r.licitacion_codigo_p2, r.licitacion_codigo_p3], [null, null, null], String(malo));
   }
 });
+
+// BUG REAL (4494-69-LE26, FORMATO N°1-A): "Barros Arana N°492 Of.78, Concepción" dejaba "492 Of.78"
+// en la casilla "NÚMERO" — la oficina pegada al número tiene su propia casilla.
+test('número de la calle no arrastra la oficina pegada ("N°492 Of.78")', () => {
+  const r = conCamposDerivados({ ...empresaBase, direccion: 'Barros Arana N°492 Of.78, Concepción' });
+  assert.equal(r.direccion_calle, 'Barros Arana');
+  assert.equal(r.direccion_numero, '492');
+  assert.equal(r.direccion_oficina, '78');
+});

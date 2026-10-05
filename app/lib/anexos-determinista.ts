@@ -372,7 +372,7 @@ export const DICCIONARIO: Entrada[] = [
     // efectos), el domicilio del representante es el mismo domicilio de la ficha.
     new RegExp(`^(?:direccion|domicilio)(?:\\s+(?:comercial|legal|particular|de\\s+la\\s+empresa))?${REPRE}$`),
   ] },
-  { campo: 'direccion_calle', patrones: [/^calle(?: y numero)?$/, /^nombre de (?:la )?calle$/, /^avenida\/calle$/] },
+  { campo: 'direccion_calle', patrones: [/^calle(?: y numero)?$/, /^nombre de (?:la )?calle$/, /^avenida\/calle$/, /^domicilio\s*\/\s*calle$/] },
   // "DPTO./OF:" — la cuarta columna del domicilio partido ("Calle | N° | DPTO./OF. | Comuna"),
   // medida en 3 licitaciones por el auditor del 31-ago-2026. Ver oficinaDeDireccion en
   // anexos-derivados.ts: si la dirección de la ficha no trae marca de oficina, el campo llega

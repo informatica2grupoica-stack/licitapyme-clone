@@ -68,7 +68,11 @@ function calleYNumeroDeDireccion(direccion: string | null | undefined): { calle:
   const m = RE_MARCA_NUMERO.exec(sinComuna);
   if (!m) return { calle: null, numero: null };
   const calle = sinComuna.slice(0, m.index).trim().replace(/[,\-]+$/, '');
-  const numero = sinComuna.slice(m.index + m[0].length).trim();
+  let numero = sinComuna.slice(m.index + m[0].length).trim();
+  // "N°492 Of.78": la oficina pegada al número tiene su propia casilla (oficinaDeDireccion) — el
+  // número es solo "492" (caso real 4494-69-LE26: salía "492 Of.78" en la casilla "NÚMERO").
+  const marcaOficina = RE_MARCA_OFICINA.exec(numero);
+  if (marcaOficina) numero = numero.slice(0, marcaOficina.index).trim().replace(/[,\-]+$/, '');
   if (!calle || !numero) return { calle: null, numero: null };
   return { calle, numero };
 }

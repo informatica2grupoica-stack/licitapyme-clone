@@ -907,6 +907,8 @@ function extraerCeldasDeFila(filaXml: string, offsetFila: number, offsetsIndices
   return celdas;
 }
 
+const RE_COLUMNA_CONTACTO = /^(?:telefono|fono|celular|movil|e-?\s?mail|correo(?: electronico)?)\b/;
+
 export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
   const out: CandidatoCelda[] = [];
   const offsetsIndices = offsetsAIndices(xml);
@@ -1044,7 +1046,16 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
       // filas de datos sigue siendo una LISTA (asistentes, integrantes) y se mantiene solo-manual.
       const esListaDeVariasFilas = filasDeDatos.length > 1;
 
-      for (const celdas of filasDeDatos) {
+      // BUG REAL (4494-69-LE26, FORMATO N°1-A): "TELEFONO | E-MAIL" del oferente va seguido de DOS
+      // filas en blanco (la segunda es solo aire de la plantilla) y la regla de "lista de varias
+      // filas" dejaba las dos casillas en solo-manual — el teléfono y el correo del oferente
+      // salían vacíos. Cuando TODAS las columnas nombradas son datos de contacto de la propia
+      // empresa (teléfono/correo), la primera fila es el dato del oferente; las demás siguen
+      // solo-manual. Con una columna de nombre/RUT ya es una lista de terceras personas: no aplica.
+      const columnasNombradas = nombresColumna.filter(n => n.length > 0);
+      const encabezadoSoloContacto = hayEncabezado && columnasNombradas.every(n => RE_COLUMNA_CONTACTO.test(sinTildesMinuscula(n)));
+
+      for (const [idxFila, celdas] of filasDeDatos.entries()) {
 
         // Alineación por ANCHO REAL, no por índice de posición — ver columnasPorAncho arriba.
         // Reemplaza la alineación "desde la derecha" anterior: esa asumía que el relleno decorativo
@@ -1098,7 +1109,7 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
           // más arriba) no hay esa ambigüedad y se deja resolver normal.
           out.push({
             etiqueta: etiqueta.slice(0, 160), paraId: c.paraId, indice: c.indiceGlobal,
-            ...(filaContexto || !esListaDeVariasFilas ? {} : { soloManual: true }),
+            ...(filaContexto || !esListaDeVariasFilas || (encabezadoSoloContacto && idxFila === 0) ? {} : { soloManual: true }),
             ...(c.dosPuntos ? { dosPuntos: true } : {}),
           });
         });
@@ -2345,6 +2356,8 @@ function blancoPrecedeBloqueNoRellenable(xml: string, paraId: string): boolean {
 // LEGAL:" que la comparten— fue tomado como candidato del patrón 5 y la IA lo resolvió con el
 // nombre del contacto, aunque nunca se iba a estampar ahí (el dato real vive en las celdas de la
 // fila siguiente, ya cubiertas por el patrón de tabla).
+const RE_FILA_SOLO_FECHA = /^\s*fecha\s*[:,]\s*$/i;
+
 function indicesFilaTituloMergeada(xml: string): Set<number> {
   const offsetsIndices = offsetsAIndices(xml);
   const out = new Set<number>();
@@ -2369,6 +2382,9 @@ function indicesFilaTituloMergeada(xml: string): Set<number> {
       const offsetFila = offsetTabla + fila.index! + fila[0].indexOf(fila[1]);
       const offsetCelda = offsetFila + celdas[0].index! + celdas[0][0].indexOf(celdas[0][1]);
       for (const p of celdas[0][1].matchAll(/<w:p\b[^>]*w14:paraId="[0-9A-Fa-f]+"[^>]*>[\s\S]*?<\/w:p>/g)) {
+        // "FECHA :" a secas en su propia fila (4494-69-LE26): es el campo de la fecha de firma, no
+        // el título de una sección — se deja pasar para que el patrón 5 le escriba la fecha.
+        if (RE_FILA_SOLO_FECHA.test(textoDeRuns(p[0]))) continue;
         const indice = offsetsIndices.get(offsetCelda + p.index!);
         if (indice != null) out.add(indice);
       }

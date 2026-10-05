@@ -19,6 +19,8 @@
 //
 // Se reintenta SOLO lo transitorio. Un 4xx significa que el conversor miró el archivo y lo
 // rechazó: reintentarlo da exactamente el mismo resultado y solo hace esperar al usuario.
+import JSZip from 'jszip';
+
 const INTENTOS = 3;
 const ESPERA_BASE_MS = 1_500;
 
@@ -212,5 +214,28 @@ const DESTINO_PDF: OpcionesConversion = { endpoint: '/convertir-pdf', validarSal
 // siempre `application/vnd...wordprocessingml.document` (el anexo YA generado con el texto
 // puesto, antes de estampar ninguna imagen), nunca .doc/.pdf crudos.
 export async function convertirDocxAPdf(bufferDocx: Buffer): Promise<Buffer> {
-  return convertir(bufferDocx, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 60_000, '.docx', DESTINO_PDF);
+  return convertir(await soltarAjusteDeImagenesDeEncabezado(bufferDocx), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 60_000, '.docx', DESTINO_PDF);
+}
+
+// Un logo del ENCABEZADO anclado con ajuste de texto cuadrado ("wrapSquare") se ve bien en Word, pero
+// LibreOffice lo respeta en el CUERPO: empuja la tabla a la derecha y la deja cortada al borde de la
+// página (caso real 4494-69-LE26, FORMATO N°1-A: la tabla arrancaba ~100pt más a la derecha y se
+// perdía la última columna). Solo en la copia que se manda a convertir: el logo pasa a "sin ajuste"
+// (flota igual donde estaba) y el .docx que descarga el usuario queda intacto.
+const RE_AJUSTE_DE_TEXTO = /<wp:wrap(Square|Tight|Through)\b[^>]*?(?:\/>|>[\s\S]*?<\/wp:wrap\1>)/g;
+
+export async function soltarAjusteDeImagenesDeEncabezado(bufferDocx: Buffer): Promise<Buffer> {
+  try {
+    const zip = await JSZip.loadAsync(bufferDocx);
+    let cambiado = false;
+    for (const nombre of Object.keys(zip.files)) {
+      if (!/^word\/(?:header|footer)\d*\.xml$/.test(nombre)) continue;
+      const xml = await zip.file(nombre)!.async('string');
+      const nuevo = xml.replace(RE_AJUSTE_DE_TEXTO, '<wp:wrapNone/>');
+      if (nuevo !== xml) { zip.file(nombre, nuevo); cambiado = true; }
+    }
+    return cambiado ? await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }) : bufferDocx;
+  } catch {
+    return bufferDocx; // si no se puede leer, se convierte tal cual como siempre
+  }
 }
