@@ -8,6 +8,7 @@
 // Requiere GEMINI_API_KEY con cuota (plan de pago de Gemini): las bases suelen ser
 // PDF de imagen escaneada que solo un modelo de visión puede leer.
 
+import { normalizarTextosInforme } from '@/app/lib/viabilidad-v4/textos';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { analizarYGuardarViabilidadIA, calcularDocsHash } from '@/app/lib/viabilidad-ia';
@@ -24,6 +25,7 @@ import { validarInformeViabilidad, validarNivelV27 } from '@/app/lib/validador-v
 function conValidadorFresco(informeIA: any): any {
   if (!informeIA) return informeIA;
   try {
+    normalizarTextosInforme(informeIA); // objetos donde la pantalla espera texto la tumbaban (ver textos.ts)
     if (informeIA._schema === 'v4') {
       // v4: sin score del modelo; V-27 (nivel con dato dudoso sin marcar) corre aparte del set.
       const v = validarInformeViabilidad(informeIA);

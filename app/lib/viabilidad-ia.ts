@@ -53,6 +53,7 @@ import { HITO_LABEL, NOTA_ACEPTACION_OC, calcularPlazoPrevio, detectarNegaciones
 import { calcularMulta, indicadorNecesario } from '@/app/lib/viabilidad-v4/multa';
 import { NOTA_ART_32, interpretarMonto, interpretarPorLinea, normalizarCaracter, sumaLineasCuadra } from '@/app/lib/viabilidad-v4/presupuesto';
 import { barridoConsecuencias, decidirSuministro, detectarSenalesSuministro, esObviedad } from '@/app/lib/viabilidad-v4/admisibilidad';
+import { normalizarTextosInforme } from '@/app/lib/viabilidad-v4/textos';
 import { reasignarLineasPorTablaDeMontos, construirListaUnica, conteoCruzado, problemasCalidadManifiesto, verificarCaracteristicasLiterales } from '@/app/lib/viabilidad-v4/productos';
 import { verificarSemantica, type ParSemantico } from '@/app/lib/viabilidad-v4/verificador-semantico';
 
@@ -1433,7 +1434,7 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
   console.log(`[viabilidad-ia] ${codigo}: === FASE verificando ===`);
   try { onFase?.('verificando'); } catch { /* noop */ }
 
-  const p3 = parsed as any;
+  const p3 = normalizarTextosInforme(parsed as any);
   const obj = (k: string) => (p3[k] && typeof p3[k] === 'object' && !Array.isArray(p3[k]) ? p3[k] : (p3[k] = {}));
   const veredicto = obj('veredicto');
   if (!Array.isArray(veredicto.motivos_revision)) veredicto.motivos_revision = [];
