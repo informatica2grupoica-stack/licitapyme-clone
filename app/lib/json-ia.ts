@@ -60,6 +60,15 @@ export function repararJSONTruncado(s: string): string {
   return t + stack.reverse().join('');
 }
 
+// Números escritos a la chilena como valor JSON sin comillas: `"presupuesto_neto": 202.880.664,` no es
+// JSON válido y rompía TODA la respuesta (1057448-45-LP26: el grupo "síntesis" dio JSON inválido 4 veces,
+// y antes un glm-5.2 de 57.000 caracteres entero). Se exige una CLAVE entre comillas inmediatamente antes
+// y un cierre (`,` `}` `]`) inmediatamente después, así un texto dentro de un string ("hasta 1.000,") no se toca.
+// Solo se quitan los puntos de miles: no se pierde ni se inventa contenido.
+export function normalizarNumerosConPuntos(s: string): string {
+  return s.replace(/("(?:[^"\\]|\\.)*"\s*:\s*)(-?\d{1,3}(?:\.\d{3})+)(?=\s*[,}\]])/g, (_m, pre: string, num: string) => pre + num.replace(/\./g, ''));
+}
+
 // Parseo tolerante en cascada. Devuelve el objeto o null (nunca lanza).
 //   1) Directo (quitando ```fences``` y recortando al {…} exterior).
 //   2) Saneando caracteres de control.
@@ -84,7 +93,7 @@ export function parseJsonIAConTraza<T = any>(raw: string | null | undefined): { 
   };
 
   // 1) La cadena completa (soporta tanto objeto {…} como array […] top-level).
-  const r = tryParse(limpio) ?? tryParse(sanearControlChars(limpio));
+  const r = tryParse(limpio) ?? tryParse(sanearControlChars(limpio)) ?? tryParse(normalizarNumerosConPuntos(sanearControlChars(limpio)));
   if (r) return { valor: r, reparado: false };
 
   // 2) Recorte al bloque JSON exterior (el que abra primero), sea { o [.
@@ -96,9 +105,9 @@ export function parseJsonIAConTraza<T = any>(raw: string | null | undefined): { 
   // del bloque para que el reparador cierre las estructuras.
   const cand = end > start ? limpio.slice(start, end + 1) : limpio.slice(start);
 
-  const r2 = tryParse(cand) ?? tryParse(sanearControlChars(cand));
+  const r2 = tryParse(cand) ?? tryParse(sanearControlChars(cand)) ?? tryParse(normalizarNumerosConPuntos(sanearControlChars(cand)));
   if (r2) return { valor: r2, reparado: false };
   // 3) Reparar truncado (cierra estructuras abiertas) + sanear.
-  const r3 = tryParse(sanearControlChars(repararJSONTruncado(limpio.slice(start))));
+  const r3 = tryParse(normalizarNumerosConPuntos(sanearControlChars(repararJSONTruncado(limpio.slice(start)))));
   return { valor: r3, reparado: !!r3 };
 }

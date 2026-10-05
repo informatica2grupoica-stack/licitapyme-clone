@@ -261,3 +261,16 @@ test('escalarARevisionHumana: sin hallazgos de las 5 reglas, no toca el informe'
   assert.deepEqual(disparadas, []);
   assert.equal(inf.veredicto.estado_veredicto, undefined);
 });
+
+test('V-03: hito por evento sin días en su frase (EMISION_OC) NO dispara; con días sin extraer SÍ', () => {
+  const evento = { ...base, _schema: 'v4', plazos: { hitos: [{ hito: 'EMISION_OC', estado: 'EXISTE', plazo: null, cita: { frase: 'La Orden de Compra será emitida una vez suscrito el contrato' } }] } };
+  assert.ok(!halla('V-03', validarInformeViabilidad(evento, 50).hallazgos));
+  const conDias = { ...base, _schema: 'v4', plazos: { hitos: [{ hito: 'EMISION_OC', estado: 'EXISTE', plazo: null, cita: { frase: 'será emitida dentro de 5 días hábiles' } }] } };
+  assert.ok(halla('V-03', validarInformeViabilidad(conDias, 50).hallazgos));
+});
+
+test('V-25: hito con cita PARCIAL NO dispara; con cita NO sí', () => {
+  const mk = (semantica: string) => ({ ...base, _schema: 'v4', plazos: { hitos: [{ hito: 'GARANTIA_FIEL_CUMPLIMIENTO', estado: 'EXISTE', plazo: 5, cita: { frase: 'x', verificada: true, semantica } }] } });
+  assert.ok(!halla('V-25', validarInformeViabilidad(mk('PARCIAL'), 50).hallazgos));
+  assert.ok(halla('V-25', validarInformeViabilidad(mk('NO'), 50).hallazgos));
+});

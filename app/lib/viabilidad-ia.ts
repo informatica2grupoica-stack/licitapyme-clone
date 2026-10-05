@@ -53,7 +53,7 @@ import { HITO_LABEL, NOTA_ACEPTACION_OC, calcularPlazoPrevio, detectarNegaciones
 import { calcularMulta, indicadorNecesario } from '@/app/lib/viabilidad-v4/multa';
 import { NOTA_ART_32, interpretarMonto, interpretarPorLinea, normalizarCaracter, sumaLineasCuadra } from '@/app/lib/viabilidad-v4/presupuesto';
 import { barridoConsecuencias, decidirSuministro, detectarSenalesSuministro, esObviedad } from '@/app/lib/viabilidad-v4/admisibilidad';
-import { construirListaUnica, conteoCruzado, problemasCalidadManifiesto, verificarCaracteristicasLiterales } from '@/app/lib/viabilidad-v4/productos';
+import { reasignarLineasPorTablaDeMontos, construirListaUnica, conteoCruzado, problemasCalidadManifiesto, verificarCaracteristicasLiterales } from '@/app/lib/viabilidad-v4/productos';
 import { verificarSemantica, type ParSemantico } from '@/app/lib/viabilidad-v4/verificador-semantico';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -1271,6 +1271,16 @@ function _reglaManifiestoQueFalla(r: any): 'V-09' | 'V-12' | 'V-23' | null {
 // completa (puede ser 1 o 2 llamadas al modelo, más sus respaldos) — antes solo se veía el costo
 // de cada llamada suelta, sin un total a la vista. Se loguea SIEMPRE al salir, incluso si la
 // corrida termina en error (para ver cuánto se alcanzó a gastar antes de fallar).
+// Tabla de montos por ítem de las bases (presupuesto.por_linea, cada fila con su frase literal): si hay ≥2
+// filas con frase y monto, es evidencia determinista de que cada línea tiene su propio presupuesto, sin
+// depender de que el modelo la reporte en adjudicacion.evidencias (1057448-45-LP26 salía "no claro").
+function evidenciaPresupuestoPorLineaDeTabla(porLineaCrudo: unknown): EvidenciaAdj[] {
+  const filas = (Array.isArray(porLineaCrudo) ? porLineaCrudo : []).filter((l: any) => l?.cita?.frase && String(l?.monto_texto || '').trim());
+  if (filas.length < 2) return [];
+  const c = filas[0].cita;
+  return [{ tipo: 'PRESUPUESTO_POR_LINEA', origen: 'detector', cita: { documento: String(c.documento || ''), numeral: String(c.numeral || ''), frase: String(c.frase) } }];
+}
+
 export async function analizarViabilidadIAV3(codigo: string, onFase?: (fase: FaseAnalisisIA) => void): Promise<any | null> {
   // El log TOTAL debe leerse DENTRO del callback de conAcumuladorCostoIA (que corre dentro de
   // AsyncLocalStorage.run): fuera de ahí el contexto ya cerró y costoAcumuladoActual() da null.
@@ -1531,6 +1541,7 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
   let evidencias: EvidenciaAdj[] = deduplicarEvidencias([
     ...evidenciasDelModelo(adj.evidencias, 'modelo'),
     ...evidenciasDeDetectores(senales).map(e => { if (e.cita.frase) loc.localizar(e.cita as any); return e; }),
+    ...evidenciaPresupuestoPorLineaDeTabla(pres.por_linea),
   ]);
   // Señales de suministro: si el modelo no reportó ninguna, el detector del código.
   const exc = obj('exclusion');
@@ -1548,6 +1559,15 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
   if (sem.fallo) console.warn(`[viabilidad-ia-v4] ${codigo}: chequeo semántico no disponible (${sem.fallo}) — las frases cuentan solo por existir literal.`);
   else if (pares.length) console.log(`[viabilidad-ia-v4] ${codigo}: chequeo semántico — ${sem.evaluados}/${pares.length} pares evaluados.`);
   p3._chequeo_semantico = { pares: pares.length, evaluados: sem.evaluados, fallo: sem.fallo };
+
+  // Si el chequeo semántico REFUTA la frase que respalda el carácter del presupuesto (1057448-45-LP26: "se
+  // certifica un presupuesto total… impuestos incluidos" no dice "referencial"), el dato no se sostiene:
+  // según el prompt, sin evidencia expresa el carácter es NO_DECLARADO. No se deja un dato refutado.
+  const presu = p3.presupuesto;
+  if (presu && (presu.caracter === 'EXCLUYENTE' || presu.caracter === 'REFERENCIAL') && presu.cita?.semantica === 'NO') {
+    presu.caracter_corregido = { antes: presu.caracter, motivo: presu.cita.motivo_semantica || 'la frase citada no sostiene el carácter' };
+    presu.caracter = 'NO_DECLARADO';
+  }
 
   marcarEvidenciasQueCuentan(evidencias);
   const lineasApi = Array.isArray(ctx.itemsMP) ? ctx.itemsMP.length : 0;
@@ -1735,6 +1755,13 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
     } catch (e) { console.warn(`[viabilidad-ia-v4] ${codigo}: extracción dedicada falló:`, String(e).slice(0, 140)); }
   }
   // UNA SOLA LISTA (P11): productos.items y manifiesto_productos salen de la misma lista final.
+  {
+    const r = reasignarLineasPorTablaDeMontos(manifiesto as any, porLinea as any);
+    if (r.cambiado) {
+      for (const m of manifiesto) m.presupuesto_linea = presupuestoDeLinea(m.linea);
+      console.log(`[viabilidad-ia-v4] ${codigo}: líneas reasignadas por la tabla de montos de las bases — ${r.motivo}.`);
+    }
+  }
   prod.items = construirListaUnica(manifiesto, itemsFuente);
   p3.manifiesto_productos = manifiesto;
   prod.conteo_cruzado = conteoCruzado(prod, manifiesto.length, lineasApi);

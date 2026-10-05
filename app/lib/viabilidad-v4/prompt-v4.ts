@@ -487,6 +487,8 @@ sistema. No copies los marcadores [[PÁGINA N]] dentro de la frase. Si el dato
 es NO_INDICADO o NO_DECLARADO, deja la cita vacía: no inventes una frase. Sin
 frase textual, el dato no sirve.
 
+Los NÚMEROS van sin separador de miles ni símbolo (202880664, nunca 202.880.664 ni $202.880.664): es JSON.
+
 Analiza TODO y devuelve EXACTAMENTE este JSON (v4.0; cada dato con su CITA; no inventes):
 ${esquemaV4(d.codigo)}`;
 }

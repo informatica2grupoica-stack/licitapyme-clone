@@ -48,6 +48,45 @@ export interface FilaManifiesto {
   unidad_medida: string; unidad_inferida: boolean; presupuesto_linea: number | null; tipo: string; ruta: string;
 }
 
+const sinEspacios = (s: unknown) => norm(s).replace(/ /g, '');
+
+/**
+ * Reasigna el N° de línea del manifiesto usando la TABLA DE MONTOS POR ÍTEM de las bases
+ * (presupuesto.por_linea, cada fila con su frase literal "NOMBRE  CANTIDAD  ASIG.  $MONTO").
+ * Caso real 1057448-45-LP26: 6 ítems con monto propio y el modelo los emitió todos como "L1"
+ * (otra corrida los puso bien L1..L6: dependía de la suerte). Solo actúa si el cruce es UNO A UNO y
+ * cubre TODAS las filas; en cualquier duda no toca nada. Entre varios candidatos gana el nombre más
+ * largo ("PLACA DE ENFRIAMIENTO" está contenida en "CENTRO DE INCLUSIÓN CON PLACA DE ENFRIAMIENTO").
+ * Compara sin espacios (el PDF parte palabras: "ALMACENAMIEN TO").
+ */
+export function reasignarLineasPorTablaDeMontos(
+  manifiesto: FilaManifiesto[],
+  porLinea: Array<{ numero: number; cita?: { frase?: string } | null }>,
+): { cambiado: boolean; motivo: string } {
+  const entradas = porLinea.filter(l => l && Number.isFinite(l.numero) && l.cita?.frase);
+  if (entradas.length < 2 || manifiesto.length !== entradas.length) return { cambiado: false, motivo: 'no aplica' };
+  if (new Set(entradas.map(e => e.numero)).size !== entradas.length) return { cambiado: false, motivo: 'líneas repetidas' };
+  if (new Set(manifiesto.map(m => m.linea)).size >= entradas.length) return { cambiado: false, motivo: 'las líneas ya están separadas' };
+  const claves = manifiesto.map(m => sinEspacios(m.descripcion));
+  if (claves.some(k => k.length < 4)) return { cambiado: false, motivo: 'descripciones muy cortas' };
+  const asignacion = new Map<number, number>(); // índice del manifiesto → N° de línea
+  for (const e of entradas) {
+    const frase = sinEspacios(e.cita!.frase);
+    let mejor = -1;
+    manifiesto.forEach((m, i) => {
+      if (!frase.includes(claves[i])) return;
+      if (m.cantidad != null && !frase.includes(claves[i] + String(m.cantidad))) return; // nombre + cantidad pegados
+      if (mejor < 0 || claves[i].length > claves[mejor].length) mejor = i;
+    });
+    if (mejor < 0 || asignacion.has(mejor)) return { cambiado: false, motivo: 'cruce ambiguo' };
+    asignacion.set(mejor, e.numero);
+  }
+  if (asignacion.size !== manifiesto.length) return { cambiado: false, motivo: 'no cubre todas las filas' };
+  manifiesto.forEach((m, i) => { m.linea = asignacion.get(i)!; });
+  manifiesto.sort((x, y) => x.linea - y.linea);
+  return { cambiado: true, motivo: `${entradas.length} ítems cruzados uno a uno con la tabla de montos de las bases` };
+}
+
 const numLinea = (x: unknown) => { const m = String(x ?? '').match(/\d+/); return m ? Number(m[0]) : 1; };
 
 /**
