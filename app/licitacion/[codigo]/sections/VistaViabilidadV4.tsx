@@ -27,9 +27,9 @@ const _norm = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[
 const NIVEL_VISTA: Record<string, { label: string; cls: string; soft: string; tip: string }> = {
   MUY_ALTO:   { label: 'MUY ALTO',   cls: 'bg-emerald-600', soft: 'bg-emerald-50 border-emerald-200', tip: 'Proyecto muy atractivo para nosotros.' },
   ALTO:       { label: 'ALTO',       cls: 'bg-emerald-500', soft: 'bg-emerald-50 border-emerald-200', tip: 'Proyecto atractivo.' },
-  MEDIO_ALTO: { label: 'MEDIO ALTO', cls: 'bg-yellow-500',  soft: 'bg-yellow-50 border-yellow-200',   tip: 'Atractivo con condiciones: consulta a CA.' },
-  MEDIO:      { label: 'MEDIO',      cls: 'bg-yellow-500',  soft: 'bg-yellow-50 border-yellow-200',   tip: 'Atractivo medio: consulta a CA.' },
-  MEDIO_BAJO: { label: 'MEDIO BAJO', cls: 'bg-orange-500',  soft: 'bg-orange-50 border-orange-200',   tip: 'Poco atractivo o servicio: consulta a CA.' },
+  MEDIO_ALTO: { label: 'MEDIO ALTO', cls: 'bg-yellow-500',  soft: 'bg-yellow-50 border-yellow-200',   tip: 'Atractivo con condiciones: consulta al jefe de ventas.' },
+  MEDIO:      { label: 'MEDIO',      cls: 'bg-yellow-500',  soft: 'bg-yellow-50 border-yellow-200',   tip: 'Atractivo medio: consulta al jefe de ventas.' },
+  MEDIO_BAJO: { label: 'MEDIO BAJO', cls: 'bg-orange-500',  soft: 'bg-orange-50 border-orange-200',   tip: 'Poco atractivo o servicio: consulta al jefe de ventas.' },
   BAJO:       { label: 'BAJO',       cls: 'bg-red-500',     soft: 'bg-red-50 border-red-200',         tip: 'Poco atractivo: suelta el proyecto.' },
   EXCLUIDO:   { label: 'EXCLUIDO',   cls: 'bg-red-700',     soft: 'bg-red-50 border-red-300',         tip: 'Un filtro duro deja el proyecto fuera.' },
 };
@@ -162,7 +162,7 @@ function DatosDudosos({ codigo, score, adjudicacion, onCambio }: { codigo: strin
           </div>
         </div>
       ))}
-      <p className="text-[11px] text-sky-700">Si no logras confirmarlo, consulta a CA.</p>
+      <p className="text-[11px] text-sky-700">Si no logras confirmarlo, consulta al jefe de ventas.</p>
       {error && <p className="text-[11.5px] text-red-600">{error}</p>}
     </div>
   );
@@ -250,7 +250,7 @@ export function VistaV4({ informe, codigo, feedbackPanel, onInformeCambio }: { i
         {esCA && (s.pasos?.length ?? 0) > 0 && (
           <div className="mt-2">
             <button onClick={() => setVerDesglose(v => !v)} className="text-[11px] font-semibold text-violet-700 inline-flex items-center gap-1">
-              <ChevronDown size={12} className={verDesglose ? 'rotate-180' : ''} /> Desglose del nivel (para CA)
+              <ChevronDown size={12} className={verDesglose ? 'rotate-180' : ''} /> Desglose del nivel (solo admin)
             </button>
             {verDesglose && (
               <div className="mt-1 bg-white/70 rounded-lg border border-slate-200 p-2 space-y-0.5">
@@ -266,40 +266,41 @@ export function VistaV4({ informe, codigo, feedbackPanel, onInformeCambio }: { i
 
       <PanelValidador validador={informe._validador} />
 
-      {/* ── DATOS CLAVE ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <div className="bg-white border border-slate-200 rounded-xl p-3">
-          <p className="text-[10px] font-bold text-slate-400 uppercase">Presupuesto</p>
-          <p className="text-[15px] font-bold text-emerald-700 leading-tight">{pres.bruto ? fmt(pres.bruto) : 'No publicado'}{pres.bruto && !pres.regimen_fora ? <span className="text-[10px] font-semibold text-slate-400"> IVA incl.</span> : null}</p>
+      {/* ── DATOS CLAVE (4 cajas del mismo tamaño) ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 items-stretch">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col gap-1.5 min-h-[170px]">
+          <p className="text-[12px] font-bold text-slate-400 uppercase tracking-wide">Presupuesto</p>
+          <p className="text-[24px] font-black text-emerald-700 leading-tight">{pres.bruto ? fmt(pres.bruto) : 'No publicado'}{pres.bruto && !pres.regimen_fora ? <span className="text-[12px] font-semibold text-slate-400"> IVA incl.</span> : null}</p>
           <span title={pres.caracter === 'EXCLUYENTE' ? 'Superar este monto deja la oferta fuera de bases' : pres.nota_art_32 || ''}
-            className={`text-[9px] font-bold px-1 py-0.5 rounded cursor-help ${pres.caracter === 'EXCLUYENTE' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>{cap(pres.caracter || 'NO_DECLARADO').toLowerCase()}</span>
+            className={`self-start text-[13px] font-bold px-2.5 py-1 rounded-md cursor-help ${pres.caracter === 'EXCLUYENTE' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>{cap(pres.caracter || 'NO_DECLARADO').toLowerCase()}</span>
           {porLineaPres.length >= 2 && (
-            <div className="mt-1 space-y-0.5">{porLineaPres.map((l: any) => <p key={l.linea} className="text-[10px] text-slate-500"><span className="font-semibold">{l.linea}</span> {fmt(l.monto_pesos)}</p>)}</div>
+            <div className="space-y-0.5">{porLineaPres.map((l: any) => <p key={l.linea} className="text-[12.5px] text-slate-600"><span className="font-bold">{l.linea}</span> {fmt(l.monto_pesos)}</p>)}</div>
           )}
-          <div className="mt-0.5"><Cita cita={pres.cita} /></div>
+          <div className="mt-auto pt-1"><Cita cita={pres.cita} /></div>
         </div>
-        <div className={`border rounded-xl p-3 ${adj.resultado === 'NO_CLARO' ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'}`}>
-          <p className={`text-[10px] font-bold uppercase ${adj.resultado === 'NO_CLARO' ? 'text-amber-600' : 'text-slate-400'}`}>Cómo se adjudica</p>
-          <p className={`text-[14px] font-semibold leading-tight ${adj.resultado === 'NO_CLARO' ? 'text-amber-700' : 'text-slate-800'}`}>
+        <div className={`border rounded-xl p-4 flex flex-col gap-1.5 min-h-[170px] ${adj.resultado === 'NO_CLARO' ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'}`}>
+          <p className={`text-[12px] font-bold uppercase tracking-wide ${adj.resultado === 'NO_CLARO' ? 'text-amber-600' : 'text-slate-400'}`}>Cómo se adjudica</p>
+          <p className={`text-[24px] font-black leading-tight ${adj.resultado === 'NO_CLARO' ? 'text-amber-700' : 'text-slate-800'}`}>
             {adj.resultado === 'POR_LINEAS' ? 'Por línea' : adj.resultado === 'GLOBAL' ? 'Global' : 'No está claro'}
           </p>
-          {adj.cotizar_100_texto && <p className="text-[10.5px] text-slate-500 mt-0.5">{adj.cotizar_100_texto}</p>}
-          {evidenciaPrincipal && <p className="text-[10.5px] text-slate-500 mt-0.5">Porque las bases dicen que {EVIDENCIA_TEXTO[evidenciaPrincipal.tipo] || cap(evidenciaPrincipal.tipo).toLowerCase()}:</p>}
+          {adj.cotizar_100_texto && <p className="text-[13px] font-semibold text-slate-600">{adj.cotizar_100_texto}</p>}
+          {evidenciaPrincipal && <p className="text-[12.5px] text-slate-500">Porque las bases dicen que {EVIDENCIA_TEXTO[evidenciaPrincipal.tipo] || cap(evidenciaPrincipal.tipo).toLowerCase()}:</p>}
           {evidenciaPrincipal && <FraseCitada cita={evidenciaPrincipal.cita} />}
-          {evidenciaPrincipal && <Cita cita={evidenciaPrincipal.cita} />}
-          {adj.regla_aplicada === 'CONFIRMADA' && <p className="text-[10px] text-sky-700 mt-0.5">{adj.motivo}</p>}
+          {adj.regla_aplicada === 'CONFIRMADA' && <p className="text-[12px] text-sky-700">{adj.motivo}</p>}
+          <div className="mt-auto pt-1">{evidenciaPrincipal && <Cita cita={evidenciaPrincipal.cita} />}</div>
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-3" title="Tiempo administrativo entre la adjudicación y el inicio del plazo de entrega">
-          <p className="text-[10px] font-bold text-slate-400 uppercase cursor-help">Plazo previo</p>
-          <p className="text-[15px] font-bold text-slate-800 leading-tight">{pp ? `${pp.al_menos ? 'al menos ' : ''}${pp.total_dias_corridos} días` : '—'}</p>
-          {pp && <p className="text-[10px] text-slate-400">días corridos</p>}
+        <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col gap-1.5 min-h-[170px]" title="Tiempo administrativo entre la adjudicación y el inicio del plazo de entrega">
+          <p className="text-[12px] font-bold text-slate-400 uppercase tracking-wide cursor-help">Plazo previo</p>
+          <p className="text-[24px] font-black text-slate-800 leading-tight">{pp ? `${pp.al_menos ? 'al menos ' : ''}${pp.total_dias_corridos} días` : '—'}</p>
+          {pp && <p className="text-[13px] font-semibold text-slate-500">días corridos</p>}
+          <p className="text-[12.5px] text-slate-500 mt-auto">Tiempo administrativo entre la adjudicación y el inicio del plazo de entrega.</p>
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-3">
-          <p className="text-[10px] font-bold text-slate-400 uppercase">Multa por atraso</p>
-          <p className="text-[14px] font-semibold text-slate-800 leading-tight">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col gap-1.5 min-h-[170px]">
+          <p className="text-[12px] font-bold text-slate-400 uppercase tracking-wide">Multa por atraso</p>
+          <p className="text-[24px] font-black text-slate-800 leading-tight">
             {atraso?.existe === false ? 'No hay' : atraso?.calculo?.pesos_dia_estimado != null ? `≈ ${fmt(atraso.calculo.pesos_dia_estimado)}/día` : atraso?.valor ? valorMulta(atraso) : '—'}
           </p>
-          {atraso?.calculo?.nota && atraso?.existe !== false && <p className="text-[10px] text-slate-400">{atraso.calculo.nota}</p>}
+          {atraso?.calculo?.nota && atraso?.existe !== false && <p className="text-[12.5px] text-slate-500 mt-auto">{atraso.calculo.nota}</p>}
         </div>
       </div>
 

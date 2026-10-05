@@ -195,7 +195,7 @@ export function calcularNivel(inf: any, cfg: ConfigViabilidadV4, ctx: CtxNivel):
     const bloqueaConfirmar = s.motivo_exclusion && (s.motivo_exclusion.filtro === 'F1' || s.motivo_exclusion.filtro === 'F2');
     if (dud.length && !bloqueaConfirmar) accion = 'CONFIRMAR_DATO';
     const accionTexto = accion === 'SEGUIR' ? 'Sigue con el proyecto'
-      : accion === 'CONSULTAR_CA' ? 'Consulta a CA antes de seguir'
+      : accion === 'CONSULTAR_CA' ? 'Consulta al jefe de ventas antes de seguir'
       : accion === 'SOLTAR' ? 'Suelta el proyecto'
       : accion === 'REVISAR_SALIDA' ? 'Revisa si hay salida antes de soltarlo'
       : `Confirma ${dud.map(d => d.dato).join(', ')} en el visor antes de decidir`;

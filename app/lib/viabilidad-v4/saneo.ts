@@ -2,7 +2,8 @@
 // SANEO de lo que devuelve el modelo (módulo PURO, sin BD ni IA). El modelo EXTRAE y el código DECIDE:
 // lo que el modelo escribe de más o de menos no se toma por cierto. Hallazgos reales (1057448-45-LP26,
 // 5-oct-2026): "0" escrito como puntaje mínimo en 7 criterios (el código lo leía como un mínimo real),
-// citas con trozos unidos por "…", y respuestas del modelo liviano con varios de estos defectos juntos.
+// citas con trozos unidos por "…" (esas ya las acepta el localizador si cada trozo existe), y respuestas del
+// modelo liviano con varios de estos defectos juntos.
 
 /** "0", "0 puntos", "0%" → el modelo escribe esto cuando las bases NO fijan mínimo. */
 export const esCero = (v: unknown): boolean => /^\s*0+(?:[.,]0+)?\s*(?:puntos?|pts?|%)?\s*$/i.test(String(v ?? ''));
@@ -17,18 +18,6 @@ export function trozosDeFrase(frase: string): string[] {
   return partes.every(p => p.split(/\s+/).length >= 3) ? partes : [];
 }
 
-const conElipsis = (frase: unknown): boolean => typeof frase === 'string' && RE_ELIPSIS.test(frase) && !/^\s*(?:\.{3}|…)\s*$/.test(frase);
-
-function contarFrasesConElipsis(o: any): number {
-  if (!o || typeof o !== 'object') return 0;
-  if (Array.isArray(o)) return o.reduce((a, x) => a + contarFrasesConElipsis(x), 0);
-  let n = 0;
-  for (const [k, v] of Object.entries(o)) {
-    if (k === 'frase') { if (conElipsis(v)) n++; } else n += contarFrasesConElipsis(v);
-  }
-  return n;
-}
-
 /**
  * Señales de que un GRUPO de la respuesta del modelo salió de mala calidad (H-20 de la auditoría: el
  * respaldo solo se activaba por error o timeout, no por una respuesta válida pero pobre). Si hay
@@ -38,8 +27,6 @@ export function problemasCalidadGrupo(nombre: string, valor: any, reparado = fal
   const out: string[] = [];
   if (!valor || typeof valor !== 'object') return out;
   if (reparado) out.push('el JSON llegó cortado y se reparó');
-  const elipsis = contarFrasesConElipsis(valor);
-  if (elipsis >= 2) out.push(`${elipsis} citas unidas con puntos suspensivos`);
   if (nombre === 'admisibilidad_criterios') {
     const crit = valor.criterios_evaluacion;
     const ceros = (esCero(crit?.puntaje_minimo_total?.valor) ? 1 : 0)

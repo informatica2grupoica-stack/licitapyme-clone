@@ -1248,7 +1248,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
       if (!r.ok) { setFbOk(j.error || 'No se pudo guardar.'); return; }
       if (Array.isArray(j.feedback)) setFeedback(j.feedback);
       setFbComentario('');
-      setFbOk(j.sin_destilar ? (j.aviso || 'Guardado para revisión: no se usará hasta que CA lo revise.') : `Aprendido. Regla: "${j.regla}". Se aplicará en los próximos análisis.`);
+      setFbOk(j.sin_destilar ? (j.aviso || 'Guardado para revisión: no se usará hasta que el jefe de ventas lo revise.') : `Aprendido. Regla: "${j.regla}". Se aplicará en los próximos análisis.`);
     } catch (e: any) { setFbOk(String(e?.message || e)); }
     finally { setFbEnviando(false); }
   };

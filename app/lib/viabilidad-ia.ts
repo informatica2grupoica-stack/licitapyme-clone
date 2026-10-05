@@ -554,7 +554,12 @@ async function llamarAnalisisDividido(systemPrompt: string, userPrompt: string, 
             console.warn(`[viabilidad-ia] grupo "${g.nombre}" con mala calidad (${problemas.join('; ')}) — se repite con ${mayor}.`);
             const t2: TrazaLlamada = {};
             try {
-              const v2 = await llamarGlmJSON(systemPrompt, userPrompt + sufijoAlcance(g.claves), t2, mayor);
+              // Tope propio: el escalado es un extra, no puede llevar el análisis más allá del tope duro del job (10 min).
+              const topeMs = Math.max(60_000, Number(process.env.VIABILIDAD_ESCALAR_MAX_MS) || 240_000);
+              const v2 = await Promise.race([
+                llamarGlmJSON(systemPrompt, userPrompt + sufijoAlcance(g.claves), t2, mayor),
+                new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`escalado sin respuesta en ${Math.round(topeMs / 1000)}s`)), topeMs)),
+              ]);
               const trae2 = v2 && typeof v2 === 'object' && g.claves.some(k => v2[k] !== undefined && v2[k] !== null);
               const problemas2 = trae2 ? problemasCalidadGrupo(g.nombre, v2, !!t2.reparado) : problemas;
               if (trae2 && problemas2.length < problemas.length) {

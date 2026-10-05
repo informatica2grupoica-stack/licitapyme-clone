@@ -51,11 +51,10 @@ test('problemasCalidadGrupo: 3 puntajes en 0 + JSON reparado se detectan; un gru
   assert.deepEqual(problemasCalidadGrupo('admisibilidad_criterios', sano, false), []);
 });
 
-test('problemasCalidadGrupo: 2+ citas con "…" y carácter de presupuesto sin cita', () => {
+test('problemasCalidadGrupo: carácter de presupuesto sin cita; citas con "…" ya NO cuentan (el localizador las acepta)', () => {
   const g = { presupuesto: { caracter: 'REFERENCIAL', cita: { frase: '' } }, plazos: { hitos: [{ cita: { frase: 'a b c ... d e f' } }, { cita: { frase: 'g h i … j k l' } }] } };
   const p = problemasCalidadGrupo('decisiones', g, false);
-  assert.ok(p.some(x => /puntos suspensivos/.test(x)));
-  assert.ok(p.some(x => /carácter del presupuesto sin cita/.test(x)));
+  assert.deepEqual(p, ['carácter del presupuesto sin cita']);
 });
 
 // ─── "Personal idóneo": el técnico certificado subcontratado NO deja fuera ──────────────────

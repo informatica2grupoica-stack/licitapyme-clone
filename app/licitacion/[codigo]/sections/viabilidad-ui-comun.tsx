@@ -5,6 +5,7 @@
 // dependencia circular). Se movieron tal cual desde ViabilidadIAPanel.tsx (02-oct-2026).
 
 import { createContext, useEffect, useState } from 'react';
+import { useSession } from '@/app/lib/session-context';
 import { IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconEye as Eye, IconX as X, IconLoader2 as Loader2, IconSearch as Search } from '@tabler/icons-react';
 
 // ─── Explicabilidad: documentos de la licitación para resolver citas ──
@@ -37,8 +38,10 @@ export function PanelValidador({ validador }: { validador?: { ok?: boolean; hall
   const errores = hallazgos.filter(h => h.severidad === 'error');
   const avisos = hallazgos.filter(h => h.severidad !== 'error');
   // Hooks SIEMPRE antes de cualquier return temprano (si no, React #310 cuando llegan hallazgos después).
-  const [abierto, setAbierto] = useState(errores.length > 0);
-  if (hallazgos.length === 0) return null;
+  const [abierto, setAbierto] = useState(false);
+  const { usuario } = useSession();
+  // Alertas del validador (V-1, V-2…): solo las ve el admin, y siempre desplegables.
+  if (usuario?.rol !== 'admin' || hallazgos.length === 0) return null;
   const hayErrores = errores.length > 0;
   return (
     <div className={`rounded-xl border ${hayErrores ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
