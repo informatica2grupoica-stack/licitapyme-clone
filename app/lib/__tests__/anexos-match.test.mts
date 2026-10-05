@@ -54,3 +54,22 @@ test('un archivo sin número reconocible cae en el ítem de origen, nunca se pie
   assert.deepEqual(reparto.get(11)?.map(a => a.nombre), ['ANEXO_documento_generico.docx']);
   assert.equal(reparto.get(10), undefined);
 });
+
+// 5-oct-2026 (4494-69-LE26): los puntos se llaman «Formato N°2-A…» y los archivos «ANEXO_FORMATO_N°_2-A.pdf».
+// Sin reconocer «formato» todos empataban en la palabra «formato» y ganaba siempre el primero (N°1-A).
+test('«Formato N°X» reparte cada archivo a su propio punto, no todos al primero', () => {
+  const items = [
+    { id: 1, titulo: 'Formato N°1-A Identificación del Oferente' },
+    { id: 2, titulo: 'Formato N°2-A Declaración Jurada' },
+    { id: 5, titulo: 'Formato N°5 Oferta Económica' },
+  ];
+  const archivos = [
+    { nombre: 'ANEXO_FORMATO_N°_1-A.pdf', url: 'u1' },
+    { nombre: 'ANEXO_FORMATO_N°_2-A.pdf', url: 'u2' },
+    { nombre: 'ANEXO_FORMATO_N°_5.pdf', url: 'u5' },
+  ];
+  const reparto = repartirArchivosGenerados(archivos, items, 2);
+  assert.deepEqual(reparto.get(1)?.map(a => a.url), ['u1']);
+  assert.deepEqual(reparto.get(2)?.map(a => a.url), ['u2']);
+  assert.deepEqual(reparto.get(5)?.map(a => a.url), ['u5']);
+});

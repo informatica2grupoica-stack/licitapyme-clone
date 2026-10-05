@@ -24,7 +24,7 @@ function normalizar(s: string): string {
 // primera letra de la palabra siguiente. `(?![a-z])` además exige que la letra capturada sea la
 // ÚLTIMA del sufijo (no la primera de una palabra de verdad): sin eso, "2a" de un nombre de
 // archivo real ("N2ANEXO...") capturaría solo "a" en vez de fallar limpio.
-const RE_NUMERO = /(?:anexo|formulario)[^0-9]{0,6}(\d+)(?:-?([a-z])(?![a-z]))?/i;
+const RE_NUMERO = /(?:anexo|formulario|formato)[^0-9]{0,6}(\d+)(?:-?([a-z])(?![a-z]))?/i;
 
 function numeroDe(texto: string): string | null {
   const m = normalizar(texto).match(RE_NUMERO);
@@ -34,7 +34,7 @@ function numeroDe(texto: string): string | null {
 
 // Palabras demasiado genéricas para contar como coincidencia por sí solas — "anexo" y
 // "formulario" aparecen en TODOS los títulos, no distinguen nada.
-const STOPWORDS = new Set(['anexo', 'anexos', 'formulario', 'formularios', 'del', 'de', 'la', 'el', 'los', 'las', 'oferente', 'n']);
+const STOPWORDS = new Set(['anexo', 'anexos', 'formulario', 'formularios', 'formato', 'formatos', 'del', 'de', 'la', 'el', 'los', 'las', 'oferente', 'n']);
 
 function palabrasSignificativas(texto: string): Set<string> {
   return new Set(
