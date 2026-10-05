@@ -274,3 +274,17 @@ test('V-25: hito con cita PARCIAL NO dispara; con cita NO sí', () => {
   assert.ok(!halla('V-25', validarInformeViabilidad(mk('PARCIAL'), 50).hallazgos));
   assert.ok(halla('V-25', validarInformeViabilidad(mk('NO'), 50).hallazgos));
 });
+
+test('puntaje mínimo "0": anularPuntajesMinimosCero lo vacía; un mínimo real (60) no se toca; V-25 no lo cuenta', async () => {
+  const { anularPuntajesMinimosCero } = await import('../validador-viabilidad');
+  const crit: any = {
+    puntaje_minimo_total: { valor: '0', unidad: 'puntos', consecuencia: 'x', cita: { frase: 'f', semantica: 'NO' } },
+    criterios: [{ nombre: 'a', puntaje_minimo: { valor: '0 puntos', cita: { frase: 'f', semantica: 'NO' } } }, { nombre: 'b', puntaje_minimo: { valor: '60', cita: { frase: 'f', semantica: 'SI' } } }],
+  };
+  anularPuntajesMinimosCero(crit);
+  assert.equal(crit.puntaje_minimo_total.valor, '');
+  assert.equal(crit.criterios[0].puntaje_minimo.valor, '');
+  assert.equal(crit.criterios[1].puntaje_minimo.valor, '60');
+  const sinAnular = { ...base, _schema: 'v4', criterios_evaluacion: { puntaje_minimo_total: { valor: '0', cita: { frase: 'f', semantica: 'NO' } }, criterios: [] } };
+  assert.ok(!halla('V-25', validarInformeViabilidad(sinAnular, 50).hallazgos));
+});

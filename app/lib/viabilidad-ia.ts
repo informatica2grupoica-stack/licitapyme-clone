@@ -40,7 +40,7 @@ import { seccionesDeEquipos } from '@/app/lib/caracteristicas-seccion';
 import { evaluarCoberturaLectura, resumirCobertura, esFormatoLegible, esDocumentoCritico } from '@/app/lib/lectura-documentos';
 import { ocrTieneHuecos, esTextoBasuraOCR, numeracionTablaIncompleta, leidoConOcrLocal, glmOcrDisponible } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidasConId, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
-import { validarInformeViabilidad, autocorregirHallazgos, escalarARevisionHumana, validarNivelV27 } from '@/app/lib/validador-viabilidad';
+import { anularPuntajesMinimosCero, validarInformeViabilidad, autocorregirHallazgos, escalarARevisionHumana, validarNivelV27 } from '@/app/lib/validador-viabilidad';
 import { analizarRemisionACriterios, hayTablaDeCriterios, motivoCriteriosNoConfiables, extraerSeccionCriteriosEvaluacion } from '@/app/lib/criterios-en-anexo';
 import { obtenerTipoCambio } from '@/app/lib/tipo-cambio';
 import { calcularNivel } from '@/app/lib/score-viabilidad';
@@ -1554,6 +1554,7 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
     llamarGlmJSON(s, u),
     new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout verificador de citas')), 120_000)),
   ]);
+  anularPuntajesMinimosCero(p3.criterios_evaluacion);
   const pares = construirParesSemanticos(p3, evidencias);
   const sem = await verificarSemantica(pares, preguntarCorto);
   if (sem.fallo) console.warn(`[viabilidad-ia-v4] ${codigo}: chequeo semántico no disponible (${sem.fallo}) — las frases cuentan solo por existir literal.`);
@@ -1564,8 +1565,8 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
   // certifica un presupuesto total… impuestos incluidos" no dice "referencial"), el dato no se sostiene:
   // según el prompt, sin evidencia expresa el carácter es NO_DECLARADO. No se deja un dato refutado.
   const presu = p3.presupuesto;
-  if (presu && (presu.caracter === 'EXCLUYENTE' || presu.caracter === 'REFERENCIAL') && presu.cita?.semantica === 'NO') {
-    presu.caracter_corregido = { antes: presu.caracter, motivo: presu.cita.motivo_semantica || 'la frase citada no sostiene el carácter' };
+  if (presu && (presu.caracter === 'EXCLUYENTE' || presu.caracter === 'REFERENCIAL') && (presu.cita?.semantica === 'NO' || presu.cita?.verificada === false)) {
+    presu.caracter_corregido = { antes: presu.caracter, motivo: presu.cita.motivo_semantica || (presu.cita.verificada === false ? 'la frase citada no se encontró en las bases' : 'la frase citada no sostiene el carácter') };
     presu.caracter = 'NO_DECLARADO';
   }
 
@@ -1836,6 +1837,7 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
     const delSistema = (r: any) => requisitos.push({ que: '', cuanto: '', cuando: '', como: '', consecuencia: '', ...r, origen: 'sistema' });
     // Puntajes mínimos (P4) → requisito.
     const crit = p3.criterios_evaluacion || {};
+    anularPuntajesMinimosCero(crit);
     const pmTotal = crit.puntaje_minimo_total;
     if (pmTotal && String(pmTotal.valor ?? '').trim()) delSistema({ que: `Puntaje mínimo total: ${pmTotal.valor} ${pmTotal.unidad || ''}`.trim(), consecuencia: pmTotal.consecuencia || 'bajo ese puntaje la oferta no se adjudica', cita: pmTotal.cita });
     for (const c of Array.isArray(crit.criterios) ? crit.criterios : []) {

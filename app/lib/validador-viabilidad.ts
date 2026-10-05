@@ -393,6 +393,18 @@ function v17_expedienteCompleto(inf: any, push: (h: HallazgoValidador) => void):
 
 const mayus = (e: unknown) => String(e ?? '').toUpperCase();
 
+// El modelo escribe "0" en `puntaje_minimo.valor` cuando las bases NO fijan mínimo (1057448-45-LP26: 7 criterios
+// con "0 puntos"). Un texto no vacío no es un mínimo: sin esto el sistema fabricaba requisitos "Puntaje mínimo: 0
+// puntos" con cita que no los sostiene y V-25 gritaba. Vacía el valor (y la consecuencia) para que ningún
+// consumidor lo vea como exigencia. Muta `criterios_evaluacion`.
+const esCero = (v: unknown) => /^\s*0+(?:[.,]0+)?\s*(?:puntos?|%)?\s*$/i.test(String(v ?? ''));
+export function anularPuntajesMinimosCero(crit: any): void {
+  if (!crit || typeof crit !== 'object') return;
+  const limpiar = (pm: any) => { if (pm && typeof pm === 'object' && esCero(pm.valor)) { pm.valor = ''; pm.consecuencia = ''; } };
+  limpiar(crit.puntaje_minimo_total);
+  for (const c of Array.isArray(crit.criterios) ? crit.criterios : []) limpiar(c?.puntaje_minimo);
+}
+
 // V-03 (reescrita) — PLAZO PREVIO: el total no puede ser menor que la suma de sus hitos, y un hito
 // EXISTE debe traer su plazo. Sin eso el plazo previo que se muestra no es confiable.
 function v03_plazoPrevio(inf: any, push: (h: HallazgoValidador) => void): void {
@@ -503,8 +515,8 @@ function v25_datoCriticoNoVerificado(inf: any, push: (h: HallazgoValidador) => v
   };
   const car = mayus(inf?.presupuesto?.caracter);
   if (car === 'EXCLUYENTE' || car === 'REFERENCIAL') mira('carácter del presupuesto', inf?.presupuesto?.cita);
-  mira('puntaje mínimo total', inf?.criterios_evaluacion?.puntaje_minimo_total?.cita);
-  for (const c of Array.isArray(inf?.criterios_evaluacion?.criterios) ? inf.criterios_evaluacion.criterios : []) if (c?.puntaje_minimo?.valor) mira(`puntaje mínimo de ${c.nombre}`, c.puntaje_minimo.cita);
+  mira('puntaje mínimo total', String(inf?.criterios_evaluacion?.puntaje_minimo_total?.valor ?? '').trim() && !esCero(inf?.criterios_evaluacion?.puntaje_minimo_total?.valor) ? inf?.criterios_evaluacion?.puntaje_minimo_total?.cita : null);
+  for (const c of Array.isArray(inf?.criterios_evaluacion?.criterios) ? inf.criterios_evaluacion.criterios : []) if (c?.puntaje_minimo?.valor && !esCero(c.puntaje_minimo.valor)) mira(`puntaje mínimo de ${c.nombre}`, c.puntaje_minimo.cita);
   // En un hito, PARCIAL = la frase sostiene el plazo pero no un detalle del "desde" (p. ej. "a través del portal"): no es refutación.
   for (const h of Array.isArray(inf?.plazos?.hitos) ? inf.plazos.hitos : []) if (mayus(h?.estado) !== 'NO_INDICADO') mira(`hito ${h.hito}`, h?.cita?.semantica === 'PARCIAL' ? { ...h.cita, semantica: 'SI' } : h.cita);
   for (const r of Array.isArray(inf?.requisitos_admisibilidad?.requisitos) ? inf.requisitos_admisibilidad.requisitos : []) if (r?.origen !== 'sistema') mira(`causal "${String(r?.que || '').slice(0, 50)}"`, r.cita);
