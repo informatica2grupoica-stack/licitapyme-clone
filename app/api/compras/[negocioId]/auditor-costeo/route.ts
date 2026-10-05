@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { puedeOperarCompras, puedeVerCompras } from '@/app/api/compras/[negocioId]/route';
 import { esAsesor } from '@/app/api/negocios/[id]/comercial/route';
+import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import {
   armarPanel, forzarAuditoria, generarLecturaPosicion, iniciarLoteEnSegundoPlano, registrarHabilitacion, registrarJustificacionAhorro,
 } from '@/app/lib/auditor-compras';
@@ -74,7 +75,8 @@ export async function POST(request: NextRequest, { params }: Params) {
         const nivel = body.nivel === 'EM' || body.nivel === 'CA' ? body.nivel : null;
         // EM = Encargado de Mercado Público (quien aprueba lo comercial); CA = potestad total (administrador).
         if (nivel === 'CA' && rol !== 'admin') return NextResponse.json({ error: 'Solo un administrador (CA) puede habilitar cualquier línea.' }, { status: 403 });
-        if (rol !== 'admin' && !(await esAsesor(userId, rol))) return NextResponse.json({ error: 'Solo el Encargado de Mercado Público puede habilitar o quitar habilitaciones.' }, { status: 403 });
+        // `compras_todo` también habilita (05-oct-2026, pedido explícito): quien aprueba en Compras sin ser jefe de ventas.
+        if (rol !== 'admin' && !(await esAsesor(userId, rol)) && !(await permisosCrudosDeUsuario(userId)).compras_todo) return NextResponse.json({ error: 'Solo el Encargado de Mercado Público puede habilitar o quitar habilitaciones.' }, { status: 403 });
         await registrarHabilitacion(negId, String(body.filaId), nivel, String(body.motivo || ''), actor);
         return NextResponse.json({ success: true, ...(await armarPanel(negId)) });
       }

@@ -454,7 +454,69 @@ function repararJSONTruncado(txt: string): string | null {
 // OpenAI, con respaldo DeepSeek). El camino Gemini nativo SOLO se usa si se fuerza
 // IA_TEXT_PROVIDER=gemini (retirado: sin key no funciona).
 // P11 · trazabilidad: qué modelo respondió de verdad y si el JSON vino cortado y se reparó.
-export interface TrazaLlamada { modelo?: string; reparado?: boolean }
+export interface TrazaLlamada { modelo?: string; reparado?: boolean; gruposFallidos?: string[]; dividido?: boolean }
+// ─── ANÁLISIS DIVIDIDO EN PARALELO (5-oct-2026, 1057448-45-LP26) ───────────────────────────────
+// Una sola llamada pedía ~16.000 tokens de salida (57.000 caracteres de JSON) sobre ~100.000 de
+// entrada: tardaba 150-780s, más que los topes por modelo (150s/240s) → los 3 primeros eslabones
+// se mataban respondiendo bien y un JSON roto obligaba a repetir TODO. Ahora se hacen 4 llamadas
+// en paralelo sobre el MISMO prompt, cada una con claves de primer nivel DISTINTAS (el sufijo va al
+// final para que el prefijo —y su caché— sea idéntico). Cada una genera ~1/4 del JSON (< 60s) y si
+// una falla se repite SOLO esa. Se apaga con VIABILIDAD_DIVIDIR=0 (vuelve a la llamada única).
+const GRUPOS_ANALISIS: { nombre: string; claves: string[]; critico: boolean }[] = [
+  { nombre: 'decisiones', critico: true, claves: ['meta', 'objeto_principal', 'exclusion', 'presupuesto', 'adjudicacion', 'plazos', 'multas'] },
+  { nombre: 'productos', critico: true, claves: ['productos'] },
+  { nombre: 'admisibilidad_criterios', critico: false, claves: ['requisitos_admisibilidad', 'criterios_evaluacion'] },
+  { nombre: 'sintesis', critico: false, claves: ['atractivo', 'estrategia', 'acciones_y_advertencias', 'tarjeta_decision', 'pendientes_fase3', 'veredicto'] },
+];
+
+export function sufijoAlcance(claves: string[]): string {
+  return `
+
+═══ ALCANCE DE ESTA LLAMADA ═══
+El JSON de arriba se produce en varias llamadas en paralelo. En ESTA llamada devuelve un único objeto JSON con SOLO estas claves de primer nivel: ${claves.map(c => `"${c}"`).join(', ')}.
+NO incluyas ninguna otra clave de primer nivel (otras llamadas las producen). Cada clave que sí emitas sigue EXACTAMENTE el esquema indicado, con sus citas. Analiza igual TODOS los documentos.`;
+}
+
+export function fusionarGrupos(parciales: { claves: string[]; valor: any }[]): any {
+  const out: any = {};
+  for (const { claves, valor } of parciales) {
+    if (!valor || typeof valor !== 'object') continue;
+    for (const k of claves) if (valor[k] !== undefined) out[k] = valor[k];
+  }
+  return out;
+}
+
+async function llamarAnalisisDividido(systemPrompt: string, userPrompt: string, traza?: TrazaLlamada): Promise<any> {
+  const modelos = new Set<string>();
+  let reparado = false;
+  const fallidos: string[] = [];
+  const resultados = await Promise.all(GRUPOS_ANALISIS.map(async g => {
+    let ultimo = '';
+    for (let intento = 0; intento < 2; intento++) {
+      const t: TrazaLlamada = {};
+      const t0 = Date.now();
+      try {
+        const v = await llamarGlmJSON(systemPrompt, userPrompt + sufijoAlcance(g.claves), t);
+        const traeAlgo = v && typeof v === 'object' && g.claves.some(k => v[k] !== undefined && v[k] !== null);
+        if (traeAlgo) {
+          if (t.modelo) modelos.add(t.modelo);
+          if (t.reparado) reparado = true;
+          console.log(`[viabilidad-ia] grupo "${g.nombre}" listo en ${((Date.now() - t0) / 1000).toFixed(0)}s (${t.modelo || '?'}${t.reparado ? ', reparado' : ''}).`);
+          return { claves: g.claves, valor: v };
+        }
+        ultimo = 'respuesta sin ninguna de sus claves';
+      } catch (e: any) { ultimo = String(e?.message || e).slice(0, 200); }
+      console.warn(`[viabilidad-ia] grupo "${g.nombre}" falló (intento ${intento + 1}/2): ${ultimo}`);
+    }
+    fallidos.push(g.nombre);
+    return { claves: g.claves, valor: null, critico: g.critico };
+  }));
+  const criticoFallo = resultados.some((r: any) => r.valor === null && r.critico);
+  if (criticoFallo) throw new Error(`Análisis dividido: falló un grupo crítico (${fallidos.join(', ')})`);
+  if (traza) { traza.modelo = [...modelos].join(' + '); traza.reparado = reparado; traza.gruposFallidos = fallidos; traza.dividido = true; }
+  return fusionarGrupos(resultados as any);
+}
+
 async function llamarGeminiJSON(systemPrompt: string, userPrompt: string, traza?: TrazaLlamada): Promise<any> {
   if (IA_TEXT_PROVIDER !== 'gemini') return llamarGlmJSON(systemPrompt, userPrompt, traza);
   return llamarGeminiNativoJSON(systemPrompt, userPrompt);
@@ -710,8 +772,8 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string, traza?: T
         // VIABILIDAD_STREAM_IDLE_MS (45s) se pasa al siguiente eslabón. Topes totales por eslabón:
         // primario 330s, respaldos 240s (siempre acotados por deadlineMs).
         streamIdleMs: Math.max(20_000, Number(process.env.VIABILIDAD_STREAM_IDLE_MS) || 45_000),
-        streamCapMsPrimario: Math.max(120_000, Number(process.env.VIABILIDAD_STREAM_CAP_MS_PRIMARIO) || 150_000),
-        streamCapMs: Math.max(90_000, Number(process.env.VIABILIDAD_STREAM_CAP_MS) || 240_000),
+        streamCapMsPrimario: Math.max(120_000, Number(process.env.VIABILIDAD_STREAM_CAP_MS_PRIMARIO) || 200_000),
+        streamCapMs: Math.max(90_000, Number(process.env.VIABILIDAD_STREAM_CAP_MS) || 300_000),
         soloGlm: true,
         // ÚLTIMO RECURSO DEEPSEEK (20-ago-2026, pedido explícito del usuario tras 2422-144-LE26:
         // glm-5.2 y glm-4.7 se agotaron por timeout y la licitación quedó SIN análisis). La
@@ -788,6 +850,10 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string, traza?: T
     }
     // Sin esto, un JSON inválido es indiagnosticable: deja ver QUÉ devolvió el modelo.
     console.warn(`[viabilidad-ia] JSON inválido (${txt.length} chars). Inicio: ${JSON.stringify(txt.slice(0, 250))} … Fin: ${JSON.stringify(txt.slice(-250))}`);
+    try { JSON.parse(txt); } catch (e: any) {
+      const pos = Number(String(e?.message).match(/position (\d+)/)?.[1]);
+      if (Number.isFinite(pos)) console.warn(`[viabilidad-ia] JSON inválido — error en la posición ${pos}: ${JSON.stringify(txt.slice(Math.max(0, pos - 120), pos + 120))}`);
+    }
     ultimoErr = `${modeloReal}: JSON inválido (finish=${finish})`;
     if (intento + 1 < MAX_INTENTOS_JSON) console.warn(`[viabilidad-ia] reintentando la llamada completa (${intento + 1}/${MAX_INTENTOS_JSON})...`);
   }
@@ -1307,7 +1373,10 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
   try { onFase?.('analizando_ia'); } catch { /* noop */ }
   const tIA0 = Date.now();
   const traza: TrazaLlamada = {};
-  const parsed = await llamarGeminiJSON(systemPrompt, userPrompt, traza);
+  // Solo ESTA llamada (el informe completo) se divide; las auxiliares (verificadores, extracciones) son chicas.
+  const parsed = (IA_TEXT_PROVIDER !== 'gemini' && process.env.VIABILIDAD_DIVIDIR !== '0')
+    ? await llamarAnalisisDividido(systemPrompt, userPrompt, traza)
+    : await llamarGeminiJSON(systemPrompt, userPrompt, traza);
   console.log(`[viabilidad-ia] ${codigo}: modelo ${traza.modelo || '?'} respondió en ${((Date.now() - tIA0) / 1000).toFixed(1)}s${parsed ? '' : ' — SIN respuesta utilizable'}${traza.reparado ? ' — JSON REPARADO' : ''}.`);
   if (!parsed || typeof parsed !== 'object') return null;
   console.log(`[viabilidad-ia] ${codigo}: === FASE verificando ===`);
@@ -1329,6 +1398,10 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
   if (p3.tarjeta_decision && typeof p3.tarjeta_decision === 'object') { delete p3.tarjeta_decision.veredicto; delete p3.tarjeta_decision.porque_no; }
   if (p3.presupuesto && typeof p3.presupuesto === 'object') delete p3.presupuesto.gate;
   if (p3.productos && typeof p3.productos === 'object') { delete p3.productos.entregables_word; delete p3.productos.hojas_costeo_segun_adjudicacion; }
+  if (traza.gruposFallidos?.length) {
+    p3._grupos_fallidos = traza.gruposFallidos;
+    aRevision(`La IA no pudo completar parte del análisis (${traza.gruposFallidos.join(', ')}): esa parte del informe viene vacía. Vuelve a analizar.`);
+  }
   if (traza.reparado) {
     p3._json_reparado = true;
     aRevision('La respuesta de la IA llegó cortada y se reparó: puede faltar información al final del informe.');
