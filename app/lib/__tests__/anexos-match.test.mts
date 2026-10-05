@@ -73,3 +73,10 @@ test('«Formato N°X» reparte cada archivo a su propio punto, no todos al prime
   assert.deepEqual(reparto.get(2)?.map(a => a.url), ['u2']);
   assert.deepEqual(reparto.get(5)?.map(a => a.url), ['u5']);
 });
+
+test('el selector sugiere FORMATO_N°_2-A para «Formato N°2-A Declaración Jurada» (y no N°_10)', () => {
+  const nombres = ['FORMATO_N°_10.docx', 'FORMATO_N°_5.docx', 'FORMATO_N°_2-B.docx', 'FORMATO_N°_2-A.docx', 'FORMATO_N°_1-B.docx', 'FORMATO_N°_1-A.docx'];
+  const r = ordenarPorCoincidencia('Formato N°2-A Declaración Jurada', nombres.map((nombre, id) => ({ id, nombre })));
+  assert.equal(r[0].nombre, 'FORMATO_N°_2-A.docx');
+  assert.ok(r[0].puntaje >= 100 && r[1].puntaje < 100);
+});

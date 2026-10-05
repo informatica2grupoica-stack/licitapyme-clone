@@ -1700,7 +1700,7 @@ function DetalleContent() {
                     <AuditorOpcionesPanel negocioId={negocio.id} licitacionCodigo={negocio.licitacion_codigo} puedeAprobar={isAdmin || !!usuario?.permisos?.aprobar_comercial || !!usuario?.permisos?.auditor_aprobar} />
                   )}
                   {tab === 'prepostulacion' && hayPrePostulacion && (
-                    <PrePostulacionPanel negocioId={negocio.id} onIrAlAuditor={() => setSeccion('auditor_compra')}
+                    <PrePostulacionPanel negocioId={negocio.id} empresaId={negocio.empresa_id} onIrAlAuditor={() => setSeccion('auditor_compra')}
                       documentosSlot={hayAuditorTecnico ? (
                         <InformacionComercialSection key="oferta" vista="oferta" negocioId={negocio.id} licitacionCodigo={negocio.licitacion_codigo} empresaId={negocio.empresa_id}
                           estadoPipeline={negocio.estado_pipeline} onEmpresaChange={empresa_id => setNegocio(prev => prev ? { ...prev, empresa_id } : prev)} />

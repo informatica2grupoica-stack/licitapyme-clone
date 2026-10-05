@@ -18,6 +18,7 @@ import type { PrePostulacionDTO, LineaPrePostDTO } from '@/app/lib/auditor-prepo
 import type { ItemPrePost, CausalCertificado } from '@/app/lib/auditor-prepostulacion-core';
 import { materiaLegible } from '@/app/lib/auditor-prepostulacion-core';
 import { pedirJson, ultimoJson } from '@/app/lib/pedir-json';
+import { DatosEmpresaBoton } from '@/app/components/DatosEmpresaBoton';
 
 type Dato = PrePostulacionDTO | { migracionPendiente: true };
 
@@ -40,7 +41,7 @@ const ORIGEN_LABEL: Record<string, { label: string; cls: string }> = {
 };
 const MOTIVO_LABEL: Record<string, string> = { RIESGO: 'Riesgo', POR_AFINAR: 'Por afinar', SEGUNDA_PASADA: 'Falta la segunda pasada', SIN_VERIFICAR: 'Sin verificar' };
 
-export function PrePostulacionPanel({ negocioId, onIrAlAuditor, datoInicial, documentosSlot }: { negocioId: number; onIrAlAuditor: () => void; datoInicial?: PrePostulacionDTO; documentosSlot?: React.ReactNode }) {
+export function PrePostulacionPanel({ negocioId, empresaId, onIrAlAuditor, datoInicial, documentosSlot }: { negocioId: number; empresaId?: number | null; onIrAlAuditor: () => void; datoInicial?: PrePostulacionDTO; documentosSlot?: React.ReactNode }) {
   const toast = useToast();
   const [dato, setDato] = useState<Dato | null>(datoInicial ?? ultimoJson<Dato>(`/api/negocios/${negocioId}/prepostulacion`) ?? null);   // datoInicial: vista previa en servidor (scripts/scratch/_preview-pp.tsx)
   const [cargando, setCargando] = useState(!datoInicial && !ultimoJson(`/api/negocios/${negocioId}/prepostulacion`));
@@ -166,7 +167,7 @@ export function PrePostulacionPanel({ negocioId, onIrAlAuditor, datoInicial, doc
       </div>
 
       {/* ── Anexos a generar: «Generar anexo» en cada punto; lo generado queda cargado y aparece en la pestaña Postulación ── */}
-      {documentosSlot && <div className="space-y-2"><div className="px-1"><h3 className="text-[13.5px] font-bold text-zinc-900">Anexos a generar</h3><p className="text-[11.5px] text-zinc-500">Genera cada anexo aquí: se rellena con los datos de la empresa y la firma. Los PDF listos para subir quedan en la pestaña Postulación.</p></div>{documentosSlot}</div>}
+      {documentosSlot && <div className="space-y-2"><div className="px-1 flex items-start justify-between gap-3 flex-wrap"><div><h3 className="text-[13.5px] font-bold text-zinc-900">Anexos a generar</h3><p className="text-[11.5px] text-zinc-500">Genera cada anexo aquí: se rellena con los datos de la empresa y la firma. Los PDF listos para subir quedan en la pestaña Postulación.</p></div><DatosEmpresaBoton empresaId={empresaId} /></div>{documentosSlot}</div>}
 
       {/* ── Certificado de admisibilidad ── */}
       <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">

@@ -8,6 +8,7 @@
 // "Documentos para MP" (misma lista que el costeo/informe generados).
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { DatosEmpresaBoton } from '@/app/components/DatosEmpresaBoton';
 import { IconX as X, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconWand as Wand2, IconFileText as FileText, IconExternalLink as ExternalLink, IconChevronDown as ChevronDown, IconShieldExclamation as ShieldAlert, IconListCheck as ListChecks, IconPencil as Pencil, IconCheck as Check, IconSchool as GraduationCap, IconArrowLeftRight as ArrowLeftRight, IconSquare as Square, IconSquareCheck as CheckSquare } from '@tabler/icons-react';
 import { useToast } from '@/app/components/ui/toast';
 import { AnexoFirmarPdf } from '@/app/components/AnexoFirmarPdf';
@@ -1021,6 +1022,7 @@ export function AnexoRellenoModal({
               Anexo {progreso.actual} de {progreso.total}
             </span>
           )}
+          <DatosEmpresaBoton empresaId={empresaId} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-[11.5px] font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50" />
           <a
             href={doc.url} target="_blank" rel="noopener noreferrer"
             className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
