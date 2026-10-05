@@ -207,7 +207,9 @@ export function VistaV4({ informe, codigo, feedbackPanel, onInformeCambio }: { i
   const evidenciasValidas: any[] = (Array.isArray(adj.evidencias) ? adj.evidencias : []).filter((e: any) => e?.cuenta);
   const evidenciaPrincipal = evidenciasValidas.find((e: any) => e?.cita?.frase) || null;
   const lineas = useMemo(() => [...new Set(items.map(it => String(it?.linea || 'L1')))].sort((a, b) => Number(a.replace(/\D/g, '')) - Number(b.replace(/\D/g, ''))), [items]);
-  const itemsVista = lineaSel === 'todas' ? items : items.filter(it => String(it?.linea) === lineaSel);
+  // En una licitación GLOBAL (suma alzada) L1..Ln son solo el N° de cada producto en las bases: no son líneas que se coticen aparte, así que no se ofrecen como filtro.
+  const esGlobal = String(informe.modalidad?.tipo || '').toLowerCase() === 'suma_alzada';
+  const itemsVista = lineaSel === 'todas' || esGlobal ? items : items.filter(it => String(it?.linea) === lineaSel);
   const conteo = prod.conteo_cruzado;
   const nAdm = Number(adm.conteo ?? requisitos.length) || 0;
 
@@ -489,7 +491,7 @@ export function VistaV4({ informe, codigo, feedbackPanel, onInformeCambio }: { i
             ))}
           </div>
         )}
-        {lineasNivel.length <= 1 && lineas.length > 1 && (
+        {lineasNivel.length <= 1 && lineas.length > 1 && !esGlobal && (
           <div className="flex flex-wrap gap-1.5">
             {['todas', ...lineas].map(l => <button key={l} onClick={() => setLineaSel(l)} className={`text-[11.5px] font-semibold px-2.5 py-1 rounded-lg border ${lineaSel === l ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-600 border-slate-200'}`}>{l === 'todas' ? 'Todas' : `${l}${porLineaPres.find((p: any) => p.linea === l) ? ` · ${fmt(porLineaPres.find((p: any) => p.linea === l).monto_pesos)}` : ''}`}</button>)}
           </div>
