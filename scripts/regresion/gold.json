@@ -446,5 +446,25 @@
       "n_items_min": 6,
       "revision_humana": false
     }
+  },
+  {
+    "codigo": "1057448-45-LP26",
+    "nota": "5-oct-2026 (reportado por el usuario: viabilidad errónea). El PDF de bases trae la tabla de 6 ítems repetida (págs 4 y 36): el parser la leía como 2 líneas (13 productos con párrafos colados) y el modelo emitió los 6 productos todos como L1, por lo que el selector ofrecía una sola línea. Esperado: 6 ítems reales (gabinete láminas x29, gabinete tacos x48, estufa x2, impresora x4, centro de inclusión x1, placa de enfriamiento x3), por línea, presupuesto $241.630.000 IVA incluido con monto propio por ítem.",
+    "esperado": {
+      "modalidad": "por_linea",
+      "n_items_min": 6,
+      "n_items_max": 6,
+      "suma_valida": true
+    }
+  },
+  {
+    "codigo": "2263-75-LE26",
+    "nota": "5-oct-2026 (reportado por el usuario: la pestaña Productos ofrecía botones L1..L4 como si fuera por línea). Las bases dicen 'LAS OFERTAS DEBEN SER POR EL TOTAL DE LOS PRODUCTOS LICITADOS' y hay un solo presupuesto de $46.000.000: es GLOBAL (suma alzada), 4 productos. L1..L4 son solo el número de cada producto.",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_items_min": 4,
+      "n_items_max": 4
+    }
   }
 ]

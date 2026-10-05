@@ -12,6 +12,7 @@
 // INCONSISTENCIAS INTERNAS del informe, sin necesitar saber la respuesta correcta.
 
 import { esFilaNoProducto } from '@/app/lib/fila-no-producto';
+import { esCero } from '@/app/lib/viabilidad-v4/saneo';
 
 export interface HallazgoValidador {
   regla: string;       // "V-01"
@@ -397,7 +398,6 @@ const mayus = (e: unknown) => String(e ?? '').toUpperCase();
 // con "0 puntos"). Un texto no vacío no es un mínimo: sin esto el sistema fabricaba requisitos "Puntaje mínimo: 0
 // puntos" con cita que no los sostiene y V-25 gritaba. Vacía el valor (y la consecuencia) para que ningún
 // consumidor lo vea como exigencia. Muta `criterios_evaluacion`.
-const esCero = (v: unknown) => /^\s*0+(?:[.,]0+)?\s*(?:puntos?|%)?\s*$/i.test(String(v ?? ''));
 export function anularPuntajesMinimosCero(crit: any): void {
   if (!crit || typeof crit !== 'object') return;
   const limpiar = (pm: any) => { if (pm && typeof pm === 'object' && esCero(pm.valor)) { pm.valor = ''; pm.consecuencia = ''; } };
@@ -517,8 +517,7 @@ function v25_datoCriticoNoVerificado(inf: any, push: (h: HallazgoValidador) => v
   if (car === 'EXCLUYENTE' || car === 'REFERENCIAL') mira('carácter del presupuesto', inf?.presupuesto?.cita);
   mira('puntaje mínimo total', String(inf?.criterios_evaluacion?.puntaje_minimo_total?.valor ?? '').trim() && !esCero(inf?.criterios_evaluacion?.puntaje_minimo_total?.valor) ? inf?.criterios_evaluacion?.puntaje_minimo_total?.cita : null);
   for (const c of Array.isArray(inf?.criterios_evaluacion?.criterios) ? inf.criterios_evaluacion.criterios : []) if (c?.puntaje_minimo?.valor && !esCero(c.puntaje_minimo.valor)) mira(`puntaje mínimo de ${c.nombre}`, c.puntaje_minimo.cita);
-  // En un hito, PARCIAL = la frase sostiene el plazo pero no un detalle del "desde" (p. ej. "a través del portal"): no es refutación.
-  for (const h of Array.isArray(inf?.plazos?.hitos) ? inf.plazos.hitos : []) if (mayus(h?.estado) !== 'NO_INDICADO') mira(`hito ${h.hito}`, h?.cita?.semantica === 'PARCIAL' ? { ...h.cita, semantica: 'SI' } : h.cita);
+  for (const h of Array.isArray(inf?.plazos?.hitos) ? inf.plazos.hitos : []) if (mayus(h?.estado) !== 'NO_INDICADO') mira(`hito ${h.hito}`, h.cita);
   for (const r of Array.isArray(inf?.requisitos_admisibilidad?.requisitos) ? inf.requisitos_admisibilidad.requisitos : []) if (r?.origen !== 'sistema') mira(`causal "${String(r?.que || '').slice(0, 50)}"`, r.cita);
   if (inf?.multas?.atraso?.existe !== false) mira('multa por atraso', inf?.multas?.atraso?.cita);
   if (malos.length) push({ regla: 'V-25', severidad: 'error', mensaje: `${malos.length} dato(s) crítico(s) con cita no verificada: ${malos.slice(0, 6).join(', ')}${malos.length > 6 ? '…' : ''}.` });

@@ -439,6 +439,29 @@ export async function reconciliarLineasTecnicas(negocioId: number, informe: any)
 }
 
 /**
+ * Pone al día el checklist de TODOS los negocios de una licitación que ya lo tienen, justo después de
+ * un análisis nuevo. Antes la sanación solo ocurría cuando alguien abría la pantalla del checklist:
+ * hasta entonces la pestaña de viabilidad ofrecía una sola línea y avisaba "numeración antigua"
+ * (1057448-45-LP26, 5-oct-2026). Hace lo mismo que el GET —sincronizar + reconciliar—, así que solo
+ * agrega lo que falta y borra filas vírgenes de líneas que ya no existen; nunca toca trabajo cargado.
+ */
+export async function sanarChecklistDeLicitacion(codigo: string): Promise<void> {
+  try {
+    const informe = await leerInforme(codigo);
+    if (!informe) return;
+    const [rows] = await pool.query(`SELECT DISTINCT negocio_id FROM checklist_comercial WHERE licitacion_codigo = ?`, [codigo]) as any;
+    for (const r of rows as Array<{ negocio_id: number }>) {
+      await sincronizar(r.negocio_id, codigo, informe);
+      await reconciliarLineasTecnicas(r.negocio_id, informe);
+      await reconciliarFilasPrecio(r.negocio_id, informe);
+      await reproyectarDecisionGuardada(r.negocio_id);
+    }
+  } catch (e) {
+    console.error(`[checklist] sanar checklist de ${codigo} falló (no bloquea):`, String(e).slice(0, 200));
+  }
+}
+
+/**
  * Fusiona duplicados y bloqueantes-que-citan-un-anexo YA guardados — ver planDeReconciliacion().
  * Solo borra filas vírgenes; si alguien las trabajó, las deja como están.
  */

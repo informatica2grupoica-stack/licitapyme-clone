@@ -269,9 +269,10 @@ test('V-03: hito por evento sin días en su frase (EMISION_OC) NO dispara; con d
   assert.ok(halla('V-03', validarInformeViabilidad(conDias, 50).hallazgos));
 });
 
-test('V-25: hito con cita PARCIAL NO dispara; con cita NO sí', () => {
+test('V-25: hito con cita SI no dispara; PARCIAL o NO sí (el "desde" ya no entra en la afirmación que se verifica)', () => {
   const mk = (semantica: string) => ({ ...base, _schema: 'v4', plazos: { hitos: [{ hito: 'GARANTIA_FIEL_CUMPLIMIENTO', estado: 'EXISTE', plazo: 5, cita: { frase: 'x', verificada: true, semantica } }] } });
-  assert.ok(!halla('V-25', validarInformeViabilidad(mk('PARCIAL'), 50).hallazgos));
+  assert.ok(!halla('V-25', validarInformeViabilidad(mk('SI'), 50).hallazgos));
+  assert.ok(halla('V-25', validarInformeViabilidad(mk('PARCIAL'), 50).hallazgos));
   assert.ok(halla('V-25', validarInformeViabilidad(mk('NO'), 50).hallazgos));
 });
 

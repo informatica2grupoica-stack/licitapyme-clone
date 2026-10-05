@@ -15,6 +15,7 @@ import { analizarYGuardarViabilidadIA, calcularDocsHash } from '@/app/lib/viabil
 import { getAuthedUser, tomarLock, liberarLock, permitido, puedeVerLicitacion } from '@/app/lib/api-auth';
 import { iaTextoConfigurada } from '@/app/lib/gemini';
 import { registrarActividad } from '@/app/lib/actividad';
+import { sanarChecklistDeLicitacion } from '@/app/api/negocios/[id]/comercial/route';
 import { validarInformeViabilidad, validarNivelV27 } from '@/app/lib/validador-viabilidad';
 
 // Recalcula el validador (código puro, sin IA) sobre un informe YA guardado, para que las
@@ -359,7 +360,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   });
 
   Promise.race([
-    analizarYGuardarViabilidadIA(codigoDecoded, (fase) => { if (!settled) void actualizarFaseJob(codigoDecoded, runId, fase); }),
+    analizarYGuardarViabilidadIA(codigoDecoded, (fase) => { if (!settled) void actualizarFaseJob(codigoDecoded, runId, fase); }, { fresco: !!force }),
     deadline,
   ])
     .then((informeIA) => {
@@ -367,6 +368,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         void marcarJobError(codigoDecoded, runId, 'No hay documentos legibles para analizar. Descárgalos primero.');
       } else {
         void marcarJobListo(codigoDecoded, runId); // OK: el informe quedó guardado en BD, el GET ya lo devuelve.
+        void sanarChecklistDeLicitacion(codigoDecoded); // el checklist de los negocios queda al día con las líneas nuevas
         // Marca la única re-análisis del usuario normal como usada — SOLO si el análisis terminó
         // bien de verdad (si falla, no le cobramos su oportunidad).
         if (negocioIdReanalisis != null) {

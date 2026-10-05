@@ -40,6 +40,7 @@ import { seccionesDeEquipos } from '@/app/lib/caracteristicas-seccion';
 import { evaluarCoberturaLectura, resumirCobertura, esFormatoLegible, esDocumentoCritico } from '@/app/lib/lectura-documentos';
 import { ocrTieneHuecos, esTextoBasuraOCR, numeracionTablaIncompleta, leidoConOcrLocal, glmOcrDisponible } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidasConId, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
+import { problemasCalidadGrupo } from '@/app/lib/viabilidad-v4/saneo';
 import { anularPuntajesMinimosCero, validarInformeViabilidad, autocorregirHallazgos, escalarARevisionHumana, validarNivelV27 } from '@/app/lib/validador-viabilidad';
 import { analizarRemisionACriterios, hayTablaDeCriterios, motivoCriteriosNoConfiables, extraerSeccionCriteriosEvaluacion } from '@/app/lib/criterios-en-anexo';
 import { obtenerTipoCambio } from '@/app/lib/tipo-cambio';
@@ -458,6 +459,9 @@ function repararJSONTruncado(txt: string): string | null {
 // OpenAI, con respaldo DeepSeek). El camino Gemini nativo SOLO se usa si se fuerza
 // IA_TEXT_PROVIDER=gemini (retirado: sin key no funciona).
 // P11 · trazabilidad: qué modelo respondió de verdad y si el JSON vino cortado y se reparó.
+/** `fresco`: no reutilizar la respuesta del modelo guardada en el checkpoint (botón "Re-analizar"). Sin esto,
+ *  re-analizar dentro de las 3 h devolvía EXACTAMENTE la misma respuesta del modelo, errores incluidos. */
+export interface OpcionesAnalisis { fresco?: boolean }
 export interface TrazaLlamada { modelo?: string; reparado?: boolean; gruposFallidos?: string[]; dividido?: boolean }
 // ─── ANÁLISIS DIVIDIDO EN PARALELO (5-oct-2026, 1057448-45-LP26) ───────────────────────────────
 // Una sola llamada pedía ~16.000 tokens de salida (57.000 caracteres de JSON) sobre ~100.000 de
@@ -519,14 +523,14 @@ function escribirCheckpoint(ruta: string, dato: { valor: any; modelo?: string; r
   } catch { /* el checkpoint es una optimización: si no se puede escribir, se sigue sin él */ }
 }
 
-async function llamarAnalisisDividido(systemPrompt: string, userPrompt: string, traza?: TrazaLlamada): Promise<any> {
+async function llamarAnalisisDividido(systemPrompt: string, userPrompt: string, traza?: TrazaLlamada, opts: OpcionesAnalisis = {}): Promise<any> {
   const modelos = new Set<string>();
   let reparado = false;
   const fallidos: string[] = [];
   const resultados = await Promise.all(GRUPOS_ANALISIS.map(async g => {
     let ultimo = '';
     const ruta = rutaCheckpoint(systemPrompt, userPrompt, g.claves);
-    const previo = leerCheckpoint(ruta);
+    const previo = opts.fresco ? null : leerCheckpoint(ruta);
     if (previo?.valor && g.claves.some(k => previo.valor[k] !== undefined && previo.valor[k] !== null)) {
       console.log(`[viabilidad-ia] grupo "${g.nombre}" reutilizado de un intento anterior (checkpoint, sin gastar IA).`);
       if (previo.modelo) modelos.add(previo.modelo);
@@ -540,11 +544,30 @@ async function llamarAnalisisDividido(systemPrompt: string, userPrompt: string, 
         const v = await llamarGlmJSON(systemPrompt, userPrompt + sufijoAlcance(g.claves), t);
         const traeAlgo = v && typeof v === 'object' && g.claves.some(k => v[k] !== undefined && v[k] !== null);
         if (traeAlgo) {
-          if (t.modelo) modelos.add(t.modelo);
-          if (t.reparado) reparado = true;
-          console.log(`[viabilidad-ia] grupo "${g.nombre}" listo en ${((Date.now() - t0) / 1000).toFixed(0)}s (${t.modelo || '?'}${t.reparado ? ', reparado' : ''}).`);
-          escribirCheckpoint(ruta, { valor: v, modelo: t.modelo, reparado: t.reparado });
-          return { claves: g.claves, valor: v };
+          // ESCALADO POR CALIDAD (H-20): una respuesta válida pero pobre no activaba el respaldo, que solo
+          // saltaba por error o timeout. Si el grupo trae señales claras de mala lectura, se repite UNA vez
+          // con un modelo mayor y se queda el que tenga menos problemas. VIABILIDAD_ESCALAR_CALIDAD=0 lo apaga.
+          let valor = v, modelo = t.modelo, repar = t.reparado;
+          const problemas = problemasCalidadGrupo(g.nombre, v, !!t.reparado);
+          if (problemas.length && process.env.VIABILIDAD_ESCALAR_CALIDAD !== '0') {
+            const mayor = process.env.VIABILIDAD_MODELO_ESCALADO || 'glm-4.7';
+            console.warn(`[viabilidad-ia] grupo "${g.nombre}" con mala calidad (${problemas.join('; ')}) — se repite con ${mayor}.`);
+            const t2: TrazaLlamada = {};
+            try {
+              const v2 = await llamarGlmJSON(systemPrompt, userPrompt + sufijoAlcance(g.claves), t2, mayor);
+              const trae2 = v2 && typeof v2 === 'object' && g.claves.some(k => v2[k] !== undefined && v2[k] !== null);
+              const problemas2 = trae2 ? problemasCalidadGrupo(g.nombre, v2, !!t2.reparado) : problemas;
+              if (trae2 && problemas2.length < problemas.length) {
+                valor = v2; modelo = t2.modelo; repar = t2.reparado;
+                console.log(`[viabilidad-ia] grupo "${g.nombre}": el modelo mayor mejoró la respuesta (${problemas.length} → ${problemas2.length} problema(s)).`);
+              } else console.warn(`[viabilidad-ia] grupo "${g.nombre}": el modelo mayor no mejoró la respuesta; se conserva la primera.`);
+            } catch (e: any) { console.warn(`[viabilidad-ia] grupo "${g.nombre}": el escalado falló (${String(e?.message || e).slice(0, 120)}); se conserva la primera respuesta.`); }
+          }
+          if (modelo) modelos.add(modelo);
+          if (repar) reparado = true;
+          console.log(`[viabilidad-ia] grupo "${g.nombre}" listo en ${((Date.now() - t0) / 1000).toFixed(0)}s (${modelo || '?'}${repar ? ', reparado' : ''}).`);
+          escribirCheckpoint(ruta, { valor, modelo, reparado: repar });
+          return { claves: g.claves, valor };
         }
         ultimo = 'respuesta sin ninguna de sus claves';
       } catch (e: any) { ultimo = String(e?.message || e).slice(0, 200); }
@@ -751,7 +774,7 @@ Devuelve SOLO JSON válido: {"criterios":[{"nombre":"Precio","ponderacion_pct":4
 // livianos fallan ahí. Configurable por si el umbral resulta muy agresivo/laxo en la práctica.
 const UMBRAL_PROMPT_GRANDE_CHARS = Math.max(50_000, Number(process.env.VIABILIDAD_UMBRAL_PROMPT_GRANDE) || 200_000);
 
-async function llamarGlmJSON(systemPrompt: string, userPrompt: string, traza?: TrazaLlamada): Promise<any> {
+async function llamarGlmJSON(systemPrompt: string, userPrompt: string, traza?: TrazaLlamada, modeloPreferido?: string): Promise<any> {
   const MAX_INTENTOS_JSON = 2; // 1 reintento si el modelo respondió pero el JSON salió roto
   const promptTotalChars = systemPrompt.length + userPrompt.length;
   // 20-ago-2026 (pedido explícito del usuario tras 3459-24-LE26): YA NO se salta directo a un
@@ -840,6 +863,7 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string, traza?: T
         // respaldos les quedaban ~150s: glm-5 murió por presupuesto y DeepSeek/Gemini NUNCA se probaron.
         // Primario 150s + hasta 4 respaldos de 240s caben en 1080s; el tope del job (route.ts) queda 120s encima.
         deadlineMs: Math.max(180_000, Number(process.env.VIABILIDAD_LLM_DEADLINE_MS) || 1_080_000),
+        ...(modeloPreferido ? { modeloPreferido } : {}),
       });
     } catch (e: any) {
       // La CADENA completa (primario + los 2 respaldos GLM) ya se agotó dentro de crearChatIA —
@@ -1282,13 +1306,13 @@ function evidenciaPresupuestoPorLineaDeTabla(porLineaCrudo: unknown): EvidenciaA
   return [{ tipo: 'PRESUPUESTO_POR_LINEA', origen: 'detector', cita: { documento: String(c.documento || ''), numeral: String(c.numeral || ''), frase: String(c.frase) } }];
 }
 
-export async function analizarViabilidadIAV3(codigo: string, onFase?: (fase: FaseAnalisisIA) => void): Promise<any | null> {
+export async function analizarViabilidadIAV3(codigo: string, onFase?: (fase: FaseAnalisisIA) => void, opts: OpcionesAnalisis = {}): Promise<any | null> {
   // El log TOTAL debe leerse DENTRO del callback de conAcumuladorCostoIA (que corre dentro de
   // AsyncLocalStorage.run): fuera de ahí el contexto ya cerró y costoAcumuladoActual() da null.
   return conAcumuladorCostoIA(async () => {
     const t0 = Date.now();
     try {
-      return await _orquestarAnalisisV3(codigo, onFase);
+      return await _orquestarAnalisisV3(codigo, onFase, opts);
     } finally {
       const ac = costoAcumuladoActual();
       if (ac) {
@@ -1300,14 +1324,15 @@ export async function analizarViabilidadIAV3(codigo: string, onFase?: (fase: Fas
   });
 }
 
-async function _orquestarAnalisisV3(codigo: string, onFase?: (fase: FaseAnalisisIA) => void): Promise<any | null> {
+async function _orquestarAnalisisV3(codigo: string, onFase?: (fase: FaseAnalisisIA) => void, opts: OpcionesAnalisis = {}): Promise<any | null> {
   console.log(`[viabilidad-ia] ${codigo}: ▶ arrancando análisis de viabilidad IA…`);
-  const primero = await _analizarViabilidadIAV4Intento(codigo, onFase);
+  const primero = await _analizarViabilidadIAV4Intento(codigo, onFase, opts);
   const problemaPrimero = primero ? _reglaManifiestoQueFalla(primero) : null;
   if (!primero || !problemaPrimero) return primero;
 
   console.warn(`[viabilidad-ia-v3] ${codigo}: manifiesto de productos con problema (${problemaPrimero}) en el 1er intento → reintentando análisis completo una vez más antes de guardar.`);
-  const segundo = await _analizarViabilidadIAV4Intento(codigo, onFase);
+  // El 2º intento SIEMPRE va fresco: con el checkpoint reutilizaría la misma respuesta del modelo y el reintento no serviría de nada.
+  const segundo = await _analizarViabilidadIAV4Intento(codigo, onFase, { ...opts, fresco: true });
   if (!segundo) return primero; // el reintento no produjo nada (docs/red) → nos quedamos con el primero
 
   const problemaSegundo = _reglaManifiestoQueFalla(segundo);
@@ -1338,7 +1363,7 @@ async function _orquestarAnalisisV3(codigo: string, onFase?: (fase: FaseAnalisis
 
 // Un intento completo de análisis v4.0 (lectura de documentos + UNA llamada al modelo que EXTRAE +
 // el código que DECIDE + validador + nivel de atractivo). Especificación 1 (P1-P11) y 2 (score).
-async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: FaseAnalisisIA) => void): Promise<any | null> {
+async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: FaseAnalisisIA) => void, opts: OpcionesAnalisis = {}): Promise<any | null> {
   console.log(`[viabilidad-ia] ${codigo}: === FASE leyendo_documentos ===`);
   try { onFase?.('leyendo_documentos'); } catch { /* noop */ }
   const docs = await cargarDocumentos(codigo);
@@ -1427,7 +1452,7 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
   const traza: TrazaLlamada = {};
   // Solo ESTA llamada (el informe completo) se divide; las auxiliares (verificadores, extracciones) son chicas.
   const parsed = (IA_TEXT_PROVIDER !== 'gemini' && process.env.VIABILIDAD_DIVIDIR !== '0')
-    ? await llamarAnalisisDividido(systemPrompt, userPrompt, traza)
+    ? await llamarAnalisisDividido(systemPrompt, userPrompt, traza, opts)
     : await llamarGeminiJSON(systemPrompt, userPrompt, traza);
   console.log(`[viabilidad-ia] ${codigo}: modelo ${traza.modelo || '?'} respondió en ${((Date.now() - tIA0) / 1000).toFixed(1)}s${parsed ? '' : ' — SIN respuesta utilizable'}${traza.reparado ? ' — JSON REPARADO' : ''}.`);
   if (!parsed || typeof parsed !== 'object') return null;
@@ -2012,7 +2037,9 @@ function construirParesSemanticos(inf: any, evidencias: EvidenciaAdj[]): ParSema
   for (const h of Array.isArray(inf?.plazos?.hitos) ? inf.plazos.hitos : []) {
     const nombre = HITO_LABEL[String(h?.hito) as keyof typeof HITO_LABEL] || String(h?.hito || '');
     const est = String(h?.estado || '').toUpperCase();
-    if (est === 'EXISTE') add(`Se exige ${nombre.toLowerCase()} en ${h.plazo ?? '?'} ${h.unidad_original || ''} desde ${h.desde || 'el evento indicado'}`, h.cita);
+    // El "desde" no va en la afirmación: el evento de partida casi siempre está en OTRA frase y el verificador
+    // respondía PARCIAL a un plazo bien sostenido (1057448: garantía en 5 días hábiles). Se verifica plazo y unidad.
+    if (est === 'EXISTE') add(`Se exige ${nombre.toLowerCase()}${h.plazo != null ? ` en ${h.plazo} ${h.unidad_original || ''}` : ''}`.trim(), h.cita);
     if (est === 'NO_EXISTE' && !h.corregido_por_negacion) add(`Las bases dicen que no se exige ${nombre.toLowerCase()}`, h.cita);
   }
   for (const r of Array.isArray(inf?.requisitos_admisibilidad?.requisitos) ? inf.requisitos_admisibilidad.requisitos : []) {
@@ -2161,10 +2188,10 @@ export async function guardarColumnasNivel(codigo: string, score: any): Promise<
 // reportar progreso — hoy alimenta la barra de progreso del panel de viabilidad. Fases:
 // leyendo_documentos → analizando_ia → verificando → guardando.
 export type FaseAnalisisIA = 'leyendo_documentos' | 'analizando_ia' | 'verificando' | 'guardando';
-export async function analizarYGuardarViabilidadIA(codigo: string, onFase?: (fase: FaseAnalisisIA) => void): Promise<ViabilidadIAResult | null> {
+export async function analizarYGuardarViabilidadIA(codigo: string, onFase?: (fase: FaseAnalisisIA) => void, opts: OpcionesAnalisis = {}): Promise<ViabilidadIAResult | null> {
   // Analizador ÚNICO v4.0 + nivel v4.1: el modelo extrae, el código decide; puente al costeo
   // (manifiesto_productos/modalidad/estructura_costeo que arma el análisis).
-  const rv3 = await analizarViabilidadIAV3(codigo, onFase);
+  const rv3 = await analizarViabilidadIAV3(codigo, onFase, opts);
   if (!rv3) return null;
   console.log(`[viabilidad-ia] ${codigo}: === FASE guardando === (informe v4 listo, nivel=${rv3.score?.nivel ?? '?'}, guardando en BD y generando costeo)…`);
   try { onFase?.('guardando'); } catch { /* noop */ }

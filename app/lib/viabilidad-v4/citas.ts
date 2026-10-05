@@ -10,6 +10,8 @@
 // Prioridad cuando dos documentos se contradicen: aclaraciones del foro > bases > formularios y
 // anexos (se usa para elegir dónde buscar primero, ver prioridadDocumento).
 
+import { trozosDeFrase } from './saneo';
+
 export interface CitaV4 {
   documento?: string;
   numeral?: string;
@@ -17,7 +19,7 @@ export interface CitaV4 {
   // Los agrega el código:
   pagina?: number | null;
   verificada?: boolean;
-  metodo?: 'exacta' | 'normalizada' | 'aproximada' | 'no_encontrada' | 'sin_frase';
+  metodo?: 'exacta' | 'normalizada' | 'aproximada' | 'segmentada' | 'no_encontrada' | 'sin_frase';
   documento_real?: string;   // dónde se encontró de verdad (si difiere del citado)
   semantica?: 'SI' | 'PARCIAL' | 'NO' | 'NO_EVALUADA';
 }
@@ -151,6 +153,15 @@ export class LocalizadorCitas {
       for (const d of orden) {
         const r = buscarEnDoc(d, ft);
         if (r && r.metodo === metodo) return this.completar(cita, d, r.idx, metodo);
+      }
+    }
+    // 4) Frase unida con "…" / "...": el modelo copió dos trozos y puso puntos en medio. Vale si CADA trozo
+    //    está en el MISMO documento (no se acepta cualquier combinación de lugares distintos).
+    const trozos = trozosDeFrase(frase).map(t => tokens(t));
+    if (trozos.length >= 2) {
+      for (const d of orden) {
+        const rs = trozos.map(t => buscarEnDoc(d, t));
+        if (rs.every(Boolean)) return this.completar(cita, d, rs[0]!.idx, 'segmentada');
       }
     }
     cita.verificada = false; cita.metodo = 'no_encontrada'; cita.pagina = null;

@@ -16,6 +16,8 @@ export interface RequisitoCatalogo {
   frases: string[];
   /** Si viene, además debe aparecer UNA de estas (ej. "personal idóneo" + "instalación"). */
   contexto?: string[];
+  /** Si aparece UNA de estas, el requisito NO calza (es salvable: p. ej. el personal puede ser "subcontratado"). */
+  salvo?: string[];
 }
 
 export interface ConfigViabilidadV4 {
@@ -51,7 +53,7 @@ export const NIVELES = ['EXCLUIDO', 'BAJO', 'MEDIO_BAJO', 'MEDIO', 'MEDIO_ALTO',
 export type NivelAtractivo = typeof NIVELES[number];
 
 export const CONFIG_V4_DEFAULT: ConfigViabilidadV4 = {
-  version_reglas: '4.1-2026-10-02',
+  version_reglas: '4.1-2026-10-05',
   familias: {
     ALTA: ['LABORATORIO', 'MEDICO_HOSPITALARIO', 'ELECTRICO', 'ELECTRONICO_INSTRUMENTACION', 'INDUSTRIAL_ESPECIALIZADO', 'EQUIPO_ESPECIALIDAD'],
     MEDIA: ['MAQUINARIA_CONSTRUCCION', 'MAQUINARIA_AGRICOLA', 'MAQUINARIA_ASEO', 'MAQUINARIA_OTRA', 'VEHICULOS', 'MOBILIARIO'],
@@ -63,11 +65,14 @@ export const CONFIG_V4_DEFAULT: ConfigViabilidadV4 = {
       nombre: 'Personal idóneo',
       frases: ['personal idoneo', 'tecnico certificado', 'profesional a cargo', 'titulo profesional'],
       contexto: ['servicio tecnico', 'instalacion', 'implementacion', 'puesta en marcha'],
+      // 1057448-45-LP26: "personal de servicio técnico propio o subcontratado… contrato vigente con el proveedor"
+      // se cumple con el servicio técnico del proveedor: no deja fuera, resta como certificado de marca (6.2).
+      salvo: ['subcontratado', 'contrato vigente con el proveedor', 'contrato con el proveedor'],
     },
   ],
   certificado_marca: {
     nombre: 'Servicio técnico propio o autorizado de una marca',
-    frases: ['servicio tecnico autorizado', 'certificado de representante', 'distribuidor autorizado', 'representante autorizado'],
+    frases: ['servicio tecnico autorizado', 'certificado de representante', 'distribuidor autorizado', 'representante autorizado', 'otorgado por el fabricante', 'certificado por el fabricante', 'capacitado por el fabricante'],
     salida: 'Conseguir el certificado del proveedor del equipo alternativo u homologado',
   },
   frases_consecuencia: [
@@ -149,6 +154,7 @@ export function calzaCatalogo(texto: string, req: RequisitoCatalogo): string | n
   const t = ` ${normFrase(texto)} `;
   const frase = req.frases.find(f => t.includes(` ${normFrase(f)} `));
   if (!frase) return null;
+  if (req.salvo?.some(x => t.includes(` ${normFrase(x)}`))) return null;
   if (req.contexto?.length && !req.contexto.some(c => t.includes(` ${normFrase(c)} `))) return null;
   return frase;
 }

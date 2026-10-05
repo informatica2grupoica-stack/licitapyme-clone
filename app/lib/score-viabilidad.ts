@@ -183,6 +183,7 @@ export function calcularNivel(inf: any, cfg: ConfigViabilidadV4, ctx: CtxNivel):
   const resultadoAdj = String(inf?.adjudicacion?.resultado || 'NO_CLARO').toUpperCase();
   if (resultadoAdj === 'NO_CLARO') dudar('adjudicacion', 'cómo se adjudica', 'las bases no dejan claro si se adjudica global o por línea');
   if (!sinMonto && (pres.cita?.verificada === false || pres.incierto === true)) dudar('presupuesto', 'el presupuesto', pres.incierto ? 'las bases traen cifras que no calzan' : 'su cita no se encontró en las bases');
+  if (pres.caracter_corregido) avisos.push('El carácter del presupuesto (excluyente o referencial) no quedó respaldado por una frase de las bases: se trata como no declarado.');
   const conteo = inf?.productos?.conteo_cruzado;
   const calidad: string[] = Array.isArray(inf?.productos?.problemas_calidad) ? inf.productos.problemas_calidad : [];
   if ((conteo && conteo.cuadra === false) || calidad.length) dudar('productos', 'la cantidad de productos', conteo?.detalle || calidad[0] || 'el conteo no cuadra entre fuentes');

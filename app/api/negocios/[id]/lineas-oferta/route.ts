@@ -17,7 +17,7 @@ import pool from '@/app/lib/db';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 import { registrarEvento } from '@/app/lib/historial';
 import { publicarCambio } from '@/app/lib/sse-bus';
-import { cargarNegocio, leerInforme, sincronizar } from '@/app/api/negocios/[id]/comercial/route';
+import { cargarNegocio, leerInforme, sincronizar, sanarChecklistDeLicitacion } from '@/app/api/negocios/[id]/comercial/route';
 import { esPorLinea, lineasDelInforme, lineasOfertablesDelInforme } from '@/app/lib/checklist-comercial';
 import { lineasTecnicasDelInforme } from '@/app/lib/auditor-tecnico-core';
 import { leerDecisionLineas, guardarLineasOfertadas, lineasExcluidasDeNegocio } from '@/app/lib/lineas-oferta';
@@ -69,8 +69,8 @@ export async function GET(request: NextRequest, { params }: Params) {
     // ¿Hay filas del checklist numeradas con una escala que no es la del informe? (checklists
     // generados antes del fix de numeración de líneas). Ahí la decisión se guarda pero no se
     // proyecta sobre lo ya materializado — ver guardarLineasOfertadas.
-    let checklistDesalineado: string[] = [];
-    if (porLinea && disponibles.length) {
+    const medirDesalineado = async (): Promise<string[]> => {
+      if (!(porLinea && disponibles.length)) return [];
       try {
         const conocidas = new Set(disponibles.map(l => l.linea));
         const [filas] = await pool.query(
@@ -83,10 +83,17 @@ export async function GET(request: NextRequest, { params }: Params) {
           if (!porTipo.has(f.tipo)) porTipo.set(f.tipo, []);
           porTipo.get(f.tipo)!.push(Number(f.linea_numero));
         }
-        checklistDesalineado = [...porTipo.entries()]
+        return [...porTipo.entries()]
           .filter(([, nums]) => !nums.every(n => conocidas.has(n)))
           .map(([tipo]) => tipo);
-      } catch { /* si no se puede medir, no se avisa: nunca romper el selector por el aviso */ }
+      } catch { return []; /* si no se puede medir, no se avisa: nunca romper el selector por el aviso */ }
+    };
+    let checklistDesalineado = await medirDesalineado();
+    // Si hay desfase se sana al vuelo (solo filas vírgenes; el trabajo cargado no se toca) y se vuelve a
+    // medir: así el aviso solo queda cuando de verdad hay trabajo de una persona colgando de otra numeración.
+    if (checklistDesalineado.length) {
+      await sanarChecklistDeLicitacion(negocio.licitacion_codigo);
+      checklistDesalineado = await medirDesalineado();
     }
 
     return NextResponse.json({
