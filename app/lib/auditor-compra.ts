@@ -67,7 +67,7 @@ export async function lineasAuditorCompra(negocioId: number, estadoCosteo: Estad
   for (const g of estadoCosteo.grupos || []) {
     if (g.ofertamos === false) continue;
     for (const f of (g.filas || []) as FilaEditorCosteo[]) {
-      if (f.agregadoPorCompras) continue; // gasto extra de Compras, no es un producto cotizado
+      if (f.agregadoPorCompras || f.esCostoAdicional) continue; // gasto extra / costo adicional, no es un producto cotizado
       const sinDatos = !f.detalle?.trim() && f.cantidad == null && f.valorConIva == null;
       if (sinDatos) continue;
       const guardada = guardadas.get(f.id);

@@ -64,6 +64,10 @@ interface FilaEditor {
   link1: string; link2: string; link3: string;
   // Fila agregada por el perfil de Compras: solo esas puede editar y borrar (ver costeo-compras.ts).
   agregadoPorCompras?: boolean;
+  // Costo adicional a mano (flete, despacho…): se escribe el «Costo total neto» directo. Suma al costo y al margen, no se vende.
+  // Ver FilaEditorCosteo en costeo-editor.ts.
+  esCostoAdicional?: boolean;
+  costoAdicionalNeto?: number | null;
 }
 // ofertamos: ¿se oferta esta hoja/línea? default true. Apagarla la saca de los totales y de lo
 // que "Actualizar" vuelve a traer — ver GrupoEditorCosteo en app/lib/costeo-editor.ts (misma idea,
@@ -248,10 +252,10 @@ function filasConMargenPropio(grp: GrupoEditor): number {
 // Los ítems que agrega Compras son gasto extra: no se venden, así que no entran a venta ni a costo
 // estimado (solo a "gastos adicionales" del comparativo real).
 function totalGrupo(grp: GrupoEditor, general: number) {
-  return grp.filas.reduce((s, f) => s + (f.agregadoPorCompras ? 0 : (calcularFormulas(f, margenDeFila(f, grp, general)).precioTotal ?? 0)), 0);
+  return grp.filas.reduce((s, f) => s + (f.agregadoPorCompras || f.esCostoAdicional ? 0 : (calcularFormulas(f, margenDeFila(f, grp, general)).precioTotal ?? 0)), 0);
 }
 function costoGrupo(grp: GrupoEditor, general: number) {
-  return grp.filas.reduce((s, f) => s + (f.agregadoPorCompras ? 0 : (calcularFormulas(f, margenDeFila(f, grp, general)).costoTotal ?? 0)), 0);
+  return grp.filas.reduce((s, f) => s + (f.agregadoPorCompras ? 0 : f.esCostoAdicional ? (f.costoAdicionalNeto ?? 0) : (calcularFormulas(f, margenDeFila(f, grp, general)).costoTotal ?? 0)), 0);
 }
 /** ¿Qué tope (presupuesto NETO) le corresponde a ESTA hoja? En la mayoría de las licitaciones el
  *  presupuesto se publica POR LÍNEA y el global es solo la suma, así que comparar una línea contra
@@ -278,7 +282,7 @@ function presupuestoDeHoja(
 /** Costo REAL total de una fila — el que se pagó, no el cotizado. null si todavía no se cargó.
  *  Misma regla que el backend (costoRealDeFila): un gasto extra sin cantidad cuenta como 1. */
 function costoRealFila(f: FilaEditor): number | null {
-  return costoRealDeFila({ esExtra: !!f.agregadoPorCompras, cantidad: f.cantidad, costoRealUnitario: f.costoRealUnitario });
+  return costoRealDeFila({ esExtra: !!f.agregadoPorCompras || !!f.esCostoAdicional, cantidad: f.cantidad, costoRealUnitario: f.costoRealUnitario });
 }
 function costoRealGrupo(grp: GrupoEditor) {
   return grp.filas.reduce((s, f) => s + (costoRealFila(f) ?? 0), 0);
@@ -307,6 +311,78 @@ function CeldaNumero({ value, onChange, disabled }: {
       disabled={disabled}
       className={celdaInput('text-right tabular-nums')}
       placeholder=""
+    />
+  );
+}
+
+/** «Precio unit. venta» editable: se escribe el precio al que se quiere vender el ítem y el sistema despeja SOLO el recargo (% margen) de esa
+ *  fila. El recargo se guarda exacto (sin redondear) para que el precio resultante sea justo el escrito: precio = TRUNC(costo × (1 + recargo)).
+ *  Vaciar la celda devuelve la fila al recargo del costeo. Pide un aviso antes de empezar a editar (la columna se calcula con fórmula). */
+function CeldaPrecioVenta({ precio, costoUnit, fondo, disabled, onAvisar, onFijarRecargo, onSinCosto }: {
+  precio: number | null; costoUnit: number | null; fondo: string; disabled?: boolean;
+  onAvisar: () => Promise<boolean>; onFijarRecargo: (recargo: number | null) => void; onSinCosto: () => void;
+}) {
+  const [borrador, setBorrador] = useState<string | null>(null);
+  const mostrar = (n: number | null) => (n == null ? '' : new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(n));
+  const confirmar = () => {
+    const txt = borrador;
+    setBorrador(null);
+    if (txt == null) return;
+    const limpio = txt.replace(/[^\d,]/g, '').replace(',', '.');
+    if (limpio === '') { onFijarRecargo(null); return; }                  // vacío: vuelve a heredar el recargo del costeo
+    const p = Math.trunc(Number(limpio));
+    if (!Number.isFinite(p) || p <= 0 || p === precio) return;              // basura o sin cambios: no se toca nada
+    if (costoUnit == null || costoUnit <= 0) { onSinCosto(); return; }
+    onFijarRecargo(((p + 0.5) / costoUnit - 1) * 100);                      // +0,5: queda en el medio del peso → TRUNC da exactamente p
+  };
+  return (
+    <input
+      value={borrador ?? mostrar(precio)}
+      disabled={disabled}
+      inputMode="numeric"
+      onFocus={async e => { const el = e.target; if (!(await onAvisar())) el.blur(); }}
+      onChange={e => setBorrador(e.target.value)}
+      onBlur={confirmar}
+      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setBorrador(null); }}
+      placeholder="—"
+      title="Se calcula como costo × (1 + recargo). Escribe el precio de venta y el sistema calcula el % margen de esta fila."
+      className={celdaInput('text-right tabular-nums text-zinc-600')}
+      style={{ background: fondo }}
+    />
+  );
+}
+
+/** «Costo total neto» editable en una fila normal: se escribe el total y el sistema despeja el Valor c/IVA (total ÷ cantidad × 1,19) para que la
+ *  fórmula cantidad × costo unitario siga dando justo ese total. Sin cantidad se toma 1 (un flete, un pago único). Vaciarla borra el Valor c/IVA. */
+function CeldaCostoTotal({ costoTotal, fondo, disabled, onAvisar, onFijarTotal }: {
+  costoTotal: number | null; fondo: string; disabled?: boolean;
+  onAvisar: () => Promise<boolean>; onFijarTotal: (total: number | null) => void;
+}) {
+  const [borrador, setBorrador] = useState<string | null>(null);
+  const mostrar = (n: number | null) => (n == null ? '' : new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(n));
+  const confirmar = () => {
+    const txt = borrador;
+    setBorrador(null);
+    if (txt == null) return;
+    const limpio = txt.replace(/[^d,]/g, '').replace(',', '.');
+    if (limpio === '') { onFijarTotal(null); return; }
+    const t = Math.round(Number(limpio));
+    if (!Number.isFinite(t) || t <= 0 || (costoTotal != null && t === Math.round(costoTotal))) return;
+    onFijarTotal(t);
+  };
+  return (
+    <input
+      value={borrador ?? mostrar(costoTotal)}
+      disabled={disabled}
+      inputMode="numeric"
+      onFocus={async e => { const el = e.target; if (!(await onAvisar())) el.blur(); }}
+      onChange={e => setBorrador(e.target.value)}
+      onBlur={confirmar}
+      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setBorrador(null); }}
+      placeholder="—"
+      title="Se calcula como cantidad × costo unitario. Si escribes el total, el sistema ajusta el Valor c/IVA para que cuadre."
+      className={celdaInput('text-right tabular-nums text-zinc-600')}
+      style={{ background: fondo }}
     />
   );
 }
@@ -718,6 +794,37 @@ export function CosteoEditorCard({
   // pueden estar generando su ficha a la vez, cada una independiente.
   const [generandoFicha, setGenerandoFicha] = useState<Set<string>>(new Set());
   const [subiendoImagen, setSubiendoImagen] = useState<Set<string>>(new Set());
+  // Avisos de «esta columna trabaja con fórmula»: se muestran la primera vez que alguien las toca y no se repiten en la sesión.
+  const avisosVistos = useRef<Set<string>>(new Set());
+  const avisarFormula = async (clave: 'precio' | 'costo' | 'total'): Promise<boolean> => {
+    if (avisosVistos.current.has(clave)) return true;
+    const ok = await confirmar(clave === 'total'
+      ? {
+        titulo: 'Esta columna trabaja con una fórmula',
+        mensaje: 'El «Costo total neto» se calcula como cantidad × costo unitario. Si escribes aquí un total, el sistema ajusta el Valor c/IVA de la fila para que cuadre (sin cantidad, toma 1). Cuidado: cambia el costo, el precio de venta y el margen de esa fila y del proyecto. Para un costo que NO se vende (flete, despacho) usa «Agregar costo adicional».',
+        confirmarLabel: 'Entendido, continuar',
+      }
+      : clave === 'precio'
+      ? {
+        titulo: 'Esta columna trabaja con una fórmula',
+        mensaje: 'El «Precio unit. venta» se calcula como costo × (1 + recargo). Si escribes aquí un precio, el sistema calculará el % margen de ESA fila para que el precio calce. Cuidado: puede cambiar el precio total, el margen del proyecto y lo que se ofrece en el anexo económico. Si luego cambias el costo del ítem, el precio se moverá con él.',
+        confirmarLabel: 'Entendido, continuar',
+      }
+      : {
+        titulo: 'Un costo a mano puede ser riesgoso',
+        mensaje: 'Un costo adicional se suma al costo total y baja el margen del proyecto, pero NO se le cobra al cliente: no entra al precio de venta ni al anexo económico. Úsalo solo para costos reales que no están en los productos (flete, despacho, capacitación…).',
+        confirmarLabel: 'Entendido, continuar',
+      });
+    if (ok) avisosVistos.current.add(clave);
+    return !!ok;
+  };
+  // Las celdas grises son fórmulas: si alguien intenta escribirlas se le explica por dónde sí (una vez cada 4 s, para no apilar avisos).
+  const ultimoAvisoGris = useRef(0);
+  const explicarCeldaGris = (que: string) => {
+    if (Date.now() - ultimoAvisoGris.current < 4000) return;
+    ultimoAvisoGris.current = Date.now();
+    toast.info(`«${que}» se calcula con una fórmula`, 'Para sumar un costo a mano usa «Agregar costo adicional»; para fijar el precio escribe en «Precio unit. venta».');
+  };
   const [verImagen, setVerImagen] = useState<{ url: string; detalle: string } | null>(null);
   const [importando, setImportando] = useState(false);
 
@@ -868,6 +975,16 @@ export function CosteoEditorCard({
     setEstado(prev => {
       if (!prev) return prev;
       const grupos = prev.grupos.map((g, i) => i !== gi ? g : { ...g, filas: [...g.filas, gastoExtra ? { ...nuevaFila(g.filas.length + 1), cantidad: 1, agregadoPorCompras: true } : nuevaFila(g.filas.length + 1)] });
+      return { ...prev, grupos };
+    });
+  };
+
+  // Costo adicional a mano (flete, despacho…): fila sin cantidad ni precio, con el «Costo total neto» tipeado. No se vende.
+  const agregarCostoAdicional = async (gi: number) => {
+    if (!(await avisarFormula('costo'))) return;
+    setEstado(prev => {
+      if (!prev) return prev;
+      const grupos = prev.grupos.map((g, i) => i !== gi ? g : { ...g, filas: [...g.filas, { ...nuevaFila(g.filas.length + 1), unidad: '', esCostoAdicional: true, costoAdicionalNeto: null }] });
       return { ...prev, grupos };
     });
   };
@@ -1093,9 +1210,10 @@ export function CosteoEditorCard({
     const comp = calcularComparativo(entradaComparativoDeFilas(
       grp.filas.map(f => ({
         esExtra: !!f.agregadoPorCompras,
-        tieneDatos: f.detalle.trim() !== '' || f.cantidad != null || f.valorConIva != null,
-        venta: calcularFormulas(f, margenDeFila(f, grp, margen)).precioTotal ?? 0,
-        costoEstimado: calcularFormulas(f, margenDeFila(f, grp, margen)).costoTotal ?? 0,
+        soloCosto: !!f.esCostoAdicional,
+        tieneDatos: f.detalle.trim() !== '' || f.cantidad != null || f.valorConIva != null || (!!f.esCostoAdicional && f.costoAdicionalNeto != null),
+        venta: f.esCostoAdicional ? 0 : (calcularFormulas(f, margenDeFila(f, grp, margen)).precioTotal ?? 0),
+        costoEstimado: f.esCostoAdicional ? (f.costoAdicionalNeto ?? 0) : (calcularFormulas(f, margenDeFila(f, grp, margen)).costoTotal ?? 0),
         cantidad: f.cantidad, costoRealUnitario: f.costoRealUnitario,
       })),
       valor,
@@ -1383,8 +1501,9 @@ export function CosteoEditorCard({
               const { costoUnitario, costoTotal, precioUnitarioSinDecimales, precioTotal } = calcularFormulas(f, margenFila);
               const bajoCosto = costoTotal != null && precioTotal != null && precioTotal < costoTotal;
               // VARIACIÓN de la fila — misma fórmula que la columna N del Excel: =(L/G)−1, en %.
-              const variacion = !f.agregadoPorCompras && f.costoRealUnitario != null && costoUnitario ? (f.costoRealUnitario / costoUnitario - 1) * 100 : null;
+              const variacion = !f.agregadoPorCompras && !f.esCostoAdicional && f.costoRealUnitario != null && costoUnitario ? (f.costoRealUnitario / costoUnitario - 1) * 100 : null;
               // Compras: lo ajeno queda bloqueado; solo Costo REAL y Links se habilitan, y sus propias filas nuevas por completo.
+              const esAdic = !!f.esCostoAdicional;
               const baseBloq = congelado && !(modoCompras && f.agregadoPorCompras);
               const realBloq = congelado && !modoCompras;
               const celda = { border: `1px solid ${GRID_BORDE}`, height: 24 };
@@ -1396,7 +1515,7 @@ export function CosteoEditorCard({
                     <CeldaNumero value={f.lineaReal} onChange={v => actualizarFila(grupoActivo, fi, { lineaReal: v })} disabled={baseBloq} />
                   </td>
                   <td style={celda} className="p-0">
-                    <input value={f.detalle} onChange={e => actualizarFila(grupoActivo, fi, { detalle: e.target.value })} disabled={baseBloq} className={celdaInput()} placeholder="Descripción del ítem" />
+                    <input value={f.detalle} onChange={e => actualizarFila(grupoActivo, fi, { detalle: e.target.value })} disabled={baseBloq} className={celdaInput()} placeholder={esAdic ? 'Costo adicional (ej. Flete a Punta Arenas)' : 'Descripción del ítem'} />
                   </td>
                   <td style={celda} className="p-0">
                     <CeldaImagen url={f.imagenUrl} subiendo={subiendoImagen.has(f.id)} disabled={baseBloq}
@@ -1405,15 +1524,36 @@ export function CosteoEditorCard({
                       onVer={() => setVerImagen({ url: f.imagenUrl as string, detalle: f.detalle })} />
                   </td>
                   <td style={celda} className="p-0">
-                    <input value={f.unidad} onChange={e => actualizarFila(grupoActivo, fi, { unidad: e.target.value })} disabled={baseBloq} className={celdaInput()} />
+                    <input value={f.unidad} onChange={e => actualizarFila(grupoActivo, fi, { unidad: e.target.value })} disabled={baseBloq || esAdic} className={celdaInput()} />
                   </td>
                   <td style={celda} className="p-0">
-                    <input value={f.skuProveedor} onChange={e => actualizarFila(grupoActivo, fi, { skuProveedor: e.target.value })} disabled={baseBloq} className={celdaInput()} placeholder="Tienda / SKU" />
+                    <input value={f.skuProveedor} onChange={e => actualizarFila(grupoActivo, fi, { skuProveedor: e.target.value })} disabled={baseBloq || esAdic} className={celdaInput()} placeholder={esAdic ? '' : 'Tienda / SKU'} />
                   </td>
-                  <td style={celda} className="p-0"><CeldaNumero value={f.cantidad} onChange={v => actualizarFila(grupoActivo, fi, { cantidad: v })} disabled={baseBloq} /></td>
-                  <td style={celda} className="p-0" title={f.agregadoPorCompras ? 'Gasto extra de Compras: no se vende, solo tiene costo real.' : undefined}><CeldaNumero value={f.valorConIva} onChange={v => actualizarFila(grupoActivo, fi, { valorConIva: v })} disabled={baseBloq || !!f.agregadoPorCompras} /></td>
-                  <td style={celdaFormula} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title="= Valor c/IVA / 1.19">{fmtCLP(costoUnitario != null ? Math.round(costoUnitario) : null)}</td>
-                  <td style={celdaFormula} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title="= Cantidad × Costo unitario">{fmtCLP(costoTotal)}</td>
+                  <td style={celda} className="p-0"><CeldaNumero value={f.cantidad} onChange={v => actualizarFila(grupoActivo, fi, { cantidad: v })} disabled={baseBloq || esAdic} /></td>
+                  <td style={celda} className="p-0" title={f.agregadoPorCompras ? 'Gasto extra de Compras: no se vende, solo tiene costo real.' : esAdic ? 'Costo adicional: no tiene valor de mercado, se escribe el Costo total neto.' : undefined}><CeldaNumero value={f.valorConIva} onChange={v => actualizarFila(grupoActivo, fi, { valorConIva: v })} disabled={baseBloq || !!f.agregadoPorCompras || esAdic} /></td>
+                  <td style={celdaFormula} onClick={() => !esAdic && explicarCeldaGris('Costo unit. neto')} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title="= Valor c/IVA / 1.19">{esAdic ? '—' : fmtCLP(costoUnitario != null ? Math.round(costoUnitario) : null)}</td>
+                  {/* COSTO TOTAL NETO: en un ítem normal es una fórmula (cantidad × costo unitario) y no se escribe. En un COSTO ADICIONAL es lo único
+                      que se tipea: el monto a mano que suma al costo total y baja el margen (no se vende). */}
+                  {esAdic ? (
+                    <td style={{ ...celda, background: '#fff7e6' }} className="p-0" title="Costo adicional escrito a mano: suma al costo total y baja el margen del proyecto, pero NO se vende ni va al anexo económico.">
+                      <CeldaNumero value={f.costoAdicionalNeto ?? null} onChange={v => actualizarFila(grupoActivo, fi, { costoAdicionalNeto: v })} disabled={baseBloq} />
+                    </td>
+                  ) : (
+                    <td style={celda} className="p-0">
+                      <CeldaCostoTotal
+                        costoTotal={costoTotal} fondo={celdaFormula.background as string}
+                        disabled={baseBloq || !!f.agregadoPorCompras}
+                        onAvisar={() => avisarFormula('total')}
+                        onFijarTotal={t => {
+                          if (t == null) { actualizarFila(grupoActivo, fi, { valorConIva: null }); return; }
+                          const sinCant = !(f.cantidad != null && f.cantidad > 0);
+                          const cant = sinCant ? 1 : (f.cantidad as number);
+                          actualizarFila(grupoActivo, fi, { cantidad: cant, valorConIva: Math.round((t / cant) * IVA * 10000) / 10000 });
+                          if (sinCant) toast.info('Se tomó cantidad 1', 'Esta fila no tenía cantidad. Si es más de una unidad, corrígela en «Cantidad».');
+                        }}
+                      />
+                    </td>
+                  )}
                   {/* Margen de ESTA fila — la única celda de la cadena de fórmulas que se puede
                       pisar a mano. Vacía = hereda; con número propio, azul. */}
                   <td style={{ ...celda, background: f.margenVenta != null ? '#e8f0fe' : undefined }} className="p-0">
@@ -1421,11 +1561,24 @@ export function CosteoEditorCard({
                       propio={Number.isFinite(f.margenVenta as number) ? (f.margenVenta as number) : null}
                       efectivo={margenFila}
                       onChange={v => actualizarFila(grupoActivo, fi, { margenVenta: v })}
-                      disabled={baseBloq || !!f.agregadoPorCompras}
+                      disabled={baseBloq || !!f.agregadoPorCompras || esAdic}
                     />
                   </td>
-                  <td style={celdaFormula} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title={`= Costo unitario × (1 + ${margenFila}%)`}>{fmtCLP(precioUnitarioSinDecimales)}</td>
-                  <td style={celdaFormula} className={`px-1.5 text-right text-[12.5px] font-semibold tabular-nums ${bajoCosto ? 'text-rose-600' : 'text-emerald-700'}`} title="= Cantidad × Precio unitario">{fmtCLP(precioTotal)}</td>
+                  {/* PRECIO UNIT. VENTA: se puede escribir. Calcula solo el % margen de la fila (con aviso de que es una columna con fórmula). */}
+                  {esAdic ? (
+                    <td style={celdaFormula} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-400" title="Un costo adicional no se vende">—</td>
+                  ) : (
+                    <td style={{ ...celda, background: f.margenVenta != null ? '#e8f0fe' : celdaFormula.background }} className="p-0">
+                      <CeldaPrecioVenta
+                        precio={precioUnitarioSinDecimales} costoUnit={costoUnitario} fondo="transparent"
+                        disabled={baseBloq || !!f.agregadoPorCompras}
+                        onAvisar={() => avisarFormula('precio')}
+                        onFijarRecargo={r => actualizarFila(grupoActivo, fi, { margenVenta: r })}
+                        onSinCosto={() => toast.info('Primero ingresa el costo de este ítem', 'Escribe el «Valor c/IVA» o el «Costo total neto»: sin costo no se puede calcular el % margen.')}
+                      />
+                    </td>
+                  )}
+                  <td style={celdaFormula} onClick={() => !esAdic && explicarCeldaGris('Precio total neto')} className={`px-1.5 text-right text-[12.5px] font-semibold tabular-nums ${bajoCosto ? 'text-rose-600' : 'text-emerald-700'}`} title="= Cantidad × Precio unitario">{esAdic ? '—' : fmtCLP(precioTotal)}</td>
                   {/* "SECCIÓN COMPRAS" del Excel (columnas L, M y N de la plantilla real): el costo
                       unitario REAL se tipea cuando llega la factura/OC —es el único dato del cuadro
                       que no se deriva de nada— y las otras dos salen solas, con las MISMAS fórmulas:
@@ -1465,7 +1618,7 @@ export function CosteoEditorCard({
                     )}
                     {/* Una fila sin precio de mercado que en realidad es un costo que no se vendió (flete, horas
                         extra) se pasa a "gasto extra" en un clic, sin tener que borrarla y volver a escribirla. */}
-                    {!congelado && !modoCompras && !f.agregadoPorCompras && f.valorConIva == null && (
+                    {!congelado && !modoCompras && !f.agregadoPorCompras && !esAdic && f.valorConIva == null && (
                       <button onClick={() => actualizarFila(grupoActivo, fi, { agregadoPorCompras: true, margenVenta: null, cantidad: f.cantidad ?? 1 })}
                         title="Convertir en gasto extra: un costo que no se le vendió al cliente. Suma al costo real (gastos adicionales) y deja de contar como ítem ofertado."
                         className="opacity-0 group-hover:opacity-100 px-1 text-[9.5px] font-bold text-zinc-400 hover:text-indigo-600 transition-opacity">
@@ -1518,6 +1671,13 @@ export function CosteoEditorCard({
               className="flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-indigo-700">
               <Plus size={12} /> Agregar gasto extra
             </button>
+            {!modoCompras && (
+              <button onClick={() => agregarCostoAdicional(grupoActivo)}
+                title="Un costo que se suma a mano al costo total (flete, despacho, capacitación…): baja el margen pero no se vende ni va al anexo económico. Escribes directo el Costo total neto."
+                className="flex items-center gap-1 text-[11.5px] font-semibold text-amber-700 hover:text-amber-900">
+                <Plus size={12} /> Agregar costo adicional
+              </button>
+            )}
           </div>
         </div>
       )}

@@ -123,7 +123,7 @@ export async function cargarDatosSugerencia(negocioId: number): Promise<DatosSug
     const raw = (costeo as any[])[0]?.datos_json;
     const datos = typeof raw === 'string' ? JSON.parse(raw) : raw;
     for (const g of datos?.grupos || []) for (const f of g.filas || []) {
-      if (f.agregadoPorCompras) continue; // un gasto extra no es un producto cotizado
+      if (f.agregadoPorCompras || f.esCostoAdicional) continue; // un gasto extra / costo adicional no es un producto cotizado
       for (const l of [f.link1, f.link2, f.link3]) { const h = l ? hostDe(String(l)) : null; if (h) sitios.push(h); }
     }
   } catch { /* sin costeo: la sugerencia sale igual, sin "cotizado en" */ }

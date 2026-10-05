@@ -64,6 +64,11 @@ export interface FilaEditorCosteo {
   // Fila agregada por el perfil de Compras (no viene de la viabilidad): a diferencia del resto, Compras
   // puede editarla entera y borrarla. Ver fusionarEdicionCompras (costeo-compras.ts).
   agregadoPorCompras?: boolean;
+  // COSTO ADICIONAL a mano (flete, despacho, capacitación…): se escribe el «Costo total neto» directamente, sin cantidad ni costo unitario.
+  // Suma al costo total, a la utilidad y al margen del costeo, pero NO se vende: no tiene precio, no va al anexo económico, al Motor
+  // Comercial ni al Auditor. Es lo que el comercial hace en el Excel pisando la fórmula de esa celda (caso 1288505-5-LE26).
+  esCostoAdicional?: boolean;
+  costoAdicionalNeto?: number | null;
 }
 
 export interface GrupoEditorCosteo {
@@ -335,7 +340,7 @@ export function filasSinLink(estado: EstadoCosteoEditor): { hoja: string; item: 
   for (const g of estado.grupos || []) {
     if (g.ofertamos === false) continue;
     for (const f of g.filas || []) {
-      if (f.agregadoPorCompras) continue; // gasto extra de Compras: no se oferta, no necesita respaldo de precio
+      if (f.agregadoPorCompras || f.esCostoAdicional) continue; // gasto extra / costo adicional: no se oferta, no necesita respaldo de precio
       if (!estaCotizada(f)) continue;
       if (esLinkDeProducto(f.link1) || esLinkDeProducto(f.link2) || esLinkDeProducto(f.link3)) continue;
       faltan.push({ hoja: g.nombre, item: f.item, detalle: (f.detalle || '').trim() || `fila ${f.item}` });
@@ -357,7 +362,7 @@ export function editorAFilasCosteo(estado: EstadoCosteoEditor): FilaCosteo[] {
     for (const f of g.filas || []) {
       // Los ítems que agrega Compras son gasto extra (flete, horas extra, un imprevisto), no parte de
       // lo ofertado: fuera del Motor Comercial, del Anexo Económico y de "Productos y cobertura".
-      if (f.agregadoPorCompras) continue;
+      if (f.agregadoPorCompras || f.esCostoAdicional) continue;
       const sinDatos = !f.detalle?.trim() && f.cantidad == null && f.valorConIva == null;
       if (sinDatos) continue;
       // …y cada fila puede tener el suyo propio dentro de la hoja (caso 1114-12-LE26).
@@ -392,8 +397,9 @@ export function entradaComparativoDeEstado(
       const { costoTotal, precioTotal } = calcularFormulas(f, margenDeFila(f, g, margenGeneral));
       return {
         esExtra: !!f.agregadoPorCompras,
-        tieneDatos: !!f.detalle?.trim() || f.cantidad != null || f.valorConIva != null,
-        venta: precioTotal ?? 0, costoEstimado: costoTotal ?? 0,
+        soloCosto: !!f.esCostoAdicional,
+        tieneDatos: !!f.detalle?.trim() || f.cantidad != null || f.valorConIva != null || (!!f.esCostoAdicional && f.costoAdicionalNeto != null),
+        venta: f.esCostoAdicional ? 0 : (precioTotal ?? 0), costoEstimado: f.esCostoAdicional ? (f.costoAdicionalNeto ?? 0) : (costoTotal ?? 0),
         cantidad: f.cantidad ?? null, costoRealUnitario: f.costoRealUnitario ?? null,
       };
     }));

@@ -169,6 +169,8 @@ export function calcularComparativo(e: EntradaComparativo): Comparativo {
 export interface FilaParaComparativo {
   /** Agregada por Compras: gasto extra, no forma parte de lo ofertado. */
   esExtra: boolean;
+  /** Costo adicional a mano: suma a lo ESTIMADO (y a lo real, si se carga) pero no es parte de lo ofertado ni de lo vendido. */
+  soloCosto?: boolean;
   /** Fila con algún dato (detalle, cantidad o valor) — una fila vacía no cuenta como "sin costo real". */
   tieneDatos: boolean;
   venta: number;
@@ -189,17 +191,20 @@ export function costoRealDeFila(f: Pick<FilaParaComparativo, 'esExtra' | 'cantid
 export function entradaComparativoDeFilas(
   filas: FilaParaComparativo[], presupuestoNeto: number | null, gastosExternos = 0,
 ): EntradaComparativo {
-  const base = filas.filter(f => !f.esExtra && f.tieneDatos);
+  const base = filas.filter(f => !f.esExtra && !f.soloCosto && f.tieneDatos);
   const extras = filas.filter(f => f.esExtra);
+  const soloCosto = filas.filter(f => f.soloCosto && f.tieneDatos);
   const realBase = base.map(costoRealDeFila);
   return {
     ventaNeta: base.reduce((s, f) => s + f.venta, 0),
-    costoNetoEstimado: base.reduce((s, f) => s + f.costoEstimado, 0),
+    costoNetoEstimado: base.reduce((s, f) => s + f.costoEstimado, 0) + soloCosto.reduce((s, f) => s + f.costoEstimado, 0),
     costoNetoReal: realBase.reduce<number>((s, v) => s + (v ?? 0), 0),
     filasConCostoReal: realBase.filter(v => v != null).length,
     filasTotales: base.length,
     presupuestoNeto,
-    gastosAdicionales: extras.reduce((s, f) => s + (costoRealDeFila(f) ?? 0), 0) + gastosExternos,
+    // El costo REAL de un costo adicional (si ya se cargó) suma como el de un gasto extra: no hay cantidad, cuenta 1.
+    gastosAdicionales: extras.reduce((s, f) => s + (costoRealDeFila(f) ?? 0), 0)
+      + soloCosto.reduce((s, f) => s + (costoRealDeFila({ ...f, esExtra: true }) ?? 0), 0) + gastosExternos,
   };
 }
 

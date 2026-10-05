@@ -211,10 +211,10 @@ export function lineasDelCosteo(estado: EstadoCosteoEditor): LineaCosteo[] {
         unidad: f.unidad || '', sku: f.skuProveedor || '', cantidad: f.cantidad ?? null, valorConIva: f.valorConIva ?? null,
         costoRealUnitario: f.costoRealUnitario ?? null,
         links: [f.link1, f.link2, f.link3].filter(Boolean),
-        esGastoExtra: !!f.agregadoPorCompras, ofertamos: g.ofertamos !== false,
-        costoEstimadoNeto: f.agregadoPorCompras ? null : est,
-        costoRegistradoNeto: f.costoRealUnitario ?? (f.agregadoPorCompras ? null : est),
-        precioVentaUnitario: f.agregadoPorCompras ? null : calc.precioUnitarioSinDecimales,
+        esGastoExtra: !!f.agregadoPorCompras || !!f.esCostoAdicional, ofertamos: g.ofertamos !== false,
+        costoEstimadoNeto: f.agregadoPorCompras || f.esCostoAdicional ? null : est,
+        costoRegistradoNeto: f.costoRealUnitario ?? (f.agregadoPorCompras || f.esCostoAdicional ? null : est),
+        precioVentaUnitario: f.agregadoPorCompras || f.esCostoAdicional ? null : calc.precioUnitarioSinDecimales,
       });
     }
   }
