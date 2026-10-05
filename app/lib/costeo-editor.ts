@@ -456,9 +456,26 @@ export interface ResultadoImportExcel {
   recargoExcel: number | null; recargoAdoptado: boolean;
 }
 
+/** Palabras que identifican al producto: solo la PRIMERA línea del nombre (lo que sigue suele ser "Especificación: …"), sin tildes ni signos. */
+function palabrasDeProducto(s: string): Set<string> {
+  const primera = (s || '').split('\n')[0].toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return new Set(primera.split(/[^a-z0-9]+/).filter(w => w.length >= 2 && !['de', 'la', 'el', 'en', 'con', 'sin', 'por', 'para', 'los', 'las', 'del', 'y', 'o', 'un', 'una'].includes(w)));
+}
+/** Qué parte de las palabras del nombre más corto aparece en el otro (1 = el corto está contenido por completo). 0 si hay muy pocas palabras para fiarse. */
+export function similitudProducto(a: string, b: string): number {
+  const A = palabrasDeProducto(a), B = palabrasDeProducto(b);
+  const [corto, largo] = A.size <= B.size ? [A, B] : [B, A];
+  if (corto.size < 3) return 0;
+  let comunes = 0;
+  for (const w of corto) if (largo.has(w)) comunes++;
+  return comunes / corto.size;
+}
+
 export function fusionarDesdeExcel(actual: EstadoCosteoEditor, excel: FilaExcelImport[]): ResultadoImportExcel {
   const estado: EstadoCosteoEditor = JSON.parse(JSON.stringify(actual));
-  const util = excel.filter(e => e.detalle?.trim() || (e.costoNeto ?? 0) > 0);
+  // Solo cuentan las filas que traen algo para importar (un costo o un link): las notas, los fletes sin costo unitario y los títulos
+  // de sección que suele tener una planilla no son ítems del costeo.
+  const util = excel.filter(e => (e.costoNeto ?? 0) > 0 || e.links.length > 0);
   const filasEditor = estado.grupos.filter(g => g.ofertamos !== false).flatMap(g => g.filas);
   const ivaDe = (neto: number | null) => (neto != null && neto > 0 ? Math.round(neto * 1.19) : null);
 
@@ -496,13 +513,21 @@ export function fusionarDesdeExcel(actual: EstadoCosteoEditor, excel: FilaExcelI
   } else {
     util.forEach((e, idxExcel) => {
       const nombre = e.detalle?.trim() || '';
-      // 1) por nombre; 2) por posición + misma cantidad (cuando el nombre del Excel no sirve).
-      let destino = nombre ? filasEditor.find(f => !usadas.has(f.id) && mismoProducto(f.detalle, nombre)) : undefined;
+      // 1) por nombre (uno es el comienzo del otro); 2) por palabras en común, solo si hay UNA candidata claramente mejor
+      //    (las planillas antiguas pegan "Especificación: …" al nombre); 3) por posición + misma cantidad, cuando el nombre no sirve.
+      // Si más de una fila del costeo calza por nombre, solo vale la que es IGUAL; si no, no se adivina cuál.
+      const porNombre = nombre ? filasEditor.filter(f => !usadas.has(f.id) && mismoProducto(f.detalle, nombre)) : [];
+      const ambiguo = porNombre.length > 1 && !porNombre.some(f => normDesc(f.detalle) === normDesc(nombre));
+      let destino = ambiguo ? undefined : porNombre.length === 1 ? porNombre[0] : porNombre.find(f => normDesc(f.detalle) === normDesc(nombre));
+      if (!destino && nombre && !ambiguo) {
+        const ranking = filasEditor.filter(f => !usadas.has(f.id)).map(f => ({ f, s: similitudProducto(f.detalle, nombre) })).sort((a, b) => b.s - a.s);
+        if (ranking[0] && ranking[0].s >= 0.8 && (!ranking[1] || ranking[0].s - ranking[1].s >= 0.15)) destino = ranking[0].f;
+      }
       if (!destino) {
         const cand = filasEditor[idxExcel];
         if (cand && !usadas.has(cand.id) && e.cantidad != null && cand.cantidad === e.cantidad && (!nombre || !cand.detalle.trim())) destino = cand;
       }
-      if (!destino) { sinPareja.push(nombre || `fila ${e.fila} de ${e.hoja}`); return; }
+      if (!destino) { sinPareja.push(nombre ? nombre.split('\n')[0].slice(0, 70) : `fila ${e.fila} de ${e.hoja}`); return; }
       usadas.add(destino.id);
       if (rellenar(destino, e)) rellenadas++;
     });

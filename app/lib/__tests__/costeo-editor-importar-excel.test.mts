@@ -80,3 +80,29 @@ test('recargos distintos entre filas: no se adopta ninguno', () => {
   assert.equal(r.recargoAdoptado, false);
   assert.equal(r.estado.margenVenta, 27);
 });
+
+// Caso real 1288505-5-LE26: planilla antigua, el nombre del ítem trae pegado un párrafo "Especificación: …" y hay una fila de nota.
+test('1288505-5-LE26: empareja nombres con «Especificación: …» pegada e ignora la fila de nota', () => {
+  const e = estado([
+    fila(1, 'APILADOR ELÉCTRICO 1500 KG 4,8 a 5,5 METROS BATERÍA 24V/210AH (E15GL) - E15GL', 1),
+    fila(2, 'ELEVADOR ELÉCTRICO TIPO TIJERA DE 6M Y 300 KG (2 PERSONAS INTERIOR Y 1 EN EXTERIOR) 220V - 220V', 1),
+  ]);
+  const excel = [
+    ex(1, 'APILADOR ELÉCTRICO 1500 KG 4,8 a 5,5 METROS BATERÍA 24V/210AH (E15GL)\nEspecificación: Apilador diseñado para interiores, base ajustable', 1, 2689075.63, 7878991),
+    ex(2, 'ELEVADOR ELÉCTRICO TIPO TIJERA DE 6M Y 300 KG (2 PERSONAS INTERIOR Y 1 EN EXTERIOR) 220V.    ELEVADOR ELÉCTRICO TIPO TIJERA DE 6M Y 300 KG\nEspecificación: Altura de trabajo 8 metros', 1, 3819921.01, 11192368),
+    ex(3, '06-07 nota carolina.  Postulado MP. Modificados anexos con error', 2, null, null),
+  ];
+  const r = fusionarDesdeExcel(e, excel);
+  assert.equal(r.rellenadas, 2);
+  assert.deepEqual(r.sinPareja, []);
+  assert.equal(r.estado.grupos[0].filas[0].valorConIva, 3200000);
+  assert.equal(r.estado.grupos[0].filas[1].valorConIva, 4545706);
+});
+
+test('dos productos parecidos: no se adivina cuando la mejor candidata no se destaca', () => {
+  const e = estado([fila(1, 'Silla de oficina ergonómica negra', 5), fila(2, 'Silla de oficina ergonómica gris', 5)]);
+  const r = fusionarDesdeExcel(e, [ex(1, 'Silla de oficina ergonómica', 5, 40000, 50000)]);
+  // Ambas contienen todas las palabras de la corta: empate → se evalúa por posición+cantidad solo si el nombre del costeo está vacío (no es el caso).
+  assert.equal(r.estado.grupos[0].filas[0].valorConIva ?? r.estado.grupos[0].filas[1].valorConIva, null);
+  assert.equal(r.sinPareja.length, 1);
+});
