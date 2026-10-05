@@ -58,6 +58,8 @@ type Params = { params: Promise<{ codigo: string }> };
 // el proceso murió a mitad de camino, `jobHuerfano()` en el GET lo detecta por el `actualizado_at`
 // congelado y lo marca error explícito en vez de fingir que no pasó nada.
 const VIABILIDAD_JOB_TIMEOUT_MS = Math.max(120_000, Number(process.env.VIABILIDAD_JOB_TIMEOUT_MS) || 20 * 60_000);
+const LATIDO_MS = 20_000;           // el job que está vivo toca `actualizado_at` con esta frecuencia
+const LATIDO_HUERFANO_MS = 150_000;  // sin latido por este tiempo = job huérfano (muerto o bloqueado)
 const HUERFANO_MARGEN_MS = 90_000; // margen sobre el tope antes de declarar un job huérfano (reloj del server vs. del setInterval de fondo)
 
 type FilaJob = {
@@ -111,6 +113,13 @@ async function actualizarFaseJob(codigo: string, runId: string, fase: string): P
 }
 
 async function marcarJobError(codigo: string, runId: string, mensaje: string): Promise<void> {
+  // Reintenta: si esta escritura se pierde, el job queda "procesando" hasta que el GET lo declare huérfano.
+  for (let i = 0; i < 3; i++) {
+    try { await marcarJobErrorUnaVez(codigo, runId, mensaje); return; }
+    catch (e) { console.error(`[licitacion-viabilidad-ia] ${codigo}: marcarJobError intento ${i + 1}/3 falló:`, String(e).slice(0, 160)); await new Promise(r => setTimeout(r, 1500 * (i + 1))); }
+  }
+}
+async function marcarJobErrorUnaVez(codigo: string, runId: string, mensaje: string): Promise<void> {
   await pool.query(
     `UPDATE viabilidad_jobs SET estado = 'error', error = ?, actualizado_at = UTC_TIMESTAMP() WHERE licitacion_codigo = ? AND run_id = ?`,
     [mensaje.slice(0, 500), codigo, runId],
@@ -218,7 +227,9 @@ export async function GET(request: NextRequest, { params }: Params) {
     // esto se veía como "no hay nada corriendo" (silencio); ahora se declara error explícito.
     if (job?.estado === 'procesando') {
       const edadMs = job.edad_seg * 1000;
-      if (edadMs > VIABILIDAD_JOB_TIMEOUT_MS + HUERFANO_MARGEN_MS) {
+      // El job escribe un LATIDO cada 20s (ver POST): 150s sin latido = el proceso que lo corría murió o
+      // quedó bloqueado. Antes solo se miraba el último cambio de FASE (hasta 21,5 min de silencio).
+      if (edadMs > LATIDO_HUERFANO_MS) {
         const msg = 'El análisis se interrumpió (probablemente el servidor se reinició a mitad de camino, p.ej. por un despliegue). Vuelve a intentarlo.';
         console.error(`[licitacion-viabilidad-ia] ${codigoDecoded}: job huérfano detectado (sin actualizar hace ${Math.round(edadMs / 1000)}s) — marcado error.`);
         await marcarJobError(codigoDecoded, job.run_id, msg).catch(() => {});
@@ -331,6 +342,15 @@ export async function POST(request: NextRequest, { params }: Params) {
     metadata: { licitacion_codigo: codigoDecoded, force },
   });
 
+  // LATIDO (5-oct-2026, 1057448-45-LP26: el job murió en "verificando" y 23 min después la pantalla
+  // dijo "se reinterrumpió/reinició" sin saber la causa). Mientras este proceso viva, toca actualizado_at.
+  const latido = setInterval(() => {
+    void pool.query(
+      `UPDATE viabilidad_jobs SET actualizado_at = UTC_TIMESTAMP() WHERE licitacion_codigo = ? AND run_id = ? AND estado = 'procesando'`,
+      [codigoDecoded, runId],
+    ).catch(e => console.error(`[licitacion-viabilidad-ia] ${codigoDecoded}: latido falló:`, String(e).slice(0, 160)));
+  }, LATIDO_MS);
+
   let settled = false; // true en cuanto el tope duro dispara — evita que el resultado tardío pise un re-análisis nuevo sin querer (se sigue guardando por run_id de todas formas)
   const deadline = new Promise<never>((_, reject) => {
     setTimeout(() => { settled = true; reject(new Error(`TOPE_DURO_${VIABILIDAD_JOB_TIMEOUT_MS}ms`)); }, VIABILIDAD_JOB_TIMEOUT_MS);
@@ -361,7 +381,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       if (esTopeDuro) console.error(`[licitacion-viabilidad-ia] ${codigoDecoded}: TOPE DURO de ${VIABILIDAD_JOB_TIMEOUT_MS}ms alcanzado — marcado error (la llamada de fondo puede seguir corriendo, no se cancela).`);
       void marcarJobError(codigoDecoded, runId, msg);
     })
-    .finally(() => { void liberarLock(lockKey); });
+    .finally(() => { clearInterval(latido); void liberarLock(lockKey); });
 
   return NextResponse.json({ success: true, status: 'procesando' }, { status: 202 });
 }

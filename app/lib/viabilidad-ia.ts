@@ -18,6 +18,9 @@
 // añade el veredicto IA encima (decisión del usuario: "IA manda, score como control").
 
 import { createHash } from 'crypto';
+import { mkdirSync, readFileSync, writeFileSync, readdirSync, statSync, unlinkSync } from 'fs';
+import { tmpdir } from 'os';
+import { join, dirname } from 'path';
 import pool from '@/app/lib/db';
 import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
 import { parseJsonIA, parseJsonIAConTraza } from '@/app/lib/json-ia';
@@ -486,12 +489,49 @@ export function fusionarGrupos(parciales: { claves: string[]; valor: any }[]): a
   return out;
 }
 
+// CHECKPOINT por grupo (5-oct-2026): si la corrida muere a mitad de camino (reinicio, bloqueo, tope), los
+// grupos que ya terminaron se reutilizan al reintentar: el reintento tarda segundos, no 10 minutos, y no
+// se paga la IA dos veces. La clave es el hash del prompt completo + el alcance, así que si cambia un
+// documento o una regla, no se reutiliza nada viejo. Vive en el temporal del sistema, 3 h de vigencia.
+// Se apaga con VIABILIDAD_CHECKPOINT=0.
+const CHECKPOINT_VIGENCIA_MS = 3 * 60 * 60 * 1000;
+function rutaCheckpoint(systemPrompt: string, userPrompt: string, claves: string[]): string {
+  const h = createHash('sha256').update(systemPrompt).update('|').update(userPrompt).update('|').update(claves.join(',')).digest('hex').slice(0, 40);
+  return join(tmpdir(), 'viab-ckpt', `${h}.json`);
+}
+function leerCheckpoint(ruta: string): { valor: any; modelo?: string; reparado?: boolean } | null {
+  if (process.env.VIABILIDAD_CHECKPOINT === '0') return null;
+  try {
+    if (Date.now() - statSync(ruta).mtimeMs > CHECKPOINT_VIGENCIA_MS) return null;
+    return JSON.parse(readFileSync(ruta, 'utf8'));
+  } catch { return null; }
+}
+function escribirCheckpoint(ruta: string, dato: { valor: any; modelo?: string; reparado?: boolean }): void {
+  if (process.env.VIABILIDAD_CHECKPOINT === '0') return;
+  try {
+    mkdirSync(dirname(ruta), { recursive: true });
+    writeFileSync(ruta, JSON.stringify(dato));
+    for (const f of readdirSync(dirname(ruta))) { // limpieza de lo vencido
+      const r = join(dirname(ruta), f);
+      try { if (Date.now() - statSync(r).mtimeMs > 24 * 60 * 60 * 1000) unlinkSync(r); } catch { /* otro proceso */ }
+    }
+  } catch { /* el checkpoint es una optimización: si no se puede escribir, se sigue sin él */ }
+}
+
 async function llamarAnalisisDividido(systemPrompt: string, userPrompt: string, traza?: TrazaLlamada): Promise<any> {
   const modelos = new Set<string>();
   let reparado = false;
   const fallidos: string[] = [];
   const resultados = await Promise.all(GRUPOS_ANALISIS.map(async g => {
     let ultimo = '';
+    const ruta = rutaCheckpoint(systemPrompt, userPrompt, g.claves);
+    const previo = leerCheckpoint(ruta);
+    if (previo?.valor && g.claves.some(k => previo.valor[k] !== undefined && previo.valor[k] !== null)) {
+      console.log(`[viabilidad-ia] grupo "${g.nombre}" reutilizado de un intento anterior (checkpoint, sin gastar IA).`);
+      if (previo.modelo) modelos.add(previo.modelo);
+      if (previo.reparado) reparado = true;
+      return { claves: g.claves, valor: previo.valor };
+    }
     for (let intento = 0; intento < 2; intento++) {
       const t: TrazaLlamada = {};
       const t0 = Date.now();
@@ -502,6 +542,7 @@ async function llamarAnalisisDividido(systemPrompt: string, userPrompt: string, 
           if (t.modelo) modelos.add(t.modelo);
           if (t.reparado) reparado = true;
           console.log(`[viabilidad-ia] grupo "${g.nombre}" listo en ${((Date.now() - t0) / 1000).toFixed(0)}s (${t.modelo || '?'}${t.reparado ? ', reparado' : ''}).`);
+          escribirCheckpoint(ruta, { valor: v, modelo: t.modelo, reparado: t.reparado });
           return { claves: g.claves, valor: v };
         }
         ultimo = 'respuesta sin ninguna de sus claves';

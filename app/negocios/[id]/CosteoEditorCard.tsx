@@ -364,7 +364,7 @@ function CeldaCostoTotal({ costoTotal, fondo, disabled, onAvisar, onFijarTotal }
     const txt = borrador;
     setBorrador(null);
     if (txt == null) return;
-    const limpio = txt.replace(/[^d,]/g, '').replace(',', '.');
+    const limpio = txt.replace(/[^\d,]/g, '').replace(',', '.');
     if (limpio === '') { onFijarTotal(null); return; }
     const t = Math.round(Number(limpio));
     if (!Number.isFinite(t) || t <= 0 || (costoTotal != null && t === Math.round(costoTotal))) return;
