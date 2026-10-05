@@ -1296,7 +1296,7 @@ function CuadroLinea({ negocioId, linea, ocupado, verificando, onVerificar, pued
   const imprimirLinea = useContext(ImprimirCtx);
   return (
     <div>
-      <CuadroTecnico linea={linea} ocupado={ocupado} puedeAprobar={puedeAprobar} verificando={verificando} subiendoFicha={subiendoFicha} onSubirFicha={onSubirFicha} onAccion={onAccion} onModal={onModal} />
+      <CuadroTecnico negocioId={negocioId} linea={linea} ocupado={ocupado} puedeAprobar={puedeAprobar} verificando={verificando} subiendoFicha={subiendoFicha} onSubirFicha={onSubirFicha} onAccion={onAccion} onModal={onModal} />
       <details className="mt-4 rounded-lg border border-zinc-200" open={imprimirLinea}>
         <summary className="cursor-pointer px-3 py-2 text-[12px] font-semibold text-zinc-600 hover:text-zinc-900">Detalle avanzado — respaldos, costo frente a lo costeado, mercado, verificación de costo con IA y vía</summary>
         <div className="overflow-x-auto p-3 pt-1">
@@ -1470,8 +1470,28 @@ function CeldaTecnica({ f, editable, puedeEM, onConfirmar }: { f: any; editable:
   );
 }
 
-function CuadroTecnico({ linea, ocupado, puedeAprobar, verificando, subiendoFicha, onSubirFicha, onAccion, onModal }: {
-  linea: LineaAuditorDTO; ocupado: number | null; puedeAprobar: boolean; verificando: Set<number>; subiendoFicha: Set<string>;
+// De dónde sale el precio de una opción, para poder comprobarlo: el link o el documento que sostiene el costo, lo que dice ese precio tal cual
+// (con o sin IVA) y la captura de la página con su fecha.
+function FuenteCosto({ o, negocioId }: { o: OpcionDTO; negocioId: number }) {
+  const costeables = o.respaldos.filter(r => r.vigente && r.tipo !== 'ficha_tecnica');
+  const r = costeables.find(x => x.sostieneCosto) ?? costeables[0];
+  if (!r) return null;
+  const href = r.url || r.documentoUrl;
+  const etiqueta = r.url ? (() => { try { return new URL(r.url!).hostname.replace(/^www\./, ''); } catch { return r.url!; } })() : (r.documentoNombre || 'documento');
+  const p = o.producto;
+  const iva = p?.iva === 'incluido' ? 'con IVA' : p?.iva === 'neto' ? 'neto' : 'IVA sin definir';
+  const cap = r.url ? o.capturas[0] : null;
+  return (
+    <span className="mt-1 block text-[10.5px] text-zinc-500 leading-snug">
+      Fuente: {href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline inline-flex items-center gap-0.5 break-all">{etiqueta} <ExternalLink size={10} /></a> : etiqueta}
+      {p?.precio != null && <> · dice <b className="text-zinc-700">{fmtCLP(p.precio)}</b> {iva}</>}
+      {cap && <> · captura {cap.capturadoAt.slice(0, 10)}{cap.hayImagen && <> · <a href={`/api/negocios/${negocioId}/auditor/captura/${cap.id}`} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">ver imagen</a></>}</>}
+    </span>
+  );
+}
+
+function CuadroTecnico({ negocioId, linea, ocupado, puedeAprobar, verificando, subiendoFicha, onSubirFicha, onAccion, onModal }: {
+  negocioId: number; linea: LineaAuditorDTO; ocupado: number | null; puedeAprobar: boolean; verificando: Set<number>; subiendoFicha: Set<string>;
   onSubirFicha: (opcionId: number, archivos: File[]) => void;
   onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void;
   onModal: (tipo: 'descartar' | 'rechazar', opcionId: number) => void;
@@ -1545,6 +1565,7 @@ function CuadroTecnico({ linea, ocupado, puedeAprobar, verificando, subiendoFich
                   {c != null && c === minimo && <span className="ml-1.5 text-[10px] text-emerald-600 font-bold">MÁS BARATA</span>}
                   {c == null && o.producto?.precio != null && <span className="block text-[11px] text-zinc-400">el documento dice {fmtCLP(o.producto.precio)} (IVA sin definir)</span>}
                   {c != null && o.producto?.ivaSupuesto && <span className="block text-[10.5px] text-zinc-400">IVA asumido (página web): ya descontado</span>}
+                  <FuenteCosto o={o} negocioId={negocioId} />
                 </td>); })}
             </tr>
             <tr className="border-t border-zinc-100 bg-white">
