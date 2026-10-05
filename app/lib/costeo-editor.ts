@@ -56,6 +56,8 @@ export interface FilaEditorCosteo {
   // tope, y ese precio inflado es el que después toma el Anexo Económico
   // (obtenerItemsCosteoDelEditor). El global sigue mandando en todo lo que no se toque a mano.
   margenVenta?: number | null;
+  // Foto del producto (URL pública en R2): columna «Imagen», justo después del detalle. Opcional: los costeos anteriores no la traen.
+  imagenUrl?: string | null;
   link1: string;                    // S — Link 1
   link2: string;                    // T — Link 2
   link3: string;                    // V — Link 3
@@ -434,4 +436,79 @@ export async function obtenerItemsCosteoDelEditor(codigo: string): Promise<ItemC
     console.error('[costeo-editor] no se pudo leer el costeo del editor para el anexo:', String(e).slice(0, 200));
     return [];
   }
+}
+
+// ── Importar un Excel de costeo al costeo digital ───────────────────────────────────────────────
+// El costeo llenado a mano en Excel (Cantidad / Costo unit. neto / Precio unit. venta / Link 1-3) pasa al editor SIN tipear.
+// Reglas (las de siempre: nunca inventar ni pisar lo que alguien ya cargó):
+//   · Solo rellena lo VACÍO de una fila que ya existe (valor c/IVA, cantidad, links). Nada de lo ya escrito se toca.
+//   · El Excel guarda el costo NETO; el editor guarda el valor CON IVA → valorConIva = round(neto × 1,19).
+//   · Una fila del Excel que no calza con ninguna del editor NO se agrega sola: queda en `sinPareja` para que lo decida una
+//     persona (única excepción: si el editor no tiene ninguna fila todavía, se crean todas).
+//   · El recargo (precio venta / costo − 1) se adopta como recargo global SOLO si todas las filas del Excel traen el mismo y el
+//     editor todavía no tiene ningún precio cargado; si no, se informa y no se cambia.
+export interface FilaExcelImport {
+  hoja: string; fila: number; detalle: string | null; unidad: string | null; cantidad: number | null;
+  costoNeto: number | null; precioVenta: number | null; links: string[]; lineaPublicada: number | null;
+}
+export interface ResultadoImportExcel {
+  estado: EstadoCosteoEditor; rellenadas: number; creadas: number; sinPareja: string[];
+  recargoExcel: number | null; recargoAdoptado: boolean;
+}
+
+export function fusionarDesdeExcel(actual: EstadoCosteoEditor, excel: FilaExcelImport[]): ResultadoImportExcel {
+  const estado: EstadoCosteoEditor = JSON.parse(JSON.stringify(actual));
+  const util = excel.filter(e => e.detalle?.trim() || (e.costoNeto ?? 0) > 0);
+  const filasEditor = estado.grupos.filter(g => g.ofertamos !== false).flatMap(g => g.filas);
+  const ivaDe = (neto: number | null) => (neto != null && neto > 0 ? Math.round(neto * 1.19) : null);
+
+  // Recargo implícito del Excel (solo filas que traen costo Y precio).
+  const recargos = util.filter(e => (e.costoNeto ?? 0) > 0 && (e.precioVenta ?? 0) > 0)
+    .map(e => Math.round(((e.precioVenta as number) / (e.costoNeto as number) - 1) * 1000) / 10);
+  const uniforme = recargos.length > 0 && recargos.every(r => Math.abs(r - recargos[0]) <= 0.3);
+  const recargoExcel = uniforme ? recargos[0] : null;
+  const sinPreciosAntes = !filasEditor.some(f => f.valorConIva != null && f.valorConIva > 0);
+
+  const usadas = new Set<string>();
+  let rellenadas = 0, creadas = 0;
+  const sinPareja: string[] = [];
+
+  const rellenar = (f: FilaEditorCosteo, e: FilaExcelImport): boolean => {
+    let cambio = false;
+    const iva = ivaDe(e.costoNeto);
+    if (f.valorConIva == null && iva != null) { f.valorConIva = iva; cambio = true; }
+    if (f.cantidad == null && e.cantidad != null) { f.cantidad = e.cantidad; cambio = true; }
+    const libres = (['link1', 'link2', 'link3'] as const).filter(k => !f[k]?.trim());
+    const nuevos = e.links.map(l => l.trim()).filter(l => l && ![f.link1, f.link2, f.link3].includes(l));
+    libres.forEach((k, i) => { if (nuevos[i]) { f[k] = nuevos[i]; cambio = true; } });
+    return cambio;
+  };
+
+  if (filasEditor.length === 0) {
+    // Editor vacío: se crean todas las filas útiles del Excel en una hoja "Costeo".
+    const filas: FilaEditorCosteo[] = util.filter(e => e.detalle?.trim()).map((e, i) => ({
+      id: Math.random().toString(36).slice(2, 10), item: i + 1, lineaReal: e.lineaPublicada ?? null, detalle: e.detalle!.trim(),
+      unidad: e.unidad?.trim() || 'UN', skuProveedor: '', cantidad: e.cantidad, valorConIva: ivaDe(e.costoNeto), costoRealUnitario: null,
+      link1: e.links[0] || '', link2: e.links[1] || '', link3: e.links[2] || '',
+    }));
+    if (filas.length) estado.grupos = [{ nombre: 'Costeo', linea: null, ofertamos: true, filas }];
+    creadas = filas.length;
+  } else {
+    util.forEach((e, idxExcel) => {
+      const nombre = e.detalle?.trim() || '';
+      // 1) por nombre; 2) por posición + misma cantidad (cuando el nombre del Excel no sirve).
+      let destino = nombre ? filasEditor.find(f => !usadas.has(f.id) && mismoProducto(f.detalle, nombre)) : undefined;
+      if (!destino) {
+        const cand = filasEditor[idxExcel];
+        if (cand && !usadas.has(cand.id) && e.cantidad != null && cand.cantidad === e.cantidad && (!nombre || !cand.detalle.trim())) destino = cand;
+      }
+      if (!destino) { sinPareja.push(nombre || `fila ${e.fila} de ${e.hoja}`); return; }
+      usadas.add(destino.id);
+      if (rellenar(destino, e)) rellenadas++;
+    });
+  }
+
+  let recargoAdoptado = false;
+  if (recargoExcel != null && sinPreciosAntes && Math.abs(recargoExcel - estado.margenVenta) > 0.05) { estado.margenVenta = recargoExcel; recargoAdoptado = true; }
+  return { estado, rellenadas, creadas, sinPareja, recargoExcel, recargoAdoptado };
 }

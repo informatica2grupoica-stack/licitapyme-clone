@@ -35,7 +35,7 @@ import { useCosteoFlotante, type CosteoEstadoHeredado } from '@/app/components/C
 // misma aritmética que el bloque que el comercial arma a mano al pie del Excel. Módulo sin
 // dependencias, compartido — acá NO se duplica ninguna de esas fórmulas.
 import { calcularComparativo, entradaComparativoDeFilas, costoRealDeFila, alertasDeDesvio, recargoParaMargen, margenDeRecargo, parsearRecargo, esLinkDeProducto, IVA, type Comparativo } from '@/app/lib/costeo-comparativo';
-import { IconCalculator as Calculator, IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconRefresh as RefreshCw, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconShieldCheck as ShieldCheck, IconSparkles as Sparkles, IconMaximize as Maximize2, IconX as X, IconExternalLink as ExternalLink, IconArrowLeft as ArrowLeft, IconLayoutBoardSplit as SplitSquareHorizontal, IconArrowMerge as Combine, IconFileSearch as FileSearch, IconLink as LinkIcon, IconPictureInPicture as PictureInPicture2, IconMinimize as Minimize2 } from '@tabler/icons-react';
+import { IconCalculator as Calculator, IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconRefresh as RefreshCw, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconShieldCheck as ShieldCheck, IconSparkles as Sparkles, IconMaximize as Maximize2, IconX as X, IconExternalLink as ExternalLink, IconArrowLeft as ArrowLeft, IconLayoutBoardSplit as SplitSquareHorizontal, IconArrowMerge as Combine, IconFileSearch as FileSearch, IconLink as LinkIcon, IconPictureInPicture as PictureInPicture2, IconMinimize as Minimize2, IconEye as Eye, IconPhotoPlus as PhotoPlus, IconFileSpreadsheet as FileSpreadsheet } from '@tabler/icons-react';
 
 const MARGEN_VENTA_DEFECTO = 27;
 
@@ -59,6 +59,8 @@ interface FilaEditor {
   // que se vende con otro margen, como en el Excel del asistente (1114-12-LE26: ×2,1 la plataforma
   // satelital y ×2,0 el sensor, en la misma hoja) — ver FilaEditorCosteo en costeo-editor.ts.
   margenVenta?: number | null;
+  // Foto del producto (URL pública en R2) — columna «Imagen», justo después del detalle. Ver FilaEditorCosteo.
+  imagenUrl?: string | null;
   link1: string; link2: string; link3: string;
   // Fila agregada por el perfil de Compras: solo esas puede editar y borrar (ver costeo-compras.ts).
   agregadoPorCompras?: boolean;
@@ -287,7 +289,7 @@ function costoRealGrupo(grp: GrupoEditor) {
 // grueso, celdas con fórmula con un tinte gris que las distingue de las que se tipean a mano.
 const GRID_BORDE = '#d0d3d8';
 const FUENTE_HOJA = "Calibri, 'Segoe UI', Arial, sans-serif";
-const LETRAS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q'];
+const LETRAS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R'];
 
 function celdaInput(extra = '') {
   return `w-full h-full bg-transparent text-[12.5px] px-1.5 py-1 outline-none disabled:opacity-60 ` +
@@ -347,6 +349,38 @@ function CeldaMargenFila({ propio, efectivo, onChange, disabled }: {
         `focus:ring-2 focus:ring-inset focus:ring-[#1a73e8] focus:bg-[#e8f0fe]/40 ` +
         (propio == null ? 'text-zinc-400 placeholder:text-zinc-400' : 'font-semibold text-[#1a73e8]')}
     />
+  );
+}
+
+// Foto del producto: miniatura + «ojo» para verla grande; sin foto, un botón para subirla. Quitarla/cambiarla solo si la fila se puede editar.
+function CeldaImagen({ url, subiendo, disabled, onSubir, onQuitar, onVer }: {
+  url: string | null | undefined; subiendo: boolean; disabled?: boolean;
+  onSubir: (f: File) => void; onQuitar: () => void; onVer: () => void;
+}) {
+  const input = (
+    <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
+      onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onSubir(f); }} />
+  );
+  if (subiendo) return <div className="w-full h-full flex items-center justify-center text-indigo-400"><Loader2 size={13} className="animate-spin" /></div>;
+  if (!url) return disabled
+    ? <div className="w-full h-full flex items-center justify-center text-zinc-300" title="Sin imagen">—</div>
+    : (
+      <label className="w-full h-full flex items-center justify-center cursor-pointer text-zinc-400 hover:text-indigo-600" title="Subir una foto del producto (PNG, JPG o WEBP, hasta 5 MB)">
+        <PhotoPlus size={15} />{input}
+      </label>
+    );
+  return (
+    <div className="w-full h-full flex items-center justify-center gap-1">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={url} alt="" className="h-5 w-5 object-cover rounded-sm border border-zinc-200" />
+      <button type="button" onClick={onVer} title="Ver la imagen" className="p-0.5 text-zinc-500 hover:text-indigo-600"><Eye size={14} /></button>
+      {!disabled && (
+        <>
+          <label className="p-0.5 text-zinc-300 hover:text-indigo-600 cursor-pointer" title="Cambiar la imagen"><PhotoPlus size={12} />{input}</label>
+          <button type="button" onClick={onQuitar} title="Quitar la imagen" className="p-0.5 text-zinc-300 hover:text-rose-600"><X size={12} /></button>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -683,6 +717,9 @@ export function CosteoEditorCard({
   // Fichas técnicas en proceso (04-sep-2026) — por id de fila, no un solo booleano: varias filas
   // pueden estar generando su ficha a la vez, cada una independiente.
   const [generandoFicha, setGenerandoFicha] = useState<Set<string>>(new Set());
+  const [subiendoImagen, setSubiendoImagen] = useState<Set<string>>(new Set());
+  const [verImagen, setVerImagen] = useState<{ url: string; detalle: string } | null>(null);
+  const [importando, setImportando] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
@@ -878,6 +915,50 @@ export function CosteoEditorCard({
     } finally {
       setGenerandoFicha(prev => { const next = new Set(prev); next.delete(f.id); return next; });
     }
+  };
+
+  // Foto del ítem: se sube a R2 al tiro y la URL queda en la fila; se guarda con el botón «Guardar» como todo lo demás.
+  const subirImagenFila = async (gi: number, fi: number, f: FilaEditor, archivo: File) => {
+    setSubiendoImagen(prev => new Set(prev).add(f.id));
+    try {
+      const fd = new FormData(); fd.append('file', archivo);
+      const r = await fetch(`/api/negocios/${negocioId}/comercial/costeo-editor/imagen`, { method: 'POST', body: fd });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.success) { toast.error(d.error || 'No se pudo subir la imagen'); return; }
+      actualizarFila(gi, fi, { imagenUrl: d.url });
+      toast.success('Imagen subida', 'Se guarda con el botón «Guardar».');
+    } catch (e: any) {
+      toast.error(e?.message || 'Error de red al subir la imagen');
+    } finally {
+      setSubiendoImagen(prev => { const next = new Set(prev); next.delete(f.id); return next; });
+    }
+  };
+
+  // Importar un Excel de costeo (el llenado a mano) a este costeo digital: rellena SOLO lo vacío, nunca pisa lo ya cargado.
+  // La fusión la hace el servidor (fusionarDesdeExcel) y deja el resultado en pantalla, sin guardar, para revisarlo.
+  const importarExcel = async (archivo: File) => {
+    if (!estado) return;
+    setImportando(true);
+    try {
+      const fd = new FormData(); fd.append('file', archivo); fd.append('estado', JSON.stringify(estado));
+      const r = await fetch(`/api/negocios/${negocioId}/comercial/costeo-editor/importar-excel`, { method: 'POST', body: fd });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.success) { toast.error(d.error || 'No se pudo leer el Excel'); return; }
+      if (!d.rellenadas && !d.creadas) {
+        toast.info('No había nada que traer', d.sinPareja?.length ? `${d.sinPareja.length} fila(s) del Excel no calzan con ninguna del costeo.` : 'Todo lo que trae el Excel ya está cargado.');
+        return;
+      }
+      setEstado(d.estado);
+      const partes = [
+        d.rellenadas > 0 && `${d.rellenadas} fila(s) rellenada(s)`,
+        d.creadas > 0 && `${d.creadas} fila(s) creada(s)`,
+        d.recargoAdoptado && `recargo ${String(d.recargoExcel).replace('.', ',')}%`,
+        d.sinPareja?.length > 0 && `${d.sinPareja.length} sin pareja (${d.sinPareja.slice(0, 2).join(', ')}${d.sinPareja.length > 2 ? '…' : ''})`,
+      ].filter(Boolean);
+      toast.success('Excel importado — revisa y guarda', partes.join(' · '));
+    } catch (e: any) {
+      toast.error(e?.message || 'Error de red al importar el Excel');
+    } finally { setImportando(false); }
   };
 
   const recargarDesdeViabilidad = async () => {
@@ -1098,6 +1179,17 @@ export function CosteoEditorCard({
             {recargando ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
             Actualizar
           </button>
+          {!modoCompras && (
+            <label
+              title="Trae a este costeo los precios, cantidades y links de un Excel de costeo ya llenado. Solo rellena lo que está vacío y no guarda: revisas y luego «Guardar»."
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-semibold rounded-lg border border-zinc-200 transition-colors ${importando || congelado ? 'opacity-50 cursor-not-allowed text-zinc-400' : 'cursor-pointer text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50'}`}
+            >
+              {importando ? <Loader2 size={12} className="animate-spin" /> : <FileSpreadsheet size={12} />}
+              Importar Excel
+              <input type="file" accept=".xlsx,.xlsm" className="hidden" disabled={importando || congelado}
+                onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) importarExcel(f); }} />
+            </label>
+          )}
           <button
             onClick={guardar}
             disabled={guardando || (congelado && !modoCompras) || !dirty || (!modoCompras && sinLink.length > 0)}
@@ -1214,12 +1306,27 @@ export function CosteoEditorCard({
   // ── La "hoja" ────────────────────────────────────────────────────────────────────────────
   const Hoja = (
     <div className="border border-[#c6c6c6] bg-white shadow-sm flex-1 min-h-0 min-w-0 flex flex-col" style={{ fontFamily: FUENTE_HOJA }}>
+      {verImagen && createPortal(
+        <div className="fixed inset-0 z-[400] bg-black/70 flex items-center justify-center p-6" onClick={() => setVerImagen(null)} role="dialog" aria-modal="true" aria-label="Imagen del producto">
+          <div className="relative max-w-[92vw] max-h-[90vh] bg-white rounded-xl p-3 shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 pb-2">
+              <p className="flex-1 min-w-0 text-[12.5px] font-semibold text-zinc-800 truncate" title={verImagen.detalle}>{verImagen.detalle || 'Imagen del producto'}</p>
+              <a href={verImagen.url} target="_blank" rel="noopener noreferrer" title="Abrir en una pestaña nueva" className="p-1 text-zinc-400 hover:text-indigo-600"><ExternalLink size={14} /></a>
+              <button onClick={() => setVerImagen(null)} title="Cerrar" className="p-1 text-zinc-400 hover:text-zinc-800"><X size={16} /></button>
+            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={verImagen.url} alt={verImagen.detalle} className="max-w-full max-h-[78vh] object-contain mx-auto rounded" />
+          </div>
+        </div>,
+        document.body,
+      )}
       <div className="overflow-auto flex-1">
-        <table className="border-collapse w-full" style={{ minWidth: 1452 }}>
+        <table className="border-collapse w-full" style={{ minWidth: 1522 }}>
           <colgroup>
             <col style={{ width: 34 }} />{/* # de fila */}
             <col style={{ width: 56 }} />{/* A Línea */}
             <col style={{ minWidth: 220 }} />{/* B Detalle */}
+            <col style={{ width: 70 }} />{/* Imagen (foto del producto, después del detalle) */}
             <col style={{ width: 64 }} />{/* C Unidad */}
             <col style={{ width: 110 }} />{/* D Sku */}
             <col style={{ width: 76 }} />{/* E Cantidad */}
@@ -1249,7 +1356,7 @@ export function CosteoEditorCard({
             <tr style={{ background: '#f3f2f1' }}>
               <th className="text-[11px] font-normal text-zinc-500 text-center" style={{ border: `1px solid ${GRID_BORDE}` }}>1</th>
               {([
-                ['Línea', ''], ['Detalle de producto', ''], ['Unidad', ''], ['Sku proveedor', ''],
+                ['Línea', ''], ['Detalle de producto', ''], ['Imagen', 'Foto del producto: súbela aquí y mírala con el ojo. Se guarda con el costeo.'], ['Unidad', ''], ['Sku proveedor', ''],
                 ['Cantidad', ''], ['Valor c/IVA', ''],
                 ['Costo unit. neto', ''], ['Costo total neto', ''],
                 // Margen POR ÍTEM: normalmente vacío (hereda el del costeo completo, que es el que
@@ -1290,6 +1397,12 @@ export function CosteoEditorCard({
                   </td>
                   <td style={celda} className="p-0">
                     <input value={f.detalle} onChange={e => actualizarFila(grupoActivo, fi, { detalle: e.target.value })} disabled={baseBloq} className={celdaInput()} placeholder="Descripción del ítem" />
+                  </td>
+                  <td style={celda} className="p-0">
+                    <CeldaImagen url={f.imagenUrl} subiendo={subiendoImagen.has(f.id)} disabled={baseBloq}
+                      onSubir={archivo => subirImagenFila(grupoActivo, fi, f, archivo)}
+                      onQuitar={() => actualizarFila(grupoActivo, fi, { imagenUrl: null })}
+                      onVer={() => setVerImagen({ url: f.imagenUrl as string, detalle: f.detalle })} />
                   </td>
                   <td style={celda} className="p-0">
                     <input value={f.unidad} onChange={e => actualizarFila(grupoActivo, fi, { unidad: e.target.value })} disabled={baseBloq} className={celdaInput()} />
@@ -1369,13 +1482,13 @@ export function CosteoEditorCard({
               );
             })}
             {g.filas.length === 0 && (
-              <tr><td colSpan={19} className="px-4 py-6 text-center text-zinc-400 text-[12px]" style={{ border: `1px solid ${GRID_BORDE}` }}>Sin ítems en esta hoja</td></tr>
+              <tr><td colSpan={20} className="px-4 py-6 text-center text-zinc-400 text-[12px]" style={{ border: `1px solid ${GRID_BORDE}` }}>Sin ítems en esta hoja</td></tr>
             )}
             {/* Fila de totales — mismo lugar que la fila SUMA() de la plantilla de Excel. Cada
                 suma queda justo bajo SU columna (Costo total neto / Precio total neto). */}
             <tr>
               <td className="text-[11px] text-zinc-400 text-center" style={{ border: `1px solid ${GRID_BORDE}`, background: '#f3f2f1', height: 26 }}>{g.filas.length + 2}</td>
-              <td colSpan={6} className="px-1.5 text-[11.5px] font-bold text-zinc-500" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }}>TOTALES DE ESTA HOJA</td>
+              <td colSpan={7} className="px-1.5 text-[11.5px] font-bold text-zinc-500" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }}>TOTALES DE ESTA HOJA</td>
               <td style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }} />
               <td className="px-1.5 text-right text-[12.5px] font-bold text-zinc-800 tabular-nums" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5', borderTop: `2px solid ${GRID_BORDE}` }}>{fmtCLP(costoGrupo(g, margen))}</td>
               <td colSpan={2} style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }} />

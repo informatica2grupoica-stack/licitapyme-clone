@@ -118,7 +118,13 @@ function num(v: unknown): number | null {
 }
 function texto(v: unknown): string | null {
   if (v == null) return null;
-  const raw = (typeof v === 'object' && v !== null && 'result' in (v as any)) ? (v as any).result : v;
+  let raw: any = (typeof v === 'object' && v !== null && 'result' in (v as any)) ? (v as any).result : v;
+  // Celdas con formato enriquecido o con hipervínculo llegan como objeto ({richText:[…]} / {text, hyperlink}): sin esto salían como "[object Object]".
+  if (raw && typeof raw === 'object') {
+    raw = Array.isArray(raw.richText) ? raw.richText.map((t: any) => t?.text ?? '').join('') : (raw.text ?? null);
+    if (raw != null && typeof raw === 'object') raw = null;
+  }
+  if (raw == null) return null;
   const s = String(raw).trim();
   return s || null;
 }
