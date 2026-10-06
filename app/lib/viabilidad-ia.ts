@@ -53,7 +53,7 @@ import { CATALOGO, decidirAdjudicacion, deduplicarEvidencias, evidenciasDeDetect
 import { HITO_LABEL, NOTA_ACEPTACION_OC, calcularPlazoPrevio, detectarNegaciones, feriadosPara, normalizarHitos, type HitoInforme } from '@/app/lib/viabilidad-v4/plazo-previo';
 import { calcularMulta, indicadorNecesario } from '@/app/lib/viabilidad-v4/multa';
 import { NOTA_ART_32, interpretarMonto, interpretarPorLinea, normalizarCaracter, sumaLineasCuadra } from '@/app/lib/viabilidad-v4/presupuesto';
-import { barridoConsecuencias, decidirSuministro, detectarSenalesSuministro, esObviedad } from '@/app/lib/viabilidad-v4/admisibilidad';
+import { barridoConsecuencias, consolidarVisitaYMuestras, decidirSuministro, detectarSenalesSuministro, esObviedad } from '@/app/lib/viabilidad-v4/admisibilidad';
 import { normalizarTextosInforme } from '@/app/lib/viabilidad-v4/textos';
 import { reasignarLineasPorTablaDeMontos, construirListaUnica, conteoCruzado, problemasCalidadManifiesto, verificarCaracteristicasLiterales } from '@/app/lib/viabilidad-v4/productos';
 import { verificarSemantica, type ParSemantico } from '@/app/lib/viabilidad-v4/verificador-semantico';
@@ -1885,7 +1885,9 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
     if (pe && pe.fuera_de_rango_inadmisible && (String(pe.min ?? '').trim() || String(pe.max ?? '').trim())) {
       delSistema({ que: 'Ofertar un plazo de entrega dentro del rango', cuanto: [pe.min ? `mínimo ${pe.min}` : '', pe.max ? `máximo ${pe.max}` : ''].filter(Boolean).join(' · ') + (pe.unidad ? ` ${pe.unidad}` : ''), consecuencia: 'fuera de rango la oferta es inadmisible', cita: pe.cita });
     }
+    // Visita técnica obligatoria / muestras exigidas: si el modelo no las vio, las busca el código.
     adm.requisitos = requisitos;
+    for (const r of consolidarVisitaYMuestras(adm, fuentes, c => loc.localizar(c))) delSistema(r);
     adm.posibles_causales_sin_analizar = barridoConsecuencias(fuentes, requisitos, cfg)
       .map(c => ({ ...c, cita: loc.localizar({ ...c.cita }) }));
     adm.conteo = requisitos.length;

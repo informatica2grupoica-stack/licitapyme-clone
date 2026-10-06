@@ -44,12 +44,12 @@ export function PanelValidador({ validador }: { validador?: { ok?: boolean; hall
   if (usuario?.rol !== 'admin' || hallazgos.length === 0) return null;
   const hayErrores = errores.length > 0;
   return (
-    <div className={`rounded-xl border ${hayErrores ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
-      <button onClick={() => setAbierto(o => !o)} className="w-full flex items-center gap-2 px-3 py-2 text-left">
-        <AlertTriangle size={14} className={hayErrores ? 'text-red-600' : 'text-amber-600'} />
-        <p className={`flex-1 text-[12.5px] font-semibold ${hayErrores ? 'text-red-700' : 'text-amber-700'}`}>
-          El validador automático detectó {hallazgos.length} {hallazgos.length === 1 ? 'inconsistencia' : 'inconsistencias'}
-          {errores.length > 0 && ` (${errores.length} para revisar antes de confiar en el informe)`}
+    <div className={`rounded-xl border ${hayErrores ? 'border-red-200 bg-red-50/60' : 'border-amber-200 bg-amber-50/60'}`}>
+      <button onClick={() => setAbierto(o => !o)} className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left">
+        <AlertTriangle size={16} className={hayErrores ? 'text-red-600' : 'text-amber-600'} />
+        <p className="flex-1 text-[13px] text-slate-700 leading-snug">
+          <span className="font-bold">Validador automático:</span> {hallazgos.length} {hallazgos.length === 1 ? 'inconsistencia' : 'inconsistencias'}
+          {errores.length > 0 && <span className="ml-2 text-[11.5px] font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">{errores.length} por revisar antes de confiar en el informe</span>}
         </p>
         <ChevronDown size={14} className={`text-slate-400 transition-transform ${abierto ? 'rotate-180' : ''}`} />
       </button>

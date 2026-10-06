@@ -5,36 +5,20 @@ import { IconChartBar as BarChart3, IconSparkles as Sparkles } from '@tabler/ico
 import { CriterioEvaluacion } from '@/app/types/search.types';
 import { AlertBanner, SectionHeader, AnalisisIA, IABadge } from '../utils';
 import { DocScanLoader } from '@/app/components/ui/DocScanLoader';
-
-const COLORS = [
-  'bg-indigo-500', 'bg-violet-500', 'bg-cyan-500', 'bg-emerald-500',
-  'bg-amber-500', 'bg-rose-500', 'bg-blue-500', 'bg-teal-500',
-];
-const TEXT_COLORS = [
-  'text-indigo-600', 'text-violet-600', 'text-cyan-600', 'text-emerald-600',
-  'text-amber-600', 'text-rose-600', 'text-blue-600', 'text-teal-600',
-];
+import { CriteriosEvaluacionV4 } from './viabilidad-v4-bloques';
 
 export function CriteriosSection({ criterios, analisisIA, criteriosViabilidad, analizandoIA, onIrAInteligencia }: {
   criterios?: CriterioEvaluacion[];
   analisisIA?: AnalisisIA | null;
   // Criterios del informe de Viabilidad IA. El v3 usa `ponderacion_efectiva` (la ponderación
   // REAL, factor×subfactor); el v2 usaba `ponderacion`. Se aceptan ambas formas.
-  criteriosViabilidad?: Array<{ nombre: string; ponderacion?: number; ponderacion_efectiva?: number; ponderacion_nominal?: number; ponderacion_pct?: number; forma_aplicacion?: string; fuente?: string }>;
+  criteriosViabilidad?: Array<{ nombre: string; ponderacion?: number; ponderacion_efectiva?: number; ponderacion_nominal?: number; ponderacion_pct?: number; forma_aplicacion?: string; fuente?: string; [k: string]: unknown }>;
   analizandoIA?: boolean;
   onIrAInteligencia: () => void;
 }) {
   const criteriosIA = analisisIA?.criteriosEvaluacion;
-  // Normalizamos los criterios del informe de viabilidad al shape común. La ponderación toma la
-  // primera forma con valor (v3: ponderacion_efectiva; v2: ponderacion; respaldo: nominal/pct).
-  // La descripción prioriza la FORMA DE APLICACIÓN y cae a la fuente si no hay.
-  const criteriosViab: CriterioEvaluacion[] = (criteriosViabilidad || [])
-    .filter(c => c && c.nombre)
-    .map(c => ({
-      nombre: c.nombre,
-      ponderacion: Number(c.ponderacion_efectiva) || Number(c.ponderacion) || Number(c.ponderacion_nominal) || Number(c.ponderacion_pct) || 0,
-      descripcion: c.forma_aplicacion || c.fuente,
-    }));
+  // Los criterios del informe de viabilidad se pasan completos (clase, cita, puntaje mínimo…): la vista usa lo que traiga cada uno.
+  const criteriosViab = (criteriosViabilidad || []).filter(c => c && c.nombre);
 
   const tieneCriteriosMP   = !!criterios && criterios.length > 0;
   // La Viabilidad IA es el análisis más reciente y completo (se re-genera en cada re-análisis), así
@@ -76,7 +60,7 @@ export function CriteriosSection({ criterios, analisisIA, criteriosViabilidad, a
           </p>
           <button
             onClick={onIrAInteligencia}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
           >
             <Sparkles size={13} /> Extraer criterios automáticamente
           </button>
@@ -85,21 +69,11 @@ export function CriteriosSection({ criterios, analisisIA, criteriosViabilidad, a
     );
   }
 
-  const criteriosMostrados = tieneCriteriosMP ? criterios!
-    : tieneCriteriosViab ? criteriosViab
-    : criteriosIA!;
+  const criteriosMostrados: object[] = tieneCriteriosMP ? criterios! : tieneCriteriosViab ? criteriosViab : criteriosIA!;
   const esExtraidoIA = tieneCriteriosIA || tieneCriteriosViab;
-  const total = criteriosMostrados.reduce((acc, c) => acc + (c.ponderacion || 0), 0) || 100;
 
   return (
     <div className="space-y-4 fade-in">
-      <SectionHeader
-        icon={<BarChart3 size={18} />}
-        title="Criterios de Evaluación"
-        subtitle="Ponderación de la evaluación de ofertas"
-        badge={<span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs rounded-full font-semibold">{criteriosMostrados.length}</span>}
-      />
-
       {esExtraidoIA && (
         <AlertBanner tipo="info" titulo="Criterios extraídos de las bases">
           <div className="flex items-center gap-2 flex-wrap">
@@ -108,54 +82,7 @@ export function CriteriosSection({ criterios, analisisIA, criteriosViabilidad, a
           </div>
         </AlertBanner>
       )}
-
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
-        {/* Barra apilada */}
-        <div className="flex w-full h-3 rounded-full overflow-hidden bg-slate-100 mb-5">
-          {criteriosMostrados.map((c, i) => (
-            <div
-              key={i}
-              className={`${COLORS[i % COLORS.length]} h-full transition-all slide-in-up`}
-              style={{ width: `${((c.ponderacion || 0) / total) * 100}%`, animationDelay: `${i * 60}ms` }}
-              title={`${c.nombre}: ${c.ponderacion}%`}
-            />
-          ))}
-        </div>
-
-        {/* Leyenda */}
-        <div className="space-y-3">
-          {criteriosMostrados.map((c, i) => (
-            <div key={i} className="flex items-start gap-3 slide-in-up" style={{ animationDelay: `${i * 60}ms` }}>
-              <span className={`w-3 h-3 rounded-full flex-shrink-0 mt-0.5 ${COLORS[i % COLORS.length]}`} />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-2 mb-0.5">
-                  <p className="text-[13px] font-semibold text-slate-800">{c.nombre}</p>
-                  <p className={`text-[13px] font-bold flex-shrink-0 tabular-nums ${TEXT_COLORS[i % TEXT_COLORS.length]}`}>
-                    {c.ponderacion}%
-                  </p>
-                </div>
-                {/* Progress bar per criterion */}
-                <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full ${COLORS[i % COLORS.length]} opacity-60 rounded-full`}
-                    style={{ width: `${((c.ponderacion || 0) / total) * 100}%` }}
-                  />
-                </div>
-                {c.descripcion && <p className="text-xs text-slate-500 mt-1">{c.descripcion}</p>}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Total */}
-        <div className="mt-4 pt-3 border-t border-slate-100 flex justify-between items-center">
-          <span className="text-xs text-slate-400 font-medium">Total ponderación</span>
-          <span className={`text-sm font-bold tabular-nums ${total === 100 ? 'text-emerald-600' : 'text-amber-600'}`}>
-            {total}%
-            {total !== 100 && <span className="text-[10px] ml-1 font-normal">(revisar)</span>}
-          </span>
-        </div>
-      </div>
+      <CriteriosEvaluacionV4 criterios={criteriosMostrados} i={0} />
     </div>
   );
 }

@@ -222,6 +222,26 @@ DOCUMENTOS A CREAR: solo los que dependen de lo que nosotros comprometemos
 (programa de mantenimiento, plan de capacitación, carta de garantía…): qué
 crear, contenido que exigen las bases y cita.
 
+EXIGENCIAS PRESENCIALES Y DE MUESTRA (barre TODOS los documentos, también anexos, aclaraciones y
+el calendario de la licitación; son causales típicas de inadmisibilidad y a menudo van escondidas):
+ • visita_tecnica: ¿hay visita técnica, a terreno o inspección del lugar? estado OBLIGATORIA (si no
+   asistir deja fuera la oferta o se exige el certificado de asistencia) | VOLUNTARIA | NO_EXISTE (las
+   bases dicen que no habrá) | NO_INDICADO. Con fecha_hora, lugar, quién la acredita (certificado,
+   acta, firma de asistencia), si hay que inscribirse antes, la consecuencia y su cita.
+ • muestras: ¿piden muestras, prototipos o productos de prueba junto con la oferta o después? estado
+   EXIGE | NO_EXISTE | NO_INDICADO. Con cuáles productos/líneas, cuántas, cuándo (plazo exacto, ej.
+   "3 días hábiles desde el cierre"), dónde se entregan, si se devuelven y quién paga, la consecuencia
+   y su cita. Si piden muestras solo al proveedor que va ganando o al adjudicado, dilo en "cuando".
+ • otras_exigencias_presenciales: reunión informativa obligatoria, demostración, prueba de
+   funcionamiento, presentación oral, inspección de bodega o instalaciones del proveedor. Una por
+   entrada, con tipo, que, cuando, obligatoria (true/false), consecuencia y cita.
+ • condiciones_comerciales (solo las que existan; con su cita, nunca inventes): PLAZO_PAGO (días y desde
+   qué evento), LUGAR_ENTREGA (dirección o regiones, y si el despacho es a cada sucursal),
+   INSTALACION (instalación, montaje o puesta en marcha en sitio), VIGENCIA_OFERTA,
+   UNION_SUBCONTRATACION (si prohíben o exigen consorcio, UTP o subcontratación).
+Si una visita OBLIGATORIA o unas muestras EXIGIDAS existen, deben aparecer también en las acciones, en las
+advertencias y en "no quedes fuera" de la tarjeta, con su fecha o plazo.
+
 ──────── 5. PLAZO PREVIO (solo extracción) ────────
 Plazo previo = tiempo administrativo después de la adjudicación.
 Reporta en plazos.hitos[] estos cinco hitos, en este orden, aunque no existan:
@@ -439,7 +459,11 @@ export function esquemaV4(codigo: string): string {
       "contrato":{ "estado":"EXISTE|NO_EXISTE|NO_INDICADO", "cita":{ "documento":"", "numeral":"", "frase":"" } } },
     "firma":{ "estado":"ESCANEADA_BASTA|MANO_Y_ESCANEO|ORIGINAL_NOTARIAL|FIRMA_ELECTRONICA_AVANZADA", "cita":{ "documento":"", "numeral":"", "frase":"" } },
     "documentos_solicitados":[ { "nombre":"", "anexo_del_organismo":false, "copias":"", "antiguedad_maxima":"", "cita":{ "documento":"", "numeral":"", "frase":"" } } ],
-    "documentos_a_crear":[ { "que_crear":"", "contenido_exigido":"", "cita":{ "documento":"", "numeral":"", "frase":"" } } ] },
+    "documentos_a_crear":[ { "que_crear":"", "contenido_exigido":"", "cita":{ "documento":"", "numeral":"", "frase":"" } } ],
+    "visita_tecnica":{ "estado":"OBLIGATORIA|VOLUNTARIA|NO_EXISTE|NO_INDICADO", "fecha_hora":"", "lugar":"", "acreditacion":"", "inscripcion_previa":"", "consecuencia":"", "cita":{ "documento":"", "numeral":"", "frase":"" } },
+    "muestras":{ "estado":"EXIGE|NO_EXISTE|NO_INDICADO", "que_productos":"", "cuantas":"", "cuando":"", "donde":"", "devolucion":"", "consecuencia":"", "cita":{ "documento":"", "numeral":"", "frase":"" } },
+    "otras_exigencias_presenciales":[ { "tipo":"REUNION_INFORMATIVA|DEMOSTRACION|PRUEBA_FUNCIONAMIENTO|PRESENTACION|INSPECCION_PROVEEDOR|OTRA", "que":"", "cuando":"", "obligatoria":true, "consecuencia":"", "cita":{ "documento":"", "numeral":"", "frase":"" } } ],
+    "condiciones_comerciales":[ { "tipo":"PLAZO_PAGO|LUGAR_ENTREGA|INSTALACION|VIGENCIA_OFERTA|UNION_SUBCONTRATACION", "que":"", "cita":{ "documento":"", "numeral":"", "frase":"" } } ] },
   "plazos": {
     "hitos":[ { "hito":"GARANTIA_FIEL_CUMPLIMIENTO|FIRMA_CONTRATO_PROVEEDOR|FIRMA_CONTRATO_ORGANISMO|EMISION_OC|ACEPTACION_OC", "estado":"EXISTE|NO_EXISTE|NO_INDICADO", "plazo":null, "unidad_original":"", "desde":"", "cita":{ "documento":"", "numeral":"", "frase":"" } } ],
     "inicio_plazo_entrega":{ "evento":"", "desfase":{ "cantidad":null, "unidad":"" }, "cita":{ "documento":"", "numeral":"", "frase":"" } },

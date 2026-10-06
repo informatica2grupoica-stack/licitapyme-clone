@@ -3,7 +3,7 @@
 // propone/aprueba renuncia a una línea (§14.5).
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion, listarProductosCompra, poblarProductosCompra, cambiarSubestadoProducto,
-  proponerRenunciaLinea, aprobarRenunciaLinea, coberturaProyecto, sincronizarProductosConCosteo,
+  proponerRenunciaLinea, aprobarRenunciaLinea, coberturaProyecto, sincronizarProductosConCosteo, aplicarAdjudicacionPorLinea,
   type SubestadoProducto } from '@/app/lib/compras';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
@@ -36,8 +36,11 @@ export async function GET(request: NextRequest, { params }: Params) {
     // poblaron sus productos. poblarProductosCompra es idempotente (no repite si ya hay filas).
     if (asignacion.asignadoA != null) await poblarProductosCompra(id).catch(() => {});
 
+    // Líneas ofertadas que el acta de MP dio a otro proveedor: se marcan solas (idempotente, solo lee
+    // la caché del acta) y la pantalla las muestra atenuadas con quién se las llevó.
+    const adj = asignacion.asignadoA != null ? await aplicarAdjudicacionPorLinea(id).catch(() => null) : null;
     const [productos, cobertura] = await Promise.all([listarProductosCompra(id), coberturaProyecto(id)]);
-    return NextResponse.json({ success: true, productos, cobertura });
+    return NextResponse.json({ success: true, productos, cobertura, perdidas: adj?.perdidas ?? [], conflictos: adj?.conflictos ?? [] });
   } catch (error) {
     console.error('[compras/productos][GET]', String(error));
     return NextResponse.json({ error: 'No se pudieron cargar los productos.' }, { status: 500 });

@@ -27,6 +27,7 @@ import { publicarCambio } from '@/app/lib/sse-bus';
 import { plazoEntregaDetectadoNegocio } from '@/app/lib/compras-agente-documentos';
 import { parsearDiasDeTexto } from '@/app/lib/numeros';
 import { emparejarProductos, type ProductoExistente } from '@/app/lib/compras-producto-sync';
+import { decidirNoAdjudicadas, esSubestadoFuera, type DecisionNoAdjudicadas } from '@/app/lib/compras-no-adjudicadas';
 
 // ── Aritmética de fechas "de pared" (sin reinterpretar zona horaria) ───────────────────────────
 // Se trabaja con Date "flotantes": los componentes de la hora de Chile (que ya vienen como texto de
@@ -1496,7 +1497,7 @@ export async function engancharOrdenesCompraPendientes(limite = 25): Promise<{ r
 // El proyecto es dicotómico (se entrega o no se entrega, §14.1); lo que tiene grados es CADA
 // producto. "Cobertura total o nada" (§14.2): con un solo producto pendiente, el proyecto entero
 // no se puede entregar.
-export type SubestadoProducto = 'PENDIENTE' | 'COTIZANDO' | 'COMPRADO' | 'EN_BODEGA' | 'LISTO_ENTREGA' | 'ENTREGADO' | 'RENUNCIADO';
+export type SubestadoProducto = 'PENDIENTE' | 'COTIZANDO' | 'COMPRADO' | 'EN_BODEGA' | 'LISTO_ENTREGA' | 'ENTREGADO' | 'RENUNCIADO' | 'NO_ADJUDICADA';
 
 export interface ProductoCompra {
   id: number; negocioId: number; correlativo: number | null; descripcion: string;
@@ -1524,6 +1525,11 @@ export interface ProductoCompra {
  *  Idempotente: no repite si ya hay filas para el negocio. Sin costeo cargado en el editor, cae al
  *  desglose del acta de MP; sin ninguno de los dos, a una sola fila "global". */
 export async function poblarProductosCompra(negocioId: number): Promise<void> {
+  await poblarProductosCompraBase(negocioId);
+  await aplicarAdjudicacionPorLinea(negocioId).catch(e => console.error('[compras] adjudicación por línea:', String(e).slice(0, 200)));
+}
+
+async function poblarProductosCompraBase(negocioId: number): Promise<void> {
   const [ya] = await pool.query(`SELECT 1 FROM compras_producto WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
   if ((ya as any[]).length > 0) return;
 
@@ -1659,6 +1665,9 @@ export async function sincronizarProductosConCosteo(negocioId: number): Promise<
     );
   }
 
+  // Una línea nueva (o recién traída del costeo) que el acta dio a otro proveedor entra ya atenuada.
+  await aplicarAdjudicacionPorLinea(negocioId).catch(e => console.error('[compras] adjudicación por línea:', String(e).slice(0, 200)));
+
   return { actualizados, agregados: aInsertar.length };
 }
 
@@ -1702,15 +1711,17 @@ export async function listarProductosCompra(negocioId: number): Promise<Producto
   }));
 }
 
+// NO_ADJUDICADA no está acá a propósito: es un hecho del acta de MP que solo aplica
+// aplicarAdjudicacionPorLinea; nadie lo pone ni lo saca a mano.
 const SUBESTADOS_VALIDOS: SubestadoProducto[] = ['PENDIENTE', 'COTIZANDO', 'COMPRADO', 'EN_BODEGA', 'LISTO_ENTREGA', 'ENTREGADO', 'RENUNCIADO'];
 
 export async function cambiarSubestadoProducto(productoId: number, subestado: SubestadoProducto): Promise<void> {
   if (!SUBESTADOS_VALIDOS.includes(subestado)) throw new Error(`Subestado inválido: ${subestado}`);
   const [r] = await pool.query(
-    `UPDATE compras_producto SET subestado = ?, updated_at = ? WHERE id = ? AND subestado <> 'RENUNCIADO'`,
+    `UPDATE compras_producto SET subestado = ?, updated_at = ? WHERE id = ? AND subestado NOT IN ('RENUNCIADO', 'NO_ADJUDICADA')`,
     [subestado, ahoraChileSQL(), productoId],
   ) as any;
-  if (!r?.affectedRows) throw new Error('Producto no encontrado, o está renunciado (no admite cambio de estado).');
+  if (!r?.affectedRows) throw new Error('Producto no encontrado, renunciado o no adjudicado (no admite cambio de estado).');
 }
 
 /** Propone renunciar a una línea (§14.5): "las circunstancias las plantea el encargado de compras,
@@ -1724,10 +1735,10 @@ export async function proponerRenunciaLinea(
     `UPDATE compras_producto
         SET renuncia_motivo = ?, renuncia_propuesta_por = ?, renuncia_propuesta_por_nombre = ?, renuncia_propuesta_at = ?,
             renuncia_aprobada_por = NULL, renuncia_aprobada_por_nombre = NULL, renuncia_aprobada_at = NULL
-      WHERE id = ? AND subestado <> 'RENUNCIADO'`,
+      WHERE id = ? AND subestado NOT IN ('RENUNCIADO', 'NO_ADJUDICADA')`,
     [motivo, actorId, actorNombre, ahora, productoId],
   ) as any;
-  if (!r?.affectedRows) throw new Error('Producto no encontrado, o ya está renunciado.');
+  if (!r?.affectedRows) throw new Error('Producto no encontrado, ya renunciado o no adjudicado.');
 
   const [prodRows] = await pool.query(
     `SELECT cp.negocio_id, cp.descripcion, n.licitacion_codigo FROM compras_producto cp
@@ -1748,7 +1759,7 @@ export async function aprobarRenunciaLinea(productoId: number, actorId: number, 
   const [r] = await pool.query(
     `UPDATE compras_producto
         SET subestado = 'RENUNCIADO', renuncia_aprobada_por = ?, renuncia_aprobada_por_nombre = ?, renuncia_aprobada_at = ?, updated_at = ?
-      WHERE id = ? AND renuncia_motivo IS NOT NULL AND subestado <> 'RENUNCIADO'`,
+      WHERE id = ? AND renuncia_motivo IS NOT NULL AND subestado NOT IN ('RENUNCIADO', 'NO_ADJUDICADA')`,
     [actorId, actorNombre, ahora, ahora, productoId],
   ) as any;
   if (!r?.affectedRows) throw new Error('No hay renuncia propuesta pendiente para este producto.');
@@ -1784,18 +1795,75 @@ export async function invalidarAprobacionesCompras(negocioId: number, motivo: st
   );
 }
 
-export interface CoberturaProyecto { total: number; listos: number; renunciados: number; cobertura: boolean }
+export interface CoberturaProyecto { total: number; listos: number; renunciados: number; noAdjudicadas: number; cobertura: boolean }
 
-/** Cobertura total o nada (§14.2): las líneas RENUNCIADAS salen del cómputo (§14.5); de las que
- *  quedan, TODAS deben estar en ENTREGADO para que el proyecto sea entregable. */
+/** Cobertura total o nada (§14.2): las líneas RENUNCIADAS (§14.5) y las NO ADJUDICADAS (el acta de MP
+ *  se las dio a otro proveedor) salen del cómputo; de las que quedan, TODAS deben estar en ENTREGADO
+ *  para que el proyecto sea entregable. */
 export async function coberturaProyecto(negocioId: number): Promise<CoberturaProyecto> {
   const productos = await listarProductosCompra(negocioId);
-  const vigentes = productos.filter(p => p.subestado !== 'RENUNCIADO');
+  const vigentes = productos.filter(p => !esSubestadoFuera(p.subestado));
   const listos = vigentes.filter(p => p.subestado === 'ENTREGADO').length;
+  const noAdjudicadas = productos.filter(p => p.subestado === 'NO_ADJUDICADA').length;
   return {
-    total: vigentes.length, listos, renunciados: productos.length - vigentes.length,
+    total: vigentes.length, listos, renunciados: productos.length - vigentes.length - noAdjudicadas, noAdjudicadas,
     cobertura: vigentes.length > 0 && listos === vigentes.length,
   };
+}
+
+export interface ResultadoAdjudicacionPorLinea extends DecisionNoAdjudicadas {
+  /** Quién se llevó cada línea que no ganamos (para rotularla en pantalla). */
+  perdidas: Array<{ correlativo: number; proveedor: string | null; montoUnitario: number | null }>;
+}
+
+/** Cruza "Productos y cobertura" con el acta de MP y deja NO_ADJUDICADA lo que ofertamos y no ganamos.
+ *  Solo licitaciones por línea con adjudicación parcial (ver compras-no-adjudicadas.ts). Lee el acta
+ *  SOLO desde la caché (nunca golpea MP) y es idempotente: se puede llamar en cada carga. Si algo
+ *  falla o falta el acta, no toca nada. */
+export async function aplicarAdjudicacionPorLinea(negocioId: number): Promise<ResultadoAdjudicacionPorLinea> {
+  const sinCambios: ResultadoAdjudicacionPorLinea = { marcar: [], restaurar: [], conflictos: [], omitido: 'sin acta', perdidas: [] };
+  const [negRows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
+  const codigo = (negRows as any[])[0]?.licitacion_codigo;
+  if (!codigo) return sinCambios;
+
+  const { obtenerAdjudicacion } = await import('@/app/lib/adjudicacion');
+  const acta = await obtenerAdjudicacion(codigo, { sinRed: true }).catch(() => null);
+  if (!acta) return sinCambios;
+
+  const lineas = acta.lineasAdjudicadas || [];
+  const productos = await listarProductosCompra(negocioId);
+  const d = decidirNoAdjudicadas(productos.map(p => ({ id: p.id, correlativo: p.correlativo, subestado: p.subestado })), lineas, acta.esAdjudicada);
+
+  const ahora = ahoraChileSQL();
+  if (d.marcar.length) {
+    // La condición de estado se repite en el UPDATE: si entre la lectura y la escritura alguien marcó
+    // la línea como COMPRADO, esa fila no se toca.
+    await pool.query(
+      `UPDATE compras_producto SET subestado = 'NO_ADJUDICADA', updated_at = ?
+        WHERE negocio_id = ? AND id IN (${d.marcar.map(() => '?').join(',')}) AND subestado IN ('PENDIENTE', 'COTIZANDO')`,
+      [ahora, negocioId, ...d.marcar],
+    );
+    // Cambia el alcance de la compra: cualquier aprobación ya dada se revisa de nuevo (§10.5).
+    await invalidarAprobacionesCompras(negocioId, 'Una línea ofertada no fue adjudicada: cambió el alcance de la compra.');
+    await registrarEvento({
+      tipo: 'COMPRAS_LINEA_NO_ADJUDICADA', licitacionCodigo: codigo, actorId: null, actorNombre: 'Sistema',
+      mensaje: `El acta de MP no nos adjudicó ${d.marcar.length} línea(s) ofertada(s): salen de la cobertura y de las listas de trabajo (se conservan atenuadas).`,
+      metadata: { negocio_id: negocioId, producto_ids: d.marcar },
+    }).catch(() => {});
+  }
+  if (d.restaurar.length) {
+    await pool.query(
+      `UPDATE compras_producto SET subestado = 'PENDIENTE', updated_at = ?
+        WHERE negocio_id = ? AND id IN (${d.restaurar.map(() => '?').join(',')}) AND subestado = 'NO_ADJUDICADA'`,
+      [ahora, negocioId, ...d.restaurar],
+    );
+    await invalidarAprobacionesCompras(negocioId, 'El acta corrigió la adjudicación: una línea vuelve a ser nuestra.');
+  }
+
+  const perdidas = lineas
+    .filter(l => l.correlativo != null && !l.esNuestra && String(l.rutProveedor || '').trim())
+    .map(l => ({ correlativo: Number(l.correlativo), proveedor: l.proveedor ?? null, montoUnitario: l.montoUnitario ?? null }));
+  return { ...d, perdidas };
 }
 
 // ── Contadores por pestaña (UI, sep-2026) ───────────────────────────────────────────────────────
@@ -1817,7 +1885,7 @@ async function contarProductosSinCotizacion(negocioId: number): Promise<number> 
   try {
     const [[r]]: any = await pool.query(
       `SELECT COUNT(*) n FROM compras_producto p
-        WHERE p.negocio_id = ? AND p.subestado != 'RENUNCIADO'
+        WHERE p.negocio_id = ? AND p.subestado NOT IN ('RENUNCIADO', 'NO_ADJUDICADA')
           AND NOT EXISTS (
             SELECT 1 FROM compras_cotizacion_item ci
               JOIN compras_cotizacion c ON c.id = ci.cotizacion_id

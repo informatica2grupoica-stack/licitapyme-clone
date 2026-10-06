@@ -6,6 +6,7 @@ import { Oportunidad } from '@/app/types/search.types';
 import { MONEDA_LABEL_MAP } from '@/app/types/mercado-publico.types';
 import { InfoCard, InfoRow, AlertBanner, SectionHeader, AnalisisIA, IABadge, formatCLP } from '../utils';
 import { Resaltar } from '@/app/components/Resaltar';
+import { FichaMPBases } from '@/app/components/FichaMPBases';
 
 export function ResumenSection({ licitacion, tipoLabel, diasRestantes, analisisIA, analizandoIA, keywords = [] }: {
   licitacion: Oportunidad;
@@ -162,6 +163,9 @@ export function ResumenSection({ licitacion, tipoLabel, diasRestantes, analisisI
           </div>
         </InfoCard>
       )}
+
+      {/* Contenido de las bases (ficha oficial de MP): plazos, antecedentes, requisitos, criterios, garantías, cláusulas */}
+      <FichaMPBases codigo={licitacion.codigo} />
 
       {(licitacion.contacto?.nombre || licitacion.contacto?.email || licitacion.contacto?.telefono) && (
         <InfoCard title="Responsable del contrato" icon={<Phone size={15} />}>

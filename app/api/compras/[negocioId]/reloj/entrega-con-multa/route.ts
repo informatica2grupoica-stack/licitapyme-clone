@@ -34,7 +34,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     // compras_todo de verdad.
     const permisos = await permisosCrudosDeUsuario(userId);
     if (!permisos.compras_todo && !permisos.aprobar_comercial)
-      return NextResponse.json({ error: 'Entregar con multa lo autoriza solo el jefe de ventas o CA (spec §15.7).' }, { status: 403 });
+      return NextResponse.json({ error: 'Entregar con multa lo autoriza solo el jefe de ventas (spec §15.7).' }, { status: 403 });
 
     const body = await request.json();
     await autorizarEntregaConMulta(id, body.motivo, userId, nombre);

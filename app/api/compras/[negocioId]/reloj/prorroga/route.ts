@@ -35,7 +35,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     // compras_todo de verdad.
     const permisos = await permisosCrudosDeUsuario(userId);
     if (!permisos.compras_todo && !permisos.aprobar_comercial)
-      return NextResponse.json({ error: 'La prórroga la autoriza el jefe de ventas o CA (spec §15.4).' }, { status: 403 });
+      return NextResponse.json({ error: 'La prórroga la autoriza el jefe de ventas (spec §15.4).' }, { status: 403 });
 
     const body = await request.json();
     await registrarProrroga(id, body.nuevaFechaLimite, body.motivo, body.documentoUrl || null, userId, nombre);
@@ -60,7 +60,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
     const permisos = await permisosCrudosDeUsuario(userId);
     if (!permisos.compras_todo && !permisos.aprobar_comercial)
-      return NextResponse.json({ error: 'Cancelar la prórroga requiere jefe de ventas o CA (spec §15.4).' }, { status: 403 });
+      return NextResponse.json({ error: 'Cancelar la prórroga requiere al jefe de ventas (spec §15.4).' }, { status: 403 });
 
     await cancelarProrroga(id, userId, nombre);
     const reloj = await obtenerEstadoReloj(id);

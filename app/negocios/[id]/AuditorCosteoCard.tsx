@@ -350,11 +350,11 @@ function DetalleLinea({ lp, negocioId, puedeOperar, ocupado, textos, setTextos, 
           </div>
         : puedeOperar && !d.pasaAnexosOk && (
           <div className="rounded-lg border border-zinc-200 p-2.5 space-y-1.5">
-            <p className="text-[11.5px] font-semibold text-zinc-700">Habilitación excepcional · el EM habilita respaldos informales o históricos; CA puede habilitar cualquier línea</p>
+            <p className="text-[11.5px] font-semibold text-zinc-700">Habilitación excepcional · el EM habilita respaldos informales o históricos; el jefe de ventas puede habilitar cualquier línea</p>
             <textarea value={textos[`h-${id}`] || ''} onChange={e => setTextos(t => ({ ...t, [`h-${id}`]: e.target.value }))} rows={2} className="w-full text-[12px] border border-zinc-200 rounded-lg p-2" placeholder="Motivo (mínimo 15 caracteres)" />
             <div className="flex gap-2">
               <button onClick={() => accion({ accion: 'habilitar', filaId: id, nivel: 'EM', motivo: textos[`h-${id}`] || '' }, `h-${id}`, 'Línea habilitada (EM)')} disabled={!!ocupado} className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-violet-300 text-violet-800 disabled:opacity-50">Habilitar como EM</button>
-              <button onClick={() => accion({ accion: 'habilitar', filaId: id, nivel: 'CA', motivo: textos[`h-${id}`] || '' }, `h-${id}`, 'Línea habilitada (CA)')} disabled={!!ocupado} className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-violet-300 text-violet-800 disabled:opacity-50">Habilitar como CA</button>
+              <button onClick={() => accion({ accion: 'habilitar', filaId: id, nivel: 'CA', motivo: textos[`h-${id}`] || '' }, `h-${id}`, 'Línea habilitada (jefe de ventas)')} disabled={!!ocupado} className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-violet-300 text-violet-800 disabled:opacity-50">Habilitar como jefe de ventas</button>
             </div>
           </div>
         )}

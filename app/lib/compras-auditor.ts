@@ -25,6 +25,7 @@ import { obtenerOCrearProveedor } from '@/app/lib/compras-proveedores';
 import { obtenerTipoCambio } from '@/app/lib/tipo-cambio';
 import { parsearDiasDeTexto } from '@/app/lib/numeros';
 import { auditarCotizacionEnSegundoPlano } from '@/app/lib/compras-auditoria-cotizacion';
+import { esSubestadoFuera } from '@/app/lib/compras-no-adjudicadas';
 
 async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
   const [rows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
@@ -488,7 +489,7 @@ export async function homologarCotizacionIA(cotizacionId: number): Promise<{ ite
   const cotiz = (rows as any[])[0];
   if (!cotiz) throw new Error('Cotización no encontrada.');
 
-  const productos = (await listarProductosCompra(cotiz.negocio_id)).filter(p => p.subestado !== 'RENUNCIADO');
+  const productos = (await listarProductosCompra(cotiz.negocio_id)).filter(p => !esSubestadoFuera(p.subestado));
   if (productos.length === 0) return { items: 0 };
 
   const sufijoMoneda = cotiz.moneda && cotiz.moneda !== 'CLP' ? ` ${cotiz.moneda}` : '';
@@ -598,7 +599,7 @@ export interface CuadroComparativoFila {
 /** §8.7 — matriz producto × proveedor, tolerando cobertura parcial: deja visibles los huecos.
  *  Incluye el veredicto de IA por producto (§8.8.2). */
 export async function cuadroComparativo(negocioId: number): Promise<CuadroComparativoFila[]> {
-  const productos = (await listarProductosCompra(negocioId)).filter(p => p.subestado !== 'RENUNCIADO');
+  const productos = (await listarProductosCompra(negocioId)).filter(p => !esSubestadoFuera(p.subestado));
   const cotizaciones = await listarCotizaciones(negocioId);
   const [veredictoRows] = productos.length
     ? await pool.query(
@@ -681,7 +682,7 @@ function elegirCandidatos(productos: ProductoCompra[], cotizaciones: CotizacionF
  *  distinto) y el costo de cada viaje usa el valor fijo interno (§8.10.2). Se perfecciona cuando
  *  exista la tabla de fleteros. */
 export async function calcularEscenarios(negocioId: number): Promise<Escenario[]> {
-  const productos = (await listarProductosCompra(negocioId)).filter(p => p.subestado !== 'RENUNCIADO');
+  const productos = (await listarProductosCompra(negocioId)).filter(p => !esSubestadoFuera(p.subestado));
   if (productos.length === 0) return []; // nada que escenariar sin productos poblados
   const cotizaciones = await listarCotizaciones(negocioId);
   if (cotizaciones.length === 0) return []; // sin ninguna cotización todavía: no hay nada que ponderar
@@ -797,7 +798,7 @@ const CUMPLE_TXT: Record<CumpleItem, string> = { CUMPLE: 'cumple', MEJORA: 'mejo
 
 export async function enumerarCombinaciones(negocioId: number): Promise<ResultadoCombinaciones> {
   const vacio: ResultadoCombinaciones = { combinaciones: [], totalPosibles: 0, truncado: false, productosSinOferta: [], productosCubiertos: 0 };
-  const productos = (await listarProductosCompra(negocioId)).filter(p => p.subestado !== 'RENUNCIADO');
+  const productos = (await listarProductosCompra(negocioId)).filter(p => !esSubestadoFuera(p.subestado));
   if (productos.length === 0) return vacio;
   const cotizaciones = await listarCotizaciones(negocioId);
   if (cotizaciones.length === 0) return vacio;

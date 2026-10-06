@@ -10,7 +10,7 @@ import { calcularPlazoPrevio, normalizarHitos, detectarNegaciones, feriadosPara 
 import { calcularMulta } from '../viabilidad-v4/multa';
 import { interpretarMonto, interpretarPorLinea, sumaLineasCuadra } from '../viabilidad-v4/presupuesto';
 import { LocalizadorCitas } from '../viabilidad-v4/citas';
-import { decidirSuministro, barridoConsecuencias, esObviedad } from '../viabilidad-v4/admisibilidad';
+import { decidirSuministro, barridoConsecuencias, esObviedad, detectarVisitaTecnica, detectarMuestras, consolidarVisitaYMuestras } from '../viabilidad-v4/admisibilidad';
 import { problemasCalidadManifiesto } from '../viabilidad-v4/productos';
 
 const cfg = CONFIG_V4_DEFAULT;
@@ -312,4 +312,27 @@ test('P10 · filtro de obviedades', () => {
 test('V-23 · Valdivia: rótulos como productos y cantidades = número de fila', () => {
   const man = ['Nombre del oferente:', 'FIRMA:', 'RUT:', 'Micrótomo', 'Impresora de láminas'].map((d, i) => ({ linea: 1, categoria: null, descripcion: d, modelo: '', cantidad: i + 1, unidad_medida: '', unidad_inferida: true, presupuesto_linea: null, tipo: 'generico', ruta: '' }));
   assert.ok(problemasCalidadManifiesto(man).length >= 1);
+});
+
+// ─── Visita técnica y muestras ───────────────────────────────────────────────────────────
+const docT = (texto: string) => [{ nombre: 'Bases.pdf', texto }];
+test('Visita técnica · obligatoria, voluntaria, negada y ausente', () => {
+  assert.equal(detectarVisitaTecnica(docT('La visita a terreno será obligatoria y quien no asista quedará fuera del proceso.'))?.estado, 'OBLIGATORIA');
+  assert.equal(detectarVisitaTecnica(docT('Se realizará una visita técnica voluntaria el día 12 en el establecimiento.'))?.estado, 'VOLUNTARIA');
+  assert.equal(detectarVisitaTecnica(docT('No se realizará visita a terreno en esta licitación.'))?.estado, 'NO_EXISTE');
+  assert.equal(detectarVisitaTecnica(docT('El oferente debe presentar los documentos solicitados en las bases.')), null);
+});
+test('Muestras · exigidas, negadas y "se muestra" no cuenta', () => {
+  assert.equal(detectarMuestras(docT('El oferente deberá entregar muestras de los productos en 3 días hábiles desde el cierre.'))?.estado, 'EXIGE');
+  assert.equal(detectarMuestras(docT('No se exigirán muestras en esta licitación para los oferentes.'))?.estado, 'NO_EXIGE');
+  assert.equal(detectarMuestras(docT('Como se muestra en la tabla, el oferente debe presentar el anexo 3.')), null);
+});
+test('consolidarVisitaYMuestras · agrega requisito del sistema solo si el modelo no lo cubrió', () => {
+  const docs = docT('La visita técnica es obligatoria. El oferente deberá entregar muestras en 3 días hábiles.');
+  const adm: any = { requisitos: [] };
+  const nuevos = consolidarVisitaYMuestras(adm, docs, c => c);
+  assert.equal(nuevos.length, 2);
+  assert.equal(adm.visita_tecnica.origen, 'detector');
+  const adm2: any = { requisitos: [{ que: 'Asistir a visita técnica' }], visita_tecnica: { estado: 'OBLIGATORIA' } };
+  assert.equal(consolidarVisitaYMuestras(adm2, docT('nada'), c => c).length, 0);
 });

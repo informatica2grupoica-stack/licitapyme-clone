@@ -75,7 +75,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const feedback = await listarFeedback(codigoDecoded);
     return NextResponse.json({
       success: true, regla, feedback, sin_destilar: sinDestilar,
-      ...(sinDestilar ? { aviso: 'La IA no pudo convertir el comentario en una regla general: quedó guardado para revisión y no se usará hasta que CA lo revise.' } : {}),
+      ...(sinDestilar ? { aviso: 'La IA no pudo convertir el comentario en una regla general: quedó guardado para revisión y no se usará hasta que el jefe de ventas lo revise.' } : {}),
     });
   } catch (error) {
     console.error('[viabilidad-feedback:POST]', String(error));

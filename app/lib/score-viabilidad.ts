@@ -115,7 +115,7 @@ function nivelDeUnidad(u: Unidad, inf: any, cfg: ConfigViabilidadV4, tipo: strin
     const cc = c ?? 'MEDIA';
     conteo.set(cc, (conteo.get(cc) || 0) + 1);
   }
-  if (otros) avisos.push(`${otros} producto(s) con familia no catalogada: se trataron como complejidad media (CA puede asignarles familia).`);
+  if (otros) avisos.push(`${otros} producto(s) con familia no catalogada: se trataron como complejidad media (el jefe de ventas puede asignarles familia).`);
   let comp: Complejidad | null = null;
   if (conteo.size) {
     const max = Math.max(...conteo.values());

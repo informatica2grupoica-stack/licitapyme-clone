@@ -7,6 +7,7 @@
 // tardó cada tramo. Es distinta de la bitácora lateral (esa registra cada acción de cada
 // perfil); aquí solo van los momentos que cambian el rumbo del negocio.
 import { useEffect, useState } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 import { IconRoute as Route, IconRadar as Radar, IconFilter as Filter, IconUserPlus as UserPlus, IconSparkles as Sparkles, IconGitCommit as GitCommitHorizontal, IconSend as Send, IconTrophy as Trophy, IconBan as Ban, IconExternalLink as ExternalLink, IconLoader2 as Loader2 } from '@tabler/icons-react';
 import { ESTADOS_PIPELINE, normalizarEstado, getEstadoPipeline } from '@/app/lib/pipeline';
 
@@ -76,6 +77,7 @@ const SEM_COLOR: Record<string, string> = { VERDE: '#059669', AMARILLO: '#ca8a04
 export function RecorridoNegocio({ negocioId }: { negocioId: number | string }) {
   const [rec, setRec] = useState<Recorrido | null>(null);
   const [cargando, setCargando] = useState(true);
+  const reducido = useReducedMotion();
 
   useEffect(() => {
     let vivo = true;
@@ -89,7 +91,7 @@ export function RecorridoNegocio({ negocioId }: { negocioId: number | string }) 
 
   if (cargando) {
     return (
-      <div className="bg-white border border-zinc-200/60 rounded-xl p-5 flex items-center gap-2 text-[12px] text-zinc-400">
+      <div className="bg-white border border-zinc-200/70 rounded-2xl p-5 flex items-center gap-2 text-[12.5px] text-zinc-400">
         <Loader2 size={14} className="animate-spin" /> Cargando el recorrido…
       </div>
     );
@@ -239,43 +241,50 @@ export function RecorridoNegocio({ negocioId }: { negocioId: number | string }) 
   const total = fechas.length >= 2 ? tramo(new Date(Math.min(...fechas)).toISOString(), new Date(Math.max(...fechas)).toISOString()) : null;
 
   return (
-    <div className="bg-white border border-zinc-200/60 rounded-xl p-5">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-          <Route size={13} /> Recorrido del negocio
+    <section className="bg-white border border-zinc-200/70 rounded-2xl p-5">
+      <div className="flex items-center justify-between gap-3 mb-5">
+        <h3 className="flex items-center gap-2.5 text-[15px] font-black text-zinc-900">
+          <span className="w-8 h-8 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center"><Route size={17} /></span>
+          Recorrido del negocio
         </h3>
-        {total && <span className="text-[11px] text-zinc-400" title="Del primer hito al último">{total.replace('+', '')} en total</span>}
+        {total && <span className="text-[12px] font-bold px-2.5 py-1 rounded-full bg-zinc-100 text-zinc-600" title="Del primer hito al último">{total.replace('+', '')} en total</span>}
       </div>
-      <div className="space-y-0">
+      <div>
         {hitos.map((h, i) => {
           const ultimo = i === hitos.length - 1;
           const anterior = i > 0 ? hitos[i - 1] : null;
           const salto = h.fecha && anterior?.fecha ? tramo(anterior.fecha, h.fecha) : null;
           return (
-            <div key={h.key} className="flex gap-3">
+            <motion.div key={h.key} className="flex gap-3.5"
+              initial={reducido ? false : { opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.35, delay: Math.min(i, 10) * 0.06, ease: [0.22, 1, 0.36, 1] }}>
               {/* Rail: icono del hito + línea */}
               <div className="flex flex-col items-center flex-shrink-0">
-                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-white ${h.ghost ? 'border-2 border-dashed border-zinc-300 !text-zinc-300 bg-white' : ''}`}
+                <span className={`w-8 h-8 rounded-full flex items-center justify-center text-white ${h.ghost ? 'border-2 border-dashed border-zinc-300 !text-zinc-300 bg-white' : 'ring-4 ring-white'}`}
                   style={h.ghost ? undefined : { background: h.color }}>
                   {h.icon}
                 </span>
-                {!ultimo && <span className="w-px flex-1 bg-zinc-200 my-0.5" />}
+                {!ultimo && <span className="w-0.5 flex-1 bg-zinc-200 rounded-full my-1" />}
               </div>
-              <div className={`min-w-0 flex-1 ${ultimo ? '' : 'pb-4'}`}>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className={`text-[13px] font-semibold leading-snug ${h.ghost ? 'text-zinc-400' : 'text-zinc-800'}`}>{h.titulo}</p>
-                  {salto && <span className="text-[10px] font-bold text-zinc-400 bg-zinc-100 px-1.5 py-0.5 rounded-full" title="Tiempo desde el hito anterior">{salto}</span>}
+              <div className={`min-w-0 flex-1 ${ultimo ? '' : 'pb-5'}`}>
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-x-4 gap-y-0.5">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className={`text-[14px] font-bold leading-snug ${h.ghost ? 'text-zinc-400' : 'text-zinc-900'}`}>{h.titulo}</p>
+                      {salto && <span className="text-[11px] font-bold text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-full" title="Tiempo desde el hito anterior">{salto}</span>}
+                    </div>
+                    {h.actor && <p className="text-[12px] text-zinc-400 mt-0.5">por {h.actor}</p>}
+                    {h.detalle && <p className="text-[12.5px] text-zinc-600 mt-1 leading-snug">{h.detalle}</p>}
+                  </div>
+                  <p className="text-[12px] text-zinc-500 tabular-nums sm:text-right sm:whitespace-nowrap flex-shrink-0 mt-0.5 sm:mt-1">
+                    {h.fecha ? fechaCorta(h.fecha) : h.ghost ? 'Pendiente' : 'Sin fecha registrada'}
+                  </p>
                 </div>
-                <p className="text-[11px] text-zinc-400 mt-0.5">
-                  {h.fecha ? fechaCorta(h.fecha) : h.ghost ? 'pendiente' : 'sin fecha registrada'}
-                  {h.actor ? <> · por {h.actor}</> : null}
-                </p>
-                {h.detalle && <p className="text-[12px] text-zinc-500 mt-0.5 leading-snug">{h.detalle}</p>}
               </div>
-            </div>
+            </motion.div>
           );
         })}
       </div>
-    </div>
+    </section>
   );
 }

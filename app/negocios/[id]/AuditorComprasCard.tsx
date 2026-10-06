@@ -163,7 +163,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
         setElegidoTipo(dEsc.elegidoTipo || null); setElegidoCostoGuardado(dEsc.elegidoCostoGuardado ?? null);
         setCombinaciones(dEsc.combinaciones || null); setCombinacionElegida(dEsc.combinacionElegidaClave ?? null);
       }
-      if (dProd.success) setProductos((dProd.productos || []).filter((p: any) => p.subestado !== 'RENUNCIADO'));
+      if (dProd.success) setProductos((dProd.productos || []).filter((p: any) => !['RENUNCIADO', 'NO_ADJUDICADA'].includes(p.subestado)));
       if (dSug.success) setSugerenciasHistorial(dSug.productos || []);
       if (dUso.success) setUsoAgente(dUso.usoHoy);
     } catch (e: any) {

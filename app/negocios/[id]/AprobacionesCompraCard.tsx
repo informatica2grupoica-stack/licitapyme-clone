@@ -188,7 +188,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
         setEscenarioElegidoActual(dA.escenarioElegidoActual); setEsJefeDeVentas(dA.esJefeDeVentas);
       }
       if (dS.success) setSkus(dS.skus || []);
-      if (dP.success) setProductos((dP.productos || []).filter((p: any) => p.subestado !== 'RENUNCIADO'));
+      if (dP.success) setProductos((dP.productos || []).filter((p: any) => !['RENUNCIADO', 'NO_ADJUDICADA'].includes(p.subestado)));
     } catch (e: any) {
       toast.error('No se pudieron cargar las aprobaciones', e.message);
     } finally {

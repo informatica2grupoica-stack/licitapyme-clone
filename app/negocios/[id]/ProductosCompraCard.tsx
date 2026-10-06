@@ -9,21 +9,23 @@ import { Select } from '@/app/components/ui/Select';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { IconPackage as Package, IconLoader2 as Loader2, IconX as X, IconFlag as Flag, IconRefresh as RefreshCw } from '@tabler/icons-react';
 
-type Subestado = 'PENDIENTE' | 'COTIZANDO' | 'COMPRADO' | 'EN_BODEGA' | 'LISTO_ENTREGA' | 'ENTREGADO' | 'RENUNCIADO';
+type Subestado = 'PENDIENTE' | 'COTIZANDO' | 'COMPRADO' | 'EN_BODEGA' | 'LISTO_ENTREGA' | 'ENTREGADO' | 'RENUNCIADO' | 'NO_ADJUDICADA';
 
 interface Producto {
   id: number; correlativo: number | null; descripcion: string; cantidad: number | null; unidad: string | null;
   montoUnitario: number | null; subestado: Subestado;
   renunciaMotivo: string | null; renunciaPropuestaPorNombre: string | null; renunciaAprobadaPorNombre: string | null;
 }
-interface Cobertura { total: number; listos: number; renunciados: number; cobertura: boolean }
+interface Cobertura { total: number; listos: number; renunciados: number; noAdjudicadas: number; cobertura: boolean }
+// Quién se llevó cada línea que ofertamos y no ganamos (viene del acta de MP).
+interface LineaPerdida { correlativo: number; proveedor: string | null; montoUnitario: number | null }
 
 const SUBESTADO_LABEL: Record<Subestado, string> = {
   PENDIENTE: 'Pendiente', COTIZANDO: 'Cotizando', COMPRADO: 'Comprado', EN_BODEGA: 'En bodega',
-  LISTO_ENTREGA: 'Listo para entrega', ENTREGADO: 'Entregado', RENUNCIADO: 'Renunciado',
+  LISTO_ENTREGA: 'Listo para entrega', ENTREGADO: 'Entregado', RENUNCIADO: 'Renunciado', NO_ADJUDICADA: 'No adjudicada',
 };
 const OPCIONES_SUBESTADO = (Object.keys(SUBESTADO_LABEL) as Subestado[])
-  .filter(s => s !== 'RENUNCIADO').map(s => ({ value: s, label: SUBESTADO_LABEL[s] }));
+  .filter(s => s !== 'RENUNCIADO' && s !== 'NO_ADJUDICADA').map(s => ({ value: s, label: SUBESTADO_LABEL[s] }));
 
 const fmtCLP = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 
@@ -32,6 +34,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
   const { recargar: recargarCompartido } = useCompras();
   const [productos, setProductos] = useState<Producto[]>([]);
   const [cobertura, setCobertura] = useState<Cobertura | null>(null);
+  const [perdidas, setPerdidas] = useState<LineaPerdida[]>([]);
   const [loading, setLoading] = useState(true);
   const [guardando, setGuardando] = useState<number | null>(null);
   const [renunciaAbierta, setRenunciaAbierta] = useState<number | null>(null);
@@ -45,6 +48,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cargar');
       setProductos(data.productos || []);
       setCobertura(data.cobertura || null);
+      setPerdidas(data.perdidas || []);
     } catch (e: any) {
       toast.error('No se pudieron cargar los productos', e.message);
     } finally {
@@ -94,6 +98,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo sincronizar');
       setProductos(data.productos); setCobertura(data.cobertura);
+      await cargar(); // trae también quién se llevó las líneas no adjudicadas
       recargarCompartido();
       toast.success('Sincronizado con el costeo', `${data.actualizados} actualizado(s) · ${data.agregados} nuevo(s)`);
     } catch (e: any) {
@@ -123,16 +128,17 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
             }`}>
               {cobertura.listos} de {cobertura.total} listos para entrega
               {cobertura.renunciados > 0 && ` · ${cobertura.renunciados} renunciado(s)`}
+              {cobertura.noAdjudicadas > 0 && ` · ${cobertura.noAdjudicadas} no adjudicada(s) (fuera de la compra)`}
             </span>
           )}
         </div>
       </div>
       <div className="divide-y divide-zinc-100">
         {productos.map(p => (
-          <div key={p.id} className={`px-4 py-3 ${p.subestado === 'RENUNCIADO' ? 'opacity-60' : ''}`}>
+          <div key={p.id} className={`px-4 py-3 ${p.subestado === 'RENUNCIADO' ? 'opacity-60' : ''} ${p.subestado === 'NO_ADJUDICADA' ? 'opacity-50 bg-zinc-50/70' : ''}`}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-[12.5px] font-semibold text-zinc-800">{p.descripcion}</p>
+                <p className={`text-[12.5px] font-semibold text-zinc-800 ${p.subestado === 'NO_ADJUDICADA' ? 'line-through decoration-zinc-400' : ''}`}>{p.descripcion}</p>
                 <p className="text-[11px] text-zinc-400">
                   {[
                     p.cantidad != null && `${p.cantidad}${p.unidad ? ` ${p.unidad}` : ''}`,
@@ -147,7 +153,9 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
                 </p>
               </div>
               <div className="flex-shrink-0 flex items-center gap-2">
-                {p.subestado === 'RENUNCIADO' ? (
+                {p.subestado === 'NO_ADJUDICADA' ? (
+                  <span className="text-[10.5px] font-bold text-zinc-600 bg-zinc-100 border border-zinc-300 px-2 py-0.5 rounded-full">Línea NO adjudicada</span>
+                ) : p.subestado === 'RENUNCIADO' ? (
                   <span className="text-[10.5px] font-bold text-zinc-500 bg-zinc-100 border border-zinc-200 px-2 py-0.5 rounded-full">Renunciado</span>
                 ) : puedeOperar ? (
                   <Select value={p.subestado} onChange={v => accion({ productoId: p.id, accion: 'subestado', subestado: v })}
@@ -155,14 +163,24 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
                 ) : (
                   <span className="text-[11px] font-semibold text-zinc-600">{SUBESTADO_LABEL[p.subestado]}</span>
                 )}
-                {puedeOperar && p.subestado !== 'RENUNCIADO' && !p.renunciaMotivo && (
+                {puedeOperar && p.subestado !== 'RENUNCIADO' && p.subestado !== 'NO_ADJUDICADA' && !p.renunciaMotivo && (
                   <button onClick={() => { setRenunciaAbierta(p.id); setMotivoRenuncia(''); }}
                     className="text-[10.5px] font-semibold text-rose-500 hover:text-rose-700">Renunciar</button>
                 )}
               </div>
             </div>
 
-            {p.renunciaMotivo && p.subestado !== 'RENUNCIADO' && (
+            {p.subestado === 'NO_ADJUDICADA' && (() => {
+              const l = perdidas.find(x => x.correlativo === p.correlativo);
+              return (
+                <p className="mt-1.5 text-[11px] font-semibold text-zinc-600">
+                  Esta línea no se ganó: el acta de Mercado Público la adjudicó a {l?.proveedor || 'otro proveedor'}
+                  {l?.montoUnitario != null && ` (${fmtCLP(l.montoUnitario)} unitario)`}. No se compra ni cuenta para la entrega; se muestra solo como referencia.
+                </p>
+              );
+            })()}
+
+            {p.renunciaMotivo && p.subestado !== 'RENUNCIADO' && p.subestado !== 'NO_ADJUDICADA' && (
               <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2">
                 <p className="text-[11px] text-amber-800"><Flag size={11} className="inline mr-1" />Renuncia propuesta por {p.renunciaPropuestaPorNombre}: {p.renunciaMotivo}</p>
                 {esJefeDeVentas && (

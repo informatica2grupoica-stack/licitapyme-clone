@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion, listarProductosCompra } from '@/app/lib/compras';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { sugerirProveedoresPorDescripcion } from '@/app/lib/compras-proveedores';
+import { esSubestadoFuera } from '@/app/lib/compras-no-adjudicadas';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
-    const productos = (await listarProductosCompra(id)).filter(p => p.subestado !== 'RENUNCIADO');
+    const productos = (await listarProductosCompra(id)).filter(p => !esSubestadoFuera(p.subestado));
     const porProducto = await Promise.all(
       productos.map(async p => ({ productoId: p.id, descripcion: p.descripcion, sugerencias: await sugerirProveedoresPorDescripcion(p.descripcion) })),
     );

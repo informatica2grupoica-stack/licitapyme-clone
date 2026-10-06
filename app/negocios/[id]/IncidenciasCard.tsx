@@ -54,7 +54,7 @@ export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { ne
       const [dInc, dTip, dProd] = await Promise.all([rInc.json(), rTip.json(), rProd.json()]);
       if (dInc.success) setIncidencias(dInc.incidencias || []);
       if (dTip.success) setTipos(dTip.tipos || []);
-      if (dProd.success) setProductos((dProd.productos || []).filter((p: any) => p.subestado !== 'RENUNCIADO'));
+      if (dProd.success) setProductos((dProd.productos || []).filter((p: any) => !['RENUNCIADO', 'NO_ADJUDICADA'].includes(p.subestado)));
     } catch (e: any) {
       toast.error('No se pudieron cargar las incidencias', e.message);
     } finally {

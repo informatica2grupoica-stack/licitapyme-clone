@@ -7,6 +7,7 @@ import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { obtenerAsignacion, listarProductosCompra, coberturaProyecto } from '@/app/lib/compras';
+import { esSubestadoFuera } from '@/app/lib/compras-no-adjudicadas';
 
 async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
   const [rows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
@@ -129,7 +130,7 @@ export async function generarActa(negocioId: number, actorId: number, actorNombr
   const cobertura = await coberturaProyecto(negocioId);
   if (!cobertura.cobertura) throw new Error(`El proyecto no tiene cobertura total todavía (${cobertura.listos}/${cobertura.total} listos) — spec §14.2, el acta requiere el proyecto completo.`);
   const productos = await listarProductosCompra(negocioId);
-  const contenido = productos.filter(p => p.subestado !== 'RENUNCIADO').map(p => ({ descripcion: p.descripcion, cantidad: p.cantidad, unidad: p.unidad }));
+  const contenido = productos.filter(p => !esSubestadoFuera(p.subestado)).map(p => ({ descripcion: p.descripcion, cantidad: p.cantidad, unidad: p.unidad }));
   await asegurarFila(negocioId);
   const ahora = ahoraChileSQL();
   // BUG REAL (10-sep-2026, auditoría estática): regenerar el acta limpiaba la aprobación
