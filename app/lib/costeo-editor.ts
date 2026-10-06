@@ -40,6 +40,12 @@ export interface FilaEditorCosteo {
   // aparte y sobrevive a cualquier borrado/reordenado de filas.
   lineaReal: number | null;
   detalle: string;                  // B — Detalle de producto
+  // Texto original del detalle (el que vino del manifiesto) antes de que alguien lo complementara a mano.
+  // Lo que `detalle` tenga de más se pinta en rojo en el editor. Opcional: costeos previos no lo traen.
+  detalleBase?: string | null;
+  // Columna «Complemento»: texto largo que se pega/escribe en un modal y se lee en un globo editable.
+  // Se muestra en rojo. Opcional: los costeos anteriores no lo traen.
+  complemento?: string | null;
   unidad: string;                   // C — Unidad de medida
   skuProveedor: string;             // D — Sku de proveedor (tienda/proveedor de referencia)
   cantidad: number | null;          // E — Cantidad original

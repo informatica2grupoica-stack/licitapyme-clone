@@ -47,6 +47,10 @@ interface FilaEditor {
   // detección automática se equivoca o para etiquetar una fila agregada a mano.
   lineaReal: number | null;
   detalle: string;
+  // Texto original del detalle antes de complementarlo a mano; lo agregado se pinta en rojo. Ver FilaEditorCosteo.
+  detalleBase?: string | null;
+  // Texto largo que complementa el detalle (columna «Complemento»). Ver FilaEditorCosteo.
+  complemento?: string | null;
   unidad: string;
   skuProveedor: string;
   cantidad: number | null;
@@ -293,11 +297,95 @@ function costoRealGrupo(grp: GrupoEditor) {
 // grueso, celdas con fórmula con un tinte gris que las distingue de las que se tipean a mano.
 const GRID_BORDE = '#d0d3d8';
 const FUENTE_HOJA = "Calibri, 'Segoe UI', Arial, sans-serif";
-const LETRAS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R'];
+const LETRAS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S'];
 
 function celdaInput(extra = '') {
   return `w-full h-full bg-transparent text-[12.5px] px-1.5 py-1 outline-none disabled:opacity-60 ` +
     `focus:ring-2 focus:ring-inset focus:ring-[#1a73e8] focus:bg-[#e8f0fe]/40 ${extra}`;
+}
+
+/** Parte `actual` en [antes, agregado, después] respecto del texto original `base`: prefijo y sufijo
+ *  comunes quedan normales, lo del medio es lo que se complementó. */
+function partesComplemento(base: string | null | undefined, actual: string): [string, string, string] {
+  if (!base || base === actual) return [actual, '', ''];
+  let p = 0;
+  while (p < base.length && p < actual.length && base[p] === actual[p]) p++;
+  let s = 0;
+  while (s < base.length - p && s < actual.length - p && base[base.length - 1 - s] === actual[actual.length - 1 - s]) s++;
+  return [actual.slice(0, p), actual.slice(p, actual.length - s), actual.slice(actual.length - s)];
+}
+
+/** Detalle de producto: al editar es un input normal; en reposo muestra lo complementado en rojo. */
+function CeldaDetalle({ value, base, onChange, disabled, placeholder }: {
+  value: string; base?: string | null; onChange: (v: string) => void; disabled?: boolean; placeholder?: string;
+}) {
+  const [editando, setEditando] = useState(false);
+  const [antes, agregado, despues] = partesComplemento(base, value);
+  if (!editando && agregado.trim()) {
+    return (
+      <div tabIndex={disabled ? -1 : 0} onFocus={() => !disabled && setEditando(true)} onClick={() => !disabled && setEditando(true)}
+        className="w-full h-full text-[12.5px] px-1.5 py-1 truncate cursor-text" title={value}>
+        {antes}<span className="text-red-600 font-medium">{agregado}</span>{despues}
+      </div>
+    );
+  }
+  return (
+    <input value={value} onChange={e => onChange(e.target.value)} disabled={disabled} className={celdaInput()} placeholder={placeholder}
+      autoFocus={editando} onFocus={() => setEditando(true)} onBlur={() => setEditando(false)} />
+  );
+}
+
+/** Complemento del detalle: texto largo (pegado o escrito) que no cabe en la celda. Vacío → «+» abre un
+ *  modal para escribirlo/pegarlo; con texto → se ve en rojo y al hacer clic abre un globo editable. */
+function CeldaComplemento({ value, onChange, disabled }: {
+  value: string | null | undefined; onChange: (v: string | null) => void; disabled?: boolean;
+}) {
+  const [abierto, setAbierto] = useState<'modal' | 'globo' | null>(null);
+  const [borrador, setBorrador] = useState('');
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const texto = (value ?? '').trim();
+  const abrir = (el: HTMLElement) => {
+    setBorrador(value ?? '');
+    if (texto) { const r = el.getBoundingClientRect(); setPos({ x: Math.min(r.left, window.innerWidth - 340), y: r.bottom + 4 }); }
+    setAbierto(texto ? 'globo' : 'modal');
+  };
+  const guardar = () => { onChange(borrador.trim() ? borrador.trim() : null); setAbierto(null); };
+  const cuerpo = (
+    <textarea value={borrador} onChange={e => setBorrador(e.target.value)} autoFocus rows={abierto === 'modal' ? 10 : 6}
+      placeholder="Pega o escribe el complemento del detalle del producto"
+      className="w-full text-[12.5px] text-red-600 border border-zinc-300 rounded-md p-2 outline-none focus:ring-2 focus:ring-[#1a73e8]" />
+  );
+  const botones = (
+    <div className="flex justify-end gap-2 mt-2">
+      <button type="button" onClick={() => setAbierto(null)} className="px-3 py-1 text-[12px] rounded-md border border-zinc-300 text-zinc-600 hover:bg-zinc-50">Cancelar</button>
+      <button type="button" onClick={guardar} className="px-3 py-1 text-[12px] rounded-md bg-indigo-600 text-white font-semibold hover:bg-indigo-700">Guardar</button>
+    </div>
+  );
+  return (
+    <>
+      <button type="button" disabled={disabled && !texto} onClick={e => abrir(e.currentTarget)} title={texto || 'Agregar complemento al detalle'}
+        className="w-full h-full px-1.5 text-left text-[12.5px] truncate text-red-600 hover:bg-[#e8f0fe]/40 disabled:cursor-default">
+        {texto || <span className="text-zinc-300">{disabled ? '' : '+ Complemento'}</span>}
+      </button>
+      {abierto && typeof document !== 'undefined' && createPortal(
+        abierto === 'modal' ? (
+          <div className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setAbierto(null); }}>
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-xl p-4">
+              <p className="text-[13px] font-semibold text-zinc-800 mb-2">Complemento del detalle</p>
+              {cuerpo}{botones}
+            </div>
+          </div>
+        ) : (
+          <div className="fixed inset-0 z-[100]" onMouseDown={e => { if (e.target === e.currentTarget) setAbierto(null); }}>
+            <div className="absolute bg-white rounded-xl shadow-xl border border-zinc-200 p-3 w-[330px]" style={{ left: pos?.x ?? 0, top: pos?.y ?? 0 }}>
+              {cuerpo}{botones}
+            </div>
+          </div>
+        ),
+        document.body,
+      )}
+    </>
+  );
 }
 
 function CeldaNumero({ value, onChange, disabled }: {
@@ -1439,11 +1527,12 @@ export function CosteoEditorCard({
         document.body,
       )}
       <div className="overflow-auto flex-1">
-        <table className="border-collapse w-full" style={{ minWidth: 1522 }}>
+        <table className="border-collapse w-full" style={{ minWidth: 1672 }}>
           <colgroup>
             <col style={{ width: 34 }} />{/* # de fila */}
             <col style={{ width: 56 }} />{/* A Línea */}
             <col style={{ minWidth: 220 }} />{/* B Detalle */}
+            <col style={{ width: 150 }} />{/* Complemento (texto largo del detalle) */}
             <col style={{ width: 70 }} />{/* Imagen (foto del producto, después del detalle) */}
             <col style={{ width: 64 }} />{/* C Unidad */}
             <col style={{ width: 110 }} />{/* D Sku */}
@@ -1474,7 +1563,7 @@ export function CosteoEditorCard({
             <tr style={{ background: '#f3f2f1' }}>
               <th className="text-[11px] font-normal text-zinc-500 text-center" style={{ border: `1px solid ${GRID_BORDE}` }}>1</th>
               {([
-                ['Línea', ''], ['Detalle de producto', ''], ['Imagen', 'Foto del producto: súbela aquí y mírala con el ojo. Se guarda con el costeo.'], ['Unidad', ''], ['Sku proveedor', ''],
+                ['Línea', ''], ['Detalle de producto', ''], ['Complemento', 'Texto largo que complementa el detalle: haz clic para pegarlo o escribirlo; si ya hay texto, se abre en un globo que puedes editar.'], ['Imagen', 'Foto del producto: súbela aquí y mírala con el ojo. Se guarda con el costeo.'], ['Unidad', ''], ['Sku proveedor', ''],
                 ['Cantidad', ''], ['Valor c/IVA', ''],
                 ['Costo unit. neto', ''], ['Costo total neto', ''],
                 // Margen POR ÍTEM: normalmente vacío (hereda el del costeo completo, que es el que
@@ -1515,7 +1604,12 @@ export function CosteoEditorCard({
                     <CeldaNumero value={f.lineaReal} onChange={v => actualizarFila(grupoActivo, fi, { lineaReal: v })} disabled={baseBloq} />
                   </td>
                   <td style={celda} className="p-0">
-                    <input value={f.detalle} onChange={e => actualizarFila(grupoActivo, fi, { detalle: e.target.value })} disabled={baseBloq} className={celdaInput()} placeholder={esAdic ? 'Costo adicional (ej. Flete a Punta Arenas)' : 'Descripción del ítem'} />
+                    <CeldaDetalle value={f.detalle} base={f.detalleBase} disabled={baseBloq}
+                      onChange={v => actualizarFila(grupoActivo, fi, { detalle: v, detalleBase: f.detalleBase == null ? (f.detalle.trim() && !esAdic ? f.detalle : null) : f.detalleBase.startsWith(v) ? v : f.detalleBase })}
+                      placeholder={esAdic ? 'Costo adicional (ej. Flete a Punta Arenas)' : 'Descripción del ítem'} />
+                  </td>
+                  <td style={celda} className="p-0">
+                    <CeldaComplemento value={f.complemento} onChange={v => actualizarFila(grupoActivo, fi, { complemento: v })} disabled={baseBloq} />
                   </td>
                   <td style={celda} className="p-0">
                     <CeldaImagen url={f.imagenUrl} subiendo={subiendoImagen.has(f.id)} disabled={baseBloq}
@@ -1635,13 +1729,13 @@ export function CosteoEditorCard({
               );
             })}
             {g.filas.length === 0 && (
-              <tr><td colSpan={20} className="px-4 py-6 text-center text-zinc-400 text-[12px]" style={{ border: `1px solid ${GRID_BORDE}` }}>Sin ítems en esta hoja</td></tr>
+              <tr><td colSpan={21} className="px-4 py-6 text-center text-zinc-400 text-[12px]" style={{ border: `1px solid ${GRID_BORDE}` }}>Sin ítems en esta hoja</td></tr>
             )}
             {/* Fila de totales — mismo lugar que la fila SUMA() de la plantilla de Excel. Cada
                 suma queda justo bajo SU columna (Costo total neto / Precio total neto). */}
             <tr>
               <td className="text-[11px] text-zinc-400 text-center" style={{ border: `1px solid ${GRID_BORDE}`, background: '#f3f2f1', height: 26 }}>{g.filas.length + 2}</td>
-              <td colSpan={7} className="px-1.5 text-[11.5px] font-bold text-zinc-500" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }}>TOTALES DE ESTA HOJA</td>
+              <td colSpan={8} className="px-1.5 text-[11.5px] font-bold text-zinc-500" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }}>TOTALES DE ESTA HOJA</td>
               <td style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }} />
               <td className="px-1.5 text-right text-[12.5px] font-bold text-zinc-800 tabular-nums" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5', borderTop: `2px solid ${GRID_BORDE}` }}>{fmtCLP(costoGrupo(g, margen))}</td>
               <td colSpan={2} style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }} />

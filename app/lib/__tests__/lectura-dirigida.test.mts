@@ -81,3 +81,26 @@ test('la VIGENCIA de la garantía no cuenta como plazo previo; la garantía va j
   assert.ok(calc.total_dias_corridos >= 19 && calc.total_dias_corridos <= 23, `total ${calc.total_dias_corridos}`);
   assert.equal(calc.desglose[0].simultaneo_con, 'FIRMA_CONTRATO_PROVEEDOR');
 });
+
+test('si la primera pasada trae OTRO valor, manda la lectura dirigida (frase literal) y queda el valor anterior', () => {
+  const p3: any = { multas: { atraso: { existe: true, valor: '5% diario' } } };
+  const salida = { multa_atraso: { existe: true, valor: '0,3% diario', cita: { frase: '0,3% diario' } },
+    hitos: [{ hito: 'FIRMA_CONTRATO_PROVEEDOR', estado: 'EXISTE', plazo: 15, unidad_original: 'días hábiles', cita: { frase: '15 días hábiles' } }] };
+  const hitos: any[] = normalizarHitos([{ hito: 'FIRMA_CONTRATO_PROVEEDOR', estado: 'EXISTE', plazo: 15, unidad_original: 'días corridos', cita: { frase: 'x', verificada: true } }]);
+  const r = aplicarLecturaDirigida(p3, hitos, salida, ident);
+  assert.equal(p3.multas.atraso.valor, '0,3% diario');
+  assert.match(p3.multas.atraso.corregido_por_lectura_dirigida, /5% diario/);
+  assert.equal(hitos[1].unidad_original, 'días hábiles');
+  assert.equal(r.reparados.length, 2);
+});
+
+test('mismo valor en ambas pasadas → no se toca; "junto con" con estado NO_INDICADO igual cuenta como existente', () => {
+  const p3: any = { multas: { atraso: { existe: true, valor: '0,3% diario del día 1 al 5; 0,5% del 6 al 11' } } };
+  const salida = { multa_atraso: { existe: true, valor: '0,3% diario', cita: { frase: '0,3% diario' } },
+    hitos: [{ hito: 'GARANTIA_FIEL_CUMPLIMIENTO', estado: 'NO_INDICADO', simultaneo_con: 'FIRMA_CONTRATO_PROVEEDOR', cita: { frase: 'deberá acompañar la garantía' } }] };
+  const hitos: any[] = normalizarHitos([]);
+  aplicarLecturaDirigida(p3, hitos, salida, ident);
+  assert.equal(p3.multas.atraso.corregido_por_lectura_dirigida, undefined);
+  assert.equal(hitos[0].estado, 'EXISTE');
+  assert.equal(hitos[0].simultaneo_con, 'FIRMA_CONTRATO_PROVEEDOR');
+});

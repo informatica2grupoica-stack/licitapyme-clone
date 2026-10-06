@@ -141,12 +141,19 @@ export function aplicarLecturaDirigida(
   const atraso = mul.atraso && typeof mul.atraso === 'object' ? mul.atraso : (mul.atraso = {});
   const nueva = salida?.multa_atraso;
   const multaVacia = atraso.existe !== true || !String(atraso.valor || '').trim();
-  if (multaVacia && nueva && nueva.existe === true && String(nueva.valor || '').trim()) {
-    const cita = localizar({ ...(nueva.cita || {}) });
-    if (cita?.verificada) {
-      mul.atraso = { ...nueva, existe: true, cita, corregido_por_lectura_dirigida: atraso.existe === false ? 'decia que no existe' : 'sin valor' };
-      reparados.push(`multa por atraso: ${nueva.valor}`);
-    } else avisos.push('La pasada dirigida vio una multa pero su frase no está literal en las bases: no se usó.');
+  const numeros = (x: unknown) => (String(x ?? '').replace(',', '.').match(/\d+(?:\.\d+)?/g) || []).join('|');
+  if (nueva && nueva.existe === true && String(nueva.valor || '').trim()) {
+    // La lectura dirigida ve ~16.000 caracteres en vez de ~300.000: cuando difiere de la primera, manda
+    // ella (si su frase existe literal). El valor de la primera pasada queda guardado.
+    const difiere = !multaVacia && numeros(nueva.valor) !== '' && numeros(atraso.valor) !== numeros(nueva.valor)
+      && !numeros(nueva.valor).startsWith(numeros(atraso.valor)) && !numeros(atraso.valor).startsWith(numeros(nueva.valor));
+    if (multaVacia || difiere) {
+      const cita = localizar({ ...(nueva.cita || {}) });
+      if (cita?.verificada) {
+        mul.atraso = { ...nueva, existe: true, cita, corregido_por_lectura_dirigida: multaVacia ? (atraso.existe === false ? 'decia que no existe' : 'sin valor') : `valor distinto en la primera pasada: ${atraso.valor}` };
+        reparados.push(`multa por atraso: ${nueva.valor}${multaVacia ? '' : ` (antes ${atraso.valor})`}`);
+      } else avisos.push('La pasada dirigida vio una multa pero su frase no está literal en las bases: no se usó.');
+    }
   }
 
   // ── hitos ──
@@ -163,15 +170,19 @@ export function aplicarLecturaDirigida(
     const n = nuevos.find(x => String(x?.hito).toUpperCase() === clave);
 
     let aplicado = false;
-    if (n && String(n.estado).toUpperCase() !== 'NO_INDICADO' && (sinPlazo || estado !== 'EXISTE' || esVigencia || n.simultaneo_con)) {
-      const nEstado = String(n.estado).toUpperCase();
+    const simultN = n && HITOS_ORDEN.includes(String(n.simultaneo_con).toUpperCase() as HitoClave) && String(n.simultaneo_con).toUpperCase() !== clave ? String(n.simultaneo_con).toUpperCase() : '';
+    const nEstadoRaw = n ? (simultN ? 'EXISTE' : String(n.estado).toUpperCase()) : 'NO_INDICADO'; // "junto con X" es un trámite que existe aunque el modelo lo marque no indicado
+    const difierePlazo = !!n && nEstadoRaw === 'EXISTE' && !simultN && !sinPlazo
+      && (numeroPlazo(n.plazo) !== numeroPlazo(h.plazo) || interpretarUnidad(n.unidad_original) !== interpretarUnidad(h.unidad_original));
+    if (n && nEstadoRaw !== 'NO_INDICADO' && (sinPlazo || estado !== 'EXISTE' || esVigencia || simultN || difierePlazo)) {
+      const nEstado = nEstadoRaw;
       const nPlazo = numeroPlazo(n.plazo);
       const nUnidad = interpretarUnidad(n.unidad_original);
-      const simult = HITOS_ORDEN.includes(String(n.simultaneo_con).toUpperCase() as HitoClave) ? String(n.simultaneo_con).toUpperCase() : '';
+      const simult = simultN;
       const cita = String(n.cita?.frase || '').trim() ? localizar({ ...(n.cita || {}) }) : null;
       const citaOk = !!cita?.verificada;
       if (nEstado === 'EXISTE' && citaOk && ((nPlazo != null && nUnidad !== 'DESCONOCIDA') || simult)) {
-        const antes = esVigencia ? 'tomaba la vigencia de la garantía' : estado;
+        const antes = esVigencia ? 'tomaba la vigencia de la garantía' : difierePlazo ? `decía ${h.plazo} ${h.unidad_original}` : estado;
         Object.assign(h, { estado: 'EXISTE', plazo: simult ? null : nPlazo, unidad_original: simult ? '' : n.unidad_original, desde: n.desde || h.desde, cita,
           ...(simult ? { simultaneo_con: simult } : {}), corregido_por_lectura_dirigida: antes });
         reparados.push(`${clave}: ${simult ? `junto con ${simult}` : `${nPlazo} ${n.unidad_original}`}`);

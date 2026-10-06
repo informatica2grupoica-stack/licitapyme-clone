@@ -128,18 +128,19 @@ function TarjetaClave({ i, etiqueta, icono, color, alerta, titulo, valor, numero
   const clsValor = valor.length > 13 ? 'text-[18px]' : valor.length > 10 ? 'text-[21px]' : 'text-[24px]';
   return (
     <Aparece i={i} alto>
-      <div title={titulo} className={`min-w-0 border rounded-2xl p-4 h-full flex flex-col gap-2 break-words transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 ${alerta ? 'border-red-300 bg-red-50/30' : 'bg-white border-slate-200'}`}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[11px] text-slate-500 font-semibold uppercase tracking-wide mb-1.5">{etiqueta}</p>
-            <p className={`${clsValor} font-black leading-none tabular-nums text-slate-900`}>{visible}{unidad ? <span className="text-[11px] font-semibold text-slate-400"> {unidad}</span> : null}</p>
+      <div title={titulo} className="relative min-w-0 overflow-hidden border rounded-2xl h-full flex flex-col break-words bg-white border-slate-200 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+        <div className="h-1 w-full flex-shrink-0" style={{ background: color }} />
+        <div className="flex flex-col gap-2.5 p-4 flex-1">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">{etiqueta}</p>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: color + '18', color }}>{icono}</div>
           </div>
-          <div className="w-[38px] h-[38px] rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: color + '18', color }}>{icono}</div>
+          <p className={`${clsValor} font-black leading-tight tabular-nums text-slate-900`}>{visible}{unidad ? <span className="text-[11px] font-semibold text-slate-400"> {unidad}</span> : null}</p>
+          {clave && <div>{clave}</div>}
+          {texto && <p className={`text-[12px] leading-snug ${textoClase || 'text-slate-500'}`}>{texto}</p>}
+          {children}
         </div>
-        {clave && <div>{clave}</div>}
-        {texto && <p className={`text-[12px] leading-snug ${textoClase || 'text-slate-500'}`}>{texto}</p>}
-        {children}
-        {pie && <div className="mt-auto pt-1">{pie}</div>}
+        {pie && <div className={`px-4 py-2.5 border-t ${alerta ? 'border-red-100' : 'border-slate-100'} bg-slate-50/60`}>{pie}</div>}
       </div>
     </Aparece>
   );
@@ -160,18 +161,18 @@ export function TarjetasClaveV4({ informe, onVerPlazos }: { informe: any; onVerP
   const multaDia = atraso?.calculo?.pesos_dia_estimado;
   const hayMulta = atraso?.existe !== false && (multaDia != null || atraso?.valor);
   const prefijoPlazo = pp?.al_menos ? 'Al menos ' : '';
-  const enlace = (txt: string) => <button type="button" onClick={onVerPlazos} className="text-[11.5px] font-semibold text-violet-700 hover:underline">{txt} →</button>;
+  const enlace = (txt: string) => <button type="button" onClick={onVerPlazos} className="text-[12px] font-semibold text-violet-700 hover:underline">{txt} →</button>;
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 items-stretch">
       <TarjetaClave i={0} etiqueta="Presupuesto" icono={<Wallet size={20} />} color={excluyente ? '#dc2626' : '#059669'} alerta={excluyente}
         valor={pres.bruto ? fmt(pres.bruto) : 'No publicado'} numero={pres.bruto ? Number(pres.bruto) : undefined} formato={fmt} unidad={pres.bruto && !pres.regimen_fora ? 'IVA incl.' : undefined}
         clave={excluyente
-          ? <span className="inline-flex items-center gap-1 text-[12.5px] font-black uppercase tracking-wide text-white bg-red-600 px-2.5 py-1 rounded-md"><Ban size={13} /> Excluyente</span>
+          ? <span className="inline-flex items-center gap-1 text-[11px] font-black uppercase tracking-wide text-red-700 bg-red-100 border border-red-200 px-2 py-0.5 rounded-md"><Ban size={12} /> Excluyente</span>
           : <Badge>{mayus(cap(pres.caracter || 'NO_DECLARADO').toLowerCase())}</Badge>}
         texto={excluyente ? 'Si lo superas, tu oferta queda fuera de la licitación.' : pres.nota_art_32 ? mayus(pres.nota_art_32) : 'Las bases no declaran si superarlo deja fuera la oferta.'}
         textoClase={excluyente ? 'text-red-700 font-semibold' : undefined}
-        pie={pres.cita ? <Cita cita={pres.cita} /> : undefined}>
-        {porLinea.length >= 2 && <div>{porLinea.map((l: any) => <p key={l.linea} className="text-[12px] text-slate-600"><span className="font-bold">{l.linea}</span> {fmt(l.monto_pesos)}</p>)}</div>}
+        pie={pres.cita ? <Cita cita={pres.cita} compacta /> : undefined}>
+        {porLinea.length >= 2 && <div className="flex flex-wrap gap-1.5">{porLinea.map((l: any) => <span key={l.linea} className="text-[11.5px] text-slate-600 bg-slate-100 rounded-md px-2 py-0.5 tabular-nums"><span className="font-bold text-slate-800">{l.linea}</span> {fmt(l.monto_pesos)}</span>)}</div>}
       </TarjetaClave>
       <TarjetaClave i={1} etiqueta="Cómo se adjudica" icono={<Gavel size={20} />} color={adj.resultado === 'NO_CLARO' ? '#d97706' : '#7c3aed'} alerta={false}
         valor={adj.resultado === 'POR_LINEAS' ? 'Por línea' : adj.resultado === 'GLOBAL' ? 'Global' : 'No está claro'}
@@ -180,7 +181,7 @@ export function TarjetasClaveV4({ informe, onVerPlazos }: { informe: any; onVerP
           : adj.resultado === 'GLOBAL' ? 'Todo se adjudica a un solo proveedor.'
           : adj.resultado === 'POR_LINEAS' ? 'Se puede ganar una o más líneas por separado.'
           : 'Confírmalo en las bases antes de decidir.'}
-        pie={evidencia ? <Cita cita={evidencia.cita} /> : undefined}>
+        pie={evidencia ? <Cita cita={evidencia.cita} compacta /> : undefined}>
         {adj.regla_aplicada === 'CONFIRMADA' && adj.motivo && <p className="text-[12px] text-sky-700">{mayus(adj.motivo)}</p>}
       </TarjetaClave>
       <TarjetaClave i={2} etiqueta="Plazo previo" icono={<Clock size={20} />} color="#0284c7" titulo="Tiempo administrativo entre la adjudicación y el inicio del plazo de entrega"

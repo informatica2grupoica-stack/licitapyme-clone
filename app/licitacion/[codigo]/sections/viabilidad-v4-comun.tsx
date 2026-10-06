@@ -65,7 +65,7 @@ export const EVIDENCIA_TEXTO: Record<string, string> = {
 };
 
 // ─── Cita estructurada {documento, numeral, frase} + página calculada por el código ─────────
-export function Cita({ cita, etiqueta }: { cita?: any; etiqueta?: string }) {
+export function Cita({ cita, etiqueta, compacta }: { cita?: any; etiqueta?: string; compacta?: boolean }) {
   const docs = useContext(FuenteDocsContext);
   const abrirVisor = useContext(VisorContext);
   if (!cita || typeof cita !== 'object') return null;
@@ -77,6 +77,34 @@ export function Cita({ cita, etiqueta }: { cita?: any; etiqueta?: string }) {
     ?? docs.find(d => { const a = _norm(d.nombre), b = _norm(nombreDoc); return !!b && (a.includes(b) || b.includes(a)); });
   const noVerificada = cita.verificada === false || cita.semantica === 'NO' || cita.semantica === 'PARCIAL';
   const texto = [nombreDoc, cita.numeral, pagina ? `pág. ${pagina}${cita.pagina == null && cita.pagina_aprox ? ' aprox.' : ''}` : ''].filter(Boolean).join(' · ');
+  if (compacta) {
+    const ubic = [cita.numeral, pagina ? `pág. ${pagina}${cita.pagina == null && cita.pagina_aprox ? ' aprox.' : ''}` : ''].filter(Boolean).join(' · ');
+    const nombreCorto = nombreDoc.replace(/\.[a-z0-9]{2,4}$/i, '').replace(/_+/g, ' ').trim();
+    const cuerpo = (
+      <>
+        <span className="flex items-center gap-1.5 min-w-0"><FileSearch size={12} className="flex-shrink-0" /><span className="truncate">{nombreCorto || 'Ver documento'}</span></span>
+        {ubic && <span className="block pl-[18px] text-[10.5px] opacity-80">{ubic}</span>}
+      </>
+    );
+    const cls = `block min-w-0 flex-1 rounded-lg border px-2.5 py-1.5 text-[11px] leading-snug ${noVerificada ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-slate-50 border-slate-200 text-slate-600'}`;
+    return (
+      <span className="flex w-full min-w-0 items-center gap-1.5">
+        {doc
+          ? <a href={pagina ? `${doc.url}#page=${pagina}` : doc.url} target="_blank" rel="noopener noreferrer" title={texto} className={`${cls} hover:border-violet-300`}>{cuerpo}</a>
+          : <span title={texto} className={cls}>{cuerpo}</span>}
+        {doc && pagina && abrirVisor && (
+          <button type="button" onClick={() => abrirVisor({ url: doc.url, pagina, paginas: [pagina], q: frase || undefined, titulo: texto })}
+            title="Ver la página y resaltar la frase" className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600 hover:bg-violet-100"><Eye size={15} /></button>
+        )}
+        {noVerificada && (
+          <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 cursor-help"
+            title={cita.verificada === false ? 'La frase citada no se encontró en las bases: confírmala antes de usar el dato.' : `La frase existe, pero no sostiene el dato${cita.motivo_semantica ? `: ${cita.motivo_semantica}` : ''}.`}>
+            ¿?
+          </span>
+        )}
+      </span>
+    );
+  }
   return (
     <span className={`inline-flex max-w-full min-w-0 flex-wrap items-start gap-x-1 gap-y-0.5 text-[11px] leading-snug ${noVerificada ? 'text-amber-700' : 'text-indigo-600'}`}>
       {etiqueta && <span className="text-slate-400">{etiqueta}</span>}

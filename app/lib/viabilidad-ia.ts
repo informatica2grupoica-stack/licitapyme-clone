@@ -1576,9 +1576,11 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
   // solo sobre los pasajes que hablan de ellos; corrige lo vacío o contradictorio. Ver lectura-dirigida.ts.
   try {
     const hitosPlazo = plazos.hitos as HitoInforme[];
+    // SIEMPRE corre (cuesta ~$0.002): antes solo se llamaba si la primera pasada dejaba algo vacío y no
+    // detectaba valores distintos. Si difiere, manda la lectura dirigida cuando su frase es literal.
     const motivos = necesitaLecturaDirigida(p3, hitosPlazo);
     let salida: any = null;
-    if (motivos.length) {
+    {
       const pasajes = extraerPasajesPlazosMultas(fuentes);
       if (pasajes.length) {
         console.log(`[viabilidad-ia-v4] ${codigo}: lectura dirigida (${pasajes.reduce((a, p) => a + p.texto.length, 0)} chars en ${pasajes.length} pasaje(s)) — ${motivos.join('; ')}`);
