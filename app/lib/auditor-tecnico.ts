@@ -17,7 +17,9 @@
 // Este módulo importa crearChatIA (gemini.ts → node:async_hooks, solo Node): NO importar desde
 // Client Components. El código sin IA vive en auditor-tecnico-core.ts (seguro para el navegador)
 // y se re-exporta aquí para no romper a los consumidores existentes de este archivo.
-import { crearChatIA } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('auditor', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { extraerProductoOfertado, type ProductoOfertado } from '@/app/lib/producto-ofertado';
 import {

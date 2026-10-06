@@ -18,7 +18,9 @@
 // DeepSeek. Gemini está RETIRADO (dormido salvo GEMINI_HABILITADO=1 + key).
 
 import pool from './db';
-import { crearChatIA, geminiHabilitado } from './gemini';
+import { crearChatIA as crearChatIABase, geminiHabilitado } from './gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('consultas', crearChatIABase);
 import { ocrTieneHuecos } from './zai-ocr';
 
 // AUDITORÍA ago-2026 (alucinaciones reportadas por el dueño): medido en BD, 27.6% de las

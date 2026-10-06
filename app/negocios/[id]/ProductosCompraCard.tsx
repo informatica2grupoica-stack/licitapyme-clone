@@ -35,6 +35,8 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
   const [productos, setProductos] = useState<Producto[]>([]);
   const [cobertura, setCobertura] = useState<Cobertura | null>(null);
   const [perdidas, setPerdidas] = useState<LineaPerdida[]>([]);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [conflictos, setConflictos] = useState<Array<{ productoId: number; correlativo: number; subestado: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [guardando, setGuardando] = useState<number | null>(null);
   const [renunciaAbierta, setRenunciaAbierta] = useState<number | null>(null);
@@ -49,6 +51,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
       setProductos(data.productos || []);
       setCobertura(data.cobertura || null);
       setPerdidas(data.perdidas || []);
+      setAviso(data.aviso || null); setConflictos(data.conflictos || []);
     } catch (e: any) {
       toast.error('No se pudieron cargar los productos', e.message);
     } finally {
@@ -133,6 +136,14 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
           )}
         </div>
       </div>
+      {aviso && (
+        <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-[11.5px] font-semibold text-amber-800">{aviso}</div>
+      )}
+      {conflictos.length > 0 && (
+        <div className="px-4 py-2 bg-rose-50 border-b border-rose-200 text-[11.5px] font-semibold text-rose-800">
+          El acta de MP dio a otro proveedor {conflictos.length === 1 ? 'la línea' : 'las líneas'} {conflictos.map(c => c.correlativo).join(', ')}, pero Compras ya la avanzó ({conflictos.map(c => SUBESTADO_LABEL[c.subestado as Subestado] || c.subestado).join(', ')}). No se marcó sola: revisa si hay plata comprometida.
+        </div>
+      )}
       <div className="divide-y divide-zinc-100">
         {productos.map(p => (
           <div key={p.id} className={`px-4 py-3 ${p.subestado === 'RENUNCIADO' ? 'opacity-60' : ''} ${p.subestado === 'NO_ADJUDICADA' ? 'opacity-50 bg-zinc-50/70' : ''}`}>

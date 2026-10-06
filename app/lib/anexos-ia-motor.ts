@@ -16,7 +16,9 @@
 // la casilla queda pendiente. Para "especifico_licitacion" (precio/cantidad) este motor NUNCA
 // inventa el número — lo deja pendiente y el pipeline de costeo YA EXISTENTE (anexos-precios-ia.ts,
 // sin tocar) lo resuelve cruzando contra el Motor Comercial, igual que hoy.
-import { crearChatIA } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('anexos', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 import type { Parrafo } from '@/app/lib/anexos-docx';
 import type { CandidatoCelda, CandidatoInline } from '@/app/lib/anexos-detectar';

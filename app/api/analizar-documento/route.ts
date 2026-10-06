@@ -1,7 +1,9 @@
 // app/api/analizar-documento/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTextFromDocument, descargarYExtraerTexto } from '@/app/lib/document-extraction';
-import { crearChatIA } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('consultas', crearChatIABase);
 import { esUrlR2Propia } from '@/app/lib/url-propia';
 
 // ======================================================

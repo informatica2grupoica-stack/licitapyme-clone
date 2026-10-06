@@ -6,6 +6,7 @@
 import OpenAI from 'openai';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { parseJsonIA } from '@/app/lib/json-ia';
+import { registrarUsoIA } from '@/app/lib/ia-uso';
 
 // ─── Acumulador de costo por CORRIDA (23-jul-2026) ─────────────────────────────────
 // El pedido: ver el TOTAL gastado en una viabilidad (puede hacer varias llamadas: primaria +
@@ -348,6 +349,7 @@ function logTelemetriaIA(model: string, ms: number, usage: any, respaldo: boolea
   const costo = (inTok / 1e6) * precIn + (outTok / 1e6) * precOut;
   const ac = alsCostoIA.getStore();
   if (ac) { ac.llamadas++; ac.inTok += inTok; ac.outTok += outTok; ac.costoUSD += costo; }
+  registrarUsoIA({ modelo: model, respaldo, tokensIn: inTok, tokensOut: outTok, costoUSD: costo, ms });
   console.log(
     `[ia] 💰 ${model}${respaldo ? ' (RESPALDO)' : ''} · ${(ms / 1000).toFixed(1)}s · in=${inTok} out=${outTok} tot=${totTok} tok · ~$${costo.toFixed(4)} USD`,
   );

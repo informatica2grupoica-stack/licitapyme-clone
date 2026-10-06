@@ -1814,6 +1814,8 @@ export async function coberturaProyecto(negocioId: number): Promise<CoberturaPro
 export interface ResultadoAdjudicacionPorLinea extends DecisionNoAdjudicadas {
   /** Quién se llevó cada línea que no ganamos (para rotularla en pantalla). */
   perdidas: Array<{ correlativo: number; proveedor: string | null; montoUnitario: number | null }>;
+  /** Las líneas que el acta nos adjudicó (para el detalle del "Precio de venta ganado"). */
+  ganadas: Array<{ correlativo: number | null; producto: string | null; descripcion: string | null; cantidad: number | null; unidad: string | null; montoUnitario: number | null }>;
 }
 
 /** Cruza "Productos y cobertura" con el acta de MP y deja NO_ADJUDICADA lo que ofertamos y no ganamos.
@@ -1821,7 +1823,7 @@ export interface ResultadoAdjudicacionPorLinea extends DecisionNoAdjudicadas {
  *  SOLO desde la caché (nunca golpea MP) y es idempotente: se puede llamar en cada carga. Si algo
  *  falla o falta el acta, no toca nada. */
 export async function aplicarAdjudicacionPorLinea(negocioId: number): Promise<ResultadoAdjudicacionPorLinea> {
-  const sinCambios: ResultadoAdjudicacionPorLinea = { marcar: [], restaurar: [], conflictos: [], omitido: 'sin acta', perdidas: [] };
+  const sinCambios: ResultadoAdjudicacionPorLinea = { marcar: [], restaurar: [], conflictos: [], omitido: 'sin acta', revisarAMano: null, perdidas: [], ganadas: [] };
   const [negRows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
   const codigo = (negRows as any[])[0]?.licitacion_codigo;
   if (!codigo) return sinCambios;
@@ -1863,7 +1865,13 @@ export async function aplicarAdjudicacionPorLinea(negocioId: number): Promise<Re
   const perdidas = lineas
     .filter(l => l.correlativo != null && !l.esNuestra && String(l.rutProveedor || '').trim())
     .map(l => ({ correlativo: Number(l.correlativo), proveedor: l.proveedor ?? null, montoUnitario: l.montoUnitario ?? null }));
-  return { ...d, perdidas };
+  const ganadas = lineas.filter(l => l.esNuestra).map(l => ({
+    correlativo: l.correlativo ?? null, producto: l.producto ?? null,
+    // La descripción de MP trae viñetas y saltos de línea: solo la primera línea, para el listado.
+    descripcion: l.descripcion ? String(l.descripcion).split(/[\r\n]/)[0].trim().slice(0, 200) : null,
+    cantidad: l.cantidad ?? null, unidad: l.unidad ?? null, montoUnitario: l.montoUnitario ?? null,
+  }));
+  return { ...d, perdidas, ganadas };
 }
 
 // ── Contadores por pestaña (UI, sep-2026) ───────────────────────────────────────────────────────

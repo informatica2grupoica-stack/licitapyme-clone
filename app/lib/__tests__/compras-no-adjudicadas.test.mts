@@ -82,3 +82,15 @@ test('esSubestadoFuera: RENUNCIADO y NO_ADJUDICADA salen de la cobertura; el res
   assert.equal(esSubestadoFuera('RENUNCIADO'), true);
   for (const s of ['PENDIENTE', 'COTIZANDO', 'COMPRADO', 'EN_BODEGA', 'LISTO_ENTREGA', 'ENTREGADO']) assert.equal(esSubestadoFuera(s), false);
 });
+
+test('aviso REAL: acta por línea, 1 línea nuestra, 3 productos y la numeración no calza → revisar a mano', () => {
+  const d = decidirNoAdjudicadas([prod(1, 1), prod(2, 2), prod(3, 5)], [nuestra(1), ajena(2), ajena(3)], true);
+  assert.deepEqual(d.marcar, []);
+  assert.ok(d.revisarAMano && d.revisarAMano.includes('1 línea') && d.revisarAMano.includes('3 producto'));
+});
+
+test('sin aviso: adjudicación global con varios productos bajo una línea (caso 1114-12) o cruce exitoso', () => {
+  assert.equal(decidirNoAdjudicadas([prod(1, 1), prod(2, 2)], [nuestra(1)], true).revisarAMano, null);
+  assert.equal(decidirNoAdjudicadas([prod(1, 1), prod(2, 2), prod(3, 3), prod(4, 4)], [nuestra(1), nuestra(2), ajena(3), nuestra(4)], true).revisarAMano, null);
+  assert.equal(decidirNoAdjudicadas([prod(1, 1), prod(2, 2)], [nuestra(1), nuestra(2)], false).revisarAMano, null);
+});

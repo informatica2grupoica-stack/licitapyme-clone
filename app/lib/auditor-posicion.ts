@@ -6,7 +6,9 @@
 // referencias del MISMO producto (V10) · mercado público = OC históricas (S5) · presupuesto = costeo / resumen ejecutivo. Guarda cada cálculo (historial).
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
-import { crearChatIA } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('auditor', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { PARAMS, calcularPosicionPrecio, type PosicionPrecio, type LineaGuardada } from '@/app/lib/auditor-compras-core';
 import { presupuestoNeto } from '@/app/lib/auditor-compras';

@@ -13,7 +13,9 @@
 // inventa (feedback_datos_reales_nunca_inventados: "un default también desactiva los gates").
 import { ocrImagenConGlmOcr, extraerTextoPdfPorUrlConGlmOcr } from '@/app/lib/zai-ocr';
 import { ocrPdfLocalTesseract, ocrImagenLocalTesseract } from '@/app/lib/tesseract-ocr';
-import { crearChatIA } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('compras', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 
 export interface DatosExtraidosCotizacion {

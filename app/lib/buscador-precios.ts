@@ -13,7 +13,9 @@
 //
 // La lógica pura de matching se mantiene idéntica a la intranet para conservar su calidad.
 
-import { crearChatIA } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('costeo', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 
 const SERPER_KEY = process.env.SERPER_API_KEY || '';

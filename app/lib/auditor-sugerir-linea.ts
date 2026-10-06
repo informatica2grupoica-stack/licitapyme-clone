@@ -2,7 +2,9 @@
 // Un producto de nombre críptico («TSG-200», «Relacart EZ MI2+») no comparte palabras con el detalle de la línea: aquí la IA lo lee
 // como lo leería una persona (¿qué ES este producto? ¿a qué línea corresponde?) y responde con la línea y el porqué, o «ninguna».
 // Solo se asigna sola cuando la confianza es ALTA y trae motivo; lo demás queda como sugerencia de un clic o como «no corresponde».
-import { crearChatIA } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('auditor', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 
 export interface ProductoParaSugerir { idx: number; nombre: string; precioNeto: number | null; cantidad: number | null; proveedor: string }

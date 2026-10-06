@@ -19,7 +19,9 @@
 import pool from '@/app/lib/db';
 import { esUrlR2Propia } from '@/app/lib/url-propia';
 import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
-import { crearChatIA, geminiHabilitado } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase, geminiHabilitado } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('prefiltro', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────

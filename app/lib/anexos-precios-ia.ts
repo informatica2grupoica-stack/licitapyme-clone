@@ -13,7 +13,9 @@
 //
 // gemini.ts es server-only (arrastra node:async_hooks) — este módulo NUNCA se importa desde un
 // Client Component, solo desde anexos-rellenar.ts (que a su vez solo corren las rutas /api/anexos).
-import { crearChatIA } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('anexos', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 import type { ItemCosteoPrecio } from '@/app/lib/motor-comercial';
 

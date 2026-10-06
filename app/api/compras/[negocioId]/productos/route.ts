@@ -40,7 +40,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     // la caché del acta) y la pantalla las muestra atenuadas con quién se las llevó.
     const adj = asignacion.asignadoA != null ? await aplicarAdjudicacionPorLinea(id).catch(() => null) : null;
     const [productos, cobertura] = await Promise.all([listarProductosCompra(id), coberturaProyecto(id)]);
-    return NextResponse.json({ success: true, productos, cobertura, perdidas: adj?.perdidas ?? [], conflictos: adj?.conflictos ?? [] });
+    return NextResponse.json({ success: true, productos, cobertura, perdidas: adj?.perdidas ?? [], ganadas: adj?.ganadas ?? [], conflictos: adj?.conflictos ?? [], aviso: adj?.revisarAMano ?? null });
   } catch (error) {
     console.error('[compras/productos][GET]', String(error));
     return NextResponse.json({ error: 'No se pudieron cargar los productos.' }, { status: 500 });

@@ -50,6 +50,8 @@ const FASES: { key: Fase; label: string; icon: typeof ClipboardList; descripcion
   { key: 'actividad', label: 'Actividad', icon: History, descripcion: 'Línea de tiempo del proyecto: qué se hizo día a día, desde que se ganó hasta ahora.' },
 ];
 
+interface LineaGanada { correlativo: number | null; producto: string | null; descripcion: string | null; cantidad: number | null; unidad: string | null; montoUnitario: number | null }
+
 export function ComprasChrome({ negocioId }: { negocioId: number }) {
   const toast = useToast();
   const flot = useCosteoFlotante();
@@ -69,6 +71,27 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   const [guardandoOC, setGuardandoOC] = useState(false);
   const [buscandoOC, setBuscandoOC] = useState(false);
   const [resumenAbierto, setResumenAbierto] = useState(true);
+  // "Precio de venta ganado" clicable: las líneas que el acta de MP nos adjudicó (lectura en vivo de la
+  // caché del acta, no la foto del resumen — que no distingue qué línea se ganó ni se actualiza sola).
+  const [ganadasAbierto, setGanadasAbierto] = useState(false);
+  const [ganadas, setGanadas] = useState<LineaGanada[] | null>(null);
+  const [perdidasActa, setPerdidasActa] = useState<Array<{ correlativo: number; proveedor: string | null; montoUnitario: number | null }>>([]);
+  const [cargandoGanadas, setCargandoGanadas] = useState(false);
+  const alternarGanadas = async () => {
+    const abrir = !ganadasAbierto;
+    setGanadasAbierto(abrir);
+    if (!abrir) return;
+    setCargandoGanadas(true);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/productos`);
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo leer el acta');
+      setGanadas(data.ganadas || []); setPerdidasActa(data.perdidas || []);
+    } catch (e: any) {
+      toast.error('No se pudieron cargar las líneas ganadas', e.message);
+      setGanadasAbierto(false);
+    } finally { setCargandoGanadas(false); }
+  };
   const [regenerando, setRegenerando] = useState(false);
 
   // El formulario de OC se precarga cuando llega/cambia la asignación (no al tipear).
@@ -312,11 +335,14 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                   se guardan NETOS (ver construirResumenEjecutivoCompras en compras.ts) — se
                   especifica también el equivalente con IVA (×1,19) para no tener que calcularlo a mano. */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="rounded-xl p-3 bg-gradient-to-br from-emerald-50 to-emerald-100/40 border border-emerald-200">
-                  <p className="text-[10px] font-bold text-emerald-700 uppercase flex items-center gap-1"><DollarSign size={12} /> Precio de venta ganado</p>
+                <button type="button" onClick={alternarGanadas} aria-expanded={ganadasAbierto}
+                  title="Ver las líneas que se ganaron"
+                  className="text-left rounded-xl p-3 bg-gradient-to-br from-emerald-50 to-emerald-100/40 border border-emerald-200 hover:border-emerald-400 transition-colors cursor-pointer">
+                  <p className="text-[10px] font-bold text-emerald-700 uppercase flex items-center gap-1"><DollarSign size={12} /> Precio de venta ganado
+                    <span className="ml-auto normal-case font-semibold text-emerald-600/80 flex items-center gap-0.5">{ganadasAbierto ? 'Ocultar líneas' : 'Ver líneas'} {ganadasAbierto ? <ChevronUp size={12} /> : <ChevronDown size={12} />}</span></p>
                   <p className="text-[18px] font-extrabold text-emerald-800 mt-0.5">{fmtCLP(r.montoNuestro)} <span className="text-[11px] font-semibold text-emerald-600/70">neto</span></p>
                   {r.montoNuestro != null && <p className="text-[10.5px] font-semibold text-emerald-600/80">{fmtCLP(Math.round(r.montoNuestro * 1.19))} con IVA</p>}
-                </div>
+                </button>
                 <div className={`rounded-xl p-3 border ${excedePresupuesto ? 'bg-gradient-to-br from-amber-50 to-amber-100/40 border-amber-200' : 'bg-gradient-to-br from-violet-50 to-violet-100/40 border-violet-200'}`}>
                   <p className={`text-[10px] font-bold uppercase flex items-center gap-1 ${excedePresupuesto ? 'text-amber-700' : 'text-violet-700'}`}><Calculator size={12} /> Monto costeado</p>
                   <p className={`text-[18px] font-extrabold mt-0.5 ${excedePresupuesto ? 'text-amber-800' : 'text-violet-800'}`}>
@@ -342,6 +368,49 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                   {margenBajo && <p className="text-[9.5px] text-rose-600 mt-1">Bajo el piso del 20% (spec §10.3)</p>}
                 </div>
               </div>
+
+              {ganadasAbierto && (
+                <div className="rounded-xl border border-emerald-200 bg-white overflow-hidden">
+                  <p className="px-3 py-2 text-[11px] font-bold text-emerald-800 bg-emerald-50 border-b border-emerald-100">
+                    Líneas que se ganaron según el acta de Mercado Público
+                  </p>
+                  {cargandoGanadas ? (
+                    <div className="flex items-center justify-center py-5"><Loader2 size={16} className="animate-spin text-emerald-600" /></div>
+                  ) : !ganadas || ganadas.length === 0 ? (
+                    <p className="px-3 py-3 text-[11.5px] text-zinc-500">El acta todavía no detalla las líneas adjudicadas a nosotros (puede ser una adjudicación global o el acta aún no está en el sistema).</p>
+                  ) : (
+                    <div className="divide-y divide-zinc-100">
+                      {ganadas.map((g, i) => {
+                        const total = (g.montoUnitario ?? 0) * (g.cantidad ?? 1);
+                        return (
+                          <div key={g.correlativo ?? i} className="px-3 py-2 flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-[12px] font-semibold text-zinc-800">
+                                {g.correlativo != null && <span className="text-emerald-700">Línea {g.correlativo} · </span>}{g.descripcion || g.producto || 'Producto sin nombre'}
+                              </p>
+                              <p className="text-[10.5px] text-zinc-400">
+                                {[g.producto && g.descripcion && g.producto !== g.descripcion ? `Rubro MP: ${g.producto}` : null,
+                                  g.cantidad != null ? `${g.cantidad}${g.unidad ? ` ${g.unidad}` : ''}` : null,
+                                  g.montoUnitario != null ? `${fmtCLP(g.montoUnitario)} unitario neto` : null].filter(Boolean).join(' · ')}
+                              </p>
+                            </div>
+                            <p className="text-[12px] font-bold text-emerald-800 flex-shrink-0">{fmtCLP(total)}</p>
+                          </div>
+                        );
+                      })}
+                      <div className="px-3 py-2 flex items-center justify-between bg-emerald-50/50">
+                        <p className="text-[11px] font-bold text-emerald-800">{ganadas.length} línea(s) ganada(s)</p>
+                        <p className="text-[12px] font-extrabold text-emerald-800">{fmtCLP(ganadas.reduce((s, g) => s + (g.montoUnitario ?? 0) * (g.cantidad ?? 1), 0))} neto</p>
+                      </div>
+                    </div>
+                  )}
+                  {perdidasActa.length > 0 && (
+                    <p className="px-3 py-2 text-[10.5px] text-zinc-500 bg-zinc-50 border-t border-zinc-100">
+                      No ganadas (adjudicadas a otro proveedor): {perdidasActa.map(l => `Línea ${l.correlativo}${l.proveedor ? ` → ${l.proveedor}` : ''}`).join(' · ')}.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Secundarias — más chicas, un ícono de color cada una. */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">

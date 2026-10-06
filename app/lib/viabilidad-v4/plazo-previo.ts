@@ -124,12 +124,14 @@ export interface HitoInforme {
   hito?: string; estado?: string; plazo?: unknown; unidad_original?: string; desde?: string; cita?: any;
   // agregados por el código
   dias_corridos?: number; unidad_interpretada?: UnidadPlazo; corregido_por_negacion?: string;
+  // El trámite corre DENTRO del plazo de otro hito (la garantía se entrega para firmar el contrato): no suma.
+  simultaneo_con?: string;
 }
 
 export interface PlazoPrevioCalculado {
   total_dias_corridos: number;
   al_menos: boolean;
-  desglose: Array<{ hito: HitoClave; estado: string; texto_original: string; dias_corridos: number; unidad_ambigua?: boolean }>;
+  desglose: Array<{ hito: HitoClave; estado: string; texto_original: string; dias_corridos: number; unidad_ambigua?: boolean; simultaneo_con?: string }>;
   fechas_estimadas: Array<{ hito: string; desde: string; hasta: string }>;
   fecha_base: string;
   fecha_base_origen: string;
@@ -179,7 +181,10 @@ export function calcularPlazoPrevio(
     h.unidad_interpretada = unidad;
     let dias = 0;
     let ambigua = false;
-    if (estado === 'EXISTE' && n != null && unidad !== 'DESCONOCIDA') {
+    const simultaneo = estado === 'EXISTE' && n == null && HITOS_ORDEN.includes(String(h.simultaneo_con || '').toUpperCase() as HitoClave) ? String(h.simultaneo_con).toUpperCase() as HitoClave : null;
+    if (simultaneo) {
+      // sin avanzar el cursor: su plazo ya está contado en el otro hito
+    } else if (estado === 'EXISTE' && n != null && unidad !== 'DESCONOCIDA') {
       if (unidad === 'DIAS_SIN_TIPO') { ambigua = true; avisos.push(`${HITO_LABEL[clave] ?? clave}: las bases dicen "${h.unidad_original}" sin indicar hábiles o corridos; se sumó como días corridos.`); }
       const desde = new Date(cursor.getTime());
       dias = avanzar(n, unidad);
@@ -192,9 +197,10 @@ export function calcularPlazoPrevio(
     h.dias_corridos = dias;
     desglose.push({
       hito: clave, estado,
-      texto_original: estado === 'EXISTE' ? `${n ?? '?'} ${h.unidad_original || ''}`.trim() : estado === 'NO_EXISTE' ? 'No se exige' : 'No indicado en las bases',
+      texto_original: simultaneo ? `Junto con: ${HITO_LABEL[simultaneo]}` : estado === 'EXISTE' ? `${n ?? '?'} ${h.unidad_original || ''}`.trim() : estado === 'NO_EXISTE' ? 'No se exige' : 'No indicado en las bases',
       dias_corridos: dias,
       ...(ambigua ? { unidad_ambigua: true } : {}),
+      ...(simultaneo ? { simultaneo_con: simultaneo } : {}),
     });
   }
 

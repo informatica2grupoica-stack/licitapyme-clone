@@ -5,7 +5,9 @@
 // nunca le deja decidir un bloqueo. Cada corrida queda guardada (historial) en auditor_verificacion_costo, con `tipo_ia` para distinguirla de la búsqueda de mercado.
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
-import { crearChatIA } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('auditor', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { extraccionPorId } from '@/app/lib/auditor-lector';
 import { evaluarCostoIA, type ResultadoCostoIA, type SalidaCostoIA } from '@/app/lib/auditor-costo-ia-core';

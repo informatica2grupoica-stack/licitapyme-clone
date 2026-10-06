@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconPackage as PackageCheck, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders, IconBug as Bug } from '@tabler/icons-react';
+import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconPackage as PackageCheck, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders, IconBug as Bug, IconCoin as Coin } from '@tabler/icons-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { Tooltip } from '@/app/components/ui/Tooltip';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
@@ -107,6 +107,8 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Líneas negocio', href: '/admin/etiquetas', icon: <Tag size={17} />, adminOnly: true },
       // Reportes del botón flotante "Reportar error" (components/ReportarErrorBoton) de todos los perfiles.
       { label: 'Errores reportados', href: '/admin/errores', icon: <Bug size={17} />, adminOnly: true },
+      // Cuánto gasta cada perfil en IA (viabilidad, consultas, auditor…): tabla ia_uso, ver app/lib/ia-uso.ts.
+      { label: 'Gasto de IA', href: '/admin/gasto-ia', icon: <Coin size={17} />, adminOnly: true },
     ],
   },
 ];

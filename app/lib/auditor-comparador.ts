@@ -9,7 +9,9 @@
 // Los prompts son los bloques del .md tal cual (auditor-comparador-prompts.ts, GENERADO). Lo que
 // se agrega acá es solo el CONTRATO de cada llamada (qué recibe, qué devuelve) y los datos.
 // Lo que la IA devuelve NO se guarda directo: pasa por procesarItemComparador() (core).
-import { crearChatIA } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('auditor', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { MOTOR_KIMI_ESTRICTO, MOTOR_GLM, type MotorComparacion } from '@/app/lib/auditor-tecnico';
 import {

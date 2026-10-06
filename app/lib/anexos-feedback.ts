@@ -13,7 +13,9 @@
 // se repiten porque el patrón de etiqueta es común a muchos organismos (ANID, GORE, municipios
 // suelen copiar el mismo formulario tipo).
 import pool from '@/app/lib/db';
-import { crearChatIA, iaTextoConfigurada } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase, iaTextoConfigurada } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('anexos', crearChatIABase);
 
 const MAX_REGLAS_INYECTADAS = 40;
 

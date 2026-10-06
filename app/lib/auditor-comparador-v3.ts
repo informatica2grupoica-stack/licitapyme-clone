@@ -5,7 +5,9 @@
 // Cada opción guarda su propia corrida en auditor_verificacion_tecnica con version_prompt = 'v3.0' (las filas v2.0 anteriores ya no se usan).
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
-import { crearChatIA } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('auditor', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { MOTOR_KIMI_ESTRICTO } from '@/app/lib/auditor-tecnico';
 import { requisitosDeLinea, documentosDeOpcion, bloqueDocumentos, SYS_L2_TEC, type DocumentoOpcion } from '@/app/lib/auditor-tecnico-v2';

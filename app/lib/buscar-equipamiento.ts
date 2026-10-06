@@ -8,7 +8,9 @@
 // metódico (ingeniería inversa → proveedor Chile → homólogos importables → tabla con colores de
 // cumplimiento → veredicto de factibilidad) que se degrada si se deja a criterio del LLM en cada
 // corrida. Solo se le inyectan las specs_tecnicas ya extraídas.
-import { crearChatIA, MODELO_TEXTO } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase, MODELO_TEXTO } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('costeo', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 
 export interface BusquedaEquipamiento {

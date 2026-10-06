@@ -26,7 +26,9 @@ import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
 import { parseJsonIA, parseJsonIAConTraza } from '@/app/lib/json-ia';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
-import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO, conAcumuladorCostoIA, costoAcumuladoActual } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase, IA_TEXT_PROVIDER, MODELO_TEXTO, conAcumuladorCostoIA, costoAcumuladoActual } from '@/app/lib/gemini';
+import { conModuloIA, conUsuarioIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('viabilidad', crearChatIABase);
 import { leerClausulaAdjudicacion } from '@/app/lib/clausulas-adjudicacion';
 import { parsearPlanillaCosteo, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, extraerSeccionesLineaProducto, seccionesSonFichasDeCaracteristicas, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, detectarLicitacionTipoMultiple, extraerPresupuestoPorLineaTabla, extraerListadoCanonicoBases, decidirReemplazoPorCanonica, esFilaNoProducto } from '@/app/lib/planilla-costeo-parser';
 
@@ -52,6 +54,7 @@ import { LocalizadorCitas, localizarCitasInforme } from '@/app/lib/viabilidad-v4
 import { CATALOGO, decidirAdjudicacion, deduplicarEvidencias, evidenciasDeDetectores, evidenciasDelModelo, marcarEvidenciasQueCuentan, type EvidenciaAdj, type SenalesDetectores } from '@/app/lib/viabilidad-v4/adjudicacion';
 import { HITO_LABEL, NOTA_ACEPTACION_OC, calcularPlazoPrevio, detectarNegaciones, feriadosPara, normalizarHitos, type HitoInforme } from '@/app/lib/viabilidad-v4/plazo-previo';
 import { calcularMulta, indicadorNecesario } from '@/app/lib/viabilidad-v4/multa';
+import { extraerPasajesPlazosMultas, necesitaLecturaDirigida, aplicarLecturaDirigida, SYSTEM_LECTURA_DIRIGIDA, promptUsuarioLecturaDirigida } from '@/app/lib/viabilidad-v4/lectura-dirigida';
 import { NOTA_ART_32, interpretarMonto, interpretarPorLinea, normalizarCaracter, sumaLineasCuadra } from '@/app/lib/viabilidad-v4/presupuesto';
 import { barridoConsecuencias, consolidarVisitaYMuestras, decidirSuministro, detectarSenalesSuministro, esObviedad } from '@/app/lib/viabilidad-v4/admisibilidad';
 import { normalizarTextosInforme } from '@/app/lib/viabilidad-v4/textos';
@@ -1567,6 +1570,31 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
     }
   }
 
+  // ─── LECTURA DIRIGIDA: multa por atraso + hitos del plazo previo ──────────────────────────────
+  // La primera pasada lee ~75.000 tokens y es inconsistente con estos datos (1057536-136-LE26: una
+  // corrida "sin multas", otra con los plazos citados pero "no indicados"). Segunda pasada chica
+  // solo sobre los pasajes que hablan de ellos; corrige lo vacío o contradictorio. Ver lectura-dirigida.ts.
+  try {
+    const hitosPlazo = plazos.hitos as HitoInforme[];
+    const motivos = necesitaLecturaDirigida(p3, hitosPlazo);
+    let salida: any = null;
+    if (motivos.length) {
+      const pasajes = extraerPasajesPlazosMultas(fuentes);
+      if (pasajes.length) {
+        console.log(`[viabilidad-ia-v4] ${codigo}: lectura dirigida (${pasajes.reduce((a, p) => a + p.texto.length, 0)} chars en ${pasajes.length} pasaje(s)) — ${motivos.join('; ')}`);
+        try {
+          salida = await Promise.race([
+            llamarGlmJSON(SYSTEM_LECTURA_DIRIGIDA, promptUsuarioLecturaDirigida(pasajes)),
+            new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout lectura dirigida')), 90_000)),
+          ]);
+        } catch (e) { console.warn(`[viabilidad-ia-v4] ${codigo}: lectura dirigida sin respuesta (${String(e).slice(0, 100)}) — solo reparación por frase.`); }
+      }
+      const res = aplicarLecturaDirigida(p3, hitosPlazo, salida, (c: any) => loc.localizar(c));
+      p3._lectura_dirigida = { motivos, reparados: res.reparados, avisos: res.avisos, con_ia: !!salida };
+      if (res.reparados.length) console.log(`[viabilidad-ia-v4] ${codigo}: lectura dirigida corrigió → ${res.reparados.join(' | ')}`);
+    }
+  } catch (e) { console.warn(`[viabilidad-ia-v4] ${codigo}: lectura dirigida falló:`, String(e).slice(0, 140)); }
+
   // ─── P1 · ADJUDICACIÓN: evidencias tipadas + chequeo semántico + tabla de decisión ─────────
   const adj = obj('adjudicacion');
   let evidencias: EvidenciaAdj[] = deduplicarEvidencias([
@@ -2195,7 +2223,12 @@ export async function guardarColumnasNivel(codigo: string, score: any): Promise<
 // reportar progreso — hoy alimenta la barra de progreso del panel de viabilidad. Fases:
 // leyendo_documentos → analizando_ia → verificando → guardando.
 export type FaseAnalisisIA = 'leyendo_documentos' | 'analizando_ia' | 'verificando' | 'guardando';
-export async function analizarYGuardarViabilidadIA(codigo: string, onFase?: (fase: FaseAnalisisIA) => void, opts: OpcionesAnalisis = {}): Promise<ViabilidadIAResult | null> {
+// Atribuye todo el gasto de IA de la corrida a esta licitación (ver ia-uso.ts, /admin/gasto-ia).
+export function analizarYGuardarViabilidadIA(codigo: string, onFase?: (fase: FaseAnalisisIA) => void, opts: OpcionesAnalisis = {}): Promise<ViabilidadIAResult | null> {
+  return conUsuarioIA({ licitacion: codigo }, () => analizarYGuardarViabilidadIAImpl(codigo, onFase, opts));
+}
+
+async function analizarYGuardarViabilidadIAImpl(codigo: string, onFase?: (fase: FaseAnalisisIA) => void, opts: OpcionesAnalisis = {}): Promise<ViabilidadIAResult | null> {
   // Analizador ÚNICO v4.0 + nivel v4.1: el modelo extrae, el código decide; puente al costeo
   // (manifiesto_productos/modalidad/estructura_costeo que arma el análisis).
   const rv3 = await analizarViabilidadIAV3(codigo, onFase, opts);

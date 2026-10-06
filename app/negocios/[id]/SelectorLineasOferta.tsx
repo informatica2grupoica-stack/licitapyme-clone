@@ -15,8 +15,9 @@
 // Mientras no se conteste, el sistema se comporta como siempre (genera todo): el banner insiste,
 // no bloquea.
 import { useState, useEffect, useCallback } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useToast } from '@/app/components/ui/toast';
-import { IconListCheck as ListChecks, IconLoader2 as Loader2, IconCheck as Check, IconX as X, IconPencil as Pencil, IconAlertTriangle as AlertTriangle } from '@tabler/icons-react';
+import { IconListCheck as ListChecks, IconLoader2 as Loader2, IconCheck as Check, IconX as X, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown } from '@tabler/icons-react';
 
 interface LineaDisponible {
   linea: number;
@@ -60,9 +61,8 @@ export function SelectorLineasOferta({ negocioId, onGuardado }: {
       setDecidido(!!d.decidido);
       setLineas(d.lineas || []);
       setDesalineado(d.checklistDesalineado || []);
-      // Sin decisión previa el panel arranca ABIERTO: si viniera colapsado detrás de un botón,
-      // el caso normal (nadie contestó todavía) se seguiría comportando como si no existiera.
-      setAbierto(!d.decidido);
+      // Plegado siempre: la franja de arriba resume el estado (decidido o pendiente) y se despliega a pedido.
+      setAbierto(false);
     } catch { /* si falla, el banner simplemente no aparece: nada se rompe */ }
     finally { setCargando(false); }
   }, [negocioId]);
@@ -104,29 +104,35 @@ export function SelectorLineasOferta({ negocioId, onGuardado }: {
 
   const elegidas = lineas.filter(l => l.ofertamos);
 
-  // Ya decidido y cerrado: una franja discreta con el resumen y el lápiz para cambiarlo.
-  if (decidido && !abierto) {
-    return (
-      <div className="mb-5 flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-[12px] text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-300">
-        <ListChecks size={14} className="text-teal-600 flex-shrink-0" />
-        <span className="min-w-0">
-          Ofertamos {elegidas.length} de {lineas.length} línea{lineas.length === 1 ? '' : 's'}:{' '}
-          <span className="font-semibold text-zinc-800 dark:text-zinc-100">
-            {elegidas.map(l => l.linea).join(', ')}
-          </span>
-        </span>
-        <button
-          onClick={() => setAbierto(true)}
-          className="ml-auto flex flex-shrink-0 items-center gap-1 rounded border border-zinc-300 px-2 py-0.5 font-semibold hover:bg-white dark:border-zinc-600 dark:hover:bg-zinc-700"
-        >
-          <Pencil size={11} /> Cambiar
-        </button>
-      </div>
-    );
-  }
+  // Cerrar sin guardar descarta lo que se haya marcado (vuelve a lo guardado).
+  const cerrar = () => { setAbierto(false); cargar(); };
+  const resumen = decidido
+    ? <>Ofertamos {elegidas.length} de {lineas.length} línea{lineas.length === 1 ? '' : 's'}:{' '}
+        <span className="font-semibold text-zinc-800 dark:text-zinc-100">{elegidas.map(l => l.linea).join(', ')}</span></>
+    : <>Esta licitación es por línea ({lineas.length}): <span className="font-semibold">falta elegir a cuáles vamos</span></>;
 
   return (
-    <div className="mb-5 rounded-lg border border-teal-200 bg-teal-50/60 p-4 dark:border-teal-500/30 dark:bg-teal-500/10">
+    <div className="mb-5">
+      <button
+        type="button"
+        onClick={() => (abierto ? cerrar() : setAbierto(true))}
+        aria-expanded={abierto}
+        className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-[12.5px] transition-colors ${
+          decidido
+            ? 'border-zinc-200 bg-zinc-50 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-300 dark:hover:bg-zinc-800'
+            : 'border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200'
+        }`}
+      >
+        <ListChecks size={15} className={`flex-shrink-0 ${decidido ? 'text-teal-600' : 'text-amber-600'}`} />
+        <span className="min-w-0 flex-1">{resumen}</span>
+        <span className="flex-shrink-0 text-[11.5px] font-semibold">{abierto ? 'Ocultar' : decidido ? 'Cambiar' : 'Elegir líneas'}</span>
+        <ChevronDown size={15} className={`flex-shrink-0 transition-transform duration-200 ${abierto ? 'rotate-180' : ''}`} />
+      </button>
+      <AnimatePresence initial={false}>
+        {abierto && (
+          <motion.div key="panel" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: 'easeOut' }} className="overflow-hidden">
+    <div className="mt-2 rounded-lg border border-teal-200 bg-teal-50/60 p-4 dark:border-teal-500/30 dark:bg-teal-500/10">
       <div className="mb-1 flex items-center gap-2">
         <ListChecks size={15} className="text-teal-600" />
         <h3 className="text-[13px] font-bold text-teal-900 dark:text-teal-200">
@@ -225,13 +231,17 @@ export function SelectorLineasOferta({ negocioId, onGuardado }: {
         </button>
         {decidido && (
           <button
-            onClick={() => { setAbierto(false); cargar(); }}
+            onClick={cerrar}
             className="flex items-center gap-1 rounded border border-zinc-300 px-2.5 py-1.5 text-[12px] font-semibold text-zinc-600 hover:bg-white dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
             <X size={12} /> Cancelar
           </button>
         )}
       </div>
+    </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -17,7 +17,9 @@
 // persistida y compartida entre usuarios (tabla prefiltro_licitacion).
 
 import pool from '@/app/lib/db';
-import { crearChatIA, iaTextoConfigurada, MODELO_TEXTO } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase, iaTextoConfigurada, MODELO_TEXTO } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('prefiltro', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { leerCache } from '@/app/lib/licitaciones-cache';
 

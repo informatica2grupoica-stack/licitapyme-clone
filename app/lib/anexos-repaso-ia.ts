@@ -22,7 +22,9 @@
 // que degrade lo que estaba bien destruye la automatización y hace que el humano vuelva a llenar
 // todo a mano — el resultado sería PEOR que no revisar. Por eso el prompt exige error evidente, y
 // por eso existe el cortacircuito de abajo.
-import { crearChatIA } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('anexos', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { campoCalzaConLaEtiqueta, type EmpresaCampos, type Resolucion } from '@/app/lib/anexos-ia-motor';
 import type { CandidatoCelda, CandidatoInline } from '@/app/lib/anexos-detectar';

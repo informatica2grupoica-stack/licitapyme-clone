@@ -3,7 +3,9 @@
 // (caso típico: varias fichas/capturas de productos DISTINTOS pegadas en un PDF, sin numerar), la IA solo AGRUPA
 // páginas por producto y sugiere a qué línea pertenece cada grupo. No compara ni inventa datos: el texto de cada
 // bloque es el del documento tal cual. La comparación posterior sigue siendo la de siempre.
-import { crearChatIA } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('auditor', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { MOTOR_GLM } from '@/app/lib/auditor-tecnico';
 import type { BloqueDocumento, LineaAMapear } from '@/app/lib/auditor-segmentacion';

@@ -7,7 +7,9 @@
 // Reutiliza lo ya extraído en `analisis_ia_licitacion` (no vuelve a leer los PDFs).
 
 import pool from '@/app/lib/db';
-import { crearChatIA, iaTextoConfigurada, ViabilidadJuicioIA } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase, iaTextoConfigurada, ViabilidadJuicioIA } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('viabilidad', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 

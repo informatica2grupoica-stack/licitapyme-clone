@@ -22,7 +22,9 @@ import { registrarEvento } from '@/app/lib/historial';
 import { obtenerAsignacion, listarProductosCompra } from '@/app/lib/compras';
 import { obtenerOrigenCompra, calcularCostoAterrizado } from '@/app/lib/compras-importacion';
 import { crearProductoObuma, siguienteSkuMercadoPublico, listarProductosObuma } from '@/app/lib/obuma';
-import { crearChatIA } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('compras', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 
 async function licitacionDeNegocio(negocioId: number): Promise<string | null> {

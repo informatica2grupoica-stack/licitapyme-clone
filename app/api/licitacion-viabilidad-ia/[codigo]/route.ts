@@ -12,6 +12,7 @@ import { normalizarTextosInforme } from '@/app/lib/viabilidad-v4/textos';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { analizarYGuardarViabilidadIA, calcularDocsHash } from '@/app/lib/viabilidad-ia';
+import { conUsuarioIA } from '@/app/lib/ia-uso';
 import { getAuthedUser, tomarLock, liberarLock, permitido, puedeVerLicitacion } from '@/app/lib/api-auth';
 import { iaTextoConfigurada } from '@/app/lib/gemini';
 import { registrarActividad } from '@/app/lib/actividad';
@@ -360,7 +361,9 @@ export async function POST(request: NextRequest, { params }: Params) {
   });
 
   Promise.race([
-    analizarYGuardarViabilidadIA(codigoDecoded, (fase) => { if (!settled) void actualizarFaseJob(codigoDecoded, runId, fase); }, { fresco: !!force }),
+    // El gasto de IA de esta corrida queda a nombre de quien la pidió (la corrida sigue después de responder).
+    conUsuarioIA({ usuarioId: usuario?.id ?? null, usuarioNombre: usuario?.nombre || usuario?.email || null },
+      () => analizarYGuardarViabilidadIA(codigoDecoded, (fase) => { if (!settled) void actualizarFaseJob(codigoDecoded, runId, fase); }, { fresco: !!force })),
     deadline,
   ])
     .then((informeIA) => {

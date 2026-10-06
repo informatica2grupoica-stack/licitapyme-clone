@@ -8,7 +8,9 @@
 // que un mal aprendizaje se revierte sin tocar el prompt base.
 
 import pool from '@/app/lib/db';
-import { crearChatIA, iaTextoConfigurada } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase, iaTextoConfigurada } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('viabilidad', crearChatIABase);
 
 const MAX_REGLAS_INYECTADAS = 40; // tope de reglas que entran al prompt (las más recientes)
 

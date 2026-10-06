@@ -43,9 +43,20 @@ export interface DecisionNoAdjudicadas {
   conflictos: Array<{ productoId: number; correlativo: number; subestado: string }>;
   /** Por qué no se evaluó nada (null = se evaluó). */
   omitido: string | null;
+  /** Aviso REAL para la pantalla: el acta separa líneas y hay más productos activos que líneas ganadas,
+   *  pero no se pudo cruzar por número. Solo se emite con esa evidencia; nunca por simple sospecha. */
+  revisarAMano: string | null;
 }
 
-const vacia = (omitido: string | null): DecisionNoAdjudicadas => ({ marcar: [], restaurar: [], conflictos: [], omitido });
+const vacia = (omitido: string | null): DecisionNoAdjudicadas => ({ marcar: [], restaurar: [], conflictos: [], omitido, revisarAMano: null });
+
+function sinCruce(motivo: string, activos: number, ganadas: number): DecisionNoAdjudicadas {
+  const d = vacia(motivo);
+  if (ganadas > 0 && activos > ganadas) {
+    d.revisarAMano = `El acta de MP nos adjudicó ${ganadas} línea(s) pero Compras tiene ${activos} producto(s) activos, y no se pudo cruzar por número de línea (${motivo.replace(/: no se toca nada\.?$/, '').toLowerCase()}). Revisa en el acta cuáles se ganaron y renuncia a mano las que no.`;
+  }
+  return d;
+}
 
 /** Solo estos estados admiten pasar a NO_ADJUDICADA solos: todavía no se compró nada. */
 const ESTADOS_SIN_COMPRA = ['PENDIENTE', 'COTIZANDO'];
@@ -70,12 +81,14 @@ export function decidirNoAdjudicadas(
   if (!lineas.some(l => l.esNuestra)) return vacia('El acta no marca ninguna línea como nuestra: no se toca nada.');
 
   const conCorrelativo = productos.filter(p => p.correlativo != null);
+  const activos = productos.filter(p => !esSubestadoFuera(p.subestado)).length;
+  const ganadas = lineas.filter(l => l.esNuestra).length;
   const vistos = new Set<number>();
   for (const p of conCorrelativo) {
     const c = Number(p.correlativo);
-    if (vistos.has(c)) return vacia('Hay productos con el mismo correlativo: no se puede cruzar con seguridad.');
+    if (vistos.has(c)) return sinCruce('Hay productos con el mismo correlativo: no se puede cruzar con seguridad.', activos, ganadas);
     vistos.add(c);
-    if (!porCorrelativo.has(c)) return vacia('La numeración del costeo no calza con la del acta: no se toca nada.');
+    if (!porCorrelativo.has(c)) return sinCruce('La numeración del costeo no calza con la del acta: no se toca nada.', activos, ganadas);
   }
 
   const d = vacia(null);

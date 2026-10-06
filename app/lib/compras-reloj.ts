@@ -7,7 +7,9 @@ import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { sumarDiasHabiles, sumarDiasCorridos } from '@/app/lib/compras';
 import { obtenerAsignacion } from '@/app/lib/compras';
-import { crearChatIA } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+const crearChatIA = conModuloIA('compras', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 
 export type PlazoTipo = 'HABILES' | 'CORRIDOS';
