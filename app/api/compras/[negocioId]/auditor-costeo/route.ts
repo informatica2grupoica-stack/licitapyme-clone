@@ -14,8 +14,9 @@ import { puedeOperarCompras, puedeVerCompras } from '@/app/api/compras/[negocioI
 import { esAsesor } from '@/app/api/negocios/[id]/comercial/route';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import {
-  armarPanel, forzarAuditoria, generarLecturaPosicion, iniciarLoteEnSegundoPlano, registrarHabilitacion, registrarJustificacionAhorro,
+  armarPanel, cargarEstadoCosteo, filasNoAdjudicadas, forzarAuditoria, generarLecturaPosicion, iniciarLoteEnSegundoPlano, registrarHabilitacion, registrarJustificacionAhorro,
 } from '@/app/lib/auditor-compras';
+import { lineasDelCosteo } from '@/app/lib/auditor-compras-core';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -57,6 +58,9 @@ export async function POST(request: NextRequest, { params }: Params) {
     switch (body?.accion) {
       case 'auditar': {
         if (!body.filaId) return NextResponse.json({ error: 'Falta la línea.' }, { status: 400 });
+        const estado = await cargarEstadoCosteo(negId);
+        const linea = estado ? lineasDelCosteo(estado).find(l => l.id === String(body.filaId)) : null;
+        if (linea && (await filasNoAdjudicadas(negId, [linea])).has(linea.id)) return NextResponse.json({ error: 'Esta línea no fue adjudicada: no se audita.' }, { status: 409 });
         // «Volver a auditar» a mano fuerza la corrida completa con IA aunque nada haya cambiado.
         forzarAuditoria(negId, String(body.filaId), actor);
         return NextResponse.json({ success: true, iniciado: true });

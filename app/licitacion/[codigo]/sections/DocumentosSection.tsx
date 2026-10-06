@@ -906,7 +906,19 @@ function ProgresoBanner({ fase, totalDocs }: { fase: 'descargando' | 'clasifican
 
 // Lista de "Documentos Propios" (los que creamos/editamos: costeo, informe, subidas). Formato lista
 // con acciones por fila: Ver, Descargar, Renombrar (inline), Reemplazar (subir versión nueva) y Eliminar.
-type DocPropio = DocumentoAdjunto & { categoria?: string; subcategoria?: string };
+type DocPropio = DocumentoAdjunto & {
+  categoria?: string; subcategoria?: string;
+  subido_por_nombre?: string | null; subido_at?: string | null;
+};
+
+// "Subido por Fulano · 06-10-2026 14:32" (hora de Chile). Vacío si no hay ninguno de los dos datos.
+function textoSubidoPor(nombre?: string | null, at?: string | null): string {
+  const d = at ? new Date(at) : null;
+  const cuando = d && !isNaN(d.getTime())
+    ? d.toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).replace(',', '')
+    : '';
+  return [nombre ? `Subido por ${nombre}` : '', cuando].filter(Boolean).join(' · ');
+}
 
 const CAJA_SIN_CLASIFICAR = 'SIN_CLASIFICAR';
 function claveCajaPropia(sub?: string | null) {
@@ -977,6 +989,9 @@ function DocPropioItem({
         )}
         {busy && <Loader2 size={12} className="animate-spin text-violet-500 flex-shrink-0 mt-0.5" />}
       </div>
+      {textoSubidoPor(doc.subido_por_nombre, doc.subido_at) && (
+        <p className="pl-[26px] text-[10px] text-slate-400 leading-tight">{textoSubidoPor(doc.subido_por_nombre, doc.subido_at)}</p>
+      )}
       <div className="flex items-center justify-between pl-[26px]">
         <span className="text-[10px] text-slate-400 leading-tight flex-shrink-0">
           {doc.size ? formatFileSize(doc.size) : ''}

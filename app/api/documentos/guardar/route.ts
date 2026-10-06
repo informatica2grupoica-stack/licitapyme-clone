@@ -4,6 +4,7 @@ import { CopyObjectCommand } from '@aws-sdk/client-s3';
 import pool from '@/app/lib/db';
 import { puedeVerLicitacion } from '@/app/lib/api-auth';
 import { registrarActividad } from '@/app/lib/actividad';
+import { ahoraChileSQL } from '@/app/lib/tz';
 import { r2Client, contentDispositionInline } from '@/app/lib/r2';
 
 // Fija el nombre de descarga correcto sobre el objeto que el navegador ACABA de subir directo a
@@ -56,8 +57,8 @@ export async function POST(request: NextRequest) {
     try {
       // Con categoría + subcategoría + categoria_manual (migraciones 45/47).
       await pool.query(
-        `INSERT INTO documentos_cache (usuario_id, licitacion_codigo, documento_nombre, documento_url_local, size_bytes, categoria, subcategoria, categoria_manual)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO documentos_cache (usuario_id, licitacion_codigo, documento_nombre, documento_url_local, size_bytes, categoria, subcategoria, categoria_manual, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            documento_url_local = VALUES(documento_url_local),
            size_bytes = VALUES(size_bytes),
@@ -65,7 +66,7 @@ export async function POST(request: NextRequest) {
            subcategoria = COALESCE(VALUES(subcategoria), subcategoria),
            categoria_manual = GREATEST(categoria_manual, VALUES(categoria_manual)),
            usuario_id = COALESCE(usuario_id, VALUES(usuario_id))`,
-        [userId ? parseInt(userId) : null, licitacionCodigo, documentoNombre, url, size || 0, categoria || null, subcategoria || null, esManual ? 1 : 0]
+        [userId ? parseInt(userId) : null, licitacionCodigo, documentoNombre, url, size || 0, categoria || null, subcategoria || null, esManual ? 1 : 0, ahoraChileSQL()]
       );
     } catch {
       try {

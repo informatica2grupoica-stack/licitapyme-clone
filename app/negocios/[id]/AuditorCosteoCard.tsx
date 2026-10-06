@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import {
   IconLoader2 as Loader2, IconShieldCheck as ShieldCheck, IconAlertTriangle as AlertTriangle, IconRefresh as RefreshCw, IconChevronDown as ChevronDown,
-  IconChevronUp as ChevronUp, IconEye as Eye, IconX as X, IconFileText as FileText, IconExternalLink as ExternalLink, IconCopy as Copy, IconPhoto as Photo, IconScale as Scale, IconFlag as Flag,
+  IconChevronUp as ChevronUp, IconEye as Eye, IconX as X, IconFileText as FileText, IconExternalLink as ExternalLink, IconCopy as Copy, IconPhoto as Photo, IconScale as Scale, IconFlag as Flag, IconLock as Lock,
 } from '@tabler/icons-react';
 
 type Veredicto = 'VERIFICADO' | 'VERIFICADO_CON_ALERTAS' | 'REQUIERE_HABILITACION' | 'NO_VERIFICADO' | 'SIN_RESPALDO' | 'PENDIENTE_CRUCE_TECNICO';
@@ -31,7 +31,7 @@ const ACCION: Record<Accion, { txt: string; cls: string }> = {
 };
 interface Opcion { opcion: string; origen: 'asistente' | 'auditor'; costo_bodega: number | null; neto_unitario: number | null; motivo_sin_normalizar: string | null; stock?: string; tipo_respaldo?: string; url?: string; despacho?: string }
 interface LineaPanel {
-  linea: { id: string; item: number; detalle: string; unidad: string; sku: string; cantidad: number | null; costoRegistradoNeto: number | null; links: string[]; esGastoExtra: boolean; grupo: string };
+  linea: { id: string; item: number; lineaReal?: number | null; detalle: string; unidad: string; sku: string; cantidad: number | null; costoRegistradoNeto: number | null; links: string[]; esGastoExtra: boolean; grupo: string };
   guardada: null | {
     auditadoAt: string; modeloIA: string; pasada: string; cambiosVsAnterior?: string[];
     capturas: Array<{ id: number; url: string; estado: string; capturadoAt: string; hayImagen: boolean }>;
@@ -42,7 +42,7 @@ interface LineaPanel {
   derivada: null | { veredicto: Veredicto; bloqueos: Bloqueo[]; alertas: Alerta[]; pasaAnexosOk: boolean; impactoCostoTotalNeto: number | null; habilitacionRequerida: string; v4: { margenAntes: number | null; margenDespues: number | null; caidaPuntos: number | null } };
   justificacionAhorro: string | null; justificacionPor: string | null;
   habilitacion: null | { nivel: 'EM' | 'CA'; porNombre: string | null; motivo: string; at: string };
-  auditando: boolean;
+  auditando: boolean; noAdjudicada?: boolean;
 }
 interface Posicion {
   presupuesto: { monto_neto: number | null; nivel: string | null; fuente: string };
@@ -170,6 +170,16 @@ export function AuditorCosteoCard({ negocioId, puedeOperar }: { negocioId: numbe
 
       <div className="space-y-2">
         {panel.lineas.map(lp => {
+          if (lp.noAdjudicada) return (
+            <div key={lp.linea.id} aria-disabled className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl border border-zinc-200 bg-zinc-50/70 opacity-60 cursor-not-allowed select-none">
+              <span className="text-[11px] font-bold text-zinc-400 w-6 shrink-0">#{lp.linea.lineaReal ?? lp.linea.item}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[12.5px] font-semibold text-zinc-600 truncate line-through decoration-zinc-400">{lp.linea.detalle || '(sin detalle)'}</span>
+                <span className="block text-[11px] text-zinc-500">Línea NO adjudicada: el acta de Mercado Público se la dio a otro proveedor. No se audita ni se compra.</span>
+              </span>
+              <span className="flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full border bg-zinc-100 text-zinc-500 border-zinc-200"><Lock size={11} /> Bloqueada</span>
+            </div>
+          );
           const abiertaEsta = abierta === lp.linea.id;
           const v = lp.derivada?.veredicto;
           const s = lp.guardada?.sistema;

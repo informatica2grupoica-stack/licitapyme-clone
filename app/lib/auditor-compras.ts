@@ -49,6 +49,24 @@ async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
   return (rows as any[])[0]?.licitacion_codigo ?? null;
 }
 
+/** Filas del costeo cuya línea el acta de MP adjudicó a OTRO proveedor (producto de Compras en NO_ADJUDICADA).
+ *  Se cruzan igual que en filasDeCotizacion: por número de línea si es único, si no por descripción. Solo se
+ *  considera NO_ADJUDICADA (no RENUNCIADO: esa sí fue ganada y sigue su propio trámite). */
+export async function filasNoAdjudicadas(negocioId: number, lineas: LineaCosteo[]): Promise<Set<string>> {
+  const [prods] = await pool.query(`SELECT correlativo, descripcion, subestado FROM compras_producto WHERE negocio_id = ?`, [negocioId]).catch(() => [[]] as any) as any;
+  const todos = prods as any[];
+  const fuera = new Set<string>();
+  if (!todos.some(p => p.subestado === 'NO_ADJUDICADA')) return fuera;
+  const norm = (x: string) => x.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 80);
+  for (const l of lineas) {
+    if (l.esGastoExtra) continue;
+    const p = todos.find(x => l.lineaReal != null && x.correlativo === l.lineaReal && todos.filter(y => y.correlativo === l.lineaReal).length === 1)
+      ?? todos.find(x => norm(String(x.descripcion)) === norm(l.detalle));
+    if (p && p.subestado === 'NO_ADJUDICADA') fuera.add(l.id);
+  }
+  return fuera;
+}
+
 // ── Contexto por línea: técnico, licitación, cotizaciones, histórico ─────────────────────────────
 interface ProductoTecnico { estado: 'aprobado' | 'pendiente' | 'no_existe'; marca: string; modelo: string; accesorios: string[]; titulo: string }
 
@@ -220,6 +238,7 @@ export async function auditarLinea(negocioId: number, filaId: string, opts: Opci
   if (!estado) throw new Error('Este negocio no tiene costeo cargado.');
   const linea = lineasDelCosteo(estado).find(l => l.id === filaId);
   if (!linea) throw new Error('No encontré esa línea en el costeo (¿se borró?).');
+  if ((await filasNoAdjudicadas(negocioId, [linea])).has(linea.id)) throw new Error('Esta línea no fue adjudicada: no se audita.');
   const hoyISO = ahoraChileSQL().slice(0, 10);
   const licitacionCodigo = await licitacionDeNegocio(negocioId);
 
@@ -426,7 +445,8 @@ export function iniciarLoteEnSegundoPlano(negocioId: number, tipo: 'todo' | 'fin
   (async () => {
     const estado = await cargarEstadoCosteo(negocioId);
     if (!estado) throw new Error('Este negocio no tiene costeo cargado.');
-    const ls = lineasDelCosteo(estado).filter(l => (l.ofertamos && !l.esGastoExtra) || l.links.length > 0);
+    const todas = lineasDelCosteo(estado); const perdidas = await filasNoAdjudicadas(negocioId, todas);
+    const ls = todas.filter(l => !perdidas.has(l.id) && ((l.ofertamos && !l.esGastoExtra) || l.links.length > 0));
     const lote = lotes.get(negocioId)!; lote.total = ls.length + (tipo === 'final' ? 1 : 0);
     if (tipo === 'final') {
       await pasadaFinal(negocioId, actor, () => { lote.hechas++; });
@@ -462,6 +482,8 @@ export function lineasAuditandoAhora(negocioId: number): string[] {
 export interface LineaPanel {
   linea: LineaCosteo; guardada: LineaGuardada | null; derivada: LineaDerivada | null;
   justificacionAhorro: string | null; justificacionPor: string | null; habilitacion: Habilitacion | null; auditando: boolean;
+  /** El acta de MP la adjudicó a otro proveedor: se muestra bloqueada y no entra a ningún cálculo. */
+  noAdjudicada: boolean;
 }
 export interface PanelAuditorCompras {
   negocioId: number; hayCostea: boolean; lineas: LineaPanel[];
@@ -517,9 +539,11 @@ export async function armarPanel(negocioId: number, lecturaNueva?: string | null
   const estado = await cargarEstadoCosteo(negocioId);
   const parametros = PARAMS;
   if (!estado) return { negocioId, hayCostea: false, lineas: [], margen: null, posicion: null, mensajesProveedor: [], resumen: { total: 0, verificadas: 0, conAlertas: 0, bloqueadas: 0, sinAuditar: 0, pendientes: 0, pasaAnexosOk: false }, pasadaFinal: null, parametros, migracionAplicada: true, lote: null, preparacion: null, programadas: [] };
-  const lineas = lineasDelCosteo(estado);
+  const todasLasLineas = lineasDelCosteo(estado);
+  const perdidas = await filasNoAdjudicadas(negocioId, todasLasLineas);
+  const lineas = todasLasLineas.filter(l => !perdidas.has(l.id));   // las no adjudicadas se listan, pero no cuentan para nada
   let guardadas: Map<string, any>;
-  try { guardadas = await filasGuardadas(negocioId); } catch { return { negocioId, hayCostea: true, lineas: lineas.map(l => ({ linea: l, guardada: null, derivada: null, justificacionAhorro: null, justificacionPor: null, habilitacion: null, auditando: false })), margen: null, posicion: null, mensajesProveedor: [], resumen: { total: lineas.length, verificadas: 0, conAlertas: 0, bloqueadas: 0, sinAuditar: lineas.length, pendientes: 0, pasaAnexosOk: false }, pasadaFinal: null, parametros, migracionAplicada: false, lote: null, preparacion: null, programadas: [] }; }
+  try { guardadas = await filasGuardadas(negocioId); } catch { return { negocioId, hayCostea: true, lineas: lineas.map(l => ({ linea: l, guardada: null, derivada: null, justificacionAhorro: null, justificacionPor: null, habilitacion: null, auditando: false, noAdjudicada: false })), margen: null, posicion: null, mensajesProveedor: [], resumen: { total: lineas.length, verificadas: 0, conAlertas: 0, bloqueadas: 0, sinAuditar: lineas.length, pendientes: 0, pasaAnexosOk: false }, pasadaFinal: null, parametros, migracionAplicada: false, lote: null, preparacion: null, programadas: [] }; }
 
   const verificados: Record<string, number | undefined> = {};
   for (const l of lineas) { const g = guardadas.get(l.id)?.guardada; if (g?.sistema.verificadoNeto != null) verificados[l.id] = g.sistema.verificadoNeto; }
@@ -527,12 +551,13 @@ export async function armarPanel(negocioId: number, lecturaNueva?: string | null
   const hoyISO = ahoraChileSQL().slice(0, 10);
   const auditando = new Set(lineasAuditandoAhora(negocioId));
 
-  const panelLineas: LineaPanel[] = lineas.map(l => {
+  const panelLineas: LineaPanel[] = todasLasLineas.map(l => {
+    if (perdidas.has(l.id)) return { linea: l, guardada: null, derivada: null, justificacionAhorro: null, justificacionPor: null, habilitacion: null, auditando: false, noAdjudicada: true };
     const r = guardadas.get(l.id);
     const g: LineaGuardada | null = r?.guardada ?? null;
     const hab: Habilitacion | null = r?.habilitado_nivel ? { nivel: r.habilitado_nivel, porNombre: r.habilitado_por_nombre, motivo: r.habilitado_motivo || '', at: r.habilitado_at } : null;
     const derivada = g ? derivarLinea(l, g, { margen, justificacionAhorro: r?.justificacion_ahorro ?? null, habilitacion: hab, hoyISO, esGastoExtra: l.esGastoExtra }) : null;
-    return { linea: l, guardada: g, derivada, justificacionAhorro: r?.justificacion_ahorro ?? null, justificacionPor: r?.justificacion_por_nombre ?? null, habilitacion: hab, auditando: auditando.has(l.id) };
+    return { linea: l, guardada: g, derivada, justificacionAhorro: r?.justificacion_ahorro ?? null, justificacionPor: r?.justificacion_por_nombre ?? null, habilitacion: hab, auditando: auditando.has(l.id), noAdjudicada: false };
   });
 
   const auditadas = Object.fromEntries(panelLineas.filter(p => p.guardada).map(p => [p.linea.id, p.guardada as LineaGuardada]));
@@ -545,7 +570,7 @@ export async function armarPanel(negocioId: number, lecturaNueva?: string | null
   try { pasadaFinal = (proy as any[])[0]?.pasada_final_json ? JSON.parse((proy as any[])[0].pasada_final_json) : null; } catch { /* sin pasada */ }
   posicion.lectura = lecturaNueva ?? lecturaPrevia;
 
-  const evaluables = panelLineas.filter(p => !p.linea.esGastoExtra || p.guardada);
+  const evaluables = panelLineas.filter(p => !p.noAdjudicada && (!p.linea.esGastoExtra || p.guardada));
   const auditadasN = evaluables.filter(p => p.derivada);
   const resumen = {
     total: evaluables.length,
@@ -619,7 +644,8 @@ OJO: costo_verificado.lineas_pendientes es la cantidad de líneas cuyo costo NO 
 export async function pasadaFinal(negocioId: number, actor?: { id: number; nombre: string | null } | null, alAvanzar?: () => void): Promise<NonNullable<PanelAuditorCompras['pasadaFinal']>> {
   const estado = await cargarEstadoCosteo(negocioId);
   if (!estado) throw new Error('Este negocio no tiene costeo cargado.');
-  const lineas = lineasDelCosteo(estado).filter(l => l.ofertamos && !l.esGastoExtra || l.links.length > 0);
+  const todas = lineasDelCosteo(estado); const perdidas = await filasNoAdjudicadas(negocioId, todas);
+  const lineas = todas.filter(l => !perdidas.has(l.id) && (l.ofertamos && !l.esGastoExtra || l.links.length > 0));
   const cambios: Array<{ item: number; detalle: string; cambios: string[] }> = [];
   for (const l of lineas) {
     try {

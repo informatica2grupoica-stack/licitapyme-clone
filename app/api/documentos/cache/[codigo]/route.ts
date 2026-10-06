@@ -22,8 +22,10 @@ export async function GET(
       [rows] = await pool.query(
         `SELECT dc.id, dc.documento_nombre, dc.documento_url_local, dc.size_bytes, dc.categoria, dc.subcategoria,
                 (om.documento_id IS NOT NULL) AS origen_manual,
-                (gs.documento_id IS NOT NULL) AS generado_separar, dc.created_at
+                (gs.documento_id IS NOT NULL) AS generado_separar, dc.created_at,
+                u.nombre AS subido_por_nombre
          FROM documentos_cache dc
+         LEFT JOIN usuarios u ON u.id = dc.usuario_id
          LEFT JOIN documentos_origen_manual om ON om.documento_id = dc.id
          LEFT JOIN documentos_generados_separar gs ON gs.documento_id = dc.id
          WHERE dc.licitacion_codigo = ?
