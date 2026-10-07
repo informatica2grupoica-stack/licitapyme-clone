@@ -201,9 +201,8 @@ C-bis. "MEJORAMIENTO DE …" (categoría "mejoramiento_ambiguo"): señal AMBIGUA
    Si la metadata muestra compra de bienes que sí vendemos → PASA.
    Si no hay señal de producto → REVISION_HUMANA (nunca EXCLUIDO directo).
 
-D. CONVENIO DE SUMINISTRO (categoría "convenio_suministro"): contrato de largo horizonte, entregas recurrentes mes a mes / según demanda.
-   Excepción: adquisición única / ejecución inmediata → PASA.
-   Excepción RM: si región = Región Metropolitana → REVISION_HUMANA (categoría "convenio_rm"), no EXCLUIDO.
+D. CONTRATO O CONVENIO DE SUMINISTRO (categoría "convenio_suministro"): contrato de largo horizonte (vigencia en meses o años) con compras por pedidos u órdenes de compra según requerimiento, entregas recurrentes mes a mes / quincenales según demanda, o "hasta agotar el presupuesto". Se EXCLUYE EN CUALQUIER REGIÓN (sin excepción de la Región Metropolitana) cuando la señal es inequívoca.
+   Excepción: adquisición única / ejecución inmediata con uno o pocos despachos → PASA. Las cantidades "referenciales" o "estimadas" SOLAS no excluyen. Si la señal es dudosa → PASA (lo decide Fase 2 con los documentos).
 
 E. COMMODITY DE ALTA OFERTA (categoría "commodity"): el proyecto COMPLETO es un solo genérico de mucha oferta (solo computadores, discos duros, resmas, impresoras estándar).
    Excepción: mezclado con productos especializados, o zona remota / baja competencia → PASA.
@@ -242,7 +241,7 @@ Devuelve EXACTAMENTE este JSON (un elemento por licitación, en el mismo orden):
     {
       "i": 0,
       "decision": "PASA | EXCLUIDO | REVISION_HUMANA",
-      "categoria_exclusion": "servicio | aseo_servicio | consultoria | asesoria | capacitacion_pura | obra_civil | construccion | mejoramiento_ambiguo | convenio_suministro | convenio_rm | commodity | null",
+      "categoria_exclusion": "servicio | aseo_servicio | consultoria | asesoria | capacitacion_pura | obra_civil | construccion | mejoramiento_ambiguo | convenio_suministro | commodity | null",
       "palabra_negativa_contextual": "término contextual que disparó la evaluación, o null",
       "motivo": "1 frase breve",
       "evidencia": "frase exacta tomada del nombre/descripción/ítems",
@@ -282,6 +281,8 @@ const CATEGORIAS_VALIDAS = new Set<string>([
 
 function normalizarCategoria(c: any): CategoriaExclusion {
   const s = String(c || '').toLowerCase().trim();
+  // v2.1: la excepción RM se eliminó; un registro viejo 'convenio_rm' se lee como suministro.
+  if (s === 'convenio_rm') return 'convenio_suministro';
   // Mapear categoría legacy a su equivalente v2.0
   if (s === 'alta_ejecucion_tecnica') return 'construccion';
   return CATEGORIAS_VALIDAS.has(s) ? (s as CategoriaExclusion) : null;

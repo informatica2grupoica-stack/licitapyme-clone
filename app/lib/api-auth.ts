@@ -150,9 +150,12 @@ export async function puedeVerLicitacion(req: NextRequest, codigo: string): Prom
 //   auditor_aprobar    → (05-oct-2026, pedido explícito) aprobar/visar DENTRO del Auditor (checklist técnico/
 //                       comercial, comparador de fichas, opciones del Auditor unificado) sin ser jefe de
 //                       ventas: `aprobar_comercial` además abre la bandeja de Aprobaciones y Compras.
+//   reglas_ia          → (07-oct-2026, spec viabilidad v4.0 P12) "CA": crear/ver/desactivar las reglas aprendidas de viabilidad y entrar a /admin/reglas-ia.
+//                       Como `compras_todo` en su día, NO se auto-otorga a todo admin: `permisosDeUsuario` lo deja en false para admin y
+//                       `esCA()` lee el valor GUARDADO. Se otorga solo al Asesor y al superusuario del dueño.
 //   anexos             → (05-oct-2026, pedido explícito) generar, separar y rellenar anexos (el creador de
 //                       anexos era admin-only "mientras se decidía quiénes más lo usaban").
-export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente' | 'compras' | 'compras_administracion' | 'compras_bodega' | 'compras_todo' | 'solo_compras' | 'compras_ver' | 'costeo_editor' | 'auditor_tecnico' | 'auditor_compra' | 'auditor_aprobar' | 'anexos';
+export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente' | 'compras' | 'compras_administracion' | 'compras_bodega' | 'compras_todo' | 'solo_compras' | 'compras_ver' | 'costeo_editor' | 'auditor_tecnico' | 'auditor_compra' | 'auditor_aprobar' | 'anexos' | 'reglas_ia';
 export type Permisos = Partial<Record<Permiso, boolean>>;
 const PERMISOS_ADMIN: Record<Permiso, boolean> = {
   ver_otros_negocios: true, acceso_radar: true, comentar_viabilidad: true, exportar: true, alertas_anexos: true,
@@ -160,6 +163,7 @@ const PERMISOS_ADMIN: Record<Permiso, boolean> = {
   compras_administracion: true, compras_bodega: true,
   compras_ver: true,
   costeo_editor: true, auditor_tecnico: true, auditor_compra: true, auditor_aprobar: true, anexos: true,
+  reglas_ia: false,    // 07-oct-2026 (P12, spec v4.0): "solo CA" crea/ve las reglas aprendidas. NO se hereda por ser admin: se otorga desde /admin/usuarios (Asesor + superusuario).
   solo_compras: false, // restricción, no privilegio: un admin nunca queda encerrado en Compras.
   compras_todo: true,  // 30-sep-2026 (pedido explícito): TODO admin ve y opera el módulo de Compras completo. Revierte el "solo asesor y yo" del 10-sep.
 };
@@ -214,9 +218,16 @@ export async function puedeVerNegocioAsignado(
 export async function tienePermiso(req: NextRequest, permiso: Permiso): Promise<boolean> {
   const u = await getAuthedUser(req);
   if (!u) return false;
+  if (permiso === 'reglas_ia') return esCA(u.id);   // nunca por ser admin
   if (u.rol === 'admin') return true;
   const p = await permisosDeUsuario(u.id, u.rol);
   return !!p[permiso];
+}
+
+/** ¿Es "CA" (reglas aprendidas de viabilidad)? Lee el permiso GUARDADO: ser admin no basta. */
+export async function esCA(userId: number): Promise<boolean> {
+  const p = await permisosCrudosDeUsuario(userId);
+  return !!p.reglas_ia;
 }
 
 // ─── Lock distribuido + rate-limit (best-effort sobre Upstash Redis) ─────────────

@@ -83,7 +83,7 @@ export const SYSTEM_LECTURA_DIRIGIDA = `Eres un lector de bases de licitación c
    Cada uno: { "hito":"", "estado":"EXISTE|NO_EXISTE|NO_INDICADO", "plazo":<número o null>, "unidad_original":"horas|días hábiles|días corridos|días", "desde":"evento desde el que corre", "simultaneo_con":"", "cita":{"documento":"","numeral":"","frase":""} }
    REGLAS:
    - "plazo" y "unidad_original" TAL CUAL las bases ("15 días hábiles" → plazo 15, "días hábiles"; "48 horas" → 48, "horas"). Si la frase trae un plazo, el estado es EXISTE: nunca NO_INDICADO con una frase que dice el plazo.
-   - GARANTIA_FIEL_CUMPLIMIENTO es el plazo para ENTREGAR/ACOMPAÑAR la garantía. La VIGENCIA de la garantía ("vigencia 90 días adicionales a la garantía técnica", "vigente hasta 60 días después de…") NO es un plazo previo: ignórala. Si las bases dicen que la garantía se entrega para suscribir el contrato o dentro del mismo plazo de la firma del contrato, pon "simultaneo_con":"FIRMA_CONTRATO_PROVEEDOR" y deja el plazo de la firma en el hito del contrato (no repitas el plazo en la garantía: plazo null).
+   - GARANTIA_FIEL_CUMPLIMIENTO es el plazo para ENTREGAR/ACOMPAÑAR la garantía. La VIGENCIA de la garantía ("vigencia 90 días adicionales a la garantía técnica", "vigente hasta 60 días después de…") NO es un plazo previo: ignórala. Si las bases dicen que la garantía se entrega para suscribir el contrato o dentro del mismo plazo de la firma del contrato, pon "simultaneo_con":"FIRMA_CONTRATO_PROVEEDOR" y deja el plazo de la firma en el hito del contrato (no repitas el plazo en la garantía: plazo null). Si en cambio las bases le dan a la garantía un plazo PROPIO (ej. "dentro de un plazo máximo de 10 días hábiles contados desde la fecha de adjudicación"), pon ESE plazo en la garantía y NO uses "simultaneo_con": los plazos propios de cada hito se suman.
    - FIRMA_CONTRATO_PROVEEDOR: plazo para que el proveedor firme el contrato desde la notificación de la adjudicación.
    - FIRMA_CONTRATO_ORGANISMO: tiempo que toma al organismo firmar/tramitar su parte, solo si las bases lo fijan.
    - EMISION_OC: plazo en que el organismo emite la orden de compra, solo si lo fijan.
@@ -216,4 +216,41 @@ export function necesitaLecturaDirigida(p3: any, hitos: any[]): string[] {
     else if (estado === 'NO_INDICADO') motivos.push(`${h.hito} no indicado`);
   }
   return motivos;
+}
+
+/**
+ * Respaldo en código del plazo para ENTREGAR la garantía de fiel cumplimiento: "dentro de un plazo
+ * máximo de 10 días hábiles contados desde la fecha de adjudicación". Golden Cholchol
+ * (4993-70-LR26): la frase vive varias líneas después de "garantía de fiel cumplimiento" y la
+ * lectura dirigida la dejaba pasar (plazo previo 17 en vez de ≈29). Solo actúa si el hito quedó sin
+ * plazo y no es simultáneo con otro; no pisa un plazo que el modelo ya leyó.
+ */
+export function plazoGarantiaEnTexto(docs: { nombre: string; texto: string }[]): { documento: string; frase: string; plazo: number; unidad: string } | null {
+  const reGar = /garant[ií]a\s+(?:de\s+)?fiel\s+(?:y\s+oportuno\s+)?cumplimiento/gi;
+  const rePlazo = /(?:dentro\s+de\s+un\s+plazo\s+(?:m[aá]ximo\s+)?de|plazo\s+(?:m[aá]ximo\s+)?de|dentro\s+de(?:l\s+plazo\s+de)?)\s+((?:\d+|cinco|diez|quince|veinte|treinta)\s*(?:\(\s*\d+\s*\)\s*)?d[ií]as(?:\s+h[aá]biles|\s+corridos)?)\s+contados\s+desde\s+(?:la\s+|el\s+)?(?:fecha\s+de\s+(?:la\s+)?)?(?:adjudicaci[oó]n|notificaci[oó]n\s+de\s+la\s+adjudicaci[oó]n)[^.]{0,60}/i;
+  for (const d of docs) {
+    if (!d.texto || /^COSTEO_/i.test(d.nombre)) continue;
+    let m: RegExpExecArray | null;
+    reGar.lastIndex = 0;
+    while ((m = reGar.exec(d.texto))) {
+      const ventana = d.texto.slice(m.index, m.index + 2500);
+      const p = ventana.match(rePlazo);
+      if (!p) continue;
+      const pl = plazoEnFrase(p[1]);
+      if (pl) return { documento: d.nombre, frase: p[0].replace(/\s+/g, ' ').trim(), plazo: pl.plazo, unidad: pl.unidad };
+    }
+  }
+  return null;
+}
+
+export function repararGarantiaPorTexto(hitos: any[], docs: { nombre: string; texto: string }[], localizar: Localizar): string | null {
+  const h = hitos.find(x => String(x.hito).toUpperCase() === 'GARANTIA_FIEL_CUMPLIMIENTO');
+  if (!h || String(h.estado || '').toUpperCase() === 'NO_EXISTE' || h.simultaneo_con) return null;
+  if (numeroPlazo(h.plazo) != null && interpretarUnidad(h.unidad_original) !== 'DESCONOCIDA') return null;
+  const r = plazoGarantiaEnTexto(docs);
+  if (!r) return null;
+  const cita = localizar({ documento: r.documento, numeral: '', frase: r.frase });
+  if (!cita?.verificada) return null;
+  Object.assign(h, { estado: 'EXISTE', plazo: r.plazo, unidad_original: r.unidad, desde: 'la fecha de adjudicación', cita, corregido_por_lectura_dirigida: 'plazo leído del texto de las bases' });
+  return `GARANTIA_FIEL_CUMPLIMIENTO: ${r.plazo} ${r.unidad} (del texto)`;
 }

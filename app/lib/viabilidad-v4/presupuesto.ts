@@ -27,7 +27,10 @@ export function interpretarMonto(texto: unknown): MontoInterpretado {
   t = t.replace(',', '.');
   let n = Number(t);
   if (!Number.isFinite(n)) return { pesos: null, miles, con_iva };
-  if (miles) n *= 1_000;
+  // Un "M$" con una cifra ya de 10+ dígitos ("M$ 1.158.670.000", total que el modelo sumó en pesos y
+  // rotuló M$) multiplicado por 1.000 daría más de un billón de pesos: ya viene en pesos. Ninguna
+  // licitación de este negocio se acerca a ese monto (golden Cholchol 4993-70-LR26, 07-oct-2026).
+  if (miles && n < 1_000_000_000) n *= 1_000;
   else if (millones) n *= 1_000_000;
   return { pesos: Math.round(n), miles, con_iva };
 }
@@ -69,3 +72,27 @@ export function normalizarCaracter(x: unknown): CaracterPresupuesto {
 }
 
 export const NOTA_ART_32 = 'Presupuesto no excluyente: se puede ofertar sobre el estimado. Si se adjudica más de un 30 % sobre el monto estimado, el organismo debe justificarlo (art. 32, D661). Riesgo acotado.';
+
+/**
+ * Detector en código de un presupuesto EXCLUYENTE con texto expreso ("El oferente que exceda el
+ * presupuesto máximo disponible quedará fuera de bases", "no podrá superar el presupuesto…").
+ * Respaldo del modelo: en el golden Cholchol (4993-70-LR26) citó otra frase y el chequeo semántico
+ * lo bajó a NO_DECLARADO aunque las bases lo dicen expresamente. La cláusula de modificación del
+ * contrato (hasta 30 %) NO cuenta: exige que la frase hable de exceder/superar el PRESUPUESTO o
+ * monto disponible y de una consecuencia de exclusión.
+ */
+export function detectarPresupuestoExcluyente(docs: { nombre: string; texto: string }[]): { documento: string; frase: string } | null {
+  const re = /(?:(?:exced\w+|supe\w+|sobrepas\w+)\s+(?:de\s+)?(?:el\s+|al?\s+)?(?:presupuesto|monto)\s+(?:m[aá]ximo\s+|m[aá]x\.?\s+)?(?:disponible|estimado|referencial|oficial|asignado)?[^.\n]{0,80}(?:quedar[aá]n?\s+fuera|ser[aá]n?\s+(?:declarad\w+\s+)?(?:inadmisible|rechazad|desestimad)|no\s+ser[aá]n?\s+(?:evaluad|considerad|admitid))|no\s+podr[aá]n?\s+(?:superar|exceder)\s+(?:el\s+)?(?:presupuesto|monto)\s+(?:m[aá]ximo\s+)?(?:disponible|estimado|asignado|oficial)[^.\n]{0,100}(?:fuera|inadmisible|rechaz|desestim))/i;
+  for (const d of docs) {
+    if (!d.texto || /^COSTEO_/i.test(d.nombre)) continue;
+    const m = d.texto.match(re);
+    if (!m || m.index == null) continue;
+    // La oración completa que contiene la coincidencia (para que la frase sea citable y literal).
+    const ini = Math.max(d.texto.lastIndexOf('.', m.index - 1) + 1, d.texto.lastIndexOf('\n', m.index - 1) + 1, 0);
+    const finPunto = d.texto.indexOf('.', m.index + m[0].length);
+    const fin = finPunto < 0 ? m.index + m[0].length : finPunto + 1;
+    const frase = d.texto.slice(ini, fin).replace(/\s+/g, ' ').replace(/^[\s:·-]*(?:observaci[oó]n:)?\s*/i, '').trim();
+    return { documento: d.nombre, frase: frase.slice(0, 300) };
+  }
+  return null;
+}

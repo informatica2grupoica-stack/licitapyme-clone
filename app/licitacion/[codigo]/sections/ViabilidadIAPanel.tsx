@@ -1036,8 +1036,8 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
 export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { codigo: string; onTambienAnalizar?: () => void; onComplete?: () => void }) {
   const { usuario } = useSession();
   const esAdmin = usuario?.rol === 'admin';
-  // Solo admin o usuarios con permiso pueden comentar/corregir la viabilidad (el servidor también lo valida).
-  const puedeComentar = usuario?.rol === 'admin' || !!usuario?.permisos?.comentar_viabilidad;
+  // v4.0 (P12): solo CA enseña reglas a la IA (permiso `reglas_ia`, no se hereda por ser admin; el servidor también lo valida).
+  const puedeComentar = !!usuario?.permisos?.reglas_ia;
   // RE-analizar: admin sin límite; usuario normal asignado a la licitación, SOLO UNA VEZ (el
   // servidor es la fuente de verdad — estos dos campos vienen del GET y solo controlan el botón).
   const [puedeReanalizar, setPuedeReanalizar] = useState(true);

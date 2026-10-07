@@ -24,6 +24,7 @@ services:
     image: licitapyme-local
     container_name: licitapyme
     restart: unless-stopped          # vuelve solo tras reinicio/caída del notebook
+    init: true                       # tini como PID 1: cosecha los procesos zombie de Chromium
     env_file: .env                   # inyecta TODAS las variables al runtime del contenedor
     ports:
       - "3003:3000"                  # opcional: probar en el propio notebook (http://localhost:3003)

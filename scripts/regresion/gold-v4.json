@@ -1,0 +1,56 @@
+[
+  {
+    "codigo": "4993-70-LR26",
+    "nota": "Cholchol · pool de maquinarias (spec v4.0 §8.1, v4.1 §11.1)",
+    "esperado": {
+      "adjudicacion": "POR_LINEAS",
+      "caracter_presupuesto": "EXCLUYENTE",
+      "plazo_previo_min": 27,
+      "plazo_previo_max": 31,
+      "plazo_previo_al_menos": true,
+      "firma": "MANO_Y_ESCANEO",
+      "multa_unidad": "PORCENTAJE",
+      "multa_pesos_dia_min": 1100000,
+      "multa_pesos_dia_max": 1220000,
+      "n_items_min": 2,
+      "nivel": "MUY_ALTO",
+      "accion": "SEGUIR"
+    }
+  },
+  {
+    "codigo": "2585-87-LE26",
+    "nota": "Arica · vehículos acuáticos y todoterreno (spec v4.0 §8.2, v4.1 §11.1; MUY ALTO si el plazo resultara ley del mínimo: CA confirma)",
+    "esperado": {
+      "adjudicacion": "POR_LINEAS",
+      "plazo_previo_min": 1,
+      "plazo_previo_max": 3,
+      "plazo_previo_al_menos": true,
+      "multa_unidad": "PORCENTAJE",
+      "multa_pesos_dia_min": 500000,
+      "multa_pesos_dia_max": 540000,
+      "nivel": "ALTO|MUY_ALTO",
+      "accion": "SEGUIR"
+    }
+  },
+  {
+    "codigo": "1057049-324-LE26",
+    "nota": "Transductor doble HCSBA · contrato de suministro (spec v4.0 §8.3, v4.1 §11.1)",
+    "esperado": {
+      "excluido": true,
+      "filtro": "F1",
+      "nivel": "EXCLUIDO",
+      "accion": "SOLTAR",
+      "garantia_seriedad": "NO_EXISTE",
+      "garantia_fiel": "NO_EXISTE",
+      "multa_unidad": "UF"
+    }
+  },
+  {
+    "codigo": "1057937-12-LP26",
+    "nota": "Valdivia · micrótomos e impresoras (spec v4.0 §8.4: 3 productos reales, ningún rótulo; bases originales pendientes)",
+    "esperado": {
+      "n_items_min": 3,
+      "n_items_max": 3
+    }
+  }
+]

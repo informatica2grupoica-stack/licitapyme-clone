@@ -3,7 +3,7 @@
 // La corrección se destila en una regla y se inyecta en futuros análisis (prompt dinámico).
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { getAuthedUser, tienePermiso, puedeVerLicitacion } from '@/app/lib/api-auth';
+import { getAuthedUser, esCA, puedeVerLicitacion } from '@/app/lib/api-auth';
 import { guardarFeedback, listarFeedback, eliminarFeedback } from '@/app/lib/viabilidad-feedback';
 import { registrarActividad } from '@/app/lib/actividad';
 
@@ -37,6 +37,10 @@ export async function GET(request: NextRequest, { params }: Params) {
   const { codigo } = await params;
   if (!(await puedeVerLicitacion(request, decodeURIComponent(codigo))))
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
+  // v4.0 (P12): las reglas son de CA. Cualquier otro usuario recibe la lista vacía (no un error:
+  // el resto de la pantalla no depende de esto).
+  const usr = await getAuthedUser(request);
+  if (!usr || !(await esCA(usr.id))) return NextResponse.json({ success: true, feedback: [] });
   const feedback = await listarFeedback(decodeURIComponent(codigo));
   return NextResponse.json({ success: true, feedback });
 }
@@ -44,9 +48,9 @@ export async function GET(request: NextRequest, { params }: Params) {
 export async function POST(request: NextRequest, { params }: Params) {
   const usuario = await getAuthedUser(request);
   if (!usuario) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  // Solo admin (o usuario con permiso explícito) puede comentar/corregir la viabilidad.
-  if (!(await tienePermiso(request, 'comentar_viabilidad'))) {
-    return NextResponse.json({ error: 'No tienes permiso para comentar la viabilidad.' }, { status: 403 });
+  // v4.0 (P12): solo CA crea reglas. El servidor rechaza a cualquier otro usuario (incluido admin).
+  if (!(await esCA(usuario.id))) {
+    return NextResponse.json({ error: 'Solo CA puede enseñarle reglas a la IA.' }, { status: 403 });
   }
 
   const { codigo } = await params;
@@ -86,8 +90,8 @@ export async function POST(request: NextRequest, { params }: Params) {
 export async function DELETE(request: NextRequest, { params }: Params) {
   const usuario = await getAuthedUser(request);
   if (!usuario) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (!(await tienePermiso(request, 'comentar_viabilidad'))) {
-    return NextResponse.json({ error: 'No tienes permiso para gestionar la viabilidad.' }, { status: 403 });
+  if (!(await esCA(usuario.id))) {
+    return NextResponse.json({ error: 'Solo CA puede desactivar reglas de la IA.' }, { status: 403 });
   }
   const { codigo } = await params;
   const id = parseInt(new URL(request.url).searchParams.get('id') || '', 10);

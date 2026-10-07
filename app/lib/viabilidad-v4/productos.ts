@@ -172,3 +172,31 @@ export function problemasCalidadManifiesto(man: FilaManifiesto[]): string[] {
   if (cortadas >= Math.max(3, man.length * 0.4)) p.push(`${cortadas} descripciones parecen cortadas a media palabra`);
   return p;
 }
+
+// ─── Ítems inventados por el modelo ───────────────────────────────────────────────────────
+// Golden Arica (2585-87-LE26): el modelo agregó un 3.er producto, "Embarcación a motor de uso
+// personal", que no aparece en ningún documento, sin una sola característica; eso descuadró el
+// conteo con la API (2 líneas) y dejó el informe en "confirma la cantidad". Un ítem SIN ficha, en
+// una lista donde otros ítems sí la tienen, cuyo nombre no aparece en las bases (sus palabras, por
+// raíz de 5 letras, en el mismo orden y a menos de 30 caracteres entre sí) se descarta.
+const normTxt = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const VACIAS = new Set(['para', 'como', 'tipo', 'unidad', 'unidades', 'marca', 'modelo', 'con', 'sin', 'del', 'las', 'los', 'una', 'uno', 'por']);
+
+export function descartarItemsInventados(items: any[], textosBases: string[], nombresApi: string[] = []): any[] {
+  const base = normTxt(textosBases.join('\n') + '\n' + nombresApi.join('\n'));
+  if (base.length < 200) return [];   // sin texto no hay con qué comparar: no descarta nada
+  const conFicha = (it: any) => Array.isArray(it?.caracteristicas) && it.caracteristicas.some((c: unknown) => String(c ?? '').trim());
+  if (!items.some(conFicha)) return [];   // lista genérica "a secas": todos sin ficha es normal
+  const descartados: any[] = [];
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (conFicha(it)) continue;
+    const nombre = normTxt(String(it?.nombre || it?.descripcion || '')).replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (nombre.length < 4 || base.includes(nombre)) continue;
+    const raices = nombre.split(' ').filter(t => t.length >= 4 && !VACIAS.has(t)).map(t => t.slice(0, 5));
+    if (!raices.length) continue;
+    const enOrden = new RegExp(raices.join('[\\s\\S]{0,30}'));
+    if (!enOrden.test(base)) descartados.push(...items.splice(i, 1));
+  }
+  return descartados.reverse();
+}

@@ -31,6 +31,7 @@ interface Permisos {
   auditor_compra?: boolean;
   auditor_aprobar?: boolean;
   anexos?: boolean;
+  reglas_ia?: boolean;
 }
 
 interface UsuarioAdmin {
@@ -76,6 +77,7 @@ const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string; cat
   { key: 'exportar',            label: 'Exportar a Excel',               desc: 'Descarga listados en Excel.', categoria: 'acceso' },
   // ── Viabilidad y alertas ──
   { key: 'comentar_viabilidad', label: 'Corregir viabilidad',            desc: 'Comenta y corrige el análisis de viabilidad.', categoria: 'viabilidad' },
+  { key: 'reglas_ia',           label: 'Reglas de la IA (CA)',           desc: 'Solo CA: crea las reglas que aprende la IA de viabilidad y entra a la pantalla de reglas (ver y desactivar). NO lo tiene un admin por serlo: otórgalo al Asesor y al superusuario.', categoria: 'viabilidad' },
   { key: 'viabilidad_automatica', label: 'Viabilidad automática',        desc: 'Piloto: sus licitaciones asignadas se analizan solas, sin apretar "Analizar".', categoria: 'viabilidad' },
   { key: 'alertas_anexos',      label: 'Alertas de etapa ANEXOS',        desc: 'Recibe campana y correo cuando una licitación pasa a ANEXOS.', categoria: 'viabilidad' },
   // ── Aprobaciones y reparto ──

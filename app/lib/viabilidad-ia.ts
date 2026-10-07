@@ -54,11 +54,11 @@ import { LocalizadorCitas, localizarCitasInforme } from '@/app/lib/viabilidad-v4
 import { CATALOGO, decidirAdjudicacion, deduplicarEvidencias, evidenciasDeDetectores, evidenciasDelModelo, marcarEvidenciasQueCuentan, type EvidenciaAdj, type SenalesDetectores } from '@/app/lib/viabilidad-v4/adjudicacion';
 import { HITO_LABEL, NOTA_ACEPTACION_OC, calcularPlazoPrevio, detectarNegaciones, feriadosPara, normalizarHitos, type HitoInforme } from '@/app/lib/viabilidad-v4/plazo-previo';
 import { calcularMulta, indicadorNecesario } from '@/app/lib/viabilidad-v4/multa';
-import { extraerPasajesPlazosMultas, necesitaLecturaDirigida, aplicarLecturaDirigida, SYSTEM_LECTURA_DIRIGIDA, promptUsuarioLecturaDirigida } from '@/app/lib/viabilidad-v4/lectura-dirigida';
-import { NOTA_ART_32, interpretarMonto, interpretarPorLinea, normalizarCaracter, sumaLineasCuadra } from '@/app/lib/viabilidad-v4/presupuesto';
+import { extraerPasajesPlazosMultas, necesitaLecturaDirigida, aplicarLecturaDirigida, repararGarantiaPorTexto, SYSTEM_LECTURA_DIRIGIDA, promptUsuarioLecturaDirigida } from '@/app/lib/viabilidad-v4/lectura-dirigida';
+import { NOTA_ART_32, detectarPresupuestoExcluyente, interpretarMonto, interpretarPorLinea, normalizarCaracter, sumaLineasCuadra } from '@/app/lib/viabilidad-v4/presupuesto';
 import { barridoConsecuencias, consolidarVisitaYMuestras, decidirSuministro, detectarSenalesSuministro, esObviedad } from '@/app/lib/viabilidad-v4/admisibilidad';
 import { normalizarTextosInforme } from '@/app/lib/viabilidad-v4/textos';
-import { reasignarLineasPorTablaDeMontos, construirListaUnica, conteoCruzado, problemasCalidadManifiesto, verificarCaracteristicasLiterales } from '@/app/lib/viabilidad-v4/productos';
+import { descartarItemsInventados, reasignarLineasPorTablaDeMontos, construirListaUnica, conteoCruzado, problemasCalidadManifiesto, verificarCaracteristicasLiterales } from '@/app/lib/viabilidad-v4/productos';
 import { verificarSemantica, type ParSemantico } from '@/app/lib/viabilidad-v4/verificador-semantico';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -1593,6 +1593,8 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
       }
       const res = aplicarLecturaDirigida(p3, hitosPlazo, salida, (c: any) => loc.localizar(c));
       p3._lectura_dirigida = { motivos, reparados: res.reparados, avisos: res.avisos, con_ia: !!salida };
+      const repGar = repararGarantiaPorTexto(hitosPlazo, fuentes, (c: any) => loc.localizar(c));
+      if (repGar) res.reparados.push(repGar);
       if (res.reparados.length) console.log(`[viabilidad-ia-v4] ${codigo}: lectura dirigida corrigió → ${res.reparados.join(' | ')}`);
     }
   } catch (e) { console.warn(`[viabilidad-ia-v4] ${codigo}: lectura dirigida falló:`, String(e).slice(0, 140)); }
@@ -1604,10 +1606,28 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
     ...evidenciasDeDetectores(senales).map(e => { if (e.cita.frase) loc.localizar(e.cita as any); return e; }),
     ...evidenciaPresupuestoPorLineaDeTabla(pres.por_linea),
   ]);
-  // Señales de suministro: si el modelo no reportó ninguna, el detector del código.
+  // Señales de suministro: las del modelo + las del detector del código para los tipos decisivos que
+  // el modelo no reportó (golden Transductor 1057049-324-LE26: el modelo solo reportó "cantidades
+  // referenciales", señal débil, y dejó pasar "vigencia de 24 meses o hasta completar el presupuesto").
   const exc = obj('exclusion');
-  if (!Array.isArray(exc.senales_suministro) || !exc.senales_suministro.length) {
-    exc.senales_suministro = detectarSenalesSuministro(fuentes).map(s => ({ ...s, cita: loc.localizar(s.cita), origen: 'detector' }));
+  if (!Array.isArray(exc.senales_suministro)) exc.senales_suministro = [];
+  {
+    const decisivasModelo = new Set((exc.senales_suministro as any[]).filter(s => s?.cita?.frase).map(s => String(s?.tipo || '').toUpperCase()));
+    for (const s of detectarSenalesSuministro(fuentes)) {
+      if (decisivasModelo.has(s.tipo)) continue;
+      (exc.senales_suministro as any[]).push({ ...s, cita: loc.localizar(s.cita), origen: 'detector' });
+    }
+  }
+  // Presupuesto EXCLUYENTE con texto expreso: si el modelo no lo reportó (o su frase no lo sostiene), el detector.
+  {
+    const ex = detectarPresupuestoExcluyente(fuentes);
+    if (ex) {
+      console.log(`[viabilidad-ia-v4] ${codigo}: presupuesto EXCLUYENTE por detector de texto: "${ex.frase.slice(0, 120)}".`);
+      pres.caracter_detectado = { antes: pres.caracter };
+      pres.caracter = 'EXCLUYENTE';
+      pres.cita = loc.localizar({ documento: ex.documento, numeral: pres.cita?.numeral || '', frase: ex.frase });
+      delete pres.nota_art_32;
+    }
   }
 
   // CHEQUEO SEMÁNTICO de los datos críticos — UNA llamada con todos los pares (prompt auxiliar B).
@@ -1727,6 +1747,11 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
   // Cada característica debe existir LITERAL en las bases; las demás no pasan al AUDITOR.
   const lit = verificarCaracteristicasLiterales(itemsFuenteCrudos, loc);
   if (lit.no_encontradas) console.warn(`[viabilidad-ia-v4] ${codigo}: ${lit.no_encontradas}/${lit.revisadas} característica(s) no se encontraron literales en las bases — quedan marcadas y fuera del AUDITOR hasta revisarlas.`);
+  {
+    // Ítems que el modelo inventó (sin ficha —tras verificar sus características contra las bases— y con un nombre que no está en ningún documento).
+    const inventados = descartarItemsInventados(itemsFuenteCrudos, fuentes.filter(d => !/^COSTEO_/i.test(d.nombre) && !/DOCUMENTOS_PROPIOS/i.test(d.categoria || '')).map(d => d.texto || ''), (ctx.itemsMP || []).map((x: any) => String(x?.nombre || x?.descripcion || '')));
+    if (inventados.length) console.warn(`[viabilidad-ia-v4] ${codigo}: ${inventados.length} ítem(s) sin ficha y sin rastro en las bases se descartaron: ${inventados.map((x: any) => `"${_str(x.nombre)}"`).join(', ')}.`);
+  }
   // Listado real dejado como texto en `caracteristicas` de un ítem genérico sin cantidad (3477-80-LE26).
   const itemsDesplegados = desplegarItemsDesdeCaracteristicas(itemsFuenteCrudos);
   if (itemsDesplegados) console.log(`[viabilidad-ia-v4] ${codigo}: ${itemsFuenteCrudos.length} ítem(s) traían el listado como texto en "caracteristicas" → desplegados a ${itemsDesplegados.length} ítems.`);

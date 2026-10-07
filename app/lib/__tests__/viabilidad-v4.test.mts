@@ -8,9 +8,11 @@ import { CONFIG_V4_DEFAULT } from '../viabilidad-v4/config';
 import { decidirAdjudicacion, marcarEvidenciasQueCuentan, evidenciasDeDetectores, type EvidenciaAdj } from '../viabilidad-v4/adjudicacion';
 import { calcularPlazoPrevio, normalizarHitos, detectarNegaciones, feriadosPara } from '../viabilidad-v4/plazo-previo';
 import { calcularMulta } from '../viabilidad-v4/multa';
-import { interpretarMonto, interpretarPorLinea, sumaLineasCuadra } from '../viabilidad-v4/presupuesto';
+import { plazoGarantiaEnTexto } from '../viabilidad-v4/lectura-dirigida';
+import { descartarItemsInventados } from '../viabilidad-v4/productos';
+import { interpretarMonto, interpretarPorLinea, sumaLineasCuadra, detectarPresupuestoExcluyente } from '../viabilidad-v4/presupuesto';
 import { LocalizadorCitas } from '../viabilidad-v4/citas';
-import { decidirSuministro, barridoConsecuencias, esObviedad, detectarVisitaTecnica, detectarMuestras, consolidarVisitaYMuestras } from '../viabilidad-v4/admisibilidad';
+import { decidirSuministro, detectarSenalesSuministro, barridoConsecuencias, esObviedad, detectarVisitaTecnica, detectarMuestras, consolidarVisitaYMuestras } from '../viabilidad-v4/admisibilidad';
 import { problemasCalidadManifiesto } from '../viabilidad-v4/productos';
 
 const cfg = CONFIG_V4_DEFAULT;
@@ -283,6 +285,41 @@ test('P2 · "M$ 872.079" = $872.079.000; las líneas cuadran con el total', () =
   assert.equal(sumaLineasCuadra(l, 1_158_670_000), true);
   assert.equal(sumaLineasCuadra(l, 1_000_000_000), false);
 });
+test('P2 · "M$ 1.158.670.000" (total ya sumado en pesos y rotulado M$) no se multiplica otra vez', () => {
+  assert.equal(interpretarMonto('M$ 1.158.670.000').pesos, 1_158_670_000);
+  assert.equal(interpretarMonto('M$ 1.158.670').pesos, 1_158_670_000);
+  assert.equal(interpretarMonto('M$ 872.079').pesos, 872_079_000);
+});
+
+test('P2 · presupuesto EXCLUYENTE con texto expreso se detecta en código (Cholchol Art. 5)', () => {
+  const docs = [{ nombre: 'BASES.pdf', texto: 'Proyecto financiado con recursos del Gobierno Regional. Observación: El oferente que exceda el presupuesto Máximo disponible quedara fuera de Bases en la etapa de evaluación. ## ART. 6' }];
+  const r = detectarPresupuestoExcluyente(docs);
+  assert.ok(r && /exceda el presupuesto M[aá]ximo disponible quedara fuera de Bases/i.test(r.frase));
+  // la cláusula de modificación del contrato (hasta 30 %) no es evidencia
+  assert.equal(detectarPresupuestoExcluyente([{ nombre: 'B.pdf', texto: 'El contrato podrá modificarse hasta un 30% del monto contratado.' }]), null);
+  assert.equal(detectarPresupuestoExcluyente([{ nombre: 'B.pdf', texto: 'El presupuesto estimado es de $50.000.000.' }]), null);
+});
+
+test('P2 · suministro: el detector reconoce "vigencia de 24 meses o hasta completar el presupuesto" (Transductor)', () => {
+  const s = detectarSenalesSuministro([{ nombre: 'RES.pdf', texto: 'el contrato tendrá una vigencia de 24 meses o hasta completar el presupuesto destinado para ésta, lo que ocurra primero.' }]);
+  assert.ok(s.some(x => x.tipo === 'HASTA_AGOTAR_MONTO'));
+});
+
+test('P3 · plazo de la garantía de fiel cumplimiento leído del texto (Cholchol Art. 15)', () => {
+  const texto = 'ART. 15. GARANTIA FIEL CUMPLIMIENTO DEL CONTRATO El oferente adjudicado deberá emitir una Garantía por 5% del valor total, vigente más 90 días corridos. Esta garantía deberá ser irrevocable; para ambos casos deberá ser enviada dentro de un plazo máximo de 10 días hábiles contados desde la fecha de adjudicación de la propuesta. La presentación es obligatoria.';
+  const r = plazoGarantiaEnTexto([{ nombre: 'BASES.pdf', texto }]);
+  assert.ok(r); assert.equal(r!.plazo, 10); assert.equal(r!.unidad, 'días hábiles');
+  assert.equal(plazoGarantiaEnTexto([{ nombre: 'B.pdf', texto: 'Garantía de fiel cumplimiento vigente 90 días corridos más.' }]), null);
+});
+
+test('P8 · un ítem sin ficha y sin rastro en las bases se descarta (Arica)', () => {
+  const bases = 'Moto acuática, cuatrimoto. Vehículos con motor de 686cc para uso en terreno. '.repeat(20);
+  const items = [{ nombre: 'Moto acuática', caracteristicas: [] }, { nombre: 'Embarcación a motor de uso personal', caracteristicas: [] }, { nombre: 'Cuatrimoto', caracteristicas: ['Motor 686cc'] }];
+  const fuera = descartarItemsInventados(items, [bases]);
+  assert.deepEqual(fuera.map(x => x.nombre), ['Embarcación a motor de uso personal']);
+  assert.equal(items.length, 2);
+});
+
 test('P2 · contrato de suministro: excluye con vigencia+OC o "hasta agotar"; cantidades referenciales solas no', () => {
   assert.equal(decidirSuministro([{ tipo: 'VIGENCIA_CON_PEDIDOS', cita: { frase: 'x', verificada: true, semantica: 'SI' } }]).excluido, true);
   assert.equal(decidirSuministro([{ tipo: 'CANTIDADES_REFERENCIALES', cita: { frase: 'x', verificada: true } }]).excluido, false);

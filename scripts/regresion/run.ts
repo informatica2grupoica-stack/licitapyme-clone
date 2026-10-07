@@ -10,19 +10,23 @@
 //   VIABILIDAD_BARRIDO_V35=0 npx tsx scripts/regresion/run.ts --run   → "barrido=0"
 //
 // Salida: tabla por caso + resumen global (% aciertos por métrica) + JSON de reporte al scratchpad.
-import { readFileSync, writeFileSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import mysql from 'mysql2/promise';
 import { cargarEnv } from './_env';
 import { extraerMetricas, comparar, type Esperado, type Chequeo } from './_metricas';
 
 cargarEnv();
 
-const REPORTE_DIR = 'C:/Users/droku/AppData/Local/Temp/claude/D--licitapyme-clone/1238b9bc-e899-428d-9ba9-8b820e5af5a2/scratchpad';
-const GOLD = 'D:/licitapyme-clone/scripts/regresion/gold.json';
+const REPORTE_DIR = process.env.REGRESION_REPORTE_DIR || 'D:/licitapyme-clone/scripts/scratch/regresion-reportes';
+const GOLD_DEFAULT = 'D:/licitapyme-clone/scripts/regresion/gold.json';
 
 const args = process.argv.slice(2);
 const MODO_RUN = args.includes('--run');
+const GUARDAR = args.includes('--guardar');   // vuelca el informe completo de cada caso a REPORTE_DIR (para depurar)
 const only = args.find(a => a.startsWith('--only='))?.split('=')[1];
+// --gold=gold-v4.json → golden set de la v4.0/v4.1 (Cholchol, Arica, Transductor, Valdivia).
+const goldArg = args.find(a => a.startsWith('--gold='))?.split('=')[1];
+const GOLD = goldArg ? `D:/licitapyme-clone/scripts/regresion/${goldArg}` : GOLD_DEFAULT;
 
 async function leerInformeGuardado(pool: mysql.Pool, codigo: string): Promise<any | null> {
   const [rows] = await pool.query(
@@ -74,6 +78,7 @@ async function main() {
       continue;
     }
 
+    if (GUARDAR) { mkdirSync(REPORTE_DIR, { recursive: true }); writeFileSync(`${REPORTE_DIR}/informe-${caso.codigo}.json`, JSON.stringify(inf, null, 2), 'utf8'); }
     const m = extraerMetricas(inf);
     const chequeos: Chequeo[] = comparar(m, caso.esperado);
     const fallos = chequeos.filter(c => !c.ok);
@@ -84,7 +89,7 @@ async function main() {
     const casoOK = fallos.length === 0;
     if (casoOK) casosOK++;
 
-    console.log(`${casoOK ? '✓' : '✗'} ${caso.codigo.padEnd(20)} ${String(chequeos.length - fallos.length)}/${chequeos.length} ok${MODO_RUN ? ` · ${segs}s · score=${m.score}` : ''}${caso.nota ? ` · ${caso.nota}` : ''}`);
+    console.log(`${casoOK ? '✓' : '✗'} ${caso.codigo.padEnd(20)} ${String(chequeos.length - fallos.length)}/${chequeos.length} ok${MODO_RUN ? ` · ${segs}s · nivel=${m.nivel ?? m.score}` : ''}${caso.nota ? ` · ${caso.nota}` : ''}`);
     for (const f of fallos) console.log(`    ↳ ${f.metrica}: esperaba ${f.esperado}, obtuvo ${f.obtenido}`);
     detalle.push({ codigo: caso.codigo, metricas: m, chequeos, ok: casoOK });
   }
@@ -98,6 +103,7 @@ async function main() {
     console.log(`  ${metrica.padEnd(16)} ${String(ok).padStart(3)}/${String(total).padEnd(3)}  ${pct}%`);
   }
 
+  mkdirSync(REPORTE_DIR, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const dest = `${REPORTE_DIR}/regresion-${MODO_RUN ? 'run' : 'dry'}-barrido${barrido}-${stamp}.json`;
   writeFileSync(dest, JSON.stringify({ etiqueta, casosOK, total: casos.length, porMetrica: Object.fromEntries(porMetrica), detalle }, null, 2), 'utf8');

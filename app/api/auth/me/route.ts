@@ -3,7 +3,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { verificarToken } from '@/app/lib/auth-edge';
-import { permisosDeUsuario } from '@/app/lib/api-auth';
+import { permisosDeUsuario, esCA } from '@/app/lib/api-auth';
 import { rolVigente } from '@/app/lib/rol-vigente';
 import pool from '@/app/lib/db';
 
@@ -46,11 +46,14 @@ export async function GET() {
     }
     const rol = await rolVigente(payload.userId as number, payload.rol);
     // Permisos efectivos: admin → todos; usuario → los que el admin le otorgó.
-    const [permisos, modoPrincipiante, contacto] = await Promise.all([
+    const [permisosBase, ca, modoPrincipiante, contacto] = await Promise.all([
       permisosDeUsuario(payload.userId as number, rol),
+      esCA(payload.userId as number),
       leerModoPrincipiante(payload.userId as number),
       leerContacto(payload.userId as number),
     ]);
+    // `reglas_ia` (CA) nunca viene gratis con admin: se lee lo guardado.
+    const permisos = { ...permisosBase, reglas_ia: ca };
     return NextResponse.json({
       autenticado: true,
       usuario: {

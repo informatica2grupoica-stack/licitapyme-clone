@@ -357,3 +357,65 @@ este prompt, manda el prompt:
 ${lista}
 `;
 }
+
+// ─── Pantalla de reglas (v4.0, P12) ───────────────────────────────────────────────
+// Todas las reglas emitidas (activas e inactivas), con su licitación de origen, el comentario
+// original, quién las desactivó y cuántos análisis las usaron (`_reglas_activas` de cada informe).
+export interface ReglaPantalla {
+  id: number; ambito: string; activa: boolean; sin_destilar: boolean;
+  created_at: string; licitacion_codigo: string; autor: string | null;
+  veredicto_ia: string | null; comentario: string; regla: string;
+  desactivada_por: string | null; desactivada_en: string | null; veces_usada: number;
+}
+
+export async function listarTodasLasReglas(): Promise<ReglaPantalla[]> {
+  await ensureTable();
+  let rows: any[] = [];
+  try {
+    [rows] = await pool.query(
+      `SELECT f.id, f.ambito, f.activa, f.sin_destilar, f.created_at, f.licitacion_codigo, f.veredicto_ia, f.comentario, f.regla,
+              f.desactivada_en, u.nombre AS autor, d.nombre AS desactivada_por
+         FROM viabilidad_feedback f
+         LEFT JOIN usuarios u ON u.id = f.usuario_id
+         LEFT JOIN usuarios d ON d.id = f.desactivada_por
+        ORDER BY f.ambito, f.activa DESC, f.created_at DESC`) as any;
+  } catch {
+    // Instancia sin las columnas de la migration-137: lista lo básico.
+    [rows] = await pool.query(
+      `SELECT f.id, f.ambito, f.activa, 0 AS sin_destilar, f.created_at, f.licitacion_codigo, f.veredicto_ia, f.comentario, f.regla,
+              NULL AS desactivada_en, u.nombre AS autor, NULL AS desactivada_por
+         FROM viabilidad_feedback f LEFT JOIN usuarios u ON u.id = f.usuario_id
+        ORDER BY f.ambito, f.activa DESC, f.created_at DESC`) as any;
+  }
+  // Veces usada: cuántos informes guardaron el id de la regla en `_reglas_activas`.
+  const usos = new Map<number, number>();
+  try {
+    const [inf] = await pool.query(
+      `SELECT JSON_EXTRACT(informe_ejecutivo, '$._informe_ia_v3._reglas_activas') AS ra
+         FROM viabilidad_licitacion WHERE informe_ejecutivo LIKE '%_reglas_activas%'`) as any;
+    for (const r of inf as any[]) {
+      let ids: unknown;
+      try { ids = typeof r.ra === 'string' ? JSON.parse(r.ra) : r.ra; } catch { continue; }
+      if (Array.isArray(ids)) for (const id of ids) usos.set(Number(id), (usos.get(Number(id)) || 0) + 1);
+    }
+  } catch { /* sin JSON_EXTRACT: la columna "veces usada" queda en 0 */ }
+  return rows.map(r => ({
+    id: r.id, ambito: r.ambito, activa: !!r.activa, sin_destilar: !!r.sin_destilar,
+    created_at: r.created_at, licitacion_codigo: r.licitacion_codigo, autor: r.autor ?? null,
+    veredicto_ia: r.veredicto_ia ?? null, comentario: r.comentario, regla: r.regla,
+    desactivada_por: r.desactivada_por ?? null, desactivada_en: r.desactivada_en ?? null,
+    veces_usada: usos.get(Number(r.id)) || 0,
+  }));
+}
+
+/** Activa o desactiva una regla desde la pantalla de reglas (desactivar = queda en el historial). */
+export async function cambiarEstadoRegla(id: number, activa: boolean, usuarioId: number | null): Promise<void> {
+  if (!activa) { await eliminarFeedback(id, usuarioId); return; }
+  try { await pool.query(`UPDATE viabilidad_feedback SET activa = 1, desactivada_por = NULL, desactivada_en = NULL WHERE id = ?`, [id]); }
+  catch { await pool.query(`UPDATE viabilidad_feedback SET activa = 1 WHERE id = ?`, [id]); }
+}
+
+/** CA revisó una regla `sin_destilar` y la deja lista para inyectarse (con el texto que corrigió). */
+export async function aprobarReglaSinDestilar(id: number, reglaTexto: string): Promise<void> {
+  await pool.query(`UPDATE viabilidad_feedback SET regla = ?, sin_destilar = 0 WHERE id = ?`, [reglaTexto.trim().slice(0, 400), id]);
+}

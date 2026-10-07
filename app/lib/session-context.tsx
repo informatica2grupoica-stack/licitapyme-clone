@@ -40,6 +40,8 @@ export interface UsuarioSession {
     // Aprobar dentro del Auditor sin ser jefe de ventas, y el creador de anexos (05-oct-2026).
     auditor_aprobar?: boolean;
     anexos?: boolean;
+    // "CA" (07-oct-2026): crea/ve las reglas aprendidas de viabilidad. No viene gratis con admin.
+    reglas_ia?: boolean;
   };
   // Frente C.1: ¿ve por defecto solo la Tarjeta de Decisión (resumen) en vez de los 4 módulos
   // de detalle? El propio usuario puede graduarse desde el botón "Ver análisis completo".
