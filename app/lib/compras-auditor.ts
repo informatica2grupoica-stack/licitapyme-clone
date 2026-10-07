@@ -27,7 +27,10 @@ import { listarProductosCompra, invalidarAprobacionesCompras, type ProductoCompr
 import { obtenerOCrearProveedor } from '@/app/lib/compras-proveedores';
 import { obtenerTipoCambio } from '@/app/lib/tipo-cambio';
 import { parsearDiasDeTexto } from '@/app/lib/numeros';
-import { auditarCotizacionEnSegundoPlano } from '@/app/lib/compras-auditoria-cotizacion';
+import { auditarCotizacionEnSegundoPlano, rutValido } from '@/app/lib/compras-auditoria-cotizacion';
+import { netoDesdeBruto, precioONull } from '@/app/lib/compras-cotizacion-lectura';
+import { adicionalesDesdeIA, faltantesDesdeIA, incluidosDesdeIA, citaVerificada } from '@/app/lib/compras-adicionales-ia';
+import { recomendarCombinaciones, type EtiquetaRecomendada } from '@/app/lib/compras-recomendaciones';
 import { esSubestadoFuera } from '@/app/lib/compras-no-adjudicadas';
 
 async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
@@ -62,6 +65,8 @@ export interface DatosCotizacion {
   // ($40.000, §8.10.2) — ver el comentario largo en la función `armar` más abajo.
   fleteMonto?: number | null;
   incluyeFlete?: boolean | null; direccionBodega?: string | null;
+  /** true = el precio del documento YA incluye IVA: se guarda NETO (÷1,19). Solo CLP; null/false = ya es neto. */
+  ivaIncluido?: boolean | null;
   fichaTecnicaUrl?: string | null; archivoUrl?: string | null; archivoNombre?: string | null;
   tomadaAt?: string | null; // si no viene, se usa ahora
   vigenciaAt?: string | null; notas?: string | null;
@@ -95,7 +100,10 @@ export async function registrarCotizacion(
     // Proveedor "nuevo" tipeado a mano: se le da de alta en el catálogo (ficha mínima, editable
     // después en /compras/proveedores) — sin esto se perdía todo salvo nombre/RUT en ESTA
     // cotización, y había que retipearlo cada vez que se le volviera a cotizar algo.
-    proveedorId = await obtenerOCrearProveedor(proveedorNombre, proveedorRut, actorId, actorNombre).catch(() => null);
+    // Un RUT con dígito verificador malo no entra al catálogo (auditoría 07-oct-2026: se dio de alta un proveedor con RUT
+    // inválido): la cotización conserva el RUT tal como vino, para que el auditor lo marque, pero el catálogo no se contamina.
+    const rutParaCatalogo = proveedorRut && rutValido(proveedorRut) ? proveedorRut : null;
+    proveedorId = await obtenerOCrearProveedor(proveedorNombre, rutParaCatalogo, actorId, actorNombre).catch(() => null);
   }
 
   // Blindaje contra NaN (bug real 10-sep-2026): un precio tipeado con puntos de miles chilenos
@@ -104,8 +112,16 @@ export async function registrarCotizacion(
   // MySQL confunde con el nombre de una columna → "Unknown column 'NaN' in field list"). Los
   // llamadores ya deberían mandar números limpios (ver parsearMontoCL en los endpoints), pero esta
   // función NUNCA debe dejar pasar un NaN a la base de datos pase lo que pase río arriba.
-  if (datos.precioUnitario != null && !Number.isFinite(datos.precioUnitario)) datos.precioUnitario = null;
-  if (datos.precioTotal != null && !Number.isFinite(datos.precioTotal)) datos.precioTotal = null;
+  // Un 0 tampoco es precio ("consultar precio" se guardaba como $0 y daba "margen 100 %").
+  datos.precioUnitario = precioONull(datos.precioUnitario);
+  datos.precioTotal = precioONull(datos.precioTotal);
+  // IVA incluido (solo pesos): se pasa a NETO antes que nada, para que descuento, bruto y todo lo de abajo trabajen en neto.
+  const notaIva = datos.ivaIncluido && (datos.moneda || 'CLP') === 'CLP' && (datos.precioUnitario != null || datos.precioTotal != null)
+    ? `El documento informa precios con IVA incluido${datos.precioUnitario != null ? ` (${fmtMonto(datos.precioUnitario)} c/u)` : ''}; se guardaron en neto (÷ 1,19).` : null;
+  if (notaIva) {
+    if (datos.precioUnitario != null) datos.precioUnitario = netoDesdeBruto(datos.precioUnitario);
+    if (datos.precioTotal != null) datos.precioTotal = netoDesdeBruto(datos.precioTotal);
+  }
   if (datos.descuentoPct != null && (!Number.isFinite(datos.descuentoPct) || datos.descuentoPct <= 0 || datos.descuentoPct >= 100)) datos.descuentoPct = null;
 
   // Descuento (pedido explícito del usuario, 14-sep-2026): se aplica ACÁ, una sola vez, ANTES de
@@ -170,7 +186,7 @@ export async function registrarCotizacion(
       datos.plazoEntregaTexto || null, plazoEntregaDias,
       datos.incluyeFlete == null ? null : (datos.incluyeFlete ? 1 : 0), fleteMontoClp, datos.direccionBodega || null,
       datos.fichaTecnicaUrl || null, datos.archivoUrl || null, datos.archivoNombre || null,
-      actorId, actorNombre, datos.tomadaAt || ahora, datos.vigenciaAt || null, datos.notas || null, ahora,
+      actorId, actorNombre, datos.tomadaAt || ahora, datos.vigenciaAt || null, [datos.notas, notaIva].filter(Boolean).join(' · ') || null, ahora,
     ],
   ) as any;
   const id = r.insertId as number;
@@ -363,6 +379,8 @@ export interface CotizacionFila {
   // `iniciarEdicion` en el frontend no tenía de dónde sacarlo y lo dejaba fijo en '' — se perdía
   // literalmente lo que la persona había escrito, cada vez que abría "Editar".
   descripcionLibre: string | null;
+  /** YYYY-MM-DD. Antes no se traía: al editar una cotización la vigencia se perdía (el formulario la dejaba en blanco). */
+  vigenciaAt: string | null;
   items: Array<{ productoId: number; precioUnitario: number | null; precioBase: number | null; adicionales: AdicionalFila[]; cumple: CumpleItem; detalleDesviacion: string | null }>;
 }
 
@@ -372,6 +390,7 @@ export async function listarCotizaciones(negocioId: number): Promise<CotizacionF
             precio_unitario_bruto, descuento_pct,
             moneda, tipo_cambio_usado, precio_unitario_clp, precio_total_clp,
             plazo_entrega_texto, plazo_entrega_dias, incluye_flete, flete_monto, ficha_tecnica_url, archivo_url,
+            DATE_FORMAT(vigencia_at, '%Y-%m-%d') AS vigencia_at,
             DATE_FORMAT(homologada_at, '%Y-%m-%d %H:%i:%s') AS homologada_at,
             DATE_FORMAT(tomada_at, '%Y-%m-%d %H:%i:%s') AS tomada_at
        FROM compras_cotizacion WHERE negocio_id = ? ORDER BY created_at DESC`,
@@ -393,7 +412,7 @@ export async function listarCotizaciones(negocioId: number): Promise<CotizacionF
   return cotizaciones.map(c => ({
     id: c.id, proveedorId: c.proveedor_id, proveedorNombre: c.proveedor_nombre, proveedorRut: c.proveedor_rut,
     proveedorNuevo: c.proveedor_nuevo == null ? null : !!c.proveedor_nuevo, origen: c.origen,
-    descripcionLibre: c.descripcion_libre,
+    descripcionLibre: c.descripcion_libre, vigenciaAt: c.vigencia_at ?? null,
     precioUnitario: c.precio_unitario == null ? null : Number(c.precio_unitario),
     precioTotal: c.precio_total == null ? null : Number(c.precio_total),
     precioUnitarioBruto: c.precio_unitario_bruto == null ? null : Number(c.precio_unitario_bruto),
@@ -416,7 +435,11 @@ export async function listarCotizaciones(negocioId: number): Promise<CotizacionF
   }));
 }
 
-export interface AsignacionItemManual { productoId: number; precioUnitario: number | null; cumple: CumpleItem; detalleDesviacion?: string | null }
+export interface AsignacionItemManual {
+  productoId: number; precioUnitario: number | null; cumple: CumpleItem; detalleDesviacion?: string | null;
+  /** El proveedor no cobra este producto aparte: va dentro del precio de otro (el carro dentro del horno). Queda con base $0 explícita. */
+  incluido?: boolean;
+}
 
 /** Asignación MANUAL de una cotización a uno o varios productos (§8.7: "una cotización puede cubrir
  *  varios productos"). Complementa a `homologarCotizacionIA` — existe porque depender solo de que la
@@ -446,9 +469,11 @@ export async function asignarItemsCotizacion(
   // precio_unitario_clp ya calculado de la cotización.
   // El precio que llega es el del PRODUCTO solo (precio_base); los adicionales ya cargados se vuelven a sumar abajo.
   const filas = limpios.map(it => {
-    const precio = it.precioUnitario != null && Number.isFinite(it.precioUnitario) ? it.precioUnitario
+    // «Va incluido en otro producto»: base $0 EXPLÍCITA (no se le copia el precio de la cotización, que es el del otro producto).
+    const precio = it.incluido ? 0
+      : it.precioUnitario != null && Number.isFinite(it.precioUnitario) ? it.precioUnitario
       : (cotiz.precio_unitario_clp != null ? Number(cotiz.precio_unitario_clp) : null);
-    return [cotizacionId, it.productoId, precio, precio, it.cumple, it.detalleDesviacion || null];
+    return [cotizacionId, it.productoId, precio, precio, it.cumple, it.incluido ? 'Va incluido en el precio de otro producto.' : (it.detalleDesviacion || null)];
   });
   const ph = filas.map(() => '(?,?,?,?,?,?)').join(',');
   await pool.query(
@@ -472,7 +497,7 @@ export async function asignarItemsCotizacion(
 
 const SYS_HOMOLOGACION = `Eres el Auditor de Compras de una empresa que revende productos adjudicados en licitaciones públicas chilenas.
 
-Te doy la descripción libre de UNA cotización de un proveedor (puede mencionar uno o varios productos) y una lista NUMERADA de los PRODUCTOS GANADOS que la empresa necesita comprar para cumplir la licitación.
+Te doy la descripción libre de UNA cotización de un proveedor (puede mencionar uno o varios productos) y una lista de los PRODUCTOS GANADOS, cada uno con un CÓDIGO (P1, P2, P3…) que la empresa necesita comprar para cumplir la licitación.
 
 Tu trabajo, para cada producto de la lista que la cotización efectivamente cubra:
 1. Decide si es el MISMO producto por SIGNIFICADO, no por nombre exacto — los proveedores no nombran los productos igual que la licitación (spec §8.6).
@@ -485,16 +510,23 @@ Tu trabajo, para cada producto de la lista que la cotización efectivamente cubr
 3. Si detectas una desviación, descríbela en 1 frase concreta (ej. "mesa de 39cm vs 40cm exigidos").
 
 Si la cotización no menciona un producto de la lista, simplemente NO lo incluyas en la respuesta — no inventes cobertura.
+Los códigos P1, P2… son SOLO de la lista de productos ganados: NO los confundas con los números de línea ("Item 1, 2, 3…") que trae el documento, que son otra cosa. Los componentes y accesorios del documento NO reciben código: van dentro de "adicionales".
+
+ACCESORIOS Y COMPONENTES — una cotización real trae líneas que NO son un producto de la lista sino un componente o accesorio de uno (ej.: el "Quemador a gas" de un horno, las "Bandejas" de un carro). Si esa línea tiene precio, NO la conviertas en producto: agrégala en "adicionales" del producto al que pertenece, con "cantidadLinea" (la cantidad de ESA línea) y "precioUnitario" (por unidad, tal como aparece). El "precioUnitarioAsignado" del producto principal es el del producto SOLO, sin esos componentes. IGNORA los servicios (puesta en marcha, instalación, capacitación, flete) y los totales/"RESUMEN GLOBAL" que repiten líneas ya vistas: no son adicionales ni productos.
+Si una línea dice "N unidades ... $X" sin precio unitario ni "c/u" (ej. "18 bandejas aluminio ... $152.000"), $X es el precio del CONJUNTO: cantidadLinea 1 y precioUnitario X, y pon "(18 bandejas)" en el concepto.
+Si el documento dice que un producto de la lista VA INCLUIDO en el precio de otro (ej. "Horno ... Incluye 1 carro 18x60x40"), devuelve ese producto en "items" con "incluidoEn": <número del producto que lo contiene>, sin precioUnitarioAsignado, y agrega "citaIncluido": el texto LITERAL del documento que lo dice (ej. "Incluye 1 carro 18x60x40"); sin esa cita literal no uses "incluidoEn". Sus componentes aparte (las bandejas) van en sus "adicionales".
+Si la descripción del producto EXIGE un componente ("con quemador", "con 18 bandejas") y el documento dice expresamente que NO lo incluye, que es opcional o que se vende aparte SIN dar precio, anótalo en "faltantes" ({"producto":"<código P1, P2…>","concepto":"<qué falta>","cita":"<texto LITERAL del documento, copiado tal cual, que dice que no se incluye / es opcional / se cotiza aparte / a consultar>"}). Sin esa cita literal NO lo anotes: si el documento simplemente no habla del componente, NO es un faltante. Tampoco si el componente ya va incluido o ya viene con precio en "adicionales".
+"precioUnitarioAsignado" es el precio de ESA línea tal como aparece en la tabla (precio unitario de la línea): NO uses el subtotal, el neto final, el total, ni nada que ya incluya flete, descuento o IVA agregados al pie del documento.
 
 Responde SOLO JSON, sin markdown:
-{"items":[{"producto":<número de la lista>,"cumple":"CUMPLE"|"MEJORA"|"INFERIOR_NEGOCIABLE"|"INFERIOR_INSALVABLE"|"NO_ES_EL_PRODUCTO","detalle":"<frase o null>","precioUnitarioAsignado":<número o null, si la cotización trae precio por ese producto en particular>}],"puntosCriticos":"<1-3 frases: qué es negociable y qué es insalvable en esta cotización, en general>"}`;
+{"items":[{"producto":"<código de la lista: P1, P2…>","cumple":"CUMPLE"|"MEJORA"|"INFERIOR_NEGOCIABLE"|"INFERIOR_INSALVABLE"|"NO_ES_EL_PRODUCTO","detalle":"<frase o null>","precioUnitarioAsignado":<número o null, si la cotización trae precio por ese producto en particular>,"incluidoEn":"<código del producto que lo contiene o null>","citaIncluido":"<texto literal o null>","adicionales":[{"concepto":"<texto>","cantidadLinea":<número>,"precioUnitario":<número>}]}],"faltantes":[{"producto":"<código>","concepto":"<texto>","cita":"<texto literal>"}],"puntosCriticos":"<1-3 frases: qué es negociable y qué es insalvable en esta cotización, en general>"}`;
 
 /** Homologa UNA cotización contra los productos ganados del negocio (§8.6-§8.8), vía IA. Escribe
  *  compras_cotizacion_item y acumula el resumen en compras_veredicto por producto. No excluye
  *  proveedores — solo clasifica (§8.8.1). */
 export async function homologarCotizacionIA(cotizacionId: number): Promise<{ items: number }> {
   const [rows] = await pool.query(
-    `SELECT negocio_id, proveedor_nombre, descripcion_libre, precio_unitario, precio_total, moneda, tipo_cambio_usado, precio_unitario_clp
+    `SELECT negocio_id, proveedor_nombre, descripcion_libre, precio_unitario, precio_total, moneda, tipo_cambio_usado, precio_unitario_clp, descuento_pct, notas
        FROM compras_cotizacion WHERE id = ? LIMIT 1`,
     [cotizacionId],
   ) as any;
@@ -505,8 +537,8 @@ export async function homologarCotizacionIA(cotizacionId: number): Promise<{ ite
   if (productos.length === 0) return { items: 0 };
 
   const sufijoMoneda = cotiz.moneda && cotiz.moneda !== 'CLP' ? ` ${cotiz.moneda}` : '';
-  const user = `PRODUCTOS GANADOS (número: descripción, cantidad, unidad):
-${productos.map((p, i) => `${i + 1}. ${p.descripcion}${p.cantidad ? `, cantidad ${p.cantidad}` : ''}${p.unidad ? ` ${p.unidad}` : ''}`).join('\n')}
+  const user = `PRODUCTOS GANADOS (código: descripción, cantidad, unidad):
+${productos.map((p, i) => `P${i + 1}. ${p.descripcion}${p.cantidad ? `, cantidad ${p.cantidad}` : ''}${p.unidad ? ` ${p.unidad}` : ''}`).join('\n')}
 
 COTIZACIÓN de "${cotiz.proveedor_nombre}"${cotiz.precio_unitario ? ` — precio unitario informado: ${Number(cotiz.precio_unitario).toLocaleString('es-CL')}${sufijoMoneda}` : ''}${cotiz.precio_total ? ` — total: ${Number(cotiz.precio_total).toLocaleString('es-CL')}${sufijoMoneda}` : ''}${sufijoMoneda ? `\n(Todo precio que asignes por producto debe estar en la MISMA moneda del documento, ${cotiz.moneda} — no conviertas tú, la conversión a CLP la hace el sistema aparte.)` : ''}:
 ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si corresponde a un único producto)'}`;
@@ -525,30 +557,62 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
   let escritos = 0;
   const ahora = ahoraChileSQL();
   const tipoCambio = cotiz.tipo_cambio_usado != null ? Number(cotiz.tipo_cambio_usado) : null;
-  const itemsValidos = items.filter((x: any) => productos[Number(x?.producto) - 1] && cumples.includes(x?.cumple)).length;
-  for (const it of items) {
-    const idx = Number(it?.producto);
-    const producto = productos[idx - 1];
-    if (!producto || !cumples.includes(it.cumple)) continue;
-    // compras_cotizacion_item.precio_unitario es SIEMPRE CLP (es lo que alimenta el cuadro
-    // comparativo y los escenarios) — si la IA asignó un precio propio, viene en la moneda del
-    // documento (se le pidió explícitamente que no convirtiera) y hay que pasarlo por el mismo
-    // tipo de cambio que se congeló al registrar la cotización; si no asignó nada, cae al precio
-    // unitario CLP ya calculado a nivel de cotización.
-    // Number(null) es 0: antes un producto SIN precio propio quedaba guardado con precio $0 (caso real
-    // PanTai/#994). La regla vive en compras-precio-homologacion.ts, con pruebas.
+  const codigo = (v: unknown) => Number(String(v ?? '').replace(/\D/g, ''));   // "P2" → 2
+  const itemsValidos = items.filter((x: any) => productos[codigo(x?.producto) - 1] && cumples.includes(x?.cumple) && x.cumple !== 'NO_ES_EL_PRODUCTO').length;
+  // Auditoría 07-oct-2026: la IA a veces "cubre" productos que el documento ni menciona (una cotización solo del horno quedó
+  // asignada también a sobadora y carro, "sin precio") y marca como asignable lo que es OTRO producto. Eso es ruido que
+  // ensucia la matriz: se descartan los NO_ES_EL_PRODUCTO y, si la cotización tiene precio para algún producto, los que quedan sin precio.
+  // El precio propio que la IA lee de una línea viene tal como el documento lo muestra: antes de descuento y, si el
+  // documento dice "IVA incluido", con IVA. Se lleva a NETO igual que el precio de cabecera (registrarCotizacion).
+  const ivaIncluido = /se guardaron en neto \(÷ 1,19\)/.test(String(cotiz.notas || '')) && (cotiz.moneda || 'CLP') === 'CLP';
+  const dscto = cotiz.descuento_pct != null ? Number(cotiz.descuento_pct) : null;
+  const aNeto = (v: unknown): unknown => {
+    const n = v == null || v === '' || typeof v === 'boolean' ? NaN : Number(v);
+    if (!Number.isFinite(n) || n <= 0) return v;
+    let x = ivaIncluido ? netoDesdeBruto(n) : n;
+    if (dscto != null && dscto > 0 && dscto < 100) x = Math.round(x * (1 - dscto / 100));
+    return x;
+  };
+  const resueltos = items.map((it: any) => {
+    const producto = productos[codigo(it?.producto) - 1];
+    if (!producto || !cumples.includes(it.cumple) || it.cumple === 'NO_ES_EL_PRODUCTO') return null;
+    // "Va incluido en otro producto" sin cita literal verificada = invento: ese producto no se asigna a esta cotización.
+    if (it.incluidoEn != null && !citaVerificada(it.citaIncluido, String(cotiz.descripcion_libre || ''))) return null;
     const precioClp = precioClpDeItemIA({
-      precioUnitarioAsignado: it.precioUnitarioAsignado, tipoCambio,
+      precioUnitarioAsignado: aNeto(it.precioUnitarioAsignado), tipoCambio,
       precioClpCotizacion: cotiz.precio_unitario_clp != null ? Number(cotiz.precio_unitario_clp) : null,
       totalItemsAsignados: itemsValidos,
     });
+    return { it, producto, precioClp };
+  }).filter(Boolean) as Array<{ it: any; producto: ProductoCompra; precioClp: number | null }>;
+  // Un producto que va incluido en el precio de otro queda con base $0 (explícito): su costo está en el otro producto.
+  const textoDoc = String(cotiz.descripcion_libre || '');
+  const incluidos = new Set(incluidosDesdeIA(items, textoDoc).map(x => x.producto));
+  const hayConPrecio = resueltos.some(r => r.precioClp != null);
+  for (const { it, producto, precioClp: precioIA } of resueltos) {
+    const esIncluido = incluidos.has(codigo(it.producto));
+    const precioClp = esIncluido ? 0 : precioIA;
+    if (hayConPrecio && precioClp == null) continue;
     await pool.query(
       `INSERT INTO compras_cotizacion_item (cotizacion_id, producto_id, precio_unitario, precio_base, cumple, detalle_desviacion)
        VALUES (?,?,?,?,?,?)
        ON DUPLICATE KEY UPDATE precio_unitario = VALUES(precio_unitario), precio_base = VALUES(precio_base), cumple = VALUES(cumple), detalle_desviacion = VALUES(detalle_desviacion)`,
-      [cotizacionId, producto.id, precioClp, precioClp, it.cumple, it.detalle || null],
+      [cotizacionId, producto.id, precioClp, precioClp, it.cumple, esIncluido ? `Va incluido en el precio de «${productos[codigo(it.incluidoEn) - 1]?.descripcion?.slice(0, 60) ?? 'otro producto'}».` : (it.detalle || null)],
     );
     escritos++;
+    // Componentes con precio propio que el documento cotiza aparte (quemador, bandejas…): se unen al producto como adicionales.
+    // Si ya hay adicionales cargados (a mano o de una pasada anterior) no se pisan: lo hecho por una persona manda.
+    const adic = adicionalesDesdeIA(it.adicionales, producto.cantidad != null ? Number(producto.cantidad) : null, aNeto as (n: number) => number);
+    if (adic.length > 0) {
+      const [ya] = await pool.query(`SELECT COUNT(*) n FROM compras_cotizacion_adicional WHERE cotizacion_id = ? AND producto_id = ?`, [cotizacionId, producto.id]).catch(() => [[{ n: 1 }]] as any) as any;
+      if (Number((ya as any[])[0]?.n || 0) === 0) {
+        for (const a of adic) {
+          await pool.query(
+            `INSERT INTO compras_cotizacion_adicional (negocio_id, cotizacion_id, producto_id, concepto, cantidad, precio_unitario, creado_por, creado_por_nombre, creado_at) VALUES (?,?,?,?,?,?,NULL,'Agente de compras (IA)',?)`,
+            [cotiz.negocio_id, cotizacionId, producto.id, a.concepto, a.cantidad, a.precioUnitario, ahora]);
+        }
+      }
+    }
     await pool.query(
       `INSERT INTO compras_veredicto (producto_id, resumen_ia, generado_at, modelo)
        VALUES (?,?,?,'glm-4.7')
@@ -556,6 +620,21 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
       [producto.id, parsed.puntosCriticos || null, ahora],
     );
   }
+  // Re-homologar dejaba filas de una pasada anterior que la nueva lectura ya no asigna (producto "sin precio", $0) y su aviso en la matriz.
+  // Se limpian solo las vacías (sin precio, sin adicionales): lo que tiene precio o lo cargó una persona se conserva.
+  const asignados = resueltos.filter(r => incluidos.has(codigo(r.it.producto)) || !(hayConPrecio && r.precioClp == null)).map(r => r.producto.id);
+  await pool.query(
+    `DELETE i FROM compras_cotizacion_item i
+      WHERE i.cotizacion_id = ? AND (i.precio_unitario IS NULL OR i.precio_unitario = 0)
+        ${asignados.length ? `AND i.producto_id NOT IN (${asignados.map(() => '?').join(',')})` : ''}
+        AND NOT EXISTS (SELECT 1 FROM compras_cotizacion_adicional a WHERE a.cotizacion_id = i.cotizacion_id AND a.producto_id = i.producto_id)`,
+    [cotizacionId, ...asignados],
+  ).catch(() => {});
+  await pool.query(
+    `DELETE a FROM compras_auditoria_cotizacion a
+      WHERE a.cotizacion_id = ? AND NOT EXISTS (SELECT 1 FROM compras_cotizacion_item i WHERE i.cotizacion_id = a.cotizacion_id AND i.producto_id = a.producto_id)`,
+    [cotizacionId],
+  ).catch(() => {});
   await recalcularPreciosDeCotizacion(cotizacionId);   // los adicionales ya cargados se vuelven a sumar al precio base
   await pool.query(`UPDATE compras_cotizacion SET homologada_at = ? WHERE id = ?`, [ahora, cotizacionId]);
   await registrarEvento({
@@ -565,7 +644,12 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
   });
   // La homologación solo decide A QUÉ producto corresponde; que sea de verdad el producto y cumpla
   // lo exigido lo dictamina el auditor, con evidencia (compras-auditoria-cotizacion.ts).
-  if (escritos > 0) auditarCotizacionEnSegundoPlano(cotiz.negocio_id, cotizacionId);
+  const faltantesPorProducto = new Map<number, string[]>();
+  for (const f of faltantesDesdeIA(parsed.faltantes, String(cotiz.descripcion_libre || ''))) {
+    const pr = productos[f.producto - 1];
+    if (pr) faltantesPorProducto.set(pr.id, [...(faltantesPorProducto.get(pr.id) || []), f.concepto]);
+  }
+  if (escritos > 0) auditarCotizacionEnSegundoPlano(cotiz.negocio_id, cotizacionId, undefined, { faltantes: faltantesPorProducto });
   return { items: escritos };
 }
 
@@ -579,7 +663,7 @@ export async function detectarEspacioNegociacion(negocioId: number): Promise<Esp
   const porProducto = new Map<number, Array<{ precio: number; proveedor: string }>>();
   for (const c of cotizaciones) {
     for (const it of c.items) {
-      if (it.precioUnitario == null || it.cumple === 'NO_ES_EL_PRODUCTO') continue;
+      if (it.precioUnitario == null || !(it.precioUnitario > 0) || it.cumple === 'NO_ES_EL_PRODUCTO') continue;
       const arr = porProducto.get(it.productoId) || []; arr.push({ precio: it.precioUnitario, proveedor: c.proveedorNombre });
       porProducto.set(it.productoId, arr);
     }
@@ -675,12 +759,15 @@ function tierCumple(c: CumpleItem): number {
   }
 }
 
-function elegirCandidatos(productos: ProductoCompra[], cotizaciones: CotizacionFila[]) {
+function elegirCandidatos(productos: ProductoCompra[], cotizaciones: CotizacionFila[], permitirIncluidos = false) {
   // Por producto, las cotizaciones que lo cubren y no son excluyentes (NO_ES_EL_PRODUCTO se descarta).
   const porProducto = new Map<number, EleccionPorProducto['item'][]>();
   for (const c of cotizaciones) {
     for (const it of c.items) {
-      if (it.cumple === 'NO_ES_EL_PRODUCTO' || it.precioUnitario == null) continue;
+      // Un $0 no es un precio, salvo que sea un producto marcado «va incluido en otro» (base $0 explícita): esos solo entran
+      // a las combinaciones, que exigen comprar también el producto que lo contiene al mismo proveedor.
+      const incluido = it.precioBase === 0;
+      if (it.cumple === 'NO_ES_EL_PRODUCTO' || it.precioUnitario == null || (!(it.precioUnitario > 0) && !(permitirIncluidos && incluido))) continue;
       const arr = porProducto.get(it.productoId) || [];
       arr.push({ ...it, cotizacionId: c.id, moneda: c.moneda, tipoCambioUsado: c.tipoCambioUsado, proveedor: c.proveedorNombre, plazoEntregaDias: c.plazoEntregaDias, incluyeFlete: c.incluyeFlete, fleteMonto: c.fleteMonto });
       porProducto.set(it.productoId, arr);
@@ -803,19 +890,21 @@ export interface Combinacion {
 export interface ResultadoCombinaciones {
   combinaciones: Combinacion[]; totalPosibles: number; truncado: boolean;
   productosSinOferta: Array<{ productoId: number; descripcion: string }>; productosCubiertos: number;
+  /** Las pocas compras que vale la pena mirar (todo a un proveedor, más barata, más rápida, equilibrada), cada una con su razón. */
+  recomendadas: Array<{ comb: Combinacion; etiquetas: EtiquetaRecomendada[] }>;
 }
 
 const LIMITE_ENUMERACION = 3000;
-const LIMITE_DEVUELTAS = 500;
+const LIMITE_DEVUELTAS = 30;   // la pantalla ya no lista cientos: muestra las recomendadas y deja armar la compra a mano
 const CUMPLE_TXT: Record<CumpleItem, string> = { CUMPLE: 'cumple', MEJORA: 'mejora lo pedido', INFERIOR_NEGOCIABLE: 'inferior (negociable)', INFERIOR_INSALVABLE: 'inferior (insalvable)', NO_ES_EL_PRODUCTO: 'no es el producto' };
 
 export async function enumerarCombinaciones(negocioId: number): Promise<ResultadoCombinaciones> {
-  const vacio: ResultadoCombinaciones = { combinaciones: [], totalPosibles: 0, truncado: false, productosSinOferta: [], productosCubiertos: 0 };
+  const vacio: ResultadoCombinaciones = { combinaciones: [], totalPosibles: 0, truncado: false, productosSinOferta: [], productosCubiertos: 0, recomendadas: [] };
   const productos = (await listarProductosCompra(negocioId)).filter(p => !esSubestadoFuera(p.subestado));
   if (productos.length === 0) return vacio;
   const cotizaciones = await listarCotizaciones(negocioId);
   if (cotizaciones.length === 0) return vacio;
-  const porProducto = elegirCandidatos(productos, cotizaciones);
+  const porProducto = elegirCandidatos(productos, cotizaciones, true);
   const cubiertos = productos.filter(p => (porProducto.get(p.id) || []).length > 0);
   const sinOferta = productos.filter(p => (porProducto.get(p.id) || []).length === 0).map(p => ({ productoId: p.id, descripcion: p.descripcion }));
   if (cubiertos.length === 0) return { ...vacio, productosSinOferta: sinOferta };
@@ -840,7 +929,12 @@ export async function enumerarCombinaciones(negocioId: number): Promise<Resultad
   const todas: Combinacion[] = [];
   const elegidos: EleccionPorProducto['item'][] = new Array(cubiertos.length);
   const recorrer = (i: number) => {
-    if (i === cubiertos.length) { todas.push(armarCombinacion(cubiertos, elegidos)); return; }
+    if (i === cubiertos.length) {
+      // «Va incluido» solo vale si el proveedor también vende, en esta misma combinación, algún producto con precio (el que lo contiene).
+      const ok = elegidos.every(e => !(e.precioBase === 0) || elegidos.some(o => o !== e && o.cotizacionId === e.cotizacionId && (o.precioBase ?? 1) > 0));
+      if (ok) todas.push(armarCombinacion(cubiertos, elegidos));
+      return;
+    }
     for (const c of listas[i]) { elegidos[i] = c; recorrer(i + 1); }
   };
   recorrer(0);
@@ -850,14 +944,84 @@ export async function enumerarCombinaciones(negocioId: number): Promise<Resultad
   const masBarata = todas.length ? Math.min(...todas.map(c => c.costoTotal)) : 0;
   for (const c of todas) { c.diferenciaVsMasBarata = c.costoTotal - masBarata; c.diferenciaPctVsMasBarata = masBarata > 0 ? Math.round(((c.costoTotal - masBarata) / masBarata) * 1000) / 10 : null; }
 
-  // Marca cuál(es) de los 4 escenarios clásicos coincide con cada combinación.
+  await etiquetarConClasicos(negocioId, todas);
+  // Las recomendadas salen de TODAS las combinaciones; la lista que viaja a la pantalla se recorta, pero siempre incluye las recomendadas.
+  const recomendadas = recomendarCombinaciones(todas);
+  const claves = new Set(recomendadas.map(r => r.comb.clave));
+  const lista = [...todas.slice(0, LIMITE_DEVUELTAS), ...todas.slice(LIMITE_DEVUELTAS).filter(c => claves.has(c.clave))];
+  return { combinaciones: lista, totalPosibles, truncado: truncado || todas.length > LIMITE_DEVUELTAS, productosSinOferta: sinOferta, productosCubiertos: cubiertos.length, recomendadas };
+}
+
+/** Marca cuál(es) de los 4 escenarios clásicos (más rápido, mínimo precio, mínimos viajes, equilibrado) coincide con cada combinación. */
+async function etiquetarConClasicos(negocioId: number, combs: Combinacion[]): Promise<void> {
   const clasicos = await calcularEscenarios(negocioId).catch(() => [] as Escenario[]);
   for (const e of clasicos) {
     const firma = e.detalle.porProducto.filter(d => d.proveedor).map(d => `${d.productoId}:${d.proveedor}:${d.precioUnitario}`).sort().join('|');
-    for (const c of todas) if (c.items.map(x => `${x.productoId}:${x.proveedor}:${x.precioUnitario}`).sort().join('|') === firma) c.etiquetas.push(e.tipo);
+    for (const c of combs) if (c.items.map(x => `${x.productoId}:${x.proveedor}:${x.precioUnitario}`).sort().join('|') === firma && !c.etiquetas.includes(e.tipo)) c.etiquetas.push(e.tipo);
   }
-  return { combinaciones: todas.slice(0, LIMITE_DEVUELTAS), totalPosibles, truncado: truncado || todas.length > LIMITE_DEVUELTAS, productosSinOferta: sinOferta, productosCubiertos: cubiertos.length };
 }
+
+/** "232:50|233:62" → { 232: 50, 233: 62 } (la clave de una combinación es producto:cotización por cada producto). */
+export function seleccionDesdeClave(clave: string | null | undefined): Record<number, number> {
+  const out: Record<number, number> = {};
+  for (const par of String(clave || '').split('|')) {
+    const [p, c] = par.split(':').map(Number);
+    if (Number.isInteger(p) && Number.isInteger(c)) out[p] = c;
+  }
+  return out;
+}
+
+export interface EvaluacionSeleccion {
+  /** La compra armada con lo elegido (null si no hay nada elegido todavía). */
+  combinacion: Combinacion | null;
+  /** Productos que todavía no tienen proveedor elegido. */
+  faltan: Array<{ productoId: number; descripcion: string }>;
+  /** Productos que ninguna cotización cubre (no se pueden elegir). */
+  sinOferta: Array<{ productoId: number; descripcion: string }>;
+  /** Elecciones que no valen (la cotización ya no cubre ese producto, o «va incluido» sin comprar también el producto que lo contiene). */
+  errores: string[];
+}
+
+/** Arma la compra que el usuario va eligiendo producto por producto en la matriz («este producto a ROMCO, aquel a Barcepan», o «todo a un
+ *  proveedor»). Es la misma cuenta de siempre (armarCombinacion): mercadería, un viaje por proveedor, plazo y avisos. */
+export async function evaluarSeleccion(negocioId: number, seleccion: Record<number, number>): Promise<EvaluacionSeleccion> {
+  const productos = (await listarProductosCompra(negocioId)).filter(p => !esSubestadoFuera(p.subestado));
+  const cotizaciones = await listarCotizaciones(negocioId);
+  const candidatos = elegirCandidatos(productos, cotizaciones, true);
+  const sinOferta = productos.filter(p => (candidatos.get(p.id) || []).length === 0).map(p => ({ productoId: p.id, descripcion: p.descripcion }));
+  const errores: string[] = [];
+  const elegidosProd: ProductoCompra[] = []; const elegidos: EleccionPorProducto['item'][] = [];
+  const faltan: Array<{ productoId: number; descripcion: string }> = [];
+  for (const p of productos) {
+    const cotId = seleccion[p.id];
+    if (cotId == null) { if ((candidatos.get(p.id) || []).length > 0) faltan.push({ productoId: p.id, descripcion: p.descripcion }); continue; }
+    const cand = (candidatos.get(p.id) || []).find(x => x.cotizacionId === cotId);
+    if (!cand) { errores.push(`La cotización #${cotId} ya no cubre «${p.descripcion.slice(0, 50)}».`); continue; }
+    elegidosProd.push(p); elegidos.push(cand);
+  }
+  for (const e of elegidos) {
+    if (e.precioBase === 0 && !elegidos.some(o => o !== e && o.cotizacionId === e.cotizacionId && (o.precioBase ?? 1) > 0)) {
+      const p = elegidosProd[elegidos.indexOf(e)];
+      errores.push(`«${p.descripcion.slice(0, 50)}» va incluido en el precio de otro producto de ${e.proveedor}: para elegirlo, ese otro producto también tiene que comprarse a ${e.proveedor}.`);
+    }
+  }
+  if (elegidos.length === 0 || errores.length > 0) return { combinacion: null, faltan, sinOferta, errores };
+  const comb = armarCombinacion(elegidosProd, elegidos);
+  await etiquetarConClasicos(negocioId, [comb]);
+  return { combinacion: comb, faltan, sinOferta, errores };
+}
+
+/** Elige la compra armada a mano. Exige que TODOS los productos con oferta tengan proveedor y, salvo que coincida con «Más rápido», una justificación (§8.10.4). */
+export async function elegirSeleccion(
+  negocioId: number, seleccion: Record<number, number>, justificacion: string | null, actorId: number, actorNombre: string | null,
+): Promise<void> {
+  const ev = await evaluarSeleccion(negocioId, seleccion);
+  if (ev.errores.length) throw new Error(ev.errores[0]);
+  if (!ev.combinacion) throw new Error('Elige al menos un producto con su proveedor.');
+  if (ev.faltan.length) throw new Error(`Falta elegir proveedor para: ${ev.faltan.map(f => f.descripcion.slice(0, 40)).join(', ')}.`);
+  await guardarCombinacionElegida(negocioId, ev.combinacion, justificacion, actorId, actorNombre);
+}
+
 
 function armarCombinacion(productos: ProductoCompra[], elegidos: EleccionPorProducto['item'][]): Combinacion {
   const items: ItemCombinacion[] = productos.map((p, i) => {
@@ -907,7 +1071,13 @@ export async function elegirCombinacion(
   const { combinaciones } = await enumerarCombinaciones(negocioId);
   const c = combinaciones.find(x => x.clave === clave);
   if (!c) throw new Error('Esa combinación ya no existe (cambiaron las cotizaciones). Recarga y vuelve a elegir.');
-  if (!c.etiquetas.includes('MAS_RAPIDO') && !justificacion?.trim()) throw new Error('Elegir una combinación distinta de "Más rápido" requiere justificación (spec §8.10.4).');
+  await guardarCombinacionElegida(negocioId, c, justificacion, actorId, actorNombre);
+}
+
+async function guardarCombinacionElegida(
+  negocioId: number, c: Combinacion, justificacion: string | null, actorId: number, actorNombre: string | null,
+): Promise<void> {
+  if (!c.etiquetas.includes('MAS_RAPIDO') && !justificacion?.trim()) throw new Error('Elegir una compra distinta de "Más rápido" requiere justificación (spec §8.10.4).');
   const ahora = ahoraChileSQL();
   await pool.query(`UPDATE compras_escenario SET elegido = 0 WHERE negocio_id = ?`, [negocioId]);
   await pool.query(
@@ -918,8 +1088,8 @@ export async function elegirCombinacion(
   await invalidarAprobacionesCompras(negocioId, 'Se eligió una combinación de compra distinta.');
   await registrarEvento({
     tipo: 'COMPRAS_ESCENARIO_ELEGIDO', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
-    mensaje: `Se eligió una combinación de compra con ${c.proveedores.join(' + ')} (${fmtMonto(c.costoTotal)})${justificacion ? `: ${justificacion}` : ''}.`,
-    metadata: { negocio_id: negocioId, tipo: 'COMBINACION', clave, costoTotal: c.costoTotal },
+    mensaje: `Se eligió una compra con ${c.proveedores.join(' + ')} (${fmtMonto(c.costoTotal)})${justificacion ? `: ${justificacion}` : ''}.`,
+    metadata: { negocio_id: negocioId, tipo: 'COMBINACION', clave: c.clave, costoTotal: c.costoTotal },
   });
 }
 

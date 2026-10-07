@@ -16,7 +16,7 @@ export interface EntradaSiguientePaso {
   esJefeDeVentas: boolean;
   ocAceptada: boolean;
   tareas: TareaMin[];
-  fases: { tareasVencidas: number; productosSinCotizacion: number; compuertasPendientes: number; hitosAdminPendientes: number | null; incidenciasAbiertas: number; relojVencido: boolean } | null;
+  fases: { tareasVencidas: number; productosSinCotizacion: number; escenarioElegido?: boolean; compraAprobada?: boolean; margenAprobado?: boolean; compuertasPendientes: number; hitosAdminPendientes: number | null; incidenciasAbiertas: number; relojVencido: boolean } | null;
 }
 export interface SiguientePaso {
   tono: 'alerta' | 'pendiente' | 'ok';
@@ -51,6 +51,8 @@ export function siguientePaso(e: EntradaSiguientePaso): SiguientePaso {
   const validacion = pendientes.find(t => t.catalogoClave && VALIDACIONES_INICIO.includes(t.catalogoClave));
   if (validacion) return { tono: 'pendiente', titulo: validacion.titulo, detalle: 'Validación de inicio: se hace en paralelo y antes de comprar.', fase: 'tareas', boton: 'Hacerla ahora' };
   if (f && f.productosSinCotizacion > 0) return { tono: 'pendiente', titulo: `Cotiza ${f.productosSinCotizacion === 1 ? '1 producto' : `${f.productosSinCotizacion} productos`}`, detalle: 'Carga cotizaciones en cualquier formato (PDF, foto, WhatsApp, llamada). Lo ideal son tres por producto.', fase: 'costeo', boton: 'Cargar cotizaciones' };
+  if (f && f.escenarioElegido === false) return { tono: 'pendiente', titulo: 'Elige cómo comprar', detalle: 'Compara los precios, elige la combinación de proveedores (o el escenario) y justifica si te apartas del más rápido.', fase: 'costeo', boton: 'Elegir cómo comprar' };
+  if (f && f.compuertasPendientes === 0 && (f.compraAprobada === false || f.margenAprobado === false)) return { tono: 'pendiente', titulo: f.compraAprobada === false ? 'Propón la compra para aprobación' : 'Propón el margen para aprobación', detalle: 'Compra y margen son dos aprobaciones separadas del jefe de ventas; sin ellas no arranca lo administrativo.', fase: 'aprobacion', boton: 'Ir a aprobación' };
   if (f && f.compuertasPendientes > 0) return { tono: 'pendiente', titulo: 'Pide la aprobación de la compra', detalle: 'La compra y el margen (piso 20 %) los aprueba el jefe de ventas; sin eso no arranca lo administrativo.', fase: 'aprobacion', boton: 'Ir a aprobación' };
   if (f && f.hitosAdminPendientes != null && f.hitosAdminPendientes > 0) return { tono: 'pendiente', titulo: `${f.hitosAdminPendientes === 1 ? 'Queda 1 hito administrativo' : `Quedan ${f.hitosAdminPendientes} hitos administrativos`}`, detalle: 'OC a proveedores, provisión de fondos y facturas de compra (se ejecutan en OBUMA).', fase: 'compra', boton: 'Ver hitos' };
   if (pendientes.length > 0) return { tono: 'pendiente', titulo: pendientes[0].titulo, detalle: `Quedan ${pendientes.length} tarea(s) por cerrar.`, fase: 'tareas', boton: 'Ir a las tareas' };

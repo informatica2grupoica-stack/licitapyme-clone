@@ -1883,8 +1883,10 @@ export async function aplicarAdjudicacionPorLinea(negocioId: number): Promise<Re
 // una consulta falla, ese contador queda en 0 en vez de romper toda la pantalla.
 export interface ResumenFasesCompras {
   tareas: { vencidas: number };
-  costeo: { productosSinCotizacion: number };
-  aprobacion: { compuertasPendientes: number };
+  // Auditoría 07-oct-2026: el stepper pintaba ✓ en «Costeo» y «Aprobación» sin que nadie hubiera elegido compra ni aprobado nada
+  // (bastaba con "no hay aprobaciones PENDIENTES"). Ahora se sabe si de verdad ocurrió.
+  costeo: { productosSinCotizacion: number; escenarioElegido: boolean };
+  aprobacion: { compuertasPendientes: number; compraAprobada: boolean; margenAprobado: boolean };
   compra: { hitosAdminPendientes: number | null }; // null = Compuerta 1 no aprobada, no aplica todavía
   entrega: { incidenciasAbiertas: number; relojVencido: boolean };
 }
@@ -1903,6 +1905,15 @@ async function contarProductosSinCotizacion(negocioId: number): Promise<number> 
     );
     return Number(r?.n || 0);
   } catch { return 0; }
+}
+
+async function estadoDelFlujo(negocioId: number): Promise<{ escenarioElegido: boolean; compraAprobada: boolean; margenAprobado: boolean }> {
+  try {
+    const [[e]]: any = await pool.query(`SELECT COUNT(*) n FROM compras_escenario WHERE negocio_id = ? AND elegido = 1`, [negocioId]);
+    const [aprs]: any = await pool.query(`SELECT tipo, estado FROM compras_aprobacion WHERE negocio_id = ?`, [negocioId]);
+    const ok = (tipo: string) => (aprs as any[]).some(a => a.tipo === tipo && ['APROBADA', 'APROBADA_CON_MODIFICACION'].includes(a.estado));
+    return { escenarioElegido: Number(e?.n || 0) > 0, compraAprobada: ok('COMPRA'), margenAprobado: ok('MARGEN') };
+  } catch { return { escenarioElegido: false, compraAprobada: false, margenAprobado: false }; }
 }
 
 async function contarCompuertasPendientes(negocioId: number): Promise<number> {
@@ -1972,18 +1983,19 @@ async function relojEstaVencido(negocioId: number): Promise<boolean> {
 }
 
 export async function obtenerResumenFases(negocioId: number, tareas: { vencida: boolean }[]): Promise<ResumenFasesCompras> {
-  const [productosSinCotizacion, compuertasPendientes, hitosAdminPendientes, incidenciasAbiertas, relojVencido] =
+  const [productosSinCotizacion, compuertasPendientes, hitosAdminPendientes, incidenciasAbiertas, relojVencido, estadoFlujo] =
     await Promise.all([
       contarProductosSinCotizacion(negocioId),
       contarCompuertasPendientes(negocioId),
       contarHitosAdminPendientes(negocioId),
       contarIncidenciasAbiertas(negocioId),
       relojEstaVencido(negocioId),
+      estadoDelFlujo(negocioId),
     ]);
   return {
     tareas: { vencidas: tareas.filter(t => t.vencida).length },
-    costeo: { productosSinCotizacion },
-    aprobacion: { compuertasPendientes },
+    costeo: { productosSinCotizacion, escenarioElegido: estadoFlujo.escenarioElegido },
+    aprobacion: { compuertasPendientes, compraAprobada: estadoFlujo.compraAprobada, margenAprobado: estadoFlujo.margenAprobado },
     compra: { hitosAdminPendientes },
     entrega: { incidenciasAbiertas, relojVencido },
   };

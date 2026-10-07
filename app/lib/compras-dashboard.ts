@@ -43,6 +43,8 @@ export interface DashboardCompras {
   negociosActivos: number;
   negociosUrgentes: number;
   relojesVencidos: number;
+  /** Negocios activos sin reloj de entrega fijado: para ellos "relojes vencidos" no puede decir nada (auditoría 07-oct-2026). */
+  relojesSinFijar: number;
   incidenciasAbiertas: number;
   sinAsignar: number;
   cierreLegado: { entregadas: number; noRealizadas: number };
@@ -75,6 +77,16 @@ export async function obtenerDashboardCompras(): Promise<DashboardCompras> {
       return limite && String(limite).slice(0, 10) < hoy;
     }).length;
   } catch { /* migration-95 pendiente en algún entorno viejo: no bloquea el resto del dashboard */ }
+
+  let relojesSinFijar = 0;
+  try {
+    const [[r]]: any = await pool.query(
+      `SELECT COUNT(*) n FROM compras_asignacion ca
+        WHERE ca.cierre_legado IS NULL
+          AND NOT EXISTS (SELECT 1 FROM compras_reloj r WHERE r.negocio_id = ca.negocio_id AND r.fijado_por IS NOT NULL)`,
+    );
+    relojesSinFijar = Number(r?.n || 0);
+  } catch { /* sin reloj de entrega en entornos viejos */ }
 
   let incidenciasAbiertas = 0;
   try {
@@ -180,7 +192,7 @@ export async function obtenerDashboardCompras(): Promise<DashboardCompras> {
   return {
     negociosActivos: Number(negRow?.total || 0),
     negociosUrgentes: Number(negRow?.urgentes || 0),
-    relojesVencidos,
+    relojesVencidos, relojesSinFijar,
     incidenciasAbiertas,
     sinAsignar,
     cierreLegado,

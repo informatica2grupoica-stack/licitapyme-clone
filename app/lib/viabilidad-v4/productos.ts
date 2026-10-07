@@ -182,7 +182,7 @@ export function problemasCalidadManifiesto(man: FilaManifiesto[]): string[] {
 const normTxt = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 const VACIAS = new Set(['para', 'como', 'tipo', 'unidad', 'unidades', 'marca', 'modelo', 'con', 'sin', 'del', 'las', 'los', 'una', 'uno', 'por']);
 
-export function descartarItemsInventados(items: any[], textosBases: string[], nombresApi: string[] = []): any[] {
+export function descartarItemsInventados(items: any[], textosBases: string[], nombresApi: string[] = [], apiItems: Array<{ nombre?: string; descripcion?: string }> = []): any[] {
   const base = normTxt(textosBases.join('\n') + '\n' + nombresApi.join('\n'));
   if (base.length < 200) return [];   // sin texto no hay con qué comparar: no descarta nada
   const conFicha = (it: any) => Array.isArray(it?.caracteristicas) && it.caracteristicas.some((c: unknown) => String(c ?? '').trim());
@@ -192,6 +192,16 @@ export function descartarItemsInventados(items: any[], textosBases: string[], no
     const it = items[i];
     if (conFicha(it)) continue;
     const nombre = normTxt(String(it?.nombre || it?.descripcion || '')).replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+    // Rótulo de categoría de la API ("Embarcaciones a motor de uso personal") tomado como producto, cuando
+    // la descripción de esa misma línea de la API ya es el producto de otro ítem que sí tiene ficha.
+    const stem = (t: string) => t.slice(0, 5);
+    const esRotuloApi = apiItems.some(a => {
+      const an = normTxt(String(a?.nombre || '')).replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!an || !nombre || stem(an.split(' ')[0]) !== stem(nombre.split(' ')[0])) return false;
+      const ad = normTxt(String(a?.descripcion || ''));
+      return items.some(o => o !== it && conFicha(o) && ad.includes(normTxt(String(o?.nombre || '')).trim()) && normTxt(String(o?.nombre || '')).trim().length >= 4);
+    });
+    if (esRotuloApi) { descartados.push(...items.splice(i, 1)); continue; }
     if (nombre.length < 4 || base.includes(nombre)) continue;
     const raices = nombre.split(' ').filter(t => t.length >= 4 && !VACIAS.has(t)).map(t => t.slice(0, 5));
     if (!raices.length) continue;

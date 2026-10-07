@@ -60,3 +60,14 @@ test('sin resumenFases no revienta', () => {
 test('todo al día: lleva a entrega', () => {
   const p = siguientePaso(base()); assert.equal(p.tono, 'ok'); assert.equal(p.fase, 'entrega');
 });
+
+test('sin forma de comprar elegida no se dice "todo al día" (auditoría 07-oct-2026)', () => {
+  const p = siguientePaso({ asignado: true, plazoAsignacionVencido: false, esJefeDeVentas: false, ocAceptada: true, tareas: [],
+    fases: { tareasVencidas: 0, productosSinCotizacion: 0, escenarioElegido: false, compraAprobada: false, margenAprobado: false, compuertasPendientes: 0, hitosAdminPendientes: null, incidenciasAbiertas: 0, relojVencido: false } });
+  assert.equal(p.titulo, 'Elige cómo comprar');
+});
+test('elegida la compra pero sin proponerla: pide proponer la aprobación', () => {
+  const p = siguientePaso({ asignado: true, plazoAsignacionVencido: false, esJefeDeVentas: false, ocAceptada: true, tareas: [],
+    fases: { tareasVencidas: 0, productosSinCotizacion: 0, escenarioElegido: true, compraAprobada: false, margenAprobado: false, compuertasPendientes: 0, hitosAdminPendientes: null, incidenciasAbiertas: 0, relojVencido: false } });
+  assert.equal(p.fase, 'aprobacion');
+});

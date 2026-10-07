@@ -26,7 +26,7 @@ interface CuelloBotella { clave: string; titulo: string; total: number; hechas: 
 interface RankingEncargado { id: number; nombre: string; tareasCerradas: number; tareasVencidasAbiertas: number; horasPromedioCierre: number | null }
 interface GanadoPorMes { mes: string; n: number }
 interface Dashboard {
-  negociosActivos: number; negociosUrgentes: number; relojesVencidos: number; incidenciasAbiertas: number;
+  negociosActivos: number; negociosUrgentes: number; relojesVencidos: number; relojesSinFijar: number; incidenciasAbiertas: number;
   sinAsignar: number; cierreLegado: { entregadas: number; noRealizadas: number };
   ordenesCompra: { conOc: number; sinOc: number }; ganadosPorMes: GanadoPorMes[];
   slaAsignacion: { promedioHoras: number | null; automaticas: number; manuales: number; total: number };
@@ -111,7 +111,7 @@ export default function CompraDashboardPage() {
               <ShoppingCart size={18} className="text-teal-600" /> Dashboard de Compras
             </h1>
             <p className="text-[12.5px] text-zinc-500 mt-0.5">
-              Cuellos de botella y estadística de gestión (spec §18) — solo jefatura. Nadie ve acá su propio tiempo, es una foto del equipo.
+              Cuellos de botella y estadística de gestión — solo jefatura. Nadie ve acá su propio tiempo, es una foto del equipo.
             </p>
           </div>
         </div>
@@ -127,7 +127,7 @@ export default function CompraDashboardPage() {
               <StatCard icon={<Zap size={20} />} label="Urgentes" value={dashboard.negociosUrgentes} color="rose"
                 spec={{ mide: 'Negocios con la "Cadena de Urgencia" activa (§3.7/§15.2).', calculo: 'El plazo de entrega OFERTADO es menor a 3 días — se calcula una vez al abrir Compras y queda fijo, no es una cuenta regresiva desde hoy.', fuente: 'compras_asignacion.urgente' }} />
               <StatCard icon={<Clock size={20} />} label="Relojes vencidos" value={dashboard.relojesVencidos} color="rose"
-                spec={{ mide: 'Negocios cuyo plazo de entrega comprometido ya pasó, sin marcar "entregado con multa".', calculo: 'fecha_limite (o prorroga_fecha_limite si la hay) es anterior a hoy, y entrega_con_multa = 0.', fuente: 'compras_reloj' }} />
+                spec={{ mide: 'Negocios cuyo plazo de entrega comprometido ya pasó, sin marcar "entregado con multa".', calculo: 'fecha_limite (o prorroga_fecha_limite si la hay) es anterior a hoy, y entrega_con_multa = 0. Solo cuenta negocios con reloj fijado (hoy hay ' + dashboard.relojesSinFijar + ' sin fijar).', fuente: 'compras_reloj' }} />
               <StatCard icon={<AlertTriangle size={20} />} label="Incidencias abiertas" value={dashboard.incidenciasAbiertas} color="amber"
                 spec={{ mide: 'Incidencias del proyecto (§9) que todavía nadie cerró.', calculo: 'Cuenta filas con estado = ABIERTA.', fuente: 'compras_incidencia' }} />
             </div>
@@ -229,7 +229,7 @@ export default function CompraDashboardPage() {
 
             <ChartCard title="Por encargado" icon={<UserCheck size={15} />}
               accion={<MetricInfo spec={{ mide: 'Carga de trabajo cerrada por cada encargado de Compras.', calculo: 'Tareas con estado HECHA, agrupadas por responsable_id — se atribuye a quien tenía la tarea asignada en el momento, no a quien la creó. "Vencidas hoy" son tareas SIN cerrar cuyo plazo_at ya pasó.', fuente: 'compras_tarea (responsable_id, estado, plazo_at)' }} />}
-              sub="Tareas cerradas y vencidas abiertas hoy, por quien las tenía asignadas — atribución a quien tenía la tarea en el momento (spec §18.4).">
+              sub="Tareas cerradas y vencidas abiertas hoy, por quien las tenía asignadas — atribución a quien tenía la tarea en el momento.">
               {dashboard.ranking.length === 0 ? (
                 <p className="text-[12px] text-zinc-400 py-4 text-center">Todavía no hay tareas con responsable.</p>
               ) : (
@@ -254,7 +254,7 @@ export default function CompraDashboardPage() {
 
             {dashboard.incidenciasAbiertas === 0 && dashboard.relojesVencidos === 0 && (
               <div className="flex items-center gap-2 text-[12px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-                <FileWarning size={14} /> Sin relojes vencidos ni incidencias abiertas ahora mismo.
+                <FileWarning size={14} /> Sin relojes vencidos ni incidencias abiertas ahora mismo{dashboard.relojesSinFijar > 0 ? ` — pero ${dashboard.relojesSinFijar} negocio(s) todavía no tienen reloj de entrega fijado, así que de ellos no se sabe si vencen.` : '.'}
               </div>
             )}
           </>

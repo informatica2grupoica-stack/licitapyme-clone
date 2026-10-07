@@ -91,7 +91,7 @@ export function FracasoCard({ negocioId, puedeOperar, esJefeDeVentas }: { negoci
           {!fracaso ? (
             puedeOperar && (
               <div className="space-y-2">
-                <p className="text-[11.5px] text-zinc-500">El encargado de entrega verifica que no se puede entregar y declara los motivos (spec §14.6).</p>
+                <p className="text-[11.5px] text-zinc-500">El encargado de entrega verifica que no se puede entregar y declara los motivos.</p>
                 <textarea rows={2} value={motivo} onChange={e => setMotivo(e.target.value)} placeholder="Motivo declarado…"
                   className="w-full text-[12px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-rose-500" />
                 <button onClick={declarar} disabled={!motivo.trim() || guardando} className="text-[12px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
@@ -112,7 +112,7 @@ export function FracasoCard({ negocioId, puedeOperar, esJefeDeVentas }: { negoci
                 </div>
               ) : esJefeDeVentas ? (
                 <div className="space-y-2">
-                  <p className="text-[11.5px] text-zinc-500">Análisis independiente: revisa el histórico de tareas realizadas y no realizadas antes de dictaminar (spec §18.5).</p>
+                  <p className="text-[11.5px] text-zinc-500">Análisis independiente: revisa el histórico de tareas realizadas y no realizadas antes de dictaminar.</p>
                   <textarea rows={2} value={dictamen} onChange={e => setDictamen(e.target.value)} placeholder="Dictamen — el motivo real…"
                     className="w-full text-[12px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-amber-500" />
                   <button onClick={dictaminarAccion} disabled={!dictamen.trim() || guardando} className="text-[12px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">

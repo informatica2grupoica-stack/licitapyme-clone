@@ -217,6 +217,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
     tareas: tareas.map(t => ({ catalogoClave: t.catalogoClave, titulo: t.titulo, estado: t.estado, vencida: t.vencida })),
     fases: resumenFases ? {
       tareasVencidas: resumenFases.tareas.vencidas, productosSinCotizacion: resumenFases.costeo.productosSinCotizacion,
+      escenarioElegido: resumenFases.costeo.escenarioElegido, compraAprobada: resumenFases.aprobacion.compraAprobada, margenAprobado: resumenFases.aprobacion.margenAprobado,
       compuertasPendientes: resumenFases.aprobacion.compuertasPendientes, hitosAdminPendientes: resumenFases.compra.hitosAdminPendientes,
       incidenciasAbiertas: resumenFases.entrega.incidenciasAbiertas, relojVencido: resumenFases.entrega.relojVencido,
     } : null,
@@ -238,8 +239,9 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
       return { badge: vencidas || incidencias || pendientesN || null, estado: vencidas > 0 || incidencias > 0 ? 'alerta' : pendientesN > 0 ? 'pendiente' : tareas.length > 0 ? 'ok' : 'neutral' };
     }
     if (!resumenFases) return { badge: null, estado: 'neutral' };
-    if (key === 'costeo') return { badge: resumenFases.costeo.productosSinCotizacion || null, estado: resumenFases.costeo.productosSinCotizacion > 0 ? 'pendiente' : 'ok' };
-    if (key === 'aprobacion') return { badge: resumenFases.aprobacion.compuertasPendientes || null, estado: resumenFases.aprobacion.compuertasPendientes > 0 ? 'pendiente' : 'ok' };
+    // ✓ solo si ocurrió de verdad: todos los productos cotizados Y una forma de comprar elegida; compra Y margen aprobados.
+    if (key === 'costeo') { const c = resumenFases.costeo; return { badge: c.productosSinCotizacion || null, estado: c.productosSinCotizacion > 0 || !c.escenarioElegido ? 'pendiente' : 'ok' }; }
+    if (key === 'aprobacion') { const a = resumenFases.aprobacion; return { badge: a.compuertasPendientes || null, estado: a.compuertasPendientes > 0 || !(a.compraAprobada && a.margenAprobado) ? 'pendiente' : 'ok' }; }
     if (key === 'compra') { const h = resumenFases.compra.hitosAdminPendientes; return { badge: h || null, estado: h == null ? 'neutral' : h > 0 ? 'pendiente' : 'ok' }; }
     if (key === 'entrega') return { badge: resumenFases.entrega.relojVencido ? 0 : null, estado: resumenFases.entrega.relojVencido ? 'alerta' : 'neutral' };  // sin dato de "entregado": no se marca ✓ por no estar vencido
     return { badge: null, estado: 'neutral' };
@@ -424,7 +426,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                         style={{ width: `${Math.max(4, Math.min(100, (r.margenPrevisto / 40) * 100))}%` }} />
                     </div>
                   )}
-                  {margenBajo && <p className="text-[9.5px] text-rose-600 mt-1">Bajo el piso del 20% (spec §10.3)</p>}
+                  {margenBajo && <p className="text-[9.5px] text-rose-600 mt-1">Bajo el piso del 20%</p>}
                 </div>
               </div>
 

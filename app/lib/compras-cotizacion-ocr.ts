@@ -17,6 +17,7 @@ import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('compras', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
+import { ivaIncluidoDelTexto, vigenciaDelTexto, incluyeFleteDelTexto, minimoDeVentaDelTexto, precioONull, textoLegible } from '@/app/lib/compras-cotizacion-lectura';
 
 export interface DatosExtraidosCotizacion {
   proveedorNombre: string | null; proveedorRut: string | null;
@@ -48,6 +49,15 @@ export interface DatosExtraidosCotizacion {
   // retipear a mano lo que el documento ya traía. Se usa SOLO para rellenar `descripcionLibre`
   // cuando el usuario la dejó vacía — mismo criterio de "propone, nunca pisa" del resto del módulo.
   textoCompleto: string | null;
+  // Lo que el documento dice y antes se leía pero no se usaba (auditoría 07-oct-2026). Todos null si el documento calla.
+  /** true = los precios del documento YA incluyen IVA (hay que pasarlos a neto). */
+  ivaIncluido: boolean | null;
+  /** YYYY-MM-DD hasta cuándo vale la oferta (explícita, o emisión + días de validez). */
+  vigenciaAt: string | null;
+  /** true = despacho/flete incluido; false = no incluido. */
+  incluyeFlete: boolean | null;
+  /** Cantidad mínima de venta, si el proveedor la exige (> 1). */
+  minimoVenta: number | null;
 }
 
 /** Caso real (09-sep-2026, cotización de Unisource): la IA leyó "2.052,00" (formato chileno) como
@@ -181,6 +191,8 @@ junto a cada monto) ya es suficiente para moneda: "EUR" — no hace falta una et
 además del símbolo. Un documento puede mostrar precios en una moneda extranjera aunque el proveedor
 tenga nombre chileno o viceversa — no asumas CLP solo por el idioma o el domicilio, mira los montos.
 
+- precioUnitario / precioTotal: si el documento NO trae un precio (dice "consultar", "a convenir", "cotizar" o el monto es 0), usa null — nunca 0.
+
 Si un dato no aparece con certeza, usa null — NUNCA inventes ni asumas un valor.
 
 Responde SOLO JSON: {"proveedorNombre":<string o null>,"proveedorRut":<string o null>,"precioUnitario":<número o null>,"precioTotal":<número o null>,"cantidadPrincipal":<número o null>,"descuentoPct":<número o null>,"fleteMonto":<número o null>,"moneda":<string o null>,"plazoEntregaTexto":<string o null>,"direccionBodega":<string o null>,"notasAdicionales":[<string, ...>]}`;
@@ -192,13 +204,22 @@ export async function extraerDatosCotizacionDeDocumento(
   archivoUrl: string, buffer: Buffer, mimeType: string,
 ): Promise<DatosExtraidosCotizacion | null> {
   const esPdf = mimeType === 'application/pdf' || archivoUrl.toLowerCase().endsWith('.pdf');
+  const esTextoPlano = mimeType.startsWith('text/') || /\.(txt|eml)$/i.test(archivoUrl);
+  const esImagen = mimeType.startsWith('image/');
+  // Hallazgo 07-oct-2026: un .xlsx/.txt iba a Tesseract como si fuera imagen y su worker reventaba el proceso entero.
+  // Texto pegado (WhatsApp, correo) se lee tal cual; lo que no es PDF/imagen/texto no pasa por ningún OCR.
+  if (!esPdf && !esTextoPlano && !esImagen) return null;
   let texto = '';
-  try {
-    texto = esPdf
-      ? await extraerTextoPdfPorUrlConGlmOcr(archivoUrl, 0)
-      : await ocrImagenConGlmOcr(buffer, mimeType);
-  } catch (e) {
-    console.error('[compras-cotizacion-ocr] GLM-OCR falló:', String(e).slice(0, 200));
+  if (esTextoPlano) {
+    texto = buffer.toString('utf8');
+  } else {
+    try {
+      texto = esPdf
+        ? await extraerTextoPdfPorUrlConGlmOcr(archivoUrl, 0)
+        : await ocrImagenConGlmOcr(buffer, mimeType);
+    } catch (e) {
+      console.error('[compras-cotizacion-ocr] GLM-OCR falló:', String(e).slice(0, 200));
+    }
   }
 
   // Respaldo 100% local (pedido explícito, 15-sep-2026: "la idea es que las lea todas dependiente
@@ -209,7 +230,7 @@ export async function extraerDatosCotizacionDeDocumento(
   // que la URL sea alcanzable ni de la cuenta de Z.AI — mismo respaldo que ya usa el resto del
   // proyecto para documentos escaneados (ver tesseract-ocr.ts). Calidad menor en tablas complejas,
   // pero mejor un dato imperfecto para revisar que forzar a tipear todo a mano.
-  if (!texto || texto.trim().length < 20) {
+  if (!esTextoPlano && (!texto || texto.trim().length < 20)) {
     try {
       texto = esPdf ? await ocrPdfLocalTesseract(buffer) : await ocrImagenLocalTesseract(buffer);
     } catch (e) {
@@ -226,8 +247,9 @@ export async function extraerDatosCotizacionDeDocumento(
     }, { timeoutMs: 45_000, modeloPreferido: 'glm-4.7', soloGlm: true });
 
     const parsed: any = parseJsonIA(String(completion.choices?.[0]?.message?.content ?? '')) || {};
-    const precioUnitario = Number.isFinite(Number(parsed.precioUnitario)) ? Number(parsed.precioUnitario) : null;
-    const precioTotal = Number.isFinite(Number(parsed.precioTotal)) ? Number(parsed.precioTotal) : null;
+    // Number(null) es 0 y "consultar precio" volvía como $0 (auditoría 07-oct-2026): un 0 es "sin precio", no un precio.
+    const precioUnitario = precioONull(parsed.precioUnitario == null ? null : Number(parsed.precioUnitario));
+    const precioTotal = precioONull(parsed.precioTotal == null ? null : Number(parsed.precioTotal));
     const cantidadPrincipal = Number.isFinite(Number(parsed.cantidadPrincipal)) ? Number(parsed.cantidadPrincipal) : null;
     const descuentoPct = Number.isFinite(Number(parsed.descuentoPct)) && Number(parsed.descuentoPct) > 0
       ? Number(parsed.descuentoPct) : descuentoPctDelTexto(texto);
@@ -237,6 +259,9 @@ export async function extraerDatosCotizacionDeDocumento(
     // determinístico sobre el texto transcrito es la segunda opinión — barata y no inventa: solo
     // dispara si hay una etiqueta o mención de moneda literal en el documento.
     const moneda = parsed.moneda || monedaDelTexto(texto);
+    // Un documento sin proveedor ni precio (unas Bases, una carta) no es una cotización: no se le rellena
+    // plazo ni notas con lo que dice OTRO documento (auditoría 07-oct-2026: las Bases rellenaban "10 días corridos").
+    if (!parsed.proveedorNombre && !parsed.proveedorRut && precioUnitario == null && precioTotal == null) return null;
     return {
       proveedorNombre: parsed.proveedorNombre || null, proveedorRut: parsed.proveedorRut || null,
       precioUnitario: precioUnitarioConfiable(precioUnitario, precioTotal, cantidadPrincipal),
@@ -246,7 +271,9 @@ export async function extraerDatosCotizacionDeDocumento(
       notasAdicionales: Array.isArray(parsed.notasAdicionales) ? parsed.notasAdicionales.filter((n: unknown) => typeof n === 'string' && n.trim()) : [],
       // Tope generoso (12.000 — el mismo que se le pasa a la IA de extracción arriba) para no
       // guardar un documento gigante entero si alguien sube algo fuera de lo esperado.
-      textoCompleto: texto.slice(0, 12_000),
+      textoCompleto: textoLegible(texto).slice(0, 12_000),
+      ivaIncluido: ivaIncluidoDelTexto(texto), vigenciaAt: vigenciaDelTexto(texto),
+      incluyeFlete: incluyeFleteDelTexto(texto), minimoVenta: minimoDeVentaDelTexto(texto),
     };
   } catch (e) {
     console.error('[compras-cotizacion-ocr] extracción IA falló:', String(e).slice(0, 200));
@@ -256,7 +283,9 @@ export async function extraerDatosCotizacionDeDocumento(
       proveedorNombre: null, proveedorRut: null, precioUnitario: null, precioTotal: null,
       descuentoPct: descuentoPctDelTexto(texto), fleteMonto: fleteMontoDelTexto(texto),
       moneda: null, plazoEntregaTexto: null, direccionBodega: null, notasAdicionales: [],
-      textoCompleto: texto.slice(0, 12_000),
+      textoCompleto: textoLegible(texto).slice(0, 12_000),
+      ivaIncluido: ivaIncluidoDelTexto(texto), vigenciaAt: vigenciaDelTexto(texto),
+      incluyeFlete: incluyeFleteDelTexto(texto), minimoVenta: minimoDeVentaDelTexto(texto),
     };
   }
 }

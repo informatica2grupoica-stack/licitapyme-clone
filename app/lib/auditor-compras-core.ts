@@ -744,7 +744,8 @@ export function diagnosticarPreparacion(
   global: { presupuestoNeto: number | null; relojDefinido: boolean; dolarDisponible: boolean },
 ): Preparacion {
   const items: ItemPreparacion[] = [];
-  const add = (nivel: ItemPreparacion['nivel'], texto: string, comoSolucionar: string, item?: number, donde?: string) => items.push({ nivel, texto, comoSolucionar, item, donde });
+  // Sin repetidos: una cotización asignada a varias líneas repetía el mismo aviso una vez por línea (auditoría 07-oct-2026).
+  const add = (nivel: ItemPreparacion['nivel'], texto: string, comoSolucionar: string, item?: number, donde?: string) => { if (!items.some(i => i.texto === texto)) items.push({ nivel, texto, comoSolucionar, item, donde }); };
   for (const { linea: l, tecnico, cotizaciones } of lineas) {
     if (l.esGastoExtra) continue;
     const et = `Línea ${l.item} (${l.detalle.slice(0, 40)})`;
@@ -761,7 +762,7 @@ export function diagnosticarPreparacion(
       if (!c.tieneTexto) add('falta', `${ce}: no se pudo leer el contenido del documento.`, 'Sube una versión legible (PDF con texto) o escribe lo que dice en el campo de detalle.', l.item, 'Cotizaciones');
       if (c.plazoDias == null) add('aviso', `${ce}: no trae plazo de entrega.`, 'Pregúntaselo al proveedor y complétalo (mensaje listo más abajo).', l.item, 'Cotizaciones');
       if (c.incluyeFlete == null && c.fleteMonto == null) add('aviso', `${ce}: no dice si incluye flete ni cuánto cuesta.`, 'Confírmalo con el proveedor y complétalo: sin eso el flete cuenta como $0 sin confirmar.', l.item, 'Cotizaciones');
-      if (!c.vigencia) add('aviso', `${ce}: sin fecha de vigencia registrada.`, 'Anótala en la cotización (Válida hasta …).', l.item, 'Cotizaciones');
+      // Sin vigencia declarada NO es un aviso (PROMPT 5 · V7: es informativo; solo una vigencia YA vencida pide revalidar).
     }
   }
   for (const c of cotizacionesSinProducto) add('falta', `Cotización #${c.id} de ${c.proveedor}: no está asignada a ningún producto.`, 'Pulsa «Homologar con IA» o «Asignar productos» en esa cotización.', undefined, 'Cotizaciones');

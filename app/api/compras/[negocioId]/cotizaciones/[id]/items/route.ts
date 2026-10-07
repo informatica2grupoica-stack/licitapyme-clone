@@ -39,6 +39,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       precioUnitario: it.precioUnitario === '' || it.precioUnitario == null ? null : Number(it.precioUnitario),
       cumple: CUMPLES.includes(it.cumple) ? it.cumple : 'CUMPLE',
       detalleDesviacion: it.detalleDesviacion || null,
+      incluido: it.incluido === true,
     })).filter((it: AsignacionItemManual) => Number.isFinite(it.productoId));
 
     await asignarItemsCotizacion(negId, parseInt(cotizacionId), items, userId, nombre);

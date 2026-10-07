@@ -129,9 +129,9 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
             <span className={`text-[11.5px] font-bold px-2 py-0.5 rounded-full border ${
               cobertura.cobertura ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-amber-700 bg-amber-50 border-amber-200'
             }`}>
-              {cobertura.listos} de {cobertura.total} listos para entrega
+              {cobertura.listos} de {cobertura.total} listos
               {cobertura.renunciados > 0 && ` · ${cobertura.renunciados} renunciado(s)`}
-              {cobertura.noAdjudicadas > 0 && ` · ${cobertura.noAdjudicadas} no adjudicada(s) (fuera de la compra)`}
+              {cobertura.noAdjudicadas > 0 && ` · ${cobertura.noAdjudicadas} no adjudicada(s)`}
             </span>
           )}
         </div>
@@ -146,11 +146,11 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
       )}
       <div className="divide-y divide-zinc-100">
         {productos.map(p => (
-          <div key={p.id} className={`px-4 py-3 ${p.subestado === 'RENUNCIADO' ? 'opacity-60' : ''} ${p.subestado === 'NO_ADJUDICADA' ? 'opacity-50 bg-zinc-50/70' : ''}`}>
+          <div key={p.id} className={`px-4 py-2.5 ${p.subestado === 'RENUNCIADO' ? 'opacity-60' : ''} ${p.subestado === 'NO_ADJUDICADA' ? 'opacity-50 bg-zinc-50/70' : ''}`}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className={`text-[12.5px] font-semibold text-zinc-800 ${p.subestado === 'NO_ADJUDICADA' ? 'line-through decoration-zinc-400' : ''}`}>{p.descripcion}</p>
-                <p className="text-[11px] text-zinc-400">
+                <p title={p.descripcion} className={`text-[13px] font-semibold text-zinc-800 truncate ${p.subestado === 'NO_ADJUDICADA' ? 'line-through decoration-zinc-400' : ''}`}>{p.descripcion}</p>
+                <p className="text-[11.5px] text-zinc-400">
                   {[
                     p.cantidad != null && `${p.cantidad}${p.unidad ? ` ${p.unidad}` : ''}`,
                     // OJO: esto es lo que VENDIMOS (precio unitario de la oferta), no lo que cuesta
@@ -159,7 +159,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
                     // como un techo de compra y llevaba a pensar que había margen para pagar hasta
                     // ese monto, cuando en realidad ahí no queda nada de utilidad. El costo real
                     // está en "Ver costeo" (misma burbuja) y en las cotizaciones de este Auditor.
-                    p.montoUnitario != null && `venta unitaria: ${fmtCLP(p.montoUnitario)}`,
+                    p.montoUnitario != null && `se vendió a ${fmtCLP(p.montoUnitario)} c/u`,
                   ].filter(Boolean).join(' · ')}
                 </p>
               </div>
@@ -184,9 +184,8 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
             {p.subestado === 'NO_ADJUDICADA' && (() => {
               const l = perdidas.find(x => x.correlativo === p.correlativo);
               return (
-                <p className="mt-1.5 text-[11px] font-semibold text-zinc-600">
-                  Esta línea no se ganó: el acta de Mercado Público la adjudicó a {l?.proveedor || 'otro proveedor'}
-                  {l?.montoUnitario != null && ` (${fmtCLP(l.montoUnitario)} unitario)`}. No se compra ni cuenta para la entrega; se muestra solo como referencia.
+                <p className="mt-1 text-[11.5px] text-zinc-500" title="No se compra ni cuenta para la entrega; se muestra solo como referencia.">
+                  Se la llevó {l?.proveedor || 'otro proveedor'}{l?.montoUnitario != null && ` a ${fmtCLP(l.montoUnitario)} c/u`}. No se compra.
                 </p>
               );
             })()}

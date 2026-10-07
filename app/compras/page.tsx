@@ -99,6 +99,7 @@ const fmtFechaCorta = (s: string) => {
 function AccionesCierreLegado({ f, onCambio }: { f: ComprasFila; onCambio: () => void }) {
   const toast = useToast();
   const [cargando, setCargando] = useState(false);
+  const [confirmar, setConfirmar] = useState<CierreLegado | null>(null);
 
   const marcar = async (estado: CierreLegado) => {
     setCargando(true);
@@ -147,15 +148,23 @@ function AccionesCierreLegado({ f, onCambio }: { f: ComprasFila; onCambio: () =>
     );
   }
 
+  // Auditoría 07-oct-2026: estos dos eran botones de UN clic con aspecto de etiqueta de estado y cerraban el negocio sin preguntar.
+  // Ahora dicen que son acciones y piden confirmar (sin diálogos del navegador: segundo clic dentro de 5 s).
+  const pedir = (estado: CierreLegado) => {
+    if (confirmar === estado) { setConfirmar(null); marcar(estado); return; }
+    setConfirmar(estado);
+    setTimeout(() => setConfirmar(c => (c === estado ? null : c)), 5000);
+  };
   return (
     <div className="flex items-center gap-1.5">
-      <button onClick={() => marcar('ENTREGADA')} disabled={cargando}
-        className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 px-2 py-1 rounded-lg transition-colors">
-        <PackageCheck size={11} /> Entregada
+      <span className="text-[10.5px] text-zinc-400 mr-0.5">Cerrar como:</span>
+      <button onClick={() => pedir('ENTREGADA')} disabled={cargando} title="Marca el negocio como entregado (cierre histórico). Se puede deshacer."
+        className={`inline-flex items-center gap-1 text-[11px] font-semibold disabled:opacity-50 px-2 py-1 rounded-lg transition-colors ${confirmar === 'ENTREGADA' ? 'text-white bg-emerald-600' : 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'}`}>
+        <PackageCheck size={11} /> {confirmar === 'ENTREGADA' ? '¿Confirmar entregada?' : 'Entregada'}
       </button>
-      <button onClick={() => marcar('NO_REALIZADA')} disabled={cargando}
-        className="inline-flex items-center gap-1 text-[11px] font-semibold text-zinc-500 bg-zinc-100 hover:bg-zinc-200 disabled:opacity-50 px-2 py-1 rounded-lg transition-colors">
-        <XCircle size={11} /> No realizada
+      <button onClick={() => pedir('NO_REALIZADA')} disabled={cargando} title="Marca el negocio como no realizado (cierre histórico). Se puede deshacer."
+        className={`inline-flex items-center gap-1 text-[11px] font-semibold disabled:opacity-50 px-2 py-1 rounded-lg transition-colors ${confirmar === 'NO_REALIZADA' ? 'text-white bg-zinc-600' : 'text-zinc-500 bg-zinc-100 hover:bg-zinc-200'}`}>
+        <XCircle size={11} /> {confirmar === 'NO_REALIZADA' ? '¿Confirmar no realizada?' : 'No realizada'}
       </button>
     </div>
   );
@@ -1172,7 +1181,7 @@ export default function ComprasPage() {
             {esJefeDeVentas && (
               <Link href="/compras/dashboard"
                 className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-zinc-600 bg-white border border-zinc-200 hover:bg-zinc-50 px-3 py-2 rounded-lg transition-colors"
-                title="Cuellos de botella y estadística de gestión (spec §18) — solo jefatura">
+                title="Cuellos de botella y estadística de gestión — solo jefatura">
                 <BarChart3 size={13} /> Dashboard
               </Link>
             )}

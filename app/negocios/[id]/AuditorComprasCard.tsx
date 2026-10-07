@@ -4,6 +4,7 @@
 // proveedores), cuadro comparativo con huecos visibles, espacio de negociación detectado y los
 // 4 escenarios de compra (el de "Más rápido" como principal). Es un SUGERIDOR: nunca excluye un
 // proveedor por incumplimiento técnico, solo lo clasifica.
+import { netoDesdeBruto } from '@/app/lib/compras-cotizacion-lectura';
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
@@ -11,10 +12,10 @@ import { Banner } from '@/app/components/ui/Banner';
 import { parsearMontoCL } from '@/app/lib/numeros';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { AuditoriaCotizacionPanel, type AuditoriaUI } from './AuditoriaCotizacionPanel';
-import { MatrizPrecios, ESTILO_VEREDICTO, type SeleccionCelda } from './MatrizPrecios';
+import { MatrizPrecios, ESTILO_VEREDICTO, ETIQUETA_ALERTA, type SeleccionCelda } from './MatrizPrecios';
 import { compararPrecioConCosteo } from '@/app/lib/compras-precio-vs-costeo';
 import { CotizacionesMasivas } from './CotizacionesMasivas';
-import { CombinacionesCompra, type DatosCombinaciones } from './CombinacionesCompra';
+import { ArmarCompra, type Comb, type Recomendada, type EvaluacionCompra } from './ArmarCompra';
 import { IconGavel as Gavel, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconSparkles as Sparkles, IconTrendingDown as TrendingDown, IconTruck as Truck, IconBolt as Zap, IconScale as Scale, IconCurrencyDollar as DollarSign, IconCircleCheck as CheckCircle2, IconPaperclip as Paperclip, IconListCheck as ListChecks, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconLink as Link2, IconShieldCheck as ShieldCheck, IconPencil as Pencil, IconTrash as Trash2, IconRobot as Bot, IconEye as Eye } from '@tabler/icons-react';
 
 type Origen = 'pdf' | 'imagen' | 'whatsapp' | 'texto' | 'correo' | 'llamada';
@@ -24,7 +25,7 @@ type TipoEscenario = 'MAS_RAPIDO' | 'MINIMO_PRECIO' | 'MINIMOS_VIAJES' | 'EQUILI
 interface Cotizacion {
   id: number; proveedorNombre: string; proveedorRut: string | null; proveedorNuevo: boolean | null;
   origen: Origen; descripcionLibre: string | null; precioUnitario: number | null; precioTotal: number | null;
-  precioUnitarioBruto: number | null; descuentoPct: number | null;
+  precioUnitarioBruto: number | null; descuentoPct: number | null; vigenciaAt?: string | null;
   moneda: string; tipoCambioUsado: number | null; precioUnitarioClp: number | null;
   plazoEntregaTexto: string | null; incluyeFlete: boolean | null; fleteMonto: number | null; homologadaAt: string | null; archivoUrl: string | null;
   items: Array<{ productoId: number; precioUnitario: number | null; precioBase: number | null; adicionales: Array<{ id: number; concepto: string; cantidad: number; precioUnitario: number }>; cumple: Cumple; detalleDesviacion: string | null }>;
@@ -91,7 +92,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   >({ estado: 'idle' });
   const [form, setForm] = useState({
     proveedorNombre: '', proveedorRut: '', origen: 'texto' as Origen, descripcionLibre: '',
-    precioUnitario: '', descuentoPct: '', moneda: 'CLP', plazoEntregaTexto: '', incluyeFlete: '' as '' | 'true' | 'false', fleteMonto: '', vigenciaAt: '',
+    precioUnitario: '', descuentoPct: '', moneda: 'CLP', plazoEntregaTexto: '', incluyeFlete: '' as '' | 'true' | 'false', fleteMonto: '', vigenciaAt: '', ivaIncluido: false,
   });
   // Pedido explícito del usuario (11-sep-2026): esta pantalla es para REGISTRAR cotizaciones, no
   // para administrar el catálogo de proveedores (eso vive en /compras/proveedores, aparte). Se
@@ -143,26 +144,32 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   // Dictámenes del auditor (compras-auditoria-cotizacion.ts), uno por cotización × producto.
   const [auditorias, setAuditorias] = useState<AuditoriaUI[]>([]);
   // Todas las combinaciones posibles de compra (una cotización por producto) — ver CombinacionesCompra.tsx.
-  const [combinaciones, setCombinaciones] = useState<DatosCombinaciones | null>(null);
-  const [combinacionElegida, setCombinacionElegida] = useState<string | null>(null);
-  const [eligiendoComb, setEligiendoComb] = useState<string | null>(null);
+  const [recomendadas, setRecomendadas] = useState<Recomendada[]>([]);
+  const [elegidaComb, setElegidaComb] = useState<Comb | null>(null);
+  // La compra que se va armando en la matriz: productoId → cotizacionId. Arranca con la ya elegida, si hay.
+  const [compra, setCompra] = useState<Record<number, number>>({});
+  const [compraIniciada, setCompraIniciada] = useState(false);
+  const [evaluacion, setEvaluacion] = useState<EvaluacionCompra | null>(null);
+  const [evaluando, setEvaluando] = useState(false);
 
   const cargar = useCallback(async () => {
+    // Cada bloque se pinta apenas llega (auditoría 07-oct-2026): antes todo esperaba a la consulta más lenta (las combinaciones
+    // de compra) y la lista de cotizaciones recién subidas se veía desfasada hasta recargar la página.
+    const traer = (url: string, aplicar: (d: any) => void) =>
+      fetch(url).then(r => r.json()).then(d => { if (d?.success) aplicar(d); });
     try {
-      const [rCot, rEsc, rProd, rSug, rUso] = await Promise.all([
-        fetch(`/api/compras/${negocioId}/cotizaciones`), fetch(`/api/compras/${negocioId}/escenarios`), fetch(`/api/compras/${negocioId}/productos`),
-        fetch(`/api/compras/${negocioId}/sugerencias-historial`), fetch(`/api/compras/${negocioId}/agente-documentos`),
+      await Promise.all([
+        traer(`/api/compras/${negocioId}/cotizaciones`, d => { setCotizaciones(d.cotizaciones || []); setAuditorias(d.auditorias || []); setCosteado(d.costeado || {}); setLoading(false); }),
+        traer(`/api/compras/${negocioId}/escenarios`, d => {
+          setNegociacion(d.negociacion || []); setEscenarios(d.escenarios || []);
+          setElegidoTipo(d.elegidoTipo || null); setElegidoCostoGuardado(d.elegidoCostoGuardado ?? null);
+          setRecomendadas(d.combinaciones?.recomendadas || []); setElegidaComb(d.elegida ?? null);
+          if (d.elegida && !compraIniciada) { setCompra(Object.fromEntries((d.elegida as Comb).items.map(i => [i.productoId, i.cotizacionId]))); setCompraIniciada(true); }
+        }),
+        traer(`/api/compras/${negocioId}/productos`, d => setProductos((d.productos || []).filter((p: any) => !['RENUNCIADO', 'NO_ADJUDICADA'].includes(p.subestado)))),
+        traer(`/api/compras/${negocioId}/sugerencias-historial`, d => setSugerenciasHistorial(d.productos || [])),
+        traer(`/api/compras/${negocioId}/agente-documentos`, d => setUsoAgente(d.usoHoy)),
       ]);
-      const [dCot, dEsc, dProd, dSug, dUso] = await Promise.all([rCot.json(), rEsc.json(), rProd.json(), rSug.json(), rUso.json()]);
-      if (dCot.success) { setCotizaciones(dCot.cotizaciones || []); setAuditorias(dCot.auditorias || []); setCosteado(dCot.costeado || {}); }
-      if (dEsc.success) {
-        setNegociacion(dEsc.negociacion || []); setEscenarios(dEsc.escenarios || []);
-        setElegidoTipo(dEsc.elegidoTipo || null); setElegidoCostoGuardado(dEsc.elegidoCostoGuardado ?? null);
-        setCombinaciones(dEsc.combinaciones || null); setCombinacionElegida(dEsc.combinacionElegidaClave ?? null);
-      }
-      if (dProd.success) setProductos((dProd.productos || []).filter((p: any) => !['RENUNCIADO', 'NO_ADJUDICADA'].includes(p.subestado)));
-      if (dSug.success) setSugerenciasHistorial(dSug.productos || []);
-      if (dUso.success) setUsoAgente(dUso.usoHoy);
     } catch (e: any) {
       toast.error('No se pudo cargar el Auditor de Compras', e.message);
     } finally {
@@ -220,6 +227,8 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   // formulario se autocomplete y la persona corrija ANTES de guardar (nunca pisa lo ya tipeado).
   const leerArchivo = async (file: File) => {
     setArchivoExtraido({ estado: 'leyendo' });
+    // El tipo ("origen") sale del archivo: antes quedaba en «Texto» aunque se subiera un PDF.
+    setForm(f => f.origen !== 'texto' ? f : { ...f, origen: file.type === 'application/pdf' ? 'pdf' : file.type.startsWith('image/') ? 'imagen' : 'texto' });
     try {
       const fd = new FormData();
       fd.set('file', file);
@@ -242,6 +251,10 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           moneda: f.moneda === 'CLP' && ex.moneda && MONEDAS_SOPORTADAS.includes(String(ex.moneda).toUpperCase() as any)
             ? String(ex.moneda).toUpperCase() : f.moneda,
           plazoEntregaTexto: f.plazoEntregaTexto.trim() || ex.plazoEntregaTexto || f.plazoEntregaTexto,
+          // Lo que el documento dice y antes se descartaba (auditoría 07-oct-2026): vigencia, IVA incluido y flete incluido.
+          vigenciaAt: f.vigenciaAt || ex.vigenciaAt || '',
+          ivaIncluido: f.precioUnitario.trim() ? f.ivaIncluido : !!ex.ivaIncluido,
+          incluyeFlete: f.incluyeFlete || (ex.incluyeFlete != null && ex.fleteMonto == null && !f.fleteMonto.trim() ? (ex.incluyeFlete ? 'true' : 'false') : ''),
         }));
         // BUG REAL (14-sep-2026, reportado en vivo con la cotización de Trotec Chile): la
         // validación contra Obuma solo corría en el onBlur del campo RUT — un RUT que llega SOLO
@@ -371,7 +384,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   };
 
   const cancelarFormulario = () => {
-    setForm({ proveedorNombre: '', proveedorRut: '', origen: 'texto', descripcionLibre: '', precioUnitario: '', descuentoPct: '', moneda: 'CLP', plazoEntregaTexto: '', incluyeFlete: '', fleteMonto: '', vigenciaAt: '' });
+    setForm({ proveedorNombre: '', proveedorRut: '', origen: 'texto', descripcionLibre: '', precioUnitario: '', descuentoPct: '', moneda: 'CLP', plazoEntregaTexto: '', incluyeFlete: '', fleteMonto: '', vigenciaAt: '', ivaIncluido: false });
     setHistoricoProveedor({ estado: 'idle' });
     setArchivo(null);
     setArchivoExtraido({ estado: 'idle' });
@@ -393,7 +406,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
       moneda: c.moneda, plazoEntregaTexto: c.plazoEntregaTexto || '',
       incluyeFlete: c.incluyeFlete == null ? '' : (c.incluyeFlete ? 'true' : 'false'),
       fleteMonto: c.fleteMonto != null ? String(c.fleteMonto) : '',
-      vigenciaAt: '',
+      vigenciaAt: c.vigenciaAt ?? '', ivaIncluido: false,
     });
     setEditandoId(c.id);
     setFormAbierto(true);
@@ -430,9 +443,10 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
       // comparativo/escenarios, que leen el precio de cada ítem, no el de la cabecera.
       const precioUnitarioBrutoForm = parsearMontoCL(form.precioUnitario);
       const descuentoPctForm = parsearMontoCL(form.descuentoPct);
-      const precioUnitarioNetoForm = (precioUnitarioBrutoForm != null && descuentoPctForm != null && descuentoPctForm > 0 && descuentoPctForm < 100)
-        ? Math.round(precioUnitarioBrutoForm * (1 - descuentoPctForm / 100))
-        : precioUnitarioBrutoForm;
+      const precioSinDscto = precioUnitarioBrutoForm != null && form.ivaIncluido && form.moneda === 'CLP' ? netoDesdeBruto(precioUnitarioBrutoForm) : precioUnitarioBrutoForm;
+      const precioUnitarioNetoForm = (precioSinDscto != null && descuentoPctForm != null && descuentoPctForm > 0 && descuentoPctForm < 100)
+        ? Math.round(precioSinDscto * (1 - descuentoPctForm / 100))
+        : precioSinDscto;
       const items = Object.entries(itemsCreacion).filter(([, v]) => v.activo)
         .map(([productoId, v]) => ({
           productoId: Number(productoId),
@@ -458,7 +472,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
             plazoEntregaTexto: form.plazoEntregaTexto.trim() || null,
             incluyeFlete: form.incluyeFlete ? form.incluyeFlete === 'true' : null,
             fleteMonto: parsearMontoCL(form.fleteMonto),
-            vigenciaAt: form.vigenciaAt || null,
+            vigenciaAt: form.vigenciaAt || null, ivaIncluido: form.ivaIncluido || undefined,
             archivoUrl: archivoExtraido.url, archivoNombre: archivoExtraido.nombre,
             items: items.length > 0 ? items : undefined,
           }),
@@ -476,6 +490,8 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
         if (form.plazoEntregaTexto.trim()) fd.set('plazoEntregaTexto', form.plazoEntregaTexto.trim());
         if (form.incluyeFlete) fd.set('incluyeFlete', form.incluyeFlete);
         if (form.fleteMonto) fd.set('fleteMonto', form.fleteMonto);
+        if (form.ivaIncluido) fd.set('ivaIncluido', 'true');
+        if (form.vigenciaAt) fd.set('vigenciaAt', form.vigenciaAt);
         if (items.length > 0) fd.set('items', JSON.stringify(items));
         res = await fetch(`/api/compras/${negocioId}/cotizaciones`, { method: 'POST', body: fd });
       } else {
@@ -489,7 +505,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
             plazoEntregaTexto: form.plazoEntregaTexto.trim() || null,
             incluyeFlete: form.incluyeFlete ? form.incluyeFlete === 'true' : null,
             fleteMonto: parsearMontoCL(form.fleteMonto),
-            vigenciaAt: form.vigenciaAt || null,
+            vigenciaAt: form.vigenciaAt || null, ivaIncluido: form.ivaIncluido || undefined,
             items: items.length > 0 ? items : undefined,
           }),
         });
@@ -526,7 +542,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   // Asignación MANUAL de productos a una cotización (§8.7) — corrige o reemplaza lo que decidió la
   // IA, o evita depender de ella cuando el comprador ya sabe con certeza a qué productos corresponde.
   const [asignandoId, setAsignandoId] = useState<number | null>(null);
-  const [borradorAsignacion, setBorradorAsignacion] = useState<Record<number, { activo: boolean; precioUnitario: string; cumple: Cumple }>>({});
+  const [borradorAsignacion, setBorradorAsignacion] = useState<Record<number, { activo: boolean; precioUnitario: string; cumple: Cumple; incluido?: boolean }>>({});
   const [guardandoAsignacion, setGuardandoAsignacion] = useState(false);
 
   const abrirAsignacion = (c: Cotizacion) => {
@@ -534,7 +550,9 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
     const draft: typeof borradorAsignacion = {};
     for (const p of productos) {
       const existente = c.items.find(it => it.productoId === p.id);
-      draft[p.id] = { activo: !!existente, precioUnitario: (existente?.precioBase ?? existente?.precioUnitario) != null ? String(existente?.precioBase ?? existente?.precioUnitario) : (c.precioUnitario != null ? String(c.precioUnitario) : ''), cumple: existente?.cumple || 'CUMPLE' };
+      // Antes, al marcar un producto sin cotizar se le precargaba el precio de la cotización (el del horno al carro). Ahora arranca vacío.
+      const base = existente?.precioBase ?? existente?.precioUnitario ?? null;
+      draft[p.id] = { activo: !!existente, incluido: existente?.precioBase === 0, precioUnitario: base != null && base !== 0 ? String(base) : '', cumple: existente?.cumple || 'CUMPLE' };
     }
     setBorradorAsignacion(draft);
   };
@@ -543,7 +561,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
     setGuardandoAsignacion(true);
     try {
       const items = Object.entries(borradorAsignacion).filter(([, v]) => v.activo)
-        .map(([productoId, v]) => ({ productoId: Number(productoId), precioUnitario: parsearMontoCL(v.precioUnitario), cumple: v.cumple }));
+        .map(([productoId, v]) => ({ productoId: Number(productoId), precioUnitario: v.incluido ? null : parsearMontoCL(v.precioUnitario), cumple: v.cumple, incluido: v.incluido === true }));
       const res = await fetch(`/api/compras/${negocioId}/cotizaciones/${cotizacionId}/items`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }),
       });
@@ -583,21 +601,28 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
     }
   };
 
-  const elegirCombinacion = async (clave: string, justificacion: string | null) => {
-    setEligiendoComb(clave);
-    try {
-      const res = await fetch(`/api/compras/${negocioId}/escenarios`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tipo: 'COMBINACION', clave, justificacion }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo elegir');
-      toast.success('Combinación elegida', 'Queda registrada para la aprobación de compra.');
-      await cargar();
-    } catch (e: any) {
-      toast.error('No se pudo elegir la combinación', e.message);
-    } finally {
-      setEligiendoComb(null);
-    }
+  // Evalúa (sin guardar) la compra que se va armando: costo, flete, plazo, viajes y avisos. Con una pequeña espera para no consultar en cada clic.
+  useEffect(() => {
+    if (Object.keys(compra).length === 0) { setEvaluacion(null); return; }
+    setEvaluando(true);
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/compras/${negocioId}/escenarios`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seleccion: compra }) });
+        const d = await r.json();
+        if (d.success) setEvaluacion({ combinacion: d.combinacion, faltan: d.faltan || [], sinOferta: d.sinOferta || [], errores: d.errores || [] });
+      } catch { /* sin evaluación: se reintenta con el próximo cambio */ } finally { setEvaluando(false); }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [compra, negocioId, cotizaciones]);
+
+  // Un clic en el precio de un proveedor = «este producto se lo compro a él» (otro clic en el mismo, lo quita).
+  const elegirCelda = (productoId: number, cotizacionId: number) =>
+    setCompra(c => { const n = { ...c }; if (n[productoId] === cotizacionId) delete n[productoId]; else n[productoId] = cotizacionId; return n; });
+  // «Comprar todo aquí»: todo lo que esa cotización cubre, a ese proveedor (los productos que no cubre quedan como estaban).
+  const comprarTodoAqui = (cotizacionId: number) => {
+    const c = cotizaciones.find(x => x.id === cotizacionId);
+    if (!c) return;
+    setCompra(prev => { const n = { ...prev }; for (const it of c.items) n[it.productoId] = cotizacionId; return n; });
   };
 
   if (loading) return <div className="flex items-center justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-zinc-400" /></div>;
@@ -712,6 +737,12 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
               <input value={form.plazoEntregaTexto} onChange={e => setForm(f => ({ ...f, plazoEntregaTexto: e.target.value }))}
                 placeholder="Plazo de entrega" className="text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
             </div>
+            {editandoId == null && form.moneda === 'CLP' && (
+              <label className="flex items-center gap-2 text-[11px] text-zinc-600">
+                <input type="checkbox" checked={form.ivaIncluido} onChange={e => setForm(f => ({ ...f, ivaIncluido: e.target.checked }))} />
+                El precio de arriba incluye IVA (se guarda en neto, dividido por 1,19)
+              </label>
+            )}
             {form.precioUnitario.trim() && form.descuentoPct.trim() && parsearMontoCL(form.descuentoPct) != null && (parsearMontoCL(form.descuentoPct) as number) > 0 && (
               <p className="text-[10.5px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1">
                 Bruto {fmtCLP(parsearMontoCL(form.precioUnitario))} − {form.descuentoPct}% de descuento = <b>neto {fmtCLP(Math.round((parsearMontoCL(form.precioUnitario) || 0) * (1 - (parsearMontoCL(form.descuentoPct) || 0) / 100)))}</b> por unidad — este es el precio que entra al cuadro comparativo y los escenarios.
@@ -743,7 +774,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
                   { value: 'retiro_costo', label: 'Lo retiramos nosotros, el proveedor cobra flete aparte' },
                 ]} />
               <label className="text-[11px] font-semibold text-zinc-500">
-                Vigente hasta (opcional, spec §8.12)
+                Vigente hasta (opcional)
                 <input type="date" value={form.vigenciaAt} onChange={e => setForm(f => ({ ...f, vigenciaAt: e.target.value }))}
                   className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
               </label>
@@ -754,7 +785,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
                 className="w-full text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
             )}
             {form.incluyeFlete === 'false' && form.fleteMonto.trim() === '' && (
-              <p className="text-[10.5px] text-amber-600">Si todavía no sabés cuánto cobra, dejalo vacío — el escenario va a avisar "flete sin confirmar" en vez de inventar un número (spec §8.10.2).</p>
+              <p className="text-[10.5px] text-amber-600">Si todavía no sabés cuánto cobra, dejalo vacío — el escenario va a avisar "flete sin confirmar" en vez de inventar un número.</p>
             )}
             {/* Agente de documentos (pedido explícito, 14-sep-2026) — lee bases/anexos/acta del
                 proyecto y cruza contra lo que se está tipeando ANTES de guardar. Manual (no se
@@ -853,7 +884,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
             {editandoId == null && productos.length > 0 && (
               <div className="border border-zinc-200 rounded-lg p-2.5 space-y-1.5 bg-white">
                 <p className="text-[11px] font-semibold text-zinc-500">
-                  ¿A qué producto(s) corresponde? (opcional, spec §8.7) — si lo sabés con certeza marcalo acá, así no hace falta "Asignar productos" después. Si no marcás nada, el agente de IA la homologa sola apenas guardes.
+                  ¿A qué producto(s) corresponde? (opcional) — si lo sabés con certeza marcalo acá, así no hace falta "Asignar productos" después. Si no marcás nada, el agente de IA la homologa sola apenas guardes.
                 </p>
                 {productos.map(p => {
                   const draft = itemsCreacion[p.id] || { activo: false, precioUnitario: '', cumple: 'CUMPLE' as Cumple };
@@ -876,8 +907,8 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
             )}
             {editandoId == null && (
               <label className="block text-[11px] font-semibold text-zinc-500">
-                Archivo (PDF, imagen, captura de WhatsApp — opcional, spec §8.3)
-                <input type="file" accept=".pdf,image/*" onChange={e => {
+                Archivo (PDF, imagen o texto .txt de WhatsApp/correo — opcional)
+                <input type="file" accept=".pdf,.txt,image/*,text/plain" onChange={e => {
                   const f = e.target.files?.[0] || null;
                   setArchivo(f); setArchivoExtraido({ estado: 'idle' });
                   if (f) leerArchivo(f);
@@ -933,132 +964,71 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           </div>
         )}
 
-        {cotizaciones.length === 0 ? (
-          <p className="px-4 py-6 text-center text-[12px] text-zinc-400">Sin cotizaciones todavía. Óptimo: tres por producto (spec §8.11).</p>
-        ) : (
-          <div className="divide-y divide-zinc-100">
-            {cotizaciones.map(c => (
-              <div key={c.id} className="px-4 py-2.5">
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="min-w-0">
-                    <p className="text-[12.5px] font-semibold text-zinc-800">
-                      {c.proveedorNombre}
-                      {c.proveedorNuevo != null && (
-                        <span className="ml-1.5 text-[10px] font-bold text-zinc-400">{c.proveedorNuevo ? '(nuevo)' : '(antiguo)'}</span>
-                      )}
-                    </p>
-                    <p className="text-[11px] text-zinc-400">
-                      {ORIGEN_LABEL[c.origen]}
-                      {c.precioUnitario != null && (
-                        c.moneda !== 'CLP'
-                          ? ` · ${c.moneda} ${c.precioUnitario.toLocaleString('es-CL')}${c.precioUnitarioClp != null ? ` (${fmtCLP(c.precioUnitarioClp)} al día del registro, $${c.tipoCambioUsado})` : ' — sin convertir, no entra al comparativo'}`
-                          : ` · ${fmtCLP(c.precioUnitario)}`
-                      )}
-                      {/* Desglose de descuento (pedido explícito, 14-sep-2026) — si esta cotización
-                          se cargó con descuento, se ve de dónde salió el neto. */}
-                      {c.descuentoPct != null && c.precioUnitarioBruto != null && (
-                        <span className="text-emerald-600"> (bruto {fmtCLP(c.precioUnitarioBruto)} − {c.descuentoPct}%)</span>
-                      )}
-                      {c.plazoEntregaTexto && ` · ${c.plazoEntregaTexto}`}
-                      {c.archivoUrl && (
-                        <a href={c.archivoUrl} target="_blank" rel="noopener noreferrer" className="ml-1.5 inline-flex items-center gap-0.5 text-teal-600 hover:text-teal-700 font-semibold">
-                          <Paperclip size={10} /> Ver archivo
-                        </a>
-                      )}
-                    </p>
-                    {c.items.length > 0 ? (
-                      <div className="flex flex-wrap gap-1.5 mt-2">
-                        {c.items.map(it => {
-                          const nombre = productos.find(p => p.id === it.productoId)?.descripcion || `#${it.productoId}`;
-                          const cmp = compararPrecioConCosteo(it.precioUnitario, costeado[it.productoId] ?? null);
-                          const est = ESTILO_VEREDICTO[cmp.veredicto];
-                          const activa = seleccion?.cotizacionId === c.id && seleccion.productoId === it.productoId;
-                          return (
-                            <button key={it.productoId} type="button" onClick={() => setSeleccion({ cotizacionId: c.id, productoId: it.productoId })}
-                              title="Ver el detalle de este precio"
-                              className={`inline-flex items-center gap-1.5 text-[12px] px-2 py-1 rounded-lg border ${activa ? 'border-indigo-400 ring-2 ring-indigo-200' : 'border-zinc-200 hover:border-zinc-400'} bg-white`}>
-                              <span className="font-semibold text-zinc-800 max-w-[170px] truncate">{nombre}</span>
-                              <span className="font-bold text-zinc-900">{it.precioUnitario != null ? fmtCLP(it.precioUnitario) : 'sin precio'}</span>
-                              <span className={`text-[11px] font-semibold px-1 rounded border ${est.chip}`}>{est.texto(cmp.diffPct)}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <p className="text-[10.5px] text-amber-600 mt-0.5">Todavía no está asignada a ningún producto — no aparece en la comparación de precios.</p>
-                    )}
-                  </div>
-                  {puedeOperar && (
-                    <div className="flex-shrink-0 flex items-center gap-2">
-                      <button onClick={() => (asignandoId === c.id ? setAsignandoId(null) : abrirAsignacion(c))}
-                        className="flex items-center gap-1 text-[11px] font-semibold text-zinc-600 hover:text-zinc-800">
-                        <ListChecks size={12} /> {asignandoId === c.id ? 'Cerrar' : 'Asignar productos'}
-                      </button>
-                      <button onClick={() => homologar(c.id)} disabled={homologando === c.id}
-                        className="flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 disabled:opacity-50">
-                        {homologando === c.id ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                        {c.homologadaAt ? 'Re-homologar' : 'Homologar con IA'}
-                      </button>
-                      {/* Editar/eliminar (pedido explícito, 14-sep-2026: "tampoco se pueden eliminar
-                          ni editar las cotizaciones y eso es básico"). */}
-                      <button onClick={() => iniciarEdicion(c)}
-                        className="flex items-center gap-1 text-[11px] font-semibold text-zinc-600 hover:text-zinc-800">
-                        <Pencil size={12} /> Editar
-                      </button>
-                      {confirmandoEliminarId === c.id ? (
-                        <span className="flex items-center gap-1.5 text-[11px]">
-                          <span className="text-rose-700 font-semibold">¿Eliminar?</span>
-                          <button onClick={() => eliminarCotizacion(c.id)} disabled={eliminando === c.id}
-                            className="font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 px-2 py-0.5 rounded">
-                            {eliminando === c.id ? <Loader2 size={11} className="animate-spin" /> : 'Sí'}
-                          </button>
-                          <button onClick={() => setConfirmandoEliminarId(null)} className="text-zinc-400 hover:text-zinc-600">No</button>
-                        </span>
-                      ) : (
-                        <button onClick={() => setConfirmandoEliminarId(c.id)}
-                          className="flex items-center gap-1 text-[11px] font-semibold text-rose-600 hover:text-rose-700">
-                          <Trash2 size={12} /> Eliminar
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
+        {cotizaciones.length === 0 && (
+          <p className="px-4 py-6 text-center text-[12px] text-zinc-400">Sin cotizaciones todavía. Súbelas con «Cargar varias» o «Registrar cotización». Lo ideal: tres por producto.</p>
+        )}
 
-                {/* §8.7: una cotización puede cubrir varios productos — acá se elige a mano cuáles,
-                    con su propio precio y cumplimiento por producto, sin depender de que la IA
-                    adivine bien desde el texto libre. Precarga lo que ya haya (de la IA o de una
-                    edición anterior) y GUARDAR reemplaza esa asignación completa. */}
-                {asignandoId === c.id && (
-                  <div className="mt-2 border border-zinc-200 rounded-lg p-2.5 space-y-1.5 bg-zinc-50/60">
+        {confirmandoEliminarId != null && (() => {
+          const c = cotizaciones.find(x => x.id === confirmandoEliminarId);
+          if (!c) return null;
+          return (
+            <div className="mx-4 my-2 flex items-center gap-2 flex-wrap text-[12.5px] bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+              <span className="text-rose-800 font-semibold flex-1">¿Eliminar la cotización de {c.proveedorNombre} (#{c.id})? Se borra también su auditoría.</span>
+              <button onClick={() => eliminarCotizacion(c.id)} disabled={eliminando === c.id} className="font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 px-2.5 py-1 rounded">
+                {eliminando === c.id ? <Loader2 size={12} className="animate-spin" /> : 'Sí, eliminar'}
+              </button>
+              <button onClick={() => setConfirmandoEliminarId(null)} className="text-zinc-500 hover:text-zinc-800">No</button>
+            </div>
+          );
+        })()}
+
+        {asignandoId != null && (() => {
+          const c = cotizaciones.find(x => x.id === asignandoId);
+          if (!c) return null;
+          return (
+            <div id={`cotizacion-${c.id}`} className="px-4 py-3 border-t border-zinc-100">
+              <p className="text-[12.5px] font-semibold text-zinc-500 mb-1">Cotización de {c.proveedorNombre} (#{c.id})</p>
+              {(
+                  <div className="mt-2 border border-teal-200 rounded-lg p-3 space-y-2 bg-teal-50/40">
+                    <p className="text-[12.5px] font-bold text-zinc-800">¿Qué productos cubre esta cotización?</p>
+                    <p className="text-[11.5px] text-zinc-500">Para cada producto elige una opción. Si el proveedor no lo cobra aparte porque va dentro del precio de otro (por ejemplo el carro dentro del horno), elige «Va incluido».</p>
                     {productos.map(p => {
                       const draft = borradorAsignacion[p.id] || { activo: false, precioUnitario: '', cumple: 'CUMPLE' as Cumple };
+                      const modo: 'no' | 'precio' | 'incluido' = !draft.activo ? 'no' : draft.incluido ? 'incluido' : 'precio';
+                      const poner = (m: 'no' | 'precio' | 'incluido') => setBorradorAsignacion(bd => ({ ...bd, [p.id]: { ...draft, activo: m !== 'no', incluido: m === 'incluido' } }));
+                      const btn = (m: 'no' | 'precio' | 'incluido', texto: string) => (
+                        <button type="button" onClick={() => poner(m)}
+                          className={`text-[11.5px] font-semibold px-2.5 py-1 rounded-lg border transition-colors ${modo === m ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-zinc-600 border-zinc-200 hover:border-teal-400'}`}>{texto}</button>
+                      );
                       return (
-                        <div key={p.id} className="flex items-center gap-2">
-                          <input type="checkbox" checked={draft.activo} className="accent-teal-600"
-                            onChange={e => setBorradorAsignacion(b => ({ ...b, [p.id]: { ...draft, activo: e.target.checked } }))} />
-                          <span className="text-[11.5px] text-zinc-700 flex-1 min-w-0 truncate">{p.descripcion}</span>
-                          {draft.activo && (
-                            <>
-                              <input inputMode="numeric" value={draft.precioUnitario} placeholder="Precio unitario"
-                                onChange={e => setBorradorAsignacion(b => ({ ...b, [p.id]: { ...draft, precioUnitario: e.target.value } }))}
-                                className="w-28 text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-teal-500" />
-                            </>
-                          )}
+                        <div key={p.id} className="rounded-lg border border-zinc-200 bg-white px-3 py-2">
+                          <p className="text-[12.5px] font-semibold text-zinc-800 line-clamp-2">{p.descripcion}</p>
+                          <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                            {btn('no', 'No lo cotizó')}
+                            {btn('precio', 'Tiene precio')}
+                            {btn('incluido', 'Va incluido en otro producto')}
+                            {modo === 'precio' && (
+                              <input inputMode="numeric" value={draft.precioUnitario} placeholder="Precio neto por unidad"
+                                onChange={e => setBorradorAsignacion(bd => ({ ...bd, [p.id]: { ...draft, precioUnitario: e.target.value } }))}
+                                className="w-44 text-[12px] border border-zinc-300 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-teal-500" />
+                            )}
+                          </div>
+                          {modo === 'incluido' && <p className="text-[11px] text-sky-700 mt-1">Queda en $0 porque su costo ya está en el otro producto. Si además cotizó componentes aparte (las bandejas), agrégalos como «adicionales» después.</p>}
                         </div>
                       );
                     })}
                     <div className="flex items-center gap-2 pt-1">
                       <button onClick={() => guardarAsignacion(c.id)} disabled={guardandoAsignacion}
-                        className="flex items-center gap-1 text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">
-                        {guardandoAsignacion ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} Guardar asignación
+                        className="flex items-center gap-1 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
+                        {guardandoAsignacion ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} Guardar
                       </button>
+                      <button onClick={() => setAsignandoId(null)} className="text-[12px] text-zinc-500 hover:text-zinc-800">Cancelar</button>
                     </div>
                   </div>
                 )}
-              </div>
-            ))}
-          </div>
-        )}
+            </div>
+          );
+        })()}
       </div>
 
       {negociacion.length > 0 && (
@@ -1074,7 +1044,18 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
         </Banner>
       )}
 
-      <MatrizPrecios productos={productos} cotizaciones={cotizaciones} costeado={costeado} seleccion={seleccion} onSeleccionar={setSeleccion} />
+      <MatrizPrecios productos={productos} cotizaciones={cotizaciones} costeado={costeado} seleccion={seleccion} onSeleccionar={setSeleccion}
+        onAgregar={puedeOperar ? (cotizacionId) => { const c = cotizaciones.find(x => x.id === cotizacionId); if (c) { abrirAsignacion(c); setTimeout(() => document.getElementById(`cotizacion-${cotizacionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); } } : undefined}
+        compra={compra} onElegirCelda={puedeOperar ? elegirCelda : undefined} onComprarTodoAqui={puedeOperar ? comprarTodoAqui : undefined}
+        acciones={puedeOperar ? {
+          onAsignar: (id) => { const c = cotizaciones.find(x => x.id === id); if (c) { abrirAsignacion(c); setTimeout(() => document.getElementById(`cotizacion-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); } },
+          onHomologar: (id) => homologar(id),
+          onEditar: (id) => { const c = cotizaciones.find(x => x.id === id); if (c) { iniciarEdicion(c); window.scrollTo({ top: 0, behavior: 'smooth' }); } },
+          onEliminar: (id) => setConfirmandoEliminarId(id),
+          ocupadoId: homologando,
+        } : undefined}
+        alertas={Object.fromEntries(auditorias.map(a => [`${a.cotizacionId}:${a.productoId}`,
+          a.revisiones.filter(r => r.resultado === 'NO_CUMPLE' && r.criterio !== 'Precio vs. lo costeado').map(r => ETIQUETA_ALERTA[r.area] ?? r.criterio)]))} />
 
       {seleccion && (() => {
         const c = cotizaciones.find(x => x.id === seleccion.cotizacionId);
@@ -1096,10 +1077,8 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
         );
       })()}
 
-      {combinaciones && (combinaciones.combinaciones.length > 0 || combinaciones.productosSinOferta.length > 0) && (
-        <CombinacionesCompra datos={combinaciones} elegidaClave={combinacionElegida} elegidoTipo={elegidoTipo} elegidoCostoGuardado={elegidoCostoGuardado}
-          puedeOperar={puedeOperar} eligiendo={eligiendoComb} onElegir={(clave, justificacion) => elegirCombinacion(clave, justificacion)} />
-      )}
+      <ArmarCompra negocioId={negocioId} recomendadas={recomendadas} elegida={elegidaComb} compra={compra} setCompra={setCompra}
+        evaluacion={evaluacion} evaluando={evaluando} puedeOperar={puedeOperar} onElegida={async () => { await cargar(); recargarCompartido(); }} />
     </div>
   );
 }

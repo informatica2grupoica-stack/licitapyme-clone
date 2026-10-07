@@ -26,7 +26,10 @@
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
-import { listarProductosCompra, invalidarAprobacionesCompras, type ProductoCompra } from '@/app/lib/compras';
+import { listarProductosCompra, invalidarAprobacionesCompras, obtenerAsignacion, type ProductoCompra } from '@/app/lib/compras';
+import { plazoOfertado, plazoCabe, esPlazoHabil, type PlazoDias } from '@/app/lib/compras-plazo-proveedor';
+import { minimoDeVentaDelTexto, precioONull } from '@/app/lib/compras-cotizacion-lectura';
+import { CRITERIO_FALTANTE } from '@/app/lib/compras-adicionales-ia';
 import { obtenerEstadoReloj } from '@/app/lib/compras-reloj';
 import { filasDeCotizacion, programarAuditoria, cargarEstadoCosteo } from '@/app/lib/auditor-compras';
 import { lineasDelCosteo } from '@/app/lib/auditor-compras-core';
@@ -95,15 +98,17 @@ async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
 }
 
 // ── Reglas por código ──────────────────────────────────────────────────────────────────────────
-function revisionesPorCodigo(
+export function revisionesPorCodigo(
   cot: any, producto: ProductoCompra, precioCosto: number | null,
   reloj: { fechaLimiteVigente: string | null; diasRestantes: number | null } | null,
+  limiteOfertado: PlazoDias | null = null,
 ): Revision[] {
   const out: Revision[] = [];
   const base = { origen: 'codigo' as const, citaCotizacion: null, citaCotizacionVerificada: false, citaRequisito: null, citaRequisitoVerificada: false };
 
   // Precio: sin precio no hay nada que comparar ni que comprar.
-  if (precioCosto == null) {
+  // Un 0 tampoco es un precio ("consultar precio" daba "margen bruto 100 %").
+  if (precioCosto == null || !(precioCosto > 0)) {
     out.push({ ...base, area: 'precio', criterio: 'Precio unitario cargado', requerido: 'Un precio en pesos para este producto', cotizado: null,
       resultado: 'NO_VERIFICABLE', gravedad: 'critico',
       explicacion: 'Esta cotización no tiene un precio unitario en pesos asignado a este producto (o está en moneda extranjera sin tipo de cambio), así que no entra a las cuentas.' });
@@ -122,7 +127,12 @@ function revisionesPorCodigo(
 
   // Vigencia.
   if (cot.vigencia_at) {
-    const vig = String(cot.vigencia_at).slice(0, 10);
+    // MySQL entrega una DATE como objeto Date: String(date).slice(0,10) daba "Thu Jul 16" y la comparación de texto nunca
+    // detectaba una cotización vencida (hallazgo en vivo, 07-oct-2026).
+    const v = cot.vigencia_at;
+    const vig = v instanceof Date
+      ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`
+      : String(v).slice(0, 10);
     const hoy = ahoraChileSQL().slice(0, 10);
     if (vig < hoy) {
       out.push({ ...base, area: 'vigencia', criterio: 'Cotización vigente', requerido: `Vigente a hoy (${hoy})`, cotizado: `Vigente hasta ${vig}`,
@@ -144,6 +154,22 @@ function revisionesPorCodigo(
       out.push({ ...base, area: 'plazo', criterio: 'Plazo del proveedor vs. reloj de entrega', requerido: `Menos de ${reloj.diasRestantes} día(s)`, cotizado: texto || `${dias} días`,
         resultado: 'CUMPLE', gravedad: 'info', explicacion: `~${diasCorridos} día(s) del proveedor caben en los ${reloj.diasRestantes} que quedan.`, citaCotizacion: texto || null, citaCotizacionVerificada: true });
     }
+  } else if (dias != null && limiteOfertado) {
+    // Sin reloj fijado (lo normal hasta que llega la OC): se mide contra el plazo OFERTADO al cliente. Antes esta
+    // revisión se saltaba en silencio y una cotización de 45 días hábiles para una entrega de 15 pasaba sin aviso.
+    const c = plazoCabe({ dias, habiles: esPlazoHabil(texto) }, limiteOfertado);
+    const lim = `${limiteOfertado.dias} día(s) ${limiteOfertado.habiles ? 'hábiles' : 'corridos'}`;
+    out.push({ ...base, area: 'plazo', criterio: 'Plazo del proveedor vs. plazo ofertado al cliente', requerido: `Dentro de ${lim} (plazo ofertado; el reloj aún no está fijado)`, cotizado: texto || `${dias} días`,
+      resultado: c.cabe ? 'CUMPLE' : 'NO_CUMPLE', gravedad: c.cabe ? 'info' : 'critico',
+      explicacion: c.cabe
+        ? `~${c.proveedorCorridos} día(s) corridos del proveedor caben en los ~${c.limiteCorridos} del plazo ofertado (${lim}).`
+        : `El proveedor tarda ~${c.proveedorCorridos} día(s) corridos y al cliente se le ofertó ${lim} (~${c.limiteCorridos} corridos): no alcanza, ni contando que el reloj aún no corre.`,
+      citaCotizacion: texto || null, citaCotizacionVerificada: !!texto });
+  } else if (dias != null) {
+    out.push({ ...base, area: 'plazo', criterio: 'Plazo del proveedor', requerido: 'Un plazo ofertado o un reloj de entrega con qué comparar', cotizado: texto || `${dias} días`,
+      resultado: 'NO_VERIFICABLE', gravedad: 'aviso',
+      explicacion: 'No hay reloj de entrega fijado ni plazo ofertado cargado en el resumen, así que no se puede saber si este plazo alcanza.',
+      citaCotizacion: texto || null, citaCotizacionVerificada: !!texto });
   } else if (dias == null && texto) {
     const inmediata = /inmediat|en stock|stock/i.test(texto);
     out.push({ ...base, area: 'plazo', criterio: 'Plazo del proveedor', requerido: reloj?.fechaLimiteVigente ? `Antes del ${reloj.fechaLimiteVigente}` : 'Un plazo verificable', cotizado: texto,
@@ -152,6 +178,15 @@ function revisionesPorCodigo(
         ? 'El proveedor declara entrega inmediata / en stock (ojo: suele venir "salvo venta previa"; confírmalo antes de comprar).'
         : 'El plazo está escrito sin un número de días, no se puede comparar con el reloj de entrega.',
       citaCotizacion: texto, citaCotizacionVerificada: true });
+  }
+
+  // Mínimo de venta: si el proveedor exige comprar más unidades de las que se necesitan, el precio unitario cotizado no aplica.
+  const minimo = minimoDeVentaDelTexto(String(cot.notas || '') + ' ' + String(cot.descripcion_libre || ''));
+  const necesarias = producto.cantidad != null ? Number(producto.cantidad) : null;
+  if (minimo != null && necesarias != null && minimo > necesarias) {
+    out.push({ ...base, area: 'cantidad', criterio: 'Mínimo de venta del proveedor', requerido: `${necesarias} unidad(es) (lo que se necesita)`, cotizado: `Mínimo ${minimo} unidades`,
+      resultado: 'NO_CUMPLE', gravedad: 'aviso',
+      explicacion: `El proveedor solo vende desde ${minimo} unidades y se necesitan ${necesarias}: el precio unitario cotizado puede no aplicar, o habría que comprar de más.` });
   }
 
   // RUT del proveedor.
@@ -169,8 +204,9 @@ export function dictamenDePrecio(veredicto: 'MEJOR' | 'IGUAL' | 'PEOR' | 'SIN_CO
 
 /** Primero la frase del precio (lo que importa); después, solo lo que además falló por código (plazo, vigencia, pérdida…). */
 function resumenDePrecio(frasePrecio: string, revs: Revision[]): string {
-  const otros = revs.filter(r => r.area !== 'precio' || r.criterio !== 'Precio vs. lo costeado').filter(r => r.resultado === 'NO_CUMPLE').map(r => r.criterio);
-  return [frasePrecio, otros.length ? `Ojo además: ${otros.slice(0, 4).join('; ')}.` : ''].filter(Boolean).join(' ').slice(0, 1200);
+  // Antes decía solo "Ojo además: RUT del proveedor." (el nombre del control, sin decir qué pasó). Ahora, la explicación.
+  const otros = revs.filter(r => r.criterio !== 'Precio vs. lo costeado').filter(r => r.resultado === 'NO_CUMPLE').map(r => r.explicacion);
+  return [frasePrecio, otros.length ? `Ojo además: ${otros.slice(0, 3).join(' ')}` : ''].filter(Boolean).join(' ').slice(0, 1200);
 }
 
 // ── Lo costeado de cada producto ───────────────────────────────────────────────────────────────────
@@ -200,7 +236,7 @@ export interface ResultadoAuditoria { productoId: number; dictamen: Dictamen; cu
  *  las aprobaciones de compra (§10.5): quedaron sobre una cotización que no es lo que parecía. */
 export async function auditarCotizacion(
   negocioId: number, cotizacionId: number,
-  opts: { productoId?: number; actor?: { id: number; nombre: string | null } } = {},
+  opts: { productoId?: number; actor?: { id: number; nombre: string | null }; faltantes?: Map<number, string[]> } = {},
 ): Promise<ResultadoAuditoria[]> {
   const [cotRows] = await pool.query(`SELECT * FROM compras_cotizacion WHERE id = ? AND negocio_id = ? LIMIT 1`, [cotizacionId, negocioId]) as any;
   const cot = (cotRows as any[])[0];
@@ -215,14 +251,16 @@ export async function auditarCotizacion(
   const licitacionCodigo = await licitacionDeNegocio(negocioId);
   const [reloj, estadoCosteo] = await Promise.all([obtenerEstadoReloj(negocioId).catch(() => null), cargarEstadoCosteo(negocioId).catch(() => null)]);
   const lineasCosteo = estadoCosteo ? lineasDelCosteo(estadoCosteo).filter(l => !l.esGastoExtra) : [];
+  const asignacion = await obtenerAsignacion(negocioId).catch(() => null);
+  const limiteOfertado = plazoOfertado(asignacion?.resumen?.plazoEntregaOfertado, asignacion?.resumen?.plazoEntregaDias);
   const resultados: ResultadoAuditoria[] = [];
   let empeoro = false;
 
   for (const it of items) {
     const producto = productos.find(p => p.id === it.producto_id);
     if (!producto) continue;
-    const precioCosto = it.precio_unitario != null ? Number(it.precio_unitario) : null;
-    const porCodigo = revisionesPorCodigo(cot, producto, precioCosto, reloj);
+    const precioCosto = precioONull(it.precio_unitario != null ? Number(it.precio_unitario) : null);
+    const porCodigo = revisionesPorCodigo(cot, producto, precioCosto, reloj, limiteOfertado);
 
     const costeado = costeadoDeProducto(lineasCosteo, producto);
     const cmp = compararPrecioConCosteo(precioCosto, costeado);
@@ -235,10 +273,29 @@ export async function auditarCotizacion(
       resultado: cmp.veredicto === 'SIN_COMPARAR' ? 'NO_VERIFICABLE' : cmp.veredicto === 'PEOR' ? 'NO_CUMPLE' : 'CUMPLE',
       gravedad: cmp.veredicto === 'PEOR' ? 'aviso' : 'info', explicacion: frase,
     };
-    const revisiones: Revision[] = [revisionPrecio, ...porCodigo];
+    // Lo que las bases exigen y la cotización no trae (lo detecta la IA al homologar). Se conserva entre auditorías mientras el
+    // producto no tenga adicionales cargados (si alguien suma el componente que faltaba, el aviso deja de tener sentido).
+    const [prevRev] = await pool.query(`SELECT revisiones_json FROM compras_auditoria_cotizacion WHERE cotizacion_id = ? AND producto_id = ? LIMIT 1`, [cotizacionId, producto.id]) as any;
+    let faltantes: string[] = opts.faltantes?.get(producto.id) ?? [];
+    if (!opts.faltantes) {
+      try { faltantes = (JSON.parse((prevRev as any[])[0]?.revisiones_json || '[]') as Revision[]).filter(r => r.criterio === CRITERIO_FALTANTE).map(r => r.requerido || '').filter(Boolean); } catch { faltantes = []; }
+    }
+    const [adicRows] = await pool.query(`SELECT COUNT(*) n FROM compras_cotizacion_adicional WHERE cotizacion_id = ? AND producto_id = ?`, [cotizacionId, producto.id]).catch(() => [[{ n: 0 }]] as any) as any;
+    const sinAdicionales = Number((adicRows as any[])[0]?.n || 0) === 0;
+    const revFaltantes: Revision[] = sinAdicionales ? faltantes.map(f => ({
+      ...base, origen: 'ia' as const, area: 'producto' as const, criterio: CRITERIO_FALTANTE, requerido: f, cotizado: null,
+      resultado: 'NO_CUMPLE' as const, gravedad: 'aviso' as const,
+      explicacion: `Las bases piden «${f}» para este producto y la cotización dice que no lo incluye o no lo precia. Pídelo al proveedor o cotízalo aparte: si no, el precio comparado queda corto.`,
+    })) : [];
+    const revisiones: Revision[] = [revisionPrecio, ...porCodigo, ...revFaltantes];
     const dictamen = dictamenDePrecio(cmp.veredicto);
     const resumen = resumenDePrecio(frase, revisiones);
-    const mapeado = cumpleDeDictamen(dictamen);
+    // Una cotización con un problema CRÍTICO (el plazo no alcanza, compra con pérdida) o a la que le falta lo que exigen las bases
+    // no es "Cumple" aunque su precio sea bueno: baja a "inferior negociable". No se excluye (§8.8.1), pero las combinaciones de
+    // compra la ordenan detrás de las que sí alcanzan (antes sugerían de primera a un proveedor cuyo plazo ni cabía).
+    const hayCritico = revisiones.some(r => r.resultado === 'NO_CUMPLE' && (r.gravedad === 'critico' || r.criterio === CRITERIO_FALTANTE));
+    const mapeado0 = cumpleDeDictamen(dictamen);
+    const mapeado: CumpleAuditado = hayCritico && mapeado0 === 'CUMPLE' ? 'INFERIOR_NEGOCIABLE' : mapeado0;
     const modelo: string | null = null;
 
     const [prev] = await pool.query(`SELECT override_cumple FROM compras_auditoria_cotizacion WHERE cotizacion_id = ? AND producto_id = ? LIMIT 1`, [cotizacionId, producto.id]) as any;
@@ -274,11 +331,11 @@ export async function auditarCotizacion(
 }
 
 /** Corre el auditor en segundo plano sin bloquear a quien llama (mismo patrón que la homologación). */
-export function auditarCotizacionEnSegundoPlano(negocioId: number, cotizacionId: number, actor?: { id: number; nombre: string | null }): void {
+export function auditarCotizacionEnSegundoPlano(negocioId: number, cotizacionId: number, actor?: { id: number; nombre: string | null }, extras?: { faltantes?: Map<number, string[]> }): void {
   // Cada vez que se sube, edita, asigna u homologa una cotización, también se vuelve a auditar el COSTEO de las líneas afectadas
   // (Auditor de Compras, PROMPT 5): las cosas cambian y el resultado tiene que seguirlas.
   filasDeCotizacion(negocioId, cotizacionId).then(fs => fs.forEach(f => programarAuditoria(negocioId, f, actor ?? null))).catch(() => {});
-  auditarCotizacion(negocioId, cotizacionId, { actor }).catch(e =>
+  auditarCotizacion(negocioId, cotizacionId, { actor, faltantes: extras?.faltantes }).catch(e =>
     console.error(`[auditoria-cotizacion] falló en segundo plano (cotización ${cotizacionId}):`, String(e).slice(0, 200)));
 }
 

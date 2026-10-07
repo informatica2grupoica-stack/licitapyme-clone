@@ -120,7 +120,7 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
           {entrega.modalidadMotivo && !modalidadPendiente && <span className="text-[11px] text-zinc-400">{entrega.modalidadMotivo}</span>}
           {modalidadPendiente && (
             <div className="w-full flex items-center gap-1.5">
-              <input value={motivoParcial} onChange={e => setMotivoParcial(e.target.value)} placeholder="Motivo (excepcional, a petición del cliente — spec §16.2)"
+              <input value={motivoParcial} onChange={e => setMotivoParcial(e.target.value)} placeholder="Motivo (excepcional, a petición del cliente)"
                 className="flex-1 text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
               <button onClick={async () => { if (await accion({ accion: 'modalidad', modalidad: 'PARCIAL', motivo: motivoParcial.trim() })) setModalidadPendiente(false); }}
                 disabled={!motivoParcial.trim()} className="text-[11px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">Guardar</button>
@@ -217,7 +217,7 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
           )}
         </div>
 
-        {entrega.cerradaAt && <Banner variante="success">Ciclo de entrega cerrado {entrega.cerradaAt} (spec §16.7).</Banner>}
+        {entrega.cerradaAt && <Banner variante="success">Ciclo de entrega cerrado {entrega.cerradaAt}.</Banner>}
       </div>
     </div>
   );

@@ -1738,6 +1738,7 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
   }
 
   // ─── P8 · PRODUCTOS: segunda pasada literal + manifiesto + UNA SOLA LISTA ──────────────────
+  let huboDescartes = false;
   const prod = obj('productos');
   const itemsFuenteCrudos: any[] = Array.isArray(prod.items) ? prod.items : [];
   const reqGenerales: any[] = Array.isArray(prod.requisitos_generales) ? prod.requisitos_generales : [];
@@ -1749,7 +1750,8 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
   if (lit.no_encontradas) console.warn(`[viabilidad-ia-v4] ${codigo}: ${lit.no_encontradas}/${lit.revisadas} característica(s) no se encontraron literales en las bases — quedan marcadas y fuera del AUDITOR hasta revisarlas.`);
   {
     // Ítems que el modelo inventó (sin ficha —tras verificar sus características contra las bases— y con un nombre que no está en ningún documento).
-    const inventados = descartarItemsInventados(itemsFuenteCrudos, fuentes.filter(d => !/^COSTEO_/i.test(d.nombre) && !/DOCUMENTOS_PROPIOS/i.test(d.categoria || '')).map(d => d.texto || ''), (ctx.itemsMP || []).map((x: any) => String(x?.nombre || x?.descripcion || '')));
+    const inventados = descartarItemsInventados(itemsFuenteCrudos, fuentes.filter(d => !/^COSTEO_/i.test(d.nombre) && !/DOCUMENTOS_PROPIOS/i.test(d.categoria || '')).map(d => d.texto || ''), (ctx.itemsMP || []).map((x: any) => String(x?.nombre || x?.descripcion || '')), ctx.itemsMP || []);
+    if (inventados.length) huboDescartes = true;
     if (inventados.length) console.warn(`[viabilidad-ia-v4] ${codigo}: ${inventados.length} ítem(s) sin ficha y sin rastro en las bases se descartaron: ${inventados.map((x: any) => `"${_str(x.nombre)}"`).join(', ')}.`);
   }
   // Listado real dejado como texto en `caracteristicas` de un ítem genérico sin cantidad (3477-80-LE26).
@@ -1765,6 +1767,7 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
     // El modelo ya no escribe presupuesto_linea: lo llena el código desde presupuesto.por_linea.
     presupuesto_linea: presupuestoDeLinea(_lineaNum(it.linea)), tipo: _str(it.clasificacion || it.tipo) || 'generico', ruta: '',
   }));
+  const manifiestoDelModelo: ManifiestoLinea[] = manifiesto.slice();
   let origenManifiesto: 'modelo' | 'tabla_canonica' | 'planilla' | 'extraccion_lineas_producto' = 'modelo';
   {
     // Filas de la tabla de CRITERIOS coladas como productos (2345-128-LP26). Va ANTES del gate de la
@@ -1841,6 +1844,20 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
       }
     } catch (e) { console.warn(`[viabilidad-ia-v4] ${codigo}: extracción dedicada falló:`, String(e).slice(0, 140)); }
   }
+  // V-23 (control de calidad del manifiesto): si la lista que salió del código (planilla, tabla canónica,
+  // extracción dedicada) trae rótulos o números de fila como productos y la del modelo está limpia, manda
+  // la del modelo (golden Valdivia 1057937-12-LP26: 13 "productos" que eran encabezados de la ficha).
+  if (origenManifiesto !== 'modelo') {
+    const prob = problemasCalidadManifiesto(manifiesto);
+    const filasRotulo = manifiesto.filter(m => esFilaNoProducto(m.descripcion)).length;
+    // Señal extra: la lista del código es >2× la de la API y la del modelo calza con la API (cada línea = un producto).
+    const inflada = lineasApi > 0 && manifiestoDelModelo.length === lineasApi && manifiesto.length > lineasApi * 2;
+    if ((prob.length || filasRotulo >= 2 || inflada) && manifiestoDelModelo.length && manifiestoDelModelo.every(m => !esFilaNoProducto(m.descripcion)) && !problemasCalidadManifiesto(manifiestoDelModelo).length) {
+      console.warn(`[viabilidad-ia-v4] ${codigo}: V-23 — el manifiesto desde "${origenManifiesto}" no pasó el control de calidad (${prob.join('; ') || (inflada ? `${manifiesto.length} filas contra ${lineasApi} líneas de la API` : `${filasRotulo} filas son rótulos`)}); se usa la lista del modelo (${manifiestoDelModelo.length} ítems).`);
+      manifiesto = manifiestoDelModelo;
+      origenManifiesto = 'modelo';
+    }
+  }
   // UNA SOLA LISTA (P11): productos.items y manifiesto_productos salen de la misma lista final.
   {
     const r = reasignarLineasPorTablaDeMontos(manifiesto as any, porLinea as any);
@@ -1849,8 +1866,29 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
       console.log(`[viabilidad-ia-v4] ${codigo}: líneas reasignadas por la tabla de montos de las bases — ${r.motivo}.`);
     }
   }
-  prod.items = construirListaUnica(manifiesto, itemsFuente);
+  const nombresDescartados = new Set<string>();
+  {
+    // El mismo filtro sobre el manifiesto (puede traer el ítem inventado desde la planilla de un análisis anterior).
+    const hayFicha = itemsFuente.some((it: any) => Array.isArray(it?.caracteristicas) && it.caracteristicas.length);
+    if (hayFicha) {
+      const adaptados = manifiesto.map((m: any) => ({ nombre: m.descripcion, caracteristicas: itemsFuente.find((it: any) => _str(it.nombre) === m.descripcion)?.caracteristicas || [], _m: m }));
+      const fuera = descartarItemsInventados(adaptados, fuentes.filter(d => !/^COSTEO_/i.test(d.nombre) && !/DOCUMENTOS_PROPIOS/i.test(d.categoria || '')).map(d => d.texto || ''), (ctx.itemsMP || []).map((x: any) => String(x?.nombre || x?.descripcion || '')), ctx.itemsMP || []);
+      if (fuera.length) {
+        const sacar = new Set(fuera.map((f: any) => f._m));
+        manifiesto = manifiesto.filter((m: any) => !sacar.has(m));
+        for (const f of fuera) nombresDescartados.add(_str((f as any).nombre));
+        console.warn(`[viabilidad-ia-v4] ${codigo}: ${fuera.length} fila(s) del manifiesto sin ficha y sin rastro en las bases se descartaron: ${fuera.map((x: any) => `"${x.nombre}"`).join(', ')}.`);
+      }
+    }
+  }
+  if (nombresDescartados.size) huboDescartes = true;
+  prod.items = construirListaUnica(manifiesto, itemsFuente.filter((it: any) => !nombresDescartados.has(_str(it.nombre))));
   p3.manifiesto_productos = manifiesto;
+  if (huboDescartes) {
+    // El conteo que el modelo declaró incluía los ítems descartados: se alinea con la lista final.
+    prod.total_items = (prod.items as any[]).length;
+    for (const m of Array.isArray(prod.mapa_items) ? prod.mapa_items : []) if (m?.rol === 'principal') m.n_items = (prod.items as any[]).length;
+  }
   prod.conteo_cruzado = conteoCruzado(prod, manifiesto.length, lineasApi);
   prod.problemas_calidad = problemasCalidadManifiesto(manifiesto);
   if (prod.problemas_calidad.length) console.warn(`[viabilidad-ia-v4] ${codigo}: calidad del manifiesto (V-23): ${prod.problemas_calidad.join('; ')}.`);

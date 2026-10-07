@@ -95,7 +95,7 @@ export function ImportacionCard({ negocioId, puedeOperar }: { negocioId: number;
 
       {origen === 'IMPORTACION' && (
         <div className="p-4 space-y-3">
-          <Banner variante="info">Comunicación asincrónica con el proveedor (no telefónica) — toda la decisión se toma sobre datos técnicos formales: proforma invoice + ficha técnica (spec §12.2).</Banner>
+          <Banner variante="info">Comunicación asincrónica con el proveedor (no telefónica) — toda la decisión se toma sobre datos técnicos formales: proforma invoice + ficha técnica.</Banner>
 
           <p className="text-[10.5px] font-bold text-zinc-400 uppercase">Datos del embarque</p>
           <div className="grid grid-cols-3 gap-2">
@@ -138,7 +138,7 @@ export function ImportacionCard({ negocioId, puedeOperar }: { negocioId: number;
                 <span className="text-[12px] font-bold text-zinc-700">Total aterrizado</span>
                 <span className="text-[14px] font-bold text-zinc-900">{fmtCLP(costoAterrizado.totalAterrizado)}</span>
               </div>
-              <p className="text-[10.5px] text-zinc-400 px-1">FOB total {fmtCLP(costoAterrizado.totalFob)} — esta cifra (no el FOB) es la que alimenta el margen y el Hito 2 (spec §12.5).</p>
+              <p className="text-[10.5px] text-zinc-400 px-1">FOB total {fmtCLP(costoAterrizado.totalFob)} — esta cifra (no el FOB) es la que alimenta el margen y el Hito 2.</p>
             </div>
           ) : (
             <p className="text-[11px] text-zinc-400">Falta elegir un escenario en el Auditor de Compras y/o completar los datos del embarque para calcular el costo aterrizado.</p>

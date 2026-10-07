@@ -140,6 +140,13 @@ export function AuditoriaCotizacionPanel({ negocioId, cotizacionId, productoId, 
           </ul>
         )}
         {auditoria.resumen && <p className="text-[12.5px] text-zinc-700 mt-2">{auditoria.resumen}</p>}
+        {otros.some(r => r.resultado === 'NO_CUMPLE') && (
+          <ul className="mt-2 space-y-1 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">
+            {otros.filter(r => r.resultado === 'NO_CUMPLE').map((r, i) => (
+              <li key={i} className="text-[12.5px] text-rose-900"><b>⚠ {r.criterio}.</b> {r.explicacion}</li>
+            ))}
+          </ul>
+        )}
         {puedeOperar && item && !editando && (
           <button onClick={abrirEditor} className="mt-1.5 mr-3 inline-flex items-center gap-1 text-[12px] font-semibold text-indigo-700 hover:text-indigo-900">
             <Plus size={13} /> {item.adicionales.length ? 'Editar adicionales' : 'Agregar adicionales (quemador, bandejas…)'}

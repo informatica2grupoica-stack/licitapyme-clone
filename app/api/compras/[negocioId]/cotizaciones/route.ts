@@ -86,6 +86,8 @@ export async function POST(request: NextRequest, { params }: Params) {
         plazoEntregaTexto: (form.get('plazoEntregaTexto') as string) || null,
         plazoEntregaDias: form.get('plazoEntregaDias') ? Number(form.get('plazoEntregaDias')) : null,
         incluyeFlete: form.get('incluyeFlete') == null ? null : form.get('incluyeFlete') === 'true',
+        ivaIncluido: form.get('ivaIncluido') === 'true' ? true : null,
+        vigenciaAt: (form.get('vigenciaAt') as string) || null,
         fleteMonto: parsearMontoCL(form.get('fleteMonto') as string),
         direccionBodega: (form.get('direccionBodega') as string) || null,
         archivoUrl, archivoNombre,
@@ -111,8 +113,11 @@ export async function POST(request: NextRequest, { params }: Params) {
         if (extraido) {
           if (!datos.proveedorNombre && !datos.proveedorId && extraido.proveedorNombre) datos.proveedorNombre = extraido.proveedorNombre;
           if (!datos.proveedorRut && extraido.proveedorRut) datos.proveedorRut = extraido.proveedorRut;
-          if (datos.precioUnitario == null && extraido.precioUnitario != null) datos.precioUnitario = extraido.precioUnitario;
-          if (datos.precioTotal == null && extraido.precioTotal != null) datos.precioTotal = extraido.precioTotal;
+          // El IVA incluido solo se descuenta de precios que vienen del DOCUMENTO: lo tipeado a mano no se toca.
+          if (datos.precioUnitario == null && extraido.precioUnitario != null) { datos.precioUnitario = extraido.precioUnitario; if (extraido.ivaIncluido) datos.ivaIncluido = true; }
+          if (datos.precioTotal == null && extraido.precioTotal != null) { datos.precioTotal = extraido.precioTotal; if (extraido.ivaIncluido) datos.ivaIncluido = true; }
+          if (!datos.vigenciaAt && extraido.vigenciaAt) datos.vigenciaAt = extraido.vigenciaAt;
+          if (datos.incluyeFlete == null && extraido.incluyeFlete != null && datos.fleteMonto == null && extraido.fleteMonto == null) datos.incluyeFlete = extraido.incluyeFlete;
           if (datos.descuentoPct == null && extraido.descuentoPct != null) datos.descuentoPct = extraido.descuentoPct;
           if (datos.fleteMonto == null && extraido.fleteMonto != null) datos.fleteMonto = extraido.fleteMonto;
           if (!datos.moneda && extraido.moneda) {

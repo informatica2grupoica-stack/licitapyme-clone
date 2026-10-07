@@ -452,7 +452,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
                 Presupuesto costeado (mercadería): {fmtCLP(presupuestoActual.presupuestoOriginal)} · Comprando (mercadería): {fmtCLP(presupuestoActual.costoEscenario)}
                 {presupuestoActual.excede ? ` — ${presupuestoActual.excedePct}% sobre lo previsto` : ' — dentro de presupuesto'}
                 {/* Flete aparte, informativo — nunca cuenta como "exceso de presupuesto" (el costeo
-                    original no cotiza logística, spec §8.10.2). Pedido explícito del usuario,
+                    original no cotiza logística). Pedido explícito del usuario,
                     14-sep-2026: comparar mercadería contra mercadería+flete disparaba el aviso
                     aunque los productos en sí se hubieran cotizado dentro de lo previsto. */}
                 {presupuestoActual.costoFlete != null && presupuestoActual.costoFlete > 0 && (
@@ -528,7 +528,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
                         <div className="mt-1">
                           {!historicoPorSku[sku.id] && (
                             <button onClick={() => verHistorico(sku)} className="text-[10.5px] font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-1">
-                              <History size={11} /> Ver proveedor histórico (spec §19.3)
+                              <History size={11} /> Ver proveedor histórico
                             </button>
                           )}
                           {historicoPorSku[sku.id] === 'cargando' && <span className="text-[10.5px] text-zinc-400 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Consultando OBUMA…</span>}

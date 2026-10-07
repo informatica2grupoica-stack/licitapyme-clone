@@ -79,7 +79,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo fijar');
-      toast.success('Reloj fijado', 'Validación manual registrada (spec §15.1).');
+      toast.success('Reloj fijado', 'Validación manual registrada.');
       setReloj(data.reloj); setFormAbierto(false);
       // Fijar el reloj cierra sola la tarea "reloj_entrega" — sin esto, Tareas y el Gantt quedaban
       // mostrándola pendiente hasta recargar la pantalla entera.
@@ -216,7 +216,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
 
       <div className="p-4 space-y-3">
         {!reloj?.fijadoAt ? (
-          <p className="text-[12px] text-zinc-400">El reloj todavía no se ha fijado — requiere validación manual (spec §15.1).</p>
+          <p className="text-[12px] text-zinc-400">El reloj todavía no se ha fijado — requiere validación manual.</p>
         ) : (
           <>
             <div className="flex items-center gap-3 flex-wrap">
@@ -245,10 +245,10 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
               </Banner>
             )}
             {reloj.entregaConMulta && (
-              <Banner variante="warning">Entrega con multa autorizada por {reloj.entregaConMulta.autorizadoPorNombre}: {reloj.entregaConMulta.motivo}. Anula la bonificación (spec §15.5).</Banner>
+              <Banner variante="warning">Entrega con multa autorizada por {reloj.entregaConMulta.autorizadoPorNombre}: {reloj.entregaConMulta.motivo}. Anula la bonificación.</Banner>
             )}
             {reloj.enVentanaProrroga && !reloj.prorroga && (
-              <Banner variante="warning">En ventana de prórroga (5-10 días antes del vencimiento) — spec §15.4.</Banner>
+              <Banner variante="warning">En ventana de prórroga (5-10 días antes del vencimiento)</Banner>
             )}
 
             {puedeOperar && !reloj.entregado && (
@@ -287,7 +287,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
 
                 {formProrroga && (
                   <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2.5 space-y-1.5">
-                    <p className="text-[10.5px] font-bold text-zinc-500 uppercase">Nueva fecha límite y motivo (spec §15.4)</p>
+                    <p className="text-[10.5px] font-bold text-zinc-500 uppercase">Nueva fecha límite y motivo</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                       <input type="date" value={prorrogaForm.nuevaFechaLimite} onChange={e => setProrrogaForm(f => ({ ...f, nuevaFechaLimite: e.target.value }))}
                         className="text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
@@ -303,7 +303,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
 
                 {formMulta && (
                   <div className="bg-rose-50 border border-rose-200 rounded-lg p-2.5 space-y-1.5">
-                    <p className="text-[10.5px] font-bold text-rose-700 uppercase">Decisión expresa — nunca por silencio ni por atraso (spec §15.7)</p>
+                    <p className="text-[10.5px] font-bold text-rose-700 uppercase">Decisión expresa — nunca por silencio ni por atraso</p>
                     <textarea rows={2} value={multaMotivo} onChange={e => setMultaMotivo(e.target.value)} placeholder="Motivo para entregar con multa…"
                       className="w-full text-[11.5px] border border-rose-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-rose-500" />
                     <button onClick={guardarMulta} disabled={!multaMotivo.trim() || guardandoMulta}
@@ -317,7 +317,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
 
             <div className="pt-2 border-t border-zinc-100">
               <button onClick={verEscenariosMulta} disabled={cargandoMultas} className="flex items-center gap-1 text-[11.5px] font-semibold text-indigo-600 hover:text-indigo-700 disabled:opacity-50">
-                {cargandoMultas ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} Calcular escenarios de multa (spec §15.6)
+                {cargandoMultas ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} Calcular escenarios de multa
               </button>
               {escenariosMulta && (
                 <div className="mt-2 space-y-1">

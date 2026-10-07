@@ -312,6 +312,13 @@ test('P3 · plazo de la garantía de fiel cumplimiento leído del texto (Cholcho
   assert.equal(plazoGarantiaEnTexto([{ nombre: 'B.pdf', texto: 'Garantía de fiel cumplimiento vigente 90 días corridos más.' }]), null);
 });
 
+test('P8 · rótulo de categoría de la API tomado como producto se descarta (Arica)', () => {
+  const bases = 'Moto acuática con motor de 3 cilindros. Cuatrimoto monocilíndrica. '.repeat(10);
+  const items = [{ nombre: 'Moto acuática', caracteristicas: ['3 cilindros'] }, { nombre: 'Embarcación a motor de uso personal', caracteristicas: [] }];
+  const api = [{ nombre: 'Embarcaciones a motor de uso personal', descripcion: 'MOTO ACUATICA Tipo de Motor 3 cilindros' }];
+  assert.deepEqual(descartarItemsInventados(items, [bases], [], api).map(x => x.nombre), ['Embarcación a motor de uso personal']);
+});
+
 test('P8 · un ítem sin ficha y sin rastro en las bases se descarta (Arica)', () => {
   const bases = 'Moto acuática, cuatrimoto. Vehículos con motor de 686cc para uso en terreno. '.repeat(20);
   const items = [{ nombre: 'Moto acuática', caracteristicas: [] }, { nombre: 'Embarcación a motor de uso personal', caracteristicas: [] }, { nombre: 'Cuatrimoto', caracteristicas: ['Motor 686cc'] }];

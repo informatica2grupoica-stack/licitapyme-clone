@@ -185,7 +185,7 @@ function ModalCombinacion({ c, elegida, puedeOperar, eligiendo, onClose, onElegi
           {puedeOperar && !elegida && (
             <div className="rounded-lg border border-zinc-200 p-3 space-y-2">
               <p className="text-[12px] font-semibold text-zinc-700">Elegir esta combinación</p>
-              {!esMasRapido && <input value={just} onChange={e => setJust(e.target.value)} placeholder="¿Por qué eliges esta combinación en vez de Más rápido? (spec §8.10.4)" className="w-full text-[12.5px] border border-amber-300 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-amber-500" />}
+              {!esMasRapido && <input value={just} onChange={e => setJust(e.target.value)} placeholder="¿Por qué eliges esta combinación en vez de Más rápido?" className="w-full text-[12.5px] border border-amber-300 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-amber-500" />}
               <div className="flex items-center gap-2">
                 <button onClick={() => onElegir(esMasRapido ? null : just.trim())} disabled={eligiendo || (!esMasRapido && !just.trim())}
                   className="flex items-center gap-1 text-[12px] font-semibold text-white bg-zinc-800 hover:bg-zinc-900 disabled:opacity-50 px-3 py-1.5 rounded-lg">

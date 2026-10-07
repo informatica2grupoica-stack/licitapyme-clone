@@ -57,8 +57,8 @@ export interface Candidato { id: number; nombre: string | null; carga: number }
 
 export interface ResumenFases {
   tareas: { vencidas: number };
-  costeo: { productosSinCotizacion: number };
-  aprobacion: { compuertasPendientes: number };
+  costeo: { productosSinCotizacion: number; escenarioElegido: boolean };
+  aprobacion: { compuertasPendientes: number; compraAprobada: boolean; margenAprobado: boolean };
   compra: { hitosAdminPendientes: number | null };
   entrega: { incidenciasAbiertas: number; relojVencido: boolean };
 }

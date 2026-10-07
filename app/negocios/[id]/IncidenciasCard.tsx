@@ -201,7 +201,7 @@ export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { ne
 
       {formAbierto === 'om' && (
         <div className="border-b border-zinc-100 px-4 py-3 space-y-2 bg-teal-50/40">
-          <p className="text-[11px] text-zinc-500">Nada salió mal: aparece un producto que cubre la necesidad real a un costo notoriamente menor (spec §9.4).</p>
+          <p className="text-[11px] text-zinc-500">Nada salió mal: aparece un producto que cubre la necesidad real a un costo notoriamente menor.</p>
           <Select value={formOm.productoId} onChange={v => setFormOm(f => ({ ...f, productoId: v }))} placeholder="Producto que se mejoraría" minWidth={260}
             options={productos.map(p => ({ value: String(p.id), label: p.descripcion }))} />
           <input value={formOm.productoAlternativo} onChange={e => setFormOm(f => ({ ...f, productoAlternativo: e.target.value }))}
@@ -277,7 +277,7 @@ export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { ne
                   )}
                   {i.om.planteadaClienteAt && respondiendoOmId === i.id && (
                     <div className="mt-1.5 bg-white border border-zinc-200 rounded-lg p-2.5 space-y-1.5">
-                      <p className="text-[10px] font-bold text-zinc-500 uppercase">Constancia mínima — quién autorizó, con quién se habló y cuándo (spec §9.4)</p>
+                      <p className="text-[10px] font-bold text-zinc-500 uppercase">Constancia mínima — quién autorizó, con quién se habló y cuándo</p>
                       <textarea rows={2} value={respuestaConstancia} onChange={e => setRespuestaConstancia(e.target.value)}
                         placeholder="Ej: autorizó Juan Pérez (jefe de ventas), hablado con la contraparte técnica el 11-09-2026…"
                         className="w-full text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />

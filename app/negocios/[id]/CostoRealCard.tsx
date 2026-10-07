@@ -114,6 +114,11 @@ export function CostoRealCard({ negocioId, puedeOperar, permitirCierre = true }:
           <Linea etiqueta="Gastos registrados" valor={res.lineas.gastosRegistrados} nota="flete, horas extra…" />
           <Linea etiqueta="Importación" valor={res.lineas.importacion} nota="flete, aduana, logística" />
           <Linea etiqueta="Costo real total" valor={res.lineas.total} fuerte />
+          {(!res.obuma || res.obuma.gastado === 0) && (
+            <p className="text-[11px] text-sky-700 bg-sky-50 border border-sky-100 rounded-lg px-2.5 py-1.5 mt-2">
+              Todavía no hay una compra registrada en Obuma para este negocio: estos montos son los que hay cargados en el Costeo (columna «Costo unit. REAL»), no una compra real. Se vuelven reales cuando se emiten las órdenes de compra.
+            </p>
+          )}
           {res.gastosOtraMoneda > 0 && (
             <p className="text-[10.5px] text-amber-600 mt-1">Hay gastos en otra moneda sin convertir que no están en el total.</p>
           )}
