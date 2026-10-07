@@ -6,13 +6,10 @@
 //   3. Compra elegida → costeo: la compra elegida se carga al costeo («Costo unit. REAL» de cada línea) con un clic y a la vista.
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '@/app/components/ui/toast';
+import { ModalCombinacion, type Comb, type ItemComb } from './CombinacionesCompra';
 import { IconCircleCheck as CheckCircle2, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconTruck as Truck, IconClock as Clock, IconUsers as Users, IconArrowRight as Arrow, IconScale as Scale } from '@tabler/icons-react';
 
-export interface ItemComb { productoId: number; descripcion: string; cotizacionId: number; proveedor: string; precioUnitario: number | null; cantidad: number | null; subtotal: number | null }
-export interface Comb {
-  clave: string; costoMercaderia: number; costoLogistico: number; costoTotal: number; diasEstimados: number | null; viajes: number;
-  nProveedores: number; proveedores: string[]; peorCumple: string; fleteSinConfirmar: boolean; items: ItemComb[]; etiquetas: string[]; avisos: string[];
-}
+export type { Comb, ItemComb };
 export interface Recomendada { comb: Comb; etiquetas: string[] }
 export interface EvaluacionCompra { combinacion: Comb | null; faltan: Array<{ productoId: number; descripcion: string }>; sinOferta: Array<{ productoId: number; descripcion: string }>; errores: string[] }
 interface LineaTraslado { productoId: number; descripcion: string; proveedor: string; costoNeto: number; incluido: boolean; anterior: number | null; estado: 'CARGA' | 'IGUAL' | 'SIN_FILA' | 'SIN_LINK' }
@@ -36,6 +33,7 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
   const [eligiendo, setEligiendo] = useState(false);
   const [plan, setPlan] = useState<{ hayCompraElegida: boolean; lineas: LineaTraslado[]; aviso: string | null } | null>(null);
   const [cargando, setCargando] = useState(false);
+  const [abierta, setAbierta] = useState<string | null>(null);   // clave de la recomendada cuyo detalle está abierto
 
   const seleccionElegida = elegida ? seleccionDe(elegida) : null;
   const esLaElegida = !!seleccionElegida && mismaSeleccion(compra, seleccionElegida);
@@ -52,11 +50,11 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
   }, [negocioId]);
   useEffect(() => { if (elegida) cargarPlan(); else setPlan(null); }, [elegida?.clave, cargarPlan]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  const elegir = async () => {
+  const elegir = async (seleccion: Record<number, number> = compra, justificacion: string | null = esMasRapida ? null : just.trim()) => {
     setEligiendo(true);
     try {
       const res = await fetch(`/api/compras/${negocioId}/escenarios`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tipo: 'SELECCION', seleccion: compra, justificacion: esMasRapida ? null : just.trim() }),
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tipo: 'SELECCION', seleccion, justificacion }),
       });
       const d = await res.json();
       if (!res.ok || !d.success) throw new Error(d.error || 'No se pudo elegir');
@@ -84,13 +82,14 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
         <div className="bg-white rounded-xl border border-zinc-200 p-3.5 space-y-2.5">
           <div>
             <p className="text-[14px] font-bold text-zinc-900">Compras recomendadas</p>
-            <p className="text-[12.5px] text-zinc-500">Las pocas formas que vale la pena mirar. «Usar esta» las marca en la matriz de arriba, donde puedes cambiar cualquier producto a mano.</p>
+            <p className="text-[12.5px] text-zinc-500">Las pocas formas que vale la pena mirar. Toca una para ver su detalle (proveedores, cotizaciones, precios y avisos) y elegirla; «Marcar en la matriz» te deja cambiar cualquier producto a mano.</p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5">
             {recomendadas.map(({ comb: c, etiquetas }) => {
               const activa = mismaSeleccion(compra, seleccionDe(c));
               return (
-                <div key={c.clave} className={`rounded-xl border p-3 ${activa ? 'border-teal-500 ring-1 ring-teal-200 bg-teal-50/30' : 'border-zinc-200 bg-white'}`}>
+                <div key={c.clave} role="button" tabIndex={0} onClick={() => setAbierta(c.clave)} onKeyDown={e => { if (e.key === 'Enter') setAbierta(c.clave); }}
+                  className={`rounded-xl border p-3 cursor-pointer hover:shadow-sm transition ${activa ? 'border-teal-500 ring-1 ring-teal-200 bg-teal-50/30' : 'border-zinc-200 bg-white'}`}>
                   <div className="flex flex-wrap gap-1">
                     {etiquetas.map(e => <span key={e} className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full border ${RAZON[e]?.c}`}>{RAZON[e]?.t ?? e}</span>)}
                   </div>
@@ -102,14 +101,25 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
                     <span className="flex items-center gap-1"><Clock size={12} />{c.diasEstimados != null ? `${c.diasEstimados} d` : 'sin plazo'}</span>
                     {c.avisos.length > 0 && <span className="flex items-center gap-1 text-amber-600"><AlertTriangle size={12} />{c.avisos.length}</span>}
                   </div>
-                  <button type="button" onClick={() => setCompra(seleccionDe(c))} disabled={activa}
-                    className="mt-2 text-[12px] font-semibold text-teal-700 hover:text-teal-900 disabled:text-zinc-400">{activa ? 'Es la que estás armando' : 'Usar esta'}</button>
+                  <div className="mt-2 flex items-center gap-3">
+                    <span className="text-[12px] font-semibold text-teal-700">Ver detalle →</span>
+                    <button type="button" onClick={e => { e.stopPropagation(); setCompra(seleccionDe(c)); }} disabled={activa}
+                      className="text-[12px] font-semibold text-zinc-500 hover:text-teal-800 disabled:text-zinc-300">{activa ? 'Marcada en la matriz' : 'Marcar en la matriz'}</button>
+                  </div>
                 </div>
               );
             })}
           </div>
         </div>
       )}
+
+      {abierta && (() => {
+        const r = recomendadas.find(x => x.comb.clave === abierta);
+        if (!r) return null;
+        const yaElegida = !!seleccionElegida && mismaSeleccion(seleccionDe(r.comb), seleccionElegida);
+        return <ModalCombinacion c={r.comb} elegida={yaElegida} puedeOperar={puedeOperar} eligiendo={eligiendo} onClose={() => setAbierta(null)}
+          onElegir={async (j) => { await elegir(seleccionDe(r.comb), j); setAbierta(null); }} />;
+      })()}
 
       <div className={`rounded-xl border-2 p-3.5 ${n === 0 ? 'border-dashed border-zinc-200 bg-zinc-50/50' : 'border-teal-200 bg-white'}`}>
         <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -156,7 +166,7 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
                   <input value={just} onChange={e => setJust(e.target.value)} placeholder="¿Por qué esta compra y no la más rápida? (queda registrado)"
                     className="w-full text-[12.5px] border border-amber-300 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-amber-500" />
                 )}
-                <button type="button" onClick={elegir} disabled={eligiendo || (!esMasRapida && !just.trim())}
+                <button type="button" onClick={() => elegir()} disabled={eligiendo || (!esMasRapida && !just.trim())}
                   className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3.5 py-2 rounded-lg">
                   {eligiendo ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />} Elegir esta compra
                 </button>
@@ -172,7 +182,8 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
           <div className="flex items-start gap-2">
             <Scale size={16} className="text-zinc-400 mt-0.5" />
             <div>
-              <p className="text-[14px] font-bold text-zinc-900">Cargar esta compra al costeo</p>
+              <p className="text-[14px] font-bold text-zinc-900">Compra elegida: {elegida.proveedores.join(' + ')} · {clp(elegida.costoTotal)}</p>
+              <p className="text-[12.5px] font-semibold text-zinc-700">Cargarla al costeo</p>
               <p className="text-[12.5px] text-zinc-500">Pone el costo neto de cada proveedor elegido en «Costo unit. REAL» del costeo, con su cotización como respaldo. No toca nada más del costeo. El flete no se carga aquí: va como gasto extra.</p>
             </div>
           </div>

@@ -1605,6 +1605,16 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
     ...evidenciasDelModelo(adj.evidencias, 'modelo'),
     ...evidenciasDeDetectores(senales).map(e => { if (e.cita.frase) loc.localizar(e.cita as any); return e; }),
     ...evidenciaPresupuestoPorLineaDeTabla(pres.por_linea),
+    // "Se reserva el derecho de adjudicar total o parcialmente": el modelo a veces no lo reporta (golden Arica,
+    // una de tres corridas). El texto es inequívoco: el detector lo agrega y el chequeo semántico lo valida.
+    ...(() => {
+      const re = /se\s+reserva\s+(?:el\s+)?derecho\s+de\s+adjudicar\s+(?:total\s+o\s+parcialmente|parcialmente|solo\s+una\s+parte)[^.]{0,120}/i;
+      for (const d of fuentes) {
+        const m = d.texto?.match(re);
+        if (m) return [{ tipo: 'TOTAL_O_PARCIAL' as const, origen: 'detector' as const, cita: loc.localizar({ documento: d.nombre, numeral: '', frase: m[0].replace(/\s+/g, ' ').trim().slice(0, 300) }) }];
+      }
+      return [];
+    })(),
   ]);
   // Señales de suministro: las del modelo + las del detector del código para los tipos decisivos que
   // el modelo no reportó (golden Transductor 1057049-324-LE26: el modelo solo reportó "cantidades

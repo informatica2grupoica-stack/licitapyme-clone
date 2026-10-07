@@ -15,6 +15,7 @@ import { AuditoriaCotizacionPanel, type AuditoriaUI } from './AuditoriaCotizacio
 import { MatrizPrecios, ESTILO_VEREDICTO, ETIQUETA_ALERTA, type SeleccionCelda } from './MatrizPrecios';
 import { compararPrecioConCosteo } from '@/app/lib/compras-precio-vs-costeo';
 import { CotizacionesMasivas } from './CotizacionesMasivas';
+import { ListaCotizaciones } from './ListaCotizaciones';
 import { ArmarCompra, type Comb, type Recomendada, type EvaluacionCompra } from './ArmarCompra';
 import { IconGavel as Gavel, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconSparkles as Sparkles, IconTrendingDown as TrendingDown, IconTruck as Truck, IconBolt as Zap, IconScale as Scale, IconCurrencyDollar as DollarSign, IconCircleCheck as CheckCircle2, IconPaperclip as Paperclip, IconListCheck as ListChecks, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconLink as Link2, IconShieldCheck as ShieldCheck, IconPencil as Pencil, IconTrash as Trash2, IconRobot as Bot, IconEye as Eye } from '@tabler/icons-react';
 
@@ -656,7 +657,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
 
       <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
         <div className="flex items-center justify-between gap-3 px-4 py-3 bg-zinc-50 border-b border-zinc-100">
-          <p className="text-[13.5px] font-bold text-zinc-700 flex items-center gap-1.5"><Gavel size={15} /> Cotizaciones recibidas</p>
+          <p className="text-[13.5px] font-bold text-zinc-700 flex items-center gap-1.5"><Gavel size={15} /> Cotizaciones recibidas{cotizaciones.length > 0 && <span className="text-zinc-400 font-semibold">({cotizaciones.length})</span>}</p>
           {puedeOperar && (
             <div className="flex items-center gap-4">
               <button onClick={() => setMasivaAbierta(v => !v)} className="flex items-center gap-1 text-[11.5px] font-semibold text-indigo-700 hover:text-indigo-800">
@@ -964,6 +965,13 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           </div>
         )}
 
+        <ListaCotizaciones cotizaciones={cotizaciones} productos={productos} origenLabel={ORIGEN_LABEL} puedeOperar={puedeOperar} homologandoId={homologando}
+          avisosPorCotizacion={Object.fromEntries(cotizaciones.map(c => [c.id, auditorias.filter(a => a.cotizacionId === c.id).reduce((n, a) => n + a.revisiones.filter(r => r.resultado === 'NO_CUMPLE' && r.criterio !== 'Precio vs. lo costeado').length, 0)]))}
+          onAsignar={(id) => { const c = cotizaciones.find(x => x.id === id); if (c) { abrirAsignacion(c); setTimeout(() => document.getElementById(`cotizacion-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); } }}
+          onHomologar={(id) => homologar(id)}
+          onEditar={(id) => { const c = cotizaciones.find(x => x.id === id); if (c) { iniciarEdicion(c); window.scrollTo({ top: 0, behavior: 'smooth' }); } }}
+          onEliminar={(id) => setConfirmandoEliminarId(id)} />
+
         {cotizaciones.length === 0 && (
           <p className="px-4 py-6 text-center text-[12px] text-zinc-400">Sin cotizaciones todavía. Súbelas con «Cargar varias» o «Registrar cotización». Lo ideal: tres por producto.</p>
         )}
@@ -1033,14 +1041,16 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
 
       {negociacion.length > 0 && (
         <Banner variante="info">
-          <span className="font-semibold flex items-center gap-1"><TrendingDown size={13} /> Espacio de negociación detectado:</span>
-          <ul className="mt-1 space-y-0.5">
-            {negociacion.map(n => (
-              <li key={n.productoId} className="text-[12px]">
-                <span className="font-semibold">{n.descripcion}</span>: {fmtCLP(n.minimo)} a {fmtCLP(n.maximo)} — negociar con {n.proveedorMasCaro} (diferencia {fmtCLP(n.diferencia)}).
-              </li>
-            ))}
-          </ul>
+          <details>
+            <summary className="cursor-pointer font-semibold flex items-center gap-1"><TrendingDown size={13} /> Hay espacio para negociar en {negociacion.length} producto{negociacion.length === 1 ? '' : 's'} — ver</summary>
+            <ul className="mt-1.5 space-y-0.5">
+              {negociacion.map(n => (
+                <li key={n.productoId} className="text-[12px]">
+                  <span className="font-semibold">{n.descripcion}</span>: {fmtCLP(n.minimo)} a {fmtCLP(n.maximo)} — negociar con {n.proveedorMasCaro} (diferencia {fmtCLP(n.diferencia)}).
+                </li>
+              ))}
+            </ul>
+          </details>
         </Banner>
       )}
 

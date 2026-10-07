@@ -128,7 +128,7 @@ export function CombinacionesCompra({ datos, elegidaClave, elegidoTipo, elegidoC
   );
 }
 
-function ModalCombinacion({ c, elegida, puedeOperar, eligiendo, onClose, onElegir }: {
+export function ModalCombinacion({ c, elegida, puedeOperar, eligiendo, onClose, onElegir }: {
   c: Comb; elegida: boolean; puedeOperar: boolean; eligiendo: boolean; onClose: () => void; onElegir: (justificacion: string | null) => Promise<void>;
 }) {
   const [just, setJust] = useState('');
