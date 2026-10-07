@@ -9,7 +9,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { IconAlertTriangle as AlertTriangle, IconBan as Ban, IconCompass as Compass, IconChevronDown as ChevronDown, IconCheck as Check, IconClock as Clock, IconTrophy as Trophy, IconX as X, IconArrowRight as ArrowRight, IconBulb as Bulb, IconWallet as Wallet, IconGavel as Gavel, IconStarFilled as StarFilled, IconTrendingUp as TrendingUp, IconTrendingDown as TrendingDown, IconEqual as Equal, IconPackage as Package, IconClipboardCheck as ClipboardCheck, IconSearch as Search, IconShieldCheck as ShieldCheck, IconPencil as Pencil, IconQuote as Quote, IconScale as Scale, IconTarget as Target, IconListCheck as ListChecks, IconHelpCircle as HelpCircle } from '@tabler/icons-react';
 import { Badge } from '@/app/components/ui/Badge';
 import { useContador } from '@/app/lib/use-contador';
-import { BotonBuscarEquipo } from './viabilidad-ui-comun';
+import { BotonBuscarEquipo, BotonProductoReferencia } from './viabilidad-ui-comun';
 import { Cita, FraseCitada, _norm, EVIDENCIA_TEXTO, NIVEL_VISTA, PERIODO, cap, fmt, mayus, oracion, sinCA, valorMulta } from './viabilidad-v4-comun';
 
 const ACCION: Record<string, { cls: string; icono: React.ReactNode }> = {
@@ -808,6 +808,7 @@ function FilaProducto({ p, abierta, onToggle, codigo, informe }: { p: any; abier
                 </div>
               )}
               {cs.length >= 3 && <BotonBuscarEquipo codigo={String(informe.meta?.id || codigo)} region={informe.meta?.region} producto={{ descripcion: p.nombre, caracteristicas: cs, cantidad: p.cantidad }} />}
+              {cs.length >= 3 && <BotonProductoReferencia codigo={String(informe.meta?.id || codigo)} producto={{ nombre: p.nombre, marca_modelo_referencia: p.marca_modelo_referencia, caracteristicas: cs }} />}
             </div>
           </motion.div>
         )}

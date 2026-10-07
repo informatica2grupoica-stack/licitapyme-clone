@@ -11,6 +11,8 @@ import { Banner } from '@/app/components/ui/Banner';
 import { parsearMontoCL } from '@/app/lib/numeros';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { AuditoriaCotizacionPanel, type AuditoriaUI } from './AuditoriaCotizacionPanel';
+import { MatrizPrecios, ESTILO_VEREDICTO, type SeleccionCelda } from './MatrizPrecios';
+import { compararPrecioConCosteo } from '@/app/lib/compras-precio-vs-costeo';
 import { CotizacionesMasivas } from './CotizacionesMasivas';
 import { CombinacionesCompra, type DatosCombinaciones } from './CombinacionesCompra';
 import { IconGavel as Gavel, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconSparkles as Sparkles, IconTrendingDown as TrendingDown, IconTruck as Truck, IconBolt as Zap, IconScale as Scale, IconCurrencyDollar as DollarSign, IconCircleCheck as CheckCircle2, IconPaperclip as Paperclip, IconListCheck as ListChecks, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconLink as Link2, IconShieldCheck as ShieldCheck, IconPencil as Pencil, IconTrash as Trash2, IconRobot as Bot, IconEye as Eye } from '@tabler/icons-react';
@@ -25,9 +27,8 @@ interface Cotizacion {
   precioUnitarioBruto: number | null; descuentoPct: number | null;
   moneda: string; tipoCambioUsado: number | null; precioUnitarioClp: number | null;
   plazoEntregaTexto: string | null; incluyeFlete: boolean | null; fleteMonto: number | null; homologadaAt: string | null; archivoUrl: string | null;
-  items: Array<{ productoId: number; precioUnitario: number | null; cumple: Cumple; detalleDesviacion: string | null }>;
+  items: Array<{ productoId: number; precioUnitario: number | null; precioBase: number | null; adicionales: Array<{ id: number; concepto: string; cantidad: number; precioUnitario: number }>; cumple: Cumple; detalleDesviacion: string | null }>;
 }
-interface FilaCuadro { productoId: number; descripcion: string; cotizacionesPorProveedor: Array<{ proveedor: string; precioUnitario: number | null; cumple: Cumple | null }>; cubierto: boolean; puntosCriticos: string | null }
 interface Producto { id: number; descripcion: string; subestado: string; cantidad?: number | null }
 interface ProveedorSugerido {
   proveedorId: number | null; obumaProveedorId: string; nombreEmpresa: string; rut: string | null;
@@ -49,11 +50,6 @@ const ORIGEN_LABEL: Record<Origen, string> = { pdf: 'PDF', imagen: 'Imagen', wha
 // Monedas que el backend sabe convertir a CLP (ver app/lib/tipo-cambio.ts) — agregar acá una moneda
 // nueva sin fuente de tipo de cambio la dejaría "seleccionable pero sin convertir" en silencio.
 const MONEDAS_SOPORTADAS = ['CLP', 'USD', 'EUR'];
-const CUMPLE_STYLE: Record<Cumple, string> = {
-  CUMPLE: 'text-emerald-700 bg-emerald-50 border-emerald-200', MEJORA: 'text-teal-700 bg-teal-50 border-teal-200',
-  INFERIOR_NEGOCIABLE: 'text-amber-700 bg-amber-50 border-amber-200', INFERIOR_INSALVABLE: 'text-rose-700 bg-rose-50 border-rose-200',
-  NO_ES_EL_PRODUCTO: 'text-zinc-400 bg-zinc-50 border-zinc-200',
-};
 const CUMPLE_LABEL: Record<Cumple, string> = {
   CUMPLE: 'Cumple', MEJORA: 'Mejora', INFERIOR_NEGOCIABLE: 'Inferior (negociable)', INFERIOR_INSALVABLE: 'Inferior (insalvable)', NO_ES_EL_PRODUCTO: 'No es el producto',
 };
@@ -68,7 +64,8 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   const { recargar: recargarCompartido } = useCompras();
   const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
-  const [cuadro, setCuadro] = useState<FilaCuadro[]>([]);
+  const [costeado, setCosteado] = useState<Record<number, number | null>>({});
+  const [seleccion, setSeleccion] = useState<SeleccionCelda | null>(null);
   const [negociacion, setNegociacion] = useState<Negociacion[]>([]);
   const [escenarios, setEscenarios] = useState<Escenario[]>([]);
   const [elegidoTipo, setElegidoTipo] = useState<TipoEscenario | null>(null);
@@ -157,9 +154,9 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
         fetch(`/api/compras/${negocioId}/sugerencias-historial`), fetch(`/api/compras/${negocioId}/agente-documentos`),
       ]);
       const [dCot, dEsc, dProd, dSug, dUso] = await Promise.all([rCot.json(), rEsc.json(), rProd.json(), rSug.json(), rUso.json()]);
-      if (dCot.success) { setCotizaciones(dCot.cotizaciones || []); setAuditorias(dCot.auditorias || []); }
+      if (dCot.success) { setCotizaciones(dCot.cotizaciones || []); setAuditorias(dCot.auditorias || []); setCosteado(dCot.costeado || {}); }
       if (dEsc.success) {
-        setCuadro(dEsc.cuadro || []); setNegociacion(dEsc.negociacion || []); setEscenarios(dEsc.escenarios || []);
+        setNegociacion(dEsc.negociacion || []); setEscenarios(dEsc.escenarios || []);
         setElegidoTipo(dEsc.elegidoTipo || null); setElegidoCostoGuardado(dEsc.elegidoCostoGuardado ?? null);
         setCombinaciones(dEsc.combinaciones || null); setCombinacionElegida(dEsc.combinacionElegidaClave ?? null);
       }
@@ -537,7 +534,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
     const draft: typeof borradorAsignacion = {};
     for (const p of productos) {
       const existente = c.items.find(it => it.productoId === p.id);
-      draft[p.id] = { activo: !!existente, precioUnitario: existente?.precioUnitario != null ? String(existente.precioUnitario) : (c.precioUnitario != null ? String(c.precioUnitario) : ''), cumple: existente?.cumple || 'CUMPLE' };
+      draft[p.id] = { activo: !!existente, precioUnitario: (existente?.precioBase ?? existente?.precioUnitario) != null ? String(existente?.precioBase ?? existente?.precioUnitario) : (c.precioUnitario != null ? String(c.precioUnitario) : ''), cumple: existente?.cumple || 'CUMPLE' };
     }
     setBorradorAsignacion(draft);
   };
@@ -612,7 +609,8 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           no pega contra Obuma en vivo). Se ve apenas se carga la pantalla, sin que nadie lo pida. */}
       {sugerenciasHistorial.length > 0 && (
         <Banner variante="info">
-          <span className="font-semibold flex items-center gap-1"><Sparkles size={13} /> Ojo — ya le hemos comprado antes algo parecido a lo que hay que cotizar:</span>
+          <details>
+          <summary className="cursor-pointer font-semibold flex items-center gap-1"><Sparkles size={13} /> Hay proveedores con compras anteriores parecidas ({sugerenciasHistorial.length} producto{sugerenciasHistorial.length === 1 ? '' : 's'}) — ver</summary>
           <ul className="mt-1.5 space-y-1.5">
             {sugerenciasHistorial.map(s => (
               <li key={s.productoId} className="text-[12px]">
@@ -627,12 +625,13 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
               </li>
             ))}
           </ul>
+          </details>
         </Banner>
       )}
 
       <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
         <div className="flex items-center justify-between gap-3 px-4 py-3 bg-zinc-50 border-b border-zinc-100">
-          <p className="text-[12.5px] font-bold text-zinc-700 flex items-center gap-1.5"><Gavel size={14} /> Auditor de Compras — cotizaciones</p>
+          <p className="text-[13.5px] font-bold text-zinc-700 flex items-center gap-1.5"><Gavel size={15} /> Cotizaciones recibidas</p>
           {puedeOperar && (
             <div className="flex items-center gap-4">
               <button onClick={() => setMasivaAbierta(v => !v)} className="flex items-center gap-1 text-[11.5px] font-semibold text-indigo-700 hover:text-indigo-800">
@@ -968,17 +967,25 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
                       )}
                     </p>
                     {c.items.length > 0 ? (
-                      <div className="space-y-1.5 mt-1.5">
-                        {c.items.map(it => (
-                          <AuditoriaCotizacionPanel key={it.productoId}
-                            negocioId={negocioId} cotizacionId={c.id} productoId={it.productoId}
-                            productoNombre={`${productos.find(p => p.id === it.productoId)?.descripcion || `#${it.productoId}`}${it.precioUnitario != null ? ` · ${fmtCLP(it.precioUnitario)}` : ''}`}
-                            auditoria={auditorias.find(a => a.cotizacionId === c.id && a.productoId === it.productoId)}
-                            puedeOperar={puedeOperar} onCambio={async () => { await cargar(); recargarCompartido(); }} />
-                        ))}
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {c.items.map(it => {
+                          const nombre = productos.find(p => p.id === it.productoId)?.descripcion || `#${it.productoId}`;
+                          const cmp = compararPrecioConCosteo(it.precioUnitario, costeado[it.productoId] ?? null);
+                          const est = ESTILO_VEREDICTO[cmp.veredicto];
+                          const activa = seleccion?.cotizacionId === c.id && seleccion.productoId === it.productoId;
+                          return (
+                            <button key={it.productoId} type="button" onClick={() => setSeleccion({ cotizacionId: c.id, productoId: it.productoId })}
+                              title="Ver el detalle de este precio"
+                              className={`inline-flex items-center gap-1.5 text-[12px] px-2 py-1 rounded-lg border ${activa ? 'border-indigo-400 ring-2 ring-indigo-200' : 'border-zinc-200 hover:border-zinc-400'} bg-white`}>
+                              <span className="font-semibold text-zinc-800 max-w-[170px] truncate">{nombre}</span>
+                              <span className="font-bold text-zinc-900">{it.precioUnitario != null ? fmtCLP(it.precioUnitario) : 'sin precio'}</span>
+                              <span className={`text-[11px] font-semibold px-1 rounded border ${est.chip}`}>{est.texto(cmp.diffPct)}</span>
+                            </button>
+                          );
+                        })}
                       </div>
                     ) : (
-                      <p className="text-[10.5px] text-amber-600 mt-0.5">Todavía no está asignada a ningún producto — no aparece en el cuadro comparativo.</p>
+                      <p className="text-[10.5px] text-amber-600 mt-0.5">Todavía no está asignada a ningún producto — no aparece en la comparación de precios.</p>
                     )}
                   </div>
                   {puedeOperar && (
@@ -1067,35 +1074,27 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
         </Banner>
       )}
 
-      {cuadro.length > 0 && (
-        <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-          <p className="px-4 py-2.5 text-[11px] font-bold text-zinc-500 uppercase bg-zinc-50 border-b border-zinc-100">Cuadro comparativo</p>
-          <div className="divide-y divide-zinc-100">
-            {cuadro.map(f => (
-              <div key={f.productoId} className="px-4 py-2.5">
-                <p className="text-[12px] font-semibold text-zinc-800">{f.descripcion}</p>
-                {!f.cubierto ? (
-                  <p className="text-[11px] text-amber-600 mt-0.5">Sin ninguna cotización todavía — hueco visible.</p>
-                ) : (
-                  <div className="flex flex-wrap gap-2 mt-1">
-                    {f.cotizacionesPorProveedor.map((p, i) => (
-                      <span key={i} className={`text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full border ${p.cumple ? CUMPLE_STYLE[p.cumple] : 'text-zinc-400 bg-zinc-50 border-zinc-200'}`}>
-                        {p.proveedor}: {fmtCLP(p.precioUnitario)}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {f.puntosCriticos && (
-                  <p className="text-[11px] text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg px-2 py-1 mt-1.5 flex items-start gap-1">
-                    <Sparkles size={11} className="mt-0.5 flex-shrink-0" /> {f.puntosCriticos}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <MatrizPrecios productos={productos} cotizaciones={cotizaciones} costeado={costeado} seleccion={seleccion} onSeleccionar={setSeleccion} />
 
+      {seleccion && (() => {
+        const c = cotizaciones.find(x => x.id === seleccion.cotizacionId);
+        const it = c?.items.find(x => x.productoId === seleccion.productoId);
+        if (!c || !it) return null;
+        return (
+          <div className="rounded-xl border-2 border-indigo-200 bg-white p-3">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-[13px] font-bold text-indigo-900">Detalle · {c.proveedorNombre}</p>
+              <button onClick={() => setSeleccion(null)} className="text-[12.5px] font-semibold text-zinc-500 hover:text-zinc-800">Cerrar</button>
+            </div>
+            <AuditoriaCotizacionPanel
+              negocioId={negocioId} cotizacionId={c.id} productoId={it.productoId}
+              productoNombre={productos.find(p => p.id === it.productoId)?.descripcion || `#${it.productoId}`}
+              auditoria={auditorias.find(a => a.cotizacionId === c.id && a.productoId === it.productoId)}
+              item={{ precioUnitario: it.precioUnitario, precioBase: it.precioBase, adicionales: it.adicionales }}
+              puedeOperar={puedeOperar} onCambio={async () => { await cargar(); recargarCompartido(); }} />
+          </div>
+        );
+      })()}
 
       {combinaciones && (combinaciones.combinaciones.length > 0 || combinaciones.productosSinOferta.length > 0) && (
         <CombinacionesCompra datos={combinaciones} elegidaClave={combinacionElegida} elegidoTipo={elegidoTipo} elegidoCostoGuardado={elegidoCostoGuardado}

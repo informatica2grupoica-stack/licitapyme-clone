@@ -186,7 +186,7 @@ export function AuditorCosteoCard({ negocioId, puedeOperar }: { negocioId: numbe
           return (
             <div key={lp.linea.id} className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
               <button onClick={() => setAbierta(abiertaEsta ? null : lp.linea.id)} className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left hover:bg-zinc-50/70">
-                <span className="text-[11px] font-bold text-zinc-400 w-6 shrink-0">#{lp.linea.item}</span>
+                <span className="text-[11px] font-bold text-zinc-400 w-6 shrink-0">#{lp.linea.lineaReal ?? lp.linea.item}</span>
                 <span className="flex-1 min-w-0">
                   <span className="block text-[12.5px] font-semibold text-zinc-800 truncate">{lp.linea.detalle || '(sin detalle)'}{lp.linea.esGastoExtra && <span className="ml-1.5 text-[10px] font-bold text-zinc-400">GASTO EXTRA</span>}</span>
                   <span className="block text-[11px] text-zinc-500">{lp.linea.cantidad ?? '—'} {lp.linea.unidad} · costeado {clp(lp.linea.costoRegistradoNeto)} neto/u{s?.verificadoNeto != null ? ` · verificado ${clp(s.verificadoNeto)}` : ''}{s?.diffPct != null && Math.abs(s.diffPct) >= 0.5 ? <b className={s.diffPct > 0 ? 'text-rose-600' : 'text-emerald-600'}> ({s.diffPct > 0 ? '+' : ''}{s.diffPct}%)</b> : null}</span>

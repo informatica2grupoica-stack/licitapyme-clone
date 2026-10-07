@@ -55,16 +55,22 @@ export function CombinacionesCompra({ datos, elegidaClave, elegidoTipo, elegidoC
   const esElegida = (c: Comb) => (elegidaClave != null ? elegidaClave === c.clave
     : elegidoTipo != null && c.etiquetas.includes(elegidoTipo) && elegidoCostoGuardado != null && Math.abs(c.costoTotal - elegidoCostoGuardado) <= 1);
   const seleccionada = lista.find(c => c.clave === abierta) || null;
+  const [verTodas, setVerTodas] = useState(false);
+  const VISIBLES = 3;
+  const visibles = verTodas ? lista : lista.filter((c, i) => i < VISIBLES || esElegida(c));
 
   if (datos.combinaciones.length === 0 && datos.productosSinOferta.length === 0) return null;
 
   return (
     <div className="space-y-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[11px] font-bold text-zinc-400 uppercase px-0.5">Escenarios · todas las combinaciones posibles ({datos.totalPosibles})</p>
+        <div className="px-0.5">
+          <p className="text-[14px] font-bold text-zinc-900">¿Cómo comprar? Combinaciones posibles ({datos.totalPosibles})</p>
+          <p className="text-[12.5px] text-zinc-500 mt-0.5">Cada tarjeta es una forma de repartir la compra entre proveedores, con su costo total, plazo y viajes. Abre una y elígela para pedir la aprobación.</p>
+        </div>
         <div className="flex items-center gap-3">
-          <label className="flex items-center gap-1.5 text-[11.5px] text-zinc-500">Ordenar por
-            <select value={orden} onChange={e => setOrden(e.target.value as Orden)} className="border border-zinc-200 rounded-lg px-2 py-1 text-[11.5px] text-zinc-700">
+          <label className="flex items-center gap-1.5 text-[12.5px] text-zinc-500">Ordenar por
+            <select value={orden} onChange={e => setOrden(e.target.value as Orden)} className="border border-zinc-200 rounded-lg px-2 py-1 text-[12.5px] text-zinc-700">
               <option value="cumple_precio">Mejor cumplimiento y luego precio</option><option value="precio">Precio total (menor a mayor)</option>
               <option value="dias">Plazo (menos días)</option><option value="proveedores">Menos proveedores</option><option value="viajes">Menos viajes</option>
             </select>
@@ -73,29 +79,30 @@ export function CombinacionesCompra({ datos, elegidaClave, elegidoTipo, elegidoC
         </div>
       </div>
       {datos.productosSinOferta.length > 0 && (
-        <p className="text-[11.5px] px-2 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-800">
+        <p className="text-[12.5px] px-2 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-800">
           <AlertTriangle size={12} className="inline mr-1" />Sin cotización todavía (no entran a ninguna combinación): {datos.productosSinOferta.map(p => p.descripcion).join(', ')}.
         </p>
       )}
       {datos.truncado && <p className="text-[11px] text-zinc-500">Hay demasiadas combinaciones: se muestran las mejores por cumplimiento y precio, más la más rápida de cada producto.</p>}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5">
-        {lista.map((c, i) => {
+        {visibles.map((c) => {
+          const i = lista.indexOf(c);
           const elegida = esElegida(c);
           return (
             <button key={c.clave} onClick={() => setAbierta(c.clave)}
               className={`text-left bg-white rounded-xl border p-3 hover:shadow-sm transition ${elegida ? 'border-emerald-300 ring-1 ring-emerald-100' : c.etiquetas.includes('MAS_RAPIDO') ? 'border-teal-300 ring-1 ring-teal-100' : 'border-zinc-200'}`}>
               <div className="flex items-start justify-between gap-2">
                 <p className="text-[12px] font-bold text-zinc-800 leading-snug"><span className="text-zinc-400 mr-1">#{i + 1}</span>{c.proveedores.join(' + ')}</p>
-                {elegida && <span className="shrink-0 flex items-center gap-1 text-[9.5px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full"><CheckCircle2 size={10} /> Elegida</span>}
+                {elegida && <span className="shrink-0 flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full"><CheckCircle2 size={10} /> Elegida</span>}
               </div>
               <div className="flex flex-wrap gap-1 mt-1">
-                {c.etiquetas.map(e => <span key={e} className="text-[9.5px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full">{ETIQUETA[e] || e}</span>)}
-                <span className={`text-[9.5px] font-bold border px-1.5 py-0.5 rounded-full ${cumpleDe(c.peorCumple).c}`}>{cumpleDe(c.peorCumple).t}</span>
+                {c.etiquetas.map(e => <span key={e} className="text-[11px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full">{ETIQUETA[e] || e}</span>)}
+                <span className={`text-[11px] font-bold border px-1.5 py-0.5 rounded-full ${cumpleDe(c.peorCumple).c}`}>{cumpleDe(c.peorCumple).t}</span>
               </div>
               <p className="text-[16px] font-bold text-zinc-900 mt-1.5 tabular-nums">{clp(c.costoTotal)}</p>
-              <p className="text-[10.5px] text-zinc-400">{c.diferenciaVsMasBarata === 0 ? 'la más barata' : `+${clp(c.diferenciaVsMasBarata)} (${c.diferenciaPctVsMasBarata}%) sobre la más barata`}</p>
-              <div className="flex items-center gap-3 mt-1.5 text-[10.5px] text-zinc-500">
+              <p className="text-[12px] text-zinc-400">{c.diferenciaVsMasBarata === 0 ? 'la más barata' : `+${clp(c.diferenciaVsMasBarata)} (${c.diferenciaPctVsMasBarata}%) sobre la más barata`}</p>
+              <div className="flex items-center gap-3 mt-1.5 text-[12px] text-zinc-500">
                 <span className="flex items-center gap-1"><Users size={11} />{c.nProveedores}</span>
                 <span className="flex items-center gap-1"><Truck size={11} />{c.viajes} viaje(s)</span>
                 <span className="flex items-center gap-1"><Clock size={11} />{c.diasEstimados != null ? `${c.diasEstimados} d` : 'sin plazo'}</span>
@@ -106,6 +113,12 @@ export function CombinacionesCompra({ datos, elegidaClave, elegidoTipo, elegidoC
           );
         })}
       </div>
+
+      {lista.length > VISIBLES && (
+        <button type="button" onClick={() => setVerTodas(v => !v)} className="text-[13px] font-semibold text-teal-700 hover:text-teal-900">
+          {verTodas ? 'Mostrar solo las mejores' : `Ver las ${lista.length} combinaciones`}
+        </button>
+      )}
 
       {seleccionada && (
         <ModalCombinacion c={seleccionada} elegida={esElegida(seleccionada)} puedeOperar={puedeOperar} eligiendo={eligiendo === seleccionada.clave}
@@ -147,7 +160,7 @@ function ModalCombinacion({ c, elegida, puedeOperar, eligiendo, onClose, onElegi
           </div>
 
           {c.items.map(x => (
-            <div key={x.productoId} className="rounded-lg border border-zinc-200 px-3 py-2.5 text-[11.5px]">
+            <div key={x.productoId} className="rounded-lg border border-zinc-200 px-3 py-2.5 text-[12.5px]">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="font-semibold text-zinc-800">{x.descripcion}</p>
                 <span className={`text-[10px] font-bold border px-1.5 py-0.5 rounded-full ${cumpleDe(x.cumple).c}`}>{cumpleDe(x.cumple).t}</span>
@@ -167,12 +180,12 @@ function ModalCombinacion({ c, elegida, puedeOperar, eligiendo, onClose, onElegi
             </div>
           ))}
 
-          {c.avisos.length > 0 && <div className="space-y-1">{c.avisos.map((a, k) => <p key={k} className="text-[11.5px] text-amber-800 bg-amber-50 border border-amber-100 rounded px-2 py-1">• {a}</p>)}</div>}
+          {c.avisos.length > 0 && <div className="space-y-1">{c.avisos.map((a, k) => <p key={k} className="text-[12.5px] text-amber-800 bg-amber-50 border border-amber-100 rounded px-2 py-1">• {a}</p>)}</div>}
 
           {puedeOperar && !elegida && (
             <div className="rounded-lg border border-zinc-200 p-3 space-y-2">
               <p className="text-[12px] font-semibold text-zinc-700">Elegir esta combinación</p>
-              {!esMasRapido && <input value={just} onChange={e => setJust(e.target.value)} placeholder="¿Por qué eliges esta combinación en vez de Más rápido? (spec §8.10.4)" className="w-full text-[11.5px] border border-amber-300 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-amber-500" />}
+              {!esMasRapido && <input value={just} onChange={e => setJust(e.target.value)} placeholder="¿Por qué eliges esta combinación en vez de Más rápido? (spec §8.10.4)" className="w-full text-[12.5px] border border-amber-300 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-amber-500" />}
               <div className="flex items-center gap-2">
                 <button onClick={() => onElegir(esMasRapido ? null : just.trim())} disabled={eligiendo || (!esMasRapido && !just.trim())}
                   className="flex items-center gap-1 text-[12px] font-semibold text-white bg-zinc-800 hover:bg-zinc-900 disabled:opacity-50 px-3 py-1.5 rounded-lg">
@@ -180,7 +193,7 @@ function ModalCombinacion({ c, elegida, puedeOperar, eligiendo, onClose, onElegi
                 </button>
                 <button onClick={onClose} className="text-[12px] text-zinc-500 hover:text-zinc-700">Cerrar</button>
               </div>
-              <p className="text-[10.5px] text-zinc-400">Al elegirla se invalida una aprobación de compra previa y queda registrada para la aprobación.</p>
+              <p className="text-[12px] text-zinc-400">Al elegirla se invalida una aprobación de compra previa y queda registrada para la aprobación.</p>
             </div>
           )}
         </div>

@@ -752,8 +752,8 @@ export function diagnosticarPreparacion(
     if (l.costoRegistradoNeto == null) add('falta', `${et}: no tiene costo (ni valor con IVA ni costo real).`, 'Carga el valor o el «Costo unit. REAL» en «Ver costeo».', l.item, 'Costeo');
     if (l.links.length === 0 && cotizaciones.length === 0) add('falta', `${et}: no tiene ningún respaldo (ni link ni cotización).`, 'Pega el Link 1 del producto en «Ver costeo» o sube la cotización y asígnala a este producto.', l.item, 'Costeo / Cotizaciones');
     else if (l.links.length === 0) add('aviso', `${et}: no tiene link del producto (solo cotizaciones).`, 'Pega el Link 1 en «Ver costeo» si el producto está publicado en una tienda.', l.item, 'Costeo');
-    if (tecnico.estado === 'no_existe') add('aviso', `${et}: el Auditor Técnico no tiene marca y modelo confirmados.`, 'Confirma marca y modelo del producto en el Auditor Técnico; sin eso la identidad (V1) queda «pendiente de cruce técnico».', l.item, 'Auditor Técnico');
-    else if (tecnico.estado === 'pendiente') add('aviso', `${et}: el producto técnico (${tecnico.marca} ${tecnico.modelo}) aún no está aprobado.`, 'Aprueba la línea en el Auditor Técnico.', l.item, 'Auditor Técnico');
+    if (tecnico.estado === 'no_existe') add('aviso', `${et}: el Auditor no tiene todavía una opción con marca y modelo para esta línea.`, 'Agrega la opción (link, cotización o ficha) en el Auditor; sin eso la identidad (V1) queda «pendiente de cruce técnico».', l.item, 'Auditor');
+    else if (tecnico.estado === 'pendiente') add('ok', `${et}: se usa como referencia ${[tecnico.marca, tecnico.modelo].filter(Boolean).join(' ')} (opción del Auditor, aún sin aprobar).`, 'No requiere acción: cuando la opción se apruebe en el Auditor, pasa a ser la referencia firme.', l.item, 'Auditor');
     for (const c of cotizaciones) {
       const ce = `Cotización #${c.id} de ${c.proveedor}`;
       if (c.moneda !== 'CLP' && !c.tipoCambio) add('falta', `${ce}: está en ${c.moneda} y no tiene tipo de cambio: no se puede pasar a pesos.`, 'Edita la cotización y guárdala de nuevo (se toma el dólar del día).', l.item, 'Cotizaciones');

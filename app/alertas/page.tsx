@@ -42,6 +42,7 @@ const ACCION_META: Record<string, { label: string; icon: React.ReactNode; color:
   chat_ia:               { label: 'Consulta a ankIA',         icon: <MessageSquare size={14} />, color: '#0d9488', bg: '#f0fdfa' },
   informe:               { label: 'Informe técnico PDF',      icon: <Activity size={14} />,      color: '#4f46e5', bg: '#eef2ff' },
   busqueda_equipamiento: { label: 'Búsqueda de equipamiento', icon: <Eye size={14} />,           color: '#0369a1', bg: '#f0f9ff' },
+  producto_referencia:   { label: 'Producto de referencia',   icon: <Eye size={14} />,           color: '#0369a1', bg: '#f0f9ff' },
   radar_manual:          { label: 'Actualizó el radar',       icon: <RadarIcon size={14} />,     color: '#d97706', bg: '#fffbeb' },
 };
 function metaFor(accion: string) {

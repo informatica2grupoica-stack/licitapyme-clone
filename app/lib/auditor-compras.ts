@@ -70,8 +70,23 @@ export async function filasNoAdjudicadas(negocioId: number, lineas: LineaCosteo[
 // ── Contexto por línea: técnico, licitación, cotizaciones, histórico ─────────────────────────────
 interface ProductoTecnico { estado: 'aprobado' | 'pendiente' | 'no_existe'; marca: string; modelo: string; accesorios: string[]; titulo: string }
 
-async function productoTecnico(negocioId: number, lineaReal: number | null): Promise<ProductoTecnico> {
+/** Referencia técnica de una línea. Fuente PRINCIPAL = el Auditor actual (auditor_opcion, enganchada por la fila
+ *  del costeo): 'aprobado' solo si la opción está aprobada; si hay una opción más avanzada sin aprobar
+ *  (definitiva / verificada / formalizada) se entrega como referencia 'pendiente'. El checklist viejo
+ *  (checklist_comercial) queda solo como respaldo para negocios anteriores al Auditor unificado. */
+async function productoTecnico(negocioId: number, linea: { id: string; lineaReal: number | null }): Promise<ProductoTecnico> {
   const vacio: ProductoTecnico = { estado: 'no_existe', marca: '', modelo: '', accesorios: [], titulo: '' };
+  try {
+    const [ops] = await pool.query(
+      `SELECT marca, modelo, estado FROM auditor_opcion
+        WHERE negocio_id = ? AND fila_id = ? AND estado <> 'descartada' AND (marca IS NOT NULL OR modelo IS NOT NULL)
+        ORDER BY FIELD(estado, 'aprobada', 'definitiva', 'en_aprobacion', 'verificada', 'formalizada', 'tanteo') LIMIT 1`,
+      [negocioId, linea.id],
+    ) as any;
+    const op = (ops as any[])[0];
+    if (op && (op.marca || op.modelo)) return { estado: op.estado === 'aprobada' ? 'aprobado' : 'pendiente', marca: String(op.marca || ''), modelo: String(op.modelo || ''), accesorios: [], titulo: '' };
+  } catch (e) { console.warn('[auditor-compras] referencia del Auditor:', String(e).slice(0, 120)); }
+  const lineaReal = linea.lineaReal;
   if (lineaReal == null) return vacio;
   try {
     const [rows] = await pool.query(
@@ -251,7 +266,7 @@ export async function auditarLinea(negocioId: number, filaId: string, opts: Opci
     dolarDelDia(),
     cotizacionesDeLaLinea(negocioId, linea),
     historicoInterno(linea),
-    productoTecnico(negocioId, linea.lineaReal),
+    productoTecnico(negocioId, linea),
     lineaDeLaLicitacion(licitacionCodigo, linea.lineaReal),
     obtenerEstadoReloj(negocioId).catch(() => null),
   ]);
@@ -590,7 +605,7 @@ async function armarPreparacion(negocioId: number, lineas: LineaCosteo[], presup
   const prep: PrepLinea[] = [];
   for (const l of lineas) {
     if (l.esGastoExtra) continue;
-    const [tecnico, cots] = await Promise.all([productoTecnico(negocioId, l.lineaReal), cotizacionesDeLaLinea(negocioId, l)]);
+    const [tecnico, cots] = await Promise.all([productoTecnico(negocioId, l), cotizacionesDeLaLinea(negocioId, l)]);
     prep.push({
       linea: l, tecnico: { estado: tecnico.estado, marca: tecnico.marca, modelo: tecnico.modelo },
       cotizaciones: cots.map(c => ({ id: c.id, proveedor: c.proveedor, rut: c.rut, rutEsPropio: c.rutEsPropio, moneda: c.moneda, tipoCambio: c.tipoCambio, plazoDias: c.plazoDias, fleteMonto: c.fleteMonto, incluyeFlete: c.incluyeFlete, vigencia: c.vigencia, tieneTexto: c.texto.trim().length > 40, asignadaAProductos: 1 })),

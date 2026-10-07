@@ -126,3 +126,61 @@ export function BotonBuscarEquipo({ codigo, producto, region }: { codigo: string
     </div>
   );
 }
+
+// Botón "Producto de referencia" (spec P9): busca en la web el modelo que el cliente tenía en mente y
+// lo compara con la ficha de las bases. Solo proyectos asignados (el servidor lo exige y avisa).
+// Rotulado "Referencia para buscar": orienta la búsqueda, no compromete nada de la oferta.
+interface CandidatoRef { marca: string; modelo: string; url: string; tipo_fuente: string; porcentaje: number; no_cumple_detalle: { caracteristica: string; dato_candidato: string }[]; copiado: boolean }
+
+export function BotonProductoReferencia({ codigo, producto }: { codigo: string; producto: { nombre: string; marca_modelo_referencia?: string | null; caracteristicas: string[] } }) {
+  const [estado, setEstado] = useState<'idle' | 'cargando' | 'ok' | 'error'>('idle');
+  const [error, setError] = useState('');
+  const [res, setRes] = useState<{ candidatos: CandidatoRef[]; aviso_copiado: boolean } | null>(null);
+  const buscar = async () => {
+    setEstado('cargando'); setError(''); setRes(null);
+    try {
+      const r = await fetch(`/api/viabilidad/producto-referencia/${encodeURIComponent(codigo)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(producto),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setError(j.error || 'No se pudo buscar. Reintenta.'); setEstado('error'); return; }
+      setRes({ candidatos: j.candidatos || [], aviso_copiado: !!j.aviso_copiado });
+      setEstado('ok');
+    } catch { setError('No se pudo buscar. Reintenta.'); setEstado('error'); }
+  };
+  return (
+    <div className="mt-2">
+      <button type="button" onClick={buscar} disabled={estado === 'cargando'}
+        title="Busca en la web el modelo que el cliente tenía en mente y lo compara con la ficha de las bases"
+        className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 disabled:opacity-60 px-3.5 py-2 rounded-lg transition-all">
+        {estado === 'cargando' ? <><Loader2 size={14} className="animate-spin" /> Buscando el modelo…</> : <><Search size={14} /> Producto de referencia</>}
+      </button>
+      {estado === 'error' && <span className="text-[11px] text-red-600 ml-2">{error}</span>}
+      {estado === 'ok' && res && (
+        <div className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Referencia para buscar</p>
+          {res.aviso_copiado && (
+            <p className="flex items-start gap-1.5 mt-1 text-[12px] font-semibold text-amber-800"><AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />Las especificaciones parecen copiadas de este modelo.</p>
+          )}
+          {res.candidatos.length === 0 && <p className="mt-1 text-[12px] text-slate-500">No se encontraron fichas para comparar.</p>}
+          <ul className="mt-1 space-y-2">
+            {res.candidatos.map((c, i) => (
+              <li key={i} className="text-[12.5px] text-slate-700">
+                <span className="font-bold text-slate-900">{[c.marca, c.modelo].filter(Boolean).join(' ') || 'Modelo sin identificar'}</span>
+                <span className="font-black text-violet-700"> · {c.porcentaje}%</span>
+                <span className="text-slate-400"> · {c.tipo_fuente.toLowerCase()}</span>
+                {' · '}<a href={c.url} target="_blank" rel="noopener noreferrer" className="text-violet-600 underline break-all">ver ficha</a>
+                {c.no_cumple_detalle.length > 0 && (
+                  <ul className="ml-4 list-disc text-[11.5px] text-slate-500">
+                    {c.no_cumple_detalle.map((d, k) => <li key={k}>{d.caracteristica} <span className="text-red-600">({d.dato_candidato || 'no cumple'})</span></li>)}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}

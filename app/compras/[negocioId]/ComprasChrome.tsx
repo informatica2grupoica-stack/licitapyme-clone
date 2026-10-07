@@ -33,21 +33,24 @@ import { FracasoCard } from '@/app/negocios/[id]/FracasoCard';
 import { ActividadComprasCard } from '@/app/negocios/[id]/ActividadComprasCard';
 import { GanttComprasCard } from '@/app/negocios/[id]/GanttComprasCard';
 import { TareasComprasCard } from './TareasComprasCard';
+import { Seccion } from './Seccion';
+import { TutorialPaso } from './TutorialPaso';
+import { siguientePaso, type SiguientePaso } from '@/app/lib/compras-siguiente-paso';
 import { useCompras, fmtCLP, fmtFecha, type OrdenCompra } from './ComprasContext';
-import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconUserPlus as UserPlus, IconClock as Clock, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCurrencyDollar as DollarSign, IconFileAlert as FileWarning, IconBuilding as Building2, IconFileText as FileText, IconDeviceFloppy as Save, IconClipboardList as ClipboardList, IconRefresh as RefreshCw, IconBolt as Zap, IconExternalLink as ExternalLink, IconArrowUpRight as ArrowUpRight, IconCalculator as Calculator, IconClipboardCheck as ClipboardCheck, IconPackage as Package, IconTruck as Truck, IconHistory as History, IconGauge as Gauge, IconWallet as Wallet, IconCalendarTime as CalendarTime, IconHourglassHigh as Hourglass, IconMail as Mail, IconPhone as Phone, IconUserCircle as UserCircle } from '@tabler/icons-react';
+import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconUserPlus as UserPlus, IconClock as Clock, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCurrencyDollar as DollarSign, IconFileAlert as FileWarning, IconBuilding as Building2, IconFileText as FileText, IconDeviceFloppy as Save, IconClipboardList as ClipboardList, IconRefresh as RefreshCw, IconBolt as Zap, IconExternalLink as ExternalLink, IconArrowUpRight as ArrowUpRight, IconCalculator as Calculator, IconClipboardCheck as ClipboardCheck, IconPackage as Package, IconTruck as Truck, IconHistory as History, IconGauge as Gauge, IconWallet as Wallet, IconCalendarTime as CalendarTime, IconHourglassHigh as Hourglass, IconMail as Mail, IconPhone as Phone, IconUserCircle as UserCircle, IconCheck as Check, IconArrowRight as ArrowRight, IconTarget as Target } from '@tabler/icons-react';
 
 // Gantt SALIÓ del stepper (pedido explícito, 17-sep-2026: "es aparte de todo ese flujo y es lo
 // primero que se debe ver") — ahora es una tarjeta propia, arriba de todo, no una pestaña más.
 // Documentos entró en su lugar como pestaña (antes era tarjeta fija, ocupaba mucho espacio arriba).
 type Fase = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega' | 'documentos' | 'actividad';
-const FASES: { key: Fase; label: string; icon: typeof ClipboardList; descripcion: string }[] = [
-  { key: 'tareas', label: 'Tareas', icon: ClipboardList, descripcion: 'Lo que se hace al inicio y en todo momento: el checklist de validación y plazos (§5), fijar el reloj de entrega (§15.1) y la modalidad de retiro (§13.2), y las incidencias (§9), que pueden aparecer en cualquier etapa.' },
-  { key: 'costeo', label: 'Costeo y Auditoría', icon: Calculator, descripcion: 'Cobertura por producto (§14), el costeo digital del proyecto y el Auditor de Compras (§8): cotizaciones, homologación, cuadro comparativo y los 4 escenarios de compra.' },
-  { key: 'aprobacion', label: 'Aprobación y SKU', icon: ClipboardCheck, descripcion: 'Creación del SKU propio (§7) y los dos hitos de aprobación (§10): aprobación de la compra y aprobación del margen (piso 20%).' },
-  { key: 'compra', label: 'Compra, Importación y Logística', icon: Package, descripcion: 'Lo administrativo post-aprobación con OBUMA (§11), costo aterrizado si es importación (§12) y los gastos y el costo real del proyecto.' },
-  { key: 'entrega', label: 'Entrega y Cierre', icon: Truck, descripcion: 'Seguimiento del reloj de entrega, prórrogas y multas (§15), acta de entrega (§16), postventa (§17), cierre con resultado final y, si corresponde, el registro de fracaso (§14.6).' },
-  { key: 'documentos', label: 'Documentos', icon: FileText, descripcion: 'Bases y acta de la licitación, más la auditoría automática del agente sobre este negocio.' },
-  { key: 'actividad', label: 'Actividad', icon: History, descripcion: 'Línea de tiempo del proyecto: qué se hizo día a día, desde que se ganó hasta ahora.' },
+const FASES: { key: Fase; label: string; icon: typeof ClipboardList; descripcion: string; secundaria?: boolean }[] = [
+  { key: 'tareas', label: 'Tareas', icon: ClipboardList, descripcion: 'Lo primero: las tareas con su plazo, fijar el plazo de entrega, definir cómo se retira la mercadería y atender cualquier incidencia.' },
+  { key: 'costeo', label: 'Costeo y auditoría', icon: Calculator, descripcion: 'Aquí se cotiza: verifica el costo de cada producto, carga las cotizaciones de los proveedores y compara para elegir la mejor compra.' },
+  { key: 'aprobacion', label: 'Aprobación y SKU', icon: ClipboardCheck, descripcion: 'El jefe de ventas aprueba la compra y el margen (mínimo 20 %). Después se crea el código (SKU) de lo que se va a comprar.' },
+  { key: 'compra', label: 'Compra y logística', icon: Package, descripcion: 'Lo que pasa después de aprobar: órdenes de compra a proveedores, pagos, importación si corresponde y los gastos reales del proyecto.' },
+  { key: 'entrega', label: 'Entrega y cierre', icon: Truck, descripcion: 'Seguimiento del plazo, entrega al cliente, acta firmada, postventa y cierre del proyecto.' },
+  { key: 'documentos', label: 'Documentos', icon: FileText, descripcion: 'Bases y acta de la licitación, más la revisión automática del agente sobre este negocio.', secundaria: true },
+  { key: 'actividad', label: 'Actividad', icon: History, descripcion: 'Línea de tiempo del proyecto: qué se hizo día a día, desde que se ganó hasta ahora.', secundaria: true },
 ];
 
 interface LineaGanada { correlativo: number | null; producto: string | null; descripcion: string | null; cantidad: number | null; unidad: string | null; montoUnitario: number | null }
@@ -207,6 +210,41 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   const oc: OrdenCompra = asignacion.ordenCompra;
   const vencimientoPasado = new Date(asignacion.vencimientoAsignacionAt.replace(' ', 'T')).getTime() < Date.now();
 
+  // "¿Qué hago ahora?": un solo pendiente, el más urgente (lógica en app/lib/compras-siguiente-paso.ts).
+  const paso: SiguientePaso = siguientePaso({
+    asignado: !!asignacion.asignadoA, plazoAsignacionVencido: vencimientoPasado, esJefeDeVentas,
+    ocAceptada: !!oc.aceptadaAt || tareas.some(t => t.catalogoClave === 'aceptar_oc' && t.estado === 'HECHA'),
+    tareas: tareas.map(t => ({ catalogoClave: t.catalogoClave, titulo: t.titulo, estado: t.estado, vencida: t.vencida })),
+    fases: resumenFases ? {
+      tareasVencidas: resumenFases.tareas.vencidas, productosSinCotizacion: resumenFases.costeo.productosSinCotizacion,
+      compuertasPendientes: resumenFases.aprobacion.compuertasPendientes, hitosAdminPendientes: resumenFases.compra.hitosAdminPendientes,
+      incidenciasAbiertas: resumenFases.entrega.incidenciasAbiertas, relojVencido: resumenFases.entrega.relojVencido,
+    } : null,
+  });
+  const irAlPaso = () => {
+    if (paso.fase) {
+      setFaseActiva(paso.fase);
+      setTimeout(() => document.getElementById('compras-flujo')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    } else if (paso.ancla) {
+      document.getElementById(`compras-${paso.ancla}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+  const pendientesN = tareas.filter(t => t.estado !== 'HECHA').length;
+  const hitoPendiente = (clave: string) => tareas.some(t => t.catalogoClave === clave && t.estado !== 'HECHA');
+  // Estado REAL de cada paso (pedido del 17-sep: no quedar en verde si aún hay pendientes).
+  const calcFase = (key: Fase): { badge: number | null; estado: 'alerta' | 'pendiente' | 'ok' | 'neutral' } => {
+    if (key === 'tareas') {
+      const vencidas = resumenFases?.tareas.vencidas ?? 0; const incidencias = resumenFases?.entrega.incidenciasAbiertas ?? 0;
+      return { badge: vencidas || incidencias || pendientesN || null, estado: vencidas > 0 || incidencias > 0 ? 'alerta' : pendientesN > 0 ? 'pendiente' : tareas.length > 0 ? 'ok' : 'neutral' };
+    }
+    if (!resumenFases) return { badge: null, estado: 'neutral' };
+    if (key === 'costeo') return { badge: resumenFases.costeo.productosSinCotizacion || null, estado: resumenFases.costeo.productosSinCotizacion > 0 ? 'pendiente' : 'ok' };
+    if (key === 'aprobacion') return { badge: resumenFases.aprobacion.compuertasPendientes || null, estado: resumenFases.aprobacion.compuertasPendientes > 0 ? 'pendiente' : 'ok' };
+    if (key === 'compra') { const h = resumenFases.compra.hitosAdminPendientes; return { badge: h || null, estado: h == null ? 'neutral' : h > 0 ? 'pendiente' : 'ok' }; }
+    if (key === 'entrega') return { badge: resumenFases.entrega.relojVencido ? 0 : null, estado: resumenFases.entrega.relojVencido ? 'alerta' : 'neutral' };  // sin dato de "entregado": no se marca ✓ por no estar vencido
+    return { badge: null, estado: 'neutral' };
+  };
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -245,7 +283,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
 
       {/* Encargado: chico, una sola línea (pedido explícito, 17-sep-2026: "en encargado debe ser
           pequeño") — antes era una tarjeta grande, ahora es una franja delgada. */}
-      <div className="bg-white rounded-lg border border-zinc-200 px-3 py-2 flex items-center gap-2 flex-wrap text-[12px]">
+      <div id="compras-encargado" className="bg-white rounded-lg border border-zinc-200 px-3 py-2 flex items-center gap-2 flex-wrap text-[12px] scroll-mt-4">
         <span className="text-[10px] font-bold text-zinc-400 uppercase flex-shrink-0">Encargado</span>
         {asignacion.asignadoA && !reasignando ? (
           <p className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
@@ -295,8 +333,29 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
         )}
       </div>
 
-      {/* Gantt, aparte del flujo por pestañas y lo primero que se ve (pedido explícito,
-          17-sep-2026): "es aparte de todo ese flujo y es lo primero que se debe ver". */}
+      {/* SIGUIENTE PASO: lo primero que se lee. Un solo pendiente, con un botón que lleva a donde se hace. */}
+      <div className={`rounded-xl border-2 px-4 py-3.5 flex items-center gap-4 flex-wrap ${
+        paso.tono === 'alerta' ? 'bg-rose-50 border-rose-300' : paso.tono === 'ok' ? 'bg-emerald-50 border-emerald-300' : 'bg-amber-50 border-amber-300'}`}>
+        <span className={`w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 ${
+          paso.tono === 'alerta' ? 'bg-rose-500 text-white' : paso.tono === 'ok' ? 'bg-emerald-500 text-white' : 'bg-amber-400 text-white'}`}>
+          {paso.tono === 'ok' ? <Check size={22} /> : paso.tono === 'alerta' ? <AlertTriangle size={22} /> : <Target size={22} />}
+        </span>
+        <div className="flex-1 min-w-[220px]">
+          <p className={`text-[11px] font-bold uppercase tracking-wide ${paso.tono === 'alerta' ? 'text-rose-700' : paso.tono === 'ok' ? 'text-emerald-700' : 'text-amber-700'}`}>
+            {paso.tono === 'ok' ? 'Todo en orden' : 'Lo siguiente que hay que hacer'}
+          </p>
+          <p className="text-[17px] font-extrabold text-zinc-900 leading-snug">{paso.titulo}</p>
+          <p className="text-[13px] text-zinc-600 mt-0.5">{paso.detalle}</p>
+        </div>
+        <button type="button" onClick={irAlPaso}
+          className={`inline-flex items-center gap-1.5 text-[13.5px] font-bold text-white px-4 py-2.5 rounded-lg transition-colors ${
+            paso.tono === 'alerta' ? 'bg-rose-600 hover:bg-rose-700' : paso.tono === 'ok' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-teal-600 hover:bg-teal-700'}`}>
+          {paso.boton} <ArrowRight size={16} />
+        </button>
+      </div>
+
+      {/* Gantt, aparte del flujo por pestañas (pedido explícito, 17-sep-2026): "es aparte de todo ese
+          flujo y es lo primero que se debe ver". */}
       <GanttComprasCard tareas={tareas} />
 
       {/* Resumen ejecutivo, justo después del Gantt (pedido explícito, 17-sep-2026: "despues el
@@ -486,7 +545,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
 
       {/* Orden de compra del cliente, junto al resumen ejecutivo (pedido explícito, 17-sep-2026:
           "eso metelo a resumen igual") — antes quedaba abajo de todo, separada. */}
-      <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
+      <div id="compras-oc" className="bg-white rounded-xl border border-zinc-200 overflow-hidden scroll-mt-4">
         <div className="flex items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0">
             <p className="text-[11px] font-bold text-zinc-400 uppercase flex items-center gap-1.5">
@@ -620,131 +679,134 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-          <div className="px-3 sm:px-5 pt-4 pb-2 overflow-x-auto">
-            <div className="flex items-center min-w-max">
-              {/* Color por fase = avance REAL de esa fase (pedido explícito, 17-sep-2026: "no me
-                  sirve que queden en verde al avanzar al otro") — antes "pasada" solo miraba si ya
-                  se había hecho clic en una pestaña anterior, así que quedaba verde para siempre
-                  aunque esa fase siguiera con pendientes. Ahora cada pestaña calcula su propio
-                  estado (alerta/pendiente/ok/neutral) a partir de datos reales (resumenFases,
-                  tareas), independiente de cuál esté seleccionada. */}
-              {FASES.map((f, i) => {
-                const Icon = f.icon;
-                const activa = faseActiva === f.key;
-                const esLente = f.key === 'actividad';
-                let badge: number | null = null; let estado: 'alerta' | 'pendiente' | 'ok' | 'neutral' = 'neutral';
-                if (f.key === 'tareas') {
-                  const pendientes = tareas.filter(t => t.estado !== 'HECHA').length;
-                  const vencidas = resumenFases?.tareas.vencidas ?? 0;
-                  // Incidencias (§9) es transversal y vive acá: una abierta es alerta de esta pestaña.
-                  const incidencias = resumenFases?.entrega.incidenciasAbiertas ?? 0;
-                  badge = vencidas || incidencias || pendientes || null;
-                  estado = vencidas > 0 || incidencias > 0 ? 'alerta' : pendientes > 0 ? 'pendiente' : tareas.length > 0 ? 'ok' : 'neutral';
-                } else if (resumenFases) {
-                  if (f.key === 'costeo') {
-                    badge = resumenFases.costeo.productosSinCotizacion || null;
-                    estado = resumenFases.costeo.productosSinCotizacion > 0 ? 'pendiente' : 'ok';
-                  } else if (f.key === 'aprobacion') {
-                    badge = resumenFases.aprobacion.compuertasPendientes || null;
-                    estado = resumenFases.aprobacion.compuertasPendientes > 0 ? 'pendiente' : 'ok';
-                  } else if (f.key === 'compra') {
-                    badge = resumenFases.compra.hitosAdminPendientes || null;
-                    estado = resumenFases.compra.hitosAdminPendientes == null ? 'neutral' : resumenFases.compra.hitosAdminPendientes > 0 ? 'pendiente' : 'ok';
-                  } else if (f.key === 'entrega') {
-                    // Las incidencias ya no viven acá (son transversales, ver la pestaña Tareas).
-                    const alerta = resumenFases.entrega.relojVencido;
-                    badge = alerta ? 0 : null;
-                    estado = alerta ? 'alerta' : 'ok';
-                  }
-                }
-                const ESTADO_STYLE: Record<typeof estado, string> = {
-                  alerta: 'bg-rose-50 border-rose-400 text-rose-600',
-                  pendiente: 'bg-amber-50 border-amber-400 text-amber-600',
-                  ok: 'bg-emerald-50 border-emerald-400 text-emerald-600',
-                  neutral: 'bg-white border-zinc-200 text-zinc-400',
-                };
-                const ESTADO_LINEA: Record<typeof estado, string> = {
-                  alerta: 'bg-rose-300', pendiente: 'bg-amber-300', ok: 'bg-emerald-300', neutral: 'bg-zinc-200',
-                };
+          <div id="compras-flujo" className="px-3 sm:px-5 pt-4 pb-3 flex items-start justify-between gap-3 flex-wrap scroll-mt-4">
+            <div className="overflow-x-auto -mt-2 pt-3 px-2 -mx-2 pb-1">
+              <div className="flex items-start min-w-max">
+                {FASES.filter(f => !f.secundaria).map((f, i) => {
+                  const activa = faseActiva === f.key;
+                  const { badge, estado } = calcFase(f.key);
+                  const ESTADO_STYLE = {
+                    alerta: 'bg-rose-50 border-rose-500 text-rose-600', pendiente: 'bg-amber-50 border-amber-400 text-amber-600',
+                    ok: 'bg-emerald-50 border-emerald-500 text-emerald-600', neutral: 'bg-white border-zinc-300 text-zinc-400',
+                  } as const;
+                  const LINEA = { alerta: 'bg-rose-300', pendiente: 'bg-amber-300', ok: 'bg-emerald-300', neutral: 'bg-zinc-200' } as const;
+                  return (
+                    <div key={f.key} className="flex items-start">
+                      {i > 0 && <div className={`h-0.5 w-6 sm:w-12 mt-5 flex-shrink-0 ${LINEA[estado]}`} />}
+                      <button onClick={() => setFaseActiva(f.key)} aria-current={activa ? 'step' : undefined}
+                        className="group flex flex-col items-center gap-1.5 flex-shrink-0 px-1.5 w-[104px]">
+                        <span className={`relative inline-flex items-center justify-center w-10 h-10 rounded-full border-2 text-[15px] font-bold transition-all ${ESTADO_STYLE[estado]} ${activa ? 'ring-4 ring-teal-200 scale-110' : 'group-hover:border-zinc-500'}`}>
+                          {estado === 'ok' ? <Check size={18} strokeWidth={3} /> : estado === 'alerta' ? '!' : i + 1}
+                          {badge != null && badge > 0 && estado !== 'ok' && (
+                            <span className={`absolute -top-1.5 -right-1.5 text-[10px] font-bold min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center ring-2 ring-white text-white ${estado === 'alerta' ? 'bg-rose-500' : 'bg-amber-400'}`}>{badge}</span>
+                          )}
+                        </span>
+                        <span className={`text-[12.5px] leading-tight text-center ${activa ? 'font-extrabold text-teal-800' : 'font-semibold text-zinc-600 group-hover:text-zinc-900'}`}>{f.label}</span>
+                        <span className={`h-0.5 w-8 rounded-full ${activa ? 'bg-teal-600' : 'bg-transparent'}`} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 pt-1">
+              {FASES.filter(f => f.secundaria).map(f => {
+                const Icon = f.icon; const activa = faseActiva === f.key;
                 return (
-                  <div key={f.key} className="flex items-center">
-                    {i > 0 && !esLente && (
-                      <div className={`h-0.5 w-6 sm:w-10 flex-shrink-0 transition-colors duration-300 ${ESTADO_LINEA[estado]}`} />
-                    )}
-                    {f.key === 'actividad' && <div className="w-px h-8 bg-zinc-200 mx-2 sm:mx-3 flex-shrink-0" />}
-                    <button onClick={() => setFaseActiva(f.key)} title={f.label}
-                      className="group flex flex-col items-center gap-1.5 flex-shrink-0 px-1.5">
-                      <span className={`relative inline-flex items-center justify-center w-9 h-9 border-2 transition-all duration-200 ${
-                        esLente ? 'rounded-lg' : 'rounded-full'
-                      } ${
-                        activa && esLente ? 'bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-600/30 scale-110'
-                        : activa ? 'bg-teal-600 border-teal-600 text-white shadow-md shadow-teal-600/30 scale-110'
-                        : esLente ? 'bg-white border-zinc-200 text-zinc-400 group-hover:border-indigo-300 group-hover:text-indigo-500'
-                        : `${ESTADO_STYLE[estado]} group-hover:border-zinc-400`
-                      }`}>
-                        <Icon size={15} />
-                        {badge != null && (
-                          <span className={`absolute -top-1.5 -right-1.5 text-[9.5px] font-bold min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center ring-2 ring-white ${
-                            estado === 'alerta' ? 'bg-rose-500 text-white' : 'bg-amber-400 text-white'
-                          }`}>
-                            {badge}
-                          </span>
-                        )}
-                      </span>
-                      <span className={`text-[10.5px] font-semibold whitespace-nowrap transition-colors ${
-                        activa && esLente ? 'text-indigo-700' : activa ? 'text-teal-700'
-                        : esLente ? 'text-zinc-400 group-hover:text-indigo-500'
-                        : estado === 'alerta' ? 'text-rose-600' : estado === 'pendiente' ? 'text-amber-600' : estado === 'ok' ? 'text-emerald-600' : 'text-zinc-400 group-hover:text-zinc-600'
-                      }`}>
-                        {f.label}
-                      </span>
-                    </button>
-                  </div>
+                  <button key={f.key} onClick={() => setFaseActiva(f.key)} aria-current={activa ? 'page' : undefined}
+                    className={`inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${activa ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-zinc-200 text-zinc-600 hover:border-indigo-300 hover:text-indigo-700'}`}>
+                    <Icon size={14} /> {f.label}
+                  </button>
                 );
               })}
             </div>
           </div>
-          <p className="text-[11.5px] text-zinc-500 px-4 py-2.5 bg-zinc-50/60 border-y border-zinc-100">
+          <p className="text-[13px] text-zinc-600 px-4 py-3 bg-zinc-50/60 border-y border-zinc-100">
             {FASES.find(f => f.key === faseActiva)?.descripcion}
           </p>
           <div className="p-3 sm:p-4 space-y-3">
+            <TutorialPaso fase={faseActiva} />
             {faseActiva === 'tareas' && (
               <div className="space-y-3">
-                <TareasComprasCard />
-                {/* Lo que la spec pide fijar AL INICIO: el reloj (§15.1, la tarea vence a 1 día hábil de
-                    ganado) y la modalidad de retiro (§13.2, "se define en el primer instante"). Antes
-                    vivían en las pestañas 4 y 5, lejos de la tarea que les corresponde. */}
-                <RelojEntregaCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
-                <ModalidadRetiroCard negocioId={negocioId} puedeOperar={puedeOperar} />
+                <Seccion titulo="Lista de tareas" ayuda="Lo que hay que hacer, cada una con su plazo. Ciérralas a medida que avances." badge={pendientesN ? `${pendientesN} pendiente${pendientesN === 1 ? '' : 's'}` : 'Al día'} tono={(resumenFases?.tareas.vencidas ?? 0) > 0 ? 'alerta' : pendientesN > 0 ? 'pendiente' : 'ok'} defaultAbierta>
+                  <TareasComprasCard />
+                </Seccion>
+                {/* El reloj (§15.1) y la modalidad de retiro (§13.2) se fijan AL INICIO. */}
+                <Seccion titulo="Plazo de entrega (reloj)" ayuda="Desde cuándo corre el plazo y cuántos días quedan. Hay que confirmarlo a mano." badge={hitoPendiente('reloj_entrega') ? 'Sin fijar' : 'Fijado'} tono={hitoPendiente('reloj_entrega') ? 'pendiente' : 'ok'} defaultAbierta={hitoPendiente('reloj_entrega')}>
+                  <RelojEntregaCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
+                </Seccion>
+                <Seccion titulo="Cómo se retira la mercadería" ayuda="Con equipo propio, transporte externo o mixto. Se define al comienzo y el sistema sugiere fleteros.">
+                  <ModalidadRetiroCard negocioId={negocioId} puedeOperar={puedeOperar} />
+                </Seccion>
                 {/* Incidencias (§9): "transversal, no secuencial" — pueden aparecer en cualquier etapa. */}
-                <IncidenciasCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
+                <Seccion titulo="Incidencias" ayuda="Problemas u oportunidades que pueden aparecer en cualquier etapa: sin stock, plazo incompatible, una alternativa más barata." badge={(resumenFases?.entrega.incidenciasAbiertas ?? 0) || null} tono="alerta" defaultAbierta={(resumenFases?.entrega.incidenciasAbiertas ?? 0) > 0}>
+                  <IncidenciasCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
+                </Seccion>
               </div>
             )}
             {faseActiva === 'costeo' && (
               <div className="space-y-3">
-                <ProductosCompraCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
+                <ol className="flex flex-wrap gap-x-5 gap-y-1 text-[13px] text-zinc-600 px-1">
+                  <li><b className="text-teal-700">1</b> Productos a cubrir</li>
+                  <li><b className="text-teal-700">2</b> Cotizaciones: ¿el precio conviene?</li>
+                  <li><b className="text-teal-700">3</b> Fichas técnicas: ¿cumple lo pedido?</li>
+                  <li><b className="text-teal-700">4</b> Verificar el costo</li>
+                </ol>
+                <Seccion titulo="1 · Productos a cubrir" ayuda="Cada producto ganado y cómo va. Todos deben quedar cubiertos para poder entregar." defaultAbierta>
+                  <ProductosCompraCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
+                </Seccion>
+                <Seccion titulo="2 · Cotizaciones: ¿el precio conviene?" ayuda="Sube la cotización de cada proveedor. El sistema compara su PRECIO contra lo que se costeó al ofertar: más barata, igual o más cara, y por cuánto." badge={resumenFases?.costeo.productosSinCotizacion ? `${resumenFases.costeo.productosSinCotizacion} sin cotizar` : null} tono="pendiente" defaultAbierta>
+                  <AuditorComprasCard negocioId={negocioId} puedeOperar={puedeOperar} />
+                </Seccion>
+                <Seccion titulo="3 · Fichas técnicas: ¿cumple lo pedido?" ayuda="Es otra revisión y otro documento: la ficha técnica del producto (no la cotización). Compara lo que dice la ficha contra lo que exige la licitación." badge="Próximamente" tono="neutral">
+                  <div className="text-[13.5px] text-zinc-600 space-y-2 py-1">
+                    <p><b className="text-zinc-900">Todavía no está disponible.</b> Aquí se subirá la ficha técnica de cada producto para compararla requisito por requisito con las bases.</p>
+                    <p>Mientras tanto, una cotización <b>no</b> se usa para juzgar si el producto cumple: solo sirve para el precio. La referencia técnica de cada línea (marca y modelo) la entrega el Auditor.</p>
+                  </div>
+                </Seccion>
                 {/* PROMPT 5: verifica cada línea de la tabla de costeo (respaldo real, producto, unidad, IVA, costos ocultos) y da la posición de precio. */}
-                <AuditorCosteoCard negocioId={negocioId} puedeOperar={puedeOperar} />
-                <AuditorComprasCard negocioId={negocioId} puedeOperar={puedeOperar} />
+                <Seccion titulo="4 · Verificar el costo de cada línea" ayuda="Revisa que cada costo del costeo tenga respaldo real (link o cotización), sea el mismo producto y no esconda costos.">
+                  <AuditorCosteoCard negocioId={negocioId} puedeOperar={puedeOperar} />
+                </Seccion>
               </div>
             )}
             {faseActiva === 'aprobacion' && <AprobacionesCompraCard negocioId={negocioId} puedeOperar={puedeOperar} />}
             {faseActiva === 'compra' && (
               <div className="space-y-3">
-                <CostoRealCard negocioId={negocioId} puedeOperar={puedeOperar} permitirCierre={false} />
-                <ResumenGastosCard negocioId={negocioId} />
-                <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} />
-                <ImportacionCard negocioId={negocioId} puedeOperar={puedeOperar} />
-                <GastosCard negocioId={negocioId} puedeOperar={puedeOperar} />
+                <Seccion titulo="Costo real del proyecto" ayuda="Lo que realmente cuesta cada producto una vez comprado, contra lo costeado." defaultAbierta>
+                  <CostoRealCard negocioId={negocioId} puedeOperar={puedeOperar} permitirCierre={false} />
+                </Seccion>
+                <Seccion titulo="Resumen de gastos" ayuda="Suma de costos y gastos extra del proyecto hasta ahora.">
+                  <ResumenGastosCard negocioId={negocioId} />
+                </Seccion>
+                <Seccion titulo="Pasos administrativos (OBUMA)" ayuda="Órdenes de compra a proveedores, provisión de fondos y facturas de compra. Aquí solo se registra su avance." badge={resumenFases?.compra.hitosAdminPendientes || null} tono="pendiente" defaultAbierta={(resumenFases?.compra.hitosAdminPendientes ?? 0) > 0}>
+                  <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} />
+                </Seccion>
+                <Seccion titulo="Importación y costo aterrizado" ayuda="Solo si el producto viene del extranjero: flete, aduana y costo final puesto en bodega.">
+                  <ImportacionCard negocioId={negocioId} puedeOperar={puedeOperar} />
+                </Seccion>
+                <Seccion titulo="Gastos extra" ayuda="Gastos que no son productos: fletes, puesta en marcha, viáticos, etc.">
+                  <GastosCard negocioId={negocioId} puedeOperar={puedeOperar} />
+                </Seccion>
               </div>
             )}
             {faseActiva === 'entrega' && (
               <div className="space-y-3">
-                <CostoRealCard negocioId={negocioId} puedeOperar={puedeOperar} />
-                <RelojEntregaCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
-                <EntregaCard negocioId={negocioId} puedeOperar={puedeOperar} puedeVerificar={esBodega} />
-                <PostventaCard negocioId={negocioId} puedeOperar={puedeOperar} />
-                <FracasoCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
+                <Seccion titulo="Plazo, prórrogas y multas" ayuda="Cuánto queda para entregar y qué hacer si no se alcanza: pedir prórroga sin multa o, solo con autorización, entregar con multa." badge={resumenFases?.entrega.relojVencido ? 'Vencido' : null} tono="alerta" defaultAbierta={!!resumenFases?.entrega.relojVencido}>
+                  <RelojEntregaCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
+                </Seccion>
+                <Seccion titulo="Entrega al cliente y acta" ayuda="Preparación, despacho y el acta de entrega que firma el cliente. El acta cierra el proyecto." defaultAbierta>
+                  <EntregaCard negocioId={negocioId} puedeOperar={puedeOperar} puedeVerificar={esBodega} />
+                </Seccion>
+                <Seccion titulo="Costo real y cierre" ayuda="Resultado final del proyecto: lo costeado contra lo realmente gastado.">
+                  <CostoRealCard negocioId={negocioId} puedeOperar={puedeOperar} />
+                </Seccion>
+                <Seccion titulo="Postventa y contacto de pagos" ayuda="Garantías, capacitación y los datos de quien paga la factura (deben capturarse mientras hay contacto).">
+                  <PostventaCard negocioId={negocioId} puedeOperar={puedeOperar} />
+                </Seccion>
+                <Seccion titulo="Si el proyecto no se puede entregar" ayuda="Registro de fracaso: lo declara el encargado y el jefe de ventas dictamina la causa real.">
+                  <FracasoCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
+                </Seccion>
               </div>
             )}
             {faseActiva === 'documentos' && (

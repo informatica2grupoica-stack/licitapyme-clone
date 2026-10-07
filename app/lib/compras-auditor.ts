@@ -15,6 +15,7 @@ import { precioClpDeItemIA } from '@/app/lib/compras-precio-homologacion';
 import pool from '@/app/lib/db';
 import { esRutPropio } from '@/app/lib/auditor-compras-datos';
 import { filasDeCotizacion, programarAuditoria } from '@/app/lib/auditor-compras';
+import { adicionalesDeCotizaciones, recalcularPreciosDeCotizacion, type AdicionalFila } from '@/app/lib/compras-adicionales';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
@@ -325,6 +326,8 @@ export async function eliminarCotizacion(negocioId: number, cotizacionId: number
   // Auditor de Compras: las líneas que se apoyaban en esta cotización se re-auditan sin ella.
   const filasAfectadas = await filasDeCotizacion(negocioId, cotizacionId).catch(() => [] as string[]);
   await pool.query(`DELETE FROM compras_cotizacion_item WHERE cotizacion_id = ?`, [cotizacionId]);
+  await pool.query(`DELETE FROM compras_cotizacion_adicional WHERE cotizacion_id = ?`, [cotizacionId]).catch(() => {});
+  await pool.query(`DELETE FROM compras_auditoria_cotizacion WHERE cotizacion_id = ? AND negocio_id = ?`, [cotizacionId, negocioId]);   // los informes de precio de esa cotización no quedan sueltos
   await pool.query(`DELETE FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cotizacionId, negocioId]);
   for (const f of filasAfectadas) programarAuditoria(negocioId, f, { id: actorId, nombre: actorNombre });
 
@@ -360,7 +363,7 @@ export interface CotizacionFila {
   // `iniciarEdicion` en el frontend no tenía de dónde sacarlo y lo dejaba fijo en '' — se perdía
   // literalmente lo que la persona había escrito, cada vez que abría "Editar".
   descripcionLibre: string | null;
-  items: Array<{ productoId: number; precioUnitario: number | null; cumple: CumpleItem; detalleDesviacion: string | null }>;
+  items: Array<{ productoId: number; precioUnitario: number | null; precioBase: number | null; adicionales: AdicionalFila[]; cumple: CumpleItem; detalleDesviacion: string | null }>;
 }
 
 export async function listarCotizaciones(negocioId: number): Promise<CotizacionFila[]> {
@@ -378,10 +381,11 @@ export async function listarCotizaciones(negocioId: number): Promise<CotizacionF
   if (cotizaciones.length === 0) return [];
   const ids = cotizaciones.map(c => c.id);
   const [itemRows] = await pool.query(
-    `SELECT cotizacion_id, producto_id, precio_unitario, cumple, detalle_desviacion
+    `SELECT cotizacion_id, producto_id, precio_unitario, precio_base, cumple, detalle_desviacion
        FROM compras_cotizacion_item WHERE cotizacion_id IN (${ids.map(() => '?').join(',')})`,
     ids,
   ) as any;
+  const adicionales = await adicionalesDeCotizaciones(ids);
   const itemsPorCotiz = new Map<number, any[]>();
   for (const it of itemRows as any[]) {
     const arr = itemsPorCotiz.get(it.cotizacion_id) || []; arr.push(it); itemsPorCotiz.set(it.cotizacion_id, arr);
@@ -404,6 +408,9 @@ export async function listarCotizaciones(negocioId: number): Promise<CotizacionF
     homologadaAt: c.homologada_at, tomadaAt: c.tomada_at,
     items: (itemsPorCotiz.get(c.id) || []).map(it => ({
       productoId: it.producto_id, precioUnitario: it.precio_unitario == null ? null : Number(it.precio_unitario),
+      // precioBase = el producto solo; precioUnitario = producto + adicionales (lo que se compara y se compra).
+      precioBase: it.precio_base == null ? (it.precio_unitario == null ? null : Number(it.precio_unitario)) : Number(it.precio_base),
+      adicionales: adicionales.get(`${c.id}:${it.producto_id}`) || [],
       cumple: it.cumple, detalleDesviacion: it.detalle_desviacion,
     })),
   }));
@@ -437,17 +444,20 @@ export async function asignarItemsCotizacion(
   // producto), esto guardaba NULL y el producto salía "sin cotización" del cuadro comparativo y
   // los escenarios — mismo fix que en registrarCotizacion (itemsManual): sin precio propio, cae al
   // precio_unitario_clp ya calculado de la cotización.
-  const filas = limpios.map(it => [
-    cotizacionId, it.productoId,
-    it.precioUnitario != null && Number.isFinite(it.precioUnitario) ? it.precioUnitario
-      : (cotiz.precio_unitario_clp != null ? Number(cotiz.precio_unitario_clp) : null),
-    it.cumple, it.detalleDesviacion || null,
-  ]);
-  const ph = filas.map(() => '(?,?,?,?,?)').join(',');
+  // El precio que llega es el del PRODUCTO solo (precio_base); los adicionales ya cargados se vuelven a sumar abajo.
+  const filas = limpios.map(it => {
+    const precio = it.precioUnitario != null && Number.isFinite(it.precioUnitario) ? it.precioUnitario
+      : (cotiz.precio_unitario_clp != null ? Number(cotiz.precio_unitario_clp) : null);
+    return [cotizacionId, it.productoId, precio, precio, it.cumple, it.detalleDesviacion || null];
+  });
+  const ph = filas.map(() => '(?,?,?,?,?,?)').join(',');
   await pool.query(
-    `INSERT INTO compras_cotizacion_item (cotizacion_id, producto_id, precio_unitario, cumple, detalle_desviacion) VALUES ${ph}`,
+    `INSERT INTO compras_cotizacion_item (cotizacion_id, producto_id, precio_unitario, precio_base, cumple, detalle_desviacion) VALUES ${ph}`,
     filas.flat(),
   );
+  // Un producto que ya no está en la asignación pierde sus adicionales; los demás recuperan los suyos.
+  await pool.query(`DELETE FROM compras_cotizacion_adicional WHERE cotizacion_id = ? AND producto_id NOT IN (${limpios.map(() => '?').join(',')})`, [cotizacionId, ...limpios.map(i => i.productoId)]).catch(() => {});
+  await recalcularPreciosDeCotizacion(cotizacionId);
   await registrarEvento({
     tipo: 'COMPRAS_COTIZACION_ITEMS_ASIGNADOS', licitacionCodigo: await licitacionDeNegocio(negocioId),
     actorId, actorNombre,
@@ -533,10 +543,10 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
       totalItemsAsignados: itemsValidos,
     });
     await pool.query(
-      `INSERT INTO compras_cotizacion_item (cotizacion_id, producto_id, precio_unitario, cumple, detalle_desviacion)
-       VALUES (?,?,?,?,?)
-       ON DUPLICATE KEY UPDATE precio_unitario = VALUES(precio_unitario), cumple = VALUES(cumple), detalle_desviacion = VALUES(detalle_desviacion)`,
-      [cotizacionId, producto.id, precioClp, it.cumple, it.detalle || null],
+      `INSERT INTO compras_cotizacion_item (cotizacion_id, producto_id, precio_unitario, precio_base, cumple, detalle_desviacion)
+       VALUES (?,?,?,?,?,?)
+       ON DUPLICATE KEY UPDATE precio_unitario = VALUES(precio_unitario), precio_base = VALUES(precio_base), cumple = VALUES(cumple), detalle_desviacion = VALUES(detalle_desviacion)`,
+      [cotizacionId, producto.id, precioClp, precioClp, it.cumple, it.detalle || null],
     );
     escritos++;
     await pool.query(
@@ -546,6 +556,7 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
       [producto.id, parsed.puntosCriticos || null, ahora],
     );
   }
+  await recalcularPreciosDeCotizacion(cotizacionId);   // los adicionales ya cargados se vuelven a sumar al precio base
   await pool.query(`UPDATE compras_cotizacion SET homologada_at = ? WHERE id = ?`, [ahora, cotizacionId]);
   await registrarEvento({
     tipo: 'COMPRAS_AGENTE_HOMOLOGO', licitacionCodigo: await licitacionDeNegocio(cotiz.negocio_id),

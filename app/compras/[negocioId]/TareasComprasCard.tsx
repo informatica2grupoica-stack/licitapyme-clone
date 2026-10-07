@@ -165,7 +165,7 @@ export function TareasComprasCard() {
                         </span>
                       )}
                     </div>
-                    {t.descripcion && <p className="text-[11.5px] text-zinc-500 mt-0.5">{t.descripcion}</p>}
+                    {t.descripcion && <p className="text-[12.5px] text-zinc-500 mt-0.5">{t.descripcion.replace(/\s*\((?:spec\s*)?§[^)]*\)/gi, '')}</p>}
                     <div className="flex items-center gap-3 mt-1 text-[10.5px] text-zinc-400">
                       {t.responsableNombre && <span>{t.responsableNombre}</span>}
                       {t.plazoAt && <span className="flex items-center gap-0.5"><Calendar size={10} /> {fmtFecha(t.plazoAt)}</span>}
