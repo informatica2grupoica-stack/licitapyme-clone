@@ -47,7 +47,7 @@ export function siguientePaso(e: EntradaSiguientePaso): SiguientePaso {
   if (vencidas.length > 0) return { tono: 'alerta', titulo: vencidas.length === 1 ? `Tarea vencida: ${vencidas[0].titulo}` : `${vencidas.length} tareas vencidas`, detalle: vencidas.length === 1 ? 'Pasó su plazo. Ciérrala o regístrala hoy.' : `La más urgente: ${vencidas[0].titulo}.`, fase: 'tareas', boton: 'Ir a las tareas' };
   if (!e.ocAceptada) return { tono: 'pendiente', titulo: 'Falta la orden de compra aceptada', detalle: 'Regístrala o búscala en Mercado Público: de ella depende el plazo de entrega.', ancla: 'oc', boton: 'Ver orden de compra' };
   const reloj = pendiente('reloj_entrega');
-  if (reloj) return { tono: 'pendiente', titulo: 'Fija el plazo de entrega', detalle: 'El reloj corre siempre: confirma desde qué hito parte y cuántos días tienes.', fase: 'tareas', boton: 'Fijar el reloj' };
+  if (reloj) return { tono: 'pendiente', titulo: 'Fija el plazo de entrega', detalle: 'El reloj corre siempre: el sistema ya lo calculó con la OC y el plazo ofertado; solo confírmalo.', fase: 'entrega', boton: 'Confirmar el reloj' };
   const validacion = pendientes.find(t => t.catalogoClave && VALIDACIONES_INICIO.includes(t.catalogoClave));
   if (validacion) return { tono: 'pendiente', titulo: validacion.titulo, detalle: 'Validación de inicio: se hace en paralelo y antes de comprar.', fase: 'tareas', boton: 'Hacerla ahora' };
   if (f && f.productosSinCotizacion > 0) return { tono: 'pendiente', titulo: `Cotiza ${f.productosSinCotizacion === 1 ? '1 producto' : `${f.productosSinCotizacion} productos`}`, detalle: 'Carga cotizaciones en cualquier formato (PDF, foto, WhatsApp, llamada). Lo ideal son tres por producto.', fase: 'costeo', boton: 'Cargar cotizaciones' };

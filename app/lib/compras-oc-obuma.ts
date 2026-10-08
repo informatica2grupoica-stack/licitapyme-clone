@@ -16,7 +16,8 @@ import {
   crearOrdenCompraObuma, listarFormasPago, proveedorPorRut, crearProveedorObuma, buscarCentroCostoPorLicitacion,
   listarComprasOc, listarComprasOcItems, mapaFormasPagoCompleto, type ObumaFormaPago, type DatosCrearProveedorObuma,
 } from '@/app/lib/obuma';
-import { comprasObumaDeLicitacion } from '@/app/lib/obuma-compras';
+import { comprasObumaDeLicitacion, netoDeCompra, type FacturaObuma } from '@/app/lib/obuma-compras';
+import { rutNormalizado } from '@/app/lib/ordenes-compra';
 
 async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
   const [rows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
@@ -37,6 +38,10 @@ export interface ProveedorOrdenCompra {
   // la OC directo en Obuma — "yaCreada" (arriba) no lo veía porque solo mira lo que creó Licitank).
   // Esto busca en las OC REALES de Obuma para este proveedor, no solo en nuestra tabla local.
   posibleDuplicadoObuma: { folio: string | null; referencia: string; fecha: string; total: number } | null;
+  // OC YA REALIZADA directo en Obuma (no la creó Licitank) para este proveedor, con la referencia de
+  // esta licitación — cruzada por RUT contra obuma_compras. Se diferencia de `yaCreada` (la que
+  // emitió Licitank) para mostrarla distinta, pero igual bloquea crear otra.
+  ocRealObuma: { folios: string[]; totalNeto: number; estados: string[]; fecha: string | null } | null;
 }
 
 /** Busca si YA existe una OC real en Obuma para este proveedor que mencione alguno de los productos
@@ -134,7 +139,7 @@ export async function proveedoresParaOrdenCompra(negocioId: number): Promise<Pro
         proveedorDireccion: extra?.direccion ?? null, proveedorComuna: extra?.comuna ?? null,
         proveedorEmail: extra?.email ?? null, proveedorTelefono: extra?.telefono ?? null,
         proveedorGiro: extra?.giro ?? null, proveedorContacto: extra?.contacto ?? null,
-        items: [], subtotal: 0, yaCreada: ocPorProveedor.get(nombre) ?? null, posibleDuplicadoObuma: null,
+        items: [], subtotal: 0, yaCreada: ocPorProveedor.get(nombre) ?? null, posibleDuplicadoObuma: null, ocRealObuma: null,
       });
     }
     const grupo = grupos.get(nombre)!;
@@ -151,7 +156,24 @@ export async function proveedoresParaOrdenCompra(negocioId: number): Promise<Pro
   // creado la OC directo en Obuma y Licitank no se enteró) — solo para grupos que todavía no tienen
   // una OC nuestra Y tienen un proveedor identificado en Obuma; si ya está `yaCreada` no hace falta
   // ni preguntar. En paralelo, son solo llamadas de lectura baratas (comprasOc.list.json).
-  await Promise.all([...grupos.values()].filter(g => !g.yaCreada && g.proveedorId != null).map(async g => {
+  // OC reales ya hechas en Obuma para esta licitación (lectura de base, sin llamar a Obuma). Las
+  // ANULADAS no cuentan. Se cruzan por RUT del proveedor, no por nombre (la razón social cambia).
+  const codigoLic = await licitacionDeNegocio(negocioId);
+  const realesObuma = (codigoLic ? await comprasObumaDeLicitacion(codigoLic).catch(() => []) : []).filter(c => !/anulad/i.test(c.estado || ''));
+  for (const g of grupos.values()) {
+    const rut = rutNormalizado(g.proveedorRut);
+    if (!rut) continue;
+    const delProveedor = realesObuma.filter(c => rutNormalizado(c.proveedorRut) === rut);
+    if (delProveedor.length === 0) continue;
+    g.ocRealObuma = {
+      folios: delProveedor.map(c => c.folio || c.compraOcId),
+      totalNeto: Math.round(delProveedor.reduce((s, c) => s + netoDeCompra(c), 0)),
+      estados: [...new Set(delProveedor.map(c => c.estado || '—'))],
+      fecha: delProveedor.map(c => c.fechaIngreso).filter(Boolean).sort()[0] ?? null,
+    };
+  }
+
+  await Promise.all([...grupos.values()].filter(g => !g.yaCreada && !g.ocRealObuma && g.proveedorId != null).map(async g => {
     const obumaProveedorId = g.proveedorId != null ? fichaCompleta.get(g.proveedorId)?.obumaProveedorId : null;
     if (!obumaProveedorId) return;
     g.posibleDuplicadoObuma = await buscarOcRealSimilar(obumaProveedorId, g.items.map(it => it.descripcion)).catch(() => null);
@@ -215,6 +237,9 @@ export async function crearOrdenCompraParaProveedor(
   const grupo = grupos.find(g => g.proveedorNombre === proveedorNombre);
   if (!grupo) throw new Error('Ese proveedor no tiene ítems en el escenario elegido.');
   if (grupo.yaCreada) throw new Error(`Ya existe una orden de compra para este proveedor en Obuma (folio ${grupo.yaCreada.folio ?? grupo.yaCreada.obumaCompraOcId}).`);
+  if (grupo.ocRealObuma && !opciones.confirmarPeseADuplicado) {
+    throw new Error(`Este proveedor ya tiene OC realizada directo en Obuma para esta licitación (folio ${grupo.ocRealObuma.folios.join(', ')}). No se crea otra; si de verdad es una compra adicional, confirma para continuar igual.`);
+  }
   // Segundo freno (no solo el aviso en pantalla): caso real, 14-sep-2026 — el encargado de compras
   // ya había creado esta misma OC directo en Obuma, y Licitank no se enteraba porque solo miraba su
   // propia tabla. Mismo criterio "avisa, exige confirmación explícita" que el presupuesto/margen —
@@ -408,8 +433,15 @@ function vistaManualError(folio: string, error: string): OrdenCompraVista {
 // gastosDelProyectoPorLicitacion en obuma.ts).
 export interface ResumenGastosCompra {
   ocCreadas: { cantidad: number; totalNeto: number; proveedores: { nombre: string; folio: string | null; total: number; fecha: string }[] };
-  comprasCruzadas: { cantidad: number; total: number };
-  facturas: { cantidad: number; total: number };
+  comprasCruzadas: { cantidad: number; total: number; neto: number };
+  // Las OC reales que YA existen en Obuma para esta licitación (hechas directo, no por Licitank),
+  // con los SKU (código comercial) de sus líneas — para mostrarlas aparte de las que emite Licitank.
+  ocsObuma: { folio: string; proveedor: string | null; estado: string | null; fecha: string | null; neto: number; total: number; skus: string[]; lineas: { producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }[] }[];
+  facturas: {
+    cantidad: number; total: number;
+    detalle: { dteId: string; folio: string; proveedor: string | null; total: number | null; fecha: string | null; xmlUrl: string | null; ocFolio: string | null }[];
+    descartadas: { dteId: string; folio: string; proveedor: string | null; total: number | null; fecha: string | null; xmlUrl: string | null; motivo: string }[];
+  };
   montoCosteado: number | null;
   variacionPct: number | null; // (gastado real - costeado) / costeado, positivo = gastamos más de lo presupuestado
 }
@@ -424,20 +456,66 @@ export async function resumenGastosCompra(negocioId: number, montoCosteado: numb
   const totalOcCreadas = ocCreadas.reduce((s, o) => s + o.total, 0);
 
   const codigo = await licitacionDeNegocio(negocioId);
-  const cruzadas = codigo ? await comprasObumaDeLicitacion(codigo) : [];
+  // Una OC ANULADA no es gasto (caso 759-21-LE26: WINPY 26 por $6,9M inflaba el total).
+  const cruzadas = (codigo ? await comprasObumaDeLicitacion(codigo) : []).filter(c => !/anulad/i.test(c.estado || ''));
   const totalCruzadas = cruzadas.reduce((s, c) => s + (c.total || 0), 0);
-  const facturas = cruzadas.flatMap(c => c.facturas);
+  const netoCruzadas = cruzadas.reduce((s, c) => s + netoDeCompra(c), 0);
+
+  // Una misma factura puede colgar de varias compras cruzadas (misma OC repetida en Obuma): se cuenta UNA vez.
+  // Además, dos filtros contra datos mal enlazados en Obuma (campo "facturada" de la OC, a mano):
+  //  · el emisor de la factura debe ser el proveedor de ESA OC (Linkshen colgaba de la OC de Impulzo);
+  //  · misma OC + mismo emisor + mismo monto con otro folio = posible factura duplicada (Ricardo Rodríguez).
+  // Lo descartado no suma al gasto, pero queda a la vista con su motivo para que alguien lo revise.
+  const vistas = new Set<string>();
+  const facturas: FacturaObuma[] = [];
+  const ocDeFactura = new Map<string, string>();
+  const descartadas: { dteId: string; folio: string; proveedor: string | null; total: number | null; fecha: string | null; xmlUrl: string | null; motivo: string }[] = [];
+  for (const c of cruzadas) {
+    const rutOc = rutNormalizado(c.proveedorRut);
+    for (const f of c.facturas) {
+      const k = String(f.dteId || `${f.tipoDcto}#${f.folioDte}`);
+      if (vistas.has(k)) continue;
+      vistas.add(k);
+      const descartar = (motivo: string) => descartadas.push({ dteId: f.dteId, folio: f.folioDte, proveedor: f.proveedorRazonSocial, total: f.total, fecha: f.fecha, xmlUrl: f.s3Link, motivo });
+      const rutFactura = rutNormalizado(f.proveedorRut);
+      if (rutOc && rutFactura && rutOc !== rutFactura) {
+        descartar(`El emisor no es el proveedor de la OC ${c.folio || ''} (${c.proveedorRazonSocial || 'otro'}): factura mal enlazada en Obuma.`);
+        continue;
+      }
+      const repetida = facturas.find(o => o.proveedorRut === f.proveedorRut && o.total === f.total && c.facturas.some(x => x.dteId === o.dteId));
+      if (repetida) {
+        descartar(`Posible duplicada: mismo proveedor, OC ${c.folio || ''} y monto que el folio ${repetida.folioDte}.`);
+        continue;
+      }
+      facturas.push(f);
+      ocDeFactura.set(k, c.folio || c.compraOcId);
+    }
+  }
   const totalFacturas = facturas.reduce((s, f) => s + (f.total || 0), 0);
 
-  const gastadoReal = totalOcCreadas || totalCruzadas || null;
-  const variacionPct = montoCosteado && montoCosteado > 0 && gastadoReal != null
-    ? Math.round(((gastadoReal - montoCosteado) / montoCosteado) * 1000) / 10
+  // Costeado es NETO: se compara contra neto (antes se mezclaba el total con IVA de las compras).
+  const gastadoRealNeto = totalOcCreadas || netoCruzadas || null;
+  const variacionPct = montoCosteado && montoCosteado > 0 && gastadoRealNeto != null
+    ? Math.round(((gastadoRealNeto - montoCosteado) / montoCosteado) * 1000) / 10
     : null;
 
   return {
     ocCreadas: { cantidad: ocCreadas.length, totalNeto: totalOcCreadas, proveedores: ocCreadas },
-    comprasCruzadas: { cantidad: cruzadas.length, total: totalCruzadas },
-    facturas: { cantidad: facturas.length, total: totalFacturas },
+    comprasCruzadas: { cantidad: cruzadas.length, total: totalCruzadas, neto: Math.round(netoCruzadas) },
+    ocsObuma: cruzadas.map(c => ({
+      folio: c.folio || c.compraOcId, proveedor: c.proveedorRazonSocial, estado: c.estado, fecha: c.fechaIngreso,
+      neto: netoDeCompra(c), total: Math.round(c.total || 0),
+      skus: [...new Set(c.items.map(i => i.codigoComercial).filter((x): x is string => !!x))],
+      lineas: c.items.map(i => ({
+        producto: i.descripcion.replace(/\s+/g, ' ').trim(), sku: i.codigoComercial || null,
+        cantidad: i.cantidad, precio: i.precio, subtotal: i.subtotal,
+      })),
+    })),
+    facturas: {
+      cantidad: facturas.length, total: totalFacturas,
+      detalle: facturas.map(f => ({ dteId: f.dteId, folio: f.folioDte, proveedor: f.proveedorRazonSocial, total: f.total, fecha: f.fecha, xmlUrl: f.s3Link, ocFolio: ocDeFactura.get(String(f.dteId || `${f.tipoDcto}#${f.folioDte}`)) ?? null })),
+      descartadas,
+    },
     montoCosteado, variacionPct,
   };
 }

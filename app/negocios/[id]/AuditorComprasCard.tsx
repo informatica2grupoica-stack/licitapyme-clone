@@ -17,9 +17,10 @@ import { compararPrecioConCosteo } from '@/app/lib/compras-precio-vs-costeo';
 import { CotizacionesMasivas } from './CotizacionesMasivas';
 import { ListaCotizaciones } from './ListaCotizaciones';
 import { ArmarCompra, type Comb, type Recomendada, type EvaluacionCompra } from './ArmarCompra';
+import { DESPACHO_OPCIONES, condicionesPara, condicionDesdeLegacy, aplicarDespacho } from '@/app/lib/compras-despacho';
 import { IconGavel as Gavel, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconSparkles as Sparkles, IconTrendingDown as TrendingDown, IconTruck as Truck, IconBolt as Zap, IconScale as Scale, IconCurrencyDollar as DollarSign, IconCircleCheck as CheckCircle2, IconPaperclip as Paperclip, IconListCheck as ListChecks, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconLink as Link2, IconShieldCheck as ShieldCheck, IconPencil as Pencil, IconTrash as Trash2, IconRobot as Bot, IconEye as Eye } from '@tabler/icons-react';
 
-type Origen = 'pdf' | 'imagen' | 'whatsapp' | 'texto' | 'correo' | 'llamada';
+type Origen = 'pdf' | 'imagen' | 'whatsapp' | 'texto' | 'correo' | 'llamada' | 'directa';
 type Cumple = 'CUMPLE' | 'MEJORA' | 'INFERIOR_NEGOCIABLE' | 'INFERIOR_INSALVABLE' | 'NO_ES_EL_PRODUCTO';
 type TipoEscenario = 'MAS_RAPIDO' | 'MINIMO_PRECIO' | 'MINIMOS_VIAJES' | 'EQUILIBRADO';
 
@@ -28,7 +29,7 @@ interface Cotizacion {
   origen: Origen; descripcionLibre: string | null; precioUnitario: number | null; precioTotal: number | null;
   precioUnitarioBruto: number | null; descuentoPct: number | null; vigenciaAt?: string | null;
   moneda: string; tipoCambioUsado: number | null; precioUnitarioClp: number | null;
-  plazoEntregaTexto: string | null; incluyeFlete: boolean | null; fleteMonto: number | null; homologadaAt: string | null; archivoUrl: string | null;
+  plazoEntregaTexto: string | null; incluyeFlete: boolean | null; fleteMonto: number | null; despachoModalidad?: string | null; fleteCondicion?: string | null; homologadaAt: string | null; archivoUrl: string | null;
   items: Array<{ productoId: number; precioUnitario: number | null; precioBase: number | null; adicionales: Array<{ id: number; concepto: string; cantidad: number; precioUnitario: number }>; cumple: Cumple; detalleDesviacion: string | null }>;
 }
 interface Producto { id: number; descripcion: string; subestado: string; cantidad?: number | null }
@@ -48,7 +49,7 @@ interface Escenario {
   fleteSinConfirmar: boolean;
 }
 
-const ORIGEN_LABEL: Record<Origen, string> = { pdf: 'PDF', imagen: 'Imagen', whatsapp: 'WhatsApp', texto: 'Texto', correo: 'Correo', llamada: 'Llamada' };
+const ORIGEN_LABEL: Record<Origen, string> = { pdf: 'PDF', imagen: 'Imagen', whatsapp: 'WhatsApp', texto: 'Texto', correo: 'Correo', llamada: 'Llamada', directa: 'Compra directa' };
 // Monedas que el backend sabe convertir a CLP (ver app/lib/tipo-cambio.ts) — agregar acá una moneda
 // nueva sin fuente de tipo de cambio la dejaría "seleccionable pero sin convertir" en silencio.
 const MONEDAS_SOPORTADAS = ['CLP', 'USD', 'EUR'];
@@ -93,7 +94,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   >({ estado: 'idle' });
   const [form, setForm] = useState({
     proveedorNombre: '', proveedorRut: '', origen: 'texto' as Origen, descripcionLibre: '',
-    precioUnitario: '', descuentoPct: '', moneda: 'CLP', plazoEntregaTexto: '', incluyeFlete: '' as '' | 'true' | 'false', fleteMonto: '', vigenciaAt: '', ivaIncluido: false,
+    precioUnitario: '', descuentoPct: '', moneda: 'CLP', plazoEntregaTexto: '', incluyeFlete: '' as '' | 'true' | 'false', fleteMonto: '', despacho: '', condicion: '', vigenciaAt: '', ivaIncluido: false,
   });
   // Pedido explícito del usuario (11-sep-2026): esta pantalla es para REGISTRAR cotizaciones, no
   // para administrar el catálogo de proveedores (eso vive en /compras/proveedores, aparte). Se
@@ -151,6 +152,19 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   const [compra, setCompra] = useState<Record<number, number>>({});
   const [compraIniciada, setCompraIniciada] = useState(false);
   const [evaluacion, setEvaluacion] = useState<EvaluacionCompra | null>(null);
+  // Compra directa = decisión ya tomada: su proveedor queda elegido en «Tu compra» sin que haya que volver a marcarlo. Se aplica UNA vez
+  // por cotización (si después se quita a mano, no se vuelve a poner).
+  const [directasAplicadas, setDirectasAplicadas] = useState<number[]>([]);
+  useEffect(() => {
+    const nuevas = cotizaciones.filter(c => c.origen === 'directa' && !directasAplicadas.includes(c.id));
+    if (!nuevas.length) return;
+    setCompra(prev => {
+      const n = { ...prev };
+      for (const c of nuevas) for (const it of c.items) if (n[it.productoId] == null) n[it.productoId] = c.id;
+      return n;
+    });
+    setDirectasAplicadas(a => [...a, ...nuevas.map(c => c.id)]);
+  }, [cotizaciones, directasAplicadas]);
   const [evaluando, setEvaluando] = useState(false);
 
   const cargar = useCallback(async () => {
@@ -306,7 +320,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           precioUnitario: parsearMontoCL(form.precioUnitario),
           descuentoPct: parsearMontoCL(form.descuentoPct),
           incluyeFlete: form.incluyeFlete ? form.incluyeFlete === 'true' : null,
-          fleteMonto: parsearMontoCL(form.fleteMonto),
+          fleteMonto: parsearMontoCL(form.fleteMonto), despachoModalidad: form.despacho || null, fleteCondicion: form.condicion || null,
           plazoEntregaTexto: form.plazoEntregaTexto.trim() || null,
         }),
       });
@@ -367,7 +381,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           moneda: form.moneda,
           plazoEntregaTexto: form.plazoEntregaTexto.trim() || null,
           incluyeFlete: form.incluyeFlete ? form.incluyeFlete === 'true' : null,
-          fleteMonto: parsearMontoCL(form.fleteMonto),
+          fleteMonto: parsearMontoCL(form.fleteMonto), despachoModalidad: form.despacho || null, fleteCondicion: form.condicion || null,
           vigenciaAt: form.vigenciaAt || null,
         }),
       });
@@ -385,7 +399,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   };
 
   const cancelarFormulario = () => {
-    setForm({ proveedorNombre: '', proveedorRut: '', origen: 'texto', descripcionLibre: '', precioUnitario: '', descuentoPct: '', moneda: 'CLP', plazoEntregaTexto: '', incluyeFlete: '', fleteMonto: '', vigenciaAt: '', ivaIncluido: false });
+    setForm({ proveedorNombre: '', proveedorRut: '', origen: 'texto', descripcionLibre: '', precioUnitario: '', descuentoPct: '', moneda: 'CLP', plazoEntregaTexto: '', incluyeFlete: '', fleteMonto: '', despacho: '', condicion: '', vigenciaAt: '', ivaIncluido: false });
     setHistoricoProveedor({ estado: 'idle' });
     setArchivo(null);
     setArchivoExtraido({ estado: 'idle' });
@@ -407,6 +421,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
       moneda: c.moneda, plazoEntregaTexto: c.plazoEntregaTexto || '',
       incluyeFlete: c.incluyeFlete == null ? '' : (c.incluyeFlete ? 'true' : 'false'),
       fleteMonto: c.fleteMonto != null ? String(c.fleteMonto) : '',
+      despacho: c.despachoModalidad ?? '', condicion: c.fleteCondicion ?? '',
       vigenciaAt: c.vigenciaAt ?? '', ivaIncluido: false,
     });
     setEditandoId(c.id);
@@ -472,7 +487,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
             moneda: form.moneda,
             plazoEntregaTexto: form.plazoEntregaTexto.trim() || null,
             incluyeFlete: form.incluyeFlete ? form.incluyeFlete === 'true' : null,
-            fleteMonto: parsearMontoCL(form.fleteMonto),
+            fleteMonto: parsearMontoCL(form.fleteMonto), despachoModalidad: form.despacho || null, fleteCondicion: form.condicion || null,
             vigenciaAt: form.vigenciaAt || null, ivaIncluido: form.ivaIncluido || undefined,
             archivoUrl: archivoExtraido.url, archivoNombre: archivoExtraido.nombre,
             items: items.length > 0 ? items : undefined,
@@ -491,6 +506,8 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
         if (form.plazoEntregaTexto.trim()) fd.set('plazoEntregaTexto', form.plazoEntregaTexto.trim());
         if (form.incluyeFlete) fd.set('incluyeFlete', form.incluyeFlete);
         if (form.fleteMonto) fd.set('fleteMonto', form.fleteMonto);
+        if (form.despacho) fd.set('despachoModalidad', form.despacho);
+        if (form.condicion) fd.set('fleteCondicion', form.condicion);
         if (form.ivaIncluido) fd.set('ivaIncluido', 'true');
         if (form.vigenciaAt) fd.set('vigenciaAt', form.vigenciaAt);
         if (items.length > 0) fd.set('items', JSON.stringify(items));
@@ -505,7 +522,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
             moneda: form.moneda,
             plazoEntregaTexto: form.plazoEntregaTexto.trim() || null,
             incluyeFlete: form.incluyeFlete ? form.incluyeFlete === 'true' : null,
-            fleteMonto: parsearMontoCL(form.fleteMonto),
+            fleteMonto: parsearMontoCL(form.fleteMonto), despachoModalidad: form.despacho || null, fleteCondicion: form.condicion || null,
             vigenciaAt: form.vigenciaAt || null, ivaIncluido: form.ivaIncluido || undefined,
             items: items.length > 0 ? items : undefined,
           }),
@@ -760,34 +777,39 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
                 opciones que describen la situación física tal cual, sin jerga: quién despacha, y
                 si el retiro propio tiene costo o no. Por debajo se sigue guardando lo mismo
                 (incluyeFlete + fleteMonto), nada cambia en la base de datos ni en los escenarios. */}
-            <div className="grid grid-cols-2 gap-2 items-center">
-              <Select
-                value={form.incluyeFlete === 'true' ? 'proveedor' : form.incluyeFlete === 'false' ? (form.fleteMonto.trim() === '0' ? 'retiro_gratis' : 'retiro_costo') : ''}
-                onChange={v => setForm(f => {
-                  if (v === 'proveedor') return { ...f, incluyeFlete: 'true', fleteMonto: '' };
-                  if (v === 'retiro_gratis') return { ...f, incluyeFlete: 'false', fleteMonto: '0' };
-                  return { ...f, incluyeFlete: 'false', fleteMonto: f.fleteMonto.trim() === '0' ? '' : f.fleteMonto };
-                })}
-                placeholder="¿Quién despacha?" minWidth={220}
-                options={[
-                  { value: 'proveedor', label: 'El proveedor lo entrega (incluido en su precio)' },
-                  { value: 'retiro_gratis', label: 'Lo retiramos nosotros, sin costo' },
-                  { value: 'retiro_costo', label: 'Lo retiramos nosotros, el proveedor cobra flete aparte' },
-                ]} />
-              <label className="text-[11px] font-semibold text-zinc-500">
-                Vigente hasta (opcional)
-                <input type="date" value={form.vigenciaAt} onChange={e => setForm(f => ({ ...f, vigenciaAt: e.target.value }))}
-                  className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-              </label>
-            </div>
-            {form.incluyeFlete === 'false' && form.fleteMonto.trim() !== '0' && (
-              <input inputMode="numeric" value={form.fleteMonto} onChange={e => setForm(f => ({ ...f, fleteMonto: e.target.value }))}
-                placeholder="Monto del flete que cobra el proveedor por el retiro"
-                className="w-full text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-            )}
-            {form.incluyeFlete === 'false' && form.fleteMonto.trim() === '' && (
-              <p className="text-[10.5px] text-amber-600">Si todavía no sabés cuánto cobra, dejalo vacío — el escenario va a avisar "flete sin confirmar" en vez de inventar un número.</p>
-            )}
+            {(() => {
+              // Dos preguntas distintas: quién lleva la mercadería y cuánto cuesta el flete (migration-141).
+              // Por debajo se sigue guardando incluyeFlete + fleteMonto (lo que lee el motor de escenarios).
+              const condEf = form.condicion || condicionDesdeLegacy(form.incluyeFlete === '' ? null : form.incluyeFlete === 'true', form.fleteMonto.trim() === '' ? null : parsearMontoCL(form.fleteMonto));
+              const aplicar = (despacho: string, condicion: string, montoTxt: string) => {
+                const r = aplicarDespacho(despacho, condicion, parsearMontoCL(montoTxt));
+                setForm(f => ({
+                  ...f, despacho, condicion,
+                  incluyeFlete: r.incluyeFlete == null ? '' : (r.incluyeFlete ? 'true' : 'false'),
+                  fleteMonto: condicion === 'APARTE' ? montoTxt : (r.fleteMonto != null ? String(r.fleteMonto) : ''),
+                }));
+              };
+              return (
+                <>
+                  <div className="grid grid-cols-2 gap-2 items-center">
+                    <Select value={form.despacho} placeholder="¿Quién lleva la mercadería?" minWidth={220}
+                      onChange={v => aplicar(v, condEf === 'INCLUIDO' && v !== 'PROVEEDOR' ? '' : condEf, form.fleteMonto)}
+                      options={DESPACHO_OPCIONES} />
+                    <Select value={condEf} placeholder="¿Cuánto cuesta el flete?" minWidth={220}
+                      onChange={v => aplicar(form.despacho, v, form.fleteMonto)}
+                      options={condicionesPara(form.despacho)} />
+                  </div>
+                  {condEf === 'APARTE' && (
+                    <input inputMode="numeric" value={form.fleteMonto} onChange={e => aplicar(form.despacho, 'APARTE', e.target.value)}
+                      placeholder="Monto neto del flete (uno por cotización, aparte del precio)"
+                      className="w-full text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+                  )}
+                  {(condEf === 'POR_CONFIRMAR' || (condEf === 'APARTE' && form.fleteMonto.trim() === '')) && (
+                    <p className="text-[10.5px] text-amber-600">Si todavía no sabés cuánto cobran, dejalo así — el escenario va a avisar «flete sin confirmar» en vez de inventar un número.</p>
+                  )}
+                </>
+              );
+            })()}
             {/* Agente de documentos (pedido explícito, 14-sep-2026) — lee bases/anexos/acta del
                 proyecto y cruza contra lo que se está tipeando ANTES de guardar. Manual (no se
                 dispara solo): cada revisión tiene costo real de IA. */}

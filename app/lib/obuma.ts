@@ -637,7 +637,17 @@ export async function centrosDeCostoCompleto(forzar = false): Promise<ObumaCentr
 
 export async function buscarCentroCostoPorLicitacion(licitacionCodigo: string): Promise<{ id: string; nombre: string; relProyectoId: string | null } | null> {
   const todos = await centrosDeCostoCompleto();
-  const activos = todos.filter(c => c.activo && c.nombre.includes(licitacionCodigo));
+  let activos = todos.filter(c => c.activo && c.nombre.includes(licitacionCodigo));
+  if (activos.length === 0) {
+    // El código de la licitación no siempre va en el NOMBRE del centro de costo (caso 759-21-LE26:
+    // centro "ADQUISICION DE EQUIPOS GENERALES-TV-SONIDO-DATA", con el código solo en la Referencia del
+    // Proyecto). El vínculo real es Proyecto (Referencia) → `rel_proyecto_id` de sus centros de costo.
+    const esc = licitacionCodigo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`(?<![0-9-])${esc}(?![0-9A-Za-z-])`, 'i');
+    const { datos } = await proyectosExtCompleto().catch(() => ({ datos: [] as ObumaProyectoExt[] }));
+    const ids = new Set(datos.filter(p => re.test(p.proyecto_referencia || '') || re.test(p.proyecto_nombre || '')).map(p => p.proyecto_id));
+    activos = todos.filter(c => c.activo && c.relProyectoId && ids.has(c.relProyectoId));
+  }
   if (activos.length === 0) return null;
   // Si hay más de un centro de costo con el mismo código de licitación (pasa con sub-proyectos,
   // ver "PROY-26 - LOS ANGELES ID 2411-18-LE24 MINIEXCAVADORA"), se prefiere el más reciente
@@ -657,7 +667,10 @@ export async function buscarCentroCostoPorLicitacion(licitacionCodigo: string): 
 export interface GastosProyectoObuma {
   centroCostoId: string; centroCostoNombre: string; relProyectoId: string | null;
   centrosDeCostoDelProyecto: { id: string; nombre: string }[];
+  /** Total CON IVA de las OC vigentes (sin anuladas). */
   totalOc: number; cantidadOc: number;
+  /** Mismo total sin IVA (neto = total / 1,19). */
+  totalOcNeto: number; cantidadAnuladas: number;
 }
 export async function gastosDelProyectoPorLicitacion(licitacionCodigo: string): Promise<GastosProyectoObuma | null> {
   const centro = await buscarCentroCostoPorLicitacion(licitacionCodigo);
@@ -673,12 +686,17 @@ export async function gastosDelProyectoPorLicitacion(licitacionCodigo: string): 
   const idsSet = new Set(idsCentroCosto);
 
   const todasLasOc = await comprasOcCompleto();
-  const delProyecto = todasLasOc.filter(oc => idsSet.has(String(oc.compra_oc_centro_costo)));
+  const delCentro = todasLasOc.filter(oc => idsSet.has(String(oc.compra_oc_centro_costo)));
+  // Una OC ANULADA no es gasto (en el 759-21-LE26 una de $6,9M inflaba el total).
+  const delProyecto = delCentro.filter(oc => !/anulad/i.test(String(oc.compra_oc_estado || '')));
   const totalOc = delProyecto.reduce((acc, oc) => acc + (Number(oc.compra_oc_total) || 0), 0);
 
   return {
     centroCostoId: centro.id, centroCostoNombre: centro.nombre, relProyectoId: centro.relProyectoId,
     centrosDeCostoDelProyecto: hermanos, totalOc, cantidadOc: delProyecto.length,
+    // total − IVA (no total/1,19): las compras exentas (garantías) no llevan IVA.
+    totalOcNeto: Math.round(delProyecto.reduce((acc, oc) => acc + (Number(oc.compra_oc_total) || 0) - (Number(oc.compra_oc_iva) || 0), 0)),
+    cantidadAnuladas: delCentro.length - delProyecto.length,
   };
 }
 

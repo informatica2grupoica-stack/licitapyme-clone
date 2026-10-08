@@ -31,6 +31,7 @@ const ACCION: Record<Accion, { txt: string; cls: string }> = {
 };
 interface Opcion { opcion: string; origen: 'asistente' | 'auditor'; costo_bodega: number | null; neto_unitario: number | null; motivo_sin_normalizar: string | null; stock?: string; tipo_respaldo?: string; url?: string; despacho?: string }
 interface LineaPanel {
+  desactualizada?: boolean;
   linea: { id: string; item: number; lineaReal?: number | null; detalle: string; unidad: string; sku: string; cantidad: number | null; costoRegistradoNeto: number | null; links: string[]; esGastoExtra: boolean; grupo: string };
   guardada: null | {
     auditadoAt: string; modeloIA: string; pasada: string; cambiosVsAnterior?: string[];
@@ -58,7 +59,7 @@ interface Panel {
   hayCostea: boolean; migracionAplicada: boolean; lineas: LineaPanel[]; posicion: Posicion | null;
   margen: { margenBase: number | null; margenFinal: number | null; caidaPuntos: number | null } | null;
   mensajesProveedor: Array<{ proveedor: string; mensaje: string; lineas: number[] }>;
-  resumen: { total: number; verificadas: number; conAlertas: number; bloqueadas: number; sinAuditar: number; pasaAnexosOk: boolean };
+  resumen: { total: number; verificadas: number; conAlertas: number; bloqueadas: number; sinAuditar: number; pasaAnexosOk: boolean; desactualizadas?: number };
   pasadaFinal: null | { at: string; pasa: boolean; bloqueadas: number; cambios: Array<{ item: number; detalle: string; cambios: string[] }> };
   lote: null | { tipo: 'todo' | 'final'; total: number; hechas: number; error: string | null };
   preparacion: Preparacion | null; programadas: string[];
@@ -137,8 +138,8 @@ export function AuditorCosteoCard({ negocioId, puedeOperar }: { negocioId: numbe
               <button onClick={() => accion({ accion: 'auditar_todo' }, 'todo', 'Auditando todas las líneas…')} disabled={!!ocupado || enLote}
                 className="px-3 py-1.5 text-[11.5px] font-semibold rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50">Auditar todas las líneas</button>
               <button onClick={() => accion({ accion: 'pasada_final' }, 'final', 'Pasada final en curso…')} disabled={!!ocupado || enLote}
-                title="Vuelve a abrir todos los links, toma capturas nuevas y compara con la auditoría anterior. La hace el sistema antes de pasar a ANEXOS OK."
-                className="px-3 py-1.5 text-[11.5px] font-semibold rounded-lg border border-teal-300 text-teal-800 hover:bg-teal-50 disabled:opacity-50">Pasada final (antes de ANEXOS OK)</button>
+                title="Vuelve a abrir todos los links, toma capturas nuevas y compara con la auditoría anterior. Úsala antes de pedir la aprobación de la compra."
+                className="px-3 py-1.5 text-[11.5px] font-semibold rounded-lg border border-teal-300 text-teal-800 hover:bg-teal-50 disabled:opacity-50">Pasada final</button>
             </div>
           )}
         </div>
@@ -154,8 +155,16 @@ export function AuditorCosteoCard({ negocioId, puedeOperar }: { negocioId: numbe
           <Chip cls="bg-rose-50 text-rose-700 border-rose-200">{r.bloqueadas} bloqueada(s)</Chip>
           <Chip cls="bg-zinc-50 text-zinc-600 border-zinc-200">{r.sinAuditar} sin auditar</Chip>
           {panel.margen && <Chip cls="bg-zinc-50 text-zinc-700 border-zinc-200">Margen del proyecto: {panel.margen.margenBase ?? '—'}% costeado → {panel.margen.margenFinal ?? '—'}% con costos auditados{panel.margen.caidaPuntos ? ` (−${panel.margen.caidaPuntos} pts)` : ''}</Chip>}
-          <span className={`ml-auto font-bold ${r.pasaAnexosOk ? 'text-emerald-700' : 'text-rose-600'}`}>{r.pasaAnexosOk ? '✔ Puede pasar a ANEXOS OK' : '🚫 Bloqueado para ANEXOS OK'}</span>
+          <span className={`ml-auto font-bold ${r.pasaAnexosOk ? 'text-emerald-700' : 'text-rose-600'}`}>{r.pasaAnexosOk ? '✔ Sin bloqueos pendientes' : `🚫 ${r.bloqueadas} línea(s) con bloqueos sin resolver`}</span>
         </div>
+        {(r.desactualizadas ?? 0) > 0 && !enLote && (
+          <div className="px-4 py-2.5 border-t border-amber-200 bg-amber-50 text-[12px] text-amber-900 flex flex-wrap items-center gap-2" data-testid="auditoria-desactualizada">
+            <AlertTriangle size={14} className="flex-shrink-0" />
+            <span className="flex-1 min-w-[220px]">Cambiaron cotizaciones después de auditar en {r.desactualizadas} línea(s): los veredictos de abajo son de antes y pueden no valer. Vuelve a auditar para ver el estado real.</span>
+            {puedeOperar && <button onClick={() => accion({ accion: 'auditar_todo' }, 'todo', 'Auditando todas las líneas…')} disabled={!!ocupado}
+              className="px-3 py-1 text-[11.5px] font-semibold rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50">Volver a auditar todo</button>}
+          </div>
+        )}
         {panel.pasadaFinal && (
           <div className="px-4 py-2.5 border-t border-teal-100 text-[11.5px] text-zinc-600">
             <p className="font-semibold text-zinc-700">Última pasada final: {panel.pasadaFinal.at.slice(0, 16)} — {panel.pasadaFinal.pasa ? 'pasa' : `${panel.pasadaFinal.bloqueadas} línea(s) bloqueada(s)`}</p>
@@ -193,6 +202,7 @@ export function AuditorCosteoCard({ negocioId, puedeOperar }: { negocioId: numbe
                 </span>
                 {lp.auditando ? <span className="flex items-center gap-1 text-[11px] text-teal-700"><Loader2 size={12} className="animate-spin" /> Auditando…</span>
                   : panel.programadas.includes(lp.linea.id) ? <span className="flex items-center gap-1 text-[11px] text-teal-700"><Loader2 size={12} className="animate-spin" /> Cambió algo: se re-audita sola…</span>
+                  : v && lp.desactualizada ? <span title="Se cargó o cambió una cotización de esta línea después de la última auditoría: este veredicto es de antes. Vuelve a auditarla." className="text-[10.5px] font-bold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-800 border-amber-300">Desactualizada · volver a auditar</span>
                   : v ? <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border ${VER[v].cls}`}>{VER[v].txt}{lp.derivada!.bloqueos.length ? ` · ${lp.derivada!.bloqueos.length} bloqueo(s)` : ''}</span>
                   : <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full border bg-zinc-50 text-zinc-500 border-zinc-200">Sin auditar</span>}
                 {abiertaEsta ? <ChevronUp size={14} className="text-zinc-400" /> : <ChevronDown size={14} className="text-zinc-400" />}
@@ -368,7 +378,7 @@ function DetalleLinea({ lp, negocioId, puedeOperar, ocupado, textos, setTextos, 
             </div>
           </div>
         )}
-      {!d.pasaAnexosOk && <p className="text-[11.5px] font-bold text-rose-600 flex items-center gap-1"><AlertTriangle size={12} /> Línea bloqueada para ANEXOS OK</p>}
+      {!d.pasaAnexosOk && <p className="text-[11.5px] font-bold text-rose-600 flex items-center gap-1"><AlertTriangle size={12} /> Línea con bloqueos: resuélvelos o habilítala antes de pedir la aprobación de la compra</p>}
     </div>
   );
 }

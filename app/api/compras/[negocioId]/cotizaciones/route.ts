@@ -4,13 +4,14 @@
 // Sin límite de proveedores (§8.2). POST admite multipart (con archivo) o JSON (registro manual
 // sin archivo, ej. cotización telefónica).
 import { NextRequest, NextResponse } from 'next/server';
-import { obtenerAsignacion } from '@/app/lib/compras';
+import { obtenerAsignacion, cambiarSubestadoProducto } from '@/app/lib/compras';
 import { listarAuditoriasNegocio, costeadoPorProducto } from '@/app/lib/compras-auditoria-cotizacion';
 import { registrarCotizacion, listarCotizaciones, type DatosCotizacion, type OrigenCotizacion } from '@/app/lib/compras-auditor';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { extraerDatosCotizacionDeDocumento } from '@/app/lib/compras-cotizacion-ocr';
 import { parsearMontoCL } from '@/app/lib/numeros';
+import { fusionarDirectasDelNegocio } from '@/app/lib/compras-directas';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,7 +25,7 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol, nombre };
 }
 
-const ORIGENES: OrigenCotizacion[] = ['pdf', 'imagen', 'whatsapp', 'texto', 'correo', 'llamada'];
+const ORIGENES: OrigenCotizacion[] = ['pdf', 'imagen', 'whatsapp', 'texto', 'correo', 'llamada', 'directa'];
 
 export async function GET(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
@@ -89,6 +90,8 @@ export async function POST(request: NextRequest, { params }: Params) {
         ivaIncluido: form.get('ivaIncluido') === 'true' ? true : null,
         vigenciaAt: (form.get('vigenciaAt') as string) || null,
         fleteMonto: parsearMontoCL(form.get('fleteMonto') as string),
+        despachoModalidad: (form.get('despachoModalidad') as string) || null,
+        fleteCondicion: (form.get('fleteCondicion') as string) || null,
         direccionBodega: (form.get('direccionBodega') as string) || null,
         archivoUrl, archivoNombre,
         notas: (form.get('notas') as string) || null,
@@ -109,7 +112,12 @@ export async function POST(request: NextRequest, { params }: Params) {
       // OCR/IA no extrae nada con certeza, no cambia nada (extraerDatosCotizacionDeDocumento
       // devuelve null en ese caso — no inventa).
       if (buffer && archivoUrl) {
-        const extraido = await extraerDatosCotizacionDeDocumento(archivoUrl, buffer, file!.type).catch(() => null);
+        // Un fallo pasajero del proveedor de IA (429, timeout) dejaba la cotización sin leer; se reintenta una vez antes de rendirse.
+        let extraido = await extraerDatosCotizacionDeDocumento(archivoUrl, buffer, file!.type).catch(() => null);
+        if (!extraido) {
+          await new Promise(r => setTimeout(r, 4000));
+          extraido = await extraerDatosCotizacionDeDocumento(archivoUrl, buffer, file!.type).catch(() => null);
+        }
         if (extraido) {
           if (!datos.proveedorNombre && !datos.proveedorId && extraido.proveedorNombre) datos.proveedorNombre = extraido.proveedorNombre;
           if (!datos.proveedorRut && extraido.proveedorRut) datos.proveedorRut = extraido.proveedorRut;
@@ -138,6 +146,7 @@ export async function POST(request: NextRequest, { params }: Params) {
           // "el producto principal" — el resto quedaba sin homologar porque homologarCotizacionIA
           // lee `descripcionLibre`, y esa quedaba vacía si el usuario no la retipeaba a mano.
           if (!datos.descripcionLibre && extraido.textoCompleto) datos.descripcionLibre = extraido.textoCompleto;
+          if (extraido.avisosLectura?.length) datos.notas = [datos.notas, `Lectura: ${extraido.avisosLectura.join(' ')}`].filter(Boolean).join(' · ');
         }
       }
     } else {
@@ -146,10 +155,26 @@ export async function POST(request: NextRequest, { params }: Params) {
       if (Array.isArray(body.items)) datos.itemsManual = body.items;
     }
 
+    // Subir un archivo NUNCA debe perderlo: si la lectura no encontró al proveedor, se guarda igual con un nombre provisorio
+    // (el del archivo) y un aviso en las notas, para completarlo a mano. Antes respondía 400 y la cotización desaparecía.
+    if (!datos.proveedorNombre && !datos.proveedorId && datos.archivoNombre) {
+      datos.proveedorNombre = `(por completar) ${datos.archivoNombre.replace(/\.[a-z0-9]{2,4}$/i, '')}`.slice(0, 120);
+      datos.notas = [datos.notas, 'No se pudo leer el proveedor del documento: complétalo con «Editar datos».'].filter(Boolean).join(' · ');
+    }
     if (!datos.proveedorNombre && !datos.proveedorId) return NextResponse.json({ error: 'Falta el proveedor.' }, { status: 400 });
     if (!datos.proveedorNombre) datos.proveedorNombre = '(proveedor del catálogo)'; // se sobreescribe con la ficha real en registrarCotizacion
 
-    const cotizacionId = await registrarCotizacion(id, datos, userId, nombre);
+    let cotizacionId = await registrarCotizacion(id, datos, userId, nombre);
+    // Compras directas del mismo proveedor (mismo RUT o nombre) van en UNA sola cotización/columna de la matriz.
+    if (datos.origen === 'directa') cotizacionId = (await fusionarDirectasDelNegocio(id).catch(() => new Map<number, number>())).get(cotizacionId) ?? cotizacionId;
+    // Una compra directa es una decisión ya tomada (ferretería, retail): el producto pasa solo de «Cotizando» a «Comprado».
+    // En la pantalla de «Tu compra» queda preseleccionado ese proveedor (ver AuditorComprasCard). Si hubo que corregirlo, se
+    // cambia a mano en el estado del producto.
+    if (datos.origen === 'directa' && Array.isArray(datos.itemsManual)) {
+      for (const it of datos.itemsManual) {
+        await cambiarSubestadoProducto(Number(it.productoId), 'COMPRADO').catch(e => console.warn('[compras/cotizaciones] compra directa: no se pudo marcar Comprado:', String(e).slice(0, 120)));
+      }
+    }
     return NextResponse.json({ success: true, id: cotizacionId });
   } catch (error: any) {
     console.error('[compras/cotizaciones][POST]', String(error));

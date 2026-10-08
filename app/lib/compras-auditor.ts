@@ -13,6 +13,8 @@
 // (Epeira 575), no desde Santiago ni la casa matriz. Viaje interno local = $40.000 (§8.10.2).
 import { precioClpDeItemIA } from '@/app/lib/compras-precio-homologacion';
 import pool from '@/app/lib/db';
+import { numeroApareceEnTexto, lineasDesdeTabla, corregirAdicionalesConLineas, lineasSinAsignar } from '@/app/lib/compras-cotizacion-lineas';
+import { conCupo } from '@/app/lib/cupo-ia';
 import { esRutPropio } from '@/app/lib/auditor-compras-datos';
 import { filasDeCotizacion, programarAuditoria } from '@/app/lib/auditor-compras';
 import { adicionalesDeCotizaciones, recalcularPreciosDeCotizacion, type AdicionalFila } from '@/app/lib/compras-adicionales';
@@ -32,6 +34,7 @@ import { netoDesdeBruto, precioONull } from '@/app/lib/compras-cotizacion-lectur
 import { adicionalesDesdeIA, faltantesDesdeIA, incluidosDesdeIA, citaVerificada } from '@/app/lib/compras-adicionales-ia';
 import { recomendarCombinaciones, type EtiquetaRecomendada } from '@/app/lib/compras-recomendaciones';
 import { esSubestadoFuera } from '@/app/lib/compras-no-adjudicadas';
+import { aplicarDespacho, esCondicion, esDespacho } from '@/app/lib/compras-despacho';
 
 async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
   const [rows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
@@ -42,7 +45,8 @@ const fmtMonto = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currenc
 export const VIAJE_INTERNO_CLP = 40_000; // §8.10.2 — editable acá, no disperso en el código
 export const BODEGA_ORIGEN = 'Epeira 575, Talagante'; // §8.10.1
 
-export type OrigenCotizacion = 'pdf' | 'imagen' | 'whatsapp' | 'texto' | 'correo' | 'llamada';
+// 'directa' = compra directa sin cotización (ferretería / retail): precio de referencia + proveedor, sin documento.
+export type OrigenCotizacion = 'pdf' | 'imagen' | 'whatsapp' | 'texto' | 'correo' | 'llamada' | 'directa';
 export type CumpleItem = 'CUMPLE' | 'MEJORA' | 'INFERIOR_NEGOCIABLE' | 'INFERIOR_INSALVABLE' | 'NO_ES_EL_PRODUCTO';
 
 export interface DatosCotizacion {
@@ -65,6 +69,8 @@ export interface DatosCotizacion {
   // ($40.000, §8.10.2) — ver el comentario largo en la función `armar` más abajo.
   fleteMonto?: number | null;
   incluyeFlete?: boolean | null; direccionBodega?: string | null;
+  // Quién lleva la mercadería y cuánto cuesta el flete (migration-141). Si vienen, mandan sobre incluyeFlete/fleteMonto.
+  despachoModalidad?: string | null; fleteCondicion?: string | null;
   /** true = el precio del documento YA incluye IVA: se guarda NETO (÷1,19). Solo CLP; null/false = ya es neto. */
   ivaIncluido?: boolean | null;
   fichaTecnicaUrl?: string | null; archivoUrl?: string | null; archivoNombre?: string | null;
@@ -82,9 +88,26 @@ export interface DatosCotizacion {
  *  que alguien apriete "Homologar" — es la lectura ACTIVA de "visión de agentes" (§19.1): el agente
  *  de auditoría de compra actúa apenas hay una cotización nueva, no solo cuando se le pregunta. El
  *  botón manual de re-homologar sigue existiendo para corregir lo que la IA haya decidido. */
+type ConDespacho = { incluyeFlete?: boolean | null; fleteMonto?: number | null; despachoModalidad?: string | null; fleteCondicion?: string | null };
+
+/** Si la cotización trae «quién despacha» + «condición del flete», de ahí salen incluye_flete / flete_monto (lo que lee el motor de escenarios). */
+function resolverFlete(d: ConDespacho): void {
+  if (!esCondicion(d.fleteCondicion)) return;
+  Object.assign(d, aplicarDespacho(d.despachoModalidad, d.fleteCondicion, d.fleteMonto ?? null));
+}
+
+/** Guarda las dos columnas nuevas aparte: sin la migration-141 la cotización se guarda igual (incluye_flete/flete_monto ya quedaron). */
+async function guardarDespacho(cotizacionId: number, d: ConDespacho): Promise<void> {
+  if (d.despachoModalidad === undefined && d.fleteCondicion === undefined) return;
+  const despacho = esDespacho(d.despachoModalidad) ? d.despachoModalidad : null;
+  const condicion = esCondicion(d.fleteCondicion) ? d.fleteCondicion : null;
+  await pool.query(`UPDATE compras_cotizacion SET despacho_modalidad = ?, flete_condicion = ? WHERE id = ?`, [despacho, condicion, cotizacionId]).catch(() => {});
+}
+
 export async function registrarCotizacion(
   negocioId: number, datos: DatosCotizacion, actorId: number, actorNombre: string | null,
 ): Promise<number> {
+  resolverFlete(datos);
   // Si viene de un proveedor del catálogo, ESA ficha manda sobre lo tipeado a mano — es la fuente
   // de verdad una vez que el proveedor está dado de alta (compras-proveedores.ts).
   let proveedorNombre = datos.proveedorNombre; let proveedorRut = datos.proveedorRut ?? null;
@@ -190,6 +213,7 @@ export async function registrarCotizacion(
     ],
   ) as any;
   const id = r.insertId as number;
+  await guardarDespacho(id, datos);
 
   // Proveedor nuevo o antiguo (§8.5) — best-effort: si OBUMA no responde, queda NULL (no bloquea).
   if (proveedorRut) {
@@ -244,6 +268,7 @@ export interface DatosEdicionCotizacion {
   descripcionLibre?: string | null;
   precioUnitario?: number | null; precioTotal?: number | null; descuentoPct?: number | null; moneda?: string;
   plazoEntregaTexto?: string | null; incluyeFlete?: boolean | null; fleteMonto?: number | null;
+  despachoModalidad?: string | null; fleteCondicion?: string | null;
   vigenciaAt?: string | null; notas?: string | null;
 }
 
@@ -255,6 +280,7 @@ export interface DatosEdicionCotizacion {
 export async function actualizarCotizacion(
   negocioId: number, cotizacionId: number, datos: DatosEdicionCotizacion, actorId: number, actorNombre: string | null,
 ): Promise<void> {
+  resolverFlete(datos);
   const [existe] = await pool.query(`SELECT id FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cotizacionId, negocioId]) as any;
   if (!(existe as any[])[0]) throw new Error('Cotización no encontrada.');
   if (!datos.proveedorNombre?.trim()) throw new Error('Falta el proveedor.');
@@ -318,6 +344,8 @@ export async function actualizarCotizacion(
     ],
   );
 
+  await guardarDespacho(cotizacionId, datos);
+
   // Un precio o proveedor editado puede cambiar lo que ya se había aprobado a comprar — mismo
   // criterio que elegir un escenario distinto (§10.5): la aprobación vieja queda sobre un número
   // que ya no es real.
@@ -373,6 +401,8 @@ export interface CotizacionFila {
   precioUnitarioBruto: number | null; descuentoPct: number | null;
   moneda: string; tipoCambioUsado: number | null; precioUnitarioClp: number | null; precioTotalClp: number | null;
   plazoEntregaTexto: string | null; plazoEntregaDias: number | null; incluyeFlete: boolean | null; fleteMonto: number | null;
+  /** migration-141. null = cotización anterior a la separación «quién despacha» / «cuánto cuesta el flete». */
+  despachoModalidad?: string | null; fleteCondicion?: string | null;
   ficaTecnicaUrl: string | null; archivoUrl: string | null; homologadaAt: string | null; tomadaAt: string;
   // Pedido explícito del usuario (15-sep-2026: "le pongo dónde que se cotizó pero cuando edito no
   // aparece nada") — BUG REAL: esta consulta ni siquiera traía `descripcion_libre`, así que
@@ -409,7 +439,10 @@ export async function listarCotizaciones(negocioId: number): Promise<CotizacionF
   for (const it of itemRows as any[]) {
     const arr = itemsPorCotiz.get(it.cotizacion_id) || []; arr.push(it); itemsPorCotiz.set(it.cotizacion_id, arr);
   }
+  const [despRows] = await pool.query(`SELECT id, despacho_modalidad, flete_condicion FROM compras_cotizacion WHERE negocio_id = ?`, [negocioId]).catch(() => [[]] as any) as any;
+  const despachoDe = new Map<number, { m: string | null; c: string | null }>((despRows as any[]).map(r => [r.id, { m: r.despacho_modalidad ?? null, c: r.flete_condicion ?? null }]));
   return cotizaciones.map(c => ({
+    despachoModalidad: despachoDe.get(c.id)?.m ?? null, fleteCondicion: despachoDe.get(c.id)?.c ?? null,
     id: c.id, proveedorId: c.proveedor_id, proveedorNombre: c.proveedor_nombre, proveedorRut: c.proveedor_rut,
     proveedorNuevo: c.proveedor_nuevo == null ? null : !!c.proveedor_nuevo, origen: c.origen,
     descripcionLibre: c.descripcion_libre, vigenciaAt: c.vigencia_at ?? null,
@@ -495,7 +528,7 @@ export async function asignarItemsCotizacion(
   auditarCotizacionEnSegundoPlano(negocioId, cotizacionId, actorId ? { id: actorId, nombre: actorNombre ?? null } : undefined);
 }
 
-const SYS_HOMOLOGACION = `Eres el Auditor de Compras de una empresa que revende productos adjudicados en licitaciones públicas chilenas.
+export const SYS_HOMOLOGACION = `Eres el Auditor de Compras de una empresa que revende productos adjudicados en licitaciones públicas chilenas.
 
 Te doy la descripción libre de UNA cotización de un proveedor (puede mencionar uno o varios productos) y una lista de los PRODUCTOS GANADOS, cada uno con un CÓDIGO (P1, P2, P3…) que la empresa necesita comprar para cumplir la licitación.
 
@@ -512,6 +545,8 @@ Tu trabajo, para cada producto de la lista que la cotización efectivamente cubr
 Si la cotización no menciona un producto de la lista, simplemente NO lo incluyas en la respuesta — no inventes cobertura.
 Los códigos P1, P2… son SOLO de la lista de productos ganados: NO los confundas con los números de línea ("Item 1, 2, 3…") que trae el documento, que son otra cosa. Los componentes y accesorios del documento NO reciben código: van dentro de "adicionales".
 
+ANTES de tratar una línea como componente, revisa si ES, por significado, uno de los productos de la lista (ej.: "Micrófono inalámbrico doble" es el producto "SET MICRÓFONO" de la lista; "Sistema de sonido" con parlantes y mezclador es el "SET AMPLIFICACIÓN"). Si lo es, es un PRODUCTO: devuélvelo en "items" con su código y su propio precio, y NO lo pongas en "adicionales", aunque la descripción de OTRO producto también mencione ese elemento ("sistema inalámbrico de micrófono incluido"). Cada línea con precio del documento debe quedar en uno de estos tres lugares: producto de la lista, adicional de un producto, o ignorada por ser servicio/total; nunca perdida.
+
 ACCESORIOS Y COMPONENTES — una cotización real trae líneas que NO son un producto de la lista sino un componente o accesorio de uno (ej.: el "Quemador a gas" de un horno, las "Bandejas" de un carro). Si esa línea tiene precio, NO la conviertas en producto: agrégala en "adicionales" del producto al que pertenece, con "cantidadLinea" (la cantidad de ESA línea) y "precioUnitario" (por unidad, tal como aparece). El "precioUnitarioAsignado" del producto principal es el del producto SOLO, sin esos componentes. IGNORA los servicios (puesta en marcha, instalación, capacitación, flete) y los totales/"RESUMEN GLOBAL" que repiten líneas ya vistas: no son adicionales ni productos.
 Si una línea dice "N unidades ... $X" sin precio unitario ni "c/u" (ej. "18 bandejas aluminio ... $152.000"), $X es el precio del CONJUNTO: cantidadLinea 1 y precioUnitario X, y pon "(18 bandejas)" en el concepto.
 Si el documento dice que un producto de la lista VA INCLUIDO en el precio de otro (ej. "Horno ... Incluye 1 carro 18x60x40"), devuelve ese producto en "items" con "incluidoEn": <número del producto que lo contiene>, sin precioUnitarioAsignado, y agrega "citaIncluido": el texto LITERAL del documento que lo dice (ej. "Incluye 1 carro 18x60x40"); sin esa cita literal no uses "incluidoEn". Sus componentes aparte (las bandejas) van en sus "adicionales".
@@ -524,6 +559,14 @@ Responde SOLO JSON, sin markdown:
 /** Homologa UNA cotización contra los productos ganados del negocio (§8.6-§8.8), vía IA. Escribe
  *  compras_cotizacion_item y acumula el resumen en compras_veredicto por producto. No excluye
  *  proveedores — solo clasifica (§8.8.1). */
+function precioEnDocumento(v: unknown, texto: string): boolean {
+  if (v == null || v === '' || typeof v === 'boolean') return true;       // sin precio propio: no hay nada que validar
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return true;
+  if (!texto.trim()) return true;                                          // sin texto no hay con qué comparar
+  return numeroApareceEnTexto(n, texto) || numeroApareceEnTexto(n * 1.19, texto) || numeroApareceEnTexto(n / 1.19, texto);
+}
+
 export async function homologarCotizacionIA(cotizacionId: number): Promise<{ items: number }> {
   const [rows] = await pool.query(
     `SELECT negocio_id, proveedor_nombre, descripcion_libre, precio_unitario, precio_total, moneda, tipo_cambio_usado, precio_unitario_clp, descuento_pct, notas
@@ -543,11 +586,12 @@ ${productos.map((p, i) => `P${i + 1}. ${p.descripcion}${p.cantidad ? `, cantidad
 COTIZACIÓN de "${cotiz.proveedor_nombre}"${cotiz.precio_unitario ? ` — precio unitario informado: ${Number(cotiz.precio_unitario).toLocaleString('es-CL')}${sufijoMoneda}` : ''}${cotiz.precio_total ? ` — total: ${Number(cotiz.precio_total).toLocaleString('es-CL')}${sufijoMoneda}` : ''}${sufijoMoneda ? `\n(Todo precio que asignes por producto debe estar en la MISMA moneda del documento, ${cotiz.moneda} — no conviertas tú, la conversión a CLP la hace el sistema aparte.)` : ''}:
 ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si corresponde a un único producto)'}`;
 
-  const completion: any = await crearChatIA({
+  // Con cupo: al subir varias cotizaciones juntas las llamadas hacen fila en vez de saturar al proveedor de IA (429).
+  const completion: any = await conCupo('compras-lectura', 3, () => crearChatIA({
     messages: [{ role: 'system', content: SYS_HOMOLOGACION }, { role: 'user', content: user }],
     temperature: 0, stream: false, max_tokens: 3_000,
     response_format: { type: 'json_object' },
-  }, { timeoutMs: 60_000, modeloPreferido: 'glm-4.7', soloGlm: true });
+  }, { timeoutMs: 90_000, modeloPreferido: 'glm-4.7', soloGlm: true }));
 
   const txt = String(completion.choices?.[0]?.message?.content ?? '');
   const parsed: any = parseJsonIA(txt) || {};
@@ -573,13 +617,16 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     if (dscto != null && dscto > 0 && dscto < 100) x = Math.round(x * (1 - dscto / 100));
     return x;
   };
+  const lineasDelDoc = lineasDesdeTabla(String(cotiz.descripcion_libre || ''));
   const resueltos = items.map((it: any) => {
     const producto = productos[codigo(it?.producto) - 1];
     if (!producto || !cumples.includes(it.cumple) || it.cumple === 'NO_ES_EL_PRODUCTO') return null;
     // "Va incluido en otro producto" sin cita literal verificada = invento: ese producto no se asigna a esta cotización.
     if (it.incluidoEn != null && !citaVerificada(it.citaIncluido, String(cotiz.descripcion_libre || ''))) return null;
     const precioClp = precioClpDeItemIA({
-      precioUnitarioAsignado: aNeto(it.precioUnitarioAsignado), tipoCambio,
+      // El precio que la IA lee de una línea tiene que EXISTIR en el documento: "121.000,85" se leyó como 121,00085 y quedó en $109.
+      // Si no aparece (ni como número), se ignora y se usa el precio de la cotización en vez de guardar un valor inventado.
+      precioUnitarioAsignado: aNeto(precioEnDocumento(it.precioUnitarioAsignado, String(cotiz.descripcion_libre || '')) ? it.precioUnitarioAsignado : null), tipoCambio,
       precioClpCotizacion: cotiz.precio_unitario_clp != null ? Number(cotiz.precio_unitario_clp) : null,
       totalItemsAsignados: itemsValidos,
     });
@@ -602,7 +649,9 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     escritos++;
     // Componentes con precio propio que el documento cotiza aparte (quemador, bandejas…): se unen al producto como adicionales.
     // Si ya hay adicionales cargados (a mano o de una pasada anterior) no se pisan: lo hecho por una persona manda.
-    const adic = adicionalesDesdeIA(it.adicionales, producto.cantidad != null ? Number(producto.cantidad) : null, aNeto as (n: number) => number);
+    // La cantidad y el precio de cada adicional salen de la línea verificada del documento (no de lo que la IA recuerde de ella).
+    const adicCorregidos = corregirAdicionalesConLineas(it.adicionales, lineasDelDoc).adicionales;
+    const adic = adicionalesDesdeIA(adicCorregidos, producto.cantidad != null ? Number(producto.cantidad) : null, aNeto as (n: number) => number);
     if (adic.length > 0) {
       const [ya] = await pool.query(`SELECT COUNT(*) n FROM compras_cotizacion_adicional WHERE cotizacion_id = ? AND producto_id = ?`, [cotizacionId, producto.id]).catch(() => [[{ n: 1 }]] as any) as any;
       if (Number((ya as any[])[0]?.n || 0) === 0) {
@@ -636,6 +685,18 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     [cotizacionId],
   ).catch(() => {});
   await recalcularPreciosDeCotizacion(cotizacionId);   // los adicionales ya cargados se vuelven a sumar al precio base
+  // Ninguna línea con precio debe perderse en silencio: se avisa cuáles del documento no quedaron en ningún producto ni adicional.
+  try {
+    const [[a]]: any = await pool.query(`SELECT notas FROM compras_cotizacion WHERE id = ?`, [cotizacionId]);
+    const [asig]: any = await pool.query(
+      `SELECT p.descripcion FROM compras_cotizacion_item i JOIN compras_producto p ON p.id = i.producto_id WHERE i.cotizacion_id = ?`, [cotizacionId]);
+    const [adics]: any = await pool.query(`SELECT concepto FROM compras_cotizacion_adicional WHERE cotizacion_id = ?`, [cotizacionId]);
+    const sin = lineasSinAsignar(lineasDelDoc, [...(asig as any[]).map(x => String(x.descripcion).split(' - ')[0]), ...(adics as any[]).map(x => String(x.concepto))]);
+    const marca = 'Revisa la asignación:';
+    const notasSinAviso = String(a?.notas || '').split(' · ').filter(t => !t.startsWith(marca)).join(' · ');
+    const nuevas = sin.length ? [notasSinAviso, `${marca} ${sin.length === 1 ? 'la línea' : 'las líneas'} ${sin.map(l => `«${l.descripcion.slice(0, 50)}»`).join(', ')} no ${sin.length === 1 ? 'quedó' : 'quedaron'} en ningún producto ni adicional.`].filter(Boolean).join(' · ') : notasSinAviso;
+    if (nuevas !== String(a?.notas || '')) await pool.query(`UPDATE compras_cotizacion SET notas = ? WHERE id = ?`, [nuevas || null, cotizacionId]);
+  } catch (e) { console.warn('[homologar] no se pudo revisar las líneas sin asignar:', String(e).slice(0, 120)); }
   await pool.query(`UPDATE compras_cotizacion SET homologada_at = ? WHERE id = ?`, [ahora, cotizacionId]);
   await registrarEvento({
     tipo: 'COMPRAS_AGENTE_HOMOLOGO', licitacionCodigo: await licitacionDeNegocio(cotiz.negocio_id),
@@ -736,7 +797,7 @@ export interface Escenario {
   fleteSinConfirmar: boolean;
 }
 
-interface EleccionPorProducto { productoId: number; descripcion: string; cantidad: number | null; item: CotizacionFila['items'][number] & { cotizacionId: number; moneda: string; tipoCambioUsado: number | null; proveedor: string; plazoEntregaDias: number | null; incluyeFlete: boolean | null; fleteMonto: number | null } }
+interface EleccionPorProducto { productoId: number; descripcion: string; cantidad: number | null; item: CotizacionFila['items'][number] & { despachoModalidad?: string | null; cotizacionId: number; moneda: string; tipoCambioUsado: number | null; proveedor: string; plazoEntregaDias: number | null; incluyeFlete: boolean | null; fleteMonto: number | null } }
 
 // BUG REAL (11-sep-2026, reportado por el usuario contra el negocio 717): los 4 escenarios
 // ordenaban candidatos SOLO por precio/plazo/agrupación, sin mirar `cumple` — así que una cotización
@@ -769,7 +830,7 @@ function elegirCandidatos(productos: ProductoCompra[], cotizaciones: CotizacionF
       const incluido = it.precioBase === 0;
       if (it.cumple === 'NO_ES_EL_PRODUCTO' || it.precioUnitario == null || (!(it.precioUnitario > 0) && !(permitirIncluidos && incluido))) continue;
       const arr = porProducto.get(it.productoId) || [];
-      arr.push({ ...it, cotizacionId: c.id, moneda: c.moneda, tipoCambioUsado: c.tipoCambioUsado, proveedor: c.proveedorNombre, plazoEntregaDias: c.plazoEntregaDias, incluyeFlete: c.incluyeFlete, fleteMonto: c.fleteMonto });
+      arr.push({ ...it, cotizacionId: c.id, moneda: c.moneda, tipoCambioUsado: c.tipoCambioUsado, proveedor: c.proveedorNombre, plazoEntregaDias: c.plazoEntregaDias, incluyeFlete: c.incluyeFlete, fleteMonto: c.fleteMonto, despachoModalidad: c.despachoModalidad ?? null });
       porProducto.set(it.productoId, arr);
     }
   }
@@ -806,6 +867,7 @@ export async function calcularEscenarios(negocioId: number): Promise<Escenario[]
     // dos cotizaciones separadas), gana el primero que se encuentre — un proveedor paga UN flete por
     // viaje, no uno por cada línea de producto.
     const proveedoresNecesitanViaje = new Map<string, number | null>(); // proveedor -> fleteMonto real (null = usar el interno fijo)
+    const modalidadViaje = new Map<string, string | null>(); // proveedor -> quién despacha (si despacha el proveedor, el flete cuesta pero no hay viaje nuestro)
     let costoMercaderia = 0;
     let diasMax = 0;
     let cubreTodo = true;
@@ -820,13 +882,14 @@ export async function calcularEscenarios(negocioId: number): Promise<Escenario[]
         const actual = proveedoresNecesitanViaje.get(elegido.proveedor);
         if (actual === undefined || (actual == null && elegido.fleteMonto != null)) {
           proveedoresNecesitanViaje.set(elegido.proveedor, elegido.fleteMonto);
+          modalidadViaje.set(elegido.proveedor, elegido.despachoModalidad ?? null);
         }
       }
       if (elegido.plazoEntregaDias != null) diasMax = Math.max(diasMax, elegido.plazoEntregaDias);
       porProductoDetalle.push({ productoId: p.id, descripcion: p.descripcion, proveedor: elegido.proveedor, precioUnitario: elegido.precioUnitario, cantidad: p.cantidad, subtotal, plazoEntregaDias: elegido.plazoEntregaDias, incluyeFlete: elegido.incluyeFlete, fleteMonto: elegido.fleteMonto });
     }
     if (!cubreTodo && porProductoDetalle.every(d => d.proveedor == null)) return null; // sin ninguna cotización todavía
-    const viajes = proveedoresNecesitanViaje.size; // proxy de "un viaje por proveedor que lo necesita" hasta que exista tanda 4 (fleteros reales)
+    const viajes = [...proveedoresNecesitanViaje.keys()].filter(pv => modalidadViaje.get(pv) !== 'PROVEEDOR').length; // proxy de "un viaje por proveedor que lo necesita" hasta que exista tanda 4 (fleteros reales)
     // BUG REAL (15-sep-2026, reportado en vivo por el usuario: "no me puedes poner 40 por defecto,
     // eso lo tenemos que poner nosotros ya que es dinero"): hasta acá, un proveedor que "necesita
     // viaje" pero sin `fleteMonto` tipeado sumaba VIAJE_INTERNO_CLP ($40.000) en silencio al costo
@@ -879,7 +942,7 @@ export async function calcularEscenarios(negocioId: number): Promise<Escenario[]
 export interface ItemCombinacion {
   productoId: number; descripcion: string; cotizacionId: number; proveedor: string; cumple: CumpleItem; detalleDesviacion: string | null;
   moneda: string; tipoCambioUsado: number | null; precioUnitario: number | null; cantidad: number | null; subtotal: number | null;
-  plazoEntregaDias: number | null; incluyeFlete: boolean | null; fleteMonto: number | null;
+  plazoEntregaDias: number | null; incluyeFlete: boolean | null; fleteMonto: number | null; despachoModalidad?: string | null;
 }
 export interface Combinacion {
   clave: string; costoMercaderia: number; costoLogistico: number; costoTotal: number; diasEstimados: number | null; viajes: number;
@@ -1029,13 +1092,14 @@ function armarCombinacion(productos: ProductoCompra[], elegidos: EleccionPorProd
     return {
       productoId: p.id, descripcion: p.descripcion, cotizacionId: e.cotizacionId, proveedor: e.proveedor, cumple: e.cumple, detalleDesviacion: e.detalleDesviacion ?? null,
       moneda: e.moneda, tipoCambioUsado: e.tipoCambioUsado, precioUnitario: e.precioUnitario, cantidad: p.cantidad, subtotal: (e.precioUnitario || 0) * (p.cantidad || 1),
-      plazoEntregaDias: e.plazoEntregaDias, incluyeFlete: e.incluyeFlete, fleteMonto: e.fleteMonto,
+      plazoEntregaDias: e.plazoEntregaDias, incluyeFlete: e.incluyeFlete, fleteMonto: e.fleteMonto, despachoModalidad: e.despachoModalidad ?? null,
     };
   });
   const costoMercaderia = items.reduce((s, x) => s + (x.subtotal || 0), 0);
   // Mismo criterio que armar(): un viaje por proveedor cuyo flete no viene incluido; si trae monto, ese es el cargo real.
   const viaje = new Map<string, number | null>();
-  for (const x of items) if (x.incluyeFlete !== true) { const a = viaje.get(x.proveedor); if (a === undefined || (a == null && x.fleteMonto != null)) viaje.set(x.proveedor, x.fleteMonto); }
+  const modalViaje = new Map<string, string | null>();
+  for (const x of items) if (x.incluyeFlete !== true) { const a = viaje.get(x.proveedor); if (a === undefined || (a == null && x.fleteMonto != null)) { viaje.set(x.proveedor, x.fleteMonto); modalViaje.set(x.proveedor, x.despachoModalidad ?? null); } }
   const fleteSinConfirmar = [...viaje.values()].some(m => m == null);
   const costoLogistico = [...viaje.values()].reduce((s: number, m) => s + (m ?? 0), 0);
   const proveedores = [...new Set(items.map(x => x.proveedor))];
@@ -1052,7 +1116,7 @@ function armarCombinacion(productos: ProductoCompra[], elegidos: EleccionPorProd
 
   const clave = items.map(x => `${x.productoId}:${x.cotizacionId}`).join('|');
   return {
-    clave, costoMercaderia, costoLogistico, costoTotal: costoMercaderia + costoLogistico, diasEstimados: dias || null, viajes: viaje.size,
+    clave, costoMercaderia, costoLogistico, costoTotal: costoMercaderia + costoLogistico, diasEstimados: dias || null, viajes: [...viaje.keys()].filter(pv => modalViaje.get(pv) !== 'PROVEEDOR').length,
     nProveedores: proveedores.length, proveedores, peorCumple: peor, fleteSinConfirmar, proveedoresSinPlazo: sinPlazo, items, etiquetas: [],
     diferenciaVsMasBarata: 0, diferenciaPctVsMasBarata: null, avisos,
     detalle: {

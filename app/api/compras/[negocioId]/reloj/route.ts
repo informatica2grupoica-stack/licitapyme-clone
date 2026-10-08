@@ -5,6 +5,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { obtenerEstadoReloj, fijarReloj, calcularEscenariosMulta, type PlazoTipo } from '@/app/lib/compras-reloj';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
+import { sugerirReloj } from '@/app/lib/compras-reloj-sugerido';
+import { sumarDiasHabiles, sumarDiasCorridos } from '@/app/lib/compras';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,7 +36,21 @@ export async function GET(request: NextRequest, { params }: Params) {
     const [reloj, escenariosMulta] = await Promise.all([
       obtenerEstadoReloj(id), incluirMultas ? calcularEscenariosMulta(id) : Promise.resolve(null),
     ]);
-    return NextResponse.json({ success: true, reloj, escenariosMulta });
+    // Sugerencia (solo mientras el reloj no esté fijado): fecha de la OC + plazo ofertado. NUNCA lo fija sola (§15.1).
+    let sugerido: (ReturnType<typeof sugerirReloj> & { venceEl: string }) | null = null;
+    if (!reloj.fijadoAt) {
+      const s = sugerirReloj({
+        aceptadaAt: asignacion.ordenCompra?.aceptadaAt ?? null, emitidaAt: asignacion.ordenCompra?.emitidaAt ?? null,
+        plazoOfertadoTexto: asignacion.resumen?.plazoEntregaOfertado ?? null, hitoInicioTexto: null,
+      });
+      if (s) {
+        const [y, m, d] = s.fechaInicio.split('-').map(Number);
+        const ini = new Date(Date.UTC(y, m - 1, d));
+        const fin = s.plazoTipo === 'HABILES' ? sumarDiasHabiles(ini, s.plazoDias) : sumarDiasCorridos(ini, s.plazoDias);
+        sugerido = { ...s, venceEl: `${fin.getUTCFullYear()}-${String(fin.getUTCMonth() + 1).padStart(2, '0')}-${String(fin.getUTCDate()).padStart(2, '0')}` };
+      }
+    }
+    return NextResponse.json({ success: true, reloj, escenariosMulta, sugerido });
   } catch (error) {
     console.error('[compras/reloj][GET]', String(error));
     return NextResponse.json({ error: 'No se pudo cargar el reloj de entrega.' }, { status: 500 });

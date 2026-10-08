@@ -7,6 +7,7 @@ import { Fragment, useState, useEffect, useCallback, useMemo } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
+import { irAFase } from '@/app/compras/[negocioId]/comprasNavegacion';
 import { IconPackage as Package, IconLoader2 as Loader2, IconX as X, IconFlag as Flag, IconRefresh as RefreshCw, IconSearch as Search } from '@tabler/icons-react';
 
 type Subestado = 'PENDIENTE' | 'COTIZANDO' | 'COMPRADO' | 'EN_BODEGA' | 'LISTO_ENTREGA' | 'ENTREGADO' | 'RENUNCIADO' | 'NO_ADJUDICADA';
@@ -41,6 +42,15 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
   const [guardando, setGuardando] = useState<number | null>(null);
   const [renunciaAbierta, setRenunciaAbierta] = useState<number | null>(null);
   const [motivoRenuncia, setMotivoRenuncia] = useState('');
+  // Compra directa (ítems que no se cotizan: ferretería, retail): un proveedor y un precio neto de referencia, sin documento.
+  const [directaAbierta, setDirectaAbierta] = useState<number | null>(null);
+  const [directa, setDirecta] = useState({ proveedor: '', rut: '', precio: '', motivo: '', modelo: '', link: '' });
+  // Verificación del proveedor contra la lista de Obuma (por RUT, solo lectura). Un proveedor que no existe en Obuma
+  // es "nuevo": hay que crearlo ahí antes de emitir la OC y se le exige la factura antes de pagar.
+  const [buscarNombre, setBuscarNombre] = useState(false);   // solo se buscan sugerencias cuando se TIPEA el nombre (no al elegir uno ni al tocar el RUT)
+  const [provId, setProvId] = useState<number | null>(null);   // proveedor elegido del catálogo (espejo de Obuma)
+  const [sugerencias, setSugerencias] = useState<Array<{ id: number; nombreEmpresa: string; nombreFantasia: string | null; rut: string | null; obumaProveedorId: string | null }>>([]);
+  const [provObuma, setProvObuma] = useState<{ estado: 'idle' | 'cargando' | 'existe' | 'no_existe' | 'invalido' | 'error'; razonSocial?: string }>({ estado: 'idle' });
   const [sincronizando, setSincronizando] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [filtro, setFiltro] = useState<'todos' | 'pendientes' | 'listos' | 'fuera'>('todos');
@@ -79,6 +89,79 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
       recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo actualizar', e.message);
+    } finally {
+      setGuardando(null);
+    }
+  };
+
+  // Buscar por nombre (o RUT) en el catálogo de proveedores, que es el espejo de la lista de Obuma.
+  useEffect(() => {
+    const q = directa.proveedor.trim();
+    if (directaAbierta == null || !buscarNombre || provId != null || q.length < 3) { setSugerencias([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/compras/proveedores?q=${encodeURIComponent(q)}`);
+        const d = await r.json();
+        if (d.success) setSugerencias((d.proveedores || []).slice(0, 6));
+      } catch { setSugerencias([]); }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [directa.proveedor, directaAbierta, provId, buscarNombre]);
+
+  const elegirProveedor = (x: { id: number; nombreEmpresa: string; rut: string | null; obumaProveedorId: string | null }) => {
+    setProvId(x.id); setSugerencias([]); setBuscarNombre(false);
+    setDirecta(d => ({ ...d, proveedor: x.nombreEmpresa, rut: x.rut || d.rut }));
+    if (x.obumaProveedorId) setProvObuma({ estado: 'existe', razonSocial: x.nombreEmpresa });
+    else if (x.rut) verificarProveedorObuma(x.rut);
+    else setProvObuma({ estado: 'idle' });
+  };
+
+  const rutValidoCL = (rut: string) => {
+    const t = rut.replace(/[.\s]/g, '').toUpperCase();
+    const m = t.match(/^(\d{7,8})-?([\dK])$/);
+    if (!m) return false;
+    let suma = 0, mult = 2;
+    for (let i = m[1].length - 1; i >= 0; i--) { suma += Number(m[1][i]) * mult; mult = mult === 7 ? 2 : mult + 1; }
+    const dv = 11 - (suma % 11);
+    return m[2] === (dv === 11 ? '0' : dv === 10 ? 'K' : String(dv));
+  };
+  const verificarProveedorObuma = async (rutTexto: string) => {
+    const rut = rutTexto.trim();
+    if (!rut) { setProvObuma({ estado: 'idle' }); return; }
+    if (!rutValidoCL(rut)) { setProvObuma({ estado: 'invalido' }); return; }
+    setProvObuma({ estado: 'cargando' });
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/orden-compra-obuma/proveedor?rut=${encodeURIComponent(rut)}`);
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'error');
+      if (d.existe && d.ficha) {
+        setProvObuma({ estado: 'existe', razonSocial: d.ficha.razonSocial });
+        setDirecta(x => ({ ...x, proveedor: x.proveedor.trim() ? x.proveedor : d.ficha.razonSocial }));
+      } else setProvObuma({ estado: 'no_existe' });
+    } catch { setProvObuma({ estado: 'error' }); }
+  };
+
+  const registrarDirecta = async (p: Producto) => {
+    const precio = Number(directa.precio.replace(/[^\d]/g, ''));
+    if (!directa.proveedor.trim() || !precio) return;
+    setGuardando(p.id);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/cotizaciones`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          origen: 'directa', proveedorId: provId, proveedorNombre: directa.proveedor.trim(), proveedorRut: directa.rut.trim() || null, precioUnitario: precio,
+          descripcionLibre: [p.descripcion, directa.modelo.trim() ? `Marca/modelo: ${directa.modelo.trim()}` : ''].filter(Boolean).join(' · '),
+          notas: `Compra directa sin cotización${directa.motivo.trim() ? `: ${directa.motivo.trim()}` : ''}. Precio neto de referencia.${directa.link.trim() ? ` Link de referencia: ${directa.link.trim()}` : ''}`,
+          items: [{ productoId: p.id, precioUnitario: precio, cumple: 'CUMPLE' }],
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo registrar');
+      toast.success('Compra directa registrada', 'El producto quedó cubierto y pasa a la comparación y a la orden de compra.');
+      setDirectaAbierta(null); setDirecta({ proveedor: '', rut: '', precio: '', motivo: '', modelo: '', link: '' }); setProvObuma({ estado: 'idle' }); setProvId(null); setSugerencias([]);
+      recargarCompartido();
+    } catch (e: any) {
+      toast.error('No se pudo registrar la compra directa', e.message);
     } finally {
       setGuardando(null);
     }
@@ -225,7 +308,12 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
                     </td>
                     <td className="px-3 py-2 text-right">
                       {puedeOperar && !fuera && !p.renunciaMotivo && (
-                        <button onClick={() => { setRenunciaAbierta(p.id); setMotivoRenuncia(''); }} className="text-[11.5px] font-semibold text-rose-500 hover:text-rose-700">Renunciar</button>
+                        <span className="inline-flex items-center gap-3 whitespace-nowrap">
+                          <button onClick={() => { setDirectaAbierta(p.id); setDirecta({ proveedor: '', rut: '', precio: '', motivo: '', modelo: '', link: '' }); setProvObuma({ estado: 'idle' }); setProvId(null); setSugerencias([]); }}
+                            title="Para ítems que no se cotizan (ferretería, retail): registra a quién se compra y a qué precio neto, sin documento de cotización."
+                            className="text-[11.5px] font-semibold text-teal-700 hover:text-teal-900">Compra directa</button>
+                          <button onClick={() => { setRenunciaAbierta(p.id); setMotivoRenuncia(''); }} className="text-[11.5px] font-semibold text-rose-500 hover:text-rose-700">Renunciar</button>
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -238,6 +326,59 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
                             <button onClick={() => accion({ productoId: p.id, accion: 'aprobar_renuncia' })} className="flex-shrink-0 text-[11.5px] font-bold text-white bg-amber-600 hover:bg-amber-700 px-2 py-1 rounded-lg">Aprobar renuncia</button>
                           )}
                         </div>
+                      </td>
+                    </tr>
+                  )}
+                  {directaAbierta === p.id && (
+                    <tr key={`${p.id}-d`} className="border-b border-zinc-100 bg-teal-50/40" data-testid="form-compra-directa">
+                      <td colSpan={6} className="px-4 py-3">
+                        <p className="text-[12px] font-bold text-teal-900 mb-1.5">Compra directa — sin cotización</p>
+                        <div className="grid grid-cols-1 md:grid-cols-[1.3fr_0.9fr_0.9fr_1.4fr_auto] gap-2 items-center">
+                          <div className="relative">
+                            <input autoFocus value={directa.proveedor} onChange={e => { setDirecta(d => ({ ...d, proveedor: e.target.value })); setProvId(null); setBuscarNombre(true); setProvObuma({ estado: 'idle' }); }}
+                              placeholder="Proveedor: nombre o RUT (ej. Sodimac)" autoComplete="off"
+                              className="w-full text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none bg-white" />
+                            {sugerencias.length > 0 && (
+                              <ul data-testid="sugerencias-proveedor" className="absolute z-30 left-0 right-0 top-full mt-1 bg-white border border-zinc-200 rounded-lg shadow-lg overflow-hidden max-h-56 overflow-y-auto">
+                                {sugerencias.map(x => (
+                                  <li key={x.id}>
+                                    <button type="button" onMouseDown={e => { e.preventDefault(); elegirProveedor(x); }} className="w-full text-left px-2.5 py-1.5 hover:bg-teal-50 text-[12.5px]">
+                                      <span className="font-semibold text-zinc-800">{x.nombreEmpresa}</span>
+                                      <span className="text-zinc-400"> · {x.rut || 'sin RUT'}{x.obumaProveedorId ? ' · en Obuma' : ''}</span>
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                          <input value={directa.rut} onChange={e => { setDirecta(d => ({ ...d, rut: e.target.value })); setProvObuma({ estado: 'idle' }); setProvId(null); setBuscarNombre(false); setSugerencias([]); }} onBlur={e => verificarProveedorObuma(e.target.value)}
+                            placeholder="RUT (se verifica en Obuma)" className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none bg-white" />
+                          <input inputMode="numeric" value={directa.precio} onChange={e => setDirecta(d => ({ ...d, precio: e.target.value }))} placeholder="Precio neto unitario"
+                            className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none bg-white" />
+                          <input value={directa.modelo} onChange={e => setDirecta(d => ({ ...d, modelo: e.target.value }))} placeholder="Marca y modelo (opcional)"
+                            className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none bg-white" />
+                          <input value={directa.link} onChange={e => setDirecta(d => ({ ...d, link: e.target.value }))} placeholder="Link del producto (opcional)"
+                            className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none bg-white" />
+                          <input value={directa.motivo} onChange={e => setDirecta(d => ({ ...d, motivo: e.target.value }))} placeholder="Motivo (opcional): precio de lista, ítem menor…"
+                            className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none bg-white" />
+                          <span className="flex items-center gap-2">
+                            <button onClick={() => registrarDirecta(p)} disabled={guardando === p.id || !directa.proveedor.trim() || !Number(directa.precio.replace(/[^\d]/g, '')) || provObuma.estado === 'invalido'}
+                              className="text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">Registrar</button>
+                            <button onClick={() => setDirectaAbierta(null)} className="text-zinc-400 hover:text-zinc-600"><X size={15} /></button>
+                          </span>
+                        </div>
+                        {provObuma.estado !== 'idle' && (
+                          <p data-testid="proveedor-obuma" className={`text-[11.5px] font-semibold mt-1.5 ${provObuma.estado === 'existe' ? 'text-emerald-700' : provObuma.estado === 'no_existe' ? 'text-amber-700' : provObuma.estado === 'cargando' ? 'text-zinc-500' : 'text-rose-600'}`}>
+                            {provObuma.estado === 'cargando' && 'Consultando Obuma…'}
+                            {provObuma.estado === 'existe' && `✓ Ya existe en Obuma: ${provObuma.razonSocial}. Proveedor conocido.`}
+                            {provObuma.estado === 'no_existe' && (<>Proveedor nuevo: no existe en Obuma. Hay que crearlo antes de emitir la orden de compra, y se le exige la factura antes de pagar.{' '}
+                              <button type="button" onClick={() => irAFase('obuma', { accion: 'crear-proveedor', rut: directa.rut.trim(), nombre: directa.proveedor.trim() })}
+                                className="underline font-bold text-indigo-700 hover:text-indigo-900">Ir a crear proveedor</button> (puedes registrar la compra directa ahora y crearlo después).</>)}
+                            {provObuma.estado === 'invalido' && 'El RUT no es válido (revisa el dígito verificador).'}
+                            {provObuma.estado === 'error' && 'No se pudo consultar Obuma ahora; puedes registrar igual y se verificará después.'}
+                          </p>
+                        )}
+                        <p className="text-[11px] text-zinc-500 mt-1.5">Cuenta como cubierto y pasa a la comparación y a la orden de compra. Para ítems de bajo monto o de retail; lo demás, cotízalo.</p>
                       </td>
                     </tr>
                   )}

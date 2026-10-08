@@ -164,7 +164,7 @@ export function leerPlazosDelInforme(informe: any): PlazosDelInforme {
   // Desde cuándo corre el plazo: `plazos.frontera` (v3) o `linea_tiempo.frontera_inicio_computo`.
   const frontera = p?.frontera || lt?.frontera_inicio_computo;
   if (frontera) {
-    out.hitoInicioPlazo = [frontera.descripcion, frontera.base_computo].filter(Boolean).join(' — ') || null;
+    out.hitoInicioPlazo = [frontera.descripcion, /^[a-z]+(?:_[a-z]+)*$/.test(String(frontera.base_computo || '')) ? null : frontera.base_computo].filter(Boolean).join(' — ') || null;   // base_computo viene a veces como código interno ("aceptacion_oc"): no se muestra
   }
 
   // Plazo de entrega. En v3 viene ya redactado ("50 días corridos"); si no, se arma del hito de

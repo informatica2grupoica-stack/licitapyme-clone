@@ -34,6 +34,8 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
   const toast = useToast();
   const { recargar: recargarCompartido } = useCompras();
   const [reloj, setReloj] = useState<Reloj | null>(null);
+  // Sugerencia calculada por el servidor (fecha de la OC + plazo ofertado); se confirma con un clic.
+  const [sugerido, setSugerido] = useState<{ hitoInicio: string; fechaInicio: string; plazoDias: number; plazoTipo: PlazoTipo; tipoInferido: boolean; plazoTexto: string; origenFecha: string; venceEl: string } | null>(null);
   const [escenariosMulta, setEscenariosMulta] = useState<EscenarioMulta[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [formAbierto, setFormAbierto] = useState(false);
@@ -60,6 +62,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cargar');
       setReloj(data.reloj);
+      setSugerido(data.sugerido ?? null);
     } catch (e: any) {
       toast.error('No se pudo cargar el reloj de entrega', e.message);
     } finally {
@@ -69,18 +72,19 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
 
   useEffect(() => { cargar(); }, [cargar]);
 
-  const fijar = async () => {
-    if (!form.hitoInicio.trim() || !form.fechaInicio || !form.plazoDias) return;
+  const fijar = async (datos?: { hitoInicio: string; fechaInicio: string; plazoDias: number; plazoTipo: PlazoTipo }) => {
+    const f = datos ?? { hitoInicio: form.hitoInicio.trim(), fechaInicio: form.fechaInicio, plazoDias: Number(form.plazoDias), plazoTipo: form.plazoTipo };
+    if (!f.hitoInicio || !f.fechaInicio || !f.plazoDias) return;
     setGuardando(true);
     try {
       const res = await fetch(`/api/compras/${negocioId}/reloj`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hitoInicio: form.hitoInicio.trim(), fechaInicio: form.fechaInicio, plazoDias: Number(form.plazoDias), plazoTipo: form.plazoTipo }),
+        body: JSON.stringify(f),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo fijar');
       toast.success('Reloj fijado', 'Validación manual registrada.');
-      setReloj(data.reloj); setFormAbierto(false);
+      setReloj(data.reloj); setSugerido(null); setFormAbierto(false);
       // Fijar el reloj cierra sola la tarea "reloj_entrega" — sin esto, Tareas y el Gantt quedaban
       // mostrándola pendiente hasta recargar la pantalla entera.
       recargarCompartido();
@@ -208,7 +212,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
             <Select value={form.plazoTipo} onChange={v => setForm(f => ({ ...f, plazoTipo: v as PlazoTipo }))}
               options={[{ value: 'CORRIDOS', label: 'Días corridos' }, { value: 'HABILES', label: 'Días hábiles' }]} minWidth={130} />
           </div>
-          <button onClick={fijar} disabled={guardando} className="text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
+          <button onClick={() => fijar()} disabled={guardando} className="text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
             {guardando ? <Loader2 size={13} className="animate-spin" /> : 'Fijar (validación manual)'}
           </button>
         </div>
@@ -216,7 +220,25 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
 
       <div className="p-4 space-y-3">
         {!reloj?.fijadoAt ? (
-          <p className="text-[12px] text-zinc-400">El reloj todavía no se ha fijado — requiere validación manual.</p>
+          sugerido && puedeOperar ? (
+            <div className="rounded-xl border border-teal-200 bg-teal-50/60 p-3.5 space-y-2.5" data-testid="reloj-sugerido">
+              <p className="text-[12.5px] font-bold text-teal-900 flex items-center gap-1.5"><Sparkles size={14} /> El sistema ya calculó el plazo</p>
+              <p className="text-[13px] text-zinc-800 leading-snug">
+                Corre desde <b>{sugerido.hitoInicio.toLowerCase()}</b> ({sugerido.fechaInicio.split('-').reverse().join('-')}), <b>{sugerido.plazoDias} {sugerido.plazoDias === 1 ? 'día' : 'días'} {sugerido.plazoTipo === 'HABILES' ? (sugerido.plazoDias === 1 ? 'hábil' : 'hábiles') : (sugerido.plazoDias === 1 ? 'corrido' : 'corridos')}</b> →
+                vence el <b>{sugerido.venceEl.split('-').reverse().join('-')}</b>.
+              </p>
+              <p className="text-[11.5px] text-zinc-500">Sale de la orden de compra y del plazo ofertado («{sugerido.plazoTexto}»).{sugerido.tipoInferido ? ' El plazo no decía si son hábiles o corridos: se asumió corridos, revísalo.' : ''}</p>
+              <div className="flex items-center gap-2 pt-0.5">
+                <button onClick={() => fijar(sugerido)} disabled={guardando} className="text-[12.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3.5 py-1.5 rounded-lg">
+                  {guardando ? <Loader2 size={13} className="animate-spin" /> : 'Confirmar reloj'}
+                </button>
+                <button onClick={() => { setForm({ hitoInicio: sugerido.hitoInicio, fechaInicio: sugerido.fechaInicio, plazoDias: String(sugerido.plazoDias), plazoTipo: sugerido.plazoTipo }); setFormAbierto(true); }}
+                  className="text-[12.5px] font-semibold text-teal-700 hover:text-teal-900 px-2 py-1.5">Ajustar</button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-[12px] text-zinc-400">{sugerido ? 'El reloj todavía no se ha confirmado.' : 'Falta la orden de compra aceptada o el plazo ofertado para calcular el reloj: ' + 'cuando estén, el sistema lo calcula solo.'}</p>
+          )
         ) : (
           <>
             <div className="flex items-center gap-3 flex-wrap">

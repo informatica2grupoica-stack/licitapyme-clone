@@ -120,7 +120,7 @@ test('leerPlazosDelInforme: lee el esquema v3 (`plazos`) — el caso de 1114-12-
   const p = leerPlazosDelInforme(INFORME_1114);
   assert.equal(p.plazoEntregaTexto, '50 días corridos');
   assert.equal(p.plazoEntregaDias, 50);
-  assert.equal(p.hitoInicioPlazo, 'Desde la notificación de la orden de compra (24h después de la adjudicación) — emision_oc');
+  assert.equal(p.hitoInicioPlazo, 'Desde la notificación de la orden de compra (24h después de la adjudicación)');
   assert.equal(p.plazoAceptacionOC, '2 días hábiles');   // no el genérico "tope legal 5 días"
 });
 
@@ -131,7 +131,7 @@ test('leerPlazosDelInforme: sigue leyendo el esquema viejo (`linea_tiempo`)', ()
   } } });
   assert.equal(p.plazoEntregaDias, 30);
   assert.equal(p.plazoEntregaTexto, '30 corridos — Entrega de bienes');
-  assert.equal(p.hitoInicioPlazo, 'Desde la firma del contrato — firma_contrato');
+  assert.equal(p.hitoInicioPlazo, 'Desde la firma del contrato');
 });
 
 test('leerPlazosDelInforme: un informe sin plazos no rompe nada, devuelve todo en null', () => {

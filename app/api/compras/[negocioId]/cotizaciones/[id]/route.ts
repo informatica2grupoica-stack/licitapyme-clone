@@ -43,6 +43,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       plazoEntregaTexto: body.plazoEntregaTexto || null,
       incluyeFlete: body.incluyeFlete == null ? null : !!body.incluyeFlete,
       fleteMonto: parsearMontoCL(body.fleteMonto),
+      despachoModalidad: body.despachoModalidad || null,
+      fleteCondicion: body.fleteCondicion || null,
       vigenciaAt: body.vigenciaAt || null,
       notas: body.notas || null,
     };

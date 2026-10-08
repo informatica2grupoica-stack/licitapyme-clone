@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { listarSkus, crearSku, type DatosSku } from '@/app/lib/compras-aprobaciones';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
+import { detectarSkuExistentesEnObuma, enlazarSkuExistentesEnObuma } from '@/app/lib/compras-sku-obuma';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,7 +31,9 @@ export async function GET(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const skus = await listarSkus(id);
-    return NextResponse.json({ success: true, skus });
+    // ?detectar=1: además, qué productos ya tienen SKU en Obuma (creado por fuera de Licitank).
+    const existentesObuma = request.nextUrl.searchParams.get('detectar') ? await detectarSkuExistentesEnObuma(id).catch(() => []) : undefined;
+    return NextResponse.json({ success: true, skus, existentesObuma });
   } catch (error) {
     console.error('[compras/sku][GET]', String(error));
     return NextResponse.json({ error: 'No se pudieron cargar los SKU.' }, { status: 500 });
@@ -50,6 +53,10 @@ export async function POST(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const body = await request.json();
+    if (body.accion === 'enlazar-obuma') {
+      const { enlazados } = await enlazarSkuExistentesEnObuma(id, userId, nombre);
+      return NextResponse.json({ success: true, enlazados, skus: await listarSkus(id) });
+    }
     const productoId = Number(body.productoId);
     if (!Number.isFinite(productoId)) return NextResponse.json({ error: 'Falta productoId' }, { status: 400 });
 

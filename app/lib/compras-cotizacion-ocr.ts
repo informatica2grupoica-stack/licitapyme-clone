@@ -17,6 +17,9 @@ import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('compras', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
+import { normalizarLineas, tablaDeLineas, proveedorDesdeTexto, esEmpresaPropia, numeroDeTexto, type LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
+import { empresasPropias } from '@/app/lib/auditor-compras-datos';
+import { conCupo } from '@/app/lib/cupo-ia';
 import { ivaIncluidoDelTexto, vigenciaDelTexto, incluyeFleteDelTexto, minimoDeVentaDelTexto, precioONull, textoLegible } from '@/app/lib/compras-cotizacion-lectura';
 
 export interface DatosExtraidosCotizacion {
@@ -58,6 +61,12 @@ export interface DatosExtraidosCotizacion {
   incluyeFlete: boolean | null;
   /** Cantidad mínima de venta, si el proveedor la exige (> 1). */
   minimoVenta: number | null;
+  /** Líneas del documento leídas Y verificadas contra su texto y su aritmética (compras-cotizacion-lineas.ts). */
+  lineas: LineaCotizacion[];
+  /** true/false = las líneas suman (o no) el neto del documento; null = no se pudo comprobar. */
+  lineasCuadran: boolean | null;
+  /** Avisos de la lectura para mostrar a quien revisa (datos que no cuadran, precios descartados). */
+  avisosLectura: string[];
 }
 
 /** Caso real (09-sep-2026, cotización de Unisource): la IA leyó "2.052,00" (formato chileno) como
@@ -165,7 +174,7 @@ function monedaDelTexto(texto: string): 'USD' | 'EUR' | 'CLP' | null {
 const SYS_EXTRACCION = `Eres un asistente que lee cotizaciones de proveedores (PDF o imagen, ya transcritas a texto) para una empresa chilena que compra productos adjudicados en licitaciones públicas.
 
 Del texto que te paso, extrae SOLO lo que esté explícito y sea inequívoco:
-- proveedorNombre: nombre o razón social del proveedor que EMITE la cotización (no el destinatario).
+- proveedorNombre: nombre o razón social del proveedor que EMITE la cotización (no el destinatario). El emisor es quien tiene el membrete/logo, quien factura ("Razón social" en DATOS DE FACTURACIÓN, datos bancarios para el pago). Las filas rotuladas "Empresa", "Cliente", "Señor(es)", "Sr(es)" o "Para" son el COMPRADOR, nunca el proveedor. NUESTRAS empresas (los compradores) son: {{PROPIAS}} — jamás las devuelvas como proveedor.
 - proveedorRut: RUT del proveedor, formato XX.XXX.XXX-X si aparece.
 - precioUnitario: precio unitario del producto principal, en número (sin símbolo de moneda ni puntos de miles). Si el documento muestra una tabla con "Unitario"/"Unitario Neto" por un lado y un descuento aplicado DESPUÉS sobre el subtotal, usa el precio unitario de la TABLA (antes del descuento) — el descuento se extrae aparte, en descuentoPct.
 - precioTotal: precio total de la cotización, en número (el que corresponda ANTES del descuento — el mismo subtotal que multiplicarías por precioUnitario × cantidad).
@@ -195,7 +204,10 @@ tenga nombre chileno o viceversa — no asumas CLP solo por el idioma o el domic
 
 Si un dato no aparece con certeza, usa null — NUNCA inventes ni asumas un valor.
 
-Responde SOLO JSON: {"proveedorNombre":<string o null>,"proveedorRut":<string o null>,"precioUnitario":<número o null>,"precioTotal":<número o null>,"cantidadPrincipal":<número o null>,"descuentoPct":<número o null>,"fleteMonto":<número o null>,"moneda":<string o null>,"plazoEntregaTexto":<string o null>,"direccionBodega":<string o null>,"notasAdicionales":[<string, ...>]}`;
+- lineas: TODAS las líneas de productos de la tabla, una por producto, tal como las imprime el documento (no inventes ni agrupes): {"descripcion":<texto>,"cantidad":<número>,"precioUnitario":<número>,"descuentoPct":<número o null>,"total":<total de ESA línea tal como aparece impreso>}. "precioUnitario" es el unitario de la línea (si hay columna "P. c/Desc." o similar, ese). Si una línea no trae un dato, null. No incluyas filas de subtotal, IVA, flete ni totales.
+- totalNetoDocumento: el TOTAL NETO / subtotal del documento tal como aparece impreso (antes de IVA), en número; null si no aparece.
+
+Responde SOLO JSON: {"proveedorNombre":<string o null>,"proveedorRut":<string o null>,"precioUnitario":<número o null>,"precioTotal":<número o null>,"cantidadPrincipal":<número o null>,"descuentoPct":<número o null>,"fleteMonto":<número o null>,"moneda":<string o null>,"plazoEntregaTexto":<string o null>,"direccionBodega":<string o null>,"totalNetoDocumento":<número o null>,"lineas":[{"descripcion":"","cantidad":0,"precioUnitario":0,"descuentoPct":null,"total":0}],"notasAdicionales":[<string, ...>]}`;
 
 /** Lee un archivo de cotización (PDF por URL pública, imagen por buffer) y extrae los campos que
  *  la spec pide (§8.2). Devuelve todo en null si el OCR no logró transcribir nada legible — nunca
@@ -213,12 +225,26 @@ export async function extraerDatosCotizacionDeDocumento(
   if (esTextoPlano) {
     texto = buffer.toString('utf8');
   } else {
-    try {
-      texto = esPdf
-        ? await extraerTextoPdfPorUrlConGlmOcr(archivoUrl, 0)
-        : await ocrImagenConGlmOcr(buffer, mimeType);
-    } catch (e) {
-      console.error('[compras-cotizacion-ocr] GLM-OCR falló:', String(e).slice(0, 200));
+    // Un PDF con capa de texto real se lee DIRECTO (exacto, gratis y con las filas de las tablas bien armadas): el OCR por URL
+    // perdía el membrete y partes de la tabla (caso real: la cotización 17697 de ROHE salió con 399 de 1.325 caracteres y sin proveedor).
+    if (esPdf) {
+      try {
+        const pdfParse = (await import('pdf-parse')).default;
+        const { renderPaginaPorFilas } = await import('@/app/lib/pdf-texto-por-filas');
+        const t = ((await pdfParse(buffer, { pagerender: renderPaginaPorFilas })).text || '').trim();
+        if (t.length >= 150) texto = t;
+      } catch (e) {
+        console.warn('[compras-cotizacion-ocr] lectura directa del PDF falló, se usa OCR:', String(e).slice(0, 120));
+      }
+    }
+    if (!texto) {
+      try {
+        texto = esPdf
+          ? await extraerTextoPdfPorUrlConGlmOcr(archivoUrl, 0)
+          : await ocrImagenConGlmOcr(buffer, mimeType);
+      } catch (e) {
+        console.error('[compras-cotizacion-ocr] GLM-OCR falló:', String(e).slice(0, 200));
+      }
     }
   }
 
@@ -240,11 +266,13 @@ export async function extraerDatosCotizacionDeDocumento(
   if (!texto || texto.trim().length < 20) return null; // nada legible: no hay de dónde extraer
 
   try {
-    const completion: any = await crearChatIA({
-      messages: [{ role: 'system', content: SYS_EXTRACCION }, { role: 'user', content: texto.slice(0, 12_000) }],
-      temperature: 0, stream: false, max_tokens: 800,
+    const propias = await empresasPropias();
+    const sistema = SYS_EXTRACCION.replace('{{PROPIAS}}', propias.nombres.length ? propias.nombres.map((n, i) => `${n}${propias.ruts[i] ? ` (RUT ${propias.ruts[i]})` : ''}`).join('; ') : 'Inversiones Claro ARZ SpA; Comercial MP SpA');
+    const completion: any = await conCupo('compras-lectura', 3, () => crearChatIA({
+      messages: [{ role: 'system', content: sistema }, { role: 'user', content: texto.slice(0, 12_000) }],
+      temperature: 0, stream: false, max_tokens: 2_500,
       response_format: { type: 'json_object' },
-    }, { timeoutMs: 45_000, modeloPreferido: 'glm-4.7', soloGlm: true });
+    }, { timeoutMs: 60_000, modeloPreferido: 'glm-4.7', soloGlm: true }));
 
     const parsed: any = parseJsonIA(String(completion.choices?.[0]?.message?.content ?? '')) || {};
     // Number(null) es 0 y "consultar precio" volvía como $0 (auditoría 07-oct-2026): un 0 es "sin precio", no un precio.
@@ -261,19 +289,48 @@ export async function extraerDatosCotizacionDeDocumento(
     const moneda = parsed.moneda || monedaDelTexto(texto);
     // Un documento sin proveedor ni precio (unas Bases, una carta) no es una cotización: no se le rellena
     // plazo ni notas con lo que dice OTRO documento (auditoría 07-oct-2026: las Bases rellenaban "10 días corridos").
-    if (!parsed.proveedorNombre && !parsed.proveedorRut && precioUnitario == null && precioTotal == null) return null;
+    // PROVEEDOR: nunca una empresa nuestra. Caso real (1552047): "Empresa: INVERSIONES CLARO ARZ SPA" es el CLIENTE de la cotización
+    // y el sistema lo tomó como proveedor. Si la IA dio una empresa propia (o nada), se busca el emisor en el texto sin IA.
+    let proveedorNombre: string | null = parsed.proveedorNombre || null;
+    let proveedorRut: string | null = parsed.proveedorRut || null;
+    if (proveedorNombre) proveedorNombre = proveedorNombre.replace(/\bSP\s+A\b/gi, 'SPA').replace(/\bS\s+P\s+A\b/gi, 'SPA').replace(/\s+/g, ' ').trim();   // el texto digital a veces parte "SPA" en "SP A"
+    if (esEmpresaPropia(proveedorNombre, proveedorRut, propias)) { proveedorNombre = null; proveedorRut = null; }
+    if (!proveedorNombre) {
+      const p = proveedorDesdeTexto(texto, propias);
+      if (p) { proveedorNombre = p.nombre; proveedorRut = proveedorRut || p.rut; }
+    }
+    if (proveedorRut && esEmpresaPropia(null, proveedorRut, propias)) proveedorRut = null;
+
+    // LÍNEAS: lo que la IA leyó se comprueba contra el documento (los números tienen que aparecer) y contra su aritmética.
+    const totalNetoDoc = numeroDeTexto(parsed.totalNetoDocumento);
+    const norm = normalizarLineas(parsed.lineas, texto, totalNetoDoc);
+    let ivaIncl = ivaIncluidoDelTexto(texto);
+    if (norm.base === 'bruto') ivaIncl = true;       // las líneas suman el total CON IVA: los precios ya incluyen IVA
+    let unitFinal = precioUnitarioConfiable(precioUnitario, precioTotal, cantidadPrincipal);
+    let totalFinal = precioTotal;
+    let descuentoFinal = descuentoPct;
+    if (norm.lineas.length > 0 && norm.cuadra !== false) {
+      // Los precios de línea ya traen el descuento aplicado y el total impreso también: NO se vuelve a descontar (caso 30464: 10 % dos veces).
+      const primera = norm.lineas.find(l => l.precioUnitario != null);
+      if (primera?.precioUnitario != null) unitFinal = primera.precioUnitario;
+      if (norm.suma != null) totalFinal = norm.suma;
+      if (norm.lineas.some(l => l.descuentoPct != null) || (descuentoPct != null && totalNetoDoc != null)) descuentoFinal = null;
+    }
+    if (!proveedorNombre && !proveedorRut && unitFinal == null && totalFinal == null && norm.lineas.length === 0) return null;
     return {
-      proveedorNombre: parsed.proveedorNombre || null, proveedorRut: parsed.proveedorRut || null,
-      precioUnitario: precioUnitarioConfiable(precioUnitario, precioTotal, cantidadPrincipal),
-      precioTotal, descuentoPct, fleteMonto: fleteMontoConfiable(fleteMonto, precioTotal, precioUnitario),
+      proveedorNombre, proveedorRut,
+      precioUnitario: unitFinal,
+      precioTotal: totalFinal, descuentoPct: descuentoFinal, fleteMonto: fleteMontoConfiable(fleteMonto, precioTotal, precioUnitario),
       moneda, plazoEntregaTexto: parsed.plazoEntregaTexto || null,
       direccionBodega: parsed.direccionBodega || null,
       notasAdicionales: Array.isArray(parsed.notasAdicionales) ? parsed.notasAdicionales.filter((n: unknown) => typeof n === 'string' && n.trim()) : [],
       // Tope generoso (12.000 — el mismo que se le pasa a la IA de extracción arriba) para no
       // guardar un documento gigante entero si alguien sube algo fuera de lo esperado.
-      textoCompleto: textoLegible(texto).slice(0, 12_000),
-      ivaIncluido: ivaIncluidoDelTexto(texto), vigenciaAt: vigenciaDelTexto(texto),
+      // La tabla de líneas verificadas va ANTES del texto: es lo que lee la homologación para asignar cada línea a su producto.
+      textoCompleto: (tablaDeLineas(norm.lineas) + textoLegible(texto)).slice(0, 12_000),
+      ivaIncluido: ivaIncl, vigenciaAt: vigenciaDelTexto(texto),
       incluyeFlete: incluyeFleteDelTexto(texto), minimoVenta: minimoDeVentaDelTexto(texto),
+      lineas: norm.lineas, lineasCuadran: norm.cuadra, avisosLectura: norm.avisos,
     };
   } catch (e) {
     console.error('[compras-cotizacion-ocr] extracción IA falló:', String(e).slice(0, 200));
@@ -286,6 +343,7 @@ export async function extraerDatosCotizacionDeDocumento(
       textoCompleto: textoLegible(texto).slice(0, 12_000),
       ivaIncluido: ivaIncluidoDelTexto(texto), vigenciaAt: vigenciaDelTexto(texto),
       incluyeFlete: incluyeFleteDelTexto(texto), minimoVenta: minimoDeVentaDelTexto(texto),
+      lineas: [], lineasCuadran: null, avisosLectura: ['La IA no pudo estructurar el documento: se guardó el texto para revisarlo.'],
     };
   }
 }

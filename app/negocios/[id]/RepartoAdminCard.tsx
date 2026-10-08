@@ -12,6 +12,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { parsearMontoCL } from '@/app/lib/numeros';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
+import { CrearProveedorObumaModal, type FormProveedor } from './CrearProveedorObumaModal';
 import { IconClipboardList as ClipboardList, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircle as Circle, IconFileText as FileText, IconBolt as Zap, IconTruck as Truck, IconCircleMinus as MinusCircle, IconPaperclip as Paperclip, IconX as X } from '@tabler/icons-react';
 
 interface Reparto {
@@ -32,6 +33,7 @@ interface ProveedorOC {
   items: ItemOC[]; subtotal: number;
   yaCreada: { obumaCompraOcId: string; folio: string | null; total: number; fechaOc: string } | null;
   posibleDuplicadoObuma: { folio: string | null; referencia: string; fecha: string; total: number } | null;
+  ocRealObuma?: { folios: string[]; totalNeto: number; estados: string[]; fecha: string | null } | null;
 }
 interface FormaPago { id: string; codigo: string; nombre: string }
 interface ItemOCVista { descripcion: string; cantidad: number; precioUnitario: number; subtotal: number }
@@ -50,16 +52,6 @@ interface RespaldoHito {
 const fmtCLP = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 
 type EstadoProveedorObuma = 'idle' | 'cargando' | 'existe' | 'no_existe' | 'sin_rut';
-const formProveedorVacio = {
-  rut: '', razonSocial: '', nombreFantasia: '', contacto: '', giro: '', direccion: '', comuna: '', region: '', pais: 'CHILE',
-  telefono: '', celular: '', email: '', website: '', observacion: '', cuentaContable: '',
-  esSupermercado: false, esFactoring: false,
-  // Configuración financiera — confirmada en vivo contra Obuma 22-sep-2026 (ver obuma.ts,
-  // crearProveedorObuma). formaPago/centroCosto son IDs con catálogo consultable; bancoCuenta y
-  // tipoProveedorId son IDs internos de Obuma sin catálogo público — quien llena el formulario debe
-  // saber el ID (mismo que ve en el desplegable del formulario web de Obuma).
-  formaPago: '', centroCosto: '', bancoCuenta: '', nroCuenta: '', tipoCuenta: '', tipoProveedorId: '', tags: '',
-};
 
 const HITOS: Array<{ key: Hito; label: string; atField: keyof Reparto }> = [
   { key: 'ocEmitida', label: 'Orden de compra emitida', atField: 'ocEmitidaAt' },
@@ -70,7 +62,7 @@ const HITOS: Array<{ key: Hito; label: string; atField: keyof Reparto }> = [
   { key: 'provisionFondos', label: 'Provisión de fondos', atField: 'provisionFondosAt' },
 ];
 
-export function RepartoAdminCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
+export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { negocioId: number; puedeOperar: boolean; parte?: 'todo' | 'oc' | 'hitos' }) {
   const toast = useToast();
   const { recargar: recargarCompartido } = useCompras();
   const [visible, setVisible] = useState(false);
@@ -118,8 +110,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar }: { negocioId: number
 
   const [estadoProveedorObuma, setEstadoProveedorObuma] = useState<EstadoProveedorObuma>('idle');
   const [modalProveedorAbierto, setModalProveedorAbierto] = useState(false);
-  const [formProveedor, setFormProveedor] = useState(formProveedorVacio);
-  const [guardandoProveedor, setGuardandoProveedor] = useState(false);
+  const [provInicial, setProvInicial] = useState<Partial<FormProveedor>>({});
 
   const cargar = useCallback(async () => {
     try {
@@ -177,35 +168,13 @@ export function RepartoAdminCard({ negocioId, puedeOperar }: { negocioId: number
   };
 
   const abrirModalProveedor = (p: ProveedorOC) => {
-    setFormProveedor({
-      ...formProveedorVacio, rut: p.proveedorRut || '', razonSocial: p.proveedorNombre,
+    setProvInicial({
+      rut: p.proveedorRut || '', razonSocial: p.proveedorNombre,
       giro: p.proveedorGiro || '', contacto: p.proveedorContacto || '',
       direccion: p.proveedorDireccion || '', comuna: p.proveedorComuna || '',
       telefono: p.proveedorTelefono || '', email: p.proveedorEmail || '',
     });
-    cargarFormasPago();
     setModalProveedorAbierto(true);
-  };
-
-  const crearProveedorObuma = async () => {
-    if (!formProveedor.rut.trim() || !formProveedor.razonSocial.trim()) {
-      toast.error('Faltan datos', 'RUT y razón social son obligatorios.'); return;
-    }
-    setGuardandoProveedor(true);
-    try {
-      const res = await fetch(`/api/compras/${negocioId}/orden-compra-obuma/proveedor`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formProveedor),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo crear');
-      toast.success('Proveedor creado en Obuma', formProveedor.razonSocial);
-      setModalProveedorAbierto(false);
-      setEstadoProveedorObuma('existe');
-    } catch (e: any) {
-      toast.error('No se pudo crear el proveedor', e.message);
-    } finally {
-      setGuardandoProveedor(false);
-    }
   };
 
   const crearOC = async (proveedorNombre: string, hayDuplicado: boolean) => {
@@ -309,11 +278,17 @@ export function RepartoAdminCard({ negocioId, puedeOperar }: { negocioId: number
     }
   };
 
-  if (loading || !visible || !reparto) return null;
+  if (loading || !reparto) return null;
+  if (!visible) return parte === 'oc'
+    ? <p className="text-[12.5px] text-zinc-500 bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3">Las órdenes de compra se habilitan cuando la jefatura aprueba la compra y el margen (paso «Aprobación y SKU»). Todavía no están aprobadas.</p>
+    : null;
 
   return (
     <div className="space-y-3">
-      {proveedoresOC.length > 0 && (
+      {parte === 'oc' && proveedoresOC.length === 0 && (
+        <p className="text-[12.5px] text-zinc-500 bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3">Todavía no hay una forma de comprar elegida: las órdenes de compra salen del escenario elegido en «Costeo y auditoría».</p>
+      )}
+      {parte !== 'hitos' && proveedoresOC.length > 0 && (
         <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
           <p className="px-4 py-2.5 text-[11px] font-bold text-zinc-500 uppercase bg-zinc-50 border-b border-zinc-100 flex items-center gap-1.5">
             <FileText size={13} /> Órdenes de compra (Obuma) — una por proveedor
@@ -338,6 +313,11 @@ export function RepartoAdminCard({ negocioId, puedeOperar }: { negocioId: number
                     {p.yaCreada ? (
                       <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full">
                         <CheckCircle2 size={12} /> Folio {p.yaCreada.folio ?? p.yaCreada.obumaCompraOcId} · {fmtCLP(p.yaCreada.total)}
+                      </span>
+                    ) : p.ocRealObuma ? (
+                      <span title="La OC se hizo directo en Obuma (no desde Licitank). No se crea otra."
+                        className="flex items-center gap-1 text-[11px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-1 rounded-full">
+                        <CheckCircle2 size={12} /> Realizada en Obuma · OC {p.ocRealObuma.folios.join(', ')} · {p.ocRealObuma.estados.join(' / ')} · {fmtCLP(p.ocRealObuma.totalNeto)} neto
                       </span>
                     ) : puedeOperar && ocAbierta !== p.proveedorNombre ? (
                       <div className="flex-shrink-0 flex items-center gap-2">
@@ -453,6 +433,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar }: { negocioId: number
         </div>
       )}
 
+      {parte !== 'oc' && (
       <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
       <p className="px-4 py-2.5 text-[11px] font-bold text-zinc-500 uppercase bg-zinc-50 border-b border-zinc-100 flex items-center gap-1.5">
         <ClipboardList size={13} /> Proceso administrativo (§11) — hitos de OBUMA
@@ -576,141 +557,11 @@ export function RepartoAdminCard({ negocioId, puedeOperar }: { negocioId: number
         })}
       </div>
       </div>
+      )}
 
       {modalProveedorAbierto && (
-        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4" onClick={() => setModalProveedorAbierto(false)}>
-          <div className="bg-white rounded-xl border border-zinc-200 shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <p className="px-4 py-3 text-[12px] font-bold text-zinc-800 border-b border-zinc-100 flex items-center gap-1.5">
-              <Zap size={13} className="text-indigo-600" /> Crear proveedor en Obuma
-            </p>
-            <div className="p-4 space-y-2">
-              <p className="text-[10.5px] text-zinc-400">Escritura real contra Obuma — se crea de verdad al guardar. Son los campos documentados de la API (obuma.cl/ayuda/articulo/157); solo RUT y razón social son obligatorios para crear.</p>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="text-[10.5px] font-semibold text-zinc-500 col-span-1">
-                  RUT *
-                  <input value={formProveedor.rut} onChange={e => setFormProveedor(f => ({ ...f, rut: e.target.value }))}
-                    className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
-                </label>
-                <label className="text-[10.5px] font-semibold text-zinc-500">
-                  Razón social *
-                  <input value={formProveedor.razonSocial} onChange={e => setFormProveedor(f => ({ ...f, razonSocial: e.target.value }))}
-                    className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
-                </label>
-                <label className="text-[10.5px] font-semibold text-zinc-500">
-                  Nombre fantasía
-                  <input value={formProveedor.nombreFantasia} onChange={e => setFormProveedor(f => ({ ...f, nombreFantasia: e.target.value }))}
-                    className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
-                </label>
-                <label className="text-[10.5px] font-semibold text-zinc-500">
-                  Contacto <span className="font-normal text-zinc-400">(pide Obuma)</span>
-                  <input value={formProveedor.contacto} onChange={e => setFormProveedor(f => ({ ...f, contacto: e.target.value }))}
-                    className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
-                </label>
-                <label className="text-[10.5px] font-semibold text-zinc-500">
-                  Giro comercial
-                  <input value={formProveedor.giro} onChange={e => setFormProveedor(f => ({ ...f, giro: e.target.value }))}
-                    className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
-                </label>
-                <label className="text-[10.5px] font-semibold text-zinc-500 col-span-2">
-                  Dirección
-                  <input value={formProveedor.direccion} onChange={e => setFormProveedor(f => ({ ...f, direccion: e.target.value }))}
-                    className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
-                </label>
-                <label className="text-[10.5px] font-semibold text-zinc-500">
-                  Comuna
-                  <input value={formProveedor.comuna} onChange={e => setFormProveedor(f => ({ ...f, comuna: e.target.value }))}
-                    className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
-                </label>
-                <label className="text-[10.5px] font-semibold text-zinc-500">
-                  Región
-                  <input value={formProveedor.region} onChange={e => setFormProveedor(f => ({ ...f, region: e.target.value }))}
-                    className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
-                </label>
-                <label className="text-[10.5px] font-semibold text-zinc-500">
-                  País
-                  <input value={formProveedor.pais} onChange={e => setFormProveedor(f => ({ ...f, pais: e.target.value }))}
-                    className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
-                </label>
-                <label className="text-[10.5px] font-semibold text-zinc-500">
-                  Teléfono <span className="font-normal text-zinc-400">(pide Obuma)</span>
-                  <input value={formProveedor.telefono} onChange={e => setFormProveedor(f => ({ ...f, telefono: e.target.value }))}
-                    className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
-                </label>
-                <label className="text-[10.5px] font-semibold text-zinc-500">
-                  Celular
-                  <input value={formProveedor.celular} onChange={e => setFormProveedor(f => ({ ...f, celular: e.target.value }))}
-                    className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
-                </label>
-                <label className="text-[10.5px] font-semibold text-zinc-500">
-                  Email <span className="font-normal text-zinc-400">(pide Obuma)</span>
-                  <input value={formProveedor.email} onChange={e => setFormProveedor(f => ({ ...f, email: e.target.value }))}
-                    className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
-                </label>
-                <label className="text-[10.5px] font-semibold text-zinc-500">
-                  Sitio web
-                  <input value={formProveedor.website} onChange={e => setFormProveedor(f => ({ ...f, website: e.target.value }))}
-                    className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
-                </label>
-                <label className="text-[10.5px] font-semibold text-zinc-500">
-                  Cuenta contable <span className="font-normal text-zinc-400">(código, opcional)</span>
-                  <input value={formProveedor.cuentaContable} onChange={e => setFormProveedor(f => ({ ...f, cuentaContable: e.target.value }))}
-                    placeholder="ej. 2.1.01.001" className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
-                </label>
-                <label className="text-[10.5px] font-semibold text-zinc-500">
-                  Forma de pago <span className="font-normal text-zinc-400">(opcional)</span>
-                  <select value={formProveedor.formaPago} onChange={e => setFormProveedor(f => ({ ...f, formaPago: e.target.value }))}
-                    className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500 bg-white">
-                    <option value="">— sin definir —</option>
-                    {formasPago.map(f => <option key={f.id} value={f.id}>{f.nombre}</option>)}
-                  </select>
-                </label>
-                <label className="text-[10.5px] font-semibold text-zinc-500">
-                  Centro de costo <span className="font-normal text-zinc-400">(ID de Obuma, opcional)</span>
-                  <input value={formProveedor.centroCosto} onChange={e => setFormProveedor(f => ({ ...f, centroCosto: e.target.value }))}
-                    placeholder="ej. 4491" className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
-                </label>
-                <label className="text-[10.5px] font-semibold text-zinc-500">
-                  Banco <span className="font-normal text-zinc-400">(ID de Obuma, opcional)</span>
-                  <input value={formProveedor.bancoCuenta} onChange={e => setFormProveedor(f => ({ ...f, bancoCuenta: e.target.value }))}
-                    placeholder="mismo ID que ves en Obuma" className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
-                </label>
-                <label className="text-[10.5px] font-semibold text-zinc-500">
-                  Tipo de cuenta <span className="font-normal text-zinc-400">(opcional)</span>
-                  <input value={formProveedor.tipoCuenta} onChange={e => setFormProveedor(f => ({ ...f, tipoCuenta: e.target.value }))}
-                    placeholder="ej. Cuenta Corriente" className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
-                </label>
-                <label className="text-[10.5px] font-semibold text-zinc-500">
-                  N° de cuenta <span className="font-normal text-zinc-400">(opcional)</span>
-                  <input value={formProveedor.nroCuenta} onChange={e => setFormProveedor(f => ({ ...f, nroCuenta: e.target.value }))}
-                    placeholder="ej. 164-28444-03" className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
-                </label>
-                <label className="text-[10.5px] font-semibold text-zinc-500 col-span-2">
-                  Observación
-                  <textarea value={formProveedor.observacion} onChange={e => setFormProveedor(f => ({ ...f, observacion: e.target.value }))} rows={2}
-                    className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
-                </label>
-                <label className="flex items-center gap-2 text-[11px] text-zinc-600">
-                  <input type="checkbox" checked={formProveedor.esSupermercado} onChange={e => setFormProveedor(f => ({ ...f, esSupermercado: e.target.checked }))} className="accent-indigo-600" />
-                  Es supermercado
-                </label>
-                <label className="flex items-center gap-2 text-[11px] text-zinc-600">
-                  <input type="checkbox" checked={formProveedor.esFactoring} onChange={e => setFormProveedor(f => ({ ...f, esFactoring: e.target.checked }))} className="accent-indigo-600" />
-                  Es factoring
-                </label>
-              </div>
-              <p className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
-                Forma de pago, centro de costo, banco, tipo y N° de cuenta se mandan junto con la creación (confirmado en vivo, 22-sep-2026 — no están en la doc pública de Obuma, pero la API los acepta). El ID del banco no tiene catálogo público: usá el mismo que ves en el desplegable del formulario web de Obuma. "Tipo de proveedor" no tiene campo acá todavía — se completa después, directo en Obuma, si hace falta.
-              </p>
-            </div>
-            <div className="px-4 py-3 border-t border-zinc-100 flex items-center gap-2">
-              <button onClick={crearProveedorObuma} disabled={guardandoProveedor || !formProveedor.rut.trim() || !formProveedor.razonSocial.trim()}
-                className="text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
-                {guardandoProveedor ? <Loader2 size={12} className="animate-spin" /> : 'Crear en Obuma'}
-              </button>
-              <button onClick={() => setModalProveedorAbierto(false)} className="text-[11px] text-zinc-400 hover:text-zinc-600">Cancelar</button>
-            </div>
-          </div>
-        </div>
+        <CrearProveedorObumaModal negocioId={negocioId} inicial={provInicial} onCerrar={() => setModalProveedorAbierto(false)}
+          onCreado={() => { setModalProveedorAbierto(false); setEstadoProveedorObuma('existe'); }} />
       )}
 
       {verOcAbierto && (

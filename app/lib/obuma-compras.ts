@@ -13,7 +13,7 @@
 // Solo se guardan las compras que SÍ mencionan una licitación nuestra: esto no es un espejo del
 // ERP completo (~16.700 compras en la cuenta), es la vista cruzada que pidió el usuario.
 import pool from '@/app/lib/db';
-import { listarComprasOc, listarComprasOcItems, listarComprasDte, proveedorPorId, type ObumaCompraOc } from '@/app/lib/obuma';
+import { listarComprasOc, listarComprasOcItems, listarComprasDte, proveedorPorId, centrosDeCostoCompleto, proyectosExtCompleto, type ObumaCompraOc } from '@/app/lib/obuma';
 import { mencionaCodigo, licitacionesOfertadas } from '@/app/lib/ordenes-compra';
 
 function num(v: unknown): number | null {
@@ -58,12 +58,30 @@ export interface ResumenSyncObuma {
  * backfill inicial.
  */
 export async function sincronizarComprasObuma(
-  { paginas = 5 }: { paginas?: number } = {},
+  { paginas = 5, soloCodigo }: { paginas?: number; soloCodigo?: string } = {},
 ): Promise<ResumenSyncObuma> {
   const resumen: ResumenSyncObuma = { paginasBarridas: 0, vistas: 0, candidatas: 0, nuevasOActualizadas: 0 };
   const nuestras = await licitacionesOfertadas();
   if (nuestras.size === 0) return resumen;
   const codigos = [...nuestras.keys()];
+
+  // Segundo camino de cruce: el CENTRO DE COSTO del proyecto. En Obuma quien arma la OC a veces no escribe
+  // el código de la licitación en la referencia (caso 759-21-LE26: «PR-190 ADQUISICION DE EQUIPOS…»), pero
+  // la OC sí queda en el centro de costo del Proyecto, y el Proyecto lleva el código en su Referencia.
+  // centro de costo → código de licitación. Si falla, el cruce sigue solo por referencia, como antes.
+  const centroACodigo = new Map<string, string>();
+  try {
+    const [{ datos: proyectos }, centros] = await Promise.all([proyectosExtCompleto(), centrosDeCostoCompleto()]);
+    for (const p of proyectos) {
+      const cod = codigos.find(c => mencionaCodigo(p.proyecto_referencia || '', c) || mencionaCodigo(p.proyecto_nombre || '', c));
+      if (!cod) continue;
+      for (const ce of centros) if (ce.relProyectoId === p.proyecto_id) centroACodigo.set(ce.id, cod);
+    }
+  } catch (err) {
+    console.warn('[obuma-compras] cruce por centro de costo no disponible:', String(err).slice(0, 150));
+  }
+  const codigoDe = (c: ObumaCompraOc): string | null =>
+    codigos.find(cod => mencionaCodigo(c.compra_oc_referencia || '', cod)) || centroACodigo.get(String(c.compra_oc_centro_costo)) || null;
 
   const candidatas: ObumaCompraOc[] = [];
   for (let page = 1; page <= paginas; page++) {
@@ -79,8 +97,8 @@ export async function sincronizarComprasObuma(
     if (lote.length === 0) break;
     resumen.vistas += lote.length;
     for (const c of lote) {
-      const ref = c.compra_oc_referencia || '';
-      if (codigos.some(cod => mencionaCodigo(ref, cod))) candidatas.push(c);
+      const cod = codigoDe(c);
+      if (cod && (!soloCodigo || cod === soloCodigo)) candidatas.push(c);   // soloCodigo: sincronizar YA una sola licitación (botón de la pantalla)
     }
     await dormir(PAUSA_MS);
   }
@@ -135,7 +153,7 @@ export async function sincronizarComprasObuma(
 
   for (const c of candidatas) {
     const referencia = c.compra_oc_referencia || '';
-    const licitacionCodigo = codigos.find(cod => mencionaCodigo(referencia, cod)) || null;
+    const licitacionCodigo = codigoDe(c);
     const negocio = licitacionCodigo ? nuestras.get(licitacionCodigo) : undefined;
     const proveedor = await resolverProveedor(c.rel_proveedor_id);
 
@@ -183,7 +201,11 @@ export async function sincronizarComprasObuma(
   return resumen;
 }
 
-export interface ItemCompraObuma { descripcion: string; cantidad: number | null; precio: number | null; subtotal: number | null }
+export interface ItemCompraObuma {
+  descripcion: string; cantidad: number | null; precio: number | null; subtotal: number | null;
+  // El producto del catálogo de Obuma al que apunta la línea (SKU ya creado por fuera de Licitank).
+  productoId?: string | null; codigoComercial?: string | null;
+}
 export interface CompraObumaFila {
   compraOcId: string;
   folio: string | null;
@@ -200,6 +222,18 @@ export interface CompraObumaFila {
   facturas: FacturaObuma[];
 }
 
+/** Neto REAL de una compra: total − IVA. `neto` viene en 0 cuando la compra es EXENTA de IVA (caso real: la
+ *  garantía de fiel cumplimiento de FINFAST, $75.867 exento) y entonces se perdía como si no costara nada. */
+export function netoDeCompra(c: Pick<CompraObumaFila, 'neto' | 'total' | 'iva'>): number {
+  if (c.total != null) return Math.round(c.total - (c.iva ?? 0));
+  return Math.round(c.neto ?? 0);
+}
+
+/** ¿Es la OC de una garantía/boleta/póliza (no una compra de productos)? Todas sus líneas lo dicen. */
+export function esOcDeGarantia(c: Pick<CompraObumaFila, 'items'>): boolean {
+  return c.items.length > 0 && c.items.every(i => /garant[ií]a|boleta|p[oó]liza/i.test(i.descripcion));
+}
+
 function itemsDesdeJson(json: string | null): ItemCompraObuma[] {
   if (!json) return [];
   try {
@@ -207,6 +241,8 @@ function itemsDesdeJson(json: string | null): ItemCompraObuma[] {
     return arr.map(it => ({
       descripcion: it.producto_nombre || it.producto_descripcion || '',
       cantidad: num(it.cantidad), precio: num(it.precio), subtotal: num(it.subtotal),
+      productoId: it.producto_id && String(it.producto_id) !== '0' ? String(it.producto_id) : null,
+      codigoComercial: it.codigo_comercial ? String(it.codigo_comercial) : null,
     }));
   } catch { return []; }
 }

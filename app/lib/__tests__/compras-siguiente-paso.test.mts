@@ -38,6 +38,7 @@ test('OC sin aceptar lleva al bloque de la OC', () => {
 test('reloj pendiente antes que validaciones y cotizaciones', () => {
   const p = siguientePaso(base({ tareas: [t('contacto_inicial', 'Contacto'), t('reloj_entrega', 'Reloj')], fases: { ...base().fases!, productosSinCotizacion: 3 } }));
   assert.equal(p.titulo, 'Fija el plazo de entrega');
+  assert.equal(p.fase, 'entrega');   // el reloj ya no es una tarea: vive en Entrega y en la franja fija
 });
 test('validación de inicio antes que cotizar', () => {
   const p = siguientePaso(base({ tareas: [t('validacion_tecnica_real', 'Validación técnica real')], fases: { ...base().fases!, productosSinCotizacion: 3 } }));

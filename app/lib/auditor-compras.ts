@@ -119,6 +119,21 @@ async function lineaDeLaLicitacion(licitacionCodigo: string | null, lineaReal: n
 
 interface CotizacionRespaldo { id: number; proveedor: string; rut: string | null; rutEsPropio: boolean; fecha: string; vigencia: string | null; moneda: string; precioUnitario: number | null; precioOriginal: number | null; tipoCambio: number | null; fleteMonto: number | null; archivoUrl: string | null; archivoNombre: string | null; plazoTexto: string | null; plazoDias: number | null; incluyeFlete: boolean | null; texto: string; origen: string }
 
+/** Última vez que cambió una cotización de esta línea (alta o lectura), como 'YYYY-MM-DD HH:MM:SS' hora de Chile. */
+async function ultimoCambioDeCotizaciones(negocioId: number, l: LineaCosteo): Promise<string | null> {
+  try {
+    const [prods] = await pool.query(`SELECT id, correlativo, descripcion FROM compras_producto WHERE negocio_id = ?`, [negocioId]) as any;
+    const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 80);
+    const p = (prods as any[]).find(x => l.lineaReal != null && x.correlativo === l.lineaReal && (prods as any[]).filter(y => y.correlativo === l.lineaReal).length === 1)
+      ?? (prods as any[]).find(x => norm(String(x.descripcion)) === norm(l.detalle));
+    if (!p) return null;
+    const [[r]]: any = await pool.query(
+      `SELECT DATE_FORMAT(MAX(GREATEST(c.created_at, COALESCE(c.homologada_at, c.created_at))), '%Y-%m-%d %H:%i:%s') AS t
+         FROM compras_cotizacion c JOIN compras_cotizacion_item i ON i.cotizacion_id = c.id WHERE c.negocio_id = ? AND i.producto_id = ?`, [negocioId, p.id]);
+    return r?.t ?? null;
+  } catch { return null; }
+}
+
 async function cotizacionesDeLaLinea(negocioId: number, l: LineaCosteo): Promise<CotizacionRespaldo[]> {
   try {
     const [prods] = await pool.query(`SELECT id, correlativo, descripcion FROM compras_producto WHERE negocio_id = ?`, [negocioId]) as any;
@@ -128,7 +143,7 @@ async function cotizacionesDeLaLinea(negocioId: number, l: LineaCosteo): Promise
     if (!p) return [];
     const [rows] = await pool.query(
       `SELECT c.id, c.proveedor_nombre, c.proveedor_rut, c.origen, c.descripcion_libre, c.texto_documento, c.moneda, c.plazo_entrega_texto, c.plazo_entrega_dias,
-              c.precio_unitario AS precio_original, c.tipo_cambio_usado, c.flete_monto, c.archivo_url, c.archivo_nombre, c.incluye_flete, DATE_FORMAT(c.tomada_at, '%Y-%m-%d') AS tomada, DATE_FORMAT(c.vigencia_at, '%Y-%m-%d') AS vigencia, i.precio_unitario
+              c.precio_unitario AS precio_original, c.tipo_cambio_usado, c.flete_monto, c.archivo_url, c.archivo_nombre, c.incluye_flete, c.notas, DATE_FORMAT(c.tomada_at, '%Y-%m-%d') AS tomada, DATE_FORMAT(c.vigencia_at, '%Y-%m-%d') AS vigencia, i.precio_unitario
          FROM compras_cotizacion c JOIN compras_cotizacion_item i ON i.cotizacion_id = c.id
         WHERE c.negocio_id = ? AND i.producto_id = ? ORDER BY c.tomada_at DESC LIMIT 3`,
       [negocioId, p.id],
@@ -140,7 +155,12 @@ async function cotizacionesDeLaLinea(negocioId: number, l: LineaCosteo): Promise
       fleteMonto: r.flete_monto != null ? Number(r.flete_monto) : null, archivoUrl: r.archivo_url, archivoNombre: r.archivo_nombre, fecha: r.tomada, vigencia: r.vigencia, moneda: r.moneda || 'CLP',
       precioUnitario: r.precio_unitario != null ? Number(r.precio_unitario) : null, plazoTexto: r.plazo_entrega_texto, plazoDias: r.plazo_entrega_dias,
       incluyeFlete: r.incluye_flete == null ? null : !!r.incluye_flete, origen: r.origen,
-      texto: [r.texto_documento, r.descripcion_libre].filter(Boolean).join('\n\n').slice(0, MAX_TEXTO_COT),
+      texto: (r.origen === 'directa'
+        // Una compra directa no trae documento: el respaldo es lo que el comprador declaró (proveedor, precio, marca/modelo, link).
+        // Sin esto el verificador decía «el precio no aparece en el respaldo» y «producto genérico» de una compra bien hecha.
+        ? [`COMPRA DIRECTA (sin cotización formal) a ${r.proveedor_nombre}${r.proveedor_rut ? ` · RUT ${r.proveedor_rut}` : ''}. Precio neto unitario declarado por el comprador: $${Number(r.precio_unitario).toLocaleString('es-CL')}.`,
+           r.descripcion_libre, r.notas].filter(Boolean).join('\n')
+        : [r.texto_documento, r.descripcion_libre].filter(Boolean).join('\n\n')).slice(0, MAX_TEXTO_COT),
     }));
   } catch (e) { console.warn('[auditor-compras] cotizaciones:', String(e).slice(0, 120)); return []; }
 }
@@ -497,6 +517,8 @@ export function lineasAuditandoAhora(negocioId: number): string[] {
 export interface LineaPanel {
   linea: LineaCosteo; guardada: LineaGuardada | null; derivada: LineaDerivada | null;
   justificacionAhorro: string | null; justificacionPor: string | null; habilitacion: Habilitacion | null; auditando: boolean;
+  /** Se cargó/cambió una cotización de esta línea DESPUÉS de la última auditoría: el veredicto que se ve es de antes. */
+  desactualizada?: boolean;
   /** El acta de MP la adjudicó a otro proveedor: se muestra bloqueada y no entra a ningún cálculo. */
   noAdjudicada: boolean;
 }
@@ -504,7 +526,7 @@ export interface PanelAuditorCompras {
   negocioId: number; hayCostea: boolean; lineas: LineaPanel[];
   margen: ReturnType<typeof margenProyecto> | null; posicion: PosicionPrecio | null;
   mensajesProveedor: ReturnType<typeof mensajesPorProveedor>;
-  resumen: { total: number; verificadas: number; conAlertas: number; bloqueadas: number; sinAuditar: number; pendientes: number; pasaAnexosOk: boolean };
+  resumen: { total: number; verificadas: number; conAlertas: number; bloqueadas: number; sinAuditar: number; pendientes: number; pasaAnexosOk: boolean; desactualizadas?: number };
   pasadaFinal: { at: string; pasa: boolean; bloqueadas: number; cambios: Array<{ item: number; detalle: string; cambios: string[] }> } | null;
   parametros: typeof PARAMS; migracionAplicada: boolean;
   lote: { tipo: 'todo' | 'final'; total: number; hechas: number; error: string | null } | null;
@@ -575,6 +597,12 @@ export async function armarPanel(negocioId: number, lecturaNueva?: string | null
     return { linea: l, guardada: g, derivada, justificacionAhorro: r?.justificacion_ahorro ?? null, justificacionPor: r?.justificacion_por_nombre ?? null, habilitacion: hab, auditando: auditando.has(l.id), noAdjudicada: false };
   });
 
+  // Veredictos de antes de la última cotización cargada: se marcan como desactualizados (salvo que ya se esté re-auditando).
+  await Promise.all(panelLineas.map(async p => {
+    if (!p.guardada || p.noAdjudicada || p.auditando) return;
+    const ult = await ultimoCambioDeCotizaciones(negocioId, p.linea);
+    if (ult && ult > String(p.guardada.auditadoAt).slice(0, 19)) p.desactualizada = true;
+  }));
   const auditadas = Object.fromEntries(panelLineas.filter(p => p.guardada).map(p => [p.linea.id, p.guardada as LineaGuardada]));
   const pres = await presupuestoNeto(negocioId, estado);
   const posicion = calcularPosicionPrecio(lineas, auditadas, pres);
@@ -595,6 +623,7 @@ export async function armarPanel(negocioId: number, lecturaNueva?: string | null
     sinAuditar: evaluables.length - auditadasN.length,
     pendientes: auditadasN.filter(p => p.derivada!.veredicto === 'PENDIENTE_CRUCE_TECNICO').length,
     pasaAnexosOk: auditadasN.length === evaluables.length && auditadasN.every(p => p.derivada!.pasaAnexosOk),
+    desactualizadas: evaluables.filter(p => p.desactualizada).length,
   };
   const mensajesProveedor = mensajesPorProveedor(panelLineas.filter(p => p.guardada && p.derivada).map(p => ({ linea: p.guardada!, derivada: p.derivada! })));
   return { negocioId, hayCostea: true, lineas: panelLineas, margen, posicion, mensajesProveedor, resumen, pasadaFinal, parametros, migracionAplicada: true, lote: estadoLote(negocioId), preparacion: await armarPreparacion(negocioId, lineas, pres.neto).catch(() => null), programadas: auditoriasProgramadas(negocioId) };

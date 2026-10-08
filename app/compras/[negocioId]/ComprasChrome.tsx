@@ -20,7 +20,10 @@ import { AuditorComprasCard } from '@/app/negocios/[id]/AuditorComprasCard';
 import { AuditorCosteoCard } from '@/app/negocios/[id]/AuditorCosteoCard';
 import { AprobacionesCompraCard } from '@/app/negocios/[id]/AprobacionesCompraCard';
 import { RepartoAdminCard } from '@/app/negocios/[id]/RepartoAdminCard';
+import { ObumaHubCard } from '@/app/negocios/[id]/ObumaHubCard';
+import { irAFase } from './comprasNavegacion';
 import { ResumenGastosCard } from '@/app/negocios/[id]/ResumenGastosCard';
+import { ResumenComparativoCard } from '@/app/negocios/[id]/ResumenComparativoCard';
 import { CostoRealCard } from '@/app/negocios/[id]/CostoRealCard';
 import { ImportacionCard } from '@/app/negocios/[id]/ImportacionCard';
 import { ModalidadRetiroCard } from '@/app/negocios/[id]/ModalidadRetiroCard';
@@ -35,20 +38,22 @@ import { GanttComprasCard } from '@/app/negocios/[id]/GanttComprasCard';
 import { TareasComprasCard } from './TareasComprasCard';
 import { Seccion } from './Seccion';
 import { TutorialPaso } from './TutorialPaso';
+import { FranjaCompra } from './FranjaCompra';
 import { siguientePaso, type SiguientePaso } from '@/app/lib/compras-siguiente-paso';
 import { useCompras, fmtCLP, fmtFecha, type OrdenCompra } from './ComprasContext';
-import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconUserPlus as UserPlus, IconClock as Clock, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCurrencyDollar as DollarSign, IconFileAlert as FileWarning, IconBuilding as Building2, IconFileText as FileText, IconDeviceFloppy as Save, IconClipboardList as ClipboardList, IconRefresh as RefreshCw, IconBolt as Zap, IconExternalLink as ExternalLink, IconArrowUpRight as ArrowUpRight, IconCalculator as Calculator, IconClipboardCheck as ClipboardCheck, IconPackage as Package, IconTruck as Truck, IconHistory as History, IconGauge as Gauge, IconWallet as Wallet, IconCalendarTime as CalendarTime, IconHourglassHigh as Hourglass, IconMail as Mail, IconPhone as Phone, IconUserCircle as UserCircle, IconCheck as Check, IconArrowRight as ArrowRight, IconTarget as Target } from '@tabler/icons-react';
+import { IconBolt as ObumaIcon, IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconUserPlus as UserPlus, IconClock as Clock, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCurrencyDollar as DollarSign, IconFileAlert as FileWarning, IconBuilding as Building2, IconFileText as FileText, IconDeviceFloppy as Save, IconClipboardList as ClipboardList, IconRefresh as RefreshCw, IconBolt as Zap, IconExternalLink as ExternalLink, IconArrowUpRight as ArrowUpRight, IconCalculator as Calculator, IconClipboardCheck as ClipboardCheck, IconPackage as Package, IconTruck as Truck, IconHistory as History, IconGauge as Gauge, IconWallet as Wallet, IconCalendarTime as CalendarTime, IconHourglassHigh as Hourglass, IconMail as Mail, IconPhone as Phone, IconUserCircle as UserCircle, IconCheck as Check, IconArrowRight as ArrowRight, IconTarget as Target } from '@tabler/icons-react';
 
 // Gantt SALIÓ del stepper (pedido explícito, 17-sep-2026: "es aparte de todo ese flujo y es lo
 // primero que se debe ver") — ahora es una tarjeta propia, arriba de todo, no una pestaña más.
 // Documentos entró en su lugar como pestaña (antes era tarjeta fija, ocupaba mucho espacio arriba).
-type Fase = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega' | 'documentos' | 'actividad';
+type Fase = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega' | 'obuma' | 'documentos' | 'actividad';
 const FASES: { key: Fase; label: string; icon: typeof ClipboardList; descripcion: string; secundaria?: boolean }[] = [
-  { key: 'tareas', label: 'Tareas', icon: ClipboardList, descripcion: 'Lo primero: las tareas con su plazo, fijar el plazo de entrega, definir cómo se retira la mercadería y atender cualquier incidencia.' },
+  { key: 'tareas', label: 'Tareas', icon: ClipboardList, descripcion: 'Lo primero: las tareas del proyecto con su plazo. El plazo de entrega y las incidencias están siempre a la vista en la franja de arriba.' },
   { key: 'costeo', label: 'Costeo y auditoría', icon: Calculator, descripcion: 'Aquí se cotiza: verifica el costo de cada producto, carga las cotizaciones de los proveedores y compara para elegir la mejor compra.' },
   { key: 'aprobacion', label: 'Aprobación y SKU', icon: ClipboardCheck, descripcion: 'El jefe de ventas aprueba la compra y el margen (mínimo 20 %). Después se crea el código (SKU) de lo que se va a comprar.' },
-  { key: 'compra', label: 'Compra y logística', icon: Package, descripcion: 'Lo que pasa después de aprobar: órdenes de compra a proveedores, pagos, importación si corresponde y los gastos reales del proyecto.' },
-  { key: 'entrega', label: 'Entrega y cierre', icon: Truck, descripcion: 'Seguimiento del plazo, entrega al cliente, acta firmada, postventa y cierre del proyecto.' },
+  { key: 'compra', label: 'Compra y logística', icon: Package, descripcion: 'Lo que pasa después de aprobar: cómo se retira la mercadería, órdenes de compra a proveedores y facturas, importación si corresponde y los gastos del proyecto.' },
+  { key: 'entrega', label: 'Entrega y cierre', icon: Truck, descripcion: 'Plazo de entrega, incidencias, entrega al cliente, acta firmada, costo real final, postventa y cierre del proyecto.' },
+  { key: 'obuma', label: 'Obuma', icon: ObumaIcon, descripcion: 'Un solo lugar para lo que se crea en Obuma: primero el proveedor, después el SKU de cada producto y por último las órdenes de compra.', secundaria: true },
   { key: 'documentos', label: 'Documentos', icon: FileText, descripcion: 'Bases y acta de la licitación, más la revisión automática del agente sobre este negocio.', secundaria: true },
   { key: 'actividad', label: 'Actividad', icon: History, descripcion: 'Línea de tiempo del proyecto: qué se hizo día a día, desde que se ganó hasta ahora.', secundaria: true },
 ];
@@ -64,6 +69,17 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   } = useCompras();
 
   const [faseActiva, setFaseActiva] = useState<Fase>('tareas');
+  // Otras tarjetas pueden mandar al encargado a otro paso (ej. «Ir a crear proveedor» desde una compra directa).
+  useEffect(() => {
+    const h = (e: Event) => {
+      const fase = (e as CustomEvent<{ fase: Fase }>).detail?.fase;
+      if (!fase) return;
+      setFaseActiva(fase);
+      setTimeout(() => document.getElementById('compras-flujo')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+    };
+    window.addEventListener('compras:ir', h);
+    return () => window.removeEventListener('compras:ir', h);
+  }, []);
   const [asignando, setAsignando] = useState(false);
   const [candidatoElegido, setCandidatoElegido] = useState('');
   // Reasignar (pedido explícito del usuario, 15-sep-2026): solo admin puede cambiar un encargado
@@ -356,6 +372,11 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
         </button>
       </div>
 
+      <FranjaCompra negocioId={negocioId} incidenciasAbiertas={resumenFases?.entrega.incidenciasAbiertas ?? 0}
+        version={tareas.filter(t => t.estado === 'HECHA').length}
+        onIrEntrega={() => { setFaseActiva('entrega'); setTimeout(() => document.getElementById('compras-flujo')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }}
+        onIrIncidencias={() => { setFaseActiva('entrega'); setTimeout(() => document.getElementById('compras-incidencias')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80); }} />
+
       {/* Gantt, aparte del flujo por pestañas (pedido explícito, 17-sep-2026): "es aparte de todo ese
           flujo y es lo primero que se debe ver". */}
       <GanttComprasCard tareas={tareas} />
@@ -396,37 +417,42 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                   se guardan NETOS (ver construirResumenEjecutivoCompras en compras.ts) — se
                   especifica también el equivalente con IVA (×1,19) para no tener que calcularlo a mano. */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <button type="button" onClick={alternarGanadas} aria-expanded={ganadasAbierto}
-                  title="Ver las líneas que se ganaron"
-                  className="text-left rounded-xl p-3 bg-gradient-to-br from-emerald-50 to-emerald-100/40 border border-emerald-200 hover:border-emerald-400 transition-colors cursor-pointer">
-                  <p className="text-[10px] font-bold text-emerald-700 uppercase flex items-center gap-1"><DollarSign size={12} /> Precio de venta ganado
-                    <span className="ml-auto normal-case font-semibold text-emerald-600/80 flex items-center gap-0.5">{ganadasAbierto ? 'Ocultar líneas' : 'Ver líneas'} {ganadasAbierto ? <ChevronUp size={12} /> : <ChevronDown size={12} />}</span></p>
-                  <p className="text-[18px] font-extrabold text-emerald-800 mt-0.5">{fmtCLP(r.montoNuestro)} <span className="text-[11px] font-semibold text-emerald-600/70">neto</span></p>
-                  {r.montoNuestro != null && <p className="text-[10.5px] font-semibold text-emerald-600/80">{fmtCLP(Math.round(r.montoNuestro * 1.19))} con IVA</p>}
+                <button type="button" onClick={alternarGanadas} aria-expanded={ganadasAbierto} title="Ver las líneas que se ganaron"
+                  className="group text-left rounded-xl p-4 bg-white border border-zinc-200 hover:border-emerald-400 hover:shadow-sm transition cursor-pointer">
+                  <p className="text-[12px] font-semibold text-zinc-500 flex items-center gap-1.5">
+                    <span className="w-6 h-6 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center"><DollarSign size={14} /></span> Precio de venta ganado
+                    <span className="ml-auto text-[11.5px] font-semibold text-emerald-700 flex items-center gap-0.5 opacity-80 group-hover:opacity-100">{ganadasAbierto ? 'Ocultar' : 'Ver líneas'} {ganadasAbierto ? <ChevronUp size={13} /> : <ChevronDown size={13} />}</span>
+                  </p>
+                  <p className="text-[26px] leading-tight font-extrabold text-zinc-900 mt-2 tabular-nums">{fmtCLP(r.montoNuestro)} <span className="text-[12px] font-semibold text-zinc-400">neto</span></p>
+                  {r.montoNuestro != null && <p className="text-[12px] text-zinc-500 mt-0.5 tabular-nums">{fmtCLP(Math.round(r.montoNuestro * 1.19))} con IVA</p>}
                 </button>
-                <div className={`rounded-xl p-3 border ${excedePresupuesto ? 'bg-gradient-to-br from-amber-50 to-amber-100/40 border-amber-200' : 'bg-gradient-to-br from-violet-50 to-violet-100/40 border-violet-200'}`}>
-                  <p className={`text-[10px] font-bold uppercase flex items-center gap-1 ${excedePresupuesto ? 'text-amber-700' : 'text-violet-700'}`}><Calculator size={12} /> Monto costeado</p>
-                  <p className={`text-[18px] font-extrabold mt-0.5 ${excedePresupuesto ? 'text-amber-800' : 'text-violet-800'}`}>
-                    {r.existeCosteo ? <>{fmtCLP(r.montoCosteado)} <span className={`text-[11px] font-semibold ${excedePresupuesto ? 'text-amber-600/70' : 'text-violet-600/70'}`}>neto</span></> : 'Sin costeo'}
+                <div className={`rounded-xl p-4 border ${excedePresupuesto ? 'bg-amber-50/60 border-amber-300' : 'bg-white border-zinc-200'}`}>
+                  <p className="text-[12px] font-semibold text-zinc-500 flex items-center gap-1.5">
+                    <span className={`w-6 h-6 rounded-lg flex items-center justify-center ${excedePresupuesto ? 'bg-amber-100 text-amber-600' : 'bg-violet-50 text-violet-600'}`}><Calculator size={14} /></span> Monto costeado
+                    {excedePresupuesto && <span className="ml-auto text-[11px] font-bold text-amber-700 flex items-center gap-1"><AlertTriangle size={12} /> Sobre el presupuesto</span>}
                   </p>
-                  {r.existeCosteo && r.montoCosteado != null && (
-                    <p className={`text-[10.5px] font-semibold ${excedePresupuesto ? 'text-amber-600/80' : 'text-violet-600/80'}`}>{fmtCLP(Math.round(r.montoCosteado * 1.19))} con IVA</p>
-                  )}
+                  <p className="text-[26px] leading-tight font-extrabold text-zinc-900 mt-2 tabular-nums">
+                    {r.existeCosteo ? <>{fmtCLP(r.montoCosteado)} <span className="text-[12px] font-semibold text-zinc-400">neto</span></> : <span className="text-[18px] text-zinc-400">Sin costeo</span>}
+                  </p>
+                  {r.existeCosteo && r.montoCosteado != null && <p className="text-[12px] text-zinc-500 mt-0.5 tabular-nums">{fmtCLP(Math.round(r.montoCosteado * 1.19))} con IVA</p>}
                 </div>
-                <div className={`rounded-xl p-3 border ${margenBajo ? 'bg-gradient-to-br from-rose-50 to-rose-100/40 border-rose-200' : 'bg-gradient-to-br from-teal-50 to-teal-100/40 border-teal-200'}`}>
-                  <p className={`text-[10px] font-bold uppercase flex items-center gap-1 ${margenBajo ? 'text-rose-700' : 'text-teal-700'}`}>
-                    <Gauge size={12} /> Margen previsto {margenBajo && <AlertTriangle size={11} />}
+                <div className={`rounded-xl p-4 border ${margenBajo ? 'bg-rose-50/60 border-rose-300' : 'bg-white border-zinc-200'}`}>
+                  <p className="text-[12px] font-semibold text-zinc-500 flex items-center gap-1.5">
+                    <span className={`w-6 h-6 rounded-lg flex items-center justify-center ${margenBajo ? 'bg-rose-100 text-rose-600' : 'bg-teal-50 text-teal-600'}`}><Gauge size={14} /></span> Margen previsto
+                    {margenBajo && <span className="ml-auto text-[11px] font-bold text-rose-700 flex items-center gap-1"><AlertTriangle size={12} /> Bajo el piso</span>}
                   </p>
-                  <p className={`text-[18px] font-extrabold mt-0.5 ${margenBajo ? 'text-rose-700' : 'text-teal-800'}`}>
-                    {r.margenPrevisto != null ? `${r.margenPrevisto}%` : '— (sin costeo)'}
+                  <p className={`text-[26px] leading-tight font-extrabold mt-2 tabular-nums ${margenBajo ? 'text-rose-700' : 'text-zinc-900'}`}>
+                    {r.margenPrevisto != null ? `${r.margenPrevisto}%` : <span className="text-[18px] text-zinc-400">Sin costeo</span>}
                   </p>
                   {r.margenPrevisto != null && (
-                    <div className="mt-1.5 h-1.5 rounded-full bg-white/70 overflow-hidden">
-                      <div className={`h-full rounded-full ${margenOk ? 'bg-teal-500' : 'bg-rose-500'}`}
-                        style={{ width: `${Math.max(4, Math.min(100, (r.margenPrevisto / 40) * 100))}%` }} />
+                    <div className="mt-2.5">
+                      <div className="relative h-1.5 rounded-full bg-zinc-100">
+                        <div className={`h-full rounded-full ${margenOk ? 'bg-teal-500' : 'bg-rose-500'}`} style={{ width: `${Math.max(4, Math.min(100, (r.margenPrevisto / 40) * 100))}%` }} />
+                        <span className="absolute -top-0.5 h-2.5 w-px bg-zinc-400" style={{ left: '50%' }} title="Piso del 20 %" />
+                      </div>
+                      <p className="text-[11px] text-zinc-400 mt-1">Piso del 20 %</p>
                     </div>
                   )}
-                  {margenBajo && <p className="text-[9.5px] text-rose-600 mt-1">Bajo el piso del 20%</p>}
                 </div>
               </div>
 
@@ -473,64 +499,58 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                 </div>
               )}
 
-              {/* Secundarias — más chicas, un ícono de color cada una. */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div className="rounded-lg p-2.5 bg-indigo-50/60 border border-indigo-100">
-                  <p className="text-[9.5px] font-bold text-indigo-500 uppercase flex items-center gap-1"><UserPlus size={11} /> Asistente comercial</p>
-                  <p className="text-[12.5px] font-bold text-indigo-900 mt-0.5">{r.responsableNombre || '—'}</p>
-                </div>
-                <div className="rounded-lg p-2.5 bg-sky-50/60 border border-sky-100">
-                  <p className="text-[9.5px] font-bold text-sky-600 uppercase flex items-center gap-1"><Wallet size={11} /> Presupuesto del proyecto</p>
-                  <p className="text-[12.5px] font-bold text-sky-900 mt-0.5">
-                    {r.presupuestoProyecto != null ? <>{fmtCLP(r.presupuestoProyecto)} <span className="text-[10px] font-semibold text-sky-600/70">neto</span></> : '—'}
-                  </p>
-                  {r.presupuestoProyecto != null && <p className="text-[9.5px] font-semibold text-sky-600/80">{fmtCLP(Math.round(r.presupuestoProyecto * 1.19))} con IVA</p>}
-                </div>
-                <div className="rounded-lg p-2.5 bg-orange-50/60 border border-orange-100">
-                  <p className="text-[9.5px] font-bold text-orange-500 uppercase flex items-center gap-1"><CalendarTime size={11} /> Plazo de entrega ofertado</p>
-                  <p className="text-[12.5px] font-bold text-orange-900 mt-0.5">{r.plazoEntregaOfertado || '—'}</p>
-                </div>
-                <div className="rounded-lg p-2.5 bg-cyan-50/60 border border-cyan-100">
-                  <p className="text-[9.5px] font-bold text-cyan-600 uppercase flex items-center gap-1"><Hourglass size={11} /> Desde cuándo corre</p>
-                  <p className="text-[12.5px] font-bold text-cyan-900 mt-0.5">{r.hitoInicioPlazo || '—'}</p>
-                </div>
+              {/* Datos del proyecto: una sola tarjeta con columnas etiqueta/valor (antes 4 cajas de colores distintos). */}
+              <div className="rounded-xl border border-zinc-200 divide-y divide-zinc-100 sm:divide-y-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:divide-x">
+                {([
+                  { icono: <UserPlus size={13} />, etiqueta: 'Asistente comercial', valor: r.responsableNombre || '—', extra: null },
+                  { icono: <Wallet size={13} />, etiqueta: 'Presupuesto del proyecto', valor: r.presupuestoProyecto != null ? fmtCLP(r.presupuestoProyecto) : '—', extra: r.presupuestoProyecto != null ? `neto · ${fmtCLP(Math.round(r.presupuestoProyecto * 1.19))} con IVA` : null },
+                  { icono: <CalendarTime size={13} />, etiqueta: 'Plazo de entrega ofertado', valor: r.plazoEntregaOfertado || '—', extra: null },
+                  { icono: <Hourglass size={13} />, etiqueta: 'Desde cuándo corre', valor: r.hitoInicioPlazo || '—', extra: null },
+                ] as Array<{ icono: React.ReactNode; etiqueta: string; valor: string; extra: string | null }>).map(d => (
+                  <div key={d.etiqueta} className="px-4 py-3 min-w-0">
+                    <p className="text-[11.5px] font-medium text-zinc-500 flex items-center gap-1.5">{d.icono} {d.etiqueta}</p>
+                    <p className="text-[14px] font-bold text-zinc-900 mt-1 leading-snug break-words">{d.valor}</p>
+                    {d.extra && <p className="text-[11.5px] text-zinc-500 mt-0.5">{d.extra}</p>}
+                  </div>
+                ))}
               </div>
 
+              {/* Condiciones de las bases: neutras; ámbar solo cuando exigen algo. */}
               <div className="flex flex-wrap items-center gap-2">
-                <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg border ${r.requiereBoletaFielCumplimiento ? 'text-amber-700 bg-amber-50 border-amber-300' : 'text-zinc-400 bg-zinc-50 border-zinc-200'}`}>
-                  <FileWarning size={12} /> Boleta de fiel cumplimiento: {r.requiereBoletaFielCumplimiento ? 'Sí' : 'No'}
-                </span>
-                <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg border ${r.requiereFirmaContrato ? 'text-amber-700 bg-amber-50 border-amber-300' : 'text-zinc-400 bg-zinc-50 border-zinc-200'}`}>
-                  <FileWarning size={12} /> Firma de contrato: {r.requiereFirmaContrato ? 'Sí' : 'No'}
-                </span>
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg border text-teal-700 bg-teal-50 border-teal-200">
-                  <Clock size={12} /> Plazo para aceptar la OC: {r.plazoAceptacionOC}
+                {[
+                  { ok: !!r.requiereBoletaFielCumplimiento, texto: `Boleta de fiel cumplimiento: ${r.requiereBoletaFielCumplimiento ? 'Sí' : 'No'}` },
+                  { ok: !!r.requiereFirmaContrato, texto: `Firma de contrato: ${r.requiereFirmaContrato ? 'Sí' : 'No'}` },
+                ].map(c => (
+                  <span key={c.texto} className={`inline-flex items-center gap-1.5 text-[12px] font-medium px-2.5 py-1 rounded-full border ${c.ok ? 'text-amber-800 bg-amber-50 border-amber-300' : 'text-zinc-500 bg-white border-zinc-200'}`}>
+                    <FileWarning size={13} /> {c.texto}
+                  </span>
+                ))}
+                <span className="inline-flex items-center gap-1.5 text-[12px] font-medium px-2.5 py-1 rounded-full border text-zinc-600 bg-white border-zinc-200">
+                  <Clock size={13} /> Plazo para aceptar la OC: <b className="font-semibold text-zinc-900">{r.plazoAceptacionOC}</b>
                 </span>
               </div>
 
               {r.contactosCliente && (
-                <div className="pt-3 border-t border-zinc-100">
-                  <p className="text-[11px] font-bold text-zinc-500 uppercase mb-1.5 flex items-center gap-1"><Building2 size={12} /> Contactos del cliente</p>
-                  <p className="text-[12px] text-zinc-600">{[r.contactosCliente.organismo, r.contactosCliente.unidad].filter(Boolean).join(' · ')}</p>
-                  {[r.contactosCliente.direccion, r.contactosCliente.comuna].filter(Boolean).length > 0 && (
-                    <p className="text-[11.5px] text-zinc-400">{[r.contactosCliente.direccion, r.contactosCliente.comuna].filter(Boolean).join(', ')}</p>
-                  )}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
+                <div className="rounded-xl border border-zinc-200 overflow-hidden">
+                  <div className="px-4 py-3 bg-zinc-50/70 border-b border-zinc-100">
+                    <p className="text-[12.5px] font-bold text-zinc-800 flex items-center gap-1.5"><Building2 size={14} className="text-zinc-400" /> Contactos del cliente</p>
+                    <p className="text-[12.5px] text-zinc-600 mt-0.5">{[r.contactosCliente.organismo, r.contactosCliente.unidad].filter(Boolean).join(' · ')}</p>
+                    {[r.contactosCliente.direccion, r.contactosCliente.comuna].filter(Boolean).length > 0 && (
+                      <p className="text-[11.5px] text-zinc-400">{[r.contactosCliente.direccion, r.contactosCliente.comuna].filter(Boolean).join(', ')}</p>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 sm:divide-x divide-y sm:divide-y-0 divide-zinc-100">
                     {([
-                      { rol: 'Contraparte', nombre: r.contactosCliente.usuarioNombre, datos: [r.contactosCliente.usuarioCargo, r.contactosCliente.usuarioTelefono, r.contactosCliente.usuarioEmail], color: 'sky' },
-                      { rol: 'Responsable del contrato', nombre: r.contactosCliente.responsableContratoNombre, datos: [r.contactosCliente.responsableContratoEmail, r.contactosCliente.responsableContratoFono], color: 'violet' },
-                      { rol: 'Responsable de pagos', nombre: r.contactosCliente.responsablePagoNombre, datos: [r.contactosCliente.responsablePagoEmail], color: 'emerald' },
-                    ] as const).map(({ rol, nombre, datos, color }) => nombre ? (
-                      <div key={rol} className={`rounded-lg p-2.5 border ${
-                        color === 'sky' ? 'bg-sky-50/60 border-sky-100' : color === 'violet' ? 'bg-violet-50/60 border-violet-100' : 'bg-emerald-50/60 border-emerald-100'
-                      }`}>
-                        <p className={`text-[9.5px] font-bold uppercase flex items-center gap-1 ${
-                          color === 'sky' ? 'text-sky-600' : color === 'violet' ? 'text-violet-600' : 'text-emerald-600'
-                        }`}><UserCircle size={11} /> {rol}</p>
-                        <p className="text-[12px] font-semibold text-zinc-800 mt-0.5">{nombre}</p>
+                      { rol: 'Contraparte', nombre: r.contactosCliente.usuarioNombre, datos: [r.contactosCliente.usuarioCargo, r.contactosCliente.usuarioTelefono, r.contactosCliente.usuarioEmail] },
+                      { rol: 'Responsable del contrato', nombre: r.contactosCliente.responsableContratoNombre, datos: [r.contactosCliente.responsableContratoEmail, r.contactosCliente.responsableContratoFono] },
+                      { rol: 'Responsable de pagos', nombre: r.contactosCliente.responsablePagoNombre, datos: [r.contactosCliente.responsablePagoEmail] },
+                    ] as const).map(({ rol, nombre, datos }) => nombre ? (
+                      <div key={rol} className="px-4 py-3 min-w-0">
+                        <p className="text-[11.5px] font-medium text-zinc-500 flex items-center gap-1.5"><UserCircle size={13} /> {rol}</p>
+                        <p className="text-[13.5px] font-bold text-zinc-900 mt-1">{nombre}</p>
                         {datos.filter(Boolean).map(d => (
-                          <p key={String(d)} className="text-[11px] text-zinc-500 break-words flex items-center gap-1 mt-0.5">
-                            {String(d).includes('@') ? <Mail size={10} className="flex-shrink-0" /> : /\d/.test(String(d)) ? <Phone size={10} className="flex-shrink-0" /> : null}
+                          <p key={String(d)} className="text-[12px] text-zinc-500 break-words flex items-center gap-1.5 mt-0.5">
+                            {String(d).includes('@') ? <Mail size={12} className="flex-shrink-0 text-zinc-400" /> : /\d/.test(String(d)) ? <Phone size={12} className="flex-shrink-0 text-zinc-400" /> : null}
                             {d}
                           </p>
                         ))}
@@ -733,17 +753,6 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                 <Seccion titulo="Lista de tareas" ayuda="Lo que hay que hacer, cada una con su plazo. Ciérralas a medida que avances." badge={pendientesN ? `${pendientesN} pendiente${pendientesN === 1 ? '' : 's'}` : 'Al día'} tono={(resumenFases?.tareas.vencidas ?? 0) > 0 ? 'alerta' : pendientesN > 0 ? 'pendiente' : 'ok'} defaultAbierta>
                   <TareasComprasCard />
                 </Seccion>
-                {/* El reloj (§15.1) y la modalidad de retiro (§13.2) se fijan AL INICIO. */}
-                <Seccion titulo="Plazo de entrega (reloj)" ayuda="Desde cuándo corre el plazo y cuántos días quedan. Hay que confirmarlo a mano." badge={hitoPendiente('reloj_entrega') ? 'Sin fijar' : 'Fijado'} tono={hitoPendiente('reloj_entrega') ? 'pendiente' : 'ok'} defaultAbierta={hitoPendiente('reloj_entrega')}>
-                  <RelojEntregaCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
-                </Seccion>
-                <Seccion titulo="Cómo se retira la mercadería" ayuda="Con equipo propio, transporte externo o mixto. Se define al comienzo y el sistema sugiere fleteros.">
-                  <ModalidadRetiroCard negocioId={negocioId} puedeOperar={puedeOperar} />
-                </Seccion>
-                {/* Incidencias (§9): "transversal, no secuencial" — pueden aparecer en cualquier etapa. */}
-                <Seccion titulo="Incidencias" ayuda="Problemas u oportunidades que pueden aparecer en cualquier etapa: sin stock, plazo incompatible, una alternativa más barata." badge={(resumenFases?.entrega.incidenciasAbiertas ?? 0) || null} tono="alerta" defaultAbierta={(resumenFases?.entrega.incidenciasAbiertas ?? 0) > 0}>
-                  <IncidenciasCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
-                </Seccion>
               </div>
             )}
             {faseActiva === 'costeo' && (
@@ -772,17 +781,37 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                 </Seccion>
               </div>
             )}
-            {faseActiva === 'aprobacion' && <AprobacionesCompraCard negocioId={negocioId} puedeOperar={puedeOperar} />}
+            {faseActiva === 'aprobacion' && (
+              <div className="space-y-3">
+                <AprobacionesCompraCard negocioId={negocioId} puedeOperar={puedeOperar} parte="aprobaciones" />
+                <button type="button" onClick={() => irAFase('obuma')}
+                  className="w-full text-left rounded-xl border border-indigo-200 bg-indigo-50/50 hover:bg-indigo-50 px-4 py-3 flex items-center gap-3 transition-colors">
+                  <ObumaIcon size={18} className="text-indigo-600 flex-shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13.5px] font-bold text-indigo-900">Con la compra aprobada, el SKU de cada producto se crea en la pestaña Obuma</span>
+                    <span className="block text-[12.5px] text-indigo-800/80">Ahí también están el proveedor y las órdenes de compra, en orden.</span>
+                  </span>
+                  <span className="text-[12.5px] font-semibold text-indigo-700 whitespace-nowrap">Ir a Obuma →</span>
+                </button>
+              </div>
+            )}
+            {faseActiva === 'obuma' && <ObumaHubCard negocioId={negocioId} puedeOperar={puedeOperar} esAdministracion={esAdministracion} />}
             {faseActiva === 'compra' && (
               <div className="space-y-3">
-                <Seccion titulo="Costo real del proyecto" ayuda="Lo que realmente cuesta cada producto una vez comprado, contra lo costeado." defaultAbierta>
-                  <CostoRealCard negocioId={negocioId} puedeOperar={puedeOperar} permitirCierre={false} />
-                </Seccion>
-                <Seccion titulo="Resumen de gastos" ayuda="Suma de costos y gastos extra del proyecto hasta ahora.">
+                <Seccion titulo="Resumen de la compra" ayuda="Dónde vamos: productos cubiertos, órdenes de compra emitidas, facturas recibidas y cuánto se gastó contra lo costeado." defaultAbierta>
                   <ResumenGastosCard negocioId={negocioId} />
                 </Seccion>
+                <Seccion titulo="Comparativo: costeo · Licitank · Obuma" ayuda="Por producto y por orden de compra, todo neto: lo costeado, lo planeado en Licitank y lo que de verdad se compró en Obuma, para ver si coincide." defaultAbierta>
+                  <ResumenComparativoCard negocioId={negocioId} />
+                </Seccion>
+                <Seccion titulo="Cómo se retira la mercadería" ayuda="Con equipo propio, transporte externo o mixto. Se define al comienzo y el sistema sugiere fleteros.">
+                  <ModalidadRetiroCard negocioId={negocioId} puedeOperar={puedeOperar} />
+                </Seccion>
                 <Seccion titulo="Pasos administrativos (OBUMA)" ayuda="Órdenes de compra a proveedores, provisión de fondos y facturas de compra. Aquí solo se registra su avance." badge={resumenFases?.compra.hitosAdminPendientes || null} tono="pendiente" defaultAbierta={(resumenFases?.compra.hitosAdminPendientes ?? 0) > 0}>
-                  <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} />
+                  <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} parte="hitos" />
+                  <button type="button" onClick={() => irAFase('obuma')} className="mt-3 text-[12.5px] font-semibold text-indigo-700 hover:text-indigo-900">
+                    Las órdenes de compra, los SKU y el proveedor se crean en la pestaña Obuma → Ir a Obuma
+                  </button>
                 </Seccion>
                 <Seccion titulo="Importación y costo aterrizado" ayuda="Solo si el producto viene del extranjero: flete, aduana y costo final puesto en bodega.">
                   <ImportacionCard negocioId={negocioId} puedeOperar={puedeOperar} />
@@ -794,7 +823,12 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             )}
             {faseActiva === 'entrega' && (
               <div className="space-y-3">
-                <Seccion titulo="Plazo, prórrogas y multas" ayuda="Cuánto queda para entregar y qué hacer si no se alcanza: pedir prórroga sin multa o, solo con autorización, entregar con multa." badge={resumenFases?.entrega.relojVencido ? 'Vencido' : null} tono="alerta" defaultAbierta={!!resumenFases?.entrega.relojVencido}>
+                {/* Incidencias (§9): transversales (pueden aparecer en cualquier etapa); se llega desde la franja fija de arriba. */}
+                <div id="compras-incidencias" className="scroll-mt-4" />
+                <Seccion titulo="Incidencias" ayuda="Problemas u oportunidades que pueden aparecer en cualquier etapa: sin stock, plazo incompatible, una alternativa más barata." badge={(resumenFases?.entrega.incidenciasAbiertas ?? 0) || null} tono="alerta" defaultAbierta={(resumenFases?.entrega.incidenciasAbiertas ?? 0) > 0}>
+                  <IncidenciasCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
+                </Seccion>
+                <Seccion titulo="Plazo, prórrogas y multas" ayuda="Cuánto queda para entregar y qué hacer si no se alcanza: pedir prórroga sin multa o, solo con autorización, entregar con multa." badge={resumenFases?.entrega.relojVencido ? 'Vencido' : null} tono="alerta" defaultAbierta={true || !!resumenFases?.entrega.relojVencido}>
                   <RelojEntregaCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
                 </Seccion>
                 <Seccion titulo="Entrega al cliente y acta" ayuda="Preparación, despacho y el acta de entrega que firma el cliente. El acta cierra el proyecto." defaultAbierta>

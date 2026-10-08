@@ -28,7 +28,16 @@ export interface OcDelProyecto {
 // pantalla de comparación. El total/cantidad ya se cuentan sobre TODAS, esto es solo el detalle.
 const TOPE_OC_DETALLE = 100;
 
+/** Un documento de compra contabilizado en el centro de costo del proyecto (factura, nota de crédito, gasto propio). */
+export interface DocumentoDelProyecto {
+  folio: string; tipo: string;              // tipo SII: 33 factura · 61 nota de crédito · 0 = gasto propio sin documento
+  proveedorNombre: string | null;           // null = gasto propio (horas extras, retiros…)
+  total: number;                            // CON IVA; las notas de crédito vienen en NEGATIVO
+  observacion: string | null; fecha: string | null;
+}
+
 export interface ProyectoObuma {
+  documentos: DocumentoDelProyecto[];
   proyectoId: string;               // proyecto_id real de Obuma, o `centro-<id>` si el centro no tiene Proyecto asociado
   tieneProyectoReal: boolean;       // true = viene de ext-proyectos.list.json (ficha real)
   folio: number | null;
@@ -131,8 +140,18 @@ async function calcularProyectosObuma(forzar = false): Promise<{ proyectos: Proy
     const ids = new Set(grupo.map(c => c.id));
     const ocsDelGrupo = ids.size ? ocs.filter(oc => ids.has(String(oc.compra_oc_centro_costo))) : [];
     const totalGastado = ocsDelGrupo.reduce((s, oc) => s + (Number(oc.compra_oc_total) || 0), 0);
-    const facturasDelGrupo = ids.size ? facturas.filter(f => ids.has(String(f.compra_centro_costo))) : [];
-    const totalFacturado = facturasDelGrupo.reduce((s, f) => s + (Number(f.compra_total) || 0), 0);
+    // Las compras ANULADAS no cuentan y una NOTA DE CRÉDITO (tipo 61) RESTA: antes se sumaba como una factura más
+    // (caso 759-21-LE26: la NC de Impulzo inflaba el «facturado» en el doble de su monto).
+    const facturasDelGrupo = (ids.size ? facturas.filter(f => ids.has(String(f.compra_centro_costo))) : []).filter(f => String(f.compra_anulada) !== '1');
+    const signo = (f: { compra_tipo_dcto: string }) => String(f.compra_tipo_dcto) === '61' ? -1 : 1;
+    const totalFacturado = facturasDelGrupo.reduce((s, f) => s + signo(f) * (Number(f.compra_total) || 0), 0);
+    const documentos: DocumentoDelProyecto[] = facturasDelGrupo.slice(0, TOPE_OC_DETALLE).map(f => ({
+      folio: String(f.compra_folio || ''), tipo: String(f.compra_tipo_dcto || '0'),
+      proveedorNombre: String(f.rel_proveedor_id) !== '0' ? (proveedorPorIdMap.get(String(f.rel_proveedor_id))?.nombre ?? null) : null,
+      total: signo(f) * (Number(f.compra_total) || 0),
+      observacion: String(f.compra_observacion || '').replace(/\s+/g, ' ').trim() || null,
+      fecha: String(f.compra_fechaingreso || '').slice(0, 10) || null,
+    }));
 
     const vistos = new Set<number>();
     const negociosCoincidentes: NegocioCoincidente[] = [];
@@ -163,7 +182,7 @@ async function calcularProyectosObuma(forzar = false): Promise<{ proyectos: Proy
     const ordenFecha = tieneProyectoReal ? ficha.fechaIngreso : (ordenadas[0]?.compra_oc_fecha_ingreso || null);
 
     return {
-      proyectoId, tieneProyectoReal, folio: ficha.folio, nombre: ficha.nombre, referencia: ficha.referencia,
+      documentos, proyectoId, tieneProyectoReal, folio: ficha.folio, nombre: ficha.nombre, referencia: ficha.referencia,
       cliente: ficha.cliente, presupuesto: ficha.presupuesto, costo: ficha.costo, precioNeto: ficha.precioNeto,
       facturadoMonto: ficha.facturadoMonto, estado: ficha.estado, fechaIngreso: ficha.fechaIngreso, fechaInicio: ficha.fechaInicio,
       centros: grupo.map(c => ({ id: c.id, nombre: c.nombre, codigo: c.codigo, activo: c.activo })),

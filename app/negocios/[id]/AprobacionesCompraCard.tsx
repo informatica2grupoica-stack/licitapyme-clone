@@ -122,7 +122,7 @@ function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar
   );
 }
 
-export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
+export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' }: { negocioId: number; puedeOperar: boolean; parte?: 'todo' | 'aprobaciones' | 'sku' }) {
   const toast = useToast();
   const { recargar: recargarCompartido } = useCompras();
   const [compra, setCompra] = useState<Aprobacion | null>(null);
@@ -432,6 +432,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
 
   return (
     <div className="space-y-3">
+      {parte !== 'sku' && (<>
       <p className="text-[11px] font-bold text-zinc-400 uppercase flex items-center gap-1.5 px-0.5"><ShieldCheck size={13} /> Hitos de aprobación</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         <BloqueCompuerta
@@ -480,7 +481,11 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
         </p>
       )}
 
-      {compraAprobada && (
+      </>)}
+      {parte === 'sku' && !compraAprobada && (
+        <p className="text-[12.5px] text-zinc-500 bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3">El SKU se crea cuando la jefatura aprueba la compra (paso «Aprobación y SKU»). Todavía no está aprobada.</p>
+      )}
+      {parte !== 'aprobaciones' && compraAprobada && (
         <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
           <p className="px-4 py-2.5 text-[11px] font-bold text-zinc-500 uppercase bg-zinc-50 border-b border-zinc-100 flex items-center gap-1.5"><Tag size={13} /> SKU</p>
           <div className="divide-y divide-zinc-100">

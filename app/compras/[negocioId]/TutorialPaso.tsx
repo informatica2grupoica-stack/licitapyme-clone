@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react';
 import { IconBulb as Bulb, IconChevronDown as ChevronDown } from '@tabler/icons-react';
 
-export type FaseTutorial = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega' | 'documentos' | 'actividad';
+export type FaseTutorial = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega' | 'obuma' | 'documentos' | 'actividad';
 
 interface Tutorial { objetivo: string; quien: string; pasos: Array<{ titulo: string; detalle: string }>; ojo?: string }
 
@@ -20,10 +20,9 @@ export const TUTORIALES: Record<FaseTutorial, Tutorial> = {
       { titulo: 'Valida que el producto sea real y sea el correcto', detalle: 'Confirma que la ficha corresponde a un producto que existe y que lo que se va a comprar es lo que se ofertó.' },
       { titulo: 'Valida la cotización de respaldo', detalle: 'Llama al vendedor: ¿existe el producto?, ¿hay stock?, ¿cumple?, ¿en cuánto tiempo llega?, ¿el precio sigue vigente? Si hay un hallazgo, se abre una incidencia.' },
       { titulo: 'Registra cada tarea', detalle: 'Abre la tarea y pulsa «Registrar lo que se hizo»: con quién hablaste, qué se acordó. Queda guardado con tu nombre y la hora.' },
-      { titulo: 'Fija el plazo de entrega (reloj)', detalle: 'En «Plazo de entrega»: desde qué hito corre el plazo y la fecha límite. Hay que confirmarlo a mano.' },
-      { titulo: 'Define cómo se retira la mercadería', detalle: 'En «Cómo se retira»: equipo propio, transporte externo o mixto. El sistema sugiere fleteros.' },
+      { titulo: 'Confirma el plazo de entrega', detalle: 'La franja de arriba lo muestra: cuando la OC está aceptada, el sistema calcula desde cuándo corre y cuándo vence. Pulsa la franja y «Confirmar reloj» (o «Ajustar» si algo no calza).' },
     ],
-    ojo: 'Cualquier problema que aparezca (sin stock, plazo imposible, una alternativa más barata) se anota en «Incidencias». Las incidencias NO detienen el reloj de entrega. Si el proyecto necesita una tarea que no está en la lista, usa «Agregar tarea propia».',
+    ojo: 'Cualquier problema que aparezca (sin stock, plazo imposible, una alternativa más barata) se anota en «Incidencias» (botón rojo de la franja de arriba, o en «Entrega y cierre»). Las incidencias NO detienen el reloj de entrega. Si el proyecto necesita una tarea que no está en la lista, usa «Agregar tarea propia».',
   },
   costeo: {
     objetivo: 'Conseguir cotizaciones reales, ver si su precio conviene frente a lo costeado, y elegir cómo comprar.',
@@ -61,6 +60,17 @@ export const TUTORIALES: Record<FaseTutorial, Tutorial> = {
       { titulo: 'Anota el costo real', detalle: 'En «Costo real del proyecto» deja lo que de verdad se pagó por cada producto, y los gastos extra en «Gastos extra» (fletes, puesta en marcha, etc.).' },
     ],
     ojo: 'Política de pago: a un proveedor nuevo se le exige la factura antes de pagar; a uno antiguo se le puede provisionar el pago. No se emite dinero real en Obuma sin los dos hitos aprobados.',
+  },
+  obuma: {
+    objetivo: 'Crear en Obuma, en orden y desde un solo lugar, lo que hace falta para comprar: el proveedor, el SKU de cada producto y las órdenes de compra.',
+    quien: 'Encargado de Compras y Administración. Todo lo que se crea acá se escribe de verdad en Obuma, y solo cuando tú lo confirmas.',
+    pasos: [
+      { titulo: 'Mira «Listo para comprar en Obuma»', detalle: 'Te dice qué falta: aprobaciones, proveedores que no existen en Obuma, productos sin SKU y órdenes sin emitir.' },
+      { titulo: '1 · Proveedor', detalle: 'Busca por nombre o RUT. Si no existe, «Crear proveedor en Obuma» (solo RUT y razón social son obligatorios). También sirve para una compra directa.' },
+      { titulo: '2 · SKU', detalle: 'Con la compra aprobada, crea el SKU de cada producto. Si el producto ya existe en Obuma, se enlaza en vez de duplicarlo.' },
+      { titulo: '3 · Orden de compra', detalle: 'Una por proveedor, de la compra elegida. Confirma forma de pago, flete y marca la casilla antes de crearla: se emite de verdad.' },
+    ],
+    ojo: 'La orden de compra exige las dos aprobaciones (compra y margen). Si algo está bloqueado, el aviso de arriba dice cuál.',
   },
   entrega: {
     objetivo: 'Entregar dentro del plazo, dejar el acta firmada y cerrar el proyecto.',

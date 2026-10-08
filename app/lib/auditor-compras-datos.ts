@@ -157,3 +157,16 @@ export async function preciosMercadoPublico(tokens: string[]): Promise<PrecioMer
   const fechas = ocs.map(o => o.fecha).filter(Boolean).sort() as string[];
   return { neto: Math.round(neto), n: ocs.length, desde: fechas[0] ?? null, hasta: fechas[fechas.length - 1] ?? null, calidad: 'mismo_producto', ocs: ocs.slice(0, 12) };
 }
+
+// Razones sociales y RUT de NUESTRAS empresas (los compradores de una cotización). Para no tomar al cliente como proveedor.
+let cacheEmpresasPropias: { at: number; v: { nombres: string[]; ruts: string[] } } | null = null;
+export async function empresasPropias(): Promise<{ nombres: string[]; ruts: string[] }> {
+  if (cacheEmpresasPropias && Date.now() - cacheEmpresasPropias.at < 5 * 60_000) return cacheEmpresasPropias.v;
+  const v = { nombres: [] as string[], ruts: [] as string[] };
+  try {
+    const [rows] = await pool.query(`SELECT razon_social, rut FROM empresas WHERE rut IS NOT NULL AND rut <> '' ORDER BY id`) as any;
+    for (const r of rows as any[]) { v.nombres.push(String(r.razon_social || '').trim()); v.ruts.push(String(r.rut || '').trim()); }
+  } catch { /* sin tabla de empresas: queda vacío y el extractor usa la lista por defecto */ }
+  cacheEmpresasPropias = { at: Date.now(), v };
+  return v;
+}

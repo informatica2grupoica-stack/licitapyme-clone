@@ -177,10 +177,17 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, seleccion, on
                     return (
                       <td key={c.id} className="px-2 py-2">
                         <div className={`relative rounded-lg border transition-colors ${elegida ? 'border-teal-500 bg-teal-50/60 ring-1 ring-teal-200' : detalleActivo ? 'border-indigo-300 bg-indigo-50/30' : 'border-transparent hover:border-zinc-300 hover:bg-zinc-50'}`}>
-                          <button type="button" onClick={() => (onElegirCelda ? onElegirCelda(p.id, c.id) : onSeleccionar({ cotizacionId: c.id, productoId: p.id }))}
-                            title={onElegirCelda ? 'Comprar este producto a este proveedor' : 'Ver el detalle de este precio'} className="w-full text-left px-2.5 py-1.5 pr-7">
+                          {/* Clic en la celda = ver el detalle (desglose, adicionales, avisos). Agregar a la compra = solo el círculo. */}
+                          {onElegirCelda && (
+                            <button type="button" onClick={() => onElegirCelda(p.id, c.id)} aria-pressed={elegida} aria-label={elegida ? 'Quitar de mi compra' : 'Agregar a mi compra'}
+                              title={elegida ? 'Quitar de mi compra' : 'Comprar este producto a este proveedor'}
+                              className="absolute top-2 left-2 z-10 p-1 -m-1 rounded-full">
+                              <span className={`flex w-4 h-4 rounded-full border items-center justify-center ${elegida ? 'bg-teal-600 border-teal-600 text-white' : 'border-zinc-300 bg-white hover:border-teal-500'}`}>{elegida && <Check size={11} strokeWidth={3} />}</span>
+                            </button>
+                          )}
+                          <button type="button" onClick={() => onSeleccionar({ cotizacionId: c.id, productoId: p.id })}
+                            title="Ver el detalle de este precio (desglose, adicionales, avisos)" className={`w-full text-left py-1.5 pr-7 ${onElegirCelda ? 'pl-8' : 'px-2.5'}`}>
                             <span className="flex items-center gap-1.5">
-                              {onElegirCelda && <span className={`flex-shrink-0 w-4 h-4 rounded-full border flex items-center justify-center ${elegida ? 'bg-teal-600 border-teal-600 text-white' : 'border-zinc-300 bg-white'}`}>{elegida && <Check size={11} strokeWidth={3} />}</span>}
                               <span className="text-[14px] font-bold text-zinc-900 whitespace-nowrap">{item.precioUnitario != null ? clp(item.precioUnitario) : 'sin precio'}</span>
                               {esMejor && <span title="Mejor precio de este producto" className="inline-flex items-center gap-0.5 text-[10.5px] font-bold text-amber-600"><Star size={12} className="fill-amber-400" /> Mejor</span>}
                             </span>
