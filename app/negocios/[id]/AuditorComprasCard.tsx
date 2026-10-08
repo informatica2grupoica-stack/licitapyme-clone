@@ -16,6 +16,7 @@ import { MatrizPrecios, ESTILO_VEREDICTO, ETIQUETA_ALERTA, type SeleccionCelda }
 import { compararPrecioConCosteo } from '@/app/lib/compras-precio-vs-costeo';
 import { CotizacionesMasivas } from './CotizacionesMasivas';
 import { ListaCotizaciones } from './ListaCotizaciones';
+import { useFichasCompras, tecnicoPorCelda, TecnicoDeCelda } from './FichasEnCotizacion';
 import { ArmarCompra, type Comb, type Recomendada, type EvaluacionCompra } from './ArmarCompra';
 import { DESPACHO_OPCIONES, condicionesPara, condicionDesdeLegacy, aplicarDespacho } from '@/app/lib/compras-despacho';
 import { IconGavel as Gavel, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconSparkles as Sparkles, IconTrendingDown as TrendingDown, IconTruck as Truck, IconBolt as Zap, IconScale as Scale, IconCurrencyDollar as DollarSign, IconCircleCheck as CheckCircle2, IconPaperclip as Paperclip, IconListCheck as ListChecks, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconLink as Link2, IconShieldCheck as ShieldCheck, IconPencil as Pencil, IconTrash as Trash2, IconRobot as Bot, IconEye as Eye } from '@tabler/icons-react';
@@ -69,6 +70,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   const [productos, setProductos] = useState<Producto[]>([]);
   const [costeado, setCosteado] = useState<Record<number, number | null>>({});
   const [seleccion, setSeleccion] = useState<SeleccionCelda | null>(null);
+  const fichas = useFichasCompras(negocioId);
   const [negociacion, setNegociacion] = useState<Negociacion[]>([]);
   const [escenarios, setEscenarios] = useState<Escenario[]>([]);
   const [elegidoTipo, setElegidoTipo] = useState<TipoEscenario | null>(null);
@@ -1077,6 +1079,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
       )}
 
       <MatrizPrecios productos={productos} cotizaciones={cotizaciones} costeado={costeado} seleccion={seleccion} onSeleccionar={setSeleccion}
+        tecnico={tecnicoPorCelda(fichas.panel, cotizaciones)}
         onAgregar={puedeOperar ? (cotizacionId) => { const c = cotizaciones.find(x => x.id === cotizacionId); if (c) { abrirAsignacion(c); setTimeout(() => document.getElementById(`cotizacion-${cotizacionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); } } : undefined}
         compra={compra} onElegirCelda={puedeOperar ? elegirCelda : undefined} onComprarTodoAqui={puedeOperar ? comprarTodoAqui : undefined}
         acciones={puedeOperar ? {
@@ -1105,6 +1108,9 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
               auditoria={auditorias.find(a => a.cotizacionId === c.id && a.productoId === it.productoId)}
               item={{ precioUnitario: it.precioUnitario, precioBase: it.precioBase, adicionales: it.adicionales }}
               puedeOperar={puedeOperar} onCambio={async () => { await cargar(); recargarCompartido(); }} />
+            <TecnicoDeCelda negocioId={negocioId} productoId={it.productoId} proveedor={c.proveedorNombre}
+              precioVeredicto={compararPrecioConCosteo(it.precioUnitario, costeado[it.productoId] ?? null).veredicto}
+              panel={fichas.panel} cargando={fichas.cargando} recargar={fichas.recargar} puedeOperar={puedeOperar} />
           </div>
         );
       })()}

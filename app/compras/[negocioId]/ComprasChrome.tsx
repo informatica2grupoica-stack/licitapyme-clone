@@ -24,6 +24,7 @@ import { ObumaHubCard } from '@/app/negocios/[id]/ObumaHubCard';
 import { irAFase } from './comprasNavegacion';
 import { ResumenGastosCard } from '@/app/negocios/[id]/ResumenGastosCard';
 import { ResumenComparativoCard } from '@/app/negocios/[id]/ResumenComparativoCard';
+import { FichasTecnicasCard } from '@/app/negocios/[id]/FichasTecnicasCard';
 import { CostoRealCard } from '@/app/negocios/[id]/CostoRealCard';
 import { ImportacionCard } from '@/app/negocios/[id]/ImportacionCard';
 import { ModalidadRetiroCard } from '@/app/negocios/[id]/ModalidadRetiroCard';
@@ -37,6 +38,7 @@ import { ActividadComprasCard } from '@/app/negocios/[id]/ActividadComprasCard';
 import { GanttComprasCard } from '@/app/negocios/[id]/GanttComprasCard';
 import { TareasComprasCard } from './TareasComprasCard';
 import { Seccion } from './Seccion';
+import { Pestanas, irAPestana } from './Pestanas';
 import { TutorialPaso } from './TutorialPaso';
 import { FranjaCompra } from './FranjaCompra';
 import { siguientePaso, type SiguientePaso } from '@/app/lib/compras-siguiente-paso';
@@ -375,7 +377,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
       <FranjaCompra negocioId={negocioId} incidenciasAbiertas={resumenFases?.entrega.incidenciasAbiertas ?? 0}
         version={tareas.filter(t => t.estado === 'HECHA').length}
         onIrEntrega={() => { setFaseActiva('entrega'); setTimeout(() => document.getElementById('compras-flujo')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }}
-        onIrIncidencias={() => { setFaseActiva('entrega'); setTimeout(() => document.getElementById('compras-incidencias')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80); }} />
+        onIrIncidencias={() => { setFaseActiva('entrega'); setTimeout(() => { irAPestana('incidencias'); document.getElementById('compras-incidencias')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 120); }} />
 
       {/* Gantt, aparte del flujo por pestañas (pedido explícito, 17-sep-2026): "es aparte de todo ese
           flujo y es lo primero que se debe ver". */}
@@ -756,30 +758,18 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
               </div>
             )}
             {faseActiva === 'costeo' && (
-              <div className="space-y-3">
-                <ol className="flex flex-wrap gap-x-5 gap-y-1 text-[13px] text-zinc-600 px-1">
-                  <li><b className="text-teal-700">1</b> Productos a cubrir</li>
-                  <li><b className="text-teal-700">2</b> Cotizaciones: ¿el precio conviene?</li>
-                  <li><b className="text-teal-700">3</b> Fichas técnicas: ¿cumple lo pedido?</li>
-                  <li><b className="text-teal-700">4</b> Verificar el costo</li>
-                </ol>
-                <Seccion titulo="1 · Productos a cubrir" ayuda="Cada producto ganado y cómo va. Todos deben quedar cubiertos para poder entregar." defaultAbierta>
-                  <ProductosCompraCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
-                </Seccion>
-                <Seccion titulo="2 · Cotizaciones: ¿el precio conviene?" ayuda="Sube la cotización de cada proveedor. El sistema compara su PRECIO contra lo que se costeó al ofertar: más barata, igual o más cara, y por cuánto." badge={resumenFases?.costeo.productosSinCotizacion ? `${resumenFases.costeo.productosSinCotizacion} sin cotizar` : null} tono="pendiente" defaultAbierta>
-                  <AuditorComprasCard negocioId={negocioId} puedeOperar={puedeOperar} />
-                </Seccion>
-                <Seccion titulo="3 · Fichas técnicas: ¿cumple lo pedido?" ayuda="Es otra revisión y otro documento: la ficha técnica del producto (no la cotización). Compara lo que dice la ficha contra lo que exige la licitación." badge="Próximamente" tono="neutral">
-                  <div className="text-[13.5px] text-zinc-600 space-y-2 py-1">
-                    <p><b className="text-zinc-900">Todavía no está disponible.</b> Aquí se subirá la ficha técnica de cada producto para compararla requisito por requisito con las bases.</p>
-                    <p>Mientras tanto, una cotización <b>no</b> se usa para juzgar si el producto cumple: solo sirve para el precio. La referencia técnica de cada línea (marca y modelo) la entrega el Auditor.</p>
-                  </div>
-                </Seccion>
-                {/* PROMPT 5: verifica cada línea de la tabla de costeo (respaldo real, producto, unidad, IVA, costos ocultos) y da la posición de precio. */}
-                <Seccion titulo="4 · Verificar el costo de cada línea" ayuda="Revisa que cada costo del costeo tenga respaldo real (link o cotización), sea el mismo producto y no esconda costos.">
-                  <AuditorCosteoCard negocioId={negocioId} puedeOperar={puedeOperar} />
-                </Seccion>
-              </div>
+              <Pestanas id="costeo" pestanas={[
+                { clave: 'productos', titulo: '1 · Productos', ayuda: 'Cada producto ganado y cómo va. Todos deben quedar cubiertos para poder entregar.',
+                  contenido: <ProductosCompraCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} /> },
+                { clave: 'cotizaciones', titulo: '2 · Cotizaciones', ayuda: 'Sube la cotización de cada proveedor. El sistema compara su PRECIO contra lo que se costeó al ofertar: más barata, igual o más cara, y por cuánto.',
+                  badge: resumenFases?.costeo.productosSinCotizacion ? `${resumenFases.costeo.productosSinCotizacion} sin cotizar` : null, tono: 'pendiente',
+                  contenido: <AuditorComprasCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
+                { clave: 'fichas', titulo: '3 · Fichas técnicas', ayuda: 'Sube las fichas técnicas (todas juntas): el sistema detecta de qué producto y proveedor es cada una y compara lo que dice contra lo que exigen las bases.',
+                  contenido: <FichasTecnicasCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
+                /* PROMPT 5: verifica cada línea de la tabla de costeo (respaldo real, producto, unidad, IVA, costos ocultos) y da la posición de precio. */
+                { clave: 'costo', titulo: '4 · Verificar el costo', ayuda: 'Revisa que cada costo del costeo tenga respaldo real (link o cotización), sea el mismo producto y no esconda costos.',
+                  contenido: <AuditorCosteoCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
+              ]} />
             )}
             {faseActiva === 'aprobacion' && (
               <div className="space-y-3">
@@ -797,52 +787,49 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             )}
             {faseActiva === 'obuma' && <ObumaHubCard negocioId={negocioId} puedeOperar={puedeOperar} esAdministracion={esAdministracion} />}
             {faseActiva === 'compra' && (
-              <div className="space-y-3">
-                <Seccion titulo="Resumen de la compra" ayuda="Dónde vamos: productos cubiertos, órdenes de compra emitidas, facturas recibidas y cuánto se gastó contra lo costeado." defaultAbierta>
-                  <ResumenGastosCard negocioId={negocioId} />
-                </Seccion>
-                <Seccion titulo="Comparativo: costeo · Licitank · Obuma" ayuda="Por producto y por orden de compra, todo neto: lo costeado, lo planeado en Licitank y lo que de verdad se compró en Obuma, para ver si coincide." defaultAbierta>
-                  <ResumenComparativoCard negocioId={negocioId} />
-                </Seccion>
-                <Seccion titulo="Cómo se retira la mercadería" ayuda="Con equipo propio, transporte externo o mixto. Se define al comienzo y el sistema sugiere fleteros.">
-                  <ModalidadRetiroCard negocioId={negocioId} puedeOperar={puedeOperar} />
-                </Seccion>
-                <Seccion titulo="Pasos administrativos (OBUMA)" ayuda="Órdenes de compra a proveedores, provisión de fondos y facturas de compra. Aquí solo se registra su avance." badge={resumenFases?.compra.hitosAdminPendientes || null} tono="pendiente" defaultAbierta={(resumenFases?.compra.hitosAdminPendientes ?? 0) > 0}>
-                  <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} parte="hitos" />
-                  <button type="button" onClick={() => irAFase('obuma')} className="mt-3 text-[12.5px] font-semibold text-indigo-700 hover:text-indigo-900">
-                    Las órdenes de compra, los SKU y el proveedor se crean en la pestaña Obuma → Ir a Obuma
-                  </button>
-                </Seccion>
-                <Seccion titulo="Importación y costo aterrizado" ayuda="Solo si el producto viene del extranjero: flete, aduana y costo final puesto en bodega.">
-                  <ImportacionCard negocioId={negocioId} puedeOperar={puedeOperar} />
-                </Seccion>
-                <Seccion titulo="Gastos extra" ayuda="Gastos que no son productos: fletes, puesta en marcha, viáticos, etc.">
-                  <GastosCard negocioId={negocioId} puedeOperar={puedeOperar} />
-                </Seccion>
-              </div>
+              <Pestanas id="compra" pestanas={[
+                { clave: 'resumen', titulo: 'Resumen', ayuda: 'Dónde vamos: productos cubiertos, órdenes de compra emitidas, facturas recibidas y cuánto se gastó contra lo costeado.',
+                  contenido: <ResumenGastosCard negocioId={negocioId} /> },
+                { clave: 'comparativo', titulo: 'Comparativo', ayuda: 'Por producto y por orden de compra, todo neto: lo costeado, lo planeado en Licitank y lo que de verdad se compró en Obuma, para ver si coincide.',
+                  contenido: <ResumenComparativoCard negocioId={negocioId} /> },
+                { clave: 'retiro', titulo: 'Retiro de mercadería', ayuda: 'Con equipo propio, transporte externo o mixto. Se define al comienzo y el sistema sugiere fleteros.',
+                  contenido: <ModalidadRetiroCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
+                { clave: 'pasos', titulo: 'Pasos en Obuma', ayuda: 'Órdenes de compra a proveedores, provisión de fondos y facturas de compra. Aquí solo se registra su avance.',
+                  badge: resumenFases?.compra.hitosAdminPendientes || null, tono: 'pendiente',
+                  contenido: (
+                    <>
+                      <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} parte="hitos" />
+                      <button type="button" onClick={() => irAFase('obuma')} className="mt-3 text-[12.5px] font-semibold text-indigo-700 hover:text-indigo-900">
+                        Las órdenes de compra, los SKU y el proveedor se crean en la pestaña Obuma → Ir a Obuma
+                      </button>
+                    </>
+                  ) },
+                { clave: 'importacion', titulo: 'Importación', ayuda: 'Solo si el producto viene del extranjero: flete, aduana y costo final puesto en bodega.',
+                  contenido: <ImportacionCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
+                { clave: 'gastos', titulo: 'Gastos extra', ayuda: 'Gastos que no son productos: fletes, puesta en marcha, viáticos, etc.',
+                  contenido: <GastosCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
+              ]} />
             )}
             {faseActiva === 'entrega' && (
-              <div className="space-y-3">
+              <div>
                 {/* Incidencias (§9): transversales (pueden aparecer en cualquier etapa); se llega desde la franja fija de arriba. */}
                 <div id="compras-incidencias" className="scroll-mt-4" />
-                <Seccion titulo="Incidencias" ayuda="Problemas u oportunidades que pueden aparecer en cualquier etapa: sin stock, plazo incompatible, una alternativa más barata." badge={(resumenFases?.entrega.incidenciasAbiertas ?? 0) || null} tono="alerta" defaultAbierta={(resumenFases?.entrega.incidenciasAbiertas ?? 0) > 0}>
-                  <IncidenciasCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
-                </Seccion>
-                <Seccion titulo="Plazo, prórrogas y multas" ayuda="Cuánto queda para entregar y qué hacer si no se alcanza: pedir prórroga sin multa o, solo con autorización, entregar con multa." badge={resumenFases?.entrega.relojVencido ? 'Vencido' : null} tono="alerta" defaultAbierta={true || !!resumenFases?.entrega.relojVencido}>
-                  <RelojEntregaCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
-                </Seccion>
-                <Seccion titulo="Entrega al cliente y acta" ayuda="Preparación, despacho y el acta de entrega que firma el cliente. El acta cierra el proyecto." defaultAbierta>
-                  <EntregaCard negocioId={negocioId} puedeOperar={puedeOperar} puedeVerificar={esBodega} />
-                </Seccion>
-                <Seccion titulo="Costo real y cierre" ayuda="Resultado final del proyecto: lo costeado contra lo realmente gastado.">
-                  <CostoRealCard negocioId={negocioId} puedeOperar={puedeOperar} />
-                </Seccion>
-                <Seccion titulo="Postventa y contacto de pagos" ayuda="Garantías, capacitación y los datos de quien paga la factura (deben capturarse mientras hay contacto).">
-                  <PostventaCard negocioId={negocioId} puedeOperar={puedeOperar} />
-                </Seccion>
-                <Seccion titulo="Si el proyecto no se puede entregar" ayuda="Registro de fracaso: lo declara el encargado y el jefe de ventas dictamina la causa real.">
-                  <FracasoCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
-                </Seccion>
+                <Pestanas id="entrega" inicial={(resumenFases?.entrega.incidenciasAbiertas ?? 0) > 0 ? 'incidencias' : 'entrega'} pestanas={[
+                  { clave: 'incidencias', titulo: 'Incidencias', ayuda: 'Problemas u oportunidades que pueden aparecer en cualquier etapa: sin stock, plazo incompatible, una alternativa más barata.',
+                    badge: (resumenFases?.entrega.incidenciasAbiertas ?? 0) || null, tono: 'alerta',
+                    contenido: <IncidenciasCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} /> },
+                  { clave: 'plazo', titulo: 'Plazo y multas', ayuda: 'Cuánto queda para entregar y qué hacer si no se alcanza: pedir prórroga sin multa o, solo con autorización, entregar con multa.',
+                    badge: resumenFases?.entrega.relojVencido ? 'Vencido' : null, tono: 'alerta',
+                    contenido: <RelojEntregaCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} /> },
+                  { clave: 'entrega', titulo: 'Entrega y acta', ayuda: 'Preparación, despacho y el acta de entrega que firma el cliente. El acta cierra el proyecto.',
+                    contenido: <EntregaCard negocioId={negocioId} puedeOperar={puedeOperar} puedeVerificar={esBodega} /> },
+                  { clave: 'costoreal', titulo: 'Costo real y cierre', ayuda: 'Resultado final del proyecto: lo costeado contra lo realmente gastado.',
+                    contenido: <CostoRealCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
+                  { clave: 'postventa', titulo: 'Postventa y pagos', ayuda: 'Garantías, capacitación y los datos de quien paga la factura (deben capturarse mientras hay contacto).',
+                    contenido: <PostventaCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
+                  { clave: 'fracaso', titulo: 'No se puede entregar', ayuda: 'Registro de fracaso: lo declara el encargado y el jefe de ventas dictamina la causa real.',
+                    contenido: <FracasoCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} /> },
+                ]} />
               </div>
             )}
             {faseActiva === 'documentos' && (

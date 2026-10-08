@@ -69,7 +69,7 @@ function mimeDe(url: string, contentType: string | null): string {
   const ct = (contentType || '').split(';')[0].trim().toLowerCase();
   if (ct && ct !== 'application/octet-stream') return ct;
   const ext = url.split('?')[0].split('.').pop()?.toLowerCase() || '';
-  return ({ pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', txt: 'text/plain', csv: 'text/csv', docx: MIME_DOCX, doc: 'application/msword', xlsx: MIME_XLSX, xls: 'application/vnd.ms-excel' } as Record<string, string>)[ext] || 'application/octet-stream';
+  return ({ pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', txt: 'text/plain', md: 'text/plain', tsv: 'text/plain', csv: 'text/csv', docx: MIME_DOCX, doc: 'application/msword', xlsx: MIME_XLSX, xls: 'application/vnd.ms-excel' } as Record<string, string>)[ext] || 'application/octet-stream';
 }
 
 /** Marca con la que empieza el texto cuando trae DOS transcripciones OCR del mismo archivo (re-análisis). */
@@ -127,7 +127,7 @@ export async function transcribirDocumento(url: string, opts: { combinar?: boole
   }
   // Documentos con texto propio (no necesitan OCR): txt/csv, Word y Excel.
   const ext = url.split('?')[0].split('.').pop()?.toLowerCase() || '';
-  if (mime.startsWith('text/') || ext === 'txt' || ext === 'csv') {
+  if (mime.startsWith('text/') || ext === 'txt' || ext === 'csv' || ext === 'md' || ext === 'tsv') {
     const t = buffer.toString('utf8').trim();
     if (t.length >= 20) return { texto: t, metodo: 'texto' };
     throw new Error('el archivo de texto está vacío o es demasiado corto');

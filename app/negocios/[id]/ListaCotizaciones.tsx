@@ -3,7 +3,9 @@
 // COTIZACIONES RECIBIDAS, EN UNA TABLA ORDENADA: una fila por cotización (proveedor, qué productos cubre y a qué precio, total, plazo,
 // vigencia, avisos y sus acciones). Reemplaza a las tarjetas apiladas, que con 10 cotizaciones se volvían una lista inmensa, sin
 // esconder nada: todas siguen a la vista, en filas compactas con scroll propio y encabezado fijo.
-import { IconPaperclip as Clip, IconListCheck as ListChecks, IconSparkles as Sparkles, IconPencil as Pencil, IconTrash as Trash, IconLoader2 as Loader2, IconAlertTriangle as Alerta } from '@tabler/icons-react';
+import { useState } from 'react';
+import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
+import { IconEye as Eye, IconListCheck as ListChecks, IconSparkles as Sparkles, IconPencil as Pencil, IconTrash as Trash, IconLoader2 as Loader2, IconAlertTriangle as Alerta } from '@tabler/icons-react';
 
 export interface CotizacionFilaUI {
   id: number; proveedorNombre: string; proveedorRut: string | null; proveedorNuevo: boolean | null; origen: string;
@@ -15,6 +17,8 @@ export interface CotizacionFilaUI {
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 const corto = (t: string, n = 26) => (t.length > n ? `${t.slice(0, n).trim()}…` : t);
 const hoy = () => new Date().toISOString().slice(0, 10);
+/** Nombre legible del archivo subido (la URL trae un prefijo numérico de subida). Conserva la extensión: el visor la usa para elegir cómo mostrarlo. */
+const nombreDeArchivo = (url: string) => { try { return decodeURIComponent(url.split('?')[0].split('/').pop() || 'cotizacion').replace(/^\d+_/, ''); } catch { return 'cotizacion'; } };
 const fmtFecha = (ymd: string) => `${ymd.slice(8, 10)}-${ymd.slice(5, 7)}-${ymd.slice(0, 4)}`;
 
 export function ListaCotizaciones({ cotizaciones, productos, avisosPorCotizacion, origenLabel, puedeOperar, homologandoId, onAsignar, onHomologar, onEditar, onEliminar }: {
@@ -22,6 +26,7 @@ export function ListaCotizaciones({ cotizaciones, productos, avisosPorCotizacion
   avisosPorCotizacion: Record<number, number>; origenLabel: Record<string, string>; puedeOperar: boolean; homologandoId: number | null;
   onAsignar: (id: number) => void; onHomologar: (id: number) => void; onEditar: (id: number) => void; onEliminar: (id: number) => void;
 }) {
+  const [visor, setVisor] = useState<VisorDoc | null>(null);
   if (cotizaciones.length === 0) return null;
   const num = (v: unknown) => { const n = typeof v === 'number' ? v : Number(v); return Number.isFinite(n) && n > 0 ? n : 1; };
   const h = hoy();
@@ -77,7 +82,7 @@ export function ListaCotizaciones({ cotizaciones, productos, avisosPorCotizacion
                 {puedeOperar && (
                   <td className="px-3 py-2.5">
                     <div className="flex items-center justify-end gap-1">
-                      {c.archivoUrl && <a href={c.archivoUrl} target="_blank" rel="noopener noreferrer" title="Ver el archivo" className="p-1.5 rounded-md text-zinc-500 hover:text-teal-700 hover:bg-zinc-100"><Clip size={15} /></a>}
+                      {c.archivoUrl && <button type="button" onClick={() => setVisor({ nombre: nombreDeArchivo(c.archivoUrl!), url: c.archivoUrl! })} title="Ver el documento que se subió" aria-label={`Ver el documento de ${c.proveedorNombre}`} data-testid={`cotizacion-ver-${c.id}`} className="p-1.5 rounded-md text-zinc-500 hover:text-teal-700 hover:bg-zinc-100"><Eye size={15} /></button>}
                       <button type="button" onClick={() => onAsignar(c.id)} title="Qué productos cubre" className="p-1.5 rounded-md text-zinc-500 hover:text-teal-700 hover:bg-zinc-100"><ListChecks size={15} /></button>
                       <button type="button" onClick={() => onHomologar(c.id)} disabled={homologandoId === c.id} title={c.homologadaAt ? 'Volver a leer con IA' : 'Leer con IA'} className="p-1.5 rounded-md text-zinc-500 hover:text-indigo-700 hover:bg-zinc-100 disabled:opacity-50">{homologandoId === c.id ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}</button>
                       <button type="button" onClick={() => onEditar(c.id)} title="Editar datos" className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100"><Pencil size={15} /></button>
@@ -90,6 +95,7 @@ export function ListaCotizaciones({ cotizaciones, productos, avisosPorCotizacion
           })}
         </tbody>
       </table>
+      <DocumentViewerModal doc={visor} onClose={() => setVisor(null)} />
     </div>
   );
 }

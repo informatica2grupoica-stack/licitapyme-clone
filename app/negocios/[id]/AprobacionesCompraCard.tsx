@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Banner } from '@/app/components/ui/Banner';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
+import { TablaAprobacionCompra } from './TablaAprobacionCompra';
 import { IconShieldCheck as ShieldCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconEdit as Edit3, IconAlertTriangle as AlertTriangle, IconTag as Tag, IconPlus as Plus, IconX as X, IconHistory as History, IconStar as Star, IconBolt as Zap } from '@tabler/icons-react';
 
 type Estado = 'PENDIENTE' | 'APROBADA' | 'APROBADA_CON_MODIFICACION' | 'RECHAZADA';
@@ -433,6 +434,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
   return (
     <div className="space-y-3">
       {parte !== 'sku' && (<>
+      <TablaAprobacionCompra negocioId={negocioId} refresco={`${compra?.estado}|${compra?.propuestoAt}|${margen?.estado}|${margen?.propuestoAt}`} />
       <p className="text-[11px] font-bold text-zinc-400 uppercase flex items-center gap-1.5 px-0.5"><ShieldCheck size={13} /> Hitos de aprobación</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         <BloqueCompuerta

@@ -39,10 +39,19 @@ export const ETIQUETA_ALERTA: Record<string, string> = {
   plazo: 'Plazo no alcanza', proveedor: 'RUT inválido', cantidad: 'Mínimo de venta', vigencia: 'Cotización vencida', precio: 'Costo sobre la venta', producto: 'Falta lo que exigen las bases',
 };
 
-export function MatrizPrecios({ productos, cotizaciones, costeado, seleccion, onSeleccionar, alertas, onAgregar, compra, onElegirCelda, onComprarTodoAqui, acciones }: {
+const ESTILO_TECNICO: Record<string, { chip: string; texto: string }> = {
+  CUMPLE: { chip: 'bg-emerald-50 text-emerald-700 border-emerald-200', texto: 'cumple' },
+  NO_CUMPLE: { chip: 'bg-rose-50 text-rose-700 border-rose-200', texto: 'no cumple' },
+  CON_PENDIENTES: { chip: 'bg-amber-50 text-amber-800 border-amber-200', texto: 'falta dato' },
+  NO_CORRIDO: { chip: 'bg-zinc-100 text-zinc-600 border-zinc-200', texto: 'sin comparar' },
+};
+
+export function MatrizPrecios({ productos, cotizaciones, costeado, seleccion, onSeleccionar, alertas, tecnico, onAgregar, compra, onElegirCelda, onComprarTodoAqui, acciones }: {
   productos: Array<{ id: number; descripcion: string; cantidad?: number | string | null }>; cotizaciones: CotizacionMin[];
   costeado: Record<number, number | null>; seleccion: SeleccionCelda | null; onSeleccionar: (s: SeleccionCelda) => void;
   alertas?: Record<string, string[]>;
+  /** Resultado de la ficha técnica por celda («cotizaciónId:productoId»); solo las celdas cuyo proveedor tiene ficha de ese producto. */
+  tecnico?: Record<string, { estado: string; cumple: number; total: number; modelo: string }>;
   /** Abre «Asignar productos» de esa cotización (agregar un producto que no cotizó o que va incluido en otro). */
   onAgregar?: (cotizacionId: number) => void;
   /** La compra que se va armando: productoId → cotizacionId elegida. */
@@ -194,6 +203,12 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, seleccion, on
                             {incluido
                               ? <span className="block text-[11px] font-semibold text-sky-700 mt-0.5">Incluido en otro producto{item.adicionales.length > 0 ? ' · se suman sus componentes' : ''}</span>
                               : <span className={`inline-block mt-1 text-[11.5px] font-semibold px-1.5 py-0.5 rounded border ${est.chip}`}>{est.texto(cmp.diffPct)}</span>}
+                            {tecnico && !incluido && (() => {
+                              const t = tecnico[`${c.id}:${p.id}`];
+                              if (!t) return <span className="block text-[11px] text-zinc-400 mt-1">sin ficha técnica</span>;
+                              const e = ESTILO_TECNICO[t.estado] ?? ESTILO_TECNICO.NO_CORRIDO;
+                              return <span title={`Ficha de ${t.modelo || 'este modelo'} contra las bases`} data-testid={`tecnico-${c.id}-${p.id}`} className={`inline-block mt-1 text-[11.5px] font-semibold px-1.5 py-0.5 rounded border ${e.chip}`}>Ficha: {e.texto}{t.total > 0 ? ` ${t.cumple}/${t.total}` : ''}</span>;
+                            })()}
                             {al.map(t => <span key={t} className="block text-[11px] font-bold text-rose-600 mt-0.5">⚠ {t}</span>)}
                             {item.adicionales.length > 0 && <span className="block text-[11px] text-zinc-400 mt-0.5">incluye {item.adicionales.length} adicional{item.adicionales.length === 1 ? '' : 'es'}</span>}
                           </button>
@@ -214,6 +229,12 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, seleccion, on
             {fila('Total si compras aquí', r => r.total > 0
               ? <span className="font-bold text-zinc-900">{clp(r.total)}{menor != null && r.faltan === 0 && r.nAvisos === 0 && r.total === menor ? <span className="ml-1 text-[10.5px] font-bold text-amber-600">★ menor</span> : null}</span>
               : <span className="text-zinc-300">—</span>)}
+            {tecnico && fila('Ficha técnica', r => {
+              const celdas = r.c.items.map(i => tecnico[`${r.c.id}:${i.productoId}`]).filter(Boolean);
+              if (celdas.length === 0) return <span className="text-zinc-300">sin fichas</span>;
+              const malas = celdas.filter(t => t.estado === 'NO_CUMPLE').length;
+              return <span className={malas > 0 ? 'font-semibold text-rose-600' : 'text-zinc-700'}>{celdas.filter(t => t.estado === 'CUMPLE').length} de {celdas.length} cumplen{malas > 0 ? ` · ${malas} no` : ''}</span>;
+            })}
             {fila('Plazo', r => <span className="text-zinc-700">{r.c.plazoEntregaTexto || <span className="text-zinc-300">no dice</span>}</span>)}
             {fila('Avisos', r => r.nAvisos > 0 ? <span className="font-bold text-rose-600">⚠ {r.nAvisos}</span> : <span className="text-emerald-600">sin avisos</span>)}
           </tfoot>

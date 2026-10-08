@@ -16,6 +16,11 @@ export const dynamic = 'force-dynamic';
 type Params = { params: Promise<{ id: string }> };
 const MAX_BYTES = 8 * 1024 * 1024;
 
+/** Texto de una celda; `cell.text` de exceljs lanza error en celdas combinadas cuya celda maestra está vacía. */
+function textoCelda(cell: ExcelJS.Cell): string {
+  try { return String(cell.text || '').trim(); } catch { return ''; }
+}
+
 /** Links por (hoja, fila): las columnas cuyo encabezado es «Link 1/2/3». */
 async function linksPorFila(buf: Buffer): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
@@ -27,7 +32,7 @@ async function linksPorFila(buf: Buffer): Promise<Map<string, string[]>> {
       ws.eachRow((row, n) => {
         if (hdr) return;
         const c: number[] = [];
-        row.eachCell((cell, i) => { if (/^link\s*\d?$/i.test(String(cell.text || '').trim())) c.push(i); });
+        row.eachCell((cell, i) => { if (/^link\s*\d?$/i.test(textoCelda(cell))) c.push(i); });
         if (c.length) { cols = c; hdr = n; }
       });
       if (!hdr) return;
