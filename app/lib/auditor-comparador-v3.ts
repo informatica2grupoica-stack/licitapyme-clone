@@ -177,6 +177,36 @@ export async function confirmarCelda(negocioId: number, opcionId: number, n: num
     [negocioId, opcionId, JSON.stringify({ n, confirmada, por: actor.nombre, motivo: razon || undefined, antes: celda.estado, em: esEM || undefined }), ahoraChileSQL()]);
 }
 
+// ── Respaldos de un requisito (documento o imagen que sube el asistente para complementar una celda) ──
+// No cierra nada: queda adjunto a la celda (evento `respaldo_celda`) para que el EM lo vea con el «ojo» y decida.
+export interface RespaldoCelda { url: string; nombre: string; nota?: string; por: string; at: string }
+export async function respaldosDeCeldas(negocioId: number): Promise<Map<number, Map<number, RespaldoCelda[]>>> {
+  const [rows] = await pool.query(`SELECT opcion_id, detalle, creado_at FROM auditor_evento WHERE negocio_id = ? AND tipo = 'respaldo_celda' ORDER BY id`, [negocioId]) as any;
+  const out = new Map<number, Map<number, RespaldoCelda[]>>();
+  for (const r of rows as any[]) {
+    try {
+      const d = JSON.parse(r.detalle || '{}');
+      const m = out.get(r.opcion_id) || new Map<number, RespaldoCelda[]>();
+      const n = Number(d.n);
+      const lista = (m.get(n) || []).filter(x => x.url !== d.url);
+      if (!d.quitado) lista.push({ url: String(d.url), nombre: String(d.nombre || 'respaldo'), nota: d.nota ? String(d.nota) : undefined, por: String(d.por || ''), at: r.creado_at instanceof Date ? r.creado_at.toISOString() : String(r.creado_at) });
+      m.set(n, lista); out.set(r.opcion_id, m);
+    } catch { /* evento mal formado: se ignora */ }
+  }
+  return out;
+}
+
+export async function agregarRespaldoCelda(negocioId: number, opcionId: number, n: number, url: string, nombre: string, nota: string, actor: { id: number; nombre: string }, quitar = false): Promise<void> {
+  const [ors] = await pool.query(`SELECT estado FROM auditor_opcion WHERE id = ? AND negocio_id = ?`, [opcionId, negocioId]) as any;
+  if (!(ors as any[]).length) throw new Error('La opción no existe en este negocio.');
+  if (['en_aprobacion', 'aprobada'].includes((ors as any[])[0].estado)) throw new Error('La opción ya está en aprobación: pide rechazarla antes de cambiarle datos.');
+  if (!Number.isFinite(n)) throw new Error('Falta indicar el requisito.');
+  const [docs] = await pool.query(`SELECT 1 FROM documentos_cache WHERE documento_url_local = ? AND subcategoria = 'respaldos_auditor' LIMIT 1`, [url]) as any;
+  if (!(docs as any[]).length) throw new Error('Ese archivo no es un respaldo subido en esta licitación.');
+  await pool.query(`INSERT INTO auditor_evento (negocio_id, opcion_id, tipo, emisor, detalle, creado_at) VALUES (?, ?, 'respaldo_celda', 'asistente', ?, ?)`,
+    [negocioId, opcionId, JSON.stringify({ n, url, nombre: nombre.slice(0, 200), nota: nota.trim().slice(0, 500) || undefined, por: actor.nombre, quitado: quitar || undefined }), ahoraChileSQL()]);
+}
+
 // ── Segunda pasada de ROJOS (pasada final, al solicitar la aprobación) ───────────────────────────────
 // Spec ESP §11.2 y RES: los ítems INADMISIBLE declarados CUMPLE se releen en el DOCUMENTO ORIGINAL. Si el dato no está donde se citó, el CUMPLE se cae.
 export async function ultimasSegundasPasadasV3(negocioId: number): Promise<Map<number, { celdas: Map<number, SegundaPasadaCelda>; at: string }>> {

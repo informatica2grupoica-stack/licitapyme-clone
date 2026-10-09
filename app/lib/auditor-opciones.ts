@@ -16,7 +16,7 @@ import { mensajesUnificadosPorProveedor, type MensajeProveedor } from '@/app/lib
 import {
   contarRequisitosPorLinea, ultimasVerificaciones, habilitacionesYDeclaraciones, estadoTecnicoDe,
 } from '@/app/lib/auditor-tecnico-v2';
-import { ultimasCorridasV3, confirmacionesTecnicas, estadoTecnicoV3, verificarLineaV3, confirmarCelda, ultimasSegundasPasadasV3, segundaPasadaRojosV3, rojosPendientesDeSegundaPasada, type ResumenCorridaV3 } from '@/app/lib/auditor-comparador-v3';
+import { ultimasCorridasV3, confirmacionesTecnicas, respaldosDeCeldas, agregarRespaldoCelda, type RespaldoCelda, estadoTecnicoV3, verificarLineaV3, confirmarCelda, ultimasSegundasPasadasV3, segundaPasadaRojosV3, rojosPendientesDeSegundaPasada, type ResumenCorridaV3 } from '@/app/lib/auditor-comparador-v3';
 import type { ResultadoTecnico } from '@/app/lib/auditor-tecnico-v2-core';
 import { ultimosMercados, opcionesConJustificacion, verificarMercadoOpcion, justificarAhorro } from '@/app/lib/auditor-mercado';
 import { evaluarMercado, aplicarEvaluacion, type ReferenciaMercado, type ReferenciaDescartada, type CompetidorMP, type FuenteComparador } from '@/app/lib/auditor-mercado-core';
@@ -72,6 +72,8 @@ export interface TecnicoDTO {
   estado: ResultadoTecnico['estado'] | 'NO_CORRIDO' | 'SIN_REQUISITOS' | 'NO_APLICA';
   corridoAt: string | null; error: string | null; segundaPasadaAt: string | null; requisitosTotal: number;
   resultado: ResultadoTecnico | null;
+  /** Documentos o imágenes que subió el asistente para complementar un requisito (n del requisito → respaldos). No cierran nada: los revisa el EM. */
+  respaldosCelda?: Record<number, RespaldoCelda[]>;
   /** true = el resultado es de la comparación anterior (prompt v2.0), guardada antes del comparador v3.0: se muestra como historial. */
   legado?: boolean;
 }
@@ -151,14 +153,14 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
   // Todas las lecturas son independientes: van EN PARALELO (la base es remota, ~155 ms por consulta: una a una el panel tardaba segundos).
   const estadoP = cargarEstadoCosteo(negocioId);
   const [estado, estadosLinea, verifTec, habTec, reqPorLinea, exigenCompleta, costosAsociados, mercados, justificadas, costosIA, opRes, reRes, caRes,
-    correcciones, segundasPasadas, verifLegado, hdLegado, docsRes, extsRes, decisiones, linksPendientes] = await Promise.all([
+    correcciones, segundasPasadas, respaldosCeldas, verifLegado, hdLegado, docsRes, extsRes, decisiones, linksPendientes] = await Promise.all([
     estadoP, estadosDeLineas(negocioId), ultimasCorridasV3(negocioId), confirmacionesTecnicas(negocioId),
     contarRequisitosPorLinea(negocioId, licitacionCodigo), lineasQueExigenViaCompleta(negocioId), listarCostosAsociados(negocioId),
     ultimosMercados(negocioId), opcionesConJustificacion(negocioId), ultimasCostoIA(negocioId),
     pool.query(`SELECT * FROM auditor_opcion WHERE negocio_id = ? ORDER BY id`, [negocioId]) as Promise<any>,
     pool.query(`SELECT * FROM auditor_respaldo WHERE negocio_id = ? ORDER BY id`, [negocioId]) as Promise<any>,
     pool.query(`SELECT id, opcion_id, respaldo_id, url, estado_link, titulo, capturado_at, (imagen IS NOT NULL) AS hay_imagen FROM auditor_captura WHERE negocio_id = ? ORDER BY id DESC`, [negocioId]) as Promise<any>,
-    correccionesDeCosto(negocioId), ultimasSegundasPasadasV3(negocioId), ultimasVerificaciones(negocioId, true), habilitacionesYDeclaraciones(negocioId),
+    correccionesDeCosto(negocioId), ultimasSegundasPasadasV3(negocioId), respaldosDeCeldas(negocioId), ultimasVerificaciones(negocioId, true), habilitacionesYDeclaraciones(negocioId),
     pool.query(`SELECT id, documento_nombre, documento_url_local FROM documentos_cache
      WHERE licitacion_codigo = ? AND subcategoria = 'cotizaciones' AND documento_url_local IS NOT NULL ORDER BY created_at ASC`, [licitacionCodigo]) as Promise<any>,
     pool.query(`SELECT id, documento_url, error FROM auditor_extraccion WHERE negocio_id = ? AND documento_url IS NOT NULL ORDER BY id DESC`, [negocioId]) as Promise<any>,
@@ -235,6 +237,7 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
     const tecnico: TecnicoDTO = {
       estado: o.via === 'liviana' ? 'NO_APLICA' : reqTotal === 0 && !est.resultado ? 'SIN_REQUISITOS' : est.resultado ? est.resultado.estado : 'NO_CORRIDO',
       corridoAt: est.corridoAt, error: est.error, segundaPasadaAt: segundasPasadas.get(o.id)?.at ?? null, requisitosTotal: reqTotal, resultado: est.resultado, legado,
+      respaldosCelda: Object.fromEntries(respaldosCeldas.get(o.id) ?? []),
     };
     // Mercado (V9 competidor, V10 referencia más barata ≥ 5% sin justificar, V10-b dispersión): si ya se buscó, suma sus bloqueos y alertas.
     const m = mercados.get(o.id) ?? null;
@@ -1045,6 +1048,11 @@ export async function verificarTecnicoDeOpcion(negocioId: number, licitacionCodi
 }
 
 /** El asistente cierra un ❓ con un clic («lo confirmo»), sin respaldo. Queda quién y cuándo; el EM ve la lista. */
+export async function respaldarCeldaTecnica(negocioId: number, opcionId: number, n: number, url: string, nombre: string, nota: string, actor: Actor, quitar = false): Promise<void> {
+  await opcionDe(negocioId, opcionId);
+  await agregarRespaldoCelda(negocioId, opcionId, n, url, nombre, nota, actor, quitar);
+}
+
 export async function confirmarCeldaTecnica(negocioId: number, opcionId: number, n: number, confirmada: boolean, actor: Actor, motivo = '', esEM = false): Promise<void> {
   await opcionDe(negocioId, opcionId);
   await confirmarCelda(negocioId, opcionId, n, confirmada, actor, motivo, esEM);

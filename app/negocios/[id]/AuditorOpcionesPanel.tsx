@@ -12,7 +12,7 @@ import { resumenLicitacion, type LineaParaResumen } from '@/app/lib/auditor-resu
 import {
   IconLoader2 as Loader2, IconFileText as FileText, IconSparkles as Sparkles, IconChevronDown as ChevronDown,
   IconChevronRight as ChevronRight, IconAlertTriangle as Alerta, IconCircleCheck as Check, IconExternalLink as ExternalLink,
-  IconRefresh as Refresh, IconUpload as Upload, IconCopy as Copy, IconDownload as Download,
+  IconRefresh as Refresh, IconEye as Eye, IconPaperclip as Clip, IconUpload as Upload, IconCopy as Copy, IconDownload as Download,
 } from '@tabler/icons-react';
 import { pedirJson, ultimoJson } from '@/app/lib/pedir-json';
 import type { PanelAuditorDTO, LineaAuditorDTO, OpcionDTO, DocumentoCotizacionDTO } from '@/app/lib/auditor-opciones';
@@ -138,7 +138,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   const EXT_OK = /\.(pdf|png|jpe?g|webp|docx?|xlsx?|txt|csv)$/i;
 
   // Sube UN archivo a Documentos Propios (subcategoría dada) y devuelve su URL pública. Lanza si algo falla.
-  const subirADocumentos = async (f: File, subcategoria: 'cotizaciones' | 'fichas_tecnicas'): Promise<string> => {
+  const subirADocumentos = async (f: File, subcategoria: 'cotizaciones' | 'fichas_tecnicas' | 'respaldos_auditor'): Promise<string> => {
     if (f.size > 100 * 1024 * 1024) throw new Error(`"${f.name}" supera los 100 MB.`);
     if (f.size === 0) throw new Error(`"${f.name}" está vacío (0 bytes): vuelve a exportarlo o descargarlo.`);
     const tipo = f.type || 'application/octet-stream';
@@ -224,6 +224,20 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
       } catch (e: any) { toast.error(`No se pudo agregar "${f.name}"`, e.message); }
       finally { marcarFicha(ref, false); await cargar(true); }
     }
+  };
+  // Respaldo de UN requisito (documento o imagen): queda adjunto a la celda para que el EM lo vea; no cierra nada.
+  const respaldarCelda = async (opcionId: number, n: number, archivos: File[]) => {
+    const clave = `r${opcionId}-${n}`;
+    setSubiendoFicha(prev => new Set(prev).add(clave));
+    try {
+      for (const f of archivos) {
+        try {
+          const url = await subirADocumentos(f, 'respaldos_auditor');
+          await post(negocioId, { accion: 'respaldar_celda', opcionId, n, url, nombre: f.name });
+          toast.success('Respaldo adjuntado', `«${f.name}» quedó en el requisito ${n}. Lo revisa el EM.`);
+        } catch (e: any) { toast.error(`No se pudo adjuntar "${f.name}"`, e.message); }
+      }
+    } finally { setSubiendoFicha(prev => { const x = new Set(prev); x.delete(clave); return x; }); await cargar(true); }
   };
   const subirFichasDesdeUrl = async (url: string, nombre: string, ref: { opcionId?: number; filaId?: string }) => {
     marcarFicha(ref, true);
@@ -695,7 +709,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                       <p className="text-[12px] text-zinc-400">Esta línea todavía no tiene productos. Primero sube la cotización en «1 · Cotizaciones»; si no la tienes, agrega el link o la ficha técnica del producto con el recuadro de más arriba.{l.links.length > 0 && <> Link de referencia: <a href={l.links[0]} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline inline-flex items-center gap-0.5">abrir <ExternalLink size={10} /></a></>}</p>
                     ) : (
                       <CuadroLinea negocioId={negocioId} linea={l} ocupado={ocupado} verificando={verificando} onVerificar={verificarTecnico} puedeAprobar={puedeAprobar}
-                        subiendoFicha={subiendoFicha} onSubirFicha={(opcionId, f) => subirFichas(f, { opcionId })}
+                        subiendoFicha={subiendoFicha} onSubirFicha={(opcionId, f) => subirFichas(f, { opcionId })} onRespaldarCelda={respaldarCelda}
                         buscandoMercado={buscandoMercado} onMercado={buscarMercado} verificandoCosto={verificandoCosto} onCostoIA={(id) => verificarCostoIA(id)}
                         onAccion={accion} onModal={(tipo, opcionId) => { setTexto(''); setModal({ tipo, ref: opcionId }); }} />
                     )}
@@ -1280,9 +1294,9 @@ function Stat({ label, valor, rojo }: { label: string; valor: string; rojo?: boo
 }
 
 // ── Cuadro comparativo de UNA línea: columnas = opciones, filas = costo y verificación ────────────
-function CuadroLinea({ negocioId, linea, ocupado, verificando, onVerificar, puedeAprobar, subiendoFicha, onSubirFicha, buscandoMercado, onMercado, verificandoCosto, onCostoIA, onAccion, onModal }: {
+function CuadroLinea({ negocioId, linea, ocupado, verificando, onVerificar, puedeAprobar, subiendoFicha, onSubirFicha, onRespaldarCelda, buscandoMercado, onMercado, verificandoCosto, onCostoIA, onAccion, onModal }: {
   negocioId: number; linea: LineaAuditorDTO; ocupado: number | null; verificando: Set<number>; onVerificar: (opcionId: number) => void; puedeAprobar: boolean;
-  subiendoFicha: Set<string>; onSubirFicha: (opcionId: number, archivos: File[]) => void;
+  subiendoFicha: Set<string>; onSubirFicha: (opcionId: number, archivos: File[]) => void; onRespaldarCelda: (opcionId: number, n: number, archivos: File[]) => void;
   buscandoMercado: Set<number>; onMercado: (opcionId: number) => void;
   verificandoCosto: Set<number>; onCostoIA: (opcionId: number) => void;
   onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void;
@@ -1296,7 +1310,7 @@ function CuadroLinea({ negocioId, linea, ocupado, verificando, onVerificar, pued
   const imprimirLinea = useContext(ImprimirCtx);
   return (
     <div>
-      <CuadroTecnico negocioId={negocioId} linea={linea} ocupado={ocupado} puedeAprobar={puedeAprobar} verificando={verificando} subiendoFicha={subiendoFicha} onSubirFicha={onSubirFicha} onAccion={onAccion} onModal={onModal} />
+      <CuadroTecnico negocioId={negocioId} linea={linea} ocupado={ocupado} puedeAprobar={puedeAprobar} verificando={verificando} subiendoFicha={subiendoFicha} onSubirFicha={onSubirFicha} onRespaldarCelda={onRespaldarCelda} onAccion={onAccion} onModal={onModal} />
       <details className="mt-4 rounded-lg border border-zinc-200" open={imprimirLinea}>
         <summary className="cursor-pointer px-3 py-2 text-[12px] font-semibold text-zinc-600 hover:text-zinc-900">Detalle avanzado — respaldos, costo frente a lo costeado, mercado, verificación de costo con IA y vía</summary>
         <div className="overflow-x-auto p-3 pt-1">
@@ -1428,7 +1442,36 @@ function EstadoTecnico({ o, ocupado, onVerificar }: { o: OpcionDTO; ocupado: boo
 // ── Cuadro comparativo TÉCNICO de una línea (Prompt 4 v3.0): filas = requisitos (texto de las bases), columnas = opciones ────
 // ✅ cumple · 🟩 sobrecumple (dato ofertado entre paréntesis, verde oscuro) · ❌ no cumple (dato entre paréntesis) · ❓ falta dato (se cierra con un clic).
 // Penúltima fila: ESTADO del producto. Última fila: COSTO UNIT. NETO. Debajo, máximo 3 notas por producto. La cita NO se muestra (queda guardada para el EM).
-function CeldaTecnica({ f, editable, puedeEM, onConfirmar, onComplementar, subiendo }: { f: any; editable: boolean; puedeEM: boolean; onConfirmar: (confirmada: boolean, motivo?: string) => void; onComplementar?: (archivos: File[]) => void; subiendo?: boolean }) {
+/** Respaldos de UN requisito: documentos o imágenes que subió el asistente para complementar el dato. No cierran el requisito: el EM los mira con el «ojo» y decide. */
+function RespaldosCelda({ respaldos, editable, subiendo, onSubir, onQuitar }: {
+  respaldos: { url: string; nombre: string; nota?: string; por: string; at: string }[]; editable: boolean; subiendo: boolean;
+  onSubir: (archivos: File[]) => void; onQuitar: (r: { url: string; nombre: string }) => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  return (
+    <span className="mt-1.5 block font-normal" data-no-pdf>
+      {respaldos.map(r => (
+        <span key={r.url} className="flex items-center gap-1 text-[11px] text-zinc-600">
+          <Clip size={11} className="text-zinc-400 shrink-0" />
+          <span className="truncate max-w-[150px]" title={`${r.nombre} · subido por ${r.por}`}>{r.nombre}</span>
+          <a href={r.url} target="_blank" rel="noopener noreferrer" title="Ver el respaldo" className="p-0.5 rounded text-indigo-600 hover:bg-indigo-50"><Eye size={14} /></a>
+          {editable && <button onClick={() => onQuitar(r)} title="Quitar este respaldo" className="text-[10.5px] text-zinc-400 underline hover:text-zinc-700">quitar</button>}
+        </span>
+      ))}
+      {editable && (<>
+        <input ref={ref} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx" multiple className="hidden"
+          onChange={e => { if (e.target.files?.length) onSubir(Array.from(e.target.files)); e.target.value = ''; }} />
+        <button onClick={() => ref.current?.click()} disabled={subiendo}
+          className="mt-0.5 flex items-center gap-1 px-2 py-0.5 rounded-md border border-zinc-200 bg-white text-zinc-600 text-[11px] font-semibold hover:bg-zinc-50 disabled:opacity-50">
+          {subiendo ? <><Loader2 size={11} className="animate-spin" /> Subiendo…</> : <><Clip size={11} /> Adjuntar respaldo</>}
+        </button>
+      </>)}
+    </span>
+  );
+}
+
+function CeldaTecnica({ f, editable, puedeEM, onConfirmar, onComplementar, subiendo, respaldos = [], onRespaldar, onQuitarRespaldo, subiendoRespaldo }: { f: any; editable: boolean; puedeEM: boolean; onConfirmar: (confirmada: boolean, motivo?: string) => void; onComplementar?: (archivos: File[]) => void; subiendo?: boolean;
+  respaldos?: { url: string; nombre: string; nota?: string; por: string; at: string }[]; onRespaldar?: (archivos: File[]) => void; onQuitarRespaldo?: (r: { url: string; nombre: string }) => void; subiendoRespaldo?: boolean }) {
   const estado: string = f.estadoCelda ?? (f.veredicto === 'NO_CUMPLE' ? 'NO_CUMPLE' : f.veredicto === 'SIN_VEREDICTO' ? 'FALTA_DATO' : f.sobrecumple ? 'SOBRECUMPLE' : 'CUMPLE');
   const dato = f.valorCorto && !f.confirmada ? ` (${f.valorCorto})` : '';
   const aviso = f.revisar ? <span title="Número sin unidad que no calza con lo exigido: revisa el dato." className="ml-1 text-amber-600">⚠</span> : null;
@@ -1441,7 +1484,8 @@ function CeldaTecnica({ f, editable, puedeEM, onConfirmar, onComplementar, subie
     <span className="text-emerald-700">✅ <span className="text-[11px] text-zinc-500">{corregido ? 'corregido' : 'confirmado'} por {f.confirmada.por || 'el asistente'}</span>
       {f.confirmada.motivo && <span className="block text-[11px] text-zinc-500 italic">«{f.confirmada.motivo}»</span>}
       {corregido && f.partes?.[0]?.ofertadoValor && <span className="block text-[10.5px] text-zinc-400">el documento decía: {f.partes[0].ofertadoValor}</span>}
-      {editable && (puedeEM || !(corregido || f.rojo)) && <button onClick={() => onConfirmar(false)} className="text-[10.5px] text-zinc-400 underline hover:text-zinc-700">deshacer</button>}</span>
+      {editable && (puedeEM || !(corregido || f.rojo)) && <button onClick={() => onConfirmar(false)} className="text-[10.5px] text-zinc-400 underline hover:text-zinc-700">deshacer</button>}
+      {respaldos.length > 0 && <RespaldosCelda respaldos={respaldos} editable={false} subiendo={false} onSubir={() => {}} onQuitar={() => {}} />}</span>
   );
   if (estado === 'SOBRECUMPLE') return <span className="font-semibold text-emerald-800">🟩{dato}{aviso}</span>;
   if (estado === 'CUMPLE') return <span className="text-emerald-700">✅{f.valorCorto ? <span className="text-[11px] text-zinc-400"> ({f.valorCorto})</span> : null}{aviso}</span>;
@@ -1469,6 +1513,7 @@ function CeldaTecnica({ f, editable, puedeEM, onConfirmar, onComplementar, subie
           </span>
         </span>
       )}
+      <RespaldosCelda respaldos={respaldos} editable={editable && !!onRespaldar} subiendo={!!subiendoRespaldo} onSubir={fs => onRespaldar?.(fs)} onQuitar={r => onQuitarRespaldo?.(r)} />
     </span>
   );
 }
@@ -1493,9 +1538,9 @@ function FuenteCosto({ o, negocioId }: { o: OpcionDTO; negocioId: number }) {
   );
 }
 
-function CuadroTecnico({ negocioId, linea, ocupado, puedeAprobar, verificando, subiendoFicha, onSubirFicha, onAccion, onModal }: {
+function CuadroTecnico({ negocioId, linea, ocupado, puedeAprobar, verificando, subiendoFicha, onSubirFicha, onRespaldarCelda, onAccion, onModal }: {
   negocioId: number; linea: LineaAuditorDTO; ocupado: number | null; puedeAprobar: boolean; verificando: Set<number>; subiendoFicha: Set<string>;
-  onSubirFicha: (opcionId: number, archivos: File[]) => void;
+  onSubirFicha: (opcionId: number, archivos: File[]) => void; onRespaldarCelda: (opcionId: number, n: number, archivos: File[]) => void;
   onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void;
   onModal: (tipo: 'descartar' | 'rechazar', opcionId: number) => void;
 }) {
@@ -1542,7 +1587,7 @@ function CuadroTecnico({ negocioId, linea, ocupado, puedeAprobar, verificando, s
             {base.map(f0 => (
               <tr key={f0.n} className="border-t border-zinc-100 even:bg-zinc-50/60">
                 <td className="px-3 py-2 text-zinc-700 leading-snug">{f0.n}. {f0.requeridoTexto}</td>
-                {columnas.map(o => { const f = fila(o, f0.n); return <td key={o.id} className="px-3 py-2 border-l border-zinc-100 text-[13px]">{f ? <CeldaTecnica f={f} editable={editable(o)} puedeEM={puedeAprobar} onConfirmar={(c, motivo) => onAccion(o.id, 'confirmar_celda', { n: f0.n, confirmada: c, motivo: motivo || '' }, c ? 'Requisito dado por cumplido' : 'Cambio deshecho')} onComplementar={fs => onSubirFicha(o.id, fs)} subiendo={subiendoFicha.has(`o${o.id}`)} /> : <span className="text-zinc-300">—</span>}</td>; })}
+                {columnas.map(o => { const f = fila(o, f0.n); return <td key={o.id} className="px-3 py-2 border-l border-zinc-100 text-[13px]">{f ? <CeldaTecnica f={f} editable={editable(o)} puedeEM={puedeAprobar} onConfirmar={(c, motivo) => onAccion(o.id, 'confirmar_celda', { n: f0.n, confirmada: c, motivo: motivo || '' }, c ? 'Requisito dado por cumplido' : 'Cambio deshecho')} onComplementar={fs => onSubirFicha(o.id, fs)} subiendo={subiendoFicha.has(`o${o.id}`)} respaldos={o.tecnico.respaldosCelda?.[f0.n] ?? []} onRespaldar={fs => onRespaldarCelda(o.id, f0.n, fs)} onQuitarRespaldo={r => onAccion(o.id, 'respaldar_celda', { n: f0.n, url: r.url, nombre: r.nombre, quitar: true }, 'Respaldo quitado')} subiendoRespaldo={subiendoFicha.has(`r${o.id}-${f0.n}`)} /> : <span className="text-zinc-300">—</span>}</td>; })}
               </tr>
             ))}
             {base.length > 0 && (

@@ -15,7 +15,7 @@ import { contextoAuditor } from '@/app/lib/auditor-acceso';
 import {
   armarPanelAuditorCompartido, cargarEstadoCosteo, leerDocumentoYCrearOpciones, crearOpcionesDesdeExtraccion, asignarProductoALinea, cambiarVia, descartarOpcion, restaurarOpcion, moverOpcionALinea,
   firmarOpcion, quitarFirma, solicitarAprobacion, resolverAprobacion, agregarLinkALinea, sugerirLineasDelNegocio, ignorarProductoSinLinea, crearOpcionManual, agregarFichaAOpcion, corregirCostoOpcion, quitarCorreccionCosto, buscarFichaEnLink, traerFichaDeLink, verificarMercadoDeOpcion, justificarAhorroDeOpcion, verificarCostoIADeOpcion, releerDocumento,
-  verificarTecnicoDeOpcion, confirmarCeldaTecnica,
+  verificarTecnicoDeOpcion, confirmarCeldaTecnica, respaldarCeldaTecnica,
 } from '@/app/lib/auditor-opciones';
 import { generarPosicionAuditor, ultimaPosicion } from '@/app/lib/auditor-posicion';
 import { presupuestoNeto } from '@/app/lib/auditor-compras';
@@ -137,6 +137,9 @@ export async function POST(request: NextRequest, { params }: Params) {
       case 'confirmar_celda':
         // El asistente cierra un ❓ con un clic (comparador técnico v3.0): sin respaldo, queda quién y cuándo.
         await confirmarCeldaTecnica(negocio.id, opcionId, Number(body.n), body.confirmada !== false, actor, String(body.motivo || ''), perm.esEM); break;
+      case 'respaldar_celda':
+        // El asistente adjunta un documento o imagen a un requisito (no lo cierra: lo revisa el EM con el «ojo»).
+        await respaldarCeldaTecnica(negocio.id, opcionId, Number(body.n), String(body.url || ''), String(body.nombre || 'respaldo'), String(body.nota || ''), actor, body.quitar === true); break;
       case 'crear_opcion': {
         // Opción SIN link ni cotización (el producto no está en la web): línea + marca/modelo. Después se le sube la ficha técnica.
         const id = await crearOpcionManual(negocio.id, String(body.filaId || ''), {
