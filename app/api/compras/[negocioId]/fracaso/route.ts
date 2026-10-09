@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/fracaso/route.ts
 // Estado de fracaso (spec §14.6). GET trae el estado. POST declara (encargado). PATCH dictamina
 // (solo jefe de ventas — análisis independiente).
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { obtenerFracaso, declararFracaso, dictaminarFracaso } from '@/app/lib/compras-fracaso';
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const fracaso = await obtenerFracaso(id);
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
+async function __POST(request: NextRequest, { params }: Params) {
   const { id: userId, rol, nombre } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const body = await request.json();
@@ -61,7 +62,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 }
 
-export async function PATCH(request: NextRequest, { params }: Params) {
+async function __PATCH(request: NextRequest, { params }: Params) {
   const { id: userId, rol, nombre } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
@@ -70,7 +71,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
     // permisosCrudosDeUsuario (no permisosDeUsuario): "ser admin" ya no autoriza por sí solo
     // (10-sep-2026, mismo criterio del resto del módulo) — se exige aprobar_comercial o
@@ -88,3 +89,6 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: error.message || 'No se pudo dictaminar.' }, { status: 400 });
   }
 }
+
+export const POST = conBitacoraCompras(__POST, 'POST');
+export const PATCH = conBitacoraCompras(__PATCH, 'PATCH');

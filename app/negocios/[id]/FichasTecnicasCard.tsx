@@ -351,6 +351,21 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
                       const otras = p.opciones.filter(o => !relevantes.includes(o));
                       return (
                         <>
+                          <div className="rounded-lg border border-teal-200 bg-teal-50/50 px-3 py-2.5" data-testid={`bases-${p.productoId}`}>
+                            <p className="text-[12px] font-bold text-teal-900">Lo que piden las bases para este producto{p.requisitosBase.length > 0 ? ` (${p.requisitosBase.length})` : ''}</p>
+                            {p.requisitosBase.length === 0
+                              ? <p className="text-[12px] text-zinc-500 mt-1">No hay requisitos técnicos de las bases cargados para este producto.</p>
+                              : (
+                                <ol className="mt-1.5 space-y-1">
+                                  {p.requisitosBase.map(r => (
+                                    <li key={r.n} className="flex gap-2 text-[12.5px] text-zinc-800 leading-snug">
+                                      <span className="text-zinc-400 tabular-nums w-5 text-right flex-shrink-0">{r.n}.</span>
+                                      <span>{r.texto}</span>
+                                    </li>
+                                  ))}
+                                </ol>
+                              )}
+                          </div>
                           {relevantes.length === 0 && <p className="text-[12.5px] text-zinc-500">Todavía no hay fichas ni opciones de los proveedores cotizados. Sube la ficha del modelo que se va a comprar.</p>}
                           {relevantes.map(o => <OpcionFila key={o.opcionId} o={o} cotizados={nombres} puedeOperar={puedeOperar} onProveedor={cambiarProveedor} onQuitar={quitarModelo} onComplementar={complementar} />)}
                           {otras.length > 0 && (

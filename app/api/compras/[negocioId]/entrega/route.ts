@@ -2,6 +2,7 @@
 // Entrega del proyecto (spec §16). GET trae el estado completo. PATCH aplica una acción (body.accion):
 // 'modalidad' | 'punto_agregar' | 'punto_quitar' | 'verificacion' | 'numeros' | 'generar_acta' |
 // 'aprobar_acta' | 'firmar_acta' | 'firmar_guia'.
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import {
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
     // GET amplio: bodega (§2.2) necesita ver el estado de la entrega para poder verificar — la
     // escritura de cada acción del PATCH sigue angosta, ver más abajo.
-    if (!(await puedeVerCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeVerCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const entrega = await obtenerEntrega(id);
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
 }
 
-export async function PATCH(request: NextRequest, { params }: Params) {
+async function __PATCH(request: NextRequest, { params }: Params) {
   const { id: userId, rol, nombre } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
@@ -61,7 +62,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     // bodega (§2.2) también puede hacer aunque no sea el encargado del negocio. Deliberadamente NO
     // se usa `puedeVerCompras` acá: eso dejaría a bodega generar el acta o firmar la guía, que no
     // es su trabajo.
-    const amplio = await puedeOperarCompras(userId, rol, asignacion.asignadoA);
+    const amplio = await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados);
     if (!amplio) {
       // permisosCrudosDeUsuario (no permisosDeUsuario): `compras_bodega` no se auto-otorga por ser
       // admin, mismo criterio del resto del módulo (10-sep-2026).
@@ -99,3 +100,5 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: error.message || 'No se pudo actualizar la entrega.' }, { status: 400 });
   }
 }
+
+export const PATCH = conBitacoraCompras(__PATCH, 'PATCH');

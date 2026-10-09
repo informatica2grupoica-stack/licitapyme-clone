@@ -403,6 +403,8 @@ export interface CotizacionFila {
   plazoEntregaTexto: string | null; plazoEntregaDias: number | null; incluyeFlete: boolean | null; fleteMonto: number | null;
   /** migration-141. null = cotización anterior a la separación «quién despacha» / «cuánto cuesta el flete». */
   despachoModalidad?: string | null; fleteCondicion?: string | null;
+  /** Quién subió/registró la cotización y cuándo (compras_cotizacion.registrado_por_nombre / created_at). */
+  registradoPorNombre?: string | null; registradoAt?: string | null; archivoNombre?: string | null;
   ficaTecnicaUrl: string | null; archivoUrl: string | null; homologadaAt: string | null; tomadaAt: string;
   // Pedido explícito del usuario (15-sep-2026: "le pongo dónde que se cotizó pero cuando edito no
   // aparece nada") — BUG REAL: esta consulta ni siquiera traía `descripcion_libre`, así que
@@ -422,7 +424,8 @@ export async function listarCotizaciones(negocioId: number): Promise<CotizacionF
             plazo_entrega_texto, plazo_entrega_dias, incluye_flete, flete_monto, ficha_tecnica_url, archivo_url,
             DATE_FORMAT(vigencia_at, '%Y-%m-%d') AS vigencia_at,
             DATE_FORMAT(homologada_at, '%Y-%m-%d %H:%i:%s') AS homologada_at,
-            DATE_FORMAT(tomada_at, '%Y-%m-%d %H:%i:%s') AS tomada_at
+            DATE_FORMAT(tomada_at, '%Y-%m-%d %H:%i:%s') AS tomada_at,
+            registrado_por_nombre, archivo_nombre, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS registrado_at
        FROM compras_cotizacion WHERE negocio_id = ? ORDER BY created_at DESC`,
     [negocioId],
   ) as any;
@@ -443,6 +446,7 @@ export async function listarCotizaciones(negocioId: number): Promise<CotizacionF
   const despachoDe = new Map<number, { m: string | null; c: string | null }>((despRows as any[]).map(r => [r.id, { m: r.despacho_modalidad ?? null, c: r.flete_condicion ?? null }]));
   return cotizaciones.map(c => ({
     despachoModalidad: despachoDe.get(c.id)?.m ?? null, fleteCondicion: despachoDe.get(c.id)?.c ?? null,
+    registradoPorNombre: c.registrado_por_nombre ?? null, registradoAt: c.registrado_at ?? null, archivoNombre: c.archivo_nombre ?? null,
     id: c.id, proveedorId: c.proveedor_id, proveedorNombre: c.proveedor_nombre, proveedorRut: c.proveedor_rut,
     proveedorNuevo: c.proveedor_nuevo == null ? null : !!c.proveedor_nuevo, origen: c.origen,
     descripcionLibre: c.descripcion_libre, vigenciaAt: c.vigencia_at ?? null,

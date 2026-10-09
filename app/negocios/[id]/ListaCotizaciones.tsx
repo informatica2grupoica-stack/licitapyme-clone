@@ -11,6 +11,7 @@ export interface CotizacionFilaUI {
   id: number; proveedorNombre: string; proveedorRut: string | null; proveedorNuevo: boolean | null; origen: string;
   precioUnitario: number | null; precioUnitarioBruto: number | null; descuentoPct: number | null; moneda: string;
   plazoEntregaTexto: string | null; vigenciaAt?: string | null; archivoUrl: string | null; homologadaAt: string | null;
+  registradoPorNombre?: string | null; registradoAt?: string | null; archivoNombre?: string | null;
   items: Array<{ productoId: number; precioUnitario: number | null; precioBase?: number | null; adicionales: unknown[] }>;
 }
 
@@ -57,6 +58,11 @@ export function ListaCotizaciones({ cotizaciones, productos, avisosPorCotizacion
                   <p className="text-[11px] text-zinc-400">#{c.id} · {origenLabel[c.origen] ?? c.origen}{c.proveedorRut ? ` · ${c.proveedorRut}` : ''}</p>
                   {c.descuentoPct != null && c.precioUnitarioBruto != null && <p className="text-[11px] text-emerald-600">bruto {clp(c.precioUnitarioBruto)} − {c.descuentoPct} %</p>}
                   {c.moneda !== 'CLP' && <p className="text-[11px] text-sky-700">en {c.moneda}</p>}
+                  {c.archivoUrl
+                    ? <button type="button" onClick={() => setVisor({ nombre: c.archivoNombre || nombreDeArchivo(c.archivoUrl!), url: c.archivoUrl! })} title="Ver el documento que se subió" data-testid={`cotizacion-doc-${c.id}`}
+                        className="mt-1 inline-flex items-center gap-1 max-w-[230px] text-[11.5px] font-semibold text-teal-700 hover:text-teal-900 underline underline-offset-2"><Eye size={12} className="flex-shrink-0" /><span className="truncate">{c.archivoNombre || nombreDeArchivo(c.archivoUrl)}</span></button>
+                    : <p className="mt-1 text-[11px] text-zinc-400">Sin documento (cargada a mano)</p>}
+                  <p className="text-[11px] text-zinc-500" data-testid={`cotizacion-subio-${c.id}`}>Subida por <b className="font-semibold text-zinc-700">{c.registradoPorNombre || 'sin dato'}</b>{c.registradoAt ? ` · ${fmtFecha(c.registradoAt.slice(0, 10))} ${c.registradoAt.slice(11, 16)}` : ''}</p>
                 </td>
                 <td className="px-3 py-2.5">
                   {cubiertos.length === 0

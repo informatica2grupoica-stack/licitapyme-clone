@@ -4,6 +4,7 @@
 //   GET ?proyecto=1    → documentos del proyecto que se pueden traer como fichas (los que sube Compras).
 //   POST multipart     → { file }: sube UNA ficha y la rutea sola (producto + proveedor). El cliente las sube de a una (con progreso).
 //   POST json          → { accion: 'procesar_url', url, nombre } | 'asignar' | 'proveedor' | 'comparar'
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -35,7 +36,7 @@ async function contexto(request: NextRequest, params: Params['params']) {
   const id = parseInt((await params).negocioId);
   const asignacion = await obtenerAsignacion(id);
   if (!asignacion) return { error: NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 }) };
-  if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA))) return { error: NextResponse.json({ error: 'Sin acceso.' }, { status: 403 }) };
+  if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados))) return { error: NextResponse.json({ error: 'Sin acceso.' }, { status: 403 }) };
   return { id, codigo: asignacion.licitacionCodigo, actor: { id: userId, nombre } };
 }
 
@@ -65,7 +66,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
+async function __POST(request: NextRequest, { params }: Params) {
   const c = await contexto(request, params);
   if ('error' in c) return c.error;
   try {
@@ -127,3 +128,5 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: e?.message || 'No se pudo completar la acción.' }, { status: 400 });
   }
 }
+
+export const POST = conBitacoraCompras(__POST, 'POST');

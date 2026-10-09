@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/reparto/route.ts
 // Proceso administrativo post-aprobación (spec §11) — el módulo solo registra el estado de hitos
 // que EJECUTA OBUMA, nunca los dispara.
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { obtenerReparto, marcarHitoReparto, marcarHitoNoAplica, listarRespaldosHito, type HitoReparto } from '@/app/lib/compras-reparto';
@@ -24,8 +25,8 @@ function getUser(req: NextRequest) {
 // §11 es el perfil "administración (pagos y facturación)" de §2.2: puede operar ESTE checklist
 // entero aunque no sea el encargado de compras/entrega del negocio. Deliberadamente NO incluye
 // `compras_bodega` — bodega solo toca la verificación dentro de EntregaCard, no esto.
-async function puedeOperarReparto(userId: number, rol: string | null, asignadoA: number | null): Promise<boolean> {
-  if (await puedeOperarCompras(userId, rol, asignadoA)) return true;
+async function puedeOperarReparto(userId: number, rol: string | null, asignadoA: number | null, coencargados: Array<{ id: number }> = []): Promise<boolean> {
+  if (await puedeOperarCompras(userId, rol, asignadoA, coencargados)) return true;
   // permisosCrudosDeUsuario (no permisosDeUsuario): `compras_administracion` tampoco se auto-otorga
   // por ser admin, mismo criterio del resto del módulo (10-sep-2026).
   const p = await permisosCrudosDeUsuario(userId);
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarReparto(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarReparto(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const [reparto, respaldos] = await Promise.all([obtenerReparto(id), listarRespaldosHito(id)]);
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
 const HITOS: HitoReparto[] = ['ocEmitida', 'pagoRegistrado', 'anticipoPagado', 'facturaCompraRegistrada', 'carpetaProyectoCreada', 'provisionFondos'];
 
-export async function PATCH(request: NextRequest, { params }: Params) {
+async function __PATCH(request: NextRequest, { params }: Params) {
   const { id: userId, rol, nombre } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
@@ -63,7 +64,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarReparto(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarReparto(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const contentType = request.headers.get('content-type') || '';
@@ -117,3 +118,5 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: error.message || 'No se pudo actualizar.' }, { status: 400 });
   }
 }
+
+export const PATCH = conBitacoraCompras(__PATCH, 'PATCH');

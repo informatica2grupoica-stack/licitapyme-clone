@@ -5,6 +5,7 @@
 // En la MISMA llamada se puede guardar QUÉ SE HIZO (§5.3/§5.4): las respuestas al formulario que
 // declara el catálogo de esa tarea, y la marca de hallazgo. Van juntos a propósito — el encargado
 // llena el cuestionario y cierra la tarea en un solo gesto, no en dos.
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { cambiarEstadoTarea, guardarRegistroTarea, obtenerAsignacion, type EstadoTarea } from '@/app/lib/compras';
@@ -23,7 +24,7 @@ function getUser(req: NextRequest) {
 
 const ESTADOS_VALIDOS: EstadoTarea[] = ['PENDIENTE', 'EN_CURSO', 'HECHA'];
 
-export async function PATCH(request: NextRequest, { params }: Params) {
+async function __PATCH(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { tareaId } = await params;
@@ -44,7 +45,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (!negocioId) return NextResponse.json({ error: 'Tarea no encontrada.' }, { status: 404 });
 
     const asignacion = await obtenerAsignacion(negocioId);
-    if (!asignacion || !(await puedeOperarCompras(userId, rol, asignacion.asignadoA))) {
+    if (!asignacion || !(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados))) {
       return NextResponse.json({ error: 'Sin acceso a esta tarea.' }, { status: 403 });
     }
 
@@ -71,3 +72,5 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'No se pudo actualizar la tarea.' }, { status: 500 });
   }
 }
+
+export const PATCH = conBitacoraCompras(__PATCH, 'PATCH');

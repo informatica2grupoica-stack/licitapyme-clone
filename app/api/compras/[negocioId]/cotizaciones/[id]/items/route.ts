@@ -2,6 +2,7 @@
 // Asignación MANUAL de una cotización a uno o varios productos (§8.7) — complemento de
 // "homologar con IA": deja corregir lo que la IA decidió, o saltársela cuando el comprador ya sabe
 // con certeza a qué producto(s) corresponde una cotización.
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { asignarItemsCotizacion, listarCotizaciones, type AsignacionItemManual, type CumpleItem } from '@/app/lib/compras-auditor';
@@ -21,7 +22,7 @@ function getUser(req: NextRequest) {
 
 const CUMPLES: CumpleItem[] = ['CUMPLE', 'MEJORA', 'INFERIOR_NEGOCIABLE', 'INFERIOR_INSALVABLE', 'NO_ES_EL_PRODUCTO'];
 
-export async function PUT(request: NextRequest, { params }: Params) {
+async function __PUT(request: NextRequest, { params }: Params) {
   const { id: userId, rol, nombre } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId, id: cotizacionId } = await params;
@@ -30,7 +31,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(negId);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const body = await request.json();
@@ -50,3 +51,5 @@ export async function PUT(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: error.message || 'No se pudo asignar la cotización.' }, { status: 400 });
   }
 }
+
+export const PUT = conBitacoraCompras(__PUT, 'PUT');

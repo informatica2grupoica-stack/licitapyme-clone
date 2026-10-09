@@ -2,6 +2,7 @@
 // Corre el AUDITOR de cotizaciones (compras-auditoria-cotizacion.ts) sobre una cotización: dictamen
 // formal por producto asignado, con requisito, lo cotizado y la evidencia de cada punto.
 // Body opcional: { productoId } para auditar solo ese producto.
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { auditarCotizacion } from '@/app/lib/compras-auditoria-cotizacion';
@@ -18,7 +19,7 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol: req.headers.get('x-user-rol'), nombre: req.headers.get('x-user-nombre') };
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
+async function __POST(request: NextRequest, { params }: Params) {
   const { id: userId, rol, nombre } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId, id } = await params;
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(negId);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const body = await request.json().catch(() => ({}));
@@ -41,3 +42,5 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: error.message || 'No se pudo auditar la cotización.' }, { status: 500 });
   }
 }
+
+export const POST = conBitacoraCompras(__POST, 'POST');

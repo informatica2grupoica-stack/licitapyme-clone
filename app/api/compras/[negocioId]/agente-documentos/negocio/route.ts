@@ -3,6 +3,7 @@
 // proyecto — pedido explícito del usuario (15-sep-2026): "tiene que leer todos estos documentos
 // la IA para poder ver todo el área de compras desde tareas a entrega y cierre".
 // Ver auditarNegocioCompleto en app/lib/compras-agente-documentos.ts.
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { auditarNegocioCompleto, agenteDocumentosDisponible, ultimaAuditoriaNegocio } from '@/app/lib/compras-agente-documentos';
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const ultima = await ultimaAuditoriaNegocio(id);
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
+async function __POST(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
@@ -54,7 +55,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const resultado = await auditarNegocioCompleto(id);
@@ -65,3 +66,5 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: error.message || 'El agente no pudo auditar el negocio.' }, { status: tope ? 429 : 500 });
   }
 }
+
+export const POST = conBitacoraCompras(__POST, 'POST');

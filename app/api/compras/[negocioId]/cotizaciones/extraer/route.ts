@@ -5,6 +5,7 @@
 // endpoint sube el archivo y extrae los campos de una vez, apenas se elige el archivo en pantalla,
 // para que el formulario se autocomplete y la persona pueda revisar/corregir ANTES de confirmar —
 // mismo criterio que el preview de costo en Aprobaciones/SKU. No crea ninguna cotización.
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
@@ -22,7 +23,7 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol };
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
+async function __POST(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
@@ -31,7 +32,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const form = await request.formData();
@@ -48,3 +49,5 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: error.message || 'No se pudo leer el documento.' }, { status: 500 });
   }
 }
+
+export const POST = conBitacoraCompras(__POST, 'POST');

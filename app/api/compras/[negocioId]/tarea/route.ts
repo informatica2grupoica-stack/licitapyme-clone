@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/tarea/route.ts
 // MÓDULO DE COMPRAS — crea una tarea MANUAL fuera del catálogo (§5.1: "se crean tareas propias de
 // cada proyecto fuera del catálogo").
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { crearTareaManual, obtenerAsignacion } from '@/app/lib/compras';
@@ -17,7 +18,7 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol };
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
+async function __POST(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
@@ -31,7 +32,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Este negocio todavía no entra a Compras.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA))) {
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados))) {
       return NextResponse.json({ error: 'Sin acceso a Compras de este negocio.' }, { status: 403 });
     }
 
@@ -54,3 +55,5 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'No se pudo crear la tarea.' }, { status: 500 });
   }
 }
+
+export const POST = conBitacoraCompras(__POST, 'POST');

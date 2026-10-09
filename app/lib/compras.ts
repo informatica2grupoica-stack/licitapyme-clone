@@ -808,9 +808,48 @@ export interface AsignacionCompras {
   negocioId: number; licitacionCodigo: string;
   ganadoAt: string; vencimientoAsignacionAt: string; urgente: boolean;
   asignadoA: number | null; asignadoNombre: string | null; asignadoAt: string | null; asignadoPor: number | null;
+  /** Otros encargados del negocio (migration-142): mismo acceso operativo que el principal. Vacío si la tabla aún no existe. */
+  coencargados: Array<{ id: number; nombre: string | null }>;
   resumen: ResumenEjecutivoCompras | null;
   ordenCompra: OrdenCompraCliente;
   cierreLegado: CierreLegado | null; cierreLegadoNota: string | null; cierreLegadoAt: string | null; cierreLegadoPorNombre: string | null;
+}
+
+/** Co-encargados del negocio. Si la migration-142 todavía no se aplicó, devuelve [] (todo sigue como antes con un solo encargado). */
+export async function listarCoencargados(negocioId: number): Promise<Array<{ id: number; nombre: string | null }>> {
+  try {
+    const [rows] = await pool.query(
+      `SELECT c.usuario_id AS id, u.nombre FROM compras_coencargado c LEFT JOIN usuarios u ON u.id = c.usuario_id WHERE c.negocio_id = ? ORDER BY c.asignado_at, c.usuario_id`, [negocioId]) as any;
+    return (rows as any[]).map(r => ({ id: Number(r.id), nombre: r.nombre ?? null }));
+  } catch (e: any) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return [];
+    throw e;
+  }
+}
+
+/** Deja exactamente a estos usuarios como co-encargados del negocio (el principal no cuenta) y avisa a los que entran. */
+export async function fijarCoencargados(negocioId: number, usuarioIds: number[], actorId: number | null): Promise<void> {
+  const [[neg]] = await pool.query(`SELECT licitacion_codigo, asignado_a FROM compras_asignacion WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
+  if (!neg) throw new Error('No existe apertura de Compras para este negocio.');
+  const ids = [...new Set(usuarioIds.map(Number).filter(n => Number.isFinite(n) && n > 0 && n !== Number(neg.asignado_a)))];
+  const previos = new Set((await listarCoencargados(negocioId)).map(c => c.id));
+  const ahora = ahoraChileSQL();
+  if (ids.length) {
+    const [us] = await pool.query(`SELECT id, nombre FROM usuarios WHERE id IN (?) AND activo = TRUE`, [ids]) as any;
+    const validos = new Map((us as any[]).map(u => [Number(u.id), u.nombre as string | null]));
+    if (validos.size !== ids.length) throw new Error('Alguno de los usuarios elegidos no existe o está inactivo.');
+    await pool.query(`DELETE FROM compras_coencargado WHERE negocio_id = ? AND usuario_id NOT IN (?)`, [negocioId, ids]);
+    for (const id of ids.filter(i => !previos.has(i))) {
+      await pool.query(`INSERT INTO compras_coencargado (negocio_id, usuario_id, asignado_por, asignado_at) VALUES (?, ?, ?, ?)`, [negocioId, id, actorId, ahora]);
+      await registrarEvento({
+        tipo: 'COMPRAS_ASIGNADO', licitacionCodigo: neg.licitacion_codigo, usuarioId: id, usuarioNombre: validos.get(id) ?? null,
+        actorId, actorNombre: null, mensaje: `Se te sumó como encargado de Compras de ${neg.licitacion_codigo}.`,
+        metadata: { negocio_id: negocioId, coencargado: true },
+      });
+    }
+  } else {
+    await pool.query(`DELETE FROM compras_coencargado WHERE negocio_id = ?`, [negocioId]);
+  }
 }
 
 export async function obtenerAsignacion(negocioId: number): Promise<AsignacionCompras | null> {
@@ -834,12 +873,14 @@ export async function obtenerAsignacion(negocioId: number): Promise<AsignacionCo
   ) as any;
   const r = (rows as any[])[0];
   if (!r) return null;
+  const coencargados = await listarCoencargados(negocioId);
   let resumen: ResumenEjecutivoCompras | null = null;
   try { resumen = JSON.parse(r.resumen_json); } catch { /* se muestra sin resumen antes que romper */ }
   return {
     negocioId: r.negocio_id, licitacionCodigo: r.licitacion_codigo,
     ganadoAt: r.ganado_at, vencimientoAsignacionAt: r.vencimiento_asignacion_at, urgente: !!r.urgente,
     asignadoA: r.asignado_a, asignadoNombre: r.asignado_nombre, asignadoAt: r.asignado_at, asignadoPor: r.asignado_por,
+    coencargados,
     resumen,
     cierreLegado: (r.cierre_legado as CierreLegado | null) ?? null,
     cierreLegadoNota: r.cierre_legado_nota ?? null,

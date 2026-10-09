@@ -23,6 +23,8 @@ import { verificarLineaV3, ultimasCorridasV3, confirmacionesTecnicas, ultimasSeg
 import { leerYGuardarDocumento, extraccionPorId } from '@/app/lib/auditor-lector';
 import { normalizarExtraccion, emparejarProductos, coincidenciaIdentidad, type ProductoNormalizado } from '@/app/lib/auditor-opciones-core';
 import { sugerirLineas } from '@/app/lib/auditor-sugerir-linea';
+import { requisitosDeLinea, requisitosDelProducto } from '@/app/lib/auditor-tecnico-v2';
+import type { RequisitoHeredado } from '@/app/lib/auditor-tecnico-v2-core';
 import { listarCotizaciones, type CotizacionFila } from '@/app/lib/compras-auditor';
 import { listarProductosCompra, type ProductoCompra } from '@/app/lib/compras';
 import type { LineaCosteo } from '@/app/lib/auditor-compras-core';
@@ -293,7 +295,7 @@ export async function compararProducto(params: { negocioId: number; licitacionCo
   // Una sola llamada compara a TODAS las opciones de Compras de la línea entre sí contra los mismos requisitos de las bases.
   return verificarLineaV3({
     negocioId, licitacionCodigo, filaId: filaCmp(linea.id), lineaReal: linea.lineaReal, nombreLinea: linea.detalle.split(' - ')[0] || linea.detalle,
-    cantidad: linea.cantidad, unidad: linea.unidad, actor,
+    cantidad: linea.cantidad, unidad: linea.unidad, actor, soloProducto: corto(String(prod.descripcion)),
   });
 }
 
@@ -320,6 +322,8 @@ export interface OpcionFichaDTO {
 }
 export interface ProductoFichasDTO {
   productoId: number; descripcion: string; cantidad: number | null; filaId: string | null; lineaReal: number | null;
+  /** Lo que piden las bases para ESTE producto (de la línea del informe de viabilidad), haya o no ficha. */
+  requisitosBase: Array<{ n: number; texto: string; criticidad: string }>;
   cotizados: Array<{ proveedor: string; precioUnit: number | null }>;
   opciones: OpcionFichaDTO[];
 }
@@ -344,14 +348,24 @@ export async function panelFichas(negocioId: number, licitacionCodigo: string): 
   const [corridas, conf, segundas] = await Promise.all([ultimasCorridasV3(negocioId), confirmacionesTecnicas(negocioId), ultimasSegundasPasadasV3(negocioId)]);
   const complementos = await complementosDeCompras(negocioId);
 
+  // Requisitos de las bases por línea del informe (una lectura por línea). Una línea que agrupa varios productos rotula cada requisito con el
+  // suyo: cada producto muestra y se compara SOLO contra los suyos.
+  const reqPorLinea = new Map<number, RequisitoHeredado[]>();
+  for (const lr of new Set(vigentes.map(p => lineaDeProducto(p, lineas)?.lineaReal).filter((x): x is number => x != null))) {
+    reqPorLinea.set(lr, (await requisitosDeLinea(negocioId, licitacionCodigo, lr).catch(() => null))?.requisitos ?? []);
+  }
   const salida: ProductoFichasDTO[] = vigentes.map(p => {
     const linea = lineaDeProducto(p, lineas);
+    const reqLinea = linea?.lineaReal != null ? (reqPorLinea.get(linea.lineaReal) ?? []) : [];
+    const rotulada = reqLinea.some(r => r.producto);
+    const reqProducto = requisitosDelProducto(reqLinea, corto(p.descripcion));
+    const textosProducto = new Set(reqProducto.map(r => norm(r.texto)));
     const opciones: OpcionFichaDTO[] = (opsRows as any[]).filter(o => linea && o.fila_id === filaCmp(linea.id)).map(o => {
       const t = estadoTecnicoV3(corridas.get(o.id), conf.get(o.id), segundas.get(o.id)?.celdas);
       const r = t.resultado;
       // Un «Falta dato» que una persona complementó pasa a Cumple / No cumple (con su nombre y fecha). Solo se aplica mientras la IA siga
       // sin dato: si una ficha nueva ya trae el dato, manda lo que dice la ficha.
-      const filas: FilaRequisito[] = (r?.filas || []).map(f => {
+      const filas: FilaRequisito[] = (r?.filas || []).filter(f => !rotulada || textosProducto.has(norm(f.requeridoTexto))).map(f => {
         const ia = String(f.estadoCelda || f.veredicto);
         const comp = ia === 'FALTA_DATO' || ia === 'SIN_VEREDICTO' ? (complementos.get(`${o.id}:${f.n}`) ?? null) : null;
         return {
@@ -378,6 +392,7 @@ export async function panelFichas(negocioId: number, licitacionCodigo: string): 
     const cubren = cotizaciones.filter(c => c.items.some(i => i.productoId === p.id && i.precioUnitario != null));
     return {
       productoId: p.id, descripcion: corto(p.descripcion), cantidad: p.cantidad, filaId: linea?.id ?? null, lineaReal: linea?.lineaReal ?? null,
+      requisitosBase: reqProducto.map(r => ({ n: r.n, texto: r.texto, criticidad: r.criticidad })),
       cotizados: cubren.map(c => ({ proveedor: c.proveedorNombre, precioUnit: c.items.find(i => i.productoId === p.id)?.precioUnitario ?? null })),
       opciones,
     };

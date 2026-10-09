@@ -38,6 +38,7 @@ export interface OrdenCompraMp { codigo: string; estado: string | null; url: str
 export interface Asignacion {
   negocioId: number; licitacionCodigo: string; ganadoAt: string; vencimientoAsignacionAt: string;
   urgente: boolean; asignadoA: number | null; asignadoNombre: string | null; asignadoAt: string | null; asignadoPor: number | null;
+  coencargados: Array<{ id: number; nombre: string | null }>;
   resumen: ResumenCompras | null;
   ordenCompra: OrdenCompra;
 }

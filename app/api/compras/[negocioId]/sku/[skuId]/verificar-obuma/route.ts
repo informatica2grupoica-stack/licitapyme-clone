@@ -3,6 +3,7 @@
 // conectado) — pedido explícito del usuario tras encontrar un SKU que seguía mostrando "Creado en
 // Obuma" con un producto que él mismo había borrado ahí. Este endpoint releé en vivo y corrige el
 // vínculo local si ya no coincide con la realidad.
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { verificarVinculoObuma } from '@/app/lib/compras-aprobaciones';
@@ -20,7 +21,7 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol, nombre };
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
+async function __POST(request: NextRequest, { params }: Params) {
   const { id: userId, rol, nombre } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId, skuId } = await params;
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const resultado = await verificarVinculoObuma(id, Number(skuId), userId, nombre);
@@ -39,3 +40,5 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: error.message || 'No se pudo verificar contra Obuma.' }, { status: 400 });
   }
 }
+
+export const POST = conBitacoraCompras(__POST, 'POST');

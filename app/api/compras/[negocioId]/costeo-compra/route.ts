@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/costeo-compra/route.ts
 // La compra elegida pasa al costeo. GET = qué cargaría (sin tocar nada); POST = cargarlo.
 // Compras solo toca «Costo unit. REAL» y Link 1 de filas existentes (regla de costeo-compras.ts).
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { planTrasladoCompraAlCosteo, trasladarCompraAlCosteo } from '@/app/lib/compras-compra-a-costeo';
@@ -19,7 +20,7 @@ async function acceso(request: NextRequest, params: Params['params']) {
   const id = parseInt((await params).negocioId);
   const asignacion = await obtenerAsignacion(id);
   if (!asignacion) return { error: NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 }) };
-  if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA))) return { error: NextResponse.json({ error: 'Sin acceso.' }, { status: 403 }) };
+  if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados))) return { error: NextResponse.json({ error: 'Sin acceso.' }, { status: 403 }) };
   return { id, userId, nombre };
 }
 
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
+async function __POST(request: NextRequest, { params }: Params) {
   try {
     const a = await acceso(request, params);
     if ('error' in a) return a.error;
@@ -45,3 +46,5 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: error.message || 'No se pudo cargar al costeo.' }, { status: 400 });
   }
 }
+
+export const POST = conBitacoraCompras(__POST, 'POST');

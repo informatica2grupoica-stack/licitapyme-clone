@@ -11,8 +11,8 @@
 // cuándo se creó la tarea (creadoAt), cuándo se cerró (cerradoAt) y cuál era su plazo (plazoAt).
 // La barra va de creadoAt a cerradoAt (si ya se hizo) o a plazoAt/hoy (si sigue abierta) — es un
 // registro de lo que pasó, no una planificación.
-import { useMemo } from 'react';
-import { IconTimeline as GanttChartSquare, IconCircleCheck as CheckCircle2, IconPlayerPlay as PlayCircle, IconAlertTriangle as AlertTriangle, IconCircle as Circle, IconUserFilled as UserFilled, IconFlag as Flag, IconWand as Wand } from '@tabler/icons-react';
+import { useEffect, useMemo, useState } from 'react';
+import { IconTimeline as GanttChartSquare, IconCircleCheck as CheckCircle2, IconPlayerPlay as PlayCircle, IconAlertTriangle as AlertTriangle, IconCircle as Circle, IconUserFilled as UserFilled, IconFlag as Flag, IconWand as Wand, IconChevronDown as ChevronDown } from '@tabler/icons-react';
 
 interface TareaGantt {
   id: number; categoria: string; titulo: string;
@@ -41,7 +41,17 @@ const ESTILO_ESTADO: Record<string, { barra: string; punto: string; Icon: typeof
   PENDIENTE: { barra: 'bg-zinc-300', punto: 'bg-zinc-300', Icon: Circle },
 };
 
-export function GanttComprasCard({ tareas }: { tareas: TareaGantt[] }) {
+const CLAVE_ABIERTO = 'compras:gantt-tareas-abierto';
+
+/** `plegable` (por defecto sí): el Gantt ocupa mucho espacio, así que arranca cerrado con un resumen de una línea y se despliega con un clic.
+ *  Lo que cada persona dejó (abierto o cerrado) se recuerda en este navegador. En el panel lateral de /compras va siempre abierto. */
+export function GanttComprasCard({ tareas, plegable = true }: { tareas: TareaGantt[]; plegable?: boolean }) {
+  const [abierto, setAbierto] = useState(!plegable);
+  useEffect(() => {
+    if (!plegable) return;
+    try { setAbierto(localStorage.getItem(CLAVE_ABIERTO) === '1'); } catch { /* sin almacenamiento: queda cerrado */ }
+  }, [plegable]);
+  const alternar = () => setAbierto(v => { const n = !v; try { localStorage.setItem(CLAVE_ABIERTO, n ? '1' : '0'); } catch { /* no se pudo recordar */ } return n; });
   const { filas, inicio, totalDias, hoy, marcas } = useMemo(() => {
     const hoy = soloFecha(new Date().toISOString());
     if (tareas.length === 0) return { filas: [], inicio: hoy, totalDias: 1, hoy, marcas: [] as Date[] };
@@ -105,15 +115,33 @@ export function GanttComprasCard({ tareas }: { tareas: TareaGantt[] }) {
   const enCurso = filas.filter(f => f.t.estado === 'EN_CURSO' && !f.t.vencida).length;
   const pendientes = filas.length - hechas - vencidas - enCurso;
 
+  // La tarea abierta con el plazo más cercano (o la más atrasada): lo que hay que mirar primero cuando el Gantt está plegado.
+  const proxima = filas
+    .filter(f => f.t.estado !== 'HECHA' && f.t.plazoAt)
+    .sort((a, b) => soloFecha(a.t.plazoAt!).getTime() - soloFecha(b.t.plazoAt!).getTime())
+    .map(f => ({ t: f.t, vence: soloFecha(f.t.plazoAt!).getTime() === hoy.getTime() ? 'hoy' : fmtCorta(soloFecha(f.t.plazoAt!)) }))[0] ?? null;
+
   return (
     <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
-      <div className="flex items-center justify-between gap-3 px-5 py-4 bg-gradient-to-r from-teal-600 to-teal-700 flex-wrap">
-        <div className="flex items-center gap-2">
-          <GanttChartSquare size={17} className="text-white" />
+      <button type="button" onClick={plegable ? alternar : undefined} aria-expanded={abierto} disabled={!plegable} data-testid="gantt-tareas-toggle"
+        className={`w-full flex items-center justify-between gap-3 px-5 py-3.5 bg-gradient-to-r from-teal-600 to-teal-700 flex-wrap text-left ${plegable ? 'cursor-pointer hover:from-teal-700 hover:to-teal-800' : 'cursor-default'}`}>
+        <div className="flex items-center gap-2.5 flex-wrap min-w-0">
+          <GanttChartSquare size={17} className="text-white flex-shrink-0" />
           <span className="text-[14px] font-bold text-white">Gantt de tareas</span>
+          {!abierto && (
+            <span className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10.5px] font-bold text-white bg-white/20 px-2 py-0.5 rounded-full">{hechas}/{filas.length} hechas</span>
+              {vencidas > 0 && <span className="text-[10.5px] font-bold text-white bg-rose-500 px-2 py-0.5 rounded-full">{vencidas} vencida{vencidas === 1 ? '' : 's'}</span>}
+              {proxima && <span className="text-[11px] text-teal-50 truncate max-w-[420px]">Próxima: <b className="font-semibold">{proxima.t.titulo}</b> · {proxima.t.vencida ? 'venció' : 'vence'} {proxima.vence}</span>}
+            </span>
+          )}
         </div>
-        <span className="text-[11px] text-teal-50">{fmtCorta(inicio)} — hoy ({fmtCorta(hoy)})</span>
-      </div>
+        <span className="flex items-center gap-2 text-[11px] text-teal-50 flex-shrink-0">
+          {abierto && <span>{fmtCorta(inicio)} — hoy ({fmtCorta(hoy)})</span>}
+          {plegable && <span className="inline-flex items-center gap-1 font-semibold">{abierto ? 'Ocultar' : 'Ver detalle'} <ChevronDown size={15} className={`transition-transform ${abierto ? 'rotate-180' : ''}`} /></span>}
+        </span>
+      </button>
+      {abierto && (<>
 
       {/* Resumen de avance — crece o baja solo a medida que se agregan o cierran tareas en
           cualquier pantalla (mismo array `tareas` del contexto compartido). */}
@@ -162,6 +190,13 @@ export function GanttComprasCard({ tareas }: { tareas: TareaGantt[] }) {
                 {items.map(({ t, offset, largo, estilo }) => {
                   const dias = largo;
                   const hastaTexto = t.estado === 'HECHA' ? fmtCorta(soloFecha(t.cerradoAt || t.creadoAt)) : 'hoy';
+                  // Qué pasa con la tarea, en palabras (antes todas terminaban en «hoy» y no se sabía si había vencido).
+                  const atraso = t.plazoAt ? diasEntre(soloFecha(t.plazoAt), hoy) : 0;
+                  const estadoTxt = t.estado === 'HECHA' ? `Hecha ${fmtCorta(soloFecha(t.cerradoAt || t.creadoAt))}`
+                    : !t.plazoAt ? 'Sin plazo'
+                    : t.vencida || atraso > 0 ? `Venció hace ${Math.max(1, atraso)} d`
+                    : atraso === 0 ? 'Vence hoy' : `Vence en ${-atraso} d`;
+                  const estadoClase = t.estado === 'HECHA' ? 'text-emerald-600' : t.vencida || atraso > 0 ? 'text-rose-600' : atraso >= -1 ? 'text-amber-600' : 'text-zinc-500';
                   return (
                   <div key={t.id}
                     className={`grid ${LABEL_COL} gap-2 items-center rounded-lg -mx-1.5 px-1.5 py-1.5 transition-colors hover:bg-zinc-50`}>
@@ -198,9 +233,9 @@ export function GanttComprasCard({ tareas }: { tareas: TareaGantt[] }) {
                         style={{ left: pct(offset), width: `max(6px, ${pct(largo)})` }}
                       />
                       {/* Fecha de término (o "hoy" si sigue abierta), pegada al borde derecho. */}
-                      <span className="absolute top-1/2 text-[9px] font-semibold text-zinc-500 whitespace-nowrap z-10"
-                        style={{ left: pct(offset + largo), transform: 'translate(5px, -50%)' }}>
-                        {hastaTexto}
+                      <span className={`absolute top-1/2 text-[10px] font-bold whitespace-nowrap z-10 ${estadoClase}`}
+                        style={{ left: pct(offset + largo), transform: 'translate(6px, -50%)' }}>
+                        {estadoTxt}
                       </span>
                     </div>
                   </div>
@@ -215,6 +250,7 @@ export function GanttComprasCard({ tareas }: { tareas: TareaGantt[] }) {
           <span className="w-0.5 h-3 bg-rose-300 inline-block rounded-full" /> Hoy
         </div>
       </div>
+      </>)}
     </div>
   );
 }

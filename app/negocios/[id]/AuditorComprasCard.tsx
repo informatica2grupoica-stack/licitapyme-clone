@@ -16,6 +16,7 @@ import { MatrizPrecios, ESTILO_VEREDICTO, ETIQUETA_ALERTA, type SeleccionCelda }
 import { compararPrecioConCosteo } from '@/app/lib/compras-precio-vs-costeo';
 import { CotizacionesMasivas } from './CotizacionesMasivas';
 import { ListaCotizaciones } from './ListaCotizaciones';
+import { CoberturaCotizaciones } from './CoberturaCotizaciones';
 import { useFichasCompras, tecnicoPorCelda, TecnicoDeCelda } from './FichasEnCotizacion';
 import { ArmarCompra, type Comb, type Recomendada, type EvaluacionCompra } from './ArmarCompra';
 import { DESPACHO_OPCIONES, condicionesPara, condicionDesdeLegacy, aplicarDespacho } from '@/app/lib/compras-despacho';
@@ -1077,6 +1078,8 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           </details>
         </Banner>
       )}
+
+      <CoberturaCotizaciones productos={productos} cotizaciones={cotizaciones} costeado={costeado} />
 
       <MatrizPrecios productos={productos} cotizaciones={cotizaciones} costeado={costeado} seleccion={seleccion} onSeleccionar={setSeleccion}
         tecnico={tecnicoPorCelda(fichas.panel, cotizaciones)}

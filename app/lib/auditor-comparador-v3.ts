@@ -10,7 +10,7 @@ import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('auditor', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { MOTOR_KIMI_ESTRICTO } from '@/app/lib/auditor-tecnico';
-import { requisitosDeLinea, documentosDeOpcion, bloqueDocumentos, SYS_L2_TEC, type DocumentoOpcion } from '@/app/lib/auditor-tecnico-v2';
+import { requisitosDeLinea, requisitosDelProducto, documentosDeOpcion, bloqueDocumentos, SYS_L2_TEC, type DocumentoOpcion } from '@/app/lib/auditor-tecnico-v2';
 import { PROMPT_V3, ESQUEMA_V3 } from '@/app/lib/auditor-comparador-v3-prompts';
 import {
   parsearSalidaV3, construirResultadoTecnico, estadoDeProducto, esExigenciaRoja, cierraSoloEM, type SegundaPasadaCelda,
@@ -56,13 +56,16 @@ export async function verificarLineaV3(params: {
   negocioId: number; licitacionCodigo: string; filaId: string; lineaReal: number | null; nombreLinea: string; cantidad: number | null; unidad: string; actor: { id: number };
   /** Solo estas opciones (p. ej. la que recién recibió una ficha): las demás conservan su última comparación. Sin esto se compara la línea completa. */
   soloOpcionIds?: number[];
+  /** Compras: la línea agrupa varios productos; se juzga solo contra los requisitos de ESTE producto. El Auditor no lo pasa y sigue igual. */
+  soloProducto?: string;
 }): Promise<ResumenCorridaV3> {
-  const { negocioId, licitacionCodigo, filaId, lineaReal, nombreLinea, cantidad, unidad, actor, soloOpcionIds } = params;
+  const { negocioId, licitacionCodigo, filaId, lineaReal, nombreLinea, cantidad, unidad, actor, soloOpcionIds, soloProducto } = params;
   const [ors] = await pool.query(
     `SELECT * FROM auditor_opcion WHERE negocio_id = ? AND fila_id = ? AND via = 'completa' AND estado IN (?) ORDER BY id`, [negocioId, filaId, ESTADOS_QUE_SE_COMPARAN]) as any;
   const opciones = (ors as any[]).filter(o => !soloOpcionIds?.length || soloOpcionIds.includes(o.id));
   if (opciones.length === 0) throw new Error('La línea no tiene opciones en vía completa para comparar (las de vía liviana no pasan por el comparador técnico).');
-  const ctx = await requisitosDeLinea(negocioId, licitacionCodigo, lineaReal);
+  const ctxLinea = await requisitosDeLinea(negocioId, licitacionCodigo, lineaReal);
+  const ctx = ctxLinea && soloProducto ? { ...ctxLinea, requisitos: requisitosDelProducto(ctxLinea.requisitos, soloProducto) } : ctxLinea;
   if (!ctx || ctx.requisitos.length === 0) throw new Error('Esta línea no tiene requisitos técnicos heredados del análisis: no hay contra qué comparar.');
 
   const conDocs: Array<{ o: any; docs: DocumentoOpcion[] }> = [];

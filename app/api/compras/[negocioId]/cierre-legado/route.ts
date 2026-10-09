@@ -4,6 +4,7 @@
 // EN VIVO (verificación, acta, firma / dictamen del jefe de ventas), este es solo housekeeping
 // para negocios ADJUDICADA cerrados antes de que existiera Compras. Mismo criterio de permiso que
 // /asignar: es una decisión de jefatura, no del encargado de cada negocio en particular.
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { marcarCierreLegado, quitarCierreLegado, obtenerAsignacion, type CierreLegado } from '@/app/lib/compras';
@@ -25,7 +26,7 @@ async function esJefeDeVentas(userId: number): Promise<boolean> {
   return !!(p.compras_todo || p.aprobar_comercial);
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
+async function __POST(request: NextRequest, { params }: Params) {
   const { id: userId, nombre } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   if (!(await esJefeDeVentas(userId))) {
@@ -54,7 +55,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: Params) {
+async function __DELETE(request: NextRequest, { params }: Params) {
   const { id: userId } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   if (!(await esJefeDeVentas(userId))) {
@@ -73,3 +74,6 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'No se pudo deshacer.' }, { status: 500 });
   }
 }
+
+export const POST = conBitacoraCompras(__POST, 'POST');
+export const DELETE = conBitacoraCompras(__DELETE, 'DELETE');

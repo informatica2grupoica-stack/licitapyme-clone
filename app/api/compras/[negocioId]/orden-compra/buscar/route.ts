@@ -5,6 +5,7 @@
 // muchas veces YA ESTÁ guardada en `ordenes_compra` (el sync general la trajo en su momento) — lo
 // único que falta es engancharla con este negocio, que es barato y no necesita nada de Mercado
 // Público. Solo si de verdad no está guardada todavía se intenta una búsqueda en vivo.
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { obtenerAsignacion, vincularOrdenCompraDeMP } from '@/app/lib/compras';
@@ -34,7 +35,7 @@ async function ocGuardadaLocalmente(licitacionCodigo: string) {
   return (rows as any[])[0] || null;
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
+async function __POST(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Este negocio todavía no entra a Compras.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA))) {
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados))) {
       return NextResponse.json({ error: 'Sin acceso a Compras de este negocio.' }, { status: 403 });
     }
 
@@ -85,3 +86,5 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'No se pudo buscar la orden de compra.' }, { status: 500 });
   }
 }
+
+export const POST = conBitacoraCompras(__POST, 'POST');

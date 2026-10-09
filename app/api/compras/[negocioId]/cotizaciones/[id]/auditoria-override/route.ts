@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/cotizaciones/[id]/auditoria-override/route.ts
 // Una persona decide distinto al auditor: motivo obligatorio, queda a su nombre en el historial.
 // Body: { productoId, cumple: CumpleItem | null, motivo } — cumple null = volver al dictamen del auditor.
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { registrarOverrideAuditoria, type CumpleAuditado } from '@/app/lib/compras-auditoria-cotizacion';
@@ -13,7 +14,7 @@ type Params = { params: Promise<{ negocioId: string; id: string }> };
 
 const VALIDOS: CumpleAuditado[] = ['CUMPLE', 'MEJORA', 'INFERIOR_NEGOCIABLE', 'INFERIOR_INSALVABLE', 'NO_ES_EL_PRODUCTO'];
 
-export async function POST(request: NextRequest, { params }: Params) {
+async function __POST(request: NextRequest, { params }: Params) {
   const userId = request.headers.get('x-user-id') ? parseInt(request.headers.get('x-user-id')!) : null;
   const rol = request.headers.get('x-user-rol');
   const nombre = request.headers.get('x-user-nombre');
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(negId);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const body = await request.json().catch(() => ({}));
@@ -40,3 +41,5 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: error.message || 'No se pudo registrar la decisión.' }, { status: 400 });
   }
 }
+
+export const POST = conBitacoraCompras(__POST, 'POST');

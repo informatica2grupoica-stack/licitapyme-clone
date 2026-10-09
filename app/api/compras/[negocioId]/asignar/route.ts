@@ -1,10 +1,11 @@
 // app/api/compras/[negocioId]/asignar/route.ts
 // MÓDULO DE COMPRAS — asignación manual del encargado (§3.3). Solo jefe de ventas o admin; el
 // fallback automático por vencimiento de plazo pasa por app/lib/compras.ts vía el cron, no por acá.
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
-import { asignarEncargado, obtenerAsignacion } from '@/app/lib/compras';
+import { asignarEncargado, obtenerAsignacion, fijarCoencargados } from '@/app/lib/compras';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,7 +27,7 @@ async function esJefeDeVentas(userId: number): Promise<boolean> {
   return !!(p.compras_todo || p.aprobar_comercial);
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
+async function __POST(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
@@ -35,12 +36,21 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   const body = await request.json().catch(() => ({}));
+  const soloCoencargados = Array.isArray(body.coencargadoIds) && body.encargadoId == null;
   const encargadoId = parseInt(body.encargadoId);
-  if (!Number.isFinite(encargadoId)) return NextResponse.json({ error: 'Falta encargadoId' }, { status: 400 });
+  if (!soloCoencargados && !Number.isFinite(encargadoId)) return NextResponse.json({ error: 'Falta encargadoId' }, { status: 400 });
 
   try {
     const existe = await obtenerAsignacion(id);
     if (!existe) return NextResponse.json({ error: 'Este negocio todavía no entra a Compras.' }, { status: 404 });
+
+    // Varios encargados (migration-142): sumar o quitar co-encargados lo hace un admin o el jefe de ventas; el principal no se toca.
+    if (soloCoencargados) {
+      if (rol !== 'admin' && !(await esJefeDeVentas(userId))) return NextResponse.json({ error: 'Solo un admin o el jefe de ventas puede sumar encargados.' }, { status: 403 });
+      if (existe.asignadoA == null) return NextResponse.json({ error: 'Primero elige al encargado principal.' }, { status: 400 });
+      await fijarCoencargados(id, body.coencargadoIds, userId);
+      return NextResponse.json({ success: true, asignacion: await obtenerAsignacion(id) });
+    }
 
     // Pedido explícito del usuario, 15-sep-2026: CAMBIAR un encargado que ya tiene otro asignado
     // es cosa de admin — solo la asignación INICIAL (negocio recién entrando a Compras, sin nadie
@@ -65,3 +75,5 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'No se pudo asignar.' }, { status: 500 });
   }
 }
+
+export const POST = conBitacoraCompras(__POST, 'POST');

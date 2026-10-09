@@ -29,7 +29,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeVerCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeVerCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     // Solo eventos DE COMPRAS (tipo empieza con COMPRAS_) más el "día 0" — cuándo se ganó. Se deja
@@ -57,7 +57,13 @@ export async function GET(request: NextRequest, { params }: Params) {
       creadoAt: r.creado_at,
     }));
 
-    return NextResponse.json({ success: true, eventos });
+    // «Quién hizo qué» (compras-bitacora.ts) anota TODA acción de escritura como COMPRAS_ACCION. Si la misma persona ya dejó un evento
+    // propio de esa acción (aprobaciones, asignación, SKU…) en el mismo momento, se muestra solo el específico, que dice más.
+    const seg = (t: string) => new Date(t.replace(' ', 'T') + 'Z').getTime();
+    const especificos = eventos.filter(e => e.tipo !== 'COMPRAS_ACCION' && e.actor);
+    const finales = eventos.filter(e => e.tipo !== 'COMPRAS_ACCION'
+      || !especificos.some(x => x.actor === e.actor && Math.abs(seg(x.creadoAt) - seg(e.creadoAt)) <= 20_000));
+    return NextResponse.json({ success: true, eventos: finales });
   } catch (error: any) {
     console.error('[compras/[negocioId]/actividad][GET]', String(error));
     return NextResponse.json({ error: 'No se pudo cargar la actividad.' }, { status: 500 });

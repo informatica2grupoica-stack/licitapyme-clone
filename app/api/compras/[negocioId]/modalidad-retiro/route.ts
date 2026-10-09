@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/modalidad-retiro/route.ts
 // §13.2 — modalidad de retiro (interna/externa/mixta): se define en el primer instante, la define
 // el humano, el sistema no la calcula ni la propone acá.
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { obtenerModalidadRetiro, definirModalidadRetiro, type ModalidadRetiro } from '@/app/lib/compras-logistica';
@@ -27,7 +28,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const info = await obtenerModalidadRetiro(id);
@@ -38,7 +39,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
 }
 
-export async function PUT(request: NextRequest, { params }: Params) {
+async function __PUT(request: NextRequest, { params }: Params) {
   const { id: userId, rol, nombre } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
@@ -47,7 +48,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const body = await request.json();
@@ -59,3 +60,5 @@ export async function PUT(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: error.message || 'No se pudo definir la modalidad.' }, { status: 400 });
   }
 }
+
+export const PUT = conBitacoraCompras(__PUT, 'PUT');

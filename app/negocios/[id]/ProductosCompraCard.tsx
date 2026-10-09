@@ -37,6 +37,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
   const [cobertura, setCobertura] = useState<Cobertura | null>(null);
   const [perdidas, setPerdidas] = useState<LineaPerdida[]>([]);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [linksCosteo, setLinksCosteo] = useState<Record<number, { nombre: string; links: string[] }>>({});
   const [conflictos, setConflictos] = useState<Array<{ productoId: number; correlativo: number; subestado: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [guardando, setGuardando] = useState<number | null>(null);
@@ -63,6 +64,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
       setProductos(data.productos || []);
       setCobertura(data.cobertura || null);
       setPerdidas(data.perdidas || []);
+      setLinksCosteo(data.linksCosteo || {});
       setAviso(data.aviso || null); setConflictos(data.conflictos || []);
     } catch (e: any) {
       toast.error('No se pudieron cargar los productos', e.message);
@@ -291,6 +293,18 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
                     <td className="px-4 py-2 text-[12px] text-zinc-400 tabular-nums">{lineasUnicas ? (p.correlativo ?? '—') : productos.indexOf(p) + 1}</td>
                     <td className="px-3 py-2 max-w-0">
                       <p title={p.descripcion} className={`text-[13px] font-semibold truncate ${fuera ? 'text-zinc-400' : 'text-zinc-800'} ${p.subestado === 'NO_ADJUDICADA' ? 'line-through decoration-zinc-400' : ''}`}>{p.descripcion}</p>
+                      {!fuera && (() => {
+                        const lc = linksCosteo[p.id];
+                        if (!lc) return null;
+                        const host = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } };
+                        return (
+                          <div className="mt-0.5 flex items-center gap-x-3 gap-y-0.5 flex-wrap text-[11.5px]" data-testid={`links-costeo-${p.id}`}>
+                            {lc.links.length === 0
+                              ? <span className="text-zinc-400">Sin link en el costeo</span>
+                              : lc.links.map((u, i) => <a key={u} href={u} target="_blank" rel="noopener noreferrer" title={u} className="text-teal-700 hover:text-teal-900 underline underline-offset-2 truncate max-w-[260px]">Link {i + 1} · {host(u)}</a>)}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="px-3 py-2 text-[12.5px] text-zinc-600 whitespace-nowrap">{p.cantidad != null ? `${p.cantidad}${p.unidad ? ` ${p.unidad}` : ''}` : '—'}</td>
                     <td className="px-3 py-2 text-[12.5px] text-zinc-600 whitespace-nowrap tabular-nums" title="Precio de venta unitario de la oferta (no es lo que cuesta comprarlo)">{fmtCLP(p.montoUnitario)}</td>

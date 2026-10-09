@@ -43,6 +43,7 @@ import { TutorialPaso } from './TutorialPaso';
 import { FranjaCompra } from './FranjaCompra';
 import { siguientePaso, type SiguientePaso } from '@/app/lib/compras-siguiente-paso';
 import { useCompras, fmtCLP, fmtFecha, type OrdenCompra } from './ComprasContext';
+import { CoencargadosCompras } from './CoencargadosCompras';
 import { IconBolt as ObumaIcon, IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconUserPlus as UserPlus, IconClock as Clock, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCurrencyDollar as DollarSign, IconFileAlert as FileWarning, IconBuilding as Building2, IconFileText as FileText, IconDeviceFloppy as Save, IconClipboardList as ClipboardList, IconRefresh as RefreshCw, IconBolt as Zap, IconExternalLink as ExternalLink, IconArrowUpRight as ArrowUpRight, IconCalculator as Calculator, IconClipboardCheck as ClipboardCheck, IconPackage as Package, IconTruck as Truck, IconHistory as History, IconGauge as Gauge, IconWallet as Wallet, IconCalendarTime as CalendarTime, IconHourglassHigh as Hourglass, IconMail as Mail, IconPhone as Phone, IconUserCircle as UserCircle, IconCheck as Check, IconArrowRight as ArrowRight, IconTarget as Target } from '@tabler/icons-react';
 
 // Gantt SALIÓ del stepper (pedido explícito, 17-sep-2026: "es aparte de todo ese flujo y es lo
@@ -306,14 +307,16 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
       <div id="compras-encargado" className="bg-white rounded-lg border border-zinc-200 px-3 py-2 flex items-center gap-2 flex-wrap text-[12px] scroll-mt-4">
         <span className="text-[10px] font-bold text-zinc-400 uppercase flex-shrink-0">Encargado</span>
         {asignacion.asignadoA && !reasignando ? (
-          <p className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
             <span className="font-bold text-zinc-800">{asignacion.asignadoNombre}</span>
             <span className="text-zinc-400 text-[11px]">— {fmtFecha(asignacion.asignadoAt)}{asignacion.asignadoPor == null ? ' · automático' : ''}</span>
             {esAdmin && (
               <button onClick={() => setReasignando(true)}
                 className="text-[11px] font-semibold text-teal-700 hover:text-teal-800">Cambiar</button>
             )}
-          </p>
+            <CoencargadosCompras negocioId={negocioId} principalId={asignacion.asignadoA} coencargados={asignacion.coencargados || []} candidatos={candidatos}
+              puedeEditar={esAdmin || esJefeDeVentas} onCambio={recargar} />
+          </div>
         ) : asignacion.asignadoA && reasignando ? (
           <div className="flex items-center gap-2 flex-wrap flex-1">
             <Select

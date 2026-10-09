@@ -2,6 +2,7 @@
 // Cuadro comparativo + espacio de negociación + los 4 escenarios de compra (spec §8.7-§8.10).
 // GET calcula y devuelve todo (recalcula los escenarios cada vez: son baratos, aritmética pura).
 // PATCH elige uno (§8.10.4 — justificación obligatoria si no es "Más rápido").
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { cuadroComparativo, detectarEspacioNegociacion, calcularEscenarios, elegirEscenario, escenarioElegidoTipo, enumerarCombinaciones, elegirCombinacion, combinacionElegidaClave, evaluarSeleccion, elegirSeleccion, seleccionDesdeClave, type TipoEscenario } from '@/app/lib/compras-auditor';
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const [cuadro, negociacion, escenarios, elegido, combinaciones, claveElegida] = await Promise.all([
@@ -52,7 +53,7 @@ function leerSeleccion(raw: unknown): Record<number, number> {
 }
 
 // POST {seleccion} — arma la compra que se va eligiendo en la matriz y devuelve su costo, plazo, viajes y avisos (sin guardar nada).
-export async function POST(request: NextRequest, { params }: Params) {
+async function __POST(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
     const body = await request.json();
     return NextResponse.json({ success: true, ...(await evaluarSeleccion(id, leerSeleccion(body.seleccion))) });
   } catch (error) {
@@ -69,7 +70,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 }
 
-export async function PATCH(request: NextRequest, { params }: Params) {
+async function __PATCH(request: NextRequest, { params }: Params) {
   const { id: userId, rol, nombre } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
@@ -78,7 +79,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const body = await request.json();
@@ -91,3 +92,6 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: error.message || 'No se pudo elegir el escenario.' }, { status: 400 });
   }
 }
+
+export const POST = conBitacoraCompras(__POST, 'POST');
+export const PATCH = conBitacoraCompras(__PATCH, 'PATCH');

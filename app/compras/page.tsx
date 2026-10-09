@@ -3,7 +3,7 @@
 // MÓDULO DE COMPRAS — listado transversal (Fase 1, spec §3-§5). Un negocio ganado por fila: quién
 // lo tiene, si vence el plazo de asignación, si es urgente y cuánto avanzó de sus tareas. El
 // detalle completo (resumen ejecutivo + tareas) vive en la pestaña "Compras" de cada negocio.
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import dayjs from 'dayjs';
@@ -94,6 +94,17 @@ const fmtFechaCorta = (s: string) => {
   catch { return s; }
 };
 
+// Cuándo se ganó, en palabras («hoy», «ayer», «hace 3 días») y con día y hora corta, para ubicar la más nueva de un vistazo.
+const haceCuanto = (ganadoAt: string): string => {
+  const d = dayjs(ganadoAt.slice(0, 10)); const n = dayjs().startOf('day').diff(d, 'day');
+  return n <= 0 ? 'hoy' : n === 1 ? 'ayer' : `hace ${n} días`;
+};
+const diaHoraCorta = (ganadoAt: string): string => `${ganadoAt.slice(8, 10)}-${ganadoAt.slice(5, 7)} ${ganadoAt.slice(11, 16)}`;
+const ChipUltimaGanada = () => (
+  <span title="La licitación de entrega rápida que se ganó más recientemente"
+    className="inline-flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-wide text-white bg-rose-600 px-1.5 py-0.5 rounded-full flex-shrink-0">Última ganada</span>
+);
+
 // Botones de cierre legado (backlog histórico) — deliberadamente separados del flujo de
 // Entrega/Fracaso (ver app/lib/compras.ts, marcarCierreLegado). Solo jefe de ventas.
 function AccionesCierreLegado({ f, onCambio }: { f: ComprasFila; onCambio: () => void }) {
@@ -170,8 +181,8 @@ function AccionesCierreLegado({ f, onCambio }: { f: ComprasFila; onCambio: () =>
   );
 }
 
-function FilaCompras({ f, esJefeDeVentas, esAdmin, candidatos, onAsignado }: {
-  f: ComprasFila; esJefeDeVentas: boolean; esAdmin: boolean; candidatos: Candidato[]; onAsignado: () => void;
+function FilaCompras({ f, esJefeDeVentas, esAdmin, candidatos, onAsignado, ultimaUrgente }: {
+  f: ComprasFila; esJefeDeVentas: boolean; esAdmin: boolean; candidatos: Candidato[]; onAsignado: () => void; ultimaUrgente?: boolean;
 }) {
   const toast = useToast();
   const [candidatoElegido, setCandidatoElegido] = useState('');
@@ -210,7 +221,8 @@ function FilaCompras({ f, esJefeDeVentas, esAdmin, candidatos, onAsignado }: {
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-[11px] font-mono text-zinc-400">{f.licitacionCodigo}</p>
-            <span className="text-[10.5px] text-zinc-400">Ganado {fmtFecha(f.ganadoAt)}</span>
+            {ultimaUrgente && <ChipUltimaGanada />}
+            <span className="text-[10.5px] text-zinc-500" title={`Ganado ${fmtFecha(f.ganadoAt)}`}>Ganada <b className="font-semibold">{haceCuanto(f.ganadoAt)}</b> · {diaHoraCorta(f.ganadoAt)}</span>
             {f.ocFecha && (
               <span className="inline-flex items-center gap-1 text-[10.5px] text-emerald-600">
                 <PackageCheck size={11} /> OC {fmtFechaCorta(f.ocFecha)}
@@ -599,8 +611,8 @@ function ModalDiaCompras({ dia, negocios, onClose }: { dia: string; negocios: Co
 //      de OC del punto 2) + `plazoEntregaDias`. Si no hay plazo de entrega identificado, no se
 //      dibuja el tramo — no hay fecha que inventar.
 const PX_DIA: Record<'compacta' | 'normal' | 'amplia', number> = { compacta: 16, normal: 26, amplia: 40 };
-const ANCHO_ETIQUETA_GANTT = 300;
-const ALTO_FILA_GANTT = 54;
+const ANCHO_ETIQUETA_GANTT = 390;
+const ALTO_FILA_GANTT = 78;
 const ALTO_REGLA_MESES = 26;
 const ALTO_REGLA_DIAS = 22;
 const TOPE_LEGAL_ACEPTACION_OC_DIAS = 5;
@@ -638,6 +650,18 @@ function calcularHitosGantt(f: ComprasFila): HitosGantt {
   return { adjudicacion, aceptacionOCLimite, aceptacionOCEstimada: f.plazoAceptacionOCDias == null, ocReal, inicioEntrega, entrega, entregaOficial, entregaVencida };
 }
 
+// Estado de la entrega en palabras. Va en la columna fija de la izquierda: así cada fila se entiende aunque sus barras queden fuera de la
+// parte visible de la línea de tiempo (licitaciones viejas, o lejos en el futuro).
+function estadoEntregaGantt(f: ComprasFila, h: HitosGantt): { texto: string; clase: string } {
+  if (f.cierreLegado === 'ENTREGADA') return { texto: 'Entregada', clase: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+  if (f.cierreLegado === 'NO_REALIZADA') return { texto: 'No realizada', clase: 'bg-zinc-100 text-zinc-500 border-zinc-200' };
+  if (!h.entrega) return { texto: 'Sin plazo de entrega', clase: 'bg-zinc-50 text-zinc-400 border-zinc-200' };
+  const d = h.entrega.diff(dayjs().startOf('day'), 'day');
+  if (d < 0) return { texto: `Vencida hace ${-d} d`, clase: 'bg-rose-50 text-rose-700 border-rose-200' };
+  if (d === 0) return { texto: 'Entrega hoy', clase: 'bg-rose-50 text-rose-700 border-rose-200' };
+  return { texto: `Entrega en ${d} d`, clase: d <= 3 ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-teal-50 text-teal-700 border-teal-200' };
+}
+
 function colorEstadoTareaGantt(t: TareaGantt): string {
   if (t.vencida) return '#e11d48';       // rose-600
   if (t.estado === 'HECHA') return '#10b981'; // emerald-500
@@ -645,9 +669,9 @@ function colorEstadoTareaGantt(t: TareaGantt): string {
   return '#a1a1aa';                       // zinc-400
 }
 
-function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada }: {
+function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaUrgente }: {
   f: ComprasFila; inicioRango: dayjs.Dayjs; pxDia: number;
-  onSeleccionar: () => void; seleccionada: boolean;
+  onSeleccionar: () => void; seleccionada: boolean; ultimaUrgente?: boolean;
 }) {
   const h = calcularHitosGantt(f);
   const x = (d: dayjs.Dayjs) => diasEntre(inicioRango, d) * pxDia;
@@ -665,77 +689,74 @@ function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada }: {
       <div role="button" tabIndex={0} onClick={onSeleccionar} onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && onSeleccionar()}
         className={`sticky left-0 z-10 flex items-center gap-2 px-3 border-r border-zinc-200 flex-shrink-0 overflow-hidden cursor-pointer ${seleccionada ? 'bg-teal-50/60' : 'bg-white'}`}
         style={{ width: ANCHO_ETIQUETA_GANTT }} title="Ver todas las tareas de esta licitación">
-        <AvatarAsignado nombre={f.asignadoNombre} seed={f.asignadoA ?? f.asignadoNombre} size={22} />
+        <AvatarAsignado nombre={f.asignadoNombre} seed={f.asignadoA ?? f.asignadoNombre} size={26} />
         <div className="min-w-0 flex-1">
-          <p className={`text-[12px] font-bold leading-tight truncate ${seleccionada ? 'text-teal-700' : 'text-zinc-800'}`}>{f.licitacionNombre || f.licitacionCodigo}</p>
+          <p className={`text-[12px] font-bold leading-tight line-clamp-2 ${seleccionada ? 'text-teal-700' : 'text-zinc-900'}`} title={f.licitacionNombre || f.licitacionCodigo}>{f.licitacionNombre || f.licitacionCodigo}</p>
           <div className="flex items-center gap-1.5 mt-0.5">
-            <span className="text-[10px] font-mono text-zinc-400 truncate">{f.licitacionCodigo}</span>
-            {f.urgente && <AlertTriangle size={10} className="text-rose-600 flex-shrink-0" />}
-            {f.reloj?.prorrogado && <CalendarClock size={10} className="text-amber-500 flex-shrink-0" />}
+            <span className="text-[10px] font-mono text-zinc-400">{f.licitacionCodigo}</span>
+            {f.urgente && <AlertTriangle size={11} className="text-rose-600 flex-shrink-0" aria-label="Entrega rápida" />}
+            {f.reloj?.prorrogado && <CalendarClock size={11} className="text-amber-500 flex-shrink-0" />}
+            <span className="text-[10.5px] font-semibold text-zinc-600">{fmtCLPCorto(f.montoNuestro)}</span>
+          </div>
+          <div className="flex items-center gap-1.5 mt-1">
+            {ultimaUrgente && <ChipUltimaGanada />}
+            <span className="text-[10px] text-zinc-500 whitespace-nowrap" title={`Ganado ${fmtFecha(f.ganadoAt)}`}>{ultimaUrgente ? '' : 'Ganada '}{haceCuanto(f.ganadoAt)} · {diaHoraCorta(f.ganadoAt)}</span>
           </div>
         </div>
-        <span className="text-[10.5px] font-semibold text-zinc-500 flex-shrink-0">{fmtCLPCorto(f.montoNuestro)}</span>
+        {(() => {
+          const e = estadoEntregaGantt(f, h);
+          return (
+            <div className="flex flex-col items-end gap-1 flex-shrink-0">
+              <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border whitespace-nowrap ${e.clase}`}>{e.texto}</span>
+              {f.tareasTotal > 0 && (
+                <span className={`text-[10px] font-semibold whitespace-nowrap ${f.tareasVencidas > 0 ? 'text-rose-600' : 'text-zinc-500'}`} title="Tareas hechas / total">
+                  {f.tareasHechas}/{f.tareasTotal} tareas{f.tareasVencidas > 0 ? ` · ${f.tareasVencidas} venc.` : ''}
+                </span>
+              )}
+            </div>
+          );
+        })()}
         <Link href={`/compras/${f.negocioId}`} onClick={e => e.stopPropagation()} title="Ir al negocio"
           className="text-zinc-300 hover:text-teal-600 flex-shrink-0"><ArrowUpRight size={14} /></Link>
       </div>
       <div className="relative flex-1" style={{ minWidth: 0 }}>
-        {/* Tramo 1: esperando aceptación de OC — línea punteada si el plazo es estimado (tope legal), sólida si viene de las bases.
-            `title` nativo en vez de un tooltip a medida: el tooltip a medida se renderizaba junto a la
-            leyenda, al final de toda la tabla — en un Gantt alto quedaba fuera de pantalla y había que
-            hacer scroll para leerlo (reporte del usuario, 16-sep-2026). El nativo aparece junto al cursor. */}
-        <div
-          title={`Aceptación de OC: ${h.adjudicacion.format('DD-MM-YYYY')} → ${h.aceptacionOCLimite.format('DD-MM-YYYY')} (${f.plazoAceptacionOCDias ?? TOPE_LEGAL_ACEPTACION_OC_DIAS} día(s)${h.aceptacionOCEstimada ? ', estimado — tope legal, sin dato en las bases' : ', según las bases'})`}
-          className={`absolute rounded-full ${h.aceptacionOCEstimada ? 'opacity-50' : ''}`}
-          style={{
-            left: xAdj, width: Math.max(xAceptOC - xAdj, 3), top: 10, height: 7,
-            background: '#d97706', backgroundImage: h.aceptacionOCEstimada ? 'repeating-linear-gradient(45deg, transparent 0 3px, rgba(255,255,255,.6) 3px 6px)' : undefined,
-          }} />
-        {/* Tramo 2: plazo de entrega, desde la OC real (o el límite de aceptación si aún no llega) hasta el día de entrega comprometido. */}
-        {xEntrega != null && (
-          <div
-            title={
-              `Entrega: ${h.inicioEntrega.format('DD-MM-YYYY')} → ${h.entrega!.format('DD-MM-YYYY')}` +
-              (h.entregaOficial
-                ? ` — Reloj de Entrega${f.reloj?.prorrogado ? `, PRORROGADO${f.reloj.prorrogaMotivo ? `: "${f.reloj.prorrogaMotivo}"` : ''}${f.reloj.prorrogaAutorizadoPorNombre ? ` (${f.reloj.prorrogaAutorizadoPorNombre})` : ''}` : ''}`
-                : ` (${f.plazoEntregaDias} día(s), estimado — el Reloj de Entrega aún no se fijó)`) +
-              (entregada ? ' — ya entregada' : noRealizada ? ' — no realizada' : h.entregaVencida ? ' — VENCIDA' : '')
-            }
-            className={`absolute rounded-full shadow-sm ${!h.entregaOficial ? 'opacity-70' : ''}`}
-            style={{ left: xInicioEntrega, width: Math.max(xEntrega - xInicioEntrega, 3), top: 22, height: 13, background: colorBarraEntrega }} />
-        )}
-        {xEntrega == null && (
-          <div
-            title="Plazo de entrega: sin dato — cárgalo en el Auditor Técnico o corre la auditoría con IA."
-            className="absolute rounded-full border border-dashed border-zinc-300"
-            style={{ left: xInicioEntrega, width: pxDia * 20, top: 22, height: 13 }} />
-        )}
-        {/* Hito: día de adjudicación. */}
-        <div title={`Adjudicado: ${h.adjudicacion.format('DD-MM-YYYY')}`}
-          className="absolute rounded-full bg-teal-700 ring-2 ring-white" style={{ left: xAdj - 4, top: 9, width: 9, height: 9 }} />
-        {/* Hito: OC real (si ya llegó). */}
-        {h.ocReal && (
-          <div title={`OC recibida: ${h.ocReal!.format('DD-MM-YYYY')}`}
-            className="absolute rounded-full bg-emerald-600 ring-2 ring-white" style={{ left: x(h.ocReal) - 4, top: 9, width: 9, height: 9 }} />
-        )}
-        {/* Hito: entrega — rombo al final del tramo 2. */}
-        {xEntrega != null && (
-          <div title={`Entrega comprometida: ${h.entrega!.format('DD-MM-YYYY')}${h.entregaOficial ? ' (Reloj de Entrega)' : ' (estimada)'}${f.reloj?.prorrogado ? ' · con prórroga' : ''}`}
-            className="absolute" style={{ left: xEntrega - 5, top: 21 }}>
-            <Diamond size={15} fill={colorBarraEntrega} color={colorBarraEntrega} stroke={1} />
-          </div>
-        )}
-        {f.reloj?.prorrogado && xEntrega != null && (
-          <div title="Plazo prorrogado — Reloj de Entrega" className="absolute text-amber-500" style={{ left: xEntrega - 4, top: 32 }}>
-            <CalendarClock size={13} stroke={2.5} />
-          </div>
-        )}
-        {/* Tareas intermedias — un punto por tarea, en su fecha límite. */}
-        {f.tareasGantt.filter(t => t.plazoAt).map(t => (
-          <div key={t.id}
-            title={`${t.titulo} — ${dayjs(t.plazoAt!).format('DD-MM-YYYY')} (${t.vencida ? 'vencida' : t.estado === 'HECHA' ? 'hecha' : t.estado === 'EN_CURSO' ? 'en curso' : 'pendiente'})`}
-            className="absolute rounded-full ring-2 ring-white cursor-help"
-            style={{ left: x(dayjs(t.plazoAt!.slice(0, 10))) - 3, top: 40, width: 6, height: 6, background: colorEstadoTareaGantt(t) }} />
-        ))}
+        {(() => {
+          // UNA sola barra por licitación, con texto: primero «esperando la OC» (o «OC recibida»), después el plazo de entrega.
+          // Antes había barra, puntos, rombo y fechas sueltas sin rótulo y no se entendían. Las tareas se ven en el panel (clic en la fila).
+          const e = estadoEntregaGantt(f, h);
+          const hoy = dayjs().startOf('day');
+          const diasEntrega = h.entrega ? h.entrega.diff(hoy, 'day') : null;
+          const colorEntrega = noRealizada ? '#a1a1aa' : entregada ? '#10b981' : h.entregaVencida ? '#e11d48' : diasEntrega != null && diasEntrega <= 3 ? '#f59e0b' : '#0d9488';
+          const x0 = xAdj, x1 = xInicioEntrega, x2 = xEntrega;
+          const ancho1 = Math.max(x1 - x0, 4);
+          const ancho2 = x2 != null ? Math.max(x2 - x1, 4) : 0;
+          const finBarra = x2 != null ? x1 + ancho2 : x1 + ancho1;
+          const fin = h.entrega ? h.entrega.format('DD-MM') : null;
+          const ocTxt = h.ocReal ? 'OC recibida' : 'Esperando OC';
+          const Tramo = ({ left, width, color, texto, title, borde }: { left: number; width: number; color: string; texto: string; title: string; borde?: boolean }) => (
+            <div title={title} className="absolute flex items-center justify-center overflow-hidden rounded-md text-[10px] font-bold text-white whitespace-nowrap"
+              style={{ left, width, top: 24, height: 24, background: borde ? 'transparent' : color, border: borde ? `1.5px dashed ${color}` : undefined, color: borde ? color : '#fff' }}>
+              {width >= 64 ? texto : ''}
+            </div>
+          );
+          return (
+            <>
+              <span className="absolute text-[10.5px] font-semibold text-zinc-500 whitespace-nowrap text-right" style={{ left: x0 - 54, width: 48, top: 29 }}>{h.adjudicacion.format('DD-MM')}</span>
+              <Tramo left={x0} width={ancho1} color={h.ocReal ? '#34d399' : '#fbbf24'}
+                texto={ocTxt} title={`${ocTxt}: ${h.adjudicacion.format('DD-MM-YYYY')} → ${h.ocReal ? h.ocReal.format('DD-MM-YYYY') : h.aceptacionOCLimite.format('DD-MM-YYYY') + (h.aceptacionOCEstimada ? ' (tope legal, estimado)' : '')}`} />
+              {x2 != null
+                ? <Tramo left={x1} width={ancho2} color={colorEntrega}
+                    texto={entregada ? 'Entregada' : 'Plazo de entrega'}
+                    title={`Plazo de entrega: ${h.inicioEntrega.format('DD-MM-YYYY')} → ${h.entrega!.format('DD-MM-YYYY')}${h.entregaOficial ? '' : ' (estimado: el Reloj de Entrega aún no se fijó)'}${f.reloj?.prorrogado ? ' · con prórroga' : ''}`} />
+                : <Tramo left={x1} width={pxDia * 14} color="#a1a1aa" borde texto="Sin plazo de entrega" title="Plazo de entrega: sin dato — cárgalo en el Auditor Técnico o corre la auditoría con IA." />}
+              {x2 != null && diasEntrega != null && Math.abs(diasEntrega) <= 30 && (
+                <span className="absolute text-[11px] font-bold whitespace-nowrap" style={{ left: finBarra + 8, top: 29, color: colorEntrega }}>
+                  {`${entregada ? 'Entregada' : fin} · ${e.texto}${h.entregaOficial ? '' : ' (estimado)'}${f.reloj?.prorrogado ? ' · prorrogada' : ''}`}
+                </span>
+              )}
+            </>
+          );
+        })()}
       </div>
     </div>
   );
@@ -800,7 +821,7 @@ function PanelDetalleGantt({ f, onClose }: { f: ComprasFila; onClose: () => void
 
         <div>
           <p className="text-[10.5px] font-bold text-zinc-400 uppercase mb-1.5">Todas las tareas ({f.tareasGantt.length})</p>
-          <GanttComprasCard tareas={f.tareasGantt} />
+          <GanttComprasCard tareas={f.tareasGantt} plegable={false} />
         </div>
 
         <Link href={`/compras/${f.negocioId}`} className="flex items-center justify-center gap-1.5 text-[11.5px] font-semibold text-teal-700 hover:text-teal-800 bg-teal-50 hover:bg-teal-100 rounded-lg py-2 transition-colors">
@@ -811,7 +832,20 @@ function PanelDetalleGantt({ f, onClose }: { f: ComprasFila; onClose: () => void
   );
 }
 
-function VistaGanttCompras({ negocios }: { negocios: ComprasFila[] }) {
+// Franja que separa «entrega rápida» (urgentes) del resto. Se queda pegada a la izquierda mientras se desliza la línea de tiempo.
+function SeparadorGrupoCompras({ urgente, n }: { urgente: boolean; n: number }) {
+  return (
+    <div className={`flex items-center border-b ${urgente ? 'bg-rose-50 border-rose-100' : 'bg-zinc-50 border-zinc-200'}`} style={{ height: 28 }}>
+      <div className={`sticky left-0 z-10 flex items-center gap-2 px-3 text-[10.5px] font-bold uppercase tracking-wide ${urgente ? 'text-rose-700' : 'text-zinc-500'}`}>
+        {urgente ? <AlertTriangle size={12} /> : <ShoppingCart size={12} />}
+        {urgente ? 'Entrega rápida' : 'Resto de las licitaciones'} · {n}
+        {urgente && <span className="font-medium normal-case tracking-normal text-rose-500">plazo menor a 3 días · la más reciente primero</span>}
+      </div>
+    </div>
+  );
+}
+
+function VistaGanttCompras({ negocios, ultimaUrgenteId }: { negocios: ComprasFila[]; ultimaUrgenteId: number | null }) {
   const [densidad, setDensidad] = useState<'compacta' | 'normal' | 'amplia'>('normal');
   const [seleccionadoId, setSeleccionadoId] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -924,10 +958,15 @@ function VistaGanttCompras({ negocios }: { negocios: ComprasFila[] }) {
               </div>
               {/* Filas */}
               <div className="relative">
-                {negocios.map(f => (
-                  <FilaGantt key={f.negocioId} f={f} inicioRango={inicioRango} pxDia={pxDia}
-                    seleccionada={seleccionadoId === f.negocioId}
-                    onSeleccionar={() => setSeleccionadoId(id => id === f.negocioId ? null : f.negocioId)} />
+                {negocios.map((f, i) => (
+                  <Fragment key={f.negocioId}>
+                    {(i === 0 || negocios[i - 1].urgente !== f.urgente) && (
+                      <SeparadorGrupoCompras urgente={f.urgente} n={negocios.filter(x => x.urgente === f.urgente).length} />
+                    )}
+                    <FilaGantt f={f} inicioRango={inicioRango} pxDia={pxDia} ultimaUrgente={f.negocioId === ultimaUrgenteId}
+                      seleccionada={seleccionadoId === f.negocioId}
+                      onSeleccionar={() => setSeleccionadoId(id => id === f.negocioId ? null : f.negocioId)} />
+                  </Fragment>
                 ))}
                 {/* Línea de "hoy", detrás de las barras pero sobre el fondo. */}
                 <div className="absolute top-0 bottom-0 border-l-2 border-dashed border-rose-300 pointer-events-none z-[1]"
@@ -940,13 +979,12 @@ function VistaGanttCompras({ negocios }: { negocios: ComprasFila[] }) {
       </div>
 
       <div className="flex items-center gap-4 flex-wrap text-[11px] text-zinc-500">
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-teal-700" /> Adjudicación</span>
-        <span className="flex items-center gap-1.5"><span className="w-3.5 h-1.5 rounded-full" style={{ background: '#d97706' }} /> Aceptación OC (punteado = estimado)</span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-600" /> OC recibida</span>
-        <span className="flex items-center gap-1.5"><span className="w-3.5 h-1.5 rounded-full bg-teal-600" /> Plazo de entrega</span>
-        <span className="flex items-center gap-1.5"><Diamond size={11} className="text-teal-600" /> Entrega comprometida</span>
-        <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-zinc-400" /> Tarea</span>
+        <span className="font-semibold text-zinc-600">Cada barra empieza el día que se ganó:</span>
+        <span className="flex items-center gap-1.5"><span className="w-4 h-3 rounded-sm" style={{ background: '#fbbf24' }} /> Esperando la OC del cliente</span>
+        <span className="flex items-center gap-1.5"><span className="w-4 h-3 rounded-sm" style={{ background: '#34d399' }} /> OC ya recibida</span>
+        <span className="flex items-center gap-1.5"><span className="w-4 h-3 rounded-sm bg-teal-600" /> Plazo de entrega (naranja si quedan 3 días o menos, rojo si venció)</span>
         <span className="flex items-center gap-1.5"><span className="border-l-2 border-dashed border-rose-300 h-3" /> Hoy</span>
+        <span>· Las tareas de cada licitación se ven al hacer clic en la fila.</span>
       </div>
     </div>
   );
@@ -1148,6 +1186,10 @@ export default function ComprasPage() {
     return arr;
   }, [negocios, q, fAsignado, fOrganismo, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
       soloUrgentes, soloSinAsignar, verCerradas, fechaDesde, fechaHasta, orden]);
+  // La urgente que se ganó más recientemente (sea cual sea el orden elegido).
+  const urgentes = useMemo(() => filtrados.filter(f => f.urgente), [filtrados]);
+  const ultimaUrgente = useMemo(
+    () => urgentes.reduce<ComprasFila | null>((m, f) => (!m || f.ganadoAt > m.ganadoAt ? f : m), null), [urgentes]);
 
   if (cargandoSesion || (!puedeVer && loading)) {
     return (
@@ -1338,6 +1380,19 @@ export default function ComprasPage() {
           </div>
         )}
 
+        {!loading && ultimaUrgente && (
+          <Link href={`/compras/${ultimaUrgente.negocioId}`} data-testid="ultima-urgente"
+            className="flex items-center gap-3 flex-wrap rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100/70 px-4 py-2.5 transition-colors">
+            <span className="w-8 h-8 rounded-full bg-rose-600 text-white flex items-center justify-center flex-shrink-0"><AlertTriangle size={15} /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[10.5px] font-bold uppercase tracking-wide text-rose-700">Entrega rápida · {urgentes.length} {urgentes.length === 1 ? 'licitación' : 'licitaciones'} · la última que se ganó</span>
+              <span className="block text-[13px] font-bold text-zinc-900 truncate">{ultimaUrgente.licitacionNombre || ultimaUrgente.licitacionCodigo}</span>
+              <span className="block text-[11.5px] text-zinc-600">{ultimaUrgente.licitacionCodigo} · ganada {haceCuanto(ultimaUrgente.ganadoAt)} ({diaHoraCorta(ultimaUrgente.ganadoAt)}){ultimaUrgente.plazoEntregaDias != null ? ` · entrega en ${ultimaUrgente.plazoEntregaDias} día(s)` : ''}</span>
+            </span>
+            <span className="text-[12px] font-semibold text-rose-700 flex-shrink-0 inline-flex items-center gap-1">Abrir <ArrowUpRight size={14} /></span>
+          </Link>
+        )}
+
         {loading ? (
           <div className="flex items-center justify-center py-16"><Loader2 className="w-5 h-5 animate-spin text-zinc-400" /></div>
         ) : negocios.length === 0 ? (
@@ -1355,13 +1410,20 @@ export default function ComprasPage() {
         ) : soloUrgentes ? (
           <VistaUrgentesCompras negocios={filtrados} />
         ) : vista === 'gantt' ? (
-          <VistaGanttCompras negocios={filtrados} />
+          <VistaGanttCompras negocios={filtrados} ultimaUrgenteId={ultimaUrgente?.negocioId ?? null} />
         ) : vista === 'mes' ? (
           <VistaMensualCompras negocios={filtrados} onAbrirDia={setDiaSel} mesesVista={mesesVista} />
         ) : (
           <div className="space-y-3">
-            {filtrados.map(f => (
-              <FilaCompras key={f.negocioId} f={f} esJefeDeVentas={esJefeDeVentas} esAdmin={esAdmin} candidatos={candidatos} onAsignado={cargar} />
+            {filtrados.map((f, i) => (
+              <Fragment key={f.negocioId}>
+                {(i === 0 || filtrados[i - 1].urgente !== f.urgente) && (
+                  <p className={`text-[11px] font-bold uppercase tracking-wide pt-1 flex items-center gap-1.5 ${f.urgente ? 'text-rose-700' : 'text-zinc-500'}`}>
+                    {f.urgente ? <><AlertTriangle size={12} /> Entrega rápida · {urgentes.length}</> : <>Resto de las licitaciones · {filtrados.length - urgentes.length}</>}
+                  </p>
+                )}
+                <FilaCompras f={f} esJefeDeVentas={esJefeDeVentas} esAdmin={esAdmin} candidatos={candidatos} onAsignado={cargar} ultimaUrgente={f.negocioId === ultimaUrgente?.negocioId} />
+              </Fragment>
             ))}
           </div>
         )}

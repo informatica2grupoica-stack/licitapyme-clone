@@ -43,6 +43,7 @@ export function ActividadComprasCard({ negocioId }: { negocioId: number }) {
   const toast = useToast();
   const [eventos, setEventos] = useState<EventoActividad[]>([]);
   const [loading, setLoading] = useState(true);
+  const [persona, setPersona] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -69,15 +70,27 @@ export function ActividadComprasCard({ negocioId }: { negocioId: number }) {
     );
   }
 
+  const personas = [...new Set(eventos.map(e => e.actor).filter((x): x is string => !!x))];
+  const eventosVisibles = persona ? eventos.filter(e => e.actor === persona) : eventos;
+
   // Agrupar por día (más reciente primero) — "qué se hizo el día 1, 2, 3..." pero mostrado del
   // más nuevo al más viejo, como cualquier bitácora.
   const porDia: Record<string, EventoActividad[]> = {};
-  for (const e of eventos) (porDia[e.creadoAt.slice(0, 10)] ||= []).push(e);
+  for (const e of eventosVisibles) (porDia[e.creadoAt.slice(0, 10)] ||= []).push(e);
   const dias = Object.keys(porDia).sort().reverse();
   const primerDia = eventos[0]?.creadoAt.slice(0, 10);
 
   return (
     <div className="bg-white rounded-xl border border-zinc-200 p-4 sm:p-5 space-y-5">
+      {personas.length > 1 && (
+        <div className="flex items-center gap-1.5 flex-wrap" data-testid="filtro-personas">
+          <span className="text-[11px] font-bold text-zinc-400 uppercase mr-1">Quién</span>
+          {[null, ...personas].map(p => (
+            <button key={p ?? 'todos'} type="button" onClick={() => setPersona(p)}
+              className={`text-[11.5px] font-semibold px-2.5 py-1 rounded-full border transition-colors ${persona === p ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'}`}>{p ?? 'Todos'}</button>
+          ))}
+        </div>
+      )}
       {dias.map(dia => {
         const items = [...porDia[dia]].reverse(); // dentro del día, más reciente arriba
         const numeroDia = Math.round((new Date(dia).getTime() - new Date(primerDia).getTime()) / 86_400_000) + 1;
@@ -100,7 +113,7 @@ export function ActividadComprasCard({ negocioId }: { negocioId: number }) {
                     <div className="min-w-0 flex-1 pb-4">
                       <p className="text-[12.5px] text-zinc-700 leading-snug">{ev.mensaje}</p>
                       <p className="text-[10.5px] text-zinc-400 mt-0.5">
-                        {fmtHora(ev.creadoAt)}{ev.actor ? ` · ${ev.actor}` : ''}
+                        {fmtHora(ev.creadoAt)}{ev.actor && <> · <b className="font-semibold text-zinc-600">{ev.actor}</b></>}
                       </p>
                     </div>
                   </div>

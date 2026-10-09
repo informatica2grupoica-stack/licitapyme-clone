@@ -33,8 +33,9 @@ function getUser(req: NextRequest) {
 // solo lo guardado de verdad. Se asigna a mano solo a los perfiles que de verdad deben ver TODO el
 // módulo (hoy: Asesor y el dueño del proyecto). Un admin sin ninguno de estos tres permisos reales
 // sigue entrando igual si es el encargado asignado de ESE negocio puntual.
-export async function puedeOperarCompras(userId: number, rol: string | null, asignadoA: number | null): Promise<boolean> {
+export async function puedeOperarCompras(userId: number, rol: string | null, asignadoA: number | null, coencargados: Array<{ id: number }> = []): Promise<boolean> {
   if (asignadoA != null && Number(asignadoA) === Number(userId)) return true;
+  if (coencargados.some(c => Number(c.id) === Number(userId))) return true;   // otro encargado del mismo negocio (migration-142)
   const p = await permisosCrudosDeUsuario(userId);
   return !!(p.compras_todo || p.compras || p.aprobar_comercial);
 }
@@ -44,8 +45,8 @@ export async function puedeOperarCompras(userId: number, rol: string | null, asi
 // lectura general (el GET de esta ruta) o para las acciones puntuales que de verdad son de ellos
 // (RepartoAdminCard completo; la verificación dentro de EntregaCard) — nunca como reemplazo de
 // `puedeOperarCompras` en una ruta de escritura genérica, o estarías dándoles permiso de más.
-export async function puedeVerCompras(userId: number, rol: string | null, asignadoA: number | null): Promise<boolean> {
-  if (await puedeOperarCompras(userId, rol, asignadoA)) return true;
+export async function puedeVerCompras(userId: number, rol: string | null, asignadoA: number | null, coencargados: Array<{ id: number }> = []): Promise<boolean> {
+  if (await puedeOperarCompras(userId, rol, asignadoA, coencargados)) return true;
   const p = await permisosCrudosDeUsuario(userId);
   return !!(p.compras_administracion || p.compras_bodega || p.compras_ver);
 }
@@ -61,7 +62,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Este negocio todavía no entra a Compras (no está ganado, o el resumen no se abrió).' }, { status: 404 });
 
-    if (!(await puedeVerCompras(userId, rol, asignacion.asignadoA))) {
+    if (!(await puedeVerCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados))) {
       return NextResponse.json({ error: 'Sin acceso a Compras de este negocio.' }, { status: 403 });
     }
 

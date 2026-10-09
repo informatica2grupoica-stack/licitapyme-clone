@@ -8,6 +8,7 @@
 //         { accion: 'lectura' }                    L3: redacta la lectura de la posición de precio
 //         { accion: 'justificar', filaId, texto }  V10: por qué no se usó la opción más barata
 //         { accion: 'habilitar', filaId, nivel: 'EM'|'CA'|null, motivo }
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { puedeOperarCompras, puedeVerCompras } from '@/app/api/compras/[negocioId]/route';
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(negId);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeVerCompras(userId, rol, asignacion.asignadoA))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
+    if (!(await puedeVerCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
     return NextResponse.json({ success: true, ...(await armarPanel(negId)) });
   } catch (error: any) {
     console.error('[compras/auditor-costeo][GET]', String(error));
@@ -44,14 +45,14 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
+async function __POST(request: NextRequest, { params }: Params) {
   const { id: userId, rol, nombre } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const negId = parseInt((await params).negocioId);
   try {
     const asignacion = await obtenerAsignacion(negId);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
     const body = await request.json().catch(() => ({}));
     const actor = { id: userId, nombre };
 
@@ -92,3 +93,5 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: error.message || 'No se pudo completar la acción.' }, { status: 500 });
   }
 }
+
+export const POST = conBitacoraCompras(__POST, 'POST');

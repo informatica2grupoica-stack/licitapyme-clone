@@ -122,6 +122,16 @@ export async function requisitosDeLinea(negocioId: number, licitacionCodigo: str
   };
 }
 
+/** Cuando una línea del informe agrupa VARIOS productos (p. ej. 21 muebles bajo la «línea 1»), los requisitos vienen rotulados con su producto.
+ *  Esto deja solo los de uno (renumerados 1..k). Una línea sin rótulos (un solo producto) se devuelve completa. Solo lo usa Compras. */
+export function requisitosDelProducto(requisitos: RequisitoHeredado[], nombre: string): RequisitoHeredado[] {
+  if (!requisitos.some(r => r.producto)) return requisitos;
+  const k = (x: string) => x.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '');
+  const n = k(nombre);
+  if (!n) return [];
+  return requisitos.filter(r => { const p = k(r.producto || ''); return p && (p === n || p.includes(n) || n.includes(p)); }).map((r, i) => ({ ...r, n: i + 1 }));
+}
+
 /** Cuántos requisitos técnicos hereda cada línea (una sola lectura del informe por panel). */
 export async function contarRequisitosPorLinea(negocioId: number, licitacionCodigo: string): Promise<Map<number, number>> {
   const out = new Map<number, number>();

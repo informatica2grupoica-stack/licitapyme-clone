@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/reloj/route.ts
 // Reloj de entrega (spec §15). GET trae el estado + escenarios de multa (§15.6). PUT fija el reloj
 // (§15.1 — validación manual obligatoria).
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { obtenerEstadoReloj, fijarReloj, calcularEscenariosMulta, type PlazoTipo } from '@/app/lib/compras-reloj';
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const incluirMultas = request.nextUrl.searchParams.get('multas') === '1';
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
 }
 
-export async function PUT(request: NextRequest, { params }: Params) {
+async function __PUT(request: NextRequest, { params }: Params) {
   const { id: userId, rol, nombre } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
@@ -66,7 +67,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const body = await request.json();
@@ -78,3 +79,5 @@ export async function PUT(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: error.message || 'No se pudo fijar el reloj.' }, { status: 400 });
   }
 }
+
+export const PUT = conBitacoraCompras(__PUT, 'PUT');

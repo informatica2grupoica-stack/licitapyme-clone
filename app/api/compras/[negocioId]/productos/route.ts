@@ -1,12 +1,14 @@
 // app/api/compras/[negocioId]/productos/route.ts
 // Estados y subestados de cobertura por producto (spec §14). GET lista, PATCH cambia subestado o
 // propone/aprueba renuncia a una línea (§14.5).
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion, listarProductosCompra, poblarProductosCompra, cambiarSubestadoProducto,
   proponerRenunciaLinea, aprobarRenunciaLinea, coberturaProyecto, sincronizarProductosConCosteo, aplicarAdjudicacionPorLinea,
   type SubestadoProducto } from '@/app/lib/compras';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
+import { linksDelCosteoPorProducto } from '@/app/lib/compras-auditoria-cotizacion';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,7 +31,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     // Backfill perezoso: negocios asignados antes de que existiera este bloque (§14) nunca
@@ -39,15 +41,15 @@ export async function GET(request: NextRequest, { params }: Params) {
     // Líneas ofertadas que el acta de MP dio a otro proveedor: se marcan solas (idempotente, solo lee
     // la caché del acta) y la pantalla las muestra atenuadas con quién se las llevó.
     const adj = asignacion.asignadoA != null ? await aplicarAdjudicacionPorLinea(id).catch(() => null) : null;
-    const [productos, cobertura] = await Promise.all([listarProductosCompra(id), coberturaProyecto(id)]);
-    return NextResponse.json({ success: true, productos, cobertura, perdidas: adj?.perdidas ?? [], ganadas: adj?.ganadas ?? [], conflictos: adj?.conflictos ?? [], aviso: adj?.revisarAMano ?? null });
+    const [productos, cobertura, linksCosteo] = await Promise.all([listarProductosCompra(id), coberturaProyecto(id), linksDelCosteoPorProducto(id).catch(() => ({}))]);
+    return NextResponse.json({ success: true, productos, cobertura, linksCosteo, perdidas: adj?.perdidas ?? [], ganadas: adj?.ganadas ?? [], conflictos: adj?.conflictos ?? [], aviso: adj?.revisarAMano ?? null });
   } catch (error) {
     console.error('[compras/productos][GET]', String(error));
     return NextResponse.json({ error: 'No se pudieron cargar los productos.' }, { status: 500 });
   }
 }
 
-export async function PATCH(request: NextRequest, { params }: Params) {
+async function __PATCH(request: NextRequest, { params }: Params) {
   const { id: userId, rol, nombre } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
@@ -56,7 +58,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const body = await request.json();
@@ -94,3 +96,5 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: error.message || 'No se pudo actualizar el producto.' }, { status: 400 });
   }
 }
+
+export const PATCH = conBitacoraCompras(__PATCH, 'PATCH');

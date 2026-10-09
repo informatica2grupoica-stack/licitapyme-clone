@@ -5,6 +5,7 @@
 // cambia: no hay regeneración automática ni cron. Es la salida manual para cuando la foto salió mal
 // —el paquete de traspaso se congeló antes de que existiera el costeo, o MP estaba caído y no dio
 // los contactos del cliente— y la alternativa era editar la base a mano. Ver regenerarResumen.
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion, regenerarResumen } from '@/app/lib/compras';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
@@ -20,7 +21,7 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol };
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
+async function __POST(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
@@ -30,7 +31,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Este negocio todavía no entra a Compras.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA))) {
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados))) {
       return NextResponse.json({ error: 'Sin acceso a Compras de este negocio.' }, { status: 403 });
     }
 
@@ -41,3 +42,5 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'No se pudo actualizar el resumen ejecutivo.' }, { status: 500 });
   }
 }
+
+export const POST = conBitacoraCompras(__POST, 'POST');

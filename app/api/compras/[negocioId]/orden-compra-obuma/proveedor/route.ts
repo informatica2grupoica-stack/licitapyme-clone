@@ -2,6 +2,7 @@
 // Verificar/crear el proveedor en Obuma ANTES de emitir la orden de compra — pedido explícito del
 // usuario: nunca automático. GET verifica por RUT (solo lectura). POST crea de verdad (escritura
 // real, gatillada solo por el clic explícito de la persona en el modal).
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { verificarProveedorEnObuma, crearProveedorEnObumaExplicito } from '@/app/lib/compras-oc-obuma';
@@ -23,7 +24,7 @@ async function autorizar(request: NextRequest, negId: number) {
   if (!userId) return { error: NextResponse.json({ error: 'No autenticado' }, { status: 401 }) };
   const asignacion = await obtenerAsignacion(negId);
   if (!asignacion) return { error: NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 }) };
-  if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+  if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
     return { error: NextResponse.json({ error: 'Sin acceso.' }, { status: 403 }) };
   return { userId, rol };
 }
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
+async function __POST(request: NextRequest, { params }: Params) {
   const { negocioId } = await params;
   const id = parseInt(negocioId);
   const auth = await autorizar(request, id);
@@ -78,3 +79,5 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: error.message || 'No se pudo crear el proveedor.' }, { status: 400 });
   }
 }
+
+export const POST = conBitacoraCompras(__POST, 'POST');

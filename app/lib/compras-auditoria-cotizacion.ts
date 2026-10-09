@@ -211,11 +211,23 @@ function resumenDePrecio(frasePrecio: string, revs: Revision[]): string {
 
 // ── Lo costeado de cada producto ───────────────────────────────────────────────────────────────────
 /** LO COSTEADO = el costo estimado por el asistente al ofertar (no el "costo real" que Compras carga después). */
-function costeadoDeProducto(lineasCosteo: ReturnType<typeof lineasDelCosteo>, producto: ProductoCompra): number | null {
+function lineaCosteoDeProducto(lineasCosteo: ReturnType<typeof lineasDelCosteo>, producto: ProductoCompra) {
   const norm = (x: string) => x.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 80);
-  const linea = lineasCosteo.find(l => producto.correlativo != null && l.lineaReal === producto.correlativo && lineasCosteo.filter(y => y.lineaReal === producto.correlativo).length === 1)
+  return lineasCosteo.find(l => producto.correlativo != null && l.lineaReal === producto.correlativo && lineasCosteo.filter(y => y.lineaReal === producto.correlativo).length === 1)
     ?? lineasCosteo.find(l => norm(l.detalle) === norm(String(producto.descripcion)));
+}
+function costeadoDeProducto(lineasCosteo: ReturnType<typeof lineasDelCosteo>, producto: ProductoCompra): number | null {
+  const linea = lineaCosteoDeProducto(lineasCosteo, producto);
   return linea?.costoEstimadoNeto ?? linea?.costoRegistradoNeto ?? null;
+}
+
+/** El nombre con que quedó cada producto en el costeo y los links que se le pusieron allá (Link 1-3), para verlos desde Compras. */
+export async function linksDelCosteoPorProducto(negocioId: number): Promise<Record<number, { nombre: string; links: string[] }>> {
+  const [productos, estado] = await Promise.all([listarProductosCompra(negocioId), cargarEstadoCosteo(negocioId).catch(() => null)]);
+  const lineas = estado ? lineasDelCosteo(estado).filter(l => !l.esGastoExtra) : [];
+  const out: Record<number, { nombre: string; links: string[] }> = {};
+  for (const p of productos) { const l = lineaCosteoDeProducto(lineas, p); if (l) out[p.id] = { nombre: l.detalle, links: l.links }; }
+  return out;
 }
 
 /** Costo neto/u costeado de cada producto del negocio (para mostrarlo junto a las cotizaciones). */

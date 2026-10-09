@@ -2,6 +2,7 @@
 // Compuertas de aprobación (spec §10): Compuerta 1 (compra) y Compuerta 2 (margen), separadas e
 // independientes. GET lee el estado de ambas + el margen calculado en vivo. POST propone una
 // (encargado). PATCH resuelve una (solo jefe de ventas — §10.2/§10.3: "la aprueba el jefe de ventas").
+import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import {
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
     // GET amplio: RepartoAdminCard (administración) necesita saber si la Compuerta 1 ya se aprobó
     // para decidir si se muestra — proponer/resolver una compuerta sigue siendo del encargado.
-    if (!(await puedeVerCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeVerCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const [aprobaciones, margen, presupuesto, escenarioElegido] = await Promise.all([
@@ -65,7 +66,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
+async function __POST(request: NextRequest, { params }: Params) {
   const { id: userId, rol, nombre } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const body = await request.json();
@@ -91,7 +92,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 }
 
-export async function PATCH(request: NextRequest, { params }: Params) {
+async function __PATCH(request: NextRequest, { params }: Params) {
   const { id: userId, rol, nombre } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
@@ -111,3 +112,6 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: error.message || 'No se pudo resolver la compuerta.' }, { status: 400 });
   }
 }
+
+export const POST = conBitacoraCompras(__POST, 'POST');
+export const PATCH = conBitacoraCompras(__PATCH, 'PATCH');
