@@ -1024,14 +1024,22 @@ export function CosteoEditorCard({
   // Al cerrar o minimizar con cambios sin guardar se avisa y se guarda solo. `guardar` vive más abajo
   // (después del return de carga), por eso se llega a ella por esta ref, que se asigna en cada render.
   const autoGuardarRef = useRef<(() => Promise<boolean>) | null>(null);
-  const autoGuardarAlSalir = useCallback(async (): Promise<boolean> => {
-    if (!dirty) return true;
-    toast.warning('El costeo no se había guardado', 'Se guardará automáticamente.');
-    return (await autoGuardarRef.current?.()) ?? false;
-  }, [dirty]);
+  // Aviso centrado: Aceptar guarda y sigue con la salida; Seguir editando (o Esc) la cancela.
+  const autoGuardarAlSalir = useCallback(async (): Promise<'guardado' | 'fallo' | 'cancelado'> => {
+    if (!dirty) return 'guardado';
+    const ok = await confirmar({
+      titulo: 'El costeo no se ha guardado',
+      mensaje: 'Tienes cambios sin guardar. Al aceptar, se guarda aquí mismo y sigues.',
+      confirmarLabel: 'Aceptar y guardar',
+      cancelarLabel: 'Seguir editando',
+    });
+    if (!ok) return 'cancelado';
+    return (await autoGuardarRef.current?.()) ? 'guardado' : 'fallo';
+  }, [dirty, confirmar]);
   const minimizarFlotante = useCallback(async () => {
-    await autoGuardarAlSalir(); // si no se pudo guardar, igual se minimiza: el estado sigue vivo en la burbuja
-    flot.minimizar();
+    const r = await autoGuardarAlSalir();
+    if (r === 'cancelado') return;
+    flot.minimizar(); // si el guardado falló igual se minimiza: el estado sigue vivo en la burbuja
   }, [autoGuardarAlSalir, flot]);
 
   useEffect(() => {
@@ -1046,7 +1054,9 @@ export function CosteoEditorCard({
   // sigue vivo en este mismo componente mientras no se recargue la página— pero la confirmación
   // obliga a leer el aviso y guardar antes, en vez de cerrarla sin pensarlo.
   const cerrarFlotante = useCallback(async () => {
-    if (dirty && !(await autoGuardarAlSalir())) {
+    const r = await autoGuardarAlSalir();
+    if (r === 'cancelado') return;
+    if (r === 'fallo') {
       // No se pudo guardar solo (falta un link, error de red…): ahí sí se pregunta.
       const ok = await confirmar({
         titulo: 'El costeo no se pudo guardar',
