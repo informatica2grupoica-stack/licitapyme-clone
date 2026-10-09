@@ -388,9 +388,36 @@ function CeldaComplemento({ value, onChange, disabled }: {
   );
 }
 
-function CeldaNumero({ value, onChange, disabled }: {
-  value: number | null; onChange: (v: number | null) => void; disabled?: boolean;
+/** Texto en pesos chilenos mientras se digita: "$ 1.234.567" (miles con punto, coma para decimales). */
+function formatearPesosDigitado(txt: string): { texto: string; valor: number | null } {
+  const limpio = txt.replace(/[^\d,]/g, '');
+  if (limpio === '') return { texto: '', valor: null };
+  const [ent, ...resto] = limpio.split(',');
+  const dec = resto.join('');
+  const entFmt = ent.replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  const texto = `$ ${entFmt || '0'}${resto.length ? ',' + dec : ''}`;
+  const valor = Number(`${ent || '0'}${dec ? '.' + dec : ''}`);
+  return { texto, valor: Number.isFinite(valor) ? valor : null };
+}
+const pesosDeNumero = (n: number | null) => (n == null ? '' : `$ ${new Intl.NumberFormat('es-CL', { maximumFractionDigits: 2 }).format(n)}`);
+
+function CeldaNumero({ value, onChange, disabled, moneda }: {
+  value: number | null; onChange: (v: number | null) => void; disabled?: boolean; moneda?: boolean;
 }) {
+  const [borrador, setBorrador] = useState<string | null>(null);
+  if (moneda) {
+    return (
+      <input
+        value={borrador ?? pesosDeNumero(value)}
+        inputMode="decimal"
+        onChange={e => { const { texto, valor } = formatearPesosDigitado(e.target.value); setBorrador(texto); onChange(valor); }}
+        onBlur={() => setBorrador(null)}
+        disabled={disabled}
+        className={celdaInput('text-right tabular-nums')}
+        placeholder=""
+      />
+    );
+  }
   return (
     <input
       type="number"
@@ -772,11 +799,11 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
         <div className="flex items-center gap-1.5 px-2 py-[3px] bg-white/45 border-t border-amber-200">
           <span className="text-[10.5px] text-zinc-600 flex-1 leading-tight">Con IVA <span className="text-zinc-400">(así lo publican)</span></span>
           <input
-            type="number"
-            value={presupuestoManual != null ? Math.round(presupuestoManual * IVA) : ''}
+            inputMode="numeric"
+            value={presupuestoManual != null ? pesosDeNumero(Math.round(presupuestoManual * IVA)) : ''}
             disabled={congelado}
-            placeholder={fuente !== 'manual' && comp.presupuestoConIva != null ? String(Math.round(comp.presupuestoConIva)) : 'escríbelo'}
-            onChange={e => onPresupuesto(e.target.value === '' ? null : Number(e.target.value) / IVA)}
+            placeholder={fuente !== 'manual' && comp.presupuestoConIva != null ? pesosDeNumero(Math.round(comp.presupuestoConIva)) : 'escríbelo'}
+            onChange={e => { const { valor } = formatearPesosDigitado(e.target.value); onPresupuesto(valor == null ? null : valor / IVA); }}
             className="w-[110px] bg-white border border-amber-300 text-right text-[11px] font-semibold text-zinc-700 px-1 py-[1px] outline-none tabular-nums disabled:opacity-60"
             title="Tope de ESTA línea, CON IVA. El neto de arriba (el que se compara contra la oferta) se calcula solo: monto / 1,19. Vacío = se usa el presupuesto de la línea que trae el informe."
           />
@@ -994,22 +1021,36 @@ export function CosteoEditorCard({
 
   // Escape en la burbuja abierta la MINIMIZA, no la cierra: minimizar nunca pierde nada (el
   // componente sigue montado), así que no hace falta pedir confirmación acá.
+  // Al cerrar o minimizar con cambios sin guardar se avisa y se guarda solo. `guardar` vive más abajo
+  // (después del return de carga), por eso se llega a ella por esta ref, que se asigna en cada render.
+  const autoGuardarRef = useRef<(() => Promise<boolean>) | null>(null);
+  const autoGuardarAlSalir = useCallback(async (): Promise<boolean> => {
+    if (!dirty) return true;
+    toast.warning('El costeo no se había guardado', 'Se guardará automáticamente.');
+    return (await autoGuardarRef.current?.()) ?? false;
+  }, [dirty]);
+  const minimizarFlotante = useCallback(async () => {
+    await autoGuardarAlSalir(); // si no se pudo guardar, igual se minimiza: el estado sigue vivo en la burbuja
+    flot.minimizar();
+  }, [autoGuardarAlSalir, flot]);
+
   useEffect(() => {
     if (!enGrandeFlotante) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') flot.minimizar(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') void minimizarFlotante(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [enGrandeFlotante, flot]);
+  }, [enGrandeFlotante, minimizarFlotante]);
 
   // Cerrar la burbuja del todo si hay cambios sin guardar pide confirmar primero (pedido del
   // usuario: "que no se cierre si no se ha guardado"). No es que se pierdan de verdad —el estado
   // sigue vivo en este mismo componente mientras no se recargue la página— pero la confirmación
   // obliga a leer el aviso y guardar antes, en vez de cerrarla sin pensarlo.
   const cerrarFlotante = useCallback(async () => {
-    if (dirty) {
+    if (dirty && !(await autoGuardarAlSalir())) {
+      // No se pudo guardar solo (falta un link, error de red…): ahí sí se pregunta.
       const ok = await confirmar({
-        titulo: 'Cambios sin guardar en el costeo',
-        mensaje: 'Se conservan mientras no cierres o recargues esta pestaña, pero conviene guardarlos antes de cerrar la burbuja.',
+        titulo: 'El costeo no se pudo guardar',
+        mensaje: 'Los cambios se conservan mientras no cierres o recargues esta pestaña. Revisa los avisos y guarda antes de cerrar.',
         confirmarLabel: 'Cerrar igual',
         cancelarLabel: 'Seguir editando',
         peligro: true,
@@ -1017,7 +1058,7 @@ export function CosteoEditorCard({
       if (!ok) return;
     }
     flot.cerrar();
-  }, [dirty, confirmar, flot]);
+  }, [dirty, autoGuardarAlSalir, confirmar, flot]);
 
   // La burbuja GLOBAL activa se registra a sí misma como "quien decide si hay algo sin guardar" —
   // así, si el usuario abre el costeo de OTRO negocio mientras este sigue flotando,
@@ -1186,8 +1227,8 @@ export function CosteoEditorCard({
     } finally { setRecargando(false); }
   };
 
-  const guardar = async () => {
-    if (!estado) return;
+  const guardar = async (): Promise<boolean> => {
+    if (!estado) return false;
     setGuardando(true);
     try {
       const r = await fetch(`/api/negocios/${negocioId}/comercial/costeo-editor`, {
@@ -1195,14 +1236,14 @@ export function CosteoEditorCard({
         body: JSON.stringify(estado),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) { toast.error(d.error || 'No se pudo guardar el costeo'); return; }
+      if (!r.ok) { toast.error(d.error || 'No se pudo guardar el costeo'); return false; }
       if (modoCompras) {
         // El servidor devuelve el estado ya fusionado (lo ajeno intacto): es la fuente de verdad.
         window.dispatchEvent(new CustomEvent('costeo-guardado', { detail: { negocioId } }));
         setEstado(d.estado); setGuardado(d.estado);
         setUltimoGuardado(new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }));
         toast.success('Costeo de Compras guardado');
-        return;
+        return true;
       }
       window.dispatchEvent(new CustomEvent('costeo-guardado', { detail: { negocioId } }));
       setGuardado(estado);
@@ -1210,12 +1251,16 @@ export function CosteoEditorCard({
       setUltimoGuardado(new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }));
       if ((d.alertas || []).length > 0) toast.warning(`Costeo guardado — ${d.alertas.length} alerta(s) del Motor Comercial`, d.alertas.map((a: Alerta) => a.descripcion).join(' · '));
       else toast.success('Costeo guardado sin alertas');
+      return true;
     } catch (e) {
       // Sin esto, un corte de red o un error del servidor dejaba el botón en silencio y parecía que había guardado.
       toast.error('No se pudo guardar el costeo', 'Se cortó la conexión o el servidor no respondió. Tus cambios siguen aquí: vuelve a pulsar Guardar.');
       console.error('[costeo] guardar falló:', e);
+      return false;
     } finally { setGuardando(false); }
   };
+
+  autoGuardarRef.current = guardar;
 
   if (cargando) return (
     <div className="flex items-center gap-2 text-[13px] text-zinc-400 py-10 justify-center">
@@ -1421,7 +1466,7 @@ export function CosteoEditorCard({
             // pregunta si hay cambios sin guardar (pedido del usuario, 07-sep-2026).
             <>
               <button
-                onClick={() => flot.minimizar()}
+                onClick={() => void minimizarFlotante()}
                 title="Minimizar a burbuja (Esc) — sigue editando cuando quieras desde el botón redondo, no se pierde nada"
                 className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-bold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors"
               >
@@ -1624,13 +1669,13 @@ export function CosteoEditorCard({
                     <input value={f.skuProveedor} onChange={e => actualizarFila(grupoActivo, fi, { skuProveedor: e.target.value })} disabled={baseBloq || esAdic} className={celdaInput()} placeholder={esAdic ? '' : 'Tienda / SKU'} />
                   </td>
                   <td style={celda} className="p-0"><CeldaNumero value={f.cantidad} onChange={v => actualizarFila(grupoActivo, fi, { cantidad: v })} disabled={baseBloq || esAdic} /></td>
-                  <td style={celda} className="p-0" title={f.agregadoPorCompras ? 'Gasto extra de Compras: no se vende, solo tiene costo real.' : esAdic ? 'Costo adicional: no tiene valor de mercado, se escribe el Costo total neto.' : undefined}><CeldaNumero value={f.valorConIva} onChange={v => actualizarFila(grupoActivo, fi, { valorConIva: v })} disabled={baseBloq || !!f.agregadoPorCompras || esAdic} /></td>
+                  <td style={celda} className="p-0" title={f.agregadoPorCompras ? 'Gasto extra de Compras: no se vende, solo tiene costo real.' : esAdic ? 'Costo adicional: no tiene valor de mercado, se escribe el Costo total neto.' : undefined}><CeldaNumero value={f.valorConIva} moneda onChange={v => actualizarFila(grupoActivo, fi, { valorConIva: v })} disabled={baseBloq || !!f.agregadoPorCompras || esAdic} /></td>
                   <td style={celdaFormula} onClick={() => !esAdic && explicarCeldaGris('Costo unit. neto')} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title="= Valor c/IVA / 1.19">{esAdic ? '—' : fmtCLP(costoUnitario != null ? Math.round(costoUnitario) : null)}</td>
                   {/* COSTO TOTAL NETO: en un ítem normal es una fórmula (cantidad × costo unitario) y no se escribe. En un COSTO ADICIONAL es lo único
                       que se tipea: el monto a mano que suma al costo total y baja el margen (no se vende). */}
                   {esAdic ? (
                     <td style={{ ...celda, background: '#fff7e6' }} className="p-0" title="Costo adicional escrito a mano: suma al costo total y baja el margen del proyecto, pero NO se vende ni va al anexo económico.">
-                      <CeldaNumero value={f.costoAdicionalNeto ?? null} onChange={v => actualizarFila(grupoActivo, fi, { costoAdicionalNeto: v })} disabled={baseBloq} />
+                      <CeldaNumero value={f.costoAdicionalNeto ?? null} moneda onChange={v => actualizarFila(grupoActivo, fi, { costoAdicionalNeto: v })} disabled={baseBloq} />
                     </td>
                   ) : (
                     <td style={celda} className="p-0">
@@ -1681,7 +1726,7 @@ export function CosteoEditorCard({
                       title={f.costoRealUnitario != null && f.cantidad == null && !f.agregadoPorCompras
                         ? 'Falta la Cantidad de esta fila: sin ella el costo real no se puede sumar al comparativo. Si es un costo que no se vendió (flete, horas extra), bórrala y usa "Agregar gasto extra".'
                         : 'Costo unitario NETO realmente pagado al proveedor. Se llena después de comprar; alimenta el bloque REAL del cuadro comparativo.'}>
-                    <CeldaNumero value={f.costoRealUnitario} onChange={v => actualizarFila(grupoActivo, fi, { costoRealUnitario: v })} disabled={realBloq} />
+                    <CeldaNumero value={f.costoRealUnitario} moneda onChange={v => actualizarFila(grupoActivo, fi, { costoRealUnitario: v })} disabled={realBloq} />
                   </td>
                   <td style={celdaFormula} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title="= Cantidad × Costo unitario REAL">{fmtCLP(costoRealFila(f))}</td>
                   <td style={celdaFormula} className={`px-1.5 text-right text-[12.5px] tabular-nums font-semibold ${variacion == null ? 'text-zinc-400' : variacion > 0 ? 'text-rose-600' : 'text-emerald-700'}`}
