@@ -91,7 +91,7 @@ const NAV_GROUPS: NavGroup[] = [
       // la OC a Obuma. Puesto junto a "Órdenes de compra" a propósito: es el mismo circuito de
       // dinero saliendo — nada que ver con Fleteros (a quién le pagamos el FLETE, no el producto).
       // Antes vivía pegado a Fleteros acá abajo y se confundían.
-      { label: 'Proveedores', href: '/compras/proveedores', icon: <Building2 size={17} />, adminOnly: true },
+      { label: 'Proveedores', href: '/compras/proveedores', icon: <Building2 size={17} /> },
       { label: 'Descartadas', href: '/descartadas', icon: <Ban size={17} />, adminOnly: true },
       // Fleteros (spec §13.3): catálogo de transporte/flete — mismo círculo de acceso que Compras,
       // concepto distinto a Proveedores (arriba). No cuelga de una licitación puntual.

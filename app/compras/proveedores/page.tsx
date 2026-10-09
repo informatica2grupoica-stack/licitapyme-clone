@@ -88,7 +88,8 @@ export default function ProveedoresPage() {
   // (app/api/compras/proveedores/route.ts).
   // Solo lectura (permiso compras_ver sin ninguno de operación): ve el catálogo, no lo modifica.
   const soloLectura = usuario?.rol !== 'admin' && !usuario?.permisos?.compras && !usuario?.permisos?.compras_todo && !usuario?.permisos?.aprobar_comercial;
-  const puedeVer = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial || !!usuario?.permisos?.compras_ver;
+  // Lectura abierta a todo perfil interno; el externo (cliente) sigue sin acceso.
+  const puedeVer = !!usuario && usuario.rol !== 'externo';
 
   const cargar = useCallback(async (busqueda?: string) => {
     try {

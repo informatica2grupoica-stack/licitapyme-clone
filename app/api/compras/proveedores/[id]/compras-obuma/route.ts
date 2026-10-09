@@ -24,7 +24,7 @@ async function puedeVerProveedores(userId: number): Promise<boolean> {
 export async function GET(request: NextRequest, { params }: Params) {
   const { id: userId } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (!(await puedeVerProveedores(userId))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
+  if (request.headers.get('x-user-rol') === 'externo' && !(await puedeVerProveedores(userId))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
   const { id } = await params;
   const proveedor = await obtenerProveedor(parseInt(id));

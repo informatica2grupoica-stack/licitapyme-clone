@@ -11,7 +11,7 @@ import { obtenerAsignacion } from '@/app/lib/compras';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import {
-  panelFichas, procesarFicha, asignarProductoDeFicha, cambiarProveedorDeOpcion, compararProducto, filaDeProductoCompra, quitarOpcionDeCompras, olvidarDocumentoDeCompras, complementarRequisito,
+  panelFichas, procesarFicha, asignarProductoDeFicha, cambiarProveedorDeOpcion, compararProducto, filaDeProductoCompra, quitarOpcionDeCompras, quitarFichaDeOpcion, olvidarDocumentoDeCompras, complementarRequisito,
 } from '@/app/lib/compras-fichas';
 
 export const runtime = 'nodejs';
@@ -106,6 +106,10 @@ async function __POST(request: NextRequest, { params }: Params) {
       }
       case 'quitar_modelo': {
         await quitarOpcionDeCompras(c.id, Number(body.opcionId));
+        return NextResponse.json({ success: true });
+      }
+      case 'quitar_ficha': {
+        await quitarFichaDeOpcion(c.id, Number(body.opcionId), String(body.url || ''), c.actor);
         return NextResponse.json({ success: true });
       }
       case 'olvidar_documento': {

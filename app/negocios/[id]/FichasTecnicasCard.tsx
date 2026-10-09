@@ -179,6 +179,10 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
     try { await post({ accion: 'complementar', opcionId: o.opcionId, n, resultado, dato, fuente }); toast.success(resultado ? 'Complemento guardado' : 'Complemento quitado'); await cargar(); }
     catch (e: any) { toast.error('No se pudo guardar el complemento', e.message); throw e; }
   };
+  const quitarFicha = async (o: OpcionFichaDTO, url: string) => {
+    try { await post({ accion: 'quitar_ficha', opcionId: o.opcionId, url }); toast.success('Ficha quitada', 'Si quedaron otras fichas de este modelo, vuelve a comparar para que cuenten solo esas.'); await cargar(); }
+    catch (e: any) { toast.error('No se pudo quitar la ficha', e.message); }
+  };
   const quitarModelo = async (o: OpcionFichaDTO) => {
     try { await post({ accion: 'quitar_modelo', opcionId: o.opcionId }); await cargar(); } catch (e: any) { toast.error('No se pudo quitar', e.message); }
   };
@@ -367,11 +371,11 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
                               )}
                           </div>
                           {relevantes.length === 0 && <p className="text-[12.5px] text-zinc-500">Todavía no hay fichas ni opciones de los proveedores cotizados. Sube la ficha del modelo que se va a comprar.</p>}
-                          {relevantes.map(o => <OpcionFila key={o.opcionId} o={o} cotizados={nombres} puedeOperar={puedeOperar} onProveedor={cambiarProveedor} onQuitar={quitarModelo} onComplementar={complementar} />)}
+                          {relevantes.map(o => <OpcionFila key={o.opcionId} o={o} cotizados={nombres} puedeOperar={puedeOperar} onProveedor={cambiarProveedor} onQuitar={quitarModelo} onQuitarFicha={quitarFicha} onComplementar={complementar} />)}
                           {otras.length > 0 && (
                             <details className="rounded-lg border border-zinc-200 bg-white">
                               <summary className="cursor-pointer px-3 py-2 text-[12px] font-semibold text-zinc-500 hover:text-zinc-800">Otros modelos con proveedor que no cotizó ({otras.length}): no cuentan como lo que se compra</summary>
-                              <div className="p-2 space-y-2">{otras.map(o => <OpcionFila key={o.opcionId} o={o} cotizados={nombres} puedeOperar={puedeOperar} onProveedor={cambiarProveedor} onQuitar={quitarModelo} onComplementar={complementar} />)}</div>
+                              <div className="p-2 space-y-2">{otras.map(o => <OpcionFila key={o.opcionId} o={o} cotizados={nombres} puedeOperar={puedeOperar} onProveedor={cambiarProveedor} onQuitar={quitarModelo} onQuitarFicha={quitarFicha} onComplementar={complementar} />)}</div>
                             </details>
                           )}
                         </>
@@ -530,11 +534,12 @@ function ComplementoForm({ f, onGuardar, onCancelar }: { f: FilaRequisito; onGua
   );
 }
 
-export function OpcionFila({ o, cotizados, puedeOperar, onProveedor, onQuitar, onComplementar }: {
-  o: OpcionFichaDTO; cotizados: string[]; puedeOperar: boolean; onProveedor: (o: OpcionFichaDTO, proveedor: string) => Promise<void>; onQuitar: (o: OpcionFichaDTO) => Promise<void>;
+export function OpcionFila({ o, cotizados, puedeOperar, onProveedor, onQuitar, onQuitarFicha, onComplementar }: {
+  o: OpcionFichaDTO; cotizados: string[]; puedeOperar: boolean; onProveedor: (o: OpcionFichaDTO, proveedor: string) => Promise<void>; onQuitar: (o: OpcionFichaDTO) => Promise<void>; onQuitarFicha?: (o: OpcionFichaDTO, url: string) => Promise<void>;
   onComplementar: (o: OpcionFichaDTO, n: number, resultado: 'CUMPLE' | 'NO_CUMPLE' | null, dato: string, fuente: string) => Promise<void>;
 }) {
   const [confirmando, setConfirmando] = useState(false);
+  const [fichaPorQuitar, setFichaPorQuitar] = useState<string | null>(null);
   const [editando, setEditando] = useState<number | null>(null);
   const t = o.tecnico;
   const sinFicha = o.fichas.length === 0;
@@ -545,7 +550,11 @@ export function OpcionFila({ o, cotizados, puedeOperar, onProveedor, onQuitar, o
           <p className="text-[13px] font-bold text-zinc-800">{[o.marca, o.modelo].filter(Boolean).join(' ') || 'Opción sin marca ni modelo'}</p>
           <p className="text-[11.5px] text-zinc-500">
             {sinFicha ? <span className="text-amber-700 font-semibold">Falta la ficha técnica de este modelo</span> : o.fichas.map((f, i) => (
-              <span key={i}>{i > 0 && ' · '}{f.url ? <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-teal-700 hover:underline">{f.nombre}</a> : f.nombre}</span>
+              <span key={i}>{i > 0 && ' · '}{f.url ? <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-teal-700 hover:underline">{f.nombre}</a> : f.nombre}
+                {puedeOperar && f.url && onQuitarFicha && (fichaPorQuitar === f.url
+                  ? <span className="ml-1 text-[11px] text-zinc-600">¿Quitar esta ficha? <button type="button" onClick={() => { setFichaPorQuitar(null); void onQuitarFicha(o, f.url!); }} className="font-bold text-rose-700 hover:text-rose-900">Sí</button> · <button type="button" onClick={() => setFichaPorQuitar(null)} className="font-semibold text-zinc-500">No</button></span>
+                  : <button type="button" onClick={() => setFichaPorQuitar(f.url)} title="Quitar solo esta ficha (por ejemplo si subiste la equivocada). El modelo y sus otras fichas siguen." className="ml-1 text-zinc-400 hover:text-rose-700">✕</button>)}
+              </span>
             ))}
           </p>
         </div>

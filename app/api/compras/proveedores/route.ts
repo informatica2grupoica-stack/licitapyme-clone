@@ -33,7 +33,8 @@ async function puedeLeerProveedores(userId: number): Promise<boolean> {
 export async function GET(request: NextRequest) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (!(await puedeLeerProveedores(userId))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
+  // Lectura abierta a todo perfil interno (10-oct-2026); solo el externo (cliente) necesita permiso.
+  if (rol === 'externo' && !(await puedeLeerProveedores(userId))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
   try {
     // Histórico de compras a ESTE proveedor en OBUMA por RUT (pedido explícito del usuario: avisar

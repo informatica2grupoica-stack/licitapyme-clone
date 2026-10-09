@@ -129,7 +129,7 @@ async function opcionParaFicha(negocioId: number, filaId: string, p: ProductoNor
 /** Deja la ficha como respaldo `ficha_tecnica` de la opción de Compras. Una ficha no trae precio: nunca sostiene el costo. */
 async function agregarFichaCompras(p: { negocioId: number; opcionId: number; extraccionId: number; url: string; nombre: string; producto: ProductoNormalizado; actor: Actor }): Promise<void> {
   const { negocioId, opcionId, extraccionId, url, nombre, producto, actor } = p;
-  const [ya] = await pool.query(`SELECT id FROM auditor_respaldo WHERE opcion_id = ? AND tipo = 'ficha_tecnica' AND documento_url = ? AND producto_idx = ?`, [opcionId, url, producto.idx]) as any;
+  const [ya] = await pool.query(`SELECT id FROM auditor_respaldo WHERE opcion_id = ? AND tipo = 'ficha_tecnica' AND documento_url = ? AND producto_idx = ? AND vigente = 1`, [opcionId, url, producto.idx]) as any;
   if ((ya as any[]).length) return;
   const ahora = ahoraChileSQL();
   await pool.query(
@@ -477,6 +477,20 @@ export async function complementarRequisito(p: { negocioId: number; opcionId: nu
 export async function quitarOpcionDeCompras(negocioId: number, opcionId: number): Promise<void> {
   const [r] = await pool.query(`UPDATE auditor_opcion SET estado = 'descartada', actualizado_at = ? WHERE id = ? AND negocio_id = ? AND fila_id LIKE 'cmp:%'`, [ahoraChileSQL(), opcionId, negocioId]) as any;
   if (!r.affectedRows) throw new Error('Ese modelo no es del panel de Compras.');
+}
+
+/** Quita UNA ficha de un modelo de Compras (p. ej. se subió la equivocada): deja de contar para la comparación, y el modelo y sus otras fichas siguen.
+ *  No se borra el archivo ni el historial (el respaldo queda no vigente). Si se vuelve a subir la misma ficha, entra de nuevo normalmente. */
+export async function quitarFichaDeOpcion(negocioId: number, opcionId: number, url: string, actor: Actor): Promise<void> {
+  const [rs] = await pool.query(
+    `SELECT r.id, r.extraccion_id, r.documento_nombre FROM auditor_respaldo r JOIN auditor_opcion o ON o.id = r.opcion_id
+      WHERE r.opcion_id = ? AND r.negocio_id = ? AND r.tipo = 'ficha_tecnica' AND r.vigente = 1 AND r.documento_url = ? AND o.fila_id LIKE 'cmp:%'`, [opcionId, negocioId, url]) as any;
+  if (!(rs as any[]).length) throw new Error('Esa ficha no está en este modelo (o ya se quitó).');
+  await pool.query(`UPDATE auditor_respaldo SET vigente = 0 WHERE id IN (?)`, [(rs as any[]).map(r => r.id)]);
+  await pool.query(`INSERT INTO auditor_evento (negocio_id, opcion_id, tipo, emisor, detalle, creado_at) VALUES (?, ?, 'ficha_quitada', 'compras', ?, ?)`,
+    [negocioId, opcionId, `Ficha técnica «${(rs as any[])[0].documento_nombre}» quitada por ${actor.nombre}`, ahoraChileSQL()]).catch(() => {});
+  // Que el documento no reaparezca como «pendiente de asignar» (si aún tiene fichas asignadas en otros modelos, estas no se tocan).
+  for (const x of rs as any[]) if (x.extraccion_id) await olvidarDocumentoDeCompras(negocioId, Number(x.extraccion_id));
 }
 
 /** Saca un documento de las listas del panel (pendientes, «no son fichas», con error). Si ya tenía fichas asignadas, estas no se tocan. */
