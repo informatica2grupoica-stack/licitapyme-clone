@@ -10,7 +10,7 @@ import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('auditor', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { MOTOR_KIMI_ESTRICTO } from '@/app/lib/auditor-tecnico';
-import { requisitosDeLinea, requisitosDelProducto, documentosDeOpcion, bloqueDocumentos, SYS_L2_TEC, type DocumentoOpcion } from '@/app/lib/auditor-tecnico-v2';
+import { requisitosDeLinea, documentosDeOpcion, bloqueDocumentos, SYS_L2_TEC, type DocumentoOpcion } from '@/app/lib/auditor-tecnico-v2';
 import { PROMPT_V3, ESQUEMA_V3 } from '@/app/lib/auditor-comparador-v3-prompts';
 import {
   parsearSalidaV3, construirResultadoTecnico, estadoDeProducto, esExigenciaRoja, cierraSoloEM, type SegundaPasadaCelda,
@@ -64,8 +64,12 @@ export async function verificarLineaV3(params: {
     `SELECT * FROM auditor_opcion WHERE negocio_id = ? AND fila_id = ? AND via = 'completa' AND estado IN (?) ORDER BY id`, [negocioId, filaId, ESTADOS_QUE_SE_COMPARAN]) as any;
   const opciones = (ors as any[]).filter(o => !soloOpcionIds?.length || soloOpcionIds.includes(o.id));
   if (opciones.length === 0) throw new Error('La línea no tiene opciones en vía completa para comparar (las de vía liviana no pasan por el comparador técnico).');
-  const ctxLinea = await requisitosDeLinea(negocioId, licitacionCodigo, lineaReal);
-  const ctx = ctxLinea && soloProducto ? { ...ctxLinea, requisitos: requisitosDelProducto(ctxLinea.requisitos, soloProducto) } : ctxLinea;
+  // Cada opción se juzga SOLO contra las especificaciones de su ítem en las bases (una línea del informe puede agrupar varios productos:
+  // caso 387-55-LE26, 21 muebles bajo la «línea 1»). Compras pasa `soloProducto`; el Auditor usa el nombre de la línea del costeo.
+  const productoReq = soloProducto || nombreLinea;
+  const ctx = await requisitosDeLinea(negocioId, licitacionCodigo, lineaReal, productoReq);
+  if (ctx && ctx.requisitos.length === 0 && (await requisitosDeLinea(negocioId, licitacionCodigo, lineaReal))?.requisitos.some(r => r.producto))
+    throw new Error(`Ningún requisito de las bases está rotulado con «${productoReq}»: la línea agrupa varios productos y no se pudo saber cuáles le corresponden. Revisa el nombre de la línea en el Costeo.`);
   if (!ctx || ctx.requisitos.length === 0) throw new Error('Esta línea no tiene requisitos técnicos heredados del análisis: no hay contra qué comparar.');
 
   const conDocs: Array<{ o: any; docs: DocumentoOpcion[] }> = [];

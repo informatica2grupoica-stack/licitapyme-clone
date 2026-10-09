@@ -203,7 +203,7 @@ export async function revisarCompromisosDeLinea(params: { negocioId: number; lic
   const ap = l.opciones.find(o => o.estado === 'aprobada');
   if (!ap) throw new Error('La línea no tiene una opción aprobada: apruébala en el Auditor antes de revisar sus compromisos.');
 
-  const ctx = await requisitosDeLinea(negocioId, licitacionCodigo, l.lineaReal);
+  const ctx = await requisitosDeLinea(negocioId, licitacionCodigo, l.lineaReal, l.detalle.split(' - ')[0] || l.detalle);
   const requisitos = (ctx?.requisitos ?? []).map(r => `n=${r.n} · ${r.criticidad} · ${r.producto ? `[${r.producto}] ` : ''}${r.texto} · fuente en bases: ${r.fuente}`);
   const costosYa = panel.costosAsociados.filter(c => !c.anulado && (c.filaId === filaId || c.filaId == null)).map(c => `${c.materia}: ${c.cuantificacion || 'no cuantificado'}`);
   const ahora = ahoraChileSQL();

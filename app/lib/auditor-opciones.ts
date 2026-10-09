@@ -14,7 +14,7 @@ import { visitarLinks, normalizarUrl, buscarFichasEnPagina, urlPublicaSegura, ty
 import { createHash } from 'node:crypto';
 import { mensajesUnificadosPorProveedor, type MensajeProveedor } from '@/app/lib/auditor-proveedor';
 import {
-  contarRequisitosPorLinea, ultimasVerificaciones, habilitacionesYDeclaraciones, estadoTecnicoDe,
+  contarRequisitosPorLinea, claveReqLinea, ultimasVerificaciones, habilitacionesYDeclaraciones, estadoTecnicoDe,
 } from '@/app/lib/auditor-tecnico-v2';
 import { ultimasCorridasV3, confirmacionesTecnicas, respaldosDeCeldas, agregarRespaldoCelda, type RespaldoCelda, estadoTecnicoV3, verificarLineaV3, confirmarCelda, ultimasSegundasPasadasV3, segundaPasadaRojosV3, rojosPendientesDeSegundaPasada, type ResumenCorridaV3 } from '@/app/lib/auditor-comparador-v3';
 import type { ResultadoTecnico } from '@/app/lib/auditor-tecnico-v2-core';
@@ -155,7 +155,7 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
   const [estado, estadosLinea, verifTec, habTec, reqPorLinea, exigenCompleta, costosAsociados, mercados, justificadas, costosIA, opRes, reRes, caRes,
     correcciones, segundasPasadas, respaldosCeldas, verifLegado, hdLegado, docsRes, extsRes, decisiones, linksPendientes] = await Promise.all([
     estadoP, estadosDeLineas(negocioId), ultimasCorridasV3(negocioId), confirmacionesTecnicas(negocioId),
-    contarRequisitosPorLinea(negocioId, licitacionCodigo), lineasQueExigenViaCompleta(negocioId), listarCostosAsociados(negocioId),
+    estadoP.then(e => contarRequisitosPorLinea(negocioId, licitacionCodigo, lineasAuditables(e).map(l => ({ lineaReal: l.lineaReal, producto: nombreProductoDeLinea(l.detalle) })))), lineasQueExigenViaCompleta(negocioId), listarCostosAsociados(negocioId),
     ultimosMercados(negocioId), opcionesConJustificacion(negocioId), ultimasCostoIA(negocioId),
     pool.query(`SELECT * FROM auditor_opcion WHERE negocio_id = ? ORDER BY id`, [negocioId]) as Promise<any>,
     pool.query(`SELECT * FROM auditor_respaldo WHERE negocio_id = ? ORDER BY id`, [negocioId]) as Promise<any>,
@@ -233,7 +233,12 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
         est = l; legado = true;
       }
     }
-    const reqTotal = linea?.lineaReal != null ? (reqPorLinea.get(linea.lineaReal) ?? 0) : 0;
+    const reqTotal = linea?.lineaReal != null ? (reqPorLinea.get(claveReqLinea(linea.lineaReal, nombreProductoDeLinea(linea.detalle))) ?? 0) : 0;
+    // Una comparación guardada con requisitos que NO son los del ítem (p. ej. hecha antes de que se filtrara por producto, con los de todos
+    // los productos de la línea) no se muestra: se pide volver a comparar. Las especificaciones deben ser siempre las reales del ítem.
+    if (est.resultado && !legado && reqTotal > 0 && est.resultado.filas.length !== reqTotal) {
+      est = { resultado: null, corridoAt: est.corridoAt, error: `Comparación desactualizada: tenía ${est.resultado.filas.length} requisitos y este ítem tiene ${reqTotal} en las bases. Pulsa «Volver a comparar la línea».` };
+    }
     const tecnico: TecnicoDTO = {
       estado: o.via === 'liviana' ? 'NO_APLICA' : reqTotal === 0 && !est.resultado ? 'SIN_REQUISITOS' : est.resultado ? est.resultado.estado : 'NO_CORRIDO',
       corridoAt: est.corridoAt, error: est.error, segundaPasadaAt: segundasPasadas.get(o.id)?.at ?? null, requisitosTotal: reqTotal, resultado: est.resultado, legado,
@@ -1037,6 +1042,9 @@ export async function verificarCostoIADeOpcion(negocioId: number, licitacionCodi
 // ── Verificación técnica: acciones ───────────────────────────────────────────────────────────────
 /** Corre el comparador técnico v3.0 sobre la LÍNEA de la opción: una sola llamada compara todas las opciones de la línea contra sus requisitos. */
 /** @param solo true = compara SOLO esta opción (ficha o link recién agregado: el resto de la línea no cambió); false = toda la línea. */
+/** Nombre del producto de una línea del costeo («Banca de camarín - …» → «Banca de camarín»): con él se buscan sus requisitos en las bases. */
+export const nombreProductoDeLinea = (detalle: string) => detalle.split(' - ')[0] || detalle;
+
 export async function verificarTecnicoDeOpcion(negocioId: number, licitacionCodigo: string, opcionId: number, actor: Actor, solo = false): Promise<ResumenCorridaV3> {
   const o = await opcionDe(negocioId, opcionId);
   const linea = lineasAuditables(await cargarEstadoCosteo(negocioId)).find(l => l.id === o.fila_id);

@@ -96,7 +96,7 @@ export interface ContextoRequisitos {
 
 /** Los requisitos que la línea hereda de la fase de análisis. La criticidad de la línea del checklist se traduce al vocabulario del
  *  prompt; PUNTAJE_CONDICIONANTE llega como INADMISIBLE (decisión CA 28-09-2026: "lo CONDICIONANTE debe llegar como INADMISIBLE"). */
-export async function requisitosDeLinea(negocioId: number, licitacionCodigo: string, lineaReal: number | null): Promise<ContextoRequisitos | null> {
+export async function requisitosDeLinea(negocioId: number, licitacionCodigo: string, lineaReal: number | null, producto?: string): Promise<ContextoRequisitos | null> {
   if (lineaReal == null) return null;
   const informe = await leerInforme(licitacionCodigo);
   if (!informe) return null;
@@ -113,8 +113,11 @@ export async function requisitosDeLinea(negocioId: number, licitacionCodigo: str
   }
   const foro = informe?.foro ?? informe?.foro_qa ?? informe?.aclaraciones ?? null;
   const cri = informe?.criterios_evaluacion ?? null;
+  // REGLA: las especificaciones de un ítem son SOLO las de ese ítem en las bases. Si la línea del informe agrupa varios productos
+  // (requisitos rotulados) y se indica el producto, se devuelven únicamente los suyos (renumerados); si ninguno calza, [] — nunca los de todos.
+  const propios = producto ? requisitosParaLinea(requisitos, producto) : requisitos;
   return {
-    requisitos, nombreLinea: productos.map(p => p.nombre).join(' + ') || `Línea ${lineaReal}`, criticidadLinea,
+    requisitos: propios, nombreLinea: productos.map(p => p.nombre).join(' + ') || `Línea ${lineaReal}`, criticidadLinea,
     criterios: cri ? JSON.stringify(cri).slice(0, 6000) : null,
     requisitosGenerales: requisitosGeneralesDelInforme(informe),
     foro: foro ? (typeof foro === 'string' ? foro : JSON.stringify(foro)).slice(0, 6000) : null,
@@ -132,15 +135,31 @@ export function requisitosDelProducto(requisitos: RequisitoHeredado[], nombre: s
   return requisitos.filter(r => { const p = k(r.producto || ''); return p && (p === n || p.includes(n) || n.includes(p)); }).map((r, i) => ({ ...r, n: i + 1 }));
 }
 
-/** Cuántos requisitos técnicos hereda cada línea (una sola lectura del informe por panel). */
-export async function contarRequisitosPorLinea(negocioId: number, licitacionCodigo: string): Promise<Map<number, number>> {
-  const out = new Map<number, number>();
+/** Requisitos contra los que se compara UNA línea del costeo. Si la línea del informe agrupa varios productos (requisitos rotulados),
+ *  solo los del producto indicado; si ninguno calza devuelve [] (el que llama debe avisar, nunca caer a la lista completa:
+ *  caso 387-55-LE26, 84 requisitos de 21 muebles mezclados en cada comparación). Sin rótulos devuelve todos. */
+export function requisitosParaLinea(requisitos: RequisitoHeredado[], producto: string): RequisitoHeredado[] {
+  return requisitosDelProducto(requisitos, producto);
+}
+
+/** Clave de `contarRequisitosPorLinea`: línea del informe + producto del costeo. */
+export const claveReqLinea = (lineaReal: number, producto: string) => `${lineaReal}|${producto}`;
+
+/** Cuántos requisitos técnicos tiene CADA ítem del costeo (una sola lectura del informe por panel). Si la línea del informe agrupa varios
+ *  productos, cuenta solo los del producto (no los de todos). */
+export async function contarRequisitosPorLinea(negocioId: number, licitacionCodigo: string, lineas: Array<{ lineaReal: number | null; producto: string }>): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
   const informe = await leerInforme(licitacionCodigo);
   if (!informe) return out;
-  const [rows] = await pool.query(`SELECT linea_numero FROM checklist_comercial WHERE negocio_id = ? AND tipo = 'linea_tecnica' AND linea_numero IS NOT NULL`, [negocioId]) as any;
-  for (const r of rows as any[]) {
-    const n = Number(r.linea_numero);
-    out.set(n, productosCrudosDeLinea(informe, n).reduce((a, p) => a + p.caracteristicas.filter(c => String(c || '').trim()).length, 0));
+  for (const l of lineas) {
+    if (l.lineaReal == null) continue;
+    const reqs: RequisitoHeredado[] = [];
+    const prods = productosCrudosDeLinea(informe, l.lineaReal);
+    for (const p of prods) for (const c of p.caracteristicas) {
+      const texto = String(c || '').trim();
+      if (texto) reqs.push({ n: reqs.length + 1, texto, fuente: '', criticidad: 'SIN_CLASIFICAR', producto: prods.length > 1 ? p.nombre : undefined });
+    }
+    out.set(claveReqLinea(l.lineaReal, l.producto), requisitosParaLinea(reqs, l.producto).length);
   }
   return out;
 }
@@ -318,7 +337,7 @@ export async function verificarTecnicoOpcion(params: {
   const o = (ors as any[])[0] as OpcionParaTecnico | undefined;
   if (!o) throw new Error('La opción no existe en este negocio.');
   if (o.via === 'liviana') throw new Error('La opción está en vía liviana: el verificador técnico no corre (cambia a vía completa para verificarla).');
-  const ctx = await requisitosDeLinea(negocioId, licitacionCodigo, lineaReal);
+  const ctx = await requisitosDeLinea(negocioId, licitacionCodigo, lineaReal, nombreLinea);
   if (!ctx || ctx.requisitos.length === 0) throw new Error('Esta línea no tiene requisitos técnicos heredados del análisis: no hay contra qué comparar.');
   const docs = await documentosDeOpcion(opcionId);
   if (docs.length === 0) throw new Error('La opción no tiene documentos leídos: carga una cotización, ficha o link primero.');
