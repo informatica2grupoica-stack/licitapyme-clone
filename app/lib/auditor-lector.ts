@@ -93,8 +93,22 @@ export async function transcribirDocumento(url: string, opts: { combinar?: boole
     try {
       const pdfParse = (await import('pdf-parse')).default;
       const { renderPaginaPorFilas } = await import('@/app/lib/pdf-texto-por-filas');
-      const t = ((await pdfParse(buffer, { pagerender: renderPaginaPorFilas })).text || '').trim();
-      if (t.length >= 150) return { texto: t, metodo: 'pdf-parse' };
+      const r = await pdfParse(buffer, { pagerender: renderPaginaPorFilas });
+      const t = (r.text || '').trim();
+      if (t.length >= 150) {
+        // Capa de texto escasa (caso real: catálogo BESDATA en inglés, 385 car. en 2 págs; la tabla de
+        // especificaciones era una imagen): el texto no trae las características → se suma el OCR.
+        if (t.length / Math.max(1, r.numpages || 1) < 400) {
+          const [g, o] = await Promise.all([
+            extraerTextoPdfPorUrlConGlmOcr(url, 0).catch(() => ''),
+            ocrPdfLocalTesseract(buffer).catch(() => ''),
+          ]);
+          if ((g + o).trim().length >= 50) {
+            return { texto: `TEXTO DIGITAL DEL PDF (puede ser parcial: las tablas e imágenes no vienen aquí)\n${t}\n\n${unirTranscripciones(g, o)}`, metodo: 'pdf-parse+ocr' };
+          }
+        }
+        return { texto: t, metodo: 'pdf-parse' };
+      }
     } catch (e) { console.warn('[auditor-lector] pdf-parse falló:', String(e).slice(0, 120)); }
     if (opts.combinar) {
       const [g, t] = await Promise.all([
@@ -181,7 +195,7 @@ const NOTA_OCR_COMBINADO = `NOTA: este documento trae DOS transcripciones OCR de
 
 async function llamarLector(texto: string, nombre: string, modo: ModoLector, esWeb = false): Promise<SalidaLector> {
   const system = promptSistema(modo, esWeb);
-  const combinado = texto.startsWith(MARCA_OCR_COMBINADO);
+  const combinado = texto.includes(MARCA_OCR_COMBINADO);
   const user = `${esWeb ? 'PÁGINA WEB' : 'DOCUMENTO'}: ${nombre}\n\n${combinado ? NOTA_OCR_COMBINADO + '\n\n' : ''}${esWeb ? 'TEXTO CAPTURADO DE LA PÁGINA' : 'TEXTO TRANSCRITO DEL DOCUMENTO'}:\n${texto.slice(0, MAX_CHARS_TEXTO)}`;
   let ultimo = '';
   for (let intento = 1; intento <= 2; intento++) {
