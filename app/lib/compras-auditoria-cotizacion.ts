@@ -222,11 +222,11 @@ function costeadoDeProducto(lineasCosteo: ReturnType<typeof lineasDelCosteo>, pr
 }
 
 /** El nombre con que quedó cada producto en el costeo y los links que se le pusieron allá (Link 1-3), para verlos desde Compras. */
-export async function linksDelCosteoPorProducto(negocioId: number): Promise<Record<number, { nombre: string; links: string[] }>> {
+export async function linksDelCosteoPorProducto(negocioId: number): Promise<Record<number, { nombre: string; links: string[]; filaId: string }>> {
   const [productos, estado] = await Promise.all([listarProductosCompra(negocioId), cargarEstadoCosteo(negocioId).catch(() => null)]);
   const lineas = estado ? lineasDelCosteo(estado).filter(l => !l.esGastoExtra) : [];
-  const out: Record<number, { nombre: string; links: string[] }> = {};
-  for (const p of productos) { const l = lineaCosteoDeProducto(lineas, p); if (l) out[p.id] = { nombre: l.detalle, links: l.links }; }
+  const out: Record<number, { nombre: string; links: string[]; filaId: string }> = {};
+  for (const p of productos) { const l = lineaCosteoDeProducto(lineas, p); if (l) out[p.id] = { nombre: l.detalle, links: l.links, filaId: l.id }; }
   return out;
 }
 

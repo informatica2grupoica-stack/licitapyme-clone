@@ -10,6 +10,8 @@
 import { useMemo, useState } from 'react';
 import type React from 'react';
 import { IconStar as Star, IconDotsVertical as Dots, IconCheck as Check, IconPaperclip as Clip, IconListCheck as ListChecks, IconSparkles as Sparkles, IconPencil as Pencil, IconTrash as Trash, IconInfoCircle as Info } from '@tabler/icons-react';
+import { LinksProducto, type LinksCosteo } from './LinksProducto';
+import type { useLinksLeidos } from './LinksLeidos';
 import { compararPrecioConCosteo, type VeredictoPrecio } from '@/app/lib/compras-precio-vs-costeo';
 
 export interface SeleccionCelda { cotizacionId: number; productoId: number }
@@ -46,7 +48,13 @@ const ESTILO_TECNICO: Record<string, { chip: string; texto: string }> = {
   NO_CORRIDO: { chip: 'bg-zinc-100 text-zinc-600 border-zinc-200', texto: 'sin comparar' },
 };
 
-export function MatrizPrecios({ productos, cotizaciones, costeado, seleccion, onSeleccionar, alertas, tecnico, onAgregar, compra, onElegirCelda, onComprarTodoAqui, acciones }: {
+export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo = {}, lecturaLink: lecLink, onCompraPorLink, seleccion, onSeleccionar, alertas, tecnico, onAgregar, compra, onElegirCelda, onComprarTodoAqui, acciones }: {
+  /** Link del costeo de cada producto: se muestra junto a «Lo costeado» (de ahí sale ese precio). */
+  linksCosteo?: LinksCosteo;
+  /** Lectura de los links del costeo por el Auditor (la primera cotización de cada producto). */
+  lecturaLink?: ReturnType<typeof useLinksLeidos>;
+  /** «Comprar por este link»: lleva a la compra directa de ese producto con link, precio neto y proveedor ya puestos. */
+  onCompraPorLink?: (productoId: number, d: { link: string; precio: number; proveedor: string }) => void;
   productos: Array<{ id: number; descripcion: string; cantidad?: number | string | null }>; cotizaciones: CotizacionMin[];
   costeado: Record<number, number | null>; seleccion: SeleccionCelda | null; onSeleccionar: (s: SeleccionCelda) => void;
   alertas?: Record<string, string[]>;
@@ -81,7 +89,7 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, seleccion, on
     return resumen.filter(r => ids.has(r.c.id));
   }, [resumen, verTodas, compra, seleccion]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (cotizaciones.length === 0 || productos.length === 0) return null;
+  if (productos.length === 0 || (cotizaciones.length === 0 && !lecLink?.disponible)) return null;
   const ocultas = resumen.length - visibles.length;
 
   // «★ menor» solo entre los que cubren todo y no traen avisos: un total bajo con un componente que falta no es el más barato de verdad.
@@ -91,6 +99,7 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, seleccion, on
     <tr className="border-t border-zinc-100 bg-zinc-50/60 align-top">
       <td className="sticky left-0 z-10 bg-zinc-50 px-4 py-2 text-[11.5px] font-bold text-zinc-500 uppercase tracking-wide">{titulo}</td>
       <td className="px-3 py-2" />
+      {lecLink?.disponible && <td className="px-3 py-2" />}
       {visibles.map(r => <td key={r.c.id} className="px-3 py-2 text-[12.5px]">{celda(r)}</td>)}
     </tr>
   );
@@ -114,6 +123,18 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, seleccion, on
             <tr className="border-b border-zinc-200">
               <th className="sticky left-0 z-10 bg-white px-4 py-2.5 text-[11.5px] font-bold text-zinc-500 uppercase tracking-wide min-w-[220px]">Producto</th>
               <th className="px-3 py-2.5 text-[11.5px] font-bold text-zinc-500 uppercase tracking-wide min-w-[110px]">Lo costeado</th>
+              {lecLink?.disponible && (
+                <th className="px-3 py-2.5 min-w-[190px] align-top">
+                  <span className="block text-[13px] font-bold text-zinc-900 leading-tight">1 · Cotización por link</span>
+                  <span className="block text-[11px] font-normal text-zinc-400">Precio leído de la página, neto</span>
+                  {lecLink.totalPendientes > 0 && (
+                    <button type="button" onClick={() => lecLink.leer()} disabled={!!lecLink.leyendo}
+                      className="mt-1.5 text-[11.5px] font-semibold text-indigo-700 border border-indigo-200 hover:bg-indigo-50 disabled:opacity-60 rounded-md px-2 py-0.5">
+                      {lecLink.leyendo ? `Leyendo link ${lecLink.leyendo.actual} de ${lecLink.leyendo.total}…` : `Leer ${lecLink.totalPendientes} link${lecLink.totalPendientes === 1 ? '' : 's'} del costeo`}
+                    </button>
+                  )}
+                </th>
+              )}
               {visibles.map(({ c, cubiertos }) => (
                 <th key={c.id} className="px-3 py-2.5 min-w-[165px] align-top">
                   <div className="flex items-start gap-1">
@@ -165,7 +186,61 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, seleccion, on
                     <p className="text-[13px] font-semibold text-zinc-900 line-clamp-2" title={p.descripcion}>{p.descripcion}</p>
                     {sinCotizar && <p className="text-[11.5px] font-semibold text-amber-600 mt-0.5">Sin cotizar todavía</p>}
                   </td>
-                  <td className="px-3 py-3 text-[13.5px] font-semibold text-zinc-700 whitespace-nowrap">{base != null ? clp(base) : <span className="font-normal text-zinc-400" title="El costeo no tiene un costo para esta línea">—</span>}</td>
+                  <td className="px-3 py-3 text-[13.5px] font-semibold text-zinc-700 whitespace-nowrap">
+                    {base != null ? clp(base) : <span className="font-normal text-zinc-400" title="El costeo no tiene un costo para esta línea">—</span>}
+                    {linksCosteo[p.id] && <div className="mt-0.5 [&_a]:max-w-[130px]"><LinksProducto links={linksCosteo[p.id].links} /></div>}
+                  </td>
+                  {lecLink?.disponible && (() => {
+                    // La primera cotización: el link del costeo, leído por el Auditor. Precio neto, cuánto se aparta de lo costeado y de dónde salió.
+                    const lec = lecLink.lecturas[p.id] ?? [];
+                    const pend = lecLink.pendientesDe(p.id);
+                    const leyendoEste = lecLink.leyendoProducto === p.id;
+                    return (
+                      <td className="px-2 py-2 min-w-[190px]" data-testid={`link-leido-${p.id}`}>
+                        <div className="rounded-lg border border-indigo-100 bg-indigo-50/30 px-2.5 py-1.5 space-y-1.5">
+                          {lec.map(l => {
+                            const cmp = compararPrecioConCosteo(l.neto, base);
+                            const est = ESTILO_VEREDICTO[cmp.veredicto];
+                            // Un precio de una captura vieja no sirve para comprar: los precios de las tiendas cambian de un día para otro.
+                            const horas = l.capturaAt ? (Date.now() - new Date(l.capturaAt).getTime()) / 36e5 : Infinity;
+                            const vieja = horas > 24;
+                            const dias = Math.floor(horas / 24);
+                            const comprable = l.neto != null && !vieja && !l.agotado;
+                            return (
+                              <div key={l.opcionId}>
+                                <span className="text-[14px] font-bold text-zinc-900">{l.neto != null ? clp(l.neto) : 'sin precio'}</span>
+                                {l.neto != null && !l.agotado && <span className={`ml-1.5 inline-block text-[11.5px] font-semibold px-1.5 py-0.5 rounded border ${est.chip}`}>{est.texto(cmp.diffPct)}</span>}
+                                <span className="block text-[11px] text-zinc-500">
+                                  {l.url ? <a href={l.url} target="_blank" rel="noopener noreferrer" className="text-teal-700 underline underline-offset-2">{l.host}</a> : l.host}
+                                  {l.capturaAt && <> · captura {vieja ? `de hace ${dias} día${dias === 1 ? '' : 's'} (${l.capturaAt.slice(0, 10)})` : 'de hoy'}</>}
+                                </span>
+                                {l.agotado && <span className="block text-[11px] font-bold text-rose-700">⛔ La página dice PRODUCTO AGOTADO: no se puede comprar por este link.</span>}
+                                {vieja && <span className="block text-[11px] font-bold text-amber-700">⚠ Precio de una captura vieja: la tienda pudo cambiarlo. Vuelve a leer antes de comprar.</span>}
+                                {l.neto != null && l.ivaSupuesto && <span className="block text-[11px] text-zinc-400">la página dice {l.precioPagina != null ? clp(l.precioPagina) : '—'} y no aclara el IVA: se asumió con IVA y se rebajó</span>}
+                                {l.neto != null && !l.ivaSupuesto && l.precioPagina != null && l.precioPagina !== l.neto && <span className="block text-[11px] text-zinc-400">la página dice {clp(l.precioPagina)}{l.ivaDeclarado === 'incluido' ? ' con IVA' : ''}</span>}
+                                {l.neto == null && <span className="block text-[11px] text-amber-700">{l.precioPagina != null ? `la página dice ${clp(l.precioPagina)} pero el IVA no está claro` : 'no se pudo leer el precio'}</span>}
+                                {lecLink && (!l.neto || vieja || l.agotado) && l.url && (
+                                  <button type="button" onClick={() => lecLink.releer(l.opcionId)} disabled={lecLink.releyendo != null}
+                                    className="mt-0.5 mr-1 text-[11.5px] font-semibold text-indigo-700 border border-indigo-200 bg-white hover:bg-indigo-50 disabled:opacity-60 rounded-md px-2 py-0.5">{lecLink.releyendo === l.opcionId ? 'Leyendo link…' : 'Volver a leer'}</button>
+                                )}
+                                {comprable && onCompraPorLink && l.url && (
+                                  <button type="button" onClick={() => onCompraPorLink(p.id, { link: l.url!, precio: l.neto!, proveedor: l.proveedor || l.host })} title="Comprar este producto a este link: abre la compra directa con el precio y el link ya puestos"
+                                    className="mt-0.5 text-[11.5px] font-semibold text-teal-700 hover:text-teal-900 border border-teal-200 hover:bg-teal-50 rounded-md px-2 py-0.5">Comprar por este link</button>
+                                )}
+                              </div>
+                            );
+                          })}
+                          {pend.length > 0 && (
+                            <button type="button" onClick={() => lecLink.leer(p.id)} disabled={!!lecLink.leyendo}
+                              className="text-[12px] font-semibold text-indigo-700 border border-indigo-200 bg-white hover:bg-indigo-50 disabled:opacity-60 rounded-md px-2 py-1">
+                              {leyendoEste ? 'Leyendo link…' : `Leer link${pend.length > 1 ? `s (${pend.length})` : ''}`}
+                            </button>
+                          )}
+                          {lec.length === 0 && pend.length === 0 && <span className="text-[12px] text-zinc-400">{linksCosteo[p.id]?.links.length ? 'Sin precio leído' : 'Sin link en el costeo'}</span>}
+                        </div>
+                      </td>
+                    );
+                  })()}
                   {visibles.map(({ c }, i) => {
                     const item = c.items.find(x => x.productoId === p.id);
                     if (!item) return (

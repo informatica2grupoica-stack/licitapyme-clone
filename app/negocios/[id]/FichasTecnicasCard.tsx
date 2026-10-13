@@ -10,6 +10,7 @@ import {
   IconLoader2 as Loader2, IconUpload as Upload, IconFolderPlus as FolderPlus, IconCircleCheck as Check, IconAlertTriangle as Alerta,
   IconChevronDown as Chevron, IconFileText as Doc, IconEye as Eye, IconX as X, IconRefresh as Refresh, IconSparkles as Chispa,
 } from '@tabler/icons-react';
+import { LinksProducto, type LinksCosteo } from './LinksProducto';
 import type { PanelFichasDTO, ProductoFichasDTO, OpcionFichaDTO, ResultadoRuteo, ProductoRuteado, FilaRequisito } from '@/app/lib/compras-fichas';
 
 const fmtCLP = (n: number | null | undefined) => n == null ? '' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
@@ -67,10 +68,13 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
   const inputRef = useRef<HTMLInputElement>(null);
   const idCola = useRef(0);
 
+  const [linksCosteo, setLinksCosteo] = useState<LinksCosteo>({});
+
   const cargar = useCallback(async () => {
     try {
       const d = await fetch(`/api/compras/${negocioId}/fichas`).then(r => r.json());
       if (d.success) { setPanel(d.panel); setError(null); } else setError(d.error || 'No se pudieron cargar las fichas.');
+      fetch(`/api/compras/${negocioId}/productos`).then(r => r.json()).then(x => setLinksCosteo(x.linksCosteo || {})).catch(() => {});
     } catch { setError('No se pudieron cargar las fichas.'); }
     finally { setCargando(false); }
   }, [negocioId]);
@@ -334,10 +338,11 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
                       <span className="block text-[13.5px] font-bold text-zinc-900 truncate">{p.descripcion} <span className="font-normal text-zinc-400">· {p.cantidad ?? '?'} un.</span></span>
                       <span className="block text-[11.5px] text-zinc-500 truncate">
                         {p.cotizados.length ? `Cotizado por ${p.cotizados.map(c => c.proveedor).join(', ')}` : 'Sin cotización todavía'}
-                        {conFichas.length ? ` · ${conFichas.reduce((n, o) => n + o.fichas.length, 0)} ficha(s)` : ' · sin ficha'}
+                        {conFichas.length ? ` · con ficha (${conFichas.reduce((n, o) => n + o.fichas.length, 0)})` : ' · sin ficha'}
                       </span>
                     </span>
                   </button>
+                  <div className="w-64 flex-shrink-0"><LinksProducto links={linksCosteo[p.productoId]?.links} /></div>
                   {est ? <Insignia estado={est} /> : <span className="text-[11px] font-semibold text-zinc-400">sin ficha</span>}
                   {puedeOperar && conFichas.length > 0 && (
                     <button type="button" onClick={() => comparar(p)} disabled={comparando.has(p.productoId)} data-testid={`ficha-comparar-${p.productoId}`}

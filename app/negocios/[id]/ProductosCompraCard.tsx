@@ -8,6 +8,7 @@ import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { irAFase } from '@/app/compras/[negocioId]/comprasNavegacion';
+import { LinksProducto } from './LinksProducto';
 import { IconPackage as Package, IconLoader2 as Loader2, IconX as X, IconFlag as Flag, IconRefresh as RefreshCw, IconSearch as Search } from '@tabler/icons-react';
 
 type Subestado = 'PENDIENTE' | 'COTIZANDO' | 'COMPRADO' | 'EN_BODEGA' | 'LISTO_ENTREGA' | 'ENTREGADO' | 'RENUNCIADO' | 'NO_ADJUDICADA';
@@ -74,6 +75,19 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
   }, [negocioId]);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  // «Comprar por link» desde la matriz de precios (pestaña 2): abre aquí la compra directa de ese producto con el link ya puesto.
+  useEffect(() => {
+    const h = (e: Event) => {
+      const d = (e as CustomEvent<{ productoId: number; link?: string; precio?: number; proveedor?: string }>).detail;
+      if (!d?.productoId) return;
+      setDirectaAbierta(d.productoId); setDirecta({ proveedor: d.proveedor || '', rut: '', precio: d.precio ? String(Math.round(d.precio)) : '', motivo: d.link ? 'Precio leído del link del costeo' : '', modelo: '', link: d.link || '' });
+      setProvObuma({ estado: 'idle' }); setProvId(null); setSugerencias([]);
+      setTimeout(() => document.querySelector('[data-testid="form-compra-directa"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150);
+    };
+    window.addEventListener('compras:compra-directa', h);
+    return () => window.removeEventListener('compras:compra-directa', h);
+  }, []);
 
   const accion = async (body: Record<string, unknown>) => {
     const productoId = body.productoId as number;
@@ -269,11 +283,12 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
       )}
 
       <div className="max-h-[480px] overflow-auto">
-        <table className="w-full min-w-[760px] text-left border-collapse">
+        <table className="w-full min-w-[960px] text-left border-collapse">
           <thead className="sticky top-0 z-10 bg-white">
             <tr className="border-b border-zinc-200 text-[11px] font-bold text-zinc-500 uppercase tracking-wide">
               <th className="px-4 py-2 w-12">N°</th>
               <th className="px-3 py-2">Producto</th>
+              <th className="px-3 py-2 w-64">Links</th>
               <th className="px-3 py-2 w-24 whitespace-nowrap">Cantidad</th>
               <th className="px-3 py-2 w-32 whitespace-nowrap">Se vendió a</th>
               <th className="px-3 py-2 w-52">Estado</th>
@@ -282,7 +297,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
           </thead>
           <tbody>
             {visibles.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-6 text-center text-[12.5px] text-zinc-400">Ningún producto coincide con la búsqueda o el filtro.</td></tr>
+              <tr><td colSpan={7} className="px-4 py-6 text-center text-[12.5px] text-zinc-400">Ningún producto coincide con la búsqueda o el filtro.</td></tr>
             )}
             {visibles.map(p => {
               const fuera = p.subestado === 'NO_ADJUDICADA' || p.subestado === 'RENUNCIADO';
@@ -293,18 +308,9 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
                     <td className="px-4 py-2 text-[12px] text-zinc-400 tabular-nums">{lineasUnicas ? (p.correlativo ?? '—') : productos.indexOf(p) + 1}</td>
                     <td className="px-3 py-2 max-w-0">
                       <p title={p.descripcion} className={`text-[13px] font-semibold truncate ${fuera ? 'text-zinc-400' : 'text-zinc-800'} ${p.subestado === 'NO_ADJUDICADA' ? 'line-through decoration-zinc-400' : ''}`}>{p.descripcion}</p>
-                      {!fuera && (() => {
-                        const lc = linksCosteo[p.id];
-                        if (!lc) return null;
-                        const host = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } };
-                        return (
-                          <div className="mt-0.5 flex items-center gap-x-3 gap-y-0.5 flex-wrap text-[11.5px]" data-testid={`links-costeo-${p.id}`}>
-                            {lc.links.length === 0
-                              ? <span className="text-zinc-400">Sin link en el costeo</span>
-                              : lc.links.map((u, i) => <a key={u} href={u} target="_blank" rel="noopener noreferrer" title={u} className="text-teal-700 hover:text-teal-900 underline underline-offset-2 truncate max-w-[260px]">Link {i + 1} · {host(u)}</a>)}
-                          </div>
-                        );
-                      })()}
+                    </td>
+                    <td className="px-3 py-2 w-64" data-testid={`links-costeo-${p.id}`}>
+                      {!fuera && <LinksProducto links={linksCosteo[p.id]?.links} />}
                     </td>
                     <td className="px-3 py-2 text-[12.5px] text-zinc-600 whitespace-nowrap">{p.cantidad != null ? `${p.cantidad}${p.unidad ? ` ${p.unidad}` : ''}` : '—'}</td>
                     <td className="px-3 py-2 text-[12.5px] text-zinc-600 whitespace-nowrap tabular-nums" title="Precio de venta unitario de la oferta (no es lo que cuesta comprarlo)">{fmtCLP(p.montoUnitario)}</td>
@@ -333,7 +339,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
                   </tr>
                   {p.renunciaMotivo && !fuera && (
                     <tr key={`${p.id}-r`} className="border-b border-zinc-100">
-                      <td colSpan={6} className="px-4 py-2">
+                      <td colSpan={7} className="px-4 py-2">
                         <div className="bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2">
                           <p className="text-[12px] text-amber-800"><Flag size={12} className="inline mr-1" />Renuncia propuesta por {p.renunciaPropuestaPorNombre}: {p.renunciaMotivo}</p>
                           {esJefeDeVentas && (
@@ -345,7 +351,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
                   )}
                   {directaAbierta === p.id && (
                     <tr key={`${p.id}-d`} className="border-b border-zinc-100 bg-teal-50/40" data-testid="form-compra-directa">
-                      <td colSpan={6} className="px-4 py-3">
+                      <td colSpan={7} className="px-4 py-3">
                         <p className="text-[12px] font-bold text-teal-900 mb-1.5">Compra directa — sin cotización</p>
                         <div className="grid grid-cols-1 md:grid-cols-[1.3fr_0.9fr_0.9fr_1.4fr_auto] gap-2 items-center">
                           <div className="relative">
@@ -398,7 +404,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
                   )}
                   {renunciaAbierta === p.id && (
                     <tr key={`${p.id}-m`} className="border-b border-zinc-100">
-                      <td colSpan={6} className="px-4 py-2">
+                      <td colSpan={7} className="px-4 py-2">
                         <div className="flex items-center gap-2">
                           <input autoFocus value={motivoRenuncia} onChange={e => setMotivoRenuncia(e.target.value)} placeholder="Motivo de la renuncia a esta línea…"
                             className="flex-1 text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none" />

@@ -17,6 +17,8 @@ import { compararPrecioConCosteo } from '@/app/lib/compras-precio-vs-costeo';
 import { CotizacionesMasivas } from './CotizacionesMasivas';
 import { ListaCotizaciones } from './ListaCotizaciones';
 import { CoberturaCotizaciones } from './CoberturaCotizaciones';
+import type { LinksCosteo } from './LinksProducto';
+import { useLinksLeidos } from './LinksLeidos';
 import { useFichasCompras, tecnicoPorCelda, TecnicoDeCelda } from './FichasEnCotizacion';
 import { ArmarCompra, type Comb, type Recomendada, type EvaluacionCompra } from './ArmarCompra';
 import { DESPACHO_OPCIONES, condicionesPara, condicionDesdeLegacy, aplicarDespacho } from '@/app/lib/compras-despacho';
@@ -70,8 +72,10 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [costeado, setCosteado] = useState<Record<number, number | null>>({});
+  const [linksCosteo, setLinksCosteo] = useState<LinksCosteo>({});
   const [seleccion, setSeleccion] = useState<SeleccionCelda | null>(null);
   const fichas = useFichasCompras(negocioId);
+  const lecturaLink = useLinksLeidos(negocioId, linksCosteo, true);
   const [negociacion, setNegociacion] = useState<Negociacion[]>([]);
   const [escenarios, setEscenarios] = useState<Escenario[]>([]);
   const [elegidoTipo, setElegidoTipo] = useState<TipoEscenario | null>(null);
@@ -184,7 +188,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           setRecomendadas(d.combinaciones?.recomendadas || []); setElegidaComb(d.elegida ?? null);
           if (d.elegida && !compraIniciada) { setCompra(Object.fromEntries((d.elegida as Comb).items.map(i => [i.productoId, i.cotizacionId]))); setCompraIniciada(true); }
         }),
-        traer(`/api/compras/${negocioId}/productos`, d => setProductos((d.productos || []).filter((p: any) => !['RENUNCIADO', 'NO_ADJUDICADA'].includes(p.subestado)))),
+        traer(`/api/compras/${negocioId}/productos`, d => { setProductos((d.productos || []).filter((p: any) => !['RENUNCIADO', 'NO_ADJUDICADA'].includes(p.subestado))); setLinksCosteo(d.linksCosteo || {}); }),
         traer(`/api/compras/${negocioId}/sugerencias-historial`, d => setSugerenciasHistorial(d.productos || [])),
         traer(`/api/compras/${negocioId}/agente-documentos`, d => setUsoAgente(d.usoHoy)),
       ]);
@@ -650,6 +654,9 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
 
   return (
     <div className="space-y-3">
+      {/* Lo primero: cada producto con su cotización por link (la del costeo) y su cotización con documento. */}
+      <CoberturaCotizaciones productos={productos} cotizaciones={cotizaciones} costeado={costeado} linksCosteo={linksCosteo} />
+
       {/* Aviso proactivo (pedido explícito, 14-sep-2026): "ojo, le hemos comprado esto antes" —
           cruza los productos de ESTE negocio contra el historial real de compras, 100% local (ya
           no pega contra Obuma en vivo). Se ve apenas se carga la pantalla, sin que nadie lo pida. */}
@@ -1079,9 +1086,12 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
         </Banner>
       )}
 
-      <CoberturaCotizaciones productos={productos} cotizaciones={cotizaciones} costeado={costeado} />
-
-      <MatrizPrecios productos={productos} cotizaciones={cotizaciones} costeado={costeado} seleccion={seleccion} onSeleccionar={setSeleccion}
+      <MatrizPrecios productos={productos} cotizaciones={cotizaciones} costeado={costeado} linksCosteo={linksCosteo}
+        lecturaLink={lecturaLink}
+        onCompraPorLink={puedeOperar ? (productoId, d) => {
+          window.dispatchEvent(new CustomEvent('compras:pestana', { detail: { clave: 'productos' } }));
+          setTimeout(() => window.dispatchEvent(new CustomEvent('compras:compra-directa', { detail: { productoId, ...d } })), 50);
+        } : undefined} seleccion={seleccion} onSeleccionar={setSeleccion}
         tecnico={tecnicoPorCelda(fichas.panel, cotizaciones)}
         onAgregar={puedeOperar ? (cotizacionId) => { const c = cotizaciones.find(x => x.id === cotizacionId); if (c) { abrirAsignacion(c); setTimeout(() => document.getElementById(`cotizacion-${cotizacionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); } } : undefined}
         compra={compra} onElegirCelda={puedeOperar ? elegirCelda : undefined} onComprarTodoAqui={puedeOperar ? comprarTodoAqui : undefined}

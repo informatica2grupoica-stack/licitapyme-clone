@@ -469,7 +469,7 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
       </div>
 
       {/* Monto + cierre (fecha + hora Chile) */}
-      <div className="flex-shrink-0 w-32 text-right hidden sm:block">
+      <div className="flex-shrink-0 w-40 text-right hidden sm:block whitespace-nowrap">
         <p className="text-[11.5px] font-bold text-emerald-700">{formatMonto(neg.licitacion_monto)}</p>
         {neg.monto_ofertado > 0 && <p className="text-[9.5px] text-slate-400">Ofertó {formatMonto(neg.monto_ofertado)}</p>}
         {neg.licitacion_cierre && (
@@ -483,7 +483,7 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
       </div>
 
       {/* Badges: viabilidad + docs + semáforo de frescura */}
-      <div className="flex-shrink-0 hidden lg:flex items-center justify-end gap-1.5 w-44">
+      <div className="flex-shrink-0 hidden lg:flex items-center justify-end gap-1.5 w-[300px] whitespace-nowrap">
         {viab && (
           <span style={{ backgroundColor: viab.color + '18', color: viab.color, borderColor: viab.color + '40' }}
             className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border flex-shrink-0" title={`Viabilidad: ${viab.label}`}>

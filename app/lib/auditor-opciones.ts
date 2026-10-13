@@ -77,7 +77,9 @@ export interface TecnicoDTO {
   /** true = el resultado es de la comparación anterior (prompt v2.0), guardada antes del comparador v3.0: se muestra como historial. */
   legado?: boolean;
 }
-export interface CapturaDTO { id: number; respaldoId: number | null; url: string; estado: string; titulo: string | null; capturadoAt: string; hayImagen: boolean }
+export interface CapturaDTO { id: number; respaldoId: number | null; url: string; estado: string; titulo: string | null; capturadoAt: string; hayImagen: boolean;
+  /** La página decía «PRODUCTO AGOTADO» o su ficha estructurada marcaba OutOfStock/SoldOut. */
+  agotado?: boolean }
 export interface LineaAuditorDTO {
   filaId: string; item: number; lineaReal: number | null; detalle: string; unidad: string; cantidad: number | null;
   costeadoNeto: number | null; precioVentaUnitario: number | null; links: string[];
@@ -159,7 +161,9 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
     ultimosMercados(negocioId), opcionesConJustificacion(negocioId), ultimasCostoIA(negocioId),
     pool.query(`SELECT * FROM auditor_opcion WHERE negocio_id = ? ORDER BY id`, [negocioId]) as Promise<any>,
     pool.query(`SELECT * FROM auditor_respaldo WHERE negocio_id = ? ORDER BY id`, [negocioId]) as Promise<any>,
-    pool.query(`SELECT id, opcion_id, respaldo_id, url, estado_link, titulo, capturado_at, (imagen IS NOT NULL) AS hay_imagen FROM auditor_captura WHERE negocio_id = ? ORDER BY id DESC`, [negocioId]) as Promise<any>,
+    pool.query(`SELECT id, opcion_id, respaldo_id, url, estado_link, titulo, capturado_at, (imagen IS NOT NULL) AS hay_imagen,
+      (texto LIKE '%disponibilidad=OutOfStock%' OR texto LIKE '%disponibilidad=SoldOut%' OR texto LIKE '%PRODUCTO AGOTADO%') AS agotado
+      FROM auditor_captura WHERE negocio_id = ? ORDER BY id DESC`, [negocioId]) as Promise<any>,
     correccionesDeCosto(negocioId), ultimasSegundasPasadasV3(negocioId), respaldosDeCeldas(negocioId), ultimasVerificaciones(negocioId, true), habilitacionesYDeclaraciones(negocioId),
     pool.query(`SELECT id, documento_nombre, documento_url_local FROM documentos_cache
      WHERE licitacion_codigo = ? AND subcategoria = 'cotizaciones' AND documento_url_local IS NOT NULL ORDER BY created_at ASC`, [licitacionCodigo]) as Promise<any>,
@@ -176,7 +180,8 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
   const capturasPorOpcion = new Map<number, CapturaDTO[]>();
   for (const c of caRows as any[]) if (c.opcion_id != null)
     (capturasPorOpcion.get(c.opcion_id) || capturasPorOpcion.set(c.opcion_id, []).get(c.opcion_id)!).push({
-      id: c.id, respaldoId: c.respaldo_id, url: c.url, estado: c.estado_link, titulo: s(c.titulo), capturadoAt: fechaS(c.capturado_at) || '', hayImagen: !!c.hay_imagen });
+      id: c.id, respaldoId: c.respaldo_id, url: c.url, estado: c.estado_link, titulo: s(c.titulo), capturadoAt: fechaS(c.capturado_at) || '', hayImagen: !!c.hay_imagen,
+      agotado: !!Number(c.agotado) });
   const ultimaPorUrl = new Map<string, any>();
   for (const e of extsRes[0] as any[]) if (!ultimaPorUrl.has(e.documento_url)) ultimaPorUrl.set(e.documento_url, e);
   const extIds = (reRows as any[]).map(r => r.extraccion_id).filter((x: any) => x != null);

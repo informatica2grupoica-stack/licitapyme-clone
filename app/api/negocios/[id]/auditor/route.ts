@@ -14,7 +14,7 @@ import { invalidarEnVuelo } from '@/app/lib/en-vuelo';
 import { contextoAuditor } from '@/app/lib/auditor-acceso';
 import {
   armarPanelAuditorCompartido, cargarEstadoCosteo, leerDocumentoYCrearOpciones, crearOpcionesDesdeExtraccion, asignarProductoALinea, cambiarVia, descartarOpcion, restaurarOpcion, moverOpcionALinea,
-  firmarOpcion, quitarFirma, solicitarAprobacion, resolverAprobacion, agregarLinkALinea, sugerirLineasDelNegocio, ignorarProductoSinLinea, crearOpcionManual, agregarFichaAOpcion, corregirCostoOpcion, quitarCorreccionCosto, buscarFichaEnLink, traerFichaDeLink, verificarMercadoDeOpcion, justificarAhorroDeOpcion, verificarCostoIADeOpcion, releerDocumento,
+  firmarOpcion, quitarFirma, solicitarAprobacion, resolverAprobacion, agregarLinkALinea, revisitarLinkDeOpcion, sugerirLineasDelNegocio, ignorarProductoSinLinea, crearOpcionManual, agregarFichaAOpcion, corregirCostoOpcion, quitarCorreccionCosto, buscarFichaEnLink, traerFichaDeLink, verificarMercadoDeOpcion, justificarAhorroDeOpcion, verificarCostoIADeOpcion, releerDocumento,
   verificarTecnicoDeOpcion, confirmarCeldaTecnica, respaldarCeldaTecnica,
 } from '@/app/lib/auditor-opciones';
 import { generarPosicionAuditor, ultimaPosicion } from '@/app/lib/auditor-posicion';
@@ -179,6 +179,11 @@ export async function POST(request: NextRequest, { params }: Params) {
       case 'agregar_link': {
         const r = await agregarLinkALinea(negocio.id, String(body.filaId || ''), String(body.url || ''), actor);
         return NextResponse.json({ success: true, ...r });
+      }
+      case 'revisitar_link': {
+        // Vuelve a visitar el link de la opción y compara con la captura anterior (si el precio cambió, nace un respaldo nuevo).
+        const cambios = await revisitarLinkDeOpcion(negocio.id, opcionId, actor);
+        return NextResponse.json({ success: true, cambios });
       }
       case 'aprobar':
       case 'rechazar':
