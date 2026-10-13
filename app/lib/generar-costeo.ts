@@ -113,18 +113,8 @@ function rellenarCosteo(
   items: ManifiestoLinea[],
   precioDe?: (it: ManifiestoLinea) => PrecioMercadoItem | null,
 ): { n: number; filaPresupuesto: number } {
-  const N = items.length;
-  if (N === 0) return { n: 0, filaPresupuesto: FILA_ITEM_1 + 20 + OFFSET_PRESUPUESTO };
-
-  const { totalsRow, baseRows } = detectarEstructura(ws);
-  let delta = 0;
-  if (N > baseRows) {
-    delta = N - baseRows;
-    ws.duplicateRow(FILA_MODELO, delta, true); // clona la fila modelo (fórmulas + estilo)
-  }
-
-  items.forEach((it, i) => {
-    const r = FILA_ITEM_1 + i;
+  return rellenarHoja(ws, items.length, (r, i) => {
+    const it = items[i];
     ws.getCell(`A${r}`).value = i + 1;                                    // ITEM
     ws.getCell(`B${r}`).value = detalleDe(it);                           // Detalle de producto
     ws.getCell(`C${r}`).value = (it.unidad_medida || '').trim() || 'UN'; // Unidad de medida
@@ -145,6 +135,36 @@ function rellenarCosteo(
       if (alt[2]?.link) ws.getCell(`V${r}`).value = { text: alt[2].link, hyperlink: alt[2].link } as any; // Link 3
     }
   });
+}
+
+// Esqueleto común de rellenarCosteo y del export del costeo digital: expande el bloque de ítems
+// a N filas, deja que `escribirFila` llene cada una y corrige las referencias del resumen.
+function rellenarHoja(
+  ws: ExcelJS.Worksheet,
+  N: number,
+  escribirFila: (r: number, i: number) => void,
+): { n: number; filaPresupuesto: number } {
+  if (N === 0) return { n: 0, filaPresupuesto: FILA_ITEM_1 + 20 + OFFSET_PRESUPUESTO };
+
+  const { totalsRow, baseRows } = detectarEstructura(ws);
+  let delta = 0;
+  if (N > baseRows) {
+    delta = N - baseRows;
+    ws.duplicateRow(FILA_MODELO, delta, true); // clona la fila modelo (fórmulas + estilo)
+    // Las filas clonadas quedan como copias de una fórmula COMPARTIDA cuyo rango (p.ej. G4:G23) no
+    // las cubre, y Excel rechaza el archivo ("no se puede abrir"/reparar) — pasaba con >20 ítems.
+    // Se reescribe cada celda compartida del bloque como fórmula propia, ya trasladada a su fila.
+    for (let r = FILA_ITEM_1; r < FILA_ITEM_1 + N; r++) {
+      ws.getRow(r).eachCell(cell => {
+        const v = cell.value as any;
+        if (v && typeof v === 'object' && (v.sharedFormula || v.shareType === 'shared')) {
+          cell.value = { formula: cell.formula } as any;
+        }
+      });
+    }
+  }
+
+  for (let i = 0; i < N; i++) escribirFila(FILA_ITEM_1 + i, i);
 
   // Si hay MENOS ítems que filas base, limpiar los placeholders sobrantes ("Producto N")
   // para que no aparezcan filas dummy entre los ítems reales y los totales.
@@ -220,6 +240,41 @@ async function cargarPlantilla(): Promise<ExcelJS.Workbook> {
   return wb;
 }
 
+// Deja el libro con una hoja de costeo por nombre y AUDITORIA al final. La primera reutiliza la
+// hoja "Costeo" de la plantilla (renombrada); las demás la clonan. nombres = null → solo "Costeo".
+function hojasDeCosteo(wb: ExcelJS.Workbook, nombres: string[] | null): ExcelJS.Worksheet[] {
+  const src = wb.getWorksheet(HOJA_COSTEO) || wb.worksheets[0];
+  if (!nombres) return [src];
+  // Modelo limpio de la hoja Costeo para clonar los grupos siguientes.
+  const baseModel = JSON.parse(JSON.stringify(src.model));
+  // Sacar AUDITORIA y recrearla AL FINAL (pestañas queden grupo1..n | AUDITORIA).
+  const au = wb.getWorksheet(HOJA_AUDITORIA);
+  const audModel = au ? JSON.parse(JSON.stringify(au.model)) : null;
+  if (au) wb.removeWorksheet(au.id);
+
+  const usados = new Set<string>([HOJA_AUDITORIA.toLowerCase()]);
+  const hojas = nombres.map((raw, k) => {
+    const nombre = nombreHojaValido(raw, usados, `HOJA${k + 1}`);
+    if (k === 0) { src.name = nombre; return src; }
+    const ws = wb.addWorksheet(nombre);
+    const m = JSON.parse(JSON.stringify(baseModel));
+    m.name = nombre;
+    ws.model = m;
+    ws.name = nombre;
+    return ws;
+  });
+
+  // Recrear AUDITORIA al final, con su estilo original.
+  if (audModel) {
+    const au2 = wb.addWorksheet(HOJA_AUDITORIA);
+    const m = JSON.parse(JSON.stringify(audModel));
+    m.name = HOJA_AUDITORIA;
+    au2.model = m;
+    au2.name = HOJA_AUDITORIA;
+  }
+  return hojas;
+}
+
 // ─── Función principal ────────────────────────────────────────────────────────
 
 export async function generarCosteoExcel(d: DatosCosteo): Promise<Buffer> {
@@ -243,14 +298,6 @@ export async function generarCosteoExcel(d: DatosCosteo): Promise<Buffer> {
   const multiHoja = (d.modalidad === 'por_categoria' || d.modalidad === 'por_linea') && grupos.length > 1;
 
   if (multiHoja) {
-    const src = wb.getWorksheet(HOJA_COSTEO)!;
-    // Modelo limpio de la hoja Costeo para clonar los grupos siguientes.
-    const baseModel = JSON.parse(JSON.stringify(src.model));
-    // Sacar AUDITORIA y recrearla AL FINAL (pestañas queden grupo1..n | AUDITORIA).
-    const au = wb.getWorksheet(HOJA_AUDITORIA);
-    const audModel = au ? JSON.parse(JSON.stringify(au.model)) : null;
-    if (au) wb.removeWorksheet(au.id);
-
     // Agrupar respetando el tope de hojas (los grupos sobrantes se acumulan en el último).
     const acotados: GrupoCosteo[] = [];
     grupos.forEach((g, idx) => {
@@ -261,22 +308,10 @@ export async function generarCosteoExcel(d: DatosCosteo): Promise<Buffer> {
       }
     });
 
-    const usados = new Set<string>([HOJA_AUDITORIA.toLowerCase()]);
+    // por_linea usa LINEAn; por_categoria usa el nombre de la categoría saneado.
+    const hojas = hojasDeCosteo(wb, acotados.map((g, k) => d.modalidad === 'por_linea' ? `LINEA${k + 1}` : g.nombre));
     acotados.forEach((g, k) => {
-      // por_linea usa LINEAn; por_categoria usa el nombre de la categoría saneado.
-      const raw = d.modalidad === 'por_linea' ? `LINEA${k + 1}` : g.nombre;
-      const nombre = nombreHojaValido(raw, usados, `HOJA${k + 1}`);
-      let ws: ExcelJS.Worksheet;
-      if (k === 0) {
-        ws = src;            // el primer grupo reutiliza la hoja "Costeo" (renombrada).
-        ws.name = nombre;
-      } else {
-        ws = wb.addWorksheet(nombre);
-        const m = JSON.parse(JSON.stringify(baseModel));
-        m.name = nombre;
-        ws.model = m;
-        ws.name = nombre;
-      }
+      const ws = hojas[k];
       const { filaPresupuesto } = rellenarCosteo(ws, g.items, precioDe);
       // por_linea: manda el presupuesto DE ESA línea si las bases lo especifican (mismo valor
       // en todos los ítems del grupo, ver ManifiestoLinea.presupuesto_linea); si no está
@@ -285,20 +320,11 @@ export async function generarCosteoExcel(d: DatosCosteo): Promise<Buffer> {
         ? g.items.map(it => it.presupuesto_linea).find((v): v is number => v != null && v > 0) ?? null
         : null;
       escribirPresupuesto(ws, filaPresupuesto, presupuestoLinea ?? d.presupuesto_bruto ?? null);
-      g.items.forEach((it, i) => { refs.push({ hoja: nombre, fila: FILA_ITEM_1 + i }); itemsOrden.push(it); });
+      g.items.forEach((it, i) => { refs.push({ hoja: ws.name, fila: FILA_ITEM_1 + i }); itemsOrden.push(it); });
     });
-
-    // Recrear AUDITORIA al final, con su estilo original.
-    if (audModel) {
-      const au2 = wb.addWorksheet(HOJA_AUDITORIA);
-      const m = JSON.parse(JSON.stringify(audModel));
-      m.name = HOJA_AUDITORIA;
-      au2.model = m;
-      au2.name = HOJA_AUDITORIA;
-    }
   } else {
     // suma_alzada (o una sola categoría/línea): TODOS los ítems en la hoja "Costeo".
-    const ws = wb.getWorksheet(HOJA_COSTEO) || wb.worksheets[0];
+    const [ws] = hojasDeCosteo(wb, null);
     const todos = grupos.flatMap(g => g.items);
     const { filaPresupuesto } = rellenarCosteo(ws, todos, precioDe);
     escribirPresupuesto(ws, filaPresupuesto, d.presupuesto_bruto ?? null);
@@ -310,6 +336,81 @@ export async function generarCosteoExcel(d: DatosCosteo): Promise<Buffer> {
   // Hoja auditable de precios de mercado (solo si se cotizó).
   if (precioLookup.size) agregarHojaPreciosMercado(wb, itemsOrden, precioDe!);
 
+  const buf = await wb.xlsx.writeBuffer();
+  return Buffer.from(buf as ArrayBuffer);
+}
+
+// ─── Export del costeo DIGITAL (el que se edita en pantalla) ─────────────────
+// Mismo libro que generarCosteoExcel —misma plantilla V3, mismas hojas (Costeo o una por
+// línea/categoría), mismo resumen y misma AUDITORIA— pero con lo que el usuario ya cargó en el
+// editor: proveedor, valor c/IVA, recargo de cada fila, costo REAL y links. Las columnas
+// calculadas siguen siendo las fórmulas de la plantilla; solo el multiplicador de "Precio unitario
+// venta" (I) se escribe fila por fila, igual que en el Excel del asistente.
+
+export interface FilaExportCosteo {
+  detalle: string;
+  unidad: string;
+  sku: string;
+  cantidad: number | null;
+  valorConIva: number | null;
+  recargo: number;                     // % sobre el costo → I = G × (1 + recargo/100)
+  costoRealUnitario: number | null;
+  costoAdicionalNeto: number | null;   // costo adicional a mano: va directo en H (sin cantidad ni precio)
+  links: string[];                     // Link 1/2/3
+}
+
+export interface HojaExportCosteo {
+  nombre: string;
+  presupuestoConIva: number | null;
+  filas: FilaExportCosteo[];
+}
+
+export async function generarCosteoExcelDesdeEditor(hojasIn: HojaExportCosteo[], multiHoja: boolean): Promise<Buffer> {
+  const wb = await cargarPlantilla();
+  const hojasDatos = hojasIn.filter(h => h.filas.length > 0);
+  const multi = multiHoja && hojasDatos.length > 1;
+  const datos: HojaExportCosteo[] = multi ? hojasDatos : [{
+    nombre: HOJA_COSTEO,
+    filas: hojasDatos.flatMap(h => h.filas),
+    // Una sola hoja: su tope; si se juntaron varias, la suma de los que se conocen.
+    presupuestoConIva: hojasDatos.length === 1 ? hojasDatos[0].presupuestoConIva
+      : hojasDatos.reduce<number | null>((s, h) => h.presupuestoConIva != null ? (s ?? 0) + h.presupuestoConIva : s, null),
+  }];
+  const hojas = hojasDeCosteo(wb, multi ? datos.map(h => h.nombre) : null);
+  const refs: Array<{ hoja: string; fila: number }> = [];
+
+  datos.forEach((h, k) => {
+    const ws = hojas[k];
+    const { filaPresupuesto } = rellenarHoja(ws, h.filas.length, (r, i) => {
+      const f = h.filas[i];
+      ws.getCell(`A${r}`).value = i + 1;
+      ws.getCell(`B${r}`).value = f.detalle;
+      ws.getCell(`C${r}`).value = f.unidad || 'UN';
+      ws.getCell(`D${r}`).value = f.sku || null;
+      ws.getCell(`E${r}`).value = f.cantidad;
+      ws.getCell(`F${r}`).value = f.valorConIva;
+      ws.getCell(`L${r}`).value = f.costoRealUnitario;
+      ['S', 'T', 'V'].forEach((col, j) => {
+        const l = f.links[j];
+        if (l) ws.getCell(`${col}${r}`).value = { text: l, hyperlink: l } as any;
+      });
+    });
+    // H e I vienen como fórmulas compartidas desde la fila 4: pisar una sola celda deja huérfanas
+    // a las demás, así que se reescribe el bloque entero. H lleva el costo adicional a mano donde lo
+    // hay (en vez de E×G) e I el recargo de cada fila (las sobrantes quedan con el de la hoja).
+    const { totalsRow } = detectarEstructura(ws);
+    const recargoHoja = h.filas[0]?.recargo ?? 0;
+    for (let r = FILA_ITEM_1; r < totalsRow; r++) {
+      const f = h.filas[r - FILA_ITEM_1];
+      ws.getCell(`H${r}`).value = f?.costoAdicionalNeto != null ? f.costoAdicionalNeto : { formula: `E${r}*G${r}` } as any;
+      const recargo = f?.recargo ?? recargoHoja;
+      ws.getCell(`I${r}`).value = { formula: `G${r}*${+(1 + recargo / 100).toFixed(6)}` } as any;
+    }
+    escribirPresupuesto(ws, filaPresupuesto, h.presupuestoConIva);
+    h.filas.forEach((_, i) => refs.push({ hoja: ws.name, fila: FILA_ITEM_1 + i }));
+  });
+
+  reconstruirAuditoria(wb, refs);
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf as ArrayBuffer);
 }

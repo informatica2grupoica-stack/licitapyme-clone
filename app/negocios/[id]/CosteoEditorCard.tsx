@@ -35,7 +35,7 @@ import { useCosteoFlotante, type CosteoEstadoHeredado } from '@/app/components/C
 // misma aritmética que el bloque que el comercial arma a mano al pie del Excel. Módulo sin
 // dependencias, compartido — acá NO se duplica ninguna de esas fórmulas.
 import { calcularComparativo, entradaComparativoDeFilas, costoRealDeFila, alertasDeDesvio, recargoParaMargen, margenDeRecargo, parsearRecargo, esLinkDeProducto, IVA, type Comparativo } from '@/app/lib/costeo-comparativo';
-import { IconCalculator as Calculator, IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconRefresh as RefreshCw, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconShieldCheck as ShieldCheck, IconSparkles as Sparkles, IconMaximize as Maximize2, IconX as X, IconExternalLink as ExternalLink, IconArrowLeft as ArrowLeft, IconLayoutBoardSplit as SplitSquareHorizontal, IconArrowMerge as Combine, IconFileSearch as FileSearch, IconLink as LinkIcon, IconPictureInPicture as PictureInPicture2, IconMinimize as Minimize2, IconEye as Eye, IconPhotoPlus as PhotoPlus, IconFileSpreadsheet as FileSpreadsheet } from '@tabler/icons-react';
+import { IconCalculator as Calculator, IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconRefresh as RefreshCw, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconShieldCheck as ShieldCheck, IconSparkles as Sparkles, IconMaximize as Maximize2, IconX as X, IconExternalLink as ExternalLink, IconArrowLeft as ArrowLeft, IconLayoutBoardSplit as SplitSquareHorizontal, IconArrowMerge as Combine, IconFileSearch as FileSearch, IconLink as LinkIcon, IconPictureInPicture as PictureInPicture2, IconMinimize as Minimize2, IconEye as Eye, IconPhotoPlus as PhotoPlus, IconFileSpreadsheet as FileSpreadsheet, IconDownload as Download } from '@tabler/icons-react';
 
 const MARGEN_VENTA_DEFECTO = 27;
 
@@ -942,6 +942,7 @@ export function CosteoEditorCard({
   };
   const [verImagen, setVerImagen] = useState<{ url: string; detalle: string } | null>(null);
   const [importando, setImportando] = useState(false);
+  const [exportando, setExportando] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
@@ -1217,6 +1218,26 @@ export function CosteoEditorCard({
     } finally { setImportando(false); }
   };
 
+  // Exportar este costeo digital (lo que está en pantalla, guardado o no) al MISMO Excel que el costeo
+  // automático: plantilla V3, una hoja por línea/categoría, resumen y AUDITORIA (ver exportar-excel).
+  const exportarExcel = async () => {
+    if (!estado) return;
+    setExportando(true);
+    try {
+      const presupuestos = estado.grupos.map(g => presupuestoDeHoja(g, estado.grupos, presupuestosPorLinea, presupuestoPublicado).valor);
+      const r = await fetch(`/api/negocios/${negocioId}/comercial/costeo-editor/exportar-excel`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado, presupuestos }),
+      });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); toast.error(d.error || 'No se pudo exportar el Excel'); return; }
+      const nombre = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '')?.[1] || `COSTEO_${licitacionCodigo}.xlsx`;
+      const url = URL.createObjectURL(await r.blob());
+      const a = document.createElement('a'); a.href = url; a.download = nombre; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e: any) {
+      toast.error(e?.message || 'Error de red al exportar el Excel');
+    } finally { setExportando(false); }
+  };
+
   const recargarDesdeViabilidad = async () => {
     if (!estado) return;
     setRecargando(true);
@@ -1451,6 +1472,15 @@ export function CosteoEditorCard({
                 onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) importarExcel(f); }} />
             </label>
           )}
+          <button
+            onClick={exportarExcel}
+            disabled={exportando}
+            title="Descarga este costeo en el mismo Excel que el costeo automático (plantilla, hojas por línea, resumen y AUDITORIA), con lo que está en pantalla aunque no esté guardado"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-semibold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors disabled:opacity-50"
+          >
+            {exportando ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+            Exportar Excel
+          </button>
           <button
             onClick={guardar}
             disabled={guardando || (congelado && !modoCompras) || !dirty || (!modoCompras && sinLink.length > 0)}

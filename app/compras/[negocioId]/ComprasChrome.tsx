@@ -629,7 +629,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                       <ExternalLink size={10} /> Ver en Mercado Público
                     </a>
                   )}
-                  {ocMp?.codigo && (
+                  {ocMp?.pdfUrl && (
                     <button type="button" onClick={verPdfOC} disabled={cargandoPdfOC}
                       className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-indigo-600 hover:text-indigo-700 disabled:opacity-50">
                       {cargandoPdfOC ? <Loader2 size={10} className="animate-spin" /> : <FileText size={10} />} PDF de la orden
