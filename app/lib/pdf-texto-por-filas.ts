@@ -32,7 +32,8 @@ export function filasDeTrozos(trozos: Trozo[]): string {
         const alto = Math.max(t.h, 6);
         const sep = hueco > alto * 16 ? SEP_COLUMNA : hueco > alto * 1.5 ? SEP_CELDA : (/\s$/.test(out) || /^\s/.test(t.s) ? '' : ' ');
         // Cota suelta de un dibujo (número tras un salto de columna, con la fila ya completa): no es parte de la tabla.
-        if (sep === SEP_COLUMNA && i >= 3 && /^[\d.,°\s]+$/.test(t.s)) return;
+        // Solo si es lo último de la fila: un número con más celdas a su derecha es una columna de tabla (la CANT. de una cotización).
+        if (sep === SEP_COLUMNA && i >= 3 && i === fila.length - 1 && /^[\d.,°\s]+$/.test(t.s)) return;
         out += sep + (sep === '' ? t.s : t.s.trim());
       }
       finPrevio = t.x + t.w;

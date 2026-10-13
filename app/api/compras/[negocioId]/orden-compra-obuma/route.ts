@@ -58,6 +58,9 @@ async function __POST(request: NextRequest, { params }: Params) {
     if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
+    if (asignacion.precompra)
+      return NextResponse.json({ error: 'Esto es una pre-compra: aún no hay adjudicación firme, así que no se pueden emitir órdenes de compra a proveedores.' }, { status: 409 });
+
     const body = await request.json();
     const proveedorNombre = String(body.proveedorNombre || '').trim();
     if (!proveedorNombre) return NextResponse.json({ error: 'Falta el proveedor.' }, { status: 400 });

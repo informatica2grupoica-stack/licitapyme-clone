@@ -762,15 +762,16 @@ export async function listarOrdenesCompra(
 }
 
 /** Las órdenes de compra de UNA licitación, listas para la sección "Resultado". */
-export async function ordenesDeLicitacion(codigo: string): Promise<OrdenCompraFila[]> {
+/** `codigoOC` opcional: una orden ya enganchada a mano/por tipo distinto (LE26 → R126) cuyo código de licitación no calza exacto. */
+export async function ordenesDeLicitacion(codigo: string, codigoOC?: string | null): Promise<OrdenCompraFila[]> {
   const [rows] = await pool.query(
     `SELECT codigo, nombre, estado, codigo_estado, tipo, fecha_creacion, fecha_envio, fecha_aceptacion,
             moneda, total_neto, total, comprador_organismo, comprador_unidad, comprador_contacto,
             comprador_mail, comprador_rut, raw_json, items_json, es_nuestra, proveedor_nombre, pdf_url
        FROM ordenes_compra
-      WHERE licitacion_codigo = ?
+      WHERE licitacion_codigo = ? OR codigo = ?
       ORDER BY es_nuestra DESC, COALESCE(fecha_envio, fecha_creacion) DESC, codigo DESC`,
-    [codigo],
+    [codigo, codigoOC || codigo],
   ) as any[];
 
   return (rows as any[]).map(r => {

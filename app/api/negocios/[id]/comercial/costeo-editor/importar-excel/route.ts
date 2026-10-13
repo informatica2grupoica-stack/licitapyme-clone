@@ -54,15 +54,21 @@ export async function POST(request: NextRequest, { params }: Params) {
   const rol = request.headers.get('x-user-rol');
   const userId = idH ? parseInt(idH) : null;
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (rol !== 'admin' && !(await permisosCrudosDeUsuario(userId)).costeo_editor)
-    return NextResponse.json({ error: 'El costeo del sistema está habilitado solo para administradores o para quien tenga el permiso "Costeo — trabajarlo".' }, { status: 403 });
+  // Importar está abierto a TODOS los que pueden ver el costeo (13-oct-2026, pedido del usuario): admin,
+  // permiso «Costeo» y perfil de Compras. Solo exportar queda para admin. Esta ruta no guarda nada: lo
+  // importado pasa por el guardado de cada perfil (Compras solo conserva costo real, links y sus filas).
+  const permisos = await permisosCrudosDeUsuario(userId);
+  const puedeTrabajar = rol === 'admin' || !!permisos.costeo_editor;
+  const esCompras = !puedeTrabajar && !!(permisos.compras_ver || permisos.compras_todo || permisos.compras);
+  if (!puedeTrabajar && !esCompras) return NextResponse.json({ error: 'Sin acceso al costeo' }, { status: 403 });
   const { id } = await params;
 
   try {
     const negocio = await cargarNegocio(id);
     if (!negocio) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
-    if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a))) return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
-    if (await yaCongelado(negocio.id, rol)) return NextResponse.json({ error: 'Este negocio ya se postuló: el costeo quedó congelado, de solo lectura.' }, { status: 409 });
+    // Compras ve todos los negocios del módulo y trabaja sobre costeos ya congelados (igual que el GET/PATCH del editor).
+    if (!esCompras && !(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a))) return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
+    if (!esCompras && await yaCongelado(negocio.id, rol)) return NextResponse.json({ error: 'Este negocio ya se postuló: el costeo quedó congelado, de solo lectura.' }, { status: 409 });
 
     const form = await request.formData().catch(() => null);
     const file = form?.get('file');

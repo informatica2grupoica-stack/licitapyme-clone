@@ -19,7 +19,7 @@ import { GanttComprasCard } from '@/app/negocios/[id]/GanttComprasCard';
 import type { FaseTarea, HitosGantt as HitosPlan } from '@/app/lib/compras-plan';
 import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconBuilding as Building2, IconArrowUpRight as ArrowUpRight, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconUsers as Users, IconArrowsUpDown as ArrowUpDown, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconUserPlus as UserPlus, IconCircleCheck as CheckCircle2, IconChartBar as BarChart3, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconChevronsLeft as ChevronsLeft, IconChevronsRight as ChevronsRight, IconList as List, IconPackage as PackageCheck, IconCircleX as XCircle, IconArchive as Archive, IconArrowBackUp as Undo2, IconPencil as Pencil, IconTimeline as GanttChart, IconZoomIn as ZoomIn, IconZoomOut as ZoomOut, IconDiamond as Diamond, IconCalendarClock as CalendarClock, IconLayoutSidebarRightCollapse as PanelRightClose } from '@tabler/icons-react';
 
-type CierreLegado = 'ENTREGADA' | 'NO_REALIZADA';
+type CierreLegado = 'ENTREGADA' | 'NO_REALIZADA' | 'PRECOMPRA_SIN_ADJUDICAR';
 type EstadoTareaGantt = 'PENDIENTE' | 'EN_CURSO' | 'HECHA';
 
 interface TareaGantt {
@@ -37,6 +37,8 @@ interface ComprasFila {
   tareasTotal: number; tareasHechas: number; tareasVencidas: number;
   ocFecha: string | null;
   cierreLegado: CierreLegado | null;
+  precompra: boolean;
+  adjudicacionEstimadaAt: string | null;
   plazoEntregaDias: number | null;
   postuladoPorNombre: string | null;
   plazoAceptacionOCDias: number | null;
@@ -155,13 +157,16 @@ function AccionesCierreLegado({ f, onCambio }: { f: ComprasFila; onCambio: () =>
           f.cierreLegado === 'ENTREGADA' ? 'text-emerald-700 bg-emerald-50' : 'text-zinc-500 bg-zinc-100'
         }`}>
           {f.cierreLegado === 'ENTREGADA' ? <PackageCheck size={11} /> : <XCircle size={11} />}
-          {f.cierreLegado === 'ENTREGADA' ? 'Entregada (histórico)' : 'No realizada (histórico)'}
+          {f.cierreLegado === 'ENTREGADA' ? 'Entregada (histórico)' : f.cierreLegado === 'PRECOMPRA_SIN_ADJUDICAR' ? 'Pre-compra sin adjudicar' : 'No realizada (histórico)'}
         </span>
         <button onClick={deshacer} disabled={cargando} title="Deshacer"
           className="text-zinc-400 hover:text-zinc-600 disabled:opacity-50"><Undo2 size={13} /></button>
       </div>
     );
   }
+
+  // Una pre-compra (aún sin adjudicación firme) no se entrega ni se da por no realizada: se cierra sola según el estado de la licitación.
+  if (f.precompra) return null;
 
   // Auditoría 07-oct-2026: estos dos eran botones de UN clic con aspecto de etiqueta de estado y cerraban el negocio sin preguntar.
   // Ahora dicen que son acciones y piden confirmar (sin diálogos del navegador: segundo clic dentro de 5 s).
@@ -226,7 +231,15 @@ function FilaCompras({ f, esJefeDeVentas, esAdmin, candidatos, onAsignado, ultim
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-[11px] font-mono text-zinc-400">{f.licitacionCodigo}</p>
             {ultimaUrgente && <ChipUltimaGanada />}
-            <span className="text-[10.5px] text-zinc-500" title={`Ganado ${fmtFecha(f.ganadoAt)}`}>Ganada <b className="font-semibold">{haceCuanto(f.ganadoAt)}</b> · {diaHoraCorta(f.ganadoAt)}</span>
+            {f.precompra && (
+              <span title="Posible adjudicación: se puede cotizar y costear, pero aún no emitir órdenes de compra ni crear SKU en Obuma."
+                className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded-full cursor-help">
+                PRE-COMPRA
+              </span>
+            )}
+            <span className="text-[10.5px] text-zinc-500" title={f.precompra ? 'Fecha estimada de adjudicación según Mercado Público' : `Ganado ${fmtFecha(f.ganadoAt)}`}>{f.precompra
+                ? (f.adjudicacionEstimadaAt ? <>Adjudicación estimada <b className="font-semibold">{fmtFechaCorta(f.adjudicacionEstimadaAt)}</b></> : 'Sin fecha de adjudicación informada')
+                : <>Ganada <b className="font-semibold">{haceCuanto(f.ganadoAt)}</b> · {diaHoraCorta(f.ganadoAt)}</>}</span>
             {f.ocFecha && (
               <span className="inline-flex items-center gap-1 text-[10.5px] text-emerald-600">
                 <PackageCheck size={11} /> OC {fmtFechaCorta(f.ocFecha)}
@@ -673,6 +686,8 @@ function calcularHitosGantt(f: ComprasFila): HitosGantt {
 function estadoEntregaGantt(f: ComprasFila, h: HitosGantt): { texto: string; clase: string } {
   if (f.cierreLegado === 'ENTREGADA') return { texto: 'Entregada', clase: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
   if (f.cierreLegado === 'NO_REALIZADA') return { texto: 'No realizada', clase: 'bg-zinc-100 text-zinc-500 border-zinc-200' };
+  if (f.cierreLegado === 'PRECOMPRA_SIN_ADJUDICAR') return { texto: 'Pre-compra sin adjudicar', clase: 'bg-zinc-100 text-zinc-500 border-zinc-200' };
+  if (f.precompra) return { texto: 'Pre-compra (sin adjudicar aún)', clase: 'bg-indigo-50 text-indigo-700 border-indigo-200' };
   if (h.porValidar) return { texto: 'Inicio del plazo por validar', clase: 'bg-zinc-100 text-zinc-600 border-zinc-200' };
   if (h.faltaAceptar) return { texto: 'Falta aceptar la OC', clase: 'bg-amber-50 text-amber-800 border-amber-200' };
   if (h.esperandoOC) return h.ocAtrasada
@@ -722,8 +737,11 @@ function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaU
             <span className="text-[10.5px] font-semibold text-zinc-600">{fmtCLPCorto(f.montoNuestro)}</span>
           </div>
           <div className="flex items-center gap-1.5 mt-1">
-            {ultimaUrgente && <ChipUltimaGanada />}
-            <span className="text-[10px] text-zinc-500 whitespace-nowrap" title={`Ganado ${fmtFecha(f.ganadoAt)}`}>{ultimaUrgente ? '' : 'Ganada '}{haceCuanto(f.ganadoAt)} · {diaHoraCorta(f.ganadoAt)}</span>
+            {ultimaUrgente && !f.precompra && <ChipUltimaGanada />}
+            <span className="text-[10px] text-zinc-500 whitespace-nowrap" title={f.precompra ? 'Fecha estimada de adjudicación según Mercado Público' : `Ganado ${fmtFecha(f.ganadoAt)}`}>
+              {f.precompra ? (f.adjudicacionEstimadaAt ? `Adjudicación est. ${dayjs(f.adjudicacionEstimadaAt.slice(0, 10)).format('DD-MM-YYYY')}` : 'Sin fecha de adjudicación')
+                : <>{ultimaUrgente ? '' : 'Ganada '}{haceCuanto(f.ganadoAt)} · {diaHoraCorta(f.ganadoAt)}</>}
+            </span>
           </div>
         </div>
         {(() => {
@@ -746,6 +764,21 @@ function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaU
         {(() => {
           // UNA sola barra por licitación, con texto: primero «esperando la OC» (o «OC recibida»), después el plazo de entrega.
           // Antes había barra, puntos, rombo y fechas sueltas sin rótulo y no se entendían. Las tareas se ven en el panel (clic en la fila).
+          // Pre-compra: aún no hay adjudicación, así que NO se arma la secuencia OC → entrega. Solo se marca la fecha estimada que informa Mercado Público.
+          if (f.precompra) {
+            if (!f.adjudicacionEstimadaAt) return <span className="absolute text-[11px] text-zinc-400 whitespace-nowrap" style={{ left: 12, top: 29 }}>Mercado Público no informa fecha de adjudicación</span>;
+            const dAdj = dayjs(f.adjudicacionEstimadaAt.slice(0, 10));
+            const xa = x(dAdj);
+            const dd = dAdj.diff(dayjs().startOf('day'), 'day');
+            return (
+              <>
+                <Diamond size={18} className="absolute text-indigo-500 fill-indigo-100" style={{ left: xa - 9, top: 27 }} />
+                <span className="absolute text-[11px] font-bold text-indigo-700 whitespace-nowrap" style={{ left: xa + 14, top: 29 }}>
+                  {`Adjudicación estimada ${dAdj.format('DD-MM')} · ${dd < 0 ? `atrasada ${-dd} d` : dd === 0 ? 'hoy' : `en ${dd} d`}`}
+                </span>
+              </>
+            );
+          }
           const e = estadoEntregaGantt(f, h);
           const hoy = dayjs().startOf('day');
           const diasEntrega = h.entrega ? h.entrega.diff(hoy, 'day') : null;
@@ -1052,6 +1085,8 @@ export default function ComprasPage() {
   const [soloUrgentes, setSoloUrgentes] = useState(false);
   const [soloSinAsignar, setSoloSinAsignar] = useState(false);
   const [verCerradas, setVerCerradas] = useState(false);
+  // Pestaña: ganadas en firme o pre-compras (POSIBLE ADJ, sin adjudicación firme).
+  const [ambito, setAmbito] = useState<'ganadas' | 'precompras'>('ganadas');
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
   const [orden, setOrden] = useState<Orden>('reciente');
@@ -1083,6 +1118,7 @@ export default function ComprasPage() {
         if (typeof f.fechaDesde === 'string') setFechaDesde(f.fechaDesde);
         if (typeof f.fechaHasta === 'string') setFechaHasta(f.fechaHasta);
         if (f.orden === 'reciente' || f.orden === 'antiguo' || f.orden === 'monto_desc' || f.orden === 'monto_asc') setOrden(f.orden);
+        if (f.ambito === 'ganadas' || f.ambito === 'precompras') setAmbito(f.ambito);
         if (f.vista === 'lista' || f.vista === 'mes' || f.vista === 'gantt') setVista(f.vista);
         if (f.mesesVista === 1 || f.mesesVista === 2 || f.mesesVista === 3) setMesesVista(f.mesesVista);
       }
@@ -1096,13 +1132,15 @@ export default function ComprasPage() {
     try {
       sessionStorage.setItem(SS_COMPRAS_FILTROS, JSON.stringify({
         q, fAsignado, fOrganismo, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
-        soloUrgentes, soloSinAsignar, verCerradas, fechaDesde, fechaHasta, orden, vista, mesesVista,
+        soloUrgentes, soloSinAsignar, verCerradas, fechaDesde, fechaHasta, orden, vista, mesesVista, ambito,
       }));
     } catch { /* cuota llena */ }
   }, [hidratado, q, fAsignado, fOrganismo, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
-      soloUrgentes, soloSinAsignar, verCerradas, fechaDesde, fechaHasta, orden, vista, mesesVista]);
+      soloUrgentes, soloSinAsignar, verCerradas, fechaDesde, fechaHasta, orden, vista, mesesVista, ambito]);
 
   const cerradasCount = useMemo(() => negocios.filter(f => f.cierreLegado).length, [negocios]);
+  const nGanadas = useMemo(() => negocios.filter(f => !f.precompra && !f.cierreLegado).length, [negocios]);
+  const nPrecompras = useMemo(() => negocios.filter(f => f.precompra && !f.cierreLegado).length, [negocios]);
   const hayFiltro = fAsignado.length > 0 || fOrganismo.length > 0 || fPostulador.length > 0 || fOC !== 'todos'
     || !!montoMin || !!montoMax || !!plazoMin || !!plazoMax || soloTareasVencidas
     || soloUrgentes || soloSinAsignar || !!fechaDesde || !!fechaHasta;
@@ -1178,6 +1216,7 @@ export default function ComprasPage() {
     const nPlazoMin = plazoMin ? Number(plazoMin) : null;
     const nPlazoMax = plazoMax ? Number(plazoMax) : null;
     const arr = negocios.filter(f => {
+      if ((ambito === 'precompras') !== !!f.precompra) return false;
       if (qn) {
         const hay = [f.licitacionNombre, f.licitacionCodigo, f.licitacionOrganismo, f.asignadoNombre]
           .filter(Boolean).some(v => String(v).toLowerCase().includes(qn));
@@ -1216,7 +1255,7 @@ export default function ComprasPage() {
     arr.sort((a, b) => Number(b.urgente) - Number(a.urgente));
     return arr;
   }, [negocios, q, fAsignado, fOrganismo, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
-      soloUrgentes, soloSinAsignar, verCerradas, fechaDesde, fechaHasta, orden]);
+      soloUrgentes, soloSinAsignar, verCerradas, fechaDesde, fechaHasta, orden, ambito]);
   const urgentes = useMemo(() => filtrados.filter(f => f.urgente), [filtrados]);
   // La licitación que se ganó más recientemente (sea cual sea el orden elegido), urgente o no.
   const ultimaUrgente = useMemo(
@@ -1246,7 +1285,7 @@ export default function ComprasPage() {
               <p className="text-[12px] text-zinc-500">
                 {negocios.length === 0 ? 'Sin negocios ganados todavía'
                   : hayFiltro || q || (!verCerradas && cerradasCount > 0) ? `${filtrados.length} de ${negocios.length} negocio(s)`
-                  : `${negocios.length} negocio(s) ganado(s)`}
+                  : `${nGanadas} negocio(s) ganado(s)${nPrecompras > 0 ? ` · ${nPrecompras} pre-compra(s)` : ''}`}
               </p>
             </div>
           </div>
@@ -1300,6 +1339,23 @@ export default function ComprasPage() {
         </div>
 
         {error && <Banner variante="error" accion={{ label: 'Reintentar', onClick: cargar }}>{error}</Banner>}
+
+        {!loading && negocios.length > 0 && (
+          <div className="flex items-center gap-1 border-b border-zinc-200" role="tablist">
+            {([
+              { key: 'ganadas', label: 'Ganadas', n: nGanadas, clase: 'border-teal-600 text-teal-700' },
+              { key: 'precompras', label: 'Pre-compras (POSIBLE ADJ)', n: nPrecompras, clase: 'border-indigo-600 text-indigo-700' },
+            ] as const).map(t => (
+              <button key={t.key} role="tab" aria-selected={ambito === t.key} onClick={() => setAmbito(t.key)}
+                className={`inline-flex items-center gap-2 text-[13px] font-semibold px-3.5 py-2 -mb-px border-b-2 transition-colors ${
+                  ambito === t.key ? t.clase : 'border-transparent text-zinc-500 hover:text-zinc-700'
+                }`}>
+                {t.label}
+                <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${ambito === t.key ? (t.key === 'precompras' ? 'bg-indigo-50' : 'bg-teal-50') : 'bg-zinc-100'}`}>{t.n}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {!loading && negocios.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
@@ -1411,7 +1467,7 @@ export default function ComprasPage() {
           </div>
         )}
 
-        {!loading && ultimaUrgente && (
+        {!loading && ultimaUrgente && ambito === 'ganadas' && (
           <Link href={`/compras/${ultimaUrgente.negocioId}`} data-testid="ultima-urgente"
             className="flex items-center gap-3 flex-wrap rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100/70 px-4 py-2.5 transition-colors">
             <span className="w-8 h-8 rounded-full bg-rose-600 text-white flex items-center justify-center flex-shrink-0"><AlertTriangle size={15} /></span>
@@ -1435,13 +1491,13 @@ export default function ComprasPage() {
         ) : filtrados.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center gap-2">
             <Search size={28} className="text-zinc-300" />
-            <p className="text-[13.5px] font-semibold text-zinc-500">Sin resultados</p>
-            <p className="text-[12px] text-zinc-400">Ningún negocio coincide con la búsqueda o los filtros.</p>
+            <p className="text-[13.5px] font-semibold text-zinc-500">{ambito === 'precompras' && nPrecompras === 0 ? 'No hay pre-compras abiertas' : 'Sin resultados'}</p>
+            <p className="text-[12px] text-zinc-400">{ambito === 'precompras' && nPrecompras === 0 ? 'Se abren solas cuando una licitación pasa a POSIBLE ADJ.' : 'Ningún negocio coincide con la búsqueda o los filtros.'}</p>
           </div>
         ) : soloUrgentes ? (
           <VistaUrgentesCompras negocios={filtrados} />
         ) : vista === 'gantt' ? (
-          <VistaGanttCompras negocios={filtrados} ultimaUrgenteId={ultimaUrgente?.negocioId ?? null} />
+          <VistaGanttCompras negocios={filtrados} ultimaUrgenteId={ambito === 'ganadas' ? (ultimaUrgente?.negocioId ?? null) : null} />
         ) : vista === 'mes' ? (
           <VistaMensualCompras negocios={filtrados} onAbrirDia={setDiaSel} mesesVista={mesesVista} />
         ) : (

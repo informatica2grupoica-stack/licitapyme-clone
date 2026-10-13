@@ -439,3 +439,10 @@ test('modelosParecidos: una letra de diferencia con la misma marca (WM-2802V/W) 
   assert.equal(modelosParecidos({ marca: 'Baretone', modelo: 'WM-2802V' }, { marca: 'Sony', modelo: 'WM-2802W' }), false);       // otra marca
   assert.equal(modelosParecidos({ marca: 'Benq', modelo: 'MX560C' }, { marca: 'Benq', modelo: 'MX631ST' }), false);
 });
+
+test('link de tienda: «$119.000 +IVA» NO se parte en 11 × $9.000 aunque otro producto de la página valga $99.000 (donlocker, compra 415)', () => {
+  const texto = 'Storage 2 Puertas Metálico\n$119.000 +IVA\nProductos relacionados\nRopero 2 Puertas Metálico\n$99.000 +IVA';
+  const salida = { productos: [{ comercial: { precios: [{ valor: '$119.000', condicion: 'actual', cita: 'x' }], iva: 'neto', iva_texto_literal: '+IVA' }, producto: { modelo: 'Storage 2 Puertas' } }] } as unknown as SalidaLector;
+  assert.equal(normalizarProductos(salida, texto, true)[0].precio, 119_000);
+  assert.equal(normalizarProductos(salida, texto, true)[0].cantidadCotizada, null);
+});

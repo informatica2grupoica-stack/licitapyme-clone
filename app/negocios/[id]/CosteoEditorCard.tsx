@@ -1544,17 +1544,15 @@ export function CosteoEditorCard({
             {recargando ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
             Actualizar
           </button>
-          {!modoCompras && (
-            <label
+          <label
               title="Trae a este costeo los precios, cantidades y links de un Excel de costeo ya llenado. Solo rellena lo que está vacío y no guarda: revisas y luego «Guardar»."
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-semibold rounded-lg border border-zinc-200 transition-colors ${importando || congelado ? 'opacity-50 cursor-not-allowed text-zinc-400' : 'cursor-pointer text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50'}`}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-semibold rounded-lg border border-zinc-200 transition-colors ${importando || (congelado && !modoCompras) ? 'opacity-50 cursor-not-allowed text-zinc-400' : 'cursor-pointer text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50'}`}
             >
               {importando ? <Loader2 size={12} className="animate-spin" /> : <FileSpreadsheet size={12} />}
               Importar Excel
-              <input type="file" accept=".xlsx,.xlsm" className="hidden" disabled={importando || congelado}
+              <input type="file" accept=".xlsx,.xlsm" className="hidden" disabled={importando || (congelado && !modoCompras)}
                 onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) importarExcel(f); }} />
             </label>
-          )}
           <button
             onClick={() => setVerRegistro(true)}
             title="Quién guardó o modificó el costeo, cuándo y qué cambió"

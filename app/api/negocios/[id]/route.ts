@@ -9,6 +9,7 @@ import { enviarCorreoCambio, enviarCorreoAsignacion, enviarCorreoEtapaAnexos } f
 import { getEstadoPipeline, normalizarEstado, puedeCambiarEstadoPipeline } from '@/app/lib/pipeline';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 import { congelarAuditorSiCorresponde } from '@/app/lib/congelamiento';
+import { sincronizarPrecompraConEstado } from '@/app/lib/compras';
 import { ahoraChileSQL } from '@/app/lib/tz';
 
 function getUser(req: NextRequest) {
@@ -350,6 +351,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
               [ahora, id],
             );
           } catch { /* columna inexistente → sin fecha, la UI muestra "—" */ }
+        }
+
+        // PRE-COMPRA: POSIBLE ADJ abre Compras antes de la adjudicación firme; ADJUDICADA la confirma
+        // y cualquier otro estado la cierra «sin adjudicar». Fire-and-forget, nunca bloquea el PATCH.
+        if (normalizarEstado(estado_pipeline) !== normalizarEstado(neg.estado_pipeline)) {
+          sincronizarPrecompraConEstado(Number(id), neg.licitacion_codigo, neg.asignado_a ?? null, estado_pipeline || null).catch(() => {});
         }
       } catch (colErr: any) {
         if (String(colErr).toLowerCase().includes('unknown column')) {

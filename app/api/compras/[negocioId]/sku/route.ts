@@ -53,6 +53,9 @@ async function __POST(request: NextRequest, { params }: Params) {
     if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
+    if (asignacion.precompra)
+      return NextResponse.json({ error: 'Esto es una pre-compra: aún no hay adjudicación firme, así que no se pueden crear ni enlazar SKU en Obuma.' }, { status: 409 });
+
     const body = await request.json();
     if (body.accion === 'enlazar-obuma') {
       const { enlazados } = await enlazarSkuExistentesEnObuma(id, userId, nombre);

@@ -142,7 +142,8 @@ export function normalizarProductos(salida: SalidaLector, texto?: string, esWeb 
     const elegido = elegirPrecio(p, parsearMonto(cantTexto));
     let { precio } = elegido; const { ambiguo, otros } = elegido;
     let cantidadCorregida: number | null = null, correccion: string | null = null;
-    const pegado = texto && precio != null ? separarPrecioPegadoACantidad(texto, precio) : null;   // si la cuenta cuadra con el total del documento, deja de ser ambiguo
+    // Solo documentos: en una página web no se pega la cantidad al precio, y el texto trae precios de productos relacionados que "confirman" cualquier partición (donlocker 119.000 → 11 × 9.000, por el 99.000 de otro producto).
+    const pegado = texto && precio != null && !esWeb ? separarPrecioPegadoACantidad(texto, precio) : null;   // si la cuenta cuadra con el total del documento, deja de ser ambiguo
     if (pegado) {
       correccion = `El precio venía pegado a la cantidad («${precio!.toLocaleString('es-CL')}»): se separó en ${pegado.cantidad} unidades × $${pegado.precioUnitario.toLocaleString('es-CL')}, porque el total del documento ($${pegado.total.toLocaleString('es-CL')}) lo confirma.`;
       precio = pegado.precioUnitario; cantidadCorregida = pegado.cantidad;

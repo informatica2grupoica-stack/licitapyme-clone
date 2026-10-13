@@ -22,8 +22,9 @@ import { registrarEvento } from '@/app/lib/historial';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
 import { construirResumenEjecutivo, type ResumenEjecutivo } from '@/app/lib/entrega-proyecto';
 import { obtenerContactosCliente } from '@/app/lib/congelamiento';
-import { enviarAvisoComprasGanado } from '@/app/lib/email';
+import { enviarAvisoComprasGanado, enviarAvisoPrecompra } from '@/app/lib/email';
 import { publicarCambio } from '@/app/lib/sse-bus';
+import { normalizarEstado, getEstadoPipeline } from '@/app/lib/pipeline';
 import { plazoEntregaDetectadoNegocio } from '@/app/lib/compras-agente-documentos';
 import { parsearDiasDeTexto } from '@/app/lib/numeros';
 import { interpretarPlazoOfertado } from '@/app/lib/compras-reloj-sugerido';
@@ -445,30 +446,51 @@ function esUrgentePorPlazo(plazoEntregaDias: number | null): boolean {
  */
 export async function abrirComprasSiCorresponde(
   negocioId: number, licitacionCodigo: string, asignadoOriginal: number | null,
+  opts: { precompra?: boolean } = {},
 ): Promise<boolean> {
+  const precompra = !!opts.precompra;
   try {
     const [ya] = await pool.query(`SELECT 1 FROM compras_asignacion WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
-    if ((ya as any[]).length > 0) return false;
+    if ((ya as any[]).length > 0) {
+      // Ya abierta: si llega la adjudicación firme, la pre-compra pasa a ganada; si vuelve a POSIBLE ADJ,
+      // se reabre la que se había cerrado por no adjudicarse. En ambos casos no es una apertura nueva.
+      if (precompra) await reabrirPrecompra(negocioId);
+      else await promoverPrecompraAGanada(negocioId, licitacionCodigo);
+      return false;
+    }
 
     const resumen = await construirResumenEjecutivoCompras(negocioId, licitacionCodigo);
     const ahora = ahoraChileSQL();
     const vencimiento = aTextoFechaPared(sumarHorasHabiles(parsearFechaPared(ahora), 3));
     const urgente = esUrgentePorPlazo(resumen.plazoEntregaDias);
 
-    const [r] = await pool.query(
-      `INSERT IGNORE INTO compras_asignacion
-         (negocio_id, licitacion_codigo, ganado_at, vencimiento_asignacion_at, urgente, resumen_json, resumen_generado_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [negocioId, licitacionCodigo, ahora, vencimiento, urgente ? 1 : 0, JSON.stringify(resumen), ahora, ahora],
-    ) as any;
+    let r: any;
+    try {
+      [r] = await pool.query(
+        `INSERT IGNORE INTO compras_asignacion
+           (negocio_id, licitacion_codigo, ganado_at, vencimiento_asignacion_at, urgente, resumen_json, resumen_generado_at, created_at, precompra, precompra_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [negocioId, licitacionCodigo, ahora, vencimiento, urgente ? 1 : 0, JSON.stringify(resumen), ahora, ahora, precompra ? 1 : 0, precompra ? ahora : null],
+      ) as any;
+    } catch (e: any) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      // Migration-145 sin aplicar: una pre-compra NO puede abrirse como si fuera ganada.
+      if (precompra) { console.error('[compras] pre-compra no abierta: falta aplicar migration-145.'); return false; }
+      [r] = await pool.query(
+        `INSERT IGNORE INTO compras_asignacion
+           (negocio_id, licitacion_codigo, ganado_at, vencimiento_asignacion_at, urgente, resumen_json, resumen_generado_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [negocioId, licitacionCodigo, ahora, vencimiento, urgente ? 1 : 0, JSON.stringify(resumen), ahora, ahora],
+      ) as any;
+    }
     if (!r?.affectedRows) return false; // otra corrida la abrió primero
 
     await notificarProyectoGanadoCompras(negocioId, licitacionCodigo, resumen.licitacionNombre, asignadoOriginal, urgente, {
       organismo: resumen.organismo, monto: resumen.montoNuestro,
       plazoEntrega: resumen.plazoEntregaOfertado, vencimientoAsignacion: vencimiento,
-    });
+    }, precompra);
 
-    console.log(`[compras] abierta para negocio ${negocioId} (${licitacionCodigo})${urgente ? ' · URGENTE' : ''}` +
+    console.log(`[compras] ${precompra ? 'PRE-COMPRA abierta' : 'abierta'} para negocio ${negocioId} (${licitacionCodigo})${urgente ? ' · URGENTE' : ''}` +
       (resumen.faltantes.length ? ` · ${resumen.faltantes.length} faltante(s) en el resumen` : ''));
     return true;
   } catch (e) {
@@ -477,12 +499,108 @@ export async function abrirComprasSiCorresponde(
   }
 }
 
+// ── Pre-compra: Compras abierto en POSIBLE ADJ, antes de la adjudicación firme ──────────────────
+
+/** ¿Este negocio está en pre-compra (abierto, sin adjudicación firme)? false si no hay fila o falta la migration-145. */
+export async function esPrecompra(negocioId: number): Promise<boolean> {
+  try {
+    const [rows] = await pool.query(`SELECT precompra FROM compras_asignacion WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
+    return !!(rows as any[])[0]?.precompra;
+  } catch (e: any) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR') return false;
+    throw e;
+  }
+}
+
+/** Llegó la adjudicación firme: la pre-compra pasa a ganada. ganado_at pasa a la fecha real (ancla de la vista mensual). */
+async function promoverPrecompraAGanada(negocioId: number, licitacionCodigo: string): Promise<void> {
+  if (!(await esPrecompra(negocioId))) return;
+  const ahora = ahoraChileSQL();
+  await pool.query(
+    `UPDATE compras_asignacion
+        SET precompra = 0, ganado_at = ?,
+            cierre_legado = NULL, cierre_legado_nota = NULL, cierre_legado_por = NULL, cierre_legado_por_nombre = NULL, cierre_legado_at = NULL
+      WHERE negocio_id = ? AND precompra = 1`,
+    [ahora, negocioId],
+  );
+  const [rows] = await pool.query(`SELECT asignado_a FROM compras_asignacion WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
+  const encargado = (rows as any[])[0]?.asignado_a ?? null;
+  if (encargado) {
+    await registrarEvento({
+      tipo: 'COMPRAS_ASIGNADO', licitacionCodigo, usuarioId: Number(encargado), actorId: null, actorNombre: 'Mercado Público',
+      mensaje: `🏆 ${licitacionCodigo} se adjudicó: tu pre-compra pasa a Compras en firme (ya se puede comprar).`,
+      metadata: { negocio_id: negocioId, precompra_confirmada: true },
+    }).catch(() => {});
+  }
+  publicarCambio('compras');
+  console.log(`[compras] pre-compra confirmada como ganada: negocio ${negocioId} (${licitacionCodigo})`);
+}
+
+/** La licitación volvió a POSIBLE ADJ: se quita el cierre «sin adjudicar» que se había puesto. */
+async function reabrirPrecompra(negocioId: number): Promise<void> {
+  await pool.query(
+    `UPDATE compras_asignacion
+        SET cierre_legado = NULL, cierre_legado_nota = NULL, cierre_legado_por = NULL, cierre_legado_por_nombre = NULL, cierre_legado_at = NULL
+      WHERE negocio_id = ? AND precompra = 1 AND cierre_legado = 'PRECOMPRA_SIN_ADJUDICAR'`,
+    [negocioId],
+  );
+  publicarCambio('compras');
+}
+
+/** La licitación salió de POSIBLE ADJ sin ganarse (perdida, revocada, desierta o devuelta): se cierra la pre-compra conservando todo el trabajo. */
+async function cerrarPrecompraSinAdjudicar(negocioId: number, licitacionCodigo: string, motivo: string): Promise<void> {
+  const [r] = await pool.query(
+    `UPDATE compras_asignacion
+        SET cierre_legado = 'PRECOMPRA_SIN_ADJUDICAR', cierre_legado_nota = ?, cierre_legado_por = NULL,
+            cierre_legado_por_nombre = 'Sistema', cierre_legado_at = ?
+      WHERE negocio_id = ? AND precompra = 1 AND cierre_legado IS NULL`,
+    [motivo, ahoraChileSQL(), negocioId],
+  ) as any;
+  if (!r?.affectedRows) return;
+  const [rows] = await pool.query(`SELECT asignado_a FROM compras_asignacion WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
+  const encargado = (rows as any[])[0]?.asignado_a ?? null;
+  if (encargado) {
+    await registrarEvento({
+      tipo: 'COMPRAS_CIERRE_LEGADO', licitacionCodigo, usuarioId: Number(encargado), actorId: null, actorNombre: 'Sistema',
+      mensaje: `La pre-compra de ${licitacionCodigo} se cerró: ${motivo}`,
+      metadata: { negocio_id: negocioId, estado: 'PRECOMPRA_SIN_ADJUDICAR' },
+    }).catch(() => {});
+  }
+  publicarCambio('compras');
+}
+
+/**
+ * Engancha Compras con el estado del negocio. Se llama cada vez que cambia estado_pipeline:
+ *  · POSIBLE_ADJ → abre la pre-compra (o reabre la cerrada).
+ *  · ADJUDICADA  → si había pre-compra, la confirma como ganada. NO abre Compras desde cero: eso sigue
+ *                  siendo del acta de Mercado Público (procesar-postuladas).
+ *  · cualquier otro → si había pre-compra, la cierra «sin adjudicar».
+ * Nunca lanza.
+ */
+export async function sincronizarPrecompraConEstado(
+  negocioId: number, licitacionCodigo: string, asignadoOriginal: number | null, estadoNuevo: string | null,
+): Promise<void> {
+  try {
+    const estado = normalizarEstado(estadoNuevo);
+    if (estado === 'POSIBLE_ADJ') {
+      await abrirComprasSiCorresponde(negocioId, licitacionCodigo, asignadoOriginal, { precompra: true });
+    } else if (estado === 'ADJUDICADA') {
+      await promoverPrecompraAGanada(negocioId, licitacionCodigo);
+    } else {
+      await cerrarPrecompraSinAdjudicar(negocioId, licitacionCodigo,
+        `la licitación pasó a ${getEstadoPipeline(estadoNuevo)?.label || estadoNuevo || 'otro estado'} sin adjudicarse.`);
+    }
+  } catch (e) {
+    console.error('[compras] sincronizar pre-compra falló (no bloquea el cambio de estado):', String(e).slice(0, 300));
+  }
+}
+
 /**
  * Quién debe enterarse de que hay un proyecto nuevo esperando encargado de Compras: el asistente
  * comercial que lo trabajó, todos los admin, y cualquiera con el permiso `aprobar_comercial`
  * ("jefe de ventas" — ya es el permiso de quien aprueba el negocio comercial, no se creó uno nuevo).
  */
-async function destinatariosAperturaCompras(asignadoOriginal: number | null): Promise<number[]> {
+export async function destinatariosAperturaCompras(asignadoOriginal: number | null): Promise<number[]> {
   const ids = new Set<number>();
   if (asignadoOriginal) ids.add(Number(asignadoOriginal));
   try {
@@ -503,10 +621,21 @@ async function notificarProyectoGanadoCompras(
   negocioId: number, licitacionCodigo: string, licitacionNombre: string | null,
   asignadoOriginal: number | null, urgente: boolean,
   datosCorreo: { organismo: string | null; monto: number | null; plazoEntrega: string | null; vencimientoAsignacion: string },
+  precompra = false,
 ): Promise<void> {
   const destinatarios = await destinatariosAperturaCompras(asignadoOriginal);
+  // Pre-compra: además de los de siempre, quienes tienen el permiso `compras` (son los candidatos a encargado).
+  if (precompra) {
+    try {
+      for (const c of await candidatosEncargado()) if (!destinatarios.includes(c.id)) destinatarios.push(c.id);
+    } catch (e) {
+      console.error('[compras] no se pudieron sumar los encargados a la pre-compra:', String(e).slice(0, 150));
+    }
+  }
   const prefijo = urgente ? '🔴 URGENTE — ' : '🛒 ';
-  const mensaje = `${prefijo}Proyecto ganado, entra a Compras: ${licitacionNombre || licitacionCodigo}. Asignar encargado (3h hábiles).`;
+  const mensaje = precompra
+    ? `${prefijo}Posible adjudicación, abre PRE-COMPRA: ${licitacionNombre || licitacionCodigo}. Asignar encargado (3h hábiles); aún no se puede comprar.`
+    : `${prefijo}Proyecto ganado, entra a Compras: ${licitacionNombre || licitacionCodigo}. Asignar encargado (3h hábiles).`;
 
   // Correo además de la campana: la spec (§3.2/§22) pide los DOS canales — "se notifica a todos los
   // intervinientes, por sistema y correo". Se resuelve nombre y correo de una sola consulta para no
@@ -533,7 +662,7 @@ async function notificarProyectoGanadoCompras(
         usuarioId: uid, usuarioNombre: contacto?.nombre ?? null,
         actorId: null, actorNombre: 'Mercado Público',
         mensaje,
-        metadata: { negocio_id: negocioId, licitacion_codigo: licitacionCodigo, urgente, requiere_asignacion: true },
+        metadata: { negocio_id: negocioId, licitacion_codigo: licitacionCodigo, urgente, requiere_asignacion: true, precompra },
       });
     } catch (e) {
       console.error(`[compras] no se pudo notificar al usuario ${uid}:`, String(e).slice(0, 150));
@@ -542,6 +671,14 @@ async function notificarProyectoGanadoCompras(
     // igual quedó abierto (enviarAvisoComprasGanado devuelve false y sigue).
     if (!contacto?.email) continue;
     try {
+      if (precompra) {
+        await enviarAvisoPrecompra({
+          to: contacto.email, nombre: contacto.nombre, para: uid === Number(asignadoOriginal) ? 'asistente' : 'compras',
+          codigo: licitacionCodigo, licitacionNombre, organismo: datosCorreo.organismo, monto: datosCorreo.monto,
+          plazoEntrega: datosCorreo.plazoEntrega, negocioId,
+        });
+        continue;
+      }
       await enviarAvisoComprasGanado({
         to: contacto.email, nombre: contacto.nombre,
         codigo: licitacionCodigo, licitacionNombre, organismo: datosCorreo.organismo, monto: datosCorreo.monto,
@@ -605,7 +742,7 @@ export async function asignarEncargado(
   });
 }
 
-export type CierreLegado = 'ENTREGADA' | 'NO_REALIZADA';
+export type CierreLegado = 'ENTREGADA' | 'NO_REALIZADA' | 'PRECOMPRA_SIN_ADJUDICAR';
 
 /**
  * Marca rápida para el backlog histórico (migration-107, 11-sep-2026): negocios ADJUDICADA que se
@@ -817,6 +954,8 @@ export interface AsignacionCompras {
   resumen: ResumenEjecutivoCompras | null;
   ordenCompra: OrdenCompraCliente;
   cierreLegado: CierreLegado | null; cierreLegadoNota: string | null; cierreLegadoAt: string | null; cierreLegadoPorNombre: string | null;
+  /** Pre-compra (migration-145): abierto en POSIBLE ADJ, sin adjudicación firme. Bloquea OC a proveedores y SKU en Obuma. */
+  precompra: boolean;
 }
 
 /** Co-encargados del negocio. Si la migration-142 todavía no se aplicó, devuelve [] (todo sigue como antes con un solo encargado). */
@@ -878,9 +1017,11 @@ export async function obtenerAsignacion(negocioId: number): Promise<AsignacionCo
   const r = (rows as any[])[0];
   if (!r) return null;
   const coencargados = await listarCoencargados(negocioId);
+  const precompra = await esPrecompra(negocioId);
   let resumen: ResumenEjecutivoCompras | null = null;
   try { resumen = JSON.parse(r.resumen_json); } catch { /* se muestra sin resumen antes que romper */ }
   return {
+    precompra,
     negocioId: r.negocio_id, licitacionCodigo: r.licitacion_codigo,
     ganadoAt: r.ganado_at, vencimientoAsignacionAt: r.vencimiento_asignacion_at, urgente: !!r.urgente,
     asignadoA: r.asignado_a, asignadoNombre: r.asignado_nombre, asignadoAt: r.asignado_at, asignadoPor: r.asignado_por,
@@ -923,6 +1064,10 @@ export interface ComprasFila {
   // Marca rápida de backlog histórico (migration-107) — ver marcarCierreLegado(). null = negocio
   // activo normal.
   cierreLegado: CierreLegado | null;
+  // Pre-compra (migration-145): abierto en POSIBLE ADJ, sin adjudicación firme.
+  precompra: boolean;
+  // Solo pre-compras: fecha ESTIMADA de adjudicación que informa Mercado Público (ficha). null si no la trae.
+  adjudicacionEstimadaAt: string | null;
   // Por qué `urgente` es true (Cadena de Urgencia, §3.7/§15.2): el plazo de entrega OFERTADO es
   // menor a 3 días — no es una cuenta regresiva de cuánto falta desde hoy, es que el compromiso
   // mismo era muy corto. Se manda para poder explicarlo en pantalla (spec pedía el botón
@@ -983,6 +1128,21 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
     [ahora],
   ) as any;
   const negocioIds = (rows as any[]).map(r => r.negocio_id);
+  // Aparte del SELECT principal para tolerar que la migration-145 aún no esté aplicada.
+  const precompraPorNegocio = new Set<number>();
+  const adjEstimadaPorCodigo = new Map<string, string>();
+  try {
+    const [pc] = await pool.query(`SELECT negocio_id FROM compras_asignacion WHERE precompra = 1`) as any;
+    for (const x of pc as any[]) precompraPorNegocio.add(Number(x.negocio_id));
+    if (precompraPorNegocio.size > 0) {
+      const cods = (rows as any[]).filter(r => precompraPorNegocio.has(Number(r.negocio_id))).map(r => r.licitacion_codigo);
+      const [ac] = await pool.query(
+        `SELECT licitacion_codigo, DATE_FORMAT(fecha_estimada_adjudicacion, '%Y-%m-%d %H:%i:%s') AS f FROM adjudicacion_cache WHERE licitacion_codigo IN (?)`, [cods]) as any;
+      for (const x of ac as any[]) if (x.f) adjEstimadaPorCodigo.set(x.licitacion_codigo, x.f);
+    }
+  } catch (e: any) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+  }
   // Tareas de TODOS los negocios en una sola consulta (carta Gantt, §pantalla /compras) — evitar
   // el N+1 de pedirlas una por una como hace el detalle de cada negocio (listarTareas).
   const tareasPorNegocio = new Map<number, ComprasFila['tareasGantt']>();
@@ -1051,10 +1211,14 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
       negocioId: r.negocio_id, licitacionCodigo: r.licitacion_codigo,
       licitacionNombre: r.licitacion_nombre, licitacionOrganismo: r.licitacion_organismo,
       urgente: !!r.urgente, asignadoA: r.asignado_a, asignadoNombre: r.asignado_nombre, asignadoAt: r.asignado_at,
-      vencimientoAsignacionAt: r.vencimiento_asignacion_at, ganadoAt: r.ganado_at, montoNuestro,
+      // En pre-compra la fecha que ordena y ubica la fila es la adjudicación ESTIMADA de Mercado Público (aún no se ganó nada).
+      vencimientoAsignacionAt: r.vencimiento_asignacion_at,
+      ganadoAt: (precompraPorNegocio.has(Number(r.negocio_id)) && adjEstimadaPorCodigo.get(r.licitacion_codigo)) || r.ganado_at, montoNuestro,
       tareasTotal: Number(r.tareas_total), tareasHechas: Number(r.tareas_hechas), tareasVencidas: Number(r.tareas_vencidas),
       ocFecha: r.oc_fecha,
       cierreLegado: (r.cierre_legado as CierreLegado | null) ?? null,
+      precompra: precompraPorNegocio.has(Number(r.negocio_id)),
+      adjudicacionEstimadaAt: precompraPorNegocio.has(Number(r.negocio_id)) ? (adjEstimadaPorCodigo.get(r.licitacion_codigo) ?? null) : null,
       plazoEntregaDias,
       postuladoPorNombre: r.postulado_por_nombre ?? null,
       plazoAceptacionOCDias,
@@ -1481,19 +1645,41 @@ export function ocDifiereDeLoAdjudicado(totalNetoOC: number | null, montoAdjudic
   return Math.abs(totalNetoOC - montoAdjudicado) / montoAdjudicado > 0.01;
 }
 
+/**
+ * Clave sin el TIPO de la licitación: "1271359-92-LE26" y "1271359-92-R126" son el mismo proceso
+ * (número-correlativo-año); MP cambia el tipo (LE → R1) entre el llamado y la orden de compra.
+ */
+export function claveLicitacionSinTipo(codigo: string | null | undefined): string | null {
+  const m = String(codigo || '').trim().toUpperCase().match(/^(d+-d+)-[A-Z]+d?(dd)$/);
+  return m ? `${m[1]}-${m[2]}` : null;
+}
+
 export async function vincularOrdenCompraDeMP(
   licitacionCodigo: string, oc: OrdenCompraMP,
 ): Promise<{ vinculada: boolean; difiere: boolean; negocioId: number | null }> {
   const nada = { vinculada: false, difiere: false, negocioId: null };
   try {
+    const COLS = `negocio_id, licitacion_codigo, asignado_a, oc_codigo_mp, oc_estado_mp, oc_numero, oc_origen,
+              oc_difiere, oc_observacion, resumen_json`;
     const [rows] = await pool.query(
-      `SELECT negocio_id, asignado_a, oc_codigo_mp, oc_estado_mp, oc_numero, oc_origen, oc_difiere,
-              oc_observacion, resumen_json
-         FROM compras_asignacion WHERE licitacion_codigo = ? LIMIT 1`,
+      `SELECT ${COLS} FROM compras_asignacion WHERE licitacion_codigo = ? LIMIT 1`,
       [licitacionCodigo],
     ) as any;
-    const ficha = (rows as any[])[0];
+    let ficha = (rows as any[])[0];
+    if (!ficha) {
+      // Mismo proceso con otro tipo en el código (LE26 → R126): solo si hay UNA ficha, nunca adivinar.
+      const clave = claveLicitacionSinTipo(licitacionCodigo);
+      if (clave) {
+        const [cand] = await pool.query(
+          `SELECT ${COLS} FROM compras_asignacion WHERE licitacion_codigo LIKE ?`,
+          [`${clave.split('-').slice(0, 2).join('-')}-%`],
+        ) as any;
+        const iguales = (cand as any[]).filter(c => claveLicitacionSinTipo(c.licitacion_codigo) === clave);
+        if (iguales.length === 1) ficha = iguales[0];
+      }
+    }
     if (!ficha) return nada;   // la licitación no está (todavía) en Compras: nada que enganchar
+    licitacionCodigo = String(ficha.licitacion_codigo);   // avisos y logs con el código de la ficha
 
     // Ya enganchada, misma orden y mismo estado → nada nuevo que contar.
     if (ficha.oc_codigo_mp === oc.codigo && (ficha.oc_estado_mp || null) === (oc.estado || null)) {
@@ -1607,10 +1793,14 @@ export async function engancharOrdenesCompraPendientes(limite = 25): Promise<{ r
               DATE_FORMAT(COALESCE(oc.fecha_envio, oc.fecha_creacion), '%Y-%m-%d') AS emitida,
               DATE_FORMAT(oc.fecha_aceptacion, '%Y-%m-%d') AS aceptada
          FROM ordenes_compra oc
-         JOIN compras_asignacion ca ON ca.licitacion_codigo = oc.licitacion_codigo
+         JOIN compras_asignacion ca
+           ON ca.licitacion_codigo = oc.licitacion_codigo
+           OR (SUBSTRING_INDEX(ca.licitacion_codigo, '-', 2) = SUBSTRING_INDEX(oc.licitacion_codigo, '-', 2)
+               AND RIGHT(ca.licitacion_codigo, 2) = RIGHT(oc.licitacion_codigo, 2))
         WHERE oc.es_nuestra = 1
           AND (ca.oc_codigo_mp IS NULL OR ca.oc_codigo_mp <> oc.codigo
                OR COALESCE(ca.oc_estado_mp, '') <> COALESCE(oc.estado, ''))
+        GROUP BY oc.codigo
         ORDER BY oc.fecha_creacion DESC
         LIMIT ?`,
       [limite],

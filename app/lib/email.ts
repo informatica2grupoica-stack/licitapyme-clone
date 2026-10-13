@@ -754,3 +754,113 @@ export async function enviarAvisoComprasGanado(p: ComprasGanadoEmail): Promise<b
     return false;
   }
 }
+
+
+/**
+ * FE DE ERRATA de pre-compra: los primeros avisos de pre-compra salieron con la plantilla de «Proyecto ganado».
+ * Un solo correo por destinatario con TODAS sus licitaciones. Devuelve true si se envió.
+ */
+export async function enviarFeErrataPrecompra(p: {
+  to: string; nombre?: string | null;
+  licitaciones: Array<{ codigo: string; nombre: string | null; negocioId: number }>;
+}): Promise<boolean> {
+  const t = transporter();
+  if (!t) { console.warn('[email] SMTP no configurado — fe de errata de pre-compra omitida'); return false; }
+  if (!p.to || p.licitaciones.length === 0) return false;
+  const base = (process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/$/, '');
+  const filas = p.licitaciones.map(l => `
+    <tr><td style="padding:9px 0;border-bottom:1px solid #eef2f7;">
+      <div style="color:#0f172a;font-size:13.5px;font-weight:700;line-height:1.4;">${base ? `<a href="${base}/negocios/${l.negocioId}" style="color:#0f172a;text-decoration:none;">${esc(l.nombre || l.codigo)}</a>` : esc(l.nombre || l.codigo)}</div>
+      <div style="color:#94a3b8;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;">${esc(l.codigo)}</div>
+    </td></tr>`).join('');
+  const plural = p.licitaciones.length > 1;
+  const cuerpo = `
+    <p style="margin:0 0 14px;color:#374151;font-size:14px;line-height:1.55;">Hola ${esc(p.nombre || '')}:</p>
+    <p style="margin:0 0 14px;color:#374151;font-size:14px;line-height:1.55;">
+      <strong>Fe de errata.</strong> Hace un momento recibiste un aviso que decía «Proyecto ganado, entra a Compras» por ${plural ? 'estas licitaciones' : 'esta licitación'}. <strong>Ese aviso estaba equivocado: ${plural ? 'no están adjudicadas' : 'no está adjudicada'}.</strong>
+    </p>
+    <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.55;">
+      Lo que ocurre es que estrenamos un módulo nuevo, la <strong>pre-compra</strong>: cuando una licitación pasa a <strong>POSIBLE ADJUDICADA</strong>, se abre automáticamente en Compras para ir adelantando cotizaciones y costeo.
+      No significa que se haya ganado: hasta que Mercado Público confirme la adjudicación no se emiten órdenes de compra. Si finalmente no se adjudica, la pre-compra se cierra sola.
+    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #e5e7eb;border-left:3px solid #4f46e5;border-radius:8px;">
+      <tr><td style="padding:12px 18px;">
+        <div style="color:#4f46e5;font-size:11px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;">Pre-compra · posible adjudicación</div>
+        <table style="width:100%;border-collapse:collapse;margin-top:6px;">${filas}</table>
+      </td></tr>
+    </table>
+    <p style="margin:16px 0 0;color:#6b7280;font-size:12.5px;line-height:1.55;">Disculpa la confusión. No tienes que hacer nada por ahora.</p>`;
+  try {
+    await t.sendMail({
+      from: FROM(), to: p.to,
+      subject: `Fe de errata: ${plural ? 'tus licitaciones NO están adjudicadas' : 'tu licitación NO está adjudicada'} (pre-compra)`,
+      html: layoutEmail({ titulo: 'Fe de errata: aún no hay adjudicación', cuerpo }),
+    });
+    return true;
+  } catch (e) {
+    console.error('[email] envío de fe de errata de pre-compra falló:', String(e));
+    return false;
+  }
+}
+
+/**
+ * Aviso de PRE-COMPRA (POSIBLE ADJUDICADA), dos versiones según quién lo recibe:
+ *  · 'asistente': «tu postulación tuvo movimiento: pasó a posible adjudicada» (quien la trabajó).
+ *  · 'compras'  : «tienes una pre-compra de posible adjudicada» (admin, jefe de ventas y encargados de Compras).
+ * Devuelve true si se envió.
+ */
+export async function enviarAvisoPrecompra(p: {
+  to: string; nombre?: string | null; para: 'asistente' | 'compras';
+  codigo: string; licitacionNombre?: string | null; organismo?: string | null; monto?: number | null;
+  plazoEntrega?: string | null; adjudicacionEstimada?: string | null; negocioId: number;
+}): Promise<boolean> {
+  const t = transporter();
+  if (!t) { console.warn('[email] SMTP no configurado — aviso de pre-compra omitido'); return false; }
+  if (!p.to) return false;
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/$/, '');
+  const url = appUrl ? (p.para === 'compras' ? `${appUrl}/compras/${p.negocioId}` : `${appUrl}/negocios/${p.negocioId}`) : '';
+  const fila = (label: string, valor: string | null) => valor
+    ? `<tr><td style="padding:3px 0;color:#6b7280;font-size:13px;width:150px;">${label}</td><td style="padding:3px 0;color:#111827;font-size:13px;font-weight:500;">${esc(valor)}</td></tr>`
+    : '';
+  const intro = p.para === 'asistente'
+    ? `Tu postulación tuvo movimiento: pasó a <strong>POSIBLE ADJUDICADA</strong>. Todavía <strong>no está adjudicada</strong>; Mercado Público aún debe confirmarlo.
+       Para ir adelantando, se abrió su <strong>pre-compra</strong> en el Módulo de Compras.`
+    : `Tienes una <strong>pre-compra</strong> de una licitación en <strong>POSIBLE ADJUDICADA</strong>. Todavía <strong>no está adjudicada</strong>: se puede ir adelantando cotizaciones y costeo,
+       pero no emitir órdenes de compra hasta que Mercado Público confirme la adjudicación.`;
+  const pie = p.para === 'asistente'
+    ? 'No tienes que hacer nada: si se adjudica, pasa sola a Compras en firme; si no, la pre-compra se cierra sola.'
+    : 'El jefe de ventas asigna al encargado dentro de 3 horas hábiles; vencido ese plazo, el sistema lo asigna solo al de menor carga. Si no se adjudica, la pre-compra se cierra sola.';
+  const cuerpo = `
+    <p style="margin:0 0 14px;color:#374151;font-size:14px;line-height:1.55;">Hola ${esc(p.nombre || '')}:</p>
+    <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.55;">${intro}</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #e5e7eb;border-left:3px solid #4f46e5;border-radius:8px;">
+      <tr><td style="padding:15px 18px;">
+        <div style="color:#4f46e5;font-size:11px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;">Pre-compra · posible adjudicación</div>
+        <div style="margin-top:4px;color:#0f172a;font-size:15px;font-weight:700;line-height:1.4;">${esc(p.licitacionNombre || p.codigo)}</div>
+        <div style="margin-top:3px;color:#94a3b8;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;">${esc(p.codigo)}</div>
+        <table style="width:100%;border-collapse:collapse;margin-top:11px;">
+          ${fila('Organismo', p.organismo || null)}
+          ${fila('Monto ofertado', fmtMonto(p.monto))}
+          ${fila('Adjudicación estimada', p.adjudicacionEstimada || null)}
+          ${fila('Plazo de entrega', p.plazoEntrega || null)}
+        </table>
+      </td></tr>
+    </table>
+    <p style="margin:16px 0 0;color:#6b7280;font-size:12.5px;line-height:1.55;">${pie}</p>`;
+  try {
+    await t.sendMail({
+      from: FROM(), to: p.to,
+      subject: p.para === 'asistente'
+        ? `Tu postulación pasó a POSIBLE ADJUDICADA: ${p.licitacionNombre || p.codigo}`
+        : `Pre-compra de posible adjudicada (aún no adjudicada): ${p.licitacionNombre || p.codigo}`,
+      html: layoutEmail({
+        titulo: p.para === 'asistente' ? '📌 Tu postulación pasó a posible adjudicada' : '🛒 Tienes una pre-compra de posible adjudicada',
+        cuerpo, cta: url ? { label: p.para === 'compras' ? 'Abrir la pre-compra' : 'Ver la licitación', url } : undefined,
+      }),
+    });
+    return true;
+  } catch (e) {
+    console.error('[email] envío de aviso de pre-compra falló:', String(e));
+    return false;
+  }
+}

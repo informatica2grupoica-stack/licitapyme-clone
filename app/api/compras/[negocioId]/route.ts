@@ -81,7 +81,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       pool.query(`SELECT licitacion_nombre, licitacion_organismo, licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [id]) as any,
       // La orden de compra ya vive en `ordenes_compra` con su link al portal y su PDF descargado.
       // Se manda lo justo para pintarla: el resto de la ficha ya viene en `asignacion.ordenCompra`.
-      ordenesDeLicitacion(asignacion.licitacionCodigo).catch(() => []),
+      ordenesDeLicitacion(asignacion.licitacionCodigo, asignacion.ordenCompra?.codigoMp).catch(() => []),
     ]);
     const neg = (negRows[0] as any[])[0] || {};
     const ocNuestra = (ordenes as any[]).find(o => o.esNuestra) || null;

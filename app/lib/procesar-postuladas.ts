@@ -30,7 +30,7 @@ import { registrarEvento } from '@/app/lib/historial';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { construirDesdeLicitacion, enriquecer, guardarCache, respuestaDesdeCache, type RespuestaAdjudicacion } from '@/app/lib/adjudicacion';
 import { abrirEntregaSiCorresponde } from '@/app/lib/entrega-proyecto';
-import { abrirComprasSiCorresponde } from '@/app/lib/compras';
+import { abrirComprasSiCorresponde, sincronizarPrecompraConEstado } from '@/app/lib/compras';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { idsEquivalentes, normalizarEstado } from '@/app/lib/pipeline';
 import { avisarResultadoLicitacion } from '@/app/lib/avisar-resultado-licitacion';
@@ -496,6 +496,9 @@ async function reconfirmarResueltasSinCache(
           await abrirComprasSiCorresponde(n.id, codigo, n.asignado_a)
             .then(abierta => { if (abierta) stats.comprasAbiertas++; })
             .catch(e => console.error('[procesar-postuladas] abrir compras (reconfirmar) falló:', String(e).slice(0, 200)));
+        } else {
+          // El acta dice que NO ganamos: si había pre-compra abierta, se cierra «sin adjudicar».
+          await sincronizarPrecompraConEstado(n.id, codigo, n.asignado_a, resultadoReal);
         }
         if (adj.ganamos) stats.adjudicadas++; else stats.perdidas++;
         const mensaje = adj.ganamos
