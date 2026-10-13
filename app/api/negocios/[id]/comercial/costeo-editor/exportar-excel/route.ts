@@ -4,7 +4,6 @@
 // que el costeo automático (generarCosteoExcelDesdeEditor). Exporta lo que está en pantalla, aunque
 // no se haya guardado. NO escribe nada en la base.
 import { NextRequest, NextResponse } from 'next/server';
-import { puedeVerNegocioAsignado, permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { generarCosteoExcelDesdeEditor, type HojaExportCosteo } from '@/app/lib/generar-costeo';
 import { margenDeFila, MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor } from '@/app/lib/costeo-editor';
 import { IVA } from '@/app/lib/costeo-comparativo';
@@ -20,18 +19,13 @@ export async function POST(request: NextRequest, { params }: Params) {
   const rol = request.headers.get('x-user-rol');
   const userId = idH ? parseInt(idH) : null;
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  // Mismo acceso que VER el costeo (GET del editor): quien lo trabaja o el perfil de Compras.
-  const p = await permisosCrudosDeUsuario(userId);
-  const puedeTrabajar = rol === 'admin' || !!p.costeo_editor;
-  if (!puedeTrabajar && !(p.compras_ver || p.compras_todo || p.compras))
-    return NextResponse.json({ error: 'Sin acceso al costeo' }, { status: 403 });
+  // Solo administradores pueden exportar el costeo digital.
+  if (rol !== 'admin') return NextResponse.json({ error: 'Solo un administrador puede exportar el costeo.' }, { status: 403 });
   const { id } = await params;
 
   try {
     const negocio = await cargarNegocio(id);
     if (!negocio) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
-    if (puedeTrabajar && !(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
-      return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     const body = await request.json().catch(() => null);
     const estado = body?.estado as EstadoCosteoEditor | null;

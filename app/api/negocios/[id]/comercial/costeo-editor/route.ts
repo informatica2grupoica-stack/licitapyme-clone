@@ -15,7 +15,7 @@ import { puedeVerNegocioAsignado, permisosCrudosDeUsuario } from '@/app/lib/api-
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { adaptarViabilidadACosteo } from '@/app/lib/generar-costeo';
 import {
-  datosCosteoAEditor, fusionarConViabilidad, editorAFilasCosteo, filasSinLink, MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor,
+  datosCosteoAEditor, fusionarConViabilidad, editorAFilasCosteo, filasSinLink, resumenCambiosCosteo, MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor,
 } from '@/app/lib/costeo-editor';
 import { IVA } from '@/app/lib/costeo-comparativo';
 import { lineasDelInforme, lineasOfertablesDelInforme } from '@/app/lib/checklist-comercial';
@@ -86,6 +86,46 @@ async function estadoGuardado(negocioId: number): Promise<EstadoCosteoEditor | n
     const grupos = (datos?.grupos || []).map((g: any) => ({ ...g, ofertamos: g.ofertamos !== false }));
     return { modalidad: row.modalidad, margenVenta: Number(datos?.margenVenta) || MARGEN_VENTA_DEFECTO, grupos };
   } catch { return null; }
+}
+
+// REGISTRO DE CAMBIOS del costeo (apartado propio en el editor, fuera de las tablas): cada guardado
+// queda en checklist_comercial_costeo (quién, cuándo, totales) y el detalle de qué cambió, en un
+// evento COSTEO_GUARDADO del historial con la misma versión. Se suman los cambios del perfil de
+// Compras (PATCH), que no crean versión.
+export interface EntradaRegistroCosteo {
+  fecha: string;                 // hora de pared de Chile, 'YYYY-MM-DD HH:mm:ss'
+  quien: string;
+  accion: string;
+  cambios: string[] | null;
+  totalVenta: number | null;
+  totalCosto: number | null;
+}
+
+async function registroDeCambios(negocio: { id: number; licitacion_codigo: string }): Promise<EntradaRegistroCosteo[]> {
+  const fecha = (v: any) => v instanceof Date ? ahoraChileSQL(v) : String(v || '').slice(0, 19).replace('T', ' ');
+  const meta = (v: any) => { try { return (typeof v === 'string' ? JSON.parse(v) : v) || {}; } catch { return {}; } };
+  const [versiones] = await pool.query(
+    `SELECT version, subido_por_nombre, subido_at, total_costo_neto, total_precio_neto
+       FROM checklist_comercial_costeo WHERE negocio_id = ? AND origen = 'editor'
+      ORDER BY subido_at DESC LIMIT 60`, [negocio.id]) as any;
+  const [eventos] = await pool.query(
+    `SELECT tipo, actor_nombre, mensaje, metadata, created_at FROM historial_eventos
+      WHERE licitacion_codigo = ? AND tipo IN ('COSTEO_GUARDADO', 'COMPRAS_COSTEO_ACTUALIZADO')
+      ORDER BY created_at DESC LIMIT 120`, [negocio.licitacion_codigo]) as any;
+  const delNegocio = (eventos as any[]).map(e => ({ ...e, meta: meta(e.metadata) })).filter(e => Number(e.meta.negocio_id) === negocio.id);
+  const cambiosPorVersion = new Map<number, string[]>();
+  for (const e of delNegocio) if (e.tipo === 'COSTEO_GUARDADO' && Array.isArray(e.meta.cambios)) cambiosPorVersion.set(Number(e.meta.version), e.meta.cambios);
+
+  const out: EntradaRegistroCosteo[] = (versiones as any[]).map(v => ({
+    fecha: fecha(v.subido_at), quien: v.subido_por_nombre || 'Usuario', accion: `Guardó el costeo (versión ${v.version})`,
+    cambios: cambiosPorVersion.get(Number(v.version)) ?? null,
+    totalVenta: v.total_precio_neto != null ? Number(v.total_precio_neto) : null,
+    totalCosto: v.total_costo_neto != null ? Number(v.total_costo_neto) : null,
+  }));
+  for (const e of delNegocio) if (e.tipo === 'COMPRAS_COSTEO_ACTUALIZADO') {
+    out.push({ fecha: fecha(e.created_at), quien: e.actor_nombre || 'Compras', accion: e.mensaje, cambios: null, totalVenta: null, totalCosto: null });
+  }
+  return out.sort((a, b) => b.fecha.localeCompare(a.fecha));
 }
 
 function estadoDesdeViabilidad(negocio: { id: number; licitacion_codigo: string }, informe: any): EstadoCosteoEditor | null {
@@ -192,6 +232,9 @@ export async function GET(request: NextRequest, { params }: Params) {
       congelado: soloLectura || await yaCongelado(negocio.id, rol),
       // El editor habilita SOLO costo real, links y filas nuevas cuando esto es true (ver PATCH).
       modoCompras: soloLectura && await esOperadorCompras(userId),
+      // Exportar el costeo digital a Excel: solo administradores.
+      esAdmin: rol === 'admin',
+      registro: await registroDeCambios(negocio).catch(e => { console.error('[comercial/costeo-editor] registro de cambios:', String(e).slice(0, 150)); return []; }),
     });
   } catch (error) {
     console.error('[comercial/costeo-editor][GET]', String(error));
@@ -306,6 +349,14 @@ export async function PUT(request: NextRequest, { params }: Params) {
     const { version, alertas, totales } = await ingresarVersionCosteo(negocio, filas, {
       origen: 'editor', archivoUrl: null, archivoNombre: 'Costeo (editor interno)',
       userId, nombreActor,
+    });
+
+    // Registro de cambios del costeo: qué cambió en ESTE guardado (ver registroDeCambios).
+    const cambios = resumenCambiosCosteo(estadoPrevio, estado);
+    await registrarEvento({
+      tipo: 'COSTEO_GUARDADO', licitacionCodigo: negocio.licitacion_codigo,
+      actorId: userId, actorNombre: nombreActor, mensaje: `${nombreActor} guardó el costeo (versión ${version}): ${cambios.slice(0, 3).join("; ")}`.slice(0, 500),
+      metadata: { negocio_id: negocio.id, version, cambios },
     });
 
     // Si Compras ya está abierto para este negocio, "Productos y cobertura" se mantiene al día

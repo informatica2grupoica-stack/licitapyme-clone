@@ -35,7 +35,7 @@ import { useCosteoFlotante, type CosteoEstadoHeredado } from '@/app/components/C
 // misma aritmética que el bloque que el comercial arma a mano al pie del Excel. Módulo sin
 // dependencias, compartido — acá NO se duplica ninguna de esas fórmulas.
 import { calcularComparativo, entradaComparativoDeFilas, costoRealDeFila, alertasDeDesvio, recargoParaMargen, margenDeRecargo, parsearRecargo, esLinkDeProducto, IVA, type Comparativo } from '@/app/lib/costeo-comparativo';
-import { IconCalculator as Calculator, IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconRefresh as RefreshCw, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconShieldCheck as ShieldCheck, IconSparkles as Sparkles, IconMaximize as Maximize2, IconX as X, IconExternalLink as ExternalLink, IconArrowLeft as ArrowLeft, IconLayoutBoardSplit as SplitSquareHorizontal, IconArrowMerge as Combine, IconFileSearch as FileSearch, IconLink as LinkIcon, IconPictureInPicture as PictureInPicture2, IconMinimize as Minimize2, IconEye as Eye, IconPhotoPlus as PhotoPlus, IconFileSpreadsheet as FileSpreadsheet, IconDownload as Download } from '@tabler/icons-react';
+import { IconCalculator as Calculator, IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconRefresh as RefreshCw, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconShieldCheck as ShieldCheck, IconSparkles as Sparkles, IconMaximize as Maximize2, IconX as X, IconExternalLink as ExternalLink, IconArrowLeft as ArrowLeft, IconLayoutBoardSplit as SplitSquareHorizontal, IconArrowMerge as Combine, IconFileSearch as FileSearch, IconLink as LinkIcon, IconPictureInPicture as PictureInPicture2, IconMinimize as Minimize2, IconEye as Eye, IconPhotoPlus as PhotoPlus, IconFileSpreadsheet as FileSpreadsheet, IconDownload as Download, IconHistory as History } from '@tabler/icons-react';
 
 const MARGEN_VENTA_DEFECTO = 27;
 
@@ -867,6 +867,69 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
  *  <CosteoFlotanteHost/> en el layout raíz, nunca una página) — ver CosteoFlotanteContext.tsx.
  *  `estadoHeredado` siembra su estado inicial con lo que ya tenía editado (sin guardar) la
  *  instancia embebida de la página, en vez de perderlo al abrir la burbuja. */
+/** Una entrada del registro de cambios del costeo (ver registroDeCambios en la ruta del editor). */
+interface EntradaRegistro {
+  fecha: string;                 // 'YYYY-MM-DD HH:mm:ss', hora de Chile
+  quien: string;
+  accion: string;
+  cambios: string[] | null;
+  totalVenta: number | null;
+  totalCosto: number | null;
+}
+
+/** '2026-10-13 09:41:00' → '13-10-2026 09:41' (ya viene en hora de Chile, no se convierte). */
+function fechaRegistro(f: string): string {
+  const m = /^(d{4})-(d{2})-(d{2})[ T](d{2}):(d{2})/.exec(f || '');
+  return m ? `${m[3]}-${m[2]}-${m[1]} ${m[4]}:${m[5]}` : f;
+}
+
+/** Apartado «Registro de cambios»: quién guardó o modificó el costeo, cuándo, con qué totales y qué
+ *  cambió en cada guardado. Los guardados anteriores a este registro muestran solo quién y cuándo. */
+function RegistroCambiosModal({ registro, codigo, onCerrar }: { registro: EntradaRegistro[]; codigo: string; onCerrar: () => void }) {
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onCerrar(); };
+    window.addEventListener('keydown', esc);
+    return () => window.removeEventListener('keydown', esc);
+  }, [onCerrar]);
+  const pesos = (n: number) => `${Math.round(n).toLocaleString('es-CL')}`;
+  return (
+    <div className="fixed inset-0 z-[120] bg-black/40 flex items-center justify-center p-4" onClick={onCerrar}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-200">
+          <History size={16} className="text-zinc-500" />
+          <h3 className="text-[14px] font-bold text-zinc-900 flex-1">Registro de cambios · {codigo}</h3>
+          <button onClick={onCerrar} className="p-1 text-zinc-400 hover:text-zinc-700" title="Cerrar"><X size={16} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 py-3">
+          {registro.length === 0 ? (
+            <p className="text-[12.5px] text-zinc-400 text-center py-8">Todavía nadie ha guardado este costeo.</p>
+          ) : (
+            <ol className="space-y-3">
+              {registro.map((e, i) => (
+                <li key={i} className="border-l-2 border-emerald-300 pl-3">
+                  <p className="text-[12.5px] text-zinc-800">
+                    <span className="font-bold">{e.quien}</span> · {e.accion}
+                  </p>
+                  <p className="text-[11px] text-zinc-400">
+                    {fechaRegistro(e.fecha)}
+                    {e.totalVenta != null && ` · venta neta ${pesos(e.totalVenta)}`}
+                    {e.totalCosto != null && ` · costo neto ${pesos(e.totalCosto)}`}
+                  </p>
+                  {e.cambios && e.cambios.length > 0 && (
+                    <ul className="mt-1 space-y-0.5">
+                      {e.cambios.map((c, j) => <li key={j} className="text-[11.5px] text-zinc-600">• {c}</li>)}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function CosteoEditorCard({
   negocioId, licitacionCodigo, standalone = false, modoFlotanteGlobal = false, estadoHeredado = null,
 }: {
@@ -943,6 +1006,12 @@ export function CosteoEditorCard({
   const [verImagen, setVerImagen] = useState<{ url: string; detalle: string } | null>(null);
   const [importando, setImportando] = useState(false);
   const [exportando, setExportando] = useState(false);
+  // Exportar a Excel: solo administradores (el servidor también lo corta).
+  const [esAdmin, setEsAdmin] = useState(false);
+  // Registro de cambios: quién guardó/modificó el costeo, cuándo y qué cambió. Apartado propio (botón
+  // «Registro» de la cabecera), fuera de las tablas.
+  const [registro, setRegistro] = useState<EntradaRegistro[]>([]);
+  const [verRegistro, setVerRegistro] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
@@ -956,6 +1025,8 @@ export function CosteoEditorCard({
       setSinViabilidad(!!d.sinViabilidad);
       setCongelado(!!d.congelado);
       setModoCompras(!!d.modoCompras);
+      setEsAdmin(!!d.esAdmin);
+      setRegistro(Array.isArray(d.registro) ? d.registro : []);
       const pub = Number(d.presupuestoPublicado); // ojo: Number(null) es 0, no NaN
       setPresupuestoPublicado(d.presupuestoPublicado != null && Number.isFinite(pub) && pub > 0 ? pub : null);
       setPresupuestosPorLinea(d.presupuestosPorLinea && typeof d.presupuestosPorLinea === 'object' ? d.presupuestosPorLinea : {});
@@ -1238,6 +1309,15 @@ export function CosteoEditorCard({
     } finally { setExportando(false); }
   };
 
+  // Tras guardar: solo el registro de cambios (recargar todo pisaría lo escrito después de guardar).
+  const refrescarRegistro = async () => {
+    try {
+      const r = await fetch(`/api/negocios/${negocioId}/comercial/costeo-editor`);
+      const d = await r.json();
+      if (r.ok && Array.isArray(d.registro)) setRegistro(d.registro);
+    } catch { /* el registro no es crítico */ }
+  };
+
   const recargarDesdeViabilidad = async () => {
     if (!estado) return;
     setRecargando(true);
@@ -1274,6 +1354,7 @@ export function CosteoEditorCard({
         setEstado(d.estado); setGuardado(d.estado);
         setUltimoGuardado(new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }));
         toast.success('Costeo de Compras guardado');
+        void refrescarRegistro();
         return true;
       }
       window.dispatchEvent(new CustomEvent('costeo-guardado', { detail: { negocioId } }));
@@ -1282,6 +1363,7 @@ export function CosteoEditorCard({
       setUltimoGuardado(new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }));
       if ((d.alertas || []).length > 0) toast.warning(`Costeo guardado — ${d.alertas.length} alerta(s) del Motor Comercial`, d.alertas.map((a: Alerta) => a.descripcion).join(' · '));
       else toast.success('Costeo guardado sin alertas');
+      void refrescarRegistro();
       return true;
     } catch (e) {
       // Sin esto, un corte de red o un error del servidor dejaba el botón en silencio y parecía que había guardado.
@@ -1422,6 +1504,7 @@ export function CosteoEditorCard({
             <p className="text-[11.5px] text-zinc-400">
               {estado.modalidad === 'suma_alzada' ? 'Global (suma alzada)' : estado.modalidad === 'por_linea' ? `Por línea — ${grupos.length} línea(s)` : `Por categoría — ${grupos.length} grupo(s)`}
               {ultimoGuardado && ` · guardado ${ultimoGuardado}`}
+              {registro[0] && ` · último cambio: ${registro[0].quien}, ${fechaRegistro(registro[0].fecha)}`}
               {dirty && <span className="text-amber-600 font-semibold"> · cambios sin guardar</span>}
               {modoCompras && <span className="text-indigo-600 font-semibold"> · modo Compras: costo real, links y gastos extra (no se venden, solo suman al costo real)</span>}
             </p>
@@ -1473,6 +1556,14 @@ export function CosteoEditorCard({
             </label>
           )}
           <button
+            onClick={() => setVerRegistro(true)}
+            title="Quién guardó o modificó el costeo, cuándo y qué cambió"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-semibold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors"
+          >
+            <History size={12} />
+            Registro{registro.length > 0 && ` (${registro.length})`}
+          </button>
+          {esAdmin && <button
             onClick={exportarExcel}
             disabled={exportando}
             title="Descarga este costeo en el mismo Excel que el costeo automático (plantilla, hojas por línea, resumen y AUDITORIA), con lo que está en pantalla aunque no esté guardado"
@@ -1480,7 +1571,7 @@ export function CosteoEditorCard({
           >
             {exportando ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
             Exportar Excel
-          </button>
+          </button>}
           <button
             onClick={guardar}
             disabled={guardando || (congelado && !modoCompras) || !dirty || (!modoCompras && sinLink.length > 0)}
@@ -1587,6 +1678,10 @@ export function CosteoEditorCard({
             </p>
           ))}
         </div>
+      )}
+      {verRegistro && createPortal(
+        <RegistroCambiosModal registro={registro} codigo={licitacionCodigo} onCerrar={() => setVerRegistro(false)} />,
+        document.body,
       )}
     </div>
   );

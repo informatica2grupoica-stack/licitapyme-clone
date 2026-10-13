@@ -549,3 +549,52 @@ export function fusionarDesdeExcel(actual: EstadoCosteoEditor, excel: FilaExcelI
   if (recargoExcel != null && sinPreciosAntes && Math.abs(recargoExcel - estado.margenVenta) > 0.05) { estado.margenVenta = recargoExcel; recargoAdoptado = true; }
   return { estado, rellenadas, creadas, sinPareja, recargoExcel, recargoAdoptado };
 }
+
+/** Lo que cambió entre dos versiones guardadas del costeo, en frases legibles — para el registro de
+ *  cambios del editor («quién modificó qué»). Las filas se emparejan por `id` (se guarda en
+ *  datos_json, así que sobrevive entre guardados). Sin versión previa = primer guardado. */
+export function resumenCambiosCosteo(antes: EstadoCosteoEditor | null, despues: EstadoCosteoEditor, max = 40): string[] {
+  if (!antes) return ['Primer guardado del costeo'];
+  const out: string[] = [];
+  const pesos = (n: number | null | undefined) => n == null ? 'vacío' : `$${Math.round(n).toLocaleString('es-CL')}`;
+  const num = (n: number | null | undefined, suf = '') => n == null ? 'vacío' : `${String(n).replace('.', ',')}${suf}`;
+  const txt = (s: string | null | undefined) => (s || '').trim() ? `"${(s || '').trim().slice(0, 60)}"` : 'vacío';
+  const nombre = (f: FilaEditorCosteo) => `"${(f.detalle || `ítem ${f.item}`).slice(0, 50)}"`;
+
+  if (antes.margenVenta !== despues.margenVenta) out.push(`Recargo general: ${num(antes.margenVenta, '%')} → ${num(despues.margenVenta, '%')}`);
+  if (antes.modalidad !== despues.modalidad) out.push(`Estructura: ${antes.modalidad} → ${despues.modalidad}`);
+
+  const hojasAntes = new Map(antes.grupos.map(g => [g.nombre, g]));
+  for (const g of despues.grupos) {
+    const a = hojasAntes.get(g.nombre);
+    if (!a) continue;
+    if (a.ofertamos !== g.ofertamos) out.push(`Hoja ${g.nombre}: ${g.ofertamos ? 'se vuelve a ofertar' : 'no se oferta'}`);
+    if ((a.margenVenta ?? null) !== (g.margenVenta ?? null)) out.push(`Hoja ${g.nombre}: recargo ${num(a.margenVenta, '%')} → ${num(g.margenVenta, '%')}`);
+    if ((a.presupuestoNeto ?? null) !== (g.presupuestoNeto ?? null)) out.push(`Hoja ${g.nombre}: presupuesto ${pesos(a.presupuestoNeto)} → ${pesos(g.presupuestoNeto)}`);
+  }
+
+  const filasAntes = new Map(antes.grupos.flatMap(g => g.filas).map(f => [f.id, f]));
+  const idsDespues = new Set<string>();
+  for (const f of despues.grupos.flatMap(g => g.filas)) {
+    idsDespues.add(f.id);
+    const a = filasAntes.get(f.id);
+    if (!a) { out.push(`Agregó el ítem ${nombre(f)}`); continue; }
+    const campos: string[] = [];
+    if ((a.detalle || '') !== (f.detalle || '')) campos.push(`detalle ${txt(a.detalle)} → ${txt(f.detalle)}`);
+    if ((a.complemento || '') !== (f.complemento || '')) campos.push('complemento');
+    if ((a.unidad || '') !== (f.unidad || '')) campos.push(`unidad ${txt(a.unidad)} → ${txt(f.unidad)}`);
+    if ((a.skuProveedor || '') !== (f.skuProveedor || '')) campos.push(`proveedor ${txt(a.skuProveedor)} → ${txt(f.skuProveedor)}`);
+    if ((a.cantidad ?? null) !== (f.cantidad ?? null)) campos.push(`cantidad ${num(a.cantidad)} → ${num(f.cantidad)}`);
+    if ((a.valorConIva ?? null) !== (f.valorConIva ?? null)) campos.push(`valor c/IVA ${pesos(a.valorConIva)} → ${pesos(f.valorConIva)}`);
+    if ((a.costoAdicionalNeto ?? null) !== (f.costoAdicionalNeto ?? null)) campos.push(`costo adicional ${pesos(a.costoAdicionalNeto)} → ${pesos(f.costoAdicionalNeto)}`);
+    if ((a.margenVenta ?? null) !== (f.margenVenta ?? null)) campos.push(`recargo ${num(a.margenVenta, '%')} → ${num(f.margenVenta, '%')}`);
+    if ((a.costoRealUnitario ?? null) !== (f.costoRealUnitario ?? null)) campos.push(`costo real ${pesos(a.costoRealUnitario)} → ${pesos(f.costoRealUnitario)}`);
+    if ([a.link1, a.link2, a.link3].join('|') !== [f.link1, f.link2, f.link3].join('|')) campos.push('links');
+    if ((a.imagenUrl || '') !== (f.imagenUrl || '')) campos.push('imagen');
+    if (campos.length) out.push(`${nombre(f)}: ${campos.join(' · ')}`);
+  }
+  for (const [id, a] of filasAntes) if (!idsDespues.has(id)) out.push(`Eliminó el ítem ${nombre(a)}`);
+
+  if (!out.length) return ['Guardó sin cambios en los ítems'];
+  return out.length > max ? [...out.slice(0, max), `… y ${out.length - max} cambio(s) más`] : out;
+}
