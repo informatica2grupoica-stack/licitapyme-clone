@@ -105,7 +105,7 @@ const haceCuanto = (ganadoAt: string): string => {
 };
 const diaHoraCorta = (ganadoAt: string): string => `${ganadoAt.slice(8, 10)}-${ganadoAt.slice(5, 7)} ${ganadoAt.slice(11, 16)}`;
 const ChipUltimaGanada = () => (
-  <span title="La licitación de entrega rápida que se ganó más recientemente"
+  <span title="La licitación que se ganó más recientemente"
     className="inline-flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-wide text-white bg-rose-600 px-1.5 py-0.5 rounded-full flex-shrink-0">Última ganada</span>
 );
 
@@ -1217,10 +1217,10 @@ export default function ComprasPage() {
     return arr;
   }, [negocios, q, fAsignado, fOrganismo, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
       soloUrgentes, soloSinAsignar, verCerradas, fechaDesde, fechaHasta, orden]);
-  // La urgente que se ganó más recientemente (sea cual sea el orden elegido).
   const urgentes = useMemo(() => filtrados.filter(f => f.urgente), [filtrados]);
+  // La licitación que se ganó más recientemente (sea cual sea el orden elegido), urgente o no.
   const ultimaUrgente = useMemo(
-    () => urgentes.reduce<ComprasFila | null>((m, f) => (!m || f.ganadoAt > m.ganadoAt ? f : m), null), [urgentes]);
+    () => filtrados.reduce<ComprasFila | null>((m, f) => (!m || f.ganadoAt > m.ganadoAt ? f : m), null), [filtrados]);
 
   if (cargandoSesion || (!puedeVer && loading)) {
     return (
@@ -1416,7 +1416,7 @@ export default function ComprasPage() {
             className="flex items-center gap-3 flex-wrap rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100/70 px-4 py-2.5 transition-colors">
             <span className="w-8 h-8 rounded-full bg-rose-600 text-white flex items-center justify-center flex-shrink-0"><AlertTriangle size={15} /></span>
             <span className="min-w-0 flex-1">
-              <span className="block text-[10.5px] font-bold uppercase tracking-wide text-rose-700">Entrega rápida · {urgentes.length} {urgentes.length === 1 ? 'licitación' : 'licitaciones'} · la última que se ganó</span>
+              <span className="block text-[10.5px] font-bold uppercase tracking-wide text-rose-700">{ultimaUrgente.urgente ? 'Entrega rápida · ' : ''}La última que se ganó{urgentes.length > 0 ? ` · ${urgentes.length} de entrega rápida` : ''}</span>
               <span className="block text-[13px] font-bold text-zinc-900 truncate">{ultimaUrgente.licitacionNombre || ultimaUrgente.licitacionCodigo}</span>
               <span className="block text-[11.5px] text-zinc-600">{ultimaUrgente.licitacionCodigo} · ganada {haceCuanto(ultimaUrgente.ganadoAt)} ({diaHoraCorta(ultimaUrgente.ganadoAt)}){ultimaUrgente.plazoEntregaDias != null ? ` · entrega en ${ultimaUrgente.plazoEntregaDias} día(s)` : ''}</span>
             </span>
