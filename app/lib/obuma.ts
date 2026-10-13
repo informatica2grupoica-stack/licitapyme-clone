@@ -851,8 +851,17 @@ export interface DatosCrearProveedorObuma {
   tipoCuenta?: string | null;      // texto libre (ej. "Cuenta Corriente")
   tipoProveedorId?: string | null; // rel_tipoproveedor_id — ID interno, sin catálogo público
   tags?: string | null;
+  // Condiciones comerciales del formulario web (claves leídas de proveedores.findByRut.json, 09-oct-2026).
+  listaPrecio?: string | null;
+  tipoDespacho?: string | null;    // '1' = Por cuenta CLIENTE, '2' = EMISOR a instalaciones cliente
+  medioDespacho?: string | null;
+  cuentaCorriente?: boolean;
+  creditoAprobado?: string | null;
+  diasPago?: string | null;
+  plazoPago?: string | null;
+  permitirDteSinOc?: boolean;
 }
-export async function crearProveedorObuma(datos: DatosCrearProveedorObuma): Promise<{ proveedorId: string }> {
+export async function crearProveedorObuma(datos: DatosCrearProveedorObuma): Promise<{ proveedorId: string; noGuardados: string[] }> {
   const payload: Record<string, unknown> = {
     proveedor_rut: datos.rut, proveedor_razon_social: datos.razonSocial,
   };
@@ -878,6 +887,14 @@ export async function crearProveedorObuma(datos: DatosCrearProveedorObuma): Prom
   if (datos.tipoCuenta) payload.proveedor_tipo_cuenta = datos.tipoCuenta;
   if (datos.tipoProveedorId) payload.rel_tipoproveedor_id = datos.tipoProveedorId;
   if (datos.tags) payload.proveedor_tags = datos.tags;
+  if (datos.listaPrecio) payload.proveedor_lista_precio = datos.listaPrecio;
+  if (datos.tipoDespacho) payload.proveedor_tipo_despacho = datos.tipoDespacho;
+  if (datos.medioDespacho) payload.proveedor_medio_despacho = datos.medioDespacho;
+  if (datos.cuentaCorriente) payload.proveedor_es_cuenta_corriente = '1';
+  if (datos.creditoAprobado) payload.proveedor_credito_aprobado = datos.creditoAprobado;
+  if (datos.diasPago) payload.proveedor_diasdepago = datos.diasPago;
+  if (datos.plazoPago) payload.proveedor_plazodepago = datos.plazoPago;
+  if (datos.permitirDteSinOc) payload.proveedor_permitir_dte_sin_referencia = '1';
 
   const json = await llamarPost<any>(BASE_V1, '/proveedores.create.json', payload);
   const detalle: string = json.result?.result_detail || json.result_detail || '';
@@ -896,8 +913,13 @@ export async function crearProveedorObuma(datos: DatosCrearProveedorObuma): Prom
   if (datos.bancoCuenta && String(v.proveedor_banco_cuenta) !== String(datos.bancoCuenta)) discrepancias.push('banco_cuenta');
   if (datos.nroCuenta && String(v.proveedor_nro_cuenta) !== String(datos.nroCuenta)) discrepancias.push('nro_cuenta');
   if (datos.tipoCuenta && String(v.proveedor_tipo_cuenta) !== String(datos.tipoCuenta)) discrepancias.push('tipo_cuenta');
+  if (datos.tipoDespacho && String(v.proveedor_tipo_despacho) !== String(datos.tipoDespacho)) discrepancias.push('tipo_despacho');
+  if (datos.cuentaCorriente && String(v.proveedor_es_cuenta_corriente) !== '1') discrepancias.push('cuenta_corriente');
+  if (datos.permitirDteSinOc && String(v.proveedor_permitir_dte_sin_referencia) !== '1') discrepancias.push('dte_sin_oc');
   if (discrepancias.length) {
     console.warn(`[obuma] proveedor ${proveedorId} creado, pero Obuma no guardó estos campos como se mandaron: ${discrepancias.join(', ')}`);
   }
-  return { proveedorId: String(proveedorId) };
+  // Probado 09-oct-2026 (creación y proveedores.update.json): Obuma responde OK pero NO guarda banco, N° y tipo de
+  // cuenta, tipo de despacho ni cuenta corriente; hay que completarlos a mano en la ficha web.
+  return { proveedorId: String(proveedorId), noGuardados: discrepancias };
 }

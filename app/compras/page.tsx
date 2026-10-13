@@ -16,6 +16,7 @@ import { Select } from '@/app/components/ui/Select';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { useRealtime } from '@/app/lib/use-realtime';
 import { GanttComprasCard } from '@/app/negocios/[id]/GanttComprasCard';
+import type { FaseTarea, HitosGantt as HitosPlan } from '@/app/lib/compras-plan';
 import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconBuilding as Building2, IconArrowUpRight as ArrowUpRight, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconUsers as Users, IconArrowsUpDown as ArrowUpDown, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconUserPlus as UserPlus, IconCircleCheck as CheckCircle2, IconChartBar as BarChart3, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconChevronsLeft as ChevronsLeft, IconChevronsRight as ChevronsRight, IconList as List, IconPackage as PackageCheck, IconCircleX as XCircle, IconArchive as Archive, IconArrowBackUp as Undo2, IconPencil as Pencil, IconTimeline as GanttChart, IconZoomIn as ZoomIn, IconZoomOut as ZoomOut, IconDiamond as Diamond, IconCalendarClock as CalendarClock, IconLayoutSidebarRightCollapse as PanelRightClose } from '@tabler/icons-react';
 
 type CierreLegado = 'ENTREGADA' | 'NO_REALIZADA';
@@ -24,6 +25,7 @@ type EstadoTareaGantt = 'PENDIENTE' | 'EN_CURSO' | 'HECHA';
 interface TareaGantt {
   id: number; titulo: string; categoria: string; estado: EstadoTareaGantt; responsableNombre: string | null;
   plazoAt: string | null; creadoAt: string; cerradoAt: string | null; vencida: boolean;
+  fase: FaseTarea | null; planInicioAt: string | null; planFinAt: string | null;
 }
 
 interface RelojEntregaResumen { fechaLimiteVigente: string | null; prorrogado: boolean; prorrogaMotivo: string | null; prorrogaAutorizadoPorNombre: string | null }
@@ -38,6 +40,8 @@ interface ComprasFila {
   plazoEntregaDias: number | null;
   postuladoPorNombre: string | null;
   plazoAceptacionOCDias: number | null;
+  hitoInicioPlazo: string | null;
+  hitosGantt: HitosPlan | null;
   tareasGantt: TareaGantt[];
   reloj: RelojEntregaResumen | null;
 }
@@ -633,21 +637,35 @@ interface HitosGantt {
   // (ganado/OC + plazoEntregaDias) porque el reloj todavía no se fijó para este negocio.
   entregaOficial: boolean;
   entregaVencida: boolean;
+  // true = el plazo de entrega todavía no empezó a correr (falta que llegue o se acepte la OC, según
+  // las bases): no hay fecha de entrega que mostrar.
+  esperandoOC: boolean;
+  // true = las bases no dicen desde cuándo corre el plazo: el inicio queda por validar.
+  porValidar: boolean;
+  // true = la OC llegó pero las bases cuentan el plazo desde su aceptación y falta aceptarla.
+  faltaAceptar: boolean;
+  // true = la OC ya debió aceptarse (pasó el límite) y no llegó.
+  ocAtrasada: boolean;
 }
 
+// Los hitos (adjudicación, OC, inicio del plazo según las bases, entrega) los calcula el servidor con
+// app/lib/compras-plan.ts — la misma fuente que el Gantt de tareas. El plazo de entrega corre desde
+// donde digan las bases (llegada o aceptación de la OC); si no lo aclaran queda "por validar".
 function calcularHitosGantt(f: ComprasFila): HitosGantt {
-  const adjudicacion = dayjs(f.ganadoAt.slice(0, 10));
-  const diasAceptacion = f.plazoAceptacionOCDias ?? TOPE_LEGAL_ACEPTACION_OC_DIAS;
-  const aceptacionOCLimite = adjudicacion.add(diasAceptacion, 'day');
-  const ocReal = f.ocFecha ? dayjs(f.ocFecha) : null;
-  const inicioEntrega = ocReal || aceptacionOCLimite;
-  // El Reloj de Entrega (§15) manda sobre el estimado apenas está fijado — ya es la fecha oficial,
-  // con cualquier prórroga registrada aplicada (app/lib/compras-reloj.ts).
-  const entregaOficial = !!f.reloj?.fechaLimiteVigente;
-  const entrega = entregaOficial ? dayjs(f.reloj!.fechaLimiteVigente!)
-    : f.plazoEntregaDias != null ? inicioEntrega.add(f.plazoEntregaDias, 'day') : null;
+  const p = f.hitosGantt;
+  const adjudicacion = dayjs((p?.adjudicacion ?? f.ganadoAt).slice(0, 10));
+  const aceptacionOCLimite = p ? dayjs(p.ocLimite.slice(0, 10)) : adjudicacion.add(f.plazoAceptacionOCDias ?? TOPE_LEGAL_ACEPTACION_OC_DIAS, 'day');
+  const ocReal = p?.ocEmitida ? dayjs(p.ocEmitida.slice(0, 10)) : null;
+  const inicioEntrega = p?.inicioPlazo ? dayjs(p.inicioPlazo.slice(0, 10)) : (ocReal || aceptacionOCLimite);
+  const entregaOficial = !!p?.entregaOficial;
+  const entrega = p?.entrega ? dayjs(p.entrega.slice(0, 10)) : null;
   const entregaVencida = !!entrega && entrega.isBefore(dayjs(), 'day') && f.cierreLegado !== 'ENTREGADA' && f.cierreLegado !== 'NO_REALIZADA';
-  return { adjudicacion, aceptacionOCLimite, aceptacionOCEstimada: f.plazoAceptacionOCDias == null, ocReal, inicioEntrega, entrega, entregaOficial, entregaVencida };
+  const sinFecha = !entrega && f.plazoEntregaDias != null;
+  const porValidar = sinFecha && !!p && p.inicioPlazoTipo == null;
+  const esperandoOC = sinFecha && !porValidar;
+  const ocAtrasada = !ocReal && aceptacionOCLimite.isBefore(dayjs(), 'day');
+  const faltaAceptar = esperandoOC && !!ocReal && p?.inicioPlazoTipo === 'OC_ACEPTADA';
+  return { adjudicacion, aceptacionOCLimite, aceptacionOCEstimada: p ? p.ocLimiteEstimado : f.plazoAceptacionOCDias == null, ocReal, inicioEntrega, entrega, entregaOficial, entregaVencida, esperandoOC, porValidar, faltaAceptar, ocAtrasada };
 }
 
 // Estado de la entrega en palabras. Va en la columna fija de la izquierda: así cada fila se entiende aunque sus barras queden fuera de la
@@ -655,6 +673,11 @@ function calcularHitosGantt(f: ComprasFila): HitosGantt {
 function estadoEntregaGantt(f: ComprasFila, h: HitosGantt): { texto: string; clase: string } {
   if (f.cierreLegado === 'ENTREGADA') return { texto: 'Entregada', clase: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
   if (f.cierreLegado === 'NO_REALIZADA') return { texto: 'No realizada', clase: 'bg-zinc-100 text-zinc-500 border-zinc-200' };
+  if (h.porValidar) return { texto: 'Inicio del plazo por validar', clase: 'bg-zinc-100 text-zinc-600 border-zinc-200' };
+  if (h.faltaAceptar) return { texto: 'Falta aceptar la OC', clase: 'bg-amber-50 text-amber-800 border-amber-200' };
+  if (h.esperandoOC) return h.ocAtrasada
+    ? { texto: `OC atrasada ${diasEntre(h.aceptacionOCLimite, dayjs())} d`, clase: 'bg-rose-50 text-rose-700 border-rose-200' }
+    : { texto: 'Esperando OC', clase: 'bg-amber-50 text-amber-800 border-amber-200' };
   if (!h.entrega) return { texto: 'Sin plazo de entrega', clase: 'bg-zinc-50 text-zinc-400 border-zinc-200' };
   const d = h.entrega.diff(dayjs().startOf('day'), 'day');
   if (d < 0) return { texto: `Vencida hace ${-d} d`, clase: 'bg-rose-50 text-rose-700 border-rose-200' };
@@ -727,7 +750,8 @@ function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaU
           const hoy = dayjs().startOf('day');
           const diasEntrega = h.entrega ? h.entrega.diff(hoy, 'day') : null;
           const colorEntrega = noRealizada ? '#a1a1aa' : entregada ? '#10b981' : h.entregaVencida ? '#e11d48' : diasEntrega != null && diasEntrega <= 3 ? '#f59e0b' : '#0d9488';
-          const x0 = xAdj, x1 = xInicioEntrega, x2 = xEntrega;
+          // Sin OC y vencido el límite: la barra de espera llega hasta hoy (crece mientras la OC no llegue).
+          const x0 = xAdj, x1 = (h.esperandoOC || h.porValidar) && h.ocAtrasada ? Math.max(xInicioEntrega, x(hoy)) : xInicioEntrega, x2 = xEntrega;
           const ancho1 = Math.max(x1 - x0, 4);
           const ancho2 = x2 != null ? Math.max(x2 - x1, 4) : 0;
           const finBarra = x2 != null ? x1 + ancho2 : x1 + ancho1;
@@ -742,9 +766,12 @@ function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaU
           return (
             <>
               <span className="absolute text-[10.5px] font-semibold text-zinc-500 whitespace-nowrap text-right" style={{ left: x0 - 54, width: 48, top: 29 }}>{h.adjudicacion.format('DD-MM')}</span>
-              <Tramo left={x0} width={ancho1} color={h.ocReal ? '#34d399' : '#fbbf24'}
-                texto={ocTxt} title={`${ocTxt}: ${h.adjudicacion.format('DD-MM-YYYY')} → ${h.ocReal ? h.ocReal.format('DD-MM-YYYY') : h.aceptacionOCLimite.format('DD-MM-YYYY') + (h.aceptacionOCEstimada ? ' (tope legal, estimado)' : '')}`} />
-              {x2 != null
+              <Tramo left={x0} width={ancho1} color={h.ocReal ? '#34d399' : h.ocAtrasada ? '#e11d48' : '#fbbf24'}
+                texto={h.ocAtrasada && !h.ocReal ? 'OC atrasada' : ocTxt} title={`${ocTxt}: ${h.adjudicacion.format('DD-MM-YYYY')} → ${h.ocReal ? h.ocReal.format('DD-MM-YYYY') : h.aceptacionOCLimite.format('DD-MM-YYYY') + (h.aceptacionOCEstimada ? ' (tope legal, estimado)' : '')}${h.ocAtrasada && !h.ocReal ? ' · pasó el límite y la OC no ha llegado' : ''}`} />
+              {h.esperandoOC || h.porValidar
+                ? <Tramo left={x1} width={pxDia * 14} color="#a1a1aa" borde texto={h.porValidar ? 'Inicio del plazo por validar' : `Entrega: ${f.plazoEntregaDias} d ${f.hitosGantt?.inicioPlazoTipo === 'OC_ACEPTADA' ? 'desde aceptar la OC' : 'desde la OC'}`}
+                    title={h.porValidar ? 'Las bases no dicen desde cuándo corre el plazo de entrega: confírmalo en la tarea «Fijación y validación del reloj de entrega».' : `El plazo de entrega (${f.plazoEntregaDias} días) corre desde ${f.hitosGantt?.inicioPlazoTipo === 'OC_ACEPTADA' ? 'que se acepta la OC' : 'que llega la OC'} (según las bases). Aún no ocurre, por eso no hay fecha de entrega.`} />
+                : x2 != null
                 ? <Tramo left={x1} width={ancho2} color={colorEntrega}
                     texto={entregada ? 'Entregada' : 'Plazo de entrega'}
                     title={`Plazo de entrega: ${h.inicioEntrega.format('DD-MM-YYYY')} → ${h.entrega!.format('DD-MM-YYYY')}${h.entregaOficial ? '' : ' (estimado: el Reloj de Entrega aún no se fijó)'}${f.reloj?.prorrogado ? ' · con prórroga' : ''}`} />
@@ -790,7 +817,7 @@ function PanelDetalleGantt({ f, onClose }: { f: ComprasFila; onClose: () => void
           </div>
           <div className={`rounded-lg py-1.5 ${h.entregaVencida ? 'bg-rose-50' : 'bg-teal-50'}`}>
             <p className={`text-[9px] font-bold uppercase ${h.entregaVencida ? 'text-rose-500' : 'text-teal-600'}`}>Entrega</p>
-            <p className={`text-[11px] font-bold ${h.entregaVencida ? 'text-rose-700' : 'text-teal-800'}`}>{h.entrega ? h.entrega.format('DD-MM-YY') : '— sin dato'}</p>
+            <p className={`text-[11px] font-bold ${h.entregaVencida ? 'text-rose-700' : 'text-teal-800'}`}>{h.entrega ? h.entrega.format('DD-MM-YY') : h.porValidar ? 'Por validar' : h.esperandoOC ? (h.faltaAceptar ? 'Al aceptar la OC' : 'Al llegar la OC') : '— sin dato'}</p>
           </div>
         </div>
         {h.aceptacionOCEstimada && <p className="text-[10px] text-zinc-400">*Estimado — tope legal (5 días corridos), sin dato en las bases.</p>}
@@ -813,15 +840,19 @@ function PanelDetalleGantt({ f, onClose }: { f: ComprasFila; onClose: () => void
         ) : (
           <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
             <p className="text-[10.5px] text-zinc-500">
-              La fecha de entrega de arriba es un <strong>estimado</strong> — el Reloj de Entrega todavía no se fijó para este negocio.
-              Fíjalo (o registra una prórroga oficial si el organismo amplió el plazo) desde <Link href={`/compras/${f.negocioId}`} className="text-teal-700 font-semibold hover:underline">el negocio</Link>.
+              {h.porValidar
+                ? <>Las bases no dicen desde cuándo corre el plazo de entrega ({f.plazoEntregaDias} días): hay que validarlo antes de tener fecha.</>
+                : h.esperandoOC
+                ? <>El plazo de entrega ({f.plazoEntregaDias} días) corre desde {f.hitosGantt?.inicioPlazoTipo === 'OC_ACEPTADA' ? 'que se acepta la OC' : 'que llega la OC'} (según las bases), y aún no ocurre. La fecha de entrega se calcula apenas pase.</>
+                : <>La fecha de entrega de arriba es un <strong>estimado</strong> — el Reloj de Entrega todavía no se fijó para este negocio.</>}
+              {' '}Fíjalo (o registra una prórroga oficial si el organismo amplió el plazo) desde <Link href={`/compras/${f.negocioId}`} className="text-teal-700 font-semibold hover:underline">el negocio</Link>.
             </p>
           </div>
         )}
 
         <div>
           <p className="text-[10.5px] font-bold text-zinc-400 uppercase mb-1.5">Todas las tareas ({f.tareasGantt.length})</p>
-          <GanttComprasCard tareas={f.tareasGantt} plegable={false} />
+          <GanttComprasCard tareas={f.tareasGantt} hitos={f.hitosGantt} plegable={false} />
         </div>
 
         <Link href={`/compras/${f.negocioId}`} className="flex items-center justify-center gap-1.5 text-[11.5px] font-semibold text-teal-700 hover:text-teal-800 bg-teal-50 hover:bg-teal-100 rounded-lg py-2 transition-colors">

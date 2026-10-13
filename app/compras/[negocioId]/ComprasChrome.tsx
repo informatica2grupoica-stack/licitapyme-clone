@@ -12,6 +12,8 @@ import Link from 'next/link';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { Banner } from '@/app/components/ui/Banner';
+import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
+import { SubirPdfOficialOC } from '@/app/components/SubirPdfOficialOC';
 import { useCosteoFlotante } from '@/app/components/CosteoFlotanteContext';
 import { DocumentosLicitacionCard } from '@/app/negocios/[id]/DocumentosLicitacionCard';
 import { AuditoriaAgenteNegocioCard } from '@/app/negocios/[id]/AuditoriaAgenteNegocioCard';
@@ -67,7 +69,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   const toast = useToast();
   const flot = useCosteoFlotante();
   const {
-    loading, error, asignacion, tareas, candidatos, resumenFases, licitacionNombre, licitacionOrganismo, licitacionCodigoActual, ocMp,
+    loading, error, asignacion, tareas, hitosGantt, candidatos, resumenFases, licitacionNombre, licitacionOrganismo, licitacionCodigoActual, ocMp,
     recargar, puedeOperar, esJefeDeVentas, esAdministracion, esBodega, esAdmin,
   } = useCompras();
 
@@ -88,6 +90,31 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   // Reasignar (pedido explícito del usuario, 15-sep-2026): solo admin puede cambiar un encargado
   // que ya tiene otro asignado — misma restricción que la lista de Compras (app/compras/page.tsx).
   const [reasignando, setReasignando] = useState(false);
+  const [visorOC, setVisorOC] = useState<VisorDoc | null>(null);
+  const [cargandoPdfOC, setCargandoPdfOC] = useState(false);
+  // Abre el PDF en el visor de la app (proxy inline): el link directo a R2 no se podía ver. Si el cron
+  // todavía no lo bajó, se pide ahora a Mercado Público.
+  const verPdfOC = async () => {
+    if (!ocMp?.codigo) return;
+    setCargandoPdfOC(true);
+    try {
+      let url = ocMp.pdfUrl;
+      if (!url) {
+        const r = await fetch('/api/ordenes-compra/pdf', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ codigoOC: ocMp.codigo }),
+        });
+        const d = await r.json().catch(() => null);
+        if (!d?.success || !d.url) throw new Error(d?.error || 'No se pudo obtener el PDF');
+        url = d.url;
+      }
+      setVisorOC({ nombre: `OC_${ocMp.codigo}.pdf`, url: url! });
+    } catch (e: any) {
+      toast.error('No se pudo abrir el PDF', e.message || 'Intenta de nuevo');
+    } finally {
+      setCargandoPdfOC(false);
+    }
+  };
   const [ocAbierta, setOcAbierta] = useState(false);
   const [ocForm, setOcForm] = useState({ numero: '', emitidaAt: '', aceptadaAt: '', monto: '', difiere: false, observacion: '' });
   const [guardandoOC, setGuardandoOC] = useState(false);
@@ -384,7 +411,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
 
       {/* Gantt, aparte del flujo por pestañas (pedido explícito, 17-sep-2026): "es aparte de todo ese
           flujo y es lo primero que se debe ver". */}
-      <GanttComprasCard tareas={tareas} />
+      <GanttComprasCard tareas={tareas} hitos={hitosGantt} />
 
       {/* Resumen ejecutivo, justo después del Gantt (pedido explícito, 17-sep-2026: "despues el
           resumen que es super importante") — antes quedaba escondido abajo de todo. */}
@@ -572,6 +599,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
 
       {/* Orden de compra del cliente, junto al resumen ejecutivo (pedido explícito, 17-sep-2026:
           "eso metelo a resumen igual") — antes quedaba abajo de todo, separada. */}
+      <DocumentViewerModal doc={visorOC} onClose={() => setVisorOC(null)} />
       <div id="compras-oc" className="bg-white rounded-xl border border-zinc-200 overflow-hidden scroll-mt-4">
         <div className="flex items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0">
@@ -601,11 +629,16 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                       <ExternalLink size={10} /> Ver en Mercado Público
                     </a>
                   )}
-                  {ocMp?.pdfUrl && (
-                    <a href={ocMp.pdfUrl} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-indigo-600 hover:text-indigo-700">
-                      <FileText size={10} /> PDF de la orden
-                    </a>
+                  {ocMp?.codigo && (
+                    <button type="button" onClick={verPdfOC} disabled={cargandoPdfOC}
+                      className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-indigo-600 hover:text-indigo-700 disabled:opacity-50">
+                      {cargandoPdfOC ? <Loader2 size={10} className="animate-spin" /> : <FileText size={10} />} PDF de la orden
+                    </button>
+                  )}
+                  {ocMp?.codigo && ocMp.url && puedeOperar && (
+                    <SubirPdfOficialOC codigoOC={ocMp.codigo} urlFicha={ocMp.url}
+                      onSubido={url => { recargar(); setVisorOC({ nombre: `OC_${ocMp.codigo}.pdf`, url }); }}
+                      className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-indigo-600 hover:text-indigo-700" />
                   )}
                 </div>
               </>
@@ -631,6 +664,32 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             </div>
           )}
         </div>
+
+        {ocMp?.facturacion && (() => {
+          const f = ocMp.facturacion!;
+          const filas: Array<[string, string | null]> = [
+            ['Razón social', f.razonSocial], ['RUT', f.rut], ['Giro', f.giro],
+            ['Dirección', [f.direccion, f.comuna, f.region].filter(Boolean).join(', ') || null],
+            ['Contacto', [f.contactoNombre, f.contactoCargo].filter(Boolean).join(' — ') || null],
+            ['Teléfono', f.contactoFono], ['Correo', f.contactoMail],
+            ['Forma de pago', f.formaPago], ['Despacho', f.direccionDespacho],
+          ];
+          return (
+            <div className="px-4 pb-3">
+              <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 px-3 py-2.5">
+                <p className="text-[11px] font-bold text-zinc-500 uppercase mb-1.5">Datos para facturar (según la OC)</p>
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
+                  {filas.filter(([, v]) => v).map(([k, v]) => (
+                    <div key={k} className="flex gap-2 text-[12px] min-w-0">
+                      <dt className="text-zinc-500 flex-shrink-0 w-24">{k}</dt>
+                      <dd className="text-zinc-900 font-medium break-words min-w-0">{v}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            </div>
+          );
+        })()}
 
         {oc.difiere && (
           <div className="px-4 pb-3">

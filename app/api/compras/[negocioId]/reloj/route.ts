@@ -7,7 +7,8 @@ import { obtenerAsignacion } from '@/app/lib/compras';
 import { obtenerEstadoReloj, fijarReloj, calcularEscenariosMulta, type PlazoTipo } from '@/app/lib/compras-reloj';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { sugerirReloj } from '@/app/lib/compras-reloj-sugerido';
-import { sumarDiasHabiles, sumarDiasCorridos } from '@/app/lib/compras';
+import { calcularHitosGantt } from '@/app/lib/compras-plan';
+import { sumarDiasHabiles, sumarDiasCorridos, construirEntradaAnclas } from '@/app/lib/compras';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -48,7 +49,11 @@ export async function GET(request: NextRequest, { params }: Params) {
         const [y, m, d] = s.fechaInicio.split('-').map(Number);
         const ini = new Date(Date.UTC(y, m - 1, d));
         const fin = s.plazoTipo === 'HABILES' ? sumarDiasHabiles(ini, s.plazoDias) : sumarDiasCorridos(ini, s.plazoDias);
-        sugerido = { ...s, venceEl: `${fin.getUTCFullYear()}-${String(fin.getUTCMonth() + 1).padStart(2, '0')}-${String(fin.getUTCDate()).padStart(2, '0')}` };
+        // Misma fecha que ve el Gantt (días hábiles con feriados, desfase de las bases): manda sobre la cuenta simple.
+        const plan = calcularHitosGantt(construirEntradaAnclas({
+          ganadoAt: asignacion.ganadoAt, ocEmitidaAt: asignacion.ordenCompra?.emitidaAt ?? null, ocAceptadaAt: asignacion.ordenCompra?.aceptadaAt ?? null, entregaOficialAt: null,
+        }, asignacion.resumen));
+        sugerido = { ...s, venceEl: plan.inicioPlazoTipo && plan.entrega ? plan.entrega.slice(0, 10) : `${fin.getUTCFullYear()}-${String(fin.getUTCMonth() + 1).padStart(2, '0')}-${String(fin.getUTCDate()).padStart(2, '0')}` };
       }
     }
     return NextResponse.json({ success: true, reloj, escenariosMulta, sugerido });

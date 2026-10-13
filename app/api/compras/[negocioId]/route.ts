@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
-import { obtenerAsignacion, listarTareas, candidatosEncargado, crearTareasCatalogoSiCorresponde, obtenerResumenFases } from '@/app/lib/compras';
+import { armarRelojAutomatico, obtenerAsignacion, listarTareas, candidatosEncargado, crearTareasCatalogoSiCorresponde, obtenerResumenFases, obtenerHitosGantt } from '@/app/lib/compras';
 import { ordenesDeLicitacion } from '@/app/lib/ordenes-compra';
 
 export const runtime = 'nodejs';
@@ -71,9 +71,12 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (asignacion.asignadoA != null) {
       await crearTareasCatalogoSiCorresponde(id, asignacion.asignadoA, asignacion.asignadoNombre).catch(() => {});
     }
+    // El reloj de entrega se arma solo cuando ya hay inicio real del plazo (no pisa uno ya fijado).
+    await armarRelojAutomatico(id);
 
-    const [tareas, candidatos, negRows, ordenes] = await Promise.all([
+    const [tareas, hitosGantt, candidatos, negRows, ordenes] = await Promise.all([
       listarTareas(id),
+      obtenerHitosGantt(id),
       candidatosEncargado(),
       pool.query(`SELECT licitacion_nombre, licitacion_organismo, licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [id]) as any,
       // La orden de compra ya vive en `ordenes_compra` con su link al portal y su PDF descargado.
@@ -90,6 +93,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       success: true,
       asignacion,
       tareas,
+      hitosGantt,
       candidatos,
       resumenFases,
       licitacionNombre: neg.licitacion_nombre ?? null,
@@ -100,7 +104,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       // documentos debe buscar por el código actual para no dejar huérfanos si el código se corrigió.
       licitacionCodigoActual: neg.licitacion_codigo ?? asignacion.licitacionCodigo,
       ordenCompraMp: ocNuestra ? {
-        codigo: ocNuestra.codigo, estado: ocNuestra.estado, url: ocNuestra.url, pdfUrl: ocNuestra.pdfUrl,
+        codigo: ocNuestra.codigo, estado: ocNuestra.estado, url: ocNuestra.url, pdfUrl: ocNuestra.pdfUrl, facturacion: ocNuestra.facturacion ?? null,
       } : null,
     });
   } catch (error: any) {

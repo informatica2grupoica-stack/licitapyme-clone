@@ -8,6 +8,7 @@
 // en vez de que cada una vuelva a pedir lo mismo.
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useSession } from '@/app/lib/session-context';
+import type { FaseTarea, HitosGantt } from '@/app/lib/compras-plan';
 
 export interface ResumenCompras {
   licitacionNombre: string | null; organismo: string | null;
@@ -33,7 +34,13 @@ export interface OrdenCompra {
   registradaPorNombre: string | null; actualizadaAt: string | null;
   origen: 'mp' | 'manual' | null; codigoMp: string | null; estadoMp: string | null; vinculadaAt: string | null;
 }
-export interface OrdenCompraMp { codigo: string; estado: string | null; url: string | null; pdfUrl: string | null }
+export interface FacturacionOC {
+  razonSocial: string | null; rut: string | null; giro: string | null;
+  direccion: string | null; comuna: string | null; region: string | null;
+  contactoNombre: string | null; contactoCargo: string | null; contactoFono: string | null; contactoMail: string | null;
+  formaPago: string | null; direccionDespacho: string | null;
+}
+export interface OrdenCompraMp { codigo: string; estado: string | null; url: string | null; pdfUrl: string | null; facturacion?: FacturacionOC | null }
 
 export interface Asignacion {
   negocioId: number; licitacionCodigo: string; ganadoAt: string; vencimientoAsignacionAt: string;
@@ -51,6 +58,7 @@ export interface Tarea {
   plazoAt: string | null; creadoAt: string; primerContactoAt: string | null;
   cerradoAt: string | null; cerradoPorNombre: string | null; notaCierre: string | null;
   esManual: boolean; vencida: boolean;
+  fase: FaseTarea | null; planInicioAt: string | null; planFinAt: string | null;
   campos: CampoRegistro[]; registro: Record<string, string> | null; registroAt: string | null; hallazgo: boolean;
 }
 
@@ -76,6 +84,7 @@ interface ComprasContextValue {
   loading: boolean; error: string | null;
   asignacion: Asignacion | null;
   tareas: Tarea[];
+  hitosGantt: HitosGantt | null;
   candidatos: Candidato[];
   resumenFases: ResumenFases | null;
   licitacionNombre: string | null;
@@ -98,6 +107,7 @@ export function ComprasProvider({ negocioId, children }: { negocioId: number; ch
   const [error, setError] = useState<string | null>(null);
   const [asignacion, setAsignacion] = useState<Asignacion | null>(null);
   const [tareas, setTareas] = useState<Tarea[]>([]);
+  const [hitosGantt, setHitosGantt] = useState<HitosGantt | null>(null);
   const [candidatos, setCandidatos] = useState<Candidato[]>([]);
   const [resumenFases, setResumenFases] = useState<ResumenFases | null>(null);
   const [licitacionNombre, setLicitacionNombre] = useState<string | null>(null);
@@ -112,6 +122,7 @@ export function ComprasProvider({ negocioId, children }: { negocioId: number; ch
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cargar Compras');
       setAsignacion(data.asignacion);
       setTareas(data.tareas || []);
+      setHitosGantt(data.hitosGantt || null);
       setCandidatos(data.candidatos || []);
       setResumenFases(data.resumenFases || null);
       setLicitacionNombre(data.licitacionNombre);
@@ -142,7 +153,7 @@ export function ComprasProvider({ negocioId, children }: { negocioId: number; ch
 
   return (
     <Ctx.Provider value={{
-      negocioId, loading, error, asignacion, tareas, candidatos, resumenFases,
+      negocioId, loading, error, asignacion, tareas, hitosGantt, candidatos, resumenFases,
       licitacionNombre, licitacionOrganismo, licitacionCodigoActual, ocMp, recargar,
       puedeOperar, esJefeDeVentas, esAdministracion, esBodega, esAdmin,
     }}>

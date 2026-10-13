@@ -10,7 +10,7 @@ import { useCompras, fmtFecha, type Tarea } from './ComprasContext';
 import { IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconPlayerPlay as PlayCircle, IconCircle as Circle, IconFlag as Flag, IconCalendar as Calendar, IconClipboardList as ClipboardList, IconDeviceFloppy as Save, IconPlus as Plus, IconX as X } from '@tabler/icons-react';
 
 const SI_NO = ['Sí', 'No'] as const;
-const CATEGORIA_LABEL: Record<string, string> = { VALIDACION: 'Validación', ADMINISTRATIVO: 'Plazos administrativos', MANUAL: 'Tareas propias del proyecto' };
+const CATEGORIA_LABEL: Record<string, string> = { VALIDACION: 'Validación', ADMINISTRATIVO: 'Plazos administrativos', ENTREGA: 'Entrega y cierre', MANUAL: 'Tareas propias del proyecto' };
 
 function BadgeEstadoTarea({ estado, vencida }: { estado: Tarea['estado']; vencida: boolean }) {
   if (estado === 'HECHA') return <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full"><CheckCircle2 size={11} /> Hecha</span>;
@@ -135,7 +135,7 @@ export function TareasComprasCard() {
 
   return (
     <div className="space-y-3">
-      {(['VALIDACION', 'ADMINISTRATIVO', 'MANUAL'] as const).map(cat => {
+      {(['VALIDACION', 'ADMINISTRATIVO', 'ENTREGA', 'MANUAL'] as const).map(cat => {
         const items = porCategoria[cat];
         if (!items || items.length === 0) return null;
         return (

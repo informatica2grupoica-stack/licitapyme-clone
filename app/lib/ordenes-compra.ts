@@ -410,6 +410,50 @@ async function guardarOrdenCompra(
 // Por eso NO se reusa mp-descarga-orquestador.ts: esto es dos fetch directos.
 const RE_TOKEN_PDF = /imgPDF[\s\S]{0,400}?PDFReport\.aspx\?qs=([^'"&]+)/;
 
+/** Imprime a PDF (A4) la ficha pública de la OC con Chromium headless. */
+async function imprimirFichaOCaPdf(urlFicha: string): Promise<Buffer> {
+  const [{ default: puppeteer }, { resolverChromium }] = await Promise.all([
+    import('puppeteer-core'), import('@/app/lib/mp-descarga-browser'),
+  ]);
+  const { executablePath, args } = await resolverChromium();
+  const browser = await puppeteer.launch({ executablePath, args, headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto(urlFicha, { waitUntil: 'networkidle2', timeout: 45_000 });
+    await page.emulateMediaType('screen');
+    return Buffer.from(await page.pdf({ format: 'A4', printBackground: true, margin: { top: '10mm', bottom: '10mm', left: '8mm', right: '8mm' } }));
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+
+/**
+ * Guarda el PDF de una OC: lo sube a R2, lo deja en ordenes_compra.pdf_url y lo enlaza como documento
+ * de la licitación (Documentos Propios → Orden de compra, categoria_manual=1 para que una
+ * re-clasificación IA no lo mueva). Lo usan la descarga automática (PDF de la ficha) y la subida
+ * manual del PDF oficial de MP, que reemplaza al anterior.
+ */
+export async function guardarPdfOrdenCompra(codigoOC: string, licitacionCodigo: string | null, buffer: Buffer): Promise<string> {
+  const url = await subirDocumentoR2(licitacionCodigo || codigoOC, `OC_${codigoOC}.pdf`, buffer, 'application/pdf');
+  await pool.query(
+    `UPDATE ordenes_compra SET pdf_url = ?, pdf_descargado_at = ?, pdf_error = NULL WHERE codigo = ?`,
+    [url, ahoraChileSQL(), codigoOC],
+  );
+  if (licitacionCodigo) {
+    try {
+      await pool.query(
+        `INSERT INTO documentos_cache (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, categoria, subcategoria, categoria_manual, created_at)
+         VALUES (?, ?, ?, ?, 'DOCUMENTOS_PROPIOS', 'Orden de compra', 1, ?)
+         ON DUPLICATE KEY UPDATE documento_url_local = VALUES(documento_url_local), size_bytes = VALUES(size_bytes)`,
+        [licitacionCodigo, `OC_${codigoOC}.pdf`, url, buffer.length, ahoraChileSQL()],
+      );
+    } catch (e) {
+      console.warn('[ordenes-compra] no se pudo enlazar el PDF a Documentos:', String(e).slice(0, 150));
+    }
+  }
+  return url;
+}
+
 /** Descarga el PDF de UNA orden de compra desde Mercado Público y lo sube a R2. */
 export async function descargarPdfOrdenCompra(
   codigoOC: string, licitacionCodigo: string | null,
@@ -431,14 +475,17 @@ export async function descargarPdfOrdenCompra(
       signal: AbortSignal.timeout(30_000),
     });
     if (!resPdf.ok) return { ok: false, error: `PDFReport HTTP ${resPdf.status}` };
-    const buffer = Buffer.from(await resPdf.arrayBuffer());
-    if (buffer.length < 500) return { ok: false, error: 'respuesta demasiado chica para ser un PDF' };
+    let buffer: Buffer = Buffer.from(await resPdf.arrayBuffer());
+    // Desde oct-2026 MP protege PDFReport.aspx con reCAPTCHA Enterprise: sin token responde 200 con
+    // una página HTML (~3 KB) que antes se guardaba como si fuera el PDF. Se exige la firma %PDF.
+    // El captcha NO se resuelve (misma regla que mp-descarga-browser.ts): en su lugar se imprime a
+    // PDF la ficha pública de la orden, que abre sin captcha y trae los mismos datos.
+    if (buffer.subarray(0, 5).toString('latin1') !== '%PDF-') {
+      buffer = await imprimirFichaOCaPdf(urlFicha);
+      if (buffer.subarray(0, 5).toString('latin1') !== '%PDF-') return { ok: false, error: 'no se pudo generar el PDF de la ficha' };
+    }
 
-    const url = await subirDocumentoR2(licitacionCodigo || codigoOC, `OC_${codigoOC}.pdf`, buffer, 'application/pdf');
-    await pool.query(
-      `UPDATE ordenes_compra SET pdf_url = ?, pdf_descargado_at = ?, pdf_error = NULL WHERE codigo = ?`,
-      [url, ahoraChileSQL(), codigoOC],
-    );
+    const url = await guardarPdfOrdenCompra(codigoOC, licitacionCodigo, buffer);
     return { ok: true, url };
   } catch (e: any) {
     const error = String(e?.message || e).slice(0, 300);
@@ -601,6 +648,28 @@ export interface OrdenCompraFila {
   items: Array<{ descripcion: string; cantidad: number | null; precioNeto: number | null; total: number | null }>;
   url: string;
   pdfUrl: string | null;
+  /** Datos del comprador tal como figuran en la OC (lo que va en la factura). Solo ordenesDeLicitacion. */
+  facturacion?: DatosFacturacionOC | null;
+}
+
+export interface DatosFacturacionOC {
+  razonSocial: string | null; rut: string | null; giro: string | null;
+  direccion: string | null; comuna: string | null; region: string | null;
+  contactoNombre: string | null; contactoCargo: string | null; contactoFono: string | null; contactoMail: string | null;
+  formaPago: string | null; direccionDespacho: string | null;
+}
+
+function datosFacturacion(raw: any, rutRespaldo: string | null): DatosFacturacionOC | null {
+  const c = raw?.Comprador || {};
+  const t = (v: unknown) => { const x = v == null ? '' : String(v).trim(); return x || null; };
+  const d: DatosFacturacionOC = {
+    razonSocial: t(c.NombreOrganismo), rut: t(c.RutUnidad) || rutRespaldo, giro: t(c.Actividad),
+    direccion: t(c.DireccionUnidad), comuna: t(c.ComunaUnidad), region: t(c.RegionUnidad),
+    contactoNombre: t(c.NombreContacto), contactoCargo: t(c.CargoContacto),
+    contactoFono: t(c.FonoContacto), contactoMail: t(c.MailContacto),
+    formaPago: t(raw?.FormaPago), direccionDespacho: t(raw?.DireccionDespacho),
+  };
+  return Object.values(d).some(Boolean) ? d : null;
 }
 
 export interface OrdenCompraListaFila extends OrdenCompraFila {
@@ -715,7 +784,7 @@ export async function ordenesDeLicitacion(codigo: string): Promise<OrdenCompraFi
   const [rows] = await pool.query(
     `SELECT codigo, nombre, estado, codigo_estado, tipo, fecha_creacion, fecha_envio, fecha_aceptacion,
             moneda, total_neto, total, comprador_organismo, comprador_unidad, comprador_contacto,
-            comprador_mail, items_json, es_nuestra, proveedor_nombre, pdf_url
+            comprador_mail, comprador_rut, raw_json, items_json, es_nuestra, proveedor_nombre, pdf_url
        FROM ordenes_compra
       WHERE licitacion_codigo = ?
       ORDER BY es_nuestra DESC, COALESCE(fecha_envio, fecha_creacion) DESC, codigo DESC`,
@@ -752,6 +821,10 @@ export async function ordenesDeLicitacion(codigo: string): Promise<OrdenCompraFi
       // Ficha pública de la orden en Mercado Público (la misma que abre el portal).
       url: `https://www.mercadopublico.cl/PurchaseOrder/Modules/PO/DetailsPurchaseOrder.aspx?codigoOC=${encodeURIComponent(r.codigo)}`,
       pdfUrl: r.pdf_url || null,
+      facturacion: (() => {
+        try { return datosFacturacion(typeof r.raw_json === 'string' ? JSON.parse(r.raw_json) : r.raw_json, r.comprador_rut || null); }
+        catch { return datosFacturacion(null, r.comprador_rut || null); }
+      })(),
     };
   });
 }

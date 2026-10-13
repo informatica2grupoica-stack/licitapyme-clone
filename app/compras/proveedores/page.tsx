@@ -3,11 +3,12 @@
 // CATÁLOGO DE PROVEEDORES — ficha completa (nombre de empresa, RUT, contacto, categoría, giro,
 // datos bancarios). Transversal a todos los negocios, mismo criterio que Fleteros: se da de alta
 // una vez y queda disponible para cualquier cotización futura.
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Fragment, useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
+import { CrearProveedorObumaModal } from '@/app/negocios/[id]/CrearProveedorObumaModal';
 import { IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconSearch as Search, IconBuilding as Building2, IconMail as Mail, IconPhone as Phone, IconBuildingBank as Landmark, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconRefresh as RefreshCw, IconCreditCard as CreditCard, IconShoppingCart as ShoppingCart, IconPackage as PackageSearch, IconUsers as Users, IconWallet as Wallet, IconTrendingUp as TrendingUp } from '@tabler/icons-react';
 
 interface Proveedor {
@@ -45,6 +46,7 @@ export default function ProveedoresPage() {
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
   const [formAbierto, setFormAbierto] = useState(false);
+  const [crearObumaAbierto, setCrearObumaAbierto] = useState(false);
   const [form, setForm] = useState(FORM_VACIO);
   const [guardando, setGuardando] = useState(false);
   const [expandido, setExpandido] = useState<number | null>(null);
@@ -261,7 +263,7 @@ export default function ProveedoresPage() {
 
   return (
     <AppLayout breadcrumb={[{ label: 'Proveedores' }]}>
-      <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-4">
+      <div className="p-4 sm:p-6 w-full space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-lg bg-teal-50 flex items-center justify-center flex-shrink-0"><Building2 size={17} className="text-teal-600" /></div>
@@ -279,11 +281,18 @@ export default function ProveedoresPage() {
             {!soloLectura && <button onClick={sincronizarObuma} disabled={sincronizando || sincronizandoItems} className="flex items-center gap-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 px-3 py-2 rounded-lg">
               {sincronizando ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Sincronizar con Obuma
             </button>}
+            {!soloLectura && <button onClick={() => setCrearObumaAbierto(true)} className="flex items-center gap-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-2 rounded-lg">
+              <Plus size={14} /> Crear en Obuma
+            </button>}
             {!soloLectura && <button onClick={() => setFormAbierto(v => !v)} className="flex items-center gap-1.5 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-3 py-2 rounded-lg">
               <Plus size={14} /> Agregar
             </button>}
           </div>
         </div>
+        {crearObumaAbierto && (
+          <CrearProveedorObumaModal onCerrar={() => setCrearObumaAbierto(false)}
+            onCreado={() => { setCrearObumaAbierto(false); cargar(q.trim() || undefined); }} />
+        )}
 
         {/* Progreso del backfill de ítems del historial (pedido explícito, 14-sep-2026: "todo en
             nuestra base de datos") — traer los ítems es una llamada a Obuma POR CADA orden de
@@ -431,31 +440,46 @@ export default function ProveedoresPage() {
         {loading ? (
           <div className="flex items-center justify-center py-16"><Loader2 className="w-5 h-5 animate-spin text-zinc-400" /></div>
         ) : (
-          <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-            <div className="divide-y divide-zinc-100">
+          <div className="bg-white rounded-xl border border-zinc-200 overflow-x-auto">
+            <table className="w-full min-w-[1100px] text-[12px]">
+              <thead>
+                <tr className="bg-zinc-50 border-b border-zinc-200 text-left text-[10.5px] uppercase text-zinc-500">
+                    <th className="px-3 py-2.5 font-semibold ">Proveedor</th>
+                    <th className="px-3 py-2.5 font-semibold ">RUT</th>
+                    <th className="px-3 py-2.5 font-semibold ">Categoría</th>
+                    <th className="px-3 py-2.5 font-semibold ">Contacto</th>
+                    <th className="px-3 py-2.5 font-semibold ">Teléfono</th>
+                    <th className="px-3 py-2.5 font-semibold ">Correo</th>
+                    <th className="px-3 py-2.5 font-semibold ">Cuenta</th>
+                    <th className="px-3 py-2.5 font-semibold text-right">Compras</th>
+                    <th className="px-3 py-2.5 font-semibold text-right">Comprado</th>
+                    <th className="px-3 py-2.5 font-semibold ">Última compra</th>
+                    <th className="w-8" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
               {proveedoresFiltrados.map(p => {
                 const activo = expandido === p.id;
+                const td = 'px-3 py-2.5 align-middle';
                 return (
-                <div key={p.id} id={`proveedor-${p.id}`} className={activo ? 'bg-teal-50/70 border-l-[3px] border-teal-500' : 'border-l-[3px] border-transparent'}>
-                  <button onClick={() => toggleExpandido(p)} className={`w-full flex items-center justify-between gap-3 px-4 py-3 transition-colors text-left ${activo ? 'hover:bg-teal-50' : 'hover:bg-zinc-50'}`}>
-                    <div className="min-w-0 flex-1">
-                      <p className={`text-[12.5px] font-semibold ${activo ? 'text-teal-800' : 'text-zinc-800'}`}>{p.nombreEmpresa}{p.nombreFantasia && <span className="text-zinc-400 font-normal"> ({p.nombreFantasia})</span>}</p>
-                      <p className="text-[11px] text-zinc-400">{[p.rut, p.categoria].filter(Boolean).join(' · ')}</p>
-                    </div>
-                    {/* Badges de estado en la fila colapsada (pedido explícito, 14-sep-2026: no se
-                        diferenciaba nada al recorrer la lista larga) — así se escanea sin desplegar. */}
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      {p.obumaTieneCuentaBancaria && (
-                        <span title="Tiene cuenta bancaria en Obuma" className="flex items-center gap-0.5 text-[10px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full"><CreditCard size={10} /></span>
-                      )}
-                      {p.obumaComprasCantidad > 0 && (
-                        <span title={`${p.obumaComprasCantidad} orden(es) de compra`} className="flex items-center gap-0.5 text-[10px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded-full"><ShoppingCart size={10} /> {p.obumaComprasCantidad}</span>
-                      )}
-                      {activo ? <ChevronUp size={15} className="text-teal-600" /> : <ChevronDown size={15} className="text-zinc-400" />}
-                    </div>
-                  </button>
+                <Fragment key={p.id}>
+                  <tr id={`proveedor-${p.id}`} onClick={() => toggleExpandido(p)}
+                    className={`cursor-pointer transition-colors ${activo ? 'bg-teal-50/70 hover:bg-teal-50' : 'hover:bg-zinc-50'}`}>
+                    <td className={`${td} font-semibold ${activo ? 'text-teal-800' : 'text-zinc-800'}`}>{p.nombreEmpresa}{p.nombreFantasia && <span className="text-zinc-400 font-normal"> ({p.nombreFantasia})</span>}</td>
+                    <td className={`${td} text-zinc-600 whitespace-nowrap`}>{p.rut || '—'}</td>
+                    <td className={`${td} text-zinc-600`}>{p.categoria || '—'}</td>
+                    <td className={`${td} text-zinc-600`}>{p.contactoNombre || '—'}</td>
+                    <td className={`${td} text-zinc-600 whitespace-nowrap`}>{p.telefono || '—'}</td>
+                    <td className={`${td} text-zinc-600 max-w-[200px] truncate`} title={p.correo || ''}>{p.correo || '—'}</td>
+                    <td className={td}>{p.obumaTieneCuentaBancaria || p.banco ? <span title="Tiene cuenta bancaria" className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full"><CreditCard size={10} /> Sí</span> : <span className="text-zinc-300">—</span>}</td>
+                    <td className={`${td} text-right`}>{p.obumaComprasCantidad > 0 ? <span title={`${p.obumaComprasCantidad} orden(es) de compra`} className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded-full"><ShoppingCart size={10} /> {p.obumaComprasCantidad}</span> : <span className="text-zinc-300">—</span>}</td>
+                    <td className={`${td} text-right text-zinc-700 whitespace-nowrap`}>{p.obumaComprasMontoTotal > 0 ? fmtCLP(p.obumaComprasMontoTotal) : '—'}</td>
+                    <td className={`${td} text-zinc-600 whitespace-nowrap`}>{p.obumaUltimaCompraFecha ? p.obumaUltimaCompraFecha.slice(0, 10) : '—'}</td>
+                    <td className={td}>{activo ? <ChevronUp size={15} className="text-teal-600" /> : <ChevronDown size={15} className="text-zinc-400" />}</td>
+                  </tr>
                   {activo && (
-                    <div className="px-4 pb-3 bg-white space-y-3">
+                  <tr className="bg-white border-l-[3px] border-teal-500"><td colSpan={11} className="px-4 pb-3 pt-2">
+                    <div className="space-y-3">
                       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11.5px] text-zinc-600">
                         {p.giro && <p><span className="text-zinc-400">Giro:</span> {p.giro}</p>}
                         {p.contactoNombre && <p className="flex items-center gap-1"><Mail size={11} className="text-zinc-400" /> {p.contactoNombre}</p>}
@@ -537,16 +561,18 @@ export default function ProveedoresPage() {
                         ) : null}
                       </div>
                     </div>
+                  </td></tr>
                   )}
-                </div>
+                </Fragment>
                 );
               })}
-              {proveedoresFiltrados.length === 0 && (
-                <p className="px-4 py-10 text-center text-[12px] text-zinc-400">
-                  {proveedores.length === 0 ? 'Sin proveedores todavía.' : 'Ningún proveedor calza con el filtro activo.'}
-                </p>
-              )}
-            </div>
+              </tbody>
+            </table>
+            {proveedoresFiltrados.length === 0 && (
+              <p className="px-4 py-10 text-center text-[12px] text-zinc-400">
+                {proveedores.length === 0 ? 'Sin proveedores todavía.' : 'Ningún proveedor calza con el filtro activo.'}
+              </p>
+            )}
           </div>
         )}
       </div>

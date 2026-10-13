@@ -18,6 +18,7 @@ import { useToast } from '@/app/components/ui/toast';
 import { Banner } from '@/app/components/ui/Banner';
 import { Select } from '@/app/components/ui/Select';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
+import { SubirPdfOficialOC } from '@/app/components/SubirPdfOficialOC';
 import { IconReceipt as Receipt, IconLoader2 as Loader2, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconBuilding as Building2, IconPackage as Package, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconExternalLink as ExternalLink, IconEye as Eye, IconDownload as Download, IconArrowUpRight as ArrowUpRight, IconFolderSymlink as FolderInput, IconCheck as Check } from '@tabler/icons-react';
 
 interface ItemOC { descripcion: string; cantidad: number | null; precioNeto: number | null; total: number | null }
@@ -203,7 +204,7 @@ function EnviarExperienciaModal({ oc, onClose }: { oc: OrdenCompra; onClose: () 
   );
 }
 
-function AccionesDocumento({ codigo, nombre, pdfUrlInicial, onVer }: { codigo: string; nombre: string; pdfUrlInicial: string | null; onVer: (doc: VisorDoc) => void }) {
+function AccionesDocumento({ codigo, nombre, pdfUrlInicial, urlFicha, onVer }: { codigo: string; nombre: string; pdfUrlInicial: string | null; urlFicha: string; onVer: (doc: VisorDoc) => void }) {
   const [url, setUrl] = useState(pdfUrlInicial);
   const [cargando, setCargando] = useState<'ver' | 'descargar' | null>(null);
 
@@ -237,6 +238,9 @@ function AccionesDocumento({ codigo, nombre, pdfUrlInicial, onVer }: { codigo: s
         className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors disabled:opacity-50">
         {cargando === 'descargar' ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
       </button>
+      <SubirPdfOficialOC codigoOC={codigo} urlFicha={urlFicha}
+        onSubido={u => { setUrl(u); onVer({ nombre, url: u }); }}
+        className="px-1.5 py-0.5 text-[10.5px] font-semibold text-indigo-600 hover:bg-indigo-50 rounded transition-colors">PDF oficial</SubirPdfOficialOC>
     </div>
   );
 }
@@ -293,7 +297,7 @@ function FilaOrden({ oc, onVer, onEnviarExperiencia }: { oc: OrdenCompra; onVer:
             title="Copiar a Documentos Propios de otra licitación">
             <FolderInput size={13} /> Usar como experiencia
           </button>}
-          <AccionesDocumento codigo={oc.codigo} nombre={`OC_${oc.codigo}.pdf`} pdfUrlInicial={oc.pdfUrl} onVer={onVer} />
+          <AccionesDocumento codigo={oc.codigo} nombre={`OC_${oc.codigo}.pdf`} pdfUrlInicial={oc.pdfUrl} urlFicha={oc.url} onVer={onVer} />
           <a href={oc.url} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-semibold text-indigo-600 hover:text-indigo-700 inline-flex items-center gap-1">
             <ExternalLink size={12} /> Mercado Público
           </a>

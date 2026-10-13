@@ -5,7 +5,7 @@
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
-import { verificarProveedorEnObuma, crearProveedorEnObumaExplicito } from '@/app/lib/compras-oc-obuma';
+import { verificarProveedorEnObuma, crearProveedorEnObumaExplicito, datosProveedorDesdeBody } from '@/app/lib/compras-oc-obuma';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 
 export const runtime = 'nodejs';
@@ -54,25 +54,7 @@ async function __POST(request: NextRequest, { params }: Params) {
   if ('error' in auth) return auth.error;
 
   try {
-    const body = await request.json();
-    const rut = String(body.rut || '').trim();
-    const razonSocial = String(body.razonSocial || '').trim();
-    if (!rut) return NextResponse.json({ error: 'Falta el RUT.' }, { status: 400 });
-    if (!razonSocial) return NextResponse.json({ error: 'Falta la razón social.' }, { status: 400 });
-
-    const resultado = await crearProveedorEnObumaExplicito({
-      rut, razonSocial, nombreFantasia: body.nombreFantasia || null,
-      contacto: body.contacto || null, giro: body.giro || null,
-      esSupermercado: !!body.esSupermercado, esFactoring: !!body.esFactoring,
-      direccion: body.direccion || null, comuna: body.comuna || null, region: body.region || null,
-      pais: body.pais || null, telefono: body.telefono || null, celular: body.celular || null,
-      email: body.email || null, website: body.website || null, observacion: body.observacion || null,
-      cuentaContable: body.cuentaContable || null,
-      formaPago: body.formaPago || null, centroCosto: body.centroCosto || null,
-      bancoCuenta: body.bancoCuenta || null, nroCuenta: body.nroCuenta || null,
-      tipoCuenta: body.tipoCuenta || null, tipoProveedorId: body.tipoProveedorId || null,
-      tags: body.tags || null,
-    });
+    const resultado = await crearProveedorEnObumaExplicito(datosProveedorDesdeBody(await request.json()));
     return NextResponse.json({ success: true, ...resultado });
   } catch (error: any) {
     console.error('[orden-compra-obuma/proveedor][POST]', String(error));

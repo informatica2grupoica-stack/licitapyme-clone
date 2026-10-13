@@ -26,6 +26,8 @@ import { enviarAvisoComprasGanado } from '@/app/lib/email';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { plazoEntregaDetectadoNegocio } from '@/app/lib/compras-agente-documentos';
 import { parsearDiasDeTexto } from '@/app/lib/numeros';
+import { interpretarPlazoOfertado } from '@/app/lib/compras-reloj-sugerido';
+import { calcularHitosGantt, planificarTarea, type AnclaTarea, type EntradaAnclas, type FaseTarea, type HitosGantt } from '@/app/lib/compras-plan';
 import { emparejarProductos, type ProductoExistente } from '@/app/lib/compras-producto-sync';
 import { decidirNoAdjudicadas, esSubestadoFuera, type DecisionNoAdjudicadas } from '@/app/lib/compras-no-adjudicadas';
 
@@ -719,11 +721,13 @@ async function sembrarTareasFaltantes(
   if (faltantes.length === 0) return;
 
   const [asigRows] = await pool.query(
-    `SELECT DATE_FORMAT(ganado_at, '%Y-%m-%d %H:%i:%s') AS ganado_at, resumen_json FROM compras_asignacion WHERE negocio_id = ? LIMIT 1`,
+    `SELECT DATE_FORMAT(ganado_at, '%Y-%m-%d %H:%i:%s') AS ganado_at, resumen_json, cierre_legado FROM compras_asignacion WHERE negocio_id = ? LIMIT 1`,
     [negocioId],
   ) as any;
   const asig = (asigRows as any[])[0];
   if (!asig) return;
+  // Negocios cerrados como histórico (ya entregados / no realizados) no reciben tareas nuevas del catálogo.
+  if (asig.cierre_legado) return;
   let resumen: ResumenEjecutivoCompras | null = null;
   try { resumen = JSON.parse(asig.resumen_json); } catch { /* sigue sin resumen */ }
 
@@ -932,6 +936,9 @@ export interface ComprasFila {
   // ejecutivo (`resumen.plazoAceptacionOC`, ej. "2 días — según las bases..."). null si el informe
   // nunca lo identificó; la carta Gantt usa entonces el tope legal (5 días corridos) como estimado.
   plazoAceptacionOCDias: number | null;
+  // Desde cuándo corre el plazo de entrega según las bases (texto del resumen). La carta Gantt lo
+  // usa para saber si el plazo parte en la adjudicación; si no, parte al aceptarse la OC.
+  hitoInicioPlazo: string | null;
   // Hitos de la carta Gantt (pantalla /compras, vista Gantt) — una tarea por fila, con las mismas
   // fechas que espera GanttComprasCard (app/negocios/[id]/GanttComprasCard.tsx) para poder abrir
   // ESE mismo Gantt de tareas ya existente (creadoAt→cerradoAt/plazoAt) en el panel de detalle, en
@@ -939,6 +946,7 @@ export interface ComprasFila {
   tareasGantt: Array<{
     id: number; titulo: string; categoria: string; estado: EstadoTarea; responsableNombre: string | null;
     plazoAt: string | null; creadoAt: string; cerradoAt: string | null; vencida: boolean;
+    fase: FaseTarea | null; planInicioAt: string | null; planFinAt: string | null;
   }>;
   // Reloj de Entrega (compras_reloj, migration-95, spec §15) — la fuente OFICIAL de la fecha de
   // entrega y de su prórroga (si el organismo amplía el plazo, se registra ahí con motivo y
@@ -946,6 +954,9 @@ export interface ComprasFila {
   // todavía no se fijó (§15.1: requiere validación manual), queda null y la carta Gantt sigue
   // usando el estimado automático de `plazoEntregaDias` — nunca se inventa una fecha.
   reloj: { fechaLimiteVigente: string | null; prorrogado: boolean; prorrogaMotivo: string | null; prorrogaAutorizadoPorNombre: string | null } | null;
+  // Hitos del Gantt calculados en el servidor (compras-plan.ts): adjudicación, OC, inicio del plazo
+  // según las bases y entrega.
+  hitosGantt: HitosGantt | null;
 }
 
 /** Listado transversal (pantalla /compras): una fila por negocio con asignación y avance de tareas. */
@@ -957,6 +968,8 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
             DATE_FORMAT(ca.vencimiento_asignacion_at, '%Y-%m-%d %H:%i:%s') AS vencimiento_asignacion_at,
             DATE_FORMAT(ca.asignado_at, '%Y-%m-%d %H:%i:%s') AS asignado_at,
             DATE_FORMAT(COALESCE(ca.oc_aceptada_at, ca.oc_emitida_at), '%Y-%m-%d') AS oc_fecha,
+            DATE_FORMAT(ca.oc_emitida_at, '%Y-%m-%d') AS oc_emitida_at,
+            DATE_FORMAT(ca.oc_aceptada_at, '%Y-%m-%d') AS oc_aceptada_at,
             n.licitacion_nombre, n.licitacion_organismo, u.nombre AS asignado_nombre,
             up.nombre AS postulado_por_nombre,
             (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id) AS tareas_total,
@@ -975,26 +988,9 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
   const tareasPorNegocio = new Map<number, ComprasFila['tareasGantt']>();
   // Reloj de entrega de todos los negocios, también en una sola consulta.
   const relojPorNegocio = new Map<number, ComprasFila['reloj']>();
+  const hitosPorNegocio = new Map<number, HitosGantt>();
   if (negocioIds.length > 0) {
     const ph = negocioIds.map(() => '?').join(',');
-    const [tRows] = await pool.query(
-      `SELECT id, negocio_id, categoria, titulo, estado, responsable_nombre,
-              DATE_FORMAT(plazo_at, '%Y-%m-%d %H:%i:%s') AS plazo_at,
-              DATE_FORMAT(creado_at, '%Y-%m-%d %H:%i:%s') AS creado_at,
-              DATE_FORMAT(cerrado_at, '%Y-%m-%d %H:%i:%s') AS cerrado_at
-         FROM compras_tarea WHERE negocio_id IN (${ph}) ORDER BY plazo_at`,
-      negocioIds,
-    ) as any;
-    for (const t of tRows as any[]) {
-      const arr = tareasPorNegocio.get(t.negocio_id) || [];
-      arr.push({
-        id: t.id, titulo: t.titulo, categoria: t.categoria, estado: t.estado, responsableNombre: t.responsable_nombre,
-        plazoAt: t.plazo_at, creadoAt: t.creado_at, cerradoAt: t.cerrado_at,
-        vencida: t.estado !== 'HECHA' && !!t.plazo_at && t.plazo_at < ahora,
-      });
-      tareasPorNegocio.set(t.negocio_id, arr);
-    }
-
     const [rRows] = await pool.query(
       `SELECT negocio_id, DATE_FORMAT(fecha_limite, '%Y-%m-%d') AS fecha_limite,
               DATE_FORMAT(prorroga_fecha_limite, '%Y-%m-%d') AS prorroga_fecha_limite,
@@ -1010,16 +1006,46 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
         prorrogaAutorizadoPorNombre: rl.prorroga_autorizado_por_nombre ?? null,
       });
     }
+    for (const r of rows as any[]) {
+      hitosPorNegocio.set(r.negocio_id, calcularHitosGantt(entradaAnclasDeFila({ ...r, entrega_oficial: relojPorNegocio.get(r.negocio_id)?.fechaLimiteVigente ?? null })));
+    }
+
+    const [tRows] = await pool.query(
+      `SELECT t.id, t.negocio_id, t.categoria, t.titulo, t.estado, t.responsable_nombre,
+              DATE_FORMAT(t.plazo_at, '%Y-%m-%d %H:%i:%s') AS plazo_at,
+              DATE_FORMAT(t.creado_at, '%Y-%m-%d %H:%i:%s') AS creado_at,
+              DATE_FORMAT(t.cerrado_at, '%Y-%m-%d %H:%i:%s') AS cerrado_at,
+              c.fase, c.ancla, c.desfase_horas, c.duracion_horas
+         FROM compras_tarea t
+         LEFT JOIN compras_tarea_catalogo c ON c.clave = t.catalogo_clave
+        WHERE t.negocio_id IN (${ph}) ORDER BY t.orden, t.id`,
+      negocioIds,
+    ) as any;
+    for (const t of tRows as any[]) {
+      const arr = tareasPorNegocio.get(t.negocio_id) || [];
+      const plan = planDeTarea(
+        { fase: t.fase ?? null, ancla: t.ancla ?? null, desfaseHoras: t.desfase_horas ?? null, duracionHoras: t.duracion_horas ?? null },
+        t.plazo_at, hitosPorNegocio.get(t.negocio_id) ?? null);
+      arr.push({
+        id: t.id, titulo: t.titulo, categoria: t.categoria, estado: t.estado, responsableNombre: t.responsable_nombre,
+        plazoAt: plan.plazoAt, creadoAt: t.creado_at, cerradoAt: t.cerrado_at,
+        fase: plan.fase, planInicioAt: plan.planInicioAt, planFinAt: plan.planFinAt,
+        vencida: t.estado !== 'HECHA' && !!plan.plazoAt && plan.plazoAt < ahora,
+      });
+      tareasPorNegocio.set(t.negocio_id, arr);
+    }
   }
   return (rows as any[]).map(r => {
     let montoNuestro: number | null = null;
     let plazoEntregaDias: number | null = null;
     let plazoAceptacionOCDias: number | null = null;
+    let hitoInicioPlazo: string | null = null;
     try {
       const resumen = JSON.parse(r.resumen_json);
       montoNuestro = resumen?.montoNuestro ?? null;
       plazoEntregaDias = resumen?.plazoEntregaDias ?? null;
       plazoAceptacionOCDias = parsearDiasDeTexto(resumen?.plazoAceptacionOC ?? null);
+      hitoInicioPlazo = resumen?.hitoInicioPlazo ?? null;
     } catch { /* fila sin resumen legible */ }
     return {
       negocioId: r.negocio_id, licitacionCodigo: r.licitacion_codigo,
@@ -1032,8 +1058,10 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
       plazoEntregaDias,
       postuladoPorNombre: r.postulado_por_nombre ?? null,
       plazoAceptacionOCDias,
+      hitoInicioPlazo,
       tareasGantt: tareasPorNegocio.get(r.negocio_id) || [],
       reloj: relojPorNegocio.get(r.negocio_id) || null,
+      hitosGantt: hitosPorNegocio.get(r.negocio_id) ?? null,
     };
   });
 }
@@ -1057,6 +1085,9 @@ export interface TareaCompras {
   plazoAt: string | null; creadoAt: string; primerContactoAt: string | null;
   cerradoAt: string | null; cerradoPorNombre: string | null; notaCierre: string | null;
   esManual: boolean; vencida: boolean;
+  // Gantt por fases (migration-143): fase de la tarea y su tramo planificado, calculado desde el
+  // hito del que cuelga (compras-plan.ts). null = sin fase (tarea manual) o el hito aún no existe.
+  fase: FaseTarea | null; planInicioAt: string | null; planFinAt: string | null;
   // Qué se hizo en la tarea (§5.3/§5.4): las preguntas vienen del catálogo, las respuestas quedan
   // en la instancia. `hallazgo` = se ejecutó, pero lo que se encontró NO es lo esperado.
   campos: CampoRegistroTarea[];
@@ -1084,8 +1115,61 @@ export function parsearCamposCatalogo(json: string | null): CampoRegistroTarea[]
   } catch { return []; }
 }
 
+/** Datos de la asignación que alimentan los hitos del Gantt (una fila de `compras_asignacion` + reloj). */
+const SQL_ANCLAS = `DATE_FORMAT(ca.ganado_at, '%Y-%m-%d %H:%i:%s') AS ganado_at, ca.resumen_json,
+            DATE_FORMAT(ca.oc_emitida_at, '%Y-%m-%d') AS oc_emitida_at,
+            DATE_FORMAT(ca.oc_aceptada_at, '%Y-%m-%d') AS oc_aceptada_at,
+            DATE_FORMAT(COALESCE(rl.prorroga_fecha_limite, rl.fecha_limite), '%Y-%m-%d') AS entrega_oficial`;
+
+export function construirEntradaAnclas(
+  d: { ganadoAt: string; ocEmitidaAt: string | null; ocAceptadaAt: string | null; entregaOficialAt: string | null }, resumen: any,
+): EntradaAnclas {
+  // "1 día corrido", "2 días hábiles": las bases dicen si el plazo cuenta días hábiles o corridos.
+  const entrega = interpretarPlazoOfertado(resumen?.plazoEntregaOfertado);
+  const aceptacion = interpretarPlazoOfertado(resumen?.plazoAceptacionOC);
+  return {
+    ganadoAt: d.ganadoAt, ocEmitidaAt: d.ocEmitidaAt ?? null, ocAceptadaAt: d.ocAceptadaAt ?? null,
+    hitoInicioPlazo: resumen?.hitoInicioPlazo ?? null,
+    plazoEntregaDias: entrega?.dias ?? resumen?.plazoEntregaDias ?? null,
+    plazoEntregaTipo: entrega?.tipo ?? 'CORRIDOS',
+    plazoAceptacionOCDias: parsearDiasDeTexto(resumen?.plazoAceptacionOC ?? null),
+    plazoAceptacionTipo: aceptacion?.tipo ?? 'CORRIDOS',
+    entregaOficialAt: d.entregaOficialAt ?? null,
+  };
+}
+
+function entradaAnclasDeFila(r: any): EntradaAnclas {
+  let resumen: any = null;
+  try { resumen = JSON.parse(r.resumen_json); } catch { /* sin resumen legible: los hitos quedan sin dato */ }
+  return construirEntradaAnclas({ ganadoAt: r.ganado_at, ocEmitidaAt: r.oc_emitida_at, ocAceptadaAt: r.oc_aceptada_at, entregaOficialAt: r.entrega_oficial }, resumen);
+}
+
+/** Hitos del Gantt de un negocio (adjudicación, OC, inicio del plazo, entrega). null si no está asignado. */
+export async function obtenerHitosGantt(negocioId: number): Promise<HitosGantt | null> {
+  const [rows] = await pool.query(
+    `SELECT ${SQL_ANCLAS}
+       FROM compras_asignacion ca LEFT JOIN compras_reloj rl ON rl.negocio_id = ca.negocio_id
+      WHERE ca.negocio_id = ? LIMIT 1`,
+    [negocioId],
+  ) as any;
+  const r = (rows as any[])[0];
+  return r ? calcularHitosGantt(entradaAnclasDeFila(r)) : null;
+}
+
+/** Fase, tramo planificado y plazo efectivo de una tarea. Con ancla distinta de la adjudicación el
+ *  plazo sale del plan (no existe antes de que el hito exista, así que tampoco puede estar vencida). */
+function planDeTarea(
+  cfg: { fase: FaseTarea | null; ancla: AnclaTarea | null; desfaseHoras: number | null; duracionHoras: number | null },
+  plazoAt: string | null, h: HitosGantt | null,
+): { fase: FaseTarea | null; planInicioAt: string | null; planFinAt: string | null; plazoAt: string | null } {
+  if (!cfg.ancla || !h) return { fase: cfg.fase, planInicioAt: null, planFinAt: null, plazoAt };
+  const p = planificarTarea({ ancla: cfg.ancla, desfaseHoras: cfg.desfaseHoras, duracionHoras: cfg.duracionHoras, plazoAt }, h);
+  return { fase: cfg.fase, planInicioAt: p.inicio, planFinAt: p.fin, plazoAt: cfg.ancla === 'ADJUDICACION' ? plazoAt : p.fin };
+}
+
 export async function listarTareas(negocioId: number): Promise<TareaCompras[]> {
   const ahora = ahoraChileSQL();
+  const hitos = await obtenerHitosGantt(negocioId);
   const [rows] = await pool.query(
     `SELECT t.id, t.catalogo_clave, t.categoria, t.titulo, t.descripcion, t.estado,
             t.responsable_id, t.responsable_nombre,
@@ -1095,24 +1179,30 @@ export async function listarTareas(negocioId: number): Promise<TareaCompras[]> {
             DATE_FORMAT(t.cerrado_at, '%Y-%m-%d %H:%i:%s') AS cerrado_at,
             DATE_FORMAT(t.registro_at, '%Y-%m-%d %H:%i:%s') AS registro_at,
             t.cerrado_por_nombre, t.nota_cierre, t.es_manual, t.registro_json, t.hallazgo,
-            c.campos_json
+            c.campos_json, c.fase, c.ancla, c.desfase_horas, c.duracion_horas
        FROM compras_tarea t
        LEFT JOIN compras_tarea_catalogo c ON c.clave = t.catalogo_clave
       WHERE t.negocio_id = ? ORDER BY t.orden, t.id`,
     [negocioId],
   ) as any;
-  return (rows as any[]).map(r => ({
-    id: r.id, catalogoClave: r.catalogo_clave, categoria: r.categoria, titulo: r.titulo, descripcion: r.descripcion,
-    estado: r.estado, responsableId: r.responsable_id, responsableNombre: r.responsable_nombre,
-    plazoAt: r.plazo_at, creadoAt: r.creado_at, primerContactoAt: r.primer_contacto_at,
-    cerradoAt: r.cerrado_at, cerradoPorNombre: r.cerrado_por_nombre, notaCierre: r.nota_cierre,
-    esManual: !!r.es_manual,
-    vencida: r.estado !== 'HECHA' && !!r.plazo_at && r.plazo_at < ahora,
-    campos: parsearCamposCatalogo(r.campos_json ?? null),
-    registro: (() => { try { return r.registro_json ? JSON.parse(r.registro_json) : null; } catch { return null; } })(),
-    registroAt: r.registro_at ?? null,
-    hallazgo: !!r.hallazgo,
-  }));
+  return (rows as any[]).map(r => {
+    const plan = planDeTarea(
+      { fase: r.fase ?? null, ancla: r.ancla ?? null, desfaseHoras: r.desfase_horas ?? null, duracionHoras: r.duracion_horas ?? null },
+      r.plazo_at, hitos);
+    return {
+      id: r.id, catalogoClave: r.catalogo_clave, categoria: r.categoria, titulo: r.titulo, descripcion: r.descripcion,
+      estado: r.estado, responsableId: r.responsable_id, responsableNombre: r.responsable_nombre,
+      plazoAt: plan.plazoAt, creadoAt: r.creado_at, primerContactoAt: r.primer_contacto_at,
+      cerradoAt: r.cerrado_at, cerradoPorNombre: r.cerrado_por_nombre, notaCierre: r.nota_cierre,
+      esManual: !!r.es_manual,
+      fase: plan.fase, planInicioAt: plan.planInicioAt, planFinAt: plan.planFinAt,
+      vencida: r.estado !== 'HECHA' && !!plan.plazoAt && plan.plazoAt < ahora,
+      campos: parsearCamposCatalogo(r.campos_json ?? null),
+      registro: (() => { try { return r.registro_json ? JSON.parse(r.registro_json) : null; } catch { return null; } })(),
+      registroAt: r.registro_at ?? null,
+      hallazgo: !!r.hallazgo,
+    };
+  });
 }
 
 /** Tarea manual (§5.1: "se crean tareas propias de cada proyecto fuera del catálogo"). */
@@ -1306,7 +1396,13 @@ export async function registrarOrdenCompraCliente(
     }
   }
 
+  void armarRelojAutomatico(negocioId);
   return { tareaAceptacionCerrada };
+}
+
+/** El Reloj de Entrega se fija solo apenas el inicio del plazo es real (no proyectado). Nunca bloquea ni lanza. */
+export function armarRelojAutomatico(negocioId: number): Promise<void> {
+  return import('@/app/lib/compras-reloj').then(m => m.autoFijarReloj(negocioId)).then(() => undefined).catch(() => undefined);
 }
 
 /**
@@ -1450,6 +1546,7 @@ export async function vincularOrdenCompraDeMP(
     // Tiempo real (pedido explícito, 11-sep-2026): quien tenga /compras o el dashboard abiertos
     // ahora mismo debe verlo sin refrescar a mano — mismo bus que usa el resto de los tableros
     // (app/lib/sse-bus.ts), no la campana personal de arriba, que es aparte.
+    await armarRelojAutomatico(Number(ficha.negocio_id));
     publicarCambio('compras');
     return { vinculada: true, difiere, negocioId: Number(ficha.negocio_id) };
   } catch (e) {

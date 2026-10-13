@@ -5,8 +5,9 @@
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
-import { sumarDiasHabiles, sumarDiasCorridos } from '@/app/lib/compras';
-import { obtenerAsignacion } from '@/app/lib/compras';
+import { sumarDiasHabiles, sumarDiasCorridos, obtenerAsignacion, construirEntradaAnclas } from '@/app/lib/compras';
+import { calcularHitosGantt } from '@/app/lib/compras-plan';
+import { interpretarPlazoOfertado } from '@/app/lib/compras-reloj-sugerido';
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('compras', crearChatIABase);
@@ -94,7 +95,7 @@ export async function obtenerEstadoReloj(negocioId: number): Promise<EstadoReloj
  *  de acá `fechaLimiteVigente` deja de ser un dato tentativo del resumen ejecutivo. */
 export async function fijarReloj(
   negocioId: number, hitoInicio: string, fechaInicio: string, plazoDias: number, plazoTipo: PlazoTipo,
-  actorId: number, actorNombre: string | null,
+  actorId: number | null, actorNombre: string | null, fechaLimiteCalculada?: string,
 ): Promise<void> {
   if (!hitoInicio?.trim()) throw new Error('Falta el hito desde el cual corre el plazo.');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaInicio)) throw new Error('Fecha de inicio inválida.');
@@ -102,7 +103,8 @@ export async function fijarReloj(
 
   const inicio = fechaDesdeYMD(fechaInicio);
   const limite = plazoTipo === 'HABILES' ? sumarDiasHabiles(inicio, plazoDias) : sumarDiasCorridos(inicio, plazoDias);
-  const fechaLimite = ymdDesdeFecha(limite);
+  // Con `fechaLimiteCalculada` (reloj automático) manda la fecha del plan: cuenta días hábiles con feriados de Chile.
+  const fechaLimite = fechaLimiteCalculada ?? ymdDesdeFecha(limite);
   const ahora = ahoraChileSQL();
 
   await pool.query(
@@ -131,6 +133,29 @@ export async function fijarReloj(
       WHERE negocio_id = ? AND catalogo_clave = 'reloj_entrega' AND estado <> 'HECHA'`,
     [ahora, actorId, actorNombre, `Reloj fijado: vence ${fechaLimite}.`, ahora, negocioId],
   );
+}
+
+/**
+ * Reloj de Entrega AUTOMÁTICO (pedido del usuario, 09-oct-2026): apenas el inicio del plazo es real
+ * —la OC llegó o se aceptó, según digan las bases— el reloj se fija solo con la misma fecha que ve el
+ * Gantt (compras-plan.ts). Si las bases no aclaran desde cuándo corre, o el inicio sería una
+ * aceptación supuesta, NO se fija: queda para validar a mano (§15.1). Nunca pisa un reloj ya fijado.
+ */
+export async function autoFijarReloj(negocioId: number): Promise<boolean> {
+  const [rows] = await pool.query(`SELECT fijado_at FROM compras_reloj WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
+  if ((rows as any[])[0]?.fijado_at) return false;
+  const asig = await obtenerAsignacion(negocioId);
+  const resumen = asig?.resumen as any;
+  if (!asig || !resumen) return false;
+  const plazo = interpretarPlazoOfertado(resumen.plazoEntregaOfertado);
+  if (!plazo) return false;
+  const h = calcularHitosGantt(construirEntradaAnclas({
+    ganadoAt: asig.ganadoAt, ocEmitidaAt: asig.ordenCompra?.emitidaAt ?? null, ocAceptadaAt: asig.ordenCompra?.aceptadaAt ?? null, entregaOficialAt: null,
+  }, resumen));
+  if (!h.inicioPlazoTipo || h.inicioProyectado || !h.inicioPlazo || !h.entrega) return false;
+  await fijarReloj(negocioId, String(resumen.hitoInicioPlazo || '').trim() || 'Inicio del plazo según las bases', h.inicioPlazo.slice(0, 10),
+    plazo.dias, plazo.tipo, null, 'Sistema (automático)', h.entrega.slice(0, 10));
+  return true;
 }
 
 /** §15.4 — "la prórroga concedida se registra como nuevo plazo oficial con su documento de

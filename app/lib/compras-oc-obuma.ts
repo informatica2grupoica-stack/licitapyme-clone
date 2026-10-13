@@ -206,9 +206,33 @@ export async function verificarProveedorEnObuma(rut: string): Promise<FichaProve
   };
 }
 
+/** Cuerpo del formulario → datos de creación. Valida lo que el formulario web de Obuma marca como
+ *  obligatorio (razón social, contacto, teléfono, e-mail); lanza Error con el mensaje para mostrar. */
+export function datosProveedorDesdeBody(body: any): DatosCrearProveedorObuma {
+  const t = (k: string) => String(body?.[k] ?? '').trim() || null;
+  const rut = t('rut'), razonSocial = t('razonSocial');
+  if (!rut) throw new Error('Falta el RUT.');
+  if (!razonSocial) throw new Error('Falta la razón social.');
+  if (!t('contacto')) throw new Error('Falta el nombre de contacto (Obuma lo exige).');
+  if (!t('telefono')) throw new Error('Falta el teléfono (Obuma lo exige).');
+  if (!t('email')) throw new Error('Falta el e-mail (Obuma lo exige).');
+  return {
+    rut, razonSocial, nombreFantasia: t('nombreFantasia'), contacto: t('contacto'), giro: t('giro'),
+    esSupermercado: !!body.esSupermercado, esFactoring: !!body.esFactoring,
+    direccion: t('direccion'), comuna: t('comuna'), region: t('region'), pais: t('pais'),
+    telefono: t('telefono'), celular: t('celular'), email: t('email'), website: t('website'), observacion: t('observacion'),
+    cuentaContable: t('cuentaContable'), formaPago: t('formaPago'), centroCosto: t('centroCosto'),
+    bancoCuenta: t('bancoCuenta'), nroCuenta: t('nroCuenta'), tipoCuenta: t('tipoCuenta'),
+    tipoProveedorId: t('tipoProveedorId'), tags: t('tags'),
+    listaPrecio: t('listaPrecio'), tipoDespacho: t('tipoDespacho'), medioDespacho: t('medioDespacho'),
+    cuentaCorriente: !!body.cuentaCorriente, creditoAprobado: t('creditoAprobado'),
+    diasPago: t('diasPago'), plazoPago: t('plazoPago'), permitirDteSinOc: !!body.permitirDteSinOc,
+  };
+}
+
 /** Crea el proveedor en Obuma — escritura real, disparada SOLO por una acción explícita de la
  *  persona en el modal (nunca desde `crearOrdenCompraParaProveedor`). */
-export async function crearProveedorEnObumaExplicito(datos: DatosCrearProveedorObuma): Promise<{ proveedorId: string }> {
+export async function crearProveedorEnObumaExplicito(datos: DatosCrearProveedorObuma): Promise<{ proveedorId: string; noGuardados: string[] }> {
   return crearProveedorObuma(datos);
 }
 
