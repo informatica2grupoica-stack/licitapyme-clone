@@ -596,7 +596,7 @@ export function OpcionFila({ o, cotizados, puedeOperar, onProveedor, onQuitar, o
               <tbody>
                 {t.filas.map(f => {
                   const c = CELDA[f.estado] ?? { texto: f.estado, clase: 'text-zinc-600' };
-                  const sinDato = f.estadoIA === 'FALTA_DATO' || f.estadoIA === 'SIN_VEREDICTO';
+                  const sinDato = f.estadoIA === 'FALTA_DATO' || f.estadoIA === 'SIN_VEREDICTO' || f.estadoIA === 'NO_CUMPLE';
                   return (
                     <Fragment key={f.n}>
                       <tr className={`border-t border-zinc-100 align-top ${f.estado === 'NO_CUMPLE' ? 'bg-rose-50/40' : ''}`}>

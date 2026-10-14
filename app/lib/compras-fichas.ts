@@ -363,11 +363,12 @@ export async function panelFichas(negocioId: number, licitacionCodigo: string): 
     const opciones: OpcionFichaDTO[] = (opsRows as any[]).filter(o => linea && o.fila_id === filaCmp(linea.id)).map(o => {
       const t = estadoTecnicoV3(corridas.get(o.id), conf.get(o.id), segundas.get(o.id)?.celdas);
       const r = t.resultado;
-      // Un «Falta dato» que una persona complementó pasa a Cumple / No cumple (con su nombre y fecha). Solo se aplica mientras la IA siga
-      // sin dato: si una ficha nueva ya trae el dato, manda lo que dice la ficha.
+      // Un «Falta dato» o un «No cumple» que una persona complementó pasa a Cumple / No cumple (con su nombre y fecha). Solo se aplica
+      // mientras la IA siga en ese mismo estado: si una ficha nueva ya trae el dato, manda lo que dice la ficha.
+      // «No cumple» se puede complementar (1120: el proveedor confirma por correo un modelo/medida distinto al del folleto).
       const filas: FilaRequisito[] = (r?.filas || []).filter(f => !rotulada || textosProducto.has(norm(f.requeridoTexto))).map(f => {
         const ia = String(f.estadoCelda || f.veredicto);
-        const comp = ia === 'FALTA_DATO' || ia === 'SIN_VEREDICTO' ? (complementos.get(`${o.id}:${f.n}`) ?? null) : null;
+        const comp = ia === 'FALTA_DATO' || ia === 'SIN_VEREDICTO' || ia === 'NO_CUMPLE' ? (complementos.get(`${o.id}:${f.n}`) ?? null) : null;
         return {
           n: f.n, requerido: f.requeridoTexto, criticidad: f.criticidad, estado: comp ? comp.resultado : ia, estadoIA: ia, valor: comp ? comp.dato : f.valorCorto,
           cita: comp ? '' : (f.partes?.[0]?.citaOriginal || ''), rojo: f.rojo, confirmada: !!f.confirmada, complemento: comp,
