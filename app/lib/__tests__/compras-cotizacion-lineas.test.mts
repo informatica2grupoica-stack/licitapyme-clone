@@ -149,3 +149,24 @@ test('1110: colchón y batería nombrados en la línea del catre no son adiciona
   assert.deepEqual(r.map(x => x.concepto), ['Quemador a gas']);
   assert.equal(sinComponentesDeLaLineaPropia(adic, null), adic);   // sin línea del producto no se toca nada
 });
+
+test('reconciliación del neto impreso: descuento global y flete, en cualquier moneda', () => {
+  const mk = (l: Array<[string, number, number, number]>) => l.map(([descripcion, cantidad, precioUnitario, total]) => ({ descripcion, cantidad, precioUnitario, total }));
+  // EUR, descuento 10 % aplicado DESPUÉS de las líneas: 2 × 5.000 + 1 × 3.000 = 13.000 → neto 11.700.
+  const eur = 'Pos Qty Unit Total\n1 Horno 2 5.000,00 € 10.000,00 €\n2 Mesa 1 3.000,00 € 3.000,00 €\nSubtotal 13.000,00 € Sconto 10% Netto 11.700,00 €';
+  const r1 = normalizarLineas(mk([['Horno', 2, 5000, 10000], ['Mesa', 1, 3000, 3000]]), eur, 11700, { descuentoPct: 10, fleteMonto: null });
+  assert.equal(r1.cuadra, true); assert.equal(r1.base, 'neto'); assert.equal(r1.ajuste, 'descuento');
+  // USD, flete dentro del neto impreso: 16.000 + 1.400 = 17.400.
+  const usd = 'Item Qty Unit Total Machine 1 16,000.00 16,000.00 Transportation fee by air 1,400.00 Net total 17,400.00';
+  const r2 = normalizarLineas(mk([['Machine', 1, 16000, 16000]]), usd, 17400, { descuentoPct: null, fleteMonto: 1400 });
+  assert.equal(r2.cuadra, true); assert.equal(r2.ajuste, 'flete');
+  // CLP con IVA incluido en las líneas, descuento y flete: (119.000 × 0,95) + 11.900 = 124.950 bruto = neto 105.000 × 1,19.
+  const clp = 'Producto 1 119.000 119.000 Descuento 5% Flete 11.900 Total 124.950';
+  const r3 = normalizarLineas(mk([['Producto', 1, 119000, 119000]]), clp, 105000, { descuentoPct: 5, fleteMonto: 11900 });
+  assert.equal(r3.cuadra, true); assert.equal(r3.base, 'bruto'); assert.equal(r3.ajuste, 'descuento+flete');
+  // Sin extras, la suma simple sigue mandando y no hay "ajuste"; y lo que no cuadra con nada se avisa (no se da por bueno).
+  const r4 = normalizarLineas(mk([['Horno', 2, 5000, 10000]]), eur, 10000, { descuentoPct: 10, fleteMonto: 500 });
+  assert.equal(r4.cuadra, true); assert.equal(r4.ajuste, null);
+  const r5 = normalizarLineas(mk([['Horno', 2, 5000, 10000]]), eur, 7777, { descuentoPct: 10, fleteMonto: 500 });
+  assert.equal(r5.cuadra, false); assert.ok(r5.avisos.some(a => /no cuadra/.test(a)));
+});

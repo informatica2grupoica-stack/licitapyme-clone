@@ -69,8 +69,11 @@ export interface LineasNormalizadas {
   cuadra: boolean | null;
   /** 'neto' = las líneas suman el neto; 'bruto' = suman el TOTAL CON IVA (los precios de línea ya incluyen IVA); null = no se pudo saber. */
   base: 'neto' | 'bruto' | null;
+  /** Qué más trae el total impreso además de las líneas: 'descuento' = el descuento global se aplica DESPUÉS (las líneas son de lista); 'flete' = el flete está dentro del total. null = solo las líneas. */
+  ajuste: AjusteTotal;
   avisos: string[];
 }
+export type AjusteTotal = 'descuento' | 'flete' | 'descuento+flete' | null;
 
 /**
  * Deja las líneas que leyó la IA en un estado confiable:
@@ -79,7 +82,7 @@ export interface LineasNormalizadas {
  *    descuento incluido); si falta uno, se usa el unitario leído solo si aparece en el documento;
  *  · se comprueba que la suma de líneas cuadre con el neto/subtotal del documento.
  */
-export function normalizarLineas(entrada: unknown, textoDoc: string, netoDocumento: number | null): LineasNormalizadas {
+export function normalizarLineas(entrada: unknown, textoDoc: string, netoDocumento: number | null, extra?: { descuentoPct?: number | null; fleteMonto?: number | null }): LineasNormalizadas {
   const avisos: string[] = [];
   const bruto = Array.isArray(entrada) ? entrada : [];
   const lineas: LineaCotizacion[] = [];
@@ -115,12 +118,23 @@ export function normalizarLineas(entrada: unknown, textoDoc: string, netoDocumen
   const suma = conTotal.length ? conTotal.reduce((a, l) => a + (l.total as number), 0) : null;
   let cuadra: boolean | null = null;
   let base: 'neto' | 'bruto' | null = null;
+  let ajuste: AjusteTotal = null;
   if (suma != null && netoDocumento != null && netoDocumento > 0 && conTotal.length === lineas.length) {
-    if (cerca(suma, netoDocumento, 0.01)) { cuadra = true; base = 'neto'; }
-    else if (cerca(suma, netoDocumento * 1.19, 0.01)) { cuadra = true; base = 'bruto'; avisos.push('Los precios de las líneas ya incluyen IVA (suman el total con IVA del documento).'); }
+    // El neto impreso puede traer, además de las líneas, un descuento global y/o un flete: se prueban esas combinaciones (la simple primero).
+    const d = extra?.descuentoPct != null && extra.descuentoPct > 0 && extra.descuentoPct < 100 ? extra.descuentoPct : null;
+    const f = extra?.fleteMonto != null && extra.fleteMonto > 0 ? extra.fleteMonto : null;
+    const candidatos: Array<{ v: number; ajuste: AjusteTotal }> = [{ v: suma, ajuste: null }];
+    if (d != null) candidatos.push({ v: suma * (1 - d / 100), ajuste: 'descuento' });
+    if (f != null) candidatos.push({ v: suma + f, ajuste: 'flete' });
+    if (d != null && f != null) candidatos.push({ v: suma * (1 - d / 100) + f, ajuste: 'descuento+flete' }, { v: (suma + f) * (1 - d / 100), ajuste: 'descuento+flete' });
+    const nota = (a: AjusteTotal) => a ? ` (con ${a === 'descuento' ? 'el descuento' : a === 'flete' ? 'el flete' : 'el descuento y el flete'} del documento)` : '';
+    const neto = candidatos.find(c => cerca(c.v, netoDocumento, 0.01));
+    const bruto = neto ? undefined : candidatos.find(c => cerca(c.v, netoDocumento * 1.19, 0.01));
+    if (neto) { cuadra = true; base = 'neto'; ajuste = neto.ajuste; if (ajuste) avisos.push(`Las líneas cuadran con el neto del documento${nota(ajuste)}.`); }
+    else if (bruto) { cuadra = true; base = 'bruto'; ajuste = bruto.ajuste; avisos.push(`Los precios de las líneas ya incluyen IVA (suman el total con IVA del documento${nota(ajuste)}).`); }
     else { cuadra = false; avisos.push(`La suma de las líneas (${Math.round(suma)}) no cuadra con el neto del documento (${Math.round(netoDocumento)}): revisa la lectura.`); }
   }
-  return { lineas, suma, cuadra, base, avisos };
+  return { lineas, suma, cuadra, base, ajuste, avisos };
 }
 
 /** Tabla de líneas verificadas, para anteponer al texto del documento que lee la homologación. */

@@ -218,7 +218,7 @@ tenga nombre chileno o viceversa — no asumas CLP solo por el idioma o el domic
 Si un dato no aparece con certeza, usa null — NUNCA inventes ni asumas un valor.
 
 - lineas: TODAS las líneas de productos de la tabla, una por producto, tal como las imprime el documento (no inventes ni agrupes): {"descripcion":<texto>,"cantidad":<número>,"precioUnitario":<número>,"descuentoPct":<número o null>,"total":<total de ESA línea tal como aparece impreso>}. "precioUnitario" es el unitario de la línea (si hay columna "P. c/Desc." o similar, ese). Si una línea no trae un dato, null. No incluyas filas de subtotal, IVA, flete ni totales.
-- totalNetoDocumento: el TOTAL NETO / subtotal del documento tal como aparece impreso (antes de IVA), en número; null si no aparece.
+- totalNetoDocumento: el neto FINAL impreso en el documento: la cifra que queda justo antes de sumar el IVA (ya con el descuento global restado y el flete sumado, si el documento los trae), en número; null si no aparece. Si el documento no muestra neto sino solo un total con IVA, null — no lo calcules.
 
 Responde SOLO JSON: {"proveedorNombre":<string o null>,"proveedorRut":<string o null>,"precioUnitario":<número o null>,"precioTotal":<número o null>,"cantidadPrincipal":<número o null>,"descuentoPct":<número o null>,"fleteMonto":<número o null>,"moneda":<string o null>,"plazoEntregaTexto":<string o null>,"direccionBodega":<string o null>,"totalNetoDocumento":<número o null>,"lineas":[{"descripcion":"","cantidad":0,"precioUnitario":0,"descuentoPct":null,"total":0}],"notasAdicionales":[<string, ...>]}`;
 
@@ -317,7 +317,7 @@ export async function extraerDatosCotizacionDeDocumento(
 
     // LÍNEAS: lo que la IA leyó se comprueba contra el documento (los números tienen que aparecer) y contra su aritmética.
     const totalNetoDoc = numeroDeTexto(parsed.totalNetoDocumento);
-    const norm = normalizarLineas(parsed.lineas, texto, totalNetoDoc);
+    const norm = normalizarLineas(parsed.lineas, texto, totalNetoDoc, { descuentoPct, fleteMonto });
     let ivaIncl = ivaIncluidoDelTexto(texto);
     if (norm.base === 'bruto') ivaIncl = true;       // las líneas suman el total CON IVA: los precios ya incluyen IVA
     else if (norm.base === 'neto') ivaIncl = false;  // las líneas suman el NETO del documento: son netos aunque el pie diga "IVA incluido" (1110)
@@ -329,7 +329,9 @@ export async function extraerDatosCotizacionDeDocumento(
       const primera = norm.lineas.find(l => l.precioUnitario != null);
       if (primera?.precioUnitario != null) unitFinal = primera.precioUnitario;
       if (norm.suma != null) totalFinal = norm.suma;
-      if (norm.lineas.some(l => l.descuentoPct != null) || (descuentoPct != null && totalNetoDoc != null)) descuentoFinal = null;
+      // Salvo que el neto impreso ya sea DESPUÉS del descuento global (las líneas cuadran solo restándolo): ahí el descuento es real y se conserva.
+      const descuentoDespues = norm.ajuste === 'descuento' || norm.ajuste === 'descuento+flete';
+      if (norm.lineas.some(l => l.descuentoPct != null) || (descuentoPct != null && totalNetoDoc != null && !descuentoDespues)) descuentoFinal = null;
     }
     if (!proveedorNombre && !proveedorRut && unitFinal == null && totalFinal == null && norm.lineas.length === 0) return null;
     return {
