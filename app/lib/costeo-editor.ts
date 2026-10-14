@@ -348,7 +348,7 @@ export function filasSinLink(estado: EstadoCosteoEditor): { hoja: string; item: 
     for (const f of g.filas || []) {
       if (f.agregadoPorCompras || f.esCostoAdicional) continue; // gasto extra / costo adicional: no se oferta, no necesita respaldo de precio
       if (!estaCotizada(f)) continue;
-      if (tieneRespaldoLink(f.link1) && tieneRespaldoLink(f.link2) && tieneRespaldoLink(f.link3)) continue;
+      if (tieneRespaldoLink(f.link1)) continue;
       faltan.push({ hoja: g.nombre, item: f.item, detalle: (f.detalle || '').trim() || `fila ${f.item}` });
     }
   }

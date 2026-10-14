@@ -11,7 +11,7 @@ import { obtenerAsignacion } from '@/app/lib/compras';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import {
-  panelFichas, procesarFicha, asignarProductoDeFicha, cambiarProveedorDeOpcion, compararProducto, filaDeProductoCompra, quitarOpcionDeCompras, quitarFichaDeOpcion, olvidarDocumentoDeCompras, complementarRequisito,
+  panelFichas, procesarFicha, asignarProductoDeFicha, cambiarProveedorDeOpcion, compararProducto, filaDeProductoCompra, quitarOpcionDeCompras, moverOpcionDeCompras, quitarFichaDeOpcion, olvidarDocumentoDeCompras, complementarRequisito,
 } from '@/app/lib/compras-fichas';
 
 export const runtime = 'nodejs';
@@ -106,6 +106,12 @@ async function __POST(request: NextRequest, { params }: Params) {
       }
       case 'quitar_modelo': {
         await quitarOpcionDeCompras(c.id, Number(body.opcionId));
+        return NextResponse.json({ success: true });
+      }
+      case 'mover_modelo': {
+        const filaId = await filaDeProductoCompra(c.id, Number(body.productoCompraId));
+        if (!filaId) return NextResponse.json({ error: 'Ese producto no tiene línea en el Costeo.' }, { status: 400 });
+        await moverOpcionDeCompras(c.id, Number(body.opcionId), filaId);
         return NextResponse.json({ success: true });
       }
       case 'quitar_ficha': {

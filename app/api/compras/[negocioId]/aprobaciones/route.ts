@@ -8,7 +8,7 @@ import { obtenerAsignacion } from '@/app/lib/compras';
 import {
   obtenerAprobaciones, calcularMargenPrevisto, calcularPresupuestoCompra, obtenerEscenarioElegido,
   proponerAprobacionCompra, proponerAprobacionMargen,
-  resolverAprobacion, type TipoAprobacion, type DecisionAprobacion,
+  resolverAprobacion, deshacerAprobacion, type TipoAprobacion, type DecisionAprobacion,
 } from '@/app/lib/compras-aprobaciones';
 import { puedeOperarCompras, puedeVerCompras } from '@/app/api/compras/[negocioId]/route';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
@@ -59,6 +59,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       success: true, ...aprobaciones, margenActual: margen, presupuestoActual: presupuesto,
       escenarioElegidoActual: escenarioElegido ? { tipo: escenarioElegido.tipo, costoTotal: Number(escenarioElegido.costo_total) } : null,
       esJefeDeVentas: await esJefeDeVentas(userId),
+      puedeDeshacer: rol === 'admin' || (await esJefeDeVentas(userId)),
     });
   } catch (error) {
     console.error('[compras/aprobaciones][GET]', String(error));
@@ -99,10 +100,18 @@ async function __PATCH(request: NextRequest, { params }: Params) {
   const id = parseInt(negocioId);
 
   try {
+    const body = await request.json();
+    // Deshacer una decisión ya tomada: jefe de ventas / asesor (permisos de aprobación) y cualquier admin (pedido del usuario, 14-oct-2026).
+    if (body.decision === 'DESHACER') {
+      if (!(rol === 'admin' || (await esJefeDeVentas(userId))))
+        return NextResponse.json({ error: 'Solo el asesor o un admin pueden deshacer una aprobación.' }, { status: 403 });
+      await deshacerAprobacion(id, body.tipo as TipoAprobacion, body.comentario || null, userId, nombre);
+      const aprobaciones = await obtenerAprobaciones(id);
+      return NextResponse.json({ success: true, ...aprobaciones });
+    }
     if (!(await esJefeDeVentas(userId)))
       return NextResponse.json({ error: 'Solo el jefe de ventas resuelve las compuertas de aprobación (spec §10.2/§10.3).' }, { status: 403 });
 
-    const body = await request.json();
     await resolverAprobacion(id, body.tipo as TipoAprobacion, body.decision as DecisionAprobacion, body.comentario || null, userId, nombre);
 
     const aprobaciones = await obtenerAprobaciones(id);

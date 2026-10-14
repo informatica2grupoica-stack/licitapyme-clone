@@ -12,7 +12,7 @@ import { IconShieldCheck as ShieldCheck, IconLoader2 as Loader2, IconCircleCheck
 
 type Estado = 'PENDIENTE' | 'APROBADA' | 'APROBADA_CON_MODIFICACION' | 'RECHAZADA';
 type Tipo = 'COMPRA' | 'MARGEN';
-type Decision = 'APROBAR' | 'APROBAR_CON_MODIFICACION' | 'RECHAZAR';
+type Decision = 'APROBAR' | 'APROBAR_CON_MODIFICACION' | 'RECHAZAR' | 'DESHACER';
 
 interface Aprobacion {
   tipo: Tipo; estado: Estado; detalle: any; motivo: string | null;
@@ -40,13 +40,15 @@ const fmtCLP = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('
 // aviso de duplicados si el parecido está dentro de "Mercado Publico" o en otra categoría de Obuma.
 const OBUMA_CATEGORIA_MERCADO_PUBLICO_UI = '13255';
 
-function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar, onProponer, onResolver, resumen, requiereMotivo, motivoLabel, desactualizada }: {
+function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar, onProponer, onResolver, resumen, requiereMotivo, motivoLabel, desactualizada, puedeDeshacer, onDeshacer }: {
   tipo: Tipo; titulo: string; aprobacion: Aprobacion | null; esJefeDeVentas: boolean; puedeOperar: boolean;
   onProponer: (motivo: string | null) => void; onResolver: (decision: Decision, comentario: string | null) => void; resumen: React.ReactNode;
   requiereMotivo?: boolean; motivoLabel?: string; desactualizada?: boolean;
+  puedeDeshacer?: boolean; onDeshacer?: (comentario: string | null) => void;
 }) {
   const [comentario, setComentario] = useState('');
   const [decidiendo, setDecidiendo] = useState(false);
+  const [confirmandoDeshacer, setConfirmandoDeshacer] = useState(false);
   // Antes: cuando la compuerta necesitaba motivo (margen bajo 20%, o ahora sobre presupuesto), el
   // botón tiraba directo un error del servidor ("requiere motivo") sin que hubiera DÓNDE escribirlo
   // en pantalla — el encargado quedaba atascado sin saber qué hacer. Ahora el campo aparece solo
@@ -99,6 +101,24 @@ function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar
         </div>
       )}
 
+      {aprobacion && aprobacion.estado !== 'PENDIENTE' && puedeDeshacer && onDeshacer && (
+        <div className="mt-2">
+          {confirmandoDeshacer ? (
+            <div className="space-y-1.5">
+              <input value={comentario} onChange={e => setComentario(e.target.value)} placeholder="Motivo (opcional)…"
+                className="w-full text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+              <p className="text-[11px] text-zinc-600">Vuelve a «Pendiente»: habrá que aprobarla de nuevo. Los SKU ya creados no se borran.</p>
+              <div className="flex items-center gap-2">
+                <button onClick={() => { setConfirmandoDeshacer(false); onDeshacer(comentario.trim() || null); }} className="text-[11px] font-semibold text-white bg-rose-600 hover:bg-rose-700 px-2 py-1.5 rounded-lg">Sí, deshacer</button>
+                <button onClick={() => setConfirmandoDeshacer(false)} className="text-[11px] font-semibold text-zinc-500">No</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setConfirmandoDeshacer(true)} className="text-[11.5px] font-semibold text-rose-700 hover:text-rose-800">Deshacer esta decisión</button>
+          )}
+        </div>
+      )}
+
       {aprobacion?.estado === 'PENDIENTE' && esJefeDeVentas && (
         <div className="mt-2 space-y-1.5">
           <input value={comentario} onChange={e => setComentario(e.target.value)} placeholder="Comentario (obligatorio si rechaza)…"
@@ -132,6 +152,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
   const [presupuestoActual, setPresupuestoActual] = useState<Presupuesto | null>(null);
   const [escenarioElegidoActual, setEscenarioElegidoActual] = useState<{ tipo: string; costoTotal: number } | null>(null);
   const [esJefeDeVentas, setEsJefeDeVentas] = useState(false);
+  const [puedeDeshacer, setPuedeDeshacer] = useState(false);
   const [skus, setSkus] = useState<Sku[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -186,7 +207,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
       const [dA, dS, dP] = await Promise.all([rA.json(), rS.json(), rP.json()]);
       if (dA.success) {
         setCompra(dA.compra); setMargen(dA.margen); setMargenActual(dA.margenActual); setPresupuestoActual(dA.presupuestoActual);
-        setEscenarioElegidoActual(dA.escenarioElegidoActual); setEsJefeDeVentas(dA.esJefeDeVentas);
+        setEscenarioElegidoActual(dA.escenarioElegidoActual); setEsJefeDeVentas(dA.esJefeDeVentas); setPuedeDeshacer(!!dA.puedeDeshacer);
       }
       if (dS.success) setSkus(dS.skus || []);
       if (dP.success) setProductos((dP.productos || []).filter((p: any) => !['RENUNCIADO', 'NO_ADJUDICADA'].includes(p.subestado)));
@@ -439,7 +460,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         <BloqueCompuerta
           tipo="COMPRA" titulo="Hito 1 — Aprobación de compra" aprobacion={compra} esJefeDeVentas={esJefeDeVentas} puedeOperar={puedeOperar}
-          onProponer={(motivo) => proponer('COMPRA', motivo)} onResolver={(d, c) => resolver('COMPRA', d, c)}
+          onProponer={(motivo) => proponer('COMPRA', motivo)} onResolver={(d, c) => resolver('COMPRA', d, c)} puedeDeshacer={puedeDeshacer} onDeshacer={(c) => resolver('COMPRA', 'DESHACER', c)}
           requiereMotivo={!!presupuestoActual?.excede} motivoLabel="¿Por qué se compra sobre el presupuesto costeado?"
           desactualizada={compraDesactualizada}
           resumen={<>
@@ -467,7 +488,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
         />
         <BloqueCompuerta
           tipo="MARGEN" titulo="Hito 2 — Aprobación de margen" aprobacion={margen} esJefeDeVentas={esJefeDeVentas} puedeOperar={puedeOperar}
-          onProponer={(motivo) => proponer('MARGEN', motivo)} onResolver={(d, c) => resolver('MARGEN', d, c)}
+          onProponer={(motivo) => proponer('MARGEN', motivo)} onResolver={(d, c) => resolver('MARGEN', d, c)} puedeDeshacer={puedeDeshacer} onDeshacer={(c) => resolver('MARGEN', 'DESHACER', c)}
           requiereMotivo={margenActual?.margenPct != null && margenActual.margenPct < 20} motivoLabel="¿Por qué se aprueba con margen bajo el 20%?"
           resumen={margenActual?.margenPct != null ? (
             <span className={margenActual.margenPct < 20 ? 'text-rose-600 font-semibold flex items-center gap-1' : ''}>

@@ -480,6 +480,15 @@ export async function quitarOpcionDeCompras(negocioId: number, opcionId: number)
   if (!r.affectedRows) throw new Error('Ese modelo no es del panel de Compras.');
 }
 
+/** Cambia un modelo de Compras a otro producto (la ficha se asignó al producto equivocado). Sus fichas y su proveedor se van con él. */
+export async function moverOpcionDeCompras(negocioId: number, opcionId: number, filaId: string): Promise<void> {
+  const [r] = await pool.query(`UPDATE auditor_opcion SET fila_id = ?, actualizado_at = ? WHERE id = ? AND negocio_id = ? AND fila_id LIKE 'cmp:%'`,
+    [filaCmp(filaId), ahoraChileSQL(), opcionId, negocioId]) as any;
+  if (!r.affectedRows) throw new Error('Ese modelo no es del panel de Compras.');
+  await pool.query(`INSERT INTO auditor_evento (negocio_id, opcion_id, tipo, emisor, detalle, creado_at) VALUES (?, ?, 'opcion_movida', 'compras', ?, ?)`,
+    [negocioId, opcionId, 'Modelo cambiado a otro producto desde el panel de Compras', ahoraChileSQL()]).catch(() => {});
+}
+
 /** Quita UNA ficha de un modelo de Compras (p. ej. se subió la equivocada): deja de contar para la comparación, y el modelo y sus otras fichas siguen.
  *  No se borra el archivo ni el historial (el respaldo queda no vigente). Si se vuelve a subir la misma ficha, entra de nuevo normalmente. */
 export async function quitarFichaDeOpcion(negocioId: number, opcionId: number, url: string, actor: Actor): Promise<void> {

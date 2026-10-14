@@ -283,6 +283,25 @@ export async function resolverAprobacion(
   });
 }
 
+/** Deshace una compuerta ya resuelta (aprobada, con modificación o rechazada): vuelve a PENDIENTE y deja constancia. El permiso se verifica en la API. */
+export async function deshacerAprobacion(negocioId: number, tipo: TipoAprobacion, motivo: string | null, actorId: number, actorNombre: string | null): Promise<void> {
+  const ahora = ahoraChileSQL();
+  const [prev] = await pool.query(`SELECT estado FROM compras_aprobacion WHERE negocio_id = ? AND tipo = ?`, [negocioId, tipo]) as any;
+  const estadoPrevio = (prev as any[])[0]?.estado as EstadoAprobacion | undefined;
+  const [r] = await pool.query(
+    `UPDATE compras_aprobacion
+        SET estado = 'PENDIENTE', resuelto_por = NULL, resuelto_por_nombre = NULL, resuelto_at = NULL, comentario_resolucion = NULL, updated_at = ?
+      WHERE negocio_id = ? AND tipo = ? AND estado IN ('APROBADA','APROBADA_CON_MODIFICACION','RECHAZADA')`,
+    [ahora, negocioId, tipo],
+  ) as any;
+  if (!r?.affectedRows) throw new Error('Esta compuerta no tiene una decisión que deshacer.');
+  await registrarEvento({
+    tipo: `COMPRAS_APROBACION_${tipo}_DESHECHA`, licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
+    mensaje: `Compuerta ${tipo === 'COMPRA' ? '1 (Compra)' : '2 (Margen)'}: se deshizo la decisión (${(estadoPrevio || '').replace(/_/g, ' ').toLowerCase()}) y volvió a pendiente${motivo ? ` — ${motivo}` : ''}.`,
+    metadata: { negocio_id: negocioId, tipo, estado_previo: estadoPrevio ?? null },
+  });
+}
+
 // ── SKU (§7) ─────────────────────────────────────────────────────────────────────────────────────
 export interface Sku {
   id: number; productoId: number; skuPropio: string; skuProveedor: string | null;

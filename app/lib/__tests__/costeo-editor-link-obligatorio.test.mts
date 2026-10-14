@@ -23,13 +23,11 @@ test('un ítem cotizado sin link bloquea el guardado', () => {
   assert.equal(faltan[0].detalle, 'Plataforma satelital');
 });
 
-test('Link 1, 2 y 3 deben tener algo (link o comentario); si falta uno, bloquea', () => {
-  const ok = fila({ id: 'a', valorConIva: 100, link1: 'https://www.falabella.com/p/12345', link2: 'cotizado por mail', link3: 'ver catálogo' });
+test('solo Link 1 es obligatorio (link o comentario); Link 2 y 3 son opcionales', () => {
+  const ok = fila({ id: 'a', valorConIva: 100, link1: 'https://www.falabella.com/p/12345' });
   assert.equal(filasSinLink(conFilas([ok])).length, 0);
-  for (const campo of ['link1', 'link2', 'link3'] as const) {
-    const f = { ...ok, [campo]: '  ' };
-    assert.equal(filasSinLink(conFilas([f])).length, 1, `${campo} vacío debería bloquear`);
-  }
+  assert.equal(filasSinLink(conFilas([{ ...ok, link1: '  ' }])).length, 1);
+  assert.equal(filasSinLink(conFilas([{ ...ok, link1: '', link2: 'https://x.cl/p/1' }])).length, 1);
 });
 
 test('una fila todavía sin cotizar se puede guardar sin link — el costeo se llena de a poco', () => {

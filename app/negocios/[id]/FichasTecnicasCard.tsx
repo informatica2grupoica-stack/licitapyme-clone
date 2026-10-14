@@ -63,6 +63,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
   const [proyecto, setProyecto] = useState<DocProyecto[] | null>(null);
   const [pegando, setPegando] = useState<{ nombre: string; texto: string } | null>(null);
   const [visor, setVisor] = useState<VisorDoc | null>(null);
+  const [quitadas, setQuitadas] = useState<Set<number>>(new Set());
   const [verOtros, setVerOtros] = useState(false);
   const [elegidos, setElegidos] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLInputElement>(null);
@@ -190,6 +191,13 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
   const quitarModelo = async (o: OpcionFichaDTO) => {
     try { await post({ accion: 'quitar_modelo', opcionId: o.opcionId }); await cargar(); } catch (e: any) { toast.error('No se pudo quitar', e.message); }
   };
+  const mover = async (opcionId: number, productoCompraId: number) => {
+    try { await post({ accion: 'mover_modelo', opcionId, productoCompraId }); toast.success('Modelo cambiado de producto', 'Vuelve a comparar para que cuente contra las bases del producto nuevo.');
+      const nuevo = panel?.productos.find(x => x.productoId === productoCompraId);
+      setCola(c => c.map(it => it.resultado ? { ...it, resultado: { ...it.resultado, productos: it.resultado.productos.map(x => x.opcionId === opcionId ? { ...x, productoCompraId, productoNombre: nuevo?.descripcion.slice(0, 80) ?? x.productoNombre } : x) } } : it));
+      await cargar(); }
+    catch (e: any) { toast.error('No se pudo cambiar de producto', e.message); }
+  };
   const olvidar = async (extraccionId: number) => {
     try { await post({ accion: 'olvidar_documento', extraccionId }); await cargar(); } catch (e: any) { toast.error('No se pudo quitar de la lista', e.message); }
   };
@@ -270,6 +278,15 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
                   <p key={p.idx} className="ml-6 text-zinc-600">
                     <b className="text-zinc-800">{[p.marca, p.modelo].filter(Boolean).join(' ') || p.nombre}</b>
                     {p.resultado === 'asignada' && <> → <b className="text-teal-700">{p.productoNombre}</b> · {p.proveedor ? <>proveedor <b>{p.proveedor}</b></> : <span className="text-amber-700">proveedor por elegir</span>}</>}
+                    {p.resultado === 'asignada' && puedeOperar && p.opcionId != null && panel && !(quitadas.has(p.opcionId)) && (
+                      <span className="ml-2 inline-flex items-center gap-2">
+                        <select value="" onChange={e => { if (e.target.value) void mover(p.opcionId!, Number(e.target.value)); }} className="text-[11.5px] border border-zinc-200 rounded-md px-1.5 py-0.5 bg-white max-w-[200px]" title="Cambiar a otro producto">
+                          <option value="">Cambiar de producto…</option>
+                          {panel.productos.filter(x => x.productoId !== p.productoCompraId).map(x => <option key={x.productoId} value={x.productoId}>{x.descripcion.slice(0, 60)}</option>)}
+                        </select>
+                        <button type="button" onClick={() => { setQuitadas(s => new Set(s).add(p.opcionId!)); void post({ accion: 'quitar_modelo', opcionId: p.opcionId }).then(cargar).catch((e: any) => toast.error('No se pudo quitar', e.message)); }} className="text-[11.5px] font-semibold text-zinc-400 hover:text-rose-700">Quitar</button>
+                      </span>
+                    )}
                     {p.resultado === 'ya_asignada' && <span className="text-zinc-400"> · ya estaba asignada</span>}
                     {p.resultado === 'por_confirmar' && <span className="text-amber-700"> → por confirmar (abajo)</span>}
                     {p.resultado === 'sin_producto' && <span className="text-amber-700"> → no la pude ubicar (abajo)</span>}
@@ -378,11 +395,11 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
                               )}
                           </div>}
                           {relevantes.length === 0 &&<p className="text-[12.5px] text-zinc-500">Todavía no hay fichas ni opciones de los proveedores cotizados. Sube la ficha del modelo que se va a comprar.</p>}
-                          {relevantes.map(o => <OpcionFila key={o.opcionId} o={o} cotizados={nombres} puedeOperar={puedeOperar} onProveedor={cambiarProveedor} onQuitar={quitarModelo} onQuitarFicha={quitarFicha} onComplementar={complementar} />)}
+                          {relevantes.map(o => <OpcionFila key={o.opcionId} o={o} cotizados={nombres} puedeOperar={puedeOperar} onProveedor={cambiarProveedor} onQuitar={quitarModelo} onQuitarFicha={quitarFicha} onComplementar={complementar} onMover={(op, pid) => mover(op.opcionId, pid)} productosDestino={panel.productos.filter(x => x.productoId !== p.productoId)} />)}
                           {otras.length > 0 && (
                             <details className="rounded-lg border border-zinc-200 bg-white">
                               <summary className="cursor-pointer px-3 py-2 text-[12px] font-semibold text-zinc-500 hover:text-zinc-800">Otros modelos con proveedor que no cotizó ({otras.length}): no cuentan como lo que se compra</summary>
-                              <div className="p-2 space-y-2">{otras.map(o => <OpcionFila key={o.opcionId} o={o} cotizados={nombres} puedeOperar={puedeOperar} onProveedor={cambiarProveedor} onQuitar={quitarModelo} onQuitarFicha={quitarFicha} onComplementar={complementar} />)}</div>
+                              <div className="p-2 space-y-2">{otras.map(o => <OpcionFila key={o.opcionId} o={o} cotizados={nombres} puedeOperar={puedeOperar} onProveedor={cambiarProveedor} onQuitar={quitarModelo} onQuitarFicha={quitarFicha} onComplementar={complementar} onMover={(op, pid) => mover(op.opcionId, pid)} productosDestino={panel.productos.filter(x => x.productoId !== p.productoId)} />)}</div>
                             </details>
                           )}
                         </>
@@ -541,9 +558,10 @@ function ComplementoForm({ f, onGuardar, onCancelar }: { f: FilaRequisito; onGua
   );
 }
 
-export function OpcionFila({ o, cotizados, puedeOperar, onProveedor, onQuitar, onQuitarFicha, onComplementar }: {
+export function OpcionFila({ o, cotizados, puedeOperar, onProveedor, onQuitar, onQuitarFicha, onComplementar, onMover, productosDestino }: {
   o: OpcionFichaDTO; cotizados: string[]; puedeOperar: boolean; onProveedor: (o: OpcionFichaDTO, proveedor: string) => Promise<void>; onQuitar: (o: OpcionFichaDTO) => Promise<void>; onQuitarFicha?: (o: OpcionFichaDTO, url: string) => Promise<void>;
   onComplementar: (o: OpcionFichaDTO, n: number, resultado: 'CUMPLE' | 'NO_CUMPLE' | null, dato: string, fuente: string) => Promise<void>;
+  onMover?: (o: OpcionFichaDTO, productoCompraId: number) => Promise<void>; productosDestino?: Array<{ productoId: number; descripcion: string }>;
 }) {
   const [confirmando, setConfirmando] = useState(false);
   const [fichaPorQuitar, setFichaPorQuitar] = useState<string | null>(null);
@@ -571,6 +589,12 @@ export function OpcionFila({ o, cotizados, puedeOperar, onProveedor, onQuitar, o
             {[...new Set([...(o.proveedor ? [o.proveedor] : []), ...cotizados])].map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         ) : <span className="text-[12px] text-zinc-600">{o.proveedor || 'Proveedor por elegir'}</span>}
+        {puedeOperar && onMover && productosDestino && productosDestino.length > 0 && (
+          <select value="" onChange={e => { if (e.target.value) void onMover(o, Number(e.target.value)); }} className="text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 bg-white max-w-[200px]" title="Si la ficha quedó en el producto equivocado, cámbiala">
+            <option value="">Cambiar de producto…</option>
+            {productosDestino.map(x => <option key={x.productoId} value={x.productoId}>{x.descripcion.slice(0, 60)}</option>)}
+          </select>
+        )}
         {!sinFicha && <Insignia estado={t.estado} />}
         {puedeOperar && (confirmando
           ? <span className="text-[11.5px] text-zinc-600">¿Quitar este modelo y su ficha? <button type="button" onClick={() => onQuitar(o)} className="font-bold text-rose-700 hover:text-rose-900">Sí, quitar</button> · <button type="button" onClick={() => setConfirmando(false)} className="font-semibold text-zinc-500">No</button></span>
