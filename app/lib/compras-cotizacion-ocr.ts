@@ -121,6 +121,19 @@ function fleteMontoConfiable(
   return fleteMonto;
 }
 
+/** Caso real (14-oct-2026, negocio 1120, oferta italiana de CFC srl): el PDF digital parte los dígitos con
+ *  espacios ("€ 1 5 .9 60 ,00" = €15.960,00; "€ 2 3.470, 00"). La IA no pudo leer el precio y tomó el único número
+ *  limpio, el transporte "€ 710 , 00", como precio del producto. Se juntan solo los montos precedidos por un
+ *  símbolo de moneda y solo si hay fragmentos claramente partidos (≤2 caracteres o con separador pegado), para no
+ *  fusionar un "$ 1.200 3 unidades" legítimo. */
+function juntarMontosPartidos(texto: string): string {
+  return texto.replace(/(US\$|[€$])[ \t]*((?:[\d.,]+[ \t]+)+[\d.,]+)/g, (m, simbolo: string, resto: string) => {
+    const t = resto.split(/[ \t]+/);
+    const partido = t[0].length <= 2 || /[.,]$/.test(t[0]) || /^[.,]/.test(t[1]);
+    return partido ? `${simbolo} ${t.join('')}` : m;
+  });
+}
+
 /** Respaldo determinístico (regex, no IA) para el descuento — mismo criterio que `monedaDelTexto`
  *  de abajo: segunda opinión barata cuando la IA no lo trajo, solo si el documento tiene una
  *  etiqueta explícita "Descuento X%"/"Dscto X%"/"Desc. X%". Nunca calcula un descuento implícito
@@ -264,6 +277,7 @@ export async function extraerDatosCotizacionDeDocumento(
     }
   }
   if (!texto || texto.trim().length < 20) return null; // nada legible: no hay de dónde extraer
+  texto = juntarMontosPartidos(texto);
 
   try {
     const propias = await empresasPropias();
