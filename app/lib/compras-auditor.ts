@@ -573,7 +573,7 @@ function precioEnDocumento(v: unknown, texto: string): boolean {
 
 export async function homologarCotizacionIA(cotizacionId: number): Promise<{ items: number }> {
   const [rows] = await pool.query(
-    `SELECT negocio_id, proveedor_nombre, descripcion_libre, precio_unitario, precio_total, moneda, tipo_cambio_usado, precio_unitario_clp, descuento_pct, notas
+    `SELECT negocio_id, proveedor_nombre, descripcion_libre, precio_unitario, precio_total, moneda, tipo_cambio_usado, precio_unitario_clp, descuento_pct, notas, flete_monto
        FROM compras_cotizacion WHERE id = ? LIMIT 1`,
     [cotizacionId],
   ) as any;
@@ -666,6 +666,11 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
           await pool.query(
             `INSERT INTO compras_cotizacion_adicional (negocio_id, cotizacion_id, producto_id, concepto, cantidad, precio_unitario, creado_por, creado_por_nombre, creado_at) VALUES (?,?,?,?,?,?,NULL,'Agente de compras (IA)',?)`,
             [cotiz.negocio_id, cotizacionId, producto.id, a.concepto, a.cantidad, a.precioUnitario, ahora]);
+        }
+        // El transporte ya quedó dentro del precio del producto (precio puesto en Chile): el flete de la cotización pasa a
+        // "incluido" para que el motor de escenarios no lo sume otra vez (1120: €16.670 salían como €17.380).
+        if (cotiz.flete_monto != null && adic.some(a => /flete|transport|despacho|env[ií]o|spedizione|shipping|freight|\bCIF\b/i.test(a.concepto))) {
+          await pool.query(`UPDATE compras_cotizacion SET incluye_flete = 1, flete_monto = NULL WHERE id = ?`, [cotizacionId]);
         }
       }
     }
