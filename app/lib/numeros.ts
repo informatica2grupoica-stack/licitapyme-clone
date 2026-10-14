@@ -38,5 +38,7 @@ export function parsearDiasDeTexto(texto: unknown): number | null {
   if (!Number.isFinite(n)) return null;
   if (/semana|week/.test(t)) return n * 7;
   if (/mes(es)?|month/.test(t)) return n * 30;
+  // "48 horas" (plazo de aceptación de la OC) se leía como 48 DÍAS.
+  if (!/d[ií]as?|days?/.test(t) && /\bhoras?\b|\bhrs?\b|hours?/.test(t)) return Math.ceil(n / 24);
   return n;
 }

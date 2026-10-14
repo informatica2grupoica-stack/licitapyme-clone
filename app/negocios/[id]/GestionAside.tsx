@@ -6,6 +6,8 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import Link from 'next/link';
+import { useSession } from '@/app/lib/session-context';
 import { IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCheck as Check, IconPlayerPlay as PlayCircle, IconBan as Ban, IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconUserPlus as UserPlus, IconFolderOpen as FolderOpen, IconHistory as History, IconExternalLink as ExternalLink, IconTrash as Trash2, IconSend as Send, IconBuilding as Building2, IconCurrencyDollar as DollarSignIcon } from '@tabler/icons-react';
 import { Select } from '@/app/components/ui/Select';
 import { useToast } from '@/app/components/ui/toast';
@@ -242,6 +244,10 @@ export function GestionAside({
   onIrAViabilidad?: () => void;
 }) {
   const toast = useToast();
+  // Mismo criterio que /compras para decidir quién entra (así no se ofrece un botón que lo rebota al dashboard).
+  const { usuario } = useSession();
+  const pc = usuario?.permisos;
+  const puedeVerCompras = !!(pc?.compras_todo || pc?.compras || pc?.aprobar_comercial || pc?.compras_administracion || pc?.compras_bodega || pc?.compras_ver);
   const confirmar = useConfirm();
 
   const [descarteOpen, setDescarteOpen] = useState(false);
@@ -417,6 +423,13 @@ export function GestionAside({
           </div>
 
           <div className="mt-2">
+            {normalizarEstado(negocio.estado_pipeline) === 'POSIBLE_ADJ' && puedeVerCompras && (
+              <Link href={`/compras/${negocio.id}`}
+                title="Posible adjudicación: abre la pre-compra para ir cotizando y costeando (aún no se puede comprar)"
+                className="flex items-center justify-center gap-1.5 w-full mb-2 text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg py-1.5 transition-colors">
+                <ShoppingCart size={12} /> Ir a pre-compra
+              </Link>
+            )}
             <button onClick={handleProductosCosteo} disabled={productosCosteoLoading}
               title="Busca productos y precios de mercado (Chile) para los ítems del costeo y regenera el Excel con precios"
               className="flex items-center justify-center gap-1.5 w-full text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg py-1.5 transition-colors disabled:opacity-60">
