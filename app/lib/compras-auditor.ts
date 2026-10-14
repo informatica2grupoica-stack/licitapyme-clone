@@ -13,7 +13,7 @@
 // (Epeira 575), no desde Santiago ni la casa matriz. Viaje interno local = $40.000 (§8.10.2).
 import { precioClpDeItemIA } from '@/app/lib/compras-precio-homologacion';
 import pool from '@/app/lib/db';
-import { numeroApareceEnTexto, lineasDesdeTabla, corregirAdicionalesConLineas, lineasSinAsignar, lineaDelProducto, desajustesProductoLinea } from '@/app/lib/compras-cotizacion-lineas';
+import { numeroApareceEnTexto, lineasDesdeTabla, corregirAdicionalesConLineas, lineasSinAsignar, lineaDelProducto, desajustesProductoLinea, sinComponentesDeLaLineaPropia } from '@/app/lib/compras-cotizacion-lineas';
 import { conCupo } from '@/app/lib/cupo-ia';
 import { esRutPropio } from '@/app/lib/auditor-compras-datos';
 import { filasDeCotizacion, programarAuditoria } from '@/app/lib/auditor-compras';
@@ -671,7 +671,8 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     // dejarlo también como adicional del producto lo contaba dos veces y mezclaba equipo + transporte en un solo precio
     // (1120: equipo €15.960 + transporte €710 = €16.670, se ven por separado y se suman).
     const adicCorregidos = (() => {
-      const corr = corregirAdicionalesConLineas(it.adicionales, lineasDelDoc).adicionales;
+      const propios = sinComponentesDeLaLineaPropia(it.adicionales, lineaDelProducto(producto.descripcion, lineasDelDoc));
+      const corr = corregirAdicionalesConLineas(propios, lineasDelDoc).adicionales;
       if (cotiz.flete_monto == null || !Array.isArray(corr)) return corr;
       return corr.filter((a: any) => !/flete|transport|despacho|env[ií]o|spedizione|shipping|freight|\bCIF\b/i.test(String(a?.concepto ?? '')));
     })();
@@ -679,6 +680,9 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     // y se guarda en CLP, igual que el precio del producto (precioClpDeItemIA ya multiplica por el tipo de cambio).
     const aNetoClp = (n: number) => (tipoCambio ? Number(aNeto(n)) * tipoCambio : Number(aNeto(n)));
     const adic = adicionalesDesdeIA(adicCorregidos, producto.cantidad != null ? Number(producto.cantidad) : null, aNetoClp);
+    // Los que puso el agente (creado_por NULL) se rehacen en cada homologación: si no, una lectura mala (1110: el colchón y la batería
+    // del catre como adicionales a $618.000) se quedaba para siempre aunque se corrigiera el código. Los de una persona no se tocan.
+    await pool.query(`DELETE FROM compras_cotizacion_adicional WHERE cotizacion_id = ? AND producto_id = ? AND creado_por IS NULL`, [cotizacionId, producto.id]).catch(() => {});
     if (adic.length > 0) {
       const [ya] = await pool.query(`SELECT COUNT(*) n FROM compras_cotizacion_adicional WHERE cotizacion_id = ? AND producto_id = ?`, [cotizacionId, producto.id]).catch(() => [[{ n: 1 }]] as any) as any;
       if (Number((ya as any[])[0]?.n || 0) === 0) {

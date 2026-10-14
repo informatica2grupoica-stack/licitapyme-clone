@@ -135,3 +135,17 @@ test('1110: la línea del documento se elige por parecido con el producto', () =
   assert.match(lineaDelProducto('Silla de ruedas activa chasis plegable talla 42', lineas)?.descripcion || '', /Activa/);
   assert.equal(lineaDelProducto('Catre clínico eléctrico', lineas), null);
 });
+
+import { sinComponentesDeLaLineaPropia } from '../compras-cotizacion-lineas';
+
+test('1110: colchón y batería nombrados en la línea del catre no son adicionales con precio; un accesorio con línea propia sí', () => {
+  const lineaCatre = { descripcion: 'Catre clínico eléctrico + Colchón CIC Med Home 8cm + Batería de Emergencia', cantidad: 4, precioUnitario: 618000, descuentoPct: null, total: 2472000 };
+  const adic = [
+    { concepto: 'Colchón CIC Med Home 8cm', cantidadLinea: 4, precioUnitario: 618000 },
+    { concepto: 'Batería de Emergencia', cantidadLinea: 4, precioUnitario: 618000 },
+    { concepto: 'Quemador a gas', cantidadLinea: 1, precioUnitario: 90000 },
+  ];
+  const r = sinComponentesDeLaLineaPropia(adic, lineaCatre) as Array<{ concepto: string }>;
+  assert.deepEqual(r.map(x => x.concepto), ['Quemador a gas']);
+  assert.equal(sinComponentesDeLaLineaPropia(adic, null), adic);   // sin línea del producto no se toca nada
+});

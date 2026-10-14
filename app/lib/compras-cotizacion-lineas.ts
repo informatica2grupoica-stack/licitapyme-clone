@@ -257,3 +257,14 @@ export function desajustesProductoLinea(descProducto: string, descLinea: string)
   if (chP && chL.length && !chL.includes(chP)) out.push(`chasis ${chP} pedido, la cotización dice chasis ${chL[0]}`);
   return out;
 }
+
+/**
+ * Quita de los adicionales los componentes que ya van DENTRO de la línea del propio producto.
+ * Caso real (1110): la línea "Catre clínico eléctrico + Colchón CIC Med Home 8cm + Batería de Emergencia" (4 × $618.000) la IA la partió en
+ * catre + 2 adicionales; cada adicional calzó con esa misma línea y tomó su precio ($618.000) → el catre salía a $1.854.000 (3 veces).
+ * Un componente nombrado en el título de la línea del producto no tiene precio aparte: está en el precio de la línea.
+ */
+export function sinComponentesDeLaLineaPropia(raw: unknown, lineaProducto: LineaCotizacion | null): unknown {
+  if (!Array.isArray(raw) || !lineaProducto) return raw;
+  return raw.filter((a: any) => !(a && typeof a.concepto === 'string' && parecido(a.concepto, lineaProducto.descripcion) >= 0.6));
+}
