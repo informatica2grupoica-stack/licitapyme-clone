@@ -36,24 +36,38 @@ export async function obtenerTipoCambio(moneda: string): Promise<TipoCambio | nu
   const cached = (rows as any[])[0];
   if (cached) return { valor: Number(cached.valor), fecha: hoy, fuente: cached.fuente };
 
+  // 8s se quedaba corto para el indicador "euro" (medido 15-sep-2026: "dolar" responde rápido,
+  // "euro" puede tardar >10s) — sin el tipo de cambio la cotización queda "sin convertir, no
+  // entra al comparativo", así que vale la pena esperar un poco más antes de rendirse.
+  let valor: number | null = null;
+  let fuente = FUENTE;
   try {
-    // 8s se quedaba corto para el indicador "euro" (medido 15-sep-2026: "dolar" responde rápido,
-    // "euro" puede tardar >10s) — sin el tipo de cambio la cotización queda "sin convertir, no
-    // entra al comparativo", así que vale la pena esperar un poco más antes de rendirse.
     const res = await fetch(`https://mindicador.cl/api/${codigo}`, { signal: AbortSignal.timeout(15_000) });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const valor = Number(data?.serie?.[0]?.valor);
-    if (!Number.isFinite(valor) || valor <= 0) return null;
+    if (res.ok) valor = Number((await res.json())?.serie?.[0]?.valor);
+  } catch (e) {
+    console.error('[tipo-cambio] no se pudo consultar mindicador.cl:', String(e).slice(0, 200));
+  }
 
+  // Respaldo (14-oct-2026, negocio 1120: mindicador.cl caído, cotización en euros quedó sin
+  // convertir). Solo monedas extranjeras — UF/UTM son indicadores chilenos sin otra fuente.
+  if ((!valor || !Number.isFinite(valor) || valor <= 0) && (moneda === 'USD' || moneda === 'EUR')) {
+    try {
+      const res = await fetch(`https://open.er-api.com/v6/latest/${moneda}`, { signal: AbortSignal.timeout(10_000) });
+      if (res.ok) { valor = Number((await res.json())?.rates?.CLP); fuente = 'open.er-api.com'; }
+    } catch (e) {
+      console.error('[tipo-cambio] respaldo open.er-api.com falló:', String(e).slice(0, 200));
+    }
+  }
+  if (!valor || !Number.isFinite(valor) || valor <= 0) return null;
+
+  try {
     await pool.query(
       `INSERT INTO compras_tipo_cambio (fecha, moneda, valor, fuente, consultado_at) VALUES (?,?,?,?,?)
        ON DUPLICATE KEY UPDATE valor = VALUES(valor), fuente = VALUES(fuente), consultado_at = VALUES(consultado_at)`,
-      [hoy, moneda, valor, FUENTE, ahoraChileSQL()],
+      [hoy, moneda, valor, fuente, ahoraChileSQL()],
     );
-    return { valor, fecha: hoy, fuente: FUENTE };
   } catch (e) {
-    console.error('[tipo-cambio] no se pudo consultar mindicador.cl:', String(e).slice(0, 200));
-    return null;
+    console.error('[tipo-cambio] no se pudo cachear:', String(e).slice(0, 200));
   }
+  return { valor, fecha: hoy, fuente };
 }
