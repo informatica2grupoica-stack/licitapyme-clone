@@ -655,7 +655,10 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     // Si ya hay adicionales cargados (a mano o de una pasada anterior) no se pisan: lo hecho por una persona manda.
     // La cantidad y el precio de cada adicional salen de la línea verificada del documento (no de lo que la IA recuerde de ella).
     const adicCorregidos = corregirAdicionalesConLineas(it.adicionales, lineasDelDoc).adicionales;
-    const adic = adicionalesDesdeIA(adicCorregidos, producto.cantidad != null ? Number(producto.cantidad) : null, aNeto as (n: number) => number);
+    // Cotización en moneda extranjera (1120, €710 de transporte quedó como $710): el adicional viene en la moneda del documento
+    // y se guarda en CLP, igual que el precio del producto (precioClpDeItemIA ya multiplica por el tipo de cambio).
+    const aNetoClp = (n: number) => (tipoCambio ? Number(aNeto(n)) * tipoCambio : Number(aNeto(n)));
+    const adic = adicionalesDesdeIA(adicCorregidos, producto.cantidad != null ? Number(producto.cantidad) : null, aNetoClp);
     if (adic.length > 0) {
       const [ya] = await pool.query(`SELECT COUNT(*) n FROM compras_cotizacion_adicional WHERE cotizacion_id = ? AND producto_id = ?`, [cotizacionId, producto.id]).catch(() => [[{ n: 1 }]] as any) as any;
       if (Number((ya as any[])[0]?.n || 0) === 0) {
