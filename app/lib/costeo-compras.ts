@@ -20,10 +20,10 @@ const num = (v: unknown): number | null => {
 const txt = (v: unknown, max: number): string => String(v ?? '').trim().slice(0, max);
 /** Acepta lo mismo que acepta la pantalla (esLinkDeProducto): con protocolo o "tienda.cl/p/1" pegado
  *  de la barra del navegador. Lo segundo se guarda con https:// para que el botón de abrir funcione.
- *  Cualquier otro esquema (javascript:, data:) o una frase suelta se descarta. */
+ *  Cualquier otra cosa se guarda como comentario (texto plano: la pantalla solo abre lo que es link). */
 const link = (v: unknown): string => {
   const t = txt(v, 500);
-  if (!esLinkDeProducto(t)) return '';
+  if (!esLinkDeProducto(t)) return t;
   return /^https?:\/\//i.test(t) ? t : `https://${t}`;
 };
 

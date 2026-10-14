@@ -12,8 +12,8 @@ const fila = (item: number, detalle: string, extra: Partial<FilaEditorCosteo> = 
 });
 // Réplica de la pestaña COSTEO de 1288505-5-LE26: 2 productos (con recargo propio de 193%) + flete y despacho escritos a mano como costo total.
 const estado: EstadoCosteoEditor = { modalidad: 'suma_alzada', margenVenta: 27, grupos: [{ nombre: 'Costeo', linea: null, ofertamos: true, filas: [
-  fila(1, 'APILADOR ELÉCTRICO', { cantidad: 1, valorConIva: 3200000, margenVenta: 193, link1: 'https://a.cl/x' }),
-  fila(2, 'ELEVADOR ELÉCTRICO', { cantidad: 1, valorConIva: 4545706, margenVenta: 193, link1: 'https://a.cl/y' }),
+  fila(1, 'APILADOR ELÉCTRICO', { cantidad: 1, valorConIva: 3200000, margenVenta: 193, link1: 'https://a.cl/x', link2: 'cotizado por mail', link3: 'catálogo' }),
+  fila(2, 'ELEVADOR ELÉCTRICO', { cantidad: 1, valorConIva: 4545706, margenVenta: 193, link1: 'https://a.cl/y', link2: 'cotizado por mail', link3: 'catálogo' }),
   fila(3, 'Envío puerto de Valparaíso', { esCostoAdicional: true, costoAdicionalNeto: 1222216 }),
   fila(4, 'Despacho a Punta Arenas', { esCostoAdicional: true, costoAdicionalNeto: 1500000 }),
 ] }] };

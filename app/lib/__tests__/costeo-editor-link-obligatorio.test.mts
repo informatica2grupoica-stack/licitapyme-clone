@@ -23,10 +23,12 @@ test('un ítem cotizado sin link bloquea el guardado', () => {
   assert.equal(faltan[0].detalle, 'Plataforma satelital');
 });
 
-test('sirve cualquiera de los tres links, no solo el primero', () => {
+test('Link 1, 2 y 3 deben tener algo (link o comentario); si falta uno, bloquea', () => {
+  const ok = fila({ id: 'a', valorConIva: 100, link1: 'https://www.falabella.com/p/12345', link2: 'cotizado por mail', link3: 'ver catálogo' });
+  assert.equal(filasSinLink(conFilas([ok])).length, 0);
   for (const campo of ['link1', 'link2', 'link3'] as const) {
-    const f = fila({ id: 'a', valorConIva: 100, [campo]: 'https://www.falabella.com/p/12345' });
-    assert.equal(filasSinLink(conFilas([f])).length, 0, `${campo} debería alcanzar`);
+    const f = { ...ok, [campo]: '  ' };
+    assert.equal(filasSinLink(conFilas([f])).length, 1, `${campo} vacío debería bloquear`);
   }
 });
 
@@ -41,9 +43,9 @@ test('una hoja que no se oferta no necesita respaldo', () => {
   assert.equal(filasSinLink(conFilas([f], true)).length, 1);
 });
 
-test('una nota en vez de un link no cuenta como respaldo', () => {
+test('un comentario en vez de un link sí cuenta como respaldo', () => {
   for (const texto of ['pendiente', 'cotizado por mail', 'lo mando el proveedor', '—', 'ver correo']) {
-    assert.equal(filasSinLink(conFilas([fila({ id: 'a', valorConIva: 100, link1: texto })])).length, 1, `"${texto}" no es un link`);
+    assert.equal(filasSinLink(conFilas([fila({ id: 'a', valorConIva: 100, link1: texto, link2: texto, link3: texto })])).length, 0, `"${texto}" es un comentario válido`);
   }
 });
 
@@ -65,7 +67,7 @@ test('reporta todas las que faltan, con su hoja, para poder nombrarlas en el err
     modalidad: 'por_linea', margenVenta: 27,
     grupos: [
       { nombre: 'Línea 1', linea: 1, ofertamos: true, filas: [
-        fila({ id: 'a', item: 1, detalle: 'Con link', valorConIva: 100, link1: 'https://x.cl/p/1' }),
+        fila({ id: 'a', item: 1, detalle: 'Con link', valorConIva: 100, link1: 'https://x.cl/p/1', link2: 'mail', link3: 'catálogo' }),
         fila({ id: 'b', item: 2, detalle: 'Sin link', valorConIva: 200 }),
       ] },
       { nombre: 'Línea 2', linea: 2, ofertamos: true, filas: [

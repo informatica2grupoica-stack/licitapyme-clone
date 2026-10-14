@@ -47,12 +47,13 @@ test('agrega filas nuevas, marcadas y editables; luego puede editarlas y borrarl
   assert.equal(r.estado.grupos[0].filas.length, 2);
 });
 
-test('costo real sin Link 1 → error; link inválido se descarta', () => {
+test('costo real sin Link 1 → error; un comentario vale como respaldo', () => {
   const sin: any = fusionarEdicionCompras(guardado(), { grupos: [{ filas: [fila('a', { costoRealUnitario: 100 }), fila('b')] }] });
   assert.equal(sin.ok, false);
   assert.match(sin.error, /Falta el link/);
   const malo: any = fusionarEdicionCompras(guardado(), { grupos: [{ filas: [fila('a', { costoRealUnitario: 100, link1: 'javascript:alert(1)' }), fila('b')] }] });
-  assert.equal(malo.ok, false);
+  assert.equal(malo.ok, true);
+  assert.equal(malo.estado.grupos[0].filas[0].link1, 'javascript:alert(1)'); // texto plano, la pantalla no lo abre
 });
 
 test('distinta cantidad de hojas → error claro; números negativos o basura → null', () => {

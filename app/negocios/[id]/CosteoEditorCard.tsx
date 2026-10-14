@@ -34,7 +34,7 @@ import { useCosteoFlotante, type CosteoEstadoHeredado } from '@/app/components/C
 // Cuadro comparativo (venta/costo/utilidad/margen, estimado vs real, distancia al presupuesto):
 // misma aritmética que el bloque que el comercial arma a mano al pie del Excel. Módulo sin
 // dependencias, compartido — acá NO se duplica ninguna de esas fórmulas.
-import { calcularComparativo, entradaComparativoDeFilas, costoRealDeFila, alertasDeDesvio, recargoParaMargen, margenDeRecargo, parsearRecargo, esLinkDeProducto, IVA, type Comparativo } from '@/app/lib/costeo-comparativo';
+import { calcularComparativo, entradaComparativoDeFilas, costoRealDeFila, alertasDeDesvio, recargoParaMargen, margenDeRecargo, parsearRecargo, esLinkDeProducto, tieneRespaldoLink, IVA, type Comparativo } from '@/app/lib/costeo-comparativo';
 import { IconCalculator as Calculator, IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconRefresh as RefreshCw, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconShieldCheck as ShieldCheck, IconSparkles as Sparkles, IconMaximize as Maximize2, IconX as X, IconExternalLink as ExternalLink, IconArrowLeft as ArrowLeft, IconLayoutBoardSplit as SplitSquareHorizontal, IconArrowMerge as Combine, IconFileSearch as FileSearch, IconLink as LinkIcon, IconPictureInPicture as PictureInPicture2, IconMinimize as Minimize2, IconEye as Eye, IconPhotoPlus as PhotoPlus, IconFileSpreadsheet as FileSpreadsheet, IconDownload as Download, IconHistory as History } from '@tabler/icons-react';
 
 const MARGEN_VENTA_DEFECTO = 27;
@@ -244,7 +244,7 @@ function margenDeFila(f: FilaEditor, grp: GrupoEditor, general: number): number 
  *  cotizar se pueden guardar igual — el costeo se llena de a poco. Espejo de filasSinLink en
  *  app/lib/costeo-editor.ts, que es donde el guardado se corta de verdad. */
 function faltaLink(f: FilaEditor): boolean {
-  return f.valorConIva != null && !esLinkDeProducto(f.link1) && !esLinkDeProducto(f.link2) && !esLinkDeProducto(f.link3);
+  return f.valorConIva != null && !(tieneRespaldoLink(f.link1) && tieneRespaldoLink(f.link2) && tieneRespaldoLink(f.link3));
 }
 
 /** ¿Cuántas filas de la hoja tienen recargo propio? Solo para avisarlo en el cuadro comparativo:
@@ -587,7 +587,7 @@ function CeldaLink({ value, onChange, disabled, label }: {
         placeholder={label}
         className={celdaInput('pr-5 truncate')}
       />
-      {value && (
+      {esLinkDeProducto(value) && (
         <button
           type="button"
           onClick={() => window.open(value, '_blank', 'noopener,noreferrer')}
@@ -979,7 +979,7 @@ export function CosteoEditorCard({
     const ok = await confirmar(clave === 'total'
       ? {
         titulo: 'Esta columna trabaja con una fórmula',
-        mensaje: 'El «Costo total neto» se calcula como cantidad × costo unitario. Si escribes aquí un total, el sistema ajusta el Valor c/IVA de la fila para que cuadre (sin cantidad, toma 1). Cuidado: cambia el costo, el precio de venta y el margen de esa fila y del proyecto. Para un costo que NO se vende (flete, despacho) usa «Agregar costo adicional».',
+        mensaje: 'El «Costo total neto» se calcula como cantidad × costo unitario. Si escribes aquí un total, solo se guarda ese costo: NO se llena Valor c/IVA, cantidad ni precio. El monto se suma al costo total del cuadro y baja el margen del proyecto, pero esa fila ya no se vende ni va al anexo económico. Para volver a la fórmula, borra el monto.',
         confirmarLabel: 'Entendido, continuar',
       }
       : clave === 'precio'
@@ -1208,7 +1208,15 @@ export function CosteoEditorCard({
     });
   };
 
-  const eliminarFila = (gi: number, fi: number) => {
+  const eliminarFila = async (gi: number, fi: number) => {
+    const detalle = estado?.grupos[gi]?.filas[fi]?.detalle?.trim();
+    const ok = await confirmar({
+      titulo: '¿Seguro que quieres eliminar esta línea?',
+      mensaje: `${detalle ? `«${detalle.slice(0, 80)}» ` : 'La línea '}se quitará del costeo. Se aplica al guardar y no se puede deshacer una vez guardado.`,
+      confirmarLabel: 'Eliminar',
+      peligro: true,
+    });
+    if (!ok) return;
     setEstado(prev => {
       if (!prev) return prev;
       const grupos = prev.grupos.map((g, i) => i !== gi ? g : {
@@ -1223,7 +1231,7 @@ export function CosteoEditorCard({
   // Documentos Propios. No inventa nada: si la tienda no trae datos técnicos aprovechables, el
   // endpoint responde error y acá solo se avisa, sin subir un PDF vacío.
   const generarFichaProducto = async (f: FilaEditor) => {
-    const link = f.link1?.trim() || f.link2?.trim() || f.link3?.trim();
+    const link = [f.link1, f.link2, f.link3].map(l => l?.trim()).find(l => esLinkDeProducto(l));
     if (!link) { toast.info('Esta fila no tiene ningún link cargado'); return; }
     if (!f.detalle?.trim()) { toast.info('Esta fila no tiene descripción de producto'); return; }
     setGenerandoFicha(prev => new Set(prev).add(f.id));
@@ -1574,7 +1582,7 @@ export function CosteoEditorCard({
             onClick={guardar}
             disabled={guardando || (congelado && !modoCompras) || !dirty || (!modoCompras && sinLink.length > 0)}
             title={sinLink.length > 0
-              ? `Falta el link del producto en ${sinLink.length} ítem(s) ya cotizado(s). Pégalo en la columna Link 1 de cada uno para poder guardar.`
+              ? `Falta un link o comentario en Link 1, 2 o 3 de ${sinLink.length} ítem(s) ya cotizado(s). Complétalos para poder guardar.`
               : undefined}
             className="flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors disabled:opacity-40"
           >
@@ -1638,8 +1646,8 @@ export function CosteoEditorCard({
         <div className="mt-2 flex items-start gap-2 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
           <LinkIcon size={13} className="text-rose-500 flex-shrink-0 mt-0.5" />
           <p className="text-[11.5px] text-rose-800 flex-1">
-            <span className="font-semibold">Falta el link del producto en {sinLink.length} ítem(s) cotizado(s).</span>{' '}
-            Pega en <span className="font-semibold">Link 1</span> la página donde cotizaste cada uno — sin eso no se puede guardar el costeo.
+            <span className="font-semibold">Falta respaldo en {sinLink.length} ítem(s) cotizado(s).</span>{' '}
+            Escribe un link o un comentario en <span className="font-semibold">Link 1, Link 2 y Link 3</span> de cada uno — sin eso no se puede guardar el costeo.
             <span className="block text-[11px] text-rose-600/90 mt-0.5">
               {sinLink.slice(0, 4).map(f => f.detalle.slice(0, 45)).join(' · ')}{sinLink.length > 4 ? ` · y ${sinLink.length - 4} más` : ''}
             </span>
@@ -1802,13 +1810,14 @@ export function CosteoEditorCard({
                     <input value={f.skuProveedor} onChange={e => actualizarFila(grupoActivo, fi, { skuProveedor: e.target.value })} disabled={baseBloq || esAdic} className={celdaInput()} placeholder={esAdic ? '' : 'Tienda / SKU'} />
                   </td>
                   <td style={celda} className="p-0"><CeldaNumero value={f.cantidad} onChange={v => actualizarFila(grupoActivo, fi, { cantidad: v })} disabled={baseBloq || esAdic} /></td>
-                  <td style={celda} className="p-0" title={f.agregadoPorCompras ? 'Gasto extra de Compras: no se vende, solo tiene costo real.' : esAdic ? 'Costo adicional: no tiene valor de mercado, se escribe el Costo total neto.' : undefined}><CeldaNumero value={f.valorConIva} moneda onChange={v => actualizarFila(grupoActivo, fi, { valorConIva: v })} disabled={baseBloq || !!f.agregadoPorCompras || esAdic} /></td>
+                  <td style={celda} className="p-0" title={f.agregadoPorCompras ? 'Gasto extra de Compras: no se vende, solo tiene costo real.' : esAdic ? 'Costo adicional: no tiene valor de mercado, se escribe el Costo total neto.' : undefined}><CeldaNumero value={esAdic ? null : f.valorConIva} moneda onChange={v => actualizarFila(grupoActivo, fi, { valorConIva: v })} disabled={baseBloq || !!f.agregadoPorCompras || esAdic} /></td>
                   <td style={celdaFormula} onClick={() => !esAdic && explicarCeldaGris('Costo unit. neto')} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title="= Valor c/IVA / 1.19">{esAdic ? '—' : fmtCLP(costoUnitario != null ? Math.round(costoUnitario) : null)}</td>
                   {/* COSTO TOTAL NETO: en un ítem normal es una fórmula (cantidad × costo unitario) y no se escribe. En un COSTO ADICIONAL es lo único
                       que se tipea: el monto a mano que suma al costo total y baja el margen (no se vende). */}
                   {esAdic ? (
                     <td style={{ ...celda, background: '#fff7e6' }} className="p-0" title="Costo adicional escrito a mano: suma al costo total y baja el margen del proyecto, pero NO se vende ni va al anexo económico.">
-                      <CeldaNumero value={f.costoAdicionalNeto ?? null} moneda onChange={v => actualizarFila(grupoActivo, fi, { costoAdicionalNeto: v })} disabled={baseBloq} />
+                      <CeldaNumero value={f.costoAdicionalNeto ?? null} moneda disabled={baseBloq}
+                        onChange={v => actualizarFila(grupoActivo, fi, v == null && f.cantidad != null ? { costoAdicionalNeto: null, esCostoAdicional: false } : { costoAdicionalNeto: v })} />
                     </td>
                   ) : (
                     <td style={celda} className="p-0">
@@ -1817,11 +1826,9 @@ export function CosteoEditorCard({
                         disabled={baseBloq || !!f.agregadoPorCompras}
                         onAvisar={() => avisarFormula('total')}
                         onFijarTotal={t => {
+                          // Solo el costo total neto: no se rellena Valor c/IVA, cantidad ni precio. La fila pasa a costo a mano (suma al costo, no se vende).
                           if (t == null) { actualizarFila(grupoActivo, fi, { valorConIva: null }); return; }
-                          const sinCant = !(f.cantidad != null && f.cantidad > 0);
-                          const cant = sinCant ? 1 : (f.cantidad as number);
-                          actualizarFila(grupoActivo, fi, { cantidad: cant, valorConIva: Math.round((t / cant) * IVA * 10000) / 10000 });
-                          if (sinCant) toast.info('Se tomó cantidad 1', 'Esta fila no tenía cantidad. Si es más de una unidad, corrígela en «Cantidad».');
+                          actualizarFila(grupoActivo, fi, { esCostoAdicional: true, costoAdicionalNeto: t });
                         }}
                       />
                     </td>
@@ -1866,12 +1873,15 @@ export function CosteoEditorCard({
                       title="= (Costo unitario REAL / Costo unitario neto) − 1. Positivo = salió más caro de lo cotizado.">{fmtPct(variacion)}</td>
                   {/* Link 1 en rojo mientras la fila esté cotizada y sin respaldo: es la celda que
                       hay que llenar para poder guardar (ver faltaLink). */}
-                  <td style={{ ...celda, background: leFaltaLink ? '#fdeceb' : undefined }} className="p-0"
-                      title={leFaltaLink ? 'Este ítem ya tiene precio pero no dice de dónde salió. Pega acá el link del producto — sin eso el costeo no se guarda.' : undefined}>
-                    <CeldaLink value={f.link1} onChange={v => actualizarFila(grupoActivo, fi, { link1: v })} disabled={realBloq} label={leFaltaLink ? 'Falta el link' : 'Link 1'} />
-                  </td>
-                  <td style={celda} className="p-0"><CeldaLink value={f.link2} onChange={v => actualizarFila(grupoActivo, fi, { link2: v })} disabled={realBloq} label="Link 2" /></td>
-                  <td style={celda} className="p-0"><CeldaLink value={f.link3} onChange={v => actualizarFila(grupoActivo, fi, { link3: v })} disabled={realBloq} label="Link 3" /></td>
+                  {(['link1', 'link2', 'link3'] as const).map((k, n) => {
+                    const vacio = leFaltaLink && !tieneRespaldoLink(f[k]);
+                    return (
+                      <td key={k} style={{ ...celda, background: vacio ? '#fdeceb' : undefined }} className="p-0"
+                          title={vacio ? 'Este ítem ya tiene precio: escribe aquí un link o un comentario — sin eso el costeo no se guarda.' : undefined}>
+                        <CeldaLink value={f[k]} onChange={v => actualizarFila(grupoActivo, fi, { [k]: v })} disabled={realBloq} label={vacio ? 'Link o comentario' : `Link ${n + 1}`} />
+                      </td>
+                    );
+                  })}
                   <td style={{ border: `1px solid ${GRID_BORDE}` }} className="text-center whitespace-nowrap">
                     {(f.link1 || f.link2 || f.link3) && (
                       generandoFicha.has(f.id) ? (

@@ -128,6 +128,11 @@ export function esLinkDeProducto(url: string | null | undefined): boolean {
   return /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/|$|\?|:)/i.test(t);  // dominio.tld, con o sin ruta
 }
 
+/** Respaldo de una celda Link 1/2/3: sirve un link o un comentario (cualquier texto no vacío). */
+export function tieneRespaldoLink(v: string | null | undefined): boolean {
+  return (v || '').trim().length > 0;
+}
+
 const pct = (num: number, den: number): number | null => (den === 0 ? null : (num / den) * 100);
 
 export function calcularComparativo(e: EntradaComparativo): Comparativo {

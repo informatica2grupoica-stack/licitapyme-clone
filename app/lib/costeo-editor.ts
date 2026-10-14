@@ -22,7 +22,7 @@
 // de acá.
 import type { DatosCosteo, ModalidadCosteo } from '@/app/lib/generar-costeo';
 import { itemsPrecioDeCosteo, type FilaCosteo, type ItemCosteoPrecio } from '@/app/lib/motor-comercial';
-import { esLinkDeProducto, entradaComparativoDeFilas, type EntradaComparativo } from '@/app/lib/costeo-comparativo';
+import { tieneRespaldoLink, entradaComparativoDeFilas, type EntradaComparativo } from '@/app/lib/costeo-comparativo';
 import { numeroDeLinea } from '@/app/lib/auditor-tecnico-core';
 import pool from '@/app/lib/db';
 
@@ -348,7 +348,7 @@ export function filasSinLink(estado: EstadoCosteoEditor): { hoja: string; item: 
     for (const f of g.filas || []) {
       if (f.agregadoPorCompras || f.esCostoAdicional) continue; // gasto extra / costo adicional: no se oferta, no necesita respaldo de precio
       if (!estaCotizada(f)) continue;
-      if (esLinkDeProducto(f.link1) || esLinkDeProducto(f.link2) || esLinkDeProducto(f.link3)) continue;
+      if (tieneRespaldoLink(f.link1) && tieneRespaldoLink(f.link2) && tieneRespaldoLink(f.link3)) continue;
       faltan.push({ hoja: g.nombre, item: f.item, detalle: (f.detalle || '').trim() || `fila ${f.item}` });
     }
   }

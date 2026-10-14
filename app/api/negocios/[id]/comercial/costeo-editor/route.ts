@@ -323,7 +323,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
     if (sinLink.length) {
       const muestra = sinLink.slice(0, 4).map(f => `"${f.detalle.slice(0, 40)}"`).join(', ');
       return NextResponse.json({
-        error: `Falta el link del producto en ${sinLink.length} ítem(s) ya cotizado(s): ${muestra}${sinLink.length > 4 ? `, y ${sinLink.length - 4} más` : ''}. Pega en Link 1 la página donde cotizaste cada uno.`,
+        error: `Falta el link del producto en ${sinLink.length} ítem(s) ya cotizado(s): ${muestra}${sinLink.length > 4 ? `, y ${sinLink.length - 4} más` : ''}. Cada uno necesita algo (un link o un comentario) en Link 1, Link 2 y Link 3.`,
         itemsSinLink: sinLink,
       }, { status: 400 });
     }

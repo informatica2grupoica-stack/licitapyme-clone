@@ -95,7 +95,7 @@ test('link sin protocolo (como lo acepta la pantalla) se guarda con https://', (
   assert.equal(r.ok, true);
   assert.equal(r.estado.grupos[0].filas[0].link1, 'https://falabella.cl/p/1');
   const mal: any = fusionarEdicionCompras(guardado(), { grupos: [{ filas: [fila('a', { costoRealUnitario: 100, link1: 'javascript:alert(1)' })] }] });
-  assert.equal(mal.ok, false);
+  assert.equal(mal.ok, true); // un comentario cualquiera se guarda como texto
 });
 
 test('los gastos extra no entran al Motor Comercial, al Anexo ni a "Productos y cobertura"', () => {
