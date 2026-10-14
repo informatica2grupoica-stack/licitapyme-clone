@@ -358,9 +358,11 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
                       const nombres = p.cotizados.map(c => c.proveedor);
                       const relevantes = opcionesDeCompra(p);
                       const otras = p.opciones.filter(o => !relevantes.includes(o));
+                      // La tabla de comparación ya trae cada requisito de las bases: con comparación no se repite la lista de arriba.
+                      const hayComparacion = relevantes.some(o => !o.tecnico.sinFicha && !!o.tecnico.resumen && o.tecnico.filas.length > 0);
                       return (
                         <>
-                          <div className="rounded-lg border border-teal-200 bg-teal-50/50 px-3 py-2.5" data-testid={`bases-${p.productoId}`}>
+                          {!hayComparacion && <div className="rounded-lg border border-teal-200 bg-teal-50/50 px-3 py-2.5" data-testid={`bases-${p.productoId}`}>
                             <p className="text-[12px] font-bold text-teal-900">Lo que piden las bases para este producto{p.requisitosBase.length > 0 ? ` (${p.requisitosBase.length})` : ''}</p>
                             {p.requisitosBase.length === 0
                               ? <p className="text-[12px] text-zinc-500 mt-1">No hay requisitos técnicos de las bases cargados para este producto.</p>
@@ -374,8 +376,8 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
                                   ))}
                                 </ol>
                               )}
-                          </div>
-                          {relevantes.length === 0 && <p className="text-[12.5px] text-zinc-500">Todavía no hay fichas ni opciones de los proveedores cotizados. Sube la ficha del modelo que se va a comprar.</p>}
+                          </div>}
+                          {relevantes.length === 0 &&<p className="text-[12.5px] text-zinc-500">Todavía no hay fichas ni opciones de los proveedores cotizados. Sube la ficha del modelo que se va a comprar.</p>}
                           {relevantes.map(o => <OpcionFila key={o.opcionId} o={o} cotizados={nombres} puedeOperar={puedeOperar} onProveedor={cambiarProveedor} onQuitar={quitarModelo} onQuitarFicha={quitarFicha} onComplementar={complementar} />)}
                           {otras.length > 0 && (
                             <details className="rounded-lg border border-zinc-200 bg-white">
