@@ -654,7 +654,14 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     // Componentes con precio propio que el documento cotiza aparte (quemador, bandejas…): se unen al producto como adicionales.
     // Si ya hay adicionales cargados (a mano o de una pasada anterior) no se pisan: lo hecho por una persona manda.
     // La cantidad y el precio de cada adicional salen de la línea verificada del documento (no de lo que la IA recuerde de ella).
-    const adicCorregidos = corregirAdicionalesConLineas(it.adicionales, lineasDelDoc).adicionales;
+    // Si la cotización ya trae su flete aparte (flete_monto), el motor de escenarios lo muestra y lo suma como "Flete / logística":
+    // dejarlo también como adicional del producto lo contaba dos veces y mezclaba equipo + transporte en un solo precio
+    // (1120: equipo €15.960 + transporte €710 = €16.670, se ven por separado y se suman).
+    const adicCorregidos = (() => {
+      const corr = corregirAdicionalesConLineas(it.adicionales, lineasDelDoc).adicionales;
+      if (cotiz.flete_monto == null || !Array.isArray(corr)) return corr;
+      return corr.filter((a: any) => !/flete|transport|despacho|env[ií]o|spedizione|shipping|freight|\bCIF\b/i.test(String(a?.concepto ?? '')));
+    })();
     // Cotización en moneda extranjera (1120, €710 de transporte quedó como $710): el adicional viene en la moneda del documento
     // y se guarda en CLP, igual que el precio del producto (precioClpDeItemIA ya multiplica por el tipo de cambio).
     const aNetoClp = (n: number) => (tipoCambio ? Number(aNeto(n)) * tipoCambio : Number(aNeto(n)));
@@ -666,11 +673,6 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
           await pool.query(
             `INSERT INTO compras_cotizacion_adicional (negocio_id, cotizacion_id, producto_id, concepto, cantidad, precio_unitario, creado_por, creado_por_nombre, creado_at) VALUES (?,?,?,?,?,?,NULL,'Agente de compras (IA)',?)`,
             [cotiz.negocio_id, cotizacionId, producto.id, a.concepto, a.cantidad, a.precioUnitario, ahora]);
-        }
-        // El transporte ya quedó dentro del precio del producto (precio puesto en Chile): el flete de la cotización pasa a
-        // "incluido" para que el motor de escenarios no lo sume otra vez (1120: €16.670 salían como €17.380).
-        if (cotiz.flete_monto != null && adic.some(a => /flete|transport|despacho|env[ií]o|spedizione|shipping|freight|\bCIF\b/i.test(a.concepto))) {
-          await pool.query(`UPDATE compras_cotizacion SET incluye_flete = 1, flete_monto = NULL WHERE id = ?`, [cotizacionId]);
         }
       }
     }
