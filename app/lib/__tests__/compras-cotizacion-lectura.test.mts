@@ -58,3 +58,9 @@ test('flete en cotizaciones reales: Barcepan "Precios puestos en bodegas" y ROMC
   assert.equal(incluyeFleteDelTexto('4. Fletes y Traslados son de cargo y responsabilidad del cliente.'), null);
   assert.equal(incluyeFleteDelTexto('Valores no incluyen traslado de equipos'), null);
 });
+
+test('1110: pie "IVA INCLUIDO" sobre columnas "Neto un." / "Total Neto" = precios netos, no se les quita el IVA', () => {
+  const doc = 'Cant. Neto un. Total Neto Valor Oferta ... SUBTOTAL PRODUCTOS $12.262.067 TOTAL NETO $12.262.067 IVA (19%) $2.329.793 VALOR OFERTA ESPECIAL · IVA INCLUIDO $14.591.860';
+  assert.equal(ivaIncluidoDelTexto(doc), false);
+  assert.equal(ivaIncluidoDelTexto('PRECIOS IVA INCLUIDO Garantia 12 meses'), true);   // sin columna neta sigue valiendo
+});

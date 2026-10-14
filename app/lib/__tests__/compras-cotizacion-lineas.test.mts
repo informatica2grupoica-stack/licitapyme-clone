@@ -116,3 +116,22 @@ test('líneas sin asignar: el micrófono inalámbrico queda cubierto por «SET M
   const sin = lineasSinAsignar(lineas, ['SET AMPLIFICACIÓN sistema de sonido']);
   assert.deepEqual(sin.map(l => l.descripcion.slice(0, 5)), ['Micró', 'Cable']);
 });
+
+import { desajustesProductoLinea, lineaDelProducto } from '../compras-cotizacion-lineas';
+
+test('1110: talla y chasis distintos se detectan; la línea que cubre varias tallas calza', () => {
+  const activa = 'Silla de Ruedas Activa 43 cm Chasis Rígido Respaldo Plegable Intco Active Roja Material Aleación Talla 43 cm Altura 48 cm';
+  const quickie = 'Silla de Ruedas Eléctrica Quickie Q100R 3 un 43 cm y 1 un 45cm Ancho de asiento 42 a 54 cm (ajustable)';
+  const d = desajustesProductoLinea('Silla de ruedas activa chasis plegable talla 42', activa);
+  assert.equal(d.length, 2);
+  assert.match(d[0], /talla 42/); assert.match(d[1], /chasis plegable/);
+  assert.deepEqual(desajustesProductoLinea('Silla de ruedas eléctrica estándar talla 43 cm', quickie), []);
+  assert.deepEqual(desajustesProductoLinea('Silla de ruedas eléctrica estándar talla 45 cm', quickie), []);
+  assert.deepEqual(desajustesProductoLinea('Silla de ruedas eléctrica estándar talla 42 cm', quickie.replace('3 un 43 cm y 1 un 45cm', 'Talla 43')).length, 1);
+  assert.deepEqual(desajustesProductoLinea('Lupa digital', 'Lupa Digital (4x a 32x)'), []);
+});
+test('1110: la línea del documento se elige por parecido con el producto', () => {
+  const lineas = [{ descripcion: 'Lupa Digital (4x a 32x)', cantidad: 1, precioUnitario: 1, descuentoPct: null, total: 1 }, { descripcion: 'Silla de Ruedas Activa 43 cm Chasis Rígido', cantidad: 3, precioUnitario: 1, descuentoPct: null, total: 1 }];
+  assert.match(lineaDelProducto('Silla de ruedas activa chasis plegable talla 42', lineas)?.descripcion || '', /Activa/);
+  assert.equal(lineaDelProducto('Catre clínico eléctrico', lineas), null);
+});

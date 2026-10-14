@@ -13,7 +13,7 @@
 // (Epeira 575), no desde Santiago ni la casa matriz. Viaje interno local = $40.000 (§8.10.2).
 import { precioClpDeItemIA } from '@/app/lib/compras-precio-homologacion';
 import pool from '@/app/lib/db';
-import { numeroApareceEnTexto, lineasDesdeTabla, corregirAdicionalesConLineas, lineasSinAsignar } from '@/app/lib/compras-cotizacion-lineas';
+import { numeroApareceEnTexto, lineasDesdeTabla, corregirAdicionalesConLineas, lineasSinAsignar, lineaDelProducto, desajustesProductoLinea } from '@/app/lib/compras-cotizacion-lineas';
 import { conCupo } from '@/app/lib/cupo-ia';
 import { esRutPropio } from '@/app/lib/auditor-compras-datos';
 import { filasDeCotizacion, programarAuditoria } from '@/app/lib/auditor-compras';
@@ -545,6 +545,7 @@ Tu trabajo, para cada producto de la lista que la cotización efectivamente cubr
    - "INFERIOR_INSALVABLE": le falta una característica crítica que no se puede negociar.
    - "NO_ES_EL_PRODUCTO": único caso de exclusión real — es un producto totalmente distinto al pedido.
 3. Si detectas una desviación, descríbela en 1 frase concreta (ej. "mesa de 39cm vs 40cm exigidos").
+4. Antes de dar un producto por cubierto, compara TALLA, MEDIDAS, MODELO y TIPO (ej. chasis plegable vs rígido) del producto de la lista contra la línea del documento. Si difieren, NO es "CUMPLE": usa "INFERIOR_NEGOCIABLE" o "INFERIOR_INSALVABLE" y dilo en "detalle" (ej. "talla 42 pedida, cotizan talla 43"). Una misma línea puede cubrir varias tallas ("3 un 43 cm y 1 un 45 cm"): asigna cada talla pedida a esa línea solo si la talla aparece en ella.
 
 Si la cotización no menciona un producto de la lista, simplemente NO lo incluyas en la respuesta — no inventes cobertura.
 Los códigos P1, P2… son SOLO de la lista de productos ganados: NO los confundas con los números de línea ("Item 1, 2, 3…") que trae el documento, que son otra cosa. Los componentes y accesorios del documento NO reciben código: van dentro de "adicionales".
@@ -640,6 +641,18 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
   const textoDoc = String(cotiz.descripcion_libre || '');
   const incluidos = new Set(incluidosDesdeIA(items, textoDoc).map(x => x.producto));
   const hayConPrecio = resueltos.some(r => r.precioClp != null);
+  // ¿Es el MISMO producto? Freno determinista sobre lo medible (talla, chasis): la IA decide por significado y dejó pasar
+  // una silla talla 43 chasis rígido como si fuera la talla 42 chasis plegable (1110). No se excluye (§8.8.1): se rebaja y se avisa.
+  const desajustes: string[] = [];
+  for (const r of resueltos) {
+    const linea = lineaDelProducto(r.producto.descripcion, lineasDelDoc);
+    const dif = linea ? desajustesProductoLinea(r.producto.descripcion, linea.descripcion) : [];
+    if (!dif.length) continue;
+    const txt = `no es exactamente lo pedido: ${dif.join('; ')}`;
+    if (r.it.cumple === 'CUMPLE' || r.it.cumple === 'MEJORA') r.it.cumple = 'INFERIOR_NEGOCIABLE';
+    r.it.detalle = [r.it.detalle, txt].filter(Boolean).join(' · ');
+    desajustes.push(`«${r.producto.descripcion.slice(0, 50)}» ${txt}`);
+  }
   for (const { it, producto, precioClp: precioIA } of resueltos) {
     const esIncluido = incluidos.has(codigo(it.producto));
     const precioClp = esIncluido ? 0 : precioIA;
@@ -707,8 +720,13 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     const [adics]: any = await pool.query(`SELECT concepto FROM compras_cotizacion_adicional WHERE cotizacion_id = ?`, [cotizacionId]);
     const sin = lineasSinAsignar(lineasDelDoc, [...(asig as any[]).map(x => String(x.descripcion).split(' - ')[0]), ...(adics as any[]).map(x => String(x.concepto))]);
     const marca = 'Revisa la asignación:';
-    const notasSinAviso = String(a?.notas || '').split(' · ').filter(t => !t.startsWith(marca)).join(' · ');
-    const nuevas = sin.length ? [notasSinAviso, `${marca} ${sin.length === 1 ? 'la línea' : 'las líneas'} ${sin.map(l => `«${l.descripcion.slice(0, 50)}»`).join(', ')} no ${sin.length === 1 ? 'quedó' : 'quedaron'} en ningún producto ni adicional.`].filter(Boolean).join(' · ') : notasSinAviso;
+    const marcaMismo = 'Revisa que sea el mismo producto:';
+    const notasSinAviso = String(a?.notas || '').split(' · ').filter(t => !t.startsWith(marca) && !t.startsWith(marcaMismo)).join(' · ');
+    const nuevas = [
+      notasSinAviso,
+      sin.length ? `${marca} ${sin.length === 1 ? 'la línea' : 'las líneas'} ${sin.map(l => `«${l.descripcion.slice(0, 50)}»`).join(', ')} no ${sin.length === 1 ? 'quedó' : 'quedaron'} en ningún producto ni adicional.` : '',
+      desajustes.length ? `${marcaMismo} ${desajustes.join(' | ')}.` : '',
+    ].filter(Boolean).join(' · ');
     if (nuevas !== String(a?.notas || '')) await pool.query(`UPDATE compras_cotizacion SET notas = ? WHERE id = ?`, [nuevas || null, cotizacionId]);
   } catch (e) { console.warn('[homologar] no se pudo revisar las líneas sin asignar:', String(e).slice(0, 120)); }
   await pool.query(`UPDATE compras_cotizacion SET homologada_at = ? WHERE id = ?`, [ahora, cotizacionId]);

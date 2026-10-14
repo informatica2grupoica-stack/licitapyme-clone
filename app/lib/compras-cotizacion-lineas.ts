@@ -228,3 +228,32 @@ export function lineasSinAsignar(lineas: LineaCotizacion[], asignados: string[])
   if (!lineas.length) return [];
   return lineas.filter(l => !asignados.some(a => parecido(l.descripcion, a) >= 0.5));
 }
+
+// ─── ¿La línea cotizada es de verdad el producto pedido? Talla y tipo de chasis (1110) ────────────────────────────────────────────
+// Caso real (1110): "Silla de ruedas activa chasis plegable talla 42" quedó cubierta por "Silla de Ruedas Activa 43 cm Chasis Rígido":
+// otra talla y otro chasis, y el sistema la dio por buena. La IA decide por significado; esto es el freno determinista para lo medible.
+
+/** La línea del documento que más se parece al producto (por palabras en común, ≥ 50 %), o null. */
+export function lineaDelProducto(descProducto: string, lineas: LineaCotizacion[]): LineaCotizacion | null {
+  let mejor: LineaCotizacion | null = null, mejorP = 0;
+  for (const l of lineas) { const p = parecido(descProducto, l.descripcion); if (p > mejorP) { mejorP = p; mejor = l; } }
+  return mejor && mejorP >= 0.5 ? mejor : null;
+}
+
+const sinTildes = (s: string) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const RE_TALLA = /\btalla\s*(?:n[°º.]?\s*)?(\d{2,3})\b/g;
+
+/** Diferencias medibles entre lo pedido y lo cotizado: talla y chasis (plegable / rígido / fijo). Vacío = no se detectó ninguna. */
+export function desajustesProductoLinea(descProducto: string, descLinea: string): string[] {
+  const p = sinTildes(descProducto), l = sinTildes(descLinea);
+  const out: string[] = [];
+  const tallaP = [...p.matchAll(RE_TALLA)][0]?.[1];
+  const tallasL = [...l.matchAll(RE_TALLA)].map(m => m[1]);
+  // La talla pedida debe aparecer como número suelto en la línea ("3 un 43 cm y 1 un 45cm" cubre 43 y 45); rangos "42 a 54" no cuentan.
+  const numerosL = new Set([...l.replace(/\b\d+\s*a\s*\d+\b/g, ' ').matchAll(/(?<![\d.,])\d{2,3}(?![\d.,]\d)/g)].map(m => m[0]));
+  if (tallaP && tallasL.length && !numerosL.has(tallaP)) out.push(`talla ${tallaP} pedida, la cotización dice talla ${[...new Set(tallasL)].join('/')}`);
+  const chP = /\bchasis\s+(plegable|rigido|fijo)\b/.exec(p)?.[1];
+  const chL = [...l.matchAll(/\bchasis\s+(plegable|rigido|fijo)\b/g)].map(m => m[1]);
+  if (chP && chL.length && !chL.includes(chP)) out.push(`chasis ${chP} pedido, la cotización dice chasis ${chL[0]}`);
+  return out;
+}

@@ -320,6 +320,7 @@ export async function extraerDatosCotizacionDeDocumento(
     const norm = normalizarLineas(parsed.lineas, texto, totalNetoDoc);
     let ivaIncl = ivaIncluidoDelTexto(texto);
     if (norm.base === 'bruto') ivaIncl = true;       // las líneas suman el total CON IVA: los precios ya incluyen IVA
+    else if (norm.base === 'neto') ivaIncl = false;  // las líneas suman el NETO del documento: son netos aunque el pie diga "IVA incluido" (1110)
     let unitFinal = precioUnitarioConfiable(precioUnitario, precioTotal, cantidadPrincipal);
     let totalFinal = precioTotal;
     let descuentoFinal = descuentoPct;
