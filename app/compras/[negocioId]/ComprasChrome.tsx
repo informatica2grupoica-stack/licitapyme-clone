@@ -46,6 +46,7 @@ import { FranjaCompra } from './FranjaCompra';
 import { siguientePaso, type SiguientePaso } from '@/app/lib/compras-siguiente-paso';
 import { useCompras, fmtCLP, fmtFecha, type OrdenCompra } from './ComprasContext';
 import { CoencargadosCompras } from './CoencargadosCompras';
+import { ResumenObumaModal } from './ResumenObumaModal';
 import { IconBolt as ObumaIcon, IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconUserPlus as UserPlus, IconClock as Clock, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCurrencyDollar as DollarSign, IconFileAlert as FileWarning, IconBuilding as Building2, IconFileText as FileText, IconDeviceFloppy as Save, IconClipboardList as ClipboardList, IconRefresh as RefreshCw, IconBolt as Zap, IconExternalLink as ExternalLink, IconArrowUpRight as ArrowUpRight, IconCalculator as Calculator, IconClipboardCheck as ClipboardCheck, IconPackage as Package, IconTruck as Truck, IconHistory as History, IconGauge as Gauge, IconWallet as Wallet, IconCalendarTime as CalendarTime, IconHourglassHigh as Hourglass, IconMail as Mail, IconPhone as Phone, IconUserCircle as UserCircle, IconCheck as Check, IconArrowRight as ArrowRight, IconTarget as Target } from '@tabler/icons-react';
 
 // Gantt SALIÓ del stepper (pedido explícito, 17-sep-2026: "es aparte de todo ese flujo y es lo
@@ -74,6 +75,8 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   } = useCompras();
 
   const [faseActiva, setFaseActiva] = useState<Fase>('tareas');
+  // El botón «Obuma» abre un resumen de lo creado en Obuma desde Licitank (ya no lleva a otra pantalla).
+  const [resumenObumaAbierto, setResumenObumaAbierto] = useState(false);
   // Otras tarjetas pueden mandar al encargado a otro paso (ej. «Ir a crear proveedor» desde una compra directa).
   useEffect(() => {
     const h = (e: Event) => {
@@ -85,6 +88,11 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
     window.addEventListener('compras:ir', h);
     return () => window.removeEventListener('compras:ir', h);
   }, []);
+  // Enlaces de avisos (correo, campana, aviso central): /compras/<id>?fase=aprobacion abre directo el paso donde hay que corregir.
+  useEffect(() => {
+    const fase = new URLSearchParams(window.location.search).get('fase');
+    if (fase && ['tareas', 'costeo', 'aprobacion', 'compra', 'entrega', 'obuma', 'documentos', 'actividad'].includes(fase)) irAFase(fase as Fase);
+  }, [loading]);
   const [asignando, setAsignando] = useState(false);
   const [candidatoElegido, setCandidatoElegido] = useState('');
   // Reasignar (pedido explícito del usuario, 15-sep-2026): solo admin puede cambiar un encargado
@@ -263,7 +271,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
     tareas: tareas.map(t => ({ catalogoClave: t.catalogoClave, titulo: t.titulo, estado: t.estado, vencida: t.vencida })),
     fases: resumenFases ? {
       tareasVencidas: resumenFases.tareas.vencidas, productosSinCotizacion: resumenFases.costeo.productosSinCotizacion,
-      escenarioElegido: resumenFases.costeo.escenarioElegido, compraAprobada: resumenFases.aprobacion.compraAprobada, margenAprobado: resumenFases.aprobacion.margenAprobado,
+      escenarioElegido: resumenFases.costeo.escenarioElegido, compraAprobada: resumenFases.aprobacion.compraAprobada, margenAprobado: resumenFases.aprobacion.margenAprobado, compraRechazada: resumenFases.aprobacion.compraRechazada, margenRechazado: resumenFases.aprobacion.margenRechazado,
       compuertasPendientes: resumenFases.aprobacion.compuertasPendientes, hitosAdminPendientes: resumenFases.compra.hitosAdminPendientes,
       incidenciasAbiertas: resumenFases.entrega.incidenciasAbiertas, relojVencido: resumenFases.entrega.relojVencido,
     } : null,
@@ -384,9 +392,9 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
       </div>
 
       {/* SIGUIENTE PASO: lo primero que se lee. Un solo pendiente, con un botón que lleva a donde se hace. */}
-      <div className={`rounded-xl border-2 px-4 py-3.5 flex items-center gap-4 flex-wrap ${
+      <div className={`rounded-xl border-2 px-4 py-2.5 flex items-center gap-3 flex-wrap ${
         paso.tono === 'alerta' ? 'bg-rose-50 border-rose-300' : paso.tono === 'ok' ? 'bg-emerald-50 border-emerald-300' : 'bg-amber-50 border-amber-300'}`}>
-        <span className={`w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 ${
+        <span className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
           paso.tono === 'alerta' ? 'bg-rose-500 text-white' : paso.tono === 'ok' ? 'bg-emerald-500 text-white' : 'bg-amber-400 text-white'}`}>
           {paso.tono === 'ok' ? <Check size={22} /> : paso.tono === 'alerta' ? <AlertTriangle size={22} /> : <Target size={22} />}
         </span>
@@ -394,7 +402,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
           <p className={`text-[11px] font-bold uppercase tracking-wide ${paso.tono === 'alerta' ? 'text-rose-700' : paso.tono === 'ok' ? 'text-emerald-700' : 'text-amber-700'}`}>
             {paso.tono === 'ok' ? 'Todo en orden' : 'Lo siguiente que hay que hacer'}
           </p>
-          <p className="text-[17px] font-extrabold text-zinc-900 leading-snug">{paso.titulo}</p>
+          <p className="text-[15px] font-extrabold text-zinc-900 leading-snug">{paso.titulo}</p>
           <p className="text-[13px] text-zinc-600 mt-0.5">{paso.detalle}</p>
         </div>
         <button type="button" onClick={irAlPaso}
@@ -442,7 +450,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             const margenBajo = r.margenPrevisto != null && r.margenPrevisto < 20;
             const excedePresupuesto = r.presupuestoProyecto != null && r.montoCosteado != null && r.montoCosteado > r.presupuestoProyecto;
             return (
-            <div className="border-t border-zinc-100 px-4 py-4 space-y-4">
+            <div className="border-t border-zinc-100 px-4 py-3 space-y-3">
               {/* Tres cifras principales — grandes, a color. Monto costeado va acá (pedido explícito,
                   22-sep-2026: es la cifra más importante para el encargado de Compras) en el lugar
                   que antes tenía Presupuesto del proyecto, que baja a las secundarias. Los montos
@@ -450,30 +458,30 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                   especifica también el equivalente con IVA (×1,19) para no tener que calcularlo a mano. */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <button type="button" onClick={alternarGanadas} aria-expanded={ganadasAbierto} title="Ver las líneas que se ganaron"
-                  className="group text-left rounded-xl p-4 bg-white border border-zinc-200 hover:border-emerald-400 hover:shadow-sm transition cursor-pointer">
+                  className="group text-left rounded-xl px-3.5 py-3 bg-white border border-zinc-200 hover:border-emerald-400 hover:shadow-sm transition cursor-pointer">
                   <p className="text-[12px] font-semibold text-zinc-500 flex items-center gap-1.5">
                     <span className="w-6 h-6 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center"><DollarSign size={14} /></span> Precio de venta ganado
                     <span className="ml-auto text-[11.5px] font-semibold text-emerald-700 flex items-center gap-0.5 opacity-80 group-hover:opacity-100">{ganadasAbierto ? 'Ocultar' : 'Ver líneas'} {ganadasAbierto ? <ChevronUp size={13} /> : <ChevronDown size={13} />}</span>
                   </p>
-                  <p className="text-[26px] leading-tight font-extrabold text-zinc-900 mt-2 tabular-nums">{fmtCLP(r.montoNuestro)} <span className="text-[12px] font-semibold text-zinc-400">neto</span></p>
+                  <p className="text-[21px] leading-tight font-extrabold text-zinc-900 mt-1 tabular-nums">{fmtCLP(r.montoNuestro)} <span className="text-[12px] font-semibold text-zinc-400">neto</span></p>
                   {r.montoNuestro != null && <p className="text-[12px] text-zinc-500 mt-0.5 tabular-nums">{fmtCLP(Math.round(r.montoNuestro * 1.19))} con IVA</p>}
                 </button>
-                <div className={`rounded-xl p-4 border ${excedePresupuesto ? 'bg-amber-50/60 border-amber-300' : 'bg-white border-zinc-200'}`}>
+                <div className={`rounded-xl px-3.5 py-3 border ${excedePresupuesto ? 'bg-amber-50/60 border-amber-300' : 'bg-white border-zinc-200'}`}>
                   <p className="text-[12px] font-semibold text-zinc-500 flex items-center gap-1.5">
                     <span className={`w-6 h-6 rounded-lg flex items-center justify-center ${excedePresupuesto ? 'bg-amber-100 text-amber-600' : 'bg-violet-50 text-violet-600'}`}><Calculator size={14} /></span> Monto costeado
                     {excedePresupuesto && <span className="ml-auto text-[11px] font-bold text-amber-700 flex items-center gap-1"><AlertTriangle size={12} /> Sobre el presupuesto</span>}
                   </p>
-                  <p className="text-[26px] leading-tight font-extrabold text-zinc-900 mt-2 tabular-nums">
+                  <p className="text-[21px] leading-tight font-extrabold text-zinc-900 mt-1 tabular-nums">
                     {r.existeCosteo ? <>{fmtCLP(r.montoCosteado)} <span className="text-[12px] font-semibold text-zinc-400">neto</span></> : <span className="text-[18px] text-zinc-400">Sin costeo</span>}
                   </p>
                   {r.existeCosteo && r.montoCosteado != null && <p className="text-[12px] text-zinc-500 mt-0.5 tabular-nums">{fmtCLP(Math.round(r.montoCosteado * 1.19))} con IVA</p>}
                 </div>
-                <div className={`rounded-xl p-4 border ${margenBajo ? 'bg-rose-50/60 border-rose-300' : 'bg-white border-zinc-200'}`}>
+                <div className={`rounded-xl px-3.5 py-3 border ${margenBajo ? 'bg-rose-50/60 border-rose-300' : 'bg-white border-zinc-200'}`}>
                   <p className="text-[12px] font-semibold text-zinc-500 flex items-center gap-1.5">
                     <span className={`w-6 h-6 rounded-lg flex items-center justify-center ${margenBajo ? 'bg-rose-100 text-rose-600' : 'bg-teal-50 text-teal-600'}`}><Gauge size={14} /></span> Margen previsto
                     {margenBajo && <span className="ml-auto text-[11px] font-bold text-rose-700 flex items-center gap-1"><AlertTriangle size={12} /> Bajo el piso</span>}
                   </p>
-                  <p className={`text-[26px] leading-tight font-extrabold mt-2 tabular-nums ${margenBajo ? 'text-rose-700' : 'text-zinc-900'}`}>
+                  <p className={`text-[21px] leading-tight font-extrabold mt-1 tabular-nums ${margenBajo ? 'text-rose-700' : 'text-zinc-900'}`}>
                     {r.margenPrevisto != null ? `${r.margenPrevisto}%` : <span className="text-[18px] text-zinc-400">Sin costeo</span>}
                   </p>
                   {r.margenPrevisto != null && (
@@ -601,6 +609,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
           "eso metelo a resumen igual") — antes quedaba abajo de todo, separada. */}
       <DocumentViewerModal doc={visorOC} onClose={() => setVisorOC(null)} />
       <div id="compras-oc" className="bg-white rounded-xl border border-zinc-200 overflow-hidden scroll-mt-4">
+        <div className="lg:grid lg:grid-cols-2 lg:items-start lg:divide-x divide-zinc-100">
         <div className="flex items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0">
             <p className="text-[11px] font-bold text-zinc-400 uppercase flex items-center gap-1.5">
@@ -665,7 +674,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
           )}
         </div>
 
-        {ocMp?.facturacion && (() => {
+        {ocMp?.facturacion ? (() => {
           const f = ocMp.facturacion!;
           const filas: Array<[string, string | null]> = [
             ['Razón social', f.razonSocial], ['RUT', f.rut], ['Giro', f.giro],
@@ -675,7 +684,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             ['Forma de pago', f.formaPago], ['Despacho', f.direccionDespacho],
           ];
           return (
-            <div className="px-4 pb-3">
+            <div className="px-4 py-3">
               <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 px-3 py-2.5">
                 <p className="text-[11px] font-bold text-zinc-500 uppercase mb-1.5">Datos para facturar (según la OC)</p>
                 <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
@@ -689,7 +698,8 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
               </div>
             </div>
           );
-        })()}
+        })() : <div className="hidden lg:block" />}
+        </div>
 
         {oc.difiere && (
           <div className="px-4 pb-3">
@@ -799,7 +809,8 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
               {FASES.filter(f => f.secundaria).map(f => {
                 const Icon = f.icon; const activa = faseActiva === f.key;
                 return (
-                  <button key={f.key} onClick={() => setFaseActiva(f.key)} aria-current={activa ? 'page' : undefined}
+                  <button key={f.key} onClick={() => (f.key === 'obuma' ? setResumenObumaAbierto(true) : setFaseActiva(f.key))} aria-current={activa ? 'page' : undefined}
+                    title={f.key === 'obuma' ? 'Ver lo que ya se creó en Obuma desde Licitank' : undefined}
                     className={`inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${activa ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-zinc-200 text-zinc-600 hover:border-indigo-300 hover:text-indigo-700'}`}>
                     <Icon size={14} /> {f.label}
                   </button>
@@ -835,65 +846,65 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             )}
             {faseActiva === 'aprobacion' && (
               <div className="space-y-3">
-                <AprobacionesCompraCard negocioId={negocioId} puedeOperar={puedeOperar} parte="aprobaciones" />
-                <button type="button" onClick={() => irAFase('obuma')}
-                  className="w-full text-left rounded-xl border border-indigo-200 bg-indigo-50/50 hover:bg-indigo-50 px-4 py-3 flex items-center gap-3 transition-colors">
-                  <ObumaIcon size={18} className="text-indigo-600 flex-shrink-0" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[13.5px] font-bold text-indigo-900">Con la compra aprobada, el SKU de cada producto se crea en la pestaña Obuma</span>
-                    <span className="block text-[12.5px] text-indigo-800/80">Ahí también están el proveedor y las órdenes de compra, en orden.</span>
-                  </span>
-                  <span className="text-[12.5px] font-semibold text-indigo-700 whitespace-nowrap">Ir a Obuma →</span>
-                </button>
+                {/* parte="todo": primero las dos aprobaciones y, cuando la compra queda aprobada, aparece abajo la lista de productos para crear su SKU (uno por uno o todos seguidos). */}
+                <AprobacionesCompraCard negocioId={negocioId} puedeOperar={puedeOperar} parte="todo" />
               </div>
             )}
             {faseActiva === 'obuma' && <ObumaHubCard negocioId={negocioId} puedeOperar={puedeOperar} esAdministracion={esAdministracion} />}
             {faseActiva === 'compra' && (
-              <Pestanas id="compra" pestanas={[
-                { clave: 'resumen', titulo: 'Resumen', ayuda: 'Dónde vamos: productos cubiertos, órdenes de compra emitidas, facturas recibidas y cuánto se gastó contra lo costeado.',
-                  contenido: <ResumenGastosCard negocioId={negocioId} /> },
-                { clave: 'comparativo', titulo: 'Comparativo', ayuda: 'Por producto y por orden de compra, todo neto: lo costeado, lo planeado en Licitank y lo que de verdad se compró en Obuma, para ver si coincide.',
-                  contenido: <ResumenComparativoCard negocioId={negocioId} /> },
-                { clave: 'retiro', titulo: 'Retiro de mercadería', ayuda: 'Con equipo propio, transporte externo o mixto. Se define al comienzo y el sistema sugiere fleteros.',
-                  contenido: <ModalidadRetiroCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
-                { clave: 'pasos', titulo: 'Pasos en Obuma', ayuda: 'Órdenes de compra a proveedores, provisión de fondos y facturas de compra. Aquí solo se registra su avance.',
+              <Pestanas id="compra" inicial="pasos" pestanas={[
+                { clave: 'pasos', titulo: '1 · Órdenes y facturas', ayuda: 'Aquí emites las órdenes de compra a los proveedores (y creas al proveedor si no está en Obuma) y después marcas el avance de pagos y facturas.',
                   badge: resumenFases?.compra.hitosAdminPendientes || null, tono: 'pendiente',
                   contenido: (
-                    <>
-                      <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} parte="hitos" />
-                      <button type="button" onClick={() => irAFase('obuma')} className="mt-3 text-[12.5px] font-semibold text-indigo-700 hover:text-indigo-900">
-                        Las órdenes de compra, los SKU y el proveedor se crean en la pestaña Obuma → Ir a Obuma
-                      </button>
-                    </>
+                    <div className="space-y-6">
+                      <section className="space-y-2">
+                        <p className="text-[13px] font-bold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">1</span>Emite las órdenes de compra a los proveedores</p>
+                        <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} parte="oc" />
+                      </section>
+                      <section className="space-y-2">
+                        <p className="text-[13px] font-bold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">2</span>Marca el avance: pago, factura y carpeta del proyecto</p>
+                        <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} parte="hitos" />
+                      </section>
+                    </div>
                   ) },
-                { clave: 'importacion', titulo: 'Importación', ayuda: 'Solo si el producto viene del extranjero: flete, aduana y costo final puesto en bodega.',
+                { clave: 'retiro', titulo: '2 · Retiro de mercadería', ayuda: 'Cómo se va a buscar lo comprado: con equipo propio, transporte externo o mixto. Se define al comienzo y el sistema sugiere fleteros.',
+                  contenido: <ModalidadRetiroCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
+                { clave: 'importacion', titulo: '3 · Importación (si aplica)', ayuda: 'Solo si el producto viene del extranjero: flete, aduana y costo final puesto en bodega. Si no, sáltate esta pestaña.',
                   contenido: <ImportacionCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
-                { clave: 'gastos', titulo: 'Gastos extra', ayuda: 'Gastos que no son productos: fletes, puesta en marcha, viáticos, etc.',
+                { clave: 'gastos', titulo: '4 · Gastos extra', ayuda: 'Gastos que no son productos: fletes, puesta en marcha, viáticos, etc.',
                   contenido: <GastosCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
+                { clave: 'resumen', titulo: 'Seguimiento · Resumen', ayuda: 'Para mirar cómo va: productos cubiertos, órdenes de compra emitidas, facturas recibidas y cuánto se gastó contra lo costeado.',
+                  contenido: <ResumenGastosCard negocioId={negocioId} /> },
+                { clave: 'comparativo', titulo: 'Seguimiento · Comparativo', ayuda: 'Por producto y por orden de compra, todo neto: lo costeado, lo planeado en Licitank y lo que de verdad se compró en Obuma, para ver si coincide.',
+                  contenido: <ResumenComparativoCard negocioId={negocioId} /> },
               ]} />
             )}
             {faseActiva === 'entrega' && (
               <div>
                 {/* Incidencias (§9): transversales (pueden aparecer en cualquier etapa); se llega desde la franja fija de arriba. */}
                 <div id="compras-incidencias" className="scroll-mt-4" />
-                <Pestanas id="entrega" inicial={(resumenFases?.entrega.incidenciasAbiertas ?? 0) > 0 ? 'incidencias' : 'entrega'} pestanas={[
-                  { clave: 'incidencias', titulo: 'Incidencias', ayuda: 'Problemas u oportunidades que pueden aparecer en cualquier etapa: sin stock, plazo incompatible, una alternativa más barata.',
-                    badge: (resumenFases?.entrega.incidenciasAbiertas ?? 0) || null, tono: 'alerta',
-                    contenido: <IncidenciasCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} /> },
-                  { clave: 'plazo', titulo: 'Plazo y multas', ayuda: 'Cuánto queda para entregar y qué hacer si no se alcanza: pedir prórroga sin multa o, solo con autorización, entregar con multa.',
+                <Pestanas id="entrega" inicial={(resumenFases?.entrega.incidenciasAbiertas ?? 0) > 0 ? 'incidencias' : 'plazo'} pestanas={[
+                  { clave: 'plazo', titulo: '1 · Plazo de entrega', ayuda: 'Cuánto queda para entregar y qué hacer si no se alcanza: pedir prórroga sin multa o, solo con autorización, entregar con multa.',
                     badge: resumenFases?.entrega.relojVencido ? 'Vencido' : null, tono: 'alerta',
                     contenido: <RelojEntregaCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} /> },
-                  { clave: 'entrega', titulo: 'Entrega y acta', ayuda: 'Preparación, despacho y el acta de entrega que firma el cliente. El acta cierra el proyecto.',
+                  { clave: 'entrega', titulo: '2 · Entrega y acta', ayuda: 'Preparación, despacho y el acta de entrega que firma el cliente. El acta cierra el proyecto.',
                     contenido: <EntregaCard negocioId={negocioId} puedeOperar={puedeOperar} puedeVerificar={esBodega} /> },
-                  { clave: 'costoreal', titulo: 'Costo real y cierre', ayuda: 'Resultado final del proyecto: lo costeado contra lo realmente gastado.',
+                  { clave: 'costoreal', titulo: '3 · Costo real y cierre', ayuda: 'Resultado final del proyecto: lo costeado contra lo realmente gastado.',
                     contenido: <CostoRealCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
-                  { clave: 'postventa', titulo: 'Postventa y pagos', ayuda: 'Garantías, capacitación y los datos de quien paga la factura (deben capturarse mientras hay contacto).',
+                  { clave: 'postventa', titulo: '4 · Postventa y pagos', ayuda: 'Garantías, capacitación y los datos de quien paga la factura (deben capturarse mientras hay contacto).',
                     contenido: <PostventaCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
-                  { clave: 'fracaso', titulo: 'No se puede entregar', ayuda: 'Registro de fracaso: lo declara el encargado y el jefe de ventas dictamina la causa real.',
+                  { clave: 'incidencias', titulo: 'Si hay un problema · Incidencias', ayuda: 'Problemas u oportunidades que pueden aparecer en cualquier etapa: sin stock, plazo incompatible, una alternativa más barata.',
+                    badge: (resumenFases?.entrega.incidenciasAbiertas ?? 0) || null, tono: 'alerta',
+                    contenido: <IncidenciasCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} /> },
+                  { clave: 'fracaso', titulo: 'Si no se puede entregar', ayuda: 'Registro de fracaso: lo declara el encargado y el jefe de ventas dictamina la causa real.',
                     contenido: <FracasoCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} /> },
                 ]} />
               </div>
             )}
+      {resumenObumaAbierto && (
+        <ResumenObumaModal negocioId={negocioId} onCerrar={() => setResumenObumaAbierto(false)}
+          onIrGestion={() => irAFase('obuma')} onIrSku={() => setFaseActiva('aprobacion')} />
+      )}
             {faseActiva === 'documentos' && (
               <div className="space-y-3">
                 <DocumentosLicitacionCard licitacionCodigo={licitacionCodigoActual || asignacion.licitacionCodigo} />

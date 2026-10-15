@@ -9,6 +9,7 @@ import { Select } from '@/app/components/ui/Select';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { irAFase } from '@/app/compras/[negocioId]/comprasNavegacion';
 import { LinksProducto } from './LinksProducto';
+import { fetchJsonReintento } from '@/app/lib/fetch-reintento';
 import { IconPackage as Package, IconLoader2 as Loader2, IconX as X, IconFlag as Flag, IconRefresh as RefreshCw, IconSearch as Search } from '@tabler/icons-react';
 
 type Subestado = 'PENDIENTE' | 'COTIZANDO' | 'COMPRADO' | 'EN_BODEGA' | 'LISTO_ENTREGA' | 'ENTREGADO' | 'RENUNCIADO' | 'NO_ADJUDICADA';
@@ -59,9 +60,9 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
 
   const cargar = useCallback(async () => {
     try {
-      const res = await fetch(`/api/compras/${negocioId}/productos`);
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cargar');
+      // Con reintentos: un fallo suelto de la BD remota dejaba la lista vacía (y las cotizaciones «sin asignar a ningún producto»).
+      const data = await fetchJsonReintento<any>(`/api/compras/${negocioId}/productos`);
+      if (!data.success) throw new Error(data.error || 'No se pudo cargar');
       setProductos(data.productos || []);
       setCobertura(data.cobertura || null);
       setPerdidas(data.perdidas || []);

@@ -6,7 +6,7 @@
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
-import { obtenerAsignacion, listarProductosCompra, coberturaProyecto } from '@/app/lib/compras';
+import { obtenerAsignacion, listarProductosCompra, coberturaProyecto, cerrarTareaDeCatalogo } from '@/app/lib/compras';
 import { esSubestadoFuera } from '@/app/lib/compras-no-adjudicadas';
 
 async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
@@ -112,6 +112,7 @@ export async function registrarVerificacion(negocioId: number, conforme: boolean
     `UPDATE compras_entrega SET verificacion_conforme = ?, verificacion_por = ?, verificacion_por_nombre = ?, verificacion_at = ?, updated_at = ? WHERE negocio_id = ?`,
     [conforme ? 1 : 0, actorId, actorNombre, ahora, ahora, negocioId],
   );
+  if (conforme) await cerrarTareaDeCatalogo(negocioId, 'recepcion_mercaderia', { id: actorId, nombre: actorNombre }, 'Verificación en bodega conforme registrada.');
 }
 
 /** §16.4 — el módulo solo REGISTRA los números que emite OBUMA, no los genera. */
@@ -190,6 +191,7 @@ export async function firmarActa(negocioId: number, firma: FirmaDatos, conformid
       ? [conformidad, firma.nombre.trim(), firma.rut.trim(), firma.cargo.trim(), firma.recinto.trim(), firma.fecha, ahora, ahora, negocioId]
       : [conformidad, firma.nombre.trim(), firma.rut.trim(), firma.cargo.trim(), firma.recinto.trim(), firma.fecha, ahora, negocioId],
   );
+  await cerrarTareaDeCatalogo(negocioId, 'acta_entrega_firmada', { id: actorId, nombre: actorNombre }, 'Acta de entrega firmada registrada.');
   if (yaCierra) {
     await registrarEvento({
       tipo: 'COMPRAS_ENTREGA_CERRADA', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
@@ -213,6 +215,7 @@ export async function firmarGuia(negocioId: number, firma: FirmaDatos, timbre: b
       ? [firma.nombre.trim(), firma.rut.trim(), firma.cargo.trim(), firma.recinto.trim(), firma.fecha, timbre ? 1 : 0, ahora, ahora, negocioId]
       : [firma.nombre.trim(), firma.rut.trim(), firma.cargo.trim(), firma.recinto.trim(), firma.fecha, timbre ? 1 : 0, ahora, negocioId],
   );
+  await cerrarTareaDeCatalogo(negocioId, 'despacho_mercaderia', { id: actorId, nombre: actorNombre }, 'Guía de despacho firmada por el cliente.');
   if (yaCierra) {
     await registrarEvento({
       tipo: 'COMPRAS_ENTREGA_CERRADA', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,

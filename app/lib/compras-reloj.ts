@@ -5,7 +5,7 @@
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
-import { sumarDiasHabiles, sumarDiasCorridos, obtenerAsignacion, construirEntradaAnclas } from '@/app/lib/compras';
+import { sumarDiasHabiles, sumarDiasCorridos, obtenerAsignacion, construirEntradaAnclas, cerrarTareaDeCatalogo } from '@/app/lib/compras';
 import { calcularHitosGantt } from '@/app/lib/compras-plan';
 import { interpretarPlazoOfertado } from '@/app/lib/compras-reloj-sugerido';
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
@@ -222,6 +222,7 @@ export async function registrarEntrega(
     mensaje: `Se registró la entrega real: ${fecha}.`,
     metadata: { negocio_id: negocioId, fecha },
   });
+  await cerrarTareaDeCatalogo(negocioId, 'entrega_cliente', { id: actorId, nombre: actorNombre }, `Entrega real registrada: ${fecha}.`);
 }
 
 /** §15.5/§15.7 — "no se entrega con multa. Excepcionalmente puede definirse hacerlo, por decisión

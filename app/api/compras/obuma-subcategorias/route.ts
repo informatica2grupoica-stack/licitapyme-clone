@@ -4,7 +4,7 @@
 // mismo criterio que /api/compras/proveedores.
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
-import { listarSubcategoriasProductos, OBUMA_CATEGORIA_MERCADO_PUBLICO } from '@/app/lib/obuma';
+import { listarSubcategoriasProductos, listarCategoriasProductos } from '@/app/lib/obuma';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,12 +26,19 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const r = await listarSubcategoriasProductos();
-    const subcategorias = (r.data || [])
-      .filter(s => String(s.rel_producto_categoria_id) === OBUMA_CATEGORIA_MERCADO_PUBLICO)
-      .map(s => ({ id: String(s.producto_subcategoria_id), nombre: s.producto_subcategoria_nombre }))
+    // Categorías y subcategorías de Obuma (14-oct-2026: ya no solo «Mercado Publico»; el usuario elige la categoría).
+    // Las categorías «eliminada …» son restos de Obuma y no se ofrecen.
+    const [rc, rs] = await Promise.all([listarCategoriasProductos(), listarSubcategoriasProductos()]);
+    const categorias = (rc.data || [])
+      .map(c => ({ id: String(c.producto_categoria_id), nombre: String(c.producto_categoria_nombre) }))
+      .filter(c => !/^eliminad/i.test(c.nombre))
       .sort((a, b) => a.nombre.localeCompare(b.nombre));
-    return NextResponse.json({ success: true, subcategorias });
+    const ids = new Set(categorias.map(c => c.id));
+    const subcategorias = (rs.data || [])
+      .filter(s => ids.has(String(s.rel_producto_categoria_id)))
+      .map(s => ({ id: String(s.producto_subcategoria_id), nombre: s.producto_subcategoria_nombre, categoriaId: String(s.rel_producto_categoria_id) }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
+    return NextResponse.json({ success: true, categorias, subcategorias });
   } catch (error: any) {
     console.error('[compras/obuma-subcategorias][GET]', String(error));
     return NextResponse.json({ error: error.message || 'No se pudo consultar Obuma.' }, { status: 500 });

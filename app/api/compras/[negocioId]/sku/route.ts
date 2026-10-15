@@ -68,9 +68,12 @@ async function __POST(request: NextRequest, { params }: Params) {
       skuPropio: body.skuPropio, skuProveedor: body.skuProveedor || null,
       proveedorNombre: body.proveedorNombre || null, marca: body.marca || null, modelo: body.modelo || null,
       obumaProductoId: body.obumaProductoId || null,
-      crearEnObuma: !!body.crearEnObuma, obumaSubcategoriaId: body.obumaSubcategoriaId || null,
+      crearEnObuma: !!body.crearEnObuma, obumaSubcategoriaId: body.obumaSubcategoriaId || null, obumaCategoriaId: body.obumaCategoriaId || null,
       nombreObuma: body.nombreObuma || null,
       costoEsperado: body.costoEsperado != null ? Number(body.costoEsperado) : null,
+      precioVentaNeto: body.precioVentaNeto != null ? Number(body.precioVentaNeto) : null,
+      paraVenta: body.paraVenta !== undefined ? !!body.paraVenta : undefined, paraCompra: body.paraCompra !== undefined ? !!body.paraCompra : undefined,
+      inventariable: body.inventariable !== undefined ? !!body.inventariable : undefined, venderEnWeb: body.venderEnWeb !== undefined ? !!body.venderEnWeb : undefined,
     };
     const skuId = await crearSku(id, productoId, datos, userId, nombre);
     const skus = await listarSkus(id);

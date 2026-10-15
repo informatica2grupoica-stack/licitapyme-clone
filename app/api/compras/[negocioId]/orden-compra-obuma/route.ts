@@ -71,6 +71,7 @@ async function __POST(request: NextRequest, { params }: Params) {
       formaPagoId, incluirFlete: !!body.incluirFlete,
       fleteMonto: parsearMontoCL(body.fleteMonto),
       confirmarPeseADuplicado: !!body.confirmarPeseADuplicado,
+      productoIds: Array.isArray(body.productoIds) ? body.productoIds.map(Number).filter((n: number) => Number.isInteger(n) && n > 0) : undefined,
     }, userId, nombre);
 
     return NextResponse.json({ success: true, ...resultado });

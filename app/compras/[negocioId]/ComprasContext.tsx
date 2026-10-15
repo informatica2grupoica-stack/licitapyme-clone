@@ -8,6 +8,7 @@
 // en vez de que cada una vuelva a pedir lo mismo.
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useSession } from '@/app/lib/session-context';
+import { fetchJsonReintento } from '@/app/lib/fetch-reintento';
 import type { FaseTarea, HitosGantt } from '@/app/lib/compras-plan';
 
 export interface ResumenCompras {
@@ -67,7 +68,7 @@ export interface Candidato { id: number; nombre: string | null; carga: number }
 export interface ResumenFases {
   tareas: { vencidas: number };
   costeo: { productosSinCotizacion: number; escenarioElegido: boolean };
-  aprobacion: { compuertasPendientes: number; compraAprobada: boolean; margenAprobado: boolean };
+  aprobacion: { compuertasPendientes: number; compraAprobada: boolean; margenAprobado: boolean; compraRechazada?: boolean; margenRechazado?: boolean };
   compra: { hitosAdminPendientes: number | null };
   entrega: { incidenciasAbiertas: number; relojVencido: boolean };
 }
@@ -117,9 +118,9 @@ export function ComprasProvider({ negocioId, children }: { negocioId: number; ch
 
   const recargar = useCallback(async () => {
     try {
-      const res = await fetch(`/api/compras/${negocioId}`);
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cargar Compras');
+      // Con reintentos: la BD remota suelta una conexión de vez en cuando (ECONNRESET) y un solo fallo dejaba toda la pantalla en error.
+      const data = await fetchJsonReintento<any>(`/api/compras/${negocioId}`);
+      if (!data.success) throw new Error(data.error || 'No se pudo cargar Compras');
       setAsignacion(data.asignacion);
       setTareas(data.tareas || []);
       setHitosGantt(data.hitosGantt || null);

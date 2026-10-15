@@ -48,7 +48,14 @@ export function PostventaCard({ negocioId, puedeOperar }: { negocioId: number; p
   };
 
   if (loading) return null;
-  if (compromisos.length === 0 && garantias.length === 0) return null;
+  // Antes devolvía null y la pestaña «Postventa y pagos» quedaba en blanco, sin decir si faltaba algo o simplemente no había nada.
+  if (compromisos.length === 0 && garantias.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-zinc-200 px-4 py-3 text-[12.5px] text-zinc-500" data-testid="postventa-vacia">
+        <b className="text-zinc-700">Sin compromisos de postventa.</b> Las bases y la oferta de este proyecto no declaran garantías ni capacitación que haya que cumplir después de entregar.
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">

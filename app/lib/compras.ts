@@ -1459,7 +1459,7 @@ export async function guardarRegistroTarea(
   // imports entre los dos archivos — mismo criterio que invalidarAprobacionesCompras.
   if (hallazgoNuevo) {
     const ahora = ahoraChileSQL();
-    const descripcion = `Hallazgo en la tarea "${fila.titulo}": ${Object.entries(limpio).map(([k, v]) => `${k}: ${v}`).join(' · ') || 'sin detalle adicional'}`;
+    const descripcion = `Hallazgo en la tarea "${fila.titulo}": ${Object.entries(limpio).map(([k, v]) => `${etiquetaCampo(k)}: ${v}`).join(' · ') || 'sin detalle adicional'}`;
     await pool.query(
       `INSERT INTO compras_incidencia
          (negocio_id, tarea_id, naturaleza, origen, tipo_libre, descripcion, estado, abierta_por, abierta_por_nombre, abierta_at, created_at, updated_at)
@@ -2118,9 +2118,65 @@ export async function invalidarAprobacionesCompras(negocioId: number, motivo: st
     `UPDATE compras_aprobacion
         SET estado = 'PENDIENTE', motivo = ?, resuelto_por = NULL, resuelto_por_nombre = NULL, resuelto_at = NULL,
             comentario_resolucion = NULL, updated_at = ?
-      WHERE negocio_id = ? AND estado IN ('APROBADA', 'APROBADA_CON_MODIFICACION')`,
+      WHERE negocio_id = ? AND estado LIKE 'APROBADA%'`,
     [motivo, ahora, negocioId],
   );
+  await sincronizarTareaAprobacion(negocioId);
+  // Las decisiones por producto (aprobado/rechazado) eran sobre la compra anterior: al cambiar el escenario hay que volver a decidirlas.
+  await pool.query(`DELETE FROM compras_aprobacion_linea WHERE negocio_id = ?`, [negocioId]).catch(() => { /* migración 147 sin aplicar */ });
+}
+
+/** Cierra sola una tarea del catálogo cuando ocurre el hecho que ella pide (mismo criterio que `reloj_entrega` y `aprobar_compra`): anotar el
+ *  mismo hecho dos veces dejaba la tarea «vencida» aunque la entrega ya estuviera hecha. Solo cierra (nunca reabre) y nunca pisa una ya hecha.
+ *  Nunca bloquea la acción principal. */
+export async function cerrarTareaDeCatalogo(negocioId: number, clave: string, actor: { id: number; nombre: string | null } | null, nota: string): Promise<void> {
+  try {
+    const ahora = ahoraChileSQL();
+    await pool.query(
+      `UPDATE compras_tarea
+          SET estado = 'HECHA', cerrado_at = ?, cerrado_por = ?, cerrado_por_nombre = ?,
+              nota_cierre = COALESCE(nota_cierre, ?), primer_contacto_at = COALESCE(primer_contacto_at, ?)
+        WHERE negocio_id = ? AND catalogo_clave = ? AND estado <> 'HECHA'`,
+      [ahora, actor?.id ?? null, actor?.nombre ?? null, nota, ahora, negocioId, clave],
+    );
+  } catch (e) {
+    console.error(`[compras] no se pudo cerrar la tarea ${clave}:`, String(e).slice(0, 200));
+  }
+}
+
+/** «costo_correcto» → «Costo correcto»: los hallazgos automáticos mostraban las claves crudas del formulario. */
+function etiquetaCampo(k: string): string { const t = k.replace(/_/g, ' ').trim(); return t.charAt(0).toUpperCase() + t.slice(1); }
+
+const NOTA_APROBACION_AUTO = 'Compra y margen aprobados por el jefe de ventas.';
+
+/** La tarea «Aprobación de la compra y el margen» (catálogo `aprobar_compra`) ES esta acción: se cierra sola cuando las DOS compuertas
+ *  están aprobadas (con o sin cambios) y se reabre si una se deshace o se invalida. Sin esto la tarea quedaba «vencida» aunque el jefe
+ *  ya hubiera aprobado, y el banner de «siguiente paso» seguía mandando a una tarea ya resuelta. Solo reabre la que cerró ella misma.
+ *  Nunca bloquea la acción principal. */
+export async function sincronizarTareaAprobacion(negocioId: number, actor?: { id: number; nombre: string | null }): Promise<void> {
+  try {
+    const [rows] = await pool.query(`SELECT tipo, estado FROM compras_aprobacion WHERE negocio_id = ?`, [negocioId]) as any;
+    const aprobada = (tipo: string) => (rows as any[]).some(r => r.tipo === tipo && String(r.estado).startsWith('APROBADA'));
+    if (aprobada('COMPRA') && aprobada('MARGEN')) {
+      const ahora = ahoraChileSQL();
+      await pool.query(
+        `UPDATE compras_tarea
+            SET estado = 'HECHA', cerrado_at = ?, cerrado_por = ?, cerrado_por_nombre = ?,
+                nota_cierre = COALESCE(nota_cierre, ?), primer_contacto_at = COALESCE(primer_contacto_at, ?)
+          WHERE negocio_id = ? AND catalogo_clave = 'aprobar_compra' AND estado <> 'HECHA'`,
+        [ahora, actor?.id ?? null, actor?.nombre ?? null, NOTA_APROBACION_AUTO, ahora, negocioId],
+      );
+    } else {
+      await pool.query(
+        `UPDATE compras_tarea
+            SET estado = 'PENDIENTE', cerrado_at = NULL, cerrado_por = NULL, cerrado_por_nombre = NULL, nota_cierre = NULL
+          WHERE negocio_id = ? AND catalogo_clave = 'aprobar_compra' AND estado = 'HECHA' AND nota_cierre = ?`,
+        [negocioId, NOTA_APROBACION_AUTO],
+      );
+    }
+  } catch (e) {
+    console.error('[compras] no se pudo sincronizar la tarea de aprobación:', String(e).slice(0, 200));
+  }
 }
 
 export interface CoberturaProyecto { total: number; listos: number; renunciados: number; noAdjudicadas: number; cobertura: boolean }
@@ -2214,7 +2270,7 @@ export interface ResumenFasesCompras {
   // Auditoría 07-oct-2026: el stepper pintaba ✓ en «Costeo» y «Aprobación» sin que nadie hubiera elegido compra ni aprobado nada
   // (bastaba con "no hay aprobaciones PENDIENTES"). Ahora se sabe si de verdad ocurrió.
   costeo: { productosSinCotizacion: number; escenarioElegido: boolean };
-  aprobacion: { compuertasPendientes: number; compraAprobada: boolean; margenAprobado: boolean };
+  aprobacion: { compuertasPendientes: number; compraAprobada: boolean; margenAprobado: boolean; compraRechazada?: boolean; margenRechazado?: boolean };
   compra: { hitosAdminPendientes: number | null }; // null = Compuerta 1 no aprobada, no aplica todavía
   entrega: { incidenciasAbiertas: number; relojVencido: boolean };
 }
@@ -2235,13 +2291,14 @@ async function contarProductosSinCotizacion(negocioId: number): Promise<number> 
   } catch { return 0; }
 }
 
-async function estadoDelFlujo(negocioId: number): Promise<{ escenarioElegido: boolean; compraAprobada: boolean; margenAprobado: boolean }> {
+async function estadoDelFlujo(negocioId: number): Promise<{ escenarioElegido: boolean; compraAprobada: boolean; margenAprobado: boolean; compraRechazada: boolean; margenRechazado: boolean }> {
   try {
     const [[e]]: any = await pool.query(`SELECT COUNT(*) n FROM compras_escenario WHERE negocio_id = ? AND elegido = 1`, [negocioId]);
     const [aprs]: any = await pool.query(`SELECT tipo, estado FROM compras_aprobacion WHERE negocio_id = ?`, [negocioId]);
-    const ok = (tipo: string) => (aprs as any[]).some(a => a.tipo === tipo && ['APROBADA', 'APROBADA_CON_MODIFICACION'].includes(a.estado));
-    return { escenarioElegido: Number(e?.n || 0) > 0, compraAprobada: ok('COMPRA'), margenAprobado: ok('MARGEN') };
-  } catch { return { escenarioElegido: false, compraAprobada: false, margenAprobado: false }; }
+    const ok = (tipo: string) => (aprs as any[]).some(a => a.tipo === tipo && String(a.estado).startsWith('APROBADA'));
+    const rech = (tipo: string) => (aprs as any[]).some(a => a.tipo === tipo && a.estado === 'RECHAZADA');
+    return { escenarioElegido: Number(e?.n || 0) > 0, compraAprobada: ok('COMPRA'), margenAprobado: ok('MARGEN'), compraRechazada: rech('COMPRA'), margenRechazado: rech('MARGEN') };
+  } catch { return { escenarioElegido: false, compraAprobada: false, margenAprobado: false, compraRechazada: false, margenRechazado: false }; }
 }
 
 async function contarCompuertasPendientes(negocioId: number): Promise<number> {
@@ -2263,7 +2320,7 @@ async function contarHitosAdminPendientes(negocioId: number): Promise<number | n
       `SELECT estado FROM compras_aprobacion WHERE negocio_id = ? AND tipo = 'COMPRA' LIMIT 1`,
       [negocioId],
     );
-    if (!apr || !['APROBADA', 'APROBADA_CON_MODIFICACION'].includes(apr.estado)) return null;
+    if (!apr || !String(apr.estado).startsWith('APROBADA')) return null;
     const [[r]]: any = await pool.query(
       `SELECT
          (oc_emitida_at IS NULL) + (pago_registrado_at IS NULL) + (anticipo_pagado_at IS NULL) +
@@ -2323,7 +2380,7 @@ export async function obtenerResumenFases(negocioId: number, tareas: { vencida: 
   return {
     tareas: { vencidas: tareas.filter(t => t.vencida).length },
     costeo: { productosSinCotizacion, escenarioElegido: estadoFlujo.escenarioElegido },
-    aprobacion: { compuertasPendientes, compraAprobada: estadoFlujo.compraAprobada, margenAprobado: estadoFlujo.margenAprobado },
+    aprobacion: { compuertasPendientes, compraAprobada: estadoFlujo.compraAprobada, margenAprobado: estadoFlujo.margenAprobado, compraRechazada: estadoFlujo.compraRechazada, margenRechazado: estadoFlujo.margenRechazado },
     compra: { hitosAdminPendientes },
     entrega: { incidenciasAbiertas, relojVencido },
   };

@@ -13,6 +13,7 @@ import { useTheme } from '@/app/lib/theme-context';
 import { EntregaPendienteModal } from '@/app/components/EntregaPendienteModal';
 import { CierreVencidoModal } from '@/app/components/CierreVencidoModal';
 import { AprobacionPendienteModal } from '@/app/components/AprobacionPendienteModal';
+import { AvisoComprasModal } from '@/app/components/AvisoComprasModal';
 import { pedirResumenAprobaciones } from '@/app/lib/aprobaciones-resumen';
 
 function tiempoRel(iso?: string) {
@@ -517,7 +518,16 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
   );
 }
 
-interface Noti { id?: number; tipo?: string; mensaje: string; licitacion_codigo?: string | null; leido?: boolean; created_at?: string; }
+interface Noti { id?: number; tipo?: string; mensaje: string; licitacion_codigo?: string | null; metadata?: unknown; leido?: boolean; created_at?: string; }
+
+// Enlace propio de la notificación (ej. avisos de Compras → /compras/<id>?fase=aprobacion): `metadata` llega como texto desde la BD y como objeto por SSE.
+function urlDeNotificacion(e: Noti): string | null {
+  try {
+    const m = typeof e.metadata === 'string' ? JSON.parse(e.metadata) : e.metadata;
+    const u = (m as { url?: unknown } | null)?.url;
+    return typeof u === 'string' && u.startsWith('/') ? u : null;
+  } catch { return null; }
+}
 
 function NotificacionesBell() {
   const { usuario } = useSession();
@@ -616,7 +626,7 @@ function NotificacionesBell() {
                 );
                 // Reportes de error: el nuevo lleva a la bandeja admin; los cambios de estado, a "Mis reportes".
                 const hrefReporte = e.tipo === 'REPORTE_ERROR' ? '/admin/errores' : e.tipo?.startsWith('REPORTE_ERROR_') ? '/mis-reportes' : null;
-                const href = e.licitacion_codigo ? `/licitacion/${encodeURIComponent(e.licitacion_codigo)}` : hrefReporte;
+                const href = urlDeNotificacion(e) ?? (e.licitacion_codigo ? `/licitacion/${encodeURIComponent(e.licitacion_codigo)}` : hrefReporte);
                 return href
                   ? <Link key={e.id || i} href={href} onClick={() => setOpen(false)}>{content}</Link>
                   : <div key={e.id || i}>{content}</div>;
@@ -742,6 +752,7 @@ export function AppLayout({ children, breadcrumb }: AppLayoutProps) {
       <CierreVencidoModal />
       {/* No bloqueante: aviso de que hay algo esperando aprobación en /aprobaciones */}
       <AprobacionPendienteModal />
+      <AvisoComprasModal />
       <EntregaPendienteModal />
     </div>
   );

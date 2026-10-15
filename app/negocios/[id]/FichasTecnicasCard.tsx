@@ -238,8 +238,9 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
           <div className="flex items-center gap-3 flex-wrap">
             <Upload size={20} className="text-teal-600" />
             <div className="min-w-0 flex-1">
-              <p className="text-[13.5px] font-bold text-zinc-800">Sube todas las fichas técnicas juntas</p>
-              <p className="text-[12px] text-zinc-500">Arrástralas aquí o elígelas: PDF, imagen, Word, Excel o texto, hasta 100. No hace falta decir de qué son: el sistema detecta el producto y el proveedor de cada una. Este panel es independiente del Auditor: aquí solo cuentan las fichas que subas en este paso.</p>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-teal-700">Paso 1 · Sube las fichas</p>
+              <p className="text-[13.5px] font-bold text-zinc-800">Arrastra aquí todas las fichas técnicas juntas</p>
+              <p className="text-[12px] text-zinc-500">PDF, imagen, Word, Excel o texto (hasta 100). No hace falta decir de qué son: el sistema detecta solo el producto y el proveedor.</p>
             </div>
             <button type="button" onClick={() => inputRef.current?.click()} disabled={procesando} data-testid="fichas-subir"
               className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3.5 py-2 rounded-lg"><Upload size={14} /> Subir fichas</button>
@@ -329,11 +330,14 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
 
       {/* 4 · Resultado por producto */}
       <div>
+        <p className="text-[11px] font-bold uppercase tracking-wide text-teal-700">Paso 2 · Revisa y compara con las bases</p>
+        <div className="grid grid-cols-3 gap-2 my-2" data-testid="fichas-resumen">
+          <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2"><p className="text-[22px] font-extrabold leading-none tabular-nums text-zinc-900">{conFicha.length}<span className="text-[13px] font-semibold text-zinc-400"> de {panel.productos.length}</span></p><p className="text-[12px] font-bold text-zinc-700 mt-1">Productos con ficha</p></div>
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2"><p className="text-[22px] font-extrabold leading-none tabular-nums text-emerald-800">{cumplen}</p><p className="text-[12px] font-bold text-emerald-800 mt-1">Cumplen las bases</p></div>
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2"><p className="text-[22px] font-extrabold leading-none tabular-nums text-rose-800">{noCumplen}</p><p className="text-[12px] font-bold text-rose-800 mt-1">No cumplen</p></div>
+        </div>
         <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
-          <p className="text-[13px] text-zinc-700">
-            <b>{conFicha.length}</b> de {panel.productos.length} productos con ficha
-            {conFicha.length > 0 && <> · <b className="text-emerald-700">{cumplen}</b> cumplen · <b className="text-rose-700">{noCumplen}</b> no cumplen</>}
-          </p>
+          <p className="text-[12.5px] text-zinc-500">Abre un producto para ver su ficha contra lo que piden las bases.</p>
           {puedeOperar && conFicha.length > 0 && (
             <button type="button" onClick={compararTodos} disabled={comparando.size > 0 || procesando} data-testid="fichas-comparar-todos"
               className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-3.5 py-2 rounded-lg">
@@ -412,7 +416,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
           })}
         </div>
       </div>
-      <p className="text-[11.5px] text-zinc-400">La comparación usa el motor técnico de las bases: una sola consulta por producto, que compara a todos sus proveedores contra los mismos requisitos. Una cotización no sirve para juzgar si el producto cumple: solo la ficha. Este panel no usa ni modifica las fichas del Auditor.</p>
+      <p className="text-[11.5px] text-zinc-400">Solo la ficha técnica sirve para juzgar si un producto cumple, no la cotización. Aquí solo cuentan las fichas subidas en este paso; no modifican las del Auditor.</p>
 
       <DocumentViewerModal doc={visor} onClose={() => setVisor(null)} />
 

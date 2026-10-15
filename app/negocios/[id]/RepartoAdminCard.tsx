@@ -12,6 +12,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { parsearMontoCL } from '@/app/lib/numeros';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
+import { irAFase } from '@/app/compras/[negocioId]/comprasNavegacion';
+import { fetchJsonReintento } from '@/app/lib/fetch-reintento';
 import { CrearProveedorObumaModal, type FormProveedor } from './CrearProveedorObumaModal';
 import { IconClipboardList as ClipboardList, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircle as Circle, IconFileText as FileText, IconBolt as Zap, IconTruck as Truck, IconCircleMinus as MinusCircle, IconPaperclip as Paperclip, IconX as X } from '@tabler/icons-react';
 
@@ -25,7 +27,7 @@ interface Reparto {
 }
 type Hito = 'ocEmitida' | 'pagoRegistrado' | 'anticipoPagado' | 'facturaCompraRegistrada' | 'carpetaProyectoCreada' | 'provisionFondos';
 
-interface ItemOC { productoId: number; descripcion: string; cantidad: number; precioUnitario: number; subtotal: number; obumaProductoId: string | null; obumaCodigoComercial: string | null }
+interface ItemOC { productoId: number; descripcion: string; cantidad: number; precioUnitario: number; subtotal: number; obumaProductoId: string | null; obumaCodigoComercial: string | null; aprobado?: boolean; estadoLinea?: 'APROBADA' | 'RECHAZADA' | 'SIN_DECIDIR' | null }
 interface ProveedorOC {
   proveedorNombre: string; proveedorId: number | null; proveedorRut: string | null;
   proveedorDireccion: string | null; proveedorComuna: string | null; proveedorEmail: string | null; proveedorTelefono: string | null;
@@ -107,18 +109,21 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
   // esta OC directo en Obuma) — segunda casilla, solo aparece cuando hay un posible duplicado real.
   const [confirmadoPeseADuplicado, setConfirmadoPeseADuplicado] = useState(false);
   const [creandoOC, setCreandoOC] = useState<string | null>(null);
+  // Productos marcados para cada orden (por proveedor). Si el proveedor no está aquí, se usan los aprobados.
+  const [seleccion, setSeleccion] = useState<Record<string, number[]>>({});
 
   const [estadoProveedorObuma, setEstadoProveedorObuma] = useState<EstadoProveedorObuma>('idle');
+  // ¿Cada proveedor ya existe en Obuma? Se consulta apenas se ve la lista (pedido 14-oct-2026: que se vea de entrada si falta crear el proveedor).
+  const [estadoProvs, setEstadoProvs] = useState<Record<string, EstadoProveedorObuma>>({});
   const [modalProveedorAbierto, setModalProveedorAbierto] = useState(false);
   const [provInicial, setProvInicial] = useState<Partial<FormProveedor>>({});
 
   const cargar = useCallback(async () => {
     try {
-      const [rApr, rRep, rOC] = await Promise.all([
-        fetch(`/api/compras/${negocioId}/aprobaciones`), fetch(`/api/compras/${negocioId}/reparto`),
-        fetch(`/api/compras/${negocioId}/orden-compra-obuma`),
+      const [dApr, dRep, dOC]: any[] = await Promise.all([
+        fetchJsonReintento(`/api/compras/${negocioId}/aprobaciones`), fetchJsonReintento(`/api/compras/${negocioId}/reparto`),
+        fetchJsonReintento(`/api/compras/${negocioId}/orden-compra-obuma`),
       ]);
-      const [dApr, dRep, dOC] = await Promise.all([rApr.json(), rRep.json(), rOC.json()]);
       const compraAprobada = dApr.success && ['APROBADA', 'APROBADA_CON_MODIFICACION'].includes(dApr.compra?.estado);
       setVisible(!!compraAprobada);
       // Control de gasto: la OC real en Obuma exige AMBAS compuertas (ver compras-oc-obuma.ts) —
@@ -134,6 +139,22 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
   }, [negocioId]);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  const verificarTodosProveedores = useCallback(async (lista: ProveedorOC[]) => {
+    setEstadoProvs(Object.fromEntries(lista.map(p => [p.proveedorNombre, p.proveedorRut ? 'cargando' : 'sin_rut'])) as Record<string, EstadoProveedorObuma>);
+    await Promise.all(lista.filter(p => p.proveedorRut).map(async p => {
+      let e: EstadoProveedorObuma = 'no_existe';
+      try {
+        const d = await fetch(`/api/compras/${negocioId}/orden-compra-obuma/proveedor?rut=${encodeURIComponent(p.proveedorRut!)}`).then(r => r.json());
+        e = d.success && d.existe ? 'existe' : 'no_existe';
+      } catch { /* queda como «no existe»: se puede reintentar al crear */ }
+      setEstadoProvs(prev => ({ ...prev, [p.proveedorNombre]: e }));
+    }));
+  }, [negocioId]);
+  useEffect(() => {
+    if (parte === 'hitos' || !visible || proveedoresOC.length === 0) return;
+    void verificarTodosProveedores(proveedoresOC.filter(p => !p.yaCreada && !p.ocRealObuma));
+  }, [visible, parte, proveedoresOC.length, verificarTodosProveedores]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const cargarFormasPago = async () => {
     if (formasPago.length || cargandoFormasPago) return;
@@ -177,7 +198,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
     setModalProveedorAbierto(true);
   };
 
-  const crearOC = async (proveedorNombre: string, hayDuplicado: boolean) => {
+  const crearOC = async (proveedorNombre: string, hayDuplicado: boolean, productoIds: number[]) => {
     if (!formaPagoId) { toast.error('Falta la forma de pago', 'Elige una antes de crear la orden.'); return; }
     if (incluirFlete && !fleteMonto.trim()) { toast.error('Falta el monto del flete', ''); return; }
     if (!confirmadoOC) { toast.error('Falta confirmar', 'Revisa los datos y marca la casilla de confirmación.'); return; }
@@ -187,7 +208,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
       const res = await fetch(`/api/compras/${negocioId}/orden-compra-obuma`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          proveedorNombre, formaPagoId, incluirFlete, fleteMonto: incluirFlete ? fleteMonto : null,
+          proveedorNombre, formaPagoId, incluirFlete, fleteMonto: incluirFlete ? fleteMonto : null, productoIds,
           confirmarPeseADuplicado: hayDuplicado ? confirmadoPeseADuplicado : undefined,
         }),
       });
@@ -279,8 +300,18 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
   };
 
   if (loading || !reparto) return null;
+  // Selección de productos de una orden: lo marcado a mano, o por defecto lo aprobado (nunca lo rechazado).
+  const idsSel = (p: ProveedorOC): number[] => seleccion[p.proveedorNombre] ?? p.items.filter(it => it.aprobado !== false && it.estadoLinea !== 'RECHAZADA').map(it => it.productoId);
+  const subtotalSel = (p: ProveedorOC) => p.items.filter(it => idsSel(p).includes(it.productoId)).reduce((s, it) => s + it.subtotal, 0);
+  const alternarItem = (p: ProveedorOC, id: number) => setSeleccion(prev => {
+    const act = prev[p.proveedorNombre] ?? idsSel(p);
+    return { ...prev, [p.proveedorNombre]: act.includes(id) ? act.filter(x => x !== id) : [...act, id] };
+  });
   if (!visible) return parte === 'oc'
-    ? <p className="text-[12.5px] text-zinc-500 bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3">Las órdenes de compra se habilitan cuando la jefatura aprueba la compra y el margen (paso «Aprobación y SKU»). Todavía no están aprobadas.</p>
+    ? <div className="text-[13px] text-zinc-600 bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap">
+        <span className="flex-1 min-w-[220px]"><b className="text-zinc-800">Aún no se pueden emitir órdenes de compra.</b> Primero el jefe de ventas debe aprobar la compra y el margen.</span>
+        <button type="button" onClick={() => irAFase('aprobacion')} className="text-[12.5px] font-semibold text-teal-700 hover:text-teal-900">Ir a Aprobación y SKU →</button>
+      </div>
     : null;
 
   return (
@@ -290,10 +321,13 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
       )}
       {parte !== 'hitos' && proveedoresOC.length > 0 && (
         <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-          <p className="px-4 py-2.5 text-[11px] font-bold text-zinc-500 uppercase bg-zinc-50 border-b border-zinc-100 flex items-center gap-1.5">
-            <FileText size={13} /> Órdenes de compra (Obuma) — una por proveedor
-          </p>
-          <p className="px-4 pt-2 text-[10.5px] text-zinc-400">Del escenario elegido. Escritura real contra Obuma — se crea de verdad, no es un registro manual.</p>
+          <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-100">
+            <p className="text-[14px] font-bold text-zinc-800 flex items-center gap-1.5">
+              <FileText size={15} /> Órdenes de compra a proveedores
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-zinc-200 text-zinc-700">{proveedoresOC.filter(p => p.yaCreada || p.ocRealObuma).length} de {proveedoresOC.length} emitidas</span>
+            </p>
+            <p className="text-[12.5px] text-zinc-500 mt-0.5">Una orden por proveedor, con lo que le compramos. Para emitirla, el proveedor tiene que existir en Obuma: si no está, lo creas aquí mismo. La orden se crea de verdad en Obuma.</p>
+          </div>
           {!margenAprobado && (
             <p className="mx-4 mt-2 text-[10.5px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
               Falta aprobar el Hito 2 (margen) — control de gasto: no se puede emitir dinero real en Obuma sin los dos hitos aprobados.
@@ -302,13 +336,13 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
           <div className="divide-y divide-zinc-100">
             {proveedoresOC.map(p => {
               const previewFlete = incluirFlete ? parsearMontoCL(fleteMonto) : null;
-              const total = p.subtotal + (ocAbierta === p.proveedorNombre && previewFlete ? previewFlete : 0);
+              const total = subtotalSel(p) + (ocAbierta === p.proveedorNombre && previewFlete ? previewFlete : 0);
               return (
                 <div key={p.proveedorNombre} className="px-4 py-3">
                   <div className="flex items-center justify-between gap-2">
                     <div>
                       <p className="text-[12.5px] font-bold text-zinc-800">{p.proveedorNombre}</p>
-                      <p className="text-[10.5px] text-zinc-400">{p.items.length} ítem(s) · {fmtCLP(p.subtotal)}</p>
+                      <p className="text-[11.5px] text-zinc-500">{p.yaCreada || p.ocRealObuma ? `${p.items.length} producto(s) · ${fmtCLP(p.subtotal)}` : `${idsSel(p).length} de ${p.items.length} productos en la orden · ${fmtCLP(subtotalSel(p))}`}</p>
                     </div>
                     {p.yaCreada ? (
                       <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full">
@@ -327,14 +361,58 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                             ⚠ posible duplicado
                           </span>
                         )}
-                        <button onClick={() => abrirOC(p)} disabled={!margenAprobado}
-                          className="flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 disabled:text-zinc-300 disabled:cursor-not-allowed">
-                          <Zap size={12} /> Crear orden de compra
+                        <button onClick={() => abrirOC(p)} disabled={idsSel(p).length === 0 || !margenAprobado || estadoProvs[p.proveedorNombre] === 'no_existe' || estadoProvs[p.proveedorNombre] === 'sin_rut'}
+                          title={!margenAprobado ? 'Falta aprobar el margen' : estadoProvs[p.proveedorNombre] === 'no_existe' || estadoProvs[p.proveedorNombre] === 'sin_rut' ? 'Primero crea el proveedor en Obuma' : undefined}
+                          className="flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed px-3.5 py-2 rounded-lg">
+                          <Zap size={13} /> Crear orden de compra
                         </button>
                       </div>
                     ) : null}
                   </div>
 
+                  {!p.yaCreada && !p.ocRealObuma && (() => {
+                    const e = estadoProvs[p.proveedorNombre];
+                    if (!e || e === 'idle') return null;
+                    if (e === 'cargando') return <p className="mt-1.5 text-[12px] text-zinc-400 flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Verificando si el proveedor está en Obuma…</p>;
+                    if (e === 'existe') return <p className="mt-1.5 text-[12px] font-semibold text-emerald-700 flex items-center gap-1"><CheckCircle2 size={13} /> El proveedor ya está en Obuma. Puedes crear la orden.</p>;
+                    return (
+                      <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 flex items-center gap-3 flex-wrap">
+                        <p className="flex-1 min-w-[220px] text-[12.5px] text-amber-900">
+                          <b>{e === 'sin_rut' ? 'Este proveedor no tiene RUT en Licitank.' : 'Este proveedor todavía no está en Obuma.'}</b>{' '}
+                          {e === 'sin_rut' ? 'Sin RUT no se puede buscar ni crear: complétalo en Proveedores.' : 'Créalo primero y después podrás emitir la orden.'}
+                        </p>
+                        {puedeOperar && e === 'no_existe' && <button type="button" onClick={() => abrirModalProveedor(p)} className="text-[12.5px] font-semibold text-white bg-amber-600 hover:bg-amber-700 px-3 py-1.5 rounded-lg">Crear proveedor en Obuma</button>}
+                      </div>
+                    );
+                  })()}
+                  {!p.yaCreada && !p.ocRealObuma ? (
+                    <div className="mt-2" data-testid={`oc-productos-${p.proveedorNombre}`}>
+                      <p className="text-[12px] font-semibold text-zinc-600 mb-1">Productos de esta orden <span className="font-normal text-zinc-400">— marcados = se incluyen (vienen marcados los aprobados)</span></p>
+                      <ul className="rounded-lg border border-zinc-200 divide-y divide-zinc-100">
+                        {p.items.map(it => {
+                          const rech = it.estadoLinea === 'RECHAZADA';
+                          const marcado = idsSel(p).includes(it.productoId);
+                          return (
+                            <li key={it.productoId} className={rech ? 'bg-rose-50/40' : marcado ? 'bg-teal-50/30' : ''}>
+                              <label className={`flex items-start gap-2.5 px-3 py-2 ${rech || !puedeOperar ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                                <input type="checkbox" checked={marcado} disabled={rech || !puedeOperar} onChange={() => alternarItem(p, it.productoId)} className="mt-1 accent-teal-600" />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block text-[12.5px] font-semibold text-zinc-800">{it.descripcion.split(' - ')[0]}</span>
+                                  <span className="block text-[11.5px] text-zinc-500">{it.cantidad} un. × {fmtCLP(it.precioUnitario)} = {fmtCLP(it.subtotal)}
+                                    {it.obumaCodigoComercial ? <span className="text-indigo-600"> · SKU {it.obumaCodigoComercial}</span> : <span className="text-amber-600"> · sin SKU en Obuma todavía</span>}
+                                  </span>
+                                </span>
+                                {it.estadoLinea === 'APROBADA' && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex-shrink-0">✔ Aprobado</span>}
+                                {it.estadoLinea === 'SIN_DECIDIR' && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 flex-shrink-0">Aún sin aprobar</span>}
+                                {rech && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 flex-shrink-0">Rechazado</span>}
+                              </label>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      <p className="mt-1 text-[11.5px] text-zinc-400">Se emite <b>una sola orden por proveedor</b>: los productos que no marques no entrarán en esta orden.</p>
+                    </div>
+                  ) : (
                   <div className="mt-1.5 space-y-0.5">
                     {p.items.map(it => (
                       <p key={it.productoId} className="text-[10.5px] text-zinc-500">
@@ -343,6 +421,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                       </p>
                     ))}
                   </div>
+                  )}
 
                   {ocAbierta === p.proveedorNombre && (
                     <div className="mt-2.5 space-y-2 bg-zinc-50 border border-zinc-200 rounded-lg p-2.5">
@@ -403,7 +482,8 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                           <span className="text-zinc-400">Centro de costo: </span>
                           {centroCosto ? <b>{centroCosto.nombre}</b> : <span className="text-zinc-400 italic">esta licitación todavía no tiene uno armado en Obuma — queda sin asignar</span>}
                         </p>
-                        <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Mercadería: </span>{fmtCLP(p.subtotal)}</p>
+                        <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Mercadería ({idsSel(p).length} producto(s)): </span>{fmtCLP(subtotalSel(p))}</p>
+                        {p.items.some(it => idsSel(p).includes(it.productoId) && it.aprobado === false) && <p className="text-[11px] font-semibold text-amber-700">⚠ Incluye productos que aún no están aprobados.</p>}
                         {incluirFlete && <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Flete: </span>{previewFlete != null ? fmtCLP(previewFlete) : <span className="text-rose-500">monto inválido</span>}</p>}
                         <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Neto total: </span><b>{fmtCLP(total)}</b> <span className="text-zinc-400">+ IVA</span></p>
                         <label className="flex items-center gap-1.5 text-[10.5px] text-indigo-700 pt-0.5">
@@ -413,8 +493,8 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                       </div>
 
                       <div className="flex items-center gap-1.5">
-                        <button onClick={() => crearOC(p.proveedorNombre, !!p.posibleDuplicadoObuma)}
-                          disabled={creandoOC === p.proveedorNombre || !formaPagoId || !confirmadoOC || !margenAprobado || (!!p.posibleDuplicadoObuma && !confirmadoPeseADuplicado)}
+                        <button onClick={() => crearOC(p.proveedorNombre, !!p.posibleDuplicadoObuma, idsSel(p))}
+                          disabled={creandoOC === p.proveedorNombre || idsSel(p).length === 0 || !formaPagoId || !confirmadoOC || !margenAprobado || (!!p.posibleDuplicadoObuma && !confirmadoPeseADuplicado)}
                           className="text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">
                           {creandoOC === p.proveedorNombre ? <Loader2 size={12} className="animate-spin" /> : 'Crear en Obuma'}
                         </button>
@@ -561,7 +641,12 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
 
       {modalProveedorAbierto && (
         <CrearProveedorObumaModal negocioId={negocioId} inicial={provInicial} onCerrar={() => setModalProveedorAbierto(false)}
-          onCreado={() => { setModalProveedorAbierto(false); setEstadoProveedorObuma('existe'); }} />
+          onCreado={(creado) => {
+            setModalProveedorAbierto(false); setEstadoProveedorObuma('existe');
+            const norm = (r: string) => r.replace(/[^0-9kK]/g, '').toLowerCase();
+            const prov = proveedoresOC.find(x => x.proveedorRut && norm(x.proveedorRut) === norm(creado.rut));
+            if (prov) setEstadoProvs(prev => ({ ...prev, [prov.proveedorNombre]: 'existe' }));
+          }} />
       )}
 
       {verOcAbierto && (

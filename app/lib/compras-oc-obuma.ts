@@ -12,6 +12,7 @@ import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { obtenerAprobaciones, obtenerEscenarioElegido } from '@/app/lib/compras-aprobaciones';
 import { marcarHitoReparto, obtenerReparto } from '@/app/lib/compras-reparto';
+import { listarAprobacionesLinea } from '@/app/lib/compras-aprobacion-lineas';
 import {
   crearOrdenCompraObuma, listarFormasPago, proveedorPorRut, crearProveedorObuma, buscarCentroCostoPorLicitacion,
   listarComprasOc, listarComprasOcItems, mapaFormasPagoCompleto, type ObumaFormaPago, type DatosCrearProveedorObuma,
@@ -27,6 +28,8 @@ async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
 export interface ItemOrdenCompra {
   productoId: number; descripcion: string; cantidad: number; precioUnitario: number; subtotal: number;
   obumaProductoId: string | null; obumaCodigoComercial: string | null;
+  // Aprobación por producto (migration-147). `estadoLinea` null = la compra se aprobó entera, sin decisiones por producto (flujo anterior).
+  aprobado?: boolean; estadoLinea?: 'APROBADA' | 'RECHAZADA' | 'SIN_DECIDIR' | null;
 }
 export interface ProveedorOrdenCompra {
   proveedorNombre: string; proveedorId: number | null; proveedorRut: string | null;
@@ -127,6 +130,12 @@ export async function proveedoresParaOrdenCompra(negocioId: number): Promise<Pro
     (ocRows as any[]).map(r => [r.proveedor_nombre, { obumaCompraOcId: r.obuma_compra_oc_id, folio: r.obuma_folio, total: Number(r.total_neto), fechaOc: r.fecha_oc }]),
   );
 
+  // Qué productos están aprobados: los que el jefe de ventas aprobó uno a uno. Si no hubo decisiones por producto (flujo anterior),
+  // se considera aprobado todo lo de la compra aprobada.
+  const aprob = await listarAprobacionesLinea(negocioId).catch(() => ({ tablaOk: false, lineas: [] as Array<{ productoId: number; estado: string }> }));
+  const hayDecisiones = aprob.tablaOk && aprob.lineas.length > 0;
+  const estadoPorProducto = new Map(aprob.lineas.map(l => [l.productoId, l.estado]));
+
   const grupos = new Map<string, ProveedorOrdenCompra>();
   for (const p of cubiertos) {
     const nombre = p.proveedor as string;
@@ -148,6 +157,8 @@ export async function proveedoresParaOrdenCompra(negocioId: number): Promise<Pro
       productoId: p.productoId, descripcion: p.descripcion, cantidad: p.cantidad ?? 1,
       precioUnitario: p.precioUnitario as number, subtotal,
       obumaProductoId: sku?.obumaProductoId ?? null, obumaCodigoComercial: sku?.obumaCodigoComercial ?? null,
+      aprobado: !hayDecisiones || estadoPorProducto.get(p.productoId) === 'APROBADA',
+      estadoLinea: hayDecisiones ? ((estadoPorProducto.get(p.productoId) as 'APROBADA' | 'RECHAZADA' | undefined) ?? 'SIN_DECIDIR') : null,
     });
     grupo.subtotal += subtotal;
   }
@@ -242,7 +253,7 @@ export async function crearProveedorEnObumaExplicito(datos: DatosCrearProveedorO
  *  hay compra real que emitir. */
 export async function crearOrdenCompraParaProveedor(
   negocioId: number, proveedorNombre: string,
-  opciones: { formaPagoId: string; incluirFlete: boolean; fleteMonto: number | null; confirmarPeseADuplicado?: boolean },
+  opciones: { formaPagoId: string; incluirFlete: boolean; fleteMonto: number | null; confirmarPeseADuplicado?: boolean; productoIds?: number[] },
   actorId: number, actorNombre: string | null,
 ): Promise<{ obumaCompraOcId: string; folio: string | null; total: number }> {
   // Control de gasto (pedido explícito del usuario): dinero de verdad sale recién cuando se crea la
@@ -279,6 +290,15 @@ export async function crearOrdenCompraParaProveedor(
   }
   if (opciones.incluirFlete && !(opciones.fleteMonto! > 0)) throw new Error('Falta el monto del flete.');
 
+  // Qué productos entran en la orden: los que la persona marcó; si no marcó, los aprobados. Un producto RECHAZADO nunca entra.
+  const marcados = opciones.productoIds?.length ? new Set(opciones.productoIds) : null;
+  if (marcados) {
+    const desconocidos = [...marcados].filter(id => !grupo.items.some(it => it.productoId === id));
+    if (desconocidos.length) throw new Error('Hay productos marcados que no son de este proveedor en la compra elegida.');
+  }
+  const itemsOrden = grupo.items.filter(it => (marcados ? marcados.has(it.productoId) : it.aprobado !== false) && it.estadoLinea !== 'RECHAZADA');
+  if (itemsOrden.length === 0) throw new Error('No hay productos para esta orden: marca al menos uno (los rechazados no se pueden incluir).');
+
   const licitacionCodigo = await licitacionDeNegocio(negocioId);
   const fecha = ahoraChileSQL().slice(0, 10);
 
@@ -301,7 +321,7 @@ export async function crearOrdenCompraParaProveedor(
     referencia: licitacionCodigo || `negocio-${negocioId}`,
     concepto: `Compra para licitación ${licitacionCodigo || negocioId}`,
     centroCostoId: centroCosto?.id ?? null,
-    items: grupo.items.map(it => ({
+    items: itemsOrden.map(it => ({
       productoIdObuma: it.obumaProductoId, codigoComercial: it.obumaCodigoComercial,
       nombre: it.descripcion, cantidad: it.cantidad, precioUnitarioNeto: it.precioUnitario,
     })),
@@ -317,7 +337,7 @@ export async function crearOrdenCompraParaProveedor(
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       negocioId, grupo.proveedorId, grupo.proveedorNombre, grupo.proveedorRut,
-      creada.compraOcId, creada.folio, JSON.stringify(grupo.items),
+      creada.compraOcId, creada.folio, JSON.stringify(itemsOrden),
       opciones.incluirFlete ? 1 : 0, opciones.incluirFlete ? opciones.fleteMonto : null,
       creada.subtotalNeto, creada.total, opciones.formaPagoId, null, fecha,
       actorId, actorNombre, ahora,

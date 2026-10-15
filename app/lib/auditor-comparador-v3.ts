@@ -138,7 +138,7 @@ export async function ultimasCorridasV3(negocioId: number): Promise<Map<number, 
   for (const r of rows as any[]) {
     let g: GuardadaV3 | null = null;
     try { const j = JSON.parse(r.resultado_json); g = j?.version === 'v3.0' ? j : null; } catch { /* fila con error */ }
-    out.set(r.opcion_id, { guardada: g, corridoAt: r.creado_at instanceof Date ? r.creado_at.toISOString() : String(r.creado_at), error: r.error || (g ? null : 'sin resultado') });
+    out.set(r.opcion_id, { guardada: g, corridoAt: r.creado_at instanceof Date ? ahoraChileSQL(r.creado_at) : String(r.creado_at), error: r.error || (g ? null : 'sin resultado') });
   }
   return out;
 }

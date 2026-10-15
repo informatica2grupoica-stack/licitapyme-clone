@@ -66,6 +66,46 @@ const ESCENARIO_META: Record<TipoEscenario, { label: string; icon: React.ReactNo
 };
 const fmtCLP = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 
+type PasoCotizacion = 'subir' | 'comparar' | 'elegir';
+
+function PasosCotizacion({ vista, onElegir, cotizaciones, paraNegociar, elegida }: {
+  vista: PasoCotizacion; onElegir: (v: PasoCotizacion) => void; cotizaciones: number; paraNegociar: number; elegida: boolean;
+}) {
+  const pasos: Array<{ k: PasoCotizacion; n: number; titulo: string; pregunta: string; chip: string; ok: boolean }> = [
+    { k: 'subir', n: 1, titulo: 'Cotizaciones', pregunta: '¿Qué precios me dieron los proveedores?', chip: cotizaciones ? `${cotizaciones} recibida${cotizaciones === 1 ? '' : 's'}` : 'Ninguna todavía', ok: cotizaciones > 0 },
+    { k: 'comparar', n: 2, titulo: 'Comparar precios', pregunta: '¿Quién es más barato que lo costeado?', chip: paraNegociar ? `${paraNegociar} para negociar` : 'Ver cuadro', ok: false },
+    { k: 'elegir', n: 3, titulo: 'Elegir cómo comprar', pregunta: '¿A quién le compro cada producto?', chip: elegida ? 'Ya elegida' : 'Sin elegir', ok: elegida },
+  ];
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" data-testid="pasos-cotizacion">
+      {pasos.map(p => {
+        const on = vista === p.k;
+        return (
+          <button key={p.k} type="button" onClick={() => onElegir(p.k)} aria-current={on ? 'step' : undefined}
+            className={`text-left rounded-xl border-2 px-3.5 py-2.5 flex items-center gap-3 transition-colors ${on ? 'border-teal-500 bg-teal-50/60' : 'border-zinc-200 bg-white hover:border-zinc-300'}`}>
+            <span className={`w-8 h-8 rounded-full flex items-center justify-center text-[14px] font-bold flex-shrink-0 ${on ? 'bg-teal-600 text-white' : p.ok ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-500'}`}>{p.ok && !on ? '✓' : p.n}</span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-2 flex-wrap">
+                <span className={`text-[13.5px] font-bold ${on ? 'text-teal-900' : 'text-zinc-800'}`}>{p.titulo}</span>
+                <span className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded-full ${p.ok ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}`}>{p.chip}</span>
+              </span>
+              <span className="block text-[12px] text-zinc-500 leading-snug">{p.pregunta}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function SiguientePasoBtn({ texto, onClick }: { texto: string; onClick: () => void }) {
+  return (
+    <div className="flex justify-end">
+      <button type="button" onClick={onClick} className="text-[13px] font-bold text-white bg-teal-600 hover:bg-teal-700 px-4 py-2 rounded-lg transition-colors">{texto}</button>
+    </div>
+  );
+}
+
 export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
   const toast = useToast();
   const { recargar: recargarCompartido } = useCompras();
@@ -77,6 +117,8 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   const fichas = useFichasCompras(negocioId);
   const lecturaLink = useLinksLeidos(negocioId, linksCosteo, true);
   const [negociacion, setNegociacion] = useState<Negociacion[]>([]);
+  // Esta pestaña se ve en 3 pasos (pedido 14-oct-2026: «debe entenderlo hasta un niño»); todo sigue montado, solo se oculta.
+  const [vista, setVista] = useState<PasoCotizacion>('subir');
   const [escenarios, setEscenarios] = useState<Escenario[]>([]);
   const [elegidoTipo, setElegidoTipo] = useState<TipoEscenario | null>(null);
   // El costo GUARDADO cuando se eligió — no el recalculado ahora. Si una cotización nueva cambia lo
@@ -654,6 +696,8 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
 
   return (
     <div className="space-y-3">
+      <PasosCotizacion vista={vista} onElegir={setVista} cotizaciones={cotizaciones.length} paraNegociar={negociacion.length} elegida={!!elegidaComb} />
+      <div className={vista === 'subir' ? 'space-y-3' : 'hidden'}>
       {/* Lo primero: cada producto con su cotización por link (la del costeo) y su cotización con documento. */}
       <CoberturaCotizaciones productos={productos} cotizaciones={cotizaciones} costeado={costeado} linksCosteo={linksCosteo} />
 
@@ -1070,7 +1114,10 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           );
         })()}
       </div>
+      <SiguientePasoBtn texto="Ya subí las cotizaciones → Comparar precios" onClick={() => setVista('comparar')} />
+      </div>
 
+      <div className={vista === 'comparar' ? 'space-y-3' : 'hidden'}>
       {negociacion.length > 0 && (
         <Banner variante="info">
           <details>
@@ -1093,12 +1140,12 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           setTimeout(() => window.dispatchEvent(new CustomEvent('compras:compra-directa', { detail: { productoId, ...d } })), 50);
         } : undefined} seleccion={seleccion} onSeleccionar={setSeleccion}
         tecnico={tecnicoPorCelda(fichas.panel, cotizaciones)}
-        onAgregar={puedeOperar ? (cotizacionId) => { const c = cotizaciones.find(x => x.id === cotizacionId); if (c) { abrirAsignacion(c); setTimeout(() => document.getElementById(`cotizacion-${cotizacionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); } } : undefined}
+        onAgregar={puedeOperar ? (cotizacionId) => { const c = cotizaciones.find(x => x.id === cotizacionId); if (c) { setVista('subir'); abrirAsignacion(c); setTimeout(() => document.getElementById(`cotizacion-${cotizacionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); } } : undefined}
         compra={compra} onElegirCelda={puedeOperar ? elegirCelda : undefined} onComprarTodoAqui={puedeOperar ? comprarTodoAqui : undefined}
         acciones={puedeOperar ? {
-          onAsignar: (id) => { const c = cotizaciones.find(x => x.id === id); if (c) { abrirAsignacion(c); setTimeout(() => document.getElementById(`cotizacion-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); } },
+          onAsignar: (id) => { const c = cotizaciones.find(x => x.id === id); if (c) { setVista('subir'); abrirAsignacion(c); setTimeout(() => document.getElementById(`cotizacion-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); } },
           onHomologar: (id) => homologar(id),
-          onEditar: (id) => { const c = cotizaciones.find(x => x.id === id); if (c) { iniciarEdicion(c); window.scrollTo({ top: 0, behavior: 'smooth' }); } },
+          onEditar: (id) => { const c = cotizaciones.find(x => x.id === id); if (c) { setVista('subir'); iniciarEdicion(c); window.scrollTo({ top: 0, behavior: 'smooth' }); } },
           onEliminar: (id) => setConfirmandoEliminarId(id),
           ocupadoId: homologando,
         } : undefined}
@@ -1127,9 +1174,13 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           </div>
         );
       })()}
+      <SiguientePasoBtn texto="Ya comparé → Elegir cómo comprar" onClick={() => setVista('elegir')} />
+      </div>
 
+      <div className={vista === 'elegir' ? '' : 'hidden'}>
       <ArmarCompra negocioId={negocioId} recomendadas={recomendadas} elegida={elegidaComb} compra={compra} setCompra={setCompra}
         evaluacion={evaluacion} evaluando={evaluando} puedeOperar={puedeOperar} onElegida={async () => { await cargar(); recargarCompartido(); }} />
+      </div>
     </div>
   );
 }

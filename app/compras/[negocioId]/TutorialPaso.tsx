@@ -46,7 +46,7 @@ export const TUTORIALES: Record<FaseTutorial, Tutorial> = {
       { titulo: 'Hito 1 · Aprobación de compra', detalle: 'El encargado revisa el escenario elegido en «Costeo y auditoría» y pulsa «Proponer para aprobación».' },
       { titulo: 'El jefe de ventas decide', detalle: 'Puede Aprobar, Aprobar con modificación o Rechazar con un comentario.' },
       { titulo: 'Hito 2 · Aprobación de margen', detalle: 'Es independiente del anterior. El margen mínimo es 20 % (precio de venta neto contra costo neto). Si queda bajo eso, hay que escribir el motivo antes de proponer.' },
-      { titulo: 'Crea el SKU', detalle: 'Con el Hito 1 aprobado se habilita «Crear SKU». Revisa el nombre, el código y el costo neto que se enviarán a Obuma y confirma.' },
+      { titulo: 'Crea el SKU', detalle: 'Cuando la compra queda aprobada, abajo aparece la lista de productos. Crea el SKU de uno desde su fila, o pulsa «Crear los que faltan, uno tras otro». Revisa el nombre, el código y el costo neto que se enviarán a Obuma y confirma. El botón «Obuma» de arriba muestra lo que ya se creó.' },
     ],
     ojo: 'El SKU se nombra por lo que realmente se compra (marca y modelo), nunca por lo que pidió el cliente. Y cualquier cambio posterior a una aprobación la invalida y hay que pedirla de nuevo.',
   },
@@ -67,7 +67,7 @@ export const TUTORIALES: Record<FaseTutorial, Tutorial> = {
     pasos: [
       { titulo: 'Mira «Listo para comprar en Obuma»', detalle: 'Te dice qué falta: aprobaciones, proveedores que no existen en Obuma, productos sin SKU y órdenes sin emitir.' },
       { titulo: '1 · Proveedor', detalle: 'Busca por nombre o RUT. Si no existe, «Crear proveedor en Obuma» (solo RUT y razón social son obligatorios). También sirve para una compra directa.' },
-      { titulo: '2 · SKU', detalle: 'Con la compra aprobada, crea el SKU de cada producto. Si el producto ya existe en Obuma, se enlaza en vez de duplicarlo.' },
+      { titulo: '2 · SKU', detalle: 'Los SKU ahora se crean en «Aprobación y SKU». Aquí solo se ve el estado y se reconocen los que ya existían en Obuma.' },
       { titulo: '3 · Orden de compra', detalle: 'Una por proveedor, de la compra elegida. Confirma forma de pago, flete y marca la casilla antes de crearla: se emite de verdad.' },
     ],
     ojo: 'La orden de compra exige las dos aprobaciones (compra y margen). Si algo está bloqueado, el aviso de arriba dice cuál.',

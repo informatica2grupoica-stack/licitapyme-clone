@@ -38,6 +38,9 @@ export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { ne
   const [loading, setLoading] = useState(true);
   const [formAbierto, setFormAbierto] = useState<'normal' | 'om' | null>(null);
   const [guardando, setGuardando] = useState(false);
+  // Cierre de una incidencia: campo en pantalla en vez de window.prompt (el diálogo nativo bloqueaba la página y no se podía probar ni cancelar sin cerrar igual).
+  const [cerrandoId, setCerrandoId] = useState<number | null>(null);
+  const [textoCierre, setTextoCierre] = useState('');
   const [form, setForm] = useState({ naturaleza: 'DEFENSIVA' as Naturaleza, tipoClave: '', tipoLibre: '', productoId: '', descripcion: '' });
   const [formOm, setFormOm] = useState({ productoId: '', productoAlternativo: '', ahorroEstimado: '', descripcion: '' });
   // Antes: `window.confirm` con "Aceptar = Sí, Cancelar = No" — un clic equivocado invierte la
@@ -114,8 +117,7 @@ export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { ne
     }
   };
 
-  const cerrar = async (id: number) => {
-    const resolucion = window.prompt('¿Cómo se resolvió? (opcional)');
+  const cerrar = async (id: number, resolucion: string | null) => {
     try {
       const res = await fetch(`/api/compras/${negocioId}/incidencias/${id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ resolucion }),
@@ -123,6 +125,7 @@ export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { ne
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cerrar');
       setIncidencias(data.incidencias);
+      setCerrandoId(null); setTextoCierre('');
       recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo cerrar', e.message);
@@ -238,9 +241,18 @@ export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { ne
                   <p className="text-[10.5px] text-zinc-400 mt-0.5">Abierta por {i.abiertaPorNombre || 'Sistema'} · {fmtFecha(i.abiertaAt)}</p>
                   {i.resolucion && <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-2 py-1 mt-1.5">{i.resolucion}</p>}
                 </div>
-                {i.estado === 'ABIERTA' && puedeOperar && i.naturaleza !== 'OFENSIVA' && (
-                  <button onClick={() => cerrar(i.id)} className="flex-shrink-0 text-[11px] font-semibold text-zinc-500 hover:text-zinc-700">Cerrar</button>
-                )}
+                {i.estado === 'ABIERTA' && puedeOperar && i.naturaleza !== 'OFENSIVA' && (cerrandoId === i.id ? (
+                  <div className="flex-shrink-0 w-[260px] space-y-1.5" data-testid={`incidencia-cierre-${i.id}`}>
+                    <input value={textoCierre} onChange={e => setTextoCierre(e.target.value)} placeholder="¿Cómo se resolvió? (opcional)" autoFocus
+                      className="w-full rounded-lg border border-zinc-200 px-2 py-1 text-[11.5px] outline-none focus:border-teal-400" />
+                    <div className="flex items-center justify-end gap-2">
+                      <button onClick={() => { setCerrandoId(null); setTextoCierre(''); }} className="text-[11px] font-semibold text-zinc-400 hover:text-zinc-600">Cancelar</button>
+                      <button onClick={() => cerrar(i.id, textoCierre.trim() || null)} className="text-[11px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-2 py-1 rounded-lg">Confirmar cierre</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button onClick={() => { setCerrandoId(i.id); setTextoCierre(''); }} className="flex-shrink-0 text-[11px] font-semibold text-zinc-500 hover:text-zinc-700">Cerrar</button>
+                ))}
               </div>
 
               {i.om && i.estado === 'ABIERTA' && (

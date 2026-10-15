@@ -19,9 +19,10 @@
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
-import { obtenerAsignacion, listarProductosCompra } from '@/app/lib/compras';
+import { notificarEncargadosCompras } from '@/app/lib/compras-avisos';
+import { obtenerAsignacion, listarProductosCompra, sincronizarTareaAprobacion } from '@/app/lib/compras';
 import { obtenerOrigenCompra, calcularCostoAterrizado } from '@/app/lib/compras-importacion';
-import { crearProductoObuma, siguienteSkuMercadoPublico, listarProductosObuma } from '@/app/lib/obuma';
+import { crearProductoObuma, siguienteSkuMercadoPublico, listarProductosObuma, listarSubcategoriasProductos, OBUMA_CATEGORIA_MERCADO_PUBLICO } from '@/app/lib/obuma';
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('compras', crearChatIABase);
@@ -54,7 +55,7 @@ async function leerAprobacion(negocioId: number, tipo: TipoAprobacion): Promise<
   let detalle: any = null;
   try { detalle = r.detalle_json ? JSON.parse(r.detalle_json) : null; } catch { /* snapshot ilegible, no bloquea */ }
   return {
-    tipo, estado: r.estado, detalle, motivo: r.motivo,
+    tipo, estado: (String(r.estado).startsWith('APROBADA_CON_MOD') ? 'APROBADA_CON_MODIFICACION' : r.estado) as EstadoAprobacion, detalle, motivo: r.motivo,
     propuestoPorNombre: r.propuesto_por_nombre, propuestoAt: r.propuesto_at,
     resueltoPorNombre: r.resuelto_por_nombre, resueltoAt: r.resuelto_at, comentarioResolucion: r.comentario_resolucion,
   };
@@ -237,6 +238,7 @@ export async function resolverAprobacion(
   actorId: number, actorNombre: string | null,
 ): Promise<void> {
   if (decision === 'RECHAZAR' && !comentario?.trim()) throw new Error('Rechazar requiere comentario (spec §10.4).');
+  if (decision === 'APROBAR_CON_MODIFICACION' && !comentario?.trim()) throw new Error('Aprobar con cambios requiere escribir qué hay que ajustar: el encargado recibe ese texto.');
 
   // BUG REAL (11-sep-2026, reportado por el usuario contra el negocio 717): §10.5 dice "todo cambio
   // posterior a una aprobación la invalida", pero `invalidarAprobacionesCompras` (compras.ts) solo
@@ -281,6 +283,24 @@ export async function resolverAprobacion(
     mensaje: `Compuerta ${tipo === 'COMPRA' ? '1 (Compra)' : '2 (Margen)'}: ${decision.replace(/_/g, ' ').toLowerCase()}${comentario ? ` — ${comentario}` : ''}.`,
     metadata: { negocio_id: negocioId, tipo, decision },
   });
+  // Aviso al encargado (campana): si se rechaza o se aprueba con cambios, tiene que enterarse de qué hacer.
+  const que = tipo === 'COMPRA' ? 'la compra' : 'el margen';
+  await sincronizarTareaAprobacion(negocioId, { id: actorId, nombre: actorNombre });
+  // Campana + aviso central + correo (con el enlace a donde corregir). Aprobar a secas también avisa: el encargado necesita saber que puede seguir.
+  const actor = { id: actorId, nombre: actorNombre };
+  if (decision === 'RECHAZAR') {
+    await notificarEncargadosCompras(negocioId, `COMPRAS_APROB_${tipo}_RECHAZADA`,
+      `${actorNombre || 'El jefe de ventas'} rechazó ${que}. Motivo: ${comentario!.trim()} — corrígelo y vuelve a enviarlo a aprobación.`, actor,
+      { resultado: 'RECHAZADA', que, comentario: comentario!.trim() });
+  } else if (decision === 'APROBAR_CON_MODIFICACION') {
+    await notificarEncargadosCompras(negocioId, `COMPRAS_APROB_${tipo}_CAMBIOS`,
+      `${actorNombre || 'El jefe de ventas'} aprobó ${que} con cambios. Hay que ajustar: ${comentario!.trim()}`, actor,
+      { resultado: 'APROBADA_CON_CAMBIOS', que, comentario: comentario!.trim() });
+  } else {
+    await notificarEncargadosCompras(negocioId, `COMPRAS_APROB_${tipo}_APROBADA`,
+      `${actorNombre || 'El jefe de ventas'} aprobó ${que}.${comentario?.trim() ? ` Comentario: ${comentario.trim()}` : ''} Puedes seguir con el siguiente paso.`, actor,
+      { resultado: 'APROBADA', que, comentario: comentario?.trim() || null });
+  }
 }
 
 /** Deshace una compuerta ya resuelta (aprobada, con modificación o rechazada): vuelve a PENDIENTE y deja constancia. El permiso se verifica en la API. */
@@ -291,10 +311,11 @@ export async function deshacerAprobacion(negocioId: number, tipo: TipoAprobacion
   const [r] = await pool.query(
     `UPDATE compras_aprobacion
         SET estado = 'PENDIENTE', resuelto_por = NULL, resuelto_por_nombre = NULL, resuelto_at = NULL, comentario_resolucion = NULL, updated_at = ?
-      WHERE negocio_id = ? AND tipo = ? AND estado IN ('APROBADA','APROBADA_CON_MODIFICACION','RECHAZADA')`,
+      WHERE negocio_id = ? AND tipo = ? AND estado <> 'PENDIENTE'`,
     [ahora, negocioId, tipo],
   ) as any;
   if (!r?.affectedRows) throw new Error('Esta compuerta no tiene una decisión que deshacer.');
+  await sincronizarTareaAprobacion(negocioId);
   await registrarEvento({
     tipo: `COMPRAS_APROBACION_${tipo}_DESHECHA`, licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
     mensaje: `Compuerta ${tipo === 'COMPRA' ? '1 (Compra)' : '2 (Margen)'}: se deshizo la decisión (${(estadoPrevio || '').replace(/_/g, ' ').toLowerCase()}) y volvió a pendiente${motivo ? ` — ${motivo}` : ''}.`,
@@ -333,7 +354,7 @@ export interface DatosSku {
   // Crear el producto DE VERDAD en Obuma (§7, activado 10-sep-2026, escritura real contra el ERP
   // de producción) — requiere elegir la subcategoría real (bajo "Mercado Publico", ver obuma.ts).
   // Si viene true, `obumaProductoId`/`obumaCodigoComercial` los llena el propio Obuma, no se piden.
-  crearEnObuma?: boolean; obumaSubcategoriaId?: string | null;
+  crearEnObuma?: boolean; obumaSubcategoriaId?: string | null; obumaCategoriaId?: string | null;
   // El nombre que se manda a Obuma como `producto_nombre` — SIEMPRE lo que se está COTIZANDO/
   // COMPRANDO (armado en el formulario a partir de Tipo/Atributo/Medida/Marca, mismo patrón que ya
   // usaba grupoica-intranet para este mismo Obuma), NUNCA la descripción de la línea de la
@@ -344,6 +365,10 @@ export interface DatosSku {
   // usa la UI). Si al momento de crear el costo real del escenario ya cambió, crearSku rechaza en
   // vez de mandar a Obuma un número que el usuario nunca llegó a confirmar.
   costoEsperado?: number | null;
+  // Lo que se manda a Obuma además del costo (14-oct-2026, mismo formulario que usa el usuario en su otra app):
+  // precio de venta neto (viene del costeo/acta y se puede corregir a mano) y las cuatro opciones del producto.
+  precioVentaNeto?: number | null;
+  paraVenta?: boolean; paraCompra?: boolean; inventariable?: boolean; venderEnWeb?: boolean;
 }
 
 export interface CostoEscenarioProducto { costoUnitario: number; escenarioTipo: string; proveedorNombre: string | null }
@@ -368,7 +393,7 @@ export interface SugerenciaSkuProducto {
   // Campos leídos del documento para ESTE producto (25-sep-2026). Cada uno solo viene si aparece
   // literal en el texto de la cotización; la UI los prellena en campos vacíos y quedan editables.
   marca: string | null; modelo: string | null; skuProveedor: string | null;
-  tipo: string | null; atributo: string | null;
+  tipo: string | null; atributo: string | null; medida: string | null;
   /** Por qué Marca/Modelo quedaron vacíos (null si se leyeron). */
   motivo?: string | null;
 }
@@ -384,10 +409,11 @@ const SYS_SKU_DESDE_COTIZACION = `Lees una cotización de proveedor (texto trans
 - modelo: el código/nombre de modelo, si figura.
 - skuProveedor: el código/referencia/part number del proveedor para esa línea, si figura.
 - atributo: una característica distintiva corta (ej. "Sumergible", "Core i5"), si figura.
-Si un dato no está con certeza, usa null — NUNCA inventes ni deduzcas. Responde SOLO JSON: {"tipo":<string|null>,"marca":<string|null>,"modelo":<string|null>,"skuProveedor":<string|null>,"atributo":<string|null>}`;
+- medida: la medida o capacidad principal del producto tal como está escrita (ej. "215 x 96 cm", "1,5 L", "500 W"), si figura.
+Si un dato no está con certeza, usa null — NUNCA inventes ni deduzcas. Responde SOLO JSON: {"tipo":<string|null>,"marca":<string|null>,"modelo":<string|null>,"skuProveedor":<string|null>,"atributo":<string|null>,"medida":<string|null>}`;
 
 async function extraerCamposSku(texto: string, descripcionProducto: string) {
-  const vacio = { marca: null, modelo: null, skuProveedor: null, tipo: null, atributo: null };
+  const vacio = { marca: null, modelo: null, skuProveedor: null, tipo: null, atributo: null, medida: null };
   if (texto.length < 20) return vacio;
   try {
     const completion: any = await crearChatIA({
@@ -395,7 +421,7 @@ async function extraerCamposSku(texto: string, descripcionProducto: string) {
         { role: 'system', content: SYS_SKU_DESDE_COTIZACION },
         { role: 'user', content: `PRODUCTO A COMPRAR: ${descripcionProducto}\n\nCOTIZACIÓN:\n${texto.slice(0, 12_000)}` },
       ],
-      temperature: 0, stream: false, max_tokens: 300, response_format: { type: 'json_object' },
+      temperature: 0, stream: false, max_tokens: 360, response_format: { type: 'json_object' },
     }, { timeoutMs: 30_000, modeloPreferido: 'glm-4.7', soloGlm: true });
     const p: any = parseJsonIA(String(completion.choices?.[0]?.message?.content ?? '')) || {};
     const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ');
@@ -404,7 +430,10 @@ async function extraerCamposSku(texto: string, descripcionProducto: string) {
     // algo que la IA "dedujo"). Tipo/atributo son descriptivos, se aceptan tal cual.
     const literal = (v: unknown) => (typeof v === 'string' && v.trim() && textoN.includes(norm(v.trim())) ? v.trim() : null);
     const libre = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 80) : null);
-    return { marca: literal(p.marca), modelo: literal(p.modelo), skuProveedor: literal(p.skuProveedor), tipo: libre(p.tipo), atributo: libre(p.atributo) };
+    // La medida se compara sin espacios ni signos ("215x96 cm" = "215 x 96 cm") y debe tener algún número.
+    const soloAlfanum = (s: string) => s.toLowerCase().replace(/[^a-z0-9áéíóúñ]/g, '');
+    const medida = (v: unknown) => (typeof v === 'string' && /\d/.test(v) && soloAlfanum(texto).includes(soloAlfanum(v)) ? v.trim().slice(0, 60) : null);
+    return { marca: literal(p.marca), modelo: literal(p.modelo), skuProveedor: literal(p.skuProveedor), tipo: libre(p.tipo), atributo: libre(p.atributo), medida: medida(p.medida) };
   } catch (e) {
     console.error('[compras-aprobaciones] extracción de campos SKU falló:', String(e).slice(0, 200));
     return vacio;
@@ -432,7 +461,7 @@ export async function sugerenciaSkuParaProducto(negocioId: number, productoId: n
     [productoId, negocioId, costo?.proveedorNombre || ''],
   ) as any;
   const r = (rows as any[])[0];
-  const vacio = { marca: null, modelo: null, skuProveedor: null, tipo: null, atributo: null };
+  const vacio = { marca: null, modelo: null, skuProveedor: null, tipo: null, atributo: null, medida: null };
   if (!r) {
     // Sin cotización asignada al producto: el escenario elegido igual sabe el proveedor.
     if (!costo?.proveedorNombre) return null;
@@ -485,7 +514,7 @@ export async function crearSku(negocioId: number, productoId: number, datos: Dat
   let verificadoObuma = !!obumaProductoId;
 
   if (datos.crearEnObuma) {
-    if (!datos.obumaSubcategoriaId?.trim()) throw new Error('Falta elegir la subcategoría de Obuma (bajo "Mercado Publico") para crear el producto.');
+    if (!datos.obumaSubcategoriaId?.trim()) throw new Error('Falta elegir la categoría y la subcategoría de Obuma para crear el producto.');
     if (!datos.nombreObuma?.trim()) throw new Error('Falta el nombre del producto (Tipo/Atributo/Medida/Marca) — es lo que se está cotizando, no la línea de la licitación.');
 
     const costo = await costoEscenarioParaProducto(negocioId, productoId);
@@ -494,11 +523,21 @@ export async function crearSku(negocioId: number, productoId: number, datos: Dat
       throw new Error(`El costo del escenario cambió desde que se abrió el formulario (ahora es ${Math.round(costo.costoUnitario).toLocaleString('es-CL')}, no ${Math.round(datos.costoEsperado).toLocaleString('es-CL')}) — vuelve a revisar antes de crear en Obuma.`);
     }
 
+    // Categoría elegida (por defecto «Mercado Publico»): la subcategoría tiene que pertenecer a ella.
+    let categoriaId: string | undefined;
+    if (datos.obumaCategoriaId?.trim() && datos.obumaCategoriaId.trim() !== OBUMA_CATEGORIA_MERCADO_PUBLICO) {
+      const subs = (await listarSubcategoriasProductos()).data || [];
+      const sub = subs.find(x => String(x.producto_subcategoria_id) === datos.obumaSubcategoriaId!.trim());
+      if (!sub || String(sub.rel_producto_categoria_id) !== datos.obumaCategoriaId.trim()) throw new Error('La subcategoría elegida no pertenece a esa categoría de Obuma.');
+      categoriaId = datos.obumaCategoriaId.trim();
+    }
     const nombreObuma = datos.nombreObuma.trim();
     const codigoSugerido = await siguienteSkuMercadoPublico(datos.obumaSubcategoriaId.trim());
     const { productoId: idCreado, codigoComercial } = await crearProductoObuma({
-      nombre: nombreObuma, codigoComercial: codigoSugerido, subcategoriaId: datos.obumaSubcategoriaId.trim(),
+      nombre: nombreObuma, codigoComercial: codigoSugerido, subcategoriaId: datos.obumaSubcategoriaId.trim(), categoriaId,
       costoClpNeto: costo.costoUnitario,
+      precioVentaClpNeto: datos.precioVentaNeto != null && Number.isFinite(Number(datos.precioVentaNeto)) && Number(datos.precioVentaNeto) > 0 ? Number(datos.precioVentaNeto) : 0,
+      paraVenta: datos.paraVenta, paraCompra: datos.paraCompra, inventariable: datos.inventariable, venderEnWeb: datos.venderEnWeb,
     });
     obumaProductoId = idCreado;
     obumaCodigoComercial = codigoComercial; // el que Obuma confirmó al releer, no el sugerido

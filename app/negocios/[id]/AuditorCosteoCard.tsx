@@ -131,7 +131,12 @@ export function AuditorCosteoCard({ negocioId, puedeOperar }: { negocioId: numbe
         <div className="px-4 py-3 bg-teal-50/60 flex flex-wrap items-center gap-2 justify-between">
           <div>
             <p className="flex items-center gap-1.5 text-[13px] font-bold text-teal-900"><ShieldCheck size={15} /> Auditor de Compras · Verificador de cotizaciones</p>
-            <p className="text-[11px] text-teal-700/80 mt-0.5">Revisa que cada costo tenga un respaldo real, sea el mismo producto y no esconda costos. Es una ayuda: cada punto trae qué hacer.</p>
+            <p className="text-[11.5px] text-teal-700/80 mt-0.5">Revisa que cada costo tenga un respaldo real, sea el mismo producto y no esconda costos. Es una ayuda: cada punto trae qué hacer.</p>
+            <ol className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-[11.5px] text-teal-900/80">
+              <li><b>1.</b> Pulsa «Auditar todas las líneas»</li>
+              <li><b>2.</b> Abre cada línea con alerta y mira qué corregir</li>
+              <li><b>3.</b> Antes de pedir la aprobación, haz la «Pasada final»</li>
+            </ol>
           </div>
           {puedeOperar && (
             <div className="flex flex-wrap gap-1.5">
@@ -149,11 +154,21 @@ export function AuditorCosteoCard({ negocioId, puedeOperar }: { negocioId: numbe
           </div>
         )}
         {lote?.error && <div className="px-4 py-2 border-t border-rose-100 text-[11.5px] text-rose-700 bg-rose-50">La última corrida falló: {lote.error}</div>}
-        <div className="px-4 py-2.5 border-t border-teal-100 flex flex-wrap gap-2 text-[11.5px]">
-          <Chip cls="bg-emerald-50 text-emerald-700 border-emerald-200">{r.verificadas} verificada(s)</Chip>
-          <Chip cls="bg-amber-50 text-amber-700 border-amber-200">{r.conAlertas} con alertas / pendientes</Chip>
-          <Chip cls="bg-rose-50 text-rose-700 border-rose-200">{r.bloqueadas} bloqueada(s)</Chip>
-          <Chip cls="bg-zinc-50 text-zinc-600 border-zinc-200">{r.sinAuditar} sin auditar</Chip>
+        <div className="px-4 py-3 border-t border-teal-100 grid grid-cols-2 sm:grid-cols-4 gap-2" data-testid="auditor-costeo-resumen">
+          {([
+            { n: r.verificadas, et: 'Verificadas', sub: 'respaldo OK', cls: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
+            { n: r.conAlertas, et: 'Con alertas', sub: 'revisar', cls: 'bg-amber-50 border-amber-200 text-amber-800' },
+            { n: r.bloqueadas, et: 'Bloqueadas', sub: 'hay que resolver', cls: 'bg-rose-50 border-rose-200 text-rose-800' },
+            { n: r.sinAuditar, et: 'Sin auditar', sub: 'falta correr', cls: 'bg-zinc-50 border-zinc-200 text-zinc-700' },
+          ]).map(t => (
+            <div key={t.et} className={`rounded-lg border px-3 py-2 ${t.cls}`}>
+              <p className="text-[22px] font-extrabold leading-none tabular-nums">{t.n}</p>
+              <p className="text-[12px] font-bold mt-1">{t.et}</p>
+              <p className="text-[10.5px] opacity-70">{t.sub}</p>
+            </div>
+          ))}
+        </div>
+        <div className="px-4 py-2 border-t border-teal-100 flex flex-wrap items-center gap-2 text-[11.5px]">
           {panel.margen && <Chip cls="bg-zinc-50 text-zinc-700 border-zinc-200">Margen del proyecto: {panel.margen.margenBase ?? '—'}% costeado → {panel.margen.margenFinal ?? '—'}% con costos auditados{panel.margen.caidaPuntos ? ` (−${panel.margen.caidaPuntos} pts)` : ''}</Chip>}
           <span className={`ml-auto font-bold ${r.pasaAnexosOk ? 'text-emerald-700' : 'text-rose-600'}`}>{r.pasaAnexosOk ? '✔ Sin bloqueos pendientes' : `🚫 ${r.bloqueadas} línea(s) con bloqueos sin resolver`}</span>
         </div>
@@ -178,6 +193,7 @@ export function AuditorCosteoCard({ negocioId, puedeOperar }: { negocioId: numbe
       {pos && <PosicionPrecioCard pos={pos} puedeOperar={puedeOperar} ocupado={ocupado === 'lectura'} onLectura={() => accion({ accion: 'lectura' }, 'lectura')} />}
 
       <div className="space-y-2">
+        <p className="text-[12px] font-semibold text-zinc-500 px-1">Una línea por producto del costeo. Toca una para ver su detalle y qué hacer.</p>
         {panel.lineas.map(lp => {
           if (lp.noAdjudicada) return (
             <div key={lp.linea.id} aria-disabled className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl border border-zinc-200 bg-zinc-50/70 opacity-60 cursor-not-allowed select-none">

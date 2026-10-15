@@ -6,7 +6,7 @@
 // y compras-aprobaciones.ts vuelve a comprobarlo al momento de crear — si el escenario cambió
 // entremedio, rechaza en vez de mandar un número viejo.
 import { NextRequest, NextResponse } from 'next/server';
-import { obtenerAsignacion } from '@/app/lib/compras';
+import { obtenerAsignacion, listarProductosCompra } from '@/app/lib/compras';
 import { costoEscenarioParaProducto, sugerenciaSkuParaProducto } from '@/app/lib/compras-aprobaciones';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 
@@ -35,14 +35,17 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
-    const [costo, sugerencia] = await Promise.all([
+    const [costo, sugerencia, productos] = await Promise.all([
       costoEscenarioParaProducto(id, productoId),
       // La UI pide el costo por un lado y la sugerencia (que llama a la IA) por otro: sugerencia=0
       // evita pagar esa lectura dos veces.
       request.nextUrl.searchParams.get('sugerencia') === '0' ? Promise.resolve(null) : sugerenciaSkuParaProducto(id, productoId).catch(() => null),
+      listarProductosCompra(id).catch(() => []),
     ]);
-    if (!costo) return NextResponse.json({ success: true, costo: null, sugerencia });
-    return NextResponse.json({ success: true, costo: costo.costoUnitario, escenarioTipo: costo.escenarioTipo, sugerencia });
+    // Precio de venta neto por unidad: lo que se ganó en la licitación (acta de Mercado Público), la misma cifra del costeo.
+    const venta = productos.find(p => p.id === productoId)?.montoUnitario ?? null;
+    if (!costo) return NextResponse.json({ success: true, costo: null, venta, sugerencia });
+    return NextResponse.json({ success: true, costo: costo.costoUnitario, venta, escenarioTipo: costo.escenarioTipo, sugerencia });
   } catch (error: any) {
     console.error('[compras/sku/costo-preview][GET]', String(error));
     return NextResponse.json({ error: error.message || 'No se pudo consultar el costo.' }, { status: 500 });

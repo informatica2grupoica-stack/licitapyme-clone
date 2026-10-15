@@ -49,8 +49,32 @@ function crearPool() {
 // Vercel). Síntoma real observado el 2026-07-30: tras una sesión larga de edición, cualquier
 // script externo fallaba con ER_TOO_MANY_USER_CONNECTIONS y no se liberaba ninguna conexión.
 // En producción no ocurría porque el proceso no recarga módulos — por eso pasaba desapercibido.
+// LECTURAS CON REINTENTO. La base está lejos y de vez en cuando suelta una conexión del pool (ECONNRESET / PROTOCOL_CONNECTION_LOST):
+// la consulta siguiente falla UNA vez y la siguiente ya funciona. Varias pantallas (Compras) tragaban ese error y mostraban «nada aprobado /
+// sin escenario» o listas vacías (visto el 14-oct-2026, QA en vivo del 1110). Solo se reintentan SELECT/SHOW (idempotentes); un INSERT/UPDATE
+// que se corta puede haberse ejecutado y no se repite a ciegas.
+const ERRORES_DE_CONEXION = new Set(['ECONNRESET', 'PROTOCOL_CONNECTION_LOST', 'EPIPE', 'ECONNABORTED']);
+function conReintentoDeLectura(p: mysql.Pool): mysql.Pool {
+  // Idempotente: con HMR el pool singleton ya existe y no debe envolverse dos veces.
+  if ((p as unknown as { __conReintento?: boolean }).__conReintento) return p;
+  (p as unknown as { __conReintento?: boolean }).__conReintento = true;
+  const original = p.query.bind(p) as (...a: unknown[]) => Promise<unknown>;
+  (p as unknown as { query: (...a: unknown[]) => Promise<unknown> }).query = async (...args: unknown[]) => {
+    const sql = String(typeof args[0] === 'string' ? args[0] : (args[0] as { sql?: string } | undefined)?.sql ?? '').trimStart();
+    const esLectura = /^(select|show)\b/i.test(sql);
+    for (let intento = 1; ; intento++) {
+      try { return await original(...args); } catch (e) {
+        const code = (e as { code?: string })?.code;
+        if (!esLectura || intento >= 3 || !code || !ERRORES_DE_CONEXION.has(code)) throw e;
+        await new Promise(r => setTimeout(r, 150 * intento));
+      }
+    }
+  };
+  return p;
+}
+
 const globalConPool = globalThis as unknown as { __mysqlPool?: mysql.Pool };
-const pool = globalConPool.__mysqlPool ?? crearPool();
+const pool = conReintentoDeLectura(globalConPool.__mysqlPool ?? crearPool());
 if (process.env.NODE_ENV !== 'production') globalConPool.__mysqlPool = pool;
 
 // Probar conexión

@@ -486,7 +486,11 @@ export async function buscarProductosObumaPorNombre(query: string, limite = 20):
 
 export interface DatosCrearProductoObuma {
   nombre: string; codigoComercial: string; subcategoriaId: string;
+  /** Categoría de Obuma; si no viene, «Mercado Publico». */
+  categoriaId?: string;
   costoClpNeto: number;
+  // Precio de venta neto (14-oct-2026): viene del costeo/acta; 0 = sin precio de venta.
+  precioVentaClpNeto?: number;
   // Solo interno por defecto (decisión del usuario, 10-sep-2026): un producto comprado para UNA
   // licitación puntual no es algo que Tecnomaq venda al público en su catálogo/tienda.
   paraVenta?: boolean; paraCompra?: boolean; inventariable?: boolean; venderEnWeb?: boolean;
@@ -512,23 +516,23 @@ export interface DatosCrearProductoObuma {
  *  datos" aplicada también a lo que se guarda DESPUÉS de escribir, no solo antes). */
 export async function crearProductoObuma(datos: DatosCrearProductoObuma): Promise<{ productoId: string; codigoComercial: string }> {
   const costoNeto = Math.round(datos.costoClpNeto);
-  // Sin venta pública: precio de venta queda en 0, no se inventa un margen — este producto no se
-  // vende por catálogo, se compra para entregar lo adjudicado en la licitación.
-  const precioNeto = 0;
+  // Precio de venta: el neto que llega del costeo/acta (nunca se inventa un margen); IVA 19 % y total derivados de ese neto.
+  const precioNeto = Math.max(0, Math.round(datos.precioVentaClpNeto || 0));
+  const precioIva = Math.round(precioNeto * 0.19);
   const payload = {
     producto_nombre: datos.nombre.toUpperCase().trim().slice(0, 200),
     producto_tipo: '0', // Producto (no Servicio)
     producto_activo: '1',
     producto_mostrar: '0', // nunca visible en el catálogo/tienda
     producto_codigo_comercial: datos.codigoComercial,
-    producto_categoria: OBUMA_CATEGORIA_MERCADO_PUBLICO,
+    producto_categoria: datos.categoriaId || OBUMA_CATEGORIA_MERCADO_PUBLICO,
     producto_subcategoria: datos.subcategoriaId,
     producto_impuesto_id: '1',
     producto_costo_clp_neto: String(costoNeto),
     producto_costo_clp_neto_estandar: String(costoNeto),
     producto_precio_clp_neto: String(precioNeto),
-    producto_precio_clp_iva: '0',
-    producto_precio_clp_total: '0',
+    producto_precio_clp_iva: String(precioIva),
+    producto_precio_clp_total: String(precioNeto + precioIva),
     producto_para_venta: datos.paraVenta ? '1' : '0',
     producto_para_compra: datos.paraCompra === false ? '0' : '1', // por defecto SÍ, es lo que se está comprando
     producto_inventariable: datos.inventariable ? '1' : '0',

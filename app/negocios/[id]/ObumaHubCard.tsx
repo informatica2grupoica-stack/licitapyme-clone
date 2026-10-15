@@ -6,10 +6,9 @@
 // Todo lo que escribe en Obuma sigue siendo una acción explícita de la persona (nunca automático).
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '@/app/components/ui/toast';
-import { AprobacionesCompraCard } from './AprobacionesCompraCard';
 import { RepartoAdminCard } from './RepartoAdminCard';
 import { CrearProveedorObumaModal, type FormProveedor } from './CrearProveedorObumaModal';
-import { consumirAccionPendiente } from '@/app/compras/[negocioId]/comprasNavegacion';
+import { consumirAccionPendiente, irAFase } from '@/app/compras/[negocioId]/comprasNavegacion';
 import {
   IconCircleCheck as Check, IconCircle as Pendiente, IconLoader2 as Loader2, IconSearch as Search, IconPlus as Plus,
   IconBuildingStore as Proveedor, IconTag as Tag, IconFileText as Oc, IconShieldCheck as Shield,
@@ -210,9 +209,10 @@ export function ObumaHubCard({ negocioId, puedeOperar, esAdministracion }: { neg
       </div>
 
       {/* 3. SKU */}
-      <div>
-        <p className="text-[11.5px] font-bold text-zinc-500 uppercase mb-2 flex items-center gap-1.5 px-0.5"><Tag size={13} /> 2 · SKU de los productos</p>
-        <AprobacionesCompraCard key={`sku-${version}`} negocioId={negocioId} puedeOperar={puedeOperar} parte="sku" />
+      <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3 flex items-center gap-3 flex-wrap">
+        <Tag size={16} className="text-zinc-400" />
+        <p className="flex-1 min-w-[220px] text-[12.5px] text-zinc-600"><b className="text-zinc-800">2 · SKU de los productos:</b> ahora se crean en el paso «Aprobación y SKU», apenas el jefe de ventas aprueba la compra.</p>
+        <button type="button" onClick={() => irAFase('aprobacion')} className="text-[12.5px] font-semibold text-teal-700 hover:text-teal-900">Ir a Aprobación y SKU →</button>
       </div>
 
       {/* 4. Órdenes de compra */}

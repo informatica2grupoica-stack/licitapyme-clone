@@ -39,7 +39,7 @@ export async function registrarEvento(e: EventoHistorial): Promise<number | null
     if (e.usuarioId) {
       publicar(e.usuarioId, {
         id, tipo: e.tipo, mensaje: e.mensaje,
-        licitacion_codigo: e.licitacionCodigo ?? null,
+        licitacion_codigo: e.licitacionCodigo ?? null, metadata: e.metadata ?? null,
         leido: false, created_at: new Date().toISOString(),
       });
     }
