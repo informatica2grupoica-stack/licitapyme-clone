@@ -188,7 +188,10 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
         const r: ResultadoRuteo = d.resultado;
         if (r.error) { toast.error(`No se pudo leer «${f.name}»`, r.error); continue; }
         for (const x of r.productos) {
-          if (x.resultado === 'asignada' || x.resultado === 'ya_asignada') {
+          if (x.resultado === 'ya_asignada' && x.productoCompraId !== p.productoId) {
+            // Esa ficha ya vive en OTRO producto: no se mueve sola (le quitaría la ficha a ese producto). Se avisa y, si de verdad va aquí, se cambia a mano.
+            toast.error(`«${f.name}» ya está en otro producto`, `Está en «${x.productoNombre || 'otro producto'}». Si también corresponde a este, súbela como texto o cambia el modelo de producto a mano.`);
+          } else if (x.resultado === 'asignada' || x.resultado === 'ya_asignada') {
             if (x.productoCompraId !== p.productoId && x.opcionId) await post({ accion: 'mover_modelo', opcionId: x.opcionId, productoCompraId: p.productoId });
             asignadas++;
           } else if ((x.resultado === 'por_confirmar' || x.resultado === 'sin_producto') && r.extraccionId != null) {
