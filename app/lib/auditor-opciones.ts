@@ -1073,3 +1073,40 @@ export async function confirmarCeldaTecnica(negocioId: number, opcionId: number,
 
 /** Segunda pasada de rojos de UNA opción (botón «Correr segunda pasada» de Pre-postulación). */
 export const correrSegundaPasadaDeOpcion = (negocioId: number, opcionId: number, actor: Actor) => segundaPasadaRojosV3({ negocioId, opcionId, actor });
+
+// ── Eliminar una cotización (documento) y todo lo que el Auditor dedujo de ella ────────────────────
+/** Quita del Auditor todo lo que salió del documento `url`: sus lecturas (auditor_extraccion), los respaldos que apuntaban a ellas y las opciones
+ *  que quedaron sin ningún respaldo (con su verificación y capturas). Una opción que además tiene otro respaldo (otra cotización, link, ficha) o costos
+ *  asociados se conserva. Se niega si alguna opción ya está firmada/en aprobación/aprobada: primero hay que quitar la firma. Idempotente. */
+export async function quitarDocumentoDelAuditor(negocioId: number, url: string, nombre: string, actor: Actor): Promise<{ opcionesBorradas: number; respaldosQuitados: number }> {
+  const [ext] = await pool.query(`SELECT id FROM auditor_extraccion WHERE negocio_id = ? AND documento_url = ?`, [negocioId, url]) as any;
+  const extIds = (ext as any[]).map(r => Number(r.id));
+  const [resp] = await pool.query(
+    `SELECT id, opcion_id FROM auditor_respaldo WHERE negocio_id = ? AND (documento_url = ?${extIds.length ? ' OR extraccion_id IN (?)' : ''})`,
+    extIds.length ? [negocioId, url, extIds] : [negocioId, url]) as any;
+  const opcionIds = [...new Set((resp as any[]).map(r => Number(r.opcion_id)))];
+  if (opcionIds.length) {
+    const [firmadas] = await pool.query(`SELECT id FROM auditor_opcion WHERE id IN (?) AND estado IN ('definitiva','en_aprobacion','aprobada') LIMIT 1`, [opcionIds]) as any;
+    if ((firmadas as any[]).length) throw new Error('Esta cotización sostiene una opción ya firmada o en aprobación: quita la firma (o rechaza la aprobación) antes de eliminarla.');
+  }
+  const respIds = (resp as any[]).map(r => Number(r.id));
+  if (respIds.length) await pool.query(`DELETE FROM auditor_respaldo WHERE id IN (?)`, [respIds]);
+  if (extIds.length) await pool.query(`DELETE FROM auditor_extraccion WHERE id IN (?)`, [extIds]);
+
+  let opcionesBorradas = 0;
+  for (const opcionId of opcionIds) {
+    const [[restan]] = await pool.query(`SELECT COUNT(*) n FROM auditor_respaldo WHERE opcion_id = ?`, [opcionId]) as any;
+    if (Number(restan.n) > 0) { await evento(negocioId, opcionId, 'documento_nuevo', 'asistente', `Se eliminó la cotización ${nombre} (por ${actor.nombre || 'el sistema'}); la opción conserva sus otros respaldos.`); continue; }
+    const [[costos]] = await pool.query(`SELECT COUNT(*) n FROM auditor_costo_asociado WHERE opcion_id = ?`, [opcionId]).catch(() => [[{ n: 0 }]]) as any;
+    if (Number(costos.n) > 0) {
+      await pool.query(`UPDATE auditor_opcion SET estado = 'descartada', motivo_descarte = ?, actualizado_at = ? WHERE id = ?`, [`Se eliminó la cotización ${nombre}.`.slice(0, 480), ahoraChileSQL(), opcionId]);
+      continue;
+    }
+    for (const t of ['auditor_verificacion_tecnica', 'auditor_verificacion_costo', 'auditor_captura', 'auditor_evento'])
+      await pool.query(`DELETE FROM ${t} WHERE opcion_id = ?`, [opcionId]).catch(() => {});
+    await pool.query(`DELETE FROM auditor_opcion WHERE id = ? AND negocio_id = ?`, [opcionId, negocioId]);
+    opcionesBorradas++;
+  }
+  if (opcionIds.length) await evento(negocioId, 0, 'documento_eliminado', 'asistente', `Se eliminó la cotización ${nombre}: ${opcionesBorradas} opción(es) sin otro respaldo se borraron.`);
+  return { opcionesBorradas, respaldosQuitados: respIds.length };
+}

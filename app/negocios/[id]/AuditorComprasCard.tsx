@@ -12,9 +12,11 @@ import { Banner } from '@/app/components/ui/Banner';
 import { parsearMontoCL } from '@/app/lib/numeros';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { AuditoriaCotizacionPanel, type AuditoriaUI } from './AuditoriaCotizacionPanel';
+import { ComparadorPrecios } from './ComparadorPrecios';
 import { MatrizPrecios, ESTILO_VEREDICTO, ETIQUETA_ALERTA, type SeleccionCelda } from './MatrizPrecios';
 import { compararPrecioConCosteo } from '@/app/lib/compras-precio-vs-costeo';
 import { CotizacionesMasivas } from './CotizacionesMasivas';
+import { CompraDirectaPanel, type InicialDirecta } from './CompraDirectaPanel';
 import { ListaCotizaciones } from './ListaCotizaciones';
 import { CoberturaCotizaciones } from './CoberturaCotizaciones';
 import type { LinksCosteo } from './LinksProducto';
@@ -72,9 +74,9 @@ function PasosCotizacion({ vista, onElegir, cotizaciones, paraNegociar, elegida 
   vista: PasoCotizacion; onElegir: (v: PasoCotizacion) => void; cotizaciones: number; paraNegociar: number; elegida: boolean;
 }) {
   const pasos: Array<{ k: PasoCotizacion; n: number; titulo: string; pregunta: string; chip: string; ok: boolean }> = [
-    { k: 'subir', n: 1, titulo: 'Cotizaciones', pregunta: '¿Qué precios me dieron los proveedores?', chip: cotizaciones ? `${cotizaciones} recibida${cotizaciones === 1 ? '' : 's'}` : 'Ninguna todavía', ok: cotizaciones > 0 },
-    { k: 'comparar', n: 2, titulo: 'Comparar precios', pregunta: '¿Quién es más barato que lo costeado?', chip: paraNegociar ? `${paraNegociar} para negociar` : 'Ver cuadro', ok: false },
-    { k: 'elegir', n: 3, titulo: 'Elegir cómo comprar', pregunta: '¿A quién le compro cada producto?', chip: elegida ? 'Ya elegida' : 'Sin elegir', ok: elegida },
+    { k: 'subir', n: 1, titulo: 'Sube las cotizaciones', pregunta: 'Los precios que mandaron tus proveedores', chip: cotizaciones ? `${cotizaciones} recibida${cotizaciones === 1 ? '' : 's'}` : 'Ninguna todavía', ok: cotizaciones > 0 },
+    { k: 'comparar', n: 2, titulo: 'Compara los precios', pregunta: 'Mira quién es más barato', chip: paraNegociar ? `${paraNegociar} para negociar` : 'Ver cuadro', ok: false },
+    { k: 'elegir', n: 3, titulo: 'Elige a quién comprar', pregunta: 'Define tu compra y pídela a aprobación', chip: elegida ? 'Ya elegida' : 'Sin elegir', ok: elegida },
   ];
   return (
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" data-testid="pasos-cotizacion">
@@ -94,6 +96,17 @@ function PasosCotizacion({ vista, onElegir, cotizaciones, paraNegociar, elegida 
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/** Recuadro «Qué hacer ahora» de cada paso: instrucciones cortas en lenguaje simple y el estado real, para que alguien nuevo sepa qué toca sin que se lo expliquen. */
+function GuiaPaso({ titulo, pasos, estado }: { titulo: string; pasos: string[]; estado: { ok: boolean; texto: string } }) {
+  return (
+    <div className="rounded-xl border border-teal-200 bg-teal-50/50 px-4 py-3" data-testid="guia-paso">
+      <p className="text-[13.5px] font-bold text-teal-900">{titulo}</p>
+      <ol className="mt-1.5 space-y-1 text-[13px] text-zinc-700 list-decimal pl-5">{pasos.map(t => <li key={t}>{t}</li>)}</ol>
+      <p className={`mt-2 text-[12.5px] font-semibold rounded-lg px-2.5 py-1.5 inline-block ${estado.ok ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-amber-50 text-amber-800 border border-amber-200'}`}>{estado.ok ? '✔ ' : '⚠ '}{estado.texto}</p>
     </div>
   );
 }
@@ -131,6 +144,10 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   const [eligiendo, setEligiendo] = useState<TipoEscenario | null>(null);
   const [formAbierto, setFormAbierto] = useState(false);
   const [masivaAbierta, setMasivaAbierta] = useState(false);
+  // Vista de precios: por producto (escala a muchas cotizaciones) o la matriz clásica (solo con pocas cotizaciones).
+  const [vistaMatriz, setVistaMatriz] = useState(false);
+  // Compra directa: null = cerrada; objeto = abierta (con datos iniciales si viene de «Comprar por link» de la matriz).
+  const [directaAbierta, setDirectaAbierta] = useState<InicialDirecta | null>(null);
   const [guardandoForm, setGuardandoForm] = useState(false);
   const [archivo, setArchivo] = useState<File | null>(null);
   // Pedido explícito del usuario (11-sep-2026): la extracción del documento (spec §8.2) ya existía,
@@ -698,8 +715,20 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
     <div className="space-y-3">
       <PasosCotizacion vista={vista} onElegir={setVista} cotizaciones={cotizaciones.length} paraNegociar={negociacion.length} elegida={!!elegidaComb} />
       <div className={vista === 'subir' ? 'space-y-3' : 'hidden'}>
-      {/* Lo primero: cada producto con su cotización por link (la del costeo) y su cotización con documento. */}
-      <CoberturaCotizaciones productos={productos} cotizaciones={cotizaciones} costeado={costeado} linksCosteo={linksCosteo} />
+      {(() => {
+        const vigentes = productos.filter(p => p.subestado !== 'RENUNCIADO' && p.subestado !== 'NO_ADJUDICADA');
+        const sinPrecio = vigentes.filter(p => !cotizaciones.some(c => c.items.some(i => i.productoId === p.id)));
+        return (
+          <GuiaPaso titulo="Qué hacer aquí" estado={sinPrecio.length === 0 && vigentes.length > 0
+            ? { ok: true, texto: `Los ${vigentes.length} productos ya tienen al menos un precio. Puedes pasar a comparar.` }
+            : { ok: false, texto: sinPrecio.length ? `Faltan ${sinPrecio.length} producto${sinPrecio.length === 1 ? '' : 's'} sin precio: ${sinPrecio.slice(0, 3).map(p => p.descripcion.split(' ').slice(0, 4).join(' ')).join(', ')}${sinPrecio.length > 3 ? '…' : ''}.` : 'Todavía no hay cotizaciones cargadas.' }}
+            pasos={['Pulsa «Cargar varias cotizaciones» y sube todos los PDF o fotos que te mandaron los proveedores: el sistema los lee solo y detecta proveedor, productos y precios.', 'Revisa abajo que cada cotización quedó con sus productos y precios (si algo está mal, usa «Productos» o «Más»).', 'Cuando todas estén cargadas, pulsa «Siguiente: comparar precios».']} />
+        );
+      })()}
+      <details className="rounded-xl border border-zinc-200 bg-white">
+        <summary className="cursor-pointer px-4 py-2.5 text-[12.5px] font-semibold text-zinc-600 hover:text-zinc-900">Ver el resumen de precios por producto (opcional)</summary>
+        <div className="p-2"><CoberturaCotizaciones productos={productos} cotizaciones={cotizaciones} costeado={costeado} linksCosteo={linksCosteo} /></div>
+      </details>
 
       {/* Aviso proactivo (pedido explícito, 14-sep-2026): "ojo, le hemos comprado esto antes" —
           cruza los productos de ESTE negocio contra el historial real de compras, 100% local (ya
@@ -730,16 +759,25 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
         <div className="flex items-center justify-between gap-3 px-4 py-3 bg-zinc-50 border-b border-zinc-100">
           <p className="text-[13.5px] font-bold text-zinc-700 flex items-center gap-1.5"><Gavel size={15} /> Cotizaciones recibidas{cotizaciones.length > 0 && <span className="text-zinc-400 font-semibold">({cotizaciones.length})</span>}</p>
           {puedeOperar && (
-            <div className="flex items-center gap-4">
-              <button onClick={() => setMasivaAbierta(v => !v)} className="flex items-center gap-1 text-[11.5px] font-semibold text-indigo-700 hover:text-indigo-800">
-                <Paperclip size={13} /> Cargar varias
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              <button onClick={() => setMasivaAbierta(v => !v)} title="Sube de una vez todas las cotizaciones (PDF, foto, Word o Excel): el sistema lee cada una y detecta proveedor, productos y precios." className="flex items-center gap-2 text-[13.5px] font-bold text-white bg-teal-600 hover:bg-teal-700 shadow-sm px-5 py-2.5 rounded-xl focus-visible:ring-2 focus-visible:ring-teal-400 outline-none">
+                <Paperclip size={17} /> Cargar varias cotizaciones
               </button>
-              <button onClick={() => (formAbierto ? cancelarFormulario() : setFormAbierto(true))} className="flex items-center gap-1 text-[11.5px] font-semibold text-teal-700 hover:text-teal-800">
-                <Plus size={13} /> Registrar cotización
+              <button onClick={() => setDirectaAbierta(d => (d ? null : {}))} title="Para ítems que no se cotizan (ferretería, retail): anota a quién se compra y a qué precio, sin documento." className="flex items-center gap-1 text-[12px] font-semibold text-zinc-600 hover:text-zinc-900 border border-zinc-200 bg-white hover:bg-zinc-50 px-2.5 py-1 rounded-lg">
+                <Plus size={13} /> Compra directa
+              </button>
+              <button onClick={() => (formAbierto ? cancelarFormulario() : setFormAbierto(true))} className="flex items-center gap-1 text-[12px] font-semibold text-zinc-600 hover:text-zinc-900 border border-zinc-200 bg-white hover:bg-zinc-50 px-2.5 py-1 rounded-lg">
+                <Plus size={13} /> Registrar una a mano
               </button>
             </div>
           )}
         </div>
+
+        {directaAbierta && puedeOperar && (
+          <CompraDirectaPanel key={directaAbierta.productoId ?? 'nueva'} negocioId={negocioId} inicial={directaAbierta}
+            productos={productos.filter(p => p.subestado !== 'RENUNCIADO' && p.subestado !== 'NO_ADJUDICADA').map(p => ({ id: p.id, descripcion: p.descripcion }))}
+            onRegistrada={async () => { await cargar(); recargarCompartido(); }} onCerrar={() => setDirectaAbierta(null)} />
+        )}
 
         {masivaAbierta && puedeOperar && (
           <CotizacionesMasivas negocioId={negocioId} productos={productos}
@@ -1049,7 +1087,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           onEliminar={(id) => setConfirmandoEliminarId(id)} />
 
         {cotizaciones.length === 0 && (
-          <p className="px-4 py-6 text-center text-[12px] text-zinc-400">Sin cotizaciones todavía. Súbelas con «Cargar varias» o «Registrar cotización». Lo ideal: tres por producto.</p>
+          <p className="px-4 py-6 text-center text-[12px] text-zinc-400">Sin cotizaciones todavía. Súbelas con «Cargar varias cotizaciones» o «Registrar una a mano». Lo ideal: tres por producto.</p>
         )}
 
         {confirmandoEliminarId != null && (() => {
@@ -1114,10 +1152,18 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           );
         })()}
       </div>
-      <SiguientePasoBtn texto="Ya subí las cotizaciones → Comparar precios" onClick={() => setVista('comparar')} />
+      <SiguientePasoBtn texto="Siguiente: comparar precios →" onClick={() => setVista('comparar')} />
       </div>
 
       <div className={vista === 'comparar' ? 'space-y-3' : 'hidden'}>
+      {(() => {
+        const vigentes = productos.filter(p => p.subestado !== 'RENUNCIADO' && p.subestado !== 'NO_ADJUDICADA');
+        const n = vigentes.filter(p => compra[p.id] != null).length;
+        return (
+          <GuiaPaso titulo="Qué hacer aquí" estado={{ ok: vigentes.length > 0 && n === vigentes.length, texto: `Llevas ${n} de ${vigentes.length} productos con proveedor elegido.` }}
+            pasos={['Abre cada producto: verás todas sus ofertas, de la más barata a la más cara. La mejor lleva ★.', 'Marca el círculo del proveedor al que quieres comprarle ese producto. Si prefieres comprar todo a un solo proveedor, usa «Comprar todo aquí» en el cuadro «Por proveedor».', 'Cuando todos tengan proveedor, pulsa «Siguiente: elegir cómo comprar».']} />
+        );
+      })()}
       {negociacion.length > 0 && (
         <Banner variante="info">
           <details>
@@ -1133,11 +1179,14 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
         </Banner>
       )}
 
-      <MatrizPrecios productos={productos} cotizaciones={cotizaciones} costeado={costeado} linksCosteo={linksCosteo}
+      {vistaMatriz ? (
+        <div className="space-y-2">
+          <button type="button" onClick={() => setVistaMatriz(false)} className="text-[12px] font-semibold text-teal-700 hover:text-teal-900 underline underline-offset-2">← Volver a la vista por producto</button>
+          <MatrizPrecios productos={productos} cotizaciones={cotizaciones} costeado={costeado} linksCosteo={linksCosteo}
         lecturaLink={lecturaLink}
         onCompraPorLink={puedeOperar ? (productoId, d) => {
-          window.dispatchEvent(new CustomEvent('compras:pestana', { detail: { clave: 'productos' } }));
-          setTimeout(() => window.dispatchEvent(new CustomEvent('compras:compra-directa', { detail: { productoId, ...d } })), 50);
+          setDirectaAbierta({ productoId, ...d });
+          setTimeout(() => document.querySelector('[data-testid="form-compra-directa"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150);
         } : undefined} seleccion={seleccion} onSeleccionar={setSeleccion}
         tecnico={tecnicoPorCelda(fichas.panel, cotizaciones)}
         onAgregar={puedeOperar ? (cotizacionId) => { const c = cotizaciones.find(x => x.id === cotizacionId); if (c) { setVista('subir'); abrirAsignacion(c); setTimeout(() => document.getElementById(`cotizacion-${cotizacionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); } } : undefined}
@@ -1151,6 +1200,27 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
         } : undefined}
         alertas={Object.fromEntries(auditorias.map(a => [`${a.cotizacionId}:${a.productoId}`,
           a.revisiones.filter(r => r.resultado === 'NO_CUMPLE' && r.criterio !== 'Precio vs. lo costeado').map(r => ETIQUETA_ALERTA[r.area] ?? r.criterio)]))} />
+        </div>
+      ) : (
+        <ComparadorPrecios productos={productos} cotizaciones={cotizaciones} costeado={costeado} linksCosteo={linksCosteo}
+        lecturaLink={lecturaLink}
+        onCompraPorLink={puedeOperar ? (productoId, d) => {
+          setDirectaAbierta({ productoId, ...d });
+          setTimeout(() => document.querySelector('[data-testid="form-compra-directa"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150);
+        } : undefined} seleccion={seleccion} onSeleccionar={setSeleccion}
+        tecnico={tecnicoPorCelda(fichas.panel, cotizaciones)}
+        onAgregar={puedeOperar ? (cotizacionId) => { const c = cotizaciones.find(x => x.id === cotizacionId); if (c) { setVista('subir'); abrirAsignacion(c); setTimeout(() => document.getElementById(`cotizacion-${cotizacionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); } } : undefined}
+        compra={compra} onElegirCelda={puedeOperar ? elegirCelda : undefined} onComprarTodoAqui={puedeOperar ? comprarTodoAqui : undefined}
+        acciones={puedeOperar ? {
+          onAsignar: (id) => { const c = cotizaciones.find(x => x.id === id); if (c) { setVista('subir'); abrirAsignacion(c); setTimeout(() => document.getElementById(`cotizacion-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); } },
+          onHomologar: (id) => homologar(id),
+          onEditar: (id) => { const c = cotizaciones.find(x => x.id === id); if (c) { setVista('subir'); iniciarEdicion(c); window.scrollTo({ top: 0, behavior: 'smooth' }); } },
+          onEliminar: (id) => setConfirmandoEliminarId(id),
+          ocupadoId: homologando,
+        } : undefined}
+        alertas={Object.fromEntries(auditorias.map(a => [`${a.cotizacionId}:${a.productoId}`,
+          a.revisiones.filter(r => r.resultado === 'NO_CUMPLE' && r.criterio !== 'Precio vs. lo costeado').map(r => ETIQUETA_ALERTA[r.area] ?? r.criterio)]))} onVerMatriz={cotizaciones.length <= 6 ? () => setVistaMatriz(true) : undefined} />
+      )}
 
       {seleccion && (() => {
         const c = cotizaciones.find(x => x.id === seleccion.cotizacionId);
@@ -1174,10 +1244,12 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           </div>
         );
       })()}
-      <SiguientePasoBtn texto="Ya comparé → Elegir cómo comprar" onClick={() => setVista('elegir')} />
+      <SiguientePasoBtn texto="Siguiente: elegir cómo comprar →" onClick={() => setVista('elegir')} />
       </div>
 
-      <div className={vista === 'elegir' ? '' : 'hidden'}>
+      <div className={vista === 'elegir' ? 'space-y-3' : 'hidden'}>
+      <GuiaPaso titulo="Qué hacer aquí" estado={elegidaComb ? { ok: true, texto: 'Ya hay una compra elegida. Pídela a aprobación en el paso «Aprobación y SKU».' } : { ok: false, texto: 'Todavía no has elegido tu compra.' }}
+        pasos={['Mira las compras recomendadas (la más barata, la más rápida, a un solo proveedor) o la que armaste tú en el paso anterior.', 'Toca «Ver detalle» para revisar proveedores, precios y avisos, y pulsa «Elegir esta combinación» (si te apartas de la más rápida, escribe el motivo).', 'Listo: el jefe de ventas la aprueba en «Aprobación y SKU».']} />
       <ArmarCompra negocioId={negocioId} recomendadas={recomendadas} elegida={elegidaComb} compra={compra} setCompra={setCompra}
         evaluacion={evaluacion} evaluando={evaluando} puedeOperar={puedeOperar} onElegida={async () => { await cargar(); recargarCompartido(); }} />
       </div>

@@ -4,6 +4,7 @@
 // vigencia, avisos y sus acciones). Reemplaza a las tarjetas apiladas, que con 10 cotizaciones se volvían una lista inmensa, sin
 // esconder nada: todas siguen a la vista, en filas compactas con scroll propio y encabezado fijo.
 import { useState } from 'react';
+import { MenuAcciones } from '@/app/components/ui/MenuAcciones';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { IconEye as Eye, IconListCheck as ListChecks, IconSparkles as Sparkles, IconPencil as Pencil, IconTrash as Trash, IconLoader2 as Loader2, IconAlertTriangle as Alerta } from '@tabler/icons-react';
 
@@ -87,12 +88,15 @@ export function ListaCotizaciones({ cotizaciones, productos, avisosPorCotizacion
                 <td className="px-3 py-2.5 whitespace-nowrap">{avisos > 0 ? <span className="inline-flex items-center gap-1 font-bold text-rose-600"><Alerta size={13} />{avisos}</span> : <span className="text-emerald-600">sin avisos</span>}</td>
                 {puedeOperar && (
                   <td className="px-3 py-2.5">
-                    <div className="flex items-center justify-end gap-1">
-                      {c.archivoUrl && <button type="button" onClick={() => setVisor({ nombre: nombreDeArchivo(c.archivoUrl!), url: c.archivoUrl! })} title="Ver el documento que se subió" aria-label={`Ver el documento de ${c.proveedorNombre}`} data-testid={`cotizacion-ver-${c.id}`} className="p-1.5 rounded-md text-zinc-500 hover:text-teal-700 hover:bg-zinc-100"><Eye size={15} /></button>}
-                      <button type="button" onClick={() => onAsignar(c.id)} title="Qué productos cubre" className="p-1.5 rounded-md text-zinc-500 hover:text-teal-700 hover:bg-zinc-100"><ListChecks size={15} /></button>
-                      <button type="button" onClick={() => onHomologar(c.id)} disabled={homologandoId === c.id} title={c.homologadaAt ? 'Volver a leer con IA' : 'Leer con IA'} className="p-1.5 rounded-md text-zinc-500 hover:text-indigo-700 hover:bg-zinc-100 disabled:opacity-50">{homologandoId === c.id ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}</button>
-                      <button type="button" onClick={() => onEditar(c.id)} title="Editar datos" className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100"><Pencil size={15} /></button>
-                      <button type="button" onClick={() => onEliminar(c.id)} title="Eliminar" className="p-1.5 rounded-md text-rose-500 hover:text-rose-700 hover:bg-rose-50"><Trash size={15} /></button>
+                    <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+                      {c.archivoUrl && <button type="button" onClick={() => setVisor({ nombre: nombreDeArchivo(c.archivoUrl!), url: c.archivoUrl! })} data-testid={`cotizacion-ver-${c.id}`}
+                        className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-zinc-600 hover:text-teal-800 px-2 py-1 rounded-md hover:bg-zinc-100"><Eye size={13} /> Ver documento</button>}
+                      <button type="button" onClick={() => onAsignar(c.id)} className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-teal-700 hover:text-teal-900 px-2 py-1 rounded-md hover:bg-teal-50"><ListChecks size={13} /> Productos</button>
+                      <MenuAcciones texto="Más" acciones={[
+                        { label: homologandoId === c.id ? 'Leyendo con IA…' : c.homologadaAt ? 'Volver a leer con IA' : 'Leer con IA', onClick: () => onHomologar(c.id), disabled: homologandoId === c.id },
+                        { label: 'Editar datos', onClick: () => onEditar(c.id) },
+                        { label: 'Eliminar cotización', onClick: () => onEliminar(c.id), peligro: true },
+                      ]} />
                     </div>
                   </td>
                 )}

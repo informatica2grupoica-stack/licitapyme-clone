@@ -68,6 +68,10 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
   const [elegidos, setElegidos] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLInputElement>(null);
   const idCola = useRef(0);
+  // «Subir otra ficha» de UN producto: la ficha se asigna a ese producto (sin depender de que el sistema la adivine) y se vuelve a comparar.
+  const subirRef = useRef<HTMLInputElement>(null);
+  const [destino, setDestino] = useState<ProductoFichasDTO | null>(null);
+  const [subiendoA, setSubiendoA] = useState<number | null>(null);
 
   const [linksCosteo, setLinksCosteo] = useState<LinksCosteo>({});
 
@@ -169,6 +173,36 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
     catch (e: any) { toast.error(`No se pudo comparar «${p.descripcion}»`, e.message); }
     finally { setComparando(s => { const n = new Set(s); n.delete(p.productoId); return n; }); }
     if (!silencioso) await cargar();
+  };
+  const subirParaProducto = async (p: ProductoFichasDTO, files: FileList | File[]) => {
+    const validos = [...files].filter(f => FORMATOS.test(f.name));
+    if (validos.length === 0) { toast.error('Formato no soportado', 'Sube PDF, imagen (PNG/JPG), Word, Excel o texto (TXT).'); return; }
+    setSubiendoA(p.productoId); setAbiertas(s => new Set(s).add(p.productoId));
+    let asignadas = 0;
+    try {
+      for (const f of validos) {
+        const fd = new FormData(); fd.set('file', f);
+        const res = await fetch(`/api/compras/${negocioId}/fichas`, { method: 'POST', body: fd });
+        const d = await res.json();
+        if (!res.ok || !d.success) { toast.error(`No se pudo leer «${f.name}»`, d.error || 'Intenta de nuevo.'); continue; }
+        const r: ResultadoRuteo = d.resultado;
+        if (r.error) { toast.error(`No se pudo leer «${f.name}»`, r.error); continue; }
+        for (const x of r.productos) {
+          if (x.resultado === 'asignada' || x.resultado === 'ya_asignada') {
+            if (x.productoCompraId !== p.productoId && x.opcionId) await post({ accion: 'mover_modelo', opcionId: x.opcionId, productoCompraId: p.productoId });
+            asignadas++;
+          } else if ((x.resultado === 'por_confirmar' || x.resultado === 'sin_producto') && r.extraccionId != null) {
+            await post({ accion: 'asignar', extraccionId: r.extraccionId, productoIdx: x.idx, productoCompraId: p.productoId, proveedor: null });
+            asignadas++;
+          } else if (x.resultado === 'no_es_ficha' || x.resultado === 'sin_identificar') {
+            toast.error(`«${f.name}» no parece una ficha de producto`, x.motivo || 'Sube la ficha técnica del fabricante.');
+          }
+        }
+      }
+      await cargar();
+      if (asignadas > 0) { toast.info('Ficha agregada', 'Comparando con las bases…'); await comparar(p, true); toast.success('Comparación lista', 'Mira abajo qué ficha cumple más.'); }
+    } catch (e: any) { toast.error('No se pudo agregar la ficha', e.message); }
+    finally { setSubiendoA(null); }
   };
   const compararTodos = async () => {
     const lista = (panel?.productos || []).filter(p => p.opciones.some(o => o.fichas.length > 0));
@@ -365,6 +399,13 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
                   </button>
                   <div className="w-64 flex-shrink-0"><LinksProducto links={linksCosteo[p.productoId]?.links} /></div>
                   {est ? <Insignia estado={est} /> : <span className="text-[11px] font-semibold text-zinc-400">sin ficha</span>}
+                  {puedeOperar && (
+                    <button type="button" onClick={() => { setDestino(p); subirRef.current?.click(); }} disabled={subiendoA === p.productoId} data-testid={`ficha-subir-${p.productoId}`}
+                      title="Sube otra ficha técnica de este producto: se compara con las bases y se muestra cuál cumple más."
+                      className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-teal-700 border border-teal-200 hover:bg-teal-50 disabled:opacity-50 px-3 py-1.5 rounded-lg">
+                      {subiendoA === p.productoId ? <Loader2 size={12} className="animate-spin" /> : <Upload size={13} />} {conFichas.length > 0 ? 'Subir otra ficha' : 'Subir ficha'}
+                    </button>
+                  )}
                   {puedeOperar && conFichas.length > 0 && (
                     <button type="button" onClick={() => comparar(p)} disabled={comparando.has(p.productoId)} data-testid={`ficha-comparar-${p.productoId}`}
                       className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-indigo-700 border border-indigo-200 hover:bg-indigo-50 disabled:opacity-50 px-3 py-1.5 rounded-lg">
@@ -398,6 +439,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
                                 </ol>
                               )}
                           </div>}
+                          <RankingFichas opciones={relevantes} />
                           {relevantes.length === 0 &&<p className="text-[12.5px] text-zinc-500">Todavía no hay fichas ni opciones de los proveedores cotizados. Sube la ficha del modelo que se va a comprar.</p>}
                           {relevantes.map(o => <OpcionFila key={o.opcionId} o={o} cotizados={nombres} puedeOperar={puedeOperar} onProveedor={cambiarProveedor} onQuitar={quitarModelo} onQuitarFicha={quitarFicha} onComplementar={complementar} onMover={(op, pid) => mover(op.opcionId, pid)} productosDestino={panel.productos.filter(x => x.productoId !== p.productoId)} />)}
                           {otras.length > 0 && (
@@ -418,6 +460,8 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
       </div>
       <p className="text-[11.5px] text-zinc-400">Solo la ficha técnica sirve para juzgar si un producto cumple, no la cotización. Aquí solo cuentan las fichas subidas en este paso; no modifican las del Auditor.</p>
 
+      <input ref={subirRef} type="file" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.md,.csv" data-testid="ficha-input-producto"
+        onChange={e => { const fl = e.target.files ? Array.from(e.target.files) : []; const d = destino; e.target.value = ''; if (fl.length && d) void subirParaProducto(d, fl); }} />
       <DocumentViewerModal doc={visor} onClose={() => setVisor(null)} />
 
       {/* Modal: pegar texto */}
@@ -558,6 +602,44 @@ function ComplementoForm({ f, onGuardar, onCancelar }: { f: FilaRequisito; onGua
         <button type="button" onClick={onCancelar} className="text-[12px] text-zinc-500 hover:text-zinc-800">Cancelar</button>
         <span className="text-[11px] text-zinc-400">Queda registrado quién lo complementó y cuándo.</span>
       </div>
+    </div>
+  );
+}
+
+/** Puntaje de una ficha: proporción de requisitos de las bases que cumple (null si todavía no se comparó). */
+const puntajeDe = (o: OpcionFichaDTO): number | null => (o.fichas.length > 0 && o.tecnico.resumen && o.tecnico.resumen.total > 0 ? o.tecnico.resumen.cumple / o.tecnico.resumen.total : null);
+const nombreOpcion = (o: OpcionFichaDTO) => [o.marca, o.modelo].filter(Boolean).join(' ') || 'Modelo sin nombre';
+
+/** «¿Qué ficha cumple más?»: ordena las fichas comparadas de un producto por requisitos cumplidos y marca la mejor. */
+function RankingFichas({ opciones }: { opciones: OpcionFichaDTO[] }) {
+  const comparadas = opciones.filter(o => puntajeDe(o) != null).sort((a, b) => (puntajeDe(b) ?? 0) - (puntajeDe(a) ?? 0) || (a.tecnico.resumen?.noCumple ?? 0) - (b.tecnico.resumen?.noCumple ?? 0));
+  if (comparadas.length === 0) return null;
+  const top = puntajeDe(comparadas[0])!;
+  const empatan = comparadas.filter(o => puntajeDe(o) === top && (o.tecnico.resumen?.noCumple ?? 0) === (comparadas[0].tecnico.resumen?.noCumple ?? 0));
+  const ganadora = empatan.length === 1 ? comparadas[0] : null;
+  const ningunaCumple = !comparadas.some(o => o.tecnico.estado === 'CUMPLE');
+  return (
+    <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 px-3 py-2.5" data-testid="ranking-fichas">
+      <p className="text-[12.5px] font-bold text-indigo-900">
+        {comparadas.length === 1 ? 'Resultado de la ficha' : ganadora ? `La ficha que más cumple: ${nombreOpcion(ganadora)}` : `Empatan: ${empatan.map(nombreOpcion).join(' y ')}`}
+      </p>
+      {ningunaCumple && <p className="text-[11.5px] text-amber-800 mt-0.5">Ninguna ficha cumple todas las bases todavía{comparadas.length === 1 ? '' : ': la de arriba es la más cercana'}. Sube otra ficha o completa los datos que faltan.</p>}
+      <ol className="mt-1.5 space-y-1">
+        {comparadas.map((o, i) => {
+          const r = o.tecnico.resumen!;
+          const pct = Math.round((puntajeDe(o) ?? 0) * 100);
+          const mejor = ganadora?.opcionId === o.opcionId;
+          return (
+            <li key={o.opcionId} className="flex items-center gap-3 text-[12.5px]">
+              <span className="w-5 text-right tabular-nums text-zinc-400">{i + 1}.</span>
+              <span className="min-w-0 flex-1 truncate"><b className="text-zinc-900">{nombreOpcion(o)}</b>{o.proveedor ? <span className="text-zinc-500"> · {o.proveedor}</span> : null}{mejor && <span className="ml-1.5 text-[10.5px] font-bold text-amber-700">★ Mejor</span>}</span>
+              <span className="w-28 h-2 rounded-full bg-zinc-200 overflow-hidden flex-shrink-0" role="img" aria-label={`${pct} % de los requisitos cumplen`}><span className={`block h-full ${pct === 100 ? 'bg-emerald-500' : pct >= 70 ? 'bg-amber-400' : 'bg-rose-400'}`} style={{ width: `${pct}%` }} /></span>
+              <span className="w-32 text-right tabular-nums text-zinc-700 flex-shrink-0">{r.cumple} de {r.total} cumplen</span>
+              <Insignia estado={o.tecnico.estado} />
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }

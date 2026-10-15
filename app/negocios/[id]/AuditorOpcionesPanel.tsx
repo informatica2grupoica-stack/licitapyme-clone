@@ -12,7 +12,7 @@ import { resumenLicitacion, type LineaParaResumen } from '@/app/lib/auditor-resu
 import {
   IconLoader2 as Loader2, IconFileText as FileText, IconSparkles as Sparkles, IconChevronDown as ChevronDown,
   IconChevronRight as ChevronRight, IconAlertTriangle as Alerta, IconCircleCheck as Check, IconExternalLink as ExternalLink,
-  IconRefresh as Refresh, IconEye as Eye, IconPaperclip as Clip, IconUpload as Upload, IconCopy as Copy, IconDownload as Download,
+  IconRefresh as Refresh, IconEye as Eye, IconPaperclip as Clip, IconUpload as Upload, IconCopy as Copy, IconDownload as Download, IconTrash as Trash,
 } from '@tabler/icons-react';
 import { pedirJson, ultimoJson } from '@/app/lib/pedir-json';
 import type { PanelAuditorDTO, LineaAuditorDTO, OpcionDTO, DocumentoCotizacionDTO } from '@/app/lib/auditor-opciones';
@@ -125,6 +125,24 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
     finally { setLeyendo(prev => { const n = new Set(prev); n.delete(d.url); return n; }); const data = await cargar(true); await autoVerificar(data); }
   };
 
+  // Eliminar una cotización: borra el documento (caja «Cotizaciones») y todo lo que el Auditor sacó de él (lecturas, respaldos y opciones sin otro respaldo).
+  const eliminarDocumento = async (d: DocumentoCotizacionDTO) => {
+    const ok = await confirmar({
+      titulo: `¿Eliminar «${d.nombre}»?`,
+      mensaje: 'Se borra el archivo y todo lo que el Auditor leyó de él: sus productos emparejados y las opciones que solo se apoyaban en esta cotización. No se puede deshacer.',
+      confirmarLabel: 'Eliminar',
+    });
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/documentos/${encodeURIComponent(licitacionCodigo)}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: d.url, nombre: d.nombre }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo eliminar');
+      toast.success('Cotización eliminada', d.nombre);
+      setDocAbierto(null);
+    } catch (e: any) { toast.error(`No se pudo eliminar "${d.nombre}"`, e.message); }
+    finally { await cargar(true); }
+  };
+
   const leerTodas = async () => {
     for (const d of (panel?.documentos || []).filter(x => !x.leido)) await leerDocumento(d, false);
     await autoVerificar(await cargar(true));
@@ -134,6 +152,11 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   // (la misma que usa la pestaña Documentos) y se leen con el Lector en cuanto termina la subida.
   const [subiendo, setSubiendo] = useState<{ actual: number; total: number; nombre: string } | null>(null);
   const [arrastrando, setArrastrando] = useState(false);
+  // Progreso visible de lo que se acaba de subir: cada archivo pasa por «en cola → subiendo → leyendo → listo/error» y el panel lo muestra.
+  type FaseTrabajo = 'cola' | 'subiendo' | 'por_leer' | 'leyendo' | 'listo' | 'error';
+  const [trabajo, setTrabajo] = useState<{ nombre: string; fase: FaseTrabajo; detalle?: string }[]>([]);
+  const [analizando, setAnalizando] = useState(false);   // verificación automática posterior a la lectura
+  const fase = (nombre: string, f: FaseTrabajo, detalle?: string) => setTrabajo(prev => prev.map(t => t.nombre === nombre ? { ...t, fase: f, detalle } : t));
   const inputCotRef = useRef<HTMLInputElement>(null);
   const EXT_OK = /\.(pdf|png|jpe?g|webp|docx?|xlsx?|txt|csv)$/i;
 
@@ -164,23 +187,34 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
     if (rechazados) toast.error(`${rechazados} archivo(s) no se subieron`, 'Solo PDF, imágenes, Word, Excel o texto (.txt).');
     if (!validos.length) return;
     const subidos: DocumentoCotizacionDTO[] = [];
+    setTrabajo(validos.map(f => ({ nombre: f.name, fase: 'cola' as FaseTrabajo })));
     for (let i = 0; i < validos.length; i++) {
       const f = validos[i];
+      fase(f.name, 'subiendo');
       setSubiendo({ actual: i + 1, total: validos.length, nombre: f.name });
       try {
         if (f.size > 100 * 1024 * 1024) throw new Error(`"${f.name}" supera los 100 MB.`);
         if (f.size === 0) throw new Error(`"${f.name}" está vacío (0 bytes): vuelve a exportarlo o descargarlo.`);
         const url = await subirADocumentos(f, 'cotizaciones');
         subidos.push({ url, nombre: f.name } as DocumentoCotizacionDTO);
+        fase(f.name, 'por_leer');
       } catch (e: any) {
+        fase(f.name, 'error', e.message);
         toast.error(`No se pudo subir "${f.name}"`, e.message);
       }
     }
     setSubiendo(null);
     if (!subidos.length) return;
     toast.success(`${subidos.length} cotización(es) subida(s)`, 'Leyéndolas con el Lector…');
-    for (const d of subidos) await leerDocumento(d, false);
-    await autoVerificar(await cargar(true));
+    for (const d of subidos) {
+      fase(d.nombre, 'leyendo');
+      await leerDocumento(d, false);
+      const err = panelRef.current?.documentos.find(x => x.url === d.url)?.error;
+      if (err) fase(d.nombre, 'error', err); else fase(d.nombre, 'listo');
+    }
+    setAnalizando(true);
+    try { await autoVerificar(await cargar(true)); } finally { setAnalizando(false); }
+    setTimeout(() => setTrabajo(prev => prev.filter(t => t.fase === 'error')), 8000);   // lo terminado se esconde solo; los errores quedan
   };
 
   const agregarLink = async (filaId: string, url: string, auto = true): Promise<boolean> => {
@@ -523,13 +557,41 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
             )}
             <input ref={inputCotRef} type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv" className="hidden"
               onChange={e => { const fs = Array.from(e.target.files || []); e.target.value = ''; if (fs.length) subirCotizaciones(fs); }} />
-            <button data-no-pdf onClick={() => inputCotRef.current?.click()} disabled={!!subiendo}
+            <button data-no-pdf onClick={() => inputCotRef.current?.click()} disabled={!!subiendo || leyendo.size > 0 || analizando}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[12px] font-semibold hover:bg-indigo-700 disabled:opacity-50">
-              {subiendo ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
-              {subiendo ? `Subiendo ${subiendo.actual}/${subiendo.total}…` : 'Subir cotizaciones'}
+              {subiendo || leyendo.size > 0 || analizando ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+              {subiendo ? `Subiendo ${subiendo.actual}/${subiendo.total}…` : leyendo.size > 0 ? 'Leyendo…' : analizando ? 'Verificando…' : 'Subir cotizaciones'}
             </button>
           </div>
         </div>
+        {(trabajo.length > 0 || analizando) && (
+          <div data-no-pdf className="mx-5 mb-3 rounded-xl border border-indigo-200 bg-indigo-50/60 px-4 py-3">
+            <p className="text-[12.5px] font-bold text-indigo-900">
+              {trabajo.some(t => t.fase === 'cola' || t.fase === 'subiendo') ? 'Paso 1 de 3 · Subiendo el archivo…'
+                : trabajo.some(t => t.fase === 'por_leer' || t.fase === 'leyendo') ? 'Paso 2 de 3 · Leyendo la cotización (puede tardar hasta un minuto)…'
+                : analizando ? 'Paso 3 de 3 · Comparando con el costeo y verificando precios…'
+                : trabajo.some(t => t.fase === 'error') ? 'Terminó, pero hubo un problema' : 'Listo: ya puedes revisar las líneas de abajo'}
+            </p>
+            <ul className="mt-2 space-y-1">
+              {trabajo.map(t => (
+                <li key={t.nombre} className="flex items-center gap-2 text-[12px] text-zinc-700">
+                  {t.fase === 'listo' ? <Check size={14} className="text-emerald-600 shrink-0" />
+                    : t.fase === 'error' ? <Alerta size={14} className="text-red-600 shrink-0" />
+                    : t.fase === 'cola' || t.fase === 'por_leer' ? <span className="w-3.5 h-3.5 rounded-full border-2 border-zinc-300 shrink-0" />
+                    : <Loader2 size={14} className="animate-spin text-indigo-600 shrink-0" />}
+                  <span className="font-medium truncate">{t.nombre}</span>
+                  <span className="text-zinc-500 shrink-0">
+                    {t.fase === 'cola' ? 'en espera' : t.fase === 'subiendo' ? 'subiendo…' : t.fase === 'por_leer' ? 'subido, falta leerlo' : t.fase === 'leyendo' ? 'leyendo proveedor, productos y precios…'
+                      : t.fase === 'listo' ? 'leído' : (t.detalle || 'no se pudo leer')}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {(trabajo.some(t => t.fase !== 'listo' && t.fase !== 'error') || analizando) && (
+              <div className="mt-2 h-1 rounded-full bg-indigo-100 overflow-hidden"><div className="h-full w-1/3 rounded-full bg-indigo-500 animate-pulse" /></div>
+            )}
+          </div>
+        )}
         {cotAbierta && (panel.documentos.length === 0 ? (
           <p className="px-5 pb-5 text-[12.5px] text-zinc-400">Todavía no hay cotizaciones. Arrastra aquí uno o varios archivos (PDF, imagen, Word, Excel o .txt) o usa «Subir cotizaciones»: se leen solas y cada producto se asigna a su línea.</p>
         ) : (
@@ -539,8 +601,9 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
               const sinLinea = productos.filter(p => !p.filaId && p.precio != null).length;
               const leyendoEste = leyendo.has(d.url);
               return (
-                <button key={d.documentoId} onClick={() => setDocAbierto(d.documentoId)} title="Abrir esta cotización"
-                  className="text-left rounded-xl border border-zinc-200 px-3.5 py-3 hover:border-indigo-300 hover:bg-indigo-50/30 transition-colors">
+                <div key={d.documentoId} className="relative group">
+                <button onClick={() => setDocAbierto(d.documentoId)} title="Abrir esta cotización"
+                  className="w-full text-left rounded-xl border border-zinc-200 px-3.5 py-3 hover:border-indigo-300 hover:bg-indigo-50/30 transition-colors">
                   <div className="flex items-start gap-2">
                     <FileText size={16} className="text-amber-600 shrink-0 mt-0.5" />
                     <div className="min-w-0">
@@ -559,6 +622,9 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                         </>}
                   </div>
                 </button>
+                <button data-no-pdf onClick={() => eliminarDocumento(d)} title="Eliminar esta cotización y lo que se leyó de ella" disabled={leyendoEste}
+                  className="absolute top-2 right-2 p-1 rounded-md text-zinc-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-40"><Trash size={14} /></button>
+                </div>
               );
             })}
           </div>
@@ -1333,6 +1399,7 @@ function CuadroLinea({ negocioId, linea, ocupado, verificando, onVerificar, pued
               const c = o.verificacion?.costoNetoUnitario ?? null;
               return <td key={o.id} className="py-1.5 pr-4"><span className={`text-[13px] font-bold ${c != null && c === minimo ? 'text-emerald-600' : 'text-zinc-800'}`}>{fmtCLP(c)}</span>{c != null && c === minimo && <span className="ml-1 text-[10px] text-emerald-600 font-bold">más barata</span>}
                 {c == null && o.producto?.precio != null && <span className="block text-[11px] text-zinc-400">el documento dice {fmtCLP(o.producto.precio)} ({o.producto.iva === 'no_declarado' ? 'IVA sin definir' : o.producto.moneda})</span>}
+                <ConversionMoneda p={o.producto} compacto />
                 {c != null && o.producto?.ivaSupuesto && <span className="block text-[11px] text-zinc-400">precio web {fmtCLP(o.producto.precio)} con IVA (asumido: la página no lo dice): se sacó el IVA</span>}</td>;
             })}
           </Fila>
@@ -1518,6 +1585,22 @@ function CeldaTecnica({ f, editable, puedeEM, onConfirmar, onComplementar, subie
   );
 }
 
+// Solo para cotizaciones en moneda extranjera: el precio que dice el documento, el tipo de cambio del día de la lectura y el resultado en pesos.
+function ConversionMoneda({ p, compacto = false }: { p: OpcionDTO['producto']; compacto?: boolean }) {
+  const cv = p?.conversion;
+  if (!cv || p?.precio == null) return null;
+  const simbolo = cv.monedaOriginal === 'EUR' ? '€' : 'US$';
+  const nombre = cv.monedaOriginal === 'EUR' ? 'Euro' : 'Dólar';
+  const fecha = cv.fecha.split('-').reverse().join('-');
+  return (
+    <span className={`mt-1 block rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 leading-snug text-indigo-900 ${compacto ? 'text-[10.5px]' : 'text-[11.5px]'}`}>
+      <b>Cotizado en {cv.monedaOriginal}:</b> {simbolo} {cv.precioOriginal.toLocaleString('es-CL')}<br />
+      <b>{nombre} del día ({fecha}):</b> ${cv.tipoCambio.toLocaleString('es-CL')}<br />
+      <b>En pesos:</b> {fmtCLP(p.precio)}
+    </span>
+  );
+}
+
 // De dónde sale el precio de una opción, para poder comprobarlo: el link o el documento que sostiene el costo, lo que dice ese precio tal cual
 // (con o sin IVA) y la captura de la página con su fecha.
 function FuenteCosto({ o, negocioId }: { o: OpcionDTO; negocioId: number }) {
@@ -1532,7 +1615,7 @@ function FuenteCosto({ o, negocioId }: { o: OpcionDTO; negocioId: number }) {
   return (
     <span className="mt-1 block text-[10.5px] text-zinc-500 leading-snug">
       Fuente: {href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline inline-flex items-center gap-0.5 break-all">{etiqueta} <ExternalLink size={10} /></a> : etiqueta}
-      {p?.precio != null && <> · dice <b className="text-zinc-700">{fmtCLP(p.precio)}</b> {iva}</>}
+      {p?.precio != null && <> · dice <b className="text-zinc-700">{p.conversion ? `US$ ${p.conversion.precioOriginal.toLocaleString('es-CL')}`.replace('US$', p.conversion.monedaOriginal === 'EUR' ? '€' : 'US$') : fmtCLP(p.precio)}</b> {iva}</>}
       {cap && <> · captura {cap.capturadoAt.slice(0, 10)}{cap.hayImagen && <> · <a href={`/api/negocios/${negocioId}/auditor/captura/${cap.id}`} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline">ver imagen</a></>}</>}
     </span>
   );
@@ -1611,6 +1694,7 @@ function CuadroTecnico({ negocioId, linea, ocupado, puedeAprobar, verificando, s
                 <td key={o.id} className="px-3 py-2.5 border-l border-zinc-100">
                   <span className={`text-[15px] font-bold ${c != null && c === minimo ? 'text-emerald-600' : 'text-zinc-900'}`}>{fmtCLP(c)}</span>
                   <DifCosteo costo={c} costeo={linea.costeadoNeto} conTexto />
+                  <ConversionMoneda p={o.producto} />
                   {c != null && c === minimo && <span className="ml-1.5 text-[10px] text-emerald-600 font-bold">MÁS BARATA</span>}
                   {c == null && o.producto?.precio != null && <span className="block text-[11px] text-zinc-400">el documento dice {fmtCLP(o.producto.precio)} (IVA sin definir)</span>}
                   {c != null && o.producto?.ivaSupuesto && <span className="block text-[10.5px] text-zinc-400">IVA asumido (página web): ya descontado</span>}

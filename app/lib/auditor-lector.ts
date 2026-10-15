@@ -59,7 +59,26 @@ export interface SalidaLector {
   observaciones?: string[];
 }
 /** Lo que se guarda en auditor_extraccion.extraccion_json. */
-export interface ExtraccionGuardada { modo: ModoLector; salida: SalidaLector; texto: string; metodoTexto: string }
+/** Tipo de cambio (CLP por 1 unidad) del día en que se leyó el documento, por moneda extranjera. Queda guardado con la lectura: la conversión no cambia al día siguiente. */
+export type TiposCambioLectura = Record<string, { valor: number; fecha: string; fuente: string }>;
+export interface ExtraccionGuardada { modo: ModoLector; salida: SalidaLector; texto: string; metodoTexto: string; tiposCambio?: TiposCambioLectura }
+
+/** Monedas extranjeras que usan los productos leídos (USD, EUR…) con su tipo de cambio de hoy. Sin fuente → esa moneda no se incluye (nunca se inventa). */
+export async function tiposCambioDeLaLectura(salida: SalidaLector): Promise<TiposCambioLectura | undefined> {
+  const monedas = new Set<string>();
+  for (const p of salida.productos || []) {
+    const m = String(p.comercial?.moneda || '').toUpperCase().trim();
+    if (m === 'USD' || m === 'EUR') monedas.add(m);
+  }
+  if (!monedas.size) return undefined;
+  const { obtenerTipoCambio } = await import('@/app/lib/tipo-cambio');
+  const out: TiposCambioLectura = {};
+  for (const m of monedas) {
+    const tc = await obtenerTipoCambio(m).catch(() => null);
+    if (tc) out[m] = { valor: tc.valor, fecha: tc.fecha, fuente: tc.fuente };
+  }
+  return Object.keys(out).length ? out : undefined;
+}
 
 // ── 1) Transcribir el archivo ────────────────────────────────────────────────────────────────────
 const MIME_DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -227,7 +246,7 @@ export async function leerYGuardarDocumento(params: {
   try {
     const { texto, metodo } = await transcribirDocumento(url, { combinar: combinarOCR });
     const salida = await llamarLector(texto, nombre, modo);
-    const guardada: ExtraccionGuardada = { modo, salida, texto: texto.slice(0, MAX_CHARS_TEXTO), metodoTexto: metodo };
+    const guardada: ExtraccionGuardada = { modo, salida, texto: texto.slice(0, MAX_CHARS_TEXTO), metodoTexto: metodo, tiposCambio: await tiposCambioDeLaLectura(salida) };
     const [ins] = await pool.query(
       `INSERT INTO auditor_extraccion (negocio_id, documento_url, documento_nombre, opcion_id, respaldo_id, modo, extraccion_json, motor, creado_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,

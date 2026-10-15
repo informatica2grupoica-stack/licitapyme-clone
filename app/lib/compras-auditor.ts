@@ -12,6 +12,7 @@
 // ORIGEN GEOGRÁFICO FIJO (§8.10.1): todas las distancias se calculan desde la bodega de Talagante
 // (Epeira 575), no desde Santiago ni la casa matriz. Viaje interno local = $40.000 (§8.10.2).
 import { precioClpDeItemIA } from '@/app/lib/compras-precio-homologacion';
+import { borrarDocumentoR2 } from '@/app/lib/r2';
 import pool from '@/app/lib/db';
 import { numeroApareceEnTexto, lineasDesdeTabla, corregirAdicionalesConLineas, lineasSinAsignar, lineaDelProducto, desajustesProductoLinea, sinComponentesDeLaLineaPropia } from '@/app/lib/compras-cotizacion-lineas';
 import { conCupo } from '@/app/lib/cupo-ia';
@@ -363,9 +364,11 @@ export async function actualizarCotizacion(
  *  cotización ya estaba metida en un escenario aprobado, borrarla invalida esa aprobación — nadie
  *  debe quedar con una compra aprobada sobre una cotización que ya no existe. */
 export async function eliminarCotizacion(negocioId: number, cotizacionId: number, actorId: number, actorNombre: string | null): Promise<void> {
-  const [rows] = await pool.query(`SELECT proveedor_nombre FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cotizacionId, negocioId]) as any;
+  const [rows] = await pool.query(`SELECT proveedor_nombre, origen, archivo_url, ficha_tecnica_url FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cotizacionId, negocioId]) as any;
   const c = (rows as any[])[0];
   if (!c) throw new Error('Cotización no encontrada.');
+  const [itemsRows] = await pool.query(`SELECT producto_id FROM compras_cotizacion_item WHERE cotizacion_id = ?`, [cotizacionId]) as any;
+  const productosCubiertos = (itemsRows as any[]).map(r => Number(r.producto_id));
 
   // Auditor de Compras: las líneas que se apoyaban en esta cotización se re-auditan sin ella.
   const filasAfectadas = await filasDeCotizacion(negocioId, cotizacionId).catch(() => [] as string[]);
@@ -374,6 +377,24 @@ export async function eliminarCotizacion(negocioId: number, cotizacionId: number
   await pool.query(`DELETE FROM compras_auditoria_cotizacion WHERE cotizacion_id = ? AND negocio_id = ?`, [cotizacionId, negocioId]);   // los informes de precio de esa cotización no quedan sueltos
   await pool.query(`DELETE FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cotizacionId, negocioId]);
   for (const f of filasAfectadas) programarAuditoria(negocioId, f, { id: actorId, nombre: actorNombre });
+
+  // Lo que la cotización dejó atrás: la compra elegida que la usaba, el estado COMPRADO de una compra directa y los archivos subidos.
+  if (productosCubiertos.length > 0) {
+    await pool.query(`UPDATE compras_escenario SET elegido = 0 WHERE negocio_id = ? AND elegido = 1`, [negocioId]).catch(() => {});
+    if (c.origen === 'directa') {
+      const marcas = productosCubiertos.map(() => '?').join(',');
+      await pool.query(
+        `UPDATE compras_producto p SET p.subestado = IF(EXISTS (SELECT 1 FROM compras_cotizacion_item ci WHERE ci.producto_id = p.id), 'COTIZANDO', 'PENDIENTE'), p.updated_at = ?
+          WHERE p.negocio_id = ? AND p.subestado = 'COMPRADO' AND p.id IN (${marcas})
+            AND NOT EXISTS (SELECT 1 FROM compras_cotizacion_item ci JOIN compras_cotizacion c2 ON c2.id = ci.cotizacion_id WHERE ci.producto_id = p.id AND c2.origen = 'directa')`,
+        [ahoraChileSQL(), negocioId, ...productosCubiertos],
+      ).catch(() => {});
+    }
+  }
+  for (const url of new Set([c.archivo_url, c.ficha_tecnica_url].filter((u): u is string => !!u))) {
+    const [otras] = await pool.query(`SELECT COUNT(*) n FROM compras_cotizacion WHERE archivo_url = ? OR ficha_tecnica_url = ?`, [url, url]) as any;
+    if (Number((otras as any[])[0]?.n) === 0) await borrarDocumentoR2(url).catch(() => {});   // best-effort: si falla solo queda un archivo huérfano
+  }
 
   await invalidarAprobacionesCompras(negocioId, 'Se eliminó una cotización que puede afectar el costo.');
   await registrarEvento({

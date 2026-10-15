@@ -69,6 +69,8 @@ export interface ProductoNormalizado {
   preciosMultiples: string[];     // otros precios visibles con su condición (para alertar)
   precioAmbiguo: boolean;
   moneda: string; iva: 'incluido' | 'neto' | 'no_declarado'; ivaTexto: string;
+  /** El documento venía en moneda extranjera: `precio` ya está en CLP (al tipo de cambio del día de la lectura). Aquí queda lo original para mostrarlo. */
+  conversion?: { monedaOriginal: string; precioOriginal: number; tipoCambio: number; fecha: string };
   /** Precio de un LINK de tienda sin IVA declarado: se asumió CON IVA (así publican las tiendas) y el costo neto se calcula sacándoselo. */
   ivaSupuesto?: boolean;
   unidadPrecio: string; contenidoEmpaque: string; unidadesPorEmpaque: number | null;
@@ -134,7 +136,7 @@ export function separarPrecioPegadoACantidad(texto: string, precio: number): { c
  *      «Corregir precio o IVA…» (motivo obligatorio, queda registrado) o se le pregunta al proveedor.
  *   4. Precio ingresado a mano: siempre con su IVA declarado (neto o incluido) y motivo.
  */
-export function normalizarProductos(salida: SalidaLector, texto?: string, esWeb = false): ProductoNormalizado[] {
+export function normalizarProductos(salida: SalidaLector, texto?: string, esWeb = false, tiposCambio?: Record<string, { valor: number; fecha: string }>): ProductoNormalizado[] {
   return (salida.productos || []).map((p, idx) => {
     const c = p.comercial || {}, d = p.producto || {};
     const condiciones = (c.condiciones_generales || []).map(x => x.texto || '').filter(Boolean);
@@ -152,6 +154,15 @@ export function normalizarProductos(salida: SalidaLector, texto?: string, esWeb 
     // Regla del usuario (30-sep-2026): las páginas de tienda publican el precio CON IVA salvo que digan lo contrario; las cotizaciones formales traen su IVA explícito
     // y NO se suponen. Si el Lector vio "neto" pero sin frase válida, tampoco se supone: queda pendiente de confirmar.
     if (esWeb && iva === 'no_declarado' && c.iva !== 'neto') { iva = 'incluido'; ivaSupuesto = true; }
+    // Moneda extranjera → CLP con el dólar/euro del día en que se leyó el documento. Una proforma de importación (Ruta B) conserva su USD: se costea con su propia fórmula.
+    let monedaDoc = (c.moneda || 'CLP').toUpperCase().replace(/^$$/, 'CLP').replace(/PESOS?/, 'CLP');
+    let conversion: ProductoNormalizado['conversion'];
+    const tc = tiposCambio?.[monedaDoc];
+    if (tc && precio != null && tc.valor > 0 && salida.documento?.tipo !== 'proforma_importacion') {
+      conversion = { monedaOriginal: monedaDoc, precioOriginal: precio, tipoCambio: tc.valor, fecha: tc.fecha };
+      precio = Math.round(precio * tc.valor);
+      monedaDoc = 'CLP';
+    }
     const plazoTexto = c.plazo_entrega || '';
     const nombre = [d.tipo, d.marca, d.modelo, d.version].filter(Boolean).join(' ').trim() || d.sku_proveedor || `Producto ${idx + 1}`;
     return {
@@ -161,7 +172,7 @@ export function normalizarProductos(salida: SalidaLector, texto?: string, esWeb 
       tipo: d.tipo || '', marca: d.marca || '', modelo: d.modelo || '', version: d.version || '',
       sku: d.sku_fabricante || d.sku_proveedor || '',
       precio, preciosMultiples: otros, precioAmbiguo: pegado ? false : ambiguo,
-      moneda: (c.moneda || 'CLP').toUpperCase().replace(/^\$$/, 'CLP').replace(/PESOS?/, 'CLP'),
+      moneda: monedaDoc, conversion,
       iva, ivaSupuesto, ivaTexto: c.iva_texto_literal || '',
       unidadPrecio: c.unidad_precio || '', contenidoEmpaque: c.contenido_empaque || '',
       unidadesPorEmpaque: parsearMonto(c.unidades_por_empaque),
@@ -175,8 +186,8 @@ export function normalizarProductos(salida: SalidaLector, texto?: string, esWeb 
 }
 
 /** Igual que normalizarProductos, sabiendo si la extracción viene de la captura de un link (ahí el IVA sin declarar se asume incluido). */
-export function normalizarExtraccion(d: { salida: SalidaLector; texto: string; metodoTexto?: string }): ProductoNormalizado[] {
-  return normalizarProductos(d.salida, d.texto, d.metodoTexto === 'captura-web');
+export function normalizarExtraccion(d: { salida: SalidaLector; texto: string; metodoTexto?: string; tiposCambio?: Record<string, { valor: number; fecha: string }> }): ProductoNormalizado[] {
+  return normalizarProductos(d.salida, d.texto, d.metodoTexto === 'captura-web', d.tiposCambio);
 }
 
 // ── Emparejar producto de la cotización ↔ línea del costeo ──────────────────────────────────────

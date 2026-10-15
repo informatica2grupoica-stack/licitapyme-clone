@@ -41,14 +41,14 @@ export const ETIQUETA_ALERTA: Record<string, string> = {
   plazo: 'Plazo no alcanza', proveedor: 'RUT inválido', cantidad: 'Mínimo de venta', vigencia: 'Cotización vencida', precio: 'Costo sobre la venta', producto: 'Falta lo que exigen las bases',
 };
 
-const ESTILO_TECNICO: Record<string, { chip: string; texto: string }> = {
+export const ESTILO_TECNICO: Record<string, { chip: string; texto: string }> = {
   CUMPLE: { chip: 'bg-emerald-50 text-emerald-700 border-emerald-200', texto: 'cumple' },
   NO_CUMPLE: { chip: 'bg-rose-50 text-rose-700 border-rose-200', texto: 'no cumple' },
   CON_PENDIENTES: { chip: 'bg-amber-50 text-amber-800 border-amber-200', texto: 'falta dato' },
   NO_CORRIDO: { chip: 'bg-zinc-100 text-zinc-600 border-zinc-200', texto: 'sin comparar' },
 };
 
-export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo = {}, lecturaLink: lecLink, onCompraPorLink, seleccion, onSeleccionar, alertas, tecnico, onAgregar, compra, onElegirCelda, onComprarTodoAqui, acciones }: {
+export type MatrizProps = {
   /** Link del costeo de cada producto: se muestra junto a «Lo costeado» (de ahí sale ese precio). */
   linksCosteo?: LinksCosteo;
   /** Lectura de los links del costeo por el Auditor (la primera cotización de cada producto). */
@@ -67,7 +67,9 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo =
   onElegirCelda?: (productoId: number, cotizacionId: number) => void;
   onComprarTodoAqui?: (cotizacionId: number) => void;
   acciones?: AccionesCotizacion;
-}) {
+};
+
+export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo = {}, lecturaLink: lecLink, onCompraPorLink, seleccion, onSeleccionar, alertas, tecnico, onAgregar, compra, onElegirCelda, onComprarTodoAqui, acciones }: MatrizProps) {
   const [verTodas, setVerTodas] = useState(false);
   const [menuId, setMenuId] = useState<number | null>(null);
 

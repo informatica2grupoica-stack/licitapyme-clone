@@ -38,6 +38,9 @@ export function TareasComprasCard() {
   const [creandoTarea, setCreandoTarea] = useState(false);
   const [sugiriendo, setSugiriendo] = useState(false);
   const [avisosSugerencia, setAvisosSugerencia] = useState<string[]>([]);
+  // Vista: por defecto lo PENDIENTE (lo que hay que hacer); las hechas quedan a un clic y con su registro plegado.
+  const [filtro, setFiltro] = useState<'pendientes' | 'hechas' | 'todas' | null>(null);
+  const [registrosVisibles, setRegistrosVisibles] = useState<Set<number>>(new Set());
 
   // Validación técnica real: trae lo que el Auditor Técnico ya comprobó. Solo rellena los campos
   // VACÍOS del borrador (lo que la persona ya escribió no se pisa) y no guarda nada por sí solo.
@@ -130,17 +133,35 @@ export function TareasComprasCard() {
     }
   };
 
+  const nHechas = tareas.filter(t => t.estado === 'HECHA').length;
+  const nPendientes = tareas.length - nHechas;
+  const vista = filtro ?? (nPendientes > 0 ? 'pendientes' : 'todas');
+  const visible = (t: Tarea) => vista === 'todas' || (vista === 'hechas' ? t.estado === 'HECHA' : t.estado !== 'HECHA');
   const porCategoria: Record<string, Tarea[]> = {};
   for (const t of tareas) (porCategoria[t.categoria] ||= []).push(t);
+  const alternarRegistroVisible = (id: number) => setRegistrosVisibles(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   return (
     <div className="space-y-3">
+      <div className="flex items-center gap-1.5 flex-wrap" role="tablist" aria-label="Filtrar tareas">
+        {([['pendientes', 'Por hacer', nPendientes], ['hechas', 'Hechas', nHechas], ['todas', 'Todas', tareas.length]] as const).map(([k, label, n]) => (
+          <button key={k} type="button" role="tab" aria-selected={vista === k} onClick={() => setFiltro(k)}
+            className={`text-[12px] font-semibold px-3 py-1 rounded-full border transition-colors ${vista === k ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-zinc-200 text-zinc-600 hover:border-zinc-300'}`}>
+            {label} <span className={vista === k ? 'text-teal-100' : 'text-zinc-400'}>{n}</span>
+          </button>
+        ))}
+      </div>
+      {vista === 'pendientes' && nPendientes === 0 && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-[12.5px] text-emerald-800"><b>Todo al día.</b> No quedan tareas por hacer. Revisa las hechas con el filtro «Hechas».</div>
+      )}
       {(['VALIDACION', 'ADMINISTRATIVO', 'ENTREGA', 'MANUAL'] as const).map(cat => {
-        const items = porCategoria[cat];
+        const todas = porCategoria[cat];
+        const items = todas?.filter(visible);
         if (!items || items.length === 0) return null;
+        const hechasCat = todas.filter(t => t.estado === 'HECHA').length;
         return (
           <div key={cat} className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-            <p className="px-4 py-2.5 text-[11px] font-bold text-zinc-500 uppercase bg-zinc-50 border-b border-zinc-100">{CATEGORIA_LABEL[cat] || cat}</p>
+            <p className="px-4 py-2.5 text-[11px] font-bold text-zinc-500 uppercase bg-zinc-50 border-b border-zinc-100 flex items-center justify-between"><span>{CATEGORIA_LABEL[cat] || cat}</span><span className="font-semibold normal-case text-zinc-400">{hechasCat} de {todas.length} hechas</span></p>
             <div className="divide-y divide-zinc-100">
               {items.map(t => (
                 <div key={t.id} className="px-4 py-3 flex items-start gap-3">
@@ -177,7 +198,12 @@ export function TareasComprasCard() {
                       )}
                     </div>
 
-                    {t.registro && tareaAbierta !== t.id && (
+                    {t.registro && tareaAbierta !== t.id && t.estado === 'HECHA' && !registrosVisibles.has(t.id) && (
+                      <button type="button" onClick={() => alternarRegistroVisible(t.id)} className="mt-1 text-[11px] font-semibold text-zinc-500 hover:text-zinc-700">
+                        Ver lo que se anotó ({Object.keys(t.registro).length} campos)
+                      </button>
+                    )}
+                    {t.registro && tareaAbierta !== t.id && (t.estado !== 'HECHA' || registrosVisibles.has(t.id)) && (
                       <div className="mt-1.5 bg-zinc-50 border border-zinc-100 rounded-lg px-2.5 py-1.5 space-y-0.5">
                         {Object.entries(t.registro).map(([k, v]) => (
                           <p key={k} className="text-[11px] text-zinc-600">
@@ -185,6 +211,7 @@ export function TareasComprasCard() {
                           </p>
                         ))}
                         {t.registroAt && <p className="text-[10px] text-zinc-400 pt-0.5">Anotado {fmtFecha(t.registroAt)}</p>}
+                        {t.estado === 'HECHA' && <button type="button" onClick={() => alternarRegistroVisible(t.id)} className="text-[10.5px] font-semibold text-zinc-500 hover:text-zinc-700">Ocultar</button>}
                       </div>
                     )}
 

@@ -6,6 +6,8 @@ import { borrarDocumentoR2 } from '@/app/lib/r2';
 import { registrarActividad, userIdFromHeaders } from '@/app/lib/actividad';
 import { quitarDocumentoDelChecklistPorUrl } from '@/app/lib/checklist-comercial-db';
 import { publicarCambio } from '@/app/lib/sse-bus';
+import { quitarDocumentoDelAuditor } from '@/app/lib/auditor-opciones';
+import { invalidarEnVuelo } from '@/app/lib/en-vuelo';
 
 // Categorías de archivos que GENERAMOS nosotros (nunca oficiales de Mercado Público) — todas
 // borrables/renombrables por igual. Las 3 de anexos separados (ver anexos-dividir.ts
@@ -117,6 +119,20 @@ export async function DELETE(
         { error: 'Solo se pueden eliminar documentos propios; los oficiales de Mercado Público están protegidos.' },
         { status: 403 }
       );
+
+    // Cotización ya leída por el Auditor: se limpian sus lecturas, respaldos y opciones (y se niega si sostiene una opción firmada).
+    if ((doc.documento_url_local || '').length) {
+      const [negs] = await pool.query(`SELECT id FROM negocios WHERE licitacion_codigo = ?`, [codigoDec]) as any;
+      for (const n of negs as any[]) {
+        try {
+          await quitarDocumentoDelAuditor(Number(n.id), doc.documento_url_local, nombre || doc.documento_url_local,
+            { id: userIdFromHeaders(request.headers) ?? 0, nombre: request.headers.get('x-user-nombre') || 'Usuario' });
+          invalidarEnVuelo(Number(n.id));
+        } catch (e: any) {
+          return NextResponse.json({ error: e?.message || 'No se pudo limpiar el Auditor.' }, { status: 409 });
+        }
+      }
+    }
 
     // Borrar el objeto de R2 (best-effort) y luego la fila de la caché.
     try { await borrarDocumentoR2(doc.documento_url_local); }

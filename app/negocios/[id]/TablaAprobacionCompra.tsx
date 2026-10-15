@@ -76,7 +76,13 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, com
   }, [cargar]);
 
   if (error) return <p className="text-[12px] text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">No se pudo mostrar el detalle de lo que se aprueba: {error} <button onClick={cargar} className="underline font-semibold ml-1">Reintentar</button></p>;
-  if (!tabla) return <div className="flex items-center gap-2 text-[12px] text-zinc-400 py-4"><Loader2 size={14} className="animate-spin" /> Armando el detalle de lo que se aprueba…</div>;
+  // Esqueleto con el alto aproximado de la tabla: antes un spinner chico dejaba subir las compuertas («0 de 2») y todo saltaba al cargar.
+  if (!tabla) return (
+    <div className="bg-white rounded-xl border border-zinc-200 p-4 space-y-2.5" role="status" aria-live="polite" aria-label="Armando el detalle de lo que se aprueba">
+      <p className="flex items-center gap-2 text-[12px] text-zinc-400"><Loader2 size={14} className="animate-spin" /> Armando el detalle de lo que se aprueba…</p>
+      {[0, 1, 2, 3, 4].map(i => <div key={i} className="h-9 rounded-lg bg-zinc-100 animate-pulse" />)}
+    </div>
+  );
 
   const t = tabla.totales;
   const conteo = { PASA: 0, REVISAR: 0, NO_PASA: 0 } as Record<string, number>;
