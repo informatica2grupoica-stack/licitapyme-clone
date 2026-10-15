@@ -177,7 +177,7 @@ async function promoverConCacheConfirmado(
               c.fecha_estimada_adjudicacion, c.fecha_apertura_tecnica, c.tipo_adjudicacion,
               c.numero_resolucion, c.numero_oferentes, c.url_acta, c.monto_adjudicado_total, c.lineas
        FROM negocios n
-       JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
+       LEFT JOIN usuarios u ON u.id = n.asignado_a
        JOIN adjudicacion_cache c
          ON c.licitacion_codigo COLLATE utf8mb4_general_ci = n.licitacion_codigo COLLATE utf8mb4_general_ci
        WHERE n.activo = TRUE
@@ -265,6 +265,10 @@ export async function procesarPostuladas(
     // en Chile. Se pasa la hora de pared chilena como parámetro (mismo patrón que el resto del
     // código, ver app/lib/tz.ts).
     //
+    // El estado del usuario asignado NO filtra la cola (LEFT JOIN): un dueño inactivo o eliminado
+    // dejaba el negocio fuera para siempre y su resultado en MP nunca se reflejaba (caso
+    // 1057473-15-LE26). El resultado es un hecho de MP, no depende de quién la trabaje.
+    //
     // LA COLA SON LAS QUE NO TIENEN VEREDICTO DE MP (`es_adjudicada` 0 o sin fila de cache). Son
     // exactamente las que pueden cambiar: mientras MP no diga "Adjudicada", cualquiera puede
     // hacerlo en cualquier momento. Apenas MP da su veredicto, la licitación sale sola de la cola
@@ -293,7 +297,7 @@ export async function procesarPostuladas(
               (c.consultado_en IS NULL OR c.consultado_en < DATE_SUB(NOW(), INTERVAL ? MINUTE)) AS rancio,
               (n.licitacion_cierre IS NOT NULL AND n.licitacion_cierre < ?) AS cerrada
        FROM negocios n
-       JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
+       LEFT JOIN usuarios u ON u.id = n.asignado_a
        LEFT JOIN adjudicacion_cache c
          ON c.licitacion_codigo COLLATE utf8mb4_general_ci = n.licitacion_codigo COLLATE utf8mb4_general_ci
        WHERE n.activo = TRUE

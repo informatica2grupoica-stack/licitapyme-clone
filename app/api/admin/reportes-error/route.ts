@@ -21,7 +21,12 @@ export async function GET(req: NextRequest) {
        ORDER BY FIELD(estado, 'abierto', 'en_revision', 'resuelto', 'descartado'), created_at DESC
        LIMIT 500`,
     );
-    return NextResponse.json({ success: true, reportes: rows });
+    const ids = (rows as { id: number }[]).map(r => r.id);
+    const [adj] = ids.length
+      ? await pool.query(`SELECT id, reporte_id, nombre, url, mime, tamano FROM reportes_error_adjuntos WHERE reporte_id IN (?) ORDER BY id`, [ids]) as any[]
+      : [[]];
+    const reportes = (rows as any[]).map(r => ({ ...r, adjuntos: (adj as any[]).filter(a => a.reporte_id === r.id) }));
+    return NextResponse.json({ success: true, reportes });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
