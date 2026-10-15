@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { AppLayout } from '@/app/components/AppLayout';
 import { IconBug as Bug, IconLoader2 as Loader2, IconExternalLink as ExternalLink, IconCircleCheck as CheckCircle, IconChevronDown as ChevronDown } from '@tabler/icons-react';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
+import { AdjuntosReporte, type AdjuntoReporte } from '@/app/components/AdjuntosReporte';
 
 type Estado = 'abierto' | 'en_revision' | 'resuelto' | 'descartado';
 interface Reporte {
@@ -21,6 +22,7 @@ interface Reporte {
   estado: Estado;
   solucion: string | null;
   solucion_privada?: number | boolean;
+  adjuntos: AdjuntoReporte[];
   resuelto_por_nombre: string | null;
   resuelto_at: string | null;
   created_at: string;
@@ -91,7 +93,7 @@ export default function MisReportesPage() {
                   </button>
 
                   {/* La respuesta del admin va siempre a la vista, sin tener que expandir. */}
-                  {r.solucion && (
+                  {(r.solucion || r.adjuntos.length > 0) && (
                     <div className={`mx-4 mb-3 rounded-lg p-3 ${r.estado === 'resuelto'
                       ? 'bg-emerald-50 border border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/30'
                       : 'bg-slate-50 border border-slate-200 dark:bg-white/[0.04] dark:border-white/10'}`}>
@@ -99,7 +101,8 @@ export default function MisReportesPage() {
                         {r.estado === 'resuelto' && <CheckCircle size={14} className="text-emerald-600" />}
                         {r.estado === 'resuelto' ? 'Cómo se solucionó' : r.estado === 'descartado' ? 'Por qué se descartó' : 'Nota del administrador'}
                       </p>
-                      <p className="text-[13px] text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{r.solucion}</p>
+                      {r.solucion && <p className="text-[13px] text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{r.solucion}</p>}
+                      {r.adjuntos.length > 0 && <div className="mt-2"><AdjuntosReporte adjuntos={r.adjuntos} /></div>}
                       {cerrado && r.resuelto_por_nombre && (
                         <p className="text-[11px] text-slate-500 mt-2">— {r.resuelto_por_nombre}, {fecha(r.resuelto_at)}</p>
                       )}
