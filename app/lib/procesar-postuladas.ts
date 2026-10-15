@@ -38,7 +38,9 @@ import { estadoDefinitivoCanonico, persistirYNotificar } from '@/app/lib/refresc
 
 // IDs (vigente + legados) que cuentan como "postulada" / "adjudicada" / "perdida" — ver misma
 // nota en detectar-aperturas.ts.
-const ESTADOS_POSTULADA = idsEquivalentes('POSTULADA');
+// POSIBLE_ADJ también espera el acta de MP: es una marca manual sobre una postulada, no un estado final.
+// Antes solo se miraba POSTULADA y una posible adj se quedaba así para siempre (caso 1137-1057473-15-LE26).
+const ESTADOS_POSTULADA = [...idsEquivalentes('POSTULADA'), ...idsEquivalentes('POSIBLE_ADJ')];
 const IN_POSTULADA = ESTADOS_POSTULADA.map(() => '?').join(', ');
 const ESTADOS_RESUELTAS = [...idsEquivalentes('ADJUDICADA'), ...idsEquivalentes('PERDIDA')];
 const IN_RESUELTAS = ESTADOS_RESUELTAS.map(() => '?').join(', ');
@@ -128,6 +130,10 @@ async function promoverYAvisar(
         .catch(e => console.error('[procesar-postuladas] abrir compras falló:', String(e).slice(0, 200)));
     }
 
+    // Si venía de POSIBLE_ADJ había una pre-compra abierta: perdida → se cierra «sin adjudicar» (ganada ya la
+    // confirma abrirComprasSiCorresponde). Sin pre-compra no hace nada.
+    if (!adj.ganamos) await sincronizarPrecompraConEstado(n.id, codigo, n.asignado_a, nuevoEstado);
+
     if (adj.ganamos) stats.adjudicadas++; else stats.perdidas++;
 
     const mensaje = adj.ganamos
@@ -177,7 +183,7 @@ async function promoverConCacheConfirmado(
               c.fecha_estimada_adjudicacion, c.fecha_apertura_tecnica, c.tipo_adjudicacion,
               c.numero_resolucion, c.numero_oferentes, c.url_acta, c.monto_adjudicado_total, c.lineas
        FROM negocios n
-       LEFT JOIN usuarios u ON u.id = n.asignado_a
+       JOIN usuarios u ON u.id = n.asignado_a
        JOIN adjudicacion_cache c
          ON c.licitacion_codigo COLLATE utf8mb4_general_ci = n.licitacion_codigo COLLATE utf8mb4_general_ci
        WHERE n.activo = TRUE
@@ -265,10 +271,6 @@ export async function procesarPostuladas(
     // en Chile. Se pasa la hora de pared chilena como parámetro (mismo patrón que el resto del
     // código, ver app/lib/tz.ts).
     //
-    // El estado del usuario asignado NO filtra la cola (LEFT JOIN): un dueño inactivo o eliminado
-    // dejaba el negocio fuera para siempre y su resultado en MP nunca se reflejaba (caso
-    // 1057473-15-LE26). El resultado es un hecho de MP, no depende de quién la trabaje.
-    //
     // LA COLA SON LAS QUE NO TIENEN VEREDICTO DE MP (`es_adjudicada` 0 o sin fila de cache). Son
     // exactamente las que pueden cambiar: mientras MP no diga "Adjudicada", cualquiera puede
     // hacerlo en cualquier momento. Apenas MP da su veredicto, la licitación sale sola de la cola
@@ -297,7 +299,7 @@ export async function procesarPostuladas(
               (c.consultado_en IS NULL OR c.consultado_en < DATE_SUB(NOW(), INTERVAL ? MINUTE)) AS rancio,
               (n.licitacion_cierre IS NOT NULL AND n.licitacion_cierre < ?) AS cerrada
        FROM negocios n
-       LEFT JOIN usuarios u ON u.id = n.asignado_a
+       JOIN usuarios u ON u.id = n.asignado_a
        LEFT JOIN adjudicacion_cache c
          ON c.licitacion_codigo COLLATE utf8mb4_general_ci = n.licitacion_codigo COLLATE utf8mb4_general_ci
        WHERE n.activo = TRUE
@@ -387,6 +389,7 @@ export async function procesarPostuladas(
             ) as any;
             if (!upd?.affectedRows) continue;
             publicarCambio('negocio');
+            await sincronizarPrecompraConEstado(n.id, codigo, n.asignado_a, estadoNuevo);
             // Queda también en el hilo de comentarios del negocio (best-effort).
             await pool.query(
               `INSERT INTO comentarios_negocio (negocio_id, usuario_id, pipeline_estado, comentario, created_at) VALUES (?, ?, ?, ?, ?)`,
@@ -450,7 +453,7 @@ async function reconfirmarResueltasSinCache(
       `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a, n.estado_pipeline,
               u.nombre AS usuario_nombre, u.email AS usuario_email
        FROM negocios n
-       JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
+       JOIN usuarios u ON u.id = n.asignado_a
        LEFT JOIN adjudicacion_cache c
          ON c.licitacion_codigo COLLATE utf8mb4_general_ci = n.licitacion_codigo COLLATE utf8mb4_general_ci
        WHERE n.activo = TRUE
