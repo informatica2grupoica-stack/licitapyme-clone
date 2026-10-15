@@ -4,8 +4,8 @@
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
-import { listarAprobacionesLinea, resolverLineas } from '@/app/lib/compras-aprobacion-lineas';
-import { puedeVerCompras } from '@/app/api/compras/[negocioId]/route';
+import { listarAprobacionesLinea, resolverLineas, marcarLineaCorregida } from '@/app/lib/compras-aprobacion-lineas';
+import { puedeVerCompras, puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 
 export const runtime = 'nodejs';
@@ -36,10 +36,20 @@ async function __PATCH(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const id = parseInt((await params).negocioId);
   try {
+    const body = await request.json();
+    // El encargado (no solo el jefe) puede avisar que ya corrigió un producto rechazado.
+    if (body.decision === 'CORREGIDO') {
+      const asignacion = await obtenerAsignacion(id);
+      if (!asignacion || !(await puedeOperarCompras(userId, request.headers.get('x-user-rol'), asignacion.asignadoA, asignacion.coencargados)))
+        return NextResponse.json({ error: 'Solo el encargado de Compras puede marcar un producto como corregido.' }, { status: 403 });
+      const pid = Number(body.productoId);
+      if (!Number.isInteger(pid) || pid <= 0) return NextResponse.json({ error: 'Producto inválido.' }, { status: 400 });
+      await marcarLineaCorregida(id, pid, String(body.comentario || ''), userId, nombre);
+      return NextResponse.json({ success: true, ...(await listarAprobacionesLinea(id)) });
+    }
     const p = await permisosCrudosDeUsuario(userId);
     if (!(p.compras_todo || p.aprobar_comercial))
       return NextResponse.json({ error: 'Solo el jefe de ventas aprueba los productos.' }, { status: 403 });
-    const body = await request.json();
     const ids: number[] = (Array.isArray(body.productoIds) ? body.productoIds : [body.productoId]).map(Number).filter((n: number) => Number.isInteger(n) && n > 0);
     if (!['APROBAR', 'RECHAZAR', 'QUITAR'].includes(body.decision) || ids.length === 0)
       return NextResponse.json({ error: 'Decisión o productos inválidos.' }, { status: 400 });

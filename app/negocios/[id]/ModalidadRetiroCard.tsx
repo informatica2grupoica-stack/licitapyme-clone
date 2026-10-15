@@ -48,13 +48,14 @@ export function ModalidadRetiroCard({ negocioId, puedeOperar }: { negocioId: num
     }
   };
 
-  if (loading) return null;
+  if (loading) return <p className="text-[12.5px] text-zinc-400 px-1">Cargando…</p>;
 
   return (
     <div className="bg-white rounded-xl border border-zinc-200 p-3.5 flex items-center justify-between gap-3 flex-wrap">
       <div>
         <p className="text-[11px] font-bold text-zinc-400 uppercase flex items-center gap-1.5"><Truck size={13} /> Modalidad de retiro</p>
         {modalidad && definidaPorNombre && <p className="text-[10.5px] text-zinc-400 mt-0.5">Definida por {definidaPorNombre}</p>}
+        {!modalidad && <p className="text-[11.5px] text-zinc-500 mt-0.5">Aún no se ha definido. Aquí solo hay esta elección: apenas la marques (interna, externa o mixta) queda registrada y esta sección no tiene nada más.</p>}
       </div>
       {puedeOperar ? (
         <div className="flex items-center gap-2">

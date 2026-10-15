@@ -70,9 +70,45 @@ export async function rutsNuestros(): Promise<Set<string>> {
   return set;
 }
 
+// ── Readjudicación manual (migration-149) ────────────────────────────────────
+// El organismo puede readjudicar por decreto y dejar la ficha de MP mostrando al otro proveedor.
+// Si un negocio trae la marca `readjudicada_at`, esa marca prevalece sobre el acta: ganamos.
+let _readjudicadas: { map: Map<string, number | null>; ts: number } | null = null;
+export function invalidarReadjudicadas() { _readjudicadas = null; }
+
+/** Si el negocio de este código trae la marca de readjudicación: marca todas las líneas como nuestras y,
+ *  con una sola línea, deja NUESTRO precio (no el del proveedor que sigue en la ficha de MP). */
+export async function aplicarReadjudicacion<T extends { esNuestra?: boolean; montoUnitario: number | null; cantidad?: number }>(
+  codigo: string, lineas: T[],
+): Promise<{ marcada: boolean; lineas: T[]; monto: number | null }> {
+  const marcas = await readjudicadas();
+  if (!marcas.has(codigo)) return { marcada: false, lineas, monto: null };
+  const monto = marcas.get(codigo) ?? null;
+  const nuevas = lineas.map(l => ({
+    ...l, esNuestra: true,
+    ...(lineas.length === 1 && monto ? { montoUnitario: monto / (Number(l.cantidad) || 1) } : {}),
+  }));
+  return { marcada: true, lineas: nuevas, monto };
+}
+
+async function readjudicadas(): Promise<Map<string, number | null>> {
+  if (_readjudicadas && Date.now() - _readjudicadas.ts < 60 * 1000) return _readjudicadas.map;
+  const map = new Map<string, number | null>();
+  try {
+    const [rows] = await pool.query(`SELECT licitacion_codigo, monto_ofertado FROM negocios WHERE readjudicada_at IS NOT NULL AND activo = 1`);
+    for (const r of rows as any[]) map.set(r.licitacion_codigo, r.monto_ofertado != null ? Number(r.monto_ofertado) : null);
+  } catch { /* migration-149 sin aplicar → sin marcas */ }
+  _readjudicadas = { map, ts: Date.now() };
+  return map;
+}
+
 // Marca cada línea con esNuestra y agrega ganamos + montoNuestro. Se aplica en TODA
 // respuesta (cache o vivo) para reflejar siempre los RUT vigentes de nuestras empresas.
 export async function enriquecer(r: RespuestaAdjudicacion): Promise<RespuestaAdjudicacion> {
+  if (r.esAdjudicada) {
+    const m = await aplicarReadjudicacion(r.codigo, r.lineasAdjudicadas || []);
+    if (m.marcada) return { ...r, lineasAdjudicadas: m.lineas, ganamos: true, montoNuestro: m.monto };
+  }
   const nuestros = await rutsNuestros();
   let montoNuestro = 0, ganamos = false;
   const lineas = (r.lineasAdjudicadas || []).map(l => {

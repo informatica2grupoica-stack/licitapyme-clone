@@ -9,6 +9,7 @@ import { useToast } from '@/app/components/ui/toast';
 import { Banner } from '@/app/components/ui/Banner';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { TablaAprobacionCompra } from './TablaAprobacionCompra';
+import { DetalleCompuerta } from './DetalleCompuerta';
 import { IconShieldCheck as ShieldCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconEdit as Edit3, IconAlertTriangle as AlertTriangle, IconTag as Tag, IconPlus as Plus, IconX as X, IconHistory as History, IconStar as Star, IconBolt as Zap } from '@tabler/icons-react';
 
 type Estado = 'PENDIENTE' | 'APROBADA' | 'APROBADA_CON_MODIFICACION' | 'RECHAZADA';
@@ -48,14 +49,16 @@ function AvisoCampoSku({ valor, leido, cotizacionLeida }: { valor: string; leido
   return <span className="block text-[11px] font-semibold text-amber-700 mt-0.5">⚠ {cotizacionLeida ? 'No aparece en la cotización' : 'No hay cotización de la que leerlo'}: complétalo a mano.</span>;
 }
 
-function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar, onProponer, onResolver, resumen, requiereMotivo, motivoLabel, desactualizada, puedeDeshacer, onDeshacer }: {
+function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar, onProponer, onResolver, resumen, detalleAprobar, requiereMotivo, motivoLabel, desactualizada, puedeDeshacer, onDeshacer }: {
   tipo: Tipo; titulo: string; aprobacion: Aprobacion | null; esJefeDeVentas: boolean; puedeOperar: boolean;
-  onProponer: (motivo: string | null) => void; onResolver: (decision: Decision, comentario: string | null) => void; resumen: React.ReactNode;
+  onProponer: (motivo: string | null) => void; onResolver: (decision: Decision, comentario: string | null) => void; resumen: React.ReactNode; detalleAprobar?: React.ReactNode;
   requiereMotivo?: boolean; motivoLabel?: string; desactualizada?: boolean;
   puedeDeshacer?: boolean; onDeshacer?: (comentario: string | null) => void;
 }) {
   const [comentario, setComentario] = useState('');
   const [decidiendo, setDecidiendo] = useState(false);
+  // El jefe confirma que leyó el detalle: sin eso «Aprobar» queda bloqueado (aprobar sin mirar es el riesgo a evitar).
+  const [reviso, setReviso] = useState(false);
   const [confirmandoDeshacer, setConfirmandoDeshacer] = useState(false);
   // Ya enviada y vigente: el Paso A se pliega (no hay nada que llenar) y solo se abre si se quiere reenviar.
   const [reenviando, setReenviando] = useState(false);
@@ -167,6 +170,16 @@ function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar
       {aprobacion?.estado === 'PENDIENTE' && esJefeDeVentas && (
         <div className="mt-3 space-y-1.5 rounded-lg border border-teal-200 bg-teal-50/30 px-3 py-2.5">
           <p className="text-[11px] font-bold uppercase tracking-wide text-teal-700">Paso B · El jefe de ventas decide</p>
+          {detalleAprobar && (
+            <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2.5">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-zinc-500 mb-1.5">Lo que estás aprobando</p>
+              {detalleAprobar}
+              <label className="mt-2.5 flex items-start gap-2 text-[12px] font-semibold text-zinc-800 cursor-pointer">
+                <input type="checkbox" checked={reviso} onChange={e => setReviso(e.target.checked)} className="mt-0.5" data-testid={`confirmar-revision-${tipo}`} />
+                Revisé el detalle de arriba y sé lo que estoy aprobando.
+              </label>
+            </div>
+          )}
           <ul className="text-[12px] text-zinc-600 space-y-0.5">
             <li><b className="text-emerald-700">Aprobar:</b> se puede comprar tal como está.</li>
             <li><b className="text-indigo-700">Aprobar con cambios:</b> se aprueba y se sigue, pero escribe abajo qué hay que ajustar: el encargado recibe ese texto por campana, en pantalla y por correo (obligatorio).</li>
@@ -175,11 +188,11 @@ function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar
           <input value={comentario} onChange={e => setComentario(e.target.value)} placeholder="Comentario (obligatorio si apruebas con cambios o rechazas)…"
             className="w-full text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
           <div className="flex items-center gap-1.5">
-            <button onClick={() => { setDecidiendo(true); onResolver('APROBAR', comentario || null); }} disabled={decidiendo}
+            <button onClick={() => { setDecidiendo(true); onResolver('APROBAR', comentario || null); }} disabled={decidiendo || (!!detalleAprobar && !reviso)} title={detalleAprobar && !reviso ? 'Marca que revisaste el detalle' : undefined}
               className="flex items-center gap-1 text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
               <CheckCircle2 size={13} /> Aprobar
             </button>
-            <button onClick={() => { if (!comentario.trim()) return; setDecidiendo(true); onResolver('APROBAR_CON_MODIFICACION', comentario); }} disabled={decidiendo || !comentario.trim()} title={!comentario.trim() ? 'Escribe qué hay que ajustar' : undefined}
+            <button onClick={() => { if (!comentario.trim()) return; setDecidiendo(true); onResolver('APROBAR_CON_MODIFICACION', comentario); }} disabled={decidiendo || !comentario.trim() || (!!detalleAprobar && !reviso)} title={!comentario.trim() ? 'Escribe qué hay que ajustar' : undefined}
               className="flex items-center gap-1 text-[12px] font-semibold text-indigo-700 border border-indigo-300 bg-white hover:bg-indigo-50 disabled:opacity-50 px-3 py-1.5 rounded-lg">
               <Edit3 size={13} /> Aprobar con cambios
             </button>
@@ -554,7 +567,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
     <div className="space-y-3">
       {parte !== 'sku' && (<>
       <TablaAprobacionCompra negocioId={negocioId} refresco={`${compra?.estado}|${compra?.propuestoAt}|${margen?.estado}|${margen?.propuestoAt}`}
-        esJefeDeVentas={esJefeDeVentas} compraEstado={compra?.estado ?? null} onAprobarCompra={() => resolver('COMPRA', 'APROBAR', null)} />
+        esJefeDeVentas={esJefeDeVentas} puedeOperar={puedeOperar} compraEstado={compra?.estado ?? null} onAprobarCompra={() => resolver('COMPRA', 'APROBAR', null)} />
       {(() => {
         const ok = (a: typeof compra) => !!a && ['APROBADA', 'APROBADA_CON_MODIFICACION'].includes(a.estado);
         const n = Number(ok(compra)) + Number(ok(margen));
@@ -571,6 +584,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
           onProponer={(motivo) => proponer('COMPRA', motivo)} onResolver={(d, c) => resolver('COMPRA', d, c)} puedeDeshacer={puedeDeshacer} onDeshacer={(c) => resolver('COMPRA', 'DESHACER', c)}
           requiereMotivo={!!presupuestoActual?.excede} motivoLabel="¿Por qué se compra sobre el presupuesto costeado?"
           desactualizada={compraDesactualizada}
+          detalleAprobar={<DetalleCompuerta negocioId={negocioId} tipo="COMPRA" refresco={`${compra?.estado}|${compra?.propuestoAt}`} />}
           resumen={<>
             {compra?.detalle ? (
               <span className={compraDesactualizada ? 'line-through text-zinc-400' : ''}>Escenario: <b>{compra.detalle.escenarioTipo}</b> · {fmtCLP(compra.detalle.costoTotal)}</span>
@@ -600,6 +614,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
           tipo="MARGEN" titulo="2 · Aprobar el margen (la ganancia del proyecto)" aprobacion={margen} esJefeDeVentas={esJefeDeVentas} puedeOperar={puedeOperar}
           onProponer={(motivo) => proponer('MARGEN', motivo)} onResolver={(d, c) => resolver('MARGEN', d, c)} puedeDeshacer={puedeDeshacer} onDeshacer={(c) => resolver('MARGEN', 'DESHACER', c)}
           requiereMotivo={margenActual?.margenPct != null && margenActual.margenPct < 20} motivoLabel="¿Por qué se aprueba con margen bajo el 20%?"
+          detalleAprobar={<DetalleCompuerta negocioId={negocioId} tipo="MARGEN" refresco={`${margen?.estado}|${margen?.propuestoAt}`} />}
           resumen={margenActual?.margenPct != null ? (
             <span className={margenActual.margenPct < 20 ? 'text-rose-600 font-semibold flex items-center gap-1' : ''}>
               {margenActual.margenPct < 20 && <AlertTriangle size={12} />} Ganancia prevista: {margenActual.margenPct} % <span className="font-normal text-zinc-500">· el mínimo exigido es 20 %{margenActual.margenPct >= 20 ? ' ✔ lo cumple' : ' ✖ no lo cumple, hay que explicar el motivo'}</span>

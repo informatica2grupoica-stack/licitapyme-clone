@@ -55,13 +55,13 @@ const fmtCLP = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('
 
 type EstadoProveedorObuma = 'idle' | 'cargando' | 'existe' | 'no_existe' | 'sin_rut';
 
-const HITOS: Array<{ key: Hito; label: string; atField: keyof Reparto }> = [
-  { key: 'ocEmitida', label: 'Orden de compra emitida', atField: 'ocEmitidaAt' },
-  { key: 'pagoRegistrado', label: 'Pago registrado', atField: 'pagoRegistradoAt' },
-  { key: 'anticipoPagado', label: 'Anticipo pagado', atField: 'anticipoPagadoAt' },
-  { key: 'facturaCompraRegistrada', label: 'Factura de compra registrada', atField: 'facturaCompraRegistradaAt' },
-  { key: 'carpetaProyectoCreada', label: 'Carpeta de proyecto creada', atField: 'carpetaProyectoCreadaAt' },
-  { key: 'provisionFondos', label: 'Provisión de fondos', atField: 'provisionFondosAt' },
+const HITOS: Array<{ key: Hito; label: string; atField: keyof Reparto; ayuda: string }> = [
+  { key: 'ocEmitida', label: 'Orden de compra emitida', atField: 'ocEmitidaAt', ayuda: 'Ya le mandaste la orden de compra al proveedor (con «Crear orden de compra» de arriba o directo en Obuma).' },
+  { key: 'pagoRegistrado', label: 'Pago registrado', atField: 'pagoRegistradoAt', ayuda: 'Ya le pagaste al proveedor y el pago quedó registrado.' },
+  { key: 'anticipoPagado', label: 'Anticipo pagado', atField: 'anticipoPagadoAt', ayuda: 'Solo si el proveedor pidió pagar una parte por adelantado. Si se paga todo junto, elige «No aplica».' },
+  { key: 'facturaCompraRegistrada', label: 'Factura de compra registrada', atField: 'facturaCompraRegistradaAt', ayuda: 'El proveedor te entregó su factura y ya está ingresada en Obuma.' },
+  { key: 'carpetaProyectoCreada', label: 'Carpeta de proyecto creada', atField: 'carpetaProyectoCreadaAt', ayuda: 'Ya existe en Obuma la carpeta de este proyecto, donde se juntan sus compras y gastos.' },
+  { key: 'provisionFondos', label: 'Provisión de fondos', atField: 'provisionFondosAt', ayuda: 'Ya se apartó el dinero para pagar esta compra (indica el monto y de qué cuenta salió).' },
 ];
 
 export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { negocioId: number; puedeOperar: boolean; parte?: 'todo' | 'oc' | 'hitos' }) {
@@ -299,7 +299,13 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
     }
   };
 
-  if (loading || !reparto) return null;
+  if (loading) return <p className="text-[12.5px] text-zinc-400 px-1">Cargando…</p>;
+  if (!reparto) return (
+    <div className="text-[13px] text-zinc-600 bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap">
+      <span className="flex-1 min-w-[220px]"><b className="text-zinc-800">No se pudo cargar esta sección.</b> Suele ser un fallo momentáneo de conexión; no significa que falte algo por hacer.</span>
+      <button type="button" onClick={() => { setLoading(true); void cargar(); }} className="text-[12.5px] font-semibold text-teal-700 hover:text-teal-900">Reintentar</button>
+    </div>
+  );
   // Selección de productos de una orden: lo marcado a mano, o por defecto lo aprobado (nunca lo rechazado).
   const idsSel = (p: ProveedorOC): number[] => seleccion[p.proveedorNombre] ?? p.items.filter(it => it.aprobado !== false && it.estadoLinea !== 'RECHAZADA').map(it => it.productoId);
   const subtotalSel = (p: ProveedorOC) => p.items.filter(it => idsSel(p).includes(it.productoId)).reduce((s, it) => s + it.subtotal, 0);
@@ -312,7 +318,9 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
         <span className="flex-1 min-w-[220px]"><b className="text-zinc-800">Aún no se pueden emitir órdenes de compra.</b> Primero el jefe de ventas debe aprobar la compra y el margen.</span>
         <button type="button" onClick={() => irAFase('aprobacion')} className="text-[12.5px] font-semibold text-teal-700 hover:text-teal-900">Ir a Aprobación y SKU →</button>
       </div>
-    : null;
+    : <div className="text-[13px] text-zinc-600 bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3">
+        <b className="text-zinc-800">Aún no hay nada que marcar.</b> El pago, la factura y la carpeta del proyecto aparecen cuando la compra está aprobada (después de «Aprobación y SKU»).
+      </div>;
 
   return (
     <div className="space-y-3">
@@ -387,7 +395,8 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                   })()}
                   {!p.yaCreada && !p.ocRealObuma ? (
                     <div className="mt-2" data-testid={`oc-productos-${p.proveedorNombre}`}>
-                      <p className="text-[12px] font-semibold text-zinc-600 mb-1">Productos de esta orden <span className="font-normal text-zinc-400">— marcados = se incluyen (vienen marcados los aprobados)</span></p>
+                      <p className="text-[12.5px] font-bold text-zinc-700">¿Qué productos van en esta orden?</p>
+                      <p className="text-[11.5px] text-zinc-500 mb-1.5">Los que tienen la casilla <b>marcada ☑</b> se le piden a este proveedor. Ya vienen marcados los que el jefe de ventas aprobó; un producto sin aprobar o rechazado no se incluye. Solo desmarca uno si quieres pedirlo en otra orden más adelante.</p>
                       <ul className="rounded-lg border border-zinc-200 divide-y divide-zinc-100">
                         {p.items.map(it => {
                           const rech = it.estadoLinea === 'RECHAZADA';
@@ -405,12 +414,13 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                                 {it.estadoLinea === 'APROBADA' && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex-shrink-0">✔ Aprobado</span>}
                                 {it.estadoLinea === 'SIN_DECIDIR' && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 flex-shrink-0">Aún sin aprobar</span>}
                                 {rech && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 flex-shrink-0">Rechazado</span>}
+                                <span className={`text-[11px] font-semibold flex-shrink-0 w-[92px] text-right ${marcado ? 'text-teal-700' : 'text-zinc-400'}`}>{marcado ? 'Va en la orden' : 'No va en la orden'}</span>
                               </label>
                             </li>
                           );
                         })}
                       </ul>
-                      <p className="mt-1 text-[11.5px] text-zinc-400">Se emite <b>una sola orden por proveedor</b>: los productos que no marques no entrarán en esta orden.</p>
+                      <p className="mt-1 text-[11.5px] text-zinc-500">Se emite <b>una sola orden por proveedor</b> con lo marcado. Cuando esté lista, aprieta «Crear orden de compra» (arriba a la derecha).</p>
                     </div>
                   ) : (
                   <div className="mt-1.5 space-y-0.5">
@@ -515,10 +525,15 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
 
       {parte !== 'oc' && (
       <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-      <p className="px-4 py-2.5 text-[11px] font-bold text-zinc-500 uppercase bg-zinc-50 border-b border-zinc-100 flex items-center gap-1.5">
-        <ClipboardList size={13} /> Proceso administrativo (§11) — hitos de OBUMA
-      </p>
-      <p className="px-4 pt-2 text-[10.5px] text-zinc-400">Estos hitos los ejecuta OBUMA (emite la OC, registra el pago, crea la carpeta) — acá solo se marca que ya pasaron.</p>
+      <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-100">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-[13px] font-bold text-zinc-800 flex items-center gap-1.5"><ClipboardList size={14} /> Lista de control del proceso administrativo</p>
+          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full border bg-white text-zinc-600 border-zinc-200" data-testid="hitos-avance">
+            {HITOS.filter(h => !!reparto[h.atField] || respaldos.find(x => x.hito === h.key)?.estado === 'NO_APLICA').length} de {HITOS.length} resueltos
+          </span>
+        </div>
+        <p className="mt-1 text-[12px] text-zinc-600">Estas cosas se hacen <b>en Obuma</b>, no aquí. Cuando una ya esté hecha, aprieta <b>«Marcar como hecho»</b> y deja una nota corta (por ejemplo «transferencia N° 123»). Si algo no corresponde a esta compra, aprieta <b>«No aplica»</b> y explica por qué.</p>
+      </div>
       <div className="divide-y divide-zinc-100">
         {HITOS.map(h => {
           const activo = !!reparto[h.atField];
@@ -527,24 +542,37 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
           const abierto = hitoAbierto === h.key;
           return (
             <div key={h.key} className="px-4 py-2">
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  onClick={() => {
-                    if (!puedeOperar) return;
-                    if (activo || noAplica) alternar(h.key, false); // deshacer — un clic, "por si se marcó por error"
-                    else abrirRespaldo(h.key, false); // pendiente → abre el mini-formulario, nunca marca a ciegas
-                  }}
-                  disabled={!puedeOperar || guardando === h.key} className="flex-shrink-0">
-                  {guardando === h.key ? <Loader2 size={15} className="animate-spin text-zinc-400" />
-                    : activo ? <CheckCircle2 size={15} className="text-emerald-500" />
-                    : noAplica ? <MinusCircle size={15} className="text-zinc-400" />
-                    : <Circle size={15} className="text-zinc-300" />}
-                </button>
-                <span className={`text-[12px] ${activo || noAplica ? 'text-zinc-500' : 'text-zinc-700'}`}>{h.label}</span>
-                {noAplica && <span className="text-[10px] font-semibold text-zinc-400 bg-zinc-100 px-1.5 py-0.5 rounded-full">no aplica</span>}
-                {!activo && !noAplica && !abierto && puedeOperar && (
-                  <button onClick={() => abrirRespaldo(h.key, true)} className="text-[10.5px] text-zinc-400 hover:text-zinc-600 underline">no aplica</button>
+              <div className="flex items-start gap-3 flex-wrap">
+                <span className="flex-shrink-0 mt-0.5" aria-hidden>
+                  {guardando === h.key ? <Loader2 size={18} className="animate-spin text-zinc-400" />
+                    : activo ? <CheckCircle2 size={18} className="text-emerald-500" />
+                    : noAplica ? <MinusCircle size={18} className="text-zinc-400" />
+                    : <Circle size={18} className="text-zinc-300" />}
+                </span>
+                <div className="flex-1 min-w-[220px]">
+                  <p className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-[13px] font-semibold ${activo || noAplica ? 'text-zinc-500' : 'text-zinc-800'}`}>{h.label}</span>
+                    <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border ${activo ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : noAplica ? 'bg-zinc-100 text-zinc-500 border-zinc-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                      {activo ? '✔ Hecho' : noAplica ? 'No aplica' : 'Pendiente'}
+                    </span>
+                  </p>
+                  <p className="text-[11.5px] text-zinc-500 leading-snug">{h.ayuda}</p>
+                </div>
+                {puedeOperar && !abierto && (
+                  activo || noAplica ? (
+                    <button onClick={() => alternar(h.key, false)} disabled={guardando === h.key} title="Por si se marcó por error"
+                      className="text-[11.5px] font-semibold text-zinc-500 hover:text-zinc-800 border border-zinc-200 bg-white hover:bg-zinc-50 px-2.5 py-1 rounded-lg">Deshacer</button>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={() => abrirRespaldo(h.key, false)} disabled={guardando === h.key}
+                        className="text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-3 py-1.5 rounded-lg">Marcar como hecho</button>
+                      <button onClick={() => abrirRespaldo(h.key, true)} disabled={guardando === h.key}
+                        className="text-[12px] font-semibold text-zinc-600 border border-zinc-300 bg-white hover:bg-zinc-50 px-3 py-1.5 rounded-lg">No aplica</button>
+                    </div>
+                  )
                 )}
+              </div>
+              <div className="mt-1.5 ml-8 flex items-center gap-2 flex-wrap empty:hidden">
                 {activo && h.key === 'ocEmitida' && (
                   <>
                     <input defaultValue={reparto.ocNumero || ''} placeholder="N° de OC"
@@ -596,8 +624,8 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
               {/* Respaldo guardado (pedido explícito, 14-sep-2026) — nota + archivo, o el motivo de
                   "no aplica". Siempre visible una vez guardado, sin tener que reabrir nada. */}
               {respaldo && (
-                <div className="mt-1 ml-6 text-[10.5px] text-zinc-500 flex items-start gap-1">
-                  <span className="italic">{respaldo.nota}</span>
+                <div className="mt-1 ml-8 text-[11.5px] text-zinc-500 flex items-start gap-1">
+                  <span className="italic">Nota: {respaldo.nota}</span>
                   {respaldo.archivoUrl && (
                     <a href={respaldo.archivoUrl} target="_blank" rel="noopener noreferrer" className="flex-shrink-0 flex items-center gap-0.5 text-teal-600 hover:text-teal-700 font-semibold not-italic">
                       <Paperclip size={10} /> {respaldo.archivoNombre || 'archivo'}
@@ -609,9 +637,9 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
               {/* Mini-formulario de respaldo — se abre ANTES de marcar, nunca después (spec §11:
                   "controla y registra" — la nota es la prueba de que se controló). */}
               {abierto && (
-                <div className="mt-2 ml-6 space-y-1.5 bg-zinc-50 border border-zinc-200 rounded-lg p-2.5 max-w-md">
+                <div className="mt-2 ml-8 space-y-1.5 bg-zinc-50 border border-zinc-200 rounded-lg p-2.5 max-w-md">
                   <p className="text-[10.5px] font-semibold text-zinc-500">
-                    {modoNoAplica ? '¿Por qué no aplica este hito?' : 'Nota de respaldo (obligatoria)'}
+                    {modoNoAplica ? '¿Por qué no aplica en esta compra?' : 'Deja una nota corta de cómo se hizo (obligatoria)'}
                   </p>
                   <textarea rows={2} value={notaHito} onChange={e => setNotaHito(e.target.value)}
                     placeholder={modoNoAplica ? 'Ej: se pagó de contado, no hubo anticipo' : 'Ej: transferencia N° 123, comprobante adjunto'}

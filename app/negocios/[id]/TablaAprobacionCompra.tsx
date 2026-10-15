@@ -5,6 +5,7 @@
 // las decisiones siguen en los dos hitos de abajo.
 import { useEffect, useState, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
+import { irAFase, enfocarProducto } from '@/app/compras/[negocioId]/comprasNavegacion';
 import { IconLoader2 as Loader2, IconCircleCheck as Ok, IconAlertTriangle as Alerta, IconCircleX as No, IconHelpCircle as Duda } from '@tabler/icons-react';
 import type { TablaAprobacion, LineaAprobacion } from '@/app/lib/compras-aprobacion-tabla';
 
@@ -25,10 +26,11 @@ const TECNICO: Record<string, { texto: string; clase: string }> = {
   SIN_COMPRA: { texto: '—', clase: 'bg-zinc-50 text-zinc-400 border-zinc-200' },
 };
 
-interface DecisionLinea { estado: 'APROBADA' | 'RECHAZADA'; comentario: string | null; porNombre: string | null }
+interface DecisionLinea { estado: 'APROBADA' | 'RECHAZADA' | 'CORREGIDA'; comentario: string | null; porNombre: string | null; corregidoPorNombre?: string | null; notaCorreccion?: string | null }
+const aDecision = (l: any): [number, DecisionLinea] => [l.productoId, { estado: l.estado, comentario: l.comentario, porNombre: l.porNombre, corregidoPorNombre: l.corregidoPorNombre, notaCorreccion: l.notaCorreccion }];
 
-export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, compraEstado, onAprobarCompra }: {
-  negocioId: number; refresco: string; esJefeDeVentas: boolean; compraEstado: string | null; onAprobarCompra: () => Promise<unknown> | void;
+export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, puedeOperar, compraEstado, onAprobarCompra }: {
+  negocioId: number; refresco: string; esJefeDeVentas: boolean; puedeOperar: boolean; compraEstado: string | null; onAprobarCompra: () => Promise<unknown> | void;
 }) {
   const toast = useToast();
   // Aprobación POR PRODUCTO (migration-147): el jefe va aprobando cada línea y, con todas aprobadas, aprueba la compra completa con un botón.
@@ -36,6 +38,9 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, com
   const [tablaLineasOk, setTablaLineasOk] = useState(true);
   const [rechazando, setRechazando] = useState<number | null>(null);
   const [motivo, setMotivo] = useState('');
+  // Encargado: producto del que está escribiendo «qué corregí» y el texto.
+  const [corrigiendo, setCorrigiendo] = useState<number | null>(null);
+  const [notaCorreccion, setNotaCorreccion] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [aprobandoCompra, setAprobandoCompra] = useState(false);
   const [tabla, setTabla] = useState<TablaAprobacion | null>(null);
@@ -53,7 +58,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, com
       const d = await fetch(`/api/compras/${negocioId}/aprobaciones/linea`).then(r => r.json());
       if (!d.success) return;
       setTablaLineasOk(d.tablaOk !== false);
-      setDecisiones(Object.fromEntries((d.lineas || []).map((l: any) => [l.productoId, { estado: l.estado, comentario: l.comentario, porNombre: l.porNombre }])));
+      setDecisiones(Object.fromEntries((d.lineas || []).map(aDecision)));
     } catch { /* sin decisiones: la tabla se ve igual */ }
   }, [negocioId]);
   useEffect(() => { cargar(); }, [cargar, refresco]);
@@ -64,11 +69,24 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, com
     try {
       const r = await fetch(`/api/compras/${negocioId}/aprobaciones/linea`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productoIds, decision, comentario: comentario || null }) }).then(x => x.json());
       if (!r.success) throw new Error(r.error || 'No se pudo guardar');
-      setDecisiones(Object.fromEntries((r.lineas || []).map((l: any) => [l.productoId, { estado: l.estado, comentario: l.comentario, porNombre: l.porNombre }])));
+      setDecisiones(Object.fromEntries((r.lineas || []).map(aDecision)));
       setRechazando(null); setMotivo('');
     } catch (e: any) { toast.error('No se pudo guardar', e.message); }
     finally { setGuardando(false); }
   };
+  // El encargado avisa que ya corrigió un producto rechazado: queda «Corregido» y el jefe de ventas recibe aviso para revisarlo de nuevo.
+  const marcarCorregido = async (productoId: number) => {
+    setGuardando(true);
+    try {
+      const r = await fetch(`/api/compras/${negocioId}/aprobaciones/linea`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productoId, decision: 'CORREGIDO', comentario: notaCorreccion }) }).then(x => x.json());
+      if (!r.success) throw new Error(r.error || 'No se pudo guardar');
+      setDecisiones(Object.fromEntries((r.lineas || []).map(aDecision)));
+      setCorrigiendo(null); setNotaCorreccion('');
+      toast.success('Aviso enviado al jefe de ventas', 'Vuelve a revisar este producto.');
+    } catch (e: any) { toast.error('No se pudo avisar', e.message); }
+    finally { setGuardando(false); }
+  };
+  const irACorregir = (productoId: number, pestana: 'fichas' | 'cotizaciones') => { irAFase('costeo'); enfocarProducto(pestana, productoId); };
   useEffect(() => {
     const h = () => { cargar(); };
     window.addEventListener('compras:fichas-cambio', h);
@@ -91,6 +109,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, com
   const ventaTotal = t.venta, costoTotal = t.compra + t.flete;
   const aprobados = tabla.lineas.filter(l => decisiones[l.productoId]?.estado === 'APROBADA').length;
   const rechazados = tabla.lineas.filter(l => decisiones[l.productoId]?.estado === 'RECHAZADA').length;
+  const corregidos = tabla.lineas.filter(l => decisiones[l.productoId]?.estado === 'CORREGIDA').length;
   const sinDecidir = tabla.lineas.length - aprobados - rechazados;
   const todosAprobados = tabla.lineas.length > 0 && aprobados === tabla.lineas.length;
   const compraAprobada = compraEstado === 'APROBADA' || compraEstado === 'APROBADA_CON_MODIFICACION';
@@ -187,10 +206,52 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, com
                     <td className="px-2 py-2 align-top" data-testid={`apr-decision-${l.productoId}`}>
                       {(() => {
                         const d = decisiones[l.productoId];
+                        if (d?.estado === 'CORREGIDA') return (
+                          <div className="space-y-1">
+                            <span className="inline-flex items-center gap-1 text-[11.5px] font-bold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-800 border-amber-300">↻ Corregido: por revisar</span>
+                            {d.comentario && <span className="block text-[11px] text-rose-700 leading-snug">Se rechazó por: {d.comentario}</span>}
+                            <span className="block text-[11px] text-zinc-600 leading-snug"><b>{d.corregidoPorNombre || 'El encargado'}</b> dice: {d.notaCorreccion}</span>
+                            {!esJefeDeVentas && <span className="block text-[11px] text-zinc-400">Esperando que el jefe de ventas lo revise de nuevo</span>}
+                            {esJefeDeVentas && rechazando !== l.productoId && (
+                              <div className="flex items-center gap-1.5 pt-0.5">
+                                <button type="button" onClick={() => decidir([l.productoId], 'APROBAR')} disabled={guardando} className="text-[11.5px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 px-2.5 py-1 rounded-lg">Aprobar</button>
+                                <button type="button" onClick={() => { setRechazando(l.productoId); setMotivo(''); }} disabled={guardando} className="text-[11.5px] font-semibold text-rose-700 border border-rose-300 hover:bg-rose-50 disabled:opacity-40 px-2.5 py-1 rounded-lg">Rechazar</button>
+                              </div>
+                            )}
+                            {esJefeDeVentas && rechazando === l.productoId && (
+                              <div className="space-y-1">
+                                <input value={motivo} onChange={e => setMotivo(e.target.value)} placeholder="¿Qué sigue mal?" autoFocus className="w-full text-[11.5px] border border-rose-300 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-rose-400" />
+                                <div className="flex items-center gap-1.5">
+                                  <button type="button" onClick={() => decidir([l.productoId], 'RECHAZAR', motivo)} disabled={guardando || !motivo.trim()} className="text-[11px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-40 px-2 py-1 rounded-lg">Rechazar</button>
+                                  <button type="button" onClick={() => { setRechazando(null); setMotivo(''); }} className="text-[11px] text-zinc-500">Cancelar</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
                         if (d) return (
                           <div className="space-y-0.5">
                             <span className={`inline-flex items-center gap-1 text-[11.5px] font-bold px-2 py-0.5 rounded-full border ${d.estado === 'APROBADA' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}>{d.estado === 'APROBADA' ? '✔ Aprobado' : '✖ Rechazado'}</span>
                             {d.comentario && <span className="block text-[11px] text-zinc-500 leading-snug">{d.comentario}</span>}
+                            {d.estado === 'RECHAZADA' && puedeOperar && (
+                              <div className="space-y-1 pt-0.5" data-testid={`apr-corregir-${l.productoId}`}>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <button type="button" onClick={() => irACorregir(l.productoId, 'fichas')} className="text-[11px] font-semibold text-teal-800 border border-teal-300 bg-teal-50 hover:bg-teal-100 px-2 py-1 rounded-lg">Corregir ficha</button>
+                                  <button type="button" onClick={() => irACorregir(l.productoId, 'cotizaciones')} className="text-[11px] font-semibold text-teal-800 border border-teal-300 bg-teal-50 hover:bg-teal-100 px-2 py-1 rounded-lg">Corregir cotización</button>
+                                </div>
+                                {corrigiendo === l.productoId ? (
+                                  <div className="space-y-1">
+                                    <input value={notaCorreccion} onChange={e => setNotaCorreccion(e.target.value)} placeholder="¿Qué corregiste? (obligatorio)" autoFocus className="w-full text-[11.5px] border border-amber-300 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-amber-400" />
+                                    <div className="flex items-center gap-1.5">
+                                      <button type="button" onClick={() => marcarCorregido(l.productoId)} disabled={guardando || !notaCorreccion.trim()} className="text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-40 px-2 py-1 rounded-lg">Enviar al jefe</button>
+                                      <button type="button" onClick={() => { setCorrigiendo(null); setNotaCorreccion(''); }} className="text-[11px] text-zinc-500">Cancelar</button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button type="button" onClick={() => { setCorrigiendo(l.productoId); setNotaCorreccion(''); }} className="text-[11px] font-semibold text-amber-800 border border-amber-300 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded-lg">Ya corregí: volver a revisar</button>
+                                )}
+                              </div>
+                            )}
                             {esJefeDeVentas && <button type="button" onClick={() => decidir([l.productoId], 'QUITAR')} disabled={guardando} className="block text-[11px] text-zinc-400 hover:text-zinc-700 underline decoration-dotted">Deshacer</button>}
                           </div>
                         );
@@ -241,6 +302,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, com
           <p className="text-[12.5px] text-zinc-600">
             {!tablaLineasOk ? 'Falta aplicar la migración 147 para aprobar producto por producto (node scripts/aplicar-migration-147.mjs).'
               : compraAprobada ? '✔ La compra completa ya está aprobada.'
+              : corregidos > 0 && esJefeDeVentas ? `${corregidos} producto(s) corregido(s) esperan tu revisión: apruébalos o recházalos de nuevo.`
               : rechazados > 0 ? `Hay ${rechazados} producto(s) rechazado(s): corrígelos (o deshaz el rechazo) antes de aprobar la compra completa.`
               : sinDecidir > 0 ? `Faltan ${sinDecidir} por aprobar. Apruébalos uno a uno arriba, o usa «Aprobar los que pasan».`
               : compraEstado !== 'PENDIENTE' ? 'Todos aprobados. Falta que el encargado envíe la propuesta (Paso A, más abajo).'

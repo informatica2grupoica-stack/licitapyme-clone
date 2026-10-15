@@ -100,7 +100,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
     }
   };
 
-  if (loading) return null;
+  if (loading) return <p className="text-[12.5px] text-zinc-400 px-1">Cargando…</p>;
 
   return (
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">

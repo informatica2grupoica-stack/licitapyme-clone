@@ -20,3 +20,17 @@ export function consumirAccionPendiente(): AccionPendiente | null {
   w.__comprasPendiente = null;
   return p;
 }
+
+/** Lleva a la pestaña indicada del paso actual y, si hay producto, desplaza la pantalla hasta él (con reintentos: la pestaña recién se monta). */
+export function enfocarProducto(pestana: string | null, productoId: number | null) {
+  if (typeof window === 'undefined') return;
+  if (pestana) [80, 400].forEach(ms => setTimeout(() => window.dispatchEvent(new CustomEvent('compras:pestana', { detail: { clave: pestana } })), ms));
+  if (!productoId) return;
+  let intentos = 0;
+  const buscar = () => {
+    const el = document.querySelector(`[data-testid="ficha-producto-${productoId}"], [data-producto-id="${productoId}"]`) as HTMLElement | null;
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('ring-2', 'ring-amber-400'); setTimeout(() => el.classList.remove('ring-2', 'ring-amber-400'), 4000); return; }
+    if (++intentos < 12) setTimeout(buscar, 300);
+  };
+  setTimeout(buscar, 300);
+}

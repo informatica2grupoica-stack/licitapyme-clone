@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation';
 import { IconAlertTriangle as Alerta, IconCircleCheck as Check, IconPencil as Lapiz, IconX as X } from '@tabler/icons-react';
 import { useSession } from '@/app/lib/session-context';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
+import { enfocarProducto } from '@/app/compras/[negocioId]/comprasNavegacion';
 
 interface Aviso { id: number; tipo: string; mensaje: string; url: string }
 
@@ -61,8 +62,13 @@ export function AvisoComprasModal() {
     const u = aviso?.url; cerrar(); if (!u) return;
     // Si ya está en esa misma pantalla de Compras, router.push no cambia de paso: se usa el evento que escucha el stepper.
     const [ruta, query = ''] = u.split('?');
-    const fase = new URLSearchParams(query).get('fase');
-    if (fase && ruta === window.location.pathname) window.dispatchEvent(new CustomEvent('compras:ir', { detail: { fase } }));
+    const q = new URLSearchParams(query);
+    const fase = q.get('fase');
+    if (fase && ruta === window.location.pathname) {
+      window.dispatchEvent(new CustomEvent('compras:ir', { detail: { fase } }));
+      const pid = Number(q.get('producto'));
+      if (q.get('pestana') || pid) enfocarProducto(q.get('pestana'), pid > 0 ? pid : null);
+    }
     else router.push(u);
   };
 

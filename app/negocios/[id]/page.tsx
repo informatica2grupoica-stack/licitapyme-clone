@@ -24,6 +24,7 @@ import { DocumentosSection } from '@/app/licitacion/[codigo]/sections/Documentos
 import { CriteriosSection } from '@/app/licitacion/[codigo]/sections/CriteriosSection';
 import { PreguntasSection } from '@/app/licitacion/[codigo]/sections/PreguntasSection';
 import { ResultadoSection } from '@/app/licitacion/[codigo]/sections/ResultadoSection';
+import { MarcaReadjudicada } from './MarcaReadjudicada';
 import { ComentariosSection } from '@/app/licitacion/[codigo]/sections/ComentariosSection';
 import { esUrlAnalizable } from '@/app/licitacion/[codigo]/utils';
 import { Oportunidad } from '@/app/types/search.types';
@@ -1012,7 +1013,10 @@ function DetalleContent() {
                   onSelect={k => setSeccion(k as Seccion)}
                 />
                 {seccion === 'resultado' && (
-                  <ResultadoSection codigo={negocio.licitacion_codigo} mpUrl={mpUrl} />
+                  <>
+                    <ResultadoSection codigo={negocio.licitacion_codigo} mpUrl={mpUrl} />
+                    {isAdmin && <MarcaReadjudicada negocioId={negocio.id} />}
+                  </>
                 )}
                 {seccion === 'competencia' && (
                   <OfertasCompetencia codigo={negocio.licitacion_codigo} isAdmin={isAdmin} />

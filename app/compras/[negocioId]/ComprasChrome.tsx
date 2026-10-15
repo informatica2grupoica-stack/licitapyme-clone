@@ -23,7 +23,7 @@ import { AuditorCosteoCard } from '@/app/negocios/[id]/AuditorCosteoCard';
 import { AprobacionesCompraCard } from '@/app/negocios/[id]/AprobacionesCompraCard';
 import { RepartoAdminCard } from '@/app/negocios/[id]/RepartoAdminCard';
 import { ObumaHubCard } from '@/app/negocios/[id]/ObumaHubCard';
-import { irAFase } from './comprasNavegacion';
+import { irAFase, enfocarProducto } from './comprasNavegacion';
 import { ResumenGastosCard } from '@/app/negocios/[id]/ResumenGastosCard';
 import { ResumenComparativoCard } from '@/app/negocios/[id]/ResumenComparativoCard';
 import { FichasTecnicasCard } from '@/app/negocios/[id]/FichasTecnicasCard';
@@ -90,8 +90,13 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   }, []);
   // Enlaces de avisos (correo, campana, aviso central): /compras/<id>?fase=aprobacion abre directo el paso donde hay que corregir.
   useEffect(() => {
-    const fase = new URLSearchParams(window.location.search).get('fase');
-    if (fase && ['tareas', 'costeo', 'aprobacion', 'compra', 'entrega', 'obuma', 'documentos', 'actividad'].includes(fase)) irAFase(fase as Fase);
+    const q = new URLSearchParams(window.location.search);
+    const fase = q.get('fase');
+    if (fase && ['tareas', 'costeo', 'aprobacion', 'compra', 'entrega', 'obuma', 'documentos', 'actividad'].includes(fase)) {
+      irAFase(fase as Fase);
+      const pid = Number(q.get('producto'));
+      if (q.get('pestana') || pid) enfocarProducto(q.get('pestana'), pid > 0 ? pid : null);
+    }
   }, [loading]);
   const [asignando, setAsignando] = useState(false);
   const [candidatoElegido, setCandidatoElegido] = useState('');

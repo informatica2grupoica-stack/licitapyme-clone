@@ -437,6 +437,69 @@ export async function procesarPostuladas(
   return stats;
 }
 
+type FilaResuelta = FilaPostulada & { estado_pipeline: string };
+type StatsReconfirmar = { adjudicadas: number; perdidas: number; errores: number; entregasAbiertas: number; comprasAbiertas: number };
+
+// Reconsulta UN código en MP, refresca adjudicacion_cache y, si el acta dice algo distinto de lo que
+// tienen los negocios (ganamos vs perdimos), corrige el estado y avisa. Devuelve la adjudicación
+// enriquecida (null si MP no respondió). La usan la 2ª pasada del cron y el botón «Volver a consultar».
+export async function reconfirmarCodigo(
+  client: ReturnType<typeof getMercadoPublicoClient>,
+  codigo: string,
+  negocios: FilaResuelta[],
+  stats: StatsReconfirmar,
+): Promise<Awaited<ReturnType<typeof enriquecer>> | null> {
+  const lic = await client.obtenerPorCodigoRapido(codigo, TIMEOUT_DETALLE_MS);
+  if (!lic) return null;
+  const adj = await enriquecer(construirDesdeLicitacion(lic, codigo));
+  await guardarCache(codigo, adj);
+  if (!adj.esAdjudicada) return adj; // MP aún no publica el acta — nada que corregir todavía
+
+  const resultadoReal = adj.ganamos ? 'ADJUDICADA' : 'PERDIDA';
+  for (const n of negocios) {
+    if (normalizarEstado(n.estado_pipeline) === resultadoReal) continue; // coincide con lo puesto a mano (o su alias legado): solo hacía falta el cache
+    // MP dice algo DISTINTO de lo que había a mano → corrige y avisa (la verdad es el acta).
+    await pool.query(`UPDATE negocios SET estado_pipeline = ?, updated_at = NOW() WHERE id = ?`, [resultadoReal, n.id]);
+    publicarCambio('negocio');
+    // Caso real: alguien la había marcado PERDIDA a mano y el acta dice que ganamos. Es una
+    // victoria que nadie sabía que existía → también abre la entrega.
+    if (adj.ganamos) {
+      await abrirEntregaSiCorresponde(n.id, codigo, n.asignado_a)
+        .then(abierta => { if (abierta) stats.entregasAbiertas++; })
+        .catch(e => console.error('[procesar-postuladas] abrir entrega (reconfirmar) falló:', String(e).slice(0, 200)));
+
+      await abrirComprasSiCorresponde(n.id, codigo, n.asignado_a)
+        .then(abierta => { if (abierta) stats.comprasAbiertas++; })
+        .catch(e => console.error('[procesar-postuladas] abrir compras (reconfirmar) falló:', String(e).slice(0, 200)));
+    } else {
+      // El acta dice que NO ganamos: si había pre-compra abierta, se cierra «sin adjudicar».
+      await sincronizarPrecompraConEstado(n.id, codigo, n.asignado_a, resultadoReal);
+    }
+    if (adj.ganamos) stats.adjudicadas++; else stats.perdidas++;
+    const mensaje = adj.ganamos
+      ? `🏆 ¡Adjudicada! Ganaste ${n.licitacion_nombre || codigo}${adj.montoNuestro ? ` · ${fmtCLP(adj.montoNuestro)}` : ''}`
+      : `Resultado publicado: ${n.licitacion_nombre || codigo} se adjudicó a terceros`;
+    await registrarEvento({
+      tipo: 'RESULTADO_ADJUDICACION',
+      licitacionCodigo: codigo, licitacionNombre: n.licitacion_nombre,
+      usuarioId: n.asignado_a, usuarioNombre: n.usuario_nombre,
+      actorId: null, actorNombre: 'Mercado Público',
+      mensaje,
+      metadata: {
+        licitacion_codigo: codigo, resultado: adj.ganamos ? 'ganada' : 'perdida',
+        monto_nuestro: adj.montoNuestro, url_acta: adj.adjudicacion?.urlActa ?? null,
+        corregido_desde: n.estado_pipeline,
+      },
+    });
+    await avisarResultadoLicitacion({
+      tipo: adj.ganamos ? 'ganada' : 'perdida',
+      codigo, nombre: n.licitacion_nombre, monto: adj.montoNuestro ?? null,
+      asignado: { id: n.asignado_a, nombre: n.usuario_nombre, email: n.usuario_email },
+    });
+  }
+  return adj;
+}
+
 // Busca negocios YA en ADJUDICADA/PERDIDA (puestos a mano o por una promoción vieja) cuyo
 // adjudicacion_cache todavía no tiene es_adjudicada=1 — o sea, nadie los volvió a chequear contra
 // MP desde que alguien cambió el pipeline. Los reconsulta, refresca el cache y, si MP confirma
@@ -458,7 +521,12 @@ async function reconfirmarResueltasSinCache(
          ON c.licitacion_codigo COLLATE utf8mb4_general_ci = n.licitacion_codigo COLLATE utf8mb4_general_ci
        WHERE n.activo = TRUE
          AND n.estado_pipeline IN (${IN_RESUELTAS})
-         AND (c.licitacion_codigo IS NULL OR c.es_adjudicada = 0)
+         AND (c.licitacion_codigo IS NULL OR c.es_adjudicada = 0
+              -- Readjudicaciones (caso 1202333-67-LE26): un acta ya guardada SÍ puede cambiar (el organismo
+              -- readjudica por decreto y MP actualiza la ficha). Se re-consultan las de los últimos 60 días
+              -- una vez cada 12 h; el ORDER BY rota las más antiguas primero y el presupuesto de tiempo corta.
+              OR (c.consultado_en < (NOW() - INTERVAL 12 HOUR)
+                  AND COALESCE(c.fecha_adjudicacion, c.consultado_en) > (NOW() - INTERVAL 60 DAY)))
        ORDER BY (c.consultado_en IS NOT NULL), c.consultado_en ASC, n.licitacion_codigo`,
       ESTADOS_RESUELTAS,
     ) as any[];
@@ -479,56 +547,8 @@ async function reconfirmarResueltasSinCache(
 
   const procesarUno = async (codigo: string) => {
     if (Date.now() - inicio > PRESUPUESTO_RECONFIRMAR_MS) return;
-    const negocios = porCodigo.get(codigo) || [];
     try {
-      const lic = await client.obtenerPorCodigoRapido(codigo, TIMEOUT_DETALLE_MS);
-      if (!lic) return;
-      const adj = await enriquecer(construirDesdeLicitacion(lic, codigo));
-      await guardarCache(codigo, adj);
-      if (!adj.esAdjudicada) return; // MP aún no publica el acta — nada que corregir todavía
-
-      const resultadoReal = adj.ganamos ? 'ADJUDICADA' : 'PERDIDA';
-      for (const n of negocios) {
-        if (normalizarEstado(n.estado_pipeline) === resultadoReal) continue; // coincide con lo puesto a mano (o su alias legado): solo hacía falta el cache
-        // MP dice algo DISTINTO de lo que había a mano → corrige y avisa (la verdad es el acta).
-        await pool.query(`UPDATE negocios SET estado_pipeline = ?, updated_at = NOW() WHERE id = ?`, [resultadoReal, n.id]);
-        publicarCambio('negocio');
-        // Caso real: alguien la había marcado PERDIDA a mano y el acta dice que ganamos. Es una
-        // victoria que nadie sabía que existía → también abre la entrega.
-        if (adj.ganamos) {
-          await abrirEntregaSiCorresponde(n.id, codigo, n.asignado_a)
-            .then(abierta => { if (abierta) stats.entregasAbiertas++; })
-            .catch(e => console.error('[procesar-postuladas] abrir entrega (reconfirmar) falló:', String(e).slice(0, 200)));
-
-          await abrirComprasSiCorresponde(n.id, codigo, n.asignado_a)
-            .then(abierta => { if (abierta) stats.comprasAbiertas++; })
-            .catch(e => console.error('[procesar-postuladas] abrir compras (reconfirmar) falló:', String(e).slice(0, 200)));
-        } else {
-          // El acta dice que NO ganamos: si había pre-compra abierta, se cierra «sin adjudicar».
-          await sincronizarPrecompraConEstado(n.id, codigo, n.asignado_a, resultadoReal);
-        }
-        if (adj.ganamos) stats.adjudicadas++; else stats.perdidas++;
-        const mensaje = adj.ganamos
-          ? `🏆 ¡Adjudicada! Ganaste ${n.licitacion_nombre || codigo}${adj.montoNuestro ? ` · ${fmtCLP(adj.montoNuestro)}` : ''}`
-          : `Resultado publicado: ${n.licitacion_nombre || codigo} se adjudicó a terceros`;
-        await registrarEvento({
-          tipo: 'RESULTADO_ADJUDICACION',
-          licitacionCodigo: codigo, licitacionNombre: n.licitacion_nombre,
-          usuarioId: n.asignado_a, usuarioNombre: n.usuario_nombre,
-          actorId: null, actorNombre: 'Mercado Público',
-          mensaje,
-          metadata: {
-            licitacion_codigo: codigo, resultado: adj.ganamos ? 'ganada' : 'perdida',
-            monto_nuestro: adj.montoNuestro, url_acta: adj.adjudicacion?.urlActa ?? null,
-            corregido_desde: n.estado_pipeline,
-          },
-        });
-        await avisarResultadoLicitacion({
-          tipo: adj.ganamos ? 'ganada' : 'perdida',
-          codigo, nombre: n.licitacion_nombre, monto: adj.montoNuestro ?? null,
-          asignado: { id: n.asignado_a, nombre: n.usuario_nombre, email: n.usuario_email },
-        });
-      }
+      await reconfirmarCodigo(client, codigo, porCodigo.get(codigo) || [], stats);
     } catch (e) {
       stats.errores++;
       console.error(`[procesar-postuladas] reconfirmar "${codigo}" falló:`, String(e));
@@ -543,4 +563,20 @@ async function reconfirmarResueltasSinCache(
     }
   });
   await Promise.all(workers);
+}
+
+// Botón «Volver a consultar» del Resultado: reconsulta UN código en MP ahora mismo (sin esperar al
+// cron), refresca la adjudicación guardada y corrige/avisa los negocios ya en ADJUDICADA/PERDIDA.
+// Sirve para las readjudicaciones: el organismo cambia al ganador y MP actualiza la ficha.
+export async function reconsultarResultado(codigo: string) {
+  const [rows] = await pool.query(
+    `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a, n.estado_pipeline,
+            u.nombre AS usuario_nombre, u.email AS usuario_email
+       FROM negocios n JOIN usuarios u ON u.id = n.asignado_a
+      WHERE n.activo = TRUE AND n.licitacion_codigo = ? AND n.estado_pipeline IN (${IN_RESUELTAS})`,
+    [codigo, ...ESTADOS_RESUELTAS],
+  ) as any[];
+  const stats = { adjudicadas: 0, perdidas: 0, errores: 0, entregasAbiertas: 0, comprasAbiertas: 0 };
+  const adj = await reconfirmarCodigo(getMercadoPublicoClient(), codigo, rows as FilaResuelta[], stats);
+  return { adj, cambios: stats.adjudicadas + stats.perdidas };
 }

@@ -13,7 +13,7 @@ import { useSession } from '@/app/lib/session-context';
 import DocumentosActa from '@/app/components/DocumentosActa';
 import { OrdenesCompraBloque } from './OrdenesCompraBloque';
 import { ComprasObumaBloque } from './ComprasObumaBloque';
-import { IconTrophy as Trophy, IconAward as Award, IconCalendar as Calendar, IconUsers as Users, IconFileCheck as FileCheck2, IconExternalLink as ExternalLink, IconCircleCheck as CheckCircle2, IconLoader2 as Loader2, IconHourglass as Hourglass, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconTable as Table2 } from '@tabler/icons-react';
+import { IconTrophy as Trophy, IconAward as Award, IconCalendar as Calendar, IconUsers as Users, IconFileCheck as FileCheck2, IconExternalLink as ExternalLink, IconCircleCheck as CheckCircle2, IconLoader2 as Loader2, IconHourglass as Hourglass, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconTable as Table2, IconRefresh as RefreshCw } from '@tabler/icons-react';
 
 interface LineaAdjudicada {
   correlativo?: number;
@@ -51,6 +51,8 @@ export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: str
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [verLineas, setVerLineas] = useState(true);
+  const [reconsultando, setReconsultando] = useState(false);
+  const [avisoReconsulta, setAvisoReconsulta] = useState<string | null>(null);
 
   useEffect(() => {
     let vivo = true;
@@ -62,6 +64,30 @@ export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: str
       .finally(() => { if (vivo) setCargando(false); });
     return () => { vivo = false; };
   }, [codigo]);
+
+  // Reconsulta EN VIVO a Mercado Público (el GET de arriba es solo-cache). Sirve para las
+  // readjudicaciones: el organismo cambia al ganador y la ficha de MP se actualiza después.
+  const reconsultar = async () => {
+    setReconsultando(true); setAvisoReconsulta(null);
+    try {
+      const r = await fetch(`/api/licitacion-adjudicacion/${encodeURIComponent(codigo)}/reconsultar`, { method: 'POST' });
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !d?.success) throw new Error(d?.error || 'No se pudo consultar');
+      setAdj(d); setError(null);
+      setAvisoReconsulta(d.cambios > 0 ? 'Mercado Público cambió el resultado: el estado del negocio se actualizó.' : 'Consultado ahora: el resultado es el mismo que ya teníamos.');
+    } catch (e) {
+      setAvisoReconsulta(e instanceof Error ? e.message : 'No se pudo consultar');
+    } finally { setReconsultando(false); }
+  };
+  const botonReconsultar = (
+    <div className="flex items-center gap-2 flex-wrap">
+      <button type="button" onClick={reconsultar} disabled={reconsultando}
+        className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-indigo-600 hover:text-indigo-700 disabled:opacity-60">
+        {reconsultando ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Volver a consultar en Mercado Público
+      </button>
+      {avisoReconsulta && <span className="text-[12px] text-slate-500">{avisoReconsulta}</span>}
+    </div>
+  );
 
   if (cargando) {
     return (
@@ -95,6 +121,7 @@ export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: str
           className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-indigo-600 hover:text-indigo-700">
           <ExternalLink size={14} /> Ver ficha en Mercado Público
         </a>
+        <div className="mt-3">{botonReconsultar}</div>
         </div>
         {/* La orden de compra puede llegar antes de que la ficha de MP diga "Adjudicada" (pasa con
             los organismos que emiten la OC y publican la resolución después), así que el bloque se
@@ -113,6 +140,7 @@ export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: str
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">{botonReconsultar}</div>
       {/* Encabezado del resultado */}
       <div className="rounded-2xl border overflow-hidden" style={{ borderColor: acc + '40' }}>
         <div className="px-5 py-4 flex items-center gap-3 flex-wrap" style={{ background: acc + '0d' }}>

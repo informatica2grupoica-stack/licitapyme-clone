@@ -22,6 +22,7 @@ import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
+import { aplicarReadjudicacion } from '@/app/lib/adjudicacion';
 import type { PaqueteTraspaso } from '@/app/lib/congelamiento';
 
 export interface ResumenEjecutivo {
@@ -145,6 +146,8 @@ export async function construirResumenEjecutivo(
   }
   if (!acta.es_adjudicada) faltantes.push('El acta de MP todavía no confirma la adjudicación.');
 
+  // La marca manual de readjudicación (migration-149) prevalece sobre lo que quedó guardado en el acta.
+  if (acta.es_adjudicada) lineas = (await aplicarReadjudicacion(licitacionCodigo, lineas)).lineas;
   const nuestras = lineas.filter(l => l?.esNuestra);
   const montoNuestro = nuestras.reduce(
     (acc, l) => acc + (Number(l.montoUnitario) || 0) * (Number(l.cantidad) || 1), 0) || null;

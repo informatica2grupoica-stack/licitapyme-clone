@@ -78,7 +78,12 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
   if (loading) {
     return <div className="bg-white rounded-2xl border border-zinc-200 p-4 flex items-center gap-2 text-[12px] text-zinc-400"><Loader2 size={14} className="animate-spin" /> Cargando resumen de gasto…</div>;
   }
-  if (!resumen) return null;
+  if (!resumen) return (
+    <div className="text-[13px] text-zinc-600 bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap">
+      <span className="flex-1 min-w-[220px]"><b className="text-zinc-800">No se pudo cargar el resumen.</b> No significa que no haya gasto: el servidor no respondió. Los números aparecen cuando hay órdenes de compra emitidas o compras registradas en Obuma.</span>
+      <button type="button" onClick={() => { setLoading(true); void cargar(); }} className="text-[12.5px] font-semibold text-teal-700 hover:text-teal-900">Reintentar</button>
+    </div>
+  );
 
   // Neto, igual que lo costeado: antes se mostraba el total con IVA de las compras.
   const gastadoReal = resumen.ocCreadas.totalNeto || resumen.comprasCruzadas.neto || null;
