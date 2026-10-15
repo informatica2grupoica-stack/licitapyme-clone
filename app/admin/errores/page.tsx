@@ -6,10 +6,13 @@
 // consola). El admin lo pasa a "En revisión" y lo cierra como Resuelto (escribiendo cómo se
 // solucionó) o Descartado (escribiendo por qué). En cada cambio de estado al que lo reportó le
 // llega aviso; el switch "Visible para" decide si ve el TEXTO de la solución o si queda solo
-// para los administradores (migration-124).
+// para los administradores (migration-124). Al anotar/cerrar, el admin puede adjuntar archivos de
+// respaldo (PDF, Word, TXT, imágenes…; subirlos o pegar una captura con Ctrl+V) que quien lo
+// reportó ve con el ícono de ojo en /mis-reportes (migration-148).
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AppLayout } from '@/app/components/AppLayout';
-import { IconBug as Bug, IconLoader2 as Loader2, IconExternalLink as ExternalLink, IconCircleCheck as CheckCircle, IconDeviceFloppy as Save } from '@tabler/icons-react';
+import { IconBug as Bug, IconLoader2 as Loader2, IconExternalLink as ExternalLink, IconCircleCheck as CheckCircle, IconDeviceFloppy as Save, IconPaperclip as Paperclip } from '@tabler/icons-react';
+import { AdjuntosReporte, pesoLegible, type AdjuntoReporte } from '@/app/components/AdjuntosReporte';
 import { useToast } from '@/app/components/ui/toast';
 import { Switch } from '@/app/components/ui/Switch';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
@@ -30,6 +33,7 @@ interface Reporte {
   estado: Estado;
   solucion: string | null;
   solucion_visible: number | boolean;
+  adjuntos: AdjuntoReporte[];
   resuelto_por_nombre: string | null;
   resuelto_at: string | null;
   created_at: string;
@@ -137,6 +141,15 @@ function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () =
   const [solucion, setSolucion] = useState(r.solucion || '');
   const [visible, setVisible] = useState(r.solucion_visible !== 0 && r.solucion_visible !== false);
   const [guardando, setGuardando] = useState(false);
+  // Adjuntos: archivos nuevos por subir y ids de los ya guardados que se van a quitar.
+  const [nuevos, setNuevos] = useState<File[]>([]);
+  const [quitados, setQuitados] = useState<number[]>([]);
+  const guardados = r.adjuntos.filter(a => !quitados.includes(a.id));
+  const agregarArchivos = (fs: File[]) => {
+    const ok = fs.filter(f => f.size <= 10 * 1024 * 1024);
+    if (ok.length < fs.length) toast.error('Hay archivos de más de 10 MB', 'Se omitieron.');
+    setNuevos(prev => [...prev, ...ok].slice(0, 5));
+  };
   // Cerrado (resuelto/descartado) se muestra como tarjeta de solo lectura: antes el formulario
   // quedaba igual tras guardar y parecía que no se había guardado nada (23-sep-2026).
   const cerradoEnBD = r.estado === 'resuelto' || r.estado === 'descartado';
@@ -148,15 +161,19 @@ function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () =
   const guardar = async () => {
     setGuardando(true);
     try {
-      const res = await fetch(`/api/admin/reportes-error/${r.id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ estado, solucion, solucion_visible: visible }),
-      });
+      const fd = new FormData();
+      fd.append('estado', estado);
+      fd.append('solucion', solucion);
+      fd.append('solucion_visible', visible ? '1' : '0');
+      fd.append('quitar_adjuntos', JSON.stringify(quitados));
+      for (const f of nuevos) fd.append('archivos', f, f.name);
+      const res = await fetch(`/api/admin/reportes-error/${r.id}`, { method: 'PATCH', body: fd });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d.success) throw new Error(d.error || `Error ${res.status}`);
       toast.success(cierra ? 'Reporte cerrado y guardado' : 'Reporte actualizado',
         d.avisado ? `Se le avisó a ${r.usuario_nombre || 'quien lo reportó'}.` : undefined);
       await onGuardado();
+      setNuevos([]); setQuitados([]);
       if (cierra) setEditando(false);
     } catch (e) {
       toast.error('No se pudo guardar', String((e as Error).message || e));
@@ -222,6 +239,7 @@ function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () =
               {r.estado === 'resuelto' ? 'Cómo se solucionó' : 'Por qué se descartó'}
             </p>
             <p className="text-[13px] text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{r.solucion}</p>
+            {r.adjuntos.length > 0 && <div className="mt-3"><AdjuntosReporte adjuntos={r.adjuntos} /></div>}
             <p className="text-[11.5px] text-slate-500 mt-3">
               {visible
                 ? `${r.usuario_nombre || 'Quien lo reportó'} ve este texto en "Mis reportes".`
@@ -251,9 +269,34 @@ function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () =
           {estado === 'descartado' ? 'Por qué se descarta *' : estado === 'resuelto' ? 'Cómo se solucionó *' : 'Notas / cómo se está solucionando'}
         </label>
         <textarea value={solucion} onChange={e => setSolucion(e.target.value)} rows={4}
+          onPaste={e => {
+            const fs = Array.from(e.clipboardData.files);
+            if (fs.length) { e.preventDefault(); agregarArchivos(fs); }
+          }}
           placeholder="Ej: El guardado fallaba porque el precio venía con puntos de miles; se corrigió el parser y se re-guardaron los 3 costeos afectados."
           className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.04] px-3 py-2 text-[13px] text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40" />
         {faltaSolucion && <p className="text-[11.5px] text-amber-600 mt-1">Escribe al menos 10 caracteres para cerrarlo.</p>}
+        <div className="mt-3 space-y-2">
+          <AdjuntosReporte adjuntos={guardados} onQuitar={a => setQuitados(q => [...q, a.id])} />
+          {nuevos.length > 0 && (
+            <ul className="space-y-1">
+              {nuevos.map((f, i) => (
+                <li key={`${f.name}-${i}`} className="flex items-center gap-2 text-[12.5px] text-slate-600 dark:text-slate-300">
+                  <Paperclip size={14} className="text-emerald-600" /> <span className="truncate">{f.name}</span>
+                  <span className="text-[11px] text-slate-400">{pesoLegible(f.size)} · se sube al guardar</span>
+                  <button type="button" onClick={() => setNuevos(n => n.filter((_, j) => j !== i))} className="ml-auto text-[11.5px] text-red-600 hover:underline">Quitar</button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <label className="inline-flex items-center gap-2 cursor-pointer rounded-lg border border-dashed border-slate-300 dark:border-white/20 px-3 py-2 text-[12.5px] font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.04]">
+            <Paperclip size={16} /> Adjuntar archivos de respaldo
+            <input type="file" multiple className="hidden" data-testid="adjuntar-archivos"
+              accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.gif,.webp,.xls,.xlsx,.csv"
+              onChange={e => { agregarArchivos(Array.from(e.target.files || [])); e.target.value = ''; }} />
+          </label>
+          <p className="text-[11.5px] text-slate-400">Opcional · PDF, Word, Excel, TXT o imágenes · hasta 5 archivos de 10 MB. También puedes pegar una captura con Ctrl+V dentro del texto. Siguen la misma visibilidad que la solución.</p>
+        </div>
         <div className="mt-3 flex items-center gap-2.5">
           <Switch checked={visible} onChange={() => setVisible(v => !v)} label="Solución visible para quien lo reportó" />
           <span className="text-[12.5px] text-slate-700 dark:text-slate-300">
@@ -262,7 +305,7 @@ function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () =
               : <>🔒 <b>Solo administradores</b> — {r.usuario_nombre || 'quien lo reportó'} recibe el aviso del estado, sin el texto</>}
           </span>
         </div>
-        <button onClick={guardar} disabled={guardando || faltaSolucion || (estado === r.estado && solucion.trim() === (r.solucion || '') && visible === (r.solucion_visible !== 0 && r.solucion_visible !== false))}
+        <button onClick={guardar} disabled={guardando || faltaSolucion || (estado === r.estado && solucion.trim() === (r.solucion || '') && visible === (r.solucion_visible !== 0 && r.solucion_visible !== false) && nuevos.length === 0 && quitados.length === 0)}
           className="mt-3 inline-flex items-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-[13px] font-semibold px-4 py-2">
           {guardando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} Guardar
         </button>

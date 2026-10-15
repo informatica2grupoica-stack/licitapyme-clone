@@ -3,14 +3,21 @@
 // en cada cambio de estado se le avisa por campana a quien lo reportó. `solucion_visible`
 // (migration-124) decide si ese perfil ve el TEXTO de la solución o si queda solo para los admin
 // (a veces es información interna): el aviso le llega igual, solo que sin el texto.
+// Llega como FormData: además del estado y el texto, el admin puede adjuntar archivos de respaldo
+// (`archivos`: PDF, Word, TXT, imágenes… → reportes_error_adjuntos, migration-148) y quitar los
+// ya guardados (`quitar_adjuntos`: JSON con ids). Siguen la misma visibilidad que el texto.
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser } from '@/app/lib/api-auth';
 import { registrarEvento } from '@/app/lib/historial';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { publicarCambio } from '@/app/lib/sse-bus';
+import { subirDocumentoR2, mimeDeNombre } from '@/app/lib/r2';
 
 const ESTADOS = ['abierto', 'en_revision', 'resuelto', 'descartado'];
+const EXT_PERMITIDAS = ['pdf', 'doc', 'docx', 'txt', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'xls', 'xlsx', 'csv'];
+const MAX_ARCHIVO = 10 * 1024 * 1024;
+const MAX_ARCHIVOS = 5;
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const u = await getAuthedUser(req);
@@ -19,10 +26,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!Number.isInteger(id)) return NextResponse.json({ error: 'ID inválido' }, { status: 400 });
 
   try {
-    const body = await req.json();
-    const estado = String(body.estado || '');
-    const solucion = String(body.solucion ?? '').trim();
-    const visible = body.solucion_visible !== false;   // por defecto visible, como antes
+    const fd = await req.formData();
+    const estado = String(fd.get('estado') ?? '');
+    const solucion = String(fd.get('solucion') ?? '').trim();
+    const visible = fd.get('solucion_visible') !== '0';   // por defecto visible, como antes
+    const archivos = fd.getAll('archivos').filter((f): f is File => f instanceof File && f.size > 0);
+    let quitar: number[] = [];
+    try { quitar = (JSON.parse(String(fd.get('quitar_adjuntos') ?? '[]')) as unknown[]).map(Number).filter(Number.isInteger); } catch { /* sin ids */ }
+    if (archivos.length > MAX_ARCHIVOS) return NextResponse.json({ error: `Máximo ${MAX_ARCHIVOS} archivos por vez` }, { status: 400 });
+    for (const f of archivos) {
+      const ext = (f.name.split('.').pop() || '').toLowerCase();
+      if (!EXT_PERMITIDAS.includes(ext)) return NextResponse.json({ error: `Tipo de archivo no permitido: ${f.name}` }, { status: 400 });
+      if (f.size > MAX_ARCHIVO) return NextResponse.json({ error: `${f.name} pesa más de 10 MB` }, { status: 400 });
+    }
     if (!ESTADOS.includes(estado)) return NextResponse.json({ error: 'Estado inválido' }, { status: 400 });
     if ((estado === 'resuelto' || estado === 'descartado') && solucion.length < 10) {
       return NextResponse.json({ error: estado === 'resuelto'
@@ -42,6 +58,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
        WHERE id = ?`,
       [estado, solucion || null, visible ? 1 : 0, cierra ? u.id : null, cierra ? nombre : null, cierra ? ahora : null, ahora, id],
     );
+
+    if (quitar.length) {
+      await pool.query(`DELETE FROM reportes_error_adjuntos WHERE reporte_id = ? AND id IN (${quitar.map(() => '?').join(',')})`, [id, ...quitar]);
+    }
+    for (const f of archivos) {
+      const url = await subirDocumentoR2('reportes-error', f.name, Buffer.from(await f.arrayBuffer()), mimeDeNombre(f.name));
+      await pool.query(
+        `INSERT INTO reportes_error_adjuntos (reporte_id, nombre, url, mime, tamano, subido_por, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [id, f.name.slice(0, 255), url, mimeDeNombre(f.name), f.size, u.id, ahora],
+      );
+    }
 
     publicarCambio('reportes_error');   // badge del sidebar y la bandeja del otro admin
 

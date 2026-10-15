@@ -25,13 +25,19 @@ export async function GET(req: NextRequest) {
     const [rows] = await pool.query(
       // La solución marcada "solo administradores" (migration-124) NUNCA sale de la BD hacia el
       // perfil: se filtra acá, no en la pantalla.
-      `SELECT id, url, titulo, que_paso, que_esperaba, pasos, gravedad, imagen_url, estado,
+      `SELECT id, url, titulo, que_paso, que_esperaba, pasos, gravedad, imagen_url, estado, solucion_visible,
               IF(solucion_visible = 1, solucion, NULL) AS solucion, (solucion_visible = 0 AND solucion IS NOT NULL) AS solucion_privada,
               resuelto_por_nombre, resuelto_at, created_at
        FROM reportes_error WHERE usuario_id = ? ORDER BY created_at DESC LIMIT 200`,
       [u.id],
     );
-    return NextResponse.json({ success: true, reportes: rows });
+    // Adjuntos de la solución (migration-148): solo de los reportes cuya solución es visible.
+    const visibles = (rows as any[]).filter(r => Number(r.solucion_visible) === 1).map(r => r.id);
+    const [adj] = visibles.length
+      ? await pool.query(`SELECT id, reporte_id, nombre, url, mime, tamano FROM reportes_error_adjuntos WHERE reporte_id IN (?) ORDER BY id`, [visibles]) as any[]
+      : [[]];
+    const reportes = (rows as any[]).map(r => ({ ...r, adjuntos: (adj as any[]).filter(a => a.reporte_id === r.id) }));
+    return NextResponse.json({ success: true, reportes });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
