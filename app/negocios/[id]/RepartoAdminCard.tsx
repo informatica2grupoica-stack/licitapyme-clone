@@ -368,9 +368,18 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                       <p className="text-[11.5px] text-zinc-500">{p.yaCreada || p.ocRealObuma ? `${p.items.length} producto(s) · ${fmtCLP(p.subtotal)}` : `${idsSel(p).length} de ${p.items.length} productos en la orden · ${fmtCLP(subtotalSel(p))}`}</p>
                     </div>
                     {p.yaCreada ? (
-                      <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full">
-                        <CheckCircle2 size={12} /> Folio {p.yaCreada.folio ?? p.yaCreada.obumaCompraOcId} · {fmtCLP(p.yaCreada.total)}
-                      </span>
+                      <div className="flex items-center gap-2 flex-wrap justify-end">
+                        {p.ocRealObuma && (
+                          <span title="La OC original, hecha directo en Obuma."
+                            className="flex items-center gap-1 text-[11px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-1 rounded-full">
+                            <CheckCircle2 size={12} /> OC en Obuma · {p.ocRealObuma.folios.join(', ')} · {p.ocRealObuma.estados.join(' / ')} · {fmtCLP(p.ocRealObuma.totalNeto)} neto
+                          </span>
+                        )}
+                        <span title={p.ocRealObuma ? 'Otra orden, emitida desde Licitank (aparte de la original).' : undefined}
+                          className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full border ${p.ocRealObuma ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-emerald-700 bg-emerald-50 border-emerald-200'}`}>
+                          <CheckCircle2 size={12} /> {p.ocRealObuma ? 'Emitida desde Licitank · ' : ''}Folio {p.yaCreada.folio ?? p.yaCreada.obumaCompraOcId} · {fmtCLP(p.yaCreada.total)}
+                        </span>
+                      </div>
                     ) : p.ocRealObuma ? (
                       <div className="flex items-center gap-2 flex-wrap justify-end">
                         <span title="La OC se hizo directo en Obuma (no desde Licitank)."

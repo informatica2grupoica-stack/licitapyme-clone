@@ -232,8 +232,8 @@ export async function GET(request: NextRequest, { params }: Params) {
       congelado: soloLectura || await yaCongelado(negocio.id, rol),
       // El editor habilita SOLO costo real, links y filas nuevas cuando esto es true (ver PATCH).
       modoCompras: soloLectura && await esOperadorCompras(userId),
-      // Exportar el costeo digital a Excel: solo administradores.
-      esAdmin: rol === 'admin',
+      // Exportar el costeo digital a Excel: administradores o quien tenga el permiso `costeo_exportar`.
+      esAdmin: rol === 'admin' || !!(await permisosCrudosDeUsuario(userId)).costeo_exportar,
       registro: await registroDeCambios(negocio).catch(e => { console.error('[comercial/costeo-editor] registro de cambios:', String(e).slice(0, 150)); return []; }),
     });
   } catch (error) {

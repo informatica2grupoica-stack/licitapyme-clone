@@ -8,6 +8,7 @@ import { obtenerAsignacion } from '@/app/lib/compras';
 import { proveedoresParaOrdenCompra, crearOrdenCompraParaProveedor } from '@/app/lib/compras-oc-obuma';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { parsearMontoCL } from '@/app/lib/numeros';
+import { sincronizarComprasObuma } from '@/app/lib/obuma-compras';
 import { buscarCentroCostoPorLicitacion, centrosDeCostoCompleto } from '@/app/lib/obuma';
 
 export const runtime = 'nodejs';
@@ -15,6 +16,8 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 type Params = { params: Promise<{ negocioId: string }> };
+
+const ultimaSyncObuma = new Map<number, number>();
 
 function getUser(req: NextRequest) {
   const id = req.headers.get('x-user-id');
@@ -34,6 +37,16 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
     if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
+
+    // Las OC hechas directo en Obuma solo se ven si la copia local está al día: se refresca esta licitación (máx. 1 vez por minuto).
+    const ultima = ultimaSyncObuma.get(id) ?? 0;
+    if (Date.now() - ultima > 60_000) {
+      ultimaSyncObuma.set(id, Date.now());
+      await Promise.race([
+        sincronizarComprasObuma({ paginas: 5, soloCodigo: asignacion.licitacionCodigo }),
+        new Promise(r => setTimeout(r, 15_000)),
+      ]).catch(e => console.warn('[compras/orden-compra-obuma] sync previo falló:', String(e).slice(0, 150)));
+    }
 
     const [proveedores, centroCosto, centros] = await Promise.all([
       proveedoresParaOrdenCompra(id),

@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generarCosteoExcelDesdeEditor, type HojaExportCosteo } from '@/app/lib/generar-costeo';
 import { margenDeFila, MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor } from '@/app/lib/costeo-editor';
 import { IVA } from '@/app/lib/costeo-comparativo';
+import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { cargarNegocio } from '../../route';
 
 export const runtime = 'nodejs';
@@ -19,8 +20,9 @@ export async function POST(request: NextRequest, { params }: Params) {
   const rol = request.headers.get('x-user-rol');
   const userId = idH ? parseInt(idH) : null;
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  // Solo administradores pueden exportar el costeo digital.
-  if (rol !== 'admin') return NextResponse.json({ error: 'Solo un administrador puede exportar el costeo.' }, { status: 403 });
+  // Pueden exportar el costeo digital los administradores y quien tenga el permiso `costeo_exportar`.
+  if (rol !== 'admin' && !(await permisosCrudosDeUsuario(userId)).costeo_exportar)
+    return NextResponse.json({ error: 'No tienes permiso para exportar el costeo.' }, { status: 403 });
   const { id } = await params;
 
   try {

@@ -40,6 +40,8 @@ export interface UsuarioSession {
     // Aprobar dentro del Auditor sin ser jefe de ventas, y el creador de anexos (05-oct-2026).
     auditor_aprobar?: boolean;
     anexos?: boolean;
+    // Exportar el costeo digital a Excel (16-oct-2026).
+    costeo_exportar?: boolean;
     // "CA" (07-oct-2026): crea/ve las reglas aprendidas de viabilidad. No viene gratis con admin.
     reglas_ia?: boolean;
   };

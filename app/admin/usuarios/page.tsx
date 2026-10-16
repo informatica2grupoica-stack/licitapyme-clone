@@ -31,6 +31,7 @@ interface Permisos {
   auditor_compra?: boolean;
   auditor_aprobar?: boolean;
   anexos?: boolean;
+  costeo_exportar?: boolean;
   reglas_ia?: boolean;
 }
 
@@ -67,7 +68,8 @@ const CATEGORIAS_PERMISOS: { key: CategoriaPermiso; label: string; resumen: stri
 const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string; categoria: CategoriaPermiso }[] = [
   // ── Auditor y Anexos ──
   { key: 'costeo_editor',       label: 'Costeo',                         desc: 'Ve y guarda la pestaña "Costeo" del negocio.', categoria: 'auditor' },
-  { key: 'auditor_tecnico',     label: 'Auditor Técnico',                desc: 'Ve y carga el checklist técnico/comercial y el comparador de fichas, Pre-postulación y Postulación. También puede "Enviar al Auditor" desde Documentos.', categoria: 'auditor' },
+  { key: 'costeo_exportar',     label: 'Exportar costeo a Excel',        desc: 'Botón "Exportar Excel" del Costeo digital (requiere también el permiso Costeo para abrir la pestaña).', categoria: 'auditor' },
+  { key: 'auditor_tecnico',     label: 'Auditor Técnico',               desc: 'Ve y carga el checklist técnico/comercial y el comparador de fichas, Pre-postulación y Postulación. También puede "Enviar al Auditor" desde Documentos.', categoria: 'auditor' },
   { key: 'auditor_compra',      label: 'Auditor de Compra', desc: 'Ve y trabaja la pestaña "Auditor · compra y técnico" (opciones, links, precios, cotizaciones), Pre-postulación y Postulación.', categoria: 'auditor' },
   { key: 'auditor_aprobar',     label: 'Aprobar en el Auditor',          desc: 'Aprueba, observa o rechaza puntos y opciones del Auditor. NO le abre la bandeja de Aprobaciones ni Compras.', categoria: 'auditor' },
   { key: 'anexos',              label: 'Anexos (generar, separar, rellenar)', desc: 'Usa el creador de anexos en Documentos: separar, rellenar uno o todos, firmar y vista previa. Gasta IA.', categoria: 'auditor' },

@@ -188,11 +188,17 @@ export async function proveedoresParaOrdenCompra(negocioId: number): Promise<Pro
   // OC reales ya hechas en Obuma para esta licitación (lectura de base, sin llamar a Obuma). Las
   // ANULADAS no cuentan. Se cruzan por RUT del proveedor, no por nombre (la razón social cambia).
   const codigoLic = await licitacionDeNegocio(negocioId);
-  const realesObuma = (codigoLic ? await comprasObumaDeLicitacion(codigoLic).catch(() => []) : []).filter(c => !/anulad/i.test(c.estado || ''));
+  const todasObuma = codigoLic ? await comprasObumaDeLicitacion(codigoLic).catch(() => []) : [];
+  const realesObuma = todasObuma.filter(c => !/anulad/i.test(c.estado || ''));
+  for (const g of grupos.values()) {
+    // Una OC nuestra que en Obuma quedó ANULADA ya no es la orden del proveedor: no se muestra como "creada".
+    if (g.yaCreada && todasObuma.some(c => c.compraOcId === g.yaCreada!.obumaCompraOcId && /anulad/i.test(c.estado || ''))) g.yaCreada = null;
+  }
   for (const g of grupos.values()) {
     const rut = rutNormalizado(g.proveedorRut);
     if (!rut) continue;
-    const delProveedor = realesObuma.filter(c => rutNormalizado(c.proveedorRut) === rut);
+    // La OC que emitió Licitank (yaCreada) no cuenta como "real": la real es la que ya existía en Obuma antes.
+    const delProveedor = realesObuma.filter(c => rutNormalizado(c.proveedorRut) === rut && c.compraOcId !== g.yaCreada?.obumaCompraOcId);
     if (delProveedor.length === 0) continue;
     g.ocRealObuma = {
       folios: delProveedor.map(c => c.folio || c.compraOcId),
