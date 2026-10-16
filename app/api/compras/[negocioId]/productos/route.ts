@@ -9,6 +9,7 @@ import { obtenerAsignacion, listarProductosCompra, poblarProductosCompra, cambia
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { linksDelCosteoPorProducto } from '@/app/lib/compras-auditoria-cotizacion';
+import { listarComprasRapidas, type CompraRapida } from '@/app/lib/compras-compra-rapida';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -73,6 +74,12 @@ async function __PATCH(request: NextRequest, { params }: Params) {
     if (!Number.isFinite(productoId)) return NextResponse.json({ error: 'Falta productoId' }, { status: 400 });
 
     if (body.accion === 'subestado') {
+      // Una compra rápida sin aprobar (pendiente o rechazada) no puede pasar a «Comprado» a mano: primero la aprueba el jefe de ventas.
+      if (body.subestado === 'COMPRADO') {
+        const { compras } = await listarComprasRapidas(id).catch(() => ({ compras: [] as CompraRapida[] }));
+        const cr = compras.find(c => c.productoId === productoId);
+        if (cr && cr.estado !== 'APROBADA') return NextResponse.json({ error: `Este producto tiene una compra rápida ${cr.estado === 'PENDIENTE' ? 'esperando' : 'rechazada por'} el jefe de ventas: no se puede marcar Comprado hasta que la apruebe.` }, { status: 400 });
+      }
       await cambiarSubestadoProducto(productoId, body.subestado as SubestadoProducto);
     } else if (body.accion === 'proponer_renuncia') {
       if (!String(body.motivo || '').trim()) return NextResponse.json({ error: 'Falta el motivo de la renuncia.' }, { status: 400 });

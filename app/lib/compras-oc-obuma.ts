@@ -13,8 +13,10 @@ import { registrarEvento } from '@/app/lib/historial';
 import { obtenerAprobaciones, obtenerEscenarioElegido } from '@/app/lib/compras-aprobaciones';
 import { marcarHitoReparto, obtenerReparto } from '@/app/lib/compras-reparto';
 import { listarAprobacionesLinea } from '@/app/lib/compras-aprobacion-lineas';
+import { listarProductosCompra } from '@/app/lib/compras';
+import { productosConCompraRapidaAprobada, listarComprasRapidas, type CompraRapida } from '@/app/lib/compras-compra-rapida';
 import {
-  crearOrdenCompraObuma, listarFormasPago, proveedorPorRut, crearProveedorObuma, buscarCentroCostoPorLicitacion,
+  crearOrdenCompraObuma, listarFormasPago, centrosDeCostoCompleto, proveedorPorRut, crearProveedorObuma, buscarCentroCostoPorLicitacion,
   listarComprasOc, listarComprasOcItems, mapaFormasPagoCompleto, type ObumaFormaPago, type DatosCrearProveedorObuma,
 } from '@/app/lib/obuma';
 import { comprasObumaDeLicitacion, netoDeCompra, type FacturaObuma } from '@/app/lib/obuma-compras';
@@ -30,6 +32,8 @@ export interface ItemOrdenCompra {
   obumaProductoId: string | null; obumaCodigoComercial: string | null;
   // Aprobación por producto (migration-147). `estadoLinea` null = la compra se aprobó entera, sin decisiones por producto (flujo anterior).
   aprobado?: boolean; estadoLinea?: 'APROBADA' | 'RECHAZADA' | 'SIN_DECIDIR' | null;
+  /** Compra rápida aprobada por el jefe de ventas: puede emitirse sin las compuertas 1 y 2 (migration-151). */
+  compraRapida?: boolean;
 }
 export interface ProveedorOrdenCompra {
   proveedorNombre: string; proveedorId: number | null; proveedorRut: string | null;
@@ -85,11 +89,20 @@ async function buscarOcRealSimilar(
  *  cotización que ganó ese ítem — no se adivina por nombre. */
 export async function proveedoresParaOrdenCompra(negocioId: number): Promise<ProveedorOrdenCompra[]> {
   const escenario = await obtenerEscenarioElegido(negocioId);
-  if (!escenario) return [];
   let detalle: any = null;
-  try { detalle = typeof escenario.detalle_json === 'string' ? JSON.parse(escenario.detalle_json) : escenario.detalle_json; } catch { /* detalle inválido, se trata como vacío */ }
+  if (escenario) { try { detalle = typeof escenario.detalle_json === 'string' ? JSON.parse(escenario.detalle_json) : escenario.detalle_json; } catch { /* detalle inválido, se trata como vacío */ } }
   const porProducto: Array<{ productoId: number; descripcion: string; proveedor: string | null; precioUnitario: number | null; cantidad: number | null; subtotal: number | null }> = detalle?.porProducto || [];
   const cubiertos = porProducto.filter(p => p.proveedor && p.precioUnitario != null);
+  // Compras rápidas APROBADAS por el jefe de ventas: entran a la OC con su tienda y su precio aunque no haya un escenario de compra elegido
+  // (o aunque el escenario no las traiga). Pendientes o rechazadas no entran.
+  const { compras: rapidas } = await listarComprasRapidas(negocioId).catch(() => ({ compras: [] as CompraRapida[] }));
+  const productosCompra = rapidas.some(r => r.estado === 'APROBADA') ? await listarProductosCompra(negocioId).catch(() => []) : [];
+  for (const r of rapidas) {
+    if (r.estado !== 'APROBADA' || r.precioUnitario == null || !r.proveedorNombre || cubiertos.some(c => c.productoId === r.productoId)) continue;
+    const prod = productosCompra.find(x => x.id === r.productoId);
+    const cant = prod?.cantidad != null && Number(prod.cantidad) > 0 ? Number(prod.cantidad) : 1;
+    cubiertos.push({ productoId: r.productoId, descripcion: prod?.descripcion ?? `Producto #${r.productoId}`, proveedor: r.proveedorNombre, precioUnitario: r.precioUnitario, cantidad: cant, subtotal: r.precioUnitario * cant });
+  }
   if (cubiertos.length === 0) return [];
 
   const productoIds = cubiertos.map(p => p.productoId);
@@ -135,6 +148,9 @@ export async function proveedoresParaOrdenCompra(negocioId: number): Promise<Pro
   const aprob = await listarAprobacionesLinea(negocioId).catch(() => ({ tablaOk: false, lineas: [] as Array<{ productoId: number; estado: string }> }));
   const hayDecisiones = aprob.tablaOk && aprob.lineas.length > 0;
   const estadoPorProducto = new Map(aprob.lineas.map(l => [l.productoId, l.estado]));
+  // Compra rápida aprobada por el jefe de ventas: ese producto cuenta como aprobado aunque no esté en la aprobación de la compra.
+  const rapidasAprobadas = new Set(rapidas.filter(c => c.estado === 'APROBADA').map(c => c.productoId));
+  const rapidasSinAprobar = new Map(rapidas.filter(c => c.estado !== 'APROBADA').map(c => [c.productoId, c.estado]));
 
   const grupos = new Map<string, ProveedorOrdenCompra>();
   for (const p of cubiertos) {
@@ -157,8 +173,10 @@ export async function proveedoresParaOrdenCompra(negocioId: number): Promise<Pro
       productoId: p.productoId, descripcion: p.descripcion, cantidad: p.cantidad ?? 1,
       precioUnitario: p.precioUnitario as number, subtotal,
       obumaProductoId: sku?.obumaProductoId ?? null, obumaCodigoComercial: sku?.obumaCodigoComercial ?? null,
-      aprobado: !hayDecisiones || estadoPorProducto.get(p.productoId) === 'APROBADA',
-      estadoLinea: hayDecisiones ? ((estadoPorProducto.get(p.productoId) as 'APROBADA' | 'RECHAZADA' | undefined) ?? 'SIN_DECIDIR') : null,
+      compraRapida: rapidasAprobadas.has(p.productoId),
+      // Una compra rápida solo entra en la OC cuando el jefe de ventas la aprobó (o ratificó); pendiente o rechazada, no.
+      aprobado: rapidasSinAprobar.has(p.productoId) ? false : (!hayDecisiones || estadoPorProducto.get(p.productoId) === 'APROBADA' || rapidasAprobadas.has(p.productoId)),
+      estadoLinea: rapidasAprobadas.has(p.productoId) ? 'APROBADA' : rapidasSinAprobar.get(p.productoId) === 'RECHAZADA' ? 'RECHAZADA' : rapidasSinAprobar.has(p.productoId) ? 'SIN_DECIDIR' : hayDecisiones ? ((estadoPorProducto.get(p.productoId) as 'APROBADA' | 'RECHAZADA' | undefined) ?? 'SIN_DECIDIR') : null,
     });
     grupo.subtotal += subtotal;
   }
@@ -253,7 +271,7 @@ export async function crearProveedorEnObumaExplicito(datos: DatosCrearProveedorO
  *  hay compra real que emitir. */
 export async function crearOrdenCompraParaProveedor(
   negocioId: number, proveedorNombre: string,
-  opciones: { formaPagoId: string; incluirFlete: boolean; fleteMonto: number | null; confirmarPeseADuplicado?: boolean; productoIds?: number[] },
+  opciones: { formaPagoId: string; incluirFlete: boolean; fleteMonto: number | null; confirmarPeseADuplicado?: boolean; productoIds?: number[]; centroCostoId?: string },
   actorId: number, actorNombre: string | null,
 ): Promise<{ obumaCompraOcId: string; folio: string | null; total: number }> {
   // Control de gasto (pedido explícito del usuario): dinero de verdad sale recién cuando se crea la
@@ -261,12 +279,16 @@ export async function crearOrdenCompraParaProveedor(
   // solo la de compra. La spec (§11.1) solo pide la Compuerta 1 para arrancar "el proceso documental
   // posterior"; esto es un guardarraíl adicional, no una regla que la contradiga.
   const { compra, margen } = await obtenerAprobaciones(negocioId);
-  if (!compra || !['APROBADA', 'APROBADA_CON_MODIFICACION'].includes(compra.estado)) {
-    throw new Error('La orden de compra se emite después de aprobada la Compuerta 1 (Aprobación de compra) — spec §11.1.');
-  }
-  if (!margen || !['APROBADA', 'APROBADA_CON_MODIFICACION'].includes(margen.estado)) {
-    throw new Error('Falta aprobar la Compuerta 2 (Aprobación de margen) — control de gasto: no se emite dinero real sin las dos compuertas.');
-  }
+  // EXCEPCIÓN (compra rápida, migration-151): sin las dos compuertas solo se puede emitir una OC cuyos productos sean TODOS compras rápidas
+  // aprobadas por el jefe de ventas. Se valida abajo, cuando ya se sabe qué productos entran en la orden.
+  const errorCompuertas =
+    !compra || !['APROBADA', 'APROBADA_CON_MODIFICACION'].includes(compra.estado)
+      ? 'La orden de compra se emite después de aprobada la Compuerta 1 (Aprobación de compra) — spec §11.1.'
+      : !margen || !['APROBADA', 'APROBADA_CON_MODIFICACION'].includes(margen.estado)
+        ? 'Falta aprobar la Compuerta 2 (Aprobación de margen) — control de gasto: no se emite dinero real sin las dos compuertas.'
+        : null;
+  const rapidasAprobadas = errorCompuertas ? await productosConCompraRapidaAprobada(negocioId) : new Set<number>();
+  if (errorCompuertas && rapidasAprobadas.size === 0) throw new Error(errorCompuertas);
 
   const grupos = await proveedoresParaOrdenCompra(negocioId);
   const grupo = grupos.find(g => g.proveedorNombre === proveedorNombre);
@@ -298,6 +320,11 @@ export async function crearOrdenCompraParaProveedor(
   }
   const itemsOrden = grupo.items.filter(it => (marcados ? marcados.has(it.productoId) : it.aprobado !== false) && it.estadoLinea !== 'RECHAZADA');
   if (itemsOrden.length === 0) throw new Error('No hay productos para esta orden: marca al menos uno (los rechazados no se pueden incluir).');
+  // Una compra rápida pendiente (o rechazada) no se emite aunque se haya marcado a mano: primero la aprueba el jefe de ventas.
+  const { compras: rapidasOC } = await listarComprasRapidas(negocioId).catch(() => ({ compras: [] as CompraRapida[] }));
+  if (rapidasOC.some(c => c.estado !== 'APROBADA' && itemsOrden.some(it => it.productoId === c.productoId)))
+    throw new Error('Hay compras rápidas que el jefe de ventas todavía no aprueba: desmárcalas de la orden.');
+  if (errorCompuertas && !itemsOrden.every(it => rapidasAprobadas.has(it.productoId))) throw new Error(`${errorCompuertas} Solo las compras rápidas aprobadas por el jefe de ventas se pueden emitir antes: marca solo esos productos.`);
 
   const licitacionCodigo = await licitacionDeNegocio(negocioId);
   const fecha = ahoraChileSQL().slice(0, 10);
@@ -311,16 +338,23 @@ export async function crearOrdenCompraParaProveedor(
 
   // Centro de costo real, si esta licitación ya tiene un Proyecto armado en Obuma (ver
   // buscarCentroCostoPorLicitacion) — si no lo tiene, se omite del payload sin bloquear la OC.
-  const centroCosto = licitacionCodigo ? await buscarCentroCostoPorLicitacion(licitacionCodigo).catch(() => null) : null;
+  // El centro de costo elegido en el formulario manda; si no se eligió, el que se detecta por el código de la licitación.
+  const centroCosto = opciones.centroCostoId ? { id: opciones.centroCostoId } : licitacionCodigo ? await buscarCentroCostoPorLicitacion(licitacionCodigo).catch(() => null) : null;
+
+  // El nombre de la forma de pago (Obuma lo guarda como texto; con el ID la OC queda mostrando solo un número).
+  const formaPagoNombre = (await listarFormasPago().catch(() => [])).find(f => f.id === opciones.formaPagoId)?.nombre ?? null;
 
   const creada = await crearOrdenCompraObuma({
     proveedorRut: ficha.rut || null, proveedorRazonSocial: ficha.razonSocial,
     proveedorDireccion: ficha.direccion, proveedorComuna: ficha.comuna,
     proveedorEmail: ficha.email, proveedorTelefono: ficha.telefono,
-    fecha, formaPagoId: opciones.formaPagoId,
+    fecha, formaPagoId: opciones.formaPagoId, formaPagoNombre,
     referencia: licitacionCodigo || `negocio-${negocioId}`,
-    concepto: `Compra para licitación ${licitacionCodigo || negocioId}`,
+    // «inventario» es lo que activa el botón Inventario en la pantalla de Obuma; el texto de la licitación va como observación.
+    concepto: 'inventario',
+    observacion: `Compra para licitación ${licitacionCodigo || negocioId}`,
     centroCostoId: centroCosto?.id ?? null,
+    centroCostoCodigo: centroCosto ? ((await centrosDeCostoCompleto().catch(() => [])).find(c => c.id === centroCosto.id)?.codigo || null) : null,
     items: itemsOrden.map(it => ({
       productoIdObuma: it.obumaProductoId, codigoComercial: it.obumaCodigoComercial,
       nombre: it.descripcion, cantidad: it.cantidad, precioUnitarioNeto: it.precioUnitario,
@@ -357,7 +391,12 @@ export async function crearOrdenCompraParaProveedor(
     [negocioId],
   ) as any;
   const resumenFolios = (todas as any[]).map(r => r.ref).join(', ');
-  await marcarHitoReparto(negocioId, 'ocEmitida', { activo: true, ocNumero: resumenFolios }, actorId, actorNombre);
+  // El hito exige una nota de respaldo al marcarse por primera vez: se deja la que corresponde (la orden recién creada), no se pide a mano.
+  // Antes faltaba y la OC quedaba creada en Obuma pero la pantalla mostraba «No se pudo crear la orden de compra».
+  await marcarHitoReparto(negocioId, 'ocEmitida', {
+    activo: true, ocNumero: resumenFolios,
+    nota: `OC emitida desde Licitank en Obuma: folio ${creada.folio ?? creada.compraOcId} a ${grupo.proveedorNombre}, ${new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(creada.subtotalNeto)} neto.`,
+  }, actorId, actorNombre);
 
   return { obumaCompraOcId: creada.compraOcId, folio: creada.folio, total: creada.total };
 }

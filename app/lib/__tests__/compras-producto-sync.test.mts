@@ -44,3 +44,29 @@ test('compara sin tildes ni mayúsculas', () => {
   const r = emparejarProductos([{ id: 9, correlativo: null, descripcion: 'Calibración' }], [{ lineaPublicada: 2, detalle: 'calibracion' }]);
   assert.deepEqual(r.existentePorFila, [9]);
 });
+
+test('caso real #415: un grupo de suma alzada comparte la «Línea 2» entre 5 productos — se reutilizan, no se duplican en cada sincronización', () => {
+  const filas = ['Locker', 'Bancas', 'Estante', 'Mesas', 'Carro'].map(d => ({ lineaPublicada: 2, detalle: d }));
+  const existentes = filas.map((f, i) => ({ id: 100 + i, correlativo: 2, descripcion: f.detalle }));
+  const r = emparejarProductos(existentes, filas);
+  assert.deepEqual(r.existentePorFila, [100, 101, 102, 103, 104]);
+  assert.deepEqual(r.duplicados, []);
+});
+
+test('#415: las copias ya duplicadas (mismo texto, misma línea) quedan como sobrantes y no reclaman el lugar del original', () => {
+  const filas = [{ lineaPublicada: 2, detalle: 'Locker' }, { lineaPublicada: 2, detalle: 'Bancas' }];
+  const existentes = [
+    { id: 1, correlativo: 2, descripcion: 'Locker' }, { id: 2, correlativo: 2, descripcion: 'Bancas' },
+    { id: 3, correlativo: 2, descripcion: 'Locker' }, { id: 4, correlativo: 2, descripcion: 'Bancas' },
+  ];
+  const r = emparejarProductos(existentes, filas);
+  assert.deepEqual(r.existentePorFila, [1, 2]);
+  assert.deepEqual(r.duplicados, [3, 4]);
+});
+
+test('#415: si una descripción cambió dentro del grupo, la fila toma el producto libre de su línea sin robarle el suyo a otra fila', () => {
+  const filas = [{ lineaPublicada: 2, detalle: 'Locker nuevo nombre' }, { lineaPublicada: 2, detalle: 'Bancas' }];
+  const existentes = [{ id: 1, correlativo: 2, descripcion: 'Locker' }, { id: 2, correlativo: 2, descripcion: 'Bancas' }];
+  const r = emparejarProductos(existentes, filas);
+  assert.deepEqual(r.existentePorFila, [1, 2]);
+});

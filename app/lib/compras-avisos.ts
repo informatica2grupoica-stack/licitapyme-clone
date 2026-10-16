@@ -65,7 +65,7 @@ export async function notificarEncargadosCompras(
 /** Avisa a los jefes de ventas (permiso aprobar_comercial o admin activo) que el encargado marcó un producto como corregido.
  *  Mismo freno que arriba: en local o con COMPRAS_AVISOS_SOLO_YO=1 llega solo a quien hizo la acción. Nunca bloquea. */
 export async function notificarJefesVentas(
-  negocioId: number, tipo: string, mensaje: string, actor: { id: number; nombre: string | null }, correo: CorreoAviso, ruta: string,
+  negocioId: number, tipo: string, mensaje: string, actor: { id: number; nombre: string | null }, correo: CorreoAviso | null, ruta: string,
 ): Promise<void> {
   try {
     const soloYo = process.env.NODE_ENV !== 'production' || /^(1|true)$/i.test(process.env.COMPRAS_AVISOS_SOLO_YO || '');
@@ -85,7 +85,7 @@ export async function notificarJefesVentas(
         tipo, licitacionCodigo: neg?.licitacion_codigo ?? null, licitacionNombre: neg?.licitacion_nombre ?? null, usuarioId, usuarioNombre: d.nombre,
         actorId: actor.id, actorNombre: actor.nombre, mensaje, metadata: { negocio_id: negocioId, url: ruta },
       });
-      if (!d.email) continue;
+      if (!d.email || !correo) continue;   // sin `correo` el aviso es solo campana + aviso central (ej. compra rápida por aprobar)
       try {
         await enviarAvisoAprobacionCompras({
           to: d.email, nombre: d.nombre, resultado: correo.resultado, que: correo.que, decididoPor: actor.nombre, comentario: correo.comentario ?? null,

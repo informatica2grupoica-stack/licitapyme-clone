@@ -34,6 +34,15 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
   const [plan, setPlan] = useState<{ hayCompraElegida: boolean; lineas: LineaTraslado[]; aviso: string | null } | null>(null);
   const [cargando, setCargando] = useState(false);
   const [abierta, setAbierta] = useState<string | null>(null);   // clave de la recomendada cuyo detalle está abierto
+  // Compras rápidas (tienda, sin cotización ni ficha) del negocio: «Tu compra» las marca «Ya comprada» o «Por comprar» y con su estado de aprobación.
+  const [rapidas, setRapidas] = useState<Record<number, { estado: 'PENDIENTE' | 'APROBADA' | 'RECHAZADA'; yaComprada: boolean }>>({});
+  useEffect(() => {
+    let vivo = true;
+    fetch(`/api/compras/${negocioId}/compra-rapida`).then(r => r.json()).then(d => {
+      if (vivo && d.success) setRapidas(Object.fromEntries((d.compras || []).map((c: any) => [c.productoId, { estado: c.estado, yaComprada: !!c.yaComprada }])));
+    }).catch(() => { /* sin compras rápidas: la lista se ve igual */ });
+    return () => { vivo = false; };
+  }, [negocioId, elegida?.clave, compra]);
 
   const seleccionElegida = elegida ? seleccionDe(elegida) : null;
   const esLaElegida = !!seleccionElegida && mismaSeleccion(compra, seleccionElegida);
@@ -146,7 +155,22 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
                   <Caja t="Plazo mayor" v={comb.diasEstimados != null ? `${comb.diasEstimados} días` : 'sin declarar'} />
                 </div>
                 <ul className="text-[12.5px] text-zinc-700 space-y-0.5">
-                  {comb.items.map(i => <li key={i.productoId} className="flex justify-between gap-3"><span className="truncate">{i.descripcion}</span><span className="whitespace-nowrap"><b className="font-semibold">{i.proveedor}</b> · {clp(i.precioUnitario)}</span></li>)}
+                  {comb.items.map(i => {
+                    const r = rapidas[i.productoId];
+                    return (
+                      <li key={i.productoId} className="flex justify-between gap-3" data-testid={`tu-compra-${i.productoId}`}>
+                        <span className="truncate">{i.descripcion}
+                          {r && (
+                            <span className={`ml-2 text-[10.5px] font-bold px-1.5 py-0.5 rounded border ${r.yaComprada ? 'bg-sky-50 text-sky-800 border-sky-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}
+                              title="Compra rápida: se compró (o se compra) en una tienda, sin cotización ni ficha">
+                              ⚡ {r.yaComprada ? 'Ya comprada' : 'Por comprar'} · {r.estado === 'APROBADA' ? (r.yaComprada ? 'ratificada' : 'aprobada') : r.estado === 'RECHAZADA' ? 'rechazada' : 'por aprobar'}
+                            </span>
+                          )}
+                        </span>
+                        <span className="whitespace-nowrap"><b className="font-semibold">{i.proveedor}</b> · {clp(i.precioUnitario)}</span>
+                      </li>
+                    );
+                  })}
                 </ul>
                 {comb.avisos.map((a, i) => <p key={i} className="text-[12px] text-amber-800 bg-amber-50 border border-amber-100 rounded px-2 py-1">• {a}</p>)}
               </>

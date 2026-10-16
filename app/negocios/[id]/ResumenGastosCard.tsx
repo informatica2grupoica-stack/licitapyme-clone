@@ -14,6 +14,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { IconReceipt as Receipt, IconLoader2 as Loader2, IconFolderSearch as FolderSearch, IconEye as Eye } from '@tabler/icons-react';
 import { FacturaVisor } from './FacturaVisor';
+import { enfocarProducto } from '@/app/compras/[negocioId]/comprasNavegacion';
 
 interface ResumenGastos {
   ocCreadas: { cantidad: number; totalNeto: number; proveedores: { nombre: string; folio: string | null; total: number; fecha: string }[] };
@@ -89,11 +90,40 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
   const gastadoReal = resumen.ocCreadas.totalNeto || resumen.comprasCruzadas.neto || null;
   const sinDatos = resumen.ocCreadas.cantidad === 0 && resumen.comprasCruzadas.cantidad === 0;
 
+  const nOc = resumen.ocCreadas.cantidad + (resumen.ocsObuma?.length ?? 0);
+  const nFac = resumen.facturas.cantidad;
+  const pasos: Array<{ ok: boolean | null; titulo: string; detalle: string; ir?: boolean }> = [
+    { ok: cobertura && cobertura.total > 0 ? cobertura.cubiertos === cobertura.total : null, titulo: 'Cada producto tiene su proveedor',
+      detalle: cobertura && cobertura.total > 0 ? `${cobertura.cubiertos} de ${cobertura.total} productos ya tienen proveedor elegido.` : 'Aún no hay productos para revisar.' },
+    { ok: nOc > 0, titulo: 'Órdenes de compra emitidas', ir: nOc === 0,
+      detalle: nOc > 0 ? `${nOc} orden${nOc !== 1 ? 'es' : ''} de compra emitida${nOc !== 1 ? 's' : ''} a proveedores.` : 'Todavía no se emitió ninguna. Se hacen en «Órdenes y facturas».' },
+    { ok: nFac > 0, titulo: 'Facturas de los proveedores recibidas', ir: nFac === 0 && nOc > 0,
+      detalle: nFac > 0 ? `${nFac} factura${nFac !== 1 ? 's' : ''} registrada${nFac !== 1 ? 's' : ''} en Obuma.` : 'Todavía no llega ninguna. Cuando el proveedor entregue su factura, se registra en Obuma y aparece aquí sola.' },
+  ];
   return (
+    <div className="space-y-3">
+    <div className="bg-white rounded-2xl border border-zinc-200 p-4 space-y-2.5" data-testid="resumen-guia">
+      <p className="text-[13px] font-bold text-zinc-800">Cómo va la compra</p>
+      <p className="text-[12px] text-zinc-500">Esta pestaña es solo para <b>mirar</b>: no hay nada que llenar. Se actualiza sola a medida que haces las cosas en las otras pestañas y en Obuma.</p>
+      <ul className="space-y-1.5">
+        {pasos.map(x => (
+          <li key={x.titulo} className="flex items-start gap-2.5 text-[12.5px]">
+            <span className={`flex-shrink-0 mt-0.5 w-5 h-5 rounded-full text-[11px] font-bold flex items-center justify-center ${x.ok ? 'bg-emerald-100 text-emerald-700' : x.ok === false ? 'bg-amber-100 text-amber-700' : 'bg-zinc-100 text-zinc-400'}`}>{x.ok ? '✔' : x.ok === false ? '…' : '–'}</span>
+            <span className="flex-1"><b className="text-zinc-800">{x.titulo}.</b> <span className="text-zinc-500">{x.detalle}</span></span>
+            {x.ir && <button type="button" onClick={() => enfocarProducto('pasos', null)} className="flex-shrink-0 text-[11.5px] font-semibold text-teal-700 hover:text-teal-900">Ir a Órdenes y facturas →</button>}
+          </li>
+        ))}
+      </ul>
+      {resumen.montoCosteado != null && gastadoReal != null && resumen.variacionPct != null && (
+        <p className={`text-[12.5px] rounded-lg px-3 py-2 ${resumen.variacionPct > 0 ? 'bg-rose-50 text-rose-800' : 'bg-emerald-50 text-emerald-800'}`}>
+          Se había costeado <b>{fmtCLP(resumen.montoCosteado)}</b> y hasta ahora se lleva gastado <b>{fmtCLP(gastadoReal)}</b>: {resumen.variacionPct > 0 ? <b>{resumen.variacionPct}% más de lo previsto.</b> : <b>{Math.abs(resumen.variacionPct)}% menos de lo previsto.</b>}
+        </p>
+      )}
+    </div>
     <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
       <div className="px-4 py-3 border-b border-zinc-100 flex items-center gap-2 flex-wrap">
         <Receipt size={15} className="text-zinc-400" />
-        <span className="text-[13px] font-bold text-zinc-700">Gasto real</span>
+        <span className="text-[13px] font-bold text-zinc-700">Detalle del gasto real <span className="font-normal text-zinc-400">(sin IVA)</span></span>
         {gastadoReal != null && (
           <span className="ml-auto text-[13px] font-bold text-zinc-800">{fmtCLP(gastadoReal)}</span>
         )}
@@ -101,22 +131,22 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
 
       {sinDatos ? (
         <p className="px-4 py-3 text-[11.5px] text-zinc-400">
-          Todavía no hay órdenes de compra ni facturas cruzadas para este negocio.
+          Todavía no hay gasto que mostrar: aparece cuando se emite la primera orden de compra o llega una factura.
         </p>
       ) : (
         <div className="p-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="rounded-xl border border-zinc-100 bg-zinc-50/60 px-3 py-2.5">
-            <p className="text-[10.5px] font-semibold text-zinc-500 uppercase tracking-wide">OC creadas</p>
+            <p className="text-[10.5px] font-semibold text-zinc-500 uppercase tracking-wide">Órdenes de compra emitidas</p>
             <p className="text-[15px] font-bold text-zinc-800 mt-0.5">{fmtCLP(resumen.ocCreadas.totalNeto)}</p>
             <p className="text-[11px] text-zinc-400">{resumen.ocCreadas.cantidad} orden{resumen.ocCreadas.cantidad !== 1 ? 'es' : ''} emitida{resumen.ocCreadas.cantidad !== 1 ? 's' : ''} desde Licitank</p>
           </div>
           <div className="rounded-xl border border-zinc-100 bg-zinc-50/60 px-3 py-2.5">
-            <p className="text-[10.5px] font-semibold text-zinc-500 uppercase tracking-wide">Compras cruzadas</p>
+            <p className="text-[10.5px] font-semibold text-zinc-500 uppercase tracking-wide">Compras registradas en Obuma</p>
             <p className="text-[15px] font-bold text-zinc-800 mt-0.5">{fmtCLP(resumen.comprasCruzadas.neto)}</p>
             <p className="text-[11px] text-zinc-400">{resumen.comprasCruzadas.cantidad} compra{resumen.comprasCruzadas.cantidad !== 1 ? 's' : ''} en Obuma, neto · {fmtCLP(resumen.comprasCruzadas.total)} con IVA</p>
           </div>
           <div className="rounded-xl border border-zinc-100 bg-zinc-50/60 px-3 py-2.5">
-            <p className="text-[10.5px] font-semibold text-zinc-500 uppercase tracking-wide">Facturas realizadas</p>
+            <p className="text-[10.5px] font-semibold text-zinc-500 uppercase tracking-wide">Facturas recibidas</p>
             <p className="text-[15px] font-bold text-zinc-800 mt-0.5">{fmtCLP(resumen.facturas.total)}</p>
             <p className="text-[11px] text-zinc-400">{resumen.facturas.cantidad} factura{resumen.facturas.cantidad !== 1 ? 's' : ''} real{resumen.facturas.cantidad !== 1 ? 'es' : ''} con XML</p>
           </div>
@@ -127,7 +157,7 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
         <div className="px-4 pb-3" data-testid="resumen-cobertura">
           <div className={`rounded-xl border px-3 py-2.5 flex items-center gap-3 flex-wrap ${cobertura.cubiertos === cobertura.total ? 'border-emerald-200 bg-emerald-50/60' : 'border-amber-200 bg-amber-50/60'}`}>
             <p className="text-[13px] font-bold text-zinc-800">
-              Productos cubiertos: {cobertura.cubiertos} de {cobertura.total}
+              Productos cubiertos: {cobertura.cubiertos} de {cobertura.total} <span className="font-normal text-zinc-500">(ya tienen proveedor)</span>
               {cobertura.directos > 0 && <span className="font-medium text-zinc-500"> · {cobertura.directos} por compra directa</span>}
             </p>
             {cobertura.sinCubrir.length > 0 && (
@@ -300,6 +330,7 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
         )}
       </div>
       {facturaAbierta && <FacturaVisor negocioId={negocioId} dteId={facturaAbierta} onCerrar={() => setFacturaAbierta(null)} />}
+    </div>
     </div>
   );
 }

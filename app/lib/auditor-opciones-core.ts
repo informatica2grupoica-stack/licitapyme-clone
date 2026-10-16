@@ -192,9 +192,14 @@ export function normalizarExtraccion(d: { salida: SalidaLector; texto: string; m
 
 // ── Emparejar producto de la cotización ↔ línea del costeo ──────────────────────────────────────
 const STOP = new Set(['de', 'del', 'la', 'el', 'los', 'las', 'con', 'para', 'por', 'sin', 'una', 'uno', 'y', 'o', 'en', 'al', 'tipo', 'set', 'kit', 'sistema', 'equipo', 'unidad', 'incluye', 'marca', 'modelo']);
+/** «mesas plegables» y «mesa plegable» son lo mismo: sin esto un producto en singular no calzaba con una línea en plural (caso real #415). */
+function singular(w: string): string {
+  if (w.length < 5 || /d/.test(w) || !w.endsWith('s') || w.endsWith('ss') || w.endsWith('us') || w.endsWith('is')) return w;
+  return w.endsWith('es') && /(or|on|ad|ez)es$/.test(w) ? w.slice(0, -2) : w.slice(0, -1);
+}
 function palabras(s: string): string[] {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/(\d)[.,](\d{3})(?!\d)/g, '$1$2').replace(/["”“']/g, ' pulg ').replace(/[^a-z0-9]+/g, ' ').split(' ')
-    .filter(w => w.length >= 2 && !STOP.has(w));
+    .filter(w => w.length >= 2 && !STOP.has(w)).map(singular);
 }
 
 export interface Emparejamiento { productoIdx: number; filaId: string; puntaje: number; confianza: 'alta' | 'media'; motivos: string[] }

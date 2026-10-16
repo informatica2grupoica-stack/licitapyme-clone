@@ -107,7 +107,7 @@ async function readjudicadas(): Promise<Map<string, number | null>> {
 export async function enriquecer(r: RespuestaAdjudicacion): Promise<RespuestaAdjudicacion> {
   if (r.esAdjudicada) {
     const m = await aplicarReadjudicacion(r.codigo, r.lineasAdjudicadas || []);
-    if (m.marcada) return { ...r, lineasAdjudicadas: m.lineas, ganamos: true, montoNuestro: m.monto };
+    if (m.marcada) return { ...r, lineasAdjudicadas: m.lineas, ganamos: true, montoNuestro: m.monto, montoAdjudicadoTotal: m.monto ?? r.montoAdjudicadoTotal };
   }
   const nuestros = await rutsNuestros();
   let montoNuestro = 0, ganamos = false;

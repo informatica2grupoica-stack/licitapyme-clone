@@ -5,7 +5,6 @@
 // aduana + logística local, prorrateados POR UNIDAD, para saber el costo real puesto en bodega.
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
-import { Select } from '@/app/components/ui/Select';
 import { Banner } from '@/app/components/ui/Banner';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { IconShip as Ship, IconLoader2 as Loader2, IconDeviceFloppy as Save } from '@tabler/icons-react';
@@ -85,66 +84,100 @@ export function ImportacionCard({ negocioId, puedeOperar }: { negocioId: number;
 
   if (loading) return <div className="flex items-center justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-zinc-400" /></div>;
 
+  const campo = (clave: 'fleteInternacional' | 'costosAduana' | 'costoLogisticoLocal', titulo: string, ayuda: string) => (
+    <label className="block rounded-lg border border-zinc-200 px-3 py-2.5">
+      <span className="block text-[12.5px] font-bold text-zinc-800">{titulo}</span>
+      <span className="block text-[11.5px] text-zinc-500 leading-snug mb-1.5">{ayuda}</span>
+      <span className="flex items-center gap-1.5">
+        <span className="text-[13px] text-zinc-400">$</span>
+        <input inputMode="numeric" value={form[clave]} onChange={e => setForm(f => ({ ...f, [clave]: e.target.value }))} disabled={!puedeOperar} placeholder="0 si no hubo"
+          className="w-full text-[13px] border border-zinc-300 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500 disabled:bg-zinc-50" />
+      </span>
+    </label>
+  );
+
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-      <div className="flex items-center justify-between gap-3 px-4 py-3 bg-zinc-50 border-b border-zinc-100">
-        <p className="text-[12.5px] font-bold text-zinc-700 flex items-center gap-1.5"><Ship size={14} /> Ruta de importación</p>
-        <Select value={origen || ''} onChange={definirOrigen} disabled={!puedeOperar} placeholder="Clasificar origen…" minWidth={150}
-          options={[{ value: 'LOCAL', label: 'Compra local' }, { value: 'IMPORTACION', label: 'Importación' }]} />
-      </div>
+    <div className="space-y-4" data-testid="importacion-guia">
+      {/* PASO 1 */}
+      <section className="bg-white rounded-xl border border-zinc-200 p-4 space-y-2.5">
+        <p className="text-[13px] font-bold text-zinc-800 flex items-center gap-2">
+          <span className="inline-flex w-5 h-5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">1</span>
+          <Ship size={14} /> ¿De dónde viene lo que compraste?
+          {origen && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">✔ Elegido: {origen === 'LOCAL' ? 'Compra local' : 'Importación'}</span>}
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+          {([
+            { v: 'LOCAL', t: 'Se compró en Chile', d: 'Los proveedores son nacionales. No hay nada más que hacer en esta pestaña.' },
+            { v: 'IMPORTACION', t: 'Viene del extranjero', d: 'Hay que anotar el flete internacional, la aduana y el traslado para saber el costo real.' },
+          ] as const).map(o => {
+            const on = origen === o.v;
+            return (
+              <button key={o.v} type="button" onClick={() => definirOrigen(o.v)} disabled={!puedeOperar} data-testid={`origen-${o.v}`}
+                className={`text-left rounded-xl border-2 px-3.5 py-3 transition-colors disabled:cursor-not-allowed ${on ? 'border-teal-500 bg-teal-50' : 'border-zinc-200 bg-white hover:border-teal-300 hover:bg-zinc-50'}`}>
+                <span className="block text-[13px] font-bold text-zinc-800">{on ? '✔ ' : ''}{o.t}</span>
+                <span className="block mt-1 text-[11.5px] text-zinc-500 leading-snug">{o.d}</span>
+              </button>
+            );
+          })}
+        </div>
+        {!origen && <p className="text-[12px] text-zinc-500">Elige una opción para seguir. Si no estás seguro, pregunta a quien hizo la compra.</p>}
+      </section>
 
-      {origen === 'IMPORTACION' && (
-        <div className="p-4 space-y-3">
-          <Banner variante="info">Comunicación asincrónica con el proveedor (no telefónica) — toda la decisión se toma sobre datos técnicos formales: proforma invoice + ficha técnica.</Banner>
+      {origen === 'LOCAL' && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[12.5px] text-emerald-900">
+          <b>Listo: aquí no hay nada más que hacer.</b> Como la compra es local, no se suman costos de importación. Sigue con la pestaña «Gastos extra» (si hubo algún gasto) o con la Entrega.
+        </div>
+      )}
 
-          <p className="text-[10.5px] font-bold text-zinc-400 uppercase">Datos del embarque</p>
-          <div className="grid grid-cols-3 gap-2">
-            <label className="text-[11px] font-semibold text-zinc-500">
-              Flete internacional (global)
-              <input inputMode="numeric" value={form.fleteInternacional} onChange={e => setForm(f => ({ ...f, fleteInternacional: e.target.value }))} disabled={!puedeOperar}
-                className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-            </label>
-            <label className="text-[11px] font-semibold text-zinc-500">
-              Costos de aduana
-              <input inputMode="numeric" value={form.costosAduana} onChange={e => setForm(f => ({ ...f, costosAduana: e.target.value }))} disabled={!puedeOperar}
-                className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-            </label>
-            <label className="text-[11px] font-semibold text-zinc-500">
-              Logística local (desaduanaje + traslado)
-              <input inputMode="numeric" value={form.costoLogisticoLocal} onChange={e => setForm(f => ({ ...f, costoLogisticoLocal: e.target.value }))} disabled={!puedeOperar}
-                className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-            </label>
+      {origen === 'IMPORTACION' && (<>
+        {/* PASO 2 */}
+        <section className="bg-white rounded-xl border border-zinc-200 p-4 space-y-3">
+          <p className="text-[13px] font-bold text-zinc-800 flex items-center gap-2">
+            <span className="inline-flex w-5 h-5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">2</span>
+            Anota lo que costó traerlo
+          </p>
+          <p className="text-[12px] text-zinc-500">El precio que cobra el proveedor extranjero (FOB) no es el costo real. Anota estos tres gastos del embarque completo; si alguno no hubo, déjalo en 0. El sistema los reparte entre las unidades y calcula el costo real de cada producto.</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+            {campo('fleteInternacional', 'Flete internacional', 'Lo que cobró el transporte por traerlo desde afuera (barco o avión). El total del embarque.')}
+            {campo('costosAduana', 'Aduana', 'Aranceles, impuestos de importación y gastos de la agencia de aduana.')}
+            {campo('costoLogisticoLocal', 'Traslado dentro de Chile', 'Sacarlo del puerto o aeropuerto y llevarlo a la bodega (desaduanaje y camión).')}
           </div>
+          <Banner variante="info">Con el proveedor extranjero se trabaja por escrito: lo importante es tener la factura proforma y la ficha técnica.</Banner>
           {puedeOperar && (
-            <button onClick={guardarEmbarque} disabled={guardando} className="flex items-center gap-1.5 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
-              {guardando ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Guardar
+            <button onClick={guardarEmbarque} disabled={guardando} className="flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-4 py-2 rounded-lg">
+              {guardando ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Guardar costos del embarque
             </button>
           )}
+        </section>
 
+        {/* PASO 3 */}
+        <section className="bg-white rounded-xl border border-zinc-200 p-4 space-y-2.5">
+          <p className="text-[13px] font-bold text-zinc-800 flex items-center gap-2">
+            <span className="inline-flex w-5 h-5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">3</span>
+            Revisa el costo real de cada producto
+          </p>
           {costoAterrizado ? (
-            <div className="pt-2 border-t border-zinc-100">
-              <p className="text-[10.5px] font-bold text-zinc-400 uppercase mb-1.5">Costo aterrizado (§12.3) — prorrateo ${Math.round(costoAterrizado.extraPorUnidad).toLocaleString('es-CL')} por unidad</p>
+            <div>
+              <p className="text-[12px] text-zinc-500 mb-1.5">A cada unidad se le suman ${Math.round(costoAterrizado.extraPorUnidad).toLocaleString('es-CL')} de los gastos de arriba. «FOB» es lo que cobra el proveedor; la flecha lleva al costo real.</p>
               <div className="space-y-1">
                 {costoAterrizado.items.map(it => (
-                  <div key={it.productoId} className="flex items-center justify-between gap-2 bg-zinc-50 rounded-lg px-2.5 py-1.5">
-                    <span className="text-[11.5px] text-zinc-600 truncate">{it.descripcion}</span>
-                    <span className="text-[11.5px] font-semibold text-zinc-800 flex-shrink-0">
-                      FOB {fmtCLP(it.precioUnitarioFob)} → <b>{fmtCLP(it.costoUnitarioAterrizado)}</b>
-                    </span>
+                  <div key={it.productoId} className="flex items-center justify-between gap-2 bg-zinc-50 rounded-lg px-3 py-2">
+                    <span className="text-[12px] text-zinc-700 truncate">{it.descripcion}</span>
+                    <span className="text-[12px] font-semibold text-zinc-800 flex-shrink-0">FOB {fmtCLP(it.precioUnitarioFob)} → <b>{fmtCLP(it.costoUnitarioAterrizado)}</b></span>
                   </div>
                 ))}
               </div>
               <div className="flex items-center justify-between mt-2 px-1">
-                <span className="text-[12px] font-bold text-zinc-700">Total aterrizado</span>
-                <span className="text-[14px] font-bold text-zinc-900">{fmtCLP(costoAterrizado.totalAterrizado)}</span>
+                <span className="text-[13px] font-bold text-zinc-700">Costo real total</span>
+                <span className="text-[16px] font-bold text-zinc-900">{fmtCLP(costoAterrizado.totalAterrizado)}</span>
               </div>
-              <p className="text-[10.5px] text-zinc-400 px-1">FOB total {fmtCLP(costoAterrizado.totalFob)} — esta cifra (no el FOB) es la que alimenta el margen y el Hito 2.</p>
+              <p className="text-[11.5px] text-zinc-500 px-1">Solo el proveedor cobra {fmtCLP(costoAterrizado.totalFob)}. Esta cifra más alta (no el FOB) es la que se usa para calcular la ganancia del proyecto.</p>
             </div>
           ) : (
-            <p className="text-[11px] text-zinc-400">Falta elegir un escenario en el Auditor de Compras y/o completar los datos del embarque para calcular el costo aterrizado.</p>
+            <p className="text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">Todavía no se puede calcular. Falta elegir un escenario de compra en «Costeo y auditoría» y guardar los costos del paso 2.</p>
           )}
-        </div>
-      )}
+        </section>
+      </>)}
     </div>
   );
 }

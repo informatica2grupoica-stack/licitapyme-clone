@@ -21,7 +21,7 @@ import { ahoraChileSQL } from '@/app/lib/tz';
 import { cargarEstadoCosteo, lineasAuditables, type Actor } from '@/app/lib/auditor-opciones';
 import { verificarLineaV3, ultimasCorridasV3, confirmacionesTecnicas, ultimasSegundasPasadasV3, estadoTecnicoV3 } from '@/app/lib/auditor-comparador-v3';
 import { leerYGuardarDocumento, extraccionPorId } from '@/app/lib/auditor-lector';
-import { normalizarExtraccion, emparejarProductos, coincidenciaIdentidad, type ProductoNormalizado } from '@/app/lib/auditor-opciones-core';
+import { normalizarExtraccion, emparejarProductos, coincidenciaIdentidad, puntuar, type ProductoNormalizado } from '@/app/lib/auditor-opciones-core';
 import { sugerirLineas } from '@/app/lib/auditor-sugerir-linea';
 import { requisitosDeLinea, requisitosDelProducto } from '@/app/lib/auditor-tecnico-v2';
 import type { RequisitoHeredado } from '@/app/lib/auditor-tecnico-v2-core';
@@ -185,6 +185,15 @@ export interface ProductoRuteado {
 }
 export interface ResultadoRuteo { documento: string; extraccionId: number | null; error: string | null; productos: ProductoRuteado[] }
 
+/** Una coincidencia «media» se asigna sin preguntar solo si es de la CATEGORÍA de la línea y las demás líneas quedan claramente atrás
+ *  (caso real #415: «Mesa plegable Calas» contra «Mesas plegables 2,5–3 m»). Si hay otra línea parecida, decide la IA / la persona. */
+function ganaPorCategoria(prod: ProductoNormalizado, a: { filaId: string; puntaje: number; motivos: string[] }, lineas: Parameters<typeof puntuar>[1][]): boolean {
+  if (a.puntaje < 0.55 || !a.motivos.some(m => m.startsWith('categoría'))) return false;
+  if (a.motivos.some(m => m.startsWith('número distinto'))) return false;
+  const otra = Math.max(0, ...lineas.filter(l => l.id !== a.filaId).map(l => puntuar(prod, l).puntaje));
+  return a.puntaje - otra >= 0.25;
+}
+
 const corto = (s: string) => s.replace(/\s+/g, ' ').trim().split(' - ')[0].slice(0, 80);
 
 export async function procesarFicha(params: { negocioId: number; url: string; nombre: string; actor: Actor }): Promise<ResultadoRuteo> {
@@ -234,6 +243,7 @@ export async function procesarFicha(params: { negocioId: number; url: string; no
   const dudosos: number[] = [...sinEmparejar];
   for (const a of asignaciones) {
     if (a.confianza === 'alta') decision.set(a.productoIdx, { filaId: a.filaId, confianza: 'alta', motivo: `Coincide por ${a.motivos.join(', ')}.` });
+    else if (ganaPorCategoria(productos.find(x => x.idx === a.productoIdx)!, a, lineas)) decision.set(a.productoIdx, { filaId: a.filaId, confianza: 'alta', motivo: `Es de la categoría de esa línea (${a.motivos.find(m => m.startsWith('categoría'))?.replace('categoría: ', '')}) y ninguna otra se le parece.` });
     else dudosos.push(a.productoIdx);
   }
   // … y lo dudoso lo resuelve la IA, UNA llamada por documento.

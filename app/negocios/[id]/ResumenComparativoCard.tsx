@@ -75,6 +75,16 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
 
   return (
     <div className="space-y-4" data-testid="resumen-comparativo">
+      <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3 space-y-1.5" data-testid="comparativo-guia">
+        <p className="text-[13px] font-bold text-zinc-800">Para qué sirve esta pestaña</p>
+        <p className="text-[12px] text-zinc-600">Compara tres cosas para cada producto: <b>lo que se costeó</b> al ofertar, <b>lo que se planeó comprar</b> en Licitank y <b>lo que de verdad se compró</b> en Obuma. Así ves si pagaste más o menos de lo previsto. Es solo para mirar: no hay nada que llenar.</p>
+        <ul className="text-[12px] text-zinc-600 space-y-0.5">
+          <li><b className="text-emerald-700">Verde</b> = pagaste menos que la referencia · <b className="text-rose-600">Rojo</b> = pagaste más · «≈ igual» = diferencia menor al 1 %.</li>
+          <li>Todos los montos son <b>sin IVA</b>, salvo la tabla de «Cuadre con Obuma», que va con IVA como la muestra Obuma.</li>
+          <li>Si algo no coincide, el recuadro de abajo dice qué. Corrígelo en Obuma (o anota el gasto en «Gastos extra») y esta pantalla se actualiza sola.</li>
+        </ul>
+      </div>
+
       <div className={`rounded-xl border px-3 py-2.5 ${coincide ? 'border-emerald-200 bg-emerald-50/60' : 'border-amber-200 bg-amber-50/60'}`}>
         <p className={`text-[13px] font-bold flex items-center gap-1.5 ${coincide ? 'text-emerald-800' : 'text-amber-900'}`}>
           {coincide ? <Check size={15} /> : <Alerta size={15} />}
@@ -124,7 +134,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
           {r.cuadre.soloEnOc.length > 0 && (
             <ul className="mt-1.5 list-disc pl-5 text-[11.5px] text-amber-900 space-y-0.5">{r.cuadre.soloEnOc.map((t, i) => <li key={i}>{t}</li>)}</ul>
           )}
-          <p className="mt-1 text-[11px] text-zinc-500">{r.cuadre.cuadra ? 'Todo lo que Obuma tiene en este proyecto está en Licitank o está explicado arriba.' : 'Hay diferencias sin explicar: sincroniza con Obuma y, si siguen, avísame.'} Lo que Licitank deja fuera es porque Obuma lo tiene mal (OC anulada, factura duplicada o enlazada a la OC equivocada): se corrige en Obuma y aquí se actualiza solo.</p>
+          <p className="mt-1 text-[11px] text-zinc-500">{r.cuadre.cuadra ? 'Todo lo que Obuma tiene en este proyecto está en Licitank o está explicado arriba.' : 'Hay diferencias sin explicar: sincroniza con Obuma y, si siguen, avisa al administrador.'} Lo que Licitank deja fuera es porque Obuma lo tiene mal (OC anulada, factura duplicada o enlazada a la OC equivocada): se corrige en Obuma y aquí se actualiza solo.</p>
         </div>
       )}
 

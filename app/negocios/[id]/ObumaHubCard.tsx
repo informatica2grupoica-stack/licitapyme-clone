@@ -135,7 +135,7 @@ export function ObumaHubCard({ negocioId, puedeOperar, esAdministracion }: { neg
         <p className="px-4 py-2.5 text-[11.5px] font-bold text-zinc-500 uppercase bg-zinc-50 border-b border-zinc-100 flex items-center gap-1.5"><Shield size={13} /> Listo para comprar en Obuma</p>
         <div className="divide-y divide-zinc-100">
           <Fila ok={aprobado} titulo="Compra y margen aprobados"
-            detalle={aprob == null ? 'Revisando…' : aprobado ? 'Las dos aprobaciones están listas: se puede emitir dinero real en Obuma.' : `Falta aprobar ${[!aprob.compra && 'la compra', !aprob.margen && 'el margen'].filter(Boolean).join(' y ')} (paso «Aprobación y SKU»). Sin eso no se pueden crear SKU ni órdenes de compra.`} />
+            detalle={aprob == null ? 'Revisando…' : aprobado ? 'Las dos aprobaciones están listas: se puede emitir dinero real en Obuma.' : `Falta aprobar ${[!aprob.compra && 'la compra', !aprob.margen && 'el margen'].filter(Boolean).join(' y ')} (paso «Aprobación y SKU»). Sin eso no se pueden crear SKU ni órdenes de compra (salvo las compras rápidas que el jefe de ventas ya aprobó: esas sí pueden crear su SKU, su proveedor y su OC).`} />
           <Fila ok={!!provs && provs.length > 0 && provsOk === provs.length} titulo="Proveedores creados en Obuma"
             detalle={provs == null ? 'Revisando…' : provs.length === 0 ? 'Todavía no hay una forma de comprar elegida (paso «Costeo y auditoría»).' : `${provsOk} de ${provs.length} ya existen en Obuma.`}>
             {faltanProvs.length > 0 && (

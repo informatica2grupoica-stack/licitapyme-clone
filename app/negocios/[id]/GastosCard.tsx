@@ -104,16 +104,17 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
 
   return (
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-      <div className="flex items-center justify-between gap-3 px-4 py-3 bg-zinc-50 border-b border-zinc-100">
-        <div>
-          <p className="text-[12.5px] font-bold text-zinc-700 flex items-center gap-1.5"><Receipt size={14} /> Gastos del negocio</p>
-          <p className="text-[10.5px] text-zinc-400 mt-0.5">Todo lo que de verdad se pagó — flete, horas extras, un producto que se agregó sobre la marcha, etc. No es la estimación de los escenarios.</p>
+      <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-100 space-y-1.5">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-[13px] font-bold text-zinc-800 flex items-center gap-1.5"><Receipt size={15} /> Gastos extra del proyecto</p>
+          {puedeOperar && (
+            <button onClick={() => setFormAbierto(v => !v)} data-testid="gasto-agregar"
+              className="flex-shrink-0 flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-3.5 py-2 rounded-lg">
+              <Plus size={14} /> {formAbierto ? 'Cerrar' : 'Anotar un gasto'}
+            </button>
+          )}
         </div>
-        {puedeOperar && (
-          <button onClick={() => setFormAbierto(v => !v)} className="flex-shrink-0 flex items-center gap-1 text-[11.5px] font-semibold text-teal-700 hover:text-teal-800">
-            <Plus size={13} /> Agregar gasto
-          </button>
-        )}
+        <p className="text-[12px] text-zinc-600">Aquí anotas la plata que se gastó <b>además de comprar los productos</b>: por ejemplo el flete, el combustible, horas extras o algo que hubo que agregar sobre la marcha. Sirve para saber cuánto costó de verdad el proyecto. <b>Si no hubo ningún gasto así, no tienes que hacer nada aquí.</b></p>
       </div>
 
       {resumen.total > 0 && (
@@ -126,47 +127,70 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
       )}
 
       {formAbierto && (
-        <div className="border-b border-zinc-100 px-4 py-3 space-y-2 bg-zinc-50/60">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <Select value={form.categoriaClave} minWidth={150} placeholder="Categoría…"
-              onChange={v => setForm(f => ({ ...f, categoriaClave: v }))}
-              options={categorias.map(c => ({ value: c.clave, label: c.etiqueta }))} />
+        <div className="border-b border-zinc-100 px-4 py-4 space-y-3 bg-zinc-50/60" data-testid="gasto-form">
+          <div>
+            <p className="text-[12.5px] font-bold text-zinc-800 mb-1">1. ¿Qué tipo de gasto es?</p>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {categorias.map(c => {
+                const on = form.categoriaClave === c.clave;
+                return (
+                  <button key={c.clave} type="button" onClick={() => setForm(f => ({ ...f, categoriaClave: on ? '' : c.clave, categoriaLibre: '' }))}
+                    className={`text-[12px] font-semibold px-3 py-1.5 rounded-full border transition-colors ${on ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-zinc-700 border-zinc-300 hover:border-teal-400'}`}>{c.etiqueta}</button>
+                );
+              })}
+            </div>
             {!form.categoriaClave && (
               <input value={form.categoriaLibre} onChange={e => setForm(f => ({ ...f, categoriaLibre: e.target.value }))}
-                placeholder="…o nueva categoría" className="text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+                placeholder="Si no está en la lista, escribe cuál es (ej: viáticos)" className="mt-1.5 w-full max-w-sm text-[12.5px] border border-zinc-300 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
             )}
-            <input inputMode="numeric" value={form.monto} onChange={e => setForm(f => ({ ...f, monto: e.target.value }))}
-              placeholder="Monto" className="text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-            <Select value={form.moneda} onChange={v => setForm(f => ({ ...f, moneda: v }))} minWidth={90}
-              options={[{ value: 'CLP', label: 'CLP' }, { value: 'USD', label: 'USD' }]} />
           </div>
-          {form.moneda !== 'CLP' && <p className="text-[10.5px] text-amber-600">Un gasto en otra moneda queda visible en la lista, pero no entra al total (no se convierte solo).</p>}
-          <input value={form.descripcion} onChange={e => setForm(f => ({ ...f, descripcion: e.target.value }))}
-            placeholder="Descripción del gasto" className="w-full text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-          <div className="grid grid-cols-2 gap-2">
-            <label className="text-[11px] font-semibold text-zinc-500">
-              Fecha del gasto (opcional)
-              <input type="date" value={form.fechaGasto} onChange={e => setForm(f => ({ ...f, fechaGasto: e.target.value }))}
-                className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-            </label>
-            <label className="text-[11px] font-semibold text-zinc-500">
-              Comprobante (opcional)
-              <input type="file" accept=".pdf,image/*" onChange={e => setArchivo(e.target.files?.[0] || null)}
-                className="mt-0.5 w-full text-[11px] text-zinc-600 file:mr-2 file:text-[11px] file:font-semibold file:text-teal-700 file:bg-teal-50 file:border-0 file:rounded-lg file:px-2 file:py-1" />
-            </label>
+          <div>
+            <p className="text-[12.5px] font-bold text-zinc-800 mb-1">2. ¿En qué se gastó?</p>
+            <input value={form.descripcion} onChange={e => setForm(f => ({ ...f, descripcion: e.target.value }))}
+              placeholder="Ej: flete de Santiago a Coyhaique, camión de la empresa X" className="w-full text-[12.5px] border border-zinc-300 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+          </div>
+          <div>
+            <p className="text-[12.5px] font-bold text-zinc-800 mb-1">3. ¿Cuánto fue?</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[13px] text-zinc-400">$</span>
+              <input inputMode="numeric" value={form.monto} onChange={e => setForm(f => ({ ...f, monto: e.target.value }))}
+                placeholder="Monto, solo números" className="w-44 text-[13px] border border-zinc-300 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+              <Select value={form.moneda} onChange={v => setForm(f => ({ ...f, moneda: v }))} minWidth={90}
+                options={[{ value: 'CLP', label: 'Pesos (CLP)' }, { value: 'USD', label: 'Dólares (USD)' }]} />
+            </div>
+            {form.moneda !== 'CLP' && <p className="mt-1 text-[11.5px] text-amber-700">Un gasto en dólares queda visible en la lista, pero no se suma al total (no se convierte solo).</p>}
+          </div>
+          <div>
+            <p className="text-[12.5px] font-bold text-zinc-800 mb-1">4. Datos opcionales</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <label className="text-[11.5px] font-semibold text-zinc-500">
+                Fecha en que se pagó
+                <input type="date" value={form.fechaGasto} onChange={e => setForm(f => ({ ...f, fechaGasto: e.target.value }))}
+                  className="mt-0.5 w-full text-[12px] font-normal border border-zinc-300 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+              </label>
+              <label className="text-[11.5px] font-semibold text-zinc-500">
+                Boleta o factura (foto o PDF)
+                <input type="file" accept=".pdf,image/*" onChange={e => setArchivo(e.target.files?.[0] || null)}
+                  className="mt-0.5 w-full text-[11.5px] text-zinc-600 file:mr-2 file:text-[11.5px] file:font-semibold file:text-teal-700 file:bg-teal-50 file:border-0 file:rounded-lg file:px-2 file:py-1" />
+              </label>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={crear} disabled={!form.descripcion.trim() || !form.monto || guardando}
-              className="text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
-              {guardando ? <Loader2 size={13} className="animate-spin" /> : 'Guardar'}
+              className="text-[12.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-4 py-2 rounded-lg">
+              {guardando ? <Loader2 size={13} className="animate-spin" /> : 'Guardar gasto'}
             </button>
-            <button onClick={() => setFormAbierto(false)} className="text-zinc-400 hover:text-zinc-600"><X size={16} /></button>
+            <button onClick={() => setFormAbierto(false)} className="text-[12px] text-zinc-500 hover:text-zinc-700">Cancelar</button>
+            {(!form.descripcion.trim() || !form.monto) && <span className="text-[11.5px] text-zinc-400">Falta llenar el punto 2 y el 3 para guardar.</span>}
           </div>
         </div>
       )}
 
       {gastos.length === 0 ? (
-        <p className="px-4 py-6 text-center text-[12px] text-zinc-400">Sin gastos registrados todavía.</p>
+        <div className="px-4 py-6 text-center space-y-1">
+          <p className="text-[13px] font-semibold text-zinc-600">Todavía no se anotó ningún gasto extra.</p>
+          <p className="text-[12px] text-zinc-400">{puedeOperar ? 'Si ya se pagó un flete, combustible u otra cosa, aprieta «Anotar un gasto». Si no hubo, puedes seguir con lo siguiente.' : 'Cuando el encargado anote un gasto, aparecerá aquí.'}</p>
+        </div>
       ) : (
         <div className="divide-y divide-zinc-100">
           {gastos.map(g => (

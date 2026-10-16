@@ -718,8 +718,13 @@ export interface DatosCrearOrdenCompra {
   proveedorEmail?: string | null; proveedorTelefono?: string | null;
   fecha: string; // yyyy-mm-dd
   formaPagoId: string;
+  /** Nombre de la forma de pago (lo que Obuma muestra en la OC). Si falta, se manda el ID como antes. */
+  formaPagoNombre?: string | null;
   referencia: string; // trazabilidad hacia Licitank — código de licitación
+  /** Es el «Gasto / Inventario / Activo» de la pantalla de Obuma: se guarda como texto en minúscula («inventario»). Probado en vivo (OC 3989, 16-oct-2026). */
   concepto?: string | null;
+  /** Texto libre de la orden (campo `oc_observacion`). */
+  observacion?: string | null;
   items: DatosItemOrdenCompra[];
   // Línea de flete opcional (spec §11, pedido explícito: "puede incluir el flete o no") — se manda
   // como un ítem más de la OC, no como un campo aparte: así entra en el subtotal/IVA/total igual
@@ -738,6 +743,8 @@ export interface DatosCrearOrdenCompra {
   // buscarCentroCostoPorLicitacion. Se omite del payload cuando es null: no se manda un centro de
   // costo cualquiera solo por rellenar el campo.
   centroCostoId?: string | null;
+  /** CÓDIGO del centro de costo en Obuma (ej. «PROY-198»), no su ID: así lo exige `oc_centro_costo` según el soporte de Obuma (16-oct-2026). */
+  centroCostoCodigo?: string | null;
 }
 
 /** Crea la Orden de Compra DE VERDAD en Obuma (escritura real contra el ERP de producción — nunca
@@ -754,8 +761,14 @@ export async function crearOrdenCompraObuma(
     producto_nombre: it.nombre.toUpperCase().trim().slice(0, 200),
     unidad_medida: 'UN',
     cantidad: String(it.cantidad),
-    precio: String(Math.round(it.precioUnitarioNeto)),
-    subtotal: String(Math.round(it.cantidad * it.precioUnitarioNeto)),
+    // Prueba 3988 (16-oct-2026): con `precio` como texto Obuma guardó 0 (y solo respetó el subtotal). Se manda numérico, con el descuento en 0
+    // explícito (la OC hecha a mano lo trae) y el centro de costo también en la línea (la OC hecha a mano lo tiene en cada ítem).
+    precio: Math.round(it.precioUnitarioNeto),
+    // Probado en vivo (OC 3989): Obuma IGNORA `precio` y guarda el precio de la línea solo si viene como `producto_precio` (sin él queda en 0).
+    producto_precio: Math.round(it.precioUnitarioNeto),
+    descuento: 0,
+    subtotal: Math.round(it.cantidad * it.precioUnitarioNeto),
+    // Por API no existe centro de costo por línea: todas toman el de la cabecera (soporte de Obuma).
   }));
   if (datos.fleteMonto != null) {
     // Blindaje contra NaN (mismo bug real ya corregido en cotizaciones): un flete mal parseado no
@@ -780,7 +793,8 @@ export async function crearOrdenCompraObuma(
     oc_fecha: datos.fecha,
     oc_sucursal: SUCURSAL_TALAGANTE,
     oc_moneda: MONEDA_CLP_ID,
-    oc_forma_pago: datos.formaPagoId,
+    // Obuma guarda este campo como TEXTO tal cual llega (la OC 3988 quedó con «2824», la 3982 hecha a mano con el nombre): se manda el NOMBRE.
+    oc_forma_pago: datos.formaPagoNombre?.trim() || datos.formaPagoId,
     oc_subtotal: String(subtotalNeto),
     oc_neto: String(subtotalNeto),
     oc_iva: String(iva),
@@ -796,15 +810,31 @@ export async function crearOrdenCompraObuma(
   if (datos.proveedorEmail) doc.proveedor_email = datos.proveedorEmail;
   if (datos.proveedorTelefono) doc.proveedor_telefono = datos.proveedorTelefono;
   if (datos.concepto) doc.oc_concepto = datos.concepto;
-  if (datos.centroCostoId) doc.oc_centro_costo = datos.centroCostoId;
+  if (datos.observacion) doc.oc_observacion = datos.observacion;
+  // Las OC 3988-3991 quedaron con centro de costo 0 porque se mandaba el ID (24120): Obuma pide el CÓDIGO (ej. «PROY-198»).
+  if (datos.centroCostoCodigo) doc.oc_centro_costo = datos.centroCostoCodigo;
 
   const json = await llamarPost<any>(BASE_V1, '/comprasOc.create.json', { docs: [doc] });
   // Mismo patrón que productos.create.json: la respuesta no siempre trae el ID en un campo
   // predecible — se busca en las formas conocidas antes de rendirse.
   const detalle: string = json.result?.result_detail || json.result_detail || '';
-  const compraOcId = json.data?.[0]?.compra_oc_id || json.data?.compra_oc_id || json.compra_oc_id
-    || detalle.match(/compra_oc_id\s*:\s*(\d+)/i)?.[1];
-  if (!compraOcId) throw new Error(`Obuma no devolvió el ID de la orden de compra creada: ${JSON.stringify(json).slice(0, 300)}`);
+  let compraOcId = json.data?.[0]?.compra_oc_id || json.data?.compra_oc_id || json.compra_oc_id
+    || detalle.match(/compra_oc_ids*:s*(d+)/i)?.[1];
+  // Caso real (16-oct-2026, OC 3988): Obuma SÍ creó la orden pero la respuesta no trajo el ID en ninguna forma conocida. En vez de fallar
+  // (y dejar una OC real que Licitank no conoce), se busca la orden recién creada: misma fecha, misma referencia y el mismo total.
+  if (!compraOcId) {
+    console.error('[obuma][comprasOc.create] respuesta sin ID:', JSON.stringify(json).slice(0, 1500));
+    const hoy = await listarComprasOc({ fecha_desde: datos.fecha, fecha_hasta: datos.fecha, limit: 200 }).catch(() => null);
+    // Las ANULADAS no cuentan (caso real: la 3989 anulada hacía que la nueva 3990 pareciera ambigua). Si aún quedan varias, la nueva es la de
+    // id más alto creada en los últimos 15 minutos.
+    const hace15 = Date.now() - 15 * 60_000;
+    const candidatas = (hoy?.data || []).filter(o => String(o.compra_oc_referencia || '') === datos.referencia && Math.round(Number(o.compra_oc_total)) === Math.round(total) && !/anulad/i.test(String(o.compra_oc_estado || '')));
+    const recientes = candidatas.filter(o => { const t = Date.parse(String(o.compra_oc_fecha_ingreso || '').replace(' ', 'T')); return Number.isNaN(t) || t >= hace15; });
+    const elegidas = recientes.length > 0 ? recientes : candidatas;
+    if (elegidas.length === 1) compraOcId = elegidas[0].compra_oc_id;
+    else if (elegidas.length > 1) compraOcId = [...elegidas].sort((x, y) => Number(y.compra_oc_id) - Number(x.compra_oc_id))[0].compra_oc_id;
+  }
+  if (!compraOcId) throw new Error(`Obuma no devolvió el ID de la orden de compra creada. Respuesta: ${JSON.stringify(json.result ?? json.data ?? json).slice(0, 900)} · (resto: ${JSON.stringify(Object.fromEntries(Object.entries(json).filter(([k]) => !/^(company_id|endpoint|data-|endpoint-rate)/.test(k)))).slice(0, 600)})`);
 
   const verificada = await compraOcPorId(String(compraOcId));
   if (!verificada) throw new Error(`Obuma creó la orden de compra ${compraOcId} pero no se pudo releer para confirmarla.`);

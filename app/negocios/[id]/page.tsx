@@ -24,7 +24,7 @@ import { DocumentosSection } from '@/app/licitacion/[codigo]/sections/Documentos
 import { CriteriosSection } from '@/app/licitacion/[codigo]/sections/CriteriosSection';
 import { PreguntasSection } from '@/app/licitacion/[codigo]/sections/PreguntasSection';
 import { ResultadoSection } from '@/app/licitacion/[codigo]/sections/ResultadoSection';
-import { MarcaReadjudicada } from './MarcaReadjudicada';
+import { MarcaReadjudicada, InsigniaReadjudicada } from './MarcaReadjudicada';
 import { ComentariosSection } from '@/app/licitacion/[codigo]/sections/ComentariosSection';
 import { esUrlAnalizable } from '@/app/licitacion/[codigo]/utils';
 import { Oportunidad } from '@/app/types/search.types';
@@ -885,6 +885,7 @@ function DetalleContent() {
                     </span>
                   );
                 })()}
+                <InsigniaReadjudicada negocioId={negocio.id} />
                 {loadingLic && (
                   <span className="text-[11px] text-zinc-400 flex items-center gap-1">
                     <Loader2 size={10} className="animate-spin" /> Cargando desde MP…

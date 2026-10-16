@@ -1970,12 +1970,13 @@ export async function sincronizarProductosConCosteo(negocioId: number): Promise<
   }
 
   // Duplicados heredados del bug de emparejamiento: solo se borran los que no tienen NADA colgando
-  // (sin cotizaciones, veredicto ni auditoría), siguen PENDIENTE y no tienen renuncia.
+  // (sin cotizaciones, veredicto ni auditoría), siguen PENDIENTE y no tienen renuncia. Los que sí tienen datos se fusionan con
+  // scripts/fusionar-productos-duplicados.mts (mueve lo colgado al producto original).
   if (duplicados.length) {
     await pool.query(
       `DELETE FROM compras_producto
         WHERE negocio_id = ? AND id IN (${duplicados.map(() => '?').join(',')})
-          AND correlativo IS NULL AND subestado = 'PENDIENTE' AND renuncia_motivo IS NULL
+          AND subestado = 'PENDIENTE' AND renuncia_motivo IS NULL
           AND NOT EXISTS (SELECT 1 FROM compras_cotizacion_item ci WHERE ci.producto_id = compras_producto.id)
           AND NOT EXISTS (SELECT 1 FROM compras_veredicto v WHERE v.producto_id = compras_producto.id)
           AND NOT EXISTS (SELECT 1 FROM compras_auditoria_cotizacion a WHERE a.producto_id = compras_producto.id)`,

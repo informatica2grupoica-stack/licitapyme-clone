@@ -31,6 +31,52 @@ export function tipoDe(nombre: string, url: string): Tipo {
   return 'otro';
 }
 
+// Excel: el visor de Microsoft no puede leer archivos que no sean públicos en internet
+// (R2 privado, localhost), y queda en blanco. Se lee el archivo vía proxy y se dibuja aquí.
+function VisorExcel({ url }: { url: string }) {
+  const [hojas, setHojas] = useState<{ nombre: string; html: string }[] | null>(null);
+  const [activa, setActiva] = useState(0);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let vivo = true;
+    setHojas(null); setError(''); setActiva(0);
+    (async () => {
+      try {
+        const res = await fetch(`/api/proxy?url=${encodeURIComponent(url)}&inline=1`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const buf = await res.arrayBuffer();
+        const XLSX = await import('xlsx');
+        const wb = XLSX.read(buf, { type: 'array' });
+        const out = wb.SheetNames.map(n => ({ nombre: n, html: XLSX.utils.sheet_to_html(wb.Sheets[n], { header: '', footer: '' }) }));
+        if (vivo) setHojas(out);
+      } catch (e) {
+        if (vivo) setError(e instanceof Error ? e.message : 'No se pudo leer el archivo');
+      }
+    })();
+    return () => { vivo = false; };
+  }, [url]);
+
+  if (error) return <div className="w-full h-full flex items-center justify-center text-sm text-red-600">No se pudo previsualizar el Excel ({error}). Usa Descargar.</div>;
+  if (!hojas) return <div className="w-full h-full flex items-center justify-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin text-indigo-500" /> Cargando hoja…</div>;
+  return (
+    <div className="w-full h-full flex flex-col">
+      {hojas.length > 1 && (
+        <div className="flex gap-1 px-3 pt-2 overflow-x-auto flex-shrink-0">
+          {hojas.map((h, i) => (
+            <button key={h.nombre} onClick={() => setActiva(i)}
+              className={`px-3 py-1 text-xs font-semibold rounded-t-lg whitespace-nowrap ${i === activa ? 'bg-white text-indigo-700' : 'bg-slate-200 text-slate-600 hover:bg-slate-300'}`}>
+              {h.nombre}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="flex-1 min-h-0 overflow-auto bg-white p-2 text-[12px] text-slate-800 [&_table]:border-collapse [&_td]:border [&_td]:border-slate-200 [&_td]:px-2 [&_td]:py-1 [&_td]:whitespace-nowrap"
+        dangerouslySetInnerHTML={{ __html: hojas[activa].html }} />
+    </div>
+  );
+}
+
 export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; onClose: () => void }) {
   const [cargando, setCargando] = useState(true);
 
@@ -123,7 +169,9 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
             </div>
           )}
 
-          {tipo === 'office' && (
+          {tipo === 'office' && ['xls', 'xlsx'].includes(extDe(doc.nombre, doc.url)) && <VisorExcel url={doc.url} />}
+
+          {tipo === 'office' && !['xls', 'xlsx'].includes(extDe(doc.nombre, doc.url)) && (
             <iframe
               src={officeSrc}
               title={doc.nombre}

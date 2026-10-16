@@ -5,7 +5,8 @@
 // sin archivo, ej. cotización telefónica).
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
-import { obtenerAsignacion, cambiarSubestadoProducto } from '@/app/lib/compras';
+import { obtenerAsignacion } from '@/app/lib/compras';
+import { solicitarCompraRapida, exigirTablaCompraRapida, rutChilenoValido } from '@/app/lib/compras-compra-rapida';
 import { listarAuditoriasNegocio, costeadoPorProducto } from '@/app/lib/compras-auditoria-cotizacion';
 import { registrarCotizacion, listarCotizaciones, type DatosCotizacion, type OrigenCotizacion } from '@/app/lib/compras-auditor';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
@@ -165,15 +166,24 @@ async function __POST(request: NextRequest, { params }: Params) {
     if (!datos.proveedorNombre && !datos.proveedorId) return NextResponse.json({ error: 'Falta el proveedor.' }, { status: 400 });
     if (!datos.proveedorNombre) datos.proveedorNombre = '(proveedor del catálogo)'; // se sobreescribe con la ficha real en registrarCotizacion
 
+    // Compra directa = compra rápida: lleva RUT válido de la tienda y se registra solo si se puede pedir la aprobación del jefe de ventas.
+    if (datos.origen === 'directa') {
+      if (!rutChilenoValido(datos.proveedorRut)) return NextResponse.json({ error: 'La compra directa necesita el RUT de la tienda, válido (ej. 76.123.456-7).' }, { status: 400 });
+      await exigirTablaCompraRapida();
+    }
     let cotizacionId = await registrarCotizacion(id, datos, userId, nombre);
     // Compras directas del mismo proveedor (mismo RUT o nombre) van en UNA sola cotización/columna de la matriz.
     if (datos.origen === 'directa') cotizacionId = (await fusionarDirectasDelNegocio(id).catch(() => new Map<number, number>())).get(cotizacionId) ?? cotizacionId;
-    // Una compra directa es una decisión ya tomada (ferretería, retail): el producto pasa solo de «Cotizando» a «Comprado».
-    // En la pantalla de «Tu compra» queda preseleccionado ese proveedor (ver AuditorComprasCard). Si hubo que corregirlo, se
-    // cambia a mano en el estado del producto.
+    // Una compra directa (ferretería, retail) ya NO pasa sola a «Comprado»: queda pedida y el jefe de ventas la aprueba ANTES de comprar
+    // (compra rápida, migration-151). Al aprobarla el producto pasa a «Comprado» y queda preseleccionado en «Tu compra» (AuditorComprasCard).
     if (datos.origen === 'directa' && Array.isArray(datos.itemsManual)) {
       for (const it of datos.itemsManual) {
-        await cambiarSubestadoProducto(Number(it.productoId), 'COMPRADO').catch(e => console.warn('[compras/cotizaciones] compra directa: no se pudo marcar Comprado:', String(e).slice(0, 120)));
+        await solicitarCompraRapida(id, [Number(it.productoId)], {
+          proveedorNombre: datos.proveedorNombre, proveedorRut: datos.proveedorRut as string, precioUnitario: Number(it.precioUnitario ?? datos.precioUnitario),
+          yaComprada: (datos as any).yaComprada === true,
+          link: (String(datos.notas || '').match(/Link de referencia: (\S+)/)?.[1]) ?? null,
+          motivo: (String(datos.notas || '').match(/Compra directa sin cotización: ([^.]+)\./)?.[1]) ?? null,
+        }, userId, nombre);
       }
     }
     return NextResponse.json({ success: true, id: cotizacionId });

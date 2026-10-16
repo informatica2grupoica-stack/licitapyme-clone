@@ -29,8 +29,10 @@ const TECNICO: Record<string, { texto: string; clase: string }> = {
 interface DecisionLinea { estado: 'APROBADA' | 'RECHAZADA' | 'CORREGIDA'; comentario: string | null; porNombre: string | null; corregidoPorNombre?: string | null; notaCorreccion?: string | null }
 const aDecision = (l: any): [number, DecisionLinea] => [l.productoId, { estado: l.estado, comentario: l.comentario, porNombre: l.porNombre, corregidoPorNombre: l.corregidoPorNombre, notaCorreccion: l.notaCorreccion }];
 
-export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, puedeOperar, compraEstado, onAprobarCompra }: {
+export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, puedeOperar, compraEstado, onAprobarCompra, onRapidaCambio }: {
   negocioId: number; refresco: string; esJefeDeVentas: boolean; puedeOperar: boolean; compraEstado: string | null; onAprobarCompra: () => Promise<unknown> | void;
+  /** Se llama tras aprobar/rechazar una compra rápida (para que la pantalla habilite el SKU y la OC de ese producto). */
+  onRapidaCambio?: () => Promise<unknown> | void;
 }) {
   const toast = useToast();
   // Aprobación POR PRODUCTO (migration-147): el jefe va aprobando cada línea y, con todas aprobadas, aprueba la compra completa con un botón.
@@ -74,6 +76,18 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
     } catch (e: any) { toast.error('No se pudo guardar', e.message); }
     finally { setGuardando(false); }
   };
+  // Compra rápida (tienda, sin cotización ni ficha): el jefe la aprueba o rechaza en la misma fila; aprobada, ese producto puede crear SKU y OC.
+  const decidirRapida = async (productoId: number, decision: 'APROBAR' | 'RECHAZAR', comentario?: string) => {
+    setGuardando(true);
+    try {
+      const r = await fetch(`/api/compras/${negocioId}/compra-rapida`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productoId, decision, comentario: comentario || null }) }).then(x => x.json());
+      if (!r.success) throw new Error(r.error || 'No se pudo guardar');
+      setRechazando(null); setMotivo('');
+      await cargar(); await onRapidaCambio?.();
+      toast.success(decision === 'APROBAR' ? 'Compra rápida aprobada' : 'Compra rápida rechazada', decision === 'APROBAR' ? 'Ese producto ya puede crear su SKU y su OC.' : 'Le avisamos al encargado.');
+    } catch (e: any) { toast.error('No se pudo guardar', e.message); }
+    finally { setGuardando(false); }
+  };
   // El encargado avisa que ya corrigió un producto rechazado: queda «Corregido» y el jefe de ventas recibe aviso para revisarlo de nuevo.
   const marcarCorregido = async (productoId: number) => {
     setGuardando(true);
@@ -107,13 +121,15 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
   tabla.lineas.forEach(l => { conteo[l.estado]++; });
   const visibles = tabla.lineas.filter(l => filtro === 'TODAS' || l.estado !== 'PASA');
   const ventaTotal = t.venta, costoTotal = t.compra + t.flete;
-  const aprobados = tabla.lineas.filter(l => decisiones[l.productoId]?.estado === 'APROBADA').length;
-  const rechazados = tabla.lineas.filter(l => decisiones[l.productoId]?.estado === 'RECHAZADA').length;
+  // Una compra rápida se decide con su propia aprobación (l.compraRapida.estado); el resto, con la aprobación por producto.
+  const estadoDe = (l: LineaAprobacion): string | undefined => l.compraRapida ? (l.compraRapida.estado === 'PENDIENTE' ? undefined : l.compraRapida.estado) : decisiones[l.productoId]?.estado;
+  const aprobados = tabla.lineas.filter(l => estadoDe(l) === 'APROBADA').length;
+  const rechazados = tabla.lineas.filter(l => estadoDe(l) === 'RECHAZADA').length;
   const corregidos = tabla.lineas.filter(l => decisiones[l.productoId]?.estado === 'CORREGIDA').length;
   const sinDecidir = tabla.lineas.length - aprobados - rechazados;
   const todosAprobados = tabla.lineas.length > 0 && aprobados === tabla.lineas.length;
   const compraAprobada = compraEstado === 'APROBADA' || compraEstado === 'APROBADA_CON_MODIFICACION';
-  const pasanSinDecidir = tabla.lineas.filter(l => l.estado === 'PASA' && !decisiones[l.productoId]).map(l => l.productoId);
+  const pasanSinDecidir = tabla.lineas.filter(l => l.estado === 'PASA' && !l.compraRapida && !decisiones[l.productoId]).map(l => l.productoId);
 
   return (
     <div className="space-y-3" data-testid="tabla-aprobacion">
@@ -182,10 +198,16 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
               {visibles.map(l => {
                 const e = ESTADO[l.estado], te = TECNICO[l.tecnico.estado];
                 return (
-                  <tr key={l.productoId} className={l.estado === 'NO_PASA' ? 'bg-rose-50/40' : ''} data-testid={`apr-linea-${l.productoId}`}>
+                  <tr key={l.productoId} className={l.compraRapida?.estado === 'RECHAZADA' ? 'bg-rose-100 animate-pulse' : l.estado === 'NO_PASA' ? 'bg-rose-50/40' : ''} data-testid={`apr-linea-${l.productoId}`}>
                     <td className="px-3 py-2 text-zinc-400 align-top">{l.linea ?? ''}</td>
                     <td className="px-2 py-2 align-top max-w-[260px]">
                       <p className="font-semibold text-zinc-800 leading-snug">{corto(l.descripcion)}</p>
+                      {l.compraRapida && (
+                        <p className={`mt-1 inline-block text-[11px] font-bold px-1.5 py-0.5 rounded border ${l.compraRapida.yaComprada ? 'bg-sky-50 text-sky-800 border-sky-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`} data-testid={`apr-rapida-${l.productoId}`}
+                          title={`${l.compraRapida.proveedor ?? ''} · RUT ${l.compraRapida.rut ?? ''} · ${clp(l.compraRapida.precio)} neto c/u`}>
+                          ⚡ Compra rápida · {l.compraRapida.yaComprada ? 'Ya comprada' : 'Por comprar'} · {l.compraRapida.proveedor} · {clp(l.compraRapida.precio)}
+                        </p>
+                      )}
                       {l.motivos.length > 0 && <ul className="mt-1 space-y-0.5">{l.motivos.map(m => <li key={m} className="text-[11px] text-zinc-500 leading-snug">• {m}</li>)}</ul>}
                     </td>
                     <td className="px-2 py-2 text-right align-top tabular-nums">{l.cantidad ?? '—'}</td>
@@ -205,6 +227,33 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
                     <td className="px-2 py-2 align-top"><span className={`inline-flex items-center gap-1 text-[11.5px] font-bold px-2 py-0.5 rounded-full border ${e.clase}`}>{l.estado === 'NO_PASA' ? <No size={12} /> : l.estado === 'REVISAR' ? <Alerta size={12} /> : <Ok size={12} />}{e.texto}</span></td>
                     <td className="px-2 py-2 align-top" data-testid={`apr-decision-${l.productoId}`}>
                       {(() => {
+                        if (l.compraRapida) {
+                          const r = l.compraRapida;
+                          if (r.estado === 'APROBADA') return <span className="inline-flex items-center gap-1 text-[11.5px] font-bold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">{r.yaComprada ? '✔ Ratificada' : '✔ Aprobada'}</span>;
+                          if (r.estado === 'RECHAZADA') return (
+                            <div className="space-y-0.5">
+                              <span className="inline-flex items-center gap-1 text-[11.5px] font-bold px-2 py-0.5 rounded-full border bg-rose-50 text-rose-700 border-rose-300">✖ Rechazada</span>
+                              {r.comentario && <span className="block text-[11px] text-rose-700 leading-snug">{r.comentario}</span>}
+                              <span className="block text-[11px] text-zinc-500">{puedeOperar ? 'Corrígela y reenvíala desde Costeo → Productos.' : 'El encargado debe corregirla.'}</span>
+                            </div>
+                          );
+                          if (!esJefeDeVentas) return <span className="text-[11.5px] text-zinc-400">Pendiente del jefe de ventas</span>;
+                          if (rechazando === l.productoId) return (
+                            <div className="space-y-1">
+                              <input value={motivo} onChange={e => setMotivo(e.target.value)} placeholder="¿Por qué se rechaza?" autoFocus className="w-full text-[11.5px] border border-rose-300 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-rose-400" />
+                              <div className="flex items-center gap-1.5">
+                                <button type="button" onClick={() => decidirRapida(l.productoId, 'RECHAZAR', motivo)} disabled={guardando || !motivo.trim()} className="text-[11px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-40 px-2 py-1 rounded-lg">Rechazar</button>
+                                <button type="button" onClick={() => { setRechazando(null); setMotivo(''); }} className="text-[11px] text-zinc-500">Cancelar</button>
+                              </div>
+                            </div>
+                          );
+                          return (
+                            <div className="flex items-center gap-1.5">
+                              <button type="button" onClick={() => decidirRapida(l.productoId, 'APROBAR')} disabled={guardando} className="text-[11.5px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 px-2.5 py-1 rounded-lg">{r.yaComprada ? 'Ratificar' : 'Aprobar'}</button>
+                              <button type="button" onClick={() => { setRechazando(l.productoId); setMotivo(''); }} disabled={guardando} className="text-[11.5px] font-semibold text-rose-700 border border-rose-300 hover:bg-rose-50 disabled:opacity-40 px-2.5 py-1 rounded-lg">Rechazar</button>
+                            </div>
+                          );
+                        }
                         const d = decisiones[l.productoId];
                         if (d?.estado === 'CORREGIDA') return (
                           <div className="space-y-1">

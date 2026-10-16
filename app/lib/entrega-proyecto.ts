@@ -147,7 +147,8 @@ export async function construirResumenEjecutivo(
   if (!acta.es_adjudicada) faltantes.push('El acta de MP todavía no confirma la adjudicación.');
 
   // La marca manual de readjudicación (migration-149) prevalece sobre lo que quedó guardado en el acta.
-  if (acta.es_adjudicada) lineas = (await aplicarReadjudicacion(licitacionCodigo, lineas)).lineas;
+  let readjudicada = false;
+  if (acta.es_adjudicada) { const m = await aplicarReadjudicacion(licitacionCodigo, lineas); lineas = m.lineas; readjudicada = m.marcada; }
   const nuestras = lineas.filter(l => l?.esNuestra);
   const montoNuestro = nuestras.reduce(
     (acc, l) => acc + (Number(l.montoUnitario) || 0) * (Number(l.cantidad) || 1), 0) || null;
@@ -227,7 +228,8 @@ export async function construirResumenEjecutivo(
 
     montoOfertado: base.monto_ofertado ?? null,
     montoNuestro,
-    montoAdjudicadoTotal: acta.monto_adjudicado_total ?? null,
+    // Readjudicada: el total del acta es del otro proveedor; el vigente es el nuestro.
+    montoAdjudicadoTotal: readjudicada ? montoNuestro : (acta.monto_adjudicado_total ?? null),
     numeroOferentes: acta.numero_oferentes ?? null,
     lineasGanadas: nuestras.map(l => ({
       producto: l.producto ?? null, cantidad: l.cantidad ?? null, montoUnitario: l.montoUnitario ?? null,

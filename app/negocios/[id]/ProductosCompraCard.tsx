@@ -20,6 +20,10 @@ interface Producto {
   renunciaMotivo: string | null; renunciaPropuestaPorNombre: string | null; renunciaAprobadaPorNombre: string | null;
 }
 interface Cobertura { total: number; listos: number; renunciados: number; noAdjudicadas: number; cobertura: boolean }
+interface CompraRapidaFila {
+  productoId: number; estado: 'PENDIENTE' | 'APROBADA' | 'RECHAZADA'; proveedorNombre: string | null; proveedorRut: string | null; precioUnitario: number | null;
+  link: string | null; motivo: string | null; yaComprada: boolean; comentario: string | null; solicitadoPorNombre: string | null; resueltoPorNombre: string | null;
+}
 // Quién se llevó cada línea que ofertamos y no ganamos (viene del acta de MP).
 interface LineaPerdida { correlativo: number; proveedor: string | null; montoUnitario: number | null }
 
@@ -52,6 +56,36 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
   const [sincronizando, setSincronizando] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [filtro, setFiltro] = useState<'todos' | 'pendientes' | 'listos' | 'fuera'>('todos');
+  // Compra rápida (migration-151): el jefe de ventas la aprueba o rechaza ANTES de comprar; rechazada = fila roja parpadeante.
+  const [rapidas, setRapidas] = useState<Record<number, CompraRapidaFila>>({});
+  const [notaReenvio, setNotaReenvio] = useState('');
+  const [guardandoRapida, setGuardandoRapida] = useState<number | null>(null);
+
+  const cargarRapidas = useCallback(async () => {
+    try {
+      const d = await fetchJsonReintento<any>(`/api/compras/${negocioId}/compra-rapida`);
+      if (d.success) setRapidas(Object.fromEntries((d.compras || []).map((c: CompraRapidaFila) => [c.productoId, c])));
+    } catch { /* sin compra rápida: la lista se ve igual */ }
+  }, [negocioId]);
+  useEffect(() => { cargarRapidas(); }, [cargarRapidas]);
+
+  const decidirRapida = async (productoId: number, decision: 'REENVIAR', comentario?: string) => {
+    setGuardandoRapida(productoId);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/compra-rapida`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productoId, comentario }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar');
+      setRapidas(Object.fromEntries((data.compras || []).map((c: CompraRapidaFila) => [c.productoId, c])));
+      setNotaReenvio('');
+      await cargar(); recargarCompartido();
+      toast.success('Enviada de nuevo al jefe de ventas', 'Le llegó la alerta para que la revise.');
+    } catch (e: any) {
+      toast.error('No se pudo guardar la compra rápida', e.message);
+    } finally { setGuardandoRapida(null); }
+  };
 
   const cargar = useCallback(async () => {
     try {
@@ -214,7 +248,8 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
               const l = p.subestado === 'NO_ADJUDICADA' ? perdidas.find(x => x.correlativo === p.correlativo) : null;
               return (
                 <Fragment key={p.id}>
-                  <tr className={`border-b border-zinc-100 align-middle ${fuera ? 'bg-zinc-50/70 text-zinc-400' : 'hover:bg-zinc-50/60'}`}>
+                  <tr className={`border-b border-zinc-100 align-middle ${fuera ? 'bg-zinc-50/70 text-zinc-400' : rapidas[p.id]?.estado === 'RECHAZADA' ? 'bg-rose-100 animate-pulse border-l-4 border-l-rose-500' : 'hover:bg-zinc-50/60'}`}
+                    data-testid={`fila-producto-${p.id}`}>
                     <td className="px-4 py-2 text-[12px] text-zinc-400 tabular-nums">{lineasUnicas ? (p.correlativo ?? '—') : productos.indexOf(p) + 1}</td>
                     <td className="px-3 py-2 max-w-0">
                       <p title={p.descripcion} className={`text-[13px] font-semibold truncate ${fuera ? 'text-zinc-400' : 'text-zinc-800'} ${p.subestado === 'NO_ADJUDICADA' ? 'line-through decoration-zinc-400' : ''}`}>{p.descripcion}</p>
@@ -244,6 +279,35 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
                       )}
                     </td>
                   </tr>
+                  {rapidas[p.id] && !fuera && (() => {
+                    const r = rapidas[p.id];
+                    const caja = r.estado === 'RECHAZADA' ? 'bg-rose-50 border-rose-300' : r.estado === 'APROBADA' ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-300';
+                    return (
+                      <tr key={`${p.id}-cr`} className="border-b border-zinc-100" data-testid={`compra-rapida-${p.id}`}>
+                        <td colSpan={7} className="px-4 py-2">
+                          <div className={`border rounded-lg px-3 py-2 space-y-1.5 ${caja}`}>
+                            <p className="text-[12px] text-zinc-700 flex items-center gap-2 flex-wrap">
+                              <span className={`font-bold ${r.estado === 'RECHAZADA' ? 'text-rose-700' : r.estado === 'APROBADA' ? 'text-emerald-700' : 'text-amber-800'}`}>
+                                {r.estado === 'RECHAZADA' ? `✖ Compra rápida RECHAZADA${r.yaComprada ? '' : ' — no la compres'}` : r.estado === 'APROBADA' ? (r.yaComprada ? '✔ Compra rápida ratificada' : '✔ Compra rápida aprobada') : (r.yaComprada ? '⏳ Ya comprada: por ratificar' : '⏳ Compra rápida por aprobar')}
+                              </span>
+                              <span>{r.proveedorNombre} · RUT {r.proveedorRut} · {fmtCLP(r.precioUnitario)} neto c/u</span>
+                              {r.link && <a href={r.link} target="_blank" rel="noreferrer" className="underline text-teal-700">link</a>}
+                              {r.solicitadoPorNombre && <span className="text-zinc-400">pedida por {r.solicitadoPorNombre}</span>}
+                            </p>
+                            {r.motivo && <p className="text-[11.5px] text-zinc-500">Motivo: {r.motivo}</p>}
+                            {r.estado === 'RECHAZADA' && r.comentario && <p className="text-[12px] font-semibold text-rose-700">Motivo del rechazo{r.resueltoPorNombre ? ` (${r.resueltoPorNombre})` : ''}: {r.comentario}</p>}
+                            {r.estado === 'PENDIENTE' && <p className="text-[11.5px] text-amber-800">Esperando al jefe de ventas (la {r.yaComprada ? 'ratifica' : 'aprueba'} en «Aprobación y SKU», en la fila del producto).{!r.yaComprada && ' No compres hasta entonces.'}</p>}
+                            {r.estado === 'RECHAZADA' && puedeOperar && (
+                              <div className="flex items-center gap-1.5">
+                                <input value={notaReenvio} onChange={e => setNotaReenvio(e.target.value)} placeholder="¿Qué corregiste? (opcional)" className="flex-1 text-[11.5px] border border-amber-300 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-amber-400" />
+                                <button type="button" onClick={() => decidirRapida(p.id, 'REENVIAR', notaReenvio)} disabled={guardandoRapida === p.id} className="text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-40 px-2 py-1 rounded-lg">Reenviar al jefe</button>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })()}
                   {p.renunciaMotivo && !fuera && (
                     <tr key={`${p.id}-r`} className="border-b border-zinc-100">
                       <td colSpan={7} className="px-4 py-2">

@@ -8,7 +8,7 @@ import { obtenerAsignacion } from '@/app/lib/compras';
 import { proveedoresParaOrdenCompra, crearOrdenCompraParaProveedor } from '@/app/lib/compras-oc-obuma';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { parsearMontoCL } from '@/app/lib/numeros';
-import { buscarCentroCostoPorLicitacion } from '@/app/lib/obuma';
+import { buscarCentroCostoPorLicitacion, centrosDeCostoCompleto } from '@/app/lib/obuma';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,11 +35,14 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
-    const [proveedores, centroCosto] = await Promise.all([
+    const [proveedores, centroCosto, centros] = await Promise.all([
       proveedoresParaOrdenCompra(id),
       buscarCentroCostoPorLicitacion(asignacion.licitacionCodigo).catch(() => null),
+      centrosDeCostoCompleto().catch(() => []),
     ]);
-    return NextResponse.json({ success: true, proveedores, centroCosto });
+    // Lista para el selector del formulario de la OC (solo activos, los más nuevos primero).
+    const centrosCosto = centros.filter(c => c.activo).sort((a, b) => Number(b.id) - Number(a.id)).map(c => ({ id: c.id, nombre: c.nombre }));
+    return NextResponse.json({ success: true, proveedores, centroCosto, centrosCosto });
   } catch (error: any) {
     console.error('[compras/orden-compra-obuma][GET]', String(error));
     return NextResponse.json({ error: error.message || 'No se pudieron cargar las órdenes de compra.' }, { status: 500 });
@@ -71,6 +74,7 @@ async function __POST(request: NextRequest, { params }: Params) {
       formaPagoId, incluirFlete: !!body.incluirFlete,
       fleteMonto: parsearMontoCL(body.fleteMonto),
       confirmarPeseADuplicado: !!body.confirmarPeseADuplicado,
+      centroCostoId: /^\d+$/.test(String(body.centroCostoId ?? '')) ? String(body.centroCostoId) : undefined,
       productoIds: Array.isArray(body.productoIds) ? body.productoIds.map(Number).filter((n: number) => Number.isInteger(n) && n > 0) : undefined,
     }, userId, nombre);
 

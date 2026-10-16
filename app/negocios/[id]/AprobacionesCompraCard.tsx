@@ -10,7 +10,7 @@ import { Banner } from '@/app/components/ui/Banner';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { TablaAprobacionCompra } from './TablaAprobacionCompra';
 import { DetalleCompuerta } from './DetalleCompuerta';
-import { IconShieldCheck as ShieldCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconEdit as Edit3, IconAlertTriangle as AlertTriangle, IconTag as Tag, IconPlus as Plus, IconX as X, IconHistory as History, IconStar as Star, IconBolt as Zap } from '@tabler/icons-react';
+import { IconShieldCheck as ShieldCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconEdit as Edit3, IconAlertTriangle as AlertTriangle, IconTag as Tag, IconPlus as Plus, IconX as X, IconBolt as Zap } from '@tabler/icons-react';
 
 type Estado = 'PENDIENTE' | 'APROBADA' | 'APROBADA_CON_MODIFICACION' | 'RECHAZADA';
 type Tipo = 'COMPRA' | 'MARGEN';
@@ -23,11 +23,12 @@ interface Aprobacion {
 }
 interface Margen { ventaNeta: number | null; costoNeto: number | null; margenPct: number | null; fuenteCosto: string | null }
 interface Presupuesto { presupuestoOriginal: number | null; costoEscenario: number | null; excedePct: number | null; excede: boolean; costoFlete: number | null }
-interface Sku { id: number; productoId: number; skuPropio: string; skuProveedor: string | null; proveedorNombre: string | null; marca: string | null; modelo: string | null; obumaProductoId: string | null; obumaCodigoComercial: string | null }
+interface Sku { id: number; productoId: number; skuPropio: string; skuProveedor: string | null; proveedorNombre: string | null; marca: string | null; modelo: string | null; obumaProductoId: string | null; obumaCodigoComercial: string | null; verificadoObuma?: boolean; creadoPorNombre?: string | null; createdAt?: string; productoDescripcion?: string | null; costoNeto?: number | null; ventaNeta?: number | null }
+// Lo que Obuma tiene hoy de un producto (se consulta a pedido: Obuma responde lento y tiene cuota diaria).
+interface DatosObuma { nombre: string; codigo: string; costoNeto: number | null; precioNeto: number | null; precioTotal: number | null }
 interface SubcategoriaObuma { id: string; nombre: string; categoriaId?: string }
 interface CategoriaObuma { id: string; nombre: string }
 interface ObumaCoincidencia { id: string; nombre: string; codigoComercial: string; categoriaId: string; subcategoriaId: string }
-interface SugerenciaHistorica { proveedorNombre: string; proveedorRut: string | null; vecesComprado: number; precioPromedio: number | null }
 const fmtCLPHist = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 interface Producto { id: number; descripcion: string; subestado: string }
 
@@ -218,6 +219,8 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
   const [esJefeDeVentas, setEsJefeDeVentas] = useState(false);
   const [puedeDeshacer, setPuedeDeshacer] = useState(false);
   const [skus, setSkus] = useState<Sku[]>([]);
+  // Productos con compra rápida aprobada por el jefe de ventas: pueden crear SKU aunque la compra completa no esté aprobada.
+  const [rapidasOk, setRapidasOk] = useState<number[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [loading, setLoading] = useState(true);
   // Si no se pudieron leer las aprobaciones NO se pintan las compuertas (con valores por defecto parecerían «sin proponer» y el botón re-propondría y borraría lo aprobado).
@@ -236,7 +239,6 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
     precioVenta: '', paraVenta: true, paraCompra: true, inventariable: true, venderEnWeb: false,
   };
   const [formSku, setFormSku] = useState(formSkuVacio);
-  const [historicoPorSku, setHistoricoPorSku] = useState<Record<number, SugerenciaHistorica[] | 'cargando' | 'sin_datos'>>({});
   const [guardandoSku, setGuardandoSku] = useState(false);
   const [subcategorias, setSubcategorias] = useState<SubcategoriaObuma[]>([]);
   const [cargandoSubcategorias, setCargandoSubcategorias] = useState(false);
@@ -264,6 +266,9 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
     { estado: 'listo'; proveedorNombre: string | null; descripcionLibre: string | null; archivoUrl: string | null; archivoNombre: string | null; motivo: string | null }
   >({ estado: 'idle' });
   const [verificandoObumaId, setVerificandoObumaId] = useState<number | null>(null);
+  const [obumaPorSku, setObumaPorSku] = useState<Record<number, 'cargando' | 'error' | 'no_existe' | DatosObuma>>({});
+  const [confirmandoDeshacer, setConfirmandoDeshacer] = useState<number | null>(null);
+  const [deshaciendoSku, setDeshaciendoSku] = useState<number | null>(null);
 
   // Nombre para Obuma = Tipo + Atributo + Medida + Marca + Modelo (los tres últimos ya están arriba, en el
   // mismo formulario — no se piden de nuevo). Siempre en MAYÚSCULAS — Obuma lo guarda así igual
@@ -280,8 +285,9 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
     try {
       // allSettled: si falla UNA lectura (SKU, productos) las compuertas igual se pintan con lo que sí llegó. Antes un solo fallo dejaba
       // las compuertas en blanco («0 de 2 · Enviar al jefe de ventas») aunque en la BD ya estuvieran aprobadas.
-      const [rA, rS, rP] = await Promise.allSettled([
+      const [rA, rS, rP, rR] = await Promise.allSettled([
         fetchJsonReintento<any>(`/api/compras/${negocioId}/aprobaciones`), fetchJsonReintento<any>(`/api/compras/${negocioId}/sku`), fetchJsonReintento<any>(`/api/compras/${negocioId}/productos`),
+        fetchJsonReintento<any>(`/api/compras/${negocioId}/compra-rapida`),
       ]);
       if (miCarga !== cargaActual.current) return;
       const dA = rA.status === 'fulfilled' ? rA.value : null;
@@ -293,6 +299,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
         setErrorAprobaciones(rA.status === 'rejected' ? String((rA.reason as Error)?.message || rA.reason) : String(dA?.error || 'No se pudo cargar'));
       }
       if (rS.status === 'fulfilled' && rS.value.success) setSkus(rS.value.skus || []);
+      if (rR.status === 'fulfilled' && rR.value.success) setRapidasOk((rR.value.compras || []).filter((c: any) => c.estado === 'APROBADA').map((c: any) => c.productoId));
       if (rP.status === 'fulfilled' && rP.value.success) setProductos((rP.value.productos || []).filter((p: any) => !['RENUNCIADO', 'NO_ADJUDICADA'].includes(p.subestado)));
       if (rA.status === 'rejected') toast.error('No se pudieron cargar las aprobaciones', String((rA.reason as Error)?.message || rA.reason));
     } finally {
@@ -511,24 +518,35 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
     }
   };
 
-  // §19.3 — sugerencia de proveedor histórico, bajo demanda (no automática: la API de OBUMA tiene
-  // límite de consultas diarias por endpoint, spec §7.2).
-  const verHistorico = async (sku: Sku) => {
-    setHistoricoPorSku(h => ({ ...h, [sku.id]: 'cargando' }));
-    try {
-      const res = await fetch(`/api/compras/${negocioId}/sku/${sku.id}/historico`);
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo consultar');
-      setHistoricoPorSku(h => ({ ...h, [sku.id]: data.sugerencias.length ? data.sugerencias : 'sin_datos' }));
-    } catch (e: any) {
-      setHistoricoPorSku(h => ({ ...h, [sku.id]: 'sin_datos' }));
-      toast.error('No se pudo consultar el histórico', e.message);
-    }
-  };
-
   // Obuma no avisa si alguien borra/edita un producto allá directamente — este botón releé en vivo
   // y corrige el vínculo local si ya no coincide (pedido explícito tras encontrar un SKU que seguía
   // mostrando "Creado en Obuma" de un producto que el usuario ya había borrado en Obuma).
+  const verDatosObuma = async (sku: Sku) => {
+    setObumaPorSku(prev => ({ ...prev, [sku.id]: 'cargando' }));
+    try {
+      const d = await fetch(`/api/compras/${negocioId}/sku/${sku.id}/obuma`).then(r => r.json());
+      if (!d.success) throw new Error(d.error || 'Obuma no respondió');
+      const o = d.producto;
+      if (!o) { setObumaPorSku(prev => ({ ...prev, [sku.id]: 'no_existe' })); return; }
+      const num = (v: unknown) => (v == null || v === '' ? null : Number(v));
+      setObumaPorSku(prev => ({ ...prev, [sku.id]: { nombre: String(o.producto_nombre || ''), codigo: String(o.producto_codigo_comercial || ''), costoNeto: num(o.producto_costo_clp_neto), precioNeto: num(o.producto_precio_clp_neto), precioTotal: num(o.producto_precio_clp_total) } }));
+    } catch (e: any) {
+      setObumaPorSku(prev => ({ ...prev, [sku.id]: 'error' }));
+      toast.error('No se pudo consultar Obuma', e.message);
+    }
+  };
+  // Deshace el SKU SOLO en Licitank; el producto de Obuma no se borra desde acá.
+  const deshacerSku = async (sku: Sku) => {
+    setDeshaciendoSku(sku.id);
+    try {
+      const d = await fetch(`/api/compras/${negocioId}/sku/${sku.id}`, { method: 'DELETE' }).then(r => r.json());
+      if (!d.success) throw new Error(d.error || 'No se pudo deshacer');
+      setConfirmandoDeshacer(null);
+      toast.success('SKU deshecho en Licitank', d.obumaProductoId ? 'El producto sigue creado en Obuma: si no lo quieres, bórralo ahí.' : 'Ya puedes crear o vincular otro.');
+      await cargar();
+    } catch (e: any) { toast.error('No se pudo deshacer el SKU', e.message); }
+    finally { setDeshaciendoSku(null); }
+  };
   const verificarObuma = async (sku: Sku) => {
     setVerificandoObumaId(sku.id);
     try {
@@ -556,6 +574,8 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
   }
 
   const compraAprobada = compra && ['APROBADA', 'APROBADA_CON_MODIFICACION'].includes(compra.estado);
+  // Sin la compra completa aprobada, solo los productos con compra rápida aprobada pueden crear SKU.
+  const productosSku = compraAprobada ? productos : productos.filter(p => rapidasOk.includes(p.id));
   // §10.5: la propuesta queda como un snapshot congelado — si después se elige otro escenario, ese
   // snapshot no se actualiza solo (invalidarAprobacionesCompras solo cambia el estado). Se compara
   // contra el escenario elegido EN VIVO para avisar en vez de dejar el número viejo sin marcar.
@@ -567,7 +587,8 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
     <div className="space-y-3">
       {parte !== 'sku' && (<>
       <TablaAprobacionCompra negocioId={negocioId} refresco={`${compra?.estado}|${compra?.propuestoAt}|${margen?.estado}|${margen?.propuestoAt}`}
-        esJefeDeVentas={esJefeDeVentas} puedeOperar={puedeOperar} compraEstado={compra?.estado ?? null} onAprobarCompra={() => resolver('COMPRA', 'APROBAR', null)} />
+        esJefeDeVentas={esJefeDeVentas} puedeOperar={puedeOperar} compraEstado={compra?.estado ?? null} onAprobarCompra={() => resolver('COMPRA', 'APROBAR', null)}
+        onRapidaCambio={cargar} />
       {(() => {
         const ok = (a: typeof compra) => !!a && ['APROBADA', 'APROBADA_CON_MODIFICACION'].includes(a.estado);
         const n = Number(ok(compra)) + Number(ok(margen));
@@ -630,27 +651,112 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
       )}
 
       </>)}
-      {parte === 'sku' && !compraAprobada && (
+      {parte === 'sku' && !compraAprobada && rapidasOk.length === 0 && (
         <p className="text-[12.5px] text-zinc-500 bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3">El SKU se crea cuando la jefatura aprueba la compra (paso «Aprobación y SKU»). Todavía no está aprobada.</p>
       )}
-      {parte !== 'aprobaciones' && compraAprobada && (
+      {parte !== 'aprobaciones' && (compraAprobada || rapidasOk.length > 0) && (
         <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
           <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-100 flex items-center gap-3 flex-wrap" data-testid="sku-lista">
             <div className="flex-1 min-w-[220px]">
-              <p className="text-[13.5px] font-bold text-zinc-800 flex items-center gap-1.5"><Tag size={14} /> Crear el SKU de cada producto <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-zinc-200 text-zinc-700">{skus.filter(s => productos.some(p => p.id === s.productoId)).length} de {productos.length}</span></p>
-              <p className="text-[12px] text-zinc-500">La compra ya está aprobada. Crea el SKU de un producto desde su fila, o todos seguidos.</p>
+              <p className="text-[13.5px] font-bold text-zinc-800 flex items-center gap-1.5"><Tag size={14} /> Crear el SKU de cada producto <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-zinc-200 text-zinc-700">{skus.filter(s => productosSku.some(p => p.id === s.productoId)).length} de {productosSku.length}</span></p>
+              <p className="text-[12px] text-zinc-500">{compraAprobada ? 'La compra ya está aprobada. Crea el SKU de un producto desde su fila, o todos seguidos.' : 'La compra completa aún no está aprobada: acá solo están los productos con compra rápida aprobada por el jefe de ventas.'}</p>
             </div>
-            {puedeOperar && formSkuProducto == null && productos.filter(p => !skus.some(s => s.productoId === p.id)).length > 1 && (
+            {puedeOperar && formSkuProducto == null && productosSku.filter(p => !skus.some(s => s.productoId === p.id)).length > 1 && (
               <button type="button" onClick={() => {
-                const faltan = productos.filter(p => !skus.some(s => s.productoId === p.id)).map(p => p.id);
+                const faltan = productosSku.filter(p => !skus.some(s => s.productoId === p.id)).map(p => p.id);
                 setColaSku(faltan); setFormSkuProducto(faltan[0]); setFormSku(formSkuVacio); cargarSubcategorias();
-              }} className="text-[12.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-3.5 py-2 rounded-lg">Crear los {productos.filter(p => !skus.some(s => s.productoId === p.id)).length} que faltan, uno tras otro</button>
+              }} className="text-[12.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-3.5 py-2 rounded-lg">Crear los {productosSku.filter(p => !skus.some(s => s.productoId === p.id)).length} que faltan, uno tras otro</button>
             )}
             {colaSku && formSkuProducto != null && <span className="text-[12px] font-semibold text-teal-700">Quedan {colaSku.length} por crear</span>}
           </div>
+          {skus.some(s => productosSku.some(p => p.id === s.productoId)) && (
+            <div className="overflow-x-auto border-b border-zinc-100" data-testid="tabla-skus">
+              <table className="w-full text-[12px] min-w-[1040px]">
+                <thead>
+                  <tr className="text-left text-[10.5px] font-bold uppercase text-zinc-400 border-b border-zinc-100 bg-white">
+                    <th className="px-3 py-2">Producto (licitación)</th>
+                    <th className="px-2 py-2">SKU</th>
+                    <th className="px-2 py-2">Nombre en Obuma</th>
+                    <th className="px-2 py-2">Marca / modelo</th>
+                    <th className="px-2 py-2">Proveedor</th>
+                    <th className="px-2 py-2 text-right">Costo neto</th>
+                    <th className="px-2 py-2 text-right">Venta neta</th>
+                    <th className="px-2 py-2 text-right">Margen</th>
+                    <th className="px-2 py-2">Creado</th>
+                    <th className="px-2 py-2 min-w-[150px]">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100">
+                  {skus.filter(s => productosSku.some(p => p.id === s.productoId)).map(sku => {
+                    const o = obumaPorSku[sku.id];
+                    const ob = typeof o === 'object' ? o : null;
+                    const margen = sku.costoNeto != null && sku.ventaNeta ? Math.round(((sku.ventaNeta - sku.costoNeto) / sku.ventaNeta) * 1000) / 10 : null;
+                    // Avisos: lo que Obuma tiene no coincide con lo de esta licitación (ej. el SKU quedó vinculado a otro producto).
+                    const difVenta = ob && ob.precioNeto != null && sku.ventaNeta != null && Math.round(ob.precioNeto) !== Math.round(sku.ventaNeta);
+                    const difCosto = ob && ob.costoNeto != null && ob.costoNeto > 0 && sku.costoNeto != null && Math.round(ob.costoNeto) !== Math.round(sku.costoNeto);
+                    return (
+                      <tr key={sku.id} className="align-top" data-testid={`sku-fila-${sku.productoId}`}>
+                        <td className="px-3 py-2 max-w-[220px]"><p className="font-semibold text-zinc-800 leading-snug">{(sku.productoDescripcion || '').split(' - ')[0]}</p></td>
+                        <td className="px-2 py-2 whitespace-nowrap">
+                          <b className="text-zinc-800">{sku.skuPropio}</b>
+                          {sku.obumaProductoId ? <span className="block text-[10.5px] text-indigo-600 font-semibold">{sku.verificadoObuma ? '✔ en Obuma' : 'en Obuma'} · id {sku.obumaProductoId}</span> : <span className="block text-[10.5px] text-zinc-400">solo en Licitank</span>}
+                          {sku.skuProveedor && <span className="block text-[10.5px] text-zinc-400">SKU proveedor: {sku.skuProveedor}</span>}
+                        </td>
+                        <td className="px-2 py-2 max-w-[260px]">
+                          {!sku.obumaProductoId ? <span className="text-zinc-300">—</span>
+                            : o === 'cargando' ? <span className="inline-flex items-center gap-1 text-zinc-400"><Loader2 size={12} className="animate-spin" /> Consultando Obuma (puede tardar)…</span>
+                            : o === 'no_existe' ? <span className="text-rose-600 font-semibold">Ya no existe en Obuma</span>
+                            : o === 'error' ? <button type="button" onClick={() => verDatosObuma(sku)} className="text-rose-600 underline">No respondió: reintentar</button>
+                            : ob ? (
+                              <div className="space-y-0.5">
+                                <p className="font-semibold text-zinc-800 leading-snug">{ob.nombre}</p>
+                                <p className="text-[10.5px] text-zinc-500">Código {ob.codigo} · costo {fmtCLPHist(ob.costoNeto)} · precio {fmtCLPHist(ob.precioNeto)} neto ({fmtCLPHist(ob.precioTotal)} con IVA)</p>
+                                {(difVenta || difCosto) && (
+                                  <p className="text-[10.5px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                                    ⚠ No coincide con esta licitación{difVenta ? ` (venta: Obuma ${fmtCLPHist(ob.precioNeto)} vs ${fmtCLPHist(sku.ventaNeta ?? null)})` : ''}{difCosto ? ` (costo: Obuma ${fmtCLPHist(ob.costoNeto)} vs ${fmtCLPHist(sku.costoNeto ?? null)})` : ''}. Revisa que sea el producto correcto.
+                                  </p>
+                                )}
+                              </div>
+                            ) : <button type="button" onClick={() => verDatosObuma(sku)} className="text-indigo-600 font-semibold underline decoration-dotted">Ver nombre y precio en Obuma</button>}
+                        </td>
+                        <td className="px-2 py-2">{[sku.marca, sku.modelo].filter(Boolean).join(' ') || <span className="text-zinc-300">—</span>}</td>
+                        <td className="px-2 py-2">{sku.proveedorNombre || <span className="text-zinc-300">—</span>}</td>
+                        <td className="px-2 py-2 text-right tabular-nums">{fmtCLPHist(sku.costoNeto ?? null)}</td>
+                        <td className="px-2 py-2 text-right tabular-nums">{fmtCLPHist(sku.ventaNeta ?? null)}</td>
+                        <td className={`px-2 py-2 text-right tabular-nums font-semibold ${margen == null ? 'text-zinc-300' : margen < 20 ? 'text-amber-700' : 'text-zinc-700'}`}>{margen == null ? '—' : `${margen}%`}</td>
+                        <td className="px-2 py-2 text-[11px] text-zinc-500 whitespace-nowrap">{sku.createdAt ? sku.createdAt.slice(0, 16).replace('T', ' ') : '—'}{sku.creadoPorNombre && <span className="block">{sku.creadoPorNombre}</span>}</td>
+                        <td className="px-2 py-2">
+                          {puedeOperar && (
+                            <div className="space-y-1">
+                              {sku.obumaProductoId && (
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {!ob && o !== 'cargando' && <button type="button" onClick={() => verDatosObuma(sku)} className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800">Ver en Obuma</button>}
+                                  <button type="button" onClick={() => verificarObuma(sku)} disabled={verificandoObumaId === sku.id} className="text-[11px] text-zinc-400 hover:text-indigo-600 underline decoration-dotted disabled:opacity-50">{verificandoObumaId === sku.id ? 'Verificando…' : 'Verificar vínculo'}</button>
+                                </div>
+                              )}
+                              {confirmandoDeshacer === sku.id ? (
+                                <div className="space-y-1 bg-rose-50 border border-rose-200 rounded-lg p-1.5">
+                                  <p className="text-[10.5px] text-rose-800 leading-snug">Se quita el SKU de Licitank. {sku.obumaProductoId ? 'El producto en Obuma NO se borra: si no lo quieres, bórralo ahí.' : ''}</p>
+                                  <div className="flex items-center gap-1.5">
+                                    <button type="button" onClick={() => deshacerSku(sku)} disabled={deshaciendoSku === sku.id} className="text-[11px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-40 px-2 py-0.5 rounded">Sí, deshacer</button>
+                                    <button type="button" onClick={() => setConfirmandoDeshacer(null)} className="text-[11px] text-zinc-500">Cancelar</button>
+                                  </div>
+                                </div>
+                              ) : <button type="button" onClick={() => setConfirmandoDeshacer(sku.id)} className="text-[11px] font-semibold text-rose-700 hover:text-rose-900">Deshacer SKU</button>}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
           <div className="divide-y divide-zinc-100">
-            {productos.map(p => {
+            {productosSku.map(p => {
               const sku = skus.find(s => s.productoId === p.id);
+              if (sku?.obumaProductoId && formSkuProducto !== p.id) return null;   // ya está en la tabla de arriba
               return (
                 <div key={p.id} className="px-4 py-2.5">
                   <div className="flex items-center justify-between gap-2">
@@ -672,48 +778,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
                       </button>
                     )}
                   </div>
-                  {sku && (
-                    <>
-                      <p className="text-[11px] text-zinc-500 mt-0.5">
-                        <b>{sku.skuPropio}</b>{sku.marca && ` · ${sku.marca}`}{sku.modelo && ` ${sku.modelo}`}
-                        {sku.skuProveedor && ` · SKU proveedor: ${sku.skuProveedor}`}
-                      </p>
-                      {sku.obumaCodigoComercial && (
-                        <p className="text-[10.5px] text-indigo-600 font-semibold mt-0.5 flex items-center gap-1.5">
-                          <Zap size={10} /> Creado en Obuma — código {sku.obumaCodigoComercial}
-                          {puedeOperar && (
-                            <button onClick={() => verificarObuma(sku)} disabled={verificandoObumaId === sku.id}
-                              className="text-zinc-400 hover:text-indigo-600 font-normal underline decoration-dotted disabled:opacity-50">
-                              {verificandoObumaId === sku.id ? 'Verificando…' : 'Verificar en Obuma'}
-                            </button>
-                          )}
-                        </p>
-                      )}
-                      {sku.obumaProductoId ? (
-                        <div className="mt-1">
-                          {!historicoPorSku[sku.id] && (
-                            <button onClick={() => verHistorico(sku)} className="text-[10.5px] font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-1">
-                              <History size={11} /> Ver proveedor histórico
-                            </button>
-                          )}
-                          {historicoPorSku[sku.id] === 'cargando' && <span className="text-[10.5px] text-zinc-400 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Consultando OBUMA…</span>}
-                          {historicoPorSku[sku.id] === 'sin_datos' && <span className="text-[10.5px] text-zinc-400">Sin historial de compras para este producto en OBUMA.</span>}
-                          {Array.isArray(historicoPorSku[sku.id]) && (
-                            <div className="mt-1 space-y-0.5">
-                              {(historicoPorSku[sku.id] as SugerenciaHistorica[]).slice(0, 3).map((s, i) => (
-                                <p key={i} className="text-[10.5px] text-zinc-600 flex items-center gap-1">
-                                  {i === 0 && <Star size={10} className="fill-amber-400 text-amber-400" />}
-                                  <b>{s.proveedorNombre}</b> — comprado {s.vecesComprado}x, promedio {fmtCLPHist(s.precioPromedio)}
-                                </p>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <p className="text-[10px] text-zinc-300 mt-0.5">Sin homologar con OBUMA — no se puede buscar histórico.</p>
-                      )}
-                    </>
-                  )}
+                  {sku && !sku.obumaProductoId && <p className="text-[11px] text-zinc-400 mt-0.5">SKU <b className="text-zinc-600">{sku.skuPropio}</b> · sin homologar con Obuma.</p>}
                   {formSkuProducto === p.id && (
                     <div className="mt-3 rounded-xl border-2 border-teal-200 bg-white overflow-hidden" data-testid="form-sku">
                       <div className="px-4 py-3 bg-teal-50/60 border-b border-teal-100 flex items-center justify-between gap-3">
@@ -884,7 +949,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
                                       <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
                                         <p className="text-[11.5px] font-semibold text-zinc-500">Precio de costo (neto) · lo que vamos a comprar</p>
                                         <p className="text-[17px] font-extrabold text-zinc-900 tabular-nums">{costoPreview.estado === 'listo' ? fmtCLP(costoPreview.monto) : costoPreview.estado === 'cargando' ? 'consultando…' : '—'}</p>
-                                        <p className="text-[11px] text-zinc-400">{costoPreview.estado === 'listo' ? `Del escenario de compra elegido (${costoPreview.escenarioTipo})` : 'Falta elegir el escenario de compra'}</p>
+                                        <p className="text-[11px] text-zinc-400">{costoPreview.estado === 'listo' ? costoPreview.escenarioTipo === 'COMPRA_RAPIDA' ? 'De la compra rápida aprobada por el jefe de ventas' : `Del escenario de compra elegido (${costoPreview.escenarioTipo})` : 'Falta elegir el escenario de compra'}</p>
                                       </div>
                                       <label className="rounded-lg border border-zinc-200 px-3 py-2 block">
                                         <span className="block text-[11.5px] font-semibold text-zinc-500">Precio de venta (neto) · lo que cobramos al cliente</span>

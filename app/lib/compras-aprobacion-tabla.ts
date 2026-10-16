@@ -8,6 +8,7 @@ import { listarProductosCompra } from '@/app/lib/compras';
 import { costeadoPorProducto } from '@/app/lib/compras-auditoria-cotizacion';
 import { obtenerEscenarioElegido, MARGEN_MINIMO_PCT } from '@/app/lib/compras-aprobaciones';
 import { panelFichas, type PanelFichasDTO } from '@/app/lib/compras-fichas';
+import { listarComprasRapidas, type CompraRapida } from '@/app/lib/compras-compra-rapida';
 
 export type EstadoLinea = 'PASA' | 'REVISAR' | 'NO_PASA';
 export type EstadoTecnico = 'CUMPLE' | 'NO_CUMPLE' | 'FALTA_DATO' | 'SIN_COMPARAR' | 'SIN_FICHA' | 'SIN_COMPRA';
@@ -21,6 +22,8 @@ export interface LineaAprobacion {
   margenLineaPct: number | null;
   tecnico: { estado: EstadoTecnico; cumple: number; total: number; modelo: string | null };
   estado: EstadoLinea; motivos: string[];
+  /** Compra rápida (tienda, sin cotización ni ficha): la aprueba el jefe de ventas en esta misma fila. null = línea normal. */
+  compraRapida: { estado: 'PENDIENTE' | 'APROBADA' | 'RECHAZADA'; yaComprada: boolean; proveedor: string | null; rut: string | null; precio: number | null; comentario: string | null } | null;
 }
 
 export interface Verificacion { ok: boolean | null; titulo: string; detalle: string }
@@ -68,19 +71,27 @@ export async function tablaAprobacion(negocioId: number): Promise<TablaAprobacio
   try { detalle = escenario ? (typeof escenario.detalle_json === 'string' ? JSON.parse(escenario.detalle_json) : escenario.detalle_json) : null; } catch { /* escenario ilegible: se trata como sin compra */ }
   const compraDe = new Map<number, any>((detalle?.porProducto || []).map((x: any) => [x.productoId, x]));
 
+  // Las compras rápidas van en la MISMA lista (un solo total y margen), marcadas «Ya comprada» o «Por comprar»; el jefe de ventas las aprueba en su fila.
+  const { compras: rapidas } = await listarComprasRapidas(negocioId).catch(() => ({ compras: [] as CompraRapida[] }));
+  const rapidaDe = new Map(rapidas.map(c => [c.productoId, c]));
   const vigentes = productos.filter(p => !['RENUNCIADO', 'NO_ADJUDICADA'].includes(p.subestado));
+  const rapidaFueraEscenario = new Set<number>();   // compras rápidas que el escenario elegido no trae: su costo se suma aparte (el flete sale solo del escenario)
   const lineas: LineaAprobacion[] = vigentes.map(p => {
     const c = compraDe.get(p.id);
+    const rap = rapidaDe.get(p.id) ?? null;
     const cant = p.cantidad ?? null;
     const costUnit = costeado[p.id] ?? null;
-    const compraUnit: number | null = c?.precioUnitario ?? null;
-    const proveedor: string | null = compraUnit != null ? (c?.proveedor ?? null) : null;
+    let compraUnit: number | null = c?.precioUnitario ?? null;
+    let proveedor: string | null = compraUnit != null ? (c?.proveedor ?? null) : null;
+    // Compra rápida que el escenario elegido todavía no incluye: se compara con SU tienda y SU precio, para que el jefe vea de una vez si sale más caro que lo costeado.
+    if (compraUnit == null && rap?.precioUnitario != null) { compraUnit = rap.precioUnitario; proveedor = rap.proveedorNombre; rapidaFueraEscenario.add(p.id); }
     const compraTotal = compraUnit != null ? (c?.subtotal ?? (cant != null ? compraUnit * cant : null)) : null;
     const ventaTotal = p.montoUnitario != null && cant != null ? p.montoUnitario * cant : null;
     const difUnit = compraUnit != null && costUnit != null ? compraUnit - costUnit : null;
     const difPct = difUnit != null && costUnit ? pct((difUnit / costUnit) * 100) : null;
     const margenLineaPct = compraUnit != null && p.montoUnitario ? pct(((p.montoUnitario - compraUnit) / p.montoUnitario) * 100) : null;
-    const tecnico = tecnicoDe(panel, p.id, proveedor);
+    // Una compra rápida es por definición sin cotización ni ficha: no se le exige lo técnico (el jefe decide por precio y margen).
+    const tecnico = rap ? { estado: 'SIN_FICHA' as EstadoTecnico, cumple: 0, total: 0, modelo: null } : tecnicoDe(panel, p.id, proveedor);
 
     const motivos: string[] = [];
     let estado: EstadoLinea = 'PASA';
@@ -92,7 +103,7 @@ export async function tablaAprobacion(negocioId: number): Promise<TablaAprobacio
     if (margenLineaPct != null && margenLineaPct < MARGEN_MINIMO_PCT && margenLineaPct > 0) { sube('REVISAR'); motivos.push(`Margen de la línea ${margenLineaPct}% (mínimo ${MARGEN_MINIMO_PCT}%)`); }
     if (tecnico.estado === 'FALTA_DATO') { sube('REVISAR'); motivos.push('Faltan datos técnicos en la ficha'); }
     if (tecnico.estado === 'SIN_COMPARAR') { sube('REVISAR'); motivos.push('La ficha está cargada pero no se comparó con las bases'); }
-    if (tecnico.estado === 'SIN_FICHA') { sube('REVISAR'); motivos.push('Sin ficha técnica de este modelo: lo técnico no está verificado'); }
+    if (tecnico.estado === 'SIN_FICHA' && !rap) { sube('REVISAR'); motivos.push('Sin ficha técnica de este modelo: lo técnico no está verificado'); }
 
     return {
       productoId: p.id, linea: p.correlativo, descripcion: p.descripcion, cantidad: cant,
@@ -101,6 +112,7 @@ export async function tablaAprobacion(negocioId: number): Promise<TablaAprobacio
       proveedor, compraUnit, compraTotal, plazoDias: c?.plazoEntregaDias ?? null,
       difUnit, difPct, difTotal: difUnit != null && cant != null ? difUnit * cant : null,
       margenLineaPct, tecnico, estado, motivos,
+      compraRapida: rapidaDe.has(p.id) ? (() => { const r = rapidaDe.get(p.id)!; return { estado: r.estado, yaComprada: r.yaComprada, proveedor: r.proveedorNombre, rut: r.proveedorRut, precio: r.precioUnitario, comentario: r.comentario }; })() : null,
     };
   });
 
@@ -109,7 +121,8 @@ export async function tablaAprobacion(negocioId: number): Promise<TablaAprobacio
   const compra = sum(l => l.compraTotal);
   const costeadoTodo = sum(l => l.costeadoTotal);
   const costoTotalEsc = escenario ? Number(escenario.costo_total) : null;
-  const flete = costoTotalEsc != null ? Math.max(0, costoTotalEsc - compra) : 0;
+  const compraEscenario = lineas.filter(l => !rapidaFueraEscenario.has(l.productoId)).reduce((s, l) => s + (l.compraTotal || 0), 0);
+  const flete = costoTotalEsc != null ? Math.max(0, costoTotalEsc - compraEscenario) : 0;
   const sinCompra = lineas.filter(l => l.compraUnit == null);
   const costoEstimadoFaltante = sinCompra.reduce((s, l) => s + (l.costeadoTotal || 0), 0);
   const margenCon = venta > 0 && escenario ? pct(((venta - (compra + flete)) / venta) * 100) : null;

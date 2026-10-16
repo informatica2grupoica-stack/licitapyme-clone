@@ -20,6 +20,7 @@ import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { notificarEncargadosCompras } from '@/app/lib/compras-avisos';
+import { productosConCompraRapidaAprobada, listarComprasRapidas, type CompraRapida } from '@/app/lib/compras-compra-rapida';
 import { obtenerAsignacion, listarProductosCompra, sincronizarTareaAprobacion } from '@/app/lib/compras';
 import { obtenerOrigenCompra, calcularCostoAterrizado } from '@/app/lib/compras-importacion';
 import { crearProductoObuma, siguienteSkuMercadoPublico, listarProductosObuma, listarSubcategoriasProductos, OBUMA_CATEGORIA_MERCADO_PUBLICO } from '@/app/lib/obuma';
@@ -329,6 +330,8 @@ export interface Sku {
   proveedorNombre: string | null; marca: string | null; modelo: string | null;
   verificadoObuma: boolean; obumaProductoId: string | null; obumaCodigoComercial: string | null;
   creadoPorNombre: string | null; createdAt: string;
+  /** Para la tabla de SKU creados: lo que cuesta (escenario o compra rápida) y a cuánto se vende, ambos netos por unidad. */
+  productoDescripcion?: string | null; costoNeto?: number | null; ventaNeta?: number | null;
 }
 
 export async function listarSkus(negocioId: number): Promise<Sku[]> {
@@ -338,13 +341,40 @@ export async function listarSkus(negocioId: number): Promise<Sku[]> {
        FROM compras_sku WHERE negocio_id = ?`,
     [negocioId],
   ) as any;
-  return (rows as any[]).map(r => ({
+  const skus: Sku[] = (rows as any[]).map(r => ({
     id: r.id, productoId: r.producto_id, skuPropio: r.sku_propio, skuProveedor: r.sku_proveedor,
     proveedorNombre: r.proveedor_nombre, marca: r.marca, modelo: r.modelo,
     verificadoObuma: !!r.verificado_obuma, obumaProductoId: r.obuma_producto_id,
     obumaCodigoComercial: r.obuma_codigo_comercial,
     creadoPorNombre: r.creado_por_nombre, createdAt: r.created_at,
   }));
+  // Detalle para la tabla (no bloquea: si algo falla, la fila sale sin costo ni venta).
+  if (skus.length > 0) {
+    const productos = await listarProductosCompra(negocioId).catch(() => []);
+    for (const sku of skus) {
+      const prod = productos.find(x => x.id === sku.productoId);
+      sku.productoDescripcion = prod?.descripcion ?? null;
+      sku.ventaNeta = prod?.montoUnitario ?? null;
+      sku.costoNeto = (await costoEscenarioParaProducto(negocioId, sku.productoId).catch(() => null))?.costoUnitario ?? null;
+    }
+  }
+  return skus;
+}
+
+/** Deshace un SKU SOLO en Licitank (el producto creado en Obuma NO se borra: eso se hace en Obuma). Se niega si el producto ya está en una OC emitida. */
+export async function eliminarSkuLocal(negocioId: number, skuId: number, actorId: number, actorNombre: string | null): Promise<{ obumaProductoId: string | null; skuPropio: string }> {
+  const [[sku]]: any = await pool.query(`SELECT id, producto_id, sku_propio, obuma_producto_id FROM compras_sku WHERE id = ? AND negocio_id = ?`, [skuId, negocioId]);
+  if (!sku) throw new Error('Ese SKU no existe en este negocio.');
+  const [ocs]: any = await pool.query(`SELECT items_json FROM compras_orden_compra_obuma WHERE negocio_id = ?`, [negocioId]);
+  const enOc = (ocs as any[]).some(o => { try { return (JSON.parse(o.items_json) as any[]).some(it => it.productoId === sku.producto_id); } catch { return false; } });
+  if (enOc) throw new Error('Este producto ya está en una orden de compra emitida: no se puede deshacer su SKU.');
+  await pool.query(`DELETE FROM compras_sku WHERE id = ? AND negocio_id = ?`, [skuId, negocioId]);
+  await registrarEvento({
+    tipo: 'COMPRAS_SKU_DESHECHO', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
+    mensaje: `Se deshizo el SKU ${sku.sku_propio} en Licitank${sku.obuma_producto_id ? ' (el producto sigue creado en Obuma)' : ''}.`,
+    metadata: { negocio_id: negocioId, producto_id: sku.producto_id, sku_propio: sku.sku_propio, obuma_producto_id: sku.obuma_producto_id ?? null },
+  });
+  return { obumaProductoId: sku.obuma_producto_id ?? null, skuPropio: sku.sku_propio };
 }
 
 export interface DatosSku {
@@ -379,12 +409,14 @@ export interface CostoEscenarioProducto { costoUnitario: number; escenarioTipo: 
  *  el preview que ve el usuario ANTES de confirmar — así nunca pueden divergir uno del otro. */
 export async function costoEscenarioParaProducto(negocioId: number, productoId: number): Promise<CostoEscenarioProducto | null> {
   const escenario = await obtenerEscenarioElegido(negocioId);
-  if (!escenario) return null;
   let detalle: any = null;
-  try { detalle = typeof escenario.detalle_json === 'string' ? JSON.parse(escenario.detalle_json) : escenario.detalle_json; } catch { /* detalle inválido, se trata como vacío */ }
-  const item = (detalle?.porProducto || []).find((p: any) => p.productoId === productoId);
-  if (item?.precioUnitario == null) return null;
-  return { costoUnitario: Number(item.precioUnitario), escenarioTipo: escenario.tipo, proveedorNombre: item.proveedor || null };
+  if (escenario) { try { detalle = typeof escenario.detalle_json === 'string' ? JSON.parse(escenario.detalle_json) : escenario.detalle_json; } catch { /* detalle inválido, se trata como vacío */ } }
+  const item = escenario ? (detalle?.porProducto || []).find((p: any) => p.productoId === productoId) : null;
+  if (escenario && item?.precioUnitario != null) return { costoUnitario: Number(item.precioUnitario), escenarioTipo: escenario.tipo, proveedorNombre: item.proveedor || null };
+  // Compra rápida aprobada por el jefe de ventas (compra en tienda, sin escenario): el costo es el precio neto que se aprobó.
+  const { compras } = await listarComprasRapidas(negocioId).catch(() => ({ compras: [] as CompraRapida[] }));
+  const rapida = compras.find(c => c.productoId === productoId && c.estado === 'APROBADA' && c.precioUnitario != null);
+  return rapida ? { costoUnitario: Number(rapida.precioUnitario), escenarioTipo: 'COMPRA_RAPIDA', proveedorNombre: rapida.proveedorNombre } : null;
 }
 
 export interface SugerenciaSkuProducto {
@@ -497,7 +529,10 @@ export async function sugerenciaSkuParaProducto(negocioId: number, productoId: n
 export async function crearSku(negocioId: number, productoId: number, datos: DatosSku, actorId: number, actorNombre: string | null): Promise<number> {
   const aprobacionCompra = await leerAprobacion(negocioId, 'COMPRA');
   if (!aprobacionCompra || !['APROBADA', 'APROBADA_CON_MODIFICACION'].includes(aprobacionCompra.estado)) {
-    throw new Error('El SKU se crea después de aprobada la Compuerta 1 (Aprobación de compra) — spec §7.1.');
+    // EXCEPCIÓN (compra rápida, migration-151): un producto con compra rápida aprobada por el jefe de ventas salta la Compuerta 1.
+    if (!(await productosConCompraRapidaAprobada(negocioId)).has(productoId)) {
+      throw new Error('El SKU se crea después de aprobada la Compuerta 1 (Aprobación de compra) — spec §7.1 — o con la compra rápida de ese producto aprobada.');
+    }
   }
   const productos = await listarProductosCompra(negocioId);
   const producto = productos.find(p => p.id === productoId);
@@ -546,6 +581,12 @@ export async function crearSku(negocioId: number, productoId: number, datos: Dat
 
   // Una sola fuente de identidad: si se creó en Obuma, el código de Obuma ES el "SKU propio" — no
   // se guardan dos códigos distintos para el mismo producto.
+  // Vinculado a un producto que YA existía en Obuma (paso «usar uno existente»): se lee su código comercial real para guardarlo; si Obuma no
+  // responde a tiempo queda vacío y «Verificar vínculo» lo completa después (la OC lo muestra como «sin SKU en Obuma» mientras falte).
+  if (!datos.crearEnObuma && obumaProductoId && !obumaCodigoComercial) {
+    const existente = await listarProductosObuma({ id: obumaProductoId }).then(r => r.data?.[0]).catch(() => null);
+    if (existente?.producto_codigo_comercial) obumaCodigoComercial = String(existente.producto_codigo_comercial);
+  }
   const skuPropioFinal = (datos.crearEnObuma && obumaCodigoComercial ? obumaCodigoComercial : datos.skuPropio?.trim()) || '';
   if (!skuPropioFinal) throw new Error('Falta el SKU propio.');
 
@@ -607,4 +648,13 @@ export async function verificarVinculoObuma(negocioId: number, skuId: number, ac
   const codigoActual = String(producto.producto_codigo_comercial);
   await pool.query(`UPDATE compras_sku SET obuma_codigo_comercial = ?, verificado_obuma = 1 WHERE id = ?`, [codigoActual, skuId]);
   return { existe: true, codigoComercial: codigoActual };
+}
+
+/** Lo que Obuma tiene hoy de un producto vinculado a un SKU (nombre, código, precios, categoría…). Una sola consulta por producto, a pedido (cuota diaria de Obuma). */
+export async function detalleObumaDeSku(negocioId: number, skuId: number): Promise<Record<string, unknown> | null> {
+  const [[sku]]: any = await pool.query(`SELECT obuma_producto_id FROM compras_sku WHERE id = ? AND negocio_id = ? LIMIT 1`, [skuId, negocioId]);
+  if (!sku) throw new Error('SKU no encontrado.');
+  if (!sku.obuma_producto_id) throw new Error('Este SKU no está vinculado a Obuma.');
+  const r = await listarProductosObuma({ id: String(sku.obuma_producto_id) });
+  return (r.data?.[0] as Record<string, unknown> | undefined) ?? null;
 }
