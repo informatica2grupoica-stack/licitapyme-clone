@@ -2,19 +2,20 @@
 // app/components/DocumentosCompetencia.tsx
 // Pestaña "Documentos de Competencia" (Negocios · Resultado, junto a "Competencia"): los documentos
 // de cada oferente tal cual los ordena el Cuadro de ofertas de Mercado Público.
-// Panel izquierdo: lista de oferentes (nombre + RUT) de la competencia (sin nuestra oferta), con casillas para elegir cuáles se analizan.
-// Derecha: el oferente seleccionado en modo cuadro, una columna por tipo de anexo
-// (administrativos · técnicos · económicos). Un oferente puede no haber cargado alguno: el cuadro
-// lo dice, no se oculta.
+// Arriba: desplegable de selección múltiple con los oferentes de la licitación (incluida nuestra
+// empresa, marcada "Nosotros"). Abajo, a todo el ancho: cada oferente seleccionado en modo cuadro,
+// una columna por tipo de anexo (administrativos · técnicos · económicos). Un oferente puede no
+// haber cargado alguno: el cuadro lo dice, no se oculta.
 // Son archivos que el cron ya bajó a nuestro almacenamiento; acá solo se ven (ojo), no se descargan
 // a la máquina del usuario. La sub-pestaña "Analizar con IA" es solo la vista: la petición al
-// modelo se conecta cuando esté definido el prompt.
+// modelo se conecta cuando esté definido el prompt. Nuestra oferta no entra al análisis.
 // Lee lo mismo que la pestaña Competencia (/api/postuladas/ofertas).
 
 import { useEffect, useState } from 'react';
-import { IconLoader2 as Loader2, IconFileText as FileText, IconEye as Eye, IconAlertTriangle as AlertTriangle, IconFolders as Folders, IconSparkles as Sparkles } from '@tabler/icons-react';
+import { IconLoader2 as Loader2, IconFileText as FileText, IconEye as Eye, IconAlertTriangle as AlertTriangle, IconFolders as Folders, IconSparkles as Sparkles, IconUsers as Users } from '@tabler/icons-react';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { SeccionTabs } from '@/app/components/MenuNegocioLateral';
+import { MultiSelect } from '@/app/components/ui/MultiSelect';
 
 interface DocumentoVista { id: number; nombre: string; descripcion: string | null; tamanoKb: number | null; url: string | null; error: string | null }
 interface CategoriaVista { categoria: string; rotulo: string; documentos: DocumentoVista[] }
@@ -40,8 +41,7 @@ export default function DocumentosCompetencia({ codigo }: { codigo: string }) {
   const [error, setError] = useState<string | null>(null);
   const [visor, setVisor] = useState<VisorDoc | null>(null);
   const [vista, setVista] = useState<'documentos' | 'ia'>('documentos');
-  const [activo, setActivo] = useState<string | null>(null);
-  const [marcados, setMarcados] = useState<Set<string>>(new Set());
+  const [seleccion, setSeleccion] = useState<string[]>([]);
 
   useEffect(() => {
     let vivo = true;
@@ -51,10 +51,9 @@ export default function DocumentosCompetencia({ codigo }: { codigo: string }) {
         const d = await r.json();
         if (!r.ok) throw new Error(d?.error || 'No se pudieron cargar los oferentes');
         if (!vivo) return;
-        // Solo la competencia: nuestra propia oferta no se lista ni se analiza.
-        const lista: OferenteVista[] = (d.oferentes || []).filter((o: OferenteVista) => !o.esNuestra);
+        const lista: OferenteVista[] = d.oferentes || [];
         setOferentes(lista);
-        setActivo(lista[0]?.proveedorRut ?? null);
+        setSeleccion(lista.map(o => o.proveedorRut));   // de entrada se ven todos
       } catch (e) {
         if (vivo) setError(String((e as Error).message || e));
       } finally {
@@ -68,24 +67,38 @@ export default function DocumentosCompetencia({ codigo }: { codigo: string }) {
     return <p className="text-[12.5px] text-zinc-400 inline-flex items-center gap-1.5 py-6"><Loader2 size={13} className="animate-spin" /> Cargando documentos de la competencia…</p>;
   }
 
-  const alternar = (rut: string) => setMarcados(prev => {
-    const s = new Set(prev);
-    if (s.has(rut)) s.delete(rut); else s.add(rut);
-    return s;
-  });
-  const todosMarcados = oferentes.length > 0 && marcados.size === oferentes.length;
-  const seleccionado = oferentes.find(o => o.proveedorRut === activo) || null;
-  const elegidos = oferentes.filter(o => marcados.has(o.proveedorRut));
+  // En el orden de la lista (nuestra oferta primero), no en el orden en que se marcaron.
+  const elegidos = oferentes.filter(o => seleccion.includes(o.proveedorRut));
 
   return (
     <div>
-      <div className="mb-3">
-        <h2 className="text-[15px] font-bold text-zinc-800 inline-flex items-center gap-2">
-          <Folders size={16} className="text-indigo-600" /> Documentos de Competencia
-        </h2>
-        <p className="text-[12px] text-zinc-500 mt-0.5">
-          Lo que presentó cada oferente en el Cuadro de ofertas de Mercado Público, ordenado por oferente.
-        </p>
+      <div className="mb-4 flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-[15px] font-bold text-zinc-800 inline-flex items-center gap-2">
+            <Folders size={16} className="text-indigo-600" /> Documentos de Competencia
+          </h2>
+          <p className="text-[12px] text-zinc-500 mt-0.5">
+            Lo que presentó cada oferente en el Cuadro de ofertas de Mercado Público, ordenado por oferente.
+          </p>
+        </div>
+        {oferentes.length > 0 && (
+          <div className="flex items-center gap-3">
+            <span className="text-[12px] text-zinc-500">{elegidos.length} de {oferentes.length} oferente(s)</span>
+            <MultiSelect
+              label="Oferentes"
+              icon={<Users size={14} />}
+              minWidth={340}
+              align="right"
+              seleccionarTodos
+              options={oferentes.map(o => ({
+                value: o.proveedorRut,
+                label: `${o.proveedorNombre}${o.esNuestra ? ' (Nosotros)' : ''} · ${o.proveedorRut}`,
+              }))}
+              selected={seleccion}
+              onChange={setSeleccion}
+            />
+          </div>
+        )}
       </div>
 
       {error && (
@@ -96,58 +109,34 @@ export default function DocumentosCompetencia({ codigo }: { codigo: string }) {
 
       {oferentes.length === 0 && !error && (
         <p className="text-[12.5px] text-zinc-500 rounded-xl border border-dashed border-zinc-200 bg-zinc-50/60 px-4 py-8 text-center">
-          Todavía no hay ofertas de otros oferentes leídas para esta licitación.
+          Todavía no hay ofertas leídas para esta licitación.
         </p>
       )}
 
       {oferentes.length > 0 && (
-        <div className="grid grid-cols-[260px_1fr] gap-4 items-start">
-          {/* Panel izquierdo: oferentes */}
-          <aside className="rounded-xl border border-zinc-200 bg-white overflow-hidden">
-            <label className="flex items-center gap-2 px-3 py-2 border-b border-zinc-100 bg-zinc-50 text-[11.5px] font-semibold text-zinc-600 cursor-pointer">
-              <input type="checkbox" checked={todosMarcados}
-                onChange={() => setMarcados(todosMarcados ? new Set() : new Set(oferentes.map(o => o.proveedorRut)))} />
-              Oferentes ({oferentes.length}){marcados.size > 0 && <span className="font-normal text-zinc-400">· {marcados.size} seleccionado(s)</span>}
-            </label>
-            <ul className="max-h-[65vh] overflow-y-auto">
-              {oferentes.map(o => {
-                const esActivo = o.proveedorRut === activo;
-                return (
-                  <li key={o.proveedorRut}
-                    className={`flex items-start gap-2 px-3 py-2 border-b border-zinc-100 last:border-b-0 cursor-pointer ${esActivo ? 'bg-indigo-50' : 'hover:bg-zinc-50'}`}
-                    onClick={() => { setActivo(o.proveedorRut); setVista('documentos'); }}>
-                    <input type="checkbox" className="mt-0.5" checked={marcados.has(o.proveedorRut)}
-                      onClick={e => e.stopPropagation()} onChange={() => alternar(o.proveedorRut)}
-                      aria-label={`Seleccionar ${o.proveedorNombre}`} />
-                    <div className="min-w-0 flex-1">
-                      <p className={`text-[12.5px] font-semibold truncate ${esActivo ? 'text-indigo-700' : 'text-zinc-800'}`} title={o.proveedorNombre}>
-                        {o.proveedorNombre}
-                      </p>
-                      <p className="text-[11px] text-zinc-400 font-mono">{o.proveedorRut}</p>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </aside>
+        <>
+          <SeccionTabs
+            items={[
+              { key: 'documentos', label: 'Documentos' },
+              { key: 'ia', label: 'Analizar con IA', count: elegidos.filter(o => !o.esNuestra).length },
+            ]}
+            activo={vista}
+            onSelect={k => setVista(k as 'documentos' | 'ia')}
+          />
 
-          {/* Derecha: cuadro del oferente / análisis con IA */}
-          <div className="min-w-0">
-            <SeccionTabs
-              items={[
-                { key: 'documentos', label: 'Documentos' },
-                { key: 'ia', label: 'Analizar con IA', count: marcados.size },
-              ]}
-              activo={vista}
-              onSelect={k => setVista(k as 'documentos' | 'ia')}
-            />
-
-            {vista === 'documentos' && seleccionado && (
-              <CuadroOferente o={seleccionado} onVer={setVisor} />
-            )}
-            {vista === 'ia' && <AnalisisIA elegidos={elegidos} />}
-          </div>
-        </div>
+          {vista === 'documentos' && (
+            elegidos.length === 0 ? (
+              <p className="text-[12.5px] text-zinc-500 rounded-xl border border-dashed border-zinc-200 bg-zinc-50/60 px-4 py-8 text-center">
+                Selecciona uno o más oferentes en el desplegable para ver sus documentos.
+              </p>
+            ) : (
+              <div className="space-y-4">
+                {elegidos.map(o => <CuadroOferente key={o.proveedorRut} o={o} onVer={setVisor} />)}
+              </div>
+            )
+          )}
+          {vista === 'ia' && <AnalisisIA elegidos={elegidos.filter(o => !o.esNuestra)} />}
+        </>
       )}
 
       <DocumentViewerModal doc={visor} onClose={() => setVisor(null)} />
@@ -158,10 +147,13 @@ export default function DocumentosCompetencia({ codigo }: { codigo: string }) {
 // Un oferente en modo cuadro: una columna por tipo de anexo.
 function CuadroOferente({ o, onVer }: { o: OferenteVista; onVer: (d: VisorDoc) => void }) {
   return (
-    <section className="rounded-xl border border-zinc-200 bg-white overflow-hidden">
+    <section className={`rounded-xl border overflow-hidden ${o.esNuestra ? 'border-indigo-300 bg-indigo-50/40' : 'border-zinc-200 bg-white'}`}>
       <header className="flex items-center gap-3 px-3.5 py-3 border-b border-zinc-100">
         <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-semibold text-zinc-800 truncate">{o.proveedorNombre}</p>
+          <p className="text-[13px] font-semibold text-zinc-800 truncate">
+            {o.proveedorNombre}
+            {o.esNuestra && <span className="ml-1.5 text-[10.5px] font-bold text-indigo-500">NOSOTROS</span>}
+          </p>
           <p className="text-[11px] text-zinc-400 truncate"><span className="font-mono">{o.proveedorRut}</span>{o.nombreOferta ? ` · ${o.nombreOferta}` : ''}</p>
         </div>
         {o.estado && <span className="text-[10.5px] font-semibold rounded-full px-2 py-0.5 border text-emerald-700 bg-emerald-50 border-emerald-200">{o.estado}</span>}
@@ -206,7 +198,7 @@ function AnalisisIA({ elegidos }: { elegidos: OferenteVista[] }) {
       <section className="rounded-xl border border-zinc-200 bg-white p-3.5">
         <p className="text-[12.5px] font-semibold text-zinc-700 mb-2">Oferentes a analizar</p>
         {elegidos.length === 0 ? (
-          <p className="text-[12px] text-zinc-400">Marca uno o más oferentes en el panel de la izquierda.</p>
+          <p className="text-[12px] text-zinc-400">Selecciona uno o más oferentes de la competencia en el desplegable de Oferentes.</p>
         ) : (
           <ul className="space-y-1">
             {elegidos.map(o => (
