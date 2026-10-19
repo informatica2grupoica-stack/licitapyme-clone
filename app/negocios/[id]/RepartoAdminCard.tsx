@@ -32,7 +32,7 @@ interface ProveedorOC {
   proveedorNombre: string; proveedorId: number | null; proveedorRut: string | null;
   proveedorDireccion: string | null; proveedorComuna: string | null; proveedorEmail: string | null; proveedorTelefono: string | null;
   proveedorGiro: string | null; proveedorContacto: string | null;
-  items: ItemOC[]; subtotal: number;
+  items: ItemOC[]; subtotal: number; fleteSugerido?: number | null;
   yaCreada: { obumaCompraOcId: string; folio: string | null; total: number; fechaOc: string } | null;
   posibleDuplicadoObuma: { folio: string | null; referencia: string; fecha: string; total: number } | null;
   ocRealObuma?: { folios: string[]; totalNeto: number; estados: string[]; fecha: string | null } | null;
@@ -188,7 +188,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
   };
 
   const abrirOC = (p: ProveedorOC) => {
-    setOcAbierta(p.proveedorNombre); setFormaPagoId(''); setIncluirFlete(false); setFleteMonto(''); setConfirmadoOC(false); setConfirmadoPeseADuplicado(false);
+    setOcAbierta(p.proveedorNombre); setFormaPagoId(''); setIncluirFlete(!!p.fleteSugerido); setFleteMonto(p.fleteSugerido ? String(Math.round(p.fleteSugerido)) : ''); setConfirmadoOC(false); setConfirmadoPeseADuplicado(false);
     setEstadoProveedorObuma('idle');
     cargarFormasPago();
     verificarProveedor(p.proveedorRut);
@@ -345,6 +345,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
               <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-zinc-200 text-zinc-700">{proveedoresOC.filter(p => p.yaCreada || p.ocRealObuma).length} de {proveedoresOC.length} emitidas</span>
             </p>
             <p className="text-[12.5px] text-zinc-500 mt-0.5">Una orden por proveedor, con lo que le compramos. Para emitirla, el proveedor tiene que existir en Obuma: si no está, lo creas aquí mismo. La orden se crea de verdad en Obuma.</p>
+            <p className="text-[11.5px] text-zinc-500 mt-1.5 flex items-center gap-3 flex-wrap"><span><b className="text-emerald-700">● Emitida desde Licitank</b>: la creaste aquí.</span><span><b className="text-sky-700">● Ya existía en Obuma</b>: se hizo directo en Obuma, fuera de Licitank.</span></p>
           </div>
           {!compuertasOk && proveedoresOC.some(pv => pv.items.some(it => it.compraRapida)) && (
             <p className="mx-4 mt-2 text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1.5" data-testid="oc-aviso-compra-rapida">
@@ -372,19 +373,19 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                         {p.ocRealObuma && (
                           <span title="La OC original, hecha directo en Obuma."
                             className="flex items-center gap-1 text-[11px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-1 rounded-full">
-                            <CheckCircle2 size={12} /> OC en Obuma · {p.ocRealObuma.folios.join(', ')} · {p.ocRealObuma.estados.join(' / ')} · {fmtCLP(p.ocRealObuma.totalNeto)} neto
+                            <CheckCircle2 size={12} /> Ya existía en Obuma (fuera de Licitank) · OC {p.ocRealObuma.folios.join(', ')} · {p.ocRealObuma.estados.join(' / ')} · {fmtCLP(p.ocRealObuma.totalNeto)} neto
                           </span>
                         )}
                         <span title={p.ocRealObuma ? 'Otra orden, emitida desde Licitank (aparte de la original).' : undefined}
                           className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full border ${p.ocRealObuma ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-emerald-700 bg-emerald-50 border-emerald-200'}`}>
-                          <CheckCircle2 size={12} /> {p.ocRealObuma ? 'Emitida desde Licitank · ' : ''}Folio {p.yaCreada.folio ?? p.yaCreada.obumaCompraOcId} · {fmtCLP(p.yaCreada.total)}
+                          <CheckCircle2 size={12} /> Emitida desde Licitank · Folio {p.yaCreada.folio ?? p.yaCreada.obumaCompraOcId} · {fmtCLP(p.yaCreada.total)}
                         </span>
                       </div>
                     ) : p.ocRealObuma ? (
                       <div className="flex items-center gap-2 flex-wrap justify-end">
                         <span title="La OC se hizo directo en Obuma (no desde Licitank)."
                           className="flex items-center gap-1 text-[11px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-1 rounded-full">
-                          <CheckCircle2 size={12} /> Realizada en Obuma · OC {p.ocRealObuma.folios.join(', ')} · {p.ocRealObuma.estados.join(' / ')} · {fmtCLP(p.ocRealObuma.totalNeto)} neto
+                          <CheckCircle2 size={12} /> Ya existía en Obuma (fuera de Licitank) · OC {p.ocRealObuma.folios.join(', ')} · {p.ocRealObuma.estados.join(' / ')} · {fmtCLP(p.ocRealObuma.totalNeto)} neto
                         </span>
                         {puedeOperar && ocAbierta !== p.proveedorNombre && (
                           <button onClick={() => abrirOC(p)} disabled={!puedeEmitirOC(p)} data-testid={`oc-crear-otra-${p.proveedorNombre}`}

@@ -110,9 +110,33 @@ async function itemsFobDelEscenarioElegido(negocioId: number): Promise<ItemFob[]
   } catch { return null; }
 }
 
+export interface ProductoImportable { productoId: number; descripcion: string; cantidad: number | null; proveedor: string | null; importado: boolean }
+
+/** Productos de la compra que se pueden marcar como "vienen del extranjero" (sin los renunciados ni los no adjudicados). */
+export async function listarProductosImportables(negocioId: number): Promise<ProductoImportable[]> {
+  const [rows] = await pool.query(
+    `SELECT id, descripcion, cantidad, importado FROM compras_producto
+      WHERE negocio_id = ? AND subestado NOT IN ('RENUNCIADO', 'NO_ADJUDICADA') ORDER BY correlativo IS NULL, correlativo, id`,
+    [negocioId],
+  ) as any;
+  const fob = await itemsFobDelEscenarioElegido(negocioId);
+  const provDe = new Map((fob || []).map(i => [i.productoId, i.proveedor]));
+  return (rows as any[]).map(r => ({
+    productoId: r.id, descripcion: r.descripcion, cantidad: r.cantidad == null ? null : Number(r.cantidad),
+    proveedor: provDe.get(r.id) ?? null, importado: !!r.importado,
+  }));
+}
+
+/** Marca o desmarca un producto como importado. Si se marca alguno, el negocio queda como IMPORTACION. */
+export async function marcarProductoImportado(negocioId: number, productoId: number, importado: boolean, actorId: number, actorNombre: string | null): Promise<void> {
+  const [r] = await pool.query(`UPDATE compras_producto SET importado = ? WHERE id = ? AND negocio_id = ?`, [importado ? 1 : 0, productoId, negocioId]) as any;
+  if (!r?.affectedRows) throw new Error('Producto no encontrado.');
+  if (importado && (await obtenerOrigenCompra(negocioId)).origen !== 'IMPORTACION') await definirOrigenCompra(negocioId, 'IMPORTACION', actorId, actorNombre);
+}
+
 export interface CostoAterrizadoItem {
   productoId: number; descripcion: string; proveedor: string | null; cantidad: number | null;
-  precioUnitarioFob: number | null; extraPorUnidad: number; costoUnitarioAterrizado: number | null; subtotalAterrizado: number | null;
+  precioUnitarioFob: number | null; importado: boolean; extraPorUnidad: number; costoUnitarioAterrizado: number | null; subtotalAterrizado: number | null;
 }
 export interface CostoAterrizado { items: CostoAterrizadoItem[]; totalUnidades: number; extraPorUnidad: number; totalAterrizado: number; totalFob: number }
 
@@ -128,7 +152,11 @@ export async function calcularCostoAterrizado(negocioId: number): Promise<CostoA
   if (!items || items.length === 0) return null;
   if (!embarque || (embarque.fleteInternacional == null && embarque.costosAduana == null && embarque.costoLogisticoLocal == null)) return null;
 
-  const totalUnidades = items.reduce((s, it) => s + (it.cantidad || 0), 0);
+  // Solo lo marcado como importado carga flete y aduana. Sin ninguna marca (negocios antiguos) se asume que todo viene de afuera.
+  const [marcRows] = await pool.query(`SELECT id FROM compras_producto WHERE negocio_id = ? AND importado = 1`, [negocioId]) as any;
+  const marcados = new Set<number>((marcRows as any[]).map(r => r.id));
+  const esImp = (id: number) => marcados.size === 0 || marcados.has(id);
+  const totalUnidades = items.filter(it => esImp(it.productoId)).reduce((s, it) => s + (it.cantidad || 0), 0);
   if (totalUnidades <= 0) return null;
   const extraTotal = (embarque.fleteInternacional || 0) + (embarque.costosAduana || 0) + (embarque.costoLogisticoLocal || 0);
   const extraPorUnidad = extraTotal / totalUnidades;
@@ -136,13 +164,15 @@ export async function calcularCostoAterrizado(negocioId: number): Promise<CostoA
   const descPorProducto = new Map(productos.map(p => [p.id, p.descripcion]));
   let totalAterrizado = 0; let totalFob = 0;
   const itemsCalculados: CostoAterrizadoItem[] = items.map(it => {
-    const costoUnitarioAterrizado = it.precioUnitarioFob != null ? it.precioUnitarioFob + extraPorUnidad : null;
+    const importado = esImp(it.productoId);
+    const extra = importado ? extraPorUnidad : 0;
+    const costoUnitarioAterrizado = it.precioUnitarioFob != null ? it.precioUnitarioFob + extra : null;
     const subtotalAterrizado = costoUnitarioAterrizado != null && it.cantidad != null ? costoUnitarioAterrizado * it.cantidad : null;
     if (subtotalAterrizado != null) totalAterrizado += subtotalAterrizado;
     if (it.precioUnitarioFob != null && it.cantidad != null) totalFob += it.precioUnitarioFob * it.cantidad;
     return {
       productoId: it.productoId, descripcion: descPorProducto.get(it.productoId) || it.descripcion, proveedor: it.proveedor,
-      cantidad: it.cantidad, precioUnitarioFob: it.precioUnitarioFob, extraPorUnidad, costoUnitarioAterrizado, subtotalAterrizado,
+      cantidad: it.cantidad, precioUnitarioFob: it.precioUnitarioFob, importado, extraPorUnidad: extra, costoUnitarioAterrizado, subtotalAterrizado,
     };
   });
 

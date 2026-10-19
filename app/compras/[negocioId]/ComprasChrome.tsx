@@ -872,7 +872,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                       </section>
                     </div>
                   ) },
-                { clave: 'retiro', titulo: '2 · Retiro de mercadería', ayuda: 'Cómo se va a buscar lo comprado: con equipo propio, transporte externo o mixto. Se define al comienzo y el sistema sugiere fleteros.',
+                { clave: 'retiro', titulo: '2 · Retiro por proveedor', ayuda: 'Cada proveedor está en un lugar distinto: defines para cada uno si lo buscamos nosotros o lo trae un transporte, y el sistema sugiere fleteros.',
                   contenido: <ModalidadRetiroCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
                 { clave: 'importacion', titulo: '3 · Importación (si aplica)', ayuda: 'Solo si el producto viene del extranjero: flete, aduana y costo final puesto en bodega. Si no, sáltate esta pestaña.',
                   contenido: <ImportacionCard negocioId={negocioId} puedeOperar={puedeOperar} /> },

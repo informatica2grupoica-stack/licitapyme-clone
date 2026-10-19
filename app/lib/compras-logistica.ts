@@ -224,6 +224,32 @@ export async function obtenerModalidadRetiro(negocioId: number): Promise<Modalid
   return { modalidad: r.modalidad_retiro, definidaPorNombre: r.modalidad_retiro_por_nombre, definidaAt: r.modalidad_retiro_at };
 }
 
+// ── Retiro POR PROVEEDOR: cada proveedor está en un lugar distinto, así que se elige por separado ──
+export async function obtenerRetiroPorProveedor(negocioId: number): Promise<Record<string, 'INTERNA' | 'EXTERNA'>> {
+  const [rows] = await pool.query(`SELECT proveedor_nombre, modalidad FROM compras_retiro_proveedor WHERE negocio_id = ?`, [negocioId]) as any;
+  const out: Record<string, 'INTERNA' | 'EXTERNA'> = {};
+  for (const r of rows as any[]) out[r.proveedor_nombre] = r.modalidad;
+  return out;
+}
+
+/** Guarda la elección de un proveedor y deja la modalidad global del negocio como resumen
+ *  (todos igual → esa; mezclados → MIXTA) para no tocar lo que ya lee la modalidad global. */
+export async function definirRetiroProveedor(
+  negocioId: number, proveedorNombre: string, modalidad: 'INTERNA' | 'EXTERNA', actorId: number, actorNombre: string | null,
+): Promise<void> {
+  if (!['INTERNA', 'EXTERNA'].includes(modalidad)) throw new Error('Modalidad inválida.');
+  if (!proveedorNombre.trim()) throw new Error('Falta el proveedor.');
+  await pool.query(
+    `INSERT INTO compras_retiro_proveedor (negocio_id, proveedor_nombre, modalidad, por_nombre, updated_at) VALUES (?,?,?,?,?)
+       ON DUPLICATE KEY UPDATE modalidad = VALUES(modalidad), por_nombre = VALUES(por_nombre), updated_at = VALUES(updated_at)`,
+    [negocioId, proveedorNombre, modalidad, actorNombre, ahoraChileSQL()],
+  );
+  const elegidas = Object.values(await obtenerRetiroPorProveedor(negocioId));
+  const distintas = new Set(elegidas);
+  const resumen: ModalidadRetiro = distintas.size > 1 ? 'MIXTA' : (elegidas[0] as ModalidadRetiro);
+  await definirModalidadRetiro(negocioId, resumen, actorId, actorNombre);
+}
+
 /** "La define el humano; el sistema propone, no decide" (§13.2) — por eso no hay ningún cálculo
  *  automático acá, solo el registro de la decisión humana. */
 export async function definirModalidadRetiro(

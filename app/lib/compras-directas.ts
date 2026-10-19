@@ -22,10 +22,10 @@ export function mismoProveedor(a: { nombre: string | null; rut: string | null },
 export async function fusionarDirectasDelNegocio(negocioId: number): Promise<Map<number, number>> {
   const mapa = new Map<number, number>();
   const [rows] = await pool.query(
-    `SELECT id, proveedor_nombre, proveedor_rut FROM compras_cotizacion WHERE negocio_id = ? AND origen = 'directa' ORDER BY id`, [negocioId]) as any;
-  const grupos: Array<Array<{ id: number; nombre: string; rut: string | null }>> = [];
+    `SELECT id, proveedor_nombre, proveedor_rut, flete_monto FROM compras_cotizacion WHERE negocio_id = ? AND origen = 'directa' ORDER BY id`, [negocioId]) as any;
+  const grupos: Array<Array<{ id: number; nombre: string; rut: string | null; flete: number | null }>> = [];
   for (const r of rows as any[]) {
-    const c = { id: Number(r.id), nombre: String(r.proveedor_nombre), rut: r.proveedor_rut as string | null };
+    const c = { id: Number(r.id), nombre: String(r.proveedor_nombre), rut: r.proveedor_rut as string | null, flete: r.flete_monto != null ? Number(r.flete_monto) : null };
     const g = grupos.find(x => mismoProveedor({ nombre: x[0].nombre, rut: x[0].rut }, { nombre: c.nombre, rut: c.rut }));
     if (g) g.push(c); else grupos.push([c]);
   }
@@ -49,6 +49,9 @@ export async function fusionarDirectasDelNegocio(negocioId: number): Promise<Map
       `UPDATE compras_cotizacion c SET c.precio_unitario = NULL,
               c.precio_total = (SELECT COALESCE(SUM(i.precio_unitario * COALESCE(p.cantidad, 1)), 0) FROM compras_cotizacion_item i JOIN compras_producto p ON p.id = i.producto_id WHERE i.cotizacion_id = c.id)
         WHERE c.id = ?`, [quedan]);
+    // Cada compra directa trae su propio flete (neto): la columna del proveedor suma el de todas, para que producto + flete cuadren con lo que se paga.
+    const fleteTotal = g.reduce((s, x) => s + (x.flete ?? 0), 0);
+    if (g.some(x => x.flete != null)) await pool.query(`UPDATE compras_cotizacion SET flete_monto = ?, incluye_flete = 0 WHERE id = ?`, [fleteTotal, quedan]);
   }
   return mapa;
 }

@@ -11,7 +11,7 @@ import { irAFase } from '@/app/compras/[negocioId]/comprasNavegacion';
 import { IconX as X } from '@tabler/icons-react';
 
 export interface InicialDirecta { productoId?: number; proveedor?: string; precio?: number; link?: string }
-interface ProductoMin { id: number; descripcion: string }
+interface ProductoMin { id: number; descripcion: string; cantidad?: number | null }
 
 const VACIO = { proveedor: '', rut: '', precio: '', motivo: '', modelo: '', link: '' };
 const inputCls = 'w-full text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none bg-white';
@@ -37,6 +37,10 @@ export function CompraDirectaPanel({ negocioId, productos, inicial, onRegistrada
   const [yaComprada, setYaComprada] = useState(false);
   // Los precios de tienda/retail se publican CON IVA (caso real 1191: $119.990 en la tienda = $100.832 neto): se marca por defecto y se guarda el neto.
   const [conIva, setConIva] = useState(true);
+  // Flete de la compra: si lo hay, se guarda aparte del precio del producto y se suma al total del proveedor (se precarga en la OC).
+  const [tieneFlete, setTieneFlete] = useState(false);
+  const [fleteTexto, setFleteTexto] = useState('');
+  const [fleteConIva, setFleteConIva] = useState(true);
   // Solo se buscan sugerencias cuando se TIPEA el nombre (no al elegir uno ni al tocar el RUT).
   const [buscarNombre, setBuscarNombre] = useState(false);
   const [provId, setProvId] = useState<number | null>(null);
@@ -84,8 +88,11 @@ export function CompraDirectaPanel({ negocioId, productos, inicial, onRegistrada
   const producto = productos.find(p => p.id === productoId) ?? null;
   const precioIngresado = Number(directa.precio.replace(/[^\d]/g, ''));
   const precio = conIva ? Math.round(precioIngresado / 1.19) : precioIngresado;   // neto unitario: lo que se guarda
+  const fleteIngresado = Number(fleteTexto.replace(/[^\d]/g, ''));
+  const fleteNeto = tieneFlete ? (fleteConIva ? Math.round(fleteIngresado / 1.19) : fleteIngresado) : 0;
+  const cantidad = Math.max(1, Number(producto?.cantidad) || 1);
   // Compra rápida: la tienda lleva RUT válido (obligatorio) y el jefe de ventas la aprueba antes de comprar.
-  const puedeRegistrar = !!producto && !!directa.proveedor.trim() && !!precio && rutValidoCL(directa.rut) && provObuma.estado !== 'invalido' && !guardando;
+  const puedeRegistrar = !!producto && !!directa.proveedor.trim() && !!precio && rutValidoCL(directa.rut) && provObuma.estado !== 'invalido' && (!tieneFlete || fleteNeto > 0) && !guardando;
 
   const registrar = async () => {
     if (!producto || !puedeRegistrar) return;
@@ -97,6 +104,8 @@ export function CompraDirectaPanel({ negocioId, productos, inicial, onRegistrada
           origen: 'directa', yaComprada, proveedorId: provId, proveedorNombre: directa.proveedor.trim(), proveedorRut: directa.rut.trim() || null, precioUnitario: precio,
           descripcionLibre: [producto.descripcion, directa.modelo.trim() ? `Marca/modelo: ${directa.modelo.trim()}` : ''].filter(Boolean).join(' · '),
           notas: `Compra directa sin cotización${directa.motivo.trim() ? `: ${directa.motivo.trim()}` : ''}. Precio neto de referencia${conIva ? ` (el precio de la tienda, $${precioIngresado.toLocaleString('es-CL')}, incluye IVA)` : ''}.${directa.link.trim() ? ` Link de referencia: ${directa.link.trim()}` : ''}`,
+          // Con flete: «aparte» con su monto neto. Sin flete: $0 explícito (retiro en tienda), para que no quede «por confirmar».
+          despachoModalidad: tieneFlete ? 'PROVEEDOR' : 'TIENDA', fleteCondicion: tieneFlete ? 'APARTE' : 'SIN_COSTO', fleteMonto: tieneFlete ? fleteNeto : 0,
           items: [{ productoId: producto.id, precioUnitario: precio, cumple: 'CUMPLE' }],
         }),
       });
@@ -179,6 +188,23 @@ export function CompraDirectaPanel({ negocioId, productos, inicial, onRegistrada
               className="underline font-bold text-indigo-700 hover:text-indigo-900">Ir a crear proveedor</button> (puedes registrar la compra directa ahora y crearlo después).</>)}
           {provObuma.estado === 'invalido' && 'El RUT no es válido (revisa el dígito verificador).'}
           {provObuma.estado === 'error' && 'No se pudo consultar Obuma ahora; puedes registrar igual y se verificará después.'}
+        </p>
+      )}
+      <div className="flex items-center gap-4 mt-3 flex-wrap" role="radiogroup" aria-label="¿Tiene flete?" data-testid="directa-flete">
+        <span className="text-[11px] font-semibold text-zinc-500">¿Tiene flete?</span>
+        <label className="flex items-center gap-1.5 text-[12.5px] text-zinc-700 cursor-pointer"><input type="radio" name="directa-flete" checked={!tieneFlete} onChange={() => setTieneFlete(false)} /> No <span className="text-zinc-400">(retiro en tienda)</span></label>
+        <label className="flex items-center gap-1.5 text-[12.5px] text-zinc-700 cursor-pointer"><input type="radio" name="directa-flete" checked={tieneFlete} onChange={() => setTieneFlete(true)} /> Sí</label>
+        {tieneFlete && (
+          <>
+            <input aria-label="Monto del flete" inputMode="numeric" value={fleteTexto} onChange={e => setFleteTexto(e.target.value)} placeholder="Monto del flete" className={`${inputCls} !w-36`} />
+            <label className="flex items-center gap-1.5 text-[11.5px] text-zinc-600 cursor-pointer"><input type="checkbox" checked={fleteConIva} onChange={e => setFleteConIva(e.target.checked)} className="accent-teal-600" /> incluye IVA</label>
+          </>
+        )}
+      </div>
+      {!!producto && precio > 0 && (
+        <p className="text-[11.5px] text-zinc-600 mt-1.5" data-testid="directa-total-con-flete">
+          Producto {(precio * cantidad).toLocaleString('es-CL')} neto{cantidad > 1 ? ` (${cantidad} × ${precio.toLocaleString('es-CL')})` : ''}
+          {tieneFlete && fleteNeto > 0 ? <> + flete {fleteNeto.toLocaleString('es-CL')} = <b>{(precio * cantidad + fleteNeto).toLocaleString('es-CL')}</b> neto</> : null}
         </p>
       )}
       <div className="flex items-center gap-4 mt-3 flex-wrap" role="radiogroup" aria-label="¿Ya se compró?" data-testid="directa-ya-comprada">

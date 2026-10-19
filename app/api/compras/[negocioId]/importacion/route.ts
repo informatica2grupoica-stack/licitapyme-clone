@@ -5,7 +5,7 @@ import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import {
-  obtenerOrigenCompra, definirOrigenCompra, obtenerEmbarque, registrarEmbarque, calcularCostoAterrizado,
+  obtenerOrigenCompra, definirOrigenCompra, obtenerEmbarque, registrarEmbarque, calcularCostoAterrizado, listarProductosImportables, marcarProductoImportado,
   type OrigenCompra,
 } from '@/app/lib/compras-importacion';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
@@ -34,10 +34,10 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
-    const [origen, embarque, costoAterrizado] = await Promise.all([
-      obtenerOrigenCompra(id), obtenerEmbarque(id), calcularCostoAterrizado(id),
+    const [origen, embarque, costoAterrizado, productos] = await Promise.all([
+      obtenerOrigenCompra(id), obtenerEmbarque(id), calcularCostoAterrizado(id), listarProductosImportables(id),
     ]);
-    return NextResponse.json({ success: true, origen, embarque, costoAterrizado });
+    return NextResponse.json({ success: true, origen, embarque, costoAterrizado, productos });
   } catch (error) {
     console.error('[compras/importacion][GET]', String(error));
     return NextResponse.json({ error: 'No se pudo cargar la importación.' }, { status: 500 });
@@ -59,6 +59,8 @@ async function __PATCH(request: NextRequest, { params }: Params) {
     const body = await request.json();
     if (body.accion === 'origen') {
       await definirOrigenCompra(id, body.origen as OrigenCompra, userId, nombre);
+    } else if (body.accion === 'producto') {
+      await marcarProductoImportado(id, Number(body.productoId), !!body.importado, userId, nombre);
     } else if (body.accion === 'embarque') {
       await registrarEmbarque(id, {
         fleteInternacional: body.fleteInternacional === '' || body.fleteInternacional == null ? null : Number(body.fleteInternacional),
@@ -70,10 +72,10 @@ async function __PATCH(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Acción inválida.' }, { status: 400 });
     }
 
-    const [origen, embarque, costoAterrizado] = await Promise.all([
-      obtenerOrigenCompra(id), obtenerEmbarque(id), calcularCostoAterrizado(id),
+    const [origen, embarque, costoAterrizado, productos] = await Promise.all([
+      obtenerOrigenCompra(id), obtenerEmbarque(id), calcularCostoAterrizado(id), listarProductosImportables(id),
     ]);
-    return NextResponse.json({ success: true, origen, embarque, costoAterrizado });
+    return NextResponse.json({ success: true, origen, embarque, costoAterrizado, productos });
   } catch (error: any) {
     console.error('[compras/importacion][PATCH]', String(error));
     return NextResponse.json({ error: error.message || 'No se pudo actualizar.' }, { status: 400 });

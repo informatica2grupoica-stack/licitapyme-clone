@@ -40,6 +40,8 @@ export interface ProveedorOrdenCompra {
   proveedorDireccion: string | null; proveedorComuna: string | null; proveedorEmail: string | null; proveedorTelefono: string | null;
   proveedorGiro: string | null; proveedorContacto: string | null;
   items: ItemOrdenCompra[]; subtotal: number;
+  /** Flete neto de la compra directa a este proveedor (se precarga en el formulario de la OC). */
+  fleteSugerido?: number | null;
   yaCreada: { obumaCompraOcId: string; folio: string | null; total: number; fechaOc: string } | null;
   // Pedido explícito del usuario (14-sep-2026, caso real: el encargado de compras ya había creado
   // la OC directo en Obuma — "yaCreada" (arriba) no lo veía porque solo mira lo que creó Licitank).
@@ -118,11 +120,15 @@ export async function proveedoresParaOrdenCompra(negocioId: number): Promise<Pro
   // proveedor_id/rut reales: los que YA quedaron guardados en la cotización que ganó — es la fuente
   // de verdad de a quién se le está comprando, no un texto libre que puede escribirse distinto.
   const [cotRows] = await pool.query(
-    `SELECT proveedor_nombre, proveedor_id, proveedor_rut FROM compras_cotizacion WHERE negocio_id = ?`,
+    `SELECT proveedor_nombre, proveedor_id, proveedor_rut, origen, flete_monto FROM compras_cotizacion WHERE negocio_id = ?`,
     [negocioId],
   ) as any;
   const fichaPorNombre = new Map<string, { proveedorId: number | null; rut: string | null }>();
-  for (const c of cotRows as any[]) fichaPorNombre.set(c.proveedor_nombre, { proveedorId: c.proveedor_id, rut: c.proveedor_rut });
+  const fletePorDirecta = new Map<string, number>();
+  for (const c of cotRows as any[]) {
+    fichaPorNombre.set(c.proveedor_nombre, { proveedorId: c.proveedor_id, rut: c.proveedor_rut });
+    if (c.origen === 'directa' && Number(c.flete_monto) > 0) fletePorDirecta.set(c.proveedor_nombre, Number(c.flete_monto));
+  }
 
   const idsProveedor = [...new Set([...fichaPorNombre.values()].map(f => f.proveedorId).filter((v): v is number => v != null))];
   const fichaCompleta = new Map<number, { direccion: string | null; comuna: string | null; email: string | null; telefono: string | null; giro: string | null; contacto: string | null; obumaProveedorId: string | null }>();
@@ -164,7 +170,7 @@ export async function proveedoresParaOrdenCompra(negocioId: number): Promise<Pro
         proveedorDireccion: extra?.direccion ?? null, proveedorComuna: extra?.comuna ?? null,
         proveedorEmail: extra?.email ?? null, proveedorTelefono: extra?.telefono ?? null,
         proveedorGiro: extra?.giro ?? null, proveedorContacto: extra?.contacto ?? null,
-        items: [], subtotal: 0, yaCreada: ocPorProveedor.get(nombre) ?? null, posibleDuplicadoObuma: null, ocRealObuma: null,
+        items: [], subtotal: 0, fleteSugerido: fletePorDirecta.get(nombre) ?? null, yaCreada: ocPorProveedor.get(nombre) ?? null, posibleDuplicadoObuma: null, ocRealObuma: null,
       });
     }
     const grupo = grupos.get(nombre)!;
