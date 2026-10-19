@@ -32,6 +32,7 @@ import { FechasNegocio } from './FechasNegocio';
 import { GestionAside } from './GestionAside';
 import { MenuNegocioLateral, construirNavSeccionesNegocio, useFlujoNegocio, SeccionTabs } from '@/app/components/MenuNegocioLateral';
 import OfertasCompetencia from '@/app/components/OfertasCompetencia';
+import DocumentosCompetencia from '@/app/components/DocumentosCompetencia'; //Nueva pestaña de Documentos de Competencia en la sección de negocios
 import { InformacionComercialSection } from './InformacionComercialSection';
 import { useCosteoFlotante } from '@/app/components/CosteoFlotanteContext';
 import { AuditorOpcionesPanel } from './AuditorOpcionesPanel';
@@ -67,6 +68,7 @@ interface Negocio {
   usuario_email:        string;
   admin_nombre:         string | null;
   etiquetas:            Etiqueta[];
+  aperturada?:          number;   // 1 si el poller del portal ya detectó la apertura
   created_at:           string;
   updated_at:           string;
 }
@@ -178,7 +180,7 @@ interface AnalisisIA {
   actualizado: string;
 }
 
-type Seccion = 'resumen' | 'resultado' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'preguntas' | 'competencia' | 'comentarios' | 'costeo' | 'comercial' | 'auditor_compra' | 'prepostulacion' | 'postulacion' | 'resumen_auditor' | 'auditor_anexos' | 'compras';
+type Seccion = 'resumen' | 'resultado' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'preguntas' | 'competencia' | 'documentos_competencia' | 'comentarios' | 'costeo' | 'comercial' | 'auditor_compra' | 'prepostulacion' | 'postulacion' | 'resumen_auditor' | 'auditor_anexos' | 'compras';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function getFileIcon(nombre: string) {
@@ -479,7 +481,7 @@ function DetalleContent() {
   // La bandeja de aprobación transversal (/aprobaciones) deep-linkea acá con ?seccion=comercial
   // para llevar directo a la pestaña Auditor Técnico. Cualquier valor fuera del catálogo cae al
   // default en vez de dejar la pantalla en un estado inválido.
-  const SECCIONES_VALIDAS = new Set<Seccion>(['resumen', 'resultado', 'viabilidad', 'criterios', 'fechas', 'items', 'documentos', 'analisis', 'preguntas', 'competencia', 'comentarios', 'costeo', 'comercial', 'auditor_compra', 'prepostulacion', 'postulacion', 'resumen_auditor', 'auditor_anexos', 'compras']);
+  const SECCIONES_VALIDAS = new Set<Seccion>(['resumen', 'resultado', 'viabilidad', 'criterios', 'fechas', 'items', 'documentos', 'analisis', 'preguntas', 'competencia', 'documentos_competencia', 'comentarios', 'costeo', 'comercial', 'auditor_compra', 'prepostulacion', 'postulacion', 'resumen_auditor', 'auditor_anexos', 'compras']);
   const flot = useCosteoFlotante();
   const seccionInicial = searchParams.get('seccion') as Seccion | null;
   const [seccion, setSeccion]       = useState<Seccion>(seccionInicial && seccionInicial !== 'compras' && SECCIONES_VALIDAS.has(seccionInicial) ? seccionInicial : 'resumen');
@@ -503,7 +505,7 @@ function DetalleContent() {
 
   useEffect(() => {
     if (!negocio) return;
-    const gated = seccion === 'resultado' || seccion === 'competencia' || seccion === 'preguntas';
+    const gated = seccion === 'resultado' || seccion === 'competencia' || seccion === 'documentos_competencia' || seccion === 'preguntas';
     if (gated && !tieneResultado(negocio.estado_pipeline)) setSeccion('resumen');
   }, [negocio, seccion]);
 
@@ -773,7 +775,7 @@ function DetalleContent() {
   // El ítem «Auditor» del menú abre la sección de compra si existe; si no, cae en la que el usuario pueda ver.
   const primeraTabAuditor: 'auditor_compra' | 'comercial' = hayAuditorCompra ? 'auditor_compra' : 'comercial';
   const grupoActivo: Seccion = (seccion === 'fechas' || seccion === 'criterios' || seccion === 'comentarios') ? 'resumen'
-    : seccion === 'competencia' ? 'resultado'
+    : seccion === 'competencia' || seccion === 'documentos_competencia' ? 'resultado'
     : seccion === 'postulacion' || seccion === 'resumen_auditor' ? 'postulacion'
     : seccion === 'auditor_compra' || seccion === 'costeo' || seccion === 'prepostulacion' || seccion === 'auditor_anexos' ? 'comercial'
     : seccion;
@@ -1001,12 +1003,14 @@ function DetalleContent() {
             )}
             {/* Resultado agrupa Resultado/Competencia; solo existe una vez que el negocio ya
                 Ganó o Perdió (hayResultado, ver arriba). */}
-            {hayResultado && (seccion === 'resultado' || seccion === 'competencia') && (
+            {hayResultado && (seccion === 'resultado' || seccion === 'competencia' || seccion === 'documentos_competencia') && (
               <>
                 <SeccionTabs
                   items={[
                     { key: 'resultado', label: 'Resultado' },
                     { key: 'competencia', label: 'Competencia' },
+                    // Solo cuando la licitación ya está Aperturada (licitacion_apertura.aperturada).
+                    ...(negocio.aperturada ? [{ key: 'documentos_competencia', label: 'Documentos de Competencia' }] : []),
                   ]}
                   activo={seccion}
                   onSelect={k => setSeccion(k as Seccion)}
@@ -1016,6 +1020,9 @@ function DetalleContent() {
                 )}
                 {seccion === 'competencia' && (
                   <OfertasCompetencia codigo={negocio.licitacion_codigo} isAdmin={isAdmin} />
+                )}
+                {seccion === 'documentos_competencia' && !!negocio.aperturada && (
+                  <DocumentosCompetencia codigo={negocio.licitacion_codigo} />
                 )}
               </>
             )}
