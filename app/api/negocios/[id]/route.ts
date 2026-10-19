@@ -114,9 +114,9 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
-    // Etiquetas, viabilidad y documentos en paralelo
+    // Etiquetas, viabilidad, documentos en paralelo y apertura
     const codigo = negocio.licitacion_codigo;
-    const [etRows, viabRows, docRows] = await Promise.all([
+    const [etRows, viabRows, docRows, apRows] = await Promise.all([
       pool.query(
         `SELECT e.id, e.nombre, e.color
          FROM negocios_etiquetas ne
@@ -131,9 +131,14 @@ export async function GET(request: NextRequest, { params }: Params) {
         `SELECT nombre_archivo, url_local, url_original, size_bytes, categoria, created_at
          FROM documentos_cache WHERE licitacion_codigo = ? ORDER BY created_at DESC LIMIT 30`, [codigo]
       ).catch(() => [[]] as any),
+      // Apertura detectada por el poller del portal (mismo dato que el chip "Aperturada" de la lista).
+      pool.query(
+        `SELECT aperturada FROM licitacion_apertura WHERE licitacion_codigo = ? LIMIT 1`, [codigo]
+      ).catch(() => [[]] as any),
     ]);
 
     negocio.etiquetas = (etRows as any)[0];
+    negocio.aperturada = ((apRows as any)[0] as any[])[0]?.aperturada ? 1 : 0;
 
     const viab = ((viabRows as any)[0] as any[])[0];
     if (viab) {

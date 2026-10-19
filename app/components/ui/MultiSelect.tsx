@@ -22,7 +22,7 @@ export interface MultiSelectOption {
 const MARGEN_VIEWPORT = 8;
 
 export function MultiSelect({
-  label, options, selected, onChange, icon, minWidth = 210, align = 'left',
+  label, options, selected, onChange, icon, minWidth = 210, align = 'left', seleccionarTodos = false,
 }: {
   label: string;
   options: MultiSelectOption[];
@@ -31,6 +31,8 @@ export function MultiSelect({
   icon?: React.ReactNode;
   minWidth?: number;
   align?: 'left' | 'right';
+  /** Agrega arriba la opción "Seleccionar todos" (apagado por defecto: los filtros existentes no cambian). */
+  seleccionarTodos?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [montado, setMontado] = useState(false);
@@ -97,6 +99,18 @@ export function MultiSelect({
         <div ref={dropRef}
           className="fixed z-[200] overflow-auto bg-white border border-slate-200 rounded-lg shadow-lg p-1"
           style={{ left: coords.left, top: coords.top, width: coords.width, maxHeight: coords.maxHeight }}>
+          {seleccionarTodos && options.length > 0 && (() => {
+            const todos = options.every(o => selected.includes(o.value));
+            return (
+              <button type="button" onClick={() => onChange(todos ? [] : options.map(o => o.value))}
+                className="w-full flex items-center gap-2 px-2 py-1.5 mb-0.5 rounded-md hover:bg-slate-50 text-[13px] text-left font-semibold border-b border-slate-100">
+                <span className={`w-4 h-4 flex-shrink-0 rounded border flex items-center justify-center ${todos ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>
+                  {todos && <Check size={11} className="text-white" />}
+                </span>
+                <span className="text-slate-700 flex-1">Seleccionar todos</span>
+              </button>
+            );
+          })()}
           {options.length === 0 ? (
             <p className="text-xs text-slate-400 px-2 py-1.5">Sin opciones</p>
           ) : options.map(o => {
