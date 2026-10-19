@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { esAsesor } from '@/app/api/negocios/[id]/comercial/route';
 import { construirBandeja } from '@/app/api/aprobaciones/route';
+import { construirBandejaCompras } from '@/app/lib/compras-bandeja-aprobacion';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,8 +22,8 @@ export async function GET(request: NextRequest) {
   if (!(await esAsesor(userId, rol))) return NextResponse.json({ success: true, totalPendientes: 0 });
 
   try {
-    const { totalPendientes } = await construirBandeja();
-    return NextResponse.json({ success: true, totalPendientes });
+    const [{ totalPendientes }, compras] = await Promise.all([construirBandeja(), construirBandejaCompras().catch(() => [])]);
+    return NextResponse.json({ success: true, totalPendientes: totalPendientes + compras.length });
   } catch (error) {
     console.error('[aprobaciones/resumen][GET]', String(error));
     return NextResponse.json({ success: true, totalPendientes: 0 });

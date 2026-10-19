@@ -31,6 +31,7 @@ import { calcularSemaforo, causalesDeBloqueo } from '@/app/lib/semaforo-auditor'
 import { esAsesor, bitacora, nombreDe, cargarNegocio, COLS } from '@/app/api/negocios/[id]/comercial/route';
 import { idsEquivalentes } from '@/app/lib/pipeline';
 import { yaCongelado } from '@/app/lib/congelamiento';
+import { construirBandejaCompras } from '@/app/lib/compras-bandeja-aprobacion';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -217,8 +218,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Solo el asesor puede ver la bandeja de aprobación.' }, { status: 403 });
 
   try {
-    const { negocios, totalPendientes } = await construirBandeja();
-    return NextResponse.json({ success: true, negocios, totalPendientes });
+    const [{ negocios, totalPendientes }, compras] = await Promise.all([construirBandeja(), construirBandejaCompras().catch(() => [])]);
+    // `compras`: lo que Compras mandó a aprobar (compra rápida, compra completa, margen, productos corregidos, renuncias), con el link de dónde decidir.
+    return NextResponse.json({ success: true, negocios, totalPendientes: totalPendientes + compras.length, compras });
   } catch (error) {
     console.error('[aprobaciones][GET]', String(error));
     return NextResponse.json({ error: String(error) }, { status: 500 });

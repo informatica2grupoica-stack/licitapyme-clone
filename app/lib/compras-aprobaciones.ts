@@ -19,7 +19,7 @@
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
-import { notificarEncargadosCompras } from '@/app/lib/compras-avisos';
+import { notificarEncargadosCompras, notificarJefesVentas } from '@/app/lib/compras-avisos';
 import { productosConCompraRapidaAprobada, listarComprasRapidas, type CompraRapida } from '@/app/lib/compras-compra-rapida';
 import { obtenerAsignacion, listarProductosCompra, sincronizarTareaAprobacion } from '@/app/lib/compras';
 import { obtenerOrigenCompra, calcularCostoAterrizado } from '@/app/lib/compras-importacion';
@@ -168,6 +168,10 @@ export async function proponerAprobacionCompra(
       + (presupuesto.excede ? ` — ${presupuesto.excedePct}% sobre presupuesto: ${motivoSiExcedePresupuesto?.trim()}.` : '.'),
     metadata: { negocio_id: negocioId, escenario: escenario.tipo, excede_presupuesto_pct: presupuesto.excedePct },
   });
+  // Alerta al jefe de ventas (campana + /aprobaciones): lo lleva directo al paso donde decide.
+  await notificarJefesVentas(negocioId, 'COMPRAS_COMPRA_POR_APROBAR',
+    `${actorNombre || 'El encargado'} mandó a aprobar la compra (cuadro comparativo, ${new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(Number(escenario.costo_total))}). Revísala y apruébala.`,
+    { id: actorId, nombre: actorNombre }, null, `/compras/${negocioId}?fase=aprobacion`);
 }
 
 export interface MargenCalculado { ventaNeta: number | null; costoNeto: number | null; margenPct: number | null; fuenteCosto: 'costo_aterrizado' | 'escenario_elegido' | 'costeo_estimado' | null }
@@ -225,6 +229,9 @@ export async function proponerAprobacionMargen(
     mensaje: `Se propuso la Compuerta 2 (Aprobación de margen) — margen previsto ${margen.margenPct ?? '—'}%${motivoSiBajo ? `: ${motivoSiBajo}` : ''}.`,
     metadata: { negocio_id: negocioId, margen_pct: margen.margenPct },
   });
+  await notificarJefesVentas(negocioId, 'COMPRAS_MARGEN_POR_APROBAR',
+    `${actorNombre || 'El encargado'} mandó a aprobar el margen (${margen.margenPct ?? '—'}%${motivoSiBajo ? `, bajo el mínimo: ${motivoSiBajo}` : ''}).`,
+    { id: actorId, nombre: actorNombre }, null, `/compras/${negocioId}?fase=aprobacion`);
   return margen;
 }
 

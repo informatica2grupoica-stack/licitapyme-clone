@@ -543,7 +543,8 @@ export interface ResumenGastosCompra {
 
 export async function resumenGastosCompra(negocioId: number, montoCosteado: number | null): Promise<ResumenGastosCompra> {
   const [ocRows] = await pool.query(
-    `SELECT proveedor_nombre, obuma_folio, total_neto, DATE_FORMAT(fecha_oc, '%Y-%m-%d') AS fecha_oc
+    // OJO: la columna `total_neto` guarda el TOTAL CON IVA de la orden (el nombre engaña, se vio con la OC 3989); el neto real es `subtotal_neto`.
+    `SELECT proveedor_nombre, obuma_folio, COALESCE(subtotal_neto, ROUND(total_neto / 1.19)) AS total_neto, DATE_FORMAT(fecha_oc, '%Y-%m-%d') AS fecha_oc
        FROM compras_orden_compra_obuma WHERE negocio_id = ? ORDER BY created_at`,
     [negocioId],
   ) as any;
@@ -589,7 +590,7 @@ export async function resumenGastosCompra(negocioId: number, montoCosteado: numb
   const totalFacturas = facturas.reduce((s, f) => s + (f.total || 0), 0);
 
   // Costeado es NETO: se compara contra neto (antes se mezclaba el total con IVA de las compras).
-  const gastadoRealNeto = totalOcCreadas || netoCruzadas || null;
+  const gastadoRealNeto = netoCruzadas || totalOcCreadas || null;   // lo que Obuma tiene (sin anuladas) manda; lo guardado por Licitank es el respaldo
   const variacionPct = montoCosteado && montoCosteado > 0 && gastadoRealNeto != null
     ? Math.round(((gastadoRealNeto - montoCosteado) / montoCosteado) * 1000) / 10
     : null;

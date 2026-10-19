@@ -198,7 +198,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
               {visibles.map(l => {
                 const e = ESTADO[l.estado], te = TECNICO[l.tecnico.estado];
                 return (
-                  <tr key={l.productoId} className={l.compraRapida?.estado === 'RECHAZADA' ? 'bg-rose-100 animate-pulse' : l.estado === 'NO_PASA' ? 'bg-rose-50/40' : ''} data-testid={`apr-linea-${l.productoId}`}>
+                  <tr key={l.productoId} className={l.compraRapida?.estado === 'RECHAZADA' ? 'bg-rose-100 animate-pulse' : l.estado === 'NO_PASA' ? 'bg-rose-50/40' : ''} data-testid={`apr-linea-${l.productoId}`} data-producto-id={l.productoId}>
                     <td className="px-3 py-2 text-zinc-400 align-top">{l.linea ?? ''}</td>
                     <td className="px-2 py-2 align-top max-w-[260px]">
                       <p className="font-semibold text-zinc-800 leading-snug">{corto(l.descripcion)}</p>

@@ -4,6 +4,7 @@
 // bien (respuesta < 400) se guarda un evento COMPRAS_ACCION con quien la ejecutó. Nunca rompe ni retrasa la acción: si guardar falla, se ignora.
 import { registrarEvento } from '@/app/lib/historial';
 import pool from '@/app/lib/db';
+import { publicarCambio } from '@/app/lib/sse-bus';
 
 type Cuerpo = Record<string, any> | null;
 
@@ -105,6 +106,7 @@ export function conBitacoraCompras<F extends (...args: any[]) => Promise<Respons
     }
     const respuesta = await handler(request, ctx);
     if (respuesta && respuesta.status < 400) {
+      publicarCambio('compras');   // las bandejas abiertas (Aprobaciones, campana) se refrescan solas al pedir o decidir algo
       void (async () => {
         const p = await Promise.resolve(ctx?.params).catch(() => null);
         const negocioId = p?.negocioId != null ? parseInt(p.negocioId) : null;
