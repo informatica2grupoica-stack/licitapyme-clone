@@ -16,6 +16,23 @@ interface ProductoMin { id: number; descripcion: string; cantidad?: number | nul
 const VACIO = { proveedor: '', rut: '', precio: '', motivo: '', modelo: '', link: '' };
 const inputCls = 'w-full text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none bg-white';
 
+/** Monto chileno con decimales: «63.016,806723», «63016,806», «10.670» (miles) o «63016.81» (punto decimal). Sin dato válido → 0. */
+const montoCL = (t: string): number => {
+  const s = t.replace(/[^\d.,]/g, '');
+  const normal = s.includes(',') ? s.replace(/\./g, '').replace(',', '.') : /^\d{1,3}(\.\d{3})+$/.test(s) ? s.replace(/\./g, '') : s;
+  const n = Number(normal);
+  return Number.isFinite(n) ? n : 0;
+};
+const redondear2 = (n: number) => Math.round(n * 100) / 100;
+const clp2 = (n: number) => n.toLocaleString('es-CL', { maximumFractionDigits: 2 });
+
+/** Da formato al RUT mientras se escribe: «778977893» → «77.897.789-3». */
+const formatearRutVivo = (v: string) => {
+  const limpio = v.replace(/[^\dkK]/g, '').toUpperCase().slice(0, 9);
+  if (limpio.length < 2) return limpio;
+  return `${limpio.slice(0, -1).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}-${limpio.slice(-1)}`;
+};
+
 const rutValidoCL = (rut: string) => {
   const t = rut.replace(/[.\s]/g, '').toUpperCase();
   const m = t.match(/^(\d{7,8})-?([\dK])$/);
@@ -31,7 +48,7 @@ export function CompraDirectaPanel({ negocioId, productos, inicial, onRegistrada
 }) {
   const toast = useToast();
   const [productoId, setProductoId] = useState<number | null>(inicial?.productoId ?? null);
-  const [directa, setDirecta] = useState({ ...VACIO, proveedor: inicial?.proveedor || '', precio: inicial?.precio ? String(Math.round(inicial.precio)) : '', link: inicial?.link || '', motivo: inicial?.link ? 'Precio leído del link del costeo' : '' });
+  const [directa, setDirecta] = useState({ ...VACIO, proveedor: inicial?.proveedor || '', precio: inicial?.precio ? String(redondear2(inicial.precio)).replace('.', ',') : '', link: inicial?.link || '', motivo: inicial?.link ? 'Precio leído del link del costeo' : '' });
   const [guardando, setGuardando] = useState(false);
   // «Por comprar» = el jefe la aprueba ANTES de comprar; «Ya comprada» = ya se pagó en la tienda y el jefe la ratifica (llega con aviso).
   const [yaComprada, setYaComprada] = useState(false);
@@ -79,17 +96,17 @@ export function CompraDirectaPanel({ negocioId, productos, inicial, onRegistrada
 
   const elegirProveedor = (x: { id: number; nombreEmpresa: string; rut: string | null; obumaProveedorId: string | null }) => {
     setProvId(x.id); setSugerencias([]); setBuscarNombre(false);
-    setDirecta(d => ({ ...d, proveedor: x.nombreEmpresa, rut: x.rut || d.rut }));
+    setDirecta(d => ({ ...d, proveedor: x.nombreEmpresa, rut: x.rut ? formatearRutVivo(x.rut) : d.rut }));
     if (x.obumaProveedorId) setProvObuma({ estado: 'existe', razonSocial: x.nombreEmpresa });
     else if (x.rut) verificarProveedorObuma(x.rut);
     else setProvObuma({ estado: 'idle' });
   };
 
   const producto = productos.find(p => p.id === productoId) ?? null;
-  const precioIngresado = Number(directa.precio.replace(/[^\d]/g, ''));
-  const precio = conIva ? Math.round(precioIngresado / 1.19) : precioIngresado;   // neto unitario: lo que se guarda
-  const fleteIngresado = Number(fleteTexto.replace(/[^\d]/g, ''));
-  const fleteNeto = tieneFlete ? (fleteConIva ? Math.round(fleteIngresado / 1.19) : fleteIngresado) : 0;
+  const precioIngresado = montoCL(directa.precio);
+  const precio = redondear2(conIva ? precioIngresado / 1.19 : precioIngresado);   // neto unitario (con decimales): lo que se guarda
+  const fleteIngresado = montoCL(fleteTexto);
+  const fleteNeto = tieneFlete ? redondear2(fleteConIva ? fleteIngresado / 1.19 : fleteIngresado) : 0;
   const cantidad = Math.max(1, Number(producto?.cantidad) || 1);
   // Compra rápida: la tienda lleva RUT válido (obligatorio) y el jefe de ventas la aprueba antes de comprar.
   const puedeRegistrar = !!producto && !!directa.proveedor.trim() && !!precio && rutValidoCL(directa.rut) && provObuma.estado !== 'invalido' && (!tieneFlete || fleteNeto > 0) && !guardando;
@@ -103,7 +120,7 @@ export function CompraDirectaPanel({ negocioId, productos, inicial, onRegistrada
         body: JSON.stringify({
           origen: 'directa', yaComprada, proveedorId: provId, proveedorNombre: directa.proveedor.trim(), proveedorRut: directa.rut.trim() || null, precioUnitario: precio,
           descripcionLibre: [producto.descripcion, directa.modelo.trim() ? `Marca/modelo: ${directa.modelo.trim()}` : ''].filter(Boolean).join(' · '),
-          notas: `Compra directa sin cotización${directa.motivo.trim() ? `: ${directa.motivo.trim()}` : ''}. Precio neto de referencia${conIva ? ` (el precio de la tienda, $${precioIngresado.toLocaleString('es-CL')}, incluye IVA)` : ''}.${directa.link.trim() ? ` Link de referencia: ${directa.link.trim()}` : ''}`,
+          notas: `Compra directa sin cotización${directa.motivo.trim() ? `: ${directa.motivo.trim()}` : ''}. Precio neto de referencia${conIva ? ` (el precio de la tienda, $${clp2(precioIngresado)}, incluye IVA)` : ''}.${directa.link.trim() ? ` Link de referencia: ${directa.link.trim()}` : ''}`,
           // Con flete: «aparte» con su monto neto. Sin flete: $0 explícito (retiro en tienda), para que no quede «por confirmar».
           despachoModalidad: tieneFlete ? 'PROVEEDOR' : 'TIENDA', fleteCondicion: tieneFlete ? 'APARTE' : 'SIN_COSTO', fleteMonto: tieneFlete ? fleteNeto : 0,
           items: [{ productoId: producto.id, precioUnitario: precio, cumple: 'CUMPLE' }],
@@ -155,16 +172,16 @@ export function CompraDirectaPanel({ negocioId, productos, inicial, onRegistrada
         </div>
         <div>
           <label className="block text-[11px] font-semibold text-zinc-500 mb-0.5" htmlFor="directa-rut">RUT de la tienda <span className="font-normal text-rose-500">(obligatorio)</span></label>
-          <input id="directa-rut" value={directa.rut} onChange={e => { setDirecta(d => ({ ...d, rut: e.target.value })); setProvObuma({ estado: 'idle' }); setProvId(null); setBuscarNombre(false); setSugerencias([]); }}
+          <input id="directa-rut" value={directa.rut} onChange={e => { setDirecta(d => ({ ...d, rut: formatearRutVivo(e.target.value) })); setProvObuma({ estado: 'idle' }); setProvId(null); setBuscarNombre(false); setSugerencias([]); }}
             onBlur={e => verificarProveedorObuma(e.target.value)} placeholder="Se verifica en Obuma" className={inputCls} />
         </div>
         <div>
           <label className="block text-[11px] font-semibold text-zinc-500 mb-0.5" htmlFor="directa-precio">{conIva ? 'Precio de la tienda (con IVA)' : 'Precio neto unitario'}</label>
-          <input id="directa-precio" inputMode="numeric" value={directa.precio} onChange={e => setDirecta(d => ({ ...d, precio: e.target.value }))} placeholder="Solo números" className={inputCls} />
+          <input id="directa-precio" inputMode="decimal" value={directa.precio} onChange={e => setDirecta(d => ({ ...d, precio: e.target.value }))} placeholder="Acepta decimales (ej. 63.016,81)" className={inputCls} />
           <label className="flex items-center gap-1.5 mt-1 text-[11.5px] text-zinc-600 cursor-pointer" data-testid="directa-con-iva">
             <input type="checkbox" checked={conIva} onChange={e => setConIva(e.target.checked)} className="accent-teal-600" /> El precio incluye IVA
           </label>
-          {precioIngresado > 0 && <p className="text-[11px] text-zinc-500 mt-0.5" data-testid="directa-neto-calculado">{conIva ? <>Se guarda como <b>{precio.toLocaleString('es-CL')}</b> neto + IVA {(precioIngresado - precio).toLocaleString('es-CL')}</> : <>Con IVA serían <b>{Math.round(precio * 1.19).toLocaleString('es-CL')}</b></>}</p>}
+          {precioIngresado > 0 && <p className="text-[11px] text-zinc-500 mt-0.5" data-testid="directa-neto-calculado">{conIva ? <>Se guarda como <b>{clp2(precio)}</b> neto + IVA {clp2(precioIngresado - precio)}</> : <>Con IVA serían <b>{clp2(precio * 1.19)}</b></>}</p>}
         </div>
         <div>
           <label className="block text-[11px] font-semibold text-zinc-500 mb-0.5" htmlFor="directa-modelo">Marca y modelo <span className="font-normal text-zinc-400">(opcional)</span></label>
@@ -196,15 +213,15 @@ export function CompraDirectaPanel({ negocioId, productos, inicial, onRegistrada
         <label className="flex items-center gap-1.5 text-[12.5px] text-zinc-700 cursor-pointer"><input type="radio" name="directa-flete" checked={tieneFlete} onChange={() => setTieneFlete(true)} /> Sí</label>
         {tieneFlete && (
           <>
-            <input aria-label="Monto del flete" inputMode="numeric" value={fleteTexto} onChange={e => setFleteTexto(e.target.value)} placeholder="Monto del flete" className={`${inputCls} !w-36`} />
+            <input aria-label="Monto del flete" inputMode="decimal" value={fleteTexto} onChange={e => setFleteTexto(e.target.value)} placeholder="Monto del flete" className={`${inputCls} !w-36`} />
             <label className="flex items-center gap-1.5 text-[11.5px] text-zinc-600 cursor-pointer"><input type="checkbox" checked={fleteConIva} onChange={e => setFleteConIva(e.target.checked)} className="accent-teal-600" /> incluye IVA</label>
           </>
         )}
       </div>
       {!!producto && precio > 0 && (
         <p className="text-[11.5px] text-zinc-600 mt-1.5" data-testid="directa-total-con-flete">
-          Producto {(precio * cantidad).toLocaleString('es-CL')} neto{cantidad > 1 ? ` (${cantidad} × ${precio.toLocaleString('es-CL')})` : ''}
-          {tieneFlete && fleteNeto > 0 ? <> + flete {fleteNeto.toLocaleString('es-CL')} = <b>{(precio * cantidad + fleteNeto).toLocaleString('es-CL')}</b> neto</> : null}
+          Producto {clp2(precio * cantidad)} neto{cantidad > 1 ? ` (${cantidad} × ${clp2(precio)})` : ''}
+          {tieneFlete && fleteNeto > 0 ? <> + flete {clp2(fleteNeto)} = <b>{clp2(precio * cantidad + fleteNeto)}</b> neto</> : null}
         </p>
       )}
       <div className="flex items-center gap-4 mt-3 flex-wrap" role="radiogroup" aria-label="¿Ya se compró?" data-testid="directa-ya-comprada">

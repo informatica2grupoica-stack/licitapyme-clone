@@ -229,7 +229,23 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
                       {(() => {
                         if (l.compraRapida) {
                           const r = l.compraRapida;
-                          if (r.estado === 'APROBADA') return <span className="inline-flex items-center gap-1 text-[11.5px] font-bold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">{r.yaComprada ? '✔ Ratificada' : '✔ Aprobada'}</span>;
+                          if (r.estado === 'APROBADA') return (
+                            <div className="space-y-1">
+                              <span className="inline-flex items-center gap-1 text-[11.5px] font-bold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">{r.yaComprada ? '✔ Ratificada' : '✔ Aprobada'}</span>
+                              {esJefeDeVentas && rechazando !== l.productoId && (
+                                <button type="button" onClick={() => { setRechazando(l.productoId); setMotivo(''); }} disabled={guardando} data-testid={`apr-deshacer-${l.productoId}`} className="block text-[11px] font-semibold text-rose-700 underline">Deshacer aprobación</button>
+                              )}
+                              {esJefeDeVentas && rechazando === l.productoId && (
+                                <div className="space-y-1">
+                                  <input value={motivo} onChange={e => setMotivo(e.target.value)} placeholder="¿Qué está errado?" autoFocus className="w-full text-[11.5px] border border-rose-300 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-rose-400" />
+                                  <div className="flex items-center gap-1.5">
+                                    <button type="button" onClick={() => decidirRapida(l.productoId, 'RECHAZAR', motivo)} disabled={guardando || !motivo.trim()} className="text-[11px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-40 px-2 py-1 rounded-lg">Deshacer y rechazar</button>
+                                    <button type="button" onClick={() => { setRechazando(null); setMotivo(''); }} className="text-[11px] text-zinc-500">Cancelar</button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
                           if (r.estado === 'RECHAZADA') return (
                             <div className="space-y-0.5">
                               <span className="inline-flex items-center gap-1 text-[11.5px] font-bold px-2 py-0.5 rounded-full border bg-rose-50 text-rose-700 border-rose-300">✖ Rechazada</span>

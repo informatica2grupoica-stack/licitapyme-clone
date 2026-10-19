@@ -109,12 +109,19 @@ export async function resolverCompraRapida(
   const ahora = ahoraChileSQL();
   try {
     for (const productoId of productoIds) {
-      const [[actual]]: any = await pool.query(`SELECT estado FROM compras_compra_rapida WHERE negocio_id = ? AND producto_id = ?`, [negocioId, productoId]);
+      const [[actual]]: any = await pool.query(`SELECT estado, proveedor_nombre FROM compras_compra_rapida WHERE negocio_id = ? AND producto_id = ?`, [negocioId, productoId]);
       if (!actual) throw new Error('Ese producto no tiene una compra rápida pedida.');
+      // Deshacer una aprobación errónea = rechazarla de nuevo (con motivo). Si ya se emitió la OC a esa tienda, hay que anular primero la OC.
+      if (decision === 'RECHAZAR' && actual.estado === 'APROBADA') {
+        const [oc]: any = await pool.query(`SELECT 1 FROM compras_orden_compra_obuma WHERE negocio_id = ? AND proveedor_nombre = ? LIMIT 1`, [negocioId, actual.proveedor_nombre]).catch(() => [[]]);
+        if (oc?.length) throw new Error(`Ya se emitió una orden de compra a ${actual.proveedor_nombre}: anúlala primero en Obuma antes de deshacer la aprobación.`);
+      }
       await pool.query(
         `UPDATE compras_compra_rapida SET estado = ?, comentario = ?, resuelto_por = ?, resuelto_por_nombre = ?, resuelto_at = ? WHERE negocio_id = ? AND producto_id = ?`,
         [decision === 'APROBAR' ? 'APROBADA' : 'RECHAZADA', decision === 'RECHAZAR' ? comentario!.trim() : (comentario?.trim() || null), userId, nombre, ahora, negocioId, productoId]);
       if (decision === 'APROBAR') await cambiarSubestadoProducto(productoId, 'COMPRADO').catch(e => console.warn('[compra-rapida] no se pudo marcar Comprado:', String(e).slice(0, 120)));
+      // Aprobación deshecha: el producto deja de estar «Comprado» (si ya se había comprado de verdad, el encargado lo ve en el motivo).
+      else if (actual.estado === 'APROBADA') await pool.query(`UPDATE compras_producto SET subestado = 'COTIZANDO', updated_at = ? WHERE id = ? AND subestado = 'COMPRADO'`, [ahora, productoId]).catch(() => {});
     }
   } catch (e: any) {
     if (sinTabla(e)) throw new Error(MSG_MIGRACION);
