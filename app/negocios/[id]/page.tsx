@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { AppLayout }  from '@/app/components/AppLayout';
 import { useToast }   from '@/app/components/ui/toast';
 import { useSession } from '@/app/lib/session-context';
-import { getEstadoPipeline, esGanado, tieneResultado } from '@/app/lib/pipeline';
+import { getEstadoPipeline, esGanado, tieneResultado, normalizarEstado } from '@/app/lib/pipeline';
 import { estadoEfectivoCodigo, estadoEfectivoNombre } from '@/app/lib/estado-mp';
 
 // Colores del badge de estado de Mercado Público (por código efectivo).
@@ -735,6 +735,9 @@ function DetalleContent() {
   const infoComercialLista = tieneInformacionComercial(negocio?.estado_pipeline);
   const hayCosteo = (isAdmin || !!usuario?.permisos?.costeo_editor) && infoComercialLista;
   const hayAuditorTecnico = (isAdmin || !!usuario?.permisos?.auditor_tecnico) && infoComercialLista;
+  // Costeo en un negocio DESCARTADO (19-oct-2026, pedido explícito): el admin lo sigue viendo en todo el
+  // proceso, y lo puede editar igual que en las demás etapas.
+  const verCosteoDescartado = isAdmin && normalizarEstado(negocio?.estado_pipeline) === 'DESCARTADA';
   // "Compras" solo aparece cuando el negocio ganó (Módulo de Compras, spec §3.1: "solo las líneas
   // efectivamente adjudicadas") y para quien puede operarlo: jefe de ventas (aprobar_comercial),
   // un Encargado de Compras (permiso compras), o `compras_todo` real — "ser admin" YA NO alcanza
@@ -845,7 +848,7 @@ function DetalleContent() {
           volverHref="/negocios"
           cargandoContadores={loadingLic}
           visitados={visitados}
-          accesoRapido={hayCosteo ? { label: 'Costeo', onClick: () => flot.abrir(negocio.id, negocio.licitacion_codigo) } : undefined}
+          accesoRapido={hayCosteo || verCosteoDescartado ? { label: 'Costeo', onClick: () => flot.abrir(negocio.id, negocio.licitacion_codigo) } : undefined}
         />
 
         {/* ── MAIN CONTENT ───────────────────────────────────────────────── */}
@@ -902,7 +905,7 @@ function DetalleContent() {
             </div>
 
             {/* Mobile tabs */}
-            {hayCosteo && (
+            {(hayCosteo || verCosteoDescartado) && (
               <button onClick={() => flot.abrir(negocio.id, negocio.licitacion_codigo)}
                 className="lg:hidden mb-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200">
                 Costeo
