@@ -15,7 +15,7 @@ interface Aviso { id: number; tipo: string; mensaje: string; url: string }
 
 const clave = (id: number) => `aviso-compras-visto-${id}`;
 // historial_eventos.tipo es varchar(40): los tipos son COMPRAS_APROB_<COMPRA|MARGEN|PRODUCTO>_<RECHAZADA|CAMBIOS|APROBADA> (los viejos «…_AVIS» truncados también cuentan).
-const esAvisoCompras = (tipo?: string) => !!tipo && (tipo.startsWith('COMPRAS_APROB_') || tipo.startsWith('COMPRAS_APROBACION_'));
+const esAvisoCompras = (tipo?: string) => !!tipo && (tipo.startsWith('COMPRAS_APROB_') || tipo.startsWith('COMPRAS_APROBACION_') || tipo === 'COMPRAS_INCIDENCIA_FICHA');
 
 function aAviso(e: { id?: number; tipo?: string; mensaje: string; metadata?: unknown }): Aviso | null {
   if (!e.id || !esAvisoCompras(e.tipo)) return null;
@@ -75,8 +75,9 @@ export function AvisoComprasModal() {
   if (!aviso) return null;
   const aprobada = /_APROBADA(_AVIS\w*)?$/.test(aviso.tipo);
   const cambios = /_CAMBIOS(_AVIS\w*)?$/.test(aviso.tipo);
-  const titulo = aprobada ? 'Te aprobaron lo que enviaste' : cambios ? 'Te aprobaron con cambios' : 'Te rechazaron una aprobación';
-  const tono = aprobada ? { caja: 'bg-emerald-50 border-emerald-200', icono: 'text-emerald-600', boton: 'bg-emerald-600 hover:bg-emerald-700' }
+  const incidencia = aviso.tipo === 'COMPRAS_INCIDENCIA_FICHA';
+  const titulo = incidencia ? 'Nueva incidencia en una ficha técnica' : aprobada ? 'Te aprobaron lo que enviaste' : cambios ? 'Te aprobaron con cambios' : 'Te rechazaron una aprobación';
+  const tono = incidencia ? { caja: 'bg-amber-50 border-amber-200', icono: 'text-amber-600', boton: 'bg-amber-600 hover:bg-amber-700' } : aprobada ? { caja: 'bg-emerald-50 border-emerald-200', icono: 'text-emerald-600', boton: 'bg-emerald-600 hover:bg-emerald-700' }
     : cambios ? { caja: 'bg-violet-50 border-violet-200', icono: 'text-violet-600', boton: 'bg-violet-600 hover:bg-violet-700' }
       : { caja: 'bg-rose-50 border-rose-200', icono: 'text-rose-600', boton: 'bg-rose-600 hover:bg-rose-700' };
   const Icono = aprobada ? Check : cambios ? Lapiz : Alerta;
@@ -100,7 +101,7 @@ export function AvisoComprasModal() {
           <button onClick={cerrar} className="flex-1 px-4 py-2 rounded-lg text-[13px] font-semibold text-zinc-600 border border-zinc-200 hover:bg-zinc-50 transition-colors">Más tarde</button>
           {aviso.url && (
             <button onClick={ir} className={`flex-1 px-4 py-2 rounded-lg text-[13px] font-semibold text-white transition-colors ${tono.boton}`}>
-              {aprobada ? 'Abrir Compras' : 'Ir a corregir'}
+              {aprobada ? 'Abrir Compras' : incidencia ? 'Ver el producto' : 'Ir a corregir'}
             </button>
           )}
         </div>

@@ -11,6 +11,8 @@ import {
   IconChevronDown as Chevron, IconFileText as Doc, IconEye as Eye, IconX as X, IconRefresh as Refresh, IconSparkles as Chispa,
 } from '@tabler/icons-react';
 import { LinksProducto, type LinksCosteo } from './LinksProducto';
+import { IncidenciaFichaModal } from './IncidenciaFichaModal';
+import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import type { PanelFichasDTO, ProductoFichasDTO, OpcionFichaDTO, ResultadoRuteo, ProductoRuteado, FilaRequisito } from '@/app/lib/compras-fichas';
 
 const fmtCLP = (n: number | null | undefined) => n == null ? '' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
@@ -74,6 +76,9 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
   const [subiendoA, setSubiendoA] = useState<number | null>(null);
 
   const [linksCosteo, setLinksCosteo] = useState<LinksCosteo>({});
+  const [incidenciaDe, setIncidenciaDe] = useState<ProductoFichasDTO[]>([]);
+  const [marcados, setMarcados] = useState<Set<number>>(new Set());
+  const { recargar: recargarCompras } = useCompras();   // las incidencias nacen como tareas: se refresca la lista de tareas
 
   const cargar = useCallback(async () => {
     try {
@@ -382,6 +387,21 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
             </button>
           )}
         </div>
+        {puedeOperar && panel.productos.length > 0 && (
+          <div className="flex items-center gap-3 flex-wrap mb-2 text-[12.5px]" data-testid="fichas-seleccion">
+            <label className="inline-flex items-center gap-1.5 text-zinc-600 cursor-pointer">
+              <input type="checkbox" className="w-4 h-4 accent-amber-600" checked={marcados.size === panel.productos.length} onChange={e => setMarcados(e.target.checked ? new Set(panel.productos.map(x => x.productoId)) : new Set())} /> Marcar todos
+            </label>
+            {marcados.size > 0 && (
+              <>
+                <span className="text-zinc-500">{marcados.size} marcado(s)</span>
+                <button type="button" onClick={() => setIncidenciaDe(panel.productos.filter(x => marcados.has(x.productoId)))} data-testid="fichas-incidencia-varios"
+                  className="inline-flex items-center gap-1.5 font-semibold text-white bg-amber-600 hover:bg-amber-700 px-3 py-1.5 rounded-lg"><Alerta size={13} /> Crear incidencias de los marcados</button>
+                <button type="button" onClick={() => setMarcados(new Set())} className="font-semibold text-zinc-500 hover:text-zinc-800">Quitar marcas</button>
+              </>
+            )}
+          </div>
+        )}
         <div className="space-y-2">
           {panel.productos.map(p => {
             const est = estadoProducto(p);
@@ -390,6 +410,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
             return (
               <div key={p.productoId} className="rounded-xl border border-zinc-200 bg-white overflow-hidden" data-testid={`ficha-producto-${p.productoId}`}>
                 <div className="px-3 py-2.5 flex items-center gap-3 flex-wrap">
+                  {puedeOperar && <input type="checkbox" checked={marcados.has(p.productoId)} onChange={e => setMarcados(s => { const n = new Set(s); if (e.target.checked) n.add(p.productoId); else n.delete(p.productoId); return n; })} aria-label={`Marcar ${p.descripcion}`} data-testid={`ficha-marcar-${p.productoId}`} className="w-4 h-4 accent-amber-600 flex-shrink-0" />}
                   <button type="button" onClick={() => setAbiertas(s => { const n = new Set(s); if (n.has(p.productoId)) n.delete(p.productoId); else n.add(p.productoId); return n; })} className="flex items-center gap-2 min-w-0 flex-1 text-left">
                     <Chevron size={16} className={`text-zinc-400 transition-transform flex-shrink-0 ${abierta ? 'rotate-180' : ''}`} />
                     <span className="min-w-0">
@@ -407,6 +428,13 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
                       title="Sube otra ficha técnica de este producto: se compara con las bases y se muestra cuál cumple más."
                       className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-teal-700 border border-teal-200 hover:bg-teal-50 disabled:opacity-50 px-3 py-1.5 rounded-lg">
                       {subiendoA === p.productoId ? <Loader2 size={12} className="animate-spin" /> : <Upload size={13} />} {conFichas.length > 0 ? 'Subir otra ficha' : 'Subir ficha'}
+                    </button>
+                  )}
+                  {puedeOperar && (
+                    <button type="button" onClick={() => setIncidenciaDe([p])} data-testid={`ficha-incidencia-${p.productoId}`}
+                      title="Levanta una o más incidencias de este ítem: quedan como tareas de la licitación y se avisa a los encargados."
+                      className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-amber-700 border border-amber-200 hover:bg-amber-50 px-3 py-1.5 rounded-lg">
+                      <Alerta size={13} /> Incidencias
                     </button>
                   )}
                   {puedeOperar && conFichas.length > 0 && (
@@ -466,6 +494,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
       <input ref={subirRef} type="file" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.md,.csv" data-testid="ficha-input-producto"
         onChange={e => { const fl = e.target.files ? Array.from(e.target.files) : []; const d = destino; e.target.value = ''; if (fl.length && d) void subirParaProducto(d, fl); }} />
       <DocumentViewerModal doc={visor} onClose={() => setVisor(null)} />
+      <IncidenciaFichaModal negocioId={negocioId} productos={incidenciaDe} onClose={() => setIncidenciaDe([])} onCreada={() => { setIncidenciaDe([]); setMarcados(new Set()); void recargarCompras(); }} />
 
       {/* Modal: pegar texto */}
       {pegando && (

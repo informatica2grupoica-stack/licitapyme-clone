@@ -29,7 +29,7 @@ import { enviarAvisoOrdenesCompra } from '@/app/lib/email';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { MP_UA, fetchMPConReintentos } from '@/app/lib/mp-adjuntos';
-import { vincularOrdenCompraDeMP } from '@/app/lib/compras';
+import { vincularOrdenCompraDeMP, claveLicitacionSinTipo } from '@/app/lib/compras';
 import type { OrdenCompraAPI } from '@/app/types/mercado-publico.types';
 
 // Códigos de estado de la API (documentación de ChileCompra). Se guardan los dos: el código es
@@ -62,6 +62,14 @@ const dormir = (ms: number) => new Promise(r => setTimeout(r, ms));
 // ¿El texto menciona ESTE código de licitación? No sirve un `includes` pelado: "2008-4-LE26" es
 // substring de "12008-4-LE26", que es otra licitación de otro organismo. Se exige que el carácter
 // anterior no sea parte del código (dígito o guion) y lo mismo por el lado derecho.
+/** El negocio nuestro cuyo código es el mismo proceso (número-correlativo-año) con otro tipo: LP26 ↔ R126. Solo si hay UNO. */
+function originalDelMismoProceso(codigo: string, nuestras: Map<string, unknown>): string | null {
+  const clave = claveLicitacionSinTipo(codigo);
+  if (!clave) return null;
+  const iguales = [...nuestras.keys()].filter(k => k !== codigo && claveLicitacionSinTipo(k) === clave);
+  return iguales.length === 1 ? iguales[0] : null;
+}
+
 export function mencionaCodigo(texto: string, codigo: string): boolean {
   const t = String(texto || '').toUpperCase();
   const c = String(codigo || '').toUpperCase();
@@ -286,6 +294,18 @@ export async function sincronizarOrdenesCompra(
     await guardarOrdenCompra(oc, licitacionCodigo, empresa?.id ?? null, esNuestra);
     if (esNueva) resumen.nuevas++; else resumen.cambiosEstado++;
     if (!esNuestra) { resumen.deTerceros++; continue; }   // se guarda como contexto, pero no avisa
+
+    // Readjudicación: la orden nuestra llega con otra licitación del MISMO proceso que un negocio nuestro
+    // (2827-72-LP26 → 2827-72-R126). Sin llamadas extra para detectarlo; la reconsulta de las dos fichas
+    // ocurre una sola vez (después queda guardada en adjudicacion_cache.readjudicada_en).
+    if (licitacionCodigo && !negocio) {
+      const original = originalDelMismoProceso(licitacionCodigo, nuestras);
+      if (original) {
+        await import('@/app/lib/procesar-postuladas')
+          .then(m => m.alDetectarReadjudicacion(original, licitacionCodigo))
+          .catch(e => console.warn(`[ordenes-compra] readjudicación ${original} → ${licitacionCodigo} falló:`, String(e).slice(0, 160)));
+      }
+    }
 
     // Código interno del proveedor: se descubre una sola vez por empresa y desbloquea la consulta
     // directa (una llamada al día en vez de barrer 16.000 órdenes). Solo desde una orden ya
@@ -770,8 +790,9 @@ export async function ordenesDeLicitacion(codigo: string, codigoOC?: string | nu
             comprador_mail, comprador_rut, raw_json, items_json, es_nuestra, proveedor_nombre, pdf_url
        FROM ordenes_compra
       WHERE licitacion_codigo = ? OR codigo = ?
+         OR licitacion_codigo = (SELECT readjudicada_en FROM adjudicacion_cache WHERE licitacion_codigo = ? LIMIT 1)
       ORDER BY es_nuestra DESC, COALESCE(fecha_envio, fecha_creacion) DESC, codigo DESC`,
-    [codigo, codigoOC || codigo],
+    [codigo, codigoOC || codigo, codigo],
   ) as any[];
 
   return (rows as any[]).map(r => {

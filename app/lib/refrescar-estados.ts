@@ -22,7 +22,7 @@ import { registrarActividad } from '@/app/lib/actividad';
 import { registrarEvento } from '@/app/lib/historial';
 import { enviarCorreoCambio } from '@/app/lib/email';
 import { ahoraChileSQL } from '@/app/lib/tz';
-import { construirDesdeLicitacion, enriquecer, guardarCache } from '@/app/lib/adjudicacion';
+import { construirConReadjudicacion, enriquecer, guardarCache } from '@/app/lib/adjudicacion';
 import { avisarResultadoLicitacion } from '@/app/lib/avisar-resultado-licitacion';
 import type { Licitacion } from '@/app/types/mercado-publico.types';
 
@@ -276,7 +276,7 @@ async function notificarCambioEstado(codigo: string, nombre: string, lic?: Licit
   // en vez del genérico de abajo (que además nunca incluyó 'Adjudicada' en ESTADOS_CON_CORREO).
   if (nombre === 'Adjudicada' && lic) {
     try {
-      const adj = await enriquecer(construirDesdeLicitacion(lic, codigo));
+      const adj = await enriquecer(await construirConReadjudicacion(lic, codigo));
       await guardarCache(codigo, adj);
       const mensaje = adj.ganamos
         ? `🏆 ¡Adjudicada! Ganaste ${licNombre}${adj.montoNuestro ? ` · ${fmtCLP(adj.montoNuestro)}` : ''}`
@@ -296,6 +296,21 @@ async function notificarCambioEstado(codigo: string, nombre: string, lic?: Licit
           codigo, nombre: licNombre, monto: adj.montoNuestro ?? null,
           asignado: { id: n.asignado_a, nombre: n.usuario_nombre, email: n.usuario_email },
         });
+      }
+      // Además del aviso, el negocio POSTULADA/POSIBLE_ADJ pasa a ADJUDICADA/PERDIDA (y abre Entrega y Compras si
+      // ganamos). Antes solo avisaba y dependía de que el cron de postuladas lo moviera después: caso 2446-240-LE26,
+      // quedó en POSIBLE ADJ con el aviso de «Ganaste» ya enviado. Sin avisar de nuevo.
+      try {
+        const [filas] = await pool.query(
+          `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a, u.nombre AS usuario_nombre, u.email AS usuario_email
+           FROM negocios n JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
+           WHERE n.licitacion_codigo = ? AND n.activo = TRUE`, [codigo],
+        ) as any[];
+        const { promoverYAvisar } = await import('@/app/lib/procesar-postuladas');
+        const st = { adjudicadas: 0, perdidas: 0, entregasAbiertas: 0, comprasAbiertas: 0 };
+        await promoverYAvisar(codigo, filas as any[], adj, st, { avisar: false });
+      } catch (e) {
+        console.error(`[refrescar-estados] promover "${codigo}" falló (el aviso ya salió):`, String(e).slice(0, 200));
       }
       return;
     } catch (e) {

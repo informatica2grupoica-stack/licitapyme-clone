@@ -866,7 +866,7 @@ export async function enviarAvisoPrecompra(p: {
 }
 
 export interface AvisoAprobacionComprasEmail {
-  to: string; nombre?: string | null; resultado: 'APROBADA' | 'APROBADA_CON_CAMBIOS' | 'RECHAZADA' | 'CORREGIDA';
+  to: string; nombre?: string | null; resultado: 'APROBADA' | 'APROBADA_CON_CAMBIOS' | 'RECHAZADA' | 'CORREGIDA' | 'INCIDENCIA';
   /** Qué se decidió: «la compra», «el margen» o «el producto N». */
   que: string; decididoPor?: string | null; comentario?: string | null;
   codigo?: string | null; licitacionNombre?: string | null; negocioId: number;
@@ -884,7 +884,9 @@ export async function enviarAvisoAprobacionCompras(p: AvisoAprobacionComprasEmai
   if (!p.to) return false;
   const base = (process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/$/, '');
   const url = base ? `${base}${p.ruta || `/compras/${p.negocioId}?fase=aprobacion`}` : '';
-  const [asunto, titulo, color, accion] = p.resultado === 'APROBADA'
+  const [asunto, titulo, color, accion] = p.resultado === 'INCIDENCIA'
+    ? [`⚠️ Incidencia ${p.que}`, '⚠️ Nueva incidencia', '#d97706', 'Se creó una tarea por cada incidencia en Compras. Revísalas y resuélvelas.']
+    : p.resultado === 'APROBADA'
     ? [`✅ Aprobada ${p.que}`, '✅ Aprobada', '#059669', 'Ya puedes seguir con el siguiente paso del flujo de Compras.']
     : p.resultado === 'CORREGIDA'
       ? [`🔁 Corregido ${p.que}`, '🔁 Corregido: vuelve a revisar', '#d97706', 'El encargado dice que ya corrigió lo que pediste. Revisa el producto y apruébalo o recházalo de nuevo.']
@@ -894,7 +896,7 @@ export async function enviarAvisoAprobacionCompras(p: AvisoAprobacionComprasEmai
   const cuerpo = `
     <p style="margin:0 0 14px;color:#374151;font-size:14px;line-height:1.55;">Hola ${esc(p.nombre || '')}:</p>
     <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.55;">
-      ${esc(p.decididoPor || (p.resultado === 'CORREGIDA' ? 'El encargado' : 'El jefe de ventas'))} ${p.resultado === 'CORREGIDA' ? 'marcó como corregido' : 'resolvió'} ${esc(p.que)}${p.licitacionNombre ? ` del proyecto <strong>${esc(p.licitacionNombre)}</strong>` : ''}.
+      ${esc(p.decididoPor || (p.resultado === 'CORREGIDA' || p.resultado === 'INCIDENCIA' ? 'El encargado' : 'El jefe de ventas'))} ${p.resultado === 'CORREGIDA' ? 'marcó como corregido' : p.resultado === 'INCIDENCIA' ? 'levantó una incidencia' : 'resolvió'} ${esc(p.que)}${p.licitacionNombre ? ` del proyecto <strong>${esc(p.licitacionNombre)}</strong>` : ''}.
     </p>
     <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #e5e7eb;border-left:3px solid ${color};border-radius:8px;">
       <tr><td style="padding:15px 18px;">
@@ -908,7 +910,7 @@ export async function enviarAvisoAprobacionCompras(p: AvisoAprobacionComprasEmai
     await t.sendMail({
       from: FROM(), to: p.to,
       subject: `${p.prueba ? '[PRUEBA] ' : ''}${asunto}${p.licitacionNombre ? `: ${p.licitacionNombre}` : ''}`,
-      html: layoutEmail({ titulo, cuerpo, cta: url ? { label: p.resultado === 'APROBADA' ? 'Abrir Compras' : p.resultado === 'CORREGIDA' ? 'Revisar el producto' : 'Ir a corregir', url } : undefined }),
+      html: layoutEmail({ titulo, cuerpo, cta: url ? { label: p.resultado === 'APROBADA' ? 'Abrir Compras' : p.resultado === 'INCIDENCIA' ? 'Ver la incidencia' : p.resultado === 'CORREGIDA' ? 'Revisar el producto' : 'Ir a corregir', url } : undefined }),
     });
     return true;
   } catch (e) {

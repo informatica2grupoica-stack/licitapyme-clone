@@ -9,7 +9,7 @@ import { IconStar as Star, IconCheck as Check, IconChevronDown as ChevronDown, I
 import { MenuAcciones } from '@/app/components/ui/MenuAcciones';
 import { LinksProducto } from './LinksProducto';
 import { compararPrecioConCosteo } from '@/app/lib/compras-precio-vs-costeo';
-import { ESTILO_VEREDICTO, ESTILO_TECNICO } from './MatrizPrecios';
+import { ESTILO_VEREDICTO, ESTILO_TECNICO, cotizacionesReemplazadas } from './MatrizPrecios';
 import type { MatrizProps } from './MatrizPrecios';
 
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
@@ -20,6 +20,7 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, linksCost
   const [buscaProducto, setBuscaProducto] = useState('');
   const [buscaProveedor, setBuscaProveedor] = useState('');
 
+  const reemp = useMemo(() => cotizacionesReemplazadas(cotizaciones), [cotizaciones]);
   const alternar = (id: number) => setAbiertos(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   const resumen = useMemo(() => cotizaciones.map(c => {
@@ -88,7 +89,7 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, linksCost
             const item = c.items.find(i => i.productoId === p.id);
             return item ? [{ c, item }] : [];
           }).sort((a, b) => (a.item.precioUnitario ?? Infinity) - (b.item.precioUnitario ?? Infinity));
-          const validos = ofertas.map(o => o.item.precioUnitario).filter((x): x is number => x != null && x > 0);
+          const validos = ofertas.filter(o => !reemp.has(`${o.c.id}:${p.id}`)).map(o => o.item.precioUnitario).filter((x): x is number => x != null && x > 0);
           const mejor = validos.length >= 2 ? Math.min(...validos) : null;
           const menor = validos.length ? Math.min(...validos) : null;
           const elegidaId = compra?.[p.id];
@@ -177,17 +178,20 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, linksCost
                     const al = alertas?.[`${c.id}:${p.id}`] ?? [];
                     const t = tecnico?.[`${c.id}:${p.id}`];
                     const et = t ? (ESTILO_TECNICO[t.estado] ?? ESTILO_TECNICO.NO_CORRIDO) : null;
+                    const reemplazadaPor = reemp.get(`${c.id}:${p.id}`);
+                    const bloqueada = reemplazadaPor != null && !esElegida;   // si ya estaba elegida se deja quitarla, no volver a elegirla
                     return (
-                      <div key={c.id} className={`rounded-lg border px-3 py-2 flex items-center gap-x-4 gap-y-1 flex-wrap transition-colors ${esElegida ? 'border-teal-500 bg-teal-50/60 ring-1 ring-teal-200' : detalleActivo ? 'border-indigo-300 bg-indigo-50/30' : 'border-zinc-200 hover:border-zinc-300'}`}>
+                      <div key={c.id} className={`rounded-lg border px-3 py-2 flex items-center gap-x-4 gap-y-1 flex-wrap transition-colors ${reemplazadaPor != null ? 'opacity-50 bg-zinc-50 ' : ''}${esElegida ? 'border-teal-500 bg-teal-50/60 ring-1 ring-teal-200' : detalleActivo ? 'border-indigo-300 bg-indigo-50/30' : 'border-zinc-200 hover:border-zinc-300'}`}>
                         {onElegirCelda && (
-                          <button type="button" onClick={() => onElegirCelda(p.id, c.id)} aria-pressed={esElegida} aria-label={`${esElegida ? 'Quitar de mi compra' : 'Comprar este producto a'} ${c.proveedorNombre}`}
-                            title={esElegida ? 'Quitar de mi compra' : 'Comprar este producto a este proveedor'} className="p-1 -m-1 rounded-full focus-visible:ring-2 focus-visible:ring-teal-500 outline-none">
+                          <button type="button" onClick={() => onElegirCelda(p.id, c.id)} aria-pressed={esElegida} aria-label={`${esElegida ? 'Quitar de mi compra' : 'Comprar este producto a'} ${c.proveedorNombre}`} disabled={bloqueada}
+                            title={bloqueada ? `Reemplazada por la cotización #${reemplazadaPor} del mismo proveedor` : esElegida ? 'Quitar de mi compra' : 'Comprar este producto a este proveedor'} className={`p-1 -m-1 rounded-full focus-visible:ring-2 focus-visible:ring-teal-500 outline-none ${bloqueada ? 'cursor-not-allowed' : ''}`}>
                             <span className={`flex w-5 h-5 rounded-full border items-center justify-center ${esElegida ? 'bg-teal-600 border-teal-600 text-white' : 'border-zinc-300 bg-white hover:border-teal-500'}`}>{esElegida && <Check size={12} />}</span>
                           </button>
                         )}
                         <div className="min-w-[170px] flex-1">
                           <p className="text-[13px] font-semibold text-zinc-900 leading-tight" title={c.proveedorNombre}>{c.proveedorNombre}</p>
                           <p className="text-[11px] text-zinc-400">Cotización #{c.id}{c.plazoEntregaTexto ? ` · ${c.plazoEntregaTexto}` : ''}</p>
+                          {reemplazadaPor != null && <p className="text-[11px] font-semibold text-zinc-500">Reemplazada por la #{reemplazadaPor} del mismo proveedor</p>}
                         </div>
                         <div className="flex items-center gap-1.5">
                           <span className="text-[14px] font-bold text-zinc-900 tabular-nums">{item.precioUnitario != null ? clp(item.precioUnitario) : 'sin precio'}</span>

@@ -49,6 +49,8 @@ export interface RespuestaAdjudicacion {
   ganamos: boolean;
   montoNuestro: number | null;
   desdeCache: boolean;
+  /** Si MP readjudicó esta licitación en otra ficha (p.ej. 2827-72-LP26 → 2827-72-R126): el código de esa ficha. */
+  readjudicadaEn?: string | null;
 }
 
 // ── ¿Ganó una de NUESTRAS empresas? ───────────────────────────────────────────
@@ -183,11 +185,53 @@ export function construirDesdeLicitacion(lic: Licitacion, codigo: string): Respu
   };
 }
 
+// ── Readjudicación automática (migration-155) ───────────────────────────────
+// Cuando el organismo readjudica, MP crea una ficha nueva (2827-72-LP26 → 2827-72-R126) y renombra la original
+// «… – Readjudicada en Id 2827-72-R126». Esa marca ya viene en el detalle que se consulta de todos modos: detectarla
+// no cuesta llamadas. Solo cuando aparece se trae la ficha nueva (UNA llamada) y sus líneas pisan las de la original.
+const RE_READJUDICADA_EN = /Readjudicada[ ]+en[ ]+Id[ ]+([0-9A-Za-z-]+)/i;
+
+export function codigoReadjudicadaEn(nombre: string | null | undefined): string | null {
+  const m = String(nombre || '').match(RE_READJUDICADA_EN);
+  return m ? m[1].toUpperCase() : null;
+}
+
+/** Pisa, línea por línea (correlativo), lo adjudicado en la ficha original con lo de la ficha de la readjudicación.
+ *  Las líneas que la nueva no adjudica quedan como estaban. Si la nueva no trae adjudicatarios, no cambia nada. */
+export function fusionarReadjudicacion(original: RespuestaAdjudicacion, nueva: RespuestaAdjudicacion): RespuestaAdjudicacion {
+  if (!nueva.esAdjudicada || nueva.lineasAdjudicadas.length === 0) return original;
+  const porLinea = new Map<string, LineaAdjudicada>();
+  const clave = (l: LineaAdjudicada, i: number) => (l.correlativo != null ? `c${l.correlativo}` : `s${i}`);
+  original.lineasAdjudicadas.forEach((l, i) => porLinea.set(clave(l, i), l));
+  nueva.lineasAdjudicadas.forEach((l, i) => porLinea.set(clave(l, i), l));
+  const lineas = [...porLinea.values()].sort((a, b) => (a.correlativo ?? 0) - (b.correlativo ?? 0));
+  const total = lineas.reduce((acc, l) => acc + (Number(l.montoUnitario) || 0) * (Number(l.cantidad) || 1), 0);
+  return {
+    ...original,
+    lineasAdjudicadas: lineas,
+    montoAdjudicadoTotal: total || null,
+    fechaAdjudicacion: nueva.fechaAdjudicacion || original.fechaAdjudicacion,
+    adjudicacion: nueva.adjudicacion || original.adjudicacion,
+    readjudicadaEn: nueva.codigo,
+  };
+}
+
+/** Como construirDesdeLicitacion, pero si la ficha dice «Readjudicada en Id X» trae X y mezcla. Si X no responde,
+ *  devuelve la original (se reintenta en la próxima consulta; nunca se inventa un resultado). */
+export async function construirConReadjudicacion(lic: Licitacion, codigo: string): Promise<RespuestaAdjudicacion> {
+  const base = construirDesdeLicitacion(lic, codigo);
+  const destino = codigoReadjudicadaEn(lic.Nombre);
+  if (!destino || destino === codigo.toUpperCase() || !base.esAdjudicada) return base;
+  const licNueva = await getMercadoPublicoClient().obtenerPorCodigoRapido(destino).catch(() => null);
+  if (!licNueva) return base;
+  return fusionarReadjudicacion(base, construirDesdeLicitacion(licNueva, destino));
+}
+
 // ── Consulta en vivo a Mercado Público ────────────────────────────────────────
 export async function consultarMP(codigo: string): Promise<RespuestaAdjudicacion | null> {
   const lic = await getMercadoPublicoClient().obtenerPorCodigo(codigo);
   if (!lic) return null;
-  return construirDesdeLicitacion(lic, codigo);
+  return construirConReadjudicacion(lic, codigo);
 }
 
 // ── Cache: lectura ────────────────────────────────────────────────────────────
@@ -231,6 +275,7 @@ export function respuestaDesdeCache(codigo: string, row: any): RespuestaAdjudica
     ganamos: false,       // lo calcula enriquecer()
     montoNuestro: null,   // lo calcula enriquecer()
     desdeCache: true,
+    readjudicadaEn: row.readjudicada_en ?? null,
   };
 }
 
@@ -242,8 +287,8 @@ export async function guardarCache(codigo: string, r: RespuestaAdjudicacion): Pr
          licitacion_codigo, es_adjudicada, estado, codigo_estado, fecha_adjudicacion,
          fecha_estimada_adjudicacion, fecha_apertura_tecnica,
          tipo_adjudicacion, numero_resolucion, numero_oferentes, url_acta,
-         monto_adjudicado_total, lineas
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         monto_adjudicado_total, lineas, readjudicada_en
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          es_adjudicada = VALUES(es_adjudicada),
          estado = VALUES(estado),
@@ -257,6 +302,7 @@ export async function guardarCache(codigo: string, r: RespuestaAdjudicacion): Pr
          url_acta = VALUES(url_acta),
          monto_adjudicado_total = VALUES(monto_adjudicado_total),
          lineas = VALUES(lineas),
+         readjudicada_en = VALUES(readjudicada_en),
          consultado_en = NOW()`,
       [
         codigo,
@@ -272,6 +318,7 @@ export async function guardarCache(codigo: string, r: RespuestaAdjudicacion): Pr
         r.adjudicacion?.urlActa ?? null,
         r.montoAdjudicadoTotal,
         JSON.stringify(r.lineasAdjudicadas || []),
+        r.readjudicadaEn ?? null,
       ],
     );
   } catch { /* migración pendiente o BD caída → seguir sin cache */ }

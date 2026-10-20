@@ -27,10 +27,12 @@ function getUser(req: NextRequest) {
 
 // "Ser admin" ya no alcanza solo (pedido explícito, 10-sep-2026 — ver el comentario largo en
 // app/api/compras/[negocioId]/route.ts): se lee con `permisosCrudosDeUsuario` para que
-// `aprobar_comercial` no se auto-otorgue por ser admin. `compras_todo` también resuelve compuertas.
-async function esJefeDeVentas(userId: number): Promise<boolean> {
+// `aprobar_comercial` no se auto-otorgue por ser admin. Las compuertas (y su detalle «Paso B») las resuelven y ven SOLO
+// los admin y el jefe de ventas/asesor (`aprobar_comercial`); `compras_todo` en un no-admin ya NO alcanza (pedido explícito, 20-oct-2026).
+async function esJefeDeVentas(userId: number, rol: string | null): Promise<boolean> {
+  if (rol === 'admin') return true;
   const p = await permisosCrudosDeUsuario(userId);
-  return !!(p.compras_todo || p.aprobar_comercial);
+  return !!p.aprobar_comercial;
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
@@ -58,8 +60,8 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({
       success: true, ...aprobaciones, margenActual: margen, presupuestoActual: presupuesto,
       escenarioElegidoActual: escenarioElegido ? { tipo: escenarioElegido.tipo, costoTotal: Number(escenarioElegido.costo_total) } : null,
-      esJefeDeVentas: await esJefeDeVentas(userId),
-      puedeDeshacer: rol === 'admin' || (await esJefeDeVentas(userId)),
+      esJefeDeVentas: await esJefeDeVentas(userId, rol),
+      puedeDeshacer: await esJefeDeVentas(userId, rol),
     });
   } catch (error) {
     console.error('[compras/aprobaciones][GET]', String(error));
@@ -103,13 +105,13 @@ async function __PATCH(request: NextRequest, { params }: Params) {
     const body = await request.json();
     // Deshacer una decisión ya tomada: jefe de ventas / asesor (permisos de aprobación) y cualquier admin (pedido del usuario, 14-oct-2026).
     if (body.decision === 'DESHACER') {
-      if (!(rol === 'admin' || (await esJefeDeVentas(userId))))
+      if (!(await esJefeDeVentas(userId, rol)))
         return NextResponse.json({ error: 'Solo el asesor o un admin pueden deshacer una aprobación.' }, { status: 403 });
       await deshacerAprobacion(id, body.tipo as TipoAprobacion, body.comentario || null, userId, nombre);
       const aprobaciones = await obtenerAprobaciones(id);
       return NextResponse.json({ success: true, ...aprobaciones });
     }
-    if (!(await esJefeDeVentas(userId)))
+    if (!(await esJefeDeVentas(userId, rol)))
       return NextResponse.json({ error: 'Solo el jefe de ventas resuelve las compuertas de aprobación (spec §10.2/§10.3).' }, { status: 403 });
 
     await resolverAprobacion(id, body.tipo as TipoAprobacion, body.decision as DecisionAprobacion, body.comentario || null, userId, nombre);

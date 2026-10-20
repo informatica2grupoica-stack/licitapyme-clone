@@ -28,7 +28,7 @@ import pool from '@/app/lib/db';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { registrarEvento } from '@/app/lib/historial';
 import { ahoraChileSQL } from '@/app/lib/tz';
-import { construirDesdeLicitacion, enriquecer, guardarCache, respuestaDesdeCache, type RespuestaAdjudicacion } from '@/app/lib/adjudicacion';
+import { construirConReadjudicacion, enriquecer, guardarCache, leerCache, respuestaDesdeCache, type RespuestaAdjudicacion } from '@/app/lib/adjudicacion';
 import { abrirEntregaSiCorresponde } from '@/app/lib/entrega-proyecto';
 import { abrirComprasSiCorresponde, sincronizarPrecompraConEstado } from '@/app/lib/compras';
 import { publicarCambio } from '@/app/lib/sse-bus';
@@ -94,11 +94,13 @@ function fmtCLP(n: number | null | undefined): string {
 // y avisa. Compartido entre el barrido en vivo (consulta MP, dentro de `procesarPostuladas`) y
 // `promoverConCacheConfirmado` (código ya confirmado en `adjudicacion_cache`, sin gastar una
 // consulta nueva a MP).
-async function promoverYAvisar(
+export async function promoverYAvisar(
   codigo: string,
   negocios: FilaPostulada[],
   adj: RespuestaAdjudicacion,
   stats: { adjudicadas: number; perdidas: number; entregasAbiertas: number; comprasAbiertas: number },
+  // avisar:false = solo mover el estado y abrir Entrega/Compras (lo usa refrescar-estados, que ya mandó el aviso).
+  opts: { avisar?: boolean } = {},
 ): Promise<void> {
   const nuevoEstado = adj.ganamos ? 'ADJUDICADA' : 'PERDIDA';
   for (const n of negocios) {
@@ -135,6 +137,7 @@ async function promoverYAvisar(
     if (!adj.ganamos) await sincronizarPrecompraConEstado(n.id, codigo, n.asignado_a, nuevoEstado);
 
     if (adj.ganamos) stats.adjudicadas++; else stats.perdidas++;
+    if (opts.avisar === false) continue;
 
     const mensaje = adj.ganamos
       ? `🏆 ¡Adjudicada! Ganaste ${n.licitacion_nombre || codigo}${adj.montoNuestro ? ` · ${fmtCLP(adj.montoNuestro)}` : ''}`
@@ -189,6 +192,7 @@ async function promoverConCacheConfirmado(
        WHERE n.activo = TRUE
          AND n.estado_pipeline IN (${IN_POSTULADA})
          AND c.es_adjudicada = 1`,
+      ESTADOS_POSTULADA,
     ) as any[];
     filas = rows;
   } catch (e) {
@@ -365,7 +369,7 @@ export async function procesarPostuladas(
       if (lic) rateLimitSeguidos = 0;   // una respuesta buena reinicia la racha
       if (!lic) return;
 
-      const adj = await enriquecer(construirDesdeLicitacion(lic, codigo));
+      const adj = await enriquecer(await construirConReadjudicacion(lic, codigo));
       // Refrescar el cache que lee el apartado Postuladas (best-effort). Esto es lo ÚNICO que
       // hace el cron de 2h (promover:false) → las adjudicadas se quedan en Postuladas.
       await guardarCache(codigo, adj);
@@ -451,7 +455,7 @@ export async function reconfirmarCodigo(
 ): Promise<Awaited<ReturnType<typeof enriquecer>> | null> {
   const lic = await client.obtenerPorCodigoRapido(codigo, TIMEOUT_DETALLE_MS);
   if (!lic) return null;
-  const adj = await enriquecer(construirDesdeLicitacion(lic, codigo));
+  const adj = await enriquecer(await construirConReadjudicacion(lic, codigo));
   await guardarCache(codigo, adj);
   if (!adj.esAdjudicada) return adj; // MP aún no publica el acta — nada que corregir todavía
 
@@ -579,4 +583,52 @@ export async function reconsultarResultado(codigo: string) {
   const stats = { adjudicadas: 0, perdidas: 0, errores: 0, entregasAbiertas: 0, comprasAbiertas: 0 };
   const adj = await reconfirmarCodigo(getMercadoPublicoClient(), codigo, rows as FilaResuelta[], stats);
   return { adj, cambios: stats.adjudicadas + stats.perdidas };
+}
+
+// Una orden de compra NUESTRA llegó con otra licitación del mismo proceso que un negocio nuestro (LP26 → R126):
+// MP readjudicó. Reconsulta la original (la ficha trae «Readjudicada en Id …» y construirConReadjudicacion mezcla las
+// líneas de la nueva), corrige el estado si hace falta y, si ahora ganamos, abre Entrega y Compras (idempotente).
+// Una sola vez por readjudicación: queda guardada en adjudicacion_cache.readjudicada_en y el chequeo corta ahí.
+/** Aviso de «readjudicada a nosotros»: campana + correo al asignado y a los admin. Solo si el negocio YA estaba en
+ *  ADJUDICADA (si el estado cambió, reconfirmarCodigo ya avisó el resultado y no se repite). */
+export async function avisarReadjudicacion(n: { licitacion_codigo: string; licitacion_nombre: string | null; asignado_a: number; usuario_nombre: string | null; usuario_email: string | null }, adj: RespuestaAdjudicacion): Promise<void> {
+  const ganadas = (adj.lineasAdjudicadas || []).filter(l => l.esNuestra).map(l => l.correlativo).filter(c => c != null);
+  await registrarEvento({
+    tipo: 'RESULTADO_ADJUDICACION',
+    licitacionCodigo: n.licitacion_codigo, licitacionNombre: n.licitacion_nombre,
+    usuarioId: n.asignado_a, usuarioNombre: n.usuario_nombre,
+    actorId: null, actorNombre: 'Mercado Público',
+    mensaje: `🔁 Readjudicada: ${n.licitacion_nombre || n.licitacion_codigo} ahora es nuestra (línea${ganadas.length === 1 ? '' : 's'} ${ganadas.join(', ')}) en ${adj.readjudicadaEn}${adj.montoNuestro ? ` · ${fmtCLP(adj.montoNuestro)}` : ''}. Ya está en Compras.`,
+    metadata: { licitacion_codigo: n.licitacion_codigo, resultado: 'readjudicada', readjudicada_en: adj.readjudicadaEn, monto_nuestro: adj.montoNuestro },
+  });
+  await avisarResultadoLicitacion({
+    tipo: 'ganada', codigo: n.licitacion_codigo, nombre: n.licitacion_nombre, monto: adj.montoNuestro ?? null,
+    asignado: { id: n.asignado_a, nombre: n.usuario_nombre, email: n.usuario_email },
+  });
+}
+
+export async function alDetectarReadjudicacion(original: string, nueva: string): Promise<boolean> {
+  const cache = await leerCache(original);
+  if (String(cache?.row?.readjudicada_en || '').toUpperCase() === nueva.toUpperCase()) return false;
+  const [antes] = await pool.query(
+    `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a, n.estado_pipeline, u.nombre AS usuario_nombre, u.email AS usuario_email
+       FROM negocios n JOIN usuarios u ON u.id = n.asignado_a
+      WHERE n.activo = TRUE AND n.licitacion_codigo = ? AND n.estado_pipeline IN (${IN_RESUELTAS})`,
+    [original, ...ESTADOS_RESUELTAS],
+  ) as any[];
+  const { adj } = await reconsultarResultado(original);
+  if (!adj?.ganamos || adj.readjudicadaEn?.toUpperCase() !== nueva.toUpperCase()) return false;
+  const [rows] = await pool.query(
+    `SELECT id, asignado_a FROM negocios WHERE activo = TRUE AND licitacion_codigo = ? AND estado_pipeline IN (${IN_RESUELTAS})`,
+    [original, ...ESTADOS_RESUELTAS],
+  ) as any[];
+  for (const n of rows as any[]) {
+    await abrirEntregaSiCorresponde(n.id, original, n.asignado_a).catch(() => false);
+    await abrirComprasSiCorresponde(n.id, original, n.asignado_a).catch(() => false);
+  }
+  for (const n of antes as any[]) {
+    if (normalizarEstado(n.estado_pipeline) === 'ADJUDICADA') await avisarReadjudicacion(n, adj);
+  }
+  console.log(`[procesar-postuladas] readjudicación ${original} → ${nueva}: ganamos ${adj.montoNuestro ?? '?'}`);
+  return true;
 }

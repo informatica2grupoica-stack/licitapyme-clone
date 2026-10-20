@@ -13,7 +13,7 @@ import { parsearMontoCL } from '@/app/lib/numeros';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { AuditoriaCotizacionPanel, type AuditoriaUI } from './AuditoriaCotizacionPanel';
 import { ComparadorPrecios } from './ComparadorPrecios';
-import { MatrizPrecios, ESTILO_VEREDICTO, ETIQUETA_ALERTA, type SeleccionCelda } from './MatrizPrecios';
+import { MatrizPrecios, cotizacionesReemplazadas, ESTILO_VEREDICTO, ETIQUETA_ALERTA, type SeleccionCelda } from './MatrizPrecios';
 import { compararPrecioConCosteo } from '@/app/lib/compras-precio-vs-costeo';
 import { CotizacionesMasivas } from './CotizacionesMasivas';
 import { CompraDirectaPanel, type InicialDirecta } from './CompraDirectaPanel';
@@ -701,12 +701,18 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
 
   // Un clic en el precio de un proveedor = «este producto se lo compro a él» (otro clic en el mismo, lo quita).
   const elegirCelda = (productoId: number, cotizacionId: number) =>
-    setCompra(c => { const n = { ...c }; if (n[productoId] === cotizacionId) delete n[productoId]; else n[productoId] = cotizacionId; return n; });
+    setCompra(c => {
+      const n = { ...c };
+      if (n[productoId] === cotizacionId) delete n[productoId];
+      else if (!cotizacionesReemplazadas(cotizaciones).has(`${cotizacionId}:${productoId}`)) n[productoId] = cotizacionId;   // una cotización reemplazada por otra más nueva del mismo proveedor no se elige
+      return n;
+    });
   // «Comprar todo aquí»: todo lo que esa cotización cubre, a ese proveedor (los productos que no cubre quedan como estaban).
   const comprarTodoAqui = (cotizacionId: number) => {
     const c = cotizaciones.find(x => x.id === cotizacionId);
     if (!c) return;
-    setCompra(prev => { const n = { ...prev }; for (const it of c.items) n[it.productoId] = cotizacionId; return n; });
+    const reemp = cotizacionesReemplazadas(cotizaciones);
+    setCompra(prev => { const n = { ...prev }; for (const it of c.items) if (!reemp.has(`${cotizacionId}:${it.productoId}`)) n[it.productoId] = cotizacionId; return n; });
   };
 
   if (loading) return <div className="flex items-center justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-zinc-400" /></div>;

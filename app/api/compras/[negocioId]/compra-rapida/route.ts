@@ -64,7 +64,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
   const id = parseInt((await params).negocioId);
   try {
     const p = await permisosCrudosDeUsuario(userId);
-    if (!(p.compras_todo || p.aprobar_comercial))
+    if (!(request.headers.get('x-user-rol') === 'admin' || p.aprobar_comercial))
       return NextResponse.json({ error: 'Solo el jefe de ventas aprueba la compra rápida.' }, { status: 403 });
     const body = await request.json();
     const ids: number[] = (Array.isArray(body.productoIds) ? body.productoIds : [body.productoId]).map(Number).filter((n: number) => Number.isInteger(n) && n > 0);

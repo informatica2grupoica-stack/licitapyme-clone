@@ -16,13 +16,24 @@ import { compararPrecioConCosteo, type VeredictoPrecio } from '@/app/lib/compras
 
 export interface SeleccionCelda { cotizacionId: number; productoId: number }
 export interface CotizacionMin {
-  id: number; proveedorNombre: string; plazoEntregaTexto?: string | null; archivoUrl?: string | null;
+  id: number; proveedorNombre: string; proveedorRut?: string | null; plazoEntregaTexto?: string | null; archivoUrl?: string | null;
   items: Array<{ productoId: number; precioUnitario: number | null; precioBase?: number | null; adicionales: unknown[] }>;
 }
 export interface AccionesCotizacion {
   onAsignar: (cotizacionId: number) => void; onHomologar: (cotizacionId: number) => void; onEditar: (cotizacionId: number) => void; onEliminar: (cotizacionId: number) => void;
   /** Cotización con una acción en curso (muestra el menú ocupado). */
   ocupadoId?: number | null;
+}
+
+/** Cotizaciones reemplazadas: si el MISMO proveedor (RUT, o nombre si no hay) cotizó un producto en varias cotizaciones, solo la más reciente (id mayor)
+ *  se puede elegir; las anteriores quedan a la vista, atenuadas. Devuelve «cotizaciónId:productoId» → id de la cotización que la reemplaza. */
+export function cotizacionesReemplazadas(cotizaciones: CotizacionMin[]): Map<string, number> {
+  const clave = (c: CotizacionMin) => { const rut = (c.proveedorRut ?? '').replace(/[^0-9kK]/g, '').toUpperCase(); return rut ? `rut:${rut}` : `nom:${c.proveedorNombre.trim().toLowerCase().replace(/\s+/g, ' ')}`; };
+  const ultima = new Map<string, number>();   // proveedor|producto → id de la cotización más reciente
+  for (const c of cotizaciones) for (const it of c.items) { const k = `${clave(c)}|${it.productoId}`; if ((ultima.get(k) ?? 0) < c.id) ultima.set(k, c.id); }
+  const out = new Map<string, number>();
+  for (const c of cotizaciones) for (const it of c.items) { const u = ultima.get(`${clave(c)}|${it.productoId}`)!; if (u !== c.id) out.set(`${c.id}:${it.productoId}`, u); }
+  return out;
 }
 
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
@@ -72,6 +83,7 @@ export type MatrizProps = {
 export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo = {}, lecturaLink: lecLink, onCompraPorLink, seleccion, onSeleccionar, alertas, tecnico, onAgregar, compra, onElegirCelda, onComprarTodoAqui, acciones }: MatrizProps) {
   const [verTodas, setVerTodas] = useState(false);
   const [menuId, setMenuId] = useState<number | null>(null);
+  const reemp = useMemo(() => cotizacionesReemplazadas(cotizaciones), [cotizaciones]);
 
   const num = (v: unknown) => { const n = typeof v === 'number' ? v : Number(v); return Number.isFinite(n) && n > 0 ? n : 1; };   // la cantidad viene como número (o decimal con punto de la BD)
   const resumen = useMemo(() => cotizaciones.map(c => {
@@ -178,7 +190,7 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo =
           <tbody>
             {productos.map(p => {
               const base = costeado[p.id] ?? null;
-              const precios = visibles.map(r => r.c.items.find(i => i.productoId === p.id)?.precioUnitario ?? null);
+              const precios = visibles.map(r => reemp.has(`${r.c.id}:${p.id}`) ? null : r.c.items.find(i => i.productoId === p.id)?.precioUnitario ?? null);
               const validos = precios.filter((x): x is number => x != null && x > 0);
               const mejor = validos.length >= 2 ? Math.min(...validos) : null;
               const sinCotizar = validos.length === 0 && visibles.every(r => !r.c.items.some(i => i.productoId === p.id));
@@ -260,14 +272,16 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo =
                     const esMejor = mejor != null && precios[i] === mejor;
                     const detalleActivo = seleccion?.cotizacionId === c.id && seleccion.productoId === p.id;
                     const al = alertas?.[`${c.id}:${p.id}`] ?? [];
+                    const reemplazadaPor = reemp.get(`${c.id}:${p.id}`);
+                    const bloqueada = reemplazadaPor != null && !elegida;   // si ya estaba elegida se deja quitarla, no volver a elegirla
                     return (
                       <td key={c.id} className="px-2 py-2">
-                        <div className={`relative rounded-lg border transition-colors ${elegida ? 'border-teal-500 bg-teal-50/60 ring-1 ring-teal-200' : detalleActivo ? 'border-indigo-300 bg-indigo-50/30' : 'border-transparent hover:border-zinc-300 hover:bg-zinc-50'}`}>
+                        <div className={`relative rounded-lg border transition-colors ${reemplazadaPor != null ? 'opacity-50 bg-zinc-50 ' : ''}${elegida ? 'border-teal-500 bg-teal-50/60 ring-1 ring-teal-200' : detalleActivo ? 'border-indigo-300 bg-indigo-50/30' : 'border-transparent hover:border-zinc-300 hover:bg-zinc-50'}`}>
                           {/* Clic en la celda = ver el detalle (desglose, adicionales, avisos). Agregar a la compra = solo el círculo. */}
                           {onElegirCelda && (
-                            <button type="button" onClick={() => onElegirCelda(p.id, c.id)} aria-pressed={elegida} aria-label={elegida ? 'Quitar de mi compra' : 'Agregar a mi compra'}
-                              title={elegida ? 'Quitar de mi compra' : 'Comprar este producto a este proveedor'}
-                              className="absolute top-2 left-2 z-10 p-1 -m-1 rounded-full">
+                            <button type="button" onClick={() => onElegirCelda(p.id, c.id)} aria-pressed={elegida} aria-label={elegida ? 'Quitar de mi compra' : 'Agregar a mi compra'} disabled={bloqueada}
+                              title={bloqueada ? `Reemplazada por la cotización #${reemplazadaPor} del mismo proveedor` : elegida ? 'Quitar de mi compra' : 'Comprar este producto a este proveedor'}
+                              className={`absolute top-2 left-2 z-10 p-1 -m-1 rounded-full ${bloqueada ? 'cursor-not-allowed' : ''}`}>
                               <span className={`flex w-4 h-4 rounded-full border items-center justify-center ${elegida ? 'bg-teal-600 border-teal-600 text-white' : 'border-zinc-300 bg-white hover:border-teal-500'}`}>{elegida && <Check size={11} strokeWidth={3} />}</span>
                             </button>
                           )}
@@ -286,6 +300,7 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo =
                               const e = ESTILO_TECNICO[t.estado] ?? ESTILO_TECNICO.NO_CORRIDO;
                               return <span title={`Ficha de ${t.modelo || 'este modelo'} contra las bases`} data-testid={`tecnico-${c.id}-${p.id}`} className={`inline-block mt-1 text-[11.5px] font-semibold px-1.5 py-0.5 rounded border ${e.chip}`}>Ficha: {e.texto}{t.total > 0 ? ` ${t.cumple}/${t.total}` : ''}</span>;
                             })()}
+                            {reemplazadaPor != null && <span className="block text-[11px] font-semibold text-zinc-500 mt-0.5">Reemplazada por la #{reemplazadaPor}</span>}
                             {al.map(t => <span key={t} className="block text-[11px] font-bold text-rose-600 mt-0.5">⚠ {t}</span>)}
                             {item.adicionales.length > 0 && <span className="block text-[11px] text-zinc-400 mt-0.5">incluye {item.adicionales.length} adicional{item.adicionales.length === 1 ? '' : 'es'}</span>}
                           </button>

@@ -7,7 +7,7 @@ import { obtenerAsignacion } from '@/app/lib/compras';
 import { enviarAvisoAprobacionCompras } from '@/app/lib/email';
 
 export interface CorreoAviso {
-  resultado: 'APROBADA' | 'APROBADA_CON_CAMBIOS' | 'RECHAZADA' | 'CORREGIDA';
+  resultado: 'APROBADA' | 'APROBADA_CON_CAMBIOS' | 'RECHAZADA' | 'CORREGIDA' | 'INCIDENCIA';
   /** «la compra», «el margen», «un producto»… */
   que: string;
   comentario?: string | null;

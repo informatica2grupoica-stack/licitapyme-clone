@@ -48,7 +48,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
       return NextResponse.json({ success: true, ...(await listarAprobacionesLinea(id)) });
     }
     const p = await permisosCrudosDeUsuario(userId);
-    if (!(p.compras_todo || p.aprobar_comercial))
+    if (!(request.headers.get('x-user-rol') === 'admin' || p.aprobar_comercial))
       return NextResponse.json({ error: 'Solo el jefe de ventas aprueba los productos.' }, { status: 403 });
     const ids: number[] = (Array.isArray(body.productoIds) ? body.productoIds : [body.productoId]).map(Number).filter((n: number) => Number.isInteger(n) && n > 0);
     if (!['APROBAR', 'RECHAZAR', 'QUITAR'].includes(body.decision) || ids.length === 0)

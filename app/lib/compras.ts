@@ -1650,7 +1650,7 @@ export function ocDifiereDeLoAdjudicado(totalNetoOC: number | null, montoAdjudic
  * (número-correlativo-año); MP cambia el tipo (LE → R1) entre el llamado y la orden de compra.
  */
 export function claveLicitacionSinTipo(codigo: string | null | undefined): string | null {
-  const m = String(codigo || '').trim().toUpperCase().match(/^(d+-d+)-[A-Z]+d?(dd)$/);
+  const m = String(codigo || '').trim().toUpperCase().match(/^([0-9]+-[0-9]+)-[A-Z]+[0-9]?([0-9][0-9])$/);
   return m ? `${m[1]}-${m[2]}` : null;
 }
 
