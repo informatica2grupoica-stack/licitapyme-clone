@@ -1244,7 +1244,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
               auditoria={auditorias.find(a => a.cotizacionId === c.id && a.productoId === it.productoId)}
               item={{ precioUnitario: it.precioUnitario, precioBase: it.precioBase, adicionales: it.adicionales }}
               puedeOperar={puedeOperar} onCambio={async () => { await cargar(); recargarCompartido(); }} />
-            <TecnicoDeCelda negocioId={negocioId} productoId={it.productoId} proveedor={c.proveedorNombre}
+            <TecnicoDeCelda negocioId={negocioId} productoId={it.productoId} proveedor={c.proveedorNombre} proveedorRut={c.proveedorRut}
               precioVeredicto={compararPrecioConCosteo(it.precioUnitario, costeado[it.productoId] ?? null).veredicto}
               panel={fichas.panel} cargando={fichas.cargando} recargar={fichas.recargar} puedeOperar={puedeOperar} />
           </div>

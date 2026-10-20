@@ -43,8 +43,18 @@ const normP = (x: string | null | undefined) => (x || '').toLowerCase().replace(
 /** Lo que de verdad se va a comprar: opciones de un proveedor cotizado (o con el proveedor todavía por elegir). Las de links de tiendas o de
  *  comparación de precios del Auditor NO cuentan como «ficha del producto que se compra», aunque tengan ficha. */
 export function opcionesDeCompra(p: ProductoFichasDTO): OpcionFichaDTO[] {
-  const nombres = p.cotizados.map(c => normP(c.proveedor));
-  return p.opciones.filter(o => !o.proveedor || nombres.includes(normP(o.proveedor)));
+  return p.opciones.filter(o => !o.proveedor || p.cotizados.some(c => mismoProveedorFicha(o, c)));
+}
+
+const soloRut = (x: string | null | undefined) => (x || '').replace(/[^0-9kK]/g, '').toUpperCase();
+/** ¿La opción (ficha) y la cotización son del mismo proveedor? Mismo RUT, o nombre igual / uno dentro del otro («Sodimac» ↔ «SODIMAC S.A.»).
+ *  Una compra directa trae su propio nombre y RUT: comparar solo el nombre exacto dejaba la ficha «sin proveedor cotizado». */
+export function mismoProveedorFicha(op: { proveedor: string | null; proveedorRut?: string | null }, cot: { proveedor: string; proveedorRut?: string | null }): boolean {
+  const ra = soloRut(op.proveedorRut), rb = soloRut(cot.proveedorRut);
+  if (ra.length >= 7 && rb.length >= 7) return ra === rb;
+  const a = normP(op.proveedor), b = normP(cot.proveedor);
+  if (!a || !b) return false;
+  return a === b || (Math.min(a.length, b.length) >= 5 && (a.includes(b) || b.includes(a)));
 }
 
 function Insignia({ estado }: { estado: string }) {
@@ -233,6 +243,10 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
   const quitarModelo = async (o: OpcionFichaDTO) => {
     try { await post({ accion: 'quitar_modelo', opcionId: o.opcionId }); await cargar(); } catch (e: any) { toast.error('No se pudo quitar', e.message); }
   };
+  const restaurarModelo = async (opcionId: number) => {
+    try { await post({ accion: 'restaurar_modelo', opcionId }); toast.success('Modelo restaurado', 'Vuelve a comparar para que cuente contra las bases.'); await cargar(); }
+    catch (e: any) { toast.error('No se pudo restaurar', e.message); }
+  };
   const mover = async (opcionId: number, productoCompraId: number) => {
     try { await post({ accion: 'mover_modelo', opcionId, productoCompraId }); toast.success('Modelo cambiado de producto', 'Vuelve a comparar para que cuente contra las bases del producto nuevo.');
       const nuevo = panel?.productos.find(x => x.productoId === productoCompraId);
@@ -356,6 +370,19 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
           {panel.noSonFichas.map((d, i) => <p key={i} className="text-[11.5px] text-zinc-500"><b className="text-zinc-700">{d.documento}</b> · {d.motivo}{puedeOperar && <button type="button" onClick={() => olvidar(d.extraccionId)} className="ml-2 font-semibold text-zinc-500 hover:text-rose-700">Quitar</button>}</p>)}
         </div>
       )}
+      {panel.quitados.length > 0 && (
+        <details className="rounded-xl border border-zinc-200 bg-zinc-50/60" data-testid="fichas-quitadas">
+          <summary className="cursor-pointer px-3 py-2 text-[12px] font-bold text-zinc-600">Fichas de modelos quitados ({panel.quitados.length}): siguen guardadas, se pueden restaurar</summary>
+          <div className="px-3 pb-2 space-y-1">
+            {panel.quitados.map(q => (
+              <p key={q.opcionId} className="text-[11.5px] text-zinc-500">
+                <b className="text-zinc-700">{[q.marca, q.modelo].filter(Boolean).join(' ') || 'Modelo sin nombre'}</b> · {q.productoDescripcion}{q.proveedor ? ` · ${q.proveedor}` : ''} · {q.fichas.join(', ')}
+                {puedeOperar && <button type="button" onClick={() => restaurarModelo(q.opcionId)} data-testid={`ficha-restaurar-${q.opcionId}`} className="ml-2 font-semibold text-teal-700 hover:text-teal-900">Restaurar</button>}
+              </p>
+            ))}
+          </div>
+        </details>
+      )}
       {panel.conError.length > 0 && (
         <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-3 space-y-1.5">
           <p className="text-[12.5px] font-bold text-rose-800">No se pudieron leer</p>
@@ -418,6 +445,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
                       <span className="block text-[11.5px] text-zinc-500 truncate">
                         {p.cotizados.length ? `Cotizado por ${p.cotizados.map(c => c.proveedor).join(', ')}` : 'Sin cotización todavía'}
                         {conFichas.length ? ` · con ficha (${conFichas.reduce((n, o) => n + o.fichas.length, 0)})` : ' · sin ficha'}
+                        {(() => { const ajenas = p.opciones.filter(o => !opcionesDeCompra(p).includes(o) && o.fichas.length > 0); return ajenas.length ? ` · ${ajenas.length} ficha(s) de un proveedor que no cotizó: revisa el proveedor` : ''; })()}
                       </span>
                     </span>
                   </button>
@@ -474,8 +502,8 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
                           {relevantes.length === 0 &&<p className="text-[12.5px] text-zinc-500">Todavía no hay fichas ni opciones de los proveedores cotizados. Sube la ficha del modelo que se va a comprar.</p>}
                           {relevantes.map(o => <OpcionFila key={o.opcionId} o={o} cotizados={nombres} puedeOperar={puedeOperar} onProveedor={cambiarProveedor} onQuitar={quitarModelo} onQuitarFicha={quitarFicha} onComplementar={complementar} onMover={(op, pid) => mover(op.opcionId, pid)} productosDestino={panel.productos.filter(x => x.productoId !== p.productoId)} />)}
                           {otras.length > 0 && (
-                            <details className="rounded-lg border border-zinc-200 bg-white">
-                              <summary className="cursor-pointer px-3 py-2 text-[12px] font-semibold text-zinc-500 hover:text-zinc-800">Otros modelos con proveedor que no cotizó ({otras.length}): no cuentan como lo que se compra</summary>
+                            <details open={otras.some(o => o.fichas.length > 0)} className="rounded-lg border border-zinc-200 bg-white">
+                              <summary className="cursor-pointer px-3 py-2 text-[12px] font-semibold text-zinc-500 hover:text-zinc-800">Modelos con proveedor que no cotizó este producto ({otras.length}): no cuentan como lo que se compra hasta que cambies el proveedor</summary>
                               <div className="p-2 space-y-2">{otras.map(o => <OpcionFila key={o.opcionId} o={o} cotizados={nombres} puedeOperar={puedeOperar} onProveedor={cambiarProveedor} onQuitar={quitarModelo} onQuitarFicha={quitarFicha} onComplementar={complementar} onMover={(op, pid) => mover(op.opcionId, pid)} productosDestino={panel.productos.filter(x => x.productoId !== p.productoId)} />)}</div>
                             </details>
                           )}

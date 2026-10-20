@@ -64,6 +64,15 @@ function dibujar(ctx: CanvasRenderingContext2D, m: Marca, grosor: number) {
   }
 }
 
+const LS_POS_BOTON = 'reportar-error-pos';
+const TAM_BOTON = 44;
+function acotar(x: number, y: number) {
+  return {
+    x: Math.min(Math.max(0, x), Math.max(0, window.innerWidth - TAM_BOTON)),
+    y: Math.min(Math.max(0, y), Math.max(0, window.innerHeight - TAM_BOTON)),
+  };
+}
+
 export function ReportarErrorBoton() {
   const { usuario } = useSession();
   const pathname = usePathname();
@@ -71,6 +80,17 @@ export function ReportarErrorBoton() {
   const [capturando, setCapturando] = useState(false);
   const [captura, setCaptura] = useState<HTMLCanvasElement | null>(null);
   const [urlCapturada, setUrlCapturada] = useState('');
+
+  // Posición propia: el botón se puede arrastrar para que no tape lo que se quiere ver. Se recuerda
+  // en este navegador; null = el rincón de siempre. Los hooks van ANTES del return temprano.
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const arrastre = useRef<{ dx: number; dy: number; x0: number; y0: number; movido: boolean } | null>(null);
+  useEffect(() => {
+    try {
+      const g = JSON.parse(localStorage.getItem(LS_POS_BOTON) || 'null');
+      if (g && Number.isFinite(g.x) && Number.isFinite(g.y)) setPos(acotar(g.x, g.y));
+    } catch { /* sin storage: queda en el rincón */ }
+  }, []);
 
   useEffect(() => { instalarColector(); }, []);
 
@@ -110,12 +130,30 @@ export function ReportarErrorBoton() {
     <>
       <button
         data-reporte-error-ignorar
-        onClick={capturar}
+        onClick={() => { if (!arrastre.current?.movido) capturar(); }}
+        onPointerDown={e => {
+          const r = e.currentTarget.getBoundingClientRect();
+          arrastre.current = { dx: e.clientX - r.left, dy: e.clientY - r.top, x0: e.clientX, y0: e.clientY, movido: false };
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={e => {
+          const a = arrastre.current;
+          if (!a || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
+          if (!a.movido && Math.hypot(e.clientX - a.x0, e.clientY - a.y0) < 5) return;
+          a.movido = true;
+          setPos(acotar(e.clientX - a.dx, e.clientY - a.dy));
+        }}
+        onPointerUp={() => {
+          if (arrastre.current?.movido && pos) { try { localStorage.setItem(LS_POS_BOTON, JSON.stringify(pos)); } catch { /* sin storage */ } }
+          // el click que sigue a un arrastre se ignora; se limpia después de que dispare
+          setTimeout(() => { arrastre.current = null; }, 0);
+        }}
         disabled={capturando || !!captura}
-        title="Reportar un error de la plataforma (captura esta pantalla)"
+        title="Reportar un error (captura esta pantalla). Arrástralo para moverlo."
         aria-label="Reportar error"
-        className={`fixed right-5 z-[250] w-11 h-11 rounded-full bg-red-600 text-white shadow-xl flex items-center justify-center
-          opacity-70 hover:opacity-100 hover:bg-red-700 transition-all ${costeoActivo ? 'bottom-[88px]' : 'bottom-5'}`}
+        style={pos ? { left: pos.x, top: pos.y, touchAction: 'none' } : { touchAction: 'none' }}
+        className={`fixed z-[250] w-11 h-11 rounded-full bg-red-600 text-white shadow-xl flex items-center justify-center cursor-grab active:cursor-grabbing
+          opacity-70 hover:opacity-100 hover:bg-red-700 ${pos ? '' : `right-5 ${costeoActivo ? 'bottom-[88px]' : 'bottom-5'}`}`}
       >
         {capturando ? <Loader2 size={20} className="animate-spin" /> : <Bug size={20} />}
       </button>

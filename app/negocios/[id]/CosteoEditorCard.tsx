@@ -728,10 +728,16 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
       <div className={`${ancho ? 'min-w-0 ' : ''}space-y-2.5`}>
       <table className="border-collapse w-full">
         <tbody>
-          <FilaCuadro etiqueta="Total venta C/IVA" valor={fmtCLP(Math.round(comp.ventaConIva))} fondo={CUADRO_AZUL} titulo="= Precio total neto × 1,19" />
-          <FilaCuadro etiqueta="Venta IVA" valor={fmtCLP(Math.round(comp.ventaIva))} fondo={CUADRO_AZUL} titulo="IVA de la venta" />
+          {/* Neto arriba, junto al bloque del presupuesto neto, para compararlos de un vistazo
+              (pedido del usuario, 20-oct-2026); el costo neto vive bajo el presupuesto, más abajo. */}
           <FilaCuadro etiqueta="Total neto venta" valor={fmtCLP(Math.round(comp.ventaNeta))} fondo={CUADRO_AZUL} fuerte titulo="Suma de la columna Precio total neto (solo hojas ofertadas)" />
-          <FilaCuadro etiqueta="Total costo neto" valor={fmtCLP(Math.round(comp.costoNetoEstimado))} fondo={CUADRO_SALMON} titulo="Suma de la columna Costo total neto — lo que se supuso al cotizar" />
+          <FilaCuadro etiqueta="Venta IVA" valor={fmtCLP(Math.round(comp.ventaIva))} fondo={CUADRO_AZUL} titulo="IVA de la venta" />
+          <FilaCuadro etiqueta="Total venta C/IVA" valor={fmtCLP(Math.round(comp.ventaConIva))} fondo={CUADRO_AZUL} titulo="= Precio total neto × 1,19" />
+        </tbody>
+      </table>
+      {/* Segundo cuadro: utilidad y márgenes, separado de la venta (azules) a pedido del usuario. */}
+      <table className="border-collapse w-full">
+        <tbody>
           <FilaCuadro etiqueta="Utilidad total neta" valor={fmtCLP(Math.round(comp.utilidadEstimada))} fondo={CUADRO_VERDE} fuerte
                       tono={comp.utilidadEstimada < 0 ? 'malo' : 'ok'} titulo="= Total neto venta − Total costo neto" />
           {/* Única fila EDITABLE del bloque estimado: fijar acá el margen despeja el recargo. */}
@@ -808,6 +814,13 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
             title="Tope de ESTA línea, CON IVA. El neto de arriba (el que se compara contra la oferta) se calcula solo: monto / 1,19. Vacío = se usa el presupuesto de la línea que trae el informe."
           />
         </div>
+      </div>
+      {/* Total costo neto: mismo tamaño que el presupuesto neto, justo debajo, para ver de un
+          vistazo cuánto del tope se va en costo. */}
+      <div className="border border-orange-300 px-2 pt-1.5 pb-1.5" style={{ background: CUADRO_SALMON }}
+           title="Suma de la columna Costo total neto — lo que se supuso al cotizar">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-orange-900/70 leading-none">Total costo neto</p>
+        <p className="mt-1 leading-none tabular-nums text-[19px] font-bold text-zinc-900">{fmtCLP(Math.round(comp.costoNetoEstimado))}</p>
       </div>
       </div>
 
@@ -1430,6 +1443,11 @@ export function CosteoEditorCard({
   const hojasConMargenPropio = grupos.filter(grp => Number.isFinite(grp.margenVenta as number)).length;
   const itemsConMargenPropio = grupos.reduce((n, grp) => n + filasConMargenPropio(grp), 0);
   const hayMargenPropio = hojasConMargenPropio > 0 || itemsConMargenPropio > 0;
+  // En por_linea / por_categoria el campo de arriba edita SOLO la hoja abierta: el global movía a
+  // todas las hojas que no tuvieran recargo propio, y la línea 1 cambiaba al ajustar la 2.
+  const porHoja = estado.modalidad !== 'suma_alzada' && grupos.length > 1;
+  const giCabecera = Math.min(grupoActivo, grupos.length - 1);
+  const grpCabecera = grupos[giCabecera];
   // Ítems cotizados a los que les falta el link — el guardado queda bloqueado hasta completarlos
   // (el backend corta igual, ver filasSinLink). Solo se miran las hojas que SÍ se ofertan.
   const sinLink = gruposOfertados.flatMap(grp =>
@@ -1524,11 +1542,13 @@ export function CosteoEditorCard({
               Con el rótulo viejo, un recargo de 25% arriba y un margen de 20% abajo parecían una
               contradicción. El equivalente se muestra al lado para que se lean juntos. */}
           <label className="flex items-center gap-1.5 text-[11.5px] font-semibold text-zinc-500 px-2 py-1.5 border border-zinc-200 rounded-lg" title="Recargo SOBRE EL COSTO: precio de venta = costo neto × (1 + recargo). Es el ×1,27 de la plantilla, editable. No confundir con el '% Margen' del cuadro comparativo, que es la utilidad sobre la VENTA.">
-            {hayMargenPropio ? 'Recargo base' : 'Recargo s/costo'}
+            {porHoja ? `Recargo · ${grpCabecera.linea != null ? `Línea ${grpCabecera.linea}` : grpCabecera.nombre}` : hayMargenPropio ? 'Recargo base' : 'Recargo s/costo'}
             <InputDecimalCL
-              valor={margen}
+              valor={porHoja ? margenDeGrupo(grpCabecera, margen) : margen}
               disabled={congelado}
-              onFijar={v => setEstado(prev => prev ? { ...prev, margenVenta: v } : prev)}
+              onFijar={v => setEstado(prev => prev ? (porHoja
+                ? { ...prev, grupos: prev.grupos.map((x, i) => i !== giCabecera ? x : { ...x, margenVenta: v }) }
+                : { ...prev, margenVenta: v }) : prev)}
               title="Admite decimales con coma, ej. 14,45"
               className="w-14 bg-transparent text-right font-bold text-zinc-800 outline-none disabled:opacity-60"
             />
@@ -1536,13 +1556,26 @@ export function CosteoEditorCard({
             {/* margen sobre la venta = recargo / (1 + recargo) — el mismo número que sale en el
                 cuadro comparativo, dicho acá para que no parezcan dos cifras en desacuerdo. */}
             <span className="text-[10.5px] font-normal text-zinc-400" title="Equivalencia: un recargo del 25% sobre el costo deja una utilidad del 20% sobre la venta. Las hojas —y los ítems— con recargo propio no siguen este número.">
-              = {margenDeRecargo(margen).toFixed(1).replace('.', ',')}% s/venta
-              {hayMargenPropio && ` · ${[
+              = {margenDeRecargo(porHoja ? margenDeGrupo(grpCabecera, margen) : margen).toFixed(1).replace('.', ',')}% s/venta
+              {!porHoja && hayMargenPropio && ` · ${[
                 hojasConMargenPropio ? `${hojasConMargenPropio} hoja${hojasConMargenPropio === 1 ? '' : 's'}` : '',
                 itemsConMargenPropio ? `${itemsConMargenPropio} ítem${itemsConMargenPropio === 1 ? '' : 's'}` : '',
               ].filter(Boolean).join(' y ')} con recargo propio`}
             </span>
           </label>
+          {porHoja && (
+            <button
+              onClick={() => {
+                const r = margenDeGrupo(grpCabecera, margen);
+                setEstado(prev => prev ? { ...prev, grupos: prev.grupos.map(x => ({ ...x, margenVenta: r })) } : prev);
+              }}
+              disabled={congelado}
+              title="Copia el recargo de esta línea a todas las demás líneas. Los ítems con recargo propio no se tocan."
+              className="px-2.5 py-1.5 text-[11.5px] font-semibold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors disabled:opacity-50"
+            >
+              Aplicar a todas
+            </button>
+          )}
           <button
             onClick={recargarDesdeViabilidad}
             disabled={recargando || congelado}

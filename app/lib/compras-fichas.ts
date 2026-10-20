@@ -334,7 +334,7 @@ export interface ProductoFichasDTO {
   productoId: number; descripcion: string; cantidad: number | null; filaId: string | null; lineaReal: number | null;
   /** Lo que piden las bases para ESTE producto (de la línea del informe de viabilidad), haya o no ficha. */
   requisitosBase: Array<{ n: number; texto: string; criticidad: string }>;
-  cotizados: Array<{ proveedor: string; precioUnit: number | null }>;
+  cotizados: Array<{ proveedor: string; proveedorRut: string | null; precioUnit: number | null }>;
   opciones: OpcionFichaDTO[];
 }
 export interface FichaPendienteDTO {
@@ -346,6 +346,8 @@ export interface PanelFichasDTO {
   /** Documentos que pasaron por aquí pero no son fichas de un producto (cotizaciones, propuesta técnica genérica…). */
   noSonFichas: Array<{ extraccionId: number; documento: string; motivo: string }>;
   sinCosteo: boolean;
+  /** Modelos que alguien quitó con «Quitar modelo» y que siguen teniendo ficha guardada: se pueden restaurar. */
+  quitados: Array<{ opcionId: number; productoDescripcion: string; marca: string | null; modelo: string | null; proveedor: string | null; fichas: string[] }>;
 }
 
 export async function panelFichas(negocioId: number, licitacionCodigo: string): Promise<PanelFichasDTO> {
@@ -404,7 +406,7 @@ export async function panelFichas(negocioId: number, licitacionCodigo: string): 
     return {
       productoId: p.id, descripcion: corto(p.descripcion), cantidad: p.cantidad, filaId: linea?.id ?? null, lineaReal: linea?.lineaReal ?? null,
       requisitosBase: reqProducto.map(r => ({ n: r.n, texto: r.texto, criticidad: r.criticidad })),
-      cotizados: cubren.map(c => ({ proveedor: c.proveedorNombre, precioUnit: c.items.find(i => i.productoId === p.id)?.precioUnitario ?? null })),
+      cotizados: cubren.map(c => ({ proveedor: c.proveedorNombre, proveedorRut: c.proveedorRut ?? null, precioUnit: c.items.find(i => i.productoId === p.id)?.precioUnitario ?? null })),
       opciones,
     };
   });
@@ -449,7 +451,25 @@ export async function panelFichas(negocioId: number, licitacionCodigo: string): 
       });
     }
   }
-  return { productos: salida, pendientes, conError, noSonFichas, sinCosteo: lineas.length === 0 };
+  // Modelos quitados que conservan su ficha (solo del espacio de Compras y de productos que siguen vigentes).
+  const [quitRows] = await pool.query(
+    `SELECT o.id, o.fila_id, o.marca, o.modelo, o.proveedor_razon_social FROM auditor_opcion o
+      WHERE o.negocio_id = ? AND o.fila_id LIKE 'cmp:%' AND o.estado = 'descartada'
+        AND EXISTS (SELECT 1 FROM auditor_respaldo r WHERE r.opcion_id = o.id AND r.tipo = 'ficha_tecnica' AND r.vigente = 1) ORDER BY o.id`, [negocioId]) as any;
+  const quitados: PanelFichasDTO['quitados'] = [];
+  for (const o of quitRows as any[]) {
+    const prod = vigentes.find(p => { const l = lineaDeProducto(p, lineas); return l && filaCmp(l.id) === o.fila_id; });
+    if (!prod) continue;
+    quitados.push({ opcionId: o.id, productoDescripcion: corto(prod.descripcion), marca: o.marca, modelo: o.modelo, proveedor: o.proveedor_razon_social,
+      fichas: (respRows as any[]).filter(x => x.opcion_id === o.id).map(x => x.documento_nombre || 'ficha') });
+  }
+  return { productos: salida, pendientes, conError, noSonFichas, sinCosteo: lineas.length === 0, quitados };
+}
+
+/** Deshace «Quitar modelo»: el modelo vuelve al panel con sus fichas. */
+export async function restaurarOpcionDeCompras(negocioId: number, opcionId: number): Promise<void> {
+  const [r] = await pool.query(`UPDATE auditor_opcion SET estado = 'tanteo', motivo_descarte = NULL, actualizado_at = ? WHERE id = ? AND negocio_id = ? AND fila_id LIKE 'cmp:%' AND estado = 'descartada'`, [ahoraChileSQL(), opcionId, negocioId]) as any;
+  if (!r.affectedRows) throw new Error('Ese modelo no está quitado.');
 }
 
 // ── Complementar un «Falta dato» ───────────────────────────────────────────────────────────────────

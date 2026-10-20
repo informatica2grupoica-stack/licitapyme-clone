@@ -8,12 +8,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { IconLoader2 as Loader2, IconSparkles as Chispa } from '@tabler/icons-react';
 import { useToast } from '@/app/components/ui/toast';
 import { irAPestana } from '@/app/compras/[negocioId]/Pestanas';
-import { OpcionFila, enviarComplemento } from './FichasTecnicasCard';
+import { OpcionFila, enviarComplemento, mismoProveedorFicha } from './FichasTecnicasCard';
 import type { PanelFichasDTO, OpcionFichaDTO } from '@/app/lib/compras-fichas';
 import type { VeredictoPrecio } from '@/app/lib/compras-precio-vs-costeo';
 
 export const EVENTO_FICHAS = 'compras:fichas-cambio';
-const normP = (x: string | null | undefined) => (x || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 
 /** Carga el panel de fichas una vez y lo vuelve a pedir cuando algo cambia (aquí o en el paso «Fichas técnicas»). */
 export function useFichasCompras(negocioId: number) {
@@ -43,17 +42,17 @@ const peor = (o: OpcionFichaDTO[]): OpcionFichaDTO | null => {
   return [...o].sort((a, b) => (orden[a.tecnico.estado] ?? 2) - (orden[b.tecnico.estado] ?? 2))[0] ?? null;
 };
 
-export function opcionesDeCelda(panel: PanelFichasDTO | null, productoId: number, proveedor: string): OpcionFichaDTO[] {
+export function opcionesDeCelda(panel: PanelFichasDTO | null, productoId: number, proveedor: string, proveedorRut?: string | null): OpcionFichaDTO[] {
   const p = panel?.productos.find(x => x.productoId === productoId);
-  return (p?.opciones || []).filter(o => normP(o.proveedor) === normP(proveedor));
+  return (p?.opciones || []).filter(o => mismoProveedorFicha(o, { proveedor, proveedorRut }));
 }
 
 /** "cotizaciónId:productoId" → resultado técnico de la ficha de ese proveedor para ese producto (solo si tiene ficha). */
-export function tecnicoPorCelda(panel: PanelFichasDTO | null, cotizaciones: Array<{ id: number; proveedorNombre: string; items: Array<{ productoId: number }> }>): Record<string, TecnicoCelda> {
+export function tecnicoPorCelda(panel: PanelFichasDTO | null, cotizaciones: Array<{ id: number; proveedorNombre: string; proveedorRut?: string | null; items: Array<{ productoId: number }> }>): Record<string, TecnicoCelda> {
   const out: Record<string, TecnicoCelda> = {};
   if (!panel) return out;
   for (const c of cotizaciones) for (const it of c.items) {
-    const con = opcionesDeCelda(panel, it.productoId, c.proveedorNombre).filter(o => o.fichas.length > 0);
+    const con = opcionesDeCelda(panel, it.productoId, c.proveedorNombre, c.proveedorRut).filter(o => o.fichas.length > 0);
     const o = peor(con);
     if (o) out[`${c.id}:${it.productoId}`] = { estado: o.tecnico.estado, cumple: o.tecnico.resumen?.cumple ?? 0, total: o.tecnico.resumen?.total ?? 0, modelo: [o.marca, o.modelo].filter(Boolean).join(' ') };
   }
@@ -74,13 +73,13 @@ export function conclusionConjunta(precio: VeredictoPrecio, estado: string | nul
   return { texto: `Precio ${p}. Hay ficha, pero todavía no se compara contra las bases: usa «Comparar».`, clase: 'border-amber-200 bg-amber-50 text-amber-900' };
 }
 
-export function TecnicoDeCelda({ negocioId, productoId, proveedor, precioVeredicto, panel, cargando, recargar, puedeOperar }: {
-  negocioId: number; productoId: number; proveedor: string; precioVeredicto: VeredictoPrecio;
+export function TecnicoDeCelda({ negocioId, productoId, proveedor, proveedorRut, precioVeredicto, panel, cargando, recargar, puedeOperar }: {
+  negocioId: number; productoId: number; proveedor: string; proveedorRut?: string | null; precioVeredicto: VeredictoPrecio;
   panel: PanelFichasDTO | null; cargando: boolean; recargar: () => Promise<void>; puedeOperar: boolean;
 }) {
   const toast = useToast();
   const [comparando, setComparando] = useState(false);
-  const opciones = opcionesDeCelda(panel, productoId, proveedor);
+  const opciones = opcionesDeCelda(panel, productoId, proveedor, proveedorRut);
   const conFicha = opciones.filter(o => o.fichas.length > 0);
   const o = peor(conFicha);
   const concl = conclusionConjunta(precioVeredicto, o ? o.tecnico.estado : null);
