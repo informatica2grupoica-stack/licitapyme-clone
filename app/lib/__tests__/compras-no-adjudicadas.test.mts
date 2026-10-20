@@ -77,6 +77,18 @@ test('correlativos repetidos en productos o en el acta: no se toca nada', () => 
   assert.deepEqual(decidirNoAdjudicadas([prod(1, 1), prod(2, 2)], [nuestra(1), ajena(2), ajena(2)], true).marcar, []);
 });
 
+test('caso 2827-72-LP26: varios productos por línea y los números del costeo = los del acta → se marcan las líneas ajenas', () => {
+  const productos = [prod(1, 1), prod(2, 1), prod(3, 2), prod(4, 3), prod(5, 3), prod(6, 4), prod(7, 4)];
+  const d = decidirNoAdjudicadas(productos, [ajena(1), ajena(2), ajena(3), nuestra(4)], true);
+  assert.deepEqual(d.marcar.sort(), [1, 2, 3, 4, 5]);
+  assert.equal(d.omitido, null);
+});
+
+test('varios productos por línea pero falta una línea del acta en el costeo: no se toca nada', () => {
+  const d = decidirNoAdjudicadas([prod(1, 1), prod(2, 1), prod(3, 4)], [ajena(1), ajena(2), ajena(3), nuestra(4)], true);
+  assert.deepEqual(d.marcar, []);
+});
+
 test('esSubestadoFuera: RENUNCIADO y NO_ADJUDICADA salen de la cobertura; el resto no', () => {
   assert.equal(esSubestadoFuera('NO_ADJUDICADA'), true);
   assert.equal(esSubestadoFuera('RENUNCIADO'), true);

@@ -84,11 +84,18 @@ export function decidirNoAdjudicadas(
   const activos = productos.filter(p => !esSubestadoFuera(p.subestado)).length;
   const ganadas = lineas.filter(l => l.esNuestra).length;
   const vistos = new Set<number>();
+  let hayRepetidos = false;
   for (const p of conCorrelativo) {
     const c = Number(p.correlativo);
-    if (vistos.has(c)) return sinCruce('Hay productos con el mismo correlativo: no se puede cruzar con seguridad.', activos, ganadas);
+    if (vistos.has(c)) hayRepetidos = true;
     vistos.add(c);
     if (!porCorrelativo.has(c)) return sinCruce('La numeración del costeo no calza con la del acta: no se toca nada.', activos, ganadas);
+  }
+  // Varios productos bajo el mismo número de línea (caso 2827-72-LP26: 18 productos en las líneas 1 a 4 del acta) solo se
+  // aceptan si los números del costeo son EXACTAMENTE los del acta: el costeo está agrupado por línea del llamado. Con
+  // cualquier hueco (un número del acta sin productos) sigue sin haber cruce seguro y no se toca nada.
+  if (hayRepetidos && vistos.size !== porCorrelativo.size) {
+    return sinCruce('Hay productos con el mismo correlativo: no se puede cruzar con seguridad.', activos, ganadas);
   }
 
   const d = vacia(null);
