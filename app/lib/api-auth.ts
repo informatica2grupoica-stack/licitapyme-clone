@@ -92,6 +92,34 @@ export async function puedeVerLicitacion(req: NextRequest, codigo: string): Prom
   }
 }
 
+/** ¿Puede usar el chat IA sobre esta licitación? (20-oct-2026). Más estricta que puedeVerLicitacion:
+ *  · admin → sí, cualquier licitación.
+ *  · Compras (permiso `compras`, `compras_todo` o `aprobar_comercial`, o encargado asignado a ese negocio) → sí, igual que
+ *    para entrar a licitaciones de cualquier perfil.
+ *  · perfil normal → SOLO sus licitaciones (dueño de algún negocio activo con ese código). `ver_otros_negocios` NO abre el
+ *    chat y las licitaciones sin dueño tampoco. Fail-closed ante error de BD. */
+export async function puedeChatearLicitacion(req: NextRequest, codigo: string): Promise<boolean> {
+  const u = await getAuthedUser(req);
+  if (!u) return false;
+  if (u.rol === 'admin') return true;
+  const p = await permisosDeUsuario(u.id, u.rol);
+  if (p.compras || p.compras_todo || p.aprobar_comercial) return true;
+  try {
+    const [propios] = await pool.query(
+      `SELECT 1 FROM negocios WHERE licitacion_codigo = ? AND asignado_a = ? AND activo = TRUE LIMIT 1`,
+      [codigo, u.id],
+    );
+    if ((propios as any[]).length > 0) return true;
+    const [enc] = await pool.query(
+      `SELECT 1 FROM compras_asignacion WHERE licitacion_codigo = ? AND asignado_a = ? LIMIT 1`,
+      [codigo, u.id],
+    );
+    return (enc as any[]).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 // ─── Permisos granulares ─────────────────────────────────────────────────────────
 // El admin es "super": tiene TODOS los permisos implícitamente. Un usuario normal solo
 // tiene los que el admin le haya otorgado (columna usuarios.permisos JSON). Catálogo:
@@ -154,9 +182,11 @@ export async function puedeVerLicitacion(req: NextRequest, codigo: string): Prom
 //                       Como `compras_todo` en su día, NO se auto-otorga a todo admin: `permisosDeUsuario` lo deja en false para admin y
 //                       `esCA()` lee el valor GUARDADO. Se otorga solo al Asesor y al superusuario del dueño.
 //   costeo_exportar    → (16-oct-2026, pedido explícito) botón "Exportar Excel" del Costeo digital (era admin-only).
+//   chat_licitacion    → (20-oct-2026) burbuja de chat IA dentro de una licitación (documentos, viabilidad, auditor, costeo, compras).
+//   chat_global        → (20-oct-2026) chat IA sobre TODAS las licitaciones (rankings, competencia, búsqueda por contenido).
 //   anexos             → (05-oct-2026, pedido explícito) generar, separar y rellenar anexos (el creador de
 //                       anexos era admin-only "mientras se decidía quiénes más lo usaban").
-export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente' | 'compras' | 'compras_administracion' | 'compras_bodega' | 'compras_todo' | 'solo_compras' | 'compras_ver' | 'costeo_editor' | 'auditor_tecnico' | 'auditor_compra' | 'auditor_aprobar' | 'anexos' | 'reglas_ia' | 'costeo_exportar';
+export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente' | 'compras' | 'compras_administracion' | 'compras_bodega' | 'compras_todo' | 'solo_compras' | 'compras_ver' | 'costeo_editor' | 'auditor_tecnico' | 'auditor_compra' | 'auditor_aprobar' | 'anexos' | 'reglas_ia' | 'costeo_exportar' | 'chat_licitacion' | 'chat_global';
 export type Permisos = Partial<Record<Permiso, boolean>>;
 const PERMISOS_ADMIN: Record<Permiso, boolean> = {
   ver_otros_negocios: true, acceso_radar: true, comentar_viabilidad: true, exportar: true, alertas_anexos: true,
@@ -164,6 +194,7 @@ const PERMISOS_ADMIN: Record<Permiso, boolean> = {
   compras_administracion: true, compras_bodega: true,
   compras_ver: true,
   costeo_editor: true, auditor_tecnico: true, auditor_compra: true, auditor_aprobar: true, anexos: true, costeo_exportar: true,
+  chat_licitacion: true, chat_global: true, // 20-oct-2026: burbuja de chat IA (de la licitación / general). Admin siempre; el resto desde Editar permisos.
   reglas_ia: false,    // 07-oct-2026 (P12, spec v4.0): "solo CA" crea/ve las reglas aprendidas. NO se hereda por ser admin: se otorga desde /admin/usuarios (Asesor + superusuario).
   solo_compras: false, // restricción, no privilegio: un admin nunca queda encerrado en Compras.
   compras_todo: true,  // 30-sep-2026 (pedido explícito): TODO admin ve y opera el módulo de Compras completo. Revierte el "solo asesor y yo" del 10-sep.

@@ -6,6 +6,7 @@ import { puedeVerLicitacion } from '@/app/lib/api-auth';
 import { registrarActividad } from '@/app/lib/actividad';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { r2Client, contentDispositionInline } from '@/app/lib/r2';
+import { leerDocumentoSubido } from '@/app/lib/leer-documento-subido';
 
 // Fija el nombre de descarga correcto sobre el objeto que el navegador ACABA de subir directo a
 // R2 vía /api/documentos/presign (ese PUT no lleva Content-Disposition — ver la nota en esa
@@ -116,6 +117,9 @@ export async function POST(request: NextRequest) {
     // Best-effort: el PUT directo a R2 (ver /api/documentos/presign) no fija el nombre de
     // descarga — se hace acá, ahora que el objeto ya existe en R2.
     await fijarNombreDescarga(url, documentoNombre);
+
+    // Lectura en segundo plano (sin esperar): el texto queda en la BD para el chat y la IA.
+    void leerDocumentoSubido(String(licitacionCodigo), String(documentoNombre), String(url));
 
     // Bitácora: subió un documento propio a esta licitación (best-effort).
     registrarActividad({

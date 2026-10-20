@@ -825,8 +825,8 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
   const viab     = neg.viabilidad_semaforo ? SEMAFORO[neg.viabilidad_semaforo] : null;
   const iniciales = inicialesUsuario(neg.usuario_nombre, neg.usuario_email);
   const nombrePerfil = neg.usuario_nombre || neg.usuario_email || '';
-  // Semáforo de frescura: días sin cambio de estado (no aplica a descartadas). Solo se muestra
-  // cuando ya es alerta (2+ días): "Hoy sin cambios" no aporta.
+  // Semáforo de frescura: tiempo sin cambio de estado (no aplica a descartadas). Siempre visible;
+  // el mismo día se muestra en horas.
   const sem = !descartada ? semaforoRevision(neg.updated_at) : null;
   // Urgencia en días de CALENDARIO (antes Math.ceil sobre ms: "cierra hoy 15:00" salía como "1d").
   let urg: { texto: string; cls: string } | null = null;
@@ -839,7 +839,13 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
     else urg = { texto: `${d} días`, cls: 'text-slate-500' };
   }
   const montoVisible = neg.licitacion_monto != null && neg.licitacion_monto > 0;
-  const alertaSem = sem && sem.dias >= 2 ? sem : null;
+  let textoSem = '';
+  if (sem) {
+    const horas = neg.updated_at ? dayjs().diff(dayjs(neg.updated_at), 'hour') : 0;
+    textoSem = sem.dias > 0
+      ? `${sem.etiqueta} sin cambios de etapa`
+      : horas < 1 ? 'Cambio de etapa hace menos de 1 h' : `${horas} h sin cambios de etapa`;
+  }
   // Tinte de la tarjeta = color de la etapa del pipeline (suave, para que el texto se lea igual).
   const colorEtapa = getEstadoPipeline(neg.estado_pipeline || 'ASIGNADO')?.color || '#94a3b8';
 
@@ -911,12 +917,13 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
         <div className="col-span-2 empty:hidden">
           <EstadoMpBadge rotulo estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} adjEsAdjudicada={neg.adj_es_adjudicada} adjGanamos={neg.adj_ganamos} />
         </div>
-        {alertaSem && (
+        {sem && (
           <div className="col-span-2">
             <dt className="sr-only">Actividad</dt>
-            <dd className={`text-xs font-semibold ${alertaSem.text}`}
-              title={neg.created_at ? `Asignada el ${dayjs(neg.created_at).format('DD/MM/YYYY HH:mm')}` : undefined}>
-              {alertaSem.dias} días sin cambios de etapa
+            <dd className={`inline-flex items-center gap-1.5 text-xs font-semibold ${sem.text}`}
+              title={neg.updated_at ? `Último cambio: ${dayjs(neg.updated_at).format('DD/MM/YYYY HH:mm')}` : undefined}>
+              <span aria-hidden style={{ background: sem.color }} className="w-1.5 h-1.5 rounded-full" />
+              {textoSem}
             </dd>
           </div>
         )}

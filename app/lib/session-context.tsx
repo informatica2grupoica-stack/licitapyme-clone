@@ -44,6 +44,9 @@ export interface UsuarioSession {
     costeo_exportar?: boolean;
     // "CA" (07-oct-2026): crea/ve las reglas aprendidas de viabilidad. No viene gratis con admin.
     reglas_ia?: boolean;
+    // Burbuja de chat IA (20-oct-2026): de la licitación y general. Admin siempre.
+    chat_licitacion?: boolean;
+    chat_global?: boolean;
   };
   // Frente C.1: ¿ve por defecto solo la Tarjeta de Decisión (resumen) en vez de los 4 módulos
   // de detalle? El propio usuario puede graduarse desde el botón "Ver análisis completo".

@@ -36,6 +36,7 @@ export const MAX_CHARS_CONTEXTO = Math.max(60_000, Number(process.env.CHAT_MAX_C
 // soberano (aclaraciones/bases) y se sacrifican anexos/planos. Menor nº = va primero.
 // Mismo criterio que la viabilidad (prioridadDoc), para que el chat "vea" lo mismo.
 function prioridadChat(nombre: string, categoria: string | null): number {
+  if (esPropio(categoria)) return 7; // lo nuestro va después de lo oficial, antes solo de los planos
   const n = `${nombre} ${categoria || ''}`.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   if (/aclarac|respuesta|consulta|foro/.test(n)) return 0;
   if (/especial/.test(n)) return 1;
@@ -46,11 +47,13 @@ function prioridadChat(nombre: string, categoria: string | null): number {
   return 4;
 }
 
-// Los documentos que generamos NOSOTROS (Excel de costeo) NO son fuente de la licitación:
-// son ruido que infla el contexto y puede desplazar a las bases. Se excluyen del corpus del
-// chat, igual que en la viabilidad.
-const FILTRO_NO_PROPIOS =
-  `AND (categoria IS NULL OR categoria <> 'DOCUMENTOS_PROPIOS') AND documento_nombre NOT LIKE 'COSTEO\\_%'`;
+// Los Excel de costeo que genera la app (COSTEO_<código>_<fecha>.xlsx) son ruido que infla el
+// contexto; el costeo ya entra por construirContextoProyecto. Se excluyen del corpus.
+// Los DOCUMENTOS_PROPIOS (anexos rellenados, órdenes de compra, lo que sube Compras) SÍ entran:
+// son nuestra oferta y nuestro avance. Van al final (prioridadChat) para que, si hay que
+// truncar, nunca desplacen a las bases, y se rotulan como nuestros en el marcador.
+const FILTRO_NO_PROPIOS = `AND documento_nombre NOT LIKE 'COSTEO\\_%'`;
+const esPropio = (categoria: string | null) => (categoria || '').toUpperCase() === 'DOCUMENTOS_PROPIOS';
 // Turnos recientes que se envían al modelo como memoria de la conversación.
 const MAX_TURNOS = 6;
 
@@ -134,7 +137,8 @@ export async function construirContextoChat(
   let texto = docs
     .map(d => {
       const t = (d.texto || '').trim();
-      return `${marcador(d.nombre, advertenciaExtraccion(d.metodo, t))}\n${t}`;
+      const nombre = esPropio(d.categoria) ? `${d.nombre} (DOCUMENTO PROPIO: lo subimos nosotros, no es de la licitación)` : d.nombre;
+      return `${marcador(nombre, advertenciaExtraccion(d.metodo, t))}\n${t}`;
     })
     .join('\n\n');
   if (texto.length > MAX_CHARS_CONTEXTO) {
@@ -159,6 +163,136 @@ export async function construirContextoChat(
   );
 
   return { texto, encontrado: true, numDocumentos: docs.length, actualizadoEn };
+}
+
+// ─── Contexto del PROYECTO: lo que hemos analizado además de los documentos ─────
+// Burbuja flotante: la licitación entera es una unidad. Además del corpus de documentos se
+// agrega el estado del negocio, el informe de viabilidad y el costeo guardado. Se arma en cada
+// pregunta (consultas baratas, sin cache) porque cambia con cada análisis/edición. Cada bloque es
+// best-effort: una tabla ausente o un JSON roto no debe tumbar el chat.
+const MAX_CHARS_BLOQUE = 40_000;
+
+const recortar = (s: string) =>
+  s.length > MAX_CHARS_BLOQUE ? `${s.slice(0, MAX_CHARS_BLOQUE)}\n[[BLOQUE RECORTADO por tamaño]]` : s;
+
+export async function construirContextoProyecto(codigo: string): Promise<string> {
+  const bloques: string[] = [];
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT licitacion_nombre, licitacion_organismo, licitacion_monto, licitacion_cierre,
+              licitacion_estado, monto_ofertado
+         FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE ORDER BY id ASC LIMIT 1`,
+      [codigo],
+    );
+    const n = (rows as any[])[0];
+    if (n) bloques.push(`[[ANÁLISIS: FICHA DEL NEGOCIO]]\n${recortar(JSON.stringify(n))}`);
+  } catch { /* sin negocio */ }
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT score_total, semaforo, informe_ejecutivo, notas_analista, updated_at
+         FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`,
+      [codigo],
+    );
+    const v = (rows as any[])[0];
+    if (v) {
+      let informe: unknown = v.informe_ejecutivo;
+      if (typeof informe === 'string') { try { informe = JSON.parse(informe); } catch { /* texto crudo */ } }
+      const ia = (informe as any)?._informe_ia ?? informe;
+      bloques.push(`[[ANÁLISIS: VIABILIDAD (generada ${v.updated_at ? new Date(v.updated_at).toISOString().slice(0, 10) : 's/f'})]]\n${recortar(JSON.stringify(ia ?? {}))}`);
+    }
+  } catch { /* sin viabilidad */ }
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT c.modalidad, c.datos_json, c.actualizado_at
+         FROM negocio_costeo_editor c JOIN negocios n ON n.id = c.negocio_id
+        WHERE n.licitacion_codigo = ? AND n.activo = TRUE ORDER BY c.actualizado_at DESC LIMIT 1`,
+      [codigo],
+    );
+    const c = (rows as any[])[0];
+    if (c?.datos_json) bloques.push(`[[ANÁLISIS: COSTEO GUARDADO (modalidad ${c.modalidad})]]\n${recortar(String(c.datos_json))}`);
+  } catch { /* sin costeo */ }
+
+  // ── Resto del menú del negocio: Líneas, Resultado, Preguntas, Auditor, Postulación ──
+  // Columnas verificadas contra la BD (INFORMATION_SCHEMA). Cada bloque es independiente.
+  const filas = async (titulo: string, sql: string, params: unknown[]) => {
+    try {
+      const [rows] = await pool.query(sql, params);
+      if ((rows as any[]).length) bloques.push(`[[ANÁLISIS: ${titulo}]]\n${recortar(JSON.stringify(rows))}`);
+    } catch { /* tabla o columna ausente */ }
+  };
+  const NEG = `(SELECT id FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE ORDER BY id ASC LIMIT 1)`;
+
+  await filas('LÍNEAS DE LA LICITACIÓN (¿ofertamos cada una?)',
+    `SELECT linea_numero, nombre_linea, ofertamos FROM negocio_lineas_oferta WHERE licitacion_codigo = ? ORDER BY linea_numero`, [codigo]);
+
+  await filas('RESULTADO: ADJUDICACIÓN',
+    `SELECT es_adjudicada, estado, fecha_adjudicacion, fecha_estimada_adjudicacion, tipo_adjudicacion, numero_resolucion,
+            numero_oferentes, monto_adjudicado_total, lineas, readjudicada_en
+       FROM adjudicacion_cache WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);
+
+  await filas('RESULTADO: OFERTAS DE LA COMPETENCIA (es_nuestra=1 es la nuestra)',
+    `SELECT proveedor_nombre, proveedor_rut, linea_numero, linea_descripcion, monto, estado, es_nuestra
+       FROM oferta_competencia WHERE licitacion_codigo = ? ORDER BY linea_numero, monto`, [codigo]);
+
+  await filas('PREGUNTAS Y RESPUESTAS DEL FORO',
+    `SELECT n_preguntas, respondido, fecha_publicacion_respuestas, preguntas FROM preguntas_respuestas_cache WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);
+
+  // Auditor: lo que se exige (checklist), lo que ofertamos, lo pendiente y los costos asociados.
+  await filas('AUDITOR: CHECKLIST (requisitos, estado de cada uno; estado distinto de cumplido/aprobado = pendiente)',
+    `SELECT bloque, tipo, titulo, criticidad, linea_numero, ofertamos, estado, valor_texto, valor_numero, precio_manual, observacion
+       FROM checklist_comercial WHERE negocio_id = ${NEG} ORDER BY bloque, linea_numero, orden`, [codigo]);
+
+  await filas('AUDITOR: OPCIONES DE PRODUCTO/PROVEEDOR POR LÍNEA',
+    `SELECT fila_id, marca, modelo, proveedor_razon_social, via, estado, motivo_descarte
+       FROM auditor_opcion WHERE negocio_id = ${NEG} ORDER BY fila_id, id`, [codigo]);
+
+  await filas('AUDITOR: VERIFICACIÓN TÉCNICA POR OPCIÓN (última pasada)',
+    `SELECT v.opcion_id, v.estado_tecnico, v.pasada, v.creado_at
+       FROM auditor_verificacion_tecnica v
+       JOIN (SELECT opcion_id, MAX(id) mid FROM auditor_verificacion_tecnica WHERE negocio_id = ${NEG} GROUP BY opcion_id) u ON u.mid = v.id`, [codigo]);
+
+  await filas('AUDITOR: COSTOS ASOCIADOS QUE EXIGEN LAS BASES',
+    `SELECT materia, exige_base_literal, fuente_bases, cuantificacion, criticidad, monto_estimado
+       FROM auditor_costo_asociado WHERE negocio_id = ${NEG} AND (anulado IS NULL OR anulado = 0)`, [codigo]);
+
+  // Postulación: compromisos y exigencias confirmadas antes de postular.
+  await filas('POSTULACIÓN: COMPROMISOS DE LAS BASES (confirmado=0 y no_aplica=0 → falta revisarlo)',
+    `SELECT fila_id, materia, exige_base_literal, fuente_bases, se_compromete, cuantificacion, criticidad, confirmado, no_aplica, nota
+       FROM auditor_prepost_item WHERE negocio_id = ${NEG} ORDER BY fila_id, id`, [codigo]);
+
+  // Conversación del equipo, recorrido del negocio y módulo de Compras.
+  await filas('COMENTARIOS DEL EQUIPO (más recientes primero)',
+    `SELECT u.nombre AS autor, c.pipeline_estado AS etapa, c.comentario, c.created_at
+       FROM comentarios_negocio c LEFT JOIN usuarios u ON u.id = c.usuario_id
+      WHERE c.negocio_id = ${NEG} ORDER BY c.created_at DESC LIMIT 80`, [codigo]);
+
+  await filas('RECORRIDO DEL NEGOCIO (eventos, más recientes primero)',
+    `SELECT tipo, mensaje, actor_nombre, created_at FROM historial_eventos
+      WHERE licitacion_codigo = ? ORDER BY created_at DESC LIMIT 60`, [codigo]);
+
+  await filas('COMPRAS: PRODUCTOS A COMPRAR',
+    `SELECT id, correlativo, descripcion, cantidad, unidad, monto_unitario, subestado, renuncia_motivo
+       FROM compras_producto WHERE negocio_id = ${NEG} ORDER BY correlativo`, [codigo]);
+
+  await filas('COMPRAS: APROBACIONES POR PRODUCTO',
+    `SELECT producto_id, estado, comentario, resuelto_por_nombre, resuelto_at
+       FROM compras_aprobacion_linea WHERE negocio_id = ${NEG}`, [codigo]);
+
+  await filas('COMPRAS: COTIZACIONES DE PROVEEDORES',
+    `SELECT proveedor_nombre, descripcion_libre, precio_unitario_clp, precio_total_clp, plazo_entrega_dias, incluye_flete, notas, created_at
+       FROM compras_cotizacion WHERE negocio_id = ${NEG} ORDER BY id`, [codigo]);
+
+  await filas('COMPRAS: TAREAS (estado, responsable, plazo)',
+    `SELECT categoria, titulo, estado, responsable_nombre, plazo_at, cerrado_at, nota_cierre, hallazgo
+       FROM compras_tarea WHERE negocio_id = ${NEG} ORDER BY orden`, [codigo]);
+
+  await filas('COMPRAS: AUDITORÍA DEL NEGOCIO',
+    `SELECT resumen, alertas_json, plazo_entrega_json FROM compras_agente_auditoria_negocio WHERE negocio_id = ${NEG} LIMIT 1`, [codigo]);
+
+  return bloques.join('\n\n');
 }
 
 // ─── Contexto: un solo documento (chat rápido por fila) ─────────────────────────
@@ -244,9 +378,15 @@ PROCEDIMIENTO OBLIGATORIO (síguelo en orden antes de responder):
 6. Si ves un bloque "[[CONTEXTO TRUNCADO...]]" o "[[DOCUMENTO TRUNCADO...]]", parte de los documentos no llegó a tu contexto por tamaño. Si la pregunta apunta a algo que razonablemente estaría en lo que falta y no lo ves en lo que sí tienes, dilo ("no tengo ese documento cargado en este momento") — nunca lo interpretes como que ese documento no existe o no trata el tema.
 7. El HISTORIAL de la conversación es solo para seguir el hilo de la charla, JAMÁS una fuente de datos: si respondiste algo antes y el contexto de documentos (que se te reenvía completo en cada turno) lo contradice, corrígelo — prevalece siempre lo que dicen los documentos AHORA, no lo que dijiste antes.
 
+8. Si además de los documentos ves bloques "[[ANÁLISIS: ...]]" (ficha del negocio, viabilidad, costeo), son análisis NUESTROS ya hechos sobre esta licitación: úsalos para responder sobre el estado, el costo o la viabilidad, y distingue siempre qué viene de un documento oficial y qué de un análisis interno. Si un análisis contradice un documento, prevalece el documento y avísalo.
+
+9. Los documentos rotulados "DOCUMENTO PROPIO" los subimos NOSOTROS (anexos ya rellenados, órdenes de compra, planillas): muestran qué ofertamos o qué hemos avanzado, NO lo que exige la licitación. Nunca los uses para decir qué pide la licitación; sí para decir qué hicimos o qué falta respecto de lo que ella pide.
+
 Estilo de respuesta:
-- Responde en español, claro y directo, como un analista que ya leyó las bases.
-- Resalta montos, plazos, porcentajes y fechas. Usa viñetas o numeración cuando aclare.
+- Habla como una persona del equipo que ya leyó todo el expediente y conversa con un colega: español chileno natural, en primera persona ("revisé", "no encuentro"), tuteando, sin fórmulas de robot ("Según los documentos proporcionados…", "Espero que esto ayude").
+- Parte por la respuesta, en una o dos frases, y después da el detalle si hace falta. Prosa corrida por defecto; viñetas o tabla solo cuando haya 4 o más elementos que de verdad se leen mejor en lista.
+- Sin emojis, sin encabezados con # y sin "Sugerencia:" al final. Negrita solo para cifras, plazos y fechas clave.
+- Si no entendiste la pregunta o falta un dato para responder, pregunta de vuelta con naturalidad en vez de adivinar.
 - Sé conciso en preguntas puntuales: ve al punto, sin relleno — pero nunca sacrifiques una advertencia de dato faltante o incierto por ir más rápido.
 
 LISTADOS EXHAUSTIVOS (prevalece sobre "sé conciso"): si piden "todos", "cada", "el listado completo", "sin omitir" o una tabla de requisitos/características, la prioridad es la COMPLETITUD, no la brevedad. Una fila por cada requisito (nunca varios requisitos fundidos en una celda ni resumidos), en el orden del documento, recorriendo TODOS los apartados del equipo o ítem: generales, motor, transmisión, seguridad, carrocería, equipamiento, certificaciones y documentación, garantía, mantención y capacitación. Está prohibido abreviar con "etc.", "entre otros" o "ver bases". Si hay varios equipos, repite el recorrido completo con cada uno y no los recortes para ganar espacio: la respuesta puede ser tan larga como haga falta. Antes de cerrar, revisa que cada apartado de la sección del documento quedó cubierto.`;

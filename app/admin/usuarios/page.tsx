@@ -33,6 +33,8 @@ interface Permisos {
   anexos?: boolean;
   costeo_exportar?: boolean;
   reglas_ia?: boolean;
+  chat_licitacion?: boolean;
+  chat_global?: boolean;
 }
 
 interface UsuarioAdmin {
@@ -77,6 +79,8 @@ const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string; cat
   { key: 'ver_otros_negocios',  label: 'Ver licitaciones de otros perfiles', desc: 'Sin esto solo ve las suyas y las sin asignar; no puede abrir (ni auditar) las asignadas a otro.', categoria: 'acceso' },
   { key: 'acceso_radar',        label: 'Radar',                          desc: 'Entra al Radar de licitaciones.', categoria: 'acceso' },
   { key: 'exportar',            label: 'Exportar a Excel',               desc: 'Descarga listados en Excel.', categoria: 'acceso' },
+  { key: 'chat_licitacion',     label: 'Chat IA de la licitación',       desc: 'Burbuja de chat dentro de una licitación: responde sobre sus documentos, viabilidad, auditor, costeo y compras (solo las licitaciones que el usuario puede ver). Gasta IA.', categoria: 'acceso' },
+  { key: 'chat_global',         label: 'Chat IA general',                desc: 'Burbuja de chat sobre TODAS las licitaciones: rankings, competencia y búsqueda por contenido en documentos, incluso de negocios de otros perfiles. Gasta IA.', categoria: 'acceso' },
   // ── Viabilidad y alertas ──
   { key: 'comentar_viabilidad', label: 'Corregir viabilidad',            desc: 'Comenta y corrige el análisis de viabilidad.', categoria: 'viabilidad' },
   { key: 'reglas_ia',           label: 'Reglas de la IA (CA)',           desc: 'Solo CA: crea las reglas que aprende la IA de viabilidad y entra a la pantalla de reglas (ver y desactivar). NO lo tiene un admin por serlo: otórgalo al Asesor y al superusuario.', categoria: 'viabilidad' },
