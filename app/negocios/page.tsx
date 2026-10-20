@@ -12,7 +12,7 @@ import { IconBriefcase as Briefcase, IconPlus as Plus, IconSearch as Search, Ico
 import dayjs from 'dayjs';
 import { getEstadoPipeline, ESTADOS_PIPELINE, normalizarEstado } from '@/app/lib/pipeline';
 import { estadoEfectivoNombre } from '@/app/lib/estado-mp';
-import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS, TIPOS_LICITACION } from '@/app/lib/tipos-licitacion';
+import { extractTipoFromCodigo, getTipoLicitacion, TIPOS_LICITACION } from '@/app/lib/tipos-licitacion';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { semaforoRevision } from '@/app/lib/asignacion';
 
@@ -81,12 +81,9 @@ function PipelineBadge({ estadoId }: { estadoId: string | null }) {
   const e = getEstadoPipeline(estadoId || 'ASIGNADO');
   if (!e) return null;
   return (
-    <span
-      style={{ backgroundColor: e.color + '18', color: e.color, borderColor: e.color + '40' }}
-      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-bold border"
-    >
-      <span style={{ backgroundColor: e.color }} className="w-1 h-1 rounded-full flex-shrink-0" />
-      {e.label}
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 whitespace-nowrap">
+      <span aria-hidden style={{ backgroundColor: e.color }} className="w-1.5 h-1.5 rounded-full flex-shrink-0" />
+      {e.label.charAt(0) + e.label.slice(1).toLowerCase()}
     </span>
   );
 }
@@ -95,7 +92,7 @@ function PipelineBadge({ estadoId }: { estadoId: string | null }) {
 const ESTADO_MP_STYLE: Record<string, { bg: string; color: string; border: string }> = {
   Cerrada:    { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' },
   Desierta:   { bg: '#ffedd5', color: '#c2410c', border: '#fed7aa' },
-  Adjudicada: { bg: '#e0e7ff', color: '#4338ca', border: '#c7d2fe' },
+  Adjudicada: { bg: '#ccfbf1', color: '#0f766e', border: '#99f6e4' },
   Revocada:   { bg: '#fee2e2', color: '#b91c1c', border: '#fecaca' },
   Suspendida: { bg: '#fef9c3', color: '#a16207', border: '#fde68a' },
   Ganada:     { bg: '#dcfce7', color: '#15803d', border: '#bbf7d0' },
@@ -111,8 +108,8 @@ const ESTADO_MP_STYLE: Record<string, { bg: string; color: string; border: strin
 //   · adjudicada a terceros                        → "Perdida" (rojo)      ← dato real de la API
 //   · resto de terminales (Cerrada/Desierta/Revocada/Suspendida) → tal cual el estado efectivo
 // Si MP ya adjudicó pero el cache aún no tiene el detalle por línea, se muestra "Adjudicada" neutro.
-function EstadoMpBadge({ estado, cierre, adjEsAdjudicada, adjGanamos }: {
-  estado: string | null; cierre?: string | null; adjEsAdjudicada?: number; adjGanamos?: number;
+function EstadoMpBadge({ estado, cierre, adjEsAdjudicada, adjGanamos, rotulo }: {
+  estado: string | null; cierre?: string | null; adjEsAdjudicada?: number; adjGanamos?: number; rotulo?: boolean;
 }) {
   const nombre = estadoEfectivoNombre(estado, cierre);
   const adjudicada = adjEsAdjudicada === 1 || nombre === 'Adjudicada';
@@ -124,12 +121,12 @@ function EstadoMpBadge({ estado, cierre, adjEsAdjudicada, adjGanamos }: {
   if (!label || label === 'Publicada') return null;
   const st = ESTADO_MP_STYLE[label] || { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' };
   return (
-    <span
-      style={{ backgroundColor: st.bg, color: st.color, borderColor: st.border }}
-      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-bold border"
-    >
-      {label === 'Ganada' && <Trophy size={10} />}
-      {label}
+    <span className="inline-flex items-center gap-1.5 text-xs">
+      {rotulo && <span className="text-[11px] text-slate-500">En Mercado Público</span>}
+      <span style={{ color: st.color }} className="inline-flex items-center gap-1 font-semibold">
+        {label === 'Ganada' && <Trophy size={12} />}
+        {label}
+      </span>
     </span>
   );
 }
@@ -227,7 +224,7 @@ function ModalAsignar({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 rounded-t-2xl">
           <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-            <Plus size={20} className="text-indigo-600" /> Asignar licitación
+            <Plus size={20} className="text-teal-700" /> Asignar licitación
           </h2>
           <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg text-gray-400">
             <X size={18} />
@@ -250,7 +247,7 @@ function ModalAsignar({
                 onChange={e => setForm(p => ({ ...p, codigo: e.target.value }))}
                 onKeyDown={e => e.key === 'Enter' && buscarLicitacion()}
                 placeholder="ej: 1234-56-LE26"
-                className="flex-1 px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-mono"
+                className="flex-1 px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none font-mono"
               />
               <button
                 onClick={buscarLicitacion}
@@ -264,10 +261,10 @@ function ModalAsignar({
 
           {/* Preview licitación */}
           {licitacion && (
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-sm">
+            <div className="bg-teal-50 border border-teal-200 rounded-xl p-3 text-sm">
               <p className="font-semibold text-gray-900 line-clamp-2">{licitacion.nombre}</p>
               <p className="text-gray-500 mt-0.5">{licitacion.organismo}</p>
-              <p className="text-indigo-600 font-medium mt-1">
+              <p className="text-teal-700 font-medium mt-1">
                 {formatMonto(licitacion.monto_estimado || licitacion.monto_total)}
               </p>
             </div>
@@ -318,7 +315,7 @@ function ModalAsignar({
           <button
             onClick={guardar}
             disabled={guardando || !form.codigo || !form.asignado_a}
-            className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:bg-gray-300 transition-colors"
+            className="flex items-center gap-2 px-5 py-2 bg-teal-700 text-white rounded-lg text-sm font-medium hover:bg-teal-800 disabled:bg-gray-300 transition-colors"
           >
             {guardando ? <Loader2 size={14} className="animate-spin" /> : null}
             Asignar
@@ -334,7 +331,6 @@ function NegocioCard({ neg, isAdmin, onEliminar }: {
   neg: Negocio; isAdmin: boolean; onEliminar: (id: number) => void;
 }) {
   const tipo  = extractTipoFromCodigo(neg.licitacion_codigo || '');
-  const tipoBg = TIPO_COLOR_CLASS[tipo] || 'bg-gray-400';
   const dias = diasRestantes(neg.licitacion_cierre);
   const diasCls = dias === 'Vencida' ? 'text-gray-400'
     : dias.replace('d', '') !== '' && parseInt(dias) <= 3 ? 'text-red-500 font-semibold'
@@ -344,13 +340,12 @@ function NegocioCard({ neg, isAdmin, onEliminar }: {
   return (
     <Link
       href={`/negocios/${neg.id}`}
-      style={{ borderLeftColor: col, borderLeftWidth: 3 }}
-      className="block bg-white rounded-xl border border-slate-200 p-3 hover:border-indigo-300 hover:shadow-sm transition-all group"
+      className="block bg-white rounded-xl border border-slate-200 p-3 hover:border-teal-300 hover:shadow-sm transition-all group"
     >
       <div className="flex items-start justify-between gap-2">
         <p className="text-[11px] font-mono text-gray-500 font-semibold">{neg.licitacion_codigo}</p>
         <div className="flex items-center gap-1" onClick={e => e.preventDefault()}>
-          {tipo && <span className={`${tipoBg} text-white text-[10px] px-1.5 py-0.5 rounded font-bold`}>{tipo}</span>}
+          {tipo && <span className="text-xs font-mono text-slate-400">{tipo}</span>}
           {isAdmin && (
             <button onClick={e => { e.preventDefault(); onEliminar(neg.id); }}
               className="p-1 hover:bg-red-50 rounded text-gray-300 hover:text-red-500 transition-colors">
@@ -359,7 +354,7 @@ function NegocioCard({ neg, isAdmin, onEliminar }: {
           )}
         </div>
       </div>
-      <p className="text-[13px] text-gray-800 font-medium line-clamp-2 mt-1 group-hover:text-indigo-600 transition-colors">
+      <p className="text-[13px] text-gray-800 font-medium line-clamp-2 mt-1 group-hover:text-teal-700 transition-colors">
         {neg.licitacion_nombre || 'Sin nombre'}
       </p>
       <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
@@ -367,8 +362,7 @@ function NegocioCard({ neg, isAdmin, onEliminar }: {
         <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} />
         {neg.viabilidad_semaforo && SEMAFORO[neg.viabilidad_semaforo] && (
           <span
-            style={{ borderColor: SEMAFORO[neg.viabilidad_semaforo].color + '40' }}
-            className={`inline-flex items-center gap-1 text-[9.5px] font-bold px-1.5 py-0.5 rounded-full border ${SEMAFORO[neg.viabilidad_semaforo].bg} ${SEMAFORO[neg.viabilidad_semaforo].text}`}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700"
             title={`Viabilidad: ${SEMAFORO[neg.viabilidad_semaforo].label}`}
           >
             <span style={{ background: SEMAFORO[neg.viabilidad_semaforo].color }} className="w-1.5 h-1.5 rounded-full" />
@@ -376,8 +370,8 @@ function NegocioCard({ neg, isAdmin, onEliminar }: {
           </span>
         )}
         {neg.tiene_documentos ? (
-          <span className="inline-flex items-center gap-1 text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-100" title="Tiene documentos descargados">
-            <FileText size={9} /> Docs
+          <span className="inline-flex items-center gap-1 text-xs text-slate-400" title="Tiene documentos descargados">
+            <FileText size={12} /> Docs
           </span>
         ) : null}
         {isAdmin && (
@@ -400,7 +394,7 @@ function NegocioCard({ neg, isAdmin, onEliminar }: {
               <Clock size={10} /> Asignada {dayjs(neg.created_at).format('DD/MM/YY')}
             </span>
           )}
-          <span className={`ml-auto inline-flex items-center gap-1 font-bold px-1.5 py-0.5 rounded-full ${sem.bg} ${sem.text}`}
+          <span className={`ml-auto inline-flex items-center gap-1.5 text-xs font-semibold ${sem.text}`}
             title={`${sem.dias} día${sem.dias === 1 ? '' : 's'} sin cambio de estado`}>
             <span style={{ background: sem.color }} className="w-1.5 h-1.5 rounded-full" />
             {sem.etiqueta} sin cambios
@@ -418,7 +412,6 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
   neg: Negocio; isAdmin: boolean; onEliminar: (id: number) => void;
 }) {
   const tipo   = extractTipoFromCodigo(neg.licitacion_codigo || '');
-  const tipoBg = TIPO_COLOR_CLASS[tipo] || 'bg-gray-400';
   const col    = colorUsuario(neg.usuario_email || neg.usuario_nombre);
   const descartada = (neg.estado_pipeline || '') === 'DESCARTADA';
   const dias   = diasRestantes(neg.licitacion_cierre);
@@ -431,15 +424,14 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
   return (
     <Link
       href={`/negocios/${neg.id}`}
-      style={{ borderLeftColor: descartada ? '#DC2626' : col, borderLeftWidth: 3 }}
       className={`group relative flex items-center gap-3 rounded-lg pl-3.5 pr-3 py-2.5 border transition-all ${
-        descartada ? 'bg-red-50/40 border-red-200 hover:bg-red-50' : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/30'
+        descartada ? 'bg-red-50/40 border-red-200 hover:bg-red-50' : 'bg-white border-slate-200 hover:border-teal-300 hover:bg-teal-50/30'
       }`}
     >
       {/* Tipo + código (+ perfil para admin) */}
       <div className="flex-shrink-0 w-36">
         <div className="flex items-center gap-1 mb-1">
-          {tipo && <span className={`${tipoBg} text-white text-[9px] font-black px-1.5 py-0.5 rounded`}>{tipo}</span>}
+          {tipo && <span className="text-xs font-mono text-slate-400">{tipo}</span>}
           <span className="text-[10px] font-mono text-slate-500 truncate" title={neg.licitacion_codigo}>{neg.licitacion_codigo}</span>
         </div>
         {isAdmin && (
@@ -452,7 +444,7 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
 
       {/* Nombre + organismo + pipeline/etiquetas */}
       <div className="flex-1 min-w-0">
-        <p className="text-[12.5px] font-semibold text-slate-900 truncate group-hover:text-indigo-600 transition-colors" title={neg.licitacion_nombre}>
+        <p className="text-[12.5px] font-semibold text-slate-900 truncate group-hover:text-teal-700 transition-colors" title={neg.licitacion_nombre}>
           {neg.licitacion_nombre || neg.licitacion_codigo}
         </p>
         <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
@@ -485,19 +477,18 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
       {/* Badges: viabilidad + docs + semáforo de frescura */}
       <div className="flex-shrink-0 hidden lg:flex items-center justify-end gap-1.5 w-[300px] whitespace-nowrap">
         {viab && (
-          <span style={{ backgroundColor: viab.color + '18', color: viab.color, borderColor: viab.color + '40' }}
-            className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border flex-shrink-0" title={`Viabilidad: ${viab.label}`}>
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 flex-shrink-0" title={`Viabilidad: ${viab.label}`}>
             <span style={{ background: viab.color }} className="w-1.5 h-1.5 rounded-full" />
             {viab.label}{neg.viabilidad_score != null ? ` ${neg.viabilidad_score}` : ''}
           </span>
         )}
         {neg.tiene_documentos ? (
-          <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-teal-700 bg-teal-50 border border-teal-100 px-1.5 py-0.5 rounded-full flex-shrink-0">
-            <FileText size={9} /> Docs
+          <span className="inline-flex items-center gap-1 text-xs text-slate-400 flex-shrink-0">
+            <FileText size={12} /> Docs
           </span>
         ) : null}
         {sem && (
-          <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${sem.bg} ${sem.text}`}
+          <span className={`inline-flex items-center gap-1.5 text-xs font-semibold flex-shrink-0 ${sem.text}`}
             title={`${sem.dias} día${sem.dias === 1 ? '' : 's'} sin cambio de estado`}>
             <span style={{ background: sem.color }} className="w-1.5 h-1.5 rounded-full" />
             {sem.dias === 0 ? sem.etiqueta : `${sem.etiqueta} sin cambios`}
@@ -507,7 +498,7 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
 
       {/* Acciones */}
       <div className="flex-shrink-0 flex items-center gap-1" onClick={e => e.preventDefault()}>
-        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 group-hover:text-indigo-700">
+        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-700 group-hover:text-teal-700">
           Ver <ArrowRight size={12} />
         </span>
         {isAdmin && (
@@ -563,10 +554,10 @@ function VistaCalendario({ negocios, onAbrirDia }: { negocios: Negocio[]; onAbri
           const esHoy = k === hoy;
           return (
             <button key={k} disabled={items.length === 0} onClick={() => items.length && onAbrirDia(k)}
-              className={`min-h-[70px] rounded-lg border p-1.5 text-left align-top transition-colors ${fueraMes ? 'bg-slate-50/40 border-transparent' : 'border-slate-100'} ${items.length ? 'hover:border-indigo-300 hover:bg-indigo-50/50 cursor-pointer' : 'cursor-default'}`}>
+              className={`min-h-[70px] rounded-lg border p-1.5 text-left align-top transition-colors ${fueraMes ? 'bg-slate-50/40 border-transparent' : 'border-slate-100'} ${items.length ? 'hover:border-teal-300 hover:bg-teal-50/50 cursor-pointer' : 'cursor-default'}`}>
               <div className="flex items-center justify-between">
-                <span className={esHoy ? 'bg-indigo-600 text-white rounded-full w-5 h-5 inline-flex items-center justify-center text-[11px] font-bold' : `text-[12px] ${fueraMes ? 'text-slate-300' : 'text-slate-600'}`}>{d.date()}</span>
-                {items.length > 0 && <span className="text-[10px] font-bold text-indigo-600 tabular-nums">{items.length}</span>}
+                <span className={esHoy ? 'bg-teal-700 text-white rounded-full w-5 h-5 inline-flex items-center justify-center text-[11px] font-bold' : `text-[12px] ${fueraMes ? 'text-slate-300' : 'text-slate-600'}`}>{d.date()}</span>
+                {items.length > 0 && <span className="text-[10px] font-bold text-teal-700 tabular-nums">{items.length}</span>}
               </div>
               <div className="flex flex-wrap gap-1 mt-1.5">
                 {items.slice(0, 6).map((n, i) => {
@@ -657,14 +648,13 @@ interface Destacada { tipo: TipoDestacada; neg: Negocio }
 // no íconos sueltos): así la tarjeta se siente parte de la app, no un componente aparte.
 const DESTACADA_META: Record<TipoDestacada, { label: string; color: string }> = {
   preguntas:  { label: 'Preguntas cierran', color: '#dc2626' },
-  nueva:      { label: 'Nueva asignación',  color: '#6366f1' },
+  nueva:      { label: 'Nueva asignación',  color: '#0d9488' },
   adjudicada: { label: 'Resultado MP',      color: '#059669' },
 };
 
 function DestacadaCard({ d, isAdmin }: { d: Destacada; isAdmin: boolean }) {
   const { neg, tipo } = d;
   const tipoCodigo = extractTipoFromCodigo(neg.licitacion_codigo || '');
-  const tipoBg = TIPO_COLOR_CLASS[tipoCodigo] || 'bg-gray-400';
   const col = colorUsuario(neg.usuario_email || neg.usuario_nombre);
   const m = DESTACADA_META[tipo];
   const diasPreguntas = tipo === 'preguntas' && neg.fecha_fin_preguntas
@@ -675,22 +665,18 @@ function DestacadaCard({ d, isAdmin }: { d: Destacada; isAdmin: boolean }) {
   return (
     <Link
       href={`/negocios/${neg.id}`}
-      style={{ borderLeftColor: esAlerta ? m.color : col, borderLeftWidth: esAlerta ? 4 : 3 }}
       className={`flex-shrink-0 w-[230px] snap-start rounded-xl border p-3 hover:shadow-sm transition-all group ${
-        esAlerta ? 'bg-red-50/40 border-red-200 hover:border-red-300' : 'bg-white border-slate-200 hover:border-indigo-300'
+        esAlerta ? 'bg-red-50/40 border-red-200 hover:border-red-300' : 'bg-white border-slate-200 hover:border-teal-300'
       }`}
     >
       <div className="flex items-center justify-between gap-1 mb-1.5">
-        <span
-          style={{ backgroundColor: m.color + '18', color: m.color, borderColor: m.color + '40' }}
-          className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-bold border flex-shrink-0"
-        >
-          <span style={{ backgroundColor: m.color }} className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${esAlerta ? 'animate-pulse' : ''}`} />
+        <span style={{ color: m.color }} className="inline-flex items-center gap-1.5 text-xs font-semibold flex-shrink-0">
+          <span style={{ backgroundColor: m.color }} className="w-1.5 h-1.5 rounded-full flex-shrink-0" />
           {m.label}
         </span>
-        {tipoCodigo && <span className={`${tipoBg} text-white text-[9px] font-black px-1.5 py-0.5 rounded flex-shrink-0`}>{tipoCodigo}</span>}
+        {tipoCodigo && <span className="text-xs font-mono text-slate-400 flex-shrink-0">{tipoCodigo}</span>}
       </div>
-      <p className="text-[12px] font-semibold text-slate-800 line-clamp-2 leading-snug group-hover:text-indigo-600 transition-colors" title={neg.licitacion_nombre}>
+      <p className="text-[12px] font-semibold text-slate-800 line-clamp-2 leading-snug group-hover:text-teal-700 transition-colors" title={neg.licitacion_nombre}>
         {neg.licitacion_nombre || neg.licitacion_codigo}
       </p>
       {neg.licitacion_organismo && (
@@ -798,9 +784,9 @@ function MultiSelect({ label, options, selected, onChange }: {
   return (
     <div className="relative" ref={ref}>
       <button type="button" onClick={() => setOpen(o => !o)}
-        className={`flex items-center gap-1.5 px-3 py-2 border rounded-lg text-sm outline-none transition-colors ${n ? 'border-indigo-300 bg-indigo-50 text-indigo-700 font-semibold' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
+        className={`flex items-center gap-1.5 px-3 py-2 border rounded-lg text-sm outline-none transition-colors ${n ? 'border-teal-300 bg-teal-50 text-teal-700 font-semibold' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
         {label}
-        {n > 0 && <span className="text-[11px] font-bold bg-indigo-600 text-white rounded-full px-1.5 leading-5">{n}</span>}
+        {n > 0 && <span className="text-[11px] font-bold bg-teal-700 text-white rounded-full px-1.5 leading-5">{n}</span>}
         <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
@@ -812,7 +798,7 @@ function MultiSelect({ label, options, selected, onChange }: {
             return (
               <button key={o.value} type="button" onClick={() => toggle(o.value)}
                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 text-sm text-left">
-                <span className={`w-4 h-4 flex-shrink-0 rounded border flex items-center justify-center ${on ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>
+                <span className={`w-4 h-4 flex-shrink-0 rounded border flex items-center justify-center ${on ? 'bg-teal-700 border-teal-700' : 'border-slate-300'}`}>
                   {on && <Check size={11} className="text-white" />}
                 </span>
                 <span className="text-slate-700">{o.label}</span>
@@ -833,125 +819,108 @@ function MultiSelect({ label, options, selected, onChange }: {
 
 // ── Mini tarjeta para el calendario semanal ──────────────────────────────────
 function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }) {
-  const tipo   = extractTipoFromCodigo(neg.licitacion_codigo || '');
-  const tipoBg = TIPO_COLOR_CLASS[tipo] || 'bg-gray-400';
   const col    = colorUsuario(neg.usuario_email || neg.usuario_nombre);
-  const dias   = neg.licitacion_cierre
-    ? Math.ceil((new Date(neg.licitacion_cierre).getTime() - Date.now()) / 86400000)
-    : null;
-  const pipeline = getEstadoPipeline(neg.estado_pipeline || 'ASIGNADO');
   const descartada = (neg.estado_pipeline || '') === 'DESCARTADA';
   const postulada = (neg.estado_pipeline || '') === 'POSTULADA';
   const viab     = neg.viabilidad_semaforo ? SEMAFORO[neg.viabilidad_semaforo] : null;
   const iniciales = inicialesUsuario(neg.usuario_nombre, neg.usuario_email);
   const nombrePerfil = neg.usuario_nombre || neg.usuario_email || '';
-  // Semáforo de frescura: días sin cambio de estado (no aplica a descartadas).
+  // Semáforo de frescura: días sin cambio de estado (no aplica a descartadas). Solo se muestra
+  // cuando ya es alerta (2+ días): "Hoy sin cambios" no aporta.
   const sem = !descartada ? semaforoRevision(neg.updated_at) : null;
+  // Urgencia en días de CALENDARIO (antes Math.ceil sobre ms: "cierra hoy 15:00" salía como "1d").
+  let urg: { texto: string; cls: string } | null = null;
+  if (neg.licitacion_cierre) {
+    const d = dayjs(neg.licitacion_cierre).startOf('day').diff(dayjs().startOf('day'), 'day');
+    if (new Date(neg.licitacion_cierre).getTime() < Date.now()) urg = { texto: 'Cerrada', cls: 'text-slate-400' };
+    else if (d <= 0) urg = { texto: 'Hoy', cls: 'text-red-600' };
+    else if (d === 1) urg = { texto: 'Mañana', cls: 'text-red-600' };
+    else if (d <= 3) urg = { texto: `${d} días`, cls: 'text-amber-600' };
+    else urg = { texto: `${d} días`, cls: 'text-slate-500' };
+  }
+  const montoVisible = neg.licitacion_monto != null && neg.licitacion_monto > 0;
+  const alertaSem = sem && sem.dias >= 2 ? sem : null;
+  // Tinte de la tarjeta = color de la etapa del pipeline (suave, para que el texto se lea igual).
+  const colorEtapa = getEstadoPipeline(neg.estado_pipeline || 'ASIGNADO')?.color || '#94a3b8';
 
   return (
     <button
       onClick={onClick}
-      style={{ borderLeftColor: descartada ? '#DC2626' : col, borderLeftWidth: 3 }}
-      className={`w-full text-left border rounded-lg p-2.5 hover:shadow-sm transition-all group ${
-        descartada ? 'bg-red-50 border-red-300 hover:border-red-400' : 'bg-white border-slate-200 hover:border-indigo-300'
-      }`}
+      aria-label={`Ver detalle de ${neg.licitacion_codigo}: ${neg.licitacion_nombre || ''}`}
+      style={{ '--etapa': colorEtapa } as React.CSSProperties}
+      className="group w-full text-left rounded-xl border px-3.5 py-3 shadow-sm transition-all duration-150 hover:shadow-md hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 bg-[color-mix(in_srgb,var(--etapa)_8%,white)] border-[color-mix(in_srgb,var(--etapa)_28%,white)] hover:bg-[color-mix(in_srgb,var(--etapa)_12%,white)] hover:border-[color-mix(in_srgb,var(--etapa)_45%,white)]"
     >
-      {/* Tipo + código + días */}
-      <div className="flex items-center gap-1.5 mb-1.5">
-        {tipo && <span className={`${tipoBg} text-white text-[9px] font-black px-1.5 py-0.5 rounded flex-shrink-0`}>{tipo}</span>}
-        <span className="text-[10px] font-mono text-slate-400 truncate" title={neg.licitacion_codigo}>{neg.licitacion_codigo}</span>
-        {postulada ? (
-          <span className="ml-auto text-[9px] font-bold flex-shrink-0 text-emerald-600">Postulada</span>
-        ) : dias !== null && (
-          <span className={`ml-auto text-[9px] font-bold flex-shrink-0 ${dias <= 0 ? 'text-slate-400' : dias <= 1 ? 'text-red-600' : dias <= 3 ? 'text-orange-500' : 'text-slate-400'}`}>
-            {dias <= 0 ? 'Vencida' : `${dias}d`}
+      {/* Cierre: hora + urgencia; responsable (único color de identidad) a la derecha */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-shrink-0">
+          <span className="text-sm font-bold tabular-nums leading-none text-slate-900">
+            {neg.licitacion_cierre ? dayjs(neg.licitacion_cierre).format('HH:mm') : '—'}
           </span>
-        )}
-      </div>
-
-      {/* Estado REAL en Mercado Público (refrescado desde la API). Solo si es terminal:
-          Cerrada/Desierta/Adjudicada/Revocada/Suspendida, o "Ganada" si es nuestra postulada
-          adjudicada. Así en la semana se ve de un vistazo cuáles ya resolvió MP. */}
-      <div className="mb-1.5 empty:hidden">
-        <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} adjEsAdjudicada={neg.adj_es_adjudicada} adjGanamos={neg.adj_ganamos} />
-      </div>
-
-      {/* Hora de cierre — el calendario agrupa por día; aquí se ve la HORA exacta. */}
-      {neg.licitacion_cierre && (
-        <div className="flex items-center gap-1 mb-1.5 text-[9.5px] font-semibold text-slate-500">
-          <Clock size={10} className="text-slate-400" />
-          Cierra {dayjs(neg.licitacion_cierre).format('HH:mm')} h
-        </div>
-      )}
-
-      {/* Nombre */}
-      <p className="text-[11.5px] font-semibold text-slate-800 line-clamp-2 leading-snug mb-1.5 group-hover:text-indigo-700 transition-colors" title={neg.licitacion_nombre}>
-        {neg.licitacion_nombre || neg.licitacion_codigo}
-      </p>
-
-      {/* Organismo */}
-      {neg.licitacion_organismo && (
-        <p className="text-[10px] text-slate-400 truncate mb-2" title={neg.licitacion_organismo}>
-          {neg.licitacion_organismo}
-        </p>
-      )}
-
-      {/* Monto */}
-      {neg.licitacion_monto != null && neg.licitacion_monto > 0 && (
-        <p className="text-[11px] font-bold text-emerald-700 mb-1.5">
-          {formatMonto(neg.licitacion_monto)}
-        </p>
-      )}
-
-      {/* Viabilidad + documentos */}
-      {(viab || neg.tiene_documentos) && (
-        <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-          {viab && (
-            <span style={{ backgroundColor: viab.color + '18', color: viab.color, borderColor: viab.color + '40' }}
-              className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border flex-shrink-0">
-              <span style={{ background: viab.color }} className="w-1.5 h-1.5 rounded-full" />
-              {viab.label}
-            </span>
+          {descartada ? (
+            <span className="text-xs font-semibold text-red-700">Descartada</span>
+          ) : postulada ? (
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700"><Check size={13} /> Postulada</span>
+          ) : urg && (
+            <span className={`text-xs font-semibold ${urg.cls}`}>{urg.texto}</span>
           )}
-          {neg.tiene_documentos ? (
-            <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-teal-700 bg-teal-50 border border-teal-100 px-1.5 py-0.5 rounded-full flex-shrink-0">
-              <FileText size={9} /> Docs
-            </span>
-          ) : null}
         </div>
-      )}
-
-      {/* Perfil asignado + pipeline */}
-      <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-slate-50">
-        <span className="flex items-center gap-1.5 min-w-0">
-          <span style={{ background: col }} className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[8px] font-bold flex-shrink-0">
+        <span className="flex items-center justify-end gap-1.5 min-w-0 flex-1" title={nombrePerfil}>
+          <span className="text-xs font-medium text-slate-600 truncate">{nombrePerfil}</span>
+          <span style={{ background: col }} className="w-[22px] h-[22px] rounded-full flex items-center justify-center text-white text-[9.5px] font-bold flex-shrink-0">
             {iniciales}
           </span>
-          <span className="text-[10px] text-slate-500 truncate" title={nombrePerfil}>{nombrePerfil}</span>
         </span>
-        {pipeline && (
-          <span style={{ backgroundColor: pipeline.color + '18', color: pipeline.color, borderColor: pipeline.color + '40' }}
-            className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border flex-shrink-0">
-            {pipeline.label}
-          </span>
-        )}
       </div>
 
-      {/* Asignación + semáforo de frescura (días sin cambio de estado) */}
-      {sem && (
-        <div className="flex items-center justify-between gap-1.5 mt-1.5 pt-1.5 border-t border-slate-50 text-[9px]">
-          {neg.created_at && (
-            <span className="text-slate-400" title={`Asignada el ${dayjs(neg.created_at).format('DD/MM/YYYY HH:mm')}`}>
-              Asignada {dayjs(neg.created_at).format('DD/MM')}
-            </span>
-          )}
-          <span className={`ml-auto inline-flex items-center gap-1 font-bold px-1.5 py-0.5 rounded-full ${sem.bg} ${sem.text}`}
-            title={`${sem.dias} día${sem.dias === 1 ? '' : 's'} sin cambio de estado`}>
-            <span style={{ background: sem.color }} className="w-1.5 h-1.5 rounded-full" />
-            {sem.dias === 0 ? sem.etiqueta : `${sem.etiqueta} sin cambios`}
-          </span>
+      <p className="mt-2 text-[13px] font-medium leading-snug text-slate-900 line-clamp-2 group-hover:text-teal-700 transition-colors" title={neg.licitacion_nombre}>
+        {neg.licitacion_nombre || neg.licitacion_codigo}
+      </p>
+      <p className="mt-1 text-xs text-slate-400 truncate" title={neg.licitacion_organismo || neg.licitacion_codigo}>
+        <span className="font-mono">{neg.licitacion_codigo}</span>
+        {neg.licitacion_organismo ? ` · ${neg.licitacion_organismo}` : ''}
+      </p>
+
+      {/* Datos rotulados: cada valor dice qué es */}
+      <dl className="mt-3 pt-3 border-t border-[color-mix(in_srgb,var(--etapa)_22%,white)] grid grid-cols-2 gap-x-3 gap-y-2">
+        <div>
+          <dt className="text-[11px] text-slate-500">Etapa</dt>
+          <dd className="mt-0.5"><PipelineBadge estadoId={neg.estado_pipeline} /></dd>
         </div>
-      )}
+        {viab && (
+          <div>
+            <dt className="text-[11px] text-slate-500">Viabilidad</dt>
+            <dd className="mt-0.5 inline-flex items-center gap-1.5 text-xs font-medium text-slate-700" title={`Viabilidad: ${viab.label}`}>
+              <span aria-hidden style={{ background: viab.color }} className="w-1.5 h-1.5 rounded-full" />{viab.label}
+            </dd>
+          </div>
+        )}
+        {montoVisible && (
+          <div>
+            <dt className="text-[11px] text-slate-500">Monto</dt>
+            <dd className="mt-0.5 text-xs font-semibold tabular-nums text-slate-800">{formatMonto(neg.licitacion_monto)}</dd>
+          </div>
+        )}
+        {neg.tiene_documentos ? (
+          <div>
+            <dt className="text-[11px] text-slate-500">Documentos</dt>
+            <dd className="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-slate-700" title="Tiene documentos descargados">
+              <FileText size={12} className="text-slate-400" /> Descargados
+            </dd>
+          </div>
+        ) : null}
+        <div className="col-span-2 empty:hidden">
+          <EstadoMpBadge rotulo estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} adjEsAdjudicada={neg.adj_es_adjudicada} adjGanamos={neg.adj_ganamos} />
+        </div>
+        {alertaSem && (
+          <div className="col-span-2">
+            <dt className="sr-only">Actividad</dt>
+            <dd className={`text-xs font-semibold ${alertaSem.text}`}
+              title={neg.created_at ? `Asignada el ${dayjs(neg.created_at).format('DD/MM/YYYY HH:mm')}` : undefined}>
+              {alertaSem.dias} días sin cambios de etapa
+            </dd>
+          </div>
+        )}
+      </dl>
     </button>
   );
 }
@@ -986,7 +955,6 @@ function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Nego
   }, [onClose]);
 
   const tipo   = extractTipoFromCodigo(neg.licitacion_codigo || '');
-  const tipoBg = TIPO_COLOR_CLASS[tipo] || 'bg-gray-400';
   const col    = colorUsuario(neg.usuario_email || neg.usuario_nombre);
   const dias   = neg.licitacion_cierre
     ? Math.ceil((new Date(neg.licitacion_cierre).getTime() - Date.now()) / 86400000)
@@ -1000,10 +968,10 @@ function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Nego
       role="dialog" aria-modal="true" aria-label={neg.licitacion_nombre || 'Detalle del negocio'}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden" onClick={ev => ev.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-start gap-3 px-6 py-4 border-b border-slate-100 flex-shrink-0" style={{ borderLeft: `4px solid ${col}` }}>
+        <div className="flex items-start gap-3 px-6 py-4 border-b border-slate-100 flex-shrink-0">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap mb-1.5">
-              {tipo && <span className={`${tipoBg} text-white text-[10px] font-black px-2 py-0.5 rounded-md`}>{tipo}</span>}
+              {tipo && <span className="text-xs font-mono text-slate-400">{tipo}</span>}
               {e && (
                 <span style={{ backgroundColor: e.color + '18', color: e.color, borderColor: e.color + '40' }}
                   className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border">
@@ -1059,9 +1027,9 @@ function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Nego
               </div>
             )}
             {neg.monto_ofertado > 0 && (
-              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3">
-                <p className="text-[10px] text-indigo-600 font-semibold uppercase tracking-wide mb-0.5">Monto ofertado</p>
-                <p className="text-[13px] font-bold text-indigo-800">{formatMonto(neg.monto_ofertado)}</p>
+              <div className="bg-teal-50 border border-teal-100 rounded-xl p-3">
+                <p className="text-[10px] text-teal-700 font-semibold uppercase tracking-wide mb-0.5">Monto ofertado</p>
+                <p className="text-[13px] font-bold text-teal-800">{formatMonto(neg.monto_ofertado)}</p>
               </div>
             )}
           </div>
@@ -1094,9 +1062,9 @@ function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Nego
                 </div>
               )}
               {inf?.recomendacion && (
-                <div className="bg-white/60 rounded-lg px-3 py-2 border border-indigo-100">
-                  <p className="text-[11px] font-bold text-indigo-700 mb-0.5">Recomendación</p>
-                  <p className="text-[13px] text-indigo-800 leading-relaxed">{inf.recomendacion}</p>
+                <div className="bg-white/60 rounded-lg px-3 py-2 border border-teal-100">
+                  <p className="text-[11px] font-bold text-teal-700 mb-0.5">Recomendación</p>
+                  <p className="text-[13px] text-teal-800 leading-relaxed">{inf.recomendacion}</p>
                 </div>
               )}
               {inf?.riesgos && inf.riesgos.length > 0 && (
@@ -1119,7 +1087,7 @@ function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Nego
               <p className={`text-[13.5px] text-slate-600 leading-relaxed ${descExpandida ? '' : 'line-clamp-4'}`}>{extra.licitacion_descripcion}</p>
               {extra.licitacion_descripcion.length > 320 && (
                 <button onClick={() => setDescExpandida(v => !v)}
-                  className="mt-1 text-[12px] font-semibold text-indigo-600 hover:text-indigo-800">
+                  className="mt-1 text-[12px] font-semibold text-teal-700 hover:text-teal-800">
                   {descExpandida ? 'Ver menos' : 'Ver más'}
                 </button>
               )}
@@ -1130,12 +1098,12 @@ function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Nego
           {!loadingEx && extra && (extra.total_documentos ?? 0) > 0 && (
             <div>
               <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2">
-                Documentos <span className="text-indigo-600">({extra.total_documentos})</span>
+                Documentos <span className="text-teal-700">({extra.total_documentos})</span>
               </p>
               <div className="space-y-1.5">
                 {(extra.documentos || []).slice(0, 8).map((doc, i) => (
                   <div key={i} className="flex items-center gap-2.5 px-3 py-2 bg-slate-50 border border-slate-100 rounded-lg">
-                    <FileText size={13} className="text-indigo-500 flex-shrink-0" />
+                    <FileText size={13} className="text-teal-600 flex-shrink-0" />
                     <div className="min-w-0 flex-1">
                       <p className="text-[11.5px] font-medium text-slate-700 truncate" title={doc.nombre_archivo}>
                         {doc.nombre_archivo}
@@ -1150,7 +1118,7 @@ function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Nego
                     </div>
                     {doc.url_local && (
                       <a href={doc.url_local} target="_blank" rel="noopener noreferrer"
-                        className="flex-shrink-0 p-1 rounded text-slate-400 hover:text-indigo-600 transition-colors"
+                        className="flex-shrink-0 p-1 rounded text-slate-400 hover:text-teal-700 transition-colors"
                         onClick={e => e.stopPropagation()}>
                         <ExternalLink size={12} />
                       </a>
@@ -1202,7 +1170,7 @@ function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Nego
           </button>
           <Link
             href={`/negocios/${neg.id}`}
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-xl transition-colors"
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal-700 hover:bg-teal-800 text-white text-[13px] font-semibold rounded-xl transition-colors"
             onClick={onClose}
           >
             Abrir negocio <ArrowRight size={13} />
@@ -1280,19 +1248,19 @@ function VistaSemana({ negocios, onAbrirNegocio }: { negocios: Negocio[]; onAbri
           const esHoy = k === hoyKey;
 
           return (
-            <div key={k} className={`rounded-xl border flex flex-col ${esHoy ? 'border-indigo-300 bg-indigo-50/20' : 'border-slate-200 bg-white'}`}>
+            <div key={k} className={`rounded-xl border flex flex-col ${esHoy ? 'border-teal-300 bg-teal-50/20' : 'border-slate-200 bg-white'}`}>
               {/* Header día */}
-              <div className={`px-3 py-2.5 border-b flex-shrink-0 ${esHoy ? 'border-indigo-200 bg-indigo-50/50' : 'border-slate-100'}`}>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{DIAS_NOMBRES[i]}</p>
+              <div className={`px-3 py-2.5 border-b flex-shrink-0 ${esHoy ? 'border-teal-200 bg-teal-50/50' : 'border-slate-100'}`}>
+                <p className="text-xs text-slate-500">{DIAS_NOMBRES[i]}</p>
                 <div className="flex items-baseline justify-between">
-                  <p className={`text-lg font-black leading-tight ${esHoy ? 'text-indigo-600' : 'text-slate-800'}`}>
+                  <p className={`text-lg font-bold leading-tight ${esHoy ? 'text-teal-700' : 'text-slate-800'}`}>
                     {dia.getDate()}
                     <span className="text-[10px] font-normal text-slate-400 ml-1">
                       {dia.toLocaleDateString('es-CL', { month: 'short' })}
                     </span>
                   </p>
                   {items.length > 0 && (
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${esHoy ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>
+                    <span className={`text-xs font-semibold tabular-nums ${esHoy ? 'text-teal-700' : 'text-slate-500'}`}>
                       {items.length}
                     </span>
                   )}
@@ -1300,7 +1268,7 @@ function VistaSemana({ negocios, onAbrirNegocio }: { negocios: Negocio[]; onAbri
               </div>
 
               {/* Licitaciones del día */}
-              <div className="p-2 space-y-2 flex-1 min-h-[180px]">
+              <div className="p-2 space-y-2.5 flex-1 min-h-[180px] bg-slate-50/70 rounded-b-xl">
                 {items.length === 0 ? (
                   <p className="text-[10px] text-slate-300 text-center pt-6">Sin cierres</p>
                 ) : (
@@ -1690,7 +1658,7 @@ function NegociosContent() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <Briefcase size={24} className="text-indigo-600" /> Negocios
+              <Briefcase size={24} className="text-teal-700" /> Negocios
             </h1>
             <p className="text-sm text-gray-500 mt-0.5">
               {loading ? 'Cargando...' : `${negociosFiltrados.length} licitacion${negociosFiltrados.length !== 1 ? 'es' : ''} asignada${negociosFiltrados.length !== 1 ? 's' : ''}`}
@@ -1722,7 +1690,7 @@ function NegociosContent() {
             {isAdmin && (
               <button
                 onClick={() => setShowModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-teal-700 text-white rounded-lg text-sm font-medium hover:bg-teal-800 transition-colors"
               >
                 <Plus size={15} /> Asignar licitación
               </button>
@@ -1741,7 +1709,7 @@ function NegociosContent() {
                 {isAdmin ? 'Carga de trabajo por perfil' : 'Tu carga de trabajo'}
               </span>
               {isAdmin && filtroUsuarios.length > 0 && (
-                <button onClick={() => setFiltroUsuarios([])} className="text-xs text-indigo-600 hover:underline font-semibold">Ver todos</button>
+                <button onClick={() => setFiltroUsuarios([])} className="text-xs text-teal-700 hover:underline font-semibold">Ver todos</button>
               )}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
@@ -1775,7 +1743,7 @@ function NegociosContent() {
                   key={v.key}
                   onClick={() => setVista(v.key)}
                   className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-                    vista === v.key ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                    vista === v.key ? 'bg-white text-teal-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
                   }`}
                 >
                   {v.icon} {v.label}
@@ -1808,7 +1776,7 @@ function NegociosContent() {
               <button
                 onClick={() => setFiltrosOpen(v => !v)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
-                  filtrosOpen ? 'bg-indigo-50 text-indigo-600 border-indigo-200' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+                  filtrosOpen ? 'bg-teal-50 text-teal-700 border-teal-200' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
                 }`}
               >
                 <SlidersHorizontal size={12} /> Filtros
@@ -1826,7 +1794,7 @@ function NegociosContent() {
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   placeholder="Buscar..."
-                  className="pl-8 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none w-48"
+                  className="pl-8 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none w-48"
                 />
               </div>
               {isAdmin && usuarios.length > 0 && (
@@ -1955,7 +1923,7 @@ function NegociosContent() {
                 const col = colorUsuario(neg.usuario_email || neg.usuario_nombre);
                 const tipo = extractTipoFromCodigo(neg.licitacion_codigo || '');
                 return (
-                  <div key={neg.id} className="bg-white border border-slate-200 rounded-lg p-3" style={{ borderLeft: `3px solid ${col}` }}>
+                  <div key={neg.id} className="bg-white border border-slate-200 rounded-lg p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5 mb-1.5">
@@ -1979,7 +1947,7 @@ function NegociosContent() {
                         </div>
                       </div>
                       <Link href={`/negocios/${neg.id}`} onClick={() => setDiaSel(null)}
-                        className="flex-shrink-0 flex items-center gap-1 text-xs px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg font-medium hover:bg-indigo-100 transition-colors">
+                        className="flex-shrink-0 flex items-center gap-1 text-xs px-3 py-1.5 bg-teal-50 text-teal-700 rounded-lg font-medium hover:bg-teal-100 transition-colors">
                         Entrar <ArrowRight size={13} />
                       </Link>
                     </div>

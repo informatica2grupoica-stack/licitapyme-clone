@@ -63,7 +63,7 @@ const PREFILTRO: Record<string, { label: string; color: string }> = {
 // Nombre visible de una etapa del pipeline — resuelto desde la fuente de verdad
 // (app/lib/pipeline.ts), tolerante a ids legados vía getEstadoPipeline.
 const etapaLabel = (id: string) => getEstadoPipeline(id)?.label || id;
-const PIPE_COLORS = ['#4f46e5', '#7c3aed', '#0d9488', '#06b6d4', '#a855f7', '#3b82f6', '#16a34a', '#ef4444'];
+const PIPE_COLORS = ['#0d9488', '#475569', '#d97706', '#0891b2', '#16a34a', '#ea580c', '#e11d48', '#78716c'];
 
 function PanelCard({ title, icon, right, spec, children }: { title: string; icon?: React.ReactNode; right?: React.ReactNode; spec?: EspecificacionMetrica; children: React.ReactNode }) {
   return (
@@ -115,7 +115,7 @@ export default function DashboardPage() {
             </p>
           </div>
           {esAdmin && (
-            <Link href="/radar" className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-sm font-semibold hover:bg-indigo-100 transition-colors border border-indigo-100">
+            <Link href="/radar" className="flex items-center gap-2 px-4 py-2 bg-teal-50 text-teal-700 rounded-xl text-sm font-semibold hover:bg-teal-100 transition-colors border border-teal-100">
               <Search size={14} /> Ir al radar
             </Link>
           )}
@@ -123,7 +123,7 @@ export default function DashboardPage() {
 
         {cargando ? (
           <div className="flex items-center justify-center py-20">
-            <Loader2 size={32} className="animate-spin text-indigo-500" />
+            <Loader2 size={32} className="animate-spin text-teal-600" />
           </div>
         ) : error ? (
           <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
@@ -160,7 +160,7 @@ function VistaAdmin({ data }: { data: DashData }) {
         <StatCard icon={<Building2 size={22} />} label="Licitaciones en radar"
           value={a.radar.totalLicitaciones.toLocaleString('es-CL')}
           sub="Activas ahora · igual que el radar"
-          color="indigo" href="/radar"
+          color="teal" href="/radar"
           spec={{
             mide: 'Cuántas licitaciones detectó el radar y siguen activas (todavía no cierran).',
             calculo: 'Cuenta licitaciones únicas de alertas_licitaciones (una fila por match de palabra clave) cuya fecha de cierre aún no pasó, comparada contra la hora de Chile — no contra la hora del servidor.',
@@ -170,7 +170,7 @@ function VistaAdmin({ data }: { data: DashData }) {
         <StatCard icon={<UserPlus size={22} />} label="Sin asignar"
           value={a.radar.sinAsignar.toLocaleString('es-CL')}
           sub={`De ${a.radar.totalLicitaciones.toLocaleString('es-CL')} activas · por repartir`}
-          color="violet" href="/radar"
+          color="#475569" href="/radar"
           spec={{
             mide: 'La cola de trabajo pendiente: licitaciones activas del radar que nadie tomó todavía.',
             calculo: 'Del total de "Licitaciones en radar", resta las que ya tienen un negocio asignado, las que ya se descartaron a mano, y las que Mercado Público marcó "Revocada" (ya no se pueden postular aunque sigan con fecha de cierre futura).',
@@ -201,7 +201,7 @@ function VistaAdmin({ data }: { data: DashData }) {
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <PanelCard title="Tendencia de detección (14 días)" icon={<CalendarClock size={15} className="text-indigo-500" />}
+        <PanelCard title="Tendencia de detección (14 días)" icon={<CalendarClock size={15} className="text-teal-600" />}
           spec={{
             mide: 'Cuántas licitaciones nuevas detectó el radar cada día, últimos 14 días.',
             calculo: 'Cuenta de licitaciones únicas agrupadas por el día en que aparecieron por primera vez en alertas_licitaciones.',
@@ -212,21 +212,21 @@ function VistaAdmin({ data }: { data: DashData }) {
               <AreaChart data={tendencia} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
                 <defs>
                   <linearGradient id="colorN" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#4f46e5" stopOpacity={0} />
+                    <stop offset="5%" stopColor="#0d9488" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#0d9488" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis dataKey="dia" tick={{ fontSize: 11, fill: '#94a3b8' }} />
                 <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} />
                 <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
-                <Area type="monotone" dataKey="n" name="Licitaciones" stroke="#4f46e5" strokeWidth={2} fill="url(#colorN)" dot={false} />
+                <Area type="monotone" dataKey="n" name="Licitaciones" stroke="#0d9488" strokeWidth={2} fill="url(#colorN)" dot={false} />
               </AreaChart>
             </ResponsiveContainer>
           ) : <p className="text-sm text-slate-400 text-center py-10">Sin datos recientes</p>}
         </PanelCard>
 
-        <PanelCard title="Distribución de viabilidad" icon={<Gauge size={15} className="text-indigo-500" />}
+        <PanelCard title="Distribución de viabilidad" icon={<Gauge size={15} className="text-teal-600" />}
           spec={{
             mide: 'De las licitaciones del radar que ya tienen análisis de IA, cuántas salieron en cada semáforo.',
             calculo: 'Cuenta agrupada por viabilidad_licitacion.semaforo, cruzada contra el universo activo del radar. Solo cuenta las que YA se analizaron — no todo el radar tiene análisis.',
@@ -255,7 +255,7 @@ function VistaAdmin({ data }: { data: DashData }) {
           ) : <p className="text-sm text-slate-400 text-center py-10">Aún sin análisis de viabilidad</p>}
         </PanelCard>
 
-        <PanelCard title="Negocios en trabajo" icon={<Layers3 size={15} className="text-indigo-500" />}
+        <PanelCard title="Negocios en trabajo" icon={<Layers3 size={15} className="text-teal-600" />}
           spec={{
             mide: 'En qué etapa del pipeline está cada negocio activo de la empresa (todos los perfiles).',
             calculo: 'Cuenta de negocios activos agrupada por estado_pipeline, sin contar las Descartada (esas ya no se "trabajan").',
@@ -284,7 +284,7 @@ function VistaAdmin({ data }: { data: DashData }) {
           ) : <p className="text-sm text-slate-400 text-center py-10">Sin datos</p>}
         </PanelCard>
 
-        <PanelCard title="Prefiltro de perfil" icon={<ListChecks size={15} className="text-indigo-500" />}
+        <PanelCard title="Prefiltro de perfil" icon={<ListChecks size={15} className="text-teal-600" />}
           spec={{
             mide: 'Mismo dato que la tarjeta "Pasan el prefiltro" de arriba, pero mostrando los 3 destinos posibles en barras.',
             calculo: 'prefiltro_licitacion.decision agrupado (PASA / EXCLUIDO / REVISION_HUMANA) sobre el universo activo del radar.',
@@ -305,7 +305,7 @@ function VistaAdmin({ data }: { data: DashData }) {
           ) : <p className="text-sm text-slate-400 text-center py-10">Sin prefiltro</p>}
         </PanelCard>
 
-        <PanelCard title="Negocios por etapa" icon={<Layers3 size={15} className="text-indigo-500" />} right={<Link href="/negocios" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">Ver todo</Link>}
+        <PanelCard title="Negocios por etapa" icon={<Layers3 size={15} className="text-teal-600" />} right={<Link href="/negocios" className="text-xs font-semibold text-teal-700 hover:text-teal-700">Ver todo</Link>}
           spec={{
             mide: 'Lo mismo que "Negocios en trabajo", en barras horizontales para comparar etapas más fácil.',
             calculo: 'Negocios activos agrupados por estado_pipeline, sin las Descartada.',
@@ -327,7 +327,7 @@ function VistaAdmin({ data }: { data: DashData }) {
         </PanelCard>
 
         {(a.porPerfil?.length ?? 0) > 0 && (
-          <PanelCard title="Asignadas por perfil" icon={<Users size={15} className="text-indigo-500" />}
+          <PanelCard title="Asignadas por perfil" icon={<Users size={15} className="text-teal-600" />}
             spec={{
               mide: 'Cuántos negocios tiene cada analista, EN TRABAJO — sin contar lo que ya descartó.',
               calculo: 'Negocios activos agrupados por asignado_a. Las Descartada de cada persona se cuentan aparte (chip rojo en "Seguimiento por perfil" más abajo) y no suman acá.',
@@ -341,7 +341,7 @@ function VistaAdmin({ data }: { data: DashData }) {
                       data={a.porPerfil.map((p, i) => ({
                         name: p.nombre || p.email || 'Sin nombre',
                         value: p.total,
-                        color: ['#4f46e5', '#7c3aed', '#0d9488', '#06b6d4', '#a855f7', '#3b82f6', '#16a34a', '#ef4444', '#8b5cf6', '#ec4899'][i % 10],
+                        color: ['#0d9488', '#475569', '#d97706', '#0891b2', '#16a34a', '#ea580c', '#e11d48', '#78716c', '#65a30d', '#be185d'][i % 10],
                       }))}
                       cx="50%"
                       cy="50%"
@@ -351,7 +351,7 @@ function VistaAdmin({ data }: { data: DashData }) {
                       paddingAngle={2}
                     >
                       {a.porPerfil.map((p, i) => (
-                        <Cell key={i} fill={['#4f46e5', '#7c3aed', '#0d9488', '#06b6d4', '#a855f7', '#3b82f6', '#16a34a', '#ef4444', '#8b5cf6', '#ec4899'][i % 10]} />
+                        <Cell key={i} fill={['#0d9488', '#475569', '#d97706', '#0891b2', '#16a34a', '#ea580c', '#e11d48', '#78716c', '#65a30d', '#be185d'][i % 10]} />
                       ))}
                     </Pie>
                     <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
@@ -361,7 +361,7 @@ function VistaAdmin({ data }: { data: DashData }) {
                   {a.porPerfil.map((p, i) => (
                     <div key={p.id} className="flex items-center gap-2">
                       <div
-                        style={{ background: ['#4f46e5', '#7c3aed', '#0d9488', '#06b6d4', '#a855f7', '#3b82f6', '#16a34a', '#ef4444', '#8b5cf6', '#ec4899'][i % 10] }}
+                        style={{ background: ['#0d9488', '#475569', '#d97706', '#0891b2', '#16a34a', '#ea580c', '#e11d48', '#78716c', '#65a30d', '#be185d'][i % 10] }}
                         className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
                       />
                       <span className="text-xs font-medium text-slate-700">{p.nombre || p.email}</span>
@@ -378,7 +378,7 @@ function VistaAdmin({ data }: { data: DashData }) {
       {/* Listas */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ProximosCierres items={data.usuario.proximosCierres} titulo="Próximos cierres (empresa)" />
-        <PanelCard title="Últimos accesos" icon={<Clock4 size={15} className="text-indigo-500" />} right={<Link href="/admin/usuarios" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">Gestionar</Link>}
+        <PanelCard title="Últimos accesos" icon={<Clock4 size={15} className="text-teal-600" />} right={<Link href="/admin/usuarios" className="text-xs font-semibold text-teal-700 hover:text-teal-700">Gestionar</Link>}
           spec={{
             mide: 'Quién entró más recientemente al sistema.',
             calculo: 'Usuarios ordenados por último login (o por fecha de creación de la cuenta si nunca ha entrado), top 6.',
@@ -388,7 +388,7 @@ function VistaAdmin({ data }: { data: DashData }) {
             {a.usuarios.ultimosAccesos.map((u: any) => (
               <div key={u.id} className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                  <div className="w-8 h-8 rounded-lg bg-teal-100 text-teal-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
                     {(u.nombre || u.email)[0]?.toUpperCase()}
                   </div>
                   <div className="min-w-0">
@@ -408,8 +408,8 @@ function VistaAdmin({ data }: { data: DashData }) {
 
       {/* Seguimiento por perfil: cada usuario, su carga, su flujo y sus descartadas */}
       {(a.porPerfil?.length ?? 0) > 0 && (
-        <PanelCard title="Seguimiento por perfil" icon={<UsersRound size={15} className="text-indigo-500" />}
-          right={<Link href="/analisis-licitacion" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">Ver análisis</Link>}
+        <PanelCard title="Seguimiento por perfil" icon={<UsersRound size={15} className="text-teal-600" />}
+          right={<Link href="/analisis-licitacion" className="text-xs font-semibold text-teal-700 hover:text-teal-700">Ver análisis</Link>}
           spec={{
             mide: 'La carga de trabajo de cada analista: cuántos negocios tiene, en qué etapas están repartidos, cuánto monto, y cuántos descartó.',
             calculo: 'Negocios activos agrupados por asignado_a. La barra de flujo muestra la proporción por etapa; el chip rojo cuenta las Descartada de esa persona (aparte, no suma al total).',
@@ -473,7 +473,7 @@ function VistaUsuario({ data }: { data: DashData }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 stagger-grid">
-        <StatCard icon={<Building2 size={22} />} label="Mis negocios" value={u.asignadas} sub="Asignados · sin descartadas" color="indigo" href="/negocios"
+        <StatCard icon={<Building2 size={22} />} label="Mis negocios" value={u.asignadas} sub="Asignados · sin descartadas" color="teal" href="/negocios"
           spec={{
             mide: 'Cuántas licitaciones tienes asignadas ahora mismo.',
             calculo: 'Cuenta de negocios donde asignado_a sos vos y activo = TRUE, sin contar las que descartaste.',
@@ -495,7 +495,7 @@ function VistaUsuario({ data }: { data: DashData }) {
 
       {/* Mi flujo: en qué etapa del pipeline están mis licitaciones */}
       {totalPipe > 0 && (
-        <PanelCard title="Mi flujo" icon={<Layers3 size={15} className="text-indigo-500" />}>
+        <PanelCard title="Mi flujo" icon={<Layers3 size={15} className="text-teal-600" />}>
           <MiniFlujo pipeline={u.pipeline} />
           <div className="mt-3 flex flex-wrap gap-1.5">
             {[...u.pipeline]
@@ -516,7 +516,7 @@ function VistaUsuario({ data }: { data: DashData }) {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <PanelCard title="Mis negocios" icon={<Layers3 size={15} className="text-indigo-500" />} right={<Link href="/negocios" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">Ver negocios</Link>}>
+        <PanelCard title="Mis negocios" icon={<Layers3 size={15} className="text-teal-600" />} right={<Link href="/negocios" className="text-xs font-semibold text-teal-700 hover:text-teal-700">Ver negocios</Link>}>
           {totalPipe > 0 ? (
             <div className="flex items-center justify-center gap-8">
               <ResponsiveContainer width={170} height={170}>
@@ -553,7 +553,7 @@ function VistaUsuario({ data }: { data: DashData }) {
 
 function ProximosCierres({ items, titulo }: { items: DashData['usuario']['proximosCierres']; titulo: string }) {
   return (
-    <PanelCard title={titulo} icon={<CalendarClock size={15} className="text-indigo-500" />}
+    <PanelCard title={titulo} icon={<CalendarClock size={15} className="text-teal-600" />}
       spec={{
         mide: 'Las licitaciones que están por cerrar antes, para no dejar pasar el plazo.',
         calculo: 'Negocios activos con fecha de cierre futura, ordenados de la más próxima a la más lejana, hasta 6. La cuenta regresiva usa la hora de Chile.',
@@ -569,7 +569,7 @@ function ProximosCierres({ items, titulo }: { items: DashData['usuario']['proxim
               <Link key={`${it.codigo}-${i}`} href={`/licitacion/${encodeURIComponent(it.codigo)}`}
                 className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 hover:bg-slate-50 transition-colors group">
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold truncate text-slate-800 group-hover:text-indigo-600 transition-colors">{it.nombre || it.codigo}</p>
+                  <p className="text-sm font-semibold truncate text-slate-800 group-hover:text-teal-700 transition-colors">{it.nombre || it.codigo}</p>
                   <p className="text-xs text-slate-400 truncate">{it.organismo || '—'}</p>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">

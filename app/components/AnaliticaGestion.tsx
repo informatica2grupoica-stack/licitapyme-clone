@@ -94,7 +94,7 @@ const ESTADOS_EN_TRABAJO = ['EN_PROCESO', 'ANEXOS', 'ANEXO_LISTO', 'VISADO', 'PO
 const NIVEL_META: Record<string, { label: string; color: string; desc: string }> = {
   N1: { label: 'Nivel 1 · recién asignada', color: '#d97706', desc: 'Descartada al abrir las bases' },
   N2: { label: 'Nivel 2 · tras análisis', color: '#dc2626', desc: 'Descartada tras costeo/análisis' },
-  error_gestion: { label: 'Error de gestión', color: '#7c3aed', desc: 'Frenada en Anexos/Visado' },
+  error_gestion: { label: 'Error de gestión', color: '#475569', desc: 'Frenada en Anexos/Visado' },
 };
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -423,7 +423,7 @@ export function AnaliticaGestion() {
   const limpiar = () => { setSelAnalistas([]); setSelEmpresas([]); setSelEstados([]); setSelLineas([]); };
 
   if (cargando && !data) {
-    return <div className="flex items-center justify-center py-16"><Loader2 size={28} className="animate-spin text-indigo-500" /></div>;
+    return <div className="flex items-center justify-center py-16"><Loader2 size={28} className="animate-spin text-teal-600" /></div>;
   }
   if (error) {
     return <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm"><TriangleAlert size={18} /> {error}</div>;
@@ -438,7 +438,7 @@ export function AnaliticaGestion() {
       <Reveal>
         <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
           <div className="flex items-center gap-2 flex-wrap">
-            <Filter size={14} className="text-indigo-500" />
+            <Filter size={14} className="text-teal-600" />
             <span className="text-[13px] font-bold text-slate-700">Filtros</span>
             <span className="text-[11px] text-slate-400">— la medición se recalcula con tu selección</span>
             <div className="ml-auto flex items-center gap-2">
@@ -471,7 +471,7 @@ export function AnaliticaGestion() {
             {data.lineas.length > 0 && (
               <MultiSelect
                 label="Línea de negocio" icon={<Tag size={13} />}
-                options={data.lineas.map(l => ({ value: l, label: l, color: '#7c3aed', count: vigentes.filter(r => r.lineas.includes(l)).length }))}
+                options={data.lineas.map(l => ({ value: l, label: l, color: '#0d9488', count: vigentes.filter(r => r.lineas.includes(l)).length }))}
                 selected={selLineas} onChange={setSelLineas} />
             )}
           </div>
@@ -480,7 +480,7 @@ export function AnaliticaGestion() {
 
       {/* ── KPIs vivos ────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        <Kpi label="Licitaciones" value={pipeSel.length} sub={`de ${vigentes.length} vigentes`} icon={<Layers3 size={18} />} color="#4f46e5" delay={0}
+        <Kpi label="Licitaciones" value={pipeSel.length} sub={`de ${vigentes.length} vigentes`} icon={<Layers3 size={18} />} color="#0d9488" delay={0}
           spec={{
             mide: 'Cuántos negocios activos caen en la etapa (o etapas) de Estado que tienes marcada arriba, sobre el total de licitaciones vigentes.',
             calculo: '"Vigente" = Mercado Público todavía dice Publicada Y el negocio no está en Descartada. Respeta también los filtros de Analista/Empresa/Línea de negocio.',
@@ -518,7 +518,7 @@ export function AnaliticaGestion() {
       </div>
 
       {/* ── Módulo 1: Pipeline (torta por estado × barras por analista) ─────────── */}
-      <Section title="Pipeline y desempeño" icon={<Layers3 size={15} className="text-indigo-500" />}
+      <Section title="Pipeline y desempeño" icon={<Layers3 size={15} className="text-teal-600" />}
         hint="pasa el mouse por la torta · toca un estado para medir ese tramo"
         spec={{
           mide: 'Cuántas licitaciones vigentes hay en cada etapa del pipeline, y cuántas tiene cada analista.',
@@ -633,15 +633,15 @@ export function AnaliticaGestion() {
               <p className="text-[28px] font-black text-emerald-700 leading-none mt-1.5 tabular-nums">{adj.exito}%</p>
               <p className="text-[11px] text-emerald-600/80 mt-1">{adj.ganadas} de {adj.resueltas} resueltas</p>
             </motion.div>
-            <motion.div whileHover={{ y: -3 }} className="rounded-xl border border-indigo-200 bg-indigo-50 p-3.5">
-              <p className="text-[10.5px] font-semibold text-indigo-700 uppercase tracking-wide flex items-center gap-1"><Percent size={11} /> Eficiencia embudo
+            <motion.div whileHover={{ y: -3 }} className="rounded-xl border border-teal-200 bg-teal-50 p-3.5">
+              <p className="text-[10.5px] font-semibold text-teal-700 uppercase tracking-wide flex items-center gap-1"><Percent size={11} /> Eficiencia embudo
                 <MetricInfo spec={{
                   mide: 'Qué tan bien se filtra ANTES de postular, no solo el resultado final.',
                   calculo: 'Ganadas ÷ (ganadas + perdidas + descartes de Nivel 2). Suma los descartes N2 (los que se botaron después de analizarlas, no al toque) al denominador — castiga haber invertido tiempo en algo que igual no se ganó ni se llegó a postular.',
                 }} />
               </p>
-              <p className="text-[28px] font-black text-indigo-700 leading-none mt-1.5 tabular-nums">{adj.embudo}%</p>
-              <p className="text-[11px] text-indigo-600/80 mt-1">incluye {adj.n2} descartes N2</p>
+              <p className="text-[28px] font-black text-teal-700 leading-none mt-1.5 tabular-nums">{adj.embudo}%</p>
+              <p className="text-[11px] text-teal-700/80 mt-1">incluye {adj.n2} descartes N2</p>
             </motion.div>
             <motion.div whileHover={{ y: -3 }} className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
               <p className="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1"><Trophy size={11} /> Ganadas
@@ -679,8 +679,8 @@ export function AnaliticaGestion() {
             segments={[
               { key: 'enPlazo', label: 'Publicada en plazo', value: postuladas.enPlazo, color: '#d97706' },
               { key: 'cerradaSinApertura', label: 'Cerrada sin apertura', value: postuladas.cerradaSinApertura, color: '#0891b2' },
-              { key: 'aperturaSinMarcar', label: 'Con apertura, sin marcar', value: postuladas.aperturaSinMarcar, color: '#0369a1' },
-              { key: 'posible', label: 'Posible adjudicado', value: postuladas.posible, color: '#6366f1' },
+              { key: 'aperturaSinMarcar', label: 'Con apertura, sin marcar', value: postuladas.aperturaSinMarcar, color: '#475569' },
+              { key: 'posible', label: 'Posible adjudicado', value: postuladas.posible, color: '#0d9488' },
               { key: 'resuelta', label: 'Resuelto oficial', value: postuladas.resuelta, color: '#059669' },
             ]} />
         </Section>
@@ -739,7 +739,7 @@ export function AnaliticaGestion() {
 
       {/* ── Módulo 3: SLA de revisión de apertura + precisión de "Posible Adjudicado" ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <Section title="Revisión de apertura (SLA)" icon={<Timer size={15} className="text-sky-500" />}
+        <Section title="Revisión de apertura (SLA)" icon={<Timer size={15} className="text-slate-500" />}
           hint="apertura técnica → revisión"
           spec={{
             mide: 'Qué tan rápido se revisa una licitación después de que Mercado Público hace la apertura técnica de las ofertas.',
@@ -747,10 +747,10 @@ export function AnaliticaGestion() {
             fuente: 'licitacion_apertura.detectada_en → actividad_usuario (marca POSIBLE_ADJ)',
           }}>
           <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-xl border border-sky-200 bg-sky-50 p-3.5">
-              <p className="text-[10.5px] font-semibold text-sky-700 uppercase tracking-wide">Mediana</p>
-              <p className="text-[26px] font-black text-sky-700 leading-none mt-1.5 tabular-nums">{sla.medianaRevision != null ? `${sla.medianaRevision}d` : '—'}</p>
-              <p className="text-[11px] text-sky-600/80 mt-1">apertura → marca</p>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+              <p className="text-[10.5px] font-semibold text-slate-700 uppercase tracking-wide">Mediana</p>
+              <p className="text-[26px] font-black text-slate-700 leading-none mt-1.5 tabular-nums">{sla.medianaRevision != null ? `${sla.medianaRevision}d` : '—'}</p>
+              <p className="text-[11px] text-slate-600/80 mt-1">apertura → marca</p>
             </div>
             <div className="rounded-xl border border-orange-200 bg-orange-50 p-3.5">
               <p className="text-[10.5px] font-semibold text-orange-700 uppercase tracking-wide">Sin revisar</p>
@@ -766,7 +766,7 @@ export function AnaliticaGestion() {
           <p className="text-[11px] text-slate-400 mt-3">Distingue "revisamos y decidimos no marcar" de "nadie la ha revisado todavía" — lo segundo es una fuga de proceso.</p>
         </Section>
 
-        <Section title="Precisión de «Posible Adjudicado»" icon={<Target size={15} className="text-violet-500" />}
+        <Section title="Precisión de «Posible Adjudicado»" icon={<Target size={15} className="text-teal-600" />}
           hint={`${precision.total} resueltas`}
           spec={{
             mide: 'Qué tan confiable es la marca manual "posible adjudicado" comparada contra el resultado real que después confirma MP.',
@@ -792,7 +792,7 @@ export function AnaliticaGestion() {
       </div>
 
       <p className="text-[11px] text-slate-400 flex items-center gap-1.5 justify-center pt-1">
-        <Sparkles size={12} className="text-indigo-400" /> Triage, niveles de descarte, SLA de apertura y precisión se derivan del historial real de estados — precisión creciente a medida que se registran más cambios.
+        <Sparkles size={12} className="text-teal-400" /> Triage, niveles de descarte, SLA de apertura y precisión se derivan del historial real de estados — precisión creciente a medida que se registran más cambios.
       </p>
     </div>
   );

@@ -4,8 +4,8 @@
 // vistazo entre pantallas.
 
 export const USER_COLORS = [
-  '#6366f1', '#8b5cf6', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444',
-  '#ec4899', '#14b8a6', '#3b82f6', '#a855f7', '#f97316', '#84cc16',
+  '#0d9488', '#d97706', '#0891b2', '#16a34a', '#e11d48', '#475569',
+  '#ea580c', '#65a30d', '#be185d', '#78716c', '#0f766e', '#b45309',
 ];
 
 // Color estable a partir de una semilla (preferir email; sirve id como fallback).
