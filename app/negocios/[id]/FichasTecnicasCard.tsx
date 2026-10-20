@@ -222,8 +222,8 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
     try { await post({ accion: 'proveedor', opcionId: o.opcionId, proveedor: proveedor || null }); await cargar(); }
     catch (e: any) { toast.error('No se pudo cambiar el proveedor', e.message); }
   };
-  const complementar = async (o: OpcionFichaDTO, n: number, resultado: 'CUMPLE' | 'NO_CUMPLE' | null, dato: string, fuente: string) => {
-    try { await post({ accion: 'complementar', opcionId: o.opcionId, n, resultado, dato, fuente }); toast.success(resultado ? 'Complemento guardado' : 'Complemento quitado'); await cargar(); }
+  const complementar = async (o: OpcionFichaDTO, n: number, resultado: 'CUMPLE' | 'NO_CUMPLE' | null, dato: string, fuente: string, adjunto: AdjuntoComplemento) => {
+    try { await enviarComplemento(negocioId, { opcionId: o.opcionId, n, resultado, dato, fuente, adjunto }); toast.success(resultado ? 'Complemento guardado' : 'Complemento quitado'); await cargar(); }
     catch (e: any) { toast.error('No se pudo guardar el complemento', e.message); throw e; }
   };
   const quitarFicha = async (o: OpcionFichaDTO, url: string) => {
@@ -602,15 +602,39 @@ function PendienteFila({ f, panel, puedeOperar, onAsignar, onDescartar }: {
   );
 }
 
+export type AdjuntoComplemento = { archivo: File | null; quitar: boolean };
+const FORMATOS_ADJUNTO = '.pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv';
+
+/** Guarda un complemento; con archivo adjunto viaja como multipart (se sube a R2), sin él como JSON. Avisa a los demás paneles. */
+export async function enviarComplemento(negocioId: number, p: { opcionId: number; n: number; resultado: 'CUMPLE' | 'NO_CUMPLE' | null; dato: string; fuente: string; adjunto?: AdjuntoComplemento }): Promise<void> {
+  const { adjunto, ...campos } = p;
+  let res: Response;
+  if (adjunto?.archivo) {
+    const fd = new FormData();
+    fd.set('accion', 'complementar'); fd.set('file', adjunto.archivo);
+    fd.set('opcionId', String(campos.opcionId)); fd.set('n', String(campos.n)); fd.set('resultado', campos.resultado ?? ''); fd.set('dato', campos.dato); fd.set('fuente', campos.fuente);
+    res = await fetch(`/api/compras/${negocioId}/fichas`, { method: 'POST', body: fd });
+  } else {
+    res = await fetch(`/api/compras/${negocioId}/fichas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'complementar', ...campos, quitarAdjunto: !!adjunto?.quitar }) });
+  }
+  const d = await res.json();
+  if (!res.ok || !d.success) throw new Error(d.error || 'No se pudo completar');
+  window.dispatchEvent(new Event('compras:fichas-cambio'));
+}
+
 const FUENTES = ['Llamada o correo con el proveedor', 'Manual o ficha del fabricante', 'Otro documento', 'Verificado en terreno', 'Otra'];
 
 /** Aporta el dato que faltaba y decide si cumple. Queda registrado quién lo hizo. */
-function ComplementoForm({ f, onGuardar, onCancelar }: { f: FilaRequisito; onGuardar: (resultado: 'CUMPLE' | 'NO_CUMPLE' | null, dato: string, fuente: string) => Promise<void>; onCancelar: () => void }) {
+function ComplementoForm({ f, onGuardar, onCancelar }: { f: FilaRequisito; onGuardar: (resultado: 'CUMPLE' | 'NO_CUMPLE' | null, dato: string, fuente: string, adjunto: AdjuntoComplemento) => Promise<void>; onCancelar: () => void }) {
+  const [archivo, setArchivo] = useState<File | null>(null);
+  const [quitarActual, setQuitarActual] = useState(false);
+  const adjuntoRef = useRef<HTMLInputElement>(null);
+  const actual = f.complemento?.adjuntoUrl && !quitarActual ? f.complemento : null;
   const [dato, setDato] = useState(f.complemento?.dato ?? '');
   const [fuente, setFuente] = useState(f.complemento?.fuente ?? FUENTES[0]);
   const [resultado, setResultado] = useState<'CUMPLE' | 'NO_CUMPLE' | ''>(f.complemento?.resultado ?? '');
   const [guardando, setGuardando] = useState(false);
-  const enviar = async (r: 'CUMPLE' | 'NO_CUMPLE' | null) => { setGuardando(true); try { await onGuardar(r, dato, fuente); } catch { /* el aviso ya se mostró */ } setGuardando(false); };
+  const enviar = async (r: 'CUMPLE' | 'NO_CUMPLE' | null) => { setGuardando(true); try { await onGuardar(r, dato, fuente, { archivo, quitar: quitarActual }); } catch { /* el aviso ya se mostró */ } setGuardando(false); };
   return (
     <div className="space-y-2" data-testid={`complemento-form-${f.n}`}>
       <p className="text-[11.5px] text-zinc-600"><b>Requisito {f.n}:</b> {f.requerido}</p>
@@ -626,6 +650,13 @@ function ComplementoForm({ f, onGuardar, onCancelar }: { f: FilaRequisito; onGua
             <input type="radio" className="hidden" checked={resultado === r} onChange={() => setResultado(r)} /> {r === 'CUMPLE' ? 'Cumple' : 'No cumple'}
           </label>
         ))}
+      </div>
+      <div className="flex items-center gap-2 flex-wrap" data-testid={`complemento-adjunto-${f.n}`}>
+        <button type="button" onClick={() => adjuntoRef.current?.click()} className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-indigo-700 border border-indigo-200 hover:bg-indigo-50 px-2.5 py-1 rounded-lg"><Upload size={12} /> {archivo || actual ? 'Cambiar adjunto' : 'Adjuntar documento o imagen'}</button>
+        <input ref={adjuntoRef} type="file" accept={FORMATOS_ADJUNTO} className="hidden" onChange={e => { const x = e.target.files?.[0]; if (x) { setArchivo(x); setQuitarActual(false); } e.target.value = ''; }} />
+        {archivo && <span className="text-[11.5px] text-zinc-700">{archivo.name} <button type="button" onClick={() => setArchivo(null)} className="text-zinc-400 hover:text-rose-700" aria-label="Quitar adjunto nuevo">✕</button></span>}
+        {!archivo && actual && <span className="text-[11.5px] text-zinc-700">{actual.adjuntoNombre} <button type="button" onClick={() => setQuitarActual(true)} className="text-zinc-400 hover:text-rose-700" aria-label="Quitar adjunto">✕</button></span>}
+        <span className="text-[11px] text-zinc-400">PDF, imagen, Word, Excel o texto (máx. 15 MB). Respalda el dato y se ve en esta misma fila.</span>
       </div>
       <div className="flex items-center gap-3">
         <button type="button" disabled={guardando || !resultado || dato.trim().length < 3} onClick={() => enviar(resultado || null)}
@@ -678,12 +709,13 @@ function RankingFichas({ opciones }: { opciones: OpcionFichaDTO[] }) {
 
 export function OpcionFila({ o, cotizados, puedeOperar, onProveedor, onQuitar, onQuitarFicha, onComplementar, onMover, productosDestino }: {
   o: OpcionFichaDTO; cotizados: string[]; puedeOperar: boolean; onProveedor: (o: OpcionFichaDTO, proveedor: string) => Promise<void>; onQuitar: (o: OpcionFichaDTO) => Promise<void>; onQuitarFicha?: (o: OpcionFichaDTO, url: string) => Promise<void>;
-  onComplementar: (o: OpcionFichaDTO, n: number, resultado: 'CUMPLE' | 'NO_CUMPLE' | null, dato: string, fuente: string) => Promise<void>;
+  onComplementar: (o: OpcionFichaDTO, n: number, resultado: 'CUMPLE' | 'NO_CUMPLE' | null, dato: string, fuente: string, adjunto: AdjuntoComplemento) => Promise<void>;
   onMover?: (o: OpcionFichaDTO, productoCompraId: number) => Promise<void>; productosDestino?: Array<{ productoId: number; descripcion: string }>;
 }) {
   const [confirmando, setConfirmando] = useState(false);
   const [fichaPorQuitar, setFichaPorQuitar] = useState<string | null>(null);
   const [editando, setEditando] = useState<number | null>(null);
+  const [verAdjunto, setVerAdjunto] = useState<VisorDoc | null>(null);
   const t = o.tecnico;
   const sinFicha = o.fichas.length === 0;
   return (
@@ -761,13 +793,17 @@ export function OpcionFila({ o, cotizados, puedeOperar, onProveedor, onQuitar, o
                               {f.complemento.fuente ? `${f.complemento.fuente} · ` : ''}complementó <b>{f.complemento.por}</b> el {hora(f.complemento.at.replace(' ', 'T'))}
                             </span>
                           )}
+                          {f.complemento?.adjuntoUrl && (
+                            <button type="button" onClick={() => setVerAdjunto({ nombre: f.complemento!.adjuntoNombre || 'Adjunto', url: f.complemento!.adjuntoUrl! })} data-testid={`ver-adjunto-${o.opcionId}-${f.n}`}
+                              className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 underline"><Eye size={12} /> Ver adjunto: {f.complemento.adjuntoNombre || 'documento'}</button>
+                          )}
                         </td>
                       </tr>
                       {editando === f.n && (
                         <tr className="bg-indigo-50/40">
                           <td colSpan={4} className="px-2 py-2">
                             <ComplementoForm f={f} onCancelar={() => setEditando(null)}
-                              onGuardar={async (resultado, dato, fuente) => { await onComplementar(o, f.n, resultado, dato, fuente); setEditando(null); }} />
+                              onGuardar={async (resultado, dato, fuente, adjunto) => { await onComplementar(o, f.n, resultado, dato, fuente, adjunto); setEditando(null); }} />
                           </td>
                         </tr>
                       )}
@@ -780,6 +816,7 @@ export function OpcionFila({ o, cotizados, puedeOperar, onProveedor, onQuitar, o
         </div>
       )}
       {!sinFicha && !t.resumen && !t.error && <p className="px-3 pb-2 text-[12px] text-zinc-500">Todavía no se compara contra las bases: usa «Comparar».</p>}
+      <DocumentViewerModal doc={verAdjunto} onClose={() => setVerAdjunto(null)} />
     </div>
   );
 }

@@ -311,7 +311,7 @@ export async function compararProducto(params: { negocioId: number; licitacionCo
 
 // ── Panel ──────────────────────────────────────────────────────────────────────────────────────────
 /** Dato que una persona aportó para cerrar un «Falta dato», con su decisión y quién la tomó. */
-export interface ComplementoRequisito { resultado: 'CUMPLE' | 'NO_CUMPLE'; dato: string; fuente: string; por: string; at: string }
+export interface ComplementoRequisito { resultado: 'CUMPLE' | 'NO_CUMPLE'; dato: string; fuente: string; por: string; at: string; adjuntoUrl: string | null; adjuntoNombre: string | null }
 export interface FilaRequisito {
   n: number; requerido: string; criticidad: string;
   /** Estado que RIGE (el de la IA, o el que decidió una persona al complementar un «Falta dato»). */
@@ -465,14 +465,16 @@ export async function complementosDeCompras(negocioId: number): Promise<Map<stri
     try {
       const d = JSON.parse(r.detalle);
       const k = `${r.opcion_id}:${d.n}`;
-      if (d.resultado === 'CUMPLE' || d.resultado === 'NO_CUMPLE') out.set(k, { resultado: d.resultado, dato: String(d.dato || ''), fuente: String(d.fuente || ''), por: String(d.por || ''), at: String(d.at || '') });
+      if (d.resultado === 'CUMPLE' || d.resultado === 'NO_CUMPLE') out.set(k, { resultado: d.resultado, dato: String(d.dato || ''), fuente: String(d.fuente || ''), por: String(d.por || ''), at: String(d.at || ''), adjuntoUrl: d.adjuntoUrl ? String(d.adjuntoUrl) : null, adjuntoNombre: d.adjuntoNombre ? String(d.adjuntoNombre) : null });
       else out.delete(k);   // «quitar complemento»
     } catch { /* registro mal formado */ }
   }
   return out;
 }
 
-export async function complementarRequisito(p: { negocioId: number; opcionId: number; n: number; resultado: 'CUMPLE' | 'NO_CUMPLE' | null; dato: string; fuente: string; actor: Actor }): Promise<void> {
+export async function complementarRequisito(p: { negocioId: number; opcionId: number; n: number; resultado: 'CUMPLE' | 'NO_CUMPLE' | null; dato: string; fuente: string; actor: Actor;
+  /** Documento o imagen que respalda el dato. Sin `adjunto` se conserva el que ya tenía (salvo `quitarAdjunto`). */
+  adjunto?: { url: string; nombre: string } | null; quitarAdjunto?: boolean }): Promise<void> {
   const { negocioId, opcionId, n, resultado, actor } = p;
   const [op] = await pool.query(`SELECT id FROM auditor_opcion WHERE id = ? AND negocio_id = ? AND fila_id LIKE 'cmp:%'`, [opcionId, negocioId]) as any;
   if (!(op as any[])[0]) throw new Error('Ese modelo no es del panel de Compras.');
@@ -480,7 +482,12 @@ export async function complementarRequisito(p: { negocioId: number; opcionId: nu
   const dato = p.dato.replace(/\s+/g, ' ').trim().slice(0, 500);
   const fuente = p.fuente.replace(/\s+/g, ' ').trim().slice(0, 160);
   if (resultado && dato.length < 3) throw new Error('Escribe el dato que aportas (por ejemplo «soporte VESA 400×200 según el manual»).');
-  const detalle = JSON.stringify({ n, resultado, dato, fuente, por: actor.nombre, porId: actor.id, at: ahoraChileSQL() });
+  let adjunto = p.adjunto ?? null;
+  if (resultado && !adjunto && !p.quitarAdjunto) {
+    const previo = (await complementosDeCompras(negocioId)).get(`${opcionId}:${n}`);
+    if (previo?.adjuntoUrl) adjunto = { url: previo.adjuntoUrl, nombre: previo.adjuntoNombre || 'adjunto' };
+  }
+  const detalle = JSON.stringify({ n, resultado, dato, fuente, por: actor.nombre, porId: actor.id, at: ahoraChileSQL(), adjuntoUrl: resultado ? adjunto?.url ?? null : null, adjuntoNombre: resultado ? adjunto?.nombre ?? null : null });
   await pool.query(`INSERT INTO auditor_evento (negocio_id, opcion_id, tipo, emisor, detalle, creado_at) VALUES (?, ?, ?, 'compras', ?, ?)`, [negocioId, opcionId, TIPO_COMPLEMENTO, detalle, ahoraChileSQL()]);
 }
 

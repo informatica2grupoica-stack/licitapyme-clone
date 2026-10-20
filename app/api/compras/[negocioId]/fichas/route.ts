@@ -21,6 +21,8 @@ export const maxDuration = 300;
 // Formatos que el Lector sabe leer: PDF, imágenes (OCR), Word, Excel y texto plano.
 const EXTENSIONES = /\.(pdf|png|jpe?g|webp|docx?|xlsx?|txt|md|csv|tsv)$/i;
 
+const ADJUNTOS = /\.(pdf|png|jpe?g|webp|docx?|xlsx?|txt|csv)$/i;
+
 // ¿Parece una ficha técnica por su nombre? Los anexos, cotizaciones, comprobantes y planillas del proyecto NO se ofrecen como fichas.
 const NO_ES_FICHA = /anexo|comprobante|cotiz|presupuesto|proforma|factura|\bfact\b|^inv[.\s_-]|costeo|propuesta|declaraci[oó]n|\bbases\b|\bacta\b|resoluci[oó]n|garant[ií]a|boleta|orden.de.compra|\boc\b|env[ií]o|contrato|merged|^ficha[ _-]?t[eé]cnica\s*\.pdf$|\.xlsx?$/i;
 const PARECE_FICHA = /ficha|datasheet|data.?sheet|especificaci|cat[aá]logo|catalogo|manual|\bspec|brochure|hoja.t[eé]cnica|^\d{1,2}[_\- ]\D/i;
@@ -74,6 +76,15 @@ async function __POST(request: NextRequest, { params }: Params) {
       const form = await request.formData();
       const file = form.get('file') as File | null;
       if (!file) return NextResponse.json({ error: 'Falta el archivo.' }, { status: 400 });
+      if (form.get('accion') === 'complementar') {
+        // Complemento con adjunto (documento o imagen que respalda el dato): se guarda en R2 y queda ligado al registro del complemento.
+        if (!ADJUNTOS.test(file.name)) return NextResponse.json({ error: 'El adjunto debe ser PDF, imagen, Word, Excel o texto.' }, { status: 400 });
+        if (file.size > 15 * 1024 * 1024) return NextResponse.json({ error: 'El adjunto pesa más de 15 MB.' }, { status: 400 });
+        const resultado = form.get('resultado') === 'CUMPLE' || form.get('resultado') === 'NO_CUMPLE' ? form.get('resultado') as 'CUMPLE' | 'NO_CUMPLE' : null;
+        const urlAdj = await subirDocumentoR2(`compras/${c.codigo}/complementos`, file.name, Buffer.from(await file.arrayBuffer()), file.type);
+        await complementarRequisito({ negocioId: c.id, opcionId: Number(form.get('opcionId')), n: Number(form.get('n')), resultado, dato: String(form.get('dato') || ''), fuente: String(form.get('fuente') || ''), actor: c.actor, adjunto: { url: urlAdj, nombre: file.name } });
+        return NextResponse.json({ success: true });
+      }
       if (!EXTENSIONES.test(file.name)) return NextResponse.json({ error: 'Formato no soportado. Sube PDF, imagen (PNG/JPG), Word, Excel o texto (TXT).' }, { status: 400 });
       const url = await subirDocumentoR2(`compras/${c.codigo}/fichas`, file.name, Buffer.from(await file.arrayBuffer()), file.type);
       return NextResponse.json({ success: true, resultado: await procesarFicha({ negocioId: c.id, url, nombre: file.name, actor: c.actor }) });
@@ -101,7 +112,7 @@ async function __POST(request: NextRequest, { params }: Params) {
       }
       case 'complementar': {
         const resultado = body.resultado === 'CUMPLE' || body.resultado === 'NO_CUMPLE' ? body.resultado : null;
-        await complementarRequisito({ negocioId: c.id, opcionId: Number(body.opcionId), n: Number(body.n), resultado, dato: String(body.dato || ''), fuente: String(body.fuente || ''), actor: c.actor });
+        await complementarRequisito({ negocioId: c.id, opcionId: Number(body.opcionId), n: Number(body.n), resultado, dato: String(body.dato || ''), fuente: String(body.fuente || ''), actor: c.actor, quitarAdjunto: !!body.quitarAdjunto });
         return NextResponse.json({ success: true });
       }
       case 'quitar_modelo': {
