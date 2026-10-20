@@ -316,7 +316,7 @@ export async function congelarPendientes(limite = 20): Promise<{ revisados: numb
           AND EXISTS (SELECT 1 FROM checklist_comercial cc WHERE cc.negocio_id = n.id)
         ORDER BY n.id DESC
         LIMIT ?`,
-      [limite],
+      [ESTADOS_OFERTA_ENVIADA, limite],
     ) as any;
     filas = rows as any[];
   } catch (e) {
