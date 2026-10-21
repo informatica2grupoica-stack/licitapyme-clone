@@ -15,7 +15,7 @@
 // Agrupaciones que detecta: LÍNEAS/LOTES ("LÍNEA 1: ...", "--- Hoja: Línea N ---") y
 // CATEGORÍAS/rubros ("A FERRETERIA", "B PINTURA").
 
-import { esFilaNoProducto } from '@/app/lib/fila-no-producto';
+import { esFilaNoProducto, planillaReconoceElListado } from '@/app/lib/fila-no-producto';
 
 export interface ItemPlanilla {
   linea: number;              // número de LÍNEA/LOTE (1 si el listado no está en líneas)
@@ -122,8 +122,12 @@ function detectarHeader(celdas: string[]): ColMap | null {
   // La columna de NUMERACIÓN se detecta primero: "N°", "Ítem", "Línea" y también compuestos
   // como "Línea de insumo" / "N° de línea" (caso real 2178-14-LE26: el encabezado "Línea de
   // insumo" contiene la palabra "insumo" y se elegía como DESCRIPCIÓN → ítems basura "10","11"…).
-  const num = n.findIndex(h => /^(item|itemn|n|no|numero|linea|nro)\.?$/.test(h) || h === 'n°' || h === 'nº'
-    || /^(l[ií]nea|item|numero|nro|n[°º]?)\s+de\s+(insumo|producto|item|l[ií]nea|parte)s?$/.test(h));
+  const esNum = (h: string) => /^(item|itemn|n|no|numero|linea|nro)\.?$/.test(h) || h === 'n°' || h === 'nº'
+    || /^(l[ií]nea|item|numero|nro|n[°º]?)\s+de\s+(insumo|producto|item|l[ií]nea|parte)s?$/.test(h);
+  // "LINEA | ITEM | ARTICULO…" (2711-19-LP26): la columna LÍNEA trae el título del lote y la de
+  // ÍTEM el correlativo — si están las dos, numera la de ítem.
+  const numItem = n.findIndex(h => esNum(h) && !/^l[ií]nea\.?$/.test(h));
+  const num = numItem >= 0 && n.some(h => /^l[ií]nea\.?$/.test(h)) ? numItem : n.findIndex(esNum);
   // Un rótulo de encabezado es CORTO ("INSUMO", "CANTIDAD"): una frase larga que menciona
   // "producto"/"cantidad" es prosa (nota al pie), no un encabezado (caso real 2178-14-LE26:
   // "1. Valor unitario neto … del producto … la cantidad 1 …" fijaba desc=cant=0 y las notas
@@ -1546,8 +1550,42 @@ function reunirFilasPartidas(lineas: string[]): string[] {
   return out;
 }
 
+// Reúne las filas del CSV de una hoja Excel cuya celda trae SALTOS DE LÍNEA dentro de comillas
+// ("DETALLE" con la ficha en varias líneas): partida por \n, cada pedazo quedaba sin ítem ni
+// cantidad y la planilla entera se perdía. Caso real 2711-19-LP26 (Formulario N°3, 11 hojas, 70
+// productos): el parser no leyó ninguno y el costeo quedó con un genérico por línea.
+// Una fila con comillas impares abre una celda; se le pegan las siguientes hasta cerrarla.
+function reunirCeldasMultilinea(lineas: string[]): string[] {
+  const impar = (s: string) => ((s.match(/"/g) || []).length % 2) === 1;
+  const out: string[] = [];
+  for (let i = 0; i < lineas.length; i++) {
+    if (!impar(lineas[i])) { out.push(lineas[i]); continue; }
+    let fila = lineas[i];
+    let j = i + 1;
+    while (impar(fila) && j < lineas.length && j - i <= 80 && !lineas[j].startsWith('--- Hoja:')) fila += ' ' + lineas[j++];
+    // Sin cierre (comilla suelta de verdad): se deja todo como venía.
+    if (impar(fila)) { out.push(lineas[i]); continue; }
+    out.push(fila);
+    i = j - 1;
+  }
+  return out;
+}
+
+// En Excel se lee de las dos formas —filas tal cual y con las celdas multilínea unidas— y gana la
+// que saca más ítems: unir también junta encabezados partidos ("Cumple EETT\n(SÍ / NO)") que,
+// enteros, la tabla pasa por una de cumplimiento (1393093-110-LP26) y se perdía la planilla.
 function parsearDoc(doc: DocTexto): PlanillaParseResult | null {
-  const lineas = reunirFilasPartidas(doc.texto.split(/\r?\n/));
+  const crudas = doc.texto.split(/\r?\n/);
+  const tal = parsearDocLineas(doc, crudas);
+  if (doc.metodo !== 'excel') return tal;
+  const unidas = reunirCeldasMultilinea(crudas);
+  if (unidas.length === crudas.length) return tal;
+  const conUnion = parsearDocLineas(doc, unidas);
+  return conUnion && conUnion.items.length > (tal?.items.length ?? 0) ? conUnion : tal;
+}
+
+function parsearDocLineas(doc: DocTexto, crudas: string[]): PlanillaParseResult | null {
+  const lineas = reunirFilasPartidas(crudas);
   let items: ItemPlanilla[] = [];
   const lineasOrden: number[] = [];
   const catsOrden: string[] = [];
@@ -1568,14 +1606,20 @@ function parsearDoc(doc: DocTexto): PlanillaParseResult | null {
   for (const cruda of lineas) {
     // LÍNEA/LOTE (mirar la línea cruda antes de tabular).
     const nLinea = detectarLinea(cruda);
+    let celdas = celdasDe(cruda);
     if (nLinea != null) {
       lineaActual = nLinea;
       vioLineaExplicita = true;
       if (!lineasOrden.includes(nLinea)) lineasOrden.push(nLinea);
-      continue;
+      // "LINEA 1: ARTICULOS DE ASEO,1,BASURERO…" (2711-19-LP26): el título del lote va en la
+      // primera celda de la fila de su PRIMER ítem. Saltar la fila entera perdía ese ítem en cada
+      // línea (y la línea 6, de un solo producto, desaparecía).
+      const filaConItem = col && celdas && celdas.length >= 3
+        ? extraerItem(['', ...celdas.slice(1)], col) : null;
+      if (!filaConItem) continue;
+      celdas = ['', ...celdas!.slice(1)];
     }
 
-    const celdas = celdasDe(cruda);
     if (!celdas) {
       // Fila PLANA de listado (Anexo N°2 estilo texto): "1 3 BUTACA 4 CUERPOS $ 360.000.-"
       // → correlativo, cantidad, descripción y precio referencial, sin pipes ni comas.
@@ -1997,8 +2041,15 @@ export function parsearPlanillaCosteo(docs: DocTexto[]): PlanillaParseResult | n
     // Guardarraíl del 50%: una fuente autoritativa manda SALVO que haya leído menos de la mitad
     // de filas que la que más leyó — ahí viene truncada, ilegible o es una plantilla en blanco,
     // y no se le hace caso. Evita que un anexo roto silencie al documento que sí se pudo leer.
+    // Truncada = sus filas SÍ están en la lista larga. Si la larga es OTRO listado (2328-41-LE26: un
+    // xlsx de útiles escolares de otra compra contra el formulario real de 18 herramientas), el
+    // largo no dice nada y la fuente autoritativa no se descarta.
     const maxItems = Math.max(...candidatos.map(c => c.r.items.length));
-    const elegibles = candidatos.filter(c => c.r.items.length >= maxItems * 0.5);
+    const esTruncadaDeOtra = (c: typeof candidatos[number]) => candidatos.some(o => o !== c
+      && o.r.items.length > c.r.items.length
+      && planillaReconoceElListado(o.r.items.map(i => i.descripcion), c.r.items.map(i => i.descripcion)).reconoce);
+    const elegibles = candidatos.filter(c => c.r.items.length >= maxItems * 0.5
+      || (c.autoridad === AUTORIDAD_FUENTE.ANEXO_ECONOMICO && c.r.items.length >= 8 && !esTruncadaDeOtra(c)));
     const orden = (elegibles.length ? elegibles : candidatos).slice().sort((a, b) =>
       a.autoridad - b.autoridad || mejorScore(b.r) - mejorScore(a.r));
     const ganador = orden[0];

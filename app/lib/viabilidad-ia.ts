@@ -1825,7 +1825,12 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
     console.warn(`[viabilidad-ia-v4] ${codigo}: la planilla "${planilla.fuenteDoc}" (${planilla.items.length} filas) NO reconoce el listado del modelo `
       + `(solape ${Math.round(solape.solape * 100)}%, mínimo ${Math.round(solape.minimo * 100)}%) — no se usa para el manifiesto.`);
   }
-  const planillaReconoceAlLLM = solape.reconoce;
+  // El solape no mide nada cuando el modelo solo listó UN rótulo por línea de la API y la planilla
+  // trae esas MISMAS líneas con su detalle (2711-19-LP26: "Mobiliario" contra "Estación de trabajo,
+  // Lavaderos, Estantería") — ahí la planilla es el detalle de lo que el modelo resumió.
+  const planillaDetallaLineasApi = !!planilla && lineasApi >= 2 && manifiesto.length <= lineasApi
+    && new Set(planilla.items.map(i => i.linea || 1)).size === lineasApi;
+  const planillaReconoceAlLLM = solape.reconoce || planillaDetallaLineasApi;
   const planillaGanaManifiesto = !!(planilla && planillaSana && !planillaDegradaLineas && planillaReconoceAlLLM
       && planilla.items.length >= manifiesto.length && planilla.items.length >= 8);
   if (planillaGanaManifiesto) {
@@ -1861,7 +1866,12 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
     const prob = problemasCalidadManifiesto(manifiesto);
     const filasRotulo = manifiesto.filter(m => esFilaNoProducto(m.descripcion)).length;
     // Señal extra: la lista del código es >2× la de la API y la del modelo calza con la API (cada línea = un producto).
-    const inflada = lineasApi > 0 && manifiestoDelModelo.length === lineasApi && manifiesto.length > lineasApi * 2;
+    // …salvo que la lista del código venga partida en EXACTAMENTE las líneas de la API: ahí cada
+    // línea es un lote con varios productos y el modelo solo copió el rótulo de la API (2711-19-LP26:
+    // 11 líneas, 70 productos en el Formulario N°3 contra 11 genéricos del modelo).
+    const lineasCodigo = new Set(manifiesto.map(m => m.linea || 1));
+    const detallaLasLineasApi = lineasCodigo.size === lineasApi && lineasApi >= 2;
+    const inflada = lineasApi > 0 && manifiestoDelModelo.length === lineasApi && manifiesto.length > lineasApi * 2 && !detallaLasLineasApi;
     if ((prob.length || filasRotulo >= 2 || inflada) && manifiestoDelModelo.length && manifiestoDelModelo.every(m => !esFilaNoProducto(m.descripcion)) && !problemasCalidadManifiesto(manifiestoDelModelo).length) {
       console.warn(`[viabilidad-ia-v4] ${codigo}: V-23 — el manifiesto desde "${origenManifiesto}" no pasó el control de calidad (${prob.join('; ') || (inflada ? `${manifiesto.length} filas contra ${lineasApi} líneas de la API` : `${filasRotulo} filas son rótulos`)}); se usa la lista del modelo (${manifiestoDelModelo.length} ítems).`);
       manifiesto = manifiestoDelModelo;

@@ -844,3 +844,25 @@ test('hoja por línea: "REQUERIMIENTOS" es la columna de descripción y un títu
   assert.equal(r.items.filter(i => i.linea === 1).length, 5);
   assert.equal(r.items.filter(i => i.linea === 2).length, 6);
 });
+
+// ── Formulario Excel con la ficha en varias líneas dentro de la celda (2711-19-LP26) ─────────
+// Formulario N°3, una hoja por línea: "LINEA | ITEM | ARTICULO | DETALLE | … | CANTIDAD", con el
+// DETALLE en varias líneas entre comillas y el título del lote en la fila del primer ítem. Antes
+// no se leía ningún producto y el costeo quedaba con un genérico por línea.
+test('Excel por línea: celdas multilínea + título del lote en la fila del primer ítem', () => {
+  const hoja = (n: number, titulo: string, prods: [string, number][]) =>
+    `\n--- Hoja: LINEA ${n} ---\nFORMULARIO N°3,,,,,,,,\n,,,,,,INGRESE,,\n`
+    + `LINEA,ITEM,ARTICULO,DETALLE,IMAGEN REFERENCIAL,CANTIDAD,ESPECIFICACION DEL OFERENTE,VALOR UNITARIO,VALOR TOTAL\n`
+    + prods.map(([p, c], i) => `${i === 0 ? `LINEA ${n}: ${titulo}` : ''},${i + 1},${p},"${p} referencial.\nMaterial: acero.\nColor: a elección.",,${c},,, $- `).join('\n')
+    + `\n,,,,,,,TOTAL NETO, $- \n`;
+  const texto = hoja(1, 'ARTICULOS DE ASEO', [['BASURERO', 15], ['DISPENSADOR DE JABON', 20], ['DISPENSADOR DE TOALLA', 20], ['PACK BASUREROS', 1]])
+    + hoja(2, 'CORTINAS', [['CORTINAS BLACK OUT', 120]])
+    + hoja(3, 'EQUIPOS DE OFICINA', [['TERMOLAMINADORA', 1], ['ANILLADORA', 1], ['GUILLOTINA', 1], ['TRITURADORA', 2]]);
+  const r = parsearPlanillaCosteo([{ nombre: 'F3_FORMULARIO.xlsx', categoria: 'OTROS', texto, metodo: 'excel' }]);
+  assert.ok(r);
+  assert.equal(r!.estructura, 'por_linea');
+  assert.deepEqual(r!.lineas, [1, 2, 3]);
+  assert.equal(r!.items.length, 9);
+  assert.deepEqual(r!.items.filter(i => i.linea === 2).map(i => [i.descripcion, i.cantidad]), [['CORTINAS BLACK OUT', 120]]);
+  assert.deepEqual(r!.items.filter(i => i.linea === 1).map(i => i.numero), [1, 2, 3, 4]);
+});
