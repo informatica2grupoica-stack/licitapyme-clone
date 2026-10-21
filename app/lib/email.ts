@@ -10,6 +10,7 @@
 //   SMTP_FROM="LICITANK <notificaciones@tudominio.cl>"  (opcional; por defecto = SMTP_USER)
 //   NEXT_PUBLIC_APP_URL=https://tu-app   (para los enlaces del correo)
 import nodemailer, { type Transporter } from 'nodemailer';
+import { LOGO_CID, LOGO_PNG_BASE64 } from './email-logo';
 
 let _transporter: Transporter | null = null;
 function transporter(): Transporter | null {
@@ -32,6 +33,8 @@ function transporter(): Transporter | null {
   }
   return _transporter;
 }
+// Todos los correos usan layoutEmail, que muestra el logo desde este adjunto embebido.
+const ADJUNTO_LOGO = [{ filename: 'licitank.png', content: LOGO_PNG_BASE64, encoding: 'base64', cid: LOGO_CID, contentDisposition: 'inline' as const }];
 const FROM = () => process.env.SMTP_FROM || process.env.SMTP_USER || '';
 
 const fmtMonto = (n?: number | null) =>
@@ -55,47 +58,33 @@ interface AsignacionEmail {
 const APP_NOMBRE = 'LICITANK';
 const C_TINTA    = '#1c2027'; // header oscuro (mismo tono que el sidebar de la app)
 const C_TEAL     = '#2FC7A6'; // acento del logo (rombo teal)
-const C_INDIGO   = '#4f46e5'; // acción / franja (primario de la app)
+const C_ACCION   = '#0d7a65'; // botones y enlaces: teal de la marca, oscurecido para leerse sobre blanco
+const C_FONDO    = '#f3f5f4'; // fondo exterior, gris con un toque verde
 
-// Rombo del logo (icono real de LicitankLogo.tsx, sin el degradado de la base
-// para que se vea igual de nítido en clientes de correo que no soportan filtros).
-function iconoLicitank(size = 30): string {
-  return `
-    <svg width="${size}" height="${size}" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="display:block;">
-      <defs>
-        <linearGradient id="lk-body" x1="20" y1="18" x2="80" y2="82" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stop-color="#4BE3C0" />
-          <stop offset="100%" stop-color="#2FC7A6" />
-        </linearGradient>
-      </defs>
-      <rect x="18" y="18" width="64" height="64" rx="20" transform="rotate(45 50 50)" fill="url(#lk-body)" />
-      <rect x="36" y="30" width="28" height="28" rx="3" transform="rotate(45 50 44)" fill="#ffffff" />
-    </svg>`;
-}
-
-// Wordmark: icono + "LICITANK" en blanco + subtítulo "Licitaciones" (igual al sidebar).
+// Wordmark: icono PNG (adjunto cid, ver email-logo.ts) + "LICITANK" + "Licitaciones",
+// igual a la cabecera del sidebar.
 function wordmark(): string {
   return `
-    <table role="presentation" cellpadding="0" cellspacing="0"><tr>
-      <td style="padding-right:10px;">${iconoLicitank(30)}</td>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td style="padding-right:12px;vertical-align:middle;"><img src="cid:${LOGO_CID}" width="36" height="36" alt="LICITANK" style="display:block;border:0;width:36px;height:36px;"></td>
       <td style="vertical-align:middle;line-height:1.15;">
-        <div style="font-size:16px;font-weight:800;letter-spacing:-.01em;color:#ffffff;">LICITANK</div>
-        <div style="font-size:9.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#8b93a1;">Licitaciones</div>
+        <div style="font-size:17px;font-weight:800;letter-spacing:-.01em;color:#ffffff;">LICITANK</div>
+        <div style="font-size:9.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:#7d8794;">Licitaciones</div>
       </td>
     </tr></table>`;
 }
 
-// Tarjeta estándar de una licitación (con franja de acento a la izquierda).
+// Tarjeta estándar de una licitación.
 function cardLicitacion(l: { codigo: string; nombre?: string | null; organismo?: string | null; monto?: number | null; cierre?: string | null }): string {
   const fila = (label: string, valor: string | null) => valor
-    ? `<tr><td style="padding:3px 0;color:#6b7280;font-size:13px;width:118px;">${label}</td><td style="padding:3px 0;color:#111827;font-size:13px;font-weight:500;">${esc(valor)}</td></tr>`
+    ? `<tr><td style="padding:4px 0;color:#6b7280;font-size:13px;width:118px;">${label}</td><td style="padding:4px 0;color:#111827;font-size:13px;font-weight:600;">${esc(valor)}</td></tr>`
     : '';
   return `
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #e5e7eb;border-left:3px solid ${C_INDIGO};border-radius:8px;">
-      <tr><td style="padding:15px 18px;">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#f8faf9;border:1px solid #e3e8e6;border-radius:10px;">
+      <tr><td style="padding:16px 18px;">
         <div style="color:#0f172a;font-size:15px;font-weight:700;line-height:1.4;">${esc(l.nombre || l.codigo)}</div>
-        <div style="margin-top:3px;color:#94a3b8;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;">${esc(l.codigo)}</div>
-        <table style="width:100%;border-collapse:collapse;margin-top:11px;">
+        <div style="margin-top:3px;color:#64748b;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;">${esc(l.codigo)}</div>
+        <table style="width:100%;border-collapse:collapse;margin-top:12px;border-top:1px solid #e3e8e6;padding-top:8px;">
           ${fila('Organismo', l.organismo || null)}
           ${fila('Monto estimado', fmtMonto(l.monto))}
           ${fila('Cierre', fmtFecha(l.cierre))}
@@ -105,25 +94,35 @@ function cardLicitacion(l: { codigo: string; nombre?: string | null; organismo?:
 }
 
 // Envoltura común. `titulo` y `cuerpo` se pasan como HTML ya escapado por el que llama.
+// Documento completo con color-scheme "light": evita que Apple Mail/Outlook lo inviertan
+// a modo oscuro y dejen el texto gris sobre gris.
 function layoutEmail(o: { titulo: string; cuerpo: string; cta?: { label: string; url: string } }): string {
-  return `
-  <div style="background:#eef1f5;padding:30px 16px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111827;">
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:540px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(15,23,42,.08);">
-      <tr><td style="background:${C_TINTA};padding:20px 26px;">
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/$/, '');
+  return `<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light only">
+<style>:root{color-scheme:light only;supported-color-schemes:light only;}</style>
+</head>
+<body style="margin:0;padding:0;background:${C_FONDO};">
+  <div style="background:${C_FONDO};padding:32px 16px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#111827;">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e3e8e6;border-radius:14px;overflow:hidden;">
+      <tr><td style="background:${C_TINTA};padding:22px 28px;">
         ${wordmark()}
       </td></tr>
-      <tr><td style="height:3px;background:${C_TEAL};font-size:0;line-height:0;">&nbsp;</td></tr>
-      <tr><td style="padding:28px 26px 26px;">
-        <h1 style="margin:0 0 18px;color:#0f172a;font-size:19px;font-weight:700;line-height:1.3;">${o.titulo}</h1>
+      <tr><td style="height:4px;background:${C_TEAL};font-size:0;line-height:0;">&nbsp;</td></tr>
+      <tr><td style="padding:30px 28px 28px;">
+        <h1 style="margin:0 0 18px;color:#0f172a;font-size:20px;font-weight:700;line-height:1.3;">${o.titulo}</h1>
         ${o.cuerpo}
-        ${o.cta ? `<div style="margin-top:22px;"><a href="${o.cta.url}" style="display:inline-block;background:${C_INDIGO};color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:11px 22px;border-radius:8px;">${esc(o.cta.label)}</a></div>` : ''}
+        ${o.cta ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:24px;"><tr><td style="background:${C_ACCION};border-radius:8px;"><a href="${o.cta.url}" style="display:inline-block;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:12px 24px;">${esc(o.cta.label)} &rarr;</a></td></tr></table>` : ''}
       </td></tr>
-      <tr><td style="background:#f8fafc;padding:16px 26px;border-top:1px solid #eceef1;">
-        <div style="color:#64748b;font-size:12px;font-weight:600;">${APP_NOMBRE}</div>
-        <div style="margin-top:2px;color:#9ca3af;font-size:11.5px;line-height:1.5;">Notificación automática. Si no esperabas este correo, avísale a tu administrador.</div>
+      <tr><td style="background:${C_TINTA};padding:18px 28px;">
+        <div style="color:#ffffff;font-size:12px;font-weight:700;letter-spacing:.04em;">${APP_NOMBRE}${appUrl ? ` &nbsp;·&nbsp; <a href="${appUrl}" style="color:${C_TEAL};text-decoration:none;font-weight:600;">Ir a la plataforma</a>` : ''}</div>
+        <div style="margin-top:4px;color:#8b93a1;font-size:11.5px;line-height:1.5;">Notificación automática. Si no esperabas este correo, avísale a tu administrador.</div>
       </td></tr>
     </table>
-  </div>`;
+  </div>
+</body></html>`;
 }
 
 function plantillaAsignacion(p: AsignacionEmail, appUrl: string): string {
@@ -149,6 +148,7 @@ export async function enviarCorreoAsignacion(p: AsignacionEmail): Promise<boolea
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || '';
   try {
     await t.sendMail({
+      attachments: ADJUNTO_LOGO,
       from: FROM(),
       to: p.to,
       subject: `${p.reasignacion ? 'Reasignación' : 'Licitación asignada'}: ${p.licitacionNombre || p.codigo}`,
@@ -192,6 +192,7 @@ export async function enviarCorreoRecuperacion(p: RecuperacionEmail): Promise<bo
   if (!t) { console.warn('[email] SMTP no configurado — correo de recuperación omitido'); return false; }
   try {
     await t.sendMail({
+      attachments: ADJUNTO_LOGO,
       from: FROM(),
       to: p.to,
       subject: 'Restablece tu contraseña · LICITANK',
@@ -232,12 +233,12 @@ function plantillaDigest(p: DigestEmail, appUrl: string): string {
     const meta = [l.organismo, fmtMonto(l.monto), fmtFecha(l.cierre) ? `Cierre: ${fmtFecha(l.cierre)}` : null]
       .filter(Boolean).map(v => esc(String(v))).join(' · ');
     return `
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #e5e7eb;border-left:3px solid ${C_INDIGO};border-radius:8px;margin-bottom:8px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px;">
         <tr><td style="padding:13px 16px;">
           <div style="font-size:14.5px;font-weight:700;line-height:1.4;">
             ${url ? `<a href="${url}" style="color:#0f172a;text-decoration:none;">` : ''}${esc(l.nombre || l.codigo)}${url ? '</a>' : ''}
           </div>
-          <div style="margin-top:3px;color:#94a3b8;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;">${esc(l.codigo)}${l.keyword ? ` · <span style="color:#6366f1;">${esc(l.keyword)}</span>` : ''}</div>
+          <div style="margin-top:3px;color:#94a3b8;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;">${esc(l.codigo)}${l.keyword ? ` · <span style="color:${C_ACCION};">${esc(l.keyword)}</span>` : ''}</div>
           ${meta ? `<div style="margin-top:5px;color:#6b7280;font-size:12px;">${meta}</div>` : ''}
         </td></tr>
       </table>`;
@@ -276,7 +277,7 @@ function plantillaReparto(p: RepartoEmail, appUrl: string): string {
     const meta = [l.organismo, fmtMonto(l.monto), fmtFecha(l.cierre) ? `Cierre: ${fmtFecha(l.cierre)}` : null]
       .filter(Boolean).map(v => esc(String(v))).join(' · ');
     return `
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #e5e7eb;border-left:3px solid ${C_INDIGO};border-radius:8px;margin-bottom:8px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:8px;">
         <tr><td style="padding:13px 16px;">
           <div style="font-size:14.5px;font-weight:700;line-height:1.4;">
             ${url ? `<a href="${url}" style="color:#0f172a;text-decoration:none;">` : ''}${esc(l.nombre || l.codigo)}${url ? '</a>' : ''}
@@ -308,6 +309,7 @@ export async function enviarDigestReparto(p: RepartoEmail): Promise<boolean> {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || '';
   try {
     await t.sendMail({
+      attachments: ADJUNTO_LOGO,
       from: FROM(),
       to: p.to,
       subject: `${p.total} licitación${p.total !== 1 ? 'es' : ''} nueva${p.total !== 1 ? 's' : ''} asignada${p.total !== 1 ? 's' : ''}`,
@@ -337,7 +339,7 @@ function plantillaCambio(p: CambioEmail, appUrl: string): string {
   const url = appUrl ? `${appUrl.replace(/\/$/, '')}/licitacion/${encodeURIComponent(p.codigo)}` : '';
   const lineas = p.cambios.map(c => `
     <tr>
-      <td style="padding:6px 0;width:118px;vertical-align:top;"><span style="color:${C_INDIGO};font-size:12.5px;font-weight:700;">${esc(c.tipo)}</span></td>
+      <td style="padding:6px 0;width:118px;vertical-align:top;"><span style="color:${C_ACCION};font-size:12.5px;font-weight:700;">${esc(c.tipo)}</span></td>
       <td style="padding:6px 0;color:#111827;font-size:13.5px;line-height:1.5;">${esc(c.detalle)}</td>
     </tr>`).join('');
   const cuerpo = `
@@ -362,6 +364,7 @@ export async function enviarCorreoCambio(p: CambioEmail): Promise<boolean> {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || '';
   try {
     await t.sendMail({
+      attachments: ADJUNTO_LOGO,
       from: FROM(),
       to: p.to,
       subject: `Actualización: ${p.licitacionNombre || p.codigo}`,
@@ -408,6 +411,7 @@ export async function enviarCorreoEtapaAnexos(p: EtapaAnexosEmail): Promise<bool
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || '';
   try {
     await t.sendMail({
+      attachments: ADJUNTO_LOGO,
       from: FROM(),
       to: p.to,
       subject: `Etapa ANEXOS: ${p.licitacionNombre || p.codigo}`,
@@ -428,6 +432,7 @@ export async function enviarDigestRadar(p: DigestEmail): Promise<boolean> {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || '';
   try {
     await t.sendMail({
+      attachments: ADJUNTO_LOGO,
       from: FROM(),
       to: p.to,
       subject: `${p.totalNuevas} nueva${p.totalNuevas !== 1 ? 's' : ''} licitación${p.totalNuevas !== 1 ? 'es' : ''} en tu radar`,
@@ -474,7 +479,7 @@ function plantillaCierres(p: CierresEmail, appUrl: string): string {
             ${url ? `<a href="${url}" style="color:#0f172a;text-decoration:none;">` : ''}${esc(l.nombre || l.codigo)}${url ? '</a>' : ''}
           </div>
           <div style="margin-top:3px;color:#94a3b8;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;">${esc(l.codigo)}</div>
-          ${l.perfil ? `<div style="margin-top:5px;"><span style="display:inline-block;background:#eef2ff;color:#4338ca;font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:999px;">👤 ${esc(l.perfil)}</span></div>` : ''}
+          ${l.perfil ? `<div style="margin-top:5px;"><span style="display:inline-block;background:#e6f4f0;color:#0d7a65;font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:999px;">👤 ${esc(l.perfil)}</span></div>` : ''}
           ${cierre ? `<div style="margin-top:6px;color:#b91c1c;font-size:13px;font-weight:700;">⏰ Cierra: ${esc(cierre)}</div>` : ''}
           ${meta ? `<div style="margin-top:4px;color:#6b7280;font-size:12px;">${meta}</div>` : ''}
         </td></tr>
@@ -506,6 +511,7 @@ export async function enviarDigestCierresProximos(p: CierresEmail): Promise<bool
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || '';
   try {
     await t.sendMail({
+      attachments: ADJUNTO_LOGO,
       from: FROM(),
       to: p.to,
       subject: p.esAdmin
@@ -569,7 +575,7 @@ function plantillaOrdenesCompra(p: OrdenCompraEmail, appUrl: string): string {
   const nuevas = p.ordenes.filter(o => o.esNueva).length;
   const tarjetas = p.ordenes.map(o => {
     const url = base ? `${base}/licitacion/${encodeURIComponent(o.licitacionCodigo)}` : '';
-    const acento = o.esNueva ? '#059669' : C_INDIGO;
+    const acento = o.esNueva ? '#059669' : C_ACCION;
     const fila = (label: string, valor: string | null) => valor
       ? `<tr><td style="padding:3px 0;color:#6b7280;font-size:13px;width:118px;">${label}</td><td style="padding:3px 0;color:#111827;font-size:13px;font-weight:500;">${esc(valor)}</td></tr>`
       : '';
@@ -587,7 +593,7 @@ function plantillaOrdenesCompra(p: OrdenCompraEmail, appUrl: string): string {
           ${fila('Monto', fmtMonto(o.total))}
           ${fila('Licitación', o.licitacionCodigo)}
         </table>
-        ${url ? `<div style="margin-top:12px;"><a href="${url}" style="color:${C_INDIGO};font-size:13px;font-weight:600;text-decoration:none;">Ver la licitación &rsaquo;</a></div>` : ''}
+        ${url ? `<div style="margin-top:12px;"><a href="${url}" style="color:${C_ACCION};font-size:13px;font-weight:600;text-decoration:none;">Ver la licitación &rsaquo;</a></div>` : ''}
       </td></tr>
     </table>`;
   }).join('');
@@ -613,6 +619,7 @@ export async function enviarAvisoOrdenesCompra(p: OrdenCompraEmail): Promise<boo
   const nuevas = p.ordenes.filter(o => o.esNueva).length;
   try {
     await t.sendMail({
+      attachments: ADJUNTO_LOGO,
       from: FROM(),
       to: p.to,
       subject: nuevas > 0
@@ -641,7 +648,7 @@ interface ResultadoLicitacionEmail {
 const TITULOS_RESULTADO: Record<TipoResultadoLicitacion, { asunto: string; titulo: string; acento: string }> = {
   ganada:   { asunto: '🏆 ¡Adjudicada!',        titulo: '🏆 ¡Adjudicada!',              acento: '#059669' },
   perdida:  { asunto: '📄 Resultado publicado', titulo: '📄 Resultado publicado',       acento: '#6b7280' },
-  apertura: { asunto: '📂 Apertura realizada',  titulo: '📂 Apertura realizada',        acento: C_INDIGO },
+  apertura: { asunto: '📂 Apertura realizada',  titulo: '📂 Apertura realizada',        acento: C_ACCION },
 };
 
 function plantillaResultadoLicitacion(p: ResultadoLicitacionEmail, appUrl: string): string {
@@ -670,6 +677,7 @@ export async function enviarAvisoResultadoLicitacion(p: ResultadoLicitacionEmail
   if (!p.to) return false;
   try {
     await t.sendMail({
+      attachments: ADJUNTO_LOGO,
       from: FROM(),
       to: p.to,
       subject: `${TITULOS_RESULTADO[p.tipo].asunto}: ${p.licitacionNombre || p.codigo}`,
@@ -743,6 +751,7 @@ export async function enviarAvisoComprasGanado(p: ComprasGanadoEmail): Promise<b
   if (!p.to) return false;
   try {
     await t.sendMail({
+      attachments: ADJUNTO_LOGO,
       from: FROM(),
       to: p.to,
       subject: `${p.urgente ? '🔴 URGENTE — ' : '🛒 '}Proyecto ganado, entra a Compras: ${p.licitacionNombre || p.codigo}`,
@@ -783,15 +792,16 @@ export async function enviarFeErrataPrecompra(p: {
       Lo que ocurre es que estrenamos un módulo nuevo, la <strong>pre-compra</strong>: cuando una licitación pasa a <strong>POSIBLE ADJUDICADA</strong>, se abre automáticamente en Compras para ir adelantando cotizaciones y costeo.
       No significa que se haya ganado: hasta que Mercado Público confirme la adjudicación no se emiten órdenes de compra. Si finalmente no se adjudica, la pre-compra se cierra sola.
     </p>
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #e5e7eb;border-left:3px solid #4f46e5;border-radius:8px;">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;">
       <tr><td style="padding:12px 18px;">
-        <div style="color:#4f46e5;font-size:11px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;">Pre-compra · posible adjudicación</div>
+        <div style="color:${C_ACCION};font-size:11px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;">Pre-compra · posible adjudicación</div>
         <table style="width:100%;border-collapse:collapse;margin-top:6px;">${filas}</table>
       </td></tr>
     </table>
     <p style="margin:16px 0 0;color:#6b7280;font-size:12.5px;line-height:1.55;">Disculpa la confusión. No tienes que hacer nada por ahora.</p>`;
   try {
     await t.sendMail({
+      attachments: ADJUNTO_LOGO,
       from: FROM(), to: p.to,
       subject: `Fe de errata: ${plural ? 'tus licitaciones NO están adjudicadas' : 'tu licitación NO está adjudicada'} (pre-compra)`,
       html: layoutEmail({ titulo: 'Fe de errata: aún no hay adjudicación', cuerpo }),
@@ -833,9 +843,9 @@ export async function enviarAvisoPrecompra(p: {
   const cuerpo = `
     <p style="margin:0 0 14px;color:#374151;font-size:14px;line-height:1.55;">Hola ${esc(p.nombre || '')}:</p>
     <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.55;">${intro}</p>
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #e5e7eb;border-left:3px solid #4f46e5;border-radius:8px;">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;">
       <tr><td style="padding:15px 18px;">
-        <div style="color:#4f46e5;font-size:11px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;">Pre-compra · posible adjudicación</div>
+        <div style="color:${C_ACCION};font-size:11px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;">Pre-compra · posible adjudicación</div>
         <div style="margin-top:4px;color:#0f172a;font-size:15px;font-weight:700;line-height:1.4;">${esc(p.licitacionNombre || p.codigo)}</div>
         <div style="margin-top:3px;color:#94a3b8;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;">${esc(p.codigo)}</div>
         <table style="width:100%;border-collapse:collapse;margin-top:11px;">
@@ -849,6 +859,7 @@ export async function enviarAvisoPrecompra(p: {
     <p style="margin:16px 0 0;color:#6b7280;font-size:12.5px;line-height:1.55;">${pie}</p>`;
   try {
     await t.sendMail({
+      attachments: ADJUNTO_LOGO,
       from: FROM(), to: p.to,
       subject: p.para === 'asistente'
         ? `Tu postulación pasó a POSIBLE ADJUDICADA: ${p.licitacionNombre || p.codigo}`
@@ -908,6 +919,7 @@ export async function enviarAvisoAprobacionCompras(p: AvisoAprobacionComprasEmai
     <p style="margin:16px 0 0;color:#6b7280;font-size:12.5px;line-height:1.55;">${esc(accion)}${p.prueba ? ' · [PRUEBA: aviso enviado solo a quien hizo la acción]' : ''}</p>`;
   try {
     await t.sendMail({
+      attachments: ADJUNTO_LOGO,
       from: FROM(), to: p.to,
       subject: `${p.prueba ? '[PRUEBA] ' : ''}${asunto}${p.licitacionNombre ? `: ${p.licitacionNombre}` : ''}`,
       html: layoutEmail({ titulo, cuerpo, cta: url ? { label: p.resultado === 'APROBADA' ? 'Abrir Compras' : p.resultado === 'INCIDENCIA' ? 'Ver la incidencia' : p.resultado === 'CORREGIDA' ? 'Revisar el producto' : 'Ir a corregir', url } : undefined }),

@@ -79,7 +79,7 @@ export function CompararOcModal({ negocioId, ocFolio, onCerrar }: { negocioId: n
           <div className="p-4 space-y-3">
             <div className="grid grid-cols-3 gap-2" data-testid="comparar-oc-resumen">
               {[
-                ['Cotización (plan)', c.cotizaciones.length ? cotNeto : null, null],
+                ['Cotización elegida', c.cotizaciones.length ? cotNeto : null, null],
                 ['OC en Obuma', c.oc.neto, c.cotizaciones.length ? cotNeto : null],
                 ['Facturado', factOk.length ? factNeto : null, c.oc.neto],
               ].map(([n, v, base]) => (

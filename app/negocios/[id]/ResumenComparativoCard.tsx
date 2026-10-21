@@ -77,7 +77,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
     <div className="space-y-4" data-testid="resumen-comparativo">
       <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3 space-y-1.5" data-testid="comparativo-guia">
         <p className="text-[13px] font-bold text-zinc-800">Para qué sirve esta pestaña</p>
-        <p className="text-[12px] text-zinc-600">Compara tres cosas para cada producto: <b>lo que se costeó</b> al ofertar, <b>lo que se planeó comprar</b> en Licitank y <b>lo que de verdad se compró</b> en Obuma. Así ves si pagaste más o menos de lo previsto. Es solo para mirar: no hay nada que llenar.</p>
+        <p className="text-[12px] text-zinc-600">Compara tres cosas para cada producto: <b>lo que se costeó</b> al ofertar, <b>la cotización elegida</b> en Licitank y <b>lo que de verdad se compró</b> en Obuma. Así ves si pagaste más o menos de lo previsto. Es solo para mirar: no hay nada que llenar.</p>
         <ul className="text-[12px] text-zinc-600 space-y-0.5">
           <li><b className="text-emerald-700">Verde</b> = pagaste menos que la referencia · <b className="text-rose-600">Rojo</b> = pagaste más · «≈ igual» = diferencia menor al 1 %.</li>
           <li>Todos los montos son <b>sin IVA</b>, salvo la tabla de «Cuadre con Obuma», que va con IVA como la muestra Obuma.</li>
@@ -88,7 +88,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
       <div className={`rounded-xl border px-3 py-2.5 ${coincide ? 'border-emerald-200 bg-emerald-50/60' : 'border-amber-200 bg-amber-50/60'}`}>
         <p className={`text-[13px] font-bold flex items-center gap-1.5 ${coincide ? 'text-emerald-800' : 'text-amber-900'}`}>
           {coincide ? <Check size={15} /> : <Alerta size={15} />}
-          {coincide ? 'Costeo, plan de Licitank y Obuma coinciden.' : `Hay ${r.avisos.length} cosa(s) que no coinciden — revisar`}
+          {coincide ? 'Costeo, cotización elegida y Obuma coinciden.' : `Hay ${r.avisos.length} cosa(s) que no coinciden — revisar`}
         </p>
         {r.avisos.length > 0 && <ul className="mt-1 list-disc pl-5 space-y-0.5 text-[12px] text-amber-900">{r.avisos.map((a, i) => <li key={i}>{a}</li>)}</ul>}
       </div>
@@ -142,7 +142,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
         {[
           ['Venta ganada', t.venta, 'text-zinc-800'],
           ['Costeado', t.costeo, 'text-zinc-800'],
-          ['Plan en Licitank', t.plan, 'text-zinc-800'],
+          ['Cotización elegida', t.plan, 'text-zinc-800'],
           ['OC en Obuma', t.obumaOc, 'text-sky-800'],
           ['Facturado', t.facturado, 'text-zinc-800'],
           ['Gastos extra', t.gastosExtra, 'text-zinc-800'],
@@ -181,7 +181,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
                 <th className="px-3 py-1.5 font-semibold text-right">Cant.</th>
                 <th className="px-3 py-1.5 font-semibold text-right">Venta</th>
                 <th className="px-3 py-1.5 font-semibold text-right">Costeo</th>
-                <th className="px-3 py-1.5 font-semibold">Plan Licitank</th>
+                <th className="px-3 py-1.5 font-semibold">Cotización elegida</th>
                 <th className="px-3 py-1.5 font-semibold">Comprado en Obuma</th>
                 <th className="px-3 py-1.5 font-semibold text-right">Obuma vs costeo</th>
               </tr>
@@ -194,7 +194,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
                   <td className="px-3 py-1.5 text-right tabular-nums text-zinc-700">{fmt(f.ventaNeto)}<span className="block text-[10.5px] text-zinc-400">{fmt(f.ventaUnit)} c/u</span></td>
                   <td className="px-3 py-1.5 text-right tabular-nums text-zinc-700">{fmt(f.costeoNeto)}<span className="block text-[10.5px] text-zinc-400">{fmt(f.costeoUnit)} c/u</span></td>
                   <td className="px-3 py-1.5 tabular-nums text-zinc-700">
-                    {f.planProveedor ? <>{fmt(f.planNeto)}<span className="block text-[10.5px] text-zinc-400">{f.planProveedor} · {fmt(f.planUnit)} c/u</span></> : <span className="text-zinc-300">sin plan</span>}
+                    {f.planProveedor ? <>{fmt(f.planNeto)}<span className="block text-[10.5px] text-zinc-400">{f.planProveedor} · {fmt(f.planUnit)} c/u</span></> : <span className="text-zinc-300">sin cotización</span>}
                   </td>
                   <td className="px-3 py-1.5 tabular-nums text-zinc-700">
                     {f.obumaOc ? (
@@ -202,7 +202,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
                         {fmt(f.obumaNeto)}
                         <span className="block text-[10.5px] text-zinc-400">{f.obumaProveedor} · OC {f.obumaOc}{f.obumaEstado ? ` · ${f.obumaEstado}` : ''} · {fmt(f.obumaUnit)} c/u</span>
                         {f.obumaSku && <span className="block text-[10.5px] font-semibold text-indigo-600">SKU {f.obumaSku}</span>}
-                        {f.otroProveedor && <span className="block text-[10.5px] font-semibold text-amber-700">⚠ proveedor distinto al plan</span>}
+                        {f.otroProveedor && <span className="block text-[10.5px] font-semibold text-amber-700">⚠ proveedor distinto a la cotización elegida</span>}
                       </>
                     ) : <span className="text-amber-700 font-semibold">sin OC en Obuma</span>}
                   </td>
@@ -224,7 +224,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
         </div>
         {r.lineasSinPlan.length > 0 && (
           <p className="mt-1 text-[11.5px] text-zinc-500">
-            Además, en Obuma hay líneas que no son un producto del plan: {r.lineasSinPlan.map(l => `${l.producto.slice(0, 40)} (OC ${l.ocFolio}, ${fmt(l.neto)})`).join(' · ')}.
+            Además, en Obuma hay líneas que no son un producto de la cotización elegida: {r.lineasSinPlan.map(l => `${l.producto.slice(0, 40)} (OC ${l.ocFolio}, ${fmt(l.neto)})`).join(' · ')}.
           </p>
         )}
       </div>
@@ -271,7 +271,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
       </div>
 
       <div>
-        <p className="text-[10.5px] font-semibold text-zinc-500 uppercase tracking-wide mb-1">Por orden de compra · plan contra Obuma contra factura</p>
+        <p className="text-[10.5px] font-semibold text-zinc-500 uppercase tracking-wide mb-1">Por orden de compra · cotización elegida contra Obuma contra factura</p>
         <div className="overflow-x-auto rounded-lg border border-zinc-100">
           <table className="w-full text-[12px] border-collapse">
             <thead>
@@ -279,7 +279,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
                 <th className="px-3 py-1.5 font-semibold">OC</th>
                 <th className="px-3 py-1.5 font-semibold">Proveedor</th>
                 <th className="px-3 py-1.5 font-semibold">Estado</th>
-                <th className="px-3 py-1.5 font-semibold text-right">Plan</th>
+                <th className="px-3 py-1.5 font-semibold text-right">Cotización elegida</th>
                 <th className="px-3 py-1.5 font-semibold text-right">OC Obuma</th>
                 <th className="px-3 py-1.5 font-semibold text-right">Facturado</th>
                 <th className="px-3 py-1.5 font-semibold text-right">OC − factura</th>
@@ -312,7 +312,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
             </tfoot>
           </table>
         </div>
-        <p className="mt-1 text-[11px] text-zinc-400">«Comparar» abre, lado a lado, la cotización del plan, la OC de Obuma y la factura de esa orden.</p>
+        <p className="mt-1 text-[11px] text-zinc-400">«Comparar» abre, lado a lado, la cotización elegida, la OC de Obuma y la factura de esa orden.</p>
       </div>
       {agregandoGasto !== null && <GastoExtraModal negocioId={negocioId} categoriaInicial={agregandoGasto.categoria || undefined} descripcionInicial={agregandoGasto.descripcion} montoInicial={agregandoGasto.monto} onCerrar={() => setAgregandoGasto(null)} onGuardado={() => { setAgregandoGasto(null); setVersion(v => v + 1); }} />}
       {comparando && <CompararOcModal negocioId={negocioId} ocFolio={comparando} onCerrar={() => setComparando(null)} />}

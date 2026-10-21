@@ -605,7 +605,15 @@ export async function homologarCotizacionIA(cotizacionId: number): Promise<{ ite
 
   const sufijoMoneda = cotiz.moneda && cotiz.moneda !== 'CLP' ? ` ${cotiz.moneda}` : '';
   const user = `PRODUCTOS GANADOS (código: descripción, cantidad, unidad):
-${productos.map((p, i) => `P${i + 1}. ${p.descripcion}${p.cantidad ? `, cantidad ${p.cantidad}` : ''}${p.unidad ? ` ${p.unidad}` : ''}`).join('\n')}
+${productos.map((p, i) => {
+    // Partes que se compran aparte (pernos de una butaca «que incluye pernos»): son un producto de la lista, y su ausencia en la
+    // cotización del producto NO es un faltante (van a otro proveedor).
+    const padre = p.productoPadreId != null ? productos.findIndex(x => x.id === p.productoPadreId) : -1;
+    const partes = productos.filter(x => x.productoPadreId === p.id).map(x => `P${productos.indexOf(x) + 1}`);
+    const nota = padre >= 0 ? ` (parte de P${padre + 1} que se compra APARTE: si el documento la cotiza, va aquí y no como adicional de P${padre + 1})`
+      : partes.length ? ` (${partes.join(', ')} se compra${partes.length > 1 ? 'n' : ''} aparte: si el documento no lo${partes.length > 1 ? 's' : ''} trae, NO es un faltante de este producto)` : '';
+    return `P${i + 1}. ${p.descripcion}${p.cantidad ? `, cantidad ${p.cantidad}` : ''}${p.unidad ? ` ${p.unidad}` : ''}${nota}`;
+  }).join('\n')}
 
 COTIZACIÓN de "${cotiz.proveedor_nombre}"${cotiz.precio_unitario ? ` — precio unitario informado: ${Number(cotiz.precio_unitario).toLocaleString('es-CL')}${sufijoMoneda}` : ''}${cotiz.precio_total ? ` — total: ${Number(cotiz.precio_total).toLocaleString('es-CL')}${sufijoMoneda}` : ''}${sufijoMoneda ? `\n(Todo precio que asignes por producto debe estar en la MISMA moneda del documento, ${cotiz.moneda} — no conviertas tú, la conversión a CLP la hace el sistema aparte.)` : ''}:
 ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si corresponde a un único producto)'}`;

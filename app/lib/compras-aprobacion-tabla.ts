@@ -116,6 +116,25 @@ export async function tablaAprobacion(negocioId: number): Promise<TablaAprobacio
     };
   });
 
+  // Producto con partes que se compran aparte (butaca «incluye pernos» + pernos a otro proveedor): lo costeado y lo que paga el cliente
+  // traen los pernos adentro, así que la diferencia y el margen de la línea se miden con la butaca MÁS sus partes. Las partes no tienen
+  // venta propia; en los totales ya suman solo su costo.
+  for (const l of lineas) {
+    const partes = lineas.filter(x => vigentes.find(p => p.id === x.productoId)?.productoPadreId === l.productoId);
+    if (partes.length === 0 || l.compraUnit == null || !l.cantidad) continue;
+    const efectivoUnit = l.compraUnit + partes.reduce((s, x) => s + (x.compraTotal || 0), 0) / l.cantidad;
+    l.difUnit = l.costeadoUnit != null ? efectivoUnit - l.costeadoUnit : null;
+    l.difPct = l.difUnit != null && l.costeadoUnit ? pct((l.difUnit / l.costeadoUnit) * 100) : null;
+    l.difTotal = l.difUnit != null ? l.difUnit * l.cantidad : null;
+    l.margenLineaPct = l.ventaUnit ? pct(((l.ventaUnit - efectivoUnit) / l.ventaUnit) * 100) : null;
+    l.motivos = l.motivos.filter(m => !m.startsWith('Cuesta ') && !m.startsWith('Margen de la línea') && !m.startsWith('Se compra a un precio igual'));
+    const sinCompra = partes.filter(x => x.compraUnit == null);
+    l.motivos.push(`Incluye ${partes.map(x => x.descripcion.slice(0, 40)).join(', ')} comprado aparte${sinCompra.length ? ` (${sinCompra.length} todavía sin proveedor)` : ''}`);
+    if (l.ventaUnit != null && efectivoUnit >= l.ventaUnit) { l.estado = 'NO_PASA'; l.motivos.push('Con sus partes, se compra a un precio igual o mayor al que paga el cliente (pérdida)'); }
+    if (l.difPct != null && l.difPct > 0) { if (l.estado === 'PASA') l.estado = 'REVISAR'; l.motivos.push(`Con sus partes, cuesta ${l.difPct}% más que lo costeado`); }
+    if (l.margenLineaPct != null && l.margenLineaPct < MARGEN_MINIMO_PCT && l.margenLineaPct > 0) { if (l.estado === 'PASA') l.estado = 'REVISAR'; l.motivos.push(`Margen de la línea con sus partes ${l.margenLineaPct}% (mínimo ${MARGEN_MINIMO_PCT}%)`); }
+  }
+
   const sum = (f: (l: LineaAprobacion) => number | null) => lineas.reduce((s, l) => s + (f(l) || 0), 0);
   const venta = sum(l => l.ventaTotal);
   const compra = sum(l => l.compraTotal);

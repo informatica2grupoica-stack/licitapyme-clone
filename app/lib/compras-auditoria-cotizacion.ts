@@ -213,6 +213,7 @@ function resumenDePrecio(frasePrecio: string, revs: Revision[]): string {
 /** LO COSTEADO = el costo estimado por el asistente al ofertar (no el "costo real" que Compras carga después). */
 function lineaCosteoDeProducto(lineasCosteo: ReturnType<typeof lineasDelCosteo>, producto: ProductoCompra) {
   const norm = (x: string) => x.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 80);
+  if (producto.productoPadreId != null) return undefined;   // parte que se compra aparte: no tiene fila propia (la de su línea es la del producto)
   return lineasCosteo.find(l => producto.correlativo != null && l.lineaReal === producto.correlativo && lineasCosteo.filter(y => y.lineaReal === producto.correlativo).length === 1)
     ?? lineasCosteo.find(l => norm(l.detalle) === norm(String(producto.descripcion)));
 }

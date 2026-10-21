@@ -101,11 +101,11 @@ export async function compararOrdenCompra(negocioId: number, ocFolio: string): P
   const netoOc = netoDeCompra(oc);
   const netoFactOk = facturas.filter(f => f.estado === 'OK').reduce((s, f) => s + (f.neto ?? (f.total != null ? Math.round(f.total / 1.19) : 0)), 0);
   const avisos: string[] = [];
-  if (cotizs.length === 0) avisos.push('Esta OC no tiene una cotización asociada en el plan de compra (compra hecha fuera del plan o proveedor distinto).');
+  if (cotizs.length === 0) avisos.push('Esta OC no tiene una cotización elegida asociada (compra hecha fuera de lo cotizado o a otro proveedor).');
   if (facturas.length === 0) avisos.push('Esta OC todavía no tiene factura.');
   else if (netoFactOk && Math.abs(netoFactOk - netoOc) > 1) avisos.push(`El neto facturado (${netoFactOk.toLocaleString('es-CL')}) no coincide con el de la OC (${netoOc.toLocaleString('es-CL')}).`);
   for (const c of cotizs) if (c.neto && Math.abs(c.neto + (c.fleteNeto ?? 0) - netoOc) > Math.max(2, netoOc * 0.001)) avisos.push(`La cotización #${c.id} suma ${(c.neto + (c.fleteNeto ?? 0)).toLocaleString('es-CL')} neto y la OC ${netoOc.toLocaleString('es-CL')}: precios o cantidades distintos.`);
-  if (pares.some(p => !p.exacto)) avisos.push('El proveedor de la OC no es el del plan de compra.');
+  if (pares.some(p => !p.exacto)) avisos.push('El proveedor de la OC no es el de la cotización elegida.');
 
   return {
     oc: {

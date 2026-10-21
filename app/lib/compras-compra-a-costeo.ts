@@ -48,26 +48,51 @@ export async function planTrasladoCompraAlCosteo(negocioId: number): Promise<Pla
   const lineas = lineasDelCosteo(estado).filter(l => !l.esGastoExtra);
   const porClave = seleccionDesdeClave(detalle?.clave);
 
-  const out: LineaTraslado[] = [];
-  for (const d of porProducto) {
-    const prod = productos.find(p => p.id === Number(d.productoId));
-    if (!prod) continue;
-    // La cotización elegida: por la clave exacta de la combinación; si es un escenario clásico (sin clave), por proveedor y precio.
+  // La cotización elegida: por la clave exacta de la combinación; si es un escenario clásico (sin clave), por proveedor y precio.
+  const elegidaDe = (prod: { id: number }, d: any) => {
     const cotId = porClave[prod.id];
     const cot = cotizaciones.find(c => (cotId != null ? c.id === cotId : c.proveedorNombre === d.proveedor && c.items.some(i => i.productoId === prod.id && i.precioUnitario === d.precioUnitario)));
     const item = cot?.items.find(i => i.productoId === prod.id);
-    if (!cot || !item || item.precioUnitario == null) continue;
+    return cot && item && item.precioUnitario != null ? { cot, item, precio: item.precioUnitario } : null;
+  };
+  // Partes que se compran aparte (los pernos de la butaca): no tienen fila en el costeo; su costo TOTAL se reparte en el costo real por
+  // unidad de su producto, que es la fila que se costeó «incluye pernos». Así lo estimado y lo real se comparan con lo mismo adentro.
+  const partes = porProducto.map(d => ({ d, prod: productos.find(p => p.id === Number(d.productoId)) }))
+    .filter(x => x.prod?.productoPadreId != null)
+    .map(x => ({ prod: x.prod!, sel: elegidaDe(x.prod!, x.d) }))
+    .filter(x => x.sel != null);
+
+  const out: LineaTraslado[] = [];
+  for (const d of porProducto) {
+    const prod = productos.find(p => p.id === Number(d.productoId));
+    if (!prod || prod.productoPadreId != null) continue;
+    const sel = elegidaDe(prod, d);
+    if (!sel) continue;
+    const { cot, item } = sel;
+    const suyas = partes.filter(x => x.prod.productoPadreId === prod.id);
+    const cantProd = prod.cantidad != null && prod.cantidad > 0 ? prod.cantidad : 1;
+    const extraPorUnidad = suyas.reduce((s, x) => s + x.sel!.precio * (x.prod.cantidad ?? 1), 0) / cantProd;
 
     const linea = lineas.find(l => prod.correlativo != null && l.lineaReal === prod.correlativo && lineas.filter(y => y.lineaReal === prod.correlativo).length === 1)
       ?? lineas.find(l => norm(l.detalle) === norm(String(prod.descripcion)));
     const link = linea?.links?.[0] ?? (esLinkDeProducto(cot.archivoUrl) ? cot.archivoUrl : null);
-    const costoNeto = Math.round(item.precioUnitario);
-    const incluido = item.precioBase === 0;
+    const costoNeto = Math.round(sel.precio + extraPorUnidad);
+    const incluido = item.precioBase === 0 && suyas.length === 0;
     const anterior = linea?.costoRealUnitario ?? null;
     out.push({
-      productoId: prod.id, descripcion: prod.descripcion, proveedor: cot.proveedorNombre, cotizacionId: cot.id, costoNeto, incluido, anterior,
+      productoId: prod.id, descripcion: suyas.length ? `${prod.descripcion} + ${suyas.map(x => x.prod.descripcion.slice(0, 40)).join(' + ')}` : prod.descripcion,
+      proveedor: [cot.proveedorNombre, ...suyas.map(x => x.sel!.cot.proveedorNombre)].filter((v, i, a) => a.indexOf(v) === i).join(' + '),
+      cotizacionId: cot.id, costoNeto, incluido, anterior,
       filaId: linea?.id ?? null, link: link ?? null,
       estado: !linea ? 'SIN_FILA' : !link ? 'SIN_LINK' : anterior === costoNeto ? 'IGUAL' : 'CARGA',
+    });
+  }
+  // Parte elegida cuyo producto todavía no tiene compra: no hay a qué fila sumarla, se muestra sin cargar.
+  for (const x of partes) {
+    if (out.some(l => l.productoId === x.prod.productoPadreId)) continue;
+    out.push({
+      productoId: x.prod.id, descripcion: x.prod.descripcion, proveedor: x.sel!.cot.proveedorNombre, cotizacionId: x.sel!.cot.id,
+      costoNeto: Math.round(x.sel!.precio), incluido: false, anterior: null, filaId: null, link: null, estado: 'SIN_FILA',
     });
   }
   return { hayCompraElegida: true, lineas: out, aviso: null };

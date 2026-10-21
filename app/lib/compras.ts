@@ -1832,6 +1832,8 @@ export interface ProductoCompra {
   id: number; negocioId: number; correlativo: number | null; descripcion: string;
   cantidad: number | null; unidad: string | null; montoUnitario: number | null;
   subestado: SubestadoProducto;
+  /** Parte que se compra aparte (migration-163): los pernos de una butaca «que incluye pernos». null = producto del costeo. */
+  productoPadreId: number | null;
   renunciaMotivo: string | null; renunciaPropuestaPorNombre: string | null; renunciaPropuestaAt: string | null;
   renunciaAprobadaPorNombre: string | null; renunciaAprobadaAt: string | null;
 }
@@ -1941,7 +1943,8 @@ export async function sincronizarProductosConCosteo(negocioId: number): Promise<
   if (filasCosteo.length === 0) throw new Error('Este negocio no tiene Costeo cargado todavía.');
 
   const [existentesRows] = await pool.query(
-    `SELECT id, correlativo, descripcion FROM compras_producto WHERE negocio_id = ? ORDER BY correlativo IS NULL, correlativo, id`,
+    // Las partes que se compran aparte no vienen del costeo: no se emparejan con sus filas (ni se borran como duplicados).
+    `SELECT id, correlativo, descripcion FROM compras_producto WHERE negocio_id = ? AND producto_padre_id IS NULL ORDER BY correlativo IS NULL, correlativo, id`,
     [negocioId],
   ) as any;
   const { existentePorFila, duplicados } = emparejarProductos(existentesRows as ProductoExistente[], filasCosteo);
@@ -2025,7 +2028,7 @@ async function filasProductoDelCosteo(licitacionCodigo: string): Promise<import(
 
 export async function listarProductosCompra(negocioId: number): Promise<ProductoCompra[]> {
   const [rows] = await pool.query(
-    `SELECT id, negocio_id, correlativo, descripcion, cantidad, unidad, monto_unitario, subestado,
+    `SELECT id, negocio_id, correlativo, producto_padre_id, descripcion, cantidad, unidad, monto_unitario, subestado,
             renuncia_motivo, renuncia_propuesta_por_nombre, DATE_FORMAT(renuncia_propuesta_at, '%Y-%m-%d %H:%i:%s') AS renuncia_propuesta_at,
             renuncia_aprobada_por_nombre, DATE_FORMAT(renuncia_aprobada_at, '%Y-%m-%d %H:%i:%s') AS renuncia_aprobada_at
        FROM compras_producto WHERE negocio_id = ? ORDER BY correlativo IS NULL, correlativo, id`,
@@ -2035,7 +2038,7 @@ export async function listarProductosCompra(negocioId: number): Promise<Producto
     id: r.id, negocioId: r.negocio_id, correlativo: r.correlativo, descripcion: r.descripcion,
     cantidad: r.cantidad == null ? null : Number(r.cantidad), unidad: r.unidad,
     montoUnitario: r.monto_unitario == null ? null : Number(r.monto_unitario),
-    subestado: r.subestado, renunciaMotivo: r.renuncia_motivo,
+    subestado: r.subestado, productoPadreId: r.producto_padre_id ?? null, renunciaMotivo: r.renuncia_motivo,
     renunciaPropuestaPorNombre: r.renuncia_propuesta_por_nombre, renunciaPropuestaAt: r.renuncia_propuesta_at,
     renunciaAprobadaPorNombre: r.renuncia_aprobada_por_nombre, renunciaAprobadaAt: r.renuncia_aprobada_at,
   }));
@@ -2093,6 +2096,14 @@ export async function aprobarRenunciaLinea(productoId: number, actorId: number, 
     [actorId, actorNombre, ahora, ahora, productoId],
   ) as any;
   if (!r?.affectedRows) throw new Error('No hay renuncia propuesta pendiente para este producto.');
+  // Sus partes que se compran aparte (los pernos de la butaca) salen con él: sin el producto no tienen para qué comprarse.
+  await pool.query(
+    `UPDATE compras_producto
+        SET subestado = 'RENUNCIADO', renuncia_motivo = COALESCE(renuncia_motivo, 'Se renunció al producto del que es parte'),
+            renuncia_aprobada_por = ?, renuncia_aprobada_por_nombre = ?, renuncia_aprobada_at = ?, updated_at = ?
+      WHERE producto_padre_id = ? AND subestado NOT IN ('RENUNCIADO', 'NO_ADJUDICADA')`,
+    [actorId, actorNombre, ahora, ahora, productoId],
+  );
 
   // Renunciar una línea cambia el alcance de la compra — invalida cualquier aprobación ya dada (§10.5).
   const [prodRows] = await pool.query(
@@ -2108,6 +2119,68 @@ export async function aprobarRenunciaLinea(productoId: number, actorId: number, 
       metadata: { negocio_id: prod.negocio_id, producto_id: productoId },
     });
   }
+}
+
+/** PARTE QUE SE COMPRA APARTE (migration-163, pedido del 21-oct-2026, compra 1090): la fila del costeo es «Butaca … incluye pernos de
+ *  fijación», pero la butaca se compra a un proveedor y los pernos a otro. La parte es un producto más de Compras (se cotiza, se compra
+ *  directo, se aprueba, lleva SKU/OC y se entrega) colgado del suyo: hereda su línea (así el acta la deja fuera junto con él), no tiene
+ *  precio de venta (lo que paga el cliente sigue en el producto) y no se empareja con el costeo. Cambia el alcance de la compra (§10.5). */
+export async function crearParteProducto(
+  productoPadreId: number, datos: { descripcion: string; cantidad: number; unidad?: string | null },
+  actorId: number, actorNombre: string | null,
+): Promise<number> {
+  const descripcion = datos.descripcion.trim().slice(0, 500);
+  if (!descripcion) throw new Error('Falta qué se compra aparte.');
+  if (!Number.isFinite(datos.cantidad) || datos.cantidad <= 0) throw new Error('La cantidad debe ser mayor a cero.');
+  const [rows] = await pool.query(
+    `SELECT cp.negocio_id, cp.correlativo, cp.descripcion, cp.subestado, cp.producto_padre_id, n.licitacion_codigo
+       FROM compras_producto cp JOIN negocios n ON n.id = cp.negocio_id WHERE cp.id = ? LIMIT 1`, [productoPadreId],
+  ) as any;
+  const padre = (rows as any[])[0];
+  if (!padre) throw new Error('Producto no encontrado.');
+  if (padre.producto_padre_id != null) throw new Error('Una parte no puede tener partes: agrégala al producto principal.');
+  if (esSubestadoFuera(padre.subestado)) throw new Error('Ese producto quedó fuera de la compra.');
+
+  const ahora = ahoraChileSQL();
+  const [r] = await pool.query(
+    `INSERT INTO compras_producto (negocio_id, correlativo, producto_padre_id, descripcion, cantidad, unidad, monto_unitario, subestado, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, NULL, 'PENDIENTE', ?, ?)`,
+    [padre.negocio_id, padre.correlativo, productoPadreId, descripcion, datos.cantidad, datos.unidad?.trim().slice(0, 30) || null, ahora, ahora],
+  ) as any;
+  await invalidarAprobacionesCompras(padre.negocio_id, 'Se agregó una parte que se compra aparte: cambió el alcance de la compra.');
+  await registrarEvento({
+    tipo: 'COMPRAS_PARTE_AGREGADA', licitacionCodigo: padre.licitacion_codigo, actorId, actorNombre,
+    mensaje: `Se agregó «${descripcion}» (${datos.cantidad}${datos.unidad ? ` ${datos.unidad}` : ''}) para comprar aparte de «${String(padre.descripcion).slice(0, 80)}».`,
+    metadata: { negocio_id: padre.negocio_id, producto_id: r.insertId, producto_padre_id: productoPadreId },
+  }).catch(() => {});
+  return r.insertId as number;
+}
+
+/** Quita una parte agregada por error. Solo si todavía no tiene nada colgando (cotización, compra rápida, veredicto): lo que ya se
+ *  cotizó o compró es historial, y para sacarlo de la compra está «Renunciar». */
+export async function eliminarParteProducto(productoId: number, actorId: number, actorNombre: string | null): Promise<void> {
+  const [rows] = await pool.query(
+    `SELECT cp.negocio_id, cp.descripcion, cp.subestado, cp.producto_padre_id, n.licitacion_codigo
+       FROM compras_producto cp JOIN negocios n ON n.id = cp.negocio_id WHERE cp.id = ? LIMIT 1`, [productoId],
+  ) as any;
+  const p = (rows as any[])[0];
+  if (!p || p.producto_padre_id == null) throw new Error('Solo se puede quitar una parte agregada en Compras.');
+  const tiene = async (sql: string) => {
+    try { const [x] = await pool.query(sql, [productoId]) as any; return (x as any[]).length > 0; }
+    catch (e: any) { if (e?.code === 'ER_NO_SUCH_TABLE') return false; throw e; }
+  };
+  if (p.subestado !== 'PENDIENTE'
+    || await tiene(`SELECT 1 FROM compras_cotizacion_item WHERE producto_id = ? LIMIT 1`)
+    || await tiene(`SELECT 1 FROM compras_compra_rapida WHERE producto_id = ? LIMIT 1`)
+    || await tiene(`SELECT 1 FROM compras_veredicto WHERE producto_id = ? LIMIT 1`))
+    throw new Error('Esta parte ya tiene cotizaciones o una compra: no se puede quitar. Si ya no va, usa «Renunciar».');
+  await pool.query(`DELETE FROM compras_producto WHERE id = ?`, [productoId]);
+  await invalidarAprobacionesCompras(p.negocio_id, 'Se quitó una parte que se compraba aparte: cambió el alcance de la compra.');
+  await registrarEvento({
+    tipo: 'COMPRAS_PARTE_QUITADA', licitacionCodigo: p.licitacion_codigo, actorId, actorNombre,
+    mensaje: `Se quitó la parte «${String(p.descripcion).slice(0, 80)}» que se iba a comprar aparte.`,
+    metadata: { negocio_id: p.negocio_id, producto_id: productoId, producto_padre_id: p.producto_padre_id },
+  }).catch(() => {});
 }
 
 // ── Compuertas de aprobación (§10) ──────────────────────────────────────────────────────────────
@@ -2220,7 +2293,11 @@ export async function aplicarAdjudicacionPorLinea(negocioId: number): Promise<Re
 
   const lineas = acta.lineasAdjudicadas || [];
   const productos = await listarProductosCompra(negocioId);
-  const d = decidirNoAdjudicadas(productos.map(p => ({ id: p.id, correlativo: p.correlativo, subestado: p.subestado })), lineas, acta.esAdjudicada);
+  // Las partes que se compran aparte repiten la línea de su producto: se deciden con él (si no, su correlativo repetido impedía cruzar).
+  const d = decidirNoAdjudicadas(productos.filter(p => p.productoPadreId == null).map(p => ({ id: p.id, correlativo: p.correlativo, subestado: p.subestado })), lineas, acta.esAdjudicada);
+  const partesDe = (ids: number[]) => productos.filter(p => p.productoPadreId != null && ids.includes(p.productoPadreId)).map(p => p.id);
+  d.marcar.push(...partesDe(d.marcar).filter(id => ['PENDIENTE', 'COTIZANDO'].includes(productos.find(p => p.id === id)!.subestado)));
+  d.restaurar.push(...partesDe(d.restaurar).filter(id => productos.find(p => p.id === id)!.subestado === 'NO_ADJUDICADA'));
 
   const ahora = ahoraChileSQL();
   if (d.marcar.length) {

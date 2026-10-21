@@ -1,10 +1,11 @@
 // app/api/compras/[negocioId]/productos/route.ts
-// Estados y subestados de cobertura por producto (spec §14). GET lista, PATCH cambia subestado o
-// propone/aprueba renuncia a una línea (§14.5).
+// Estados y subestados de cobertura por producto (spec §14). GET lista, PATCH cambia subestado,
+// propone/aprueba renuncia a una línea (§14.5) o agrega/quita una parte que se compra aparte.
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion, listarProductosCompra, poblarProductosCompra, cambiarSubestadoProducto,
   proponerRenunciaLinea, aprobarRenunciaLinea, coberturaProyecto, sincronizarProductosConCosteo, aplicarAdjudicacionPorLinea,
+  crearParteProducto, eliminarParteProducto,
   type SubestadoProducto } from '@/app/lib/compras';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
@@ -81,6 +82,13 @@ async function __PATCH(request: NextRequest, { params }: Params) {
         if (cr && cr.estado !== 'APROBADA') return NextResponse.json({ error: `Este producto tiene una compra rápida ${cr.estado === 'PENDIENTE' ? 'esperando' : 'rechazada por'} el jefe de ventas: no se puede marcar Comprado hasta que la apruebe.` }, { status: 400 });
       }
       await cambiarSubestadoProducto(productoId, body.subestado as SubestadoProducto);
+    } else if ((body.accion === 'agregar_parte' || body.accion === 'quitar_parte') && !(await listarProductosCompra(id)).some(p => p.id === productoId)) {
+      return NextResponse.json({ error: 'Ese producto no es de esta compra.' }, { status: 400 });
+    } else if (body.accion === 'agregar_parte') {
+      // Parte que se compra aparte (migration-163): los pernos de una butaca «que incluye pernos», a otro proveedor.
+      await crearParteProducto(productoId, { descripcion: String(body.descripcion || ''), cantidad: Number(body.cantidad), unidad: body.unidad ?? null }, userId, nombre);
+    } else if (body.accion === 'quitar_parte') {
+      await eliminarParteProducto(productoId, userId, nombre);
     } else if (body.accion === 'proponer_renuncia') {
       if (!String(body.motivo || '').trim()) return NextResponse.json({ error: 'Falta el motivo de la renuncia.' }, { status: 400 });
       await proponerRenunciaLinea(productoId, body.motivo, userId, nombre);

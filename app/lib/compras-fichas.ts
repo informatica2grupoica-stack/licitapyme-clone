@@ -48,6 +48,7 @@ export function esDocumentoComercial(tipo: string | null | undefined): boolean {
 
 // ── Producto de Compras ↔ línea del costeo (mismo criterio que costeadoDeProducto) ─────────────────
 export function lineaDeProducto(prod: ProductoCompra, lineas: LineaCosteo[]): LineaCosteo | null {
+  if (prod.productoPadreId != null) return null;   // parte que se compra aparte: la fila de su línea es la del producto
   if (prod.correlativo != null) {
     const porNum = lineas.filter(l => l.lineaReal === prod.correlativo);
     if (porNum.length === 1) return porNum[0];

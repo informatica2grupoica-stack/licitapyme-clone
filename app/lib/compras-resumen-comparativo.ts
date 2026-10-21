@@ -134,9 +134,9 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
 
   const avisos: string[] = [];
   const sinOc = filas.filter(f => !f.obumaOc);
-  if (sinOc.length) avisos.push(`${sinOc.length} producto(s) del plan no tienen OC en Obuma: ${sinOc.map(f => f.producto).join(', ')}.`);
+  if (sinOc.length) avisos.push(`${sinOc.length} producto(s) de la cotización elegida no tienen OC en Obuma: ${sinOc.map(f => f.producto).join(', ')}.`);
   const otro = filas.filter(f => f.otroProveedor);
-  if (otro.length) avisos.push(`${otro.length} producto(s) se compraron a un proveedor distinto al del plan: ${otro.map(f => `${f.producto} (plan ${f.planProveedor}, Obuma ${f.obumaProveedor})`).join('; ')}.`);
+  if (otro.length) avisos.push(`${otro.length} producto(s) se compraron a un proveedor distinto al de la cotización elegida: ${otro.map(f => `${f.producto} (cotización ${f.planProveedor}, Obuma ${f.obumaProveedor})`).join('; ')}.`);
   // Una OC en $0 (p. ej. la garantía de seriedad de FINFAST) no es una compra: no necesita factura.
   const sinFactura = porOc.filter(o => o.facturas === 0 && o.obumaNeto > 0);
   if (sinFactura.length) avisos.push(`${sinFactura.length} OC sin factura todavía: ${sinFactura.map(o => `OC ${o.ocFolio} ${o.proveedor || ''} (${o.estado || '—'})`).join('; ')}.`);
