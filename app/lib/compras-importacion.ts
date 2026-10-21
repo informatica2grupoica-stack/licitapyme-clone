@@ -12,6 +12,7 @@
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
+import { numeroDeTexto } from '@/app/lib/compras-cotizacion-lineas';
 
 export type OrigenCompra = 'LOCAL' | 'IMPORTACION';
 
@@ -251,6 +252,59 @@ export async function marcarProductoImportado(negocioId: number, productoId: num
   const [r] = await pool.query(`UPDATE compras_producto SET importado = ?, embarque_id = ? WHERE id = ? AND negocio_id = ?`, [importado ? 1 : 0, embarqueId, productoId, negocioId]) as any;
   if (!r?.affectedRows) throw new Error('Producto no encontrado.');
   if (importado && (await obtenerOrigenCompra(negocioId)).origen !== 'IMPORTACION') await definirOrigenCompra(negocioId, 'IMPORTACION', actorId, actorNombre);
+}
+
+// ─── Ficha de importación POR PRODUCTO (migration-162) ──────────────────────────────────────────────────────────────────────────
+// Los costos (flete, aduana, logística) siguen en el embarque; acá van los datos propios de cada producto importado.
+export interface FichaImportacionProducto {
+  fabricante: string | null; paisOrigen: string | null; partidaArancelaria: string | null; numeroFactura: string | null;
+  incoterm: string | null; moneda: string | null; precioFob: number | null; cantidadPedida: number | null;
+  bultos: number | null; pesoKg: number | null; volumenM3: number | null; arancelPct: number | null; seguro: number | null; notas: string | null;
+}
+
+const texto = (v: unknown, max: number): string | null => { const t = String(v ?? '').replace(/s+/g, ' ').trim(); return t ? t.slice(0, max) : null; };
+const numero = (v: unknown, nombre: string, max = 1e12): number | null => {
+  if (v == null || v === '') return null;
+  const n = numeroDeTexto(v);
+  if (n == null || n < 0 || n > max) throw new Error(`«${nombre}» no es un número válido.`);
+  return n;
+};
+
+/** Fichas de los productos importados del negocio, por producto. */
+export async function listarFichasImportacion(negocioId: number): Promise<Record<number, FichaImportacionProducto>> {
+  const out: Record<number, FichaImportacionProducto> = {};
+  try {
+    const [rows] = await pool.query(`SELECT * FROM compras_producto_importacion WHERE negocio_id = ?`, [negocioId]) as any;
+    for (const r of rows as any[]) out[r.producto_id] = {
+      fabricante: r.fabricante, paisOrigen: r.pais_origen, partidaArancelaria: r.partida_arancelaria, numeroFactura: r.numero_factura,
+      incoterm: r.incoterm, moneda: r.moneda, precioFob: num(r.precio_fob), cantidadPedida: num(r.cantidad_pedida),
+      bultos: num(r.bultos), pesoKg: num(r.peso_kg), volumenM3: num(r.volumen_m3), arancelPct: num(r.arancel_pct), seguro: num(r.seguro), notas: r.notas,
+    };
+  } catch { /* sin la migración 162 la pantalla sigue, sin fichas */ }
+  return out;
+}
+
+/** Guarda (reemplaza) la ficha de un producto importado del negocio. */
+export async function guardarFichaImportacion(negocioId: number, productoId: number, d: Partial<Record<keyof FichaImportacionProducto, unknown>>, actorId: number, actorNombre: string | null): Promise<void> {
+  const [p] = await pool.query(`SELECT id FROM compras_producto WHERE id = ? AND negocio_id = ? AND importado = 1`, [productoId, negocioId]) as any;
+  if (!(p as any[]).length) throw new Error('Ese producto no está marcado como del extranjero.');
+  const moneda = texto(d.moneda, 6)?.toUpperCase() ?? null;
+  const arancel = numero(d.arancelPct, 'Arancel (%)');
+  if (arancel != null && arancel > 100) throw new Error('El arancel no puede pasar de 100 %.');
+  await pool.query(
+    `INSERT INTO compras_producto_importacion (producto_id, negocio_id, fabricante, pais_origen, partida_arancelaria, numero_factura, incoterm, moneda,
+        precio_fob, cantidad_pedida, bultos, peso_kg, volumen_m3, arancel_pct, seguro, notas, actualizado_por, actualizado_por_nombre, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ON DUPLICATE KEY UPDATE fabricante = VALUES(fabricante), pais_origen = VALUES(pais_origen), partida_arancelaria = VALUES(partida_arancelaria),
+        numero_factura = VALUES(numero_factura), incoterm = VALUES(incoterm), moneda = VALUES(moneda), precio_fob = VALUES(precio_fob),
+        cantidad_pedida = VALUES(cantidad_pedida), bultos = VALUES(bultos), peso_kg = VALUES(peso_kg), volumen_m3 = VALUES(volumen_m3),
+        arancel_pct = VALUES(arancel_pct), seguro = VALUES(seguro), notas = VALUES(notas),
+        actualizado_por = VALUES(actualizado_por), actualizado_por_nombre = VALUES(actualizado_por_nombre), updated_at = VALUES(updated_at)`,
+    [productoId, negocioId, texto(d.fabricante, 300), texto(d.paisOrigen, 80), texto(d.partidaArancelaria, 30), texto(d.numeroFactura, 80),
+      texto(d.incoterm, 10)?.toUpperCase() ?? null, moneda, numero(d.precioFob, 'Precio FOB'), numero(d.cantidadPedida, 'Cantidad pedida'),
+      numero(d.bultos, 'Bultos', 1e7), numero(d.pesoKg, 'Peso'), numero(d.volumenM3, 'Volumen'), arancel, numero(d.seguro, 'Seguro'),
+      texto(d.notas, 2000), actorId, actorNombre, ahoraChileSQL()],
+  );
 }
 
 export interface CostoAterrizadoItem {

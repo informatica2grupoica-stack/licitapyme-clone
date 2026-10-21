@@ -54,7 +54,7 @@ interface RespaldoHito {
 }
 // Pagos por OC (migration-157) y OC reales de Obuma con sus facturas — ver app/lib/compras-pagos-oc.ts.
 type TipoPago = 'ANTICIPO' | 'PAGO_TOTAL' | 'SALDO';
-interface PagoOc { id: number; ocFolio: string; proveedorNombre: string | null; tipo: TipoPago; monto: number; fecha: string; archivoUrl: string; archivoNombre: string | null; nota: string | null }
+interface PagoOc { id: number; ocFolio: string; proveedorNombre: string | null; tipo: TipoPago; monto: number; fecha: string; archivoUrl: string; archivoNombre: string | null; nota: string | null; adjuntos?: Array<{ url: string; nombre: string | null }> }
 interface OcObuma { folio: string; estado: string | null; total: number | null; facturas: Array<{ folio: string; fecha: string | null; total: number | null; s3Link: string | null }> }
 interface ProyectoOpcion { folio: number; nombre: string | null; referencia: string | null; cliente: string | null; estado: string | null; sugerido: boolean }
 const TIPOS_PAGO: Array<{ key: TipoPago; label: string; ayuda: string }> = [
@@ -113,7 +113,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
   const [pagoMonto, setPagoMonto] = useState('');
   const [pagoFecha, setPagoFecha] = useState('');
   const [pagoNota, setPagoNota] = useState('');
-  const [pagoArchivo, setPagoArchivo] = useState<File | null>(null);
+  const [pagoArchivos, setPagoArchivos] = useState<File[]>([]);
   const [guardandoPago, setGuardandoPago] = useState(false);
   // Proyecto de Obuma para vincular (la API de Obuma no deja crearlo).
   const [proyectos, setProyectos] = useState<ProyectoOpcion[] | null>(null);
@@ -342,17 +342,18 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
     setPagoTipo(pagos.some(x => x.tipo === 'ANTICIPO') ? 'SALDO' : 'PAGO_TOTAL');
     setPagoMonto(oc?.total ? String(Math.max(0, Math.round(oc.total - pagado))) : '');
     setPagoFecha(new Date().toLocaleDateString('sv-SE')); // AAAA-MM-DD en hora local
-    setPagoNota(''); setPagoArchivo(null);
+    setPagoNota(''); setPagoArchivos([]);
   };
 
   const guardarPago = async (p: ProveedorOC, folio: string) => {
-    if (!pagoArchivo) { toast.error('Falta el comprobante', 'Adjunta el comprobante de la transferencia o del pago.'); return; }
+    if (pagoArchivos.length === 0) { toast.error('Falta el comprobante', 'Adjunta el comprobante de la transferencia o del pago.'); return; }
     if (!(parsearMontoCL(pagoMonto) && parsearMontoCL(pagoMonto)! > 0)) { toast.error('Falta el monto', ''); return; }
     setGuardandoPago(true);
     try {
       const fd = new FormData();
       fd.set('ocFolio', folio); fd.set('proveedorNombre', p.proveedorNombre); fd.set('tipo', pagoTipo);
-      fd.set('monto', pagoMonto); fd.set('fecha', pagoFecha); fd.set('nota', pagoNota.trim()); fd.set('file', pagoArchivo);
+      fd.set('monto', pagoMonto); fd.set('fecha', pagoFecha); fd.set('nota', pagoNota.trim());
+      for (const f of pagoArchivos) fd.append('file', f);
       const res = await fetch(`/api/compras/${negocioId}/pagos-oc`, { method: 'POST', body: fd });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar');
@@ -651,9 +652,11 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                                     <span className="font-medium text-slate-800">{TIPOS_PAGO.find(t => t.key === x.tipo)?.label}</span>
                                     <b className="tabular-nums text-slate-900">{fmtCLP(x.monto)}</b>
                                     <span>{fechaCorta(x.fecha)}</span>
-                                    <a href={x.archivoUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 font-medium text-teal-700 hover:text-teal-900">
-                                      <Paperclip size={11} /> {x.archivoNombre || 'comprobante'}
-                                    </a>
+                                    {(x.adjuntos ?? [{ url: x.archivoUrl, nombre: x.archivoNombre }]).map((adj, i) => (
+                                      <a key={i} href={adj.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 font-medium text-teal-700 hover:text-teal-900">
+                                        <Paperclip size={11} /> {adj.nombre || 'comprobante'}
+                                      </a>
+                                    ))}
                                     {x.nota && <span className="text-slate-500">· {x.nota}</span>}
                                     {puedeOperar && <button type="button" onClick={() => quitarPago(x)} className="ml-auto text-[11px] text-slate-400 hover:text-red-600">Quitar</button>}
                                   </li>
@@ -681,10 +684,26 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                                       className="mt-0.5 block w-full text-xs text-slate-800 border border-slate-300 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-600 bg-white" />
                                   </label>
                                 </div>
-                                <label className="block text-[11px] text-slate-500">Comprobante del pago (obligatorio)
-                                  <input type="file" accept="application/pdf,image/*" onChange={e => setPagoArchivo(e.target.files?.[0] || null)}
-                                    className="mt-0.5 block text-xs text-slate-700 file:mr-2 file:text-xs file:font-medium file:text-teal-800 file:bg-teal-50 file:border-0 file:rounded-lg file:px-2.5 file:py-1" />
-                                </label>
+                                <div className="text-[11px] text-slate-500">
+                                  <label className="block">Comprobantes del pago (al menos uno; puedes agregar varios)
+                                    {/* Cada selección se suma a la lista; value='' deja volver a elegir el mismo archivo. */}
+                                    <input type="file" multiple accept="application/pdf,image/*"
+                                      onChange={e => { const nuevos = Array.from(e.target.files ?? []); setPagoArchivos(prev => [...prev, ...nuevos]); e.target.value = ''; }}
+                                      className="mt-0.5 block text-xs text-transparent file:mr-2 file:text-xs file:font-medium file:text-teal-800 file:bg-teal-50 file:border-0 file:rounded-lg file:px-2.5 file:py-1" />
+                                  </label>
+                                  {pagoArchivos.length > 0 && (
+                                    <ul className="mt-1.5 space-y-1">
+                                      {pagoArchivos.map((f, i) => (
+                                        <li key={i} className="flex items-center gap-1.5 text-xs text-slate-700">
+                                          <Paperclip size={11} className="text-slate-400 shrink-0" />
+                                          <span className="truncate">{f.name}</span>
+                                          <button type="button" onClick={() => setPagoArchivos(prev => prev.filter((_, j) => j !== i))}
+                                            className="ml-auto text-[11px] text-slate-400 hover:text-red-600">Quitar</button>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
                                 <label className="block text-[11px] text-slate-500">Nota (opcional)
                                   <input value={pagoNota} onChange={e => setPagoNota(e.target.value)} placeholder="Ej: transferencia N° 123 desde la cuenta Santander"
                                     className="mt-0.5 block w-full text-xs text-slate-800 border border-slate-300 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-600 bg-white" />

@@ -48,17 +48,20 @@ async function __POST(request: NextRequest, { params }: Params) {
     const a = await acceso(request, (await params).negocioId);
     if ('error' in a) return a.error;
     const form = await request.formData();
-    const file = form.get('file') as File | null;
-    if (!file || file.size === 0) return NextResponse.json({ error: 'Falta el comprobante del pago.' }, { status: 400 });
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const archivoUrl = await subirDocumentoR2(`compras/${a.asignacion.licitacionCodigo}/pagos`, file.name, buffer, file.type);
+    // Uno o varios comprobantes por pago (transferencia + factura, pago en partes, etc.).
+    const files = (form.getAll('file') as File[]).filter(f => f && f.size > 0);
+    if (files.length === 0) return NextResponse.json({ error: 'Falta el comprobante del pago.' }, { status: 400 });
+    const adjuntos = await Promise.all(files.map(async f => ({
+      url: await subirDocumentoR2(`compras/${a.asignacion.licitacionCodigo}/pagos`, f.name, Buffer.from(await f.arrayBuffer()), f.type),
+      nombre: f.name,
+    })));
     await registrarPagoOc(a.id, {
       ocFolio: String(form.get('ocFolio') || ''),
       proveedorNombre: (form.get('proveedorNombre') as string) || null,
       tipo: String(form.get('tipo') || '') as TipoPagoOc,
       monto: parsearMontoCL(String(form.get('monto') || '')) ?? 0,
       fecha: String(form.get('fecha') || ''),
-      archivoUrl, archivoNombre: file.name,
+      adjuntos,
       nota: (form.get('nota') as string) || null,
     }, a.userId, a.nombre);
     return NextResponse.json({ success: true, pagos: await listarPagosOc(a.id) });

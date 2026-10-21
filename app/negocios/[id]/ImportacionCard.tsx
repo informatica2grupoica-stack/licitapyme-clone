@@ -63,6 +63,69 @@ const estadoEmbarque = (e: Embarque) => {
 
 type Enviar = (cuerpo: Record<string, unknown>, ok?: string) => Promise<void>;
 
+// Ficha de importación POR PRODUCTO (migration-162): los costos van en el embarque, esto es lo propio de cada producto.
+interface Ficha {
+  fabricante: string | null; paisOrigen: string | null; partidaArancelaria: string | null; numeroFactura: string | null;
+  incoterm: string | null; moneda: string | null; precioFob: number | null; cantidadPedida: number | null;
+  bultos: number | null; pesoKg: number | null; volumenM3: number | null; arancelPct: number | null; seguro: number | null; notas: string | null;
+}
+const CAMPOS_FICHA: Array<{ clave: keyof Ficha; titulo: string; ph: string; num?: boolean; ancho?: boolean }> = [
+  { clave: 'fabricante', titulo: 'Fabricante / proveedor extranjero', ph: 'Ej. Roco Import Co. Ltd', ancho: true },
+  { clave: 'paisOrigen', titulo: 'País de origen', ph: 'Ej. China' },
+  { clave: 'partidaArancelaria', titulo: 'Partida arancelaria (HS)', ph: 'Ej. 7324.10' },
+  { clave: 'numeroFactura', titulo: 'N° proforma / factura comercial', ph: 'Ej. PI-2026-118' },
+  { clave: 'incoterm', titulo: 'Incoterm', ph: 'FOB, CIF, EXW…' },
+  { clave: 'moneda', titulo: 'Moneda', ph: 'USD, EUR, CNY…' },
+  { clave: 'precioFob', titulo: 'Precio FOB unitario', ph: '0', num: true },
+  { clave: 'cantidadPedida', titulo: 'Cantidad pedida', ph: '0', num: true },
+  { clave: 'bultos', titulo: 'Bultos', ph: '0', num: true },
+  { clave: 'pesoKg', titulo: 'Peso total (kg)', ph: '0', num: true },
+  { clave: 'volumenM3', titulo: 'Volumen total (m³)', ph: '0', num: true },
+  { clave: 'arancelPct', titulo: 'Arancel (%)', ph: '0', num: true },
+  { clave: 'seguro', titulo: 'Seguro internacional', ph: '0', num: true },
+];
+const fmtNum = (n: number | null | undefined, dec = 2) => n == null ? '—' : new Intl.NumberFormat('es-CL', { maximumFractionDigits: dec }).format(n);
+
+/** Formulario de un producto importado: se despliega al marcar el check. */
+function FichaForm({ p, ficha, puedeOperar, enviar, onCerrar }: { p: ProductoImp; ficha: Ficha | undefined; puedeOperar: boolean; enviar: Enviar; onCerrar: () => void }) {
+  const toast = useToast();
+  const inicial = () => Object.fromEntries(CAMPOS_FICHA.map(c => [c.clave, ficha?.[c.clave] == null ? '' : String(ficha[c.clave])])) as Record<keyof Ficha, string>;
+  const [form, setForm] = useState<Record<keyof Ficha, string>>(inicial);
+  const [notas, setNotas] = useState(ficha?.notas ?? '');
+  const [guardando, setGuardando] = useState(false);
+  const guardar = async () => {
+    setGuardando(true);
+    try { await enviar({ accion: 'fichaProducto', productoId: p.productoId, datos: { ...form, notas } }, 'Ficha guardada'); onCerrar(); }
+    catch (e: any) { toast.error('No se pudo guardar la ficha', e.message); }
+    finally { setGuardando(false); }
+  };
+  return (
+    <div className="basis-full rounded-lg border border-teal-200 bg-white p-3 space-y-3" data-testid={`ficha-importacion-${p.productoId}`}>
+      <p className="text-xs font-medium text-slate-800">Ficha de importación · <span className="font-normal text-slate-600">{nombreProducto(p.descripcion)}</span></p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+        {CAMPOS_FICHA.map(c => (
+          <label key={c.clave} className={`text-[11px] text-slate-500 ${c.ancho ? 'sm:col-span-2' : ''}`}>{c.titulo}
+            <input value={form[c.clave]} onChange={ev => setForm(f => ({ ...f, [c.clave]: ev.target.value }))} disabled={!puedeOperar}
+              placeholder={c.clave === 'cantidadPedida' && p.cantidad != null ? String(p.cantidad) : c.ph}
+              inputMode={c.num ? 'decimal' : undefined} className={`${campoCls}${c.num ? ' tabular-nums' : ''}`} />
+          </label>
+        ))}
+        <label className="text-[11px] text-slate-500 sm:col-span-2 lg:col-span-4">Notas
+          <textarea value={notas} onChange={ev => setNotas(ev.target.value)} disabled={!puedeOperar} rows={2} className={campoCls} placeholder="Observaciones del producto" />
+        </label>
+      </div>
+      <div className="flex items-center gap-2 justify-end">
+        <button type="button" onClick={onCerrar} className="text-xs text-slate-500 hover:text-slate-800 px-2 py-1">Cerrar</button>
+        {puedeOperar && (
+          <button type="button" onClick={guardar} disabled={guardando} className="text-xs font-medium text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-50 rounded-lg px-3 py-1.5 inline-flex items-center gap-1.5">
+            {guardando && <Loader2 className="w-3 h-3 animate-spin" />}Guardar ficha
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Un embarque: sus productos, su línea de etapas, sus datos y sus costos. */
 function EmbarqueCard({ e, productos, puedeOperar, enviar }: { e: Embarque; productos: ProductoImp[]; puedeOperar: boolean; enviar: Enviar }) {
   const toast = useToast();
@@ -272,10 +335,13 @@ export function ImportacionCard({ negocioId, puedeOperar }: { negocioId: number;
   const [embarques, setEmbarques] = useState<Embarque[]>([]);
   const [loading, setLoading] = useState(true);
   const [creando, setCreando] = useState(false);
+  const [fichas, setFichas] = useState<Record<number, Ficha>>({});
+  const [fichaAbierta, setFichaAbierta] = useState<number | null>(null);
 
   const aplicar = (data: any) => {
     setOrigen(data.origen?.origen || null);
     setCostoAterrizado(data.costoAterrizado); setProductos(data.productos || []); setEmbarques(data.embarques || []);
+    setFichas(data.fichas || {});
   };
 
   const cargar = useCallback(async () => {
@@ -310,6 +376,7 @@ export function ImportacionCard({ negocioId, puedeOperar }: { negocioId: number;
   };
   const marcar = async (productoId: number, importado: boolean) => {
     setProductos(ps => ps.map(p => p.productoId === productoId ? { ...p, importado } : p));
+    setFichaAbierta(importado ? productoId : null);
     try { await enviar({ accion: 'producto', productoId, importado }); }
     catch (e: any) { toast.error('No se pudo marcar el producto', e.message); cargar(); }
   };
@@ -385,9 +452,54 @@ export function ImportacionCard({ negocioId, puedeOperar }: { negocioId: number;
                         </select>
                       </label>
                     ) : p.importado ? conPunto('#d97706', 'Del extranjero') : conPunto('#94a3b8', 'En Chile')}
+                    {p.importado && (
+                      <button type="button" onClick={() => setFichaAbierta(fichaAbierta === p.productoId ? null : p.productoId)}
+                        className="text-[11px] font-medium text-teal-700 hover:text-teal-900 border border-teal-200 rounded-lg px-2 py-1 bg-white">
+                        {fichas[p.productoId] ? 'Ficha' : 'Completar ficha'}
+                      </button>
+                    )}
+                    {p.importado && fichaAbierta === p.productoId && (
+                      <FichaForm key={p.productoId} p={p} ficha={fichas[p.productoId]} puedeOperar={puedeOperar} enviar={enviar} onCerrar={() => setFichaAbierta(null)} />
+                    )}
                   </li>
                 ))}
               </ul>
+            )}
+            {importados.length > 0 && (
+              <div className="pt-1" data-testid="importacion-fichas-tabla">
+                <p className="text-xs font-medium text-slate-800 mb-1.5">Datos de importación por producto</p>
+                <div className="overflow-x-auto rounded-lg border border-slate-200">
+                  <table className="w-full text-xs min-w-[900px]">
+                    <thead>
+                      <tr className="text-left text-[11px] font-medium text-slate-500 bg-slate-50 border-b border-slate-200">
+                        <th className="px-3 py-2">Producto</th><th className="px-2 py-2">Fabricante</th><th className="px-2 py-2">Origen</th>
+                        <th className="px-2 py-2">Partida HS</th><th className="px-2 py-2">N° factura</th><th className="px-2 py-2">Incoterm</th>
+                        <th className="px-2 py-2 text-right">FOB c/u</th><th className="px-2 py-2 text-right">Cant.</th><th className="px-2 py-2 text-right">Bultos</th>
+                        <th className="px-2 py-2 text-right">Peso kg</th><th className="px-2 py-2 text-right">m³</th><th className="px-2 py-2 text-right">Arancel</th>
+                        <th className="px-2 py-2 text-right">Seguro</th><th className="px-2 py-2" />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {importados.map(p => { const f = fichas[p.productoId]; const v = (t: string | null | undefined) => t || <span className="text-slate-300">—</span>; return (
+                        <tr key={p.productoId}>
+                          <td className="px-3 py-2 text-slate-800">{nombreProducto(p.descripcion)}{!f && <span className="ml-1.5 text-amber-700">sin ficha</span>}</td>
+                          <td className="px-2 py-2 text-slate-600">{v(f?.fabricante)}</td><td className="px-2 py-2 text-slate-600">{v(f?.paisOrigen)}</td>
+                          <td className="px-2 py-2 text-slate-600">{v(f?.partidaArancelaria)}</td><td className="px-2 py-2 text-slate-600">{v(f?.numeroFactura)}</td>
+                          <td className="px-2 py-2 text-slate-600">{v(f?.incoterm)}</td>
+                          <td className="px-2 py-2 text-right tabular-nums text-slate-600 whitespace-nowrap">{f?.precioFob != null ? `${fmtNum(f.precioFob, 4)} ${f.moneda ?? ''}` : '—'}</td>
+                          <td className="px-2 py-2 text-right tabular-nums text-slate-600">{fmtNum(f?.cantidadPedida ?? p.cantidad, 3)}</td>
+                          <td className="px-2 py-2 text-right tabular-nums text-slate-600">{fmtNum(f?.bultos, 0)}</td>
+                          <td className="px-2 py-2 text-right tabular-nums text-slate-600">{fmtNum(f?.pesoKg, 3)}</td>
+                          <td className="px-2 py-2 text-right tabular-nums text-slate-600">{fmtNum(f?.volumenM3, 3)}</td>
+                          <td className="px-2 py-2 text-right tabular-nums text-slate-600">{f?.arancelPct != null ? `${fmtNum(f.arancelPct)} %` : '—'}</td>
+                          <td className="px-2 py-2 text-right tabular-nums text-slate-600">{fmtNum(f?.seguro, 2)}</td>
+                          <td className="px-2 py-2 text-right"><button type="button" onClick={() => { setFichaAbierta(p.productoId); setTimeout(() => document.querySelector(`[data-testid="ficha-importacion-${p.productoId}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100); }} className="text-teal-700 hover:text-teal-900 font-medium">Editar</button></td>
+                        </tr>
+                      ); })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             )}
             {importados.length === 0 && <p className="text-xs text-amber-700">Marca al menos un producto para seguir con los embarques.</p>}
           </div>

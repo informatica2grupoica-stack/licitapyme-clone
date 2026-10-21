@@ -1,13 +1,13 @@
 // app/api/compras/[negocioId]/importacion/route.ts
 // Ruta de importación y costeo aterrizado (spec §12). GET trae origen + productos + embarques (cada
 // uno con su seguimiento y costos, migration-160) + costo aterrizado calculado. PATCH aplica una acción:
-// 'origen' | 'producto' | 'productoEmbarque' | 'embarqueCrear' | 'embarqueGuardar' | 'embarqueEliminar' | 'embarqueEtapa'.
+// 'origen' | 'producto' | 'productoEmbarque' | 'fichaProducto' | 'embarqueCrear' | 'embarqueGuardar' | 'embarqueEliminar' | 'embarqueEtapa'.
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import {
   obtenerOrigenCompra, definirOrigenCompra, calcularCostoAterrizado, listarProductosImportables, marcarProductoImportado,
-  listarEmbarques, crearEmbarque, guardarEmbarque, eliminarEmbarque, asignarProductoEmbarque, marcarEtapaEmbarque,
+  listarEmbarques, listarFichasImportacion, guardarFichaImportacion, crearEmbarque, guardarEmbarque, eliminarEmbarque, asignarProductoEmbarque, marcarEtapaEmbarque,
   type OrigenCompra, type EtapaImportacion,
 } from '@/app/lib/compras-importacion';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
@@ -25,10 +25,10 @@ function getUser(req: NextRequest) {
 }
 
 async function estadoCompleto(id: number) {
-  const [origen, embarques, costoAterrizado, productos] = await Promise.all([
-    obtenerOrigenCompra(id), listarEmbarques(id), calcularCostoAterrizado(id), listarProductosImportables(id),
+  const [origen, embarques, costoAterrizado, productos, fichas] = await Promise.all([
+    obtenerOrigenCompra(id), listarEmbarques(id), calcularCostoAterrizado(id), listarProductosImportables(id), listarFichasImportacion(id),
   ]);
-  return { success: true, origen, embarques, costoAterrizado, productos };
+  return { success: true, origen, embarques, costoAterrizado, productos, fichas };
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
@@ -66,6 +66,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
     if (body.accion === 'origen') await definirOrigenCompra(id, body.origen as OrigenCompra, userId, nombre);
     else if (body.accion === 'producto') await marcarProductoImportado(id, Number(body.productoId), !!body.importado, userId, nombre);
     else if (body.accion === 'productoEmbarque') await asignarProductoEmbarque(id, Number(body.productoId), body.embarqueId == null ? null : embarqueId);
+    else if (body.accion === 'fichaProducto') await guardarFichaImportacion(id, Number(body.productoId), body.datos || {}, userId, nombre);
     else if (body.accion === 'embarqueCrear') await crearEmbarque(id, userId, nombre);
     else if (body.accion === 'embarqueGuardar') await guardarEmbarque(id, embarqueId, body.datos || {}, userId, nombre);
     else if (body.accion === 'embarqueEliminar') await eliminarEmbarque(id, embarqueId, userId, nombre);
