@@ -28,6 +28,12 @@ export function netoDesdeBruto(bruto: number): number {
   return Math.round(bruto / (1 + IVA_CHILE));
 }
 
+/** Monto con descuento %. El unitario guarda centavos (52.597 − 7 % = 48.915,21: redondeado a $48.915, × 250 daba $12.228.750 y no el
+ *  total impreso); el total resta el descuento redondeado a peso, como lo imprimen las cotizaciones (13.149.250 − 920.448 = 12.228.802). */
+export function conDescuento(monto: number, pct: number, tipo: 'unitario' | 'total'): number {
+  return tipo === 'total' ? monto - Math.round(monto * pct / 100) : Math.round(monto * (100 - pct)) / 100;
+}
+
 const aISO = (d: Date) => d.toISOString().slice(0, 10);
 
 const MESES: Record<string, number> = { enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6, julio: 7, agosto: 8, septiembre: 9, setiembre: 9, octubre: 10, noviembre: 11, diciembre: 12 };

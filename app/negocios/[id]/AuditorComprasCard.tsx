@@ -7,6 +7,7 @@
 import { netoDesdeBruto } from '@/app/lib/compras-cotizacion-lectura';
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
+import { useConfirm } from '@/app/components/ui/confirm';
 import { Select } from '@/app/components/ui/Select';
 import { Banner } from '@/app/components/ui/Banner';
 import { parsearMontoCL } from '@/app/lib/numeros';
@@ -32,7 +33,7 @@ type TipoEscenario = 'MAS_RAPIDO' | 'MINIMO_PRECIO' | 'MINIMOS_VIAJES' | 'EQUILI
 
 interface Cotizacion {
   id: number; proveedorNombre: string; proveedorRut: string | null; proveedorNuevo: boolean | null;
-  origen: Origen; descripcionLibre: string | null; precioUnitario: number | null; precioTotal: number | null;
+  origen: Origen; descripcionLibre: string | null; precioUnitario: number | null; precioTotal: number | null; precioTotalClp?: number | null;
   precioUnitarioBruto: number | null; descuentoPct: number | null; vigenciaAt?: string | null;
   moneda: string; tipoCambioUsado: number | null; precioUnitarioClp: number | null;
   plazoEntregaTexto: string | null; incluyeFlete: boolean | null; fleteMonto: number | null; despachoModalidad?: string | null; fleteCondicion?: string | null; homologadaAt: string | null; archivoUrl: string | null;
@@ -121,6 +122,7 @@ function SiguientePasoBtn({ texto, onClick }: { texto: string; onClick: () => vo
 
 export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
   const toast = useToast();
+  const confirmar = useConfirm();
   const { recargar: recargarCompartido } = useCompras();
   const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
@@ -195,8 +197,6 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   // "Registrar cotización" precargado — sin volver a subir el archivo, solo los campos de texto —
   // y guarda con PATCH en vez de POST. Eliminar pide confirmación inline (acción irreversible).
   const [editandoId, setEditandoId] = useState<number | null>(null);
-  const [confirmandoEliminarId, setConfirmandoEliminarId] = useState<number | null>(null);
-  const [eliminando, setEliminando] = useState<number | null>(null);
 
   // Agente de documentos (pedido explícito, 14-sep-2026: "la IA lea los documentos... y nos vaya
   // guiando... poniendo lo que tenemos que llenar") — cruza el borrador contra bases/anexos/acta
@@ -497,19 +497,22 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   };
 
   const eliminarCotizacion = async (id: number) => {
-    setEliminando(id);
+    const c = cotizaciones.find(x => x.id === id);
+    const ok = await confirmar({
+      titulo: '¿Eliminar esta cotización?',
+      mensaje: `${c?.proveedorNombre ?? 'Cotización'} (#${id}). Se borra también su auditoría. No se puede deshacer.`,
+      confirmarLabel: 'Eliminar', peligro: true,
+    });
+    if (!ok) return;
     try {
       const res = await fetch(`/api/compras/${negocioId}/cotizaciones/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo eliminar');
       toast.success('Cotización eliminada');
-      setConfirmandoEliminarId(null);
       await cargar();
       recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo eliminar la cotización', e.message);
-    } finally {
-      setEliminando(null);
     }
   };
 
@@ -1090,25 +1093,11 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           onAsignar={(id) => { const c = cotizaciones.find(x => x.id === id); if (c) { abrirAsignacion(c); setTimeout(() => document.getElementById(`cotizacion-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); } }}
           onHomologar={(id) => homologar(id)}
           onEditar={(id) => { const c = cotizaciones.find(x => x.id === id); if (c) { iniciarEdicion(c); window.scrollTo({ top: 0, behavior: 'smooth' }); } }}
-          onEliminar={(id) => setConfirmandoEliminarId(id)} />
+          onEliminar={(id) => eliminarCotizacion(id)} />
 
         {cotizaciones.length === 0 && (
           <p className="px-4 py-6 text-center text-[12px] text-zinc-400">Sin cotizaciones todavía. Súbelas con «Cargar varias cotizaciones» o «Registrar una a mano». Lo ideal: tres por producto.</p>
         )}
-
-        {confirmandoEliminarId != null && (() => {
-          const c = cotizaciones.find(x => x.id === confirmandoEliminarId);
-          if (!c) return null;
-          return (
-            <div className="mx-4 my-2 flex items-center gap-2 flex-wrap text-[12.5px] bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
-              <span className="text-rose-800 font-semibold flex-1">¿Eliminar la cotización de {c.proveedorNombre} (#{c.id})? Se borra también su auditoría.</span>
-              <button onClick={() => eliminarCotizacion(c.id)} disabled={eliminando === c.id} className="font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 px-2.5 py-1 rounded">
-                {eliminando === c.id ? <Loader2 size={12} className="animate-spin" /> : 'Sí, eliminar'}
-              </button>
-              <button onClick={() => setConfirmandoEliminarId(null)} className="text-zinc-500 hover:text-zinc-800">No</button>
-            </div>
-          );
-        })()}
 
         {asignandoId != null && (() => {
           const c = cotizaciones.find(x => x.id === asignandoId);
@@ -1201,7 +1190,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           onAsignar: (id) => { const c = cotizaciones.find(x => x.id === id); if (c) { setVista('subir'); abrirAsignacion(c); setTimeout(() => document.getElementById(`cotizacion-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); } },
           onHomologar: (id) => homologar(id),
           onEditar: (id) => { const c = cotizaciones.find(x => x.id === id); if (c) { setVista('subir'); iniciarEdicion(c); window.scrollTo({ top: 0, behavior: 'smooth' }); } },
-          onEliminar: (id) => setConfirmandoEliminarId(id),
+          onEliminar: (id) => eliminarCotizacion(id),
           ocupadoId: homologando,
         } : undefined}
         alertas={Object.fromEntries(auditorias.map(a => [`${a.cotizacionId}:${a.productoId}`,
@@ -1221,7 +1210,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           onAsignar: (id) => { const c = cotizaciones.find(x => x.id === id); if (c) { setVista('subir'); abrirAsignacion(c); setTimeout(() => document.getElementById(`cotizacion-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); } },
           onHomologar: (id) => homologar(id),
           onEditar: (id) => { const c = cotizaciones.find(x => x.id === id); if (c) { setVista('subir'); iniciarEdicion(c); window.scrollTo({ top: 0, behavior: 'smooth' }); } },
-          onEliminar: (id) => setConfirmandoEliminarId(id),
+          onEliminar: (id) => eliminarCotizacion(id),
           ocupadoId: homologando,
         } : undefined}
         alertas={Object.fromEntries(auditorias.map(a => [`${a.cotizacionId}:${a.productoId}`,

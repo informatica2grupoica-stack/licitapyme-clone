@@ -14,8 +14,9 @@ import { parsearMontoCL } from '@/app/lib/numeros';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { irAFase } from '@/app/compras/[negocioId]/comprasNavegacion';
 import { fetchJsonReintento } from '@/app/lib/fetch-reintento';
+import { METODOS_DESPACHO_OBUMA } from '@/app/lib/obuma-despacho';
 import { CrearProveedorObumaModal, type FormProveedor } from './CrearProveedorObumaModal';
-import { IconClipboardList as ClipboardList, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircle as Circle, IconFileText as FileText, IconBolt as Zap, IconTruck as Truck, IconCircleMinus as MinusCircle, IconPaperclip as Paperclip, IconX as X } from '@tabler/icons-react';
+import { IconClipboardList as ClipboardList, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconFileText as FileText, IconBolt as Zap, IconTruck as Truck, IconPaperclip as Paperclip, IconX as X } from '@tabler/icons-react';
 
 interface Reparto {
   ocEmitidaAt: string | null; ocNumero: string | null; ocMonto: number | null;
@@ -33,7 +34,7 @@ interface ProveedorOC {
   proveedorDireccion: string | null; proveedorComuna: string | null; proveedorEmail: string | null; proveedorTelefono: string | null;
   proveedorGiro: string | null; proveedorContacto: string | null;
   items: ItemOC[]; subtotal: number; fleteSugerido?: number | null;
-  yaCreada: { obumaCompraOcId: string; folio: string | null; total: number; fechaOc: string } | null;
+  yaCreada: { obumaCompraOcId: string; folio: string | null; total: number; fechaOc: string; estado?: string | null } | null;
   posibleDuplicadoObuma: { folio: string | null; referencia: string; fecha: string; total: number } | null;
   ocRealObuma?: { folios: string[]; totalNeto: number; estados: string[]; fecha: string | null } | null;
 }
@@ -51,18 +52,26 @@ interface RespaldoHito {
   hito: Hito; estado: 'HECHO' | 'NO_APLICA'; nota: string; archivoUrl: string | null; archivoNombre: string | null;
   actualizadoPorNombre: string | null; updatedAt: string;
 }
+// Pagos por OC (migration-157) y OC reales de Obuma con sus facturas — ver app/lib/compras-pagos-oc.ts.
+type TipoPago = 'ANTICIPO' | 'PAGO_TOTAL' | 'SALDO';
+interface PagoOc { id: number; ocFolio: string; proveedorNombre: string | null; tipo: TipoPago; monto: number; fecha: string; archivoUrl: string; archivoNombre: string | null; nota: string | null }
+interface OcObuma { folio: string; estado: string | null; total: number | null; facturas: Array<{ folio: string; fecha: string | null; total: number | null; s3Link: string | null }> }
+interface ProyectoOpcion { folio: number; nombre: string | null; referencia: string | null; cliente: string | null; estado: string | null; sugerido: boolean }
+const TIPOS_PAGO: Array<{ key: TipoPago; label: string; ayuda: string }> = [
+  { key: 'PAGO_TOTAL', label: 'Pago total', ayuda: 'Se pagó la orden completa de una vez.' },
+  { key: 'ANTICIPO', label: 'Anticipo', ayuda: 'Una parte por adelantado. Cuando pagues el resto, registra el saldo.' },
+  { key: 'SALDO', label: 'Saldo', ayuda: 'Lo que faltaba después del anticipo.' },
+];
+const fechaCorta = (f: string | null) => f ? f.slice(0, 10).split('-').reverse().join('-') : '';
+const conPunto = (color: string, label: string) => (
+  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 whitespace-nowrap">
+    <span aria-hidden style={{ backgroundColor: color }} className="w-1.5 h-1.5 rounded-full flex-shrink-0" />{label}
+  </span>
+);
 const fmtCLP = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 
 type EstadoProveedorObuma = 'idle' | 'cargando' | 'existe' | 'no_existe' | 'sin_rut';
 
-const HITOS: Array<{ key: Hito; label: string; atField: keyof Reparto; ayuda: string }> = [
-  { key: 'ocEmitida', label: 'Orden de compra emitida', atField: 'ocEmitidaAt', ayuda: 'Ya le mandaste la orden de compra al proveedor (con «Crear orden de compra» de arriba o directo en Obuma).' },
-  { key: 'pagoRegistrado', label: 'Pago registrado', atField: 'pagoRegistradoAt', ayuda: 'Ya le pagaste al proveedor y el pago quedó registrado.' },
-  { key: 'anticipoPagado', label: 'Anticipo pagado', atField: 'anticipoPagadoAt', ayuda: 'Solo si el proveedor pidió pagar una parte por adelantado. Si se paga todo junto, elige «No aplica».' },
-  { key: 'facturaCompraRegistrada', label: 'Factura de compra registrada', atField: 'facturaCompraRegistradaAt', ayuda: 'El proveedor te entregó su factura y ya está ingresada en Obuma.' },
-  { key: 'carpetaProyectoCreada', label: 'Carpeta de proyecto creada', atField: 'carpetaProyectoCreadaAt', ayuda: 'Ya existe en Obuma la carpeta de este proyecto, donde se juntan sus compras y gastos.' },
-  { key: 'provisionFondos', label: 'Provisión de fondos', atField: 'provisionFondosAt', ayuda: 'Ya se apartó el dinero para pagar esta compra (indica el monto y de qué cuenta salió).' },
-];
 
 export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { negocioId: number; puedeOperar: boolean; parte?: 'todo' | 'oc' | 'hitos' }) {
   const toast = useToast();
@@ -95,9 +104,20 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
   // hacer la conversión a con IVA para que tengamos todo eso visible"). Mismo factor 1.19 que usa
   // el resto del proyecto (ver IVA en costeo-comparativo.ts) — se guarda solo el NETO en la base
   // (como ya se hacía), el "con IVA" es siempre calculado, nunca un campo aparte que se desincronice.
-  const [ocMontoDraft, setOcMontoDraft] = useState<string | null>(null); // null = todavía no se tocó, usar reparto.ocMonto
-
   const [proveedoresOC, setProveedoresOC] = useState<ProveedorOC[]>([]);
+  // Pagos por OC con comprobante (pedido del dueño, 21-oct-2026) y las OC de Obuma con su factura.
+  const [pagosOc, setPagosOc] = useState<PagoOc[]>([]);
+  const [ocsObuma, setOcsObuma] = useState<OcObuma[]>([]);
+  const [pagoAbierto, setPagoAbierto] = useState<string | null>(null); // folio de la OC
+  const [pagoTipo, setPagoTipo] = useState<TipoPago>('PAGO_TOTAL');
+  const [pagoMonto, setPagoMonto] = useState('');
+  const [pagoFecha, setPagoFecha] = useState('');
+  const [pagoNota, setPagoNota] = useState('');
+  const [pagoArchivo, setPagoArchivo] = useState<File | null>(null);
+  const [guardandoPago, setGuardandoPago] = useState(false);
+  // Proyecto de Obuma para vincular (la API de Obuma no deja crearlo).
+  const [proyectos, setProyectos] = useState<ProyectoOpcion[] | null>(null);
+  const [proyectoElegido, setProyectoElegido] = useState('');
   const [centroCosto, setCentroCosto] = useState<{ id: string; nombre: string } | null>(null);
   // Centros de costo de Obuma (para el selector del formulario) y el elegido; por defecto el que se detecta por el código de la licitación.
   const [centrosCosto, setCentrosCosto] = useState<Array<{ id: string; nombre: string }>>([]);
@@ -106,6 +126,9 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
   const [cargandoFormasPago, setCargandoFormasPago] = useState(false);
   const [ocAbierta, setOcAbierta] = useState<string | null>(null); // proveedorNombre
   const [formaPagoId, setFormaPagoId] = useState('');
+  // Obuma los pide en la OC; sin ellos había que editarla a mano después (OC 4005).
+  const [fechaEntrega, setFechaEntrega] = useState('');
+  const [metodoDespacho, setMetodoDespacho] = useState('');
   const [incluirFlete, setIncluirFlete] = useState(false);
   const [fleteMonto, setFleteMonto] = useState('');
   const [confirmadoOC, setConfirmadoOC] = useState(false);
@@ -145,6 +168,27 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
   }, [negocioId]);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  // Las dos partes de la pantalla («oc» y «hitos») son instancias aparte: un pago registrado en una
+  // avisa a la otra con el evento 'compras-pagos-oc' para que se recargue.
+  const cargarPagos = useCallback(async () => {
+    try {
+      const d: any = await fetchJsonReintento(`/api/compras/${negocioId}/pagos-oc`);
+      if (d.success) { setPagosOc(d.pagos || []); setOcsObuma(d.ocs || []); }
+    } catch { /* sin pagos a la vista: no bloquea el resto de la sección */ }
+  }, [negocioId]);
+  useEffect(() => {
+    void cargarPagos();
+    const recargar = () => { void cargarPagos(); };
+    window.addEventListener('compras-pagos-oc', recargar);
+    return () => window.removeEventListener('compras-pagos-oc', recargar);
+  }, [cargarPagos]);
+  useEffect(() => {
+    if (parte === 'oc') return;
+    fetchJsonReintento(`/api/compras/${negocioId}/proyecto-obuma`)
+      .then((d: any) => setProyectos(d.success ? d.proyectos || [] : []))
+      .catch(() => setProyectos([]));
+  }, [negocioId, parte]);
 
   const verificarTodosProveedores = useCallback(async (lista: ProveedorOC[]) => {
     setEstadoProvs(Object.fromEntries(lista.map(p => [p.proveedorNombre, p.proveedorRut ? 'cargando' : 'sin_rut'])) as Record<string, EstadoProveedorObuma>);
@@ -206,6 +250,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
 
   const crearOC = async (proveedorNombre: string, hayDuplicado: boolean, productoIds: number[]) => {
     if (!formaPagoId) { toast.error('Falta la forma de pago', 'Elige una antes de crear la orden.'); return; }
+    if (!fechaEntrega || !metodoDespacho) { toast.error('Faltan datos de entrega', 'Elige la fecha de entrega y el método de despacho.'); return; }
     if (incluirFlete && !fleteMonto.trim()) { toast.error('Falta el monto del flete', ''); return; }
     if (!confirmadoOC) { toast.error('Falta confirmar', 'Revisa los datos y marca la casilla de confirmación.'); return; }
     if (hayDuplicado && !confirmadoPeseADuplicado) { toast.error('Falta confirmar el posible duplicado', 'Revisa la OC real que encontramos antes de seguir.'); return; }
@@ -215,6 +260,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           proveedorNombre, formaPagoId, incluirFlete, fleteMonto: incluirFlete ? fleteMonto : null, productoIds, centroCostoId: centroElegido || undefined,
+          fechaEntrega, metodoDespacho,
           confirmarPeseADuplicado: hayDuplicado ? confirmadoPeseADuplicado : undefined,
         }),
       });
@@ -288,6 +334,59 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
     }
   };
 
+  const abrirPago = (folio: string) => {
+    const oc = ocsObuma.find(o => o.folio === folio);
+    const pagos = pagosOc.filter(x => x.ocFolio === folio);
+    const pagado = pagos.reduce((s, x) => s + x.monto, 0);
+    setPagoAbierto(folio);
+    setPagoTipo(pagos.some(x => x.tipo === 'ANTICIPO') ? 'SALDO' : 'PAGO_TOTAL');
+    setPagoMonto(oc?.total ? String(Math.max(0, Math.round(oc.total - pagado))) : '');
+    setPagoFecha(new Date().toLocaleDateString('sv-SE')); // AAAA-MM-DD en hora local
+    setPagoNota(''); setPagoArchivo(null);
+  };
+
+  const guardarPago = async (p: ProveedorOC, folio: string) => {
+    if (!pagoArchivo) { toast.error('Falta el comprobante', 'Adjunta el comprobante de la transferencia o del pago.'); return; }
+    if (!(parsearMontoCL(pagoMonto) && parsearMontoCL(pagoMonto)! > 0)) { toast.error('Falta el monto', ''); return; }
+    setGuardandoPago(true);
+    try {
+      const fd = new FormData();
+      fd.set('ocFolio', folio); fd.set('proveedorNombre', p.proveedorNombre); fd.set('tipo', pagoTipo);
+      fd.set('monto', pagoMonto); fd.set('fecha', pagoFecha); fd.set('nota', pagoNota.trim()); fd.set('file', pagoArchivo);
+      const res = await fetch(`/api/compras/${negocioId}/pagos-oc`, { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar');
+      setPagosOc(data.pagos || []); setPagoAbierto(null);
+      window.dispatchEvent(new Event('compras-pagos-oc'));
+      recargarCompartido();
+      toast.success('Pago registrado', `OC ${folio} · ${fmtCLP(parsearMontoCL(pagoMonto))}`);
+    } catch (e: any) {
+      toast.error('No se pudo registrar el pago', e.message);
+    } finally {
+      setGuardandoPago(false);
+    }
+  };
+
+  const quitarPago = async (pago: PagoOc) => {
+    if (!window.confirm(`¿Quitar el pago de ${fmtCLP(pago.monto)} de la OC ${pago.ocFolio}? Úsalo solo si se registró por error.`)) return;
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/pagos-oc?id=${pago.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo quitar');
+      setPagosOc(data.pagos || []);
+      window.dispatchEvent(new Event('compras-pagos-oc'));
+      recargarCompartido();
+    } catch (e: any) {
+      toast.error('No se pudo quitar el pago', e.message);
+    }
+  };
+
+  const vincularProyecto = () => {
+    const pr = proyectos?.find(x => String(x.folio) === proyectoElegido);
+    if (!pr) return;
+    void alternar('carpetaProyectoCreada', true, { carpetaProyectoId: String(pr.folio), nota: `Vinculado al proyecto N° ${pr.folio} de Obuma${pr.nombre ? ` — ${pr.nombre}` : ''}.` });
+  };
+
   const verOc = async () => {
     setVerOcAbierto(true);
     if (ordenesVista.length) return; // ya cargadas — no repetir la consulta en vivo por cada abierta/cerrada
@@ -319,6 +418,14 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
   // ¿Se puede emitir esta orden? Con las dos compuertas, siempre; si no, solo si TODO lo marcado es compra rápida aprobada.
   const puedeEmitirOC = (p: ProveedorOC) => compuertasOk || (idsSel(p).length > 0 && idsSel(p).every(id => p.items.find(it => it.productoId === id)?.compraRapida));
   const subtotalSel = (p: ProveedorOC) => p.items.filter(it => idsSel(p).includes(it.productoId)).reduce((s, it) => s + it.subtotal, 0);
+  // Las OC de un proveedor (la hecha en Obuma y/o la emitida desde Licitank), para mostrarlas rotuladas.
+  const ocsDe = (p: ProveedorOC) => [
+    ...(p.ocRealObuma ? [{ folio: p.ocRealObuma.folios.join(', '), origen: 'Hecha en Obuma', estado: p.ocRealObuma.estados.join(' / '), monto: p.ocRealObuma.totalNeto, montoNota: 'neto' }] : []),
+    ...(p.yaCreada ? [{ folio: p.yaCreada.folio ?? p.yaCreada.obumaCompraOcId, origen: p.ocRealObuma ? 'Emitida desde Licitank (adicional)' : 'Emitida desde Licitank', estado: p.yaCreada.estado || 'Emitida', monto: p.yaCreada.total, montoNota: 'con IVA' }] : []),
+  ];
+  const foliosDe = (p: ProveedorOC) => [...(p.ocRealObuma?.folios ?? []), ...(p.yaCreada ? [p.yaCreada.folio ?? p.yaCreada.obumaCompraOcId] : [])];
+  const estadoTexto = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+  const colorEstado = (s: string) => /anulad/i.test(s) ? '#94a3b8' : /factur/i.test(s) ? '#059669' : '#0f766e';
   const alternarItem = (p: ProveedorOC, id: number) => setSeleccion(prev => {
     const act = prev[p.proveedorNombre] ?? idsSel(p);
     return { ...prev, [p.proveedorNombre]: act.includes(id) ? act.filter(x => x !== id) : [...act, id] };
@@ -340,12 +447,11 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
       {parte !== 'hitos' && proveedoresOC.length > 0 && (
         <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
           <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-100">
-            <p className="text-[14px] font-bold text-zinc-800 flex items-center gap-1.5">
+            <p className="text-[14px] font-medium text-slate-800 flex items-center gap-1.5">
               <FileText size={15} /> Órdenes de compra a proveedores
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-zinc-200 text-zinc-700">{proveedoresOC.filter(p => p.yaCreada || p.ocRealObuma).length} de {proveedoresOC.length} emitidas</span>
+              <span className="ml-1 text-xs font-semibold tabular-nums text-slate-500">{proveedoresOC.filter(p => p.yaCreada || p.ocRealObuma).length} de {proveedoresOC.length} emitidas</span>
             </p>
-            <p className="text-[12.5px] text-zinc-500 mt-0.5">Una orden por proveedor, con lo que le compramos. Para emitirla, el proveedor tiene que existir en Obuma: si no está, lo creas aquí mismo. La orden se crea de verdad en Obuma.</p>
-            <p className="text-[11.5px] text-zinc-500 mt-1.5 flex items-center gap-3 flex-wrap"><span><b className="text-emerald-700">● Emitida desde Licitank</b>: la creaste aquí.</span><span><b className="text-sky-700">● Ya existía en Obuma</b>: se hizo directo en Obuma, fuera de Licitank.</span></p>
+            <p className="text-[12.5px] text-slate-500 mt-0.5">Una orden por proveedor, con lo que le compramos. Para emitirla, el proveedor tiene que existir en Obuma: si no está, lo creas aquí mismo. La orden se crea de verdad en Obuma.</p>
           </div>
           {!compuertasOk && proveedoresOC.some(pv => pv.items.some(it => it.compraRapida)) && (
             <p className="mx-4 mt-2 text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1.5" data-testid="oc-aviso-compra-rapida">
@@ -357,59 +463,66 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
               Falta aprobar la compra y el margen — control de gasto: no se puede emitir dinero real en Obuma sin los dos hitos aprobados. Solo se pueden emitir antes las compras rápidas aprobadas por el jefe de ventas.
             </p>
           )}
-          <div className="divide-y divide-zinc-100">
+          <div className="p-3 mt-3 space-y-3 bg-slate-50/70 border-t border-slate-100">
             {proveedoresOC.map(p => {
               const previewFlete = incluirFlete ? parsearMontoCL(fleteMonto) : null;
               const total = subtotalSel(p) + (ocAbierta === p.proveedorNombre && previewFlete ? previewFlete : 0);
+              const ocs = ocsDe(p);
               return (
-                <div key={p.proveedorNombre} className="px-4 py-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <p className="text-[13px] font-bold text-zinc-800">{p.proveedorNombre}{p.proveedorRut && <span className="ml-2 text-[11.5px] font-normal text-zinc-400">RUT {p.proveedorRut}</span>}</p>
-                      <p className="text-[11.5px] text-zinc-500">{p.yaCreada || p.ocRealObuma ? `${p.items.length} producto(s) · ${fmtCLP(p.subtotal)}` : `${idsSel(p).length} de ${p.items.length} productos en la orden · ${fmtCLP(subtotalSel(p))}`}</p>
+                <div key={p.proveedorNombre} className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="min-w-[220px] sm:w-80 flex-shrink-0">
+                      <p className="text-[13.5px] font-medium text-slate-900">{p.proveedorNombre}</p>
+                      <p className="text-[11px] text-slate-500">{p.proveedorRut && <>RUT {p.proveedorRut} · </>}{p.yaCreada || p.ocRealObuma ? `${p.items.length} producto(s)` : `${idsSel(p).length} de ${p.items.length} productos en la orden`}</p>
                     </div>
-                    {p.yaCreada ? (
-                      <div className="flex items-center gap-2 flex-wrap justify-end">
-                        {p.ocRealObuma && (
-                          <span title="La OC original, hecha directo en Obuma."
-                            className="flex items-center gap-1 text-[11px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-1 rounded-full">
-                            <CheckCircle2 size={12} /> Ya existía en Obuma (fuera de Licitank) · OC {p.ocRealObuma.folios.join(', ')} · {p.ocRealObuma.estados.join(' / ')} · {fmtCLP(p.ocRealObuma.totalNeto)} neto
-                          </span>
-                        )}
-                        <span title={p.ocRealObuma ? 'Otra orden, emitida desde Licitank (aparte de la original).' : undefined}
-                          className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full border ${p.ocRealObuma ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-emerald-700 bg-emerald-50 border-emerald-200'}`}>
-                          <CheckCircle2 size={12} /> Emitida desde Licitank · Folio {p.yaCreada.folio ?? p.yaCreada.obumaCompraOcId} · {fmtCLP(p.yaCreada.total)}
-                        </span>
+                    {/* La OC de este proveedor, rotulada: número, estado, origen y monto. */}
+                    <dl className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1.5 min-w-[320px]">
+                      <div>
+                        <dt className="text-[11px] text-slate-500">Orden de compra</dt>
+                        <dd className="mt-0.5">{ocs.length ? ocs.map(o => <div key={o.folio} className="text-[15px] font-bold tabular-nums text-slate-900 leading-tight">OC {o.folio}</div>) : <span className="text-xs font-medium text-amber-700">Sin emitir</span>}</dd>
                       </div>
-                    ) : p.ocRealObuma ? (
-                      <div className="flex items-center gap-2 flex-wrap justify-end">
-                        <span title="La OC se hizo directo en Obuma (no desde Licitank)."
-                          className="flex items-center gap-1 text-[11px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-2 py-1 rounded-full">
-                          <CheckCircle2 size={12} /> Ya existía en Obuma (fuera de Licitank) · OC {p.ocRealObuma.folios.join(', ')} · {p.ocRealObuma.estados.join(' / ')} · {fmtCLP(p.ocRealObuma.totalNeto)} neto
-                        </span>
-                        {puedeOperar && ocAbierta !== p.proveedorNombre && (
-                          <button onClick={() => abrirOC(p)} disabled={!puedeEmitirOC(p)} data-testid={`oc-crear-otra-${p.proveedorNombre}`}
-                            title="Ya hay una OC de este proveedor en Obuma. Esto crea OTRA orden aparte (compra adicional o de prueba)."
-                            className="flex items-center gap-1.5 text-[12px] font-semibold text-indigo-700 border border-indigo-300 hover:bg-indigo-50 disabled:opacity-40 px-3 py-1.5 rounded-lg">
-                            <Zap size={12} /> Crear otra orden (adicional)
-                          </button>
-                        )}
+                      {ocs.length > 0 && (<>
+                        <div>
+                          <dt className="text-[11px] text-slate-500">Estado</dt>
+                          <dd className="mt-0.5">{ocs.map(o => (
+                            <div key={o.folio} className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 whitespace-nowrap"><span aria-hidden style={{ backgroundColor: colorEstado(o.estado) }} className="w-1.5 h-1.5 rounded-full flex-shrink-0" />{estadoTexto(o.estado)}</div>
+                          ))}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-[11px] text-slate-500">Origen</dt>
+                          <dd className="mt-0.5">{ocs.map(o => <div key={o.folio} className="text-xs text-slate-700">{o.origen}</div>)}</dd>
+                        </div>
+                      </>)}
+                      <div>
+                        <dt className="text-[11px] text-slate-500">Monto</dt>
+                        <dd className="mt-0.5">{ocs.length
+                          ? ocs.map(o => <div key={o.folio} className="text-xs whitespace-nowrap"><b className="tabular-nums text-slate-900">{fmtCLP(o.monto)}</b> <span className="text-slate-500">{o.montoNota}</span></div>)
+                          : <div className="text-xs whitespace-nowrap"><b className="tabular-nums text-slate-900">{fmtCLP(subtotalSel(p))}</b> <span className="text-slate-500">neto</span></div>}</dd>
                       </div>
-                    ) : puedeOperar && ocAbierta !== p.proveedorNombre ? (
-                      <div className="flex-shrink-0 flex items-center gap-2">
+                    </dl>
+                    <div className="sm:min-w-[10rem] flex justify-end self-center">
+                    {p.ocRealObuma && !p.yaCreada && puedeOperar && ocAbierta !== p.proveedorNombre ? (
+                      <button onClick={() => abrirOC(p)} disabled={!puedeEmitirOC(p)} data-testid={`oc-crear-otra-${p.proveedorNombre}`}
+                        title="Ya hay una OC de este proveedor en Obuma. Esto crea OTRA orden aparte (compra adicional o de prueba)."
+                        className="self-center text-[12px] font-medium text-slate-500 hover:text-teal-700 disabled:opacity-40 whitespace-nowrap">
+                        + Otra orden adicional
+                      </button>
+                    ) : !p.yaCreada && !p.ocRealObuma && puedeOperar && ocAbierta !== p.proveedorNombre ? (
+                      <div className="self-center flex-shrink-0 flex items-center gap-2">
                         {p.posibleDuplicadoObuma && (
                           <span title={`Posible OC real ya existente: ${p.posibleDuplicadoObuma.referencia}`}
-                            className="text-[10px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full">
-                            ⚠ posible duplicado
+                            className="inline-flex items-center gap-1.5 text-xs font-medium text-red-700">
+                            <span aria-hidden className="w-1.5 h-1.5 rounded-full bg-red-600" />Posible duplicado
                           </span>
                         )}
                         <button onClick={() => abrirOC(p)} disabled={idsSel(p).length === 0 || !puedeEmitirOC(p) || estadoProvs[p.proveedorNombre] === 'no_existe' || estadoProvs[p.proveedorNombre] === 'sin_rut'}
                           title={!puedeEmitirOC(p) ? 'Falta aprobar la compra y el margen (o la compra rápida de estos productos)' : estadoProvs[p.proveedorNombre] === 'no_existe' || estadoProvs[p.proveedorNombre] === 'sin_rut' ? 'Primero crea el proveedor en Obuma' : undefined}
-                          className="flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed px-3.5 py-2 rounded-lg">
+                          className="flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-40 disabled:cursor-not-allowed px-3.5 py-2 rounded-lg">
                           <Zap size={13} /> Crear orden de compra
                         </button>
                       </div>
                     ) : null}
+                    </div>
                   </div>
 
                   {!p.yaCreada && !p.ocRealObuma && (() => {
@@ -430,17 +543,18 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                   {/* Tabla de productos de la orden: qué se compra, a qué precio, si tiene SKU y quién lo aprobó. Con la orden pendiente se marcan con la casilla; emitida, es solo lectura. */}
                   {(() => {
                     const editable = !p.yaCreada && (!p.ocRealObuma || ocAbierta === p.proveedorNombre);
-                    const chipAprob = (it: ItemOC) => it.estadoLinea === 'RECHAZADA'
-                      ? <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 whitespace-nowrap">✖ Rechazado</span>
-                      : it.compraRapida ? <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap">⚡ Compra rápida aprobada</span>
-                      : it.estadoLinea === 'APROBADA' || it.aprobado ? <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap">✔ Aprobado</span>
-                      : <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 whitespace-nowrap">Aún sin aprobar</span>;
+                    const chipAprob = (it: ItemOC) => it.estadoLinea === 'RECHAZADA' ? conPunto('#dc2626', 'Rechazado')
+                      : it.compraRapida ? conPunto('#059669', 'Compra rápida aprobada')
+                      : it.estadoLinea === 'APROBADA' || it.aprobado ? conPunto('#059669', 'Aprobado')
+                      : conPunto('#d97706', 'Aún sin aprobar');
+                    const folios = ocsDe(p).map(o => o.folio).join(' · ');
                     return (
-                      <div className="mt-2 overflow-x-auto rounded-lg border border-zinc-200" data-testid={`oc-productos-${p.proveedorNombre}`}>
+                      <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200" data-testid={`oc-productos-${p.proveedorNombre}`}>
                         <table className="w-full text-[12px] min-w-[760px]">
                           <thead>
-                            <tr className="text-left text-[10.5px] font-bold uppercase text-zinc-400 bg-zinc-50 border-b border-zinc-100">
+                            <tr className="text-left text-[11px] font-medium text-slate-500 bg-slate-50 border-b border-slate-200">
                               {editable && <th className="px-3 py-2 w-8" title="Marcado = va en la orden"></th>}
+                              <th className="px-2 py-2">OC</th>
                               <th className="px-2 py-2">Producto</th>
                               <th className="px-2 py-2">SKU Obuma</th>
                               <th className="px-2 py-2 text-right">Cant.</th>
@@ -450,7 +564,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                               {editable && <th className="px-2 py-2 text-right">En la orden</th>}
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-zinc-100">
+                          <tbody className="divide-y divide-slate-100">
                             {p.items.map(it => {
                               const rech = it.estadoLinea === 'RECHAZADA';
                               const marcado = idsSel(p).includes(it.productoId);
@@ -459,8 +573,9 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                                   {editable && (
                                     <td className="px-3 py-2"><input type="checkbox" checked={marcado} disabled={rech || !puedeOperar} onChange={() => alternarItem(p, it.productoId)} className="accent-teal-600" aria-label={`Incluir ${it.descripcion.split(' - ')[0]} en la orden`} /></td>
                                   )}
-                                  <td className="px-2 py-2 font-semibold text-zinc-800">{it.descripcion.split(' - ')[0]}</td>
-                                  <td className="px-2 py-2 whitespace-nowrap">{it.obumaCodigoComercial ? <span className="text-indigo-700 font-semibold">{it.obumaCodigoComercial}</span> : <span className="text-amber-600">sin SKU todavía</span>}</td>
+                                  <td className="px-2 py-2 whitespace-nowrap">{folios ? <span className="font-bold tabular-nums text-slate-900">{folios}</span> : <span className="text-amber-700 font-medium">Sin emitir</span>}</td>
+                                  <td className="px-2 py-2 font-medium text-slate-800">{it.descripcion.split(' - ')[0]}</td>
+                                  <td className="px-2 py-2 whitespace-nowrap tabular-nums">{it.obumaCodigoComercial ? <span className="text-slate-700">{it.obumaCodigoComercial}</span> : <span className="text-amber-700">sin SKU todavía</span>}</td>
                                   <td className="px-2 py-2 text-right tabular-nums">{it.cantidad}</td>
                                   <td className="px-2 py-2 text-right tabular-nums">{fmtCLP(it.precioUnitario)}</td>
                                   <td className="px-2 py-2 text-right tabular-nums font-semibold">{fmtCLP(it.subtotal)}</td>
@@ -471,8 +586,8 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                             })}
                           </tbody>
                           <tfoot>
-                            <tr className="bg-zinc-50 font-bold text-zinc-800 border-t border-zinc-200">
-                              <td className="px-3 py-2" colSpan={editable ? 5 : 4}>{editable ? `Total de la orden (${idsSel(p).length} de ${p.items.length} productos marcados)` : 'Total'}</td>
+                            <tr className="bg-slate-50 font-bold text-slate-800 border-t border-slate-200">
+                              <td className="px-3 py-2" colSpan={editable ? 6 : 5}>{editable ? `Total de la orden (${idsSel(p).length} de ${p.items.length} productos marcados)` : 'Total'}</td>
                               <td className="px-2 py-2 text-right tabular-nums">{fmtCLP(editable ? subtotalSel(p) : p.subtotal)}</td>
                               <td className="px-2 py-2 text-[11px] font-normal text-zinc-500" colSpan={editable ? 2 : 1}>neto, sin IVA</td>
                             </tr>
@@ -482,6 +597,112 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                       </div>
                     );
                   })()}
+
+                  {/* Factura y pagos de cada OC del proveedor (21-oct-2026): la factura llega sola desde
+                      Obuma; los pagos se registran aquí, cada uno con su comprobante. */}
+                  {foliosDe(p).length > 0 && (
+                    <div className="mt-3 rounded-lg border border-slate-200 divide-y divide-slate-100" data-testid={`oc-pagos-${p.proveedorNombre}`}>
+                      {foliosDe(p).map(folio => {
+                        const oc = ocsObuma.find(o => o.folio === folio);
+                        const pagos = pagosOc.filter(x => x.ocFolio === folio);
+                        const pagado = pagos.reduce((s, x) => s + x.monto, 0);
+                        const pagada = pagos.some(x => x.tipo !== 'ANTICIPO');
+                        return (
+                          <div key={folio} className="px-3 py-2.5">
+                            <dl className="grid grid-cols-2 sm:grid-cols-[6rem_minmax(0,1fr)_minmax(0,1fr)_9rem] gap-x-4 gap-y-2">
+                              <div>
+                                <dt className="text-[11px] text-slate-500">Orden</dt>
+                                <dd className="mt-0.5 text-xs font-bold tabular-nums text-slate-900">OC {folio}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-[11px] text-slate-500">Factura del proveedor</dt>
+                                <dd className="mt-0.5 text-xs text-slate-700">
+                                  {oc?.facturas.length ? oc.facturas.map(f => (
+                                    <div key={f.folio} className="flex items-center gap-1.5 flex-wrap">
+                                      {conPunto('#059669', `N° ${f.folio}`)}
+                                      {f.fecha && <span className="text-slate-500">{fechaCorta(f.fecha)}</span>}
+                                      {f.total != null && <span className="tabular-nums text-slate-500">{fmtCLP(f.total)}</span>}
+                                      {f.s3Link && <a href={f.s3Link} target="_blank" rel="noopener noreferrer" className="font-medium text-teal-700 hover:text-teal-900">Ver XML</a>}
+                                    </div>
+                                  )) : /factur/i.test(oc?.estado || '') ? conPunto('#059669', 'Facturada en Obuma')
+                                    : conPunto('#94a3b8', 'Todavía no factura')}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt className="text-[11px] text-slate-500">Pago</dt>
+                                <dd className="mt-0.5 flex items-center gap-2 flex-wrap">
+                                  {pagada ? conPunto('#059669', 'Pagada') : pagos.length ? conPunto('#d97706', 'Con anticipo') : conPunto('#94a3b8', 'Sin pagar')}
+                                  <span className="text-xs text-slate-500"><b className="tabular-nums text-slate-800">{fmtCLP(pagado)}</b>{oc?.total != null && <> de {fmtCLP(oc.total)} con IVA</>}</span>
+                                </dd>
+                              </div>
+                              <div className="self-center sm:text-right">
+                                {puedeOperar && !pagada && pagoAbierto !== folio && (
+                                  <button type="button" onClick={() => abrirPago(folio)} data-testid={`oc-registrar-pago-${folio}`}
+                                    className="text-[12px] font-semibold text-teal-700 border border-teal-200 hover:bg-teal-50 px-3 py-1.5 rounded-lg whitespace-nowrap">
+                                    Registrar pago
+                                  </button>
+                                )}
+                              </div>
+                            </dl>
+                            {pagos.length > 0 && (
+                              <ul className="mt-2 space-y-1">
+                                {pagos.map(x => (
+                                  <li key={x.id} className="flex items-center gap-2 flex-wrap text-xs text-slate-600">
+                                    <span className="font-medium text-slate-800">{TIPOS_PAGO.find(t => t.key === x.tipo)?.label}</span>
+                                    <b className="tabular-nums text-slate-900">{fmtCLP(x.monto)}</b>
+                                    <span>{fechaCorta(x.fecha)}</span>
+                                    <a href={x.archivoUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 font-medium text-teal-700 hover:text-teal-900">
+                                      <Paperclip size={11} /> {x.archivoNombre || 'comprobante'}
+                                    </a>
+                                    {x.nota && <span className="text-slate-500">· {x.nota}</span>}
+                                    {puedeOperar && <button type="button" onClick={() => quitarPago(x)} className="ml-auto text-[11px] text-slate-400 hover:text-red-600">Quitar</button>}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                            {pagoAbierto === folio && (
+                              <div className="mt-2.5 rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-2.5 max-w-xl" data-testid={`oc-form-pago-${folio}`}>
+                                <p className="text-xs font-medium text-slate-800">Registrar pago de la OC {folio} · {p.proveedorNombre}</p>
+                                <div className="flex gap-4 flex-wrap">
+                                  {TIPOS_PAGO.map(t => (
+                                    <label key={t.key} className="inline-flex items-center gap-1.5 text-xs text-slate-700">
+                                      <input type="radio" name={`tipo-${folio}`} checked={pagoTipo === t.key} onChange={() => setPagoTipo(t.key)} className="accent-teal-700" />{t.label}
+                                    </label>
+                                  ))}
+                                </div>
+                                <p className="text-[11px] text-slate-500">{TIPOS_PAGO.find(t => t.key === pagoTipo)?.ayuda}</p>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <label className="text-[11px] text-slate-500">Monto pagado (con IVA)
+                                    <input value={pagoMonto} onChange={e => setPagoMonto(e.target.value)} inputMode="numeric"
+                                      className="mt-0.5 block w-full text-xs text-slate-800 border border-slate-300 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-600 bg-white" />
+                                  </label>
+                                  <label className="text-[11px] text-slate-500">Fecha del pago
+                                    <input type="date" value={pagoFecha} onChange={e => setPagoFecha(e.target.value)}
+                                      className="mt-0.5 block w-full text-xs text-slate-800 border border-slate-300 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-600 bg-white" />
+                                  </label>
+                                </div>
+                                <label className="block text-[11px] text-slate-500">Comprobante del pago (obligatorio)
+                                  <input type="file" accept="application/pdf,image/*" onChange={e => setPagoArchivo(e.target.files?.[0] || null)}
+                                    className="mt-0.5 block text-xs text-slate-700 file:mr-2 file:text-xs file:font-medium file:text-teal-800 file:bg-teal-50 file:border-0 file:rounded-lg file:px-2.5 file:py-1" />
+                                </label>
+                                <label className="block text-[11px] text-slate-500">Nota (opcional)
+                                  <input value={pagoNota} onChange={e => setPagoNota(e.target.value)} placeholder="Ej: transferencia N° 123 desde la cuenta Santander"
+                                    className="mt-0.5 block w-full text-xs text-slate-800 border border-slate-300 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-600 bg-white" />
+                                </label>
+                                <div className="flex items-center gap-2">
+                                  <button type="button" onClick={() => guardarPago(p, folio)} disabled={guardandoPago}
+                                    className="text-[12px] font-semibold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-50 px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5">
+                                    {guardandoPago && <Loader2 size={12} className="animate-spin" />} Guardar pago
+                                  </button>
+                                  <button type="button" onClick={() => setPagoAbierto(null)} className="text-[12px] font-medium text-slate-500 hover:text-slate-800">Cancelar</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {ocAbierta === p.proveedorNombre && (
                     <div className="mt-2.5 space-y-2 bg-zinc-50 border border-zinc-200 rounded-lg p-2.5">
@@ -534,6 +755,20 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                         {formasPago.map(f => <option key={f.id} value={f.id}>{f.nombre}</option>)}
                       </select>
 
+                      <div className="flex gap-1.5">
+                        <label className="flex-1 text-[10.5px] text-zinc-500">Fecha de entrega
+                          <input type="date" value={fechaEntrega} onChange={e => setFechaEntrega(e.target.value)} data-testid="oc-fecha-entrega"
+                            className="mt-0.5 w-full text-[11.5px] text-zinc-800 border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-500" />
+                        </label>
+                        <label className="flex-1 text-[10.5px] text-zinc-500">Método de despacho
+                          <select value={metodoDespacho} onChange={e => setMetodoDespacho(e.target.value)} data-testid="oc-metodo-despacho"
+                            className="mt-0.5 w-full text-[11.5px] text-zinc-800 border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-500 bg-white">
+                            <option value="">Elegir…</option>
+                            {METODOS_DESPACHO_OBUMA.map(m => <option key={m} value={m}>{m}</option>)}
+                          </select>
+                        </label>
+                      </div>
+
                       <label className="flex items-center gap-2 text-[11px] text-zinc-700">
                         <input type="checkbox" checked={incluirFlete} onChange={e => setIncluirFlete(e.target.checked)} className="accent-indigo-600" />
                         <span className="flex items-center gap-1"><Truck size={11} /> Incluir flete/despacho en esta orden</span>
@@ -547,6 +782,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                         <p className="text-[10px] font-bold text-indigo-600 uppercase">Esto es lo que se va a mandar a Obuma</p>
                         <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Proveedor: </span><b>{p.proveedorNombre}</b>{p.proveedorRut && ` (${p.proveedorRut})`}</p>
                         <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Tipo: </span>Nacional · Inventario</p>
+                        <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Entrega: </span>{fechaEntrega ? fechaEntrega.split('-').reverse().join('-') : <span className="text-rose-500">falta fecha</span>} · {metodoDespacho || <span className="text-rose-500">falta método de despacho</span>}</p>
                         <p className="text-[11px] text-zinc-700">
                           <span className="text-zinc-400">Centro de costo: </span>
                           <select value={centroElegido} onChange={e => setCentroElegido(e.target.value)} data-testid="oc-centro-costo"
@@ -568,7 +804,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
 
                       <div className="flex items-center gap-1.5">
                         <button onClick={() => crearOC(p.proveedorNombre, !!p.posibleDuplicadoObuma || !!p.ocRealObuma, idsSel(p))}
-                          disabled={creandoOC === p.proveedorNombre || idsSel(p).length === 0 || !formaPagoId || !confirmadoOC || !puedeEmitirOC(p) || ((!!p.posibleDuplicadoObuma || !!p.ocRealObuma) && !confirmadoPeseADuplicado)}
+                          disabled={creandoOC === p.proveedorNombre || idsSel(p).length === 0 || !formaPagoId || !fechaEntrega || !metodoDespacho || !confirmadoOC || !puedeEmitirOC(p) || ((!!p.posibleDuplicadoObuma || !!p.ocRealObuma) && !confirmadoPeseADuplicado)}
                           className="text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">
                           {creandoOC === p.proveedorNombre ? <Loader2 size={12} className="animate-spin" /> : 'Crear en Obuma'}
                         </button>
@@ -587,149 +823,97 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
         </div>
       )}
 
-      {parte !== 'oc' && (
-      <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-      <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-100">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-[13px] font-bold text-zinc-800 flex items-center gap-1.5"><ClipboardList size={14} /> Lista de control del proceso administrativo</p>
-          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full border bg-white text-zinc-600 border-zinc-200" data-testid="hitos-avance">
-            {HITOS.filter(h => !!reparto[h.atField] || respaldos.find(x => x.hito === h.key)?.estado === 'NO_APLICA').length} de {HITOS.length} resueltos
-          </span>
-        </div>
-        <p className="mt-1 text-[12px] text-zinc-600">Estas cosas se hacen <b>en Obuma</b>, no aquí. Cuando una ya esté hecha, aprieta <b>«Marcar como hecho»</b> y deja una nota corta (por ejemplo «transferencia N° 123»). Si algo no corresponde a esta compra, aprieta <b>«No aplica»</b> y explica por qué.</p>
-      </div>
-      <div className="divide-y divide-zinc-100">
-        {HITOS.map(h => {
-          const activo = !!reparto[h.atField];
-          const respaldo = respaldos.find(r => r.hito === h.key);
-          const noAplica = respaldo?.estado === 'NO_APLICA';
-          const abierto = hitoAbierto === h.key;
-          return (
-            <div key={h.key} className="px-4 py-2">
-              <div className="flex items-start gap-3 flex-wrap">
-                <span className="flex-shrink-0 mt-0.5" aria-hidden>
-                  {guardando === h.key ? <Loader2 size={18} className="animate-spin text-zinc-400" />
-                    : activo ? <CheckCircle2 size={18} className="text-emerald-500" />
-                    : noAplica ? <MinusCircle size={18} className="text-zinc-400" />
-                    : <Circle size={18} className="text-zinc-300" />}
-                </span>
-                <div className="flex-1 min-w-[220px]">
-                  <p className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-[13px] font-semibold ${activo || noAplica ? 'text-zinc-500' : 'text-zinc-800'}`}>{h.label}</span>
-                    <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border ${activo ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : noAplica ? 'bg-zinc-100 text-zinc-500 border-zinc-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                      {activo ? '✔ Hecho' : noAplica ? 'No aplica' : 'Pendiente'}
-                    </span>
-                  </p>
-                  <p className="text-[11.5px] text-zinc-500 leading-snug">{h.ayuda}</p>
-                </div>
-                {puedeOperar && !abierto && (
-                  activo || noAplica ? (
-                    <button onClick={() => alternar(h.key, false)} disabled={guardando === h.key} title="Por si se marcó por error"
-                      className="text-[11.5px] font-semibold text-zinc-500 hover:text-zinc-800 border border-zinc-200 bg-white hover:bg-zinc-50 px-2.5 py-1 rounded-lg">Deshacer</button>
+      {parte !== 'oc' && (() => {
+        // Avance administrativo (rehecho 21-oct-2026): ya no son 6 casillas a marcar a mano. Las OC,
+        // los pagos y las facturas se cuentan solos desde cada orden; solo el proyecto de Obuma se vincula aquí.
+        const todosFolios = proveedoresOC.flatMap(foliosDe);
+        const conOc = proveedoresOC.filter(p => p.yaCreada || p.ocRealObuma).length;
+        const pagadas = todosFolios.filter(f => pagosOc.some(x => x.ocFolio === f && x.tipo !== 'ANTICIPO')).length;
+        const facturadas = todosFolios.filter(f => { const o = ocsObuma.find(x => x.folio === f); return !!o && (o.facturas.length > 0 || /factur/i.test(o.estado || '')); }).length;
+        const totalPagado = pagosOc.reduce((s, x) => s + x.monto, 0);
+        const proyNoAplica = respaldos.find(r => r.hito === 'carpetaProyectoCreada')?.estado === 'NO_APLICA';
+        const proyVinculado = reparto.carpetaProyectoCreadaAt ? proyectos?.find(x => String(x.folio) === reparto.carpetaProyectoId) : null;
+        const color = (listo: boolean, alguno: boolean) => listo ? '#059669' : alguno ? '#d97706' : '#94a3b8';
+        const fila = (titulo: string, estado: React.ReactNode, ayuda: React.ReactNode, accion?: React.ReactNode, extra?: React.ReactNode) => (
+          <div className="px-4 py-3">
+            <div className="flex items-start gap-4 flex-wrap">
+              <div className="w-48 flex-shrink-0">
+                <p className="text-[13px] font-medium text-slate-900">{titulo}</p>
+                <div className="mt-1">{estado}</div>
+              </div>
+              <p className="flex-1 min-w-[220px] text-xs text-slate-500 leading-snug">{ayuda}</p>
+              {accion && <div className="flex-shrink-0 flex items-center gap-2">{accion}</div>}
+            </div>
+            {extra}
+          </div>
+        );
+        return (
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden" data-testid="avance-administrativo">
+            <div className="px-4 py-3 bg-slate-50 border-b border-slate-100">
+              <p className="text-[13px] font-medium text-slate-800 flex items-center gap-1.5"><ClipboardList size={14} /> Avance administrativo</p>
+              <p className="mt-0.5 text-xs text-slate-500">Se completa solo a medida que avanzan las órdenes. Lo único que se hace aquí es vincular el proyecto de Obuma.</p>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {fila('Órdenes de compra',
+                conPunto(color(conOc === proveedoresOC.length && conOc > 0, conOc > 0), `${conOc} de ${proveedoresOC.length} emitidas`),
+                'Una por proveedor. Se emiten arriba; las que se hicieron directo en Obuma aparecen solas.',
+                conOc > 0 ? <button type="button" onClick={verOc} className="text-[12px] font-medium text-teal-700 hover:text-teal-900">Ver órdenes</button> : undefined)}
+              {fila('Pagos a proveedores',
+                <div>{conPunto(color(pagadas === todosFolios.length && pagadas > 0, pagosOc.length > 0), `${pagadas} de ${todosFolios.length} pagadas`)}<p className="mt-0.5 text-xs text-slate-500"><b className="tabular-nums text-slate-800">{fmtCLP(totalPagado)}</b> pagado</p></div>,
+                <>Cada pago se registra en su orden, arriba, con el botón <b className="font-medium text-slate-700">«Registrar pago»</b>: eliges si es anticipo, pago total o saldo, y adjuntas el comprobante.</>)}
+              {fila('Facturas de los proveedores',
+                conPunto(color(facturadas === todosFolios.length && facturadas > 0, facturadas > 0), `${facturadas} de ${todosFolios.length} facturadas`),
+                'No se registran a mano: cuando el proveedor factura y la factura entra a Obuma, aparece sola en su orden (con el XML).')}
+              {fila('Proyecto en Obuma',
+                reparto.carpetaProyectoCreadaAt ? conPunto('#059669', `Proyecto N° ${reparto.carpetaProyectoId ?? '—'}`)
+                  : proyNoAplica ? conPunto('#94a3b8', 'No aplica') : conPunto('#d97706', 'Sin vincular'),
+                <>
+                  El proyecto de Obuma junta todas las compras y gastos de esta licitación, para saber cuánto costó de verdad.
+                  {reparto.carpetaProyectoCreadaAt && proyVinculado?.nombre && <span className="block mt-0.5 text-slate-700">{proyVinculado.nombre}{proyVinculado.estado && ` · ${proyVinculado.estado}`}</span>}
+                  {!reparto.carpetaProyectoCreadaAt && !proyNoAplica && <span className="block mt-0.5">Obuma no deja crearlo desde aquí: si todavía no existe, créalo en Obuma y vuelve; la lista se actualiza sola cada 30 minutos.</span>}
+                  {proyNoAplica && <span className="block mt-0.5 italic">Motivo: {respaldos.find(r => r.hito === 'carpetaProyectoCreada')?.nota}</span>}
+                </>,
+                puedeOperar && (reparto.carpetaProyectoCreadaAt || proyNoAplica)
+                  ? <button type="button" onClick={() => alternar('carpetaProyectoCreada', false)} disabled={guardando === 'carpetaProyectoCreada'}
+                      className="text-[12px] font-medium text-slate-500 hover:text-slate-800">{proyNoAplica ? 'Deshacer' : 'Cambiar'}</button>
+                  : undefined,
+                puedeOperar && !reparto.carpetaProyectoCreadaAt && !proyNoAplica && (
+                  hitoAbierto === 'carpetaProyectoCreada' ? (
+                    <div className="mt-2.5 sm:ml-52 space-y-1.5 bg-slate-50 border border-slate-200 rounded-lg p-2.5 max-w-md">
+                      <p className="text-[11px] text-slate-600">¿Por qué esta compra no tiene proyecto en Obuma?</p>
+                      <textarea rows={2} value={notaHito} onChange={e => setNotaHito(e.target.value)} placeholder="Ej: compra chica, se carga al proyecto general"
+                        className="w-full text-xs border border-slate-300 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-600" />
+                      <div className="flex items-center gap-2">
+                        <button type="button" onClick={guardarRespaldo} disabled={guardandoRespaldo || !notaHito.trim()}
+                          className="text-[12px] font-semibold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-50 px-3 py-1.5 rounded-lg">Guardar</button>
+                        <button type="button" onClick={cerrarRespaldo} className="text-[12px] font-medium text-slate-500 hover:text-slate-800">Cancelar</button>
+                      </div>
+                    </div>
                   ) : (
-                    <div className="flex items-center gap-1.5">
-                      <button onClick={() => abrirRespaldo(h.key, false)} disabled={guardando === h.key}
-                        className="text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-3 py-1.5 rounded-lg">Marcar como hecho</button>
-                      <button onClick={() => abrirRespaldo(h.key, true)} disabled={guardando === h.key}
-                        className="text-[12px] font-semibold text-zinc-600 border border-zinc-300 bg-white hover:bg-zinc-50 px-3 py-1.5 rounded-lg">No aplica</button>
+                    <div className="mt-2.5 sm:ml-52 flex items-center gap-2 flex-wrap">
+                      <select value={proyectoElegido} onChange={e => setProyectoElegido(e.target.value)} data-testid="proyecto-obuma-select"
+                        className="min-w-0 w-full sm:w-[420px] text-xs border border-slate-300 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-600 bg-white">
+                        <option value="">{proyectos == null ? 'Cargando proyectos de Obuma…' : 'Elige el proyecto de Obuma…'}</option>
+                        {(proyectos ?? []).some(x => x.sugerido) && (
+                          <optgroup label="Mencionan esta licitación">
+                            {(proyectos ?? []).filter(x => x.sugerido).map(x => <option key={x.folio} value={x.folio}>N° {x.folio} · {x.nombre}{x.cliente ? ` · ${x.cliente}` : ''}</option>)}
+                          </optgroup>
+                        )}
+                        <optgroup label="Todos los proyectos">
+                          {(proyectos ?? []).filter(x => !x.sugerido).map(x => <option key={x.folio} value={x.folio}>N° {x.folio} · {x.nombre}{x.estado ? ` · ${x.estado}` : ''}</option>)}
+                        </optgroup>
+                      </select>
+                      <button type="button" onClick={vincularProyecto} disabled={!proyectoElegido || guardando === 'carpetaProyectoCreada'}
+                        className="text-[12px] font-semibold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-40 px-3 py-1.5 rounded-lg">Vincular</button>
+                      <button type="button" onClick={() => abrirRespaldo('carpetaProyectoCreada', true)}
+                        className="text-[12px] font-medium text-slate-500 hover:text-slate-800">No aplica</button>
                     </div>
                   )
-                )}
-              </div>
-              <div className="mt-1.5 ml-8 flex items-center gap-2 flex-wrap empty:hidden">
-                {activo && h.key === 'ocEmitida' && (
-                  <>
-                    <input defaultValue={reparto.ocNumero || ''} placeholder="N° de OC"
-                      onBlur={e => alternar('ocEmitida', true, { ocNumero: e.target.value })}
-                      className="text-[11px] border border-zinc-200 rounded-lg px-2 py-0.5 w-32 outline-none focus:ring-1 focus:ring-teal-500" />
-                    {/* Pedido explícito del usuario (15-sep-2026, tras ver que el agente marcaba
-                        una OC registrada a mano como "inconsistencia grave" por tener $0 de
-                        valor): "creo que nunca me pidió el valor de la OC" — tenía razón, este
-                        checklist solo pedía el número. Se agrega el monto NETO (opcional — las OC
-                        creadas vía la integración real con Obuma ya traen su propio total, este
-                        campo es para las que se registran a mano), con la conversión a IVA visible
-                        al lado (pedido explícito posterior: "tienes que hacer la conversión a con
-                        IVA para que tengamos todo eso visible"). */}
-                    <input value={ocMontoDraft ?? (reparto.ocMonto != null ? String(reparto.ocMonto) : '')} placeholder="Monto NETO de la OC (opcional)" inputMode="numeric"
-                      onChange={e => setOcMontoDraft(e.target.value)}
-                      onBlur={e => alternar('ocEmitida', true, { ocMonto: parsearMontoCL(e.target.value) })}
-                      className="text-[11px] border border-zinc-200 rounded-lg px-2 py-0.5 w-32 outline-none focus:ring-1 focus:ring-teal-500" />
-                    {(() => {
-                      const neto = parsearMontoCL(ocMontoDraft ?? (reparto.ocMonto != null ? String(reparto.ocMonto) : ''));
-                      return neto != null && neto > 0
-                        ? <span className="text-[10.5px] text-zinc-400">= {fmtCLP(Math.round(neto * 1.19))} c/IVA</span>
-                        : null;
-                    })()}
-                    <button onClick={verOc} className="text-[10.5px] font-semibold text-teal-600 hover:text-teal-700">Ver OC</button>
-                  </>
-                )}
-                {activo && h.key === 'anticipoPagado' && (
-                  <input defaultValue={reparto.anticipoMonto ?? ''} placeholder="Monto" inputMode="numeric"
-                    onBlur={e => alternar('anticipoPagado', true, { anticipoMonto: parsearMontoCL(e.target.value) })}
-                    className="text-[11px] border border-zinc-200 rounded-lg px-2 py-0.5 w-28 outline-none focus:ring-1 focus:ring-teal-500" />
-                )}
-                {activo && h.key === 'carpetaProyectoCreada' && (
-                  <input defaultValue={reparto.carpetaProyectoId || ''} placeholder="ID carpeta"
-                    onBlur={e => alternar('carpetaProyectoCreada', true, { carpetaProyectoId: e.target.value })}
-                    className="text-[11px] border border-zinc-200 rounded-lg px-2 py-0.5 w-32 outline-none focus:ring-1 focus:ring-teal-500" />
-                )}
-                {activo && h.key === 'provisionFondos' && (
-                  <>
-                    <input defaultValue={reparto.provisionFondosMonto ?? ''} placeholder="Monto" inputMode="numeric"
-                      onBlur={e => alternar('provisionFondos', true, { provisionFondosMonto: parsearMontoCL(e.target.value) })}
-                      className="text-[11px] border border-zinc-200 rounded-lg px-2 py-0.5 w-24 outline-none focus:ring-1 focus:ring-teal-500" />
-                    <input defaultValue={reparto.cuentaOrigen || ''} placeholder="Cuenta de origen"
-                      onBlur={e => alternar('provisionFondos', true, { cuentaOrigen: e.target.value })}
-                      className="text-[11px] border border-zinc-200 rounded-lg px-2 py-0.5 w-40 outline-none focus:ring-1 focus:ring-teal-500" />
-                  </>
-                )}
-              </div>
-
-              {/* Respaldo guardado (pedido explícito, 14-sep-2026) — nota + archivo, o el motivo de
-                  "no aplica". Siempre visible una vez guardado, sin tener que reabrir nada. */}
-              {respaldo && (
-                <div className="mt-1 ml-8 text-[11.5px] text-zinc-500 flex items-start gap-1">
-                  <span className="italic">Nota: {respaldo.nota}</span>
-                  {respaldo.archivoUrl && (
-                    <a href={respaldo.archivoUrl} target="_blank" rel="noopener noreferrer" className="flex-shrink-0 flex items-center gap-0.5 text-teal-600 hover:text-teal-700 font-semibold not-italic">
-                      <Paperclip size={10} /> {respaldo.archivoNombre || 'archivo'}
-                    </a>
-                  )}
-                </div>
-              )}
-
-              {/* Mini-formulario de respaldo — se abre ANTES de marcar, nunca después (spec §11:
-                  "controla y registra" — la nota es la prueba de que se controló). */}
-              {abierto && (
-                <div className="mt-2 ml-8 space-y-1.5 bg-zinc-50 border border-zinc-200 rounded-lg p-2.5 max-w-md">
-                  <p className="text-[10.5px] font-semibold text-zinc-500">
-                    {modoNoAplica ? '¿Por qué no aplica en esta compra?' : 'Deja una nota corta de cómo se hizo (obligatoria)'}
-                  </p>
-                  <textarea rows={2} value={notaHito} onChange={e => setNotaHito(e.target.value)}
-                    placeholder={modoNoAplica ? 'Ej: se pagó de contado, no hubo anticipo' : 'Ej: transferencia N° 123, comprobante adjunto'}
-                    className="w-full text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-                  {!modoNoAplica && (
-                    <label className="block text-[10.5px] text-zinc-400">
-                      Archivo (opcional)
-                      <input type="file" onChange={e => setArchivoHito(e.target.files?.[0] || null)}
-                        className="mt-0.5 block text-[10.5px] text-zinc-600 file:mr-2 file:text-[10.5px] file:font-semibold file:text-teal-700 file:bg-teal-50 file:border-0 file:rounded-lg file:px-2 file:py-0.5" />
-                    </label>
-                  )}
-                  <div className="flex items-center gap-1.5">
-                    <button onClick={guardarRespaldo} disabled={guardandoRespaldo || !notaHito.trim()}
-                      className="text-[11px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1 rounded-lg">
-                      {guardandoRespaldo ? <Loader2 size={12} className="animate-spin" /> : modoNoAplica ? 'Marcar no aplica' : 'Marcar como hecho'}
-                    </button>
-                    <button onClick={cerrarRespaldo} className="text-zinc-400 hover:text-zinc-600"><X size={14} /></button>
-                  </div>
-                </div>
-              )}
+                ))}
             </div>
-          );
-        })}
-      </div>
-      </div>
-      )}
+          </div>
+        );
+      })()}
 
       {modalProveedorAbierto && (
         <CrearProveedorObumaModal negocioId={negocioId} inicial={provInicial} onCerrar={() => setModalProveedorAbierto(false)}

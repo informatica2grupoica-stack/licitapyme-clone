@@ -4,7 +4,7 @@
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
-import { obtenerModalidadRetiro, definirModalidadRetiro, obtenerRetiroPorProveedor, definirRetiroProveedor, type ModalidadRetiro } from '@/app/lib/compras-logistica';
+import { obtenerModalidadRetiro, definirModalidadRetiro, obtenerRetiroPorProveedor, definirRetiroProveedor, obtenerTransportesRetiro, guardarTransporteRetiro, type ModalidadRetiro } from '@/app/lib/compras-logistica';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 
 export const runtime = 'nodejs';
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const info = await obtenerModalidadRetiro(id);
-    return NextResponse.json({ success: true, ...info, porProveedor: await obtenerRetiroPorProveedor(id) });
+    return NextResponse.json({ success: true, ...info, porProveedor: await obtenerRetiroPorProveedor(id), transportes: await obtenerTransportesRetiro(id) });
   } catch (error) {
     console.error('[compras/modalidad-retiro][GET]', String(error));
     return NextResponse.json({ error: 'No se pudo cargar la modalidad de retiro.' }, { status: 500 });
@@ -52,10 +52,12 @@ async function __PUT(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const body = await request.json();
-    if (typeof body.proveedor === 'string') await definirRetiroProveedor(id, body.proveedor, body.modalidad, userId, nombre);
+    // Datos del transporte de un proveedor (migration-158): nombre, RUT, precio, desde/hasta, fecha.
+    if (typeof body.proveedor === 'string' && body.transporte) await guardarTransporteRetiro(id, body.proveedor, body.transporte, userId, nombre);
+    else if (typeof body.proveedor === 'string') await definirRetiroProveedor(id, body.proveedor, body.modalidad, userId, nombre);
     else await definirModalidadRetiro(id, body.modalidad as ModalidadRetiro, userId, nombre);
     const info = await obtenerModalidadRetiro(id);
-    return NextResponse.json({ success: true, ...info, porProveedor: await obtenerRetiroPorProveedor(id) });
+    return NextResponse.json({ success: true, ...info, porProveedor: await obtenerRetiroPorProveedor(id), transportes: await obtenerTransportesRetiro(id) });
   } catch (error: any) {
     console.error('[compras/modalidad-retiro][PUT]', String(error));
     return NextResponse.json({ error: error.message || 'No se pudo definir la modalidad.' }, { status: 400 });

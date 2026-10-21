@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { lineasSinAsignar, lineasDesdeTabla, corregirAdicionalesConLineas, numeroDeTexto, numeroApareceEnTexto, normalizarLineas, proveedorDesdeTexto, esEmpresaPropia, tablaDeLineas } from '../compras-cotizacion-lineas';
+import { lineasSinAsignar, lineasDesdeTabla, corregirAdicionalesConLineas, numeroDeTexto, numeroApareceEnTexto, normalizarLineas, proveedorDesdeTexto, esEmpresaPropia, tablaDeLineas, descuentoPctDelTexto, descuentoMontoDelTexto, descuentoGlobalPorAplicar } from '../compras-cotizacion-lineas';
 
 // Textos REALES de las 6 cotizaciones del negocio 142 (07-oct-2026). Los PDF con texto digital se leen con el lector por filas;
 // los escaneados salen del OCR.
@@ -169,4 +169,55 @@ test('reconciliación del neto impreso: descuento global y flete, en cualquier m
   assert.equal(r4.cuadra, true); assert.equal(r4.ajuste, null);
   const r5 = normalizarLineas(mk([['Horno', 2, 5000, 10000]]), eur, 7777, { descuentoPct: 10, fleteMonto: 500 });
   assert.equal(r5.cuadra, false); assert.ok(r5.avisos.some(a => /no cuadra/.test(a)));
+});
+
+// ─── Descuento global (VENTUS EC-1214, negocio 1333, 21-oct-2026) ───────────────────────────────────────────────────────────────
+// "Subtotal neto $13.149.250 · Descuento (7%) -$920.448 · Total neto $12.228.802", más una línea "Despacho RM $0".
+const VENTUS_LINEAS = [
+  { descripcion: 'Hervidor De Agua 20 Lt VHA-20 Ventus', cantidad: 250, precioUnitario: 52597, descuentoPct: null, total: 13149250 },
+  { descripcion: 'Despacho RM', cantidad: 1, precioUnitario: 0, descuentoPct: null, total: 0 },
+];
+
+test('VENTUS: el descuento "(7%)" y su monto se leen sin IA; un "0" o un % no pasan por monto', () => {
+  const texto = fx('ventus-ec1214.txt');
+  assert.equal(descuentoPctDelTexto(texto), 7);
+  assert.equal(descuentoMontoDelTexto(texto), 920448);
+  assert.equal(descuentoPctDelTexto('Dcto. 7,5 %'), 7.5);
+  assert.equal(descuentoMontoDelTexto('Descuento 10,5%'), null);
+  assert.equal(descuentoMontoDelTexto(fx('electronica-retail-30464.txt')), null);   // "DESCUENTO | 0"
+});
+
+test('VENTUS: la línea "$0" de despacho no rompe la verificación y el 7 % se aplica después de las líneas', () => {
+  const texto = fx('ventus-ec1214.txt');
+  const r = normalizarLineas(VENTUS_LINEAS, texto, 12228802, { descuentoPct: 7 });
+  assert.equal(r.lineas.length, 2);
+  assert.equal(r.cuadra, true);
+  assert.equal(r.ajuste, 'descuento');
+  const d = descuentoGlobalPorAplicar(r, 7, null, 12228802, texto);
+  assert.equal(d.pct, 7);
+  assert.match(d.aviso ?? '', /7 %.*\$12\.228\.80[23]/);
+  assert.deepEqual(lineasSinAsignar(r.lineas, ['TERMO HERVIDOR DE AGUA ELÉCTRICO 20LT']), []);   // el despacho gratis no es un aviso
+});
+
+test('VENTUS: aunque la IA tome el SUBTOTAL como neto y no traiga el %, el documento prueba el descuento', () => {
+  const texto = fx('ventus-ec1214.txt');
+  const r = normalizarLineas(VENTUS_LINEAS, texto, 13149250, { descuentoPct: descuentoPctDelTexto(texto) });
+  assert.equal(descuentoGlobalPorAplicar(r, descuentoPctDelTexto(texto), null, 13149250, texto).pct, 7);
+});
+
+test('VENTUS: si solo viene el monto del descuento, se pasa a % porque subtotal − descuento = neto impreso', () => {
+  const texto = fx('ventus-ec1214.txt');
+  const r = normalizarLineas(VENTUS_LINEAS, texto, 12228802);
+  assert.equal(descuentoGlobalPorAplicar(r, null, 920448, 12228802, texto).pct, 7);
+});
+
+test('descuento que YA viene dentro de los precios: no se aplica de nuevo', () => {
+  // 30464: descuento por línea.
+  const t30464 = fx('electronica-retail-30464.txt');
+  const r1 = normalizarLineas([{ descripcion: 'MINI COMPONENTE JAZZ AUDIO DM-999', cantidad: 26, precioUnitario: 134445.38, descuentoPct: 10, total: 3146022 }], t30464, 3146022);
+  assert.equal(descuentoGlobalPorAplicar(r1, 10, null, 3146022, t30464).pct, null);
+  // Las líneas ya suman el neto impreso y el documento no imprime un monto descontado.
+  const texto = 'Silla | 10 | $90.000 | $900.000\nPrecios con 10% de descuento\nTotal neto: $900.000';
+  const r2 = normalizarLineas([{ descripcion: 'Silla', cantidad: 10, precioUnitario: 90000, total: 900000 }], texto, 900000);
+  assert.equal(descuentoGlobalPorAplicar(r2, 10, null, 900000, texto).pct, null);
 });

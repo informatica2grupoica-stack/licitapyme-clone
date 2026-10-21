@@ -12,7 +12,6 @@
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
-import { listarProductosCompra } from '@/app/lib/compras';
 
 export type OrigenCompra = 'LOCAL' | 'IMPORTACION';
 
@@ -51,41 +50,155 @@ export async function definirOrigenCompra(negocioId: number, origen: OrigenCompr
   });
 }
 
-export interface DatosEmbarque { fleteInternacional: number | null; costosAduana: number | null; costoLogisticoLocal: number | null; moneda?: string; notas?: string | null }
 
-export async function obtenerEmbarque(negocioId: number): Promise<DatosEmbarque | null> {
-  const [rows] = await pool.query(
-    `SELECT flete_internacional, costos_aduana, costo_logistico_local, moneda, notas FROM compras_embarque WHERE negocio_id = ? LIMIT 1`,
-    [negocioId],
-  ) as any;
-  const r = (rows as any[])[0];
-  if (!r) return null;
-  return {
-    fleteInternacional: r.flete_internacional == null ? null : Number(r.flete_internacional),
-    costosAduana: r.costos_aduana == null ? null : Number(r.costos_aduana),
-    costoLogisticoLocal: r.costo_logistico_local == null ? null : Number(r.costo_logistico_local),
-    moneda: r.moneda, notas: r.notas,
-  };
+// ── EMBARQUES (migration-160, pedido del dueño 21-oct-2026) ─────────────────────────────────────
+// Un negocio puede importar en VARIOS embarques (ej. bancas en barco desde China, sillas por courier
+// desde EE.UU.). Cada embarque tiene sus productos (compras_producto.embarque_id), su seguimiento
+// (etapa con la fecha de cada una + datos para ubicarlo) y sus costos, que se reparten SOLO entre sus
+// unidades. Reemplaza a compras_embarque (una fila por negocio), que nunca llegó a tener datos.
+export const ETAPAS_IMPORTACION = ['PEDIDO', 'PRODUCCION', 'EMBARCADO', 'EN_ADUANA', 'LIBERADO', 'EN_BODEGA'] as const;
+export type EtapaImportacion = typeof ETAPAS_IMPORTACION[number];
+export type MedioEmbarque = 'MARITIMO' | 'AEREO' | 'TERRESTRE' | 'COURIER';
+
+export interface DatosEmbarque {
+  nombre: string;
+  proveedorExtranjero: string | null; paisOrigen: string | null; medio: MedioEmbarque | null; incoterm: string | null;
+  numeroSeguimiento: string | null; transportista: string | null; agenteAduana: string | null; puertoLlegada: string | null;
+  fechaSalida: string | null; fechaLlegadaEstimada: string | null; numeroDin: string | null;
+  fleteInternacional: number | null; costosAduana: number | null; costoLogisticoLocal: number | null;
+}
+export interface EmbarqueImportacion extends DatosEmbarque {
+  id: number; estado: EtapaImportacion | null; fechas: Partial<Record<EtapaImportacion, string>>; productoIds: number[];
 }
 
-/** §12.3 — componentes del costo aterrizado: flete internacional (global, ingreso manual),
- *  costos de aduana (ingreso manual), costo logístico local (ingreso manual). "Moneda y tipo de
- *  cambio los maneja OBUMA" — se guarda como dato informativo, no se recalcula acá. */
-export async function registrarEmbarque(negocioId: number, datos: DatosEmbarque, actorId: number, actorNombre: string | null): Promise<void> {
+const num = (v: any) => v == null ? null : Number(v);
+
+export async function listarEmbarques(negocioId: number): Promise<EmbarqueImportacion[]> {
+  const [rows] = await pool.query(
+    `SELECT id, nombre, estado, estado_fechas, proveedor_extranjero, pais_origen, medio, incoterm, numero_seguimiento, transportista,
+            agente_aduana, puerto_llegada, DATE_FORMAT(fecha_salida, '%Y-%m-%d') AS fecha_salida,
+            DATE_FORMAT(fecha_llegada_estimada, '%Y-%m-%d') AS fecha_llegada_estimada, numero_din,
+            flete_internacional, costos_aduana, costo_logistico_local
+       FROM compras_importacion_embarque WHERE negocio_id = ? ORDER BY id`,
+    [negocioId],
+  ) as any;
+  const [prodRows] = await pool.query(
+    `SELECT id, embarque_id FROM compras_producto
+      WHERE negocio_id = ? AND importado = 1 AND embarque_id IS NOT NULL AND subestado NOT IN ('RENUNCIADO', 'NO_ADJUDICADA')`, [negocioId],
+  ) as any;
+  return (rows as any[]).map(r => {
+    let fechas: EmbarqueImportacion['fechas'] = {};
+    try { fechas = r.estado_fechas ? JSON.parse(r.estado_fechas) : {}; } catch { /* fechas ilegibles: se muestran vacías */ }
+    return {
+      id: r.id, nombre: r.nombre, estado: r.estado, fechas,
+      proveedorExtranjero: r.proveedor_extranjero, paisOrigen: r.pais_origen, medio: r.medio, incoterm: r.incoterm,
+      numeroSeguimiento: r.numero_seguimiento, transportista: r.transportista, agenteAduana: r.agente_aduana, puertoLlegada: r.puerto_llegada,
+      fechaSalida: r.fecha_salida, fechaLlegadaEstimada: r.fecha_llegada_estimada, numeroDin: r.numero_din,
+      fleteInternacional: num(r.flete_internacional), costosAduana: num(r.costos_aduana), costoLogisticoLocal: num(r.costo_logistico_local),
+      productoIds: (prodRows as any[]).filter(p => p.embarque_id === r.id).map(p => p.id),
+    };
+  });
+}
+
+async function embarqueDelNegocio(negocioId: number, embarqueId: number): Promise<{ id: number; nombre: string }> {
+  const [rows] = await pool.query(`SELECT id, nombre FROM compras_importacion_embarque WHERE id = ? AND negocio_id = ?`, [embarqueId, negocioId]) as any;
+  const r = (rows as any[])[0];
+  if (!r) throw new Error('Ese embarque no existe en este negocio.');
+  return r;
+}
+
+/** Crea «Embarque N». El primero se lleva todos los productos importados que no tienen embarque. */
+export async function crearEmbarque(negocioId: number, actorId: number, actorNombre: string | null): Promise<number> {
+  const [[c]] = await pool.query(`SELECT COUNT(*) n FROM compras_importacion_embarque WHERE negocio_id = ?`, [negocioId]) as any;
   const ahora = ahoraChileSQL();
+  const nombre = `Embarque ${Number(c.n) + 1}`;
+  const [r] = await pool.query(
+    `INSERT INTO compras_importacion_embarque (negocio_id, nombre, actualizado_por, actualizado_por_nombre, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
+    [negocioId, nombre, actorId, actorNombre, ahora, ahora],
+  ) as any;
+  const id = r.insertId as number;
+  if (Number(c.n) === 0) {
+    await pool.query(`UPDATE compras_producto SET embarque_id = ? WHERE negocio_id = ? AND importado = 1 AND embarque_id IS NULL`, [id, negocioId]);
+  }
+  await registrarEvento({
+    tipo: 'COMPRAS_IMPORTACION_EMBARQUE', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
+    mensaje: `Se agregó el ${nombre.toLowerCase()} de la importación.`, metadata: { negocio_id: negocioId, embarque_id: id },
+  });
+  return id;
+}
+
+const fechaValida = (f: string | null | undefined) => f && /^\d{4}-\d{2}-\d{2}$/.test(f) ? f : null;
+const montoValido = (v: number | null | undefined) => v == null || !Number.isFinite(Number(v)) || Number(v) < 0 ? null : Number(v);
+
+/** Datos del envío y costos de UN embarque (no tocan la etapa). */
+export async function guardarEmbarque(negocioId: number, embarqueId: number, d: DatosEmbarque, actorId: number, actorNombre: string | null): Promise<void> {
+  await embarqueDelNegocio(negocioId, embarqueId);
+  if (!d.nombre?.trim()) throw new Error('El embarque necesita un nombre.');
+  if (d.medio && !['MARITIMO', 'AEREO', 'TERRESTRE', 'COURIER'].includes(d.medio)) throw new Error('Medio de transporte inválido.');
+  const t = (v: string | null | undefined, max: number) => v?.trim() ? v.trim().slice(0, max) : null;
   await pool.query(
-    `INSERT INTO compras_embarque (negocio_id, flete_internacional, costos_aduana, costo_logistico_local, moneda, notas, registrado_por, registrado_por_nombre, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)
-     ON DUPLICATE KEY UPDATE flete_internacional=VALUES(flete_internacional), costos_aduana=VALUES(costos_aduana),
-       costo_logistico_local=VALUES(costo_logistico_local), moneda=VALUES(moneda), notas=VALUES(notas),
-       registrado_por=VALUES(registrado_por), registrado_por_nombre=VALUES(registrado_por_nombre), updated_at=VALUES(updated_at)`,
-    [negocioId, datos.fleteInternacional ?? null, datos.costosAduana ?? null, datos.costoLogisticoLocal ?? null,
-     datos.moneda || 'CLP', datos.notas || null, actorId, actorNombre, ahora, ahora],
+    `UPDATE compras_importacion_embarque SET nombre = ?, proveedor_extranjero = ?, pais_origen = ?, medio = ?, incoterm = ?, numero_seguimiento = ?,
+            transportista = ?, agente_aduana = ?, puerto_llegada = ?, fecha_salida = ?, fecha_llegada_estimada = ?, numero_din = ?,
+            flete_internacional = ?, costos_aduana = ?, costo_logistico_local = ?, actualizado_por = ?, actualizado_por_nombre = ?, updated_at = ?
+      WHERE id = ? AND negocio_id = ?`,
+    [d.nombre.trim().slice(0, 120), t(d.proveedorExtranjero, 300), t(d.paisOrigen, 80), d.medio || null, t(d.incoterm, 10)?.toUpperCase() ?? null,
+      t(d.numeroSeguimiento, 120), t(d.transportista, 200), t(d.agenteAduana, 200), t(d.puertoLlegada, 120),
+      fechaValida(d.fechaSalida), fechaValida(d.fechaLlegadaEstimada), t(d.numeroDin, 60),
+      montoValido(d.fleteInternacional), montoValido(d.costosAduana), montoValido(d.costoLogisticoLocal),
+      actorId, actorNombre, ahoraChileSQL(), embarqueId, negocioId],
   );
   await registrarEvento({
-    tipo: 'COMPRAS_EMBARQUE_REGISTRADO', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
-    mensaje: `Se registraron los datos del embarque (flete internacional, aduana, logística local).`,
-    metadata: { negocio_id: negocioId },
+    tipo: 'COMPRAS_IMPORTACION_EMBARQUE', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
+    mensaje: `Se actualizaron los datos del ${d.nombre.trim()}${d.numeroSeguimiento ? ` (seguimiento ${d.numeroSeguimiento})` : ''}.`,
+    metadata: { negocio_id: negocioId, embarque_id: embarqueId },
+  });
+}
+
+/** Borra un embarque creado por error; sus productos quedan sin embarque (siguen marcados como importados). */
+export async function eliminarEmbarque(negocioId: number, embarqueId: number, actorId: number, actorNombre: string | null): Promise<void> {
+  const e = await embarqueDelNegocio(negocioId, embarqueId);
+  await pool.query(`UPDATE compras_producto SET embarque_id = NULL WHERE negocio_id = ? AND embarque_id = ?`, [negocioId, embarqueId]);
+  await pool.query(`DELETE FROM compras_importacion_embarque WHERE id = ? AND negocio_id = ?`, [embarqueId, negocioId]);
+  await registrarEvento({
+    tipo: 'COMPRAS_IMPORTACION_EMBARQUE', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
+    mensaje: `Se quitó el ${e.nombre}; sus productos quedaron sin embarque.`, metadata: { negocio_id: negocioId, embarque_id: embarqueId },
+  });
+}
+
+/** Cambia el embarque de un producto importado (null = sin embarque). */
+export async function asignarProductoEmbarque(negocioId: number, productoId: number, embarqueId: number | null): Promise<void> {
+  if (embarqueId != null) await embarqueDelNegocio(negocioId, embarqueId);
+  const [r] = await pool.query(
+    `UPDATE compras_producto SET embarque_id = ? WHERE id = ? AND negocio_id = ? AND importado = 1`, [embarqueId, productoId, negocioId],
+  ) as any;
+  if (!r?.affectedRows) throw new Error('Primero marca el producto como «del extranjero».');
+}
+
+const NOMBRE_ETAPA: Record<EtapaImportacion, string> = {
+  PEDIDO: 'pedido al proveedor', PRODUCCION: 'en producción', EMBARCADO: 'embarcado', EN_ADUANA: 'en aduana', LIBERADO: 'liberado de aduana', EN_BODEGA: 'en bodega',
+};
+
+/** Deja el embarque en `estado` con la fecha en que llegó ahí. Si se vuelve a una etapa anterior
+ *  (corrección), se borran las fechas de las etapas posteriores: no se guarda algo que no pasó. */
+export async function marcarEtapaEmbarque(
+  negocioId: number, embarqueId: number, estado: EtapaImportacion, fecha: string, actorId: number, actorNombre: string | null,
+): Promise<void> {
+  const idx = ETAPAS_IMPORTACION.indexOf(estado);
+  if (idx < 0) throw new Error('Etapa desconocida.');
+  if (!fechaValida(fecha)) throw new Error('Falta la fecha de la etapa.');
+  const e = await embarqueDelNegocio(negocioId, embarqueId);
+  const actual = (await listarEmbarques(negocioId)).find(x => x.id === embarqueId);
+  const fechas: EmbarqueImportacion['fechas'] = {};
+  for (const et of ETAPAS_IMPORTACION.slice(0, idx)) if (actual?.fechas[et]) fechas[et] = actual.fechas[et];
+  fechas[estado] = fecha;
+  await pool.query(
+    `UPDATE compras_importacion_embarque SET estado = ?, estado_fechas = ?, actualizado_por = ?, actualizado_por_nombre = ?, updated_at = ? WHERE id = ?`,
+    [estado, JSON.stringify(fechas), actorId, actorNombre, ahoraChileSQL(), embarqueId],
+  );
+  await registrarEvento({
+    tipo: 'COMPRAS_IMPORTACION_ETAPA', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
+    mensaje: `${e.nombre}: quedó ${NOMBRE_ETAPA[estado]} (${fecha.split('-').reverse().join('-')}).`,
+    metadata: { negocio_id: negocioId, embarque_id: embarqueId, estado, fecha },
   });
 }
 
@@ -110,12 +223,12 @@ async function itemsFobDelEscenarioElegido(negocioId: number): Promise<ItemFob[]
   } catch { return null; }
 }
 
-export interface ProductoImportable { productoId: number; descripcion: string; cantidad: number | null; proveedor: string | null; importado: boolean }
+export interface ProductoImportable { productoId: number; descripcion: string; cantidad: number | null; proveedor: string | null; importado: boolean; embarqueId: number | null }
 
 /** Productos de la compra que se pueden marcar como "vienen del extranjero" (sin los renunciados ni los no adjudicados). */
 export async function listarProductosImportables(negocioId: number): Promise<ProductoImportable[]> {
   const [rows] = await pool.query(
-    `SELECT id, descripcion, cantidad, importado FROM compras_producto
+    `SELECT id, descripcion, cantidad, importado, embarque_id FROM compras_producto
       WHERE negocio_id = ? AND subestado NOT IN ('RENUNCIADO', 'NO_ADJUDICADA') ORDER BY correlativo IS NULL, correlativo, id`,
     [negocioId],
   ) as any;
@@ -123,58 +236,71 @@ export async function listarProductosImportables(negocioId: number): Promise<Pro
   const provDe = new Map((fob || []).map(i => [i.productoId, i.proveedor]));
   return (rows as any[]).map(r => ({
     productoId: r.id, descripcion: r.descripcion, cantidad: r.cantidad == null ? null : Number(r.cantidad),
-    proveedor: provDe.get(r.id) ?? null, importado: !!r.importado,
+    proveedor: provDe.get(r.id) ?? null, importado: !!r.importado, embarqueId: r.importado ? r.embarque_id ?? null : null,
   }));
 }
 
-/** Marca o desmarca un producto como importado. Si se marca alguno, el negocio queda como IMPORTACION. */
+/** Marca o desmarca un producto como importado. Si se marca alguno, el negocio queda como IMPORTACION.
+ *  Al marcarlo, si el negocio tiene un solo embarque, entra a ese; al desmarcarlo sale de su embarque. */
 export async function marcarProductoImportado(negocioId: number, productoId: number, importado: boolean, actorId: number, actorNombre: string | null): Promise<void> {
-  const [r] = await pool.query(`UPDATE compras_producto SET importado = ? WHERE id = ? AND negocio_id = ?`, [importado ? 1 : 0, productoId, negocioId]) as any;
+  let embarqueId: number | null = null;
+  if (importado) {
+    const [emb] = await pool.query(`SELECT id FROM compras_importacion_embarque WHERE negocio_id = ?`, [negocioId]) as any;
+    if ((emb as any[]).length === 1) embarqueId = (emb as any[])[0].id;
+  }
+  const [r] = await pool.query(`UPDATE compras_producto SET importado = ?, embarque_id = ? WHERE id = ? AND negocio_id = ?`, [importado ? 1 : 0, embarqueId, productoId, negocioId]) as any;
   if (!r?.affectedRows) throw new Error('Producto no encontrado.');
   if (importado && (await obtenerOrigenCompra(negocioId)).origen !== 'IMPORTACION') await definirOrigenCompra(negocioId, 'IMPORTACION', actorId, actorNombre);
 }
 
 export interface CostoAterrizadoItem {
-  productoId: number; descripcion: string; proveedor: string | null; cantidad: number | null;
+  productoId: number; descripcion: string; proveedor: string | null; cantidad: number | null; embarqueId: number | null;
   precioUnitarioFob: number | null; importado: boolean; extraPorUnidad: number; costoUnitarioAterrizado: number | null; subtotalAterrizado: number | null;
 }
-export interface CostoAterrizado { items: CostoAterrizadoItem[]; totalUnidades: number; extraPorUnidad: number; totalAterrizado: number; totalFob: number }
+export interface CostoAterrizado {
+  items: CostoAterrizadoItem[]; totalAterrizado: number; totalFob: number;
+  // Costos de embarques que no tienen productos con unidades: no se pueden repartir por producto,
+  // pero sí se suman al total para que el margen no quede más alto de lo real.
+  costoSinRepartir: number;
+}
 
-/** §12.3/§12.4 — "método: cálculo efectivo, sin número estimado" — prorratea flete + aduana +
- *  logística local POR UNIDAD entre todos los productos del escenario elegido (tabla de reglas de
- *  cálculo: "prorrateo del flete internacional | por unidad"). Devuelve null si falta el escenario
- *  elegido o los datos del embarque — nunca estima con un número inventado (§1.3.5 no aplica acá
- *  directamente, pero la regla general del proyecto es la misma: no inventar datos). */
+const costoDe = (e: Pick<DatosEmbarque, 'fleteInternacional' | 'costosAduana' | 'costoLogisticoLocal'>) =>
+  (e.fleteInternacional || 0) + (e.costosAduana || 0) + (e.costoLogisticoLocal || 0);
+
+/** §12.3/§12.4 — "método: cálculo efectivo, sin número estimado". Los costos de CADA embarque
+ *  (flete + aduana + traslado) se prorratean POR UNIDAD solo entre los productos de ese embarque.
+ *  Devuelve null si falta el escenario elegido o ningún embarque tiene costos — nunca estima con un
+ *  número inventado (regla general del proyecto: no inventar datos). */
 export async function calcularCostoAterrizado(negocioId: number): Promise<CostoAterrizado | null> {
-  const [items, embarque, productos] = await Promise.all([
-    itemsFobDelEscenarioElegido(negocioId), obtenerEmbarque(negocioId), listarProductosCompra(negocioId),
+  const [items, embarques, productos] = await Promise.all([
+    itemsFobDelEscenarioElegido(negocioId), listarEmbarques(negocioId), listarProductosImportables(negocioId),
   ]);
   if (!items || items.length === 0) return null;
-  if (!embarque || (embarque.fleteInternacional == null && embarque.costosAduana == null && embarque.costoLogisticoLocal == null)) return null;
+  if (!embarques.some(e => costoDe(e) > 0)) return null;
 
-  // Solo lo marcado como importado carga flete y aduana. Sin ninguna marca (negocios antiguos) se asume que todo viene de afuera.
-  const [marcRows] = await pool.query(`SELECT id FROM compras_producto WHERE negocio_id = ? AND importado = 1`, [negocioId]) as any;
-  const marcados = new Set<number>((marcRows as any[]).map(r => r.id));
-  const esImp = (id: number) => marcados.size === 0 || marcados.has(id);
-  const totalUnidades = items.filter(it => esImp(it.productoId)).reduce((s, it) => s + (it.cantidad || 0), 0);
-  if (totalUnidades <= 0) return null;
-  const extraTotal = (embarque.fleteInternacional || 0) + (embarque.costosAduana || 0) + (embarque.costoLogisticoLocal || 0);
-  const extraPorUnidad = extraTotal / totalUnidades;
+  const prodDe = new Map(productos.map(p => [p.productoId, p]));
+  const extraPorUnidadDe = new Map<number, number>();
+  let costoSinRepartir = 0;
+  for (const e of embarques) {
+    const unidades = items.filter(it => prodDe.get(it.productoId)?.embarqueId === e.id).reduce((s, it) => s + (it.cantidad || 0), 0);
+    if (unidades > 0) extraPorUnidadDe.set(e.id, costoDe(e) / unidades);
+    else costoSinRepartir += costoDe(e);
+  }
 
-  const descPorProducto = new Map(productos.map(p => [p.id, p.descripcion]));
   let totalAterrizado = 0; let totalFob = 0;
   const itemsCalculados: CostoAterrizadoItem[] = items.map(it => {
-    const importado = esImp(it.productoId);
-    const extra = importado ? extraPorUnidad : 0;
+    const p = prodDe.get(it.productoId);
+    const embarqueId = p?.embarqueId ?? null;
+    const extra = embarqueId != null ? extraPorUnidadDe.get(embarqueId) ?? 0 : 0;
     const costoUnitarioAterrizado = it.precioUnitarioFob != null ? it.precioUnitarioFob + extra : null;
     const subtotalAterrizado = costoUnitarioAterrizado != null && it.cantidad != null ? costoUnitarioAterrizado * it.cantidad : null;
     if (subtotalAterrizado != null) totalAterrizado += subtotalAterrizado;
     if (it.precioUnitarioFob != null && it.cantidad != null) totalFob += it.precioUnitarioFob * it.cantidad;
     return {
-      productoId: it.productoId, descripcion: descPorProducto.get(it.productoId) || it.descripcion, proveedor: it.proveedor,
-      cantidad: it.cantidad, precioUnitarioFob: it.precioUnitarioFob, importado, extraPorUnidad: extra, costoUnitarioAterrizado, subtotalAterrizado,
+      productoId: it.productoId, descripcion: p?.descripcion || it.descripcion, proveedor: it.proveedor, cantidad: it.cantidad, embarqueId,
+      precioUnitarioFob: it.precioUnitarioFob, importado: !!p?.importado, extraPorUnidad: extra, costoUnitarioAterrizado, subtotalAterrizado,
     };
   });
 
-  return { items: itemsCalculados, totalUnidades, extraPorUnidad, totalAterrizado, totalFob };
+  return { items: itemsCalculados, totalAterrizado: totalAterrizado + costoSinRepartir, totalFob, costoSinRepartir };
 }

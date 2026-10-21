@@ -88,6 +88,7 @@ async function __POST(request: NextRequest, { params }: Params) {
       fleteMonto: parsearMontoCL(body.fleteMonto),
       confirmarPeseADuplicado: !!body.confirmarPeseADuplicado,
       centroCostoId: /^\d+$/.test(String(body.centroCostoId ?? '')) ? String(body.centroCostoId) : undefined,
+      fechaEntrega: String(body.fechaEntrega || '').trim(), metodoDespacho: String(body.metodoDespacho || '').trim(),
       productoIds: Array.isArray(body.productoIds) ? body.productoIds.map(Number).filter((n: number) => Number.isInteger(n) && n > 0) : undefined,
     }, userId, nombre);
 

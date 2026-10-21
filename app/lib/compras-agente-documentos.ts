@@ -35,6 +35,7 @@ import { listarCotizaciones, calcularEscenarios } from '@/app/lib/compras-audito
 import { obtenerAprobaciones, calcularPresupuestoCompra, calcularMargenPrevisto, listarSkus, obtenerEscenarioElegido } from '@/app/lib/compras-aprobaciones';
 import { proveedoresParaOrdenCompra, ordenesCompraParaVista } from '@/app/lib/compras-oc-obuma';
 import { obtenerReparto, listarRespaldosHito } from '@/app/lib/compras-reparto';
+import { listarPagosOc } from '@/app/lib/compras-pagos-oc';
 import { obtenerModalidadRetiro } from '@/app/lib/compras-logistica';
 import { listarGastos, resumenGastos } from '@/app/lib/compras-gastos';
 import { obtenerEntrega, listarPostventa } from '@/app/lib/compras-entrega';
@@ -491,7 +492,7 @@ const fmtM = (n: number | null | undefined) => n == null ? '(sin dato)' : new In
 async function resumenNegocioParaAuditoria(negocioId: number): Promise<string> {
   const [
     tareas, reloj, cotizaciones, escenarios, escenarioElegido, aprobaciones, presupuesto, margen, skus,
-    proveedoresOC, ordenesOC, reparto, respaldosHito, modalidadRetiro, gastos, resumenGto, entrega, postventa, incidencias, fracaso,
+    proveedoresOC, ordenesOC, reparto, respaldosHito, modalidadRetiro, gastos, resumenGto, entrega, postventa, incidencias, fracaso, pagosOc,
   ] = await Promise.all([
     listarTareas(negocioId), obtenerEstadoReloj(negocioId).catch(() => null),
     listarCotizaciones(negocioId), calcularEscenarios(negocioId), obtenerEscenarioElegido(negocioId),
@@ -502,6 +503,7 @@ async function resumenNegocioParaAuditoria(negocioId: number): Promise<string> {
     obtenerModalidadRetiro(negocioId).catch(() => null), listarGastos(negocioId).catch(() => []), resumenGastos(negocioId).catch(() => null),
     obtenerEntrega(negocioId).catch(() => null), listarPostventa(negocioId).catch(() => new Map()),
     listarIncidencias(negocioId).catch(() => []), obtenerFracaso(negocioId).catch(() => null),
+    listarPagosOc(negocioId).catch(() => []),
   ]);
 
   const partes: string[] = [];
@@ -533,9 +535,10 @@ async function resumenNegocioParaAuditoria(negocioId: number): Promise<string> {
     `Proveedores pendientes de OC: ${proveedoresOC.filter(p => !p.yaCreada).map(p => p.proveedorNombre).join(', ') || '(ninguno)'}${proveedoresOC.some(p => p.posibleDuplicadoObuma) ? ' — ⚠ posible OC duplicada detectada' : ''}\n` +
     `Modalidad de retiro: ${modalidadRetiro?.modalidad ?? '(sin definir)'}\n` +
     `Proceso administrativo (§11, hitos de Obuma): ` + (reparto ? [
-      ['ocEmitida', 'OC emitida', reparto.ocEmitidaAt], ['pagoRegistrado', 'Pago registrado', reparto.pagoRegistradoAt],
-      ['anticipoPagado', 'Anticipo pagado', reparto.anticipoPagadoAt], ['facturaCompraRegistrada', 'Factura registrada', reparto.facturaCompraRegistradaAt],
-      ['carpetaProyectoCreada', 'Carpeta creada', reparto.carpetaProyectoCreadaAt], ['provisionFondos', 'Provisión de fondos', reparto.provisionFondosAt],
+      // Pago, anticipo, factura y provisión ya no son hitos únicos del negocio (21-oct-2026): los pagos
+      // van por OC (línea «Pagos a proveedores» de abajo) y la factura llega sola desde Obuma.
+      ['ocEmitida', 'OC emitida', reparto.ocEmitidaAt],
+      ['carpetaProyectoCreada', 'Proyecto de Obuma vinculado', reparto.carpetaProyectoCreadaAt],
     ].map(([clave, label, at]) => {
       const resp = respaldosHito.find(r => r.hito === clave);
       const estado = at ? 'hecho' : resp?.estado === 'NO_APLICA' ? `no aplica (${resp.nota})` : 'pendiente';
@@ -552,6 +555,7 @@ async function resumenNegocioParaAuditoria(negocioId: number): Promise<string> {
         : '';
       return `${label}: ${estado}${conMonto}`;
     }).join(', ') : '(sin datos)') +
+    `\nPagos a proveedores (por OC, con comprobante): ${pagosOc.length === 0 ? '(ninguno registrado)' : pagosOc.map(p => `OC ${p.ocFolio} ${p.proveedorNombre ?? ''} — ${p.tipo === 'ANTICIPO' ? 'anticipo' : p.tipo === 'SALDO' ? 'saldo' : 'pago total'} ${fmtM(p.monto)} el ${p.fecha}`).join('; ')}` +
     `\nGastos reales registrados: ${gastos.length === 0 ? '(ninguno)' : `${fmtM(resumenGto?.total ?? null)} total — ${gastos.map(g => `${g.categoriaEtiqueta || g.descripcion}: ${fmtM(g.monto)}`).join(', ')}`}`);
 
   partes.push(`\n## ENTREGA Y CIERRE\n` +

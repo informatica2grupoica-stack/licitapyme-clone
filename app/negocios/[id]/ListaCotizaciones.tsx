@@ -10,7 +10,7 @@ import { IconEye as Eye, IconListCheck as ListChecks, IconSparkles as Sparkles, 
 
 export interface CotizacionFilaUI {
   id: number; proveedorNombre: string; proveedorRut: string | null; proveedorNuevo: boolean | null; origen: string;
-  precioUnitario: number | null; precioUnitarioBruto: number | null; descuentoPct: number | null; moneda: string;
+  precioUnitario: number | null; precioTotalClp?: number | null; precioUnitarioBruto: number | null; descuentoPct: number | null; moneda: string;
   plazoEntregaTexto: string | null; vigenciaAt?: string | null; archivoUrl: string | null; homologadaAt: string | null;
   registradoPorNombre?: string | null; registradoAt?: string | null; archivoNombre?: string | null;
   items: Array<{ productoId: number; precioUnitario: number | null; precioBase?: number | null; adicionales: unknown[] }>;
@@ -49,7 +49,10 @@ export function ListaCotizaciones({ cotizaciones, productos, avisosPorCotizacion
         <tbody>
           {cotizaciones.map(c => {
             const cubiertos = productos.filter(p => c.items.some(i => i.productoId === p.id));
-            const total = productos.reduce((s, p) => { const it = c.items.find(i => i.productoId === p.id); return s + (it?.precioUnitario != null ? it.precioUnitario * num(p.cantidad) : 0); }, 0);
+            const suma = productos.reduce((s, p) => { const it = c.items.find(i => i.productoId === p.id); return s + (it?.precioUnitario != null ? it.precioUnitario * num(p.cantidad) : 0); }, 0);
+            // El unitario lleva centavos (52.597 − 7 % = 48.915,21; × 250 = …802,5): si la cotización cubre un solo producto y su total impreso difiere
+            // en menos de un peso, se muestra el impreso (el proveedor redondea el descuento, no el unitario).
+            const total = cubiertos.length === 1 && c.precioTotalClp != null && Math.abs(suma - c.precioTotalClp) < 1 ? c.precioTotalClp : suma;
             const vencida = c.vigenciaAt != null && c.vigenciaAt < h;
             const avisos = avisosPorCotizacion[c.id] ?? 0;
             return (

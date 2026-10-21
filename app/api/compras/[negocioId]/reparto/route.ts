@@ -25,7 +25,7 @@ function getUser(req: NextRequest) {
 // §11 es el perfil "administración (pagos y facturación)" de §2.2: puede operar ESTE checklist
 // entero aunque no sea el encargado de compras/entrega del negocio. Deliberadamente NO incluye
 // `compras_bodega` — bodega solo toca la verificación dentro de EntregaCard, no esto.
-async function puedeOperarReparto(userId: number, rol: string | null, asignadoA: number | null, coencargados: Array<{ id: number }> = []): Promise<boolean> {
+export async function puedeOperarReparto(userId: number, rol: string | null, asignadoA: number | null, coencargados: Array<{ id: number }> = []): Promise<boolean> {
   if (await puedeOperarCompras(userId, rol, asignadoA, coencargados)) return true;
   // permisosCrudosDeUsuario (no permisosDeUsuario): `compras_administracion` tampoco se auto-otorga
   // por ser admin, mismo criterio del resto del módulo (10-sep-2026).

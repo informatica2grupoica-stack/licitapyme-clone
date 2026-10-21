@@ -60,6 +60,7 @@ export function numeroApareceEnTexto(n: number | null | undefined, texto: string
 }
 
 const cerca = (a: number, b: number, pct = 0.02) => Math.abs(a - b) <= Math.max(1, Math.abs(b) * pct);
+const CERO_IMPRESO = /\$\s*0(?![\d.,]*\d)/;
 
 export interface LineasNormalizadas {
   lineas: LineaCotizacion[];
@@ -96,6 +97,8 @@ export function normalizarLineas(entrada: unknown, textoDoc: string, netoDocumen
     let unit = numeroDeTexto(o.precioUnitario);
     const desc = numeroDeTexto(o.descuentoPct);
     if (cantidad != null && !(cantidad > 0)) cantidad = null;
+    // "$0" impreso (despacho gratis, VENTUS EC-1214) es un total real: descartarlo dejaba la suma sin verificar y botaba el descuento.
+    if (total === 0 && CERO_IMPRESO.test(textoDoc)) { lineas.push({ descripcion, cantidad, precioUnitario: 0, descuentoPct: null, total: 0 }); continue; }
     if (total != null && !numeroApareceEnTexto(total, textoDoc)) { avisos.push(`El total de «${descripcion.slice(0, 40)}» (${total}) no aparece en el documento: se ignoró.`); total = null; }
     if (unit != null && !numeroApareceEnTexto(unit, textoDoc)) {
       // Con descuento, el unitario final puede no estar impreso (solo "P. c/Desc"): se recalcula abajo desde el total.
@@ -144,6 +147,56 @@ export function tablaDeLineas(lineas: LineaCotizacion[]): string {
   return 'LÍNEAS DEL DOCUMENTO (leídas y verificadas; el precio unitario ya trae el descuento de la línea):\n'
     + lineas.map((l, i) => `${i + 1}. ${l.descripcion} | cantidad ${f(l.cantidad)} | precio unitario ${f(l.precioUnitario)} | total ${f(l.total)}`).join('\n')
     + '\n\n';
+}
+
+// ─── Descuento GLOBAL (sobre el subtotal): ¿falta aplicarlo a los precios de línea o ya viene adentro? ─────────────────────────
+// Caso real (VENTUS EC-1214, negocio 1333, 21-oct-2026): "Subtotal neto $13.149.250 · Descuento (7%) -$920.448 · Total neto $12.228.802".
+// El 7 % se perdió: la línea "Despacho RM $0" dejó la suma sin verificar y, ante la duda, se botaba el descuento → el hervidor quedó a
+// $52.597 (lista) en vez de $48.915 y el Auditor avisó una pérdida que no existía. Ahora se decide con PRUEBA, no por omisión.
+
+/** "Descuento 7%", "Descuento (7%)", "Dcto. 7,5 %", "Desc: 10%" → el número. Solo con etiqueta explícita. */
+export function descuentoPctDelTexto(texto: string): number | null {
+  const m = String(texto || '').match(/(?:descuento|dscto|dcto|desc)\.?\s*[:\-(]?\s*(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i);
+  if (!m) return null;
+  const pct = Number(m[1].replace(',', '.'));
+  return Number.isFinite(pct) && pct > 0 && pct < 100 ? pct : null;
+}
+
+/** Descuento como MONTO ("Descuento: -$920.448", "Descuento (7%): | -$920.448"). No toma el porcentaje ni un "0". */
+export function descuentoMontoDelTexto(texto: string): number | null {
+  const m = String(texto || '').match(/(?:descuento|dscto|dcto)\.?(?:\s*\([^)]*\))?\s*[:|]?\s*\|?\s*-?\s*\$?\s*(\d[\d.,]{2,})(?![\d.,]*\s*%)/i);
+  const n = m ? numeroDeTexto(m[1]) : null;
+  return n != null && n > 0 ? n : null;
+}
+
+/**
+ * El descuento global que de verdad falta aplicar a los precios de línea (en %), o null si ya viene adentro o no se puede confirmar.
+ *  · descuento por línea ("% Desc." / "P. c/Desc.") → ya está en el total de la línea: null (caso 30464, 10 % dos veces);
+ *  · monto fijo → se pasa a % solo si el documento lo confirma (subtotal − descuento = neto impreso);
+ *  · se aplica si el documento PRUEBA que va después de las líneas: las líneas cuadran restándolo, o imprime el monto descontado y el neto
+ *    que resulta (prueba que no depende de qué cifra tomó la IA como "neto");
+ *  · si las líneas ya suman el neto impreso, el descuento ya viene adentro: null.
+ */
+export function descuentoGlobalPorAplicar(
+  norm: LineasNormalizadas, pct: number | null, monto: number | null, netoDoc: number | null, textoDoc: string,
+): { pct: number | null; aviso: string | null } {
+  if (norm.lineas.some(l => l.descuentoPct != null)) return { pct: null, aviso: null };
+  const suma = norm.suma;
+  if (pct == null && monto && suma && monto < suma
+      && ((netoDoc != null && cerca(suma - monto, netoDoc, 0.005)) || numeroApareceEnTexto(suma - monto, textoDoc))) {
+    pct = Math.round((monto / suma) * 10000) / 100;
+  }
+  if (pct == null || !(pct > 0 && pct < 100)) return { pct: null, aviso: null };
+  if (suma == null) return { pct, aviso: null };
+  const neto = suma * (1 - pct / 100);
+  const fmt = (n: number) => '$' + Math.round(n).toLocaleString('es-CL');
+  const aplicado = { pct, aviso: `Descuento ${pct} % del documento aplicado sobre ${fmt(suma)}: neto ${fmt(netoDoc != null && cerca(neto, netoDoc, 0.01) ? netoDoc : neto)}.` };
+  if (norm.ajuste === 'descuento' || norm.ajuste === 'descuento+flete') return aplicado;
+  if (netoDoc != null && cerca(neto, netoDoc, 0.01)) return aplicado;
+  if (numeroApareceEnTexto(suma - neto, textoDoc) && numeroApareceEnTexto(neto, textoDoc)) return aplicado;
+  if (netoDoc != null && cerca(suma, netoDoc, 0.01)) return { pct: null, aviso: null };   // las líneas ya suman el neto: viene adentro
+  if (netoDoc == null) return { pct, aviso: `Descuento ${pct} % aplicado; el documento no muestra un neto para confirmarlo.` };
+  return { pct: null, aviso: `El documento trae un descuento de ${pct} % pero no cuadra con sus totales: no se aplicó, revísalo.` };
 }
 
 // ─── Proveedor: nunca nuestra propia empresa ────────────────────────────────────────────────────────────────────
@@ -240,7 +293,7 @@ export function corregirAdicionalesConLineas(raw: unknown, lineas: LineaCotizaci
 /** Líneas del documento que no calzan con ningún producto asignado ni adicional (por palabras en común): se avisan, no se pierden en silencio. */
 export function lineasSinAsignar(lineas: LineaCotizacion[], asignados: string[]): LineaCotizacion[] {
   if (!lineas.length) return [];
-  return lineas.filter(l => !asignados.some(a => parecido(l.descripcion, a) >= 0.5));
+  return lineas.filter(l => l.total !== 0 && !asignados.some(a => parecido(l.descripcion, a) >= 0.5));
 }
 
 // ─── ¿La línea cotizada es de verdad el producto pedido? Talla y tipo de chasis (1110) ────────────────────────────────────────────

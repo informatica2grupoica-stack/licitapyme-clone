@@ -31,7 +31,7 @@ import { obtenerOCrearProveedor } from '@/app/lib/compras-proveedores';
 import { obtenerTipoCambio } from '@/app/lib/tipo-cambio';
 import { parsearDiasDeTexto } from '@/app/lib/numeros';
 import { auditarCotizacionEnSegundoPlano, rutValido } from '@/app/lib/compras-auditoria-cotizacion';
-import { netoDesdeBruto, precioONull } from '@/app/lib/compras-cotizacion-lectura';
+import { netoDesdeBruto, precioONull, conDescuento } from '@/app/lib/compras-cotizacion-lectura';
 import { adicionalesDesdeIA, faltantesDesdeIA, incluidosDesdeIA, citaVerificada } from '@/app/lib/compras-adicionales-ia';
 import { recomendarCombinaciones, type EtiquetaRecomendada } from '@/app/lib/compras-recomendaciones';
 import { esSubestadoFuera } from '@/app/lib/compras-no-adjudicadas';
@@ -154,9 +154,8 @@ export async function registrarCotizacion(
   // existe un descuento. El bruto se guarda aparte, solo para mostrar el desglose.
   const precioUnitarioBruto = datos.descuentoPct != null ? datos.precioUnitario : null;
   if (datos.descuentoPct != null) {
-    const factor = 1 - datos.descuentoPct / 100;
-    if (datos.precioUnitario != null) datos.precioUnitario = Math.round(datos.precioUnitario * factor);
-    if (datos.precioTotal != null) datos.precioTotal = Math.round(datos.precioTotal * factor);
+    if (datos.precioUnitario != null) datos.precioUnitario = conDescuento(datos.precioUnitario, datos.descuentoPct, 'unitario');
+    if (datos.precioTotal != null) datos.precioTotal = conDescuento(datos.precioTotal, datos.descuentoPct, 'total');
   }
 
   // Conversión a CLP (hallazgo real 09-sep-2026, cotización de Unisource en USD): el cuadro
@@ -304,9 +303,8 @@ export async function actualizarCotizacion(
   // Mismo cálculo de descuento que registrarCotizacion — ver el comentario largo ahí.
   const precioUnitarioBruto = datos.descuentoPct != null ? datos.precioUnitario : null;
   if (datos.descuentoPct != null) {
-    const factor = 1 - datos.descuentoPct / 100;
-    if (datos.precioUnitario != null) datos.precioUnitario = Math.round(datos.precioUnitario * factor);
-    if (datos.precioTotal != null) datos.precioTotal = Math.round(datos.precioTotal * factor);
+    if (datos.precioUnitario != null) datos.precioUnitario = conDescuento(datos.precioUnitario, datos.descuentoPct, 'unitario');
+    if (datos.precioTotal != null) datos.precioTotal = conDescuento(datos.precioTotal, datos.descuentoPct, 'total');
   }
 
   const moneda = datos.moneda || 'CLP';
@@ -640,7 +638,7 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     const n = v == null || v === '' || typeof v === 'boolean' ? NaN : Number(v);
     if (!Number.isFinite(n) || n <= 0) return v;
     let x = ivaIncluido ? netoDesdeBruto(n) : n;
-    if (dscto != null && dscto > 0 && dscto < 100) x = Math.round(x * (1 - dscto / 100));
+    if (dscto != null && dscto > 0 && dscto < 100) x = conDescuento(x, dscto, 'unitario');
     return x;
   };
   const lineasDelDoc = lineasDesdeTabla(String(cotiz.descripcion_libre || ''));

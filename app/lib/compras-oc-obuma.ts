@@ -19,6 +19,7 @@ import {
   crearOrdenCompraObuma, listarFormasPago, centrosDeCostoCompleto, proveedorPorRut, crearProveedorObuma, buscarCentroCostoPorLicitacion,
   listarComprasOc, listarComprasOcItems, mapaFormasPagoCompleto, type ObumaFormaPago, type DatosCrearProveedorObuma,
 } from '@/app/lib/obuma';
+import { METODOS_DESPACHO_OBUMA } from '@/app/lib/obuma-despacho';
 import { comprasObumaDeLicitacion, netoDeCompra, type FacturaObuma } from '@/app/lib/obuma-compras';
 import { rutNormalizado } from '@/app/lib/ordenes-compra';
 
@@ -42,7 +43,7 @@ export interface ProveedorOrdenCompra {
   items: ItemOrdenCompra[]; subtotal: number;
   /** Flete neto de la compra directa a este proveedor (se precarga en el formulario de la OC). */
   fleteSugerido?: number | null;
-  yaCreada: { obumaCompraOcId: string; folio: string | null; total: number; fechaOc: string } | null;
+  yaCreada: { obumaCompraOcId: string; folio: string | null; total: number; fechaOc: string; estado?: string | null } | null;
   // Pedido explícito del usuario (14-sep-2026, caso real: el encargado de compras ya había creado
   // la OC directo en Obuma — "yaCreada" (arriba) no lo veía porque solo mira lo que creó Licitank).
   // Esto busca en las OC REALES de Obuma para este proveedor, no solo en nuestra tabla local.
@@ -199,6 +200,8 @@ export async function proveedoresParaOrdenCompra(negocioId: number): Promise<Pro
   for (const g of grupos.values()) {
     // Una OC nuestra que en Obuma quedó ANULADA ya no es la orden del proveedor: no se muestra como "creada".
     if (g.yaCreada && todasObuma.some(c => c.compraOcId === g.yaCreada!.obumaCompraOcId && /anulad/i.test(c.estado || ''))) g.yaCreada = null;
+    // Estado real en Obuma de la OC nuestra (SOLICITADA, FACTURADA…), para no mostrarla siempre como "emitida".
+    if (g.yaCreada) g.yaCreada.estado = todasObuma.find(c => c.compraOcId === g.yaCreada!.obumaCompraOcId)?.estado ?? null;
   }
   for (const g of grupos.values()) {
     const rut = rutNormalizado(g.proveedorRut);
@@ -283,7 +286,7 @@ export async function crearProveedorEnObumaExplicito(datos: DatosCrearProveedorO
  *  hay compra real que emitir. */
 export async function crearOrdenCompraParaProveedor(
   negocioId: number, proveedorNombre: string,
-  opciones: { formaPagoId: string; incluirFlete: boolean; fleteMonto: number | null; confirmarPeseADuplicado?: boolean; productoIds?: number[]; centroCostoId?: string },
+  opciones: { formaPagoId: string; incluirFlete: boolean; fleteMonto: number | null; confirmarPeseADuplicado?: boolean; productoIds?: number[]; centroCostoId?: string; fechaEntrega: string; metodoDespacho: string },
   actorId: number, actorNombre: string | null,
 ): Promise<{ obumaCompraOcId: string; folio: string | null; total: number }> {
   // Control de gasto (pedido explícito del usuario): dinero de verdad sale recién cuando se crea la
@@ -323,6 +326,8 @@ export async function crearOrdenCompraParaProveedor(
     );
   }
   if (opciones.incluirFlete && !(opciones.fleteMonto! > 0)) throw new Error('Falta el monto del flete.');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(opciones.fechaEntrega)) throw new Error('Falta la fecha de entrega de los productos.');
+  if (!(METODOS_DESPACHO_OBUMA as readonly string[]).includes(opciones.metodoDespacho)) throw new Error('Falta el método de despacho.');
 
   // Qué productos entran en la orden: los que la persona marcó; si no marcó, los aprobados. Un producto RECHAZADO nunca entra.
   const marcados = opciones.productoIds?.length ? new Set(opciones.productoIds) : null;
@@ -372,6 +377,7 @@ export async function crearOrdenCompraParaProveedor(
       nombre: it.descripcion, cantidad: it.cantidad, precioUnitarioNeto: it.precioUnitario,
     })),
     fleteMonto: opciones.incluirFlete ? opciones.fleteMonto : null,
+    fechaEntrega: opciones.fechaEntrega, metodoDespacho: opciones.metodoDespacho,
   });
 
   const ahora = ahoraChileSQL();

@@ -745,6 +745,10 @@ export interface DatosCrearOrdenCompra {
   centroCostoId?: string | null;
   /** CÓDIGO del centro de costo en Obuma (ej. «PROY-198»), no su ID: así lo exige `oc_centro_costo` según el soporte de Obuma (16-oct-2026). */
   centroCostoCodigo?: string | null;
+  /** Fecha de entrega de los productos (yyyy-mm-dd). Obuma la guarda como «dd-mm-aaaa» (así están las OC hechas a mano). */
+  fechaEntrega?: string | null;
+  /** Método de despacho: texto tal cual del selector de Obuma (ver METODOS_DESPACHO_OBUMA). */
+  metodoDespacho?: string | null;
 }
 
 /** Crea la Orden de Compra DE VERDAD en Obuma (escritura real contra el ERP de producción — nunca
@@ -813,6 +817,11 @@ export async function crearOrdenCompraObuma(
   if (datos.observacion) doc.oc_observacion = datos.observacion;
   // Las OC 3988-3991 quedaron con centro de costo 0 porque se mandaba el ID (24120): Obuma pide el CÓDIGO (ej. «PROY-198»).
   if (datos.centroCostoCodigo) doc.oc_centro_costo = datos.centroCostoCodigo;
+  if (datos.fechaEntrega) doc.oc_fecha_entrega_productos = datos.fechaEntrega.split('-').reverse().join('-');
+  if (datos.metodoDespacho) doc.oc_metodo_despacho = datos.metodoDespacho;
+  // Sin esto las OC de Licitank quedaban con 0 ítems hasta que alguien las guardaba en la web (4000, 4005). No está documentado:
+  // Obuma lo calcula como la SUMA de cantidades (4003: 1 línea de 85 → 85; 3998: 2 líneas → 8).
+  doc.oc_cantidad_items = String(itemsPayload.reduce((s, it) => s + Number(it.cantidad), 0));
 
   const json = await llamarPost<any>(BASE_V1, '/comprasOc.create.json', { docs: [doc] });
   // Mismo patrón que productos.create.json: la respuesta no siempre trae el ID en un campo

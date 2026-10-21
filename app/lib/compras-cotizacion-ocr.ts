@@ -17,7 +17,7 @@ import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('compras', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
-import { normalizarLineas, tablaDeLineas, proveedorDesdeTexto, esEmpresaPropia, numeroDeTexto, type LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
+import { normalizarLineas, tablaDeLineas, proveedorDesdeTexto, esEmpresaPropia, numeroDeTexto, descuentoPctDelTexto, descuentoMontoDelTexto, descuentoGlobalPorAplicar, type LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
 import { empresasPropias } from '@/app/lib/auditor-compras-datos';
 import { conCupo } from '@/app/lib/cupo-ia';
 import { ivaIncluidoDelTexto, vigenciaDelTexto, incluyeFleteDelTexto, minimoDeVentaDelTexto, precioONull, textoLegible } from '@/app/lib/compras-cotizacion-lectura';
@@ -134,17 +134,6 @@ function juntarMontosPartidos(texto: string): string {
   });
 }
 
-/** Respaldo determinístico (regex, no IA) para el descuento — mismo criterio que `monedaDelTexto`
- *  de abajo: segunda opinión barata cuando la IA no lo trajo, solo si el documento tiene una
- *  etiqueta explícita "Descuento X%"/"Dscto X%"/"Desc. X%". Nunca calcula un descuento implícito
- *  comparando montos — eso sería adivinar, spec "nunca inventar datos". */
-function descuentoPctDelTexto(texto: string): number | null {
-  const m = texto.match(/(?:descuento|dscto\.?|desc\.?)\s*[:\-]?\s*(\d{1,2}(?:[.,]\d{1,2})?)\s*%/i);
-  if (!m) return null;
-  const pct = Number(m[1].replace(',', '.'));
-  return Number.isFinite(pct) && pct > 0 && pct < 100 ? pct : null;
-}
-
 /** Respaldo determinístico (regex, no IA) para el flete — mismo criterio que el descuento: solo
  *  dispara si el documento trae una etiqueta explícita de flete/despacho seguida de un monto.
  *  Nunca asume que hay flete solo porque el retiro es en bodega del proveedor — eso sería inventar
@@ -192,7 +181,8 @@ Del texto que te paso, extrae SOLO lo que esté explícito y sea inequívoco:
 - precioUnitario: precio unitario del producto principal, en número (sin símbolo de moneda ni puntos de miles). Si el documento muestra una tabla con "Unitario"/"Unitario Neto" por un lado y un descuento aplicado DESPUÉS sobre el subtotal, usa el precio unitario de la TABLA (antes del descuento) — el descuento se extrae aparte, en descuentoPct.
 - precioTotal: precio total de la cotización, en número (el que corresponda ANTES del descuento — el mismo subtotal que multiplicarías por precioUnitario × cantidad).
 - cantidadPrincipal: la cantidad del producto principal en la línea de ese precio unitario (ej. "4,00" → 4), si aparece. Sirve para verificar que precioUnitario × cantidadPrincipal cuadre con precioTotal — sin ella no se puede validar el precio unitario.
-- descuentoPct: si el documento aplica un descuento porcentual explícito sobre el subtotal (ej. "Descuento 4%", "Dscto. 10%"), el número solo (4, 10...). Si el descuento viene como monto fijo en vez de porcentaje, o no hay descuento, usa null — no lo calcules ni lo adivines desde otros campos.
+- descuentoPct: si el documento aplica un descuento porcentual explícito sobre el subtotal (ej. "Descuento 4%", "Dscto. 10%"), el número solo (4, 10...). Si el descuento viene solo como monto fijo, o no hay descuento, usa null — no lo calcules ni lo adivines desde otros campos.
+- descuentoMonto: si el documento imprime el MONTO del descuento global (ej. "Descuento: -$920.448"), ese número sin signo; si no, null.
 - fleteMonto: si el documento cobra flete/despacho/envío/transporte como una línea de costo APARTE con un monto explícito, ese número — en CUALQUIER idioma en que venga la cotización (ej. "Flete: $50.000", "Despacho $30.000", "Envío $25.000", "Shipping: $1,400", "Transportation fee: $1,400", "Spedizione 427,00 €"). Los proveedores extranjeros cotizan en su propio idioma; no te limites a las palabras en español. Si el documento dice que el despacho está incluido en el precio, o no menciona flete para nada, usa null — no inventes un monto ni asumas que hay flete porque el retiro es en bodega del proveedor.
 - moneda: "CLP", "USD", "EUR" u otra si se indica explícitamente; si no dice nada, usa "CLP".
 - plazoEntregaTexto: el plazo de entrega tal como lo describe el documento (ej. "15 días hábiles").
@@ -220,7 +210,7 @@ Si un dato no aparece con certeza, usa null — NUNCA inventes ni asumas un valo
 - lineas: TODAS las líneas de productos de la tabla, una por producto, tal como las imprime el documento (no inventes ni agrupes): {"descripcion":<texto>,"cantidad":<número>,"precioUnitario":<número>,"descuentoPct":<número o null>,"total":<total de ESA línea tal como aparece impreso>}. "descripcion" lleva marca + modelo/código + descripción de ESA línea (y el título del producto si la tabla lo trae sobre la fila), SIN la cantidad pegada al inicio: la cantidad va solo en "cantidad". "precioUnitario" es el unitario de la línea (si hay columna "P. c/Desc." o similar, ese). Si una línea no trae un dato, null. No incluyas filas de subtotal, IVA, flete ni totales.
 - totalNetoDocumento: el neto FINAL impreso en el documento: la cifra que queda justo antes de sumar el IVA (ya con el descuento global restado y el flete sumado, si el documento los trae), en número; null si no aparece. Si el documento no muestra neto sino solo un total con IVA, null — no lo calcules.
 
-Responde SOLO JSON: {"proveedorNombre":<string o null>,"proveedorRut":<string o null>,"precioUnitario":<número o null>,"precioTotal":<número o null>,"cantidadPrincipal":<número o null>,"descuentoPct":<número o null>,"fleteMonto":<número o null>,"moneda":<string o null>,"plazoEntregaTexto":<string o null>,"direccionBodega":<string o null>,"totalNetoDocumento":<número o null>,"lineas":[{"descripcion":"","cantidad":0,"precioUnitario":0,"descuentoPct":null,"total":0}],"notasAdicionales":[<string, ...>]}`;
+Responde SOLO JSON: {"proveedorNombre":<string o null>,"proveedorRut":<string o null>,"precioUnitario":<número o null>,"precioTotal":<número o null>,"cantidadPrincipal":<número o null>,"descuentoPct":<número o null>,"descuentoMonto":<número o null>,"fleteMonto":<número o null>,"moneda":<string o null>,"plazoEntregaTexto":<string o null>,"direccionBodega":<string o null>,"totalNetoDocumento":<número o null>,"lineas":[{"descripcion":"","cantidad":0,"precioUnitario":0,"descuentoPct":null,"total":0}],"notasAdicionales":[<string, ...>]}`;
 
 /** Lee un archivo de cotización (PDF por URL pública, imagen por buffer) y extrae los campos que
  *  la spec pide (§8.2). Devuelve todo en null si el OCR no logró transcribir nada legible — nunca
@@ -326,12 +316,14 @@ export async function extraerDatosCotizacionDeDocumento(
     let descuentoFinal = descuentoPct;
     if (norm.lineas.length > 0 && norm.cuadra !== false) {
       // Los precios de línea ya traen el descuento aplicado y el total impreso también: NO se vuelve a descontar (caso 30464: 10 % dos veces).
-      const primera = norm.lineas.find(l => l.precioUnitario != null);
+      const primera = norm.lineas.find(l => l.precioUnitario != null && l.precioUnitario > 0);
       if (primera?.precioUnitario != null) unitFinal = primera.precioUnitario;
       if (norm.suma != null) totalFinal = norm.suma;
-      // Salvo que el neto impreso ya sea DESPUÉS del descuento global (las líneas cuadran solo restándolo): ahí el descuento es real y se conserva.
-      const descuentoDespues = norm.ajuste === 'descuento' || norm.ajuste === 'descuento+flete';
-      if (norm.lineas.some(l => l.descuentoPct != null) || (descuentoPct != null && totalNetoDoc != null && !descuentoDespues)) descuentoFinal = null;
+      // Salvo que el documento PRUEBE que el descuento global va después de las líneas (VENTUS EC-1214): ahí es real y se conserva.
+      const descuentoMonto = numeroDeTexto(parsed.descuentoMonto) ?? descuentoMontoDelTexto(texto);
+      const dg = descuentoGlobalPorAplicar(norm, descuentoPct, descuentoMonto, totalNetoDoc, texto);
+      descuentoFinal = dg.pct;
+      if (dg.aviso) norm.avisos.push(dg.aviso);
     }
     if (!proveedorNombre && !proveedorRut && unitFinal == null && totalFinal == null && norm.lineas.length === 0) return null;
     return {

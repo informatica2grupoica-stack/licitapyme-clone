@@ -59,5 +59,5 @@ export const totalAdicionales = (ads: AdicionalCotizacion[]): number =>
 /** Precio efectivo por unidad del producto. Sin precio base no hay precio efectivo (no se inventa uno solo con los adicionales). */
 export function precioEfectivo(base: number | null | undefined, ads: AdicionalCotizacion[]): number | null {
   if (base == null || !Number.isFinite(base)) return null;
-  return Math.round(base + totalAdicionales(ads));
+  return Math.round((base + totalAdicionales(ads)) * 100) / 100;   // con centavos: 52.597 − 7 % = 48.915,21 (× 250 = total impreso)
 }

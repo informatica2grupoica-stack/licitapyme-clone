@@ -3,45 +3,287 @@
 // RUTA DE IMPORTACIÓN Y COSTEO ATERRIZADO (spec §12). Solo se muestra completo cuando el origen es
 // IMPORTACION: "la cotización FOB no es el costo del producto" — acá se suma flete internacional +
 // aduana + logística local, prorrateados POR UNIDAD, para saber el costo real puesto en bodega.
+// 21-oct-2026 (pedido del dueño): VARIOS embarques por negocio (migration-160). Cada embarque tiene
+// sus productos, su seguimiento (etapa con fecha + datos para ubicarlo) y sus costos, que se reparten
+// solo entre sus unidades. Estilo según la skill ui-sin-aspecto-ia.
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
-import { Banner } from '@/app/components/ui/Banner';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
-import { IconShip as Ship, IconLoader2 as Loader2, IconDeviceFloppy as Save } from '@tabler/icons-react';
+import { IconLoader2 as Loader2 } from '@tabler/icons-react';
 
 type Origen = 'LOCAL' | 'IMPORTACION';
-interface Embarque { fleteInternacional: number | null; costosAduana: number | null; costoLogisticoLocal: number | null; notas: string | null }
-interface ProductoImp { productoId: number; descripcion: string; cantidad: number | null; proveedor: string | null; importado: boolean }
-interface ItemAterrizado { importado: boolean; productoId: number; descripcion: string; proveedor: string | null; cantidad: number | null; precioUnitarioFob: number | null; costoUnitarioAterrizado: number | null; subtotalAterrizado: number | null }
-interface CostoAterrizado { items: ItemAterrizado[]; totalUnidades: number; extraPorUnidad: number; totalAterrizado: number; totalFob: number }
+type Etapa = 'PEDIDO' | 'PRODUCCION' | 'EMBARCADO' | 'EN_ADUANA' | 'LIBERADO' | 'EN_BODEGA';
+type Medio = 'MARITIMO' | 'AEREO' | 'TERRESTRE' | 'COURIER';
+interface ProductoImp { productoId: number; descripcion: string; cantidad: number | null; proveedor: string | null; importado: boolean; embarqueId: number | null }
+interface ItemAterrizado { importado: boolean; productoId: number; descripcion: string; embarqueId: number | null; cantidad: number | null; precioUnitarioFob: number | null; extraPorUnidad: number; costoUnitarioAterrizado: number | null }
+interface CostoAterrizado { items: ItemAterrizado[]; totalAterrizado: number; totalFob: number; costoSinRepartir: number }
+interface DatosEmbarque {
+  nombre: string; proveedorExtranjero: string | null; paisOrigen: string | null; medio: Medio | null; incoterm: string | null;
+  numeroSeguimiento: string | null; transportista: string | null; agenteAduana: string | null; puertoLlegada: string | null;
+  fechaSalida: string | null; fechaLlegadaEstimada: string | null; numeroDin: string | null;
+  fleteInternacional: number | null; costosAduana: number | null; costoLogisticoLocal: number | null;
+}
+interface Embarque extends DatosEmbarque { id: number; estado: Etapa | null; fechas: Partial<Record<Etapa, string>>; productoIds: number[] }
+
+const ETAPAS: Array<{ clave: Etapa; titulo: string; ayuda: string }> = [
+  { clave: 'PEDIDO', titulo: 'Pedido', ayuda: 'Se envió la orden al proveedor extranjero y hay factura proforma.' },
+  { clave: 'PRODUCCION', titulo: 'En producción', ayuda: 'El proveedor lo está fabricando o preparando (normalmente después del pago o anticipo).' },
+  { clave: 'EMBARCADO', titulo: 'Embarcado', ayuda: 'Salió del país de origen: ya hay N° de BL, guía aérea o tracking.' },
+  { clave: 'EN_ADUANA', titulo: 'En aduana', ayuda: 'Llegó a Chile y el agente de aduana está haciendo la internación.' },
+  { clave: 'LIBERADO', titulo: 'Liberado', ayuda: 'Aduana lo liberó (DIN pagada); falta traerlo a la bodega.' },
+  { clave: 'EN_BODEGA', titulo: 'En bodega', ayuda: 'Llegó a nuestra bodega. Este embarque terminó.' },
+];
+const MEDIOS: Array<{ clave: Medio; titulo: string }> = [
+  { clave: 'MARITIMO', titulo: 'Marítimo' }, { clave: 'AEREO', titulo: 'Aéreo' }, { clave: 'TERRESTRE', titulo: 'Terrestre' }, { clave: 'COURIER', titulo: 'Courier' },
+];
 
 const fmtCLP = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
+const fechaCorta = (f: string | null | undefined) => f ? f.split('-').reverse().join('-') : '';
+const hoy = () => new Date().toLocaleDateString('sv-SE'); // AAAA-MM-DD en hora local
+const nombreProducto = (d: string) => d.split(' - ')[0];
+const costoDe = (e: DatosEmbarque) => (e.fleteInternacional || 0) + (e.costosAduana || 0) + (e.costoLogisticoLocal || 0);
+const conPunto = (color: string, label: string) => (
+  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 whitespace-nowrap">
+    <span aria-hidden style={{ backgroundColor: color }} className="w-1.5 h-1.5 rounded-full flex-shrink-0" />{label}
+  </span>
+);
+const campoCls = 'mt-0.5 block w-full text-xs text-slate-800 border border-slate-300 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-600 bg-white disabled:bg-slate-50';
+const Paso = ({ n, titulo, extra }: { n: number; titulo: string; extra?: React.ReactNode }) => (
+  <p className="text-[13px] font-medium text-slate-800 flex items-center gap-2 flex-wrap">
+    <span className="inline-flex w-5 h-5 rounded-full bg-teal-700 text-white text-[11px] items-center justify-center">{n}</span>{titulo}{extra}
+  </p>
+);
+// Días de atraso según la llegada estimada (null si no hay ETA o ya está en bodega).
+const atrasoDe = (e: Embarque) => e.fechaLlegadaEstimada && e.estado !== 'EN_BODEGA'
+  ? Math.floor((new Date(hoy()).getTime() - new Date(e.fechaLlegadaEstimada).getTime()) / 86_400_000) : null;
+const estadoEmbarque = (e: Embarque) => {
+  const idx = ETAPAS.findIndex(x => x.clave === e.estado);
+  return idx < 0 ? conPunto('#d97706', 'Sin empezar') : conPunto(e.estado === 'EN_BODEGA' ? '#059669' : '#0f766e', ETAPAS[idx].titulo);
+};
+
+type Enviar = (cuerpo: Record<string, unknown>, ok?: string) => Promise<void>;
+
+/** Un embarque: sus productos, su línea de etapas, sus datos y sus costos. */
+function EmbarqueCard({ e, productos, puedeOperar, enviar }: { e: Embarque; productos: ProductoImp[]; puedeOperar: boolean; enviar: Enviar }) {
+  const toast = useToast();
+  const [etapaNueva, setEtapaNueva] = useState<Etapa | null>(null);
+  const [fechaEtapa, setFechaEtapa] = useState('');
+  const [editando, setEditando] = useState(false);
+  const [form, setForm] = useState<Record<keyof DatosEmbarque, string>>({} as Record<keyof DatosEmbarque, string>);
+  const [guardando, setGuardando] = useState(false);
+
+  const idxActual = ETAPAS.findIndex(x => x.clave === e.estado);
+  const terminado = e.estado === 'EN_BODEGA';
+  const siguiente = ETAPAS[idxActual + 1] ?? null;
+  const atraso = atrasoDe(e);
+  const suyos = productos.filter(p => e.productoIds.includes(p.productoId));
+  const unidades = suyos.reduce((s, p) => s + (p.cantidad || 0), 0);
+  const costo = costoDe(e);
+  const tieneDatos = !!(e.proveedorExtranjero || e.paisOrigen || e.medio || e.incoterm || e.numeroSeguimiento || e.transportista || e.agenteAduana || e.puertoLlegada || e.fechaSalida || e.fechaLlegadaEstimada || e.numeroDin);
+
+  const correr = async (f: () => Promise<void>, error: string) => {
+    setGuardando(true);
+    try { await f(); } catch (err: any) { toast.error(error, err.message); } finally { setGuardando(false); }
+  };
+  const abrirEtapa = (et: Etapa) => { setEtapaNueva(et); setFechaEtapa(e.fechas[et] || hoy()); };
+  const abrirEdicion = () => {
+    const v = (x: string | number | null) => x == null ? '' : String(x);
+    setForm({
+      nombre: e.nombre, proveedorExtranjero: v(e.proveedorExtranjero), paisOrigen: v(e.paisOrigen), medio: v(e.medio), incoterm: v(e.incoterm),
+      numeroSeguimiento: v(e.numeroSeguimiento), transportista: v(e.transportista), agenteAduana: v(e.agenteAduana), puertoLlegada: v(e.puertoLlegada),
+      fechaSalida: v(e.fechaSalida), fechaLlegadaEstimada: v(e.fechaLlegadaEstimada), numeroDin: v(e.numeroDin),
+      fleteInternacional: v(e.fleteInternacional), costosAduana: v(e.costosAduana), costoLogisticoLocal: v(e.costoLogisticoLocal),
+    });
+    setEditando(true);
+  };
+  const guardarDatos = () => correr(async () => {
+    const monto = (s: string) => { const n = Number(s.replace(/[^\d]/g, '')); return s.trim() === '' ? null : n; };
+    const txt = (s: string) => s.trim() || null;
+    await enviar({
+      accion: 'embarqueGuardar', embarqueId: e.id, datos: {
+        nombre: form.nombre, proveedorExtranjero: txt(form.proveedorExtranjero), paisOrigen: txt(form.paisOrigen), medio: txt(form.medio), incoterm: txt(form.incoterm),
+        numeroSeguimiento: txt(form.numeroSeguimiento), transportista: txt(form.transportista), agenteAduana: txt(form.agenteAduana), puertoLlegada: txt(form.puertoLlegada),
+        fechaSalida: txt(form.fechaSalida), fechaLlegadaEstimada: txt(form.fechaLlegadaEstimada), numeroDin: txt(form.numeroDin),
+        fleteInternacional: monto(form.fleteInternacional), costosAduana: monto(form.costosAduana), costoLogisticoLocal: monto(form.costoLogisticoLocal),
+      },
+    }, 'Embarque guardado');
+    setEditando(false);
+  }, 'No se pudo guardar el embarque');
+  const eliminar = () => {
+    if (!window.confirm(`¿Quitar el ${e.nombre}? Sus productos quedan sin embarque (siguen marcados como del extranjero).`)) return;
+    void correr(() => enviar({ accion: 'embarqueEliminar', embarqueId: e.id }, 'Embarque quitado'), 'No se pudo quitar el embarque');
+  };
+
+  const campo = (clave: keyof DatosEmbarque, titulo: string, placeholder: string, tipo: 'text' | 'date' = 'text', numerico = false) => (
+    <label className="text-[11px] text-slate-500">{titulo}
+      <input type={tipo} value={form[clave] ?? ''} onChange={ev => setForm(f => ({ ...f, [clave]: ev.target.value }))} placeholder={placeholder}
+        inputMode={numerico ? 'numeric' : undefined} className={`${campoCls}${numerico ? ' tabular-nums' : ''}`} />
+    </label>
+  );
+  const dato = (titulo: string, valor: React.ReactNode) => (
+    <div>
+      <dt className="text-[11px] text-slate-500">{titulo}</dt>
+      <dd className="mt-0.5 text-xs text-slate-800">{valor || <span className="text-slate-400">—</span>}</dd>
+    </div>
+  );
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm px-4 py-3 space-y-3" data-testid={`embarque-${e.id}`}>
+      {/* Cabecera: nombre, etapa, N° de seguimiento y llegada */}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <p className="text-[13.5px] font-medium text-slate-900">{e.nombre}</p>
+          <p className="text-[11px] text-slate-500">
+            {[e.proveedorExtranjero, e.paisOrigen, MEDIOS.find(m => m.clave === e.medio)?.titulo].filter(Boolean).join(' · ') || 'Sin datos del envío todavía'}
+          </p>
+        </div>
+        <dl className="flex items-start gap-5 flex-wrap">
+          <div><dt className="text-[11px] text-slate-500">Etapa</dt><dd className="mt-0.5">{estadoEmbarque(e)}</dd></div>
+          {e.numeroSeguimiento && <div><dt className="text-[11px] text-slate-500">N° de seguimiento</dt><dd className="mt-0.5 text-xs font-medium tabular-nums text-slate-900">{e.numeroSeguimiento}</dd></div>}
+          {e.fechaLlegadaEstimada && <div>
+            <dt className="text-[11px] text-slate-500">Llegada estimada</dt>
+            <dd className={`mt-0.5 text-xs tabular-nums ${atraso != null && atraso > 3 ? 'font-medium text-red-600' : atraso != null && atraso > 0 ? 'font-medium text-amber-700' : 'text-slate-800'}`}>
+              {fechaCorta(e.fechaLlegadaEstimada)}{atraso != null && atraso > 0 && ` · ${atraso} día${atraso === 1 ? '' : 's'} de atraso`}
+            </dd>
+          </div>}
+        </dl>
+      </div>
+
+      {/* Productos de este embarque */}
+      <div>
+        <p className="text-[11px] text-slate-500">Productos en este embarque{unidades > 0 && <> · <span className="tabular-nums">{unidades}</span> unidades</>}</p>
+        {suyos.length ? (
+          <ul className="mt-0.5 text-xs text-slate-700 flex flex-wrap gap-x-4 gap-y-0.5">
+            {suyos.map(p => <li key={p.productoId}><span className="font-medium tabular-nums text-slate-900">{p.cantidad ?? '?'} ×</span> {nombreProducto(p.descripcion)}</li>)}
+          </ul>
+        ) : <p className="mt-0.5 text-xs text-amber-700">Sin productos: asígnalos en el paso 1 con «Embarque».</p>}
+      </div>
+
+      {/* Línea de etapas: hecha (verde), actual (teal), pendiente (gris) */}
+      <ol className="grid grid-cols-3 lg:grid-cols-6 gap-1.5">
+        {ETAPAS.map((et, i) => {
+          const hecha = i < idxActual || (i === idxActual && terminado);
+          const actual = i === idxActual && !terminado;
+          return (
+            <li key={et.clave} title={et.ayuda} className={`rounded-lg border px-2 py-1.5 ${actual ? 'border-teal-600/50 bg-teal-50/50' : 'border-slate-200'}`}>
+              <span className="flex items-center gap-1.5">
+                <span aria-hidden className={`w-4 h-4 rounded-full text-[10px] font-semibold flex items-center justify-center flex-shrink-0 ${hecha ? 'bg-emerald-600 text-white' : actual ? 'bg-teal-700 text-white' : 'bg-slate-200 text-slate-500'}`}>{hecha ? '✓' : i + 1}</span>
+                <span className={`text-xs truncate ${actual ? 'font-semibold text-teal-900' : hecha ? 'font-medium text-slate-800' : 'text-slate-500'}`}>{et.titulo}</span>
+              </span>
+              <span className="block mt-0.5 pl-5.5 text-[11px] tabular-nums text-slate-500">{e.fechas[et.clave] ? fechaCorta(e.fechas[et.clave]) : ' '}</span>
+            </li>
+          );
+        })}
+      </ol>
+
+      {puedeOperar && (etapaNueva ? (
+        <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 flex items-end gap-2 flex-wrap max-w-2xl">
+          <label className="text-[11px] text-slate-500">Etapa
+            <select value={etapaNueva} onChange={ev => abrirEtapa(ev.target.value as Etapa)} className={campoCls}>
+              {ETAPAS.map(et => <option key={et.clave} value={et.clave}>{et.titulo}</option>)}
+            </select>
+          </label>
+          <label className="text-[11px] text-slate-500">Fecha en que pasó
+            <input type="date" value={fechaEtapa} onChange={ev => setFechaEtapa(ev.target.value)} className={campoCls} />
+          </label>
+          <button type="button" disabled={guardando || !fechaEtapa}
+            onClick={() => correr(async () => { await enviar({ accion: 'embarqueEtapa', embarqueId: e.id, estado: etapaNueva, fecha: fechaEtapa }, 'Etapa actualizada'); setEtapaNueva(null); }, 'No se pudo marcar la etapa')}
+            className="text-[12px] font-semibold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-50 px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5">
+            {guardando && <Loader2 size={12} className="animate-spin" />} Guardar
+          </button>
+          <button type="button" onClick={() => setEtapaNueva(null)} className="text-[12px] font-medium text-slate-500 hover:text-slate-800 py-1.5">Cancelar</button>
+          <p className="basis-full text-[11px] text-slate-500">{ETAPAS.find(et => et.clave === etapaNueva)?.ayuda}{idxActual >= 0 && ETAPAS.findIndex(et => et.clave === etapaNueva) < idxActual && ' Al volver a una etapa anterior se borran las fechas de las siguientes.'}</p>
+        </div>
+      ) : !editando && (
+        <div className="flex items-center gap-3 flex-wrap">
+          {siguiente && (
+            <button type="button" onClick={() => abrirEtapa(siguiente.clave)} data-testid={`embarque-${e.id}-siguiente`}
+              className="text-[12px] font-semibold text-white bg-teal-700 hover:bg-teal-800 px-3 py-1.5 rounded-lg">Marcar «{siguiente.titulo}»</button>
+          )}
+          {idxActual >= 0 && <button type="button" onClick={() => abrirEtapa(e.estado!)} className="text-[12px] font-medium text-slate-500 hover:text-slate-800">Corregir etapa o fecha</button>}
+          <button type="button" onClick={abrirEdicion} className="text-[12px] font-medium text-teal-700 hover:text-teal-900">{tieneDatos || costo > 0 ? 'Editar datos y costos' : 'Agregar datos y costos'}</button>
+        </div>
+      ))}
+
+      {/* Datos del envío y costos: resumen rotulado o formulario */}
+      {editando ? (
+        <div className="pt-3 border-t border-slate-100 space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {campo('nombre', 'Nombre del embarque', 'Ej: Bancas desde China')}
+            {campo('proveedorExtranjero', 'Proveedor en el extranjero', 'Ej: Foshan Furniture Co.')}
+            {campo('paisOrigen', 'País de origen', 'Ej: China')}
+            <label className="text-[11px] text-slate-500">Medio
+              <select value={form.medio} onChange={ev => setForm(f => ({ ...f, medio: ev.target.value }))} className={campoCls}>
+                <option value="">Sin definir</option>
+                {MEDIOS.map(m => <option key={m.clave} value={m.clave}>{m.titulo}</option>)}
+              </select>
+            </label>
+            {campo('incoterm', 'Incoterm', 'Ej: FOB, EXW, CIF')}
+            {campo('numeroSeguimiento', 'N° de seguimiento (BL, guía aérea o tracking)', 'Ej: MEDU1234567')}
+            {campo('transportista', 'Naviera, aerolínea o courier', 'Ej: MSC, DHL')}
+            {campo('agenteAduana', 'Agente de aduana', 'Ej: Agencia Pérez')}
+            {campo('puertoLlegada', 'Puerto o aeropuerto de llegada', 'Ej: San Antonio')}
+            {campo('numeroDin', 'N° de DIN (declaración de ingreso)', 'Cuando la haga el agente')}
+            {campo('fechaSalida', 'Fecha de salida (ETD)', '', 'date')}
+            {campo('fechaLlegadaEstimada', 'Llegada estimada (ETA)', '', 'date')}
+          </div>
+          <div>
+            <p className="text-xs font-medium text-slate-800">Lo que costó traer este embarque</p>
+            <p className="text-[11px] text-slate-500">Se reparte solo entre las unidades de este embarque. Si algo no hubo, déjalo vacío.</p>
+            <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {campo('fleteInternacional', 'Flete internacional', '$ total del flete (barco o avión)', 'text', true)}
+              {campo('costosAduana', 'Aduana', '$ aranceles, impuestos y agencia', 'text', true)}
+              {campo('costoLogisticoLocal', 'Traslado dentro de Chile', '$ del puerto a la bodega', 'text', true)}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={guardarDatos} disabled={guardando}
+              className="text-[12px] font-semibold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-50 px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5">
+              {guardando && <Loader2 size={12} className="animate-spin" />} Guardar embarque
+            </button>
+            <button type="button" onClick={() => setEditando(false)} className="text-[12px] font-medium text-slate-500 hover:text-slate-800">Cancelar</button>
+            <button type="button" onClick={eliminar} disabled={guardando} className="ml-auto text-[12px] font-medium text-slate-400 hover:text-red-600">Quitar embarque</button>
+          </div>
+        </div>
+      ) : (tieneDatos || costo > 0) && (
+        <dl className="pt-3 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-2.5">
+          {dato('Incoterm', e.incoterm)}
+          {dato('Transporte', e.transportista)}
+          {dato('Agente de aduana', e.agenteAduana)}
+          {dato('Llega a', e.puertoLlegada)}
+          {dato('N° de DIN', e.numeroDin)}
+          {dato('Salida (ETD)', fechaCorta(e.fechaSalida))}
+          {dato('Flete internacional', e.fleteInternacional != null && <span className="tabular-nums">{fmtCLP(e.fleteInternacional)}</span>)}
+          {dato('Aduana', e.costosAduana != null && <span className="tabular-nums">{fmtCLP(e.costosAduana)}</span>)}
+          {dato('Traslado en Chile', e.costoLogisticoLocal != null && <span className="tabular-nums">{fmtCLP(e.costoLogisticoLocal)}</span>)}
+          {dato('Costo del embarque', costo > 0 && <><b className="tabular-nums">{fmtCLP(costo)}</b>{unidades > 0 && <span className="text-slate-500"> · {fmtCLP(Math.round(costo / unidades))} por unidad</span>}</>)}
+        </dl>
+      )}
+    </div>
+  );
+}
 
 export function ImportacionCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
   const toast = useToast();
   const { recargar: recargarCompartido } = useCompras();
   const [origen, setOrigen] = useState<Origen | null>(null);
-  const [embarque, setEmbarque] = useState<Embarque | null>(null);
   const [costoAterrizado, setCostoAterrizado] = useState<CostoAterrizado | null>(null);
   const [productos, setProductos] = useState<ProductoImp[]>([]);
+  const [embarques, setEmbarques] = useState<Embarque[]>([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ fleteInternacional: '', costosAduana: '', costoLogisticoLocal: '', notas: '' });
-  const [guardando, setGuardando] = useState(false);
+  const [creando, setCreando] = useState(false);
+
+  const aplicar = (data: any) => {
+    setOrigen(data.origen?.origen || null);
+    setCostoAterrizado(data.costoAterrizado); setProductos(data.productos || []); setEmbarques(data.embarques || []);
+  };
 
   const cargar = useCallback(async () => {
     try {
       const res = await fetch(`/api/compras/${negocioId}/importacion`);
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cargar');
-      setOrigen(data.origen?.origen || null);
-      setEmbarque(data.embarque);
-      setCostoAterrizado(data.costoAterrizado); setProductos(data.productos || []);
-      if (data.embarque) setForm({
-        fleteInternacional: data.embarque.fleteInternacional != null ? String(data.embarque.fleteInternacional) : '',
-        costosAduana: data.embarque.costosAduana != null ? String(data.embarque.costosAduana) : '',
-        costoLogisticoLocal: data.embarque.costoLogisticoLocal != null ? String(data.embarque.costoLogisticoLocal) : '',
-        notas: data.embarque.notas || '',
-      });
+      aplicar(data);
     } catch (e: any) {
       toast.error('No se pudo cargar la ruta de importación', e.message);
     } finally {
@@ -51,162 +293,185 @@ export function ImportacionCard({ negocioId, puedeOperar }: { negocioId: number;
 
   useEffect(() => { cargar(); }, [cargar]);
 
-  const definirOrigen = async (v: string) => {
-    try {
-      const res = await fetch(`/api/compras/${negocioId}/importacion`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'origen', origen: v }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo definir');
-      setOrigen(data.origen?.origen || null); setCostoAterrizado(data.costoAterrizado); setProductos(data.productos || []);
-      recargarCompartido();
-    } catch (e: any) {
-      toast.error('No se pudo definir el origen', e.message);
-    }
+  // El costo aterrizado alimenta el margen de la Compuerta 2: después de cada cambio se recarga lo compartido.
+  const enviar: Enviar = async (cuerpo, ok) => {
+    const res = await fetch(`/api/compras/${negocioId}/importacion`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar');
+    aplicar(data);
+    recargarCompartido();
+    if (ok) toast.success(ok);
   };
 
+  const definirOrigen = async (v: Origen) => {
+    try { await enviar({ accion: 'origen', origen: v }); } catch (e: any) { toast.error('No se pudo definir el origen', e.message); }
+  };
   const marcar = async (productoId: number, importado: boolean) => {
     setProductos(ps => ps.map(p => p.productoId === productoId ? { ...p, importado } : p));
-    try {
-      const res = await fetch(`/api/compras/${negocioId}/importacion`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'producto', productoId, importado }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar');
-      setOrigen(data.origen?.origen || null); setCostoAterrizado(data.costoAterrizado); setProductos(data.productos || []);
-      recargarCompartido();
-    } catch (e: any) {
-      toast.error('No se pudo marcar el producto', e.message);
-      cargar();
-    }
+    try { await enviar({ accion: 'producto', productoId, importado }); }
+    catch (e: any) { toast.error('No se pudo marcar el producto', e.message); cargar(); }
+  };
+  const asignar = async (productoId: number, embarqueId: string) => {
+    try { await enviar({ accion: 'productoEmbarque', productoId, embarqueId: embarqueId ? Number(embarqueId) : null }); }
+    catch (e: any) { toast.error('No se pudo cambiar el embarque', e.message); }
+  };
+  const agregarEmbarque = async () => {
+    setCreando(true);
+    try { await enviar({ accion: 'embarqueCrear' }, 'Embarque agregado'); }
+    catch (e: any) { toast.error('No se pudo agregar el embarque', e.message); }
+    finally { setCreando(false); }
   };
 
-  const guardarEmbarque = async () => {
-    setGuardando(true);
-    try {
-      const res = await fetch(`/api/compras/${negocioId}/importacion`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accion: 'embarque', ...form }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar');
-      toast.success('Datos del embarque guardados');
-      setEmbarque(data.embarque); setCostoAterrizado(data.costoAterrizado);
-      recargarCompartido(); // el costo aterrizado alimenta el margen de la Compuerta 2
-    } catch (e: any) {
-      toast.error('No se pudo guardar', e.message);
-    } finally {
-      setGuardando(false);
-    }
-  };
+  if (loading) return <div className="flex items-center justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-slate-400" /></div>;
 
-  if (loading) return <div className="flex items-center justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-zinc-400" /></div>;
-
-  const nImp = productos.filter(p => p.importado).length;
-  const campo = (clave: 'fleteInternacional' | 'costosAduana' | 'costoLogisticoLocal', titulo: string, ayuda: string) => (
-    <label className="block rounded-lg border border-zinc-200 px-3 py-2.5">
-      <span className="block text-[12.5px] font-bold text-zinc-800">{titulo}</span>
-      <span className="block text-[11.5px] text-zinc-500 leading-snug mb-1.5">{ayuda}</span>
-      <span className="flex items-center gap-1.5">
-        <span className="text-[13px] text-zinc-400">$</span>
-        <input inputMode="numeric" value={form[clave]} onChange={e => setForm(f => ({ ...f, [clave]: e.target.value }))} disabled={!puedeOperar} placeholder="0 si no hubo"
-          className="w-full text-[13px] border border-zinc-300 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500 disabled:bg-zinc-50" />
-      </span>
-    </label>
-  );
+  const importados = productos.filter(p => p.importado);
+  const sinEmbarque = embarques.length > 0 ? importados.filter(p => p.embarqueId == null) : [];
+  const enBodega = embarques.filter(e => e.estado === 'EN_BODEGA').length;
+  const atrasados = embarques.filter(e => (atrasoDe(e) ?? 0) > 0).length;
+  const nombreEmbarque = new Map(embarques.map(e => [e.id, e.nombre]));
 
   return (
     <div className="space-y-4" data-testid="importacion-guia">
-      {/* PASO 1 */}
-      <section className="bg-white rounded-xl border border-zinc-200 p-4 space-y-2.5">
-        <p className="text-[13px] font-bold text-zinc-800 flex items-center gap-2">
-          <span className="inline-flex w-5 h-5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">1</span>
-          <Ship size={14} /> ¿De dónde viene lo que compraste?
-          {origen && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">✔ Elegido: {origen === 'LOCAL' ? 'Todo local' : `${nImp} importado(s)`}</span>}
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+      {/* PASO 1: origen de la compra y, si hay importación, qué productos vienen de afuera y en qué embarque */}
+      <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
+        <div>
+          <Paso n={1} titulo="¿De dónde viene lo que compraste?"
+            extra={origen && conPunto(origen === 'LOCAL' ? '#0f766e' : '#d97706', origen === 'LOCAL' ? 'Todo en Chile' : `${importados.length} producto(s) importado(s)`)} />
+          {!origen && <p className="mt-0.5 text-xs text-slate-500">Elige una opción para seguir. Si no estás seguro, pregunta a quien hizo la compra.</p>}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 max-w-3xl" role="radiogroup" aria-label="Origen de la compra">
           {([
-            { v: 'LOCAL', t: 'Todo se compró en Chile', d: 'Los proveedores son nacionales. No hay nada más que hacer en esta pestaña.' },
-            { v: 'IMPORTACION', t: 'Algo viene del extranjero', d: 'Marcas cuáles productos vienen de afuera y anotas flete, aduana y traslado para saber su costo real.' },
+            { v: 'LOCAL', t: 'Todo se compró en Chile', d: 'Proveedores nacionales: no hay nada más que hacer aquí.' },
+            { v: 'IMPORTACION', t: 'Algo viene del extranjero', d: 'Marcas qué viene de afuera, en qué embarque, y sigues cada embarque.' },
           ] as const).map(o => {
             const on = origen === o.v;
             return (
-              <button key={o.v} type="button" onClick={() => definirOrigen(o.v)} disabled={!puedeOperar} data-testid={`origen-${o.v}`}
-                className={`text-left rounded-xl border-2 px-3.5 py-3 transition-colors disabled:cursor-not-allowed ${on ? 'border-teal-500 bg-teal-50' : 'border-zinc-200 bg-white hover:border-teal-300 hover:bg-zinc-50'}`}>
-                <span className="block text-[13px] font-bold text-zinc-800">{on ? '✔ ' : ''}{o.t}</span>
-                <span className="block mt-1 text-[11.5px] text-zinc-500 leading-snug">{o.d}</span>
+              <button key={o.v} type="button" role="radio" aria-checked={on} onClick={() => definirOrigen(o.v)} disabled={!puedeOperar} data-testid={`origen-${o.v}`}
+                className={`text-left rounded-md px-3 py-2 transition-colors disabled:cursor-not-allowed ${on ? 'bg-white shadow-sm ring-1 ring-teal-600/40' : 'hover:bg-white/60'}`}>
+                <span className={`block text-xs ${on ? 'font-semibold text-teal-800' : 'font-medium text-slate-700'}`}>{o.t}</span>
+                <span className="block mt-0.5 text-[11px] text-slate-500 leading-snug">{o.d}</span>
               </button>
             );
           })}
         </div>
-        {!origen && <p className="text-[12px] text-zinc-500">Elige una opción para seguir. Si no estás seguro, pregunta a quien hizo la compra.</p>}
+
+        {origen === 'LOCAL' && (
+          <p className="text-xs text-slate-600"><b className="font-medium text-slate-800">Aquí no hay nada más que hacer.</b> Como la compra es local, no se suman costos de importación. Si algún día un producto viene de afuera, cambia arriba a «Algo viene del extranjero».</p>
+        )}
+
         {origen === 'IMPORTACION' && (
-          <div className="space-y-1.5 pt-1" data-testid="importacion-productos">
-            <p className="text-[12.5px] font-bold text-zinc-800">¿Cuáles productos vienen del extranjero? <span className="font-normal text-zinc-500">Marca solo esos; el resto se compra en Chile.</span></p>
-            {productos.length === 0 ? <p className="text-[12px] text-zinc-500">Todavía no hay productos en esta compra.</p> : productos.map(p => (
-              <label key={p.productoId} className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 cursor-pointer ${p.importado ? 'border-teal-400 bg-teal-50' : 'border-zinc-200 bg-white hover:bg-zinc-50'}`}>
-                <input type="checkbox" checked={p.importado} disabled={!puedeOperar} onChange={e => marcar(p.productoId, e.target.checked)} className="accent-teal-600" />
-                <span className="flex-1 text-[12.5px] font-semibold text-zinc-800">{p.descripcion.split(' - ')[0]}{p.cantidad != null && <span className="font-normal text-zinc-500"> · {p.cantidad} un.</span>}{p.proveedor && <span className="font-normal text-zinc-400"> · {p.proveedor}</span>}</span>
-                <span className={`text-[11px] font-bold ${p.importado ? 'text-teal-700' : 'text-zinc-400'}`}>{p.importado ? '✈ Del extranjero' : 'Se compra en Chile'}</span>
-              </label>
-            ))}
-            {nImp === 0 && <p className="text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">Marca al menos un producto para seguir con los costos del embarque.</p>}
+          <div className="space-y-2 pt-1" data-testid="importacion-productos">
+            <p className="text-xs font-medium text-slate-800">¿Cuáles productos vienen del extranjero? <span className="font-normal text-slate-500">Marca solo esos y elige en qué embarque vienen; el resto se compra en Chile.</span></p>
+            {productos.length === 0 ? <p className="text-xs text-slate-500">Todavía no hay productos en esta compra.</p> : (
+              <ul className="rounded-lg border border-slate-200 divide-y divide-slate-100">
+                {productos.map(p => (
+                  <li key={p.productoId} className={`flex items-center gap-3 px-3 py-2 flex-wrap ${p.importado ? 'bg-teal-50/40' : ''}`}>
+                    <label className="flex items-center gap-3 flex-1 min-w-[240px] cursor-pointer">
+                      <input type="checkbox" checked={p.importado} disabled={!puedeOperar} onChange={ev => marcar(p.productoId, ev.target.checked)} className="accent-teal-700" />
+                      <span className="text-xs">
+                        <span className="font-medium text-slate-900">{nombreProducto(p.descripcion)}</span>
+                        {p.cantidad != null && <span className="text-slate-500 tabular-nums"> · {p.cantidad} un.</span>}
+                        {p.proveedor && <span className="text-slate-500"> · {p.proveedor}</span>}
+                      </span>
+                    </label>
+                    {p.importado && embarques.length > 0 ? (
+                      <label className="flex items-center gap-1.5 text-[11px] text-slate-500">Embarque
+                        <select value={p.embarqueId ?? ''} onChange={ev => asignar(p.productoId, ev.target.value)} disabled={!puedeOperar}
+                          className={`text-xs border rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-teal-600 bg-white ${p.embarqueId == null ? 'border-amber-400 text-amber-800' : 'border-slate-300 text-slate-800'}`}>
+                          <option value="">Sin embarque</option>
+                          {embarques.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                        </select>
+                      </label>
+                    ) : p.importado ? conPunto('#d97706', 'Del extranjero') : conPunto('#94a3b8', 'En Chile')}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {importados.length === 0 && <p className="text-xs text-amber-700">Marca al menos un producto para seguir con los embarques.</p>}
           </div>
         )}
       </section>
 
-      {origen === 'LOCAL' && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[12.5px] text-emerald-900">
-          <b>Listo: aquí no hay nada más que hacer.</b> Como la compra es local, no se suman costos de importación. Sigue con la pestaña «Gastos extra» (si hubo algún gasto) o con la Entrega.
-        </div>
-      )}
-
-      {origen === 'IMPORTACION' && nImp > 0 && (<>
-        {/* PASO 2 */}
-        <section className="bg-white rounded-xl border border-zinc-200 p-4 space-y-3">
-          <p className="text-[13px] font-bold text-zinc-800 flex items-center gap-2">
-            <span className="inline-flex w-5 h-5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">2</span>
-            Anota lo que costó traerlo
-          </p>
-          <p className="text-[12px] text-zinc-500">El precio que cobra el proveedor extranjero (FOB) no es el costo real. Anota estos tres gastos del embarque de los productos marcados; si alguno no hubo, déjalo en 0. El sistema los reparte solo entre las unidades importadas y calcula su costo real; lo comprado en Chile no lleva estos costos.</p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
-            {campo('fleteInternacional', 'Flete internacional', 'Lo que cobró el transporte por traerlo desde afuera (barco o avión). El total del embarque.')}
-            {campo('costosAduana', 'Aduana', 'Aranceles, impuestos de importación y gastos de la agencia de aduana.')}
-            {campo('costoLogisticoLocal', 'Traslado dentro de Chile', 'Sacarlo del puerto o aeropuerto y llevarlo a la bodega (desaduanaje y camión).')}
+      {origen === 'IMPORTACION' && importados.length > 0 && (<>
+        {/* PASO 2: embarques — cada uno con sus productos, su seguimiento y sus costos */}
+        <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-3" data-testid="importacion-embarques">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <Paso n={2} titulo="Embarques"
+                extra={embarques.length > 0 && <span className="text-xs text-slate-500">
+                  <span className="font-semibold tabular-nums text-slate-700">{embarques.length}</span> en total · <span className="tabular-nums">{enBodega}</span> en bodega
+                  {atrasados > 0 && <span className="font-medium text-amber-700"> · {atrasados} atrasado{atrasados === 1 ? '' : 's'}</span>}
+                </span>} />
+              <p className="mt-0.5 text-xs text-slate-500">Un embarque es lo que viaja junto (mismo proveedor, mismo barco, avión o courier). Si los productos vienen por separado, crea un embarque para cada envío.</p>
+            </div>
+            {puedeOperar && (
+              <button type="button" onClick={agregarEmbarque} disabled={creando} data-testid="importacion-agregar-embarque"
+                className="flex-shrink-0 text-[12px] font-semibold text-teal-700 border border-teal-200 hover:bg-teal-50 disabled:opacity-50 px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5">
+                {creando && <Loader2 size={12} className="animate-spin" />} + Agregar embarque
+              </button>
+            )}
           </div>
-          <Banner variante="info">Con el proveedor extranjero se trabaja por escrito: lo importante es tener la factura proforma y la ficha técnica.</Banner>
-          {puedeOperar && (
-            <button onClick={guardarEmbarque} disabled={guardando} className="flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-4 py-2 rounded-lg">
-              {guardando ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Guardar costos del embarque
-            </button>
+          {embarques.length === 0 ? (
+            <p className="text-xs text-slate-600">Todavía no hay embarques. Agrega el primero: los productos marcados arriba entran a él, y si después llega otro envío por separado, agregas otro y cambias sus productos.</p>
+          ) : (
+            <>
+              {sinEmbarque.length > 0 && (
+                <p className="text-xs text-amber-700">{sinEmbarque.length} producto(s) del extranjero sin embarque ({sinEmbarque.map(p => nombreProducto(p.descripcion)).join(', ')}): elige su embarque en el paso 1 para que se le sumen sus costos.</p>
+              )}
+              <div className="space-y-3 bg-slate-50/70 -mx-1 p-1 rounded-xl">
+                {embarques.map(e => <EmbarqueCard key={e.id} e={e} productos={productos} puedeOperar={puedeOperar} enviar={enviar} />)}
+              </div>
+            </>
           )}
         </section>
 
-        {/* PASO 3 */}
-        <section className="bg-white rounded-xl border border-zinc-200 p-4 space-y-2.5">
-          <p className="text-[13px] font-bold text-zinc-800 flex items-center gap-2">
-            <span className="inline-flex w-5 h-5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">3</span>
-            Revisa el costo real de cada producto
-          </p>
+        {/* PASO 3: costo real por producto */}
+        <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
+          <Paso n={3} titulo="Costo real de cada producto" />
           {costoAterrizado ? (
             <div>
-              <p className="text-[12px] text-zinc-500 mb-1.5">A cada unidad se le suman ${Math.round(costoAterrizado.extraPorUnidad).toLocaleString('es-CL')} de los gastos de arriba. «FOB» es lo que cobra el proveedor; la flecha lleva al costo real.</p>
-              <div className="space-y-1">
-                {costoAterrizado.items.filter(it => it.importado).map(it => (
-                  <div key={it.productoId} className="flex items-center justify-between gap-2 bg-zinc-50 rounded-lg px-3 py-2">
-                    <span className="text-[12px] text-zinc-700 truncate">{it.descripcion}</span>
-                    <span className="text-[12px] font-semibold text-zinc-800 flex-shrink-0">FOB {fmtCLP(it.precioUnitarioFob)} → <b>{fmtCLP(it.costoUnitarioAterrizado)}</b></span>
-                  </div>
-                ))}
+              <p className="text-xs text-slate-500 mb-2">A cada unidad se le suma lo que costó traer <b className="font-medium text-slate-700">su</b> embarque, repartido entre las unidades de ese embarque.</p>
+              <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="w-full text-xs min-w-[620px]">
+                  <thead>
+                    <tr className="text-left text-[11px] font-medium text-slate-500 bg-slate-50 border-b border-slate-200">
+                      <th className="px-3 py-2">Producto</th>
+                      <th className="px-2 py-2">Embarque</th>
+                      <th className="px-2 py-2 text-right">Precio proveedor (FOB)</th>
+                      <th className="px-2 py-2 text-right">+ importación c/u</th>
+                      <th className="px-3 py-2 text-right">Costo real c/u</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {costoAterrizado.items.filter(it => it.importado).map(it => (
+                      <tr key={it.productoId}>
+                        <td className="px-3 py-2 text-slate-800">{nombreProducto(it.descripcion)}</td>
+                        <td className="px-2 py-2 text-slate-600">{it.embarqueId != null ? nombreEmbarque.get(it.embarqueId) : <span className="text-amber-700">Sin embarque</span>}</td>
+                        <td className="px-2 py-2 text-right tabular-nums text-slate-500">{fmtCLP(it.precioUnitarioFob)}</td>
+                        <td className="px-2 py-2 text-right tabular-nums text-slate-500">{fmtCLP(Math.round(it.extraPorUnidad))}</td>
+                        <td className="px-3 py-2 text-right tabular-nums font-bold text-slate-900">{fmtCLP(it.costoUnitarioAterrizado)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-slate-50 border-t border-slate-200">
+                      <td className="px-3 py-2 font-medium text-slate-800" colSpan={2}>Costo real total de la compra</td>
+                      <td className="px-2 py-2 text-right tabular-nums text-slate-500">{fmtCLP(costoAterrizado.totalFob)}</td>
+                      <td />
+                      <td className="px-3 py-2 text-right tabular-nums font-bold text-slate-900">{fmtCLP(costoAterrizado.totalAterrizado)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
-              <div className="flex items-center justify-between mt-2 px-1">
-                <span className="text-[13px] font-bold text-zinc-700">Costo real total</span>
-                <span className="text-[16px] font-bold text-zinc-900">{fmtCLP(costoAterrizado.totalAterrizado)}</span>
-              </div>
-              <p className="text-[11.5px] text-zinc-500 px-1">Solo el proveedor cobra {fmtCLP(costoAterrizado.totalFob)}. Esta cifra más alta (no el FOB) es la que se usa para calcular la ganancia del proyecto.</p>
+              {costoAterrizado.costoSinRepartir > 0 && (
+                <p className="mt-1.5 text-xs text-amber-700">{fmtCLP(costoAterrizado.costoSinRepartir)} de embarques sin productos están sumados al total, pero no a ningún producto: asígnales sus productos.</p>
+              )}
+              <p className="mt-1.5 text-[11px] text-slate-500">El total incluye también lo comprado en Chile. Este costo real (no el FOB) es el que se usa para calcular la ganancia del proyecto.</p>
             </div>
           ) : (
-            <p className="text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">Todavía no se puede calcular. Falta elegir un escenario de compra en «Costeo y auditoría» y guardar los costos del paso 2.</p>
+            <p className="text-xs text-amber-700">Todavía no se puede calcular: falta elegir un escenario de compra en «Costeo y auditoría» o anotar los costos de algún embarque.</p>
           )}
         </section>
       </>)}

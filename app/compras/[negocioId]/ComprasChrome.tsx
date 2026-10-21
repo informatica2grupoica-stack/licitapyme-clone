@@ -886,7 +886,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             {faseActiva === 'obuma' && <ObumaHubCard negocioId={negocioId} puedeOperar={puedeOperar} esAdministracion={esAdministracion} />}
             {faseActiva === 'compra' && (
               <Pestanas id="compra" inicial="pasos" pestanas={[
-                { clave: 'pasos', titulo: '1 · Órdenes y facturas', ayuda: 'Aquí emites las órdenes de compra a los proveedores (y creas al proveedor si no está en Obuma) y después marcas el avance de pagos y facturas.',
+                { clave: 'pasos', titulo: '1 · Órdenes y facturas', ayuda: 'Aquí emites las órdenes de compra a los proveedores (y creas al proveedor si no está en Obuma), registras cada pago con su comprobante y ves la factura de cada orden, que llega sola desde Obuma.',
                   badge: resumenFases?.compra.hitosAdminPendientes || null, tono: 'pendiente',
                   contenido: (
                     <div className="space-y-6">
@@ -895,7 +895,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                         <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} parte="oc" />
                       </section>
                       <section className="space-y-2">
-                        <p className="text-[13px] font-bold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">2</span>Marca el avance: pago, factura y carpeta del proyecto</p>
+                        <p className="text-[13px] font-bold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">2</span>Avance: pagos, facturas y proyecto en Obuma</p>
                         <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} parte="hitos" />
                       </section>
                     </div>

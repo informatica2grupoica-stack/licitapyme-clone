@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ivaIncluidoDelTexto, netoDesdeBruto, vigenciaDelTexto, incluyeFleteDelTexto, minimoDeVentaDelTexto, textoLegible, precioONull,
+  ivaIncluidoDelTexto, netoDesdeBruto, vigenciaDelTexto, incluyeFleteDelTexto, minimoDeVentaDelTexto, textoLegible, precioONull, conDescuento,
 } from '../compras-cotizacion-lectura';
 
 test('IVA: incluido, neto y silencio', () => {
@@ -63,4 +63,11 @@ test('1110: pie "IVA INCLUIDO" sobre columnas "Neto un." / "Total Neto" = precio
   const doc = 'Cant. Neto un. Total Neto Valor Oferta ... SUBTOTAL PRODUCTOS $12.262.067 TOTAL NETO $12.262.067 IVA (19%) $2.329.793 VALOR OFERTA ESPECIAL · IVA INCLUIDO $14.591.860';
   assert.equal(ivaIncluidoDelTexto(doc), false);
   assert.equal(ivaIncluidoDelTexto('PRECIOS IVA INCLUIDO Garantia 12 meses'), true);   // sin columna neta sigue valiendo
+});
+
+test('descuento con centavos: VENTUS EC-1214, 250 × $52.597 − 7 % cuadra con el total impreso', () => {
+  const unit = conDescuento(52597, 7, 'unitario');
+  assert.equal(unit, 48915.21);
+  assert.equal(conDescuento(13149250, 7, 'total'), 12228802);
+  assert.ok(Math.abs(unit * 250 - 12228802) < 1, `${unit * 250}`);   // antes: 48.915 × 250 = 12.228.750
 });

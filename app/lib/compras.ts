@@ -31,6 +31,7 @@ import { interpretarPlazoOfertado } from '@/app/lib/compras-reloj-sugerido';
 import { calcularHitosGantt, planificarTarea, type AnclaTarea, type EntradaAnclas, type FaseTarea, type HitosGantt } from '@/app/lib/compras-plan';
 import { emparejarProductos, type ProductoExistente } from '@/app/lib/compras-producto-sync';
 import { decidirNoAdjudicadas, esSubestadoFuera, type DecisionNoAdjudicadas } from '@/app/lib/compras-no-adjudicadas';
+import { listarPagosOc, ocsConFacturas, ocPagada } from '@/app/lib/compras-pagos-oc';
 
 // ── Aritmética de fechas "de pared" (sin reinterpretar zona horaria) ───────────────────────────
 // Se trabaja con Date "flotantes": los componentes de la hora de Chile (que ya vienen como texto de
@@ -2322,25 +2323,21 @@ async function contarHitosAdminPendientes(negocioId: number): Promise<number | n
       [negocioId],
     );
     if (!apr || !String(apr.estado).startsWith('APROBADA')) return null;
+    // Desde el 21-oct-2026 (migration-157) lo pendiente es: el proyecto de Obuma sin vincular y cada
+    // OC sin pago total/saldo registrado. La factura llega sola desde Obuma y la provisión de fondos
+    // se quitó; pago y anticipo únicos por negocio ya no se usan (eran uno para todas las OC).
     const [[r]]: any = await pool.query(
-      `SELECT
-         (oc_emitida_at IS NULL) + (pago_registrado_at IS NULL) + (anticipo_pagado_at IS NULL) +
-         (factura_compra_registrada_at IS NULL) + (carpeta_proyecto_creada_at IS NULL) +
-         (provision_fondos_at IS NULL) AS n
-       FROM compras_reparto_administrativo WHERE negocio_id = ?`,
+      `SELECT carpeta_proyecto_creada_at FROM compras_reparto_administrativo WHERE negocio_id = ?`,
       [negocioId],
     );
-    // BUG REAL (17-sep-2026, prueba en vivo del stepper): un hito marcado "no aplica" queda
-    // registrado en compras_reparto_respaldo, pero su columna `_at` en compras_reparto_administrativo
-    // se queda en NULL para siempre — el conteo de arriba lo contaba como pendiente por más que se
-    // recargara la pantalla. "No aplica" es una resolución tan válida como marcarlo hecho.
+    // "No aplica" es una resolución tan válida como marcarlo hecho (bug real del 17-sep-2026).
     const [[noAplica]]: any = await pool.query(
-      `SELECT COUNT(*) n FROM compras_reparto_respaldo WHERE negocio_id = ? AND estado = 'NO_APLICA'`,
+      `SELECT COUNT(*) n FROM compras_reparto_respaldo WHERE negocio_id = ? AND hito = 'carpetaProyectoCreada' AND estado = 'NO_APLICA'`,
       [negocioId],
     );
-    // Sin fila todavía (nadie tocó el checklist): los 6 hitos están pendientes.
-    const pendientes = r ? Number(r.n) : 6;
-    return Math.max(0, pendientes - Number(noAplica?.n || 0));
+    const carpetaPendiente = !r?.carpeta_proyecto_creada_at && !Number(noAplica?.n) ? 1 : 0;
+    const [ocs, pagos] = await Promise.all([ocsConFacturas(negocioId), listarPagosOc(negocioId)]);
+    return carpetaPendiente + ocs.filter(o => !ocPagada(pagos, o.folio)).length;
   } catch { return null; }
 }
 

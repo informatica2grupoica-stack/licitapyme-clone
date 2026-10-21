@@ -61,13 +61,11 @@ export async function costoRealDeNegocios(
   const importacionDe = new Map<number, number>();
   try {
     const [embRows] = await pool.query(
-      `SELECT negocio_id, flete_internacional, costos_aduana, costo_logistico_local, moneda
-         FROM compras_embarque WHERE negocio_id IN (${ph})`, ids) as any;
-    for (const r of embRows as any[]) {
-      if (String(r.moneda || 'CLP').toUpperCase() !== 'CLP') continue;
-      importacionDe.set(Number(r.negocio_id), num(r.flete_internacional) + num(r.costos_aduana) + num(r.costo_logistico_local));
-    }
-  } catch { /* migration-97 pendiente en un entorno viejo: sin importación, el resto sigue */ }
+      // Desde migration-160 un negocio puede tener varios embarques: se suman todos (compras_embarque quedó sin uso).
+      `SELECT negocio_id, SUM(COALESCE(flete_internacional,0) + COALESCE(costos_aduana,0) + COALESCE(costo_logistico_local,0)) AS total
+         FROM compras_importacion_embarque WHERE negocio_id IN (${ph}) AND UPPER(moneda) = 'CLP' GROUP BY negocio_id`, ids) as any;
+    for (const r of embRows as any[]) importacionDe.set(Number(r.negocio_id), num(r.total));
+  } catch { /* migration-160 pendiente en un entorno viejo: sin importación, el resto sigue */ }
 
   for (const id of ids) {
     const estado = costeoDe.get(id) ?? null;

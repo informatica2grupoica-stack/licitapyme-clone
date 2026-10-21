@@ -250,6 +250,54 @@ export async function definirRetiroProveedor(
   await definirModalidadRetiro(negocioId, resumen, actorId, actorNombre);
 }
 
+// ── Datos del transporte de un proveedor (migration-158, pedido del dueño 21-oct-2026): quién lo trae
+// (nombre y RUT, para su factura o pago), cuánto cobra, desde dónde, hasta dónde y cuándo.
+export interface TransporteRetiro {
+  fleteroId: number | null; nombre: string | null; rut: string | null; telefono: string | null;
+  precio: number | null; precioConIva: boolean; origen: string | null; destino: string | null;
+  fecha: string | null; nota: string | null;
+}
+
+export async function obtenerTransportesRetiro(negocioId: number): Promise<Record<string, TransporteRetiro>> {
+  const [rows] = await pool.query(
+    `SELECT proveedor_nombre, transporte_fletero_id, transporte_nombre, transporte_rut, transporte_telefono, transporte_precio,
+            transporte_precio_con_iva, transporte_origen, transporte_destino, DATE_FORMAT(transporte_fecha, '%Y-%m-%d') AS transporte_fecha, transporte_nota
+       FROM compras_retiro_proveedor WHERE negocio_id = ? AND transporte_nombre IS NOT NULL`,
+    [negocioId],
+  ) as any;
+  const out: Record<string, TransporteRetiro> = {};
+  for (const r of rows as any[]) out[r.proveedor_nombre] = {
+    fleteroId: r.transporte_fletero_id, nombre: r.transporte_nombre, rut: r.transporte_rut, telefono: r.transporte_telefono,
+    precio: r.transporte_precio == null ? null : Number(r.transporte_precio), precioConIva: !!r.transporte_precio_con_iva,
+    origen: r.transporte_origen, destino: r.transporte_destino, fecha: r.transporte_fecha, nota: r.transporte_nota,
+  };
+  return out;
+}
+
+export async function guardarTransporteRetiro(
+  negocioId: number, proveedorNombre: string, t: TransporteRetiro, actorId: number, actorNombre: string | null,
+): Promise<void> {
+  if (!t.nombre?.trim()) throw new Error('Falta el nombre del transporte.');
+  if (t.fecha && !/^\d{4}-\d{2}-\d{2}$/.test(t.fecha)) throw new Error('La fecha del retiro no es válida.');
+  const [r] = await pool.query(
+    `UPDATE compras_retiro_proveedor SET transporte_fletero_id = ?, transporte_nombre = ?, transporte_rut = ?, transporte_telefono = ?,
+            transporte_precio = ?, transporte_precio_con_iva = ?, transporte_origen = ?, transporte_destino = ?, transporte_fecha = ?,
+            transporte_nota = ?, por_nombre = ?, updated_at = ?
+      WHERE negocio_id = ? AND proveedor_nombre = ? AND modalidad = 'EXTERNA'`,
+    [t.fleteroId || null, t.nombre.trim().slice(0, 300), t.rut?.trim() || null, t.telefono?.trim() || null,
+      t.precio != null && t.precio > 0 ? Math.round(t.precio) : null, t.precioConIva ? 1 : 0,
+      t.origen?.trim() || null, t.destino?.trim() || null, t.fecha || null, t.nota?.trim() || null,
+      actorNombre, ahoraChileSQL(), negocioId, proveedorNombre],
+  ) as any;
+  if (!r?.affectedRows) throw new Error('Primero marca que este proveedor lo trae un transporte.');
+  const [negRows] = await pool.query(`SELECT licitacion_codigo FROM compras_asignacion WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
+  await registrarEvento({
+    tipo: 'COMPRAS_TRANSPORTE_RETIRO', licitacionCodigo: (negRows as any[])[0]?.licitacion_codigo ?? null, actorId, actorNombre,
+    mensaje: `Transporte de ${proveedorNombre}: ${t.nombre.trim()}${t.precio ? ` por $${Math.round(t.precio).toLocaleString('es-CL')}` : ''}${t.origen || t.destino ? ` (${t.origen || '?'} → ${t.destino || '?'})` : ''}.`,
+    metadata: { negocio_id: negocioId, proveedor: proveedorNombre, transporte: t },
+  });
+}
+
 /** "La define el humano; el sistema propone, no decide" (§13.2) — por eso no hay ningún cálculo
  *  automático acá, solo el registro de la decisión humana. */
 export async function definirModalidadRetiro(
