@@ -10,6 +10,7 @@ import { Banner } from '@/app/components/ui/Banner';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { TablaAprobacionCompra } from './TablaAprobacionCompra';
 import { DetalleCompuerta } from './DetalleCompuerta';
+import { CargarCompraAlCosteo } from './ArmarCompra';
 import { IconShieldCheck as ShieldCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconEdit as Edit3, IconAlertTriangle as AlertTriangle, IconTag as Tag, IconPlus as Plus, IconX as X, IconBolt as Zap } from '@tabler/icons-react';
 
 type Estado = 'PENDIENTE' | 'APROBADA' | 'APROBADA_CON_MODIFICACION' | 'RECHAZADA';
@@ -644,6 +645,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
           ) : <span>Sin datos suficientes para calcular margen todavía.</span>}
         />
       </div>
+      {compra && <CargarCompraAlCosteo negocioId={negocioId} costoTotal={escenarioElegidoActual?.costoTotal ?? null} refresco={`${compra.estado}|${compra.propuestoAt}`} puedeOperar={puedeOperar} onCargado={cargar} />}
       {!compra && !margen && (
         <p className="text-[10.5px] text-zinc-400 px-0.5">
           El control de gasto compara automáticamente lo costeado al ofertar y el margen mínimo (20%) contra lo que de verdad se va a comprar — la orden de compra en Obuma no se habilita hasta que ambos hitos queden aprobados.

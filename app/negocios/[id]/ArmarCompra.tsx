@@ -4,7 +4,7 @@
 //   1. Recomendadas: pocas (todo a un proveedor, más barata, más rápida, equilibrada), cada una con su razón; «Usar esta» las marca en la matriz.
 //   2. Tu compra: lo que vas eligiendo en la matriz, con su costo, plazo, viajes y avisos; «Elegir esta compra» la deja para aprobación.
 //   3. Compra elegida → costeo: la compra elegida se carga al costeo («Costo unit. REAL» de cada línea) con un clic y a la vista.
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { ModalCombinacion, type Comb, type ItemComb } from './CombinacionesCompra';
 import { IconCircleCheck as CheckCircle2, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconTruck as Truck, IconClock as Clock, IconUsers as Users, IconArrowRight as Arrow, IconScale as Scale } from '@tabler/icons-react';
@@ -31,8 +31,6 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
   const toast = useToast();
   const [just, setJust] = useState('');
   const [eligiendo, setEligiendo] = useState(false);
-  const [plan, setPlan] = useState<{ hayCompraElegida: boolean; lineas: LineaTraslado[]; aviso: string | null } | null>(null);
-  const [cargando, setCargando] = useState(false);
   const [abierta, setAbierta] = useState<string | null>(null);   // clave de la recomendada cuyo detalle está abierto
   // Compras rápidas (tienda, sin cotización ni ficha) del negocio: «Tu compra» las marca «Ya comprada» o «Por comprar» y con su estado de aprobación.
   const [rapidas, setRapidas] = useState<Record<number, { estado: 'PENDIENTE' | 'APROBADA' | 'RECHAZADA'; yaComprada: boolean }>>({});
@@ -50,15 +48,6 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
   const esMasRapida = !!comb && comb.etiquetas.includes('MAS_RAPIDO');
   const n = Object.keys(compra).length;
 
-  const cargarPlan = useCallback(async () => {
-    try {
-      const r = await fetch(`/api/compras/${negocioId}/costeo-compra`);
-      const d = await r.json();
-      if (d.success) setPlan({ hayCompraElegida: d.hayCompraElegida, lineas: d.lineas || [], aviso: d.aviso ?? null });
-    } catch { /* sin plan: el panel no se muestra */ }
-  }, [negocioId]);
-  useEffect(() => { if (elegida) cargarPlan(); else setPlan(null); }, [elegida?.clave, cargarPlan]);   // eslint-disable-line react-hooks/exhaustive-deps
-
   const elegir = async (seleccion: Record<number, number> = compra, justificacion: string | null = esMasRapida ? null : just.trim()) => {
     setEligiendo(true);
     try {
@@ -71,18 +60,6 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
       setJust('');
       await onElegida();
     } catch (e: any) { toast.error('No se pudo elegir la compra', e.message); } finally { setEligiendo(false); }
-  };
-
-  const cargarAlCosteo = async () => {
-    setCargando(true);
-    try {
-      const res = await fetch(`/api/compras/${negocioId}/costeo-compra`, { method: 'POST' });
-      const d = await res.json();
-      if (!res.ok || !d.success) throw new Error(d.error || 'No se pudo cargar');
-      setPlan({ hayCompraElegida: d.hayCompraElegida, lineas: d.lineas || [], aviso: d.aviso ?? null });
-      toast.success('Cargado al costeo', `${d.cargadas} línea(s) con su costo real y respaldo.`);
-      await onElegida();
-    } catch (e: any) { toast.error('No se pudo cargar al costeo', e.message); } finally { setCargando(false); }
   };
 
   return (
@@ -201,12 +178,48 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
         )}
       </div>
 
-      {elegida && plan && plan.hayCompraElegida && (
+      {elegida && <CargarCompraAlCosteo negocioId={negocioId} proveedores={elegida.proveedores} costoTotal={elegida.costoTotal} refresco={elegida.clave} puedeOperar={puedeOperar} onCargado={onElegida} />}
+    </div>
+  );
+}
+
+// «Cargarla al costeo»: se usa en el paso 3 de Cotizaciones y también en «Aprobación y SKU», que es donde
+// queda el encargado después de pedir la aprobación (pedido 21-oct-2026, negocio 609).
+export function CargarCompraAlCosteo({ negocioId, proveedores, costoTotal, refresco, puedeOperar, onCargado }: {
+  negocioId: number; proveedores?: string[]; costoTotal?: number | null; refresco?: string; puedeOperar: boolean; onCargado?: () => Promise<void> | void;
+}) {
+  const toast = useToast();
+  const [plan, setPlan] = useState<{ hayCompraElegida: boolean; lineas: LineaTraslado[]; aviso: string | null } | null>(null);
+  const [cargando, setCargando] = useState(false);
+
+  useEffect(() => {
+    let vivo = true;
+    fetch(`/api/compras/${negocioId}/costeo-compra`).then(r => r.json()).then(d => {
+      if (vivo && d.success) setPlan({ hayCompraElegida: d.hayCompraElegida, lineas: d.lineas || [], aviso: d.aviso ?? null });
+    }).catch(() => { /* sin plan: el panel no se muestra */ });
+    return () => { vivo = false; };
+  }, [negocioId, refresco]);
+
+  const cargarAlCosteo = async () => {
+    setCargando(true);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/costeo-compra`, { method: 'POST' });
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'No se pudo cargar');
+      setPlan({ hayCompraElegida: d.hayCompraElegida, lineas: d.lineas || [], aviso: d.aviso ?? null });
+      toast.success('Cargado al costeo', `${d.cargadas} línea(s) con su costo real y respaldo.`);
+      await onCargado?.();
+    } catch (e: any) { toast.error('No se pudo cargar al costeo', e.message); } finally { setCargando(false); }
+  };
+
+  if (!plan || !plan.hayCompraElegida) return null;
+  const nombres = proveedores ?? [...new Set(plan.lineas.map(l => l.proveedor))];
+  return (
         <div className="bg-white rounded-xl border border-zinc-200 p-3.5 space-y-2">
           <div className="flex items-start gap-2">
             <Scale size={16} className="text-zinc-400 mt-0.5" />
             <div>
-              <p className="text-[14px] font-bold text-zinc-900">Compra elegida: {elegida.proveedores.join(' + ')} · {clp(elegida.costoTotal)}</p>
+              <p className="text-[14px] font-bold text-zinc-900">Compra elegida{nombres.length > 0 && `: ${nombres.join(' + ')}`}{costoTotal != null && ` · ${clp(costoTotal)}`}</p>
               <p className="text-[12.5px] font-semibold text-zinc-700">Cargarla al costeo</p>
               <p className="text-[12.5px] text-zinc-500">Pone el costo neto de cada proveedor elegido en «Costo unit. REAL» del costeo, con su cotización como respaldo. No toca nada más del costeo. El flete no se carga aquí: va como gasto extra.</p>
             </div>
@@ -242,8 +255,6 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
             </button>
           )}
         </div>
-      )}
-    </div>
   );
 }
 
