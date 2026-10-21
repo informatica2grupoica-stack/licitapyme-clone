@@ -7,6 +7,7 @@ import pool from '@/app/lib/db';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { armarRelojAutomatico, obtenerAsignacion, listarTareas, candidatosEncargado, crearTareasCatalogoSiCorresponde, obtenerResumenFases, obtenerHitosGantt } from '@/app/lib/compras';
 import { ordenesDeLicitacion } from '@/app/lib/ordenes-compra';
+import { facturacionActaGuardada } from '@/app/lib/acta-adjudicacion';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -74,7 +75,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     // El reloj de entrega se arma solo cuando ya hay inicio real del plazo (no pisa uno ya fijado).
     await armarRelojAutomatico(id);
 
-    const [tareas, hitosGantt, candidatos, negRows, ordenes] = await Promise.all([
+    const [tareas, hitosGantt, candidatos, negRows, ordenes, facturacionActa] = await Promise.all([
       listarTareas(id),
       obtenerHitosGantt(id),
       candidatosEncargado(),
@@ -82,6 +83,8 @@ export async function GET(request: NextRequest, { params }: Params) {
       // La orden de compra ya vive en `ordenes_compra` con su link al portal y su PDF descargado.
       // Se manda lo justo para pintarla: el resto de la ficha ya viene en `asignacion.ordenCompra`.
       ordenesDeLicitacion(asignacion.licitacionCodigo, asignacion.ordenCompra?.codigoMp).catch(() => []),
+      // Datos para facturar desde el acta: existen desde la adjudicación, antes de que llegue la OC.
+      facturacionActaGuardada(asignacion.licitacionCodigo),
     ]);
     const neg = (negRows[0] as any[])[0] || {};
     const ocNuestra = (ordenes as any[]).find(o => o.esNuestra) || null;
@@ -106,6 +109,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       ordenCompraMp: ocNuestra ? {
         codigo: ocNuestra.codigo, estado: ocNuestra.estado, url: ocNuestra.url, pdfUrl: ocNuestra.pdfUrl, facturacion: ocNuestra.facturacion ?? null,
       } : null,
+      facturacionActa,
     });
   } catch (error: any) {
     console.error('[compras/[negocioId]][GET]', String(error));

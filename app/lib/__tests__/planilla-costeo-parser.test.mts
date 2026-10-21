@@ -865,4 +865,5 @@ test('Excel por línea: celdas multilínea + título del lote en la fila del pri
   assert.equal(r!.items.length, 9);
   assert.deepEqual(r!.items.filter(i => i.linea === 2).map(i => [i.descripcion, i.cantidad]), [['CORTINAS BLACK OUT', 120]]);
   assert.deepEqual(r!.items.filter(i => i.linea === 1).map(i => i.numero), [1, 2, 3, 4]);
+  assert.ok(r!.items.every(i => i.cantidad != null && i.cantidad > 0), 'toda fila trae su cantidad');
 });

@@ -70,7 +70,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   const toast = useToast();
   const flot = useCosteoFlotante();
   const {
-    loading, error, asignacion, tareas, hitosGantt, candidatos, resumenFases, licitacionNombre, licitacionOrganismo, licitacionCodigoActual, ocMp,
+    loading, error, asignacion, tareas, hitosGantt, candidatos, resumenFases, licitacionNombre, licitacionOrganismo, licitacionCodigoActual, ocMp, facturacionActa,
     recargar, puedeOperar, esJefeDeVentas, esAdministracion, esBodega, esAdmin,
   } = useCompras();
 
@@ -545,8 +545,9 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
               )}
 
               {/* Datos del proyecto: una sola tarjeta con columnas etiqueta/valor (antes 4 cajas de colores distintos). */}
-              <div className="rounded-xl border border-zinc-200 divide-y divide-zinc-100 sm:divide-y-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:divide-x">
+              <div className="rounded-xl border border-zinc-200 divide-y divide-zinc-100 sm:divide-y-0 sm:grid sm:grid-cols-2 lg:grid-cols-5 sm:divide-x">
                 {([
+                  { icono: <Building2 size={13} />, etiqueta: 'Empresa adjudicada', valor: r.empresaNombre || '—', extra: r.empresaRut ? `RUT ${r.empresaRut}` : null },
                   { icono: <UserPlus size={13} />, etiqueta: 'Asistente comercial', valor: r.responsableNombre || '—', extra: null },
                   { icono: <Wallet size={13} />, etiqueta: 'Presupuesto del proyecto', valor: r.presupuestoProyecto != null ? fmtCLP(r.presupuestoProyecto) : '—', extra: r.presupuestoProyecto != null ? `neto · ${fmtCLP(Math.round(r.presupuestoProyecto * 1.19))} con IVA` : null },
                   { icono: <CalendarTime size={13} />, etiqueta: 'Plazo de entrega ofertado', valor: r.plazoEntregaOfertado || '—', extra: null },
@@ -579,9 +580,12 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                 <div className="rounded-xl border border-zinc-200 overflow-hidden">
                   <div className="px-4 py-3 bg-zinc-50/70 border-b border-zinc-100">
                     <p className="text-[12.5px] font-bold text-zinc-800 flex items-center gap-1.5"><Building2 size={14} className="text-zinc-400" /> Contactos del cliente</p>
-                    <p className="text-[12.5px] text-zinc-600 mt-0.5">{[r.contactosCliente.organismo, r.contactosCliente.unidad].filter(Boolean).join(' · ')}</p>
-                    {[r.contactosCliente.direccion, r.contactosCliente.comuna].filter(Boolean).length > 0 && (
-                      <p className="text-[11.5px] text-zinc-400">{[r.contactosCliente.direccion, r.contactosCliente.comuna].filter(Boolean).join(', ')}</p>
+                    <p className="text-[12.5px] text-zinc-600 mt-0.5">
+                      {[r.contactosCliente.organismo, r.contactosCliente.unidad].filter(Boolean).join(' · ')}
+                      {(r.contactosCliente.rut || facturacionActa?.rut) && <span className="text-zinc-500"> · RUT {r.contactosCliente.rut || facturacionActa?.rut}</span>}
+                    </p>
+                    {[r.contactosCliente.direccion, r.contactosCliente.comuna, r.contactosCliente.region].filter(Boolean).length > 0 && (
+                      <p className="text-[11.5px] text-zinc-400">{[r.contactosCliente.direccion, r.contactosCliente.comuna, r.contactosCliente.region].filter(Boolean).join(', ')}</p>
                     )}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 sm:divide-x divide-y sm:divide-y-0 divide-zinc-100">
@@ -679,19 +683,43 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
           )}
         </div>
 
-        {ocMp?.facturacion ? (() => {
-          const f = ocMp.facturacion!;
+        {(() => {
+          // Manda la adjudicación (acta "Organismo Demandante" + contactos del resumen), que existe
+          // desde que se gana. La OC no reemplaza nada: solo completa lo que falte (giro, forma de
+          // pago, despacho…). Pedido del usuario, 21-oct-2026.
+          const cc = asignacion?.resumen?.contactosCliente ?? null;
+          const fa = facturacionActa;
+          const f = ocMp?.facturacion ?? null;
+          if (!fa?.razonSocial && !fa?.rut && !cc && !f) return <div className="hidden lg:block" />;
+          const unir = (...xs: Array<string | null | undefined>) => xs.filter(Boolean).join(', ') || null;
           const filas: Array<[string, string | null]> = [
-            ['Razón social', f.razonSocial], ['RUT', f.rut], ['Giro', f.giro],
-            ['Dirección', [f.direccion, f.comuna, f.region].filter(Boolean).join(', ') || null],
-            ['Contacto', [f.contactoNombre, f.contactoCargo].filter(Boolean).join(' — ') || null],
-            ['Teléfono', f.contactoFono], ['Correo', f.contactoMail],
-            ['Forma de pago', f.formaPago], ['Despacho', f.direccionDespacho],
+            ['Razón social', fa?.razonSocial || cc?.organismo || f?.razonSocial || null],
+            ['RUT', fa?.rut || cc?.rut || f?.rut || null],
+            ['Giro', f?.giro ?? null],
+            ['Unidad', fa?.unidad || cc?.unidad || null],
+            ['Dirección', unir(fa?.direccion || cc?.direccion, fa?.comuna || cc?.comuna, fa?.ciudad || cc?.region)
+              || unir(f?.direccion, f?.comuna, f?.region)],
+            ['Contacto', [cc?.usuarioNombre, cc?.usuarioCargo].filter(Boolean).join(' — ')
+              || [f?.contactoNombre, f?.contactoCargo].filter(Boolean).join(' — ') || null],
+            ['Teléfono', cc?.usuarioTelefono || f?.contactoFono || null],
+            ['Correo', cc?.usuarioEmail || f?.contactoMail || null],
+            ['Forma de pago', f?.formaPago ?? null],
+            ['Despacho', f?.direccionDespacho ?? null],
           ];
+          const origen = f ? 'según la adjudicación, completado con la OC' : 'según la adjudicación';
+          const rutPlano = (x: string | null | undefined) => (x || '').replace(/[^\dkK]/g, '').toUpperCase();
+          const rutMostrado = filas.find(([k]) => k === 'RUT')?.[1];
+          const otroTitular = fa?.facturaRut && rutPlano(fa.facturaRut) !== rutPlano(rutMostrado) ? fa : null;
           return (
-            <div className="px-4 py-3">
+            <div className="px-4 py-3 space-y-2">
+              {otroTitular && (
+                <Banner variante="warning">
+                  <span className="font-semibold">La factura va a nombre de {otroTitular.facturaANombre}, RUT {otroTitular.facturaRut}</span>, no del comprador. Lo dice la resolución de adjudicación.
+                  {otroTitular.facturaCita && <span className="block mt-0.5 text-[11px] italic">“{otroTitular.facturaCita}…”</span>}
+                </Banner>
+              )}
               <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 px-3 py-2.5">
-                <p className="text-[11px] font-bold text-zinc-500 uppercase mb-1.5">Datos para facturar (según la OC)</p>
+                <p className="text-[11px] font-bold text-zinc-500 uppercase mb-1.5">Datos para facturar ({origen})</p>
                 <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
                   {filas.filter(([, v]) => v).map(([k, v]) => (
                     <div key={k} className="flex gap-2 text-[12px] min-w-0">
@@ -703,7 +731,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
               </div>
             </div>
           );
-        })() : <div className="hidden lg:block" />}
+        })()}
         </div>
 
         {oc.difiere && (

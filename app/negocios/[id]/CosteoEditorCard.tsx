@@ -957,6 +957,9 @@ export function CosteoEditorCard({
   const [recargando, setRecargando] = useState(false);
   const [estado, setEstado] = useState<EstadoEditor | null>(estadoHeredado?.estado ?? null);
   const [guardado, setGuardado] = useState<EstadoEditor | null>(estadoHeredado ? estadoHeredado.guardado : null); // última versión persistida — para detectar cambios sin guardar
+  // Marca del guardado sobre el que se está trabajando (undefined = desconocida, no se controla).
+  // El servidor rechaza el guardado si en la BD hay una más nueva: otra pestaña o persona guardó.
+  const [baseActualizadoAt, setBaseActualizadoAt] = useState<string | null | undefined>(estadoHeredado?.base);
   const [sinViabilidad, setSinViabilidad] = useState(false);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
   // Perfil de Compras: el costeo viene bloqueado (congelado) salvo Costo REAL, Links y filas nuevas.
@@ -1050,6 +1053,7 @@ export function CosteoEditorCard({
       if (d.estado && !estadoHeredado) {
         setEstado(d.estado);
         setGuardado(d.sinGuardar ? null : d.estado);
+        setBaseActualizadoAt(d.actualizadoAt ?? null);
       }
     } catch { /* silencioso: no bloquear la pestaña por el costeo */ }
     finally { setCargando(false); }
@@ -1180,8 +1184,8 @@ export function CosteoEditorCard({
   // ("Burbuja flotante" chico + "Pantalla completa" local, sin capacidad de minimizar): ahora es
   // uno solo, siempre grande, y desde ahí "Minimizar" manda a la burbuja cuando haga falta.
   const abrirCosteoGrande = useCallback(() => {
-    flot.abrir(negocioId, licitacionCodigo, estado ? { estado, guardado } : undefined);
-  }, [flot, negocioId, licitacionCodigo, estado, guardado]);
+    flot.abrir(negocioId, licitacionCodigo, estado ? { estado, guardado, base: baseActualizadoAt } : undefined);
+  }, [flot, negocioId, licitacionCodigo, estado, guardado, baseActualizadoAt]);
 
   const actualizarFila = (gi: number, fi: number, patch: Partial<FilaEditor>) => {
     setEstado(prev => {
@@ -1365,10 +1369,15 @@ export function CosteoEditorCard({
     try {
       const r = await fetch(`/api/negocios/${negocioId}/comercial/costeo-editor`, {
         method: modoCompras ? 'PATCH' : 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(estado),
+        body: JSON.stringify(baseActualizadoAt === undefined ? estado : { ...estado, baseActualizadoAt }),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) { toast.error(d.error || 'No se pudo guardar el costeo'); return false; }
+      if (!r.ok) {
+        if (d.conflicto) toast.error('No se guardó: esta pantalla tiene una copia vieja', d.error);
+        else toast.error(d.error || 'No se pudo guardar el costeo');
+        return false;
+      }
+      if (d.actualizadoAt !== undefined) setBaseActualizadoAt(d.actualizadoAt);
       if (modoCompras) {
         // El servidor devuelve el estado ya fusionado (lo ajeno intacto): es la fuente de verdad.
         window.dispatchEvent(new CustomEvent('costeo-guardado', { detail: { negocioId } }));

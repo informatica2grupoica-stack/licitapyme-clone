@@ -101,6 +101,11 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
   // El visor de Office descarga el archivo desde los servidores de Microsoft, así
   // que necesita la URL pública directa (no el proxy local).
   const officeSrc = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(doc.url)}`;
+  // El visor de Microsoft muestra el Excel con su formato (colores, bordes, anchos); el VisorExcel
+  // propio es solo una tabla plana. Se usa el propio únicamente cuando Microsoft no puede llegar al
+  // archivo (no es una URL pública: localhost, ruta relativa).
+  const excelSinVisorOffice = ['xls', 'xlsx'].includes(extDe(doc.nombre, doc.url))
+    && !/^https:\/\/(?!localhost|127\.|\[::1\])[^/]+\//i.test(doc.url);
 
   // createPortal a body: los contenedores con animación .fade-in (fill-mode both) dejan
   // un transform residual que crea un containing block y confinaba este `fixed` al área
@@ -169,9 +174,9 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
             </div>
           )}
 
-          {tipo === 'office' && ['xls', 'xlsx'].includes(extDe(doc.nombre, doc.url)) && <VisorExcel url={doc.url} />}
+          {tipo === 'office' && excelSinVisorOffice && <VisorExcel url={doc.url} />}
 
-          {tipo === 'office' && !['xls', 'xlsx'].includes(extDe(doc.nombre, doc.url)) && (
+          {tipo === 'office' && !excelSinVisorOffice && (
             <iframe
               src={officeSrc}
               title={doc.nombre}

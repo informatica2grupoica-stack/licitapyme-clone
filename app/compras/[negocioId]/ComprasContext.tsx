@@ -14,6 +14,7 @@ import type { FaseTarea, HitosGantt } from '@/app/lib/compras-plan';
 export interface ResumenCompras {
   licitacionNombre: string | null; organismo: string | null;
   responsableNombre: string | null;
+  empresaNombre?: string | null; empresaRut?: string | null;
   montoNuestro: number | null; montoOfertado: number | null;
   presupuestoProyecto: number | null; fechaCierreLicitacion: string | null;
   plazoEntregaOfertado: string | null; hitoInicioPlazo: string | null;
@@ -21,6 +22,7 @@ export interface ResumenCompras {
   existeCosteo: boolean; montoCosteado: number | null; margenPrevisto: number | null;
   contactosCliente: {
     organismo: string | null; unidad: string | null; direccion: string | null; comuna: string | null;
+    region?: string | null; rut?: string | null;
     usuarioNombre: string | null; usuarioCargo: string | null;
     usuarioTelefono?: string | null; usuarioEmail?: string | null;
     responsableContratoNombre?: string | null; responsableContratoEmail?: string | null; responsableContratoFono?: string | null;
@@ -42,6 +44,12 @@ export interface FacturacionOC {
   formaPago: string | null; direccionDespacho: string | null;
 }
 export interface OrdenCompraMp { codigo: string; estado: string | null; url: string | null; pdfUrl: string | null; facturacion?: FacturacionOC | null }
+/** Bloque "Organismo Demandante" del acta + a nombre de quién manda facturar la resolución (acta-adjudicacion.ts). */
+export interface FacturacionActa {
+  razonSocial: string | null; unidad: string | null; rut: string | null;
+  direccion: string | null; comuna: string | null; ciudad: string | null;
+  facturaANombre: string | null; facturaRut: string | null; facturaCita: string | null;
+}
 
 export interface Asignacion {
   negocioId: number; licitacionCodigo: string; ganadoAt: string; vencimientoAsignacionAt: string;
@@ -92,6 +100,7 @@ interface ComprasContextValue {
   licitacionOrganismo: string | null;
   licitacionCodigoActual: string | null;
   ocMp: OrdenCompraMp | null;
+  facturacionActa: FacturacionActa | null;
   recargar: () => Promise<void>;
   puedeOperar: boolean;
   esJefeDeVentas: boolean;
@@ -115,6 +124,7 @@ export function ComprasProvider({ negocioId, children }: { negocioId: number; ch
   const [licitacionOrganismo, setLicitacionOrganismo] = useState<string | null>(null);
   const [licitacionCodigoActual, setLicitacionCodigoActual] = useState<string | null>(null);
   const [ocMp, setOcMp] = useState<OrdenCompraMp | null>(null);
+  const [facturacionActa, setFacturacionActa] = useState<FacturacionActa | null>(null);
 
   const recargar = useCallback(async () => {
     try {
@@ -130,6 +140,7 @@ export function ComprasProvider({ negocioId, children }: { negocioId: number; ch
       setLicitacionOrganismo(data.licitacionOrganismo);
       setLicitacionCodigoActual(data.licitacionCodigoActual ?? null);
       setOcMp(data.ordenCompraMp || null);
+      setFacturacionActa(data.facturacionActa || null);
       setError(null);
     } catch (e: any) {
       setError(e.message);
@@ -155,7 +166,7 @@ export function ComprasProvider({ negocioId, children }: { negocioId: number; ch
   return (
     <Ctx.Provider value={{
       negocioId, loading, error, asignacion, tareas, hitosGantt, candidatos, resumenFases,
-      licitacionNombre, licitacionOrganismo, licitacionCodigoActual, ocMp, recargar,
+      licitacionNombre, licitacionOrganismo, licitacionCodigoActual, ocMp, facturacionActa, recargar,
       puedeOperar, esJefeDeVentas, esAdministracion, esBodega, esAdmin,
     }}>
       {children}

@@ -88,6 +88,29 @@ async function estadoGuardado(negocioId: number): Promise<EstadoCosteoEditor | n
   } catch { return null; }
 }
 
+// GUARDADO SOBRE UNA COPIA VIEJA (21-oct-2026, 2711-19-LP26): una pestaña abierta desde antes de
+// otro guardado mandaba su copia entera y pisaba lo nuevo sin aviso (volvían filas borradas y se
+// perdían cantidades). El editor manda la marca `actualizado_at` con la que cargó; si en la BD hay
+// otra, alguien guardó entremedio y se rechaza. Sin la marca (cliente viejo) se guarda como antes.
+async function marcaGuardado(negocioId: number): Promise<{ at: string | null; por: string | null }> {
+  const [rows] = await pool.query(
+    `SELECT DATE_FORMAT(actualizado_at, '%Y-%m-%d %H:%i:%s') AS at, actualizado_por_nombre AS por
+       FROM negocio_costeo_editor WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
+  const row = (rows as any[])[0];
+  return { at: row?.at ?? null, por: row?.por ?? null };
+}
+
+async function conflictoDeVersion(negocioId: number, body: any): Promise<NextResponse | null> {
+  if (!body || !('baseActualizadoAt' in body)) return null;
+  const actual = await marcaGuardado(negocioId);
+  if ((body.baseActualizadoAt ?? null) === actual.at) return null;
+  const hora = actual.at ? actual.at.slice(11, 16) : '';
+  return NextResponse.json({
+    error: `${actual.por || 'Otra persona'} guardó este costeo${hora ? ` a las ${hora}` : ''}, después de que abriste esta pantalla. Recarga para ver su versión antes de guardar: si guardas ahora, borrarías sus cambios.`,
+    conflicto: true,
+  }, { status: 409 });
+}
+
 // REGISTRO DE CAMBIOS del costeo (apartado propio en el editor, fuera de las tablas): cada guardado
 // queda en checklist_comercial_costeo (quién, cuándo, totales) y el detalle de qué cambió, en un
 // evento COSTEO_GUARDADO del historial con la misma versión. Se suman los cambios del perfil de
@@ -227,6 +250,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     return NextResponse.json({
       success: true, estado, sinGuardar, agregados, reclasificados, presupuestoPublicado, presupuestosPorLinea,
+      actualizadoAt: (await marcaGuardado(negocio.id)).at,
       sinViabilidad: !guardado && !desdeViab,
       // congelado = el editor deshabilita todos los campos: así el perfil de Compras lo ve sin poder tocarlo.
       congelado: soloLectura || await yaCongelado(negocio.id, rol),
@@ -259,13 +283,16 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     const guardado = await estadoGuardado(negocio.id);
     if (!guardado) return NextResponse.json({ error: 'Este negocio aún no tiene un costeo guardado por el equipo de licitaciones.' }, { status: 409 });
     const body = await request.json().catch(() => ({}));
+    const conflicto = await conflictoDeVersion(negocio.id, body);
+    if (conflicto) return conflicto;
     const r = fusionarEdicionCompras(guardado, body);
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
 
     const nombreActor = request.headers.get('x-user-nombre') || (await nombreDe(userId)) || 'Usuario';
+    const ahora = ahoraChileSQL();
     await pool.query(
       `UPDATE negocio_costeo_editor SET datos_json = ?, actualizado_por = ?, actualizado_por_nombre = ?, actualizado_at = ? WHERE negocio_id = ?`,
-      [JSON.stringify(r.estado), userId, nombreActor, ahoraChileSQL(), negocio.id],
+      [JSON.stringify(r.estado), userId, nombreActor, ahora, negocio.id],
     );
     // Bitácora: quién cargó qué costo o agregó qué gasto, y cuándo — el resto del módulo ya lo
     // hace en cada mutación y este guardado era el único que no dejaba huella (§18).
@@ -284,7 +311,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       return sincronizarProductosConCosteo(negocio.id);
     }).catch(e => console.error('[comercial/costeo-editor][PATCH] no se pudo sincronizar Productos y cobertura (no crítico):', String(e).slice(0, 150)));
     publicarCambio('compras'); // el costo real consolidado y el dashboard de Compras se actualizan solos
-    return NextResponse.json({ success: true, estado: r.estado });
+    return NextResponse.json({ success: true, estado: r.estado, actualizadoAt: ahora });
   } catch (error) {
     console.error('[comercial/costeo-editor][PATCH]', String(error));
     return NextResponse.json({ error: String(error) }, { status: 500 });
@@ -307,6 +334,8 @@ export async function PUT(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
 
     const body = await request.json().catch(() => ({}));
+    const conflicto = await conflictoDeVersion(negocio.id, body);
+    if (conflicto) return conflicto;
     const margenVenta = Number(body.margenVenta);
     const estado: EstadoCosteoEditor = {
       modalidad: body.modalidad === 'por_linea' || body.modalidad === 'por_categoria' ? body.modalidad : 'suma_alzada',
@@ -370,7 +399,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
     }).catch(e => console.error('[comercial/costeo-editor] no se pudo sincronizar Productos y cobertura (no crítico):', String(e).slice(0, 150)));
 
     publicarCambio('compras'); // idem: el admin también carga costo real desde acá
-    return NextResponse.json({ success: true, version, alertas, totales });
+    return NextResponse.json({ success: true, version, alertas, totales, actualizadoAt: ahora });
   } catch (error) {
     console.error('[comercial/costeo-editor][PUT]', String(error));
     return NextResponse.json({ error: String(error) }, { status: 500 });

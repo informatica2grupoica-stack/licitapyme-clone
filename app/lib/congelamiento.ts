@@ -17,6 +17,7 @@ export interface PaqueteTraspaso {
   contactosCliente: {
     organismo: string | null; unidad: string | null; direccion: string | null;
     comuna: string | null; region: string | null; usuarioNombre: string | null; usuarioCargo: string | null;
+    rut?: string | null;   // RUT del organismo comprador (opcional: paquetes anteriores a oct-2026 no lo tienen)
     // §4.2 campo 11 pide "nombre, teléfono, correo, TODO dato disponible", y §17.3 pide capturar el
     // contacto de PAGOS (que "nunca es la misma persona que la contraparte técnica"). La ficha de MP
     // trae los dos y no se estaban leyendo. Opcionales: los paquetes congelados antes de sep-2026 no
@@ -188,6 +189,7 @@ export async function obtenerContactosCliente(
       const contactos: NonNullable<PaqueteTraspaso['contactosCliente']> = {
         organismo: dato(c.NombreOrganismo ?? c.Organismo),
         unidad: dato(c.NombreUnidad),
+        rut: dato(c.RutUnidad ?? c.RutOrganismo),
         direccion: dato(c.DireccionUnidad),
         comuna: dato(c.ComunaUnidad),
         region: dato(c.RegionUnidad ?? c.Region),

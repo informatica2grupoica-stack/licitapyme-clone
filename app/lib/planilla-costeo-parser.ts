@@ -1581,7 +1581,10 @@ function parsearDoc(doc: DocTexto): PlanillaParseResult | null {
   const unidas = reunirCeldasMultilinea(crudas);
   if (unidas.length === crudas.length) return tal;
   const conUnion = parsearDocLineas(doc, unidas);
-  return conUnion && conUnion.items.length > (tal?.items.length ?? 0) ? conUnion : tal;
+  // Gana la lectura con más ítems CON cantidad: sin unir, la fila puede salir igual pero con la
+  // cantidad perdida en el pedazo de abajo (2711-19-LP26, líneas 5-11: 70 ítems en ambas lecturas).
+  const puntaje = (r: PlanillaParseResult | null) => r ? r.items.filter(i => i.cantidad != null && i.cantidad > 0).length * 1000 + r.items.length : -1;
+  return puntaje(conUnion) > puntaje(tal) ? conUnion : tal;
 }
 
 function parsearDocLineas(doc: DocTexto, crudas: string[]): PlanillaParseResult | null {

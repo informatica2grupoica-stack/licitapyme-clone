@@ -19,6 +19,7 @@ import type { EstadoEditor } from '@/app/negocios/[id]/CosteoEditorCard';
 export interface CosteoEstadoHeredado {
   estado: EstadoEditor;
   guardado: EstadoEditor | null;
+  base?: string | null;   // actualizado_at con que se cargó lo guardado (detecta guardar sobre una copia vieja)
 }
 
 interface CosteoActivo {

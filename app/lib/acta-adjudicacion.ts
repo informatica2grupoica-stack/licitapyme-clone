@@ -104,7 +104,21 @@ export interface LecturaActa {
   cookies: string;
   referer: string;
   contactoLicitacion: ContactoLicitacionActa | null;
+  facturacion: FacturacionActa | null;
   diagnostico: string;
+}
+
+/**
+ * Datos para facturar ANTES de que llegue la OC (21-oct-2026). Salen de la misma página del acta:
+ * el bloque "Organismo Demandante" (razón social, unidad, RUT, dirección, comuna, ciudad) y, si la
+ * resolución lo dice, a nombre de QUIÉN va la factura. Caso real 387-55-LE26: la OC trae a la
+ * Municipalidad de Los Muermos, pero el decreto ordena facturar "a nombre del Gobierno Regional de
+ * Los Lagos, RUT N°72.221.800-0" (convenio mandato) — facturarle a la OC habría sido un error.
+ */
+export interface FacturacionActa {
+  razonSocial: string | null; unidad: string | null; rut: string | null;
+  direccion: string | null; comuna: string | null; ciudad: string | null;
+  facturaANombre: string | null; facturaRut: string | null; facturaCita: string | null;
 }
 
 /**
@@ -197,6 +211,37 @@ async function parseContactoLicitacion(
   };
 }
 
+function parseFacturacionActa(html: string): FacturacionActa | null {
+  // Los valores del bloque vienen en spans/links con id fijo `lblOrgDem<Campo>Desc`.
+  const campos: Record<string, string> = {};
+  for (const m of html.matchAll(/id="lblOrgDem(\w+?)Desc"[^>]*>([\s\S]*?)<\/(?:span|a)>/gi)) {
+    const v = limpiar(m[2]);
+    if (v && v !== '--') campos[m[1].toLowerCase()] = v.slice(0, 200);
+  }
+  const texto = limpiar(html);
+  const f = texto.match(/factura[^.]{0,250}?a\s+nombre\s+(?:de\s+la\s+|del\s+|de\s+)?(.{3,120}?),?\s*R\.?\s?U\.?\s?T\.?\s*(?:N[°ºo]\.?\s*)?:?\s*(\d{1,2}\.?\d{3}\.?\d{3}-[\dkK])/i);
+  const d: FacturacionActa = {
+    razonSocial: campos.razonsocial ?? null, unidad: campos.unidad ?? null, rut: campos.rut ?? null,
+    direccion: campos.direccion ?? null, comuna: campos.comuna ?? null, ciudad: campos.ciudad ?? null,
+    facturaANombre: f ? f[1].trim() : null, facturaRut: f ? f[2] : null,
+    facturaCita: f ? f[0].slice(0, 400) : null,
+  };
+  return Object.values(d).some(Boolean) ? d : null;
+}
+
+/** Lo guardado por `leerYGuardarActa`; null si el acta no se ha leído o no traía el bloque. */
+export async function facturacionActaGuardada(codigo: string): Promise<FacturacionActa | null> {
+  try {
+    const [[r]] = await pool.query(
+      `SELECT facturacion_json FROM adjudicacion_cache WHERE licitacion_codigo = ? LIMIT 1`, [codigo],
+    ) as any;
+    const d = r?.facturacion_json ? (typeof r.facturacion_json === 'string' ? JSON.parse(r.facturacion_json) : r.facturacion_json) : null;
+    return d && Object.values(d).some(Boolean) ? d as FacturacionActa : null;
+  } catch {
+    return null;   // migration-156 pendiente en algún entorno
+  }
+}
+
 /**
  * Lee la página del acta y devuelve sus anexos.
  * null = no se pudo entrar (sin acta cacheada, portal caído o sin IP chilena).
@@ -274,7 +319,7 @@ export async function leerActa(codigo: string): Promise<LecturaActa | null> {
   const contactoLicitacion = await parseContactoLicitacion(html, urlActa, cookies, referer);
   const sinControl = documentos.filter(d => !d.controlPostback).length;
   return {
-    documentos, urlActa, cookies, referer, contactoLicitacion,
+    documentos, urlActa, cookies, referer, contactoLicitacion, facturacion: parseFacturacionActa(html),
     diagnostico: [
       `${Math.round(html.length / 1024)} KB`,
       `${filasVistas} filas`,
@@ -362,6 +407,14 @@ export async function leerYGuardarActa(codigo: string): Promise<{
     } catch (e) {
       console.error(`[acta] no se pudo guardar el contacto de ${codigo}:`, String(e).slice(0, 200));
     }
+  }
+
+  // '{}' cuando el acta no trae el bloque: NULL queda solo para "nunca se intentó" (lo usa el cron).
+  try {
+    await pool.query(`UPDATE adjudicacion_cache SET facturacion_json = ? WHERE licitacion_codigo = ?`,
+      [JSON.stringify(lectura.facturacion ?? {}), codigo]);
+  } catch (e) {
+    console.error(`[acta] no se pudo guardar la facturación de ${codigo}:`, String(e).slice(0, 200));
   }
 
   // El resto (resolución, declaraciones juradas) no se guarda, pero se dice que existe: el
@@ -540,7 +593,7 @@ export async function licitacionesEnComprasSinActa(limite = 5): Promise<string[]
       `SELECT ca.licitacion_codigo
          FROM compras_asignacion ca
          JOIN adjudicacion_cache adc ON adc.licitacion_codigo = ca.licitacion_codigo
-        WHERE adc.acta_leida_at IS NULL AND adc.url_acta IS NOT NULL
+        WHERE (adc.acta_leida_at IS NULL OR adc.facturacion_json IS NULL) AND adc.url_acta IS NOT NULL
         GROUP BY ca.licitacion_codigo
         ORDER BY ca.ganado_at DESC
         LIMIT ${Math.max(1, Math.min(limite, 20))}`,
