@@ -15,7 +15,7 @@ ROOT_PASS=$(leer MYSQL_ROOT_PASSWORD); DB=$(leer DB_NAME)
 for v in BH_HOST BH_USER BH_PASS BH_DB ROOT_PASS DB; do [ -n "${!v}" ] || { echo "Falta $v en .env"; exit 1; }; done
 
 # Clientes mysql/mysqldump del propio contenedor; las claves van por variable de entorno, no en la línea de comandos.
-bluehost() { local p=$1; shift; docker exec -i -e MYSQL_PWD="$BH_PASS" licitapyme-db "$p" -h "$BH_HOST" -u "$BH_USER" --compress "$@" 2> >(grep -v "compress is deprecated" >&2); }
+bluehost() { local p=$1; shift; docker exec -i -e MYSQL_PWD="$BH_PASS" licitapyme-db "$p" -h "$BH_HOST" -u "$BH_USER" --compress "$@"; }
 local_db() { local p=$1; shift; docker exec -i -e MYSQL_PWD="$ROOT_PASS" licitapyme-db "$p" -u root "$@"; }
 
 echo "==> 1/3 Copiando $BH_DB (Bluehost) -> $DB (VPS)... (unos minutos)"
@@ -23,19 +23,26 @@ inicio=$(date +%s)
 # Durante la copia no se espera al disco en cada fila (mucho más rápido); se restablece al terminar, pase lo que pase.
 local_db mysql -e "SET GLOBAL innodb_flush_log_at_trx_commit = 2"
 trap 'local_db mysql -e "SET GLOBAL innodb_flush_log_at_trx_commit = 1"' EXIT
-# 4 tablas a la vez, las más pesadas primero (en serie tardaba 631 s, 22-oct). Cada tabla es su propia
+# 3 tablas a la vez, las más pesadas primero (en serie tardaba 631 s, 22-oct). Cada tabla es su propia
 # transacción: en el corte da igual porque app y scheduler están detenidos y nadie escribe.
+# Hasta 3 intentos por tabla: con la app andando, Bluehost (tope 25 conexiones) a veces rechaza una conexión
+# más; copiar de nuevo es seguro porque cada tabla parte con DROP TABLE + CREATE.
 # --column-statistics=0: el mysqldump 8.0 lo pide para leer un servidor 5.7.
 # --no-tablespaces: si no, pide el privilegio PROCESS, que el usuario compartido de Bluehost no tiene.
 copiar_tabla() {
-  bluehost mysqldump --single-transaction --quick --set-gtid-purged=OFF --column-statistics=0 \
-    --no-tablespaces --default-character-set=utf8mb4 "$BH_DB" "$1" \
-    | local_db mysql --default-character-set=utf8mb4 "$DB"
+  local intento
+  for intento in 1 2 3; do
+    bluehost mysqldump --single-transaction --quick --set-gtid-purged=OFF --column-statistics=0 \
+      --no-tablespaces --default-character-set=utf8mb4 "$BH_DB" "$1" \
+      | local_db mysql --default-character-set=utf8mb4 "$DB" && return 0
+    echo "   (tabla $1: intento $intento falló, reintentando)"; sleep $((intento * 5))
+  done
+  return 1
 }
 export -f bluehost local_db copiar_tabla
 export BH_HOST BH_USER BH_PASS BH_DB ROOT_PASS DB
 bluehost mysql -N -D "$BH_DB" -e "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' ORDER BY data_length + index_length DESC" \
-  | xargs -P 4 -I{} bash -c 'set -o pipefail; copiar_tabla "$1" || { echo "!! falló la copia de la tabla $1"; exit 1; }' _ {}
+  | xargs -P 3 -I{} bash -c 'set -o pipefail; copiar_tabla "$1" || { echo "!! falló la copia de la tabla $1"; exit 1; }' _ {}
 echo "    listo en $(( $(date +%s) - inicio )) s"
 
 echo "==> 2/3 Comparando filas por tabla..."
