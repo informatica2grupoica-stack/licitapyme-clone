@@ -27,6 +27,8 @@ zcat "$ARCHIVO" | tail -1 | grep -q "Dump completed" || { echo "!! dump incomple
 ls -1t "$CARPETA"/*.sql.gz | tail -n +8 | xargs -r rm -f
 
 echo "[$(date '+%F %T')] cargando en Bluehost ($BH_DB)..."
-zcat "$ARCHIVO" | docker exec -i -e MYSQL_PWD="$BH_PASS" licitapyme-db \
+# MySQL 8 crea con utf8mb4_0900_ai_ci las tablas que dicen CHARSET=utf8mb4 sin COLLATE; Bluehost (5.7) no lo conoce
+# («Unknown collation», 22-oct). Se traduce al equivalente de 5.7 solo en la copia que va a Bluehost.
+zcat "$ARCHIVO" | sed 's/utf8mb4_0900_ai_ci/utf8mb4_general_ci/g' | docker exec -i -e MYSQL_PWD="$BH_PASS" licitapyme-db \
   mysql -h "$BH_HOST" -u "$BH_USER" --compress --default-character-set=utf8mb4 "$BH_DB"
 echo "[$(date '+%F %T')] respaldo OK ($(du -h "$ARCHIVO" | cut -f1))"
