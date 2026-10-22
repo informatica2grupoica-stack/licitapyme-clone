@@ -197,6 +197,12 @@ function noRequiereOCR(nombre: string): boolean {
     || /\.(jpg|jpeg|png|gif|bmp|tiff|webp|dwg)$/.test(n);
 }
 
+// Largo del texto SIN los marcadores [[PÁGINA N]]: un escaneado leído con omitirOCR guarda solo los
+// marcadores (2827-72-LP26: 438 chars, 0 de texto real) y con el largo bruto pasaba por «leído».
+function largoTextoReal(t: string): number {
+  return t.replace(/[[P[ÁA]GINA[^]]*]]/gi, '').trim().length;
+}
+
 interface DocLeido { nombre: string; categoria: string | null; texto: string; metodo: string; ok: boolean }
 
 // Precedencia documental del PROMPT 2: Aclaraciones > Bases Especiales > Generales >
@@ -280,7 +286,7 @@ async function cargarDocumentos(codigo: string): Promise<DocLeido[]> {
       // También se re-lee si quedó por OCR local (Tesseract) o con la numeración de la tabla rota
       // (ítems 1..N que empiezan en 24): ahí el relleno tapó un hueco real. Solo si GLM-OCR responde.
       const sospechoso = glmOcrDisponible() && (leidoConOcrLocal(d.metodo_extraccion) || numeracionTablaIncompleta(cacheTxt));
-      if (cacheTxt.length >= 50 && !ocrTieneHuecos(cacheTxt) && !esTextoBasuraOCR(cacheTxt) && !sospechoso) {
+      if (largoTextoReal(cacheTxt) >= 50 && !ocrTieneHuecos(cacheTxt) && !esTextoBasuraOCR(cacheTxt) && !sospechoso) {
         console.log(`[viabilidad-ia] ${codigo}: [${pos}/${docs.length}] "${d.documento_nombre}" — ya está en caché (${cacheTxt.length} chars), no se vuelve a leer.`);
         return { nombre: d.documento_nombre, categoria: d.categoria, texto: cacheTxt, metodo: d.metodo_extraccion || 'cache', ok: true } as DocLeido;
       }
@@ -292,11 +298,11 @@ async function cargarDocumentos(codigo: string): Promise<DocLeido[]> {
       const metodo = r?.metodo || 'error';
       const segs = ((Date.now() - t0doc) / 1000).toFixed(1);
       // Re-lectura por "sospechoso" que falló: no se pierde el texto que ya había.
-      if (sospechoso && texto.length < 50 && cacheTxt.length >= 50) {
+      if (sospechoso && largoTextoReal(texto) < 50 && largoTextoReal(cacheTxt) >= 50) {
         console.warn(`[viabilidad-ia] ${codigo}: [${pos}/${docs.length}] "${d.documento_nombre}" — la re-lectura falló, se conserva el texto en caché.`);
         return { nombre: d.documento_nombre, categoria: d.categoria, texto: cacheTxt, metodo: d.metodo_extraccion || 'cache', ok: true } as DocLeido;
       }
-      console.log(texto.length >= 50
+      console.log(largoTextoReal(texto) >= 50
         ? `[viabilidad-ia] ${codigo}: [${pos}/${docs.length}] "${d.documento_nombre}" leído en ${segs}s → ${texto.length} chars (método=${metodo}).`
         : `[viabilidad-ia] ${codigo}: [${pos}/${docs.length}] "${d.documento_nombre}" NO se pudo leer (${segs}s, método=${metodo}) — queda sin texto.`);
       // Persistir SIEMPRE el resultado de la lectura — el éxito con su texto, y el FALLO con su
@@ -305,7 +311,7 @@ async function cargarDocumentos(codigo: string): Promise<DocLeido[]> {
       // se intentó. Así se acumularon 1.889 fallos invisibles en 375 licitaciones que igual
       // entregaron informe. Dejar escrito "se intentó y salió pdf-sin-texto" es lo que permite
       // detectarlo, contarlo y avisar en vez de seguir de largo.
-      if (texto.length >= 50) {
+      if (largoTextoReal(texto) >= 50) {
         pool.query(
           `UPDATE documentos_cache SET texto_extraido = ?, metodo_extraccion = ?, texto_extraido_at = NOW()
            WHERE licitacion_codigo = ? AND documento_nombre = ?`,
@@ -318,7 +324,7 @@ async function cargarDocumentos(codigo: string): Promise<DocLeido[]> {
           [metodo || 'error', codigo, d.documento_nombre],
         ).catch(() => { /* best-effort: el aviso al usuario no depende de esto */ });
       }
-      return { nombre: d.documento_nombre, categoria: d.categoria, texto, metodo, ok: texto.length >= 50 } as DocLeido;
+      return { nombre: d.documento_nombre, categoria: d.categoria, texto, metodo, ok: largoTextoReal(texto) >= 50 } as DocLeido;
     }));
     out.push(...res);
   }
@@ -342,7 +348,7 @@ async function cargarDocumentos(codigo: string): Promise<DocLeido[]> {
       const r = await descargarYExtraerTexto(url, doc.nombre, {}).catch(() => null);
       const texto = (r?.texto || '').replace(/\s+\n/g, '\n').trim();
       const segs = ((Date.now() - t0) / 1000).toFixed(1);
-      if (texto.length >= 50) {
+      if (largoTextoReal(texto) >= 50) {
         doc.texto = texto; doc.metodo = r?.metodo || 'reintento'; doc.ok = true;
         console.log(`[viabilidad-ia] ${codigo}: ✔ recuperado en 2ª pasada "${doc.nombre}" → ${texto.length} chars (${doc.metodo}, ${segs}s).`);
         pool.query(

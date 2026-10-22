@@ -11,7 +11,7 @@ import { ahoraChileSQL } from '@/app/lib/tz';
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('auditor', crearChatIABase);
-import { parseJsonIA } from '@/app/lib/json-ia';
+import { parseJsonIA, sacarCaracteresSueltos } from '@/app/lib/json-ia';
 import { ocrImagenConGlmOcr, extraerTextoPdfPorUrlConGlmOcr } from '@/app/lib/zai-ocr';
 import { ocrPdfLocalTesseract, ocrImagenLocalTesseract } from '@/app/lib/tesseract-ocr';
 import * as P from '@/app/lib/auditor-lector-prompts';
@@ -223,7 +223,7 @@ async function llamarLector(texto: string, nombre: string, modo: ModoLector, esW
       temperature: 0, stream: false, max_tokens: 12_000, response_format: { type: 'json_object' },
     }, { timeoutMs: 240_000, modeloPreferido: MODELO_LECTOR, soloGlm: true });
     const contenido = String(completion.choices?.[0]?.message?.content ?? '');
-    const parsed = parseJsonIA<SalidaLector>(contenido);
+    const parsed = parseJsonIA<SalidaLector>(contenido) ?? sacarCaracteresSueltos<SalidaLector>(contenido);
     if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) return parsed;
     ultimo = `finish=${completion.choices?.[0]?.finish_reason} largo=${contenido.length}`;
     console.warn(`[auditor-lector] intento ${intento}: respuesta no interpretable (${ultimo})`);

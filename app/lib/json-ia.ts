@@ -111,3 +111,19 @@ export function parseJsonIAConTraza<T = any>(raw: string | null | undefined): { 
   const r3 = tryParse(normalizarNumerosConPuntos(sanearControlChars(repararJSONTruncado(limpio.slice(start)))));
   return { valor: r3, reparado: !!r3 };
 }
+
+// Caracteres sueltos que el modelo mete a mitad del JSON (caso real 22-oct-2026, cotización DARTEL de 31 líneas: `"modelo": "1 ANSI C80.1",! "sku_proveedor": …`).
+// Un solo `!` tiraba la lectura entera y obligaba a repetir una llamada de 2–3 minutos. JSON.parse dice en qué posición se atora: si ahí hay un carácter
+// que no puede ser parte de un JSON (ni comilla, llave, coma, dígito…), se quita y se reintenta. Nunca inventa ni mueve contenido: solo borra el carácter suelto.
+export function sacarCaracteresSueltos<T = any>(raw: string | null | undefined, maxQuitados = 20): T | null {
+  let s = String(raw ?? '').trim().replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '');
+  for (let i = 0; i <= maxQuitados; i++) {
+    try { const p = JSON.parse(s); return p && typeof p === 'object' ? (p as T) : null; }
+    catch (e) {
+      const pos = Number(/position (\d+)/.exec(String((e as Error)?.message))?.[1]);
+      if (!Number.isInteger(pos) || pos >= s.length || !/[^\s\w"{}[\],:.+\\-]/.test(s[pos])) return null;
+      s = s.slice(0, pos) + s.slice(pos + 1);
+    }
+  }
+  return null;
+}
