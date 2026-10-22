@@ -257,8 +257,8 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
   const olvidar = async (extraccionId: number) => {
     try { await post({ accion: 'olvidar_documento', extraccionId }); await cargar(); } catch (e: any) { toast.error('No se pudo quitar de la lista', e.message); }
   };
-  const asignar = async (extraccionId: number, idx: number, productoCompraId: number, proveedor: string) => {
-    try { await post({ accion: 'asignar', extraccionId, productoIdx: idx, productoCompraId, proveedor: proveedor || null }); toast.success('Ficha asignada'); await cargar(); }
+  const asignar = async (extraccionId: number, idx: number, productoCompraId: number, proveedor: string, sinMarca = false) => {
+    try { await post({ accion: 'asignar', extraccionId, productoIdx: idx, productoCompraId, proveedor: proveedor || null, sinMarca }); toast.success('Ficha asignada'); await cargar(); }
     catch (e: any) { toast.error('No se pudo asignar', e.message); }
   };
 
@@ -367,7 +367,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
       {panel.noSonFichas.length > 0 && (
         <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 space-y-0.5" data-testid="fichas-no-son">
           <p className="text-[12px] font-bold text-zinc-600">Documentos que no son fichas de un producto</p>
-          {panel.noSonFichas.map((d, i) => <p key={i} className="text-[11.5px] text-zinc-500"><b className="text-zinc-700">{d.documento}</b> · {d.motivo}{puedeOperar && <button type="button" onClick={() => olvidar(d.extraccionId)} className="ml-2 font-semibold text-zinc-500 hover:text-rose-700">Quitar</button>}</p>)}
+          {panel.noSonFichas.map((d, i) => <p key={i} className="text-[11.5px] text-zinc-500"><b className="text-zinc-700">{d.documento}</b> · {d.motivo}{d.url && <a href={d.url} target="_blank" rel="noreferrer" className="ml-2 font-semibold text-teal-700 hover:text-teal-900">Ver</a>}{puedeOperar && <button type="button" onClick={() => olvidar(d.extraccionId)} className="ml-2 font-semibold text-zinc-500 hover:text-rose-700">Quitar</button>}</p>)}
         </div>
       )}
       {panel.quitados.length > 0 && (
@@ -598,7 +598,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
 
 function PendienteFila({ f, panel, puedeOperar, onAsignar, onDescartar }: {
   f: PanelFichasDTO['pendientes'][number]; panel: PanelFichasDTO; puedeOperar: boolean;
-  onAsignar: (extraccionId: number, idx: number, productoCompraId: number, proveedor: string) => Promise<void>;
+  onAsignar: (extraccionId: number, idx: number, productoCompraId: number, proveedor: string, sinMarca?: boolean) => Promise<void>;
   onDescartar: (extraccionId: number) => Promise<void>;
 }) {
   const [producto, setProducto] = useState<number>(f.sugerencia?.productoCompraId ?? 0);
@@ -607,7 +607,8 @@ function PendienteFila({ f, panel, puedeOperar, onAsignar, onDescartar }: {
   const cotizados = panel.productos.find(p => p.productoId === producto)?.cotizados.map(c => c.proveedor) ?? [];
   return (
     <div className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-[12.5px] space-y-1.5">
-      <p className="text-zinc-800"><b>{[f.marca, f.modelo].filter(Boolean).join(' ') || f.nombre}</b> <span className="text-zinc-400">· {f.documento}</span></p>
+      <p className="text-zinc-800"><b>{[f.marca, f.modelo].filter(Boolean).join(' ') || f.nombre}</b> <span className="text-zinc-400">· {f.documento}</span>{f.url && <a href={f.url} target="_blank" rel="noreferrer" className="ml-2 text-[11.5px] font-semibold text-teal-700 hover:text-teal-900">Ver</a>}</p>
+      {f.sinMarca && <p className="text-[11.5px] text-amber-800">No trae marca ni modelo: si es la ficha del producto que se va a comprar, asígnala igual (el nombre hará de modelo). Si es la propuesta técnica de la oferta, descártala.</p>}
       {f.sugerencia?.motivo && <p className="text-[11.5px] text-amber-800">{f.sugerencia.productoCompraId ? `Sugerencia (${f.sugerencia.confianza}): ` : 'No pude ubicarla: '}{f.sugerencia.motivo}</p>}
       {puedeOperar && (
         <div className="flex items-center gap-2 flex-wrap">
@@ -619,7 +620,7 @@ function PendienteFila({ f, panel, puedeOperar, onAsignar, onDescartar }: {
             <option value="">{cotizados.length ? '¿De qué proveedor? (detectar)' : 'Proveedor (opcional)'}</option>
             {cotizados.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-          <button type="button" disabled={!producto || enviando} onClick={async () => { setEnviando(true); await onAsignar(f.extraccionId, f.idx, producto, proveedor); setEnviando(false); }}
+          <button type="button" disabled={!producto || enviando} onClick={async () => { setEnviando(true); await onAsignar(f.extraccionId, f.idx, producto, proveedor, f.sinMarca); setEnviando(false); }}
             className="inline-flex items-center gap-1 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
             {enviando && <Loader2 size={12} className="animate-spin" />} Asignar
           </button>

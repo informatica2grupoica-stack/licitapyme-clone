@@ -148,12 +148,15 @@ async function agregarFichaCompras(p: { negocioId: number; opcionId: number; ext
 
 export async function asignarProductoDeFicha(params: {
   negocioId: number; extraccionId: number; productoIdx: number; filaId: string; proveedor?: string | null; actor: Actor;
+  /** La persona confirma que es una ficha aunque no traiga marca ni modelo (muebles a medida, normados…): el nombre del producto hace de identidad. */
+  sinMarca?: boolean;
 }): Promise<ResultadoAsignacion> {
   const { negocioId, extraccionId, productoIdx, filaId, actor } = params;
   const ex = await extraccionPorId(extraccionId);
   if (!ex?.data || !ex.documentoUrl) return { ok: false, proveedor: null, motivoProveedor: '', candidatosProveedor: [], error: 'La ficha no existe o no se pudo leer.' };
-  const p = normalizarExtraccion(ex.data).find(x => x.idx === productoIdx);
+  let p = normalizarExtraccion(ex.data).find(x => x.idx === productoIdx);
   if (!p) return { ok: false, proveedor: null, motivoProveedor: '', candidatosProveedor: [], error: 'Ese producto no está en la ficha.' };
+  if (!identificable(p) && params.sinMarca) p = { ...p, modelo: (p.modelo || p.nombre).slice(0, 160) };
   if (!identificable(p)) return { ok: false, proveedor: null, motivoProveedor: '', candidatosProveedor: [], error: 'Este documento no trae la marca ni un modelo identificable: no es una ficha de un producto real (¿es la propuesta técnica?).' };
   const lineas = lineasAuditables(await cargarEstadoCosteo(negocioId));
   const linea = lineas.find(l => l.id === filaId);
@@ -234,7 +237,7 @@ export async function procesarFicha(params: { negocioId: number; url: string; no
   const de = (idx: number) => salida.find(s => s.idx === idx)!;
   for (const p of productos) {
     if (yaAsignados.has(p.idx)) de(p.idx).resultado = 'ya_asignada';
-    else if (sinIdentidad.has(p.idx)) { const s = de(p.idx); s.resultado = 'sin_identificar'; s.motivo = 'No trae marca ni un modelo identificable: parece una descripción genérica (¿la propuesta técnica?), no la ficha de un producto real.'; }
+    else if (sinIdentidad.has(p.idx)) { const s = de(p.idx); s.resultado = 'sin_identificar'; s.motivo = 'No trae marca ni un modelo identificable: puede ser una ficha sin marca (mueble o producto a medida) o la propuesta técnica. Queda abajo, en «por asignar», para que lo confirmes.'; }
   }
   const pendientes = productos.filter(p => !yaAsignados.has(p.idx) && !sinIdentidad.has(p.idx));
 
@@ -340,12 +343,14 @@ export interface ProductoFichasDTO {
 }
 export interface FichaPendienteDTO {
   extraccionId: number; idx: number; documento: string; url: string | null; nombre: string; marca: string; modelo: string;
+  /** No trae marca ni modelo: puede ser una ficha de fabricación propia o la propuesta técnica; lo decide la persona al asignar. */
+  sinMarca: boolean;
   sugerencia: { filaId: string | null; productoCompraId: number | null; confianza: string; motivo: string } | null;
 }
 export interface PanelFichasDTO {
   productos: ProductoFichasDTO[]; pendientes: FichaPendienteDTO[]; conError: Array<{ extraccionId: number; documento: string; error: string; url: string | null }>;
   /** Documentos que pasaron por aquí pero no son fichas de un producto (cotizaciones, propuesta técnica genérica…). */
-  noSonFichas: Array<{ extraccionId: number; documento: string; motivo: string }>;
+  noSonFichas: Array<{ extraccionId: number; documento: string; motivo: string; url: string | null }>;
   sinCosteo: boolean;
   /** Modelos que alguien quitó con «Quitar modelo» y que siguen teniendo ficha guardada: se pueden restaurar. */
   quitados: Array<{ opcionId: number; productoDescripcion: string; marca: string | null; modelo: string | null; proveedor: string | null; fichas: string[] }>;
@@ -449,15 +454,13 @@ export async function panelFichas(negocioId: number, licitacionCodigo: string): 
     if (!ex.data) continue;
     const prods = normalizarExtraccion(ex.data).filter(x => !x.esCargo);
     const tipoDoc = ex.data.salida.documento?.tipo || '';
-    if (esDocumentoComercial(tipoDoc)) { noSonFichas.push({ extraccionId: ex.id, documento: ex.documentoNombre || 'documento', motivo: `Es ${tipoDoc.replace(/_/g, ' ').toLowerCase()}: sirve para el precio, no como ficha técnica.` }); continue; }
-    if (prods.length > 0 && !prods.some(identificable)) { noSonFichas.push({ extraccionId: ex.id, documento: ex.documentoNombre || 'documento', motivo: 'No trae marca ni modelo (descripción genérica, p. ej. la propuesta técnica): no sirve para comparar.' }); continue; }
+    if (esDocumentoComercial(tipoDoc)) { noSonFichas.push({ extraccionId: ex.id, documento: ex.documentoNombre || 'documento', url: ex.documentoUrl, motivo: `Es ${tipoDoc.replace(/_/g, ' ').toLowerCase()}: sirve para el precio, no como ficha técnica.` }); continue; }
     for (const p of prods) {
-      if (!identificable(p)) continue;
       if (asignado.has(`${ex.id}:${p.idx}`) || docsConAsignado.has(String(ex.id))) continue;
       const s = sugerencias.get(`${ex.id}:${p.idx}`);
       const linea = s?.filaId ? lineas.find(l => l.id === s.filaId) : null;
       pendientes.push({
-        extraccionId: ex.id, idx: p.idx, documento: ex.documentoNombre || 'documento', url: ex.documentoUrl, nombre: corto(p.nombre || `${p.marca} ${p.modelo}`), marca: p.marca, modelo: p.modelo,
+        extraccionId: ex.id, idx: p.idx, documento: ex.documentoNombre || 'documento', url: ex.documentoUrl, nombre: corto(p.nombre || `${p.marca} ${p.modelo}`), marca: p.marca, modelo: p.modelo, sinMarca: !identificable(p),
         sugerencia: s ? { filaId: s.filaId ?? null, productoCompraId: linea ? (productoDeLinea(linea, productos)?.id ?? null) : null, confianza: String(s.confianza || ''), motivo: String(s.motivo || '') } : null,
       });
     }

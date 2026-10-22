@@ -107,7 +107,7 @@ async function __POST(request: NextRequest, { params }: Params) {
       case 'asignar': {
         const filaId = await filaDeProductoCompra(c.id, Number(body.productoCompraId));
         if (!filaId) return NextResponse.json({ error: 'Ese producto no tiene línea en el Costeo.' }, { status: 400 });
-        const r = await asignarProductoDeFicha({ negocioId: c.id, extraccionId: Number(body.extraccionId), productoIdx: Number(body.productoIdx), filaId, proveedor: body.proveedor || null, actor: c.actor });
+        const r = await asignarProductoDeFicha({ negocioId: c.id, extraccionId: Number(body.extraccionId), productoIdx: Number(body.productoIdx), filaId, proveedor: body.proveedor || null, actor: c.actor, sinMarca: !!body.sinMarca });
         return r.ok ? NextResponse.json({ success: true, resultado: r }) : NextResponse.json({ error: r.error || 'No se pudo asignar.' }, { status: 400 });
       }
       case 'complementar': {
