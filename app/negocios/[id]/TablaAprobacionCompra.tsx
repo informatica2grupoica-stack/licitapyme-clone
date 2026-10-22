@@ -8,6 +8,7 @@ import { useToast } from '@/app/components/ui/toast';
 import { irAFase, enfocarProducto } from '@/app/compras/[negocioId]/comprasNavegacion';
 import { IconLoader2 as Loader2, IconCircleCheck as Ok, IconAlertTriangle as Alerta, IconCircleX as No, IconHelpCircle as Duda } from '@tabler/icons-react';
 import type { TablaAprobacion, LineaAprobacion } from '@/app/lib/compras-aprobacion-tabla';
+import { FichaAprobacionModal } from './FichaAprobacionModal';
 
 const clp = (n: number | null | undefined) => n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 const corto = (d: string) => d.split(' - ')[0];
@@ -48,6 +49,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
   const [tabla, setTabla] = useState<TablaAprobacion | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filtro, setFiltro] = useState<'TODAS' | 'PROBLEMAS'>('TODAS');
+  const [fichaDe, setFichaDe] = useState<LineaAprobacion | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -64,7 +66,8 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
     } catch { /* sin decisiones: la tabla se ve igual */ }
   }, [negocioId]);
   useEffect(() => { cargar(); }, [cargar, refresco]);
-  useEffect(() => { cargarDecisiones(); }, [cargarDecisiones]);
+  // También con `refresco`: si otra persona aprueba (o se restaura una aprobación) la tabla se recargaba sola pero las decisiones por producto no.
+  useEffect(() => { cargarDecisiones(); }, [cargarDecisiones, refresco]);
 
   const decidir = async (productoIds: number[], decision: 'APROBAR' | 'RECHAZAR' | 'QUITAR', comentario?: string) => {
     setGuardando(true);
@@ -221,7 +224,10 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
                     </td>
                     <td className={`px-2 py-2 text-right align-top tabular-nums font-semibold ${l.margenLineaPct == null ? 'text-zinc-300' : l.margenLineaPct < 20 ? 'text-amber-700' : 'text-zinc-700'}`}>{l.margenLineaPct == null ? '—' : `${l.margenLineaPct}%`}</td>
                     <td className="px-2 py-2 align-top">
-                      <span className={`inline-block text-[11px] font-semibold px-1.5 py-0.5 rounded border ${te.clase}`} title={l.tecnico.modelo ? `Ficha de ${l.tecnico.modelo}` : undefined}>{te.texto}{l.tecnico.total > 0 ? ` ${l.tecnico.cumple}/${l.tecnico.total}` : ''}</span>
+                      {l.proveedor && !['SIN_FICHA', 'SIN_COMPRA'].includes(l.tecnico.estado)
+                        ? <button type="button" onClick={() => setFichaDe(l)} data-testid={`apr-ficha-${l.productoId}`} title="Ver la ficha y su comparación con las bases"
+                            className={`inline-block text-[11px] font-semibold px-1.5 py-0.5 rounded border underline decoration-dotted underline-offset-2 hover:shadow-sm ${te.clase}`}>{te.texto}{l.tecnico.total > 0 ? ` ${l.tecnico.cumple}/${l.tecnico.total}` : ''}</button>
+                        : <span className={`inline-block text-[11px] font-semibold px-1.5 py-0.5 rounded border ${te.clase}`}>{te.texto}</span>}
                       {l.tecnico.modelo && <span className="block text-[10.5px] text-zinc-400 mt-0.5">{l.tecnico.modelo}</span>}
                     </td>
                     <td className="px-2 py-2 align-top"><span className={`inline-flex items-center gap-1 text-[11.5px] font-bold px-2 py-0.5 rounded-full border ${e.clase}`}>{l.estado === 'NO_PASA' ? <No size={12} /> : l.estado === 'REVISAR' ? <Alerta size={12} /> : <Ok size={12} />}{e.texto}</span></td>
@@ -382,6 +388,11 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
           </button>
         )}
       </div>
+      {fichaDe?.proveedor && (
+        <FichaAprobacionModal negocioId={negocioId} productoId={fichaDe.productoId} producto={corto(fichaDe.descripcion)} proveedor={fichaDe.proveedor}
+          proveedorRut={fichaDe.compraRapida?.proveedor === fichaDe.proveedor ? fichaDe.compraRapida.rut : null}
+          compraUnit={fichaDe.compraUnit} costeadoUnit={fichaDe.costeadoUnit} puedeOperar={puedeOperar} onClose={() => setFichaDe(null)} />
+      )}
     </div>
   );
 }

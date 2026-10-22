@@ -9,6 +9,7 @@ import { costeadoPorProducto } from '@/app/lib/compras-auditoria-cotizacion';
 import { obtenerEscenarioElegido, MARGEN_MINIMO_PCT } from '@/app/lib/compras-aprobaciones';
 import { panelFichas, type PanelFichasDTO } from '@/app/lib/compras-fichas';
 import { listarComprasRapidas, type CompraRapida } from '@/app/lib/compras-compra-rapida';
+import { mismoProveedor } from '@/app/lib/auditor-proveedor';
 
 export type EstadoLinea = 'PASA' | 'REVISAR' | 'NO_PASA';
 export type EstadoTecnico = 'CUMPLE' | 'NO_CUMPLE' | 'FALTA_DATO' | 'SIN_COMPARAR' | 'SIN_FICHA' | 'SIN_COMPRA';
@@ -42,13 +43,13 @@ export interface TablaAprobacion {
   escenario: { tipo: string; costoTotal: number } | null;
 }
 
-const normP = (x: string | null | undefined) => (x || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 const pct = (n: number) => Math.round(n * 10) / 10;
 
-function tecnicoDe(panel: PanelFichasDTO | null, productoId: number, proveedor: string | null): LineaAprobacion['tecnico'] {
+function tecnicoDe(panel: PanelFichasDTO | null, productoId: number, proveedor: string | null, proveedorRut: string | null): LineaAprobacion['tecnico'] {
   if (!proveedor) return { estado: 'SIN_COMPRA', cumple: 0, total: 0, modelo: null };
   const p = panel?.productos.find(x => x.productoId === productoId);
-  const ops = (p?.opciones || []).filter(o => normP(o.proveedor) === normP(proveedor) && o.fichas.length > 0);
+  // Mismo proveedor por RUT o por nombre sin sufijos legales (igual que el resto de Compras), no por nombre exacto.
+  const ops = (p?.opciones || []).filter(o => o.fichas.length > 0 && mismoProveedor({ nombre: o.proveedor, rut: o.proveedorRut }, { nombre: proveedor, rut: proveedorRut }));
   if (ops.length === 0) return { estado: 'SIN_FICHA', cumple: 0, total: 0, modelo: null };
   const orden: Record<string, number> = { NO_CUMPLE: 0, CON_PENDIENTES: 1, NO_CORRIDO: 2, SIN_EVALUAR: 2, CUMPLE: 3 };
   const o = [...ops].sort((a, b) => (orden[a.tecnico.estado] ?? 2) - (orden[b.tecnico.estado] ?? 2))[0];
@@ -90,19 +91,19 @@ export async function tablaAprobacion(negocioId: number): Promise<TablaAprobacio
     const difUnit = compraUnit != null && costUnit != null ? compraUnit - costUnit : null;
     const difPct = difUnit != null && costUnit ? pct((difUnit / costUnit) * 100) : null;
     const margenLineaPct = compraUnit != null && p.montoUnitario ? pct(((p.montoUnitario - compraUnit) / p.montoUnitario) * 100) : null;
-    // Una compra rápida es por definición sin cotización ni ficha: no se le exige lo técnico (el jefe decide por precio y margen).
-    const tecnico = rap ? { estado: 'SIN_FICHA' as EstadoTecnico, cumple: 0, total: 0, modelo: null } : tecnicoDe(panel, p.id, proveedor);
+    // A una compra rápida no se le exige lo técnico (el jefe decide por precio y margen), pero si hay ficha de ese modelo se muestra igual.
+    const tecnico = tecnicoDe(panel, p.id, proveedor, rap && mismoProveedor({ nombre: rap.proveedorNombre }, { nombre: proveedor }) ? rap.proveedorRut : null);
 
     const motivos: string[] = [];
     let estado: EstadoLinea = 'PASA';
     const sube = (e: EstadoLinea) => { if (e === 'NO_PASA' || estado === 'PASA') estado = e; };
     if (compraUnit == null) { sube('NO_PASA'); motivos.push('Todavía no tiene proveedor elegido en el escenario de compra'); }
-    if (tecnico.estado === 'NO_CUMPLE') { sube('NO_PASA'); motivos.push('La ficha técnica no cumple lo que piden las bases'); }
+    if (tecnico.estado === 'NO_CUMPLE' && !rap) { sube('NO_PASA'); motivos.push('La ficha técnica no cumple lo que piden las bases'); }
     if (compraUnit != null && p.montoUnitario != null && compraUnit >= p.montoUnitario) { sube('NO_PASA'); motivos.push('Se compra a un precio igual o mayor al que paga el cliente (pérdida)'); }
     if (difPct != null && difPct > 0) { sube('REVISAR'); motivos.push(`Cuesta ${difPct}% más que lo costeado`); }
     if (margenLineaPct != null && margenLineaPct < MARGEN_MINIMO_PCT && margenLineaPct > 0) { sube('REVISAR'); motivos.push(`Margen de la línea ${margenLineaPct}% (mínimo ${MARGEN_MINIMO_PCT}%)`); }
-    if (tecnico.estado === 'FALTA_DATO') { sube('REVISAR'); motivos.push('Faltan datos técnicos en la ficha'); }
-    if (tecnico.estado === 'SIN_COMPARAR') { sube('REVISAR'); motivos.push('La ficha está cargada pero no se comparó con las bases'); }
+    if (tecnico.estado === 'FALTA_DATO' && !rap) { sube('REVISAR'); motivos.push('Faltan datos técnicos en la ficha'); }
+    if (tecnico.estado === 'SIN_COMPARAR' && !rap) { sube('REVISAR'); motivos.push('La ficha está cargada pero no se comparó con las bases'); }
     if (tecnico.estado === 'SIN_FICHA' && !rap) { sube('REVISAR'); motivos.push('Sin ficha técnica de este modelo: lo técnico no está verificado'); }
 
     return {

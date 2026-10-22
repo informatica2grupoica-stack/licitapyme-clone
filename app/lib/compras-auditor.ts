@@ -1042,14 +1042,24 @@ export async function enumerarCombinaciones(negocioId: number): Promise<Resultad
   let truncado = false;
   if (totalPosibles > LIMITE_ENUMERACION) {
     truncado = true;
-    const k = Math.max(2, Math.floor(Math.pow(LIMITE_ENUMERACION, 1 / listas.length)));
-    listas = listas.map(l => {
+    // Por producto, sus ofertas en orden de preferencia: la mejor (cumplimiento → precio), la más rápida y después el resto.
+    const preferidas = listas.map(l => {
       const orden = [...l].sort((a, b) => tierCumple(a.cumple) - tierCumple(b.cumple) || (a.precioUnitario ?? Infinity) - (b.precioUnitario ?? Infinity));
       const rapida = [...l].sort((a, b) => (a.plazoEntregaDias ?? 999) - (b.plazoEntregaDias ?? 999))[0];
-      const sel = orden.slice(0, k);
-      if (rapida && !sel.includes(rapida)) sel[sel.length - 1] = rapida;
-      return sel;
+      return [orden[0], ...(rapida !== orden[0] ? [rapida] : []), ...orden.slice(1).filter(c => c !== rapida)];
     });
+    // Se parte con la mejor de cada producto y se suman alternativas por turnos mientras el total no pase el límite. Antes quedaban al
+    // menos 2 por producto: con 21 productos eran decenas de miles de combinaciones y la pantalla tardaba más de un minuto (1191, 22-oct-2026).
+    const tomar = preferidas.map(() => 1);
+    let total = 1, sumo = true;
+    while (sumo) {
+      sumo = false;
+      for (let i = 0; i < preferidas.length; i++) {
+        const nuevo = (total / tomar[i]) * (tomar[i] + 1);
+        if (tomar[i] < preferidas[i].length && nuevo <= LIMITE_ENUMERACION) { total = nuevo; tomar[i]++; sumo = true; }
+      }
+    }
+    listas = preferidas.map((l, i) => l.slice(0, tomar[i]));
   }
 
   const todas: Combinacion[] = [];
