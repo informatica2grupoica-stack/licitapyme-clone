@@ -100,7 +100,7 @@ mkdir -p ~/respaldos-bd
 bash scripts/bd-respaldo-nocturno.sh
 ```
 
-Si termina en «respaldo OK», prográmalo todos los días a las 3 AM:
+Si termina en «respaldo OK», prográmalo todos los días a las 3 AM de Chile (el VPS está en hora UTC: 06:00 UTC):
 
 ```bash
 crontab -e
@@ -109,7 +109,7 @@ crontab -e
 y agrega esta línea:
 
 ```
-0 3 * * * bash /home/ubuntu/licitapyme-clone/scripts/bd-respaldo-nocturno.sh >> /home/ubuntu/respaldos-bd/respaldo.log 2>&1
+0 6 * * * bash /home/ubuntu/licitapyme-clone/scripts/bd-respaldo-nocturno.sh >> /home/ubuntu/respaldos-bd/respaldo.log 2>&1
 ```
 
 Para revisar cómo van los respaldos: `tail ~/respaldos-bd/respaldo.log` y `ls -lh ~/respaldos-bd`.

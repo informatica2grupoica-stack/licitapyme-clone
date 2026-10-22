@@ -2,8 +2,8 @@
 # bd-respaldo-nocturno.sh — Respalda la base del VPS: guarda una copia comprimida aquí (últimos 7 días)
 # y la carga en Bluehost, que queda como base de reserva con los datos de anoche.
 #
-# Se programa en el crontab del usuario ubuntu del VPS (ver docs/migracion-bd-vps.md):
-#   0 3 * * * bash /home/ubuntu/licitapyme-clone/scripts/bd-respaldo-nocturno.sh >> /home/ubuntu/respaldos-bd/respaldo.log 2>&1
+# Se programa en el crontab del usuario ubuntu del VPS (ver docs/migracion-bd-vps.md). El VPS está en UTC: 06:00 UTC = 3 AM de Chile.
+#   0 6 * * * bash /home/ubuntu/licitapyme-clone/scripts/bd-respaldo-nocturno.sh >> /home/ubuntu/respaldos-bd/respaldo.log 2>&1
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
