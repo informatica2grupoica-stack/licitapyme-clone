@@ -436,6 +436,8 @@ export interface CotizacionFila {
 }
 
 export async function listarCotizaciones(negocioId: number): Promise<CotizacionFila[]> {
+  // 2 viajes a la base en vez de 4 en serie (la usan casi todas las pantallas de Compras, 22-oct-2026).
+  const despachoP = pool.query(`SELECT id, despacho_modalidad, flete_condicion FROM compras_cotizacion WHERE negocio_id = ?`, [negocioId]).catch(() => [[]] as any);
   const [rows] = await pool.query(
     `SELECT id, proveedor_id, proveedor_nombre, proveedor_rut, proveedor_nuevo, origen, descripcion_libre, precio_unitario, precio_total,
             precio_unitario_bruto, descuento_pct,
@@ -451,17 +453,19 @@ export async function listarCotizaciones(negocioId: number): Promise<CotizacionF
   const cotizaciones = rows as any[];
   if (cotizaciones.length === 0) return [];
   const ids = cotizaciones.map(c => c.id);
-  const [itemRows] = await pool.query(
-    `SELECT cotizacion_id, producto_id, precio_unitario, precio_base, cumple, detalle_desviacion
-       FROM compras_cotizacion_item WHERE cotizacion_id IN (${ids.map(() => '?').join(',')})`,
-    ids,
-  ) as any;
-  const adicionales = await adicionalesDeCotizaciones(ids);
+  const [[itemRows], adicionales, [despRows]] = await Promise.all([
+    pool.query(
+      `SELECT cotizacion_id, producto_id, precio_unitario, precio_base, cumple, detalle_desviacion
+         FROM compras_cotizacion_item WHERE cotizacion_id IN (${ids.map(() => '?').join(',')})`,
+      ids,
+    ) as any,
+    adicionalesDeCotizaciones(ids),
+    despachoP as any,
+  ]);
   const itemsPorCotiz = new Map<number, any[]>();
   for (const it of itemRows as any[]) {
     const arr = itemsPorCotiz.get(it.cotizacion_id) || []; arr.push(it); itemsPorCotiz.set(it.cotizacion_id, arr);
   }
-  const [despRows] = await pool.query(`SELECT id, despacho_modalidad, flete_condicion FROM compras_cotizacion WHERE negocio_id = ?`, [negocioId]).catch(() => [[]] as any) as any;
   const despachoDe = new Map<number, { m: string | null; c: string | null }>((despRows as any[]).map(r => [r.id, { m: r.despacho_modalidad ?? null, c: r.flete_condicion ?? null }]));
   return cotizaciones.map(c => ({
     despachoModalidad: despachoDe.get(c.id)?.m ?? null, fleteCondicion: despachoDe.get(c.id)?.c ?? null,

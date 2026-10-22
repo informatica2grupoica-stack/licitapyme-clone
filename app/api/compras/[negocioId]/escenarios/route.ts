@@ -32,11 +32,13 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
-    const [cuadro, negociacion, escenarios, elegido, combinaciones, claveElegida] = await Promise.all([
-      cuadroComparativo(id), detectarEspacioNegociacion(id), calcularEscenarios(id), escenarioElegidoTipo(id), enumerarCombinaciones(id), combinacionElegidaClave(id),
+    // La compra elegida hoy, armada de nuevo con los precios de ahora (para mostrarla y avisar si dejó de valer). Arranca apenas se sabe
+    // cuál es, a la par del resto (antes esperaba a que terminara todo: ~1,8 s más en la 1191, 22-oct-2026).
+    const claveP = combinacionElegidaClave(id);
+    const [cuadro, negociacion, escenarios, elegido, combinaciones, claveElegida, elegidaEv] = await Promise.all([
+      cuadroComparativo(id), detectarEspacioNegociacion(id), calcularEscenarios(id), escenarioElegidoTipo(id), enumerarCombinaciones(id), claveP,
+      claveP.then(c => c ? evaluarSeleccion(id, seleccionDesdeClave(c)).catch(() => null) : null),
     ]);
-    // La compra elegida hoy, armada de nuevo con los precios de ahora (para mostrarla y avisar si dejó de valer).
-    const elegidaEv = claveElegida ? await evaluarSeleccion(id, seleccionDesdeClave(claveElegida)).catch(() => null) : null;
     return NextResponse.json({ success: true, cuadro, negociacion, escenarios, elegidoTipo: elegido?.tipo ?? null, elegidoCostoGuardado: elegido?.costoTotal ?? null, combinaciones, combinacionElegidaClave: claveElegida,
       elegida: elegidaEv?.combinacion ?? null });
   } catch (error) {

@@ -42,15 +42,21 @@ export async function costoRealDeNegocios(
   if (ids.length === 0) return out;
   const ph = placeholders(ids);
 
-  const [negRows] = await pool.query(`SELECT id, licitacion_codigo FROM negocios WHERE id IN (${ph})`, ids) as any;
+  // Las 4 lecturas son independientes: van a la vez (antes en serie, 22-oct-2026).
+  const [[negRows], [costeoRows], [gastoRows], embRows]: any = await Promise.all([
+    pool.query(`SELECT id, licitacion_codigo FROM negocios WHERE id IN (${ph})`, ids),
+    pool.query(`SELECT negocio_id, modalidad, datos_json FROM negocio_costeo_editor WHERE negocio_id IN (${ph})`, ids),
+    pool.query(`SELECT negocio_id, moneda, SUM(monto) total FROM compras_gasto WHERE negocio_id IN (${ph}) GROUP BY negocio_id, moneda`, ids),
+    // Desde migration-160 un negocio puede tener varios embarques: se suman todos (compras_embarque quedó sin uso).
+    pool.query(
+      `SELECT negocio_id, SUM(COALESCE(flete_internacional,0) + COALESCE(costos_aduana,0) + COALESCE(costo_logistico_local,0)) AS total
+         FROM compras_importacion_embarque WHERE negocio_id IN (${ph}) AND UPPER(moneda) = 'CLP' GROUP BY negocio_id`, ids)
+      .then(([r]) => r as any[])
+      .catch(() => [] as any[]),   // migration-160 pendiente en un entorno viejo: sin importación, el resto sigue
+  ]);
   const codigoDe = new Map((negRows as any[]).map(r => [Number(r.id), r.licitacion_codigo as string]));
-
-  const [costeoRows] = await pool.query(
-    `SELECT negocio_id, modalidad, datos_json FROM negocio_costeo_editor WHERE negocio_id IN (${ph})`, ids) as any;
   const costeoDe = new Map((costeoRows as any[]).map(r => [Number(r.negocio_id), estadoDeFila(r)]));
 
-  const [gastoRows] = await pool.query(
-    `SELECT negocio_id, moneda, SUM(monto) total FROM compras_gasto WHERE negocio_id IN (${ph}) GROUP BY negocio_id, moneda`, ids) as any;
   const gastosClp = new Map<number, number>();
   const gastosOtra = new Map<number, number>();
   for (const r of gastoRows as any[]) {
@@ -59,13 +65,7 @@ export async function costoRealDeNegocios(
   }
 
   const importacionDe = new Map<number, number>();
-  try {
-    const [embRows] = await pool.query(
-      // Desde migration-160 un negocio puede tener varios embarques: se suman todos (compras_embarque quedó sin uso).
-      `SELECT negocio_id, SUM(COALESCE(flete_internacional,0) + COALESCE(costos_aduana,0) + COALESCE(costo_logistico_local,0)) AS total
-         FROM compras_importacion_embarque WHERE negocio_id IN (${ph}) AND UPPER(moneda) = 'CLP' GROUP BY negocio_id`, ids) as any;
-    for (const r of embRows as any[]) importacionDe.set(Number(r.negocio_id), num(r.total));
-  } catch { /* migration-160 pendiente en un entorno viejo: sin importación, el resto sigue */ }
+  for (const r of embRows as any[]) importacionDe.set(Number(r.negocio_id), num(r.total));
 
   for (const id of ids) {
     const estado = costeoDe.get(id) ?? null;
@@ -102,11 +102,13 @@ export async function costoRealDeNegocio(negocioId: number): Promise<ResultadoCo
 export async function resultadosParaDashboard(): Promise<ResultadoNegocio[]> {
   const [asig] = await pool.query(`SELECT negocio_id FROM compras_asignacion`) as any;
   const ids = (asig as any[]).map(r => Number(r.negocio_id));
-  const [cierres] = ids.length
-    ? await pool.query(`SELECT negocio_id FROM compras_cierre_resultado WHERE negocio_id IN (${placeholders(ids)})`, ids).catch(() => [[]]) as any
-    : [[]];
-  const cerrados = new Set((cierres as any[]).map(r => Number(r.negocio_id)));
-  const mapa = await costoRealDeNegocios(ids);
+  const [[cierres], mapa] = await Promise.all([   // a la par (antes en serie)
+    ids.length
+      ? pool.query(`SELECT negocio_id FROM compras_cierre_resultado WHERE negocio_id IN (${placeholders(ids)})`, ids).catch(() => [[]]) as any
+      : [[]],
+    costoRealDeNegocios(ids),
+  ]);
+  const cerrados = new Set((cierres as any[]).map((r: any) => Number(r.negocio_id)));
   return [...mapa.values()].filter(r => r.tieneCosteo).map(r => ({
     negocioId: r.negocioId, licitacionCodigo: r.licitacionCodigo, comparativo: r.comparativo,
     alertas: r.alertas, cerrado: cerrados.has(r.negocioId),

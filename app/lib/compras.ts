@@ -697,13 +697,15 @@ export interface CandidatoEncargado { id: number; nombre: string | null; carga: 
 
 /** Candidatos a Encargado de Compras: admin + cualquiera con el permiso `compras`, con su carga actual. */
 export async function candidatosEncargado(): Promise<CandidatoEncargado[]> {
-  const [rows] = await pool.query(`SELECT id, nombre, rol FROM usuarios WHERE activo = TRUE`) as any;
+  // Los permisos vienen en la misma lectura (misma regla que permisosDeUsuario): antes se pedían usuario por usuario, en serie (~1,2 s, 22-oct-2026).
+  const [rows] = await pool.query(`SELECT id, nombre, rol, permisos FROM usuarios WHERE activo = TRUE`) as any;
   const candidatos: Array<{ id: number; nombre: string | null }> = [];
   for (const u of rows as any[]) {
     if (u.rol === 'externo') continue;
     if (u.rol === 'admin') { candidatos.push({ id: Number(u.id), nombre: u.nombre }); continue; }
-    const p = await permisosDeUsuario(Number(u.id), u.rol);
-    if (p.compras) candidatos.push({ id: Number(u.id), nombre: u.nombre });
+    let p: any = {};
+    try { p = u.permisos ? (typeof u.permisos === 'string' ? JSON.parse(u.permisos) : u.permisos) : {}; } catch { /* permisos ilegibles = sin permisos extra */ }
+    if (p?.compras) candidatos.push({ id: Number(u.id), nombre: u.nombre });
   }
   if (candidatos.length === 0) return [];
   const ids = candidatos.map(c => c.id);
@@ -1107,6 +1109,9 @@ export interface ComprasFila {
 /** Listado transversal (pantalla /compras): una fila por negocio con asignación y avance de tareas. */
 export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
   const ahora = ahoraChileSQL();
+  // Lo que no depende de la consulta principal sale a la par; reloj y tareas, apenas se tienen los ids (antes 5 viajes en serie, 22-oct-2026).
+  const precompraP = pool.query(`SELECT negocio_id FROM compras_asignacion WHERE precompra = 1`).then(([r]) => r as any[]);
+  precompraP.catch(() => {});   // se relanza en su await; esto solo evita que quede suelto si la principal falla antes
   const [rows] = await pool.query(
     `SELECT ca.negocio_id, ca.licitacion_codigo, ca.urgente, ca.asignado_a, ca.resumen_json, ca.cierre_legado,
             DATE_FORMAT(ca.ganado_at, '%Y-%m-%d %H:%i:%s') AS ganado_at,
@@ -1128,11 +1133,33 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
     [ahora],
   ) as any;
   const negocioIds = (rows as any[]).map(r => r.negocio_id);
+  const phIds = negocioIds.map(() => '?').join(',');
+  const relojYTareasP = negocioIds.length > 0 ? Promise.all([
+    pool.query(
+      `SELECT negocio_id, DATE_FORMAT(fecha_limite, '%Y-%m-%d') AS fecha_limite,
+              DATE_FORMAT(prorroga_fecha_limite, '%Y-%m-%d') AS prorroga_fecha_limite,
+              prorroga_motivo, prorroga_autorizado_por_nombre
+         FROM compras_reloj WHERE negocio_id IN (${phIds})`,
+      negocioIds,
+    ) as any,
+    pool.query(
+      `SELECT t.id, t.negocio_id, t.categoria, t.titulo, t.estado, t.responsable_nombre,
+              DATE_FORMAT(t.plazo_at, '%Y-%m-%d %H:%i:%s') AS plazo_at,
+              DATE_FORMAT(t.creado_at, '%Y-%m-%d %H:%i:%s') AS creado_at,
+              DATE_FORMAT(t.cerrado_at, '%Y-%m-%d %H:%i:%s') AS cerrado_at,
+              c.fase, c.ancla, c.desfase_horas, c.duracion_horas
+         FROM compras_tarea t
+         LEFT JOIN compras_tarea_catalogo c ON c.clave = t.catalogo_clave
+        WHERE t.negocio_id IN (${phIds}) ORDER BY t.orden, t.id`,
+      negocioIds,
+    ) as any,
+  ]) : null;
+  relojYTareasP?.catch(() => {});   // ídem: se relanza en su await
   // Aparte del SELECT principal para tolerar que la migration-145 aún no esté aplicada.
   const precompraPorNegocio = new Set<number>();
   const adjEstimadaPorCodigo = new Map<string, string>();
   try {
-    const [pc] = await pool.query(`SELECT negocio_id FROM compras_asignacion WHERE precompra = 1`) as any;
+    const pc = await precompraP;
     for (const x of pc as any[]) precompraPorNegocio.add(Number(x.negocio_id));
     if (precompraPorNegocio.size > 0) {
       const cods = (rows as any[]).filter(r => precompraPorNegocio.has(Number(r.negocio_id))).map(r => r.licitacion_codigo);
@@ -1149,15 +1176,8 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
   // Reloj de entrega de todos los negocios, también en una sola consulta.
   const relojPorNegocio = new Map<number, ComprasFila['reloj']>();
   const hitosPorNegocio = new Map<number, HitosGantt>();
-  if (negocioIds.length > 0) {
-    const ph = negocioIds.map(() => '?').join(',');
-    const [rRows] = await pool.query(
-      `SELECT negocio_id, DATE_FORMAT(fecha_limite, '%Y-%m-%d') AS fecha_limite,
-              DATE_FORMAT(prorroga_fecha_limite, '%Y-%m-%d') AS prorroga_fecha_limite,
-              prorroga_motivo, prorroga_autorizado_por_nombre
-         FROM compras_reloj WHERE negocio_id IN (${ph})`,
-      negocioIds,
-    ) as any;
+  if (relojYTareasP) {
+    const [[rRows], [tRows]] = await relojYTareasP;
     for (const rl of rRows as any[]) {
       relojPorNegocio.set(rl.negocio_id, {
         fechaLimiteVigente: rl.prorroga_fecha_limite || rl.fecha_limite || null,
@@ -1170,17 +1190,6 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
       hitosPorNegocio.set(r.negocio_id, calcularHitosGantt(entradaAnclasDeFila({ ...r, entrega_oficial: relojPorNegocio.get(r.negocio_id)?.fechaLimiteVigente ?? null })));
     }
 
-    const [tRows] = await pool.query(
-      `SELECT t.id, t.negocio_id, t.categoria, t.titulo, t.estado, t.responsable_nombre,
-              DATE_FORMAT(t.plazo_at, '%Y-%m-%d %H:%i:%s') AS plazo_at,
-              DATE_FORMAT(t.creado_at, '%Y-%m-%d %H:%i:%s') AS creado_at,
-              DATE_FORMAT(t.cerrado_at, '%Y-%m-%d %H:%i:%s') AS cerrado_at,
-              c.fase, c.ancla, c.desfase_horas, c.duracion_horas
-         FROM compras_tarea t
-         LEFT JOIN compras_tarea_catalogo c ON c.clave = t.catalogo_clave
-        WHERE t.negocio_id IN (${ph}) ORDER BY t.orden, t.id`,
-      negocioIds,
-    ) as any;
     for (const t of tRows as any[]) {
       const arr = tareasPorNegocio.get(t.negocio_id) || [];
       const plan = planDeTarea(
@@ -2282,6 +2291,9 @@ export interface ResultadoAdjudicacionPorLinea extends DecisionNoAdjudicadas {
  *  falla o falta el acta, no toca nada. */
 export async function aplicarAdjudicacionPorLinea(negocioId: number): Promise<ResultadoAdjudicacionPorLinea> {
   const sinCambios: ResultadoAdjudicacionPorLinea = { marcar: [], restaurar: [], conflictos: [], omitido: 'sin acta', revisarAMano: null, perdidas: [], ganadas: [] };
+  // Los productos se leen a la par del acta (antes esperaban a que llegara: un viaje más a la base en cada carga, 22-oct-2026).
+  const productosP = listarProductosCompra(negocioId);
+  productosP.catch(() => {});   // si se sale antes (sin acta), que su error no quede suelto
   const [negRows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
   const codigo = (negRows as any[])[0]?.licitacion_codigo;
   if (!codigo) return sinCambios;
@@ -2291,7 +2303,7 @@ export async function aplicarAdjudicacionPorLinea(negocioId: number): Promise<Re
   if (!acta) return sinCambios;
 
   const lineas = acta.lineasAdjudicadas || [];
-  const productos = await listarProductosCompra(negocioId);
+  const productos = await productosP;
   // Las partes que se compran aparte repiten la línea de su producto: se deciden con él (si no, su correlativo repetido impedía cruzar).
   const d = decidirNoAdjudicadas(productos.filter(p => p.productoPadreId == null).map(p => ({ id: p.id, correlativo: p.correlativo, subestado: p.subestado })), lineas, acta.esAdjudicada);
   const partesDe = (ids: number[]) => productos.filter(p => p.productoPadreId != null && ids.includes(p.productoPadreId)).map(p => p.id);
@@ -2371,8 +2383,10 @@ async function contarProductosSinCotizacion(negocioId: number): Promise<number> 
 
 async function estadoDelFlujo(negocioId: number): Promise<{ escenarioElegido: boolean; compraAprobada: boolean; margenAprobado: boolean; compraRechazada: boolean; margenRechazado: boolean }> {
   try {
-    const [[e]]: any = await pool.query(`SELECT COUNT(*) n FROM compras_escenario WHERE negocio_id = ? AND elegido = 1`, [negocioId]);
-    const [aprs]: any = await pool.query(`SELECT tipo, estado FROM compras_aprobacion WHERE negocio_id = ?`, [negocioId]);
+    const [[[e]], [aprs]]: any = await Promise.all([
+      pool.query(`SELECT COUNT(*) n FROM compras_escenario WHERE negocio_id = ? AND elegido = 1`, [negocioId]),
+      pool.query(`SELECT tipo, estado FROM compras_aprobacion WHERE negocio_id = ?`, [negocioId]),
+    ]);
     const ok = (tipo: string) => (aprs as any[]).some(a => a.tipo === tipo && String(a.estado).startsWith('APROBADA'));
     const rech = (tipo: string) => (aprs as any[]).some(a => a.tipo === tipo && a.estado === 'RECHAZADA');
     return { escenarioElegido: Number(e?.n || 0) > 0, compraAprobada: ok('COMPRA'), margenAprobado: ok('MARGEN'), compraRechazada: rech('COMPRA'), margenRechazado: rech('MARGEN') };
@@ -2394,26 +2408,21 @@ async function contarCompuertasPendientes(negocioId: number): Promise<number> {
  *  criterio que ya usa RepartoAdminCard.tsx para decidir si se muestra). */
 async function contarHitosAdminPendientes(negocioId: number): Promise<number | null> {
   try {
-    const [[apr]]: any = await pool.query(
-      `SELECT estado FROM compras_aprobacion WHERE negocio_id = ? AND tipo = 'COMPRA' LIMIT 1`,
-      [negocioId],
-    );
-    if (!apr || !String(apr.estado).startsWith('APROBADA')) return null;
+    // Todo se lee a la vez (antes eran 5 viajes en serie a la base, 22-oct-2026); si la compra no está aprobada se descarta.
     // Desde el 21-oct-2026 (migration-157) lo pendiente es: el proyecto de Obuma sin vincular y cada
     // OC sin pago total/saldo registrado. La factura llega sola desde Obuma y la provisión de fondos
     // se quitó; pago y anticipo únicos por negocio ya no se usan (eran uno para todas las OC).
-    const [[r]]: any = await pool.query(
-      `SELECT carpeta_proyecto_creada_at FROM compras_reparto_administrativo WHERE negocio_id = ?`,
-      [negocioId],
-    );
     // "No aplica" es una resolución tan válida como marcarlo hecho (bug real del 17-sep-2026).
-    const [[noAplica]]: any = await pool.query(
-      `SELECT COUNT(*) n FROM compras_reparto_respaldo WHERE negocio_id = ? AND hito = 'carpetaProyectoCreada' AND estado = 'NO_APLICA'`,
-      [negocioId],
-    );
+    const [[[apr]], [[r]], [[noAplica]], ocs, pagos]: any = await Promise.all([
+      pool.query(`SELECT estado FROM compras_aprobacion WHERE negocio_id = ? AND tipo = 'COMPRA' LIMIT 1`, [negocioId]),
+      pool.query(`SELECT carpeta_proyecto_creada_at FROM compras_reparto_administrativo WHERE negocio_id = ?`, [negocioId]),
+      pool.query(`SELECT COUNT(*) n FROM compras_reparto_respaldo WHERE negocio_id = ? AND hito = 'carpetaProyectoCreada' AND estado = 'NO_APLICA'`, [negocioId]),
+      ocsConFacturas(negocioId),
+      listarPagosOc(negocioId),
+    ]);
+    if (!apr || !String(apr.estado).startsWith('APROBADA')) return null;
     const carpetaPendiente = !r?.carpeta_proyecto_creada_at && !Number(noAplica?.n) ? 1 : 0;
-    const [ocs, pagos] = await Promise.all([ocsConFacturas(negocioId), listarPagosOc(negocioId)]);
-    return carpetaPendiente + ocs.filter(o => !ocPagada(pagos, o.folio)).length;
+    return carpetaPendiente + ocs.filter((o: { folio: string }) => !ocPagada(pagos, o.folio)).length;
   } catch { return null; }
 }
 

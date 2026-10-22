@@ -578,6 +578,8 @@ export interface ResumenGastosCompra {
 }
 
 export async function resumenGastosCompra(negocioId: number, montoCosteado: number | null): Promise<ResumenGastosCompra> {
+  const codigoP = licitacionDeNegocio(negocioId);   // a la par de la lectura de OC (antes esperaba a que terminara)
+  codigoP.catch(() => {});   // si la lectura de OC falla primero, que este error no quede suelto (se relanza igual en el await)
   const [ocRows] = await pool.query(
     // OJO: la columna `total_neto` guarda el TOTAL CON IVA de la orden (el nombre engaña, se vio con la OC 3989); el neto real es `subtotal_neto`.
     `SELECT proveedor_nombre, obuma_folio, COALESCE(subtotal_neto, ROUND(total_neto / 1.19)) AS total_neto, DATE_FORMAT(fecha_oc, '%Y-%m-%d') AS fecha_oc
@@ -587,7 +589,7 @@ export async function resumenGastosCompra(negocioId: number, montoCosteado: numb
   const ocCreadas = (ocRows as any[]).map(r => ({ nombre: r.proveedor_nombre, folio: r.obuma_folio, total: Number(r.total_neto), fecha: r.fecha_oc }));
   const totalOcCreadas = ocCreadas.reduce((s, o) => s + o.total, 0);
 
-  const codigo = await licitacionDeNegocio(negocioId);
+  const codigo = await codigoP;
   // Una OC ANULADA no es gasto (caso 759-21-LE26: WINPY 26 por $6,9M inflaba el total).
   const cruzadas = (codigo ? await comprasObumaDeLicitacion(codigo) : []).filter(c => !/anulad/i.test(c.estado || ''));
   const totalCruzadas = cruzadas.reduce((s, c) => s + (c.total || 0), 0);

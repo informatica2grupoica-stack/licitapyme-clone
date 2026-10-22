@@ -119,10 +119,16 @@ async function lineaDeLaLicitacion(licitacionCodigo: string | null, lineaReal: n
 
 interface CotizacionRespaldo { id: number; proveedor: string; rut: string | null; rutEsPropio: boolean; fecha: string; vigencia: string | null; moneda: string; precioUnitario: number | null; precioOriginal: number | null; tipoCambio: number | null; fleteMonto: number | null; archivoUrl: string | null; archivoNombre: string | null; plazoTexto: string | null; plazoDias: number | null; incluyeFlete: boolean | null; texto: string; origen: string }
 
+/** Productos de Compras del negocio, para enganchar cada línea del costeo. El panel los lee UNA vez y los pasa a cada línea
+ *  (antes cada línea los releía, y el panel recorría las líneas en serie: 1191 tardaba ~12 s, 22-oct-2026). */
+function productosDelNegocio(negocioId: number): Promise<any[]> {
+  return pool.query(`SELECT id, correlativo, descripcion FROM compras_producto WHERE negocio_id = ?`, [negocioId]).then(([r]) => r as any[]);
+}
+
 /** Última vez que cambió una cotización de esta línea (alta o lectura), como 'YYYY-MM-DD HH:MM:SS' hora de Chile. */
-async function ultimoCambioDeCotizaciones(negocioId: number, l: LineaCosteo): Promise<string | null> {
+async function ultimoCambioDeCotizaciones(negocioId: number, l: LineaCosteo, prodsLeidos?: any[]): Promise<string | null> {
   try {
-    const [prods] = await pool.query(`SELECT id, correlativo, descripcion FROM compras_producto WHERE negocio_id = ?`, [negocioId]) as any;
+    const prods = prodsLeidos ?? await productosDelNegocio(negocioId);
     const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 80);
     const p = (prods as any[]).find(x => l.lineaReal != null && x.correlativo === l.lineaReal && (prods as any[]).filter(y => y.correlativo === l.lineaReal).length === 1)
       ?? (prods as any[]).find(x => norm(String(x.descripcion)) === norm(l.detalle));
@@ -134,9 +140,9 @@ async function ultimoCambioDeCotizaciones(negocioId: number, l: LineaCosteo): Pr
   } catch { return null; }
 }
 
-async function cotizacionesDeLaLinea(negocioId: number, l: LineaCosteo): Promise<CotizacionRespaldo[]> {
+async function cotizacionesDeLaLinea(negocioId: number, l: LineaCosteo, prodsLeidos?: any[]): Promise<CotizacionRespaldo[]> {
   try {
-    const [prods] = await pool.query(`SELECT id, correlativo, descripcion FROM compras_producto WHERE negocio_id = ?`, [negocioId]) as any;
+    const prods = prodsLeidos ?? await productosDelNegocio(negocioId);
     const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 80);
     const p = (prods as any[]).find(x => l.lineaReal != null && x.correlativo === l.lineaReal && (prods as any[]).filter(y => y.correlativo === l.lineaReal).length === 1)
       ?? (prods as any[]).find(x => norm(String(x.descripcion)) === norm(l.detalle));
@@ -577,10 +583,16 @@ export async function armarPanel(negocioId: number, lecturaNueva?: string | null
   const parametros = PARAMS;
   if (!estado) return { negocioId, hayCostea: false, lineas: [], margen: null, posicion: null, mensajesProveedor: [], resumen: { total: 0, verificadas: 0, conAlertas: 0, bloqueadas: 0, sinAuditar: 0, pendientes: 0, pasaAnexosOk: false }, pasadaFinal: null, parametros, migracionAplicada: true, lote: null, preparacion: null, programadas: [] };
   const todasLasLineas = lineasDelCosteo(estado);
+  // Lo que solo depende del costeo arranca ya, a la par del resto (el presupuesto arma el Resumen Ejecutivo: ~11 viajes a la base
+  // que antes esperaban a todo lo demás, 22-oct-2026). presupuestoNeto no lanza; las otras dos se esperan donde se usaban.
+  const presP = presupuestoNeto(negocioId, estado);
+  const guardadasP = filasGuardadas(negocioId);
+  guardadasP.catch(() => {});
+  const proyP = pool.query(`SELECT resultado_json, pasada_final_json FROM compras_auditor_costeo_proyecto WHERE negocio_id = ? LIMIT 1`, [negocioId]).catch(() => [[]] as any);
   const perdidas = await filasNoAdjudicadas(negocioId, todasLasLineas);
   const lineas = todasLasLineas.filter(l => !perdidas.has(l.id));   // las no adjudicadas se listan, pero no cuentan para nada
   let guardadas: Map<string, any>;
-  try { guardadas = await filasGuardadas(negocioId); } catch { return { negocioId, hayCostea: true, lineas: lineas.map(l => ({ linea: l, guardada: null, derivada: null, justificacionAhorro: null, justificacionPor: null, habilitacion: null, auditando: false, noAdjudicada: false })), margen: null, posicion: null, mensajesProveedor: [], resumen: { total: lineas.length, verificadas: 0, conAlertas: 0, bloqueadas: 0, sinAuditar: lineas.length, pendientes: 0, pasaAnexosOk: false }, pasadaFinal: null, parametros, migracionAplicada: false, lote: null, preparacion: null, programadas: [] }; }
+  try { guardadas = await guardadasP; } catch { return { negocioId, hayCostea: true, lineas: lineas.map(l => ({ linea: l, guardada: null, derivada: null, justificacionAhorro: null, justificacionPor: null, habilitacion: null, auditando: false, noAdjudicada: false })), margen: null, posicion: null, mensajesProveedor: [], resumen: { total: lineas.length, verificadas: 0, conAlertas: 0, bloqueadas: 0, sinAuditar: lineas.length, pendientes: 0, pasaAnexosOk: false }, pasadaFinal: null, parametros, migracionAplicada: false, lote: null, preparacion: null, programadas: [] }; }
 
   const verificados: Record<string, number | undefined> = {};
   for (const l of lineas) { const g = guardadas.get(l.id)?.guardada; if (g?.sistema.verificadoNeto != null) verificados[l.id] = g.sistema.verificadoNeto; }
@@ -598,16 +610,17 @@ export async function armarPanel(negocioId: number, lecturaNueva?: string | null
   });
 
   // Veredictos de antes de la última cotización cargada: se marcan como desactualizados (salvo que ya se esté re-auditando).
+  const prods = await productosDelNegocio(negocioId).catch(() => undefined);
   await Promise.all(panelLineas.map(async p => {
     if (!p.guardada || p.noAdjudicada || p.auditando) return;
-    const ult = await ultimoCambioDeCotizaciones(negocioId, p.linea);
+    const ult = await ultimoCambioDeCotizaciones(negocioId, p.linea, prods);
     if (ult && ult > String(p.guardada.auditadoAt).slice(0, 19)) p.desactualizada = true;
   }));
   const auditadas = Object.fromEntries(panelLineas.filter(p => p.guardada).map(p => [p.linea.id, p.guardada as LineaGuardada]));
-  const pres = await presupuestoNeto(negocioId, estado);
+  const pres = await presP;
   const posicion = calcularPosicionPrecio(lineas, auditadas, pres);
 
-  const [proy] = await pool.query(`SELECT resultado_json, pasada_final_json FROM compras_auditor_costeo_proyecto WHERE negocio_id = ? LIMIT 1`, [negocioId]).catch(() => [[]] as any) as any;
+  const [proy] = await proyP as any;
   let lecturaPrevia = ''; let pasadaFinal: PanelAuditorCompras['pasadaFinal'] = null;
   try { lecturaPrevia = JSON.parse((proy as any[])[0]?.resultado_json || '{}')?.posicion_precio?.lectura || ''; } catch { /* sin lectura previa */ }
   try { pasadaFinal = (proy as any[])[0]?.pasada_final_json ? JSON.parse((proy as any[])[0].pasada_final_json) : null; } catch { /* sin pasada */ }
@@ -626,20 +639,25 @@ export async function armarPanel(negocioId: number, lecturaNueva?: string | null
     desactualizadas: evaluables.filter(p => p.desactualizada).length,
   };
   const mensajesProveedor = mensajesPorProveedor(panelLineas.filter(p => p.guardada && p.derivada).map(p => ({ linea: p.guardada!, derivada: p.derivada! })));
-  return { negocioId, hayCostea: true, lineas: panelLineas, margen, posicion, mensajesProveedor, resumen, pasadaFinal, parametros, migracionAplicada: true, lote: estadoLote(negocioId), preparacion: await armarPreparacion(negocioId, lineas, pres.neto).catch(() => null), programadas: auditoriasProgramadas(negocioId) };
+  return { negocioId, hayCostea: true, lineas: panelLineas, margen, posicion, mensajesProveedor, resumen, pasadaFinal, parametros, migracionAplicada: true, lote: estadoLote(negocioId), preparacion: await armarPreparacion(negocioId, lineas, pres.neto, prods).catch(() => null), programadas: auditoriasProgramadas(negocioId) };
 }
 
 // ── ¿Está lista la licitación para auditarse? ────────────────────────────────────────────────────
-async function armarPreparacion(negocioId: number, lineas: LineaCosteo[], presupuesto: number | null): Promise<Preparacion> {
-  const prep: PrepLinea[] = [];
-  for (const l of lineas) {
-    if (l.esGastoExtra) continue;
-    const [tecnico, cots] = await Promise.all([productoTecnico(negocioId, l), cotizacionesDeLaLinea(negocioId, l)]);
-    prep.push({
-      linea: l, tecnico: { estado: tecnico.estado, marca: tecnico.marca, modelo: tecnico.modelo },
-      cotizaciones: cots.map(c => ({ id: c.id, proveedor: c.proveedor, rut: c.rut, rutEsPropio: c.rutEsPropio, moneda: c.moneda, tipoCambio: c.tipoCambio, plazoDias: c.plazoDias, fleteMonto: c.fleteMonto, incluyeFlete: c.incluyeFlete, vigencia: c.vigencia, tieneTexto: c.texto.trim().length > 40, asignadaAProductos: 1 })),
-    });
-  }
+async function armarPreparacion(negocioId: number, lineas: LineaCosteo[], presupuesto: number | null, prods?: any[]): Promise<Preparacion> {
+  // De a 4 líneas a la vez (2 consultas cada una = las 8 conexiones del pool); en serie eran ~8 s en la 1191. Se conserva el orden.
+  const aPreparar = lineas.filter(l => !l.esGastoExtra);
+  const prep: PrepLinea[] = new Array(aPreparar.length);
+  let siguiente = 0;
+  await Promise.all(Array.from({ length: Math.min(4, aPreparar.length) }, async () => {
+    while (siguiente < aPreparar.length) {
+      const i = siguiente++, l = aPreparar[i];
+      const [tecnico, cots] = await Promise.all([productoTecnico(negocioId, l), cotizacionesDeLaLinea(negocioId, l, prods)]);
+      prep[i] = {
+        linea: l, tecnico: { estado: tecnico.estado, marca: tecnico.marca, modelo: tecnico.modelo },
+        cotizaciones: cots.map(c => ({ id: c.id, proveedor: c.proveedor, rut: c.rut, rutEsPropio: c.rutEsPropio, moneda: c.moneda, tipoCambio: c.tipoCambio, plazoDias: c.plazoDias, fleteMonto: c.fleteMonto, incluyeFlete: c.incluyeFlete, vigencia: c.vigencia, tieneTexto: c.texto.trim().length > 40, asignadaAProductos: 1 })),
+      };
+    }
+  }));
   const [sinProd] = await pool.query(`SELECT c.id, c.proveedor_nombre FROM compras_cotizacion c LEFT JOIN compras_cotizacion_item i ON i.cotizacion_id = c.id WHERE c.negocio_id = ? AND i.id IS NULL`, [negocioId]) as any;
   const [reloj, dolar] = await Promise.all([obtenerEstadoReloj(negocioId).catch(() => null), dolarDelDia().catch(() => null)]);
   return diagnosticarPreparacion(prep, (sinProd as any[]).map(x => ({ id: x.id, proveedor: x.proveedor_nombre })),

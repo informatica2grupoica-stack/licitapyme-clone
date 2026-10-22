@@ -62,73 +62,73 @@ export async function obtenerDashboardCompras(): Promise<DashboardCompras> {
   const ahora = ahoraChileSQL();
   const hoy = ahora.slice(0, 10);
 
-  const [[negRow]]: any = await pool.query(
-    `SELECT COUNT(*) total, SUM(urgente) urgentes FROM compras_asignacion`,
-  );
-
-  let relojesVencidos = 0;
-  try {
-    const [relojRows]: any = await pool.query(
+  // Todas las lecturas son independientes: se piden a la vez (antes ~10 viajes en serie a la base, 22-oct-2026). Las que van con
+  // .catch(() => null) son las que antes estaban en try/catch: si fallan, su indicador queda en 0 y el resto sigue.
+  // Resultado económico: el costo real que Compras carga por fin llega a un indicador. Si falla no
+  // tumba el resto del dashboard (un negocio con datos raros no debe esconder los cuellos de botella).
+  const resultadosP = resultadosParaDashboard().then(resumirResultados)
+    .catch(e => { console.error('[compras-dashboard] resultados:', String(e).slice(0, 200)); return null; });
+  const [[[negRow]], relojRes, sinFijarRes, incRes, [[sinAsigRow]], clRes, [[ocRow]], [gpmRows], [asigRows], [tareaRows]]: any = await Promise.all([
+    pool.query(`SELECT COUNT(*) total, SUM(urgente) urgentes FROM compras_asignacion`),
+    // migration-95 pendiente en algún entorno viejo: no bloquea el resto del dashboard
+    pool.query(
       `SELECT fecha_limite, prorroga_fecha_limite FROM compras_reloj
         WHERE fijado_por IS NOT NULL AND entrega_con_multa = 0`,
-    );
-    relojesVencidos = (relojRows as any[]).filter(r => {
-      const limite = r.prorroga_fecha_limite || r.fecha_limite;
-      return limite && String(limite).slice(0, 10) < hoy;
-    }).length;
-  } catch { /* migration-95 pendiente en algún entorno viejo: no bloquea el resto del dashboard */ }
-
-  let relojesSinFijar = 0;
-  try {
-    const [[r]]: any = await pool.query(
+    ).catch(() => null),
+    // sin reloj de entrega en entornos viejos
+    pool.query(
       `SELECT COUNT(*) n FROM compras_asignacion ca
         WHERE ca.cierre_legado IS NULL
           AND NOT EXISTS (SELECT 1 FROM compras_reloj r WHERE r.negocio_id = ca.negocio_id AND r.fijado_por IS NOT NULL)`,
-    );
-    relojesSinFijar = Number(r?.n || 0);
-  } catch { /* sin reloj de entrega en entornos viejos */ }
-
-  let incidenciasAbiertas = 0;
-  try {
-    const [[incRow]]: any = await pool.query(`SELECT COUNT(*) n FROM compras_incidencia WHERE estado = 'ABIERTA'`);
-    incidenciasAbiertas = Number(incRow?.n || 0);
-  } catch { /* migration-94 pendiente: sigue en 0 */ }
-
-  const [[sinAsigRow]]: any = await pool.query(
-    `SELECT COUNT(*) n FROM compras_asignacion WHERE asignado_a IS NULL`,
-  );
-  const sinAsignar = Number(sinAsigRow?.n || 0);
-
-  // Cierre legado (migration-107, backlog histórico marcado a mano) — cuántos ya se cerraron
-  // "rápido" (sin pasar por el flujo completo de Entrega/Fracaso) y con qué resultado.
-  let cierreLegado = { entregadas: 0, noRealizadas: 0 };
-  try {
-    const [[clRow]]: any = await pool.query(
+    ).catch(() => null),
+    // migration-94 pendiente: sigue en 0
+    pool.query(`SELECT COUNT(*) n FROM compras_incidencia WHERE estado = 'ABIERTA'`).catch(() => null),
+    pool.query(`SELECT COUNT(*) n FROM compras_asignacion WHERE asignado_a IS NULL`),
+    // Cierre legado (migration-107, backlog histórico marcado a mano) — cuántos ya se cerraron
+    // "rápido" (sin pasar por el flujo completo de Entrega/Fracaso) y con qué resultado. Columna nueva: si falla, se queda en 0.
+    pool.query(
       `SELECT SUM(cierre_legado = 'ENTREGADA') entregadas, SUM(cierre_legado = 'NO_REALIZADA') no_realizadas
          FROM compras_asignacion WHERE cierre_legado IS NOT NULL`,
-    );
-    cierreLegado = { entregadas: Number(clRow?.entregadas || 0), noRealizadas: Number(clRow?.no_realizadas || 0) };
-  } catch { /* columna nueva: si falla, se queda en 0 */ }
+    ).catch(() => null),
+    pool.query(`SELECT SUM(oc_numero IS NOT NULL) con_oc, SUM(oc_numero IS NULL) sin_oc FROM compras_asignacion`),
+    // Ganados por mes — de dónde vienen los negocios que hoy están en Compras, mes a mes real
+    // (ganado_at, no cuándo entraron al sistema). Últimos 12 meses con datos.
+    pool.query(
+      `SELECT DATE_FORMAT(ganado_at, '%Y-%m') mes, COUNT(*) n
+         FROM compras_asignacion GROUP BY mes ORDER BY mes`,
+    ),
+    // §3.3 — SLA de asignación (3h hábiles). Se mide cuánto tardó REALMENTE, sea manual o automática.
+    pool.query(
+      `SELECT DATE_FORMAT(ganado_at, '%Y-%m-%d %H:%i:%s') ganado_at,
+              DATE_FORMAT(asignado_at, '%Y-%m-%d %H:%i:%s') asignado_at, asignado_por
+         FROM compras_asignacion WHERE asignado_at IS NOT NULL`,
+    ),
+    // §18.3/§18.5 — una fila por tarea, con su tipo de catálogo y su responsable. Se agrega EN JS:
+    // el catálogo es chico (una decena de tipos) y el volumen de tareas de Compras hoy es bajo — no
+    // vale la pena una consulta agregada con lógica de "vencida" duplicada en SQL.
+    pool.query(
+      `SELECT t.catalogo_clave, c.titulo AS catalogo_titulo, t.estado,
+              DATE_FORMAT(t.plazo_at, '%Y-%m-%d %H:%i:%s') plazo_at,
+              DATE_FORMAT(t.creado_at, '%Y-%m-%d %H:%i:%s') creado_at,
+              DATE_FORMAT(t.cerrado_at, '%Y-%m-%d %H:%i:%s') cerrado_at,
+              t.responsable_id, t.responsable_nombre
+         FROM compras_tarea t
+         LEFT JOIN compras_tarea_catalogo c ON c.clave = t.catalogo_clave
+        WHERE t.catalogo_clave IS NOT NULL`,
+    ),
+  ]);
 
-  const [[ocRow]]: any = await pool.query(
-    `SELECT SUM(oc_numero IS NOT NULL) con_oc, SUM(oc_numero IS NULL) sin_oc FROM compras_asignacion`,
-  );
+  const relojesVencidos = relojRes ? (relojRes[0] as any[]).filter(r => {
+    const limite = r.prorroga_fecha_limite || r.fecha_limite;
+    return limite && String(limite).slice(0, 10) < hoy;
+  }).length : 0;
+  const relojesSinFijar = sinFijarRes ? Number(sinFijarRes[0][0]?.n || 0) : 0;
+  const incidenciasAbiertas = incRes ? Number(incRes[0][0]?.n || 0) : 0;
+  const sinAsignar = Number(sinAsigRow?.n || 0);
+  const clRow = clRes?.[0]?.[0];
+  const cierreLegado = clRes ? { entregadas: Number(clRow?.entregadas || 0), noRealizadas: Number(clRow?.no_realizadas || 0) } : { entregadas: 0, noRealizadas: 0 };
   const ordenesCompra = { conOc: Number(ocRow?.con_oc || 0), sinOc: Number(ocRow?.sin_oc || 0) };
-
-  // Ganados por mes — de dónde vienen los negocios que hoy están en Compras, mes a mes real
-  // (ganado_at, no cuándo entraron al sistema). Últimos 12 meses con datos.
-  const [gpmRows]: any = await pool.query(
-    `SELECT DATE_FORMAT(ganado_at, '%Y-%m') mes, COUNT(*) n
-       FROM compras_asignacion GROUP BY mes ORDER BY mes`,
-  );
   const ganadosPorMes: GanadoPorMes[] = (gpmRows as any[]).map(r => ({ mes: r.mes, n: Number(r.n) }));
-
-  // §3.3 — SLA de asignación (3h hábiles). Se mide cuánto tardó REALMENTE, sea manual o automática.
-  const [asigRows]: any = await pool.query(
-    `SELECT DATE_FORMAT(ganado_at, '%Y-%m-%d %H:%i:%s') ganado_at,
-            DATE_FORMAT(asignado_at, '%Y-%m-%d %H:%i:%s') asignado_at, asignado_por
-       FROM compras_asignacion WHERE asignado_at IS NOT NULL`,
-  );
   const horasAsignacion: number[] = [];
   let automaticas = 0, manuales = 0;
   for (const r of asigRows as any[]) {
@@ -136,20 +136,6 @@ export async function obtenerDashboardCompras(): Promise<DashboardCompras> {
     if (h != null) horasAsignacion.push(h);
     if (r.asignado_por == null) automaticas++; else manuales++;
   }
-
-  // §18.3/§18.5 — una fila por tarea, con su tipo de catálogo y su responsable. Se agrega EN JS:
-  // el catálogo es chico (una decena de tipos) y el volumen de tareas de Compras hoy es bajo — no
-  // vale la pena una consulta agregada con lógica de "vencida" duplicada en SQL.
-  const [tareaRows]: any = await pool.query(
-    `SELECT t.catalogo_clave, c.titulo AS catalogo_titulo, t.estado,
-            DATE_FORMAT(t.plazo_at, '%Y-%m-%d %H:%i:%s') plazo_at,
-            DATE_FORMAT(t.creado_at, '%Y-%m-%d %H:%i:%s') creado_at,
-            DATE_FORMAT(t.cerrado_at, '%Y-%m-%d %H:%i:%s') cerrado_at,
-            t.responsable_id, t.responsable_nombre
-       FROM compras_tarea t
-       LEFT JOIN compras_tarea_catalogo c ON c.clave = t.catalogo_clave
-      WHERE t.catalogo_clave IS NOT NULL`,
-  );
 
   const vencida = (t: any) => t.estado !== 'HECHA' && t.plazo_at && t.plazo_at < ahora;
 
@@ -182,12 +168,7 @@ export async function obtenerDashboardCompras(): Promise<DashboardCompras> {
     .map(([id, e]) => ({ id, nombre: e.nombre, tareasCerradas: e.cerradas, tareasVencidasAbiertas: e.vencidasAbiertas, horasPromedioCierre: promedio(e.horas) }))
     .sort((a, b) => b.tareasCerradas - a.tareasCerradas);
 
-  // Resultado económico: el costo real que Compras carga por fin llega a un indicador. Si falla no
-  // tumba el resto del dashboard (un negocio con datos raros no debe esconder los cuellos de botella).
-  let resultados: ResumenResultados | null = null;
-  try {
-    resultados = resumirResultados(await resultadosParaDashboard());
-  } catch (e) { console.error('[compras-dashboard] resultados:', String(e).slice(0, 200)); }
+  const resultados: ResumenResultados | null = await resultadosP;
 
   return {
     negociosActivos: Number(negRow?.total || 0),

@@ -69,14 +69,19 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     // Backfill perezoso: negocios asignados antes de que existiera una tarea nueva en el catálogo
     // (ej. "contacto_pagos", §17.3) nunca la sembraron. Idempotente.
-    if (asignacion.asignadoA != null) {
-      await crearTareasCatalogoSiCorresponde(id, asignacion.asignadoA, asignacion.asignadoNombre).catch(() => {});
-    }
     // El reloj de entrega se arma solo cuando ya hay inicio real del plazo (no pisa uno ya fijado).
-    await armarRelojAutomatico(id);
+    // Tareas y reloj no dependen entre sí: van a la vez.
+    await Promise.all([
+      asignacion.asignadoA != null ? crearTareasCatalogoSiCorresponde(id, asignacion.asignadoA, asignacion.asignadoNombre).catch(() => {}) : null,
+      armarRelojAutomatico(id),
+    ]);
 
-    const [tareas, hitosGantt, candidatos, negRows, ordenes, facturacionActa] = await Promise.all([
-      listarTareas(id),
+    // Contadores por pestaña (solo tiene sentido pedirlos con encargado asignado — antes no hay
+    // productos, cotizaciones ni compuertas de qué contar). Arrancan apenas llegan las tareas, sin esperar al resto.
+    const tareasP = listarTareas(id);
+    const [tareas, resumenFases, hitosGantt, candidatos, negRows, ordenes, facturacionActa] = await Promise.all([
+      tareasP,
+      asignacion.asignadoA != null ? tareasP.then(t => obtenerResumenFases(id, t)) : null,
       obtenerHitosGantt(id),
       candidatosEncargado(),
       pool.query(`SELECT licitacion_nombre, licitacion_organismo, licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [id]) as any,
@@ -88,9 +93,6 @@ export async function GET(request: NextRequest, { params }: Params) {
     ]);
     const neg = (negRows[0] as any[])[0] || {};
     const ocNuestra = (ordenes as any[]).find(o => o.esNuestra) || null;
-    // Contadores por pestaña (solo tiene sentido pedirlos con encargado asignado — antes no hay
-    // productos, cotizaciones ni compuertas de qué contar).
-    const resumenFases = asignacion.asignadoA != null ? await obtenerResumenFases(id, tareas) : null;
 
     return NextResponse.json({
       success: true,

@@ -303,15 +303,15 @@ export async function extraccionPorId(id: number): Promise<{ id: number; negocio
 }
 
 /** Varias extracciones en UNA consulta (el panel del Auditor las necesita todas: una consulta por extracción contra la base remota tardaba segundos). */
-export async function extraccionesPorIds(ids: number[]): Promise<Map<number, { documentoUrl: string | null; documentoNombre: string | null; data: ExtraccionGuardada | null }>> {
-  const out = new Map<number, { documentoUrl: string | null; documentoNombre: string | null; data: ExtraccionGuardada | null }>();
+export async function extraccionesPorIds(ids: number[]): Promise<Map<number, { id: number; documentoUrl: string | null; documentoNombre: string | null; error: string | null; data: ExtraccionGuardada | null }>> {
+  const out = new Map<number, { id: number; documentoUrl: string | null; documentoNombre: string | null; error: string | null; data: ExtraccionGuardada | null }>();
   const unicos = [...new Set(ids.filter(n => Number.isFinite(n)))];
   if (unicos.length === 0) return out;
-  const [rows] = await pool.query(`SELECT id, documento_url, documento_nombre, extraccion_json FROM auditor_extraccion WHERE id IN (?)`, [unicos]) as any;
+  const [rows] = await pool.query(`SELECT id, documento_url, documento_nombre, extraccion_json, error FROM auditor_extraccion WHERE id IN (?)`, [unicos]) as any;
   for (const r of rows as any[]) {
     let data: ExtraccionGuardada | null = null;
     try { const j = JSON.parse(r.extraccion_json); data = j?.salida ? j : null; } catch { /* legado / vacío */ }
-    out.set(r.id, { documentoUrl: r.documento_url, documentoNombre: r.documento_nombre, data });
+    out.set(r.id, { id: r.id, documentoUrl: r.documento_url, documentoNombre: r.documento_nombre, error: r.error, data });
   }
   return out;
 }

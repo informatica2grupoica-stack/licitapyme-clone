@@ -64,6 +64,41 @@ services:
     depends_on:
       - app
 
+  # Base de datos PROPIA en el VPS (reemplaza a la de Bluehost, que queda de respaldo nocturno).
+  # Va en el perfil "db": NO se levanta hasta poner COMPOSE_PROFILES=db en el .env, así un deploy
+  # normal no la arranca antes del corte. Guía completa: docs/migracion-bd-vps.md.
+  # Ajustes copiados de Bluehost (MySQL 5.7) para que la app se comporte igual en 8.0:
+  #   • sql_mode sin STRICT ni ONLY_FULL_GROUP_BY (en Bluehost: NO_ENGINE_SUBSTITUTION).
+  #   • collation utf8mb4_general_ci: sin esto, las tablas nuevas nacen en utf8mb4_0900_ai_ci y los
+  #     JOIN contra las viejas fallan con «Illegal mix of collations».
+  #   • TZ America/Denver: Bluehost corre en MDT y 75 columnas guardan CURRENT_TIMESTAMP en esa hora;
+  #     cambiar la zona mezclaría fechas viejas y nuevas. La app ya no usa NOW() para nada chileno.
+  db:
+    image: mysql:8.0
+    container_name: licitapyme-db
+    restart: unless-stopped
+    profiles: ["db"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      TZ: America/Denver
+    command:
+      - --sql-mode=NO_ENGINE_SUBSTITUTION
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      - --explicit-defaults-for-timestamp=OFF
+      - --innodb-strict-mode=OFF
+      - --innodb-buffer-pool-size=768M
+      - --max-allowed-packet=256M
+      - --max-connections=100
+      - --skip-name-resolve
+    volumes:
+      - mysql-datos:/var/lib/mysql
+    ports:
+      - "127.0.0.1:3306:3306"        # solo el propio VPS (y túnel SSH desde el PC); nunca público
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: licitapyme-tunnel
@@ -76,3 +111,6 @@ services:
     command: tunnel --no-autoupdate --url http://app:3000
     depends_on:
       - app
+
+volumes:
+  mysql-datos:                     # datos de MySQL; sobreviven a «docker compose down» y a los deploy

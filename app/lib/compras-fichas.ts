@@ -20,7 +20,7 @@ import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { cargarEstadoCosteo, lineasAuditables, type Actor } from '@/app/lib/auditor-opciones';
 import { verificarLineaV3, ultimasCorridasV3, confirmacionesTecnicas, ultimasSegundasPasadasV3, estadoTecnicoV3 } from '@/app/lib/auditor-comparador-v3';
-import { leerYGuardarDocumento, extraccionPorId } from '@/app/lib/auditor-lector';
+import { leerYGuardarDocumento, extraccionPorId, extraccionesPorIds } from '@/app/lib/auditor-lector';
 import { normalizarExtraccion, emparejarProductos, coincidenciaIdentidad, puntuar, type ProductoNormalizado } from '@/app/lib/auditor-opciones-core';
 import { sugerirLineas } from '@/app/lib/auditor-sugerir-linea';
 import { requisitosDeLinea, requisitosDelProducto } from '@/app/lib/auditor-tecnico-v2';
@@ -352,14 +352,27 @@ export interface PanelFichasDTO {
 }
 
 export async function panelFichas(negocioId: number, licitacionCodigo: string): Promise<PanelFichasDTO> {
-  const [productos, estado, cotizaciones] = await Promise.all([listarProductosCompra(negocioId), cargarEstadoCosteo(negocioId), listarCotizaciones(negocioId)]);
+  // Lecturas independientes en dos tandas (antes ~12 viajes en serie a la base, 22-oct-2026). Dos tandas y no una para no pasar la cola del pool.
+  const [productos, estado, cotizaciones, [opsRows], [respRows]] = await Promise.all([
+    listarProductosCompra(negocioId), cargarEstadoCosteo(negocioId), listarCotizaciones(negocioId),
+    // Solo lo de Compras (espacio `cmp:`): opciones, sus fichas y sus resultados. Nada del Auditor.
+    pool.query(`SELECT id, fila_id, marca, modelo, proveedor_razon_social, proveedor_rut FROM auditor_opcion WHERE negocio_id = ? AND fila_id LIKE 'cmp:%' AND estado <> 'descartada' ORDER BY id`, [negocioId]) as any,
+    pool.query(`SELECT opcion_id, documento_nombre, documento_url FROM auditor_respaldo WHERE negocio_id = ? AND tipo = 'ficha_tecnica' AND vigente = 1 ORDER BY id`, [negocioId]) as any,
+  ]);
   const lineas = lineasAuditables(estado);
   const vigentes = productos.filter(p => !['RENUNCIADO', 'NO_ADJUDICADA'].includes(p.subestado));
-  // Solo lo de Compras (espacio `cmp:`): opciones, sus fichas y sus resultados. Nada del Auditor.
-  const [opsRows] = await pool.query(`SELECT id, fila_id, marca, modelo, proveedor_razon_social, proveedor_rut FROM auditor_opcion WHERE negocio_id = ? AND fila_id LIKE 'cmp:%' AND estado <> 'descartada' ORDER BY id`, [negocioId]) as any;
-  const [respRows] = await pool.query(`SELECT opcion_id, documento_nombre, documento_url FROM auditor_respaldo WHERE negocio_id = ? AND tipo = 'ficha_tecnica' AND vigente = 1 ORDER BY id`, [negocioId]) as any;
-  const [corridas, conf, segundas] = await Promise.all([ultimasCorridasV3(negocioId), confirmacionesTecnicas(negocioId), ultimasSegundasPasadasV3(negocioId)]);
-  const complementos = await complementosDeCompras(negocioId);
+  const [corridas, conf, segundas, complementos, [marcadas], [asig], [evs], [quitRows]] = await Promise.all([
+    ultimasCorridasV3(negocioId), confirmacionesTecnicas(negocioId), ultimasSegundasPasadasV3(negocioId), complementosDeCompras(negocioId),
+    pool.query(`SELECT detalle FROM auditor_evento WHERE negocio_id = ? AND tipo = 'ficha_compras' ORDER BY id DESC LIMIT 400`, [negocioId]) as any,
+    pool.query(
+      `SELECT r.extraccion_id, r.producto_idx FROM auditor_respaldo r JOIN auditor_opcion o ON o.id = r.opcion_id
+        WHERE r.negocio_id = ? AND r.tipo = 'ficha_tecnica' AND r.vigente = 1 AND o.estado <> 'descartada' AND o.fila_id LIKE 'cmp:%'`, [negocioId]) as any,
+    pool.query(`SELECT detalle FROM auditor_evento WHERE negocio_id = ? AND tipo = 'sugerencia_linea' ORDER BY id`, [negocioId]) as any,
+    pool.query(
+      `SELECT o.id, o.fila_id, o.marca, o.modelo, o.proveedor_razon_social FROM auditor_opcion o
+        WHERE o.negocio_id = ? AND o.fila_id LIKE 'cmp:%' AND o.estado = 'descartada'
+          AND EXISTS (SELECT 1 FROM auditor_respaldo r WHERE r.opcion_id = o.id AND r.tipo = 'ficha_tecnica' AND r.vigente = 1) ORDER BY o.id`, [negocioId]) as any,
+  ]);
 
   // Requisitos de las bases por línea del informe (una lectura por línea). Una línea que agrupa varios productos rotula cada requisito con el
   // suyo: cada producto muestra y se compara SOLO contra los suyos.
@@ -413,20 +426,17 @@ export async function panelFichas(negocioId: number, licitacionCodigo: string): 
   });
 
   // Fichas que pasaron por este panel y todavía no están en ningún producto (la lectura más reciente de cada documento).
-  const [marcadas] = await pool.query(`SELECT detalle FROM auditor_evento WHERE negocio_id = ? AND tipo = 'ficha_compras' ORDER BY id DESC LIMIT 400`, [negocioId]) as any;
-  const lecturas = new Map<string, Awaited<ReturnType<typeof extraccionPorId>>>();
+  // Todas las extracciones en una consulta (antes una por documento, en serie).
+  const extracciones = await extraccionesPorIds((marcadas as any[]).map(m => Number(m.detalle)));
+  const lecturas = new Map<string, NonNullable<ReturnType<typeof extracciones.get>>>();
   for (const m of marcadas as any[]) {
-    const ex = await extraccionPorId(Number(m.detalle));
+    const ex = extracciones.get(Number(m.detalle));
     if (!ex) continue;
     const k = ex.documentoUrl || String(ex.id);
     const previa = lecturas.get(k);
     if (!previa || ex.id > previa.id) lecturas.set(k, ex);
   }
-  const [asig] = await pool.query(
-    `SELECT r.extraccion_id, r.producto_idx FROM auditor_respaldo r JOIN auditor_opcion o ON o.id = r.opcion_id
-      WHERE r.negocio_id = ? AND r.tipo = 'ficha_tecnica' AND r.vigente = 1 AND o.estado <> 'descartada' AND o.fila_id LIKE 'cmp:%'`, [negocioId]) as any;
   const asignado = new Set((asig as any[]).map(r => `${r.extraccion_id}:${r.producto_idx}`));
-  const [evs] = await pool.query(`SELECT detalle FROM auditor_evento WHERE negocio_id = ? AND tipo = 'sugerencia_linea' ORDER BY id`, [negocioId]) as any;
   const sugerencias = new Map<string, any>();
   for (const e of evs as any[]) { try { const d = JSON.parse(e.detalle); if (d?.ficha) sugerencias.set(`${d.extraccionId}:${d.idx}`, d); } catch { /* evento mal formado */ } }
 
@@ -453,10 +463,6 @@ export async function panelFichas(negocioId: number, licitacionCodigo: string): 
     }
   }
   // Modelos quitados que conservan su ficha (solo del espacio de Compras y de productos que siguen vigentes).
-  const [quitRows] = await pool.query(
-    `SELECT o.id, o.fila_id, o.marca, o.modelo, o.proveedor_razon_social FROM auditor_opcion o
-      WHERE o.negocio_id = ? AND o.fila_id LIKE 'cmp:%' AND o.estado = 'descartada'
-        AND EXISTS (SELECT 1 FROM auditor_respaldo r WHERE r.opcion_id = o.id AND r.tipo = 'ficha_tecnica' AND r.vigente = 1) ORDER BY o.id`, [negocioId]) as any;
   const quitados: PanelFichasDTO['quitados'] = [];
   for (const o of quitRows as any[]) {
     const prod = vigentes.find(p => { const l = lineaDeProducto(p, lineas); return l && filaCmp(l.id) === o.fila_id; });

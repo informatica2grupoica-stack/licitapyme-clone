@@ -62,18 +62,19 @@ function tecnicoDe(panel: PanelFichasDTO | null, productoId: number, proveedor: 
 }
 
 export async function tablaAprobacion(negocioId: number): Promise<TablaAprobacion> {
-  const [[neg]] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
-  const [productos, costeado, escenario] = await Promise.all([
+  // Todo a la par (antes: código → productos → fichas → compras rápidas, en serie; 22-oct-2026). Las fichas solo esperan el código.
+  const codigoP = (pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any).then(([[neg]]: any) => neg?.licitacion_codigo ?? '');
+  const [productos, costeado, escenario, panel, { compras: rapidas }] = await Promise.all([
     listarProductosCompra(negocioId), costeadoPorProducto(negocioId).catch(() => ({} as Record<number, number | null>)), obtenerEscenarioElegido(negocioId),
+    codigoP.then((c: string) => panelFichas(negocioId, c)).catch(() => null),
+    listarComprasRapidas(negocioId).catch(() => ({ compras: [] as CompraRapida[] })),
   ]);
-  const panel = await panelFichas(negocioId, neg?.licitacion_codigo ?? '').catch(() => null);
 
   let detalle: any = null;
   try { detalle = escenario ? (typeof escenario.detalle_json === 'string' ? JSON.parse(escenario.detalle_json) : escenario.detalle_json) : null; } catch { /* escenario ilegible: se trata como sin compra */ }
   const compraDe = new Map<number, any>((detalle?.porProducto || []).map((x: any) => [x.productoId, x]));
 
   // Las compras rápidas van en la MISMA lista (un solo total y margen), marcadas «Ya comprada» o «Por comprar»; el jefe de ventas las aprueba en su fila.
-  const { compras: rapidas } = await listarComprasRapidas(negocioId).catch(() => ({ compras: [] as CompraRapida[] }));
   const rapidaDe = new Map(rapidas.map(c => [c.productoId, c]));
   const vigentes = productos.filter(p => !['RENUNCIADO', 'NO_ADJUDICADA'].includes(p.subestado));
   const rapidaFueraEscenario = new Set<number>();   // compras rápidas que el escenario elegido no trae: su costo se suma aparte (el flete sale solo del escenario)
