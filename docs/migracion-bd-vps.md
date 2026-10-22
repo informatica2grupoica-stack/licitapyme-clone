@@ -74,7 +74,10 @@ escribiendo en Bluehost, puede que al final reclame que alguna tabla no cuadra p
 ensayo eso es normal. Si falla **antes** de comparar, por ejemplo con un error de SQL, avísame con
 el mensaje.
 
-## 3. Corte (de noche, ~20–30 min sin servicio)
+## 3. Corte (a una hora sin usuarios)
+
+El tiempo sin servicio es lo que tardó la copia en el ensayo más ~30 s de reinicio. Sin servicio
+continuo no hay forma de evitarlo: Bluehost compartido no permite replicar la base en vivo.
 
 ```bash
 cd ~/licitapyme-clone

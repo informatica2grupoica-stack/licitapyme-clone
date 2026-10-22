@@ -20,6 +20,9 @@ local_db() { local p=$1; shift; docker exec -i -e MYSQL_PWD="$ROOT_PASS" licitap
 
 echo "==> 1/3 Copiando $BH_DB (Bluehost) -> $DB (VPS)... (unos minutos)"
 inicio=$(date +%s)
+# Durante la copia no se espera al disco en cada fila (mucho más rápido); se restablece al terminar, pase lo que pase.
+local_db mysql -e "SET GLOBAL innodb_flush_log_at_trx_commit = 2"
+trap 'local_db mysql -e "SET GLOBAL innodb_flush_log_at_trx_commit = 1"' EXIT
 # --column-statistics=0: el mysqldump 8.0 lo pide para leer un servidor 5.7.
 # --no-tablespaces: si no, pide el privilegio PROCESS, que el usuario compartido de Bluehost no tiene.
 bluehost mysqldump --single-transaction --quick --set-gtid-purged=OFF --column-statistics=0 \

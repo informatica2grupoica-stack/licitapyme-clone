@@ -94,6 +94,7 @@ services:
       - --max-allowed-packet=256M
       - --max-connections=100
       - --skip-name-resolve
+      - --skip-log-bin                 # sin réplicas no sirve: solo frena la importación y llena el disco (8.0 lo trae encendido)
     volumes:
       - mysql-datos:/var/lib/mysql
     ports:
