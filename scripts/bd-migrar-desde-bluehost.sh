@@ -15,7 +15,7 @@ ROOT_PASS=$(leer MYSQL_ROOT_PASSWORD); DB=$(leer DB_NAME)
 for v in BH_HOST BH_USER BH_PASS BH_DB ROOT_PASS DB; do [ -n "${!v}" ] || { echo "Falta $v en .env"; exit 1; }; done
 
 # Clientes mysql/mysqldump del propio contenedor; las claves van por variable de entorno, no en la línea de comandos.
-bluehost() { local p=$1; shift; docker exec -i -e MYSQL_PWD="$BH_PASS" licitapyme-db "$p" -h "$BH_HOST" -u "$BH_USER" --compress "$@"; }
+bluehost() { local p=$1; shift; docker exec -i -e MYSQL_PWD="$BH_PASS" licitapyme-db "$p" -h "$BH_HOST" -u "$BH_USER" --compress "$@" 2> >(grep -v "compress is deprecated" >&2); }
 local_db() { local p=$1; shift; docker exec -i -e MYSQL_PWD="$ROOT_PASS" licitapyme-db "$p" -u root "$@"; }
 
 echo "==> 1/3 Copiando $BH_DB (Bluehost) -> $DB (VPS)... (unos minutos)"
@@ -23,16 +23,25 @@ inicio=$(date +%s)
 # Durante la copia no se espera al disco en cada fila (mucho más rápido); se restablece al terminar, pase lo que pase.
 local_db mysql -e "SET GLOBAL innodb_flush_log_at_trx_commit = 2"
 trap 'local_db mysql -e "SET GLOBAL innodb_flush_log_at_trx_commit = 1"' EXIT
+# 4 tablas a la vez, las más pesadas primero (en serie tardaba 631 s, 22-oct). Cada tabla es su propia
+# transacción: en el corte da igual porque app y scheduler están detenidos y nadie escribe.
 # --column-statistics=0: el mysqldump 8.0 lo pide para leer un servidor 5.7.
 # --no-tablespaces: si no, pide el privilegio PROCESS, que el usuario compartido de Bluehost no tiene.
-bluehost mysqldump --single-transaction --quick --set-gtid-purged=OFF --column-statistics=0 \
-  --no-tablespaces --default-character-set=utf8mb4 "$BH_DB" \
-  | local_db mysql --default-character-set=utf8mb4 "$DB"
+copiar_tabla() {
+  bluehost mysqldump --single-transaction --quick --set-gtid-purged=OFF --column-statistics=0 \
+    --no-tablespaces --default-character-set=utf8mb4 "$BH_DB" "$1" \
+    | local_db mysql --default-character-set=utf8mb4 "$DB"
+}
+export -f bluehost local_db copiar_tabla
+export BH_HOST BH_USER BH_PASS BH_DB ROOT_PASS DB
+bluehost mysql -N -D "$BH_DB" -e "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' ORDER BY data_length + index_length DESC" \
+  | xargs -P 4 -I{} bash -c 'set -o pipefail; copiar_tabla "$1" || { echo "!! falló la copia de la tabla $1"; exit 1; }' _ {}
 echo "    listo en $(( $(date +%s) - inicio )) s"
 
 echo "==> 2/3 Comparando filas por tabla..."
 CONTEO="SELECT CONCAT('SELECT ''', table_name, ''', COUNT(*) FROM \`', table_name, '\`;') FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' ORDER BY table_name"
-contar() { local lado=$1 base=$2; $lado mysql -N -D "$base" -e "$CONTEO" | $lado mysql -N -D "$base"; }
+# Se reordena aquí: 5.7 y 8.0 ordenan distinto los nombres con «_» y el diff marcaba tablas idénticas.
+contar() { local lado=$1 base=$2; $lado mysql -N -D "$base" -e "$CONTEO" | $lado mysql -N -D "$base" | LC_ALL=C sort; }
 diff <(contar bluehost "$BH_DB") <(contar local_db "$DB") > /tmp/bd-diferencias.txt || {
   echo "!! Hay tablas que no cuadran (izquierda Bluehost, derecha VPS):"; cat /tmp/bd-diferencias.txt
   echo "   Si el scheduler estaba andando, deténlo y vuelve a correr el script. NO cambies DB_HOST todavía."

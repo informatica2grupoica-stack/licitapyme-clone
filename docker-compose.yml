@@ -90,7 +90,8 @@ services:
       - --collation-server=utf8mb4_general_ci
       - --explicit-defaults-for-timestamp=OFF
       - --innodb-strict-mode=OFF
-      - --innodb-buffer-pool-size=768M
+      - --innodb-buffer-pool-size=2G      # la base entera (~625 MB) cabe en RAM con holgura; el VPS tiene 12 GB
+      - --innodb-redo-log-capacity=1G     # el default (100 MB) obliga a vaciar a disco a cada rato durante la copia
       - --max-allowed-packet=256M
       - --max-connections=100
       - --skip-name-resolve
