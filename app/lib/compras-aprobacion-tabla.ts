@@ -91,20 +91,20 @@ export async function tablaAprobacion(negocioId: number): Promise<TablaAprobacio
     const difUnit = compraUnit != null && costUnit != null ? compraUnit - costUnit : null;
     const difPct = difUnit != null && costUnit ? pct((difUnit / costUnit) * 100) : null;
     const margenLineaPct = compraUnit != null && p.montoUnitario ? pct(((p.montoUnitario - compraUnit) / p.montoUnitario) * 100) : null;
-    // A una compra rápida no se le exige lo técnico (el jefe decide por precio y margen), pero si hay ficha de ese modelo se muestra igual.
+    // Una compra rápida sigue las mismas reglas de ficha que el resto: hay que completar sus documentos igual (pedido del dueño, 22-oct-2026).
     const tecnico = tecnicoDe(panel, p.id, proveedor, rap && mismoProveedor({ nombre: rap.proveedorNombre }, { nombre: proveedor }) ? rap.proveedorRut : null);
 
     const motivos: string[] = [];
     let estado: EstadoLinea = 'PASA';
     const sube = (e: EstadoLinea) => { if (e === 'NO_PASA' || estado === 'PASA') estado = e; };
     if (compraUnit == null) { sube('NO_PASA'); motivos.push('Todavía no tiene proveedor elegido en el escenario de compra'); }
-    if (tecnico.estado === 'NO_CUMPLE' && !rap) { sube('NO_PASA'); motivos.push('La ficha técnica no cumple lo que piden las bases'); }
+    if (tecnico.estado === 'NO_CUMPLE') { sube('NO_PASA'); motivos.push('La ficha técnica no cumple lo que piden las bases'); }
     if (compraUnit != null && p.montoUnitario != null && compraUnit >= p.montoUnitario) { sube('NO_PASA'); motivos.push('Se compra a un precio igual o mayor al que paga el cliente (pérdida)'); }
     if (difPct != null && difPct > 0) { sube('REVISAR'); motivos.push(`Cuesta ${difPct}% más que lo costeado`); }
     if (margenLineaPct != null && margenLineaPct < MARGEN_MINIMO_PCT && margenLineaPct > 0) { sube('REVISAR'); motivos.push(`Margen de la línea ${margenLineaPct}% (mínimo ${MARGEN_MINIMO_PCT}%)`); }
-    if (tecnico.estado === 'FALTA_DATO' && !rap) { sube('REVISAR'); motivos.push('Faltan datos técnicos en la ficha'); }
-    if (tecnico.estado === 'SIN_COMPARAR' && !rap) { sube('REVISAR'); motivos.push('La ficha está cargada pero no se comparó con las bases'); }
-    if (tecnico.estado === 'SIN_FICHA' && !rap) { sube('REVISAR'); motivos.push('Sin ficha técnica de este modelo: lo técnico no está verificado'); }
+    if (tecnico.estado === 'FALTA_DATO') { sube('REVISAR'); motivos.push('Faltan datos técnicos en la ficha'); }
+    if (tecnico.estado === 'SIN_COMPARAR') { sube('REVISAR'); motivos.push('La ficha está cargada pero no se comparó con las bases'); }
+    if (tecnico.estado === 'SIN_FICHA') { sube('REVISAR'); motivos.push('Sin ficha técnica de este modelo: lo técnico no está verificado'); }
 
     return {
       productoId: p.id, linea: p.correlativo, descripcion: p.descripcion, cantidad: cant,

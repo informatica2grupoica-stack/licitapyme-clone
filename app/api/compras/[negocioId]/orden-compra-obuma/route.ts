@@ -5,7 +5,7 @@
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
-import { proveedoresParaOrdenCompra, crearOrdenCompraParaProveedor } from '@/app/lib/compras-oc-obuma';
+import { proveedoresParaOrdenCompra, crearOrdenCompraParaProveedor, marcarCompradosConOc } from '@/app/lib/compras-oc-obuma';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { parsearMontoCL } from '@/app/lib/numeros';
 import { sincronizarComprasObuma } from '@/app/lib/obuma-compras';
@@ -53,6 +53,8 @@ export async function GET(request: NextRequest, { params }: Params) {
       buscarCentroCostoPorLicitacion(asignacion.licitacionCodigo).catch(() => null),
       centrosDeCostoCompleto().catch(() => []),
     ]);
+    // Recién sincronizado con Obuma: lo que ya tiene OC pasa a «Comprado».
+    await marcarCompradosConOc(id, proveedores).catch(e => console.warn('[compras/orden-compra-obuma] marcar Comprado por OC:', String(e).slice(0, 150)));
     // Lista para el selector del formulario de la OC (solo activos, los más nuevos primero).
     const centrosCosto = centros.filter(c => c.activo).sort((a, b) => Number(b.id) - Number(a.id)).map(c => ({ id: c.id, nombre: c.nombre }));
     return NextResponse.json({ success: true, proveedores, centroCosto, centrosCosto });

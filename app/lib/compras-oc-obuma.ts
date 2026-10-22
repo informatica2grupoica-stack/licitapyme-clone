@@ -90,7 +90,7 @@ async function buscarOcRealSimilar(
  *  producto del catálogo — spec §7, no a un texto suelto) y con el catálogo de proveedores (para
  *  la ficha: RUT, dirección, contacto) usando el mismo proveedor_id que ya quedó guardado en la
  *  cotización que ganó ese ítem — no se adivina por nombre. */
-export async function proveedoresParaOrdenCompra(negocioId: number): Promise<ProveedorOrdenCompra[]> {
+export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDuplicados = true }: { buscarDuplicados?: boolean } = {}): Promise<ProveedorOrdenCompra[]> {
   const escenario = await obtenerEscenarioElegido(negocioId);
   let detalle: any = null;
   if (escenario) { try { detalle = typeof escenario.detalle_json === 'string' ? JSON.parse(escenario.detalle_json) : escenario.detalle_json; } catch { /* detalle inválido, se trata como vacío */ } }
@@ -217,13 +217,37 @@ export async function proveedoresParaOrdenCompra(negocioId: number): Promise<Pro
     };
   }
 
-  await Promise.all([...grupos.values()].filter(g => !g.yaCreada && !g.ocRealObuma && g.proveedorId != null).map(async g => {
+  if (buscarDuplicados) await Promise.all([...grupos.values()].filter(g => !g.yaCreada && !g.ocRealObuma && g.proveedorId != null).map(async g => {
     const obumaProveedorId = g.proveedorId != null ? fichaCompleta.get(g.proveedorId)?.obumaProveedorId : null;
     if (!obumaProveedorId) return;
     g.posibleDuplicadoObuma = await buscarOcRealSimilar(obumaProveedorId, g.items.map(it => it.descripcion)).catch(() => null);
   }));
 
   return [...grupos.values()];
+}
+
+/** Un producto con OC emitida pasa a «Comprado». Misma regla que «Órdenes y facturas»: la OC que emitió Licitank (sus productos marcados) o
+ *  una OC real hecha directo en Obuma al mismo proveedor (por RUT, sin anuladas). Solo avanza desde Pendiente o Cotizando: nunca retrocede
+ *  ni pisa En bodega / Entregado. Antes crear la OC no tocaba el estado y la 1191 seguía «Pendiente» con OC y factura (22-oct-2026). */
+export async function marcarCompradosConOc(negocioId: number, grupos?: ProveedorOrdenCompra[]): Promise<number[]> {
+  const gs = grupos ?? await proveedoresParaOrdenCompra(negocioId, { buscarDuplicados: false });
+  const ids = new Set<number>();
+  for (const g of gs) {
+    if (g.yaCreada) {
+      const [rows] = await pool.query(`SELECT items_json FROM compras_orden_compra_obuma WHERE negocio_id = ? AND obuma_compra_oc_id = ?`, [negocioId, g.yaCreada.obumaCompraOcId]) as any;
+      for (const r of rows as any[]) { try { for (const it of JSON.parse(r.items_json || '[]')) ids.add(Number(it.productoId)); } catch { /* items_json corrupto: no se adivina */ } }
+    } else if (g.ocRealObuma) {
+      for (const it of g.items) if (it.aprobado && it.estadoLinea !== 'RECHAZADA') ids.add(it.productoId);
+    }
+  }
+  if (ids.size === 0) return [];
+  const [pend] = await pool.query(
+    `SELECT id FROM compras_producto WHERE negocio_id = ? AND id IN (?) AND subestado IN ('PENDIENTE', 'COTIZANDO')`, [negocioId, [...ids]]) as any;
+  const cambiar = (pend as any[]).map(r => Number(r.id));
+  if (cambiar.length === 0) return [];
+  await pool.query(`UPDATE compras_producto SET subestado = 'COMPRADO', updated_at = ? WHERE negocio_id = ? AND id IN (?) AND subestado IN ('PENDIENTE', 'COTIZANDO')`,
+    [ahoraChileSQL(), negocioId, cambiar]);
+  return cambiar;
 }
 
 export async function formasDePagoObuma(): Promise<ObumaFormaPago[]> {
@@ -415,6 +439,7 @@ export async function crearOrdenCompraParaProveedor(
     activo: true, ocNumero: resumenFolios,
     nota: `OC emitida desde Licitank en Obuma: folio ${creada.folio ?? creada.compraOcId} a ${grupo.proveedorNombre}, ${new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(creada.subtotalNeto)} neto.`,
   }, actorId, actorNombre);
+  await marcarCompradosConOc(negocioId).catch(e => console.warn('[compras-oc] no se pudo marcar Comprado:', String(e).slice(0, 150)));
 
   return { obumaCompraOcId: creada.compraOcId, folio: creada.folio, total: creada.total };
 }

@@ -11,6 +11,7 @@ import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { linksDelCosteoPorProducto } from '@/app/lib/compras-auditoria-cotizacion';
 import { listarComprasRapidas, type CompraRapida } from '@/app/lib/compras-compra-rapida';
+import { marcarCompradosConOc } from '@/app/lib/compras-oc-obuma';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -43,6 +44,8 @@ export async function GET(request: NextRequest, { params }: Params) {
     // Líneas ofertadas que el acta de MP dio a otro proveedor: se marcan solas (idempotente, solo lee
     // la caché del acta) y la pantalla las muestra atenuadas con quién se las llevó.
     const adj = asignacion.asignadoA != null ? await aplicarAdjudicacionPorLinea(id).catch(() => null) : null;
+    // Lo que ya tiene OC emitida (desde Licitank o directo en Obuma) se muestra «Comprado» (solo lee la base, no llama a Obuma).
+    await marcarCompradosConOc(id).catch(e => console.warn('[compras/productos] marcar Comprado por OC:', String(e).slice(0, 150)));
     const [productos, cobertura, linksCosteo] = await Promise.all([listarProductosCompra(id), coberturaProyecto(id), linksDelCosteoPorProducto(id).catch(() => ({}))]);
     return NextResponse.json({ success: true, productos, cobertura, linksCosteo, perdidas: adj?.perdidas ?? [], ganadas: adj?.ganadas ?? [], conflictos: adj?.conflictos ?? [], aviso: adj?.revisarAMano ?? null });
   } catch (error) {
