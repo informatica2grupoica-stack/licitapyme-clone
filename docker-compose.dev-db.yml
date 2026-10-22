@@ -1,0 +1,35 @@
+# docker-compose.dev-db.yml — MySQL LOCAL para desarrollar (escalabilidad multi-cliente, etc.).
+# NO es producción y no toca el VPS: su base vive solo en el volumen `licitank-dev-datos` de este PC.
+#
+#   docker compose -f docker-compose.dev-db.yml up -d      ← levanta (127.0.0.1:3308)
+#   docker compose -f docker-compose.dev-db.yml down       ← apaga (los datos se conservan)
+#   docker compose -f docker-compose.dev-db.yml down -v    ← apaga y BORRA los datos locales
+#
+# Mismos ajustes que la MySQL del VPS (ver el servicio `db` de docker-compose.yml) para que lo que
+# funcione aquí funcione allá: sql_mode, collation general_ci, zona MDT y modo no estricto.
+services:
+  dev-db:
+    image: mysql:8.0
+    container_name: licitank-dev-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: licitank_local
+      MYSQL_DATABASE: licitank_dev
+      MYSQL_USER: licitank
+      MYSQL_PASSWORD: licitank_local
+      TZ: America/Denver
+    command:
+      - --sql-mode=NO_ENGINE_SUBSTITUTION
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      - --explicit-defaults-for-timestamp=OFF
+      - --innodb-strict-mode=OFF
+      - --max-allowed-packet=256M
+      - --skip-log-bin
+    volumes:
+      - licitank-dev-datos:/var/lib/mysql
+    ports:
+      - "127.0.0.1:3308:3306"   # solo este PC; el 3307 es el túnel al VPS, no se mezcla
+
+volumes:
+  licitank-dev-datos:

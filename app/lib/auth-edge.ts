@@ -12,6 +12,8 @@ export interface UsuarioSession {
   nombre: string | null;
   empresa: string | null;
   rol: 'admin' | 'usuario' | 'externo';
+  /** Cliente (empresa que contrata LICITANK) al que pertenece. El 1 es Grupo ICA. Ver docs/diseno-multitenant-fase1.md */
+  clienteId: number;
 }
 
 export interface TokenPayload extends JWTPayload {
@@ -20,6 +22,8 @@ export interface TokenPayload extends JWTPayload {
   nombre: string | null;
   empresa: string | null;
   rol: 'admin' | 'usuario' | 'externo';
+  /** Ausente en tokens emitidos antes de la migration-164: todos pertenecían al cliente 1. */
+  clienteId?: number;
 }
 
 function getSecret(): Uint8Array {
@@ -49,5 +53,6 @@ export async function getSessionFromRequest(req: NextRequest): Promise<UsuarioSe
     nombre:  payload.nombre,
     empresa: payload.empresa,
     rol:     payload.rol,
+    clienteId: payload.clienteId ?? 1,
   };
 }

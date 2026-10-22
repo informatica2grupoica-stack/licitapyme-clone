@@ -96,6 +96,20 @@ multiplica las llamadas y MP bloquea (429 ya les ha pasado).
 - Cuota de MP: un único ticket compartido; se monitorea `mp_api_uso_diario` y se pone un tope por palabra/día.
   Pendiente de definir: ¿cada cliente trae su propio ticket de MP? (más escalable, pero más onboarding).
 
+## 6b. Estado de avance (desarrollo SOLO local — no se sube a producción todavía)
+
+- **Entorno:** MySQL local en Docker (`docker-compose.dev-db.yml`, 127.0.0.1:3308, base `licitank_dev`).
+  `.env.local` apunta a ella; la configuración anterior (túnel al VPS) quedó en `.env.local.produccion-tunel`.
+  Sembrar: `node scripts/dev/sembrar-bd-local.mjs`.
+- **Paso A — HECHO en local (migration-164):** `clientes` ampliada, `usuarios.cliente_id`,
+  `usuarios.es_superadmin`; el JWT lleva `clienteId`; `estadoVigente` lo lee de la BD (junto con el estado del
+  cliente: un cliente que no está ACTIVO pierde el acceso); `proxy.ts` inyecta `x-cliente-id`; helpers
+  `getClienteId()` y `esSuperadmin()` en `api-auth.ts`.
+- **Cambio de diseño:** el superadmin NO es un valor nuevo del ENUM `rol`, sino la columna `es_superadmin`. Así
+  ningún `rol === 'admin'` existente cambia de significado.
+- **ANTES de subir a producción:** aplicar la migration-164 en la BD del VPS (`node scripts/aplicar-migration-164.mjs --produccion`)
+  y recién entonces desplegar el código: el login ya consulta `usuarios.cliente_id` y fallaría sin la columna.
+
 ## 7. Orden de migración (cada paso se despliega solo; ICA sigue funcionando entre pasos)
 
 Convención del repo: `docs/migration-N.sql` + `scripts/aplicar-migration-N.mjs` (MySQL sin `ADD COLUMN IF NOT EXISTS`:

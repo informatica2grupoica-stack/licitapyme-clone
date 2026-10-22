@@ -115,6 +115,13 @@ export function inicioPlazoDeBases(hito: string | null): InicioPlazoTipo | null 
 /** Desfase del hito de inicio, ej. «aceptación de la orden de compra (+1 día hábil siguiente)». */
 export function desfaseDeBases(hito: string | null): { n: number; tipo: TipoDias } | null {
   if (!hito) return null;
+  // «desde el día quinto hábil de la emisión de la OC», «5° día hábil…»: ordinal + hábil = desfase.
+  const ORD: Record<string, number> = { primer: 1, primero: 1, segundo: 2, tercer: 3, tercero: 3, cuarto: 4, quinto: 5, sexto: 6, septimo: 7, séptimo: 7, octavo: 8, noveno: 9, decimo: 10, décimo: 10 };
+  const o = /(primer[o]?|segundo|tercer[o]?|cuarto|quinto|sexto|s[eé]ptimo|octavo|noveno|d[eé]cimo|\d{1,2})\s*[°ºo]?\s*(?:d[ií]as?\s+)?h[aá]bil(?:es)?/i.exec(hito);
+  if (o && !/\+\s*\d/.test(hito)) {
+    const n = ORD[o[1].toLowerCase()] ?? Number(o[1]);
+    if (Number.isFinite(n) && n > 0) return { n, tipo: 'HABILES' };
+  }
   const m = /\+\s*(\d+)\s*d[ií]as?\s*(h[aá]bil|corrid)?/i.exec(hito);
   if (!m) return null;
   return { n: Number(m[1]), tipo: /h[aá]bil/i.test(m[2] || hito.slice(m.index, m.index + 40)) ? 'HABILES' : 'CORRIDOS' };

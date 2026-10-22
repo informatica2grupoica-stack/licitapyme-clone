@@ -34,6 +34,7 @@ export async function crearToken(usuario: UsuarioSession): Promise<string> {
     nombre:  usuario.nombre,
     empresa: usuario.empresa,
     rol:     usuario.rol,
+    clienteId: usuario.clienteId,
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
@@ -82,6 +83,7 @@ export async function getSession(): Promise<UsuarioSession | null> {
     nombre:  payload.nombre,
     empresa: payload.empresa,
     rol:     payload.rol,
+    clienteId: payload.clienteId ?? 1,
   };
 }
 

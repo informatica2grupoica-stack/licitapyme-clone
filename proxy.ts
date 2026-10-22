@@ -86,8 +86,9 @@ export async function proxy(request: NextRequest) {
   }
 
   // El rol del JWT puede estar viejo (7 días): se toma el vigente de la BD.
-  const vigente = await estadoVigente(usuario.id, usuario.rol);
+  const vigente = await estadoVigente(usuario.id, usuario.rol, usuario.clienteId);
   usuario.rol = vigente.rol;
+  usuario.clienteId = vigente.clienteId;
 
   // Cuenta desactivada después de emitido el JWT: se corta el acceso al tiro.
   if (!vigente.activo) {
@@ -122,6 +123,7 @@ export async function proxy(request: NextRequest) {
   requestHeaders.set('x-user-id',    String(usuario.id));
   requestHeaders.set('x-user-email', usuario.email);
   requestHeaders.set('x-user-rol',   usuario.rol);
+  requestHeaders.set('x-cliente-id', String(usuario.clienteId)); // siempre pisado desde la BD: nunca viene del cliente
   // x-user-nombre lo leen varias rutas para atribuir acciones: NUNCA debe venir del cliente.
   // Se fija desde el JWT verificado (solo Latin-1: Headers.set revienta con otros caracteres).
   if (usuario.nombre && /^[ -ÿ]+$/.test(usuario.nombre)) requestHeaders.set('x-user-nombre', usuario.nombre);
