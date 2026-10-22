@@ -997,7 +997,8 @@ export async function fijarCoencargados(negocioId: number, usuarioIds: number[],
 }
 
 export async function obtenerAsignacion(negocioId: number): Promise<AsignacionCompras | null> {
-  const [rows] = await pool.query(
+  // Las tres lecturas van en paralelo: corre en cada GET de Compras y en serie sumaba tres viajes a la base (22-oct-2026).
+  const [[rows], coencargados, precompra] = await Promise.all([pool.query(
     `SELECT ca.negocio_id, ca.licitacion_codigo, ca.urgente, ca.asignado_a, ca.asignado_por, ca.resumen_json,
             ca.cierre_legado, ca.cierre_legado_nota, ca.cierre_legado_por_nombre,
             DATE_FORMAT(ca.cierre_legado_at, '%Y-%m-%d %H:%i:%s') AS cierre_legado_at,
@@ -1014,11 +1015,9 @@ export async function obtenerAsignacion(negocioId: number): Promise<AsignacionCo
        FROM compras_asignacion ca LEFT JOIN usuarios u ON u.id = ca.asignado_a
       WHERE ca.negocio_id = ? LIMIT 1`,
     [negocioId],
-  ) as any;
+  ) as any, listarCoencargados(negocioId), esPrecompra(negocioId)]);
   const r = (rows as any[])[0];
   if (!r) return null;
-  const coencargados = await listarCoencargados(negocioId);
-  const precompra = await esPrecompra(negocioId);
   let resumen: ResumenEjecutivoCompras | null = null;
   try { resumen = JSON.parse(r.resumen_json); } catch { /* se muestra sin resumen antes que romper */ }
   return {
@@ -1860,7 +1859,7 @@ export async function poblarProductosCompra(negocioId: number): Promise<void> {
   await aplicarAdjudicacionPorLinea(negocioId).catch(e => console.error('[compras] adjudicación por línea:', String(e).slice(0, 200)));
 }
 
-async function poblarProductosCompraBase(negocioId: number): Promise<void> {
+export async function poblarProductosCompraBase(negocioId: number): Promise<void> {
   const [ya] = await pool.query(`SELECT 1 FROM compras_producto WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
   if ((ya as any[]).length > 0) return;
 

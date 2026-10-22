@@ -357,12 +357,15 @@ export async function listarSkus(negocioId: number): Promise<Sku[]> {
   }));
   // Detalle para la tabla (no bloquea: si algo falla, la fila sale sin costo ni venta).
   if (skus.length > 0) {
-    const productos = await listarProductosCompra(negocioId).catch(() => []);
+    const [productos, costoDe] = await Promise.all([
+      listarProductosCompra(negocioId).catch(() => []),
+      costosEscenarioPorProducto(negocioId).catch(() => () => null),
+    ]);
     for (const sku of skus) {
       const prod = productos.find(x => x.id === sku.productoId);
       sku.productoDescripcion = prod?.descripcion ?? null;
       sku.ventaNeta = prod?.montoUnitario ?? null;
-      sku.costoNeto = (await costoEscenarioParaProducto(negocioId, sku.productoId).catch(() => null))?.costoUnitario ?? null;
+      sku.costoNeto = costoDe(sku.productoId)?.costoUnitario ?? null;
     }
   }
   return skus;
@@ -415,15 +418,25 @@ export interface CostoEscenarioProducto { costoUnitario: number; escenarioTipo: 
  *  elegido). Se usa DOS VECES con la misma lógica: acá en crearSku (lo que de verdad se manda) y en
  *  el preview que ve el usuario ANTES de confirmar — así nunca pueden divergir uno del otro. */
 export async function costoEscenarioParaProducto(negocioId: number, productoId: number): Promise<CostoEscenarioProducto | null> {
-  const escenario = await obtenerEscenarioElegido(negocioId);
+  return (await costosEscenarioPorProducto(negocioId))(productoId);
+}
+
+/** Lo mismo que costoEscenarioParaProducto, leyendo escenario y compras rápidas UNA vez para muchos productos
+ *  (listarSkus lo pedía por cada SKU en serie: 21 SKU de la 1191 = ~4,5 s, 22-oct-2026). */
+async function costosEscenarioPorProducto(negocioId: number): Promise<(productoId: number) => CostoEscenarioProducto | null> {
+  const [escenario, { compras }] = await Promise.all([
+    obtenerEscenarioElegido(negocioId),
+    listarComprasRapidas(negocioId).catch(() => ({ compras: [] as CompraRapida[] })),
+  ]);
   let detalle: any = null;
   if (escenario) { try { detalle = typeof escenario.detalle_json === 'string' ? JSON.parse(escenario.detalle_json) : escenario.detalle_json; } catch { /* detalle inválido, se trata como vacío */ } }
-  const item = escenario ? (detalle?.porProducto || []).find((p: any) => p.productoId === productoId) : null;
-  if (escenario && item?.precioUnitario != null) return { costoUnitario: Number(item.precioUnitario), escenarioTipo: escenario.tipo, proveedorNombre: item.proveedor || null };
-  // Compra rápida aprobada por el jefe de ventas (compra en tienda, sin escenario): el costo es el precio neto que se aprobó.
-  const { compras } = await listarComprasRapidas(negocioId).catch(() => ({ compras: [] as CompraRapida[] }));
-  const rapida = compras.find(c => c.productoId === productoId && c.estado === 'APROBADA' && c.precioUnitario != null);
-  return rapida ? { costoUnitario: Number(rapida.precioUnitario), escenarioTipo: 'COMPRA_RAPIDA', proveedorNombre: rapida.proveedorNombre } : null;
+  return (productoId: number) => {
+    const item = escenario ? (detalle?.porProducto || []).find((p: any) => p.productoId === productoId) : null;
+    if (escenario && item?.precioUnitario != null) return { costoUnitario: Number(item.precioUnitario), escenarioTipo: escenario.tipo, proveedorNombre: item.proveedor || null };
+    // Compra rápida aprobada por el jefe de ventas (compra en tienda, sin escenario): el costo es el precio neto que se aprobó.
+    const rapida = compras.find(c => c.productoId === productoId && c.estado === 'APROBADA' && c.precioUnitario != null);
+    return rapida ? { costoUnitario: Number(rapida.precioUnitario), escenarioTipo: 'COMPRA_RAPIDA', proveedorNombre: rapida.proveedorNombre } : null;
+  };
 }
 
 export interface SugerenciaSkuProducto {

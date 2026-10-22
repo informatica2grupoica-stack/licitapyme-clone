@@ -49,8 +49,8 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!(await puedeVerCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
-    const [aprobaciones, margen, presupuesto, escenarioElegido] = await Promise.all([
-      obtenerAprobaciones(id), calcularMargenPrevisto(id), calcularPresupuestoCompra(id), obtenerEscenarioElegido(id),
+    const [aprobaciones, margen, presupuesto, escenarioElegido, jefe] = await Promise.all([
+      obtenerAprobaciones(id), calcularMargenPrevisto(id), calcularPresupuestoCompra(id), obtenerEscenarioElegido(id), esJefeDeVentas(userId, rol),
     ]);
     // Pedido explícito del usuario (11-sep-2026): la Compuerta 1 "Pendiente" mostraba el snapshot
     // CONGELADO al proponerse (spec §10.2), que puede haber quedado viejo si después se eligió otro
@@ -60,8 +60,8 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({
       success: true, ...aprobaciones, margenActual: margen, presupuestoActual: presupuesto,
       escenarioElegidoActual: escenarioElegido ? { tipo: escenarioElegido.tipo, costoTotal: Number(escenarioElegido.costo_total) } : null,
-      esJefeDeVentas: await esJefeDeVentas(userId, rol),
-      puedeDeshacer: await esJefeDeVentas(userId, rol),
+      esJefeDeVentas: jefe,
+      puedeDeshacer: jefe,
     });
   } catch (error) {
     console.error('[compras/aprobaciones][GET]', String(error));

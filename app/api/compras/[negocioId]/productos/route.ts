@@ -3,7 +3,7 @@
 // propone/aprueba renuncia a una línea (§14.5) o agrega/quita una parte que se compra aparte.
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
-import { obtenerAsignacion, listarProductosCompra, poblarProductosCompra, cambiarSubestadoProducto,
+import { obtenerAsignacion, listarProductosCompra, poblarProductosCompraBase, cambiarSubestadoProducto,
   proponerRenunciaLinea, aprobarRenunciaLinea, coberturaProyecto, sincronizarProductosConCosteo, aplicarAdjudicacionPorLinea,
   crearParteProducto, eliminarParteProducto,
   type SubestadoProducto } from '@/app/lib/compras';
@@ -39,7 +39,8 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     // Backfill perezoso: negocios asignados antes de que existiera este bloque (§14) nunca
     // poblaron sus productos. poblarProductosCompra es idempotente (no repite si ya hay filas).
-    if (asignacion.asignadoA != null) await poblarProductosCompra(id).catch(() => {});
+    // Solo la base: la adjudicación por línea se aplica justo abajo (poblarProductosCompra la aplicaba dos veces).
+    if (asignacion.asignadoA != null) await poblarProductosCompraBase(id).catch(() => {});
 
     // Líneas ofertadas que el acta de MP dio a otro proveedor: se marcan solas (idempotente, solo lee
     // la caché del acta) y la pantalla las muestra atenuadas con quién se las llevó.

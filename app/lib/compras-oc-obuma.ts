@@ -91,15 +91,18 @@ async function buscarOcRealSimilar(
  *  la ficha: RUT, dirección, contacto) usando el mismo proveedor_id que ya quedó guardado en la
  *  cotización que ganó ese ítem — no se adivina por nombre. */
 export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDuplicados = true }: { buscarDuplicados?: boolean } = {}): Promise<ProveedorOrdenCompra[]> {
-  const escenario = await obtenerEscenarioElegido(negocioId);
+  // Lecturas independientes en paralelo (corre en cada GET de Productos; en serie eran ~12 viajes a la base, 22-oct-2026).
+  const [escenario, { compras: rapidas }, productosCompra] = await Promise.all([
+    obtenerEscenarioElegido(negocioId),
+    listarComprasRapidas(negocioId).catch(() => ({ compras: [] as CompraRapida[] })),
+    listarProductosCompra(negocioId).catch(() => []),
+  ]);
   let detalle: any = null;
   if (escenario) { try { detalle = typeof escenario.detalle_json === 'string' ? JSON.parse(escenario.detalle_json) : escenario.detalle_json; } catch { /* detalle inválido, se trata como vacío */ } }
   const porProducto: Array<{ productoId: number; descripcion: string; proveedor: string | null; precioUnitario: number | null; cantidad: number | null; subtotal: number | null }> = detalle?.porProducto || [];
   const cubiertos = porProducto.filter(p => p.proveedor && p.precioUnitario != null);
   // Compras rápidas APROBADAS por el jefe de ventas: entran a la OC con su tienda y su precio aunque no haya un escenario de compra elegido
   // (o aunque el escenario no las traiga). Pendientes o rechazadas no entran.
-  const { compras: rapidas } = await listarComprasRapidas(negocioId).catch(() => ({ compras: [] as CompraRapida[] }));
-  const productosCompra = rapidas.some(r => r.estado === 'APROBADA') ? await listarProductosCompra(negocioId).catch(() => []) : [];
   for (const r of rapidas) {
     if (r.estado !== 'APROBADA' || r.precioUnitario == null || !r.proveedorNombre || cubiertos.some(c => c.productoId === r.productoId)) continue;
     const prod = productosCompra.find(x => x.id === r.productoId);
@@ -109,21 +112,32 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
   if (cubiertos.length === 0) return [];
 
   const productoIds = cubiertos.map(p => p.productoId);
-  const [skuRows] = await pool.query(
-    `SELECT producto_id, obuma_producto_id, obuma_codigo_comercial FROM compras_sku
-      WHERE negocio_id = ? AND producto_id IN (${productoIds.map(() => '?').join(',')})`,
-    [negocioId, ...productoIds],
-  ) as any;
+  const codigoLicP = licitacionDeNegocio(negocioId);
+  const [[skuRows], [cotRows], [ocRows], aprob, todasObuma] = await Promise.all([
+    pool.query(
+      `SELECT producto_id, obuma_producto_id, obuma_codigo_comercial FROM compras_sku
+        WHERE negocio_id = ? AND producto_id IN (${productoIds.map(() => '?').join(',')})`,
+      [negocioId, ...productoIds],
+    ) as any,
+    pool.query(
+      `SELECT proveedor_nombre, proveedor_id, proveedor_rut, origen, flete_monto FROM compras_cotizacion WHERE negocio_id = ?`,
+      [negocioId],
+    ) as any,
+    pool.query(
+      `SELECT proveedor_nombre, obuma_compra_oc_id, obuma_folio, total_neto, DATE_FORMAT(fecha_oc, '%Y-%m-%d') AS fecha_oc
+         FROM compras_orden_compra_obuma WHERE negocio_id = ?`,
+      [negocioId],
+    ) as any,
+    listarAprobacionesLinea(negocioId).catch(() => ({ tablaOk: false, lineas: [] as Array<{ productoId: number; estado: string }> })),
+    // OC reales ya hechas en Obuma para esta licitación (lectura de base, sin llamar a Obuma). Ver más abajo.
+    codigoLicP.then(c => c ? comprasObumaDeLicitacion(c) : []).catch(() => []),
+  ]);
   const skuPorProducto = new Map<number, { obumaProductoId: string | null; obumaCodigoComercial: string | null }>(
     (skuRows as any[]).map(r => [r.producto_id, { obumaProductoId: r.obuma_producto_id, obumaCodigoComercial: r.obuma_codigo_comercial }]),
   );
 
   // proveedor_id/rut reales: los que YA quedaron guardados en la cotización que ganó — es la fuente
   // de verdad de a quién se le está comprando, no un texto libre que puede escribirse distinto.
-  const [cotRows] = await pool.query(
-    `SELECT proveedor_nombre, proveedor_id, proveedor_rut, origen, flete_monto FROM compras_cotizacion WHERE negocio_id = ?`,
-    [negocioId],
-  ) as any;
   const fichaPorNombre = new Map<string, { proveedorId: number | null; rut: string | null }>();
   const fletePorDirecta = new Map<string, number>();
   for (const c of cotRows as any[]) {
@@ -141,18 +155,12 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
     for (const p of provRows as any[]) fichaCompleta.set(p.id, { direccion: p.direccion, comuna: p.comuna, email: p.correo, telefono: p.telefono, giro: p.giro, contacto: p.contacto_nombre, obumaProveedorId: p.obuma_proveedor_id });
   }
 
-  const [ocRows] = await pool.query(
-    `SELECT proveedor_nombre, obuma_compra_oc_id, obuma_folio, total_neto, DATE_FORMAT(fecha_oc, '%Y-%m-%d') AS fecha_oc
-       FROM compras_orden_compra_obuma WHERE negocio_id = ?`,
-    [negocioId],
-  ) as any;
   const ocPorProveedor = new Map<string, { obumaCompraOcId: string; folio: string | null; total: number; fechaOc: string }>(
     (ocRows as any[]).map(r => [r.proveedor_nombre, { obumaCompraOcId: r.obuma_compra_oc_id, folio: r.obuma_folio, total: Number(r.total_neto), fechaOc: r.fecha_oc }]),
   );
 
   // Qué productos están aprobados: los que el jefe de ventas aprobó uno a uno. Si no hubo decisiones por producto (flujo anterior),
   // se considera aprobado todo lo de la compra aprobada.
-  const aprob = await listarAprobacionesLinea(negocioId).catch(() => ({ tablaOk: false, lineas: [] as Array<{ productoId: number; estado: string }> }));
   const hayDecisiones = aprob.tablaOk && aprob.lineas.length > 0;
   const estadoPorProducto = new Map(aprob.lineas.map(l => [l.productoId, l.estado]));
   // Compra rápida aprobada por el jefe de ventas: ese producto cuenta como aprobado aunque no esté en la aprobación de la compra.
@@ -194,8 +202,6 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
   // ni preguntar. En paralelo, son solo llamadas de lectura baratas (comprasOc.list.json).
   // OC reales ya hechas en Obuma para esta licitación (lectura de base, sin llamar a Obuma). Las
   // ANULADAS no cuentan. Se cruzan por RUT del proveedor, no por nombre (la razón social cambia).
-  const codigoLic = await licitacionDeNegocio(negocioId);
-  const todasObuma = codigoLic ? await comprasObumaDeLicitacion(codigoLic).catch(() => []) : [];
   const realesObuma = todasObuma.filter(c => !/anulad/i.test(c.estado || ''));
   for (const g of grupos.values()) {
     // Una OC nuestra que en Obuma quedó ANULADA ya no es la orden del proveedor: no se muestra como "creada".
@@ -232,13 +238,12 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
 export async function marcarCompradosConOc(negocioId: number, grupos?: ProveedorOrdenCompra[]): Promise<number[]> {
   const gs = grupos ?? await proveedoresParaOrdenCompra(negocioId, { buscarDuplicados: false });
   const ids = new Set<number>();
+  // Una sola lectura de las OC del negocio (antes una por proveedor, en serie).
+  const ocIds = gs.filter(g => g.yaCreada).map(g => g.yaCreada!.obumaCompraOcId);
+  const [ocRows] = ocIds.length ? await pool.query(`SELECT items_json FROM compras_orden_compra_obuma WHERE negocio_id = ? AND obuma_compra_oc_id IN (?)`, [negocioId, ocIds]) as any : [[]];
+  for (const r of ocRows as any[]) { try { for (const it of JSON.parse(r.items_json || '[]')) ids.add(Number(it.productoId)); } catch { /* items_json corrupto: no se adivina */ } }
   for (const g of gs) {
-    if (g.yaCreada) {
-      const [rows] = await pool.query(`SELECT items_json FROM compras_orden_compra_obuma WHERE negocio_id = ? AND obuma_compra_oc_id = ?`, [negocioId, g.yaCreada.obumaCompraOcId]) as any;
-      for (const r of rows as any[]) { try { for (const it of JSON.parse(r.items_json || '[]')) ids.add(Number(it.productoId)); } catch { /* items_json corrupto: no se adivina */ } }
-    } else if (g.ocRealObuma) {
-      for (const it of g.items) if (it.aprobado && it.estadoLinea !== 'RECHAZADA') ids.add(it.productoId);
-    }
+    if (!g.yaCreada && g.ocRealObuma) for (const it of g.items) if (it.aprobado && it.estadoLinea !== 'RECHAZADA') ids.add(it.productoId);
   }
   if (ids.size === 0) return [];
   const [pend] = await pool.query(
