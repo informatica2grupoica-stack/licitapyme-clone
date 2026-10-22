@@ -130,6 +130,10 @@ y en `.env.local`: `DB_HOST=127.0.0.1` y `DB_PORT=3307`. El usuario y la clave n
 
 ## 6. Volver atrás
 
+Después del corte se subió `DB_POOL_LIMIT=30` en el `.env` del VPS. Con 8 conexiones, al abrir un negocio
+de Compras salía «Queue limit reached» porque llegan más de 32 consultas juntas; la MySQL del VPS admite 100.
+**Si vuelves a Bluehost, borra esa línea:** el tope allá es de 25 conexiones en total.
+
 Si algo falla después del corte:
 
 ```bash

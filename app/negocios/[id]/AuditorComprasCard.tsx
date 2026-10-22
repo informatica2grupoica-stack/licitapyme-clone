@@ -1079,9 +1079,11 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
               El proveedor que escribas acá se reconoce (por RUT) o se crea solo en el catálogo — para completarle correo, teléfono, categoría o cuenta bancaria, entra a <a href="/compras/proveedores" target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:text-teal-700 font-semibold">Proveedores</a>.
             </p>
             <div className="flex items-center gap-2">
-              <button onClick={editandoId != null ? guardarEdicion : crearCotizacion} disabled={(!form.proveedorNombre.trim() && !archivo) || guardandoForm}
+              {/* Mientras se lee el documento no se guarda: guardar en ese momento lo volvía a subir y a leer con IA desde cero
+                  (el doble de espera y de costo, 22-oct-2026). */}
+              <button onClick={editandoId != null ? guardarEdicion : crearCotizacion} disabled={(!form.proveedorNombre.trim() && !archivo) || guardandoForm || archivoExtraido.estado === 'leyendo'}
                 className="text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
-                {guardandoForm ? <Loader2 size={13} className="animate-spin" /> : editandoId != null ? 'Guardar cambios' : 'Guardar'}
+                {guardandoForm ? <Loader2 size={13} className="animate-spin" /> : archivoExtraido.estado === 'leyendo' ? 'Leyendo…' : editandoId != null ? 'Guardar cambios' : 'Guardar'}
               </button>
               <button onClick={cancelarFormulario} className="text-zinc-400 hover:text-zinc-600"><X size={16} /></button>
             </div>
