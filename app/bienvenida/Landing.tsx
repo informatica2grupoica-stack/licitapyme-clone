@@ -716,7 +716,7 @@ export default function Landing() {
           </span>
           <span className="flex items-center gap-3">
             Datos públicos de
-            <MercadoPublicoMark size={22} />
+            <MercadoPublicoMark size={22} tone="light" />
           </span>
         </div>
       </footer>
