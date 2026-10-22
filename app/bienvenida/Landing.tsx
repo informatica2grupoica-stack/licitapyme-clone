@@ -2,784 +2,743 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { motion, useInView, useReducedMotion, useScroll, useTransform } from 'framer-motion';
-import { IconRadar as Radar, IconSparkles as Sparkles, IconShieldCheck as ShieldCheck, IconCalculator as Calculator, IconBriefcase as Briefcase, IconBellRinging as BellRing, IconArrowRight as ArrowRight, IconCheck as Check, IconSearch as Search, IconLayoutDashboard as LayoutDashboard, IconUsers as Users, IconLock as Lock, IconFileSearch as FileSearch, IconRobot as Bot, IconChartLine as LineChart, IconLogin as LogIn, IconBell as Bell, IconChevronDown as ChevronDown, IconMessageCircle as MessageCircle } from '@tabler/icons-react';
+import Lenis from 'lenis';
+import {
+  animate, motion, useInView, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform,
+  type MotionValue, type Variants,
+} from 'framer-motion';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { MercadoPublicoMark } from '@/app/components/MercadoPublicoLogo';
-import { IlustracionAsistente } from '@/app/components/IlustracionAsistente';
 import { useSession } from '@/app/lib/session-context';
 
-/* Identidad: los colores salen del logo (teal #2FC7A6) sobre el fondo claro de la app. */
-const BRAND = '#2FC7A6';
-const BRAND_INK = '#0e8f72'; // teal oscurecido, legible sobre blanco
+/* Contacto comercial: se define en el entorno (NEXT_PUBLIC_CONTACTO_EMAIL). Sin él, el botón de demo no se muestra. */
+const CONTACTO = process.env.NEXT_PUBLIC_CONTACTO_EMAIL;
+const MAIL_DEMO = CONTACTO
+  ? `mailto:${CONTACTO}?subject=${encodeURIComponent('Quiero una demo de LICITANK')}`
+  : null;
 
-/* ────────────────────────────────────────────────────────────────────────────
-   Contenido (todo refleja lo que la plataforma hace de verdad)
-──────────────────────────────────────────────────────────────────────────── */
+const EASE = [0.2, 0.7, 0.2, 1] as [number, number, number, number];
+const mono = { fontFamily: 'var(--font-geist-mono), ui-monospace, monospace' } as const;
+const roboto = { fontFamily: 'var(--font-roboto), ui-sans-serif, system-ui, sans-serif' } as const;
+const serif = { fontFamily: 'var(--font-roboto), ui-sans-serif, system-ui, sans-serif', fontWeight: 500 } as const; // títulos: Roboto medium
 
-const FUNCIONES = [
-  {
-    n: '01', icon: Radar, titulo: 'Radar inteligente',
-    desc: 'Vigila el universo de Mercado Público y cruza cada licitación con las palabras clave de cada perfil: puntaje de relevancia, región, monto y rubro.',
-  },
-  {
-    n: '02', icon: Bot, titulo: 'Prefiltro con IA',
-    desc: 'Descarta lo que no aplica —obra civil, servicios ajenos, presupuesto bajo— antes de gastar recursos, y siempre deja el motivo a la vista.',
-  },
-  {
-    n: '03', icon: ShieldCheck, titulo: 'Viabilidad con evidencia',
-    desc: 'Lee las bases completas, incluidas las escaneadas, y emite un veredicto citando documento, artículo y página de cada dato.',
-  },
-  {
-    n: '04', icon: Calculator, titulo: 'Costeo automático',
-    desc: 'Genera el Excel de costeo desde la plantilla real de la empresa, con la estructura de la licitación —suma alzada o por línea— y precios de mercado por ítem.',
-  },
-  {
-    n: '05', icon: Briefcase, titulo: 'Gestión de negocios',
-    desc: 'Asignar, trabajar, anexar, postular y medir. Estados, comentarios y bitácora de quién hizo qué, desde la detección hasta el resultado.',
-  },
-  {
-    n: '06', icon: BellRing, titulo: 'Alertas oportunas',
-    desc: 'Campana, tiempo real y correo: nuevas oportunidades, cambios de etapa, aperturas y aviso de cierre antes de que venza el plazo.',
-  },
-];
+/* ── Movimiento ───────────────────────────────────────────────────────────── */
 
-/* Campos que el análisis valida en cada licitación (los reales del pipeline) */
-const VALIDACIONES = [
-  'Modalidad de oferta', 'Tipo de adjudicación', 'Criterios y pesos (suman 100%)',
-  'Garantías exigidas', 'Plazos y fecha de cierre', 'Presupuesto disponible',
-  'Ítems y cantidades', 'Anexos y formularios',
-];
+const item: Variants = {
+  h: { opacity: 0, y: 12 },
+  s: (d: number = 0) => ({ opacity: 1, y: 0, transition: { delay: 0.1 + d * 0.12, duration: 0.5, ease: EASE } }),
+};
 
-const PASOS = [
-  { t: 'Detección', d: 'El radar captura lo nuevo de Mercado Público y lo cruza con el perfil del equipo.', icon: FileSearch },
-  { t: 'Prefiltro', d: 'La IA aparta lo que no calza con el negocio, con su motivo visible.', icon: Bot },
-  { t: 'Viabilidad', d: 'Se leen las bases completas y se responde con fuentes: ¿conviene competir?', icon: ShieldCheck },
-  { t: 'Postulación', d: 'Costeo, anexos y presentación de la oferta, con seguimiento.', icon: Briefcase },
-  { t: 'Resultado', d: 'Apertura y adjudicación detectadas desde Mercado Público, medidas en el panel.', icon: LineChart },
-];
+function Item({ d = 0, className = '', style, children }: { d?: number; className?: string; style?: React.CSSProperties; children: React.ReactNode }) {
+  return <motion.div variants={item} custom={d} className={className} style={style}>{children}</motion.div>;
+}
 
-const ROLES = [
-  { icon: LayoutDashboard, t: 'Administrador', d: 'Visión total: todo el radar, todos los negocios, reasignación, re-análisis y buscador.' },
-  { icon: Users, t: 'Usuario', d: 'Sus alertas y los negocios que le asignan, con permisos finos por perfil.' },
-  { icon: Lock, t: 'Externo', d: 'Acceso acotado a las licitaciones que se le asignan, sin ver el resto.' },
-];
-
-/* Licitaciones REALES de Mercado Público (datos del set de validación de la
-   plataforma: código, organismo, región, monto y puntaje tal como se analizaron). */
-const FILAS = [
-  {
-    codigo: '2126-107-LE26', nombre: 'Adquisición de catres clínicos eléctricos, campaña invierno',
-    org: 'Hospital de Coquimbo', region: 'Región de Coquimbo', cierre: 'cierra hoy',
-    score: 65, chip: 'GANABLE', tono: 'ok' as const, estado: 'En estudio',
-  },
-  {
-    codigo: '2467-70-LE26', nombre: 'Adquisición de materiales eléctricos',
-    org: 'I. Municipalidad de Chillán', region: 'Región del Ñuble', cierre: 'en 3 días',
-    score: 65, chip: 'GANABLE', tono: 'ok' as const, estado: 'Asignada', activa: true,
-  },
-  {
-    codigo: '2920-30-LE26', nombre: 'Materiales e insumos para la DOM',
-    org: 'I. Municipalidad de Juan Fernández', region: 'Región de Valparaíso', cierre: 'cierra hoy',
-    score: 39, chip: 'REVISIÓN', tono: 'warn' as const, estado: 'Prefiltro',
-  },
-];
-
-/* ────────────────────────────────────────────────────────────────────────────
-   Utilidades de animación
-──────────────────────────────────────────────────────────────────────────── */
-
-function Reveal({ children, delay = 0, className = '' }: {
-  children: React.ReactNode; delay?: number; className?: string;
-}) {
+function Rise({ children, delay = 0, className = '' }: { children: React.ReactNode; delay?: number; className?: string }) {
   const reduce = useReducedMotion();
   return (
-    <motion.div
-      initial={{ opacity: 0, y: reduce ? 0 : 14 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: '-70px' }}
-      transition={{ duration: 0.55, delay, ease: [0.21, 0.47, 0.32, 0.98] }}
-      className={className}
-    >
+    <motion.div className={className} initial={{ opacity: 0, y: reduce ? 0 : 26 }} whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: '-8% 0px' }} transition={{ duration: 0.65, delay, ease: EASE }}>
       {children}
     </motion.div>
   );
 }
 
-/* Subrayado dibujado a mano bajo la palabra clave del titular */
-function Subrayado({ children }: { children: React.ReactNode }) {
+function Titular({ lineas, className = '', delay = 0 }: { lineas: string[]; className?: string; delay?: number }) {
+  let k = 0;
   return (
-    <span className="relative inline-block">
-      {children}
-      <svg className="absolute left-0 -bottom-1.5 w-full" viewBox="0 0 220 12" fill="none"
-        preserveAspectRatio="none" aria-hidden="true" style={{ height: '0.32em' }}>
-        <path d="M4 8.5C40 3.5 96 2.5 132 4.5c30 1.6 60 3 84 2.5" stroke={BRAND}
-          strokeWidth="5" strokeLinecap="round" opacity="0.85" />
-      </svg>
-    </span>
+    <h1 className={className} aria-label={lineas.join(' ')}>
+      {lineas.map((l, li) => (
+        <span key={li} className="block" aria-hidden="true">
+          {l.split(' ').map(w => (
+            <span key={k} className="inline-block overflow-hidden pb-[0.14em] align-bottom">
+              <motion.span className="inline-block" initial={{ y: '110%' }} animate={{ y: 0 }}
+                transition={{ duration: 0.8, delay: delay + 0.06 * k++, ease: EASE }}>
+                {w}&nbsp;
+              </motion.span>
+            </span>
+          ))}
+        </span>
+      ))}
+    </h1>
   );
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
-   Landing
-──────────────────────────────────────────────────────────────────────────── */
+/** Número que sube de `a` a `b` cuando `go` es verdadero. */
+function Cuenta({ a = 0, b, go, dur = 1.3, delay = 0 }: { a?: number; b: number; go: boolean; dur?: number; delay?: number }) {
+  const [v, setV] = useState(a);
+  useEffect(() => {
+    if (!go) return;
+    const c = animate(a, b, { duration: dur, delay, ease: 'easeOut', onUpdate: x => setV(Math.round(x)) });
+    return () => c.stop();
+  }, [go, a, b, dur, delay]);
+  return <span className="tabular-nums">{v}</span>;
+}
 
-export default function Landing() {
-  const { usuario } = useSession();
+/* ── Piezas de interfaz ───────────────────────────────────────────────────── */
+
+function Avatar({ nombre, tono }: { nombre: string; tono: 'teal' | 'slate' }) {
+  const ini = nombre.split(' ').map(p => p[0]).slice(0, 2).join('');
+  return (
+    <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-[10px] font-semibold text-white ${tono === 'teal' ? 'bg-teal-700' : 'bg-slate-600'}`}>{ini}</span>
+  );
+}
+
+function Ventana({ ruta, children }: { ruta: string; children: React.ReactNode }) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-slate-300 bg-white"
+      style={{ boxShadow: '0 1px 2px rgba(15,23,42,.08), 0 18px 32px -24px rgba(15,23,42,.35)', ...roboto }}>
+      <div className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+        <span className="flex gap-1.5" aria-hidden="true">
+          {[0, 1, 2].map(i => <span key={i} className="h-2 w-2 rounded-full bg-slate-300" />)}
+        </span>
+        <span className="truncate text-xs text-slate-500" style={mono}>{ruta}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Dato({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <dt className="text-[11px] text-slate-500">{rotulo}</dt>
+      <dd className="mt-0.5 text-xs font-medium text-slate-700">{children}</dd>
+    </div>
+  );
+}
+
+/* ── Hero: radar animado ──────────────────────────────────────────────────── */
+
+const T_RADAR = 7; // segundos por vuelta
+const BLIPS = [
+  { a: 28, r: 64 }, { a: 96, r: 40 }, { a: 152, r: 78 }, { a: 204, r: 52 }, { a: 258, r: 70 }, { a: 312, r: 34 }, { a: 338, r: 82 },
+];
+
+function Radar() {
+  return (
+    <div className="relative mx-auto aspect-square w-full max-w-[470px]">
+      {[100, 74, 48, 22].map(p => (
+        <span key={p} aria-hidden className="absolute rounded-full border border-white/10" style={{ inset: `${(100 - p) / 2}%` }} />
+      ))}
+      <span aria-hidden className="absolute left-1/2 top-0 h-full w-px bg-white/[.07]" />
+      <span aria-hidden className="absolute left-0 top-1/2 h-px w-full bg-white/[.07]" />
+      <span aria-hidden className="lk-sweep absolute inset-0 rounded-full" style={{ animationDuration: `${T_RADAR}s` }} />
+      <span aria-hidden className="absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-teal-300" />
+      {BLIPS.map(b => {
+        const rad = (b.a * Math.PI) / 180;
+        return (
+          <span key={b.a} aria-hidden className="lk-blip absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-teal-300"
+            style={{
+              left: `${50 + (b.r / 100) * 50 * Math.sin(rad)}%`, top: `${50 - (b.r / 100) * 50 * Math.cos(rad)}%`,
+              animationDuration: `${T_RADAR}s`, animationDelay: `${(((b.a - 60 + 360) % 360) / 360) * T_RADAR}s`,
+            }} />
+        );
+      })}
+
+      <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.4, duration: 0.7, ease: EASE }}
+        className="absolute -right-2 top-[6%] hidden w-[230px] sm:block lg:-right-14">
+        <div className="lk-flota flex items-start gap-3" style={roboto}>
+          <span aria-hidden className="mt-[9px] h-px w-10 shrink-0 bg-white/40" />
+          <div>
+            <p className="text-[11px] text-slate-400">Nueva coincidencia</p>
+            <p className="mt-1 text-[13px] font-medium leading-snug text-white">MOBILIARIO ESCOLAR PARA ESTABLECIMIENTOS</p>
+            <p className="mt-0.5 text-xs text-slate-400">I. Municipalidad de Temuco</p>
+            <p className="mt-2 text-xs font-medium text-red-400">Cierra mañana, 15:00</p>
+          </div>
+        </div>
+      </motion.div>
+      <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 2.1, duration: 0.7, ease: EASE }}
+        className="absolute -left-2 bottom-[8%] hidden w-[220px] sm:block lg:-left-14">
+        <div className="lk-flota flex items-start justify-end gap-3 text-right" style={{ ...roboto, animationDelay: '-2s' }}>
+          <div>
+            <p className="text-[11px] text-slate-400">Asignada a</p>
+            <p className="mt-1 flex items-center justify-end gap-2 text-[13px] font-medium text-white">Diego Rojas<Avatar nombre="Diego Rojas" tono="slate" /></p>
+            <p className="mt-1 text-xs text-slate-400">Materiales eléctricos · Talca</p>
+          </div>
+          <span aria-hidden className="mt-[9px] h-px w-10 shrink-0 bg-white/40" />
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+const PALABRAS = ['mobiliario escolar', 'materiales eléctricos', 'equipos computacionales', 'insumos médicos', 'vestuario institucional', 'servicios de aseo', 'útiles de oficina', 'mantención de edificios', 'alimentación', 'maquinaria'];
+
+function Cinta() {
+  const fila = [...PALABRAS, ...PALABRAS];
+  return (
+    <div className="border-y border-white/10 py-5" style={{ maskImage: 'linear-gradient(to right, transparent, #000 12%, #000 88%, transparent)', WebkitMaskImage: 'linear-gradient(to right, transparent, #000 12%, #000 88%, transparent)' }}>
+      <div className="lk-cinta flex w-max gap-10 whitespace-nowrap text-[15px] text-slate-400">
+        {fila.map((p, i) => (
+          <span key={i} className="flex items-center gap-10">
+            {p}
+            <span aria-hidden className="h-1 w-1 rounded-full bg-teal-500/70" />
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Texto que se ilumina al hacer scroll ─────────────────────────────────── */
+
+function Palabra({ w, p, i, n }: { w: string; p: MotionValue<number>; i: number; n: number }) {
+  const o = useTransform(p, [i / n, (i + 1) / n], [0.16, 1]);
+  return <motion.span style={{ opacity: o }}>{w} </motion.span>;
+}
+
+const RELATO = 'Cada día aparecen licitaciones nuevas en Mercado Público. Revisarlas a mano toma horas, y la que no viste ya cerró. LICITANK las busca por ti, las ordena por fecha de cierre y deja a una persona a cargo de cada una.';
+
+function Relato() {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const { scrollYProgress } = useScroll({ target: ref, offset: ['start 0.85', 'end 0.45'] });
+  const ws = RELATO.split(' ');
+  return (
+    <section className="mx-auto max-w-[1200px] px-5 py-28 sm:px-8 sm:py-40">
+      <p ref={ref} style={serif} className="max-w-[980px] text-[30px] leading-[1.2] tracking-[-0.015em] text-white sm:text-[50px]">
+        {ws.map((w, i) => <Palabra key={i} w={w} p={scrollYProgress} i={i} n={ws.length} />)}
+      </p>
+    </section>
+  );
+}
+
+/* ── Smooth scroll (lenis) ────────────────────────────────────────────────── */
+
+let lenisGlobal: Lenis | null = null;
+
+function useSmoothScroll() {
   const reduce = useReducedMotion();
-  const heroRef = useRef<HTMLDivElement>(null);
-  const { scrollYProgress } = useScroll({ target: heroRef, offset: ['start start', 'end start'] });
-  const radarY = useTransform(scrollYProgress, [0, 1], [0, reduce ? 0 : 70]);
+  useEffect(() => {
+    if (reduce) return;
+    const lenis = new Lenis({ lerp: 0.085, anchors: { offset: -64 } });
+    lenisGlobal = lenis;
+    let raf = 0;
+    const loop = (t: number) => { lenis.raf(t); raf = requestAnimationFrame(loop); };
+    raf = requestAnimationFrame(loop);
+    return () => { cancelAnimationFrame(raf); lenis.destroy(); lenisGlobal = null; };
+  }, [reduce]);
+}
 
-  const cta = usuario
-    ? { href: '/dashboard', label: 'Ir al panel', icon: LayoutDashboard }
-    : { href: '/login', label: 'Iniciar sesión', icon: LogIn };
+/* ── Recorrido fijado al scroll: cada paso se anima al aparecer ───────────── */
+
+const PASOS = [
+  { n: '01', t: 'Detectar', d: 'El radar revisa Mercado Público todos los días con tus palabras clave, tus rubros y tus regiones. Lo nuevo aparece ordenado por fecha de cierre.' },
+  { n: '02', t: 'Asignar', d: 'Cada licitación se asigna a una persona del equipo con un clic. Quien la recibe la ve en su lista de negocios, con el cierre a la vista.' },
+  { n: '03', t: 'Seguir', d: 'El negocio avanza por etapas, con comentarios e historial. Cuando Mercado Público adjudica, queda como ganado o perdido.' },
+];
+
+function PanelDetectar({ go }: { go: boolean }) {
+  const kws = ['mobiliario escolar', 'materiales eléctricos', 'equipos computacionales'];
+  return (
+    <Ventana ruta="radar / configuración">
+      <div className="p-5">
+        <p className="text-[11px] text-slate-500">Palabras clave</p>
+        <ul className="mt-2 divide-y divide-slate-100">
+          {kws.map((k, i) => (
+            <Item key={k} d={i} className="flex items-center justify-between py-2.5 text-[13px] font-medium text-slate-800">
+              {k}
+              <span className="text-xs font-normal text-slate-500"><b className="font-bold tabular-nums text-slate-900"><Cuenta b={[6, 5, 3][i]} go={go} delay={0.5 + i * 0.25} /></b> nuevas</span>
+            </Item>
+          ))}
+        </ul>
+        <dl className="mt-3 grid grid-cols-2 gap-4">
+          <Dato rotulo="Regiones">Araucanía · Maule · Biobío</Dato>
+          <Dato rotulo="Revisión">Todos los días</Dato>
+        </dl>
+      </div>
+      <div className="flex items-baseline justify-between border-t border-slate-200 bg-slate-50 px-5 py-4">
+        <p className="text-xs text-slate-500">Licitaciones nuevas hoy</p>
+        <p className="text-3xl font-bold text-slate-900"><Cuenta b={14} go={go} delay={0.4} dur={1.5} /></p>
+      </div>
+    </Ventana>
+  );
+}
+
+function PanelAsignar({ go }: { go: boolean }) {
+  const gente: { n: string; tono: 'teal' | 'slate'; act: number }[] = [
+    { n: 'María Fuentes', tono: 'teal', act: 6 },
+    { n: 'Diego Rojas', tono: 'slate', act: 4 },
+  ];
+  return (
+    <Ventana ruta="negocios / asignación">
+      <div className="p-5">
+        <p className="text-[11px] text-slate-500">Licitación por asignar</p>
+        <p className="mt-0.5 text-[13px] font-medium text-slate-900">MATERIALES ELÉCTRICOS PARA MANTENCIÓN</p>
+        <ul className="relative mt-4 divide-y divide-slate-100 rounded-lg border border-slate-200">
+          {gente.map((g, i) => (
+            <li key={g.n} className="relative flex items-center gap-3 px-4 py-3.5">
+              <Avatar nombre={g.n} tono={g.tono} />
+              <span className="text-[13px] font-medium text-slate-800">{g.n}</span>
+              {i === 1 && (
+                <motion.span initial={{ opacity: 0, scale: 0.8 }} animate={go ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.8 }}
+                  transition={{ delay: 1.2, type: 'spring', stiffness: 360, damping: 22 }}
+                  className="text-xs font-medium text-teal-700">+ Recibió esta licitación</motion.span>
+              )}
+              <dl className="ml-auto">
+                <Dato rotulo="Negocios activos">
+                  <span className="text-[15px] font-bold tabular-nums">{i === 1 ? <Cuenta a={g.act} b={g.act + 1} go={go} dur={0.4} delay={1.25} /> : g.act}</span>
+                </Dato>
+              </dl>
+            </li>
+          ))}
+          <motion.span aria-hidden initial={{ opacity: 0 }} animate={go ? { opacity: [0, 1, 1, 0], y: [-44, -44, 38, 38] } : { opacity: 0 }}
+            transition={{ duration: 1.3, delay: 0.3, times: [0, 0.15, 0.75, 1], ease: 'easeInOut' }}
+            className="pointer-events-none absolute left-4 right-4 top-0 rounded-lg border border-teal-700/40 bg-teal-50 px-3 py-2 text-xs font-medium text-teal-900 shadow-md">
+            1234-71-LE26 → Diego Rojas
+          </motion.span>
+        </ul>
+      </div>
+    </Ventana>
+  );
+}
+
+function PanelSeguir({ go }: { go: boolean }) {
+  const hitos: [string, string, string][] = [
+    ['Asignado', '#64748b', 'Diego Rojas recibe la licitación.'],
+    ['En proceso', '#0d9488', 'Se trabaja la postulación; el equipo comenta en el negocio.'],
+    ['Postulada', '#16a34a', 'Se marca como postulada y queda a la espera del resultado.'],
+    ['Ganada o perdida', '#16a34a', 'El resultado se detecta desde Mercado Público.'],
+  ];
+  return (
+    <Ventana ruta="negocios / seguimiento">
+      <ol className="p-5">
+        {hitos.map(([t, col, d], i) => (
+          <li key={t} className="relative flex gap-4 pb-6 last:pb-0">
+            {i < hitos.length - 1 && (
+              <motion.span aria-hidden className="absolute left-[4px] top-4 h-[calc(100%-8px)] w-px origin-top bg-slate-300"
+                initial={{ scaleY: 0 }} animate={go ? { scaleY: 1 } : { scaleY: 0 }} transition={{ delay: 0.3 + i * 0.5, duration: 0.45, ease: 'easeOut' }} />
+            )}
+            <motion.span aria-hidden className="relative mt-1.5 h-[9px] w-[9px] shrink-0 rounded-full" style={{ background: col }}
+              initial={{ scale: 0 }} animate={go ? { scale: 1 } : { scale: 0 }} transition={{ delay: 0.15 + i * 0.5, type: 'spring', stiffness: 420, damping: 18 }} />
+            <motion.div initial={{ opacity: 0, x: -8 }} animate={go ? { opacity: 1, x: 0 } : { opacity: 0, x: -8 }} transition={{ delay: 0.2 + i * 0.5, duration: 0.4 }}>
+              <p className="text-[13px] font-medium text-slate-900">{t}</p>
+              <p className="text-xs text-slate-500">{d}</p>
+            </motion.div>
+          </li>
+        ))}
+      </ol>
+    </Ventana>
+  );
+}
+
+const PANELES = [PanelDetectar, PanelAsignar, PanelSeguir];
+
+function Panel({ i, ver = false, go: forzado = true }: { i: number; ver?: boolean; go?: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const visto = useInView(ref, { once: true, margin: '-60px' });
+  const go = ver ? visto : forzado;
+  const P = PANELES[i];
+  return (
+    <motion.div ref={ref} initial="h" animate={go ? 's' : 'h'}>
+      <P go={go} />
+    </motion.div>
+  );
+}
+
+/** Peso 0→1→0 de un paso según el avance del scroll: las capas se mezclan, no se reemplazan. */
+function usePeso(p: MotionValue<number>, i: number, n: number) {
+  const a = i / n, b = (i + 1) / n, m = 0.05;
+  const entrada = i === 0 ? [0, b - m, b + m] : i === n - 1 ? [a - m, a + m, 1] : [a - m, a + m, b - m, b + m];
+  const salida = i === 0 ? [1, 1, 0] : i === n - 1 ? [0, 1, 1] : [0, 1, 1, 0];
+  return useTransform(p, entrada, salida);
+}
+
+function CapaPaso({ p, i, n, activo, ir }: { p: MotionValue<number>; i: number; n: number; activo: boolean; ir: (i: number) => void }) {
+  const o = usePeso(p, i, n);
+  const opTitulo = useTransform(o, [0, 1], [0.28, 1]);
+  const x = useTransform(o, [0, 1], [0, 10]);
+  const e = PASOS[i];
+  return (
+    <button onClick={() => ir(i)} className="block w-full cursor-pointer py-3 text-left" aria-label={`Ver ${e.t}`} aria-current={activo}>
+      <motion.div className="flex items-baseline gap-4" style={{ opacity: opTitulo, x }}>
+        <span className="text-xs text-teal-700" style={mono}>{e.n}</span>
+        <span style={serif} className="text-[42px] leading-none tracking-[-0.015em] xl:text-[56px]">{e.t}</span>
+      </motion.div>
+    </button>
+  );
+}
+
+function CapaTexto({ p, i, n }: { p: MotionValue<number>; i: number; n: number }) {
+  const peso = usePeso(p, i, n);
+  const o = useTransform(peso, [0, 0.55, 1], [0, 0, 1]);
+  const y = useTransform(peso, [0, 1], [12, 0]);
+  return (
+    <motion.p style={{ opacity: o, y }} className="absolute inset-x-0 top-0 max-w-[410px] pl-[38px] text-[15px] leading-[1.6] text-slate-600">
+      {PASOS[i].d}
+    </motion.p>
+  );
+}
+
+function CapaPanel({ p, i, n, go }: { p: MotionValue<number>; i: number; n: number; go: boolean }) {
+  const peso = usePeso(p, i, n);
+  const o = useTransform(peso, [0, 0.55, 1], [0, 0, 1]);
+  const y = useTransform(peso, [0, 1], [26, 0]);
+  const escala = useTransform(peso, [0, 1], [0.985, 1]);
+  return (
+    <motion.div style={{ opacity: o, y, scale: escala }} className="absolute inset-0 flex items-center will-change-transform">
+      <div className="w-full"><Panel i={i} go={go} /></div>
+    </motion.div>
+  );
+}
+
+/** Fondo del recorrido: logo grande y desenfocado con anillos de radar, que se mueve apenas con el scroll. */
+function FondoRecorrido({ p }: { p: MotionValue<number> }) {
+  const giro = useTransform(p, [0, 1], [-14, 14]);
+  const sube = useTransform(p, [0, 1], [50, -50]);
+  const giroChico = useTransform(p, [0, 1], [12, -12]);
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+      <motion.div className="absolute right-[-200px] top-1/2 -mt-[380px]" style={{ rotate: giro, y: sube, filter: 'blur(2.5px)', opacity: 0.13 }}>
+        <LicitankIcon size={760} />
+      </motion.div>
+      {[980, 700, 430].map(s => (
+        <span key={s} className="absolute rounded-full border border-slate-300/60" style={{ width: s, height: s, right: 180 - s / 2, top: `calc(50% - ${s / 2}px)` }} />
+      ))}
+      <motion.div className="absolute bottom-[-90px] left-[-70px]" style={{ rotate: giroChico, filter: 'blur(6px)', opacity: 0.09 }}>
+        <LicitankIcon size={300} />
+      </motion.div>
+    </div>
+  );
+}
+
+function Recorrido() {
+  const ref = useRef<HTMLDivElement>(null);
+  const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end end'] });
+  const [act, setAct] = useState(0);
+  useMotionValueEvent(scrollYProgress, 'change', p => setAct(Math.min(PASOS.length - 1, Math.max(0, Math.floor(p * PASOS.length * 0.999)))));
+  const riel = useSpring(scrollYProgress, { stiffness: 140, damping: 30, mass: 0.4 });
+  const n = PASOS.length;
+
+  const ir = (i: number) => {
+    const el = ref.current;
+    if (!el) return;
+    const top = el.offsetTop + ((el.offsetHeight - window.innerHeight) * (i + 0.5)) / n;
+    if (lenisGlobal) lenisGlobal.scrollTo(top, { duration: 1.2 });
+    else window.scrollTo({ top, behavior: 'smooth' });
+  };
 
   return (
-    <div className="min-h-screen bg-[#fafafa] text-zinc-900 antialiased">
-      <style>{radarCss}</style>
+    <section id="recorrido" className="bg-slate-50 text-slate-900">
+      <div ref={ref} className="relative hidden lg:block" style={{ height: `${n * 60 + 40}vh` }}>
+        <div className="sticky top-0 flex h-screen items-center overflow-hidden">
+          <FondoRecorrido p={scrollYProgress} />
+          <div className="relative mx-auto grid w-full max-w-[1200px] grid-cols-[.85fr_1.15fr] items-center gap-16 px-8 pt-16">
+            <div>
+              <div className="relative pl-7">
+                <div className="absolute bottom-1 left-0 top-1 w-px bg-slate-300" />
+                <motion.div className="absolute left-0 top-1 w-px origin-top bg-teal-600" style={{ height: 'calc(100% - 8px)', scaleY: riel }} />
+                {PASOS.map((_, i) => <CapaPaso key={i} p={scrollYProgress} i={i} n={n} activo={i === act} ir={ir} />)}
+              </div>
+              <div className="relative mt-5 h-[120px] pl-7">
+                {PASOS.map((_, i) => <CapaTexto key={i} p={scrollYProgress} i={i} n={n} />)}
+              </div>
+            </div>
+            <div className="relative h-[430px]">
+              {PASOS.map((_, i) => <CapaPanel key={i} p={scrollYProgress} i={i} n={n} go={act >= i} />)}
+            </div>
+          </div>
+        </div>
+      </div>
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-50 border-b border-zinc-200/80 bg-white/85 backdrop-blur-md">
-        <div className="mx-auto flex h-[60px] max-w-6xl items-center justify-between px-4 sm:px-6">
+      <div className="mx-auto max-w-[640px] px-5 py-20 lg:hidden">
+        {PASOS.map((e, i) => (
+          <div key={e.n} className="mt-14 first:mt-0">
+            <p className="text-xs text-teal-700" style={mono}>{e.n}</p>
+            <h3 style={serif} className="mt-2 text-[38px] tracking-[-0.015em]">{e.t}</h3>
+            <p className="mb-6 mt-3 text-[15px] leading-[1.6] text-slate-600">{e.d}</p>
+            <Panel i={i} ver />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ── Qué incluye: lista editorial, una animación propia en cada fila ──────── */
+
+function Fila({ n, t, d, children }: { n: string; t: string; d: string; children: React.ReactNode }) {
+  return (
+    <Rise>
+      <div className="grid gap-6 border-t border-slate-300 py-9 md:grid-cols-[1fr_1.1fr] md:gap-12 lg:grid-cols-[1.05fr_1.2fr]">
+        <div>
+          <p className="text-xs text-slate-400" style={mono}>{n}</p>
+          <h3 style={serif} className="mt-2 text-[28px] leading-[1.1] tracking-[-0.01em]">{t}</h3>
+          <p className="mt-3 max-w-[400px] text-[15px] leading-[1.6] text-slate-600">{d}</p>
+        </div>
+        <div className="min-h-[96px] self-center">{children}</div>
+      </div>
+    </Rise>
+  );
+}
+
+function Cuadricula() {
+  const kws: [string, number][] = [['mobiliario escolar', 6], ['materiales eléctricos', 5], ['equipos computacionales', 3], ['insumos médicos', 2]];
+  const pasos = ['Asignado', 'En proceso', 'Postulada', 'Ganada'];
+  const cols = ['#64748b', '#0d9488', '#16a34a', '#16a34a'];
+  return (
+    <div className="bg-white text-slate-900">
+      <section id="incluye" className="mx-auto max-w-[1200px] px-5 py-24 sm:px-8 sm:py-32">
+        <Rise>
+          <h2 style={serif} className="max-w-[760px] text-[36px] leading-[1.06] tracking-[-0.02em] sm:text-[54px]">
+            Lo necesario para no perder una licitación por desorden.
+          </h2>
+        </Rise>
+
+        <div className="mt-16">
+          <Fila n="01" t="Radar propio" d="Tus palabras clave, rubros y regiones. Lo que ya descartaste no vuelve a aparecer.">
+            <ul>
+              {kws.map(([k, n], i) => (
+                <li key={k} className="flex items-center gap-4 py-2 text-[13px]">
+                  <span className="w-[170px] shrink-0 font-medium text-slate-800">{k}</span>
+                  <span className="h-[3px] flex-1 overflow-hidden bg-slate-200">
+                    <motion.span className="block h-full origin-left bg-teal-700" initial={{ scaleX: 0 }} whileInView={{ scaleX: n / 6 }}
+                      viewport={{ once: true }} transition={{ delay: 0.2 + i * 0.12, duration: 0.8, ease: EASE }} />
+                  </span>
+                  <span className="w-6 text-right text-xs font-bold tabular-nums text-slate-900">{n}</span>
+                </li>
+              ))}
+            </ul>
+          </Fila>
+
+          <Fila n="02" t="Trabajo en equipo" d="Asigna licitaciones entre tus dos usuarios y mira la carga de cada uno.">
+            <ul className="space-y-4">
+              {([['María Fuentes', 'teal', 6], ['Diego Rojas', 'slate', 4]] as const).map(([n, tono, c], i) => (
+                <li key={n}>
+                  <div className="flex items-center gap-2.5 text-[13px] font-medium text-slate-800"><Avatar nombre={n} tono={tono} />{n}
+                    <span className="ml-auto text-xs font-bold tabular-nums">{c}</span></div>
+                  <span className="mt-2 block h-[3px] overflow-hidden bg-slate-200">
+                    <motion.span className="block h-full origin-left bg-slate-600" initial={{ scaleX: 0 }} whileInView={{ scaleX: c / 8 }}
+                      viewport={{ once: true }} transition={{ delay: 0.3 + i * 0.15, duration: 0.8, ease: EASE }} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Fila>
+
+          <Fila n="03" t="Negocios por etapa" d="Asignado, en proceso, postulada, ganada o perdida, con el cierre siempre a la vista.">
+            <div className="relative pt-3">
+              <span aria-hidden className="absolute left-[5px] right-[5px] top-[17px] h-px bg-slate-300" />
+              <motion.span aria-hidden className="absolute left-[5px] right-[5px] top-[17px] h-px origin-left bg-teal-700" initial={{ scaleX: 0 }}
+                whileInView={{ scaleX: 1 }} viewport={{ once: true }} transition={{ delay: 0.3, duration: 1.4, ease: 'easeInOut' }} />
+              <div className="relative flex justify-between">
+                {pasos.map((p, i) => (
+                  <div key={p} className="flex flex-col items-center gap-2 text-center">
+                    <motion.span className="h-[11px] w-[11px] rounded-full ring-4 ring-white" style={{ background: cols[i] }} initial={{ scale: 0 }}
+                      whileInView={{ scale: 1 }} viewport={{ once: true }} transition={{ delay: 0.3 + i * 0.4, type: 'spring', stiffness: 400, damping: 18 }} />
+                    <span className="text-xs text-slate-600">{p}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Fila>
+
+          <Fila n="04" t="Comentarios" d="Cada negocio tiene su hilo de conversación para dejar acuerdos y pendientes.">
+            <div className="space-y-3 text-xs">
+              {[['María Fuentes', 'Falta la garantía de seriedad de la oferta.'], ['Diego Rojas', 'La subo hoy antes de las 15:00.']].map(([n, c], i) => (
+                <motion.div key={n} initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: 0.3 + i * 0.7, duration: 0.5 }}>
+                  <p className="text-[11px] text-slate-500">{n}</p>
+                  <p className="mt-0.5 text-[13px] font-medium text-slate-800">{c}</p>
+                </motion.div>
+              ))}
+            </div>
+          </Fila>
+
+          <Fila n="05" t="Historial" d="Quién asignó, quién cambió la etapa y cuándo. Nada se pierde entre personas.">
+            <ul className="space-y-2.5 text-[13px] text-slate-700">
+              {[['14:32', 'María asignó la licitación a Diego'], ['14:40', 'Diego pasó el negocio a En proceso'], ['15:05', 'Diego marcó el negocio como postulado']].map(([h, t], i) => (
+                <motion.li key={h} className="flex gap-4" initial={{ opacity: 0, x: -10 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} transition={{ delay: 0.2 + i * 0.35, duration: 0.45 }}>
+                  <span className="w-10 shrink-0 text-slate-400 tabular-nums" style={mono}>{h}</span>{t}
+                </motion.li>
+              ))}
+            </ul>
+          </Fila>
+          <div className="border-t border-slate-300" />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/* ── Landing ──────────────────────────────────────────────────────────────── */
+
+export default function Landing() {
+  useSmoothScroll();
+  const { usuario } = useSession();
+  const { scrollYProgress } = useScroll();
+  const barra = useSpring(scrollYProgress, { stiffness: 140, damping: 28 });
+  const cta = usuario
+    ? { href: '/dashboard', label: 'Ir al panel' }
+    : { href: '/login', label: 'Iniciar sesión' };
+
+  const btnSolido = 'lk-btn group inline-flex items-center gap-2 rounded-md bg-teal-500 px-5 py-3 text-[14.5px] font-medium text-[#04201c] hover:bg-teal-400';
+  const btnBorde = 'lk-btn inline-flex items-center gap-2 rounded-md border border-white/25 px-5 py-3 text-[14.5px] font-medium text-white hover:border-white/50';
+  const flecha = <span aria-hidden className="transition-transform group-hover:translate-x-0.5">→</span>;
+
+  return (
+    <div className="min-h-screen bg-[#0a0d12] text-slate-200 antialiased">
+      <style>{css}</style>
+
+      <header className="sticky top-0 z-50 border-b border-white/10 bg-[#0a0d12]/90">
+        <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between px-5 sm:px-8">
           <a href="#top" className="flex items-center gap-2.5">
             <LicitankIcon size={30} />
-            <span className="text-[15px] font-black tracking-tight">LICITANK</span>
+            <span className="text-[15px] font-bold tracking-tight text-white">LICITANK</span>
           </a>
-          <nav className="hidden items-center gap-8 text-[13.5px] font-medium text-zinc-500 md:flex">
-            <a href="#producto" className="transition-colors hover:text-zinc-900">Producto</a>
-            <a href="#asistente" className="transition-colors hover:text-zinc-900">ankIA</a>
-            <a href="#flujo" className="transition-colors hover:text-zinc-900">Cómo funciona</a>
-            <a href="#roles" className="transition-colors hover:text-zinc-900">Acceso</a>
+          <nav className="hidden items-center gap-8 text-[14px] text-slate-400 md:flex">
+            <a className="lk-nav" href="#recorrido">Cómo funciona</a>
+            <a className="lk-nav" href="#incluye">Qué incluye</a>
+            <a className="lk-nav" href="#plan">Plan</a>
           </nav>
-          <Link href={cta.href}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-zinc-700">
-            {cta.label}
-            <ArrowRight size={14} />
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href={cta.href} className="lk-btn inline-flex items-center rounded-md px-3 py-2 text-[13.5px] font-medium text-slate-300 hover:text-white">
+              {cta.label}
+            </Link>
+            {MAIL_DEMO && (
+              <a href={MAIL_DEMO} className="lk-btn hidden items-center rounded-md bg-teal-500 px-4 py-2 text-[13.5px] font-medium text-[#04201c] hover:bg-teal-400 sm:inline-flex">
+                Solicitar demo
+              </a>
+            )}
+          </div>
         </div>
+        <motion.div className="absolute inset-x-0 bottom-[-1px] h-[2px] origin-left bg-teal-400" style={{ scaleX: barra }} />
       </header>
 
       <main id="top">
-
-        {/* ── Hero ─────────────────────────────────────────────────────────── */}
-        <section ref={heroRef} className="relative overflow-hidden">
-          {/* textura de puntos, se desvanece hacia abajo */}
-          <div aria-hidden="true" className="pointer-events-none absolute inset-0"
-            style={{
-              backgroundImage: 'radial-gradient(circle, rgba(24,24,27,0.055) 1px, transparent 1px)',
-              backgroundSize: '22px 22px',
-              maskImage: 'linear-gradient(to bottom, black 0%, transparent 82%)',
-              WebkitMaskImage: 'linear-gradient(to bottom, black 0%, transparent 82%)',
-            }} />
-
-          <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-4 pb-16 pt-16 sm:px-6 sm:pt-24 lg:grid-cols-[1.05fr_.95fr] lg:gap-6">
-            {/* Copy */}
+        {/* Hero */}
+        <section className="relative overflow-hidden">
+          <div className="relative mx-auto grid max-w-[1200px] items-center gap-14 px-5 pb-16 pt-14 sm:px-8 sm:pt-20 lg:grid-cols-[1.1fr_.9fr] lg:pb-24">
             <div>
-              <motion.h1
-                initial={{ opacity: 0, y: reduce ? 0 : 14 }} animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6 }}
-                className="text-[38px] font-black leading-[1.06] tracking-tight sm:text-[54px]">
-                De miles de licitaciones,{' '}
-                <Subrayado>las que ganamos</Subrayado>.
-              </motion.h1>
-
-              <motion.p
-                initial={{ opacity: 0, y: reduce ? 0 : 14 }} animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: 0.1 }}
-                className="mt-6 max-w-xl text-[16.5px] leading-relaxed text-zinc-600">
-                LICITANK vigila Mercado Público, lee las bases con inteligencia artificial
-                y acompaña cada oportunidad —de la detección a la adjudicación— para que
-                el equipo compita solo donde vale la pena.
+              <div style={serif}>
+                <Titular lineas={['Encuentra las', 'licitaciones que', 'sí son para ti.']} delay={0.1}
+                  className="text-[48px] leading-[1] tracking-[-0.025em] text-white sm:text-[80px]" />
+              </div>
+              <motion.p initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7, duration: 0.7, ease: EASE }}
+                className="mt-7 max-w-[520px] text-[17px] leading-[1.6] text-slate-400 sm:text-[18px]">
+                LICITANK vigila Mercado Público con tus palabras clave y te muestra lo nuevo cada día. Después asignas cada
+                licitación a una persona de tu equipo y sigues el negocio hasta el resultado.
               </motion.p>
-
-              <motion.div
-                initial={{ opacity: 0, y: reduce ? 0 : 14 }} animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: 0.18 }}
-                className="mt-8 flex flex-wrap items-center gap-3">
-                <Link href={cta.href}
-                  className="group inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-5 py-3 text-[14.5px] font-semibold text-white shadow-[0_1px_2px_rgba(0,0,0,0.15),0_8px_20px_-8px_rgba(0,0,0,0.3)] transition-all hover:bg-zinc-700">
-                  <cta.icon size={16} />
-                  {cta.label}
-                  <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
-                </Link>
-                <a href="#producto"
-                  className="inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-5 py-3 text-[14.5px] font-semibold text-zinc-700 transition-colors hover:border-zinc-400 hover:bg-zinc-50">
-                  Ver el producto
-                  <ChevronDown size={15} className="text-zinc-400" />
-                </a>
-              </motion.div>
-
-              <motion.ul
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7, delay: 0.32 }}
-                className="mt-9 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-zinc-500">
-                {[
-                  '+14.000 licitaciones revisadas por corrida',
-                  'Bases leídas al 100%, incluso escaneadas',
-                  'Vigilancia automática 24/7',
-                ].map(t => (
-                  <li key={t} className="inline-flex items-center gap-1.5">
-                    <Check size={14} stroke={2.5} style={{ color: BRAND_INK }} />
-                    {t}
-                  </li>
-                ))}
-              </motion.ul>
-            </div>
-
-            {/* Radar animado + tarjetas con datos reales */}
-            <motion.div
-              style={{ y: radarY }}
-              initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.75, delay: 0.15, ease: [0.21, 0.47, 0.32, 0.98] }}
-              className="relative mx-auto w-full max-w-[420px]">
-              <div className="lp-radar">
-                <div className="lp-radar-rings" />
-                {!reduce && (
-                  <motion.div className="lp-radar-sweep" animate={{ rotate: 360 }}
-                    transition={{ repeat: Infinity, duration: 6.5, ease: 'linear' }} />
+              <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.85, duration: 0.7, ease: EASE }}
+                className="mt-9 flex flex-wrap items-center gap-3">
+                {MAIL_DEMO ? (
+                  <a href={MAIL_DEMO} className={btnSolido}>Solicitar demo {flecha}</a>
+                ) : (
+                  <Link href={cta.href} className={btnSolido}>{cta.label} {flecha}</Link>
                 )}
-                <span className="lp-blip" style={{ top: '26%', left: '64%' }} />
-                <span className="lp-blip lp-blip-d1" style={{ top: '60%', left: '34%' }} />
-                <span className="lp-blip lp-blip-d2" style={{ top: '42%', left: '74%' }} />
-                <span className="lp-blip lp-blip-d3" style={{ top: '70%', left: '58%' }} />
-                <div className="absolute inset-0 grid place-items-center">
-                  <span className="grid h-16 w-16 place-items-center rounded-2xl border border-zinc-200 bg-white shadow-[0_8px_30px_-10px_rgba(24,24,27,0.25)]">
-                    <LicitankIcon size={40} />
-                  </span>
-                </div>
-              </div>
-
-              {/* Tarjeta: viabilidad real (2467-70-LE26, set de validación) */}
-              <motion.div
-                animate={reduce ? undefined : { y: [0, -9, 0] }}
-                transition={{ repeat: Infinity, duration: 5.2, ease: 'easeInOut' }}
-                className="lp-float absolute -left-2 top-6 w-48 sm:-left-8">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-[10.5px] font-semibold text-zinc-400">2467-70-LE26</span>
-                  <span className="rounded bg-[#2FC7A6]/15 px-1.5 py-0.5 text-[10px] font-bold text-[#0e8f72]">GANABLE</span>
-                </div>
-                <div className="mt-1.5 flex items-end gap-1.5">
-                  <span className="text-[24px] font-black leading-none text-zinc-900">65</span>
-                  <span className="mb-0.5 text-[11px] text-zinc-400">/ 100</span>
-                </div>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-100">
-                  <div className="h-full rounded-full" style={{ width: '65%', background: BRAND }} />
-                </div>
+                <a href="#recorrido" className={btnBorde}>Ver cómo funciona</a>
               </motion.div>
-
-              {/* Tarjeta: alerta de cierre */}
-              <motion.div
-                animate={reduce ? undefined : { y: [0, 10, 0] }}
-                transition={{ repeat: Infinity, duration: 6.2, ease: 'easeInOut', delay: 0.5 }}
-                className="lp-float absolute -right-1 bottom-8 w-52 sm:-right-6">
-                <div className="flex items-start gap-2.5">
-                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-amber-100 text-amber-600"><BellRing size={15} /></span>
-                  <div className="min-w-0">
-                    <p className="text-[12px] font-bold leading-tight text-zinc-900">Cierre próximo</p>
-                    <p className="mt-0.5 truncate text-[11px] leading-snug text-zinc-500">Materiales eléctricos · Chillán</p>
-                    <p className="text-[10.5px] font-semibold text-amber-600">Queda 35% del plazo</p>
+              <motion.dl initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.1, duration: 0.8 }} className="mt-12 grid max-w-[520px] grid-cols-3 gap-6 border-t border-white/10 pt-6">
+                {[['Fuente', 'Mercado Público'], ['Revisión', 'Todos los días'], ['Equipo', '2 usuarios']].map(([k, v]) => (
+                  <div key={k}>
+                    <dt className="text-[11px] text-slate-500">{k}</dt>
+                    <dd className="mt-1 text-[13px] font-medium text-slate-200">{v}</dd>
                   </div>
-                </div>
-              </motion.div>
-            </motion.div>
-          </div>
-        </section>
-
-        {/* ── Mockup del producto ──────────────────────────────────────────── */}
-        <section id="producto" className="relative">
-          <div className="mx-auto max-w-6xl px-4 sm:px-6">
-            <motion.div
-              initial={{ opacity: 0, y: reduce ? 0 : 32 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-80px' }}
-              transition={{ duration: 0.7, ease: [0.21, 0.47, 0.32, 0.98] }}
-            >
-              <AppPreview reduce={!!reduce} />
-            </motion.div>
-            <p className="mt-3 text-center text-[11.5px] text-zinc-400">
-              Licitaciones reales de Mercado Público, tal como las analizó la plataforma.
-            </p>
-          </div>
-        </section>
-
-        {/* ── Atribución de fuentes ────────────────────────────────────────── */}
-        <section className="mx-auto max-w-6xl px-4 sm:px-6">
-          <div className="flex flex-col items-center justify-between gap-4 border-b border-zinc-200 py-9 sm:flex-row">
-            <p className="text-[11.5px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
-              Datos desde la fuente oficial
-            </p>
-            <div className="flex items-center gap-7">
-              <MercadoPublicoMark size={30} tone="dark" />
-              <span className="hidden h-5 w-px bg-zinc-200 sm:block" />
-              <span className="hidden items-center gap-2 sm:inline-flex">
-                <LicitankIcon size={24} />
-                <span className="text-[13.5px] font-black tracking-tight">LICITANK</span>
-              </span>
-            </div>
-          </div>
-        </section>
-
-        {/* ── Funciones ────────────────────────────────────────────────────── */}
-        <section className="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-24">
-          <Reveal>
-            <p className="text-[12.5px] font-bold uppercase tracking-[0.15em]" style={{ color: BRAND_INK }}>
-              Qué hace la plataforma
-            </p>
-            <h2 className="mt-3 max-w-2xl text-[28px] font-black leading-tight tracking-tight sm:text-[36px]">
-              Todo el ciclo de una licitación, sin trabajo manual
-            </h2>
-          </Reveal>
-
-          <div className="mt-11 grid gap-px overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-200 sm:grid-cols-2 lg:grid-cols-3">
-            {FUNCIONES.map((f, i) => (
-              <Reveal key={f.n} delay={Math.min(i * 0.05, 0.25)} className="h-full">
-                <article className="group h-full bg-white p-6 transition-colors hover:bg-zinc-50/80 sm:p-7">
-                  <div className="flex items-center justify-between">
-                    <span className="grid h-10 w-10 place-items-center rounded-lg border border-zinc-200 bg-white transition-colors group-hover:border-[#2FC7A6]/50"
-                      style={{ color: BRAND_INK }}>
-                      <f.icon size={19} stroke={1.9} />
-                    </span>
-                    <span className="font-mono text-[12px] font-semibold text-zinc-300 transition-colors group-hover:text-zinc-400">{f.n}</span>
-                  </div>
-                  <h3 className="mt-5 text-[16px] font-bold tracking-tight">{f.titulo}</h3>
-                  <p className="mt-2 text-[13.5px] leading-relaxed text-zinc-500">{f.desc}</p>
-                </article>
-              </Reveal>
-            ))}
-          </div>
-        </section>
-
-        {/* ── ankIA ─────────────────────────────────────────────────────────── */}
-        <section id="asistente" className="border-y border-zinc-200 bg-white">
-          <div className="mx-auto grid max-w-6xl items-center gap-12 px-4 py-20 sm:px-6 sm:py-24 lg:grid-cols-2 lg:gap-16">
-            <Reveal>
-              <p className="text-[12.5px] font-bold uppercase tracking-[0.15em]" style={{ color: BRAND_INK }}>
-                ankIA · por licitación
-              </p>
-              <h2 className="mt-3 text-[28px] font-black leading-tight tracking-tight sm:text-[36px]">
-                Pregúntale a las bases, responde con las bases
-              </h2>
-              <p className="mt-5 max-w-lg text-[15px] leading-relaxed text-zinc-600">
-                Cada licitación tiene su propio ankIA, que ya leyó todos los documentos
-                del proceso. Responde en segundos y siempre indica de dónde salió el dato:
-                documento, artículo y página. Nada de interpretar a ciegas.
-              </p>
-              <ul className="mt-7 space-y-3">
-                {[
-                  'Disponible en el radar y en cada negocio',
-                  'Contexto completo: bases, anexos y formularios',
-                  'Si un dato no está en los documentos, lo dice',
-                ].map(t => (
-                  <li key={t} className="flex items-start gap-2.5 text-[14px] text-zinc-600">
-                    <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#2FC7A6]/15">
-                      <Check size={12} stroke={3} style={{ color: BRAND_INK }} />
-                    </span>
-                    {t}
-                  </li>
                 ))}
-              </ul>
-
-              <div className="mt-8">
-                <p className="text-[11.5px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
-                  Lo que valida en cada análisis
-                </p>
-                <div className="mt-3 flex max-w-lg flex-wrap gap-2">
-                  {VALIDACIONES.map(v => (
-                    <span key={v} className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-[12px] font-medium text-zinc-600">
-                      {v}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </Reveal>
-
-            <Reveal delay={0.1}>
-              <IlustracionAsistente className="mx-auto -mb-3 w-full max-w-[430px]" />
-              <ChatDemo reduce={!!reduce} />
-            </Reveal>
+              </motion.dl>
+            </div>
+            <Radar />
           </div>
+          <Cinta />
         </section>
 
-        {/* ── Cómo funciona ────────────────────────────────────────────────── */}
-        <section id="flujo" className="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-24">
-          <Reveal>
-            <p className="text-[12.5px] font-bold uppercase tracking-[0.15em]" style={{ color: BRAND_INK }}>
-              Cómo funciona
-            </p>
-            <h2 className="mt-3 text-[28px] font-black leading-tight tracking-tight sm:text-[36px]">
-              De la detección a la adjudicación
-            </h2>
-          </Reveal>
+        <Relato />
 
-          <div className="relative mt-12">
-            <div aria-hidden="true"
-              className="absolute left-[27px] top-4 bottom-4 w-px bg-zinc-200 md:left-0 md:right-0 md:top-[27px] md:bottom-auto md:h-px md:w-auto" />
-            <ol className="grid gap-8 md:grid-cols-5 md:gap-4">
-              {PASOS.map((p, i) => (
-                <Reveal key={p.t} delay={Math.min(i * 0.07, 0.3)}>
-                  <li className="relative flex gap-5 md:block">
-                    <span className="relative z-10 grid h-[54px] w-[54px] shrink-0 place-items-center rounded-2xl border border-zinc-200 bg-white shadow-sm">
-                      <p.icon size={21} stroke={1.9} className="text-zinc-700" />
-                    </span>
-                    <div className="pt-1 md:pt-5">
-                      <p className="font-mono text-[11.5px] font-semibold text-zinc-400">Paso {i + 1}</p>
-                      <h3 className="mt-0.5 text-[15.5px] font-bold tracking-tight">{p.t}</h3>
-                      <p className="mt-1.5 max-w-[16rem] text-[13px] leading-relaxed text-zinc-500">{p.d}</p>
-                    </div>
-                  </li>
-                </Reveal>
-              ))}
-            </ol>
-          </div>
-        </section>
+        <Recorrido />
 
-        {/* ── Roles ────────────────────────────────────────────────────────── */}
-        <section id="roles" className="border-t border-zinc-200 bg-white">
-          <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-24">
-            <Reveal>
-              <p className="text-[12.5px] font-bold uppercase tracking-[0.15em]" style={{ color: BRAND_INK }}>
-                Acceso por perfil
-              </p>
-              <h2 className="mt-3 max-w-2xl text-[28px] font-black leading-tight tracking-tight sm:text-[36px]">
-                Cada quien ve exactamente lo que le corresponde
+        <Cuadricula />
+
+        {/* Plan */}
+        <section id="plan" className="border-y border-white/10 bg-[#0a0d12]">
+          <div className="mx-auto grid max-w-[1200px] gap-12 px-5 py-24 sm:px-8 sm:py-32 lg:grid-cols-[.9fr_1.1fr] lg:gap-24">
+            <Rise>
+              <h2 style={serif} className="text-[36px] leading-[1.06] tracking-[-0.02em] text-white sm:text-[52px]">
+                Un plan para un equipo de dos.
               </h2>
-            </Reveal>
-            <div className="mt-11 grid gap-4 sm:grid-cols-3">
-              {ROLES.map((r, i) => (
-                <Reveal key={r.t} delay={i * 0.07} className="h-full">
-                  <div className="h-full rounded-2xl border border-zinc-200 bg-[#fafafa] p-6 transition-shadow hover:shadow-[0_12px_30px_-18px_rgba(24,24,27,0.25)] sm:p-7">
-                    <span className="grid h-10 w-10 place-items-center rounded-lg border border-zinc-200 bg-white" style={{ color: BRAND_INK }}>
-                      <r.icon size={19} stroke={1.9} />
-                    </span>
-                    <h3 className="mt-5 text-[16px] font-bold tracking-tight">{r.t}</h3>
-                    <p className="mt-2 text-[13.5px] leading-relaxed text-zinc-500">{r.d}</p>
+              <p className="mt-5 max-w-[440px] text-[16px] leading-[1.6] text-slate-400">
+                Cada empresa tiene su propio radar y sus propios negocios. Nadie más ve lo que tú gestionas.
+              </p>
+              <p className="mt-4 max-w-[440px] text-[16px] leading-[1.6] text-slate-400">
+                Hoy el plan cubre Radar y Negocios. Más adelante se suman módulos para analizar bases con inteligencia
+                artificial, preparar anexos y gestionar compras.
+              </p>
+            </Rise>
+            <Rise delay={0.08}>
+              <dl>
+                <div className="flex items-baseline justify-between border-t border-white/15 py-5">
+                  <dt className="text-[13px] text-slate-400">Usuarios incluidos</dt>
+                  <dd className="text-5xl font-bold tabular-nums text-white">2</dd>
+                </div>
+                <div className="flex items-baseline justify-between border-t border-white/15 py-5">
+                  <dt className="text-[13px] text-slate-400">Usuarios adicionales</dt>
+                  <dd className="text-[15px] font-medium text-slate-200">Consúltanos</dd>
+                </div>
+                {[['Radar', 'Palabras clave, rubros y regiones propios'], ['Negocios', 'Asignación entre tus dos usuarios, con etapas, comentarios e historial'], ['Resultados', 'Seguimiento del resultado desde Mercado Público'], ['Soporte', 'Por ticket']].map(([k, v]) => (
+                  <div key={k} className="flex items-baseline justify-between gap-8 border-t border-white/15 py-5">
+                    <dt className="text-[13px] text-slate-400">{k}</dt>
+                    <dd className="max-w-[340px] text-right text-[14.5px] text-slate-200">{v}</dd>
                   </div>
-                </Reveal>
-              ))}
-            </div>
+                ))}
+                <div className="border-t border-white/15" />
+              </dl>
+              {MAIL_DEMO && <a href={MAIL_DEMO} className={`${btnSolido} mt-8`}>Solicitar demo {flecha}</a>}
+            </Rise>
           </div>
         </section>
 
-        {/* ── CTA final ────────────────────────────────────────────────────── */}
-        <section className="mx-auto max-w-6xl px-4 py-24 sm:px-6">
-          <Reveal>
-            <div className="relative overflow-hidden rounded-3xl bg-zinc-900 px-8 py-16 text-center sm:px-14">
-              <div aria-hidden="true" className="pointer-events-none absolute -top-32 left-1/2 h-64 w-[560px] -translate-x-1/2 rounded-full opacity-25 blur-3xl"
-                style={{ background: BRAND }} />
-              <div className="relative">
-                <LicitankIcon size={44} />
-                <h2 className="mx-auto mt-6 max-w-xl text-[28px] font-black leading-tight tracking-tight text-white sm:text-[36px]">
-                  Todo listo para trabajar
-                </h2>
-                <p className="mx-auto mt-4 max-w-md text-[15px] leading-relaxed text-zinc-400">
-                  Ingresa con tu cuenta del equipo y retoma el radar, tus negocios
-                  y los análisis donde los dejaste.
-                </p>
-                <Link href={cta.href}
-                  className="group mt-8 inline-flex items-center gap-2 rounded-xl px-6 py-3.5 text-[15px] font-bold text-zinc-900 transition-transform hover:-translate-y-0.5"
-                  style={{ background: BRAND }}>
-                  <cta.icon size={17} />
-                  {cta.label}
-                  <ArrowRight size={16} className="transition-transform group-hover:translate-x-0.5" />
-                </Link>
+        {/* Cierre */}
+        <section className="relative overflow-hidden">
+          <span aria-hidden className="lk-sweep absolute left-1/2 top-1/2 h-[900px] w-[900px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-25" style={{ animationDuration: '14s' }} />
+          {[860, 600, 340].map(s => (
+            <span key={s} aria-hidden className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/[.07]" style={{ width: s, height: s }} />
+          ))}
+          <div className="relative mx-auto max-w-[1200px] px-5 py-32 text-center sm:px-8 sm:py-44">
+            <Rise>
+              <h2 style={serif} className="mx-auto max-w-[800px] text-[38px] leading-[1.04] tracking-[-0.025em] text-white sm:text-[66px]">
+                Que ninguna licitación se pase por no haberla visto.
+              </h2>
+              <p className="mt-5 text-[16px] text-slate-400">
+                {usuario ? 'Tu sesión está iniciada.' : 'Si ya tienes cuenta, ingresa y sigue donde quedaste.'}
+              </p>
+              <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
+                <Link href={cta.href} className={btnSolido}>{cta.label} {flecha}</Link>
+                {MAIL_DEMO && <a href={MAIL_DEMO} className={btnBorde}>Solicitar demo</a>}
               </div>
-            </div>
-          </Reveal>
+            </Rise>
+          </div>
         </section>
       </main>
 
-      {/* ── Footer ─────────────────────────────────────────────────────────── */}
-      <footer className="border-t border-zinc-200 bg-white">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-5 px-4 py-9 sm:flex-row sm:px-6">
-          <div className="flex items-center gap-2.5">
-            <LicitankIcon size={26} />
-            <div>
-              <p className="text-[13.5px] font-black leading-none tracking-tight">LICITANK</p>
-              <p className="mt-1 text-[11.5px] text-zinc-400">Inteligencia de licitaciones públicas</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-6 text-[13px] text-zinc-500">
-            <a href="#producto" className="transition-colors hover:text-zinc-900">Producto</a>
-            <a href="#asistente" className="transition-colors hover:text-zinc-900">ankIA</a>
-            <a href="#flujo" className="transition-colors hover:text-zinc-900">Cómo funciona</a>
-            <Link href="/login" className="font-semibold transition-colors hover:opacity-80" style={{ color: BRAND_INK }}>
-              Iniciar sesión
-            </Link>
-          </div>
-        </div>
-        <div className="border-t border-zinc-100">
-          <p className="mx-auto max-w-6xl px-4 py-5 text-[11.5px] leading-relaxed text-zinc-400 sm:px-6">
-            © {new Date().getFullYear()} LICITANK · Los datos provienen de la API oficial de Mercado
-            Público (ChileCompra). Esta herramienta no está afiliada ni respaldada por dichas entidades.
-          </p>
+      <footer className="border-t border-white/10">
+        <div className="mx-auto flex max-w-[1200px] flex-col gap-5 px-5 py-8 text-[12.5px] text-slate-400 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+          <span className="flex items-center gap-2.5">
+            <LicitankIcon size={22} />
+            <span className="font-bold text-white">LICITANK</span>
+            <span>© {new Date().getFullYear()}</span>
+          </span>
+          <span className="flex items-center gap-3">
+            Datos públicos de
+            <MercadoPublicoMark size={22} />
+          </span>
         </div>
       </footer>
     </div>
   );
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
-   Mockup del producto: radar + panel de viabilidad.
-   Filas y panel con licitaciones REALES del set de validación de la plataforma.
-──────────────────────────────────────────────────────────────────────────── */
-
-function AppPreview({ reduce }: { reduce: boolean }) {
-  return (
-    <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05),0_24px_60px_-24px_rgba(24,24,27,0.22)]">
-      {/* Barra de ventana */}
-      <div className="flex items-center gap-3 border-b border-zinc-100 bg-zinc-50/70 px-4 py-2.5">
-        <div className="flex gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-zinc-200" />
-          <span className="h-2.5 w-2.5 rounded-full bg-zinc-200" />
-          <span className="h-2.5 w-2.5 rounded-full bg-zinc-200" />
-        </div>
-        <div className="mx-auto flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1 text-[11.5px] text-zinc-400">
-          <Lock size={10} />
-          licitank · radar
-        </div>
-        <span className="w-[52px]" aria-hidden="true" />
-      </div>
-
-      {/* Encabezado de la app */}
-      <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 sm:px-6">
-        <div className="flex items-center gap-5">
-          <span className="flex items-center gap-2">
-            <LicitankIcon size={22} />
-            <span className="hidden text-[13px] font-black tracking-tight sm:inline">LICITANK</span>
-          </span>
-          <nav className="hidden items-center gap-1 text-[12.5px] font-medium text-zinc-500 md:flex">
-            <span className="rounded-md bg-zinc-100 px-2.5 py-1 font-semibold text-zinc-900">Radar</span>
-            <span className="px-2.5 py-1">Negocios</span>
-            <span className="px-2.5 py-1">Postuladas</span>
-            <span className="px-2.5 py-1">Análisis</span>
-          </nav>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="hidden items-center gap-2 rounded-lg border border-zinc-200 px-3 py-1.5 text-[12px] text-zinc-400 sm:flex">
-            <Search size={13} />
-            Buscar licitación…
-          </span>
-          <span className="relative text-zinc-400">
-            <Bell size={17} />
-            <span className="absolute -right-0.5 -top-0.5 grid h-3.5 w-3.5 place-items-center rounded-full text-[9px] font-bold text-white" style={{ background: BRAND_INK }}>3</span>
-          </span>
-        </div>
-      </div>
-
-      <div className="grid lg:grid-cols-[1.65fr_1fr]">
-        {/* Tabla del radar */}
-        <div className="border-b border-zinc-100 lg:border-b-0 lg:border-r">
-          <div className="flex items-center justify-between px-4 pb-1 pt-4 sm:px-6">
-            <p className="text-[13px] font-bold tracking-tight">Oportunidades de hoy</p>
-            <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-zinc-400">
-              <span className={`h-1.5 w-1.5 rounded-full ${reduce ? '' : 'animate-pulse'}`} style={{ background: BRAND }} />
-              Radar activo
-            </span>
-          </div>
-          <div className="px-2 pb-4 pt-2 sm:px-3">
-            {FILAS.map(f => (
-              <div key={f.codigo}
-                className={`flex items-center gap-3 rounded-xl px-3 py-3 transition-colors sm:gap-4 ${f.activa ? 'bg-[#2FC7A6]/[0.07] ring-1 ring-inset ring-[#2FC7A6]/25' : 'hover:bg-zinc-50'}`}>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-[11px] font-semibold text-zinc-400">{f.codigo}</span>
-                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
-                      f.estado === 'Asignada' ? 'bg-[#2FC7A6]/15 text-[#0e8f72]'
-                      : f.estado === 'Prefiltro' ? 'bg-zinc-100 text-zinc-500'
-                      : 'bg-amber-100/80 text-amber-700'}`}>
-                      {f.estado}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 truncate text-[13px] font-semibold text-zinc-800">{f.nombre}</p>
-                  <p className="truncate text-[11.5px] text-zinc-400">{f.org} · {f.region} · {f.cierre}</p>
-                </div>
-                <div className="w-[84px] shrink-0 text-right">
-                  <span className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-bold ${
-                    f.tono === 'ok' ? 'bg-[#2FC7A6]/15 text-[#0e8f72]' : 'bg-amber-100/80 text-amber-700'}`}>
-                    {f.tono === 'ok' ? <Check size={11} stroke={3} /> : null}
-                    {f.score}/100
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Panel de viabilidad — datos reales de 2467-70-LE26 */}
-        <aside className="bg-zinc-50/50 p-4 sm:p-6">
-          <div className="flex items-center justify-between">
-            <p className="text-[13px] font-bold tracking-tight">Viabilidad IA</p>
-            <span className="font-mono text-[11px] text-zinc-400">2467-70-LE26</span>
-          </div>
-
-          <div className="mt-4 rounded-xl border border-zinc-200 bg-white p-4">
-            <div className="flex items-end justify-between">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Veredicto</p>
-                <p className="mt-1 text-[22px] font-black leading-none" style={{ color: BRAND_INK }}>GANABLE</p>
-              </div>
-              <p className="font-mono text-[26px] font-bold leading-none text-zinc-900">65<span className="text-[13px] text-zinc-400">/100</span></p>
-            </div>
-            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-zinc-100">
-              <div className="h-full rounded-full" style={{ width: '65%', background: BRAND }} />
-            </div>
-          </div>
-
-          <div className="mt-3 space-y-2">
-            {[
-              { k: 'Presupuesto', v: '$24.741.860' },
-              { k: 'Modalidad de oferta', v: 'Por línea · 65 ítems' },
-              { k: 'Criterios de evaluación', v: '5 · suman 100%' },
-              { k: 'Documentos leídos', v: '6 de 6' },
-            ].map(c => (
-              <div key={c.k} className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-3 py-2.5">
-                <p className="text-[12px] text-zinc-400">{c.k}</p>
-                <p className="text-[12.5px] font-semibold text-zinc-800">{c.v}</p>
-              </div>
-            ))}
-          </div>
-
-          <p className="mt-3 flex items-center gap-1.5 text-[11px] text-zinc-400">
-            <Sparkles size={11} style={{ color: BRAND_INK }} />
-            Cada dato cita su documento, artículo y página.
-          </p>
-        </aside>
-      </div>
-    </div>
-  );
-}
-
-/* ────────────────────────────────────────────────────────────────────────────
-   Demo del asistente: conversación real (caso 1549-58-LE26 del set de
-   validación: el Anexo N°10 sugería un total único, pero el Art. 21 adjudica
-   por línea). Se anima por pasos al entrar en pantalla.
-──────────────────────────────────────────────────────────────────────────── */
-
-function ChatDemo({ reduce }: { reduce: boolean }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const inView = useInView(ref, { once: true, margin: '-90px' });
-  const [paso, setPaso] = useState(reduce ? 3 : 0);
-
-  useEffect(() => {
-    if (!inView || reduce) return;
-    const timers = [
-      setTimeout(() => setPaso(1), 500),   // pregunta
-      setTimeout(() => setPaso(2), 1300),  // escribiendo…
-      setTimeout(() => setPaso(3), 2600),  // respuesta + cita
-    ];
-    return () => timers.forEach(clearTimeout);
-  }, [inView, reduce]);
-
-  return (
-    <div ref={ref} className="rounded-2xl border border-zinc-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05),0_20px_50px_-24px_rgba(24,24,27,0.25)]">
-      {/* Encabezado del chat */}
-      <div className="flex items-center gap-3 border-b border-zinc-100 px-5 py-3.5">
-        <span className="grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 bg-white">
-          <LicitankIcon size={22} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-bold leading-tight">ankIA</p>
-          <p className="truncate font-mono text-[11px] text-zinc-400">1549-58-LE26 · Hospital San José</p>
-        </div>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-[#2FC7A6]/10 px-2.5 py-1 text-[10.5px] font-bold" style={{ color: BRAND_INK }}>
-          <MessageCircle size={11} />
-          Con las bases leídas
-        </span>
-      </div>
-
-      <div className="space-y-4 px-5 py-5">
-        {/* Pregunta del usuario */}
-        <motion.div
-          initial={{ opacity: 0, y: reduce ? 0 : 10 }}
-          animate={paso >= 1 ? { opacity: 1, y: 0 } : {}}
-          transition={{ duration: 0.4 }}
-          className="flex justify-end">
-          <div className="max-w-[85%] rounded-2xl rounded-br-md bg-zinc-900 px-4 py-2.5 text-[13.5px] leading-relaxed text-white">
-            ¿La oferta se presenta por el total o por ítem?
-          </div>
-        </motion.div>
-
-        {/* Indicador escribiendo… */}
-        {paso === 2 && (
-          <div className="flex">
-            <div className="rounded-2xl rounded-bl-md border border-zinc-200 bg-zinc-50 px-4 py-3">
-              <span className="lp-typing"><i /><i /><i /></span>
-            </div>
-          </div>
-        )}
-
-        {/* Respuesta con cita */}
-        <motion.div
-          initial={{ opacity: 0, y: reduce ? 0 : 10 }}
-          animate={paso >= 3 ? { opacity: 1, y: 0 } : {}}
-          transition={{ duration: 0.45 }}
-          className={`flex ${paso >= 3 ? '' : 'pointer-events-none'}`}>
-          <div className="max-w-[92%] space-y-2.5">
-            <div className="rounded-2xl rounded-bl-md border border-zinc-200 bg-zinc-50 px-4 py-3 text-[13.5px] leading-relaxed text-zinc-700">
-              <strong className="font-bold text-zinc-900">Por línea.</strong> El Art. 21 de las bases
-              indica que se adjudica «por línea o por ítem», y el Anexo N°10 contempla ofertar
-              a dos o más ítems por separado. El total al pie del anexo es solo referencial.
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-zinc-500">
-                <FileSearch size={11} style={{ color: BRAND_INK }} />
-                Bases administrativas · Art. 21
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-zinc-500">
-                <FileSearch size={11} style={{ color: BRAND_INK }} />
-                Anexo N°10 · oferta económica
-              </span>
-            </div>
-          </div>
-        </motion.div>
-      </div>
-    </div>
-  );
-}
-
-/* ────────────────────────────────────────────────────────────────────────────
-   CSS del radar (adaptado al tema claro) y del indicador de escritura
-──────────────────────────────────────────────────────────────────────────── */
-
-const radarCss = `
-.lp-radar{ position:relative; width:100%; aspect-ratio:1; border-radius:9999px;
-  background:radial-gradient(circle at 50% 50%, rgba(47,199,166,.07), rgba(47,199,166,.02) 55%, transparent 72%);
-  border:1px solid rgba(24,24,27,.06); }
-.lp-radar-rings{ position:absolute; inset:0; border-radius:9999px;
-  background:
-    radial-gradient(circle, transparent 0 22%, rgba(14,143,114,.18) 22.5% 23%, transparent 23.5%),
-    radial-gradient(circle, transparent 0 40%, rgba(14,143,114,.15) 40.5% 41%, transparent 41.5%),
-    radial-gradient(circle, transparent 0 62%, rgba(14,143,114,.12) 62.5% 63%, transparent 63.5%),
-    radial-gradient(circle, transparent 0 84%, rgba(14,143,114,.10) 84.5% 85%, transparent 85.5%); }
-.lp-radar-rings::before,.lp-radar-rings::after{ content:""; position:absolute; background:rgba(14,143,114,.10); }
-.lp-radar-rings::before{ left:50%; top:6%; bottom:6%; width:1px; transform:translateX(-50%); }
-.lp-radar-rings::after{ top:50%; left:6%; right:6%; height:1px; transform:translateY(-50%); }
-.lp-radar-sweep{ position:absolute; inset:0; border-radius:9999px;
-  background:conic-gradient(from 0deg, rgba(47,199,166,.30), rgba(47,199,166,0) 52%, rgba(47,199,166,0)); }
-
-.lp-blip{ position:absolute; width:9px; height:9px; border-radius:9999px; background:#2FC7A6;
-  box-shadow:0 0 0 0 rgba(47,199,166,.55); animation:lp-pulse 2.4s ease-out infinite; }
-.lp-blip-d1{ animation-delay:.7s; }
-.lp-blip-d2{ animation-delay:1.3s; background:#0e8f72; box-shadow:0 0 0 0 rgba(14,143,114,.5); }
-.lp-blip-d3{ animation-delay:1.9s; width:7px; height:7px; opacity:.8; }
-@keyframes lp-pulse{
-  0%{ box-shadow:0 0 0 0 rgba(47,199,166,.45); }
-  70%{ box-shadow:0 0 0 14px rgba(47,199,166,0); }
-  100%{ box-shadow:0 0 0 0 rgba(47,199,166,0); } }
-
-.lp-float{ background:rgba(255,255,255,.92); border:1px solid rgba(24,24,27,.09); border-radius:14px;
-  padding:12px 14px; backdrop-filter:blur(8px);
-  box-shadow:0 1px 2px rgba(0,0,0,.04), 0 18px 40px -18px rgba(24,24,27,.28); }
-
-.lp-typing{ display:inline-flex; gap:4px; align-items:center; height:10px; }
-.lp-typing i{ width:6px; height:6px; border-radius:9999px; background:#a1a1aa; display:inline-block;
-  animation:lp-dot 1.2s ease-in-out infinite; }
-.lp-typing i:nth-child(2){ animation-delay:.15s; }
-.lp-typing i:nth-child(3){ animation-delay:.3s; }
-@keyframes lp-dot{ 0%,60%,100%{ transform:translateY(0); opacity:.5; } 30%{ transform:translateY(-4px); opacity:1; } }
-
-@media (prefers-reduced-motion: reduce){
-  .lp-blip{ animation:none; }
-  .lp-typing i{ animation:none; }
-}
+const css = `
+html.lenis,html.lenis body{height:auto}
+.lenis.lenis-smooth{scroll-behavior:auto!important}
+.lk-nav{transition:color .15s}
+.lk-nav:hover{color:#fff}
+.lk-btn{transition:transform .15s,box-shadow .15s,background-color .15s,border-color .15s,color .15s}
+.lk-btn:hover{transform:translateY(-1px)}
+.lk-btn:active{transform:scale(.98)}
+.lk-sweep{background:conic-gradient(from 0deg,rgba(45,212,191,0) 0deg,rgba(45,212,191,.34) 60deg,rgba(45,212,191,0) 60.6deg);animation:lk-gira 7s linear infinite}
+@keyframes lk-gira{to{transform:rotate(360deg)}}
+.lk-blip{opacity:.28;animation:lk-blip 7s linear infinite}
+@keyframes lk-blip{0%{opacity:1;transform:translate(-50%,-50%) scale(1.9)}10%{opacity:1;transform:translate(-50%,-50%) scale(1)}70%{opacity:.28}100%{opacity:.28;transform:translate(-50%,-50%) scale(1)}}
+.lk-flota{animation:lk-flota 5s ease-in-out infinite alternate}
+@keyframes lk-flota{from{transform:translateY(-4px)}to{transform:translateY(5px)}}
+.lk-cinta{animation:lk-cinta 48s linear infinite}
+@keyframes lk-cinta{to{transform:translateX(-50%)}}
+@media (prefers-reduced-motion:reduce){.lk-sweep,.lk-blip,.lk-flota,.lk-cinta{animation:none}.lk-blip{opacity:.7}.lk-btn{transition:none}}
 `;

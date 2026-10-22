@@ -4,9 +4,9 @@ import type { Metadata } from 'next';
 import Landing from './Landing';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://app.licitank.cl';
-const TITULO = 'LICITANK — Inteligencia de licitaciones públicas';
+const TITULO = 'LICITANK — Radar y gestión de licitaciones públicas';
 const DESCRIPCION =
-  'LICITANK vigila Mercado Público en tiempo real, lee las bases con inteligencia artificial y gestiona todo el ciclo de una licitación, de la detección a la adjudicación.';
+  'LICITANK vigila Mercado Público con tus palabras clave, te muestra lo nuevo cada día y te deja asignar y seguir cada licitación con tu equipo.';
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
@@ -34,10 +34,8 @@ export const metadata: Metadata = {
     description: DESCRIPCION,
   },
   robots: {
-    // Herramienta interna: presentación pública pero no destinada a indexación masiva.
-    // Cambia a `index: true` si quieres que aparezca en buscadores.
-    index: false,
-    follow: false,
+    index: true,
+    follow: true,
   },
 };
 
