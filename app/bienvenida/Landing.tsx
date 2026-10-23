@@ -10,6 +10,7 @@ import {
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { MercadoPublicoMark } from '@/app/components/MercadoPublicoLogo';
 import { useSession } from '@/app/lib/session-context';
+import { Ciclo, Bases, Modulos, Marco } from './Secciones';
 
 /* Contacto comercial: se define en el entorno (NEXT_PUBLIC_CONTACTO_EMAIL). Sin él, el botón de demo no se muestra. */
 const CONTACTO = process.env.NEXT_PUBLIC_CONTACTO_EMAIL;
@@ -585,8 +586,9 @@ export default function Landing() {
             <span className="text-[15px] font-bold tracking-tight text-white">LICITANK</span>
           </a>
           <nav className="hidden items-center gap-8 text-[14px] text-slate-400 md:flex">
-            <a className="lk-nav" href="#recorrido">Cómo funciona</a>
-            <a className="lk-nav" href="#incluye">Qué incluye</a>
+            <a className="lk-nav" href="#ciclo">El ciclo</a>
+            <a className="lk-nav" href="#bases">Lectura de bases</a>
+            <a className="lk-nav" href="#modulos">Plataforma</a>
             <a className="lk-nav" href="#plan">Plan</a>
           </nav>
           <div className="flex items-center gap-2">
@@ -609,13 +611,13 @@ export default function Landing() {
           <div className="relative mx-auto grid max-w-[1200px] items-center gap-14 px-5 pb-16 pt-14 sm:px-8 sm:pt-20 lg:grid-cols-[1.1fr_.9fr] lg:pb-24">
             <div>
               <div style={serif}>
-                <Titular lineas={['Encuentra las', 'licitaciones que', 'sí son para ti.']} delay={0.1}
+                <Titular lineas={['Licitaciones', 'públicas, del aviso', 'a la factura.']} delay={0.1}
                   className="text-[48px] leading-[1] tracking-[-0.025em] text-white sm:text-[80px]" />
               </div>
               <motion.p initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7, duration: 0.7, ease: EASE }}
                 className="mt-7 max-w-[520px] text-[17px] leading-[1.6] text-slate-400 sm:text-[18px]">
-                LICITANK vigila Mercado Público con tus palabras clave y te muestra lo nuevo cada día. Después asignas cada
-                licitación a una persona de tu equipo y sigues el negocio hasta el resultado.
+                Conocemos Mercado Público por dentro. LICITANK detecta lo que te sirve, lee las bases con IA, costea,
+                rellena los anexos, audita tu oferta y sigue el negocio hasta la orden de compra y la entrega.
               </motion.p>
               <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.85, duration: 0.7, ease: EASE }}
                 className="mt-9 flex flex-wrap items-center gap-3">
@@ -627,7 +629,7 @@ export default function Landing() {
                 <a href="#recorrido" className={btnBorde}>Ver cómo funciona</a>
               </motion.div>
               <motion.dl initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.1, duration: 0.8 }} className="mt-12 grid max-w-[520px] grid-cols-3 gap-6 border-t border-white/10 pt-6">
-                {[['Fuente', 'Mercado Público'], ['Revisión', 'Todos los días'], ['Equipo', '2 usuarios']].map(([k, v]) => (
+                {[['Fuente', 'Mercado Público'], ['Cobertura', 'Del aviso a la factura'], ['Lectura', 'PDF, Word, Excel y OCR']].map(([k, v]) => (
                   <div key={k}>
                     <dt className="text-[11px] text-slate-500">{k}</dt>
                     <dd className="mt-1 text-[13px] font-medium text-slate-200">{v}</dd>
@@ -644,7 +646,15 @@ export default function Landing() {
 
         <Recorrido />
 
+        <Ciclo />
+
+        <Bases />
+
+        <Modulos />
+
         <Cuadricula />
+
+        <Marco />
 
         {/* Plan */}
         <section id="plan" className="border-y border-white/10 bg-[#0a0d12]">
@@ -657,8 +667,8 @@ export default function Landing() {
                 Cada empresa tiene su propio radar y sus propios negocios. Nadie más ve lo que tú gestionas.
               </p>
               <p className="mt-4 max-w-[440px] text-[16px] leading-[1.6] text-slate-400">
-                Hoy el plan cubre Radar y Negocios. Más adelante se suman módulos para analizar bases con inteligencia
-                artificial, preparar anexos y gestionar compras.
+                Radar y Negocios vienen incluidos. Los módulos de análisis con IA, anexos, costeo y compras se activan por
+                empresa, según lo que necesites.
               </p>
             </Rise>
             <Rise delay={0.08}>
