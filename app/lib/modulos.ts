@@ -41,7 +41,8 @@ interface Regla { modulo: Modulo | 'comun' | 'interno'; re: RegExp }
 const REGLAS: Regla[] = [
   // ── Comunes a todo cliente (sesión, perfil, avisos propios) ──
   { modulo: 'comun', re: /^\/(login|recuperar|restablecer|bienvenida|perfil|mis-reportes|modulo-bloqueado)(\/|$)/ },
-  { modulo: 'comun', re: /^\/api\/(auth|perfil|reportes-error|historial|actividad)(\/|$)/ },
+  { modulo: 'comun', re: /^\/api\/(auth|perfil|reportes-error|historial|actividad|equipo)(\/|$)/ },
+  { modulo: 'comun', re: /^\/equipo(\/|$)/ },
 
   // ── Solo ICA (administración global, sistema) ──
   // Las líneas de negocio (etiquetas) las administra cada empresa: es parte de Radar/Negocios, aunque la página viva bajo /admin.

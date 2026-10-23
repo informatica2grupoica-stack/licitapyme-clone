@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
   const [bit] = await pool.query(
     `SELECT b.cliente_id, b.accion, b.detalle, b.created_at, u.nombre AS por
        FROM clientes_bitacora b LEFT JOIN usuarios u ON u.id = b.usuario_id ORDER BY b.id DESC LIMIT 60`).catch(() => [[]] as unknown as [unknown]);
-  const lista = (clientes as Array<Record<string, unknown>>).map(c => ({ ...c, modulos: modulosEfectivos(c.modulos) }));
+  const lista = (clientes as Array<Record<string, unknown>>).map(c => ({ ...c, modulos: modulosEfectivos(c.modulos).filter(m => MODULOS_ACTIVABLES.includes(m)) }));
   return NextResponse.json({ success: true, clientes: lista, catalogo: TODOS_LOS_MODULOS, activables: MODULOS_ACTIVABLES, bitacora: bit });
 }
 
