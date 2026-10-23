@@ -9,7 +9,7 @@ import bcrypt from 'bcryptjs';
 import pool from '@/app/lib/db';
 import { getAuthedUser } from '@/app/lib/api-auth';
 import { olvidarFichaCliente, CLIENTE_ICA } from '@/app/lib/tenant';
-import { TODOS_LOS_MODULOS, MODULOS_BASE, modulosEfectivos } from '@/app/lib/modulos';
+import { TODOS_LOS_MODULOS, MODULOS_BASE, MODULOS_ACTIVABLES, modulosEfectivos } from '@/app/lib/modulos';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -40,18 +40,38 @@ export async function GET(req: NextRequest) {
     `SELECT b.cliente_id, b.accion, b.detalle, b.created_at, u.nombre AS por
        FROM clientes_bitacora b LEFT JOIN usuarios u ON u.id = b.usuario_id ORDER BY b.id DESC LIMIT 60`).catch(() => [[]] as unknown as [unknown]);
   const lista = (clientes as Array<Record<string, unknown>>).map(c => ({ ...c, modulos: modulosEfectivos(c.modulos) }));
-  return NextResponse.json({ success: true, clientes: lista, catalogo: TODOS_LOS_MODULOS, bitacora: bit });
+  return NextResponse.json({ success: true, clientes: lista, catalogo: TODOS_LOS_MODULOS, activables: MODULOS_ACTIVABLES, bitacora: bit });
 }
 
 export async function POST(req: NextRequest) {
   const g = await exigirSuperadmin(req);
   if (g.error) return g.error;
   const b = await req.json().catch(() => ({}));
+
+  // Agregar una persona a una empresa existente (respeta el tope de usuarios del plan).
+  if (b.accion === 'usuario') {
+    const cid = Number(b.clienteId), em = String(b.email || '').toLowerCase().trim(), cl = String(b.clave || '');
+    if (!cid || cid === CLIENTE_ICA || !em || cl.length < 8) return NextResponse.json({ error: 'Faltan empresa, correo o clave (mínimo 8 caracteres)' }, { status: 400 });
+    const [[c]] = await pool.query('SELECT nombre, max_usuarios FROM clientes WHERE id = ? AND activo = TRUE', [cid]) as any;
+    if (!c) return NextResponse.json({ error: 'Empresa no encontrada' }, { status: 404 });
+    const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM usuarios WHERE cliente_id = ? AND activo = TRUE', [cid]) as any;
+    if (c.max_usuarios != null && Number(n) >= Number(c.max_usuarios))
+      return NextResponse.json({ error: `El plan permite ${c.max_usuarios} usuario(s). Sube el tope primero.` }, { status: 409 });
+    const [dup2] = await pool.query('SELECT 1 FROM usuarios WHERE email = ? LIMIT 1', [em]);
+    if ((dup2 as unknown[]).length) return NextResponse.json({ error: 'Ese correo ya existe' }, { status: 409 });
+    const perm = { acceso_radar: true, ver_otros_negocios: true, exportar: true };
+    await pool.query(
+      `INSERT INTO usuarios (email, password_hash, nombre, empresa, rol, activo, cliente_id, permisos) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+      [em, await bcrypt.hash(cl, 10), String(b.nombre || '').trim() || em, c.nombre, b.rol === 'admin' ? 'admin' : 'usuario', cid, JSON.stringify(perm)]);
+    await bitacora(cid, g.u!.id, 'usuario', { email: em, rol: b.rol === 'admin' ? 'admin' : 'usuario' });
+    return NextResponse.json({ success: true });
+  }
+
   const nombre = String(b.nombre || '').trim(), rut = String(b.rut || '').trim();
   const email = String(b.adminEmail || '').toLowerCase().trim(), adminNombre = String(b.adminNombre || '').trim();
   const clave = String(b.clave || '');
   if (!nombre || !email || clave.length < 8) return NextResponse.json({ error: 'Faltan nombre, correo del admin o clave (mínimo 8 caracteres)' }, { status: 400 });
-  const modulos = (Array.isArray(b.modulos) ? b.modulos : MODULOS_BASE).filter((m: string) => (TODOS_LOS_MODULOS as string[]).includes(m));
+  const modulos = (Array.isArray(b.modulos) ? b.modulos : MODULOS_BASE).filter((m: string) => (MODULOS_ACTIVABLES as string[]).includes(m));
   const [dup] = await pool.query('SELECT 1 FROM usuarios WHERE email = ? LIMIT 1', [email]);
   if ((dup as unknown[]).length) return NextResponse.json({ error: 'Ese correo ya existe' }, { status: 409 });
 
@@ -77,7 +97,7 @@ export async function PATCH(req: NextRequest) {
   if (!id || id === CLIENTE_ICA) return NextResponse.json({ error: 'Empresa no válida' }, { status: 400 });
   const sets: string[] = [], vals: unknown[] = [], det: Record<string, unknown> = {};
   if (Array.isArray(b.modulos)) {
-    const m = b.modulos.filter((x: string) => (TODOS_LOS_MODULOS as string[]).includes(x));
+    const m = b.modulos.filter((x: string) => (MODULOS_ACTIVABLES as string[]).includes(x));
     sets.push('modulos = ?'); vals.push(JSON.stringify(m)); det.modulos = m;
   }
   if (b.estado === 'ACTIVO' || b.estado === 'SUSPENDIDO' || b.estado === 'BAJA') { sets.push('estado = ?'); vals.push(b.estado); det.estado = b.estado; }

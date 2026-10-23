@@ -19,6 +19,8 @@ export default function ClientesPage() {
   const toast = useToast();
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [catalogo, setCatalogo] = useState<Modulo[]>([]);
+  const [activables, setActivables] = useState<Modulo[]>([]);
+  const [otro, setOtro] = useState<{ id: number; nombre: string; email: string; clave: string; rol: string } | null>(null);
   const [bitacora, setBitacora] = useState<Mov[]>([]);
   const [cargando, setCargando] = useState(true);
   const [nuevo, setNuevo] = useState({ nombre: '', rut: '', adminNombre: '', adminEmail: '', clave: '', venceAt: '' });
@@ -28,7 +30,7 @@ export default function ClientesPage() {
     const r = await fetch('/api/admin/clientes');
     const d = await r.json().catch(() => ({}));
     if (!r.ok) { toast.error('No se pudo cargar', d.error || `HTTP ${r.status}`); setCargando(false); return; }
-    setClientes(d.clientes); setCatalogo(d.catalogo); setBitacora(d.bitacora || []); setCargando(false);
+    setClientes(d.clientes); setCatalogo(d.catalogo); setActivables(d.activables || []); setBitacora(d.bitacora || []); setCargando(false);
   }, [toast]);
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -83,9 +85,10 @@ export default function ClientesPage() {
                   <dt className="text-[11px] text-slate-500">Módulos activos</dt>
                   <dd className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
                     {catalogo.map(m => (
-                      <label key={m} className="flex items-center gap-2 text-sm text-slate-700">
-                        <input type="checkbox" className="accent-teal-700" checked={c.modulos.includes(m)} onChange={() => alternarModulo(c, m)} />
-                        {NOMBRE_MODULO[m]}
+                      <label key={m} className={`flex items-center gap-2 text-sm ${activables.includes(m) ? 'text-slate-700' : 'text-slate-400'}`}
+                        title={activables.includes(m) ? undefined : 'Todavía no disponible para clientes: sus datos aún no están separados por empresa'}>
+                        <input type="checkbox" className="accent-teal-700" disabled={!activables.includes(m)} checked={c.modulos.includes(m)} onChange={() => alternarModulo(c, m)} />
+                        {NOMBRE_MODULO[m]}{!activables.includes(m) && <span className="text-[11px]">(próximamente)</span>}
                       </label>
                     ))}
                   </dd>
@@ -97,11 +100,35 @@ export default function ClientesPage() {
                   <label className="text-[11px] text-slate-500">Usuarios máx.
                     <input type="number" min={1} defaultValue={c.max_usuarios ?? 1} className={`${input} mt-0.5 w-24`} onBlur={e => Number(e.target.value) !== c.max_usuarios && cambiar(c.id, { maxUsuarios: Number(e.target.value) })} />
                   </label>
+                  <button onClick={() => setOtro({ id: c.id, nombre: '', email: '', clave: '', rol: 'usuario' })}
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Agregar usuario</button>
                   <button onClick={() => cambiar(c.id, { estado: c.estado === 'ACTIVO' ? 'SUSPENDIDO' : 'ACTIVO' })}
                     className={`rounded-lg px-3 py-1.5 text-sm font-medium ${c.estado === 'ACTIVO' ? 'border border-slate-300 text-slate-700 hover:bg-slate-50' : 'bg-teal-700 text-white hover:bg-teal-800'}`}>
                     {c.estado === 'ACTIVO' ? 'Suspender' : 'Reactivar'}
                   </button>
                 </div>
+                {otro?.id === c.id && (
+                  <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2">
+                    <label className="text-[11px] text-slate-500">Nombre<input className={`${input} mt-0.5`} value={otro.nombre} onChange={e => setOtro({ ...otro, nombre: e.target.value })} /></label>
+                    <label className="text-[11px] text-slate-500">Correo (su usuario)<input type="email" className={`${input} mt-0.5`} value={otro.email} onChange={e => setOtro({ ...otro, email: e.target.value })} /></label>
+                    <label className="text-[11px] text-slate-500">Clave temporal (mín. 8)<input className={`${input} mt-0.5`} value={otro.clave} onChange={e => setOtro({ ...otro, clave: e.target.value })} /></label>
+                    <label className="text-[11px] text-slate-500">Perfil
+                      <select className={`${input} mt-0.5`} value={otro.rol} onChange={e => setOtro({ ...otro, rol: e.target.value })}>
+                        <option value="usuario">Usuario</option><option value="admin">Admin de la empresa</option>
+                      </select>
+                    </label>
+                    <div className="flex gap-2 sm:col-span-2">
+                      <button disabled={!otro.email || otro.clave.length < 8} className="rounded-lg bg-teal-700 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-50"
+                        onClick={async () => {
+                          const r = await fetch('/api/admin/clientes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accion: 'usuario', clienteId: c.id, ...otro }) });
+                          const d = await r.json().catch(() => ({}));
+                          if (!r.ok) { toast.error('No se agregó', d.error || `HTTP ${r.status}`); return; }
+                          toast.success('Usuario agregado', 'Entra con el mismo login.'); setOtro(null); cargar();
+                        }}>Agregar</button>
+                      <button className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700" onClick={() => setOtro(null)}>Cancelar</button>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </section>

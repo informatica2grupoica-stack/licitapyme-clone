@@ -4,7 +4,7 @@
 // Regla de oro: el cliente NUNCA se lee de un parámetro, body o header que mande el navegador. Sale de la sesión
 // verificada (usuarios.cliente_id vía estadoVigente): ver `getClienteId` en api-auth.ts. Aquí solo vive la ficha comercial.
 import pool from '@/app/lib/db';
-import { modulosEfectivos, type Modulo } from '@/app/lib/modulos';
+import { modulosEfectivos, MODULOS_ACTIVABLES, type Modulo } from '@/app/lib/modulos';
 
 export const CLIENTE_ICA = 1;
 
@@ -19,7 +19,7 @@ export async function fichaCliente(clienteId: number): Promise<FichaCliente> {
   if (c && c.hasta > Date.now()) return c.ficha;
   let ficha: FichaCliente;
   if (clienteId === CLIENTE_ICA) {
-    ficha = { id: 1, nombre: 'Grupo ICA', estado: 'ACTIVO', venceAt: null, modulos: modulosEfectivos(null), vigente: true, maxUsuarios: null };
+    ficha = { id: 1, nombre: 'LICITANK', estado: 'ACTIVO', venceAt: null, modulos: modulosEfectivos(null), vigente: true, maxUsuarios: null };
   } else {
     try {
       const [rows] = await pool.query(
@@ -32,7 +32,8 @@ export async function fichaCliente(clienteId: number): Promise<FichaCliente> {
         const vencido = !!f.vence_at && f.vence_at < hoy;
         ficha = {
           id: f.id, nombre: f.nombre, estado: f.estado, venceAt: f.vence_at ?? null,
-          modulos: modulosEfectivos(f.modulos),
+          // aunque la base diga otra cosa, un cliente solo usa módulos ya separados por empresa (ver MODULOS_ACTIVABLES)
+          modulos: modulosEfectivos(f.modulos).filter(m => MODULOS_ACTIVABLES.includes(m)),
           vigente: !!f.activo && f.estado === 'ACTIVO' && !vencido,
           maxUsuarios: f.max_usuarios ?? null,
         };

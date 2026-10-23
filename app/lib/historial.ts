@@ -19,6 +19,13 @@ export interface EventoHistorial {
 
 export async function registrarEvento(e: EventoHistorial): Promise<number | null> {
   try {
+    // Multi-cliente: freno general. Si quien ejecuta la acción y quien recibe el aviso son de EMPRESAS distintas, no se avisa. Cubre cualquier
+    // lugar que mande avisos a «todos los admin» sin mirar la empresa. Los avisos del sistema (sin actor) ya se acotan donde se generan.
+    if (e.usuarioId && e.actorId && Number(e.usuarioId) !== Number(e.actorId)) {
+      const [cu] = await pool.query('SELECT id, cliente_id FROM usuarios WHERE id IN (?, ?)', [e.usuarioId, e.actorId]);
+      const emp = new Map((cu as Array<{ id: number; cliente_id: number }>).map(r => [Number(r.id), Number(r.cliente_id)]));
+      if (emp.size === 2 && emp.get(Number(e.usuarioId)) !== emp.get(Number(e.actorId))) return null;
+    }
     // created_at EXPLÍCITO en hora de pared de Chile: el DEFAULT CURRENT_TIMESTAMP lo pone
     // el servidor MySQL de Bluehost (UTC-6), 2h atrás de Chile — mismo bug que actividad_usuario.
     const [r] = await pool.query(

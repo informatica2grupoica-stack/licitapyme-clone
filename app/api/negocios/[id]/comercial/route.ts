@@ -104,20 +104,21 @@ export async function puedeAprobarAuditor(userId: number, rol: string | null): P
 }
 
 /** A quién avisar cuando el asistente carga algo: todos los que pueden visar. */
-export async function asesores(): Promise<Array<{ id: number; nombre: string }>> {
+export async function asesores(clienteId = 1): Promise<Array<{ id: number; nombre: string }>> {
   try {
     const [rows] = await pool.query(
       // JSON_UNQUOTE(...)='true' y no `= TRUE`: comparar un valor JSON contra el booleano
       // de SQL depende de la versión de MySQL y falla en silencio (no encuentra a nadie).
       `SELECT id, nombre FROM usuarios
-        WHERE activo = TRUE
+        WHERE activo = TRUE AND cliente_id = ?
           AND (rol = 'admin' OR JSON_UNQUOTE(JSON_EXTRACT(permisos, '$.aprobar_comercial')) = 'true')`,
+      [clienteId],
     ) as any;
     return rows as any[];
   } catch {
     // Sin columna `permisos` (migración 28 pendiente) o sin `activo`: caer a los admin.
     try {
-      const [rows] = await pool.query(`SELECT id, nombre FROM usuarios WHERE rol = 'admin' AND activo = TRUE`) as any;
+      const [rows] = await pool.query(`SELECT id, nombre FROM usuarios WHERE rol = 'admin' AND activo = TRUE AND cliente_id = ?`, [clienteId]) as any;
       return rows as any[];
     } catch { return []; }
   }
