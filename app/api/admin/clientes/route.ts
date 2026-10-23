@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
   const g = await exigirSuperadmin(req);
   if (g.error) return g.error;
   const [clientes] = await pool.query(
-    `SELECT c.id, c.nombre, c.rut, c.plan, c.estado, c.max_usuarios, c.modulos, c.notas, c.contacto_nombre, c.contacto_email,
+    `SELECT c.id, c.nombre, c.rut, c.plan, c.estado, c.max_usuarios, c.cupo_ia_mensual, c.modulos, c.notas, c.contacto_nombre, c.contacto_email,
             DATE_FORMAT(c.vence_at, '%Y-%m-%d') AS vence_at,
             (SELECT COUNT(*) FROM usuarios u WHERE u.cliente_id = c.id AND u.activo = TRUE) AS usuarios
        FROM clientes c WHERE c.activo = TRUE ORDER BY c.id`);
@@ -103,6 +103,7 @@ export async function PATCH(req: NextRequest) {
   if (b.estado === 'ACTIVO' || b.estado === 'SUSPENDIDO' || b.estado === 'BAJA') { sets.push('estado = ?'); vals.push(b.estado); det.estado = b.estado; }
   if ('venceAt' in b) { sets.push('vence_at = ?'); vals.push(b.venceAt || null); det.venceAt = b.venceAt || null; }
   if (b.maxUsuarios != null) { sets.push('max_usuarios = ?'); vals.push(Math.max(1, Number(b.maxUsuarios) || 1)); det.maxUsuarios = b.maxUsuarios; }
+  if (b.cupoIa != null) { sets.push('cupo_ia_mensual = ?'); vals.push(Math.max(0, Number(b.cupoIa) || 0)); det.cupoIa = b.cupoIa; }
   if (typeof b.notas === 'string') { sets.push('notas = ?'); vals.push(b.notas.slice(0, 2000)); det.notas = true; }
   if (!sets.length) return NextResponse.json({ error: 'Nada que cambiar' }, { status: 400 });
   vals.push(id);

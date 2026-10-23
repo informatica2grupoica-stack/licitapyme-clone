@@ -13,7 +13,7 @@ import pool from '@/app/lib/db';
 import { getAuthedUser, tienePermiso } from '@/app/lib/api-auth';
 import { cargaDeEquipo } from '@/app/lib/carga-perfiles';
 import { registrarActividad } from '@/app/lib/actividad';
-import { clienteTieneModulo } from '@/app/lib/tenant';
+import { usaViabilidadDeICA } from '@/app/lib/tenant';
 
 export const dynamic = 'force-dynamic';
 
@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
     // Semáforo de viabilidad (si ya se analizó): sirve como criterio de reparto.
     let semaforos = new Map<string, string>();
     // (el semáforo es análisis de IA de Grupo ICA: un cliente lo usa solo si contrató Viabilidad)
-    if (await clienteTieneModulo(clienteId, 'viabilidad')) try {
+    if (await usaViabilidadDeICA(clienteId)) try {
       const [vRows] = await pool.query(
         `SELECT licitacion_codigo, semaforo FROM viabilidad_licitacion
          WHERE licitacion_codigo IN (${ph})`, codigos) as any[];
@@ -213,7 +213,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Descarga de documentos + viabilidad automática en segundo plano (cola serial, no bloquea).
-    if (agregadas.length > 0 && await clienteTieneModulo(clienteId, 'viabilidad')) {
+    if (agregadas.length > 0 && await usaViabilidadDeICA(clienteId)) {
       const { encolarViabilidadPuente } = await import('@/app/lib/viabilidad-al-asignar');
       void encolarViabilidadPuente(agregadas);
     }

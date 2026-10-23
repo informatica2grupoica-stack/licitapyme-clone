@@ -9,7 +9,7 @@ import { NOMBRE_MODULO, type Modulo } from '@/app/lib/modulos';
 
 interface Cliente {
   id: number; nombre: string; rut: string | null; plan: string; estado: string; max_usuarios: number | null;
-  modulos: Modulo[]; vence_at: string | null; usuarios: number; contacto_email: string | null; notas: string | null;
+  modulos: Modulo[]; cupo_ia_mensual: number; vence_at: string | null; usuarios: number; contacto_email: string | null; notas: string | null;
 }
 interface Mov { cliente_id: number; accion: string; detalle: unknown; created_at: string; por: string | null }
 
@@ -96,6 +96,9 @@ export default function ClientesPage() {
                 <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-3">
                   <label className="text-[11px] text-slate-500">Vence
                     <input type="date" defaultValue={c.vence_at || ''} className={`${input} mt-0.5 w-40`} onBlur={e => e.target.value !== (c.vence_at || '') && cambiar(c.id, { venceAt: e.target.value || null })} />
+                  </label>
+                  <label className="text-[11px] text-slate-500">Análisis de IA por mes
+                    <input type="number" min={0} defaultValue={c.cupo_ia_mensual ?? 0} className={`${input} mt-0.5 w-28`} onBlur={e => Number(e.target.value) !== c.cupo_ia_mensual && cambiar(c.id, { cupoIa: Number(e.target.value) })} />
                   </label>
                   <label className="text-[11px] text-slate-500">Usuarios máx.
                     <input type="number" min={1} defaultValue={c.max_usuarios ?? 1} className={`${input} mt-0.5 w-24`} onBlur={e => Number(e.target.value) !== c.max_usuarios && cambiar(c.id, { maxUsuarios: Number(e.target.value) })} />

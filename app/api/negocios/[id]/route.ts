@@ -1,7 +1,7 @@
 // app/api/negocios/[id]/route.ts
 // Detalle de un negocio: GET, PATCH (actualizar monto ofertado / etiquetas), DELETE (admin)
 import { NextRequest, NextResponse } from 'next/server';
-import { negocioEsDeMiEmpresa, registroEsDeMiEmpresa, clienteDeHeader, clienteTieneModulo } from '@/app/lib/tenant';
+import { negocioEsDeMiEmpresa, registroEsDeMiEmpresa, clienteDeHeader, clienteTieneModulo, usaViabilidadDeICA } from '@/app/lib/tenant';
 import pool from '@/app/lib/db';
 import { registrarActividad, registrarActividadDiaria } from '@/app/lib/actividad';
 import { registrarEvento } from '@/app/lib/historial';
@@ -120,7 +120,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     // Etiquetas, viabilidad, documentos en paralelo y apertura
     const codigo = negocio.licitacion_codigo;
     // La viabilidad es análisis de IA de Grupo ICA: un cliente la ve solo si contrató el módulo.
-    const conViabilidad = await clienteTieneModulo(Number(clienteDeHeader(request)), 'viabilidad');
+    const conViabilidad = await usaViabilidadDeICA(Number(clienteDeHeader(request)));
     const [etRows, viabRows, docRows, apRows] = await Promise.all([
 
       pool.query(
@@ -278,7 +278,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       // (La exigencia de análisis de viabilidad IA es de la regla interna de ICA: solo aplica si la empresa tiene ese módulo.)
       if (normalizarEstado(estado_pipeline) === 'EN_PROCESO'
           && normalizarEstado(neg.estado_pipeline) !== 'EN_PROCESO'
-          && await clienteTieneModulo(Number(neg.cliente_id ?? clienteDeHeader(request)), 'viabilidad')) {
+          && await usaViabilidadDeICA(Number(neg.cliente_id ?? clienteDeHeader(request)))) {
         // Fail-closed: si no se puede LEER si hay viabilidad (JOIN roto, JSON corrupto, etc.), no
         // se asume que sí la hay — antes este catch tragaba el error y dejaba pasar el cambio de
         // estado sin haber verificado nada (auditoría ago-2026).

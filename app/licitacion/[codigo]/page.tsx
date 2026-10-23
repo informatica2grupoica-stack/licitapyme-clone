@@ -9,6 +9,7 @@ import { TIPOS_LICITACION } from '@/app/types/search.types';
 import { useFavorites } from '@/app/hooks/useFavorites';
 import { useSession, tieneModulo } from '@/app/lib/session-context';
 import { ModuloBloqueadoPanel } from '@/app/components/ModuloBloqueadoPanel';
+import { ViabilidadClientePanel } from '@/app/components/ViabilidadClientePanel';
 import { useToast } from '@/app/components/ui/toast';
 import { AppLayout } from '@/app/components/AppLayout';
 import { getDiasRestantes, esUrlAnalizable, formatDateTime, estadoConfigFor, AnalisisIA } from './utils';
@@ -94,6 +95,7 @@ export default function LicitacionDetallePage() {
   const isAdmin        = usuario?.rol === 'admin';
   // Multi-cliente: módulos contratados por la empresa (Grupo ICA = todos). Lo no contratado se ve en gris y no pide datos al servidor.
   const conViabilidad  = tieneModulo(usuario, 'viabilidad');
+  const esICA          = (usuario?.clienteId ?? 1) === 1; // la viabilidad de ICA es solo de ICA; el cliente usa la suya
   const conCompetencia = tieneModulo(usuario, 'competencia');
   const conIA          = tieneModulo(usuario, 'ia_chat');
 
@@ -256,14 +258,14 @@ export default function LicitacionDetallePage() {
 
   // ── Viabilidad (Fase 2) — cargar resultado guardado ─────────────────────────
   const fetchViabilidad = useCallback(async () => {
-    if (!conViabilidad) { setViabilidadCargada(true); return; }
+    if (!conViabilidad || !esICA) { setViabilidadCargada(true); return; }
     try {
       const res = await fetch(`/api/licitacion-viabilidad/${encodeURIComponent(codigoDecoded)}`);
       const data = await res.json();
       if (data.success) setViabilidad(data.viabilidad);
     } catch (e) { console.error('[licitacion] no se pudo cargar la viabilidad:', e); }
     finally { setViabilidadCargada(true); }
-  }, [codigoDecoded, conViabilidad]);
+  }, [codigoDecoded, conViabilidad, esICA]);
 
   // ── Recalcular viabilidad (manual o auto) ───────────────────────────────────
   const calcularViabilidad = useCallback(async () => {
@@ -327,7 +329,7 @@ export default function LicitacionDetallePage() {
       .then(r => r.json())
       .then(d => { if (d.success) setHistorialLigero(d.eventos || []); })
       .catch(() => { /* silencioso */ });
-  }, [codigoDecoded, conViabilidad]);
+  }, [codigoDecoded, conViabilidad, esICA]);
 
   // Bitácora: qué sección revisó cada perfil (mismo mecanismo que /negocios/[id], deduplicado por
   // día en el servidor). Deja constancia de quién miró una licitación aunque no esté asignada —
@@ -349,7 +351,7 @@ export default function LicitacionDetallePage() {
 
   // Cargar el informe de Viabilidad IA (para alimentar la pestaña Criterios con sus criterios + fuentes)
   useEffect(() => {
-    if (!codigoDecoded || !conViabilidad) return;
+    if (!codigoDecoded || !conViabilidad || !esICA) return;
     fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(codigoDecoded)}`)
       .then(r => r.json())
       .then(d => { if (d?.informeIA) setInformeViabIA(d.informeIA); })
@@ -746,7 +748,8 @@ export default function LicitacionDetallePage() {
                 <PreguntasSection codigoDecoded={codigoDecoded} mpUrl={mpUrl} />
               )}
               {activeSection === 'viabilidad' && !conViabilidad && <ModuloBloqueadoPanel modulo="viabilidad" />}
-              {activeSection === 'viabilidad' && conViabilidad && (
+              {activeSection === 'viabilidad' && conViabilidad && !esICA && <ViabilidadClientePanel codigo={codigoDecoded} />}
+              {activeSection === 'viabilidad' && conViabilidad && esICA && (
                 // La IA es la fuente ÚNICA de la viabilidad: entrega el score, el veredicto
                 // y todo el análisis. Un solo panel, un solo botón.
                 <ViabilidadIAPanel codigo={codigoDecoded} onComplete={fetchDocumentos} />

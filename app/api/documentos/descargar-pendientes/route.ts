@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { descargarDocumentosLicitacion } from '@/app/lib/mp-descarga-orquestador';
 import { getAuthedUser } from '@/app/lib/api-auth';
-import { CLIENTE_ICA, clienteTieneModulo } from '@/app/lib/tenant';
+import { CLIENTE_ICA, usaViabilidadDeICA } from '@/app/lib/tenant';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -54,7 +54,7 @@ async function resolverAmbito(
   }
   // La bajada masiva del RADAR depende del prefiltro de IA (criterio de Grupo ICA). Sin ese módulo, un cliente no la usa:
   // sus documentos se bajan al asignar la licitación (asignarLicitacion → dispararPostAsignacion).
-  if (!(await clienteTieneModulo(u.clienteId, 'viabilidad'))) {
+  if (!(await usaViabilidadDeICA(u.clienteId))) {
     return { table: 'alertas_licitaciones', where: '1 = 0', params: [], gate: '', docsOficiales };
   }
   return {

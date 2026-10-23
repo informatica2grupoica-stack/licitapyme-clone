@@ -5,7 +5,7 @@
 // Cada bloque se consulta por separado y en try/catch: si una tabla falta o un dato no
 // existe, el hito simplemente no aparece (nunca rompe el detalle del negocio).
 import { NextRequest, NextResponse } from 'next/server';
-import { negocioEsDeMiEmpresa, clienteTieneModulo } from '@/app/lib/tenant';
+import { negocioEsDeMiEmpresa, usaViabilidadDeICA } from '@/app/lib/tenant';
 import pool from '@/app/lib/db';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     const codigo = negocio.licitacion_codigo;
     const clienteId = Number(negocio.cliente_id);
     // Prefiltro y viabilidad son análisis de IA de Grupo ICA: un cliente los ve solo si contrató el módulo.
-    const conViabilidad = await clienteTieneModulo(clienteId, 'viabilidad');
+    const conViabilidad = await usaViabilidadDeICA(clienteId);
 
     // ── Bloques independientes, cada uno best-effort ──────────────────────────
     const [radar, prefiltro, viabilidad, eventos, adjudicacion, empresa] = await Promise.all([

@@ -7,6 +7,7 @@ import { AppLayout }  from '@/app/components/AppLayout';
 import { useToast }   from '@/app/components/ui/toast';
 import { useSession, tieneModulo } from '@/app/lib/session-context';
 import { ModuloBloqueadoPanel } from '@/app/components/ModuloBloqueadoPanel';
+import { ViabilidadClientePanel } from '@/app/components/ViabilidadClientePanel';
 import { getEstadoPipeline, esGanado, tieneResultado, normalizarEstado } from '@/app/lib/pipeline';
 import { estadoEfectivoCodigo, estadoEfectivoNombre } from '@/app/lib/estado-mp';
 
@@ -474,6 +475,7 @@ function DetalleContent() {
   const isAdmin  = usuario?.rol === 'admin';
   // Multi-cliente: módulos contratados por la empresa (Grupo ICA = todos). Lo no contratado se ve en gris y no pide datos al servidor.
   const conViabilidad  = tieneModulo(usuario, 'viabilidad');
+  const esICA          = (usuario?.clienteId ?? 1) === 1; // la viabilidad de ICA es solo de ICA; el cliente usa la suya (ViabilidadClientePanel)
   const conAuditor     = tieneModulo(usuario, 'auditor');
   const conCosteo      = tieneModulo(usuario, 'costeo');
   const conCompetencia = tieneModulo(usuario, 'competencia');
@@ -632,13 +634,13 @@ function DetalleContent() {
   // solo se destrababa recargando la página (que sí vuelve a correr este efecto desde cero).
   const fetchViabIA = useCallback(async () => {
     const cod = negocio?.licitacion_codigo;
-    if (!cod || !conViabilidad) return;
+    if (!cod || !conViabilidad || !esICA) return;
     try {
       const r = await fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(cod)}`);
       const d = await r.json();
       if (d?.informeIA) setViabIA(d.informeIA);
     } catch { /* silencioso */ }
-  }, [negocio?.licitacion_codigo, conViabilidad]);
+  }, [negocio?.licitacion_codigo, conViabilidad, esICA]);
   useEffect(() => { fetchViabIA(); }, [fetchViabIA]);
   // Un (re)análisis puede terminar con el panel de Viabilidad desmontado (u otra pestaña/usuario):
   // al entrar a Resumen/Criterios se vuelve a leer el informe para mostrar siempre los criterios actuales.
@@ -1046,9 +1048,11 @@ function DetalleContent() {
               </>
             )}
             {seccion === 'items' && <SeccionItems licitacion={licitacion} analisisIA={analisisIA} />}
-            {seccion === 'viabilidad' && (conViabilidad
-              ? <ViabilidadIAPanel codigo={negocio.licitacion_codigo} onComplete={fetchViabIA} />
-              : <ModuloBloqueadoPanel modulo="viabilidad" />)}
+            {seccion === 'viabilidad' && (!conViabilidad
+              ? <ModuloBloqueadoPanel modulo="viabilidad" />
+              : esICA
+                ? <ViabilidadIAPanel codigo={negocio.licitacion_codigo} onComplete={fetchViabIA} />
+                : <ViabilidadClientePanel codigo={negocio.licitacion_codigo} />)}
             {seccion === 'documentos' && (
               <div className="space-y-4">
               {/* Quien revisa los documentos sabe a qué empresa corresponden: la elige aquí, una vez, y los anexos se llenan con sus datos. */}

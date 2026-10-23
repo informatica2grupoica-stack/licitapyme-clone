@@ -52,6 +52,11 @@ export function olvidarFichaCliente(clienteId?: number) {
   if (clienteId == null) cache.clear(); else cache.delete(clienteId);
 }
 
+/** ¿Usa la viabilidad / prefiltro de Grupo ICA (motor v4, sus datos)? Solo ICA. Una empresa-cliente con el módulo Viabilidad usa la suya (cliente_viabilidad). */
+export async function usaViabilidadDeICA(clienteId: number): Promise<boolean> {
+  return clienteId === CLIENTE_ICA;
+}
+
 /** ¿Tiene el cliente este módulo activo (y la cuenta vigente)? */
 export async function clienteTieneModulo(clienteId: number, modulo: Modulo): Promise<boolean> {
   const f = await fichaCliente(clienteId);

@@ -6,7 +6,7 @@ import { descargarDocumentosLicitacion } from '@/app/lib/mp-descarga-orquestador
 import { procesarLicitacionCompleta } from '@/app/lib/pipeline-licitacion';
 import { iaTextoConfigurada } from '@/app/lib/gemini';
 import { getClienteId, puedeVerLicitacion } from '@/app/lib/api-auth';
-import { clienteTieneModulo } from '@/app/lib/tenant';
+import { usaViabilidadDeICA } from '@/app/lib/tenant';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     // análisis fallido era invisible. Hay que mirar el RESULTADO, no solo la excepción.
     // (El fallo además queda marcado en `pipeline_fallos` dentro del propio pipeline.)
     // Multi-cliente: el análisis de IA (viabilidad) gasta IA; solo corre si la empresa tiene ese módulo.
-    if (triggerIA && iaTextoConfigurada() && await clienteTieneModulo(await getClienteId(request), 'viabilidad')) {
+    if (triggerIA && iaTextoConfigurada() && await usaViabilidadDeICA(await getClienteId(request))) {
       procesarLicitacionCompleta(licitacionCodigo)
         .then(r => {
           if (!r.ok) console.error(`[auto-descargar] pipeline IA sin éxito para ${licitacionCodigo}: ${r.error || 'sin detalle'}`);

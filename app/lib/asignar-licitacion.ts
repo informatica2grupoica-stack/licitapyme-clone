@@ -23,7 +23,7 @@ import { registrarEvento } from '@/app/lib/historial';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { textoLimpioDeLicitacion } from '@/app/lib/texto-limpio';
 import { enviarCorreoAsignacion } from '@/app/lib/email';
-import { clienteTieneModulo } from '@/app/lib/tenant';
+import { usaViabilidadDeICA } from '@/app/lib/tenant';
 
 export interface DatosLicitacion {
   licitacion_codigo: string;
@@ -220,7 +220,7 @@ export async function asignarLicitacion(o: OpcionesAsignacion): Promise<Resultad
 export async function dispararPostAsignacion(codigo: string, asignadoA: number, clienteId = 1): Promise<void> {
   if (process.env.DESCARGA_AL_ASIGNAR === 'false') return;
   // Multi-cliente: el pre-OCR y la viabilidad automática gastan IA; solo corren si la empresa tiene Viabilidad contratada.
-  const conViabilidad = await clienteTieneModulo(clienteId, 'viabilidad');
+  const conViabilidad = await usaViabilidadDeICA(clienteId);
   try {
     const [dc] = await pool.query(
       `SELECT 1 FROM documentos_cache WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);

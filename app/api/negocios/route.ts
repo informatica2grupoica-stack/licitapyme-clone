@@ -7,7 +7,7 @@ import { asignarLicitacion } from '@/app/lib/asignar-licitacion';
 import { resumirCarga, type FilaCarga } from '@/app/lib/carga-perfiles';
 import { respuestaDesdeCache, enriquecer } from '@/app/lib/adjudicacion';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
-import { clienteDeHeader, clienteTieneModulo } from '@/app/lib/tenant';
+import { clienteDeHeader, usaViabilidadDeICA } from '@/app/lib/tenant';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
     if (codigos.length) {
       const ph = codigos.map(() => '?').join(',');
       // La viabilidad (semáforo/puntaje) es análisis de IA de Grupo ICA: un cliente solo la ve si contrató el módulo.
-      const conViabilidad = await clienteTieneModulo(clienteId, 'viabilidad');
+      const conViabilidad = await usaViabilidadDeICA(clienteId);
       const [docsRes, viabRes, aperturaRes, adjRes, postRes] = await Promise.allSettled([
         pool.query(`SELECT DISTINCT licitacion_codigo FROM documentos_cache WHERE licitacion_codigo IN (${ph})`, codigos),
         conViabilidad

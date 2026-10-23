@@ -228,12 +228,12 @@ const lista = await api(lICA.cookie, '/api/admin/clientes');
 ok(lista.status === 200 && (lista.datos.clientes || []).some(c => c.id === CA), 'el superusuario ve las empresas-cliente');
 ok((await api(lA.cookie, '/api/admin/clientes')).status === 403, 'el admin de una empresa-cliente NO entra al panel');
 ok((await api(lA.cookie, '/api/admin/clientes', 'PATCH', { id: CA, modulos: ['radar', 'negocios', 'viabilidad'] })).status === 403, 'ni puede activarse módulos a sí mismo');
-const antes = await api(lA.cookie, '/api/licitacion-viabilidad-ia/TEST-001-LE26');
+const antes = await api(lA.cookie, '/api/cv/perfil');
 ok(antes.status === 403, 'antes de activar: la viabilidad está bloqueada para A');
 const act = await api(lICA.cookie, '/api/admin/clientes', 'PATCH', { id: CA, modulos: ['radar', 'negocios', 'viabilidad'] });
 ok(act.status === 200, 'el superusuario activa Viabilidad a A');
 await new Promise(r => setTimeout(r, 6_000)); // la caché de la ficha dura hasta 5 s (proxy y rutas tienen cada una la suya)
-const despues = await api(lA.cookie, '/api/licitacion-viabilidad-ia/TEST-001-LE26');
+const despues = await api(lA.cookie, '/api/cv/perfil');
 ok(despues.status !== 403, 'rige al instante: la viabilidad deja de estar bloqueada para A');
 const meA2 = (await api(lA.cookie, '/api/auth/me')).datos.usuario;
 ok(meA2?.modulos?.includes('viabilidad'), 'la sesión de A ya muestra Viabilidad desbloqueada');
@@ -248,6 +248,34 @@ await db.query("DELETE FROM usuarios WHERE email = 'c1.prueba@local.test'");
 await db.query("DELETE FROM clientes_bitacora WHERE cliente_id IN (SELECT id FROM clientes WHERE nombre = 'Prueba C')");
 await db.query("DELETE FROM clientes WHERE nombre = 'Prueba C'");
 await db.query('DELETE FROM clientes_bitacora WHERE cliente_id IN (?)', [[CA, CB]]);
+
+seccion('11. Viabilidad propia de la empresa-cliente (separada de la de ICA)');
+await db.query("UPDATE clientes SET modulos = ?, cupo_ia_mensual = 0 WHERE id IN (?, ?)", [JSON.stringify(['radar', 'negocios', 'viabilidad']), CA, CB]);
+await new Promise(r => setTimeout(r, 6_000));
+ok((await api(lA.cookie, '/api/licitacion-viabilidad-ia/TEST-001-LE26')).status === 403, 'con el módulo activo, A sigue SIN acceso al motor de viabilidad de ICA');
+ok((await api(lA.cookie, '/api/viabilidad/reglas')).status === 403, '…ni a las reglas de ICA');
+const sinPerfil = await api(lA.cookie, '/api/cv/viabilidad/TEST-001-LE26', 'POST');
+ok(sinPerfil.status === 409 && sinPerfil.datos.codigo === 'SIN_PERFIL', 'sin perfil, la IA pide primero completar el perfil de la empresa');
+const putPerfil = await api(lA.cookie, '/api/cv/perfil', 'PUT', { descripcion: 'Vendemos mobiliario escolar y de oficina', productos_si: 'sillas, mesas, archivadores', rubros: 'mobiliario' });
+ok(putPerfil.status === 200, 'A guarda el perfil de su empresa');
+ok((await api(lA.cookie, '/api/cv/perfil')).datos.perfil?.rubros === 'mobiliario', 'A lee su perfil');
+ok(!(await api(lB.cookie, '/api/cv/perfil')).datos.perfil, 'B no ve el perfil de A');
+const sinCupo = await api(lA.cookie, '/api/cv/viabilidad/TEST-001-LE26', 'POST');
+ok(sinCupo.status === 409 && sinCupo.datos.codigo === 'SIN_CUPO', 'con cupo 0 no se gasta IA (plan sin viabilidad)');
+const alA2 = (await api(lA.cookie, '/api/alertas')).datos.alertas || [];
+ok(alA2.every(a => a.viabilidad_semaforo == null && a.prefiltro_decision == null), 'el radar de A sigue sin mostrar viabilidad de ICA');
+if (process.env.PROBAR_IA === '1') {
+  await db.query('UPDATE clientes SET cupo_ia_mensual = 1 WHERE id = ?', [CA]);
+  const dic = await api(lA.cookie, '/api/cv/viabilidad/TEST-001-LE26', 'POST');
+  ok(dic.status === 200 && ['POSTULAR', 'EVALUAR', 'NO_POSTULAR'].includes(dic.datos.dictamen?.veredicto), 'con cupo, la IA entrega el dictamen de A (llamada real a la IA)');
+  ok(!(await api(lB.cookie, '/api/cv/viabilidad/TEST-001-LE26')).datos.dictamen, 'B no ve el dictamen de A de la misma licitación');
+  ok(!(await api(lICA.cookie, '/api/cv/viabilidad/TEST-001-LE26')).datos.dictamen, 'ICA tampoco ve el dictamen de A');
+  const [[uso]] = await db.query('SELECT COUNT(*) n FROM ia_uso WHERE usuario_id = ?', [uA]);
+  ok(Number(uso.n) >= 1, 'el gasto de IA quedó atribuido al usuario de A');
+}
+await db.query('DELETE FROM cliente_viabilidad WHERE cliente_id IN (?)', [[CA, CB]]);
+await db.query('DELETE FROM cliente_perfil WHERE cliente_id IN (?)', [[CA, CB]]);
+await db.query('DELETE FROM ia_uso WHERE usuario_id IN (?)', [[uA, uB]]).catch(() => {});
 
 await limpiar();
 await db.end();

@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
-import { clienteDeHeader, clienteTieneModulo } from '@/app/lib/tenant';
+import { clienteDeHeader, usaViabilidadDeICA } from '@/app/lib/tenant';
 
 function getUserFromHeaders(request: NextRequest) {
   const id = request.headers.get('x-user-id');
@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
       const UNIVERSO_RADAR = `al.cliente_id = ? AND (al.licitacion_cierre >= ? OR al.licitacion_cierre IS NULL)`;
       const pRadar = [clienteId, ahoraChileSQL()];
       // Viabilidad y prefiltro son análisis de IA de Grupo ICA: un cliente los ve solo si contrató el módulo.
-      const conViabilidad = await clienteTieneModulo(clienteId, 'viabilidad');
+      const conViabilidad = await usaViabilidadDeICA(clienteId);
 
       const [tLic] = await q(
         `SELECT COUNT(DISTINCT al.licitacion_codigo) AS n

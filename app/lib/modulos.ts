@@ -13,7 +13,7 @@ export const TODOS_LOS_MODULOS: Modulo[] = ['radar', 'negocios', 'viabilidad', '
 export const MODULOS_BASE: Modulo[] = ['radar', 'negocios'];
 /** Módulos que se pueden activar a una empresa-cliente HOY. Los demás todavía leen tablas sin separar por empresa (Compras, Auditor, Costeo…):
  *  activarlos le mostraría datos de Grupo ICA. Se agregan aquí uno por uno, DESPUÉS de separar sus tablas por empresa y probarlo. */
-export const MODULOS_ACTIVABLES: Modulo[] = ['radar', 'negocios'];
+export const MODULOS_ACTIVABLES: Modulo[] = ['radar', 'negocios', 'viabilidad'];
 
 export const NOMBRE_MODULO: Record<Modulo, string> = {
   radar: 'Radar', negocios: 'Negocios', viabilidad: 'Viabilidad IA', ia_chat: 'Consulta a la IA', auditor: 'Auditor',
@@ -51,8 +51,10 @@ const REGLAS: Regla[] = [
   { modulo: 'interno', re: /^\/api\/(admin|cron|debug|memoria|obuma-compras)(\/|$)/ },
 
   // ── Módulos que NO se venden en la Fase 1 (más específicos primero) ──
-  { modulo: 'viabilidad', re: /^\/(analizadas|reglas-ia|analisis-licitacion)(\/|$)/ },
-  { modulo: 'viabilidad', re: /^\/api\/(licitacion-viabilidad|licitacion-viabilidad-ia|viabilidad|viabilidad-feedback|analizadas|prefiltro|reglas-ia)(\/|$)/ },
+  // La viabilidad de Grupo ICA (motor v4, sus reglas y tablas) es SOLO de ICA. Una empresa-cliente con el módulo usa su propia viabilidad: /api/cv.
+  { modulo: 'interno', re: /^\/(analizadas|reglas-ia|analisis-licitacion)(\/|$)/ },
+  { modulo: 'interno', re: /^\/api\/(licitacion-viabilidad|licitacion-viabilidad-ia|viabilidad|viabilidad-feedback|analizadas|prefiltro|reglas-ia)(\/|$)/ },
+  { modulo: 'viabilidad', re: /^\/api\/cv\/(perfil|viabilidad)(\/|$)/ },
   { modulo: 'ia_chat',    re: /^\/api\/(licitacion-ia|licitacion-preguntas|chat-global|chat-proyecto|analizar-documento|buscar-productos)(\/|$)/ },
   { modulo: 'ia_chat',    re: /^\/api\/licitacion\/[^/]+\/chat(\/|$)/ },
   { modulo: 'auditor',    re: /^\/api\/negocios\/[^/]+\/(auditor|prepostulacion)(\/|$)/ },
