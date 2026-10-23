@@ -107,6 +107,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Usuarios',       href: '/admin/usuarios',  icon: <Users size={17} />, adminOnly: true },
       { label: 'Empresas-cliente', href: '/admin/clientes', icon: <Building2 size={17} />, adminOnly: true },
       { label: 'Mi equipo',      href: '/equipo',          icon: <Users size={17} />, adminOnly: true },
+      { label: 'Perfil de mi empresa', href: '/mi-empresa', icon: <Building2 size={17} />, adminOnly: true },
       { label: 'Empresas',       href: '/empresas',        icon: <Building2 size={17} />, adminOnly: true },
       { label: 'Líneas negocio', href: '/admin/etiquetas', icon: <Tag size={17} />, adminOnly: true },
       // Reportes del botón flotante "Reportar error" (components/ReportarErrorBoton) de todos los perfiles.
@@ -369,6 +370,7 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
     items: group.items.filter(i => {
       // «Mi equipo» es de las empresas-cliente; «Empresas-cliente» solo de LICITANK (el servidor lo exige igual).
       if (i.href === '/equipo') return usuario?.rol === 'admin' && usuario.clienteId != null && usuario.clienteId !== 1;
+      if (i.href === '/mi-empresa') return usuario?.rol === 'admin' && usuario.clienteId != null && usuario.clienteId !== 1 && tieneModulo(usuario, 'viabilidad');
       if (i.href === '/reglas-ia') return !!usuario?.permisos?.reglas_ia && !soloCompras && !esExterno;   // solo CA, aunque sea admin
       if (soloCompras) return HREFS_SOLO_COMPRAS.includes(i.href);
       if (esExterno) return i.href === '/negocios' || i.href === '/mis-reportes'; // externo: "Mis licitaciones" + sus reportes

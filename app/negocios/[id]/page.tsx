@@ -7,7 +7,7 @@ import { AppLayout }  from '@/app/components/AppLayout';
 import { useToast }   from '@/app/components/ui/toast';
 import { useSession, tieneModulo } from '@/app/lib/session-context';
 import { ModuloBloqueadoPanel } from '@/app/components/ModuloBloqueadoPanel';
-import { ViabilidadClientePanel } from '@/app/components/ViabilidadClientePanel';
+import { ViabilidadIAPanel as ViabilidadIAPanelCliente } from '@/app/components/cv/viabilidad/ViabilidadIAPanel';
 import { getEstadoPipeline, esGanado, tieneResultado, normalizarEstado } from '@/app/lib/pipeline';
 import { estadoEfectivoCodigo, estadoEfectivoNombre } from '@/app/lib/estado-mp';
 
@@ -1052,7 +1052,7 @@ function DetalleContent() {
               ? <ModuloBloqueadoPanel modulo="viabilidad" />
               : esICA
                 ? <ViabilidadIAPanel codigo={negocio.licitacion_codigo} onComplete={fetchViabIA} />
-                : <ViabilidadClientePanel codigo={negocio.licitacion_codigo} />)}
+                : <div className="space-y-3"><div className="text-right"><Link href="/mi-empresa" className="text-xs font-medium text-teal-700 hover:underline">Perfil de mi empresa (lo que la IA usa para dictaminar)</Link></div><ViabilidadIAPanelCliente codigo={negocio.licitacion_codigo} /></div>)}
             {seccion === 'documentos' && (
               <div className="space-y-4">
               {/* Quien revisa los documentos sabe a qué empresa corresponden: la elige aquí, una vez, y los anexos se llenan con sus datos. */}

@@ -12,14 +12,18 @@ export interface PerfilCliente {
   descripcion: string; rubros: string; productos_si: string; productos_no: string;
   monto_min: number | null; monto_max: number | null; regiones: string; reglas: string;
 }
+export interface CriterioEvaluacion { criterio: string; ponderacion: string; como_cumplir: string }
 export interface Dictamen {
   veredicto: 'POSTULAR' | 'EVALUAR' | 'NO_POSTULAR';
   puntaje: number;
+  coincidencia_rubro: 'SI' | 'PARCIAL' | 'NO';
+  coincidencia_detalle: string;
   resumen: string;
   razones: string[];
   riesgos: string[];
   requisitos: string[];
-  plazos_y_garantias: string;
+  criterios_evaluacion: CriterioEvaluacion[];
+  multas_y_garantias: string;
   recomendacion: string;
 }
 
@@ -49,7 +53,7 @@ export async function guardarPerfil(clienteId: number, p: Partial<PerfilCliente>
 export async function estadoCupo(clienteId: number): Promise<{ usados: number; cupo: number }> {
   const [[c]] = await pool.query('SELECT cupo_ia_mensual FROM clientes WHERE id = ?', [clienteId]) as any;
   const [[u]] = await pool.query(
-    `SELECT COUNT(*) AS n FROM cliente_viabilidad WHERE cliente_id = ? AND created_at >= DATE_FORMAT(NOW(), '%Y-%m-01')`, [clienteId]) as any;
+    `SELECT (SELECT COUNT(*) FROM cliente_viabilidad WHERE cliente_id = ? AND created_at >= DATE_FORMAT(NOW(), '%Y-%m-01')) + (SELECT COUNT(*) FROM cliente_viabilidad_v4 WHERE cliente_id = ? AND created_at >= DATE_FORMAT(NOW(), '%Y-%m-01')) AS n`, [clienteId, clienteId]) as any;
   return { usados: Number(u?.n) || 0, cupo: Number(c?.cupo_ia_mensual) || 0 };
 }
 
@@ -108,7 +112,10 @@ export async function generarDictamen(clienteId: number, codigo: string, usuario
   try { items = (JSON.parse(lic.items_json || '[]') as any[]).slice(0, 40).map(i => `- ${i.NombreProducto || ''} ${i.Descripcion || ''} (${i.Cantidad ?? ''} ${i.UnidadMedida || i.Unidad || ''})`).join('\n'); } catch { /* sin ítems */ }
 
   const sistema = 'Eres un analista experto en compras públicas de Chile (Mercado Público). Dictaminas si a UNA empresa le conviene postular a una licitación, ' +
-    'según lo que la empresa vende y las condiciones de la licitación. No inventes datos: si algo no está en los documentos, dilo. Responde SOLO un objeto JSON.';
+    'según lo que la empresa vende y las condiciones de la licitación. No inventes datos: si algo no está en los documentos, dilo. Responde SOLO un objeto JSON.\n' +
+    'REGLA PRINCIPAL: lo PRIMERO es comparar lo que se compra (nombre e ítems de la licitación) con lo que la empresa vende y NO vende. ' +
+    'Si el producto o servicio licitado no está entre lo que la empresa ofrece, o está en lo que NO ofrece, o es de otro rubro, coincidencia_rubro es "NO", el veredicto es NO_POSTULAR y el puntaje máximo 25, ' +
+    'AUNQUE el monto, la región o los plazos calcen. Que el monto esté en su rango no compensa un rubro distinto. Sé estricto: ante la duda entre "PARCIAL" y "NO", usa "NO" si el producto principal no se parece a nada de lo que vende.';
   const usuarioMsg =
 `PERFIL DE LA EMPRESA
 - Qué hace: ${perfil.descripcion || '—'}
@@ -128,7 +135,8 @@ Descripción: ${(lic.descripcion || '').slice(0, 3000)}
 
 DOCUMENTOS OFICIALES LEÍDOS (${docs.length}):\n${textoDocs || '(aún no hay documentos leídos; dictamina solo con la ficha y dilo en "plazos_y_garantias")'}
 
-Devuelve este JSON: {"veredicto":"POSTULAR|EVALUAR|NO_POSTULAR","puntaje":0-100,"resumen":"2-3 frases","razones":["..."],"riesgos":["..."],"requisitos":["requisitos clave para postular"],"plazos_y_garantias":"plazos, garantías y multas relevantes","recomendacion":"qué hacer a continuación"}`;
+Devuelve este JSON: {"coincidencia_rubro":"SI|PARCIAL|NO","coincidencia_detalle":"1 frase: qué se compra vs qué vende la empresa","veredicto":"POSTULAR|EVALUAR|NO_POSTULAR","puntaje":0-100,"resumen":"2-3 frases","razones":["..."],"riesgos":["..."],"requisitos":["requisitos clave para postular"],"criterios_evaluacion":[{"criterio":"nombre del criterio de las bases","ponderacion":"p. ej. 40%","como_cumplir":"cómo obtener buen puntaje"}],"multas_y_garantias":"plazos, garantías, multas y vigencias relevantes","recomendacion":"qué hacer a continuación"}
+En criterios_evaluacion lista TODOS los criterios y ponderaciones que aparezcan en las bases (precio, plazo de entrega, experiencia, etc.); si no aparecen, deja la lista vacía.`;
 
   let dictamen: Dictamen;
   try {
@@ -140,10 +148,16 @@ Devuelve este JSON: {"veredicto":"POSTULAR|EVALUAR|NO_POSTULAR","puntaje":0-100,
     const raw = extraerJSON(String(resp?.choices?.[0]?.message?.content ?? ''));
     const ver = ['POSTULAR', 'EVALUAR', 'NO_POSTULAR'].includes(raw.veredicto) ? raw.veredicto : 'EVALUAR';
     const arr = (v: unknown) => (Array.isArray(v) ? v.map(x => String(x)).slice(0, 12) : []);
+    const coin = ['SI', 'PARCIAL', 'NO'].includes(raw.coincidencia_rubro) ? raw.coincidencia_rubro : 'PARCIAL';
+    let veredicto: Dictamen['veredicto'] = ver, puntaje = Math.max(0, Math.min(100, Math.round(Number(raw.puntaje) || 0)));
+    // Garantía en código (no solo en el prompt): si el rubro no coincide, no puede salir «conviene postular».
+    if (coin === 'NO') { veredicto = 'NO_POSTULAR'; puntaje = Math.min(puntaje, 25); }
+    else if (coin === 'PARCIAL' && veredicto === 'POSTULAR') { veredicto = 'EVALUAR'; puntaje = Math.min(puntaje, 65); }
+    const crit = Array.isArray(raw.criterios_evaluacion) ? raw.criterios_evaluacion.slice(0, 15).map((c: any) => ({ criterio: String(c?.criterio || ''), ponderacion: String(c?.ponderacion || ''), como_cumplir: String(c?.como_cumplir || '') })).filter((c: CriterioEvaluacion) => c.criterio) : [];
     dictamen = {
-      veredicto: ver, puntaje: Math.max(0, Math.min(100, Math.round(Number(raw.puntaje) || 0))),
+      veredicto, puntaje, coincidencia_rubro: coin, coincidencia_detalle: String(raw.coincidencia_detalle || ''),
       resumen: String(raw.resumen || ''), razones: arr(raw.razones), riesgos: arr(raw.riesgos), requisitos: arr(raw.requisitos),
-      plazos_y_garantias: String(raw.plazos_y_garantias || ''), recomendacion: String(raw.recomendacion || ''),
+      criterios_evaluacion: crit, multas_y_garantias: String(raw.multas_y_garantias || raw.plazos_y_garantias || ''), recomendacion: String(raw.recomendacion || ''),
     };
   } catch (e) {
     console.error('[cliente-viabilidad]', codigo, String(e).slice(0, 200));

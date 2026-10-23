@@ -43,6 +43,7 @@ const REGLAS: Regla[] = [
   { modulo: 'comun', re: /^\/(login|recuperar|restablecer|bienvenida|perfil|mis-reportes|modulo-bloqueado)(\/|$)/ },
   { modulo: 'comun', re: /^\/api\/(auth|perfil|reportes-error|historial|actividad|equipo)(\/|$)/ },
   { modulo: 'comun', re: /^\/equipo(\/|$)/ },
+  { modulo: 'comun', re: /^\/mi-empresa(\/|$)/ },
 
   // ── Solo ICA (administración global, sistema) ──
   // Las líneas de negocio (etiquetas) las administra cada empresa: es parte de Radar/Negocios, aunque la página viva bajo /admin.

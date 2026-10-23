@@ -9,7 +9,9 @@ import { TIPOS_LICITACION } from '@/app/types/search.types';
 import { useFavorites } from '@/app/hooks/useFavorites';
 import { useSession, tieneModulo } from '@/app/lib/session-context';
 import { ModuloBloqueadoPanel } from '@/app/components/ModuloBloqueadoPanel';
-import { ViabilidadClientePanel } from '@/app/components/ViabilidadClientePanel';
+import { ViabilidadIAPanel as ViabilidadIAPanelCliente } from '@/app/components/cv/viabilidad/ViabilidadIAPanel';
+import Link from 'next/link';
+
 import { useToast } from '@/app/components/ui/toast';
 import { AppLayout } from '@/app/components/AppLayout';
 import { getDiasRestantes, esUrlAnalizable, formatDateTime, estadoConfigFor, AnalisisIA } from './utils';
@@ -748,7 +750,7 @@ export default function LicitacionDetallePage() {
                 <PreguntasSection codigoDecoded={codigoDecoded} mpUrl={mpUrl} />
               )}
               {activeSection === 'viabilidad' && !conViabilidad && <ModuloBloqueadoPanel modulo="viabilidad" />}
-              {activeSection === 'viabilidad' && conViabilidad && !esICA && <ViabilidadClientePanel codigo={codigoDecoded} />}
+              {activeSection === 'viabilidad' && conViabilidad && !esICA && <div className="space-y-3"><div className="text-right"><Link href="/mi-empresa" className="text-xs font-medium text-teal-700 hover:underline">Perfil de mi empresa (lo que la IA usa para dictaminar)</Link></div><ViabilidadIAPanelCliente codigo={codigoDecoded} onComplete={fetchDocumentos} /></div>}
               {activeSection === 'viabilidad' && conViabilidad && esICA && (
                 // La IA es la fuente ÚNICA de la viabilidad: entrega el score, el veredicto
                 // y todo el análisis. Un solo panel, un solo botón.
