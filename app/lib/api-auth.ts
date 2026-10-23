@@ -15,27 +15,9 @@ import { estadoVigente } from '@/app/lib/rol-vigente';
 export async function getAuthedUser(req: NextRequest): Promise<UsuarioSession | null> {
   const u = await getSessionFromRequest(req);
   if (!u) return null;
-  const v = await estadoVigente(u.id, u.rol, u.clienteId);
-  if (!v.activo) return null; // cuenta (o cliente) desactivada: el JWT viejo ya no vale
-  return { ...u, rol: v.rol, clienteId: v.clienteId };
-}
-
-/**
- * Cliente (empresa) del usuario autenticado, leído de la BD vía getAuthedUser — NUNCA de un header,
- * parámetro o body del navegador. null si no hay sesión válida. TODA consulta de datos privados de un
- * cliente debe filtrar por este valor (ver docs/diseno-multitenant-fase1.md §1).
- */
-export async function getClienteId(req: NextRequest): Promise<number | null> {
-  const u = await getAuthedUser(req);
-  return u ? u.clienteId : null;
-}
-
-/** ¿Administra TODOS los clientes (equipo de LICITANK)? Verificado contra la BD, no contra el token. */
-export async function esSuperadmin(req: NextRequest): Promise<boolean> {
-  const u = await getSessionFromRequest(req);
-  if (!u) return false;
-  const v = await estadoVigente(u.id, u.rol, u.clienteId);
-  return v.activo && v.esSuperadmin;
+  const v = await estadoVigente(u.id, u.rol);
+  if (!v.activo) return null; // cuenta desactivada: el JWT viejo ya no vale
+  return { ...u, rol: v.rol };
 }
 
 /** ¿Es admin? Verificado contra el JWT (no contra el header del cliente). */

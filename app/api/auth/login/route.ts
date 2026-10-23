@@ -35,20 +35,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Buscar usuario
-    // TEMPORAL: `cliente_id` existe solo después de la migration-164. Mientras esa migración no esté
-    // aplicada en la BD del servidor, se cae a la consulta de siempre (todos son del cliente 1).
-    let rows;
-    try {
-      [rows] = await pool.query(
-        'SELECT id, email, password_hash, nombre, empresa, rol, activo, cliente_id FROM usuarios WHERE email = ? LIMIT 1',
-        [emailLimpio]
-      );
-    } catch {
-      [rows] = await pool.query(
-        'SELECT id, email, password_hash, nombre, empresa, rol, activo FROM usuarios WHERE email = ? LIMIT 1',
-        [emailLimpio]
-      );
-    }
+    const [rows] = await pool.query(
+      'SELECT id, email, password_hash, nombre, empresa, rol, activo FROM usuarios WHERE email = ? LIMIT 1',
+      [emailLimpio]
+    );
     const usuarios = rows as any[];
 
     if (usuarios.length === 0) {
@@ -100,7 +90,6 @@ export async function POST(request: NextRequest) {
       nombre:  u.nombre,
       empresa: u.empresa,
       rol:     u.rol,
-      clienteId: u.cliente_id ?? 1,
     };
 
     return respuestaConSession(usuario, {});
