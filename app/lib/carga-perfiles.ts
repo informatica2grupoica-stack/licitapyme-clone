@@ -61,17 +61,17 @@ export function resumirCarga(filas: FilaCarga[], ahora: number = Date.now()): Ca
 }
 
 /**
- * Lee la carga vigente de TODO el equipo. Tolerante: si la tabla aún no existe (migración
+ * Lee la carga vigente de TODO el equipo DE UNA EMPRESA (multi-cliente). Tolerante: si la tabla aún no existe (migración
  * pendiente) devuelve lista vacía en vez de romper la pantalla que la pide.
  */
-export async function cargaDeEquipo(): Promise<CargaPerfil[]> {
+export async function cargaDeEquipo(clienteId: number): Promise<CargaPerfil[]> {
   try {
     const [rows] = await pool.query(
       `SELECT n.asignado_a AS usuario_id, u.nombre, u.email, n.licitacion_codigo AS codigo,
               n.licitacion_cierre,
               COALESCE(n.estado_pipeline, 'ASIGNADO') AS estado_pipeline
        FROM negocios n JOIN usuarios u ON u.id = n.asignado_a
-       WHERE n.activo = TRUE AND u.activo = TRUE`);
+       WHERE n.activo = TRUE AND u.activo = TRUE AND n.cliente_id = ?`, [clienteId]);
     return resumirCarga(rows as FilaCarga[]);
   } catch {
     return [];

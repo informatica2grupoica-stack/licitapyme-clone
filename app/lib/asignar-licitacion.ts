@@ -23,6 +23,7 @@ import { registrarEvento } from '@/app/lib/historial';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { textoLimpioDeLicitacion } from '@/app/lib/texto-limpio';
 import { enviarCorreoAsignacion } from '@/app/lib/email';
+import { clienteTieneModulo } from '@/app/lib/tenant';
 
 export interface DatosLicitacion {
   licitacion_codigo: string;
@@ -74,6 +75,15 @@ export async function asignarLicitacion(o: OpcionesAsignacion): Promise<Resultad
   if (!codigo || !o.asignado_a) return { ...base, error: 'licitacion_codigo y asignado_a son requeridos' };
 
   try {
+    // MULTI-CLIENTE: la asignación ocurre DENTRO de una empresa. Quien asigna y quien recibe deben ser de la misma;
+    // todo lo de abajo (mover, insertar, marcar alerta) se acota a esa empresa para no tocar los negocios de otra.
+    const [cus] = await pool.query(`SELECT id, cliente_id FROM usuarios WHERE id IN (?, ?)`, [o.asignado_a, o.asignado_por]);
+    const clienteDe = new Map((cus as any[]).map(r => [Number(r.id), Number(r.cliente_id)]));
+    const clienteId = clienteDe.get(Number(o.asignado_a));
+    if (!clienteId || clienteDe.get(Number(o.asignado_por)) !== clienteId) {
+      return { ...base, error: 'Quien asigna y quien recibe deben ser de la misma empresa' };
+    }
+
     // TEXTO LIMPIO: el nombre/organismo llegan desde el CLIENTE y hay rutas que los traen con el
     // acento ya destruido (U+FFFD: "Adquisici<?>n"). La BD es la fuente limpia — ver el comentario
     // largo en el historial de app/api/negocios/route.ts.
@@ -84,8 +94,8 @@ export async function asignarLicitacion(o: OpcionesAsignacion): Promise<Resultad
     let prevAsignado: number | null = null;
     try {
       const [prev] = await pool.query(
-        `SELECT asignado_a FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE ORDER BY id DESC LIMIT 1`,
-        [codigo]);
+        `SELECT asignado_a FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE AND cliente_id = ? ORDER BY id DESC LIMIT 1`,
+        [codigo, clienteId]);
       prevAsignado = (prev as any[])[0]?.asignado_a ?? null;
     } catch { /* tabla nueva */ }
     const reasignacion = prevAsignado != null && Number(prevAsignado) !== Number(o.asignado_a);
@@ -95,16 +105,16 @@ export async function asignarLicitacion(o: OpcionesAsignacion): Promise<Resultad
     try {
       await pool.query(
         `UPDATE negocios SET activo = FALSE
-         WHERE licitacion_codigo = ? AND asignado_a <> ? AND activo = TRUE`,
-        [codigo, o.asignado_a]);
+         WHERE licitacion_codigo = ? AND asignado_a <> ? AND activo = TRUE AND cliente_id = ?`,
+        [codigo, o.asignado_a, clienteId]);
     } catch { /* tabla nueva / sin filas: seguir */ }
 
     const [result] = await pool.query(
       `INSERT INTO negocios (
          licitacion_codigo, licitacion_nombre, licitacion_organismo, licitacion_monto,
          licitacion_cierre, licitacion_estado, licitacion_tipo, licitacion_region,
-         licitacion_descripcion, asignado_a, asignado_por
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         licitacion_descripcion, asignado_a, asignado_por, cliente_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          licitacion_nombre = COALESCE(VALUES(licitacion_nombre), licitacion_nombre),
          licitacion_estado = COALESCE(VALUES(licitacion_estado), licitacion_estado),
@@ -117,7 +127,7 @@ export async function asignarLicitacion(o: OpcionesAsignacion): Promise<Resultad
         o.licitacion_cierre ? new Date(o.licitacion_cierre) : null,
         o.licitacion_estado || null, o.licitacion_tipo || null,
         o.licitacion_region || null, o.licitacion_descripcion || null,
-        o.asignado_a, o.asignado_por,
+        o.asignado_a, o.asignado_por, clienteId,
       ]);
     const negocioId = (result as any).insertId || null;
 
@@ -129,8 +139,8 @@ export async function asignarLicitacion(o: OpcionesAsignacion): Promise<Resultad
 
     // Asignar cuenta como REVISAR: la alerta del radar queda leída para todos.
     pool.query(
-      `UPDATE alertas_licitaciones SET leida = TRUE WHERE licitacion_codigo = ? AND leida = FALSE`,
-      [codigo],
+      `UPDATE alertas_licitaciones SET leida = TRUE WHERE licitacion_codigo = ? AND leida = FALSE AND cliente_id = ?`,
+      [codigo, clienteId],
     ).catch(() => { /* nunca bloquear la asignación */ });
 
     if (negocioId && (o.etiqueta_ids?.length || 0) > 0) {
@@ -187,7 +197,7 @@ export async function asignarLicitacion(o: OpcionesAsignacion): Promise<Resultad
     } catch { /* nunca bloquear la asignación por un fallo de notificación */ }
 
     if (o.postProceso !== false) {
-      void dispararPostAsignacion(codigo, Number(o.asignado_a));
+      void dispararPostAsignacion(codigo, Number(o.asignado_a), clienteId);
     }
 
     return { ok: true, id: negocioId, reasignacion, destinoNombre, destinoEmail };
@@ -207,8 +217,10 @@ export async function asignarLicitacion(o: OpcionesAsignacion): Promise<Resultad
  * Se exporta para que el reparto en lote pueda encadenarlas EN SERIE en vez de disparar 30
  * descargas a la vez. Nunca lanza.
  */
-export async function dispararPostAsignacion(codigo: string, asignadoA: number): Promise<void> {
+export async function dispararPostAsignacion(codigo: string, asignadoA: number, clienteId = 1): Promise<void> {
   if (process.env.DESCARGA_AL_ASIGNAR === 'false') return;
+  // Multi-cliente: el pre-OCR y la viabilidad automática gastan IA; solo corren si la empresa tiene Viabilidad contratada.
+  const conViabilidad = await clienteTieneModulo(clienteId, 'viabilidad');
   try {
     const [dc] = await pool.query(
       `SELECT 1 FROM documentos_cache WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);
@@ -218,7 +230,7 @@ export async function dispararPostAsignacion(codigo: string, asignadoA: number):
       const { descargarDocumentosLicitacion } = await import('@/app/lib/mp-descarga-orquestador');
       const res = await descargarDocumentosLicitacion(codigo);
       if (!res.exito) return; // sin documentos no hay nada que analizar — lo reintenta el cron
-      if (process.env.PRE_OCR_AL_ASIGNAR !== 'false') {
+      if (conViabilidad && process.env.PRE_OCR_AL_ASIGNAR !== 'false') {
         try {
           const { calentarCacheDocumentos } = await import('@/app/lib/viabilidad-ia');
           await calentarCacheDocumentos(codigo);
@@ -226,6 +238,7 @@ export async function dispararPostAsignacion(codigo: string, asignadoA: number):
       }
     }
 
+    if (!conViabilidad) return;
     const { encolarViabilidadAlAsignar } = await import('@/app/lib/viabilidad-al-asignar');
     await encolarViabilidadAlAsignar(codigo, asignadoA);
   } catch (e) {

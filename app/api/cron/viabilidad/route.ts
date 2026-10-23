@@ -81,7 +81,8 @@ async function pendientes(limit?: number, incluirVencidas = false): Promise<stri
   const sql = (gatePrefiltro: string, gateFallos: string) =>
     `SELECT al.licitacion_codigo, MIN(al.licitacion_cierre) AS cierre
        FROM alertas_licitaciones al
-      WHERE EXISTS (
+      WHERE al.cliente_id = 1  -- multi-cliente: la viabilidad de IA de oficio es de Grupo ICA; las alertas de un cliente no gastan su IA
+        AND EXISTS (
               SELECT 1 FROM documentos_cache dc
                WHERE dc.licitacion_codigo = al.licitacion_codigo)
         AND NOT EXISTS (

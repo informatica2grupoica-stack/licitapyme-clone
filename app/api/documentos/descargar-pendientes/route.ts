@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { descargarDocumentosLicitacion } from '@/app/lib/mp-descarga-orquestador';
 import { getAuthedUser } from '@/app/lib/api-auth';
+import { CLIENTE_ICA, clienteTieneModulo } from '@/app/lib/tenant';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,23 +36,33 @@ type Origen = 'radar' | 'negocios';
 //  • usuario → solo lo suyo.
 async function resolverAmbito(
   req: NextRequest, origen: Origen,
-): Promise<{ table: string; where: string; params: number[]; gate: string } | null> {
+): Promise<{ table: string; where: string; params: number[]; gate: string; docsOficiales: string } | null> {
   const u = await getAuthedUser(req);
-  if (!u) return null;
+  if (!u || !u.clienteId) return null;
   const admin = u.rol === 'admin';
+  // Multi-cliente: todo se acota a la empresa. Para una empresa-cliente, «ya tiene documentos» significa documentos OFICIALES (cliente_id 0):
+  // lo que subió ella misma no cuenta. Grupo ICA conserva su regla de siempre.
+  const docsOficiales = u.clienteId === CLIENTE_ICA ? '' : 'AND dc.cliente_id = 0';
   if (origen === 'negocios') {
     return {
       table: 'negocios',
-      where: admin ? 'al.activo = TRUE' : 'al.activo = TRUE AND al.asignado_a = ?',
-      params: admin ? [] : [u.id],
+      where: admin ? 'al.activo = TRUE AND al.cliente_id = ?' : 'al.activo = TRUE AND al.cliente_id = ? AND al.asignado_a = ?',
+      params: admin ? [u.clienteId] : [u.clienteId, u.id],
       gate: '', // asignadas manualmente → sin gate de prefiltro
+      docsOficiales,
     };
+  }
+  // La bajada masiva del RADAR depende del prefiltro de IA (criterio de Grupo ICA). Sin ese módulo, un cliente no la usa:
+  // sus documentos se bajan al asignar la licitación (asignarLicitacion → dispararPostAsignacion).
+  if (!(await clienteTieneModulo(u.clienteId, 'viabilidad'))) {
+    return { table: 'alertas_licitaciones', where: '1 = 0', params: [], gate: '', docsOficiales };
   }
   return {
     table: 'alertas_licitaciones',
-    where: admin ? '1 = 1' : 'al.usuario_id = ?',
-    params: admin ? [] : [u.id],
+    where: admin ? 'al.cliente_id = ?' : 'al.cliente_id = ? AND al.usuario_id = ?',
+    params: admin ? [u.clienteId] : [u.clienteId, u.id],
     gate: GATE_PREFILTRO,
+    docsOficiales,
   };
 }
 
@@ -61,14 +72,14 @@ function parseOrigen(v: unknown): Origen { return v === 'negocios' ? 'negocios' 
 // Cuenta de licitaciones sin documentos (según ámbito). Ambas tablas (negocios y
 // alertas_licitaciones) tienen licitacion_codigo y licitacion_cierre.
 // Si la tabla prefiltro_licitacion no existe → fallback sin gate.
-async function contarPendientes(table: string, where: string, gate: string, scopeParams: number[]): Promise<number> {
+async function contarPendientes(table: string, where: string, gate: string, scopeParams: number[], docsOficiales: string): Promise<number> {
   const base = (g: string) =>
     `SELECT COUNT(DISTINCT al.licitacion_codigo) AS pendientes
      FROM ${table} al
      WHERE ${where}
        AND NOT EXISTS (
          SELECT 1 FROM documentos_cache dc
-         WHERE dc.licitacion_codigo = al.licitacion_codigo
+         WHERE dc.licitacion_codigo = al.licitacion_codigo ${docsOficiales}
        )
        ${g}`;
   try {
@@ -82,14 +93,14 @@ async function contarPendientes(table: string, where: string, gate: string, scop
 }
 
 // Próximos N códigos sin documentos (cierre más próximo primero).
-async function proximosCodigos(table: string, where: string, gate: string, scopeParams: number[], lote: number): Promise<string[]> {
+async function proximosCodigos(table: string, where: string, gate: string, scopeParams: number[], lote: number, docsOficiales: string): Promise<string[]> {
   const base = (g: string) =>
     `SELECT DISTINCT al.licitacion_codigo
      FROM ${table} al
      WHERE ${where}
        AND NOT EXISTS (
          SELECT 1 FROM documentos_cache dc
-         WHERE dc.licitacion_codigo = al.licitacion_codigo
+         WHERE dc.licitacion_codigo = al.licitacion_codigo ${docsOficiales}
        )
        ${g}
      ORDER BY al.licitacion_cierre DESC
@@ -112,7 +123,7 @@ export async function GET(request: NextRequest) {
   if (!ambito) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   try {
-    const pendientes = await contarPendientes(ambito.table, ambito.where, ambito.gate, ambito.params);
+    const pendientes = await contarPendientes(ambito.table, ambito.where, ambito.gate, ambito.params, ambito.docsOficiales);
 
     const [totalRows] = await pool.query(
       `SELECT COUNT(DISTINCT licitacion_codigo) AS total
@@ -141,7 +152,7 @@ export async function POST(request: NextRequest) {
   if (!ambito) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   try {
-    const codigos = await proximosCodigos(ambito.table, ambito.where, ambito.gate, ambito.params, lote);
+    const codigos = await proximosCodigos(ambito.table, ambito.where, ambito.gate, ambito.params, lote, ambito.docsOficiales);
 
     if (codigos.length === 0) {
       return NextResponse.json({ completado: true, procesados: [], pendientes: 0 });
@@ -159,7 +170,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const pendientes = await contarPendientes(ambito.table, ambito.where, ambito.gate, ambito.params);
+    const pendientes = await contarPendientes(ambito.table, ambito.where, ambito.gate, ambito.params, ambito.docsOficiales);
 
     return NextResponse.json({ completado: pendientes === 0, procesados, pendientes });
   } catch (e: any) {

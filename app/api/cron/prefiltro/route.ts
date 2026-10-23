@@ -38,7 +38,8 @@ async function pendientes(limit?: number): Promise<string[]> {
   const sql =
     `SELECT DISTINCT al.licitacion_codigo
      FROM alertas_licitaciones al
-     WHERE NOT EXISTS (SELECT 1 FROM prefiltro_licitacion pf WHERE pf.licitacion_codigo = al.licitacion_codigo)
+     WHERE al.cliente_id = 1  -- multi-cliente: el prefiltro de IA es del criterio de Grupo ICA; las alertas de una empresa-cliente no gastan su IA
+       AND NOT EXISTS (SELECT 1 FROM prefiltro_licitacion pf WHERE pf.licitacion_codigo = al.licitacion_codigo)
      ORDER BY COALESCE(al.licitacion_fecha_publicacion, al.licitacion_cierre, al.created_at) DESC`
     + (limit ? ` LIMIT ${Math.max(1, Math.min(limit, 90))}` : '');
   const [rows] = await pool.query(sql) as any[];

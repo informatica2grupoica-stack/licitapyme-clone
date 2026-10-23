@@ -7,7 +7,8 @@ import { DocumentoAdjunto, Oportunidad } from '@/app/types/search.types';
 import { TIPO_LICITACION_MAP } from '@/app/types/mercado-publico.types';
 import { TIPOS_LICITACION } from '@/app/types/search.types';
 import { useFavorites } from '@/app/hooks/useFavorites';
-import { useSession } from '@/app/lib/session-context';
+import { useSession, tieneModulo } from '@/app/lib/session-context';
+import { ModuloBloqueadoPanel } from '@/app/components/ModuloBloqueadoPanel';
 import { useToast } from '@/app/components/ui/toast';
 import { AppLayout } from '@/app/components/AppLayout';
 import { getDiasRestantes, esUrlAnalizable, formatDateTime, estadoConfigFor, AnalisisIA } from './utils';
@@ -91,6 +92,10 @@ export default function LicitacionDetallePage() {
   const codigo         = params.codigo as string;
   const codigoDecoded  = decodeURIComponent(codigo);
   const isAdmin        = usuario?.rol === 'admin';
+  // Multi-cliente: módulos contratados por la empresa (Grupo ICA = todos). Lo no contratado se ve en gris y no pide datos al servidor.
+  const conViabilidad  = tieneModulo(usuario, 'viabilidad');
+  const conCompetencia = tieneModulo(usuario, 'competencia');
+  const conIA          = tieneModulo(usuario, 'ia_chat');
 
   // Menú unificado con /negocios/[id]: misma función arma el orden, las etiquetas y el criterio
   // de visibilidad para ambas páginas (esta página no tiene Costeo ni Auditor Técnico/Compra).
@@ -98,6 +103,8 @@ export default function LicitacionDetallePage() {
     documentosCount: documentosCache.length,
     hayResultado,
     itemsCount: licitacion?.items?.length,
+    viabilidadBloqueada: !conViabilidad,
+    preguntasBloqueadas: !conIA,
   });
   // El sidebar solo tiene "resumen"/"resultado" como ítems clickeables; Fechas/Criterios/Comentarios
   // y Competencia son pestañas internas de esos grupos, pero el ítem del grupo debe seguir
@@ -238,23 +245,25 @@ export default function LicitacionDetallePage() {
 
   // ── Análisis IA (Gemini) — cargar resultado guardado ────────────────────────
   const fetchAnalisisIA = useCallback(async () => {
+    if (!conIA) { setAnalisisIACargado(true); return; }
     try {
       const res = await fetch(`/api/licitacion-ia/${encodeURIComponent(codigoDecoded)}`);
       const data = await res.json();
       if (data.success) setAnalisisIA(data.analisis);
     } catch (e) { console.error('[licitacion] no se pudo cargar el análisis IA:', e); }
     finally { setAnalisisIACargado(true); }
-  }, [codigoDecoded]);
+  }, [codigoDecoded, conIA]);
 
   // ── Viabilidad (Fase 2) — cargar resultado guardado ─────────────────────────
   const fetchViabilidad = useCallback(async () => {
+    if (!conViabilidad) { setViabilidadCargada(true); return; }
     try {
       const res = await fetch(`/api/licitacion-viabilidad/${encodeURIComponent(codigoDecoded)}`);
       const data = await res.json();
       if (data.success) setViabilidad(data.viabilidad);
     } catch (e) { console.error('[licitacion] no se pudo cargar la viabilidad:', e); }
     finally { setViabilidadCargada(true); }
-  }, [codigoDecoded]);
+  }, [codigoDecoded, conViabilidad]);
 
   // ── Recalcular viabilidad (manual o auto) ───────────────────────────────────
   const calcularViabilidad = useCallback(async () => {
@@ -318,7 +327,7 @@ export default function LicitacionDetallePage() {
       .then(r => r.json())
       .then(d => { if (d.success) setHistorialLigero(d.eventos || []); })
       .catch(() => { /* silencioso */ });
-  }, [codigoDecoded]);
+  }, [codigoDecoded, conViabilidad]);
 
   // Bitácora: qué sección revisó cada perfil (mismo mecanismo que /negocios/[id], deduplicado por
   // día en el servidor). Deja constancia de quién miró una licitación aunque no esté asignada —
@@ -340,7 +349,7 @@ export default function LicitacionDetallePage() {
 
   // Cargar el informe de Viabilidad IA (para alimentar la pestaña Criterios con sus criterios + fuentes)
   useEffect(() => {
-    if (!codigoDecoded) return;
+    if (!codigoDecoded || !conViabilidad) return;
     fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(codigoDecoded)}`)
       .then(r => r.json())
       .then(d => { if (d?.informeIA) setInformeViabIA(d.informeIA); })
@@ -708,7 +717,8 @@ export default function LicitacionDetallePage() {
                   {activeSection === 'resultado' && (
                     <ResultadoSection codigo={codigoDecoded} mpUrl={mpUrl} />
                   )}
-                  {activeSection === 'competencia' && (
+                  {activeSection === 'competencia' && !conCompetencia && <ModuloBloqueadoPanel modulo="competencia" />}
+                  {activeSection === 'competencia' && conCompetencia && (
                     <OfertasCompetencia codigo={codigoDecoded} isAdmin={usuario?.rol === 'admin'} />
                   )}
                 </>
@@ -731,15 +741,18 @@ export default function LicitacionDetallePage() {
                   empresaId={negocioGestion?.empresa_id ?? null}
                 />
               )}
-              {hayResultado && activeSection === 'preguntas' && (
+              {hayResultado && activeSection === 'preguntas' && !conIA && <ModuloBloqueadoPanel modulo="ia_chat" />}
+              {hayResultado && activeSection === 'preguntas' && conIA && (
                 <PreguntasSection codigoDecoded={codigoDecoded} mpUrl={mpUrl} />
               )}
-              {activeSection === 'viabilidad' && (
+              {activeSection === 'viabilidad' && !conViabilidad && <ModuloBloqueadoPanel modulo="viabilidad" />}
+              {activeSection === 'viabilidad' && conViabilidad && (
                 // La IA es la fuente ÚNICA de la viabilidad: entrega el score, el veredicto
                 // y todo el análisis. Un solo panel, un solo botón.
                 <ViabilidadIAPanel codigo={codigoDecoded} onComplete={fetchDocumentos} />
               )}
-              {activeSection === 'inteligencia' && (
+              {activeSection === 'inteligencia' && !conIA && <ModuloBloqueadoPanel modulo="ia_chat" />}
+              {activeSection === 'inteligencia' && conIA && (
                 <InteligenciaSection codigo={codigoDecoded} documentosAnalizables={documentosAnalizables} nombreLicitacion={licitacion.nombre} />
               )}
             </div>

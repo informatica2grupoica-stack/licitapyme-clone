@@ -71,8 +71,8 @@ export async function POST(request: NextRequest) {
           usuario_id, codigo, nombre, organismo, monto_total, monto_estimado, moneda,
           fecha_cierre, fecha_adjudicacion, estado, tipo_licitacion,
           tipo_convocatoria, region, comuna, descripcion, resumen_ia,
-          detail_url, search_url, semantic_score, final_score
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          detail_url, search_url, semantic_score, final_score, cliente_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT cliente_id FROM usuarios WHERE id = ?), 1))
         ON DUPLICATE KEY UPDATE
           nombre = VALUES(nombre), organismo = VALUES(organismo),
           monto_total = VALUES(monto_total), monto_estimado = VALUES(monto_estimado),
@@ -87,6 +87,7 @@ export async function POST(request: NextRequest) {
           body.descripcion || null, body.resumen_ia || null,
           body.detail_url || null, body.search_url || null,
           body.semantic_score || null, body.final_score || null,
+          userId, // cliente_id = empresa del usuario (multi-cliente)
         ]
       );
     } else {

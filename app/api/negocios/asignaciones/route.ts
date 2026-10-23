@@ -10,7 +10,7 @@ import { getAuthedUser } from '@/app/lib/api-auth';
 
 export async function POST(request: NextRequest) {
   const u = await getAuthedUser(request);
-  if (!u) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  if (!u || !u.clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   let body: any;
   try { body = await request.json(); } catch { body = {}; }
@@ -25,8 +25,8 @@ export async function POST(request: NextRequest) {
       `SELECT n.licitacion_codigo, n.asignado_a,
               u.nombre AS asignado_nombre, u.email AS asignado_email
        FROM negocios n JOIN usuarios u ON u.id = n.asignado_a
-       WHERE n.activo = TRUE AND n.licitacion_codigo IN (?)`,
-      [codigos],
+       WHERE n.activo = TRUE AND n.cliente_id = ? AND n.licitacion_codigo IN (?)`,
+      [u.clienteId, codigos],
     ) as any[];
 
     const asignaciones: Record<string, { asignado_a: number; asignado_nombre: string | null }> = {};

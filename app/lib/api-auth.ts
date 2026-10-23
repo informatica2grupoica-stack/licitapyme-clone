@@ -10,14 +10,46 @@ import { type NextRequest } from 'next/server';
 import { getSessionFromRequest, type UsuarioSession } from '@/app/lib/auth-edge';
 import pool from '@/app/lib/db';
 import { estadoVigente } from '@/app/lib/rol-vigente';
+import { fichaCliente } from '@/app/lib/tenant';
+import { permisosPermitidos } from '@/app/lib/modulos';
 
 /** Usuario autenticado verificando el JWT de la cookie (fuente de verdad). */
 export async function getAuthedUser(req: NextRequest): Promise<UsuarioSession | null> {
   const u = await getSessionFromRequest(req);
   if (!u) return null;
-  const v = await estadoVigente(u.id, u.rol);
+  const v = await estadoVigente(u.id, u.rol, u.clienteId);
   if (!v.activo) return null; // cuenta desactivada: el JWT viejo ya no vale
-  return { ...u, rol: v.rol };
+  return { ...u, rol: v.rol, clienteId: v.clienteId };
+}
+
+/** Falta la empresa en la sesión: la petición no se puede atender (falla cerrado). */
+export class SinClienteError extends Error {
+  constructor() { super('Sin empresa en la sesión'); }
+}
+
+/** Empresa-cliente de la petición (multi-cliente), verificada contra la BD. NUNCA leerla de un parámetro o body.
+ *  Lanza `SinClienteError` si no hay sesión válida. */
+export async function getClienteId(req: NextRequest): Promise<number> {
+  const u = await getAuthedUser(req);
+  if (!u || !u.clienteId) throw new SinClienteError();
+  return u.clienteId;
+}
+
+/** Igual que `getClienteId`, pero devuelve null en vez de lanzar. */
+export async function clienteIdOrNull(req: NextRequest): Promise<number | null> {
+  try { return await getClienteId(req); } catch { return null; }
+}
+
+/** Multi-cliente: un cliente (≠ Grupo ICA) solo puede tener los permisos de los módulos que contrató y con la cuenta vigente.
+ *  Grupo ICA queda tal cual. Es el ÚNICO punto donde se aplica la máscara, así que la UI y el servidor coinciden. */
+async function aplicarModulosDeCliente(userId: number, rol: string | null | undefined, p: Permisos): Promise<Permisos> {
+  const v = await estadoVigente(userId, (rol as 'admin' | 'usuario' | 'externo') ?? 'usuario');
+  if (v.clienteId === 1) return p;
+  const f = await fichaCliente(v.clienteId);
+  const ok = f.vigente ? permisosPermitidos(f.modulos) : new Set<string>();
+  const out: Permisos = {};
+  for (const [k, val] of Object.entries(p)) if (val && ok.has(k)) (out as Record<string, boolean>)[k] = true;
+  return out;
 }
 
 /** ¿Es admin? Verificado contra el JWT (no contra el header del cliente). */
@@ -54,8 +86,8 @@ export async function puedeVerLicitacion(req: NextRequest, codigo: string): Prom
   if (u.rol === 'externo') {
     try {
       const [rows] = await pool.query(
-        `SELECT 1 FROM negocios WHERE licitacion_codigo = ? AND asignado_a = ? AND activo = TRUE LIMIT 1`,
-        [codigo, u.id],
+        `SELECT 1 FROM negocios WHERE licitacion_codigo = ? AND asignado_a = ? AND activo = TRUE AND cliente_id = ? LIMIT 1`,
+        [codigo, u.id, u.clienteId],
       );
       return (rows as any[]).length > 0;
     } catch {
@@ -66,8 +98,8 @@ export async function puedeVerLicitacion(req: NextRequest, codigo: string): Prom
   // Usuario normal: sin dueño → cualquiera puede verla; con dueño → solo el dueño.
   try {
     const [rows] = await pool.query(
-      `SELECT asignado_a FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE LIMIT 1`,
-      [codigo],
+      `SELECT asignado_a FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE AND cliente_id = ? LIMIT 1`,
+      [codigo, u.clienteId],
     );
     const fila = (rows as any[])[0];
     if (!fila) return true; // sin asignar: pública para cualquier perfil normal
@@ -106,8 +138,8 @@ export async function puedeChatearLicitacion(req: NextRequest, codigo: string): 
   if (p.compras || p.compras_todo || p.aprobar_comercial) return true;
   try {
     const [propios] = await pool.query(
-      `SELECT 1 FROM negocios WHERE licitacion_codigo = ? AND asignado_a = ? AND activo = TRUE LIMIT 1`,
-      [codigo, u.id],
+      `SELECT 1 FROM negocios WHERE licitacion_codigo = ? AND asignado_a = ? AND activo = TRUE AND cliente_id = ? LIMIT 1`,
+      [codigo, u.id, u.clienteId],
     );
     if ((propios as any[]).length > 0) return true;
     const [enc] = await pool.query(
@@ -215,7 +247,7 @@ export async function permisosCrudosDeUsuario(userId: number): Promise<Permisos>
     const base: Permisos = (p && typeof p === 'object') ? p : {};
     // Todo admin tiene `compras_todo` (30-sep-2026): es el ÚNICO permiso que se hereda por ser admin en esta lectura "cruda";
     // `compras`, `aprobar_comercial`, etc. siguen sin auto-otorgarse (los gates de Compras lo aceptan con `compras_todo`).
-    return fila?.rol === 'admin' ? { ...base, compras_todo: true } : base;
+    return aplicarModulosDeCliente(userId, fila?.rol, fila?.rol === 'admin' ? { ...base, compras_todo: true } : base);
   } catch {
     return {}; // columna aún no existe (migración pendiente) → sin permisos extra
   }
@@ -224,7 +256,7 @@ export async function permisosCrudosDeUsuario(userId: number): Promise<Permisos>
 /** Lee los permisos efectivos de un usuario por id+rol. Admin → todos, incluido `compras_todo`
  *  (desde el 30-sep-2026 todo admin ve y opera el módulo de Compras completo). */
 export async function permisosDeUsuario(userId: number, rol?: string | null): Promise<Permisos> {
-  if (rol === 'admin') return { ...PERMISOS_ADMIN };
+  if (rol === 'admin') return aplicarModulosDeCliente(userId, rol, { ...PERMISOS_ADMIN });
   return permisosCrudosDeUsuario(userId);
 }
 

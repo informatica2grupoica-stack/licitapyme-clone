@@ -41,7 +41,8 @@ async function enLotes<T, R>(items: T[], n: number, fn: (item: T) => Promise<R>)
 
 export async function POST(request: NextRequest) {
   const u = await getAuthedUser(request);
-  if (!u) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  if (!u || !u.clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  const clienteId = u.clienteId;
   if (!(await tienePermiso(request, 'repartir_puente')))
     return NextResponse.json({ error: 'Sin permiso para usar el puente' }, { status: 403 });
 
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Falta la semilla de la simulación: vuelve a previsualizar' }, { status: 400 });
 
   try {
-    const { licitaciones, perfiles } = await contextoReparto();
+    const { licitaciones, perfiles } = await contextoReparto(clienteId);
     if (licitaciones.length === 0)
       return NextResponse.json({ error: 'El puente está vacío' }, { status: 400 });
 
@@ -117,16 +118,16 @@ export async function POST(request: NextRequest) {
     // Lo que falló se queda en el puente para reintentar: nunca desaparece trabajo en silencio.
     if (ok.length > 0) {
       const ph = ok.map(() => '?').join(',');
-      await pool.query(`DELETE FROM puente_radar WHERE licitacion_codigo IN (${ph})`, ok.map(e => e.codigo));
+      await pool.query(`DELETE FROM puente_radar WHERE cliente_id = ? AND licitacion_codigo IN (${ph})`, [clienteId, ...ok.map(e => e.codigo)]);
     }
 
     // ── Bitácora de la tanda ──────────────────────────────────────────────────
     let repartoId: number | null = null;
     try {
       const [r] = await pool.query(
-        `INSERT INTO puente_repartos (estrategia, config_json, resultado_json, total, total_ok, ejecutado_por)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [cfg.estrategia, JSON.stringify(cfg), JSON.stringify(ejecutadas), ejecutadas.length, ok.length, u.id]);
+        `INSERT INTO puente_repartos (estrategia, config_json, resultado_json, total, total_ok, ejecutado_por, cliente_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [cfg.estrategia, JSON.stringify(cfg), JSON.stringify(ejecutadas), ejecutadas.length, ok.length, u.id, clienteId]);
       repartoId = (r as any).insertId || null;
     } catch (e) { console.warn('[puente:repartir] no se pudo guardar la bitácora:', String(e)); }
 
@@ -172,7 +173,7 @@ export async function POST(request: NextRequest) {
     // ── Post-proceso EN SERIE (documentos → pre-OCR → viabilidad) ──────────────
     void (async () => {
       for (const e of ok) {
-        await dispararPostAsignacion(e.codigo, e.usuarioId);
+        await dispararPostAsignacion(e.codigo, e.usuarioId, clienteId);
       }
     })();
 

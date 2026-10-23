@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
+import { clienteDeHeader, clienteTieneModulo } from '@/app/lib/tenant';
 
 function getUserId(req: NextRequest): number | null {
   const id = req.headers.get('x-user-id');
@@ -26,9 +27,13 @@ async function usuarioEsAdmin(userId: number): Promise<boolean> {
 // GET — lista TODAS las alertas del usuario (sin límite artificial)
 // ?noLeidas=true → solo las no leídas
 // ?limit=N       → opcional; sin ?limit devuelve todas
+//
+// MULTI-CLIENTE: todo es de la empresa de quien consulta (cliente_id viene de la sesión verificada, nunca del navegador).
 export async function GET(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  const clienteId = clienteDeHeader(request);
+  if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
   const soloNoLeidas = searchParams.get('noLeidas') === 'true';
@@ -52,17 +57,21 @@ export async function GET(request: NextRequest) {
     const esAdmin = esAdminReal || (await permisosDeUsuario(userId, 'usuario')).acceso_radar === true;
     const whereExtra = soloNoLeidas ? ' AND a.leida = FALSE' : '';
 
+    // La viabilidad y el prefiltro son análisis de IA hechos con el criterio de Grupo ICA: un cliente los ve solo si contrató el módulo.
+    const conViabilidad = await clienteTieneModulo(clienteId, 'viabilidad');
+
     // Ámbito del radar:
     //  • admin → una fila por licitación de TODA la empresa. Deduplicamos quedándonos
     //    con el MAX(id) por código vía un JOIN a una tabla derivada: se materializa
     //    UNA sola vez y une por PK (eq_ref). Mucho más rápido que `a.id IN (subquery)`,
-    //    que la semi-unía/reevaluaba en cada fila.
+    //    que la semi-unía/reevaluaba en cada fila. La tabla derivada también se acota a la empresa.
     //  • usuario → solo sus propias alertas.
     const adminJoin = esAdmin
-      ? 'JOIN (SELECT MAX(id) AS mid FROM alertas_licitaciones GROUP BY licitacion_codigo) latest ON latest.mid = a.id'
+      ? 'JOIN (SELECT MAX(id) AS mid FROM alertas_licitaciones WHERE cliente_id = ? GROUP BY licitacion_codigo) latest ON latest.mid = a.id'
       : '';
-    const whereScope = esAdmin ? '1 = 1' : 'a.usuario_id = ?';
-    const scopeParams: unknown[] = esAdmin ? [] : [userId];
+    const whereScope = esAdmin ? 'a.cliente_id = ?' : 'a.cliente_id = ? AND a.usuario_id = ?';
+    // Orden de los parámetros = orden de aparición en el SQL: primero el JOIN (si hay), luego el WHERE.
+    const scopeParams: unknown[] = esAdmin ? [clienteId, clienteId] : [clienteId, userId];
     // Filtro de actividad (por defecto solo activas). Zona horaria de Chile: NO comparar
     // contra NOW() del servidor MySQL (otra zona) → usar ahoraChileSQL().
     const vencClause = incluirVencidas ? '' : ' AND (a.licitacion_cierre >= ? OR a.licitacion_cierre IS NULL)';
@@ -81,19 +90,19 @@ export async function GET(request: NextRequest) {
                 a.licitacion_fecha_publicacion,
                 a.licitacion_estado, a.licitacion_region, a.licitacion_tipo,
                 a.match_fuente, a.match_score, a.leida, a.created_at,
-                v.score_total AS viabilidad_score,
-                v.semaforo    AS viabilidad_semaforo,
-                v.area_negocio AS viabilidad_area,
-                pf.decision  AS prefiltro_decision,
-                pf.categoria AS prefiltro_categoria,
-                pf.motivo    AS prefiltro_motivo,
-                pf.confianza AS prefiltro_confianza,
+                ${conViabilidad ? 'v.score_total' : 'NULL'} AS viabilidad_score,
+                ${conViabilidad ? 'v.semaforo' : 'NULL'}    AS viabilidad_semaforo,
+                ${conViabilidad ? 'v.area_negocio' : 'NULL'} AS viabilidad_area,
+                ${conViabilidad ? 'pf.decision' : 'NULL'}  AS prefiltro_decision,
+                ${conViabilidad ? 'pf.categoria' : 'NULL'} AS prefiltro_categoria,
+                ${conViabilidad ? 'pf.motivo' : 'NULL'}    AS prefiltro_motivo,
+                ${conViabilidad ? 'pf.confianza' : 'NULL'} AS prefiltro_confianza,
                 cat.nombre AS categoria_nombre,
                 cat.color  AS categoria_color
          FROM alertas_licitaciones a
          ${adminJoin}
-         LEFT JOIN viabilidad_licitacion v ON v.licitacion_codigo = a.licitacion_codigo
-         LEFT JOIN prefiltro_licitacion pf ON pf.licitacion_codigo = a.licitacion_codigo
+         ${conViabilidad ? 'LEFT JOIN viabilidad_licitacion v ON v.licitacion_codigo = a.licitacion_codigo' : ''}
+         ${conViabilidad ? 'LEFT JOIN prefiltro_licitacion pf ON pf.licitacion_codigo = a.licitacion_codigo' : ''}
          LEFT JOIN palabras_clave pc ON pc.id = a.palabra_clave_id
          LEFT JOIN etiquetas cat ON cat.id = pc.categoria_id
          WHERE ${whereScope}${whereExtra}${vencClause}
@@ -125,10 +134,10 @@ export async function GET(request: NextRequest) {
     const countVenc = ' AND (a.licitacion_cierre >= ? OR a.licitacion_cierre IS NULL)';
     const countSql = esAdmin
       ? `SELECT COUNT(*) AS total FROM alertas_licitaciones a
-         JOIN (SELECT MAX(id) AS mid FROM alertas_licitaciones GROUP BY licitacion_codigo) latest ON latest.mid = a.id
-         WHERE a.leida = FALSE${countVenc}`
-      : `SELECT COUNT(*) AS total FROM alertas_licitaciones a WHERE a.usuario_id = ? AND a.leida = FALSE${countVenc}`;
-    const countParams = esAdmin ? [ahoraChileSQL()] : [userId, ahoraChileSQL()];
+         JOIN (SELECT MAX(id) AS mid FROM alertas_licitaciones WHERE cliente_id = ? GROUP BY licitacion_codigo) latest ON latest.mid = a.id
+         WHERE a.cliente_id = ? AND a.leida = FALSE${countVenc}`
+      : `SELECT COUNT(*) AS total FROM alertas_licitaciones a WHERE a.cliente_id = ? AND a.usuario_id = ? AND a.leida = FALSE${countVenc}`;
+    const countParams = esAdmin ? [clienteId, clienteId, ahoraChileSQL()] : [clienteId, userId, ahoraChileSQL()];
 
     // tiene_documentos se resuelve aquí (no como JOIN). El LEFT JOIN a la tabla
     // derivada de documentos_cache costaba ~2 s (sin índice + collation utf8 →
@@ -143,19 +152,21 @@ export async function GET(request: NextRequest) {
     const [asigRes, descRes, docsRes, countRes, resumenRes, puenteRes, adjRes] = await Promise.allSettled([
       pool.query(
         `SELECT n.licitacion_codigo, n.asignado_a, u.nombre AS asignado_nombre, u.email AS asignado_email
-         FROM negocios n JOIN usuarios u ON u.id = n.asignado_a WHERE n.activo = TRUE`),
-      pool.query(`SELECT licitacion_codigo FROM licitaciones_descartadas`),
+         FROM negocios n JOIN usuarios u ON u.id = n.asignado_a WHERE n.activo = TRUE AND n.cliente_id = ?`, [clienteId]),
+      pool.query(`SELECT licitacion_codigo FROM licitaciones_descartadas WHERE cliente_id = ?`, [clienteId]),
       pool.query(`SELECT DISTINCT licitacion_codigo FROM documentos_cache`),
       pool.query(countSql, countParams),
-      pool.query(
-        `SELECT licitacion_codigo,
-                CASE WHEN JSON_VALID(informe_ejecutivo) THEN JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo,'$.resumen')) END AS resumen,
-                CASE WHEN JSON_VALID(informe_ejecutivo) THEN JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo,'$.ventaja_competitiva')) END AS ventaja_competitiva,
-                CASE WHEN JSON_VALID(informe_ejecutivo) THEN JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo,'$.recomendacion')) END AS recomendacion
-         FROM viabilidad_licitacion`),
+      conViabilidad
+        ? pool.query(
+            `SELECT licitacion_codigo,
+                    CASE WHEN JSON_VALID(informe_ejecutivo) THEN JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo,'$.resumen')) END AS resumen,
+                    CASE WHEN JSON_VALID(informe_ejecutivo) THEN JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo,'$.ventaja_competitiva')) END AS ventaja_competitiva,
+                    CASE WHEN JSON_VALID(informe_ejecutivo) THEN JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo,'$.recomendacion')) END AS recomendacion
+             FROM viabilidad_licitacion`)
+        : Promise.resolve([[]] as any),
       // Puente del radar: las que ya están esperando reparto se marcan en la tarjeta para no
       // empujarlas dos veces (migración 73 — tolerante si aún no está aplicada).
-      pool.query(`SELECT licitacion_codigo FROM puente_radar`),
+      pool.query(`SELECT licitacion_codigo FROM puente_radar WHERE cliente_id = ?`, [clienteId]),
       // Fecha del acta de adjudicación (solo procesos ya adjudicados: en Desierta/Revocada ese campo
       // del cache es basura). Solo para la columna "Fecha adjudicación" del Excel del radar.
       pool.query(`SELECT licitacion_codigo, fecha_adjudicacion FROM adjudicacion_cache WHERE es_adjudicada = 1 AND fecha_adjudicacion IS NOT NULL`),
@@ -223,9 +234,12 @@ export async function GET(request: NextRequest) {
 // (deduplicadas por licitación), así que marcar leída debe alcanzar cualquier fila.
 // Antes filtraba por usuario_id siempre → el admin "marcaba" filas ajenas sin efecto
 // y el contador de no leídas volvía a subir al recargar (BUG "el número no baja").
+// Multi-cliente: "toda la empresa" es la empresa de quien marca, nunca otra.
 export async function PATCH(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  const clienteId = clienteDeHeader(request);
+  if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   try {
     const { ids, all } = await request.json();
@@ -234,26 +248,26 @@ export async function PATCH(request: NextRequest) {
 
     if (all) {
       if (esAdmin) {
-        await pool.query(`UPDATE alertas_licitaciones SET leida = TRUE WHERE leida = FALSE`);
+        await pool.query(`UPDATE alertas_licitaciones SET leida = TRUE WHERE leida = FALSE AND cliente_id = ?`, [clienteId]);
       } else {
-        await pool.query(`UPDATE alertas_licitaciones SET leida = TRUE WHERE usuario_id = ?`, [userId]);
+        await pool.query(`UPDATE alertas_licitaciones SET leida = TRUE WHERE usuario_id = ? AND cliente_id = ?`, [userId, clienteId]);
       }
     } else if (ids?.length) {
       const placeholders = ids.map(() => '?').join(',');
       if (esAdmin) {
-        // Marcar TODAS las filas de esas licitaciones (de cualquier usuario): el conteo es
+        // Marcar TODAS las filas de esas licitaciones (de cualquier usuario de la empresa): el conteo es
         // "una fila por código", así que dejar filas hermanas sin leer lo volvería a inflar.
         const [rs] = await pool.query(
-          `SELECT DISTINCT licitacion_codigo FROM alertas_licitaciones WHERE id IN (${placeholders})`, ids);
+          `SELECT DISTINCT licitacion_codigo FROM alertas_licitaciones WHERE id IN (${placeholders}) AND cliente_id = ?`, [...ids, clienteId]);
         const codigos = (rs as any[]).map(r => r.licitacion_codigo).filter(Boolean);
         if (codigos.length) {
           await pool.query(
-            `UPDATE alertas_licitaciones SET leida = TRUE WHERE licitacion_codigo IN (?)`, [codigos]);
+            `UPDATE alertas_licitaciones SET leida = TRUE WHERE licitacion_codigo IN (?) AND cliente_id = ?`, [codigos, clienteId]);
         }
       } else {
         await pool.query(
-          `UPDATE alertas_licitaciones SET leida = TRUE WHERE id IN (${placeholders}) AND usuario_id = ?`,
-          [...ids, userId]
+          `UPDATE alertas_licitaciones SET leida = TRUE WHERE id IN (${placeholders}) AND usuario_id = ? AND cliente_id = ?`,
+          [...ids, userId, clienteId]
         );
       }
     }
@@ -269,6 +283,8 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  const clienteId = clienteDeHeader(request);
+  if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
@@ -278,19 +294,19 @@ export async function DELETE(request: NextRequest) {
     const esAdmin = (await usuarioEsAdmin(userId))
       || (await permisosDeUsuario(userId, 'usuario')).acceso_radar === true;
     if (esAdmin) {
-      // Mismo alcance que el GET: el admin ve una fila por licitación (de cualquier usuario).
+      // Mismo alcance que el GET: el admin ve una fila por licitación (de cualquier usuario de su empresa).
       // Borrar solo esa fila haría "reaparecer" la alerta hermana de otro usuario al recargar
-      // → se elimina la licitación completa del radar (todas sus filas).
+      // → se elimina la licitación completa del radar (todas sus filas) DE SU EMPRESA.
       const [rs] = await pool.query(
-        `SELECT licitacion_codigo FROM alertas_licitaciones WHERE id = ? LIMIT 1`, [id]);
+        `SELECT licitacion_codigo FROM alertas_licitaciones WHERE id = ? AND cliente_id = ? LIMIT 1`, [id, clienteId]);
       const codigo = (rs as any[])[0]?.licitacion_codigo;
       if (codigo) {
-        await pool.query(`DELETE FROM alertas_licitaciones WHERE licitacion_codigo = ?`, [codigo]);
+        await pool.query(`DELETE FROM alertas_licitaciones WHERE licitacion_codigo = ? AND cliente_id = ?`, [codigo, clienteId]);
       }
     } else {
       await pool.query(
-        `DELETE FROM alertas_licitaciones WHERE id = ? AND usuario_id = ?`,
-        [id, userId]
+        `DELETE FROM alertas_licitaciones WHERE id = ? AND usuario_id = ? AND cliente_id = ?`,
+        [id, userId, clienteId]
       );
     }
     return NextResponse.json({ success: true });

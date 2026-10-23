@@ -22,15 +22,18 @@ export async function registrarEvento(e: EventoHistorial): Promise<number | null
     // created_at EXPLÍCITO en hora de pared de Chile: el DEFAULT CURRENT_TIMESTAMP lo pone
     // el servidor MySQL de Bluehost (UTC-6), 2h atrás de Chile — mismo bug que actividad_usuario.
     const [r] = await pool.query(
+      // cliente_id (multi-cliente): la empresa del destinatario; si no hay, la de quien ejecutó la acción; si no, Grupo ICA (1).
       `INSERT INTO historial_eventos
-         (tipo, licitacion_codigo, licitacion_nombre, usuario_id, usuario_nombre, actor_id, actor_nombre, mensaje, metadata, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (tipo, licitacion_codigo, licitacion_nombre, usuario_id, usuario_nombre, actor_id, actor_nombre, mensaje, metadata, created_at, cliente_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+               COALESCE((SELECT cliente_id FROM usuarios WHERE id = ?), (SELECT cliente_id FROM usuarios WHERE id = ?), 1))`,
       [
         e.tipo, e.licitacionCodigo ?? null, e.licitacionNombre ?? null,
         e.usuarioId ?? null, e.usuarioNombre ?? null,
         e.actorId ?? null, e.actorNombre ?? null,
         e.mensaje, e.metadata ? JSON.stringify(e.metadata) : null,
         ahoraChileSQL(),
+        e.usuarioId ?? null, e.actorId ?? null,
       ],
     );
     const id = (r as any).insertId || null;

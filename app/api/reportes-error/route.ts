@@ -75,15 +75,16 @@ export async function POST(req: NextRequest) {
     const [r] = await pool.query(
       `INSERT INTO reportes_error
          (usuario_id, usuario_nombre, usuario_email, url, titulo, que_paso, que_esperaba, pasos, gravedad,
-          imagen_url, contexto, estado, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'abierto', ?, ?)`,
+          imagen_url, contexto, estado, created_at, updated_at, cliente_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'abierto', ?, ?, COALESCE((SELECT cliente_id FROM usuarios WHERE id = ?), 1))`,
       [u.id, u.nombre, u.email, url, titulo, quePaso, queEsperaba, pasos, gravedad,
-       imagenUrl, contexto ? JSON.stringify(contexto) : null, ahora, ahora],
+       imagenUrl, contexto ? JSON.stringify(contexto) : null, ahora, ahora, u.id],
     );
     const id = (r as any).insertId as number;
 
-    // Aviso a todos los admin (hoy: el dueño y el asesor). Campana + tiempo real vía historial.
-    const [admins] = await pool.query(`SELECT id, nombre FROM usuarios WHERE rol = 'admin' AND activo = TRUE`);
+    // Aviso a los admin de LICITANK (Grupo ICA: el dueño y el asesor) — es el canal de soporte. Un reporte de una empresa-cliente llega a ellos;
+    // el aviso queda en la campana de ICA (historial_eventos.cliente_id = el del destinatario). Campana + tiempo real vía historial.
+    const [admins] = await pool.query(`SELECT id, nombre FROM usuarios WHERE rol = 'admin' AND activo = TRUE AND cliente_id = 1`);
     const quien = u.nombre || u.email;
     for (const a of admins as { id: number; nombre: string | null }[]) {
       await registrarEvento({

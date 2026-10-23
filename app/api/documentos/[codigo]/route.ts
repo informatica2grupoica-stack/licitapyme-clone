@@ -1,7 +1,8 @@
 // app/api/documentos/[codigo]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { puedeVerLicitacion } from '@/app/lib/api-auth';
+import { getClienteId, puedeVerLicitacion } from '@/app/lib/api-auth';
+import { codigoAlmacenDocs, filtroDocsVisibles, clienteTieneModulo } from '@/app/lib/tenant';
 import { borrarDocumentoR2 } from '@/app/lib/r2';
 import { registrarActividad, userIdFromHeaders } from '@/app/lib/actividad';
 import { quitarDocumentoDelChecklistPorUrl } from '@/app/lib/checklist-comercial-db';
@@ -30,10 +31,12 @@ export async function GET(
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
 
   try {
+    // Multi-cliente: documentos oficiales (compartidos) + los propios de la empresa.
+    const fd = filtroDocsVisibles(await getClienteId(request), decodeURIComponent(codigo));
     const [rows] = await pool.query(
       `SELECT documento_nombre, documento_url_local, size_bytes, created_at, categoria
-       FROM documentos_cache WHERE licitacion_codigo = ? ORDER BY created_at ASC`,
-      [codigo]
+       FROM documentos_cache WHERE ${fd.sql} ORDER BY created_at ASC`,
+      fd.params
     );
     // El costeo (con precios de mercado incluido) es visible para cualquier perfil asignado.
     const docs = rows as any[];
@@ -72,6 +75,9 @@ export async function DELETE(
   const codigoDec = decodeURIComponent(codigo);
   if (!(await puedeVerLicitacion(request, codigoDec)))
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
+  // Multi-cliente: solo se borran documentos PROPIOS de la empresa (los oficiales compartidos nunca).
+  const clienteId = await getClienteId(request);
+  const codigoDocs = codigoAlmacenDocs(clienteId, codigoDec);
 
   try {
     const body = await request.json().catch(() => ({}));
@@ -92,7 +98,7 @@ export async function DELETE(
           WHERE dc.licitacion_codigo = ?
             AND (dc.documento_url_local = ? OR dc.documento_nombre = ?)
           LIMIT 1`,
-        [codigoDec, url || '', nombre || '']
+        [codigoDocs, url || '', nombre || '']
       );
       doc = (rows as any[])[0];
     } catch {
@@ -103,7 +109,7 @@ export async function DELETE(
           WHERE licitacion_codigo = ?
             AND (documento_url_local = ? OR documento_nombre = ?)
           LIMIT 1`,
-        [codigoDec, url || '', nombre || '']
+        [codigoDocs, url || '', nombre || '']
       );
       doc = (rows as any[])[0];
     }
@@ -121,8 +127,8 @@ export async function DELETE(
       );
 
     // Cotización ya leída por el Auditor: se limpian sus lecturas, respaldos y opciones (y se niega si sostiene una opción firmada).
-    if ((doc.documento_url_local || '').length) {
-      const [negs] = await pool.query(`SELECT id FROM negocios WHERE licitacion_codigo = ?`, [codigoDec]) as any;
+    if ((doc.documento_url_local || '').length && await clienteTieneModulo(clienteId, 'auditor')) {
+      const [negs] = await pool.query(`SELECT id FROM negocios WHERE licitacion_codigo = ? AND cliente_id = ?`, [codigoDec, clienteId]) as any;
       for (const n of negs as any[]) {
         try {
           await quitarDocumentoDelAuditor(Number(n.id), doc.documento_url_local, nombre || doc.documento_url_local,
@@ -144,7 +150,7 @@ export async function DELETE(
     // Si este documento ya se había "enviado al Auditor Técnico" (checklist_comercial_documentos
     // apuntando a esta misma url), ese punto no puede seguir "por aprobar" con una evidencia que
     // ya no existe — BUG REAL (07-sep-2026): borrar acá dejaba el checklist colgado para siempre.
-    try {
+    if (await clienteTieneModulo(clienteId, 'auditor')) try {
       const negociosAfectados = await quitarDocumentoDelChecklistPorUrl(
         doc.documento_url_local, nombre || doc.documento_url_local,
         userIdFromHeaders(request.headers), request.headers.get('x-user-nombre') || 'Usuario',
@@ -180,6 +186,7 @@ export async function PATCH(
   const codigoDec = decodeURIComponent(codigo);
   if (!(await puedeVerLicitacion(request, codigoDec)))
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
+  const codigoDocs = codigoAlmacenDocs(await getClienteId(request), codigoDec); // solo documentos propios de la empresa
 
   try {
     const body = await request.json().catch(() => ({}));
@@ -196,14 +203,14 @@ export async function PATCH(
            FROM documentos_cache dc
            LEFT JOIN documentos_origen_manual om ON om.documento_id = dc.id
           WHERE dc.licitacion_codigo = ? AND (dc.documento_url_local = ? OR dc.documento_nombre = ?) LIMIT 1`,
-        [codigoDec, url || '', nombre || '']);
+        [codigoDocs, url || '', nombre || '']);
       doc = (rows as any[])[0];
     } catch {
       // Fallback: tabla 'documentos_origen_manual' no existe aún (migración 75 pendiente).
       const [rows] = await pool.query(
         `SELECT id, documento_nombre, categoria FROM documentos_cache
           WHERE licitacion_codigo = ? AND (documento_url_local = ? OR documento_nombre = ?) LIMIT 1`,
-        [codigoDec, url || '', nombre || '']);
+        [codigoDocs, url || '', nombre || '']);
       doc = (rows as any[])[0];
     }
     if (!doc) return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 });

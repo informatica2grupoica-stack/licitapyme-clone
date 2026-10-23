@@ -2299,7 +2299,7 @@ export async function aplicarAdjudicacionPorLinea(negocioId: number): Promise<Re
   if (!codigo) return sinCambios;
 
   const { obtenerAdjudicacion } = await import('@/app/lib/adjudicacion');
-  const acta = await obtenerAdjudicacion(codigo, { sinRed: true }).catch(() => null);
+  const acta = await obtenerAdjudicacion(codigo, { sinRed: true, clienteId: 1 }).catch(() => null);
   if (!acta) return sinCambios;
 
   const lineas = acta.lineasAdjudicadas || [];

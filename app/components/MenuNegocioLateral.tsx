@@ -7,7 +7,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { IconArrowLeft as ArrowLeft, IconCheck as Check, IconCalculator as Calculator } from '@tabler/icons-react';
+import { IconArrowLeft as ArrowLeft, IconCheck as Check, IconCalculator as Calculator, IconLock as Lock } from '@tabler/icons-react';
 
 export interface ItemMenuNegocio {
   key: string;
@@ -23,6 +23,8 @@ export interface ItemMenuNegocio {
   disabled?: boolean;
   // Sub-ítem: se pinta sangrado bajo el ítem anterior (Postulación bajo Auditor).
   sub?: boolean;
+  // Multi-cliente: módulo que la empresa no tiene contratado. El ítem se ve en gris con candado; al tocarlo la pantalla explica qué falta.
+  bloqueado?: boolean;
 }
 
 export interface NavSeccionesNegocioInput {
@@ -45,6 +47,9 @@ export interface NavSeccionesNegocioInput {
   puedeVerAuditorCompra?: boolean;
   // Postulación (PDFs a subir + resumen del Auditor): sub-ítem bajo Auditor.
   hayPostulacion?: boolean;
+  // Módulos no contratados (empresa-cliente): sus ítems siguen en el menú, en gris.
+  viabilidadBloqueada?: boolean;
+  preguntasBloqueadas?: boolean;
 }
 
 // Arma la lista de ítems del menú lateral: MISMO orden, MISMAS etiquetas y MISMO criterio de
@@ -58,14 +63,14 @@ export interface NavSeccionesNegocioInput {
 // Resultado/Preguntas (solo con Ganada o Perdida) → Costeo → Auditor Técnico → Auditor de Compra
 // (disponibles desde que se asigna, ver tieneInformacionComercial en checklist-comercial.ts).
 export function construirNavSeccionesNegocio(input: NavSeccionesNegocioInput): ItemMenuNegocio[] {
-  const { documentosCount, hayResultado, itemsCount, hayCosteo, hayAuditorTecnico, auditorCount, auditorAlerta, puedeVerAuditorCompra, hayPostulacion } = input;
+  const { documentosCount, hayResultado, itemsCount, hayCosteo, hayAuditorTecnico, auditorCount, auditorAlerta, puedeVerAuditorCompra, hayPostulacion, viabilidadBloqueada, preguntasBloqueadas } = input;
   return [
     { key: 'resumen',    label: 'Resumen',    count: null },
     { key: 'documentos', label: 'Documentos', count: documentosCount || null },
     { key: 'items',      label: 'Líneas',     count: itemsCount || null },
-    { key: 'viabilidad', label: 'Viabilidad', count: null },
+    { key: 'viabilidad', label: 'Viabilidad', count: null, ...(viabilidadBloqueada ? { bloqueado: true } : {}) },
     ...(hayResultado ? [{ key: 'resultado', label: 'Resultado', count: null }] : []),
-    ...(hayResultado ? [{ key: 'preguntas', label: 'Preguntas', count: null }] : []),
+    ...(hayResultado ? [{ key: 'preguntas', label: 'Preguntas', count: null, ...(preguntasBloqueadas ? { bloqueado: true } : {}) }] : []),
     // Un solo ítem "Auditor" (módulo AUDITOR unificado, 29-sep-2026) que también contiene el Costeo: ya no es
     // un ítem propio del menú. Se mantiene la key 'comercial' para no romper los deep-links de /aprobaciones.
     ...(hayAuditorTecnico || puedeVerAuditorCompra || hayCosteo
@@ -216,11 +221,13 @@ export function MenuNegocioLateral({ items, activa, onSelect, volverHref, onVolv
                     : visitado
                       ? (esCompra ? 'text-amber-600 hover:bg-amber-50 font-medium' : 'text-emerald-600 hover:bg-emerald-50 font-medium')
                       : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 font-medium'
-                }`}
+                } ${s.bloqueado ? 'opacity-50' : ''}`}
+                title={s.bloqueado ? 'No está incluido en tu plan' : undefined}
               >
                 <span className="flex items-center gap-1.5">
                   {visitado && <Check size={11} className={esCompra ? 'text-amber-500' : 'text-emerald-500'} />}
                   {s.label}
+                  {s.bloqueado && <Lock size={11} className="text-zinc-400" />}
                 </span>
                 {s.count != null && s.count > 0 && (
                   // Rojo cuando hay trabajo detenido esperando el visto bueno del asesor.

@@ -5,6 +5,7 @@
 // Cada bloque se consulta por separado y en try/catch: si una tabla falta o un dato no
 // existe, el hito simplemente no aparece (nunca rompe el detalle del negocio).
 import { NextRequest, NextResponse } from 'next/server';
+import { negocioEsDeMiEmpresa, clienteTieneModulo } from '@/app/lib/tenant';
 import pool from '@/app/lib/db';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 
@@ -23,6 +24,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { id } = await params;
+  if (!(await negocioEsDeMiEmpresa(request, id))) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
 
   try {
     const [nRows] = await pool.query(
@@ -39,6 +41,9 @@ export async function GET(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     const codigo = negocio.licitacion_codigo;
+    const clienteId = Number(negocio.cliente_id);
+    // Prefiltro y viabilidad son análisis de IA de Grupo ICA: un cliente los ve solo si contrató el módulo.
+    const conViabilidad = await clienteTieneModulo(clienteId, 'viabilidad');
 
     // ── Bloques independientes, cada uno best-effort ──────────────────────────
     const [radar, prefiltro, viabilidad, eventos, adjudicacion, empresa] = await Promise.all([
@@ -46,17 +51,17 @@ export async function GET(request: NextRequest, { params }: Params) {
       pool.query(
         `SELECT MIN(created_at) AS primera, COUNT(DISTINCT usuario_id) AS n_perfiles,
                 SUBSTRING_INDEX(GROUP_CONCAT(DISTINCT keyword_texto SEPARATOR '||'), '||', 3) AS palabras
-         FROM alertas_licitaciones WHERE licitacion_codigo = ?`, [codigo]
+         FROM alertas_licitaciones WHERE licitacion_codigo = ? AND cliente_id = ?`, [codigo, clienteId]
       ).then(([r]: any) => (r as any[])[0]?.primera ? (r as any[])[0] : null).catch(() => null),
 
       // 2) Prefiltro IA de perfil (PASA / EXCLUIDO).
-      pool.query(
+      (conViabilidad ? pool.query(
         `SELECT decision, categoria, confianza, motivo, created_at
          FROM prefiltro_licitacion WHERE licitacion_codigo = ? LIMIT 1`, [codigo]
-      ).then(([r]: any) => (r as any[])[0] || null).catch(() => null),
+      ).then(([r]: any) => (r as any[])[0] || null) : Promise.resolve(null)).catch(() => null),
 
       // 3) Viabilidad IA (score + veredicto v3 si existe).
-      pool.query(
+      !conViabilidad ? Promise.resolve(null) : pool.query(
         `SELECT score_total, semaforo, created_at, updated_at,
                 JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo, '$.tarjeta_decision.veredicto')) AS veredicto_v3,
                 JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo, '$.score_0_100')) AS score_v3,
@@ -76,11 +81,11 @@ export async function GET(request: NextRequest, { params }: Params) {
                 u.nombre AS actor_nombre, u.email AS actor_email
          FROM actividad_usuario a
          LEFT JOIN usuarios u ON u.id = a.usuario_id
-         WHERE (a.accion IN ('asignacion', 'cambio_pipeline'))
+         WHERE (a.accion IN ('asignacion', 'cambio_pipeline')) AND a.cliente_id = ?
            AND ((a.entidad_tipo = 'licitacion' AND a.entidad_id = ?)
              OR a.metadata LIKE CONCAT('%"licitacion_codigo":"', ?, '"%'))
          ORDER BY a.created_at ASC
-         LIMIT 100`, [codigo, codigo]
+         LIMIT 100`, [clienteId, codigo, codigo]
       ).then(([r]: any) => r as any[]).catch(() => []),
 
       // 5) Resultado de adjudicación (cache que alimenta el cron; nunca consulta MP en vivo).
@@ -92,7 +97,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       // 6) Empresa con la que se postuló (si se registró).
       negocio.empresa_id
-        ? pool.query(`SELECT nombre FROM empresas WHERE id = ? LIMIT 1`, [negocio.empresa_id])
+        ? pool.query(`SELECT nombre FROM empresas WHERE id = ? AND cliente_id = ? LIMIT 1`, [negocio.empresa_id, clienteId])
             .then(([r]: any) => (r as any[])[0]?.nombre || null).catch(() => null)
         : Promise.resolve(null),
     ]);

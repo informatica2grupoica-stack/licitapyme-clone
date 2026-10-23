@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   const u = await getAuthedUser(request);
-  if (!u) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  if (!u || !u.clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   if (!(await tienePermiso(request, 'repartir_puente')))
     return NextResponse.json({ error: 'Sin permiso para usar el puente' }, { status: 403 });
 
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   if ('error' in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
 
   try {
-    const { licitaciones, perfiles } = await contextoReparto();
+    const { licitaciones, perfiles } = await contextoReparto(u.clienteId!);
     if (licitaciones.length === 0)
       return NextResponse.json({ error: 'El puente está vacío' }, { status: 400 });
 

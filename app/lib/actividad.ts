@@ -73,9 +73,11 @@ export async function registrarActividad(ev: EventoActividad): Promise<void> {
     // servidor MySQL de Bluehost (UTC-6) mientras el proceso Node lee con TZ=America/Santiago
     // (UTC-4/-3) → todo el historial nacía 2 h en el pasado ("hace 2 h" recién ocurrido).
     await pool.query(
-      `INSERT INTO actividad_usuario (usuario_id, accion, entidad_tipo, entidad_id, descripcion, metadata, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      // cliente_id (multi-cliente): la empresa de quien actúa; sin usuario → Grupo ICA (1).
+      `INSERT INTO actividad_usuario (usuario_id, cliente_id, accion, entidad_tipo, entidad_id, descripcion, metadata, created_at)
+       VALUES (?, COALESCE((SELECT cliente_id FROM usuarios WHERE id = ?), 1), ?, ?, ?, ?, ?, ?)`,
       [
+        ev.usuarioId ?? null,
         ev.usuarioId ?? null,
         ev.accion,
         ev.entidadTipo ?? null,

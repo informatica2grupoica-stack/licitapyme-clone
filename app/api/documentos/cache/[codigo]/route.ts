@@ -1,7 +1,8 @@
 // src/app/api/documentos/cache/[codigo]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { puedeVerLicitacion } from '@/app/lib/api-auth';
+import { getClienteId, puedeVerLicitacion } from '@/app/lib/api-auth';
+import { filtroDocsVisibles } from '@/app/lib/tenant';
 
 export async function GET(
   request: NextRequest,
@@ -12,6 +13,9 @@ export async function GET(
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
 
   try {
+    // Multi-cliente: los documentos oficiales (compartidos) + los propios de la empresa; nunca los de otra.
+    const fd = filtroDocsVisibles(await getClienteId(request), codigo, 'dc');
+    const fs0 = filtroDocsVisibles(await getClienteId(request), codigo);
     let rows: unknown[];
     try {
       // origen_manual viene de documentos_origen_manual (migration-75) y generado_separar de
@@ -28,9 +32,9 @@ export async function GET(
          LEFT JOIN usuarios u ON u.id = dc.usuario_id
          LEFT JOIN documentos_origen_manual om ON om.documento_id = dc.id
          LEFT JOIN documentos_generados_separar gs ON gs.documento_id = dc.id
-         WHERE dc.licitacion_codigo = ?
+         WHERE ${fd.sql}
          ORDER BY dc.created_at ASC`,
-        [codigo]
+        fd.params
       ) as any[];
     } catch {
       try {
@@ -40,9 +44,9 @@ export async function GET(
                   (om.documento_id IS NOT NULL) AS origen_manual, dc.created_at
            FROM documentos_cache dc
            LEFT JOIN documentos_origen_manual om ON om.documento_id = dc.id
-           WHERE dc.licitacion_codigo = ?
+           WHERE ${fd.sql}
            ORDER BY dc.created_at ASC`,
-          [codigo]
+          fd.params
         ) as any[];
       } catch {
         try {
@@ -50,9 +54,9 @@ export async function GET(
           [rows] = await pool.query(
             `SELECT id, documento_nombre, documento_url_local, size_bytes, categoria, subcategoria, created_at
              FROM documentos_cache
-             WHERE licitacion_codigo = ?
+             WHERE ${fs0.sql}
              ORDER BY created_at ASC`,
-            [codigo]
+            fs0.params
           ) as any[];
         } catch {
           try {
@@ -60,18 +64,18 @@ export async function GET(
             [rows] = await pool.query(
               `SELECT id, documento_nombre, documento_url_local, size_bytes, categoria, created_at
                FROM documentos_cache
-               WHERE licitacion_codigo = ?
+               WHERE ${fs0.sql}
                ORDER BY created_at ASC`,
-              [codigo]
+              fs0.params
             ) as any[];
           } catch {
             // columna 'categoria' tampoco existe — fallback sin ella
             [rows] = await pool.query(
               `SELECT id, documento_nombre, documento_url_local, size_bytes, created_at
                FROM documentos_cache
-               WHERE licitacion_codigo = ?
+               WHERE ${fs0.sql}
                ORDER BY created_at ASC`,
-              [codigo]
+              fs0.params
             ) as any[];
           }
         }

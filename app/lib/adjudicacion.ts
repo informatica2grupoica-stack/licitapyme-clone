@@ -60,30 +60,33 @@ export function normRut(r: string | null | undefined): string {
   return String(r || '').toUpperCase().replace(/[^0-9K]/g, '');
 }
 
-let _rutsNuestros: { set: Set<string>; ts: number } | null = null;
-export async function rutsNuestros(): Promise<Set<string>> {
-  if (_rutsNuestros && Date.now() - _rutsNuestros.ts < 5 * 60 * 1000) return _rutsNuestros.set;
+// Multi-cliente: "nuestras empresas" son las de CADA cliente por separado (empresas.cliente_id). Si se mezclaran, a una empresa-cliente le
+// aparecería como "ganada" una licitación que ganó otro cliente (o ICA). Por eso el RUT y la caché van por empresa-cliente.
+const _rutsNuestros = new Map<number, { set: Set<string>; ts: number }>();
+export async function rutsNuestros(clienteId: number): Promise<Set<string>> {
+  const c = _rutsNuestros.get(clienteId);
+  if (c && Date.now() - c.ts < 5 * 60 * 1000) return c.set;
   const set = new Set<string>();
   try {
-    const [rows] = await pool.query(`SELECT rut FROM empresas WHERE activo = TRUE`);
+    const [rows] = await pool.query(`SELECT rut FROM empresas WHERE activo = TRUE AND cliente_id = ?`, [clienteId]);
     for (const r of rows as any[]) { const n = normRut(r.rut); if (n) set.add(n); }
   } catch { /* sin tabla empresas → conjunto vacío (nunca marcamos "nuestra") */ }
-  _rutsNuestros = { set, ts: Date.now() };
+  _rutsNuestros.set(clienteId, { set, ts: Date.now() });
   return set;
 }
 
 // ── Readjudicación manual (migration-149) ────────────────────────────────────
 // El organismo puede readjudicar por decreto y dejar la ficha de MP mostrando al otro proveedor.
 // Si un negocio trae la marca `readjudicada_at`, esa marca prevalece sobre el acta: ganamos.
-let _readjudicadas: { map: Map<string, number | null>; ts: number } | null = null;
-export function invalidarReadjudicadas() { _readjudicadas = null; }
+const _readjudicadas = new Map<number, { map: Map<string, number | null>; ts: number }>();
+export function invalidarReadjudicadas() { _readjudicadas.clear(); }
 
 /** Si el negocio de este código trae la marca de readjudicación: marca todas las líneas como nuestras y,
  *  con una sola línea, deja NUESTRO precio (no el del proveedor que sigue en la ficha de MP). */
 export async function aplicarReadjudicacion<T extends { esNuestra?: boolean; montoUnitario: number | null; cantidad?: number }>(
-  codigo: string, lineas: T[],
+  codigo: string, lineas: T[], clienteId: number,
 ): Promise<{ marcada: boolean; lineas: T[]; monto: number | null }> {
-  const marcas = await readjudicadas();
+  const marcas = await readjudicadas(clienteId);
   if (!marcas.has(codigo)) return { marcada: false, lineas, monto: null };
   const monto = marcas.get(codigo) ?? null;
   const nuevas = lineas.map(l => ({
@@ -93,25 +96,26 @@ export async function aplicarReadjudicacion<T extends { esNuestra?: boolean; mon
   return { marcada: true, lineas: nuevas, monto };
 }
 
-async function readjudicadas(): Promise<Map<string, number | null>> {
-  if (_readjudicadas && Date.now() - _readjudicadas.ts < 60 * 1000) return _readjudicadas.map;
+async function readjudicadas(clienteId: number): Promise<Map<string, number | null>> {
+  const c = _readjudicadas.get(clienteId);
+  if (c && Date.now() - c.ts < 60 * 1000) return c.map;
   const map = new Map<string, number | null>();
   try {
-    const [rows] = await pool.query(`SELECT licitacion_codigo, monto_ofertado FROM negocios WHERE readjudicada_at IS NOT NULL AND activo = 1`);
+    const [rows] = await pool.query(`SELECT licitacion_codigo, monto_ofertado FROM negocios WHERE readjudicada_at IS NOT NULL AND activo = 1 AND cliente_id = ?`, [clienteId]);
     for (const r of rows as any[]) map.set(r.licitacion_codigo, r.monto_ofertado != null ? Number(r.monto_ofertado) : null);
   } catch { /* migration-149 sin aplicar → sin marcas */ }
-  _readjudicadas = { map, ts: Date.now() };
+  _readjudicadas.set(clienteId, { map, ts: Date.now() });
   return map;
 }
 
 // Marca cada línea con esNuestra y agrega ganamos + montoNuestro. Se aplica en TODA
 // respuesta (cache o vivo) para reflejar siempre los RUT vigentes de nuestras empresas.
-export async function enriquecer(r: RespuestaAdjudicacion): Promise<RespuestaAdjudicacion> {
+export async function enriquecer(r: RespuestaAdjudicacion, clienteId: number): Promise<RespuestaAdjudicacion> {
   if (r.esAdjudicada) {
-    const m = await aplicarReadjudicacion(r.codigo, r.lineasAdjudicadas || []);
+    const m = await aplicarReadjudicacion(r.codigo, r.lineasAdjudicadas || [], clienteId);
     if (m.marcada) return { ...r, lineasAdjudicadas: m.lineas, ganamos: true, montoNuestro: m.monto, montoAdjudicadoTotal: m.monto ?? r.montoAdjudicadoTotal };
   }
-  const nuestros = await rutsNuestros();
+  const nuestros = await rutsNuestros(clienteId);
   let montoNuestro = 0, ganamos = false;
   const lineas = (r.lineasAdjudicadas || []).map(l => {
     const esNuestra = !!l.rutProveedor && nuestros.has(normRut(l.rutProveedor));
@@ -127,6 +131,23 @@ export async function enriquecer(r: RespuestaAdjudicacion): Promise<RespuestaAdj
     ganamos: r.esAdjudicada ? ganamos : false,
     montoNuestro: montoNuestro || null,
   };
+}
+
+/** Multi-cliente: una misma licitación puede estar en negocios de varias empresas, y "¿ganamos?" depende de los RUT de CADA una.
+ *  Agrupa los negocios por empresa y calcula la adjudicación enriquecida para cada grupo con SUS RUT. `base` es la respuesta
+ *  neutral (sin enriquecer). */
+export async function adjudicacionPorCliente<T extends { cliente_id?: number | null }>(
+  base: RespuestaAdjudicacion, negocios: T[],
+): Promise<Array<{ clienteId: number; adj: RespuestaAdjudicacion; negocios: T[] }>> {
+  const grupos = new Map<number, T[]>();
+  for (const n of negocios) {
+    const cid = Number(n.cliente_id ?? 1);
+    const g = grupos.get(cid);
+    if (g) g.push(n); else grupos.set(cid, [n]);
+  }
+  const out: Array<{ clienteId: number; adj: RespuestaAdjudicacion; negocios: T[] }> = [];
+  for (const [clienteId, negs] of grupos) out.push({ clienteId, adj: await enriquecer(base, clienteId), negocios: negs });
+  return out;
 }
 
 // ── Construir la respuesta a partir de una Licitacion ya normalizada ──────────
@@ -329,26 +350,27 @@ export async function guardarCache(codigo: string, r: RespuestaAdjudicacion): Pr
 // MP no respondió y no había cache.
 export async function obtenerAdjudicacion(
   codigo: string,
-  opts: { force?: boolean; soloCache?: boolean; sinRed?: boolean } = {},
+  opts: { force?: boolean; soloCache?: boolean; sinRed?: boolean; clienteId: number },
 ): Promise<RespuestaAdjudicacion | null> {
+  const cid = opts.clienteId; // empresa para la que se calcula "ganamos" (sus RUT)
   const cache = await leerCache(codigo);
   if (cache) {
     // Adjudicada = final (siempre válido); no adjudicada = válido < TTL.
-    if (cache.row.es_adjudicada) return enriquecer(respuestaDesdeCache(codigo, cache.row));
-    if (!opts.force && cache.frescoHoras < TTL_HORAS) return enriquecer(respuestaDesdeCache(codigo, cache.row));
+    if (cache.row.es_adjudicada) return enriquecer(respuestaDesdeCache(codigo, cache.row), cid);
+    if (!opts.force && cache.frescoHoras < TTL_HORAS) return enriquecer(respuestaDesdeCache(codigo, cache.row), cid);
     // soloCache: en la carga de página NO golpeamos MP en vivo aunque el cache esté vencido
     // (evita la lentitud "una por una"). El refresco lo hace el cron en segundo plano.
-    if (opts.soloCache) return enriquecer(respuestaDesdeCache(codigo, cache.row));
+    if (opts.soloCache) return enriquecer(respuestaDesdeCache(codigo, cache.row), cid);
   }
   // sinRed: nunca tocar MP. Devuelve lo que haya en cache (o null). Sirve para que la carga
   // de página sea puramente de base de datos (rápida); el cron rellena en segundo plano.
-  if (opts.sinRed) return cache ? enriquecer(respuestaDesdeCache(codigo, cache.row)) : null;
+  if (opts.sinRed) return cache ? enriquecer(respuestaDesdeCache(codigo, cache.row), cid) : null;
   // soloCache y sin cache: una única consulta en vivo para poblar (rápida). Si falla, null.
   const vivo = await consultarMP(codigo);
   if (vivo) {
     await guardarCache(codigo, vivo);
-    return enriquecer(vivo);
+    return enriquecer(vivo, cid);
   }
-  if (cache) return enriquecer(respuestaDesdeCache(codigo, cache.row));
+  if (cache) return enriquecer(respuestaDesdeCache(codigo, cache.row), cid);
   return null;
 }

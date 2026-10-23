@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
+import { clienteDeHeader } from '@/app/lib/tenant';
 
 // Estados que "cierran el ciclo": ya no se exige resolución.
 const ESTADOS_RESUELTOS = [
@@ -21,6 +22,8 @@ function getUser(req: NextRequest) {
 export async function GET(request: NextRequest) {
   const { id: userId } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  const clienteId = clienteDeHeader(request);
+  if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   try {
     // Si la tabla aún no existe, no bloquear la app.
@@ -34,7 +37,7 @@ export async function GET(request: NextRequest) {
     const filtroUsuario = 'AND n.asignado_a = ?';
     // "Vencida" = el cierre (hora de pared de Chile) ya pasó respecto de la hora de Chile.
     // NO se usa NOW() porque el servidor MySQL corre en otra zona (UTC-6).
-    const params: any[] = [ahoraChileSQL(), ...ESTADOS_RESUELTOS, userId];
+    const params: any[] = [ahoraChileSQL(), ...ESTADOS_RESUELTOS, userId, clienteId];
 
     const [rows] = await pool.query(
       `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo,
@@ -49,6 +52,7 @@ export async function GET(request: NextRequest) {
          -- Revocada/Desierta en MP: no hay nada que postular ni descartar, aunque el pipeline siga en ASIGNADO/etc.
          AND COALESCE(n.licitacion_estado, '') NOT IN ('Revocada', 'Desierta', '7', '15', '18')
          ${filtroUsuario}
+         AND n.cliente_id = ?
        ORDER BY n.licitacion_cierre ASC`,
       params,
     ) as any;

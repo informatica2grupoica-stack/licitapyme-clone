@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     const [rows] = await pool.query(
       `SELECT DISTINCT al.licitacion_codigo
        FROM alertas_licitaciones al
-       WHERE NOT EXISTS (
+       WHERE al.cliente_id = 1 AND NOT EXISTS (
          SELECT 1 FROM prefiltro_licitacion pf WHERE pf.licitacion_codigo = al.licitacion_codigo
        )
        ORDER BY COALESCE(al.licitacion_fecha_publicacion, al.licitacion_cierre, al.created_at) DESC

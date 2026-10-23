@@ -16,6 +16,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { GET as ejecutarIntake } from '@/app/api/cron/alertas/route';
 import { getAuthedUser } from '@/app/lib/api-auth';
 import { registrarActividad } from '@/app/lib/actividad';
+import { CLIENTE_ICA } from '@/app/lib/tenant';
+import { actualizarRadarDeCliente } from '@/app/lib/radar-cliente';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,6 +29,24 @@ export async function POST(request: NextRequest) {
   const usuario = await getAuthedUser(request);
   if (!usuario) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   if (usuario.rol !== 'admin') return NextResponse.json({ error: 'Solo administradores' }, { status: 403 });
+
+  // Multi-cliente: una empresa-cliente NO dispara el barrido compartido de Mercado Público (cuota de la API y procesos internos de ICA).
+  // Se actualiza con SUS palabras clave sobre lo que ya está en la caché.
+  if (usuario.clienteId !== CLIENTE_ICA) {
+    if (!usuario.clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+    try {
+      const r = await actualizarRadarDeCliente(usuario.clienteId);
+      registrarActividad({
+        usuarioId: usuario.id, accion: 'radar_manual', entidadTipo: 'radar',
+        descripcion: 'Actualizó el radar manualmente',
+        metadata: r,
+      });
+      return NextResponse.json({ success: true, local: true, ...r });
+    } catch (e) {
+      console.error('[radar:actualizar:cliente]', String(e));
+      return NextResponse.json({ error: 'No se pudo actualizar el radar.' }, { status: 500 });
+    }
+  }
 
   const secret = process.env.CRON_SECRET || '';
   if (!secret) return NextResponse.json({ error: 'CRON_SECRET no configurado en el servidor' }, { status: 503 });

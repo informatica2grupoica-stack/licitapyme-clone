@@ -22,7 +22,7 @@ import { registrarActividad } from '@/app/lib/actividad';
 import { registrarEvento } from '@/app/lib/historial';
 import { enviarCorreoCambio } from '@/app/lib/email';
 import { ahoraChileSQL } from '@/app/lib/tz';
-import { construirConReadjudicacion, enriquecer, guardarCache } from '@/app/lib/adjudicacion';
+import { adjudicacionPorCliente, construirConReadjudicacion, enriquecer, guardarCache } from '@/app/lib/adjudicacion';
 import { avisarResultadoLicitacion } from '@/app/lib/avisar-resultado-licitacion';
 import type { Licitacion } from '@/app/types/mercado-publico.types';
 
@@ -247,12 +247,12 @@ export async function persistirYNotificar(codigo: string, nombre: string, notifi
 async function notificarCambioEstado(codigo: string, nombre: string, lic?: Licitacion): Promise<void> {
   // Negocios activos del código (asignado + email + nombre de la licitación).
   const [nrows] = await pool.query(
-    `SELECT n.licitacion_nombre, n.asignado_a, u.nombre AS usuario_nombre, u.email AS usuario_email
+    `SELECT n.licitacion_nombre, n.asignado_a, n.cliente_id, u.nombre AS usuario_nombre, u.email AS usuario_email
      FROM negocios n JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
      WHERE n.licitacion_codigo = ? AND n.activo = TRUE`,
     [codigo],
   ) as any[];
-  const negs = nrows as Array<{ licitacion_nombre: string | null; asignado_a: number; usuario_nombre: string | null; usuario_email: string | null }>;
+  const negs = nrows as Array<{ licitacion_nombre: string | null; asignado_a: number; cliente_id: number; usuario_nombre: string | null; usuario_email: string | null }>;
 
   // Sin negocio ACTIVO con un usuario asignado VÁLIDO (activo) → no la trabaja nadie:
   // NO se notifica (ni a los admins). Antes, si el asignado había sido eliminado o el
@@ -276,13 +276,16 @@ async function notificarCambioEstado(codigo: string, nombre: string, lic?: Licit
   // en vez del genérico de abajo (que además nunca incluyó 'Adjudicada' en ESTADOS_CON_CORREO).
   if (nombre === 'Adjudicada' && lic) {
     try {
-      const adj = await enriquecer(await construirConReadjudicacion(lic, codigo));
-      await guardarCache(codigo, adj);
-      const mensaje = adj.ganamos
-        ? `🏆 ¡Adjudicada! Ganaste ${licNombre}${adj.montoNuestro ? ` · ${fmtCLP(adj.montoNuestro)}` : ''}`
-        : `Resultado publicado: ${licNombre} se adjudicó a terceros`;
+      const base = await construirConReadjudicacion(lic, codigo);
+      await guardarCache(codigo, await enriquecer(base, 1)); // la caché compartida guarda la perspectiva de Grupo ICA, como siempre
+      // «Ganaste» depende de los RUT de CADA empresa: se calcula por empresa-cliente del negocio.
+      const adjPorCliente = new Map((await adjudicacionPorCliente(base, negs)).map(g => [g.clienteId, g.adj]));
       for (const n of negs) {
         if (!n.asignado_a) continue;
+        const adj = adjPorCliente.get(Number(n.cliente_id ?? 1))!;
+        const mensaje = adj.ganamos
+          ? `🏆 ¡Adjudicada! Ganaste ${licNombre}${adj.montoNuestro ? ` · ${fmtCLP(adj.montoNuestro)}` : ''}`
+          : `Resultado publicado: ${licNombre} se adjudicó a terceros`;
         await registrarEvento({
           tipo: 'RESULTADO_ADJUDICACION',
           licitacionCodigo: codigo, licitacionNombre: licNombre,
@@ -295,6 +298,7 @@ async function notificarCambioEstado(codigo: string, nombre: string, lic?: Licit
           tipo: adj.ganamos ? 'ganada' : 'perdida',
           codigo, nombre: licNombre, monto: adj.montoNuestro ?? null,
           asignado: { id: n.asignado_a, nombre: n.usuario_nombre, email: n.usuario_email },
+          clienteId: Number(n.cliente_id ?? 1),
         });
       }
       // Además del aviso, el negocio POSTULADA/POSIBLE_ADJ pasa a ADJUDICADA/PERDIDA (y abre Entrega y Compras si
@@ -302,13 +306,13 @@ async function notificarCambioEstado(codigo: string, nombre: string, lic?: Licit
       // quedó en POSIBLE ADJ con el aviso de «Ganaste» ya enviado. Sin avisar de nuevo.
       try {
         const [filas] = await pool.query(
-          `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a, u.nombre AS usuario_nombre, u.email AS usuario_email
+          `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a, n.cliente_id, u.nombre AS usuario_nombre, u.email AS usuario_email
            FROM negocios n JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
            WHERE n.licitacion_codigo = ? AND n.activo = TRUE`, [codigo],
         ) as any[];
         const { promoverYAvisar } = await import('@/app/lib/procesar-postuladas');
         const st = { adjudicadas: 0, perdidas: 0, entregasAbiertas: 0, comprasAbiertas: 0 };
-        await promoverYAvisar(codigo, filas as any[], adj, st, { avisar: false });
+        for (const g of await adjudicacionPorCliente(base, filas as any[])) await promoverYAvisar(codigo, g.negocios, g.adj, st, { avisar: false });
       } catch (e) {
         console.error(`[refrescar-estados] promover "${codigo}" falló (el aviso ya salió):`, String(e).slice(0, 200));
       }
@@ -320,10 +324,13 @@ async function notificarCambioEstado(codigo: string, nombre: string, lic?: Licit
   }
 
   // Admins (siempre reciben campana; y correo en los estados con correo).
+  // Multi-cliente: solo los de la(s) empresa(s) que trabajan esta licitación — un admin no se entera de lo de otra empresa.
   const [arows] = await pool.query(
-    `SELECT id, nombre, email FROM usuarios WHERE rol = 'admin' AND activo = TRUE`,
+    `SELECT id, nombre, email, cliente_id FROM usuarios WHERE rol = 'admin' AND activo = TRUE`,
   ) as any[];
-  const admins = arows as Array<{ id: number; nombre: string | null; email: string | null }>;
+  const empresasDeLaLicitacion = new Set(negs.map(n => Number(n.cliente_id ?? 1)));
+  const admins = (arows as Array<{ id: number; nombre: string | null; email: string | null; cliente_id: number }>)
+    .filter(a => empresasDeLaLicitacion.has(Number(a.cliente_id)));
 
   // 1) Historial de la licitación (actor = Mercado Público). Aparece en el timeline del detalle.
   await registrarActividad({
@@ -373,19 +380,22 @@ async function notificarCambioEstado(codigo: string, nombre: string, lic?: Licit
 // fecha SIEMPRE dispara correo: afecta directamente cuándo hay que tener la oferta lista.
 export async function notificarCambioFechaCierre(codigo: string, fechaAnterior: Date, fechaNueva: Date): Promise<void> {
   const [nrows] = await pool.query(
-    `SELECT n.licitacion_nombre, n.asignado_a, u.nombre AS usuario_nombre, u.email AS usuario_email
+    `SELECT n.licitacion_nombre, n.asignado_a, n.cliente_id, u.nombre AS usuario_nombre, u.email AS usuario_email
      FROM negocios n JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
      WHERE n.licitacion_codigo = ? AND n.activo = TRUE`,
     [codigo],
   ) as any[];
-  const negs = nrows as Array<{ licitacion_nombre: string | null; asignado_a: number; usuario_nombre: string | null; usuario_email: string | null }>;
+  const negs = nrows as Array<{ licitacion_nombre: string | null; asignado_a: number; cliente_id: number; usuario_nombre: string | null; usuario_email: string | null }>;
   if (negs.length === 0) return; // nadie la trabaja → sin destinatario, sin ruido
 
   const licNombre = negs[0]?.licitacion_nombre || codigo;
+  // Multi-cliente: solo los admin de la(s) empresa(s) que trabajan esta licitación.
   const [arows] = await pool.query(
-    `SELECT id, nombre, email FROM usuarios WHERE rol = 'admin' AND activo = TRUE`,
+    `SELECT id, nombre, email, cliente_id FROM usuarios WHERE rol = 'admin' AND activo = TRUE`,
   ) as any[];
-  const admins = arows as Array<{ id: number; nombre: string | null; email: string | null }>;
+  const empresasDeLaLicitacion = new Set(negs.map(n => Number(n.cliente_id ?? 1)));
+  const admins = (arows as Array<{ id: number; nombre: string | null; email: string | null; cliente_id: number }>)
+    .filter(a => empresasDeLaLicitacion.has(Number(a.cliente_id)));
 
   const fmtFecha = (d: Date) => d.toLocaleString('es-CL', {
     timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',

@@ -4,7 +4,8 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { verificarToken } from '@/app/lib/auth-edge';
 import { permisosDeUsuario, esCA } from '@/app/lib/api-auth';
-import { rolVigente } from '@/app/lib/rol-vigente';
+import { estadoVigente } from '@/app/lib/rol-vigente';
+import { fichaCliente } from '@/app/lib/tenant';
 import pool from '@/app/lib/db';
 
 export const runtime = 'nodejs';
@@ -44,7 +45,10 @@ export async function GET() {
     if (!payload) {
       return NextResponse.json({ autenticado: false, usuario: null });
     }
-    const rol = await rolVigente(payload.userId as number, payload.rol);
+    const vigente = await estadoVigente(payload.userId as number, payload.rol, payload.clienteId);
+    const rol = vigente.rol;
+    // Multi-cliente: módulos contratados por la empresa. La UI los usa para mostrar en gris lo bloqueado (el servidor lo hace cumplir igual).
+    const ficha = await fichaCliente(vigente.clienteId);
     // Permisos efectivos: admin → todos; usuario → los que el admin le otorgó.
     const [permisosBase, ca, modoPrincipiante, contacto] = await Promise.all([
       permisosDeUsuario(payload.userId as number, rol),
@@ -62,6 +66,9 @@ export async function GET() {
         nombre:  payload.nombre,
         empresa: payload.empresa,
         rol,
+        clienteId: vigente.clienteId,
+        modulos: ficha.vigente ? ficha.modulos : [],
+        clienteNombre: ficha.nombre,
         permisos,
         modoPrincipiante,
         ...contacto,

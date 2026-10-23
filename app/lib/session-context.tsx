@@ -10,6 +10,11 @@ export interface UsuarioSession {
   nombre: string | null;
   empresa: string | null;
   rol: 'admin' | 'usuario' | 'externo';
+  // Multi-cliente: empresa del usuario y módulos que tiene activos (Grupo ICA = todos). Lo bloqueado se muestra en gris;
+  // el servidor lo hace cumplir igual (proxy.ts + permisos enmascarados).
+  clienteId?: number;
+  clienteNombre?: string;
+  modulos?: string[];
   // Permisos granulares (admin = todos). El cliente los usa para mostrar/ocultar UI;
   // el servidor SIEMPRE reverifica en cada endpoint (no confía solo en esto).
   permisos?: {
@@ -110,4 +115,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
 export function useSession() {
   return useContext(SessionContext);
+}
+
+/** ¿La empresa del usuario tiene este módulo activo? Si la sesión aún no trae módulos (sesión vieja), se asume que sí. */
+export function tieneModulo(usuario: UsuarioSession | null, modulo: string): boolean {
+  if (!usuario) return false;
+  return usuario.modulos ? usuario.modulos.includes(modulo) : true;
 }

@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
+import { clienteDeHeader, clienteTieneModulo } from '@/app/lib/tenant';
 
 function getUserFromHeaders(request: NextRequest) {
   const id = request.headers.get('x-user-id');
@@ -29,6 +30,9 @@ async function q<T = any>(sql: string, params: any[] = []): Promise<T[]> {
 export async function GET(request: NextRequest) {
   const sesion = getUserFromHeaders(request);
   if (!sesion) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  // Multi-cliente: todos los números son de la propia empresa.
+  const clienteId = clienteDeHeader(request);
+  if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   try {
     const esAdmin = sesion.rol === 'admin';
@@ -39,18 +43,18 @@ export async function GET(request: NextRequest) {
     // ── Favoritos recientes (común) ──────────────────────────────────────────────
     const favoritosRecientes = await q(
       `SELECT codigo, nombre, organismo, monto_total, fecha_cierre, estado, created_at
-       FROM favoritos WHERE usuario_id = ? OR usuario_id IS NULL
-       ORDER BY created_at DESC LIMIT 5`, [sesion.id]);
+       FROM favoritos WHERE (usuario_id = ? OR usuario_id IS NULL) AND cliente_id = ?
+       ORDER BY created_at DESC LIMIT 5`, [sesion.id, clienteId]);
 
     // ── Vista ADMIN: panorama de la empresa ──────────────────────────────────────
     let admin: any = null;
     if (esAdmin) {
-      const [tUsers] = await q(`SELECT COUNT(*) AS n FROM usuarios`);
-      const [aUsers] = await q(`SELECT COUNT(*) AS n FROM usuarios WHERE activo = TRUE`);
-      const [nUsers] = await q(`SELECT COUNT(*) AS n FROM usuarios WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)`);
+      const [tUsers] = await q(`SELECT COUNT(*) AS n FROM usuarios WHERE cliente_id = ?`, [clienteId]);
+      const [aUsers] = await q(`SELECT COUNT(*) AS n FROM usuarios WHERE activo = TRUE AND cliente_id = ?`, [clienteId]);
+      const [nUsers] = await q(`SELECT COUNT(*) AS n FROM usuarios WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) AND cliente_id = ?`, [clienteId]);
       const ultimosAccesos = await q(
         `SELECT id, email, nombre, empresa, rol, ultimo_login, created_at
-         FROM usuarios ORDER BY COALESCE(ultimo_login, created_at) DESC LIMIT 6`);
+         FROM usuarios WHERE cliente_id = ? ORDER BY COALESCE(ultimo_login, created_at) DESC LIMIT 6`, [clienteId]);
 
       // UNIVERSO DEL RADAR: EXACTAMENTE lo que la pestaña "Licitaciones" del radar muestra en
       // su contador, para que el dashboard y el radar nunca discrepen. La definición vive en
@@ -68,8 +72,10 @@ export async function GET(request: NextRequest) {
       //
       // El total y las distribuciones (viabilidad, prefiltro) comparten el fragmento a
       // propósito: así cada corte es siempre un subconjunto real del total mostrado.
-      const UNIVERSO_RADAR = `(al.licitacion_cierre >= ? OR al.licitacion_cierre IS NULL)`;
-      const pRadar = [ahoraChileSQL()];
+      const UNIVERSO_RADAR = `al.cliente_id = ? AND (al.licitacion_cierre >= ? OR al.licitacion_cierre IS NULL)`;
+      const pRadar = [clienteId, ahoraChileSQL()];
+      // Viabilidad y prefiltro son análisis de IA de Grupo ICA: un cliente los ve solo si contrató el módulo.
+      const conViabilidad = await clienteTieneModulo(clienteId, 'viabilidad');
 
       const [tLic] = await q(
         `SELECT COUNT(DISTINCT al.licitacion_codigo) AS n
@@ -90,16 +96,16 @@ export async function GET(request: NextRequest) {
          WHERE ${UNIVERSO_RADAR}
            AND (al.licitacion_estado IS NULL OR al.licitacion_estado <> 'Revocada')
            AND NOT EXISTS (SELECT 1 FROM negocios n
-             WHERE n.licitacion_codigo = al.licitacion_codigo AND n.activo = TRUE)
+             WHERE n.licitacion_codigo = al.licitacion_codigo AND n.activo = TRUE AND n.cliente_id = al.cliente_id)
            AND NOT EXISTS (SELECT 1 FROM licitaciones_descartadas d
-             WHERE d.licitacion_codigo = al.licitacion_codigo)`, pRadar);
-      const viabilidad = await q(
+             WHERE d.licitacion_codigo = al.licitacion_codigo AND d.cliente_id = al.cliente_id)`, pRadar);
+      const viabilidad = !conViabilidad ? [] : await q(
         `SELECT v.semaforo, COUNT(DISTINCT al.licitacion_codigo) AS n
          FROM alertas_licitaciones al
          JOIN viabilidad_licitacion v ON v.licitacion_codigo = al.licitacion_codigo
          WHERE ${UNIVERSO_RADAR} AND v.semaforo IS NOT NULL
          GROUP BY v.semaforo`, pRadar);
-      const prefiltro  = await q(
+      const prefiltro  = !conViabilidad ? [] : await q(
         `SELECT p.decision, COUNT(DISTINCT al.licitacion_codigo) AS n
          FROM alertas_licitaciones al
          JOIN prefiltro_licitacion p ON p.licitacion_codigo = al.licitacion_codigo
@@ -107,16 +113,16 @@ export async function GET(request: NextRequest) {
          GROUP BY p.decision`, pRadar);
       // Pipeline = negocios EN TRABAJO (excluye las DESCARTADA: ya no se trabajan).
       const pipeline   = await q(`SELECT COALESCE(estado_pipeline,'ASIGNADO') AS etapa, COUNT(*) AS n
-         FROM negocios WHERE activo = TRUE AND COALESCE(estado_pipeline,'ASIGNADO') <> 'DESCARTADA'
-         GROUP BY etapa`);
+         FROM negocios WHERE activo = TRUE AND cliente_id = ? AND COALESCE(estado_pipeline,'ASIGNADO') <> 'DESCARTADA'
+         GROUP BY etapa`, [clienteId]);
       const [mPipe] = await q(`SELECT COALESCE(SUM(licitacion_monto),0) AS total
-         FROM negocios WHERE activo = TRUE AND COALESCE(estado_pipeline,'ASIGNADO') <> 'DESCARTADA'`);
+         FROM negocios WHERE activo = TRUE AND cliente_id = ? AND COALESCE(estado_pipeline,'ASIGNADO') <> 'DESCARTADA'`, [clienteId]);
       // Detectadas por día (últimos 14 días) para la tendencia.
       const porDia = await q(
         `SELECT DATE(created_at) AS dia, COUNT(DISTINCT licitacion_codigo) AS n
          FROM alertas_licitaciones
-         WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 13 DAY)
-         GROUP BY DATE(created_at) ORDER BY dia ASC`);
+         WHERE cliente_id = ? AND created_at >= DATE_SUB(CURDATE(), INTERVAL 13 DAY)
+         GROUP BY DATE(created_at) ORDER BY dia ASC`, [clienteId]);
 
       // Desglose POR PERFIL: seguimiento de cada usuario (asignadas, monto, descartadas y
       // distribución por etapa del pipeline). Una sola query agrupada usuario × etapa; el
@@ -126,8 +132,8 @@ export async function GET(request: NextRequest) {
                 COALESCE(n.estado_pipeline,'ASIGNADO') AS etapa,
                 COUNT(*) AS n, COALESCE(SUM(n.licitacion_monto),0) AS monto
          FROM negocios n JOIN usuarios u ON u.id = n.asignado_a
-         WHERE n.activo = TRUE
-         GROUP BY n.asignado_a, u.nombre, u.email, etapa`);
+         WHERE n.activo = TRUE AND n.cliente_id = ?
+         GROUP BY n.asignado_a, u.nombre, u.email, etapa`, [clienteId]);
       const perfilMap = new Map<number, { id: number; nombre: string | null; email: string; total: number; monto: number; descartadas: number; pipeline: { etapa: string; n: number }[] }>();
       for (const r of perfilRows) {
         if (!perfilMap.has(r.uid)) perfilMap.set(r.uid, { id: r.uid, nombre: r.nombre, email: r.email, total: 0, monto: 0, descartadas: 0, pipeline: [] });
@@ -150,8 +156,8 @@ export async function GET(request: NextRequest) {
     // (también se calcula para admins, por si quieren ver "lo mío")
     // Las DESCARTADA no cuentan como "en trabajo": fuera de conteos, montos y cierres.
     const sinDescartadas = `AND COALESCE(n.estado_pipeline,'ASIGNADO') <> 'DESCARTADA'`;
-    const filtroNeg = verOtros ? '' : 'AND n.asignado_a = ?';
-    const pNeg = verOtros ? [] : [sesion.id];
+    const filtroNeg = verOtros ? 'AND n.cliente_id = ?' : 'AND n.cliente_id = ? AND n.asignado_a = ?';
+    const pNeg = verOtros ? [clienteId] : [clienteId, sesion.id];
     const [misCount] = await q(`SELECT COUNT(*) AS n, COALESCE(SUM(licitacion_monto),0) AS monto FROM negocios n WHERE n.activo = TRUE ${sinDescartadas} ${filtroNeg}`, pNeg);
     const miPipeline = await q(`SELECT COALESCE(estado_pipeline,'ASIGNADO') AS etapa, COUNT(*) AS n FROM negocios n WHERE n.activo = TRUE ${sinDescartadas} ${filtroNeg} GROUP BY etapa`, pNeg);
     // "Próximos" = cierre (hora de pared de Chile) aún no ha pasado. Se compara contra la

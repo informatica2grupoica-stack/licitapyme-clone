@@ -3,7 +3,7 @@
 // La ruta GET hermana es solo-cache a propósito; esto es una acción EXPLÍCITA de una persona
 // (botón «Volver a consultar» del Resultado) para trabajar una readjudicación sin esperar al cron.
 import { NextRequest, NextResponse } from 'next/server';
-import { puedeVerLicitacion } from '@/app/lib/api-auth';
+import { getClienteId, puedeVerLicitacion } from '@/app/lib/api-auth';
 import { reconsultarResultado } from '@/app/lib/procesar-postuladas';
 
 export const runtime = 'nodejs';
@@ -19,7 +19,7 @@ export async function POST(
   if (!(await puedeVerLicitacion(request, cod)))
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
   try {
-    const { adj, cambios } = await reconsultarResultado(cod);
+    const { adj, cambios } = await reconsultarResultado(cod, await getClienteId(request));
     if (!adj) return NextResponse.json({ error: 'Mercado Público no respondió; reintenta en un momento' }, { status: 502 });
     return NextResponse.json({ ...adj, cambios });
   } catch (error) {

@@ -1,6 +1,7 @@
 // app/api/empresas/[id]/route.ts
 // Detalle de una empresa: GET, PATCH (editar) y DELETE (desactivar). Mutaciones solo admin.
 import { NextRequest, NextResponse } from 'next/server';
+import { registroEsDeMiEmpresa } from '@/app/lib/tenant';
 import pool from '@/app/lib/db';
 
 function getUser(req: NextRequest) {
@@ -24,6 +25,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   const { id: userId } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { id } = await params;
+  if (!(await registroEsDeMiEmpresa(request, 'empresas', id))) return NextResponse.json({ error: 'No encontrada' }, { status: 404 });
   try {
     const [rows] = await pool.query(`SELECT * FROM empresas WHERE id = ?`, [id]) as any;
     if (!(rows as any[]).length) return NextResponse.json({ error: 'No encontrada' }, { status: 404 });
@@ -38,6 +40,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   if (!userId || rol !== 'admin')
     return NextResponse.json({ error: 'Solo el admin puede editar empresas' }, { status: 403 });
   const { id } = await params;
+  if (!(await registroEsDeMiEmpresa(request, 'empresas', id))) return NextResponse.json({ error: 'No encontrada' }, { status: 404 });
 
   try {
     const body = await request.json();
@@ -74,6 +77,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
   if (!userId || rol !== 'admin')
     return NextResponse.json({ error: 'Solo el admin puede eliminar empresas' }, { status: 403 });
   const { id } = await params;
+  if (!(await registroEsDeMiEmpresa(request, 'empresas', id))) return NextResponse.json({ error: 'No encontrada' }, { status: 404 });
   try {
     // Baja lógica: no se borra (mantiene la referencia en negocios ya postulados).
     await pool.query(`UPDATE empresas SET activo = FALSE WHERE id = ?`, [id]);

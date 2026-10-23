@@ -38,11 +38,12 @@ export async function GET(request: NextRequest) {
                   a.created_at
            FROM actividad_usuario a
            LEFT JOIN usuarios u ON u.id = a.usuario_id
-           WHERE (a.entidad_tipo = 'licitacion' AND a.entidad_id = ?)
-              OR a.metadata LIKE CONCAT('%"licitacion_codigo":"', ?, '"%')
+           WHERE a.cliente_id = ?
+             AND ((a.entidad_tipo = 'licitacion' AND a.entidad_id = ?)
+                  OR a.metadata LIKE CONCAT('%"licitacion_codigo":"', ?, '"%'))
            ORDER BY a.created_at DESC
            LIMIT ?`,
-          [codigo, codigo, Math.min(limit, 200)]);
+          [usuario.clienteId, codigo, codigo, Math.min(limit, 200)]);
         return NextResponse.json({ success: true, eventos: rows, noLeidas: 0 });
       } catch {
         // Tabla ausente (migración 18 pendiente) → sin historial, sin romper la UI.
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest) {
       const [rows] = await pool.query(
         `SELECT id, tipo, licitacion_codigo, licitacion_nombre, usuario_id, usuario_nombre,
                 actor_id, actor_nombre, mensaje, metadata, leido, created_at
-         FROM historial_eventos ORDER BY created_at DESC LIMIT ?`, [limit]);
+         FROM historial_eventos WHERE cliente_id = ? ORDER BY created_at DESC LIMIT ?`, [usuario.clienteId, limit]);
       eventos = rows as any[];
     } else {
       // Campana: solo las notificaciones dirigidas a este usuario.

@@ -148,7 +148,7 @@ export async function construirResumenEjecutivo(
 
   // La marca manual de readjudicación (migration-149) prevalece sobre lo que quedó guardado en el acta.
   let readjudicada = false;
-  if (acta.es_adjudicada) { const m = await aplicarReadjudicacion(licitacionCodigo, lineas); lineas = m.lineas; readjudicada = m.marcada; }
+  if (acta.es_adjudicada) { const m = await aplicarReadjudicacion(licitacionCodigo, lineas, 1); lineas = m.lineas; readjudicada = m.marcada; }
   const nuestras = lineas.filter(l => l?.esNuestra);
   const montoNuestro = nuestras.reduce(
     (acc, l) => acc + (Number(l.montoUnitario) || 0) * (Number(l.cantidad) || 1), 0) || null;

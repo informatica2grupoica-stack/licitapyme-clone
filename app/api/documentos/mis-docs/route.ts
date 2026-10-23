@@ -14,17 +14,13 @@ export async function GET(request: NextRequest) {
       [rows] = await pool.query(
         `SELECT licitacion_codigo, documento_nombre, documento_url_local, size_bytes, created_at
          FROM documentos_cache
-         WHERE usuario_id = ?
+         WHERE usuario_id = ? AND cliente_id <> 0
          ORDER BY created_at DESC`,
         [parseInt(userId)]
       ) as any;
     } catch {
-      // La columna usuario_id puede no existir aún (antes de la migración)
-      [rows] = await pool.query(
-        `SELECT licitacion_codigo, documento_nombre, documento_url_local, size_bytes, created_at
-         FROM documentos_cache
-         ORDER BY created_at DESC`
-      ) as any;
+      // La columna usuario_id puede no existir aún (antes de la migración). Multi-cliente: NUNCA se devuelve "todo"; sin saber de quién es, nada.
+      rows = [];
     }
 
     return NextResponse.json({ success: true, documentos: rows });

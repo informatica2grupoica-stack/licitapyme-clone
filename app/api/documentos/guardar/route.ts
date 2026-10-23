@@ -2,7 +2,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { CopyObjectCommand } from '@aws-sdk/client-s3';
 import pool from '@/app/lib/db';
-import { puedeVerLicitacion } from '@/app/lib/api-auth';
+import { getClienteId, puedeVerLicitacion } from '@/app/lib/api-auth';
+import { codigoAlmacenDocs, clienteTieneModulo } from '@/app/lib/tenant';
 import { registrarActividad } from '@/app/lib/actividad';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { r2Client, contentDispositionInline } from '@/app/lib/r2';
@@ -55,11 +56,16 @@ export async function POST(request: NextRequest) {
     // impone a las conexiones en este plan compartido (confirmado en vivo, ver migration-75.sql).
     const esManual = !!origenManual;
 
+    // Multi-cliente: lo que sube una empresa-cliente queda bajo SU código (ver tenant.ts): invisible para Grupo ICA y las demás empresas.
+    // Grupo ICA guarda con el código a secas, igual que siempre.
+    const clienteId = await getClienteId(request);
+    const codigoDocs = codigoAlmacenDocs(clienteId, String(licitacionCodigo));
+
     try {
       // Con categoría + subcategoría + categoria_manual (migraciones 45/47).
       await pool.query(
-        `INSERT INTO documentos_cache (usuario_id, licitacion_codigo, documento_nombre, documento_url_local, size_bytes, categoria, subcategoria, categoria_manual, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO documentos_cache (usuario_id, licitacion_codigo, documento_nombre, documento_url_local, size_bytes, categoria, subcategoria, categoria_manual, created_at, cliente_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            documento_url_local = VALUES(documento_url_local),
            size_bytes = VALUES(size_bytes),
@@ -67,7 +73,7 @@ export async function POST(request: NextRequest) {
            subcategoria = COALESCE(VALUES(subcategoria), subcategoria),
            categoria_manual = GREATEST(categoria_manual, VALUES(categoria_manual)),
            usuario_id = COALESCE(usuario_id, VALUES(usuario_id))`,
-        [userId ? parseInt(userId) : null, licitacionCodigo, documentoNombre, url, size || 0, categoria || null, subcategoria || null, esManual ? 1 : 0, ahoraChileSQL()]
+        [userId ? parseInt(userId) : null, codigoDocs, documentoNombre, url, size || 0, categoria || null, subcategoria || null, esManual ? 1 : 0, ahoraChileSQL(), clienteId]
       );
     } catch {
       try {
@@ -80,7 +86,7 @@ export async function POST(request: NextRequest) {
              size_bytes = VALUES(size_bytes),
              categoria = COALESCE(VALUES(categoria), categoria),
              usuario_id = COALESCE(usuario_id, VALUES(usuario_id))`,
-          [userId ? parseInt(userId) : null, licitacionCodigo, documentoNombre, url, size || 0, categoria || null]
+          [userId ? parseInt(userId) : null, codigoDocs, documentoNombre, url, size || 0, categoria || null]
         );
       } catch {
         // Fallback: columna 'categoria' tampoco existe.
@@ -91,7 +97,7 @@ export async function POST(request: NextRequest) {
              documento_url_local = VALUES(documento_url_local),
              size_bytes = VALUES(size_bytes),
              usuario_id = COALESCE(usuario_id, VALUES(usuario_id))`,
-          [userId ? parseInt(userId) : null, licitacionCodigo, documentoNombre, url, size || 0]
+          [userId ? parseInt(userId) : null, codigoDocs, documentoNombre, url, size || 0]
         );
       }
     }
@@ -103,7 +109,7 @@ export async function POST(request: NextRequest) {
       try {
         const [idRows] = await pool.query(
           `SELECT id FROM documentos_cache WHERE licitacion_codigo = ? AND documento_nombre = ? LIMIT 1`,
-          [licitacionCodigo, documentoNombre],
+          [codigoDocs, documentoNombre],
         );
         const docId = (idRows as any[])[0]?.id;
         if (docId) {
@@ -119,7 +125,8 @@ export async function POST(request: NextRequest) {
     await fijarNombreDescarga(url, documentoNombre);
 
     // Lectura en segundo plano (sin esperar): el texto queda en la BD para el chat y la IA.
-    void leerDocumentoSubido(String(licitacionCodigo), String(documentoNombre), String(url));
+    // (la lectura en segundo plano alimenta el chat de IA: solo corre si la empresa tiene ese módulo)
+    if (await clienteTieneModulo(clienteId, 'ia_chat')) void leerDocumentoSubido(codigoDocs, String(documentoNombre), String(url));
 
     // Bitácora: subió un documento propio a esta licitación (best-effort).
     registrarActividad({

@@ -6,7 +6,7 @@
 // adjudicación que la página de licitación ya trae por su cuenta.
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { puedeVerLicitacion } from '@/app/lib/api-auth';
+import { getClienteId, puedeVerLicitacion } from '@/app/lib/api-auth';
 
 export async function GET(
   request: NextRequest,
@@ -32,10 +32,10 @@ export async function GET(
        LEFT JOIN empresas emp ON emp.id = n.empresa_id
        LEFT JOIN negocios_etiquetas ne ON ne.negocio_id = n.id
        LEFT JOIN etiquetas e ON e.id = ne.etiqueta_id
-       WHERE n.licitacion_codigo = ? AND n.activo = TRUE
+       WHERE n.licitacion_codigo = ? AND n.activo = TRUE AND n.cliente_id = ?
        GROUP BY n.id
        LIMIT 1`,
-      [codigoDecoded]
+      [codigoDecoded, await getClienteId(request)]
     );
     const row = (rows as any[])[0];
     if (!row) return NextResponse.json({ success: true, negocio: null });

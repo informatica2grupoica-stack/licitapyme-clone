@@ -40,6 +40,8 @@ export async function textoLimpioDeLicitacion(
   if (!textoRoto(nombre) && !textoRoto(organismo)) return { nombre, organismo };
 
   try {
+    // multi-cliente: sin cliente_id a propósito — el nombre y el organismo de una licitación son datos públicos de Mercado Público,
+    // iguales para todas las empresas; solo se usan para reparar acentos rotos.
     const [rows] = await pool.query(
       `SELECT a.licitacion_nombre AS n_alerta, a.licitacion_organismo AS o_alerta,
               lc.nombre AS n_cache, lc.organismo AS o_cache

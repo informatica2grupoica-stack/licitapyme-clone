@@ -9,6 +9,8 @@ import pool from '@/app/lib/db';
 import { puedeVerLicitacion } from '@/app/lib/api-auth';
 import { clasificarLicitacion } from '@/app/lib/clasificacion';
 import { leerInforme, sincronizar } from '@/app/api/negocios/[id]/comercial/route';
+import { getClienteId } from '@/app/lib/api-auth';
+import { codigoAlmacenDocs, clienteTieneModulo } from '@/app/lib/tenant';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -65,10 +67,13 @@ export async function PATCH(req: NextRequest) {
     if (!(await puedeVerLicitacion(req, String(codigo)))) {
       return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
     }
+    // Multi-cliente: una empresa-cliente solo mueve de caja SUS documentos (los oficiales son compartidos: moverlos cambiaría lo que ven las demás).
+    const clienteId = await getClienteId(req);
+    const codigoDocs = codigoAlmacenDocs(clienteId, String(codigo));
     try {
       await pool.query(
         `UPDATE documentos_cache SET categoria = ?, categoria_manual = 1 WHERE licitacion_codigo = ? AND documento_nombre = ?`,
-        [nueva_categoria, codigo, documento_nombre],
+        [nueva_categoria, codigoDocs, documento_nombre],
       );
     } catch (e: any) {
       // Tolerante a que migration-47 aún no esté aplicada: guarda igual la categoría (sin la
@@ -76,7 +81,7 @@ export async function PATCH(req: NextRequest) {
       if (!String(e).toLowerCase().includes('unknown column')) throw e;
       await pool.query(
         `UPDATE documentos_cache SET categoria = ? WHERE licitacion_codigo = ? AND documento_nombre = ?`,
-        [nueva_categoria, codigo, documento_nombre],
+        [nueva_categoria, codigoDocs, documento_nombre],
       );
     }
 
@@ -90,11 +95,11 @@ export async function PATCH(req: NextRequest) {
     // nueva que escribir acá — solo hay que llamarlo. Nunca bloquea el drag & drop del usuario: si
     // falla, la categoría ya quedó guardada y el Auditor se pone al día la próxima vez que se abra.
     try {
-      const informe = await leerInforme(codigo);
+      const informe = (await clienteTieneModulo(clienteId, 'auditor')) ? await leerInforme(codigo) : null;
       if (informe) {
         const [negociosRows] = await pool.query(
-          `SELECT id FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE`,
-          [codigo],
+          `SELECT id FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE AND cliente_id = ?`,
+          [codigo, clienteId],
         ) as any;
         for (const { id } of negociosRows as Array<{ id: number }>) {
           await sincronizar(id, codigo, informe).catch(e =>

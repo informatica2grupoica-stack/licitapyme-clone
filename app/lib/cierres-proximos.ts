@@ -24,6 +24,7 @@ interface FilaCierre {
   id: number; licitacion_codigo: string; licitacion_nombre: string | null;
   licitacion_organismo: string | null; licitacion_monto: number | null; licitacion_cierre: string;
   asignado_a: number; email: string | null; nombre: string | null;
+  cliente_id: number;   // empresa-cliente del negocio (multi-cliente)
 }
 
 const TOP_CORREO = 15; // máx licitaciones listadas por correo
@@ -51,7 +52,7 @@ export async function avisarCierresProximos(horas = 72): Promise<{ eventos: numb
     // reloj naive de Chile que el cierre, así no depende de la TZ del proceso Node.
     const [rows] = await pool.query(
       `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo,
-              n.licitacion_monto, n.licitacion_cierre, n.asignado_a,
+              n.licitacion_monto, n.licitacion_cierre, n.asignado_a, n.cliente_id,
               u.email, u.nombre,
               TIMESTAMPDIFF(SECOND, ?, n.licitacion_cierre) AS seg_restantes
        FROM negocios n
@@ -102,10 +103,11 @@ export async function avisarCierresProximos(horas = 72): Promise<{ eventos: numb
 
     // Admins activos: reciben TODAS las licitaciones por cerrar del equipo, etiquetadas con
     // el perfil responsable. Los perfiles no-admin reciben solo las suyas.
+    // Multi-cliente: «del equipo» es el de SU empresa — un admin jamás recibe lo de otra.
     const [arows] = await pool.query(
-      `SELECT id, nombre, email FROM usuarios WHERE rol = 'admin' AND activo = TRUE`,
+      `SELECT id, nombre, email, cliente_id FROM usuarios WHERE rol = 'admin' AND activo = TRUE`,
     ) as any[];
-    const admins = arows as Array<{ id: number; nombre: string | null; email: string | null }>;
+    const admins = arows as Array<{ id: number; nombre: string | null; email: string | null; cliente_id: number }>;
 
     // Dedup POR DESTINATARIO (código+usuario avisado en los últimos 3 días). Un solo query
     // para todos los códigos en ventana; se arma un Set `codigo|uid`.
@@ -125,11 +127,11 @@ export async function avisarCierresProximos(horas = 72): Promise<{ eventos: numb
     // Fan-out: cada fila va a su perfil asignado (sin etiqueta) y a cada admin (etiquetada
     // con el perfil), saltando a quien ya se le avisó en los últimos 3 días.
     type Item = { fila: FilaCierre; perfil: string | null };
-    const destinatarios = new Map<number, { nombre: string | null; email: string | null; esAdmin: boolean; items: Item[] }>();
+    const destinatarios = new Map<number, { nombre: string | null; email: string | null; esAdmin: boolean; clienteId: number; items: Item[] }>();
     const push = (uid: number, nombre: string | null, email: string | null, esAdmin: boolean, it: Item) => {
       if (yaAvisado.has(`${it.fila.licitacion_codigo}|${uid}`)) return;
       let g = destinatarios.get(uid);
-      if (!g) { g = { nombre, email, esAdmin, items: [] }; destinatarios.set(uid, g); }
+      if (!g) { g = { nombre, email, esAdmin, clienteId: Number(it.fila.cliente_id ?? 1), items: [] }; destinatarios.set(uid, g); }
       g.items.push(it);
     };
     const adminIds = new Set(admins.map(a => Number(a.id)));
@@ -140,6 +142,7 @@ export async function avisarCierresProximos(horas = 72): Promise<{ eventos: numb
       }
       // Cada admin recibe TODAS, etiquetadas con el perfil responsable.
       for (const a of admins) {
+        if (Number(a.cliente_id) !== Number(f.cliente_id)) continue; // solo los admin de la MISMA empresa
         const propia = Number(a.id) === Number(f.asignado_a);
         push(Number(a.id), a.nombre, a.email, true, { fila: f, perfil: propia ? null : (f.nombre || null) });
       }
@@ -155,22 +158,22 @@ export async function avisarCierresProximos(horas = 72): Promise<{ eventos: numb
 
     // Campana: UN SOLO INSERT masivo con todos los items de todos los destinatarios (el cron
     // tiene presupuesto ajustado y Bluehost tiene latencia alta). El SSE se empuja en memoria.
-    const planos: Array<{ uid: number; nombre: string | null; it: Item; msg: string }> = [];
+    const planos: Array<{ uid: number; nombre: string | null; clienteId: number; it: Item; msg: string }> = [];
     for (const [uid, g] of destinatarios) {
-      for (const it of g.items) planos.push({ uid, nombre: g.nombre, it, msg: msgDe(it) });
+      for (const it of g.items) planos.push({ uid, nombre: g.nombre, clienteId: g.clienteId, it, msg: msgDe(it) });
     }
     const values: unknown[] = [];
     for (const p of planos) {
       values.push('CIERRE_PROXIMO', p.it.fila.licitacion_codigo, p.it.fila.licitacion_nombre, p.uid, p.nombre,
         null, null, p.msg, JSON.stringify({ cierre: p.it.fila.licitacion_cierre, perfil: p.it.perfil || undefined }),
-        ahoraChileSQL());
+        ahoraChileSQL(), p.clienteId);
     }
     // created_at EXPLÍCITO en hora de pared de Chile (mismo bug de siempre: el DEFAULT
     // CURRENT_TIMESTAMP lo pone el servidor MySQL de Bluehost, UTC-6, 2h atrás de Chile).
-    const ph2 = planos.map(() => '(?,?,?,?,?,?,?,?,?,?)').join(',');
+    const ph2 = planos.map(() => '(?,?,?,?,?,?,?,?,?,?,?)').join(',');
     const [ins] = await pool.query(
       `INSERT INTO historial_eventos
-         (tipo, licitacion_codigo, licitacion_nombre, usuario_id, usuario_nombre, actor_id, actor_nombre, mensaje, metadata, created_at)
+         (tipo, licitacion_codigo, licitacion_nombre, usuario_id, usuario_nombre, actor_id, actor_nombre, mensaje, metadata, created_at, cliente_id)
        VALUES ${ph2}`,
       values,
     ) as any[];

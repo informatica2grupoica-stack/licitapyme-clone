@@ -12,7 +12,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { r2Client } from '@/app/lib/r2';
-import { puedeVerLicitacion } from '@/app/lib/api-auth';
+import { getClienteId, puedeVerLicitacion } from '@/app/lib/api-auth';
+import { codigoAlmacenDocs } from '@/app/lib/tenant';
 import { codigoLicitacionSeguro, MAX_BYTES_DOCUMENTO } from '@/app/lib/validar-entrada';
 
 export async function POST(request: NextRequest) {
@@ -34,7 +35,8 @@ export async function POST(request: NextRequest) {
 
     const timestamp = Date.now();
     const nombreLimpio = filename.replace(/[^a-zA-Z0-9áéíóúñÑ\-_.]/g, '_');
-    const key = `${licitacionCodigo}/${timestamp}_${nombreLimpio}`;
+    // Multi-cliente: lo que sube una empresa-cliente va bajo SU prefijo (Grupo ICA: igual que siempre).
+    const key = `${codigoAlmacenDocs(await getClienteId(request), licitacionCodigo)}/${timestamp}_${nombreLimpio}`;
 
     const publicBase = process.env.R2_PUBLIC_URL || `https://pub-${process.env.R2_ACCOUNT_ID}.r2.dev`;
     const publicUrl = `${publicBase}/${key}`;

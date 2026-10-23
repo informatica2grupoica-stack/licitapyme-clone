@@ -2,6 +2,7 @@
 // Hilo de comentarios de un negocio
 // pipeline_estado: cuando se envía, también actualiza negocios.estado_pipeline
 import { NextRequest, NextResponse } from 'next/server';
+import { negocioEsDeMiEmpresa } from '@/app/lib/tenant';
 import pool from '@/app/lib/db';
 import { registrarActividad } from '@/app/lib/actividad';
 import { registrarEvento } from '@/app/lib/historial';
@@ -23,6 +24,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   const { id } = await params;
+  if (!(await negocioEsDeMiEmpresa(request, id))) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
 
   try {
     // Verificar acceso
@@ -77,6 +79,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   const { id } = await params;
+  if (!(await negocioEsDeMiEmpresa(request, id))) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
 
   try {
     const { comentario, etiqueta_id, pipeline_estado } = await request.json();
@@ -185,6 +188,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   const { id: negocioId } = await params;
+  if (!(await negocioEsDeMiEmpresa(request, negocioId))) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
   const { searchParams } = new URL(request.url);
   const comentarioId = searchParams.get('comentarioId');
   if (!comentarioId) return NextResponse.json({ error: 'comentarioId requerido' }, { status: 400 });

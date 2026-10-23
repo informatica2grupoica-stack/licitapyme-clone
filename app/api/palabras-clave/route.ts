@@ -2,6 +2,7 @@
 // CRUD de palabras clave para búsqueda automática
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { clienteDeHeader } from '@/app/lib/tenant';
 
 function getUserId(req: NextRequest): number | null {
   const id = req.headers.get('x-user-id');
@@ -24,10 +25,13 @@ export async function GET(request: NextRequest) {
   // Palabras clave COMPARTIDAS entre admins: un admin ve las de TODOS (no solo las suyas),
   // así si un admin agrega una, los demás admins la ven. Un usuario normal (sin radar) solo
   // vería las propias (en la práctica no usa esta vista).
+  // Multi-cliente: siempre dentro de la propia empresa.
+  const clienteId = clienteDeHeader(request);
+  if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const admin = esAdmin(request);
-  const filtro = admin ? '' : 'WHERE pc.usuario_id = ?';
-  const filtroSimple = admin ? '' : 'WHERE usuario_id = ?';
-  const params = admin ? [] : [userId];
+  const filtro = admin ? 'WHERE pc.cliente_id = ?' : 'WHERE pc.cliente_id = ? AND pc.usuario_id = ?';
+  const filtroSimple = admin ? 'WHERE cliente_id = ?' : 'WHERE cliente_id = ? AND usuario_id = ?';
+  const params = admin ? [clienteId] : [clienteId, userId];
 
   try {
     const [rows] = await pool.query(
@@ -76,6 +80,8 @@ export async function POST(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   if (!esAdmin(request)) return SOLO_ADMIN;
+  const clienteId = clienteDeHeader(request);
+  if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   try {
     const { keyword, categoria_id, es_negativa } = await request.json();
@@ -88,8 +94,8 @@ export async function POST(request: NextRequest) {
     // Verificar duplicado GLOBAL (compartidas entre admins): si cualquier admin ya la tiene,
     // no se duplica. Se guarda quién la creó (usuario_id) solo como referencia.
     const [exist] = await pool.query(
-      `SELECT id FROM palabras_clave WHERE keyword = ?`,
-      [kw]
+      `SELECT id FROM palabras_clave WHERE keyword = ? AND cliente_id = ?`,
+      [kw, clienteId]
     );
     if ((exist as any[]).length > 0) {
       return NextResponse.json({ error: 'Esa palabra clave ya existe' }, { status: 409 });
@@ -98,8 +104,8 @@ export async function POST(request: NextRequest) {
     let id: number;
     try {
       const [result] = await pool.query(
-        `INSERT INTO palabras_clave (usuario_id, keyword, categoria_id, es_negativa) VALUES (?, ?, ?, ?)`,
-        [userId, kw, catId, negativa]
+        `INSERT INTO palabras_clave (usuario_id, cliente_id, keyword, categoria_id, es_negativa) VALUES (?, ?, ?, ?, ?)`,
+        [userId, clienteId, kw, catId, negativa]
       );
       id = (result as any).insertId;
     } catch (error: any) {
@@ -107,15 +113,15 @@ export async function POST(request: NextRequest) {
       if (error?.code === 'ER_BAD_FIELD_ERROR' && /es_negativa/.test(String(error?.message))) {
         try {
           const [result] = await pool.query(
-            `INSERT INTO palabras_clave (usuario_id, keyword, categoria_id) VALUES (?, ?, ?)`,
-            [userId, kw, catId]
+            `INSERT INTO palabras_clave (usuario_id, cliente_id, keyword, categoria_id) VALUES (?, ?, ?, ?)`,
+            [userId, clienteId, kw, catId]
           );
           id = (result as any).insertId;
         } catch (e2: any) {
           if (e2?.code === 'ER_BAD_FIELD_ERROR' && /categoria_id/.test(String(e2?.message))) {
             const [result] = await pool.query(
-              `INSERT INTO palabras_clave (usuario_id, keyword) VALUES (?, ?)`,
-              [userId, kw]
+              `INSERT INTO palabras_clave (usuario_id, cliente_id, keyword) VALUES (?, ?, ?)`,
+              [userId, clienteId, kw]
             );
             id = (result as any).insertId;
           } else throw e2;
@@ -123,8 +129,8 @@ export async function POST(request: NextRequest) {
       } else if (error?.code === 'ER_BAD_FIELD_ERROR' && /categoria_id/.test(String(error?.message))) {
         // Falta categoria_id (migración 16 pendiente), insertar sin ella.
         const [result] = await pool.query(
-          `INSERT INTO palabras_clave (usuario_id, keyword) VALUES (?, ?)`,
-          [userId, kw]
+          `INSERT INTO palabras_clave (usuario_id, cliente_id, keyword) VALUES (?, ?, ?)`,
+          [userId, clienteId, kw]
         );
         id = (result as any).insertId;
       } else throw error;
@@ -141,6 +147,8 @@ export async function PATCH(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   if (!esAdmin(request)) return SOLO_ADMIN;
+  const clienteId = clienteDeHeader(request);
+  if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   try {
     const body = await request.json();
@@ -156,9 +164,10 @@ export async function PATCH(request: NextRequest) {
     if (sets.length === 0) return NextResponse.json({ error: 'Nada que actualizar' }, { status: 400 });
 
     // Compartidas entre admins: cualquier admin puede editar (no se ata a usuario_id).
-    vals.push(id);
+    // Multi-cliente: solo dentro de la propia empresa (un id de otra empresa no encuentra nada).
+    vals.push(id, clienteId);
     await pool.query(
-      `UPDATE palabras_clave SET ${sets.join(', ')} WHERE id = ?`,
+      `UPDATE palabras_clave SET ${sets.join(', ')} WHERE id = ? AND cliente_id = ?`,
       vals
     );
     return NextResponse.json({ success: true });
@@ -172,6 +181,8 @@ export async function DELETE(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   if (!esAdmin(request)) return SOLO_ADMIN;
+  const clienteId = clienteDeHeader(request);
+  if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
@@ -180,8 +191,8 @@ export async function DELETE(request: NextRequest) {
   try {
     // Compartidas entre admins: cualquier admin puede borrar.
     await pool.query(
-      `DELETE FROM palabras_clave WHERE id = ?`,
-      [id]
+      `DELETE FROM palabras_clave WHERE id = ? AND cliente_id = ?`,
+      [id, clienteId]
     );
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -3,6 +3,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionFromRequest } from '@/app/lib/auth-edge';
 import { estadoVigente } from '@/app/lib/rol-vigente';
+import { fichaCliente } from '@/app/lib/tenant';
+import { rutaPermitida, moduloDeRuta } from '@/app/lib/modulos';
 
 // Rutas que NO requieren autenticación
 const RUTAS_PUBLICAS = [
@@ -97,6 +99,29 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
+  // Multi-cliente: empresa vigente + módulos contratados. Grupo ICA (1) pasa siempre; los demás solo a lo que contrataron.
+  // Lista blanca: una ruta que no está clasificada en app/lib/modulos.ts queda NEGADA para clientes.
+  const clienteId = vigente.clienteId;
+  if (clienteId !== 1) {
+    const ficha = await fichaCliente(clienteId);
+    const veredicto = ficha.vigente ? rutaPermitida(pathname, clienteId, ficha.modulos) : { ok: false as const, modulo: null };
+    if (!veredicto.ok) {
+      if (pathname.startsWith('/api/')) {
+        return NextResponse.json(
+          ficha.vigente
+            ? { error: 'Este módulo no está incluido en tu plan.', code: 'MODULO_BLOQUEADO', modulo: veredicto.modulo }
+            : { error: 'El servicio de tu empresa está suspendido o vencido.', code: 'CLIENTE_NO_VIGENTE' },
+          { status: 403 }
+        );
+      }
+      const destino = new URL('/modulo-bloqueado', request.url);
+      const m = moduloDeRuta(pathname);
+      if (m && m !== 'comun' && m !== 'interno') destino.searchParams.set('m', m);
+      if (!ficha.vigente) destino.searchParams.set('suspendido', '1');
+      return NextResponse.redirect(destino);
+    }
+  }
+
   // Rutas admin: verificar rol
   if (RUTAS_ADMIN.some(r => pathname.startsWith(r)) && usuario.rol !== 'admin') {
     if (pathname.startsWith('/api/')) {
@@ -122,6 +147,7 @@ export async function proxy(request: NextRequest) {
   requestHeaders.set('x-user-id',    String(usuario.id));
   requestHeaders.set('x-user-email', usuario.email);
   requestHeaders.set('x-user-rol',   usuario.rol);
+  requestHeaders.set('x-cliente-id', String(clienteId)); // siempre pisado desde la sesión, nunca del navegador
   // x-user-nombre lo leen varias rutas para atribuir acciones: NUNCA debe venir del cliente.
   // Se fija desde el JWT verificado (solo Latin-1: Headers.set revienta con otros caracteres).
   if (usuario.nombre && /^[ -ÿ]+$/.test(usuario.nombre)) requestHeaders.set('x-user-nombre', usuario.nombre);

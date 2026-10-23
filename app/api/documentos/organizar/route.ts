@@ -7,7 +7,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { puedeVerLicitacion } from '@/app/lib/api-auth';
+import { getClienteId, puedeVerLicitacion } from '@/app/lib/api-auth';
+import { codigoAlmacenDocs } from '@/app/lib/tenant';
 
 export async function PATCH(req: NextRequest) {
   try {
@@ -21,7 +22,7 @@ export async function PATCH(req: NextRequest) {
     await pool.query(
       `UPDATE documentos_cache SET subcategoria = ?
        WHERE licitacion_codigo = ? AND documento_nombre = ? AND categoria = 'DOCUMENTOS_PROPIOS'`,
-      [subcategoria || null, codigo, documento_nombre],
+      [subcategoria || null, codigoAlmacenDocs(await getClienteId(req), String(codigo)), documento_nombre],
     );
     return NextResponse.json({ success: true });
   } catch (error) {

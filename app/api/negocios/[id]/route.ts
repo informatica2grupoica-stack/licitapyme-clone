@@ -1,6 +1,7 @@
 // app/api/negocios/[id]/route.ts
 // Detalle de un negocio: GET, PATCH (actualizar monto ofertado / etiquetas), DELETE (admin)
 import { NextRequest, NextResponse } from 'next/server';
+import { negocioEsDeMiEmpresa, registroEsDeMiEmpresa, clienteDeHeader, clienteTieneModulo } from '@/app/lib/tenant';
 import pool from '@/app/lib/db';
 import { registrarActividad, registrarActividadDiaria } from '@/app/lib/actividad';
 import { registrarEvento } from '@/app/lib/historial';
@@ -24,13 +25,14 @@ function getUser(req: NextRequest) {
  * No auto-notifica a quien hizo el cambio.
  */
 async function notificarEtapaAnexos(p: {
+  clienteId: number;   // solo se avisa a perfiles de la MISMA empresa
   actorId: number | null;
   codigo: string; nombre?: string | null;
   organismo?: string | null; monto?: number | null; cierre?: string | null;
 }): Promise<void> {
   try {
     const [urows] = await pool.query(
-      `SELECT id, nombre, email, permisos FROM usuarios WHERE activo = TRUE`,
+      `SELECT id, nombre, email, permisos FROM usuarios WHERE activo = TRUE AND cliente_id = ?`, [p.clienteId],
     );
     const destinatarios = (urows as any[]).filter(u => {
       if (Number(u.id) === Number(p.actorId)) return false; // no auto-notificar al actor
@@ -80,6 +82,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   const { id } = await params;
+  if (!(await negocioEsDeMiEmpresa(request, id))) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
 
   try {
     // Tabla no existe todavía
@@ -116,17 +119,20 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     // Etiquetas, viabilidad, documentos en paralelo y apertura
     const codigo = negocio.licitacion_codigo;
+    // La viabilidad es análisis de IA de Grupo ICA: un cliente la ve solo si contrató el módulo.
+    const conViabilidad = await clienteTieneModulo(Number(clienteDeHeader(request)), 'viabilidad');
     const [etRows, viabRows, docRows, apRows] = await Promise.all([
+
       pool.query(
         `SELECT e.id, e.nombre, e.color
          FROM negocios_etiquetas ne
          JOIN etiquetas e ON e.id = ne.etiqueta_id
          WHERE ne.negocio_id = ?`, [id]
       ),
-      pool.query(
+      (conViabilidad ? pool.query(
         `SELECT semaforo, score_total, area_negocio, informe_ejecutivo
          FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`, [codigo]
-      ).catch(() => [[]] as any),
+      ) : Promise.resolve([[]] as any)).catch(() => [[]] as any),
       pool.query(
         `SELECT nombre_archivo, url_local, url_original, size_bytes, categoria, created_at
          FROM documentos_cache WHERE licitacion_codigo = ? ORDER BY created_at DESC LIMIT 30`, [codigo]
@@ -176,7 +182,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (negocio.empresa_id) {
       try {
         const [er] = await pool.query(
-          `SELECT id, razon_social, rut FROM empresas WHERE id = ?`, [negocio.empresa_id]);
+          `SELECT id, razon_social, rut FROM empresas WHERE id = ? AND cliente_id = ?`, [negocio.empresa_id, negocio.cliente_id]);
         negocio.empresa = (er as any[])[0] || null;
         negocio.empresa_nombre = negocio.empresa?.razon_social ?? null;
       } catch { /* migración 40 pendiente */ }
@@ -194,15 +200,24 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   const { id } = await params;
+  if (!(await negocioEsDeMiEmpresa(request, id))) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
 
   try {
     const body = await request.json();
     const { monto_ofertado, etiqueta_ids, estado_pipeline, asignado_a, empresa_id } = body;
     const motivo = typeof body.motivo === 'string' ? body.motivo.trim() : '';
 
+    // Multi-cliente: lo que llega en el cuerpo (a quién reasignar, con qué empresa postular, qué etiquetas) debe ser de la MISMA empresa.
+    if (asignado_a !== undefined && asignado_a && !(await registroEsDeMiEmpresa(request, 'usuarios', Number(asignado_a))))
+      return NextResponse.json({ error: 'Usuario no válido' }, { status: 400 });
+    if (empresa_id && !(await registroEsDeMiEmpresa(request, 'empresas', Number(empresa_id))))
+      return NextResponse.json({ error: 'Empresa no válida' }, { status: 400 });
+    if (Array.isArray(etiqueta_ids) && etiqueta_ids.length && !(await registroEsDeMiEmpresa(request, 'etiquetas', etiqueta_ids)))
+      return NextResponse.json({ error: 'Etiqueta no válida' }, { status: 400 });
+
     // Verificar acceso
     const [rows] = await pool.query(
-      `SELECT asignado_a, licitacion_codigo, licitacion_nombre,
+      `SELECT asignado_a, cliente_id, licitacion_codigo, licitacion_nombre,
               licitacion_organismo, licitacion_monto, licitacion_cierre,
               estado_pipeline
        FROM negocios WHERE id = ?`, [id]
@@ -260,8 +275,10 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       }
       // "En proceso" EXIGE viabilidad IA realizada (mismo guard que el front, pero aquí
       // es la protección real: cubre lista, selector y llamadas directas a la API).
+      // (La exigencia de análisis de viabilidad IA es de la regla interna de ICA: solo aplica si la empresa tiene ese módulo.)
       if (normalizarEstado(estado_pipeline) === 'EN_PROCESO'
-          && normalizarEstado(neg.estado_pipeline) !== 'EN_PROCESO') {
+          && normalizarEstado(neg.estado_pipeline) !== 'EN_PROCESO'
+          && await clienteTieneModulo(Number(neg.cliente_id ?? clienteDeHeader(request)), 'viabilidad')) {
         // Fail-closed: si no se puede LEER si hay viabilidad (JOIN roto, JSON corrupto, etc.), no
         // se asume que sí la hay — antes este catch tragaba el error y dejaba pasar el cambio de
         // estado sin haber verificado nada (auditoría ago-2026).
@@ -333,6 +350,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         if (normalizarEstado(estado_pipeline) === 'ANEXOS'
             && normalizarEstado(neg.estado_pipeline) !== 'ANEXOS') {
           notificarEtapaAnexos({
+            clienteId: Number(neg.cliente_id ?? clienteDeHeader(request)),
             actorId: userId,
             codigo: neg.licitacion_codigo, nombre: neg.licitacion_nombre,
             organismo: neg.licitacion_organismo, monto: neg.licitacion_monto,
@@ -345,7 +363,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         if (normalizarEstado(estado_pipeline) === 'POSTULADA'
             && normalizarEstado(neg.estado_pipeline) !== 'POSTULADA') {
           const nombreActor = request.headers.get('x-user-nombre') || 'Usuario';
-          congelarAuditorSiCorresponde(Number(id), neg.licitacion_codigo, userId, nombreActor).catch(() => {});
+          if (await clienteTieneModulo(Number(neg.cliente_id ?? clienteDeHeader(request)), 'auditor'))
+            congelarAuditorSiCorresponde(Number(id), neg.licitacion_codigo, userId, nombreActor).catch(() => {});
 
           // Sella la FECHA DE POSTULACIÓN (migración 76). Solo la primera vez: si se revierte
           // y se vuelve a postular, se conserva la original. Tolerante: si la migración aún no
@@ -527,6 +546,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
   const { id } = await params;
+  if (!(await negocioEsDeMiEmpresa(request, id))) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
 
   try {
     const [rows] = await pool.query(

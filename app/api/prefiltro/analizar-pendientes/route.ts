@@ -21,8 +21,9 @@ export const maxDuration = 300;
 async function resolverAmbito(req: NextRequest): Promise<{ where: string; params: number[] } | null> {
   const u = await getAuthedUser(req);
   if (!u) return null;
-  if (u.rol === 'admin') return { where: '1 = 1', params: [] };
-  return { where: 'al.usuario_id = ?', params: [u.id] };
+  // Multi-cliente: el prefiltro es del criterio de Grupo ICA (módulo bloqueado a los clientes); aun así se acota a la empresa de quien lo corre.
+  if (u.rol === 'admin') return { where: 'al.cliente_id = ?', params: [u.clienteId as number] };
+  return { where: 'al.cliente_id = ? AND al.usuario_id = ?', params: [u.clienteId as number, u.id] };
 }
 
 // Códigos SIN decisión de prefiltro todavía (según ámbito). Devuelve la lista.

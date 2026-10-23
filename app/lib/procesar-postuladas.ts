@@ -28,13 +28,14 @@ import pool from '@/app/lib/db';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { registrarEvento } from '@/app/lib/historial';
 import { ahoraChileSQL } from '@/app/lib/tz';
-import { construirConReadjudicacion, enriquecer, guardarCache, leerCache, respuestaDesdeCache, type RespuestaAdjudicacion } from '@/app/lib/adjudicacion';
+import { adjudicacionPorCliente, construirConReadjudicacion, enriquecer, guardarCache, leerCache, respuestaDesdeCache, type RespuestaAdjudicacion } from '@/app/lib/adjudicacion';
 import { abrirEntregaSiCorresponde } from '@/app/lib/entrega-proyecto';
 import { abrirComprasSiCorresponde, sincronizarPrecompraConEstado } from '@/app/lib/compras';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { idsEquivalentes, normalizarEstado } from '@/app/lib/pipeline';
 import { avisarResultadoLicitacion } from '@/app/lib/avisar-resultado-licitacion';
 import { estadoDefinitivoCanonico, persistirYNotificar } from '@/app/lib/refrescar-estados';
+import { clienteTieneModulo } from '@/app/lib/tenant';
 
 // IDs (vigente + legados) que cuentan como "postulada" / "adjudicada" / "perdida" — ver misma
 // nota en detectar-aperturas.ts.
@@ -83,6 +84,7 @@ interface FilaPostulada {
   asignado_a: number;
   usuario_nombre: string | null;
   usuario_email: string | null;
+  cliente_id?: number;   // empresa-cliente del negocio (multi-cliente); sin dato = Grupo ICA
 }
 
 function fmtCLP(n: number | null | undefined): string {
@@ -121,20 +123,26 @@ export async function promoverYAvisar(
     // Ganamos → se abre la entrega y arranca el circuito de acuse de recibo. Va atado a la
     // TRANSICIÓN (affectedRows), no al estado: por eso las adjudicadas que ya estaban en la
     // base antes de este módulo no disparan una avalancha de avisos retroactivos.
+    // Multi-cliente: Entrega y Compras solo se abren si la empresa tiene ese módulo contratado.
+    const cid = Number(n.cliente_id ?? 1);
     if (adj.ganamos) {
-      await abrirEntregaSiCorresponde(n.id, codigo, n.asignado_a)
-        .then(abierta => { if (abierta) stats.entregasAbiertas++; })
-        .catch(e => console.error('[procesar-postuladas] abrir entrega falló:', String(e).slice(0, 200)));
+      if (await clienteTieneModulo(cid, 'entregas')) {
+        await abrirEntregaSiCorresponde(n.id, codigo, n.asignado_a)
+          .then(abierta => { if (abierta) stats.entregasAbiertas++; })
+          .catch(e => console.error('[procesar-postuladas] abrir entrega falló:', String(e).slice(0, 200)));
+      }
 
       // ── MÓDULO DE COMPRAS — Fase 1 (§3) ──
-      await abrirComprasSiCorresponde(n.id, codigo, n.asignado_a)
-        .then(abierta => { if (abierta) stats.comprasAbiertas++; })
-        .catch(e => console.error('[procesar-postuladas] abrir compras falló:', String(e).slice(0, 200)));
+      if (await clienteTieneModulo(cid, 'compras')) {
+        await abrirComprasSiCorresponde(n.id, codigo, n.asignado_a)
+          .then(abierta => { if (abierta) stats.comprasAbiertas++; })
+          .catch(e => console.error('[procesar-postuladas] abrir compras falló:', String(e).slice(0, 200)));
+      }
     }
 
     // Si venía de POSIBLE_ADJ había una pre-compra abierta: perdida → se cierra «sin adjudicar» (ganada ya la
     // confirma abrirComprasSiCorresponde). Sin pre-compra no hace nada.
-    if (!adj.ganamos) await sincronizarPrecompraConEstado(n.id, codigo, n.asignado_a, nuevoEstado);
+    if (!adj.ganamos && await clienteTieneModulo(cid, 'compras')) await sincronizarPrecompraConEstado(n.id, codigo, n.asignado_a, nuevoEstado);
 
     if (adj.ganamos) stats.adjudicadas++; else stats.perdidas++;
     if (opts.avisar === false) continue;
@@ -158,6 +166,7 @@ export async function promoverYAvisar(
       tipo: adj.ganamos ? 'ganada' : 'perdida',
       codigo, nombre: n.licitacion_nombre, monto: adj.montoNuestro ?? null,
       asignado: { id: n.asignado_a, nombre: n.usuario_nombre, email: n.usuario_email },
+      clienteId: cid,
     });
   }
 }
@@ -180,7 +189,7 @@ async function promoverConCacheConfirmado(
   let filas: any[] = [];
   try {
     const [rows] = await pool.query(
-      `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a,
+      `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a, n.cliente_id,
               u.nombre AS usuario_nombre, u.email AS usuario_email,
               c.es_adjudicada, c.estado, c.codigo_estado, c.fecha_adjudicacion,
               c.fecha_estimada_adjudicacion, c.fecha_apertura_tecnica, c.tipo_adjudicacion,
@@ -214,9 +223,10 @@ async function promoverConCacheConfirmado(
       // Cada fila trae las columnas de `adjudicacion_cache` planas (misma fila de la query de
       // arriba) — `respuestaDesdeCache` solo lee las que necesita, el resto (id, asignado_a, etc.)
       // las ignora sin problema.
-      const adj = await enriquecer(respuestaDesdeCache(codigo, negocios[0] as any));
-      if (!adj.esAdjudicada) continue; // por si acaso; la query ya filtra es_adjudicada=1
-      await promoverYAvisar(codigo, negocios, adj, stats);
+      const base = respuestaDesdeCache(codigo, negocios[0] as any);
+      if (!base.esAdjudicada) continue; // por si acaso; la query ya filtra es_adjudicada=1
+      // Cada empresa con SUS RUT: «ganamos» no es lo mismo para todas.
+      for (const g of await adjudicacionPorCliente(base, negocios)) await promoverYAvisar(codigo, g.negocios, g.adj, stats);
     } catch (e) {
       stats.errores++;
       console.error(`[procesar-postuladas] auto-sanación "${codigo}" falló:`, String(e));
@@ -294,7 +304,7 @@ export async function procesarPostuladas(
     // abiertas solo se consultan si sobra cupo en la pasada.
     const ahora = ahoraChileSQL();
     const [rows] = await pool.query(
-      `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a,
+      `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a, n.cliente_id,
               u.nombre AS usuario_nombre, u.email AS usuario_email,
               -- "rancio" = no se consultó en la ventana actual, así que todavía le falta la vuelta.
               -- La comparación va EN SQL a propósito: consultado_en se escribe con NOW() del
@@ -369,12 +379,16 @@ export async function procesarPostuladas(
       if (lic) rateLimitSeguidos = 0;   // una respuesta buena reinicia la racha
       if (!lic) return;
 
-      const adj = await enriquecer(await construirConReadjudicacion(lic, codigo));
+      const base = await construirConReadjudicacion(lic, codigo);
+      // La caché compartida guarda la perspectiva de Grupo ICA (como siempre); cada empresa-cliente recalcula con SUS RUT.
+      const adj = await enriquecer(base, 1);
       // Refrescar el cache que lee el apartado Postuladas (best-effort). Esto es lo ÚNICO que
       // hace el cron de 2h (promover:false) → las adjudicadas se quedan en Postuladas.
       await guardarCache(codigo, adj);
 
-      if (adj.esAdjudicada && promover) await promoverYAvisar(codigo, negocios, adj, stats);
+      if (adj.esAdjudicada && promover) {
+        for (const g of await adjudicacionPorCliente(base, negocios)) await promoverYAvisar(codigo, g.negocios, g.adj, stats);
+      }
 
       // Revocada/Desierta: MP cerró el proceso SIN adjudicar a nadie → terminal para siempre. Antes
       // solo quedaba en adjudicacion_cache (chip en Postuladas): no se escribía licitacion_estado,
@@ -452,15 +466,31 @@ export async function reconfirmarCodigo(
   codigo: string,
   negocios: FilaResuelta[],
   stats: StatsReconfirmar,
+  /** Empresa para la que se devuelve la adjudicación enriquecida (la de quien aprieta «Volver a consultar»). */
+  clienteIdRespuesta = 1,
 ): Promise<Awaited<ReturnType<typeof enriquecer>> | null> {
   const lic = await client.obtenerPorCodigoRapido(codigo, TIMEOUT_DETALLE_MS);
   if (!lic) return null;
-  const adj = await enriquecer(await construirConReadjudicacion(lic, codigo));
-  await guardarCache(codigo, adj);
-  if (!adj.esAdjudicada) return adj; // MP aún no publica el acta — nada que corregir todavía
+  const base = await construirConReadjudicacion(lic, codigo);
+  const adjICA = await enriquecer(base, 1);   // la caché compartida guarda la perspectiva de Grupo ICA, como siempre
+  await guardarCache(codigo, adjICA);
+  if (!adjICA.esAdjudicada) return adjICA; // MP aún no publica el acta — nada que corregir todavía
 
+  let devuelta = adjICA;
+  for (const g of await adjudicacionPorCliente(base, negocios)) {
+    if (g.clienteId === clienteIdRespuesta) devuelta = g.adj;
+    await corregirNegociosConActa(codigo, g.negocios, g.adj, stats);
+  }
+  return devuelta;
+}
+
+// Corrige/avisa los negocios de UNA empresa con el resultado calculado con SUS RUT.
+async function corregirNegociosConActa(
+  codigo: string, negocios: FilaResuelta[], adj: RespuestaAdjudicacion, stats: StatsReconfirmar,
+): Promise<void> {
   const resultadoReal = adj.ganamos ? 'ADJUDICADA' : 'PERDIDA';
   for (const n of negocios) {
+    const cid = Number(n.cliente_id ?? 1);
     if (normalizarEstado(n.estado_pipeline) === resultadoReal) continue; // coincide con lo puesto a mano (o su alias legado): solo hacía falta el cache
     // MP dice algo DISTINTO de lo que había a mano → corrige y avisa (la verdad es el acta).
     await pool.query(`UPDATE negocios SET estado_pipeline = ?, updated_at = NOW() WHERE id = ?`, [resultadoReal, n.id]);
@@ -468,14 +498,17 @@ export async function reconfirmarCodigo(
     // Caso real: alguien la había marcado PERDIDA a mano y el acta dice que ganamos. Es una
     // victoria que nadie sabía que existía → también abre la entrega.
     if (adj.ganamos) {
-      await abrirEntregaSiCorresponde(n.id, codigo, n.asignado_a)
-        .then(abierta => { if (abierta) stats.entregasAbiertas++; })
-        .catch(e => console.error('[procesar-postuladas] abrir entrega (reconfirmar) falló:', String(e).slice(0, 200)));
-
-      await abrirComprasSiCorresponde(n.id, codigo, n.asignado_a)
-        .then(abierta => { if (abierta) stats.comprasAbiertas++; })
-        .catch(e => console.error('[procesar-postuladas] abrir compras (reconfirmar) falló:', String(e).slice(0, 200)));
-    } else {
+      if (await clienteTieneModulo(cid, 'entregas')) {
+        await abrirEntregaSiCorresponde(n.id, codigo, n.asignado_a)
+          .then(abierta => { if (abierta) stats.entregasAbiertas++; })
+          .catch(e => console.error('[procesar-postuladas] abrir entrega (reconfirmar) falló:', String(e).slice(0, 200)));
+      }
+      if (await clienteTieneModulo(cid, 'compras')) {
+        await abrirComprasSiCorresponde(n.id, codigo, n.asignado_a)
+          .then(abierta => { if (abierta) stats.comprasAbiertas++; })
+          .catch(e => console.error('[procesar-postuladas] abrir compras (reconfirmar) falló:', String(e).slice(0, 200)));
+      }
+    } else if (await clienteTieneModulo(cid, 'compras')) {
       // El acta dice que NO ganamos: si había pre-compra abierta, se cierra «sin adjudicar».
       await sincronizarPrecompraConEstado(n.id, codigo, n.asignado_a, resultadoReal);
     }
@@ -499,9 +532,9 @@ export async function reconfirmarCodigo(
       tipo: adj.ganamos ? 'ganada' : 'perdida',
       codigo, nombre: n.licitacion_nombre, monto: adj.montoNuestro ?? null,
       asignado: { id: n.asignado_a, nombre: n.usuario_nombre, email: n.usuario_email },
+      clienteId: cid,
     });
   }
-  return adj;
 }
 
 // Busca negocios YA en ADJUDICADA/PERDIDA (puestos a mano o por una promoción vieja) cuyo
@@ -517,7 +550,7 @@ async function reconfirmarResueltasSinCache(
   let filas: FilaPostulada[] = [];
   try {
     const [rows] = await pool.query(
-      `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a, n.estado_pipeline,
+      `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a, n.estado_pipeline, n.cliente_id,
               u.nombre AS usuario_nombre, u.email AS usuario_email
        FROM negocios n
        JOIN usuarios u ON u.id = n.asignado_a
@@ -572,16 +605,17 @@ async function reconfirmarResueltasSinCache(
 // Botón «Volver a consultar» del Resultado: reconsulta UN código en MP ahora mismo (sin esperar al
 // cron), refresca la adjudicación guardada y corrige/avisa los negocios ya en ADJUDICADA/PERDIDA.
 // Sirve para las readjudicaciones: el organismo cambia al ganador y MP actualiza la ficha.
-export async function reconsultarResultado(codigo: string) {
+// `clienteId`: la empresa de quien consulta. Solo se tocan SUS negocios y la respuesta se calcula con SUS RUT.
+export async function reconsultarResultado(codigo: string, clienteId = 1) {
   const [rows] = await pool.query(
-    `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a, n.estado_pipeline,
+    `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a, n.estado_pipeline, n.cliente_id,
             u.nombre AS usuario_nombre, u.email AS usuario_email
        FROM negocios n JOIN usuarios u ON u.id = n.asignado_a
-      WHERE n.activo = TRUE AND n.licitacion_codigo = ? AND n.estado_pipeline IN (${IN_RESUELTAS})`,
-    [codigo, ...ESTADOS_RESUELTAS],
+      WHERE n.activo = TRUE AND n.licitacion_codigo = ? AND n.cliente_id = ? AND n.estado_pipeline IN (${IN_RESUELTAS})`,
+    [codigo, clienteId, ...ESTADOS_RESUELTAS],
   ) as any[];
   const stats = { adjudicadas: 0, perdidas: 0, errores: 0, entregasAbiertas: 0, comprasAbiertas: 0 };
-  const adj = await reconfirmarCodigo(getMercadoPublicoClient(), codigo, rows as FilaResuelta[], stats);
+  const adj = await reconfirmarCodigo(getMercadoPublicoClient(), codigo, rows as FilaResuelta[], stats, clienteId);
   return { adj, cambios: stats.adjudicadas + stats.perdidas };
 }
 

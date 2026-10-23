@@ -12,6 +12,8 @@ export interface UsuarioSession {
   nombre: string | null;
   empresa: string | null;
   rol: 'admin' | 'usuario' | 'externo';
+  /** Empresa-cliente (1 = Grupo ICA). Del JWT es solo una pista: la fuente de verdad es estadoVigente(). */
+  clienteId?: number;
 }
 
 export interface TokenPayload extends JWTPayload {
@@ -20,6 +22,7 @@ export interface TokenPayload extends JWTPayload {
   nombre: string | null;
   empresa: string | null;
   rol: 'admin' | 'usuario' | 'externo';
+  clienteId?: number;
 }
 
 function getSecret(): Uint8Array {
@@ -49,5 +52,6 @@ export async function getSessionFromRequest(req: NextRequest): Promise<UsuarioSe
     nombre:  payload.nombre,
     empresa: payload.empresa,
     rol:     payload.rol,
+    clienteId: payload.clienteId,
   };
 }

@@ -13,6 +13,8 @@ export async function GET(request: NextRequest) {
   const usuario = await getAuthedUser(request);
   if (!usuario) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   if (usuario.rol !== 'admin') return NextResponse.json({ error: 'Solo el admin puede ver las descartadas' }, { status: 403 });
+  const clienteId = usuario.clienteId; // multi-cliente: solo lo de su empresa
+  if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   try {
     const [rows, usuariosRes] = await Promise.all([
@@ -25,10 +27,11 @@ export async function GET(request: NextRequest) {
            FROM negocios n
            JOIN usuarios u ON u.id = n.asignado_a
       LEFT JOIN usuarios d ON d.id = n.descarte_por
-          WHERE n.activo = TRUE AND n.estado_pipeline = 'DESCARTADA'
+          WHERE n.activo = TRUE AND n.cliente_id = ? AND n.estado_pipeline = 'DESCARTADA'
           ORDER BY COALESCE(n.descarte_at, n.updated_at) DESC`,
+        [clienteId],
       ),
-      pool.query(`SELECT id, nombre, email FROM usuarios WHERE activo = TRUE ORDER BY nombre ASC`),
+      pool.query(`SELECT id, nombre, email FROM usuarios WHERE activo = TRUE AND cliente_id = ? ORDER BY nombre ASC`, [clienteId]),
     ]);
     // ── Descartes hechos desde el RADAR (tabla licitaciones_descartadas) ──────────
     // Antes esta página solo mostraba los descartes de Negocios; lo descartado desde el
@@ -41,7 +44,8 @@ export async function GET(request: NextRequest) {
                 u.nombre AS descartada_por_nombre, u.email AS descartada_por_email
            FROM licitaciones_descartadas ld
       LEFT JOIN usuarios u ON u.id = ld.descartada_por
-          ORDER BY ld.created_at DESC`);
+          WHERE ld.cliente_id = ?
+          ORDER BY ld.created_at DESC`, [clienteId]);
       radar = rdRows as any[];
       const codigos = radar.map(r => r.licitacion_codigo);
       if (codigos.length) {
@@ -51,8 +55,8 @@ export async function GET(request: NextRequest) {
                   a.licitacion_monto, a.licitacion_cierre, a.licitacion_tipo
              FROM alertas_licitaciones a
              JOIN (SELECT MAX(id) AS mid FROM alertas_licitaciones
-                    WHERE licitacion_codigo IN (?) GROUP BY licitacion_codigo) latest ON latest.mid = a.id`,
-          [codigos]);
+                    WHERE cliente_id = ? AND licitacion_codigo IN (?) GROUP BY licitacion_codigo) latest ON latest.mid = a.id`,
+          [clienteId, codigos]);
         const porCodigo = new Map((aRows as any[]).map(r => [r.licitacion_codigo, r]));
         for (const r of radar) {
           const a = porCodigo.get(r.licitacion_codigo);

@@ -6,6 +6,7 @@ import { registrarActividad } from '@/app/lib/actividad';
 import { puedeVerLicitacion, esExterno } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
+import { clienteDeHeader } from '@/app/lib/tenant';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -15,8 +16,9 @@ function getUser(req: NextRequest) {
 
 type Params = { params: Promise<{ codigo: string }> };
 
-async function negocioIdDe(codigo: string): Promise<number | null> {
-  const [neg] = await pool.query(`SELECT id FROM negocios WHERE licitacion_codigo = ? AND activo = 1 LIMIT 1`, [codigo]) as any;
+// Multi-cliente: el negocio de ESTA empresa (la misma licitación puede estar en negocios de varias).
+async function negocioIdDe(codigo: string, clienteId: number): Promise<number | null> {
+  const [neg] = await pool.query(`SELECT id FROM negocios WHERE licitacion_codigo = ? AND activo = 1 AND cliente_id = ? LIMIT 1`, [codigo, clienteId]) as any;
   return (neg as any[])[0]?.id ?? null;
 }
 
@@ -34,12 +36,12 @@ const colsHilo = (conHilo: boolean) => conHilo ? 'c.padre_id, u.rol AS usuario_r
 
 // Responde un comentario. Los hilos son de un solo nivel: si se responde a una respuesta, cuelga del
 // comentario original. Avisa por la campana al autor del comentario respondido (si no es quien responde).
-async function responderComentario({ userId, codigo, padreId, origen, texto }: { userId: number; codigo: string; padreId: number; origen: 'licitacion' | 'negocio'; texto: string }) {
+async function responderComentario({ userId, clienteId, codigo, padreId, origen, texto }: { userId: number; clienteId: number; codigo: string; padreId: number; origen: 'licitacion' | 'negocio'; texto: string }) {
   try {
-    const negocioId = origen === 'negocio' ? await negocioIdDe(codigo) : null;
+    const negocioId = origen === 'negocio' ? await negocioIdDe(codigo, clienteId) : null;
     if (origen === 'negocio' && !negocioId) return { status: 404, cuerpo: { error: 'Negocio no encontrado' } };
     const tabla = origen === 'negocio' ? 'comentarios_negocio' : 'comentarios_licitacion';
-    const filtro = origen === 'negocio' ? 'negocio_id = ?' : 'licitacion_codigo = ?';
+    const filtro = origen === 'negocio' ? 'negocio_id = ?' : `licitacion_codigo = ? AND cliente_id = ${Number(clienteId)}`;
     const ambito = origen === 'negocio' ? negocioId : codigo;
 
     const [pr] = await pool.query(`SELECT id, usuario_id, padre_id FROM ${tabla} WHERE id = ? AND ${filtro}`, [padreId, ambito]) as any;
@@ -52,7 +54,7 @@ async function responderComentario({ userId, codigo, padreId, origen, texto }: {
 
     const [ins] = origen === 'negocio'
       ? await pool.query(`INSERT INTO comentarios_negocio (negocio_id, usuario_id, comentario, padre_id, created_at) VALUES (?, ?, ?, ?, ?)`, [negocioId, userId, texto, padre.id, ahoraChileSQL()])
-      : await pool.query(`INSERT INTO comentarios_licitacion (licitacion_codigo, usuario_id, comentario, padre_id, created_at) VALUES (?, ?, ?, ?, ?)`, [codigo, userId, texto, padre.id, ahoraChileSQL()]);
+      : await pool.query(`INSERT INTO comentarios_licitacion (licitacion_codigo, usuario_id, comentario, padre_id, created_at, cliente_id) VALUES (?, ?, ?, ?, ?, ?)`, [codigo, userId, texto, padre.id, ahoraChileSQL(), clienteId]);
 
     registrarActividad({
       usuarioId: userId, accion: origen === 'negocio' ? 'comentario_negocio' : 'comentario_licitacion',
@@ -66,7 +68,7 @@ async function responderComentario({ userId, codigo, padreId, origen, texto }: {
         try {
           const [aRows] = await pool.query(`SELECT nombre, email FROM usuarios WHERE id = ?`, [userId]);
           const actorNombre = (aRows as any[])[0]?.nombre || (aRows as any[])[0]?.email || 'Alguien';
-          const [nRows] = await pool.query(`SELECT licitacion_nombre FROM negocios WHERE licitacion_codigo = ? AND activo = 1 LIMIT 1`, [codigo]);
+          const [nRows] = await pool.query(`SELECT licitacion_nombre FROM negocios WHERE licitacion_codigo = ? AND activo = 1 AND cliente_id = ? LIMIT 1`, [codigo, clienteId]);
           await registrarEvento({
             tipo: 'COMENTARIO', licitacionCodigo: codigo, licitacionNombre: (nRows as any[])[0]?.licitacion_nombre ?? null,
             usuarioId: Number(padre.usuario_id), usuarioNombre: null, actorId: userId, actorNombre,
@@ -90,6 +92,8 @@ async function responderComentario({ userId, codigo, padreId, origen, texto }: {
 export async function GET(request: NextRequest, { params }: Params) {
   const { id: userId } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  const clienteId = clienteDeHeader(request);
+  if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
@@ -102,8 +106,8 @@ export async function GET(request: NextRequest, { params }: Params) {
               u.id AS usuario_id, u.nombre AS usuario_nombre, u.email AS usuario_email
        FROM comentarios_licitacion c
        JOIN usuarios u ON u.id = c.usuario_id
-       WHERE c.licitacion_codigo = ?`,
-      [codigoDecoded]);
+       WHERE c.licitacion_codigo = ? AND c.cliente_id = ?`,
+      [codigoDecoded, clienteId]);
 
     // Fusión con los comentarios del negocio vinculado a esta licitación (si existe): la
     // ficha de negocio ya los tenía, pero la ficha pública de la licitación no los mostraba
@@ -111,7 +115,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     // cada fila para que el DELETE sepa en qué tabla borrar.
     let rowsNeg: any[] = [];
     try {
-      const negocioId = await negocioIdDe(codigoDecoded);
+      const negocioId = await negocioIdDe(codigoDecoded, clienteId);
       if (negocioId) {
         rowsNeg = await consultarConHilo(conHilo =>
           `SELECT c.id, c.comentario, c.created_at, 'negocio' AS origen, c.pipeline_estado, ${colsHilo(conHilo)},
@@ -136,6 +140,8 @@ export async function GET(request: NextRequest, { params }: Params) {
 export async function POST(request: NextRequest, { params }: Params) {
   const { id: userId } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  const clienteId = clienteDeHeader(request);
+  if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
@@ -151,16 +157,16 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     // Respuesta a un comentario (hilo): se guarda en la MISMA tabla que el comentario original.
     if (padre_id) {
-      const r = await responderComentario({ userId, codigo: codigoDecoded, padreId: Number(padre_id), origen: origen === 'negocio' ? 'negocio' : 'licitacion', texto: comentario.trim() });
+      const r = await responderComentario({ userId, clienteId, codigo: codigoDecoded, padreId: Number(padre_id), origen: origen === 'negocio' ? 'negocio' : 'licitacion', texto: comentario.trim() });
       return NextResponse.json(r.cuerpo, { status: r.status });
     }
 
     // created_at EXPLÍCITO en hora de pared de Chile (mismo bug que actividad_usuario: el
     // DEFAULT CURRENT_TIMESTAMP lo pone el servidor MySQL de Bluehost, UTC-6, 2h atrás de Chile).
     const [result] = await pool.query(
-      `INSERT INTO comentarios_licitacion (licitacion_codigo, usuario_id, comentario, created_at)
-       VALUES (?, ?, ?, ?)`,
-      [codigoDecoded, userId, comentario.trim(), ahoraChileSQL()]
+      `INSERT INTO comentarios_licitacion (licitacion_codigo, usuario_id, comentario, created_at, cliente_id)
+       VALUES (?, ?, ?, ?, ?)`,
+      [codigoDecoded, userId, comentario.trim(), ahoraChileSQL(), clienteId]
     );
 
     registrarActividad({
@@ -180,6 +186,8 @@ export async function POST(request: NextRequest, { params }: Params) {
 export async function DELETE(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  const clienteId = clienteDeHeader(request);
+  if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
@@ -196,7 +204,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       try { await pool.query(`DELETE FROM ${tabla} WHERE padre_id = ?`, [id]); } catch { /* sin migration-138 no hay hilos */ }
     };
     if (origen === 'negocio') {
-      const negocioId = await negocioIdDe(codigoDecoded);
+      const negocioId = await negocioIdDe(codigoDecoded, clienteId);
       if (!negocioId) return NextResponse.json({ error: 'Negocio no encontrado' }, { status: 404 });
       const [r] = (rol === 'admin'
         ? await pool.query(`DELETE FROM comentarios_negocio WHERE id = ? AND negocio_id = ?`, [comentarioId, negocioId])
@@ -206,8 +214,8 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     }
 
     const [r] = (rol === 'admin'
-      ? await pool.query(`DELETE FROM comentarios_licitacion WHERE id = ? AND licitacion_codigo = ?`, [comentarioId, codigoDecoded])
-      : await pool.query(`DELETE FROM comentarios_licitacion WHERE id = ? AND licitacion_codigo = ? AND usuario_id = ?`, [comentarioId, codigoDecoded, userId])) as any;
+      ? await pool.query(`DELETE FROM comentarios_licitacion WHERE id = ? AND licitacion_codigo = ? AND cliente_id = ?`, [comentarioId, codigoDecoded, clienteId])
+      : await pool.query(`DELETE FROM comentarios_licitacion WHERE id = ? AND licitacion_codigo = ? AND usuario_id = ? AND cliente_id = ?`, [comentarioId, codigoDecoded, userId, clienteId])) as any;
     if ((r as any).affectedRows > 0) await borrarRespuestas('comentarios_licitacion', comentarioId);
     return NextResponse.json({ success: true });
   } catch (error) {

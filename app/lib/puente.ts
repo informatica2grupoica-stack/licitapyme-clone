@@ -11,16 +11,17 @@ import type { ConfigReparto, Estrategia, LicitacionPuente, PerfilDestino } from 
 const ESTRATEGIAS: Estrategia[] = ['equitativa', 'carga', 'categoria', 'monto', 'region', 'viabilidad', 'manual'];
 
 /** Todo lo que el motor necesita: qué hay en el puente y quiénes pueden recibirlo. */
-export async function contextoReparto(): Promise<{ licitaciones: LicitacionPuente[]; perfiles: PerfilDestino[] }> {
+export async function contextoReparto(clienteId: number): Promise<{ licitaciones: LicitacionPuente[]; perfiles: PerfilDestino[] }> {
   const [licRes, usuRes, carga] = await Promise.all([
     pool.query(
       `SELECT id, licitacion_codigo, licitacion_nombre, licitacion_organismo, licitacion_monto,
               licitacion_cierre, licitacion_estado, licitacion_tipo, licitacion_region,
               categoria_nombre, viabilidad_semaforo
        FROM puente_radar
-       ORDER BY agregado_en DESC, id DESC`),
-    pool.query(`SELECT id, nombre, email FROM usuarios WHERE activo = TRUE ORDER BY nombre ASC`),
-    cargaDeEquipo(),
+       WHERE cliente_id = ?
+       ORDER BY agregado_en DESC, id DESC`, [clienteId]),
+    pool.query(`SELECT id, nombre, email FROM usuarios WHERE activo = TRUE AND cliente_id = ? ORDER BY nombre ASC`, [clienteId]),
+    cargaDeEquipo(clienteId),
   ]);
 
   const mapCarga = new Map(carga.map(c => [c.usuario_id, c.total]));

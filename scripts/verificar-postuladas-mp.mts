@@ -94,7 +94,7 @@ const worker = async () => {
       const lic = await obtenerConReintento(codigo);
       if (!lic) { console.log(`⚠ ${codigo}: MP no devolvió datos (agotó reintentos)`); errores++; continue; }
 
-      const adj = await enriquecer(construirDesdeLicitacion(lic, codigo));
+      const adj = await enriquecer(construirDesdeLicitacion(lic, codigo), 1);
       if (COMMIT) await guardarCache(codigo, adj);
 
       if (!adj.esAdjudicada) {

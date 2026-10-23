@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { guardarDocumentoEnCache } from '@/app/services/documentosService.server';
 import { registrarActividad, userIdFromHeaders } from '@/app/lib/actividad';
-import { puedeVerLicitacion } from '@/app/lib/api-auth';
+import { getClienteId, puedeVerLicitacion } from '@/app/lib/api-auth';
+import { codigoAlmacenDocs } from '@/app/lib/tenant';
 import { codigoLicitacionSeguro, MAX_BYTES_DOCUMENTO } from '@/app/lib/validar-entrada';
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -39,6 +40,8 @@ export async function POST(request: NextRequest) {
     }
 
     const resultado: { nombre: string; url: string; size: number }[] = [];
+    // Multi-cliente: los archivos que sube una empresa-cliente quedan bajo SU código (R2 y base); Grupo ICA, igual que siempre.
+    const codigoAlmacen = codigoAlmacenDocs(await getClienteId(request), licitacionCodigo);
 
     for (const file of files) {
       const nombre = file.name;
@@ -51,8 +54,9 @@ export async function POST(request: NextRequest) {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
 
-      const publicUrl = await subirDocumentoR2(licitacionCodigo, nombre, buffer, contentType);
-      await guardarDocumentoEnCache(licitacionCodigo, nombre, publicUrl, buffer.length);
+      const publicUrl = await subirDocumentoR2(codigoAlmacen, nombre, buffer, contentType);
+      // subido por una persona de la empresa = propio de ella (cliente_id 1/N), no un documento oficial compartido
+      await guardarDocumentoEnCache(codigoAlmacen, nombre, publicUrl, buffer.length, 'propio');
 
       // Bitácora: subió un documento a esta licitación (best-effort, aparece en el Historial).
       registrarActividad({

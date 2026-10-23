@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { tienePermiso } from '@/app/lib/api-auth';
 import { respuestaDesdeCache, enriquecer } from '@/app/lib/adjudicacion';
+import { clienteDeHeader } from '@/app/lib/tenant';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,6 +26,9 @@ function getUser(req: NextRequest) {
 export async function GET(request: NextRequest) {
   const { id: userId } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  // Multi-cliente: solo los negocios, las OC y los RUT de la propia empresa.
+  const clienteId = clienteDeHeader(request);
+  if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   try {
     // Alcance por rol: admin ve todas; el resto solo las suyas (igual que /api/negocios).
@@ -33,11 +37,11 @@ export async function GET(request: NextRequest) {
     // Postuladas y /adjudicadas comparten la MISMA fuente instantánea y sus conteos cuadran.
     const ESTADOS = `n.estado_pipeline IN ('POSTULADA','POSIBLE_ADJ','ADJUDICADA','PERDIDA')`;
     const where = verOtros
-      ? `n.activo = TRUE AND ${ESTADOS}`
-      : `n.activo = TRUE AND ${ESTADOS} AND n.asignado_a = ?`;
+      ? `n.cliente_id = ? AND n.activo = TRUE AND ${ESTADOS}`
+      : `n.cliente_id = ? AND n.activo = TRUE AND ${ESTADOS} AND n.asignado_a = ?`;
     const [rows] = await pool.query(
       `SELECT DISTINCT n.licitacion_codigo AS codigo FROM negocios n WHERE ${where}`,
-      verOtros ? [] : [userId],
+      verOtros ? [clienteId] : [clienteId, userId],
     ) as any[];
     const codigos = (rows as any[]).map(r => r.codigo).filter(Boolean) as string[];
     if (codigos.length === 0) return NextResponse.json({ estados: {} });
@@ -71,8 +75,9 @@ export async function GET(request: NextRequest) {
         `SELECT licitacion_codigo, DATE_FORMAT(MAX(COALESCE(fecha_envio, fecha_creacion)), '%Y-%m-%d') AS llegada,
                 DATE_FORMAT(MAX(fecha_aceptacion), '%Y-%m-%d') AS aceptada,
                 GROUP_CONCAT(codigo ORDER BY COALESCE(fecha_envio, fecha_creacion) DESC, codigo DESC SEPARATOR ',') AS codigos
-           FROM ordenes_compra WHERE es_nuestra = 1 AND licitacion_codigo IN (${ph}) GROUP BY licitacion_codigo`,
-        codigos,
+           FROM ordenes_compra WHERE es_nuestra = 1 AND licitacion_codigo IN (${ph})
+            AND empresa_id IN (SELECT id FROM empresas WHERE cliente_id = ?) GROUP BY licitacion_codigo`,
+        [...codigos, clienteId],
       ) as any[];
       for (const r of ocRows as any[]) ocPorCodigo.set(r.licitacion_codigo, { llegada: r.llegada ?? null, aceptada: r.aceptada ?? null, codigos: r.codigos ? String(r.codigos).split(',') : [] });
     } catch { /* migración 64 pendiente → sin fechas de OC */ }
@@ -81,7 +86,7 @@ export async function GET(request: NextRequest) {
     const estados: Record<string, any> = {};
     for (const codigo of codigos) {
       const row = cachePorCodigo.get(codigo);
-      const adj = row ? await enriquecer(respuestaDesdeCache(codigo, row)) : null;
+      const adj = row ? await enriquecer(respuestaDesdeCache(codigo, row), clienteId) : null;
       const esAdjudicada = !!adj?.esAdjudicada;
       estados[codigo] = {
         // BUG real (24-jul-2026): esta entrada se creaba SIEMPRE, con esAdjudicada=false cuando

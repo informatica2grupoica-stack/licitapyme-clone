@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser, puedeVerLicitacion } from '@/app/lib/api-auth';
+import { clienteDeHeader } from '@/app/lib/tenant';
 import {
   registrarActividadDiaria, LABEL_SECCION, SECCIONES_ACTIVIDAD,
   type AccionActividad, type SeccionActividad,
@@ -80,8 +81,11 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(parseInt(searchParams.get('limit') || '300', 10) || 300, 1000);
 
   try {
-    const where: string[] = [];
-    const params: unknown[] = [];
+    // Multi-cliente: solo la actividad de la propia empresa.
+    const clienteId = clienteDeHeader(request);
+    if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+    const where: string[] = ['a.cliente_id = ?'];
+    const params: unknown[] = [clienteId];
     if (filtroUsuario) { where.push('a.usuario_id = ?'); params.push(parseInt(filtroUsuario, 10)); }
     if (filtroAccion)  { where.push('a.accion = ?');     params.push(filtroAccion); }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
@@ -100,7 +104,7 @@ export async function GET(request: NextRequest) {
     );
 
     const [usuarios] = await pool.query(
-      `SELECT id, nombre, email FROM usuarios WHERE activo = TRUE ORDER BY nombre ASC`,
+      `SELECT id, nombre, email FROM usuarios WHERE activo = TRUE AND cliente_id = ? ORDER BY nombre ASC`, [clienteId],
     );
 
     return NextResponse.json({ success: true, actividad: rows, usuarios });

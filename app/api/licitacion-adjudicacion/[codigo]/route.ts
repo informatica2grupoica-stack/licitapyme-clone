@@ -16,7 +16,7 @@
 // único que consulta MP y llena `adjudicacion_cache` es el cron de 5 min (procesar-postuladas /
 // estados-asignadas); esta ruta solo lee lo que haya ahí, aunque no haya nada todavía.
 import { NextRequest, NextResponse } from 'next/server';
-import { puedeVerLicitacion } from '@/app/lib/api-auth';
+import { getClienteId, puedeVerLicitacion } from '@/app/lib/api-auth';
 import { obtenerAdjudicacion } from '@/app/lib/adjudicacion';
 
 export const runtime = 'nodejs';
@@ -33,7 +33,7 @@ export async function GET(
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
 
   try {
-    const r = await obtenerAdjudicacion(cod, { sinRed: true });
+    const r = await obtenerAdjudicacion(cod, { sinRed: true, clienteId: await getClienteId(request) });
     if (r) return NextResponse.json(r);
     // Sin fila en adjudicacion_cache todavía (el cron aún no le tocó el turno a este código, o
     // sigue Publicada y nada la ha declarado terminal): NO es un error, es el estado normal

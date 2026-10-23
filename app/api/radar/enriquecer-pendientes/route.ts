@@ -24,6 +24,7 @@ import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import type { Licitacion } from '@/app/types/mercado-publico.types';
 import { leerCache, planificarEnriquecimiento, enriquecerYCachear } from '@/app/lib/licitaciones-cache';
 import { cargarKeywordsRadar, matchearEInsertar } from '@/app/lib/radar-matching';
+import { clienteDeHeader } from '@/app/lib/tenant';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -87,6 +88,11 @@ export async function POST(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   if (!esAdmin(request)) return NextResponse.json({ error: 'Solo administradores' }, { status: 403 });
+  // Multi-cliente: el enriquecimiento masivo gasta la cuota de la API de Mercado Público, que es de todos, y lo mantiene Grupo ICA en la caché compartida.
+  // Una empresa-cliente no lo dispara: su «Actualizar ahora» ya terminó con lo que hay en la caché.
+  if (clienteDeHeader(request) !== 1) {
+    return NextResponse.json({ success: true, completado: true, pendientes: 0, procesados: [], alertasNuevas: 0, excluidasPorNegativa: 0 });
+  }
 
   if (!process.env.MERCADO_PUBLICO_TICKET) {
     return NextResponse.json({ error: 'MERCADO_PUBLICO_TICKET no configurado' }, { status: 503 });

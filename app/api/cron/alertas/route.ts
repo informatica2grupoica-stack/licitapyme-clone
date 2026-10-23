@@ -121,7 +121,7 @@ function extraerContexto(lic: Licitacion, keyword: string): string {
 }
 
 // ── Helper: INSERT IGNORE por lote ────────────────────────────────────────────
-type KwRow = { id: number; usuario_id: number; keyword: string };
+type KwRow = { id: number; usuario_id: number; cliente_id: number; keyword: string }; // cliente_id: empresa dueña (multi-cliente)
 type Coincidencia = { lic: Licitacion; fuente: string; contexto: string; score: number };
 
 async function batchInsertAlertas(
@@ -138,11 +138,12 @@ async function batchInsertAlertas(
     try {
       // INSERT completo con ON DUPLICATE KEY UPDATE para rellenar campos vacíos en alertas ya existentes
       // (organismo, monto, región y fecha_publicacion quedan vacíos cuando la licitación no fue enriquecida)
-      const placeholders = chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+      const placeholders = chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
       const values: unknown[] = [];
       for (const { lic, fuente, contexto, score } of chunk) {
         values.push(
           kw.usuario_id,
+          kw.cliente_id,
           kw.id,
           kw.keyword,
           lic.Codigo,
@@ -161,7 +162,7 @@ async function batchInsertAlertas(
       }
       const [res] = await pool.query(
         `INSERT INTO alertas_licitaciones
-           (usuario_id, palabra_clave_id, keyword_texto, licitacion_codigo,
+           (usuario_id, cliente_id, palabra_clave_id, keyword_texto, licitacion_codigo,
             licitacion_nombre, licitacion_organismo, licitacion_monto,
             licitacion_cierre, licitacion_fecha_publicacion,
             licitacion_estado, licitacion_region,
@@ -188,11 +189,11 @@ async function batchInsertAlertas(
       // Fallback 1: falta match_score (migración 19 pendiente) pero existen
       // match_fuente/contexto (migración 10). Insertamos sin match_score.
       try {
-        const placeholders = chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+        const placeholders = chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
         const values: unknown[] = [];
         for (const { lic, fuente, contexto } of chunk) {
           values.push(
-            kw.usuario_id, kw.id, kw.keyword, lic.Codigo,
+            kw.usuario_id, kw.cliente_id, kw.id, kw.keyword, lic.Codigo,
             lic.Nombre?.substring(0, 500)    ?? null,
             lic.Organismo?.substring(0, 500) || null,
             lic.MontoEstimado                || null,
@@ -207,7 +208,7 @@ async function batchInsertAlertas(
         }
         const [res] = await pool.query(
           `INSERT INTO alertas_licitaciones
-             (usuario_id, palabra_clave_id, keyword_texto, licitacion_codigo,
+             (usuario_id, cliente_id, palabra_clave_id, keyword_texto, licitacion_codigo,
               licitacion_nombre, licitacion_organismo, licitacion_monto,
               licitacion_cierre, licitacion_fecha_publicacion,
               licitacion_estado, licitacion_region,
@@ -228,11 +229,11 @@ async function batchInsertAlertas(
         if (!String(e2).toLowerCase().includes('unknown column')) continue;
         // Fallback 2: faltan también match_fuente/contexto/etc (migración 10 pendiente).
         try {
-          const placeholders = chunk.map(() => '(?,?,?,?,?,?,?,?,?,?)').join(',');
+          const placeholders = chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?)').join(',');
           const values: unknown[] = [];
           for (const { lic } of chunk) {
             values.push(
-              kw.usuario_id, kw.id, kw.keyword, lic.Codigo,
+              kw.usuario_id, kw.cliente_id, kw.id, kw.keyword, lic.Codigo,
               lic.Nombre?.substring(0, 500)    ?? null,
               lic.Organismo?.substring(0, 500) || null,
               lic.MontoEstimado                || null,
@@ -243,7 +244,7 @@ async function batchInsertAlertas(
           }
           const [res] = await pool.query(
             `INSERT IGNORE INTO alertas_licitaciones
-               (usuario_id, palabra_clave_id, keyword_texto, licitacion_codigo,
+               (usuario_id, cliente_id, palabra_clave_id, keyword_texto, licitacion_codigo,
                 licitacion_nombre, licitacion_organismo, licitacion_monto,
                 licitacion_cierre, licitacion_estado, licitacion_region)
              VALUES ${placeholders}`,
@@ -348,19 +349,19 @@ export async function GET(request: NextRequest) {
     let kwsNeg: KwRow[] = [];
     try {
       const [rows] = await pool.query(
-        `SELECT pk.id, pk.usuario_id, pk.keyword, pk.es_negativa
+        `SELECT pk.id, pk.usuario_id, pk.cliente_id, pk.keyword, pk.es_negativa
          FROM palabras_clave pk
          JOIN usuarios u ON u.id = pk.usuario_id AND u.activo = TRUE
          WHERE pk.activo = TRUE
          ORDER BY ISNULL(pk.ultima_busqueda) DESC, pk.ultima_busqueda ASC, pk.id ASC`,
       );
       for (const r of rows as any[]) {
-        const kw: KwRow = { id: r.id, usuario_id: r.usuario_id, keyword: r.keyword };
+        const kw: KwRow = { id: r.id, usuario_id: r.usuario_id, cliente_id: Number(r.cliente_id), keyword: r.keyword };
         if (Number(r.es_negativa) === 1) kwsNeg.push(kw); else kws.push(kw);
       }
     } catch {
       const [rows] = await pool.query(
-        `SELECT pk.id, pk.usuario_id, pk.keyword
+        `SELECT pk.id, pk.usuario_id, pk.cliente_id, pk.keyword
          FROM palabras_clave pk
          JOIN usuarios u ON u.id = pk.usuario_id AND u.activo = TRUE
          WHERE pk.activo = TRUE
@@ -393,11 +394,16 @@ export async function GET(request: NextRequest) {
     // ── Paso 3.5: Excluir por palabras NEGATIVAS ──────────────────────────────
     // Una licitación que calza CUALQUIER keyword negativa queda excluida y no
     // genera alertas, aunque calce positivas. Se evalúa una sola vez por licitación.
+    // POR EMPRESA (multi-cliente): la negativa de un cliente solo excluye para ese cliente. Clave "cliente:codigo".
     const excluidasNeg = new Set<string>();
     if (kwsNeg.length > 0) {
-      for (const lic of licitacionesFinales) {
-        const idx = indices.get(lic.Codigo)!;
-        if (kwsNeg.some(neg => evaluarKeyword(idx, neg.keyword).match)) excluidasNeg.add(lic.Codigo);
+      const negPorCliente = new Map<number, KwRow[]>();
+      for (const n of kwsNeg) { const l = negPorCliente.get(n.cliente_id); if (l) l.push(n); else negPorCliente.set(n.cliente_id, [n]); }
+      for (const [cid, negs] of negPorCliente) {
+        for (const lic of licitacionesFinales) {
+          const idx = indices.get(lic.Codigo)!;
+          if (negs.some(neg => evaluarKeyword(idx, neg.keyword).match)) excluidasNeg.add(`${cid}:${lic.Codigo}`);
+        }
       }
       console.log(`[Cron] 🚫 ${excluidasNeg.size} licitaciones excluidas por palabras negativas`);
     }
@@ -412,7 +418,7 @@ export async function GET(request: NextRequest) {
         // entrega score de relevancia. Reemplaza el includes() literal.
         const coincidencias: Coincidencia[] = [];
         for (const lic of licitacionesFinales) {
-          if (excluidasNeg.has(lic.Codigo)) continue; // palabra negativa manda
+          if (excluidasNeg.has(`${kw.cliente_id}:${lic.Codigo}`)) continue; // palabra negativa (de su misma empresa) manda
           const r = evaluarKeyword(indices.get(lic.Codigo)!, kw.keyword);
           if (!r.match) continue;
           matchedCodigos.add(lic.Codigo);

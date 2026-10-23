@@ -6,10 +6,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser, permisosDeUsuario } from '@/app/lib/api-auth';
+import { CLIENTE_ICA, codigoAlmacenDocs } from '@/app/lib/tenant';
 
 export async function POST(request: NextRequest) {
   const u = await getAuthedUser(request);
-  if (!u) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  if (!u || !u.clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  const clienteId = u.clienteId;
 
   let body: any;
   try { body = await request.json(); } catch { body = {}; }
@@ -32,8 +34,8 @@ export async function POST(request: NextRequest) {
       if (!p.ver_otros_negocios && u.rol === 'externo') {
         const [asig] = await pool.query(
           `SELECT DISTINCT licitacion_codigo FROM negocios
-           WHERE asignado_a = ? AND activo = TRUE AND licitacion_codigo IN (?)`,
-          [u.id, codigos],
+           WHERE asignado_a = ? AND activo = TRUE AND cliente_id = ? AND licitacion_codigo IN (?)`,
+          [u.id, clienteId, codigos],
         ) as any[];
         const set = new Set((asig as any[]).map(r => r.licitacion_codigo));
         permitidos = codigos.filter(c => set.has(c));
@@ -41,23 +43,31 @@ export async function POST(request: NextRequest) {
     }
     if (permitidos.length === 0) return NextResponse.json({ success: true, docs: {} });
 
+    // Multi-cliente: oficiales compartidos (cliente_id 0) + los propios de la empresa, guardados bajo el código con prefijo (ver tenant.ts).
+    // Grupo ICA queda igual que siempre: todo lo que está bajo el código a secas.
+    const esICA = clienteId === CLIENTE_ICA;
+    const propios = esICA ? [] : permitidos.map(c => codigoAlmacenDocs(clienteId, c));
+    const filtroCod = esICA
+      ? 'licitacion_codigo IN (?)'
+      : '((licitacion_codigo IN (?) AND cliente_id = 0) OR licitacion_codigo IN (?))';
+    const paramsCod: unknown[] = esICA ? [permitidos] : [permitidos, propios];
     let rows: any[];
     try {
       [rows] = await pool.query(
         `SELECT licitacion_codigo, documento_nombre, documento_url_local, size_bytes, categoria, created_at
          FROM documentos_cache
-         WHERE licitacion_codigo IN (?)${categoria ? ' AND UPPER(categoria) = ?' : ''}
+         WHERE ${filtroCod}${categoria ? ' AND UPPER(categoria) = ?' : ''}
          ORDER BY created_at ASC`,
-        categoria ? [permitidos, categoria.toUpperCase()] : [permitidos],
+        categoria ? [...paramsCod, categoria.toUpperCase()] : paramsCod,
       ) as any[];
     } catch {
       // columna 'categoria' no existe aún — fallback sin ella (ignora el filtro de categoría)
       [rows] = await pool.query(
         `SELECT licitacion_codigo, documento_nombre, documento_url_local, size_bytes, created_at
          FROM documentos_cache
-         WHERE licitacion_codigo IN (?)
+         WHERE ${filtroCod}
          ORDER BY created_at ASC`,
-        [permitidos],
+        paramsCod,
       ) as any[];
     }
 
@@ -65,7 +75,9 @@ export async function POST(request: NextRequest) {
     const docs: Record<string, any[]> = {};
     for (const c of permitidos) docs[c] = [];
     for (const row of rows as any[]) {
-      (docs[row.licitacion_codigo] ||= []).push(row);
+      // el código con prefijo de empresa vuelve a ser el código de la licitación para quien consulta
+      const cod = String(row.licitacion_codigo).replace(/^c\d+:/, '');
+      (docs[cod] ||= []).push({ ...row, licitacion_codigo: cod });
     }
 
     return NextResponse.json({ success: true, docs });

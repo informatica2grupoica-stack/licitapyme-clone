@@ -23,6 +23,7 @@ import { permisosDeUsuario } from '@/app/lib/api-auth';
 import { estadoEfectivoNombre } from '@/app/lib/estado-mp';
 import { normalizarEstado, ESTADOS_PIPELINE } from '@/app/lib/pipeline';
 import { rutsNuestros, normRut } from '@/app/lib/adjudicacion';
+import { clienteDeHeader } from '@/app/lib/tenant';
 
 function getUser(request: NextRequest) {
   const id = request.headers.get('x-user-id');
@@ -57,6 +58,9 @@ export async function GET(request: NextRequest) {
   const permisos = await permisosDeUsuario(sesion.id, sesion.rol);
   const verOtros = sesion.rol === 'admin' || !!permisos.ver_otros_negocios;
   if (!verOtros) return NextResponse.json({ error: 'Sin permiso' }, { status: 403 });
+  // Multi-cliente: el tablero es solo de la empresa de quien consulta.
+  const clienteId = clienteDeHeader(request);
+  if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   try {
     // ── 1) Negocios activos + joins tolerantes (empresa, apertura, adjudicación) ──────────
@@ -80,7 +84,8 @@ export async function GET(request: NextRequest) {
        LEFT JOIN empresas e            ON e.id = n.empresa_id
        LEFT JOIN licitacion_apertura ap ON ap.licitacion_codigo = n.licitacion_codigo
        LEFT JOIN adjudicacion_cache ac  ON ac.licitacion_codigo = n.licitacion_codigo
-       WHERE n.activo = TRUE`,
+       WHERE n.activo = TRUE AND n.cliente_id = ?`,
+      [clienteId],
     );
 
     // Fallback si algún JOIN raro rompiera la query (tabla ausente): traer lo mínimo.
@@ -91,7 +96,8 @@ export async function GET(request: NextRequest) {
               n.descarte_motivo, n.descarte_at, n.monto_ofertado, n.empresa_id, n.created_at,
               n.asignado_a, u.nombre AS analista_nombre, u.email AS analista_email
        FROM negocios n LEFT JOIN usuarios u ON u.id = n.asignado_a
-       WHERE n.activo = TRUE`,
+       WHERE n.activo = TRUE AND n.cliente_id = ?`,
+      [clienteId],
     );
 
     const ids = negocios.map(n => n.id);
@@ -143,7 +149,7 @@ export async function GET(request: NextRequest) {
     // ── 3) Enriquecer cada negocio ────────────────────────────────────────────────────────
     // RUT de nuestras empresas: para decidir "ganamos" igual que Postuladas (por RUT en las
     // líneas adjudicadas), SIN depender de que el cron haya promovido estado_pipeline.
-    const nuestros = await rutsNuestros();
+    const nuestros = await rutsNuestros(clienteId);
     const UNIVERSO_POSTULADA = ['POSTULADA', 'POSIBLE_ADJ', 'ADJUDICADA', 'PERDIDA'];
 
     const rows = negocios.map(n => {

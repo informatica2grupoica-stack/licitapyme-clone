@@ -3,11 +3,12 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconPackage as PackageCheck, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders, IconBug as Bug, IconCoin as Coin, IconBrain as Brain } from '@tabler/icons-react';
+import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconPackage as PackageCheck, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders, IconBug as Bug, IconCoin as Coin, IconBrain as Brain, IconLock as Lock } from '@tabler/icons-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { Tooltip } from '@/app/components/ui/Tooltip';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
-import { useSession } from '@/app/lib/session-context';
+import { useSession, tieneModulo } from '@/app/lib/session-context';
+import { moduloDeRuta, NOMBRE_MODULO, type Modulo } from '@/app/lib/modulos';
 import { useToast } from '@/app/components/ui/toast';
 import { useTheme } from '@/app/lib/theme-context';
 import { EntregaPendienteModal } from '@/app/components/EntregaPendienteModal';
@@ -28,7 +29,7 @@ function tiempoRel(iso?: string) {
 
 interface BreadcrumbItem { label: string; href?: string; }
 interface AppLayoutProps { children: React.ReactNode; breadcrumb?: BreadcrumbItem[]; title?: string; }
-interface NavItem { label: string; href: string; icon: React.ReactNode; adminOnly?: boolean; badge?: number | string; exact?: boolean; }
+interface NavItem { label: string; href: string; icon: React.ReactNode; adminOnly?: boolean; badge?: number | string; exact?: boolean; bloqueado?: Modulo; }
 interface NavGroup { label: string; items: NavItem[]; }
 
 // PRINCIPAL sigue el ciclo REAL del negocio, en el orden en que ocurre (31-jul-2026, pedido
@@ -104,6 +105,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'ADMIN',
     items: [
       { label: 'Usuarios',       href: '/admin/usuarios',  icon: <Users size={17} />, adminOnly: true },
+      { label: 'Empresas-cliente', href: '/admin/clientes', icon: <Building2 size={17} />, adminOnly: true },
       { label: 'Empresas',       href: '/empresas',        icon: <Building2 size={17} />, adminOnly: true },
       { label: 'Líneas negocio', href: '/admin/etiquetas', icon: <Tag size={17} />, adminOnly: true },
       // Reportes del botón flotante "Reportar error" (components/ReportarErrorBoton) de todos los perfiles.
@@ -202,9 +204,12 @@ function UserMenu({ dark = false, angosto = false }: { dark?: boolean; angosto?:
           )}
           {usuario.rol === 'admin' && (
             <>
-              <Link href="/admin/usuarios" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.06] transition-colors">
-                <Users size={15} className="text-slate-400" /> Administrar usuarios
-              </Link>
+              {/* La administración de usuarios es de Grupo ICA; una empresa-cliente no la ve (el servidor también la bloquea). */}
+              {(usuario.clienteId == null || usuario.clienteId === 1) && (
+                <Link href="/admin/usuarios" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.06] transition-colors">
+                  <Users size={15} className="text-slate-400" /> Administrar usuarios
+                </Link>
+              )}
               <Link href="/admin/etiquetas" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.06] transition-colors">
                 <Tag size={15} className="text-slate-400" /> Líneas de negocio
               </Link>
@@ -377,6 +382,18 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
     }),
   })).map(group => ({
     ...group,
+    // Multi-cliente: una empresa-cliente ve lo suyo y lo que contrató. Lo que no contrató sigue visible pero en gris (con candado y aviso);
+    // lo interno de Grupo ICA (administración, gasto de IA…) no se muestra. Grupo ICA queda tal cual. El servidor lo hace cumplir igual (proxy.ts).
+    items: usuario && usuario.clienteId != null && usuario.clienteId !== 1
+      ? group.items.flatMap((i): NavItem[] => {
+          const mod = moduloDeRuta(i.href);
+          if (mod === 'comun') return [i];
+          if (mod === null || mod === 'interno') return [];
+          return tieneModulo(usuario, mod) ? [i] : [{ ...i, bloqueado: mod }];
+        })
+      : group.items,
+  })).map(group => ({
+    ...group,
     items: group.items.map(i => {
       if (i.href === '/aprobaciones')
         return { ...i, badge: totalAprobacionesPendientes > 0 ? totalAprobacionesPendientes : undefined };
@@ -469,6 +486,21 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
                 <div className="space-y-0.5">
                   {group.items.map(item => {
                     const active = isActive(item);
+                    if (item.bloqueado) {
+                      const nombre = NOMBRE_MODULO[item.bloqueado];
+                      return (
+                        <Tooltip key={item.href} label={`${item.label} — ${nombre} no está incluido en tu plan`}>
+                          <Link href={`/modulo-bloqueado?m=${item.bloqueado}`} onClick={onCloseMobile} aria-disabled="true"
+                            className={`group flex items-center gap-3 py-2.5 text-[13px] rounded-xl font-medium text-slate-600 opacity-60 hover:opacity-80 transition-opacity ${angosto ? 'px-3 lg:px-0 lg:justify-center lg:gap-0' : 'px-3'}`}>
+                            <span className="relative flex-shrink-0 text-slate-600">{item.icon}</span>
+                            <span className={clsEtiqueta}>
+                              <span className="flex-1 truncate text-left">{item.label}</span>
+                              <Lock size={13} className="flex-shrink-0 text-slate-500" />
+                            </span>
+                          </Link>
+                        </Tooltip>
+                      );
+                    }
                     return (
                       <Tooltip key={item.href} label={item.label} disabled={!angosto}>
                         <Link href={item.href} onClick={onCloseMobile}

@@ -13,6 +13,7 @@ import pool from '@/app/lib/db';
 import { getAuthedUser, tienePermiso } from '@/app/lib/api-auth';
 import { cargaDeEquipo } from '@/app/lib/carga-perfiles';
 import { registrarActividad } from '@/app/lib/actividad';
+import { clienteTieneModulo } from '@/app/lib/tenant';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,12 +38,13 @@ const codigosDelBody = (body: unknown): string[] => {
 export async function GET(request: NextRequest) {
   const g = await exigirPermiso(request);
   if (g.error) return g.error;
+  const clienteId = g.usuario!.clienteId; // multi-cliente: solo el puente, los perfiles y la carga de la propia empresa
 
   // ?resumen=1 → solo el contador (lo usa el badge del menú: pedir el puente completo en
   // cada carga de página sería tirar la lista entera por un número).
   if (new URL(request.url).searchParams.get('resumen') === '1') {
     try {
-      const [[fila]] = await pool.query(`SELECT COUNT(*) AS total FROM puente_radar`) as any[];
+      const [[fila]] = await pool.query(`SELECT COUNT(*) AS total FROM puente_radar WHERE cliente_id = ?`, [g.usuario!.clienteId]) as any[];
       return NextResponse.json({ success: true, total: fila?.total || 0 });
     } catch {
       return NextResponse.json({ success: true, total: 0, _migrationPending: true });
@@ -58,10 +60,11 @@ export async function GET(request: NextRequest) {
                 licitacion_cierre, licitacion_estado, licitacion_tipo, licitacion_region,
                 categoria_nombre, viabilidad_semaforo, agregado_por, agregado_en
          FROM puente_radar
-         ORDER BY agregado_en DESC, id DESC`),
+         WHERE cliente_id = ?
+         ORDER BY agregado_en DESC, id DESC`, [clienteId]),
       pool.query(
-        `SELECT id, nombre, email, rol FROM usuarios WHERE activo = TRUE ORDER BY nombre ASC`),
-      cargaDeEquipo(),
+        `SELECT id, nombre, email, rol FROM usuarios WHERE activo = TRUE AND cliente_id = ? ORDER BY nombre ASC`, [clienteId]),
+      cargaDeEquipo(clienteId!),
     ]);
 
     if (licRes.status === 'rejected') {
@@ -120,6 +123,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const g = await exigirPermiso(request);
   if (g.error) return g.error;
+  const clienteId = g.usuario!.clienteId!;
 
   let body: unknown;
   try { body = await request.json(); } catch { body = {}; }
@@ -134,7 +138,7 @@ export async function POST(request: NextRequest) {
     const [asigRows] = await pool.query(
       `SELECT n.licitacion_codigo, u.nombre, u.email
        FROM negocios n JOIN usuarios u ON u.id = n.asignado_a
-       WHERE n.activo = TRUE AND n.licitacion_codigo IN (${ph})`, codigos) as any[];
+       WHERE n.activo = TRUE AND n.cliente_id = ? AND n.licitacion_codigo IN (${ph})`, [clienteId, ...codigos]) as any[];
     const yaAsignadas = new Map<string, string>(
       (asigRows as any[]).map(r => [r.licitacion_codigo, r.nombre || r.email]));
 
@@ -146,14 +150,15 @@ export async function POST(request: NextRequest) {
               cat.nombre AS categoria_nombre
        FROM alertas_licitaciones a
        JOIN (SELECT MAX(id) AS mid FROM alertas_licitaciones
-             WHERE licitacion_codigo IN (${ph}) GROUP BY licitacion_codigo) ult ON ult.mid = a.id
+             WHERE cliente_id = ? AND licitacion_codigo IN (${ph}) GROUP BY licitacion_codigo) ult ON ult.mid = a.id
        LEFT JOIN palabras_clave pc ON pc.id = a.palabra_clave_id
-       LEFT JOIN etiquetas cat     ON cat.id = pc.categoria_id`, codigos) as any[];
+       LEFT JOIN etiquetas cat     ON cat.id = pc.categoria_id`, [clienteId, ...codigos]) as any[];
     const datos = new Map<string, any>((datosRows as any[]).map(r => [r.licitacion_codigo, r]));
 
     // Semáforo de viabilidad (si ya se analizó): sirve como criterio de reparto.
     let semaforos = new Map<string, string>();
-    try {
+    // (el semáforo es análisis de IA de Grupo ICA: un cliente lo usa solo si contrató Viabilidad)
+    if (await clienteTieneModulo(clienteId, 'viabilidad')) try {
       const [vRows] = await pool.query(
         `SELECT licitacion_codigo, semaforo FROM viabilidad_licitacion
          WHERE licitacion_codigo IN (${ph})`, codigos) as any[];
@@ -178,8 +183,8 @@ export async function POST(request: NextRequest) {
         `INSERT INTO puente_radar (
            licitacion_codigo, licitacion_nombre, licitacion_organismo, licitacion_monto,
            licitacion_cierre, licitacion_estado, licitacion_tipo, licitacion_region,
-           categoria_nombre, viabilidad_semaforo, agregado_por
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           categoria_nombre, viabilidad_semaforo, agregado_por, cliente_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            licitacion_nombre = VALUES(licitacion_nombre),
            licitacion_estado = VALUES(licitacion_estado),
@@ -193,7 +198,7 @@ export async function POST(request: NextRequest) {
           d.licitacion_cierre ? new Date(d.licitacion_cierre) : null,
           d.licitacion_estado ?? null, d.licitacion_tipo ?? null, d.licitacion_region ?? null,
           d.categoria_nombre ?? null, semaforos.get(codigo) ?? null,
-          g.usuario!.id,
+          g.usuario!.id, clienteId,
         ]);
       agregadas.push(codigo);
     }
@@ -208,12 +213,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Descarga de documentos + viabilidad automática en segundo plano (cola serial, no bloquea).
-    if (agregadas.length > 0) {
+    if (agregadas.length > 0 && await clienteTieneModulo(clienteId, 'viabilidad')) {
       const { encolarViabilidadPuente } = await import('@/app/lib/viabilidad-al-asignar');
       void encolarViabilidadPuente(agregadas);
     }
 
-    const [[{ total }]] = await pool.query(`SELECT COUNT(*) AS total FROM puente_radar`) as any[];
+    const [[{ total }]] = await pool.query(`SELECT COUNT(*) AS total FROM puente_radar WHERE cliente_id = ?`, [clienteId]) as any[];
     return NextResponse.json({
       success: true,
       agregadas: agregadas.length,
@@ -233,6 +238,7 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const g = await exigirPermiso(request);
   if (g.error) return g.error;
+  const clienteId = g.usuario!.clienteId!;
 
   let body: any;
   try { body = await request.json(); } catch { body = {}; }
@@ -243,10 +249,10 @@ export async function DELETE(request: NextRequest) {
 
   try {
     const [r] = todos
-      ? await pool.query(`DELETE FROM puente_radar`) as any[]
+      ? await pool.query(`DELETE FROM puente_radar WHERE cliente_id = ?`, [clienteId]) as any[]
       : await pool.query(
-          `DELETE FROM puente_radar WHERE licitacion_codigo IN (${codigos.map(() => '?').join(',')})`,
-          codigos) as any[];
+          `DELETE FROM puente_radar WHERE cliente_id = ? AND licitacion_codigo IN (${codigos.map(() => '?').join(',')})`,
+          [clienteId, ...codigos]) as any[];
 
     registrarActividad({
       usuarioId: g.usuario!.id, accion: 'puente_quitar',

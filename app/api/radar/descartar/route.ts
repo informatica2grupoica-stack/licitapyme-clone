@@ -12,10 +12,12 @@ export const dynamic = 'force-dynamic';
 
 async function ensureTable(): Promise<void> {
   await pool.query(`CREATE TABLE IF NOT EXISTS licitaciones_descartadas (
-    licitacion_codigo VARCHAR(64) NOT NULL PRIMARY KEY,
+    cliente_id        INT NOT NULL DEFAULT 1,
+    licitacion_codigo VARCHAR(64) NOT NULL,
     descartada_por    INT NULL,
     motivo            VARCHAR(255) NULL,
-    created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (cliente_id, licitacion_codigo)
   )`);
 }
 
@@ -23,6 +25,7 @@ export async function POST(request: NextRequest) {
   const usuario = await getAuthedUser(request);
   if (!usuario) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   if (usuario.rol !== 'admin') return NextResponse.json({ error: 'Solo administradores' }, { status: 403 });
+  if (!usuario.clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON inválido' }, { status: 400 }); }
@@ -37,16 +40,16 @@ export async function POST(request: NextRequest) {
   try {
     await ensureTable();
     if (descartar) {
-      const valores = codigos.map(() => '(?, ?, ?)').join(',');
-      const params = codigos.flatMap(c => [c, usuario.id, motivo]);
+      const valores = codigos.map(() => '(?, ?, ?, ?)').join(',');
+      const params = codigos.flatMap(c => [usuario.clienteId, c, usuario.id, motivo]);
       await pool.query(
-        `INSERT INTO licitaciones_descartadas (licitacion_codigo, descartada_por, motivo) VALUES ${valores}
+        `INSERT INTO licitaciones_descartadas (cliente_id, licitacion_codigo, descartada_por, motivo) VALUES ${valores}
          ON DUPLICATE KEY UPDATE descartada_por = VALUES(descartada_por), motivo = VALUES(motivo)`,
         params,
       );
     } else {
       const placeholders = codigos.map(() => '?').join(',');
-      await pool.query(`DELETE FROM licitaciones_descartadas WHERE licitacion_codigo IN (${placeholders})`, codigos);
+      await pool.query(`DELETE FROM licitaciones_descartadas WHERE cliente_id = ? AND licitacion_codigo IN (${placeholders})`, [usuario.clienteId, ...codigos]);
     }
 
     // Bitácora: una línea por licitación para que cada una tenga su historial completo.

@@ -20,6 +20,9 @@ interface AvisoResultado {
   organismo?: string | null;
   monto?: number | null;
   asignado: AsignadoInfo | null;
+  /** Empresa-cliente del negocio. Si no viene, se toma la del asignado (o Grupo ICA). Los avisos a "todos los admins" son SOLO
+   *  de esa empresa: un cliente jamás debe enterarse de lo de otro, ni ICA de lo de un cliente. */
+  clienteId?: number;
 }
 
 const fmtCLP = (n: number) =>
@@ -34,8 +37,13 @@ function mensajeCampana(a: AvisoResultado): string {
 
 export async function avisarResultadoLicitacion(a: AvisoResultado): Promise<void> {
   try {
+    let clienteId = a.clienteId;
+    if (clienteId == null && a.asignado) {
+      const [cu] = await pool.query(`SELECT cliente_id FROM usuarios WHERE id = ? LIMIT 1`, [a.asignado.id]) as any[];
+      clienteId = (cu as any[])[0]?.cliente_id != null ? Number((cu as any[])[0].cliente_id) : undefined;
+    }
     const [rows] = await pool.query(
-      `SELECT id, nombre, email FROM usuarios WHERE rol = 'admin' AND activo = TRUE`,
+      `SELECT id, nombre, email FROM usuarios WHERE rol = 'admin' AND activo = TRUE AND cliente_id = ?`, [clienteId ?? 1],
     ) as any[];
     const admins = rows as Array<{ id: number; nombre: string | null; email: string | null }>;
     if (admins.length === 0 && !a.asignado) return;

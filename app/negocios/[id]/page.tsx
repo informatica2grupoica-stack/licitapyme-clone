@@ -5,7 +5,8 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { AppLayout }  from '@/app/components/AppLayout';
 import { useToast }   from '@/app/components/ui/toast';
-import { useSession } from '@/app/lib/session-context';
+import { useSession, tieneModulo } from '@/app/lib/session-context';
+import { ModuloBloqueadoPanel } from '@/app/components/ModuloBloqueadoPanel';
 import { getEstadoPipeline, esGanado, tieneResultado, normalizarEstado } from '@/app/lib/pipeline';
 import { estadoEfectivoCodigo, estadoEfectivoNombre } from '@/app/lib/estado-mp';
 
@@ -471,6 +472,12 @@ function DetalleContent() {
   const { usuario } = useSession();
   const toast    = useToast();
   const isAdmin  = usuario?.rol === 'admin';
+  // Multi-cliente: módulos contratados por la empresa (Grupo ICA = todos). Lo no contratado se ve en gris y no pide datos al servidor.
+  const conViabilidad  = tieneModulo(usuario, 'viabilidad');
+  const conAuditor     = tieneModulo(usuario, 'auditor');
+  const conCosteo      = tieneModulo(usuario, 'costeo');
+  const conCompetencia = tieneModulo(usuario, 'competencia');
+  const conIA          = tieneModulo(usuario, 'ia_chat');
 
   const [negocio, setNegocio]       = useState<Negocio | null>(null);
   const [licitacion, setLicitacion] = useState<LicitacionRaw | null>(null);
@@ -605,14 +612,14 @@ function DetalleContent() {
   // Cargar análisis IA cacheado
   const fetchAnalisisIA = useCallback(async (codigo?: string) => {
     const cod = codigo || negocio?.licitacion_codigo;
-    if (!cod) return;
+    if (!cod || !conIA) { setAnalisisCargado(true); return; }
     try {
       const res = await fetch(`/api/licitacion-ia/${encodeURIComponent(cod)}`);
       const data = await res.json();
       if (data.success && data.analisis) setAnalisisIA(data.analisis);
     } catch { /* silencioso */ }
     finally { setAnalisisCargado(true); }
-  }, [negocio?.licitacion_codigo]);
+  }, [negocio?.licitacion_codigo, conIA]);
 
   useEffect(() => {
     if (negocio?.licitacion_codigo) fetchAnalisisIA(negocio.licitacion_codigo);
@@ -625,13 +632,13 @@ function DetalleContent() {
   // solo se destrababa recargando la página (que sí vuelve a correr este efecto desde cero).
   const fetchViabIA = useCallback(async () => {
     const cod = negocio?.licitacion_codigo;
-    if (!cod) return;
+    if (!cod || !conViabilidad) return;
     try {
       const r = await fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(cod)}`);
       const d = await r.json();
       if (d?.informeIA) setViabIA(d.informeIA);
     } catch { /* silencioso */ }
-  }, [negocio?.licitacion_codigo]);
+  }, [negocio?.licitacion_codigo, conViabilidad]);
   useEffect(() => { fetchViabIA(); }, [fetchViabIA]);
   // Un (re)análisis puede terminar con el panel de Viabilidad desmontado (u otra pestaña/usuario):
   // al entrar a Resumen/Criterios se vuelve a leer el informe para mostrar siempre los criterios actuales.
@@ -642,7 +649,7 @@ function DetalleContent() {
   // Contador del menú: cuántos puntos comerciales esperan visto bueno. Solo se pide cuando
   // la etapa lo amerita, para no generar el checklist en licitaciones que aún están en análisis.
   // Se consulta para quien trabaje el Auditor (admin, Técnico o de Compra) — 05-oct-2026, antes solo admin.
-  const veAuditor = isAdmin || !!usuario?.permisos?.auditor_tecnico || !!usuario?.permisos?.auditor_compra;
+  const veAuditor = (isAdmin && conAuditor) || !!usuario?.permisos?.auditor_tecnico || !!usuario?.permisos?.auditor_compra;
   useEffect(() => {
     if (!veAuditor || !negocio?.id || !tieneInformacionComercial(negocio.estado_pipeline)) { setComercialPorAprobar(0); return; }
     fetch(`/api/negocios/${negocio.id}/comercial`)
@@ -734,11 +741,11 @@ function DetalleContent() {
   // useFlujoNegocio es un hook: llamarlo después de un `return` condicional violaría las reglas de
   // hooks (se llamarían menos hooks mientras carga que una vez cargado el negocio).
   const infoComercialLista = tieneInformacionComercial(negocio?.estado_pipeline);
-  const hayCosteo = (isAdmin || !!usuario?.permisos?.costeo_editor) && infoComercialLista;
-  const hayAuditorTecnico = (isAdmin || !!usuario?.permisos?.auditor_tecnico) && infoComercialLista;
+  const hayCosteo = ((isAdmin && conCosteo) || !!usuario?.permisos?.costeo_editor) && infoComercialLista;
+  const hayAuditorTecnico = ((isAdmin && conAuditor) || !!usuario?.permisos?.auditor_tecnico) && infoComercialLista;
   // Costeo en un negocio DESCARTADO (19-oct-2026, pedido explícito): el admin lo sigue viendo en todo el
   // proceso, y lo puede editar igual que en las demás etapas.
-  const verCosteoDescartado = isAdmin && normalizarEstado(negocio?.estado_pipeline) === 'DESCARTADA';
+  const verCosteoDescartado = isAdmin && conCosteo && normalizarEstado(negocio?.estado_pipeline) === 'DESCARTADA';
   // "Compras" solo aparece cuando el negocio ganó (Módulo de Compras, spec §3.1: "solo las líneas
   // efectivamente adjudicadas") y para quien puede operarlo: jefe de ventas (aprobar_comercial),
   // un Encargado de Compras (permiso compras), o `compras_todo` real — "ser admin" YA NO alcanza
@@ -750,7 +757,7 @@ function DetalleContent() {
   // distintos, que no estén juntos"), pero activo en todo momento igual que él (pedido explícito,
   // 29-sep-2026: "eso no se debe de activar [recién al ganar]... se activa en todo momento al igual
   // que el auditor técnico" — más adelante se verá si se lo condiciona a algún estado puntual).
-  const puedeVerAuditorCompra = (isAdmin || !!usuario?.permisos?.auditor_compra) && infoComercialLista;
+  const puedeVerAuditorCompra = ((isAdmin && conAuditor) || !!usuario?.permisos?.auditor_compra) && infoComercialLista;
   const hayAuditorCompra = puedeVerAuditorCompra;
   // PRE-POSTULACIÓN (30-sep-2026, reemplaza a ANEXOS): certificado de admisibilidad + bloque técnico-administrativo sobre las opciones aprobadas del Auditor.
   // Pre-postulación reemplaza a Anexos (1-oct-2026): siempre visible, sin esperar a la etapa «ANEXOS» del pipeline.
@@ -770,6 +777,8 @@ function DetalleContent() {
     hayGanado,
     puedeVerAuditorCompra,
     hayPostulacion: isAdmin && hayPrePostulacion, // Postulación: solo admin (05-oct-2026, pedido explícito)
+    viabilidadBloqueada: !conViabilidad,
+    preguntasBloqueadas: !conIA,
   });
   // El sidebar solo tiene "resumen"/"resultado" como ítems clickeables cuyo grupo incluye otras
   // pestañas: Fechas/Criterios/Comentarios y Competencia son pestañas internas de Resumen/Resultado.
@@ -944,7 +953,7 @@ function DetalleContent() {
                 línea; en suma alzada el componente no renderiza nada. */}
             {/* No hace falta pasar un onGuardado que recargue el checklist: el PUT publica
                 `publicarCambio('negocio')` y la sección comercial ya escucha con useRealtime. */}
-            {seccion === 'viabilidad' && <SelectorLineasOferta negocioId={negocio.id} />}
+            {seccion === 'viabilidad' && conViabilidad && conCosteo && <SelectorLineasOferta negocioId={negocio.id} />}
 
             {/* Compras es su propio módulo (menú lateral), no una pestaña de la licitación —
                 este es solo el puente de salida para quien viene de acá. */}
@@ -1026,16 +1035,20 @@ function DetalleContent() {
                     {isAdmin && <MarcaReadjudicada negocioId={negocio.id} />}
                   </>
                 )}
-                {seccion === 'competencia' && (
+                {seccion === 'competencia' && !conCompetencia && <ModuloBloqueadoPanel modulo="competencia" />}
+                {seccion === 'competencia' && conCompetencia && (
                   <OfertasCompetencia codigo={negocio.licitacion_codigo} isAdmin={isAdmin} />
                 )}
-                {seccion === 'documentos_competencia' && !!negocio.aperturada && (
+                {seccion === 'documentos_competencia' && !conCompetencia && <ModuloBloqueadoPanel modulo="competencia" />}
+                {seccion === 'documentos_competencia' && conCompetencia && !!negocio.aperturada && (
                   <DocumentosCompetencia codigo={negocio.licitacion_codigo} />
                 )}
               </>
             )}
             {seccion === 'items' && <SeccionItems licitacion={licitacion} analisisIA={analisisIA} />}
-            {seccion === 'viabilidad' && <ViabilidadIAPanel codigo={negocio.licitacion_codigo} onComplete={fetchViabIA} />}
+            {seccion === 'viabilidad' && (conViabilidad
+              ? <ViabilidadIAPanel codigo={negocio.licitacion_codigo} onComplete={fetchViabIA} />
+              : <ModuloBloqueadoPanel modulo="viabilidad" />)}
             {seccion === 'documentos' && (
               <div className="space-y-4">
               {/* Quien revisa los documentos sabe a qué empresa corresponden: la elige aquí, una vez, y los anexos se llenan con sus datos. */}
@@ -1056,10 +1069,12 @@ function DetalleContent() {
               />
               </div>
             )}
-            {seccion === 'analisis' && (
+            {seccion === 'analisis' && !conIA && <ModuloBloqueadoPanel modulo="ia_chat" />}
+            {seccion === 'analisis' && conIA && (
               <InteligenciaSection codigo={negocio.licitacion_codigo} documentosAnalizables={documentosAnalizables as any} nombreLicitacion={negocio.licitacion_nombre || negocio.licitacion_codigo} />
             )}
-            {hayResultado && seccion === 'preguntas' && (
+            {hayResultado && seccion === 'preguntas' && !conIA && <ModuloBloqueadoPanel modulo="ia_chat" />}
+            {hayResultado && seccion === 'preguntas' && conIA && (
               <PreguntasSection codigoDecoded={negocio.licitacion_codigo} mpUrl={mpUrl} />
             )}
             {/* AUDITOR unificado (29-sep-2026): un solo módulo con el flujo en pestañas ARRIBA: Auditor (compra y técnico juntos, cada opción con sus dos

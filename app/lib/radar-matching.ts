@@ -17,7 +17,8 @@ import {
   type LicitacionIndexada,
 } from '@/app/lib/text-match';
 
-export interface KwRow { id: number; usuario_id: number; keyword: string }
+// cliente_id: empresa dueña de la palabra (multi-cliente). Las negativas SOLO excluyen dentro de su propia empresa.
+export interface KwRow { id: number; usuario_id: number; cliente_id: number; keyword: string }
 export interface KeywordsRadar { positivas: KwRow[]; negativas: KwRow[] }
 
 const INSERT_BATCH = 200;
@@ -25,19 +26,23 @@ const INSERT_BATCH = 200;
 // ── Cargar keywords activas, separadas en positivas y negativas ───────────────
 // Degrada con gracia si la columna es_negativa no existe (migración 30 pendiente):
 // en ese caso todas se tratan como positivas.
-export async function cargarKeywordsRadar(): Promise<KeywordsRadar> {
+// `clienteId`: si se indica, solo las palabras de esa empresa (la actualización manual de un cliente); sin él, las de TODAS (el barrido compartido).
+export async function cargarKeywordsRadar(clienteId?: number): Promise<KeywordsRadar> {
+  const filtroCliente = clienteId != null ? 'AND pk.cliente_id = ?' : '';
+  const paramsCliente = clienteId != null ? [clienteId] : [];
   try {
     const [rows] = await pool.query(
-      `SELECT pk.id, pk.usuario_id, pk.keyword, pk.es_negativa
+      `SELECT pk.id, pk.usuario_id, pk.cliente_id, pk.keyword, pk.es_negativa
        FROM palabras_clave pk
        JOIN usuarios u ON u.id = pk.usuario_id AND u.activo = TRUE
-       WHERE pk.activo = TRUE
+       WHERE pk.activo = TRUE ${filtroCliente}
        ORDER BY ISNULL(pk.ultima_busqueda) DESC, pk.ultima_busqueda ASC, pk.id ASC`,
+      paramsCliente,
     );
     const positivas: KwRow[] = [];
     const negativas: KwRow[] = [];
     for (const r of rows as any[]) {
-      const kw: KwRow = { id: r.id, usuario_id: r.usuario_id, keyword: r.keyword };
+      const kw: KwRow = { id: r.id, usuario_id: r.usuario_id, cliente_id: Number(r.cliente_id), keyword: r.keyword };
       if (Number(r.es_negativa) === 1) negativas.push(kw);
       else positivas.push(kw);
     }
@@ -45,11 +50,12 @@ export async function cargarKeywordsRadar(): Promise<KeywordsRadar> {
   } catch {
     // Sin columna es_negativa → todas positivas.
     const [rows] = await pool.query(
-      `SELECT pk.id, pk.usuario_id, pk.keyword
+      `SELECT pk.id, pk.usuario_id, pk.cliente_id, pk.keyword
        FROM palabras_clave pk
        JOIN usuarios u ON u.id = pk.usuario_id AND u.activo = TRUE
-       WHERE pk.activo = TRUE
+       WHERE pk.activo = TRUE ${filtroCliente}
        ORDER BY ISNULL(pk.ultima_busqueda) DESC, pk.ultima_busqueda ASC, pk.id ASC`,
+      paramsCliente,
     );
     return { positivas: rows as KwRow[], negativas: [] };
   }
@@ -73,6 +79,13 @@ export function estaExcluidaPorNegativas(idx: LicitacionIndexada, negativas: KwR
     if (evaluarKeyword(idx, neg.keyword).match) return neg;
   }
   return null;
+}
+
+// Negativas agrupadas por empresa: la negativa de un cliente jamás debe apagar alertas de otro.
+function negativasPorCliente(negativas: KwRow[]): Map<number, KwRow[]> {
+  const m = new Map<number, KwRow[]>();
+  for (const n of negativas) { const l = m.get(n.cliente_id); if (l) l.push(n); else m.set(n.cliente_id, [n]); }
+  return m;
 }
 
 // ── Contexto del match (snippet) — acento-insensible ──────────────────────────
@@ -118,11 +131,11 @@ export async function insertarAlertas(kw: KwRow, coincidencias: Coincidencia[]):
   for (let start = 0; start < coincidencias.length; start += INSERT_BATCH) {
     const chunk = coincidencias.slice(start, start + INSERT_BATCH);
     try {
-      const placeholders = chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+      const placeholders = chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
       const values: unknown[] = [];
       for (const { lic, fuente, contexto, score } of chunk) {
         values.push(
-          kw.usuario_id, kw.id, kw.keyword, lic.Codigo,
+          kw.usuario_id, kw.cliente_id, kw.id, kw.keyword, lic.Codigo,
           lic.Nombre?.substring(0, 500)    ?? null,
           lic.Organismo?.substring(0, 500) || null,
           lic.MontoEstimado                || null,
@@ -137,7 +150,7 @@ export async function insertarAlertas(kw: KwRow, coincidencias: Coincidencia[]):
       }
       const [res] = await pool.query(
         `INSERT INTO alertas_licitaciones
-           (usuario_id, palabra_clave_id, keyword_texto, licitacion_codigo,
+           (usuario_id, cliente_id, palabra_clave_id, keyword_texto, licitacion_codigo,
             licitacion_nombre, licitacion_organismo, licitacion_monto,
             licitacion_cierre, licitacion_fecha_publicacion,
             licitacion_estado, licitacion_region,
@@ -159,11 +172,11 @@ export async function insertarAlertas(kw: KwRow, coincidencias: Coincidencia[]):
       if (!String(e).toLowerCase().includes('unknown column')) continue;
       // Fallback: sin match_score
       try {
-        const placeholders = chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+        const placeholders = chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
         const values: unknown[] = [];
         for (const { lic, fuente, contexto } of chunk) {
           values.push(
-            kw.usuario_id, kw.id, kw.keyword, lic.Codigo,
+            kw.usuario_id, kw.cliente_id, kw.id, kw.keyword, lic.Codigo,
             lic.Nombre?.substring(0, 500)    ?? null,
             lic.Organismo?.substring(0, 500) || null,
             lic.MontoEstimado                || null,
@@ -177,7 +190,7 @@ export async function insertarAlertas(kw: KwRow, coincidencias: Coincidencia[]):
         }
         const [res] = await pool.query(
           `INSERT INTO alertas_licitaciones
-             (usuario_id, palabra_clave_id, keyword_texto, licitacion_codigo,
+             (usuario_id, cliente_id, palabra_clave_id, keyword_texto, licitacion_codigo,
               licitacion_nombre, licitacion_organismo, licitacion_monto,
               licitacion_cierre, licitacion_fecha_publicacion,
               licitacion_estado, licitacion_region,
@@ -255,11 +268,12 @@ export async function matchearEInsertar(
     lics.map(l => [l.Codigo, indexarLicitacion(camposDe(l))]),
   );
 
-  // 1) Excluir por negativas (una pasada).
+  // 1) Excluir por negativas (una pasada), POR EMPRESA: clave "cliente:codigo".
   const excluidos = new Set<string>();
-  if (keywords.negativas.length > 0) {
+  const negPorCliente = negativasPorCliente(keywords.negativas);
+  for (const [cid, negs] of negPorCliente) {
     for (const l of lics) {
-      if (estaExcluidaPorNegativas(indices.get(l.Codigo)!, keywords.negativas)) excluidos.add(l.Codigo);
+      if (estaExcluidaPorNegativas(indices.get(l.Codigo)!, negs)) excluidos.add(`${cid}:${l.Codigo}`);
     }
   }
 
@@ -269,7 +283,7 @@ export async function matchearEInsertar(
   for (const kw of keywords.positivas) {
     const coincidencias: Coincidencia[] = [];
     for (const lic of lics) {
-      if (excluidos.has(lic.Codigo)) continue; // negativa manda
+      if (excluidos.has(`${kw.cliente_id}:${lic.Codigo}`)) continue; // negativa (de su misma empresa) manda
       const r = evaluarKeyword(indices.get(lic.Codigo)!, kw.keyword);
       if (!r.match) continue;
       codigosConMatch.add(lic.Codigo);

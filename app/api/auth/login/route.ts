@@ -5,6 +5,7 @@ import pool from '@/app/lib/db';
 import { respuestaConSession, type UsuarioSession } from '@/app/lib/auth';
 import { ipDeRequest, estaBloqueado, registrarIntento } from '@/app/lib/login-rate-limit';
 import { registrarActividad } from '@/app/lib/actividad';
+import { fichaCliente } from '@/app/lib/tenant';
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,11 +36,22 @@ export async function POST(request: NextRequest) {
     }
 
     // Buscar usuario
-    const [rows] = await pool.query(
-      'SELECT id, email, password_hash, nombre, empresa, rol, activo FROM usuarios WHERE email = ? LIMIT 1',
-      [emailLimpio]
-    );
-    const usuarios = rows as any[];
+    // cliente_id (multi-cliente): si la migración aún no existe, todos son Grupo ICA (1).
+    let usuarios: any[];
+    try {
+      const [rows] = await pool.query(
+        'SELECT id, email, password_hash, nombre, empresa, rol, activo, cliente_id FROM usuarios WHERE email = ? LIMIT 1',
+        [emailLimpio]
+      );
+      usuarios = rows as any[];
+    } catch (e) {
+      if ((e as { code?: string })?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      const [rows] = await pool.query(
+        'SELECT id, email, password_hash, nombre, empresa, rol, activo FROM usuarios WHERE email = ? LIMIT 1',
+        [emailLimpio]
+      );
+      usuarios = rows as any[];
+    }
 
     if (usuarios.length === 0) {
       await registrarIntento(emailLimpio, ip, false);
@@ -68,6 +80,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Empresa suspendida, dada de baja o vencida: no entra nadie de esa empresa (Grupo ICA nunca se corta).
+    const clienteId = Number(u.cliente_id ?? 1);
+    if (clienteId !== 1 && !(await fichaCliente(clienteId)).vigente) {
+      return NextResponse.json(
+        { error: 'El servicio de tu empresa está suspendido o vencido. Contacta a soporte.', code: 'CLIENTE_NO_VIGENTE' },
+        { status: 403 }
+      );
+    }
+
     // Login correcto → registrar éxito (resetea el contador de fallos del email).
     await registrarIntento(emailLimpio, ip, true);
 
@@ -89,7 +110,8 @@ export async function POST(request: NextRequest) {
       email:   u.email,
       nombre:  u.nombre,
       empresa: u.empresa,
-      rol:     u.rol,
+      rol:     u.rol, // el perfil admin de un cliente es admin DENTRO de su empresa: lo acota proxy.ts + los filtros por cliente
+      clienteId,
     };
 
     return respuestaConSession(usuario, {});

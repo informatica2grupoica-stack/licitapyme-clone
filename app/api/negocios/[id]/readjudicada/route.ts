@@ -5,6 +5,7 @@
 // marca prevalece sobre el acta (ver enriquecer() en app/lib/adjudicacion.ts). Al activarla el
 // negocio pasa a ADJUDICADA y se abren Entrega y Compras, igual que con un acta que dice que ganamos.
 import { NextRequest, NextResponse } from 'next/server';
+import { negocioEsDeMiEmpresa, clienteDeHeader, clienteTieneModulo } from '@/app/lib/tenant';
 import pool from '@/app/lib/db';
 import { registrarEvento } from '@/app/lib/historial';
 import { publicarCambio } from '@/app/lib/sse-bus';
@@ -24,6 +25,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Solo un administrador puede marcar una readjudicación' }, { status: 403 });
 
   const { id } = await params;
+  if (!(await negocioEsDeMiEmpresa(request, id))) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
   const body = await request.json().catch(() => ({}));
   const activa = !!body.activa;
   const nota = String(body.nota || '').trim().slice(0, 300) || null;
@@ -48,8 +50,9 @@ export async function PUT(request: NextRequest, { params }: Params) {
   }
   invalidarReadjudicadas();
   if (activa) {
-    await abrirEntregaSiCorresponde(neg.id, neg.licitacion_codigo, neg.asignado_a).catch(() => {});
-    await abrirComprasSiCorresponde(neg.id, neg.licitacion_codigo, neg.asignado_a).catch(() => {});
+    const cid = Number(clienteDeHeader(request));
+    if (await clienteTieneModulo(cid, 'entregas')) await abrirEntregaSiCorresponde(neg.id, neg.licitacion_codigo, neg.asignado_a).catch(() => {});
+    if (await clienteTieneModulo(cid, 'compras')) await abrirComprasSiCorresponde(neg.id, neg.licitacion_codigo, neg.asignado_a).catch(() => {});
   }
   await registrarEvento({
     tipo: 'RESULTADO_ADJUDICACION',
@@ -65,8 +68,9 @@ export async function PUT(request: NextRequest, { params }: Params) {
   return NextResponse.json({ success: true, readjudicada: activa });
 }
 
-export async function GET(_request: NextRequest, { params }: Params) {
+export async function GET(request: NextRequest, { params }: Params) {
   const { id } = await params;
+  if (!(await negocioEsDeMiEmpresa(request, id))) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
   const rows = await pool.query(
     `SELECT readjudicada_at, readjudicada_nota, readjudicada_por FROM negocios WHERE id = ?`, [id])
     .then(r => r[0] as any[]).catch(() => [] as any[]);

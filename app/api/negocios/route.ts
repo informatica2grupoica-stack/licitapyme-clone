@@ -7,6 +7,7 @@ import { asignarLicitacion } from '@/app/lib/asignar-licitacion';
 import { resumirCarga, type FilaCarga } from '@/app/lib/carga-perfiles';
 import { respuestaDesdeCache, enriquecer } from '@/app/lib/adjudicacion';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
+import { clienteDeHeader, clienteTieneModulo } from '@/app/lib/tenant';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -20,6 +21,10 @@ function getUser(req: NextRequest) {
 export async function GET(request: NextRequest) {
   const { id: userId } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+
+  // Multi-cliente: TODO lo de abajo es de la empresa de quien consulta.
+  const clienteId = clienteDeHeader(request);
+  if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
   const filtroUsuario = searchParams.get('usuarioId');
@@ -37,23 +42,21 @@ export async function GET(request: NextRequest) {
     }
     const verOtros = permRes.status === 'fulfilled' ? (permRes.value as boolean) : false;
 
-    let whereClause = '';
-    let params: any[] = [];
+    let whereClause = 'WHERE n.cliente_id = ? AND n.activo = TRUE';
+    const params: any[] = [clienteId];
 
     if (verOtros && filtroUsuario) {
-      whereClause = 'WHERE n.asignado_a = ? AND n.activo = TRUE';
-      params = [parseInt(filtroUsuario)];
-    } else if (verOtros && !filtroUsuario) {
-      whereClause = 'WHERE n.activo = TRUE';
-    } else {
-      whereClause = 'WHERE n.asignado_a = ? AND n.activo = TRUE';
-      params = [userId];
+      whereClause += ' AND n.asignado_a = ?';
+      params.push(parseInt(filtroUsuario));
+    } else if (!verOtros) {
+      whereClause += ' AND n.asignado_a = ?';
+      params.push(userId);
     }
 
     // Carga de trabajo (independiente del filtro) y lista de usuarios (si ve otros):
     // se lanzan EN PARALELO con el query principal — no dependen de su resultado.
     const filtroCarga = verOtros ? '' : 'AND n.asignado_a = ?';
-    const pCarga = verOtros ? [] : [userId];
+    const pCarga = verOtros ? [clienteId] : [clienteId, userId];
 
     const [rowsRes, cargaRes, usuariosRes] = await Promise.all([
       pool.query(
@@ -82,9 +85,9 @@ export async function GET(request: NextRequest) {
                 n.licitacion_cierre,
                 COALESCE(n.estado_pipeline, 'ASIGNADO') AS estado_pipeline
          FROM negocios n JOIN usuarios u ON u.id = n.asignado_a
-         WHERE n.activo = TRUE AND u.activo = TRUE ${filtroCarga}`, pCarga),
+         WHERE n.cliente_id = ? AND n.activo = TRUE AND u.activo = TRUE ${filtroCarga}`, pCarga),
       verOtros
-        ? pool.query(`SELECT id, nombre, email FROM usuarios WHERE activo = TRUE ORDER BY nombre ASC`)
+        ? pool.query(`SELECT id, nombre, email FROM usuarios WHERE activo = TRUE AND cliente_id = ? ORDER BY nombre ASC`, [clienteId])
         : Promise.resolve([[]] as any),
     ]);
     const rows = (rowsRes as any)[0];
@@ -110,9 +113,13 @@ export async function GET(request: NextRequest) {
     const codigos = negocios.map(n => n.licitacion_codigo).filter(Boolean);
     if (codigos.length) {
       const ph = codigos.map(() => '?').join(',');
+      // La viabilidad (semáforo/puntaje) es análisis de IA de Grupo ICA: un cliente solo la ve si contrató el módulo.
+      const conViabilidad = await clienteTieneModulo(clienteId, 'viabilidad');
       const [docsRes, viabRes, aperturaRes, adjRes, postRes] = await Promise.allSettled([
         pool.query(`SELECT DISTINCT licitacion_codigo FROM documentos_cache WHERE licitacion_codigo IN (${ph})`, codigos),
-        pool.query(`SELECT licitacion_codigo, semaforo, score_total FROM viabilidad_licitacion WHERE licitacion_codigo IN (${ph})`, codigos),
+        conViabilidad
+          ? pool.query(`SELECT licitacion_codigo, semaforo, score_total FROM viabilidad_licitacion WHERE licitacion_codigo IN (${ph})`, codigos)
+          : Promise.resolve([[]] as any),
         // Estado de apertura detectado por el poller del portal (migración 41). Tolerante:
         // si la tabla no existe aún, degrada a "sin apertura conocida" sin romper la lista.
         pool.query(`SELECT licitacion_codigo, aperturada, detectada_en FROM licitacion_apertura WHERE licitacion_codigo IN (${ph})`, codigos),
@@ -156,7 +163,7 @@ export async function GET(request: NextRequest) {
         for (const n of negocios) {
           const row = mapAdj.get(n.licitacion_codigo) as any;
           if (!row) { n.adj_es_adjudicada = 0; n.adj_ganamos = 0; continue; }
-          const adj = await enriquecer(respuestaDesdeCache(n.licitacion_codigo, row));
+          const adj = await enriquecer(respuestaDesdeCache(n.licitacion_codigo, row), clienteId);
           n.adj_es_adjudicada = adj.esAdjudicada ? 1 : 0;
           n.adj_ganamos       = adj.ganamos ? 1 : 0;
           n.adj_monto_nuestro = adj.montoNuestro ?? null;
