@@ -55,7 +55,7 @@ const REGLAS: Regla[] = [
   // La viabilidad de Grupo ICA (motor v4, sus reglas y tablas) es SOLO de ICA. Una empresa-cliente con el módulo usa su propia viabilidad: /api/cv.
   { modulo: 'interno', re: /^\/(analizadas|reglas-ia|analisis-licitacion)(\/|$)/ },
   { modulo: 'interno', re: /^\/api\/(licitacion-viabilidad|licitacion-viabilidad-ia|viabilidad|viabilidad-feedback|analizadas|prefiltro|reglas-ia)(\/|$)/ },
-  { modulo: 'viabilidad', re: /^\/api\/cv\/(perfil|viabilidad)(\/|$)/ },
+  { modulo: 'viabilidad', re: /^\/api\/cv\// },
   { modulo: 'ia_chat',    re: /^\/api\/(licitacion-ia|licitacion-preguntas|chat-global|chat-proyecto|analizar-documento|buscar-productos)(\/|$)/ },
   { modulo: 'ia_chat',    re: /^\/api\/licitacion\/[^/]+\/chat(\/|$)/ },
   { modulo: 'auditor',    re: /^\/api\/negocios\/[^/]+\/(auditor|prepostulacion)(\/|$)/ },
