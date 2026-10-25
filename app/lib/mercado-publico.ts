@@ -359,6 +359,15 @@ export class MercadoPublicoClient {
     return data.Listado || [];
   }
 
+  // RUT → código interno de proveedor (el que exigen los listados por CodigoProveedor). Verificado:
+  // el RUT con puntos y guion ("78.388.175-6") responde { listaEmpresas: [{ CodigoEmpresa, NombreEmpresa }] }.
+  async buscarProveedorPorRut(rut: string): Promise<{ codigo: string; nombre: string } | null> {
+    const url = `https://api.mercadopublico.cl/servicios/v1/Publico/Empresas/BuscarProveedor?rutempresaproveedor=${encodeURIComponent(rut)}&ticket=${this.ticket}`;
+    const data: any = await this.fetch(url);
+    const e = data?.listaEmpresas?.[0];
+    return e?.CodigoEmpresa ? { codigo: String(e.CodigoEmpresa), nombre: String(e.NombreEmpresa || '') } : null;
+  }
+
   // =============================================
   // UTILIDADES
   // =============================================

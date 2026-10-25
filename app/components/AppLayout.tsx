@@ -370,7 +370,7 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
     items: group.items.filter(i => {
       // «Mi equipo» es de las empresas-cliente; «Empresas-cliente» solo de LICITANK (el servidor lo exige igual).
       if (i.href === '/equipo') return usuario?.rol === 'admin' && usuario.clienteId != null && usuario.clienteId !== 1;
-      if (i.href === '/mi-empresa') return usuario?.rol === 'admin' && usuario.clienteId != null && usuario.clienteId !== 1 && tieneModulo(usuario, 'viabilidad');
+      if (i.href === '/mi-empresa') return usuario?.rol === 'admin' && usuario.clienteId != null && usuario.clienteId !== 1;
       if (i.href === '/reglas-ia') return !!usuario?.permisos?.reglas_ia && !soloCompras && !esExterno;   // solo CA, aunque sea admin
       if (soloCompras) return HREFS_SOLO_COMPRAS.includes(i.href);
       if (esExterno) return i.href === '/negocios' || i.href === '/mis-reportes'; // externo: "Mis licitaciones" + sus reportes
@@ -753,6 +753,17 @@ export function AppLayout({ children, breadcrumb }: AppLayoutProps) {
   useEffect(() => {
     if (!usuario || usuario.rol === 'admin' || !usuario.permisos?.solo_compras) return;
     if (!PAGINAS_SOLO_COMPRAS.some(p => pathname === p || pathname.startsWith(p.endsWith('/') ? p : p + '/'))) router.replace('/compras');
+  }, [usuario, pathname, router]);
+
+  // Empresa-cliente sin configurar: su admin aterriza en /mi-empresa (sugerencias desde su RUT) hasta que guarde.
+  // Se pregunta una vez por pestaña para no golpear la API en cada navegación.
+  useEffect(() => {
+    if (usuario?.rol !== 'admin' || !usuario.clienteId || usuario.clienteId === 1 || pathname.startsWith('/mi-empresa')) return;
+    try { if (sessionStorage.getItem('empresa-configurada')) return; } catch { /* sin storage: se pregunta igual */ }
+    fetch('/api/mi-empresa/configuracion').then(r => r.json()).then(d => {
+      if (d?.aplica && d.pendiente) router.replace('/mi-empresa');
+      else try { sessionStorage.setItem('empresa-configurada', '1'); } catch { /* nada */ }
+    }).catch(() => {});
   }, [usuario, pathname, router]);
 
   // Atajo ⌘K / Ctrl+K → buscador (solo admin, que es quien tiene acceso a "/").

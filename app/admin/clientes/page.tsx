@@ -15,6 +15,49 @@ interface Mov { cliente_id: number; accion: string; detalle: unknown; created_at
 
 const input = 'w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500';
 
+// Evaluación por RUT (OC + actas de MP → palabras clave y perfil). Mientras corre se consulta cada 5 s.
+function EvaluacionRut({ clienteId }: { clienteId: number }) {
+  const toast = useToast();
+  const [ev, setEv] = useState<{ estado: string; progreso: string; resultado: any } | null>(null);
+  const leer = useCallback(async () => {
+    const d = await fetch(`/api/admin/clientes?evaluacion=${clienteId}`).then(r => r.json()).catch(() => ({}));
+    setEv(d.evaluacion || null);
+  }, [clienteId]);
+  useEffect(() => { leer(); }, [leer]);
+  useEffect(() => {
+    if (ev?.estado !== 'EN_CURSO') return;
+    const t = setTimeout(leer, 5000);
+    return () => clearTimeout(t);
+  }, [ev, leer]);
+  const evaluar = async () => {
+    const r = await fetch('/api/admin/clientes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accion: 'evaluar', clienteId }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) toast.error('No se pudo evaluar', d.error || `HTTP ${r.status}`); else setTimeout(leer, 1500);
+  };
+  const res = ev?.resultado;
+  return (
+    <div className="mt-3 border-t border-slate-100 pt-3 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[11px] text-slate-500">Evaluación por RUT en Mercado Público{ev ? ` · ${ev.progreso}` : ' · sin evaluar'}</p>
+        <button disabled={ev?.estado === 'EN_CURSO'} onClick={evaluar}
+          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+          {ev?.estado === 'EN_CURSO' ? 'Evaluando…' : ev ? 'Volver a evaluar' : 'Evaluar'}
+        </button>
+      </div>
+      {ev?.estado === 'ERROR' && <p className="mt-1 text-xs text-red-600">{ev.progreso}</p>}
+      {res && ev?.estado === 'LISTO' && (
+        <div className="mt-2 space-y-1.5 text-xs text-slate-600">
+          <p>{res.ordenes} órdenes de compra · {res.licitaciones} licitaciones · {res.actasConLineasGanadas} actas con líneas ganadas · monto típico {res.montoTipico?.p10?.toLocaleString('es-CL') ?? '—'} a {res.montoTipico?.p90?.toLocaleString('es-CL') ?? '—'} CLP</p>
+          <p><span className="text-slate-500">Palabras clave:</span> {res.palabras?.join(', ')}</p>
+          <p><span className="text-slate-500">Negativas:</span> {res.negativas?.join(', ') || '—'}</p>
+          <p><span className="text-slate-500">Qué vende:</span> {res.perfil?.descripcion}</p>
+          <p><span className="text-slate-500">Compradores frecuentes:</span> {res.compradores?.slice(0, 5).join('; ')}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ClientesPage() {
   const toast = useToast();
   const [clientes, setClientes] = useState<Cliente[]>([]);
@@ -110,6 +153,7 @@ export default function ClientesPage() {
                     {c.estado === 'ACTIVO' ? 'Suspender' : 'Reactivar'}
                   </button>
                 </div>
+                {c.rut && <EvaluacionRut clienteId={c.id} />}
                 {otro?.id === c.id && (
                   <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2">
                     <label className="text-[11px] text-slate-500">Nombre<input className={`${input} mt-0.5`} value={otro.nombre} onChange={e => setOtro({ ...otro, nombre: e.target.value })} /></label>

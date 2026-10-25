@@ -9,6 +9,7 @@ import bcrypt from 'bcryptjs';
 import pool from '@/app/lib/db';
 import { getAuthedUser } from '@/app/lib/api-auth';
 import { olvidarFichaCliente, CLIENTE_ICA } from '@/app/lib/tenant';
+import { evaluarEmpresaPorRut, leerEvaluacion } from '@/app/lib/evaluar-empresa-rut';
 import { TODOS_LOS_MODULOS, MODULOS_BASE, MODULOS_ACTIVABLES, modulosEfectivos } from '@/app/lib/modulos';
 
 export const runtime = 'nodejs';
@@ -31,6 +32,8 @@ async function bitacora(clienteId: number, usuarioId: number, accion: string, de
 export async function GET(req: NextRequest) {
   const g = await exigirSuperadmin(req);
   if (g.error) return g.error;
+  const evId = Number(req.nextUrl.searchParams.get('evaluacion'));
+  if (evId) return NextResponse.json({ success: true, evaluacion: await leerEvaluacion(evId) });
   const [clientes] = await pool.query(
     `SELECT c.id, c.nombre, c.rut, c.plan, c.estado, c.max_usuarios, c.cupo_ia_mensual, c.modulos, c.notas, c.contacto_nombre, c.contacto_email,
             DATE_FORMAT(c.vence_at, '%Y-%m-%d') AS vence_at,
@@ -47,6 +50,19 @@ export async function POST(req: NextRequest) {
   const g = await exigirSuperadmin(req);
   if (g.error) return g.error;
   const b = await req.json().catch(() => ({}));
+
+  // (Re)evaluar la empresa por su RUT: corre en segundo plano; el avance se lee con GET ?evaluacion=<id>.
+  if (b.accion === 'evaluar') {
+    const cid = Number(b.clienteId);
+    const [[c]] = await pool.query('SELECT rut FROM clientes WHERE id = ? AND activo = TRUE', [cid]) as any;
+    if (!cid || cid === CLIENTE_ICA || !c?.rut) return NextResponse.json({ error: 'La empresa no tiene RUT' }, { status: 400 });
+    const ev = await leerEvaluacion(cid);
+    if (ev?.estado === 'EN_CURSO' && Date.now() - new Date(ev.updated_at).getTime() < 5 * 60_000)
+      return NextResponse.json({ error: 'Ya hay una evaluación en curso' }, { status: 409 });
+    void evaluarEmpresaPorRut(cid, c.rut);
+    await bitacora(cid, g.u!.id, 'evaluar', { rut: c.rut });
+    return NextResponse.json({ success: true });
+  }
 
   // Agregar una persona a una empresa existente (respeta el tope de usuarios del plan).
   if (b.accion === 'usuario') {
@@ -86,6 +102,8 @@ export async function POST(req: NextRequest) {
     `INSERT INTO usuarios (email, password_hash, nombre, empresa, rol, activo, cliente_id, permisos) VALUES (?, ?, ?, ?, 'admin', 1, ?, ?)`,
     [email, await bcrypt.hash(clave, 10), adminNombre || nombre, nombre, clienteId, JSON.stringify(permisos)]);
   await bitacora(clienteId, g.u!.id, 'crear', { nombre, modulos, admin: email });
+  // Con RUT: se evalúa sola en segundo plano (minutos) y le carga palabras clave y perfil.
+  if (rut) void evaluarEmpresaPorRut(clienteId, rut);
   return NextResponse.json({ success: true, id: clienteId });
 }
 

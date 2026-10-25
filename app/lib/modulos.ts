@@ -41,7 +41,7 @@ interface Regla { modulo: Modulo | 'comun' | 'interno'; re: RegExp }
 const REGLAS: Regla[] = [
   // ── Comunes a todo cliente (sesión, perfil, avisos propios) ──
   { modulo: 'comun', re: /^\/(login|recuperar|restablecer|bienvenida|perfil|mis-reportes|modulo-bloqueado)(\/|$)/ },
-  { modulo: 'comun', re: /^\/api\/(auth|perfil|reportes-error|historial|actividad|equipo)(\/|$)/ },
+  { modulo: 'comun', re: /^\/api\/(auth|perfil|reportes-error|historial|actividad|equipo|mi-empresa)(\/|$)/ },
   { modulo: 'comun', re: /^\/equipo(\/|$)/ },
   { modulo: 'comun', re: /^\/mi-empresa(\/|$)/ },
 
