@@ -248,7 +248,10 @@ function clienteProveedor(cfg: ProveedorTexto) {
 export function getGemini() { return clienteProveedor(cfgTexto()); }
 
 function cuerpoPara(cfg: ProveedorTexto, params: any): any {
-  const body: any = { ...params, model: cfg.model };
+  // _esfuerzoKimi (26-oct-2026): esfuerzo de razonamiento POR LLAMADA para Kimi (el Lector del Auditor solo transcribe: 'low'
+  // tarda una fracción de 'high'). Se saca del cuerpo siempre, así nunca le llega a otro proveedor si la llamada cae al respaldo.
+  const { _esfuerzoKimi, ...resto } = params || {};
+  const body: any = { ...resto, model: cfg.model };
   if (cfg.sinThinking) body.thinking = { type: 'disabled' };
   // Gemini 2.5 Flash gasta tokens de "thinking" por defecto (invisibles pero se pagan y
   // pueden truncar la salida). reasoning_effort:'none' lo desactiva → menos tokens/costo.
@@ -258,7 +261,11 @@ function cuerpoPara(cfg: ProveedorTexto, params: any): any {
   // DESPUÉS del `else if` de arriba porque son ramas mutuamente excluyentes por proveedor
   // (ningún cfg tiene sinThinking=true, baseURL de Gemini Y reasoningEffort a la vez).
   if (cfg.reasoningEffort) {
-    body.reasoning_effort = cfg.reasoningEffort;
+    body.reasoning_effort = _esfuerzoKimi || cfg.reasoningEffort;
+    // BUG REAL (26-oct-2026, medido contra api.moonshot.ai con la cotización GETAC del 2427-98-LE26): con response_format json_object
+    // Kimi K3 devuelve CLAVES ROTAS ({": ":{": ":[...]}} en vez de {"comercial":{"precios":[...]}}) — 1 de 4 lecturas buenas, en
+    // esfuerzo low y high. Sin response_format: 4 de 4. Los prompts ya piden JSON y parseJsonIA lo saca del texto.
+    delete body.response_format;
     // BUG REAL (08-sep-2026, verificado en vivo contra api.moonshot.ai): Kimi K3 devuelve 400
     // "invalid temperature: only 1 is allowed for this model" con CUALQUIER otro valor. Todos los
     // prompts del proyecto mandan temperature:0.1 (pensado para GLM/DeepSeek/Gemini) — sin este

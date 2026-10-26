@@ -71,8 +71,8 @@ ${provisorias > 0 ? `${provisorias} línea(s) todavía no tienen opción firmada
 Los costos asociados (compromisos de las bases) ya están sumados al costo.`;
   const completion: any = await crearChatIA({
     messages: [{ role: 'system', content: sys }, { role: 'user', content: user }],
-    temperature: 0, stream: false, max_tokens: 2_500, response_format: { type: 'json_object' },
-  }, { timeoutMs: 120_000, modeloPreferido: 'glm-4.7', soloGlm: true });
+    temperature: 0, stream: false, max_tokens: 6_000, response_format: { type: 'json_object' },
+  }, { timeoutMs: 150_000, proveedorPreferido: 'kimi' });
   const out = parseJsonIA<{ lectura?: string }>(String(completion.choices?.[0]?.message?.content ?? '')) || {};
   return String(out.lectura || '').trim().slice(0, 2_000);
 }

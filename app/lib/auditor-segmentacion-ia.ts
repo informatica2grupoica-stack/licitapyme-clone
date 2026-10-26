@@ -7,7 +7,6 @@ import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('auditor', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
-import { MOTOR_GLM } from '@/app/lib/auditor-tecnico';
 import type { BloqueDocumento, LineaAMapear } from '@/app/lib/auditor-segmentacion';
 
 export interface PaginaDoc { n: number; texto: string }
@@ -54,8 +53,8 @@ export async function segmentarConIA(paginas: PaginaDoc[], lineas: LineaAMapear[
   const user = `LÍNEAS DE LA LICITACIÓN:\n${lineas.map(l => `${l.linea}. ${l.nombre}`).join('\n')}\n\nPÁGINAS DEL PDF:\n${paginas.map(p => `[[PÁGINA ${p.n}]]\n${p.texto.slice(0, 900)}`).join('\n\n')}`;
   const completion: any = await crearChatIA({
     messages: [{ role: 'system', content: SYS }, { role: 'user', content: user }],
-    temperature: 0.1, stream: false, max_tokens: MOTOR_GLM.maxTokens, response_format: { type: 'json_object' },
-  }, { timeoutMs: MOTOR_GLM.timeoutMs, modeloPreferido: MOTOR_GLM.modeloPreferido, proveedorPreferido: MOTOR_GLM.proveedorPreferido, sinRespaldo: MOTOR_GLM.sinRespaldo });
+    temperature: 0.1, stream: false, max_tokens: 16_000, response_format: { type: 'json_object' },
+  }, { timeoutMs: 180_000, proveedorPreferido: 'kimi' });
   const parsed = parseJsonIA(String(completion.choices?.[0]?.message?.content ?? '')) as any;
   return bloquesDeAgrupacion(paginas, Array.isArray(parsed?.productos) ? parsed.productos : [], new Set(lineas.map(l => l.linea)));
 }

@@ -11,7 +11,7 @@ export interface ProductoParaSugerir { idx: number; nombre: string; precioNeto: 
 export interface LineaParaSugerir { item: number; filaId: string; detalle: string; cantidad: number | null; costoNeto: number | null }
 export interface SugerenciaLinea { idx: number; filaId: string | null; item: number | null; confianza: 'alta' | 'media' | 'baja'; motivo: string }
 
-const MODELO = 'glm-4.7';
+const MODELO = 'kimi';   // Kimi en todo el Auditor (26-oct-2026); si falla, cae a la cadena normal (GLM)
 
 export const SISTEMA_SUGERIR = `Eres un asistente de compras públicas en Chile. Te doy (A) las LÍNEAS de una licitación (lo que el organismo pide comprar) y (B) productos que un proveedor cotizó. Para cada producto decide a qué línea corresponde.
 REGLAS:
@@ -51,8 +51,8 @@ export async function sugerirLineas(productos: ProductoParaSugerir[], lineas: Li
   if (!productos.length || !lineas.length) return [];
   const completion: any = await crearChatIA({
     messages: [{ role: 'system', content: SISTEMA_SUGERIR }, { role: 'user', content: construirUsuarioSugerir(productos, lineas) }],
-    temperature: 0, stream: false, max_tokens: 3_000, response_format: { type: 'json_object' },
-  }, { timeoutMs: 120_000, modeloPreferido: MODELO, soloGlm: true });
+    temperature: 0, stream: false, max_tokens: 8_000, response_format: { type: 'json_object' },
+  }, { timeoutMs: 150_000, proveedorPreferido: MODELO });
   const parsed = parseJsonIA<any>(String(completion.choices?.[0]?.message?.content ?? ''));
   if (!parsed) throw new Error('el modelo no devolvió una respuesta interpretable');
   return interpretarSugerencias(parsed, productos, lineas);

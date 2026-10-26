@@ -17,7 +17,8 @@ import { ocrPdfLocalTesseract, ocrImagenLocalTesseract } from '@/app/lib/tessera
 import * as P from '@/app/lib/auditor-lector-prompts';
 
 export type ModoLector = 'completo' | 'comercial';
-const MODELO_LECTOR = 'glm-4.7';
+const MOTOR_LECTOR = 'kimi';            // Kimi en todo el Auditor (26-oct-2026)
+const MODELO_RESPALDO_GLM = 'glm-4.7';   // si Kimi falla
 const MAX_CHARS_TEXTO = 40_000;
 
 // ── Forma de la salida del Lector (subconjunto de PROMPT_6 Parte V.1 que usa el código) ────────────
@@ -212,24 +213,56 @@ function promptSistema(modo: ModoLector, esWeb = false): string {
 
 const NOTA_OCR_COMBINADO = `NOTA: este documento trae DOS transcripciones OCR del MISMO archivo. Una puede haber perdido texto que la otra conserva (por ejemplo precios grandes o de color): usa lo que aparezca en CUALQUIERA de las dos y no inventes nada que no esté en ninguna. En una lista de precios por columnas (cada modelo o capacidad es una columna), la transcripción 2 deja los valores de una misma fila en una sola línea, en el orden de las columnas: asigna cada valor a SU columna. Un precio precedido por "ANTES" o tachado es el precio anterior, no el vigente: el vigente es el otro de esa columna. Si una columna no tiene precio vigente legible, déjalo sin precio.`;
 
-async function llamarLector(texto: string, nombre: string, modo: ModoLector, esWeb = false): Promise<SalidaLector> {
+/** El filtro de contenido de Z.AI rechazó el documento (400 «System detected potentially unsafe or sensitive content», código 1301).
+ *  Caso real 26-oct-2026: la ficha de un notebook rugerizado (Getac B360, «MIL-STD-810H», «Disk Wipe») — un falso positivo que
+ *  rechazan los CUATRO modelos GLM por igual, así que la cadena «solo GLM» no tiene salida. */
+export function esRechazoPorFiltro(mensaje: string): boolean {
+  return /unsafe or sensitive content|sensitive content|contenido (inseguro|sensible)|\b1301\b/i.test(mensaje);
+}
+
+async function llamarLector(texto: string, nombre: string, modo: ModoLector, esWeb = false): Promise<{ salida: SalidaLector; motor: string }> {
   const system = promptSistema(modo, esWeb);
   const combinado = texto.includes(MARCA_OCR_COMBINADO);
   const user = `${esWeb ? 'PÁGINA WEB' : 'DOCUMENTO'}: ${nombre}\n\n${combinado ? NOTA_OCR_COMBINADO + '\n\n' : ''}${esWeb ? 'TEXTO CAPTURADO DE LA PÁGINA' : 'TEXTO TRANSCRITO DEL DOCUMENTO'}:\n${texto.slice(0, MAX_CHARS_TEXTO)}`;
+  const params = {
+    messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+    temperature: 0, stream: false, max_tokens: 12_000, response_format: { type: 'json_object' },
+  };
+  // Kimi manda en todo el Auditor (pedido 26-oct-2026). El Lector solo transcribe datos: Kimi con razonamiento 'low' (con 'high' una ficha
+  // tardó 3 min). Si Kimi falla (caída, tiempo), se lee con GLM; el motor que leyó queda guardado en auditor_extraccion.motor.
+  // GLM como respaldo puede rechazar un documento por su filtro de contenido (falso positivo, ficha Getac B360): ese error se explica claro.
+  let motor = MOTOR_LECTOR;
+  const pedir = async (): Promise<any> => {
+    if (motor !== MOTOR_LECTOR) return crearChatIA(params, { timeoutMs: 240_000, modeloPreferido: MODELO_RESPALDO_GLM, soloGlm: true });
+    // max_tokens 16k: el razonamiento de Kimi gasta del MISMO presupuesto que el JSON (margen como el del comparador).
+    try { return await crearChatIA({ ...params, max_tokens: 16_000, _esfuerzoKimi: 'low' }, { timeoutMs: 240_000, proveedorPreferido: MOTOR_LECTOR, sinRespaldo: true }); }
+    catch (e) {
+      const msgKimi = (e instanceof Error ? e.message : String(e)).slice(0, 200);
+      console.warn(`[auditor-lector] Kimi no pudo leer «${nombre}» (${msgKimi}): se lee con ${MODELO_RESPALDO_GLM}`);
+      motor = MODELO_RESPALDO_GLM;
+      try { return await crearChatIA(params, { timeoutMs: 240_000, modeloPreferido: MODELO_RESPALDO_GLM, soloGlm: true }); }
+      catch (e2) {
+        const msgGlm = e2 instanceof Error ? e2.message : String(e2);
+        throw new Error(esRechazoPorFiltro(msgGlm)
+          ? `Kimi no pudo leerlo (${msgKimi}) y el respaldo GLM lo rechazó por su filtro de contenido (falso positivo). Vuelve a intentarlo en unos minutos.`
+          : `Kimi no pudo leerlo (${msgKimi}) y el respaldo GLM tampoco: ${msgGlm.slice(0, 200)}`);
+      }
+    }
+  };
   let ultimo = '';
   for (let intento = 1; intento <= 2; intento++) {
-    const completion: any = await crearChatIA({
-      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-      temperature: 0, stream: false, max_tokens: 12_000, response_format: { type: 'json_object' },
-    }, { timeoutMs: 240_000, modeloPreferido: MODELO_LECTOR, soloGlm: true });
+    const completion: any = await pedir();
     const contenido = String(completion.choices?.[0]?.message?.content ?? '');
     const parsed = parseJsonIA<SalidaLector>(contenido) ?? sacarCaracteresSueltos<SalidaLector>(contenido);
-    if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) return parsed;
+    if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) return { salida: parsed, motor };
     ultimo = `finish=${completion.choices?.[0]?.finish_reason} largo=${contenido.length}`;
     console.warn(`[auditor-lector] intento ${intento}: respuesta no interpretable (${ultimo})`);
   }
   throw new Error(`el modelo no devolvió una respuesta interpretable (${ultimo})`);
 }
+
+/** Lee un texto con el Lector SIN guardar nada (diagnóstico desde scripts/scratch: probar un documento que falló sin tocar la BD). */
+export const leerSinGuardar = (texto: string, nombre: string, modo: ModoLector = 'completo') => llamarLector(texto, nombre, modo);
 
 // ── 3) Leer y guardar ────────────────────────────────────────────────────────────────────────────
 /** Lee un documento con el Lector y guarda la extracción (o el error) en auditor_extraccion. Devuelve el
@@ -245,12 +278,12 @@ export async function leerYGuardarDocumento(params: {
   const ahora = ahoraChileSQL();
   try {
     const { texto, metodo } = await transcribirDocumento(url, { combinar: combinarOCR });
-    const salida = await llamarLector(texto, nombre, modo);
+    const { salida, motor } = await llamarLector(texto, nombre, modo);
     const guardada: ExtraccionGuardada = { modo, salida, texto: texto.slice(0, MAX_CHARS_TEXTO), metodoTexto: metodo, tiposCambio: await tiposCambioDeLaLectura(salida) };
     const [ins] = await pool.query(
       `INSERT INTO auditor_extraccion (negocio_id, documento_url, documento_nombre, opcion_id, respaldo_id, modo, extraccion_json, motor, creado_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [negocioId, url, nombre, opcionId, respaldoId, modo, JSON.stringify(guardada), MODELO_LECTOR, ahora],
+      [negocioId, url, nombre, opcionId, respaldoId, modo, JSON.stringify(guardada), motor, ahora],
     ) as any;
     return { id: ins.insertId as number, error: null };
   } catch (e) {
@@ -259,7 +292,7 @@ export async function leerYGuardarDocumento(params: {
     const [ins] = await pool.query(
       `INSERT INTO auditor_extraccion (negocio_id, documento_url, documento_nombre, opcion_id, respaldo_id, modo, extraccion_json, motor, error, creado_at)
        VALUES (?, ?, ?, ?, ?, ?, '{}', ?, ?, ?)`,
-      [negocioId, url, nombre, opcionId, respaldoId, modo, MODELO_LECTOR, msg, ahora],
+      [negocioId, url, nombre, opcionId, respaldoId, modo, MOTOR_LECTOR, msg, ahora],
     ) as any;
     return { id: ins.insertId as number, error: msg };
   }
@@ -274,12 +307,12 @@ export async function leerYGuardarPaginaWeb(params: {
   const ahora = ahoraChileSQL();
   try {
     if (!texto || texto.trim().length < 80) throw new Error('la página no entregó texto legible (¿bloquea navegadores automáticos o pide iniciar sesión?)');
-    const salida = await llamarLector(texto, `${titulo || url} (${url})`, modo, true);
+    const { salida, motor } = await llamarLector(texto, `${titulo || url} (${url})`, modo, true);
     const guardada: ExtraccionGuardada = { modo, salida, texto: texto.slice(0, MAX_CHARS_TEXTO), metodoTexto: 'captura-web' };
     const [ins] = await pool.query(
       `INSERT INTO auditor_extraccion (negocio_id, documento_url, documento_nombre, opcion_id, respaldo_id, modo, extraccion_json, motor, creado_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [negocioId, url.slice(0, 1000), (titulo || url).slice(0, 300), opcionId, respaldoId, modo, JSON.stringify(guardada), MODELO_LECTOR, ahora]) as any;
+      [negocioId, url.slice(0, 1000), (titulo || url).slice(0, 300), opcionId, respaldoId, modo, JSON.stringify(guardada), motor, ahora]) as any;
     return { id: ins.insertId as number, error: null };
   } catch (e) {
     const msg = (e instanceof Error ? e.message : String(e)).slice(0, 480);
@@ -287,7 +320,7 @@ export async function leerYGuardarPaginaWeb(params: {
     const [ins] = await pool.query(
       `INSERT INTO auditor_extraccion (negocio_id, documento_url, documento_nombre, opcion_id, respaldo_id, modo, extraccion_json, motor, error, creado_at)
        VALUES (?, ?, ?, ?, ?, ?, '{}', ?, ?, ?)`,
-      [negocioId, url.slice(0, 1000), (titulo || url).slice(0, 300), opcionId, respaldoId, modo, MODELO_LECTOR, msg, ahora]) as any;
+      [negocioId, url.slice(0, 1000), (titulo || url).slice(0, 300), opcionId, respaldoId, modo, MOTOR_LECTOR, msg, ahora]) as any;
     return { id: ins.insertId as number, error: msg };
   }
 }

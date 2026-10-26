@@ -107,8 +107,8 @@ ${bloque}`;
     for (let intento = 1; intento <= 2 && !parsed; intento++) {
       const completion: any = await crearChatIA({
         messages: [{ role: 'system', content: sistemaCostoIA() }, { role: 'user', content: user }],
-        temperature: 0, stream: false, max_tokens: 6_000, response_format: { type: 'json_object' },
-      }, { timeoutMs: 180_000, modeloPreferido: 'glm-4.7', soloGlm: true });
+        temperature: 0, stream: false, max_tokens: 12_000, response_format: { type: 'json_object' },
+      }, { timeoutMs: 180_000, proveedorPreferido: 'kimi' });
       const p = parseJsonIA<SalidaCostoIA>(String(completion.choices?.[0]?.message?.content ?? ''));
       if (p && typeof p === 'object' && Object.keys(p).length > 0) parsed = p;
     }
