@@ -279,6 +279,26 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
     catch (e: any) { toast.error('No se pudo cambiar la ficha', e.message); }
     finally { marcarFicha(destino, false); await cargar(true); }
   };
+  // Eliminar la FICHA (el archivo): mismo borrado que una cotización (DELETE /api/documentos), que limpia lo que el Auditor sacó de ella y se
+  // niega si respalda una opción firmada o en aprobación. Distinto de «Dejar de usar»: aquí el archivo desaparece de Documentos.
+  const eliminarFicha = async (url: string, nombre: string, usos: number) => {
+    const ok = await confirmar({
+      titulo: `¿Eliminar la ficha «${nombre}»?`,
+      mensaje: usos > 0
+        ? `Se borra el archivo y deja de respaldar ${usos === 1 ? 'la opción donde está' : `las ${usos} opciones donde está`}. Si una opción se había creado solo con esta ficha, esa opción también se borra. Vuelve a comparar la línea después. No se puede deshacer.`
+        : 'Se borra el archivo de Documentos. No se puede deshacer.',
+      confirmarLabel: 'Eliminar la ficha',
+      peligro: true,
+    });
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/documentos/${encodeURIComponent(licitacionCodigo)}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, nombre }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo eliminar');
+      toast.success('Ficha eliminada', nombre);
+    } catch (e: any) { toast.error(`No se pudo eliminar «${nombre}»`, e.message); }
+    finally { await cargar(true); }
+  };
   const quitarFicha = async (respaldoId: number, nombre: string, filaId: string) => {
     const ok = await confirmar({
       titulo: `¿Dejar de usar «${nombre}»?`,
@@ -765,6 +785,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                       <p className="text-xs text-slate-600">{fsa.subidaAt ? `Subida el ${fsa.subidaAt.slice(0, 10).split('-').reverse().join('-')}` : 'Ficha técnica'}</p>
                     </div>
                     <a href={fsa.url} target="_blank" rel="noopener noreferrer" title="Ver la ficha" className="p-1 rounded-md text-teal-700 hover:bg-teal-50"><Eye size={15} /></a>
+                    <button data-no-pdf onClick={() => eliminarFicha(fsa.url, fsa.nombre, 0)} title="Eliminar esta ficha (borra el archivo)" className="p-1 rounded-md text-slate-500 hover:text-red-600 hover:bg-red-50"><Trash size={15} /></button>
                   </div>
                   <dl className="mt-3 pt-3 border-t border-amber-100 space-y-2">
                     <div>
@@ -799,6 +820,12 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                       <p className="text-xs text-slate-600 truncate">{r.cargadoPorNombre ? `Subida por ${r.cargadoPorNombre}` : 'Ficha técnica'}{r.cargadoAt ? ` · ${r.cargadoAt.slice(0, 10).split('-').reverse().join('-')}` : ''}</p>
                     </div>
                     {r.documentoUrl && <a href={r.documentoUrl} target="_blank" rel="noopener noreferrer" title="Ver la ficha" className="p-1 rounded-md text-teal-700 hover:bg-teal-50"><Eye size={15} /></a>}
+                    {r.documentoUrl && (
+                      <button data-no-pdf disabled={bloqueada}
+                        onClick={() => eliminarFicha(r.documentoUrl!, r.documentoNombre || 'ficha', fichasCargadas.filter(x => x.r.documentoUrl === r.documentoUrl).length)}
+                        title={bloqueada ? 'La opción ya está aprobada o en aprobación: el EM tiene que rechazarla antes de eliminar su ficha' : 'Eliminar esta ficha (borra el archivo)'}
+                        className="p-1 rounded-md text-slate-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-40"><Trash size={15} /></button>
+                    )}
                   </div>
                   <dl className="mt-3 pt-3 border-t border-zinc-100 space-y-2">
                     <div>
