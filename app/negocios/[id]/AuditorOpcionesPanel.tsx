@@ -1531,13 +1531,14 @@ function OpcionesDestinoFicha({ panel, etiquetaItem, excluirOpcionId }: { panel:
   </>;
 }
 
-/** Número visible de cada línea: el ítem del costeo, y si dos filas comparten el ítem, 1.1, 1.2… (en el orden del costeo). */
+/** Número visible de cada línea: el de la LÍNEA de Mercado Público (lineaReal; caso 1414396-26-LP26: solo la línea 7) o, si no se sabe, el ítem
+ *  del costeo. Si una línea tiene varios ítems (o dos filas comparten número), 7.1, 7.2… en el orden del costeo. */
 function etiquetasDeItem(lineas: LineaAuditorDTO[]): Map<string, string> {
   const veces = new Map<string, number>();
-  for (const l of lineas) veces.set(String(l.item), (veces.get(String(l.item)) ?? 0) + 1);
+  for (const l of lineas) veces.set(String(l.lineaReal ?? l.item), (veces.get(String(l.lineaReal ?? l.item)) ?? 0) + 1);
   const vistos = new Map<string, number>();
   return new Map(lineas.map(l => {
-    const k = String(l.item);
+    const k = String(l.lineaReal ?? l.item);
     if ((veces.get(k) ?? 0) < 2) return [l.filaId, k];
     const n = (vistos.get(k) ?? 0) + 1; vistos.set(k, n);
     return [l.filaId, `${k}.${n}`];

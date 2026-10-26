@@ -1011,6 +1011,8 @@ function GenerarAnexoDeBloque({ decision, etiqueta, onGenerar }: {
   );
 }
 
+const MSG_CONGELADO = 'Este negocio ya se postuló: el checklist quedó congelado y ya no se puede marcar como visto.';
+
 function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, modoAcuse = false, onAccion, onVer, onGenerar, toast }: {
   item: Item;
   licitacionCodigo: string;
@@ -1027,6 +1029,8 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
   toast: ReturnType<typeof useToast>;
 }) {
   const confirmar = useConfirm();
+  // Postulado = checklist congelado. Antes el botón quedaba gris sin explicar nada (26-oct-2026): ahora dice por qué.
+  const avisoCongelado = () => toast.info('Este negocio ya se postuló', 'El checklist quedó congelado como registro de lo que se presentó: ya no se puede marcar como visto. Las alertas se marcan antes de postular.');
   const [editando, setEditando] = useState(false);
   const [valorTexto, setValorTexto] = useState(item.valor_texto || '');
   const [valorNumero, setValorNumero] = useState(item.valor_numero != null ? String(item.valor_numero) : '');
@@ -1374,19 +1378,19 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
           <div className="flex items-center gap-1.5 flex-shrink-0">
             {item.estado === 'APROBADO' ? (
               <button
-                onClick={() => onAccion(item.id, 'DESACUSAR')}
-                disabled={ocupado || bloqueado}
-                title="Deshacer: volver a marcarlo como no leído"
+                onClick={() => bloqueado ? avisoCongelado() : onAccion(item.id, 'DESACUSAR')}
+                disabled={ocupado}
+                title={bloqueado ? MSG_CONGELADO : 'Deshacer: volver a marcarlo como no leído'}
                 className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1 text-[11.5px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-50"
               >
                 {ocupado ? <Loader2 size={11} className="animate-spin" /> : <Check size={12} />} Visto
               </button>
             ) : (
               <button
-                onClick={() => onAccion(item.id, 'ACUSAR')}
-                disabled={ocupado || bloqueado}
-                title="Confirmo que leí esta condición y la voy a tener en cuenta"
-                className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1 text-[11.5px] font-semibold text-zinc-600 transition-colors hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50"
+                onClick={() => bloqueado ? avisoCongelado() : onAccion(item.id, 'ACUSAR')}
+                disabled={ocupado}
+                title={bloqueado ? MSG_CONGELADO : 'Confirmo que leí esta condición y la voy a tener en cuenta'}
+                className={`inline-flex items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1 text-[11.5px] font-semibold transition-colors disabled:opacity-50 ${bloqueado ? 'text-zinc-400 cursor-not-allowed' : 'text-zinc-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700'}`}
               >
                 {ocupado ? <Loader2 size={11} className="animate-spin" /> : <Check size={12} />} Marcar como visto
               </button>

@@ -26,15 +26,16 @@ export interface NegocioBandejaEM {
   }>;
 }
 
-/** Número visible de la línea: el ítem del costeo y, si dos filas comparten ítem, 1.1, 1.2… (igual que la pantalla del Auditor). */
+/** Número visible de la línea: el de Mercado Público (lineaReal) o el ítem del costeo; varios ítems de una línea → 7.1, 7.2… (igual que la pantalla del Auditor). */
 function etiquetasDeLineas(lineas: LineaAuditorDTO[]): Map<string, string> {
-  const veces = new Map<number, number>();
-  for (const l of lineas) veces.set(l.item, (veces.get(l.item) ?? 0) + 1);
+  const veces = new Map<number, number>();   // número de la línea de Mercado Público (lineaReal); si no hay, el ítem del costeo
+  for (const l of lineas) veces.set(l.lineaReal ?? l.item, (veces.get(l.lineaReal ?? l.item) ?? 0) + 1);
   const vistos = new Map<number, number>();
   return new Map(lineas.map(l => {
-    if ((veces.get(l.item) ?? 0) < 2) return [l.filaId, String(l.item)];
-    const k = (vistos.get(l.item) ?? 0) + 1; vistos.set(l.item, k);
-    return [l.filaId, `${l.item}.${k}`];
+    const num = l.lineaReal ?? l.item;
+    if ((veces.get(num) ?? 0) < 2) return [l.filaId, String(num)];
+    const k = (vistos.get(num) ?? 0) + 1; vistos.set(num, k);
+    return [l.filaId, `${num}.${k}`];
   }));
 }
 

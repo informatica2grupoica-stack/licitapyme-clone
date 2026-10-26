@@ -5,6 +5,7 @@
 // Spec: docs/ESPECIFICACION_AUDITOR_v1.md §4 (opción), §5 (vías), §11 (firma y aprobación).
 // Tablas: migration-131/132 (auditor_opcion, auditor_respaldo, auditor_extraccion, auditor_evento).
 import pool from '@/app/lib/db';
+import { leerLineasOfertadas } from '@/app/lib/lineas-oferta';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { lineasDelCosteo, precioNetoUnitario, type LineaCosteo, type MargenProyecto } from '@/app/lib/auditor-compras-core';
 import { MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor } from '@/app/lib/costeo-editor';
@@ -137,7 +138,16 @@ export async function cargarEstadoCosteo(negocioId: number): Promise<EstadoCoste
   if (!row) return null;
   try {
     const datos = typeof row.datos_json === 'string' ? JSON.parse(row.datos_json) : row.datos_json;
-    const grupos = (datos?.grupos || []).map((g: any) => ({ ...g, ofertamos: g.ofertamos !== false }));
+    // «¿A qué líneas vamos?» (selector arriba del negocio, tabla negocio_lineas_oferta) manda sobre la marca del costeo: caso real
+    // 1414396-26-LP26 — el selector dice solo la línea 7 y el costeo traía las 17 marcadas, así que el Auditor mostraba las 17.
+    // Sin decisión guardada (null) no se filtra nada. Solo LECTURA: el costeo guardado no cambia.
+    const ofertadas = await leerLineasOfertadas(negocioId);
+    const fuera = (g: any): boolean => {
+      if (!ofertadas) return false;
+      const num = g.linea ?? (g.filas || []).find((f: any) => f.lineaReal != null)?.lineaReal ?? null;
+      return num != null && !ofertadas.includes(Number(num));
+    };
+    const grupos = (datos?.grupos || []).map((g: any) => ({ ...g, ofertamos: g.ofertamos !== false && !fuera(g) }));
     return { modalidad: row.modalidad, margenVenta: Number(datos?.margenVenta) || MARGEN_VENTA_DEFECTO, grupos };
   } catch { return null; }
 }
