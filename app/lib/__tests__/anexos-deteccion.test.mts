@@ -14,7 +14,7 @@ import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, detectarBlan
 import { valorExisteEnFicha, campoCalzaConLaEtiqueta, type EmpresaCampos } from '../anexos-ia-motor';
 import { resolverDeterminista } from '../anexos-determinista';
 import { esCandidatoDePrecioUnitario } from '../anexos-precios-columnas';
-import { calcularTotalesAlPie, pareceFilaDePie, calcularTotalesPorSeccion, resolverTablaResumen } from '../anexos-totales-seccion';
+import { calcularTotalesAlPie, pareceFilaDePie, calcularTotalesPorSeccion, resolverTablaResumen, calcularTotalesPorLinea, celdasDeRellenoDelPie } from '../anexos-totales-seccion';
 
 const NS = '<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body>';
 const FIN = '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>';
@@ -1028,7 +1028,9 @@ test('pareceFilaDePie: rótulos reales del corpus, a favor y en contra', () => {
   }
 });
 
-test('totales al pie: sin porcentaje declarado el IVA no se inventa', () => {
+// Cambio de regla (26-oct-2026, decisión del usuario, 1414396-26-LP26 ANEXO N°5): "IVA" pelado,
+// sin porcentaje en ninguna fila, usa el 19% chileno en vez de quedar pendiente.
+test('totales al pie: sin porcentaje declarado el IVA usa el 19% chileno', () => {
   const xml = NS + tabla(
     fila('N°', 'PRODUCTO', 'PRECIO NETO'),
     fila('1', 'PAN AMASADO', ''),
@@ -1042,7 +1044,44 @@ test('totales al pie: sin porcentaje declarado el IVA no se inventa', () => {
   const rotulos = rellenos.map(r => r.etiqueta.trim());
 
   assert.ok(rotulos.includes('TOTAL'), `el neto sí se calcula: ${JSON.stringify(rellenos)}`);
-  assert.ok(!rotulos.includes('IVA'), `sin "%" en ninguna fila, el IVA queda pendiente: ${JSON.stringify(rellenos)}`);
+  assert.equal(rellenos.find(r => r.etiqueta.trim() === 'IVA')?.valor, '321', JSON.stringify(rellenos));
+});
+
+// 1414396-26-LP26, ANEXO N°5: adjudicación por línea, el costeo trae solo una de las líneas.
+// Antes: precio puesto, total de la línea vacío y ningún total al pie (una línea sin precio
+// bloqueaba todo), más tres celdas de relleno por fila de pie ofrecidas como casillas.
+test('anexo económico por línea: total por línea, líneas no ofertadas, IVA 19% y relleno del pie', () => {
+  const xml = NS + tabla(
+    fila('Línea', 'Producto', 'Cantidad(A)', 'Precio Unitario(B)', 'Total Neto(A*B)'),
+    fila('Línea 1', 'Agitador de tamices', '1', '', ''),
+    fila('Línea 7', 'Horno convector semi industrial', '4', '', ''),
+    fila('', '', '', 'Total Neto', ''),
+    fila('', '', '', 'IVA', ''),
+    fila('', '', '', 'Total Bruto', ''),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const tablas = extraerTablasCrudo(norm);
+  const precioHorno = tablas[0].filas[2].celdas[3].indiceGlobal!;
+  const valor = (i: number) => (i === precioHorno ? 4_762_352 : null);
+
+  const porLinea = calcularTotalesPorLinea(tablas, valor);
+  assert.equal(porLinea.length, 1, JSON.stringify(porLinea));
+  assert.equal(porLinea[0].indiceGlobal, tablas[0].filas[2].celdas[4].indiceGlobal);
+  assert.equal(porLinea[0].valor, '19.049.408');
+
+  // Sin saber que el costeo está cubierto, la línea 1 sin precio sigue bloqueando el total.
+  assert.deepEqual(calcularTotalesAlPie(tablas, valor), []);
+  const pie = new Map(calcularTotalesAlPie(tablas, valor, { lineasSinPrecioNoOfertadas: true }).map(r => [r.etiqueta.trim(), r]));
+  assert.equal(pie.get('Total Neto')?.valor, '19.049.408');
+  assert.equal(pie.get('IVA')?.valor, '3.619.388');
+  assert.equal(pie.get('Total Bruto')?.valor, '22.668.796');
+  assert.equal(pie.get('Total Neto')?.indiceGlobal, tablas[0].filas[3].celdas[4].indiceGlobal, 'el monto va bajo la columna del total');
+
+  const relleno = celdasDeRellenoDelPie(tablas);
+  for (const f of tablas[0].filas.slice(3)) {
+    for (const c of f.celdas.slice(0, 3)) assert.ok(relleno.has(c.indiceGlobal!), 'celda a la izquierda del rótulo = relleno');
+    assert.ok(!relleno.has(f.celdas[4].indiceGlobal!), 'la casilla del monto no es relleno');
+  }
 });
 
 // Auditoría 12-ago-2026: la celda de una tabla RESUMEN que cruza el total de una sección

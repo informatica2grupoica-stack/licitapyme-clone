@@ -1452,7 +1452,9 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
           // pantalla y en el prompt de la IA) es bastante mejor que "(sin contexto)", que no le
           // dice nada ni al usuario ni al modelo. El ROTULO DE ARRIBA es el mismo respaldo para
           // cuando la etiqueta vive en su propio párrafo antes del blanco (ver rotuloArribaDelBlanco).
-          contexto: contexto || rotuloDebajo || rotuloArriba || rotuloDeSiNo(textoParrafoCompleto, posGlobalEnParrafo + b.largo) || '(sin contexto)',
+          // El "(Sí/No)" va PRIMERO: con "Mi representada ___ (SÍ/NO) posee…" (1414396-26-LP26) el
+          // contexto de la izquierda existe pero engaña — la casilla es la pregunta de la derecha.
+          contexto: rotuloDeSiNo(textoParrafoCompleto, posGlobalEnParrafo + b.largo) || contexto || rotuloDebajo || rotuloArriba || '(sin contexto)',
           parrafoCompleto: textoParrafoCompleto.trim(),
           posEnParrafo: Math.max(0, posGlobalEnParrafo - recorteIzquierdo),
           ...(b.textoMarcador ? { textoMarcador: b.textoMarcador } : {}),

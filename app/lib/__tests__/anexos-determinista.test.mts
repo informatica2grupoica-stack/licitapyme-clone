@@ -205,6 +205,22 @@ test('declaración jurada: "en representación legal (completar si aplica) de" r
   assert.equal(campoDeBlancoInline(blanco(o, pos)), 'razon_social');
 });
 
+// BUG REAL (26-oct-2026, 1414396-26-LP26, ANEXO N°3, reportado con captura): "Mi representada
+// ___ (SÍ/NO) posee un programa de integridad" salía con la razón social en la casilla del SÍ/NO.
+test('"Mi representada ___ (SÍ/NO) posee…": el blanco es la respuesta SÍ/NO, decisión del usuario', () => {
+  const o = 'Mi representada  (SÍ/NO) posee un programa de integridad que es conocido por su personal';
+  assert.equal(campoDeBlancoInline(blanco(o, o.indexOf('representada ') + 13, { largo: 0 })), null);
+  assert.equal(clasificarPendiente('(SÍ/NO) posee un programa de integridad').categoria, 'decision_del_usuario');
+  // Sin el "(Sí/No)" detrás, "mi representada ___" sigue siendo la empresa.
+  const o2 = 'Mi representada  declara bajo juramento';
+  assert.equal(campoDeBlancoInline(blanco(o2, o2.indexOf('representada ') + 13)), 'razon_social');
+});
+
+test('"representación de ___" sin el "en" delante también es la empresa (1414396-26-LP26)', () => {
+  const o = 'con domicilio en Camino El Oliveto 575 representación de , RUT';
+  assert.equal(campoDeBlancoInline(blanco(o, o.indexOf('representación de ') + 18, { largo: 0 })), 'razon_social');
+});
+
 // ── Capa 5: localidad de la firma (hueco abierto del instructivo) ────────────────────────────
 test('localidad de firma: "En ____ a 12 de agosto" es la comuna del ORGANISMO, no la región de la empresa', () => {
   const o = 'En  a 12 de agosto de 2026';

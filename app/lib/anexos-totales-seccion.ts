@@ -109,13 +109,20 @@ export function calcularTotalesPorSeccion(
 // Reglas de seguridad, deliberadamente estrictas — es una oferta económica, un número mal escrito
 // aquí es peor que una casilla vacía:
 //   · Si UN solo ítem quedó sin precio, no se escribe NINGÚN total de esa tabla (mismo criterio
-//     que calcularTotalesPorSeccion: nunca un total parcial que parezca completo).
-//   · El IVA se calcula con el porcentaje que dice la propia fila ("IVA 19%"); si la fila no lo
-//     dice, no se inventa un 19% por defecto: esa fila se deja pendiente.
+//     que calcularTotalesPorSeccion: nunca un total parcial que parezca completo). Excepción: si
+//     TODOS los ítems del costeo ya encontraron su línea (`lineasSinPrecioNoOfertadas`), una línea
+//     sin precio es una línea a la que no se postula — licitación adjudicada por línea.
+//   · El IVA se calcula con el porcentaje que dice la propia tabla ("IVA 19%"); si ninguna fila lo
+//     dice (rótulo "IVA" pelado, 1414396-26-LP26 ANEXO N°5), se usa el 19% de la ley chilena —
+//     decisión del usuario, 26-oct-2026. Si el documento declara otro porcentaje, manda el documento.
 //   · El total con IVA se calcula como neto + IVA, nunca por su cuenta.
 //   · Si la tabla trae columna CANTIDAD, el total es Σ(cantidad × precio); si no (el caso de este
 //     anexo: solo precios unitarios), es la suma de la columna.
-const RE_COLUMNA_CANTIDAD = /^cantidad(es)?$/i;
+// "Cantidad(A)" / "Cantidad (A)": la letra con que el organismo arma la fórmula "Total (A*B)"
+// (1414396-26-LP26, ANEXO N°5) — sin aceptarla el total se calculaba sumando precios unitarios.
+const RE_COLUMNA_CANTIDAD = /^cantidad(es)?\s*(\(\s*[a-z]\s*\))?$/i;
+// Columna del total de CADA línea: "Total Neto(A*B)", "Subtotal", "Valor total".
+const RE_COLUMNA_TOTAL_LINEA = /\b(sub\s*)?total(es)?\b|\b[a-z]\s*[*x×]\s*[a-z]\b/i;
 // El orden importa: "TOTAL IVA INCLUIDO" tiene que caer en `bruto`, no en `neto` ni en `iva`.
 const RE_PIE_BRUTO = /\b(iva\s*inclu|impuestos?\s*inclu|con\s*iva|total\s*bruto|total\s*final|total\s*general)/i;
 const RE_PIE_IVA = /^\s*(i\.?v\.?a\.?|impuestos?)\b/i;
@@ -212,6 +219,7 @@ function rotuloAmbiguo(rotulo: string): boolean {
 
 export function calcularTotalesAlPie(
   tablasCrudo: TablaCruda[], valorResuelto: (indiceGlobal: number) => number | null,
+  { lineasSinPrecioNoOfertadas = false }: { lineasSinPrecioNoOfertadas?: boolean } = {},
 ): RellenoPie[] {
   const out: RellenoPie[] = [];
   for (const t of tablasCrudo) {
@@ -220,6 +228,7 @@ export function calcularTotalesAlPie(
     const iPrecio = header.findIndex(h => esCandidatoDePrecioUnitario(`x — ${h}`));
     if (iPrecio < 0) continue;
     const iCantidad = header.findIndex(h => RE_COLUMNA_CANTIDAD.test(h.trim()));
+    const iTotalLinea = columnaTotalLinea(header, iPrecio);
 
     // Se separan las filas de PIE de las de ítem antes de sumar: una fila de pie no es un ítem
     // (no tiene precio propio que sumar) y un ítem sin resolver invalida el total.
@@ -242,7 +251,7 @@ export function calcularTotalesAlPie(
         : (Number.isFinite(yaEscrito) && yaEscrito > 0 ? yaEscrito : null);
       if (precio == null) {
         // Una fila totalmente vacía (sin rótulo ni precio) es relleno visual, no un ítem sin resolver.
-        if (rotulo) completo = false;
+        if (rotulo && !lineasSinPrecioNoOfertadas) completo = false;
         continue;
       }
       itemsConDato++;
@@ -258,7 +267,7 @@ export function calcularTotalesAlPie(
     const neto = total;
     for (const fila of filasPie) {
       if (rotuloAmbiguo(fila.rotulo)) continue;
-      const celda = celdaDelMonto(fila.celdas, iPrecio);
+      const celda = celdaDelMonto(fila.celdas, iTotalLinea >= 0 ? iTotalLinea : iPrecio);
       if (!celda?.ultimoParaId || celda.indiceGlobal == null) continue;
       let valor: number | null = null;
       if (RE_PIE_BRUTO.test(fila.rotulo)) {
@@ -291,7 +300,66 @@ function porcentajeIva(rotulo: string, filasPie: { rotulo: string }[]): number |
     const m = texto.match(/(\d{1,2}(?:[.,]\d+)?)\s*%/);
     if (m) return Number(m[1].replace(',', '.'));
   }
-  return null;
+  return IVA_CHILE_POR_DEFECTO;
+}
+const IVA_CHILE_POR_DEFECTO = 19;
+
+// La columna del total de cada línea, si la tabla la trae: un encabezado "total"/"A*B" a la
+// DERECHA de la columna del precio unitario.
+function columnaTotalLinea(header: string[], iPrecio: number): number {
+  // "Total con IVA" por línea no es cantidad × precio neto: esa columna no se toca.
+  return header.findIndex((h, i) => i > iPrecio && RE_COLUMNA_TOTAL_LINEA.test(h) && !/\biva\b|brut[oa]/i.test(h));
+}
+
+// ── Total de CADA línea (cantidad × precio unitario) ─────────────────────────────────────────
+// "Línea | Producto | Cantidad(A) | Precio Unitario(B) | Total Neto(A*B)" (1414396-26-LP26, ANEXO
+// N°5): el precio salía del costeo y la casilla de al lado quedaba vacía para multiplicar a mano.
+// Solo cuando la fila trae cantidad numérica y precio resuelto — nunca se adivina ninguno de los dos.
+export function calcularTotalesPorLinea(
+  tablasCrudo: TablaCruda[], valorResuelto: (indiceGlobal: number) => number | null,
+): RellenoPie[] {
+  const out: RellenoPie[] = [];
+  for (const t of tablasCrudo) {
+    if (t.filas.length < 2) continue;
+    const header = t.filas[0].celdas.map(c => c.texto);
+    const iPrecio = header.findIndex(h => esCandidatoDePrecioUnitario(`x — ${h}`));
+    if (iPrecio < 0) continue;
+    const iCantidad = header.findIndex(h => RE_COLUMNA_CANTIDAD.test(h.trim()));
+    const iTotal = columnaTotalLinea(header, iPrecio);
+    if (iCantidad < 0 || iTotal < 0) continue;
+    for (const fila of t.filas.slice(1)) {
+      const celdaPrecio = fila.celdas[iPrecio];
+      const celdaTotal = fila.celdas[iTotal];
+      if (celdaPrecio?.indiceGlobal == null || celdaTotal?.indiceGlobal == null || !celdaTotal.ultimoParaId) continue;
+      const cantidad = Number(String(fila.celdas[iCantidad]?.texto ?? '').trim().replace(',', '.'));
+      const precio = valorResuelto(celdaPrecio.indiceGlobal);
+      if (!Number.isFinite(cantidad) || cantidad <= 0 || precio == null) continue;
+      out.push({
+        paraId: celdaTotal.ultimoParaId, indiceGlobal: celdaTotal.indiceGlobal,
+        etiqueta: `${textoDeFila(fila.celdas.slice(0, iCantidad)).slice(0, 60)} — ${header[iTotal]}`,
+        valor: new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(Math.round(cantidad * precio)),
+      });
+    }
+  }
+  return out;
+}
+
+// Las celdas vacías a la IZQUIERDA del rótulo en una fila de pie ("_ | _ | _ | Total Neto | $")
+// son relleno del dibujo de la tabla, no casillas: mostradas como campos inflaban el contador de
+// pendientes con tres casillas sin sentido por fila (1414396-26-LP26, ANEXO N°5).
+export function celdasDeRellenoDelPie(tablasCrudo: TablaCruda[]): Set<number> {
+  const out = new Set<number>();
+  for (const t of tablasCrudo) {
+    if (t.filas.length < 3) continue;
+    const header = t.filas[0].celdas.map(c => c.texto);
+    if (!header.some(h => esCandidatoDePrecioUnitario(`x — ${h}`))) continue;
+    for (const fila of t.filas.slice(1)) {
+      if (!pareceFilaDePie(fila.celdas, textoDeFila(fila.celdas))) continue;
+      const iRotulo = fila.celdas.findIndex(c => c.texto.trim());
+      for (const c of fila.celdas.slice(0, iRotulo)) if (c.indiceGlobal != null) out.add(c.indiceGlobal);
+    }
+  }
+  return out;
 }
 
 export interface RellenoTotal {

@@ -43,7 +43,7 @@ import {
   resolverTablaConAuditor, resolverPreciosConAuditor, resolverCamposSueltosConAuditor,
   type DatosAuditorAnexo,
 } from '@/app/lib/anexos-auditor-fuente';
-import { calcularTotalesPorSeccion, calcularTotalesAlPie, resolverTablaResumen, tituloDeTabla, encabezadosLibres, type TituloCercano } from '@/app/lib/anexos-totales-seccion';
+import { calcularTotalesPorSeccion, calcularTotalesAlPie, calcularTotalesPorLinea, celdasDeRellenoDelPie, resolverTablaResumen, tituloDeTabla, encabezadosLibres, type TituloCercano } from '@/app/lib/anexos-totales-seccion';
 import { detectarFormularios, type FormularioDetectado } from '@/app/lib/anexos-dividir';
 import { construirDocumentoUI, leerNumeracion, type BloqueUI, type Resuelto } from '@/app/lib/anexos-documento-ui';
 import { analizarSeccionesEscaneadas, type SeccionEscaneada } from '@/app/lib/anexos-imagen-escaneada';
@@ -147,6 +147,9 @@ interface ResultadoResolucion {
   alertasInadmisibilidad: AlertaInadmisibilidad[];
   checklistPendientes: string[];
   faltantesFicha: { campo: string; nombre: string; etiqueta: string; origen: 'ficha' | 'licitacion' }[];
+  // Cada ítem del costeo encontró su línea en el anexo: una línea que quedó sin precio es una a la
+  // que no se postula (adjudicación por línea), no un precio que falta. Ver calcularTotalesAlPie.
+  costeoCubierto: boolean;
 }
 
 // Anexo que el documento declara que NO nos corresponde presentar (ver detectarAvisoNoAplica):
@@ -165,6 +168,7 @@ function todoPendientePorNoAplicar(
     alertasInadmisibilidad: [],
     checklistPendientes: [],
     faltantesFicha: [],
+    costeoCubierto: false,
   };
 }
 
@@ -353,8 +357,10 @@ async function resolverTodo(
   // Precios del Motor Comercial: no es un dato de la ficha de empresa, sale del .xlsx del
   // costeo (ver anexos-precios-ia.ts) — se cruza sobre lo que el Auditor dejó pendiente.
   let pendientesTrasPrecio = pendientesTrasAuditor;
+  let costeoCubierto = false;
   if (itemsCosteo && itemsCosteo.length > 0) {
     const matchesPrecio = await matchearPreciosConIA(pendientesTrasAuditor.map(c => c.etiqueta), itemsCosteo);
+    costeoCubierto = itemsCosteo.every(it => matchesPrecio.some(m => m.itemDescripcion === it.descripcion));
     const mapaPrecio = new Map(matchesPrecio.map(m => [m.etiqueta, m]));
     pendientesTrasPrecio = [];
     for (const c of pendientesTrasAuditor) {
@@ -466,14 +472,14 @@ async function resolverTodo(
   return {
     matcheados, pendientes: pendientesFinal, pendientesConMotivo, inlineAuto,
     inlinePendientes: inlinePendientesFinal, alertasInadmisibilidad, checklistPendientes,
-    faltantesFicha: faltantesFicha || [],
+    faltantesFicha: faltantesFicha || [], costeoCubierto,
   };
 }
 
 // ── Totales por sección (LÍNEA/LOTE/ÍTEM...) — ver anexos-totales-seccion.ts ─────────────────
 function aplicarTotalesPorSeccion(
   tablasCrudo: TablaCruda[], parrafos: Parrafo[], indicesEnTablas: Set<number>,
-  matcheados: CampoResuelto[], pendientes: CandidatoCelda[], respuestas?: Record<string, string>,
+  matcheados: CampoResuelto[], pendientes: CandidatoCelda[], costeoCubierto: boolean, respuestas?: Record<string, string>,
 ): { matcheadosExtra: CampoResuelto[]; pendientesFiltrados: CandidatoCelda[]; titulos: TituloCercano[]; totalesPie: { etiqueta: string; valor: string }[] } {
   const titulos: TituloCercano[] = encabezadosLibres(parrafos, indicesEnTablas);
   const valoresPrecio = new Map(
@@ -496,8 +502,17 @@ function aplicarTotalesPorSeccion(
   // TOTAL NETO / IVA / TOTAL IVA INCLUIDO al pie de la MISMA tabla de precios (539119-76-LP26) —
   // ver calcularTotalesAlPie. Son celdas distintas de las de la tabla resumen de abajo, pero la
   // deduplicación por paraId vale igual: una celda se escribe UNA vez o no se escribe.
+  // Total de cada línea (cantidad × precio) — ver calcularTotalesPorLinea. No va a `totalesPie`:
+  // ese es solo el total de la oferta, contra el que se compara el costeo aprobado.
+  for (const r of calcularTotalesPorLinea(tablasCrudo, valorResuelto)) {
+    paraIdsResueltos.add(r.paraId);
+    matcheadosExtra.push({
+      c: { etiqueta: r.etiqueta, paraId: r.paraId, indice: r.indiceGlobal },
+      campo: 'total_linea_calculado', valor: r.valor, via: 'costeo',
+    });
+  }
   const totalesPie: { etiqueta: string; valor: string }[] = [];
-  for (const r of calcularTotalesAlPie(tablasCrudo, valorResuelto)) {
+  for (const r of calcularTotalesAlPie(tablasCrudo, valorResuelto, { lineasSinPrecioNoOfertadas: costeoCubierto })) {
     paraIdsResueltos.add(r.paraId);
     // Se guarda lo que de verdad quedó escrito en la casilla de TOTAL del anexo: es el número que
     // va a leer el organismo, y contra el que se compara el costeo aprobado antes de subir el
@@ -535,7 +550,8 @@ function aplicarTotalesPorSeccion(
       });
     }
   }
-  const pendientesFiltrados = pendientes.filter(c => !paraIdsResueltos.has(c.paraId));
+  const rellenoDelPie = celdasDeRellenoDelPie(tablasCrudo);
+  const pendientesFiltrados = pendientes.filter(c => !paraIdsResueltos.has(c.paraId) && !rellenoDelPie.has(c.indice));
   return { matcheadosExtra, pendientesFiltrados, titulos, totalesPie };
 }
 
@@ -796,10 +812,10 @@ export async function analizarAnexoParaUI(
   ]);
   const {
     matcheados, pendientes, pendientesConMotivo, inlineAuto, inlinePendientes,
-    alertasInadmisibilidad, checklistPendientes,
+    alertasInadmisibilidad, checklistPendientes, costeoCubierto,
   } = resolucion;
   const { matcheadosExtra, pendientesFiltrados, titulos }
-    = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablas, matcheados, pendientes);
+    = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablas, matcheados, pendientes, costeoCubierto);
   const matcheadosTodos = [...matcheados, ...matcheadosExtra];
   for (const m of matcheadosTodos) {
     completadosAuto.push({
@@ -1018,7 +1034,7 @@ export async function generarAnexoFinal(
   // en la pantalla que esta vez SÍ corresponde (interruptor "anexoAplica").
   const avisoNoAplica = respuestas.anexoAplica === '1' ? null : analisis.avisoNoAplica;
   const {
-    matcheados, pendientes, inlineAuto, inlinePendientes,
+    matcheados, pendientes, inlineAuto, inlinePendientes, costeoCubierto,
   } = avisoNoAplica
     ? todoPendientePorNoAplicar(analisis.candidatosCelda, analisis.blancosInline, avisoNoAplica.motivo)
     : await resolverTodo(
@@ -1107,7 +1123,7 @@ export async function generarAnexoFinal(
   const indicesEnTablasGen = new Set(
     tablasCrudo.flatMap(t => t.filas.flatMap(f => f.celdas.map(c => c.indiceGlobal).filter((i): i is number => i != null))),
   );
-  const { matcheadosExtra, pendientesFiltrados, totalesPie } = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablasGen, matcheados, pendientes, respuestas);
+  const { matcheadosExtra, pendientesFiltrados, totalesPie } = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablasGen, matcheados, pendientes, costeoCubierto, respuestas);
   // BUG REAL (1954-1-LE26, 11-ago-2026): "El párrafo <paraId> ya tiene contenido" tumbaba la
   // generación ENTERA del anexo — un solo campo en conflicto (ej. dos candidatos estructuralmente
   // distintos que, por lo que sea, terminan apuntando al mismo w14:paraId; o `analizar`/`generar`

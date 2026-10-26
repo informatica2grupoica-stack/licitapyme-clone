@@ -6,6 +6,7 @@
 // Tablas: migration-131/132 (auditor_opcion, auditor_respaldo, auditor_extraccion, auditor_evento).
 import pool from '@/app/lib/db';
 import { leerLineasOfertadas } from '@/app/lib/lineas-oferta';
+import { sugerenciasDeComplementos, plegarComplementos, sumaPorUnidad, esPropiaEmpresa, type ComplementoGuardado, type SugerenciaComplemento } from '@/app/lib/auditor-complementos-core';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { lineasDelCosteo, precioNetoUnitario, type LineaCosteo, type MargenProyecto } from '@/app/lib/auditor-compras-core';
 import { MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor } from '@/app/lib/costeo-editor';
@@ -60,6 +61,10 @@ export interface OpcionDTO {
   costoIA: CostoIADTO | null;
   /** Precio y/o IVA que una persona corrigió a mano (con su motivo): rige por sobre lo que leyó el Lector. */
   correccionCosto: CorreccionCosto | null;
+  /** Productos y cargos de la MISMA cotización que se suman al costo por unidad (accesorios, instalación, envío). producto.precio ya los incluye; precioBase es el del producto solo. */
+  complementos: ComplementoGuardado[];
+  sugerenciasComplemento: SugerenciaComplemento[];
+  precioBase: number | null;
 }
 export interface CorreccionCosto { precio: number | null; iva: 'incluido' | 'neto' | null; motivo: string; por: string; at: string; leido: { precio: number | null; iva: string } }
 /** Verificador de costo con IA (Prompt 5 v2.0): hallazgos con cita verificada (ya sumados a las alertas de la opción) y la ayuda de cinco campos. */
@@ -92,11 +97,15 @@ export interface LineaAuditorDTO {
 export interface DocumentoCotizacionDTO {
   documentoId: number; nombre: string; url: string; extraccionId: number | null; leido: boolean; error: string | null;
   proveedor: string | null; rut: string | null; fechaEmision: string | null; formalidad: string | null;
+  /** El Lector había anotado como proveedor a la propia empresa (era el destinatario): se muestra vacío y se pide revisar quién cotiza. */
+  proveedorPropio?: boolean;
   productos: Array<{ idx: number; nombre: string; precio: number | null; iva: string; cantidad: number | null; esCargo: boolean; opcionId: number | null; filaId: string | null;
     /** Línea que la IA propone (confianza media) — un clic la acepta. */
     sugerencia?: { filaId: string; item: number; confianza: string; motivo: string } | null;
     /** La IA (o una persona) decidió que no corresponde a ninguna línea. */
     noCorresponde?: { motivo: string; por: string } | null;
+    /** Se sumó como complemento de una opción (no es una opción propia ni queda «sin línea»). */
+    complementoDe?: { opcionId: number; filaId: string; nombre: string } | null;
   }>;
 }
 export interface FichaSinAsignarDTO { documentoId: number; nombre: string; url: string; subidaAt: string | null; error: string | null }
@@ -123,6 +132,24 @@ export interface PanelAuditorDTO {
 const s = (v: unknown) => (v == null ? null : String(v));
 const num = (v: unknown) => (v == null ? null : Number(v));
 const fechaS = (v: unknown) => (v ? (v instanceof Date ? v.toISOString() : String(v)) : null);
+
+/** Complementos de cada opción (eventos `complemento`, plegados en orden: poner / quitar). */
+async function complementosPorOpcion(negocioId: number): Promise<Map<number, ComplementoGuardado[]>> {
+  const [rows] = await pool.query(`SELECT opcion_id, detalle FROM auditor_evento WHERE negocio_id = ? AND tipo = 'complemento' ORDER BY id`, [negocioId]) as any;
+  const porOpcion = new Map<number, any[]>();
+  for (const r of rows as any[]) {
+    try { (porOpcion.get(r.opcion_id) || porOpcion.set(r.opcion_id, []).get(r.opcion_id)!).push(JSON.parse(r.detalle || '{}')); } catch { /* evento mal formado: se ignora */ }
+  }
+  return new Map([...porOpcion].map(([id, evs]) => [id, plegarComplementos(evs)]));
+}
+
+/** Empresas de la cuenta dueña del negocio (con las que se postula): sirven para reconocer cuando el Lector anota a la propia empresa como proveedor. */
+export async function empresasPropias(negocioId: number): Promise<Array<{ rut: string | null; razon_social: string | null }>> {
+  try {
+    const [rows] = await pool.query(`SELECT e.rut, e.razon_social FROM empresas e JOIN negocios n ON n.cliente_id = e.cliente_id WHERE n.id = ?`, [negocioId]) as any;
+    return rows as any[];
+  } catch { return []; }
+}
 
 async function evento(negocioId: number, opcionId: number, tipo: string, emisor: string, detalle: string | null) {
   await pool.query(
@@ -168,7 +195,7 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
   // Todas las lecturas son independientes: van EN PARALELO (la base es remota, ~155 ms por consulta: una a una el panel tardaba segundos).
   const estadoP = cargarEstadoCosteo(negocioId);
   const [estado, estadosLinea, verifTec, habTec, reqPorLinea, exigenCompleta, costosAsociados, mercados, justificadas, costosIA, opRes, reRes, caRes,
-    correcciones, segundasPasadas, respaldosCeldas, verifLegado, hdLegado, docsRes, extsRes, decisiones, linksPendientes] = await Promise.all([
+    correcciones, segundasPasadas, respaldosCeldas, verifLegado, hdLegado, docsRes, extsRes, decisiones, linksPendientes, complementos, propias] = await Promise.all([
     estadoP, estadosDeLineas(negocioId), ultimasCorridasV3(negocioId), confirmacionesTecnicas(negocioId),
     estadoP.then(e => contarRequisitosPorLinea(negocioId, licitacionCodigo, lineasAuditables(e).map(l => ({ lineaReal: l.lineaReal, producto: nombreProductoDeLinea(l.detalle) })))), lineasQueExigenViaCompleta(negocioId), listarCostosAsociados(negocioId),
     ultimosMercados(negocioId), opcionesConJustificacion(negocioId), ultimasCostoIA(negocioId),
@@ -183,6 +210,7 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
     pool.query(`SELECT id, documento_url, error FROM auditor_extraccion WHERE negocio_id = ? AND documento_url IS NOT NULL ORDER BY id DESC`, [negocioId]) as Promise<any>,
     decisionesSinLinea(negocioId),
     estadoP.then(e => linksPendientesDelCosteo(negocioId, lineasAuditables(e))),
+    complementosPorOpcion(negocioId), empresasPropias(negocioId),
   ]);
   const [opRows] = opRes, [reRows] = reRes, [caRows] = caRes;
   const lineas = lineasAuditables(estado);
@@ -205,6 +233,8 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
   for (const r of reRows as any[]) (respaldosPorOpcion.get(r.opcion_id) || respaldosPorOpcion.set(r.opcion_id, []).get(r.opcion_id)!).push(r);
 
   const opcionesPorFila = new Map<string, OpcionDTO[]>();
+  // «extracción:producto» de cada producto que se sumó como complemento de una opción: en su cotización ya no cuenta como «sin línea».
+  const usadosComoComplemento = new Map<string, { opcionId: number; filaId: string; nombre: string }>();
   for (const o of opRows as any[]) {
     const linea = lineas.find(l => l.id === o.fila_id);
     const respaldosRaw = respaldosPorOpcion.get(o.id) || [];
@@ -222,9 +252,19 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
     const correccionCosto = correcciones.get(o.id) ?? null;
     // Sin documento con precio (solo ficha, link caído u opción creada a mano): si la persona ingresó precio e IVA, ese precio rige como tanteo.
     const manualSinDocumento = !productoLeido && correccionCosto?.precio != null && correccionCosto.iva != null;
-    const producto: ProductoNormalizado | null = manualSinDocumento ? productoManual(o, correccionCosto!) : productoLeido && correccionCosto
+    const productoBase: ProductoNormalizado | null = manualSinDocumento ? productoManual(o, correccionCosto!) : productoLeido && correccionCosto
       ? { ...productoLeido, ...(correccionCosto.precio != null ? { precio: correccionCosto.precio, precioAmbiguo: false } : {}), ...(correccionCosto.iva ? { iva: correccionCosto.iva, ivaSupuesto: false } : {}) }
       : productoLeido;
+    // Complementos (accesorios, instalación, envío de la MISMA cotización): se suman al precio por unidad. Salen del mismo documento, así que
+    // comparten su IVA; el costo verificado, la comparación con el costeo y la firma usan el total.
+    const comps = complementos.get(o.id) ?? [];
+    const producto: ProductoNormalizado | null = productoBase && productoBase.precio != null && comps.length
+      ? { ...productoBase, precio: Math.round(productoBase.precio + sumaPorUnidad(comps)) }
+      : productoBase;
+    if (sostiene?.extraccion_id != null && o.estado !== 'descartada') for (const c of comps) if (c.clave.startsWith('p:'))
+      usadosComoComplemento.set(`${sostiene.extraccion_id}:${c.clave.slice(2)}`, { opcionId: o.id, filaId: o.fila_id, nombre: [o.marca, o.modelo].filter(Boolean).join(' ') || productoBase?.nombre || 'la opción' });
+    const sugerenciasComplemento = data && sostiene?.producto_idx != null && sostiene.tipo !== 'link_web' && !['descartada', 'en_aprobacion', 'aprobada'].includes(o.estado)
+      ? sugerenciasDeComplementos(data, sostiene.producto_idx, new Set(comps.map(c => c.clave))) : [];
     if (correccionCosto && productoLeido) correccionCosto.leido = { precio: productoLeido.precio, iva: productoLeido.iva };
     const capturas = capturasPorOpcion.get(o.id) || [];
     const capSostiene = sostiene?.tipo === 'link_web' ? capturas.find(c => c.respaldoId === sostiene.id) ?? null : null;
@@ -296,13 +336,14 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
 
     const dto: OpcionDTO = {
       id: o.id, filaId: o.fila_id, marca: s(o.marca), modelo: s(o.modelo), version: s(o.version_producto), sku: s(o.sku_proveedor),
-      proveedorRazonSocial: s(o.proveedor_razon_social), proveedorRut: s(o.proveedor_rut),
+      ...(esPropiaEmpresa({ rut: o.proveedor_rut, razon: o.proveedor_razon_social }, propias) ? { proveedorRazonSocial: null, proveedorRut: null } : { proveedorRazonSocial: s(o.proveedor_razon_social), proveedorRut: s(o.proveedor_rut) }),
       via: o.via, estado: estadoOp, motivoDescarte: s(o.motivo_descarte),
       firmadaPorNombre: s(o.firmada_por_nombre), firmadaAt: fechaS(o.firmada_at), creadoAt: fechaS(o.creado_at) || '',
       respaldos, producto, verificacion,
       proveedorDatos: data?.salida.proveedor ?? null,
       documentoInfo: data ? { numero: data.salida.documento?.numero || null, fechaEmision: data.salida.documento?.fecha_emision || null, tipo: data.salida.documento?.tipo || null } : null,
       capturas, estadoLink: capSostiene?.estado ?? null, tecnico, mercado, costoIA, correccionCosto,
+      complementos: comps, sugerenciasComplemento, precioBase: productoBase?.precio ?? null,
     };
     (opcionesPorFila.get(o.fila_id) || opcionesPorFila.set(o.fila_id, []).get(o.fila_id)!).push(dto);
   }
@@ -320,6 +361,11 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
   });
 
   const documentos = armarDocumentos((docsRes[0] as any[]).filter(d => d.subcategoria === 'cotizaciones'), ultimaPorUrl, cargadas, decisiones, opcionesPorFila);
+  for (const d of documentos) {
+    for (const p of d.productos) { const u = d.extraccionId != null ? usadosComoComplemento.get(`${d.extraccionId}:${p.idx}`) : undefined; if (u) p.complementoDe = u; }
+    // El Lector anotó como proveedor a la propia empresa (el destinatario de la cotización): se muestra vacío y se pide revisar quién cotiza.
+    if (esPropiaEmpresa({ rut: d.rut, razon: d.proveedor }, propias)) { d.proveedor = null; d.rut = null; d.proveedorPropio = true; }
+  }
   // Fichas técnicas subidas que hoy no respaldan ninguna opción (la lectura pidió elegir el producto, era de otro modelo, o se dejó de usar): se muestran para asignarlas.
   const fichasEnUso = new Set((reRows as any[]).filter(r => r.tipo === 'ficha_tecnica' && r.vigente
     && (opRows as any[]).some(o => o.id === r.opcion_id && o.estado !== 'descartada')).map(r => r.documento_url));
@@ -897,6 +943,56 @@ export async function agregarFichaAOpcion(params: {
 
 /** Deja de usar una ficha técnica en una opción (se subió a la equivocada, o se movió a otra). No borra el archivo ni la lectura: el respaldo
  *  queda no vigente y el evento dice quién lo quitó. La comparación técnica ya hecha no cambia sola: hay que volver a comparar la línea. */
+// ── Complementos de una opción (26-oct-2026, caso 1414396-26-LP26 línea 7: horno + osmosis + enchufe + bandejas + instalación + envío) ──
+const ESTADOS_SIN_CAMBIO_DE_COSTO = ['descartada', 'definitiva', 'en_aprobacion', 'aprobada'];
+
+/** Suma a la opción un producto o cargo de la MISMA cotización que sostiene su costo (el monto lo calcula el servidor desde la extracción),
+ *  o un cargo a mano (`manual`: nombre, monto y entre cuántas unidades se reparte, con motivo). */
+export async function ponerComplemento(negocioId: number, opcionId: number, clave: string, actor: Actor,
+  manual?: { nombre: string; monto: number; unidades: number; motivo: string }): Promise<{ nombre: string; porUnidad: number }> {
+  const o = await opcionDe(negocioId, opcionId);
+  if (ESTADOS_SIN_CAMBIO_DE_COSTO.includes(o.estado)) throw new Error('La opción ya está firmada, en aprobación, aprobada o descartada: quítale la firma (o restáurala) antes de cambiar su costo.');
+  const at = ahoraChileSQL();
+  if (manual) {
+    const nombre = (manual.nombre || '').trim().slice(0, 160), monto = Math.round(Number(manual.monto)), unidades = Math.max(1, Math.round(Number(manual.unidades) || 1));
+    const motivo = (manual.motivo || '').trim().slice(0, 300);
+    if (nombre.length < 2) throw new Error('Escribe qué es el cargo (por ejemplo «Envío»).');
+    if (!(monto > 0)) throw new Error('El monto del cargo debe ser mayor que cero.');
+    if (motivo.length < 8) throw new Error('Escribe de dónde sale el monto (por ejemplo «envío de la cotización, línea aparte»).');
+    const c = { accion: 'poner', clave: `m:${Date.now()}`, tipo: 'manual', nombre, montoDoc: monto, cantidadDoc: null, porUnidad: Math.round(monto / unidades),
+      detalle: `$${monto.toLocaleString('es-CL')}${unidades > 1 ? ` repartido en ${unidades} unidades` : ''} · ${motivo}`, por: actor.nombre, at };
+    await evento(negocioId, opcionId, 'complemento', 'asistente', JSON.stringify(c));
+    return { nombre, porUnidad: c.porUnidad };
+  }
+  const [rs] = await pool.query(
+    `SELECT extraccion_id, producto_idx FROM auditor_respaldo WHERE opcion_id = ? AND vigente = 1 AND tipo NOT IN ('ficha_tecnica','link_web')
+       AND extraccion_id IS NOT NULL AND producto_idx IS NOT NULL ORDER BY sostiene_costo DESC, id DESC LIMIT 1`, [opcionId]) as any;
+  const r = (rs as any[])[0];
+  if (!r) throw new Error('Esta opción no tiene una cotización leída de donde sumar productos: usa «Otro cargo» para agregarlo a mano.');
+  const ex = await extraccionPorId(r.extraccion_id);
+  if (!ex?.data) throw new Error('No se pudo leer la cotización de esta opción.');
+  const [evs] = await pool.query(`SELECT detalle FROM auditor_evento WHERE opcion_id = ? AND tipo = 'complemento' ORDER BY id`, [opcionId]) as any;
+  const ya = new Set(plegarComplementos((evs as any[]).map(e => { try { return JSON.parse(e.detalle || '{}'); } catch { return {}; } })).map(c => c.clave));
+  const s = sugerenciasDeComplementos(ex.data, Number(r.producto_idx), ya).find(x => x.clave === clave);
+  if (!s) throw new Error(ya.has(clave) ? 'Ese complemento ya está sumado a la opción.' : 'Ese producto o cargo no está en la cotización de esta opción.');
+  if (clave.startsWith('p:')) {
+    // Si ese producto ya es una OPCIÓN viva (compite en alguna línea), no se puede usar además como complemento: se contaría dos veces.
+    const [otra] = await pool.query(
+      `SELECT o.id FROM auditor_respaldo r JOIN auditor_opcion o ON o.id = r.opcion_id
+        WHERE r.extraccion_id = ? AND r.producto_idx = ? AND r.vigente = 1 AND o.estado <> 'descartada' AND o.id <> ? LIMIT 1`,
+      [r.extraccion_id, Number(clave.slice(2)), opcionId]) as any;
+    if ((otra as any[]).length) throw new Error(`«${s.nombre}» ya es una opción propia en el Auditor: descártala primero (si no, se contaría dos veces).`);
+  }
+  await evento(negocioId, opcionId, 'complemento', 'asistente', JSON.stringify({ accion: 'poner', ...s, por: actor.nombre, at }));
+  return { nombre: s.nombre, porUnidad: s.porUnidad };
+}
+
+export async function quitarComplemento(negocioId: number, opcionId: number, clave: string, actor: Actor): Promise<void> {
+  const o = await opcionDe(negocioId, opcionId);
+  if (ESTADOS_SIN_CAMBIO_DE_COSTO.includes(o.estado)) throw new Error('La opción ya está firmada, en aprobación, aprobada o descartada: quítale la firma (o restáurala) antes de cambiar su costo.');
+  await evento(negocioId, opcionId, 'complemento', 'asistente', JSON.stringify({ accion: 'quitar', clave: String(clave).slice(0, 40), por: actor.nombre, at: ahoraChileSQL() }));
+}
+
 export async function quitarFichaDeOpcion(negocioId: number, respaldoId: number, actor: Actor, motivo = ''): Promise<{ opcionId: number; filaId: string }> {
   const [rows] = await pool.query(
     `SELECT r.id, r.tipo, r.vigente, r.documento_nombre, o.id AS opcion_id, o.fila_id, o.estado FROM auditor_respaldo r JOIN auditor_opcion o ON o.id = r.opcion_id

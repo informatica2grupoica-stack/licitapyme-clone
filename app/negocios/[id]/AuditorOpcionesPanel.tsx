@@ -17,6 +17,11 @@ import {
 import { pedirJson, ultimoJson } from '@/app/lib/pedir-json';
 import type { PanelAuditorDTO, LineaAuditorDTO, OpcionDTO, DocumentoCotizacionDTO } from '@/app/lib/auditor-opciones';
 
+// Formatos de una ficha técnica (26-oct-2026: cuando la página del link no trae la ficha, se adjunta foto, PDF, Word, Excel o el texto).
+// El Lector los transcribe todos (transcribirDocumento: OCR para imagen/PDF escaneado, mammoth/word-extractor, xlsx→csv, texto plano).
+const EXT_FICHA = /\.(pdf|png|jpe?g|webp|docx?|xlsx?|txt|csv)$/i;
+const ACCEPT_FICHA = '.pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv';
+
 const fmtCLP = (n: number | null | undefined) =>
   n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 
@@ -258,8 +263,8 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
     if (opc && opc.via === 'completa' && opc.tecnico.requisitosTotal > 0) await verificarTecnico(r.opcionId, true);
   };
   const subirFichas = async (archivos: File[], ref: { opcionId?: number; filaId?: string }) => {
-    const validos = archivos.filter(f => /\.(pdf|png|jpe?g|webp)$/i.test(f.name));
-    if (validos.length < archivos.length) toast.error('Solo se aceptan fichas en PDF o imagen (JPG, PNG, WEBP).');
+    const validos = archivos.filter(f => EXT_FICHA.test(f.name));
+    if (validos.length < archivos.length) toast.error('La ficha técnica puede ser PDF, foto (JPG, PNG, WEBP), Word, Excel o texto (.txt).');
     for (const f of validos) {
       marcarFicha(ref, true);
       try {
@@ -712,7 +717,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                 <option value="">¿Para qué línea u opción es?</option>
                 <OpcionesDestinoFicha panel={panel} etiquetaItem={etiquetaItem} />
               </select>
-              <input ref={inputFichaRef} type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp" className="hidden"
+              <input ref={inputFichaRef} type="file" multiple accept={ACCEPT_FICHA} className="hidden"
                 onChange={e => { const fs = Array.from(e.target.files || []); e.target.value = ''; const ref = refDestinoFicha(destinoFicha); if (fs.length && ref) subirFichas(fs, ref); }} />
               <button data-no-pdf onClick={() => inputFichaRef.current?.click()} disabled={!destinoFicha || subiendoFicha.size > 0}
                 title={destinoFicha ? 'Subir la ficha (PDF o imagen) a esa línea u opción' : 'Elige primero para qué línea u opción es'}
@@ -1012,7 +1017,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                     const f = resumenDeLinea.get(l.filaId);
                     if (!f?.mejor) {
                       if (!activas.length) return punto('bg-slate-300', 'Sin opciones');
-                      const nunca = activas.some(o => o.via === 'completa') && !activas.some(o => o.tecnico.resultado);
+                      const nunca = activas.some(porComparar) && !activas.some(o => o.tecnico.resultado);
                       if (!nunca && activas.some(precioPendiente)) return punto('bg-amber-500', 'Falta confirmar el precio');
                       return punto(nunca ? 'bg-amber-500' : 'bg-slate-400', nunca ? 'Sin comparar' : 'Ninguna cumple todavía');
                     }
@@ -1025,7 +1030,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                     {l.noOfertada && <p className="text-[13px] text-slate-600 ml-6 mb-2">No se oferta: {l.motivoNoOfertada}</p>}
                     <div className="flex items-center gap-2 flex-wrap mb-3">
                       {(() => {
-                        const comparables = l.opciones.filter(o => o.via === 'completa' && ['tanteo', 'formalizada', 'verificada', 'definitiva'].includes(o.estado) && o.respaldos.some(r => r.extraccionId != null));
+                        const comparables = l.opciones.filter(o => o.via === 'completa' && o.tecnico.requisitosTotal > 0 && ['tanteo', 'formalizada', 'verificada', 'definitiva'].includes(o.estado) && o.respaldos.some(r => r.extraccionId != null));
                         if (!comparables.length || l.noOfertada) return null;
                         const ocupada = comparables.some(o => verificando.has(o.id));
                         return (
@@ -1550,7 +1555,7 @@ function recorridoAuditor(panel: PanelAuditorDTO, puedeAprobar: boolean) {
   const ofertadas = panel.lineas.filter(l => !l.noOfertada);
   const vivas = (l: LineaAuditorDTO) => l.opciones.filter(o => o.estado !== 'descartada');
   const conOpcion = ofertadas.filter(l => vivas(l).length > 0);
-  const comparadas = ofertadas.filter(l => vivas(l).some(o => o.via === 'liviana' || o.tecnico.resultado));
+  const comparadas = ofertadas.filter(l => vivas(l).some(o => o.via === 'liviana' || o.tecnico.resultado || sinRequisitos(o)));   // sin requisitos en las bases = nada que comparar
   const firmadas = ofertadas.filter(l => l.opcionDefinitivaId != null);
   const aprobadas = ofertadas.filter(l => l.opciones.some(o => o.estado === 'aprobada'));
   const pasos = [
@@ -1604,7 +1609,7 @@ function lineasParaResumen(panel: PanelAuditorDTO): LineaParaResumen[] {
       opcionId: o.id, etiqueta: `${[o.marca, o.modelo].filter(Boolean).join(' ') || 'Producto sin identificar'} · ${o.proveedorRazonSocial || 'proveedor sin identificar'}`,
       costoUnitNeto: o.verificacion?.costoNetoUnitario ?? null,
       // Vía liviana: no pasa por el comparador técnico (compite por precio). Vía completa sin comparar: todavía no compite.
-      estado: o.via === 'liviana' ? 'CUMPLE' as const : o.tecnico.resultado ? (o.tecnico.resultado.estado === 'CUMPLE' ? 'CUMPLE' as const : o.tecnico.resultado.estado === 'NO_CUMPLE' ? 'NO_CUMPLE' as const : 'FALTA_DATO' as const) : 'SIN_VERIFICAR' as const,
+      estado: o.via === 'liviana' || sinRequisitos(o) ? 'CUMPLE' as const : o.tecnico.resultado ? (o.tecnico.resultado.estado === 'CUMPLE' ? 'CUMPLE' as const : o.tecnico.resultado.estado === 'NO_CUMPLE' ? 'NO_CUMPLE' as const : 'FALTA_DATO' as const) : 'SIN_VERIFICAR' as const,
     })).filter(o => o.estado !== 'SIN_VERIFICAR'),
   }));
 }
@@ -1623,7 +1628,7 @@ function DifCosteo({ costo, costeo, conTexto }: { costo: number | null; costeo: 
 function ResumenLicitacionCard({ panel, etiquetaItem, onIrALinea }: { panel: PanelAuditorDTO; etiquetaItem: Map<string, string>; onIrALinea: (filaId: string) => void }) {
   const lineas = lineasParaResumen(panel);
   const r = resumenLicitacion(lineas, panel.presupuesto?.neto ?? null);
-  const sinComparar = panel.lineas.filter(l => !l.noOfertada && l.opciones.some(o => o.estado !== 'descartada' && o.via === 'completa' && !o.tecnico.resultado)).length;
+  const sinComparar = panel.lineas.filter(l => !l.noOfertada && l.opciones.some(o => o.estado !== 'descartada' && porComparar(o))).length;
   const [verTodas, setVerTodas] = useState(false);
   const tieneOpcion = (filaId: string) => (panel.lineas.find(x => x.filaId === filaId)?.opciones || []).some(o => o.estado !== 'descartada');
   const conOpcion = r.filas.filter(f => tieneOpcion(f.filaId));
@@ -1664,7 +1669,7 @@ function ResumenLicitacionCard({ panel, etiquetaItem, onIrALinea }: { panel: Pan
                 <td className="py-2 pr-3 text-right tabular-nums text-slate-600">{f.cantidad ?? '—'}</td>
                 <td className="py-2 pr-3 text-slate-700 max-w-[340px]">{f.mejor ? f.mejor.etiqueta : (() => {
                   if (!vivas.length) return <span className="text-slate-500">Sin cotización</span>;
-                  if (vivas.some(o => o.via === 'completa' && !o.tecnico.resultado)) return <span className="text-amber-700 font-medium">Falta comparar la línea</span>;
+                  if (vivas.some(porComparar)) return <span className="text-amber-700 font-medium">Falta comparar la línea</span>;
                   if (vivas.some(precioPendiente)) return <span className="text-amber-700 font-medium">Falta confirmar el precio</span>;
                   return <span className="text-slate-600">Ninguna cumple todavía</span>;
                 })()}</td>
@@ -1818,13 +1823,41 @@ function BuscarFichaLink({ negocioId, opcionId, ocupado, onTraer }: { negocioId:
   );
 }
 
+/** Pegar el texto de la ficha (copiado de la página del producto, de un correo del proveedor…): se guarda como un .txt y sigue el mismo camino que
+ *  una ficha subida (el Lector lo lee y el comparador lo usa contra las bases). */
+function PegarTextoFicha({ ocupado, nombreBase, onArchivo }: { ocupado: boolean; nombreBase: string; onArchivo: (f: File) => void }) {
+  const [abierto, setAbierto] = useState(false);
+  const [texto, setTexto] = useState('');
+  if (!abierto) return <button data-no-pdf onClick={() => setAbierto(true)} disabled={ocupado} className="mt-1.5 text-[13px] font-medium text-teal-700 hover:underline disabled:opacity-50">Pegar el texto de la ficha</button>;
+  const guardar = () => {
+    const limpio = texto.trim();
+    if (limpio.length < 40) return;
+    const nombre = `Ficha (texto) ${nombreBase}`.replace(/[\\/:*?"<>|]+/g, ' ').slice(0, 80).trim() + '.txt';
+    onArchivo(new File([limpio], nombre, { type: 'text/plain' }));
+    setTexto(''); setAbierto(false);
+  };
+  return (
+    <div data-no-pdf className="mt-2 w-full rounded-lg border border-zinc-200 bg-zinc-50/60 p-3">
+      <p className="text-[13px] font-medium text-slate-700">Pegar el texto de la ficha técnica</p>
+      <p className="text-xs text-slate-600">Cópialo de la página del producto o del correo del proveedor (especificaciones, medidas, normas…).</p>
+      <textarea value={texto} onChange={e => setTexto(e.target.value)} rows={6} autoFocus placeholder="Ej.: Material: acero galvanizado · Diámetro: 4&quot; · Espesor: 3 mm · Largo: 6 m · Norma ISO 65 clase media…"
+        className="mt-2 w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-[13px] text-slate-700 outline-none focus:border-teal-500" />
+      <div className="mt-2 flex items-center gap-3">
+        <span className="text-xs text-slate-500 tabular-nums">{texto.trim().length < 40 ? 'Pega al menos unas líneas' : `${texto.trim().length.toLocaleString('es-CL')} caracteres`}</span>
+        <button onClick={() => { setAbierto(false); setTexto(''); }} className="ml-auto text-[13px] text-slate-600 hover:text-slate-900">Cancelar</button>
+        <button onClick={guardar} disabled={ocupado || texto.trim().length < 40} className="px-3 py-1 rounded-md bg-teal-700 text-white text-[13px] font-semibold hover:bg-teal-800 disabled:opacity-40">Usar como ficha</button>
+      </div>
+    </div>
+  );
+}
+
 function BotonSubirFicha({ ocupado, etiqueta, onArchivos, discreto = false }: { ocupado: boolean; etiqueta: string; onArchivos: (f: File[]) => void;
   /** Enlace de texto en vez de botón: para cuando la ficha es opcional (la cotización ya trajo las especificaciones). */
   discreto?: boolean }) {
   const ref = useRef<HTMLInputElement>(null);
   return (
     <>
-      <input ref={ref} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" multiple className="hidden"
+      <input ref={ref} type="file" accept={ACCEPT_FICHA} multiple className="hidden"
         onChange={e => { if (e.target.files?.length) onArchivos(Array.from(e.target.files)); e.target.value = ''; }} />
       <button onClick={() => ref.current?.click()} disabled={ocupado}
         className={discreto
@@ -2300,7 +2333,7 @@ function CuadroTecnico({ negocioId, linea, ocupado, puedeAprobar, verificando, s
                     <div>
                       <dt className={rotulo}>Técnico</dt>
                       <dd className="mt-0.5 text-[13px] text-slate-700">
-                        {!r ? <span className="font-medium text-slate-600">{verificando.has(o.id) ? 'Comparando…' : 'Sin comparar'}</span> : (<>
+                        {!r ? (sinRequisitos(o) ? <><span className="font-medium text-slate-700">Sin requisitos técnicos</span><span className="block text-xs text-slate-600">las bases no traen exigencias para esta línea</span></> : <span className="font-medium text-slate-600">{verificando.has(o.id) ? 'Comparando…' : 'Sin comparar'}</span>) : (<>
                           <span className="inline-flex items-center gap-1.5 font-medium"><span aria-hidden className={`w-1.5 h-1.5 rounded-full ${k.no ? 'bg-red-600' : k.falta ? 'bg-amber-500' : k.complementadas ? 'bg-teal-600' : 'bg-emerald-600'}`} />{k.no ? `${k.no} no cumple${k.no === 1 ? '' : 'n'}` : k.falta ? `${k.falta} por confirmar` : k.complementadas ? `${k.complementadas} espera${k.complementadas === 1 ? '' : 'n'} al EM` : 'Cumple todo'}</span>
                           {k.complementadas > 0 && (k.no > 0 || k.falta > 0) && <span className="block text-xs text-teal-700">{k.complementadas} complementado{k.complementadas === 1 ? '' : 's'}, espera{k.complementadas === 1 ? '' : 'n'} al EM</span>}
                           <span className="block text-xs text-slate-600 tabular-nums">{k.cumple} de {k.cumple + k.falta + k.no + k.complementadas} cumplen</span>
@@ -2337,7 +2370,11 @@ function CuadroTecnico({ negocioId, linea, ocupado, puedeAprobar, verificando, s
                     <div className="flex flex-wrap items-center gap-x-4">
                       <CorregirCosto o={o} editable={editable(o)} ocupado={ocupado === o.id} onAccion={onAccion} />
                       {editable(o) && <BotonSubirFicha ocupado={subiendoFicha.has(`o${o.id}`)} discreto etiqueta={o.respaldos.some(x => x.tipo === 'ficha_tecnica') ? 'Agregar otra ficha técnica' : 'Agregar ficha técnica'} onArchivos={f => onSubirFicha(o.id, f)} />}
+                      {editable(o) && <PegarTextoFicha ocupado={subiendoFicha.has(`o${o.id}`)} nombreBase={nombreCorto(o)} onArchivo={f => onSubirFicha(o.id, [f])} />}
                     </div>
+                    {editable(o) && !o.respaldos.some(x => x.tipo === 'ficha_tecnica' && x.vigente) && o.respaldos.some(x => x.tipo === 'link_web' && x.vigente) && (
+                      <p className="mt-1.5 text-xs text-slate-600">¿La página no trae la ficha? Adjúntala como foto, PDF, Word o Excel, o pega su texto: se compara igual con las bases.</p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -2349,7 +2386,7 @@ function CuadroTecnico({ negocioId, linea, ocupado, puedeAprobar, verificando, s
       {/* ── Requisitos: primero lo que falta resolver. Solo lectura: clic en una fila abre su panel ── */}
       {base.length === 0 ? (
         <p className="rounded-xl border border-zinc-200 px-4 py-4 text-center text-[13.5px] text-slate-600">
-          {columnas.some(o => o.via === 'completa') ? <>Esta línea todavía no se compara. Pulsa <b>«Comparar la línea»</b> (arriba): la IA revisa cada producto contra los requisitos de las bases.</> : 'Las opciones de esta línea van por vía liviana: no pasan por el comparador técnico.'}
+          {columnas.length && columnas.every(sinRequisitos) ? <>Las bases no traen <b>requisitos técnicos</b> para esta línea: no hay nada que comparar, compite solo por precio. Si sabes que hay exigencias (por ejemplo en un anexo técnico), revisa la viabilidad de la línea.</> : columnas.some(porComparar) ? <>Esta línea todavía no se compara. Pulsa <b>«Comparar la línea»</b> (arriba): la IA revisa cada producto contra los requisitos de las bases.</> : 'Las opciones de esta línea van por vía liviana: no pasan por el comparador técnico.'}
         </p>
       ) : (
         // overflow-clip (no hidden): así el encabezado puede quedar fijo al bajar por la página.
@@ -2573,6 +2610,11 @@ const o_nombre = (o: OpcionDTO) => [o.proveedorRazonSocial, [o.marca, o.modelo].
 function Fila({ etiqueta, children }: { etiqueta: string; children: React.ReactNode }) {
   return <tr className="border-t border-zinc-100"><td className="pr-3 py-1.5 text-xs uppercase tracking-wide text-slate-500 font-bold align-top">{etiqueta}</td>{children}</tr>;
 }
+
+/** Vía completa y las bases no traen requisitos técnicos para su línea: no hay nada que comparar (compite solo por precio). */
+function sinRequisitos(o: OpcionDTO): boolean { return o.via === 'completa' && o.tecnico.estado === 'SIN_REQUISITOS'; }
+/** Falta correr el comparador: vía completa, con requisitos, y sin resultado todavía. */
+function porComparar(o: OpcionDTO): boolean { return o.via === 'completa' && o.tecnico.requisitosTotal > 0 && !o.tecnico.resultado; }
 
 /** La opción ya se comparó y no está descartada por técnica, pero su costo no entra porque falta confirmar el precio o el IVA del documento. */
 function precioPendiente(o: OpcionDTO): boolean {

@@ -960,7 +960,9 @@ export const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // posición no estaba cubierta: el paréntesis solo se toleraba después de "de", nunca entre "legal"
   // y "de". El resultado era la casilla de la empresa vacía en toda declaración jurada con esa
   // redacción, aunque el dato (RUT de la empresa) estuviera justo al lado ya resuelto.
-  { re: /\ben\s+represent(?:acion|ación)\s+(?:legal\s+)?(?:\([^)]{0,40}\)\s*)?de(?:\s+la)?(?:\s+(?:empresa|sociedad|razon\s+social))?(?:\s*\([^)]{0,30}\))?\s*$/i, campo: 'razon_social' },
+  // El "en" es opcional (26-oct-2026, 1414396-26-LP26, ANEXO N°3): "con domicilio en ___
+  // representación de ___" — el organismo se comió el "en" y la casilla quedaba sin llenar.
+  { re: /\b(?:en\s+)?represent(?:acion|ación)\s+(?:legal\s+)?(?:\([^)]{0,40}\)\s*)?de(?:\s+la)?(?:\s+(?:empresa|sociedad|razon\s+social))?(?:\s*\([^)]{0,30}\))?\s*$/i, campo: 'razon_social' },
   { re: /\b(?:para|por)\s+(?:y\s+en\s+nombre\s+de|cuenta\s+de)\s*$/i, campo: 'razon_social' },
   // "Mi representada ______" / "mi representada es ______" — fórmula estándar con la que el
   // representante legal nombra a SU empresa dentro de una declaración jurada. Medida por el
@@ -1374,6 +1376,8 @@ export function campoDeFechaEnFormula(antes: string, despues: string): Campo | n
   return null;
 }
 
+const RE_SIGUE_SI_NO = /^\s*\(\s*s[ií]\s*\/\s*no\s*\)/i;
+
 export function campoDeBlancoInline(b: CandidatoInline): Campo | null {
   if (b.textoMarcador) {
     // BUG REAL (28-ago-2026, ANEXO N°2B, 2928-17-LE26): "indique dirección, comuna y región",
@@ -1414,6 +1418,12 @@ export function campoDeBlancoInline(b: CandidatoInline): Campo | null {
   const parrafo = b.parrafoCompleto ?? b.contexto ?? '';
   const pos = b.posEnParrafo ?? b.posEnTexto ?? 0;
   if (esBloqueDeTercero(parrafo)) return null;
+  // BUG REAL (26-oct-2026, 1414396-26-LP26, ANEXO N°3 PROGRAMAS DE INTEGRIDAD, reportado con
+  // captura): "Mi representada ______ (SÍ/NO) posee un programa de integridad…". La regla de
+  // REGLAS_PREVIAS "mi representada ___ → razón social" se comía el blanco y escribía el nombre de
+  // la empresa donde va la respuesta SÍ o NO. Un blanco seguido de "(Sí/No)" es SIEMPRE esa
+  // respuesta, y es decisión del oferente: nunca se autocompleta, gane la regla que gane antes.
+  if (RE_SIGUE_SI_NO.test(parrafo.slice(pos + (b.largo || 0)))) return null;
   const antes = parrafo.slice(0, pos);
   if (!antes.trim()) {
     // FECHA CON AÑO YA IMPRESO, blanco AL PRINCIPIO del párrafo: "________________________de 2026."
@@ -1595,6 +1605,11 @@ export function clasificarPendiente(etiqueta: string): { categoria: CategoriaCam
   // RUT de la persona jurídica…) con dos casillas SI/NO cada uno. Las 12 se detectaban y NINGUNA
   // llegaba a la pantalla: el anexo se habría subido con el checklist entero en blanco y sin un
   // solo aviso. Es una decisión del oferente (qué documentos adjunta), nunca un dato de la ficha.
+  // Blanco seguido de "(Sí/No)": su contexto es la pregunta que viene a la derecha (ver
+  // rotuloDeSiNo en anexos-detectar.ts). Normalizada pierde el paréntesis, así que se mira la cruda.
+  if (RE_SIGUE_SI_NO.test(etiquetaPropia(etiqueta))) {
+    return { categoria: 'decision_del_usuario', motivo: 'Pregunta SÍ/NO: escribe una sola respuesta según la situación real de la empresa.' };
+  }
   if (RE_CASILLA_MARCAR.test(n)) {
     return { categoria: 'decision_del_usuario', motivo: 'Casilla para marcar (SÍ/NO): la decide el oferente según los documentos que adjunte.' };
   }
