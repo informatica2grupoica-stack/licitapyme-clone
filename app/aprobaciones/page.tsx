@@ -15,6 +15,7 @@ import { IconClipboardCheck as ClipboardCheck, IconLoader2 as Loader2, IconInbox
 import { TarjetaNegocioAprobacion, type NegocioAprobacion } from './TarjetaNegocioAprobacion';
 import { GrupoAprobacionCompras, agruparPorLicitacion, minutosEsperando } from './ItemAprobacionCompras';
 import type { ItemBandejaCompras, TipoItemCompras } from '@/app/lib/compras-bandeja-aprobacion';
+import { BandejaAuditorEM } from './BandejaAuditorEM';
 
 const SEMAFOROS = [
   { value: 'TODOS', label: 'Todos', dot: 'bg-zinc-300 dark:bg-zinc-600' },
@@ -60,6 +61,8 @@ export default function AprobacionesPage() {
   const [flashAprobados, setFlashAprobados] = useState<Set<number>>(new Set());
   const [flashCache, setFlashCache] = useState<Map<number, NegocioAprobacion>>(new Map());
 
+  // Opciones del Auditor (en aprobación y requisitos complementados): las cuenta su propia sección, BandejaAuditorEM.
+  const [conteoEM, setConteoEM] = useState(0);
   const [busqueda, setBusqueda] = useState('');
   const [filtroAsistente, setFiltroAsistente] = useState('TODOS');
   const [filtroSemaforo, setFiltroSemaforo] = useState<string>('TODOS');
@@ -248,7 +251,7 @@ export default function AprobacionesPage() {
           <div>
             <h1 className="text-[22px] font-bold text-zinc-900 dark:text-zinc-100 leading-tight">Aprobaciones</h1>
             <p className="text-[13px] text-zinc-500 dark:text-zinc-400">
-              {negocios.length + compras.length === 0 ? 'Sin nada pendiente' : [compras.length > 0 && `${compras.length} de Compras`, negocios.length > 0 && `${negocios.length} negocio(s) del Auditor`].filter(Boolean).join(' · ') + ' por revisar'}
+              {negocios.length + compras.length + conteoEM === 0 ? 'Sin nada pendiente' : [conteoEM > 0 && `${conteoEM} del Auditor (opciones y requisitos)`, compras.length > 0 && `${compras.length} de Compras`, negocios.length > 0 && `${negocios.length} negocio(s) del checklist`].filter(Boolean).join(' · ') + ' por revisar'}
             </p>
           </div>
         </div>
@@ -258,7 +261,7 @@ export default function AprobacionesPage() {
         {(compras.length > 0 || negocios.length > 0) && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5" data-testid="aprob-resumen">
             {([
-              { clave: 'todo', titulo: 'Por aprobar', valor: compras.length + negocios.length, nota: 'en total', color: 'text-zinc-900 dark:text-zinc-100', vista: 'todo' as const },
+              { clave: 'todo', titulo: 'Por aprobar', valor: compras.length + negocios.length + conteoEM, nota: 'en total', color: 'text-zinc-900 dark:text-zinc-100', vista: 'todo' as const },
               { clave: 'compras', titulo: 'Compras', valor: compras.length, nota: 'compras y márgenes', color: 'text-indigo-600 dark:text-indigo-400', vista: 'compras' as const },
               { clave: 'auditor', titulo: 'Licitaciones', valor: negocios.length, nota: 'técnico y comercial', color: 'text-violet-600 dark:text-violet-400', vista: 'auditor' as const },
               { clave: 'urgente', titulo: 'Urgentes', valor: urgentes, nota: 'esperan hace días o cierran pronto', color: urgentes > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-400', vista: null },
@@ -282,11 +285,14 @@ export default function AprobacionesPage() {
           </div>
         )}
 
+        {/* Opciones del Auditor: primero, porque frenan el paso a Pre-postulación de cada licitación */}
+        <div className={vista === 'compras' ? 'hidden' : ''}><BandejaAuditorEM onConteo={setConteoEM} /></div>
+
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <Loader2 className="w-5 h-5 animate-spin text-zinc-400" />
           </div>
-        ) : negocios.length === 0 && compras.length === 0 ? (
+        ) : negocios.length === 0 && compras.length === 0 && conteoEM > 0 ? null : negocios.length === 0 && compras.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center gap-2">
             <Inbox size={28} className="text-zinc-300 dark:text-zinc-700" />
             <p className="text-[14px] font-semibold text-zinc-500 dark:text-zinc-400">No hay nada esperando tu aprobación</p>

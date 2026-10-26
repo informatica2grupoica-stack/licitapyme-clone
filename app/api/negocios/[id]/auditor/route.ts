@@ -18,6 +18,7 @@ import {
   verificarTecnicoDeOpcion, confirmarCeldaTecnica, respaldarCeldaTecnica, quitarFichaDeOpcion,
 } from '@/app/lib/auditor-opciones';
 import { generarPosicionAuditor, ultimaPosicion } from '@/app/lib/auditor-posicion';
+import { avisarAlEM, avisarDecisionAlAsistente } from '@/app/lib/auditor-bandeja-em';
 import { presupuestoNeto } from '@/app/lib/auditor-compras';
 import {
   marcarNoOfertada, reofertarLinea, agregarCostoAsociado, estimarCostoAsociado, anularCostoAsociado, restaurarCostoAsociado,
@@ -98,6 +99,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       case 'quitar_firma': await quitarFirma(negocio.id, opcionId); break;
       case 'solicitar_aprobacion': {
         const r = await solicitarAprobacion(negocio.id, negocio.licitacion_codigo, opcionId, actor);
+        // Aviso a los EM (campana): antes nadie se enteraba de que había algo esperando su aprobación.
+        await avisarAlEM(negocio.id, `${actor.nombre} pidió aprobar una opción del Auditor (${negocio.licitacion_codigo}). Está en Aprobaciones → Opciones del Auditor.`, actor);
         return NextResponse.json({ success: true, cambios: r.cambios });
       }
       case 'no_ofertar': await marcarNoOfertada(negocio.id, String(body.filaId || ''), String(body.motivo || ''), actor); break;
@@ -139,7 +142,10 @@ export async function POST(request: NextRequest, { params }: Params) {
         await confirmarCeldaTecnica(negocio.id, opcionId, Number(body.n), body.confirmada !== false, actor, String(body.motivo || ''), perm.esEM); break;
       case 'respaldar_celda':
         // El asistente adjunta un documento o imagen a un requisito (no lo cierra: lo revisa el EM con el «ojo»).
-        await respaldarCeldaTecnica(negocio.id, opcionId, Number(body.n), String(body.url || ''), String(body.nombre || 'respaldo'), String(body.nota || ''), actor, body.quitar === true); break;
+        await respaldarCeldaTecnica(negocio.id, opcionId, Number(body.n), String(body.url || ''), String(body.nombre || 'respaldo'), String(body.nota || ''), actor, body.quitar === true);
+        // Un complemento no cierra el requisito: lo acepta el EM. Se le avisa (no al quitar uno).
+        if (body.quitar !== true) await avisarAlEM(negocio.id, `${actor.nombre} complementó el requisito ${Number(body.n)} de una opción del Auditor (${negocio.licitacion_codigo}). Revísalo en Aprobaciones → Opciones del Auditor.`, actor);
+        break;
       case 'crear_opcion': {
         // Opción SIN link ni cotización (el producto no está en la web): línea + marca/modelo. Después se le sube la ficha técnica.
         const id = await crearOpcionManual(negocio.id, String(body.filaId || ''), {
@@ -200,7 +206,9 @@ export async function POST(request: NextRequest, { params }: Params) {
       case 'aprobar':
       case 'rechazar':
         if (!perm.esEM) return NextResponse.json({ error: 'Aprobar o rechazar requiere ser EM (jefe de ventas o admin).' }, { status: 403 });
-        await resolverAprobacion(negocio.id, opcionId, accion, body.comentario ? String(body.comentario) : null, actor); break;
+        await resolverAprobacion(negocio.id, opcionId, accion, body.comentario ? String(body.comentario) : null, actor);
+        await avisarDecisionAlAsistente(negocio.id, accion, actor, body.comentario ? String(body.comentario) : null);
+        break;
       default:
         return NextResponse.json({ error: `Acción desconocida: ${accion}` }, { status: 400 });
     }
