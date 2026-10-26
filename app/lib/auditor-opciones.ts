@@ -976,12 +976,19 @@ export async function ponerComplemento(negocioId: number, opcionId: number, clav
   const s = sugerenciasDeComplementos(ex.data, Number(r.producto_idx), ya).find(x => x.clave === clave);
   if (!s) throw new Error(ya.has(clave) ? 'Ese complemento ya está sumado a la opción.' : 'Ese producto o cargo no está en la cotización de esta opción.');
   if (clave.startsWith('p:')) {
-    // Si ese producto ya es una OPCIÓN viva (compite en alguna línea), no se puede usar además como complemento: se contaría dos veces.
-    const [otra] = await pool.query(
-      `SELECT o.id FROM auditor_respaldo r JOIN auditor_opcion o ON o.id = r.opcion_id
-        WHERE r.extraccion_id = ? AND r.producto_idx = ? AND r.vigente = 1 AND o.estado <> 'descartada' AND o.id <> ? LIMIT 1`,
+    // Ese producto ya puede ser una OPCIÓN viva (al leer la cotización, el emparejador o la IA lo pusieron a competir en la línea): no puede
+    // además sumarse, se contaría dos veces. Si está en la MISMA línea y sin firmar, se descarta solo (con su motivo); si no, se pide hacerlo a mano.
+    const [otras] = await pool.query(
+      `SELECT o.id, o.fila_id, o.estado FROM auditor_respaldo r JOIN auditor_opcion o ON o.id = r.opcion_id
+        WHERE r.extraccion_id = ? AND r.producto_idx = ? AND r.vigente = 1 AND o.estado <> 'descartada' AND o.id <> ?`,
       [r.extraccion_id, Number(clave.slice(2)), opcionId]) as any;
-    if ((otra as any[]).length) throw new Error(`«${s.nombre}» ya es una opción propia en el Auditor: descártala primero (si no, se contaría dos veces).`);
+    for (const otra of otras as any[]) {
+      if (otra.fila_id !== o.fila_id || ['definitiva', 'en_aprobacion', 'aprobada'].includes(otra.estado))
+        throw new Error(`«${s.nombre}» ya es una opción propia ${otra.fila_id !== o.fila_id ? 'en otra línea' : 'firmada'}: descártala primero (si no, se contaría dos veces).`);
+      await pool.query(`UPDATE auditor_opcion SET estado = 'descartada', motivo_descarte = ?, actualizado_at = ? WHERE id = ?`,
+        [`Se sumó como complemento de la opción #${opcionId} (va junto con ese producto, no compite).`, ahoraChileSQL(), otra.id]);
+      await evento(negocioId, otra.id, 'descartada', 'asistente', `Pasó a complemento de la opción #${opcionId} (${actor.nombre})`);
+    }
   }
   await evento(negocioId, opcionId, 'complemento', 'asistente', JSON.stringify({ accion: 'poner', ...s, por: actor.nombre, at }));
   return { nombre: s.nombre, porUnidad: s.porUnidad };

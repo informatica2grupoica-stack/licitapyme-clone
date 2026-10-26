@@ -590,7 +590,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   const pendientesComparar = panel.lineas.filter(l => l.opciones.some(o => o.via === 'completa' && o.estado !== 'descartada' && o.tecnico.estado === 'NO_CORRIDO' && o.tecnico.requisitosTotal > 0 && o.respaldos.some(r => r.extraccionId != null))).length;
   const recorrido = recorridoAuditor(panel, puedeAprobar);
 
-  const sinLineaTodos = panel.documentos.flatMap(d => d.productos.filter(p => !p.filaId && !p.esCargo && p.precio != null).map(p => ({ d, p })));
+  const sinLineaTodos = panel.documentos.flatMap(d => d.productos.filter(p => !p.filaId && !p.complementoDe && !p.esCargo && p.precio != null).map(p => ({ d, p })));   // lo sumado como complemento ya tiene dueño
   const productosSinLinea = sinLineaTodos.filter(({ p }) => !p.noCorresponde);          // los que siguen esperando una decisión
   const productosSobrantes = sinLineaTodos.filter(({ p }) => !!p.noCorresponde);        // cotizados de más: no van en ninguna línea
   const resumenDeLinea = new Map(resumenLicitacion(lineasParaResumen(panel), panel.presupuesto?.neto ?? null).filas.map(f => [f.filaId, f]));
@@ -872,8 +872,8 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
             {panel.documentos.map(d => {
               const productos = d.productos.filter(p => !p.esCargo);
               // «No va» = la IA (o una persona) ya decidió que no corresponde a ninguna línea: no es un pendiente, no se cuenta como «sin línea».
-              const sinLinea = productos.filter(p => !p.filaId && p.precio != null && !p.noCorresponde).length;
-              const noVan = productos.filter(p => !p.filaId && p.precio != null && !!p.noCorresponde).length;
+              const sinLinea = productos.filter(p => !p.filaId && !p.complementoDe && p.precio != null && !p.noCorresponde).length;
+              const noVan = productos.filter(p => !p.filaId && !p.complementoDe && p.precio != null && !!p.noCorresponde).length;
               const leyendoEste = leyendo.has(d.url);
               return (
                 <div key={d.documentoId} className="relative group">
@@ -883,6 +883,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                     <FileText size={16} className="text-slate-500 shrink-0 mt-0.5" />
                     <div className="min-w-0">
                       <p className="text-[13px] font-medium text-slate-900 truncate">{d.proveedor || d.nombre}</p>
+                      {d.proveedorPropio && <p className="text-xs text-amber-700">Proveedor sin identificar: el documento nombra a nuestra empresa (es el cliente)</p>}
                       <p className="text-xs text-slate-600 truncate">{d.nombre}{d.fechaEmision ? ` · ${d.fechaEmision}` : ''}</p>
                     </div>
                   </div>
@@ -892,7 +893,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                     : (
                       <dl className="mt-3 pt-3 border-t border-zinc-100 grid grid-cols-3 gap-x-3">
                         <div><dt className="text-xs text-slate-600">Productos</dt><dd className="mt-0.5 text-[13px] font-bold tabular-nums text-slate-800">{productos.length}</dd></div>
-                        <div><dt className="text-xs text-slate-600">Con su línea</dt><dd className="mt-0.5 text-[13px] font-bold tabular-nums text-slate-800">{productos.filter(p => p.filaId).length}</dd></div>
+                        <div><dt className="text-xs text-slate-600">Con su línea</dt><dd className="mt-0.5 text-[13px] font-bold tabular-nums text-slate-800">{productos.filter(p => p.filaId || p.complementoDe).length}</dd></div>
                         {noVan > 0 && sinLinea === 0
                           ? <div><dt className="text-xs text-slate-600">No van</dt><dd className="mt-0.5 text-[13px] font-bold tabular-nums text-slate-600">{noVan}</dd></div>
                           : <div><dt className="text-xs text-slate-600">Sin línea</dt><dd className={`mt-0.5 text-[13px] font-bold tabular-nums ${sinLinea > 0 ? 'text-amber-700' : 'text-slate-500'}`}>{sinLinea}</dd></div>}
@@ -1189,7 +1190,8 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                       <td className="py-2 pr-3 text-slate-600 whitespace-nowrap">{p.precio == null ? '' : p.iva === 'no_declarado' ? 'no declarado' : p.iva === 'incluido' ? 'con IVA' : '+ IVA'}</td>
                       <td className="py-2 pr-3 text-slate-600">{p.cantidad ?? '—'}</td>
                       <td className="py-2">
-                        {p.esCargo ? <span className="text-slate-500">cargo aparte (flete/despacho): no es un producto</span>
+                        {p.complementoDe ? <span className="text-teal-800">＋ Sumado a <button onClick={() => { setDocAbierto(null); irALinea(p.complementoDe!.filaId); }} className="font-semibold underline">{p.complementoDe.nombre} (línea {etiquetaItem.get(p.complementoDe.filaId)})</button></span>
+                          : p.esCargo ? <span className="text-slate-500">cargo aparte (flete/despacho): no es un producto</span>
                           : p.filaId ? (
                             <select value={p.filaId} title="Cambiar la línea de este producto, o quitarlo de ella"
                               onChange={e => {
@@ -1823,6 +1825,73 @@ function BuscarFichaLink({ negocioId, opcionId, ocupado, onTraer }: { negocioId:
   );
 }
 
+/** Lo que suma la cotización a UNA opción (26-oct-2026, horno Unox de 1414396-26-LP26): el producto solo, los complementos ya sumados (accesorios,
+ *  instalación, envío) con «quitar», lo que la misma cotización trae y aún no se suma, y un cargo a mano. El servidor calcula los montos. */
+function ComplementosOpcion({ o, editable, ocupado, onAccion }: { o: OpcionDTO; editable: boolean; ocupado: boolean;
+  onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void }) {
+  const [manual, setManual] = useState<{ nombre: string; monto: string; unidades: string; motivo: string } | null>(null);
+  const comps = o.complementos ?? [], sug = o.sugerenciasComplemento ?? [];
+  if (!comps.length && !sug.length && !editable) return null;
+  if (!comps.length && !sug.length && !o.producto) return null;
+  const total = (o.precioBase ?? 0) + comps.reduce((s, c) => s + c.porUnidad, 0);
+  const montoManual = Number((manual?.monto || '').replace(/\./g, '').replace(',', '.'));
+  return (
+    <div data-no-pdf className="mt-3 rounded-lg border border-zinc-200 px-3 py-2.5">
+      <p className="text-xs text-slate-500">Lo que suma la cotización (por unidad)</p>
+      <ul className="mt-1 space-y-1 text-[13px]">
+        <li className="flex items-baseline justify-between gap-3"><span className="text-slate-700 truncate" title={o.producto?.nombre}>{o.producto?.nombre || 'Producto'}</span><span className="tabular-nums text-slate-900">{fmtCLP(o.precioBase)}</span></li>
+        {comps.map(c => (
+          <li key={c.clave} className="flex items-baseline justify-between gap-3">
+            <span className="min-w-0 text-slate-700">
+              <span className="text-teal-700">＋</span> {c.nombre}
+              <span className="block text-xs text-slate-500">{c.detalle}{c.tipo === 'manual' ? ' · a mano' : ''}</span>
+            </span>
+            <span className="flex items-baseline gap-2 shrink-0">
+              <span className="tabular-nums text-slate-900">{fmtCLP(c.porUnidad)}</span>
+              {editable && <button disabled={ocupado} onClick={() => onAccion(o.id, 'quitar_complemento', { clave: c.clave }, 'Complemento quitado')} className="text-xs text-slate-500 underline hover:text-red-600">quitar</button>}
+            </span>
+          </li>
+        ))}
+        {comps.length > 0 && (
+          <li className="flex items-baseline justify-between gap-3 pt-1 border-t border-zinc-100 font-semibold"><span className="text-slate-800">Total por unidad</span><span className="tabular-nums text-slate-900">{fmtCLP(total)}</span></li>
+        )}
+      </ul>
+      {editable && sug.length > 0 && (
+        <div className="mt-2">
+          <p className="text-xs text-slate-500">La misma cotización también trae:</p>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {sug.map(s => (
+              <button key={s.clave} disabled={ocupado} title={s.detalle}
+                onClick={() => onAccion(o.id, 'poner_complemento', { clave: s.clave }, `Sumado: ${s.nombre}`)}
+                className="inline-flex items-center gap-1 rounded-md border border-teal-200 bg-white px-2 py-1 text-xs text-teal-800 hover:bg-teal-50 disabled:opacity-50">
+                ＋ {s.nombre.length > 38 ? s.nombre.slice(0, 36) + '…' : s.nombre} <b className="tabular-nums">{fmtCLP(s.porUnidad)}</b>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {editable && (manual === null
+        ? <button onClick={() => setManual({ nombre: '', monto: '', unidades: '1', motivo: '' })} className="mt-2 text-xs font-medium text-teal-700 hover:underline">＋ Otro cargo (no está en la cotización)…</button>
+        : (
+          <div className="mt-2 space-y-1.5">
+            <div className="flex flex-wrap gap-1.5">
+              <input value={manual.nombre} onChange={e => setManual({ ...manual, nombre: e.target.value })} placeholder="Qué es (ej. Envío)" className="w-36 rounded-md border border-zinc-200 px-2 py-1 text-xs" />
+              <input value={manual.monto} onChange={e => setManual({ ...manual, monto: e.target.value })} inputMode="numeric" placeholder="Monto neto" className="w-28 rounded-md border border-zinc-200 px-2 py-1 text-xs text-right" />
+              <label className="flex items-center gap-1 text-xs text-slate-600">entre <input value={manual.unidades} onChange={e => setManual({ ...manual, unidades: e.target.value.replace(/[^\d]/g, '') })} inputMode="numeric" className="w-12 rounded-md border border-zinc-200 px-2 py-1 text-xs text-right" /> unidades</label>
+            </div>
+            <input value={manual.motivo} onChange={e => setManual({ ...manual, motivo: e.target.value })} placeholder="De dónde sale el monto (obligatorio)" className="w-full rounded-md border border-zinc-200 px-2 py-1 text-xs" />
+            <div className="flex gap-2">
+              <button disabled={ocupado || manual.nombre.trim().length < 2 || !(montoManual > 0) || manual.motivo.trim().length < 8}
+                onClick={() => { onAccion(o.id, 'poner_complemento', { manual: { nombre: manual.nombre, monto: montoManual, unidades: Number(manual.unidades || 1), motivo: manual.motivo } }, 'Cargo agregado'); setManual(null); }}
+                className="px-2.5 py-1 rounded-md bg-teal-700 text-white text-xs font-semibold hover:bg-teal-800 disabled:opacity-40">Sumar</button>
+              <button onClick={() => setManual(null)} className="text-xs text-slate-500 hover:text-slate-800">Cancelar</button>
+            </div>
+          </div>
+        ))}
+    </div>
+  );
+}
+
 /** Pegar el texto de la ficha (copiado de la página del producto, de un correo del proveedor…): se guarda como un .txt y sigue el mismo camino que
  *  una ficha subida (el Lector lo lee y el comparador lo usa contra las bases). */
 function PegarTextoFicha({ ocupado, nombreBase, onArchivo }: { ocupado: boolean; nombreBase: string; onArchivo: (f: File) => void }) {
@@ -2329,6 +2398,7 @@ function CuadroTecnico({ negocioId, linea, ocupado, puedeAprobar, verificando, s
                     );
                   })()}
                   <ConversionMoneda p={o.producto} plano />
+                  <ComplementosOpcion o={o} editable={editable(o) && o.estado !== 'definitiva'} ocupado={ocupado === o.id} onAccion={onAccion} />
                   <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
                     <div>
                       <dt className={rotulo}>Técnico</dt>

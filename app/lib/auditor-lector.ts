@@ -15,6 +15,7 @@ import { parseJsonIA, sacarCaracteresSueltos } from '@/app/lib/json-ia';
 import { ocrImagenConGlmOcr, extraerTextoPdfPorUrlConGlmOcr } from '@/app/lib/zai-ocr';
 import { ocrPdfLocalTesseract, ocrImagenLocalTesseract } from '@/app/lib/tesseract-ocr';
 import * as P from '@/app/lib/auditor-lector-prompts';
+import { limpiarProveedorPropio } from '@/app/lib/auditor-complementos-core';
 
 export type ModoLector = 'completo' | 'comercial';
 const MOTOR_LECTOR = 'kimi';            // Kimi en todo el Auditor (26-oct-2026)
@@ -279,6 +280,11 @@ export async function leerYGuardarDocumento(params: {
   try {
     const { texto, metodo } = await transcribirDocumento(url, { combinar: combinarOCR });
     const { salida, motor } = await llamarLector(texto, nombre, modo);
+    // «Señores / Razón social: Comercial MP SpA» es el CLIENTE de la cotización (nosotros), no el proveedor (casos GETAC y horno Unox, 26-oct-2026).
+    try {
+      const [propias] = await pool.query(`SELECT e.rut, e.razon_social FROM empresas e JOIN negocios n ON n.cliente_id = e.cliente_id WHERE n.id = ?`, [negocioId]) as any;
+      limpiarProveedorPropio(salida, propias as any[]);
+    } catch { /* sin tabla de empresas: se guarda tal cual */ }
     const guardada: ExtraccionGuardada = { modo, salida, texto: texto.slice(0, MAX_CHARS_TEXTO), metodoTexto: metodo, tiposCambio: await tiposCambioDeLaLectura(salida) };
     const [ins] = await pool.query(
       `INSERT INTO auditor_extraccion (negocio_id, documento_url, documento_nombre, opcion_id, respaldo_id, modo, extraccion_json, motor, creado_at)

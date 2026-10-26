@@ -15,7 +15,7 @@ import { contextoAuditor } from '@/app/lib/auditor-acceso';
 import {
   armarPanelAuditorCompartido, cargarEstadoCosteo, leerDocumentoYCrearOpciones, crearOpcionesDesdeExtraccion, asignarProductoALinea, cambiarVia, descartarOpcion, restaurarOpcion, moverOpcionALinea,
   firmarOpcion, quitarFirma, solicitarAprobacion, resolverAprobacion, agregarLinkALinea, revisitarLinkDeOpcion, sugerirLineasDelNegocio, ignorarProductoSinLinea, crearOpcionManual, agregarFichaAOpcion, corregirCostoOpcion, quitarCorreccionCosto, buscarFichaEnLink, traerFichaDeLink, verificarMercadoDeOpcion, justificarAhorroDeOpcion, verificarCostoIADeOpcion, releerDocumento,
-  verificarTecnicoDeOpcion, confirmarCeldaTecnica, respaldarCeldaTecnica, quitarFichaDeOpcion,
+  verificarTecnicoDeOpcion, confirmarCeldaTecnica, respaldarCeldaTecnica, quitarFichaDeOpcion, ponerComplemento, quitarComplemento,
 } from '@/app/lib/auditor-opciones';
 import { generarPosicionAuditor, ultimaPosicion } from '@/app/lib/auditor-posicion';
 import { avisarAlEM, avisarDecisionAlAsistente } from '@/app/lib/auditor-bandeja-em';
@@ -175,6 +175,13 @@ export async function POST(request: NextRequest, { params }: Params) {
         }
         return NextResponse.json({ ...r, movidaDe: movida, success: r.estado !== 'error' });
       }
+      case 'poner_complemento': {
+        // Suma a la opción un producto/cargo de su misma cotización (el monto sale de la extracción) o un cargo a mano con motivo.
+        const m = body.manual ? { nombre: String(body.manual.nombre || ''), monto: Number(body.manual.monto), unidades: Number(body.manual.unidades || 1), motivo: String(body.manual.motivo || '') } : undefined;
+        const r = await ponerComplemento(negocio.id, opcionId, String(body.clave || ''), actor, m);
+        return NextResponse.json({ success: true, ...r });
+      }
+      case 'quitar_complemento': await quitarComplemento(negocio.id, opcionId, String(body.clave || ''), actor); break;
       case 'quitar_ficha': {
         // Deja de usar la ficha en esa opción (no borra el archivo). La comparación técnica no cambia sola: se vuelve a comparar la línea.
         const q = await quitarFichaDeOpcion(negocio.id, Number(body.respaldoId), actor, String(body.motivo || ''));
