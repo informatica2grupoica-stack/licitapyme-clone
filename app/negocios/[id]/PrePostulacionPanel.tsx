@@ -35,7 +35,7 @@ const MATERIA_LABEL: Record<string, string> = {
 };
 const MATERIAS = Object.keys(MATERIA_LABEL);
 const ORIGEN_LABEL: Record<string, { label: string; cls: string }> = {
-  ia: { label: 'Detectado por IA', cls: 'bg-violet-100 text-violet-700' },
+  ia: { label: 'Detectado por IA', cls: 'bg-teal-100 text-teal-700' },
   costo_asociado: { label: 'Con costo (del Auditor)', cls: 'bg-amber-100 text-amber-800' },
   manual: { label: 'Agregado a mano', cls: 'bg-zinc-100 text-zinc-600' },
 };
@@ -183,7 +183,7 @@ export function PrePostulacionPanel({ negocioId, empresaId, onIrAlAuditor, datoI
               <li className="px-5 py-3 text-[12.5px] text-zinc-600">
                 <span className="font-bold text-zinc-800">Sin opción aprobada: </span>
                 {certificado.lineas.filter(l => l.sinOpcion).map(l => `línea ${l.linea}`).join(', ')}.
-                <button onClick={onIrAlAuditor} className="ml-2 text-indigo-600 font-semibold hover:underline">Ir al Auditor a aprobarlas</button>
+                <button onClick={onIrAlAuditor} className="ml-2 text-teal-700 font-semibold hover:underline">Ir al Auditor a aprobarlas</button>
               </li>
             )}
             {certificado.lineas.filter(l => !l.sinOpcion).map(l => (
@@ -218,7 +218,7 @@ export function PrePostulacionPanel({ negocioId, empresaId, onIrAlAuditor, datoI
           <h3 className="text-[13.5px] font-bold text-zinc-900">Requisitos técnico-administrativos</h3>
           <span className="text-[11.5px] text-zinc-400">Lo que nos comprometemos a hacer. Vienen precargados como cumplidos: confírmalos uno a uno. Comprométete solo a lo que exigen las bases, ni más horas ni más plazo.</span>
           <button disabled={ocupado === 'rev-todas' || !hayPorRevisar} onClick={() => revisar(null)}
-            className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-violet-200 bg-violet-50 text-violet-700 text-[12px] font-semibold hover:bg-violet-100 disabled:opacity-40">
+            className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-teal-200 bg-teal-50 text-teal-700 text-[12px] font-semibold hover:bg-teal-100 disabled:opacity-40">
             {ocupado === 'rev-todas' ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} Revisar compromisos
           </button>
         </div>
@@ -354,7 +354,7 @@ function ItemFila({ i, ocupado, onConfirmar, onNoAplica, onRestaurar }: { i: Ite
           {i.confirmado && i.confirmadoPorNombre && <p className="text-[11px] text-emerald-700">Confirmado por {i.confirmadoPorNombre}{i.confirmadoAt ? ` · ${new Date(i.confirmadoAt).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' })}` : ''}</p>}
         </div>
         {i.origen !== 'costo_asociado' && (i.noAplica
-          ? <button onClick={onRestaurar} className="text-[11.5px] font-semibold text-indigo-600 hover:underline whitespace-nowrap">Restaurar</button>
+          ? <button onClick={onRestaurar} className="text-[11.5px] font-semibold text-teal-700 hover:underline whitespace-nowrap">Restaurar</button>
           : <button onClick={onNoAplica} className="text-[11.5px] font-semibold text-zinc-500 hover:text-zinc-800 whitespace-nowrap">No aplica</button>)}
       </div>
     </div>

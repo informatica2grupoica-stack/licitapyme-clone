@@ -205,8 +205,14 @@ export async function agregarRespaldoCelda(negocioId: number, opcionId: number, 
   if (!(ors as any[]).length) throw new Error('La opción no existe en este negocio.');
   if (['en_aprobacion', 'aprobada'].includes((ors as any[])[0].estado)) throw new Error('La opción ya está en aprobación: pide rechazarla antes de cambiarle datos.');
   if (!Number.isFinite(n)) throw new Error('Falta indicar el requisito.');
-  const [docs] = await pool.query(`SELECT 1 FROM documentos_cache WHERE documento_url_local = ? AND subcategoria = 'respaldos_auditor' LIMIT 1`, [url]) as any;
-  if (!(docs as any[]).length) throw new Error('Ese archivo no es un respaldo subido en esta licitación.');
+  // Complemento SOLO con texto (pedido 26-oct-2026: el asistente explica lo que sabe aunque no tenga archivo). Se guarda con una clave «nota:…» en vez de URL.
+  if (!url && !quitar) {
+    if (nota.trim().length < 8) throw new Error('Escribe lo que sabes de este requisito (al menos unas palabras) o adjunta un archivo.');
+    url = `nota:${Date.now()}`; nombre = 'Nota';
+  } else if (!url.startsWith('nota:')) {
+    const [docs] = await pool.query(`SELECT 1 FROM documentos_cache WHERE documento_url_local = ? AND subcategoria = 'respaldos_auditor' LIMIT 1`, [url]) as any;
+    if (!(docs as any[]).length) throw new Error('Ese archivo no es un respaldo subido en esta licitación.');
+  }
   await pool.query(`INSERT INTO auditor_evento (negocio_id, opcion_id, tipo, emisor, detalle, creado_at) VALUES (?, ?, 'respaldo_celda', 'asistente', ?, ?)`,
     [negocioId, opcionId, JSON.stringify({ n, url, nombre: nombre.slice(0, 200), nota: nota.trim().slice(0, 500) || undefined, por: actor.nombre, quitado: quitar || undefined }), ahoraChileSQL()]);
 }

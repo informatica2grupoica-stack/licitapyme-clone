@@ -1100,7 +1100,8 @@ function DetalleContent() {
                     onSelect={k => setSeccion(k as Seccion)}
                   />
                   {tab === 'auditor_compra' && hayAuditorCompra && (
-                    <AuditorOpcionesPanel negocioId={negocio.id} licitacionCodigo={negocio.licitacion_codigo} puedeAprobar={isAdmin || !!usuario?.permisos?.aprobar_comercial || !!usuario?.permisos?.auditor_aprobar} />
+                    <AuditorOpcionesPanel negocioId={negocio.id} licitacionCodigo={negocio.licitacion_codigo} puedeAprobar={isAdmin || !!usuario?.permisos?.aprobar_comercial || !!usuario?.permisos?.auditor_aprobar}
+                      onIrAPrePostulacion={hayPrePostulacion ? () => setSeccion('prepostulacion') : undefined} />
                   )}
                   {tab === 'prepostulacion' && hayPrePostulacion && (
                     <PrePostulacionPanel negocioId={negocio.id} empresaId={negocio.empresa_id} onIrAlAuditor={() => setSeccion('auditor_compra')}

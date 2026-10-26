@@ -15,7 +15,7 @@ import { contextoAuditor } from '@/app/lib/auditor-acceso';
 import {
   armarPanelAuditorCompartido, cargarEstadoCosteo, leerDocumentoYCrearOpciones, crearOpcionesDesdeExtraccion, asignarProductoALinea, cambiarVia, descartarOpcion, restaurarOpcion, moverOpcionALinea,
   firmarOpcion, quitarFirma, solicitarAprobacion, resolverAprobacion, agregarLinkALinea, revisitarLinkDeOpcion, sugerirLineasDelNegocio, ignorarProductoSinLinea, crearOpcionManual, agregarFichaAOpcion, corregirCostoOpcion, quitarCorreccionCosto, buscarFichaEnLink, traerFichaDeLink, verificarMercadoDeOpcion, justificarAhorroDeOpcion, verificarCostoIADeOpcion, releerDocumento,
-  verificarTecnicoDeOpcion, confirmarCeldaTecnica, respaldarCeldaTecnica,
+  verificarTecnicoDeOpcion, confirmarCeldaTecnica, respaldarCeldaTecnica, quitarFichaDeOpcion,
 } from '@/app/lib/auditor-opciones';
 import { generarPosicionAuditor, ultimaPosicion } from '@/app/lib/auditor-posicion';
 import { presupuestoNeto } from '@/app/lib/auditor-compras';
@@ -160,7 +160,19 @@ export async function POST(request: NextRequest, { params }: Params) {
           url, nombre: (rows as any[])[0].documento_nombre,
           productoIdx: body.productoIdx != null && body.productoIdx !== '' ? Number(body.productoIdx) : null, forzar: body.forzar === true, actor,
         });
-        return NextResponse.json({ ...r, success: r.estado !== 'error' });
+        // «Mover» una ficha (pestaña Fichas técnicas): primero se agrega al destino con todos sus chequeos; SOLO si quedó agregada se quita de donde estaba.
+        let movida: { opcionId: number; filaId: string } | null = null;
+        const moverDe = Number(body.moverDe);
+        if (r.estado === 'agregada' && Number.isFinite(moverDe) && moverDe > 0) {
+          const [ori] = await pool.query(`SELECT opcion_id FROM auditor_respaldo WHERE id = ? AND negocio_id = ?`, [moverDe, negocio.id]) as any;
+          if ((ori as any[])[0] && (ori as any[])[0].opcion_id !== r.opcionId) movida = await quitarFichaDeOpcion(negocio.id, moverDe, actor, 'se movió a otra opción');
+        }
+        return NextResponse.json({ ...r, movidaDe: movida, success: r.estado !== 'error' });
+      }
+      case 'quitar_ficha': {
+        // Deja de usar la ficha en esa opción (no borra el archivo). La comparación técnica no cambia sola: se vuelve a comparar la línea.
+        const q = await quitarFichaDeOpcion(negocio.id, Number(body.respaldoId), actor, String(body.motivo || ''));
+        return NextResponse.json({ success: true, ...q });
       }
       case 'buscar_ficha_link': {
         // Solo MIRA la página del link y lista las fichas que ofrece: no descarga nada.

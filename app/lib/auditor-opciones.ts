@@ -98,6 +98,7 @@ export interface DocumentoCotizacionDTO {
     noCorresponde?: { motivo: string; por: string } | null;
   }>;
 }
+export interface FichaSinAsignarDTO { documentoId: number; nombre: string; url: string; subidaAt: string | null; error: string | null }
 export interface PanelAuditorDTO {
   lineas: LineaAuditorDTO[];
   documentos: DocumentoCotizacionDTO[];
@@ -113,6 +114,8 @@ export interface PanelAuditorDTO {
   posicion?: import('@/app/lib/auditor-posicion').PosicionGuardadaDTO | null;
   /** Presupuesto neto del organismo (lo agrega el GET; lo usa el resumen de la licitación). */
   presupuesto?: { neto: number | null; fuente: string } | null;
+  /** Fichas técnicas subidas (caja «Fichas técnicas») que hoy no respaldan ninguna opción: la pestaña Fichas técnicas las muestra para asignarlas. */
+  fichasSinAsignar: FichaSinAsignarDTO[];
 }
 
 // ── Utilidades ───────────────────────────────────────────────────────────────────────────────────
@@ -165,8 +168,8 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
       (texto LIKE '%disponibilidad=OutOfStock%' OR texto LIKE '%disponibilidad=SoldOut%' OR texto LIKE '%PRODUCTO AGOTADO%') AS agotado
       FROM auditor_captura WHERE negocio_id = ? ORDER BY id DESC`, [negocioId]) as Promise<any>,
     correccionesDeCosto(negocioId), ultimasSegundasPasadasV3(negocioId), respaldosDeCeldas(negocioId), ultimasVerificaciones(negocioId, true), habilitacionesYDeclaraciones(negocioId),
-    pool.query(`SELECT id, documento_nombre, documento_url_local FROM documentos_cache
-     WHERE licitacion_codigo = ? AND subcategoria = 'cotizaciones' AND documento_url_local IS NOT NULL ORDER BY created_at ASC`, [licitacionCodigo]) as Promise<any>,
+    pool.query(`SELECT id, documento_nombre, documento_url_local, subcategoria, created_at FROM documentos_cache
+     WHERE licitacion_codigo = ? AND subcategoria IN ('cotizaciones', 'fichas_tecnicas') AND documento_url_local IS NOT NULL ORDER BY created_at ASC`, [licitacionCodigo]) as Promise<any>,
     pool.query(`SELECT id, documento_url, error FROM auditor_extraccion WHERE negocio_id = ? AND documento_url IS NOT NULL ORDER BY id DESC`, [negocioId]) as Promise<any>,
     decisionesSinLinea(negocioId),
     estadoP.then(e => linksPendientesDelCosteo(negocioId, lineasAuditables(e))),
@@ -306,7 +309,13 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
     };
   });
 
-  const documentos = armarDocumentos(docsRes[0], ultimaPorUrl, cargadas, decisiones, opcionesPorFila);
+  const documentos = armarDocumentos((docsRes[0] as any[]).filter(d => d.subcategoria === 'cotizaciones'), ultimaPorUrl, cargadas, decisiones, opcionesPorFila);
+  // Fichas técnicas subidas que hoy no respaldan ninguna opción (la lectura pidió elegir el producto, era de otro modelo, o se dejó de usar): se muestran para asignarlas.
+  const fichasEnUso = new Set((reRows as any[]).filter(r => r.tipo === 'ficha_tecnica' && r.vigente
+    && (opRows as any[]).some(o => o.id === r.opcion_id && o.estado !== 'descartada')).map(r => r.documento_url));
+  const errorPorUrl = new Map((extsRes[0] as any[]).map(e => [e.documento_url, e.error]));
+  const fichasSinAsignar: FichaSinAsignarDTO[] = (docsRes[0] as any[]).filter(d => d.subcategoria === 'fichas_tecnicas' && !fichasEnUso.has(d.documento_url_local))
+    .map(d => ({ documentoId: d.id, nombre: d.documento_nombre, url: d.documento_url_local, subidaAt: fechaS(d.created_at), error: errorPorUrl.get(d.documento_url_local) ?? null }));
   const margen = margenProyectoConOpciones(lineasVivas, lineasDTO.filter(l => !l.noOfertada).flatMap(l => l.opciones
     .filter(o => ['definitiva', 'en_aprobacion', 'aprobada'].includes(o.estado) && o.verificacion?.costoNetoUnitario != null)
     .map(o => ({ filaId: l.filaId, neto: o.verificacion!.costoNetoUnitario as number }))), totalAsociados);
@@ -317,7 +326,7 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
 
   const activas = lineasDTO.flatMap(l => l.opciones.filter(o => o.estado !== 'descartada'));
   return {
-    lineas: lineasDTO, documentos, margen, sinCosteo: !estado, mensajes: mensajesUnificadosPorProveedor(lineasDTO), linksPendientes,
+    lineas: lineasDTO, documentos, fichasSinAsignar, margen, sinCosteo: !estado, mensajes: mensajesUnificadosPorProveedor(lineasDTO), linksPendientes,
     costosAsociados, totalCostosAsociados: totalAsociados, avance,
     resumen: {
       lineas: lineasDTO.length,
@@ -852,7 +861,12 @@ export async function agregarFichaAOpcion(params: {
     avisos.push('La ficha no identifica claramente el modelo: se usó porque nada la contradice. Revisa que sea la del producto.');
   }
 
-  const [ya] = await pool.query(`SELECT id FROM auditor_respaldo WHERE opcion_id = ? AND documento_url = ? AND producto_idx = ?`, [opcion.id, url, elegido.idx]) as any;
+  const [ya] = await pool.query(`SELECT id, vigente FROM auditor_respaldo WHERE opcion_id = ? AND documento_url = ? AND producto_idx = ?`, [opcion.id, url, elegido.idx]) as any;
+  // La ficha ya estuvo en esta opción y se quitó (o se movió a otra): vuelve a quedar vigente.
+  if ((ya as any[]).length && !(ya as any[])[0].vigente) {
+    await pool.query(`UPDATE auditor_respaldo SET vigente = 1 WHERE id = ?`, [(ya as any[])[0].id]);
+    await evento(negocioId, opcion.id, 'documento_nuevo', 'asistente', `Ficha técnica vuelve a usarse: ${nombre} (${actor.nombre})`);
+  }
   if (!(ya as any[]).length) {
     const ahora = ahoraChileSQL();
     const [r] = await pool.query(
@@ -869,6 +883,23 @@ export async function agregarFichaAOpcion(params: {
     await evento(negocioId, opcion.id, 'documento_nuevo', 'lector', `Ficha técnica: ${nombre}`);
   }
   return { estado: 'agregada', opcionId: opcion.id, opcionCreada, avisos };
+}
+
+/** Deja de usar una ficha técnica en una opción (se subió a la equivocada, o se movió a otra). No borra el archivo ni la lectura: el respaldo
+ *  queda no vigente y el evento dice quién lo quitó. La comparación técnica ya hecha no cambia sola: hay que volver a comparar la línea. */
+export async function quitarFichaDeOpcion(negocioId: number, respaldoId: number, actor: Actor, motivo = ''): Promise<{ opcionId: number; filaId: string }> {
+  const [rows] = await pool.query(
+    `SELECT r.id, r.tipo, r.vigente, r.documento_nombre, o.id AS opcion_id, o.fila_id, o.estado FROM auditor_respaldo r JOIN auditor_opcion o ON o.id = r.opcion_id
+      WHERE r.id = ? AND r.negocio_id = ?`, [respaldoId, negocioId]) as any;
+  const r = (rows as any[])[0];
+  if (!r) throw new Error('Esa ficha no está en este negocio.');
+  if (r.tipo !== 'ficha_tecnica') throw new Error('Solo se pueden quitar fichas técnicas (las cotizaciones se manejan desde su tarjeta).');
+  if (['en_aprobacion', 'aprobada'].includes(r.estado)) throw new Error('La opción ya está en aprobación: pide rechazarla antes de cambiar sus documentos.');
+  if (r.vigente) {
+    await pool.query(`UPDATE auditor_respaldo SET vigente = 0 WHERE id = ?`, [respaldoId]);
+    await evento(negocioId, r.opcion_id, 'documento_quitado', 'asistente', `Ficha técnica quitada: ${r.documento_nombre || ''}${motivo ? ` — ${motivo}` : ''} (${actor.nombre})`);
+  }
+  return { opcionId: r.opcion_id, filaId: r.fila_id };
 }
 
 // ── Links: captura fechada → Lector → opción en TANTEO ───────────────────────────────────────────
