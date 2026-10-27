@@ -5,7 +5,7 @@ reciente arriba. El 2026-10-27 se traspasó aquí lo vigente de la memoria perso
 
 - [Anexos — motor de relleno](anexos.md) — 2026-10-27: fecha en la línea de «Fecha:», económico por línea, SÍ/NO de integridad
 - [Forma de trabajo con el dueño](forma-de-trabajo.md) — español chileno, datos reales, arreglos generales, él sube a git
-- [Compras](compras.md) — 2026-10-27: comparar precios muestra costeo en rojo si no hay cotización + resumen contra lo costeado; una pantalla con stepper, no reordenar, audita precio; no invalidar aprobaciones al probar
+- [Compras](compras.md) — 2026-10-27: margen del costeo inicial vs cotizaciones (Carolina); una pantalla con stepper, no reordenar, audita precio
 - [Auditor de la licitación](auditor.md) — 2026-10-27: Checklist sin líneas técnicas; ficha en Word; firma en un clic; fotos en fila
 - [Viabilidad, modalidad, prefiltro y radar](viabilidad.md) — 2026-10-27: «completar cada línea» ya no vuelve GLOBAL la adjudicación (16 informes); «se interrumpió» = despliegue a mitad de análisis; deploy.sh espera (skill viabilidad-interrumpida)
 - [Costeo](costeo.md) — 2026-10-27: re-viabilidad no toca el costeo guardado, «Actualizar» ofrece quitar filas que la viabilidad ya no trae (sin precio/link/SKU/costo real); autoridad del documento, tres ejes, link obligatorio, presupuesto con IVA

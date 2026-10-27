@@ -127,6 +127,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [costeado, setCosteado] = useState<Record<number, number | null>>({});
+  const [venta, setVenta] = useState<Record<number, number | null>>({});
   const [linksCosteo, setLinksCosteo] = useState<LinksCosteo>({});
   const [seleccion, setSeleccion] = useState<SeleccionCelda | null>(null);
   const fichas = useFichasCompras(negocioId);
@@ -240,7 +241,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
       fetch(url).then(r => r.json()).then(d => { if (d?.success) aplicar(d); });
     try {
       await Promise.all([
-        traer(`/api/compras/${negocioId}/cotizaciones`, d => { setCotizaciones(d.cotizaciones || []); setAuditorias(d.auditorias || []); setCosteado(d.costeado || {}); setLoading(false); }),
+        traer(`/api/compras/${negocioId}/cotizaciones`, d => { setCotizaciones(d.cotizaciones || []); setAuditorias(d.auditorias || []); setCosteado(d.costeado || {}); setVenta(d.venta || {}); setLoading(false); }),
         traer(`/api/compras/${negocioId}/escenarios`, d => {
           setNegociacion(d.negociacion || []); setEscenarios(d.escenarios || []);
           setElegidoTipo(d.elegidoTipo || null); setElegidoCostoGuardado(d.elegidoCostoGuardado ?? null);
@@ -1199,7 +1200,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           a.revisiones.filter(r => r.resultado === 'NO_CUMPLE' && r.criterio !== 'Precio vs. lo costeado').map(r => ETIQUETA_ALERTA[r.area] ?? r.criterio)]))} />
         </div>
       ) : (
-        <ComparadorPrecios productos={productos} cotizaciones={cotizaciones} costeado={costeado} linksCosteo={linksCosteo}
+        <ComparadorPrecios productos={productos} cotizaciones={cotizaciones} costeado={costeado} venta={venta} linksCosteo={linksCosteo}
         lecturaLink={lecturaLink}
         onCompraPorLink={puedeOperar ? (productoId, d) => {
           setDirectaAbierta({ productoId, ...d });

@@ -67,7 +67,10 @@ export type MatrizProps = {
   /** «Comprar por este link»: lleva a la compra directa de ese producto con link, precio neto y proveedor ya puestos. */
   onCompraPorLink?: (productoId: number, d: { link: string; precio: number; proveedor: string }) => void;
   productos: Array<{ id: number; descripcion: string; cantidad?: number | string | null }>; cotizaciones: CotizacionMin[];
-  costeado: Record<number, number | null>; seleccion: SeleccionCelda | null; onSeleccionar: (s: SeleccionCelda) => void;
+  costeado: Record<number, number | null>;
+  /** Precio de venta neto/u del costeo de cada producto (para el margen del costeo inicial vs las cotizaciones). */
+  venta?: Record<number, number | null>;
+  seleccion: SeleccionCelda | null; onSeleccionar: (s: SeleccionCelda) => void;
   alertas?: Record<string, string[]>;
   /** Resultado de la ficha técnica por celda («cotizaciónId:productoId»); solo las celdas cuyo proveedor tiene ficha de ese producto. */
   tecnico?: Record<string, { estado: string; cumple: number; total: number; modelo: string }>;

@@ -240,6 +240,15 @@ export async function costeadoPorProducto(negocioId: number): Promise<Record<num
   return out;
 }
 
+/** Precio de venta neto/u del costeo de cada producto del negocio, para el margen del costeo inicial vs las cotizaciones. */
+export async function ventaPorProducto(negocioId: number): Promise<Record<number, number | null>> {
+  const [productos, estado] = await Promise.all([listarProductosCompra(negocioId), cargarEstadoCosteo(negocioId).catch(() => null)]);
+  const lineas = estado ? lineasDelCosteo(estado).filter(l => !l.esGastoExtra) : [];
+  const out: Record<number, number | null> = {};
+  for (const p of productos) out[p.id] = lineaCosteoDeProducto(lineas, p)?.precioVentaUnitario ?? null;
+  return out;
+}
+
 // ── Orquestación ───────────────────────────────────────────────────────────────────────────────
 export interface ResultadoAuditoria { productoId: number; dictamen: Dictamen; cumpleEfectivo: CumpleAuditado }
 

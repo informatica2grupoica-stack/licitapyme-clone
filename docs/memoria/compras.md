@@ -35,7 +35,23 @@ personal el 2026-10-27; las fechas son de cuando se decidió.
 - **Comparar precios: línea sin cotización muestra su costeo en rojo** donde iba «Mejor + %», y
   bajo «Por proveedor» va un resumen contra lo costeado: cotizadas a su MEJOR precio (no la
   elegida) + sin cotizar a lo costeado = total nuevo, y el margen a favor o sobrecosto en $ y %
-  (`ComparadorPrecios.tsx`, pedido en el negocio 1008, 2026-10-27; sin ver con sesión iniciada).
+  (`ComparadorPrecios.tsx`, pedido en el negocio 1008, 2026-10-27; visto en el 1008: 9 cotizadas + 7 sin cotizar, margen a favor $984.797 · 6,6 %).
+- **2026-10-27 · Margen del costeo inicial vs margen con las cotizaciones** (Carolina, que supervisa Compras, no quedó
+  conforme con ese resumen de costos): lo reemplaza `MargenCosteoVsCotizaciones.tsx` (cálculo puro y testeado en
+  `compras-margen-vs-costeo.ts`; el precio de venta por producto sale de `ventaPorProducto`, en la ruta `cotizaciones`).
+  Misma venta neta (precio de venta del costeo × cantidad, sin IVA) en los dos lados; costo inicial = lo costeado; costo con
+  cotizaciones = MEJOR cotización neta de cada línea (las sin cotizar siguen al costo costeado). Muestra margen en pesos,
+  **margen sobre la venta** (margen ÷ venta) y **recargo sobre el costo** (margen ÷ costo, el «margen» con que el costeo arma
+  el precio), con la diferencia en pesos y en puntos; el desglose cotizadas/sin cotizar; y el detalle línea por línea con
+  proveedor. Avisa que es provisional mientras queden líneas sin cotizar y cuántas líneas bajan el margen. Las líneas sin
+  precio de venta o sin costo costeado no entran y se cuentan aparte. **Visto con datos reales del 1008:** venta neta
+  $18.382.127; costo $14.932.691 → $13.947.894; margen $3.449.436 (18,8 %) → $4.434.233 (24,1 %), +5,3 pts; recargo 23,1 % →
+  31,8 %; 1 línea baja el margen. **Pendiente:** verlo dentro de la pantalla de Compras (solo se vio el componente suelto).
+  Ajuste del dueño (mismo día): letra más grande; una frase de conclusión arriba («el margen sube de 18,8 % a 24,1 %…»); lo
+  relevante en negrita y color (verde = mejora, rojo = baja, con flecha ▲/▼ y signo); el detalle por línea queda CERRADO por
+  defecto («Ver detalle por línea») y, abierto, marca en rojo las líneas que bajan el margen, en verde las que lo mejoran y en
+  gris las sin cotizar, con el cambio en puntos y en pesos.
+  Posible siguiente paso: un segundo escenario «con lo que ya se eligió comprar» (hoy es siempre la mejor cotización).
 
 ## Reglas para trabajar aquí
 
