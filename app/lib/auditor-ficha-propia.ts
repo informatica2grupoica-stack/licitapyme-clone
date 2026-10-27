@@ -5,7 +5,7 @@
 // PROVEEDORES y el Auditor las compararía como si fueran una más).
 import pool from '@/app/lib/db';
 import { armarPanelAuditor, cargarEstadoCosteo } from '@/app/lib/auditor-opciones';
-import { motivoFichaNoLista, productoFichaDeOpcion, opcionesDeLaOferta } from '@/app/lib/auditor-ficha-propia-core';
+import { motivoFichaNoLista, productoFichaDeOpcion, opcionesDeLaOferta, opcionesDeLaLinea } from '@/app/lib/auditor-ficha-propia-core';
 import { cargarDocumentoBase } from '@/app/lib/anexos-datos';
 import { abrirDocx } from '@/app/lib/anexos-docx';
 import { construirFichaTecnicaHtml, especificacionesSinCompletar, productosSinConfirmar, type EmpresaFicha, type LineaFicha, type EspecificacionFicha } from '@/app/lib/ficha-tecnica';
@@ -91,6 +91,12 @@ async function guardarEnAnexosTecnicos(licitacionCodigo: string, f: FichaArmada,
 
 export async function generarFichaPropia(negocioId: number, licitacionCodigo: string, opcionIds: number[], usuarioId: number): Promise<FichaPropiaGenerada> {
   return guardarEnAnexosTecnicos(licitacionCodigo, await armarFichaPropiaPdf(negocioId, licitacionCodigo, opcionIds, usuarioId), usuarioId);
+}
+
+/** El botón de una opción arma la ficha de TODA su línea (ver opcionesDeLaLinea); `faltan` = ítems de la línea que no entraron. */
+export async function generarFichaPropiaDeLinea(negocioId: number, licitacionCodigo: string, opcionId: number, usuarioId: number): Promise<FichaPropiaGenerada & { faltan: string[] }> {
+  const { ids, faltan } = opcionesDeLaLinea(await armarPanelAuditor(negocioId, licitacionCodigo), opcionId);
+  return { ...(await generarFichaPropia(negocioId, licitacionCodigo, ids, usuarioId)), faltan };
 }
 
 // ── Anexo técnico EN BLANCO del organismo («ANEXO TÉCNICO 3 · OFERTA TÉCNICA», 4022-19-LE26) ─────────────────────────

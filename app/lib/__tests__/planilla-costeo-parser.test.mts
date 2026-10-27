@@ -867,3 +867,26 @@ test('Excel por línea: celdas multilínea + título del lote en la fila del pri
   assert.deepEqual(r!.items.filter(i => i.linea === 1).map(i => i.numero), [1, 2, 3, 4]);
   assert.ok(r!.items.every(i => i.cantidad != null && i.cantidad > 0), 'toda fila trae su cantidad');
 });
+
+// 3712-74-LP26 (Los Vilos, 39 insumos): las bases traen la ficha de cada insumo sin número, después la
+// pauta de evaluación («X1 | Oferta económica | 30%») y al final el anexo económico numerado. El header
+// de la primera tabla seguía vigente: salían 80 «productos», con X1…X6 y el plazo de 120 días.
+test('bases con fichas + pauta de evaluación + anexo económico numerado: manda el anexo numerado', () => {
+  const prods: [string, number][] = [['Manguera Espiralada 2&quot;x50(m)', 9], ['Cámara endoscópica 100(m)', 9],
+    ['Pozometro 50(m)', 9], ['Electrofusionadora 20-160 mm', 4], ['Válvula retención bola fierro 2&quot;', 18],
+    ['Valvula Elastomérica 80(mm)PN 10', 27], ['Valvula Elastomérica 50(mm)PN 10', 27], ['Cono de seguridad 90 cm. base pesada', 36],
+    ['Carretilla acero 90(Lt)', 9]];
+  const fichas = '<table><tr><td>INSUMO</td><td></td><td>CANTIDAD</td></tr>'
+    + '<tr><td>Manguera Espiralada 2" x50(m) Material: PVC flexible con espiral</td><td></td><td>9</td></tr>'
+    + '<tr><td>Cámara endoscópica 100(m) Resolución cámara: igual o superior a 1080p</td><td></td><td>9</td></tr>'
+    + '<tr><td>Válvula retención bola flerro 2"</td><td></td><td>18</td></tr>'
+    + '<tr><td>Cono de seguridad 90cm, base pesada Material: Cuerpo PVC</td><td></td><td>36</td></tr></table>';
+  const pauta = '<table><tr><td></td><td>CRITERIO</td><td>%</td></tr><tr><td>X1</td><td>Oferta económica</td><td>30%</td></tr>'
+    + '<tr><td>X2</td><td>Experiencia Oferente</td><td>30%</td></tr><tr><td>X3</td><td>Plazo de entrega</td><td>20%</td></tr></table>'
+    + '<table><tr><td>“Prevención apoyo para equipos SSR”</td><td>$93.503.799 IVA incluido.</td><td>120 días corridos.</td></tr></table>';
+  const anexo = '<table><tr><td>N°</td><td>INSUMO</td><td>CANTIDAD</td><td>VALOR UNITARIO NETO</td><td>VALOR TOTAL NETO</td></tr>'
+    + prods.map(([p, c], i) => `<tr><td>${i + 1}</td><td>${p}</td><td>${c}</td><td></td><td></td></tr>`).join('') + '</table>';
+  const r = parsearPlanillaCosteo([{ nombre: 'D.A._Bases_de_licitación.pdf', texto: fichas + pauta + anexo }]);
+  assert.ok(r);
+  assert.deepEqual(r!.items.map(i => [i.numero, i.cantidad]), prods.map(([, c], i) => [i + 1, c]));
+});

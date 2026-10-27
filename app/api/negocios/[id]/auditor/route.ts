@@ -18,7 +18,7 @@ import {
   verificarTecnicoDeOpcion, confirmarCeldaTecnica, respaldarCeldaTecnica, quitarFichaDeOpcion, ponerComplemento, quitarComplemento,
 } from '@/app/lib/auditor-opciones';
 import { generarPosicionAuditor, ultimaPosicion } from '@/app/lib/auditor-posicion';
-import { generarFichaPropia } from '@/app/lib/auditor-ficha-propia';
+import { generarFichaPropia, generarFichaPropiaDeLinea } from '@/app/lib/auditor-ficha-propia';
 import { avisarAlEM, avisarDecisionAlAsistente } from '@/app/lib/auditor-bandeja-em';
 import { presupuestoNeto } from '@/app/lib/auditor-compras';
 import {
@@ -190,8 +190,10 @@ export async function POST(request: NextRequest, { params }: Params) {
       }
       case 'generar_ficha_propia': {
         // NUESTRA ficha técnica (PDF) desde la comparación del Auditor; solo con lo técnico cumplido. Queda en Documentos › Anexos Técnicos.
-        const ids = (Array.isArray(body.opcionIds) ? body.opcionIds : [opcionId]).map(Number).filter((n: number) => Number.isFinite(n) && n > 0);
-        const r = await generarFichaPropia(negocio.id, negocio.licitacion_codigo, ids, actor.id);
+        // Desde el botón de una opción se arma la ficha de TODA su línea (todos sus ítems en un PDF); con opcionIds, exactamente esas.
+        const r = Array.isArray(body.opcionIds)
+          ? await generarFichaPropia(negocio.id, negocio.licitacion_codigo, body.opcionIds.map(Number).filter((n: number) => Number.isFinite(n) && n > 0), actor.id)
+          : await generarFichaPropiaDeLinea(negocio.id, negocio.licitacion_codigo, opcionId, actor.id);
         return NextResponse.json({ success: true, ...r });
       }
       case 'buscar_ficha_link': {

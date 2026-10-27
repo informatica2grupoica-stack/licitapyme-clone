@@ -2,7 +2,7 @@
 // solo con lo técnico todo cumplido, y nunca inventa el dato ofertado.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { motivoFichaNoLista, especificacionesDeOpcion, productoFichaDeOpcion, datoParaPresentar, incluyeDeOpcion, nombreDeCaracteristica } from '../auditor-ficha-propia-core';
+import { motivoFichaNoLista, especificacionesDeOpcion, productoFichaDeOpcion, datoParaPresentar, incluyeDeOpcion, nombreDeCaracteristica, opcionesDeLaLinea } from '../auditor-ficha-propia-core';
 import { construirFichaTecnicaHtml, especificacionesSinCompletar } from '../ficha-tecnica';
 
 const fila = (n: number, texto: string, ofertado: string, estadoCelda = 'CUMPLE') =>
@@ -67,7 +67,7 @@ test('ficha propia: «Incluye» lleva productos e instalación de los complement
     lineas: [{ linea: 7, titulo: 'Horno', productos: [productoFichaDeOpcion(o, linea, null)] }],
     empresa: { razonSocial: 'E', rut: null, giro: null, direccion: null, email: null, telefono: null, representanteNombre: null, representanteRut: null, representanteCargo: null, logoDataUri: null, firmaDataUri: null, timbreDataUri: null },
   });
-  assert.ok(html.includes('>Incluye<') && html.includes('4 × Bandeja Unox Bake 60x40 cms') && !html.includes('Envío'));
+  assert.ok(html.includes('>Incluye<') && html.includes('4 × Bandeja Bake 60x40 cms') && !html.includes('Unox') && !html.includes('Envío'), 'Incluye sin la marca');
 });
 
 test('ficha propia: la foto del costeo cuenta como puesta por una persona; la extraída no', () => {
@@ -104,4 +104,22 @@ test('ficha propia: la columna izquierda es el nombre corto, nunca el texto de l
   assert.ok(html.includes('<th>Rango de Temperatura</th>'));
   assert.ok(!html.includes('hasta un máximo') && !html.includes('mínimo.'), 'el texto de las bases no se imprime');
   assert.ok(html.includes('<td colspan="2" class="">32 GB RAM</td>'), 'sin rótulo, el dato a todo el ancho');
+});
+
+// 2446-240-LE26 L1 trae 3 ítems: la ficha se arma por LÍNEA, en un PDF (antes cada ítem pisaba al anterior: mismo nombre …_L1.pdf).
+test('ficha propia por línea: el botón de un ítem arma todos los ítems de su línea; los que no están listos se avisan', () => {
+  const lista = (id: number, extra: Record<string, unknown> = {}) => opcion('CUMPLE', [fila(1, 'x', 'y')], { id, ...extra });
+  const it = (item: number, lineaReal: number | null, opciones: any[], extra: Record<string, unknown> = {}) =>
+    ({ filaId: `f${lineaReal}-${item}`, item, lineaReal, detalle: `Producto ${item} - x`, cantidad: 1, unidad: 'Unidad', opciones, opcionDefinitivaId: null, noOfertada: false, ...extra });
+  const panel: any = { lineas: [
+    it(1, 1, [lista(11)]),
+    it(2, 1, [lista(21), lista(22)], { opcionDefinitivaId: 22 }),
+    it(3, 1, [opcion('NO_CUMPLE', [fila(1, 'x', 'y', 'NO_CUMPLE')], { id: 31 })]),
+    it(1, 2, [lista(41)]),
+  ] };
+  const r = opcionesDeLaLinea(panel, 11);
+  assert.deepEqual(r.ids, [11, 22], 'el ítem pulsado, y del 2 la firmada; nada de la línea 2');
+  assert.equal(r.faltan.length, 1);
+  assert.match(r.faltan[0], /Línea 1 · ítem 3/);
+  assert.deepEqual(opcionesDeLaLinea(panel, 41).ids, [41], 'una línea de un solo ítem: solo ese');
 });

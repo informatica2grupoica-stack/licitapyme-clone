@@ -43,11 +43,12 @@ export function datoParaPresentar(datoOfertado: string | null | undefined): stri
 
 /** Qué opción va en la oferta técnica de cada línea ofertada: la definitiva (firmada) si existe; si no, la única que tiene
  *  lo técnico listo. Con dos o más listas y ninguna firmada no se elige por el equipo: la línea queda en `faltan`. */
-export function opcionesDeLaOferta(panel: { lineas: LineaAuditorDTO[] }): { ids: number[]; faltan: string[] } {
+export function opcionesDeLaOferta(panel: { lineas: LineaAuditorDTO[] }, todas = panel.lineas): { ids: number[]; faltan: string[] } {
   const ids: number[] = [], faltan: string[] = [];
   for (const l of panel.lineas) {
     if (l.noOfertada) continue;
-    const nombre = `Línea ${l.lineaReal ?? l.item} (${nombreDeLinea(l.detalle)})`;
+    const variosItems = l.lineaReal != null && todas.filter(x => x.lineaReal === l.lineaReal).length > 1;
+    const nombre = `Línea ${l.lineaReal ?? l.item}${variosItems ? ` · ítem ${l.item}` : ''} (${nombreDeLinea(l.detalle)})`;
     const definitiva = l.opciones.find(o => o.id === l.opcionDefinitivaId);
     const listas = l.opciones.filter(o => !motivoFichaNoLista(o));
     if (definitiva && !motivoFichaNoLista(definitiva)) ids.push(definitiva.id);
@@ -80,6 +81,20 @@ export function nombreDeCaracteristica(requeridoTexto: string): string | null {
   const i = requeridoTexto.indexOf(':');
   const nombre = i > 0 ? requeridoTexto.slice(0, i).replace(/\s+/g, ' ').trim() : '';
   return nombre && nombre.length <= LARGO_MAX_NOMBRE ? nombre : null;
+}
+
+/** NUESTRA ficha se arma por LÍNEA (27-oct-2026, decisión del dueño): una línea con varios ítems (2446-240-LE26 L1:
+ *  hidrolavadora, plato de lavado y vacuolavadora) sale en UN PDF, cada ítem en su página. Antes cada ítem generaba su
+ *  PDF con el mismo nombre (…_L1.pdf) y el segundo reemplazaba al primero en Documentos. Para el ítem de la opción
+ *  pulsada va esa opción; para los otros, la misma regla que la oferta técnica (firmada o única lista). Sin número de
+ *  línea, solo ese ítem. */
+export function opcionesDeLaLinea(panel: { lineas: LineaAuditorDTO[] }, opcionId: number): { ids: number[]; faltan: string[] } {
+  const propia = panel.lineas.find(l => l.opciones.some(o => o.id === opcionId));
+  if (!propia) return { ids: [opcionId], faltan: [] };
+  const hermanas = propia.lineaReal == null ? [] : panel.lineas.filter(l => l !== propia && l.lineaReal === propia.lineaReal);
+  const otras = opcionesDeLaOferta({ lineas: hermanas }, panel.lineas);
+  const orden = (id: number) => panel.lineas.findIndex(l => l.opciones.some(o => o.id === id));
+  return { ids: [opcionId, ...otras.ids].sort((a, b) => orden(a) - orden(b)), faltan: otras.faltan };
 }
 
 /** Lo que ofrecemos por cada requisito de la línea, en el orden de las bases. `descripcion` = nombre corto (o '' si falta). */
@@ -127,6 +142,6 @@ export function productoFichaDeOpcion(o: OpcionDTO, l: LineaAuditorDTO, imagen: 
     imagenesExtraDataUri: imagen ? fotosExtra : [],
     incluye: incluyeDeOpcion(o),
     especificaciones: especificacionesDeOpcion(o),
-    cantidad: l.cantidad, unidad: l.unidad || null,
+    cantidad: l.cantidad, unidad: l.unidad || null, item: l.item,
   };
 }

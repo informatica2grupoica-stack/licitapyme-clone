@@ -3,7 +3,7 @@
 // bloqueo (V1, V2, V3, V4 con R1/R2, V6, V7). Correr con: npx tsx --test app/lib/__tests__/auditor-opciones.test.mts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parsearMonto, fechaISO, normalizarProductos, emparejarProductos, puntuar, verificarOpcion, faltantesProveedor, coincidenciaIdentidad, modelosParecidos, emparejarProductoReleido, separarPrecioPegadoACantidad, margenProyectoConOpciones, margenConAsociados, evaluarAvance, type ProductoNormalizado } from '../auditor-opciones-core';
+import { parsearMonto, fechaISO, normalizarProductos, emparejarProductos, puntuar, verificarOpcion, faltantesProveedor, coincidenciaIdentidad, modelosParecidos, emparejarProductoReleido, separarPrecioPegadoACantidad, ivaPorTotalesDelDocumento, margenProyectoConOpciones, margenConAsociados, evaluarAvance, type ProductoNormalizado } from '../auditor-opciones-core';
 import type { LineaCosteo } from '../auditor-compras-core';
 import type { SalidaLector } from '../auditor-lector';
 
@@ -445,4 +445,20 @@ test('link de tienda: «$119.000 +IVA» NO se parte en 11 × $9.000 aunque otro 
   const salida = { productos: [{ comercial: { precios: [{ valor: '$119.000', condicion: 'actual', cita: 'x' }], iva: 'neto', iva_texto_literal: '+IVA' }, producto: { modelo: 'Storage 2 Puertas' } }] } as unknown as SalidaLector;
   assert.equal(normalizarProductos(salida, texto, true)[0].precio, 119_000);
   assert.equal(normalizarProductos(salida, texto, true)[0].cantidadCotizada, null);
+});
+
+// Regla 3b del IVA (27-oct-2026, horno Unox de 1414396-26-LP26): el pie «Subtotal + IVA 19% = Total» prueba que los precios son netos.
+test('IVA 3b: Subtotal + IVA 19% = Total → precios netos; si no cuadra, sigue sin definir', () => {
+  const pie = 'TG405 | Bandeja Unox Bake 60x40 cms | $41.742 | 0% | $41.742 | 4 | $166.968\nEnvío ‖ $210.745\nSubtotal | $3.953.475\nIVA | $751.160\nTotal | $4.704.635\nComentario: …';
+  assert.match(ivaPorTotalesDelDocumento(pie)!, /Subtotal \$3\.953\.475 \+ IVA 19% \$751\.160 = Total \$4\.704\.635/);
+  assert.match(ivaPorTotalesDelDocumento('Total neto: $100.000\nI.V.A. (19%): $19.000\nTotal a pagar: $119.000')!, /netos/);
+  assert.equal(ivaPorTotalesDelDocumento('Subtotal | $3.953.475\nIVA | $700.000\nTotal | $4.653.475'), null, 'el IVA no es el 19%');
+  assert.equal(ivaPorTotalesDelDocumento('Subtotal | $100.000\nTotal | $119.000'), null, 'sin línea de IVA no se decide');
+  assert.equal(ivaPorTotalesDelDocumento('Precio $119.000 IVA incluido'), null);
+
+  const salida: any = { productos: [{ producto: { tipo: 'Horno' }, comercial: { precios: [{ valor: '$3.142.840' }], iva: 'no_declarado' } }] };
+  const [p] = normalizarProductos(salida, pie);
+  assert.equal(p.iva, 'neto');
+  assert.match(p.ivaTexto, /Subtotal/);
+  assert.equal(normalizarProductos(salida, pie, true)[0].iva, 'incluido', 'una página web sigue con su propia regla');
 });

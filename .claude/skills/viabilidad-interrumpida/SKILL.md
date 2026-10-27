@@ -40,14 +40,26 @@ docker logs --since 60m licitapyme 2>&1 | grep -E "<codigo>|huérfano|TOPE DURO|
 docker inspect -f '{{.State.StartedAt}} OOMKilled={{.State.OOMKilled}} Restarts={{.RestartCount}}' licitapyme
 ```
 
-- `StartedAt` dentro de la ventana del análisis → el contenedor arrancó a mitad de camino:
-  despliegue (`deploy.sh`) o caída. `OOMKilled=true` o «heap out of memory» → falta de memoria.
+- Comparar el `StartedAt` (UTC) con «empezó … UTC» del diagnóstico. Si el contenedor arrancó
+  DESPUÉS de que empezó el análisis → lo mató ese reinicio. Cruzar con la hora de los commits
+  (`git log --date=local`, hora de Chile = UTC − 3 en horario de verano): casi siempre es un
+  despliegue. `OOMKilled=true` o «heap out of memory» → falta de memoria.
+- Si los logs NO tienen ninguna línea `[viabilidad-ia] <codigo>` del análisis, es la misma
+  señal: corrió en el contenedor anterior, y sus logs se pierden al recrearlo.
+- Las fechas de la BD leídas con mysql2 desde el PC salen corridas de hora: usar las que imprime
+  `diagnosticar.mjs` (formateadas en SQL, en UTC).
 - La última línea `[viabilidad-ia] <codigo>: [n/N] leyendo "<doc>"` sin su «leído en …s» dice qué
   documento se estaba leyendo cuando se cortó.
 
 ## Paso 3 — causas conocidas y su arreglo
 
-1. **Bucle de re-lectura de un PDF grande** (3712-74-LP26, 27-oct-2026). Un documento ya leído
+1. **Despliegue a mitad de análisis** (la más común; confirmada en 3712-74-LP26 el 2026-10-27:
+   análisis desde 13:28:12 UTC, contenedor recreado 13:38:48 UTC tras el commit de las 10:36,
+   y el intento anterior murió igual con el commit de las 10:17). Desde ese día `deploy.sh`
+   construye la imagen primero y espera hasta 15 min a que terminen los análisis en curso
+   antes de reiniciar (`FORZAR=1` lo salta). Si vuelve a pasar, revisar que el despliegue se
+   haya hecho con `deploy.sh` y no con `docker compose up -d --build` a mano.
+2. **Bucle de re-lectura de un PDF grande** (3712-74-LP26, 27-oct-2026). Un documento ya leído
    se marca «sospechoso» y se vuelve a OCR-ear EN CADA análisis; con un PDF de 45 págs / 10 MB
    la fase `leyendo_documentos` se alarga hasta que el job se corta. Señal: el diagnóstico
    muestra «SE VUELVE A LEER» en un PDF que ya tiene texto y método `pdf-glm-ocr`, y el corte se
@@ -55,9 +67,8 @@ docker inspect -f '{{.State.StartedAt}} OOMKilled={{.State.OOMKilled}} Restarts=
    (`numeracionTablaIncompleta`, `esTextoBasuraOCR`, `ocrTieneHuecos` en `app/lib/zai-ocr.ts`, o
    la condición `sospechoso` en `cargarDocumentos` de `app/lib/viabilidad-ia.ts` y su copia en
    `app/lib/cv/viabilidad-ia.ts`), con barrido sobre `documentos_cache` antes/después. Nunca
-   «arreglarlo» borrando el texto de ese documento.
-2. **Despliegue a mitad de análisis.** `StartedAt` del contenedor cae dentro del análisis. No hay
-   bug: reintentar. Evitar desplegar mientras alguien analiza.
+   «arreglarlo» borrando el texto de ese documento. Agrava la causa 1: un análisis que dura 13 min
+   en vez de 2 tiene muchas más chances de que lo pille un despliegue.
 3. **Falta de memoria con OCR pesado** (PDF > 100 págs troceado con pdf-lib, relleno con Tesseract).
    `OOMKilled=true`. Ver el límite de memoria del servicio `app` en `docker-compose.yml`.
 4. **Cadena de modelos lenta** (tope duro). Ver timeouts por modelo en la cadena; esperar unos

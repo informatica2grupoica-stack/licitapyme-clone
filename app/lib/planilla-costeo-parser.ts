@@ -1092,6 +1092,22 @@ function normalizarDescripcion(s: string): string {
   return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+// Palabras de una descripción para comparar el MISMO producto escrito dos veces por el OCR:
+// «90cm»/«90 cm», «2&quot;x50(m)»/«2" x50(m)», «1,5 HP - 750»/«1,5 HP-750».
+function tokensProducto(s: string): string[] {
+  return normalizarDescripcion(s.replace(/&quot;|&amp;|&#\d+;/g, ' ').replace(/(\d)([a-z])/gi, '$1 $2').replace(/([a-z])(\d)/gi, '$1 $2'))
+    .split(' ').filter(Boolean);
+}
+// Igual, o una letra cambiada por el OCR en una palabra (no número) de 4+ letras: «flerro»/«fierro».
+// La «I» mayúscula leída como «l» vale a cualquier largo: «(It)»/«(lt)».
+function mismaPalabra(a: string, b: string): boolean {
+  if (a === b || a.replace(/i/g, 'l') === b.replace(/i/g, 'l')) return true;
+  if (/\d/.test(a) || /\d/.test(b) || a.length < 4 || a.length !== b.length) return false;
+  let dif = 0;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i] && ++dif > 1) return false;
+  return true;
+}
+
 // ¿Las "cantidades" de este segmento son en realidad el CORRELATIVO de la tabla?
 // Firma inequívoca de que el parser leyó la columna equivocada: la tabla no tiene columna de
 // cantidad (típico de un anexo "ITEM | ESPECIFICACIÓN | CUMPLE SÍ/NO") y lo que se guardó como
@@ -1285,6 +1301,10 @@ function parsearTablasHtml(doc: DocTexto): PlanillaParseResult | null {
     const cantidad = mCant ? aNumero(mCant[1]) : null;
     let unidad = col.unidad >= 0 ? limpiarCelda(celdas[col.unidad] || '') : '';
     if (!unidad && mCant && mCant[2]) unidad = mCant[2].trim();
+    // El header de la primera tabla sigue vigente en las tablas siguientes del documento: un «30%» o
+    // un «120 días corridos» es la pauta de evaluación o el plazo, nunca una cantidad a comprar
+    // (3712-74-LP26: «X1 | Oferta económica | 30%» salía como producto X1 × 30).
+    if (/%/.test(cantRaw) || /^%$|d[ií]as?\s+(corridos|h[aá]biles)/i.test(unidad)) continue;
 
     // Sin correlativo NI cantidad: puede ser una nota/observación arrastrada ("DEBERÁ MENCIONAR EL
     // TIEMPO DE ENTREGA…") o una fila de CATÁLOGO sin cantidades. FIRMA DEL CATÁLOGO: solo la celda
@@ -1357,6 +1377,36 @@ function parsearTablasHtml(doc: DocTexto): PlanillaParseResult | null {
       return { estructura: 'plana', lineas: [1], categorias: [], items: itemsCat, numeracion: 'indefinida', fuenteDoc: doc.nombre };
     }
   }
+
+  // LISTA REPETIDA CON Y SIN CORRELATIVO (3712-74-LP26): las bases traen la ficha técnica de cada
+  // insumo sin número («Manguera Espiralada 2" x50(m) Material: PVC…») y después el anexo económico
+  // numerado («1 | Manguera Espiralada 2"x50(m) | 9»). El dedupe de arriba no las junta porque el texto
+  // no es idéntico. Una fila sin número que nombra un producto numerado (sus mismas palabras y TODAS
+  // sus medidas, salvo una palabra) es ese producto: manda el formulario numerado.
+  const numerados = items.filter(i => i.numero != null);
+  const antes = items.length;
+  if (numerados.length >= 8) {
+    const firmas = numerados.map(n => tokensProducto(n.descripcion)).filter(t => t.length >= 2);
+    const esRepetido = (it: ItemPlanilla) => {
+      const inicio = tokensProducto(it.descripcion);
+      return firmas.some(f => {
+        const ventana = inicio.slice(0, f.length + 4);
+        return f.filter(w => /\d/.test(w)).every(w => ventana.includes(w))
+          && f.filter(w => ventana.some(v => mismaPalabra(w, v))).length >= f.length - 1;
+      });
+    };
+    for (let i = items.length - 1; i >= 0; i--) if (items[i].numero == null && esRepetido(items[i])) items.splice(i, 1);
+  }
+  // La misma tabla sin correlativo copiada varias veces con otro espaciado (Correspondencia_3837.pdf):
+  // misma cantidad y las mismas palabras, con a lo más un error de OCR.
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i].numero != null) continue;
+    const t = tokensProducto(items[i].descripcion);
+    const igual = items.slice(0, i).some(o => o.numero == null && o.cantidad === items[i].cantidad
+      && (() => { const u = tokensProducto(o.descripcion); return u.length === t.length && t.filter((w, k) => !mismaPalabra(w, u[k])).length === 0; })());
+    if (igual) items.splice(i, 1);
+  }
+  if (items.length < antes) console.log(`[planilla-costeo] ${doc.nombre}: ${antes - items.length} fila(s) repetían un producto ya listado (ficha sin número o copia de la tabla) — se quitaron.`);
 
   if (!vistoHeader || items.length < 8) return null;
   // Gate de cotización: una planilla real trae CANTIDADES (evita colar tablas de texto).
@@ -2054,7 +2104,9 @@ export function parsearPlanillaCosteo(docs: DocTexto[]): PlanillaParseResult | n
     const elegibles = candidatos.filter(c => c.r.items.length >= maxItems * 0.5
       || (c.autoridad === AUTORIDAD_FUENTE.ANEXO_ECONOMICO && c.r.items.length >= 8 && !esTruncadaDeOtra(c)));
     const orden = (elegibles.length ? elegibles : candidatos).slice().sort((a, b) =>
-      a.autoridad - b.autoridad || mejorScore(b.r) - mejorScore(a.r));
+      a.autoridad - b.autoridad || mejorScore(b.r) - mejorScore(a.r)
+      // Empate: la lista numerada es el formulario que se llena para cotizar (3712-74-LP26: anexo económico vs. oficio).
+      || b.r.items.filter(i => i.numero != null).length - a.r.items.filter(i => i.numero != null).length);
     const ganador = orden[0];
 
     // FORMULARIOS COMPLEMENTARIOS (caso real 1171317-88-LE26): "Formulario N°5 Línea 1" (139 ítems)

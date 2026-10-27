@@ -487,7 +487,9 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
       if (a === 'generar_ficha_propia' && r.url) {
         window.open(r.url, '_blank', 'noopener');
         const avisos = [r.sinCompletar ? `${r.sinCompletar} casilla${r.sinCompletar === 1 ? '' : 's'} sin dato ofertado: complétala${r.sinCompletar === 1 ? '' : 's'} antes de presentar.` : '',
-          r.fotoSinConfirmar ? 'La foto salió de la ficha del proveedor: revisa que sea el equipo (o sube una en la fila del costeo).' : ''].filter(Boolean);
+          r.fotoSinConfirmar ? 'La foto salió de la ficha del proveedor: revisa que sea el equipo (o sube una en la fila del costeo).' : '',
+          // La ficha es de toda la línea: los ítems sin opción lista no entraron y hay que volver a generarla cuando lo estén.
+          Array.isArray(r.faltan) && r.faltan.length ? `No entraron (vuelve a generarla cuando estén listos): ${r.faltan.join('; ')}.` : ''].filter(Boolean);
         toast.success(`Ficha técnica lista: ${r.nombre}`, avisos.join(' ') || 'Quedó en Documentos › Anexos Técnicos.');
         return;
       }
@@ -2427,7 +2429,9 @@ function CuadroTecnico({ negocioId, linea, ocupado, puedeAprobar, verificando, s
                   {nadaFalta && <p className="mt-1 inline-flex items-center gap-1.5 text-[13px] font-medium text-emerald-700"><span aria-hidden className="w-1.5 h-1.5 rounded-full bg-emerald-600" />Nada: lista para firmar</p>}
                   {precioPendiente && (o.producto!.precioAmbiguo
                     ? <PrecioPorConfirmar o={o} editable={editable(o)} ocupado={ocupado === o.id} onAccion={onAccion} />
-                    : <p className="mt-1 text-[12.5px] text-amber-700">Precio del documento · {o.producto!.iva === 'no_declarado' ? 'IVA sin definir, aún no hay costo neto' : 'sin verificar'}</p>)}
+                    : <p className="mt-1 text-[12.5px] text-amber-700">Precio del documento · {o.producto!.iva === 'no_declarado' ? 'IVA sin definir, aún no hay costo neto' : 'sin verificar'}
+                        {/* 27-oct-2026 (1414396-26-LP26): el equipo veía «Falta confirmar el precio» y no encontraba dónde se resuelve. */}
+                        {editable(o) && <span className="block text-slate-600">→ {o.producto!.iva === 'no_declarado' ? 'Indica si es neto o con IVA' : 'Corrígelo'} en «Corregir precio o IVA…», abajo en la columna Respaldo.</span>}</p>)}
                   {c != null && o.producto?.ivaSupuesto && <p className="mt-1 text-xs text-slate-500">IVA asumido (página web): ya descontado</p>}
                   {bloqueos.slice(0, 2).map((b, i) => <p key={i} className="mt-1.5 text-[12.5px] text-red-600 leading-snug">{b.mensaje}<span className="block text-red-500/80">→ {b.salida}</span></p>)}
                   {bloqueos.length > 2 && <p className="text-xs text-slate-500">+{bloqueos.length - 2} más en el detalle avanzado</p>}
@@ -2748,7 +2752,7 @@ function Acciones({ o, exigeViaCompleta, ocupado, puedeAprobar, onAccion, onModa
       {o.estado === 'en_aprobacion' && !puedeAprobar && <span className="text-[12.5px] text-amber-700">Esperando al EM</span>}
       {o.estado === 'aprobada' && <span className="text-[12.5px] text-emerald-700 font-semibold">✓ Aprobada</span>}
       {!motivoFichaNoLista(o) && (
-        <button className={`${btn} border border-teal-200 text-teal-800 hover:bg-teal-50`} title="Arma nuestra ficha técnica con lo que ofrecemos en cada requisito (queda en Documentos › Anexos Técnicos)"
+        <button className={`${btn} border border-teal-200 text-teal-800 hover:bg-teal-50`} title="Arma nuestra ficha técnica de toda la línea (cada ítem en su página) con lo que ofrecemos en cada requisito; queda en Documentos › Anexos Técnicos"
           onClick={() => onAccion(o.id, 'generar_ficha_propia')}>Generar nuestra ficha técnica</button>
       )}
       {!['descartada', 'aprobada', 'en_aprobacion'].includes(o.estado) && <button className={`${btn} border border-zinc-200 text-slate-600 hover:text-red-600`} onClick={() => onModal('descartar', o.id)}>Descartar</button>}

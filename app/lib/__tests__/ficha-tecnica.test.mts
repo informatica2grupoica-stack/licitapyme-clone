@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   textoRequisito, textoOfertado, especificacionesSinCompletar, productosSinConfirmar, construirFichaTecnicaHtml,
-  imagenProducto,
+  imagenProducto, sinMarcaNiModelo,
   type EspecificacionFicha, type LineaFicha, type EmpresaFicha, type ProductoFicha,
 } from '../ficha-tecnica';
 
@@ -141,7 +141,7 @@ test('la ficha lleva los datos de la empresa, el logo y la firma', () => {
 test('la ficha titula con el producto, su marca/modelo y lo ofertado', () => {
   const h = html();
   assert.ok(h.includes('Esmeril angular'));
-  assert.ok(h.includes('<th>Marca</th><td>Bosch</td>') && h.includes('<th>Modelo</th><td>GWS-1400</td>'), 'marca y modelo, cada uno en su fila');
+  assert.ok(!h.includes('Bosch') && !h.includes('GWS-1400'), 'nuestra ficha no nombra marca ni modelo');
   assert.ok(h.includes('<th>Cantidad ofertada</th><td>2 · un'));
   assert.ok(h.includes('1500 W'));
   assert.ok(/Ficha técnica 01/i.test(h), 'cada producto se numera como una ficha');
@@ -211,22 +211,22 @@ test('con fabricante/país/garantía, se imprime la sección', () => {
 // de presentar", en letra ámbar) que viajaba dentro del PDF oficial. Ahora el PDF nunca lleva ese
 // aviso (esté confirmado o no) — el control de "¿ya lo revisaron?" se movió a productosSinConfirmar,
 // que alimenta un aviso EN LA PANTALLA antes de descargar, nunca dentro del documento.
-test('marca/modelo sin confirmar se imprime igual, SIN ningún aviso dentro del documento', () => {
+test('marca/modelo sin confirmar: no se imprimen (nuestra ficha no los nombra) y SIN ningún aviso dentro del documento', () => {
   const h = ficha([{
     linea: 8, titulo: 'Set',
     productos: [prod({ nombre: 'Set', marca: 'Konica Minolta', confirmado: false })],
   }]);
-  assert.ok(h.includes('Konica Minolta'));
+  assert.ok(!h.includes('Konica Minolta'));
   assert.ok(!/revisar antes de presentar/i.test(h));
   assert.ok(!/sin.confirmar/i.test(h));
 });
 
-test('marca/modelo confirmados se imprimen igual (mismo resultado, confirmado o no)', () => {
+test('marca/modelo confirmados tampoco se imprimen (mismo resultado, confirmado o no)', () => {
   const h = ficha([{
     linea: 8, titulo: 'Set',
     productos: [prod({ nombre: 'Set', marca: 'Konica Minolta', confirmado: true })],
   }]);
-  assert.ok(h.includes('Konica Minolta'));
+  assert.ok(!h.includes('Konica Minolta'));
   assert.ok(!/revisar antes de presentar/i.test(h));
 });
 
@@ -307,8 +307,8 @@ test('cada producto es su PROPIA ficha numerada, con su nombre y su marca/modelo
   assert.ok(/Ficha técnica 02/i.test(h));
   assert.ok(h.includes('Hidrolavadora peatonal H300'));
   assert.ok(h.includes('Vacuolavadora de empuje DB51'));
-  assert.ok(h.includes('<td>Tecnomaq</td>') && h.includes('<td>H300</td>'));
-  assert.ok(h.includes('<td>Dimer</td>'), 'la marca del SEGUNDO producto también se imprime');
+  assert.ok(!h.includes('<th>Marca</th>') && !h.includes('<th>Modelo</th>'), 'nuestra ficha no nombra marca ni modelo');
+  assert.ok(!h.includes('Dimer'), 'tampoco la marca del segundo producto');
 });
 
 test('cada ficha lleva SU foto y SUS especificaciones, en ese orden', () => {
@@ -330,4 +330,19 @@ test('cada ficha lleva SU foto y SUS especificaciones, en ese orden', () => {
 
 test('cada ficha arranca en su propia página (una ficha por hoja, como el formato de referencia)', () => {
   assert.ok(ficha(LINEA_PAQUETE).includes('page-break-before: always'));
+});
+
+// 27-oct-2026, horno Unox de 1414396-26-LP26: nombrar marca y modelo nos amarra a entregar ese mismo equipo.
+test('nuestra ficha quita marca y modelo de las especificaciones y de «Incluye»', () => {
+  const p = { marca: 'Unox', modelo: 'Bakerlux Shop.Pro™ Touch Rossella - WiFi' };
+  assert.equal(sinMarcaNiModelo('Instalación de Horno convector eléctrico Unox Bakerlux Shop.Pro™ Touch Rossella - WiFi', p), 'Instalación de Horno convector eléctrico');
+  assert.equal(sinMarcaNiModelo('Bandeja Unox Bake 60x40 cms', p), 'Bandeja Bake 60x40 cms');
+  assert.equal(sinMarcaNiModelo('ArborSonic 3D, técnicas acústicas no destructivas', { marca: 'Fakopp', modelo: 'ArborSonic 3D' }), 'técnicas acústicas no destructivas');
+  assert.equal(sinMarcaNiModelo('30 °C – 260 °C', p), '30 °C – 260 °C');
+});
+
+test('línea con varios ítems: cada ficha dice su ítem; con un solo ítem no', () => {
+  const h = ficha([{ linea: 1, titulo: 'A', productos: [prod({ nombre: 'A', item: 1 })] }, { linea: 1, titulo: 'B', productos: [prod({ nombre: 'B', item: 2 })] }]);
+  assert.ok(h.includes('Línea 1 · Ítem 1 · Ficha técnica 01') && h.includes('Línea 1 · Ítem 2 · Ficha técnica 02'));
+  assert.ok(!ficha([{ linea: 7, titulo: 'H', productos: [prod({ nombre: 'H', item: 1 })] }]).includes('Ítem 1'));
 });

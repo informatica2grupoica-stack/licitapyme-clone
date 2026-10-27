@@ -98,6 +98,22 @@ export function ivaConfiable(iva: string | undefined, frase: string | undefined)
   return 'no_declarado';
 }
 
+/** Regla 3b del IVA (dueño, 27-oct-2026; cotización del horno Unox de 1414396-26-LP26): la cotización no dice con palabras si
+ *  sus precios son netos, pero su pie trae «Subtotal $3.953.475 · IVA $751.160 · Total $4.704.635». Si el IVA es el 19% del
+ *  subtotal y subtotal + IVA = total, los precios del documento son NETOS. Es aritmética del propio documento, no un supuesto:
+ *  sin las tres cifras, o si no cuadran (±$2 por redondeo), se devuelve null y sigue la regla 3. */
+export function ivaPorTotalesDelDocumento(texto: string): string | null {
+  const monto = (re: RegExp) => { const m = texto.match(re); return m ? parsearMonto(m[1]) : null; };
+  const CIFRA = String.raw`[|:\s]*\$?\s*([\d.,]+)`;
+  const neto = monto(new RegExp(String.raw`\b(?:sub\s*-?\s*total|total\s+neto|monto\s+neto|neto)\b` + CIFRA, 'i'));
+  const iva = monto(new RegExp(String.raw`\bi\.?v\.?a\.?(?:\s*\(?19\s*%\)?)?` + CIFRA, 'i'));
+  const total = monto(new RegExp(String.raw`(?:^|\n)\s*total(?:\s+a\s+pagar|\s+general|\s+con\s+i\.?v\.?a\.?)?` + CIFRA, 'i'));
+  if (!neto || !iva || !total || neto < 1000) return null;
+  if (Math.abs(neto * 0.19 - iva) > 2 || Math.abs(neto + iva - total) > 2) return null;
+  const f = (n: number) => `$${n.toLocaleString('es-CL')}`;
+  return `Subtotal ${f(neto)} + IVA 19% ${f(iva)} = Total ${f(total)}: los precios del documento son netos`;
+}
+
 function elegirPrecio(p: ProductoLector, cantidad: number | null): { precio: number | null; ambiguo: boolean; otros: string[] } {
   const lista = (p.comercial?.precios || []).map(x => ({ ...x, n: parsearMonto(x.valor) })).filter(x => x.n != null && x.n > 0);
   if (lista.length === 0) return { precio: null, ambiguo: false, otros: [] };
@@ -132,7 +148,8 @@ export function separarPrecioPegadoACantidad(texto: string, precio: number): { c
  * porque el costo sale del código con la extracción del Lector, no del modelo.
  *   1. El documento DICE si el precio incluye IVA («+ IVA», «neto», «IVA incluido»…) → se respeta tal cual.
  *   2. Link de tienda web SIN declararlo → se asume CON IVA (así publican las tiendas chilenas), se descuenta y queda marcado «IVA asumido».
- *   3. Cotización o documento SIN declararlo → NO se supone: el costo queda bloqueado (V3) hasta que se declare. Quien cotiza lo declara con
+ *   3b. Cotización cuyo pie cuadra «Subtotal + IVA 19% = Total» → los precios son NETOS (ivaPorTotalesDelDocumento, 27-oct-2026).
+ *   3. Cotización o documento SIN declararlo (ni 3b) → NO se supone: el costo queda bloqueado (V3) hasta que se declare. Quien cotiza lo declara con
  *      «Corregir precio o IVA…» (motivo obligatorio, queda registrado) o se le pregunta al proveedor.
  *   4. Precio ingresado a mano: siempre con su IVA declarado (neto o incluido) y motivo.
  */
@@ -154,6 +171,8 @@ export function normalizarProductos(salida: SalidaLector, texto?: string, esWeb 
     // Regla del usuario (30-sep-2026): las páginas de tienda publican el precio CON IVA salvo que digan lo contrario; las cotizaciones formales traen su IVA explícito
     // y NO se suponen. Si el Lector vio "neto" pero sin frase válida, tampoco se supone: queda pendiente de confirmar.
     if (esWeb && iva === 'no_declarado' && c.iva !== 'neto') { iva = 'incluido'; ivaSupuesto = true; }
+    const ivaPorTotales = !esWeb && iva === 'no_declarado' && texto ? ivaPorTotalesDelDocumento(texto) : null;
+    if (ivaPorTotales) iva = 'neto';
     // Moneda extranjera → CLP con el dólar/euro del día en que se leyó el documento. Una proforma de importación (Ruta B) conserva su USD: se costea con su propia fórmula.
     let monedaDoc = (c.moneda || 'CLP').toUpperCase().replace(/^$$/, 'CLP').replace(/PESOS?/, 'CLP');
     let conversion: ProductoNormalizado['conversion'];
@@ -173,7 +192,7 @@ export function normalizarProductos(salida: SalidaLector, texto?: string, esWeb 
       sku: d.sku_fabricante || d.sku_proveedor || '',
       precio, preciosMultiples: otros, precioAmbiguo: pegado ? false : ambiguo,
       moneda: monedaDoc, conversion,
-      iva, ivaSupuesto, ivaTexto: c.iva_texto_literal || '',
+      iva, ivaSupuesto, ivaTexto: ivaPorTotales ?? (c.iva_texto_literal || ''),
       unidadPrecio: c.unidad_precio || '', contenidoEmpaque: c.contenido_empaque || '',
       unidadesPorEmpaque: parsearMonto(c.unidades_por_empaque),
       cantidadCotizada: parsearMonto(cantTexto) ?? cantidadCorregida, moq: parsearMonto(c.moq), correccion,

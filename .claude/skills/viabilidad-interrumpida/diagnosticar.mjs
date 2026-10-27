@@ -17,13 +17,17 @@ const [[bd]] = await c.query('SELECT @@hostname h');
 console.log(`BD: ${bd.h} (el VPS responde con el id del contenedor Docker)\n`);
 
 const [[job]] = await c.query(
-  `SELECT estado, fase, error, run_id, iniciado_at, actualizado_at,
+  // Las columnas están en UTC; se formatean en SQL porque mysql2 las corre de hora al leerlas.
+  // Así se comparan directo con el StartedAt (UTC) de `docker inspect`.
+  `SELECT estado, fase, error, run_id,
+          DATE_FORMAT(iniciado_at, '%Y-%m-%d %H:%i:%s') inicio_utc,
+          DATE_FORMAT(actualizado_at, '%H:%i:%s') ultimo_utc,
           TIMESTAMPDIFF(SECOND, iniciado_at, actualizado_at) dur_seg,
           TIMESTAMPDIFF(SECOND, actualizado_at, UTC_TIMESTAMP()) edad_seg
      FROM viabilidad_jobs WHERE licitacion_codigo = ?`, [codigo]);
 console.log('── Job (viabilidad_jobs)');
 console.log(job
-  ? `estado=${job.estado} · fase=${job.fase} · corrió ${job.dur_seg}s · último latido hace ${job.edad_seg}s\nerror: ${job.error || '—'}`
+  ? `estado=${job.estado} · fase=${job.fase} · empezó ${job.inicio_utc} UTC · última escritura ${job.ultimo_utc} UTC · corrió ${job.dur_seg}s\nerror: ${job.error || '—'}`
   : 'sin fila: terminó bien (se borra al terminar) o nunca corrió');
 
 const [intentos] = await c.query(

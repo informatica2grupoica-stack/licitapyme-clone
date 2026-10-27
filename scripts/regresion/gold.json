@@ -466,5 +466,14 @@
       "n_items_min": 4,
       "n_items_max": 4
     }
+  },
+  {
+    "codigo": "3712-74-LP26",
+    "nota": "27-oct-2026 (reportado por el usuario: salían 80 productos con X1..X6). Las bases traen fichas sin número, la pauta de evaluación (X1-X6 con %) y el plazo «120 días corridos» antes del Anexo económico numerado: son 39 insumos (5 equipos + 34 instrumentos, materiales y herramientas), suma alzada.",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "n_items_min": 39,
+      "n_items_max": 39
+    }
   }
 ]

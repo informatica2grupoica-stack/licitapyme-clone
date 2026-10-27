@@ -57,7 +57,22 @@ direcciones de servidores ni claves: esos datos viven en los `.env`, fuera del r
 - Evaluar empresa nueva por RUT (sugerencias en `/mi-empresa` al primer ingreso): subido, falta
   deploy y prueba en producción.
 
+## 2026-10-27 — La BD está en hora de Denver: migración 174 preparada, sin aplicar
+`NOW()` del MySQL del VPS da hora de Denver (3 h atrás de Chile; 4 h desde el 2026-11-01). La app
+escribe hora chilena a mano en parte de las columnas, así que conviven las dos horas. Preparado
+`scripts/aplicar-migration-174.mjs` + guía `docs/migration-174-hora-chile.md` (respaldo, app detenida,
+convertir datos, `TZ: America/Santiago` en el servicio `db`, levantar). Columnas decididas por quién las
+escribe en el código y por la huella horaria de los datos (lo de Denver se agrupa a las 5-7 h).
+**Verificado:** revisión en producción sin escribir (lista de columnas y ejemplos antes → después);
+la conversión probada en una tabla temporal (TIMESTAMP chilena, DATETIME de Denver y ON UPDATE que no
+se pisa). NO probado en la BD espejo (Docker apagado en el PC) ni aplicado.
+**Regla:** el cambio de `TZ` en `docker-compose.yml` se sube el mismo día del corte: un `deploy.sh`
+con ese cambio reinicia la BD sin haber convertido los datos. Las fechas leídas con mysql2 desde el
+PC salen corridas de hora: formatearlas en SQL (`DATE_FORMAT`) para mirarlas.
+
 ## Pendientes conocidos
+
+- Aplicar la migración 174 (hora de Chile) siguiendo `docs/migration-174-hora-chile.md`.
 
 - Seguridad: rotar `CRON_SECRET` y otros secretos; bucket R2 privado + URLs firmadas;
   revocación de sesiones al cambiar clave; `?secret=` en query de cron; `timingSafeEqual`; 2FA.

@@ -72,6 +72,8 @@ export interface ProductoFicha {
   especificaciones: EspecificacionFicha[];
   cantidad: number | null;
   unidad: string | null;
+  /** Número del ítem dentro de su línea (una línea puede traer varios: se imprime «Línea 1 · Ítem 2»). */
+  item?: number | null;
 }
 
 export interface LineaFicha {
@@ -164,10 +166,30 @@ export function textoOfertado(e: EspecificacionFicha): string {
   return `${v}${e.unidadOfertada ? ` ${e.unidadOfertada}` : ''}`;
 }
 
+/**
+ * NUESTRA ficha no nombra marca ni modelo (27-oct-2026, pedido del dueño, horno Unox de 1414396-26-LP26): nombrarlos nos
+ * amarra a entregar ese mismo equipo. El producto se presenta por su nombre genérico («Horno convector semi industrial») y
+ * de cada texto (especificación, «Incluye») se quitan la marca y el modelo: «Instalación de Horno convector eléctrico Unox
+ * Bakerlux Shop.Pro™ Touch Rossella - WiFi» → «Instalación de Horno convector eléctrico». Si no queda nada, la casilla
+ * sale vacía (como un dato que falta).
+ */
+export function sinMarcaNiModelo(texto: string, p: Pick<ProductoFicha, 'marca' | 'modelo'>): string {
+  let t = texto;
+  for (const quitar of [p.modelo, p.marca].filter((x): x is string => !!x && x.trim().length >= 2)) {
+    const re = new RegExp(quitar.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'), 'gi');
+    t = t.replace(re, ' ');
+  }
+  return t.replace(/\s+([,;.)])/g, '$1').replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ')
+    .replace(/^[\s,;:\-–·]+|[\s,;:\-–·]+$/g, '').trim();
+}
+
+/** Lo ofertado de una fila tal como se imprime en NUESTRA ficha (sin marca ni modelo). */
+const ofertadoImpreso = (e: EspecificacionFicha, p: ProductoFicha) => { const t = textoOfertado(e); return t ? sinMarcaNiModelo(t, p) : ''; };
+
 /** Cuántas casillas quedaron sin completar — el aviso que la pantalla muestra antes de presentar. */
 export function especificacionesSinCompletar(lineas: LineaFicha[]): number {
   return lineas.reduce((n, l) =>
-    n + l.productos.reduce((m, p) => m + p.especificaciones.filter(e => !textoOfertado(e)).length, 0), 0);
+    n + l.productos.reduce((m, p) => m + p.especificaciones.filter(e => !ofertadoImpreso(e, p)).length, 0), 0);
 }
 
 /**
@@ -216,7 +238,7 @@ export function imagenProducto(p: ProductoFicha | null | undefined): string {
 
 /** Lo que se entrega junto al producto (accesorios, instalación). Sin nada, no se imprime la sección. */
 function seccionIncluye(p: ProductoFicha): string {
-  const items = (p.incluye || []).filter(x => x && x.trim());
+  const items = (p.incluye || []).map(x => sinMarcaNiModelo(x || '', p)).filter(Boolean);
   if (!items.length) return '';
   return `<h3 class="sec">Incluye</h3>
     <table class="specs"><tbody>${items.map(x => `<tr><td>${esc(x)}</td></tr>`).join('')}</tbody></table>`;
@@ -253,24 +275,22 @@ function seccionInformacionOferta(p: ProductoFicha): string {
  * documento que se presenta (declara lo que ofrecemos), no la planilla de auditoría — esa vive en
  * el modal del Auditor Técnico, con las dos columnas enfrentadas.
  */
-function fichaDeProducto(p: ProductoFicha, linea: LineaFicha, numero: number): string {
-  // Identificación en una tabla corta (27-oct-2026, «que el documento esté súper bien organizado»): marca, modelo y
-  // cantidad cada uno en su fila, en vez de una línea en mayúsculas y otra gris.
+function fichaDeProducto(p: ProductoFicha, linea: LineaFicha, numero: number, conItem = false): string {
+  // Identificación en una tabla corta (27-oct-2026, «que el documento esté súper bien organizado»). Sin marca ni modelo:
+  // ver sinMarcaNiModelo.
   const identificacion = ([
-    ['Marca', p.marca],
-    ['Modelo', p.modelo],
     ['Cantidad ofertada', p.cantidad != null ? [num(p.cantidad), p.unidad].filter(Boolean).join(' · ') : null],
   ] as Array<[string, string | null]>).filter(([, v]) => v && String(v).trim());
 
   // Fila sin rótulo (la IA no lo pudo poner): el dato ocupa todo el ancho; nunca se imprime el texto de las bases.
   const filas = p.especificaciones.map(e => {
-    const ofertado = textoOfertado(e);
+    const ofertado = ofertadoImpreso(e, p);
     const celda = (extra: string) => `<td${extra} class="${ofertado ? '' : 'vacia'}">${ofertado ? esc(ofertado) : ''}</td>`;
     return e.descripcion?.trim() ? `<tr><th>${esc(e.descripcion)}</th>${celda('')}</tr>` : `<tr>${celda(' colspan="2"')}</tr>`;
   }).join('');
 
   return `<section class="ficha">
-    <p class="ficha-num">${linea.linea != null ? `Línea ${linea.linea} · ` : ''}Ficha técnica ${String(numero).padStart(2, '0')}</p>
+    <p class="ficha-num">${linea.linea != null ? `Línea ${linea.linea} · ` : ''}${conItem && p.item != null ? `Ítem ${p.item} · ` : ''}Ficha técnica ${String(numero).padStart(2, '0')}</p>
     <h2 class="prod-nombre">${esc(p.nombre)}</h2>
     <div class="prod-cabecera">
       ${identificacion.length ? `<table class="ident"><tbody>${identificacion.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('')}</tbody></table>` : '<div></div>'}
@@ -319,7 +339,8 @@ export function construirFichaTecnicaHtml(d: DatosFichaTecnica): string {
   </div>`;
 
   const fichas = productosEnOrden(d.lineas)
-    .map(({ linea, producto }, i) => fichaDeProducto(producto, linea, i + 1))
+    // Una línea con varios ítems: cada ficha dice de qué ítem es («Línea 1 · Ítem 2»), como lo numeran las bases.
+    .map(({ linea, producto }, i, todas) => fichaDeProducto(producto, linea, i + 1, todas.filter(x => x.linea.linea != null && x.linea.linea === linea.linea).length > 1))
     .join('');
 
   return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8" />

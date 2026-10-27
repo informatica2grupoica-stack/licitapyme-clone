@@ -2,8 +2,13 @@
 
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
-## 2026-10-27 — «El análisis se interrumpió»: bucle de re-lectura de un PDF de 10 MB
-Caso real: 3712-74-LP26, dos re-análisis seguidos (13:15 y 13:28) cortados en `leyendo_documentos`.
+## 2026-10-27 — «El análisis se interrumpió»: despliegues a mitad de análisis + re-lectura de 10 MB
+Caso real: 3712-74-LP26, dos re-análisis seguidos (10:15 y 10:28 hora Chile) cortados en `leyendo_documentos`.
+**Causa confirmada con los logs del VPS:** los mató el despliegue. Análisis desde 13:28:12 UTC, contenedor
+recreado 13:38:48 UTC (commit de las 10:36); el intento anterior coincide con el commit de las 10:17.
+`deploy.sh` ahora hace `docker compose build`, espera hasta 15 min a que no haya jobs `procesando` con
+latido vivo y recién ahí `docker compose up -d` (`FORZAR=1` lo salta).
+Lo que agravaba la causa (el análisis duraba 13 min en vez de unos 2):
 `Correspondencia_3837.pdf` (45 págs, ya leído con `pdf-glm-ocr`) se re-OCR-eaba en CADA análisis:
 `numeracionTablaIncompleta` tomaba la columna «Cantidad» (9, 9, 9, 18…) como numeración que parte
 en 9. Arreglos: el detector solo mira tablas cuya 1ª columna sube (`zai-ocr.ts`); un documento ya
@@ -12,8 +17,10 @@ el GET ya no declara huérfano un job que sigue vivo en el mismo proceso, y el m
 Skill nueva `viabilidad-interrumpida` con `diagnosticar.mjs <codigo>` (solo lectura).
 **Verificado:** barrido sobre 4.067 documentos con tablas: 252 marcados antes → 176 ahora (80 falsos
 de columnas de cantidad dejan de marcarse, 4 nuevos marcados); `tsc` limpio; diagnóstico corrido
-sobre 3712. NO verificado: los logs del contenedor de ese rato (si fue memoria, bloqueo o despliegue)
-ni un re-análisis real con el arreglo (falta desplegar).
+sobre 3712; `bash -n deploy.sh`. NO verificado: la espera de `deploy.sh` corriendo en el VPS ni un
+re-análisis real con el arreglo (falta desplegar).
+**Regla:** no desplegar con `docker compose up -d --build` a mano; usar `deploy.sh`. Las fechas de la
+BD leídas con mysql2 desde el PC salen corridas de hora: formatearlas en SQL.
 **Pendiente:** desplegar y re-analizar 3712-74-LP26 (con OK del dueño). `Anexos_editables_….dotx`
 sale `metodo=error` en cada análisis: los .dotx no se extraen.
 

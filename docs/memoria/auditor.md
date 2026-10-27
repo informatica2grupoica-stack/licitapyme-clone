@@ -3,6 +3,29 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-27 — Nuestra ficha: sin marca ni modelo, y una por LÍNEA
+**Reglas (dueño):** (1) nuestra ficha técnica NO nombra marca ni modelo: nos amarra a entregar ese equipo. El producto
+va con el nombre genérico de la línea; la marca y el modelo se quitan también de las especificaciones y de «Incluye»
+(`sinMarcaNiModelo`, `ficha-tecnica.ts`; vale también para la ficha antigua del costeo). Lo que no se puede quitar: las
+fotos pueden mostrar el logo, y submarcas que no son la marca registrada («Bandeja Bake 60x40») quedan.
+(2) La ficha se arma por LÍNEA: el botón de una opción genera un PDF con todos los ítems de su línea, cada uno en su
+página («Línea 1 · Ítem 2 · Ficha técnica 02»). Por ítem va la opción pulsada / la firmada / la única lista; los que no
+están listos se avisan y hay que regenerar (`opcionesDeLaLinea`, `generarFichaPropiaDeLinea`). Antes cada ítem
+generaba `…_L1.pdf` y el segundo reemplazaba al primero en Documentos (2446-240-LE26 L1 tiene 3 ítems). Una global con
+todos los ítems en la misma línea sale completa; la oferta técnica del anexo en blanco junta todas las líneas.
+**Verificado:** horno real 1414396 L7 sin «Unox» ni «Bakerlux»; 1555 tests; tsc. **Pendiente:** probar una línea
+real de varios ítems con opciones listas (2446-240-LE26 aún no tiene opciones) y ver el botón en el navegador.
+
+## 2026-10-27 — IVA: regla 3b «Subtotal + IVA 19% = Total» → precios NETOS
+La cotización del horno (1414396-26-LP26 L7) no decía «neto» con palabras y quedaba «IVA sin definir» →
+«Falta confirmar el precio», y el equipo no encontraba dónde resolverlo. **Regla (dueño):** si el pie de una
+cotización (no página web) trae subtotal/neto, IVA y total, el IVA es el 19% del subtotal y subtotal + IVA =
+total (±$2), los precios son netos (`ivaPorTotalesDelDocumento`, `auditor-opciones-core.ts`; se calcula al
+armar el panel con el texto ya guardado, sin releer con IA). Sin las tres cifras o si no cuadran, sigue la
+regla 3 (no se supone). Además «Qué falta» dice que se corrige en «Corregir precio o IVA…» (columna Respaldo).
+**Verificado:** opción 602 real → neto, costo neto $3.624.195, sin bloqueos; 1551 tests; tsc. El aviso nuevo
+de «Qué falta» no se miró en el navegador.
+
 ## 2026-10-27 — Anexo técnico EN BLANCO → oferta técnica desde el Auditor
 El anexo técnico que solo trae su título («ANEXO TÉCNICO 3 · OFERTA TÉCNICA», 4022-19-LE26) se completa
 con nuestra ficha armada desde el Auditor, con el título de ESE anexo (`encabezadoDeAnexoEnBlanco`,
