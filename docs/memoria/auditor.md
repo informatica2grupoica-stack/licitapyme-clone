@@ -20,6 +20,15 @@ valor de la nota, lo que sigue al «:» (la nota más reciente manda); sin «alg
 (`datoDeComplemento`, `auditor-ficha-propia-core.ts`). **Verificado:** opción 602 real → «0 - 20 – 40 - 60 -
 80 - 100%»; tests. **Pendiente:** el PDF ya subido (`FICHA_TECNICA_1414396-26-LP26_L7.pdf`) es el viejo:
 volver a generarlo desde el Auditor.
+Mismo día, pedido del dueño: la ficha (`ficha-tecnica.ts`) ya no lleva pie («Documento generado por
+LICITANK… · usuario», «fotografías referenciales…», «casillas en blanco deben completarse…»). Los avisos de
+casillas vacías y foto sin confirmar viven solo en la pantalla.
+**Regla (dueño, mismo día):** la ficha declara SOLO lo que ofertamos: columna izquierda = nombre corto de la
+característica, nunca el texto de las bases. Sale de lo que el requisito trae antes de «:» (≤ 50 letras,
+`nombreDeCaracteristica`); si no lo trae, una llamada a Kimi por ficha pone los rótulos
+(`nombrarCaracteristicasConIA`); si falla, el dato va a todo el ancho sin rótulo. Formato: tabla con encabezado
+«Característica | Especificación ofertada», marca/modelo/cantidad en una tabla corta con la foto principal al lado.
+**Verificado:** PDF real del horno (1414396 L7) y del GETAC (2427-98-LE26 L2), mirados en el navegador; 1550 tests.
 
 ## 2026-10-27 — Ficha técnica PROPIA desde el Auditor
 Decisión del dueño: nuestra ficha técnica se arma desde la comparación de fichas del Auditor (comparador

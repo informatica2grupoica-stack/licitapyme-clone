@@ -202,8 +202,8 @@ function productosEnOrden(lineas: LineaFicha[]): Array<{ linea: LineaFicha; prod
  * ("⚠ … confirmar que corresponde al equipo antes de presentar") en letra ámbar, que es exactamente
  * el tipo de texto que NUNCA debe viajar en un documento oficial. El control de "¿ya revisaron
  * esto?" vive en la pantalla ANTES de descargar (ver productosSinConfirmar más abajo, que alimenta
- * el mismo aviso que ya usa especificacionesSinCompletar) — el PDF en sí solo lleva el pie neutro,
- * sea que la imagen ya se haya confirmado o no.
+ * el mismo aviso que ya usa especificacionesSinCompletar) — el PDF no lleva pie (27-oct-2026, pedido
+ * del dueño: ni «generado por LICITANK» ni avisos), sea que la imagen ya se haya confirmado o no.
  */
 export function imagenProducto(p: ProductoFicha | null | undefined): string {
   if (!p?.imagenDataUri) return '';
@@ -254,30 +254,32 @@ function seccionInformacionOferta(p: ProductoFicha): string {
  * el modal del Auditor Técnico, con las dos columnas enfrentadas.
  */
 function fichaDeProducto(p: ProductoFicha, linea: LineaFicha, numero: number): string {
-  const marcaModelo = [p.marca, p.modelo].filter(Boolean).join(' ');
-  const cantidad = [
-    p.cantidad != null ? `Cantidad: ${num(p.cantidad)}` : '',
-    p.unidad || '',
-  ].filter(Boolean).join(' ');
+  // Identificación en una tabla corta (27-oct-2026, «que el documento esté súper bien organizado»): marca, modelo y
+  // cantidad cada uno en su fila, en vez de una línea en mayúsculas y otra gris.
+  const identificacion = ([
+    ['Marca', p.marca],
+    ['Modelo', p.modelo],
+    ['Cantidad ofertada', p.cantidad != null ? [num(p.cantidad), p.unidad].filter(Boolean).join(' · ') : null],
+  ] as Array<[string, string | null]>).filter(([, v]) => v && String(v).trim());
 
+  // Fila sin rótulo (la IA no lo pudo poner): el dato ocupa todo el ancho; nunca se imprime el texto de las bases.
   const filas = p.especificaciones.map(e => {
     const ofertado = textoOfertado(e);
-    return `<tr>
-      <th>${esc(e.descripcion)}</th>
-      <td class="${ofertado ? '' : 'vacia'}">${ofertado ? esc(ofertado) : ''}</td>
-    </tr>`;
+    const celda = (extra: string) => `<td${extra} class="${ofertado ? '' : 'vacia'}">${ofertado ? esc(ofertado) : ''}</td>`;
+    return e.descripcion?.trim() ? `<tr><th>${esc(e.descripcion)}</th>${celda('')}</tr>` : `<tr>${celda(' colspan="2"')}</tr>`;
   }).join('');
 
   return `<section class="ficha">
     <p class="ficha-num">${linea.linea != null ? `Línea ${linea.linea} · ` : ''}Ficha técnica ${String(numero).padStart(2, '0')}</p>
     <h2 class="prod-nombre">${esc(p.nombre)}</h2>
-    ${marcaModelo ? `<p class="prod-modelo">${esc(marcaModelo)}</p>` : ''}
-    ${cantidad ? `<p class="prod-cant">${esc(cantidad)}</p>` : ''}
-    ${imagenProducto(p)}
+    <div class="prod-cabecera">
+      ${identificacion.length ? `<table class="ident"><tbody>${identificacion.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('')}</tbody></table>` : '<div></div>'}
+      ${imagenProducto(p)}
+    </div>
     <h3 class="sec">Especificaciones técnicas</h3>
     ${p.especificaciones.length === 0
       ? '<p class="sin">Sin especificaciones técnicas registradas para este producto.</p>'
-      : `<table class="specs"><tbody>${filas}</tbody></table>`}
+      : `<table class="specs"><thead><tr><th>Característica</th><th>Especificación ofertada</th></tr></thead><tbody>${filas}</tbody></table>`}
     ${seccionIncluye(p)}
     ${seccionInformacionOferta(p)}
   </section>`;
@@ -352,16 +354,19 @@ export function construirFichaTecnicaHtml(d: DatosFichaTecnica): string {
                border-bottom: 2px solid #1f3864; padding-bottom: 5px; }
   .prod-nombre { font-size: 15.5px; font-weight: 800; margin: 9px 0 1px; line-height: 1.25;
                  text-transform: uppercase; letter-spacing: .1px; }
-  .prod-modelo { font-size: 12px; font-weight: 800; color: #1f3864; margin: 0;
-                 text-transform: uppercase; letter-spacing: .3px; }
-  .prod-cant { margin: 3px 0 0; color: #71717a; font-size: 9.5px; }
+  table.ident { border-collapse: collapse; margin: 6px 0 0; }
+  table.ident th { text-align: left; color: #52525b; font-weight: 600; padding: 2px 14px 2px 0; font-size: 10px; }
+  table.ident td { padding: 2px 0; font-weight: 700; color: #1f3864; }
   h3.sec { font-size: 11px; font-weight: 800; color: #1f3864; text-transform: uppercase;
            letter-spacing: .5px; margin: 14px 0 6px; }
   p.sin { margin: 0 0 5px; color: #a1a1aa; font-style: italic; }
 
-  /* Foto centrada + pie, igual que la ficha de proveedor que se tomó de modelo. */
-  .foto-producto { text-align: center; margin: 12px 0 4px; page-break-inside: avoid; }
-  .foto-producto img { max-height: 170px; max-width: 62%; object-fit: contain; }
+  /* Identificación a la izquierda y foto principal a la derecha; las otras fotos, en fila debajo (27-oct-2026: la foto
+     centrada sola dejaba media hoja en blanco y empujaba «Incluye» a la página siguiente). */
+  .prod-cabecera { display: grid; grid-template-columns: 1fr 48%; column-gap: 16px; align-items: start; }
+  .prod-cabecera .fotos-extra { grid-column: 1 / -1; }
+  .foto-producto { text-align: center; margin: 6px 0 4px; page-break-inside: avoid; }
+  .foto-producto img { max-height: 160px; max-width: 100%; object-fit: contain; }
   .foto-producto .foto-ref { margin: 5px 0 0; color: #a1a1aa; font-size: 8.5px; font-style: italic; }
   .fotos-extra { display: flex; justify-content: center; gap: 14px; margin: 6px 0 4px; page-break-inside: avoid; }
   .fotos-extra figure { margin: 0; text-align: center; width: 30%; }
@@ -371,9 +376,11 @@ export function construirFichaTecnicaHtml(d: DatosFichaTecnica): string {
   /* Especificaciones: DOS columnas (característica | lo ofertado), filas alternadas. */
   table.specs { border-collapse: collapse; width: 100%; }
   table.specs th, table.specs td { border: 1px solid #e4e4e7; padding: 5px 8px; vertical-align: top; }
-  table.specs th { text-align: left; width: 42%; font-weight: 700; background: #fafafa; }
-  table.specs tr:nth-child(even) th { background: #f4f4f5; }
-  table.specs tr:nth-child(even) td { background: #fafafa; }
+  table.specs th { text-align: left; width: 34%; font-weight: 700; background: #fafafa; }
+  table.specs thead th { background: #1f3864; color: #fff; border-color: #1f3864; font-size: 9.5px;
+                         text-transform: uppercase; letter-spacing: .4px; }
+  table.specs tbody tr:nth-child(even) th { background: #f4f4f5; }
+  table.specs tbody tr:nth-child(even) td { background: #fafafa; }
   /* Casilla sin dato: se imprime VACÍA y con fondo, para que se vea que falta completarla.
      Nunca se rellena con un valor plausible. */
   table.specs td.vacia { background: #fffbeb; }
@@ -390,8 +397,6 @@ export function construirFichaTecnicaHtml(d: DatosFichaTecnica): string {
   .firma-linea { border-top: 1px solid #18181b; margin-bottom: 4px; }
   .firma-nombre { margin: 0; font-weight: 700; }
   .firma-dato { margin: 0; color: #52525b; font-size: 9.5px; }
-  footer { margin-top: 22px; border-top: 1px solid #e4e4e7; padding-top: 6px;
-           color: #a1a1aa; font-size: 8.5px; font-style: italic; }
 </style></head><body>
 <header>
   ${e.logoDataUri ? `<img class="logo" src="${e.logoDataUri}" alt="" />` : ''}
@@ -411,12 +416,5 @@ export function construirFichaTecnicaHtml(d: DatosFichaTecnica): string {
 ${fichas}
 
 ${bloqueFirma}
-
-<footer>
-  Documento generado por LICITANK el ${esc(d.fechaTexto)}${d.generadoPor ? ` · ${esc(d.generadoPor)}` : ''}.
-  Las fotografías son referenciales y no contractuales; corresponden al modelo ofertado o a una
-  unidad equivalente. Las casillas de valor ofertado que aparezcan en blanco deben completarse
-  antes de presentar.
-</footer>
 </body></html>`;
 }

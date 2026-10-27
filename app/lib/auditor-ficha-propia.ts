@@ -8,7 +8,11 @@ import { armarPanelAuditor, cargarEstadoCosteo } from '@/app/lib/auditor-opcione
 import { motivoFichaNoLista, productoFichaDeOpcion, opcionesDeLaOferta } from '@/app/lib/auditor-ficha-propia-core';
 import { cargarDocumentoBase } from '@/app/lib/anexos-datos';
 import { abrirDocx } from '@/app/lib/anexos-docx';
-import { construirFichaTecnicaHtml, especificacionesSinCompletar, productosSinConfirmar, type EmpresaFicha, type LineaFicha } from '@/app/lib/ficha-tecnica';
+import { construirFichaTecnicaHtml, especificacionesSinCompletar, productosSinConfirmar, type EmpresaFicha, type LineaFicha, type EspecificacionFicha } from '@/app/lib/ficha-tecnica';
+import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { conModuloIA } from '@/app/lib/ia-uso';
+import { parseJsonIA } from '@/app/lib/json-ia';
+const crearChatIA = conModuloIA('auditor', crearChatIABase);
 import { extraerImagenesProducto } from '@/app/lib/ficha-imagen-extraer';
 import { generarInformePdf } from '@/app/lib/generar-informe';
 import { subirDocumentoR2 } from '@/app/lib/r2';
@@ -44,6 +48,29 @@ async function fotosDeOpcion(fotoCosteo: string | null, pdfsProveedor: string[])
     } catch { /* sigue con el próximo documento */ }
   }
   return { principal: fotos.length ? { dataUri: fotos[0], puestaPorPersona: !!propia } : null, extra: fotos.slice(1) };
+}
+
+const SISTEMA_NOMBRES = `Te doy requisitos técnicos de unas bases de licitación, numerados. Para cada uno escribe el NOMBRE CORTO de la característica que evalúa (1 a 4 palabras, en español, con mayúscula inicial), como el rótulo de una fila en la ficha técnica de un producto: «Procesador», «Memoria RAM», «Sistema operativo», «Resistencia al agua y polvo», «Garantía». Sin valores, sin cifras, sin «mínimo» ni «exigido».
+Responde SOLO un JSON: {"nombres":["...","..."]} con un nombre por requisito y en el mismo orden.`;
+
+/** Rótulo de las filas cuyo requisito no trae «Nombre:» (ver nombreDeCaracteristica). Una sola llamada por ficha; si la IA
+ *  falla, la fila sale con el dato ofertado a todo el ancho, sin rótulo: nunca con el texto de las bases. */
+async function nombrarCaracteristicasConIA(especificaciones: EspecificacionFicha[]): Promise<void> {
+  const sinNombre = especificaciones.filter(e => !e.descripcion && e.valorRequeridoTexto);
+  if (!sinNombre.length) return;
+  try {
+    const completion: any = await crearChatIA({
+      messages: [{ role: 'system', content: SISTEMA_NOMBRES },
+        { role: 'user', content: sinNombre.map((e, i) => `${i + 1}. ${String(e.valorRequeridoTexto).replace(/\s+/g, ' ').slice(0, 400)}`).join('\n') }],
+      temperature: 0, stream: false, max_tokens: 2_000, response_format: { type: 'json_object' },
+    }, { timeoutMs: 60_000, proveedorPreferido: 'kimi' });
+    const nombres: unknown = parseJsonIA<any>(String(completion.choices?.[0]?.message?.content ?? ''))?.nombres;
+    if (!Array.isArray(nombres)) return;
+    sinNombre.forEach((e, i) => {
+      const n = String(nombres[i] ?? '').replace(/\s+/g, ' ').replace(/[.:]+$/, '').trim();
+      if (n && n.length <= 50) e.descripcion = n;
+    });
+  } catch { /* sin rótulo, como dice arriba */ }
 }
 
 export interface FichaPropiaGenerada { url: string; nombre: string; productos: number; sinCompletar: number; fotoSinConfirmar: number }
@@ -122,6 +149,7 @@ export async function armarFichaPropiaPdf(negocioId: number, licitacionCodigo: s
     if (existente) existente.productos.push(producto);
     else lineas.push({ linea: l.lineaReal, titulo: producto.nombre, productos: [producto] });
   }
+  await nombrarCaracteristicasConIA(lineas.flatMap(x => x.productos.flatMap(p => p.especificaciones)));
 
   const [[neg]] = await pool.query(
     `SELECT n.empresa_id, n.cliente_id, lc.nombre AS licitacion_nombre, lc.organismo

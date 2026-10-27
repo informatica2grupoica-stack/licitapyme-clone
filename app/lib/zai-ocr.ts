@@ -69,9 +69,16 @@ export function ocrTieneHuecos(texto: string): boolean {
 // empezando en el ítem 24 — el Grupo 1 (54 ítems) se costeó con 30. Un listado numerado que NO parte
 // en 1, o que salta números dentro de una corrida creciente, está incompleto aunque no diga "hueco".
 // Los reinicios (1..n, 1..m: varias tablas/líneas en el mismo documento) no cuentan como salto.
+// 27-oct-2026 (3712-74-LP26): solo cuentan las tablas cuya primera columna SUBE fila a fila. Una
+// columna de CANTIDAD (9, 9, 9, 18…) se leía como numeración «que parte en 9» y el PDF de 45 págs
+// se re-OCR-eaba en cada análisis hasta cortar el job. Barrido sobre 4.067 documentos: 80 falsos menos.
 export function numeracionTablaIncompleta(texto: string): boolean {
   if (typeof texto !== 'string') return false;
-  const nums = [...texto.matchAll(/<tr>\s*<td>\s*(\d{1,3})\s*<\/td>/gi)].map(m => Number(m[1]));
+  const nums: number[] = [];
+  for (const tabla of texto.split(/<table/i)) {
+    const col = [...tabla.matchAll(/<tr>\s*<td>\s*(\d{1,3})\s*<\/td>/gi)].map(m => Number(m[1]));
+    if (col.every((n, i) => i === 0 || n > col[i - 1])) nums.push(...col);
+  }
   if (nums.length < 3) return false;
   if (nums[0] > 1) return true;
   for (let i = 1; i < nums.length; i++) if (nums[i] > nums[i - 1] + 1) return true;

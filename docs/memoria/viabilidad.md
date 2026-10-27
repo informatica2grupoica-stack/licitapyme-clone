@@ -2,6 +2,21 @@
 
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-27 — «El análisis se interrumpió»: bucle de re-lectura de un PDF de 10 MB
+Caso real: 3712-74-LP26, dos re-análisis seguidos (13:15 y 13:28) cortados en `leyendo_documentos`.
+`Correspondencia_3837.pdf` (45 págs, ya leído con `pdf-glm-ocr`) se re-OCR-eaba en CADA análisis:
+`numeracionTablaIncompleta` tomaba la columna «Cantidad» (9, 9, 9, 18…) como numeración que parte
+en 9. Arreglos: el detector solo mira tablas cuya 1ª columna sube (`zai-ocr.ts`); un documento ya
+leído completo por GLM-OCR no se re-lee por numeración (`viabilidad-ia.ts` y `cv/viabilidad-ia.ts`);
+el GET ya no declara huérfano un job que sigue vivo en el mismo proceso, y el mensaje nombra la fase.
+Skill nueva `viabilidad-interrumpida` con `diagnosticar.mjs <codigo>` (solo lectura).
+**Verificado:** barrido sobre 4.067 documentos con tablas: 252 marcados antes → 176 ahora (80 falsos
+de columnas de cantidad dejan de marcarse, 4 nuevos marcados); `tsc` limpio; diagnóstico corrido
+sobre 3712. NO verificado: los logs del contenedor de ese rato (si fue memoria, bloqueo o despliegue)
+ni un re-análisis real con el arreglo (falta desplegar).
+**Pendiente:** desplegar y re-analizar 3712-74-LP26 (con OK del dueño). `Anexos_editables_….dotx`
+sale `metodo=error` en cada análisis: los .dotx no se extraen.
+
 ## Decisiones vigentes del dueño
 
 - **GLM para viabilidad aunque sea más lento que DeepSeek** (2026-07-21): la calidad narrativa

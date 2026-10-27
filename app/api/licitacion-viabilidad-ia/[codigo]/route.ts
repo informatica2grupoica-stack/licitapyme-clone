@@ -65,6 +65,9 @@ const VIABILIDAD_JOB_TIMEOUT_MS = Math.max(120_000, Number(process.env.VIABILIDA
 const LATIDO_MS = 20_000;           // el job que está vivo toca `actualizado_at` con esta frecuencia
 const LATIDO_HUERFANO_MS = 150_000;  // sin latido por este tiempo = job huérfano (muerto o bloqueado)
 const HUERFANO_MARGEN_MS = 90_000; // margen sobre el tope antes de declarar un job huérfano (reloj del server vs. del setInterval de fondo)
+// run_id de los análisis que corren en ESTE proceso. Tras un reinicio queda vacío: así se distingue
+// un job muerto de verdad de uno vivo cuyo latido se atrasó.
+const JOBS_EN_ESTE_PROCESO = new Set<string>();
 
 type FilaJob = {
   estado: 'procesando' | 'error'; fase: string | null; error: string | null; run_id: string;
@@ -233,8 +236,12 @@ export async function GET(request: NextRequest, { params }: Params) {
       const edadMs = job.edad_seg * 1000;
       // El job escribe un LATIDO cada 20s (ver POST): 150s sin latido = el proceso que lo corría murió o
       // quedó bloqueado. Antes solo se miraba el último cambio de FASE (hasta 21,5 min de silencio).
-      if (edadMs > LATIDO_HUERFANO_MS) {
-        const msg = 'El análisis se interrumpió (probablemente el servidor se reinició a mitad de camino, p.ej. por un despliegue). Vuelve a intentarlo.';
+      // 27-oct-2026 (3712-74-LP26): un job que sigue corriendo en ESTE proceso no es huérfano aunque se
+      // atrase el latido (OCR pesado ocupando el proceso); lo corta el tope duro, no esto.
+      if (edadMs > LATIDO_HUERFANO_MS && JOBS_EN_ESTE_PROCESO.has(job.run_id)) {
+        console.warn(`[licitacion-viabilidad-ia] ${codigoDecoded}: sin latido hace ${Math.round(edadMs / 1000)}s en fase "${job.fase}", pero el job sigue vivo en este proceso — no se marca huérfano.`);
+      } else if (edadMs > LATIDO_HUERFANO_MS) {
+        const msg = `El análisis se interrumpió en la fase «${job.fase || 'desconocida'}»: el servidor se reinició o se cayó mientras corría (despliegue o falta de memoria). Vuelve a intentarlo.`;
         console.error(`[licitacion-viabilidad-ia] ${codigoDecoded}: job huérfano detectado (sin actualizar hace ${Math.round(edadMs / 1000)}s) — marcado error.`);
         await marcarJobError(codigoDecoded, job.run_id, msg).catch(() => {});
         job = { ...job, estado: 'error', error: msg };
@@ -338,6 +345,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   //    esa promesa vieja, si termina más tarde, pise el estado de un re-análisis posterior.
   const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   await marcarJobProcesando(codigoDecoded, runId);
+  JOBS_EN_ESTE_PROCESO.add(runId);
   // Bitácora: corrió (o re-corrió) el análisis de viabilidad IA (best-effort, aparece en el Historial).
   registrarActividad({
     usuarioId: usuario.id, accion: 'viabilidad',
@@ -388,7 +396,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       if (esTopeDuro) console.error(`[licitacion-viabilidad-ia] ${codigoDecoded}: TOPE DURO de ${VIABILIDAD_JOB_TIMEOUT_MS}ms alcanzado — marcado error (la llamada de fondo puede seguir corriendo, no se cancela).`);
       void marcarJobError(codigoDecoded, runId, msg);
     })
-    .finally(() => { clearInterval(latido); void liberarLock(lockKey); });
+    .finally(() => { clearInterval(latido); JOBS_EN_ESTE_PROCESO.delete(runId); void liberarLock(lockKey); });
 
   return NextResponse.json({ success: true, status: 'procesando' }, { status: 202 });
 }

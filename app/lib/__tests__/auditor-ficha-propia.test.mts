@@ -2,7 +2,7 @@
 // solo con lo técnico todo cumplido, y nunca inventa el dato ofertado.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { motivoFichaNoLista, especificacionesDeOpcion, productoFichaDeOpcion, datoParaPresentar, incluyeDeOpcion } from '../auditor-ficha-propia-core';
+import { motivoFichaNoLista, especificacionesDeOpcion, productoFichaDeOpcion, datoParaPresentar, incluyeDeOpcion, nombreDeCaracteristica } from '../auditor-ficha-propia-core';
 import { construirFichaTecnicaHtml, especificacionesSinCompletar } from '../ficha-tecnica';
 
 const fila = (n: number, texto: string, ofertado: string, estadoCelda = 'CUMPLE') =>
@@ -26,7 +26,7 @@ test('ficha propia: solo con lo técnico TODO cumplido', () => {
 test('ficha propia: requisito + lo ofertado; sin dato ofertado la casilla queda vacía (no se inventa)', () => {
   const o = opcion('CUMPLE', [fila(1, 'Capacidad mínima 4 bandejas', '4 bandejas 460x330'), fila(2, 'Alimentación 220 V', '')]);
   const esp = especificacionesDeOpcion(o);
-  assert.equal(esp[0].descripcion, 'Capacidad mínima 4 bandejas');
+  assert.equal(esp[0].descripcion, '', 'sin «Nombre:» el rótulo lo pone la IA al armar el PDF');
   assert.equal(esp[0].valorOfertadoTexto, '4 bandejas 460x330');
   assert.equal(esp[1].valorOfertadoTexto, null);
 
@@ -41,7 +41,7 @@ test('ficha propia: requisito + lo ofertado; sin dato ofertado la casilla queda 
     licitacionCodigo: '1414396-26-LP26', licitacionNombre: null, organismo: null, lineas, generadoPor: null, fechaTexto: '27 de octubre de 2026',
     empresa: { razonSocial: 'Empresa de prueba', rut: null, giro: null, direccion: null, email: null, telefono: null, representanteNombre: null, representanteRut: null, representanteCargo: null, logoDataUri: null, firmaDataUri: null, timbreDataUri: null },
   });
-  assert.ok(html.includes('Capacidad mínima 4 bandejas') && html.includes('4 bandejas 460x330'), 'la tabla trae el requisito y lo ofertado');
+  assert.ok(!html.includes('Capacidad mínima 4 bandejas') && html.includes('4 bandejas 460x330'), 'la tabla trae lo ofertado, no el requisito');
 });
 
 // 2427-98-LE26: el comparador pegó su observación al dato ofertado de la GPU; eso no va en el documento oficial.
@@ -88,4 +88,20 @@ test('ficha propia: sin dato del comparador, la casilla toma el valor de la nota
   const esp = especificacionesDeOpcion(o);
   assert.equal(esp[0].valorOfertadoTexto, '0 - 20 – 40 - 60 - 80 - 100%');
   assert.equal(esp[1].valorOfertadoTexto, null, 'una nota sin «algo: valor» no se imprime');
+});
+
+// 27-oct-2026: la ficha declara lo que ofrecemos; el texto de las bases no va. El rótulo es lo que el requisito trae antes de «:».
+test('ficha propia: la columna izquierda es el nombre corto, nunca el texto de las bases', () => {
+  assert.equal(nombreDeCaracteristica('Control de Humedad: ajustes en los siguientes niveles porcentuales exactos: 0%, 20%'), 'Control de Humedad');
+  assert.equal(nombreDeCaracteristica('Peldaños: 24'), 'Peldaños');
+  assert.equal(nombreDeCaracteristica('RAM 32 GB mínimo.'), null, 'sin «:» lo nombra la IA');
+  assert.equal(nombreDeCaracteristica('Compatibilidad El oferente deberá acreditar compatibilidad con software lectura de tomografía 2-D/3-D y Mechanics Graphics Module, según corresponda, mediante ficha: x'), null, 'un «:» lejano no es rótulo');
+  const p = productoFichaDeOpcion(opcion('CUMPLE', [fila(1, 'Rango de Temperatura: desde los 30 °C hasta un máximo de 260 °C.', '30 °C – 260 °C'), fila(2, 'RAM 32 GB mínimo.', '32 GB RAM')]), linea, null);
+  const html = construirFichaTecnicaHtml({
+    licitacionCodigo: 'X', licitacionNombre: null, organismo: null, lineas: [{ linea: 7, titulo: p.nombre, productos: [p] }], generadoPor: null, fechaTexto: '',
+    empresa: { razonSocial: 'E', rut: null, giro: null, direccion: null, email: null, telefono: null, representanteNombre: null, representanteRut: null, representanteCargo: null, logoDataUri: null, firmaDataUri: null, timbreDataUri: null },
+  });
+  assert.ok(html.includes('<th>Rango de Temperatura</th>'));
+  assert.ok(!html.includes('hasta un máximo') && !html.includes('mínimo.'), 'el texto de las bases no se imprime');
+  assert.ok(html.includes('<td colspan="2" class="">32 GB RAM</td>'), 'sin rótulo, el dato a todo el ancho');
 });

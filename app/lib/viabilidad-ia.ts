@@ -285,7 +285,10 @@ async function cargarDocumentos(codigo: string): Promise<DocLeido[]> {
       // se re-extrae (document-extraction ahora enruta la basura a GLM-OCR) y se persiste.
       // También se re-lee si quedó por OCR local (Tesseract) o con la numeración de la tabla rota
       // (ítems 1..N que empiezan en 24): ahí el relleno tapó un hueco real. Solo si GLM-OCR responde.
-      const sospechoso = glmOcrDisponible() && (leidoConOcrLocal(d.metodo_extraccion) || numeracionTablaIncompleta(cacheTxt));
+      // Si ya lo leyó GLM-OCR completo, re-leerlo da lo mismo: la numeración es la del documento y
+      // repetir el OCR en cada análisis solo alarga (y cortaba) la fase de lectura (3712-74-LP26).
+      const sospechoso = glmOcrDisponible() && (leidoConOcrLocal(d.metodo_extraccion)
+        || (d.metodo_extraccion !== 'pdf-glm-ocr' && numeracionTablaIncompleta(cacheTxt)));
       if (largoTextoReal(cacheTxt) >= 50 && !ocrTieneHuecos(cacheTxt) && !esTextoBasuraOCR(cacheTxt) && !sospechoso) {
         console.log(`[viabilidad-ia] ${codigo}: [${pos}/${docs.length}] "${d.documento_nombre}" — ya está en caché (${cacheTxt.length} chars), no se vuelve a leer.`);
         return { nombre: d.documento_nombre, categoria: d.categoria, texto: cacheTxt, metodo: d.metodo_extraccion || 'cache', ok: true } as DocLeido;

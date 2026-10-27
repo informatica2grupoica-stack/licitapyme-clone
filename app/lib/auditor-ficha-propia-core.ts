@@ -71,10 +71,21 @@ export function datoDeComplemento(notas: (string | null | undefined)[]): string 
   return null;
 }
 
-/** Los requisitos de la línea con lo que ofrecemos, en el orden de las bases. */
+// La ficha declara lo que OFRECEMOS (27-oct-2026, pedido del dueño): la columna izquierda lleva el nombre corto de la
+// característica, nunca el texto de las bases. Cuando el requisito ya lo trae antes de «:» («Control de Humedad: ajustes
+// en…», «Peldaños: 24») se usa ese; si no («RAM 32 GB mínimo.», GETAC de 2427-98-LE26) lo pone la IA en
+// auditor-ficha-propia.ts, y mientras tanto queda vacío.
+const LARGO_MAX_NOMBRE = 50;
+export function nombreDeCaracteristica(requeridoTexto: string): string | null {
+  const i = requeridoTexto.indexOf(':');
+  const nombre = i > 0 ? requeridoTexto.slice(0, i).replace(/\s+/g, ' ').trim() : '';
+  return nombre && nombre.length <= LARGO_MAX_NOMBRE ? nombre : null;
+}
+
+/** Lo que ofrecemos por cada requisito de la línea, en el orden de las bases. `descripcion` = nombre corto (o '' si falta). */
 export function especificacionesDeOpcion(o: OpcionDTO): EspecificacionFicha[] {
   return (o.tecnico.resultado?.filas ?? []).map(f => ({
-    descripcion: f.requeridoTexto,
+    descripcion: nombreDeCaracteristica(f.requeridoTexto) ?? '',
     tipo: null,
     valorRequeridoTexto: f.requeridoTexto,
     valorRequeridoNumero: null, valorRequeridoNumeroMax: null, unidadRequerida: null,

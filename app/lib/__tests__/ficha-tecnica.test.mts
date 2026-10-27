@@ -141,8 +141,8 @@ test('la ficha lleva los datos de la empresa, el logo y la firma', () => {
 test('la ficha titula con el producto, su marca/modelo y lo ofertado', () => {
   const h = html();
   assert.ok(h.includes('Esmeril angular'));
-  assert.ok(h.includes('Bosch GWS-1400'), 'marca y modelo van como subtítulo de la ficha');
-  assert.ok(h.includes('Cantidad: 2 un'));
+  assert.ok(h.includes('<th>Marca</th><td>Bosch</td>') && h.includes('<th>Modelo</th><td>GWS-1400</td>'), 'marca y modelo, cada uno en su fila');
+  assert.ok(h.includes('<th>Cantidad ofertada</th><td>2 · un'));
   assert.ok(h.includes('1500 W'));
   assert.ok(/Ficha técnica 01/i.test(h), 'cada producto se numera como una ficha');
 });
@@ -307,8 +307,8 @@ test('cada producto es su PROPIA ficha numerada, con su nombre y su marca/modelo
   assert.ok(/Ficha técnica 02/i.test(h));
   assert.ok(h.includes('Hidrolavadora peatonal H300'));
   assert.ok(h.includes('Vacuolavadora de empuje DB51'));
-  assert.ok(h.includes('Tecnomaq H300'));
-  assert.ok(h.includes('Dimer DB51'), 'la marca del SEGUNDO producto también se imprime');
+  assert.ok(h.includes('<td>Tecnomaq</td>') && h.includes('<td>H300</td>'));
+  assert.ok(h.includes('<td>Dimer</td>'), 'la marca del SEGUNDO producto también se imprime');
 });
 
 test('cada ficha lleva SU foto y SUS especificaciones, en ese orden', () => {
