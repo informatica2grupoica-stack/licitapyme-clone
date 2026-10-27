@@ -183,7 +183,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       }
       case 'quitar_complemento': await quitarComplemento(negocio.id, opcionId, String(body.clave || ''), actor); break;
       case 'quitar_ficha': {
-        // Deja de usar la ficha en esa opción (no borra el archivo). La comparación técnica no cambia sola: se vuelve a comparar la línea.
+        // Deja de usar la ficha en esa opción (no borra el archivo) y retira las comparaciones técnicas hechas con ella: se vuelve a comparar la línea.
         const q = await quitarFichaDeOpcion(negocio.id, Number(body.respaldoId), actor, String(body.motivo || ''));
         return NextResponse.json({ success: true, ...q });
       }

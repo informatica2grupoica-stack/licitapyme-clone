@@ -3,6 +3,14 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-27 — Al eliminar la ficha técnica seguían «cumplen» y «por resolver»
+Al quitar una ficha («Dejar de usar») o borrarla desde Documentos, la comparación técnica de la
+opción quedaba guardada tal cual (era así a propósito: «vuelve a comparar»). Ahora se retiran las
+comparaciones hechas desde que la ficha se cargó (`retirarComparacionesConFicha`,
+`app/lib/auditor-opciones.ts`); las anteriores no la vieron y se conservan. Si no queda ninguna,
+la opción vuelve a «sin comparar». No se re-compara sola (gasta IA).
+**Verificado:** `tsc` y tests. **Pendiente:** verlo con la BD real (sin túnel ese momento).
+
 ## Decisiones vigentes del dueño
 
 - **UNA sola pantalla** (2026-09-30), sin pestañas Técnico/Compra. Pestañas finales: Auditor ·

@@ -942,7 +942,7 @@ export async function agregarFichaAOpcion(params: {
 }
 
 /** Deja de usar una ficha técnica en una opción (se subió a la equivocada, o se movió a otra). No borra el archivo ni la lectura: el respaldo
- *  queda no vigente y el evento dice quién lo quitó. La comparación técnica ya hecha no cambia sola: hay que volver a comparar la línea. */
+ *  queda no vigente y el evento dice quién lo quitó. Las comparaciones técnicas hechas con la ficha se retiran (ver retirarComparacionesConFicha). */
 // ── Complementos de una opción (26-oct-2026, caso 1414396-26-LP26 línea 7: horno + osmosis + enchufe + bandejas + instalación + envío) ──
 const ESTADOS_SIN_CAMBIO_DE_COSTO = ['descartada', 'definitiva', 'en_aprobacion', 'aprobada'];
 
@@ -1002,7 +1002,7 @@ export async function quitarComplemento(negocioId: number, opcionId: number, cla
 
 export async function quitarFichaDeOpcion(negocioId: number, respaldoId: number, actor: Actor, motivo = ''): Promise<{ opcionId: number; filaId: string }> {
   const [rows] = await pool.query(
-    `SELECT r.id, r.tipo, r.vigente, r.documento_nombre, o.id AS opcion_id, o.fila_id, o.estado FROM auditor_respaldo r JOIN auditor_opcion o ON o.id = r.opcion_id
+    `SELECT r.id, r.tipo, r.vigente, r.documento_nombre, r.cargado_at, o.id AS opcion_id, o.fila_id, o.estado FROM auditor_respaldo r JOIN auditor_opcion o ON o.id = r.opcion_id
       WHERE r.id = ? AND r.negocio_id = ?`, [respaldoId, negocioId]) as any;
   const r = (rows as any[])[0];
   if (!r) throw new Error('Esa ficha no está en este negocio.');
@@ -1010,9 +1010,20 @@ export async function quitarFichaDeOpcion(negocioId: number, respaldoId: number,
   if (['en_aprobacion', 'aprobada'].includes(r.estado)) throw new Error('La opción ya está en aprobación: pide rechazarla antes de cambiar sus documentos.');
   if (r.vigente) {
     await pool.query(`UPDATE auditor_respaldo SET vigente = 0 WHERE id = ?`, [respaldoId]);
-    await evento(negocioId, r.opcion_id, 'documento_quitado', 'asistente', `Ficha técnica quitada: ${r.documento_nombre || ''}${motivo ? ` — ${motivo}` : ''} (${actor.nombre})`);
+    const retiradas = await retirarComparacionesConFicha(r.opcion_id, r.cargado_at);
+    await evento(negocioId, r.opcion_id, 'documento_quitado', 'asistente', `Ficha técnica quitada: ${r.documento_nombre || ''}${motivo ? ` — ${motivo}` : ''} (${actor.nombre})${retiradas ? `. Se retiraron ${retiradas} comparación(es) técnica(s) hechas con ella.` : ''}`);
   }
   return { opcionId: r.opcion_id, filaId: r.fila_id };
+}
+
+/** Una comparación técnica hecha cuando la ficha ya estaba cargada pudo apoyarse en ella: al quitar la ficha deja de valer y se retira
+ *  (seguía mostrando «cumplen» y «por resolver» de un documento que ya no está — caso del 27-oct-2026). Las anteriores a la ficha no la
+ *  vieron y se conservan; si no queda ninguna, la opción vuelve a «sin comparar» hasta que se compare de nuevo. */
+async function retirarComparacionesConFicha(opcionId: number, fichaCargadaAt: string | Date | null): Promise<number> {
+  const [del] = fichaCargadaAt
+    ? await pool.query(`DELETE FROM auditor_verificacion_tecnica WHERE opcion_id = ? AND creado_at >= ?`, [opcionId, fichaCargadaAt]) as any
+    : await pool.query(`DELETE FROM auditor_verificacion_tecnica WHERE opcion_id = ?`, [opcionId]) as any;
+  return del?.affectedRows ?? 0;
 }
 
 // ── Links: captura fechada → Lector → opción en TANTEO ───────────────────────────────────────────
@@ -1226,7 +1237,7 @@ export async function quitarDocumentoDelAuditor(negocioId: number, url: string, 
   const [ext] = await pool.query(`SELECT id FROM auditor_extraccion WHERE negocio_id = ? AND documento_url = ?`, [negocioId, url]) as any;
   const extIds = (ext as any[]).map(r => Number(r.id));
   const [resp] = await pool.query(
-    `SELECT id, opcion_id FROM auditor_respaldo WHERE negocio_id = ? AND (documento_url = ?${extIds.length ? ' OR extraccion_id IN (?)' : ''})`,
+    `SELECT id, opcion_id, tipo, cargado_at FROM auditor_respaldo WHERE negocio_id = ? AND (documento_url = ?${extIds.length ? ' OR extraccion_id IN (?)' : ''})`,
     extIds.length ? [negocioId, url, extIds] : [negocioId, url]) as any;
   const opcionIds = [...new Set((resp as any[]).map(r => Number(r.opcion_id)))];
   if (opcionIds.length) {
@@ -1240,7 +1251,13 @@ export async function quitarDocumentoDelAuditor(negocioId: number, url: string, 
   let opcionesBorradas = 0;
   for (const opcionId of opcionIds) {
     const [[restan]] = await pool.query(`SELECT COUNT(*) n FROM auditor_respaldo WHERE opcion_id = ?`, [opcionId]) as any;
-    if (Number(restan.n) > 0) { await evento(negocioId, opcionId, 'documento_nuevo', 'asistente', `Se eliminó la cotización ${nombre} (por ${actor.nombre || 'el sistema'}); la opción conserva sus otros respaldos.`); continue; }
+    if (Number(restan.n) > 0) {
+      // Una ficha técnica borrada desde Documentos: la opción sigue viva por otro respaldo, pero sus comparaciones hechas con la ficha no.
+      const ficha = (resp as any[]).find(r => Number(r.opcion_id) === opcionId && r.tipo === 'ficha_tecnica');
+      const retiradas = ficha ? await retirarComparacionesConFicha(opcionId, ficha.cargado_at) : 0;
+      await evento(negocioId, opcionId, 'documento_nuevo', 'asistente', `Se eliminó ${ficha ? 'la ficha técnica' : 'la cotización'} ${nombre} (por ${actor.nombre || 'el sistema'}); la opción conserva sus otros respaldos.${retiradas ? ` Se retiraron ${retiradas} comparación(es) técnica(s) hechas con ella.` : ''}`);
+      continue;
+    }
     const [[costos]] = await pool.query(`SELECT COUNT(*) n FROM auditor_costo_asociado WHERE opcion_id = ?`, [opcionId]).catch(() => [[{ n: 0 }]]) as any;
     if (Number(costos.n) > 0) {
       await pool.query(`UPDATE auditor_opcion SET estado = 'descartada', motivo_descarte = ?, actualizado_at = ? WHERE id = ?`, [`Se eliminó la cotización ${nombre}.`.slice(0, 480), ahoraChileSQL(), opcionId]);

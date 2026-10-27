@@ -290,7 +290,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
     const ok = await confirmar({
       titulo: `¿Eliminar la ficha «${nombre}»?`,
       mensaje: usos > 0
-        ? `Se borra el archivo y deja de respaldar ${usos === 1 ? 'la opción donde está' : `las ${usos} opciones donde está`}. Si una opción se había creado solo con esta ficha, esa opción también se borra. Vuelve a comparar la línea después. No se puede deshacer.`
+        ? `Se borra el archivo y deja de respaldar ${usos === 1 ? 'la opción donde está' : `las ${usos} opciones donde está`}. Si una opción se había creado solo con esta ficha, esa opción también se borra. Se quita la comparación técnica hecha con ella: vuelve a comparar la línea para ver cómo queda sin la ficha. No se puede deshacer.`
         : 'Se borra el archivo de Documentos. No se puede deshacer.',
       confirmarLabel: 'Eliminar la ficha',
       peligro: true,
@@ -307,7 +307,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   const quitarFicha = async (respaldoId: number, nombre: string, filaId: string) => {
     const ok = await confirmar({
       titulo: `¿Dejar de usar «${nombre}»?`,
-      mensaje: `La ficha deja de respaldar esta opción (el archivo sigue en Documentos y se puede volver a asignar). La comparación de la línea ${etiquetaItem.get(filaId) ?? ''} no cambia sola: vuelve a compararla.`,
+      mensaje: `La ficha deja de respaldar esta opción (el archivo sigue en Documentos y se puede volver a asignar). Se quita la comparación técnica hecha con ella: vuelve a comparar la línea ${etiquetaItem.get(filaId) ?? ''} para ver cómo queda sin la ficha.`,
       confirmarLabel: 'Dejar de usarla',
     });
     if (!ok) return;
