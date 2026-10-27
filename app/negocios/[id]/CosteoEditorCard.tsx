@@ -129,8 +129,10 @@ function unirEnUnaHoja(estado: EstadoEditor): EstadoEditor {
   return { ...estado, modalidad: 'suma_alzada', grupos: [{ nombre: 'Costeo', linea: null, ofertamos: true, filas }] };
 }
 
+// Coma o punto entre dígitos y &quot; = mismo producto (misma regla que app/lib/costeo-editor.ts:normDesc).
 function normDesc(s: string): string {
-  return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+  return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/&quot;/g, '"').replace(/(\d),(?=\d)/g, '$1.').replace(/\s+/g, ' ').trim();
 }
 
 /** ¿"la misma fila", con texto exacto o no? BUG REAL (03-sep-2026, 1271359-92-LE26): al volver a
@@ -218,6 +220,30 @@ function fusionarLocal(actual: EstadoEditor, nuevo: EstadoEditor): { estado: Est
     }
   }
   return { estado: { ...actual, grupos }, agregados, reclasificados };
+}
+
+/** Filas que la viabilidad ya no trae y se pueden quitar (sin precio, link, SKU ni costo real) —
+ *  MISMA lógica que app/lib/costeo-editor.ts:filasQueViabilidadYaNoTrae, duplicada acá como
+ *  fusionarLocal. */
+function filaTrabajada(f: FilaEditor): boolean {
+  return f.valorConIva != null || f.costoRealUnitario != null || !!f.skuProveedor?.trim()
+    || !!(f.link1?.trim() || f.link2?.trim() || f.link3?.trim());
+}
+function filasQueViabilidadYaNoTrae(actual: EstadoEditor, nuevo: EstadoEditor): { quitables: FilaEditor[]; trabajadas: number } {
+  const libres = nuevo.grupos.flatMap(g => g.filas).filter(f => f.detalle?.trim());
+  const candidatas = actual.grupos.flatMap(g => g.filas)
+    .filter(f => f.detalle?.trim() && !f.esCostoAdicional && !f.agregadoPorCompras);
+  const orden = [...candidatas.filter(filaTrabajada), ...candidatas.filter(f => !filaTrabajada(f))];
+  const quitables: FilaEditor[] = [];
+  let trabajadas = 0;
+  for (const f of orden) {
+    const i = libres.findIndex(x => mismoProducto(x.detalle, f.detalle));
+    if (i >= 0) { libres.splice(i, 1); continue; }
+    if (filaTrabajada(f)) trabajadas++; else quitables.push(f);
+  }
+  const posicion = new Map(candidatas.map((f, i) => [f.id, i]));
+  quitables.sort((a, b) => posicion.get(a.id)! - posicion.get(b.id)!);
+  return { quitables, trabajadas };
 }
 
 /** MISMA cadena de fórmulas que la plantilla real (F→G→H→I→J→K) — ver cabecera del archivo. */
@@ -1359,7 +1385,27 @@ export function CosteoEditorCard({
         agregados > 0 && `${agregados} ítem(s) nuevo(s)`,
         reclasificados > 0 && `${reclasificados} reclasificado(s) a su línea correcta`,
       ].filter(Boolean);
-      toast.success(partes.length ? partes.join(' · ') : 'Ya estaba al día con la viabilidad');
+      const { quitables, trabajadas } = filasQueViabilidadYaNoTrae(fusionado, d.estado);
+      if (!quitables.length) {
+        toast.success(partes.length ? partes.join(' · ') : 'Ya estaba al día con la viabilidad');
+        return;
+      }
+      if (partes.length) toast.success(partes.join(' · '));
+      const ok = await confirmar({
+        titulo: `La viabilidad ya no trae ${quitables.length} fila(s) del costeo`,
+        mensaje: `Ninguna tiene precio, link, SKU ni costo real. Se quitan al guardar.${trabajadas ? ` Otras ${trabajadas} que tampoco vienen ya tienen trabajo cargado y se dejan.` : ''}`,
+        lista: quitables.map(f => `${f.cantidad ?? '—'} · ${f.detalle.replace(/&quot;/g, '"')}`),
+        confirmarLabel: 'Quitar',
+        cancelarLabel: 'Dejarlas',
+        peligro: true,
+      });
+      if (!ok) return;
+      const fuera = new Set(quitables.map(f => f.id));
+      setEstado(prev => prev && {
+        ...prev,
+        grupos: prev.grupos.map(g => ({ ...g, filas: g.filas.filter(f => !fuera.has(f.id)).map((f, k) => ({ ...f, item: k + 1 })) })),
+      });
+      toast.success(`${quitables.length} fila(s) quitadas — falta guardar`);
     } finally { setRecargando(false); }
   };
 

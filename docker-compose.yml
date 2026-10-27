@@ -71,8 +71,10 @@ services:
   #   • sql_mode sin STRICT ni ONLY_FULL_GROUP_BY (en Bluehost: NO_ENGINE_SUBSTITUTION).
   #   • collation utf8mb4_general_ci: sin esto, las tablas nuevas nacen en utf8mb4_0900_ai_ci y los
   #     JOIN contra las viejas fallan con «Illegal mix of collations».
-  #   • TZ America/Denver: Bluehost corre en MDT y 75 columnas guardan CURRENT_TIMESTAMP en esa hora;
-  #     cambiar la zona mezclaría fechas viejas y nuevas. La app ya no usa NOW() para nada chileno.
+  #   • Zona horaria: desde el 2026-10-27 (migration-174) la BD corre en hora de Chile por
+  #     `SET PERSIST time_zone = 'America/Santiago'` (queda en el volumen de datos, manda sobre el TZ de
+  #     abajo). El TZ America/Denver solo queda como reloj del sistema del contenedor; no se cambió para
+  #     no recrear la BD en un deploy. Guía: docs/migration-174-hora-chile.md.
   db:
     image: mysql:8.0
     container_name: licitapyme-db

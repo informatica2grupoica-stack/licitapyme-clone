@@ -71,6 +71,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   const [cargando, setCargando] = useState(!panelInicial && !ultimoJson(`/api/negocios/${negocioId}/auditor`));
   const [leyendo, setLeyendo] = useState<Set<string>>(new Set());
   const [ocupado, setOcupado] = useState<number | null>(null);
+  const [accionEnCurso, setAccionEnCurso] = useState<string | null>(null);   // qué hace la opción ocupada (para avisar la pasada final)
   const [abiertas, setAbiertas] = useState<Set<string>>(() => new Set<string>());
   const [agregarEn, setAgregarEn] = useState<Set<string>>(() => new Set<string>());   // líneas con el recuadro «Otra opción» abierto
   const [resolviendoEM, setResolviendoEM] = useState(false);   // el EM aprueba/acepta varias desde el recuadro «Esperan tu aprobación»
@@ -336,6 +337,18 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
     } finally { setSubiendoFicha(prev => { const x = new Set(prev); x.delete(clave); return x; }); await cargar(true); }
     return ok;
   };
+  // Foto para NUESTRA ficha técnica, por opción: cuando la ficha del proveedor es solo texto no hay de dónde sacarla (27-oct-2026).
+  const subirFotoFicha = async (opcionId: number, f: File) => {
+    const clave = `foto${opcionId}`;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(f.type)) { toast.error('Sube una imagen', 'PNG, JPG o WEBP.'); return; }
+    setSubiendoFicha(prev => new Set(prev).add(clave));
+    try {
+      const url = await subirADocumentos(f, 'respaldos_auditor');
+      await post(negocioId, { accion: 'poner_foto_ficha', opcionId, url });
+      toast.success('Foto puesta para la ficha', 'Va primero en nuestra ficha técnica: vuelve a generarla.');
+    } catch (e: any) { toast.error('No se pudo subir la foto', e.message); }
+    finally { setSubiendoFicha(prev => { const x = new Set(prev); x.delete(clave); return x; }); await cargar(true); }
+  };
   const subirFichasDesdeUrl = async (url: string, nombre: string, ref: { opcionId?: number; filaId?: string }, moverDe?: number) => {
     marcarFicha(ref, true);
     try { const r = await post(negocioId, { accion: 'agregar_ficha', url, ...ref, productoIdx: fichaPorResolver?.res.productoIdx, moverDe }); await procesarResultadoFicha(r, ref, url, nombre, moverDe); }
@@ -481,13 +494,14 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   };
 
   const accion = async (opcionId: number, a: string, extra: Record<string, unknown> = {}, ok?: string) => {
-    setOcupado(opcionId);
+    setOcupado(opcionId); setAccionEnCurso(a);
     try {
       const r = await post(negocioId, { accion: a, opcionId, ...extra });
       if (a === 'generar_ficha_propia' && r.url) {
         window.open(r.url, '_blank', 'noopener');
         const avisos = [r.sinCompletar ? `${r.sinCompletar} casilla${r.sinCompletar === 1 ? '' : 's'} sin dato ofertado: complétala${r.sinCompletar === 1 ? '' : 's'} antes de presentar.` : '',
-          r.fotoSinConfirmar ? 'La foto salió de la ficha del proveedor: revisa que sea el equipo (o sube una en la fila del costeo).' : '',
+          r.sinFoto ? `${r.sinFoto === 1 ? 'Un producto salió' : `${r.sinFoto} productos salieron`} sin foto: la ficha del proveedor no trae imagen. Súbela con «Foto para la ficha» y vuelve a generarla.` : '',
+          r.fotoSinConfirmar ? 'La foto salió de la ficha del proveedor: revisa que sea el equipo (o sube una con «Foto para la ficha»).' : '',
           // La ficha es de toda la línea: los ítems sin opción lista no entraron y hay que volver a generarla cuando lo estén.
           Array.isArray(r.faltan) && r.faltan.length ? `No entraron (vuelve a generarla cuando estén listos): ${r.faltan.join('; ')}.` : ''].filter(Boolean);
         toast.success(`Ficha técnica lista: ${r.nombre}`, avisos.join(' ') || 'Quedó en Documentos › Anexos Técnicos.');
@@ -1084,7 +1098,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                     {l.opciones.length === 0 ? (
                       <p className="text-[13px] text-slate-600">Esta línea todavía no tiene productos.{l.links.length > 0 && <> Link de referencia del costeo: <a href={l.links[0]} target="_blank" rel="noopener noreferrer" className="text-teal-700 hover:underline inline-flex items-center gap-0.5">abrir <ExternalLink size={10} /></a></>}</p>
                     ) : (
-                      <CuadroLinea negocioId={negocioId} linea={l} ocupado={ocupado} verificando={verificando} onVerificar={verificarTecnico} puedeAprobar={puedeAprobar}
+                      <CuadroLinea negocioId={negocioId} linea={l} ocupado={ocupado} accionEnCurso={accionEnCurso} onFotoFicha={subirFotoFicha} verificando={verificando} onVerificar={verificarTecnico} puedeAprobar={puedeAprobar}
                         subiendoFicha={subiendoFicha} onSubirFicha={(opcionId, f) => subirFichas(f, { opcionId })} onRespaldarCelda={respaldarCelda}
                         buscandoMercado={buscandoMercado} onMercado={buscarMercado} verificandoCosto={verificandoCosto} onCostoIA={(id) => verificarCostoIA(id)}
                         onAccion={accion} onModal={(tipo, opcionId) => { setTexto(''); setModal({ tipo, ref: opcionId }); }} />
@@ -1760,6 +1774,24 @@ function PosicionPrecioCard({ posicion, calculando, onCalcular }: { posicion: im
 // Ficha técnica que ofrece la página del link: primero se MIRA la página y se listan los archivos; solo se descarga el que la persona acepta.
 // «Corregir precio o IVA»: cuando el Lector no pudo decidir (el documento no dice si el precio lleva IVA, o la página muestra un precio de relleno)
 // la persona lo fija a mano. El motivo es obligatorio y queda registrado; se puede deshacer.
+// «Foto para la ficha»: la ficha del proveedor puede ser solo texto (Word, PDF sin imágenes) y nuestra ficha saldría sin foto.
+// La que se sube aquí va primero en nuestra ficha técnica (27-oct-2026, pedido del dueño).
+function FotoParaFicha({ o, subiendo, onSubir, onQuitar }: { o: OpcionDTO; subiendo: boolean; onSubir: (f: File) => void; onQuitar: () => void }) {
+  const ref = useRef<HTMLInputElement>(null);
+  return (
+    <span data-no-pdf className="mt-1.5 inline-flex items-center gap-2 text-xs">
+      <input ref={ref} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) onSubir(f); e.target.value = ''; }} />
+      <button disabled={subiendo} onClick={() => ref.current?.click()} className="font-semibold text-teal-700 hover:underline disabled:opacity-50">
+        {subiendo ? 'Subiendo foto…' : o.fotoFicha ? 'Cambiar foto de la ficha' : 'Foto para la ficha…'}</button>
+      {o.fotoFicha && !subiendo && <>
+        <a href={o.fotoFicha.url} target="_blank" rel="noopener noreferrer" className="text-slate-600 hover:underline">ver (puesta por {o.fotoFicha.por || 'el equipo'})</a>
+        <button onClick={onQuitar} className="text-slate-500 underline hover:text-red-600">quitar</button>
+      </>}
+    </span>
+  );
+}
+
 function CorregirCosto({ o, editable, ocupado, onAccion }: { o: OpcionDTO; editable: boolean; ocupado: boolean; onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void }) {
   const [abierto, setAbierto] = useState(false);
   const [precio, setPrecio] = useState('');
@@ -1978,8 +2010,8 @@ function Stat({ label, valor, rojo }: { label: string; valor: string; rojo?: boo
 }
 
 // ── Cuadro comparativo de UNA línea: columnas = opciones, filas = costo y verificación ────────────
-function CuadroLinea({ negocioId, linea, ocupado, verificando, onVerificar, puedeAprobar, subiendoFicha, onSubirFicha, onRespaldarCelda, buscandoMercado, onMercado, verificandoCosto, onCostoIA, onAccion, onModal }: {
-  negocioId: number; linea: LineaAuditorDTO; ocupado: number | null; verificando: Set<number>; onVerificar: (opcionId: number) => void; puedeAprobar: boolean;
+function CuadroLinea({ negocioId, linea, ocupado, accionEnCurso = null, onFotoFicha, verificando, onVerificar, puedeAprobar, subiendoFicha, onSubirFicha, onRespaldarCelda, buscandoMercado, onMercado, verificandoCosto, onCostoIA, onAccion, onModal }: {
+  negocioId: number; linea: LineaAuditorDTO; ocupado: number | null; accionEnCurso?: string | null; onFotoFicha: (opcionId: number, f: File) => void; verificando: Set<number>; onVerificar: (opcionId: number) => void; puedeAprobar: boolean;
   subiendoFicha: Set<string>; onSubirFicha: (opcionId: number, archivos: File[]) => void; onRespaldarCelda: (opcionId: number, n: number, archivos: File[], nota?: string) => Promise<boolean>;
   buscandoMercado: Set<number>; onMercado: (opcionId: number) => void;
   verificandoCosto: Set<number>; onCostoIA: (opcionId: number) => void;
@@ -1994,7 +2026,7 @@ function CuadroLinea({ negocioId, linea, ocupado, verificando, onVerificar, pued
   const imprimirLinea = useContext(ImprimirCtx);
   return (
     <div>
-      <CuadroTecnico negocioId={negocioId} linea={linea} ocupado={ocupado} puedeAprobar={puedeAprobar} verificando={verificando} subiendoFicha={subiendoFicha} onSubirFicha={onSubirFicha} onRespaldarCelda={onRespaldarCelda} onAccion={onAccion} onModal={onModal} />
+      <CuadroTecnico negocioId={negocioId} linea={linea} ocupado={ocupado} accionEnCurso={accionEnCurso} onFotoFicha={onFotoFicha} puedeAprobar={puedeAprobar} verificando={verificando} subiendoFicha={subiendoFicha} onSubirFicha={onSubirFicha} onRespaldarCelda={onRespaldarCelda} onAccion={onAccion} onModal={onModal} />
       <details className="mt-4 rounded-lg border border-zinc-200" open={imprimirLinea}>
         <summary className="cursor-pointer px-3 py-2 text-[13px] font-semibold text-zinc-600 hover:text-zinc-900">Detalle avanzado — respaldos, costo frente a lo costeado, mercado, verificación de costo con IA y vía</summary>
         <div className="overflow-x-auto p-3 pt-1">
@@ -2300,8 +2332,8 @@ function FuenteCosto({ o, negocioId }: { o: OpcionDTO; negocioId: number }) {
   );
 }
 
-function CuadroTecnico({ negocioId, linea, ocupado, puedeAprobar, verificando, subiendoFicha, onSubirFicha, onRespaldarCelda, onAccion, onModal }: {
-  negocioId: number; linea: LineaAuditorDTO; ocupado: number | null; puedeAprobar: boolean; verificando: Set<number>; subiendoFicha: Set<string>;
+function CuadroTecnico({ negocioId, linea, ocupado, accionEnCurso = null, onFotoFicha, puedeAprobar, verificando, subiendoFicha, onSubirFicha, onRespaldarCelda, onAccion, onModal }: {
+  negocioId: number; linea: LineaAuditorDTO; ocupado: number | null; accionEnCurso?: string | null; onFotoFicha: (opcionId: number, f: File) => void; puedeAprobar: boolean; verificando: Set<number>; subiendoFicha: Set<string>;
   onSubirFicha: (opcionId: number, archivos: File[]) => void; onRespaldarCelda: (opcionId: number, n: number, archivos: File[], nota?: string) => Promise<boolean>;
   onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void;
   onModal: (tipo: 'descartar' | 'rechazar', opcionId: number) => void;
@@ -2448,11 +2480,12 @@ function CuadroTecnico({ negocioId, linea, ocupado, puedeAprobar, verificando, s
                   {/* De dónde sale el precio: solo si agrega algo (un link con su captura, o varios documentos); con una sola cotización ya está arriba. */}
                   {(o.respaldos.filter(x => x.vigente).length > 1 || o.respaldos.some(x => x.vigente && x.url)) && <FuenteCosto o={o} negocioId={negocioId} />}
                   <div data-no-pdf className="mt-auto pt-3">
-                    <Acciones o={o} exigeViaCompleta={linea.exigeViaCompleta} ocupado={ocupado === o.id} puedeAprobar={puedeAprobar} onAccion={onAccion} onModal={onModal} />
+                    <Acciones o={o} exigeViaCompleta={linea.exigeViaCompleta} ocupado={ocupado === o.id} puedeAprobar={puedeAprobar} onAccion={onAccion} onModal={onModal} enCurso={accionEnCurso} />
                     <div className="flex flex-wrap items-center gap-x-4">
                       <CorregirCosto o={o} editable={editable(o)} ocupado={ocupado === o.id} onAccion={onAccion} />
                       {editable(o) && <BotonSubirFicha ocupado={subiendoFicha.has(`o${o.id}`)} discreto etiqueta={o.respaldos.some(x => x.tipo === 'ficha_tecnica') ? 'Agregar otra ficha técnica' : 'Agregar ficha técnica'} onArchivos={f => onSubirFicha(o.id, f)} />}
                       {editable(o) && <PegarTextoFicha ocupado={subiendoFicha.has(`o${o.id}`)} nombreBase={nombreCorto(o)} onArchivo={f => onSubirFicha(o.id, [f])} />}
+                      {!motivoFichaNoLista(o) && <FotoParaFicha o={o} subiendo={subiendoFicha.has(`foto${o.id}`)} onSubir={f => onFotoFicha(o.id, f)} onQuitar={() => onAccion(o.id, 'poner_foto_ficha', { url: null }, 'Foto quitada de la ficha')} />}
                     </div>
                     {editable(o) && !o.respaldos.some(x => x.tipo === 'ficha_tecnica' && x.vigente) && o.respaldos.some(x => x.tipo === 'link_web' && x.vigente) && (
                       <p className="mt-1.5 text-xs text-slate-600">¿La página no trae la ficha? Adjúntala como foto, PDF, Word o Excel, o pega su texto: se compara igual con las bases.</p>
@@ -2715,15 +2748,17 @@ function motivoNoFirmable(o: OpcionDTO): string | null {
   return null;
 }
 
-function Acciones({ o, exigeViaCompleta, ocupado, puedeAprobar, onAccion, onModal, modo = 'principal' }: {
-  o: OpcionDTO; exigeViaCompleta: boolean; ocupado: boolean; puedeAprobar: boolean;
+function Acciones({ o, exigeViaCompleta, ocupado, puedeAprobar, onAccion, onModal, modo = 'principal', enCurso = null }: {
+  o: OpcionDTO; exigeViaCompleta: boolean; ocupado: boolean; puedeAprobar: boolean; enCurso?: string | null;
   onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void;
   onModal: (tipo: 'descartar' | 'rechazar', opcionId: number) => void;
   /** 'via' = solo el selector de vía (vive en el detalle avanzado); 'principal' = firmar, aprobar, descartar… */
   modo?: 'principal' | 'via';
 }) {
   const btn = 'px-2.5 py-1 rounded-md text-[12.5px] font-semibold disabled:opacity-40';
-  if (ocupado) return <Loader2 size={14} className="animate-spin text-slate-500" />;
+  if (ocupado) return <span className="inline-flex items-center gap-1.5 text-[12.5px] text-slate-600"><Loader2 size={14} className="animate-spin text-slate-500" />
+    {/* La pasada final relee con IA los requisitos inadmisibles: ~45 s en el horno de 1414396-26-LP26. Sin aviso parecía colgada. */}
+    {['firmar_y_enviar', 'solicitar_aprobacion'].includes(enCurso || '') && 'Pasada final: releyendo en el documento los requisitos inadmisibles. Puede tardar hasta un minuto.'}</span>;
   const viaEditable = !['descartada', 'aprobada', 'en_aprobacion', 'definitiva'].includes(o.estado);
   if (modo === 'via') return viaEditable ? (
     <select value={o.via} onChange={e => onAccion(o.id, 'cambiar_via', { via: e.target.value })}
@@ -2739,7 +2774,8 @@ function Acciones({ o, exigeViaCompleta, ocupado, puedeAprobar, onAccion, onModa
       {o.estado === 'descartada' && <button className={`${btn} border border-zinc-200 text-zinc-600`} onClick={() => onAccion(o.id, 'restaurar')}>Restaurar</button>}
       {['tanteo', 'formalizada', 'verificada'].includes(o.estado) && (
         <button className={`${btn} bg-teal-700 text-white hover:bg-teal-800`} disabled={!!motivo}
-          title={motivo ?? 'Firmar como la opción a ofertar'} onClick={() => onAccion(o.id, 'firmar', {}, 'Opción firmada como definitiva')}>Firmar esta opción</button>
+          title={motivo ?? (puedeAprobar ? 'Firma la opción a ofertar, hace la pasada final y la deja aprobada' : 'Firma la opción a ofertar, hace la pasada final y la manda al EM')}
+          onClick={() => onAccion(o.id, 'firmar_y_enviar', {}, puedeAprobar ? 'Opción firmada y aprobada' : 'Opción firmada y enviada al EM')}>{puedeAprobar ? 'Firmar y aprobar' : 'Firmar y enviar al EM'}</button>
       )}
       {o.estado === 'definitiva' && <>
         <button className={`${btn} bg-amber-600 text-white hover:bg-amber-700`} onClick={() => onAccion(o.id, 'solicitar_aprobacion', {}, 'Pasada final correcta: en aprobación')}>Solicitar aprobación</button>

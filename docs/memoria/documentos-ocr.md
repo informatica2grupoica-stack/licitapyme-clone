@@ -16,7 +16,8 @@ pautas de evaluación, multas y plazos (29-99-LP26, 3328-77/78/82/97-LE26, 12421
 y copias de tablas (2723-46-LP26 821→458, 4563-10-LP26 526→470, 3378-43-LR26 71→50). Siete quedan sin planilla
 porque, sin la basura, tienen menos de 8 productos (1002772-64-LP26 tiene 7): ahí manda la lista de la IA.
 Tests 1.551/1.551 + test nuevo del caso; caso agregado a `scripts/regresion/gold.json` (39 ítems).
-NO verificado: el re-análisis real de 3712 con el arreglo (falta desplegar).
+Re-análisis real de 3712 en producción (2026-10-27 12:01, código desplegado `b279e8e`): 39 productos desde
+el Anexo económico, sin X1…X6 ni plazo; checklist del negocio 1511 sanado.
 **Pendiente:** 1293138-6-LR26 sube de 4.541 a 4.610 (la regla vieja de «fuentes complementarias» une
 ahora el decreto con el anexo): revisar si esos 69 son reales.
 

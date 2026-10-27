@@ -229,11 +229,9 @@ function productosEnOrden(lineas: LineaFicha[]): Array<{ linea: LineaFicha; prod
  */
 export function imagenProducto(p: ProductoFicha | null | undefined): string {
   if (!p?.imagenDataUri) return '';
-  const extras = (p.imagenesExtraDataUri || []).filter(Boolean);
-  return `<div class="foto-producto">
-    <img src="${p.imagenDataUri}" alt="" />
-    <p class="foto-ref">Foto referencial</p>
-  </div>${extras.length ? `<div class="fotos-extra">${extras.map(src => `<figure><img src="${src}" alt="" /><figcaption>Foto referencial</figcaption></figure>`).join('')}</div>` : ''}`;
+  // Todas las fotos una al lado de la otra, del mismo alto (27-oct-2026, pedido del dueño al ver el horno). La primera es la principal.
+  const fotos = [p.imagenDataUri, ...(p.imagenesExtraDataUri || [])].filter(Boolean);
+  return `<div class="fotos-fila fotos-${fotos.length}">${fotos.map(src => `<figure><img src="${src}" alt="" /><figcaption>Foto referencial</figcaption></figure>`).join('')}</div>`;
 }
 
 /** Lo que se entrega junto al producto (accesorios, instalación). Sin nada, no se imprime la sección. */
@@ -292,10 +290,8 @@ function fichaDeProducto(p: ProductoFicha, linea: LineaFicha, numero: number, co
   return `<section class="ficha">
     <p class="ficha-num">${linea.linea != null ? `Línea ${linea.linea} · ` : ''}${conItem && p.item != null ? `Ítem ${p.item} · ` : ''}Ficha técnica ${String(numero).padStart(2, '0')}</p>
     <h2 class="prod-nombre">${esc(p.nombre)}</h2>
-    <div class="prod-cabecera">
-      ${identificacion.length ? `<table class="ident"><tbody>${identificacion.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('')}</tbody></table>` : '<div></div>'}
-      ${imagenProducto(p)}
-    </div>
+    ${identificacion.length ? `<table class="ident"><tbody>${identificacion.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('')}</tbody></table>` : ''}
+    ${imagenProducto(p)}
     <h3 class="sec">Especificaciones técnicas</h3>
     ${p.especificaciones.length === 0
       ? '<p class="sin">Sin especificaciones técnicas registradas para este producto.</p>'
@@ -382,17 +378,13 @@ export function construirFichaTecnicaHtml(d: DatosFichaTecnica): string {
            letter-spacing: .5px; margin: 14px 0 6px; }
   p.sin { margin: 0 0 5px; color: #a1a1aa; font-style: italic; }
 
-  /* Identificación a la izquierda y foto principal a la derecha; las otras fotos, en fila debajo (27-oct-2026: la foto
-     centrada sola dejaba media hoja en blanco y empujaba «Incluye» a la página siguiente). */
-  .prod-cabecera { display: grid; grid-template-columns: 1fr 48%; column-gap: 16px; align-items: start; }
-  .prod-cabecera .fotos-extra { grid-column: 1 / -1; }
-  .foto-producto { text-align: center; margin: 6px 0 4px; page-break-inside: avoid; }
-  .foto-producto img { max-height: 160px; max-width: 100%; object-fit: contain; }
-  .foto-producto .foto-ref { margin: 5px 0 0; color: #a1a1aa; font-size: 8.5px; font-style: italic; }
-  .fotos-extra { display: flex; justify-content: center; gap: 14px; margin: 6px 0 4px; page-break-inside: avoid; }
-  .fotos-extra figure { margin: 0; text-align: center; width: 30%; }
-  .fotos-extra img { max-height: 110px; max-width: 100%; object-fit: contain; }
-  .fotos-extra figcaption { margin-top: 3px; color: #a1a1aa; font-size: 8px; font-style: italic; }
+  /* Fotos una al lado de la otra, bajo la cantidad (27-oct-2026): la foto centrada sola dejaba media hoja en blanco y
+     empujaba «Incluye» a la página siguiente. */
+  .fotos-fila { display: flex; justify-content: center; align-items: flex-end; gap: 14px; margin: 10px 0 4px; page-break-inside: avoid; }
+  .fotos-fila figure { margin: 0; text-align: center; flex: 1 1 0; max-width: 46%; }
+  .fotos-fila img { max-height: 150px; max-width: 100%; object-fit: contain; }
+  .fotos-fila.fotos-3 img, .fotos-fila.fotos-4 img { max-height: 120px; }
+  .fotos-fila figcaption { margin-top: 3px; color: #a1a1aa; font-size: 8px; font-style: italic; }
 
   /* Especificaciones: DOS columnas (característica | lo ofertado), filas alternadas. */
   table.specs { border-collapse: collapse; width: 100%; }

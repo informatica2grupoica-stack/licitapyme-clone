@@ -57,22 +57,24 @@ direcciones de servidores ni claves: esos datos viven en los `.env`, fuera del r
 - Evaluar empresa nueva por RUT (sugerencias en `/mi-empresa` al primer ingreso): subido, falta
   deploy y prueba en producción.
 
-## 2026-10-27 — La BD está en hora de Denver: migración 174 preparada, sin aplicar
-`NOW()` del MySQL del VPS da hora de Denver (3 h atrás de Chile; 4 h desde el 2026-11-01). La app
-escribe hora chilena a mano en parte de las columnas, así que conviven las dos horas. Preparado
-`scripts/aplicar-migration-174.mjs` + guía `docs/migration-174-hora-chile.md` (respaldo, app detenida,
-convertir datos, `TZ: America/Santiago` en el servicio `db`, levantar). Columnas decididas por quién las
-escribe en el código y por la huella horaria de los datos (lo de Denver se agrupa a las 5-7 h).
-**Verificado:** revisión en producción sin escribir (lista de columnas y ejemplos antes → después);
-la conversión probada en una tabla temporal (TIMESTAMP chilena, DATETIME de Denver y ON UPDATE que no
-se pisa). NO probado en la BD espejo (Docker apagado en el PC) ni aplicado.
-**Regla:** el cambio de `TZ` en `docker-compose.yml` se sube el mismo día del corte: un `deploy.sh`
-con ese cambio reinicia la BD sin haber convertido los datos. Las fechas leídas con mysql2 desde el
-PC salen corridas de hora: formatearlas en SQL (`DATE_FORMAT`) para mirarlas.
+## 2026-10-27 — La BD pasó a hora de Chile (migración 174, aplicada)
+Antes `NOW()` del MySQL del VPS daba hora de Denver (3 h atrás; 4 h desde el 2026-11-01) y la app
+escribía hora chilena a mano en parte de las columnas. Aplicado a las 11:48–11:51: app y scheduler
+detenidos, respaldo `~/respaldo-antes-174-2026-10-27-1448.sql.gz` en el VPS, `scripts/aplicar-migration-174.mjs
+--produccion --aplicar` (8 TIMESTAMP con hora chilena y 36 DATETIME con hora de Denver convertidas) y
+`SET PERSIST time_zone = 'America/Santiago'` como root (sin reiniciar la BD). Columnas decididas por quién
+las escribe en el código y por la huella horaria de los datos. Guía: `docs/migration-174-hora-chile.md`.
+**Verificado:** conexión nueva da `NOW()` = hora de Chile; actividad y comentarios se leen igual que
+antes; `documentos_cache.updated_at` y `checklist_comercial` quedaron en hora chilena; lo nuevo que escribe
+la BD (`mp_api_uso_diario`) sale con la hora actual; licitank.cl responde 200.
+**Regla:** el `TZ: America/Denver` del servicio `db` en `docker-compose.yml` se dejó a propósito (cambiarlo
+recrea la BD en el próximo deploy); manda el `SET PERSIST`. `ahoraChileSQL()` y la hora chilena escrita a
+mano siguen siendo correctas. Las fechas leídas con mysql2 desde el PC salen corridas de hora:
+formatearlas en SQL (`DATE_FORMAT`) para mirarlas.
+**Pendiente:** filas viejas de columnas mixtas (escritas a veces por la BD y a veces por la app, p.ej.
+`documentos_cache.created_at`, `negocios.updated_at`) pueden quedar con 3 h de diferencia.
 
 ## Pendientes conocidos
-
-- Aplicar la migración 174 (hora de Chile) siguiendo `docs/migration-174-hora-chile.md`.
 
 - Seguridad: rotar `CRON_SECRET` y otros secretos; bucket R2 privado + URLs firmadas;
   revocación de sesiones al cambiar clave; `?secret=` en query de cron; `timingSafeEqual`; 2FA.

@@ -30,14 +30,13 @@ columnas, así que hoy conviven las dos horas.
    node scripts/aplicar-migration-174.mjs --produccion --aplicar
    ```
    Si se corre dos veces no hace nada: deja la tabla `migracion_174_hora_chile` como marca.
-5. **Cambiar la zona de la BD.** En `docker-compose.yml`, servicio `db`: `TZ: America/Denver` →
-   `TZ: America/Santiago` (ese cambio se sube al repo el mismo día del corte, no antes: un `deploy.sh`
-   con el cambio puesto reinicia la BD sin haber convertido los datos). Luego:
+5. **Cambiar la zona de la BD** (sin reiniciarla: queda guardada en el volumen de datos y vale para
+   cada conexión nueva):
    ```bash
-   git pull && docker compose up -d db
-   docker exec licitapyme-db sh -c 'mysql -N -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "SELECT @@system_time_zone, NOW()"'
+   docker exec licitapyme-db sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "SET PERSIST time_zone = \"America/Santiago\""'
    ```
-   Tiene que mostrar la hora de Chile.
+   Comprobar con una conexión NUEVA (la misma sesión sigue con la zona vieja): `SELECT NOW()` tiene que
+   dar la hora de Chile.
 6. **Levantar la app:** `docker compose up -d app scheduler`.
 7. **Comprobar:** escribir un comentario en un negocio y ver que la hora sea la actual. Abrir el
    Historial y ver que las horas de hoy calcen.
@@ -48,7 +47,12 @@ columnas, así que hoy conviven las dos horas.
 docker compose stop app scheduler
 gunzip -c ~/respaldo-antes-174-<fecha>.sql.gz | docker exec -i licitapyme-db sh -c 'mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"'
 ```
-Volver `TZ: America/Denver` en `docker-compose.yml`, `docker compose up -d db`, y levantar la app.
+Volver la zona con `SET PERSIST time_zone = 'SYSTEM'` (como root) y levantar la app.
+
+## Aplicada
+
+2026-10-27, 11:48–11:51 hora de Chile. Respaldo en el VPS: `~/respaldo-antes-174-2026-10-27-1448.sql.gz`
+(264 MB). La app estuvo detenida unos 3 minutos.
 
 ## Lo que queda con error conocido
 

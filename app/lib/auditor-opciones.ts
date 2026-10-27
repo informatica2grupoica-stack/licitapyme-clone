@@ -61,6 +61,8 @@ export interface OpcionDTO {
   costoIA: CostoIADTO | null;
   /** Precio y/o IVA que una persona corrigió a mano (con su motivo): rige por sobre lo que leyó el Lector. */
   correccionCosto: CorreccionCosto | null;
+  /** Foto que una persona subió para NUESTRA ficha técnica (manda sobre la del costeo y la extraída). */
+  fotoFicha?: FotoFicha | null;
   /** Productos y cargos de la MISMA cotización que se suman al costo por unidad (accesorios, instalación, envío). producto.precio ya los incluye; precioBase es el del producto solo. */
   complementos: ComplementoGuardado[];
   sugerenciasComplemento: SugerenciaComplemento[];
@@ -195,7 +197,7 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
   // Todas las lecturas son independientes: van EN PARALELO (la base es remota, ~155 ms por consulta: una a una el panel tardaba segundos).
   const estadoP = cargarEstadoCosteo(negocioId);
   const [estado, estadosLinea, verifTec, habTec, reqPorLinea, exigenCompleta, costosAsociados, mercados, justificadas, costosIA, opRes, reRes, caRes,
-    correcciones, segundasPasadas, respaldosCeldas, verifLegado, hdLegado, docsRes, extsRes, decisiones, linksPendientes, complementos, propias] = await Promise.all([
+    correcciones, segundasPasadas, respaldosCeldas, verifLegado, hdLegado, docsRes, extsRes, decisiones, linksPendientes, complementos, propias, fotosFicha] = await Promise.all([
     estadoP, estadosDeLineas(negocioId), ultimasCorridasV3(negocioId), confirmacionesTecnicas(negocioId),
     estadoP.then(e => contarRequisitosPorLinea(negocioId, licitacionCodigo, lineasAuditables(e).map(l => ({ lineaReal: l.lineaReal, producto: nombreProductoDeLinea(l.detalle) })))), lineasQueExigenViaCompleta(negocioId), listarCostosAsociados(negocioId),
     ultimosMercados(negocioId), opcionesConJustificacion(negocioId), ultimasCostoIA(negocioId),
@@ -210,7 +212,7 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
     pool.query(`SELECT id, documento_url, error FROM auditor_extraccion WHERE negocio_id = ? AND documento_url IS NOT NULL ORDER BY id DESC`, [negocioId]) as Promise<any>,
     decisionesSinLinea(negocioId),
     estadoP.then(e => linksPendientesDelCosteo(negocioId, lineasAuditables(e))),
-    complementosPorOpcion(negocioId), empresasPropias(negocioId),
+    complementosPorOpcion(negocioId), empresasPropias(negocioId), fotosFichaDeOpciones(negocioId),
   ]);
   const [opRows] = opRes, [reRows] = reRes, [caRows] = caRes;
   const lineas = lineasAuditables(estado);
@@ -342,7 +344,7 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
       respaldos, producto, verificacion,
       proveedorDatos: data?.salida.proveedor ?? null,
       documentoInfo: data ? { numero: data.salida.documento?.numero || null, fechaEmision: data.salida.documento?.fecha_emision || null, tipo: data.salida.documento?.tipo || null } : null,
-      capturas, estadoLink: capSostiene?.estado ?? null, tecnico, mercado, costoIA, correccionCosto,
+      capturas, estadoLink: capSostiene?.estado ?? null, tecnico, mercado, costoIA, correccionCosto, fotoFicha: fotosFicha.get(o.id) ?? null,
       complementos: comps, sugerenciasComplemento, precioBase: productoBase?.precio ?? null,
     };
     (opcionesPorFila.get(o.fila_id) || opcionesPorFila.set(o.fila_id, []).get(o.fila_id)!).push(dto);
@@ -616,6 +618,25 @@ export async function corregirCostoOpcion(negocioId: number, opcionId: number, d
 export async function quitarCorreccionCosto(negocioId: number, opcionId: number, actor: Actor): Promise<void> {
   await opcionDe(negocioId, opcionId);
   await evento(negocioId, opcionId, 'correccion_costo', 'asistente', JSON.stringify({ quitar: true, por: actor.nombre }));
+}
+
+// Foto para NUESTRA ficha técnica (27-oct-2026, pedido del dueño): la ficha del proveedor puede ser solo texto (Word, PDF sin
+// imágenes) y entonces la ficha sale sin foto. Se sube aquí, por opción. Eventos `foto_ficha` (`quitar: true` la deshace), como
+// las correcciones de costo: sin migración.
+export interface FotoFicha { url: string; por: string }
+async function fotosFichaDeOpciones(negocioId: number): Promise<Map<number, FotoFicha>> {
+  const [rows] = await pool.query(`SELECT opcion_id, detalle FROM auditor_evento WHERE negocio_id = ? AND tipo = 'foto_ficha' ORDER BY id`, [negocioId]) as any;
+  const out = new Map<number, FotoFicha>();
+  for (const r of rows as any[]) {
+    try { const d = JSON.parse(r.detalle || '{}'); if (d.quitar || !d.url) out.delete(r.opcion_id); else out.set(r.opcion_id, { url: String(d.url), por: String(d.por || '') }); }
+    catch { /* evento mal formado */ }
+  }
+  return out;
+}
+export async function ponerFotoFicha(negocioId: number, opcionId: number, url: string | null, actor: Actor): Promise<void> {
+  await opcionDe(negocioId, opcionId);
+  if (url && !url.startsWith('https://')) throw new Error('La foto no se subió bien: vuelve a intentarlo.');
+  await evento(negocioId, opcionId, 'foto_ficha', 'asistente', JSON.stringify(url ? { url, por: actor.nombre } : { quitar: true, por: actor.nombre }));
 }
 
 export async function crearOpcionesDesdeExtraccion(negocioId: number, extraccionId: number, actor: Actor): Promise<{ creadas: Array<Emparejamiento & { opcionId: number }>; sinEmparejar: number[] }> {

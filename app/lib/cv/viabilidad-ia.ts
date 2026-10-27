@@ -1761,7 +1761,8 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
     if (detCosteo?.tipo === 'por_linea') {
       console.log(`[viabilidad-ia-v4] ${codigo}: costeo por línea aunque la adjudicación es ${decision.resultado} (${detCosteo.motivo}).`);
       tipoCosteo = 'por_linea';
-    } else if (String(adj.heterogeneidad || '').toLowerCase() === 'alta' && porLinea.length >= 2 && porLinea.length <= 20) {
+    // Una sola línea en la API: no hay lotes que cotizar aparte (3712-74-LP26, ver viabilidad-ia.ts).
+    } else if (lineasApi !== 1 && String(adj.heterogeneidad || '').toLowerCase() === 'alta' && porLinea.length >= 2 && porLinea.length <= 20) {
       console.log(`[viabilidad-ia-v4] ${codigo}: costeo por línea por líneas heterogéneas con presupuesto propio (${porLinea.length} líneas).`);
       tipoCosteo = 'por_linea';
     }

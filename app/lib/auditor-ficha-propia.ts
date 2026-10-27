@@ -30,14 +30,15 @@ async function comoDataUri(url: string | null | undefined): Promise<string | nul
   } catch { return null; }
 }
 
-const MAX_FOTOS = 4;   // la principal + 3 debajo
+const MAX_FOTOS = 4;   // una al lado de la otra
 
-/** Fotos del producto: primero la que una persona subió a la fila del costeo; después las que se sacan de los PDF del proveedor
+/** Fotos del producto: primero las que puso una persona (Auditor «Foto para la ficha», fila del costeo); después las que se sacan de los PDF del proveedor
  *  (sus fichas y, si no hay, su cotización), hasta MAX_FOTOS. La primera es la principal. */
-async function fotosDeOpcion(fotoCosteo: string | null, pdfsProveedor: string[]): Promise<{ principal: { dataUri: string; puestaPorPersona: boolean } | null; extra: string[] }> {
+async function fotosDeOpcion(fotosPuestas: (string | null | undefined)[], pdfsProveedor: string[]): Promise<{ principal: { dataUri: string; puestaPorPersona: boolean } | null; extra: string[] }> {
   const fotos: string[] = [];
-  const propia = await comoDataUri(fotoCosteo);
-  if (propia) fotos.push(propia);
+  // Las que puso una persona: la subida en el Auditor para la ficha y la de la fila del costeo, en ese orden.
+  for (const url of [...new Set(fotosPuestas.filter(Boolean))]) { const d = await comoDataUri(url); if (d) fotos.push(d); }
+  const propia = fotos.length > 0;
   for (const url of pdfsProveedor) {
     if (fotos.length >= MAX_FOTOS) break;
     try {
@@ -73,7 +74,7 @@ async function nombrarCaracteristicasConIA(especificaciones: EspecificacionFicha
   } catch { /* sin rótulo, como dice arriba */ }
 }
 
-export interface FichaPropiaGenerada { url: string; nombre: string; productos: number; sinCompletar: number; fotoSinConfirmar: number }
+export interface FichaPropiaGenerada { url: string; nombre: string; productos: number; sinCompletar: number; fotoSinConfirmar: number; sinFoto: number }
 
 type FichaArmada = Awaited<ReturnType<typeof armarFichaPropiaPdf>>;
 
@@ -86,7 +87,7 @@ async function guardarEnAnexosTecnicos(licitacionCodigo: string, f: FichaArmada,
      VALUES (?, ?, ?, ?, 'application/pdf', 'DOCUMENTOS_PROPIOS', 'Anexos Técnicos', ?, ?)
      ON DUPLICATE KEY UPDATE documento_url_local = VALUES(documento_url_local), size_bytes = VALUES(size_bytes), updated_at = CURRENT_TIMESTAMP`,
     [licitacionCodigo, f.nombre, url, f.pdf.length, usuarioId, f.clienteId]);
-  return { url, nombre: f.nombre, productos: f.productos, sinCompletar: f.sinCompletar, fotoSinConfirmar: f.fotoSinConfirmar };
+  return { url, nombre: f.nombre, productos: f.productos, sinCompletar: f.sinCompletar, fotoSinConfirmar: f.fotoSinConfirmar, sinFoto: f.sinFoto };
 }
 
 export async function generarFichaPropia(negocioId: number, licitacionCodigo: string, opcionIds: number[], usuarioId: number): Promise<FichaPropiaGenerada> {
@@ -149,7 +150,7 @@ export async function armarFichaPropiaPdf(negocioId: number, licitacionCodigo: s
     if (motivo) throw new Error(`${[o.marca, o.modelo].filter(Boolean).join(' ') || 'La opción'}: ${motivo}`);
     const pdfs = (tipo: string) => o.respaldos.filter(r => r.tipo === tipo && r.vigente && r.documentoUrl && /\.pdf($|\?)/i.test(r.documentoUrl)).map(r => r.documentoUrl as string);
     const fichas = pdfs('ficha_tecnica');
-    const fotos = await fotosDeOpcion(fotoPorFila.get(l.filaId) ?? null, fichas.length ? fichas : pdfs('cotizacion_formal'));
+    const fotos = await fotosDeOpcion([o.fotoFicha?.url, fotoPorFila.get(l.filaId)], fichas.length ? fichas : pdfs('cotizacion_formal'));
     const producto = productoFichaDeOpcion(o, l, fotos.principal, fotos.extra);
     const existente = lineas.find(x => x.linea === l.lineaReal && x.titulo === producto.nombre);
     if (existente) existente.productos.push(producto);
@@ -186,5 +187,6 @@ export async function armarFichaPropiaPdf(negocioId: number, licitacionCodigo: s
   return {
     pdf, nombre, clienteId: Number(neg.cliente_id ?? 1), productos: lineas.reduce((n, x) => n + x.productos.length, 0),
     sinCompletar: especificacionesSinCompletar(lineas), fotoSinConfirmar: productosSinConfirmar(lineas),
+    sinFoto: lineas.reduce((n, x) => n + x.productos.filter(pr => !pr.imagenDataUri).length, 0),
   };
 }

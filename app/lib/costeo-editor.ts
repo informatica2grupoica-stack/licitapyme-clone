@@ -110,8 +110,12 @@ export interface EstadoCosteoEditor {
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
+// Coma o punto entre dígitos y la comilla escrita como &quot; dan el mismo producto: al re-analizar
+// 3712-74-LP26 (27-oct-2026) «1,5 hp» y «20,000(Lt)» no calzaron con «1.5 hp» y «20.000(Lt)» ya
+// guardados y «Actualizar» los duplicó.
 function normDesc(s: string): string {
-  return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+  return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/&quot;/g, '"').replace(/(\d),(?=\d)/g, '$1.').replace(/\s+/g, ' ').trim();
 }
 
 /** ¿"la misma fila", con texto exacto o no? BUG REAL (03-sep-2026, 1271359-92-LE26): al volver a
@@ -280,6 +284,40 @@ export function fusionarConViabilidad(
     estado: { modalidad: actual.grupos.length ? actual.modalidad : nuevo.modalidad, margenVenta: actual.margenVenta ?? MARGEN_VENTA_DEFECTO, grupos },
     agregados, reclasificados,
   };
+}
+
+/** ¿Alguien trabajó esta fila? Precio, link, SKU o costo real — decisión del dueño (27-oct-2026):
+ *  solo una fila SIN nada de eso se puede quitar al actualizar desde la viabilidad. */
+function filaTrabajada(f: FilaEditorCosteo): boolean {
+  return f.valorConIva != null || f.costoRealUnitario != null || !!f.skuProveedor?.trim()
+    || !!(f.link1?.trim() || f.link2?.trim() || f.link3?.trim());
+}
+
+/** Filas del costeo que la viabilidad (`nuevo`) ya no trae: las que no calzan con ningún producto
+ *  fresco, y las copias de más (cada producto fresco cubre UNA fila; las trabajadas eligen primero).
+ *  Devuelve solo las que se pueden quitar — sin precio, link, SKU ni costo real — y cuenta aparte
+ *  las que tampoco vienen pero alguien trabajó. Nunca toca costos adicionales ni filas de Compras
+ *  (no vienen de la viabilidad) ni filas en blanco. Caso real 3712-74-LP26 (27-oct-2026): la versión
+ *  1 se armó con el parser viejo (pauta X1…X6, plazo, fichas repetidas) y «Actualizar» nunca las
+ *  sacaba. */
+export function filasQueViabilidadYaNoTrae(
+  actual: EstadoCosteoEditor,
+  nuevo: EstadoCosteoEditor,
+): { quitables: FilaEditorCosteo[]; trabajadas: number } {
+  const libres = nuevo.grupos.flatMap(g => g.filas).filter(f => f.detalle?.trim());
+  const candidatas = actual.grupos.flatMap(g => g.filas)
+    .filter(f => f.detalle?.trim() && !f.esCostoAdicional && !f.agregadoPorCompras);
+  const orden = [...candidatas.filter(filaTrabajada), ...candidatas.filter(f => !filaTrabajada(f))];
+  const quitables: FilaEditorCosteo[] = [];
+  let trabajadas = 0;
+  for (const f of orden) {
+    const i = libres.findIndex(x => mismoProducto(x.detalle, f.detalle));
+    if (i >= 0) { libres.splice(i, 1); continue; }
+    if (filaTrabajada(f)) trabajadas++; else quitables.push(f);
+  }
+  const posicion = new Map(candidatas.map((f, i) => [f.id, i]));
+  quitables.sort((a, b) => posicion.get(a.id)! - posicion.get(b.id)!);
+  return { quitables, trabajadas };
 }
 
 /** Reparte TODAS las filas del costeo (sin importar en qué hoja estén hoy) en una hoja por línea

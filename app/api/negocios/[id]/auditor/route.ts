@@ -14,7 +14,7 @@ import { invalidarEnVuelo } from '@/app/lib/en-vuelo';
 import { contextoAuditor } from '@/app/lib/auditor-acceso';
 import {
   armarPanelAuditorCompartido, cargarEstadoCosteo, leerDocumentoYCrearOpciones, crearOpcionesDesdeExtraccion, asignarProductoALinea, cambiarVia, descartarOpcion, restaurarOpcion, moverOpcionALinea,
-  firmarOpcion, quitarFirma, solicitarAprobacion, resolverAprobacion, agregarLinkALinea, revisitarLinkDeOpcion, sugerirLineasDelNegocio, ignorarProductoSinLinea, crearOpcionManual, agregarFichaAOpcion, corregirCostoOpcion, quitarCorreccionCosto, buscarFichaEnLink, traerFichaDeLink, verificarMercadoDeOpcion, justificarAhorroDeOpcion, verificarCostoIADeOpcion, releerDocumento,
+  firmarOpcion, quitarFirma, solicitarAprobacion, resolverAprobacion, agregarLinkALinea, revisitarLinkDeOpcion, sugerirLineasDelNegocio, ignorarProductoSinLinea, crearOpcionManual, agregarFichaAOpcion, corregirCostoOpcion, quitarCorreccionCosto, ponerFotoFicha, buscarFichaEnLink, traerFichaDeLink, verificarMercadoDeOpcion, justificarAhorroDeOpcion, verificarCostoIADeOpcion, releerDocumento,
   verificarTecnicoDeOpcion, confirmarCeldaTecnica, respaldarCeldaTecnica, quitarFichaDeOpcion, ponerComplemento, quitarComplemento,
 } from '@/app/lib/auditor-opciones';
 import { generarPosicionAuditor, ultimaPosicion } from '@/app/lib/auditor-posicion';
@@ -97,6 +97,18 @@ export async function POST(request: NextRequest, { params }: Params) {
       case 'restaurar': await restaurarOpcion(negocio.id, opcionId); break;
       case 'mover_linea': await moverOpcionALinea(negocio.id, opcionId, String(body.filaId || ''), actor); break;
       case 'firmar': await firmarOpcion(negocio.id, negocio.licitacion_codigo, opcionId, actor, perm.esEM); break;
+      case 'firmar_y_enviar': {
+        // Un clic en vez de tres (27-oct-2026, 1414396-26-LP26: Alexis, que es EM, firmó, se pidió aprobación a sí mismo y se aprobó).
+        // Firma + pasada final (con la relectura de los inadmisibles, que sigue: un «cumple» falso ahí nos deja fuera) y, si quien firma
+        // es EM, aprobada en el mismo paso. Si la pasada final encuentra algo, la opción queda firmada y se ve qué falta.
+        await firmarOpcion(negocio.id, negocio.licitacion_codigo, opcionId, actor, perm.esEM);
+        let r: { cambios: string[] };
+        try { r = await solicitarAprobacion(negocio.id, negocio.licitacion_codigo, opcionId, actor); }
+        catch (e) { throw new Error(`Quedó firmada, pero no pasó a aprobación: ${e instanceof Error ? e.message : String(e)}`); }
+        if (perm.esEM) await resolverAprobacion(negocio.id, opcionId, 'aprobar', 'Firmada y aprobada en un paso por el EM.', actor);
+        else await avisarAlEM(negocio.id, `${actor.nombre} pidió aprobar una opción del Auditor (${negocio.licitacion_codigo}). Está en Aprobaciones → Opciones del Auditor.`, actor);
+        return NextResponse.json({ success: true, cambios: r.cambios, aprobada: perm.esEM });
+      }
       case 'quitar_firma': await quitarFirma(negocio.id, opcionId); break;
       case 'solicitar_aprobacion': {
         const r = await solicitarAprobacion(negocio.id, negocio.licitacion_codigo, opcionId, actor);
@@ -209,6 +221,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       case 'corregir_costo':
         // Precio y/o IVA fijado a mano, con motivo obligatorio (queda quién y cuándo; se puede deshacer).
         await corregirCostoOpcion(negocio.id, opcionId, { precio: body.precio != null && body.precio !== '' ? Number(body.precio) : null, iva: body.iva ? String(body.iva) : null, motivo: String(body.motivo || '') }, actor); break;
+      case 'poner_foto_ficha': await ponerFotoFicha(negocio.id, opcionId, body.url ? String(body.url) : null, actor); break;
       case 'quitar_correccion_costo': await quitarCorreccionCosto(negocio.id, opcionId, actor); break;
       case 'agregar_link': {
         const r = await agregarLinkALinea(negocio.id, String(body.filaId || ''), String(body.url || ''), actor);

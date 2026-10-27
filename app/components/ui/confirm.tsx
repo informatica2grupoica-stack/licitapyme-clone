@@ -26,6 +26,7 @@ export interface ConfirmOpciones {
   confirmarLabel?: string;  // default: "Confirmar"
   cancelarLabel?: string;   // default: "Cancelar"
   peligro?: boolean;        // true → botón rojo (acciones destructivas)
+  lista?: string[];         // elementos afectados, en una lista con scroll bajo el mensaje
 }
 
 type ConfirmFn = (opciones: ConfirmOpciones) => Promise<boolean>;
@@ -96,6 +97,11 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                   </h2>
                   {opciones.mensaje && (
                     <p className="text-[13px] text-slate-500 dark:text-zinc-400 mt-1 leading-relaxed">{opciones.mensaje}</p>
+                  )}
+                  {!!opciones.lista?.length && (
+                    <ul className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-slate-200 dark:border-white/10 divide-y divide-slate-100 dark:divide-white/5 text-[12px] text-slate-700 dark:text-zinc-300">
+                      {opciones.lista.map((t, i) => <li key={i} className="px-2.5 py-1.5 break-words">{t}</li>)}
+                    </ul>
                   )}
                 </div>
               </div>

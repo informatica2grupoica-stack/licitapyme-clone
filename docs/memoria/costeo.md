@@ -3,6 +3,27 @@
 Costeo digital del negocio (editor + burbuja flotante) y Excel de costeo (plantilla V3).
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-27 — Re-viabilidad no cambia el costeo digital (regla) + «Actualizar» duplicaba por coma decimal
+Caso real: 3712-74-LP26, negocio 1511. La viabilidad re-analizada dejó 39 productos; el costeo digital
+guardado sigue con 77 filas: 29 fichas técnicas sin número, «120 días corridos», X1…X6 de la pauta y la lista
+numerada (versión 1, 22-oct, armada con el parser viejo), más 2 duplicados que agregó «Actualizar» el 27-oct.
+Por qué: el costeo digital es una FOTO editable (`negocio_costeo_editor`). Correr la viabilidad nunca la toca;
+solo el botón «Actualizar» la cruza con la viabilidad (`fusionarConViabilidad`; copia `fusionarLocal` en
+`CosteoEditorCard.tsx`), y eso a propósito solo AGREGA lo nuevo y reubica líneas: nunca borra filas que la
+viabilidad ya no trae ni cambia cantidades, porque una fila no dice si la escribió una persona.
+Bug arreglado: `normDesc` (en ambos archivos) iguala coma/punto entre dígitos y `&quot;`; «1,5 hp» y
+«20,000(Lt)» ya no se agregan otra vez al lado de «1.5 hp» y «20.000(Lt)».
+**Verificado:** test `costeo-editor-fusion-viabilidad.test.mts`; con los datos reales de 3712 (solo lectura),
+desde la versión 1 «Actualizar» agrega 0 filas (antes 2). Sin ver en navegador; sin escribir en producción.
+**Regla / decisión (dueño, 2026-10-27):** «Actualizar» avisa las filas que la viabilidad ya no trae y deja
+quitarlas con confirmación, SOLO las que no tienen precio, link, SKU ni costo real (`filasQueViabilidadYaNoTrae`,
+copia en `CosteoEditorCard.tsx`; lista en el diálogo vía `lista` de `useConfirm`). Cuenta como «no trae»
+también la copia de más: cada producto de la viabilidad cubre una sola fila y la trabajada elige primero.
+Nunca toca costos adicionales, filas de Compras ni filas en blanco. Se quitan en pantalla; quedan al guardar.
+**Verificado:** con los datos reales de 3712 (solo lectura) propone quitar 38 de 77 filas y quedan 39, una
+por producto. NO visto en navegador (el dev server apunta a la BD de producción y el editor autoguarda).
+**Pendiente:** limpiar 3712 en producción con el botón (lo hace el equipo y luego guarda).
+
 ## Decisiones vigentes del dueño
 
 - **Se leen TODAS las fuentes y se elige por AUTORIDAD del documento, nunca por cantidad de

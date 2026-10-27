@@ -2,6 +2,18 @@
 
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-27 — Costeo «por línea» con una sola línea en la API
+Caso real: 3712-74-LP26. Re-analizada con el parser nuevo, salió costeo `por_linea` aunque la API trae 1
+línea, las bases dicen «1 línea licitatoria», hay que ofertar todo y la adjudicación es GLOBAL. El modelo
+tomó las «líneas de intervención» del convenio de financiamiento (Correspondencia_3837.pdf: Equipamientos
+M$ 28.097, Instrumentos M$ 40.294…) como presupuesto por línea y marcó heterogeneidad alta; la regla de
+«líneas heterogéneas con presupuesto propio» cambiaba el costeo. Ahora esa regla exige `lineasApi !== 1`
+(`viabilidad-ia.ts` y `cv/viabilidad-ia.ts`); las reglas de formato de la oferta no cambian.
+**Verificado:** `tsc` limpio, tests 1.560/1.560. NO verificado: re-análisis de 3712 con este cambio (falta
+desplegar). En la BD hay 11 informes con costeo por línea y «una sola línea» en la API (2709-83-LE26,
+727202-72-LP26, 3729-86-LE26, 1057509-335/317/345/366-LE26, 1126920-34-LE26, 1057510-70-LE26,
+1555621-1-LE26 y 3712): no todos por esta regla; quedan así hasta re-analizarlos.
+
 ## 2026-10-27 — «El análisis se interrumpió»: despliegues a mitad de análisis + re-lectura de 10 MB
 Caso real: 3712-74-LP26, dos re-análisis seguidos (10:15 y 10:28 hora Chile) cortados en `leyendo_documentos`.
 **Causa confirmada con los logs del VPS:** los mató el despliegue. Análisis desde 13:28:12 UTC, contenedor

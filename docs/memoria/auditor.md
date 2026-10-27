@@ -3,6 +3,19 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-27 — Firma en un clic; fotos de la ficha en fila y «Foto para la ficha»
+**Firma (decisión de QA delegada por el dueño):** antes eran tres clics (Firmar → Solicitar aprobación → Aprobar) y en
+1414396 L7 el mismo EM se pidió aprobación a sí mismo. Ahora un botón: «Firmar y enviar al EM» (asistente) o «Firmar y
+aprobar» (EM), acción `firmar_y_enviar` en la ruta del Auditor. La pasada final SE MANTIENE: relee con IA solo los
+requisitos INADMISIBLES que quedaron «cumple», una sola vez por comparación (`rojosPendientesDeSegundaPasada` ya salta
+los releídos y los confirmados a mano); un «cumple» falso ahí nos deja fuera. Medido: 44,5 s y US$0,054 en el horno.
+Mientras corre, la pantalla lo dice. Si la pasada final encuentra algo, la opción queda firmada y se muestra qué falta.
+**Fotos:** todas en una fila, una al lado de la otra (máx. 4). Si la ficha del proveedor es solo texto, «Foto para la
+ficha…» (columna Respaldo) sube una foto por opción, que va primero (eventos `foto_ficha`, sin migración); al generar,
+se avisa si un producto salió sin foto.
+**Verificado:** ficha real del horno con 2 fotos en fila; 1560 tests; tsc. **Pendiente:** ver en el navegador el botón
+nuevo de firma, el aviso de la pasada final y «Foto para la ficha».
+
 ## 2026-10-27 — Nuestra ficha: sin marca ni modelo, y una por LÍNEA
 **Reglas (dueño):** (1) nuestra ficha técnica NO nombra marca ni modelo: nos amarra a entregar ese equipo. El producto
 va con el nombre genérico de la línea; la marca y el modelo se quitan también de las especificaciones y de «Incluye»

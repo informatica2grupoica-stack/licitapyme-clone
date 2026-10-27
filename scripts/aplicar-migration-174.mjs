@@ -117,8 +117,8 @@ try {
   }
   if (aplicar) {
     await c.query(`CREATE TABLE \`${MARCA}\` (aplicada_at DATETIME NOT NULL, nota VARCHAR(255))`);
-    await c.query(`INSERT INTO \`${MARCA}\` VALUES (CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', 'America/Santiago'), 'datos pasados a hora de Chile; falta reiniciar la BD con TZ=America/Santiago')`);
-    console.log(`\n  Listo. Ahora reiniciar la BD con TZ=America/Santiago (docs/migration-174-hora-chile.md, paso 5).`);
+    await c.query(`INSERT INTO \`${MARCA}\` VALUES (CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', 'America/Santiago'), 'datos pasados a hora de Chile; falta SET PERSIST time_zone')`);
+    console.log(`\n  Listo. Ahora fijar la zona: SET PERSIST time_zone = 'America/Santiago' (docs/migration-174-hora-chile.md, paso 5).`);
   } else {
     console.log(`\n  Solo revisión: no se escribió nada. Para aplicar, agregar --aplicar.`);
   }
