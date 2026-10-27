@@ -36,6 +36,15 @@ export function leerImagen(dataUri: string | null | undefined): Img | null {
   }
   return null;
 }
+/** WEBP (fotos del costeo) → PNG con sharp, para que Word la muestre. Si no se puede, queda como estaba y se omite. */
+async function aFormatoWord(src: string | null | undefined): Promise<string | null> {
+  if (!src || !/^data:image\/webp;base64,/i.test(src)) return src ?? null;
+  try {
+    const sharp = (await import('sharp')).default;
+    return `data:image/png;base64,${(await sharp(Buffer.from(src.split(',')[1], 'base64')).png().toBuffer()).toString('base64')}`;
+  } catch { return src; }
+}
+
 /** La imagen dentro de una caja de ancho × alto máximos (en píxeles), sin deformarla. */
 function imagen(src: string | null | undefined, maxW: number, maxH: number): ImageRun | null {
   const img = leerImagen(src);
@@ -136,7 +145,15 @@ function fichaDeProducto(pr: ProductoFicha, linea: LineaFicha, numero: number, c
 }
 
 // ── Documento ───────────────────────────────────────────────────────────────────────────────────────
-export async function construirFichaTecnicaDocx(d: DatosFichaTecnica): Promise<Buffer> {
+export async function construirFichaTecnicaDocx(datos: DatosFichaTecnica): Promise<Buffer> {
+  const d: DatosFichaTecnica = {
+    ...datos,
+    empresa: { ...datos.empresa, logoDataUri: await aFormatoWord(datos.empresa.logoDataUri), firmaDataUri: await aFormatoWord(datos.empresa.firmaDataUri), timbreDataUri: await aFormatoWord(datos.empresa.timbreDataUri) },
+    lineas: await Promise.all(datos.lineas.map(async l => ({ ...l, productos: await Promise.all(l.productos.map(async pr => ({
+      ...pr, imagenDataUri: await aFormatoWord(pr.imagenDataUri),
+      imagenesExtraDataUri: (await Promise.all((pr.imagenesExtraDataUri || []).map(aFormatoWord))).filter((x): x is string => !!x),
+    }))) }))),
+  };
   const e = d.empresa;
   const logo = imagen(e.logoDataUri, 190, 56);
   const titulos = [

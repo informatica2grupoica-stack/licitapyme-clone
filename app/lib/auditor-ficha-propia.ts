@@ -8,13 +8,14 @@ import { armarPanelAuditor, cargarEstadoCosteo } from '@/app/lib/auditor-opcione
 import { motivoFichaNoLista, productoFichaDeOpcion, opcionesDeLaOferta, opcionesDeLaLinea } from '@/app/lib/auditor-ficha-propia-core';
 import { cargarDocumentoBase } from '@/app/lib/anexos-datos';
 import { abrirDocx } from '@/app/lib/anexos-docx';
-import { especificacionesSinCompletar, productosSinConfirmar, type EmpresaFicha, type LineaFicha, type EspecificacionFicha } from '@/app/lib/ficha-tecnica';
+import { construirFichaTecnicaHtml, especificacionesSinCompletar, productosSinConfirmar, type EmpresaFicha, type LineaFicha, type EspecificacionFicha } from '@/app/lib/ficha-tecnica';
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 import { parseJsonIA } from '@/app/lib/json-ia';
 const crearChatIA = conModuloIA('auditor', crearChatIABase);
 import { extraerImagenesProducto } from '@/app/lib/ficha-imagen-extraer';
 import { construirFichaTecnicaDocx } from '@/app/lib/ficha-tecnica-docx';
+import { generarInformePdf } from '@/app/lib/generar-informe';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 
 /** Imagen remota → data: URI (el motor del PDF no carga recursos externos). null si no se puede: mejor sin foto que sin ficha. */
@@ -23,14 +24,9 @@ async function comoDataUri(url: string | null | undefined): Promise<string | nul
   try {
     const r = await fetch(url);
     if (!r.ok) return null;
-    let buf: Buffer = Buffer.from(await r.arrayBuffer());
-    let tipo = r.headers.get('content-type') || 'image/png';
+    const buf = Buffer.from(await r.arrayBuffer());
+    const tipo = r.headers.get('content-type') || 'image/png';
     if (!buf.length || buf.length > 4_000_000 || !tipo.startsWith('image/')) return null;
-    // Word no muestra WEBP (fotos del costeo): se pasa a PNG. Si no se puede, va sin esa foto.
-    if (tipo === 'image/webp') {
-      try { const sharp = (await import('sharp')).default; buf = await sharp(buf).png().toBuffer(); tipo = 'image/png'; }
-      catch { return null; }
-    }
     return `data:${tipo};base64,${buf.toString('base64')}`;
   } catch { return null; }
 }
@@ -83,18 +79,20 @@ export interface FichaPropiaGenerada { url: string; nombre: string; productos: n
 
 type FichaArmada = Awaited<ReturnType<typeof armarFichaPropia>>;
 
-// En WORD, no en PDF (27-oct-2026, pedido del dueño): el equipo la edita antes de presentarla.
-const TIPO_DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+// Nuestra ficha técnica va en WORD (27-oct-2026, pedido del dueño): es lo nuestro que se sube a Mercado Público y el equipo
+// la edita antes. Los anexos (la oferta técnica de un anexo en blanco) siguen en PDF.
+const TIPO = { docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', pdf: 'application/pdf' } as const;
 
-/** Sube el Word y lo deja en Documentos › Anexos Técnicos. Misma regla que los anexos generados: la caja se pone al
+/** Sube el archivo y lo deja en Documentos › Anexos Técnicos. Misma regla que los anexos generados: la caja se pone al
  *  crear; si alguien lo movió a mano, regenerar no se lo cambia. */
 async function guardarEnAnexosTecnicos(licitacionCodigo: string, f: FichaArmada, usuarioId: number): Promise<FichaPropiaGenerada> {
-  const url = await subirDocumentoR2(licitacionCodigo, f.nombre, f.archivo, TIPO_DOCX);
+  const tipo = TIPO[f.formato];
+  const url = await subirDocumentoR2(licitacionCodigo, f.nombre, f.archivo, tipo);
   await pool.query(
     `INSERT INTO documentos_cache (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, subcategoria, usuario_id, cliente_id)
      VALUES (?, ?, ?, ?, ?, 'DOCUMENTOS_PROPIOS', 'Anexos Técnicos', ?, ?)
      ON DUPLICATE KEY UPDATE documento_url_local = VALUES(documento_url_local), size_bytes = VALUES(size_bytes), content_type = VALUES(content_type), updated_at = CURRENT_TIMESTAMP`,
-    [licitacionCodigo, f.nombre, url, f.archivo.length, TIPO_DOCX, usuarioId, f.clienteId]);
+    [licitacionCodigo, f.nombre, url, f.archivo.length, tipo, usuarioId, f.clienteId]);
   return { url, nombre: f.nombre, productos: f.productos, sinCompletar: f.sinCompletar, fotoSinConfirmar: f.fotoSinConfirmar, sinFoto: f.sinFoto };
 }
 
@@ -132,8 +130,9 @@ export async function armarOfertaTecnicaDeAnexo(negocioId: number, licitacionCod
   if ('error' in enc) throw new Error(enc.error);
   const { ids, faltan } = opcionesDeLaOferta(await armarPanelAuditor(negocioId, licitacionCodigo));
   if (!ids.length) throw new Error(`Ninguna línea tiene todavía su opción lista en el Auditor (lo técnico todo cumplido)${faltan.length ? `: ${faltan.join('; ')}` : ''}.`);
-  const f = await armarFichaPropia(negocioId, licitacionCodigo, ids, usuarioId, { titulo: enc.titulo, subtitulo: enc.subtitulo });
-  return { ...f, nombre: `ANEXO_${enc.nombre.replace(/\.(docx?|pdf)$/i, '')}.docx`, faltan };
+  // Un ANEXO queda en PDF (dueño, 27-oct-2026): solo nuestra ficha técnica va en Word.
+  const f = await armarFichaPropia(negocioId, licitacionCodigo, ids, usuarioId, { titulo: enc.titulo, subtitulo: enc.subtitulo }, 'pdf');
+  return { ...f, nombre: `ANEXO_${enc.nombre.replace(/\.(docx?|pdf)$/i, '')}.pdf`, faltan };
 }
 
 export async function generarOfertaTecnicaDeAnexo(negocioId: number, licitacionCodigo: string, documentoId: string, usuarioId: number): Promise<FichaPropiaGenerada & { faltan: string[] }> {
@@ -143,7 +142,7 @@ export async function generarOfertaTecnicaDeAnexo(negocioId: number, licitacionC
 
 /** Arma el Word sin guardarlo (lo usa generarFichaPropia y sirve para revisarlo antes). */
 export async function armarFichaPropia(negocioId: number, licitacionCodigo: string, opcionIds: number[], usuarioId: number,
-  encabezado?: { titulo: string; subtitulo: string | null }) {
+  encabezado?: { titulo: string; subtitulo: string | null }, formato: 'docx' | 'pdf' = 'docx') {
   if (!opcionIds.length) throw new Error('Elige al menos una opción.');
   const [panel, costeo] = await Promise.all([armarPanelAuditor(negocioId, licitacionCodigo), cargarEstadoCosteo(negocioId)]);
   const fotoPorFila = new Map<string, string>();
@@ -183,16 +182,17 @@ export async function armarFichaPropia(negocioId: number, licitacionCodigo: stri
   };
   const [[u]] = await pool.query(`SELECT nombre FROM usuarios WHERE id = ? LIMIT 1`, [usuarioId]) as any;
 
-  const archivo = await construirFichaTecnicaDocx({
+  const datos = {
     licitacionCodigo, licitacionNombre: neg.licitacion_nombre ?? null, organismo: neg.organismo ?? null,
     empresa, lineas, generadoPor: u?.nombre ?? null,
     fechaTexto: new Date().toLocaleDateString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: 'long', year: 'numeric' }),
     titulo: encabezado?.titulo, subtitulo: encabezado?.subtitulo,
-  });
+  };
+  const archivo = formato === 'docx' ? await construirFichaTecnicaDocx(datos) : await generarInformePdf(construirFichaTecnicaHtml(datos));
   const lineasTxt = [...new Set(lineas.map(x => x.linea).filter(n => n != null))].join('-');
-  const nombre = `FICHA_TECNICA_${licitacionCodigo}${lineasTxt ? `_L${lineasTxt}` : ''}.docx`;
+  const nombre = `FICHA_TECNICA_${licitacionCodigo}${lineasTxt ? `_L${lineasTxt}` : ''}.${formato}`;
   return {
-    archivo, nombre, clienteId: Number(neg.cliente_id ?? 1), productos: lineas.reduce((n, x) => n + x.productos.length, 0),
+    archivo, nombre, formato, clienteId: Number(neg.cliente_id ?? 1), productos: lineas.reduce((n, x) => n + x.productos.length, 0),
     sinCompletar: especificacionesSinCompletar(lineas), fotoSinConfirmar: productosSinConfirmar(lineas),
     sinFoto: lineas.reduce((n, x) => n + x.productos.filter(pr => !pr.imagenDataUri).length, 0),
   };

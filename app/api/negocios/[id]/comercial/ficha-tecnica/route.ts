@@ -2,7 +2,7 @@
 // Genera NUESTRA ficha técnica: el documento que presentamos, armado desde las exigencias que el
 // Auditor ya tiene clasificadas por línea. Ver app/lib/ficha-tecnica.ts para el porqué.
 //
-//   POST { lineas?: number[] } → arma el PDF, lo sube a R2 y devuelve su URL.
+//   POST { lineas?: number[] } → arma el Word (.docx), lo sube a R2 y devuelve su URL.
 //
 // Se sube a R2 en vez de devolver el binario porque así el visor inline y la descarga con nombre
 // real funcionan igual que con el resto de los documentos del negocio (el `download` de un <a> no
@@ -12,13 +12,13 @@ import pool from '@/app/lib/db';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { subirDocumentoR2 } from '@/app/lib/r2';
-import { generarInformePdf } from '@/app/lib/generar-informe';
+import { construirFichaTecnicaDocx } from '@/app/lib/ficha-tecnica-docx';
 import { leerLineasOfertadas } from '@/app/lib/lineas-oferta';
 import { cargarNegocio, nombreDe, leerInforme } from '../route';
 import { productosCrudosDeLinea } from '@/app/lib/auditor-tecnico-core';
 import { leerProductosDeLinea } from '@/app/lib/producto-ofertado-db';
 import {
-  construirFichaTecnicaHtml, especificacionesSinCompletar, productosSinConfirmar,
+  especificacionesSinCompletar, productosSinConfirmar,
   type LineaFicha, type EspecificacionFicha, type EmpresaFicha, type ProductoFicha,
 } from '@/app/lib/ficha-tecnica';
 
@@ -234,7 +234,9 @@ export async function POST(request: NextRequest, { params }: Params) {
     };
 
     const generadoPor = request.headers.get('x-user-nombre') || (await nombreDe(userId)) || null;
-    const html = construirFichaTecnicaHtml({
+    // NUESTRA ficha va en WORD (27-oct-2026, pedido del dueño): es lo nuestro que se sube a Mercado Público y el equipo la edita
+    // antes. Los anexos siguen en PDF.
+    const archivo = await construirFichaTecnicaDocx({
       licitacionCodigo: negocio.licitacion_codigo,
       licitacionNombre: negocio.licitacion_nombre ?? null,
       organismo: negocio.licitacion_organismo ?? null,
@@ -244,9 +246,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       }),
     });
 
-    const pdf = await generarInformePdf(html);
-    const nombre = `FICHA_TECNICA_${negocio.licitacion_codigo}.pdf`;
-    const url = await subirDocumentoR2(negocio.licitacion_codigo, nombre, pdf, 'application/pdf');
+    const nombre = `FICHA_TECNICA_${negocio.licitacion_codigo}.docx`;
+    const url = await subirDocumentoR2(negocio.licitacion_codigo, nombre, archivo, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
 
     publicarCambio('checklist_comercial');
     return NextResponse.json({

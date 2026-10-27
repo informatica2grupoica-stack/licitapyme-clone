@@ -24,6 +24,13 @@ Nunca toca costos adicionales, filas de Compras ni filas en blanco. Se quitan en
 por producto. NO visto en navegador (el dev server apunta a la BD de producción y el editor autoguarda).
 **Pendiente:** limpiar 3712 en producción con el botón (lo hace el equipo y luego guarda).
 
+## 2026-10-27 — Primera columna del editor = «Ítem» numerado, no «Línea»
+Caso real: 3712-74-LP26 mostraba «1» en todas las filas (era `lineaReal`, y la licitación tiene una sola
+línea). **Decisión (dueño):** la columna es el número de ítem dentro de la hoja (1, 2, 3…, solo lectura, se
+renumera sola); las líneas de la licitación se ven en las hojas de abajo. `lineaReal` sigue guardada (cruza
+con el Auditor y reparte hojas) y sale en el tooltip del número; ya no se edita a mano desde la grilla.
+`CosteoEditorCard.tsx`. **Verificado:** `tsc` limpio; sin ver en navegador.
+
 ## Decisiones vigentes del dueño
 
 - **Se leen TODAS las fuentes y se elige por AUTORIDAD del documento, nunca por cantidad de

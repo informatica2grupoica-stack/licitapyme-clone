@@ -1837,7 +1837,7 @@ export function CosteoEditorCard({
             <tr style={{ background: '#f3f2f1' }}>
               <th className="text-[11px] font-normal text-zinc-500 text-center" style={{ border: `1px solid ${GRID_BORDE}` }}>1</th>
               {([
-                ['Línea', ''], ['Detalle de producto', ''], ['Complemento', 'Texto largo que complementa el detalle: haz clic para pegarlo o escribirlo; si ya hay texto, se abre en un globo que puedes editar.'], ['Imagen', 'Foto del producto: súbela aquí y mírala con el ojo. Se guarda con el costeo.'], ['Unidad', ''], ['Sku proveedor', ''],
+                ['Ítem', 'Número del producto dentro de la hoja. Las líneas de la licitación son las hojas de abajo.'], ['Detalle de producto', ''], ['Complemento', 'Texto largo que complementa el detalle: haz clic para pegarlo o escribirlo; si ya hay texto, se abre en un globo que puedes editar.'], ['Imagen', 'Foto del producto: súbela aquí y mírala con el ojo. Se guarda con el costeo.'], ['Unidad', ''], ['Sku proveedor', ''],
                 ['Cantidad', ''], ['Valor c/IVA', ''],
                 ['Costo unit. neto', ''], ['Costo total neto', ''],
                 // Margen POR ÍTEM: normalmente vacío (hereda el del costeo completo, que es el que
@@ -1874,9 +1874,7 @@ export function CosteoEditorCard({
               return (
                 <tr key={f.id} className="group">
                   <td className="text-[11px] text-zinc-400 text-center" style={{ ...celda, background: '#f3f2f1' }}>{fi + 2}</td>
-                  <td style={celda} className="p-0" title="Número REAL de línea de la licitación — cruza contra el Auditor Técnico. Corrígelo si no calza.">
-                    <CeldaNumero value={f.lineaReal} onChange={v => actualizarFila(grupoActivo, fi, { lineaReal: v })} disabled={baseBloq} />
-                  </td>
+                  <td style={celda} className="text-[12px] text-center tabular-nums text-zinc-700" title={f.lineaReal != null ? `Línea ${f.lineaReal} de la licitación` : undefined}>{f.item}</td>
                   <td style={celda} className="p-0">
                     <CeldaDetalle value={f.detalle} base={f.detalleBase} disabled={baseBloq}
                       onChange={v => actualizarFila(grupoActivo, fi, { detalle: v, detalleBase: f.detalleBase == null ? (f.detalle.trim() && !esAdic ? f.detalle : null) : f.detalleBase.startsWith(v) ? v : f.detalleBase })}
