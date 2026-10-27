@@ -8,13 +8,13 @@ import { armarPanelAuditor, cargarEstadoCosteo } from '@/app/lib/auditor-opcione
 import { motivoFichaNoLista, productoFichaDeOpcion, opcionesDeLaOferta, opcionesDeLaLinea } from '@/app/lib/auditor-ficha-propia-core';
 import { cargarDocumentoBase } from '@/app/lib/anexos-datos';
 import { abrirDocx } from '@/app/lib/anexos-docx';
-import { construirFichaTecnicaHtml, especificacionesSinCompletar, productosSinConfirmar, type EmpresaFicha, type LineaFicha, type EspecificacionFicha } from '@/app/lib/ficha-tecnica';
+import { especificacionesSinCompletar, productosSinConfirmar, type EmpresaFicha, type LineaFicha, type EspecificacionFicha } from '@/app/lib/ficha-tecnica';
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 import { parseJsonIA } from '@/app/lib/json-ia';
 const crearChatIA = conModuloIA('auditor', crearChatIABase);
 import { extraerImagenesProducto } from '@/app/lib/ficha-imagen-extraer';
-import { generarInformePdf } from '@/app/lib/generar-informe';
+import { construirFichaTecnicaDocx } from '@/app/lib/ficha-tecnica-docx';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 
 /** Imagen remota → data: URI (el motor del PDF no carga recursos externos). null si no se puede: mejor sin foto que sin ficha. */
@@ -23,9 +23,14 @@ async function comoDataUri(url: string | null | undefined): Promise<string | nul
   try {
     const r = await fetch(url);
     if (!r.ok) return null;
-    const buf = Buffer.from(await r.arrayBuffer());
-    const tipo = r.headers.get('content-type') || 'image/png';
+    let buf: Buffer = Buffer.from(await r.arrayBuffer());
+    let tipo = r.headers.get('content-type') || 'image/png';
     if (!buf.length || buf.length > 4_000_000 || !tipo.startsWith('image/')) return null;
+    // Word no muestra WEBP (fotos del costeo): se pasa a PNG. Si no se puede, va sin esa foto.
+    if (tipo === 'image/webp') {
+      try { const sharp = (await import('sharp')).default; buf = await sharp(buf).png().toBuffer(); tipo = 'image/png'; }
+      catch { return null; }
+    }
     return `data:${tipo};base64,${buf.toString('base64')}`;
   } catch { return null; }
 }
@@ -76,22 +81,25 @@ async function nombrarCaracteristicasConIA(especificaciones: EspecificacionFicha
 
 export interface FichaPropiaGenerada { url: string; nombre: string; productos: number; sinCompletar: number; fotoSinConfirmar: number; sinFoto: number }
 
-type FichaArmada = Awaited<ReturnType<typeof armarFichaPropiaPdf>>;
+type FichaArmada = Awaited<ReturnType<typeof armarFichaPropia>>;
 
-/** Sube el PDF y lo deja en Documentos › Anexos Técnicos. Misma regla que los anexos generados: la caja se pone al
+// En WORD, no en PDF (27-oct-2026, pedido del dueño): el equipo la edita antes de presentarla.
+const TIPO_DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+/** Sube el Word y lo deja en Documentos › Anexos Técnicos. Misma regla que los anexos generados: la caja se pone al
  *  crear; si alguien lo movió a mano, regenerar no se lo cambia. */
 async function guardarEnAnexosTecnicos(licitacionCodigo: string, f: FichaArmada, usuarioId: number): Promise<FichaPropiaGenerada> {
-  const url = await subirDocumentoR2(licitacionCodigo, f.nombre, f.pdf, 'application/pdf');
+  const url = await subirDocumentoR2(licitacionCodigo, f.nombre, f.archivo, TIPO_DOCX);
   await pool.query(
     `INSERT INTO documentos_cache (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, subcategoria, usuario_id, cliente_id)
-     VALUES (?, ?, ?, ?, 'application/pdf', 'DOCUMENTOS_PROPIOS', 'Anexos Técnicos', ?, ?)
-     ON DUPLICATE KEY UPDATE documento_url_local = VALUES(documento_url_local), size_bytes = VALUES(size_bytes), updated_at = CURRENT_TIMESTAMP`,
-    [licitacionCodigo, f.nombre, url, f.pdf.length, usuarioId, f.clienteId]);
+     VALUES (?, ?, ?, ?, ?, 'DOCUMENTOS_PROPIOS', 'Anexos Técnicos', ?, ?)
+     ON DUPLICATE KEY UPDATE documento_url_local = VALUES(documento_url_local), size_bytes = VALUES(size_bytes), content_type = VALUES(content_type), updated_at = CURRENT_TIMESTAMP`,
+    [licitacionCodigo, f.nombre, url, f.archivo.length, TIPO_DOCX, usuarioId, f.clienteId]);
   return { url, nombre: f.nombre, productos: f.productos, sinCompletar: f.sinCompletar, fotoSinConfirmar: f.fotoSinConfirmar, sinFoto: f.sinFoto };
 }
 
 export async function generarFichaPropia(negocioId: number, licitacionCodigo: string, opcionIds: number[], usuarioId: number): Promise<FichaPropiaGenerada> {
-  return guardarEnAnexosTecnicos(licitacionCodigo, await armarFichaPropiaPdf(negocioId, licitacionCodigo, opcionIds, usuarioId), usuarioId);
+  return guardarEnAnexosTecnicos(licitacionCodigo, await armarFichaPropia(negocioId, licitacionCodigo, opcionIds, usuarioId), usuarioId);
 }
 
 /** El botón de una opción arma la ficha de TODA su línea (ver opcionesDeLaLinea); `faltan` = ítems de la línea que no entraron. */
@@ -119,22 +127,22 @@ export async function encabezadoDeAnexoEnBlanco(licitacionCodigo: string, docume
   return { titulo: parrafos[0] || 'Oferta técnica', subtitulo: parrafos.slice(1).join(' · ') || null, nombre: nombreOriginal };
 }
 
-export async function armarOfertaTecnicaDeAnexoPdf(negocioId: number, licitacionCodigo: string, documentoId: string, usuarioId: number) {
+export async function armarOfertaTecnicaDeAnexo(negocioId: number, licitacionCodigo: string, documentoId: string, usuarioId: number) {
   const enc = await encabezadoDeAnexoEnBlanco(licitacionCodigo, documentoId);
   if ('error' in enc) throw new Error(enc.error);
   const { ids, faltan } = opcionesDeLaOferta(await armarPanelAuditor(negocioId, licitacionCodigo));
   if (!ids.length) throw new Error(`Ninguna línea tiene todavía su opción lista en el Auditor (lo técnico todo cumplido)${faltan.length ? `: ${faltan.join('; ')}` : ''}.`);
-  const f = await armarFichaPropiaPdf(negocioId, licitacionCodigo, ids, usuarioId, { titulo: enc.titulo, subtitulo: enc.subtitulo });
-  return { ...f, nombre: `ANEXO_${enc.nombre.replace(/\.(docx?|pdf)$/i, '')}.pdf`, faltan };
+  const f = await armarFichaPropia(negocioId, licitacionCodigo, ids, usuarioId, { titulo: enc.titulo, subtitulo: enc.subtitulo });
+  return { ...f, nombre: `ANEXO_${enc.nombre.replace(/\.(docx?|pdf)$/i, '')}.docx`, faltan };
 }
 
 export async function generarOfertaTecnicaDeAnexo(negocioId: number, licitacionCodigo: string, documentoId: string, usuarioId: number): Promise<FichaPropiaGenerada & { faltan: string[] }> {
-  const f = await armarOfertaTecnicaDeAnexoPdf(negocioId, licitacionCodigo, documentoId, usuarioId);
+  const f = await armarOfertaTecnicaDeAnexo(negocioId, licitacionCodigo, documentoId, usuarioId);
   return { ...(await guardarEnAnexosTecnicos(licitacionCodigo, f, usuarioId)), faltan: f.faltan };
 }
 
-/** Arma el PDF sin guardarlo (lo usa generarFichaPropia y sirve para revisarlo antes). */
-export async function armarFichaPropiaPdf(negocioId: number, licitacionCodigo: string, opcionIds: number[], usuarioId: number,
+/** Arma el Word sin guardarlo (lo usa generarFichaPropia y sirve para revisarlo antes). */
+export async function armarFichaPropia(negocioId: number, licitacionCodigo: string, opcionIds: number[], usuarioId: number,
   encabezado?: { titulo: string; subtitulo: string | null }) {
   if (!opcionIds.length) throw new Error('Elige al menos una opción.');
   const [panel, costeo] = await Promise.all([armarPanelAuditor(negocioId, licitacionCodigo), cargarEstadoCosteo(negocioId)]);
@@ -175,17 +183,16 @@ export async function armarFichaPropiaPdf(negocioId: number, licitacionCodigo: s
   };
   const [[u]] = await pool.query(`SELECT nombre FROM usuarios WHERE id = ? LIMIT 1`, [usuarioId]) as any;
 
-  const html = construirFichaTecnicaHtml({
+  const archivo = await construirFichaTecnicaDocx({
     licitacionCodigo, licitacionNombre: neg.licitacion_nombre ?? null, organismo: neg.organismo ?? null,
     empresa, lineas, generadoPor: u?.nombre ?? null,
     fechaTexto: new Date().toLocaleDateString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: 'long', year: 'numeric' }),
     titulo: encabezado?.titulo, subtitulo: encabezado?.subtitulo,
   });
-  const pdf = await generarInformePdf(html);
   const lineasTxt = [...new Set(lineas.map(x => x.linea).filter(n => n != null))].join('-');
-  const nombre = `FICHA_TECNICA_${licitacionCodigo}${lineasTxt ? `_L${lineasTxt}` : ''}.pdf`;
+  const nombre = `FICHA_TECNICA_${licitacionCodigo}${lineasTxt ? `_L${lineasTxt}` : ''}.docx`;
   return {
-    pdf, nombre, clienteId: Number(neg.cliente_id ?? 1), productos: lineas.reduce((n, x) => n + x.productos.length, 0),
+    archivo, nombre, clienteId: Number(neg.cliente_id ?? 1), productos: lineas.reduce((n, x) => n + x.productos.length, 0),
     sinCompletar: especificacionesSinCompletar(lineas), fotoSinConfirmar: productosSinConfirmar(lineas),
     sinFoto: lineas.reduce((n, x) => n + x.productos.filter(pr => !pr.imagenDataUri).length, 0),
   };

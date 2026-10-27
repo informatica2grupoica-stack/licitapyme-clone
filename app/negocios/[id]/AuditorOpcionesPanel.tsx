@@ -340,7 +340,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   // Foto para NUESTRA ficha técnica, por opción: cuando la ficha del proveedor es solo texto no hay de dónde sacarla (27-oct-2026).
   const subirFotoFicha = async (opcionId: number, f: File) => {
     const clave = `foto${opcionId}`;
-    if (!['image/png', 'image/jpeg', 'image/webp'].includes(f.type)) { toast.error('Sube una imagen', 'PNG, JPG o WEBP.'); return; }
+    if (!['image/png', 'image/jpeg'].includes(f.type)) { toast.error('Sube una imagen PNG o JPG', 'La ficha es un Word, y Word no muestra otros formatos.'); return; }
     setSubiendoFicha(prev => new Set(prev).add(clave));
     try {
       const url = await subirADocumentos(f, 'respaldos_auditor');
@@ -1780,7 +1780,7 @@ function FotoParaFicha({ o, subiendo, onSubir, onQuitar }: { o: OpcionDTO; subie
   const ref = useRef<HTMLInputElement>(null);
   return (
     <span data-no-pdf className="mt-1.5 inline-flex items-center gap-2 text-xs">
-      <input ref={ref} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
+      <input ref={ref} type="file" accept="image/png,image/jpeg" className="hidden"
         onChange={e => { const f = e.target.files?.[0]; if (f) onSubir(f); e.target.value = ''; }} />
       <button disabled={subiendo} onClick={() => ref.current?.click()} className="font-semibold text-teal-700 hover:underline disabled:opacity-50">
         {subiendo ? 'Subiendo foto…' : o.fotoFicha ? 'Cambiar foto de la ficha' : 'Foto para la ficha…'}</button>

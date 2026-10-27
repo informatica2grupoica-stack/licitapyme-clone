@@ -46,6 +46,8 @@ export interface EvidenciaAdj {
   /** true si la frase se encontró y el chequeo semántico no la descartó (lo fija el código). */
   cuenta?: boolean;
   motivo_no_cuenta?: string;
+  /** COTIZAR_TOTALIDAD que en realidad pide completar cada línea que se oferte (ver totalidadDentroDeLinea). */
+  completar_cada_linea?: boolean;
 }
 
 export type ResultadoAdj = 'GLOBAL' | 'POR_LINEAS' | 'NO_CLARO';
@@ -64,6 +66,18 @@ export function esTipoEvidencia(x: unknown): x is TipoEvidencia {
   return TIPOS_EVIDENCIA.includes(String(x ?? '').toUpperCase() as TipoEvidencia);
 }
 
+// COTIZAR_TOTALIDAD es «ofertar TODAS las líneas». La frase que exige todos los productos de CADA línea, lote
+// o ítem que se oferte no lo es: es «completar cada línea». Caso real 4697-25-LP26 (27-oct-2026): «Licitación
+// por Línea», 2 líneas con presupuesto propio, y «el no ofertar un producto del lote quedará fuera» la volvía
+// GLOBAL por la regla 2 (12 informes así en la BD: «en cada línea», «en su respectiva línea», «línea ofertada»).
+const TOTALIDAD_EN_LINEA = /\b(cada|su respectiva|una misma|la misma|dentro de la|de la|del|en una|por)\s+(l[ií]nea|lote|[ií]tem)(?![a-záéíóúñ])|l[ií]neas? ofertadas?|l[ií]nea (que|a la que)\b/i;
+const TOTALIDAD_DE_TODO = /(totalidad|todas) (de )?las l[ií]neas|adjudicaci[oó]n ser[aá] global|por el todo|un (solo|[uú]nico) (oferente|proveedor)|oferta global/i;
+const PERMITE_SEPARAR = /por separado|o bien/i;
+export function totalidadDentroDeLinea(frase: string): boolean {
+  if (!TOTALIDAD_EN_LINEA.test(frase)) return false;
+  return !TOTALIDAD_DE_TODO.test(frase) || PERMITE_SEPARAR.test(frase);
+}
+
 /** Marca qué evidencias cuentan: frase verificada en los documentos y semántica no negativa. */
 export function marcarEvidenciasQueCuentan(evs: EvidenciaAdj[]): EvidenciaAdj[] {
   for (const e of evs) {
@@ -73,6 +87,10 @@ export function marcarEvidenciasQueCuentan(evs: EvidenciaAdj[]): EvidenciaAdj[] 
     }
     if (!e.cita?.frase || e.cita.verificada === false) { e.cuenta = false; e.motivo_no_cuenta = 'la frase no se encontró en los documentos'; continue; }
     if (e.cita.semantica === 'NO' || e.cita.semantica === 'PARCIAL') { e.cuenta = false; e.motivo_no_cuenta = 'la frase no sostiene lo que dice el tipo de evidencia'; continue; }
+    if (e.tipo === 'COTIZAR_TOTALIDAD' && totalidadDentroDeLinea(e.cita.frase)) {
+      e.cuenta = false; e.completar_cada_linea = true;
+      e.motivo_no_cuenta = 'pide completar cada línea que se oferte, no ofertar todas las líneas'; continue;
+    }
     e.cuenta = true;
   }
   return evs;

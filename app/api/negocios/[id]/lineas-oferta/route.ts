@@ -18,7 +18,7 @@ import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 import { registrarEvento } from '@/app/lib/historial';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { cargarNegocio, leerInforme, sincronizar, sanarChecklistDeLicitacion } from '@/app/api/negocios/[id]/comercial/route';
-import { esPorLinea, lineasDelInforme, lineasOfertablesDelInforme } from '@/app/lib/checklist-comercial';
+import { esPorLinea, hayLineasQueElegir, lineasDelInforme, lineasOfertablesDelInforme } from '@/app/lib/checklist-comercial';
 import { lineasTecnicasDelInforme } from '@/app/lib/auditor-tecnico-core';
 import { leerDecisionLineas, guardarLineasOfertadas, lineasExcluidasDeNegocio } from '@/app/lib/lineas-oferta';
 import { recalcularAlertasCosteo } from '@/app/lib/motor-comercial-recalculo';
@@ -98,7 +98,9 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     return NextResponse.json({
       success: true,
-      esPorLinea: porLinea,
+      // Con adjudicación GLOBAL o una sola línea no hay nada que elegir y el banner no sale; si ya se
+      // guardó una decisión se sigue mostrando, para no esconder líneas que alguien dejó fuera.
+      esPorLinea: disponibles.length > 0 && (hayLineasQueElegir(informe, disponibles.length) || decision.length > 0),
       checklistDesalineado,
       // "decidido" es lo que apaga el banner. Se mira la decisión guardada, NO si hay líneas
       // marcadas: un negocio sin filas es "todavía no se preguntó", y ahí el banner debe salir.

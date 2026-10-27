@@ -117,7 +117,7 @@ export interface DatosFichaTecnica {
 const esc = (x: unknown): string => String(x ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-const num = (n: number | null): string =>
+export const num = (n: number | null): string =>
   n == null ? '' : Number.isInteger(n) ? String(n) : String(Number(n.toFixed(4)));
 
 /**
@@ -184,7 +184,7 @@ export function sinMarcaNiModelo(texto: string, p: Pick<ProductoFicha, 'marca' |
 }
 
 /** Lo ofertado de una fila tal como se imprime en NUESTRA ficha (sin marca ni modelo). */
-const ofertadoImpreso = (e: EspecificacionFicha, p: ProductoFicha) => { const t = textoOfertado(e); return t ? sinMarcaNiModelo(t, p) : ''; };
+export const ofertadoImpreso = (e: EspecificacionFicha, p: ProductoFicha) => { const t = textoOfertado(e); return t ? sinMarcaNiModelo(t, p) : ''; };
 
 /** Cuántas casillas quedaron sin completar — el aviso que la pantalla muestra antes de presentar. */
 export function especificacionesSinCompletar(lineas: LineaFicha[]): number {
@@ -205,7 +205,7 @@ export function productosSinConfirmar(lineas: LineaFicha[]): number {
 }
 
 /** Todos los productos del documento, en orden, con la línea a la que pertenece cada uno. */
-function productosEnOrden(lineas: LineaFicha[]): Array<{ linea: LineaFicha; producto: ProductoFicha }> {
+export function productosEnOrden(lineas: LineaFicha[]): Array<{ linea: LineaFicha; producto: ProductoFicha }> {
   return lineas.flatMap(linea => linea.productos.map(producto => ({ linea, producto })));
 }
 

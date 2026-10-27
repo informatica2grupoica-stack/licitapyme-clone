@@ -2002,6 +2002,10 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
     // Cotizar el 100 %: se deriva de P1 (solo si se reportó COTIZAR_TOTALIDAD).
     const totalidad = evidencias.find(e => e.cuenta && e.tipo === 'COTIZAR_TOTALIDAD');
     if (totalidad) delSistema({ que: 'Cotizar el 100 % de las líneas', consecuencia: 'si falta una línea la oferta queda fuera', cita: totalidad.cita });
+    else {
+      const cadaLinea = evidencias.find(e => e.completar_cada_linea);
+      if (cadaLinea) delSistema({ que: 'Ofertar todos los productos de cada línea que se oferte', consecuencia: 'si falta un producto de la línea la oferta queda fuera', cita: cadaLinea.cita });
+    }
     // Presupuesto excluyente.
     if (pres.caracter === 'EXCLUYENTE') delSistema({ que: 'No superar el presupuesto disponible', cuanto: atrMostrar(p3), consecuencia: 'sobre el presupuesto la oferta queda fuera de bases', cita: pres.cita });
     // Plazo de entrega fuera de rango.

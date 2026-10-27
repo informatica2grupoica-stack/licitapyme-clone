@@ -6,11 +6,11 @@ reciente arriba. El 2026-10-27 se traspasó aquí lo vigente de la memoria perso
 - [Anexos — motor de relleno](anexos.md) — 2026-10-27: fecha en la línea de «Fecha:», económico por línea, SÍ/NO de integridad
 - [Forma de trabajo con el dueño](forma-de-trabajo.md) — español chileno, datos reales, arreglos generales, él sube a git
 - [Compras](compras.md) — una pantalla con stepper, no reordenar, audita precio; no invalidar aprobaciones al probar
-- [Auditor de la licitación](auditor.md) — 2026-10-27: firma en un clic, fotos en fila + subir foto, ficha sin marca/modelo y por línea
-- [Viabilidad, modalidad, prefiltro y radar](viabilidad.md) — 2026-10-27: «se interrumpió» = despliegue a mitad de análisis; deploy.sh espera (skill viabilidad-interrumpida)
+- [Auditor de la licitación](auditor.md) — 2026-10-27: ficha y oferta técnica en Word; firma en un clic; fotos en fila; sin marca/modelo; por línea
+- [Viabilidad, modalidad, prefiltro y radar](viabilidad.md) — 2026-10-27: «completar cada línea» ya no vuelve GLOBAL la adjudicación (16 informes); «se interrumpió» = despliegue a mitad de análisis; deploy.sh espera (skill viabilidad-interrumpida)
 - [Costeo](costeo.md) — 2026-10-27: re-viabilidad no toca el costeo guardado, «Actualizar» ofrece quitar filas que la viabilidad ya no trae (sin precio/link/SKU/costo real); autoridad del documento, tres ejes, link obligatorio, presupuesto con IVA
 - [Postuladas, adjudicación y alertas](postuladas-alertas.md) — estado real de MP, nunca avisar por vista, OC fija
 - [Documentos, OCR y parser](documentos-ocr.md) — 2026-10-27: pauta de evaluación y lista repetida ya no salen como productos (3712: 80 → 39)
 - [Infraestructura y multi-cliente](infra.md) — 2026-10-27: BD pasada a hora de Chile (migración 174 aplicada, SET PERSIST)
 - [Interfaz compartida](ui.md) — sin aspecto IA (skill), landing nueva guardada sin activar
-- [Negocios, radar y dashboard](negocios-dashboard.md) — ids del pipeline, bitácora total, cierre al 65%
+- [Negocios, radar y dashboard](negocios-dashboard.md) — 2026-10-27: «¿a qué líneas vamos?» no sale si la adjudicación es GLOBAL o hay una sola línea; ids del pipeline, bitácora total, cierre al 65%

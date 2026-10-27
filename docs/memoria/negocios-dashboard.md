@@ -2,6 +2,18 @@
 
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-27 — «¿A qué líneas vamos?» salía en licitaciones globales
+Caso real: 3712-74-LP26 (negocio 1511). Banner «Esta licitación es por línea (1): falta elegir a cuáles
+vamos» en una licitación de adjudicación GLOBAL con una sola línea. El selector miraba solo
+`modalidad.tipo` (cómo se COTIZA), que quedó `por_linea`; elegir líneas depende de cómo se ADJUDICA.
+Ahora sale solo con `hayLineasQueElegir` (`checklist-comercial.ts`): cotización por línea, 2 o más líneas
+ofertables y adjudicación que no sea GLOBAL; o si ya hay una decisión guardada (para no esconder líneas
+dejadas fuera). Ruta `api/negocios/[id]/lineas-oferta`.
+**Verificado:** test `selector-lineas-oferta.test.mts`; barrido en la BD (solo lectura): el selector sale en
+438 negocios y deja de salir en 44 (GLOBAL o una línea), 3712 incluido. Sin ver en navegador.
+4697-25-LP26 (GLOBAL con la línea 1 dejada fuera) estaba mal leída: es por línea y la decisión del equipo
+es válida (ver viabilidad.md, «Completar cada línea»).
+
 ## Decisiones vigentes del dueño
 
 - **`estado_pipeline` usa ids limpios UPPER_SNAKE**; `pipeline.ts` es la fuente de verdad. Nunca

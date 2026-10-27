@@ -1,6 +1,6 @@
 // POST /api/anexos/oferta-tecnica { codigo, documentoId }
 // Completa un anexo técnico EN BLANCO del organismo («ANEXO TÉCNICO 3 · OFERTA TÉCNICA») con nuestra ficha técnica
-// armada desde el Auditor (ver auditor-ficha-propia.ts). Queda en Documentos › Anexos Técnicos como ANEXO_<nombre>.pdf.
+// armada desde el Auditor (ver auditor-ficha-propia.ts). Queda en Documentos › Anexos Técnicos como ANEXO_<nombre>.docx (Word, para editarlo).
 // Mismo acceso que generar un anexo: ver la licitación y tener el permiso «Anexos».
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';

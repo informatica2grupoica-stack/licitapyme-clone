@@ -466,6 +466,15 @@ export function esPorLinea(informe: any): boolean {
   return String(informe?.modalidad?.tipo || '').toLowerCase() === 'por_linea';
 }
 
+/** ¿Hay que preguntar «¿a qué líneas vamos?»? `esPorLinea` es el eje «cómo se cotiza»; elegir líneas
+ *  depende de cómo se ADJUDICA: si la adjudicación es GLOBAL se oferta todo o nada, y con una sola línea
+ *  no hay qué elegir. Caso real 3712-74-LP26 (27-oct-2026): cotización por línea, adjudicación GLOBAL y
+ *  1 línea, y el banner pedía «falta elegir a cuáles vamos». */
+export function hayLineasQueElegir(informe: any, lineasOfertables: number): boolean {
+  if (!esPorLinea(informe) || lineasOfertables < 2) return false;
+  return String(informe?.adjudicacion?.resultado || '').toUpperCase() !== 'GLOBAL';
+}
+
 /** La modalidad no quedó determinada y el asesor tiene que resolverla antes de cargar precios. */
 export function modalidadDudosa(informe: any): boolean {
   const t = String(informe?.modalidad?.tipo || '').toLowerCase();

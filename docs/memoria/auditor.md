@@ -3,6 +3,18 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-27 — Nuestra ficha y la oferta técnica salen en WORD (.docx)
+**Regla (dueño):** el archivo que generamos es Word, no PDF, para que el equipo lo edite antes de presentarlo. Lo arma
+`ficha-tecnica-docx.ts` con la librería `docx` (9.11.0, nueva dependencia: el Docker la instala con `npm ci`), con el
+mismo contenido y orden que la versión HTML: tablas de ancho fijo, fotos en fila, encabezado azul de la tabla que se
+repite en cada hoja, casilla sin dato en amarillo, un salto de página por ficha, sin marca/modelo ni pie. Nombres
+`FICHA_TECNICA_<código>_L<n>.docx` y `ANEXO_<anexo>.docx` en Documentos › Anexos Técnicos. Word no muestra WEBP: la
+«Foto para la ficha» acepta solo PNG/JPG y una WEBP del costeo se pasa a PNG con `sharp` (si falla, va sin esa foto).
+La ficha antigua del costeo (`comercial/ficha-tecnica`) sigue en PDF: se va a retirar.
+**Verificado:** Word real del horno (1414396 L7) y de la oferta técnica de 4022-19-LE26 armados sin subir; tamaños de
+imagen, saltos y textos revisados en el XML; 1567 tests; tsc. **Pendiente:** que el dueño lo abra en Word y lo vea.
+Los PDF ya subidos siguen en Documentos: al regenerar queda el .docx al lado.
+
 ## 2026-10-27 — Firma en un clic; fotos de la ficha en fila y «Foto para la ficha»
 **Firma (decisión de QA delegada por el dueño):** antes eran tres clics (Firmar → Solicitar aprobación → Aprobar) y en
 1414396 L7 el mismo EM se pidió aprobación a sí mismo. Ahora un botón: «Firmar y enviar al EM» (asistente) o «Firmar y

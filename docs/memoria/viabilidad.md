@@ -2,6 +2,23 @@
 
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-27 — «Completar cada línea» se leía como «ofertar todas las líneas» (adjudicación GLOBAL falsa)
+Caso real: 4697-25-LP26 (negocio 1376). Bases: «Licitación por Línea», 2 líneas con monto propio (Equipos
+$36.419.000, Equipamiento $46.882.000), evaluación y facturación separadas. Salía GLOBAL por la regla 2 de CA
+(COTIZAR_TOTALIDAD gana) con la frase «el no ofertar un producto del lote quedará fuera de bases», que pide
+completar CADA lote, no ofertar todos. Ahora `marcarEvidenciasQueCuentan` (`viabilidad-v4/adjudicacion.ts` y
+`cv/v4/adjudicacion.ts`) no cuenta como COTIZAR_TOTALIDAD una frase de «cada línea / su respectiva línea / del
+lote / línea ofertada / por línea», salvo que diga ofertar «la totalidad de las líneas», «por el todo», «un
+solo proveedor» o «adjudicación global» sin «por separado / o bien». La marca `completar_cada_linea` y el
+análisis pone el requisito «Ofertar todos los productos de cada línea que se oferte». La regla 2 no cambió.
+**Verificado:** test `adjudicacion-totalidad-por-linea.test.mts` con frases reales; re-decisión de los 278
+informes guardados (solo lectura): cambian 18, todos con frase de «cada línea»; 16 GLOBAL → POR_LINEAS
+(4697-25/26, 986278-23, 1388961-49, 3035-12, 4858-63, 1305544-50, 1002588-103, 2546-58, 2403-77, 1175-82,
+1028897-42, 1233615-62, 4295-86, 1423921-19, 1057898-108); 4473-23 y 2427-98 siguen GLOBAL por otra
+evidencia. Golden set con IA no corrido. NO cambia lo guardado: hay que re-analizar esas licitaciones.
+**Pendiente:** frases sin palabra de línea («ofertar la totalidad de productos requeridos», «familia
+completa» en 1057898-103) siguen contando como totalidad; ahí decide la persona.
+
 ## 2026-10-27 — Costeo «por línea» con una sola línea en la API
 Caso real: 3712-74-LP26. Re-analizada con el parser nuevo, salió costeo `por_linea` aunque la API trae 1
 línea, las bases dicen «1 línea licitatoria», hay que ofertar todo y la adjudicación es GLOBAL. El modelo
