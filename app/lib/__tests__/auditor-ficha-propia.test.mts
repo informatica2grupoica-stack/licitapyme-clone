@@ -75,3 +75,17 @@ test('ficha propia: la foto del costeo cuenta como puesta por una persona; la ex
   assert.equal(productoFichaDeOpcion(o, linea, { dataUri: 'data:image/png;base64,AA', puestaPorPersona: true }).imagenConfirmada, true);
   assert.equal(productoFichaDeOpcion(o, linea, { dataUri: 'data:image/png;base64,AA', puestaPorPersona: false }).imagenConfirmada, false);
 });
+
+// 1414396-26-LP26, «Control de Humedad»: la ficha del proveedor no traía el dato; el asistente lo complementó con una
+// nota y el EM lo aceptó. Al documento va el valor de la nota (lo que sigue al «:»), no la nota interna.
+test('ficha propia: sin dato del comparador, la casilla toma el valor de la nota del complemento', () => {
+  const o = opcion('CUMPLE', [fila(3, 'Control de Humedad: 0%, 20%, 40%, 60%, 80% y 100%', ''), fila(4, 'Alimentación 220 V', '')], {
+    tecnico: { estado: 'CUMPLE', respaldosCelda: {
+      3: [{ url: 'nota:1', nombre: 'Nota', nota: 'confirmado con proveedor y en el link aparece textual Control de la humedad: 0 - 20 – 40 - 60 - 80 - 100%.' }],
+      4: [{ url: 'nota:2', nombre: 'Nota', nota: 'lo confirmó el proveedor por teléfono' }],
+    }, resultado: { filas: [fila(3, 'Control de Humedad: 0%, 20%, 40%, 60%, 80% y 100%', ''), fila(4, 'Alimentación 220 V', '')] } },
+  });
+  const esp = especificacionesDeOpcion(o);
+  assert.equal(esp[0].valorOfertadoTexto, '0 - 20 – 40 - 60 - 80 - 100%');
+  assert.equal(esp[1].valorOfertadoTexto, null, 'una nota sin «algo: valor» no se imprime');
+});

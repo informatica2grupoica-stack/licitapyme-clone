@@ -731,6 +731,50 @@ function BloqueGruposCheckbox({
   );
 }
 
+// Anexo técnico EN BLANCO («ANEXO TÉCNICO 3 · OFERTA TÉCNICA»): no hay casillas que llenar, el organismo espera
+// nuestra oferta técnica. Se arma desde el Auditor (lo que ofrecemos por requisito) con el título de este anexo.
+// El servidor rechaza un anexo que no sea de este tipo, así que el aviso puede mostrarse en cualquier anexo sin casillas.
+function OfertaTecnicaDelAuditor({ codigo, documentoId, onGenerado }: {
+  codigo: string; documentoId: number; onGenerado: (archivos: { nombre: string; url: string }[]) => void;
+}) {
+  const toast = useToast();
+  const [generando, setGenerando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const generar = async () => {
+    setGenerando(true); setError(null);
+    try {
+      const r = await fetch('/api/anexos/oferta-tecnica', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codigo, documentoId }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.success) throw new Error(d.error || 'No se pudo generar la oferta técnica');
+      window.open(d.url, '_blank', 'noopener');
+      const avisos = [
+        d.faltan?.length ? `Quedaron fuera: ${d.faltan.join('; ')}.` : '',
+        d.sinCompletar ? `${d.sinCompletar} casilla${d.sinCompletar === 1 ? '' : 's'} sin dato ofertado: complétala${d.sinCompletar === 1 ? '' : 's'} antes de presentar.` : '',
+      ].filter(Boolean).join(' ');
+      toast.success(`Listo: ${d.nombre}`, avisos || 'Quedó en Documentos › Anexos Técnicos.');
+      onGenerado([{ nombre: d.nombre, url: d.url }]);
+    } catch (e: any) { setError(e.message); }
+    finally { setGenerando(false); }
+  };
+  return (
+    <div className="flex items-start gap-2.5 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl">
+      <FileText size={15} className="text-slate-500 flex-shrink-0 mt-0.5" />
+      <div className="flex-1 space-y-1.5">
+        <p className="text-[12.5px] text-slate-800">
+          Este anexo no tiene casillas que llenar. Si es la <strong>oferta técnica</strong>, se arma con lo que ofrecemos en cada requisito
+          según el Auditor: una ficha por producto, con fotos, firma y timbre, bajo el título de este anexo.
+        </p>
+        {error && <p className="text-[12px] text-rose-700">{error}</p>}
+        <button type="button" onClick={generar} disabled={generando}
+          className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-md bg-slate-800 text-white hover:bg-slate-900 disabled:opacity-50">
+          {generando ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />}
+          {generando ? 'Armando la oferta técnica…' : 'Generar con la oferta técnica del Auditor'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function AnexoRellenoModal({
   doc, codigo, empresaId, onClose, onGenerado, progreso,
 }: {
@@ -1131,6 +1175,9 @@ export function AnexoRellenoModal({
               )}
               {analisis.seccionesEscaneadas && analisis.seccionesEscaneadas.length > 0 && (
                 <SeccionesEscaneadas secciones={analisis.seccionesEscaneadas} />
+              )}
+              {totalPendientes === 0 && analisis.completadosAuto.length === 0 && (
+                <OfertaTecnicaDelAuditor codigo={codigo} documentoId={doc.id} onGenerado={onGenerado} />
               )}
               {analisis.firma.detectada && !analisis.firma.disponible && (
                 <div className="flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">

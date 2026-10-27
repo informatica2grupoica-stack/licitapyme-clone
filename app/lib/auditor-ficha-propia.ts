@@ -5,7 +5,9 @@
 // PROVEEDORES y el Auditor las compararía como si fueran una más).
 import pool from '@/app/lib/db';
 import { armarPanelAuditor, cargarEstadoCosteo } from '@/app/lib/auditor-opciones';
-import { motivoFichaNoLista, productoFichaDeOpcion } from '@/app/lib/auditor-ficha-propia-core';
+import { motivoFichaNoLista, productoFichaDeOpcion, opcionesDeLaOferta } from '@/app/lib/auditor-ficha-propia-core';
+import { cargarDocumentoBase } from '@/app/lib/anexos-datos';
+import { abrirDocx } from '@/app/lib/anexos-docx';
 import { construirFichaTecnicaHtml, especificacionesSinCompletar, productosSinConfirmar, type EmpresaFicha, type LineaFicha } from '@/app/lib/ficha-tecnica';
 import { extraerImagenesProducto } from '@/app/lib/ficha-imagen-extraer';
 import { generarInformePdf } from '@/app/lib/generar-informe';
@@ -46,10 +48,12 @@ async function fotosDeOpcion(fotoCosteo: string | null, pdfsProveedor: string[])
 
 export interface FichaPropiaGenerada { url: string; nombre: string; productos: number; sinCompletar: number; fotoSinConfirmar: number }
 
-export async function generarFichaPropia(negocioId: number, licitacionCodigo: string, opcionIds: number[], usuarioId: number): Promise<FichaPropiaGenerada> {
-  const f = await armarFichaPropiaPdf(negocioId, licitacionCodigo, opcionIds, usuarioId);
+type FichaArmada = Awaited<ReturnType<typeof armarFichaPropiaPdf>>;
+
+/** Sube el PDF y lo deja en Documentos › Anexos Técnicos. Misma regla que los anexos generados: la caja se pone al
+ *  crear; si alguien lo movió a mano, regenerar no se lo cambia. */
+async function guardarEnAnexosTecnicos(licitacionCodigo: string, f: FichaArmada, usuarioId: number): Promise<FichaPropiaGenerada> {
   const url = await subirDocumentoR2(licitacionCodigo, f.nombre, f.pdf, 'application/pdf');
-  // Misma regla que los anexos generados: la caja se pone al crear; si alguien lo movió a mano, regenerar no se lo cambia.
   await pool.query(
     `INSERT INTO documentos_cache (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, subcategoria, usuario_id, cliente_id)
      VALUES (?, ?, ?, ?, 'application/pdf', 'DOCUMENTOS_PROPIOS', 'Anexos Técnicos', ?, ?)
@@ -58,8 +62,46 @@ export async function generarFichaPropia(negocioId: number, licitacionCodigo: st
   return { url, nombre: f.nombre, productos: f.productos, sinCompletar: f.sinCompletar, fotoSinConfirmar: f.fotoSinConfirmar };
 }
 
+export async function generarFichaPropia(negocioId: number, licitacionCodigo: string, opcionIds: number[], usuarioId: number): Promise<FichaPropiaGenerada> {
+  return guardarEnAnexosTecnicos(licitacionCodigo, await armarFichaPropiaPdf(negocioId, licitacionCodigo, opcionIds, usuarioId), usuarioId);
+}
+
+// ── Anexo técnico EN BLANCO del organismo («ANEXO TÉCNICO 3 · OFERTA TÉCNICA», 4022-19-LE26) ─────────────────────────
+// El organismo solo pone el título y espera que el oferente adjunte su oferta técnica. Se completa con nuestra ficha
+// desde el Auditor, con el título de ESE anexo. Un anexo que trae su propio formulario (tablas, casillas) no es este
+// caso: se rechaza para no perder su contenido, y se llena con el relleno normal.
+const LARGO_MAX_ANEXO_EN_BLANCO = 400;
+
+/** Títulos del anexo en blanco (primer párrafo y el resto como subtítulo), o el motivo por el que no es uno. */
+export async function encabezadoDeAnexoEnBlanco(licitacionCodigo: string, documentoId: string): Promise<{ titulo: string; subtitulo: string | null; nombre: string } | { error: string }> {
+  const { bufferOriginal, nombreOriginal } = await cargarDocumentoBase(licitacionCodigo, documentoId);
+  let xml: string;
+  try { ({ xml } = await abrirDocx(bufferOriginal)); }
+  catch { return { error: 'Solo se completan anexos en Word (.docx).' }; }
+  const parrafos = xml.split('</w:p>').map(p => p.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const texto = parrafos.join(' ');
+  if (/<w:tbl[ >]/.test(xml) || texto.length > LARGO_MAX_ANEXO_EN_BLANCO || !/t[eé]cnic/i.test(texto))
+    return { error: 'Este anexo trae su propio formulario: se llena con «Rellenar anexo», no con la oferta técnica del Auditor.' };
+  return { titulo: parrafos[0] || 'Oferta técnica', subtitulo: parrafos.slice(1).join(' · ') || null, nombre: nombreOriginal };
+}
+
+export async function armarOfertaTecnicaDeAnexoPdf(negocioId: number, licitacionCodigo: string, documentoId: string, usuarioId: number) {
+  const enc = await encabezadoDeAnexoEnBlanco(licitacionCodigo, documentoId);
+  if ('error' in enc) throw new Error(enc.error);
+  const { ids, faltan } = opcionesDeLaOferta(await armarPanelAuditor(negocioId, licitacionCodigo));
+  if (!ids.length) throw new Error(`Ninguna línea tiene todavía su opción lista en el Auditor (lo técnico todo cumplido)${faltan.length ? `: ${faltan.join('; ')}` : ''}.`);
+  const f = await armarFichaPropiaPdf(negocioId, licitacionCodigo, ids, usuarioId, { titulo: enc.titulo, subtitulo: enc.subtitulo });
+  return { ...f, nombre: `ANEXO_${enc.nombre.replace(/\.(docx?|pdf)$/i, '')}.pdf`, faltan };
+}
+
+export async function generarOfertaTecnicaDeAnexo(negocioId: number, licitacionCodigo: string, documentoId: string, usuarioId: number): Promise<FichaPropiaGenerada & { faltan: string[] }> {
+  const f = await armarOfertaTecnicaDeAnexoPdf(negocioId, licitacionCodigo, documentoId, usuarioId);
+  return { ...(await guardarEnAnexosTecnicos(licitacionCodigo, f, usuarioId)), faltan: f.faltan };
+}
+
 /** Arma el PDF sin guardarlo (lo usa generarFichaPropia y sirve para revisarlo antes). */
-export async function armarFichaPropiaPdf(negocioId: number, licitacionCodigo: string, opcionIds: number[], usuarioId: number) {
+export async function armarFichaPropiaPdf(negocioId: number, licitacionCodigo: string, opcionIds: number[], usuarioId: number,
+  encabezado?: { titulo: string; subtitulo: string | null }) {
   if (!opcionIds.length) throw new Error('Elige al menos una opción.');
   const [panel, costeo] = await Promise.all([armarPanelAuditor(negocioId, licitacionCodigo), cargarEstadoCosteo(negocioId)]);
   const fotoPorFila = new Map<string, string>();
@@ -102,6 +144,7 @@ export async function armarFichaPropiaPdf(negocioId: number, licitacionCodigo: s
     licitacionCodigo, licitacionNombre: neg.licitacion_nombre ?? null, organismo: neg.organismo ?? null,
     empresa, lineas, generadoPor: u?.nombre ?? null,
     fechaTexto: new Date().toLocaleDateString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: 'long', year: 'numeric' }),
+    titulo: encabezado?.titulo, subtitulo: encabezado?.subtitulo,
   });
   const pdf = await generarInformePdf(html);
   const lineasTxt = [...new Set(lineas.map(x => x.linea).filter(n => n != null))].join('-');

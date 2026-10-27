@@ -6,7 +6,7 @@ reciente arriba. El 2026-10-27 se traspasó aquí lo vigente de la memoria perso
 - [Anexos — motor de relleno](anexos.md) — 2026-10-27: fecha en la línea de «Fecha:», económico por línea, SÍ/NO de integridad
 - [Forma de trabajo con el dueño](forma-de-trabajo.md) — español chileno, datos reales, arreglos generales, él sube a git
 - [Compras](compras.md) — una pantalla con stepper, no reordenar, audita precio; no invalidar aprobaciones al probar
-- [Auditor de la licitación](auditor.md) — una pantalla, comparador v3, Kimi; confirmaciones las hace el equipo
+- [Auditor de la licitación](auditor.md) — 2026-10-27: ficha toma el valor de la nota de complemento; anexo técnico en blanco → oferta técnica
 - [Viabilidad, modalidad, prefiltro y radar](viabilidad.md) — GLM, CA = Asesor + superusuario, protocolo de errores
 - [Costeo](costeo.md) — autoridad del documento, tres ejes, link obligatorio, presupuesto con IVA
 - [Postuladas, adjudicación y alertas](postuladas-alertas.md) — estado real de MP, nunca avisar por vista, OC fija

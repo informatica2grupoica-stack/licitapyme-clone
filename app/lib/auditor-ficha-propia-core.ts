@@ -41,6 +41,36 @@ export function datoParaPresentar(datoOfertado: string | null | undefined): stri
   return tramos.join('; ') || null;
 }
 
+/** Qué opción va en la oferta técnica de cada línea ofertada: la definitiva (firmada) si existe; si no, la única que tiene
+ *  lo técnico listo. Con dos o más listas y ninguna firmada no se elige por el equipo: la línea queda en `faltan`. */
+export function opcionesDeLaOferta(panel: { lineas: LineaAuditorDTO[] }): { ids: number[]; faltan: string[] } {
+  const ids: number[] = [], faltan: string[] = [];
+  for (const l of panel.lineas) {
+    if (l.noOfertada) continue;
+    const nombre = `Línea ${l.lineaReal ?? l.item} (${nombreDeLinea(l.detalle)})`;
+    const definitiva = l.opciones.find(o => o.id === l.opcionDefinitivaId);
+    const listas = l.opciones.filter(o => !motivoFichaNoLista(o));
+    if (definitiva && !motivoFichaNoLista(definitiva)) ids.push(definitiva.id);
+    else if (definitiva) faltan.push(`${nombre}: la opción firmada aún no tiene lo técnico cumplido`);
+    else if (listas.length === 1) ids.push(listas[0].id);
+    else faltan.push(`${nombre}: ${listas.length ? 'hay varias opciones listas, firma la que se oferta' : 'ninguna opción tiene lo técnico cumplido'}`);
+  }
+  return { ids, faltan };
+}
+
+// El requisito que la ficha del proveedor no traía y el asistente cerró con una nota (27-oct-2026, «Control de Humedad»
+// del horno de 1414396-26-LP26): «confirmado con proveedor y en el link aparece textual Control de la humedad: 0 - 20 –
+// 40 - 60 - 80 - 100%.». La nota es interna; al documento va solo el valor, lo que sigue al «:». La nota más reciente
+// manda. Sin un «algo: valor» la casilla queda vacía, como siempre.
+export function datoDeComplemento(notas: (string | null | undefined)[]): string | null {
+  for (const nota of [...notas].reverse()) {
+    const i = String(nota || '').indexOf(':');
+    const valor = i < 0 ? '' : String(nota).slice(i + 1).trim().replace(/\.$/, '').trim();
+    if (valor) return valor;
+  }
+  return null;
+}
+
 /** Los requisitos de la línea con lo que ofrecemos, en el orden de las bases. */
 export function especificacionesDeOpcion(o: OpcionDTO): EspecificacionFicha[] {
   return (o.tecnico.resultado?.filas ?? []).map(f => ({
@@ -48,7 +78,8 @@ export function especificacionesDeOpcion(o: OpcionDTO): EspecificacionFicha[] {
     tipo: null,
     valorRequeridoTexto: f.requeridoTexto,
     valorRequeridoNumero: null, valorRequeridoNumeroMax: null, unidadRequerida: null,
-    valorOfertadoTexto: datoParaPresentar(f.partes[0]?.ofertadoValor),
+    valorOfertadoTexto: datoParaPresentar(f.partes[0]?.ofertadoValor)
+      ?? datoDeComplemento((o.tecnico.respaldosCelda?.[f.n] ?? []).map(r => r.nota)),
     valorOfertadoNumero: null, unidadOfertada: null,
   }));
 }

@@ -106,6 +106,10 @@ export interface DatosFichaTecnica {
   generadoPor: string | null;
   /** Fecha ya formateada por el llamador — este módulo es puro y no lee el reloj. */
   fechaTexto: string;
+  /** Título del documento. Por defecto «Ficha Técnica de la Oferta»; cuando la ficha completa un anexo técnico en blanco
+   *  del organismo, va el título de ESE anexo («ANEXO TÉCNICO 3») y su subtítulo («OFERTA TÉCNICA»). */
+  titulo?: string;
+  subtitulo?: string | null;
 }
 
 const esc = (x: unknown): string => String(x ?? '')
@@ -328,6 +332,7 @@ export function construirFichaTecnicaHtml(d: DatosFichaTecnica): string {
   header .tit { flex: 1; }
   header h1 { font-size: 15px; margin: 0 0 2px; letter-spacing: .2px; }
   header .sub { color: #52525b; font-size: 10px; margin: 0; }
+  header .subtit { color: #1f3864; font-size: 12px; font-weight: 700; margin: 0 0 3px; }
   header .cod { color: #1f3864; font-weight: 700; font-size: 10px; margin: 3px 0 0; }
   table.kv { border-collapse: collapse; width: 100%; margin-bottom: 18px; }
   table.kv th { text-align: left; width: 110px; color: #52525b; font-weight: 600;
@@ -391,7 +396,8 @@ export function construirFichaTecnicaHtml(d: DatosFichaTecnica): string {
 <header>
   ${e.logoDataUri ? `<img class="logo" src="${e.logoDataUri}" alt="" />` : ''}
   <div class="tit">
-    <h1>Ficha Técnica de la Oferta</h1>
+    <h1>${esc(d.titulo || 'Ficha Técnica de la Oferta')}</h1>
+    ${d.subtitulo ? `<p class="subtit">${esc(d.subtitulo)}</p>` : ''}
     <p class="sub">${esc(d.licitacionNombre || '')}${d.organismo ? ` · ${esc(d.organismo)}` : ''}</p>
     <p class="cod">${esc(d.licitacionCodigo)}</p>
   </div>

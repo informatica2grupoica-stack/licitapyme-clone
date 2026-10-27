@@ -3,6 +3,24 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-27 — Anexo técnico EN BLANCO → oferta técnica desde el Auditor
+El anexo técnico que solo trae su título («ANEXO TÉCNICO 3 · OFERTA TÉCNICA», 4022-19-LE26) se completa
+con nuestra ficha armada desde el Auditor, con el título de ESE anexo (`encabezadoDeAnexoEnBlanco`,
+`armarOfertaTecnicaDeAnexoPdf` en `auditor-ficha-propia.ts`; ruta `app/api/anexos/oferta-tecnica`; aviso con
+botón en `AnexoRellenoModal.tsx` cuando el anexo no tiene nada que llenar). Un anexo con tablas o texto largo
+se rechaza: va por «Rellenar anexo». **Regla:** por línea va la opción firmada (definitiva); si no hay, la
+única con lo técnico cumplido; con varias listas sin firmar no se elige: la línea sale en «faltan».
+**Verificado:** PDF con el anexo real de 4022-19-LE26 (negocio 1568) sin subir: 4 líneas, 3 en «faltan»; tsc.
+**Pendiente:** ver el botón del modal en el navegador.
+
+## 2026-10-27 — La ficha no ponía lo complementado («Control de Humedad», 1414396-26-LP26 L7)
+Si la ficha del proveedor no traía el dato y el asistente cerró el requisito con una NOTA de complemento,
+la casilla salía vacía en amarillo: la ficha solo miraba el dato del comparador. Decisión del dueño: va el
+valor de la nota, lo que sigue al «:» (la nota más reciente manda); sin «algo: valor», queda vacía como antes
+(`datoDeComplemento`, `auditor-ficha-propia-core.ts`). **Verificado:** opción 602 real → «0 - 20 – 40 - 60 -
+80 - 100%»; tests. **Pendiente:** el PDF ya subido (`FICHA_TECNICA_1414396-26-LP26_L7.pdf`) es el viejo:
+volver a generarlo desde el Auditor.
+
 ## 2026-10-27 — Ficha técnica PROPIA desde el Auditor
 Decisión del dueño: nuestra ficha técnica se arma desde la comparación de fichas del Auditor (comparador
 v3), NO desde el checklist técnico antiguo, que se va a retirar. Botón «Generar nuestra ficha técnica» en
