@@ -30,6 +30,25 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, linksCost
     return { c, cubiertos, faltan: productos.length - cubiertos, total, nAvisos };
   }), [cotizaciones, productos, alertas]);
 
+  // Mejor precio por producto (sin las ofertas reemplazadas): el mismo «Mejor» de cada fila. null = sin cotización.
+  const menorDe = useMemo(() => new Map(productos.map(p => {
+    const v = cotizaciones.filter(c => !reemp.has(`${c.id}:${p.id}`)).map(c => c.items.find(i => i.productoId === p.id)?.precioUnitario).filter((x): x is number => x != null && x > 0);
+    return [p.id, v.length ? Math.min(...v) : null] as const;
+  })), [cotizaciones, productos, reemp]);
+
+  // Resumen contra el costeo: líneas cotizadas a su mejor precio + líneas sin cotizar a lo costeado. Solo entran líneas con costeo.
+  const vsCosteo = useMemo(() => {
+    let costCot = 0, nuevoCot = 0, nCot = 0, costSin = 0, nSin = 0, nSinCosteo = 0;
+    for (const p of productos) {
+      const base = costeado[p.id];
+      if (base == null) { nSinCosteo++; continue; }
+      const q = num(p.cantidad), m = menorDe.get(p.id);
+      if (m != null) { costCot += base * q; nuevoCot += m * q; nCot++; } else { costSin += base * q; nSin++; }
+    }
+    const totalCosteado = costCot + costSin, totalNuevo = nuevoCot + costSin;
+    return { costCot, nuevoCot, nCot, costSin, nSin, nSinCosteo, totalCosteado, totalNuevo, dif: totalCosteado - totalNuevo };
+  }, [productos, costeado, menorDe]);
+
   if (productos.length === 0 || (cotizaciones.length === 0 && !lecLink?.disponible)) return null;
 
   const totales = resumen.filter(r => r.faltan === 0 && r.total > 0 && r.nAvisos === 0).map(r => r.total);
@@ -117,6 +136,11 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, linksCost
                     <span className="flex items-center gap-1.5">
                       <span className="text-zinc-500">Mejor</span><b className="text-zinc-900 tabular-nums">{clp(menor)}</b>
                       <span className={`font-semibold px-1.5 py-0.5 rounded border ${ESTILO_VEREDICTO[cmpMenor.veredicto].chip}`}>{ESTILO_VEREDICTO[cmpMenor.veredicto].texto(cmpMenor.diffPct)}</span>
+                    </span>
+                  )}
+                  {menor == null && base != null && (
+                    <span className="flex items-center gap-1.5" title="Sin cotización: se toma lo costeado">
+                      <span className="text-zinc-500">Costeo</span><b className="text-rose-600 tabular-nums">{clp(base)}</b>
                     </span>
                   )}
                   <span className="text-zinc-400">· {ofertas.length} oferta{ofertas.length === 1 ? '' : 's'}</span>
@@ -273,6 +297,20 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, linksCost
             </table>
           </div>
         </details>
+      )}
+      {vsCosteo.totalCosteado > 0 && (
+        <div className="border-t border-zinc-200 px-4 py-3" data-testid="resumen-vs-costeo">
+          <p className="text-[12.5px] font-bold text-zinc-700">Resumen contra lo costeado <span className="font-normal text-zinc-400">(neto, cotizadas a su mejor precio y las sin cotizar a lo costeado)</span></p>
+          <table className="mt-1.5 text-[12.5px] tabular-nums">
+            <tbody>
+              <tr><td className="pr-6 py-0.5 text-zinc-600">Líneas cotizadas ({vsCosteo.nCot})</td><td className="pr-4 text-right text-zinc-500">costeado {clp(vsCosteo.costCot)}</td><td className="text-right font-semibold text-zinc-900">{clp(vsCosteo.nuevoCot)}</td></tr>
+              <tr><td className="pr-6 py-0.5 text-zinc-600">Líneas sin cotizar ({vsCosteo.nSin})</td><td className="pr-4 text-right text-zinc-500">costeado {clp(vsCosteo.costSin)}</td><td className="text-right font-semibold text-rose-600">{clp(vsCosteo.costSin)}</td></tr>
+              <tr className="border-t border-zinc-200"><td className="pr-6 pt-1.5 font-semibold text-zinc-800">Total</td><td className="pr-4 pt-1.5 text-right text-zinc-500">costeado {clp(vsCosteo.totalCosteado)}</td><td className="pt-1.5 text-right font-bold text-zinc-900">{clp(vsCosteo.totalNuevo)}</td></tr>
+              <tr><td className="pr-6 py-0.5 font-semibold text-zinc-800">{vsCosteo.dif >= 0 ? 'Margen a favor (menos que lo costeado)' : 'Sobrecosto (más que lo costeado)'}</td><td /><td className={`text-right font-bold ${vsCosteo.dif >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}>{clp(Math.abs(vsCosteo.dif))} · {(Math.abs(vsCosteo.dif) / vsCosteo.totalCosteado * 100).toLocaleString('es-CL', { maximumFractionDigits: 1 })} %</td></tr>
+            </tbody>
+          </table>
+          {vsCosteo.nSinCosteo > 0 && <p className="mt-1 text-[11.5px] text-zinc-400">{vsCosteo.nSinCosteo} línea{vsCosteo.nSinCosteo === 1 ? '' : 's'} sin monto costeado no entra{vsCosteo.nSinCosteo === 1 ? '' : 'n'} en el resumen.</p>}
+        </div>
       )}
       <p className="px-4 py-2 text-[11.5px] text-zinc-400 border-t border-zinc-100">Verde: más barata que lo costeado · Rojo: más cara · Azul: igual (±1 %) · Gris: no se puede comparar. ⚠ rojo = un problema del proveedor (plazo, RUT, mínimo de venta, falta un componente).</p>
     </div>

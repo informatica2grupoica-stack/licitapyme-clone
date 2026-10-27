@@ -119,25 +119,28 @@ test('los anexos administrativos se generan igual, se oferte la línea que se of
   assert.ok(soloUna.length > 0);
 });
 
-// ─── AVANCE: una línea descartada no es una tarea pendiente ───────────────────────────────────
-// resumirChecklist miraba solo `tipo === 'precio'` porque `ofertamos` nacía en el costeo. Con el
-// selector la marca llega también a las `linea_tecnica`, y sin generalizar la regla una línea
-// descartada quedaba contada como pendiente para siempre — el avance nunca llegaba a 100%.
-test('una línea técnica fuera de la oferta no cuenta como pendiente', () => {
+// ─── AVANCE Y ESTADO DEL BLOQUE: las líneas técnicas ya no cuentan (27-oct-2026) ───────────────
+// Salieron del Checklist por decisión del dueño: su comparación, firma y aprobación son del Auditor (compra y técnico). Antes
+// una línea fuera de la oferta o sin validar frenaba el avance y el bloque técnico; ahora ninguna línea técnica pesa acá.
+test('una línea técnica no cuenta en el avance, esté como esté', () => {
   const resumen = resumirChecklist([
     { estado: 'APROBADO', criticidad: 'ADMISIBILIDAD_DURA', tipo: 'linea_tecnica', ofertamos: true },
     { estado: 'PENDIENTE', criticidad: 'ADMISIBILIDAD_DURA', tipo: 'linea_tecnica', ofertamos: false },
+    { estado: 'PENDIENTE', criticidad: 'ADMISIBILIDAD_DURA', tipo: 'linea_tecnica', ofertamos: null },
   ]);
+  assert.equal(resumen.total, 0);
   assert.equal(resumen.pendientes, 0);
   assert.equal(resumen.bloqueantesPendientes, 0);
 });
 
-test('una línea técnica SIN marca (negocio sin decisión) sí cuenta como pendiente', () => {
+test('lo que no es línea técnica sigue contando: un precio y una alerta de admisibilidad', () => {
   const resumen = resumirChecklist([
     { estado: 'PENDIENTE', criticidad: 'ADMISIBILIDAD_DURA', tipo: 'linea_tecnica', ofertamos: null },
+    { estado: 'PENDIENTE', criticidad: 'ADMISIBILIDAD_DURA', tipo: 'precio', ofertamos: true },
+    { estado: 'PENDIENTE', criticidad: 'ADMISIBILIDAD_DURA', tipo: 'dato', ofertamos: null },
   ]);
-  assert.equal(resumen.pendientes, 1);
-  assert.equal(resumen.bloqueantesPendientes, 1);
+  assert.equal(resumen.total, 2);
+  assert.equal(resumen.bloqueantesPendientes, 2);
 });
 
 test('el comportamiento viejo se mantiene: un precio no ofertado tampoco cuenta', () => {
@@ -147,22 +150,22 @@ test('el comportamiento viejo se mantiene: un precio no ofertado tampoco cuenta'
   assert.equal(resumen.pendientes, 0);
 });
 
-// ─── ESTADO DEL BLOQUE: mismo criterio que el avance ──────────────────────────────────────────
-// estadoDeBloque tenía la misma comprobación estrecha (`tipo === 'precio'`) que resumirChecklist.
-// Sin generalizarla, el bloque TÉCNICO quedaba "pendiente" para siempre por una línea a la que ni
-// siquiera nos presentamos, y el asesor no podía cerrarlo nunca.
-test('estadoDeBloque ignora una línea técnica fuera de la oferta', () => {
+test('estadoDeBloque: un bloque técnico que solo tiene líneas queda SIN_ITEMS (nada que aprobar)', () => {
   assert.equal(estadoDeBloque([
-    { estado: 'APROBADO', tipo: 'linea_tecnica', ofertamos: true, clave_origen: 'tecnico:linea:7' },
-    { estado: 'PENDIENTE', tipo: 'linea_tecnica', ofertamos: false, clave_origen: 'tecnico:linea:2' },
-  ]), 'APROBADO');
+    { estado: 'PENDIENTE', tipo: 'linea_tecnica', ofertamos: true, clave_origen: 'tecnico:linea:7' },
+    { estado: 'CARGADO', tipo: 'linea_tecnica', ofertamos: null, clave_origen: 'tecnico:linea:2' },
+  ]), 'SIN_ITEMS');
 });
 
-test('estadoDeBloque SÍ cuenta una línea técnica sin marca (negocio sin decisión)', () => {
+test('estadoDeBloque: con un documento técnico además de las líneas, manda el documento', () => {
+  assert.equal(estadoDeBloque([
+    { estado: 'PENDIENTE', tipo: 'linea_tecnica', ofertamos: true, clave_origen: 'tecnico:linea:7' },
+    { estado: 'APROBADO', tipo: 'documento', ofertamos: null, clave_origen: 'criterio:experiencia' },
+  ]), 'APROBADO');
   assert.equal(estadoDeBloque([
     { estado: 'APROBADO', tipo: 'linea_tecnica', ofertamos: true, clave_origen: 'tecnico:linea:7' },
-    { estado: 'PENDIENTE', tipo: 'linea_tecnica', ofertamos: null, clave_origen: 'tecnico:linea:2' },
-  ]), 'PENDIENTE');
+    { estado: 'CARGADO', tipo: 'documento', ofertamos: null, clave_origen: 'criterio:experiencia' },
+  ]), 'POR_APROBAR');
 });
 
 // ─── ALERTAS DE CUMPLIMIENTO: qué entra al acuse de lectura ───────────────────────────────────

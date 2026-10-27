@@ -53,8 +53,8 @@ interface FilaChecklist {
 }
 
 /**
- * Una query ancha (negocios × checklist_comercial de bloques aprobables) + dos agregadas
- * (características técnicas, sin N+1), agrupadas en memoria — mismo patrón que ya usa
+ * Una query ancha (negocios × checklist_comercial de bloques aprobables) + una agregada
+ * (sin N+1), agrupadas en memoria — mismo patrón que ya usa
  * leerResumenesTecnicos() en la ruta hermana. Devuelve solo negocios con algo POR_APROBAR u
  * OBSERVADO: si nadie cargó nada todavía, no es "pendiente de aprobación", es trabajo que ni
  * siquiera empezó.
@@ -78,23 +78,8 @@ export async function construirBandeja() {
     [ESTADOS_QUE_SE_APRUEBAN.flatMap(idsEquivalentes)],
   ) as any;
 
-  const [filasCaract] = await pool.query(
-    `SELECT negocio_id,
-            SUM(veredicto = 'CUMPLE') AS cumplen, SUM(veredicto = 'NO_CUMPLE') AS no_cumplen,
-            SUM(veredicto = 'CUMPLE_CON_COMPLEMENTO') AS con_complemento, SUM(veredicto IS NULL) AS sin_evaluar,
-            SUM(corregido_por IS NOT NULL) AS corregidas_por_asesor,
-            SUM(pendiente_confirmacion_proveedor = 1) AS pendientes_proveedor
-       FROM checklist_comercial_caracteristicas GROUP BY negocio_id`,
-  ) as any;
-  const veredictoPorNegocio = new Map<number, any>();
-  for (const r of filasCaract as any[]) {
-    veredictoPorNegocio.set(r.negocio_id, {
-      cumplen: Number(r.cumplen), noCumplen: Number(r.no_cumplen),
-      conComplemento: Number(r.con_complemento), sinEvaluar: Number(r.sin_evaluar),
-      corregidasPorAsesor: Number(r.corregidas_por_asesor),
-      pendientesProveedor: Number(r.pendientes_proveedor),
-    });
-  }
+  // Las características de las líneas técnicas ya no se cuentan acá (27-oct-2026): salieron del Checklist, las resuelve el Auditor.
+  const veredictoTecnico = { cumplen: 0, noCumplen: 0, conComplemento: 0, sinEvaluar: 0, corregidasPorAsesor: 0, pendientesProveedor: 0 };
 
   // Alertas vigentes del Motor Comercial (Fase 4) — try/catch: si la migración 53 no está
   // aplicada todavía, la bandeja sigue funcionando sin esta columna, no revienta.
@@ -157,9 +142,6 @@ export async function construirBandeja() {
       b => bloques[b].estado === 'POR_APROBAR' || bloques[b].estado === 'OBSERVADO',
     );
     if (!requiereAtencion) continue;
-
-    const veredictoTecnico = veredictoPorNegocio.get(negocioId)
-      || { cumplen: 0, noCumplen: 0, conComplemento: 0, sinEvaluar: 0, corregidasPorAsesor: 0, pendientesProveedor: 0 };
 
     const bloqueTecnicoAprobado = bloques.TECNICO.estado === 'APROBADO' || bloques.TECNICO.estado === 'SIN_ITEMS';
     const bloqueComercialAprobado = bloques.COMERCIAL.estado === 'APROBADO' || bloques.COMERCIAL.estado === 'SIN_ITEMS';

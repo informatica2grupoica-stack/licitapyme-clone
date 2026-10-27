@@ -940,6 +940,12 @@ export interface ResumenChecklist {
   avance: number;              // 0-100
 }
 
+/** Las líneas técnicas salieron del Checklist (27-oct-2026, decisión del dueño): su comparación, firma y aprobación son del
+ *  Auditor (compra y técnico). Las filas `linea_tecnica` siguen en la tabla, pero NO cuentan para el avance, el estado del
+ *  bloque, el semáforo ni la bandeja de aprobaciones, y la pantalla no las muestra. Los otros ítems técnicos (documentos de
+ *  criterios, alertas de cumplimiento) siguen como estaban. */
+export const esLineaTecnica = (i: { tipo: string }): boolean => i.tipo === 'linea_tecnica';
+
 export function resumirChecklist(items: Array<Pick<ItemChecklist, 'estado' | 'criticidad' | 'tipo' | 'ofertamos'>>): ResumenChecklist {
   // En por-línea, una línea que decidimos NO ofertar no cuenta para el avance: descartarla es
   // una decisión válida, no una tarea pendiente.
@@ -949,7 +955,7 @@ export function resumirChecklist(items: Array<Pick<ItemChecklist, 'estado' | 'cr
   // proyecta sobre TODAS las filas con línea — incluidas las `linea_tecnica` —, así que la regla
   // se generaliza: si una fila está marcada "no ofertamos", no cuenta, sea del tipo que sea.
   // Sin esto, descartar la línea 2 dejaba su línea técnica contada como pendiente para siempre.
-  const vivos = items.filter(i => i.ofertamos !== false);
+  const vivos = items.filter(i => i.ofertamos !== false && !esLineaTecnica(i));
   const aprobados  = vivos.filter(i => i.estado === 'APROBADO').length;
   const porAprobar = vivos.filter(i => i.estado === 'CARGADO').length;
   const observados = vivos.filter(i => i.estado === 'OBSERVADO').length;
@@ -992,7 +998,7 @@ export function estadoDeBloque(
   // resumirChecklist: desde el selector de líneas (migración 78) la marca llega también a las
   // `linea_tecnica`, y mirando solo los precios el bloque TÉCNICO quedaba "pendiente" para
   // siempre por una línea a la que ni siquiera nos presentamos.
-  const vivos = items.filter(i => i.ofertamos !== false && !esAlertaDeCumplimiento(i));
+  const vivos = items.filter(i => i.ofertamos !== false && !esAlertaDeCumplimiento(i) && !esLineaTecnica(i));
   if (vivos.length === 0) return 'SIN_ITEMS';
   if (vivos.some(i => i.estado === 'CARGADO')) return 'POR_APROBAR';   // prioridad: hay algo que revisar
   if (vivos.some(i => i.estado === 'OBSERVADO')) return 'OBSERVADO';   // rebotado, esperando al asistente

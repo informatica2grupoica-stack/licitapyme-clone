@@ -29,11 +29,10 @@ import { AnexoRellenoModal, type AnexoDoc } from '@/app/components/AnexoRellenoM
 import { etiquetasDistinguibles, type DecisionGeneracion, type DocumentoCandidato } from '@/app/lib/auditor-generacion';
 import { SelectorDocumentoAnexo } from '@/app/components/SelectorDocumentoAnexo';
 import { repartirArchivosGenerados } from '@/app/lib/anexos-match';
-import { FilaLineaTecnica } from './FilaLineaTecnica';
 import { MotorComercialCard } from './MotorComercialCard';
 import {
   CLAVE_ITEM_PLAZO, rangoPlazoDeDescripcion, validarPlazoOfertado,
-  esAlertaDeCumplimiento,
+  esAlertaDeCumplimiento, esLineaTecnica,
 } from '@/app/lib/checklist-comercial';
 import { IconShieldCheck as ShieldCheck, IconBuilding as Building2, IconCheck as Check, IconX as X, IconUpload as Upload, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconCopy as Copy, IconFileText as FileText, IconCurrencyDollar as DollarSign, IconTool as Wrench, IconClipboardCheck as ClipboardCheck, IconRefresh as RefreshCw, IconArrowBackUp as Undo2, IconSparkles as Sparkles, IconEye as Eye, IconDownload as Download, IconTrash as Trash2, IconHistory as History } from '@tabler/icons-react';
 
@@ -181,7 +180,7 @@ function BannerCambioForo({ negocioId, snapshot }: {
 
 // ════════════════════════════════════════════════════════════════════════════════
 export function InformacionComercialSection({ negocioId, licitacionCodigo, empresaId, estadoPipeline, onEmpresaChange, vista = 'todo' }: {
-  /** 'checklist' = bloques Técnico y Comercial + alertas · 'anexos' = bloque Administrativo (anexos) y la empresa · 'todo' = como siempre. */
+  /** 'checklist' = bloque Comercial (y los ítems técnicos que no son líneas) + alertas; las líneas técnicas son del Auditor · 'anexos' = bloque Administrativo (anexos) y la empresa · 'todo' = como siempre. */
   vista?: 'todo' | 'checklist' | 'anexos' | 'oferta';
   negocioId: number;
   licitacionCodigo: string;
@@ -190,8 +189,6 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   onEmpresaChange: (id: number) => void;
 }) {
   const toast = useToast();
-  const confirmarLimpieza = useConfirm();
-  const [limpiandoTodas, setLimpiandoTodas] = useState(false);
   // El "Generar" (creador de anexos): admin o permiso "Anexos", mismo criterio que en Documentos
   // (05-oct-2026; antes admin-only).
   const { usuario } = useSession();
@@ -221,123 +218,6 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   // caen los archivos que ningún punto matcheó con confianza (ver repartirArchivosGenerados).
   const [generandoItem, setGenerandoItem] = useState<Item | null>(null);
   const [anexoDocSeleccionado, setAnexoDocSeleccionado] = useState<AnexoDoc | null>(null);
-  const [generandoFicha, setGenerandoFicha] = useState(false);
-  // UN PDF con las especificaciones de TODOS los ítems: se sube una vez, el servidor lo parte por
-  // producto, lo empareja con cada línea por nombre y compara cada una solo contra su bloque.
-  const [comparandoTodas, setComparandoTodas] = useState(false);
-  const [progresoTodas, setProgresoTodas] = useState<string | null>(null);
-  const pdfTodasRef = useRef<HTMLInputElement>(null);
-  const compararPdfTodasLasLineas = async (file: File) => {
-    setComparandoTodas(true);
-    try {
-      setProgresoTodas(`Subiendo "${file.name}"…`);
-      const fd = new FormData();
-      fd.append('licitacionCodigo', licitacionCodigo);
-      fd.append('files', file);
-      const rs = await fetch('/api/documentos/subir', { method: 'POST', body: fd });
-      const ds = await rs.json().catch(() => ({}));
-      if (!rs.ok || !ds.documentos?.length) { toast.error(ds.error || `No se pudo subir "${file.name}"`); return; }
-      // Una línea sin validar no tiene requisitos clasificados que comparar: se validan primero (de a 3).
-      const sinValidar = items.filter(i => i.tipo === 'linea_tecnica' && i.ofertamos !== false && (!i.resumen_tecnico || i.resumen_tecnico.total === 0));
-      let hechas = 0;
-      const noValidadas: string[] = [];
-      for (let k = 0; k < sinValidar.length; k += 3) {
-        setProgresoTodas(`Clasificando las bases de cada línea (${hechas}/${sinValidar.length})…`);
-        await Promise.all(sinValidar.slice(k, k + 3).map(async i => {
-          try {
-            const rv = await fetch(`/api/negocios/${negocioId}/comercial/${i.id}/caracteristicas`, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'validar' }),
-            });
-            if (!rv.ok) noValidadas.push(`${i.titulo}: ${(await rv.json().catch(() => ({}))).error || 'no se pudo validar'}`);
-          } catch { noValidadas.push(`${i.titulo}: error de red`); }
-          hechas++;
-        }));
-      }
-      if (noValidadas.length) toast.warning(`${noValidadas.length} línea(s) no se pudieron validar`, `${noValidadas.slice(0, 3).join(' · ')}${noValidadas.length > 3 ? '…' : ''}`);
-      setProgresoTodas('Separando por ítem y comparando cada línea…');
-      const r = await fetch(`/api/negocios/${negocioId}/comercial/documento-todas`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ documento: { url: ds.documentos[0].url, nombre: ds.documentos[0].nombre } }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok || !d?.success) { toast.error(d.error || 'No se pudo comparar el documento'); return; }
-      const comparadas = (d.resultados || []).filter((x: any) => x.comparados > 0).length;
-      const sin = (d.lineasSinBloque || []).length;
-      const detalle = `${comparadas} línea(s) comparadas${sin ? ` · ${sin} sin bloque en el PDF (quedaron intactas: ${d.lineasSinBloque.slice(0, 6).map((x: any) => `L${x.linea}`).join(', ')}${sin > 6 ? '…' : ''})` : ''}${(d.bloquesSinLinea || []).length ? ` · ${d.bloquesSinLinea.length} bloque(s) del PDF sin línea` : ''}`;
-      if (sin || (d.resultados || []).some((x: any) => x.aviso)) toast.warning('Comparación lista con avisos', detalle);
-      else toast.success('Documento comparado contra todas las líneas', detalle);
-    } catch (e: any) {
-      toast.error('Error de red', String(e));
-    } finally {
-      setComparandoTodas(false); setProgresoTodas(null); cargar();
-    }
-  };
-  // Limpia el auditor y la imagen de TODAS las líneas técnicas (de a una, en orden: cada una es su
-  // propia petición). Antes había que entrar línea por línea al modal para borrarlas.
-  const limpiarTodasLasLineas = async () => {
-    const ids = items.filter(i => i.tipo === 'linea_tecnica').map(i => i.id);
-    const ok = await confirmarLimpieza({
-      titulo: `¿Limpiar las ${ids.length} líneas técnicas?`,
-      mensaje: 'En TODAS las líneas se borran las características comparadas y la foto/marca/modelo del producto, y vuelven a "sin validar". Las fichas subidas quedan adjuntas. No se puede deshacer.',
-      confirmarLabel: 'Limpiar todas',
-      peligro: true,
-    });
-    if (!ok) return;
-    setLimpiandoTodas(true);
-    let fallidas = 0;
-    try {
-      for (const id of ids) {
-        try {
-          const r = await fetch(`/api/negocios/${negocioId}/comercial/${id}/caracteristicas`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'reiniciar' }),
-          });
-          if (!r.ok) fallidas++;
-        } catch { fallidas++; }
-      }
-      if (fallidas) toast.error(`${fallidas} línea(s) no se pudieron limpiar`, 'Vuelve a intentarlo o límpialas una por una.');
-      else toast.success('Líneas limpiadas', `${ids.length} línea(s) quedaron sin validar.`);
-    } finally {
-      setLimpiandoTodas(false);
-      cargar();
-    }
-  };
-
-  /**
-   * Genera NUESTRA ficha técnica desde las exigencias que el Auditor ya tiene clasificadas.
-   * Es a la vez el documento que se presenta y la referencia contra la cual leer la ficha que
-   * manda el proveedor. Ver app/lib/ficha-tecnica.ts.
-   */
-  const generarFichaPropia = async () => {
-    setGenerandoFicha(true);
-    try {
-      const r = await fetch(`/api/negocios/${negocioId}/comercial/ficha-tecnica`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lineas: [] }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok || !d?.success) { toast.error(d.error || 'No se pudo generar la ficha'); return; }
-      // El aviso de casillas en blanco NO es cosmético: son las que hay que completar a mano antes
-      // de presentar, y es justo lo que se pierde de vista si el PDF se abre y se da por listo.
-      //
-      // sinConfirmar (08-sep-2026): marca/modelo/foto leídos automáticamente de la ficha del
-      // proveedor, sin que nadie los haya revisado. El PDF YA NO imprime ese aviso adentro del
-      // documento (antes salía en letra ámbar, dentro de lo que se presenta al organismo) — el
-      // aviso tiene que vivir ACÁ, antes de descargar, no dentro del documento oficial.
-      const avisos = [
-        d.sinCompletar > 0 ? `${d.sinCompletar} casilla(s) de "Ofertado" en blanco` : null,
-        d.sinConfirmar > 0 ? `${d.sinConfirmar} producto(s) con marca/modelo o foto sin confirmar` : null,
-      ].filter(Boolean);
-      if (avisos.length) {
-        toast.warning(`Ficha lista con ${d.lineas} línea(s)`, `${avisos.join(' · ')} — revísalos antes de presentar.`);
-      } else {
-        toast.success(`Ficha lista con ${d.lineas} línea(s)`, 'Todas las casillas vienen completas.');
-      }
-      setVisorDoc({ nombre: d.nombre, url: d.url });
-    } catch (e: any) {
-      toast.error('Error de red', String(e));
-    } finally { setGenerandoFicha(false); }
-  };
-
   const aplicar = useCallback((d: any) => {
     setItems(d.items || []);
     setResumen(d.resumen || null);
@@ -492,23 +372,6 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
 
   const sinEmpresa = !empresa;
 
-  // Agregado del bloque TECNICO: no vive en el backend (es una suma en caliente de los
-  // resumen_tecnico que ya trae cada línea), así que sincronizar() sigue sin tocar IA.
-  // Las líneas que quedaron FUERA de la oferta (selector de líneas a ofertar, migración 78) no
-  // cuentan para el avance: no tener aprobada la línea 2 cuando no se postula a la línea 2 no es
-  // una tarea pendiente. La fila igual se muestra abajo, atenuada — si ya traía trabajo cargado,
-  // esconderla haría desaparecer de la vista algo que sigue existiendo en la base.
-  const lineasTecnicas = items.filter(i => i.tipo === 'linea_tecnica' && i.ofertamos !== false);
-  const resumenTecnicoGlobal = lineasTecnicas.reduce((acc, i) => {
-    acc.totalLineas++;
-    if (i.estado === 'APROBADO') acc.aprobadas++;
-    const r = i.resumen_tecnico;
-    if (!r || r.total === 0) acc.sinValidar++;
-    else if (r.noCumplen > 0) acc.noCumplen++;
-    else if (r.conComplemento > 0 || r.pendientesProveedor > 0) acc.conComplemento++;
-    return acc;
-  }, { totalLineas: 0, aprobadas: 0, noCumplen: 0, conComplemento: 0, sinValidar: 0 });
-
   return (
     <div className="space-y-5 fade-in">
 
@@ -542,7 +405,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-[15px] font-bold text-zinc-900 leading-tight">Auditor Técnico</h2>
+                <h2 className="text-[15px] font-bold text-zinc-900 leading-tight">Checklist</h2>
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${SEMAFORO_BADGE[semaforo].bg} ${SEMAFORO_BADGE[semaforo].text}`}>
                   {SEMAFORO_BADGE[semaforo].label}
                 </span>
@@ -635,7 +498,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
           los anexos reales a subir, en la misma lista, y no había forma de distinguir "esto hay
           que adjuntarlo" de "esto solo hay que tenerlo presente" (pedido 24-ago-2026). */}
       {BLOQUES.filter(b => vista === 'todo' || (vista === 'anexos' || vista === 'oferta' ? b.key === 'ADMINISTRATIVO' : b.key !== 'ADMINISTRATIVO')).map(b => {
-        const delBloque = items.filter(i => i.bloque === b.key && !esAlerta(i));
+        const delBloque = items.filter(i => i.bloque === b.key && !esAlerta(i) && !esLineaTecnica(i));
         if (delBloque.length === 0) return null;
         const Icono = b.icon;
         const bloqueadoPorEmpresa = b.key === 'ADMINISTRATIVO' && sinEmpresa;
@@ -672,96 +535,22 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
 
             {b.key === 'COMERCIAL' && <MotorComercialCard negocioId={negocioId} licitacionCodigo={licitacionCodigo} />}
 
-            {b.key === 'TECNICO' && lineasTecnicas.length > 0 && (
-              <div className="px-4 py-2.5 bg-zinc-50 border-b border-zinc-100 flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-3 text-[11.5px] flex-wrap">
-                  <span className="font-semibold text-zinc-600">{resumenTecnicoGlobal.totalLineas} línea{resumenTecnicoGlobal.totalLineas === 1 ? '' : 's'}</span>
-                  <span className="text-emerald-600 font-semibold">{resumenTecnicoGlobal.aprobadas} aprobada{resumenTecnicoGlobal.aprobadas === 1 ? '' : 's'}</span>
-                  {resumenTecnicoGlobal.noCumplen > 0 && <span className="text-rose-600 font-semibold">{resumenTecnicoGlobal.noCumplen} no cumple</span>}
-                  {resumenTecnicoGlobal.conComplemento > 0 && <span className="text-amber-600 font-semibold">{resumenTecnicoGlobal.conComplemento} con complemento</span>}
-                  {resumenTecnicoGlobal.sinValidar > 0 && <span className="text-zinc-400">{resumenTecnicoGlobal.sinValidar} sin validar</span>}
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  {puedeAprobar && !bloqueadoPorEmpresa && (
-                    <button
-                      onClick={limpiarTodasLasLineas}
-                      disabled={limpiandoTodas}
-                      title="Borrar el auditor y la imagen de todas las líneas técnicas"
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 px-2.5 py-1 text-[11px] font-semibold text-rose-600 transition-colors hover:bg-rose-50 disabled:opacity-50"
-                    >
-                      {limpiandoTodas ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-                      {limpiandoTodas ? 'Limpiando…' : 'Limpiar todas'}
-                    </button>
-                  )}
-                  {/* La ficha del proveedor ya no se sube acá: se arrastra directo a la fila de
-                      SU línea (ver FilaLineaTecnica) — antes este botón comparaba UN documento
-                      contra TODAS las líneas de una vez, y una ficha de una sola línea producía
-                      falsos "0 de N cumple" en las demás (ver memoria project_ficha_por_linea_ago2026). */}
-                  {puedeAprobar && !bloqueadoPorEmpresa && (
-                    <>
-                      <input
-                        ref={pdfTodasRef} type="file" accept=".pdf,.doc,.docx" className="hidden"
-                        onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) compararPdfTodasLasLineas(f); }}
-                      />
-                      <button
-                        onClick={() => pdfTodasRef.current?.click()}
-                        disabled={comparandoTodas}
-                        title="Un solo PDF con las especificaciones de todos los ítems: se separa por producto y cada línea se compara solo contra su parte"
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 px-2.5 py-1 text-[11px] font-semibold text-violet-700 transition-colors hover:bg-violet-50 disabled:opacity-50"
-                      >
-                        {comparandoTodas ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
-                        {comparandoTodas ? (progresoTodas || 'Comparando…') : 'PDF de todos los ítems'}
-                      </button>
-                    </>
-                  )}
-                  <button
-                    onClick={generarFichaPropia}
-                    disabled={generandoFicha}
-                    title="Arma nuestra ficha técnica con las líneas que ofertamos, con el logo y la firma de la empresa"
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-teal-200 px-2.5 py-1 text-[11px] font-semibold text-teal-700 transition-colors hover:bg-teal-50 disabled:opacity-50"
-                  >
-                    {generandoFicha ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
-                    {generandoFicha ? 'Armando ficha…' : 'Generar nuestra ficha'}
-                  </button>
-                </div>
-              </div>
-            )}
 
             <div className="divide-y divide-zinc-100">
-              {/* Las líneas técnicas SIEMPRE se muestran, aprobadas o no: un botón "mostrar
-                  todas" que las escondía por defecto hacía parecer que una línea que se aprobó
-                  sola (todo cumple) había desaparecido, en vez de mostrar el trabajo hecho. */}
-              {delBloque.map(item => {
-                return item.tipo === 'linea_tecnica' ? (
-                  <FilaLineaTecnica
-                    key={item.id}
-                    item={item}
-                    fueraDeLaOferta={item.ofertamos === false}
-                    negocioId={negocioId}
-                    licitacionCodigo={licitacionCodigo}
-                    puedeAprobar={puedeAprobar}
-                    bloqueado={bloqueadoPorEmpresa}
-                    ocupado={ocupado === item.id}
-                    onAccion={accionar}
-                  />
-                ) : (
-                  <FilaItem
-                    key={item.id}
-                    item={item}
-                    licitacionCodigo={licitacionCodigo}
-                    puedeAprobar={puedeAprobar}
-                    bloqueado={bloqueadoPorEmpresa}
-                    ocupado={ocupado === item.id}
-                    onAccion={accionar}
-                    onVer={setVisorDoc}
-                    onGenerar={puedeAnexos ? setGenerandoItem : undefined}
-                    toast={toast}
-                  />
-                );
-              })}
-              {b.key === 'TECNICO' && lineasTecnicas.length > 0 && resumenTecnicoGlobal.aprobadas === resumenTecnicoGlobal.totalLineas && (
-                <p className="px-4 py-3 text-[12px] text-emerald-600 font-medium">Todas las líneas técnicas están aprobadas.</p>
-              )}
+              {delBloque.map(item => (
+                <FilaItem
+                  key={item.id}
+                  item={item}
+                  licitacionCodigo={licitacionCodigo}
+                  puedeAprobar={puedeAprobar}
+                  bloqueado={bloqueadoPorEmpresa}
+                  ocupado={ocupado === item.id}
+                  onAccion={accionar}
+                  onVer={setVisorDoc}
+                  onGenerar={puedeAnexos ? setGenerandoItem : undefined}
+                  toast={toast}
+                />
+              ))}
             </div>
 
             {/* Total de la oferta, solo en el bloque comercial por línea */}

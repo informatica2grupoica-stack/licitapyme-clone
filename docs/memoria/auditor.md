@@ -3,6 +3,20 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-27 — El Checklist ya no lleva las líneas técnicas (solo Comercial y alertas)
+**Decisión del dueño:** lo técnico por línea ya está en el Auditor (compra y técnico, con su firma y aprobación), así que sale
+del Checklist del negocio. Quedan el bloque **Comercial** y las **Alertas de cumplimiento**. Se saca TODO lo de las filas
+`linea_tecnica`: la pantalla (filas, «Limpiar todas», «PDF de todos los ítems», «Generar nuestra ficha»), el avance, el
+estado del bloque, el semáforo (ya no hay causales «bloque técnico sin aprobar» ni «NO CUMPLE sin resolver» salidos de esas
+líneas), la bandeja `/aprobaciones` (ya no cuenta ni muestra cumple/no cumple de líneas) y la decisión de generar el anexo
+técnico. Regla única: `esLineaTecnica` en `checklist-comercial.ts`, usada por `resumirChecklist` y `estadoDeBloque`.
+**Lo que NO se tocó:** las filas siguen en `checklist_comercial` (no se borró nada); el bloque Técnico sigue apareciendo,
+con su aprobación, solo si el negocio tiene ítems técnicos que no son líneas (documentos de criterios; hay ~500 en la BD).
+`FilaLineaTecnica.tsx` y la ruta `comercial/ficha-tecnica` quedaron sin uso desde la pantalla (la ficha se genera desde el
+Auditor). `anexos-datos.ts` lee líneas técnicas APROBADAS del checklist: como ya no se aprueban ahí, no le llegan más.
+**Verificado:** negocio 1454 con datos reales (15 líneas técnicas: ya no cuentan; bloque técnico = SIN_ITEMS; Comercial sigue
+por aprobar; 17 alertas intactas); 1572 tests; tsc. **Pendiente:** verlo en el navegador (pestaña Checklist y /aprobaciones).
+
 ## 2026-10-27 — Nuestra ficha técnica sale en WORD (.docx); los anexos, en PDF
 **Corrección del dueño (mismo día):** SOLO nuestra ficha técnica va en Word (es lo nuestro que se sube a Mercado
 Público); los ANEXOS quedan en PDF, incluida la oferta técnica de un anexo en blanco (`armarFichaPropia(…, 'pdf')`).

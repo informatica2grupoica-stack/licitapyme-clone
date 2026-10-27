@@ -32,6 +32,10 @@ personal el 2026-10-27; las fechas son de cuando se decidió.
 - «Datos para facturar» salen del acta desde el día 1; la OC solo completa lo que falta.
 - La vista mensual se ancla en `ganado_at` (fecha real de adjudicación).
 - El auditor de cotizaciones no puede dar «CUMPLE» sin cita literal verificada por código.
+- **Comparar precios: línea sin cotización muestra su costeo en rojo** donde iba «Mejor + %», y
+  bajo «Por proveedor» va un resumen contra lo costeado: cotizadas a su MEJOR precio (no la
+  elegida) + sin cotizar a lo costeado = total nuevo, y el margen a favor o sobrecosto en $ y %
+  (`ComparadorPrecios.tsx`, pedido en el negocio 1008, 2026-10-27; sin ver con sesión iniciada).
 
 ## Reglas para trabajar aquí
 

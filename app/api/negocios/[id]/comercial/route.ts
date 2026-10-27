@@ -16,7 +16,7 @@ import { publicarCambio } from '@/app/lib/sse-bus';
 import { puedeVerNegocioAsignado, permisosDeUsuario } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import {
-  generarItemsDesdeViabilidad, resumirChecklist, transicion, tieneInformacionComercial,
+  generarItemsDesdeViabilidad, resumirChecklist, esLineaTecnica, transicion, tieneInformacionComercial,
   esPorLinea, modalidadDudosa, estadoDeBloque, lineasDelInforme, excluirYaExistentes, type EstadoItem,
   CLAVE_ITEM_PLAZO, rangoPlazoDeDescripcion, validarPlazoOfertado, reubicacionDeItemGuardado,
   itemsDesdeArchivosDeAnexo, esAlertaDeCumplimiento, planDeReconciliacion, ordenarAnexosPorNumero, type FilaReconciliable,
@@ -545,12 +545,8 @@ function semaforoDelNegocio(negocio: any, items: any[]) {
     ? (new Date(negocio.licitacion_cierre).getTime() - Date.now()) / 3_600_000
     : null;
 
-  let itemsNoCumpleSinResolver = 0, itemsPendientesProveedor = 0;
-  for (const it of items) {
-    if (it.tipo !== 'linea_tecnica' || !it.resumen_tecnico) continue;
-    itemsNoCumpleSinResolver += it.resumen_tecnico.noCumplen || 0;
-    itemsPendientesProveedor += it.resumen_tecnico.pendientesProveedor || 0;
-  }
+  // Las características de las líneas técnicas ya no pesan acá: salieron del Checklist y las resuelve el Auditor (ver esLineaTecnica).
+  const itemsNoCumpleSinResolver = 0, itemsPendientesProveedor = 0;
 
   const bloqueAprobado = (bloque: string) => {
     const del = estadoDeBloque(items.filter(i => i.bloque === bloque));
@@ -615,7 +611,7 @@ async function decidirGeneracionDeBloques(negocio: any, itemsYa?: any[]) {
   // genera el anexo (ver esAlertaDeCumplimiento). Con ellas dentro, el mensaje decía "faltan 31
   // puntos" mientras el encabezado del bloque mostraba 28.
   const porBloque = (b: BloqueGenerable) => items
-    .filter((i: any) => i.bloque === b && !esAlertaDeCumplimiento(i))
+    .filter((i: any) => i.bloque === b && !esAlertaDeCumplimiento(i) && !esLineaTecnica(i))
     .map((i: any) => ({ estado: i.estado, ofertamos: i.ofertamos }));
 
   // ¿El bloque COMERCIAL ya tiene algo APROBADO y con valor cargado? (ver el comentario en
