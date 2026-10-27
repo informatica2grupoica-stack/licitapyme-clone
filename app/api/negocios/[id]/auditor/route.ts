@@ -18,6 +18,7 @@ import {
   verificarTecnicoDeOpcion, confirmarCeldaTecnica, respaldarCeldaTecnica, quitarFichaDeOpcion, ponerComplemento, quitarComplemento,
 } from '@/app/lib/auditor-opciones';
 import { generarPosicionAuditor, ultimaPosicion } from '@/app/lib/auditor-posicion';
+import { generarFichaPropia } from '@/app/lib/auditor-ficha-propia';
 import { avisarAlEM, avisarDecisionAlAsistente } from '@/app/lib/auditor-bandeja-em';
 import { presupuestoNeto } from '@/app/lib/auditor-compras';
 import {
@@ -186,6 +187,12 @@ export async function POST(request: NextRequest, { params }: Params) {
         // Deja de usar la ficha en esa opción (no borra el archivo) y retira las comparaciones técnicas hechas con ella: se vuelve a comparar la línea.
         const q = await quitarFichaDeOpcion(negocio.id, Number(body.respaldoId), actor, String(body.motivo || ''));
         return NextResponse.json({ success: true, ...q });
+      }
+      case 'generar_ficha_propia': {
+        // NUESTRA ficha técnica (PDF) desde la comparación del Auditor; solo con lo técnico cumplido. Queda en Documentos › Anexos Técnicos.
+        const ids = (Array.isArray(body.opcionIds) ? body.opcionIds : [opcionId]).map(Number).filter((n: number) => Number.isFinite(n) && n > 0);
+        const r = await generarFichaPropia(negocio.id, negocio.licitacion_codigo, ids, actor.id);
+        return NextResponse.json({ success: true, ...r });
       }
       case 'buscar_ficha_link': {
         // Solo MIRA la página del link y lista las fichas que ofrece: no descarga nada.

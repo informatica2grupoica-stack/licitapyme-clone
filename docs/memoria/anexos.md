@@ -18,8 +18,9 @@ Las celdas vacías a la izquierda del rótulo del pie (sin bordes en el Word) ll
 motores y alguno escribía el rótulo (probablemente el cruce con bases por IA). Ahora
 `celdasDeRellenoDelPie` las saca de los candidatos ANTES de resolver, en `analizarAnexoParaUI` y
 `generarAnexoFinal` (`app/lib/anexos-rellenar.ts`).
-**Verificado:** docx real sin bases ni Auditor. **Pendiente:** repetir con bases y Auditor reales
-(ese día no había conexión a la BD).
+**Verificado:** docx real, y el 2026-10-27 con costeo, bases y Auditor reales de la BD: pie limpio,
+línea 7 = 19.049.408, «Fecha: 28 de octubre de 2026» en la misma línea (la fecha de firma es el
+día de cierre de la licitación, a propósito).
 
 ## 2026-10-26 — Anexo económico Word: totales por línea y licitaciones por línea
 Caso real: 1414396-26-LP26, Anexo N°5 («Línea | Producto | Cantidad(A) | Precio Unitario(B) |

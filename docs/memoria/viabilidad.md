@@ -52,7 +52,8 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
 
 ## Pendientes conocidos
 
-- Otorgar el permiso `reglas_ia` al Asesor y al superusuario en `/admin/usuarios`.
+- Otorgar el permiso `reglas_ia` al Asesor y al superusuario en `/admin/usuarios` (al 2026-10-27
+  ningún usuario lo tiene).
 - Golden v4: Valdivia (1057937-12-LP26) no pasa (encabezados de ficha leídos como productos).
 - Re-analizar licitaciones que quedaron mal guardadas: las 22 de «subconjunto de ítems»;
   3480-14-LE26, 1057509-148-LE26, 1057547-301-LE26 (regenerar costeo por línea); 859378-8-LE26;

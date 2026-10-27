@@ -9,6 +9,7 @@ import { useToast } from '@/app/components/ui/toast';
 import { Modal } from '@/app/components/ui/Modal';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { resumenLicitacion, type LineaParaResumen } from '@/app/lib/auditor-resumen-licitacion';
+import { motivoFichaNoLista } from '@/app/lib/auditor-ficha-propia-core';
 import {
   IconLoader2 as Loader2, IconFileText as FileText, IconSparkles as Sparkles, IconChevronDown as ChevronDown,
   IconChevronRight as ChevronRight, IconAlertTriangle as Alerta, IconCircleCheck as Check, IconExternalLink as ExternalLink,
@@ -483,6 +484,13 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
     setOcupado(opcionId);
     try {
       const r = await post(negocioId, { accion: a, opcionId, ...extra });
+      if (a === 'generar_ficha_propia' && r.url) {
+        window.open(r.url, '_blank', 'noopener');
+        const avisos = [r.sinCompletar ? `${r.sinCompletar} casilla${r.sinCompletar === 1 ? '' : 's'} sin dato ofertado: complétala${r.sinCompletar === 1 ? '' : 's'} antes de presentar.` : '',
+          r.fotoSinConfirmar ? 'La foto salió de la ficha del proveedor: revisa que sea el equipo (o sube una en la fila del costeo).' : ''].filter(Boolean);
+        toast.success(`Ficha técnica lista: ${r.nombre}`, avisos.join(' ') || 'Quedó en Documentos › Anexos Técnicos.');
+        return;
+      }
       if (ok) toast.success(ok, Array.isArray(r.cambios) && r.cambios.length ? r.cambios.join(' ') : undefined);
     }
     catch (e: any) { toast.error('No se pudo completar', e.message); }
@@ -2739,6 +2747,10 @@ function Acciones({ o, exigeViaCompleta, ocupado, puedeAprobar, onAccion, onModa
       </>}
       {o.estado === 'en_aprobacion' && !puedeAprobar && <span className="text-[12.5px] text-amber-700">Esperando al EM</span>}
       {o.estado === 'aprobada' && <span className="text-[12.5px] text-emerald-700 font-semibold">✓ Aprobada</span>}
+      {!motivoFichaNoLista(o) && (
+        <button className={`${btn} border border-teal-200 text-teal-800 hover:bg-teal-50`} title="Arma nuestra ficha técnica con lo que ofrecemos en cada requisito (queda en Documentos › Anexos Técnicos)"
+          onClick={() => onAccion(o.id, 'generar_ficha_propia')}>Generar nuestra ficha técnica</button>
+      )}
       {!['descartada', 'aprobada', 'en_aprobacion'].includes(o.estado) && <button className={`${btn} border border-zinc-200 text-slate-600 hover:text-red-600`} onClick={() => onModal('descartar', o.id)}>Descartar</button>}
       {motivo && <p className="w-full text-xs text-slate-500">Aún no se puede firmar: {motivo.charAt(0).toLowerCase()}{motivo.slice(1)}</p>}
       {o.firmadaPorNombre && <p className="w-full text-xs text-slate-500">Firmada por {o.firmadaPorNombre}</p>}

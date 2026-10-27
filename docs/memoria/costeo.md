@@ -46,4 +46,3 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
 - Negocio 427 (1173418-1-LE26, otro responsable) sin costeo ni decisión de líneas; la línea 3
   (perdida) no tiene hoja — si «Actualizar» trae filas de L3 hay que apagarla.
 - Botón «Generar costeo» visible aunque no exista uno previo (sugerido).
-- `docs/migration-39-precios-mercado.sql` figuraba sin aplicar (verificar).

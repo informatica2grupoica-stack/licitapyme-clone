@@ -3,13 +3,31 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-27 — Ficha técnica PROPIA desde el Auditor
+Decisión del dueño: nuestra ficha técnica se arma desde la comparación de fichas del Auditor (comparador
+v3), NO desde el checklist técnico antiguo, que se va a retirar. Botón «Generar nuestra ficha técnica» en
+cada opción, visible solo con lo técnico TODO cumplido (sin ❌ ni ❓ abiertos; lo confirmado a mano cuenta).
+Una ficha por producto con el formato de `ficha-tecnica.ts` (requisito de las bases | lo que ofrecemos,
+foto, logo, firma y timbre). Foto: la de la fila del costeo; si no hay, la extraída de la ficha del
+proveedor (se avisa para revisarla). Queda en Documentos › «Anexos Técnicos» (nunca en
+«fichas_tecnicas», que es de los proveedores). Archivos: `auditor-ficha-propia-core.ts` (puro, tests) y
+`auditor-ficha-propia.ts`.
+**Regla:** las notas internas del comparador pegadas al dato ofertado («ningún documento acredita…») no
+se imprimen (`datoParaPresentar`); sin dato, la casilla queda vacía en amarillo.
+**Verificado:** PDF armado con datos reales (4022-19-LE26 L2, 2427-98-LE26 L2 GETAC) sin subir; tests.
+**Pendiente:** ver el botón en el navegador; siguiente paso pedido: llenar el anexo técnico con estos
+mismos datos.
+
 ## 2026-10-27 — Al eliminar la ficha técnica seguían «cumplen» y «por resolver»
 Al quitar una ficha («Dejar de usar») o borrarla desde Documentos, la comparación técnica de la
 opción quedaba guardada tal cual (era así a propósito: «vuelve a comparar»). Ahora se retiran las
 comparaciones hechas desde que la ficha se cargó (`retirarComparacionesConFicha`,
 `app/lib/auditor-opciones.ts`); las anteriores no la vieron y se conservan. Si no queda ninguna,
 la opción vuelve a «sin comparar». No se re-compara sola (gasta IA).
-**Verificado:** `tsc` y tests. **Pendiente:** verlo con la BD real (sin túnel ese momento).
+**Verificado:** `tsc`, tests y el caso real en la BD: negocio 1454, ficha `XEFR_04EU…pdf`; las
+comparaciones #797 (opción 593) y #804 (opción 602) se hicieron con la ficha; #796 y #803 son
+anteriores. **Pendiente:** retirar #797 y #804 a mano (la ficha se borró antes del arreglo; escribir
+en producción requiere el OK del dueño) y desplegar el arreglo.
 
 ## Decisiones vigentes del dueño
 

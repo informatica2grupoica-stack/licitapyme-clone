@@ -26,13 +26,9 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
 
 ## Pendientes conocidos
 
-- Índice `idx_alertas_codigo` en `alertas_licitaciones (licitacion_codigo)` (migración 31):
-  figuraba sin aplicar; es el arreglo de fondo de la lentitud por código (verificar).
 - PATCH/DELETE de `/api/alertas` solo operan sobre filas propias: un admin no puede marcar/borrar
   una alerta ajena.
 - Entrega de Proyectos: destinatario de logística y export a PDF/Word sin decidir.
-- F.2 / F.3 (ofertas de competencia, memoria histórica): migraciones 59 y 60 figuraban sin
-  aplicar (verificar).
 - Batch de re-análisis del golden set con la función que GUARDA nunca se completó (jul-2026).
 - Dashboard: descarte antes de asignar (nivel 0) no se representa; «Posible adjudicado»
   automático fuera de alcance.

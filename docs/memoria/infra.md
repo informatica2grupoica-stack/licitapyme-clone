@@ -10,8 +10,15 @@ direcciones de servidores ni claves: esos datos viven en los `.env`, fuera del r
 - **BD movida de Bluehost al VPS** (2026-10-22, corte hecho): MySQL 8 en Docker (`DB_HOST=db`).
   Bluehost quedó como respaldo nocturno: se sobreescribe cada noche.
 - **Todo dato se escribe en la BD del VPS.** Antes de correr un script que ESCRIBA desde el PC,
-  comprobar a qué BD apunta (`SELECT @@hostname`). Desde el PC se llega por túnel SSH al puerto
-  3307; si no hay túnel, darle al dueño el comando para correrlo en el VPS.
+  comprobar a qué BD apunta (`SELECT @@hostname`: el VPS responde con el id del contenedor Docker).
+  Desde el PC se llega por túnel SSH al puerto 3307. Desde el 2026-10-27 el PC del dueño tiene una
+  llave SSH autorizada en el VPS: el túnel se abre sin contraseña con
+  `ssh -N -o BatchMode=yes -o ServerAliveInterval=30 -o ExitOnForwardFailure=yes -L 3307:127.0.0.1:3306 <usuario>@<vps>`
+  (datos en el comentario de `DB_HOST` en `.env.local`). Consultas de solo lectura:
+  `npx tsx scripts/scratch/bd.mts "SELECT …"`. Escribir en producción requiere el OK del dueño.
+- Los scripts que leen `.env.local` deben ignorar el comentario `# …` al final de la línea.
+- Al 2026-10-27 todas las migraciones del repo están aplicadas en el VPS
+  (`node scripts/scratch/chequear-migraciones.mjs` no reporta faltantes).
 - IA: Z.AI (GLM) es el proveedor principal de texto y OCR; Gemini retirado (código dormido tras
   `geminiHabilitado()`); Kimi en el Auditor. El OCR de PDF con GLM necesita URL pública (R2), nunca
   base64. Document AI se probó y se descartó: no reactivar sin pedido. `getGemini()` en realidad
@@ -57,7 +64,8 @@ direcciones de servidores ni claves: esos datos viven en los `.env`, fuera del r
 - BD del VPS con binlog apagado (sin recuperación a un punto) y sin prueba de restauración;
   respaldo nocturno sin cifrar (por verificar).
 - Node 20 → 22 antes de ene-2027; desconectar 2 proyectos Vercel que quedaron.
-- Charset: 2 tablas grandes (`licitaciones_cache` y otra) siguen en utf8, no utf8mb4 (decisión
-  del dueño pendiente).
-- Rol `externo`: crear uno de prueba y verificar que no ve lo que no tiene asignado.
+- Charset: al 2026-10-27 solo `actividad_usuario_bkp` (respaldo) y `documentos_origen_manual`
+  siguen en utf8mb3; el resto ya es utf8mb4.
+- Rol `externo` (la migración ya está aplicada): crear uno de prueba y verificar que no ve lo que
+  no tiene asignado.
 - Caché de lecturas del radar (Redis/Upstash disponible) para bajar latencia.
