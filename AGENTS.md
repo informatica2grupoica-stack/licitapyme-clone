@@ -21,3 +21,8 @@ Touch only what you must. Don't "improve" adjacent code, comments, or formatting
 ## 4. Goal-driven execution
 Turn vague tasks into verifiable goals ("fix the bug" → reproduce it, then make it pass; "refactor X" → tests pass before and after). For multi-step tasks, state a brief plan with a verification check per step.
 <!-- END:behavioral-guidelines -->
+
+<!-- BEGIN:memoria-proyecto -->
+# Memoria del proyecto
+Las decisiones del dueño y lo que quedó pendiente viven en `docs/memoria/` (índice: `docs/memoria/INDICE.md`). Al empezar una tarea, lee el índice y el archivo del módulo que vas a tocar; al terminar una tarea que cambie comportamiento, fije una regla o deje algo pendiente, agrega la entrada. Cómo hacerlo: skill `memoria-proyecto` (`.claude/skills/memoria-proyecto/SKILL.md`). Para el motor de anexos, skill `motor-anexos`.
+<!-- END:memoria-proyecto -->

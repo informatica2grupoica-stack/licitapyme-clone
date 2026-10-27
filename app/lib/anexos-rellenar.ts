@@ -550,8 +550,7 @@ function aplicarTotalesPorSeccion(
       });
     }
   }
-  const rellenoDelPie = celdasDeRellenoDelPie(tablasCrudo);
-  const pendientesFiltrados = pendientes.filter(c => !paraIdsResueltos.has(c.paraId) && !rellenoDelPie.has(c.indice));
+  const pendientesFiltrados = pendientes.filter(c => !paraIdsResueltos.has(c.paraId));
   return { matcheadosExtra, pendientesFiltrados, titulos, totalesPie };
 }
 
@@ -789,6 +788,11 @@ export async function analizarAnexoParaUI(
   );
   const completadosAuto: CampoCompletado[] = [];
   const resolucionPorIndice = new Map<number, ResolucionMostrada>();
+  // Relleno del pie de la tabla de precios — ver celdasDeRellenoDelPie. Se saca ANTES de resolver:
+  // dejarlo llegar a los motores (bases por IA) terminó con "Total Neto" escrito en la columna
+  // Producto de la fila del pie (1414396-26-LP26, ANEXO N°5, 27-oct-2026).
+  const rellenoDelPie = celdasDeRellenoDelPie(tablasCrudo);
+  analisis.candidatosCelda = analisis.candidatosCelda.filter(c => !rellenoDelPie.has(c.indice));
 
   const avisoNoAplica = forzarAplica ? null : analisis.avisoNoAplica;
   // Las secciones-imagen se analizan EN PARALELO con la resolución normal (extracción+OCR+IA
@@ -1028,6 +1032,9 @@ export async function generarAnexoFinal(
   const xmlNormalizado = unificarRunsDeMarcadores(xmlConIds);
   const analisis = analizarAnexo(xmlNormalizado, { postulaComoUTP: respuestas.anexoAplica === '1' });
   const formularios = detectarFormularios(xmlNormalizado);
+  // Mismo recorte que en el análisis — ver celdasDeRellenoDelPie.
+  const rellenoDelPie = celdasDeRellenoDelPie(extraerTablasCrudo(xmlNormalizado));
+  analisis.candidatosCelda = analisis.candidatosCelda.filter(c => !rellenoDelPie.has(c.indice));
 
   // Misma decisión que en el análisis, y por el mismo canal `respuestas`: si el documento avisa
   // que este anexo no nos corresponde, no se autocompleta nada — salvo que el usuario haya marcado

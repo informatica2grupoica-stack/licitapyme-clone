@@ -111,6 +111,21 @@ test('rellenarCeldaVacia escribe en los dos estilos y no pisa un dato existente'
 // DOS celdas vacías: la dirección terminaba escrita también en "INICIO ACTIV." y el nombre del
 // representante en su "RUT"; y CIUDAD/FONO no llegaban a ser candidatos, así que quedaban en
 // blanco sin avisar.
+// 1414396-26-LP26, ANEXO N°5 (27-oct-2026): "Fecha:" / <vacío CENTRADO> / raya de firma. La
+// fecha se escribía en el vacío centrado, encima de la firma; va en la línea del rótulo.
+test('"Fecha:" con un vacío centrado debajo: la casilla es la misma línea, no el vacío', () => {
+  const vacioCentrado = '<w:p><w:pPr><w:jc w:val="center"/></w:pPr></w:p>';
+  const xml = NS + p('Nota: se adjudica por línea.') + p('Fecha:') + vacioCentrado
+    + '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>________________________________________</w:t></w:r>'
+    + '<w:r><w:br/><w:t>Firma</w:t></w:r><w:r><w:br/><w:t>Nombre de representante legal o persona natural según corresponda</w:t></w:r></w:p>' + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const a = analizarAnexo(norm);
+  const fecha = [...a.candidatosCelda, ...a.camposConDosPuntos].filter(c => /fecha/i.test(c.etiqueta));
+  assert.equal(fecha.length, 1, JSON.stringify(fecha));
+  const parrafoFecha = a.parrafos.find(x => x.texto === 'Fecha:')!;
+  assert.equal(fecha[0].indice, parrafoFecha.indice, 'se escribe en el párrafo de "Fecha:", no en el vacío centrado');
+});
+
 test('tabla de formulario: cada etiqueta se queda con SU celda (regresión 4291-38-LP26)', () => {
   const xml = NS + tabla(
     fila('NOMBRE O RAZÓN SOCIAL', '', 'RUT', ''),

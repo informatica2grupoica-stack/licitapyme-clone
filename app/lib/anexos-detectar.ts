@@ -241,6 +241,13 @@ export function detectarCandidatosCeldaCrudos(
     while (k < parrafos.length && parrafos[k].vacio && k - j <= LOOKAHEAD_RAYA_TRAS_ETIQUETA) k++;
     if (k < parrafos.length && k - j <= LOOKAHEAD_RAYA_TRAS_ETIQUETA + 1 && esRayaLarga(parrafos[k].texto)) continue;
 
+    // "Fecha:" (a la izquierda) / <párrafo vacío CENTRADO> / "_____ Firma" (1414396-26-LP26, ANEXO
+    // N°5, 27-oct-2026): el vacío centrado es el aire antes de la firma, no la casilla — la fecha
+    // salía centrada encima de la raya. Un rótulo con dos puntos y un vacío de OTRA alineación se
+    // deja al patrón 5 (detectarCamposConDosPuntos), que escribe en la misma línea: "Fecha: 28 de…".
+    if (siguiente.centrado && !actual.centrado && RE_TERMINA_ETIQUETA.test(actual.texto.trim())
+      && !indicesEnCelda.has(siguiente.indice)) continue;
+
     out.push({ etiqueta: actual.texto, paraId: siguiente.paraId, indice: siguiente.indice });
   }
   return out;
