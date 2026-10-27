@@ -14,7 +14,7 @@ import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('auditor', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { MOTOR_KIMI_ESTRICTO, type MotorComparacion } from '@/app/lib/auditor-tecnico';
-import { productosCrudosDeLinea } from '@/app/lib/auditor-tecnico-core';
+import { productosCrudosDeLinea, productoDeInformePorNombre } from '@/app/lib/auditor-tecnico-core';
 import { extraccionPorId } from '@/app/lib/auditor-lector';
 import { agregarCostoAsociado } from '@/app/lib/auditor-lineas';
 import {
@@ -100,12 +100,17 @@ export async function requisitosDeLinea(negocioId: number, licitacionCodigo: str
   if (lineaReal == null) return null;
   const informe = await leerInforme(licitacionCodigo);
   if (!informe) return null;
+  // La línea del costeo puede no existir en el informe (re-análisis que renumeró: ver productoDeInformePorNombre): se busca el producto por nombre.
+  let productos = productosCrudosDeLinea(informe, lineaReal), lineaInforme = lineaReal;
+  if (productos.length === 0 && producto) {
+    const porNombre = productoDeInformePorNombre(informe, producto);
+    if (porNombre) { productos = porNombre.productos; lineaInforme = porNombre.linea; }
+  }
   const [it] = await pool.query(
-    `SELECT criticidad FROM checklist_comercial WHERE negocio_id = ? AND tipo = 'linea_tecnica' AND linea_numero = ? LIMIT 1`, [negocioId, lineaReal]) as any;
+    `SELECT criticidad FROM checklist_comercial WHERE negocio_id = ? AND tipo = 'linea_tecnica' AND linea_numero = ? LIMIT 1`, [negocioId, lineaInforme]) as any;
   const crit = String((it as any[])[0]?.criticidad || '').toUpperCase();
   const criticidadLinea: Criticidad = crit === 'ADMISIBILIDAD_DURA' || crit === 'INADMISIBLE' || crit === 'PUNTAJE_CONDICIONANTE' ? 'INADMISIBLE'
     : crit === 'PUNTAJE' ? 'PUNTAJE' : crit === 'INFORMATIVO' || crit === 'COMPROMISO' ? 'COMPROMISO' : 'SIN_CLASIFICAR';
-  const productos = productosCrudosDeLinea(informe, lineaReal);
   const requisitos: RequisitoHeredado[] = [];
   for (const p of productos) for (const c of p.caracteristicas) {
     const texto = String(c || '').trim();
@@ -154,7 +159,8 @@ export async function contarRequisitosPorLinea(negocioId: number, licitacionCodi
   for (const l of lineas) {
     if (l.lineaReal == null) continue;
     const reqs: RequisitoHeredado[] = [];
-    const prods = productosCrudosDeLinea(informe, l.lineaReal);
+    let prods = productosCrudosDeLinea(informe, l.lineaReal);
+    if (prods.length === 0) prods = productoDeInformePorNombre(informe, l.producto)?.productos ?? [];
     for (const p of prods) for (const c of p.caracteristicas) {
       const texto = String(c || '').trim();
       if (texto) reqs.push({ n: reqs.length + 1, texto, fuente: '', criticidad: 'SIN_CLASIFICAR', producto: prods.length > 1 ? p.nombre : undefined });

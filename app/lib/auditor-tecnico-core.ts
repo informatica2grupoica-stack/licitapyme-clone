@@ -190,6 +190,21 @@ export function productosCrudosDeLinea(informe: any, linea: number): LineaTecnic
   return productos.map((it: any) => fusionarProductosDeLinea(linea, [it]));
 }
 
+/** El número de línea del costeo puede no existir en el informe: la viabilidad se re-analizó y renumeró (4022-19-LE26, 27-oct-2026: los
+ *  7 productos pasaron a «L1», pero el costeo seguía con las líneas 1 a 7, y las líneas 3 y 5 quedaron «sin requisitos técnicos» aunque
+ *  las bases sí los traen). Busca el producto por NOMBRE en todo el informe. Solo devuelve algo si el nombre coincide EXACTO (sin
+ *  tildes, mayúsculas ni signos) con UN solo producto: con 0 o 2+ no se adivina (nunca mezclar los requisitos de otro ítem).
+ *  `linea` es el número de línea del informe donde está, para leer su criticidad. */
+export function productoDeInformePorNombre(informe: any, nombre: string): { linea: number; productos: LineaTecnica[] } | null {
+  const k = (x: unknown) => String(x ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '');
+  const buscado = k(nombre);
+  if (!buscado) return null;
+  const hallados: Array<{ linea: number; it: any }> = [];
+  for (const [linea, items] of agruparCrudoPorLinea(informe)) for (const it of items) if (k(it?.nombre) === buscado) hallados.push({ linea, it });
+  if (hallados.length !== 1) return null;
+  return { linea: hallados[0].linea, productos: [fusionarProductosDeLinea(hallados[0].linea, [hallados[0].it])] };
+}
+
 // ─── Conversión de unidades determinista (sin IA) ───────────────────────────────────────────────
 type FamiliaUnidad = 'longitud' | 'peso' | 'volumen' | 'potencia' | 'tiempo';
 const UNIDADES: Record<string, { familia: FamiliaUnidad; factor: number }> = {

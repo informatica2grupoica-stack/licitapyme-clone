@@ -3,6 +3,18 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-27 — «Sin requisitos técnicos» en líneas que sí los tienen (4022-19-LE26 L3 y L5): línea renumerada por la viabilidad
+**Causa:** la viabilidad se re-analizó (27-oct 17:02) y el informe quedó con UNA línea («L1 — 7 productos»), pero el costeo
+seguía con `lineaReal` 1 a 7. El Auditor busca los requisitos por número de línea (`productosCrudosDeLinea(informe, lineaReal)`):
+la línea 3 no existía en el informe → 0 requisitos → «Sin requisitos técnicos: las bases no traen exigencias», y la ficha de
+texto no se comparaba contra nada. Las líneas que ya tenían una comparación guardada (2, 4, 6, 7) seguían mostrando CUMPLE.
+**Arreglo general:** si la línea del costeo no existe en el informe, se busca el producto por NOMBRE en todo el informe
+(`productoDeInformePorNombre`, `auditor-tecnico-core.ts`; usado por `requisitosDeLinea` y `contarRequisitosPorLinea`).
+Solo vale con nombre EXACTO (sin tildes/mayúsculas/signos) y un único producto: con 0 o 2+ no se adivina. La criticidad se lee
+de la línea del informe donde está. **Efecto a vigilar:** una comparación guardada con otra cantidad de requisitos que la actual
+se marca «desactualizada» (regla ya existente): el cinturón EQ-27 (L7, 2 requisitos guardados vs 1 hoy) pasó a «sin comparar»
+y hay que pulsar «Volver a comparar la línea» (gasta IA; no se hizo). **Pendiente:** comparar L3, L5 y L7 en 4022-19-LE26.
+
 ## 2026-10-27 — «Falta confirmar el precio» aunque ya se corrigió el IVA: la moneda venía como frase (4022-19-LE26 L7, EQ-27)
 **Causa:** el Lector escribió `moneda = «CLP (inferido del símbolo $ y formato de miles chileno; la página no declara moneda)»`
 en vez de `CLP`. El verificador (V3) y `precioNetoUnitario` comparan la moneda con `'CLP'` tal cual, así que bloqueaban el costo
