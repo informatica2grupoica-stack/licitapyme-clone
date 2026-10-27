@@ -49,21 +49,27 @@ export interface ImagenExtraida {
  * de siempre, para fichas de un solo producto).
  */
 export async function extraerImagenProducto(buffer: Buffer, paginas?: number[]): Promise<ImagenExtraida | null> {
+  return (await extraerImagenesProducto(buffer, 1, paginas))[0] ?? null;
+}
+
+/** Las `max` imágenes más grandes del PDF que pasan los mismos filtros (de mayor a menor). La ficha propia del
+ *  Auditor muestra varias fotos referenciales (27-oct-2026); el resto del sistema sigue usando solo la primera. */
+export async function extraerImagenesProducto(buffer: Buffer, max: number, paginas?: number[]): Promise<ImagenExtraida[]> {
   let mupdf: typeof import('mupdf');
   try {
     mupdf = await import('mupdf');
   } catch {
-    return null;
+    return [];
   }
 
   let doc: import('mupdf').Document;
   try {
     doc = mupdf.Document.openDocument(buffer, 'application/pdf');
   } catch {
-    return null;
+    return [];
   }
 
-  let mejor: { area: number; image: import('mupdf').Image; pagina: number } | null = null;
+  const candidatas: Array<{ area: number; image: import('mupdf').Image; pagina: number }> = [];
   const aRevisar = paginas ?? Array.from({ length: Math.min(doc.countPages(), MAX_PAGINAS_REVISADAS) }, (_, i) => i);
 
   for (const i of aRevisar) {
@@ -92,23 +98,46 @@ export async function extraerImagenProducto(buffer: Buffer, paginas?: number[]):
         const fraccion = area / areaPagina;
         if (fraccion < AREA_MIN_FRACCION || fraccion > AREA_MAX_FRACCION) return;
         if (image.getWidth() < PIXELS_MIN && image.getHeight() < PIXELS_MIN) return;
-        if (!mejor || area > mejor.area) mejor = { area, image, pagina: i + 1 };
+        candidatas.push({ area, image, pagina: i + 1 });
       },
     });
   }
 
-  if (!mejor) return null;
-  const elegida = mejor as { area: number; image: import('mupdf').Image; pagina: number };
-  try {
-    return {
-      png: aplanarSobreBlanco(mupdf, elegida.image),
-      anchoPx: elegida.image.getWidth(),
-      altoPx: elegida.image.getHeight(),
-      pagina: elegida.pagina,
-    };
-  } catch {
-    return null;
+  const out: ImagenExtraida[] = [];
+  const vistas = new Set<string>();   // la misma foto repetida en varias páginas (mismo tamaño en píxeles) se toma una vez
+  // Primero las fotos y después los planos: un plano acotado es casi todo blanco y, por ser grande, le ganaba
+  // a la foto del equipo (horno Unox, 1414396-26-LP26). Dentro de cada grupo, la más grande primero.
+  const esPlano = new Map(candidatas.map(c => [c, fraccionBlanca(c.image) > FRACCION_BLANCA_PLANO]));
+  candidatas.sort((a, b) => Number(esPlano.get(a)) - Number(esPlano.get(b)) || b.area - a.area);
+  for (const c of candidatas) {
+    if (out.length >= max) break;
+    const clave = `${c.image.getWidth()}x${c.image.getHeight()}`;
+    if (vistas.has(clave)) continue;
+    vistas.add(clave);
+    try {
+      out.push({ png: aplanarSobreBlanco(mupdf, c.image), anchoPx: c.image.getWidth(), altoPx: c.image.getHeight(), pagina: c.pagina });
+    } catch { /* imagen ilegible: sigue con la próxima */ }
   }
+  return out;
+}
+
+/** Sobre esta fracción de píxeles casi blancos la imagen es un plano o un dibujo de líneas, no una foto. */
+const FRACCION_BLANCA_PLANO = 0.88;
+function fraccionBlanca(image: import('mupdf').Image): number {
+  try {
+    const pix = image.toPixmap();
+    const px = pix.getPixels(), comps = pix.getNumberOfComponents(), stride = pix.getStride();
+    const ancho = pix.getWidth(), alto = pix.getHeight();
+    const paso = Math.max(1, Math.floor(Math.sqrt((ancho * alto) / 4000)));
+    let blancos = 0, total = 0;
+    for (let y = 0; y < alto; y += paso) for (let x = 0; x < ancho; x += paso) {
+      const i = y * stride + x * comps;
+      const claro = comps >= 3 ? px[i] > 235 && px[i + 1] > 235 && px[i + 2] > 235 : px[i] > 235;
+      if (claro) blancos++;
+      total++;
+    }
+    return total ? blancos / total : 0;
+  } catch { return 0; }
 }
 
 /**

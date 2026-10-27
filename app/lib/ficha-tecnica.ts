@@ -65,6 +65,10 @@ export interface ProductoFicha {
    *  automática a veces trae la imagen equivocada, así que confirmar el texto no confirma la
    *  foto y viceversa. */
   imagenConfirmada?: boolean;
+  /** Más fotos del mismo producto (data: URI), debajo de la principal, cada una con «Foto referencial». */
+  imagenesExtraDataUri?: string[];
+  /** Lo que se entrega junto al producto (accesorios, instalación): sección «Incluye». */
+  incluye?: string[];
   especificaciones: EspecificacionFicha[];
   cantidad: number | null;
   unidad: string | null;
@@ -199,10 +203,19 @@ function productosEnOrden(lineas: LineaFicha[]): Array<{ linea: LineaFicha; prod
  */
 export function imagenProducto(p: ProductoFicha | null | undefined): string {
   if (!p?.imagenDataUri) return '';
+  const extras = (p.imagenesExtraDataUri || []).filter(Boolean);
   return `<div class="foto-producto">
     <img src="${p.imagenDataUri}" alt="" />
-    <p class="foto-ref">Imagen referencial</p>
-  </div>`;
+    <p class="foto-ref">Foto referencial</p>
+  </div>${extras.length ? `<div class="fotos-extra">${extras.map(src => `<figure><img src="${src}" alt="" /><figcaption>Foto referencial</figcaption></figure>`).join('')}</div>` : ''}`;
+}
+
+/** Lo que se entrega junto al producto (accesorios, instalación). Sin nada, no se imprime la sección. */
+function seccionIncluye(p: ProductoFicha): string {
+  const items = (p.incluye || []).filter(x => x && x.trim());
+  if (!items.length) return '';
+  return `<h3 class="sec">Incluye</h3>
+    <table class="specs"><tbody>${items.map(x => `<tr><td>${esc(x)}</td></tr>`).join('')}</tbody></table>`;
 }
 
 /**
@@ -261,6 +274,7 @@ function fichaDeProducto(p: ProductoFicha, linea: LineaFicha, numero: number): s
     ${p.especificaciones.length === 0
       ? '<p class="sin">Sin especificaciones técnicas registradas para este producto.</p>'
       : `<table class="specs"><tbody>${filas}</tbody></table>`}
+    ${seccionIncluye(p)}
     ${seccionInformacionOferta(p)}
   </section>`;
 }
@@ -308,13 +322,13 @@ export function construirFichaTecnicaHtml(d: DatosFichaTecnica): string {
   * { box-sizing: border-box; }
   body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #18181b;
          font-size: 10.5px; line-height: 1.45; margin: 0; }
-  header { display: flex; align-items: flex-start; gap: 14px; border-bottom: 2px solid #0f766e;
+  header { display: flex; align-items: flex-start; gap: 14px; border-bottom: 2px solid #1f3864;
            padding-bottom: 10px; margin-bottom: 12px; }
   header .logo { max-height: 56px; max-width: 190px; object-fit: contain; }
   header .tit { flex: 1; }
   header h1 { font-size: 15px; margin: 0 0 2px; letter-spacing: .2px; }
   header .sub { color: #52525b; font-size: 10px; margin: 0; }
-  header .cod { color: #0f766e; font-weight: 700; font-size: 10px; margin: 3px 0 0; }
+  header .cod { color: #1f3864; font-weight: 700; font-size: 10px; margin: 3px 0 0; }
   table.kv { border-collapse: collapse; width: 100%; margin-bottom: 18px; }
   table.kv th { text-align: left; width: 110px; color: #52525b; font-weight: 600;
                 padding: 3px 8px 3px 0; vertical-align: top; font-size: 10px; }
@@ -322,18 +336,21 @@ export function construirFichaTecnicaHtml(d: DatosFichaTecnica): string {
 
   /* ── UNA FICHA POR PRODUCTO, cada una en su propia página (formato Tecnomaq) ──────────────
      La primera comparte página con el encabezado y los datos de la empresa; el resto arranca
-     en página nueva, para que ningún producto quede partido entre dos hojas. */
-  section.ficha { page-break-inside: avoid; }
+     en página nueva. Una ficha larga (fotos + muchas especificaciones) SÍ puede seguir en la hoja
+     siguiente: obligarla a no partirse la mandaba entera a la página 2 y dejaba la 1 casi vacía
+     (27-oct-2026). Lo que no se corta es cada fila de la tabla, y cada título queda con lo suyo. */
   section.ficha + section.ficha { page-break-before: always; padding-top: 4px; }
+  table.specs tr { page-break-inside: avoid; }
+  h3.sec { page-break-after: avoid; }
   .ficha-num { margin: 0 0 2px; font-size: 9.5px; font-weight: 700; color: #71717a;
                text-transform: uppercase; letter-spacing: .6px;
-               border-bottom: 2px solid #0f766e; padding-bottom: 5px; }
+               border-bottom: 2px solid #1f3864; padding-bottom: 5px; }
   .prod-nombre { font-size: 15.5px; font-weight: 800; margin: 9px 0 1px; line-height: 1.25;
                  text-transform: uppercase; letter-spacing: .1px; }
-  .prod-modelo { font-size: 12px; font-weight: 800; color: #0f766e; margin: 0;
+  .prod-modelo { font-size: 12px; font-weight: 800; color: #1f3864; margin: 0;
                  text-transform: uppercase; letter-spacing: .3px; }
   .prod-cant { margin: 3px 0 0; color: #71717a; font-size: 9.5px; }
-  h3.sec { font-size: 11px; font-weight: 800; color: #0f766e; text-transform: uppercase;
+  h3.sec { font-size: 11px; font-weight: 800; color: #1f3864; text-transform: uppercase;
            letter-spacing: .5px; margin: 14px 0 6px; }
   p.sin { margin: 0 0 5px; color: #a1a1aa; font-style: italic; }
 
@@ -341,6 +358,10 @@ export function construirFichaTecnicaHtml(d: DatosFichaTecnica): string {
   .foto-producto { text-align: center; margin: 12px 0 4px; page-break-inside: avoid; }
   .foto-producto img { max-height: 170px; max-width: 62%; object-fit: contain; }
   .foto-producto .foto-ref { margin: 5px 0 0; color: #a1a1aa; font-size: 8.5px; font-style: italic; }
+  .fotos-extra { display: flex; justify-content: center; gap: 14px; margin: 6px 0 4px; page-break-inside: avoid; }
+  .fotos-extra figure { margin: 0; text-align: center; width: 30%; }
+  .fotos-extra img { max-height: 110px; max-width: 100%; object-fit: contain; }
+  .fotos-extra figcaption { margin-top: 3px; color: #a1a1aa; font-size: 8px; font-style: italic; }
 
   /* Especificaciones: DOS columnas (característica | lo ofertado), filas alternadas. */
   table.specs { border-collapse: collapse; width: 100%; }

@@ -241,16 +241,22 @@ test('sin imagenDataUri, no imprime nada', () => {
   assert.equal(imagenProducto(undefined), '');
 });
 
-test('imagen SIN confirmar: sale igual como "Imagen referencial", sin ningún aviso interno', () => {
+// Pie «Foto referencial» (pedido del dueño, 27-oct-2026), también en cada foto extra.
+test('imagen SIN confirmar: sale igual como "Foto referencial", sin ningún aviso interno', () => {
   const h = imagenProducto(prod({ imagenDataUri: 'data:image/png;base64,AAA', imagenConfirmada: false }));
   assert.ok(h.includes('data:image/png;base64,AAA'));
-  assert.ok(h.includes('>Imagen referencial<'));
+  assert.ok(h.includes('>Foto referencial<'));
   assert.ok(!/confirmar que corresponde al equipo/i.test(h));
 });
 
 test('imagen CONFIRMADA por una persona: mismo pie neutro', () => {
   const h = imagenProducto(prod({ imagenDataUri: 'data:image/png;base64,AAA', imagenConfirmada: true }));
-  assert.ok(h.includes('>Imagen referencial<'));
+  assert.ok(h.includes('>Foto referencial<'));
+});
+
+test('fotos extra: cada una con su pie «Foto referencial»', () => {
+  const h = imagenProducto(prod({ imagenDataUri: 'data:image/png;base64,AAA', imagenesExtraDataUri: ['data:image/png;base64,BBB', 'data:image/png;base64,CCC'] }));
+  assert.equal(h.match(/Foto referencial/g)?.length, 3);
 });
 
 // ─── productosSinConfirmar — el aviso se movió a la PANTALLA, no al documento ──────────────────

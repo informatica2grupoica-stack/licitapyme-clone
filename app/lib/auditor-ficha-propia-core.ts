@@ -34,7 +34,8 @@ export function motivoFichaNoLista(o: OpcionDTO): string | null {
 // (integrada); ningún documento acredita rendimiento suficiente para ARBOTOM», 2427-98-LE26). Esa frase es
 // una nota interna: en el documento que se presenta no puede ir. Se quita cada tramo (separado por «;») que
 // dice que falta el dato; si no queda nada, la casilla sale vacía.
-const RE_NOTA_SIN_DATO = /\b(ning[uú]n documento|no (se )?(indica|acredita|declara|especifica|informa|menciona|detalla)|sin (dato|informaci[oó]n|respaldo))\b/i;
+// También el tramo que habla de nuestros documentos («cotización incluye 4 bandejas…»): eso va en «Incluye».
+const RE_NOTA_SIN_DATO = /\b(ning[uú]n documento|no (se )?(indica|acredita|declara|especifica|informa|menciona|detalla)|sin (dato|informaci[oó]n|respaldo)|cotizaci[oó]n|proveedor)\b/i;
 export function datoParaPresentar(datoOfertado: string | null | undefined): string | null {
   const tramos = String(datoOfertado || '').split(';').map(t => t.trim()).filter(t => t && !RE_NOTA_SIN_DATO.test(t));
   return tramos.join('; ') || null;
@@ -52,15 +53,27 @@ export function especificacionesDeOpcion(o: OpcionDTO): EspecificacionFicha[] {
   }));
 }
 
-/** Modelo + versión sin repetir la versión cuando el modelo ya la trae («B360 G3» + «G3»). */
-const modeloConVersion = (modelo: string | null, version: string | null) =>
-  (version && modelo && modelo.toLowerCase().includes(version.toLowerCase()) ? modelo : [modelo, version].filter(Boolean).join(' ')) || null;
+/** Modelo + versión sin repetir la versión cuando el modelo ya la trae («B360 G3» + «G3»), ni pegar una «versión» que en
+ *  realidad es la descripción del producto («Bakerlux Shop.Pro Touch, 4 bandejas 600x400, abatible…», horno Unox). */
+const modeloConVersion = (modelo: string | null, version: string | null) => {
+  const v = version && version.length <= 30 && !version.includes(',') && !(modelo || '').toLowerCase().includes(version.toLowerCase()) ? version : null;
+  return [modelo, v].filter(Boolean).join(' ') || null;
+};
 
 /** Nombre del producto de la línea del costeo («Horno convector - 10 bandejas» → «Horno convector»). */
 const nombreDeLinea = (detalle: string) => detalle.split(' - ')[0].trim() || detalle.trim();
 
-/** `imagen.puestaPorPersona`: la subió alguien en el costeo (true) o salió sola de la ficha del proveedor (false, se avisa en pantalla). */
-export function productoFichaDeOpcion(o: OpcionDTO, l: LineaAuditorDTO, imagen: { dataUri: string; puestaPorPersona: boolean } | null): ProductoFicha {
+/** Lo que se entrega junto al producto según sus complementos (27-oct-2026, horno Unox de 1414396-26-LP26: bandejas,
+ *  enchufe trifásico, instalación). El envío y los cargos manuales son costo, no parte técnica de la oferta: no van. */
+export function incluyeDeOpcion(o: OpcionDTO): string[] {
+  return (o.complementos || [])
+    .filter(c => c.tipo === 'producto' || c.tipo === 'instalacion')
+    .map(c => c.tipo === 'producto' && c.cantidadDoc && c.cantidadDoc > 1 ? `${c.cantidadDoc} × ${c.nombre}` : c.nombre);
+}
+
+/** `imagen.puestaPorPersona`: la subió alguien en el costeo (true) o salió sola de la ficha del proveedor (false, se avisa en pantalla).
+ *  `fotosExtra`: más fotos del producto, debajo de la principal. */
+export function productoFichaDeOpcion(o: OpcionDTO, l: LineaAuditorDTO, imagen: { dataUri: string; puestaPorPersona: boolean } | null, fotosExtra: string[] = []): ProductoFicha {
   return {
     nombre: nombreDeLinea(l.detalle),
     marca: o.marca, modelo: modeloConVersion(o.modelo, o.version),
@@ -69,6 +82,8 @@ export function productoFichaDeOpcion(o: OpcionDTO, l: LineaAuditorDTO, imagen: 
     confirmado: true,
     imagenDataUri: imagen?.dataUri ?? null,
     imagenConfirmada: imagen?.puestaPorPersona ?? false,
+    imagenesExtraDataUri: imagen ? fotosExtra : [],
+    incluye: incluyeDeOpcion(o),
     especificaciones: especificacionesDeOpcion(o),
     cantidad: l.cantidad, unidad: l.unidad || null,
   };

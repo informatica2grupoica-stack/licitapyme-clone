@@ -2,7 +2,7 @@
 // solo con lo técnico todo cumplido, y nunca inventa el dato ofertado.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { motivoFichaNoLista, especificacionesDeOpcion, productoFichaDeOpcion, datoParaPresentar } from '../auditor-ficha-propia-core';
+import { motivoFichaNoLista, especificacionesDeOpcion, productoFichaDeOpcion, datoParaPresentar, incluyeDeOpcion } from '../auditor-ficha-propia-core';
 import { construirFichaTecnicaHtml, especificacionesSinCompletar } from '../ficha-tecnica';
 
 const fila = (n: number, texto: string, ofertado: string, estadoCelda = 'CUMPLE') =>
@@ -51,6 +51,23 @@ test('ficha propia: la nota interna del comparador no se imprime como dato ofert
   assert.equal(datoParaPresentar('USB 3.2 Tipo-A; HDMI 2.0'), 'USB 3.2 Tipo-A; HDMI 2.0');
   const o = opcion('CUMPLE', [fila(1, 'x', 'y')], { marca: 'GETAC', modelo: 'B360 G3', version: 'G3' });
   assert.equal(productoFichaDeOpcion(o, linea, null).modelo, 'B360 G3', 'la versión no se repite');
+});
+
+// 1414396-26-LP26, horno Unox: los complementos van en «Incluye»; el envío (costo logístico) no.
+test('ficha propia: «Incluye» lleva productos e instalación de los complementos, sin el envío', () => {
+  const o = opcion('CUMPLE', [fila(1, 'x', 'y')], { complementos: [
+    { tipo: 'instalacion', nombre: 'Instalación de Horno convector', cantidadDoc: 1 },
+    { tipo: 'producto', nombre: 'Enchufe macho volante 5x16A Trifásico', cantidadDoc: 1 },
+    { tipo: 'producto', nombre: 'Bandeja Unox Bake 60x40 cms', cantidadDoc: 4 },
+    { tipo: 'envio', nombre: 'Envío', cantidadDoc: null },
+  ] });
+  assert.deepEqual(incluyeDeOpcion(o), ['Instalación de Horno convector', 'Enchufe macho volante 5x16A Trifásico', '4 × Bandeja Unox Bake 60x40 cms']);
+  const html = construirFichaTecnicaHtml({
+    licitacionCodigo: 'X', licitacionNombre: null, organismo: null, generadoPor: null, fechaTexto: '',
+    lineas: [{ linea: 7, titulo: 'Horno', productos: [productoFichaDeOpcion(o, linea, null)] }],
+    empresa: { razonSocial: 'E', rut: null, giro: null, direccion: null, email: null, telefono: null, representanteNombre: null, representanteRut: null, representanteCargo: null, logoDataUri: null, firmaDataUri: null, timbreDataUri: null },
+  });
+  assert.ok(html.includes('>Incluye<') && html.includes('4 × Bandeja Unox Bake 60x40 cms') && !html.includes('Envío'));
 });
 
 test('ficha propia: la foto del costeo cuenta como puesta por una persona; la extraída no', () => {

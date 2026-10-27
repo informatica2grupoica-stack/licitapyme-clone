@@ -14,7 +14,13 @@ proveedor (se avisa para revisarla). Queda en Documentos › «Anexos Técnicos�
 `auditor-ficha-propia.ts`.
 **Regla:** las notas internas del comparador pegadas al dato ofertado («ningún documento acredita…») no
 se imprimen (`datoParaPresentar`); sin dato, la casilla queda vacía en amarillo.
-**Verificado:** PDF armado con datos reales (4022-19-LE26 L2, 2427-98-LE26 L2 GETAC) sin subir; tests.
+Ajustes pedidos el mismo día al ver la ficha del horno (1414396-26-LP26 L7): sección «Incluye» con los
+complementos de producto e instalación (el envío y los cargos manuales no van); hasta 4 fotos, todas con
+pie «Foto referencial» (la del costeo primero; después las de la ficha o, si no hay, de la cotización,
+fotos antes que planos — `extraerImagenesProducto`); color azul marino #1f3864 en vez del verde; la
+ficha puede seguir en la hoja siguiente (antes saltaba entera a la página 2); los tramos del dato
+ofertado que hablan de la cotización o del proveedor no se imprimen.
+**Verificado:** PDF armado con datos reales (4022-19-LE26 L2, 2427-98-LE26 L2 GETAC, 1414396 L7) sin subir; tests.
 **Pendiente:** ver el botón en el navegador; siguiente paso pedido: llenar el anexo técnico con estos
 mismos datos.
 

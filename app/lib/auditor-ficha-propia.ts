@@ -7,7 +7,7 @@ import pool from '@/app/lib/db';
 import { armarPanelAuditor, cargarEstadoCosteo } from '@/app/lib/auditor-opciones';
 import { motivoFichaNoLista, productoFichaDeOpcion } from '@/app/lib/auditor-ficha-propia-core';
 import { construirFichaTecnicaHtml, especificacionesSinCompletar, productosSinConfirmar, type EmpresaFicha, type LineaFicha } from '@/app/lib/ficha-tecnica';
-import { extraerImagenProducto } from '@/app/lib/ficha-imagen-extraer';
+import { extraerImagenesProducto } from '@/app/lib/ficha-imagen-extraer';
 import { generarInformePdf } from '@/app/lib/generar-informe';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 
@@ -24,19 +24,24 @@ async function comoDataUri(url: string | null | undefined): Promise<string | nul
   } catch { return null; }
 }
 
-/** Foto del producto: la que una persona subió a la fila del costeo; si no hay, la que se saca de la ficha del proveedor. */
-async function imagenDeOpcion(fotoCosteo: string | null, fichasPdf: string[]): Promise<{ dataUri: string; puestaPorPersona: boolean } | null> {
+const MAX_FOTOS = 4;   // la principal + 3 debajo
+
+/** Fotos del producto: primero la que una persona subió a la fila del costeo; después las que se sacan de los PDF del proveedor
+ *  (sus fichas y, si no hay, su cotización), hasta MAX_FOTOS. La primera es la principal. */
+async function fotosDeOpcion(fotoCosteo: string | null, pdfsProveedor: string[]): Promise<{ principal: { dataUri: string; puestaPorPersona: boolean } | null; extra: string[] }> {
+  const fotos: string[] = [];
   const propia = await comoDataUri(fotoCosteo);
-  if (propia) return { dataUri: propia, puestaPorPersona: true };
-  for (const url of fichasPdf) {
+  if (propia) fotos.push(propia);
+  for (const url of pdfsProveedor) {
+    if (fotos.length >= MAX_FOTOS) break;
     try {
       const r = await fetch(url);
       if (!r.ok) continue;
-      const img = await extraerImagenProducto(Buffer.from(await r.arrayBuffer()));
-      if (img) return { dataUri: `data:image/png;base64,${img.png.toString('base64')}`, puestaPorPersona: false };
-    } catch { /* sigue con la próxima ficha */ }
+      for (const img of await extraerImagenesProducto(Buffer.from(await r.arrayBuffer()), MAX_FOTOS - fotos.length))
+        fotos.push(`data:image/png;base64,${img.png.toString('base64')}`);
+    } catch { /* sigue con el próximo documento */ }
   }
-  return null;
+  return { principal: fotos.length ? { dataUri: fotos[0], puestaPorPersona: !!propia } : null, extra: fotos.slice(1) };
 }
 
 export interface FichaPropiaGenerada { url: string; nombre: string; productos: number; sinCompletar: number; fotoSinConfirmar: number }
@@ -67,8 +72,10 @@ export async function armarFichaPropiaPdf(negocioId: number, licitacionCodigo: s
     if (!l || !o) throw new Error('Esa opción no está en el Auditor de este negocio.');
     const motivo = motivoFichaNoLista(o);
     if (motivo) throw new Error(`${[o.marca, o.modelo].filter(Boolean).join(' ') || 'La opción'}: ${motivo}`);
-    const fichas = o.respaldos.filter(r => r.tipo === 'ficha_tecnica' && r.vigente && r.documentoUrl).map(r => r.documentoUrl as string);
-    const producto = productoFichaDeOpcion(o, l, await imagenDeOpcion(fotoPorFila.get(l.filaId) ?? null, fichas));
+    const pdfs = (tipo: string) => o.respaldos.filter(r => r.tipo === tipo && r.vigente && r.documentoUrl && /\.pdf($|\?)/i.test(r.documentoUrl)).map(r => r.documentoUrl as string);
+    const fichas = pdfs('ficha_tecnica');
+    const fotos = await fotosDeOpcion(fotoPorFila.get(l.filaId) ?? null, fichas.length ? fichas : pdfs('cotizacion_formal'));
+    const producto = productoFichaDeOpcion(o, l, fotos.principal, fotos.extra);
     const existente = lineas.find(x => x.linea === l.lineaReal && x.titulo === producto.nombre);
     if (existente) existente.productos.push(producto);
     else lineas.push({ linea: l.lineaReal, titulo: producto.nombre, productos: [producto] });
