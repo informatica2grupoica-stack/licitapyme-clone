@@ -4,6 +4,29 @@ Reglas vigentes del motor: ver también `.claude/skills/motor-anexos/SKILL.md` y
 `docs/anexos-motor-reglas.md`. Las entradas con fecha van arriba; al final, lo traspasado desde la
 memoria personal el 2026-10-27.
 
+## 2026-10-27 — Separar anexos cortaba en «LICITACIÓN PÚBLICA» (8 trozos en vez de 5)
+Caso real: 4022-19-LE26 (Municipalidad de Putre), `ANEXOS_ELECTRIC_DOMIC_4022-19-LE26.docx`; mismo
+formato en 4022-16-LE26.
+Títulos «ANEXO ADMINISTRATIVO 1», «ANEXO TÉCNICO 3», «ANEXO  5» (número sin N°) no se reconocían y
+el respaldo cortaba en el membrete «LICITACIÓN PÚBLICA», 2-3 líneas tarde: el título de cada anexo
+quedaba al final del anterior, archivos «LICITACIÓN_PÚBLICA_N», hojas en blanco. En
+`app/lib/anexos-dividir.ts`: décima forma de título (número sin N°, solo párrafos sueltos), la
+séptima forma sube por todo el bloque de título (y no toma la 2ª línea de una firma, «LEGAL»), el
+membrete repetido no sirve de subtítulo, y cada fragmento sale sin saltos de página en los bordes
+ni relleno vacío al final (deja 2 vacíos para la fecha). Skill nueva `separar-anexos` y banco
+`scripts/anexos-banco-division.mts`.
+**Regla / decisión:** cualquier cambio en la separación se pasa por el banco de separación y se
+revisa cada documento que cambia (skill `separar-anexos`).
+**Verificado:** documento real → 5 anexos, cada uno de su título a su fecha, 1 hoja cada uno en
+Word, categoría correcta y `generarAnexoFinal` con los mismos campos llenos. Banco de 400 .docx
+reales vs HEAD: 45 cambian, revisados — anexos nuevos bien separados (2713-187-LP26,
+812799-55-LE26, 856-26-LR26, 2661-45-LR26 Anexo 2) y cortes falsos que desaparecen; ningún anexo
+real perdido. No se probó en el navegador ni en el VPS.
+**Pendiente:** en la BD siguen los anexos mal separados de 4022-19-LE26 (`LICITACIÓN_PÚBLICA*.docx`
+y los generados desde ellos en Documentos Propios): hay que volver a separar una vez desplegado.
+Cortes raros que ya existían y siguen (3789-40-LE26 «, ___ DE 2026», 45-52-LE26 «RUT»,
+1057429-98-LE26 «O»): no tocados.
+
 ## 2026-10-27 — La fecha salía centrada encima de la firma
 Caso real: 1414396-26-LP26, Anexo N°5 (oferta económica).
 El Word trae «Fecha:» + párrafo vacío CENTRADO + raya de firma. El patrón 1

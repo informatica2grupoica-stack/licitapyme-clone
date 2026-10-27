@@ -45,6 +45,22 @@ Con menos de 2 no se toca nada.
 Las palabras aceptadas son **FORMULARIO**, **ANEXO** y **FORMATO**. Se tolera cualquier orden y
 cantidad de puntuación entre la "N" y el número (`N°`, `Nº`, `N.º`, `N.°`, `N 3`).
 
+Además (en el código hay más formas numeradas en comentarios):
+- **Número sin «N°»**, solo o tras una palabra de categoría: `ANEXO  5`, `ANEXO TÉCNICO 3`,
+  `ANEXO ADMINISTRATIVO 1` (4022-19-LE26). Línea completa y **solo en párrafos sueltos**, nunca en
+  celdas de tabla (una tabla de «documentos requeridos» trae «Anexo 1», «Anexo 2»…).
+- **Sin palabra clave**: título en mayúsculas sobre el nombre de la licitación repetido entre
+  comillas (séptima forma) o justo después de una línea «FIRMA…/FECHA…» (octava). La séptima sube
+  por **todo** el bloque de título y corta en su línea de más arriba; si ese bloque llega a un
+  encabezado ya detectado, es el mismo título y no corta.
+
+### Cómo queda cada fragmento
+
+- Empieza en su título y termina en su firma/fecha (nunca el título de uno al final del anterior).
+- Se quitan los saltos de página **antes del primer texto y después del último** (si no, sale una
+  hoja en blanco); los del medio se respetan.
+- Se quitan los párrafos vacíos de relleno del final, **dejando 2**: ahí el motor escribe la fecha.
+
 ### Guardarraíles de la separación
 
 - **Largo máximo del encabezado: 80 caracteres.** Una oración que *menciona* "Formulario N°1" no es
@@ -63,7 +79,9 @@ cantidad de puntuación entre la "N" y el número (`N°`, `Nº`, `N.º`, `N.°`,
 
 Sale del título real. Si el encabezado viene "pelado" (solo el número), se busca el título en los
 párrafos siguientes. Una línea **entre comillas** corta la búsqueda solo si está **repetida** en el
-documento (es el nombre de la licitación); si aparece una sola vez, es el título y se usa.
+documento (es el nombre de la licitación); si aparece una sola vez, es el título y se usa. Un
+membrete sin comillas repetido 3+ veces («LICITACIÓN PÚBLICA») se salta hasta la primera línea
+propia del anexo; si no hay ninguna, se usa el repetido (anexo repetido por línea de producto).
 
 ### Clasificación automática por categoría
 

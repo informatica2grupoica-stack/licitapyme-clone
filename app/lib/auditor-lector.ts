@@ -16,6 +16,7 @@ import { ocrImagenConGlmOcr, extraerTextoPdfPorUrlConGlmOcr } from '@/app/lib/za
 import { ocrPdfLocalTesseract, ocrImagenLocalTesseract } from '@/app/lib/tesseract-ocr';
 import * as P from '@/app/lib/auditor-lector-prompts';
 import { limpiarProveedorPropio } from '@/app/lib/auditor-complementos-core';
+import { monedaDeTexto } from '@/app/lib/moneda-texto';
 
 export type ModoLector = 'completo' | 'comercial';
 const MOTOR_LECTOR = 'kimi';            // Kimi en todo el Auditor (26-oct-2026)
@@ -69,7 +70,7 @@ export interface ExtraccionGuardada { modo: ModoLector; salida: SalidaLector; te
 export async function tiposCambioDeLaLectura(salida: SalidaLector): Promise<TiposCambioLectura | undefined> {
   const monedas = new Set<string>();
   for (const p of salida.productos || []) {
-    const m = String(p.comercial?.moneda || '').toUpperCase().trim();
+    const m = monedaDeTexto(p.comercial?.moneda);
     if (m === 'USD' || m === 'EUR') monedas.add(m);
   }
   if (!monedas.size) return undefined;

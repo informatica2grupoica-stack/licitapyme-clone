@@ -459,6 +459,11 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
             </div>
           </>
         )}
+        {vista === 'checklist' && (
+          <p className="mt-3 text-xs text-slate-500">
+            Aquí se cuentan el bloque Comercial y las Alertas de cumplimiento. Los anexos administrativos se generan y se aprueban en la pestaña <b className="font-medium text-slate-700">Pre-postulación</b>, sección «Anexos a generar».
+          </p>
+        )}
       </div>
       </>)}
 

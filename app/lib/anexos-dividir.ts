@@ -105,6 +105,17 @@ function esEncabezadoFormulario(linea: string): boolean {
   return RE_ENCABEZADO_FORMULARIO.test(linea) || RE_FORMATO_TIPO.test(linea);
 }
 
+// DÉCIMA forma (27-oct-2026, caso real 4022-19-LE26, Municipalidad de Putre — "me recorta mal los
+// anexos"): número SIN "N°", solo o detrás de una palabra de categoría — "ANEXO ADMINISTRATIVO 1",
+// "ANEXO TÉCNICO 3", "ANEXO CONÓMICO 4" (sic), "ANEXO  5". Ninguna forma anterior lo cubría (la
+// primera exige "N", la cuarta un guion), así que el corte lo hacían los respaldos (séptima y
+// octava forma), que caían en «LICITACIÓN PÚBLICA», 2-3 líneas DESPUÉS del título real: el título
+// de cada anexo quedaba pegado al final del anterior y los archivos salían «LICITACIÓN_PÚBLICA_N».
+// Línea completa (^…$), así que «Anexo 1 debe presentarse…» nunca calza. Solo en párrafos sueltos,
+// NO en celdas de tabla: una tabla de «documentos requeridos» trae «Anexo 1», «Anexo 2»… uno por
+// celda, sin repetirse, y el filtro de repetidos de candidatosTabla no los atajaría.
+const RE_ENCABEZADO_SIN_N = /^(FORMULARIO|ANEXO|FORMATO)\s+(?:\p{L}{3,15}\s+)?(\d+)\s*:?\.?$/iu;
+
 // Solo la forma "FORMULARIO/ANEXO N°X" al INICIO (sin la alternativa "(ANEXO X)" al final) — se usa
 // como fallback cuando la línea completa es demasiado larga para el chequeo normal de arriba. Ver
 // RE_ENCABEZADO_PEGADO_SIN_ESPACIO más abajo para el caso real que motiva esto.
@@ -296,6 +307,23 @@ function clavesEntreComillasRepetidas(bloques: BloqueCrudo[]): Set<string> {
   return new Set([...conteo].filter(([, n]) => n > 1).map(([clave]) => clave));
 }
 
+// Líneas sueltas (sin comillas) que se repiten en 3 o más anexos del mismo documento — membrete
+// fijo como «LICITACIÓN PÚBLICA» o «Firma del Proponente» (caso 4022-19-LE26). Mismo criterio de
+// «lo repetido es dato, no título»: no sirven de subtítulo para nombrar el archivo. Desde 3 y no
+// desde 2 a propósito: un anexo puede repetir su propio título dentro («PROGRAMA DE INTEGRIDAD»
+// arriba y en la tabla de abajo) y ese sí es su nombre.
+function lineasSueltasRepetidas(bloques: BloqueCrudo[]): Set<string> {
+  const conteo = new Map<string, number>();
+  for (const b of bloques) {
+    if (b.tipo !== 'parrafo') continue;
+    for (const linea of b.textoPlano.split('\n')) {
+      const clave = linea.trim().toUpperCase();
+      if (clave && !RE_EMPIEZA_CON_COMILLA.test(clave)) conteo.set(clave, (conteo.get(clave) ?? 0) + 1);
+    }
+  }
+  return new Set([...conteo].filter(([, n]) => n >= 3).map(([clave]) => clave));
+}
+
 // SÉPTIMA forma (31-ago-2026, caso real 2585-87-LE26, reportado por el usuario: "no me deja
 // separar, eso no me debe trancar las cosas"): ninguno de los 6 anexos pegados de este documento
 // se llama "FORMULARIO/ANEXO/FORMATO" — se rotulan por su FUNCIÓN ("PROGRAMA DE INTEGRIDAD",
@@ -346,6 +374,8 @@ function detectarEncabezadosPorRepeticion(
     }
     for (const linea of b.textoPlano.split('\n')) lineas.push({ indice: b.ordinalInicio, texto: linea.trim() });
   }
+  const vecesPorLinea = new Map<string, number>(); // membrete repetido: no entra al título armado
+  for (const l of lineas) if (l.texto) vecesPorLinea.set(l.texto.toUpperCase(), (vecesPorLinea.get(l.texto.toUpperCase()) ?? 0) + 1);
   const cubiertos = [...yaDetectados].map(h => h.indice).sort((a, b) => a - b);
   // DIRECCIONAL a propósito: un encabezado que viene DESPUÉS del ancla (ej. "ANEXO Nº6", más
   // adelante en el documento) no cubre nada acá — solo cuenta el que está ANTES O EN el ancla.
@@ -362,14 +392,40 @@ function detectarEncabezadosPorRepeticion(
     if (!repetidas.has(clave)) continue;
     const techo = techoAntesDe(anchor.indice);
     if (anchor.indice - techo <= VENTANA_CLUSTER) continue; // esta sección ya tiene su título
+    // El título puede ocupar VARIAS líneas en mayúsculas sobre el ancla ("ANEXO ADMINISTRATIVO 2" /
+    // "DECLARACIÓN JURADA SIMPLE…" / "LICITACIÓN PÚBLICA" / ancla). BUG REAL (27-oct-2026,
+    // 4022-19-LE26): se tomaba la PRIMERA línea en mayúsculas subiendo desde el ancla — la de más
+    // abajo, «LICITACIÓN PÚBLICA» — y el corte caía 2 líneas tarde: el título real quedaba al final
+    // del anexo anterior. Ahora se sube por todo el bloque y el corte va en su línea de MÁS ARRIBA;
+    // si ese bloque llega hasta el encabezado ya detectado, es el mismo título y no se agrega nada.
+    const posicionesTitulo: number[] = []; // en `lineas`, de abajo hacia arriba
+    let llegaAlTecho = false;
     for (let j = i - 1; j >= 0 && i - j <= VENTANA_TITULO; j--) {
       const cand = lineas[j];
-      if (cand.indice <= techo) break; // se cruzó al encabezado de la sección ANTERIOR
+      if (cand.indice <= techo) { llegaAlTecho = true; break; } // se cruzó al encabezado ya detectado
       if (!cand.texto) continue; // línea en blanco, seguir mirando más atrás
-      if (RE_ROTULO_NOMBRE.test(cand.texto)) continue; // "NOMBRE PROPUESTA" y similares
-      if (RE_CIERRE_SECCION_ANTERIOR.test(cand.texto)) break; // "FIRMA…"/"FECHA…" cierra la de antes
+      // "NOMBRE PROPUESTA" va justo sobre el ancla: se salta. Sobre un título ya encontrado, en
+      // cambio, un "NOMBRE…" es el cierre de la sección anterior ("NOMBRE Y FIRMA").
+      if (RE_ROTULO_NOMBRE.test(cand.texto)) { if (posicionesTitulo.length) break; continue; }
+      if (RE_CIERRE_SECCION_ANTERIOR.test(cand.texto)) {
+        // "FIRMA…"/"FECHA…" cierra la de antes. Lo que está PEGADO debajo de esa línea, sin un
+        // párrafo vacío de por medio, es su continuación («FIRMA DEL OFERENTE O REPRESENTANTE» /
+        // «LEGAL», caso 2661-45-LR26), no el título del anexo siguiente: se descarta.
+        let k = j + 1;
+        while (posicionesTitulo.length && posicionesTitulo[posicionesTitulo.length - 1] === k) { posicionesTitulo.pop(); k++; }
+        break;
+      }
       if (RE_EMPIEZA_CON_COMILLA.test(cand.texto)) break; // otro nombre repetido: sección distinta
-      if (cand.texto.length > LARGO_MAX_ENCABEZADO || !RE_TODO_MAYUSCULAS.test(cand.texto)) break;
+      if (!RE_TODO_MAYUSCULAS.test(cand.texto)) break;
+      // Una línea en mayúsculas demasiado larga para ser título se cruza (puede ser la segunda
+      // línea de un título largo, caso 2905-52-LE26: «FORMULARIO N°3» + «DECLARACIÓN DE NO
+      // ENCONTRARSE INHABILITADO PARA SUSCRIBIR CONTRATOS…»), pero nunca queda como el título.
+      if (cand.texto.length > LARGO_MAX_ENCABEZADO) continue;
+      posicionesTitulo.push(j);
+    }
+    const tope = posicionesTitulo.length ? lineas[posicionesTitulo[posicionesTitulo.length - 1]] : null;
+    if (tope && !llegaAlTecho) {
+      const cand = tope;
       // ¿El título encontrado es en realidad la CONTINUACIÓN del encabezado ya detectado justo
       // antes? Hace falta desde que las tablas entran a `lineas`: el ancla de "ANEXO Nº6" vive
       // dentro de su tabla de encabezado, varios ordinales más abajo, así que la distancia
@@ -385,11 +441,20 @@ function detectarEncabezadosPorRepeticion(
       const soloHuecosDesdeElEncabezado = Number.isFinite(techo) && !lineas.some(
         l => l.indice > techo && l.indice < cand.indice && l.texto,
       );
-      if (soloHuecosDesdeElEncabezado) break;
-      out.push({ indice: cand.indice, titulo: cand.texto });
-      cubiertos.push(cand.indice);
-      cubiertos.sort((a, b) => a - b);
-      break;
+      if (!soloHuecosDesdeElEncabezado) {
+        // El título es el bloque entero, de la línea de más arriba hasta el ancla («A N E X O Nº1»
+        // + «IDENTIFICACIÓN DEL OFERENTE», caso 2661-45-LR26), sin los rótulos «NOMBRE…», con las
+        // letras espaciadas juntadas para que el nombre de archivo reconozca «ANEXO Nº1».
+        const titulo = lineas.slice(lineas.indexOf(cand), i)
+          .map(l => l.texto)
+          .filter((t, k) => t && !RE_ROTULO_NOMBRE.test(t) && (k === 0 || (vecesPorLinea.get(t.toUpperCase()) ?? 0) < 2))
+          .join(' ')
+          .replace(/(?<![\p{L}\p{N}])\p{Lu}(?: \p{Lu}){2,}(?![\p{L}\p{N}])/gu, m => m.replace(/ /g, ''))
+          .slice(0, 120);
+        out.push({ indice: cand.indice, titulo });
+        cubiertos.push(cand.indice);
+        cubiertos.sort((a, b) => a - b);
+      }
     }
   }
   return out;
@@ -439,7 +504,7 @@ function detectarEncabezadosTrasCierreDeSeccion(
 // ¿Esta línea entre comillas es el nombre de la licitación (corta la búsqueda) o el título real
 // del formulario (sirve de subtítulo)? Ver clavesEntreComillasRepetidas.
 function cortaSubtitulo(texto: string, repetidas: Set<string>): boolean {
-  if (esEncabezadoFormulario(texto)) return true;
+  if (esEncabezadoFormulario(texto) || RE_ENCABEZADO_SIN_N.test(texto)) return true;
   if (!RE_EMPIEZA_CON_COMILLA.test(texto)) return false;
   return repetidas.has(texto.replace(RE_COMILLAS_ALREDEDOR, '').trim().toUpperCase());
 }
@@ -456,16 +521,28 @@ function buscarSubtituloTrasEncabezadoPelado(
   bloques: BloqueCrudo[],
   desdeIndice: number,
   repetidas: Set<string>,
+  sueltasRepetidas: Set<string> = new Set(),
 ): string {
   const partes: string[] = [];
+  let respaldo = '';
   for (let i = desdeIndice + 1; i < bloques.length && partes.length < 2; i++) {
     const b = bloques[i];
     if (b.tipo !== 'parrafo' || b.enCuadroFlotante) break;
     const texto = b.textoPlano.trim();
     if (!texto) continue; // párrafo vacío de por medio: se sigue buscando, no corta
     if (cortaSubtitulo(texto, repetidas)) break;
+    // Membrete repetido («LICITACIÓN PÚBLICA», el nombre de la licitación sin comillas): se salta
+    // hasta dar con la primera línea propia del anexo, y después de ella corta. Si no aparece
+    // ninguna propia, el repetido ES el título de un anexo que el organismo repite por línea de
+    // producto («ANEXO Nº2» / «PLAZO DE ENTREGA» ×3, caso 1028897-42-LP26).
+    if (sueltasRepetidas.has(texto.toUpperCase())) {
+      if (partes.length) break;
+      respaldo ||= sinComillas(texto);
+      continue;
+    }
     partes.push(sinComillas(texto));
   }
+  if (!partes.length && respaldo) partes.push(respaldo);
   return partes.join(' ').slice(0, 120);
 }
 
@@ -492,6 +569,7 @@ function parrafosDeTabla(xmlTabla: string): { texto: string; offset: number }[] 
 export function detectarFormularios(xml: string): FormularioDetectado[] {
   const bloques = listarBloquesCrudos(xml);
   const repetidasEntreComillas = clavesEntreComillasRepetidas(bloques);
+  const repetidasSueltas = lineasSueltasRepetidas(bloques);
   const encabezados: { indice: number; titulo: string }[] = [];
   // BUG REAL (14-ago-2026, caso 5827-3-LE26): al quitar el tope de tamaño de tabla (ver más
   // abajo), una tabla de DATOS real puede traer una columna que repite literalmente "ANEXO N.° 9"
@@ -561,8 +639,9 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
     // interna — se prueba cada línea, no solo el texto completo, para no perder ese caso.
     for (const linea of b.textoPlano.split('\n')) {
       const l = linea.trim();
-      if (l.length <= LARGO_MAX_ENCABEZADO && esEncabezadoFormulario(l)) {
-        const subtitulo = RE_ENCABEZADO_PELADO.test(l) ? buscarSubtituloTrasEncabezadoPelado(bloques, bi, repetidasEntreComillas) : '';
+      if (l.length <= LARGO_MAX_ENCABEZADO && (esEncabezadoFormulario(l) || RE_ENCABEZADO_SIN_N.test(l))) {
+        const pelado = RE_ENCABEZADO_PELADO.test(l) || RE_ENCABEZADO_SIN_N.test(l);
+        const subtitulo = pelado ? buscarSubtituloTrasEncabezadoPelado(bloques, bi, repetidasEntreComillas, repetidasSueltas) : '';
         encabezados.push({ indice: b.ordinalInicio, titulo: subtitulo ? `${l} ${subtitulo}` : l });
         break; // un párrafo no trae dos encabezados propios
       }
@@ -622,7 +701,8 @@ function sufijoDeArchivo(titulo: string): string {
   // el mismo regex que el encabezado — la regla del módulo es que las cuatro formas se agreguen a
   // la vez, si no el encabezado se detecta pero el archivo sale con nombre feo.
   const cat = !m ? titulo.match(/(?:FORMULARIO|ANEXO|FORMATO)\s*([A-Z]{1,8})\s*-\s*(\d+)/i) : null;
-  const base = m ? `N${m[1]}` : cat ? `${cat[1].toUpperCase()}-${cat[2]}` : titulo.slice(0, 20);
+  const sinN = !m && !cat ? titulo.match(/^(?:FORMULARIO|ANEXO|FORMATO)\s+(?:\p{L}{3,15}\s+)?(\d+)\b/iu) : null;
+  const base = m ? `N${m[1]}` : cat ? `${cat[1].toUpperCase()}-${cat[2]}` : sinN ? `N${sinN[1]}` : titulo.slice(0, 20);
   return base.replace(/[^\w-]/g, '_');
 }
 
@@ -825,6 +905,10 @@ function tipoEIdentificador(titulo: string): { palabra: string; id: string; coin
   if (m) return { palabra: m[1], id: `${m[2].toUpperCase()}-${m[3]}`, coincidencia: m[0] };
   m = t.match(RE_TIPO_SIN_NUMERO);
   if (m) return { palabra: m[1], id: 'Tipo', coincidencia: m[0] };
+  // Décima forma ("ANEXO TÉCNICO 3" + subtítulo pegado por detectarFormularios): sin el `$` de
+  // RE_ENCABEZADO_SIN_N, porque acá el título ya trae el subtítulo detrás.
+  m = t.match(/^(FORMULARIO|ANEXO|FORMATO)\s+(?:\p{L}{3,15}\s+)?(\d+)\b\s*:?/iu);
+  if (m) return { palabra: m[1], id: m[2], coincidencia: m[0] };
   return null;
 }
 
@@ -895,6 +979,32 @@ export interface FormularioDividido {
   nombreArchivo: string; // sin extensión — ver nombreArchivoDesdeTitulo
 }
 
+// El salto de página que en el original separa un anexo del siguiente cae DENTRO de alguno de los
+// dos fragmentos (al final de uno en un párrafo vacío, o al principio del título del otro). BUG REAL
+// (27-oct-2026, 4022-19-LE26): el Anexo 1 salía con una hoja en blanco al final y el Anexo 4 con
+// una al principio. Se quitan solo los saltos ANTES del primer texto y DESPUÉS del último; los del
+// medio son del propio anexo y se respetan.
+const RE_SALTO_PAGINA = /<w:br\b[^>]*w:type="page"[^>]*\/>/g;
+function quitarSaltosDePaginaEnBordes(cuerpo: string): string {
+  const textos = [...cuerpo.matchAll(/<w:t(?:\s[^>]*)?>[^<]*\S[^<]*<\/w:t>/g)];
+  if (!textos.length) return cuerpo;
+  const inicio = textos[0].index!;
+  const ultimo = textos[textos.length - 1];
+  const fin = ultimo.index! + ultimo[0].length;
+  return cuerpo.slice(0, inicio).replace(RE_SALTO_PAGINA, '')
+    + cuerpo.slice(inicio, fin)
+    + cuerpo.slice(fin).replace(RE_SALTO_PAGINA, '');
+}
+
+// Mismo caso: el organismo rellena el final de cada anexo con párrafos vacíos para empujar el
+// siguiente a otra hoja (23 en el Anexo 4 de 4022-19-LE26). Ya cortado, ese relleno solo produce
+// una hoja en blanco al final. Vacío de verdad: sin texto, imagen, cuadro, campo ni salto de sección.
+const PARRAFOS_VACIOS_QUE_SE_DEJAN = 2;
+function esParrafoDeRelleno(b: BloqueCrudo): boolean {
+  return b.tipo === 'parrafo' && !b.enCuadroFlotante && !b.textoPlano
+    && !/<w:t[\s>]|<w:drawing|<w:pict|<w:object|<mc:|<w:sectPr|<w:fldChar|<w:sym|<w:txbxContent|<\/w:txbxContent>/.test(b.xmlCompleto);
+}
+
 export async function dividirPorFormularios(bufferBase: Buffer, xml: string): Promise<FormularioDividido[]> {
   const bloques = listarBloquesCrudos(xml);
   const formularios = detectarFormularios(xml);
@@ -932,10 +1042,13 @@ export async function dividirPorFormularios(bufferBase: Buffer, xml: string): Pr
     // Un bloque entra en el fragmento si CUALQUIER parte de su rango de ordinales cae dentro
     // del rango del formulario — así una tabla se incluye COMPLETA (nunca cortada a la mitad)
     // aunque su primer o último párrafo interno coincida justo con el borde.
-    const cuerpo = bloques
-      .filter(b => b.ordinalInicio <= f.indiceFin && b.ordinalFin >= f.indiceInicio)
-      .map(b => b.xmlCompleto)
-      .join('');
+    const delFormulario = bloques.filter(b => b.ordinalInicio <= f.indiceFin && b.ordinalFin >= f.indiceInicio);
+    // Se dejan los 2 primeros vacíos tras el último texto: el motor escribe la fecha (y otros
+    // datos) en el párrafo vacío que sigue a «Fecha»; quitarlo dejaba el anexo sin fecha.
+    let ultimoConContenido = delFormulario.length - 1;
+    while (ultimoConContenido > 0 && esParrafoDeRelleno(delFormulario[ultimoConContenido])) ultimoConContenido--;
+    delFormulario.splice(ultimoConContenido + 1 + PARRAFOS_VACIOS_QUE_SE_DEJAN);
+    const cuerpo = quitarSaltosDePaginaEnBordes(delFormulario.map(b => b.xmlCompleto).join(''));
     const xmlFragmento = `${preBody}${aperturaBody}${cuerpo}${sectPr}</w:body></w:document>`;
 
     const zip = await JSZip.loadAsync(bufferBase);

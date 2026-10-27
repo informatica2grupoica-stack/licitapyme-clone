@@ -50,7 +50,7 @@ export function causalesDeBloqueo(a: EntradaCausales): CausalBloqueo[] {
   if (a.bloqueantesPendientes > 0) causales.push({
     codigo: 'ADMISIBILIDAD_DURA_PENDIENTE',
     descripcion: `${a.bloqueantesPendientes} punto(s) de admisibilidad dura sin aprobar`,
-    rutaDesbloqueo: 'Cargar y aprobar esos puntos en la pestaña Auditor Técnico.',
+    rutaDesbloqueo: 'Cárgalos y apruébalos en la pestaña Checklist del negocio (Comercial y Alertas de cumplimiento). Los anexos administrativos se aprueban aparte, en Pre-postulación › Anexos a generar.',
   });
   if (a.itemsNoCumpleSinResolver > 0) causales.push({
     codigo: 'NO_CUMPLE_SIN_RESOLVER',

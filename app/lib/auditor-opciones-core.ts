@@ -12,6 +12,7 @@ import {
   type LineaCosteo, type Veredicto, type Bloqueo, type Alerta, type MargenProyecto, numerosDelTexto,
 } from '@/app/lib/auditor-compras-core';
 import type { SalidaLector, ProductoLector } from '@/app/lib/auditor-lector';
+import { monedaDeTexto } from '@/app/lib/moneda-texto';
 
 // ── Montos y plazos ──────────────────────────────────────────────────────────────────────────────
 /** "$1.234.567" → 1234567 · "1.234,56" → 1234.56 · "12,5" → 12.5 · "US$ 1,400" → 1400. null si no hay número. */
@@ -174,7 +175,7 @@ export function normalizarProductos(salida: SalidaLector, texto?: string, esWeb 
     const ivaPorTotales = !esWeb && iva === 'no_declarado' && texto ? ivaPorTotalesDelDocumento(texto) : null;
     if (ivaPorTotales) iva = 'neto';
     // Moneda extranjera → CLP con el dólar/euro del día en que se leyó el documento. Una proforma de importación (Ruta B) conserva su USD: se costea con su propia fórmula.
-    let monedaDoc = (c.moneda || 'CLP').toUpperCase().replace(/^$$/, 'CLP').replace(/PESOS?/, 'CLP');
+    let monedaDoc = monedaDeTexto(c.moneda);   // el Lector a veces escribe una frase, no un código (ver moneda-texto.ts)
     let conversion: ProductoNormalizado['conversion'];
     const tc = tiposCambio?.[monedaDoc];
     if (tc && precio != null && tc.valor > 0 && salida.documento?.tipo !== 'proforma_importacion') {

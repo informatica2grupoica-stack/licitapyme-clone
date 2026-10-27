@@ -3,6 +3,17 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-27 — «Falta confirmar el precio» aunque ya se corrigió el IVA: la moneda venía como frase (4022-19-LE26 L7, EQ-27)
+**Causa:** el Lector escribió `moneda = «CLP (inferido del símbolo $ y formato de miles chileno; la página no declara moneda)»`
+en vez de `CLP`. El verificador (V3) y `precioNetoUnitario` comparan la moneda con `'CLP'` tal cual, así que bloqueaban el costo
+(«el precio está en CLP (…), no en CLP») y el costo neto quedaba vacío. «Corregir precio o IVA…» no lo arreglaba porque no toca la
+moneda; la corrección de Alexis sí se aplicó (el costo neto ya era $58.699). **Arreglo general:** `monedaDeTexto`
+(`moneda-texto.ts`) saca el código de la frase (el primero que aparece; «pesos», «$», «US$», «dólares», «euros»; una moneda
+desconocida se deja como texto para que V3 avise, nunca se supone) y lo usan `normalizarProductos` y `tiposCambioDeLaLectura`
+(esta última antes solo reconocía `USD`/`EUR` exactos: una frase «USD (…)» no se convertía). Se aplica al armar el panel con la
+lectura ya guardada: no hace falta releer ni gastar IA. **Verificado:** opción 592 real → `verificada`, costo neto $58.699, sin
+bloqueos (quedan las alertas V7 y V11, que no bloquean); 1588 tests; tsc. Otros negocios con la misma frase se arreglan solos.
+
 ## 2026-10-27 — El Checklist ya no lleva las líneas técnicas (solo Comercial y alertas)
 **Decisión del dueño:** lo técnico por línea ya está en el Auditor (compra y técnico, con su firma y aprobación), así que sale
 del Checklist del negocio. Quedan el bloque **Comercial** y las **Alertas de cumplimiento**. Se saca TODO lo de las filas
@@ -10,6 +21,10 @@ del Checklist del negocio. Quedan el bloque **Comercial** y las **Alertas de cum
 estado del bloque, el semáforo (ya no hay causales «bloque técnico sin aprobar» ni «NO CUMPLE sin resolver» salidos de esas
 líneas), la bandeja `/aprobaciones` (ya no cuenta ni muestra cumple/no cumple de líneas) y la decisión de generar el anexo
 técnico. Regla única: `esLineaTecnica` en `checklist-comercial.ts`, usada por `resumirChecklist` y `estadoDeBloque`.
+**Mismo día, 2.ª decisión:** el encabezado del Checklist (avance, «por aprobar», semáforo) cuenta SOLO lo que se ve en esa
+pestaña — Comercial, ítems técnicos que no son líneas y TODAS las alertas de cumplimiento —; los **anexos administrativos** (documentos)
+se generan y aprueban en **Pre-postulación › Anexos a generar** y ya no entran ahí (función `resumirChecklist`). La nota del encabezado y el
+aviso del semáforo lo dicen. En el negocio 1454 pasa de 25 puntos (17 alertas + 6 anexos + 2 comerciales) a 19.
 **Lo que NO se tocó:** las filas siguen en `checklist_comercial` (no se borró nada); el bloque Técnico sigue apareciendo,
 con su aprobación, solo si el negocio tiene ítems técnicos que no son líneas (documentos de criterios; hay ~500 en la BD).
 `FilaLineaTecnica.tsx` y la ruta `comercial/ficha-tecnica` quedaron sin uso desde la pantalla (la ficha se genera desde el

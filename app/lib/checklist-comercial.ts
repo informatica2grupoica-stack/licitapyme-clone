@@ -946,7 +946,7 @@ export interface ResumenChecklist {
  *  criterios, alertas de cumplimiento) siguen como estaban. */
 export const esLineaTecnica = (i: { tipo: string }): boolean => i.tipo === 'linea_tecnica';
 
-export function resumirChecklist(items: Array<Pick<ItemChecklist, 'estado' | 'criticidad' | 'tipo' | 'ofertamos'>>): ResumenChecklist {
+export function resumirChecklist(items: Array<Pick<ItemChecklist, 'estado' | 'criticidad' | 'tipo' | 'ofertamos'> & { bloque?: string; clave_origen?: string | null }>): ResumenChecklist {
   // En por-línea, una línea que decidimos NO ofertar no cuenta para el avance: descartarla es
   // una decisión válida, no una tarea pendiente.
   //
@@ -955,7 +955,10 @@ export function resumirChecklist(items: Array<Pick<ItemChecklist, 'estado' | 'cr
   // proyecta sobre TODAS las filas con línea — incluidas las `linea_tecnica` —, así que la regla
   // se generaliza: si una fila está marcada "no ofertamos", no cuenta, sea del tipo que sea.
   // Sin esto, descartar la línea 2 dejaba su línea técnica contada como pendiente para siempre.
-  const vivos = items.filter(i => i.ofertamos !== false && !esLineaTecnica(i));
+  // El Checklist de la pestaña cuenta solo lo que se ve ahí: Comercial, los ítems técnicos que no son líneas y las alertas de
+  // cumplimiento. Los ANEXOS administrativos (documentos) se generan y aprueban en Pre-postulación › Anexos a generar y no
+  // entran acá (27-oct-2026, decisión del dueño); las alertas del bloque administrativo SÍ, porque se ven en este Checklist.
+  const vivos = items.filter(i => i.ofertamos !== false && !esLineaTecnica(i) && !(i.bloque === 'ADMINISTRATIVO' && !esAlertaDeCumplimiento({ tipo: i.tipo, clave_origen: i.clave_origen })));
   const aprobados  = vivos.filter(i => i.estado === 'APROBADO').length;
   const porAprobar = vivos.filter(i => i.estado === 'CARGADO').length;
   const observados = vivos.filter(i => i.estado === 'OBSERVADO').length;

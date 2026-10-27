@@ -28,7 +28,7 @@ Antes de cambiar nada:
 
 | Paso | Archivo |
 |---|---|
-| Separar varios anexos pegados | `anexos-dividir.ts` |
+| Separar varios anexos pegados | `anexos-dividir.ts` (si corta mal: skill `separar-anexos`) |
 | Detectar dónde se escribe (5 patrones) | `anexos-detectar.ts` |
 | Qué dato va en cada casilla | `anexos-determinista.ts` (respaldo IA: `anexos-ia-motor.ts`) |
 | Precios desde el costeo | `anexos-precios-ia.ts`, `anexos-precios-columnas.ts` |
@@ -62,4 +62,5 @@ afecta qué se escribe hay que aplicarlo en los dos.
 
 Herramientas existentes: `scripts/doctor-anexos.mts` (lista documentos que el motor no entendió),
 `scripts/anexos-banco.mts` (mide automáticos/pendientes antes y después de un cambio, con
-`--out` / `--comparar`), `scripts/ver-anexo-economico.mts`.
+`--out` / `--comparar`), `scripts/anexos-banco-division.mts` (dónde corta la separación, HEAD vs
+disco), `scripts/ver-anexo-economico.mts`.

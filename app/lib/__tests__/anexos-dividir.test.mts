@@ -625,7 +625,7 @@ test('detectarFormularios: un título en mayúsculas justo después de la firma 
     + p('FIRMA DEL OFERENTE')
     + p('')
     + p('PROGRAMA DE INTEGRIDAD')
-    + p('Yo, <nombre de representante legal>, cédula de identidad N° …')
+    + p('Yo, &lt;nombre de representante legal&gt;, cédula de identidad N° …')
     + p('DESCRIPCIÓN TECNICA DE LOS PRODUCTOS')
     + p('“ADQ. DE VEHICULOS ACUATICOS Y TODOTERRENO”')
     + FIN;
@@ -735,4 +735,93 @@ test('clasificarAnexo: la letra del organismo clasifica cuando no hay ninguna pa
   assert.equal(clasificarAnexo('FORMULARIO E-1', ''), 'economico');
   // Es la ÚLTIMA red: si el título dice la categoría, manda el título aunque la letra diga otra.
   assert.equal(clasificarAnexo('FORMULARIO A-3 OFERTA ECONÓMICA', ''), 'economico');
+});
+
+// DÉCIMA forma + título de varias líneas (27-oct-2026, caso real 4022-19-LE26, Municipalidad de
+// Putre: "me recorta mal los anexos"). Títulos con número sin "N°" ("ANEXO ADMINISTRATIVO 1",
+// "ANEXO  5") y un membrete «LICITACIÓN PÚBLICA» + nombre entre comillas repetido bajo cada uno.
+// Antes se cortaba en «LICITACIÓN PÚBLICA» (8 trozos en vez de 5): el título real de cada anexo
+// quedaba al final del anterior y los archivos salían «LICITACIÓN_PÚBLICA_N».
+const anexoPutre = (titulo: string, subtitulo: string, cuerpo: string) =>
+  p(titulo) + p(subtitulo) + p('LICITACIÓN PÚBLICA') + p('“ADQ. MATERIALES CONSERV.FOTOVOLTAICO”')
+  + p(cuerpo) + p('Firma del Proponente, Representante Legal o Apoderado') + p('Fecha');
+
+test('detectarFormularios: "ANEXO ADMINISTRATIVO 1"/"ANEXO  5" sin N° cortan en su título, no en el membrete repetido (regresión 4022-19-LE26)', () => {
+  const xml = NS
+    + anexoPutre('ANEXO ADMINISTRATIVO 1', 'DECLARACIÓN JURADA DE IDENTIFICACIÓN DEL PROPONENTE', 'Nombre o Razón Social')
+    + anexoPutre('ANEXO ADMINISTRATIVO 2', 'DECLARACIÓN JURADA SIMPLE DE NO ESTAR INHABILITADO', 'En … a … días del mes de …')
+    + anexoPutre('ANEXO TÉCNICO 3', 'OFERTA TÉCNICA', 'PRODUCTO')
+    + anexoPutre('ANEXO CONÓMICO 4', 'OFERTA ECONÓMICA', 'Precio Total')
+    + anexoPutre('ANEXO  5', 'PROGRAMA DE INTEGRIDAD', 'Se debe marcar con “X”')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.deepEqual(formularios.map(f => f.titulo), [
+    'ANEXO ADMINISTRATIVO 1 DECLARACIÓN JURADA DE IDENTIFICACIÓN DEL PROPONENTE',
+    'ANEXO ADMINISTRATIVO 2 DECLARACIÓN JURADA SIMPLE DE NO ESTAR INHABILITADO',
+    'ANEXO TÉCNICO 3 OFERTA TÉCNICA',
+    'ANEXO CONÓMICO 4 OFERTA ECONÓMICA',
+    'ANEXO  5 PROGRAMA DE INTEGRIDAD',
+  ]);
+  // Cada anexo ocupa exactamente sus 7 párrafos: empieza en su título y termina en su «Fecha».
+  assert.deepEqual(formularios.map(f => [f.indiceInicio, f.indiceFin]), [[0, 6], [7, 13], [14, 20], [21, 27], [28, 34]]);
+  assert.equal(nombreArchivoDesdeTitulo(formularios[2].titulo), 'Anexo 3 - Oferta Técnica');
+});
+
+test('detectarFormularios: la séptima forma sube por TODO el título de varias líneas, no se queda en la de más abajo (regresión 4022-19-LE26)', () => {
+  const xml = NS
+    + p('DECLARACIÓN JURADA DE IDENTIFICACIÓN') + p('LICITACIÓN PÚBLICA') + p('“ADQ. MATERIALES”')
+    + p('Contenido del primero.') + p('Firma del Proponente')
+    + p('OFERTA TÉCNICA') + p('LICITACIÓN PÚBLICA') + p('“ADQ. MATERIALES”')
+    + p('Contenido del segundo.')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.deepEqual(formularios.map(f => f.titulo), ['DECLARACIÓN JURADA DE IDENTIFICACIÓN', 'OFERTA TÉCNICA']);
+  assert.equal(formularios[1].indiceInicio, 5);
+});
+
+test('detectarFormularios: "Anexo 1" dentro de una tabla de documentos requeridos NO corta (décima forma solo en párrafos)', () => {
+  const celda = (t: string) => `<w:tc>${p(t)}</w:tc>`;
+  const xml = NS
+    + p('ANEXO N°1') + p('Documentos que debe adjuntar:')
+    + `<w:tbl><w:tr>${celda('Anexo 1')}${celda('Identificación')}</w:tr><w:tr>${celda('Anexo 2')}${celda('Declaración')}</w:tr></w:tbl>`
+    + p('ANEXO N°2') + p('Texto')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  assert.equal(detectarFormularios(norm).length, 2);
+});
+
+test('dividirPorFormularios: sin hoja en blanco por el salto de página ni el relleno entre anexos, pero deja el hueco de la fecha (regresión 4022-19-LE26)', async () => {
+  const salto = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+  const vacio = '<w:p><w:pPr/></w:p>';
+  const xml = NS
+    + p('ANEXO N°1') + p('Fecha') + vacio + vacio + vacio + vacio + vacio + salto
+    + '<w:p><w:r><w:br w:type="page"/><w:t>ANEXO N°2</w:t></w:r></w:p>' + p('Texto del anexo 2')
+    + '<w:p><w:r><w:br w:type="page"/></w:r></w:p>' + p('Fin del anexo 2')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const divididos = await dividirPorFormularios(await bufferDe(norm), norm);
+  assert.equal(divididos.length, 2);
+  const [uno, dos] = await Promise.all(divididos.map(async d => (await abrirDocx(d.buffer)).xml));
+  assert.equal((uno.match(/w:type="page"/g) || []).length, 0, 'sin salto al final del anexo 1');
+  assert.equal((uno.match(/<w:p\b/g) || []).length, 4, 'título + Fecha + 2 vacíos para escribir la fecha');
+  assert.equal((dos.match(/w:type="page"/g) || []).length, 1, 'el salto del medio del anexo 2 se respeta');
+});
+
+test('detectarFormularios: la segunda línea de la firma del anexo anterior no entra al título del siguiente (regresión 2661-45-LR26)', () => {
+  const xml = NS
+    + p('A N E X O Nº1') + p('IDENTIFICACIÓN DEL OFERENTE') + p('“ADQUISICIÓN CAMIÓN MULTIPROPÓSITO”')
+    // Como en el Word real: la firma va en una celda de tabla, partida en dos párrafos.
+    + p('R.U.T.') + p('')
+    + `<w:tbl><w:tr><w:tc>${p('FIRMA DEL OFERENTE O REPRESENTANTE')}${p('LEGAL')}</w:tc></w:tr></w:tbl>`
+    + p('') + p('')
+    + p('A N E X O Nº2') + p('DECLARACIÓN JURADA SIMPLE') + p('“ADQUISICIÓN CAMIÓN MULTIPROPÓSITO”')
+    + p('Yo, ________ declaro…')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.deepEqual(formularios.map(f => f.titulo), ['ANEXO Nº1 IDENTIFICACIÓN DEL OFERENTE', 'ANEXO Nº2 DECLARACIÓN JURADA SIMPLE']);
+  assert.equal(formularios[1].indiceInicio, 9);
+  assert.equal(nombreArchivoDesdeTitulo(formularios[1].titulo), 'Anexo 2 - Declaración Jurada Simple');
 });

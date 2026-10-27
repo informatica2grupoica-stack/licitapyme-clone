@@ -184,3 +184,19 @@ test('un anexo, un precio y una línea técnica NO son alertas: siguen con doble
 test('el plazo es tipo dato pero NO es alerta: se compromete y se visa como el precio', () => {
   assert.ok(!esAlertaDeCumplimiento({ tipo: 'dato', clave_origen: 'comercial:plazo_entrega' }));
 });
+
+// ─── El Checklist cuenta solo lo que se ve en su pestaña (27-oct-2026) ────────────────────────────
+// Los anexos administrativos (documentos) se generan y aprueban en Pre-postulación: no entran al avance del Checklist.
+// Las alertas de cumplimiento del bloque administrativo SÍ, porque se ven en la sección de alertas del Checklist.
+test('el resumen del Checklist no cuenta los anexos administrativos, pero sí sus alertas', () => {
+  const resumen = resumirChecklist([
+    { bloque: 'ADMINISTRATIVO', estado: 'CARGADO', criticidad: 'ADMISIBILIDAD_DURA', tipo: 'documento', ofertamos: null },
+    { bloque: 'ADMINISTRATIVO', estado: 'CARGADO', criticidad: 'ADMISIBILIDAD_DURA', tipo: 'documento', ofertamos: null },
+    { bloque: 'ADMINISTRATIVO', estado: 'PENDIENTE', criticidad: 'ADMISIBILIDAD_DURA', tipo: 'dato', ofertamos: null, clave_origen: 'bloqueante:cotizar_100' },
+    { bloque: 'COMERCIAL', estado: 'CARGADO', criticidad: 'ADMISIBILIDAD_DURA', tipo: 'precio', ofertamos: true },
+    { bloque: 'COMERCIAL', estado: 'PENDIENTE', criticidad: 'ADMISIBILIDAD_DURA', tipo: 'dato', ofertamos: null, clave_origen: 'plazo' },
+  ]);
+  assert.equal(resumen.total, 3, 'una alerta administrativa + el precio + el plazo');
+  assert.equal(resumen.porAprobar, 1, 'solo el precio: los anexos esperan en Pre-postulación');
+  assert.equal(resumen.bloqueantesPendientes, 3);
+});

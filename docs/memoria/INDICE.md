@@ -3,7 +3,7 @@
 Cómo se usa: ver `.claude/skills/memoria-proyecto/SKILL.md`. Una línea por módulo, lo más
 reciente arriba. El 2026-10-27 se traspasó aquí lo vigente de la memoria personal del PC del dueño.
 
-- [Anexos — motor de relleno](anexos.md) — 2026-10-27: fecha en la línea de «Fecha:», económico por línea, SÍ/NO de integridad
+- [Anexos — motor de relleno](anexos.md) — 2026-10-27: separar anexos cortaba en «LICITACIÓN PÚBLICA» (skill separar-anexos + banco de separación); fecha en la línea de «Fecha:», económico por línea, SÍ/NO de integridad
 - [Forma de trabajo con el dueño](forma-de-trabajo.md) — español chileno, datos reales, arreglos generales, él sube a git
 - [Compras](compras.md) — 2026-10-27: margen del costeo inicial vs cotizaciones (Carolina); una pantalla con stepper, no reordenar, audita precio
 - [Auditor de la licitación](auditor.md) — 2026-10-27: Checklist sin líneas técnicas; ficha en Word; firma en un clic; fotos en fila
