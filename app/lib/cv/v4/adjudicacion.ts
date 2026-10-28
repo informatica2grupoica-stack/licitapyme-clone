@@ -70,13 +70,30 @@ export function esTipoEvidencia(x: unknown): x is TipoEvidencia {
 // o ítem que se oferte no lo es: es «completar cada línea». Caso real 4697-25-LP26 (27-oct-2026): «Licitación
 // por Línea», 2 líneas con presupuesto propio, y «el no ofertar un producto del lote quedará fuera» la volvía
 // GLOBAL por la regla 2 (12 informes así en la BD: «en cada línea», «en su respectiva línea», «línea ofertada»).
-const TOTALIDAD_EN_LINEA = /\b(cada|su respectiva|una misma|la misma|dentro de la|de la|del|en una|por)\s+(l[ií]nea|lote|[ií]tem)(?![a-záéíóúñ])|l[ií]neas? ofertadas?|l[ií]nea (que|a la que)\b/i;
+// «Ofertar y valorizar CADA BIEN requerido» es lo mismo (1028897-42-LP26, 28-oct-2026: por línea con presupuesto
+// propio, salía GLOBAL). Solo con el verbo de ofertar: «la ficha técnica de cada producto» no lo es (1013353-36-LP26).
+// «La familia completa» / «los equipos que conforman la familia» es lo mismo: la familia es la línea
+// (1057898-103-LP26: «Puede postular por una o más líneas de familias»).
+const TOTALIDAD_EN_LINEA = /\b(cada|su respectiva|una misma|la misma|dentro de la|de la|del|en una|por)\s+(l[ií]nea|lote|[ií]tem)(?![a-záéíóúñ])|l[ií]neas? ofertadas?|l[ií]nea (que|a la que)\b|\b(ofert|valoriz|cotiz)[a-záéíóúñ]*\s+(y\s+[a-záéíóúñ]+\s+)?cada\s+(bien|producto|art[ií]culo)(?![a-záéíóúñ])|\bla familia\b/i;
 const TOTALIDAD_DE_TODO = /(totalidad|todas) (de )?las l[ií]neas|adjudicaci[oó]n ser[aá] global|por el todo|un (solo|[uú]nico) (oferente|proveedor)|oferta global/i;
 const PERMITE_SEPARAR = /por separado|o bien/i;
 export function totalidadDentroDeLinea(frase: string): boolean {
   if (!TOTALIDAD_EN_LINEA.test(frase)) return false;
   return !TOTALIDAD_DE_TODO.test(frase) || PERMITE_SEPARAR.test(frase);
 }
+
+// Una frase COTIZAR_TOTALIDAD tiene que hablar de ofertar TODO. Casos reales (28-oct-2026) donde la IA etiquetó
+// así frases que no lo dicen y la regla 2 volvía GLOBAL licitaciones por línea: «oferta seria, única y ajustada a
+// estas Bases» (2744-38-LE26), «Ofertar de acuerdo a lo requerido» (734-63-LE26), «la sumatoria de los ítems de
+// los presupuestos detallados», «todas las partidas y adicionales… necesarias» y una tabla de plazos (701426-14-LP26).
+const HABLA_DE_TOTALIDAD = /totalidad|\btod[oa]s\s+(l[oa]s\s+)?(l[ií]neas|[ií]tems?|productos|bienes|art[ií]culos|materiales|equipos|elementos|lotes)\b|100\s*%|complet[oa]s?\b|parcial|[ií]ntegr|\b(el|al)\s+total\s+(global\s+)?de\b|\btodo\b|un (solo|[uú]nico) (oferente|proveedor)|\balgun[oa] de\b/i;
+export function hablaDeTotalidad(frase: string): boolean {
+  return HABLA_DE_TOTALIDAD.test(frase);
+}
+
+// «Un solo oferente POR familia/línea/lote» adjudica cada línea por separado: no es ADJUDICA_GLOBAL
+// (1057898-103-LP26: «seleccionando a un solo oferente por familia de equipos y/o equipamiento»).
+const UNO_POR_LINEA = /un (solo|[uú]nico) (oferente|proveedor) por (cada )?(l[ií]nea|lote|familia|[ií]tem|grupo)/i;
 
 /** Marca qué evidencias cuentan: frase verificada en los documentos y semántica no negativa. */
 export function marcarEvidenciasQueCuentan(evs: EvidenciaAdj[]): EvidenciaAdj[] {
@@ -87,6 +104,12 @@ export function marcarEvidenciasQueCuentan(evs: EvidenciaAdj[]): EvidenciaAdj[] 
     }
     if (!e.cita?.frase || e.cita.verificada === false) { e.cuenta = false; e.motivo_no_cuenta = 'la frase no se encontró en los documentos'; continue; }
     if (e.cita.semantica === 'NO' || e.cita.semantica === 'PARCIAL') { e.cuenta = false; e.motivo_no_cuenta = 'la frase no sostiene lo que dice el tipo de evidencia'; continue; }
+    if (e.tipo === 'ADJUDICA_GLOBAL' && UNO_POR_LINEA.test(e.cita.frase)) {
+      e.cuenta = false; e.motivo_no_cuenta = 'adjudica un oferente por cada línea, no todo a uno'; continue;
+    }
+    if (e.tipo === 'COTIZAR_TOTALIDAD' && !hablaDeTotalidad(e.cita.frase)) {
+      e.cuenta = false; e.motivo_no_cuenta = 'la frase no dice que haya que ofertar todo'; continue;
+    }
     if (e.tipo === 'COTIZAR_TOTALIDAD' && totalidadDentroDeLinea(e.cita.frase)) {
       e.cuenta = false; e.completar_cada_linea = true;
       e.motivo_no_cuenta = 'pide completar cada línea que se oferte, no ofertar todas las líneas'; continue;

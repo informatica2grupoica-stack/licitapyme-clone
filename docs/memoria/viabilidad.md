@@ -2,6 +2,37 @@
 
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-28 (noche) — COTIZAR_TOTALIDAD tiene que hablar de totalidad; «un solo oferente por familia» es por línea
+Revisión de los 13 GLOBAL «por regla 2» con señales por línea, contra el texto de sus bases. La IA etiquetaba como
+COTIZAR_TOTALIDAD frases que no dicen ofertar todo («oferta seria, única…» 2744-38-LE26, «Ofertar de acuerdo a lo
+requerido» 734-63-LE26, «sumatoria de los ítems» / «todas las partidas y adicionales» / tabla de plazos 701426-14-LP26,
+«todos los gastos asociados» 1042-15-LE26) y la regla 2 las volvía GLOBAL. En `viabilidad-v4/adjudicacion.ts` (y la
+copia `cv/v4/`, idéntica): `hablaDeTotalidad` exige totalidad / todos los productos-ítems-líneas / 100 % / completa /
+parcial / íntegro / el total (global) de / alguno de; «la familia» cuenta como línea; ADJUDICA_GLOBAL con «un solo
+oferente POR línea/familia/lote» no cuenta (1057898-103 y -112-LP26, Salud Ñuble).
+**Regla / decisión (dueño, 28-oct):** 1 línea en la API = GLOBAL; con más de una, las bases deciden según el prompt.
+Esto no cambia: solo filtra qué frases de las bases cuentan.
+**Verificado:** 1628 tests, tsc; decisor HEAD vs nuevo sobre las evidencias guardadas de 284 informes v4: cambian 9,
+revisados uno a uno (6 → POR_LINEAS, 3 → NO_CLARO de 1 línea o sin frase; con la API real esos 1-línea siguen GLOBAL);
+golden con evidencias v4: 3/3 igual. Siguen bien en GLOBAL 2950-49, 2709-83, 2981-293, 3712-74, 2730-133, 4055-87,
+1488-39. Script: `scripts/scratch/_adjudicacion_antes_despues.mts`. NO re-analizado nada.
+**Pendiente:** 3434-14-LE26 sigue GLOBAL: «Licitación por Línea… no oferte la totalidad de los productos» — la IA no
+sacó la frase «por línea» como evidencia; la totalidad sola es ambigua. 1426099-12-LE26 («servicio íntegro», 3 centros
+con presupuesto propio) sigue GLOBAL, dudoso.
+
+## 2026-10-28 (noche) — 1028897-42-LP26 salía GLOBAL siendo por línea; presupuestos de $29 guardados
+Caso real: 1028897-42-LP26 (3 líneas con presupuesto propio, «línea a la cual postula»). El detector de cláusulas
+tomó «se debe ofertar y valorizar cada bien requerido» como COTIZAR_TOTALIDAD y la regla 2 la volvía GLOBAL →
+score por PROYECTO ($108,9M). `totalidadDentroDeLinea` (`viabilidad-v4/adjudicacion.ts` y `cv/v4/`) ahora también
+reconoce «ofertar/valorizar/cotizar cada bien/producto/artículo»; sin el verbo no («ficha técnica de cada producto»,
+1013353-36-LP26, sigue GLOBAL). Medido sobre 284 informes v4: solo cambia 1028897.
+**Verificado:** tests de adjudicación (58/58) y tsc; NO re-analizada (el informe guardado sigue GLOBAL hasta re-analizar
+con el código desplegado).
+**Pendiente:** (1) los GLOBAL dudosos se resolvieron en la entrada siguiente («COTIZAR_TOTALIDAD tiene que hablar
+de totalidad»). (2) Presupuesto guardado mal leído (puntos de miles
+como decimales) en 2736-44-LE26 ($29), 3729-86-LE26 y 1126920-34-LE26, los tres en nivel EXCLUIDO; el código ya lo
+arregla, falta re-analizar — `scripts/scratch/_presupuesto_descuadrado.mjs`.
+
 ## 2026-10-28 (tarde) — 2446-307-LE26: $28 billones y el ítem 5 del Formulario N°4 perdido
 Re-análisis de las 16:38 (VPS): presupuesto bruto 28.003.098.000.000 y manifiesto de 43 (faltaba «Juego de
 herramientas de 151 piezas»); el costeo digital quedó con 43 filas desordenadas y 5 hojas vacías (Línea 2, 4, 5,

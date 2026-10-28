@@ -189,7 +189,7 @@ test('Arica 2585-87-LE26 · POR LÍNEA sin presupuesto por línea, $43,7M neto, 
 const ev = (tipo: any, extra: any = {}): EvidenciaAdj => ({ tipo, origen: 'modelo', cita: { frase: 'x', verificada: true, semantica: 'SI' }, ...extra });
 test('P1 · 1 línea en la API = GLOBAL; COTIZAR_TOTALIDAD gana a "por línea"', () => {
   assert.equal(decidirAdjudicacion(marcarEvidenciasQueCuentan([ev('TOTAL_O_PARCIAL')]), 1).resultado, 'GLOBAL');
-  const d = decidirAdjudicacion(marcarEvidenciasQueCuentan([ev('ADJUDICA_POR_LINEA'), ev('COTIZAR_TOTALIDAD')]), 3);
+  const d = decidirAdjudicacion(marcarEvidenciasQueCuentan([ev('ADJUDICA_POR_LINEA'), ev('COTIZAR_TOTALIDAD', { cita: { frase: 'No se aceptarán ofertas parciales', verificada: true, semantica: 'SI' } })]), 3);
   assert.equal(d.resultado, 'GLOBAL'); assert.equal(d.regla_aplicada, 2); assert.equal(d.cotizar_100, 'SI');
 });
 test('P1 · Cholchol: OFERTA_POR_BIEN decisiva + SUMA_ALZADA débil → POR LÍNEA', () => {
