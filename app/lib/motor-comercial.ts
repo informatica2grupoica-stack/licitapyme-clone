@@ -318,8 +318,26 @@ export function presupuestoDeLaOferta(
 // Mismo criterio de normalización de unidad que auditor-tecnico-core.ts (alias es/plural/tildes),
 // pero acá solo para COMPARAR igualdad textual, no para convertir — el motor comercial no
 // convierte unidades, solo detecta que costeo y línea publicada dicen algo distinto.
+// La misma unidad de compra escrita de varias formas. BUG REAL (28-oct-2026, 4022-19-LE26 L1): Mercado
+// Público decía «unid» y el costeo «unidades» (misma cantidad, 15) y saltaba «Error de origen».
+// Solo unidades de compra comunes; lo que no está aquí se compara como antes. «ml» no se incluye:
+// puede ser metro lineal o mililitro.
+const ALIAS_UNIDAD_COMPRA: Record<string, string> = {
+  unidad: 'unidad', unidades: 'unidad', unid: 'unidad', unids: 'unidad', und: 'unidad', unds: 'unidad', un: 'unidad', u: 'unidad',
+  ud: 'unidad', uds: 'unidad', 'c/u': 'unidad', cu: 'unidad', pieza: 'unidad', piezas: 'unidad', pza: 'unidad', pzas: 'unidad',
+  metro: 'metro', metros: 'metro', mt: 'metro', mts: 'metro', mtr: 'metro', mtrs: 'metro', m: 'metro',
+  kilo: 'kg', kilos: 'kg', kg: 'kg', kgs: 'kg', kilogramo: 'kg', kilogramos: 'kg',
+  litro: 'litro', litros: 'litro', lt: 'litro', lts: 'litro', l: 'litro',
+  global: 'global', gl: 'global', glb: 'global',
+  caja: 'caja', cajas: 'caja', cj: 'caja', cja: 'caja',
+  juego: 'juego', juegos: 'juego', jgo: 'juego', jgos: 'juego',
+  paquete: 'paquete', paquetes: 'paquete', paq: 'paquete', pqt: 'paquete',
+  rollo: 'rollo', rollos: 'rollo', par: 'par', pares: 'par',
+};
+
 function normUnidad(u: string | null): string {
-  return (u || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/s$/, '');
+  const limpio = (u || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return ALIAS_UNIDAD_COMPRA[limpio.replace(/[.\s]+/g, '')] ?? limpio.replace(/s$/, '');
 }
 
 const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);

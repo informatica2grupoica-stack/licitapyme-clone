@@ -71,6 +71,15 @@ test('el plazo se compromete en el bloque comercial, junto al precio', () => {
   assert.match(plazo!.descripcion || '', /Rango admisible/);
 });
 
+test('sin rango en el informe igual hay casilla de plazo (2736-44-LE26)', () => {
+  const sinRango = generarItemsDesdeViabilidad({ modalidad: { tipo: 'suma_alzada' } });
+  const plazo = sinRango.filter(i => i.claveOrigen === CLAVE_ITEM_PLAZO);
+  assert.equal(plazo.length, 1);
+  assert.equal(plazo[0].bloque, 'COMERCIAL');
+  assert.equal(plazo[0].criticidad, 'COMPROMISO_EJECUCION');
+  assert.equal(rangoPlazoDeDescripcion(plazo[0].descripcion), null);   // sin rango no se bloquea nada
+});
+
 test('el rango se lee de vuelta desde la descripción del ítem', () => {
   const r = rangoPlazoDeDescripcion(items.find(i => i.claveOrigen === CLAVE_ITEM_PLAZO)!.descripcion);
   assert.deepEqual(r, { min: 1, max: 30, inadmisibleFuera: true });

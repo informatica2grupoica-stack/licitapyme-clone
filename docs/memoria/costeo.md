@@ -3,6 +3,22 @@
 Costeo digital del negocio (editor + burbuja flotante) y Excel de costeo (plantilla V3).
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-28 — «Error de origen» falso por unidad escrita distinto («unid» vs «unidades») + sin «Generar anexo económico» en el Checklist
+**Caso real:** 4022-19-LE26 (negocio 1568). El Motor Comercial decía «Línea(s) 1: la cantidad o unidad del costeo no coincide
+con la línea publicada». No compara precios: compara cantidad y unidad (solo si la línea tiene un único producto). La cantidad
+calzaba (15); Mercado Público decía «unid» y el costeo «unidades», y `normUnidad` solo quitaba la «s» final.
+**Arreglo general:** tabla de equivalencias de unidades de compra en `motor-comercial.ts` (`ALIAS_UNIDAD_COMPRA`: unid/und/UN/u/c/u/
+pieza = unidad; mt/mts/m = metro; kg/kgs/kilos; lt/lts/l; gl/glb; cj; jgo; paq; rollo; par). Lo que no está se compara como antes;
+«ml» no entra (metro lineal o mililitro). Pruebas en `motor-comercial.test.mts` (22 pasan).
+**Las alertas se GUARDAN** (`checklist_comercial_costeo.alertas`) y solo se recalculan al guardar un precio o subir el costeo:
+se recalculó SOLO el 1568 (`scripts/scratch/_recalc_error_origen.mts --aplicar=1568`, mismo camino que al guardar precio) → sin
+alertas. Después, con el OK del dueño, también 1377 (2711-19-LP26) → sin alertas, y 1393 (2288-33-LP26) → «Error de origen» solo
+en L2 y L3 (error real: la columna unidad del costeo dice «Cinta»/«Pegamento»; sigue «Sobre presupuesto», que es real).
+887 y 981 no cambian con la regla nueva (su descuadre es otro, sin revisar).
+**Decisión del dueño (mismo día):** el anexo ECONÓMICO ya no se genera desde el bloque Comercial del Checklist (se hace en
+Pre-postulación › Anexos a generar). `InformacionComercialSection.tsx` deja solo el botón del anexo técnico.
+**Verificado:** en Chrome con el 1568 (Checklist › Comercial sin alerta ni botón violeta); tsc.
+
 ## 2026-10-28 — Re-analizar la viabilidad SÍ actualiza el costeo digital (cambia la regla del 27-oct)
 **Regla / decisión (dueño, 2026-10-28, a raíz de 3712-74-LP26):** al terminar un (re)análisis, el costeo
 digital guardado de cada negocio de esa licitación se pone al día solo: agrega productos nuevos y reubica

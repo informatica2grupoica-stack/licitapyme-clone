@@ -846,12 +846,15 @@ export function generarItemsDesdeViabilidad(informe: any, lineasOfertadas?: numb
     });
   }
 
-  // Plazo de entrega cuando NO es criterio evaluado: igual hay que comprometer un número.
-  if (hayRango && !items.some(i => i.claveOrigen === CLAVE_PLAZO)) {
+  // Plazo de entrega cuando NO es criterio evaluado: igual hay que comprometer un número. Antes
+  // solo se creaba si el informe traía rango, y cuando la IA no lo encontraba (2736-44-LE26,
+  // 28-oct-2026) no había dónde cargar el plazo: toda oferta compromete uno, así que va siempre.
+  if (!items.some(i => i.claveOrigen === CLAVE_PLAZO)) {
     push({
       bloque: 'COMERCIAL', tipo: 'dato', titulo: 'Plazo de entrega ofertado',
-      descripcion: textoRango, criticidad: 'ADMISIBILIDAD_DURA', ponderacion: null,
-      fuenteCita: rango.fuente || null, origen: 'viabilidad',
+      descripcion: textoRango ?? 'El informe no trae un rango de plazo: revisar en las bases antes de comprometerlo.',
+      criticidad: hayRango ? 'ADMISIBILIDAD_DURA' : 'COMPROMISO_EJECUCION', ponderacion: null,
+      fuenteCita: rango?.fuente || null, origen: 'viabilidad',
       claveOrigen: CLAVE_PLAZO, generable: false, lineaNumero: null,
     });
   }

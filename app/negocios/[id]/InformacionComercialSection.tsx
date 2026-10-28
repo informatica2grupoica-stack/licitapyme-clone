@@ -576,11 +576,13 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
             {/* Generar el anexo ECONÓMICO / TÉCNICO desde el bloque, no desde una fila: es UN
                 documento que consume TODAS las líneas del bloque (12 líneas de precio = un solo
                 anexo económico). El backend ya decidió si se puede y con qué documento de la
-                LICITACIÓN — nunca una plantilla nuestra. Ver app/lib/auditor-generacion.ts. */}
-            {puedeAnexos && (b.key === 'COMERCIAL' || b.key === 'TECNICO') && generacion?.[b.key] && (
+                LICITACIÓN — nunca una plantilla nuestra. Ver app/lib/auditor-generacion.ts.
+                28-oct-2026 (dueño): el anexo ECONÓMICO ya no se genera desde el bloque Comercial; se hace en
+                Pre-postulación › Anexos a generar. Aquí queda solo el técnico. */}
+            {puedeAnexos && b.key === 'TECNICO' && generacion?.[b.key] && (
               <GenerarAnexoDeBloque
                 decision={generacion[b.key]!}
-                etiqueta={b.key === 'COMERCIAL' ? 'económico' : 'técnico'}
+                etiqueta="técnico"
                 onGenerar={doc => setAnexoDocSeleccionado({ id: doc.id, nombre: doc.nombre, url: doc.url || '' })}
               />
             )}

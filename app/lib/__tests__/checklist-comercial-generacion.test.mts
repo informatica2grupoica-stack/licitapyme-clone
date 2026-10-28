@@ -143,10 +143,9 @@ test('plazo de entrega con rango excluyente es admisibilidad dura y no se duplic
 
 // Informe vacío/mínimo no debe explotar — caso de borde real (informe legado sin varios campos).
 // Siempre sale AL MENOS el ítem de precio (suma alzada por defecto): no hay licitación sin cotizar.
-test('un informe vacío no revienta — solo sale el ítem de precio por defecto', () => {
+test('un informe vacío no revienta — solo salen el plazo y el precio por defecto', () => {
   const items = generarItemsDesdeViabilidad({});
-  assert.equal(items.length, 1);
-  assert.equal(items[0].claveOrigen, 'precio:total');
+  assert.deepEqual(items.map(i => i.claveOrigen), ['comercial:plazo_entrega', 'precio:total']);
 });
 
 test('un informe con campos null/undefined en vez de arrays no revienta', () => {
@@ -155,8 +154,8 @@ test('un informe con campos null/undefined en vez de arrays no revienta', () => 
     documentos_infaltables: null,
     criterios_evaluacion: { criterios: undefined },
   });
-  assert.equal(items.length, 1, 'campos null/undefined no deben tumbar la función, solo queda el precio por defecto');
-  assert.equal(items[0].claveOrigen, 'precio:total');
+  assert.deepEqual(items.map(i => i.claveOrigen), ['comercial:plazo_entrega', 'precio:total'],
+    'campos null/undefined no deben tumbar la función, solo quedan el plazo y el precio por defecto');
 });
 
 // BUG REAL (2-sep-2026, negocio 979 / 2446-240-LE26, reportado por el usuario: "seleccione las dos

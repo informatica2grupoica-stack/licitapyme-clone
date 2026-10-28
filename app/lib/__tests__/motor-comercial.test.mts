@@ -48,6 +48,26 @@ test('línea con UN solo sub-ítem: si la cantidad no calza, SÍ dispara (caso 1
   assert.match(err!.detalle, /Línea\(s\) 2:/);
 });
 
+test('caso real 4022-19-LE26: «unid» (MP) y «unidades» (costeo) con la misma cantidad NO disparan error de origen', () => {
+  for (const [pub, costeo] of [['unid', 'unidades'], ['UN', 'Unidad'], ['c/u', 'und'], ['Mts.', 'metros'], ['KG', 'kilos'], ['Lt', 'litros']]) {
+    const filas = [fila({ hoja: 'LINEA1', lineaPublicada: 1, item: 1, cantidadOriginal: 15, unidad: costeo })];
+    const alertas = calcularAlertasMotorComercial({
+      filas, totalAnexoEconomico: null, presupuestoPublicado: null,
+      lineasPublicadas: [{ linea: 1, cantidad: 15, unidad: pub, presupuestoLinea: null }],
+    });
+    assert.equal(alertas.find(a => a.codigo === 'ERROR_DE_ORIGEN'), undefined, `${pub} vs ${costeo}`);
+  }
+});
+
+test('unidades realmente distintas (metros vs unidades) SÍ disparan error de origen', () => {
+  const filas = [fila({ hoja: 'LINEA1', lineaPublicada: 1, item: 1, cantidadOriginal: 15, unidad: 'metros' })];
+  const alertas = calcularAlertasMotorComercial({
+    filas, totalAnexoEconomico: null, presupuestoPublicado: null,
+    lineasPublicadas: [{ linea: 1, cantidad: 15, unidad: 'unid', presupuestoLinea: null }],
+  });
+  assert.ok(alertas.find(a => a.codigo === 'ERROR_DE_ORIGEN'));
+});
+
 test('suma_alzada (una sola hoja "Costeo"): item SIGUE representando la línea (comportamiento previo intacto)', () => {
   const filas = [
     fila({ hoja: 'Costeo', lineaPublicada: null, item: 1, cantidadOriginal: 999 }),

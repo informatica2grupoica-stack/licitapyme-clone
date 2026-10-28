@@ -3,6 +3,18 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-28 — Bloque Comercial sin casilla de plazo de entrega (2736-44-LE26, negocio 1525)
+**Causa (BD del VPS, solo lectura):** la casilla «Plazo de entrega ofertado» (`comercial:plazo_entrega`) solo se creaba si el
+informe de viabilidad traía rango (`plazos.plazo_entrega.min/max`) o un criterio de plazo. En 2736-44-LE26 la IA dejó min/max vacíos
+y no hay criterios, así que el bloque Comercial solo tenía el precio. Afectaba a 81 negocios con checklist (1 en ANEXOS, 5
+ASIGNADO, 1 EN_PROCESO, 2 POSTULADA, el resto cerrados/descartados). **Regla (dueño):** toda licitación debe dejar poner el plazo.
+**Arreglo (`generarItemsDesdeViabilidad`):** la casilla se crea siempre; sin rango va como `COMPROMISO_EJECUCION` con la nota
+«revisar en las bases» y no bloquea ningún valor (el cruce contra el máximo sigue solo cuando hay rango). Tests 1622/1622, tsc ok.
+**Pendiente:** los negocios ya armados la reciben al pulsar «Resincronizar» en el Checklist (o al re-analizar la viabilidad /
+guardar costeo); no se corrió un relleno masivo. En el 1525 se insertó a mano SOLO esa fila (id 36829, sin resincronizar
+todo para no mover nada más de un negocio adjudicado). Si el Auditor está congelado (ya postulado), solo admin puede resincronizar.
+Ojo: la casilla nueva queda «por aprobar» y el anexo económico espera a que se vise.
+
 ## 2026-10-28 — «Traer links del costeo» se quedaba pegado (3712-74-LP26, negocio 1511: 30 de 39 links)
 **Causa (medida contra la BD del VPS, solo lectura):** los 39 ítems tienen link1; el Auditor tenía 30. Los ítems 22 y 26 son
 MercadoLibre: la página que ve el sistema es «¡Hola! Para continuar, ingresa a tu cuenta» (`/gz/account-verification`) y se
