@@ -647,3 +647,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: String(error), ...stats }, { status: 500 });
   }
 }
+
+// El scheduler del VPS llama a todos los cron con POST. Sin esto respondía 405 y el intake NO corría:
+// desde el 22-oct-2026 (BD al VPS) 128 de 170 palabras clave quedaron sin buscar y solo entraba al
+// radar lo que re-matcheaba el job «enriquecer» (~12 licitaciones/día en vez de ~80).
+export const POST = GET;

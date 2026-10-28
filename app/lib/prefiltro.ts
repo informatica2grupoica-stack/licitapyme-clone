@@ -12,7 +12,8 @@
 // → Excluir SOLO cuando la metadata lo deja inequívoco. Ante CUALQUIER duda o
 //   fallo técnico → PASA. Nunca se descarta por un error de parseo/timeout.
 //
-// Modelo: DeepSeek (getGemini() apunta a DeepSeek). Se procesa en LOTE (varias
+// Modelo: Kimi (28-oct-2026, pedido del dueño; antes corría con el proveedor de texto por
+// defecto, glm-4.7-flashx). Si Kimi falla cae a la cadena GLM normal. Se procesa en LOTE (varias
 // licitaciones por llamada) para abaratar tokens. Una sola decisión por código,
 // persistida y compartida entre usuarios (tabla prefiltro_licitacion).
 
@@ -20,6 +21,7 @@ import pool from '@/app/lib/db';
 import { crearChatIA as crearChatIABase, iaTextoConfigurada, MODELO_TEXTO } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('prefiltro', crearChatIABase);
+const MOTOR_PREFILTRO = 'kimi';
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { leerCache } from '@/app/lib/licitaciones-cache';
 
@@ -49,6 +51,8 @@ export interface PrefiltroResult {
   // Marca interna (NO se persiste): la IA no devolvió decisión real para este código
   // (lote truncado/fallido) → cayó a PASA por defecto. No se guarda para que se REINTENTE.
   _fallback?: boolean;
+  // Modelo que respondió de verdad (Kimi o, si cayó, el respaldo GLM) → columna `modelo`.
+  _modelo?: string;
 }
 
 // Metadata de portada de una licitación para el prefiltro.
@@ -64,7 +68,7 @@ interface MetaLic {
 
 const MODELO = MODELO_TEXTO;
 const PISO_NETO_PREFILTRO = 8_000_000; // < $8M neto → EXCLUIDO por presupuesto
-const LOTE_IA = 15;                    // licitaciones por llamada a DeepSeek
+const LOTE_IA = 15;                    // licitaciones por llamada a la IA
 
 const sinTildes = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
@@ -167,7 +171,7 @@ export async function cargarMetadata(codigos: string[]): Promise<MetaLic[]> {
 }
 
 // ─── Prompt v2.0 ─────────────────────────────────────────────────────────────────
-// Pasada 2: juicio por naturaleza del objeto (DeepSeek).
+// Pasada 2: juicio por naturaleza del objeto (Kimi).
 // Las palabras negativas DURAS ya fueron procesadas en Pasada 1 (código), no llegan aquí.
 const SYSTEM_PROMPT = `Eres el FILTRO DE PRIMERA LÍNEA (Fase 0, Pasada 2) de una empresa chilena que vende productos/equipamiento (ferretería, materiales, mobiliario urbano, maquinaria de aseo, equipamiento municipal) en licitaciones públicas de Mercado Público.
 
@@ -351,7 +355,10 @@ export async function prefiltrarLote(metas: MetaLic[]): Promise<PrefiltroResult[
 
       // Hasta 2 intentos: JSON truncado/vacío o error de red no deben caer directo a PASA.
       // max_tokens amplio (el JSON de 15 ítems con motivo+evidencia truncaba a 4000).
+      // Kimi razona siempre y ese razonamiento sale del mismo max_tokens: esfuerzo 'low' (clasificar
+      // con metadata corta no necesita más) y tope amplio para que el JSON no quede truncado.
       let arr: any[] = [];
+      let modeloLote = MODELO;
       for (let intento = 0; intento < 2 && arr.length === 0; intento++) {
         try {
           const completion = await crearChatIA({
@@ -360,9 +367,11 @@ export async function prefiltrarLote(metas: MetaLic[]): Promise<PrefiltroResult[
               { role: 'user', content: construirUserPrompt(chunk) },
             ],
             temperature: 0.1,
-            max_tokens: 8_000,
+            max_tokens: 16_000,
             response_format: { type: 'json_object' },
-          });
+            _esfuerzoKimi: 'low',
+          }, { timeoutMs: 180_000, proveedorPreferido: MOTOR_PREFILTRO });
+          modeloLote = completion.model || modeloLote;
           const raw = completion.choices[0]?.message?.content || '';
           const parsed: any = parseJsonIA(raw) ?? {};
           arr = Array.isArray(parsed?.resultados) ? parsed.resultados
@@ -401,6 +410,7 @@ export async function prefiltrarLote(metas: MetaLic[]): Promise<PrefiltroResult[
             ? { nivel: 'contextual', termino: termCtx }
             : null,
           destino: calcularDestino(decision, categoria),
+          _modelo: modeloLote,
         });
       });
     }
@@ -430,7 +440,7 @@ export async function guardarPrefiltro(results: PrefiltroResult[]): Promise<void
         r.motivo || null,
         r.evidencia || null,
         r.monto_neto ?? null,
-        `${MODELO}`,
+        r._modelo || `${MODELO}`,
       );
     }
     await pool.query(

@@ -5,7 +5,7 @@
 // un lote acotado, dentro del presupuesto de tiempo. Resumible: lo que no alcance queda para
 // la próxima corrida. NO descarga documentos (eso exige IP chilena → notebook).
 //
-// Corre en Vercel sin problema (el prefiltro usa DeepSeek, no necesita IP chilena). Usa el
+// Corre en Vercel sin problema (el prefiltro usa Kimi, no necesita IP chilena). Usa el
 // caché de metadata que ya dejó el intake (prefiltro.ts lee leerCache internamente).
 //
 // Protección: x-vercel-cron:1  ·  Authorization: Bearer <CRON_SECRET>  ·  ?secret=  ·  x-cron-secret.
@@ -21,7 +21,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-const LOTE_DEFAULT   = 45;      // códigos por corrida (DeepSeek en tandas de 15 → ~3 llamadas)
+const LOTE_DEFAULT   = 45;      // códigos por corrida (Kimi en tandas de 15 → ~3 llamadas)
 const PRESUPUESTO_MS = 52_000;  // margen bajo maxDuration=60
 
 function autorizado(req: NextRequest): boolean {

@@ -2,6 +2,27 @@
 
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-28 — El radar no recibía licitaciones: el intake no corría desde el 22-oct; prefiltro pasa a Kimi
+Caso real: «no caen licitaciones de maquinaria». El scheduler del VPS llama a todos los cron con POST y
+`/api/cron/alertas` (intake) solo exportaba GET → 405 en cada corrida. Antes del 22-oct el intake lo hacía otro
+disparador (GET) contra la BD de Bluehost; al pasar la BD al VPS quedó sin nadie. Síntoma en BD: 128 de 170 palabras
+clave con `ultima_busqueda` congelada en el 22-oct 11:00, y solo entraban al radar las que re-matcheaba el job
+«enriquecer» (:30) → ~12 licitaciones/día en vez de ~80. Medido el 28-oct (solo lectura, API real + palabras clave
+reales): 276 licitaciones calzan y no estaban en el radar (p. ej. 1173467-1-LE26 maquinaria agrícola, 3920-26-LR26
+maquinaria vial). Arreglo: `export const POST = GET` en `app/api/cron/alertas/route.ts`.
+Prefiltro: corría con el proveedor de texto por defecto (glm-4.7-flashx, no DeepSeek) y dejaba pasar convenios de
+suministro explícitos. Ahora `prefiltro.ts` usa Kimi (`proveedorPreferido:'kimi'`, esfuerzo low, 16k tokens; si Kimi
+falla cae a la cadena GLM) y guarda en `modelo` el que respondió de verdad.
+**Regla / decisión (dueño, 28-oct):** el prefiltro va con Kimi.
+**Verificado:** tsc; POST === GET al importar la ruta; prefiltro Kimi sobre 16 casos reales SIN guardar
+(`scripts/scratch/probar-prefiltro-kimi.mts`): ~57 s y ~$0,066 por lote de 15; maquinaria agrícola/vial/reciclaje → PASA,
+mantención de maquinarias → EXCLUIDO, 4 convenios de insumos médicos que GLM pasaba → EXCLUIDO. Diagnóstico:
+`scripts/scratch/diag-intake-radar.mts`. NO desplegado ni corrido el intake en producción.
+**Pendiente:** desplegar; tras la primera corrida (00/04/08/12/16/20 h) revisar que todas las palabras clave tengan
+`ultima_busqueda` nueva. La API de MP devuelve 429 a las 16 consultas en paralelo de `obtenerUltimosDias` (tras 3
+reintentos un día queda vacío en silencio) — no se tocó. Si sigue existiendo el disparador externo viejo (cron-job.org
+u otro), apunta a la BD de respaldo: apagarlo.
+
 ## 2026-10-28 (noche) — COTIZAR_TOTALIDAD tiene que hablar de totalidad; «un solo oferente por familia» es por línea
 Revisión de los 13 GLOBAL «por regla 2» con señales por línea, contra el texto de sus bases. La IA etiquetaba como
 COTIZAR_TOTALIDAD frases que no dicen ofertar todo («oferta seria, única…» 2744-38-LE26, «Ofertar de acuerdo a lo
