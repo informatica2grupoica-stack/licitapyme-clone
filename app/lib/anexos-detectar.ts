@@ -4,6 +4,7 @@
 // más) — ver docs/BITACORA-CAMBIOS-VIABILIDAD.md para el detalle de cada hallazgo.
 import { listarParrafos, listarBlancosInline, parrafoEstaVacio, decodificarXml, textoDeRuns, iterarTablas, type Parrafo, absorbeAntesDelBlanco } from '@/app/lib/anexos-docx';
 import { RE_ENCABEZADO_FORMULARIO } from '@/app/lib/anexos-dividir';
+import { rolesPieApilado, type RolPieApilado } from '@/app/lib/anexos-monto-oferta';
 
 // Vocabulario de ROL cercano a una etiqueta duplicada ("<contexto> — <campo>", ver
 // desambiguarDuplicados más abajo) — dice A QUIÉN describe un duplicado (representante legal,
@@ -81,6 +82,9 @@ export interface CandidatoCelda {
   // etiqueta (no hay celda vecina): "REEMPLAZAR ESTE TEXTO POR EL NOMBRE Y RUT DEL REPRESENTANTE
   // LEGAL" es a la vez la etiqueta Y el blanco a llenar.
   reemplazarTexto?: boolean;
+  // Rótulo de neto / IVA / total apilado con otros en UNA celda (ver detectarPieApiladoEnCelda):
+  // el monto lo pone el costeo al final de la línea, nunca el diccionario ni la IA.
+  pieApilado?: RolPieApilado;
 }
 
 // Celda de tabla cuyo ÚNICO contenido es un prefijo de moneda ("$", "US$", "CLP$") — el número va
@@ -2513,6 +2517,29 @@ export function detectarGruposCheckbox(xml: string): GrupoCheckbox[] {
 }
 
 // ── Punto de entrada: analiza un XML completo y devuelve los patrones + secciones ─────────
+// Celda de tabla que trae SOLO rótulos de neto / IVA / total uno debajo del otro, sin casilla al
+// lado (caso real 4022-19-LE26, Anexo 4: «Valor neto», «Impuesto IVA», «Valor Total» dentro de la
+// celda «Precio Total»). Cada rótulo es una casilla que se escribe al final de su propio párrafo.
+// `textoCelda` es como la ve el patrón de tabla al usarla de etiqueta de fila para la celda vecina.
+function detectarPieApiladoEnCelda(xml: string, parrafos: Parrafo[]): { textoCelda: string; candidatos: CandidatoCelda[] }[] {
+  const porIndice = new Map(parrafos.map(p => [p.indice, p]));
+  const out: { textoCelda: string; candidatos: CandidatoCelda[] }[] = [];
+  for (const tabla of extraerTablasCrudo(xml)) {
+    for (const fila of tabla.filas) {
+      for (const celda of fila.celdas) {
+        const conTexto = celda.indicesParrafos.map(i => porIndice.get(i)).filter((p): p is Parrafo => !!p && p.texto.trim() !== '');
+        const roles = rolesPieApilado(conTexto.map(p => p.texto));
+        if (!roles) continue;
+        out.push({
+          textoCelda: celda.texto.replace(/\s+/g, ' ').trim(),
+          candidatos: conTexto.map((p, i) => ({ etiqueta: p.texto.trim(), paraId: p.paraId, indice: p.indice, dosPuntos: true, pieApilado: roles[i] })),
+        });
+      }
+    }
+  }
+  return out;
+}
+
 export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postulaComoUTP?: boolean } = {}) {
   const parrafos = listarParrafos(xml);
   const secciones = detectarSecciones(parrafos, postulaComoUTP);
@@ -2629,7 +2656,17 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // grupos: no reciben la imagen, y tampoco vuelven al flujo diccionario→IA, que es donde antes
   // terminaban rellenadas con un cargo inventado. Las llena a mano quien corresponda.
   const candidatosFirmaCelda = candidatosCeldaTodos.filter(c => esFirmaPropia(c.etiqueta));
-  const candidatosCelda = candidatosCeldaTodos.filter(c => !esEtiquetaFirma(c.etiqueta));
+  // Neto / IVA / total apilados en una celda: cada rótulo pasa a ser casilla, y la celda vecina
+  // deja de heredarlos como etiqueta de fila (si no, «Descripción» parecía pedir el monto).
+  const pieApilado = detectarPieApiladoEnCelda(xml, parrafos);
+  const rotulosApilados = new Set(pieApilado.map(p => p.textoCelda));
+  const candidatosCelda = [
+    ...candidatosCeldaTodos.filter(c => !esEtiquetaFirma(c.etiqueta)).map(c => {
+      const [fila, ...columna] = c.etiqueta.split(' — ');
+      return columna.length && rotulosApilados.has(fila.replace(/\s+/g, ' ').trim()) ? { ...c, etiqueta: columna.join(' — ') } : c;
+    }),
+    ...pieApilado.flatMap(p => p.candidatos),
+  ];
 
   // El patrón 5 ("Etiqueta:" sola, sin celda ni raya al lado — ver más abajo) TAMBIÉN puede pedir
   // una firma. BUG REAL (1227338-6-LE26): un cuadro de texto flotante trae "FIRMA REPRESENTANTE

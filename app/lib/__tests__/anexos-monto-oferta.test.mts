@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  totalNetoDeItemsCosteo, tipoDeMontoDeOferta, porcentajeIvaDeclarado, resolverMontoUnicoOferta,
+  totalNetoDeItemsCosteo, tipoDeMontoDeOferta, porcentajeIvaDeclarado, resolverMontoUnicoOferta, rolesPieApilado, resolverPieApilado,
 } from '../anexos-monto-oferta';
 import type { ItemCosteoPrecio } from '../motor-comercial';
 
@@ -95,4 +95,25 @@ test('resolverMontoUnicoOferta: neto y bruto juntos se llenan los dos; dos del m
   // Dos casillas que piden el MISMO monto (¿el de qué línea?) — ambigüedad real, se abstiene.
   assert.deepEqual(resolverMontoUnicoOferta(['VALOR TOTAL OFERTADO', 'MONTO DE LA OFERTA'], 1_000_000, SIN_TABLA), []);
   assert.deepEqual(resolverMontoUnicoOferta(['VALOR OFERTA NETO', 'MONTO OFERTADO NETO'], 1_000_000, SIN_TABLA), []);
+});
+
+// ── Neto / IVA / total apilados en una celda (4022-19-LE26, Anexo 4) ───────────────────────────
+test('rolesPieApilado: reconoce neto → IVA → total y rechaza lo que no calza', () => {
+  assert.deepEqual(rolesPieApilado(['Valor neto', 'Impuesto IVA', 'Valor Total']), ['neto', 'iva', 'bruto']);
+  assert.deepEqual(rolesPieApilado(['Total Neto', 'IVA 19%', 'Total Bruto']), ['neto', 'iva', 'bruto']);
+  assert.deepEqual(rolesPieApilado(['Subtotal', 'IVA']), ['neto', 'iva']);
+  assert.equal(rolesPieApilado(['Valor neto']), null);                                   // uno solo no es un pie
+  assert.equal(rolesPieApilado(['Valor Total', 'Valor neto']), null);                    // fuera de orden
+  assert.equal(rolesPieApilado(['Valor neto', 'IVA (si aplicará)', 'Valor Total']), null); // IVA condicional: decide el oferente
+  assert.equal(rolesPieApilado(['Valor neto', 'Plazo de entrega']), null);
+});
+
+test('resolverPieApilado: montos del costeo real de 4022-19-LE26, IVA 19% por defecto', () => {
+  const rotulos = [{ rol: 'neto', texto: 'Valor neto' }, { rol: 'iva', texto: 'Impuesto IVA' }, { rol: 'bruto', texto: 'Valor Total' }] as const;
+  assert.deepEqual(resolverPieApilado([...rotulos], 8_267_078, { hayTablaDeItems: false }), ['$8.267.078', '$1.570.745', '$9.837.823']);
+  // El documento declara otra tasa: manda el documento.
+  assert.deepEqual(resolverPieApilado([{ rol: 'neto', texto: 'Neto' }, { rol: 'iva', texto: 'IVA 10%' }], 1_000_000, { hayTablaDeItems: false }), ['$1.000.000', '$100.000']);
+  // Con tabla de ítems o sin costeo completo, no se escribe nada.
+  assert.deepEqual(resolverPieApilado([...rotulos], 8_267_078, { hayTablaDeItems: true }), [null, null, null]);
+  assert.deepEqual(resolverPieApilado([...rotulos], null, { hayTablaDeItems: false }), [null, null, null]);
 });

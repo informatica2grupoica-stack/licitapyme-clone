@@ -38,7 +38,8 @@ import {
 import { repasarConIA, repasoActivado } from '@/app/lib/anexos-repaso-ia';
 import { matchearPreciosConIA } from '@/app/lib/anexos-precios-ia';
 import { esCandidatoDePrecioUnitario } from '@/app/lib/anexos-precios-columnas';
-import { resolverMontoUnicoOferta, porcentajeIvaDeclarado, totalNetoDeItemsCosteo } from '@/app/lib/anexos-monto-oferta';
+import { resolverTablaProductosEnBlanco } from '@/app/lib/anexos-oferta-tecnica-tabla';
+import { resolverMontoUnicoOferta, resolverPieApilado, porcentajeIvaDeclarado, totalNetoDeItemsCosteo } from '@/app/lib/anexos-monto-oferta';
 import {
   resolverTablaConAuditor, resolverPreciosConAuditor, resolverCamposSueltosConAuditor,
   type DatosAuditorAnexo,
@@ -88,7 +89,7 @@ export interface SeccionInfo { tipo: string; decision: string; textoEncabezado: 
 // en el backend porque lo arma construirTablaUI, no la réplica de párrafo.
 export type SegmentoCeldaUI =
   | { t: 'texto'; v: string }
-  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string }
+  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string; id?: string }
   | { t: 'input'; id: string };
 
 export interface CeldaTablaUI {
@@ -226,7 +227,10 @@ async function resolverTodo(
   // segundos de espera pura, en el click que el usuario siente como "se demora en generar".
   omitirAlertas = false,
 ): Promise<ResultadoResolucion> {
-  const elegibles = candidatosCelda.filter(c => !soloManual?.has(c.indice));
+  // Rótulos de neto / IVA / total apilados en una celda: los resuelve el costeo más abajo, junto
+  // al monto único — nunca el diccionario ni la IA (ver detectarPieApiladoEnCelda).
+  const pieApilado = candidatosCelda.filter(c => c.pieApilado && !soloManual?.has(c.indice));
+  const elegibles = candidatosCelda.filter(c => !c.pieApilado && !soloManual?.has(c.indice));
   const soloManualCandidatos = candidatosCelda.filter(c => soloManual?.has(c.indice));
   const indicesDosPuntos = new Set(camposConDosPuntos.map(c => c.indice));
 
@@ -391,6 +395,20 @@ async function resolverTodo(
     }
     pendientesTrasPrecio = restantes;
   }
+  if (pieApilado.length) {
+    const hayTablaDeItems = candidatosCelda.some(c => esCandidatoDePrecioUnitario(c.etiqueta));
+    const valores = resolverPieApilado(
+      pieApilado.map(c => ({ rol: c.pieApilado!, texto: c.etiqueta })),
+      itemsCosteo?.length ? totalNetoDeItemsCosteo(itemsCosteo) : null,
+      { hayTablaDeItems },
+    );
+    pieApilado.forEach((c, i) => {
+      const valor = valores[i];
+      // El neto y el total entran a `totalesEscritos` (guardarraíl contra el costeo aprobado); el IVA no.
+      if (valor) matcheados.push({ c, campo: c.pieApilado === 'iva' ? 'iva_calculado' : CAMPO_MONTO_TOTAL_OFERTA, valor, via: 'costeo', dosPuntos: true });
+      else pendientesTrasPrecio.push(c);
+    });
+  }
 
   const inlineAuto: { b: CandidatoInline; valor: string; etiqueta: string; via: 'ia' | 'bases' | 'ordenes_compra'; pegadoALaIzquierda?: boolean }[] = [];
   const inlinePendientes: { b: CandidatoInline; categoria: string; motivo: string }[] = [];
@@ -480,6 +498,7 @@ async function resolverTodo(
 function aplicarTotalesPorSeccion(
   tablasCrudo: TablaCruda[], parrafos: Parrafo[], indicesEnTablas: Set<number>,
   matcheados: CampoResuelto[], pendientes: CandidatoCelda[], costeoCubierto: boolean, respuestas?: Record<string, string>,
+  itemsCosteo?: ItemCosteoPrecio[],
 ): { matcheadosExtra: CampoResuelto[]; pendientesFiltrados: CandidatoCelda[]; titulos: TituloCercano[]; totalesPie: { etiqueta: string; valor: string }[] } {
   const titulos: TituloCercano[] = encabezadosLibres(parrafos, indicesEnTablas);
   const valoresPrecio = new Map(
@@ -509,6 +528,15 @@ function aplicarTotalesPorSeccion(
     matcheadosExtra.push({
       c: { etiqueta: r.etiqueta, paraId: r.paraId, indice: r.indiceGlobal },
       campo: 'total_linea_calculado', valor: r.valor, via: 'costeo',
+    });
+  }
+  // Tabla «PRODUCTO | ESPECIFICACIÓN | CANTIDAD» en blanco del anexo técnico: la lista de lo que
+  // ofrecemos sale del costeo (ver anexos-oferta-tecnica-tabla.ts).
+  for (const r of resolverTablaProductosEnBlanco(tablasCrudo, itemsCosteo ?? [])) {
+    paraIdsResueltos.add(r.paraId);
+    matcheadosExtra.push({
+      c: { etiqueta: r.etiqueta, paraId: r.paraId, indice: r.indiceGlobal },
+      campo: 'producto_oferta_tecnica', valor: r.valor, via: 'costeo',
     });
   }
   const totalesPie: { etiqueta: string; valor: string }[] = [];
@@ -678,6 +706,22 @@ function construirTablaUI(
       // busca ahí — mismo criterio en las DOS ramas (con y sin indiceGlobal), así la vista previa
       // nunca vuelve a mostrar "sin completar" algo que el documento real sí trae.
       if (c.indiceGlobal == null) {
+        // Varias casillas en la MISMA celda, una por párrafo (neto / IVA / total apilados, ver
+        // detectarPieApiladoEnCelda): cada párrafo con su valor, si no solo se vería el primero.
+        const conResolucion = c.indicesParrafos.filter(idx => resolucionPorIndice.has(idx));
+        if (conResolucion.length > 1) {
+          const segmentos: SegmentoCeldaUI[] = [];
+          for (const idx of c.indicesParrafos) {
+            const textoParrafo = (parrafos[idx]?.texto ?? '').trim();
+            if (!textoParrafo) continue;
+            if (segmentos.length) segmentos.push({ t: 'texto', v: ' ' });
+            segmentos.push({ t: 'texto', v: `${textoParrafo} ` });
+            const res = resolucionPorIndice.get(idx);
+            if (res?.tipo === 'auto') segmentos.push({ t: 'auto', v: res.valor, via: res.via, etiqueta: res.etiqueta, id: res.id });
+            else if (res) segmentos.push({ t: 'input', id: res.id });
+          }
+          return { texto: c.texto, segmentosInline: segmentos };
+        }
         for (const idx of c.indicesParrafos) {
           const res = resolucionPorIndice.get(idx);
           if (!res) continue;
@@ -819,7 +863,7 @@ export async function analizarAnexoParaUI(
     alertasInadmisibilidad, checklistPendientes, costeoCubierto,
   } = resolucion;
   const { matcheadosExtra, pendientesFiltrados, titulos }
-    = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablas, matcheados, pendientes, costeoCubierto);
+    = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablas, matcheados, pendientes, costeoCubierto, undefined, itemsCosteo);
   const matcheadosTodos = [...matcheados, ...matcheadosExtra];
   for (const m of matcheadosTodos) {
     completadosAuto.push({
@@ -1130,7 +1174,7 @@ export async function generarAnexoFinal(
   const indicesEnTablasGen = new Set(
     tablasCrudo.flatMap(t => t.filas.flatMap(f => f.celdas.map(c => c.indiceGlobal).filter((i): i is number => i != null))),
   );
-  const { matcheadosExtra, pendientesFiltrados, totalesPie } = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablasGen, matcheados, pendientes, costeoCubierto, respuestas);
+  const { matcheadosExtra, pendientesFiltrados, totalesPie } = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablasGen, matcheados, pendientes, costeoCubierto, respuestas, itemsCosteo);
   // BUG REAL (1954-1-LE26, 11-ago-2026): "El párrafo <paraId> ya tiene contenido" tumbaba la
   // generación ENTERA del anexo — un solo campo en conflicto (ej. dos candidatos estructuralmente
   // distintos que, por lo que sea, terminan apuntando al mismo w14:paraId; o `analizar`/`generar`

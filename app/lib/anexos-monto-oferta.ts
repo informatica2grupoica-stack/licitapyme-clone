@@ -232,3 +232,56 @@ export function resolverMontoUnicoOferta(
   }
   return out;
 }
+
+// ── Neto / IVA / total APILADOS dentro de UNA sola celda ─────────────────────────────────────
+// Caso real 4022-19-LE26 (Municipalidad de Putre), Anexo 4: tabla «Descripción | Precio Total» y,
+// en la celda de Precio Total, los rótulos «Valor neto», «Impuesto IVA», «Valor Total» uno debajo
+// del otro, sin casilla al lado. Ningún patrón los veía como casillas, y el monto único terminaba
+// en la celda «Descripción» de la izquierda (heredaba los tres rótulos como etiqueta). Cada rótulo
+// es su propia casilla: el monto va al final de su línea.
+export type RolPieApilado = 'neto' | 'iva' | 'bruto';
+
+const RE_APILADO_NETO = /^(?:(?:valor|monto|precio|total|sub ?total)\s+)*net[oa](?:\s+total)?$|^sub ?total$/;
+const RE_APILADO_IVA = /^(?:impuesto\s+)?(?:iva|impuesto)(?:\s+\d{1,2}(?:\s+\d+)?\s+%)?$/;
+const RE_APILADO_BRUTO = /^(?:(?:valor|monto|precio)\s+)?(?:total(?:\s+(?:brut[oa]|general|final|con iva|iva incluido|de la oferta))?|brut[oa])$/;
+
+/**
+ * Los roles de una celda con rótulos apilados, en orden, o null si la celda no es eso.
+ * Exige el neto primero y al menos otro rótulo; cada rol una sola vez y en orden neto → IVA → total.
+ * Lo que no calce EXACTO con el vocabulario (un «IVA (si aplicará)», una descripción) descarta la
+ * celda entera: mejor casillas pendientes que un monto en la línea equivocada.
+ */
+export function rolesPieApilado(textos: string[]): RolPieApilado[] | null {
+  if (textos.length < 2 || textos.length > 3) return null;
+  const roles: RolPieApilado[] = [];
+  for (const t of textos) {
+    const limpio = normalizar(t);
+    const rol: RolPieApilado | null = RE_APILADO_NETO.test(limpio) ? 'neto'
+      : RE_APILADO_IVA.test(limpio) ? 'iva'
+      : RE_APILADO_BRUTO.test(limpio) ? 'bruto' : null;
+    if (!rol) return null;
+    roles.push(rol);
+  }
+  const orden: RolPieApilado[] = ['neto', 'iva', 'bruto'];
+  if (roles[0] !== 'neto') return null;
+  for (let i = 1; i < roles.length; i++) if (orden.indexOf(roles[i]) <= orden.indexOf(roles[i - 1])) return null;
+  return roles;
+}
+
+/**
+ * Los montos de una celda apilada desde el total neto del costeo. Mismo criterio que el pie de
+ * tabla (calcularTotalesAlPie): IVA 19% salvo que el rótulo declare otra tasa, y el total es
+ * neto + IVA redondeado aparte. Sin tabla de ítems, igual que resolverMontoUnicoOferta.
+ */
+export function resolverPieApilado(
+  rotulos: { rol: RolPieApilado; texto: string }[],
+  totalNetoCosteo: number | null,
+  opciones: { hayTablaDeItems: boolean },
+): (string | null)[] {
+  if (opciones.hayTablaDeItems || totalNetoCosteo == null || !Number.isFinite(totalNetoCosteo) || totalNetoCosteo <= 0) {
+    return rotulos.map(() => null);
+  }
+  const neto = Math.round(totalNetoCosteo);
+  const iva = Math.round(neto * (porcentajeIvaDeclarado(rotulos.map(r => r.texto)) ?? 19) / 100);
+  return rotulos.map(r => fmtCL(r.rol === 'neto' ? neto : r.rol === 'iva' ? iva : neto + iva));
+}

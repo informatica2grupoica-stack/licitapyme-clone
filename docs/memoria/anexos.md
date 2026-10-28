@@ -4,6 +4,34 @@ Reglas vigentes del motor: ver también `.claude/skills/motor-anexos/SKILL.md` y
 `docs/anexos-motor-reglas.md`. Las entradas con fecha van arriba; al final, lo traspasado desde la
 memoria personal el 2026-10-27.
 
+## 2026-10-27 — Anexos 3 (técnico) y 4 (económico) de 4022-19-LE26 salían casi vacíos
+Caso real: Municipalidad de Putre, `Anexo 3 - Oferta Técnica.docx` y `Anexo 4 - Oferta Económica.docx`
+(mismo formato en 4022-16-LE26). El dueño pidió «que me genere el anexo técnico» y revisar el económico.
+**Económico — neto / IVA / total apilados en UNA celda.** La celda «Precio Total» trae los rótulos
+«Valor neto», «Impuesto IVA», «Valor Total» uno debajo del otro, sin casilla al lado: ningún patrón
+los veía y el neto terminaba en la celda «Descripción» de la izquierda. Ahora cada rótulo es su
+casilla (`detectarPieApiladoEnCelda`, `anexos-detectar.ts`) y se escribe al final de su línea con
+el costeo (`rolesPieApilado` / `resolverPieApilado`, `anexos-monto-oferta.ts`): neto, IVA 19% (o la
+tasa que declare el rótulo) y neto + IVA. Solo sin tabla de ítems; el IVA «(si aplicará)» o cualquier
+texto ajeno en la celda descarta la regla. La pantalla muestra los tres valores (`segmentosInline`).
+**Técnico — tabla PRODUCTO | ESPECIFICACIÓN | CANTIDAD toda en blanco.** El producto i del costeo va en
+la fila i (`anexos-oferta-tecnica-tabla.ts`), con el nombre limpio (sin el «- Modelo» repetido que
+guarda el costeo). **Regla / decisión:** esta tabla se llena desde el COSTEO aunque la línea del
+Auditor no esté aprobada (el dueño: «termínalos todos», 27-oct). ESPECIFICACIÓN queda pendiente (el
+costeo no guarda especificaciones); con más productos que filas, o si cualquier fila trae texto, no
+se escribe nada.
+**NO se cambió «Nombre» suelto:** en un bloque «Nombre / RUT / Dirección / Email» sigue quedando
+pendiente con las dos sugerencias (representante legal por defecto, razón social a un clic), que es
+la decisión explícita del dueño del 1-sep-2026 (capa 2b). Ojo: el RUT del mismo bloque sale con el de
+la empresa, así que si elige el representante queda nombre de persona con RUT de empresa.
+**Pendiente:** decidir si, cuando el bloque trae Dirección/Email de la empresa, el valor por defecto
+de «Nombre» debería ser la razón social. «Plazo de entrega» y «Vigencia de la oferta» quedan en blanco
+(el plazo está PENDIENTE en el Auditor; la vigencia no se toma de las bases).
+**Verificado:** docx reales de la BD con costeo, bases y Auditor reales: económico $8.267.078 / IVA
+$1.570.745 / total $9.837.823; técnico 7 productos con su cantidad. Barrido de 800 .docx reales: la
+regla solo dispara en los anexos de Putre. Suite 1602/1602, tsc limpio. No visto en el navegador ni
+generado de nuevo en la plataforma: hay que abrir «Rellenar anexo» en 4022-19-LE26 una vez desplegado.
+
 ## 2026-10-27 — Separar anexos cortaba en «LICITACIÓN PÚBLICA» (8 trozos en vez de 5)
 Caso real: 4022-19-LE26 (Municipalidad de Putre), `ANEXOS_ELECTRIC_DOMIC_4022-19-LE26.docx`; mismo
 formato en 4022-16-LE26.

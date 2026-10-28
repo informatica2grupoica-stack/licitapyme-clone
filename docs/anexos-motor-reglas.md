@@ -154,6 +154,16 @@ presenta en unión temporal.
   encabezado UTP a veces abarca todo el formulario y dejaría sin llenar los datos del proponente.
   La *tabla* de integrantes nunca se rellena.
 
+**Neto / IVA / total apilados en una celda** («Valor neto», «Impuesto IVA», «Valor Total» uno debajo
+del otro dentro de «Precio Total», sin casilla al lado — 4022-19-LE26). Cada rótulo es una casilla
+(`detectarPieApiladoEnCelda`) y se escribe al final de su párrafo con el costeo (neto, IVA 19% o la
+tasa del rótulo, neto + IVA). Solo sin tabla de ítems; cualquier rótulo fuera del vocabulario
+(«IVA (si aplicará)») descarta la celda entera.
+
+**Tabla PRODUCTO | ESPECIFICACIÓN | CANTIDAD en blanco** (anexo técnico, 4022-19-LE26): el producto i
+del costeo va en la fila i (`anexos-oferta-tecnica-tabla.ts`). ESPECIFICACIÓN no se toca; si hay más
+productos que filas o alguna fila trae texto, no se escribe nada.
+
 **Anexo que no corresponde presentar.** Si el propio documento avisa que es solo para UTP o solo
 para persona natural, el anexo entero se marca "no aplica" con su motivo. El usuario puede forzarlo.
 

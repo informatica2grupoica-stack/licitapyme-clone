@@ -2450,3 +2450,27 @@ test('pregunta Sí/No: la raya corta antes de "(Sí/No)" es una casilla, con la 
   // Control: una raya corta que NO va seguida de "(Sí/No)" sigue sin ser casilla.
   assert.equal(analizarAnexo(normalizarParaIds(NS + p('Marca ___ Modelo ___') + FIN).xml).blancosInline.length, 0);
 });
+
+// Caso real 4022-19-LE26 (Municipalidad de Putre), Anexo 4: «Descripción | Precio Total» con
+// «Valor neto», «Impuesto IVA», «Valor Total» apilados en la celda de Precio Total, sin casilla al
+// lado. El neto terminaba en la celda «Descripción» (heredaba los tres rótulos como etiqueta).
+test('Neto / IVA / total apilados en una celda: cada rótulo es su casilla y la vecina no los hereda', () => {
+  const celdaApilada = `<w:tc><w:tcPr><w:tcW w:w="3000" w:type="pct"/></w:tcPr>${p('')}${p('')}${p('Valor neto')}${p('Impuesto IVA')}${p('Valor Total')}</w:tc>`;
+  const xml = NS + tabla(
+    fila('Descripción', 'Precio Total'),
+    `<w:tr>${celda('')}${celdaApilada}</w:tr>`,
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const cands = analizarAnexo(norm).candidatosCelda;
+  assert.deepEqual(cands.filter(c => c.pieApilado).map(c => [c.etiqueta, c.pieApilado, c.dosPuntos]),
+    [['Valor neto', 'neto', true], ['Impuesto IVA', 'iva', true], ['Valor Total', 'bruto', true]]);
+  assert.ok(cands.some(c => c.etiqueta === 'Descripción'), cands.map(c => c.etiqueta).join(' | '));
+  assert.ok(!cands.some(c => !c.pieApilado && /valor neto/i.test(c.etiqueta)));
+});
+
+test('Una celda con un rótulo apilado y texto ajeno no se toma como pie apilado', () => {
+  const celdaMixta = `<w:tc><w:tcPr><w:tcW w:w="3000" w:type="pct"/></w:tcPr>${p('Valor neto')}${p('Incluye flete a bodega municipal')}</w:tc>`;
+  const xml = NS + tabla(fila('Descripción', 'Precio Total'), `<w:tr>${celda('')}${celdaMixta}</w:tr>`) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  assert.ok(!analizarAnexo(norm).candidatosCelda.some(c => c.pieApilado));
+});

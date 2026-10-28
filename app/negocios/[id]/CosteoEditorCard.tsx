@@ -35,7 +35,7 @@ import { useCosteoFlotante, type CosteoEstadoHeredado } from '@/app/components/C
 // misma aritmética que el bloque que el comercial arma a mano al pie del Excel. Módulo sin
 // dependencias, compartido — acá NO se duplica ninguna de esas fórmulas.
 import { calcularComparativo, entradaComparativoDeFilas, costoRealDeFila, alertasDeDesvio, recargoParaMargen, margenDeRecargo, parsearRecargo, esLinkDeProducto, tieneRespaldoLink, IVA, type Comparativo } from '@/app/lib/costeo-comparativo';
-import { IconCalculator as Calculator, IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconRefresh as RefreshCw, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconShieldCheck as ShieldCheck, IconSparkles as Sparkles, IconMaximize as Maximize2, IconX as X, IconExternalLink as ExternalLink, IconArrowLeft as ArrowLeft, IconLayoutBoardSplit as SplitSquareHorizontal, IconArrowMerge as Combine, IconFileSearch as FileSearch, IconLink as LinkIcon, IconPictureInPicture as PictureInPicture2, IconMinimize as Minimize2, IconEye as Eye, IconPhotoPlus as PhotoPlus, IconFileSpreadsheet as FileSpreadsheet, IconDownload as Download, IconHistory as History } from '@tabler/icons-react';
+import { IconFilter, IconChevronDown, IconSortAscending, IconSortDescending, IconCalculator as Calculator,IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconRefresh as RefreshCw, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconShieldCheck as ShieldCheck, IconSparkles as Sparkles, IconMaximize as Maximize2, IconX as X, IconExternalLink as ExternalLink, IconArrowLeft as ArrowLeft, IconLayoutBoardSplit as SplitSquareHorizontal, IconArrowMerge as Combine, IconFileSearch as FileSearch, IconLink as LinkIcon, IconPictureInPicture as PictureInPicture2, IconMinimize as Minimize2, IconEye as Eye, IconPhotoPlus as PhotoPlus, IconFileSpreadsheet as FileSpreadsheet, IconDownload as Download, IconHistory as History } from '@tabler/icons-react';
 
 const MARGEN_VENTA_DEFECTO = 27;
 
@@ -640,6 +640,167 @@ const CUADRO_AMARILLO = '#fff3b0';
 const fmtPct = (n: number | null) =>
   n == null ? '—' : `${n.toFixed(1).replace('.', ',')}%`;
 
+// ── Filtros por columna, como el autofiltro de Excel ─────────────────────────────────────────
+// Solo de vista: no se guardan, no reordenan los ítems de verdad y no cambian los totales, el
+// anexo ni el Excel exportado. Igual que en Excel, el filtro es una foto: una fila que se edita y
+// deja de calzar no desaparece mientras se escribe, y una fila nueva se ve hasta volver a filtrar.
+type TipoFiltro = 'texto' | 'numero' | 'dato';
+interface FiltroColumna { excluidos: string[]; min: number | null; max: number | null }
+interface OrdenColumna { col: string; dir: 'asc' | 'desc' }
+interface VistaFiltrada { visibles: string[]; conocidas: string[] }
+const VACIAS = '(Vacías)';
+
+function variacionFila(f: FilaEditor, costoUnitario: number | null): number | null {
+  return !f.agregadoPorCompras && !f.esCostoAdicional && f.costoRealUnitario != null && costoUnitario ? (f.costoRealUnitario / costoUnitario - 1) * 100 : null;
+}
+const formulasDe = (f: FilaEditor, grp: GrupoEditor, general: number) => calcularFormulas(f, margenDeFila(f, grp, general));
+// Mismo valor que muestra cada celda de la grilla (un costo adicional no tiene valor c/IVA ni precio).
+const COLUMNAS_FILTRO: Record<string, { tipo: TipoFiltro; valor: (f: FilaEditor, grp: GrupoEditor, general: number) => string | number | null | undefined }> = {
+  'Ítem': { tipo: 'numero', valor: f => f.item },
+  'Detalle de producto': { tipo: 'texto', valor: f => f.detalle },
+  'Complemento': { tipo: 'texto', valor: f => f.complemento },
+  'Imagen': { tipo: 'dato', valor: f => f.imagenUrl },
+  'Unidad': { tipo: 'texto', valor: f => f.unidad },
+  'Sku proveedor': { tipo: 'texto', valor: f => f.skuProveedor },
+  'Cantidad': { tipo: 'numero', valor: f => f.cantidad },
+  'Valor c/IVA': { tipo: 'numero', valor: f => (f.esCostoAdicional ? null : f.valorConIva) },
+  'Costo unit. neto': { tipo: 'numero', valor: (f, g, m) => (f.esCostoAdicional ? null : formulasDe(f, g, m).costoUnitario) },
+  'Costo total neto': { tipo: 'numero', valor: (f, g, m) => (f.esCostoAdicional ? f.costoAdicionalNeto : formulasDe(f, g, m).costoTotal) },
+  '% margen': { tipo: 'numero', valor: (f, g, m) => (f.esCostoAdicional || f.agregadoPorCompras ? null : margenDeFila(f, g, m)) },
+  'Precio unit. venta': { tipo: 'numero', valor: (f, g, m) => (f.esCostoAdicional ? null : formulasDe(f, g, m).precioUnitarioSinDecimales) },
+  'Precio total neto': { tipo: 'numero', valor: (f, g, m) => (f.esCostoAdicional ? null : formulasDe(f, g, m).precioTotal) },
+  'Costo unit. REAL': { tipo: 'numero', valor: f => f.costoRealUnitario },
+  'Costo total REAL': { tipo: 'numero', valor: f => costoRealFila(f) },
+  'VARIACIÓN': { tipo: 'numero', valor: (f, g, m) => variacionFila(f, formulasDe(f, g, m).costoUnitario) },
+  'Link 1': { tipo: 'dato', valor: f => f.link1 },
+  'Link 2': { tipo: 'dato', valor: f => f.link2 },
+  'Link 3': { tipo: 'dato', valor: f => f.link3 },
+};
+
+function valorFiltro(col: string, f: FilaEditor, grp: GrupoEditor, general: number): string | number | null {
+  const v = COLUMNAS_FILTRO[col].valor(f, grp, general);
+  if (v == null || (typeof v === 'string' && !v.trim())) return null;
+  return typeof v === 'string' ? v.trim() : v;
+}
+function claveFiltro(tipo: TipoFiltro, v: string | number | null): string {
+  if (v == null) return VACIAS;
+  if (tipo === 'dato') return 'Con dato';
+  return typeof v === 'number' ? new Intl.NumberFormat('es-CL', { maximumFractionDigits: 1 }).format(v) : v;
+}
+function compararFiltro(a: string | number | null, b: string | number | null): number {
+  if (a == null || b == null) return a == null ? (b == null ? 0 : 1) : -1;
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  return String(a).localeCompare(String(b), 'es', { numeric: true, sensitivity: 'base' });
+}
+function pasaFiltro(tipo: TipoFiltro, v: string | number | null, flt: FiltroColumna): boolean {
+  if (flt.excluidos.includes(claveFiltro(tipo, v))) return false;
+  if (flt.min == null && flt.max == null) return true;
+  return typeof v === 'number' && (flt.min == null || v >= flt.min) && (flt.max == null || v <= flt.max);
+}
+/** Valores distintos de la columna en la hoja (lista de casillas del menú), en orden, vacías al final. */
+function valoresDeColumna(col: string, grp: GrupoEditor, general: number): { clave: string; n: number }[] {
+  const { tipo } = COLUMNAS_FILTRO[col];
+  const porClave = new Map<string, { clave: string; n: number; v: string | number | null }>();
+  for (const f of grp.filas) {
+    const v = valorFiltro(col, f, grp, general);
+    const clave = claveFiltro(tipo, v);
+    const prev = porClave.get(clave);
+    if (prev) prev.n++; else porClave.set(clave, { clave, n: 1, v });
+  }
+  return [...porClave.values()].sort((a, b) => compararFiltro(a.v, b.v)).map(({ clave, n }) => ({ clave, n }));
+}
+function calcularVista(grp: GrupoEditor, general: number, filtros: Record<string, FiltroColumna>, orden: OrdenColumna | null): VistaFiltrada {
+  let filas = grp.filas.filter(f => Object.entries(filtros).every(([col, flt]) => pasaFiltro(COLUMNAS_FILTRO[col].tipo, valorFiltro(col, f, grp, general), flt)));
+  if (orden) {
+    const s = orden.dir === 'asc' ? 1 : -1;
+    filas = [...filas].sort((a, b) => {
+      const va = valorFiltro(orden.col, a, grp, general), vb = valorFiltro(orden.col, b, grp, general);
+      return va == null || vb == null ? compararFiltro(va, vb) : compararFiltro(va, vb) * s; // vacías siempre al final
+    });
+  }
+  return { visibles: filas.map(f => f.id), conocidas: grp.filas.map(f => f.id) };
+}
+const numeroDeTexto = (t: string): number | null => {
+  const n = Number(t.replace(/[$\s.]/g, '').replace(',', '.'));
+  return t.trim() && Number.isFinite(n) ? n : null;
+};
+
+/** Menú de la flechita del encabezado: ordenar, buscar, casillas por valor y (en números) un rango. */
+function MenuFiltroColumna({ col, valores, filtro, orden, x, y, onAplicar, onCerrar }: {
+  col: string; valores: { clave: string; n: number }[]; filtro: FiltroColumna | undefined; orden: 'asc' | 'desc' | null;
+  x: number; y: number; onAplicar: (filtro: FiltroColumna | null, orden: 'asc' | 'desc' | null) => void; onCerrar: () => void;
+}) {
+  const { tipo } = COLUMNAS_FILTRO[col];
+  const [excluidos, setExcluidos] = useState(() => new Set(filtro?.excluidos ?? []));
+  const [buscar, setBuscar] = useState('');
+  const [desde, setDesde] = useState(filtro?.min != null ? String(filtro.min).replace('.', ',') : '');
+  const [hasta, setHasta] = useState(filtro?.max != null ? String(filtro.max).replace('.', ',') : '');
+  const q = buscar.trim().toLowerCase();
+  const visibles = valores.filter(v => v.clave.toLowerCase().includes(q));
+  const todos = visibles.every(v => !excluidos.has(v.clave));
+  const alternar = (clave: string) => { const s = new Set(excluidos); if (s.has(clave)) s.delete(clave); else s.add(clave); setExcluidos(s); };
+  const alternarTodos = () => { const s = new Set(excluidos); visibles.forEach(v => (todos ? s.add(v.clave) : s.delete(v.clave))); setExcluidos(s); };
+  const aceptar = () => {
+    // Con algo escrito en el buscador, como Excel: quedan solo los valores que calzan y están marcados.
+    const exc = new Set(excluidos);
+    if (q) valores.forEach(v => { if (!v.clave.toLowerCase().includes(q)) exc.add(v.clave); });
+    const min = tipo === 'numero' ? numeroDeTexto(desde) : null;
+    const max = tipo === 'numero' ? numeroDeTexto(hasta) : null;
+    onAplicar(exc.size || min != null || max != null ? { excluidos: [...exc], min, max } : null, orden);
+  };
+  const etiquetasOrden = tipo === 'numero' ? ['De menor a mayor', 'De mayor a menor'] : ['Ordenar de A a Z', 'Ordenar de Z a A'];
+  const itemMenu = 'w-full flex items-center gap-2 px-2 py-1 rounded text-left text-[12px] text-zinc-700 hover:bg-zinc-100 disabled:opacity-40 disabled:hover:bg-transparent';
+  return createPortal(
+    <div className="fixed inset-0 z-[100]" onMouseDown={e => { if (e.target === e.currentTarget) onCerrar(); }}>
+      <div className="absolute bg-white rounded-md shadow-xl border border-zinc-300 p-1.5 w-[260px] font-normal"
+        style={{ left: Math.max(4, Math.min(x, window.innerWidth - 264)), top: Math.min(y, window.innerHeight - 420) }}
+        onKeyDown={e => { if (e.key === 'Escape') onCerrar(); if (e.key === 'Enter') aceptar(); }}>
+        <button type="button" className={itemMenu} onClick={() => onAplicar(filtro ?? null, orden === 'asc' ? null : 'asc')}>
+          <IconSortAscending size={14} className={orden === 'asc' ? 'text-[#1a73e8]' : 'text-zinc-400'} />{etiquetasOrden[0]}
+        </button>
+        <button type="button" className={itemMenu} onClick={() => onAplicar(filtro ?? null, orden === 'desc' ? null : 'desc')}>
+          <IconSortDescending size={14} className={orden === 'desc' ? 'text-[#1a73e8]' : 'text-zinc-400'} />{etiquetasOrden[1]}
+        </button>
+        <button type="button" className={itemMenu} disabled={!filtro} onClick={() => onAplicar(null, orden)}>
+          <IconFilter size={14} className="text-zinc-400" />Borrar filtro de «{col}»
+        </button>
+        <div className="border-t border-zinc-200 my-1.5" />
+        {tipo === 'numero' && (
+          <div className="flex items-center gap-1.5 px-1 pb-1.5 text-[11.5px] text-zinc-500">
+            <input value={desde} onChange={e => setDesde(e.target.value)} placeholder="Desde" inputMode="decimal"
+              className="w-0 flex-1 border border-zinc-300 rounded px-1.5 py-1 text-[12px] text-zinc-800 outline-none focus:ring-2 focus:ring-[#1a73e8]" />
+            a
+            <input value={hasta} onChange={e => setHasta(e.target.value)} placeholder="Hasta" inputMode="decimal"
+              className="w-0 flex-1 border border-zinc-300 rounded px-1.5 py-1 text-[12px] text-zinc-800 outline-none focus:ring-2 focus:ring-[#1a73e8]" />
+          </div>
+        )}
+        {tipo !== 'dato' && (
+          <input value={buscar} onChange={e => setBuscar(e.target.value)} placeholder="Buscar" autoFocus
+            className="w-full border border-zinc-300 rounded px-1.5 py-1 text-[12px] outline-none focus:ring-2 focus:ring-[#1a73e8]" />
+        )}
+        <div className="mt-1.5 max-h-[220px] overflow-y-auto border border-zinc-200 rounded py-0.5">
+          <label className="flex items-center gap-2 px-2 py-0.5 text-[12px] text-zinc-700 cursor-pointer hover:bg-zinc-50">
+            <input type="checkbox" checked={todos} onChange={alternarTodos} />(Seleccionar todo)
+          </label>
+          {visibles.map(v => (
+            <label key={v.clave} title={v.clave} className="flex items-center gap-2 px-2 py-0.5 text-[12px] text-zinc-700 cursor-pointer hover:bg-zinc-50">
+              <input type="checkbox" checked={!excluidos.has(v.clave)} onChange={() => alternar(v.clave)} />
+              <span className="flex-1 truncate">{v.clave}</span>
+              <span className="text-[11px] text-zinc-400 tabular-nums">{v.n}</span>
+            </label>
+          ))}
+          {visibles.length === 0 && <p className="px-2 py-1 text-[12px] text-zinc-400">Sin coincidencias</p>}
+        </div>
+        <div className="flex justify-end gap-1.5 mt-2">
+          <button type="button" onClick={onCerrar} className="px-3 py-1 text-[12px] rounded-md border border-zinc-300 text-zinc-600 hover:bg-zinc-50">Cancelar</button>
+          <button type="button" onClick={aceptar} className="px-3 py-1 text-[12px] rounded-md bg-[#1a73e8] text-white font-semibold hover:bg-[#1765cc]">Aceptar</button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function FilaCuadro({ etiqueta, valor, fondo, fuerte, titulo, tono }: {
   etiqueta: string; valor: string; fondo?: string; fuerte?: boolean; titulo?: string;
   tono?: 'ok' | 'malo' | 'neutro';
@@ -999,6 +1160,9 @@ export function CosteoEditorCard({
   const [migracionPendiente, setMigracionPendiente] = useState(false);
   const [congelado, setCongelado] = useState(false);
   const [grupoActivo, setGrupoActivo] = useState(0);
+  // Filtros por columna (ver COLUMNAS_FILTRO). Atados al nombre de la hoja: al cambiar de hoja no aplican.
+  const [autofiltro, setAutofiltro] = useState<{ hoja: string; filtros: Record<string, FiltroColumna>; orden: OrdenColumna | null; vista: VistaFiltrada } | null>(null);
+  const [menuFiltro, setMenuFiltro] = useState<{ col: string; x: number; y: number } | null>(null);
   const [alertas, setAlertas] = useState<Alerta[] | null>(null);
   const [ultimoGuardado, setUltimoGuardado] = useState<string | null>(null);
   const [pantallaCompleta, setPantallaCompleta] = useState(standalone);
@@ -1782,6 +1946,20 @@ export function CosteoEditorCard({
 
   const giActivo = Math.min(grupoActivo, grupos.length - 1);
   const g = grupos[giActivo];
+  const af = autofiltro?.hoja === g.nombre ? autofiltro : null;
+  const aplicarAutofiltro = (filtros: Record<string, FiltroColumna>, orden: OrdenColumna | null) =>
+    setAutofiltro(Object.keys(filtros).length || orden ? { hoja: g.nombre, filtros, orden, vista: calcularVista(g, margen, filtros, orden) } : null);
+  // Filas a dibujar con su índice REAL en la hoja (actualizarFila/eliminarFila trabajan con él):
+  // las de la foto del filtro, en su orden, y al final las agregadas después de filtrar.
+  let filasVista = g.filas.map((f, fi) => ({ f, fi }));
+  if (af) {
+    const pos = new Map(af.vista.visibles.map((id, i) => [id, i]));
+    const conocidas = new Set(af.vista.conocidas);
+    filasVista = [
+      ...filasVista.filter(x => pos.has(x.f.id)).sort((a, b) => pos.get(a.f.id)! - pos.get(b.f.id)!),
+      ...filasVista.filter(x => !conocidas.has(x.f.id)),
+    ];
+  }
 
   // ── La "hoja" ────────────────────────────────────────────────────────────────────────────
   const Hoja = (
@@ -1799,6 +1977,35 @@ export function CosteoEditorCard({
           </div>
         </div>,
         document.body,
+      )}
+      {menuFiltro && (
+        <MenuFiltroColumna
+          key={menuFiltro.col} col={menuFiltro.col} x={menuFiltro.x} y={menuFiltro.y}
+          valores={valoresDeColumna(menuFiltro.col, g, margen)}
+          filtro={af?.filtros[menuFiltro.col]}
+          orden={af?.orden?.col === menuFiltro.col ? af.orden.dir : null}
+          onCerrar={() => setMenuFiltro(null)}
+          onAplicar={(flt, dir) => {
+            const col = menuFiltro.col;
+            const filtros = { ...af?.filtros };
+            if (flt) filtros[col] = flt; else delete filtros[col];
+            const orden = dir ? { col, dir } : af?.orden?.col === col ? null : af?.orden ?? null;
+            aplicarAutofiltro(filtros, orden);
+            setMenuFiltro(null);
+          }}
+        />
+      )}
+      {af && (
+        <div className="px-2 py-1 border-b border-[#c6c6c6] flex items-center gap-3 text-[11.5px] text-zinc-600 flex-shrink-0" style={{ background: '#e8f0fe' }}>
+          <IconFilter size={12} className="text-[#1a73e8]" />
+          <span>
+            Mostrando <b>{filasVista.length}</b> de {g.filas.length} filas
+            {af.orden && <> · ordenado por «{af.orden.col}»</>}. Los totales siguen sumando todas las filas.
+          </span>
+          {/* Volver a filtrar: reaplica la foto con los datos editados (y suma las filas nuevas al filtro). */}
+          <button type="button" onClick={() => aplicarAutofiltro(af.filtros, af.orden)} className="font-semibold text-[#1a73e8] hover:underline">Volver a aplicar</button>
+          <button type="button" onClick={() => setAutofiltro(null)} className="font-semibold text-[#1a73e8] hover:underline">Quitar filtros</button>
+        </div>
       )}
       <div className="overflow-auto flex-1">
         <table className="border-collapse w-full" style={{ minWidth: 1672 }}>
@@ -1852,19 +2059,34 @@ export function CosteoEditorCard({
                 // ("Costo real unit.") hasta el 03-sep-2026.
                 ['Costo unit. REAL', 'Se tipea a mano cuando llega la factura/OC del proveedor. Alimenta el bloque "COMPARATIVO REAL" del costado — mientras esté vacía, ese bloque no tiene costo real que mostrar.'],
                 ['Costo total REAL', ''], ['VARIACIÓN', ''], ['Link 1', ''], ['Link 2', ''], ['Link 3', ''],
-              ] as const).map(([h, tip]) => (
-                <th key={h} title={tip || undefined} className="px-1.5 py-1 text-left text-[11.5px] font-bold text-zinc-800 whitespace-nowrap" style={{ border: `1px solid ${GRID_BORDE}` }}>{h}</th>
-              ))}
+              ] as const).map(([h, tip]) => {
+                const filtrada = !!af?.filtros[h];
+                const dir = af?.orden?.col === h ? af.orden.dir : null;
+                const Icono = filtrada ? IconFilter : dir === 'asc' ? IconSortAscending : dir === 'desc' ? IconSortDescending : IconChevronDown;
+                return (
+                  <th key={h} title={tip || undefined} className="px-1.5 py-1 text-left text-[11.5px] font-bold text-zinc-800 whitespace-nowrap" style={{ border: `1px solid ${GRID_BORDE}` }}>
+                    <div className="flex items-center gap-1">
+                      <span className="flex-1">{h}</span>
+                      {/* Flechita del autofiltro, como la de Excel: azul cuando la columna filtra u ordena. */}
+                      <button type="button" title="Filtrar u ordenar esta columna"
+                        onClick={e => { const r = e.currentTarget.getBoundingClientRect(); setMenuFiltro({ col: h, x: r.left, y: r.bottom + 2 }); }}
+                        className={`flex-shrink-0 w-4 h-4 flex items-center justify-center rounded-sm border ${filtrada || dir ? 'border-[#1a73e8] bg-[#e8f0fe] text-[#1a73e8]' : 'border-zinc-300 bg-white text-zinc-500 hover:border-zinc-500'}`}>
+                        <Icono size={10} stroke={2.5} />
+                      </button>
+                    </div>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
-            {g.filas.map((f, fi) => {
+            {filasVista.map(({ f, fi }) => {
               const margenFila = margenDeFila(f, g, margen);
               const leFaltaLink = g.ofertamos && faltaLink(f);
               const { costoUnitario, costoTotal, precioUnitarioSinDecimales, precioTotal } = calcularFormulas(f, margenFila);
               const bajoCosto = costoTotal != null && precioTotal != null && precioTotal < costoTotal;
               // VARIACIÓN de la fila — misma fórmula que la columna N del Excel: =(L/G)−1, en %.
-              const variacion = !f.agregadoPorCompras && !f.esCostoAdicional && f.costoRealUnitario != null && costoUnitario ? (f.costoRealUnitario / costoUnitario - 1) * 100 : null;
+              const variacion = variacionFila(f, costoUnitario);
               // Compras: lo ajeno queda bloqueado; solo Costo REAL y Links se habilitan, y sus propias filas nuevas por completo.
               const esAdic = !!f.esCostoAdicional;
               const baseBloq = congelado && !(modoCompras && f.agregadoPorCompras);
@@ -1873,7 +2095,8 @@ export function CosteoEditorCard({
               const celdaFormula = { ...celda, background: bajoCosto ? '#fdeceb' : '#f8f9fb' };
               return (
                 <tr key={f.id} className="group">
-                  <td className="text-[11px] text-zinc-400 text-center" style={{ ...celda, background: '#f3f2f1' }}>{fi + 2}</td>
+                  {/* Número de fila real; en azul mientras hay filtro, como Excel. */}
+                  <td className={`text-[11px] text-center ${af ? 'text-[#1a73e8]' : 'text-zinc-400'}`} style={{ ...celda, background: '#f3f2f1' }}>{fi + 2}</td>
                   <td style={celda} className="text-[12px] text-center tabular-nums text-zinc-700" title={f.lineaReal != null ? `Línea ${f.lineaReal} de la licitación` : undefined}>{f.item}</td>
                   <td style={celda} className="p-0">
                     <CeldaDetalle value={f.detalle} base={f.detalleBase} disabled={baseBloq}
@@ -2004,6 +2227,9 @@ export function CosteoEditorCard({
             })}
             {g.filas.length === 0 && (
               <tr><td colSpan={21} className="px-4 py-6 text-center text-zinc-400 text-[12px]" style={{ border: `1px solid ${GRID_BORDE}` }}>Sin ítems en esta hoja</td></tr>
+            )}
+            {g.filas.length > 0 && filasVista.length === 0 && (
+              <tr><td colSpan={21} className="px-4 py-6 text-center text-zinc-400 text-[12px]" style={{ border: `1px solid ${GRID_BORDE}` }}>Ninguna fila calza con el filtro</td></tr>
             )}
             {/* Fila de totales — mismo lugar que la fila SUMA() de la plantilla de Excel. Cada
                 suma queda justo bajo SU columna (Costo total neto / Precio total neto). */}

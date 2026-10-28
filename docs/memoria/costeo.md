@@ -3,6 +3,21 @@
 Costeo digital del negocio (editor + burbuja flotante) y Excel de costeo (plantilla V3).
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-27 — Filtros por columna estilo Excel en la grilla del costeo digital
+Pedido del dueño: cada encabezado tiene una flechita (azul cuando filtra u ordena) que abre un menú como
+el autofiltro de Excel: ordenar asc/desc, buscador, casillas por valor con «(Vacías)», rango Desde/Hasta en
+las columnas de números, y Imagen/Link 1-3 se filtran solo por «Con dato»/«(Vacías)». Todo en
+`CosteoEditorCard.tsx` (`COLUMNAS_FILTRO`, `MenuFiltroColumna`, `calcularVista`).
+**Regla / decisión (dueño, 2026-10-27):** el filtro es solo de vista. Los totales de la hoja y el cuadro
+comparativo siguen sumando TODAS las filas; no se guarda, no cambia el orden real de los ítems, el anexo
+ni el Excel exportado, y no marca el costeo como modificado. Se ata a la hoja activa (al cambiar de hoja no aplica).
+Como en Excel, el filtro es una foto: una fila editada que deja de calzar no se esconde mientras se
+escribe y una fila agregada se ve al final; «Volver a aplicar» rehace la foto. Cada fila se sigue editando
+con su índice real en la hoja (`filasVista` guarda `fi`); el número de fila queda el real, en azul con filtro.
+**Verificado:** tsc limpio; en el navegador con 3712 (negocio 1511, solo mirando, sin guardar): «Valor c/IVA
+desde 1.000.000» deja 3 de 39 filas con los totales intactos, Z→A por detalle ordena bien y «Quitar filtros»
+vuelve a las 39. No se probó editar una celda con filtro puesto (el costeo es real y se autoguarda).
+
 ## 2026-10-27 — Re-viabilidad no cambia el costeo digital (regla) + «Actualizar» duplicaba por coma decimal
 Caso real: 3712-74-LP26, negocio 1511. La viabilidad re-analizada dejó 39 productos; el costeo digital
 guardado sigue con 77 filas: 29 fichas técnicas sin número, «120 días corridos», X1…X6 de la pauta y la lista
