@@ -130,12 +130,13 @@ export async function GET(request: NextRequest, { params }: Params) {
          WHERE ne.negocio_id = ?`, [id]
       ),
       (conViabilidad ? pool.query(
-        `SELECT semaforo, score_total, area_negocio, informe_ejecutivo
+        `SELECT semaforo, score_total, nivel_atractivo, area_negocio, informe_ejecutivo
          FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`, [codigo]
       ) : Promise.resolve([[]] as any)).catch(() => [[]] as any),
       pool.query(
-        `SELECT nombre_archivo, url_local, url_original, size_bytes, categoria, created_at
-         FROM documentos_cache WHERE licitacion_codigo = ? ORDER BY created_at DESC LIMIT 30`, [codigo]
+        `SELECT documento_nombre AS nombre_archivo, documento_url_local AS url_local,
+                size_bytes, categoria, created_at
+         FROM documentos_cache WHERE licitacion_codigo = ? ORDER BY created_at DESC`, [codigo]
       ).catch(() => [[]] as any),
       // Apertura detectada por el poller del portal (mismo dato que el chip "Aperturada" de la lista).
       pool.query(
@@ -150,6 +151,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (viab) {
       negocio.viabilidad_semaforo = viab.semaforo ?? null;
       negocio.viabilidad_score    = viab.score_total ?? null;
+      negocio.viabilidad_nivel    = viab.nivel_atractivo ?? null;
       negocio.viabilidad_area     = viab.area_negocio ?? null;
       try {
         negocio.viabilidad_informe = typeof viab.informe_ejecutivo === 'string'

@@ -8,13 +8,15 @@ import { fechaHoraParaExcel, ordenarPorFecha, hojaDeFilas } from '@/app/lib/expo
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
-import { IconBriefcase as Briefcase, IconPlus as Plus, IconSearch as Search, IconExternalLink as ExternalLink, IconTrash as Trash2, IconCalendar as Calendar, IconCurrencyDollar as DollarSign, IconBuilding as Building2, IconAlertCircle as AlertCircle, IconLoader2 as Loader2, IconChevronDown as ChevronDown, IconX as X, IconRefresh as RefreshCw, IconUsers as Users, IconList as List, IconLayoutGrid as LayoutGrid, IconCalendarWeek as CalendarDays, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconArrowRight as ArrowRight, IconFileText as FileText, IconAdjustmentsHorizontal as SlidersHorizontal, IconMapPin as MapPin, IconClock as Clock, IconCheck as Check, IconDownload as Download, IconSortAscending2 as ArrowUpNarrowWide, IconSortDescending2 as ArrowDownWideNarrow, IconTrophy as Trophy } from '@tabler/icons-react';
+import { IconBriefcase as Briefcase, IconPlus as Plus, IconSearch as Search, IconTrash as Trash2, IconCalendar as Calendar, IconCurrencyDollar as DollarSign, IconAlertCircle as AlertCircle, IconLoader2 as Loader2, IconChevronDown as ChevronDown, IconX as X, IconRefresh as RefreshCw, IconUsers as Users, IconList as List, IconLayoutGrid as LayoutGrid, IconCalendarWeek as CalendarDays, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconArrowRight as ArrowRight, IconFileText as FileText, IconAdjustmentsHorizontal as SlidersHorizontal, IconClock as Clock, IconCheck as Check, IconDownload as Download, IconSortAscending2 as ArrowUpNarrowWide, IconSortDescending2 as ArrowDownWideNarrow, IconTrophy as Trophy } from '@tabler/icons-react';
 import dayjs from 'dayjs';
 import { getEstadoPipeline, ESTADOS_PIPELINE, normalizarEstado } from '@/app/lib/pipeline';
 import { estadoEfectivoNombre } from '@/app/lib/estado-mp';
 import { extractTipoFromCodigo, getTipoLicitacion, TIPOS_LICITACION } from '@/app/lib/tipos-licitacion';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { semaforoRevision } from '@/app/lib/asignacion';
+import { Datos, Dato, Estado } from '@/app/components/ui/kit/Tarjeta';
+import { Boton } from '@/app/components/ui/kit/Boton';
 
 interface Etiqueta { id: number; nombre: string; color: string; }
 
@@ -40,6 +42,7 @@ interface Negocio {
   tiene_documentos?: number;
   viabilidad_semaforo?: string | null;
   viabilidad_score?: number | null;
+  viabilidad_nivel?: string | null;  // nivel de la viabilidad v4 (MUY_ALTO … EXCLUIDO)
   // Adjudicación REAL desde la API (misma fuente que Postuladas: por RUT). El endpoint las
   // rellena desde adjudicacion_cache. Definen "Ganada"/"Perdida" sin suposiciones.
   adj_es_adjudicada?: number;   // MP ya adjudicó el proceso (a alguien)
@@ -73,6 +76,28 @@ const SEMAFORO: Record<string, { label: string; color: string; bg: string; text:
   ROJO:      { label: 'Baja',       color: '#ef4444', bg: 'bg-red-50',     text: 'text-red-700' },
   ROJO_DURO: { label: 'Descartar',  color: '#b91c1c', bg: 'bg-red-100',    text: 'text-red-800' },
 };
+
+// Nivel de la viabilidad v4, de peor a mejor (mismo nivel que la pestaña Viabilidad y el Resumen).
+const ESCALA_V4 = ['EXCLUIDO', 'BAJO', 'MEDIO_BAJO', 'MEDIO', 'MEDIO_ALTO', 'ALTO', 'MUY_ALTO'];
+const NIVEL_V4: Record<string, { label: string; color: string }> = {
+  MUY_ALTO:   { label: 'Muy alto',   color: '#059669' },
+  ALTO:       { label: 'Alto',       color: '#10b981' },
+  MEDIO_ALTO: { label: 'Medio alto', color: '#eab308' },
+  MEDIO:      { label: 'Medio',      color: '#eab308' },
+  MEDIO_BAJO: { label: 'Medio bajo', color: '#f97316' },
+  BAJO:       { label: 'Bajo',       color: '#ef4444' },
+  EXCLUIDO:   { label: 'Excluido',   color: '#b91c1c' },
+};
+
+// La v4 deja semáforo y puntaje vacíos: manda su nivel; si no hay, el semáforo anterior.
+function viabilidadDe(n: Negocio): { label: string; color: string; puntaje: number | null; tramos: number } | null {
+  const v4 = n.viabilidad_nivel ? NIVEL_V4[n.viabilidad_nivel] : null;
+  if (v4) return { ...v4, puntaje: null, tramos: ESCALA_V4.indexOf(n.viabilidad_nivel!) + 1 };
+  const s = n.viabilidad_semaforo ? SEMAFORO[n.viabilidad_semaforo] : null;
+  if (!s) return null;
+  const puntaje = n.viabilidad_score ?? null;
+  return { label: s.label, color: s.color, puntaje, tramos: puntaje != null ? Math.max(1, Math.ceil(puntaje / 100 * 7)) : 0 };
+}
 
 // Todos los tipos ordenados por uso típico (públicos primero)
 const TIPOS_FILTRO = TIPOS_LICITACION.map(t => t.codigo);
@@ -337,6 +362,7 @@ function NegocioCard({ neg, isAdmin, onEliminar }: {
     : parseInt(dias) <= 7 ? 'text-orange-500' : 'text-gray-500';
   const col = colorUsuario(neg.usuario_email || neg.usuario_nombre);
   const sem = (neg.estado_pipeline || '') !== 'DESCARTADA' ? semaforoRevision(neg.updated_at) : null;
+  const viab = viabilidadDe(neg);
   return (
     <Link
       href={`/negocios/${neg.id}`}
@@ -360,13 +386,13 @@ function NegocioCard({ neg, isAdmin, onEliminar }: {
       <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
         <PipelineBadge estadoId={neg.estado_pipeline} />
         <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} />
-        {neg.viabilidad_semaforo && SEMAFORO[neg.viabilidad_semaforo] && (
+        {viab && (
           <span
             className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700"
-            title={`Viabilidad: ${SEMAFORO[neg.viabilidad_semaforo].label}`}
+            title={`Viabilidad: ${viab.label}`}
           >
-            <span style={{ background: SEMAFORO[neg.viabilidad_semaforo].color }} className="w-1.5 h-1.5 rounded-full" />
-            {SEMAFORO[neg.viabilidad_semaforo].label}{neg.viabilidad_score != null ? ` ${neg.viabilidad_score}` : ''}
+            <span style={{ background: viab.color }} className="w-1.5 h-1.5 rounded-full" />
+            {viab.label}{viab.puntaje != null ? ` ${viab.puntaje}` : ''}
           </span>
         )}
         {neg.tiene_documentos ? (
@@ -417,7 +443,7 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
   const dias   = diasRestantes(neg.licitacion_cierre);
   const diasCls = dias === 'Vencida' ? 'text-slate-400'
     : (parseInt(dias) <= 3 ? 'text-red-600 font-semibold' : parseInt(dias) <= 7 ? 'text-orange-500' : 'text-slate-400');
-  const viab   = neg.viabilidad_semaforo ? SEMAFORO[neg.viabilidad_semaforo] : null;
+  const viab   = viabilidadDe(neg);
   const sem    = !descartada ? semaforoRevision(neg.updated_at) : null;
   const iniciales = inicialesUsuario(neg.usuario_nombre, neg.usuario_email);
 
@@ -479,7 +505,7 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
         {viab && (
           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 flex-shrink-0" title={`Viabilidad: ${viab.label}`}>
             <span style={{ background: viab.color }} className="w-1.5 h-1.5 rounded-full" />
-            {viab.label}{neg.viabilidad_score != null ? ` ${neg.viabilidad_score}` : ''}
+            {viab.label}{viab.puntaje != null ? ` ${viab.puntaje}` : ''}
           </span>
         )}
         {neg.tiene_documentos ? (
@@ -822,7 +848,7 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
   const col    = colorUsuario(neg.usuario_email || neg.usuario_nombre);
   const descartada = (neg.estado_pipeline || '') === 'DESCARTADA';
   const postulada = (neg.estado_pipeline || '') === 'POSTULADA';
-  const viab     = neg.viabilidad_semaforo ? SEMAFORO[neg.viabilidad_semaforo] : null;
+  const viab     = viabilidadDe(neg);
   const iniciales = inicialesUsuario(neg.usuario_nombre, neg.usuario_email);
   const nombrePerfil = neg.usuario_nombre || neg.usuario_email || '';
   // Semáforo de frescura: tiempo sin cambio de estado (no aplica a descartadas). Siempre visible;
@@ -944,7 +970,6 @@ interface NegocioDetalle {
 function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Negocio; isAdmin: boolean; onClose: () => void }) {
   const [extra, setExtra]       = useState<NegocioDetalle | null>(null);
   const [loadingEx, setLoadingEx] = useState(true);
-  const [descExpandida, setDescExpandida] = useState(false);
 
   useEffect(() => {
     fetch(`/api/negocios/${neg.id}`)
@@ -963,224 +988,127 @@ function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Nego
 
   const tipo   = extractTipoFromCodigo(neg.licitacion_codigo || '');
   const col    = colorUsuario(neg.usuario_email || neg.usuario_nombre);
-  const dias   = neg.licitacion_cierre
-    ? Math.ceil((new Date(neg.licitacion_cierre).getTime() - Date.now()) / 86400000)
-    : null;
+  const cierre = neg.licitacion_cierre ? dayjs(neg.licitacion_cierre) : null;
+  const dias   = cierre ? cierre.startOf('day').diff(dayjs().startOf('day'), 'day') : null;
   const e = getEstadoPipeline(neg.estado_pipeline || 'ASIGNADO');
-  const viab = neg.viabilidad_semaforo ? SEMAFORO[neg.viabilidad_semaforo] : null;
+  const viab = viabilidadDe(neg);
   const inf  = extra?.viabilidad_informe;
 
+  // Urgencia en días de calendario: Hoy, Mañana o el día de la semana.
+  const cierreTexto = !cierre || dias === null ? null
+    : dias < 0 ? 'Vencida'
+    : dias === 0 ? 'Hoy'
+    : dias === 1 ? 'Mañana'
+    : cierre.toDate().toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric' });
+  const cierreColor = dias === null || dias < 0 ? 'text-slate-400' : dias <= 1 ? 'text-urgente' : dias <= 3 ? 'text-alerta' : '';
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
       role="dialog" aria-modal="true" aria-label={neg.licitacion_nombre || 'Detalle del negocio'}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden" onClick={ev => ev.stopPropagation()}>
-        {/* Header */}
-        <div className="flex items-start gap-3 px-6 py-4 border-b border-slate-100 flex-shrink-0">
+      <div className="bg-white dark:bg-slate-900 border border-linea dark:border-slate-800 rounded-2xl shadow-flotante w-full max-w-xl max-h-[92vh] flex flex-col overflow-hidden" onClick={ev => ev.stopPropagation()}>
+        {/* Encabezado */}
+        <div className="flex items-start gap-3 px-5 pt-5">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap mb-1.5">
-              {tipo && <span className="text-xs font-mono text-slate-400">{tipo}</span>}
-              {e && (
-                <span style={{ backgroundColor: e.color + '18', color: e.color, borderColor: e.color + '40' }}
-                  className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border">
-                  <span style={{ backgroundColor: e.color }} className="w-1.5 h-1.5 rounded-full" /> {e.label}
-                </span>
-              )}
-              <span className="text-[11px] font-mono text-slate-400">{neg.licitacion_codigo}</span>
+            <div className="flex items-center gap-x-2.5 gap-y-1 flex-wrap text-xs text-tinta-2 dark:text-slate-400">
+              <span className="font-mono">{neg.licitacion_codigo}</span>
+              {tipo && <span>{tipo}</span>}
+              {e && <Estado color={e.color}><span className="text-tinta dark:text-slate-200">{e.label}</span></Estado>}
             </div>
-            <h3 className="text-[15px] font-bold text-slate-900 leading-snug">{neg.licitacion_nombre || neg.licitacion_codigo}</h3>
+            <h3 className="mt-1.5 text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-100 leading-snug line-clamp-2">
+              {neg.licitacion_nombre || neg.licitacion_codigo}
+            </h3>
+            {(neg.licitacion_organismo || neg.licitacion_region) && (
+              <p className="mt-1 text-xs text-tinta-2 dark:text-slate-400 truncate">
+                {[neg.licitacion_organismo, neg.licitacion_region].filter(Boolean).join(' · ')}
+              </p>
+            )}
           </div>
-          <button onClick={onClose} className="flex-shrink-0 p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors">
+          <button onClick={onClose} aria-label="Cerrar" className="flex-shrink-0 -mr-1 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors duration-150">
             <X size={18} />
           </button>
         </div>
 
-        {/* Body */}
-        <div className="overflow-y-auto p-5 space-y-4">
-
-          {/* Organismo + región */}
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
-            {neg.licitacion_organismo && (
-              <div className="flex items-center gap-1.5 text-[13px] text-slate-600">
-                <Building2 size={13} className="text-slate-400 flex-shrink-0" />
-                <span>{neg.licitacion_organismo}</span>
-              </div>
+        <div className="overflow-y-auto px-5 pb-5">
+          {/* Datos clave */}
+          <Datos columnas={3}>
+            {cierreTexto && cierre && (
+              <Dato rotulo="Cierre">
+                <span className={`capitalize ${cierreColor}`}>{cierreTexto}</span>
+                <span className="text-tinta-2 dark:text-slate-400 font-normal"> · {cierre.toDate().toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })}</span>
+              </Dato>
             )}
-            {neg.licitacion_region && (
-              <div className="flex items-center gap-1.5 text-[12px] text-slate-500">
-                <MapPin size={12} className="text-slate-400 flex-shrink-0" /> {neg.licitacion_region}
-              </div>
-            )}
-          </div>
-
-          {/* Datos clave en grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-            {neg.licitacion_monto != null && neg.licitacion_monto > 0 && (
-              <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3">
-                <p className="text-[10px] text-emerald-600 font-semibold uppercase tracking-wide mb-0.5">Presupuesto</p>
-                <p className="text-[14px] font-bold text-emerald-800">{formatMonto(neg.licitacion_monto)}</p>
-              </div>
-            )}
-            {neg.licitacion_cierre && (
-              <div className={`rounded-xl p-3 border ${dias !== null && dias <= 3 ? 'bg-red-50 border-red-100' : dias !== null && dias <= 7 ? 'bg-amber-50 border-amber-100' : 'bg-slate-50 border-slate-100'}`}>
-                <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide mb-0.5">Cierre</p>
-                <p className="text-[13px] font-bold text-slate-800">
-                  {new Date(neg.licitacion_cierre).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })}
-                </p>
-                {dias !== null && (
-                  <p className={`text-[11px] font-semibold mt-0.5 ${dias <= 0 ? 'text-slate-400' : dias <= 3 ? 'text-red-600' : dias <= 7 ? 'text-amber-600' : 'text-slate-500'}`}>
-                    {dias <= 0 ? 'Vencida' : `${dias} días restantes`}
-                  </p>
-                )}
-              </div>
-            )}
-            {neg.monto_ofertado > 0 && (
-              <div className="bg-teal-50 border border-teal-100 rounded-xl p-3">
-                <p className="text-[10px] text-teal-700 font-semibold uppercase tracking-wide mb-0.5">Monto ofertado</p>
-                <p className="text-[13px] font-bold text-teal-800">{formatMonto(neg.monto_ofertado)}</p>
-              </div>
-            )}
-          </div>
-
-          {/* Viabilidad */}
-          {viab && (
-            <div className={`rounded-xl border p-3.5 space-y-2 ${viab.bg}`} style={{ borderColor: viab.color + '40' }}>
-              <div className="flex items-center gap-2">
-                <span style={{ background: viab.color }} className="w-2.5 h-2.5 rounded-full flex-shrink-0" />
-                <span className={`text-[13px] font-bold ${viab.text}`}>
-                  Viabilidad: {viab.label}
-                  {neg.viabilidad_score != null && <span className="opacity-70 font-semibold"> · {neg.viabilidad_score}/100</span>}
-                </span>
-                {extra?.viabilidad_area && (
-                  <span className="ml-auto text-[11px] text-slate-500 bg-white/60 px-2 py-0.5 rounded-full border border-white/80">
-                    {extra.viabilidad_area}
+            {neg.licitacion_monto != null && neg.licitacion_monto > 0 && <Dato rotulo="Presupuesto">{formatMonto(neg.licitacion_monto)}</Dato>}
+            {neg.monto_ofertado > 0 && <Dato rotulo="Ofertado">{formatMonto(neg.monto_ofertado)}</Dato>}
+            {!loadingEx && extra && <Dato rotulo="Documentos">{extra.total_documentos ? `${extra.total_documentos} descargados` : 'Sin descargar'}</Dato>}
+            {isAdmin && (neg.usuario_nombre || neg.usuario_email) && (
+              <Dato rotulo="Responsable">
+                <span className="inline-flex items-center gap-1.5">
+                  <span style={{ background: col }} className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[8px] font-semibold flex-shrink-0">
+                    {inicialesUsuario(neg.usuario_nombre, neg.usuario_email)}
                   </span>
-                )}
+                  {neg.usuario_nombre || neg.usuario_email}
+                </span>
+              </Dato>
+            )}
+          </Datos>
+
+          {/* Viabilidad: nivel, medidor y lo esencial del análisis */}
+          {viab && (
+            <div className="mt-4 rounded-xl border border-linea dark:border-slate-800 p-4">
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="text-[11px] text-tinta-2/80 dark:text-slate-400">Viabilidad{extra?.viabilidad_area ? ` · ${extra.viabilidad_area.toLowerCase()}` : ''}</p>
+                <p className="text-lg font-semibold tracking-tight leading-none" style={{ color: viab.color }}>
+                  {viab.label}
+                  {viab.puntaje != null && <span className="ml-1.5 text-xs font-medium text-slate-400 tabular-nums">{viab.puntaje}/100</span>}
+                </p>
               </div>
+              {viab.tramos > 0 && (
+                <div className="mt-2.5 grid grid-cols-7 gap-1" aria-hidden>
+                  {Array.from({ length: 7 }, (_, k) => (
+                    <span key={k} className={`h-1.5 rounded-full ${k < viab.tramos ? '' : 'bg-slate-100 dark:bg-slate-800'}`}
+                      style={k < viab.tramos ? { background: viab.color } : undefined} />
+                  ))}
+                </div>
+              )}
               {loadingEx && !inf && (
-                <p className="text-[11px] text-slate-400 flex items-center gap-1.5"><Loader2 size={11} className="animate-spin" /> Cargando análisis…</p>
+                <div className="mt-3 space-y-1.5" aria-label="Cargando análisis">
+                  <div className="h-3 rounded bg-slate-100 dark:bg-slate-800" />
+                  <div className="h-3 w-2/3 rounded bg-slate-100 dark:bg-slate-800" />
+                </div>
               )}
               {inf?.resumen && (
-                <p className="text-[13.5px] text-slate-700 leading-relaxed">{inf.resumen}</p>
-              )}
-              {inf?.ventaja_competitiva && (
-                <div className="bg-white/60 rounded-lg px-3 py-2 border border-emerald-100">
-                  <p className="text-[11px] font-bold text-emerald-700 mb-0.5">Ventaja competitiva</p>
-                  <p className="text-[13px] text-emerald-800 leading-relaxed">{inf.ventaja_competitiva}</p>
-                </div>
+                <p className="mt-3 text-[13px] text-tinta dark:text-slate-200 leading-relaxed line-clamp-2" title={inf.resumen}>{inf.resumen}</p>
               )}
               {inf?.recomendacion && (
-                <div className="bg-white/60 rounded-lg px-3 py-2 border border-teal-100">
-                  <p className="text-[11px] font-bold text-teal-700 mb-0.5">Recomendación</p>
-                  <p className="text-[13px] text-teal-800 leading-relaxed">{inf.recomendacion}</p>
-                </div>
+                <p className="mt-2.5 pt-2.5 border-t border-linea/80 dark:border-slate-800 text-[13px] text-tinta-2 dark:text-slate-300 leading-relaxed line-clamp-2" title={inf.recomendacion}>
+                  <span className="font-medium text-tinta dark:text-slate-100">Recomendación: </span>{inf.recomendacion}
+                </p>
               )}
               {inf?.riesgos && inf.riesgos.length > 0 && (
-                <div className="bg-white/60 rounded-lg px-3 py-2 border border-red-100">
-                  <p className="text-[11px] font-bold text-red-700 mb-1">Riesgos</p>
-                  <ul className="space-y-1">
-                    {inf.riesgos.map((r: string, i: number) => (
-                      <li key={i} className="text-[13px] text-red-700 leading-relaxed">• {r}</li>
-                    ))}
-                  </ul>
-                </div>
+                <p className="mt-2 text-xs text-urgente">
+                  {inf.riesgos.length} {inf.riesgos.length === 1 ? 'riesgo identificado' : 'riesgos identificados'} · detalle en el negocio
+                </p>
               )}
-            </div>
-          )}
-
-          {/* Descripción */}
-          {!loadingEx && extra?.licitacion_descripcion && (
-            <div>
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Descripción</p>
-              <p className={`text-[13.5px] text-slate-600 leading-relaxed ${descExpandida ? '' : 'line-clamp-4'}`}>{extra.licitacion_descripcion}</p>
-              {extra.licitacion_descripcion.length > 320 && (
-                <button onClick={() => setDescExpandida(v => !v)}
-                  className="mt-1 text-[12px] font-semibold text-teal-700 hover:text-teal-800">
-                  {descExpandida ? 'Ver menos' : 'Ver más'}
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Documentos */}
-          {!loadingEx && extra && (extra.total_documentos ?? 0) > 0 && (
-            <div>
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2">
-                Documentos <span className="text-teal-700">({extra.total_documentos})</span>
-              </p>
-              <div className="space-y-1.5">
-                {(extra.documentos || []).slice(0, 8).map((doc, i) => (
-                  <div key={i} className="flex items-center gap-2.5 px-3 py-2 bg-slate-50 border border-slate-100 rounded-lg">
-                    <FileText size={13} className="text-teal-600 flex-shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[11.5px] font-medium text-slate-700 truncate" title={doc.nombre_archivo}>
-                        {doc.nombre_archivo}
-                      </p>
-                      {(doc.categoria || doc.size_bytes) && (
-                        <p className="text-[10px] text-slate-400">
-                          {doc.categoria && <span className="capitalize">{doc.categoria}</span>}
-                          {doc.size_bytes && doc.categoria && ' · '}
-                          {doc.size_bytes && `${(doc.size_bytes / 1024).toFixed(0)} KB`}
-                        </p>
-                      )}
-                    </div>
-                    {doc.url_local && (
-                      <a href={doc.url_local} target="_blank" rel="noopener noreferrer"
-                        className="flex-shrink-0 p-1 rounded text-slate-400 hover:text-teal-700 transition-colors"
-                        onClick={e => e.stopPropagation()}>
-                        <ExternalLink size={12} />
-                      </a>
-                    )}
-                  </div>
-                ))}
-                {(extra.total_documentos ?? 0) > 8 && (
-                  <p className="text-[11px] text-slate-400 pl-1">+{(extra.total_documentos ?? 0) - 8} documentos más</p>
-                )}
-              </div>
-            </div>
-          )}
-          {!loadingEx && extra && (extra.total_documentos ?? 0) === 0 && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-100 rounded-lg text-[11.5px] text-slate-400">
-              <FileText size={13} /> Sin documentos descargados
             </div>
           )}
 
           {/* Etiquetas */}
           {neg.etiquetas.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {neg.etiquetas.map(et => (
-                <span key={et.id} style={{ backgroundColor: et.color + '20', color: et.color, borderColor: et.color + '40' }}
-                  className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full border">
-                  <span style={{ backgroundColor: et.color }} className="w-1.5 h-1.5 rounded-full" /> {et.nombre}
-                </span>
-              ))}
-            </div>
-          )}
-
-          {/* Asignado a */}
-          {isAdmin && (neg.usuario_nombre || neg.usuario_email) && (
-            <div className="flex items-center gap-2.5 px-3 py-2 bg-slate-50 border border-slate-100 rounded-xl">
-              <span style={{ background: col }} className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0">
-                {inicialesUsuario(neg.usuario_nombre, neg.usuario_email)}
-              </span>
-              <div>
-                <p className="text-[12px] font-semibold text-slate-700">{neg.usuario_nombre || neg.usuario_email}</p>
-                <p className="text-[10px] text-slate-400">Responsable asignado</p>
-              </div>
+            <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-tinta-2 dark:text-slate-300">
+              {neg.etiquetas.map(et => <Estado key={et.id} color={et.color}>{et.nombre}</Estado>)}
             </div>
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 flex-shrink-0">
-          <button onClick={onClose} className="text-[13px] font-semibold text-slate-500 hover:text-slate-700 transition-colors">
-            Cerrar
-          </button>
+        {/* Pie */}
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-linea dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900">
+          <Boton variante="fantasma" tamano="sm" onClick={onClose}>Cerrar</Boton>
           <Link
             href={`/negocios/${neg.id}`}
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal-700 hover:bg-teal-800 text-white text-[13px] font-semibold rounded-xl transition-colors"
+            className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-lg bg-marca hover:bg-marca-fuerte text-white text-[13px] font-medium shadow-tarjeta transition-colors duration-150 ease-lk active:translate-y-px"
             onClick={onClose}
           >
-            Abrir negocio <ArrowRight size={13} />
+            Abrir negocio <ArrowRight size={14} />
           </Link>
         </div>
       </div>
@@ -1588,7 +1516,7 @@ function NegociosContent() {
         'Apertura detectada (fecha)': apertura.fecha,
         'Apertura detectada (hora)':  apertura.hora,
         'Estado gestión':    getEstadoPipeline(n.estado_pipeline || 'ASIGNADO')?.label || n.estado_pipeline || '',
-        'Viabilidad':        n.viabilidad_semaforo ? (SEMAFORO[n.viabilidad_semaforo]?.label || n.viabilidad_semaforo) : '',
+        'Viabilidad':        viabilidadDe(n)?.label ?? (n.viabilidad_semaforo || ''),
         'Score viabilidad':  n.viabilidad_score ?? '',
         'Tiene documentos':  n.tiene_documentos ? 'Sí' : 'No',
         'Monto (CLP)':       n.licitacion_monto ?? '',

@@ -118,7 +118,7 @@ export async function GET(request: NextRequest) {
       const [docsRes, viabRes, aperturaRes, adjRes, postRes] = await Promise.allSettled([
         pool.query(`SELECT DISTINCT licitacion_codigo FROM documentos_cache WHERE licitacion_codigo IN (${ph})`, codigos),
         conViabilidad
-          ? pool.query(`SELECT licitacion_codigo, semaforo, score_total FROM viabilidad_licitacion WHERE licitacion_codigo IN (${ph})`, codigos)
+          ? pool.query(`SELECT licitacion_codigo, semaforo, score_total, nivel_atractivo FROM viabilidad_licitacion WHERE licitacion_codigo IN (${ph})`, codigos)
           : Promise.resolve([[]] as any),
         // Estado de apertura detectado por el poller del portal (migración 41). Tolerante:
         // si la tabla no existe aún, degrada a "sin apertura conocida" sin romper la lista.
@@ -143,6 +143,8 @@ export async function GET(request: NextRequest) {
           const v = mapViab.get(n.licitacion_codigo) as any;
           n.viabilidad_semaforo = v?.semaforo ?? null;
           n.viabilidad_score = v?.score_total ?? null;
+          // Nivel de la viabilidad v4 (migration-137): la v4 ya no llena semáforo ni puntaje.
+          n.viabilidad_nivel = v?.nivel_atractivo ?? null;
         }
       }
       if (aperturaRes.status === 'fulfilled') {
