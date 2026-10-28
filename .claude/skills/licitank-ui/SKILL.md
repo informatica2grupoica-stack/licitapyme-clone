@@ -62,6 +62,9 @@ Siempre poner la variante `dark:` (la app tiene modo oscuro por clase).
 11. **Listas de detalle interactivas**: lo que se puede abrir (criterios, jugadas) se abre con clic, la
     barra o leyenda resumen resalta y lleva al detalle, y hay «Contraer/Expandir todos».
 12. **Estado vacío** dice qué pasa y qué hacer, con una acción (`Vacio`).
+13. **Grillas por ancho del panel, no de la pantalla**: dentro del negocio hay dos menús laterales y en un
+    notebook (1366 px) al contenido le quedan ~830 px. Envolver la pantalla en `@container` y usar
+    `@xl:` / `@2xl:` / `@4xl:` / `@6xl:` en vez de `sm:` / `md:` / `lg:` / `xl:` (ejemplo: viabilidad v4).
 
 ## Gusto del dueño: moderno, no austero
 

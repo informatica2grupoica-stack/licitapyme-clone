@@ -70,6 +70,20 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
   entrega, Multa, Tope); Entrega y Multa en bloques rotulados. **El Plazo previo se queda como TABLA** (el
   dueño rechazó la línea de tiempo vertical: «dejalo tipo tablas»), con columnas Hito · Se cuenta desde ·
   Plazo, **la cita pequeña DEBAJO del nombre del hito** (no en columna aparte) y fila total en teal suave.
+- **Viabilidad → Productos y Preparación** (2026-10-28): Productos sigue como TABLA (Línea · Producto ·
+  Cantidad · Tipo, se abre la ficha técnica) con 4 tarjetas que FILTRAN (número grande + punto; la activa
+  con borde teal), chips de línea en teal suave, «Expandir/Contraer todos», y las pastillas (Libertad de
+  oferta, Precio libre, ± cantidad, por revisar, Específico/Genérico) pasaron a punto + texto. Preparación:
+  arriba las mismas tarjetas resumen clicables de Admisibilidad (`ResumenAdm`); «Para postular» y
+  «Advertencias» lado a lado en bloques suaves; documentos y anexos en listas con antigüedad / «Por cruce»
+  como punto ámbar; documentos a crear en tarjetas neutras con «Contenido exigido» rotulado. Sin violeta.
+  Dos copias iguales. **Sin ver en navegador** (el dev server de otra sesión pedía login).
+- **Viabilidad en notebook** (2026-10-28, el dueño: «en un monitor se ve bien pero en un notebook no»): en
+  1366 px, con el menú de la app (256 px) y el del negocio, al panel le quedan ~830 px, pero los cortes
+  `lg:`/`xl:` miran la PANTALLA y metían 4-5 columnas igual. Ahora `VistaViabilidadV4` es `@container` y
+  `viabilidad-v4-bloques.tsx` usa container queries: `sm→@xl`, `md→@2xl`, `lg→@4xl`, `xl→@6xl`; tarjetas
+  resumen en 3-4 columnas desde `@2xl` (5 solo desde `@4xl`), tarjetas clave en 4 solo desde `@6xl`. CSS
+  generado comprobado; sin ver la pantalla (pide login). Regla agregada a la skill `licitank-ui`.
 - **Modal al pinchar una licitación en `/negocios`** (2026-10-28, pedido del dueño: «algo breve»):
   `NegocioDetalleModal` (`app/negocios/page.tsx`) pasó a `max-w-xl` con el kit: código · tipo · estado
   con punto, título, organismo · región en una línea; `Datos` (Cierre «Hoy/Mañana/día», Presupuesto,
@@ -111,8 +125,8 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
 - Elegir tipografía en `/ui-kit` (Roboto actual vs Inter Tight vs Manrope) y aplicarla en `app/layout.tsx`.
 - Decidir la propuesta de colores de etapa que se ve en `/ui-kit` (solo cambian Asignado, En proceso y
   Posible adj.).
-- Viabilidad: falta rediseñar por dentro las pestañas Productos y Preparación
-  (Cómo ganar, Admisibilidad y Plazos y multa ya están), las vistas antiguas v2/v3 de `ViabilidadIAPanel` y la pantalla de carga/re-análisis.
+- Viabilidad: las 5 pestañas de la v4 ya están rediseñadas (Productos y Preparación sin ver en navegador);
+  faltan las vistas antiguas v2/v3 de `ViabilidadIAPanel` y la pantalla de carga/re-análisis.
 - Negocio: falta el resto de secciones (Líneas, Auditor…) y el Resumen de
   `/licitacion/[codigo]` (`ResumenSection`) y su encabezado.
 

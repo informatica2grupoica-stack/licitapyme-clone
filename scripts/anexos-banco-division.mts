@@ -7,6 +7,8 @@
 //   npx tsx scripts/anexos-banco-division.mts --limite 1000    → más documentos
 //   npx tsx scripts/anexos-banco-division.mts --ref HEAD~3     → contra otra versión
 //   npx tsx scripts/anexos-banco-division.mts --ids 30617,30601 → solo esos documentos
+//   npx tsx scripts/anexos-banco-division.mts --fragmentos     → además compara con qué texto empieza
+//     y termina cada fragmento ya armado (una tabla que caía en dos anexos, 28-oct-2026) y su categoría
 //
 // Imprime solo los documentos donde el corte cambió (índice de inicio + título de cada anexo).
 // Cada diferencia hay que mirarla: anexo nuevo bien separado = mejora; anexo real perdido, título
@@ -30,7 +32,11 @@ const limite = Number(arg('--limite') ?? 400);
 const ids = (arg('--ids') ?? '').split(',').map(s => Number(s.trim())).filter(Boolean);
 
 type Formulario = { titulo: string; indiceInicio: number };
-type Detector = { detectarFormularios: (xml: string) => Formulario[] };
+type Detector = {
+  detectarFormularios: (xml: string) => Formulario[];
+  dividirPorFormularios: (buffer: Buffer, xml: string) => Promise<{ buffer: Buffer; categoria: string }[]>;
+};
+const conFragmentos = process.argv.includes('--fragmentos');
 
 // La versión de referencia se copia a scripts/scratch/ (ignorada por git y por tsconfig).
 mkdirSync('scripts/scratch', { recursive: true });
@@ -53,14 +59,29 @@ const [filas] = await pool.query(
 const docs = filas as { id: number; licitacion_codigo: string; documento_nombre: string; documento_url_local: string }[];
 
 const resumir = (fs: Formulario[]) => fs.map(f => `${f.indiceInicio}: ${f.titulo}`);
+// Primera y última línea con texto de cada fragmento ya armado, y su categoría.
+async function bordesDeFragmentos(d: Detector, buffer: Buffer, xml: string): Promise<string[]> {
+  const out: string[] = [];
+  for (const f of await d.dividirPorFormularios(buffer, xml)) {
+    const lineas = [...(await abrirDocx(f.buffer)).xml.matchAll(/<w:p\b[\s\S]*?<\/w:p>/g)]
+      .map(m => [...m[0].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('').trim()).filter(Boolean);
+    out.push(`  [${lineas.length} líneas, ${f.categoria}] «${(lineas[0] ?? '').slice(0, 50)}» … «${(lineas.at(-1) ?? '').slice(0, 50)}»`);
+  }
+  return out;
+}
 let iguales = 0, distintos = 0, errores = 0;
 for (const d of docs) {
   try {
     const res = await fetch(d.documento_url_local);
     if (!res.ok) { errores++; continue; }
-    const { xml } = normalizarParaIds((await abrirDocx(Buffer.from(await res.arrayBuffer()))).xml);
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const { xml } = normalizarParaIds((await abrirDocx(buffer)).xml);
     const antes = resumir(anterior.detectarFormularios(xml));
     const ahora = resumir(actual.detectarFormularios(xml));
+    if (conFragmentos) {
+      antes.push(...await bordesDeFragmentos(anterior, buffer, xml));
+      ahora.push(...await bordesDeFragmentos(actual, buffer, xml));
+    }
     if (JSON.stringify(antes) === JSON.stringify(ahora)) { iguales++; continue; }
     distintos++;
     console.log(`\n### ${d.id} ${d.licitacion_codigo} ${d.documento_nombre}`);

@@ -4,9 +4,10 @@
 // OPCIONES por línea del costeo (línea + producto + proveedor), verificación calculada por código,
 // cuadro comparativo de costo por línea y el ciclo firma → aprobación.
 // Spec: docs/ESPECIFICACION_AUDITOR_v1.md. Backend: app/api/negocios/[id]/auditor/route.ts.
-import { useState, useEffect, useCallback, useRef, Fragment, createContext, useContext } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment, createContext, useContext } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Modal } from '@/app/components/ui/Modal';
+import { Pestanas } from '@/app/components/ui/kit/Pestanas';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { resumenLicitacion, type LineaParaResumen } from '@/app/lib/auditor-resumen-licitacion';
 import { motivoFichaNoLista } from '@/app/lib/auditor-ficha-propia-core';
@@ -72,7 +73,10 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   const [leyendo, setLeyendo] = useState<Set<string>>(new Set());
   const [ocupado, setOcupado] = useState<number | null>(null);
   const [accionEnCurso, setAccionEnCurso] = useState<string | null>(null);   // qué hace la opción ocupada (para avisar la pasada final)
-  const [abiertas, setAbiertas] = useState<Set<string>>(() => new Set<string>());
+  // Líneas en lista a la izquierda y la elegida a la derecha, con pestañas (28-oct-2026: con 39 líneas abrir una desplegaba todo apilado).
+  const [lineaSel, setLineaSel] = useState<string | null>(null);
+  const [pestanaLinea, setPestanaLinea] = useState<'cotizado' | 'ficha' | 'avanzado'>('cotizado');
+  const [buscarLinea, setBuscarLinea] = useState('');
   const [agregarEn, setAgregarEn] = useState<Set<string>>(() => new Set<string>());   // líneas con el recuadro «Otra opción» abierto
   const [resolviendoEM, setResolviendoEM] = useState(false);   // el EM aprueba/acepta varias desde el recuadro «Esperan tu aprobación»
   const [docAbierto, setDocAbierto] = useState<number | null>(null);   // cotización abierta en el detalle
@@ -264,14 +268,24 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
     const opc = (panelRef.current?.lineas || []).flatMap(l => l.opciones).find(o => o.id === r.opcionId);
     if (opc && opc.via === 'completa' && opc.tecnico.requisitosTotal > 0) await verificarTecnico(r.opcionId, true);
   };
-  const subirFichas = async (archivos: File[], ref: { opcionId?: number; filaId?: string }) => {
-    const validos = archivos.filter(f => EXT_FICHA.test(f.name));
+  // origen: captura de dónde se copió una ficha en texto (obligatoria para .txt desde el 28-oct-2026; el servidor también la exige).
+  const subirFichas = async (archivos: File[], ref: { opcionId?: number; filaId?: string }, origen?: File) => {
+    let validos = archivos.filter(f => EXT_FICHA.test(f.name));
     if (validos.length < archivos.length) toast.error('La ficha técnica puede ser PDF, foto (JPG, PNG, WEBP), Word, Excel o texto (.txt).');
+    if (!origen && validos.some(f => /\.txt$/i.test(f.name))) {
+      toast.error('Una ficha en texto necesita la captura de dónde la copiaste', 'Usa «Pegar el texto de la ficha»: pega el texto y adjunta (o pega con Ctrl+V) la captura de la página o del correo.');
+      validos = validos.filter(f => !/\.txt$/i.test(f.name));
+    }
+    let origenImagen: string | undefined;
+    if (origen && validos.length) {
+      try { origenImagen = await subirADocumentos(origen, 'respaldos_auditor'); }
+      catch (e: any) { toast.error('No se pudo subir la captura', e.message); return; }
+    }
     for (const f of validos) {
       marcarFicha(ref, true);
       try {
         const url = await subirADocumentos(f, 'fichas_tecnicas');
-        const r = await post(negocioId, { accion: 'agregar_ficha', url, ...ref });
+        const r = await post(negocioId, { accion: 'agregar_ficha', url, ...ref, origenImagen });
         await procesarResultadoFicha(r, ref, url, f.name);
       } catch (e: any) { toast.error(`No se pudo agregar "${f.name}"`, e.message); }
       finally { marcarFicha(ref, false); await cargar(true); }
@@ -323,9 +337,10 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
     setSubiendoFicha(prev => new Set(prev).add(clave));
     let ok = true;
     try {
-      if (!archivos.length) {
-        try { await post(negocioId, { accion: 'respaldar_celda', opcionId, n, url: '', nota }); toast.success('Nota agregada', `Quedó en el requisito ${n}. Lo revisa el EM.`); }
-        catch (e: any) { ok = false; toast.error('No se pudo guardar la nota', e.message); }
+      // Todo complemento lleva al menos una captura (imagen) de dónde salió el dato (28-oct-2026); el servidor rechaza la nota sola.
+      if (!archivos.some(esCaptura)) {
+        toast.error('Falta la captura', 'Adjunta una imagen (PNG, JPG o WEBP) de dónde sacaste el dato: la página, el correo del proveedor…');
+        return false;
       }
       for (const f of archivos) {
         try {
@@ -618,11 +633,92 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   const productosSinLinea = sinLineaTodos.filter(({ p }) => !p.noCorresponde);          // los que siguen esperando una decisión
   const productosSobrantes = sinLineaTodos.filter(({ p }) => !!p.noCorresponde);        // cotizados de más: no van en ninguna línea
   const resumenDeLinea = new Map(resumenLicitacion(lineasParaResumen(panel), panel.presupuesto?.neto ?? null).filas.map(f => [f.filaId, f]));
-  // Desde el resumen se salta a la línea: se abre y la pantalla baja hasta ella.
+  // Desde el resumen se salta a la línea: queda elegida y la pantalla baja hasta el detalle.
   const irALinea = (filaId: string) => {
-    setAbiertas(prev => new Set(prev).add(filaId));
-    setTimeout(() => document.getElementById(`linea-${filaId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+    setLineaSel(filaId);
+    setPestanaLinea('cotizado');
+    setTimeout(() => document.getElementById('lineas-auditor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
   };
+  // Estado de una línea en una palabra (lista de líneas): firmada/aprobada, cumple, falta dato, sin comparar…
+  const estadoDeLinea = (l: LineaAuditorDTO): { color: string; texto: string; costo?: number | null } => {
+    const activas = l.opciones.filter(o => o.estado !== 'descartada');
+    if (l.noOfertada) return { color: 'bg-slate-400', texto: 'No ofertada' };
+    const def = l.opciones.find(o => o.id === l.opcionDefinitivaId);
+    if (def) return { color: def.estado === 'aprobada' ? 'bg-emerald-600' : 'bg-teal-600', texto: def.estado === 'aprobada' ? 'Aprobada' : def.estado === 'en_aprobacion' ? 'En aprobación' : 'Firmada' };
+    const f = resumenDeLinea.get(l.filaId);
+    if (!f?.mejor) {
+      if (!activas.length) return { color: 'bg-slate-300', texto: 'Sin cotización' };
+      const nunca = activas.some(porComparar) && !activas.some(o => o.tecnico.resultado);
+      if (!nunca && activas.some(precioPendiente)) return { color: 'bg-amber-500', texto: 'Falta confirmar el precio' };
+      return { color: nunca ? 'bg-amber-500' : 'bg-slate-400', texto: nunca ? 'Sin comparar' : 'Ninguna cumple todavía' };
+    }
+    return { color: f.faltaDato ? 'bg-amber-500' : 'bg-emerald-600', texto: f.faltaDato ? 'Falta dato' : 'Cumple', costo: f.mejor.costoUnitNeto };
+  };
+  // Lo que va dentro de una línea: acciones de la línea y su cuadro (la vista elegida, o todo junto al imprimir).
+  const contenidoLinea = (l: LineaAuditorDTO, vista: 'cotizado' | 'ficha' | 'avanzado' | 'todo') => (
+    <>
+      {l.noOfertada && <p className="text-[13px] text-slate-600 mb-2">No se oferta: {l.motivoNoOfertada}</p>}
+      <div className="flex items-center gap-2 flex-wrap mb-3">
+        {(() => {
+          const comparables = l.opciones.filter(o => o.via === 'completa' && o.tecnico.requisitosTotal > 0 && ['tanteo', 'formalizada', 'verificada', 'definitiva'].includes(o.estado) && o.respaldos.some(r => r.extraccionId != null));
+          if (!comparables.length || l.noOfertada) return null;
+          const ocupada = comparables.some(o => verificando.has(o.id));
+          return (
+            <button data-no-pdf onClick={() => verificarTecnico(comparables[0].id)} disabled={ocupada}
+              title="Compara todas las opciones de esta línea contra sus requisitos (una sola consulta a la IA, tarda 1-3 minutos)"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-700 text-white text-[13px] font-semibold hover:bg-teal-800 disabled:opacity-60">
+              {ocupada ? <><Loader2 size={13} className="animate-spin" /> Comparando… (1-3 min)</> : l.opciones.some(o => o.tecnico.resultado) ? 'Volver a comparar la línea' : 'Comparar la línea'}
+            </button>
+          );
+        })()}
+        {(() => {
+          // Otra alternativa para la línea (otro proveedor o modelo, por link, ficha o a mano). Solo hace falta para comparar alternativas
+          // o si la línea no tiene cotización: con opciones ya cargadas queda como un botón chico que abre el recuadro.
+          const conOpciones = l.opciones.some(o => o.estado !== 'descartada');
+          const abiertoAgregar = !conOpciones || agregarEn.has(l.filaId);
+          return <>
+            {conOpciones && !l.noOfertada && (
+              <button data-no-pdf onClick={() => setAgregarEn(prev => { const s = new Set(prev); if (s.has(l.filaId)) s.delete(l.filaId); else s.add(l.filaId); return s; })}
+                title="Sumar otra alternativa (otro proveedor o modelo) para compararla: con su link, su ficha técnica o marca y modelo"
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-zinc-200 text-[13px] font-medium text-slate-700 hover:bg-zinc-50">
+                {abiertoAgregar ? '✕ Cerrar' : '＋ Otra opción'}
+              </button>
+            )}
+            {l.noOfertada
+              ? <button data-no-pdf onClick={() => accionLinea('reofertar', { filaId: l.filaId }, 'Línea vuelve a ofertarse')} className="text-[12.5px] font-semibold text-teal-700 hover:underline">Volver a ofertar</button>
+              : <button data-no-pdf onClick={() => { setTexto(''); setModal({ tipo: 'no_ofertar', ref: l.filaId }); }} className="text-[12.5px] font-semibold text-slate-600 hover:text-red-600">No ofertar esta línea</button>}
+            {abiertoAgregar && !l.noOfertada && (
+              <div data-no-pdf className="basis-full mt-1 rounded-lg border border-zinc-200 bg-zinc-50/60 px-3 py-2.5">
+                <p className="text-[13px] font-medium text-slate-700">{conOpciones ? 'Agregar otra opción para comparar' : 'Esta línea todavía no tiene cotización'}</p>
+                <p className="text-[12.5px] text-slate-600 mb-2">Lo ideal es la cotización del proveedor (súbela en «1 · Documentos del proveedor»). Si no la tienes, con el link del producto o su ficha técnica igual se compara lo técnico; el precio del link queda como tanteo.</p>
+                <div className="flex items-start gap-x-6 gap-y-2 flex-wrap">
+                  <AgregarLink filaId={l.filaId} ocupado={agregandoLink === l.filaId} onAgregar={agregarLink} />
+                  <OpcionSinLink filaId={l.filaId} ocupadoFicha={subiendoFicha.has(`l${l.filaId}`)} onCrear={crearOpcionManual} onSubirFicha={(f) => subirFichas(f, { filaId: l.filaId })} />
+                </div>
+              </div>
+            )}
+          </>;
+        })()}
+      </div>
+      {l.opciones.length === 0 ? (
+        <p className="text-[13px] text-slate-600">Esta línea todavía no tiene productos.{l.links.length > 0 && <> Link de referencia del costeo: <a href={l.links[0]} target="_blank" rel="noopener noreferrer" className="text-teal-700 hover:underline inline-flex items-center gap-0.5">abrir <ExternalLink size={10} /></a></>}</p>
+      ) : (
+        <CuadroLinea negocioId={negocioId} linea={l} vista={vista} onIrAFicha={() => setPestanaLinea('ficha')} onVerificarSolo={id => verificarTecnico(id, true)} ocupado={ocupado} accionEnCurso={accionEnCurso} onFotoFicha={subirFotoFicha} verificando={verificando} onVerificar={verificarTecnico} puedeAprobar={puedeAprobar}
+          subiendoFicha={subiendoFicha} onSubirFicha={(opcionId, f, origen) => subirFichas(f, { opcionId }, origen)} onRespaldarCelda={respaldarCelda}
+          buscandoMercado={buscandoMercado} onMercado={buscarMercado} verificandoCosto={verificandoCosto} onCostoIA={(id) => verificarCostoIA(id)}
+          onAccion={accion} onModal={(tipo, opcionId) => { setTexto(''); setModal({ tipo, ref: opcionId }); }} />
+      )}
+    </>
+  );
+  // Destino de una ficha nueva (pestaña Fichas técnicas): si no se eligió, la línea abierta en «3 · Líneas» — su única opción abierta,
+  // o «nueva opción» si no tiene. Con varias opciones no se adivina: hay que elegir.
+  const destinoFichaEfectivo = destinoFicha || (() => {
+    const l = panel.lineas.find(x => x.filaId === lineaSel);
+    if (!l || l.noOfertada) return '';
+    const abiertas = l.opciones.filter(o => !['descartada', 'en_aprobacion', 'aprobada'].includes(o.estado));
+    if (abiertas.length === 1) return `o${abiertas[0].id}`;
+    return abiertas.length === 0 && !l.opciones.some(o => ['en_aprobacion', 'aprobada'].includes(o.estado)) ? `l${l.filaId}` : '';
+  })();
   const cotAbierta = cotizacionesAbierto || imprimir;
   const msgAbierto = mensajesAbierto || imprimir;
   const msgAbiertos = imprimir ? new Set(panel.mensajes.map(m => m.opcionIds.join('-'))) : mensajesAbiertos;
@@ -709,7 +805,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
         onDrop={e => {
           e.preventDefault(); setArrastrando(false);
           if (subiendo || !e.dataTransfer.files.length) return;
-          if (pestanaDocs === 'fichas') { const ref = refDestinoFicha(destinoFicha); if (ref) subirFichas(Array.from(e.dataTransfer.files), ref); else toast.error('Elige primero para qué línea u opción es la ficha'); }
+          if (pestanaDocs === 'fichas') { const ref = refDestinoFicha(destinoFichaEfectivo); if (ref) subirFichas(Array.from(e.dataTransfer.files), ref); else toast.error('Elige primero para qué línea u opción es la ficha'); }
           else subirCotizaciones(Array.from(e.dataTransfer.files));
         }}
         className={`bg-white rounded-2xl border overflow-hidden transition-colors ${arrastrando ? 'border-teal-400 ring-2 ring-teal-200 bg-teal-50/40' : 'border-zinc-200'}`}>
@@ -737,14 +833,16 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
           </span>}
           {pestanaDocs === 'fichas' ? (
             <div className="ml-auto flex items-center gap-2 flex-wrap">
-              <select value={destinoFicha} onChange={e => setDestinoFicha(e.target.value)} className="max-w-[300px] rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[13px] text-slate-700">
-                <option value="">¿Para qué línea u opción es?</option>
+              {/* Solo para subir una ficha NUEVA: las de abajo ya tienen su línea. Parte con la línea que está abierta en «3 · Líneas». */}
+              <label className="text-[13px] text-slate-600">Subir una ficha nueva a</label>
+              <select value={destinoFichaEfectivo} onChange={e => setDestinoFicha(e.target.value)} className="max-w-[300px] rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[13px] text-slate-700">
+                <option value="">elige la línea u opción…</option>
                 <OpcionesDestinoFicha panel={panel} etiquetaItem={etiquetaItem} />
               </select>
               <input ref={inputFichaRef} type="file" multiple accept={ACCEPT_FICHA} className="hidden"
-                onChange={e => { const fs = Array.from(e.target.files || []); e.target.value = ''; const ref = refDestinoFicha(destinoFicha); if (fs.length && ref) subirFichas(fs, ref); }} />
-              <button data-no-pdf onClick={() => inputFichaRef.current?.click()} disabled={!destinoFicha || subiendoFicha.size > 0}
-                title={destinoFicha ? 'Subir la ficha (PDF o imagen) a esa línea u opción' : 'Elige primero para qué línea u opción es'}
+                onChange={e => { const fs = Array.from(e.target.files || []); e.target.value = ''; const ref = refDestinoFicha(destinoFichaEfectivo); if (fs.length && ref) subirFichas(fs, ref); }} />
+              <button data-no-pdf onClick={() => inputFichaRef.current?.click()} disabled={!destinoFichaEfectivo || subiendoFicha.size > 0}
+                title={destinoFichaEfectivo ? 'Subir la ficha (PDF o imagen) a esa línea u opción' : 'Elige primero para qué línea u opción es'}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-700 text-white text-[13px] font-medium hover:bg-teal-800 disabled:opacity-50">
                 {subiendoFicha.size > 0 ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />} {subiendoFicha.size > 0 ? 'Leyendo ficha…' : 'Subir fichas técnicas'}
               </button>
@@ -866,8 +964,18 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                         <span className="block text-xs text-slate-600 truncate">{o.proveedorRazonSocial || 'proveedor sin identificar'} · {ESTADO_OPCION[o.estado]?.label}</span>
                       </dd>
                     </div>
+                    <div>
+                      <dt className="text-xs text-slate-600">Estado</dt>
+                      <dd className="mt-0.5"><EstadoFicha o={o} r={r} comparando={verificando.has(o.id)} onComparar={() => verificarTecnico(o.id, true)} /></dd>
+                    </div>
+                    {r.origenImagen && (
+                      <div>
+                        <dt className="text-xs text-slate-600">De dónde se copió</dt>
+                        <dd className="mt-0.5"><a href={r.origenImagen} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[13px] text-teal-700 hover:underline"><Eye size={14} /> Ver la captura de origen</a></dd>
+                      </div>
+                    )}
                     <div data-no-pdf>
-                      <dt className="text-xs text-slate-600">Cambiar a</dt>
+                      <dt className="text-xs text-slate-600">¿Va en otra línea? Cámbiala</dt>
                       <dd className="mt-0.5">
                         <select value="" disabled={bloqueada || moviendo}
                           title={bloqueada ? 'La opción está en aprobación: pide rechazarla antes de cambiar sus documentos' : 'Mover la ficha a otra opción o línea'}
@@ -997,12 +1105,12 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
       {/* ── 2 · Resumen de la licitación ── */}
       <ResumenLicitacionCard panel={panel} etiquetaItem={etiquetaItem} onIrALinea={irALinea} />
 
-      {/* ── Líneas con su cuadro comparativo ── */}
-      {/* Cada línea es su propia tarjeta (antes iban pegadas en una lista y al abrir una no se sabía dónde terminaba ni cuál era la siguiente). */}
-      <section>
+      {/* ── Líneas: lista a la izquierda, la línea elegida a la derecha con pestañas (Cotizado · Ficha y requisitos · Detalle avanzado) ── */}
+      {/* 28-oct-2026 (3712-74-LP26, 39 líneas): antes cada línea se desplegaba en su lugar con todo apilado y no se sabía dónde estaba uno. */}
+      <section id="lineas-auditor" className="scroll-mt-4">
         <div className="px-1 pb-2.5 flex items-center gap-2 flex-wrap">
           <h3 className="text-[14px] font-medium text-zinc-900">3 · Líneas</h3>
-          <span className="hidden sm:inline text-[13px] text-slate-600">— abre una línea para comparar sus opciones, confirmar datos y firmar</span>
+          <span className="hidden sm:inline text-[13px] text-slate-600">— elige una línea para ver lo cotizado, su ficha y firmar</span>
           {(() => {
             const pend = pendientesComparar;
             return pend > 0 ? (
@@ -1019,96 +1127,99 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
             </button>
           )}
         </div>
-        <ul className="space-y-3">
-          {panel.lineas.map(l => {
-            const abierta = abiertas.has(l.filaId) || imprimir;
-            const activas = l.opciones.filter(o => o.estado !== 'descartada');
-            return (
-              <li key={l.filaId} id={`linea-${l.filaId}`}
-                className={`scroll-mt-4 rounded-2xl border bg-white overflow-clip transition-shadow ${abierta ? 'border-teal-300 shadow-md' : 'border-zinc-200 shadow-sm hover:shadow-md'} ${l.noOfertada ? 'opacity-60' : ''}`}>
-                <button onClick={() => setAbiertas(prev => { const n = new Set(prev); if (n.has(l.filaId)) n.delete(l.filaId); else n.add(l.filaId); return n; })}
-                  aria-expanded={abierta}
-                  className={`w-full flex items-center gap-2 px-5 py-3.5 text-left ${abierta ? 'bg-teal-50/50 border-b border-teal-100' : 'hover:bg-zinc-50'}`}>
-                  {abierta ? <ChevronDown size={14} className="text-slate-500 shrink-0" /> : <ChevronRight size={14} className="text-slate-500 shrink-0" />}
-                  <span className="text-[13px] font-semibold tabular-nums text-slate-700 shrink-0 whitespace-nowrap">Línea {etiquetaItem.get(l.filaId)}</span>
-                  <span className="text-[13.5px] font-medium text-zinc-800 truncate flex-1" title={l.detalle}>{l.detalle}</span>
-                  <span className="text-[13px] text-slate-600 whitespace-nowrap tabular-nums">x{l.cantidad}</span>
-                  {l.costeadoNeto != null && <span title="Costo unitario neto que quedó en el Costeo para esta línea" className="hidden md:inline text-[13px] text-slate-600 whitespace-nowrap">Costeo <b className="text-slate-700 tabular-nums">{fmtCLP(l.costeadoNeto)}</b></span>}
-                  {(() => {
-                    const punto = (color: string, texto: React.ReactNode) => <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-700 whitespace-nowrap"><span aria-hidden className={`w-1.5 h-1.5 rounded-full shrink-0 ${color}`} />{texto}</span>;
-                    if (l.noOfertada) return punto('bg-slate-400', 'No ofertada');
-                    const def = l.opciones.find(o => o.id === l.opcionDefinitivaId);
-                    if (def) return punto(def.estado === 'aprobada' ? 'bg-emerald-600' : 'bg-teal-600', def.estado === 'aprobada' ? 'Aprobada' : def.estado === 'en_aprobacion' ? 'En aprobación' : 'Firmada');
-                    const f = resumenDeLinea.get(l.filaId);
-                    if (!f?.mejor) {
-                      if (!activas.length) return punto('bg-slate-300', 'Sin opciones');
-                      const nunca = activas.some(porComparar) && !activas.some(o => o.tecnico.resultado);
-                      if (!nunca && activas.some(precioPendiente)) return punto('bg-amber-500', 'Falta confirmar el precio');
-                      return punto(nunca ? 'bg-amber-500' : 'bg-slate-400', nunca ? 'Sin comparar' : 'Ninguna cumple todavía');
-                    }
-                    return punto(f.faltaDato ? 'bg-amber-500' : 'bg-emerald-600', <>{f.faltaDato ? 'Falta dato' : 'Cumple'} · <span className="tabular-nums">{fmtCLP(f.mejor.costoUnitNeto)}</span></>);
-                  })()}
-                  {activas.length > 0 && <span className="text-[13px] text-slate-600 whitespace-nowrap tabular-nums">{activas.length === 1 ? '1 opción' : `${activas.length} opciones`}</span>}
-                </button>
-                {abierta && (
-                  <div className="px-5 pt-3.5 pb-5">
-                    {l.noOfertada && <p className="text-[13px] text-slate-600 ml-6 mb-2">No se oferta: {l.motivoNoOfertada}</p>}
-                    <div className="flex items-center gap-2 flex-wrap mb-3">
-                      {(() => {
-                        const comparables = l.opciones.filter(o => o.via === 'completa' && o.tecnico.requisitosTotal > 0 && ['tanteo', 'formalizada', 'verificada', 'definitiva'].includes(o.estado) && o.respaldos.some(r => r.extraccionId != null));
-                        if (!comparables.length || l.noOfertada) return null;
-                        const ocupada = comparables.some(o => verificando.has(o.id));
-                        return (
-                          <button data-no-pdf onClick={() => verificarTecnico(comparables[0].id)} disabled={ocupada}
-                            title="Compara todas las opciones de esta línea contra sus requisitos (una sola consulta a la IA, tarda 1-3 minutos)"
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-700 text-white text-[13px] font-semibold hover:bg-teal-800 disabled:opacity-60">
-                            {ocupada ? <><Loader2 size={13} className="animate-spin" /> Comparando… (1-3 min)</> : l.opciones.some(o => o.tecnico.resultado) ? 'Volver a comparar la línea' : 'Comparar la línea'}
-                          </button>
-                        );
-                      })()}
-                      {(() => {
-                        // Otra alternativa para la línea (otro proveedor o modelo, por link, ficha o a mano). Solo hace falta para comparar alternativas
-                        // o si la línea no tiene cotización: con opciones ya cargadas queda como un botón chico que abre el recuadro.
-                        const conOpciones = l.opciones.some(o => o.estado !== 'descartada');
-                        const abiertoAgregar = !conOpciones || agregarEn.has(l.filaId);
-                        return <>
-                          {conOpciones && !l.noOfertada && (
-                            <button data-no-pdf onClick={() => setAgregarEn(prev => { const s = new Set(prev); if (s.has(l.filaId)) s.delete(l.filaId); else s.add(l.filaId); return s; })}
-                              title="Sumar otra alternativa (otro proveedor o modelo) para compararla: con su link, su ficha técnica o marca y modelo"
-                              className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-zinc-200 text-[13px] font-medium text-slate-700 hover:bg-zinc-50">
-                              {abiertoAgregar ? '✕ Cerrar' : '＋ Otra opción'}
-                            </button>
-                          )}
-                          {l.noOfertada
-                            ? <button data-no-pdf onClick={() => accionLinea('reofertar', { filaId: l.filaId }, 'Línea vuelve a ofertarse')} className="text-[12.5px] font-semibold text-teal-700 hover:underline">Volver a ofertar</button>
-                            : <button data-no-pdf onClick={() => { setTexto(''); setModal({ tipo: 'no_ofertar', ref: l.filaId }); }} className="text-[12.5px] font-semibold text-slate-600 hover:text-red-600">No ofertar esta línea</button>}
-                          {abiertoAgregar && !l.noOfertada && (
-                            <div data-no-pdf className="basis-full mt-1 rounded-lg border border-zinc-200 bg-zinc-50/60 px-3 py-2.5">
-                              <p className="text-[13px] font-medium text-slate-700">{conOpciones ? 'Agregar otra opción para comparar' : 'Esta línea todavía no tiene cotización'}</p>
-                              <p className="text-[12.5px] text-slate-600 mb-2">Lo ideal es la cotización del proveedor (súbela en «1 · Documentos del proveedor»). Si no la tienes, con el link del producto o su ficha técnica igual se compara lo técnico; el precio del link queda como tanteo.</p>
-                              <div className="flex items-start gap-x-6 gap-y-2 flex-wrap">
-                                <AgregarLink filaId={l.filaId} ocupado={agregandoLink === l.filaId} onAgregar={agregarLink} />
-                                <OpcionSinLink filaId={l.filaId} ocupadoFicha={subiendoFicha.has(`l${l.filaId}`)} onCrear={crearOpcionManual} onSubirFicha={(f) => subirFichas(f, { filaId: l.filaId })} />
-                              </div>
-                            </div>
-                          )}
-                        </>;
-                      })()}
-                    </div>
-                    {l.opciones.length === 0 ? (
-                      <p className="text-[13px] text-slate-600">Esta línea todavía no tiene productos.{l.links.length > 0 && <> Link de referencia del costeo: <a href={l.links[0]} target="_blank" rel="noopener noreferrer" className="text-teal-700 hover:underline inline-flex items-center gap-0.5">abrir <ExternalLink size={10} /></a></>}</p>
-                    ) : (
-                      <CuadroLinea negocioId={negocioId} linea={l} ocupado={ocupado} accionEnCurso={accionEnCurso} onFotoFicha={subirFotoFicha} verificando={verificando} onVerificar={verificarTecnico} puedeAprobar={puedeAprobar}
-                        subiendoFicha={subiendoFicha} onSubirFicha={(opcionId, f) => subirFichas(f, { opcionId })} onRespaldarCelda={respaldarCelda}
-                        buscandoMercado={buscandoMercado} onMercado={buscarMercado} verificandoCosto={verificandoCosto} onCostoIA={(id) => verificarCostoIA(id)}
-                        onAccion={accion} onModal={(tipo, opcionId) => { setTexto(''); setModal({ tipo, ref: opcionId }); }} />
-                    )}
+        {imprimir ? (
+          // PDF: todas las líneas, una tras otra, con todo su contenido.
+          <ul className="space-y-3">
+            {panel.lineas.map(l => (
+              <li key={l.filaId} className={`rounded-2xl border border-zinc-200 bg-white overflow-clip ${l.noOfertada ? 'opacity-60' : ''}`}>
+                <p className="px-5 py-3 border-b border-zinc-100 text-[13.5px] font-medium text-zinc-800">
+                  <span className="font-semibold tabular-nums text-slate-700 mr-2">Línea {etiquetaItem.get(l.filaId)}</span>{l.detalle}
+                  <span className="ml-2 text-[13px] font-normal text-slate-600">x{l.cantidad} · {estadoDeLinea(l).texto}</span>
+                </p>
+                <div className="px-5 pt-3.5 pb-5">{contenidoLinea(l, 'todo')}</div>
+              </li>
+            ))}
+          </ul>
+        ) : (() => {
+          const sel = panel.lineas.find(l => l.filaId === lineaSel) ?? panel.lineas[0];
+          const q = buscarLinea.trim().toLowerCase();
+          const visibles = q ? panel.lineas.filter(l => `${etiquetaItem.get(l.filaId) ?? ''} ${l.detalle}`.toLowerCase().includes(q)) : panel.lineas;
+          if (!sel) return <p className="rounded-2xl border border-zinc-200 bg-white px-5 py-4 text-[13px] text-slate-600">Esta licitación no tiene líneas para auditar.</p>;
+          const est = estadoDeLinea(sel);
+          const vivas = sel.opciones.filter(o => o.estado !== 'descartada');
+          const requisitosAbiertos = vivas.reduce((m, o) => Math.max(m, (o.tecnico.resultado?.filas ?? []).filter(f => estadoVisible(f) !== 'CUMPLE').length), 0);
+          const idxSel = panel.lineas.indexOf(sel);
+          const mover = (d: number) => { const l = panel.lineas[idxSel + d]; if (l) setLineaSel(l.filaId); };
+          return (
+            <div className="grid gap-3 lg:grid-cols-[minmax(240px,300px)_minmax(0,1fr)] items-start">
+              {/* Lista de líneas: una fila por línea con su estado; queda fija al bajar por el detalle. */}
+              <div className="rounded-2xl border border-zinc-200 bg-white overflow-hidden lg:sticky lg:top-3 flex flex-col lg:max-h-[calc(100vh-1.5rem)]">
+                {panel.lineas.length > 8 && (
+                  <div className="p-2 border-b border-zinc-100">
+                    <input value={buscarLinea} onChange={e => setBuscarLinea(e.target.value)} placeholder={`Buscar entre ${panel.lineas.length} líneas…`}
+                      className="w-full rounded-lg border border-zinc-200 px-2.5 py-1.5 text-[13px] text-slate-700 outline-none focus:border-teal-500" />
                   </div>
                 )}
-              </li>
-            );
-          })}
-        </ul>
+                <ul className="overflow-y-auto max-h-[360px] lg:max-h-none divide-y divide-zinc-100">
+                  {visibles.map(l => {
+                    const e = estadoDeLinea(l), activa = l.filaId === sel.filaId;
+                    return (
+                      <li key={l.filaId}>
+                        <button onClick={() => setLineaSel(l.filaId)} aria-current={activa}
+                          className={`w-full text-left px-3 py-2.5 border-l-2 transition-colors duration-150 ${activa ? 'bg-teal-50/70 border-teal-600' : 'border-transparent hover:bg-zinc-50'} ${l.noOfertada ? 'opacity-60' : ''}`}>
+                          <span className="flex items-baseline gap-2">
+                            <span className={`w-8 text-xs font-semibold tabular-nums shrink-0 ${activa ? 'text-teal-800' : 'text-slate-500'}`}>{etiquetaItem.get(l.filaId)}</span>
+                            <span className={`text-[13px] leading-snug line-clamp-2 ${activa ? 'font-medium text-slate-900' : 'text-slate-700'}`} title={l.detalle}>{l.detalle}</span>
+                          </span>
+                          <span className="mt-1 flex items-center gap-1.5 text-xs text-slate-600 pl-10">
+                            <span aria-hidden className={`w-1.5 h-1.5 rounded-full shrink-0 ${e.color}`} />
+                            <span className="truncate">{e.texto}</span>
+                            {e.costo != null && <span className="ml-auto tabular-nums text-slate-700">{fmtCLP(e.costo)}</span>}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                  {visibles.length === 0 && <li className="px-3 py-4 text-[13px] text-slate-600">Ninguna línea contiene «{buscarLinea}».</li>}
+                </ul>
+              </div>
+
+              {/* La línea elegida */}
+              <div className={`rounded-2xl border border-zinc-200 bg-white min-w-0 ${sel.noOfertada ? 'opacity-80' : ''}`}>
+                <div className="px-5 pt-4 pb-3 border-b border-zinc-100">
+                  <div className="flex items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-slate-500 tabular-nums">Línea {etiquetaItem.get(sel.filaId)} · {idxSel + 1} de {panel.lineas.length}</p>
+                      <h4 className="mt-0.5 text-[15px] font-semibold tracking-tight text-slate-900 leading-snug">{sel.detalle}</h4>
+                    </div>
+                    <div data-no-pdf className="flex items-center gap-1 shrink-0">
+                      <button onClick={() => mover(-1)} disabled={idxSel <= 0} title="Línea anterior" className="px-2 py-1 rounded-md border border-zinc-200 text-[13px] text-slate-700 hover:bg-zinc-50 disabled:opacity-40">‹</button>
+                      <button onClick={() => mover(1)} disabled={idxSel >= panel.lineas.length - 1} title="Línea siguiente" className="px-2 py-1 rounded-md border border-zinc-200 text-[13px] text-slate-700 hover:bg-zinc-50 disabled:opacity-40">›</button>
+                    </div>
+                  </div>
+                  <dl className="mt-2.5 flex flex-wrap gap-x-6 gap-y-1.5">
+                    <div><dt className="text-[11px] text-slate-500">Cantidad</dt><dd className="text-[13.5px] font-semibold tabular-nums text-slate-900">{sel.cantidad}</dd></div>
+                    {sel.costeadoNeto != null && <div><dt className="text-[11px] text-slate-500">Costeo unit. neto</dt><dd className="text-[13.5px] font-semibold tabular-nums text-slate-900">{fmtCLP(sel.costeadoNeto)}</dd></div>}
+                    <div><dt className="text-[11px] text-slate-500">Estado</dt><dd className="inline-flex items-center gap-1.5 text-[13.5px] font-medium text-slate-800"><span aria-hidden className={`w-1.5 h-1.5 rounded-full ${est.color}`} />{est.texto}{est.costo != null && <span className="tabular-nums text-slate-600">· {fmtCLP(est.costo)}</span>}</dd></div>
+                    <div><dt className="text-[11px] text-slate-500">Opciones</dt><dd className="text-[13.5px] font-semibold tabular-nums text-slate-900">{vivas.length}</dd></div>
+                  </dl>
+                </div>
+                <div className="px-5 pt-3 pb-5">
+                  {sel.opciones.length > 0 && (
+                    <div data-no-pdf className="mb-3">
+                      <Pestanas id="linea-auditor" valor={pestanaLinea} onCambio={setPestanaLinea} opciones={[
+                        { valor: 'cotizado', etiqueta: 'Cotizado', contador: vivas.length },
+                        { valor: 'ficha', etiqueta: 'Ficha y requisitos', ...(requisitosAbiertos ? { contador: requisitosAbiertos } : {}) },
+                        { valor: 'avanzado', etiqueta: 'Detalle avanzado' },
+                      ]} />
+                    </div>
+                  )}
+                  {contenidoLinea(sel, pestanaLinea)}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </section>
 
       {/* ── Mensaje único por proveedor: la tarjeta y cada mensaje se pliegan (la lista es larga) ── */}
@@ -1656,31 +1767,57 @@ function ResumenLicitacionCard({ panel, etiquetaItem, onIrALinea }: { panel: Pan
   const r = resumenLicitacion(lineas, panel.presupuesto?.neto ?? null);
   const sinComparar = panel.lineas.filter(l => !l.noOfertada && l.opciones.some(o => o.estado !== 'descartada' && porComparar(o))).length;
   const [verTodas, setVerTodas] = useState(false);
+  // 28-oct-2026 (3712-74-LP26, 39 líneas): la tabla completa ocupaba media pantalla. Arriba quedan los totales; el detalle por línea se despliega.
+  const [verDetalle, setVerDetalle] = useState(false);
+  const imprimirResumen = useContext(ImprimirCtx);
   const tieneOpcion = (filaId: string) => (panel.lineas.find(x => x.filaId === filaId)?.opciones || []).some(o => o.estado !== 'descartada');
   const conOpcion = r.filas.filter(f => tieneOpcion(f.filaId));
   const sinOpcion = r.filas.length - conOpcion.length;
   const filasVisibles = verTodas || conOpcion.length === 0 ? r.filas : conOpcion;
-  const ALERTA = { rojo: ['🔴', 'text-red-600', 'El costo total supera el presupuesto'], amarillo: ['🟡', 'text-amber-700', 'Queda menos del 20% del presupuesto'], verde: ['✅', 'text-emerald-600', 'Queda el 20% o más del presupuesto'], sin_presupuesto: ['ℹ️', 'text-slate-600', 'Sin presupuesto del organismo'] }[r.alerta];
+  const ALERTA = { rojo: ['bg-red-600', 'text-red-600', 'El costo total supera el presupuesto'], amarillo: ['bg-amber-500', 'text-amber-700', 'Queda menos del 20% del presupuesto'], verde: ['bg-emerald-600', 'text-emerald-700', 'Queda el 20% o más del presupuesto'], sin_presupuesto: ['bg-slate-400', 'text-slate-600', 'Sin presupuesto del organismo'] }[r.alerta];
   // Lo que ya quedó en el Costeo (neto unitario × cantidad) contra el presupuesto: avisa antes de cotizar si el negocio ya no da.
   const costeoTotal = panel.lineas.filter(l => !l.noOfertada && l.costeadoNeto != null).reduce((s, l) => s + (l.costeadoNeto as number) * (l.cantidad || 1), 0);
   const presupuesto = panel.presupuesto?.neto ?? null;
   const costeoExcede = presupuesto != null && presupuesto > 0 && costeoTotal > presupuesto;
+  const detalleAbierto = verDetalle || imprimirResumen;
+  const dato = (rotulo: string, valor: React.ReactNode, extra?: React.ReactNode) => (
+    <div><p className="text-[11px] text-slate-500">{rotulo}</p><p className="text-[17px] font-semibold tracking-tight tabular-nums text-slate-900">{valor}</p>{extra}</div>
+  );
   return (
     <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
-      <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center gap-2 flex-wrap">
+      <div className="px-5 py-3.5 flex items-center gap-2 flex-wrap">
         <h3 className="text-[13.5px] font-medium text-zinc-900">2 · Resumen de la licitación</h3>
-        <span className="text-[13px] text-slate-600">— la opción más barata que cumple en cada línea, y el costo total contra el presupuesto</span>
+        {conOpcion.length > 0 && <span className="text-[13px] text-slate-600 tabular-nums">· {conOpcion.length} de {r.filas.length} líneas con cotización</span>}
+        {conOpcion.length > 0 && !imprimirResumen && (
+          <button data-no-pdf onClick={() => setVerDetalle(v => !v)} aria-expanded={verDetalle}
+            className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-200 text-[13px] font-medium text-slate-700 hover:bg-zinc-50">
+            {verDetalle ? <ChevronDown size={13} /> : <ChevronRight size={13} />}{verDetalle ? 'Ocultar el detalle por línea' : 'Ver el detalle por línea'}
+          </button>
+        )}
       </div>
       {conOpcion.length === 0 ? (
-        <p className="px-5 py-3 text-[13px] text-slate-600">Se arma solo cuando las líneas tengan cotización: aquí verás la mejor opción de cada una y el total contra el presupuesto.</p>
+        <p className="px-5 pb-3 text-[13px] text-slate-600">Se arma solo cuando las líneas tengan cotización: aquí verás la mejor opción de cada una y el total contra el presupuesto.</p>
       ) : (<>
-      <div className="px-5 py-2 border-b border-zinc-100 flex items-center justify-between gap-3 text-[13px] text-slate-600">
-        <span>{conOpcion.length} de {r.filas.length} líneas con cotización</span>
+      {/* Totales siempre a la vista: lo que se decide sin abrir la tabla. */}
+      <div className="px-5 pb-3.5 flex flex-wrap items-end gap-x-8 gap-y-2">
+        {dato(r.completo ? 'Costo total neto' : 'Costo total neto (parcial)', fmtCLP(r.costoTotal))}
+        {dato('Presupuesto neto', r.presupuesto != null ? fmtCLP(r.presupuesto) : '—')}
+        {r.completo && r.queda != null && dato('Queda', <>{fmtCLP(r.queda)}{r.quedaPct != null && <span className="ml-1 text-[13px] font-medium text-slate-500">{r.quedaPct}%</span>}</>)}
+        <p className={`pb-0.5 inline-flex items-center gap-1.5 text-[13px] font-medium ${(r.completo || r.alerta === 'rojo') ? ALERTA[1] : 'text-slate-600'}`}>
+          <span aria-hidden className={`w-1.5 h-1.5 rounded-full ${(r.completo || r.alerta === 'rojo') ? ALERTA[0] : 'bg-slate-400'}`} />
+          {(r.completo || r.alerta === 'rojo') ? ALERTA[2] : 'Total parcial: todavía no se puede comparar con el presupuesto'}
+        </p>
+        {(r.lineasSinOpcion > 0 || sinComparar > 0) && <p className="basis-full text-[12.5px] text-slate-600">{r.lineasSinOpcion > 0 && <>Faltan {r.lineasSinOpcion} línea(s) con una opción que cumpla (o que se compare): no suman al total. </>}{sinComparar > 0 && <>{sinComparar} línea(s) tienen opciones sin comparar con los requisitos.</>}</p>}
+      </div>
+      {detalleAbierto && <>
+      <div className="px-5 py-2 border-t border-zinc-100 flex items-center justify-between gap-3 text-[13px] text-slate-600">
+        <span>La opción más barata que cumple en cada línea · clic en una fila para abrir la línea</span>
         {sinOpcion > 0 && <button onClick={() => setVerTodas(v => !v)} className="font-medium text-teal-700 hover:underline">{verTodas ? 'Ocultar líneas sin cotización' : `Mostrar ${sinOpcion === 1 ? 'la línea' : `las ${sinOpcion} líneas`} sin cotización`}</button>}
       </div>
-      <div className="overflow-x-auto">
+      {/* Con muchas líneas la tabla se recorre dentro de su propio cuadro (encabezado fijo), sin empujar el resto de la pantalla. */}
+      <div className={`overflow-x-auto border-t border-zinc-100 ${imprimirResumen ? '' : 'max-h-[440px] overflow-y-auto'}`}>
         <table className="w-full text-[13px] border-collapse">
-          <thead><tr className="text-left text-xs text-slate-600"><th className="px-5 py-2 font-medium">Línea</th><th className="py-2 pr-3 font-medium text-right">Cant.</th><th className="py-2 pr-3 font-medium">Mejor opción</th><th className="py-2 pr-3 font-medium">Estado</th><th className="py-2 pr-3 font-medium text-right">Costeo unit.</th><th className="py-2 pr-3 font-medium text-right">Precio cotizado unit.</th><th className="py-2 pr-5 font-medium text-right">Total neto</th></tr></thead>
+          <thead className="sticky top-0 z-10 bg-zinc-50"><tr className="text-left text-xs text-slate-600"><th className="px-5 py-2 font-medium">Línea</th><th className="py-2 pr-3 font-medium text-right">Cant.</th><th className="py-2 pr-3 font-medium">Mejor opción</th><th className="py-2 pr-3 font-medium">Estado</th><th className="py-2 pr-3 font-medium text-right">Costeo unit.</th><th className="py-2 pr-3 font-medium text-right">Precio cotizado unit.</th><th className="py-2 pr-5 font-medium text-right">Total neto</th></tr></thead>
           <tbody>
             {filasVisibles.map(f => {
               const l = panel.lineas.find(x => x.filaId === f.filaId);
@@ -1713,20 +1850,13 @@ function ResumenLicitacionCard({ panel, etiquetaItem, onIrALinea }: { panel: Pan
           </tbody>
         </table>
       </div>
+      </>}
       </>)}
       {costeoExcede && (
         <p className="px-5 py-2.5 border-t border-zinc-100 text-[13px] text-red-600">
           <b>Lo costeado ya supera el presupuesto:</b> {fmtCLP(costeoTotal)} neto contra {fmtCLP(presupuesto)} ({Math.round(((costeoTotal - presupuesto!) / presupuesto!) * 100)}% más). Revisa el costeo o busca opciones más baratas antes de seguir.
         </p>
       )}
-      {conOpcion.length > 0 && <div className="px-5 py-3 border-t border-zinc-100 text-[13.5px] text-zinc-700">
-        <b>COSTO TOTAL {r.completo ? '' : '(parcial) '}{fmtCLP(r.costoTotal)}</b> · PRESUPUESTO {r.presupuesto != null ? fmtCLP(r.presupuesto) : '—'}
-        {r.completo && r.queda != null && <> · QUEDA {fmtCLP(r.queda)}{r.quedaPct != null ? ` (${r.quedaPct}%)` : ''}</>}
-        {(r.completo || r.alerta === 'rojo')
-          ? <span className={`ml-2 font-semibold ${ALERTA[1]}`}>{ALERTA[0]} {ALERTA[2]}</span>
-          : <span className="ml-2 font-semibold text-slate-600">ℹ️ Total parcial: todavía no se puede comparar con el presupuesto</span>}
-        {(r.lineasSinOpcion > 0 || sinComparar > 0) && <p className="mt-1 text-[12.5px] text-slate-600">{r.lineasSinOpcion > 0 && <>Faltan {r.lineasSinOpcion} línea(s) con una opción que cumpla (o que se compare): no suman al total. </>}{sinComparar > 0 && <>{sinComparar} línea(s) tienen opciones sin comparar con los requisitos.</>}</p>}
-      </div>}
     </div>
   );
 }
@@ -1936,28 +2066,67 @@ function ComplementosOpcion({ o, editable, ocupado, onAccion }: { o: OpcionDTO; 
 
 /** Pegar el texto de la ficha (copiado de la página del producto, de un correo del proveedor…): se guarda como un .txt y sigue el mismo camino que
  *  una ficha subida (el Lector lo lee y el comparador lo usa contra las bases). */
-function PegarTextoFicha({ ocupado, nombreBase, onArchivo }: { ocupado: boolean; nombreBase: string; onArchivo: (f: File) => void }) {
+function PegarTextoFicha({ ocupado, nombreBase, onArchivo }: { ocupado: boolean; nombreBase: string; onArchivo: (f: File, origen: File) => void }) {
   const [abierto, setAbierto] = useState(false);
   const [texto, setTexto] = useState('');
+  const [captura, setCaptura] = useState<File | null>(null);
   if (!abierto) return <button data-no-pdf onClick={() => setAbierto(true)} disabled={ocupado} className="mt-1.5 text-[13px] font-medium text-teal-700 hover:underline disabled:opacity-50">Pegar el texto de la ficha</button>;
+  const listo = texto.trim().length >= 40 && !!captura;
   const guardar = () => {
     const limpio = texto.trim();
-    if (limpio.length < 40) return;
+    if (limpio.length < 40 || !captura) return;
     const nombre = `Ficha (texto) ${nombreBase}`.replace(/[\\/:*?"<>|]+/g, ' ').slice(0, 80).trim() + '.txt';
-    onArchivo(new File([limpio], nombre, { type: 'text/plain' }));
-    setTexto(''); setAbierto(false);
+    onArchivo(new File([limpio], nombre, { type: 'text/plain' }), captura);
+    setTexto(''); setCaptura(null); setAbierto(false);
   };
   return (
     <div data-no-pdf className="mt-2 w-full rounded-lg border border-zinc-200 bg-zinc-50/60 p-3">
       <p className="text-[13px] font-medium text-slate-700">Pegar el texto de la ficha técnica</p>
       <p className="text-xs text-slate-600">Cópialo de la página del producto o del correo del proveedor (especificaciones, medidas, normas…).</p>
       <textarea value={texto} onChange={e => setTexto(e.target.value)} rows={6} autoFocus placeholder="Ej.: Material: acero galvanizado · Diámetro: 4&quot; · Espesor: 3 mm · Largo: 6 m · Norma ISO 65 clase media…"
+        onPaste={e => { const img = imagenPegada(e, `Captura ficha ${nombreBase}`); if (img) { e.preventDefault(); setCaptura(img); } }}
         className="mt-2 w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-[13px] text-slate-700 outline-none focus:border-teal-500" />
+      <CapturaOrigen captura={captura} onCambiar={setCaptura} ocupado={ocupado} />
       <div className="mt-2 flex items-center gap-3">
-        <span className="text-xs text-slate-500 tabular-nums">{texto.trim().length < 40 ? 'Pega al menos unas líneas' : `${texto.trim().length.toLocaleString('es-CL')} caracteres`}</span>
-        <button onClick={() => { setAbierto(false); setTexto(''); }} className="ml-auto text-[13px] text-slate-600 hover:text-slate-900">Cancelar</button>
-        <button onClick={guardar} disabled={ocupado || texto.trim().length < 40} className="px-3 py-1 rounded-md bg-teal-700 text-white text-[13px] font-semibold hover:bg-teal-800 disabled:opacity-40">Usar como ficha</button>
+        <span className="text-xs text-slate-500 tabular-nums">{texto.trim().length < 40 ? 'Pega al menos unas líneas' : !captura ? 'Falta la captura de dónde lo copiaste' : `${texto.trim().length.toLocaleString('es-CL')} caracteres`}</span>
+        <button onClick={() => { setAbierto(false); setTexto(''); setCaptura(null); }} className="ml-auto text-[13px] text-slate-600 hover:text-slate-900">Cancelar</button>
+        <button onClick={guardar} disabled={ocupado || !listo} className="px-3 py-1 rounded-md bg-teal-700 text-white text-[13px] font-semibold hover:bg-teal-800 disabled:opacity-40">Usar como ficha</button>
       </div>
+    </div>
+  );
+}
+
+// Captura de ORIGEN (28-oct-2026, pedido del dueño): la ficha pegada como texto y cada complemento de un requisito llevan una imagen de
+// dónde se sacó el dato (la página, el correo del proveedor…), para corroborar que la fuente es fiable. Se adjunta o se pega con Ctrl+V.
+const EXT_CAPTURA = /\.(png|jpe?g|webp)$/i;
+const esCaptura = (f: File) => EXT_CAPTURA.test(f.name) || /^image\/(png|jpeg|webp)$/.test(f.type);
+/** Imagen del portapapeles (Ctrl+V de un recorte de pantalla), con un nombre que sí lleva su extensión. */
+function imagenPegada(e: React.ClipboardEvent, base: string): File | null {
+  const f = Array.from(e.clipboardData?.files || []).find(x => /^image\/(png|jpeg|webp)$/.test(x.type));
+  if (!f) return null;
+  const ext = f.type === 'image/jpeg' ? 'jpg' : f.type.split('/')[1];
+  return new File([f], `${base.replace(/[\\/:*?"<>|]+/g, ' ').slice(0, 70).trim()} ${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.${ext}`, { type: f.type });
+}
+function CapturaOrigen({ captura, onCambiar, ocupado }: { captura: File | null; onCambiar: (f: File | null) => void; ocupado: boolean }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const vista = useMemo(() => captura ? URL.createObjectURL(captura) : null, [captura]);
+  useEffect(() => () => { if (vista) URL.revokeObjectURL(vista); }, [vista]);
+  return (
+    <div className={`mt-2 rounded-md border px-2.5 py-2 ${captura ? 'border-zinc-200 bg-white' : 'border-amber-300 bg-amber-50/60'}`}>
+      <input ref={ref} type="file" accept=".png,.jpg,.jpeg,.webp" className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f && esCaptura(f)) onCambiar(f); e.target.value = ''; }} />
+      {captura && vista ? (
+        <div className="flex items-center gap-2.5">
+          <a href={vista} target="_blank" rel="noopener noreferrer" title="Ver la captura"><img src={vista} alt="Captura de origen" className="h-12 w-16 rounded border border-zinc-200 object-cover" /></a>
+          <span className="min-w-0 flex-1 text-[12.5px] text-slate-700"><span className="block font-medium">Captura de dónde lo sacaste</span><span className="block truncate text-xs text-slate-500">{captura.name}</span></span>
+          <button onClick={() => onCambiar(null)} disabled={ocupado} className="text-xs text-slate-500 underline hover:text-slate-700">quitar</button>
+        </div>
+      ) : (
+        <p className="text-[12.5px] text-amber-900">
+          <span className="font-medium">Obligatorio: una captura (imagen) de dónde sacaste el dato</span> — la página, el correo del proveedor… Pégala con Ctrl+V en el cuadro de texto o{' '}
+          <button onClick={() => ref.current?.click()} disabled={ocupado} className="font-medium text-teal-700 underline hover:text-teal-800">adjúntala</button>.
+        </p>
+      )}
     </div>
   );
 }
@@ -2010,9 +2179,9 @@ function Stat({ label, valor, rojo }: { label: string; valor: string; rojo?: boo
 }
 
 // ── Cuadro comparativo de UNA línea: columnas = opciones, filas = costo y verificación ────────────
-function CuadroLinea({ negocioId, linea, ocupado, accionEnCurso = null, onFotoFicha, verificando, onVerificar, puedeAprobar, subiendoFicha, onSubirFicha, onRespaldarCelda, buscandoMercado, onMercado, verificandoCosto, onCostoIA, onAccion, onModal }: {
-  negocioId: number; linea: LineaAuditorDTO; ocupado: number | null; accionEnCurso?: string | null; onFotoFicha: (opcionId: number, f: File) => void; verificando: Set<number>; onVerificar: (opcionId: number) => void; puedeAprobar: boolean;
-  subiendoFicha: Set<string>; onSubirFicha: (opcionId: number, archivos: File[]) => void; onRespaldarCelda: (opcionId: number, n: number, archivos: File[], nota?: string) => Promise<boolean>;
+function CuadroLinea({ negocioId, linea, vista = 'todo', onIrAFicha, onVerificarSolo, ocupado, accionEnCurso = null, onFotoFicha, verificando, onVerificar, puedeAprobar, subiendoFicha, onSubirFicha, onRespaldarCelda, buscandoMercado, onMercado, verificandoCosto, onCostoIA, onAccion, onModal }: {
+  negocioId: number; linea: LineaAuditorDTO; vista?: 'cotizado' | 'ficha' | 'avanzado' | 'todo'; onIrAFicha?: () => void; onVerificarSolo?: (opcionId: number) => void; ocupado: number | null; accionEnCurso?: string | null; onFotoFicha: (opcionId: number, f: File) => void; verificando: Set<number>; onVerificar: (opcionId: number) => void; puedeAprobar: boolean;
+  subiendoFicha: Set<string>; onSubirFicha: (opcionId: number, archivos: File[], origen?: File) => void; onRespaldarCelda: (opcionId: number, n: number, archivos: File[], nota?: string) => Promise<boolean>;
   buscandoMercado: Set<number>; onMercado: (opcionId: number) => void;
   verificandoCosto: Set<number>; onCostoIA: (opcionId: number) => void;
   onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void;
@@ -2024,12 +2193,15 @@ function CuadroLinea({ negocioId, linea, ocupado, accionEnCurso = null, onFotoFi
   const columnas = [...vivas, ...linea.opciones.filter(o => o.estado === 'descartada')];
 
   const imprimirLinea = useContext(ImprimirCtx);
+  // En pestañas (vista ≠ 'todo') cada parte se muestra sola; 'todo' es el PDF: técnico + detalle avanzado uno tras otro.
+  const tablaAvanzada = vista === 'avanzado' || vista === 'todo';
   return (
     <div>
-      <CuadroTecnico negocioId={negocioId} linea={linea} ocupado={ocupado} accionEnCurso={accionEnCurso} onFotoFicha={onFotoFicha} puedeAprobar={puedeAprobar} verificando={verificando} subiendoFicha={subiendoFicha} onSubirFicha={onSubirFicha} onRespaldarCelda={onRespaldarCelda} onAccion={onAccion} onModal={onModal} />
-      <details className="mt-4 rounded-lg border border-zinc-200" open={imprimirLinea}>
-        <summary className="cursor-pointer px-3 py-2 text-[13px] font-semibold text-zinc-600 hover:text-zinc-900">Detalle avanzado — respaldos, costo frente a lo costeado, mercado, verificación de costo con IA y vía</summary>
-        <div className="overflow-x-auto p-3 pt-1">
+      {vista !== 'avanzado' && <CuadroTecnico negocioId={negocioId} linea={linea} vista={vista === 'todo' ? 'todo' : vista} onIrAFicha={onIrAFicha} onVerificarSolo={onVerificarSolo} ocupado={ocupado} accionEnCurso={accionEnCurso} onFotoFicha={onFotoFicha} puedeAprobar={puedeAprobar} verificando={verificando} subiendoFicha={subiendoFicha} onSubirFicha={onSubirFicha} onRespaldarCelda={onRespaldarCelda} onAccion={onAccion} onModal={onModal} />}
+      {tablaAvanzada && <details className={vista === 'todo' ? 'mt-4 rounded-lg border border-zinc-200' : ''} open={imprimirLinea || vista === 'avanzado'}>
+        <summary className={vista === 'todo' ? 'cursor-pointer px-3 py-2 text-[13px] font-semibold text-zinc-600 hover:text-zinc-900' : 'hidden'}>Detalle avanzado — respaldos, costo frente a lo costeado, mercado, verificación de costo con IA y vía</summary>
+        {vista === 'avanzado' && <p className="mb-2 text-[13px] text-slate-600">Respaldos, costo frente a lo costeado, mercado, verificación de costo con IA y vía, opción por opción.</p>}
+        <div className={`overflow-x-auto ${vista === 'todo' ? 'p-3 pt-1' : ''}`}>
       <table className="w-full text-[13px] border-collapse">
         <thead>
           <tr className="text-left align-top">
@@ -2119,7 +2291,7 @@ function CuadroLinea({ negocioId, linea, ocupado, accionEnCurso = null, onFotoFi
         </tbody>
       </table>
         </div>
-      </details>
+      </details>}
     </div>
   );
 }
@@ -2282,6 +2454,7 @@ function FuenteTecnica({ o }: { o: OpcionDTO }) {
         const nombre = r.documentoNombre || (r.url ? (() => { try { return new URL(r.url!).hostname.replace(/^www\./, ''); } catch { return 'link'; } })() : 'documento');
         return <span key={r.id} className="block truncate max-w-[260px]" title={nombre}>
           {TIPO_RESPALDO[r.tipo] || r.tipo.replace(/_/g, ' ')} · {href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-teal-700 hover:underline">{nombre}</a> : nombre}
+          {r.origenImagen && <> · <a href={r.origenImagen} target="_blank" rel="noopener noreferrer" title="Captura de dónde se copió el texto de la ficha" className="inline-flex items-center gap-0.5 text-teal-700 hover:underline"><Eye size={12} /> captura de origen</a></>}
         </span>;
       })}
       {!docs.some(r => r.tipo === 'ficha_tecnica') && o.tecnico.resultado && <span className="block text-slate-500">Sin ficha aparte: los datos técnicos salen de {docs.some(r => r.tipo.startsWith('cotizacion')) ? 'la cotización' : 'la página del link'}.</span>}
@@ -2332,9 +2505,9 @@ function FuenteCosto({ o, negocioId }: { o: OpcionDTO; negocioId: number }) {
   );
 }
 
-function CuadroTecnico({ negocioId, linea, ocupado, accionEnCurso = null, onFotoFicha, puedeAprobar, verificando, subiendoFicha, onSubirFicha, onRespaldarCelda, onAccion, onModal }: {
-  negocioId: number; linea: LineaAuditorDTO; ocupado: number | null; accionEnCurso?: string | null; onFotoFicha: (opcionId: number, f: File) => void; puedeAprobar: boolean; verificando: Set<number>; subiendoFicha: Set<string>;
-  onSubirFicha: (opcionId: number, archivos: File[]) => void; onRespaldarCelda: (opcionId: number, n: number, archivos: File[], nota?: string) => Promise<boolean>;
+function CuadroTecnico({ negocioId, linea, vista = 'todo', onIrAFicha, onVerificarSolo, ocupado, accionEnCurso = null, onFotoFicha, puedeAprobar, verificando, subiendoFicha, onSubirFicha, onRespaldarCelda, onAccion, onModal }: {
+  negocioId: number; linea: LineaAuditorDTO; vista?: 'cotizado' | 'ficha' | 'todo'; onIrAFicha?: () => void; onVerificarSolo?: (opcionId: number) => void; ocupado: number | null; accionEnCurso?: string | null; onFotoFicha: (opcionId: number, f: File) => void; puedeAprobar: boolean; verificando: Set<number>; subiendoFicha: Set<string>;
+  onSubirFicha: (opcionId: number, archivos: File[], origen?: File) => void; onRespaldarCelda: (opcionId: number, n: number, archivos: File[], nota?: string) => Promise<boolean>;
   onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void;
   onModal: (tipo: 'descartar' | 'rechazar', opcionId: number) => void;
 }) {
@@ -2393,7 +2566,7 @@ function CuadroTecnico({ negocioId, linea, ocupado, accionEnCurso = null, onFoto
     <div className="space-y-3">
       {/* ── Una tarjeta por opción: aquí se decide. Tres partes: el producto y su precio · qué falta · respaldo y acciones.
              Con UNA opción la tarjeta usa todo el ancho y las tres partes van lado a lado; con varias, cada tarjeta las apila. ── */}
-      <div className={`grid gap-3 ${columnas.length === 2 ? 'lg:grid-cols-2' : columnas.length >= 3 ? 'lg:grid-cols-2 2xl:grid-cols-3' : ''}`}>
+      {vista !== 'ficha' && <div className={`grid grid-cols-1 gap-3 ${columnas.length === 2 ? 'lg:grid-cols-2' : columnas.length >= 3 ? 'lg:grid-cols-2 2xl:grid-cols-3' : ''}`}>
         {columnas.map(o => {
           const c = o.verificacion?.costoNetoUnitario ?? null, r = o.tecnico.resultado, k = cuenta(o);
           const bloqueos = (o.verificacion?.bloqueos || []).filter(b => !(b.codigo === 'LECTURA' && o.producto?.precioAmbiguo));   // el precio dudoso tiene su propio aviso
@@ -2403,8 +2576,8 @@ function CuadroTecnico({ negocioId, linea, ocupado, accionEnCurso = null, onFoto
           const nadaFalta = !precioPendiente && !bloqueos.length && !notas.length && !(r && (k.falta || k.no || k.complementadas));
           const rotulo = 'text-xs text-slate-600';
           return (
-            <div key={o.id} className="rounded-xl border border-zinc-200 bg-white shadow-sm">
-              <div className={`grid ${ancha ? 'md:grid-cols-3 md:divide-x' : ''} divide-zinc-100`}>
+            <div key={o.id} className="@container rounded-xl border border-zinc-200 bg-white shadow-sm">
+              <div className={`grid grid-cols-1 ${ancha ? '@3xl:grid-cols-3 @3xl:divide-x' : ''} divide-zinc-100`}>
                 {/* 1 · El producto y su precio */}
                 <div className="px-4 py-3">
                   <p className="text-[13.5px] font-medium text-slate-900 leading-tight">{nombreCorto(o)}</p>
@@ -2456,7 +2629,7 @@ function CuadroTecnico({ negocioId, linea, ocupado, accionEnCurso = null, onFoto
                 </div>
 
                 {/* 2 · Qué falta para poder firmarla */}
-                <div className={`px-4 py-3 ${ancha ? 'border-t md:border-t-0' : 'border-t'} border-zinc-100`}>
+                <div className={`px-4 py-3 ${ancha ? 'border-t @3xl:border-t-0' : 'border-t'} border-zinc-100`}>
                   <p className={rotulo}>Qué falta</p>
                   {nadaFalta && <p className="mt-1 inline-flex items-center gap-1.5 text-[13px] font-medium text-emerald-700"><span aria-hidden className="w-1.5 h-1.5 rounded-full bg-emerald-600" />Nada: lista para firmar</p>}
                   {precioPendiente && (o.producto!.precioAmbiguo
@@ -2467,14 +2640,14 @@ function CuadroTecnico({ negocioId, linea, ocupado, accionEnCurso = null, onFoto
                   {c != null && o.producto?.ivaSupuesto && <p className="mt-1 text-xs text-slate-500">IVA asumido (página web): ya descontado</p>}
                   {bloqueos.slice(0, 2).map((b, i) => <p key={i} className="mt-1.5 text-[12.5px] text-red-600 leading-snug">{b.mensaje}<span className="block text-red-500/80">→ {b.salida}</span></p>)}
                   {bloqueos.length > 2 && <p className="text-xs text-slate-500">+{bloqueos.length - 2} más en el detalle avanzado</p>}
-                  {r && (k.falta > 0 || k.no > 0) && <p className="mt-1.5 text-[12.5px] text-slate-600">{k.no > 0 ? `${k.no} requisito${k.no === 1 ? '' : 's'} no cumple${k.no === 1 ? '' : 'n'}` : `${k.falta} requisito${k.falta === 1 ? '' : 's'} por confirmar`}: revísalos abajo, en «Requisitos de las bases».</p>}
+                  {r && (k.falta > 0 || k.no > 0) && <p className="mt-1.5 text-[12.5px] text-slate-600">{k.no > 0 ? `${k.no} requisito${k.no === 1 ? '' : 's'} no cumple${k.no === 1 ? '' : 'n'}` : `${k.falta} requisito${k.falta === 1 ? '' : 's'} por confirmar`}: {vista === 'todo' || !onIrAFicha ? 'revísalos abajo, en «Requisitos de las bases».' : <>revísalos en <button data-no-pdf onClick={onIrAFicha} className="font-medium text-teal-700 hover:underline">Ficha y requisitos</button>.</>}</p>}
                   {r && k.complementadas > 0 && <p className="mt-1.5 text-[12.5px] text-teal-800">{k.complementadas} requisito{k.complementadas === 1 ? '' : 's'} ya complementado{k.complementadas === 1 ? '' : 's'}: {puedeAprobar ? 'revísalo y acéptalo con «Lo confirmo» (o «Sí cumple…»).' : 'lo revisa el EM.'}</p>}
                   {notas.length > 0 && <ul className="mt-2 space-y-0.5">{notas.map((t, i) => <li key={i} className="text-[12.5px] leading-snug text-slate-600">• {t}</li>)}</ul>}
                   {o.tecnico.legado && <p className="mt-1 text-xs italic text-slate-500">Comparación anterior, hecha antes del comparador nuevo. Se conserva como estaba.</p>}
                 </div>
 
                 {/* 3 · Respaldo y acciones */}
-                <div className={`px-4 py-3 flex flex-col ${ancha ? 'border-t md:border-t-0' : 'border-t'} border-zinc-100`}>
+                <div className={`px-4 py-3 flex flex-col ${ancha ? 'border-t @3xl:border-t-0' : 'border-t'} border-zinc-100`}>
                   <p className={rotulo}>Respaldo</p>
                   <FuenteTecnica o={o} />
                   {/* De dónde sale el precio: solo si agrega algo (un link con su captura, o varios documentos); con una sola cotización ya está arriba. */}
@@ -2484,7 +2657,7 @@ function CuadroTecnico({ negocioId, linea, ocupado, accionEnCurso = null, onFoto
                     <div className="flex flex-wrap items-center gap-x-4">
                       <CorregirCosto o={o} editable={editable(o)} ocupado={ocupado === o.id} onAccion={onAccion} />
                       {editable(o) && <BotonSubirFicha ocupado={subiendoFicha.has(`o${o.id}`)} discreto etiqueta={o.respaldos.some(x => x.tipo === 'ficha_tecnica') ? 'Agregar otra ficha técnica' : 'Agregar ficha técnica'} onArchivos={f => onSubirFicha(o.id, f)} />}
-                      {editable(o) && <PegarTextoFicha ocupado={subiendoFicha.has(`o${o.id}`)} nombreBase={nombreCorto(o)} onArchivo={f => onSubirFicha(o.id, [f])} />}
+                      {editable(o) && <PegarTextoFicha ocupado={subiendoFicha.has(`o${o.id}`)} nombreBase={nombreCorto(o)} onArchivo={(f, origen) => onSubirFicha(o.id, [f], origen)} />}
                       {!motivoFichaNoLista(o) && <FotoParaFicha o={o} subiendo={subiendoFicha.has(`foto${o.id}`)} onSubir={f => onFotoFicha(o.id, f)} onQuitar={() => onAccion(o.id, 'poner_foto_ficha', { url: null }, 'Foto quitada de la ficha')} />}
                     </div>
                     {editable(o) && !o.respaldos.some(x => x.tipo === 'ficha_tecnica' && x.vigente) && o.respaldos.some(x => x.tipo === 'link_web' && x.vigente) && (
@@ -2496,10 +2669,12 @@ function CuadroTecnico({ negocioId, linea, ocupado, accionEnCurso = null, onFoto
             </div>
           );
         })}
-      </div>
+      </div>}
+
+      {vista === 'ficha' && <FichasDeLaLinea negocioId={negocioId} columnas={columnas} ocupado={ocupado} verificando={verificando} onVerificar={id => onVerificarSolo?.(id)} subiendoFicha={subiendoFicha} onSubirFicha={onSubirFicha} onAccion={onAccion} />}
 
       {/* ── Requisitos: primero lo que falta resolver. Solo lectura: clic en una fila abre su panel ── */}
-      {base.length === 0 ? (
+      {vista !== 'cotizado' && (base.length === 0 ? (
         <p className="rounded-xl border border-zinc-200 px-4 py-4 text-center text-[13.5px] text-slate-600">
           {columnas.length && columnas.every(sinRequisitos) ? <>Las bases no traen <b>requisitos técnicos</b> para esta línea: no hay nada que comparar, compite solo por precio. Si sabes que hay exigencias (por ejemplo en un anexo técnico), revisa la viabilidad de la línea.</> : columnas.some(porComparar) ? <>Esta línea todavía no se compara. Pulsa <b>«Comparar la línea»</b> (arriba): la IA revisa cada producto contra los requisitos de las bases.</> : 'Las opciones de esta línea van por vía liviana: no pasan por el comparador técnico.'}
         </p>
@@ -2556,9 +2731,9 @@ function CuadroTecnico({ negocioId, linea, ocupado, accionEnCurso = null, onFoto
           </table>
           <p className="border-t border-zinc-100 px-4 py-1.5 text-xs text-slate-500">✅ cumple · 🟩 supera lo exigido · ❌ no cumple · ❓ falta dato · 📎 tiene complemento</p>
         </div>
-      )}
+      ))}
 
-      {filaDetalle && !imprimirCuadro && (
+      {filaDetalle && !imprimirCuadro && vista !== 'cotizado' && (
         <PanelRequisito f0={filaDetalle} posicion={idx >= 0 ? `${idx + 1} de ${recorrido.length}${recorrido === pendientes ? ' por resolver' : ''}` : ''}
           onAnterior={idx > 0 ? () => setDetalle(recorrido[idx - 1].n) : undefined}
           onSiguiente={idx >= 0 && idx < recorrido.length - 1 ? () => setDetalle(recorrido[idx + 1].n) : undefined}
@@ -2606,7 +2781,7 @@ function CuadroTecnico({ negocioId, linea, ocupado, accionEnCurso = null, onFoto
         </PanelRequisito>
       )}
 
-      {descartadas.length > 0 && (
+      {descartadas.length > 0 && vista !== 'ficha' && (
         <details data-no-pdf>
           <summary className="cursor-pointer text-[12.5px] text-slate-500 hover:text-zinc-700">{descartadas.length} opción{descartadas.length === 1 ? '' : 'es'} descartada{descartadas.length === 1 ? '' : 's'}</summary>
           <ul className="mt-1 space-y-1">
@@ -2619,6 +2794,68 @@ function CuadroTecnico({ negocioId, linea, ocupado, accionEnCurso = null, onFoto
           </ul>
         </details>
       )}
+    </div>
+  );
+}
+
+/** Qué pasó con una ficha subida: se está comparando, ya se comparó con las bases (y cuánto cumple), o se leyó pero falta compararla.
+ *  28-oct-2026 (3712-74-LP26 L1.1): la ficha se leía y comparaba sola, pero la pantalla no lo decía y el equipo no sabía si había pasado. */
+function EstadoFicha({ o, r, comparando, onComparar }: { o: OpcionDTO; r: OpcionDTO['respaldos'][number]; comparando: boolean; onComparar: () => void }) {
+  const punto = (color: string, texto: React.ReactNode) => <span className="inline-flex items-baseline gap-1.5 text-[13px] text-slate-700"><span aria-hidden className={`w-1.5 h-1.5 rounded-full shrink-0 -translate-y-px ${color}`} /><span>{texto}</span></span>;
+  if (comparando) return punto('bg-teal-600', <><Loader2 size={12} className="animate-spin text-teal-700" /> Comparando con las bases… (1-3 min)</>);
+  if (r.extraccionId == null) return punto('bg-slate-400', 'Todavía no se lee');
+  // cargadoAt llega en ISO UTC («…T14:23:21.000Z») y corridoAt en hora de Chile («2026-10-28 11:25:28»): se comparan como fechas, no como texto.
+  const ms = (s: string) => Date.parse(s.includes('T') ? s : s.replace(' ', 'T'));
+  const comparadaDespues = !!o.tecnico.corridoAt && !!r.cargadoAt && ms(o.tecnico.corridoAt) >= ms(r.cargadoAt) && !!o.tecnico.resultado;
+  if (comparadaDespues) {
+    const fs = o.tecnico.resultado!.filas, cumple = fs.filter(f => estadoVisible(f) === 'CUMPLE').length;
+    const cuando = new Date(o.tecnico.corridoAt!.replace(' ', 'T')).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
+    return punto('bg-emerald-600', <>Leída y comparada · <span className="tabular-nums">{cumple} de {fs.length}</span> cumplen <span className="text-xs text-slate-500">· {cuando}</span></>);
+  }
+  if (o.tecnico.requisitosTotal === 0) return punto('bg-slate-400', 'Leída · la línea no tiene requisitos técnicos');
+  return <span className="inline-flex flex-wrap items-center gap-x-2">{punto('bg-amber-500', 'Leída · falta compararla con las bases')}
+    <button data-no-pdf onClick={onComparar} className="text-[13px] font-medium text-teal-700 hover:underline">Comparar</button></span>;
+}
+
+/** Pestaña «Ficha y requisitos»: de dónde sale lo técnico de cada opción (su ficha o la página del link), con abrir y agregar ficha. */
+function FichasDeLaLinea({ negocioId, columnas, ocupado, verificando, onVerificar, subiendoFicha, onSubirFicha, onAccion }: {
+  negocioId: number; columnas: OpcionDTO[]; ocupado: number | null; verificando: Set<number>; onVerificar: (opcionId: number) => void; subiendoFicha: Set<string>;
+  onSubirFicha: (opcionId: number, archivos: File[], origen?: File) => void;
+  onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void;
+}) {
+  return (
+    <div className="rounded-xl border border-zinc-200 divide-y divide-zinc-100">
+      {columnas.map(o => {
+        const fichas = o.respaldos.filter(r => r.tipo === 'ficha_tecnica' && r.vigente);
+        const links = o.respaldos.filter(r => r.tipo === 'link_web' && r.vigente && r.url);
+        const editable = !['descartada', 'en_aprobacion', 'aprobada'].includes(o.estado);
+        const nombre = [o.marca, o.modelo].filter(Boolean).join(' ') || o.producto?.nombre || 'Producto sin identificar';
+        return (
+          <div key={o.id} className="px-4 py-3 flex flex-wrap items-start gap-x-6 gap-y-2">
+            <div className="min-w-[180px] flex-1">
+              <p className="text-[13.5px] font-medium text-slate-900 leading-tight">{nombre}</p>
+              <p className="text-[13px] text-slate-600">{o.proveedorRazonSocial || 'Proveedor sin identificar'}</p>
+            </div>
+            <div className="min-w-[200px] flex-1">
+              <p className="text-[11px] text-slate-500">Ficha técnica</p>
+              {fichas.length === 0 && links.length === 0 && <p className="text-[13px] text-amber-700">Sin ficha: súbela para comparar con las bases</p>}
+              {fichas.map(f => <div key={f.id} className="mb-1">
+                <a href={f.documentoUrl || '#'} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[13px] text-teal-700 hover:underline truncate"><ExternalLink size={11} className="shrink-0" /> {f.documentoNombre || 'Ficha'}</a>
+                <EstadoFicha o={o} r={f} comparando={verificando.has(o.id)} onComparar={() => onVerificar(o.id)} />
+              </div>)}
+              {fichas.length === 0 && links.map(r => <a key={r.id} href={r.url!} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[13px] text-teal-700 hover:underline truncate"><ExternalLink size={11} className="shrink-0" /> Página del link</a>)}
+              {fichas.length === 0 && links.length > 0 && <p className="text-xs text-slate-500">Sin ficha aparte: lo técnico sale de la página</p>}
+            </div>
+            {editable && (
+              <div data-no-pdf className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <BotonSubirFicha ocupado={subiendoFicha.has(`o${o.id}`)} discreto etiqueta={fichas.length ? 'Agregar otra ficha' : 'Subir ficha técnica'} onArchivos={f => onSubirFicha(o.id, f)} />
+                <PegarTextoFicha ocupado={subiendoFicha.has(`o${o.id}`)} nombreBase={nombre} onArchivo={(f, origen) => onSubirFicha(o.id, [f], origen)} />
+                {links.length > 0 && <BuscarFichaLink negocioId={negocioId} opcionId={o.id} ocupado={ocupado === o.id} onTraer={(url, n) => onAccion(o.id, 'traer_ficha_link', { url }, `Ficha «${n}» agregada. Ahora pulsa «Comparar la línea».`)} />}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -2689,15 +2926,23 @@ function ComplementoRequisito({ ocupado, onEnviar }: { ocupado: boolean; onEnvia
   const [nota, setNota] = useState('');
   const [archivos, setArchivos] = useState<File[]>([]);
   const ref = useRef<HTMLInputElement>(null);
-  const puede = !ocupado && (archivos.length > 0 || nota.trim().length >= 8);
+  // Desde el 28-oct-2026 (pedido del dueño) todo complemento lleva una imagen de dónde salió el dato: la nota sola ya no basta.
+  const hayCaptura = archivos.some(esCaptura);
+  const puede = !ocupado && hayCaptura;
   const enviar = async () => { if (await onEnviar(archivos, nota.trim())) { setNota(''); setArchivos([]); } };
   return (
     <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50/60 p-3">
       <p className="text-[13px] font-medium text-slate-700">Complementar</p>
-      <p className="text-xs text-slate-600">Escribe lo que sabes, adjunta el respaldo, o ambos. No cierra el requisito: lo revisa el EM.</p>
+      <p className="text-xs text-slate-600">Escribe lo que sabes y adjunta la captura de dónde lo sacaste (puedes sumar otros archivos). No cierra el requisito: lo revisa el EM.</p>
       <textarea value={nota} onChange={e => setNota(e.target.value)} rows={3}
+        onPaste={e => { const img = imagenPegada(e, 'Captura complemento'); if (img) { e.preventDefault(); setArchivos(prev => [...prev, img]); } }}
         placeholder="Ej.: el proveedor confirmó por correo que trae Wi-Fi 6 y pantalla de 1.000 nits"
         className="mt-2 w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-[13px] text-slate-700 outline-none focus:border-teal-500" />
+      {!hayCaptura && (
+        <p className="mt-1.5 rounded-md border border-amber-300 bg-amber-50/60 px-2.5 py-1.5 text-[12.5px] text-amber-900">
+          <span className="font-medium">Obligatorio: una captura (imagen PNG, JPG o WEBP) de dónde sacaste el dato.</span> Pégala con Ctrl+V en el cuadro de texto o adjúntala abajo.
+        </p>
+      )}
       <input ref={ref} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx" multiple className="hidden"
         onChange={e => { if (e.target.files?.length) setArchivos(prev => [...prev, ...Array.from(e.target.files!)]); e.target.value = ''; }} />
       {archivos.length > 0 && (
@@ -2713,7 +2958,7 @@ function ComplementoRequisito({ ocupado, onEnviar }: { ocupado: boolean; onEnvia
       <div className="mt-2 flex items-center gap-3">
         <button onClick={() => ref.current?.click()} disabled={ocupado} className="flex items-center gap-1 text-[13px] font-medium text-slate-600 hover:text-slate-900 hover:underline disabled:opacity-50"><Clip size={12} /> Adjuntar archivo</button>
         <button onClick={enviar} disabled={!puede} className="ml-auto flex items-center gap-1.5 px-3 py-1 rounded-md bg-teal-700 text-white text-[13px] font-semibold hover:bg-teal-800 disabled:opacity-40">
-          {ocupado ? <><Loader2 size={12} className="animate-spin" /> Guardando…</> : 'Agregar al requisito'}
+          {ocupado ? <><Loader2 size={12} className="animate-spin" /> Guardando…</> : hayCaptura ? 'Agregar al requisito' : 'Falta la captura'}
         </button>
       </div>
     </div>

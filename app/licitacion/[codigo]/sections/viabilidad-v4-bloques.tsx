@@ -7,7 +7,6 @@
 import { useId, useMemo, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { IconAlertTriangle as AlertTriangle, IconBan as Ban, IconCompass as Compass, IconChevronDown as ChevronDown, IconCheck as Check, IconClock as Clock, IconTrophy as Trophy, IconX as X, IconArrowRight as ArrowRight, IconBulb as Bulb, IconWallet as Wallet, IconGavel as Gavel, IconTrendingUp as TrendingUp, IconTrendingDown as TrendingDown, IconEqual as Equal, IconPackage as Package, IconClipboardCheck as ClipboardCheck, IconSearch as Search, IconShieldCheck as ShieldCheck, IconPencil as Pencil, IconQuote as Quote, IconScale as Scale, IconTarget as Target, IconListCheck as ListChecks, IconHelpCircle as HelpCircle } from '@tabler/icons-react';
-import { Badge } from '@/app/components/ui/Badge';
 import { useContador } from '@/app/lib/use-contador';
 import { BotonBuscarEquipo, BotonProductoReferencia } from './viabilidad-ui-comun';
 import { Cita, FraseCitada, _norm, EVIDENCIA_TEXTO, NIVEL_VISTA, PERIODO, cap, fmt, mayus, oracion, sinCA, valorMulta } from './viabilidad-v4-comun';
@@ -212,7 +211,7 @@ export function TarjetasClaveV4({ informe, onVerPlazos }: { informe: any; onVerP
   const prefijoPlazo = pp?.al_menos ? 'Al menos ' : '';
   const enlace = (txt: string) => <button type="button" onClick={onVerPlazos} className="text-[13px] font-medium text-marca hover:text-marca-fuerte">{txt} →</button>;
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 items-stretch">
+    <div className="grid grid-cols-1 @xl:grid-cols-2 @6xl:grid-cols-4 gap-3 items-stretch">
       <TarjetaClave i={0} etiqueta="Presupuesto" icono={<Wallet size={16} />} color={excluyente ? '#dc2626' : '#047857'} alerta={excluyente}
         valor={pres.bruto ? fmt(pres.bruto) : 'No publicado'} numero={pres.bruto ? Number(pres.bruto) : undefined} formato={fmt} unidad={pres.bruto && !pres.regimen_fora ? 'IVA incl.' : undefined}
         clave={excluyente
@@ -398,7 +397,7 @@ export function CriteriosEvaluacionV4({ criterios, crit = {}, i = 1 }: { criteri
           </button>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+        <div className="grid grid-cols-1 @4xl:grid-cols-2 gap-3 items-start">
           {ordenados.map((c, k) => {
             const cl = claseCrit(c);
             const col = COLOR_CRITERIO[k % COLOR_CRITERIO.length];
@@ -485,7 +484,7 @@ export function GanarV4({ informe }: { informe: any }) {
   return (
     <div className="space-y-3">
       {(t.se_gana_en || dsd.orden_final) && (
-        <div className={`grid grid-cols-1 gap-3 items-stretch ${dosDestacados ? 'md:grid-cols-2' : ''}`}>
+        <div className={`grid grid-cols-1 gap-3 items-stretch ${dosDestacados ? '@2xl:grid-cols-2' : ''}`}>
           {t.se_gana_en && <Aparece i={0} alto><Destacado icono={<Trophy size={20} />} etiqueta="Se gana en" texto={oracion(t.se_gana_en)} /></Aparece>}
           {dsd.orden_final && <Aparece i={1} alto><Destacado icono={<Compass size={20} />} etiqueta="Dónde se decide" texto={oracion(dsd.orden_final)} /></Aparece>}
         </div>
@@ -504,7 +503,7 @@ export function GanarV4({ informe }: { informe: any }) {
       )}
 
       {(paraGanar.length > 0 || noFuera.length > 0) && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
+        <div className="grid grid-cols-1 @4xl:grid-cols-2 gap-3 items-stretch">
           {paraGanar.length > 0 && (
             <Aparece i={3} alto>
               <section className={`${CAJA_V4} p-5 h-full`}>
@@ -559,7 +558,7 @@ export function GanarV4({ informe }: { informe: any }) {
               ))}
             </div>
           ) : undefined}>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
+          <div className="grid grid-cols-1 @4xl:grid-cols-2 gap-3 items-stretch">
             {visibles.map((j, i) => {
               const jg = JUGADA[claveJugada(j)];
               const cl = CLASE[String(j.clase || '').toUpperCase()];
@@ -639,7 +638,7 @@ function Consecuencia({ texto }: { texto: string }) {
 function DatosAdm({ filas, columnas = 2 }: { filas: Array<[string, string]>; columnas?: 2 | 3 }) {
   if (filas.length === 0) return null;
   return (
-    <dl className={`grid grid-cols-1 gap-x-5 gap-y-2.5 ${columnas === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+    <dl className={`grid grid-cols-1 gap-x-5 gap-y-2.5 ${columnas === 3 ? '@xl:grid-cols-3' : '@xl:grid-cols-2'}`}>
       {filas.map(([k, v]) => (
         <div key={k} className="min-w-0">
           <dt className="text-[11px] text-slate-500">{k}</dt>
@@ -687,7 +686,7 @@ function PresencialesV4({ adm }: { adm: any }) {
   return (
     <Bloque i={1} icon={<Compass size={18} />} titulo="Visita técnica y muestras" subtitulo="Exigencias que hay que cumplir en persona o con productos físicos, y condiciones comerciales de las bases."
       derecha={<span className={`text-[13px] font-medium tabular-nums whitespace-nowrap ${alertas ? 'text-urgente' : 'text-exito'}`}>{alertas ? `${alertas} ${alertas === 1 ? 'exigencia' : 'exigencias'}` : 'Sin exigencias'}</span>}>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
+      <div className="grid grid-cols-1 @4xl:grid-cols-2 gap-3 items-stretch">
         <FichaPresencial icono={<Compass size={18} />} titulo="Visita técnica"
           estado={ev === 'OBLIGATORIA' ? 'Visita obligatoria' : ev === 'VOLUNTARIA' ? 'Visita voluntaria' : ev === 'EXISTE' ? 'Hay visita (confirmar si es obligatoria)' : ev === 'NO_EXISTE' ? 'No hay visita' : 'No indicada en las bases'}
           tono={ev === 'OBLIGATORIA' ? 'rojo' : ev === 'VOLUNTARIA' || ev === 'EXISTE' ? 'ambar' : ev === 'NO_EXISTE' ? 'verde' : 'gris'}
@@ -700,7 +699,7 @@ function PresencialesV4({ adm }: { adm: any }) {
           consecuencia={em === 'EXIGE' ? m.consecuencia : undefined} cita={m.cita} delDetector={m.origen === 'detector'} />
       </div>
       {otras.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch mt-3">
+        <div className="grid grid-cols-1 @4xl:grid-cols-2 gap-3 items-stretch mt-3">
           {otras.map((o, k) => (
             <FichaPresencial key={k} icono={<Clock size={18} />} titulo={OTRA_TITULO[String(o.tipo || '').toUpperCase()] || 'Exigencia presencial'}
               estado={oracion(o.que || '')} tono={o.obligatoria === false ? 'ambar' : 'rojo'}
@@ -733,7 +732,7 @@ function PresencialesV4({ adm }: { adm: any }) {
 function ResumenAdm({ items }: { items: Array<{ rotulo: string; valor: string; tono: TonoAdm; destino: string }> }) {
   const ir = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   return (
-    <div className={`grid grid-cols-2 gap-3 ${items.length === 3 ? 'lg:grid-cols-3' : items.length === 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-5'}`}>
+    <div className={`grid grid-cols-2 gap-3 ${items.length === 3 ? '@2xl:grid-cols-3' : items.length === 4 ? '@2xl:grid-cols-4' : '@2xl:grid-cols-3 @4xl:grid-cols-5'}`}>
       {items.map((it, k) => (
         <Aparece key={it.rotulo} i={k} alto>
           <button type="button" onClick={() => ir(it.destino)}
@@ -789,7 +788,7 @@ export function AdmisibilidadV4({ informe }: { informe: any }) {
           {requisitos.length === 0 ? (
             <div className="rounded-xl bg-emerald-50 px-4 py-3 flex items-center gap-2.5 text-[14px] text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"><Check size={18} className="flex-shrink-0 text-exito" />El análisis no encontró requisitos que dejen la oferta fuera.</div>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+            <div className="grid grid-cols-1 @4xl:grid-cols-2 gap-3 items-start">
               {requisitos.map((r: any, k: number) => {
                 const datos: Array<[string, string]> = ([['Cuánto', r.cuanto], ['Cuándo', r.cuando], ['Cómo', r.como]] as Array<[string, any]>).filter(([, v]) => v).map(([kk, v]) => [kk, String(v)]);
                 const abierto = !cerrados.has(k);
@@ -845,7 +844,7 @@ export function AdmisibilidadV4({ informe }: { informe: any }) {
 
       <div id={`${uid}-gar`} className="scroll-mt-4">
         <Bloque i={2} icon={<Gavel size={18} />} titulo="Garantías, contrato y firma" subtitulo="Qué hay que presentar o firmar para poder ofertar.">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-stretch">
+          <div className="grid grid-cols-1 @xl:grid-cols-2 @4xl:grid-cols-4 gap-3 items-stretch">
             {GARANTIAS.map(([k, label], n) => {
               const g = garantias[k] || {};
               const est = String(g.estado || 'NO_INDICADO').toUpperCase();
@@ -980,7 +979,7 @@ export function PlazosV4({ informe }: { informe: any }) {
       {(inicio || entrega) && (
         <div id={`${uid}-entrega`} className="scroll-mt-4">
           <Bloque i={1} icon={<TrendingUp size={18} />} titulo="Entrega" subtitulo="Cuándo parte el plazo de entrega y cuánto dura.">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch">
+            <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-3 items-stretch">
               {inicio && (
                 <Aparece i={2} alto>
                   <Dato etiqueta="Inicio del plazo de entrega">
@@ -1010,7 +1009,7 @@ export function PlazosV4({ informe }: { informe: any }) {
             <div className="rounded-xl bg-emerald-50 px-4 py-3 flex items-center gap-2.5 text-[14px] text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"><Check size={18} className="flex-shrink-0 text-exito" />Las bases no establecen multa por atraso.</div>
           ) : (
             <div className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-stretch">
+              <div className="grid grid-cols-1 @xl:grid-cols-2 @4xl:grid-cols-3 gap-3 items-stretch">
                 <Aparece i={3} alto>
                   <Dato etiqueta="Según las bases">
                     <p className="text-[26px] font-semibold tracking-tight text-tinta dark:text-slate-50 leading-tight tabular-nums">{valorMulta(atraso)}</p>
@@ -1053,51 +1052,79 @@ function FilaProducto({ p, abierta, onToggle, codigo, informe }: { p: any; abier
   const esEsp = String(p.clasificacion || '').toLowerCase().startsWith('espec');
   const hayDetalle = cs.length > 0 || noEnc.length > 0;
   return (
-    <div className={abierta ? 'bg-slate-50/70' : ''}>
-      <div role={hayDetalle ? 'button' : undefined} tabIndex={hayDetalle ? 0 : undefined} onClick={hayDetalle ? onToggle : undefined}
+    <div className={`transition-colors duration-150 ${abierta ? 'bg-slate-50/70 dark:bg-slate-800/30' : ''}`}>
+      <div role={hayDetalle ? 'button' : undefined} tabIndex={hayDetalle ? 0 : undefined} onClick={hayDetalle ? onToggle : undefined} aria-expanded={hayDetalle ? abierta : undefined}
         onKeyDown={hayDetalle ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } } : undefined}
-        className={`grid grid-cols-[40px_1fr_auto] md:grid-cols-[48px_1fr_120px_96px_24px] items-center gap-x-3 gap-y-1 px-4 py-3 ${hayDetalle ? 'cursor-pointer hover:bg-slate-50 transition-colors' : ''}`}>
-        <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 rounded-md px-1.5 py-1 text-center">{p.linea}</span>
+        className={`grid grid-cols-[40px_1fr_auto] @2xl:grid-cols-[48px_1fr_120px_110px_24px] items-center gap-x-3 gap-y-1 px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-marca/60 ${hayDetalle ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40' : ''}`}>
+        <span className="text-[12px] font-medium tabular-nums text-slate-500">{p.linea}</span>
         <div className="min-w-0">
-          <p className="text-[14px] font-bold text-slate-900 leading-snug">{oracion(p.nombre)}{p.marca_modelo_referencia ? <span className="font-medium text-slate-500"> · {p.marca_modelo_referencia}</span> : null}</p>
-          <div className="flex items-center gap-1.5 flex-wrap mt-0.5 empty:hidden">
-            {p.libertad_de_oferta && <span title="Las bases no detallan características: se puede ofertar el que más nos convenga"><Badge variant="success">Libertad de oferta</Badge></span>}
-            {p.libertad_de_pricing && <span title="Las bases no publican el monto de esta línea"><Badge>Precio libre</Badge></span>}
-            {p.cantidad_variable?.porcentaje && <span title="Las bases permiten variar la cantidad"><Badge variant="warning">± {p.cantidad_variable.porcentaje}</Badge></span>}
-            {noEnc.length > 0 && <Badge variant="warning">{noEnc.length} por revisar</Badge>}
+          <p className="text-[14px] font-semibold text-tinta dark:text-slate-50 leading-snug">{oracion(p.nombre)}{p.marca_modelo_referencia ? <span className="font-normal text-tinta-2 dark:text-slate-400"> · {p.marca_modelo_referencia}</span> : null}</p>
+          <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap mt-1 empty:hidden">
+            {p.libertad_de_oferta && <span title="Las bases no detallan características: se puede ofertar el que más nos convenga"><Marca color="#16a34a">Libertad de oferta</Marca></span>}
+            {p.libertad_de_pricing && <span title="Las bases no publican el monto de esta línea"><Marca color="#94a3b8">Precio libre</Marca></span>}
+            {p.cantidad_variable?.porcentaje && <span title="Las bases permiten variar la cantidad"><Marca color="#d97706">Cantidad ± {p.cantidad_variable.porcentaje}</Marca></span>}
+            {noEnc.length > 0 && <Marca color="#d97706">{noEnc.length} por revisar</Marca>}
           </div>
         </div>
-        <p className="text-right text-[14px] font-semibold text-slate-900 tabular-nums whitespace-nowrap">
-          {p.cantidad != null ? <>{p.cantidad}<span className="text-[12px] font-semibold text-slate-500">{p.unidad_medida ? ` ${p.unidad_medida}` : ''}{p.unidad_inferida ? '*' : ''}</span></> : <span className="text-slate-300">—</span>}
+        <p className="text-right text-[15px] font-semibold text-tinta dark:text-slate-50 tabular-nums whitespace-nowrap">
+          {p.cantidad != null ? <>{p.cantidad}<span className="text-[12px] font-medium text-tinta-2 dark:text-slate-400">{p.unidad_medida ? ` ${p.unidad_medida}` : ''}{p.unidad_inferida ? '*' : ''}</span></> : <span className="text-slate-300">—</span>}
         </p>
-        <span className="hidden md:block"><Badge variant={esEsp ? 'primary' : 'default'}>{esEsp ? 'Específico' : 'Genérico'}</Badge></span>
-        <span className="hidden md:flex justify-end text-slate-400">{hayDetalle && <ChevronDown size={16} className={`transition-transform duration-200 ${abierta ? 'rotate-180' : ''}`} />}</span>
+        <span className="hidden @2xl:block"><Marca color={esEsp ? '#0f766e' : '#94a3b8'}>{esEsp ? 'Específico' : 'Genérico'}</Marca></span>
+        <span className="hidden @2xl:flex justify-end text-slate-400">{hayDetalle && <ChevronDown size={16} className={`transition-transform duration-200 ${abierta ? 'rotate-180' : ''}`} />}</span>
       </div>
       <AnimatePresence initial={false}>
         {abierta && hayDetalle && (
-          <motion.div key="detalle" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.25, ease: 'easeOut' }} className="overflow-hidden">
-            <div className="px-4 pb-4 pl-[68px] space-y-3">
+          <motion.div key="detalle" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }} className="overflow-hidden">
+            <div className="px-4 pb-4 @2xl:pl-[76px] space-y-3">
               {cs.length > 0 && (
                 <div>
-                  <p className="text-[11px] font-bold text-slate-400 mb-1.5">Ficha técnica · {cs.length}</p>
-                  <ul className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-1">
-                    {cs.map((c, k) => <li key={k} className="flex items-start gap-1.5 text-[12.5px] text-slate-700 leading-snug"><Check size={14} className="text-emerald-600 flex-shrink-0 mt-0.5" />{mayus(c)}</li>)}
+                  <p className="text-[11px] text-slate-500 mb-1.5">Ficha técnica · <span className="tabular-nums">{cs.length}</span></p>
+                  <ul className="grid grid-cols-1 @4xl:grid-cols-2 gap-x-6 gap-y-1">
+                    {cs.map((c, k) => <li key={k} className="flex items-start gap-1.5 text-[13px] text-tinta-2 dark:text-slate-300 leading-snug"><Check size={14} className="text-marca flex-shrink-0 mt-0.5" />{mayus(c)}</li>)}
                   </ul>
                 </div>
               )}
               {noEnc.length > 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-                  <p className="flex items-start gap-1.5 text-[12.5px] font-semibold text-amber-800"><AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />{noEnc.length} {noEnc.length === 1 ? 'característica no encontrada' : 'características no encontradas'} en las bases: no pasan al auditor hasta revisarlas.</p>
-                  <ul className="mt-1 ml-5 list-disc text-[12px] text-amber-900 space-y-0.5">{noEnc.map((c, k) => <li key={k}>{mayus(c)}</li>)}</ul>
+                <div className="rounded-xl bg-amber-50 px-4 py-3 dark:bg-amber-950/30">
+                  <p className="flex items-start gap-1.5 text-[13px] font-medium text-amber-900 dark:text-amber-200"><AlertTriangle size={15} className="flex-shrink-0 mt-px text-alerta" />{noEnc.length} {noEnc.length === 1 ? 'característica no encontrada' : 'características no encontradas'} en las bases: no pasan al auditor hasta revisarlas.</p>
+                  <ul className="mt-1.5 ml-6 list-disc text-[12.5px] text-amber-900 space-y-0.5 dark:text-amber-200/90">{noEnc.map((c, k) => <li key={k}>{mayus(c)}</li>)}</ul>
                 </div>
               )}
-              {cs.length >= 3 && <BotonBuscarEquipo codigo={String(informe.meta?.id || codigo)} region={informe.meta?.region} producto={{ descripcion: p.nombre, caracteristicas: cs, cantidad: p.cantidad }} />}
-              {cs.length >= 3 && <BotonProductoReferencia codigo={String(informe.meta?.id || codigo)} producto={{ nombre: p.nombre, marca_modelo_referencia: p.marca_modelo_referencia, caracteristicas: cs }} />}
+              {cs.length >= 3 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <BotonBuscarEquipo codigo={String(informe.meta?.id || codigo)} region={informe.meta?.region} producto={{ descripcion: p.nombre, caracteristicas: cs, cantidad: p.cantidad }} />
+                  <BotonProductoReferencia codigo={String(informe.meta?.id || codigo)} producto={{ nombre: p.nombre, marca_modelo_referencia: p.marca_modelo_referencia, caracteristicas: cs }} />
+                </div>
+              )}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+// Tarjeta resumen que filtra (Productos): número grande + punto de color; la activa queda marcada en teal.
+function TarjetaFiltro({ i, rotulo, n, tono, activa, onClick }: { i: number; rotulo: string; n: number; tono: TonoAdm; activa: boolean; onClick: () => void }) {
+  return (
+    <Aparece i={i} alto>
+      <button type="button" onClick={onClick} aria-pressed={activa}
+        className={`group w-full h-full text-left rounded-2xl border bg-white px-4 py-3.5 shadow-tarjeta transition-[box-shadow,transform,border-color] duration-150 ease-lk hover:shadow-tarjeta-hover hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:bg-slate-900 ${activa ? 'border-marca ring-1 ring-marca dark:border-teal-600' : 'border-linea dark:border-slate-800'}`}>
+        <span className="flex items-center gap-2 text-[13px] text-tinta-2 dark:text-slate-400"><span aria-hidden className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: TONO_ADM[tono] }} />{rotulo}</span>
+        <span className="mt-1.5 block text-[28px] font-semibold tracking-tight leading-none tabular-nums text-tinta dark:text-slate-50"><Pct valor={n} /></span>
+        <span className={`mt-2 block text-xs ${activa ? 'text-marca' : 'text-marca opacity-70 group-hover:opacity-100'}`}>{activa ? 'Filtrando · quitar filtro' : 'Filtrar'}</span>
+      </button>
+    </Aparece>
+  );
+}
+
+// Selector de línea: segmento con borde; la activa en teal suave.
+function ChipLinea({ activa, apagada, onClick, children }: { activa: boolean; apagada?: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button type="button" onClick={onClick} aria-pressed={activa}
+      className={`text-[13px] px-3 py-1.5 rounded-lg border tabular-nums transition-colors duration-150 ${activa ? 'border-marca bg-marca-suave text-marca font-medium dark:bg-teal-950/40 dark:border-teal-700 dark:text-teal-300' : apagada ? 'border-linea bg-slate-50 text-slate-400 hover:border-slate-300 dark:bg-slate-800/40 dark:border-slate-800' : 'border-linea bg-white text-tinta-2 hover:border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300'}`}>
+      {children}
+    </button>
   );
 }
 
@@ -1119,6 +1146,7 @@ export function ProductosV4({ informe, codigo }: { informe: any; codigo: string 
 
   const esEsp = (p: any) => String(p.clasificacion || '').toLowerCase().startsWith('espec');
   const conAlerta = (p: any) => Array.isArray(p.caracteristicas_no_encontradas) && p.caracteristicas_no_encontradas.length > 0;
+  const tieneDetalle = (p: any) => (Array.isArray(p.caracteristicas) && p.caracteristicas.length > 0) || conAlerta(p);
   const porLinea = lineaSel === 'todas' || esGlobal ? items : items.filter(it => String(it?.linea) === lineaSel);
   const cuentas = { todos: porLinea.length, especificos: porLinea.filter(esEsp).length, libre: porLinea.filter(p => p.libertad_de_oferta).length, alertas: porLinea.filter(conAlerta).length };
   const nq = _norm(q.trim());
@@ -1129,53 +1157,51 @@ export function ProductosV4({ informe, codigo }: { informe: any; codigo: string 
     return !nq || _norm(`${p.nombre || ''} ${p.marca_modelo_referencia || ''} ${p.linea || ''}`).includes(nq);
   });
   const alternar = (i: number) => setAbiertos(prev => { const n = new Set(prev); if (n.has(i)) n.delete(i); else n.add(i); return n; });
+  const conDetalle = visibles.filter(tieneDetalle).map(p => items.indexOf(p));
+  const todosAbiertos = conDetalle.length > 0 && conDetalle.every(i => abiertos.has(i));
 
-  const pill = (activo: boolean) => `text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${activo ? 'bg-marca text-white border-marca' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`;
-  const tiles: Array<{ id: FiltroProd; etiqueta: string; n: number; color: string; icono: React.ReactNode }> = [
-    { id: 'todos', etiqueta: 'Productos a cotizar', n: cuentas.todos, color: '#7c3aed', icono: <Package size={20} /> },
-    { id: 'especificos', etiqueta: 'Específicos', n: cuentas.especificos, color: '#4f46e5', icono: <ListChecks size={20} /> },
-    { id: 'libre', etiqueta: 'Libertad de oferta', n: cuentas.libre, color: '#059669', icono: <Check size={20} /> },
-    { id: 'alertas', etiqueta: 'Por revisar', n: cuentas.alertas, color: '#d97706', icono: <AlertTriangle size={20} /> },
+  const tiles: Array<{ id: FiltroProd; rotulo: string; n: number; tono: TonoAdm }> = [
+    { id: 'todos', rotulo: 'Productos a cotizar', n: cuentas.todos, tono: 'gris' },
+    { id: 'especificos', rotulo: 'Específicos', n: cuentas.especificos, tono: 'gris' },
+    { id: 'libre', rotulo: 'Libertad de oferta', n: cuentas.libre, tono: cuentas.libre ? 'verde' : 'gris' },
+    { id: 'alertas', rotulo: 'Por revisar', n: cuentas.alertas, tono: cuentas.alertas ? 'ambar' : 'verde' },
   ];
 
   return (
     <div className="space-y-3">
-      <Aparece>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 items-stretch">
-          {tiles.map(tl => (
-            <button key={tl.id} type="button" onClick={() => setFiltro(f => f === tl.id ? 'todos' : tl.id)} aria-pressed={filtro === tl.id}
-              className={`text-left border rounded-2xl p-4 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 ${filtro === tl.id && tl.id !== 'todos' ? 'ring-2 ring-marca border-teal-300 bg-marca-suave/40' : 'bg-white border-slate-200'}`}>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[11px] text-slate-500 font-semibold mb-1.5">{tl.etiqueta}</p>
-                  <p className="text-[28px] font-semibold leading-none tabular-nums text-slate-900"><Pct valor={tl.n} /></p>
-                </div>
-                <div className="w-[38px] h-[38px] rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: tl.color + '18', color: tl.color }}>{tl.icono}</div>
-              </div>
-            </button>
-          ))}
-        </div>
-      </Aparece>
+      <div className="grid grid-cols-2 @2xl:grid-cols-4 gap-3">
+        {tiles.map((tl, k) => (
+          <TarjetaFiltro key={tl.id} i={k} rotulo={tl.rotulo} n={tl.n} tono={tl.tono} activa={filtro === tl.id && tl.id !== 'todos'} onClick={() => setFiltro(f => f === tl.id ? 'todos' : tl.id)} />
+        ))}
+      </div>
 
       <Bloque i={1} icon={<Package size={18} />} titulo="Productos a cotizar" subtitulo="Toca un producto para ver su ficha técnica."
-        derecha={conteo ? <span className="text-[12px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">{conteo.final} de {conteo.declarado ?? conteo.final}</span> : undefined}>
+        derecha={(
+          <div className="flex items-center gap-4 flex-shrink-0">
+            {conDetalle.length > 1 && (
+              <button type="button" onClick={() => setAbiertos(todosAbiertos ? new Set() : new Set(conDetalle))}
+                className="text-[13px] font-medium text-marca hover:text-marca-fuerte whitespace-nowrap">{todosAbiertos ? 'Contraer todos' : 'Expandir todos'}</button>
+            )}
+            {conteo && <span title="Productos encontrados de los que declaran las bases" className={`text-[13px] font-medium tabular-nums whitespace-nowrap ${conteo.cuadra === false ? 'text-alerta' : 'text-tinta-2 dark:text-slate-400'}`}>{conteo.final} de {conteo.declarado ?? conteo.final}</span>}
+          </div>
+        )}>
         <div className="space-y-3">
-          {conteo && conteo.cuadra === false && <p className="text-[12.5px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-1.5"><AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />El conteo no cuadra: {conteo.detalle}</p>}
+          {conteo && conteo.cuadra === false && <p className="flex items-start gap-1.5 text-[13px] text-amber-900 bg-amber-50 rounded-xl px-4 py-3 dark:bg-amber-950/30 dark:text-amber-200"><AlertTriangle size={15} className="flex-shrink-0 mt-0.5 text-alerta" />El conteo no cuadra: {conteo.detalle}</p>}
 
           {lineasNivel.length > 1 ? (
             <div className="flex flex-wrap gap-1.5">
-              <button onClick={() => setLineaSel('todas')} className={pill(lineaSel === 'todas')}>Todas</button>
+              <ChipLinea activa={lineaSel === 'todas'} onClick={() => setLineaSel('todas')}>Todas</ChipLinea>
               {lineasNivel.map((l: any) => (
-                <button key={l.linea} onClick={() => setLineaSel(l.linea)} className={`${pill(lineaSel === l.linea)} ${!l.viable && lineaSel !== l.linea ? '!bg-slate-50 !text-slate-400' : ''}`}>
-                  {l.linea} · {l.presupuesto_neto != null ? `${fmt(l.presupuesto_neto)} neto` : 'sin monto'} · {l.viable ? mayus((NIVEL_VISTA[l.nivel]?.label || l.nivel || '').toLowerCase()) : 'No viable'}
-                </button>
+                <ChipLinea key={l.linea} activa={lineaSel === l.linea} apagada={!l.viable} onClick={() => setLineaSel(l.linea)}>
+                  <span className="font-medium">{l.linea}</span> · {l.presupuesto_neto != null ? `${fmt(l.presupuesto_neto)} neto` : 'sin monto'} · {l.viable ? mayus((NIVEL_VISTA[l.nivel]?.label || l.nivel || '').toLowerCase()) : 'No viable'}
+                </ChipLinea>
               ))}
             </div>
           ) : lineas.length > 1 && !esGlobal ? (
             <div className="flex flex-wrap gap-1.5">
               {['todas', ...lineas].map(l => {
                 const mp = porLineaPres.find((x: any) => x.linea === l);
-                return <button key={l} onClick={() => setLineaSel(l)} className={pill(lineaSel === l)}>{l === 'todas' ? 'Todas' : `${l}${mp ? ` · ${fmt(mp.monto_pesos)}` : ''}`}</button>;
+                return <ChipLinea key={l} activa={lineaSel === l} onClick={() => setLineaSel(l)}>{l === 'todas' ? 'Todas' : <><span className="font-medium">{l}</span>{mp ? ` · ${fmt(mp.monto_pesos)}` : ''}</>}</ChipLinea>;
               })}
             </div>
           ) : null}
@@ -1183,24 +1209,24 @@ export function ProductosV4({ informe, codigo }: { informe: any; codigo: string 
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar producto, marca o línea" aria-label="Buscar producto"
-              className="w-full h-10 pl-9 pr-9 rounded-xl border border-slate-200 bg-white text-[13.5px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-marca focus:ring-2 focus:ring-marca/15" />
+              className="w-full h-10 pl-9 pr-9 rounded-xl border border-linea bg-white text-[13.5px] text-tinta placeholder:text-slate-400 focus:outline-none focus:border-marca focus:ring-2 focus:ring-marca/15 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100" />
             {q && <button type="button" onClick={() => setQ('')} aria-label="Borrar búsqueda" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><X size={16} /></button>}
           </div>
 
-          <div className="rounded-xl border border-slate-200 overflow-hidden">
-            <div className="hidden md:grid grid-cols-[48px_1fr_120px_96px_24px] gap-x-3 px-4 py-2.5 bg-slate-50 text-[11px] font-bold text-slate-500">
+          <div className="rounded-xl border border-linea overflow-hidden dark:border-slate-800">
+            <div className="hidden @2xl:grid grid-cols-[48px_1fr_120px_110px_24px] gap-x-3 px-4 py-2.5 bg-slate-50 text-xs font-medium text-tinta-2 dark:bg-slate-800/60 dark:text-slate-400">
               <span>Línea</span><span>Producto</span><span className="text-right">Cantidad</span><span>Tipo</span><span />
             </div>
-            <div className="divide-y divide-slate-100">
-              {visibles.length === 0 && <p className="px-4 py-8 text-center text-[13px] text-slate-500">{items.length === 0 ? 'El análisis no encontró productos.' : 'Ningún producto coincide con la búsqueda o el filtro.'}</p>}
+            <div className="divide-y divide-linea/80 dark:divide-slate-800">
+              {visibles.length === 0 && <p className="px-4 py-8 text-center text-[13px] text-tinta-2 dark:text-slate-400">{items.length === 0 ? 'El análisis no encontró productos.' : 'Ningún producto coincide con la búsqueda o el filtro.'}</p>}
               {visibles.map(p => {
                 const idx = items.indexOf(p);
                 return <FilaProducto key={idx} p={p} abierta={abiertos.has(idx)} onToggle={() => alternar(idx)} codigo={codigo} informe={informe} />;
               })}
             </div>
           </div>
-          <div className="flex items-center justify-between text-[11.5px] text-slate-400">
-            <span>{visibles.length === porLinea.length ? `${porLinea.length} ${porLinea.length === 1 ? 'producto' : 'productos'}` : `${visibles.length} de ${porLinea.length} productos`}</span>
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <span className="tabular-nums">{visibles.length === porLinea.length ? `${porLinea.length} ${porLinea.length === 1 ? 'producto' : 'productos'}` : `${visibles.length} de ${porLinea.length} productos`}</span>
             {items.some(p => p.unidad_inferida) && <span>* Unidad de medida no indicada en las bases</span>}
           </div>
         </div>
@@ -1208,13 +1234,13 @@ export function ProductosV4({ informe, codigo }: { informe: any; codigo: string 
 
       {requisitos.length > 0 && (
         <Bloque i={2} icon={<ClipboardCheck size={18} />} titulo="Requisitos generales de los productos" subtitulo="Garantía, capacitación, manuales, certificados, mantenciones… Van al bloque técnico-administrativo del auditor."
-          derecha={<span className="text-[12px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">{requisitos.length}</span>}>
-          <ul className="divide-y divide-slate-100">
+          derecha={<span className="text-[13px] font-medium tabular-nums text-tinta-2 dark:text-slate-400">{requisitos.length}</span>}>
+          <ul className="divide-y divide-linea/80 dark:divide-slate-800">
             {requisitos.map((r: any, i: number) => (
-              <li key={i} className="py-2.5 flex items-start gap-2.5">
+              <li key={i} className="py-3 first:pt-0 last:pb-0 flex items-start gap-2.5">
                 <Check size={16} className="text-marca flex-shrink-0 mt-0.5" />
-                <div className="min-w-0 space-y-0.5">
-                  <p className="text-[13.5px] text-slate-800 leading-snug">{r.producto ? <span className="font-bold text-slate-500">{mayus(r.producto)}: </span> : null}{mayus(r.texto)}</p>
+                <div className="min-w-0 space-y-1">
+                  <p className="text-[13.5px] text-tinta-2 dark:text-slate-300 leading-snug">{r.producto ? <span className="font-semibold text-tinta dark:text-slate-100">{mayus(r.producto)}: </span> : null}{mayus(r.texto)}</p>
                   {r.cita && <Cita cita={r.cita} />}
                 </div>
               </li>
@@ -1228,10 +1254,13 @@ export function ProductosV4({ informe, codigo }: { informe: any; codigo: string 
 
 // ─── Preparación: lo que hay que tener listo para postular ─────────────────────────────────
 function Vacio({ texto }: { texto: string }) {
-  return <p className="rounded-xl border border-dashed border-slate-200 px-4 py-4 text-center text-[13px] text-slate-500">{texto}</p>;
+  return <p className="rounded-xl bg-slate-50/80 px-4 py-4 text-center text-[13px] text-tinta-2 dark:bg-slate-800/40 dark:text-slate-400">{texto}</p>;
 }
 
+const nDocs = (n: number, uno: string, varios: string) => n ? `${n} ${n === 1 ? uno : varios}` : 'Ninguno';
+
 export function PreparacionV4({ informe }: { informe: any }) {
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const adm = informe.requisitos_admisibilidad || {};
   const acc = informe.acciones_y_advertencias || {};
   const documentos: any[] = Array.isArray(adm.documentos_solicitados) ? adm.documentos_solicitados : [];
@@ -1240,45 +1269,29 @@ export function PreparacionV4({ informe }: { informe: any }) {
   const aCrear: any[] = Array.isArray(adm.documentos_a_crear) ? adm.documentos_a_crear : [];
   const acciones: any[] = Array.isArray(acc.acciones) ? acc.acciones : [];
   const advertencias: any[] = Array.isArray(acc.advertencias) ? acc.advertencias : [];
-  const ir = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  const tiles = [
-    { id: 'prep-empresa', etiqueta: 'Documentos de empresa', n: docsEmpresa.length, color: '#7c3aed', icono: <ClipboardCheck size={20} /> },
-    { id: 'prep-anexos', etiqueta: 'Anexos del organismo', n: anexosOrg.length, color: '#0284c7', icono: <Package size={20} /> },
-    { id: 'prep-crear', etiqueta: 'Documentos a crear', n: aCrear.length, color: '#059669', icono: <Pencil size={20} /> },
-    { id: 'prep-acciones', etiqueta: 'Advertencias', n: advertencias.length, color: '#d97706', icono: <AlertTriangle size={20} /> },
+  const resumen: Array<{ rotulo: string; valor: string; tono: TonoAdm; destino: string }> = [
+    { rotulo: 'Documentos de empresa', valor: nDocs(docsEmpresa.length, 'documento', 'documentos'), tono: 'gris', destino: `${uid}-empresa` },
+    { rotulo: 'Anexos del organismo', valor: nDocs(anexosOrg.length, 'anexo', 'anexos'), tono: 'gris', destino: `${uid}-anexos` },
+    { rotulo: 'Documentos a crear', valor: nDocs(aCrear.length, 'documento', 'documentos'), tono: 'gris', destino: `${uid}-crear` },
+    { rotulo: 'Advertencias', valor: advertencias.length ? `${advertencias.length} ${advertencias.length === 1 ? 'advertencia' : 'advertencias'}` : 'Ninguna', tono: advertencias.length ? 'ambar' : 'verde', destino: `${uid}-acciones` },
   ];
   return (
     <div className="space-y-3">
-      <Aparece>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 items-stretch">
-          {tiles.map(tl => (
-            <button key={tl.id} type="button" onClick={() => ir(tl.id)}
-              className="text-left bg-white border border-slate-200 rounded-2xl p-4 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[11px] text-slate-500 font-semibold mb-1.5">{tl.etiqueta}</p>
-                  <p className="text-[28px] font-semibold leading-none tabular-nums text-slate-900"><Pct valor={tl.n} /></p>
-                </div>
-                <div className="w-[38px] h-[38px] rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: tl.color + '18', color: tl.color }}>{tl.icono}</div>
-              </div>
-            </button>
-          ))}
-        </div>
-      </Aparece>
+      <ResumenAdm items={resumen} />
 
       {(acciones.length > 0 || advertencias.length > 0) && (
-        <div id="prep-acciones" className="scroll-mt-4">
+        <div id={`${uid}-acciones`} className="scroll-mt-4">
           <Bloque i={1} icon={<Target size={18} />} titulo="Acciones y advertencias" subtitulo="Qué hacer para postular y qué cuidar en el camino.">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5">
+            <div className="grid grid-cols-1 @4xl:grid-cols-2 gap-3 items-start">
               {acciones.length > 0 && (
-                <div>
-                  <p className="flex items-center gap-1.5 text-[13px] font-semibold text-emerald-700 mb-3"><Check size={16} /> Para postular</p>
+                <div className="rounded-xl bg-slate-50/80 p-4 dark:bg-slate-800/40">
+                  <p className="flex items-center gap-2 text-[15px] font-semibold text-tinta dark:text-slate-50 mb-3"><Check size={17} className="text-exito" />Para postular <span className="text-[13px] font-medium tabular-nums text-tinta-2 dark:text-slate-400">{acciones.length}</span></p>
                   <ol className="space-y-3">{acciones.map((a, i) => (
-                    <li key={i} className="flex items-start gap-2.5">
-                      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-600 text-white text-[12px] font-semibold flex items-center justify-center">{i + 1}</span>
-                      <div className="min-w-0 space-y-0.5">
-                        <p className="text-[14px] font-semibold text-slate-900 leading-snug pt-px">{oracion(a.orden)}</p>
-                        {a.por_que && <p className="text-[12.5px] text-slate-500 leading-snug">{oracion(a.por_que)}</p>}
+                    <li key={i} className="flex items-start gap-3">
+                      <span className="flex-shrink-0 w-6 h-6 rounded-lg bg-white text-marca text-[12px] font-semibold tabular-nums flex items-center justify-center shadow-tarjeta dark:bg-slate-900">{i + 1}</span>
+                      <div className="min-w-0 space-y-1">
+                        <p className="text-[14px] font-medium text-tinta dark:text-slate-100 leading-snug pt-px">{oracion(a.orden)}</p>
+                        {a.por_que && <p className="text-[13px] text-tinta-2 dark:text-slate-400 leading-snug">{oracion(a.por_que)}</p>}
                         {a.cita && <Cita cita={a.cita} />}
                       </div>
                     </li>
@@ -1286,14 +1299,14 @@ export function PreparacionV4({ informe }: { informe: any }) {
                 </div>
               )}
               {advertencias.length > 0 && (
-                <div>
-                  <p className="flex items-center gap-1.5 text-[13px] font-semibold text-amber-700 mb-3"><AlertTriangle size={16} /> Advertencias</p>
+                <div className="rounded-xl bg-amber-50/70 p-4 dark:bg-amber-950/20">
+                  <p className="flex items-center gap-2 text-[15px] font-semibold text-tinta dark:text-slate-50 mb-3"><AlertTriangle size={17} className="text-alerta" />Advertencias <span className="text-[13px] font-medium tabular-nums text-tinta-2 dark:text-slate-400">{advertencias.length}</span></p>
                   <ul className="space-y-3">{advertencias.map((a, i) => (
-                    <li key={i} className="flex items-start gap-2.5">
-                      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center"><AlertTriangle size={14} /></span>
-                      <div className="min-w-0 space-y-0.5">
-                        <p className="text-[14px] font-semibold text-slate-900 leading-snug pt-px">{oracion(a.riesgo)}</p>
-                        {a.consecuencia && <p className="text-[12.5px] text-amber-800 leading-snug">{oracion(a.consecuencia)}</p>}
+                    <li key={i} className="flex items-start gap-3">
+                      <span aria-hidden className="flex-shrink-0 w-2 h-2 rounded-full mt-[7px]" style={{ background: TONO_ADM.ambar }} />
+                      <div className="min-w-0 space-y-1">
+                        <p className="text-[14px] font-medium text-tinta dark:text-slate-100 leading-snug">{oracion(a.riesgo)}</p>
+                        {a.consecuencia && <p className="text-[13px] text-amber-900 dark:text-amber-200/90 leading-snug">{oracion(a.consecuencia)}</p>}
                         {a.cita && <Cita cita={a.cita} />}
                       </div>
                     </li>
@@ -1305,19 +1318,21 @@ export function PreparacionV4({ informe }: { informe: any }) {
         </div>
       )}
 
-      <div id="prep-empresa" className="scroll-mt-4">
+      <div id={`${uid}-empresa`} className="scroll-mt-4">
         <Bloque i={2} icon={<ClipboardCheck size={18} />} titulo="Documentos de empresa" subtitulo="Estatuto, vigencia, certificados y otros papeles que la empresa debe tener al día."
-          derecha={docsEmpresa.length ? <span className="text-[12px] font-bold px-2.5 py-1 rounded-full bg-teal-50 text-marca">{docsEmpresa.length}</span> : undefined}>
+          derecha={docsEmpresa.length ? <span className="text-[13px] font-medium tabular-nums text-tinta-2 dark:text-slate-400">{docsEmpresa.length}</span> : undefined}>
           {docsEmpresa.length === 0 ? <Vacio texto="Las bases no piden documentos de empresa aparte de los anexos." /> : (
-            <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden">
+            <ul className="divide-y divide-linea/80 rounded-xl border border-linea overflow-hidden dark:border-slate-800 dark:divide-slate-800">
               {docsEmpresa.map((d, i) => (
-                <li key={i} className="px-4 py-3 flex items-start gap-3 hover:bg-slate-50/70 transition-colors">
-                  <Check size={16} className="text-marca flex-shrink-0 mt-0.5" />
-                  <div className="min-w-0 flex-1 space-y-0.5">
-                    <p className="text-[13.5px] font-semibold text-slate-900 leading-snug">{oracion(d.nombre)}</p>
-                    {d.cita && <Cita cita={d.cita} />}
+                <li key={i} className="px-4 py-3 flex flex-col @xl:flex-row @xl:items-start gap-x-3 gap-y-1.5 transition-colors duration-150 hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
+                  <div className="min-w-0 flex-1 flex items-start gap-3">
+                    <Check size={16} className="text-marca flex-shrink-0 mt-0.5" />
+                    <div className="min-w-0 space-y-1">
+                      <p className="text-[14px] font-medium text-tinta dark:text-slate-100 leading-snug">{oracion(d.nombre)}</p>
+                      {d.cita && <Cita cita={d.cita} />}
+                    </div>
                   </div>
-                  {d.antiguedad_maxima && <span title="Antigüedad máxima del documento" className="flex-shrink-0"><Badge variant="warning">Antigüedad máx. {d.antiguedad_maxima}</Badge></span>}
+                  {d.antiguedad_maxima && <span title="Antigüedad máxima del documento" className="flex-shrink-0 pl-7 @xl:pl-0"><Marca color="#d97706">Antigüedad máx. {d.antiguedad_maxima}</Marca></span>}
                 </li>
               ))}
             </ul>
@@ -1325,21 +1340,23 @@ export function PreparacionV4({ informe }: { informe: any }) {
         </Bloque>
       </div>
 
-      <div id="prep-anexos" className="scroll-mt-4">
+      <div id={`${uid}-anexos`} className="scroll-mt-4">
         <Bloque i={3} icon={<Package size={18} />} titulo="Anexos del organismo" subtitulo="Formularios que publica el organismo y hay que completar y firmar."
-          derecha={anexosOrg.length ? <span className="text-[12px] font-bold px-2.5 py-1 rounded-full bg-sky-100 text-sky-700">{anexosOrg.length}</span> : undefined}>
+          derecha={anexosOrg.length ? <span className="text-[13px] font-medium tabular-nums text-tinta-2 dark:text-slate-400">{anexosOrg.length}</span> : undefined}>
           {anexosOrg.length === 0 ? <Vacio texto="No se detectaron anexos del organismo." /> : (
-            <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden">
+            <ul className="divide-y divide-linea/80 rounded-xl border border-linea overflow-hidden dark:border-slate-800 dark:divide-slate-800">
               {anexosOrg.map((d, i) => (
-                <li key={i} className="px-4 py-3 flex items-start gap-3 hover:bg-slate-50/70 transition-colors">
-                  <Check size={16} className="text-sky-600 flex-shrink-0 mt-0.5" />
-                  <div className="min-w-0 flex-1 space-y-0.5">
-                    <p className="text-[13.5px] font-semibold text-slate-900 leading-snug">{oracion(d.nombre)}</p>
-                    {d.cita && <Cita cita={d.cita} />}
+                <li key={i} className="px-4 py-3 flex flex-col @xl:flex-row @xl:items-start gap-x-3 gap-y-1.5 transition-colors duration-150 hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
+                  <div className="min-w-0 flex-1 flex items-start gap-3">
+                    <Pencil size={16} className="text-slate-400 flex-shrink-0 mt-0.5" />
+                    <div className="min-w-0 space-y-1">
+                      <p className="text-[14px] font-medium text-tinta dark:text-slate-100 leading-snug">{oracion(d.nombre)}</p>
+                      {d.cita && <Cita cita={d.cita} />}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
-                    {d.copias && <Badge>{mayus(String(d.copias))}</Badge>}
-                    {d._agregado_por_cruce && <span title="Publicado por el organismo; el análisis no lo listó. Confirma en las bases si es obligatorio."><Badge variant="warning">Por cruce</Badge></span>}
+                  <div className="flex items-center gap-3 flex-shrink-0 flex-wrap pl-7 @xl:pl-0 @xl:justify-end">
+                    {d.copias && <span className="text-[12.5px] text-tinta-2 dark:text-slate-400">{mayus(String(d.copias))}</span>}
+                    {d._agregado_por_cruce && <span title="Publicado por el organismo; el análisis no lo listó. Confirma en las bases si es obligatorio."><Marca color="#d97706">Por cruce</Marca></span>}
                   </div>
                 </li>
               ))}
@@ -1348,22 +1365,22 @@ export function PreparacionV4({ informe }: { informe: any }) {
         </Bloque>
       </div>
 
-      <div id="prep-crear" className="scroll-mt-4">
+      <div id={`${uid}-crear`} className="scroll-mt-4">
         <Bloque i={4} icon={<Pencil size={18} />} titulo="Documentos a crear" subtitulo="Documentos propios que hay que redactar para esta oferta."
-          derecha={aCrear.length ? <span className="text-[12px] font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700">{aCrear.length}</span> : undefined}>
+          derecha={aCrear.length ? <span className="text-[13px] font-medium tabular-nums text-tinta-2 dark:text-slate-400">{aCrear.length}</span> : undefined}>
           {aCrear.length === 0 ? <Vacio texto="No hay documentos propios que crear." /> : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
+            <div className="grid grid-cols-1 @4xl:grid-cols-2 gap-3 items-stretch">
               {aCrear.map((d, i) => (
                 <Aparece key={i} i={i + 5} alto>
-                  <div className="rounded-xl border border-slate-200 bg-white p-4 h-full flex flex-col gap-2">
-                    <div className="flex items-start gap-2.5">
-                      <span className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center flex-shrink-0"><Pencil size={16} /></span>
-                      <p className="text-[14.5px] font-bold text-slate-900 leading-snug pt-1">{oracion(d.que_crear)}</p>
+                  <div className="rounded-xl bg-slate-50/80 p-4 h-full flex flex-col gap-3 dark:bg-slate-800/40">
+                    <div className="flex items-start gap-3">
+                      <span className="w-8 h-8 rounded-lg bg-white text-slate-500 flex items-center justify-center flex-shrink-0 shadow-tarjeta dark:bg-slate-900 dark:text-slate-400"><Pencil size={15} /></span>
+                      <p className="text-[15px] font-semibold text-tinta dark:text-slate-50 leading-snug pt-1">{oracion(d.que_crear)}</p>
                     </div>
                     {d.contenido_exigido && (
-                      <div className="rounded-lg bg-slate-50 px-2.5 py-1.5">
-                        <p className="text-[10.5px] font-bold text-slate-400">Contenido exigido</p>
-                        <p className="text-[12.5px] text-slate-700 leading-snug">{mayus(d.contenido_exigido)}</p>
+                      <div className="pt-3 border-t border-linea/80 dark:border-slate-700/60">
+                        <p className="text-[11px] text-slate-500">Contenido exigido</p>
+                        <p className="text-[13.5px] text-tinta-2 dark:text-slate-300 leading-snug mt-0.5">{mayus(d.contenido_exigido)}</p>
                       </div>
                     )}
                     {d.cita && <div className="mt-auto"><Cita cita={d.cita} /></div>}

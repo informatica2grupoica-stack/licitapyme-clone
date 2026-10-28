@@ -23,6 +23,9 @@ export interface LineaAprobacion {
   margenLineaPct: number | null;
   tecnico: { estado: EstadoTecnico; cumple: number; total: number; modelo: string | null };
   estado: EstadoLinea; motivos: string[];
+  /** El veredicto separado (28-oct-2026, el dueño: «¿dice Pasa por el precio o por la ficha?»): `estado` es el peor de los dos.
+   *  `porFicha` null = sin proveedor elegido, todavía no hay ficha que mirar. */
+  porPrecio: EstadoLinea; porFicha: EstadoLinea | null;
   /** Compra rápida (tienda, sin cotización ni ficha): la aprueba el jefe de ventas en esta misma fila. null = línea normal. */
   compraRapida: { estado: 'PENDIENTE' | 'APROBADA' | 'RECHAZADA'; yaComprada: boolean; proveedor: string | null; rut: string | null; precio: number | null; comentario: string | null } | null;
 }
@@ -44,6 +47,9 @@ export interface TablaAprobacion {
 }
 
 const pct = (n: number) => Math.round(n * 10) / 10;
+const GRAVEDAD: Record<EstadoLinea, number> = { PASA: 0, REVISAR: 1, NO_PASA: 2 };
+const peorEstado = (...es: Array<EstadoLinea | null>): EstadoLinea =>
+  es.reduce<EstadoLinea>((peor, e) => e && GRAVEDAD[e] > GRAVEDAD[peor] ? e : peor, 'PASA');
 
 function tecnicoDe(panel: PanelFichasDTO | null, productoId: number, proveedor: string | null, proveedorRut: string | null): LineaAprobacion['tecnico'] {
   if (!proveedor) return { estado: 'SIN_COMPRA', cumple: 0, total: 0, modelo: null };
@@ -96,16 +102,19 @@ export async function tablaAprobacion(negocioId: number): Promise<TablaAprobacio
     const tecnico = tecnicoDe(panel, p.id, proveedor, rap && mismoProveedor({ nombre: rap.proveedorNombre }, { nombre: proveedor }) ? rap.proveedorRut : null);
 
     const motivos: string[] = [];
-    let estado: EstadoLinea = 'PASA';
-    const sube = (e: EstadoLinea) => { if (e === 'NO_PASA' || estado === 'PASA') estado = e; };
-    if (compraUnit == null) { sube('NO_PASA'); motivos.push('Todavía no tiene proveedor elegido en el escenario de compra'); }
-    if (tecnico.estado === 'NO_CUMPLE') { sube('NO_PASA'); motivos.push('La ficha técnica no cumple lo que piden las bases'); }
-    if (compraUnit != null && p.montoUnitario != null && compraUnit >= p.montoUnitario) { sube('NO_PASA'); motivos.push('Se compra a un precio igual o mayor al que paga el cliente (pérdida)'); }
-    if (difPct != null && difPct > 0) { sube('REVISAR'); motivos.push(`Cuesta ${difPct}% más que lo costeado`); }
-    if (margenLineaPct != null && margenLineaPct < MARGEN_MINIMO_PCT && margenLineaPct > 0) { sube('REVISAR'); motivos.push(`Margen de la línea ${margenLineaPct}% (mínimo ${MARGEN_MINIMO_PCT}%)`); }
-    if (tecnico.estado === 'FALTA_DATO') { sube('REVISAR'); motivos.push('Faltan datos técnicos en la ficha'); }
-    if (tecnico.estado === 'SIN_COMPARAR') { sube('REVISAR'); motivos.push('La ficha está cargada pero no se comparó con las bases'); }
-    if (tecnico.estado === 'SIN_FICHA') { sube('REVISAR'); motivos.push('Sin ficha técnica de este modelo: lo técnico no está verificado'); }
+    let porPrecio: EstadoLinea = 'PASA';
+    let porFicha: EstadoLinea | null = tecnico.estado === 'SIN_COMPRA' ? null : 'PASA';
+    const subePrecio = (e: EstadoLinea) => { porPrecio = peorEstado(porPrecio, e); };
+    const subeFicha = (e: EstadoLinea) => { porFicha = peorEstado(porFicha, e); };
+    if (compraUnit == null) { subePrecio('NO_PASA'); motivos.push('Todavía no tiene proveedor elegido en el escenario de compra'); }
+    if (tecnico.estado === 'NO_CUMPLE') { subeFicha('NO_PASA'); motivos.push('La ficha técnica no cumple lo que piden las bases'); }
+    if (compraUnit != null && p.montoUnitario != null && compraUnit >= p.montoUnitario) { subePrecio('NO_PASA'); motivos.push('Se compra a un precio igual o mayor al que paga el cliente (pérdida)'); }
+    if (difPct != null && difPct > 0) { subePrecio('REVISAR'); motivos.push(`Cuesta ${difPct}% más que lo costeado`); }
+    if (margenLineaPct != null && margenLineaPct < MARGEN_MINIMO_PCT && margenLineaPct > 0) { subePrecio('REVISAR'); motivos.push(`Margen de la línea ${margenLineaPct}% (mínimo ${MARGEN_MINIMO_PCT}%)`); }
+    if (tecnico.estado === 'FALTA_DATO') { subeFicha('REVISAR'); motivos.push('Faltan datos técnicos en la ficha'); }
+    if (tecnico.estado === 'SIN_COMPARAR') { subeFicha('REVISAR'); motivos.push('La ficha está cargada pero no se comparó con las bases'); }
+    if (tecnico.estado === 'SIN_FICHA') { subeFicha('REVISAR'); motivos.push('Sin ficha técnica de este modelo: lo técnico no está verificado'); }
+    const estado = peorEstado(porPrecio, porFicha);
 
     return {
       productoId: p.id, linea: p.correlativo, descripcion: p.descripcion, cantidad: cant,
@@ -113,7 +122,7 @@ export async function tablaAprobacion(negocioId: number): Promise<TablaAprobacio
       costeadoUnit: costUnit, costeadoTotal: costUnit != null && cant != null ? costUnit * cant : null,
       proveedor, compraUnit, compraTotal, plazoDias: c?.plazoEntregaDias ?? null,
       difUnit, difPct, difTotal: difUnit != null && cant != null ? difUnit * cant : null,
-      margenLineaPct, tecnico, estado, motivos,
+      margenLineaPct, tecnico, estado, motivos, porPrecio, porFicha,
       compraRapida: rapidaDe.has(p.id) ? (() => { const r = rapidaDe.get(p.id)!; return { estado: r.estado, yaComprada: r.yaComprada, proveedor: r.proveedorNombre, rut: r.proveedorRut, precio: r.precioUnitario, comentario: r.comentario }; })() : null,
     };
   });
@@ -132,9 +141,10 @@ export async function tablaAprobacion(negocioId: number): Promise<TablaAprobacio
     l.motivos = l.motivos.filter(m => !m.startsWith('Cuesta ') && !m.startsWith('Margen de la línea') && !m.startsWith('Se compra a un precio igual'));
     const sinCompra = partes.filter(x => x.compraUnit == null);
     l.motivos.push(`Incluye ${partes.map(x => x.descripcion.slice(0, 40)).join(', ')} comprado aparte${sinCompra.length ? ` (${sinCompra.length} todavía sin proveedor)` : ''}`);
-    if (l.ventaUnit != null && efectivoUnit >= l.ventaUnit) { l.estado = 'NO_PASA'; l.motivos.push('Con sus partes, se compra a un precio igual o mayor al que paga el cliente (pérdida)'); }
-    if (l.difPct != null && l.difPct > 0) { if (l.estado === 'PASA') l.estado = 'REVISAR'; l.motivos.push(`Con sus partes, cuesta ${l.difPct}% más que lo costeado`); }
-    if (l.margenLineaPct != null && l.margenLineaPct < MARGEN_MINIMO_PCT && l.margenLineaPct > 0) { if (l.estado === 'PASA') l.estado = 'REVISAR'; l.motivos.push(`Margen de la línea con sus partes ${l.margenLineaPct}% (mínimo ${MARGEN_MINIMO_PCT}%)`); }
+    if (l.ventaUnit != null && efectivoUnit >= l.ventaUnit) { l.porPrecio = 'NO_PASA'; l.motivos.push('Con sus partes, se compra a un precio igual o mayor al que paga el cliente (pérdida)'); }
+    if (l.difPct != null && l.difPct > 0) { l.porPrecio = peorEstado(l.porPrecio, 'REVISAR'); l.motivos.push(`Con sus partes, cuesta ${l.difPct}% más que lo costeado`); }
+    if (l.margenLineaPct != null && l.margenLineaPct < MARGEN_MINIMO_PCT && l.margenLineaPct > 0) { l.porPrecio = peorEstado(l.porPrecio, 'REVISAR'); l.motivos.push(`Margen de la línea con sus partes ${l.margenLineaPct}% (mínimo ${MARGEN_MINIMO_PCT}%)`); }
+    l.estado = peorEstado(l.estado, l.porPrecio, l.porFicha);
   }
 
   const sum = (f: (l: LineaAprobacion) => number | null) => lineas.reduce((s, l) => s + (f(l) || 0), 0);

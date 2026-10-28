@@ -3,6 +3,65 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-28 — «Traer links del costeo» se quedaba pegado (3712-74-LP26, negocio 1511: 30 de 39 links)
+**Causa (medida contra la BD del VPS, solo lectura):** los 39 ítems tienen link1; el Auditor tenía 30. Los ítems 22 y 26 son
+MercadoLibre: la página que ve el sistema es «¡Hola! Para continuar, ingresa a tu cuenta» (`/gz/account-verification`) y se
+clasificaba «redirige» porque el texto venía partido en dos líneas. Los ítems 33–39 NUNCA se visitaron: la cola del navegador va de a
+uno y el 33 (vendomarket.cl) colgaba la visita sin fin (los timeouts de `goto` no cubren leer el texto ni la foto; medido: >280 s), así
+que los reintentos de 13:49 y 13:51 hicieron 22, 26 y se quedaron ahí. **Arreglo general (`auditor-compras-captura.ts`):** tope de 60 s
+por visita con navegador (si no responde, se lee con fetch) y cierre del navegador que no espera a una página colgada (mata el proceso
+a los 5 s); el fetch reintenta con UA genérico «Mozilla/5.0» si la tienda corta la conexión al UA de Chrome (vendomarket: con el UA de
+Chrome `UND_ERR_SOCKET`, con el genérico 200); «ingresa a tu cuenta» partido en líneas ya cuenta como `login`. **Verificado:**
+vendomarket ahora vuelve en ~75 s «activo» con el título del producto; agrosystems 17 s. **Regla:** MercadoLibre no se puede leer
+(pide cuenta) ni se intenta saltar: esos ítems (22, 26, 35) van con cotización, captura o ficha. **Pendiente:** desplegar y pulsar
+«Traer 9 links del costeo» en el 1511 (no se hizo desde aquí: crea opciones y gasta IA).
+
+## 2026-10-28 — Ficha pegada como texto y complementos: obligatoria una CAPTURA de dónde salió el dato
+**Regla (dueño):** quien pega especificaciones como texto (o sube una ficha `.txt`) adjunta una imagen de dónde las copió, y quien
+complementa un requisito sube una imagen de dónde sacó ese complemento: así se corrobora que la fuente es fiable. **Qué se hizo:**
+«Pegar el texto de la ficha» exige la captura (adjuntar o Ctrl+V en el cuadro; miniatura; `CapturaOrigen`); la ruta `agregar_ficha`
+rechaza un `.txt` sin captura (400) salvo al mover una ficha ya en uso, y guarda el vínculo como evento `origen_ficha_texto`
+(opcion_id 0, `{ficha, imagen, por}`; sin migración; `origenesFichaTexto`/`registrarOrigenFichaTexto` en `auditor-opciones.ts`). La
+captura se ve con «captura de origen» en «Comparado con» y en la tarjeta de la pestaña Fichas técnicas (`RespaldoDTO.origenImagen`).
+«Complementar» exige al menos una imagen PNG/JPG/WEBP (se pueden sumar otros archivos); `agregarRespaldoCelda` ya no acepta la nota
+sola (la regla del 26-oct que la permitía quedó retirada); las notas ya guardadas se siguen viendo. **Verificado:** tsc, 1618 tests,
+sin errores de hooks. **NO visto en el navegador** (el dev server de otra sesión pide login). Las fichas de texto anteriores no tienen captura.
+
+## 2026-10-28 — QA «¿la ficha que subí se lee y se compara?» (3712-74-LP26 L1.1, KRAFTER KRD3500EA-M, opción 635)
+**Lo que pasaba de verdad:** la ficha `4471000004500.pdf` SÍ se leyó (extracción 608) y SÍ se comparó sola: la línea pasó de
+2 a 5 de 10 cumplen (potencia máx., voltaje, refrigeración salieron de la ficha). Lo que queda es real: la ficha dice
+«Partida eléctrica» (las bases piden manual → NO CUMPLE) y no trae amperaje, fase, capacidad de estanque ni tipo de uso.
+**Fallas encontradas:** (1) la pantalla no decía que la ficha se había leído/comparado (solo un aviso que desaparece);
+(2) el selector «¿Para qué línea u opción es?» de Documentos › Fichas técnicas parecía pedir asignar la ficha ya subida, pero
+es solo para subir una nueva; (3) la comparación se pagó DOS veces (verificaciones 875 y 876, 4 s aparte): el navegador
+reintenta ante «Failed to fetch»/504 y el servidor seguía con la primera (aquí probablemente por la recompilación del `next dev`
+mientras se editaba; en producción lo haría un 504 del proxy).
+**Arreglo:** `EstadoFicha` (pestaña Ficha y requisitos + tarjeta de la ficha en Documentos): «Comparando…», «Leída y comparada ·
+X de Y cumplen · fecha», o «Leída · falta compararla» con botón Comparar (solo esa opción). Ojo: `cargadoAt` del respaldo llega
+en ISO UTC y `tecnico.corridoAt` en hora de Chile: se comparan como fechas. El selector dice «Subir una ficha nueva a» y parte
+con la línea abierta en «3 · Líneas» (su única opción abierta; sin opciones, «nueva opción»; con varias no adivina). En el
+servidor, `verificarTecnicoDeOpcion` junta llamadas iguales en curso (misma línea, o misma opción con `solo`): la segunda espera
+la primera en vez de llamar otra vez a la IA (en memoria del proceso).
+**Verificado:** BD del VPS (solo lectura, `scripts/scratch/_qa_ficha_1511*.mjs`); en Chrome con el 1511 L1.1 (estado
+«Leída y comparada · 5 de 10», selector preelegido en KRAFTER); tsc. **No probado:** subir una ficha nueva de punta a punta
+ni el «Comparar» del estado (gasta IA).
+
+## 2026-10-28 — Auditor ordenado para licitaciones con muchas líneas: resumen plegado + líneas en lista con pestañas
+**Pedido del dueño** (visto en 3712-74-LP26, negocio 1511, 39 líneas): «el resumen no puede ser así, imagínate 100 ítems»
+y al pinchar una línea «se abre un montón de cosas». **Qué se hizo (solo pantalla, `AuditorOpcionesPanel.tsx`):**
+- **2 · Resumen de la licitación**: arriba quedan siempre los totales (costo total, presupuesto, queda, aviso) y la tabla por
+  línea se despliega con «Ver el detalle por línea»; abierta, se recorre en su propio cuadro de 440 px con encabezado fijo.
+  Clic en una fila elige esa línea abajo. Los emojis 🔴🟡✅ del aviso pasaron a punto de color.
+- **3 · Líneas**: lista a la izquierda (número, nombre, estado con punto y el mejor costo; buscador con más de 8 líneas) y la
+  línea elegida a la derecha con encabezado (cantidad, costeo, estado, opciones, ‹ ›) y pestañas **Cotizado** (tarjeta de cada
+  opción: precio vs costeo, qué falta, respaldo, firmar) · **Ficha y requisitos** (la ficha o la página del link de cada opción
+  con subir/pegar/buscar ficha, y la tabla de requisitos con su panel) · **Detalle avanzado** (la tabla de siempre).
+  `CuadroLinea`/`CuadroTecnico` reciben `vista`; `'todo'` es el PDF («PDF» del Auditor sigue imprimiendo todas las líneas
+  apiladas con todo). La tarjeta de opción se apila según el ancho del panel (`@container`), no de la pantalla.
+**Verificado:** en Chrome con el 1511 (líneas 1.2 y 1.4, las tres pestañas, resumen abierto y salto desde una fila); tsc
+sin errores; lint igual que antes. **No probado:** el botón PDF, modo oscuro (el panel no tiene variantes `dark:`), pantalla
+de celular.
+
 ## 2026-10-28 — «Traer desde Documentos» en Pre-postulación › Anexos a generar
 Caso real: 4022-19-LE26 (negocio 1568). Consuelo hizo los anexos fuera de la app (firma a puño y letra) y subió
 `ANEXO N° 1..5.pdf` + `FICHA TECNICA.pdf` a Documentos; ninguno quedó en una casilla y Postulación salía vacía. El

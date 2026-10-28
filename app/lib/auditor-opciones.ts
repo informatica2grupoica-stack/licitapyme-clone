@@ -39,6 +39,8 @@ export interface RespaldoDTO {
   id: number; tipo: string; documentoUrl: string | null; documentoNombre: string | null; url: string | null;
   precioDeclarado: number | null; precioIva: string; vigente: boolean; sostieneCosto: boolean;
   cargadoAt: string; cargadoPorNombre: string | null; extraccionId: number | null; productoIdx: number | null;
+  /** Ficha en texto: captura de dónde se copió (null = no es de texto o es anterior a la regla del 28-oct-2026). */
+  origenImagen?: string | null;
 }
 export interface OpcionDTO {
   id: number; filaId: string; marca: string | null; modelo: string | null; version: string | null; sku: string | null;
@@ -197,7 +199,7 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
   // Todas las lecturas son independientes: van EN PARALELO (la base es remota, ~155 ms por consulta: una a una el panel tardaba segundos).
   const estadoP = cargarEstadoCosteo(negocioId);
   const [estado, estadosLinea, verifTec, habTec, reqPorLinea, exigenCompleta, costosAsociados, mercados, justificadas, costosIA, opRes, reRes, caRes,
-    correcciones, segundasPasadas, respaldosCeldas, verifLegado, hdLegado, docsRes, extsRes, decisiones, linksPendientes, complementos, propias, fotosFicha] = await Promise.all([
+    correcciones, segundasPasadas, respaldosCeldas, verifLegado, hdLegado, docsRes, extsRes, decisiones, linksPendientes, complementos, propias, fotosFicha, origenesTexto] = await Promise.all([
     estadoP, estadosDeLineas(negocioId), ultimasCorridasV3(negocioId), confirmacionesTecnicas(negocioId),
     estadoP.then(e => contarRequisitosPorLinea(negocioId, licitacionCodigo, lineasAuditables(e).map(l => ({ lineaReal: l.lineaReal, producto: nombreProductoDeLinea(l.detalle) })))), lineasQueExigenViaCompleta(negocioId), listarCostosAsociados(negocioId),
     ultimosMercados(negocioId), opcionesConJustificacion(negocioId), ultimasCostoIA(negocioId),
@@ -212,7 +214,7 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
     pool.query(`SELECT id, documento_url, error FROM auditor_extraccion WHERE negocio_id = ? AND documento_url IS NOT NULL ORDER BY id DESC`, [negocioId]) as Promise<any>,
     decisionesSinLinea(negocioId),
     estadoP.then(e => linksPendientesDelCosteo(negocioId, lineasAuditables(e))),
-    complementosPorOpcion(negocioId), empresasPropias(negocioId), fotosFichaDeOpciones(negocioId),
+    complementosPorOpcion(negocioId), empresasPropias(negocioId), fotosFichaDeOpciones(negocioId), origenesFichaTexto(negocioId),
   ]);
   const [opRows] = opRes, [reRows] = reRes, [caRows] = caRes;
   const lineas = lineasAuditables(estado);
@@ -244,6 +246,7 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
       id: r.id, tipo: r.tipo, documentoUrl: s(r.documento_url), documentoNombre: s(r.documento_nombre), url: s(r.url),
       precioDeclarado: num(r.precio_declarado), precioIva: r.precio_iva, vigente: !!r.vigente, sostieneCosto: !!r.sostiene_costo,
       cargadoAt: fechaS(r.cargado_at) || '', cargadoPorNombre: s(r.cargado_por_nombre), extraccionId: r.extraccion_id, productoIdx: r.producto_idx,
+      origenImagen: r.tipo === 'ficha_tecnica' && r.documento_url ? origenesTexto.get(String(r.documento_url))?.imagen ?? null : null,
     }));
     // El respaldo que sostiene el costo: el marcado; si no, el más reciente vigente.
     // Una ficha técnica NO sostiene un costo (no trae precio): solo cuenta como respaldo de costo lo que puede tenerlo.
@@ -637,6 +640,28 @@ export async function ponerFotoFicha(negocioId: number, opcionId: number, url: s
   await opcionDe(negocioId, opcionId);
   if (url && !url.startsWith('https://')) throw new Error('La foto no se subió bien: vuelve a intentarlo.');
   await evento(negocioId, opcionId, 'foto_ficha', 'asistente', JSON.stringify(url ? { url, por: actor.nombre } : { quitar: true, por: actor.nombre }));
+}
+
+// Ficha técnica en TEXTO (pegada o .txt), 28-oct-2026, pedido del dueño: tiene que venir con una captura (imagen) de dónde se copió,
+// para corroborar que las especificaciones salen de una fuente fiable. Evento `origen_ficha_texto` del negocio (opcion_id 0, como
+// `ficha_compras`) ligado a la URL de la ficha: sin migración. Las fichas de texto anteriores a la regla no tienen captura.
+export const esFichaDeTexto = (nombre: string) => /\.txt$/i.test(nombre.trim());
+export const esImagenRespaldo = (url: string) => /\.(png|jpe?g|webp)(\?|$)/i.test(url);
+export async function origenesFichaTexto(negocioId: number): Promise<Map<string, { imagen: string; por: string }>> {
+  const [rows] = await pool.query(`SELECT detalle FROM auditor_evento WHERE negocio_id = ? AND tipo = 'origen_ficha_texto' ORDER BY id`, [negocioId]) as any;
+  const out = new Map<string, { imagen: string; por: string }>();
+  for (const r of rows as any[]) {
+    try { const d = JSON.parse(r.detalle || '{}'); if (d.ficha && d.imagen) out.set(String(d.ficha), { imagen: String(d.imagen), por: String(d.por || '') }); }
+    catch { /* evento mal formado */ }
+  }
+  return out;
+}
+export async function registrarOrigenFichaTexto(negocioId: number, licitacionCodigo: string, fichaUrl: string, imagenUrl: string, actor: Actor): Promise<void> {
+  if (!imagenUrl || !esImagenRespaldo(imagenUrl)) throw new Error('Una ficha en texto necesita la captura (imagen PNG, JPG o WEBP) de dónde copiaste el texto.');
+  const [docs] = await pool.query(`SELECT 1 FROM documentos_cache WHERE licitacion_codigo = ? AND subcategoria = 'respaldos_auditor' AND documento_url_local = ? LIMIT 1`, [licitacionCodigo, imagenUrl]) as any;
+  if (!(docs as any[]).length) throw new Error('La captura no se subió bien: vuelve a adjuntarla.');
+  await pool.query(`INSERT INTO auditor_evento (negocio_id, opcion_id, tipo, emisor, detalle, creado_at) VALUES (?, 0, 'origen_ficha_texto', 'asistente', ?, ?)`,
+    [negocioId, JSON.stringify({ ficha: fichaUrl, imagen: imagenUrl, por: actor.nombre }), ahoraChileSQL()]);
 }
 
 export async function crearOpcionesDesdeExtraccion(negocioId: number, extraccionId: number, actor: Actor): Promise<{ creadas: Array<Emparejamiento & { opcionId: number }>; sinEmparejar: number[] }> {
@@ -1226,14 +1251,23 @@ export async function verificarCostoIADeOpcion(negocioId: number, licitacionCodi
 /** Nombre del producto de una línea del costeo («Banca de camarín - …» → «Banca de camarín»): con él se buscan sus requisitos en las bases. */
 export const nombreProductoDeLinea = (detalle: string) => detalle.split(' - ')[0] || detalle;
 
+// Comparaciones en curso: una segunda llamada igual (el reintento del navegador tras un 504 o una conexión cortada, otra pestaña)
+// espera la que ya corre en vez de pagar otra consulta a la IA. Caso real 28-oct-2026: la ficha de 3712-74-LP26 L1.1 se comparó dos veces, 4 s aparte.
+const comparacionesEnCurso = new Map<string, Promise<ResumenCorridaV3>>();
+
 export async function verificarTecnicoDeOpcion(negocioId: number, licitacionCodigo: string, opcionId: number, actor: Actor, solo = false): Promise<ResumenCorridaV3> {
   const o = await opcionDe(negocioId, opcionId);
   const linea = lineasAuditables(await cargarEstadoCosteo(negocioId)).find(l => l.id === o.fila_id);
   if (!linea) throw new Error('La línea de esta opción ya no existe en el Costeo.');
-  return verificarLineaV3({
+  const clave = `${negocioId}:${linea.id}:${solo ? `o${opcionId}` : 'linea'}`;
+  const enCurso = comparacionesEnCurso.get(clave);
+  if (enCurso) return enCurso;
+  const corrida = verificarLineaV3({
     negocioId, licitacionCodigo, filaId: linea.id, lineaReal: linea.lineaReal, nombreLinea: linea.detalle.split(' - ')[0] || linea.detalle, cantidad: linea.cantidad, unidad: linea.unidad, actor,
     soloOpcionIds: solo ? [opcionId] : undefined,
-  });
+  }).finally(() => comparacionesEnCurso.delete(clave));
+  comparacionesEnCurso.set(clave, corrida);
+  return corrida;
 }
 
 /** El asistente cierra un ❓ con un clic («lo confirmo»), sin respaldo. Queda quién y cuándo; el EM ve la lista. */

@@ -770,8 +770,11 @@ function normalizarParaClasificar(s: string): string {
  * que un anexo tipiquísimo (3141-5-LE26, "FORMULARIO N° 5 PACTOS DE INTEGRIDAD") no calzara con
  * nada. Una "s" opcional solo puede ampliar a la forma plural: nunca hace calzar otra frase.
  */
+// También tolera un artículo tras «de»: «ACEPTACIÓN DE LAS CONDICIONES… Y DE LAS BASES» (3712-74-LP26)
+// no calzaba con «aceptacion de condiciones» y el cuerpo, que menciona la «Oferta Económica», lo
+// dejaba como económico.
 function armarPatron(frase: string): RegExp {
-  return new RegExp(frase.split(' ').map(p => `${p}s?`).join('\\s+'));
+  return new RegExp(frase.split(' ').map(p => (p === 'de' ? 'de(?:\\s+(?:la|el)s?)?' : `${p}s?`)).join('\\s+'));
 }
 const PATRONES: Record<'administrativo' | 'tecnico' | 'economico', RegExp[]> = {
   administrativo: PALABRAS_ADMINISTRATIVO.map(armarPatron),
@@ -1005,6 +1008,17 @@ function esParrafoDeRelleno(b: BloqueCrudo): boolean {
     && !/<w:t[\s>]|<w:drawing|<w:pict|<w:object|<mc:|<w:sectPr|<w:fldChar|<w:sym|<w:txbxContent|<\/w:txbxContent>/.test(b.xmlCompleto);
 }
 
+// Tabla-membrete cuyo primer texto es el título del anexo SIGUIENTE, con solo celdas vacías antes
+// (caso real "anexos-editablles.docx", Los Vilos: «ANEXO N°2» es el 2.º párrafo de su tabla y el 1.º
+// está vacío). Su primer ordinal cae en el rango del anexo anterior, así que la tabla entraba en los
+// DOS fragmentos: cada anexo terminaba con el título del siguiente. Es del siguiente, no de este.
+function tituloAbreLaTabla(b: BloqueCrudo, indiceTitulo: number): boolean {
+  if (b.tipo !== 'tabla' || indiceTitulo <= b.ordinalInicio || indiceTitulo > b.ordinalFin) return false;
+  const aperturas = [...b.xmlCompleto.matchAll(RE_PARRAFO_CON_ID)];
+  const antes = b.xmlCompleto.slice(0, aperturas[indiceTitulo - b.ordinalInicio]?.index ?? 0);
+  return !/<w:t(?:\s[^>]*)?>[^<]*[^\s<]/.test(antes);
+}
+
 export async function dividirPorFormularios(bufferBase: Buffer, xml: string): Promise<FormularioDividido[]> {
   const bloques = listarBloquesCrudos(xml);
   const formularios = detectarFormularios(xml);
@@ -1038,11 +1052,13 @@ export async function dividirPorFormularios(bufferBase: Buffer, xml: string): Pr
 
   const resultados: FormularioDividido[] = [];
   const nombresUsados = new Set<string>();
-  for (const f of formularios) {
+  for (const [i, f] of formularios.entries()) {
     // Un bloque entra en el fragmento si CUALQUIER parte de su rango de ordinales cae dentro
     // del rango del formulario — así una tabla se incluye COMPLETA (nunca cortada a la mitad)
     // aunque su primer o último párrafo interno coincida justo con el borde.
-    const delFormulario = bloques.filter(b => b.ordinalInicio <= f.indiceFin && b.ordinalFin >= f.indiceInicio);
+    const siguiente = formularios[i + 1];
+    const delFormulario = bloques.filter(b => b.ordinalInicio <= f.indiceFin && b.ordinalFin >= f.indiceInicio
+      && !(siguiente && tituloAbreLaTabla(b, siguiente.indiceInicio)));
     // Se dejan los 2 primeros vacíos tras el último texto: el motor escribe la fecha (y otros
     // datos) en el párrafo vacío que sigue a «Fecha»; quitarlo dejaba el anexo sin fecha.
     let ultimoConContenido = delFormulario.length - 1;

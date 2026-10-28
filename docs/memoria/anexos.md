@@ -4,6 +4,28 @@ Reglas vigentes del motor: ver también `.claude/skills/motor-anexos/SKILL.md` y
 `docs/anexos-motor-reglas.md`. Las entradas con fecha van arriba; al final, lo traspasado desde la
 memoria personal el 2026-10-27.
 
+## 2026-10-28 — Separar anexos: cada anexo terminaba con el título del siguiente
+Caso real: 3712-74-LP26 (Los Vilos), `anexos-editablles.docx`, 7 anexos; mismo formato en
+3712-76-LE26. La detección estaba bien; el armado no: el título va en una tabla cuyo 1.er párrafo
+está vacío, ese párrafo caía en el rango del anexo anterior y la tabla entera entraba en los DOS
+fragmentos. No lo causó el cambio del 27-oct. En `dividirPorFormularios` (`tituloAbreLaTabla`), una
+tabla cuyo primer texto es el título del anexo siguiente queda solo en el siguiente. El banco ahora
+acepta `--fragmentos` (compara con qué texto empieza y termina cada fragmento): sin eso este error no
+se veía, porque el banco solo comparaba los cortes de `detectarFormularios`.
+**Clasificación (mismo día, pedido del dueño):** «ANEXO N°3 ACEPTACIÓN DE LAS CONDICIONES… Y DE LAS
+BASES ADMINISTRATIVAS» salía económico: las frases clave («aceptacion de condiciones») no toleraban
+el artículo tras «de», el título no decidía y el cuerpo menciona la «Oferta Económica». Ahora toda
+frase clave acepta «de la/las/el/los» (`armarPatron`). El banco `--fragmentos` muestra también la
+categoría de cada fragmento.
+**Verificado:** documento real → 7 anexos, cada uno de su título a «Los Vilos, __ de __ 2026.», 1 hoja
+cada uno en Word (el 6, 2 hojas por su tabla de 39 filas); Anexo 3 administrativo. Banco `--fragmentos`
+800 .docx vs HEAD: 22 cambian, todos mejoras — mismo error de tabla-membrete en 3712-74-LP26,
+3712-76-LE26, 2288-33-LP26 (Canela), 1057448-45-LP26 y 1057448-49-LE26 (Iquique), 3480-21-LE26; y
+4 categorías de sin_clasificar a administrativo (incl. 985737-16-LE26 «Declaración Aceptación de las
+Bases»). Suite 1619/1619, tsc limpio. No visto en el navegador ni en el VPS.
+**Pendiente:** en la BD siguen los separados viejos de esas licitaciones (en 3712-74-LP26, ids
+30999–31004 y el del Anexo 7): hay que volver a separar una vez desplegado.
+
 ## 2026-10-28 — «Rellenar anexo» ya no está en Documentos
 El dueño decidió que los anexos se rellenan y se cargan SOLO desde el Auditor (Auditor → Anexos,
 «Generar anexo» en cada punto). En `DocumentosSection` se quitaron el botón «Rellenar anexo» (Word,

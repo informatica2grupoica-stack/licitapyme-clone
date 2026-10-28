@@ -21,7 +21,16 @@ export interface Captura {
 export interface CapturaGuardada extends Captura { id: number }
 
 const MAX_TEXTO = 14_000;
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
+// Tope total de una visita con el navegador. Los timeouts de `goto` no cubren leer el texto ni la foto: una página que deja
+// el navegador ocupado (vendomarket.cl, 3712-74-LP26 ítem 33) colgaba la visita sin fin y «Traer links del costeo» no seguía.
+const TOPE_NAVEGADOR_MS = 60_000;
+const conTope = <T>(p: Promise<T>, ms: number): Promise<T> =>
+  Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`la página no respondió en ${ms / 1000} s`)), ms))]);
+/** Cierra el navegador sin esperar a una página colgada: si no cierra en 5 s, se mata el proceso. */
+async function cerrarNavegador(browser: any) {
+  await conTope(browser.close(), 5_000).catch(() => { try { browser.process()?.kill('SIGKILL'); } catch { /* ya cerrado */ } });
+}
+const UA ='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
 export function normalizarUrl(u: string): string {
   const t = u.trim();
@@ -53,7 +62,7 @@ function detectarEstado(urlOriginal: string, urlFinal: string, http: number | nu
   if (http != null && (http >= 400)) return 'caido';
   const rutaO = (() => { try { return new URL(urlOriginal).pathname.replace(/\/+$/, ''); } catch { return ''; } })();
   const rutaF = (() => { try { return new URL(urlFinal).pathname.replace(/\/+$/, ''); } catch { return ''; } })();
-  const t = texto.toLowerCase();
+  const t = texto.toLowerCase().replace(/\s+/g, ' ');   // «ingresa a\ntu cuenta» (MercadoLibre) viene partido en dos líneas
   if (texto.length < 800 && /(inicia(r)? sesi[oó]n|iniciar sesión|log ?in|ingresa a tu cuenta)/.test(t)) return 'login';
   // Un link a un producto que termina en la portada, en un buscador o en una categoría = "redirige a otro producto".
   if (rutaO.length > 6 && (rutaF === '' || /\/(search|buscar|busqueda|catalogsearch)/i.test(urlFinal) || (rutaF.length + 6 < rutaO.length && !rutaF.includes(rutaO.split('/').filter(Boolean).pop() || '@@'))))
@@ -90,7 +99,9 @@ export async function capturarConNavegador(browser: any, url: string): Promise<C
 export async function capturarConFetch(url: string): Promise<Captura> {
   const capturadoAt = ahoraChileSQL();
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'es-CL,es;q=0.9' }, redirect: 'follow', signal: AbortSignal.timeout(20_000) });
+    const pedir = (ua: string) => fetch(url, { headers: { 'User-Agent': ua, 'Accept-Language': 'es-CL,es;q=0.9' }, redirect: 'follow', signal: AbortSignal.timeout(20_000) });
+    // Algunas tiendas cortan la conexión cuando el UA dice «Chrome» pero la conexión no es de Chrome (vendomarket.cl): se reintenta con uno genérico.
+    const res = await pedir(UA).catch(() => pedir('Mozilla/5.0'));
     const html = await res.text();
     const $ = cheerio.load(html);
     const jsonld = $('script[type="application/ld+json"]').map((_, e) => $(e).text()).get();
@@ -127,7 +138,7 @@ export async function capturarLinks(negocioId: number, filaId: string, urls: str
   try {
     for (const url of limpias) {
       let cap: Captura;
-      try { cap = browser ? await capturarConNavegador(browser, url) : await capturarConFetch(url); }
+      try { cap = browser ? await conTope(capturarConNavegador(browser, url), TOPE_NAVEGADOR_MS) : await capturarConFetch(url); }
       catch (e) {
         console.warn('[auditor-compras] navegador falló en', url, String((e as Error).message || e).slice(0, 120));
         cap = await capturarConFetch(url);
@@ -145,7 +156,7 @@ export async function capturarLinks(negocioId: number, filaId: string, urls: str
       ) as any;
       out.push({ ...cap, id: (r as any).insertId });
     }
-  } finally { if (browser) await browser.close().catch(() => {}); }
+  } finally { if (browser) await cerrarNavegador(browser); }
   return out;
 }
 
@@ -171,7 +182,7 @@ export async function visitarLinks(urls: string[]): Promise<Captura[]> {
   try {
     for (const url of limpias) {
       let cap: Captura;
-      try { cap = browser ? await capturarConNavegador(browser, url) : await capturarConFetch(url); }
+      try { cap = browser ? await conTope(capturarConNavegador(browser, url), TOPE_NAVEGADOR_MS) : await capturarConFetch(url); }
       catch { cap = await capturarConFetch(url); }
       if (cap.texto.length < 300 && cap.estado === 'activo' && cap.metodo === 'navegador') {
         const alt = await capturarConFetch(url);
@@ -179,7 +190,7 @@ export async function visitarLinks(urls: string[]): Promise<Captura[]> {
       }
       out.push(cap);
     }
-  } finally { if (browser) await browser.close().catch(() => {}); }
+  } finally { if (browser) await cerrarNavegador(browser); }
   return out;
 }
 

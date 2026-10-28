@@ -101,7 +101,7 @@ export function VistaV4({ informe, codigo, feedbackPanel, onInformeCambio }: { i
   ];
 
   return (
-    <div className="space-y-3">
+    <div className="@container space-y-3">
       <CabeceraV4 s={s} t={t} enRevision={enRevision} esCA={esCA} />
 
       <DatosDudosos codigo={codigo} score={s} adjudicacion={adj} onCambio={cambioNivel} />

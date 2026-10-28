@@ -48,8 +48,11 @@ licitación).
 6. **Banco de separación** — obligatorio, un arreglo para un organismo suele mover cortes en otros:
 
    ```bash
-   npx tsx scripts/anexos-banco-division.mts
+   npx tsx scripts/anexos-banco-division.mts --fragmentos
    ```
+
+   Sin `--fragmentos` solo compara dónde detecta; con él también con qué texto empieza y termina
+   cada fragmento ya armado (así se vio la tabla-membrete que caía en dos anexos, 28-oct-2026).
 
    Compara el corte de HEAD contra el del disco en 400 `.docx` reales e imprime solo los que
    cambian. Mirar **cada** diferencia: anexo nuevo bien separado o corte falso que desaparece =

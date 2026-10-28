@@ -3,6 +3,12 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-28 — «Pasa» decía poco: el veredicto ahora se separa en Precio y Ficha
+En «Qué se va a aprobar» (`TablaAprobacionCompra`) el dueño no sabía si «Pasa» era por el precio o por la ficha. Es por LOS DOS:
+pasa solo si el precio (proveedor elegido, sin pérdida, no más caro que lo costeado, margen ≥ mínimo) y la ficha (comparada y
+cumple) están bien. `compras-aprobacion-tabla.ts` ahora calcula `porPrecio` y `porFicha` (null = sin proveedor) y `estado` es el peor
+de los dos (mismas reglas que antes); bajo el veredicto se ve «Precio: OK / por revisar / no pasa» y «Ficha: …». Sin ver en navegador.
+
 ## Decisiones vigentes del dueño
 
 - **Una sola pantalla con stepper** (2026-09-11, tras 5 vueltas). No volver a páginas por

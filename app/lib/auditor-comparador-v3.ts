@@ -205,10 +205,10 @@ export async function agregarRespaldoCelda(negocioId: number, opcionId: number, 
   if (!(ors as any[]).length) throw new Error('La opción no existe en este negocio.');
   if (['en_aprobacion', 'aprobada'].includes((ors as any[])[0].estado)) throw new Error('La opción ya está en aprobación: pide rechazarla antes de cambiarle datos.');
   if (!Number.isFinite(n)) throw new Error('Falta indicar el requisito.');
-  // Complemento SOLO con texto (pedido 26-oct-2026: el asistente explica lo que sabe aunque no tenga archivo). Se guarda con una clave «nota:…» en vez de URL.
+  // Complemento SOLO con texto: permitido el 26-oct-2026, retirado el 28-oct-2026 (pedido del dueño): todo complemento lleva una
+  // captura de dónde salió el dato. Las notas «nota:…» ya guardadas se siguen mostrando y se pueden quitar.
   if (!url && !quitar) {
-    if (nota.trim().length < 8) throw new Error('Escribe lo que sabes de este requisito (al menos unas palabras) o adjunta un archivo.');
-    url = `nota:${Date.now()}`; nombre = 'Nota';
+    throw new Error('Adjunta una captura (imagen) de dónde sacaste el dato: una nota sola ya no basta para complementar.');
   } else if (!url.startsWith('nota:')) {
     const [docs] = await pool.query(`SELECT 1 FROM documentos_cache WHERE documento_url_local = ? AND subcategoria = 'respaldos_auditor' LIMIT 1`, [url]) as any;
     if (!(docs as any[]).length) throw new Error('Ese archivo no es un respaldo subido en esta licitación.');

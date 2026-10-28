@@ -16,6 +16,7 @@ import {
   armarPanelAuditorCompartido, cargarEstadoCosteo, leerDocumentoYCrearOpciones, crearOpcionesDesdeExtraccion, asignarProductoALinea, cambiarVia, descartarOpcion, restaurarOpcion, moverOpcionALinea,
   firmarOpcion, quitarFirma, solicitarAprobacion, resolverAprobacion, agregarLinkALinea, revisitarLinkDeOpcion, sugerirLineasDelNegocio, ignorarProductoSinLinea, crearOpcionManual, agregarFichaAOpcion, corregirCostoOpcion, quitarCorreccionCosto, ponerFotoFicha, buscarFichaEnLink, traerFichaDeLink, verificarMercadoDeOpcion, justificarAhorroDeOpcion, verificarCostoIADeOpcion, releerDocumento,
   verificarTecnicoDeOpcion, confirmarCeldaTecnica, respaldarCeldaTecnica, quitarFichaDeOpcion, ponerComplemento, quitarComplemento,
+  esFichaDeTexto, origenesFichaTexto, registrarOrigenFichaTexto,
 } from '@/app/lib/auditor-opciones';
 import { generarPosicionAuditor, ultimaPosicion } from '@/app/lib/auditor-posicion';
 import { generarFichaPropia, generarFichaPropiaDeLinea } from '@/app/lib/auditor-ficha-propia';
@@ -174,6 +175,11 @@ export async function POST(request: NextRequest, { params }: Params) {
           `SELECT documento_nombre FROM documentos_cache WHERE licitacion_codigo = ? AND subcategoria = 'fichas_tecnicas' AND documento_url_local = ? LIMIT 1`,
           [negocio.licitacion_codigo, url]) as any;
         if (!(rows as any[]).length) return NextResponse.json({ error: 'Ese documento no es una ficha técnica de esta licitación.' }, { status: 404 });
+        // Ficha en texto: solo con la captura de dónde se copió (28-oct-2026). Mover una que ya está en uso no la pide de nuevo.
+        if (esFichaDeTexto(String((rows as any[])[0].documento_nombre || '')) && !(Number(body.moverDe) > 0) && !(await origenesFichaTexto(negocio.id)).has(url)) {
+          if (!body.origenImagen) return NextResponse.json({ error: 'Una ficha en texto necesita la captura (imagen) de dónde copiaste el texto. Usa «Pegar el texto de la ficha» y adjunta la captura.' }, { status: 400 });
+          await registrarOrigenFichaTexto(negocio.id, negocio.licitacion_codigo, url, String(body.origenImagen), actor);
+        }
         const r = await agregarFichaAOpcion({
           negocioId: negocio.id, opcionId: Number.isFinite(opcionId) ? opcionId : null, filaId: body.filaId ? String(body.filaId) : null,
           url, nombre: (rows as any[])[0].documento_nombre,

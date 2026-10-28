@@ -825,3 +825,23 @@ test('detectarFormularios: la segunda línea de la firma del anexo anterior no e
   assert.equal(formularios[1].indiceInicio, 9);
   assert.equal(nombreArchivoDesdeTitulo(formularios[1].titulo), 'Anexo 2 - Declaración Jurada Simple');
 });
+
+test('dividirPorFormularios: la tabla-membrete con el título del anexo siguiente no queda también al final del anterior (regresión anexos Los Vilos)', async () => {
+  // Como en el Word real: el título va en una tabla cuyo primer párrafo está vacío.
+  const membrete = (n: string, t: string) => `<w:tbl><w:tr><w:tc>${p('')}${p(`ANEXO N°${n}`)}${p(t)}</w:tc></w:tr></w:tbl>`;
+  const xml = NS
+    + membrete('1', 'IDENTIFICACIÓN DEL OFERENTE') + p('NOMBRE COMPLETO, RUT Y FIRMA REPRESENTANTE LEGAL') + p('Los Vilos, ____ de ____ 2026.')
+    + membrete('2', 'DECLARACIÓN SIMPLE DE HABILIDAD') + p('Por medio de la presente yo ____') + p('Los Vilos, ____ de ____ 2026.')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const divididos = await dividirPorFormularios(await bufferDe(norm), norm);
+  assert.equal(divididos.length, 2);
+  const [uno, dos] = await Promise.all(divididos.map(async d => (await abrirDocx(d.buffer)).xml));
+  assert.ok(!uno.includes('ANEXO N°2'), 'el anexo 1 no termina con el título del 2');
+  assert.ok(dos.includes('ANEXO N°2') && !dos.includes('ANEXO N°1'));
+});
+
+test('clasificarAnexo: frase clave con artículo tras «de» («DE LAS CONDICIONES… DE LAS BASES») decide por el título (regresión 3712-74-LP26)', () => {
+  assert.equal(clasificarAnexo('ANEXO N°3 ACEPTACIÓN DE LAS CONDICIONES DE LA PROPUESTA Y DE LAS BASES ADMINISTRATIVAS',
+    'Haber considerado en la Oferta Económica todos los gastos directos e indirectos, valor total'), 'administrativo');
+});

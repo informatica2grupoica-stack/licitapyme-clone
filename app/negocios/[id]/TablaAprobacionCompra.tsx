@@ -18,6 +18,20 @@ const ESTADO: Record<LineaAprobacion['estado'], { texto: string; clase: string }
   REVISAR: { texto: 'Revisar', clase: 'bg-amber-50 text-amber-800 border-amber-200' },
   NO_PASA: { texto: 'No pasa', clase: 'bg-rose-50 text-rose-700 border-rose-200' },
 };
+// Las dos mitades del veredicto: precio (proveedor, pérdida, vs. costeado, margen) y ficha (comparación técnica con las bases).
+const PARTE: Record<LineaAprobacion['estado'], { texto: string; punto: string }> = {
+  PASA: { texto: 'OK', punto: 'bg-emerald-500' },
+  REVISAR: { texto: 'por revisar', punto: 'bg-amber-500' },
+  NO_PASA: { texto: 'no pasa', punto: 'bg-rose-500' },
+};
+function ParteVeredicto({ rotulo, estado }: { rotulo: string; estado: LineaAprobacion['estado'] | null }) {
+  const p = estado ? PARTE[estado] : null;
+  return (
+    <span className="flex items-center gap-1.5 text-zinc-600 whitespace-nowrap">
+      <span aria-hidden className={`w-1.5 h-1.5 rounded-full ${p ? p.punto : 'bg-zinc-300'}`} />{rotulo}: <span className="font-semibold text-zinc-800">{p ? p.texto : 'sin proveedor'}</span>
+    </span>
+  );
+}
 const TECNICO: Record<string, { texto: string; clase: string }> = {
   CUMPLE: { texto: 'Cumple', clase: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
   NO_CUMPLE: { texto: 'No cumple', clase: 'bg-rose-50 text-rose-700 border-rose-200' },
@@ -193,7 +207,7 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
                 <th className="px-2 py-2 text-right">Vs. costeado</th>
                 <th className="px-2 py-2 text-right">Margen</th>
                 <th className="px-2 py-2">Ficha técnica</th>
-                <th className="px-2 py-2">Veredicto</th>
+                <th className="px-2 py-2" title="Pasa = el precio Y la ficha técnica están bien. Debajo se ve cada uno por separado.">Veredicto</th>
                 <th className="px-2 py-2 min-w-[190px]">Tu aprobación</th>
               </tr>
             </thead>
@@ -230,7 +244,13 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
                         : <span className={`inline-block text-[11px] font-semibold px-1.5 py-0.5 rounded border ${te.clase}`}>{te.texto}</span>}
                       {l.tecnico.modelo && <span className="block text-[10.5px] text-zinc-400 mt-0.5">{l.tecnico.modelo}</span>}
                     </td>
-                    <td className="px-2 py-2 align-top"><span className={`inline-flex items-center gap-1 text-[11.5px] font-bold px-2 py-0.5 rounded-full border ${e.clase}`}>{l.estado === 'NO_PASA' ? <No size={12} /> : l.estado === 'REVISAR' ? <Alerta size={12} /> : <Ok size={12} />}{e.texto}</span></td>
+                    <td className="px-2 py-2 align-top"><span className={`inline-flex items-center gap-1 text-[11.5px] font-bold px-2 py-0.5 rounded-full border ${e.clase}`}>{l.estado === 'NO_PASA' ? <No size={12} /> : l.estado === 'REVISAR' ? <Alerta size={12} /> : <Ok size={12} />}{e.texto}</span>
+                      {/* Qué dijo cada parte: el «Pasa» solo no decía si era por el precio o por la ficha (28-oct-2026). */}
+                      <span className="mt-1 block space-y-0.5 text-[11px] leading-snug" data-testid={`apr-partes-${l.productoId}`}>
+                        <ParteVeredicto rotulo="Precio" estado={l.porPrecio} />
+                        <ParteVeredicto rotulo="Ficha" estado={l.porFicha} />
+                      </span>
+                    </td>
                     <td className="px-2 py-2 align-top" data-testid={`apr-decision-${l.productoId}`}>
                       {(() => {
                         if (l.compraRapida) {
