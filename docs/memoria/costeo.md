@@ -3,6 +3,16 @@
 Costeo digital del negocio (editor + burbuja flotante) y Excel de costeo (plantilla V3).
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-28 — Al re-analizar, el costeo digital queda en el orden del anexo económico
+**Regla (dueño, 2446-307-LE26):** después de un re-análisis, las filas de cada hoja del costeo quedan en el mismo
+orden que la lista del informe (que sale del anexo económico, aquí el Formulario N°4 con 44 ítems). Antes, los
+productos que agregaba el re-análisis quedaban al final. `ordenarComoViabilidad` (`costeo-editor.ts`) se llama
+en `actualizarCosteosTrasReanalisis` después de fusionar y corregir: solo cambia el orden y el número de ítem.
+Una fila que no viene del documento (a mano, de Compras, costo adicional) sigue detrás de la fila que hoy tiene
+antes. El botón «Actualizar» del editor NO ordena (no se pidió). **Verificado:** test nuevo; sobre el costeo
+desordenado real de 2446-307 (respaldo) deja las 44 filas igual que el anexo; tests 1.624/1.624; tsc. **Pendiente:**
+desplegar (junto con los arreglos de viabilidad del mismo día).
+
 ## 2026-10-28 — «Error de origen» falso por unidad escrita distinto («unid» vs «unidades») + sin «Generar anexo económico» en el Checklist
 **Caso real:** 4022-19-LE26 (negocio 1568). El Motor Comercial decía «Línea(s) 1: la cantidad o unidad del costeo no coincide
 con la línea publicada». No compara precios: compara cantidad y unidad (solo si la línea tiene un único producto). La cantidad

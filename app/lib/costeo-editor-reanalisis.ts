@@ -5,11 +5,12 @@
 // ya están si el documento cambió y nadie los tocó (corregirDesdeViabilidad). Nunca borra filas ni
 // toca precios, links, SKU, costo real ni recargos: las filas que la viabilidad ya no trae se siguen
 // quitando con «Actualizar». No crea versión (eso es del equipo al guardar) y deja huella en el
-// registro de cambios del editor. Un negocio ya postulado (congelado) no se toca.
+// registro de cambios del editor. Deja las filas en el orden del documento (ordenarComoViabilidad).
+// Un negocio ya postulado (congelado) no se toca.
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { adaptarViabilidadACosteo } from '@/app/lib/generar-costeo';
-import { datosCosteoAEditor, fusionarConViabilidad, corregirDesdeViabilidad, resumenCambiosCosteo, MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor } from '@/app/lib/costeo-editor';
+import { datosCosteoAEditor, fusionarConViabilidad, corregirDesdeViabilidad, ordenarComoViabilidad, resumenCambiosCosteo, MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor } from '@/app/lib/costeo-editor';
 import { yaCongelado } from '@/app/lib/congelamiento';
 import { registrarEvento } from '@/app/lib/historial';
 
@@ -38,16 +39,17 @@ export async function actualizarCosteosTrasReanalisis(codigo: string, informeAnt
       };
       const f = fusionarConViabilidad(actual, nuevo);
       const c = corregirDesdeViabilidad(f.estado, nuevo, anterior);
-      if (!f.agregados && !f.reclasificados && !c.corregidos) continue;
-      const cambios = resumenCambiosCosteo(actual, c.estado);
+      const o = ordenarComoViabilidad(c.estado, nuevo);
+      if (!f.agregados && !f.reclasificados && !c.corregidos && !o.reordenados) continue;
+      const cambios = resumenCambiosCosteo(actual, o.estado);
       await pool.query(
         `UPDATE negocio_costeo_editor SET datos_json = ?, actualizado_por = NULL, actualizado_por_nombre = ?, actualizado_at = ? WHERE negocio_id = ?`,
-        [JSON.stringify(c.estado), ACTOR_REANALISIS, ahoraChileSQL(), row.negocio_id]);
-      const partes = [f.agregados && `${f.agregados} producto(s) nuevo(s)`, f.reclasificados && `${f.reclasificados} reubicado(s) de línea`, c.corregidos && `${c.corregidos} corregido(s) en nombre o cantidad`].filter(Boolean);
+        [JSON.stringify(o.estado), ACTOR_REANALISIS, ahoraChileSQL(), row.negocio_id]);
+      const partes = [f.agregados && `${f.agregados} producto(s) nuevo(s)`, f.reclasificados && `${f.reclasificados} reubicado(s) de línea`, c.corregidos && `${c.corregidos} corregido(s) en nombre o cantidad`, o.reordenados && `${o.reordenados} fila(s) ordenada(s) como el anexo económico`].filter(Boolean);
       await registrarEvento({
         tipo: 'COSTEO_ACTUALIZADO_VIABILIDAD', licitacionCodigo: codigo, actorNombre: ACTOR_REANALISIS,
         mensaje: `El costeo se actualizó con el re-análisis de viabilidad: ${partes.join(', ')}.`.slice(0, 500),
-        metadata: { negocio_id: row.negocio_id, cambios, agregados: f.agregados, reclasificados: f.reclasificados, corregidos: c.corregidos },
+        metadata: { negocio_id: row.negocio_id, cambios, agregados: f.agregados, reclasificados: f.reclasificados, corregidos: c.corregidos, reordenados: o.reordenados },
       });
       console.log(`[costeo-reanalisis] ${codigo} negocio ${row.negocio_id}: ${partes.join(', ')}.`);
     } catch (e) {

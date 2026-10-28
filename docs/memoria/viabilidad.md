@@ -2,6 +2,24 @@
 
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-28 (tarde) — 2446-307-LE26: $28 billones y el ítem 5 del Formulario N°4 perdido
+Re-análisis de las 16:38 (VPS): presupuesto bruto 28.003.098.000.000 y manifiesto de 43 (faltaba «Juego de
+herramientas de 151 piezas»); el costeo digital quedó con 43 filas desordenadas y 5 hojas vacías (Línea 2, 4, 5,
+6 y 37). Dos causas generales:
+1. `interpretarMonto` (`viabilidad-v4/presupuesto.ts` y `cv/v4/`) multiplicaba ×1.000.000 por la palabra
+   «millones» de la glosa en letras («$28.003.098.-(Veintiocho millones…)»). Ahora «millones» solo multiplica
+   una cifra menor a 1.000.000 (igual que el tope del «M$»). El arreglo del bruto descuadrado (×0,5–×2) usaba
+   ese mismo monto malo para «corregir» al modelo.
+2. El filtro de «ítems inventados» (`descartarItemsInventados`) se aplicaba también al manifiesto que sale de
+   la planilla de un documento de la licitación, y el ítem 5 («DADOS REG. DE 6PT. DE 13-1/4" DR.: 4-4.5-5…14mm»)
+   no calzaba palabra a palabra. Ya no se aplica cuando el manifiesto viene de `tabla_canonica` o de una
+   planilla que no es un `COSTEO_` propio (`viabilidad-ia.ts` y `cv/viabilidad-ia.ts`).
+**Verificado:** re-análisis local contra la BD del VPS: 44 ítems desde el Formulario N°4, conteo cuadra (F4 44 ·
+PROYECTO 44 · API 44), bruto $28.003.098, neto $23.532.015, nivel ALTO. Costeo del negocio 1522: 44 filas en el
+orden del F4, una sola hoja, precios y links intactos (`scripts/scratch/_2446_307_ordenar_costeo.mts`).
+Tests 1.624/1.624. **Pendiente:** desplegar (si no, otro re-análisis en el VPS vuelve a dejar 43 y $28 billones).
+El dueño habló de «34 ítems»: el Formulario N°4 trae 44 (y la API 44 líneas).
+
 ## 2026-10-28 — 3712: presupuesto por línea del convenio con UNA línea en la API + .dotx sin leer
 Caso real: 3712-74-LP26 (negocio 1511). La tarjeta de viabilidad mostraba bien el total ($93.503.799 IVA
 incl.), pero `presupuesto.por_linea_interpretado` traía L1/L2/L3 = las «líneas de intervención» del convenio

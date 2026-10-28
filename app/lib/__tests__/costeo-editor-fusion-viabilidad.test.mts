@@ -5,7 +5,7 @@
 //   npx tsx --test app/lib/__tests__/costeo-editor-fusion-viabilidad.test.mts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fusionarConViabilidad, filasQueViabilidadYaNoTrae, corregirDesdeViabilidad, type EstadoCosteoEditor, type FilaEditorCosteo } from '../costeo-editor';
+import { fusionarConViabilidad, filasQueViabilidadYaNoTrae, corregirDesdeViabilidad, ordenarComoViabilidad, type EstadoCosteoEditor, type FilaEditorCosteo } from '../costeo-editor';
 
 const fila = (detalle: string, cantidad: number): FilaEditorCosteo => ({
   id: detalle, item: 1, lineaReal: null, detalle, unidad: 'UN', skuProveedor: '',
@@ -153,4 +153,26 @@ test('re-análisis: la errata de OCR se corrige con el nombre del documento si n
   const conComplemento = { ...guardada, detalleBase: 'Suministro e Instalación Bomba SSR El Estuerzo', detalle: 'Suministro e Instalación Bomba SSR El Estuerzo (con flete)' };
   const r2 = corregirDesdeViabilidad(estado([conComplemento]), estado([fila('Suministro e Instalación Bomba SSR El Esfuerzo', 1)]), null);
   assert.equal(r2.estado.grupos[0].filas[0].detalle, conComplemento.detalle);
+});
+
+test('2446-307-LE26: al re-analizar el costeo queda en el orden del anexo económico', () => {
+  const guardado = estado([
+    { ...fila('Pack de 10 un de discos de desbaste', 10), valorConIva: 4 },
+    fila('Llave ajustable de 12" de acero', 2),
+    { ...fila('Flete a Coquimbo', 1), esCostoAdicional: true },
+    fila('Set de brocas SDS Plus, makita o equivalente', 2),
+    fila('Juego de herramientas de 151 piezas', 1),
+  ]);
+  const fresco = estado([
+    fila('Pack de 10 un de discos de desbaste', 10), fila('Set de brocas SDS Plus, makita o equivalente', 2),
+    fila('Juego de herramientas de 151 piezas', 1), fila('Llave ajustable de 12" de acero', 2),
+  ]);
+  const r = ordenarComoViabilidad(guardado, fresco);
+  assert.deepEqual(r.estado.grupos[0].filas.map(f => f.detalle), [
+    'Pack de 10 un de discos de desbaste', 'Set de brocas SDS Plus, makita o equivalente',
+    'Juego de herramientas de 151 piezas', 'Llave ajustable de 12" de acero', 'Flete a Coquimbo',
+  ]);
+  assert.deepEqual(r.estado.grupos[0].filas.map(f => f.item), [1, 2, 3, 4, 5]);
+  assert.equal(r.estado.grupos[0].filas[0].valorConIva, 4);
+  assert.equal(ordenarComoViabilidad(r.estado, fresco).reordenados, 0);
 });

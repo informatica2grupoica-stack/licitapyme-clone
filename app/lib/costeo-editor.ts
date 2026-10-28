@@ -351,6 +351,34 @@ export function corregirDesdeViabilidad(
   return { estado: { ...actual, grupos }, corregidos };
 }
 
+/** Al re-analizar, deja las filas de cada hoja en el orden del documento (el de `nuevo`, que sale del
+ *  anexo económico) — decisión del dueño (28-oct-2026, 2446-307-LE26: los ítems que agregaba el
+ *  re-análisis quedaban al final). Una fila que no viene del documento (agregada a mano, de Compras,
+ *  costo adicional) sigue pegada detrás de la fila que hoy tiene antes. Solo cambia el orden y el
+ *  número de ítem; nunca el contenido. */
+export function ordenarComoViabilidad(
+  actual: EstadoCosteoEditor,
+  nuevo: EstadoCosteoEditor,
+): { estado: EstadoCosteoEditor; reordenados: number } {
+  const frescas = nuevo.grupos.flatMap(g => g.filas).filter(f => f.detalle?.trim());
+  let reordenados = 0;
+  const grupos = actual.grupos.map(g => {
+    const usadas = new Set<number>();
+    let previa = -1;
+    const conPos = g.filas.map((f, i) => {
+      const k = f.esCostoAdicional || f.agregadoPorCompras || !f.detalle?.trim() ? -1
+        : frescas.findIndex((x, j) => !usadas.has(j) && mismoProducto(x.detalle, f.detalleBase ?? f.detalle));
+      if (k >= 0) { usadas.add(k); previa = k; }
+      return { f, pos: k >= 0 ? k : previa, i };
+    });
+    const ordenadas = [...conPos].sort((a, b) => a.pos - b.pos || a.i - b.i);
+    if (ordenadas.every((x, i) => x.i === i)) return g;
+    reordenados += ordenadas.filter((x, i) => x.i !== i).length;
+    return { ...g, filas: ordenadas.map((x, i) => ({ ...x.f, item: i + 1 })) };
+  });
+  return { estado: { ...actual, grupos }, reordenados };
+}
+
 /** ¿Alguien trabajó esta fila? Precio, link, SKU o costo real — decisión del dueño (27-oct-2026):
  *  solo una fila SIN nada de eso se puede quitar al actualizar desde la viabilidad. */
 function filaTrabajada(f: FilaEditorCosteo): boolean {

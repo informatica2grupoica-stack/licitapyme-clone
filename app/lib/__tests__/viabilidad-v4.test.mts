@@ -290,6 +290,11 @@ test('P2 · "M$ 1.158.670.000" (total ya sumado en pesos y rotulado M$) no se mu
   assert.equal(interpretarMonto('M$ 1.158.670').pesos, 1_158_670_000);
   assert.equal(interpretarMonto('M$ 872.079').pesos, 872_079_000);
 });
+test('P2 · monto en número con la glosa "millones" en letras no se multiplica (2446-307-LE26)', () => {
+  assert.equal(interpretarMonto('$28.003.098.-(Veintiocho millones tres mil noventa y ocho pesos) IVA incluido').pesos, 28_003_098);
+  assert.equal(interpretarMonto('$52 millones').pesos, 52_000_000);
+  assert.equal(interpretarMonto('$1.500 millones').pesos, 1_500_000_000);
+});
 
 test('P2 · presupuesto EXCLUYENTE con texto expreso se detecta en código (Cholchol Art. 5)', () => {
   const docs = [{ nombre: 'BASES.pdf', texto: 'Proyecto financiado con recursos del Gobierno Regional. Observación: El oferente que exceda el presupuesto Máximo disponible quedara fuera de Bases en la etapa de evaluación. ## ART. 6' }];

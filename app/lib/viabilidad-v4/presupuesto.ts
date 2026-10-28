@@ -31,7 +31,10 @@ export function interpretarMonto(texto: unknown): MontoInterpretado {
   // rotuló M$) multiplicado por 1.000 daría más de un billón de pesos: ya viene en pesos. Ninguna
   // licitación de este negocio se acerca a ese monto (golden Cholchol 4993-70-LR26, 07-oct-2026).
   if (miles && n < 1_000_000_000) n *= 1_000;
-  else if (millones) n *= 1_000_000;
+  // Lo mismo con "millones": una cifra que ya viene en millones de pesos es el monto escrito en
+  // número y la palabra es la glosa en letras ("$28.003.098.-(Veintiocho millones tres mil…)",
+  // 2446-307-LE26, leído como $28 billones).
+  else if (millones && n < 1_000_000) n *= 1_000_000;
   return { pesos: Math.round(n), miles, con_iva };
 }
 

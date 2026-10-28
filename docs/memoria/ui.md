@@ -4,6 +4,17 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
 
 ## Decisiones vigentes del dueño
 
+- **Menú lateral ordenado por etapa** (2026-10-28, pedido del dueño antes de sumar más módulos):
+  PRINCIPAL (Dashboard, Negocios, Aprobaciones, Postuladas, Ganadas/Perdidas) → EJECUCIÓN (Compras,
+  Proyectos (Obuma), Órdenes de compra, Entregas, Proveedores, Fleteros) → OPORTUNIDADES (Radar,
+  Buscador, Puente, Analizadas, Descartadas) → ANÁLISIS (Análisis de licitación, Memoria, Historial)
+  → MI EMPRESA (Perfil, Empresas, Mi equipo, Líneas negocio, Reglas de la IA) → ADMINISTRACIÓN
+  (Usuarios, Empresas-cliente, Errores reportados, Gasto de IA) → SOPORTE (Mis reportes de error).
+  El dueño eligió el nombre «PRINCIPAL» para el primer grupo, lo de venta primero y ejecución justo
+  después. Solo cambió el orden y los grupos (`NAV_GROUPS` en `AppLayout.tsx`); permisos y nombres
+  de cada entrada iguales. Lo nuevo que se agregue va al grupo de su etapa.
+  Verificado: `tsc` sin errores; NO visto en navegador (pedía login).
+
 - **Sistema de diseño `licitank-ui`** (2026-10-28): el dueño pidió una skill única para que todo el
   SaaS se vea moderno y profesional (tipografía, animaciones y tarjetas modernas) sin aspecto IA, y
   aplicarla pantalla por pantalla. Vive en `.claude/skills/licitank-ui/` (reemplaza a

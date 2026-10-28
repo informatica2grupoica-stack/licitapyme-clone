@@ -1921,7 +1921,11 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
   {
     // El mismo filtro sobre el manifiesto (puede traer el ítem inventado desde la planilla de un análisis anterior).
     const hayFicha = itemsFuente.some((it: any) => Array.isArray(it?.caracteristicas) && it.caracteristicas.length);
-    if (hayFicha) {
+    // Filas copiadas tal cual de un documento de la licitación (no de un COSTEO_ propio) no son invento
+    // del modelo: 2446-307-LE26 perdía el ítem 5 del Formulario N°4 («…DADOS REG. DE 6PT. DE 13-1/4"
+    // DR.: 4-4.5-5…14mm…») porque sus palabras no calzaban en orden con el texto partido en renglones.
+    const filasDeDocumento = origenManifiesto === 'tabla_canonica' || (origenManifiesto === 'planilla' && !/^COSTEO_/i.test(planilla?.fuenteDoc || ''));
+    if (hayFicha && !filasDeDocumento) {
       const adaptados = manifiesto.map((m: any) => ({ nombre: m.descripcion, caracteristicas: itemsFuente.find((it: any) => _str(it.nombre) === m.descripcion)?.caracteristicas || [], _m: m }));
       const fuera = descartarItemsInventados(adaptados, fuentes.filter(d => !/^COSTEO_/i.test(d.nombre) && !/DOCUMENTOS_PROPIOS/i.test(d.categoria || '')).map(d => d.texto || ''), (ctx.itemsMP || []).map((x: any) => String(x?.nombre || x?.descripcion || '')), ctx.itemsMP || []);
       if (fuera.length) {

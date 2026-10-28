@@ -41,6 +41,11 @@ interface NavGroup { label: string; items: NavItem[]; }
 //   congelado) → Ganadas/Perdidas (resultado del acta) → Entregas (post-adjudicación).
 // Ni Aprobaciones ni Compras son "solo administración": son un paso del mismo flujo que
 // Postuladas/Entregas, con su propia bandeja de trabajo — por eso ahora viven acá, no en ADMIN.
+//
+// 28-oct-2026 (pedido del dueño, "ordenar el menú con lo que es cada cosa"): grupos por etapa.
+// PRINCIPAL = ciclo de la licitación hasta el acta; EJECUCIÓN = comprar y entregar lo ganado
+// (con sus catálogos de proveedores/fleteros); OPORTUNIDADES = lo que aún no es negocio;
+// ANÁLISIS; MI EMPRESA = configuración del cliente; ADMINISTRACIÓN = sistema; SOPORTE al final.
 const NAV_GROUPS: NavGroup[] = [
   {
     label: 'PRINCIPAL',
@@ -52,70 +57,83 @@ const NAV_GROUPS: NavGroup[] = [
       // — quedaría afuera de su propia bandeja si la ruta llevara ese prefijo.
       { label: 'Aprobaciones', href: '/aprobaciones', icon: <ClipboardCheck size={17} />, adminOnly: true },
       { label: 'Postuladas', href: '/postuladas', icon: <Send size={17} /> },
+      { label: 'Ganadas/Perdidas', href: '/adjudicadas', icon: <Trophy size={17} /> },
+    ],
+  },
+  {
+    label: 'EJECUCIÓN',
+    items: [
       { label: 'Compras',    href: '/compras',    icon: <ShoppingCart size={17} />, adminOnly: true },
       // Proyectos (Obuma): puesto justo debajo de Compras a propósito (pedido del usuario,
       // 22-sep-2026: "no sé dónde lo metiste" cuando vivía en GESTIÓN, lejos de Compras).
       { label: 'Proyectos (Obuma)', href: '/compras/proyectos', icon: <Folders size={17} />, adminOnly: true },
-      { label: 'Ganadas/Perdidas', href: '/adjudicadas', icon: <Trophy size={17} /> },
+      // Vista transversal de las OC de las dos empresas (ver app/lib/ordenes-compra.ts). Admin-only
+      // porque toca RUT/montos de ambas empresas a la vez, igual criterio que Compras.
+      { label: 'Órdenes de compra', href: '/ordenes-compra', icon: <Receipt size={17} />, adminOnly: true },
       // Entregas: no es una consola, es algo que cada involucrado tiene que hacer. Visible para
       // admin, para quien tenga el permiso `entrega_proyectos`, y para cualquiera que tenga una
       // entrega asignada (el responsable del negocio ganado, aunque no tenga permisos especiales).
       { label: 'Entregas', href: '/entregas', icon: <PackageCheck size={17} />, adminOnly: true },
+      // Proveedores: catálogo de A QUIÉN LE COMPRAMOS productos (ficha completa: contacto,
+      // categoría, datos bancarios) — se puebla solo al registrar cotizaciones en el Auditor de
+      // Compras (spec §8.4, trazabilidad del proveedor local) y alimenta directo la emisión real de
+      // la OC a Obuma. Nada que ver con Fleteros (a quién le pagamos el FLETE, no el producto).
+      { label: 'Proveedores', href: '/compras/proveedores', icon: <Building2 size={17} /> },
+      // Fleteros (spec §13.3): catálogo de transporte/flete — mismo círculo de acceso que Compras,
+      // concepto distinto a Proveedores (arriba). No cuelga de una licitación puntual.
+      { label: 'Fleteros', href: '/logistica/fleteros', icon: <Truck size={17} />, adminOnly: true },
     ],
   },
   {
-    label: 'BÚSQUEDA',
+    label: 'OPORTUNIDADES',
     items: [
-      { label: 'Buscador',   href: '/',          icon: <Search size={17} />, exact: true, adminOnly: true },
       { label: 'Radar',      href: '/radar',      icon: <Radar size={17} />, adminOnly: true },
+      { label: 'Buscador',   href: '/',          icon: <Search size={17} />, exact: true, adminOnly: true },
       // Puente: la bandeja de reparto. La ve el admin y quien tenga el permiso `repartir_puente`
       // (el asesor), igual criterio que Aprobaciones — reparte trabajo sin ser administrador.
       { label: 'Puente',     href: '/puente',     icon: <Shuffle size={17} />, adminOnly: true },
       { label: 'Analizadas', href: '/analizadas', icon: <Layers size={17} />, adminOnly: true },
+      { label: 'Descartadas', href: '/descartadas', icon: <Ban size={17} />, adminOnly: true },
     ],
   },
   {
-    label: 'GESTIÓN',
+    label: 'ANÁLISIS',
     items: [
       { label: 'Análisis de licitación', href: '/analisis-licitacion', icon: <Activity size={17} />, adminOnly: true },
       // Memoria (F.3): visible para todo perfil interno — orienta el trabajo de cualquiera que
       // cotice o postule, no solo del admin. Cargar experiencia sí es admin (lo bloquea la API).
       { label: 'Memoria', href: '/memoria', icon: <Library size={17} /> },
-      // Mis reportes: los errores que YO reporté con el botón rojo flotante y cómo se resolvió
-      // cada uno. Todo perfil (incluido externo) — cualquiera puede reportar.
-      { label: 'Mis reportes de error', href: '/mis-reportes', icon: <Bug size={17} /> },
-      // Vista transversal de las OC de las dos empresas (ver app/lib/ordenes-compra.ts). Admin-only
-      // porque toca RUT/montos de ambas empresas a la vez, igual criterio que Compras.
-      { label: 'Órdenes de compra', href: '/ordenes-compra', icon: <Receipt size={17} />, adminOnly: true },
-      // Proveedores: catálogo de A QUIÉN LE COMPRAMOS productos (ficha completa: contacto,
-      // categoría, datos bancarios) — se puebla solo al registrar cotizaciones en el Auditor de
-      // Compras (spec §8.4, trazabilidad del proveedor local) y alimenta directo la emisión real de
-      // la OC a Obuma. Puesto junto a "Órdenes de compra" a propósito: es el mismo circuito de
-      // dinero saliendo — nada que ver con Fleteros (a quién le pagamos el FLETE, no el producto).
-      // Antes vivía pegado a Fleteros acá abajo y se confundían.
-      { label: 'Proveedores', href: '/compras/proveedores', icon: <Building2 size={17} /> },
-      { label: 'Descartadas', href: '/descartadas', icon: <Ban size={17} />, adminOnly: true },
-      // Fleteros (spec §13.3): catálogo de transporte/flete — mismo círculo de acceso que Compras,
-      // concepto distinto a Proveedores (arriba). No cuelga de una licitación puntual.
-      { label: 'Fleteros', href: '/logistica/fleteros', icon: <Truck size={17} />, adminOnly: true },
       { label: 'Historial', href: '/alertas', icon: <History size={17} />, adminOnly: true },
     ],
   },
   {
-    label: 'ADMIN',
+    label: 'MI EMPRESA',
+    items: [
+      { label: 'Perfil de mi empresa', href: '/mi-empresa', icon: <Building2 size={17} />, adminOnly: true },
+      { label: 'Empresas',       href: '/empresas',        icon: <Building2 size={17} />, adminOnly: true },
+      { label: 'Mi equipo',      href: '/equipo',          icon: <Users size={17} />, adminOnly: true },
+      { label: 'Líneas negocio', href: '/admin/etiquetas', icon: <Tag size={17} />, adminOnly: true },
+      // Reglas que aprende la IA de viabilidad (v4.0, P12): solo CA (permiso `reglas_ia`, no heredado por admin).
+      { label: 'Reglas de la IA', href: '/reglas-ia', icon: <Brain size={17} />, adminOnly: true },
+    ],
+  },
+  {
+    label: 'ADMINISTRACIÓN',
     items: [
       { label: 'Usuarios',       href: '/admin/usuarios',  icon: <Users size={17} />, adminOnly: true },
       { label: 'Empresas-cliente', href: '/admin/clientes', icon: <Building2 size={17} />, adminOnly: true },
-      { label: 'Mi equipo',      href: '/equipo',          icon: <Users size={17} />, adminOnly: true },
-      { label: 'Perfil de mi empresa', href: '/mi-empresa', icon: <Building2 size={17} />, adminOnly: true },
-      { label: 'Empresas',       href: '/empresas',        icon: <Building2 size={17} />, adminOnly: true },
-      { label: 'Líneas negocio', href: '/admin/etiquetas', icon: <Tag size={17} />, adminOnly: true },
       // Reportes del botón flotante "Reportar error" (components/ReportarErrorBoton) de todos los perfiles.
       { label: 'Errores reportados', href: '/admin/errores', icon: <Bug size={17} />, adminOnly: true },
       // Cuánto gasta cada perfil en IA (viabilidad, consultas, auditor…): tabla ia_uso, ver app/lib/ia-uso.ts.
       { label: 'Gasto de IA', href: '/admin/gasto-ia', icon: <Coin size={17} />, adminOnly: true },
-      // Reglas que aprende la IA de viabilidad (v4.0, P12): solo CA (permiso `reglas_ia`, no heredado por admin).
-      { label: 'Reglas de la IA', href: '/reglas-ia', icon: <Brain size={17} />, adminOnly: true },
+    ],
+  },
+  {
+    label: 'SOPORTE',
+    items: [
+      // Mis reportes: los errores que YO reporté con el botón rojo flotante y cómo se resolvió
+      // cada uno. Todo perfil (incluido externo) — cualquiera puede reportar.
+      { label: 'Mis reportes de error', href: '/mis-reportes', icon: <Bug size={17} /> },
     ],
   },
 ];
