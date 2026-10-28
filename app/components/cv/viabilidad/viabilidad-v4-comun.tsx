@@ -79,7 +79,6 @@ export function Cita({ cita, etiqueta, compacta }: { cita?: any; etiqueta?: stri
     ?? docs.find(d => { const a = _norm(d.nombre), b = _norm(nombreDoc); return !!b && (a.includes(b) || b.includes(a)); });
   const noVerificada = cita.verificada === false || cita.semantica === 'NO' || cita.semantica === 'PARCIAL';
   const texto = [nombreDoc, cita.numeral, pagina ? `pág. ${pagina}${cita.pagina == null && cita.pagina_aprox ? ' aprox.' : ''}` : ''].filter(Boolean).join(' · ');
-  const ubic = [cita.numeral, pagina ? `pág. ${pagina}${cita.pagina == null && cita.pagina_aprox ? ' aprox.' : ''}` : ''].filter(Boolean).join(' · ');
   const aviso = cita.verificada === false ? 'La frase citada no se encontró en las bases: confírmala antes de usar el dato.' : `La frase existe, pero no sostiene el dato${cita.motivo_semantica ? `: ${cita.motivo_semantica}` : ''}.`;
   const estilo = noVerificada
     ? 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:bg-amber-950/30 dark:border-amber-900 dark:text-amber-200'
@@ -88,7 +87,6 @@ export function Cita({ cita, etiqueta, compacta }: { cita?: any; etiqueta?: stri
     <>
       <Eye size={14} className="flex-shrink-0" />
       <span className="font-semibold">Cita</span>
-      {ubic && <span className="min-w-0 truncate font-normal opacity-80">· {ubic}</span>}
     </>
   );
   const cls = `inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border px-2 py-1 text-xs leading-none transition-colors duration-150 ${estilo}`;

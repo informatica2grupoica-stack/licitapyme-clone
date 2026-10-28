@@ -605,11 +605,14 @@ export function GanarV4({ informe }: { informe: any }) {
 }
 
 // ─── Admisibilidad: lo que deja la oferta fuera ────────────────────────────────────────────
-const FIRMA: Record<string, { titulo: string; accion: string; tono: string; texto: string; icono: React.ReactNode }> = {
-  ESCANEADA_BASTA:            { titulo: 'Basta firma escaneada',      accion: 'Pega la imagen de la firma.',                      tono: 'bg-emerald-100', texto: 'text-emerald-700', icono: <Check size={17} /> },
-  MANO_Y_ESCANEO:             { titulo: 'Firma a mano y escanea',     accion: 'Imprime, firma a mano y escanea.',                 tono: 'bg-amber-100',   texto: 'text-amber-700',   icono: <Pencil size={17} /> },
-  ORIGINAL_NOTARIAL:          { titulo: 'Original o notarial',        accion: 'Requiere gestión presencial.',                     tono: 'bg-red-100',     texto: 'text-red-700',     icono: <Ban size={17} /> },
-  FIRMA_ELECTRONICA_AVANZADA: { titulo: 'Firma electrónica avanzada', accion: 'Requiere token de firma electrónica avanzada.',    tono: 'bg-red-100',     texto: 'text-red-700',     icono: <Ban size={17} /> },
+const TONO_ADM = { rojo: '#dc2626', ambar: '#d97706', verde: '#16a34a', gris: '#94a3b8' } as const;
+type TonoAdm = keyof typeof TONO_ADM;
+
+const FIRMA: Record<string, { titulo: string; accion: string; tono: TonoAdm; icono: React.ReactNode }> = {
+  ESCANEADA_BASTA:            { titulo: 'Basta firma escaneada',      accion: 'Pega la imagen de la firma.',                   tono: 'verde', icono: <Check size={16} /> },
+  MANO_Y_ESCANEO:             { titulo: 'Firma a mano y escanea',     accion: 'Imprime, firma a mano y escanea.',              tono: 'ambar', icono: <Pencil size={16} /> },
+  ORIGINAL_NOTARIAL:          { titulo: 'Original o notarial',        accion: 'Requiere gestión presencial.',                  tono: 'rojo',  icono: <Ban size={16} /> },
+  FIRMA_ELECTRONICA_AVANZADA: { titulo: 'Firma electrónica avanzada', accion: 'Requiere token de firma electrónica avanzada.', tono: 'rojo',  icono: <Ban size={16} /> },
 };
 const GARANTIAS: Array<[string, string]> = [['seriedad', 'Seriedad de la oferta'], ['fiel_cumplimiento', 'Fiel cumplimiento'], ['contrato', 'Contrato']];
 
@@ -622,34 +625,52 @@ const OTRA_TITULO: Record<string, string> = {
   PRESENTACION: 'Presentación', INSPECCION_PROVEEDOR: 'Inspección al proveedor', OTRA: 'Exigencia presencial',
 };
 
+// Texto de «si no se cumple…»: en rojo, sin caja con borde.
+function Consecuencia({ texto }: { texto: string }) {
+  return (
+    <p className="flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2 text-[13px] font-medium text-red-900 leading-snug dark:bg-red-950/30 dark:text-red-200">
+      <AlertTriangle size={15} className="flex-shrink-0 mt-px text-urgente" />
+      <span>Si no se cumple: {texto.charAt(0).toLowerCase() + texto.slice(1)}</span>
+    </p>
+  );
+}
+
+// Datos rotulados (rótulo arriba, valor abajo), sin cajas dentro de la tarjeta.
+function DatosAdm({ filas, columnas = 2 }: { filas: Array<[string, string]>; columnas?: 2 | 3 }) {
+  if (filas.length === 0) return null;
+  return (
+    <dl className={`grid grid-cols-1 gap-x-5 gap-y-2.5 ${columnas === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+      {filas.map(([k, v]) => (
+        <div key={k} className="min-w-0">
+          <dt className="text-[11px] text-slate-500">{k}</dt>
+          <dd className="text-[13.5px] font-medium text-tinta dark:text-slate-100 leading-snug">{mayus(v)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 function FichaPresencial({ icono, titulo, estado, tono, datos, consecuencia, cita, delDetector }: {
-  icono: React.ReactNode; titulo: string; estado: string; tono: 'rojo' | 'ambar' | 'verde' | 'gris';
+  icono: React.ReactNode; titulo: string; estado: string; tono: TonoAdm;
   datos: Array<[string, any]>; consecuencia?: string; cita?: any; delDetector?: boolean;
 }) {
-  const color = { rojo: 'bg-red-100 text-red-700', ambar: 'bg-amber-100 text-amber-700', verde: 'bg-emerald-100 text-emerald-700', gris: 'bg-slate-100 text-slate-500' }[tono];
-  const filas = datos.filter(([, v]) => v && String(v).trim());
+  const color = TONO_ADM[tono];
+  const filas = datos.filter(([, v]) => v && String(v).trim()).map(([k, v]) => [k, String(v)] as [string, string]);
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 h-full flex flex-col gap-2.5">
-      <div className="flex items-start gap-2.5">
-        <span className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${color}`}>{icono}</span>
+    <div className="rounded-xl border bg-white p-5 h-full flex flex-col gap-3 shadow-tarjeta dark:bg-slate-900" style={{ borderColor: tono === 'gris' || tono === 'verde' ? undefined : color + '55' }}>
+      <div className="flex items-start gap-3">
+        <span className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: color + '18', color }}>{icono}</span>
         <div className="min-w-0">
-          <p className="text-[11px] font-bold text-slate-400">{titulo}</p>
-          <p className="text-[14.5px] font-bold text-slate-900 leading-snug">{estado}</p>
+          <p className="text-[13px] text-tinta-2 dark:text-slate-400">{titulo}</p>
+          <p className="text-[16px] font-semibold tracking-tight leading-snug" style={{ color: tono === 'gris' ? undefined : color }}>
+            <span className={tono === 'gris' ? 'text-tinta dark:text-slate-100' : ''}>{estado}</span>
+          </p>
         </div>
       </div>
-      {filas.length > 0 && (
-        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {filas.map(([k, v]) => (
-            <div key={k} className="rounded-lg bg-slate-50 px-2.5 py-1.5">
-              <dt className="text-[10.5px] font-bold text-slate-400">{k}</dt>
-              <dd className="text-[12.5px] font-semibold text-slate-800 leading-snug">{mayus(String(v))}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
-      {consecuencia && <p className="text-[12.5px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">Si no se cumple: {consecuencia.charAt(0).toLowerCase() + consecuencia.slice(1)}</p>}
-      {delDetector && <p className="text-[11.5px] text-amber-700">Detectado por búsqueda en el texto: confirma en el documento.</p>}
-      {cita && <div className="mt-auto"><Cita cita={cita} /></div>}
+      <DatosAdm filas={filas} />
+      {consecuencia && <Consecuencia texto={consecuencia} />}
+      {delDetector && <p className="text-xs text-alerta">Detectado por búsqueda en el texto: confirma en el documento.</p>}
+      {cita && <div className="mt-auto pt-0.5"><Cita cita={cita} /></div>}
     </div>
   );
 }
@@ -665,14 +686,14 @@ function PresencialesV4({ adm }: { adm: any }) {
   const alertas = (ev === 'OBLIGATORIA' ? 1 : 0) + (em === 'EXIGE' ? 1 : 0) + otras.filter(o => o.obligatoria !== false).length;
   return (
     <Bloque i={1} icon={<Compass size={18} />} titulo="Visita técnica y muestras" subtitulo="Exigencias que hay que cumplir en persona o con productos físicos, y condiciones comerciales de las bases."
-      derecha={<span className={`text-[12px] font-bold px-2.5 py-1 rounded-full ${alertas ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>{alertas ? `${alertas} ${alertas === 1 ? 'exigencia' : 'exigencias'}` : 'Sin exigencias'}</span>}>
+      derecha={<span className={`text-[13px] font-medium tabular-nums whitespace-nowrap ${alertas ? 'text-urgente' : 'text-exito'}`}>{alertas ? `${alertas} ${alertas === 1 ? 'exigencia' : 'exigencias'}` : 'Sin exigencias'}</span>}>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
-        <FichaPresencial icono={<Compass size={17} />} titulo="Visita técnica"
+        <FichaPresencial icono={<Compass size={18} />} titulo="Visita técnica"
           estado={ev === 'OBLIGATORIA' ? 'Visita obligatoria' : ev === 'VOLUNTARIA' ? 'Visita voluntaria' : ev === 'EXISTE' ? 'Hay visita (confirmar si es obligatoria)' : ev === 'NO_EXISTE' ? 'No hay visita' : 'No indicada en las bases'}
           tono={ev === 'OBLIGATORIA' ? 'rojo' : ev === 'VOLUNTARIA' || ev === 'EXISTE' ? 'ambar' : ev === 'NO_EXISTE' ? 'verde' : 'gris'}
           datos={[['Cuándo', v.fecha_hora], ['Dónde', v.lugar], ['Cómo se acredita', v.acreditacion], ['Inscripción previa', v.inscripcion_previa]]}
           consecuencia={ev === 'OBLIGATORIA' ? v.consecuencia : undefined} cita={v.cita} delDetector={v.origen === 'detector'} />
-        <FichaPresencial icono={<Package size={17} />} titulo="Muestras"
+        <FichaPresencial icono={<Package size={18} />} titulo="Muestras"
           estado={em === 'EXIGE' ? 'Piden muestras' : em === 'NO_EXISTE' ? 'No piden muestras' : 'No indicadas en las bases'}
           tono={em === 'EXIGE' ? 'rojo' : em === 'NO_EXISTE' ? 'verde' : 'gris'}
           datos={[['Productos', m.que_productos], ['Cuántas', m.cuantas], ['Plazo', m.cuando], ['Dónde se entregan', m.donde], ['Devolución', m.devolucion]]}
@@ -680,8 +701,8 @@ function PresencialesV4({ adm }: { adm: any }) {
       </div>
       {otras.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch mt-3">
-          {otras.map((o, i) => (
-            <FichaPresencial key={i} icono={<Clock size={17} />} titulo={OTRA_TITULO[String(o.tipo || '').toUpperCase()] || 'Exigencia presencial'}
+          {otras.map((o, k) => (
+            <FichaPresencial key={k} icono={<Clock size={18} />} titulo={OTRA_TITULO[String(o.tipo || '').toUpperCase()] || 'Exigencia presencial'}
               estado={oracion(o.que || '')} tono={o.obligatoria === false ? 'ambar' : 'rojo'}
               datos={[['Cuándo', o.cuando], ['Carácter', o.obligatoria === false ? 'Voluntaria' : 'Obligatoria']]}
               consecuencia={o.obligatoria === false ? undefined : o.consecuencia} cita={o.cita} />
@@ -689,14 +710,14 @@ function PresencialesV4({ adm }: { adm: any }) {
         </div>
       )}
       {conds.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-slate-100">
-          <p className="text-[11px] font-bold text-slate-400 mb-2">Condiciones comerciales</p>
-          <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden">
-            {conds.map((c, i) => (
-              <li key={i} className="px-4 py-2.5 flex items-start gap-3">
-                <Wallet size={16} className="text-marca flex-shrink-0 mt-0.5" />
-                <div className="min-w-0 space-y-0.5">
-                  <p className="text-[13.5px] text-slate-800 leading-snug"><span className="font-bold">{COND_TITULO[String(c.tipo || '').toUpperCase()] || 'Condición'}: </span>{mayus(c.que)}</p>
+        <div className="mt-4 pt-4 border-t border-linea/80 dark:border-slate-800">
+          <p className="text-[15px] font-semibold text-tinta dark:text-slate-100 mb-2.5">Condiciones comerciales</p>
+          <ul className="space-y-2">
+            {conds.map((c, k) => (
+              <li key={k} className="rounded-xl bg-slate-50/80 px-4 py-3 flex items-start gap-3 dark:bg-slate-800/40">
+                <span className="w-7 h-7 rounded-lg bg-white text-marca flex items-center justify-center flex-shrink-0 shadow-tarjeta dark:bg-slate-900"><Wallet size={15} /></span>
+                <div className="min-w-0 space-y-1.5">
+                  <p className="text-[14px] text-tinta-2 dark:text-slate-300 leading-snug"><span className="font-semibold text-tinta dark:text-slate-100">{COND_TITULO[String(c.tipo || '').toUpperCase()] || 'Condición'}: </span>{mayus(c.que)}</p>
                   {c.cita && <Cita cita={c.cita} />}
                 </div>
               </li>
@@ -708,7 +729,30 @@ function PresencialesV4({ adm }: { adm: any }) {
   );
 }
 
+// Resumen de la pestaña: cinco datos para ver de un vistazo qué exige esta licitación. Cada uno lleva a su sección.
+function ResumenAdm({ items }: { items: Array<{ rotulo: string; valor: string; tono: TonoAdm; destino: string }> }) {
+  const ir = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  return (
+    <div className={`grid grid-cols-2 gap-3 ${items.length === 3 ? 'lg:grid-cols-3' : items.length === 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-5'}`}>
+      {items.map((it, k) => (
+        <Aparece key={it.rotulo} i={k} alto>
+          <button type="button" onClick={() => ir(it.destino)}
+            className="group w-full h-full text-left rounded-2xl border border-linea bg-white px-4 py-3.5 shadow-tarjeta transition-[box-shadow,transform] duration-150 ease-lk hover:shadow-tarjeta-hover hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60 dark:bg-slate-900 dark:border-slate-800">
+            <span className="block text-[13px] text-tinta-2 dark:text-slate-400">{it.rotulo}</span>
+            <span className="mt-1.5 flex items-center gap-2 text-[15px] font-semibold leading-snug text-tinta dark:text-slate-50">
+              <span aria-hidden className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: TONO_ADM[it.tono] }} />{it.valor}
+            </span>
+            <span className="mt-1.5 inline-flex items-center gap-1 text-xs text-marca opacity-70 group-hover:opacity-100">Ver detalle <ChevronDown size={12} /></span>
+          </button>
+        </Aparece>
+      ))}
+    </div>
+  );
+}
+
 export function AdmisibilidadV4({ informe }: { informe: any }) {
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
+  const [cerrados, setCerrados] = useState<Set<number>>(new Set());
   const adm = informe.requisitos_admisibilidad || {};
   const pres = informe.presupuesto || {};
   const requisitos: any[] = Array.isArray(adm.requisitos) ? adm.requisitos : [];
@@ -716,52 +760,80 @@ export function AdmisibilidadV4({ informe }: { informe: any }) {
   const garantias = adm.garantias || {};
   const firma = FIRMA[String(adm.firma?.estado || '').toUpperCase()];
   const nAdm = Number(adm.conteo ?? requisitos.length) || 0;
+  const ev = String(adm.visita_tecnica?.estado || 'NO_INDICADO').toUpperCase();
+  const em = String(adm.muestras?.estado || 'NO_INDICADO').toUpperCase();
+  const nGar = GARANTIAS.filter(([k]) => String(garantias[k]?.estado || '').toUpperCase() === 'EXISTE').length;
+  const todosAbiertos = cerrados.size === 0;
+  const alternar = (k: number) => setCerrados(prev => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   return (
     <div className="space-y-3">
-      <Bloque i={0} icon={<ShieldCheck size={18} />} titulo="Lo que deja la oferta fuera" subtitulo="Si no se cumple alguno de estos requisitos, la oferta queda eliminada."
-        derecha={<span className={`text-[12px] font-bold px-2.5 py-1 rounded-full ${nAdm ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>{nAdm ? `${nAdm} ${nAdm === 1 ? 'requisito' : 'requisitos'}` : 'Sin requisitos detectados'}</span>}>
-        {requisitos.length === 0 ? (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 px-4 py-3 flex items-center gap-2.5 text-[13.5px] text-emerald-800"><Check size={18} className="flex-shrink-0" />El análisis no encontró requisitos que dejen la oferta fuera.</div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
-            {requisitos.map((r: any, i: number) => {
-              const datos: Array<[string, string]> = ([['Cuánto', r.cuanto], ['Cuándo', r.cuando], ['Cómo', r.como]] as Array<[string, any]>).filter(([, v]) => v).map(([k, v]) => [k, String(v)]);
-              return (
-                <Aparece key={i} i={i + 1} alto>
-                  <div className="rounded-xl border border-slate-200 bg-white p-4 h-full flex flex-col gap-2.5">
-                    <div className="flex items-start gap-2.5">
-                      <span className="w-8 h-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center flex-shrink-0"><Ban size={17} /></span>
-                      <p className="text-[14.5px] font-bold text-slate-900 leading-snug pt-1">{oracion(r.que)}</p>
+      <ResumenAdm items={[
+        { rotulo: 'Requisitos que dejan fuera', valor: nAdm ? `${nAdm} ${nAdm === 1 ? 'requisito' : 'requisitos'}` : 'Ninguno', tono: nAdm ? 'rojo' : 'verde', destino: `${uid}-req` },
+        { rotulo: 'Visita técnica', valor: ev === 'OBLIGATORIA' ? 'Obligatoria' : ev === 'VOLUNTARIA' ? 'Voluntaria' : ev === 'EXISTE' ? 'Hay (confirmar)' : ev === 'NO_EXISTE' ? 'No hay' : 'No indicada', tono: ev === 'OBLIGATORIA' ? 'rojo' : ev === 'VOLUNTARIA' || ev === 'EXISTE' ? 'ambar' : ev === 'NO_EXISTE' ? 'verde' : 'gris', destino: `${uid}-pres` },
+        { rotulo: 'Muestras', valor: em === 'EXIGE' ? 'Las piden' : em === 'NO_EXISTE' ? 'No las piden' : 'No indicadas', tono: em === 'EXIGE' ? 'rojo' : em === 'NO_EXISTE' ? 'verde' : 'gris', destino: `${uid}-pres` },
+        { rotulo: 'Garantías', valor: nGar ? `${nGar} ${nGar === 1 ? 'exigida' : 'exigidas'}` : 'Ninguna exigida', tono: nGar ? 'ambar' : 'verde', destino: `${uid}-gar` },
+        { rotulo: 'Firma', valor: firma ? firma.titulo : 'No indicada', tono: firma ? firma.tono : 'gris', destino: `${uid}-gar` },
+      ]} />
+
+      <div id={`${uid}-req`} className="scroll-mt-4">
+        <Bloque i={0} icon={<ShieldCheck size={18} />} titulo="Lo que deja la oferta fuera" subtitulo="Si no se cumple alguno de estos requisitos, la oferta queda eliminada. Toca uno para abrirlo o cerrarlo."
+          derecha={(
+            <div className="flex items-center gap-4 flex-shrink-0">
+              {requisitos.length > 1 && (
+                <button type="button" onClick={() => setCerrados(todosAbiertos ? new Set(requisitos.map((_, k) => k)) : new Set())}
+                  className="text-[13px] font-medium text-marca hover:text-marca-fuerte whitespace-nowrap">{todosAbiertos ? 'Contraer todos' : 'Expandir todos'}</button>
+              )}
+              <span className={`text-[13px] font-medium tabular-nums whitespace-nowrap ${nAdm ? 'text-urgente' : 'text-exito'}`}>{nAdm ? `${nAdm} ${nAdm === 1 ? 'requisito' : 'requisitos'}` : 'Sin requisitos detectados'}</span>
+            </div>
+          )}>
+          {requisitos.length === 0 ? (
+            <div className="rounded-xl bg-emerald-50 px-4 py-3 flex items-center gap-2.5 text-[14px] text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"><Check size={18} className="flex-shrink-0 text-exito" />El análisis no encontró requisitos que dejen la oferta fuera.</div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+              {requisitos.map((r: any, k: number) => {
+                const datos: Array<[string, string]> = ([['Cuánto', r.cuanto], ['Cuándo', r.cuando], ['Cómo', r.como]] as Array<[string, any]>).filter(([, v]) => v).map(([kk, v]) => [kk, String(v)]);
+                const abierto = !cerrados.has(k);
+                return (
+                  <Aparece key={k} i={k + 1} alto>
+                    <div className="rounded-xl border border-red-200 bg-white shadow-tarjeta transition-shadow duration-150 hover:shadow-tarjeta-hover dark:bg-slate-900 dark:border-red-900/60">
+                      <button type="button" onClick={() => alternar(k)} aria-expanded={abierto}
+                        className="w-full flex items-start gap-3 p-4 text-left rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60">
+                        <span className="w-9 h-9 rounded-xl bg-red-50 text-urgente flex items-center justify-center flex-shrink-0 dark:bg-red-950/40"><Ban size={18} /></span>
+                        <span className="min-w-0 flex-1 pt-0.5">
+                          <span className="block text-[12px] tabular-nums text-slate-500">Requisito {k + 1}</span>
+                          <span className="block text-[15px] font-semibold text-tinta dark:text-slate-50 leading-snug">{oracion(r.que)}</span>
+                        </span>
+                        <ChevronDown size={18} className={`flex-shrink-0 mt-1 text-slate-400 transition-transform duration-200 ${abierto ? 'rotate-180' : ''}`} />
+                      </button>
+                      <AnimatePresence initial={false}>
+                        {abierto && (
+                          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }} className="overflow-hidden">
+                            <div className="px-4 pb-4 space-y-3">
+                              <DatosAdm filas={datos} columnas={3} />
+                              {r.consecuencia && <Consecuencia texto={r.consecuencia} />}
+                              {r.cita && <div><Cita cita={r.cita} /></div>}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </div>
-                    {datos.length > 0 && (
-                      <dl className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                        {datos.map(([k, v]) => (
-                          <div key={k} className="rounded-lg bg-slate-50 px-2.5 py-1.5">
-                            <dt className="text-[10.5px] font-bold text-slate-400">{k}</dt>
-                            <dd className="text-[12.5px] font-semibold text-slate-800 leading-snug">{mayus(v)}</dd>
-                          </div>
-                        ))}
-                      </dl>
-                    )}
-                    {r.consecuencia && <p className="text-[12.5px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">Si no se cumple: {r.consecuencia.charAt(0).toLowerCase() + r.consecuencia.slice(1)}</p>}
-                    {r.cita && <div className="mt-auto"><Cita cita={r.cita} /></div>}
-                  </div>
-                </Aparece>
-              );
-            })}
-          </div>
-        )}
-      </Bloque>
+                  </Aparece>
+                );
+              })}
+            </div>
+          )}
+        </Bloque>
+      </div>
 
       {causales.length > 0 && (
         <Bloque i={1} icon={<AlertTriangle size={18} />} titulo="Posibles causales sin analizar" subtitulo="Frases de las bases que dicen que la oferta puede quedar fuera y que el análisis no cubrió. Revísalas en el documento."
-          derecha={<span className="text-[12px] font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-700">{causales.length}</span>}>
+          derecha={<span className="text-[13px] font-medium tabular-nums text-alerta">{causales.length}</span>}>
           <div className="space-y-2">
-            {causales.map((c: any, i: number) => (
-              <Aparece key={i} i={i + 2}>
-                <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-3.5 py-3 flex items-start gap-2.5">
-                  <Quote size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
-                  <div className="min-w-0 space-y-1"><p className="text-[13px] text-slate-700 leading-snug italic">{c.oracion}</p><Cita cita={c.cita} /></div>
+            {causales.map((c: any, k: number) => (
+              <Aparece key={k} i={k + 2}>
+                <div className="rounded-xl bg-amber-50 px-4 py-3 flex items-start gap-3 dark:bg-amber-950/30">
+                  <Quote size={16} className="text-alerta flex-shrink-0 mt-0.5" />
+                  <div className="min-w-0 space-y-1.5"><p className="text-[13.5px] text-amber-950 dark:text-amber-100 leading-snug">{c.oracion}</p><Cita cita={c.cita} /></div>
                 </div>
               </Aparece>
             ))}
@@ -769,37 +841,40 @@ export function AdmisibilidadV4({ informe }: { informe: any }) {
         </Bloque>
       )}
 
-      <PresencialesV4 adm={adm} />
+      <div id={`${uid}-pres`} className="scroll-mt-4"><PresencialesV4 adm={adm} /></div>
 
-      <Bloque i={2} icon={<Gavel size={18} />} titulo="Garantías, contrato y firma" subtitulo="Qué hay que presentar o firmar para poder ofertar.">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-stretch">
-          {GARANTIAS.map(([k, label], i) => {
-            const g = garantias[k] || {};
-            const est = String(g.estado || 'NO_INDICADO').toUpperCase();
-            return (
-              <Aparece key={k} i={i + 3} alto>
-                <div className="rounded-xl border border-slate-200 bg-white p-4 h-full flex flex-col gap-2">
-                  <p className="text-[11px] font-bold text-slate-400">{label}</p>
-                  <div><Badge variant={est === 'EXISTE' ? 'warning' : est === 'NO_EXISTE' ? 'success' : 'default'} className="text-[12px]">{est === 'EXISTE' ? 'Se exige' : est === 'NO_EXISTE' ? 'No se exige' : 'No indicado'}</Badge></div>
-                  {g.monto && <p className="text-[18px] font-semibold text-slate-900 leading-tight tabular-nums">{g.monto}</p>}
-                  {g.cita && <div className="mt-auto pt-1"><Cita cita={g.cita} /></div>}
+      <div id={`${uid}-gar`} className="scroll-mt-4">
+        <Bloque i={2} icon={<Gavel size={18} />} titulo="Garantías, contrato y firma" subtitulo="Qué hay que presentar o firmar para poder ofertar.">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-stretch">
+            {GARANTIAS.map(([k, label], n) => {
+              const g = garantias[k] || {};
+              const est = String(g.estado || 'NO_INDICADO').toUpperCase();
+              const tono: TonoAdm = est === 'EXISTE' ? 'ambar' : est === 'NO_EXISTE' ? 'verde' : 'gris';
+              return (
+                <Aparece key={k} i={n + 3} alto>
+                  <div className="rounded-xl bg-slate-50/80 p-4 h-full flex flex-col gap-2 dark:bg-slate-800/40">
+                    <p className="text-[13px] text-tinta-2 dark:text-slate-400">{label}</p>
+                    <p className="flex items-center gap-2 text-[15px] font-semibold text-tinta dark:text-slate-50"><span aria-hidden className="w-2 h-2 rounded-full" style={{ background: TONO_ADM[tono] }} />{est === 'EXISTE' ? 'Se exige' : est === 'NO_EXISTE' ? 'No se exige' : 'No indicado'}</p>
+                    {g.monto && <p className="text-[20px] font-semibold tracking-tight text-tinta dark:text-slate-50 leading-tight tabular-nums">{g.monto}</p>}
+                    {g.cita && <div className="mt-auto pt-1"><Cita cita={g.cita} /></div>}
+                  </div>
+                </Aparece>
+              );
+            })}
+            {firma && (
+              <Aparece i={6} alto>
+                <div className="rounded-xl bg-slate-50/80 p-4 h-full flex flex-col gap-2 dark:bg-slate-800/40">
+                  <p className="text-[13px] text-tinta-2 dark:text-slate-400">Firma</p>
+                  <p className="flex items-center gap-2 text-[15px] font-semibold leading-snug" style={{ color: TONO_ADM[firma.tono] }}><span className="flex-shrink-0">{firma.icono}</span><span className="text-tinta dark:text-slate-50">{firma.titulo}</span></p>
+                  <p className="text-[13px] text-tinta-2 dark:text-slate-400 leading-snug">{firma.accion}</p>
+                  {adm.firma?.cita && <div className="mt-auto pt-1"><Cita cita={adm.firma.cita} /></div>}
                 </div>
               </Aparece>
-            );
-          })}
-          {firma && (
-            <Aparece i={6} alto>
-              <div className="rounded-xl border border-slate-200 bg-white p-4 h-full flex flex-col gap-2">
-                <p className="text-[11px] font-bold text-slate-400">Firma</p>
-                <div className="flex items-center gap-2"><span className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${firma.tono} ${firma.texto}`}>{firma.icono}</span><p className="text-[14px] font-bold text-slate-900 leading-snug">{firma.titulo}</p></div>
-                <p className="text-[12.5px] text-slate-500 leading-snug">{firma.accion}</p>
-                {adm.firma?.cita && <div className="mt-auto pt-1"><Cita cita={adm.firma.cita} /></div>}
-              </div>
-            </Aparece>
-          )}
-        </div>
-        {pres.caracter !== 'EXCLUYENTE' && pres.nota_art_32 && <p className="text-[12px] text-slate-500 mt-3 pt-3 border-t border-slate-100">{mayus(pres.nota_art_32)}</p>}
-      </Bloque>
+            )}
+          </div>
+          {pres.caracter !== 'EXCLUYENTE' && pres.nota_art_32 && <p className="text-[13px] text-tinta-2 dark:text-slate-400 mt-4 pt-4 border-t border-linea/80 dark:border-slate-800">{mayus(pres.nota_art_32)}</p>}
+        </Bloque>
+      </div>
     </div>
   );
 }
@@ -815,14 +890,15 @@ const HITO_LABEL: Record<string, string> = {
 
 function Dato({ etiqueta, children, alerta }: { etiqueta: string; children: React.ReactNode; alerta?: boolean }) {
   return (
-    <div className={`rounded-xl border p-4 h-full flex flex-col gap-1.5 ${alerta ? 'border-red-200 bg-red-50/40' : 'border-slate-200 bg-white'}`}>
-      <p className="text-[11px] font-bold text-slate-400">{etiqueta}</p>
+    <div className={`rounded-xl p-4 h-full flex flex-col gap-2 ${alerta ? 'bg-red-50 border border-red-200 dark:bg-red-950/30 dark:border-red-900' : 'bg-slate-50/80 dark:bg-slate-800/40'}`}>
+      <p className="text-[13px] text-tinta-2 dark:text-slate-400">{etiqueta}</p>
       {children}
     </div>
   );
 }
 
 export function PlazosV4({ informe }: { informe: any }) {
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const plz = informe.plazos || {};
   const pp = plz.plazo_previo || null;
   const atraso = informe.multas?.atraso || null;
@@ -832,120 +908,138 @@ export function PlazosV4({ informe }: { informe: any }) {
   const textoTotal = pp ? (totalDias === 0 ? 'Sin plazo previo' : `${pp.al_menos ? 'Al menos ' : ''}${totalDias} días corridos`) : null;
   const entrega = plz.plazo_entrega && (plz.plazo_entrega.min || plz.plazo_entrega.max) ? plz.plazo_entrega : null;
   const inicio = plz.inicio_plazo_entrega?.evento ? plz.inicio_plazo_entrega : null;
-  const hayMulta = atraso && atraso.existe !== false;
+  const hayMulta = !!(atraso && atraso.existe !== false);
   const multaDia = atraso?.calculo?.pesos_dia_estimado;
   const topeTexto = atraso?.tope?.valor ? `${atraso.tope.valor} ${atraso.tope.unidad || ''}`.trim() : atraso?.calculo?.tope_estimado != null ? `≈ ${fmt(atraso.calculo.tope_estimado)}` : null;
+  const textoEntrega = entrega ? `${[entrega.min && `Mín. ${entrega.min}`, entrega.max && `Máx. ${entrega.max}`].filter(Boolean).join(' · ')} ${entrega.unidad || ''}`.trim() : null;
+  const resumen: Array<{ rotulo: string; valor: string; tono: TonoAdm; destino: string }> = [
+    { rotulo: 'Plazo previo', valor: textoTotal || 'No indicado', tono: 'gris', destino: `${uid}-previo` },
+    { rotulo: 'Plazo de entrega', valor: textoEntrega || 'No indicado', tono: entrega?.fuera_de_rango_inadmisible ? 'rojo' : 'gris', destino: `${uid}-entrega` },
+    { rotulo: 'Multa por atraso', valor: !hayMulta ? 'No hay' : multaDia != null ? `≈ ${fmt(multaDia)} por día` : valorMulta(atraso), tono: hayMulta ? 'ambar' : 'verde', destino: `${uid}-multa` },
+  ];
+  if (hayMulta && topeTexto) resumen.push({ rotulo: 'Tope de la multa', valor: topeTexto, tono: 'gris', destino: `${uid}-multa` });
   return (
     <div className="space-y-3">
-      <Bloque i={0} icon={<Clock size={18} />} titulo="Plazo previo" subtitulo="Tiempo administrativo entre la adjudicación y el inicio del plazo de entrega."
-        derecha={textoTotal ? <span className="text-[12px] font-bold px-2.5 py-1 rounded-full bg-sky-100 text-sky-700">{textoTotal}</span> : undefined}>
-        <div className="overflow-x-auto rounded-xl border border-slate-200">
-          <table className="w-full min-w-[640px] text-[13px]">
-            <thead>
-              <tr className="bg-slate-50 text-left text-[11px] font-bold text-slate-500">
-                <th className="px-4 py-2.5">Hito</th>
-                <th className="px-4 py-2.5">Se cuenta desde</th>
-                <th className="px-4 py-2.5 text-right whitespace-nowrap">Plazo</th>
-                <th className="px-4 py-2.5">Fuente</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {hitos.length === 0 && <tr><td colSpan={4} className="px-4 py-5 text-center text-slate-500">Las bases no indican hitos previos al plazo de entrega.</td></tr>}
-              {hitos.map((h, i) => {
-                const est = String(h.estado || '').toUpperCase();
-                return (
-                  <motion.tr key={i} className="align-top hover:bg-slate-50/70 transition-colors"
-                    initial={reducido ? false : { opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.3, delay: 0.1 + i * 0.05 }}>
-                    <td className="px-4 py-3 font-semibold text-slate-800">{HITO_LABEL[h.hito] || mayus(cap(h.hito).toLowerCase())}</td>
-                    <td className="px-4 py-3 text-slate-600">{h.desde && est === 'EXISTE' ? mayus(h.desde) : <span className="text-slate-300">—</span>}</td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap">
-                      {est === 'EXISTE' ? <span className="font-semibold text-slate-900 tabular-nums">{h.plazo ?? '?'} <span className="font-semibold text-slate-500">{h.unidad_original || ''}</span></span>
-                        : est === 'NO_EXISTE' ? <Badge variant="success">No se exige</Badge>
-                        : <Badge>No indicado en las bases</Badge>}
-                    </td>
-                    <td className="px-4 py-3">{h.cita ? <Cita cita={h.cita} /> : <span className="text-slate-300">—</span>}</td>
-                  </motion.tr>
-                );
-              })}
-            </tbody>
-            {pp && (
-              <tfoot>
-                <tr className="bg-sky-50/70 border-t border-sky-200">
-                  <td className="px-4 py-3 font-semibold text-slate-900">Total plazo previo</td>
-                  <td className="px-4 py-3 text-[12.5px] text-slate-600" colSpan={2}>{pp.fecha_base_origen ? <>Contado desde {pp.fecha_base_origen}{pp.fecha_base ? ` (${pp.fecha_base})` : ''}</> : null}</td>
-                  <td className="px-4 py-3 text-right whitespace-nowrap font-semibold text-sky-800 text-[15px] tabular-nums">{textoTotal}</td>
+      <ResumenAdm items={resumen} />
+
+      <div id={`${uid}-previo`} className="scroll-mt-4">
+        <Bloque i={0} icon={<Clock size={18} />} titulo="Plazo previo" subtitulo="Tiempo administrativo entre la adjudicación y el inicio del plazo de entrega."
+          derecha={textoTotal ? <span className="text-[13px] font-medium tabular-nums text-marca whitespace-nowrap">{textoTotal}</span> : undefined}>
+          {/* Tabla del plazo previo (pedido del dueño: «dejalo tipo tablas»): un hito por fila, con su cita. */}
+          <div className="overflow-x-auto rounded-xl border border-linea dark:border-slate-800">
+            <table className="w-full min-w-[560px] text-[13.5px]">
+              <thead>
+                <tr className="bg-slate-50 text-left text-xs text-tinta-2 dark:bg-slate-800/60 dark:text-slate-400">
+                  <th className="px-4 py-2.5 font-medium">Hito</th>
+                  <th className="px-4 py-2.5 font-medium">Se cuenta desde</th>
+                  <th className="px-4 py-2.5 font-medium text-right whitespace-nowrap">Plazo</th>
                 </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-        {(pp?.avisos?.length ?? 0) > 0 && (
-          <div className="mt-3 text-[12.5px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-0.5">
-            {pp.avisos.map((a: string, i: number) => <p key={i} className="flex items-start gap-1.5"><AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />{mayus(a)}</p>)}
+              </thead>
+              <tbody className="divide-y divide-linea/80 dark:divide-slate-800">
+                {hitos.length === 0 && <tr><td colSpan={3} className="px-4 py-6 text-center text-tinta-2 dark:text-slate-400">Las bases no indican hitos previos al plazo de entrega.</td></tr>}
+                {hitos.map((h, k) => {
+                  const est = String(h.estado || '').toUpperCase();
+                  return (
+                    <motion.tr key={k} className="align-top transition-colors duration-150 hover:bg-slate-50/80 dark:hover:bg-slate-800/40"
+                      initial={reducido ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, delay: 0.05 + k * 0.04, ease: [0.22, 1, 0.36, 1] }}>
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-tinta dark:text-slate-100 leading-snug">{HITO_LABEL[h.hito] || mayus(cap(h.hito).toLowerCase())}</p>
+                        {h.cita && <div className="mt-1.5"><Cita cita={h.cita} /></div>}
+                      </td>
+                      <td className="px-4 py-3 text-tinta-2 dark:text-slate-400">{h.desde && est === 'EXISTE' ? mayus(h.desde) : <span className="text-slate-300">—</span>}</td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        {est === 'EXISTE'
+                          ? <span className="text-[15px] font-semibold tabular-nums text-tinta dark:text-slate-50">{h.plazo ?? '?'} <span className="text-[13px] font-medium text-tinta-2 dark:text-slate-400">{h.unidad_original || ''}</span></span>
+                          : est === 'NO_EXISTE' ? <Marca color="#16a34a">No se exige</Marca>
+                          : <Marca color="#94a3b8">No indicado en las bases</Marca>}
+                      </td>
+                    </motion.tr>
+                  );
+                })}
+              </tbody>
+              {pp && (
+                <tfoot>
+                  <tr className="bg-marca-suave border-t border-teal-200 dark:bg-teal-950/30 dark:border-teal-900">
+                    <td className="px-4 py-3.5 font-semibold text-tinta dark:text-slate-50">Total plazo previo</td>
+                    <td className="px-4 py-3.5 text-[13px] text-tinta-2 dark:text-slate-300">{pp.fecha_base_origen ? <>Contado desde {pp.fecha_base_origen}{pp.fecha_base ? ` (${pp.fecha_base})` : ''}</> : null}</td>
+                    <td className="px-4 py-3.5 text-right whitespace-nowrap text-[18px] font-semibold tracking-tight tabular-nums text-marca">{textoTotal}</td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
           </div>
-        )}
-        {plz.nota_aceptacion_oc && <p className="mt-3 text-[12.5px] text-sky-800 bg-sky-50 border border-sky-100 rounded-lg px-3 py-2">{mayus(plz.nota_aceptacion_oc)}</p>}
-      </Bloque>
+          {(pp?.avisos?.length ?? 0) > 0 && (
+            <div className="mt-4 text-[13px] text-amber-900 bg-amber-50 rounded-xl px-4 py-3 space-y-1 dark:bg-amber-950/30 dark:text-amber-200">
+              {pp.avisos.map((a: string, k: number) => <p key={k} className="flex items-start gap-1.5"><AlertTriangle size={15} className="flex-shrink-0 mt-0.5 text-alerta" />{mayus(a)}</p>)}
+            </div>
+          )}
+          {plz.nota_aceptacion_oc && <p className="mt-3 text-[13px] text-tinta-2 bg-slate-50 rounded-xl px-4 py-3 dark:bg-slate-800/40 dark:text-slate-300">{mayus(plz.nota_aceptacion_oc)}</p>}
+        </Bloque>
+      </div>
 
       {(inicio || entrega) && (
-        <Bloque i={1} icon={<TrendingUp size={18} />} titulo="Entrega" subtitulo="Cuándo parte el plazo de entrega y cuánto dura.">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch">
-            {inicio && (
-              <Aparece i={2} alto>
-                <Dato etiqueta="Inicio del plazo de entrega">
-                  <p className="text-[15px] font-bold text-slate-900 leading-snug">{mayus(inicio.evento)}</p>
-                  {inicio.desfase?.cantidad != null && <div><Badge variant="info">+{inicio.desfase.cantidad} {inicio.desfase.unidad || ''}</Badge></div>}
-                  {inicio.cita && <div className="mt-auto pt-1"><Cita cita={inicio.cita} /></div>}
-                </Dato>
-              </Aparece>
-            )}
-            {entrega && (
-              <Aparece i={3} alto>
-                <Dato etiqueta="Plazo de entrega" alerta={!!entrega.fuera_de_rango_inadmisible}>
-                  <p className="text-[22px] font-semibold text-slate-900 leading-tight tabular-nums">{[entrega.min && `Mín. ${entrega.min}`, entrega.max && `Máx. ${entrega.max}`].filter(Boolean).join(' · ')} <span className="text-[13px] font-semibold text-slate-500">{entrega.unidad || ''}</span></p>
-                  {entrega.fuera_de_rango_inadmisible && <p className="text-[12.5px] font-semibold text-red-700">Fuera de este rango, la oferta es inadmisible.</p>}
-                  {entrega.cita && <div className="mt-auto pt-1"><Cita cita={entrega.cita} /></div>}
-                </Dato>
-              </Aparece>
-            )}
-          </div>
-        </Bloque>
-      )}
-
-      <Bloque i={2} icon={<Gavel size={18} />} titulo="Multa por atraso" subtitulo="Lo que se descuenta si la entrega llega después del plazo.">
-        {!hayMulta ? (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 px-4 py-3 flex items-center gap-2.5 text-[13.5px] text-emerald-800"><Check size={18} className="flex-shrink-0" />Las bases no establecen multa por atraso.</div>
-        ) : (
-          <div className="space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-stretch">
-              <Aparece i={3} alto>
-                <Dato etiqueta="Según las bases">
-                  <p className="text-[24px] font-semibold text-slate-900 leading-tight tabular-nums">{valorMulta(atraso)}</p>
-                  <p className="text-[12.5px] text-slate-500 leading-snug">Por {PERIODO[String(atraso.periodo || '').toUpperCase()] || 'día'} de atraso{atraso.base_calculo ? `, sobre ${atraso.base_calculo}` : ''}.</p>
-                </Dato>
-              </Aparece>
-              {multaDia != null && (
-                <Aparece i={4} alto>
-                  <Dato etiqueta="Estimado por día" alerta>
-                    <p className="text-[24px] font-semibold text-red-700 leading-tight tabular-nums">≈ <Contado valor={Number(multaDia)} /></p>
-                    {atraso.calculo?.nota && <p className="text-[12.5px] text-slate-500 leading-snug">{mayus(atraso.calculo.nota)}{atraso.calculo.valor_uf_utm ? ` · valor ${fmt(atraso.calculo.valor_uf_utm)} del ${atraso.calculo.fecha_valor}` : ''}</p>}
+        <div id={`${uid}-entrega`} className="scroll-mt-4">
+          <Bloque i={1} icon={<TrendingUp size={18} />} titulo="Entrega" subtitulo="Cuándo parte el plazo de entrega y cuánto dura.">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch">
+              {inicio && (
+                <Aparece i={2} alto>
+                  <Dato etiqueta="Inicio del plazo de entrega">
+                    <p className="text-[17px] font-semibold tracking-tight text-tinta dark:text-slate-50 leading-snug">{mayus(inicio.evento)}</p>
+                    {inicio.desfase?.cantidad != null && <div><Marca color="#0f766e">+{inicio.desfase.cantidad} {inicio.desfase.unidad || ''}</Marca></div>}
+                    {inicio.cita && <div className="mt-auto pt-1"><Cita cita={inicio.cita} /></div>}
                   </Dato>
                 </Aparece>
               )}
-              {(topeTexto || atraso.al_superar_tope) && (
-                <Aparece i={5} alto>
-                  <Dato etiqueta="Tope de la multa">
-                    <p className="text-[20px] font-semibold text-slate-900 leading-tight tabular-nums">{topeTexto || 'No indicado'}</p>
-                    {atraso.al_superar_tope && <p className="text-[12.5px] text-slate-500 leading-snug">Al superarlo: {atraso.al_superar_tope.charAt(0).toLowerCase() + atraso.al_superar_tope.slice(1)}</p>}
+              {entrega && (
+                <Aparece i={3} alto>
+                  <Dato etiqueta="Plazo de entrega" alerta={!!entrega.fuera_de_rango_inadmisible}>
+                    <p className="text-[24px] font-semibold tracking-tight text-tinta dark:text-slate-50 leading-tight tabular-nums">{[entrega.min && `Mín. ${entrega.min}`, entrega.max && `Máx. ${entrega.max}`].filter(Boolean).join(' · ')} <span className="text-[14px] font-medium text-tinta-2 dark:text-slate-400">{entrega.unidad || ''}</span></p>
+                    {entrega.fuera_de_rango_inadmisible && <Consecuencia texto="Fuera de este rango, la oferta es inadmisible." />}
+                    {entrega.cita && <div className="mt-auto pt-1"><Cita cita={entrega.cita} /></div>}
                   </Dato>
                 </Aparece>
               )}
             </div>
-            {multaDia == null && atraso.calculo?.nota && <p className="text-[12.5px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{mayus(atraso.calculo.nota)}</p>}
-            {atraso.cita && <Cita cita={atraso.cita} />}
-          </div>
-        )}
-      </Bloque>
+          </Bloque>
+        </div>
+      )}
+
+      <div id={`${uid}-multa`} className="scroll-mt-4">
+        <Bloque i={2} icon={<Gavel size={18} />} titulo="Multa por atraso" subtitulo="Lo que se descuenta si la entrega llega después del plazo.">
+          {!hayMulta ? (
+            <div className="rounded-xl bg-emerald-50 px-4 py-3 flex items-center gap-2.5 text-[14px] text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"><Check size={18} className="flex-shrink-0 text-exito" />Las bases no establecen multa por atraso.</div>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-stretch">
+                <Aparece i={3} alto>
+                  <Dato etiqueta="Según las bases">
+                    <p className="text-[26px] font-semibold tracking-tight text-tinta dark:text-slate-50 leading-tight tabular-nums">{valorMulta(atraso)}</p>
+                    <p className="text-[13px] text-tinta-2 dark:text-slate-400 leading-snug">Por {PERIODO[String(atraso.periodo || '').toUpperCase()] || 'día'} de atraso{atraso.base_calculo ? `, sobre ${atraso.base_calculo}` : ''}.</p>
+                  </Dato>
+                </Aparece>
+                {multaDia != null && (
+                  <Aparece i={4} alto>
+                    <Dato etiqueta="Estimado por día" alerta>
+                      <p className="text-[26px] font-semibold tracking-tight text-urgente leading-tight tabular-nums">≈ <Contado valor={Number(multaDia)} /></p>
+                      {atraso.calculo?.nota && <p className="text-[13px] text-tinta-2 dark:text-slate-400 leading-snug">{mayus(atraso.calculo.nota)}{atraso.calculo.valor_uf_utm ? ` · valor ${fmt(atraso.calculo.valor_uf_utm)} del ${atraso.calculo.fecha_valor}` : ''}</p>}
+                    </Dato>
+                  </Aparece>
+                )}
+                {(topeTexto || atraso.al_superar_tope) && (
+                  <Aparece i={5} alto>
+                    <Dato etiqueta="Tope de la multa">
+                      <p className="text-[22px] font-semibold tracking-tight text-tinta dark:text-slate-50 leading-tight tabular-nums">{topeTexto || 'No indicado'}</p>
+                      {atraso.al_superar_tope && <p className="text-[13px] text-tinta-2 dark:text-slate-400 leading-snug"><span className="font-medium text-tinta dark:text-slate-200">Al superarlo:</span> {atraso.al_superar_tope.charAt(0).toLowerCase() + atraso.al_superar_tope.slice(1)}</p>}
+                    </Dato>
+                  </Aparece>
+                )}
+              </div>
+              {multaDia == null && atraso.calculo?.nota && <p className="flex items-start gap-1.5 text-[13px] text-amber-900 bg-amber-50 rounded-xl px-4 py-3 dark:bg-amber-950/30 dark:text-amber-200"><AlertTriangle size={15} className="flex-shrink-0 mt-0.5 text-alerta" />{mayus(atraso.calculo.nota)}</p>}
+              {atraso.cita && <div><Cita cita={atraso.cita} /></div>}
+            </div>
+          )}
+        </Bloque>
+      </div>
     </div>
   );
 }

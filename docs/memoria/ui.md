@@ -60,8 +60,16 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
   con trofeo (única excepción a «sin pastillas»: lo pidió el dueño). Estrategia: filtros por tipo de
   jugada, peso del criterio en grande, «Qué hacer» destacado. **Citas**: `Cita` ya no muestra el nombre
   del archivo sino «Cita · numeral · pág. N» (el nombre queda en el tooltip); vale para TODAS las
-  pestañas y las dos copias. **Cita y ojo son lo mismo** (el dueño lo aclaró): un solo botón «👁 Cita ·
+  pestañas y las dos copias. **Cita y ojo son lo mismo; el botón muestra SOLO «👁 Cita»** (numeral y página quedan en el tooltip) (el dueño lo aclaró): un solo botón «👁 Cita ·
   numeral · pág. N» que abre el visor en la página y resalta la frase; ya no hay un ojo aparte.
+- **Viabilidad → Admisibilidad** (2026-10-28): arriba 5 tarjetas resumen clicables (Requisitos que dejan fuera,
+  Visita técnica, Muestras, Garantías, Firma) con punto de color y que desplazan a su sección; requisitos
+  plegables con «Contraer/Expandir todos»; «Si no se cumple…» como fila roja suave; visita y muestras con
+  rótulo/valor sin cajas anidadas; garantías sin pastillas (punto + texto). Dos copias iguales.
+- **Viabilidad → Plazos y multa** (2026-10-28): arriba 3-4 tarjetas resumen clicables (Plazo previo, Plazo de
+  entrega, Multa, Tope); Entrega y Multa en bloques rotulados. **El Plazo previo se queda como TABLA** (el
+  dueño rechazó la línea de tiempo vertical: «dejalo tipo tablas»), con columnas Hito · Se cuenta desde ·
+  Plazo, **la cita pequeña DEBAJO del nombre del hito** (no en columna aparte) y fila total en teal suave.
 
 - **Pantallas sin aspecto «hecho por IA»** (2026-10-20): el estándar aprobado en `/negocios` vive
   en la skill `ui-sin-aspecto-ia` (`.claude/skills/ui-sin-aspecto-ia/`). Leerla antes de tocar
@@ -85,8 +93,8 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
 - Elegir tipografía en `/ui-kit` (Roboto actual vs Inter Tight vs Manrope) y aplicarla en `app/layout.tsx`.
 - Decidir la propuesta de colores de etapa que se ve en `/ui-kit` (solo cambian Asignado, En proceso y
   Posible adj.).
-- Viabilidad: falta rediseñar por dentro las pestañas Admisibilidad, Plazos y multa, Productos y
-  Preparación (Cómo ganar ya está), las vistas antiguas v2/v3 de `ViabilidadIAPanel` y la pantalla de carga/re-análisis.
+- Viabilidad: falta rediseñar por dentro las pestañas Productos y Preparación
+  (Cómo ganar, Admisibilidad y Plazos y multa ya están), las vistas antiguas v2/v3 de `ViabilidadIAPanel` y la pantalla de carga/re-análisis.
 - Negocio: falta el resto de secciones (Líneas, Auditor…) y el Resumen de
   `/licitacion/[codigo]` (`ResumenSection`) y su encabezado.
 
