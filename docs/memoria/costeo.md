@@ -3,6 +3,29 @@
 Costeo digital del negocio (editor + burbuja flotante) y Excel de costeo (plantilla V3).
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-28 (noche) — Re-analizar duplicaba productos cuando la IA reescribía el nombre
+**Caso real:** 1028897-42-LP26 (negocio 1513). En cada re-análisis la IA escribe distinto el mismo producto
+(«Notebook» → «Notebook - Ryzen 5 3450U», «Tablet» → «Tablet - Dimensity 6300», «… igual o superior» → «… o superior»)
+y `mismoProducto` solo une prefijos de 12+ letras: el costeo agregaba una copia por re-análisis (línea 3: 8 → 11 filas).
+Mismo patrón en 701426-14-LP26, 1002588-102-LP26 («TACA TACA» ↔ «TACA TACA MEDIDAS: …»), 3390-26-LE26, 2333-53-LE26.
+**Arreglo general** (`costeo-editor.ts`): segundo cruce `puntajeReescrito`/`emparejarReescritos`, SOLO entre lo que
+quedó sin par por nombre: misma línea, misma cantidad, números del nombre contenidos («DN 63» ≠ «DN 75», «tapa 16» ≠
+«tapa 12»), misma primera palabra y ≥60 % de las palabras del nombre corto. Lo usan fusionar (no agrega copia),
+corregir (renombra solo si la fila tiene aún el nombre del informe anterior), ordenar y «filas que ya no trae» (no
+propone quitar la fila renombrada). Tests nuevos en `costeo-editor-fusion-viabilidad.test.mts`.
+**Verificado:** 1.631 tests, tsc; barrido HEAD vs nuevo sobre los 144 costeos guardados (`scripts/scratch/qa-costeo-barrido.mts`):
+10 costeos cambian, 35 copias evitadas, revisadas una a una, todas el mismo producto. QA de costeos re-analizados:
+`scripts/scratch/qa-costeo-resumen.mts` y `qa-costeo-sobran.mts`. NO desplegado.
+El % de palabras se mide sin números («SET 12 VASOS CORTOS» ≠ «SET COPAS 12», test).
+**Limpieza aplicada (dueño, 28-oct, «sí, límpialas»):** `scripts/scratch/limpiar-copias-costeo.mts` quitó solo copias sin
+precio/link/SKU/costo real que son el mismo producto que otra fila: 1028897-42 neg 1513 → 2 (queda 8/18/8, igual a la
+viabilidad); 701426-14 neg 1361 → 24 (203 → 179). Respaldo JSON en el scratchpad de la sesión; huella en historial
+(«Limpieza de copias (QA)»). 1002588-102 (neg 1418) NO se tocó: está postulado (congelado).
+**Pendiente:** 701426-14 sigue con 179 vs 175: 9 filas trabajadas (con precio/link) que la viabilidad ya escribe distinto
+(p. ej. cable multipar 32×8×30 vs 32×10 150), «EQUIPAMIENTO» y 7 productos de la viabilidad sin fila (perchas, basureros,
+PC Lenovo, impresora) — decide el equipo con «Actualizar». 2446-307-LE26 tiene el costeo en por_linea (1 hoja) y la viabilidad en
+suma_alzada: mismas 44 filas, solo cambia el tipo de hoja.
+
 ## 2026-10-28 — Al re-analizar, el costeo digital queda en el orden del anexo económico
 **Regla (dueño, 2446-307-LE26):** después de un re-análisis, las filas de cada hoja del costeo quedan en el mismo
 orden que la lista del informe (que sale del anexo económico, aquí el Formulario N°4 con 44 ítems). Antes, los

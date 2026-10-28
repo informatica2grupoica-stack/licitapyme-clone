@@ -169,6 +169,53 @@ function buscarMismoProducto<T extends { detalle: string }>(filas: T[], detalle:
   return filas.find(f => mismoProducto(f.detalle, detalle));
 }
 
+/** Palabras que no dicen qué producto es («igual o superior», «o equivalente»…). */
+const PALABRAS_DE_RELLENO = new Set(['igual', 'equivalente', 'similar', 'superior', 'marca', 'modelo', 'referencia', 'tipo']);
+
+/** ¿La fila del costeo y el producto de la viabilidad son el MISMO producto con el nombre reescrito?
+ *  Al re-analizar, la IA alarga, acorta o reordena el nombre: «Notebook» ↔ «Notebook - Ryzen 5 3450U»,
+ *  «Proyector … igual o superior» ↔ «… o superior» (1028897-42-LP26), «TACA TACA» ↔ «TACA TACA MEDIDAS:
+ *  …» (1002588-102-LP26), «SET TASAS DE LOZA 12» ↔ «SET 12 TAZAS DE LOZA» (701426-14-LP26). mismoProducto
+ *  no los une y cada re-análisis agregaba una copia (28-oct-2026). Solo se usa con lo que quedó SIN par
+ *  por nombre y exige misma línea, misma cantidad, los números del nombre corto dentro del largo
+ *  («DN 63» ≠ «DN 75»), la misma primera palabra y la mayoría de las palabras del nombre corto. */
+function puntajeReescrito(f: FilaEditorCosteo, fresca: FilaEditorCosteo): number {
+  if ((f.lineaReal ?? null) !== (fresca.lineaReal ?? null)) return 0;
+  if (f.cantidad == null || f.cantidad !== fresca.cantidad) return 0;
+  const a = normDesc(f.detalleBase ?? f.detalle), b = normDesc(fresca.detalle);
+  // Sin números: «SET 12 VASOS CORTOS» y «SET COPAS 12» no deben parecerse por compartir el 12.
+  const palabras = (s: string) => [...palabrasDeProducto(s)].filter(w => !PALABRAS_DE_RELLENO.has(w) && !/^\d/.test(w));
+  const [pa, pb] = [palabras(a), palabras(b)];
+  if (!pa.length || !pb.length || pa[0] !== pb[0]) return 0;
+  const [corta, larga] = pa.length <= pb.length ? [pa, pb] : [pb, pa];
+  const numeros = (s: string) => new Set(s.match(/\d+(?:\.\d+)?/g) || []);
+  const [na, nb] = [numeros(a), numeros(b)];
+  const [nMenos, nMas] = na.size <= nb.size ? [na, nb] : [nb, na];
+  if (![...nMenos].every(n => nMas.has(n))) return 0;
+  const comunes = corta.filter(w => larga.includes(w)).length / corta.length;
+  return comunes >= 0.6 ? comunes : 0;
+}
+
+/** Une 1 a 1, por mejor puntaje, las filas sin par con los productos frescos sin par (ver puntajeReescrito). */
+function emparejarReescritos(filas: FilaEditorCosteo[], frescas: FilaEditorCosteo[]): Map<FilaEditorCosteo, FilaEditorCosteo> {
+  const candidatos: { f: FilaEditorCosteo; x: FilaEditorCosteo; p: number }[] = [];
+  for (const f of filas) for (const x of frescas) { const p = puntajeReescrito(f, x); if (p > 0) candidatos.push({ f, x, p }); }
+  candidatos.sort((u, v) => v.p - u.p);
+  const pares = new Map<FilaEditorCosteo, FilaEditorCosteo>();
+  const usadas = new Set<FilaEditorCosteo>();
+  for (const { f, x } of candidatos) if (!pares.has(f) && !usadas.has(x)) { pares.set(f, x); usadas.add(x); }
+  return pares;
+}
+
+/** Fila del costeo → producto fresco con el nombre reescrito, entre los que no calzan por nombre. */
+function paresReescritos(actual: EstadoCosteoEditor, frescas: FilaEditorCosteo[]): Map<FilaEditorCosteo, FilaEditorCosteo> {
+  const filas = actual.grupos.flatMap(g => g.filas)
+    .filter(f => f.detalle?.trim() && !f.esCostoAdicional && !f.agregadoPorCompras);
+  const filasSinPar = filas.filter(f => !buscarMismoProducto(frescas, f.detalleBase ?? f.detalle));
+  const frescasSinPar = frescas.filter(x => x.detalle?.trim() && !filas.some(f => mismoProducto(f.detalleBase ?? f.detalle, x.detalle)));
+  return emparejarReescritos(filasSinPar, frescasSinPar);
+}
+
 /** Recargo con el que se vende UNA fila: el suyo si lo tiene, si no el de su hoja, si no el del
  *  costeo completo. Cascada de tres niveles — el global es el que manda salvo que alguien haya
  *  puesto un número a mano más adentro (ver FilaEditorCosteo.margenVenta). */
@@ -251,6 +298,8 @@ export function fusionarConViabilidad(
   // no solo corregir el número. Si el costeo sigue plano (suma_alzada, una sola hoja mixta),
   // corregir el campo alcanza — mover no tendría a dónde.
   const organizadoPorLinea = actual.grupos.some(g => g.linea != null);
+  // Productos frescos que ya están en el costeo con el nombre reescrito: no se agregan otra vez.
+  const yaEstan = new Set(paresReescritos(actual, frescas).values());
 
   let reclasificados = 0;
   const reubicar: FilaEditorCosteo[] = [];
@@ -294,7 +343,7 @@ export function fusionarConViabilidad(
   for (const gNuevo of nuevo.grupos) {
     for (const f of gNuevo.filas) {
       if (f.lineaReal != null && lineasExcluidas.has(f.lineaReal)) continue;
-      if (!f.detalle?.trim() || buscarMismoProducto(existentes, f.detalle)) continue;
+      if (!f.detalle?.trim() || yaEstan.has(f) || buscarMismoProducto(existentes, f.detalle)) continue;
 
       let destino = (f.lineaReal != null ? porLinea.get(f.lineaReal) : undefined) ?? porNombre.get(gNuevo.nombre);
       if (!destino) {
@@ -328,13 +377,15 @@ export function corregirDesdeViabilidad(
 ): { estado: EstadoCosteoEditor; corregidos: number } {
   const frescas = nuevo.grupos.flatMap(g => g.filas).filter(f => f.detalle?.trim());
   const viejas = anterior?.grupos.flatMap(g => g.filas) ?? [];
+  const reescritos = paresReescritos(actual, frescas);
   let corregidos = 0;
   const grupos = actual.grupos.map(g => ({
     ...g,
     filas: g.filas.map(f => {
       if (f.esCostoAdicional || f.agregadoPorCompras || !f.detalle?.trim()) return f;
       const original = f.detalleBase ?? f.detalle;
-      const fresca = buscarMismoProducto(frescas, original);
+      // Nombre reescrito: se toma el nuevo solo si la fila aún tiene el nombre del informe anterior.
+      const fresca = buscarMismoProducto(frescas, original) ?? reescritos.get(f);
       if (!fresca) return f;
       const vieja = buscarMismoProducto(viejas, original);
       const out = { ...f };
@@ -361,13 +412,14 @@ export function ordenarComoViabilidad(
   nuevo: EstadoCosteoEditor,
 ): { estado: EstadoCosteoEditor; reordenados: number } {
   const frescas = nuevo.grupos.flatMap(g => g.filas).filter(f => f.detalle?.trim());
+  const reescritos = paresReescritos(actual, frescas);
   let reordenados = 0;
   const grupos = actual.grupos.map(g => {
     const usadas = new Set<number>();
     let previa = -1;
     const conPos = g.filas.map((f, i) => {
       const k = f.esCostoAdicional || f.agregadoPorCompras || !f.detalle?.trim() ? -1
-        : frescas.findIndex((x, j) => !usadas.has(j) && mismoProducto(x.detalle, f.detalleBase ?? f.detalle));
+        : frescas.findIndex((x, j) => !usadas.has(j) && (mismoProducto(x.detalle, f.detalleBase ?? f.detalle) || reescritos.get(f) === x));
       if (k >= 0) { usadas.add(k); previa = k; }
       return { f, pos: k >= 0 ? k : previa, i };
     });
@@ -401,11 +453,18 @@ export function filasQueViabilidadYaNoTrae(
   const candidatas = actual.grupos.flatMap(g => g.filas)
     .filter(f => f.detalle?.trim() && !f.esCostoAdicional && !f.agregadoPorCompras);
   const orden = [...candidatas.filter(filaTrabajada), ...candidatas.filter(f => !filaTrabajada(f))];
-  const quitables: FilaEditorCosteo[] = [];
-  let trabajadas = 0;
+  const sinPar: FilaEditorCosteo[] = [];
   for (const f of orden) {
     const i = libres.findIndex(x => mismoProducto(x.detalle, f.detalle));
     if (i >= 0) { libres.splice(i, 1); continue; }
+    sinPar.push(f);
+  }
+  // La que solo tiene el nombre reescrito por la IA sigue siendo ese producto: no se propone quitarla.
+  const reescritas = emparejarReescritos(sinPar, libres);
+  const quitables: FilaEditorCosteo[] = [];
+  let trabajadas = 0;
+  for (const f of sinPar) {
+    if (reescritas.has(f)) continue;
     if (filaTrabajada(f)) trabajadas++; else quitables.push(f);
   }
   const posicion = new Map(candidatas.map((f, i) => [f.id, i]));

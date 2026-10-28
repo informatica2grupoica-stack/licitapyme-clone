@@ -501,6 +501,10 @@ function detectarEncabezadosTrasCierreDeSeccion(
   return out;
 }
 
+// Estilos de título de Word: «Ttulo1» (Título 1 en español, Word le quita la tilde al id),
+// «Heading1», «Title».
+const RE_ESTILO_TITULO = /<w:pStyle w:val="(?:Ttulo|Titulo|Heading|Title)\d*"/i;
+
 // ¿Esta línea entre comillas es el nombre de la licitación (corta la búsqueda) o el título real
 // del formulario (sirve de subtítulo)? Ver clavesEntreComillasRepetidas.
 function cortaSubtitulo(texto: string, repetidas: Set<string>): boolean {
@@ -527,6 +531,17 @@ function buscarSubtituloTrasEncabezadoPelado(
   let respaldo = '';
   for (let i = desdeIndice + 1; i < bloques.length && partes.length < 2; i++) {
     const b = bloques[i];
+    // Título del anexo metido en una tabla-recuadro, con estilo de título de Word («ANEXO N° 3» y
+    // debajo, en su cajita, «FORMULARIO PROPUESTA ECONÓMICA» — 2827-102-LE26). Sin esto el anexo
+    // quedaba con el título pelado y sin clasificar. Solo el estilo de título lo delata: la primera
+    // celda de una tabla de datos («Detalle», «NOMBRE») nunca lo trae.
+    if (b.tipo === 'tabla' && !partes.length) {
+      const primero = [...b.xmlCompleto.matchAll(/<w:p\b[\s\S]*?<\/w:p>/g)]
+        .find(p => /<w:t(?:\s[^>]*)?>[^<]*\S/.test(p[0]))?.[0] ?? '';
+      const texto = [...primero.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('').trim();
+      if (RE_ESTILO_TITULO.test(primero) && texto && !cortaSubtitulo(texto, repetidas)) partes.push(sinComillas(texto));
+      break;
+    }
     if (b.tipo !== 'parrafo' || b.enCuadroFlotante) break;
     const texto = b.textoPlano.trim();
     if (!texto) continue; // párrafo vacío de por medio: se sigue buscando, no corta
@@ -674,6 +689,16 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
   // más débil de todas, así que solo recoge lo que ninguna de las siete anteriores alcanzó a cubrir.
   encabezados.push(...detectarEncabezadosTrasCierreDeSeccion(bloques, encabezados));
   encabezados.sort((a, b) => a.indice - b.indice);
+  // El mismo título escrito dos veces seguidas, sin nada entre medio («ANEXO N.º 4» dos veces,
+  // 2827-102-LE26): es un anexo, no dos. Se cortaba en ambos y el primero salía como un archivo con
+  // solo el título. Se queda el primero.
+  for (let i = encabezados.length - 1; i > 0; i--) {
+    const [a, c] = [encabezados[i - 1], encabezados[i]];
+    if (sufijoDeArchivo(a.titulo) !== sufijoDeArchivo(c.titulo)) continue;
+    const hayTextoEntreMedio = bloques.some(b => b.ordinalInicio > a.indice && b.ordinalInicio < c.indice
+      && /<w:t(?:\s[^>]*)?>[^<]*\S/.test(b.xmlCompleto));
+    if (!hayTextoEntreMedio) encabezados.splice(i, 1);
+  }
   const totalOrdinales = bloques.length ? bloques[bloques.length - 1].ordinalFin + 1 : 0;
   // BUG REAL (2585-87-LE26): dividirPorFormularios arma cada fragmento SOLO con lo que cae entre
   // indiceInicio e indiceFin — cualquier contenido ANTES del primer encabezado detectado no entra
@@ -758,6 +783,9 @@ const PALABRAS_ECONOMICO = [
   'cotizacion', 'valor total', 'monto total', 'estructura de costos', 'forma de pago',
   'precio neto', 'anexo economico', 'cuadro de precios', 'lista de precios', 'iva incluido',
   'valor neto', 'valor unitario', 'precio total', 'formulario economico',
+  // Fila de total de la tabla de precios («Neto / Con Iva», 2827-102-LE26): sin esto el anexo
+  // empataba con el machote administrativo («representante legal») y quedaba sin clasificar.
+  'con iva',
 ];
 
 function normalizarParaClasificar(s: string): string {

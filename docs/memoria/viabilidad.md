@@ -37,7 +37,11 @@ Esto no cambia: solo filtra qué frases de las bases cuentan.
 **Verificado:** 1628 tests, tsc; decisor HEAD vs nuevo sobre las evidencias guardadas de 284 informes v4: cambian 9,
 revisados uno a uno (6 → POR_LINEAS, 3 → NO_CLARO de 1 línea o sin frase; con la API real esos 1-línea siguen GLOBAL);
 golden con evidencias v4: 3/3 igual. Siguen bien en GLOBAL 2950-49, 2709-83, 2981-293, 3712-74, 2730-133, 4055-87,
-1488-39. Script: `scripts/scratch/_adjudicacion_antes_despues.mts`. NO re-analizado nada.
+1488-39. Script: `scripts/scratch/_adjudicacion_antes_despues.mts`.
+**Re-analizadas (28-oct, desde el PC con el código de a763ba2, `scripts/scratch/_reanalizar_lote_281026.mts`,
+respaldos en `respaldos_reanalisis_281026/`):** 1028897-42, 2744-38, 734-63, 701426-14, 1057898-103 y -112 → las 6
+POR_LINEAS. 2744-38 ($18,5M neto) y 734-63 (contrato de suministro) quedan EXCLUIDO por sus propias reglas (F3 y
+suministro), no por la adjudicación.
 **Pendiente:** 3434-14-LE26 sigue GLOBAL: «Licitación por Línea… no oferte la totalidad de los productos» — la IA no
 sacó la frase «por línea» como evidencia; la totalidad sola es ambigua. 1426099-12-LE26 («servicio íntegro», 3 centros
 con presupuesto propio) sigue GLOBAL, dudoso.
@@ -53,7 +57,11 @@ con el código desplegado).
 **Pendiente:** (1) los GLOBAL dudosos se resolvieron en la entrada siguiente («COTIZAR_TOTALIDAD tiene que hablar
 de totalidad»). (2) Presupuesto guardado mal leído (puntos de miles
 como decimales) en 2736-44-LE26 ($29), 3729-86-LE26 y 1126920-34-LE26, los tres en nivel EXCLUIDO; el código ya lo
-arregla, falta re-analizar — `scripts/scratch/_presupuesto_descuadrado.mjs`.
+arregla — `scripts/scratch/_presupuesto_descuadrado.mjs`. **Hecho 28-oct:** re-analizadas; 2736-44 = $34.025.543
+(neto $28.592.893, nivel BAJO), 3729-86 = $9.711.460 y 1126920-34 = $8.628.000 (estas dos siguen EXCLUIDO, ahora con
+razón: F3, bajo $10M neto). Alertas del Motor Comercial recalculadas (`_recalcular_alertas_29.mts`): el «Sobre
+presupuesto» de 2736-44 (negocio 1525) desapareció. Ojo: las alertas del costeo solo se recalculan al cambiar un precio
+o subir costeo; re-analizar la viabilidad no las refresca.
 
 ## 2026-10-28 (tarde) — 2446-307-LE26: $28 billones y el ítem 5 del Formulario N°4 perdido
 Re-análisis de las 16:38 (VPS): presupuesto bruto 28.003.098.000.000 y manifiesto de 43 (faltaba «Juego de

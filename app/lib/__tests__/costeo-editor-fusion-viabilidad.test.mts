@@ -176,3 +176,43 @@ test('2446-307-LE26: al re-analizar el costeo queda en el orden del anexo econó
   assert.equal(r.estado.grupos[0].filas[0].valorConIva, 4);
   assert.equal(ordenarComoViabilidad(r.estado, fresco).reordenados, 0);
 });
+
+// 1028897-42-LP26 (28-oct-2026): en cada re-análisis la IA reescribía el nombre («Notebook» → «Notebook -
+// Ryzen 5 3450U», «… igual o superior» → «… o superior») y el costeo agregaba una copia: la línea 3 pasó
+// de 8 a 11 filas en tres re-análisis.
+test('re-análisis: el nombre reescrito por la IA no agrega copia y se corrige si nadie lo tocó', () => {
+  const l3 = (detalle: string, cantidad: number): FilaEditorCosteo => ({ ...fila(detalle, cantidad), lineaReal: 3 });
+  const anterior = estado([l3('Notebook', 57), l3('Tablet', 35), l3('Proyector - Epson PowerLite W49 igual o superior', 10)]);
+  const actual = estado([
+    { ...l3('Notebook', 57), valorConIva: 450000 }, l3('Tablet', 35), l3('Proyector - Epson PowerLite W49 igual o superior', 10),
+  ]);
+  const nuevo = estado([l3('Notebook - Ryzen 5 3450U', 57), l3('Tablet - Dimensity 6300', 35), l3('Proyector - Epson PowerLite W49 o superior', 10)]);
+  const f = fusionarConViabilidad(actual, nuevo);
+  assert.equal(f.agregados, 0);
+  const c = corregirDesdeViabilidad(f.estado, nuevo, anterior);
+  assert.deepEqual(c.estado.grupos[0].filas.map(x => x.detalle), [
+    'Notebook - Ryzen 5 3450U', 'Tablet - Dimensity 6300', 'Proyector - Epson PowerLite W49 o superior',
+  ]);
+  assert.equal(c.estado.grupos[0].filas[0].valorConIva, 450000);
+  assert.equal(filasQueViabilidadYaNoTrae(actual, nuevo).quitables.length, 0);
+});
+
+test('nombre reescrito con otra cantidad, otra línea u otra medida sigue siendo otro producto', () => {
+  const en = (linea: number, detalle: string, cantidad: number): FilaEditorCosteo => ({ ...fila(detalle, cantidad), lineaReal: linea });
+  assert.equal(fusionarConViabilidad(estado([en(1, 'Notebook', 57)]), estado([en(1, 'Notebook - Ryzen 5', 20)])).agregados, 1);
+  assert.equal(fusionarConViabilidad(estado([en(1, 'Notebook', 57)]), estado([en(2, 'Notebook - Ryzen 5', 57)])).agregados, 1);
+  assert.equal(fusionarConViabilidad(estado([en(1, 'Basurero acero inox con tapa 16 lt', 1)]), estado([en(1, 'Basurero acero inox con tapa 12 lt', 1)])).agregados, 1);
+  assert.equal(fusionarConViabilidad(estado([en(1, 'Silla escolar', 30)]), estado([en(1, 'Mesa escolar', 30)])).agregados, 1);
+});
+
+test('701426-14 / 1002588-102: palabras reordenadas o nombre corto vs largo no duplican', () => {
+  const r = fusionarConViabilidad(
+    estado([fila('SET TASAS DE LOZA 12 BLANCO', 2), fila('TACA TACA', 4)]),
+    estado([fila('SET 12 TAZAS DE LOZA 12 BLANCO', 2), fila('TACA TACA MEDIDAS: LARGO 145 MM, ANCHO 93 CMS', 4)]),
+  );
+  assert.equal(r.agregados, 0);
+});
+
+test('701426-14: «set de vasos» y «set de copas» con el mismo número no se confunden', () => {
+  assert.equal(fusionarConViabilidad(estado([fila('SET VASOS CORTOS 12 VIDRIO', 3)]), estado([fila('SET COPAS 12 DE AGUA VIDRIO 390 ML.', 3)])).agregados, 1);
+});
