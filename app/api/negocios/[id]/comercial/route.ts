@@ -819,16 +819,17 @@ export async function POST(request: NextRequest, { params }: Params) {
       if (!titulo) return NextResponse.json({ error: 'Falta el título del punto.' }, { status: 400 });
       const bloque = ['ADMINISTRATIVO', 'TECNICO', 'COMERCIAL'].includes(body.bloque) ? body.bloque : 'ADMINISTRATIVO';
       const clave = `manual:${Date.now()}:${titulo.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 80)}`;
-      await pool.query(
+      const [ins] = await pool.query(
         `INSERT INTO checklist_comercial
            (negocio_id, licitacion_codigo, bloque, tipo, titulo, descripcion, criticidad, origen, clave_origen, orden)
          VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', ?, 999)`,
         [negocio.id, negocio.licitacion_codigo, bloque, body.tipo === 'dato' ? 'dato' : 'documento',
          titulo.slice(0, 280), body.descripcion || null,
          body.criticidad === 'ADMISIBILIDAD_DURA' ? 'ADMISIBILIDAD_DURA' : 'INFORMATIVO', clave],
-      );
+      ) as any;
       const items = await leerItems(negocio.id);
-      return NextResponse.json({ success: true, items, resumen: resumirChecklist(items) });
+      // itemId: «Traer desde Documentos» crea el punto y le carga el archivo en seguida.
+      return NextResponse.json({ success: true, itemId: ins.insertId, items, resumen: resumirChecklist(items) });
     }
 
     return NextResponse.json({ error: 'Acción desconocida' }, { status: 400 });

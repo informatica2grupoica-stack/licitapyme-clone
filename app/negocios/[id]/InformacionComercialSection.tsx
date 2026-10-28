@@ -30,6 +30,8 @@ import { etiquetasDistinguibles, type DecisionGeneracion, type DocumentoCandidat
 import { SelectorDocumentoAnexo } from '@/app/components/SelectorDocumentoAnexo';
 import { repartirArchivosGenerados } from '@/app/lib/anexos-match';
 import { MotorComercialCard } from './MotorComercialCard';
+import { TraerDocumentosModal, type ModoTraer } from './TraerDocumentosModal';
+import { documentosPropiosDeOferta, esDocumentoSuelto, type DocPropio } from '@/app/lib/anexos-traer';
 import {
   CLAVE_ITEM_PLAZO, rangoPlazoDeDescripcion, validarPlazoOfertado,
   esAlertaDeCumplimiento, esLineaTecnica,
@@ -218,6 +220,10 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   // caen los archivos que ningún punto matcheó con confianza (ver repartirArchivosGenerados).
   const [generandoItem, setGenerandoItem] = useState<Item | null>(null);
   const [anexoDocSeleccionado, setAnexoDocSeleccionado] = useState<AnexoDoc | null>(null);
+  // «Traer desde Documentos» (solo en Pre-postulación): los archivos propios de la licitación, para
+  // enlazar a su punto un anexo hecho fuera de la app (ver TraerDocumentosModal).
+  const [docsPropios, setDocsPropios] = useState<DocPropio[]>([]);
+  const [modoTraer, setModoTraer] = useState<ModoTraer | null>(null);
   const aplicar = useCallback((d: any) => {
     setItems(d.items || []);
     setResumen(d.resumen || null);
@@ -255,6 +261,15 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   // El asesor tiene que poder aprobar el mismo día, en el momento: si el asistente carga algo
   // mientras esta pantalla está abierta, aparece solo.
   useRealtime(cargar);
+
+  const cargarDocsPropios = useCallback(() => {
+    if (vista !== 'oferta') return;
+    fetch(`/api/documentos/cache/${encodeURIComponent(licitacionCodigo)}`).then(r => r.json())
+      .then(d => { if (d.success) setDocsPropios(documentosPropiosDeOferta(d.documentos || [])); })
+      .catch(() => {});   // sin la lista no se ofrece traer; la pantalla sigue
+  }, [vista, licitacionCodigo]);
+  useEffect(() => { cargarDocsPropios(); }, [cargarDocsPropios]);
+  useRealtime(cargarDocsPropios);   // alguien subió un archivo en Documentos con esta pantalla abierta
 
   useEffect(() => {
     fetch('/api/empresas').then(r => r.json()).then(d => setEmpresas(d.empresas || [])).catch(() => {});
@@ -351,6 +366,31 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
     cargar();
   };
 
+  // ── «Traer desde Documentos» ───────────────────────────────────────────────────
+  const cargarDesdeDocumentos = async (itemId: number, archivos: Array<{ nombre: string; url: string }>) => {
+    const ok = await accionar(itemId, 'CARGAR', { documentos: archivos });
+    if (ok) toast.success(archivos.length > 1 ? `${archivos.length} archivos cargados` : 'Archivo cargado', 'Quedó «Por aprobar»');
+    return ok;
+  };
+  // Un archivo que no calza con ningún punto (el Anexo 5 de 4022-19-LE26, la ficha técnica) igual tiene
+  // que llegar a Postulación: se crea un punto manual con su nombre.
+  const crearPuntoDocumento = async (titulo: string): Promise<number | null> => {
+    try {
+      const r = await fetch(`/api/negocios/${negocioId}/comercial`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: 'agregar', titulo, bloque: 'ADMINISTRATIVO', tipo: 'documento' }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.itemId) { toast.error(d.error || 'No se pudo crear el punto'); return null; }
+      setItems(d.items || []);
+      setResumen(d.resumen || null);
+      return Number(d.itemId);
+    } catch (e) {
+      toast.error('Error de red', String(e));
+      return null;
+    }
+  };
+
   // ── Render ───────────────────────────────────────────────────────────────────
   if (cargando) {
     return <div className="flex items-center gap-2 text-[13px] text-zinc-400 py-10 justify-center">
@@ -371,6 +411,13 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   }
 
   const sinEmpresa = !empresa;
+  // Puntos que pueden recibir un archivo traído desde Documentos y lo que ya está cargado en cada uno.
+  const puntosAnexo = items.filter(i => i.bloque === 'ADMINISTRATIVO' && i.tipo === 'documento' && !esAlerta(i) && !esLineaTecnica(i));
+  const puntoDeUrl = new Map<string, { id: number; titulo: string }>();
+  for (const i of items) for (const d of i.documentos) puntoDeUrl.set(d.url, { id: i.id, titulo: i.titulo });
+  const sueltos = docsPropios.filter(d => esDocumentoSuelto(d, new Set(puntoDeUrl.keys())));
+  // Postulado: solo un admin puede seguir enlazando (mismo bypass que ya tiene todo el checklist, ver congelamiento.ts).
+  const traerBloqueado = congelado ? 'Ya se postuló: el checklist quedó congelado. Pídele a un admin que enlace los archivos.' : null;
 
   return (
     <div className="space-y-5 fade-in">
@@ -540,6 +587,23 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
 
             {b.key === 'COMERCIAL' && <MotorComercialCard negocioId={negocioId} licitacionCodigo={licitacionCodigo} />}
 
+            {/* Anexos hechos fuera de la app (firma a puño y letra) que se subieron a Documentos y no
+                quedaron en ninguna casilla: sin esto Postulación sale vacía (4022-19-LE26). */}
+            {vista === 'oferta' && b.key === 'ADMINISTRATIVO' && sueltos.length > 0 && (
+              <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-100 flex items-center gap-3 flex-wrap">
+                <p className="text-xs text-amber-900 flex-1 min-w-[14rem]">
+                  <span className="font-semibold tabular-nums">{sueltos.length}</span> archivo{sueltos.length === 1 ? '' : 's'} en Documentos no {sueltos.length === 1 ? 'está' : 'están'} en ninguna casilla
+                  {' '}({sueltos.slice(0, 3).map(d => d.documento_nombre).join(', ')}{sueltos.length > 3 ? '…' : ''}).
+                  {traerBloqueado && <> {traerBloqueado}</>}
+                </p>
+                {!traerBloqueado && (
+                  <button type="button" onClick={() => setModoTraer({ tipo: 'repartir' })}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-teal-700 text-white hover:bg-teal-800">
+                    Repartir en las casillas
+                  </button>
+                )}
+              </div>
+            )}
 
             <div className="divide-y divide-zinc-100">
               {delBloque.map(item => (
@@ -553,6 +617,8 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
                   onAccion={accionar}
                   onVer={setVisorDoc}
                   onGenerar={puedeAnexos ? setGenerandoItem : undefined}
+                  onTraer={vista === 'oferta' && item.tipo === 'documento' ? () => setModoTraer({ tipo: 'punto', punto: item }) : undefined}
+                  traerBloqueado={traerBloqueado}
                   toast={toast}
                 />
               ))}
@@ -635,6 +701,17 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
       )}
 
       <DocumentViewerModal doc={visorDoc} onClose={() => setVisorDoc(null)} />
+
+      <TraerDocumentosModal
+        modo={modoTraer}
+        docs={docsPropios}
+        sueltos={sueltos}
+        puntos={puntosAnexo}
+        puntoDeUrl={puntoDeUrl}
+        onCargar={cargarDesdeDocumentos}
+        onCrearPunto={crearPuntoDocumento}
+        onClose={() => setModoTraer(null)}
+      />
 
       {/* Flujo "Generar" — paso 1: elegir a cuál Word real de la licitación corresponde este
           anexo. Se oculta en cuanto se elige uno (paso 2, el modal de relleno, toma el relevo). */}
@@ -807,7 +884,7 @@ function GenerarAnexoDeBloque({ decision, etiqueta, onGenerar }: {
 
 const MSG_CONGELADO = 'Este negocio ya se postuló: el checklist quedó congelado y ya no se puede marcar como visto.';
 
-function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, modoAcuse = false, onAccion, onVer, onGenerar, toast }: {
+function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, modoAcuse = false, onAccion, onVer, onGenerar, onTraer, traerBloqueado, toast }: {
   item: Item;
   licitacionCodigo: string;
   puedeAprobar: boolean;
@@ -820,6 +897,10 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
   onAccion: (itemId: number, accion: string, extra?: Record<string, unknown>) => Promise<boolean>;
   onVer: (doc: VisorDoc) => void;
   onGenerar?: (item: Item) => void;
+  /** «Traer desde Documentos»: enlaza un archivo que ya está en Documentos (anexo hecho fuera de la app). */
+  onTraer?: () => void;
+  /** Motivo por el que no se puede traer (negocio postulado), o null. */
+  traerBloqueado?: string | null;
   toast: ReturnType<typeof useToast>;
 }) {
   const confirmar = useConfirm();
@@ -1048,8 +1129,9 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
 
           {/* «Generar anexo» A LA VISTA (antes solo aparecía dentro del modo edición): abre el mismo modal de Documentos, lo rellena con los datos de la
               empresa y la firma, y el archivo queda cargado aquí mismo. */}
-          {item.generable && item.tipo === 'documento' && onGenerar && !editando && (
+          {((item.generable && item.tipo === 'documento' && onGenerar) || onTraer) && !editando && (
             <div className="mt-2 flex items-center gap-2 flex-wrap">
+              {item.generable && item.tipo === 'documento' && onGenerar && (<>
               <button type="button" disabled={bloqueado}
                 onClick={async () => {
                   // Un anexo ya aprobado se puede generar de nuevo (p. ej. para probar o corregir), pero vuelve a «Por aprobar».
@@ -1061,6 +1143,16 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
                 <Sparkles size={13} /> {item.documentos.length > 0 ? 'Volver a generar' : 'Generar anexo'}
               </button>
               {bloqueado && <span className="text-[11px] text-amber-700">Elige primero la empresa (en Documentos).</span>}
+              </>)}
+              {/* No depende de la empresa: el archivo ya está hecho y firmado, solo falta enlazarlo. */}
+              {onTraer && (
+                <button type="button"
+                  onClick={() => traerBloqueado ? toast.info('Este negocio ya se postuló', traerBloqueado) : onTraer()}
+                  title={traerBloqueado || 'Enlaza un archivo que ya subiste en Documentos (por ejemplo, un anexo firmado a mano)'}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium border border-slate-200 text-teal-700 hover:bg-slate-50 ${traerBloqueado ? 'opacity-50' : ''}`}>
+                  <FileText size={13} /> Traer desde Documentos
+                </button>
+              )}
             </div>
           )}
 

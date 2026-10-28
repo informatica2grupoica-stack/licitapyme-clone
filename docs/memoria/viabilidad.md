@@ -2,6 +2,36 @@
 
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-28 — 3712: presupuesto por línea del convenio con UNA línea en la API + .dotx sin leer
+Caso real: 3712-74-LP26 (negocio 1511). La tarjeta de viabilidad mostraba bien el total ($93.503.799 IVA
+incl.), pero `presupuesto.por_linea_interpretado` traía L1/L2/L3 = las «líneas de intervención» del convenio
+(Correspondencia_3837.pdf: M$ 28.097 / 40.294 / 25.113) y el manifiesto `presupuesto_linea` = 28.097.000:
+la única hoja del costeo tomaba $23,6M neto de tope en vez de $78,6M (Consuelo lo escribió a mano en la
+versión 5). Ahora, si la API trae una sola línea, no hay presupuesto por línea (`viabilidad-ia.ts` y
+`cv/viabilidad-ia.ts`, junto a `por_linea_interpretado`). Además el `.dotx` («Anexos_editables_….dotx»)
+salía `metodo=error` en cada análisis: `document-extraction.ts` ya lo lee con mammoth (mismo zip que .docx)
+y `lectura-documentos.ts` lo cuenta como legible. Lo que contiene ya venía en las bases (Anexo económico de
+39 insumos), así que el conteo de 3712 no cambia. La lectura de 3712 SÍ fue completa: bases y convenio por
+GLM-OCR; los COSTEO_*.xlsx propios salen en «documentos leídos» pero se excluyen de las fuentes.
+**Verificado:** tests 1.609/1.609, `tsc` limpio, .dotx de prueba leído con `extractTextFromDocument`.
+NO verificado: re-análisis real de 3712 (falta desplegar).
+**Pendiente:** desplegar y re-analizar 3712; el presupuesto de la hoja del costeo guardado ya lo corrigió
+Consuelo a mano. La alerta «DECRETO… (43) · FORMULARIO_N°4… (44) · PROYECTO.pdf (44)» es de 2446-307-LE26,
+no de 3712 (ver documentos-ocr.md).
+
+## 2026-10-28 — Presupuesto $28 en vez de $28.003.098 (IA leyó los puntos de miles como decimal)
+Caso real: 2446-307-LE26. La IA trajo `monto_texto` «$28.003.098» bien, pero `bruto` = 28.003098 y el código
+le creyó (solo corregía con el texto si el bruto faltaba o era un «M$»). Efecto en cadena: neto 24, multa
+≈ $0, nivel EXCLUIDO, y el costeo guardado quedó con presupuesto 28. Ahora en `viabilidad-ia.ts` (y
+`cv/viabilidad-ia.ts`) si el bruto del modelo está fuera de ×0,5–×2 del monto del texto, manda el texto.
+La tarjeta Presupuesto ya no muestra 44 chips L1…L44: con más de 6 líneas, «Tope por línea (N líneas)»
+plegado en lista compacta. El «$0 que sube» es la animación del contador, no un dato.
+**Verificado:** tests viabilidad-v4 (45/45), tsc limpio en esos archivos. Tarjeta NO vista en navegador.
+Re-analizado el mismo día (script local con el arreglo): bruto $28.003.098, neto $23.532.015, multa 1 %/día
+hábil ≈ $235.320, nivel ALTO. Esta vez la IA trajo bien el bruto, así que el arreglo no llegó a actuar.
+**Pendiente:** el presupuesto del costeo editable (28) hay que revisarlo a mano (la re-viabilidad no toca el
+costeo guardado). `presupuesto_display` (`viabilidad.ts:795`) rotula «neto» un monto que es IVA incluido.
+
 ## 2026-10-27 — «Completar cada línea» se leía como «ofertar todas las líneas» (adjudicación GLOBAL falsa)
 Caso real: 4697-25-LP26 (negocio 1376). Bases: «Licitación por Línea», 2 líneas con monto propio (Equipos
 $36.419.000, Equipamiento $46.882.000), evaluación y facturación separadas. Salía GLOBAL por la regla 2 de CA

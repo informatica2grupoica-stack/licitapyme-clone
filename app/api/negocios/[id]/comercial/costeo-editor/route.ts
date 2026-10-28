@@ -133,7 +133,7 @@ async function registroDeCambios(negocio: { id: number; licitacion_codigo: strin
       ORDER BY subido_at DESC LIMIT 60`, [negocio.id]) as any;
   const [eventos] = await pool.query(
     `SELECT tipo, actor_nombre, mensaje, metadata, created_at FROM historial_eventos
-      WHERE licitacion_codigo = ? AND tipo IN ('COSTEO_GUARDADO', 'COMPRAS_COSTEO_ACTUALIZADO')
+      WHERE licitacion_codigo = ? AND tipo IN ('COSTEO_GUARDADO', 'COMPRAS_COSTEO_ACTUALIZADO', 'COSTEO_ACTUALIZADO_VIABILIDAD')
       ORDER BY created_at DESC LIMIT 120`, [negocio.licitacion_codigo]) as any;
   const delNegocio = (eventos as any[]).map(e => ({ ...e, meta: meta(e.metadata) })).filter(e => Number(e.meta.negocio_id) === negocio.id);
   const cambiosPorVersion = new Map<number, string[]>();
@@ -147,6 +147,8 @@ async function registroDeCambios(negocio: { id: number; licitacion_codigo: strin
   }));
   for (const e of delNegocio) if (e.tipo === 'COMPRAS_COSTEO_ACTUALIZADO') {
     out.push({ fecha: fecha(e.created_at), quien: e.actor_nombre || 'Compras', accion: e.mensaje, cambios: null, totalVenta: null, totalCosto: null });
+  } else if (e.tipo === 'COSTEO_ACTUALIZADO_VIABILIDAD') {
+    out.push({ fecha: fecha(e.created_at), quien: e.actor_nombre || 'Re-análisis de viabilidad', accion: e.mensaje, cambios: Array.isArray(e.meta.cambios) ? e.meta.cambios : null, totalVenta: null, totalCosto: null });
   }
   return out.sort((a, b) => b.fecha.localeCompare(a.fecha));
 }

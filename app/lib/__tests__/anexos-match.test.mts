@@ -80,3 +80,11 @@ test('el selector sugiere FORMATO_N°_2-A para «Formato N°2-A Declaración Jur
   assert.equal(r[0].nombre, 'FORMATO_N°_2-A.docx');
   assert.ok(r[0].puntaje >= 100 && r[1].puntaje < 100);
 });
+
+// 28-oct-2026 (4022-19-LE26): los puntos se llaman «Anexo Administrativo 1 - …» y los PDF firmados a mano «ANEXO N° 1.pdf».
+test('«Anexo Administrativo 1» / «Anexo Técnico 3» leen su número aunque el tipo vaya en medio', () => {
+  assert.ok(puntajeCoincidencia('Anexo Administrativo 1 - Declaración Jurada de identificación del Proponente', 'ANEXO N° 1.pdf') >= 100);
+  assert.ok(puntajeCoincidencia('Anexo Técnico 3 - Oferta Técnica', 'ANEXO N° 3.pdf') >= 100);
+  assert.ok(puntajeCoincidencia('Anexo Económico 4 - Oferta Económica', 'ANEXO N° 4.pdf') >= 100);
+  assert.equal(puntajeCoincidencia('Anexo Administrativo 1 - Declaración Jurada', 'ANEXO N° 2.pdf'), 0);
+});

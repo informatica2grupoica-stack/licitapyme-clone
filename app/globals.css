@@ -14,6 +14,28 @@
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
+/* ── Sistema de diseño LICITANK (skill licitank-ui, /ui-kit) ───────────────── */
+/* Colores con nombre: generan bg-marca, text-marca-fuerte, border-linea, etc.
+   Teal como marca; nada de índigo/violeta. Movimiento: dos duraciones y una curva. */
+@theme {
+  --color-marca:        #0f766e; /* teal-700: botones sólidos, enlaces, vista activa */
+  --color-marca-fuerte: #115e59; /* hover del botón */
+  --color-marca-suave:  #f0fdfa; /* fondo de selección */
+  --color-tinta:        #0f172a; /* texto principal */
+  --color-tinta-2:      #475569; /* texto secundario */
+  --color-tinta-3:      #94a3b8; /* rótulos tenues, deshabilitado */
+  --color-linea:        #e2e8f0; /* bordes de tarjeta y separadores */
+  --color-exito:        #15803d;
+  --color-alerta:       #b45309;
+  --color-urgente:      #dc2626;
+
+  --shadow-tarjeta:       0 1px 2px rgb(15 23 42 / 0.04), 0 1px 3px rgb(15 23 42 / 0.06);
+  --shadow-tarjeta-hover: 0 4px 12px -2px rgb(15 23 42 / 0.08), 0 2px 4px rgb(15 23 42 / 0.04);
+  --shadow-flotante:      0 16px 40px -8px rgb(15 23 42 / 0.18), 0 4px 10px rgb(15 23 42 / 0.06);
+
+  --ease-lk: cubic-bezier(0.22, 1, 0.36, 1); /* clase ease-lk; con duration-150 o duration-250 */
+}
+
 
 /* ── Design Tokens ─────────────────────────────────────────────────────────── */
 :root {

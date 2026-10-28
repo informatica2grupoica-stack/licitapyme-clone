@@ -24,7 +24,9 @@ function normalizar(s: string): string {
 // primera letra de la palabra siguiente. `(?![a-z])` además exige que la letra capturada sea la
 // ÚLTIMA del sufijo (no la primera de una palabra de verdad): sin eso, "2a" de un nombre de
 // archivo real ("N2ANEXO...") capturaría solo "a" en vez de fallar limpio.
-const RE_NUMERO = /(?:anexo|formulario|formato)[^0-9]{0,6}(\d+)(?:-?([a-z])(?![a-z]))?/i;
+// El tipo de anexo puede ir entre la palabra y el número («Anexo Administrativo 1», «Anexo Técnico
+// N° 3», 4022-19-LE26): sin saltarlo, el número no se leía y «ANEXO N° 1.pdf» no calzaba con su punto.
+const RE_NUMERO = /(?:anexo|formulario|formato)(?:\s+(?:administrativ|tecnic|economic)[oa]s?)?[^0-9]{0,6}(\d+)(?:-?([a-z])(?![a-z]))?/i;
 
 function numeroDe(texto: string): string | null {
   const m = normalizar(texto).match(RE_NUMERO);

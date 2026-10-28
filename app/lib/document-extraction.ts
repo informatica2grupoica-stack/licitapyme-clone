@@ -399,8 +399,9 @@ export async function extractTextFromDocument(
   opts: { omitirOCR?: boolean; sourceUrl?: string } = {},
 ): Promise<{ texto: string; numPages: number; metodo: string; confianza: string; items?: ItemExcel[] }> {
 
-  // WORD (DOCX/DOC)
-  if (extension === 'docx' || extension === 'doc') {
+  // WORD (DOCX/DOC). El .dotx (plantilla) es el mismo zip OOXML y mammoth lo lee igual
+  // (3712-74-LP26: «Anexos_editables_….dotx» quedaba sin leer en cada análisis).
+  if (extension === 'docx' || extension === 'dotx' || extension === 'doc') {
     // mammoth solo lee .docx (OOXML = zip que empieza con "PK"). Los .doc legacy
     // (binario OLE, empieza con D0 CF 11 E0) se leen con word-extractor.
     const esZipDocx = buffer.length > 1 && buffer[0] === 0x50 && buffer[1] === 0x4b; // "PK"
@@ -414,9 +415,14 @@ export async function extractTextFromDocument(
         // 1736-82-LE26, ANEXO_N°4.docx) queda irreconocible para el parser de planillas. Se
         // extraen aparte las tablas reales vía convertToHtml() y se anexan como <table><tr><td>,
         // el mismo formato que ya sabe leer parsearTablasHtml() (hecho para GLM-OCR).
+        // Sin imágenes: por defecto mammoth las incrusta como <img src="data:…;base64,…"> y un
+        // anexo de 1.289 caracteres de texto quedaba con 1,27 M (99 docs en documentos_cache,
+        // oct-2026). Se pide un src vacío (no codifica nada) y se quita el <img> que queda.
         try {
-          const html = await mammoth.convertToHtml({ buffer });
-          const tablas = (html.value.match(/<table[\s\S]*?<\/table>/gi) || []).join('\n\n');
+          const html = await mammoth.convertToHtml({ buffer }, {
+            convertImage: mammoth.images.imgElement(async () => ({ src: '' })),
+          });
+          const tablas = (html.value.match(/<table[\s\S]*?<\/table>/gi) || []).join('\n\n').replace(/<img[^>]*>/gi, '');
           if (tablas) texto += '\n\n' + tablas;
         } catch { /* si falla, se mantiene solo el texto plano */ }
         console.log(`✅ Word (.docx): ${texto.length} caracteres extraídos`);
@@ -723,7 +729,7 @@ export async function descargarYExtraerTexto(url: string, nombre: string, opts: 
 async function _descargarYExtraerTextoImpl(url: string, nombre: string, opts: { omitirOCR?: boolean } = {}): Promise<ResultadoExtraccion> {
   const urlSinQuery = url.split('?')[0];
   const extension = (urlSinQuery.split('.').pop() || '').toLowerCase();
-  const formatosPermitidos = ['pdf', 'docx', 'doc', 'xlsx', 'xls'];
+  const formatosPermitidos = ['pdf', 'docx', 'dotx', 'doc', 'xlsx', 'xls'];
   if (!formatosPermitidos.includes(extension)) return null;
 
   let fetchUrl: string;

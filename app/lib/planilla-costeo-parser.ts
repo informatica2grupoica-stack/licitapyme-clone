@@ -91,7 +91,12 @@ function celdasDe(line: string): string[] | null {
     if (partes.length && partes[partes.length - 1] === '') partes.pop();
     return partes.length ? partes : null;
   }
-  if ((line.match(/,/g) || []).length >= 3) return csvSplit(line);
+  // Una fila tabulada de Word manda sobre las comas de su descripción (2446-307-LE26: «36	5	Tineta
+  // látex amarillo rey, antihongos, inoloro, terminación mate» se partía como CSV y se perdía). Solo si
+  // la primera tabulación va antes que la primera coma: el CSV de un Excel trae tabs DENTRO de sus
+  // celdas (viñetas «●	Producto: …») y sigue siendo CSV.
+  const tabAntesQueComa = (line.match(/	/g) || []).length >= 2 && line.indexOf('	') < line.indexOf(',');
+  if ((line.match(/,/g) || []).length >= 3 && !tabAntesQueComa) return csvSplit(line);
   // TABULACIONES: así queda una tabla de Word al extraerse a texto — una celda por tab. Sin esto
   // el parser era CIEGO a todo cuadro económico en .doc/.docx, que es donde vive el listado
   // canónico (el formulario que el oferente llena para cotizar). Caso real 2328-41-LE26: el
@@ -1256,6 +1261,12 @@ function parsearCatalogoValorUnitario(doc: DocTexto): PlanillaParseResult | null
 // en varios <table> tras cada salto de página SIN repetir el encabezado (empiezan directo en "10.",
 // "28."…) → arrastramos el layout de columnas (col) entre tablas. Las tablas de PUNTAJES (que van
 // antes, sin columna de cantidad) no fijan col → sus filas se ignoran. Numeración 1..N ⇒ suma alzada.
+// GLM-OCR escribe la pulgada como «&quot;»: sin decodificar, el producto llegaba al costeo como
+// «Manguera Espiralada 2&quot;x50(m)» (3712-74-LP26).
+const decodificarEntidades = (s: string) => s
+  .replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+  .replace(/&nbsp;/g, ' ').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/&amp;/g, '&');
+
 function parsearTablasHtml(doc: DocTexto): PlanillaParseResult | null {
   const t = doc.texto;
   if (!/<tr[\s>]/i.test(t)) return null;
@@ -1263,7 +1274,7 @@ function parsearTablasHtml(doc: DocTexto): PlanillaParseResult | null {
   const filas: string[][] = [];
   for (const trm of t.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
     const celdas = [...trm[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)]
-      .map(c => limpiarCelda(c[1].replace(/<[^>]+>/g, ' ')));
+      .map(c => limpiarCelda(decodificarEntidades(c[1].replace(/<[^>]+>/g, ' '))));
     if (celdas.length >= 2) filas.push(celdas);
   }
   if (filas.length < 8) return null;

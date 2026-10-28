@@ -6,7 +6,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { motion } from 'framer-motion';
 import { IconArrowLeft as ArrowLeft, IconCheck as Check, IconCalculator as Calculator, IconLock as Lock } from '@tabler/icons-react';
 
 export interface ItemMenuNegocio {
@@ -144,24 +145,30 @@ export interface TabItemNegocio { key: string; label: string; count?: number | n
 // Resumen/Fechas/Criterios/Comentarios; Resultado agrupa Resultado/Competencia). Mismo componente
 // en ambas páginas para que la UI no vuelva a divergir entre ellas.
 export function SeccionTabs({ items, activo, onSelect }: { items: TabItemNegocio[]; activo: string; onSelect: (key: string) => void }) {
+  // Subrayado teal que se desliza a la pestaña activa (skill licitank-ui).
+  const id = useId();
   return (
-    <div className="flex gap-4 mb-5 border-b border-zinc-200">
-      {items.map(it => (
-        <button
-          key={it.key}
-          onClick={() => onSelect(it.key)}
-          className={`flex items-center gap-1.5 pb-2.5 -mb-px text-[13px] font-semibold border-b-2 transition-colors ${
-            activo === it.key ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-zinc-400 hover:text-zinc-700'
-          }`}
-        >
-          {it.label}
-          {it.count != null && it.count > 0 && (
-            <span className={`text-[10px] px-1.5 py-px rounded-full font-bold ${activo === it.key ? 'bg-indigo-100 text-indigo-600' : 'bg-zinc-100 text-zinc-400'}`}>
-              {it.count}
-            </span>
-          )}
-        </button>
-      ))}
+    <div role="tablist" className="flex gap-6 mb-5 border-b border-linea dark:border-slate-800 overflow-x-auto">
+      {items.map(it => {
+        const on = activo === it.key;
+        return (
+          <button
+            key={it.key}
+            role="tab"
+            aria-selected={on}
+            onClick={() => onSelect(it.key)}
+            className={`relative flex items-center gap-1.5 pb-3 pt-0.5 text-sm whitespace-nowrap transition-colors duration-150 ${
+              on ? 'font-semibold text-tinta dark:text-slate-50' : 'font-medium text-tinta-2 hover:text-tinta dark:text-slate-400 dark:hover:text-slate-200'
+            }`}
+          >
+            {it.label}
+            {it.count != null && it.count > 0 && (
+              <span className={`text-xs font-semibold tabular-nums ${on ? 'text-marca' : 'text-tinta-3'}`}>{it.count}</span>
+            )}
+            {on && <motion.span layoutId={`tab-${id}`} className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-marca" transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }} />}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -181,18 +188,20 @@ interface Props {
 }
 
 export function MenuNegocioLateral({ items, activa, onSelect, volverHref, onVolver, cargandoContadores, visitados, accesoRapido }: Props) {
-  const clsVolver = 'flex items-center gap-1.5 text-[12px] text-zinc-500 hover:text-zinc-900 transition-colors font-medium';
+  // Estilo del sistema de diseño (skill licitank-ui): activo en teal con fondo que se desliza; la fase
+  // de auditoría (variante 'compra') sigue en ámbar para distinguirla (pedido del usuario, 28-sep-2026).
+  const clsVolver = 'flex items-center gap-1.5 text-[13px] text-tinta-2 hover:text-tinta dark:text-slate-400 dark:hover:text-slate-100 transition-colors';
   return (
-    <aside className="hidden lg:flex flex-col w-44 border-r border-zinc-200/80 bg-white flex-shrink-0 overflow-y-auto">
-      <div className="px-3 pt-4 pb-3">
+    <aside className="hidden lg:flex flex-col w-48 border-r border-linea bg-white flex-shrink-0 overflow-y-auto dark:bg-slate-900 dark:border-slate-800">
+      <div className="px-4 pt-5 pb-4">
         {volverHref ? (
-          <Link href={volverHref} className={clsVolver}><ArrowLeft size={13} /> Volver</Link>
+          <Link href={volverHref} className={clsVolver}><ArrowLeft size={14} /> Volver</Link>
         ) : (
-          <button onClick={onVolver} className={clsVolver}><ArrowLeft size={13} /> Volver</button>
+          <button onClick={onVolver} className={clsVolver}><ArrowLeft size={14} /> Volver</button>
         )}
       </div>
       <div className="px-3 pb-2">
-        <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest px-2 pb-1.5">El negocio</p>
+        <p className="text-[11px] text-slate-500 px-2.5 pb-2">El negocio</p>
         <nav className="space-y-0.5">
           {items.map(s => {
             const esCompra = s.variante === 'compra';
@@ -204,7 +213,7 @@ export function MenuNegocioLateral({ items, activa, onSelect, volverHref, onVolv
                 <div
                   key={s.key}
                   title="Todavía no disponible"
-                  className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[12.5px] text-zinc-300 font-medium cursor-not-allowed select-none"
+                  className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[13px] text-slate-300 font-medium cursor-not-allowed select-none"
                 >
                   <span>{s.label}</span>
                 </div>
@@ -215,25 +224,30 @@ export function MenuNegocioLateral({ items, activa, onSelect, volverHref, onVolv
               <button
                 key={s.key}
                 onClick={() => onSelect(s.key)}
-                className={`w-full flex items-center justify-between py-2 rounded-lg text-[12.5px] transition-all ${s.sub ? 'pl-6 pr-2.5' : 'px-2.5'} ${
+                className={`relative w-full flex items-center justify-between py-2 rounded-lg text-[13px] transition-colors duration-150 ${s.sub ? 'pl-6 pr-2.5' : 'px-2.5'} ${
                   activo
-                    ? (esCompra ? 'bg-amber-50 text-amber-700 font-bold' : 'bg-indigo-50 text-indigo-700 font-bold')
-                    : visitado
-                      ? (esCompra ? 'text-amber-600 hover:bg-amber-50 font-medium' : 'text-emerald-600 hover:bg-emerald-50 font-medium')
-                      : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 font-medium'
+                    ? (esCompra ? 'text-amber-800 font-semibold dark:text-amber-300' : 'text-marca font-semibold dark:text-teal-300')
+                    : 'text-tinta-2 hover:text-tinta hover:bg-slate-50 font-medium dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800'
                 } ${s.bloqueado ? 'opacity-50' : ''}`}
                 title={s.bloqueado ? 'No está incluido en tu plan' : undefined}
               >
-                <span className="flex items-center gap-1.5">
-                  {visitado && <Check size={11} className={esCompra ? 'text-amber-500' : 'text-emerald-500'} />}
+                {activo && (
+                  <motion.span layoutId="menu-negocio-activo" transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                    className={`absolute inset-0 rounded-lg ${esCompra ? 'bg-amber-50 dark:bg-amber-950/40' : 'bg-marca-suave dark:bg-teal-950/40'}`} />
+                )}
+                <span className="relative flex items-center gap-1.5">
+                  {visitado
+                    ? <Check size={13} className={esCompra ? 'text-amber-500' : 'text-exito'} />
+                    : <span aria-hidden className={`w-[13px] flex justify-center`}><span className={`w-1.5 h-1.5 rounded-full ${activo ? (esCompra ? 'bg-amber-500' : 'bg-marca') : 'bg-slate-300 dark:bg-slate-600'}`} /></span>}
                   {s.label}
-                  {s.bloqueado && <Lock size={11} className="text-zinc-400" />}
+                  {s.bloqueado && <Lock size={12} className="text-slate-400" />}
                 </span>
                 {s.count != null && s.count > 0 && (
                   // Rojo cuando hay trabajo detenido esperando el visto bueno del asesor.
-                  <span className={`text-[10px] px-1.5 py-px rounded-full font-bold ${
-                    s.alerta ? 'bg-rose-500 text-white' : activo ? (esCompra ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600') : 'bg-zinc-100 text-zinc-400'
+                  <span className={`relative text-xs font-semibold tabular-nums ${
+                    s.alerta ? 'text-urgente' : activo ? (esCompra ? 'text-amber-700' : 'text-marca') : 'text-tinta-3'
                   }`}>
+                    {s.alerta && !cargandoContadores && <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-urgente mr-1 align-middle" />}
                     {cargandoContadores ? '…' : s.count}
                   </span>
                 )}
@@ -243,13 +257,13 @@ export function MenuNegocioLateral({ items, activa, onSelect, volverHref, onVolv
         </nav>
       </div>
       {accesoRapido && (
-        <div className="px-3 pb-3 mt-auto">
+        <div className="px-3 pb-4 mt-auto">
           <button
             onClick={accesoRapido.onClick}
             title="Abre el costeo digital sin salir de esta sección"
-            className="w-full flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-[12.5px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors"
+            className="w-full flex items-center gap-2 h-9 px-3 rounded-lg text-[13px] font-medium text-tinta bg-white border border-linea shadow-tarjeta hover:bg-slate-50 hover:border-slate-300 transition-colors duration-150 dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
           >
-            <Calculator size={14} /> {accesoRapido.label}
+            <Calculator size={15} className="text-slate-500" /> {accesoRapido.label}
           </button>
         </div>
       )}

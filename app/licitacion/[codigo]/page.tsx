@@ -742,7 +742,6 @@ export default function LicitacionDetallePage() {
                   clasificando={clasificando}
                   onReClasificar={handleClasificar}
                   resumenClasificacion={resumenClasificacion}
-                  empresaId={negocioGestion?.empresa_id ?? null}
                 />
               )}
               {hayResultado && activeSection === 'preguntas' && !conIA && <ModuloBloqueadoPanel modulo="ia_chat" />}

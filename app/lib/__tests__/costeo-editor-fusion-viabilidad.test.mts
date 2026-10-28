@@ -5,7 +5,7 @@
 //   npx tsx --test app/lib/__tests__/costeo-editor-fusion-viabilidad.test.mts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fusionarConViabilidad, filasQueViabilidadYaNoTrae, type EstadoCosteoEditor, type FilaEditorCosteo } from '../costeo-editor';
+import { fusionarConViabilidad, filasQueViabilidadYaNoTrae, corregirDesdeViabilidad, type EstadoCosteoEditor, type FilaEditorCosteo } from '../costeo-editor';
 
 const fila = (detalle: string, cantidad: number): FilaEditorCosteo => ({
   id: detalle, item: 1, lineaReal: null, detalle, unidad: 'UN', skuProveedor: '',
@@ -80,4 +80,77 @@ test('la fila trabajada se queda con el producto y la copia vacía es la que sal
   const r = filasQueViabilidadYaNoTrae(guardado, estado([fila('Pala metálica punta de huevo', 18)]));
   assert.equal(r.quitables.length, 1);
   assert.equal(r.quitables[0].valorConIva, null);
+});
+
+// Re-análisis que actualiza solo el costeo (decisión del dueño, 28-oct-2026): corrige nombre y cantidad
+// que vinieron del documento, sin pisar lo que alguien cambió a mano ni precios/links.
+test('re-análisis: corrige la forma del nombre (&quot;) y la cantidad que nadie tocó', () => {
+  const anterior = estado([fila('Manguera Espiralada 2&quot;x50(m)', 9), fila('Pozometro 50(m)', 9)]);
+  const guardada = { ...fila('Manguera Espiralada 2&quot;x50(m)', 9), valorConIva: 223990, link1: 'https://x' };
+  const actual = estado([guardada, fila('Pozometro 50(m)', 9)]);
+  const nuevo = estado([fila('Manguera Espiralada 2"x50(m)', 9), fila('Pozometro 50(m)', 12)]);
+  const r = corregirDesdeViabilidad(actual, nuevo, anterior);
+  const [m, p] = r.estado.grupos[0].filas;
+  assert.equal(r.corregidos, 2);
+  assert.equal(m.detalle, 'Manguera Espiralada 2"x50(m)');
+  assert.equal(m.valorConIva, 223990);
+  assert.equal(m.link1, 'https://x');
+  assert.equal(p.cantidad, 12);
+});
+
+test('re-análisis: una cantidad cambiada a mano no se pisa', () => {
+  const r = corregirDesdeViabilidad(
+    estado([fila('Pozometro 50(m)', 10)]), estado([fila('Pozometro 50(m)', 12)]), estado([fila('Pozometro 50(m)', 9)]));
+  assert.equal(r.corregidos, 0);
+  assert.equal(r.estado.grupos[0].filas[0].cantidad, 10);
+});
+
+test('re-análisis: el detalle complementado a mano conserva el complemento', () => {
+  const editada = { ...fila('Electrofusionadora 20-160mm Potencia: 2,5 kW', 4), detalleBase: 'Electrofusionadora 20-160mm' };
+  const r = corregirDesdeViabilidad(
+    estado([editada]), estado([fila('Electrofusionadora 20-160mm Ref. X', 4)]), estado([fila('Electrofusionadora 20-160mm', 4)]));
+  assert.equal(r.estado.grupos[0].filas[0].detalle, 'Electrofusionadora 20-160mm Ref. X Potencia: 2,5 kW');
+  assert.equal(r.estado.grupos[0].filas[0].detalleBase, 'Electrofusionadora 20-160mm Ref. X');
+});
+
+// 3712-74-LP26 (28-oct-2026): el costeo traía los nombres escritos distinto a la viabilidad (espacios,
+// signos, erratas de OCR) y «Actualizar» agregó 23 copias sin precio.
+test('mismo nombre con otros espacios, signos o 1-2 letras distintas no se duplica', () => {
+  const guardado = estado([
+    fila('Generador eléctrico diésel portátil 4 kw', 9), fila('Estanque Químitank 150 (Lt)', 9),
+    fila('Suministro e Instalación Bomba SSR El Estuerzo', 1), fila('Chuzo de acero 1,6 (m)', 18),
+    fila('Cono de seguridad 90cm, base pesada', 36), fila('Set llave punta corona 6" – 32"', 9),
+  ]);
+  const fresco = estado([
+    fila('Generador eléctrico diésel partátil 4 kw', 9), fila('Estanque Quimitank 150(Lt)', 9),
+    fila('Suministro e Instalación Bomba SSR El Esfuerzo', 1), fila('Chuzo de acero 1.6(m)', 18),
+    fila('Cono de seguridad 90 cm. base pesada', 36), fila('Set llave punta corona 6&quot;-32&quot;', 9),
+  ]);
+  assert.equal(fusionarConViabilidad(guardado, fresco).agregados, 0);
+});
+
+test('mismos letras con otros números siguen siendo productos distintos', () => {
+  const r = fusionarConViabilidad(
+    estado([fila('Válvula Elastomérica 80(mm) PN 10', 27), fila('Union Autobloqueante 2" Fierro Fundido', 18)]),
+    estado([fila('Válvula Elastomérica 50(mm) PN 10', 27), fila('Union Autobloqueante 3" Fierro Fundido', 18)]),
+  );
+  assert.equal(r.agregados, 2);
+});
+
+test('«½” – ¾” y 1"» es lo mismo que «1/2"-3/4" y 1"»', () => {
+  const r = fusionarConViabilidad(
+    estado([fila('Obturador de cañeria profesional cobre 1/2"-3/4" y 1"', 9)]),
+    estado([fila('Obturador de cañeria profesional cobre ½” – ¾” y 1"', 9)]),
+  );
+  assert.equal(r.agregados, 0);
+});
+
+test('re-análisis: la errata de OCR se corrige con el nombre del documento si nadie lo complementó', () => {
+  const guardada = { ...fila('Suministro e Instalación Bomba SSR El Estuerzo', 1), valorConIva: 2051293, link1: 'https://x' };
+  const r = corregirDesdeViabilidad(estado([guardada]), estado([fila('Suministro e Instalación Bomba SSR El Esfuerzo', 1)]), null);
+  assert.equal(r.estado.grupos[0].filas[0].detalle, 'Suministro e Instalación Bomba SSR El Esfuerzo');
+  assert.equal(r.estado.grupos[0].filas[0].valorConIva, 2051293);
+  const conComplemento = { ...guardada, detalleBase: 'Suministro e Instalación Bomba SSR El Estuerzo', detalle: 'Suministro e Instalación Bomba SSR El Estuerzo (con flete)' };
+  const r2 = corregirDesdeViabilidad(estado([conComplemento]), estado([fila('Suministro e Instalación Bomba SSR El Esfuerzo', 1)]), null);
+  assert.equal(r2.estado.grupos[0].filas[0].detalle, conComplemento.detalle);
 });

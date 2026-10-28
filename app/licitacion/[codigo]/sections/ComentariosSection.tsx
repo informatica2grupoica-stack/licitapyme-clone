@@ -8,6 +8,8 @@ import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
 import { formatDateTime } from '../utils';
 import { ESTADOS_PIPELINE, getEstadoPipeline, puedeCambiarEstadoPipeline } from '@/app/lib/pipeline';
+import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
+import { Boton } from '@/app/components/ui/kit/Boton';
 
 interface Comentario {
   id: number;
@@ -26,13 +28,11 @@ interface Comentario {
 const clave = (origen: string | undefined, id: number) => `${origen || 'licitacion'}:${id}`;
 
 function AvatarInicial({ nombre, email, tam = 'md' }: { nombre?: string; email?: string; tam?: 'md' | 'sm' }) {
-  const text = nombre || email || '?';
-  const letra = text.charAt(0).toUpperCase();
-  const colores = ['bg-indigo-500', 'bg-violet-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-cyan-500'];
-  const idx = text.charCodeAt(0) % colores.length;
+  // Mismo color e iniciales por persona que en el resto de la app (user-color).
   return (
-    <div className={`${tam === 'sm' ? 'w-7 h-7 text-[11px]' : 'w-9 h-9 text-[13px]'} rounded-full ${colores[idx]} flex items-center justify-center flex-shrink-0 text-white font-bold`}>
-      {letra}
+    <div style={{ backgroundColor: colorUsuario(email || nombre) }}
+      className={`${tam === 'sm' ? 'w-7 h-7 text-[11px]' : 'w-9 h-9 text-[12px]'} rounded-full flex items-center justify-center flex-shrink-0 text-white font-semibold`}>
+      {inicialesUsuario(nombre, email)}
     </div>
   );
 }
@@ -41,7 +41,7 @@ function Aparece({ i = 0, children }: { i?: number; children: React.ReactNode })
   const reducido = useReducedMotion();
   return (
     <motion.div initial={reducido ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, delay: Math.min(i, 8) * 0.05, ease: [0.22, 1, 0.36, 1] }}>
+      transition={{ duration: 0.25, delay: Math.min(i, 8) * 0.04, ease: [0.22, 1, 0.36, 1] }}>
       {children}
     </motion.div>
   );
@@ -188,35 +188,33 @@ export function ComentariosSection({ codigoDecoded, negocioId, estadoActual, isA
   const puedeEliminar = (c: Comentario) => !!usuario && (usuario.id === c.usuario_id || usuario.rol === 'admin');
   const AutorLinea = ({ c }: { c: Comentario }) => (
     <div className="flex items-center gap-2 min-w-0 flex-wrap">
-      <p className="text-[13px] font-bold text-slate-900 truncate">{c.usuario_nombre || c.usuario_email}</p>
-      {c.usuario_rol === 'admin' && <span className="text-[10.5px] font-bold px-1.5 py-0.5 rounded-md bg-violet-100 text-violet-700">Admin</span>}
+      <p className="text-[13px] font-semibold text-tinta dark:text-slate-100 truncate">{c.usuario_nombre || c.usuario_email}</p>
+      {c.usuario_rol === 'admin' && <span className="text-xs text-tinta-2 dark:text-slate-400">Admin</span>}
       {c.pipeline_estado && (() => {
         const info = getEstadoPipeline(c.pipeline_estado);
         if (!info) return null;
         return (
-          <span style={{ backgroundColor: info.color + '18', color: info.color, borderColor: info.color + '50' }}
-            className="inline-flex items-center gap-1 text-[10.5px] px-1.5 py-px rounded-full font-bold border flex-shrink-0">
-            <span style={{ backgroundColor: info.color }} className="w-1.5 h-1.5 rounded-full flex-shrink-0" />{info.label}
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-tinta-2 dark:text-slate-300 flex-shrink-0" title="Etapa a la que pasó el negocio con este comentario">
+            <span style={{ backgroundColor: info.color }} className="w-1.5 h-1.5 rounded-full flex-shrink-0" />{info.label.charAt(0) + info.label.slice(1).toLowerCase()}
           </span>
         );
       })()}
-      <span className="text-[11.5px] text-slate-400">{formatDateTime(c.created_at)}</span>
+      <span className="text-xs text-slate-400 tabular-nums">{formatDateTime(c.created_at)}</span>
     </div>
   );
 
   return (
     <div className="space-y-4 fade-in">
-      <section className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+      <section className="bg-white rounded-2xl border border-linea shadow-tarjeta overflow-hidden dark:bg-slate-900 dark:border-slate-800">
         <div className="flex items-center justify-between gap-3 px-5 pt-5 pb-4">
-          <h3 className="flex items-center gap-2.5 text-[17px] font-black text-slate-900">
-            <span className="w-9 h-9 rounded-xl bg-violet-100 text-violet-600 flex items-center justify-center"><MessageSquare size={18} /></span>
-            Comentarios
+          <h3 className="flex items-center gap-2.5 text-[15px] font-semibold text-tinta dark:text-slate-100">
+            <span className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center dark:bg-slate-800 dark:text-slate-400"><MessageSquare size={16} /></span>
+            Conversación del equipo
           </h3>
           {raices.length > 0 && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-[12px] font-bold px-2.5 py-1 rounded-full bg-violet-100 text-violet-700">{raices.length} {raices.length === 1 ? 'comentario' : 'comentarios'}</span>
-              {nRespuestas > 0 && <span className="text-[12px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">{nRespuestas} {nRespuestas === 1 ? 'respuesta' : 'respuestas'}</span>}
-            </div>
+            <span className="text-xs text-tinta-2 dark:text-slate-400 tabular-nums">
+              {raices.length} {raices.length === 1 ? 'comentario' : 'comentarios'}{nRespuestas > 0 && <> · {nRespuestas} {nRespuestas === 1 ? 'respuesta' : 'respuestas'}</>}
+            </span>
           )}
         </div>
 
@@ -227,14 +225,15 @@ export function ComentariosSection({ codigoDecoded, negocioId, estadoActual, isA
               <AvatarInicial nombre={usuario?.nombre ?? undefined} email={usuario?.email} />
               <div className="flex-1 min-w-0">
                 {negocioId && onEstadoChanged && (
-                  <div className="flex flex-wrap gap-1.5 mb-2">
+                  <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
+                    <span className="text-[11px] text-slate-500 mr-1">Pasar a etapa</span>
                     <button
                       type="button"
                       onClick={() => setPipelineSel(null)}
-                      className={`text-[10.5px] px-2 py-0.5 rounded-full border font-semibold transition-all ${
+                      className={`h-7 px-2.5 rounded-lg border text-xs font-medium transition-colors duration-150 ${
                         pipelineSel === null
-                          ? 'bg-slate-800 text-white border-slate-800'
-                          : 'border-slate-200 text-slate-400 hover:border-slate-400 hover:text-slate-600'
+                          ? 'bg-slate-100 text-tinta border-slate-300 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600'
+                          : 'border-linea text-tinta-2 hover:border-slate-300 hover:text-tinta dark:border-slate-700 dark:text-slate-400'
                       }`}
                     >
                       Sin cambio de etapa
@@ -249,12 +248,13 @@ export function ComentariosSection({ codigoDecoded, negocioId, estadoActual, isA
                           disabled={!chequeo.permitido}
                           title={chequeo.permitido ? undefined : chequeo.motivo}
                           onClick={() => { if (!chequeo.permitido) return; setPipelineSel(sel ? null : est.id); }}
-                          style={sel ? { backgroundColor: est.color + '20', color: est.color, borderColor: est.color + '60' } : {}}
-                          className={`text-[10.5px] px-2 py-0.5 rounded-full border font-semibold transition-all ${
-                            sel ? '' : 'border-slate-200 text-slate-500 hover:border-slate-400'
-                          } ${chequeo.permitido ? '' : 'opacity-40 cursor-not-allowed hover:border-slate-200'}`}
+                          style={sel ? { backgroundColor: est.color + '14', borderColor: est.color + '60' } : {}}
+                          className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg border text-xs font-medium transition-colors duration-150 ${
+                            sel ? 'text-tinta dark:text-slate-100' : 'border-linea text-tinta-2 hover:border-slate-300 hover:text-tinta dark:border-slate-700 dark:text-slate-400'
+                          } ${chequeo.permitido ? '' : 'opacity-40 cursor-not-allowed hover:border-linea'}`}
                         >
-                          {sel && '✓ '}{est.label}
+                          <span aria-hidden className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: est.color }} />
+                          {est.label.charAt(0) + est.label.slice(1).toLowerCase()}
                         </button>
                       );
                     })}
@@ -268,18 +268,14 @@ export function ComentariosSection({ codigoDecoded, negocioId, estadoActual, isA
                     ? `Comentario al pasar a "${getEstadoPipeline(pipelineSel)?.label}"...`
                     : 'Escribe un comentario para tu equipo...'}
                   rows={2}
-                  className="w-full px-3.5 py-2.5 border border-slate-200 bg-white rounded-xl text-[14px] resize-none focus:ring-2 focus:ring-violet-100 focus:border-violet-400 outline-none transition-shadow"
+                  className="w-full px-3.5 py-2.5 border border-slate-300 bg-white rounded-xl text-sm resize-none focus:ring-2 focus:ring-marca/15 focus:border-marca outline-none transition-shadow dark:bg-slate-950 dark:border-slate-700 dark:text-slate-100"
                 />
                 <div className="flex items-center justify-between mt-2">
                   <span className="text-[11px] text-slate-400">Ctrl+Enter para enviar</span>
-                  <button
-                    onClick={handleEnviar}
-                    disabled={enviando || !texto.trim()}
-                    className="flex items-center gap-1.5 px-4 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-300 text-white text-[12.5px] font-semibold rounded-lg transition-colors"
-                  >
-                    {enviando ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-                    {enviando ? 'Enviando...' : 'Enviar'}
-                  </button>
+                  <Boton variante="primario" tamano="sm" onClick={handleEnviar} disabled={enviando || !texto.trim()}
+                    icono={enviando ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}>
+                    {enviando ? 'Enviando…' : 'Enviar'}
+                  </Boton>
                 </div>
               </div>
             </div>
@@ -287,21 +283,19 @@ export function ComentariosSection({ codigoDecoded, negocioId, estadoActual, isA
         )}
 
         {/* Lista de hilos */}
-        <div className="border-t border-slate-100 px-5 py-4">
+        <div className="border-t border-linea/80 dark:border-slate-800 px-5 py-4">
           {loading ? (
             <div className="flex items-center justify-center py-8 gap-2 text-sm text-slate-500">
-              <Loader2 size={15} className="animate-spin text-violet-500" /> Cargando comentarios...
+              <Loader2 size={15} className="animate-spin text-slate-400" /> Cargando comentarios…
             </div>
           ) : raices.length === 0 ? (
             <div className="text-center py-10">
-              <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <MessageSquare size={18} className="text-slate-300" />
-              </div>
-              <p className="text-[14px] text-slate-600 font-bold">Sin comentarios aún</p>
-              <p className="text-[12.5px] text-slate-400 mt-1">Sé el primero en comentar sobre esta licitación</p>
+              <MessageSquare size={28} stroke={1.5} className="text-slate-300 mx-auto mb-3" />
+              <p className="text-sm font-medium text-tinta dark:text-slate-100">Todavía no hay comentarios</p>
+              <p className="text-[13px] text-tinta-2 dark:text-slate-400 mt-1">Deja una nota para el equipo: qué falta, qué se decidió o qué revisar.</p>
             </div>
           ) : (
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-linea/70 dark:divide-slate-800">
               {raices.map((c, i) => {
                 const k = clave(c.origen, c.id);
                 const hijos = respuestas.get(k) || [];
@@ -320,17 +314,17 @@ export function ComentariosSection({ codigoDecoded, negocioId, estadoActual, isA
                                 className="text-slate-300 hover:text-red-500 transition-colors p-1 rounded flex-shrink-0"><Trash2 size={14} /></button>
                             )}
                           </div>
-                          <p className="text-[14px] text-slate-700 leading-relaxed whitespace-pre-line mt-1">{c.comentario}</p>
+                          <p className="text-sm text-tinta-2 dark:text-slate-300 leading-relaxed whitespace-pre-line mt-1">{c.comentario}</p>
                           <div className="flex items-center gap-3 mt-2">
                             {puedeComentar && (
                               <button type="button" onClick={() => { setRespondiendoA(respondiendo ? null : k); setTextoRespuesta(''); }}
-                                className="inline-flex items-center gap-1 text-[12px] font-semibold text-violet-700 hover:text-violet-900">
+                                className="inline-flex items-center gap-1 text-xs font-medium text-marca hover:text-marca-fuerte">
                                 <Reply size={14} /> Responder
                               </button>
                             )}
                             {hijos.length > 0 && (
                               <button type="button" onClick={() => setPlegados(prev => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; })}
-                                className="inline-flex items-center gap-1 text-[12px] font-semibold text-slate-500 hover:text-slate-700">
+                                className="inline-flex items-center gap-1 text-xs font-medium text-tinta-2 hover:text-tinta dark:text-slate-400">
                                 <ChevronDown size={14} className={`transition-transform ${plegado ? '-rotate-90' : ''}`} />
                                 {plegado ? `Ver ${hijos.length} ${hijos.length === 1 ? 'respuesta' : 'respuestas'}` : `${hijos.length} ${hijos.length === 1 ? 'respuesta' : 'respuestas'}`}
                               </button>
@@ -343,7 +337,7 @@ export function ComentariosSection({ codigoDecoded, negocioId, estadoActual, isA
                               <motion.div key="resp" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22, ease: 'easeOut' }} className="overflow-hidden">
                                 <div className="mt-3 space-y-3">
                                   {hijos.map(r => (
-                                    <div key={clave(r.origen, r.id)} className="flex gap-2.5 rounded-xl bg-slate-50 px-3.5 py-3">
+                                    <div key={clave(r.origen, r.id)} className="flex gap-2.5 rounded-xl bg-slate-50 px-3.5 py-3 dark:bg-slate-800/50">
                                       <AvatarInicial nombre={r.usuario_nombre} email={r.usuario_email} tam="sm" />
                                       <div className="flex-1 min-w-0">
                                         <div className="flex items-start justify-between gap-2">
@@ -353,7 +347,7 @@ export function ComentariosSection({ codigoDecoded, negocioId, estadoActual, isA
                                               className="text-slate-300 hover:text-red-500 transition-colors p-1 rounded flex-shrink-0"><Trash2 size={13} /></button>
                                           )}
                                         </div>
-                                        <p className="text-[13.5px] text-slate-700 leading-relaxed whitespace-pre-line mt-0.5">{r.comentario}</p>
+                                        <p className="text-[13.5px] text-tinta-2 dark:text-slate-300 leading-relaxed whitespace-pre-line mt-0.5">{r.comentario}</p>
                                       </div>
                                     </div>
                                   ))}
@@ -377,15 +371,14 @@ export function ComentariosSection({ codigoDecoded, negocioId, estadoActual, isA
                                       placeholder={`Responde a ${c.usuario_nombre || c.usuario_email}...`}
                                       aria-label="Escribe tu respuesta"
                                       rows={2}
-                                      className="w-full px-3.5 py-2.5 border border-slate-200 bg-white rounded-xl text-[13.5px] resize-none focus:ring-2 focus:ring-violet-100 focus:border-violet-400 outline-none transition-shadow"
+                                      className="w-full px-3.5 py-2.5 border border-slate-300 bg-white rounded-xl text-[13.5px] resize-none focus:ring-2 focus:ring-marca/15 focus:border-marca outline-none transition-shadow dark:bg-slate-950 dark:border-slate-700 dark:text-slate-100"
                                     />
                                     <div className="flex items-center justify-end gap-2 mt-2">
-                                      <button type="button" onClick={() => setRespondiendoA(null)} className="px-3 py-1.5 text-[12.5px] font-semibold text-slate-500 hover:text-slate-700">Cancelar</button>
-                                      <button type="button" onClick={() => handleResponder(c)} disabled={enviandoRespuesta || !textoRespuesta.trim()}
-                                        className="flex items-center gap-1.5 px-4 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-300 text-white text-[12.5px] font-semibold rounded-lg transition-colors">
-                                        {enviandoRespuesta ? <Loader2 size={13} className="animate-spin" /> : <Reply size={13} />}
-                                        {enviandoRespuesta ? 'Enviando...' : 'Responder'}
-                                      </button>
+                                      <Boton variante="fantasma" tamano="sm" onClick={() => setRespondiendoA(null)}>Cancelar</Boton>
+                                      <Boton variante="primario" tamano="sm" onClick={() => handleResponder(c)} disabled={enviandoRespuesta || !textoRespuesta.trim()}
+                                        icono={enviandoRespuesta ? <Loader2 size={14} className="animate-spin" /> : <Reply size={14} />}>
+                                        {enviandoRespuesta ? 'Enviando…' : 'Responder'}
+                                      </Boton>
                                     </div>
                                   </div>
                                 </div>

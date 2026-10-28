@@ -41,24 +41,24 @@ function DatosDudosos({ codigo, score, adjudicacion, onCambio }: { codigo: strin
     finally { setEnviando(null); }
   };
   return (
-    <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-3 space-y-2">
+    <div className="rounded-2xl border border-sky-200 bg-sky-50/60 p-4 space-y-2.5 dark:bg-sky-950/30 dark:border-sky-900">
       <p className="text-[12.5px] font-semibold text-sky-900 flex items-center gap-1.5"><Eye size={14} /> Antes de decidir, confirma en el visor:</p>
       {dudosos.map((d: any) => (
-        <div key={d.clave} className="bg-white rounded-lg border border-sky-100 p-2.5">
+        <div key={d.clave} className="bg-white rounded-xl border border-sky-100 p-3 dark:bg-slate-900 dark:border-sky-900">
           <p className="text-[12.5px] text-slate-700"><strong>{String(d.dato || '').charAt(0).toUpperCase() + String(d.dato || '').slice(1)}</strong> — {d.razon}.</p>
           {d.clave === 'adjudicacion' && adjudicacion?.pregunta_foro && (
             <p className="text-[11.5px] text-slate-500 mt-0.5">Si las bases no lo aclaran, pregunta en el foro: <em>“{adjudicacion.pregunta_foro}”</em></p>
           )}
           <div className="flex flex-wrap gap-1.5 mt-1.5">
             {d.clave === 'adjudicacion' ? (<>
-              <button disabled={!!enviando} onClick={() => confirmar('adjudicacion', 'GLOBAL')} className="text-[11.5px] font-semibold px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:border-sky-400 disabled:opacity-50">
+              <button disabled={!!enviando} onClick={() => confirmar('adjudicacion', 'GLOBAL')} className="h-8 inline-flex items-center gap-1.5 text-[13px] font-medium px-3 rounded-lg border border-linea bg-white shadow-tarjeta hover:bg-slate-50 hover:border-slate-300 disabled:opacity-50 dark:bg-slate-900 dark:border-slate-700">
                 {enviando === 'adjudicacionGLOBAL' ? <Loader2 size={12} className="inline animate-spin" /> : null} Es global (todo a un proveedor)
               </button>
-              <button disabled={!!enviando} onClick={() => confirmar('adjudicacion', 'POR_LINEAS')} className="text-[11.5px] font-semibold px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:border-sky-400 disabled:opacity-50">
+              <button disabled={!!enviando} onClick={() => confirmar('adjudicacion', 'POR_LINEAS')} className="h-8 inline-flex items-center gap-1.5 text-[13px] font-medium px-3 rounded-lg border border-linea bg-white shadow-tarjeta hover:bg-slate-50 hover:border-slate-300 disabled:opacity-50 dark:bg-slate-900 dark:border-slate-700">
                 {enviando === 'adjudicacionPOR_LINEAS' ? <Loader2 size={12} className="inline animate-spin" /> : null} Es por línea (se puede repartir)
               </button>
             </>) : (
-              <button disabled={!!enviando} onClick={() => confirmar(d.clave)} className="text-[11.5px] font-semibold px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:border-sky-400 disabled:opacity-50">
+              <button disabled={!!enviando} onClick={() => confirmar(d.clave)} className="h-8 inline-flex items-center gap-1.5 text-[13px] font-medium px-3 rounded-lg border border-linea bg-white shadow-tarjeta hover:bg-slate-50 hover:border-slate-300 disabled:opacity-50 dark:bg-slate-900 dark:border-slate-700">
                 {enviando === d.clave ? <Loader2 size={12} className="inline animate-spin" /> : <Check size={12} className="inline" />} Lo revisé en las bases: está bien
               </button>
             )}
@@ -110,16 +110,24 @@ export function VistaV4({ informe, codigo, feedbackPanel, onInformeCambio }: { i
 
       <TarjetasClaveV4 informe={informe} onVerPlazos={() => setTab('plazos')} />
 
-      {/* ── PESTAÑAS ── */}
-      <div className="flex items-end gap-0.5 border-b border-slate-200 overflow-x-auto">
-        {tabs.map(tb => (
-          <button key={tb.id} onClick={() => setTab(tb.id)}
-            className={`flex items-center gap-1.5 px-3 py-2 text-[13px] font-semibold whitespace-nowrap border-b-2 -mb-px transition-colors ${tab === tb.id ? 'border-violet-600 text-violet-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-            {tb.icon} {tb.label}
-            {tb.badge && <span className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded-full ${tb.badgeRojo ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>{tb.badge}</span>}
-          </button>
-        ))}
-      </div>
+      {/* ── PESTAÑAS CON FORMA DE PESTAÑA ── la activa se funde con el panel de abajo (skill licitank-ui) */}
+      <div>
+        <div role="tablist" className="relative z-10 flex items-end gap-1 px-3 overflow-x-auto">
+          {tabs.map(tb => {
+            const on = tab === tb.id;
+            return (
+              <button key={tb.id} role="tab" aria-selected={on} onClick={() => setTab(tb.id)}
+                className={`relative flex items-center gap-1.5 px-4 rounded-t-xl border border-b-0 text-sm whitespace-nowrap transition-colors duration-150 ${on
+                  ? 'h-11 -mb-px bg-slate-50 border-linea font-semibold text-tinta dark:bg-slate-950 dark:border-slate-800 dark:text-slate-50'
+                  : 'h-9 mb-0 bg-slate-100 border-transparent font-medium text-tinta-2 hover:bg-slate-200/70 hover:text-tinta dark:bg-slate-800/60 dark:text-slate-400 dark:hover:text-slate-200'}`}>
+                {on && <motion.span layoutId="vista-v4-tab-top" className="absolute inset-x-2 top-0 h-0.5 rounded-b-full bg-marca" transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }} />}
+                <span className={on ? 'text-marca' : 'text-slate-400'}>{tb.icon}</span> {tb.label}
+                {tb.badge && <span className={`text-xs font-semibold tabular-nums ${tb.badgeRojo ? 'text-urgente' : on ? 'text-marca' : 'text-tinta-3'}`}>{tb.badge}</span>}
+              </button>
+            );
+          })}
+        </div>
+        <div className="rounded-2xl border border-linea bg-slate-50 p-4 space-y-3 dark:bg-slate-950 dark:border-slate-800">
       <HintOjo />
 
       <motion.div key={tab} className="space-y-3" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, ease: 'easeOut' }}>
@@ -142,10 +150,12 @@ export function VistaV4({ informe, codigo, feedbackPanel, onInformeCambio }: { i
       </>)}
 
       </motion.div>
+        </div>
+      </div>
 
-      <p className="text-[11px] text-slate-400 text-center pt-1">
+      <p className="text-xs text-slate-400 text-center pt-1 tabular-nums">
         {(informe.pendientes_fase3?.length ?? 0) > 0 && <>Pendiente Fase 3: {informe.pendientes_fase3.join(', ')} · </>}
-        Leídos {informe.documentos_leidos?.length ?? 0} doc(s){informe._citas ? ` · ${informe._citas.verificadas}/${informe._citas.total} citas verificadas` : ''} · <span className="text-violet-500 font-semibold">v4.0</span>
+        Leídos {informe.documentos_leidos?.length ?? 0} doc(s){informe._citas ? ` · ${informe._citas.verificadas}/${informe._citas.total} citas verificadas` : ''} · <span className="text-teal-600 font-semibold">v4.0</span>
       </p>
     </div>
   );

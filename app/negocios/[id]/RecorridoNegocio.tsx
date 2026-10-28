@@ -8,7 +8,7 @@
 // perfil); aquí solo van los momentos que cambian el rumbo del negocio.
 import { useEffect, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { IconRoute as Route, IconRadar as Radar, IconFilter as Filter, IconUserPlus as UserPlus, IconSparkles as Sparkles, IconGitCommit as GitCommitHorizontal, IconSend as Send, IconTrophy as Trophy, IconBan as Ban, IconExternalLink as ExternalLink, IconLoader2 as Loader2 } from '@tabler/icons-react';
+import { IconRoute as Route, IconRadar as Radar, IconFilter as Filter, IconUserPlus as UserPlus, IconTarget as Target, IconGitCommit as GitCommitHorizontal, IconSend as Send, IconTrophy as Trophy, IconBan as Ban, IconExternalLink as ExternalLink, IconLoader2 as Loader2 } from '@tabler/icons-react';
 import { ESTADOS_PIPELINE, normalizarEstado, getEstadoPipeline } from '@/app/lib/pipeline';
 
 interface Recorrido {
@@ -91,7 +91,7 @@ export function RecorridoNegocio({ negocioId }: { negocioId: number | string }) 
 
   if (cargando) {
     return (
-      <div className="bg-white border border-zinc-200/70 rounded-2xl p-5 flex items-center gap-2 text-[12.5px] text-zinc-400">
+      <div className="bg-white border border-linea rounded-2xl shadow-tarjeta p-5 flex items-center gap-2 text-[13px] text-slate-400 dark:bg-slate-900 dark:border-slate-800">
         <Loader2 size={14} className="animate-spin" /> Cargando el recorrido…
       </div>
     );
@@ -104,7 +104,7 @@ export function RecorridoNegocio({ negocioId }: { negocioId: number | string }) 
   if (rec.radar?.primera) {
     const palabras = (rec.radar.palabras || '').split('||').filter(Boolean);
     hitos.push({
-      key: 'radar', fecha: rec.radar.primera, color: '#7c3aed', icon: <Radar size={13} />,
+      key: 'radar', fecha: rec.radar.primera, color: '#475569', icon: <Radar size={13} />,
       titulo: 'Detectada en el radar',
       detalle: <>{palabras.length > 0 && <>Palabra clave: <span className="font-semibold">{palabras.join(' · ')}</span> · </>}llegó a {rec.radar.n_perfiles} perfil{rec.radar.n_perfiles === 1 ? '' : 'es'}</>,
     });
@@ -130,14 +130,14 @@ export function RecorridoNegocio({ negocioId }: { negocioId: number | string }) 
   if (evAsign.length > 0) {
     for (const [i, e] of evAsign.entries()) {
       hitos.push({
-        key: `asig-${i}`, fecha: e.created_at, color: '#4F63D2', icon: <UserPlus size={13} />,
+        key: `asig-${i}`, fecha: e.created_at, color: '#0f766e', icon: <UserPlus size={13} />,
         titulo: e.descripcion || (i === 0 ? `Asignada a ${rec.asignacion.a_nombre || '—'}` : 'Reasignada'),
         actor: e.actor_nombre || e.actor_email,
       });
     }
   } else {
     hitos.push({
-      key: 'asig', fecha: rec.asignacion.fecha, color: '#4F63D2', icon: <UserPlus size={13} />,
+      key: 'asig', fecha: rec.asignacion.fecha, color: '#0f766e', icon: <UserPlus size={13} />,
       titulo: `Asignada a ${rec.asignacion.a_nombre || '—'}`,
       actor: rec.asignacion.por_nombre,
     });
@@ -148,7 +148,7 @@ export function RecorridoNegocio({ negocioId }: { negocioId: number | string }) 
     const ver = (rec.viabilidad.veredicto_v3 || '').replace(/_/g, ' ');
     const reanalisis = rec.viabilidad.updated_at && rec.viabilidad.updated_at !== rec.viabilidad.created_at;
     hitos.push({
-      key: 'viab', fecha: rec.viabilidad.created_at, color: SEM_COLOR[rec.viabilidad.semaforo || ''] || '#d97706', icon: <Sparkles size={13} />,
+      key: 'viab', fecha: rec.viabilidad.created_at, color: SEM_COLOR[rec.viabilidad.semaforo || ''] || '#d97706', icon: <Target size={13} />,
       // v4.1: el análisis ya no da un número 0-100 sino un nivel de atractivo.
       titulo: rec.viabilidad.nivel_v4 && rec.viabilidad.nivel_v4 !== 'null'
         ? `Viabilidad IA: nivel ${rec.viabilidad.nivel_v4.replace(/_/g, ' ')}`
@@ -203,12 +203,12 @@ export function RecorridoNegocio({ negocioId }: { negocioId: number | string }) 
       // `alFinal`: el resultado es el DESENLACE del recorrido. La fecha del cache de MP puede
       // ser anterior a la asignación (la licitación ya estaba adjudicada cuando se detectó) y
       // ordenarlo por fecha lo metía en medio de la historia, confundiendo la lectura.
-      key: 'adj', alFinal: true, fecha: rec.adjudicacion.fecha_adjudicacion, color: gano ? '#16A34A' : perdio ? '#9F1239' : '#6366F1', icon: <Trophy size={13} />,
+      key: 'adj', alFinal: true, fecha: rec.adjudicacion.fecha_adjudicacion, color: gano ? '#16A34A' : perdio ? '#9F1239' : '#475569', icon: <Trophy size={13} />,
       titulo: gano ? 'Resultado: GANADA' : perdio ? 'Resultado: PERDIDA' : 'Adjudicada por el organismo',
       detalle: <>
         {rec.adjudicacion.monto_adjudicado_total ? <>monto adjudicado {fmtCLP(rec.adjudicacion.monto_adjudicado_total)} · </> : null}
         {rec.adjudicacion.numero_oferentes ? <>{rec.adjudicacion.numero_oferentes} oferente{rec.adjudicacion.numero_oferentes === 1 ? '' : 's'} · </> : null}
-        {rec.adjudicacion.url_acta ? <a href={rec.adjudicacion.url_acta} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline inline-flex items-center gap-0.5">ver acta <ExternalLink size={10} /></a> : null}
+        {rec.adjudicacion.url_acta ? <a href={rec.adjudicacion.url_acta} target="_blank" rel="noopener noreferrer" className="text-marca hover:underline inline-flex items-center gap-0.5">ver acta <ExternalLink size={10} /></a> : null}
       </>,
     });
   }
@@ -241,13 +241,13 @@ export function RecorridoNegocio({ negocioId }: { negocioId: number | string }) 
   const total = fechas.length >= 2 ? tramo(new Date(Math.min(...fechas)).toISOString(), new Date(Math.max(...fechas)).toISOString()) : null;
 
   return (
-    <section className="bg-white border border-zinc-200/70 rounded-2xl p-5">
+    <section className="bg-white border border-linea rounded-2xl shadow-tarjeta p-5 h-full dark:bg-slate-900 dark:border-slate-800">
       <div className="flex items-center justify-between gap-3 mb-5">
-        <h3 className="flex items-center gap-2.5 text-[15px] font-black text-zinc-900">
-          <span className="w-8 h-8 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center"><Route size={17} /></span>
+        <h3 className="flex items-center gap-2.5 text-[15px] font-semibold text-tinta dark:text-slate-100">
+          <span className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center dark:bg-slate-800 dark:text-slate-400"><Route size={16} /></span>
           Recorrido del negocio
         </h3>
-        {total && <span className="text-[12px] font-bold px-2.5 py-1 rounded-full bg-zinc-100 text-zinc-600" title="Del primer hito al último">{total.replace('+', '')} en total</span>}
+        {total && <span className="text-xs text-tinta-2 dark:text-slate-400 tabular-nums" title="Del primer hito al último">{total.replace('+', '')} en total</span>}
       </div>
       <div>
         {hitos.map((h, i) => {
@@ -255,31 +255,26 @@ export function RecorridoNegocio({ negocioId }: { negocioId: number | string }) 
           const anterior = i > 0 ? hitos[i - 1] : null;
           const salto = h.fecha && anterior?.fecha ? tramo(anterior.fecha, h.fecha) : null;
           return (
-            <motion.div key={h.key} className="flex gap-3.5"
+            <motion.div key={h.key} className="flex gap-3"
               initial={reducido ? false : { opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.35, delay: Math.min(i, 10) * 0.06, ease: [0.22, 1, 0.36, 1] }}>
+              transition={{ duration: 0.25, delay: Math.min(i, 10) * 0.04, ease: [0.22, 1, 0.36, 1] }}>
               {/* Rail: icono del hito + línea */}
               <div className="flex flex-col items-center flex-shrink-0">
-                <span className={`w-8 h-8 rounded-full flex items-center justify-center text-white ${h.ghost ? 'border-2 border-dashed border-zinc-300 !text-zinc-300 bg-white' : 'ring-4 ring-white'}`}
+                <span className={`w-7 h-7 rounded-full flex items-center justify-center text-white ${h.ghost ? 'border-2 border-dashed border-slate-300 !text-slate-300 bg-white dark:bg-slate-900 dark:border-slate-600' : 'ring-4 ring-white dark:ring-slate-900'}`}
                   style={h.ghost ? undefined : { background: h.color }}>
                   {h.icon}
                 </span>
-                {!ultimo && <span className="w-0.5 flex-1 bg-zinc-200 rounded-full my-1" />}
+                {!ultimo && <span className="w-px flex-1 bg-slate-200 dark:bg-slate-700 my-1" />}
               </div>
-              <div className={`min-w-0 flex-1 ${ultimo ? '' : 'pb-5'}`}>
-                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-x-4 gap-y-0.5">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className={`text-[14px] font-bold leading-snug ${h.ghost ? 'text-zinc-400' : 'text-zinc-900'}`}>{h.titulo}</p>
-                      {salto && <span className="text-[11px] font-bold text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-full" title="Tiempo desde el hito anterior">{salto}</span>}
-                    </div>
-                    {h.actor && <p className="text-[12px] text-zinc-400 mt-0.5">por {h.actor}</p>}
-                    {h.detalle && <p className="text-[12.5px] text-zinc-600 mt-1 leading-snug">{h.detalle}</p>}
-                  </div>
-                  <p className="text-[12px] text-zinc-500 tabular-nums sm:text-right sm:whitespace-nowrap flex-shrink-0 mt-0.5 sm:mt-1">
-                    {h.fecha ? fechaCorta(h.fecha) : h.ghost ? 'Pendiente' : 'Sin fecha registrada'}
-                  </p>
-                </div>
+              {/* Columna angosta: título; fecha · quién · tramo en una línea; detalle. */}
+              <div className={`min-w-0 flex-1 pt-0.5 ${ultimo ? '' : 'pb-4'}`}>
+                <p className={`text-[13.5px] font-medium leading-snug ${h.ghost ? 'text-slate-400' : 'text-tinta dark:text-slate-100'}`}>{h.titulo}</p>
+                <p className="mt-0.5 text-xs text-tinta-2 dark:text-slate-400 tabular-nums">
+                  {h.fecha ? fechaCorta(h.fecha) : h.ghost ? 'Pendiente' : 'Sin fecha registrada'}
+                  {h.actor && <> · {h.actor}</>}
+                  {salto && <span className="text-slate-400" title="Tiempo desde el hito anterior"> · {salto}</span>}
+                </p>
+                {h.detalle && <p className="text-xs text-tinta-2 dark:text-slate-400 mt-1 leading-snug">{h.detalle}</p>}
               </div>
             </motion.div>
           );

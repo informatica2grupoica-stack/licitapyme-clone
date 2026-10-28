@@ -1,7 +1,9 @@
 ---
 name: ui-sin-aspecto-ia
-description: Reglas de diseño de interfaz de LICITANK para que las pantallas no se vean hechas por IA. Usar al crear o modificar cualquier frontend, tarjeta, tabla, calendario, badge, estado o paleta de color. Sale de la prueba aprobada en /negocios (oct-2026).
+description: OBSOLETA desde 2026-10-28 — usar la skill licitank-ui (sistema de diseño completo, con estas mismas reglas). Se deja como antecedente de la prueba aprobada en /negocios.
 ---
+
+> **Reemplazada por `licitank-ui`** (`.claude/skills/licitank-ui/SKILL.md`). No usar esta.
 
 # UI sin aspecto IA — LICITANK
 

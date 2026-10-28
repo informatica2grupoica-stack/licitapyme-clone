@@ -4,6 +4,13 @@ Reglas vigentes del motor: ver también `.claude/skills/motor-anexos/SKILL.md` y
 `docs/anexos-motor-reglas.md`. Las entradas con fecha van arriba; al final, lo traspasado desde la
 memoria personal el 2026-10-27.
 
+## 2026-10-28 — «Rellenar anexo» ya no está en Documentos
+El dueño decidió que los anexos se rellenan y se cargan SOLO desde el Auditor (Auditor → Anexos,
+«Generar anexo» en cada punto). En `DocumentosSection` se quitaron el botón «Rellenar anexo» (Word,
+PDF y Excel económico), «Generar todos» y «Enviar al Auditor Técnico». El motor no cambió: los
+modales `AnexoRellenoModal` / `AnexoRellenoExcelModal` siguen en uso desde el Auditor. Donde una nota
+de abajo diga «abrir Rellenar anexo», hacerlo desde el Auditor.
+
 ## 2026-10-27 — Anexos 3 (técnico) y 4 (económico) de 4022-19-LE26 salían casi vacíos
 Caso real: Municipalidad de Putre, `Anexo 3 - Oferta Técnica.docx` y `Anexo 4 - Oferta Económica.docx`
 (mismo formato en 4022-16-LE26). El dueño pidió «que me genere el anexo técnico» y revisar el económico.

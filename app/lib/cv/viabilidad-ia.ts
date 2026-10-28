@@ -1520,7 +1520,10 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
     // Bruto desde el monto tal cual si el modelo no lo trajo (o lo trajo sin interpretar "M$").
     const it = interpretarMonto(pres.monto_texto);
     const brutoModelo = _num(pres.bruto);
-    if (it.pesos && (brutoModelo == null || brutoModelo <= 0 || (it.miles && Math.abs(brutoModelo * 1000 - it.pesos) < 1000))) {
+    // Un bruto que no se parece al texto citado (fuera de ×0,5–×2) es una mala lectura de la cifra:
+    // 2446-307-LE26 traía "$28.003.098" y bruto 28.003098 (puntos de miles leídos como decimal) → $28.
+    const brutoDescuadrado = !!it.pesos && brutoModelo != null && brutoModelo > 0 && (brutoModelo / it.pesos < 0.5 || brutoModelo / it.pesos > 2);
+    if (it.pesos && (brutoModelo == null || brutoModelo <= 0 || brutoDescuadrado || (it.miles && Math.abs(brutoModelo * 1000 - it.pesos) < 1000))) {
       if (brutoModelo !== it.pesos) console.log(`[viabilidad-ia-v4] ${codigo}: presupuesto desde "${pres.monto_texto}" → $${it.pesos.toLocaleString('es-CL')}${it.miles ? ' (M$ = miles de pesos)' : ''}.`);
       pres.bruto = it.pesos;
     }
@@ -1553,6 +1556,13 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
       const tabla = extraerPresupuestoPorLineaTabla(leidos.map(d => ({ texto: d.texto })));
       if (tabla && tabla.size >= 2) porLinea = interpretarPorLinea([...tabla.entries()].map(([l, m]) => ({ linea: `L${l}`, bruto: m })), exentoPres);
     } catch { /* opcional */ }
+  }
+  // Con UNA sola línea en la API el tope es el total: los «montos por línea» que lea el modelo son
+  // otra cosa (3712-74-LP26: las líneas de intervención del convenio, M$ 28.097 / 40.294 / 25.113,
+  // quedaban como presupuesto de la única hoja del costeo: $23,6M neto en vez de $78,6M).
+  if (Array.isArray(ctx.itemsMP) && ctx.itemsMP.length === 1 && porLinea.length) {
+    console.log(`[viabilidad-ia-v4] ${codigo}: ${porLinea.length} monto(s) por línea ignorados: la API trae una sola línea.`);
+    porLinea = [];
   }
   pres.por_linea_interpretado = porLinea;
   pres.suma_lineas_cuadra = sumaLineasCuadra(porLinea, _num(pres.bruto));

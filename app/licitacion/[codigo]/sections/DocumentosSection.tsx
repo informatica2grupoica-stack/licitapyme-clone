@@ -3,16 +3,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useRealtime } from '@/app/lib/use-realtime';
-import { IconFileText as FileText, IconSparkles as Sparkles, IconRefresh as RefreshCw, IconLoader2 as Loader2, IconRobot as Bot, IconCircleCheck as CheckCircle, IconEye as Eye, IconDownload as Download, IconFolderOpen as FolderOpen, IconAlertTriangle as AlertTriangle, IconGripVertical as GripVertical, IconTableOptions as TableProperties, IconUpload as Upload, IconTrash as Trash2, IconPencil as Pencil, IconCheck as Check, IconX as X, IconFolderPlus as FolderPlus, IconWand as Wand2, IconSend as Send, IconScissors as Scissors, IconPlayerPlay as PlayCircle } from '@tabler/icons-react';
+import { IconFileText as FileText, IconRefresh as RefreshCw, IconLoader2 as Loader2, IconDownload as Download, IconFolderOpen as FolderOpen, IconFolder as Folder, IconAlertTriangle as AlertTriangle, IconTableOptions as TableProperties, IconUpload as Upload, IconTrash as Trash2, IconPencil as Pencil, IconCheck as Check, IconX as X, IconFolderPlus as FolderPlus, IconScissors as Scissors, IconMessageQuestion as Preguntar, IconCloudDownload as CloudDownload } from '@tabler/icons-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
-import { getFileIcon, formatFileSize, esUrlAnalizable, SectionHeader } from '../utils';
+import { getFileIcon, formatFileSize, esUrlAnalizable } from '../utils';
 import { urlDescarga } from '@/app/lib/descargas-cliente';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { DocumentoIAModal } from '@/app/components/DocumentoIAModal';
-import { AnexoRellenoModal, type AnexoDoc } from '@/app/components/AnexoRellenoModal';
-import { AnexoRellenoExcelModal, type AnexoXlsxDoc } from '@/app/components/AnexoRellenoExcelModal';
-import { SelectorPuntoAuditor } from '@/app/components/SelectorPuntoAuditor';
-import { ModalAuditorLineaTecnica } from '@/app/components/ModalAuditorLineaTecnica';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Esqueleto } from '@/app/components/ui/kit/Estructura';
 import { DocSplitLoader } from '@/app/components/ui/DocSplitLoader';
 import { useSession } from '@/app/lib/session-context';
 import { useConfirm } from '@/app/components/ui/confirm';
@@ -27,28 +25,10 @@ import { registrarVerDocumento } from '@/app/lib/actividad-cliente';
 // documentos_generados_separar (migration-89) y CATS_PARA_AUDITOR más abajo para dónde se pinta.
 type DocLicitacion = DocumentoAdjunto & { categoria?: string; origen_manual?: boolean | number; generado_separar?: boolean | number };
 
-// Cualquier Word (.doc o .docx) descargado de la licitación es candidato a rellenar — SIN
-// filtrar por categoría: el clasificador de MP a veces mete un anexo real fuera de
-// ANEXOS_OFERENTE, y la idea es que esto funcione con cualquier licitación, no solo el caso
-// prolijo. Los documentos propios (generados/subidos) quedan afuera porque este botón solo se
-// conecta en la grilla de "Documentos y Bases" (docsLicitacion), nunca en la de Propios.
-//
-// PDF (24-ago-2026): además de Word, un PDF ESCANEADO también es candidato — en una licitación
-// pública el documento que se sube tiene que ser el MISMO oficial, así que para PDF el motor
-// (anexos-pdf-rellenar.ts) escribe encima del original en vez de convertirlo a Word. El botón es
-// el mismo (Wand2); qué endpoint llama al hacer clic se decide en DocumentosSection según la
-// extensión — ver el wrapper de onRellenarAnexo más abajo.
-// XLSX (04-sep-2026): el anexo económico a veces viene como planilla del organismo, no como Word
-// — motor separado (anexos-excel-precios.ts / *-xlsx routes), acotado a ANEXOS_ECONOMICOS (a
-// diferencia de Word/PDF, SÍ se filtra por categoría acá: un .xlsx cualquiera —el costeo propio,
-// por ejemplo— no es un formulario de oferta y ofrecer el botón sobre él sería confuso).
-function esAnexoXlsxRellenable(doc: DocLicitacion): boolean {
-  return /\.(xlsx|xlsm)$/i.test(doc.nombre || '') && doc.id != null && (doc.categoria || '').toUpperCase() === CAT_ANEXOS_ECONOMICOS;
-}
-
-function esAnexoRellenable(doc: DocLicitacion): boolean {
-  return (/\.(docx?|pdf)$/i.test(doc.nombre || '') || esAnexoXlsxRellenable(doc)) && doc.id != null;
-}
+// Rellenar anexos y enviarlos al Auditor ya NO se hace desde Documentos: se hace desde el Auditor
+// (Auditor → Anexos, «Generar anexo» en cada punto). Decisión del dueño, 28-oct-2026 — esta
+// pantalla queda para ver, ordenar, subir y separar documentos.
+type DocRef = { id: number; nombre: string; url: string };
 
 // "Separar anexos" ADEMÁS acepta PDF (14-ago-2026, pedido explícito del usuario: "sacar los
 // anexos de un PDF y dejarlos en Word, sin tocar el PDF") — el backend
@@ -86,32 +66,45 @@ const CATS_BORRABLES = new Set([CAT_PROPIOS, CAT_ANEXOS_ADMIN, CAT_ANEXOS_TECNIC
 // verde por estar en Anexos Administrativos/Técnicos/Económicos y mezclaba "recién separado" con
 // "ya enviado", que para el usuario son dos cosas distintas.
 
-// Estado de un documento ya enviado al Auditor Técnico, como semáforo (pedido 23-sep-2026):
-// amarillo = en revisión, verde = el auditor lo aprobó, rojo = observado. Sale del estado real del
-// punto del checklist donde quedó pegado (ver /comercial/documentos-auditor).
+// Estado de un documento ya enviado al Auditor Técnico (pedido 23-sep-2026): en revisión, aprobado
+// u observado. Sale del estado real del punto del checklist donde quedó pegado (ver
+// /comercial/documentos-auditor). Se muestra como punto + texto (skill licitank-ui).
 type EstadoAuditor = 'REVISION' | 'APROBADO' | 'OBSERVADO';
-const ESTILO_AUDITOR: Record<EstadoAuditor, { card: string; icon: string; tip: string }> = {
-  REVISION:  { card: 'bg-amber-50 border-amber-200 hover:bg-amber-100',     icon: 'text-amber-500',   tip: 'En revisión del Auditor Técnico' },
-  APROBADO:  { card: 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100', icon: 'text-emerald-500', tip: 'Aprobado por el Auditor Técnico' },
-  OBSERVADO: { card: 'bg-rose-50 border-rose-200 hover:bg-rose-100',         icon: 'text-rose-500',    tip: 'Observado por el Auditor Técnico' },
+const ESTILO_AUDITOR: Record<EstadoAuditor, { color: string; label: string; tip: string }> = {
+  REVISION:  { color: '#d97706', label: 'En el Auditor', tip: 'En revisión del Auditor Técnico' },
+  APROBADO:  { color: '#16a34a', label: 'Aprobado',      tip: 'Aprobado por el Auditor Técnico' },
+  OBSERVADO: { color: '#e11d48', label: 'Observado',     tip: 'Observado por el Auditor Técnico' },
 };
-function IconoAuditor({ estado }: { estado: EstadoAuditor }) {
-  const cls = ESTILO_AUDITOR[estado].icon;
-  return estado === 'APROBADO' ? <CheckCircle size={12} className={cls} />
-    : estado === 'OBSERVADO' ? <AlertTriangle size={12} className={cls} />
-    : <Send size={12} className={cls} />;
+
+// Estilo del sistema de diseño (skill licitank-ui) para cajas, filas y botones de ícono.
+const CAJA_BASE = 'break-inside-avoid mb-3 rounded-2xl border bg-white shadow-tarjeta transition-[border-color,background-color,box-shadow] duration-150 dark:bg-slate-900';
+const CAJA_ESTADO = (isDragOver: boolean, punteada: boolean) => isDragOver
+  ? 'border-marca ring-2 ring-marca/20 bg-marca-suave/50 dark:bg-teal-950/30'
+  : punteada ? 'border-dashed border-slate-300 dark:border-slate-600' : 'border-linea dark:border-slate-800';
+const ACCION = 'p-1.5 rounded-md text-slate-400 hover:text-tinta hover:bg-slate-100 transition-colors dark:hover:bg-slate-700 dark:hover:text-slate-100 disabled:opacity-50';
+const ACCIONES_VISIBLES = 'flex items-center gap-0.5 flex-shrink-0 lg:opacity-0 lg:group-hover:opacity-100 focus-within:opacity-100 transition-opacity';
+
+function EncabezadoCaja({ label, cantidad, children }: { label: string; cantidad: number; children?: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-2">
+      <span className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center flex-shrink-0 dark:bg-slate-800 dark:text-slate-400"><Folder size={15} /></span>
+      <span className="flex-1 min-w-0 text-[13.5px] font-semibold text-tinta dark:text-slate-100 truncate">{label}</span>
+      <span className="text-xs font-semibold tabular-nums text-tinta-3">{cantidad}</span>
+      {children}
+    </div>
+  );
 }
 
-// ─── Configuración de cajas (v2.0) ────────────────────────────────────────────
-// Estilo común a todas las cajas (neutro). El color real lo da el contenido.
-const ESTILO_CAJA = {
-  colorBg: 'bg-white',
-  colorBorder: 'border-slate-200',
-  colorHeader: 'bg-slate-50',
-  colorIcon: 'text-slate-500',
-  colorCount: 'bg-slate-100 text-slate-600',
-  colorDrop: 'ring-2 ring-indigo-300 bg-indigo-50/40',
-} as const;
+function EstadoDoc({ estado, separado }: { estado?: EstadoAuditor; separado?: boolean }) {
+  if (estado) {
+    const e = ESTILO_AUDITOR[estado];
+    return <span className="inline-flex items-center gap-1" title={e.tip}><span aria-hidden className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: e.color }} />{e.label}</span>;
+  }
+  if (separado) {
+    return <span className="inline-flex items-center gap-1" title="Generado al separar un documento con varios anexos pegados"><span aria-hidden className="w-1.5 h-1.5 rounded-full bg-orange-500" />Separado</span>;
+  }
+  return null;
+}
 
 // Etiqueta legible por categoría conocida. El ORDEN aquí define el orden de render.
 // Las cajas se muestran de forma DINÁMICA: solo aparece la que tiene documentos
@@ -151,15 +144,11 @@ function labelDeCaja(key: string): string {
 interface CajaConfig {
   key: string;
   label: string;
-  colorBg: string;
-  colorBorder: string;
-  colorHeader: string;
-  colorIcon: string;
-  colorCount: string;
-  colorDrop: string;
 }
 
 // ─── Item draggable ───────────────────────────────────────────────────────────
+// Clic en el nombre abre el visor; las acciones aparecen al pasar el mouse (siempre visibles en
+// pantallas chicas, donde no hay hover).
 function DocItem({
   doc,
   codigoDecoded,
@@ -168,10 +157,8 @@ function DocItem({
   onView,
   onOpenIA,
   onDelete,
-  onRellenarAnexo,
   onSepararAnexo,
-  onEnviarAuditor,
-  enviadoAlAuditor, estadoAuditor,
+  estadoAuditor,
 }: {
   doc: DocLicitacion;
   codigoDecoded: string;
@@ -180,138 +167,50 @@ function DocItem({
   onView: (doc: VisorDoc) => void;
   onOpenIA: (doc: { nombre: string; url: string }) => void;
   onDelete?: (doc: DocLicitacion) => void;
-  onRellenarAnexo?: (doc: AnexoDoc) => void;
   // Separa un .docx que trae varios anexos pegados (ver anexos-dividir.ts) en un archivo por
-  // anexo — paso independiente del relleno, útil para organizar ANTES de llenar nada.
-  onSepararAnexo?: (doc: AnexoDoc) => void;
-  // Presente solo cuando esta pantalla vive dentro de un negocio (nunca al mirar una licitación
-  // suelta, todavía sin asignar) — manda el documento tal cual está al checklist del Auditor
-  // Técnico, sin pasar por el relleno. Para lo que YA quedó listo (una garantía escaneada, un
-  // anexo llenado a mano fuera de la app), no para los que todavía tienen campos vacíos.
-  onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
-  // ¿La URL de este documento ya vive en checklist_comercial_documentos de este negocio? Ver
-  // urlsEnAuditor en el componente padre — VERDE, manda sobre el naranjo de generado_separar.
-  enviadoAlAuditor?: boolean;
+  // anexo — útil para organizar ANTES de llenar nada (el relleno se hace desde el Auditor).
+  onSepararAnexo?: (doc: DocRef) => void;
+  // Estado en el Auditor Técnico si la URL de este documento ya vive en
+  // checklist_comercial_documentos de este negocio (ver urlsEnAuditor en el componente padre).
   estadoAuditor?: EstadoAuditor;
 }) {
-  const analizable = esUrlAnalizable(doc.url_local || doc.url);
   // Borrable si su categoría es de las nuestras (generadas por la app) O si el usuario lo
   // subió a mano directamente en una caja oficial (origen_manual) — en ese caso la caja
   // puede ser "Bases Administrativas" y aun así debe poder eliminarlo, a diferencia de un
   // documento real descargado de Mercado Público que cae en la misma caja.
   const esPropio = CATS_BORRABLES.has((doc.categoria || '').toUpperCase()) || !!doc.origen_manual;
-  const rellenable = onRellenarAnexo && esAnexoRellenable(doc);
   const separable = onSepararAnexo && esAnexoSeparable(doc);
-  const separado = !!doc.generado_separar;
+  const url = doc.url_local || doc.url;
   return (
     <div
       draggable
       onDragStart={(e) => onDragStart(e, doc)}
-      className={`
-        group flex flex-col gap-1.5 px-2.5 py-2 rounded-lg border
-        cursor-grab active:cursor-grabbing select-none transition-all
-        ${isDragging ? 'opacity-40 scale-95' : 'opacity-100'}
-        ${enviadoAlAuditor
-          ? ESTILO_AUDITOR[estadoAuditor || 'REVISION'].card
-          : separado
-            ? 'bg-orange-50 border-orange-200 hover:bg-orange-100'
-            : 'bg-white border-slate-100 hover:bg-slate-50'}
-      `}
+      className={`group flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-grab active:cursor-grabbing select-none transition-colors duration-150 hover:bg-slate-50 dark:hover:bg-slate-800/60 ${isDragging ? 'opacity-40' : ''}`}
     >
-      <div className="flex items-start gap-2">
-        <GripVertical size={12} className="text-slate-300 flex-shrink-0 mt-0.5" />
-        <span className="text-base flex-shrink-0 leading-none">{getFileIcon(doc.nombre)}</span>
-        <p className="flex-1 min-w-0 text-[11px] font-semibold text-slate-700 leading-snug line-clamp-2 break-words" title={doc.nombre}>
+      <span className="text-lg flex-shrink-0 leading-none" aria-hidden>{getFileIcon(doc.nombre)}</span>
+      <div className="min-w-0 flex-1">
+        <button type="button" draggable={false} onClick={(e) => { e.stopPropagation(); onView({ nombre: doc.nombre, url }); }}
+          className="block w-full text-left text-[13px] font-medium text-tinta dark:text-slate-100 leading-snug line-clamp-2 break-words hover:text-marca" title={`Ver «${doc.nombre}»`}>
           {doc.nombre}
+        </button>
+        <p className="mt-0.5 flex items-center gap-2 text-[11px] text-tinta-2 dark:text-slate-400">
+          {doc.size ? <span className="tabular-nums">{formatFileSize(doc.size)}</span> : null}
+          <EstadoDoc estado={estadoAuditor} separado={!!doc.generado_separar} />
         </p>
-        {enviadoAlAuditor && (
-          <span className="flex-shrink-0 mt-0.5" title={ESTILO_AUDITOR[estadoAuditor || 'REVISION'].tip}>
-            <IconoAuditor estado={estadoAuditor || 'REVISION'} />
-          </span>
-        )}
-        {!enviadoAlAuditor && separado && (
-          <span className="flex-shrink-0 mt-0.5" title="Generado al separar un documento con varios anexos pegados">
-            <Scissors size={12} className="text-orange-500" />
-          </span>
-        )}
       </div>
-      <div className="flex items-center justify-between pl-[26px]">
-        <span className="text-[10px] text-slate-400 leading-tight flex-shrink-0">
-          {doc.size ? formatFileSize(doc.size) : ''}
-        </span>
-        <div className="flex items-center gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity flex-shrink-0">
-          {rellenable && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onRellenarAnexo!({ id: doc.id as number, nombre: doc.nombre, url: doc.url_local || doc.url }); }}
-              className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-              title={esAnexoXlsxRellenable(doc) ? 'Rellenar precios del anexo económico con el costeo' : 'Rellenar anexo con los datos de la empresa'}
-              draggable={false}
-            >
-              <Wand2 size={11} />
-            </button>
-          )}
-          {separable && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onSepararAnexo!({ id: doc.id as number, nombre: doc.nombre, url: doc.url_local || doc.url }); }}
-              className="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
-              title="Separar en anexos independientes (si trae varios pegados en un solo Word)"
-              draggable={false}
-            >
-              <Scissors size={11} />
-            </button>
-          )}
-          {onEnviarAuditor && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onEnviarAuditor({ nombre: doc.nombre, url: doc.url_local || doc.url }); }}
-              className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
-              title="Enviar al Auditor Técnico"
-              draggable={false}
-            >
-              <Send size={11} />
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onOpenIA({ nombre: doc.nombre, url: doc.url_local || doc.url }); }}
-            className="p-1 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
-            title="Preguntar sobre este documento"
-            draggable={false}
-          >
-            <Sparkles size={11} />
-          </button>
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onView({ nombre: doc.nombre, url: doc.url_local || doc.url }); }}
-            className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-            title="Ver en el visor"
-            draggable={false}
-          >
-            <Eye size={11} />
-          </button>
-          <a
-            href={urlDescarga(doc.url_local || doc.url)} download={doc.nombre}
-            onClick={(e) => { e.stopPropagation(); registrarVerDocumento(codigoDecoded, doc.nombre, 'Descargó'); }}
-            className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
-            title="Descargar"
-            draggable={false}
-          >
-            <Download size={11} />
-          </a>
-          {esPropio && onDelete && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onDelete(doc); }}
-              className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-              title="Eliminar documento propio"
-              draggable={false}
-            >
-              <Trash2 size={11} />
-            </button>
-          )}
-        </div>
+      <div className={ACCIONES_VISIBLES}>
+        {esUrlAnalizable(url) && (
+          <button type="button" draggable={false} onClick={(e) => { e.stopPropagation(); onOpenIA({ nombre: doc.nombre, url }); }} className={ACCION} title="Preguntar sobre este documento"><Preguntar size={15} /></button>
+        )}
+        {separable && (
+          <button type="button" draggable={false} onClick={(e) => { e.stopPropagation(); onSepararAnexo!({ id: doc.id as number, nombre: doc.nombre, url }); }} className={ACCION} title="Separar en anexos independientes (si trae varios pegados en un solo documento)"><Scissors size={15} /></button>
+        )}
+        <a href={urlDescarga(url)} download={doc.nombre} draggable={false}
+          onClick={(e) => { e.stopPropagation(); registrarVerDocumento(codigoDecoded, doc.nombre, 'Descargó'); }}
+          className={ACCION} title="Descargar"><Download size={15} /></a>
+        {esPropio && onDelete && (
+          <button type="button" draggable={false} onClick={(e) => { e.stopPropagation(); onDelete(doc); }} className={`${ACCION} hover:!text-urgente hover:!bg-red-50 dark:hover:!bg-red-950/40`} title="Eliminar documento propio"><Trash2 size={15} /></button>
+        )}
       </div>
     </div>
   );
@@ -334,10 +233,7 @@ function CajaDroppable({
   onOpenIA,
   onUpload,
   onDelete,
-  onRellenarAnexo,
   onSepararAnexo,
-  onEnviarAuditor,
-  onRellenarTodos,
   subiendo,
   urlsEnAuditor,
 }: {
@@ -356,12 +252,7 @@ function CajaDroppable({
   onOpenIA: (doc: { nombre: string; url: string }) => void;
   onUpload: (files: FileList | File[], categoria: string) => void;
   onDelete: (doc: DocLicitacion) => void;
-  onRellenarAnexo?: (doc: AnexoDoc) => void;
-  onSepararAnexo?: (doc: AnexoDoc) => void;
-  onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
-  // Solo se pasa (y solo se muestra el botón) en la caja de Anexos Administrativos — arma la cola
-  // con los documentos rellenables de ESTA caja y se la pasa al padre, que la procesa uno por uno.
-  onRellenarTodos?: (docs: AnexoDoc[]) => void;
+  onSepararAnexo?: (doc: DocRef) => void;
   subiendo: string | null; // key de la caja que está subiendo un archivo
   // URLs ya enviadas al Auditor Técnico de este negocio — ver urlsEnAuditor en el padre.
   urlsEnAuditor: Map<string, EstadoAuditor>;
@@ -372,22 +263,13 @@ function CajaDroppable({
 
   return (
     <div
-      className={`
-        flex flex-col rounded-xl border transition-all duration-150
-        ${isDragOver ? caja.colorDrop : `${caja.colorBorder} ${caja.colorBg}`}
-        ${isDraggingActive && !isDraggingHere ? 'border-dashed' : ''}
-      `}
+      className={`${CAJA_BASE} ${CAJA_ESTADO(isDragOver, isDraggingActive && !isDraggingHere)}`}
       onDragOver={(e) => onDragOver(e, caja.key)}
       onDragEnter={(e) => onDragEnter(e, caja.key)}
       onDragLeave={onDragLeave}
       onDrop={(e) => onDrop(e, caja.key)}
     >
-      {/* Header */}
-      <div className={`flex items-center gap-2 px-3 py-2 rounded-t-xl ${caja.colorHeader}`}>
-        <FolderOpen size={13} className={caja.colorIcon} />
-        <span className="flex-1 text-[11.5px] font-bold text-slate-700 truncate">
-          {caja.label}
-        </span>
+      <EncabezadoCaja label={caja.label} cantidad={docs.length}>
         {/* Subida manual directa a esta caja — evita tener que "mover" un documento después.
             Se marca origen_manual en el backend para que quede borrable y protegida de que
             una re-clasificación IA la reasigne (ver handleUpload). */}
@@ -407,32 +289,13 @@ function CajaDroppable({
           onClick={() => fileInputRef.current?.click()}
           disabled={subiendoAqui}
           title="Subir documento(s) a esta caja"
-          className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-100 rounded transition-colors disabled:opacity-50 flex-shrink-0"
+          className={ACCION}
         >
-          {subiendoAqui ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+          {subiendoAqui ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
         </button>
-        {/* "Generar todos" — solo en Anexos Administrativos, y solo si hay al menos un doc
-            rellenable. Arma la cola con los rellenables de esta caja (mismo criterio que el botón
-            individual, esAnexoRellenable) y se la pasa al padre. */}
-        {onRellenarTodos && caja.key === CAT_ANEXOS_ADMIN && docs.some(esAnexoRellenable) && (
-          <button
-            type="button"
-            onClick={() => onRellenarTodos(docs.filter(esAnexoRellenable).map(d => (
-              { id: d.id as number, nombre: d.nombre, url: d.url_local || d.url }
-            )))}
-            title="Generar todos los anexos de esta caja, uno por uno"
-            className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-100 rounded transition-colors flex-shrink-0"
-          >
-            <PlayCircle size={12} />
-          </button>
-        )}
-        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${caja.colorCount}`}>
-          {docs.length}
-        </span>
-      </div>
+      </EncabezadoCaja>
 
-      {/* Body */}
-      <div className="flex-1 p-1.5 space-y-1 min-h-[72px]">
+      <div className="px-1.5 pb-2">
         {docs.map((doc) => (
           <DocItem
             key={doc.nombre}
@@ -443,24 +306,19 @@ function CajaDroppable({
             onView={onView}
             onOpenIA={onOpenIA}
             onDelete={onDelete}
-            onRellenarAnexo={onRellenarAnexo}
             onSepararAnexo={onSepararAnexo}
-            onEnviarAuditor={onEnviarAuditor}
-            enviadoAlAuditor={urlsEnAuditor.has(doc.url_local || doc.url)}
             estadoAuditor={urlsEnAuditor.get(doc.url_local || doc.url)}
           />
         ))}
 
-        {/* Zona de drop vacía */}
+        {/* Zona de drop */}
         {isDragOver && (
-          <div className="flex items-center justify-center h-10 border-2 border-dashed border-current/30 rounded-lg opacity-60">
-            <span className={`text-[10px] font-semibold ${caja.colorIcon}`}>Soltar aquí</span>
+          <div className="mx-1 mt-1 flex items-center justify-center h-10 border-2 border-dashed border-marca/40 rounded-lg">
+            <span className="text-xs font-medium text-marca">Soltar aquí</span>
           </div>
         )}
         {docs.length === 0 && !isDragOver && (
-          <div className="flex items-center justify-center h-10">
-            <span className="text-[10px] text-slate-300 font-medium">Sin documentos</span>
-          </div>
+          <p className="px-2.5 pb-1.5 text-xs text-slate-400">Vacía · arrastra un documento o súbelo con el ícono</p>
         )}
       </div>
     </div>
@@ -474,10 +332,7 @@ function DocumentosGrid({
   onView,
   onOpenIA,
   onRefrescar,
-  onRellenarAnexo,
   onSepararAnexo,
-  onEnviarAuditor,
-  onRellenarTodos,
   modo,
   urlsEnAuditor,
 }: {
@@ -486,13 +341,9 @@ function DocumentosGrid({
   onView: (doc: VisorDoc) => void;
   onOpenIA: (doc: { nombre: string; url: string }) => void;
   onRefrescar: () => void;
-  onRellenarAnexo?: (doc: AnexoDoc) => void;
-  // Habilita el botón de separar en la grilla (gateado por admin desde el padre, igual que
-  // onRellenarAnexo) — el handler real vive ACÁ ABAJO porque necesita toast/confirm/onRefrescar,
-  // que ya están en este componente.
+  // Habilita el botón de separar en la grilla (gateado por permiso desde el padre) — el handler
+  // real vive ACÁ ABAJO porque necesita toast/confirm/onRefrescar, que ya están en este componente.
   onSepararAnexo?: true;
-  onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
-  onRellenarTodos?: (docs: AnexoDoc[]) => void;
   // 'licitacion' = todas las cajas MENOS Documentos Propios (docs de la licitación);
   // 'propios' = SOLO la caja Documentos Propios (lo que creamos/editamos);
   // undefined = todas (comportamiento previo).
@@ -568,7 +419,7 @@ function DocumentosGrid({
   // archivo por anexo (nombrado por su título y clasificado admin/técnico/económico — ver
   // anexos-dividir.ts). Nunca toca el original: los resultados quedan en sus propias cajas de
   // "Documentos y Bases" (Anexos Administrativos/Técnicos/Económicos), no en Documentos Propios.
-  const handleSepararAnexo = async (doc: AnexoDoc) => {
+  const handleSepararAnexo = async (doc: DocRef) => {
     const esPdf = /\.pdf$/i.test(doc.nombre || '');
     const ok = await confirmar({
       titulo: '¿Separar anexos?',
@@ -780,16 +631,18 @@ function DocumentosGrid({
     : modo === 'licitacion'
       ? [...ORDEN_CAJAS.filter(k => k !== CAT_PROPIOS), ...clavesExtra]
       : [...ORDEN_CAJAS, ...clavesExtra];
+  // Las cajas con documentos van primero y las vacías al final (siguen ahí como destino para
+  // arrastrar o subir), en columnas que se rellenan sin dejar huecos.
   const cajasVisibles: CajaConfig[] = baseKeys
-    .map(key => ({ key, label: labelDeCaja(key), ...ESTILO_CAJA }));
+    .map(key => ({ key, label: labelDeCaja(key) }))
+    .sort((a, b) => Number((grupos[a.key]?.length || 0) === 0) - Number((grupos[b.key]?.length || 0) === 0));
 
   return (
     <div
       onDragEnd={handleDragEnd}
       className="space-y-3"
     >
-      {/* Grid de 3 columnas — 6 cajas fijas (taxonomía v2.0) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="columns-1 md:columns-2 2xl:columns-3 gap-3">
         {cajasVisibles.map((caja) => (
           <CajaDroppable
             key={caja.key}
@@ -808,10 +661,7 @@ function DocumentosGrid({
             onOpenIA={onOpenIA}
             onUpload={handleUpload}
             onDelete={handleDelete}
-            onRellenarAnexo={onRellenarAnexo}
             onSepararAnexo={onSepararAnexo ? handleSepararAnexo : undefined}
-            onEnviarAuditor={onEnviarAuditor}
-            onRellenarTodos={onRellenarTodos}
             subiendo={subiendo}
             urlsEnAuditor={urlsEnAuditor}
           />
@@ -819,19 +669,17 @@ function DocumentosGrid({
       </div>
 
       {errorSubida && (
-        <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-[11.5px] text-red-700">
-          <AlertTriangle size={12} className="flex-shrink-0" /> {errorSubida}
-          <button onClick={() => setErrorSubida(null)} className="ml-auto font-semibold hover:underline">Cerrar</button>
+        <div className="flex items-center gap-2 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-[13px] text-red-700 dark:bg-red-950/40 dark:border-red-900 dark:text-red-300">
+          <AlertTriangle size={15} className="flex-shrink-0" /> {errorSubida}
+          <button onClick={() => setErrorSubida(null)} className="ml-auto font-medium hover:underline">Cerrar</button>
         </div>
       )}
 
-      {/* Sin categoría — debajo del grid */}
+      {/* Sin categoría — debajo de las cajas */}
       {(grupos['SIN_CATEGORIA']?.length || 0) > 0 && (
-        <div className="space-y-1">
-          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-1">
-            Sin clasificar
-          </p>
-          <div className="space-y-1">
+        <div className={`${CAJA_BASE} border-linea dark:border-slate-800`}>
+          <EncabezadoCaja label="Sin clasificar" cantidad={grupos['SIN_CATEGORIA'].length} />
+          <div className="px-1.5 pb-2">
             {grupos['SIN_CATEGORIA'].map((doc) => (
               <DocItem
                 key={doc.nombre}
@@ -841,8 +689,7 @@ function DocumentosGrid({
                 isDragging={draggingDoc?.nombre === doc.nombre}
                 onView={onView}
                 onOpenIA={onOpenIA}
-                enviadoAlAuditor={urlsEnAuditor.has(doc.url_local || doc.url)}
-            estadoAuditor={urlsEnAuditor.get(doc.url_local || doc.url)}
+                estadoAuditor={urlsEnAuditor.get(doc.url_local || doc.url)}
               />
             ))}
           </div>
@@ -872,24 +719,18 @@ function DocumentosGrid({
 // por eso la barra es indeterminada (animada) y no un porcentaje exacto. Muestra
 // la fase actual y el conteo de documentos cuando se conoce.
 function ProgresoBanner({ fase, totalDocs }: { fase: 'descargando' | 'clasificando'; totalDocs: number }) {
-  const esDescarga = fase === 'descargando';
-  const titulo = esDescarga
+  const titulo = fase === 'descargando'
     ? 'Descargando documentos desde Mercado Público…'
     : `Clasificando ${totalDocs > 0 ? `${totalDocs} documento${totalDocs !== 1 ? 's' : ''}` : 'documentos'}…`;
-  const colorTexto = esDescarga ? 'text-indigo-700' : 'text-violet-700';
-  const colorBg = esDescarga ? 'bg-indigo-50 border-indigo-200' : 'bg-violet-50 border-violet-200';
-  const colorBar = esDescarga ? 'bg-indigo-500' : 'bg-violet-500';
-  const colorTrack = esDescarga ? 'bg-indigo-100' : 'bg-violet-100';
-
   return (
-    <div className={`px-4 py-3 rounded-xl border ${colorBg} space-y-2`}>
-      <div className={`flex items-center gap-2.5 text-sm font-medium ${colorTexto}`}>
+    <div className="rounded-xl bg-marca-suave/70 px-4 py-3 space-y-2 dark:bg-teal-950/30">
+      <div className="flex items-center gap-2.5 text-[13px] font-medium text-marca dark:text-teal-300">
         <Loader2 size={15} className="animate-spin flex-shrink-0" />
         {titulo}
       </div>
       {/* Barra indeterminada animada */}
-      <div className={`h-1.5 w-full rounded-full overflow-hidden ${colorTrack}`}>
-        <div className={`h-full w-1/3 rounded-full ${colorBar} progreso-indeterminado`} />
+      <div className="h-1.5 w-full rounded-full overflow-hidden bg-white/80 dark:bg-slate-800">
+        <div className="h-full w-1/3 rounded-full bg-marca progreso-indeterminado" />
       </div>
       <style jsx>{`
         @keyframes progreso-slide {
@@ -930,7 +771,7 @@ function claveCajaPropia(sub?: string | null) {
 function DocPropioItem({
   doc, isDragging, isEditing, valorNombre, busy,
   onDragStart, onView, onDownloadClick, onReemplazar, onRenombrarClick, onEliminar,
-  onGuardarNombre, onCancelarEdicion, onChangeValorNombre, onEnviarAuditor, enviadoAlAuditor, estadoAuditor,
+  onGuardarNombre, onCancelarEdicion, onChangeValorNombre, estadoAuditor,
 }: {
   doc: DocPropio;
   isDragging: boolean;
@@ -946,74 +787,54 @@ function DocPropioItem({
   onGuardarNombre: () => void;
   onCancelarEdicion: () => void;
   onChangeValorNombre: (v: string) => void;
-  onEnviarAuditor?: () => void;
-  // ¿La URL de este documento ya vive en checklist_comercial_documentos de este negocio? Mismo
-  // criterio que DocItem — ver urlsEnAuditor en DocumentosSection. Pedido explícito del usuario
-  // (7-sep-2026): el anexo YA RELLENADO (que vive acá, en Documentos Propios, no en la caja donde
-  // se separó) es justo el que de verdad se manda al Auditor, así que también se pinta verde.
-  enviadoAlAuditor?: boolean;
+  // Estado en el Auditor si la URL de este documento ya vive en checklist_comercial_documentos de
+  // este negocio. Pedido del usuario (7-sep-2026): el anexo YA RELLENADO vive acá, en Documentos
+  // Propios, y es justo el que de verdad se manda al Auditor.
   estadoAuditor?: EstadoAuditor;
 }) {
   const urlDe = (doc as any).url_local || (doc as any).url;
+  const subido = textoSubidoPor(doc.subido_por_nombre, doc.subido_at);
   return (
     <div
       draggable={!isEditing}
       onDragStart={(e) => onDragStart(e, doc)}
-      className={`
-        group flex flex-col gap-1.5 px-2.5 py-2 rounded-lg border
-        cursor-grab active:cursor-grabbing select-none transition-all
-        ${isDragging ? 'opacity-40 scale-95' : 'opacity-100'}
-        ${enviadoAlAuditor ? ESTILO_AUDITOR[estadoAuditor || 'REVISION'].card : 'bg-white border-slate-100 hover:bg-slate-50'}
-      `}
+      className={`group flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-grab active:cursor-grabbing select-none transition-colors duration-150 hover:bg-slate-50 dark:hover:bg-slate-800/60 ${isDragging ? 'opacity-40' : ''}`}
     >
-      <div className="flex items-start gap-2">
-        <GripVertical size={12} className="text-slate-300 flex-shrink-0 mt-0.5" />
-        <span className="text-base flex-shrink-0 leading-none">{getFileIcon(doc.nombre)}</span>
-        <div className="flex-1 min-w-0">
-          {isEditing ? (
-            <input
-              autoFocus value={valorNombre} onChange={e => onChangeValorNombre(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') onGuardarNombre(); if (e.key === 'Escape') onCancelarEdicion(); }}
-              className="w-full text-[11px] px-1.5 py-0.5 border border-violet-300 rounded focus:outline-none focus:ring-1 focus:ring-violet-400"
-            />
-          ) : (
-            <p className="text-[11px] font-semibold text-slate-700 leading-snug line-clamp-2 break-words" title={doc.nombre}>
-              {doc.nombre}
-            </p>
-          )}
-        </div>
-        {enviadoAlAuditor && (
-          <span className="flex-shrink-0 mt-0.5" title={ESTILO_AUDITOR[estadoAuditor || 'REVISION'].tip}>
-            <IconoAuditor estado={estadoAuditor || 'REVISION'} />
-          </span>
-        )}
-        {busy && <Loader2 size={12} className="animate-spin text-violet-500 flex-shrink-0 mt-0.5" />}
-      </div>
-      {textoSubidoPor(doc.subido_por_nombre, doc.subido_at) && (
-        <p className="pl-[26px] text-[10px] text-slate-400 leading-tight">{textoSubidoPor(doc.subido_por_nombre, doc.subido_at)}</p>
-      )}
-      <div className="flex items-center justify-between pl-[26px]">
-        <span className="text-[10px] text-slate-400 leading-tight flex-shrink-0">
-          {doc.size ? formatFileSize(doc.size) : ''}
-        </span>
+      <span className="text-lg flex-shrink-0 leading-none" aria-hidden>{getFileIcon(doc.nombre)}</span>
+      <div className="min-w-0 flex-1">
         {isEditing ? (
-          <div className="flex items-center gap-0.5 flex-shrink-0">
-            <button type="button" onClick={onGuardarNombre} title="Guardar" className="p-1 text-emerald-600 hover:bg-emerald-50 rounded"><Check size={12} /></button>
-            <button type="button" onClick={onCancelarEdicion} title="Cancelar" className="p-1 text-slate-400 hover:bg-slate-100 rounded"><X size={12} /></button>
-          </div>
+          <input
+            autoFocus value={valorNombre} onChange={e => onChangeValorNombre(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') onGuardarNombre(); if (e.key === 'Escape') onCancelarEdicion(); }}
+            aria-label="Nuevo nombre del documento"
+            className="w-full h-8 text-[13px] px-2 border border-slate-300 rounded-md focus:outline-none focus:border-marca focus:ring-2 focus:ring-marca/15 dark:bg-slate-950 dark:border-slate-700"
+          />
         ) : (
-          <div className="flex items-center gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity flex-shrink-0">
-            <button type="button" onClick={(e) => { e.stopPropagation(); onView(); }} className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors" title="Ver en el visor" draggable={false}><Eye size={11} /></button>
-            <a href={urlDescarga(urlDe)} download={doc.nombre} onClick={(e) => { e.stopPropagation(); onDownloadClick(); }} className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors" title="Descargar" draggable={false}><Download size={11} /></a>
-            {onEnviarAuditor && (
-              <button type="button" onClick={(e) => { e.stopPropagation(); onEnviarAuditor(); }} className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors" title="Enviar al Auditor Técnico" draggable={false}><Send size={11} /></button>
-            )}
-            <button type="button" onClick={(e) => { e.stopPropagation(); onReemplazar(); }} disabled={busy} className="p-1 text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded transition-colors disabled:opacity-50" title="Reemplazar (subir versión nueva)" draggable={false}><Upload size={11} /></button>
-            <button type="button" onClick={(e) => { e.stopPropagation(); onRenombrarClick(); }} disabled={busy} className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors disabled:opacity-50" title="Renombrar" draggable={false}><Pencil size={11} /></button>
-            <button type="button" onClick={(e) => { e.stopPropagation(); onEliminar(); }} disabled={busy} className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50" title="Eliminar" draggable={false}><Trash2 size={11} /></button>
-          </div>
+          <button type="button" draggable={false} onClick={(e) => { e.stopPropagation(); onView(); }}
+            className="block w-full text-left text-[13px] font-medium text-tinta dark:text-slate-100 leading-snug line-clamp-2 break-words hover:text-marca" title={`Ver «${doc.nombre}»`}>
+            {doc.nombre}
+          </button>
         )}
+        <p className="mt-0.5 flex items-center gap-2 flex-wrap text-[11px] text-tinta-2 dark:text-slate-400">
+          {doc.size ? <span className="tabular-nums">{formatFileSize(doc.size)}</span> : null}
+          {subido && <span>{subido}</span>}
+          <EstadoDoc estado={estadoAuditor} />
+        </p>
       </div>
+      {busy && <Loader2 size={15} className="animate-spin text-slate-400 flex-shrink-0" />}
+      {isEditing ? (
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          <button type="button" onClick={onGuardarNombre} title="Guardar" className={`${ACCION} !text-marca`}><Check size={15} /></button>
+          <button type="button" onClick={onCancelarEdicion} title="Cancelar" className={ACCION}><X size={15} /></button>
+        </div>
+      ) : (
+        <div className={ACCIONES_VISIBLES}>
+          <a href={urlDescarga(urlDe)} download={doc.nombre} onClick={(e) => { e.stopPropagation(); onDownloadClick(); }} className={ACCION} title="Descargar" draggable={false}><Download size={15} /></a>
+          <button type="button" onClick={(e) => { e.stopPropagation(); onReemplazar(); }} disabled={busy} className={ACCION} title="Reemplazar (subir versión nueva)" draggable={false}><Upload size={15} /></button>
+          <button type="button" onClick={(e) => { e.stopPropagation(); onRenombrarClick(); }} disabled={busy} className={ACCION} title="Renombrar" draggable={false}><Pencil size={15} /></button>
+          <button type="button" onClick={(e) => { e.stopPropagation(); onEliminar(); }} disabled={busy} className={`${ACCION} hover:!text-urgente hover:!bg-red-50 dark:hover:!bg-red-950/40`} title="Eliminar" draggable={false}><Trash2 size={15} /></button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1024,7 +845,7 @@ function CajaPropiaDroppable({
   onDragStart, onDragOver, onDragEnter, onDragLeave, onDrop,
   onView, onDownloadClick, onReemplazar, onRenombrarClick, onEliminar,
   editando, valorNombre, onGuardarNombre, onCancelarEdicion, onChangeValorNombre, ocupado,
-  onEnviarAuditor, urlsEnAuditor,
+  urlsEnAuditor,
 }: {
   cajaKey: string;
   label: string;
@@ -1048,28 +869,19 @@ function CajaPropiaDroppable({
   onCancelarEdicion: () => void;
   onChangeValorNombre: (v: string) => void;
   ocupado: string | null;
-  onEnviarAuditor?: (doc: DocPropio) => void;
   urlsEnAuditor: Map<string, EstadoAuditor>;
 }) {
   const isDraggingHere = draggingDoc && docs.some(d => d.nombre === draggingDoc.nombre);
   return (
     <div
-      className={`
-        flex flex-col rounded-xl border transition-all duration-150
-        ${isDragOver ? ESTILO_CAJA.colorDrop : `${ESTILO_CAJA.colorBorder} ${ESTILO_CAJA.colorBg}`}
-        ${isDraggingActive && !isDraggingHere ? 'border-dashed' : ''}
-      `}
+      className={`${CAJA_BASE} ${CAJA_ESTADO(isDragOver, isDraggingActive && !isDraggingHere)}`}
       onDragOver={onDragOver}
       onDragEnter={(e) => onDragEnter(e, cajaKey)}
       onDragLeave={onDragLeave}
       onDrop={(e) => onDrop(e, cajaKey)}
     >
-      <div className={`flex items-center gap-2 px-3 py-2 rounded-t-xl ${ESTILO_CAJA.colorHeader}`}>
-        <FolderOpen size={13} className={ESTILO_CAJA.colorIcon} />
-        <span className="flex-1 text-[11.5px] font-bold text-slate-700 truncate">{label}</span>
-        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${ESTILO_CAJA.colorCount}`}>{docs.length}</span>
-      </div>
-      <div className="flex-1 p-1.5 space-y-1 min-h-[72px]">
+      <EncabezadoCaja label={label} cantidad={docs.length} />
+      <div className="px-1.5 pb-2">
         {docs.map(doc => (
           <DocPropioItem
             key={doc.nombre}
@@ -1087,20 +899,16 @@ function CajaPropiaDroppable({
             onGuardarNombre={() => onGuardarNombre(doc)}
             onCancelarEdicion={onCancelarEdicion}
             onChangeValorNombre={onChangeValorNombre}
-            onEnviarAuditor={onEnviarAuditor ? () => onEnviarAuditor(doc) : undefined}
-            enviadoAlAuditor={urlsEnAuditor.has((doc as any).url_local || (doc as any).url)}
             estadoAuditor={urlsEnAuditor.get((doc as any).url_local || (doc as any).url)}
           />
         ))}
         {isDragOver && (
-          <div className="flex items-center justify-center h-10 border-2 border-dashed border-current/30 rounded-lg opacity-60">
-            <span className={`text-[10px] font-semibold ${ESTILO_CAJA.colorIcon}`}>Soltar aquí</span>
+          <div className="mx-1 mt-1 flex items-center justify-center h-10 border-2 border-dashed border-marca/40 rounded-lg">
+            <span className="text-xs font-medium text-marca">Soltar aquí</span>
           </div>
         )}
         {docs.length === 0 && !isDragOver && (
-          <div className="flex items-center justify-center h-10">
-            <span className="text-[10px] text-slate-300 font-medium">Sin documentos</span>
-          </div>
+          <p className="px-2.5 pb-1.5 text-xs text-slate-400">Vacía · arrastra un documento aquí</p>
         )}
       </div>
     </div>
@@ -1113,12 +921,11 @@ function CajaPropiaDroppable({
 // Se persiste en `subcategoria` — una columna aparte de `categoria` (que sigue marcando el
 // documento como DOCUMENTOS_PROPIOS). La clasificación IA (/api/documentos/clasificar) nunca
 // corre sobre estos documentos ni toca esta columna — ver /api/documentos/organizar.
-function DocumentosPropiosGrid({ docs, codigoDecoded, onView, onRefrescar, onEnviarAuditor, urlsEnAuditor }: {
+function DocumentosPropiosGrid({ docs, codigoDecoded, onView, onRefrescar, urlsEnAuditor }: {
   docs: DocPropio[];
   codigoDecoded: string;
   onView: (doc: VisorDoc) => void;
   onRefrescar: () => void;
-  onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
   urlsEnAuditor: Map<string, EstadoAuditor>;
 }) {
   const confirmar = useConfirm();
@@ -1349,50 +1156,37 @@ function DocumentosPropiosGrid({ docs, codigoDecoded, onView, onRefrescar, onEnv
       <input ref={fileRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) onPickReemplazo(f); e.target.value = ''; }} />
       <input ref={nuevoRef} type="file" multiple className="hidden" onChange={e => { const files = Array.from(e.target.files || []); if (files.length) subirNuevo(files); e.target.value = ''; }} />
 
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <p className="text-[11.5px] text-slate-400">
-          Archivos que <strong className="text-slate-500">presentarás a Mercado Público</strong>. Arrástralos entre cajas para organizarlos a tu gusto.
-        </p>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {docs.length > 0 && (
-            creandoCaja ? (
-              <div className="flex items-center gap-1">
-                <input
-                  autoFocus value={nuevaCaja} onChange={e => setNuevaCaja(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') crearCaja(); if (e.key === 'Escape') { setNuevaCaja(''); setCreandoCaja(false); } }}
-                  placeholder="Nombre de la caja"
-                  className="text-[12px] px-2 py-1.5 border border-violet-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-violet-400 w-36"
-                />
-                <button type="button" onClick={crearCaja} title="Crear" className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg"><Check size={14} /></button>
-                <button type="button" onClick={() => { setNuevaCaja(''); setCreandoCaja(false); }} title="Cancelar" className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg"><X size={14} /></button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setCreandoCaja(true)}
-                className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 px-2.5 py-1.5 rounded-lg transition-colors"
-              >
-                <FolderPlus size={13} /> Nueva caja
-              </button>
-            )
-          )}
-          <button
-            type="button"
-            onClick={() => nuevoRef.current?.click()}
-            disabled={!!subiendoNuevo}
-            className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 px-3 py-1.5 rounded-lg transition-colors flex-shrink-0"
-          >
-            {subiendoNuevo
-              ? <><Loader2 size={13} className="animate-spin" /> Subiendo {subiendoNuevo.actual}/{subiendoNuevo.total}…</>
-              : <><Upload size={13} /> Documentos para MP</>}
-          </button>
-        </div>
+      <div className="flex items-center justify-end gap-2 flex-wrap">
+        {docs.length > 0 && (
+          creandoCaja ? (
+            <div className="flex items-center gap-1">
+              <input
+                autoFocus value={nuevaCaja} onChange={e => setNuevaCaja(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') crearCaja(); if (e.key === 'Escape') { setNuevaCaja(''); setCreandoCaja(false); } }}
+                placeholder="Nombre de la caja"
+                aria-label="Nombre de la caja nueva"
+                className="h-8 text-[13px] px-2.5 border border-slate-300 rounded-lg focus:outline-none focus:border-marca focus:ring-2 focus:ring-marca/15 w-44 dark:bg-slate-950 dark:border-slate-700"
+              />
+              <button type="button" onClick={crearCaja} title="Crear" className={`${ACCION} !text-marca`}><Check size={16} /></button>
+              <button type="button" onClick={() => { setNuevaCaja(''); setCreandoCaja(false); }} title="Cancelar" className={ACCION}><X size={16} /></button>
+            </div>
+          ) : (
+            <Boton tamano="sm" icono={<FolderPlus size={15} />} onClick={() => setCreandoCaja(true)}>Nueva caja</Boton>
+          )
+        )}
+        <Boton variante="primario" tamano="sm" onClick={() => nuevoRef.current?.click()} disabled={!!subiendoNuevo}
+          icono={subiendoNuevo ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}>
+          {subiendoNuevo ? `Subiendo ${subiendoNuevo.actual}/${subiendoNuevo.total}…` : 'Subir documentos'}
+        </Boton>
       </div>
 
       {docs.length === 0 ? (
-        <p className="text-[12px] text-slate-400 py-2">Aún no hay documentos. Sube los que presentarás a Mercado Público con el botón «Documentos para MP».</p>
+        <div className="rounded-xl border border-dashed border-slate-300 px-6 py-8 text-center dark:border-slate-700">
+          <p className="text-sm font-medium text-tinta dark:text-slate-100">Todavía no hay documentos para la oferta</p>
+          <p className="mt-1 text-[13px] text-tinta-2 dark:text-slate-400">Sube los que presentarás a Mercado Público, o arrástralos desde tu computador.</p>
+        </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="columns-1 md:columns-2 2xl:columns-3 gap-3">
           {cajas.map(key => (
             <CajaPropiaDroppable
               key={key}
@@ -1418,7 +1212,6 @@ function DocumentosPropiosGrid({ docs, codigoDecoded, onView, onRefrescar, onEnv
               onCancelarEdicion={() => setEditando(null)}
               onChangeValorNombre={setValorNombre}
               ocupado={ocupado}
-              onEnviarAuditor={onEnviarAuditor ? (doc) => onEnviarAuditor({ nombre: doc.nombre, url: urlDe(doc) }) : undefined}
               urlsEnAuditor={urlsEnAuditor}
             />
           ))}
@@ -1429,10 +1222,10 @@ function DocumentosPropiosGrid({ docs, codigoDecoded, onView, onRefrescar, onEnv
 }
 
 export function DocumentosSection({
-  codigoDecoded, mpUrl, documentosCache, cargandoDocs,
+  codigoDecoded, documentosCache, cargandoDocs,
   descargandoAuto, handleAutoDescargar, fetchDocumentos,
   clasificando, onReClasificar, resumenClasificacion,
-  empresaId, negocioId,
+  negocioId,
 }: {
   codigoDecoded: string;
   mpUrl: string;
@@ -1444,28 +1237,22 @@ export function DocumentosSection({
   clasificando?: boolean;
   onReClasificar?: () => void;
   resumenClasificacion?: { estado: 'completo' | 'incompleto'; falta: string[] } | null;
-  empresaId?: number | null;
-  // Presente solo dentro de un negocio (nunca al mirar una licitación suelta) — habilita el
-  // botón "Enviar al Auditor Técnico" en cada documento, propio o de la licitación.
+  // Presente solo dentro de un negocio (nunca al mirar una licitación suelta) — muestra en cada
+  // documento si ya está en el Auditor Técnico y en qué estado.
   negocioId?: number | null;
 }) {
-  const toast = useToast();
-  // Rellenar/separar anexos: admin o permiso "Anexos". "Enviar al Auditor": admin o quien trabaje el
-  // Auditor (Técnico o de Compra). Antes ambos eran admin-only (05-oct-2026, pedido explícito).
+  // Separar anexos: admin o permiso "Anexos" (05-oct-2026).
   const { usuario } = useSession();
   const isAdmin = usuario?.rol === 'admin';
   const puedeAnexos = isAdmin || !!usuario?.permisos?.anexos;
-  const puedeEnviarAuditor = isAdmin || !!usuario?.permisos?.auditor_tecnico || !!usuario?.permisos?.auditor_compra;
   const yaClasificados = documentosCache.some(d => (d as any).categoria);
   // Separación en dos apartados: "Documentos y Bases" (los de la licitación) vs "Documentos Propios"
   // (los que NOSOTROS creamos o editamos: costeo, informe, y lo que subamos).
   const docsLicitacion = documentosCache.filter(d => ((d as any).categoria || '').toUpperCase() !== 'DOCUMENTOS_PROPIOS');
   const docsPropios = documentosCache.filter(d => ((d as any).categoria || '').toUpperCase() === 'DOCUMENTOS_PROPIOS');
-  // URLs de "Documentos y Bases" que YA se enviaron al Auditor Técnico de este negocio — pintan
-  // el documento de VERDE (pedido explícito del usuario, 7-sep-2026: "los de documentos mp...
-  // cuando ya los mando al auditor, esos son los que quiero que cambien a verde"). Se relee EN
-  // VIVO (nunca una marca guardada en el documento) para que quede al día solo si el punto del
-  // checklist se borra o el documento se reemplaza — ver /comercial/documentos-auditor.
+  // URLs que YA están en el Auditor Técnico de este negocio, con su estado (pedido del usuario,
+  // 7-sep-2026). Se relee EN VIVO (nunca una marca guardada en el documento) para que quede al día
+  // si el punto del checklist se borra o el documento se reemplaza — ver /comercial/documentos-auditor.
   const [urlsEnAuditor, setUrlsEnAuditor] = useState<Map<string, EstadoAuditor>>(new Map());
   const refrescarUrlsAuditor = () => {
     if (!negocioId) { setUrlsEnAuditor(new Map()); return; }
@@ -1475,7 +1262,7 @@ export function DocumentosSection({
       .catch(() => {});
   };
   useEffect(refrescarUrlsAuditor, [negocioId]);
-  // Tiempo real: cuando el auditor aprueba/observa un punto, el semáforo del documento cambia solo.
+  // Tiempo real: cuando el auditor aprueba/observa un punto, el estado del documento cambia solo.
   useRealtime(refrescarUrlsAuditor);
 
   // Documento abierto en el visor inline (modal). null = cerrado.
@@ -1484,172 +1271,6 @@ export function DocumentosSection({
   const verYRegistrar = (doc: VisorDoc) => { registrarVerDocumento(codigoDecoded, doc.nombre, 'Vio'); setVisorDoc(doc); };
   // Documento abierto en el chat rápido de IA (modal). null = cerrado.
   const [iaDoc, setIaDoc] = useState<{ nombre: string; url: string } | null>(null);
-  // Anexo de oferente abierto en la pantalla de relleno (modal). null = cerrado.
-  const [anexoDoc, setAnexoDoc] = useState<AnexoDoc | null>(null);
-  // Anexo económico en Excel abierto en su propia pantalla de relleno (motor separado).
-  const [anexoXlsxDoc, setAnexoXlsxDoc] = useState<AnexoXlsxDoc | null>(null);
-  // Nombre del PDF que se está rellenando ahora mismo (null = ninguno) — evita doble clic
-  // mientras corre el OCR (puede tardar 10-30s), sin necesidad de un modal propio todavía.
-  const [generandoPdf, setGenerandoPdf] = useState<string | null>(null);
-
-  // Ejecuta el POST a /api/anexos/rellenar-pdf sin tocar toasts/estado — lo reusan tanto el botón
-  // individual (handleRellenarAnexo) como la cola de "Generar todos" (avanzarCola), que necesita
-  // el resultado puro para acumularlo y seguir con el siguiente documento.
-  const rellenarPdfAutomatico = async (doc: AnexoDoc): Promise<{ ok: boolean; mensaje: string }> => {
-    try {
-      const r = await fetch('/api/anexos/rellenar-pdf', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ codigo: codigoDecoded, documentoId: doc.id, empresaId }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok || !d.success) return { ok: false, mensaje: d.error || 'No se pudo rellenar el PDF' };
-      return { ok: true, mensaje: `${d.completados}/${d.totalDetectados} casillas` };
-    } catch (e: any) {
-      return { ok: false, mensaje: e?.message || 'Error de red' };
-    }
-  };
-
-  // El botón de rellenar (Wand2) es el mismo para Word y PDF — acá se decide a qué motor va cada
-  // clic. PDF: en una licitación pública el documento que se sube tiene que ser el MISMO oficial,
-  // así que /api/anexos/rellenar-pdf escribe encima del original (sin pantalla de revisión
-  // todavía — el resultado queda en "Documentos para MP" para revisar a mano antes de subirlo).
-  // Word: sigue el camino de siempre, abre el modal de relleno con revisión campo por campo.
-  const handleRellenarAnexo = async (doc: AnexoDoc) => {
-    if (/\.(xlsx|xlsm)$/i.test(doc.nombre)) { setAnexoXlsxDoc(doc); return; }
-    if (!/\.pdf$/i.test(doc.nombre)) { setAnexoDoc(doc); return; }
-    if (!empresaId) { toast.error('Falta la empresa asignada a esta licitación'); return; }
-    if (generandoPdf) return;
-    setGenerandoPdf(doc.nombre);
-    toast.info('Rellenando el PDF…', 'Puede tardar hasta medio minuto (lee el documento con OCR).');
-    const res = await rellenarPdfAutomatico(doc);
-    if (!res.ok) { toast.error(res.mensaje); setGenerandoPdf(null); return; }
-    toast.success(
-      `PDF rellenado — ${res.mensaje}`,
-      'Revísalo en «Documentos para MP» antes de subirlo a Mercado Público — todavía no hay pantalla de revisión.',
-    );
-    fetchDocumentos();
-    setGenerandoPdf(null);
-  };
-
-  // ── "Generar todos" (Anexos Administrativos) ──────────────────────────────────
-  // Cola de anexos administrativos que se procesan uno detrás del otro. `colaAnexos` (para el
-  // badge "X de N" y para saber si hay un batch activo) e `indiceCola` (índice actual) viven en
-  // estado porque se renderizan; el resultado acumulado (ok/error) NO — viaja como parámetro
-  // simple entre pasos de avanzarCola, evitando el riesgo de leer estado desactualizado entre
-  // un paso y el siguiente (el paso de un Word puede tardar minutos: el usuario revisa, repara,
-  // firma). colaContinuacionRef guarda "qué hacer después" mientras el modal está abierto
-  // esperando al usuario en un anexo Word.
-  const [colaAnexos, setColaAnexos] = useState<AnexoDoc[]>([]);
-  const [indiceCola, setIndiceCola] = useState(0);
-  const [procesandoPdfBatch, setProcesandoPdfBatch] = useState<string | null>(null);
-  const colaContinuacionRef = useRef<(() => void) | null>(null);
-  // Se pone en true justo antes de llamar a la continuación desde onGenerado — el modal, al
-  // generar con éxito, llama onGenerado() y ENSEGUIDA onClose() (avisarYCerrar). En modo batch,
-  // ese onClose automático no es un cierre manual del usuario y no debe cortar la cola.
-  const batchRecienGeneradoRef = useRef(false);
-
-  const avanzarCola = async (indice: number, cola: AnexoDoc[], acumulado: { ok: string[]; error: string[] }) => {
-    if (indice >= cola.length) {
-      setColaAnexos([]);
-      setIndiceCola(0);
-      setAnexoDoc(null);
-      fetchDocumentos();
-      if (acumulado.error.length === 0) {
-        toast.success(`Listo — ${acumulado.ok.length} anexo${acumulado.ok.length === 1 ? '' : 's'} generado${acumulado.ok.length === 1 ? '' : 's'}`);
-      } else {
-        toast.warning(
-          `${acumulado.ok.length} generados, ${acumulado.error.length} con error`,
-          acumulado.error.join(' · '),
-        );
-      }
-      return;
-    }
-    setIndiceCola(indice);
-    const doc = cola[indice];
-    if (/\.pdf$/i.test(doc.nombre)) {
-      setProcesandoPdfBatch(doc.nombre);
-      const res = await rellenarPdfAutomatico(doc);
-      setProcesandoPdfBatch(null);
-      if (res.ok) acumulado.ok.push(doc.nombre); else acumulado.error.push(`${doc.nombre}: ${res.mensaje}`);
-      avanzarCola(indice + 1, cola, acumulado);
-    } else {
-      colaContinuacionRef.current = () => {
-        acumulado.ok.push(doc.nombre);
-        avanzarCola(indice + 1, cola, acumulado);
-      };
-      setAnexoDoc(doc);
-    }
-  };
-
-  const handleGenerarTodos = (docs: AnexoDoc[]) => {
-    if (docs.length === 0) return;
-    if (!empresaId) { toast.error('Falta la empresa asignada a esta licitación'); return; }
-    setColaAnexos(docs);
-    setIndiceCola(0);
-    avanzarCola(0, docs, { ok: [], error: [] });
-  };
-  // Documento elegido para mandar al Auditor Técnico — abre el selector de punto (SelectorPuntoAuditor).
-  const [enviandoDoc, setEnviandoDoc] = useState<{ nombre: string; url: string } | null>(null);
-  // Si el punto elegido es una LÍNEA TÉCNICA (ficha de producto), no basta con "adjuntar y
-  // quedar en CARGADO" — hay que correr la comparación (Agente Técnico) y mostrar el resultado
-  // de inmediato en el modal, no un toast ciego. Los puntos tipo "documento" (anexos genéricos)
-  // siguen el camino de siempre, más abajo.
-  const [comparandoFicha, setComparandoFicha] = useState<{ itemId: number; documento: { nombre: string; url: string } } | null>(null);
-  const enviarAAuditor = async (item: { id: number; tipo: string }) => {
-    if (!enviandoDoc || !negocioId) return;
-    if (item.tipo === 'linea_tecnica') {
-      setComparandoFicha({ itemId: item.id, documento: enviandoDoc });
-      setEnviandoDoc(null);
-      return;
-    }
-    try {
-      const r = await fetch(`/api/negocios/${negocioId}/comercial`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemId: item.id, accion: 'CARGAR', documentos: [enviandoDoc] }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok || !d.success) { toast.error(d.error || 'No se pudo enviar al Auditor Técnico'); return; }
-      toast.success('Enviado al Auditor Técnico', `"${enviandoDoc.nombre}" quedó en CARGADO`);
-      refrescarUrlsAuditor(); // se pinta verde de inmediato, sin esperar el próximo montaje
-    } catch (e: any) {
-      toast.error('Error de red', e?.message);
-    } finally {
-      setEnviandoDoc(null);
-    }
-  };
-
-  // El costeo NO es un punto más del checklist tipo "documento" — es su propia entidad (Motor
-  // Comercial: parsea el Excel, calcula las 4 alertas obligatorias y precarga los precios de las
-  // líneas COMERCIAL que sigan en PENDIENTE). Mandarlo por el selector genérico lo dejaría pegado
-  // a un punto cualquiera sin correr nada de eso. El archivo ya está subido (lo generó la propia
-  // app) — /api/negocios/[id]/comercial/costeo solo necesita la URL, no un re-upload.
-  const [enviandoCosteo, setEnviandoCosteo] = useState(false);
-  // `includes`, no `startsWith`: un costeo regenerado (handleRegenerarCosteo) puede volver a
-  // subirse con un timestamp de R2 pegado ADELANTE del nombre real ("173..._COSTEO_...xlsx") —
-  // visto en vivo probando este mismo flujo. El nombre real de un costeo generado por
-  // generar-costeo.ts SIEMPRE contiene "COSTEO_" en algún punto del string.
-  const esCosteo = (doc: { nombre: string }) => doc.nombre.includes('COSTEO_');
-  const enviarCosteoAlMotorComercial = async (doc: { nombre: string; url: string }) => {
-    if (!negocioId) return;
-    setEnviandoCosteo(true);
-    try {
-      const r = await fetch(`/api/negocios/${negocioId}/comercial/costeo`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: doc.url, nombre: doc.nombre }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) { toast.error(d.error || 'No se pudo enviar el costeo al Motor Comercial'); return; }
-      const alertas: Array<{ descripcion: string }> = d.alertas || [];
-      if (alertas.length > 0) toast.warning(`Costeo enviado — ${alertas.length} alerta(s)`, alertas.map(a => a.descripcion).join(' · '));
-      else toast.success('Costeo enviado al Motor Comercial', 'Sin alertas — revísalo en la pestaña Auditor Técnico');
-    } catch (e: any) {
-      toast.error('Error de red', e?.message);
-    } finally {
-      setEnviandoCosteo(false);
-    }
-  };
 
   // Regeneración del Excel de costeo desde el informe IA ya guardado (sin re-analizar:
   // reusa el manifiesto y solo vuelve a armar el Excel con la plantilla actual).
@@ -1671,288 +1292,135 @@ export function DocumentosSection({
     }
   };
 
+  const costeo = !clasificando ? documentosCache.find(d => d.nombre?.includes('COSTEO_') && (d as any).categoria === 'DOCUMENTOS_PROPIOS') : undefined;
+  const BLOQUE = 'bg-white border border-linea rounded-2xl shadow-tarjeta p-5 dark:bg-slate-900 dark:border-slate-800';
+  const ICONO = 'w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center flex-shrink-0 dark:bg-slate-800 dark:text-slate-400';
+
   return (
-    <div className="space-y-4 fade-in">
-      <SectionHeader
-        icon={<FolderOpen size={18} />}
-        title="Documentos y Bases"
-        subtitle="Arrastra los documentos entre cajas, o sube uno nuevo directo con el ícono de cada caja"
-        badge={(
-          <>
-            {!cargandoDocs && documentosCache.length > 0 && (
-              <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs rounded-full font-semibold">
-                {documentosCache.length} docs
-              </span>
-            )}
-            {yaClasificados && (
-              <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs rounded-full font-semibold flex items-center gap-0.5">
-                <Sparkles size={9} /> Clasificados
-              </span>
-            )}
-          </>
-        )}
-        action={(
-          <button onClick={fetchDocumentos} title="Recargar documentos"
-            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
-            <RefreshCw size={14} />
-          </button>
-        )}
-      />
-
-      <div className="card p-5 space-y-4">
-
-        {/* Botón descarga automática */}
-        <button
-          onClick={handleAutoDescargar}
-          disabled={descargandoAuto}
-          className="
-            w-full flex items-center justify-center gap-2.5
-            bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400
-            text-white text-sm font-bold py-3.5 px-4 rounded-xl
-            transition-all duration-200 shadow-md shadow-indigo-200
-            hover:shadow-lg hover:shadow-indigo-300 hover:-translate-y-px
-            disabled:cursor-not-allowed disabled:shadow-none disabled:translate-y-0
-          "
-        >
-          {descargandoAuto ? (
-            <><Loader2 size={17} className="animate-spin" /> Conectando con Mercado Público...</>
-          ) : (
-            <><Bot size={17} /> Descargar Bases Automáticamente</>
-          )}
-        </button>
-
-        {/* Banner de progreso — descarga o clasificación (la descarga tiene prioridad visual) */}
-        {descargandoAuto ? (
-          <ProgresoBanner fase="descargando" totalDocs={documentosCache.length} />
-        ) : clasificando ? (
-          <ProgresoBanner fase="clasificando" totalDocs={documentosCache.length} />
-        ) : null}
-
-        {/* Banner costeo generado — aparece cuando hay un COSTEO_ en DOCUMENTOS_PROPIOS */}
-        {!clasificando && (() => {
-          const costeo = documentosCache.find(d =>
-            d.nombre?.includes('COSTEO_') && (d as any).categoria === 'DOCUMENTOS_PROPIOS',
-          );
-          if (!costeo) return null;
-          return (
-            <div className="flex items-start gap-2.5 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl">
-              <TableProperties size={14} className="text-emerald-600 flex-shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <p className="text-[12.5px] font-semibold text-emerald-800">
-                  Excel de Costeo generado automáticamente
-                </p>
-                <p className="text-[11.5px] text-emerald-700 mt-0.5 truncate">
-                  {costeo.nombre} — disponible en <strong>Documentos Propios</strong>
-                </p>
-                {costeoError && (
-                  <p className="text-[11px] text-red-600 mt-1">{costeoError}</p>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={handleRegenerarCosteo}
-                disabled={regenerandoCosteo}
-                title="Regenerar el Excel desde el informe guardado (sin volver a analizar)"
-                className="shrink-0 flex items-center gap-1 text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 bg-indigo-100 hover:bg-indigo-200 disabled:opacity-60 px-2.5 py-1 rounded-lg transition-colors"
-              >
-                {regenerandoCosteo
-                  ? <><Loader2 size={11} className="animate-spin" /> Regenerando…</>
-                  : <><RefreshCw size={11} /> Regenerar</>}
-              </button>
-              <a
-                href={urlDescarga((costeo as any).url_local || (costeo as any).url)}
-                download={costeo.nombre}
-                className="shrink-0 flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-900 bg-emerald-100 hover:bg-emerald-200 px-2.5 py-1 rounded-lg transition-colors"
-              >
-                <Download size={11} /> Descargar
-              </a>
-            </div>
-          );
-        })()}
-
-        {/* Banner set incompleto */}
-        {!clasificando && resumenClasificacion?.estado === 'incompleto' && resumenClasificacion.falta.length > 0 && (
-          <div className="flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
-            <AlertTriangle size={14} className="text-amber-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-[12.5px] font-semibold text-amber-800">Set de documentos incompleto</p>
-              <p className="text-[11.5px] text-amber-700 mt-0.5">
-                No se detectaron: {resumenClasificacion.falta.map(f => f.replace(/_/g, ' ').toLowerCase()).join(', ')}
+    <div className="space-y-4">
+      {/* ── Encabezado: qué hay y cómo traer las bases ── */}
+      <section className={BLOQUE}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className={ICONO}><FolderOpen size={18} /></span>
+            <div className="min-w-0">
+              <h2 className="text-[17px] font-semibold tracking-tight text-tinta dark:text-slate-50">Documentos de la licitación</h2>
+              <p className="text-xs text-tinta-2 dark:text-slate-400 tabular-nums">
+                {cargandoDocs ? 'Cargando…' : `${docsLicitacion.length} documento${docsLicitacion.length !== 1 ? 's' : ''}`}
+                {yaClasificados && ' · ordenados por tipo'}
+                {' · arrastra entre cajas para reordenar'}
               </p>
             </div>
           </div>
-        )}
-
-        {/* Contenido — las cajas (con su botón de subida manual) se muestran SIEMPRE, incluso sin
-            un solo documento todavía: es el único lugar para subir el primer documento a mano
-            sin tener que esperar la descarga automática. Antes esta sección entera quedaba oculta
-            con documentosCache.length === 0, dejando sin botón de subida a cualquier licitación
-            recién creada (reportado 24-ago-2026). */}
-        {cargandoDocs ? (
-          <div className="flex items-center justify-center py-8 gap-2 text-sm text-slate-500">
-            <Loader2 size={16} className="animate-spin text-indigo-500" /> Cargando documentos...
+          <div className="flex items-center gap-2 flex-wrap">
+            <Boton variante="fantasma" tamano="sm" onClick={fetchDocumentos} title="Recargar documentos" aria-label="Recargar documentos" icono={<RefreshCw size={15} />} />
+            {onReClasificar && !clasificando && documentosCache.length > 0 && (
+              <Boton tamano="sm" onClick={onReClasificar} title="Volver a ordenar los documentos por tipo">Re-clasificar</Boton>
+            )}
+            <Boton variante="primario" tamano="sm" onClick={handleAutoDescargar} disabled={descargandoAuto}
+              icono={descargandoAuto ? <Loader2 size={15} className="animate-spin" /> : <CloudDownload size={15} />}>
+              {descargandoAuto ? 'Conectando con Mercado Público…' : 'Descargar bases de Mercado Público'}
+            </Boton>
           </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <CheckCircle size={13} className="text-emerald-500" />
-                <p className="text-[12.5px] font-semibold text-slate-600">
-                  {docsLicitacion.length} documento{docsLicitacion.length !== 1 ? 's' : ''} de la licitación
-                </p>
-              </div>
-              {onReClasificar && !clasificando && documentosCache.length > 0 && (
-                <button
-                  onClick={onReClasificar}
-                  className="flex items-center gap-1 text-[11px] text-violet-600 hover:text-violet-800 font-semibold transition-colors"
-                >
-                  <Sparkles size={10} /> Re-clasificar
-                </button>
-              )}
-            </div>
+        </div>
 
-            {documentosCache.length === 0 && (
-              <p className="text-[11.5px] text-slate-400 -mt-1">
-                Aún no hay documentos. Haz clic en <strong className="text-slate-500">Descargar Bases Automáticamente</strong>,
-                {' '}o sube uno a mano con el ícono <Upload size={10} className="inline -mt-0.5" /> de la caja que corresponda.
-              </p>
+        {(descargandoAuto || clasificando || costeo || (!clasificando && resumenClasificacion?.estado === 'incompleto' && resumenClasificacion.falta.length > 0)) && (
+          <div className="mt-4 space-y-2.5">
+            {/* Progreso — descarga o clasificación (la descarga tiene prioridad visual) */}
+            {descargandoAuto ? (
+              <ProgresoBanner fase="descargando" totalDocs={documentosCache.length} />
+            ) : clasificando ? (
+              <ProgresoBanner fase="clasificando" totalDocs={documentosCache.length} />
+            ) : null}
+
+            {/* Costeo generado — aparece cuando hay un COSTEO_ en DOCUMENTOS_PROPIOS */}
+            {costeo && (
+              <div className="flex flex-wrap items-center gap-3 rounded-xl bg-slate-50 px-4 py-3 dark:bg-slate-800/50">
+                <span className="w-8 h-8 rounded-lg bg-white text-exito flex items-center justify-center flex-shrink-0 shadow-tarjeta dark:bg-slate-900"><TableProperties size={16} /></span>
+                <div className="flex-1 min-w-[200px]">
+                  <p className="text-[13px] font-medium text-tinta dark:text-slate-100">Excel de costeo generado</p>
+                  <p className="text-xs text-tinta-2 dark:text-slate-400 truncate">{costeo.nombre} · en Documentos para Mercado Público</p>
+                  {costeoError && <p className="text-xs text-urgente mt-1">{costeoError}</p>}
+                </div>
+                <Boton tamano="sm" onClick={handleRegenerarCosteo} disabled={regenerandoCosteo}
+                  title="Regenerar el Excel desde el informe guardado (sin volver a analizar)"
+                  icono={regenerandoCosteo ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}>
+                  {regenerandoCosteo ? 'Regenerando…' : 'Regenerar'}
+                </Boton>
+                <a href={urlDescarga((costeo as any).url_local || (costeo as any).url)} download={costeo.nombre}
+                  className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-medium bg-marca text-white hover:bg-marca-fuerte shadow-tarjeta transition-colors duration-150">
+                  <Download size={15} /> Descargar
+                </a>
+              </div>
             )}
 
-            <DocumentosGrid
-              documentos={docsLicitacion as DocLicitacion[]}
-              codigoDecoded={codigoDecoded}
-              onView={verYRegistrar}
-              onOpenIA={setIaDoc}
-              onRefrescar={fetchDocumentos}
-              onRellenarAnexo={puedeAnexos ? handleRellenarAnexo : undefined}
-              onSepararAnexo={puedeAnexos ? true : undefined}
-              onEnviarAuditor={puedeEnviarAuditor && negocioId ? setEnviandoDoc : undefined}
-              onRellenarTodos={puedeAnexos ? handleGenerarTodos : undefined}
-              modo="licitacion"
-              urlsEnAuditor={urlsEnAuditor}
-            />
+            {/* Set incompleto */}
+            {!clasificando && resumenClasificacion?.estado === 'incompleto' && resumenClasificacion.falta.length > 0 && (
+              <div className="flex items-start gap-2.5 rounded-xl bg-amber-50 px-4 py-3 dark:bg-amber-950/30">
+                <AlertTriangle size={16} className="text-alerta flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-[13px] font-medium text-amber-900 dark:text-amber-200">Faltan documentos en el set</p>
+                  <p className="text-xs text-amber-800 dark:text-amber-300 mt-0.5">
+                    No se detectaron: {resumenClasificacion.falta.map(f => f.replace(/_/g, ' ').toLowerCase()).join(', ')}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         )}
-      </div>
+      </section>
 
-      {/* ── APARTADO DOCUMENTOS PROPIOS / PARA MP ── (lo que NOSOTROS subimos o generamos:
-          costeo, informe y los archivos que presentaremos a Mercado Público). Siempre visible:
-          es el ÚNICO lugar para subir archivos propios (botón "Documentos para MP"). */}
-      <SectionHeader
-        icon={<FileText size={18} />}
-        title="Documentos para Mercado Público"
-        subtitle="Archivos que presentarás a Mercado Público (más costeo e informe generados)"
-        badge={docsPropios.length > 0 ? (
-          <span className="px-2 py-0.5 bg-violet-100 text-violet-700 text-xs rounded-full font-semibold">
-            {docsPropios.length}
-          </span>
-        ) : undefined}
-      />
-      <div className="card p-5">
+      {/* Las cajas (con su botón de subida manual) se muestran SIEMPRE, incluso sin un solo
+          documento todavía: es el único lugar para subir el primer documento a mano sin esperar
+          la descarga automática (reportado 24-ago-2026). */}
+      {cargandoDocs ? (
+        <div className="columns-1 md:columns-2 2xl:columns-3 gap-3">
+          {[0, 1, 2].map(k => (
+            <div key={k} className={`${CAJA_BASE} border-linea p-4 space-y-3 dark:border-slate-800`}>
+              <Esqueleto className="h-5 w-40" /><Esqueleto className="h-9 w-full" /><Esqueleto className="h-9 w-full" />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <DocumentosGrid
+          documentos={docsLicitacion as DocLicitacion[]}
+          codigoDecoded={codigoDecoded}
+          onView={verYRegistrar}
+          onOpenIA={setIaDoc}
+          onRefrescar={fetchDocumentos}
+          onSepararAnexo={puedeAnexos ? true : undefined}
+          modo="licitacion"
+          urlsEnAuditor={urlsEnAuditor}
+        />
+      )}
+
+      {/* ── DOCUMENTOS PARA MERCADO PÚBLICO ── (lo que NOSOTROS subimos o generamos: costeo,
+          informe, anexos rellenados y los archivos que presentaremos). Siempre visible: es el
+          ÚNICO lugar para subir archivos propios. */}
+      <section className={BLOQUE}>
+        <div className="flex items-center gap-3 mb-4">
+          <span className={ICONO}><FileText size={18} /></span>
+          <div className="min-w-0">
+            <h2 className="text-[17px] font-semibold tracking-tight text-tinta dark:text-slate-50">Documentos para Mercado Público</h2>
+            <p className="text-xs text-tinta-2 dark:text-slate-400 tabular-nums">
+              {docsPropios.length > 0 ? `${docsPropios.length} documento${docsPropios.length !== 1 ? 's' : ''} · ` : ''}lo que presentarás en la oferta, más el costeo y el informe generados
+            </p>
+          </div>
+        </div>
         <DocumentosPropiosGrid
           docs={docsPropios as DocPropio[]}
           codigoDecoded={codigoDecoded}
           onView={verYRegistrar}
           onRefrescar={fetchDocumentos}
-          onEnviarAuditor={puedeEnviarAuditor && negocioId ? (doc => esCosteo(doc) ? enviarCosteoAlMotorComercial(doc) : setEnviandoDoc(doc)) : undefined}
           urlsEnAuditor={urlsEnAuditor}
         />
-      </div>
+      </section>
 
       {/* Visor inline de documentos (PDF/imagen/Office) — sin descargar */}
       <DocumentViewerModal doc={visorDoc} onClose={() => setVisorDoc(null)} />
 
       {/* Chat rápido de IA sobre un documento puntual */}
       <DocumentoIAModal doc={iaDoc} codigo={codigoDecoded} onClose={() => setIaDoc(null)} />
-
-      {/* Enviar un documento ya existente (propio o de la licitación) a un punto del Auditor
-          Técnico — camino inverso al de "Generar": acá el archivo ya está listo. */}
-      <SelectorPuntoAuditor
-        negocioId={negocioId ?? null}
-        nombreArchivo={enviandoDoc?.nombre ?? null}
-        onSeleccionar={enviarAAuditor}
-        onClose={() => setEnviandoDoc(null)}
-      />
-
-      {/* Camino "línea técnica": el documento se compara contra las características exigidas
-          apenas se abre, y el resultado se ve en el modal — no en un toast. */}
-      {comparandoFicha && negocioId && (
-        <ModalAuditorLineaTecnica
-          negocioId={negocioId}
-          itemId={comparandoFicha.itemId}
-          licitacionCodigo={codigoDecoded}
-          puedeAprobar={false}
-          bloqueado={false}
-          documentoInicial={comparandoFicha.documento}
-          onClose={() => setComparandoFicha(null)}
-        />
-      )}
-
-      {/* Pantalla de relleno de un anexo de oferente — en modo batch ("Generar todos"), en vez de
-          cerrar tras generar, encadena el siguiente doc de colaAnexos (ver avanzarCola). */}
-      <AnexoRellenoModal
-        doc={anexoDoc}
-        codigo={codigoDecoded}
-        empresaId={empresaId ?? null}
-        progreso={colaAnexos.length > 0 ? { actual: indiceCola + 1, total: colaAnexos.length } : undefined}
-        onGenerado={(archivos) => {
-          const continuar = colaContinuacionRef.current;
-          if (continuar) {
-            colaContinuacionRef.current = null;
-            batchRecienGeneradoRef.current = true;
-            continuar();
-          } else {
-            fetchDocumentos();
-            // Cambio de flujo (1-oct-2026): los anexos para la oferta se generan y se cargan desde Auditor → Anexos («Generar anexo» en cada punto).
-            // Lo que se genere aquí queda en Documentos Propios y ya no abre el selector de «enviar al Auditor» (sigue el botón manual si hace falta).
-          }
-        }}
-        onClose={() => {
-          if (batchRecienGeneradoRef.current) {
-            // Cierre automático que dispara el modal justo después de generar con éxito — el
-            // avance de cola ya lo maneja onGenerado, esto no es que el usuario haya cancelado.
-            batchRecienGeneradoRef.current = false;
-            return;
-          }
-          if (colaAnexos.length > 0) {
-            // X o click afuera a mitad del batch: lo corta. Lo ya generado queda guardado, no se
-            // revierte nada.
-            setColaAnexos([]);
-            setIndiceCola(0);
-            colaContinuacionRef.current = null;
-            toast.info('Generación de anexos detenida', 'Los ya generados quedaron guardados.');
-            fetchDocumentos();
-          }
-          setAnexoDoc(null);
-        }}
-      />
-
-      {/* Anexo económico en Excel — motor y pantalla separados del de Word/PDF. */}
-      <AnexoRellenoExcelModal
-        doc={anexoXlsxDoc}
-        codigo={codigoDecoded}
-        onGenerado={(archivo) => {
-          fetchDocumentos();
-          // Mismo criterio que el anexo Word/PDF de arriba: derecho al selector del Auditor
-          // Técnico, nunca asignado a ciegas.
-          if (puedeEnviarAuditor && negocioId) setEnviandoDoc(archivo);
-        }}
-        onClose={() => setAnexoXlsxDoc(null)}
-      />
-
-      {/* Overlay del tramo automático del batch (PDF, sin pantalla de revisión) — mismo patrón
-          visual que "separando". */}
-      {procesandoPdfBatch && createPortal(
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm overlay-in">
-          <div className="bg-white rounded-2xl shadow-2xl px-8 py-7 modal-in">
-            <DocSplitLoader
-              titulo="Rellenando anexos…"
-              subtitulo={`"${procesandoPdfBatch}" (${indiceCola + 1} de ${colaAnexos.length})`}
-            />
-          </div>
-        </div>,
-        document.body,
-      )}
     </div>
   );
 }

@@ -3,6 +3,26 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-28 — «Traer desde Documentos» en Pre-postulación › Anexos a generar
+Caso real: 4022-19-LE26 (negocio 1568). Consuelo hizo los anexos fuera de la app (firma a puño y letra) y subió
+`ANEXO N° 1..5.pdf` + `FICHA TECNICA.pdf` a Documentos; ninguno quedó en una casilla y Postulación salía vacía. El
+camino inverso («Enviar al Auditor» en Documentos) existía pero no se usó.
+**Qué se hizo:** botón «Traer desde Documentos» en cada fila tipo documento (no pide empresa) + aviso «N archivos en
+Documentos no están en ninguna casilla» con «Repartir en las casillas» (`TraerDocumentosModal.tsx`, lógica pura en
+`anexos-traer.ts`). Enlaza con la misma acción `CARGAR` (no vuelve a subir): queda «Por aprobar» y el equipo aprueba.
+Un archivo sin punto (el Anexo 5, la ficha) se elige como «Punto nuevo» → `POST comercial {accion:'agregar'}` (ahora
+devuelve `itemId`) y llega a Postulación. «Sueltos» = Documentos Propios PDF/Word/Excel sin casilla, fuera de lo que
+genera la app (subcarpetas «Anexos Administrativos/Técnicos/Económicos») y de carpetas de cotizaciones, fichas,
+experiencia, comprobantes, OC, costeo, actas. `anexos-match`: «Anexo Administrativo 1» / «Anexo Técnico 3» ya leen su
+número (antes el tipo en medio lo impedía). La propuesta exige el número o 2 palabras en común (una sola no basta).
+**Regla:** postulado = congelado; solo el admin puede enlazar (bypass que ya existía en `congelamiento.ts`). Al resto
+el botón le explica por qué no.
+**Verificado:** 1608 tests; tsc; modal renderizado con los datos reales del 1568 (reparto 1→34017, 2→34018,
+3→35390, 4→34020; 5 y ficha sin punto). NO se probó con clics en el navegador (otra sesión ocupaba el `next dev`) ni
+se cargó nada en el 1568.
+**Pendiente:** que un admin reparta los archivos del 1568. El 1568 tiene el Anexo 3 repetido («Anexo Técnico 3 -
+Oferta Técnica» 35390 y «Oferta Técnica (Anexo 3)» 35365): dedupe sin revisar.
+
 ## 2026-10-27 — «Sin requisitos técnicos» en líneas que sí los tienen (4022-19-LE26 L3 y L5): línea renumerada por la viabilidad
 **Causa:** la viabilidad se re-analizó (27-oct 17:02) y el informe quedó con UNA línea («L1 — 7 productos»), pero el costeo
 seguía con `lineaReal` 1 a 7. El Auditor busca los requisitos por número de línea (`productosCrudosDeLinea(informe, lineaReal)`):

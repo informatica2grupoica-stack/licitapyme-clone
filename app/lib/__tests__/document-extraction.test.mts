@@ -86,3 +86,29 @@ test('construirTextoPdfConHuecos: sin páginas vacías, reproduce el texto real 
   assert.match(out, /\[\[PÁGINA 2\]\]\nB/);
   assert.ok(!out.includes('OCR_NO_DISPONIBLE'));
 });
+
+// Word con imágenes dentro de una tabla: convertToHtml() las incrustaba como base64 en el HTML de
+// tablas que se anexa al texto (oct-2026: 99 docs de documentos_cache inflados, un anexo de 1.289
+// caracteres quedaba con 1,27 M). Las filas y celdas de texto se deben conservar.
+test('extractTextFromDocument (docx): tabla con imagen conserva celdas y no lleva base64', async () => {
+  const { Document, Packer, Paragraph, Table, TableRow, TableCell, ImageRun } = await import('docx');
+  const { extractTextFromDocument } = await import('../document-extraction');
+  // PNG 1x1 válido, repetido como 200 imágenes para que el base64 se notara en el largo.
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const celda = (t: string) => new TableCell({ children: [new Paragraph(t)] });
+  const doc = new Document({ sections: [{ children: [
+    new Paragraph('ANEXO N°4 ITEMIZADO'),
+    new Table({ rows: [
+      new TableRow({ children: [celda('Ítem'), celda('Producto'), celda('Logo')] }),
+      new TableRow({ children: [celda('1'), celda('Silla ergonómica'), new TableCell({
+        children: [new Paragraph({ children: Array.from({ length: 200 }, () => new ImageRun({ type: 'png', data: png, transformation: { width: 10, height: 10 } })) })],
+      })] }),
+    ] }),
+  ] }] });
+  const buffer = await Packer.toBuffer(doc);
+  const r = await extractTextFromDocument(buffer, 'docx', 'prueba.docx');
+  assert.equal(r.metodo, 'word');
+  assert.ok(!/base64|<img/i.test(r.texto), 'el texto no debe llevar imágenes');
+  assert.match(r.texto, /<tr><td><p>1<\/p><\/td><td><p>Silla ergonómica<\/p><\/td>/);
+  assert.ok(r.texto.length < 2000, `largo ${r.texto.length}`);
+});

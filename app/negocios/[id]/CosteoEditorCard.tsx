@@ -148,7 +148,26 @@ function mismoProducto(a: string, b: string): boolean {
   if (!na || !nb) return false;
   if (na === nb) return true;
   const [corta, larga] = na.length <= nb.length ? [na, nb] : [nb, na];
-  return corta.length >= 12 && larga.startsWith(corta);
+  if (corta.length >= 12 && larga.startsWith(corta)) return true;
+  // Mismo nombre escrito distinto: sin espacios ni signos, y hasta 2 letras distintas con los mismos
+  // números (3712-74-LP26: «Actualizar» agregaba 23 copias). Ver costeo-editor.ts:mismoProducto.
+  const ca = na.normalize('NFKD').replace(/[^a-z0-9]/g, ''), cb = nb.normalize('NFKD').replace(/[^a-z0-9]/g, '');
+  if (ca === cb) return true;
+  const [cc, cl] = ca.length <= cb.length ? [ca, cb] : [cb, ca];
+  if (cc.length >= 12 && cl.startsWith(cc)) return true;
+  const numeros = (s: string) => (s.match(/\d+(?:\.\d+)?/g) || []).join(' ');
+  return cc.length >= 15 && numeros(na.normalize('NFKD')) === numeros(nb.normalize('NFKD')) && distanciaHasta2(ca, cb);
+}
+function distanciaHasta2(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 2) return false;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    if (Math.min(...cur) > 2) return false;
+    prev = cur;
+  }
+  return prev[b.length] <= 2;
 }
 function buscarMismoProducto<T extends { detalle: string }>(filas: T[], detalle: string): T | undefined {
   return filas.find(f => mismoProducto(f.detalle, detalle));

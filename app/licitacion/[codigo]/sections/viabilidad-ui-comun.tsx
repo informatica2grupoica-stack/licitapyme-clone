@@ -76,10 +76,10 @@ export function HintOjo() {
   if (!visible) return null;
   const cerrar = () => { setVisible(false); try { localStorage.setItem('licitank_hint_ojo_visto', '1'); } catch { /* noop */ } };
   return (
-    <div className="flex items-center gap-2.5 text-[12.5px] text-violet-800 bg-violet-50 border border-violet-200 rounded-lg px-3 py-2">
-      <Eye size={15} className="flex-shrink-0 text-violet-500" />
-      <p className="flex-1 leading-snug">Cada dato de este análisis trae su fuente: haz clic en el ojo <Eye size={12} className="inline align-[-1px] text-violet-500" /> de cualquier cita para ver la página exacta de las bases donde aparece, con el texto resaltado.</p>
-      <button onClick={cerrar} className="text-violet-400 hover:text-violet-700 flex-shrink-0" title="Entendido, no volver a mostrar"><X size={15} /></button>
+    <div className="flex items-center gap-2.5 text-[12.5px] text-teal-900 bg-marca-suave border border-teal-200 rounded-lg px-3 py-2">
+      <Eye size={15} className="flex-shrink-0 text-teal-600" />
+      <p className="flex-1 leading-snug">Cada dato de este análisis trae su fuente: haz clic en el ojo <Eye size={12} className="inline align-[-1px] text-teal-600" /> de cualquier cita para ver la página exacta de las bases donde aparece, con el texto resaltado.</p>
+      <button onClick={cerrar} className="text-teal-500 hover:text-marca-fuerte flex-shrink-0" title="Entendido, no volver a mostrar"><X size={15} /></button>
     </div>
   );
 }
@@ -111,14 +111,14 @@ export function BotonBuscarEquipo({ codigo, producto, region }: { codigo: string
     <div className="mt-2">
       <button type="button" onClick={buscar} disabled={estado === 'cargando'}
         title="Genera un prompt con las specs limpias, lo copia y abre AI Studio para buscar 3 proveedores chilenos"
-        className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 disabled:opacity-60 px-3.5 py-2 rounded-lg shadow-sm shadow-violet-200 transition-all">
+        className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-white bg-marca hover:bg-marca-fuerte disabled:opacity-60 px-3.5 py-2 rounded-lg shadow-sm shadow-teal-100 transition-all">
         {estado === 'cargando' ? <><Loader2 size={14} className="animate-spin" /> Generando prompt…</> : <><Search size={14} /> Buscar proveedor en IA</>}
       </button>
       {estado === 'ok' && <span className="text-[10px] text-emerald-600 ml-2">✓ Prompt copiado — pégalo en AI Studio (se abrió en otra pestaña)</span>}
       {estado === 'error' && !prompt && <span className="text-[10px] text-red-600 ml-2">No se pudo generar. Reintenta.</span>}
       {prompt && (
         <details className="mt-1" open={estado === 'error'}>
-          <summary className="text-[10px] text-violet-600 cursor-pointer select-none">{estado === 'error' ? 'Copia el prompt manualmente (no se pudo copiar solo)' : 'Ver / copiar el prompt'}</summary>
+          <summary className="text-[10px] text-marca cursor-pointer select-none">{estado === 'error' ? 'Copia el prompt manualmente (no se pudo copiar solo)' : 'Ver / copiar el prompt'}</summary>
           <textarea readOnly value={prompt} onClick={e => (e.target as HTMLTextAreaElement).select()}
             className="w-full mt-1 text-[10px] p-1.5 border border-slate-200 rounded bg-slate-50 h-28 font-mono" />
         </details>
@@ -153,13 +153,13 @@ export function BotonProductoReferencia({ codigo, producto }: { codigo: string; 
     <div className="mt-2">
       <button type="button" onClick={buscar} disabled={estado === 'cargando'}
         title="Busca en la web el modelo que el cliente tenía en mente y lo compara con la ficha de las bases"
-        className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 disabled:opacity-60 px-3.5 py-2 rounded-lg transition-all">
+        className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-marca bg-marca-suave hover:bg-teal-50 border border-teal-200 disabled:opacity-60 px-3.5 py-2 rounded-lg transition-all">
         {estado === 'cargando' ? <><Loader2 size={14} className="animate-spin" /> Buscando el modelo…</> : <><Search size={14} /> Producto de referencia</>}
       </button>
       {estado === 'error' && <span className="text-[11px] text-red-600 ml-2">{error}</span>}
       {estado === 'ok' && res && (
         <div className="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Referencia para buscar</p>
+          <p className="text-[11px] font-bold text-slate-400">Referencia para buscar</p>
           {res.aviso_copiado && (
             <p className="flex items-start gap-1.5 mt-1 text-[12px] font-semibold text-amber-800"><AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />Las especificaciones parecen copiadas de este modelo.</p>
           )}
@@ -168,9 +168,9 @@ export function BotonProductoReferencia({ codigo, producto }: { codigo: string; 
             {res.candidatos.map((c, i) => (
               <li key={i} className="text-[12.5px] text-slate-700">
                 <span className="font-bold text-slate-900">{[c.marca, c.modelo].filter(Boolean).join(' ') || 'Modelo sin identificar'}</span>
-                <span className="font-black text-violet-700"> · {c.porcentaje}%</span>
+                <span className="font-semibold text-marca"> · {c.porcentaje}%</span>
                 <span className="text-slate-400"> · {c.tipo_fuente.toLowerCase()}</span>
-                {' · '}<a href={c.url} target="_blank" rel="noopener noreferrer" className="text-violet-600 underline break-all">ver ficha</a>
+                {' · '}<a href={c.url} target="_blank" rel="noopener noreferrer" className="text-marca underline break-all">ver ficha</a>
                 {c.no_cumple_detalle.length > 0 && (
                   <ul className="ml-4 list-disc text-[11.5px] text-slate-500">
                     {c.no_cumple_detalle.map((d, k) => <li key={k}>{d.caracteristica} <span className="text-red-600">({d.dato_candidato || 'no cumple'})</span></li>)}

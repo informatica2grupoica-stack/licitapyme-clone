@@ -1509,7 +1509,10 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
     // Bruto desde el monto tal cual si el modelo no lo trajo (o lo trajo sin interpretar "M$").
     const it = interpretarMonto(pres.monto_texto);
     const brutoModelo = _num(pres.bruto);
-    if (it.pesos && (brutoModelo == null || brutoModelo <= 0 || (it.miles && Math.abs(brutoModelo * 1000 - it.pesos) < 1000))) {
+    // Un bruto que no se parece al texto citado (fuera de ×0,5–×2) es una mala lectura de la cifra:
+    // 2446-307-LE26 traía "$28.003.098" y bruto 28.003098 (puntos de miles leídos como decimal) → $28.
+    const brutoDescuadrado = !!it.pesos && brutoModelo != null && brutoModelo > 0 && (brutoModelo / it.pesos < 0.5 || brutoModelo / it.pesos > 2);
+    if (it.pesos && (brutoModelo == null || brutoModelo <= 0 || brutoDescuadrado || (it.miles && Math.abs(brutoModelo * 1000 - it.pesos) < 1000))) {
       if (brutoModelo !== it.pesos) console.log(`[viabilidad-ia-v4] ${codigo}: presupuesto desde "${pres.monto_texto}" → $${it.pesos.toLocaleString('es-CL')}${it.miles ? ' (M$ = miles de pesos)' : ''}.`);
       pres.bruto = it.pesos;
     }
@@ -1542,6 +1545,13 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
       const tabla = extraerPresupuestoPorLineaTabla(leidos.map(d => ({ texto: d.texto })));
       if (tabla && tabla.size >= 2) porLinea = interpretarPorLinea([...tabla.entries()].map(([l, m]) => ({ linea: `L${l}`, bruto: m })), exentoPres);
     } catch { /* opcional */ }
+  }
+  // Con UNA sola línea en la API el tope es el total: los «montos por línea» que lea el modelo son
+  // otra cosa (3712-74-LP26: las líneas de intervención del convenio, M$ 28.097 / 40.294 / 25.113,
+  // quedaban como presupuesto de la única hoja del costeo: $23,6M neto en vez de $78,6M).
+  if (Array.isArray(ctx.itemsMP) && ctx.itemsMP.length === 1 && porLinea.length) {
+    console.log(`[viabilidad-ia-v4] ${codigo}: ${porLinea.length} monto(s) por línea ignorados: la API trae una sola línea.`);
+    porLinea = [];
   }
   pres.por_linea_interpretado = porLinea;
   pres.suma_lineas_cuadra = sumaLineasCuadra(porLinea, _num(pres.bruto));
@@ -2335,6 +2345,11 @@ async function analizarYGuardarViabilidadIAImpl(codigo: string, onFase?: (fase: 
   if (!rv3) return null;
   console.log(`[viabilidad-ia] ${codigo}: === FASE guardando === (informe v4 listo, nivel=${rv3.score?.nivel ?? '?'}, guardando en BD y generando costeo)…`);
   try { onFase?.('guardando'); } catch { /* noop */ }
+  // El informe anterior dice qué nombre/cantidad venía del documento: lo que el costeo digital aún
+  // tenga igual a eso se corrige con el nuevo (ver costeo-editor-reanalisis.ts).
+  const informeAnterior = await pool.query(`SELECT informe_ejecutivo FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`, [codigo])
+    .then(([rows]: any) => { const ie = rows[0]?.informe_ejecutivo; return (typeof ie === 'string' ? JSON.parse(ie) : ie)?._informe_ia_v3 ?? null; })
+    .catch(() => null);
   try { await guardarViabilidadIAV4(codigo, rv3); }
   catch (e) { console.error('[viabilidad-ia-v4] guardar falló:', String(e).slice(0, 200)); }
   // Vuelca ítems al negocio y genera el Excel de costeo.
@@ -2342,6 +2357,8 @@ async function analizarYGuardarViabilidadIAImpl(codigo: string, onFase?: (fase: 
   catch (e) { console.error('[viabilidad-ia-v3] volcar ítems falló:', String(e).slice(0, 200)); }
   try { await autoGenerarCosteo(codigo, rv3 as any); }
   catch (e) { console.error('[viabilidad-ia-v3] generar costeo falló:', String(e).slice(0, 200)); }
+  try { await (await import('@/app/lib/costeo-editor-reanalisis')).actualizarCosteosTrasReanalisis(codigo, informeAnterior, rv3); }
+  catch (e) { console.error('[viabilidad-ia-v3] actualizar costeo digital falló:', String(e).slice(0, 200)); }
   return rv3 as any;
 }
 

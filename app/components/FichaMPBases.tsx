@@ -1,53 +1,49 @@
 'use client';
 // «Contenido de las bases» tal como lo publica Mercado Público: secciones que la API no entrega
-// (3 plazos, 4 antecedentes, 5 requisitos, 6 criterios, 8 garantías, 9 cláusulas). Texto oficial, sin IA.
+// (4 antecedentes, 5 requisitos, 8 garantías, 9 cláusulas). Texto oficial, sin IA. Una sola tarjeta
+// con pestañas (skill licitank-ui). Los plazos (3) y los criterios (6) NO van aquí: tienen sus
+// propias pestañas Fechas y Criterios en el Resumen (decisión del dueño, 28-oct-2026, para no repetir).
 import { useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { IconFileDescription as FileDescription } from '@tabler/icons-react';
 import type { FichaMP } from '@/app/lib/ficha-mp';
+import { Pestanas } from '@/app/components/ui/kit/Pestanas';
+import { Esqueleto } from '@/app/components/ui/kit/Estructura';
+import { EASE_LK } from '@/app/components/ui/kit/movimiento';
 
 const SIN_DATO = /^no hay informaci[oó]n/i;
+const CAJA = 'bg-white border border-linea rounded-2xl shadow-tarjeta dark:bg-slate-900 dark:border-slate-800';
+
+type Pestana = 'antecedentes' | 'requisitos' | 'garantias' | 'clausulas';
 
 function Lista({ items }: { items: string[] }) {
   if (!items.length) return null;
   return (
-    <ul className="space-y-1.5 mt-1">
+    <ul className="space-y-1.5">
       {items.map((t, i) => (
-        <li key={i} className="text-[12.5px] text-zinc-700 leading-relaxed pl-3 relative before:content-['•'] before:absolute before:left-0 before:text-zinc-300">{t}</li>
+        <li key={i} className="flex gap-2 text-[13px] text-tinta-2 dark:text-slate-300 leading-relaxed">
+          <span aria-hidden className="w-1 h-1 rounded-full bg-slate-400 mt-[9px] flex-shrink-0" />{t}
+        </li>
       ))}
     </ul>
   );
 }
 
-function Sub({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Grupo({ titulo, cantidad, children }: { titulo: string; cantidad?: number; children: React.ReactNode }) {
   return (
-    <div className="mt-3 first:mt-0">
-      <p className="text-[11.5px] font-semibold text-zinc-500 uppercase tracking-wide">{titulo}</p>
+    <div className="rounded-xl bg-slate-50/80 p-4 dark:bg-slate-800/40">
+      <p className="flex items-center justify-between gap-2 text-[13px] font-semibold text-tinta dark:text-slate-100 mb-2.5">
+        {titulo}{cantidad !== undefined && <span className="text-xs font-semibold tabular-nums text-tinta-3">{cantidad}</span>}
+      </p>
       {children}
     </div>
-  );
-}
-
-function Bloque({ id, n, titulo, children, plegable }: { id: string; n: number; titulo: string; children: React.ReactNode; plegable?: boolean }) {
-  const cabecera = <>{n}. {titulo}</>;
-  return (
-    <section id={id} className="bg-white border border-zinc-200/60 rounded-xl p-5 scroll-mt-4">
-      {plegable ? (
-        <details>
-          <summary className="cursor-pointer text-[12px] font-bold text-zinc-400 uppercase tracking-wider">{cabecera}</summary>
-          <div className="mt-3">{children}</div>
-        </details>
-      ) : (
-        <>
-          <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider mb-3">{cabecera}</h3>
-          {children}
-        </>
-      )}
-    </section>
   );
 }
 
 export function FichaMPBases({ codigo }: { codigo: string }) {
   const [ficha, setFicha] = useState<FichaMP | null>(null);
   const [estado, setEstado] = useState<'cargando' | 'ok' | 'error'>('cargando');
+  const [pestana, setPestana] = useState<Pestana | null>(null);
 
   useEffect(() => {
     let vivo = true;
@@ -59,103 +55,89 @@ export function FichaMPBases({ codigo }: { codigo: string }) {
     return () => { vivo = false; };
   }, [codigo]);
 
-  if (estado === 'cargando') return <div className="text-[12px] text-zinc-400 px-1">Leyendo las bases publicadas en Mercado Público…</div>;
+  if (estado === 'cargando') {
+    return (
+      <div className={`${CAJA} p-5 space-y-3`} aria-label="Leyendo las bases publicadas en Mercado Público">
+        <Esqueleto className="h-5 w-48" /><Esqueleto className="h-8 w-full max-w-lg" /><Esqueleto className="h-16 w-full" />
+      </div>
+    );
+  }
   if (estado === 'error' || !ficha) return null; // si MP no responde, el resto del Resumen sigue igual
 
   const { antecedentes: ant, requisitosAdjudicado: req } = ficha;
   const conDato = (a: string[]) => a.filter(x => !SIN_DATO.test(x));
-  const hayAnt = ant.administrativos.length + ant.tecnicos.length + ant.economicos.length > 0;
+  const nAnt = ant.administrativos.length + ant.tecnicos.length + ant.economicos.length;
   const hayReq = req.personaNatural.length + req.personaJuridica.length + req.documentosNatural.length + req.documentosJuridica.length > 0;
 
-  const secciones = [
-    ficha.etapasPlazos.length > 0 && { id: 'fmp-3', n: 3, t: 'Etapas y plazos' },
-    hayAnt && { id: 'fmp-4', n: 4, t: 'Antecedentes para incluir en la oferta' },
-    hayReq && { id: 'fmp-5', n: 5, t: 'Requisitos para contratar al proveedor adjudicado' },
-    ficha.criterios.length > 0 && { id: 'fmp-6', n: 6, t: 'Criterios de evaluación' },
-    ficha.garantias && { id: 'fmp-8', n: 8, t: 'Garantías requeridas' },
-    ficha.requerimientos.length > 0 && { id: 'fmp-9', n: 9, t: 'Requerimientos técnicos y otras cláusulas' },
-  ].filter(Boolean) as { id: string; n: number; t: string }[];
+  const opciones = ([
+    nAnt > 0 && { valor: 'antecedentes', etiqueta: 'Antecedentes', contador: nAnt },
+    hayReq && { valor: 'requisitos', etiqueta: 'Requisitos' },
+    ficha.garantias && { valor: 'garantias', etiqueta: 'Garantías' },
+    ficha.requerimientos.length > 0 && { valor: 'clausulas', etiqueta: 'Cláusulas', contador: ficha.requerimientos.length },
+  ].filter(Boolean)) as { valor: Pestana; etiqueta: string; contador?: number }[];
 
-  if (!secciones.length) return null;
-  const sumaPond = ficha.criterios.reduce((s, c) => s + (parseFloat(c.ponderacion) || 0), 0);
+  if (!opciones.length) return null;
+  const activa = pestana && opciones.some(o => o.valor === pestana) ? pestana : opciones[0].valor;
 
   return (
-    <div className="space-y-4">
-      <div className="bg-white border border-zinc-200/60 rounded-xl p-5">
-        <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider mb-2">Contenido de las bases</h3>
-        <p className="text-[11px] text-zinc-400 mb-3">Texto oficial de la ficha de Mercado Público.</p>
-        <ol className="grid sm:grid-cols-2 gap-x-6 gap-y-1">
-          {secciones.map(s => (
-            <li key={s.id}><a href={`#${s.id}`} className="text-[13px] text-indigo-600 hover:underline">{s.n}. {s.t}</a></li>
-          ))}
-        </ol>
+    <section className={`${CAJA} p-5`}>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <div className="flex items-center gap-2.5">
+          <span className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center dark:bg-slate-800 dark:text-slate-400"><FileDescription size={16} /></span>
+          <div>
+            <h3 className="text-[15px] font-semibold text-tinta dark:text-slate-100 leading-tight">Bases de la licitación</h3>
+            <p className="text-xs text-tinta-2 dark:text-slate-400">Texto oficial de la ficha de Mercado Público</p>
+          </div>
+        </div>
+        <div className="max-w-full overflow-x-auto">
+          <Pestanas id="bases-mp" valor={activa} onCambio={setPestana} opciones={opciones} />
+        </div>
       </div>
 
-      {ficha.etapasPlazos.length > 0 && (
-        <Bloque id="fmp-3" n={3} titulo="Etapas y plazos">
-          {ficha.etapasPlazos.map(p => (
-            <div key={p.etiqueta} className="flex justify-between gap-3 py-2 border-b border-zinc-50 last:border-0">
-              <span className="text-[12px] text-zinc-400">{p.etiqueta}</span>
-              <span className={`text-[12.5px] text-right ${SIN_DATO.test(p.valor) ? 'text-zinc-300' : 'font-semibold text-zinc-700'}`}>{p.valor}</span>
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div key={activa} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+          transition={{ duration: 0.18, ease: EASE_LK }}>
+          {activa === 'antecedentes' && (
+            <div className="grid md:grid-cols-3 gap-3">
+              {ant.administrativos.length > 0 && <Grupo titulo="Administrativos" cantidad={ant.administrativos.length}><Lista items={ant.administrativos} /></Grupo>}
+              {ant.tecnicos.length > 0 && <Grupo titulo="Técnicos" cantidad={ant.tecnicos.length}><Lista items={ant.tecnicos} /></Grupo>}
+              {ant.economicos.length > 0 && <Grupo titulo="Económicos" cantidad={ant.economicos.length}><Lista items={ant.economicos} /></Grupo>}
             </div>
-          ))}
-        </Bloque>
-      )}
+          )}
 
-      {hayAnt && (
-        <Bloque id="fmp-4" n={4} titulo="Antecedentes para incluir en la oferta">
-          {ant.administrativos.length > 0 && <Sub titulo="Documentos administrativos"><Lista items={ant.administrativos} /></Sub>}
-          {ant.tecnicos.length > 0 && <Sub titulo="Documentos técnicos"><Lista items={ant.tecnicos} /></Sub>}
-          {ant.economicos.length > 0 && <Sub titulo="Documentos económicos"><Lista items={ant.economicos} /></Sub>}
-        </Bloque>
-      )}
+          {activa === 'requisitos' && (
+            <div className="grid md:grid-cols-2 gap-3">
+              {(conDato(req.personaNatural).length > 0 || req.documentosNatural.length > 0) && (
+                <Grupo titulo="Persona natural">
+                  {conDato(req.personaNatural).length > 0 && <><p className="text-[11px] text-slate-500 mb-1">Inhabilidades</p><Lista items={req.personaNatural} /></>}
+                  {req.documentosNatural.length > 0 && <><p className="text-[11px] text-slate-500 mt-3 mb-1">Documentos</p><Lista items={req.documentosNatural} /></>}
+                </Grupo>
+              )}
+              {(conDato(req.personaJuridica).length > 0 || req.documentosJuridica.length > 0) && (
+                <Grupo titulo="Persona jurídica">
+                  {conDato(req.personaJuridica).length > 0 && <><p className="text-[11px] text-slate-500 mb-1">Inhabilidades</p><Lista items={req.personaJuridica} /></>}
+                  {req.documentosJuridica.length > 0 && <><p className="text-[11px] text-slate-500 mt-3 mb-1">Documentos</p><Lista items={req.documentosJuridica} /></>}
+                </Grupo>
+              )}
+            </div>
+          )}
 
-      {hayReq && (
-        <Bloque id="fmp-5" n={5} titulo="Requisitos para contratar al proveedor adjudicado" plegable>
-          {conDato(req.personaNatural).length > 0 && <Sub titulo="Persona natural — inhabilidades"><Lista items={req.personaNatural} /></Sub>}
-          {req.documentosNatural.length > 0 && <Sub titulo="Persona natural — documentos"><Lista items={req.documentosNatural} /></Sub>}
-          {conDato(req.personaJuridica).length > 0 && <Sub titulo="Persona jurídica — inhabilidades"><Lista items={req.personaJuridica} /></Sub>}
-          {req.documentosJuridica.length > 0 && <Sub titulo="Persona jurídica — documentos"><Lista items={req.documentosJuridica} /></Sub>}
-        </Bloque>
-      )}
+          {activa === 'garantias' && (
+            <p className={`text-[13px] leading-relaxed whitespace-pre-line max-w-prose ${SIN_DATO.test(ficha.garantias) ? 'text-slate-400' : 'text-tinta-2 dark:text-slate-300'}`}>{ficha.garantias}</p>
+          )}
 
-      {ficha.criterios.length > 0 && (
-        <Bloque id="fmp-6" n={6} titulo="Criterios de evaluación">
-          <div className="space-y-3">
-            {ficha.criterios.map(c => (
-              <div key={c.numero + c.nombre} className="border border-zinc-100 rounded-lg p-3">
-                <div className="flex justify-between gap-3">
-                  <span className="text-[13px] font-semibold text-zinc-800">{c.numero} {c.nombre}</span>
-                  <span className="text-[13px] font-bold text-indigo-600 flex-shrink-0">{c.ponderacion}</span>
+          {activa === 'clausulas' && (
+            <div className="grid md:grid-cols-2 gap-x-6 gap-y-4">
+              {ficha.requerimientos.map(r => (
+                <div key={r.titulo} className="min-w-0">
+                  <p className="text-[13px] font-semibold text-tinta dark:text-slate-100">{r.titulo}</p>
+                  <p className="mt-0.5 text-xs text-tinta-2 dark:text-slate-400 leading-relaxed whitespace-pre-line">{r.descripcion}</p>
                 </div>
-                {c.observaciones && <p className="text-[12px] text-zinc-500 leading-relaxed mt-1.5 whitespace-pre-line">{c.observaciones}</p>}
-              </div>
-            ))}
-          </div>
-          <p className={`text-[11px] mt-2 ${Math.round(sumaPond) === 100 ? 'text-zinc-400' : 'text-amber-600'}`}>
-            Suma de ponderaciones: {Math.round(sumaPond)}%{Math.round(sumaPond) === 100 ? '' : ' — no cuadra con 100%, revisar las bases'}
-          </p>
-        </Bloque>
-      )}
-
-      {ficha.garantias && (
-        <Bloque id="fmp-8" n={8} titulo="Garantías requeridas">
-          <p className={`text-[12.5px] ${SIN_DATO.test(ficha.garantias) ? 'text-zinc-400' : 'text-zinc-700'}`}>{ficha.garantias}</p>
-        </Bloque>
-      )}
-
-      {ficha.requerimientos.length > 0 && (
-        <Bloque id="fmp-9" n={9} titulo="Requerimientos técnicos y otras cláusulas" plegable>
-          <div className="space-y-3">
-            {ficha.requerimientos.map(r => (
-              <div key={r.titulo}>
-                <p className="text-[12.5px] font-semibold text-zinc-700">{r.titulo}</p>
-                <p className="text-[12px] text-zinc-500 leading-relaxed whitespace-pre-line">{r.descripcion}</p>
-              </div>
-            ))}
-          </div>
-        </Bloque>
-      )}
-    </div>
+              ))}
+            </div>
+          )}
+        </motion.div>
+      </AnimatePresence>
+    </section>
   );
 }

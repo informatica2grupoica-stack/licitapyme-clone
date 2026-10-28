@@ -4,9 +4,9 @@
 // Movimiento: entrada escalonada y números que cuentan (framer-motion + useContador); respeta "reducir movimiento".
 // Solo presentación: los datos y las reglas siguen viniendo del informe.
 
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { IconAlertTriangle as AlertTriangle, IconBan as Ban, IconCompass as Compass, IconChevronDown as ChevronDown, IconCheck as Check, IconClock as Clock, IconTrophy as Trophy, IconX as X, IconArrowRight as ArrowRight, IconBulb as Bulb, IconWallet as Wallet, IconGavel as Gavel, IconStarFilled as StarFilled, IconTrendingUp as TrendingUp, IconTrendingDown as TrendingDown, IconEqual as Equal, IconPackage as Package, IconClipboardCheck as ClipboardCheck, IconSearch as Search, IconShieldCheck as ShieldCheck, IconPencil as Pencil, IconQuote as Quote, IconScale as Scale, IconTarget as Target, IconListCheck as ListChecks, IconHelpCircle as HelpCircle } from '@tabler/icons-react';
+import { IconAlertTriangle as AlertTriangle, IconBan as Ban, IconCompass as Compass, IconChevronDown as ChevronDown, IconCheck as Check, IconClock as Clock, IconTrophy as Trophy, IconX as X, IconArrowRight as ArrowRight, IconBulb as Bulb, IconWallet as Wallet, IconGavel as Gavel, IconTrendingUp as TrendingUp, IconTrendingDown as TrendingDown, IconEqual as Equal, IconPackage as Package, IconClipboardCheck as ClipboardCheck, IconSearch as Search, IconShieldCheck as ShieldCheck, IconPencil as Pencil, IconQuote as Quote, IconScale as Scale, IconTarget as Target, IconListCheck as ListChecks, IconHelpCircle as HelpCircle } from '@tabler/icons-react';
 import { Badge } from '@/app/components/ui/Badge';
 import { useContador } from '@/app/lib/use-contador';
 import { BotonBuscarEquipo, BotonProductoReferencia } from './viabilidad-ui-comun';
@@ -21,34 +21,38 @@ const ACCION: Record<string, { cls: string; icono: React.ReactNode }> = {
 };
 
 type Variante = 'default' | 'primary' | 'success' | 'warning' | 'danger' | 'info';
-const CLASE: Record<string, { label: string; variante: Variante; tip: string; ley?: boolean }> = {
+export const CLASE: Record<string, { label: string; variante: Variante; tip: string; ley?: boolean }> = {
   LEY_DEL_MINIMO: { label: 'Ley del mínimo', variante: 'success', ley: true, tip: 'Gana quien oferte el valor más bajo: cada unidad de mejora suma puntaje.' },
   LEY_DEL_MAXIMO: { label: 'Ley del máximo', variante: 'success', ley: true, tip: 'Gana quien oferte el valor más alto: cada unidad de mejora suma puntaje.' },
   POR_TRAMOS:     { label: 'Por tramos',     variante: 'default', tip: 'El puntaje va por rangos: basta con quedar en el mejor tramo.' },
   ACUMULATIVO:    { label: 'Acumulativo',    variante: 'primary', tip: 'Suma puntos por cada requisito que se cumple: cumple el máximo posible.' },
   BINARIO:        { label: 'Cumple o no',    variante: 'info',    tip: 'Se cumple o no se cumple: no hay puntaje intermedio.' },
 };
-const JUGADA: Record<string, { label: string; icono: React.ReactNode; tono: string; texto: string }> = {
-  OPORTUNIDAD: { label: 'Oportunidad: aquí se gana',       icono: <TrendingUp size={17} />,   tono: 'bg-emerald-100 text-emerald-700', texto: 'text-emerald-700' },
-  RESOLVER:    { label: 'Por resolver antes de ofertar',   icono: <HelpCircle size={17} />,   tono: 'bg-amber-100 text-amber-700',     texto: 'text-amber-700' },
-  EMPATE:      { label: 'Empate: todos parten igual',      icono: <Equal size={17} />,        tono: 'bg-slate-100 text-slate-600',     texto: 'text-slate-500' },
-  EN_CONTRA:   { label: 'En contra: nos juega en contra',  icono: <TrendingDown size={17} />, tono: 'bg-red-100 text-red-700',         texto: 'text-red-700' },
+// Colores de la jugada: el color va en el ícono y el rótulo; la tarjeta es neutra (skill licitank-ui).
+const JUGADA: Record<string, { label: string; icono: React.ReactNode; color: string }> = {
+  OPORTUNIDAD: { label: 'Oportunidad: aquí se gana',       icono: <TrendingUp size={16} />,   color: '#047857' },
+  RESOLVER:    { label: 'Por resolver antes de ofertar',   icono: <HelpCircle size={16} />,   color: '#b45309' },
+  EMPATE:      { label: 'Empate: todos parten igual',      icono: <Equal size={16} />,        color: '#64748b' },
+  EN_CONTRA:   { label: 'En contra: nos juega en contra',  icono: <TrendingDown size={16} />, color: '#dc2626' },
 };
+// Serie de colores de los criterios: teal, pizarra, ámbar, cian, verde, naranja, rosa, piedra (sin morados).
 const COLOR_CRITERIO = [
-  { hex: '#8b5cf6', barra: 'bg-violet-500', suave: 'bg-violet-50', texto: 'text-violet-700' },
-  { hex: '#10b981', barra: 'bg-emerald-500', suave: 'bg-emerald-50', texto: 'text-emerald-700' },
-  { hex: '#0ea5e9', barra: 'bg-sky-500', suave: 'bg-sky-50', texto: 'text-sky-700' },
-  { hex: '#f59e0b', barra: 'bg-amber-500', suave: 'bg-amber-50', texto: 'text-amber-700' },
-  { hex: '#f43f5e', barra: 'bg-rose-500', suave: 'bg-rose-50', texto: 'text-rose-700' },
-  { hex: '#64748b', barra: 'bg-slate-500', suave: 'bg-slate-100', texto: 'text-slate-700' },
+  { hex: '#0f766e', barra: 'bg-teal-700' },
+  { hex: '#475569', barra: 'bg-slate-600' },
+  { hex: '#d97706', barra: 'bg-amber-600' },
+  { hex: '#0891b2', barra: 'bg-cyan-600' },
+  { hex: '#16a34a', barra: 'bg-green-600' },
+  { hex: '#ea580c', barra: 'bg-orange-600' },
+  { hex: '#db2777', barra: 'bg-pink-600' },
+  { hex: '#78716c', barra: 'bg-stone-500' },
 ];
 
 // ─── Movimiento ────────────────────────────────────────────────────────────────────────────
 function Aparece({ i = 0, children, alto }: { i?: number; children: React.ReactNode; alto?: boolean }) {
   const reducido = useReducedMotion();
   return (
-    <motion.div className={alto ? 'h-full min-w-0' : undefined} initial={reducido ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.38, delay: Math.min(i, 10) * 0.055, ease: [0.22, 1, 0.36, 1] }}>
+    <motion.div className={alto ? 'h-full min-w-0' : undefined} initial={reducido ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, delay: Math.min(i, 10) * 0.04, ease: [0.22, 1, 0.36, 1] }}>
       {children}
     </motion.div>
   );
@@ -68,56 +72,83 @@ function Aviso({ texto }: { texto: string }) {
   return (
     <li className="text-[12.5px] text-amber-800 leading-snug">
       <AlertTriangle size={13} className="inline -mt-0.5 mr-1 text-amber-500" />{mayus(corto)}
-      {detalle && <button type="button" onClick={() => setAbierto(v => !v)} className="ml-1.5 text-[12px] font-semibold text-violet-700 hover:underline">{abierto ? 'Ocultar motivo' : 'Ver motivo'}</button>}
+      {detalle && <button type="button" onClick={() => setAbierto(v => !v)} className="ml-1.5 text-[12px] font-semibold text-marca hover:underline">{abierto ? 'Ocultar motivo' : 'Ver motivo'}</button>}
       {detalle && abierto && <span className="block mt-0.5 text-slate-600">{mayus(detalle)}</span>}
     </li>
   );
 }
 
 // ─── Cabecera: nivel + acción + porqué ─────────────────────────────────────────────────────
+// Estilo bento (skill licitank-ui), igual que la viabilidad del Resumen del negocio: el color del
+// nivel va en el texto y en un medidor de 7 tramos, nunca en un bloque sólido.
+const ESCALA_NIVEL = ['EXCLUIDO', 'BAJO', 'MEDIO_BAJO', 'MEDIO', 'MEDIO_ALTO', 'ALTO', 'MUY_ALTO'];
+const tonoNivel = (cls: string) => cls.includes('emerald') ? '#047857' : cls.includes('yellow') ? '#b45309'
+  : cls.includes('orange') ? '#c2410c' : cls === 'bg-red-700' ? '#b91c1c' : cls.includes('red') ? '#dc2626' : '#64748b';
+const CAJA_V4 = 'rounded-2xl border border-linea bg-white shadow-tarjeta dark:bg-slate-900 dark:border-slate-800';
+
 export function CabeceraV4({ s, t, enRevision, esCA }: { s: any; t: any; enRevision: boolean; esCA: boolean }) {
   const [verDesglose, setVerDesglose] = useState(false);
+  const reducido = useReducedMotion();
   const nv = NIVEL_VISTA[s.nivel] || NIVEL_VISTA.MEDIO;
   const ac = ACCION[s.accion_asistente] || ACCION.CONSULTAR_CA;
   const avisos: string[] = Array.isArray(s.avisos) ? s.avisos : [];
+  const color = tonoNivel(nv.cls);
+  const tramos = ESCALA_NIVEL.indexOf(s.nivel) + 1;
   return (
     <Aparece>
-      <div className={`rounded-2xl border px-4 py-3.5 ${nv.soft}`}>
-        <div className="flex items-center gap-2 flex-wrap">
-          <span title={nv.tip} className={`text-[13px] font-black text-white px-3 py-1 rounded-lg cursor-help ${nv.cls}`}>{nv.label}</span>
-          <span className={`inline-flex items-center gap-1.5 text-[13px] font-bold px-3 py-1 rounded-lg border ${ac.cls}`}>{ac.icono} {mayus(sinCA(s.accion_texto)) || '—'}</span>
-          <span title={enRevision ? 'Una persona debe revisar el informe antes de decidir' : 'Análisis firme'}
-            className={`ml-auto text-[11px] font-semibold px-2 py-0.5 rounded-md border cursor-help ${enRevision ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>{enRevision ? 'Revisión humana' : 'Definitivo'}</span>
-        </div>
-        {s.resumen_pantalla && <p className="text-[14px] font-bold text-slate-800 mt-2.5 leading-snug">{String(s.resumen_pantalla).replace(/^[A-ZÁÉÍÓÚ ]+ · /, '').split(' · ').map(mayus).join(' · ')}</p>}
-        {t.titular && <p className="text-[13px] text-slate-600 mt-0.5 leading-snug">{mayus(sinCA(t.titular))}</p>}
-        {s.motivo_exclusion && (
-          <div className="mt-2 text-[12.5px] text-red-800 bg-white/70 border border-red-200 rounded-lg p-2">
-            <p><strong>Motivo:</strong> {s.motivo_exclusion.texto}</p>
-            <FraseCitada cita={s.motivo_exclusion.cita} />
-            <Cita cita={s.motivo_exclusion.cita} />
+      <section className={`${CAJA_V4} p-5`}>
+        <div className="flex flex-wrap items-start gap-x-8 gap-y-4">
+          <div className="min-w-[200px]">
+            <p className="text-[13px] text-tinta-2 dark:text-slate-400">Nivel de atractivo</p>
+            <p title={nv.tip} className="mt-1.5 text-[30px] font-semibold tracking-tight leading-none cursor-help" style={{ color }}>{mayus(nv.label.toLowerCase())}</p>
+            <div className="mt-3 grid grid-cols-7 gap-1" aria-hidden>
+              {ESCALA_NIVEL.map((_, k) => (
+                <motion.span key={k} className={`h-1.5 rounded-full ${k < tramos ? '' : 'bg-slate-100 dark:bg-slate-800'}`} style={k < tramos ? { background: color } : undefined}
+                  initial={reducido ? false : { opacity: 0, scaleX: 0.4 }} animate={{ opacity: 1, scaleX: 1 }}
+                  transition={{ duration: 0.25, delay: 0.15 + k * 0.04, ease: [0.22, 1, 0.36, 1] }} />
+              ))}
+            </div>
+            <div className="mt-1.5 flex justify-between text-[11px] text-slate-400"><span>Excluido</span><span>Muy alto</span></div>
           </div>
-        )}
-        {avisos.length > 0 && <ul className="mt-2 space-y-1">{avisos.map((a, i) => <Aviso key={i} texto={a} />)}</ul>}
-        {esCA && (s.pasos?.length ?? 0) > 0 && (
-          <div className="mt-2">
-            <button onClick={() => setVerDesglose(v => !v)} className="text-[11px] font-semibold text-violet-700 inline-flex items-center gap-1">
-              <ChevronDown size={12} className={`transition-transform ${verDesglose ? 'rotate-180' : ''}`} /> Desglose del nivel (solo admin)
-            </button>
-            {verDesglose && (
-              <div className="mt-1 bg-white/70 rounded-lg border border-slate-200 p-2 space-y-0.5">
-                {s.pasos.map((p: any, i: number) => <p key={i} className="text-[11px] text-slate-600"><span className="font-semibold">{p.regla}</span> · {p.efecto} · {p.dato}</p>)}
-                <p className="text-[10px] text-slate-400 pt-1">Reglas {s.version_reglas} · calculado {s.calculado_en ? new Date(s.calculado_en).toLocaleString('es-CL') : ''}{s.supuesto_no_claro ? ` · supuesto: ${s.supuesto_no_claro === 'GLOBAL' ? 'global' : 'por línea'}` : ''}</p>
+          <div className="flex-1 min-w-[260px] space-y-2">
+            <div className="flex items-center gap-x-4 gap-y-1 flex-wrap">
+              <span className={`inline-flex items-center gap-1.5 text-[15px] font-semibold ${ac.cls.split(' ')[0]}`}>{ac.icono} {mayus(sinCA(s.accion_texto)) || '—'}</span>
+              <span title={enRevision ? 'Una persona debe revisar el informe antes de decidir' : 'Análisis firme'}
+                className="ml-auto inline-flex items-center gap-1.5 text-xs text-tinta-2 dark:text-slate-400 cursor-help">
+                <span aria-hidden className={`w-1.5 h-1.5 rounded-full ${enRevision ? 'bg-amber-500' : 'bg-emerald-500'}`} />{enRevision ? 'Revisión humana' : 'Definitivo'}
+              </span>
+            </div>
+            {s.resumen_pantalla && <p className="text-sm font-medium text-tinta dark:text-slate-100 leading-snug">{String(s.resumen_pantalla).replace(/^[A-ZÁÉÍÓÚ ]+ · /, '').split(' · ').map(mayus).join(' · ')}</p>}
+            {t.titular && <p className="text-[13px] text-tinta-2 dark:text-slate-400 leading-snug">{mayus(sinCA(t.titular))}</p>}
+            {s.motivo_exclusion && (
+              <div className="text-[13px] text-red-900 bg-red-50/80 rounded-xl px-3.5 py-2.5 dark:bg-red-950/40 dark:text-red-200">
+                <p><span className="font-medium">Motivo:</span> {s.motivo_exclusion.texto}</p>
+                <FraseCitada cita={s.motivo_exclusion.cita} />
+                <Cita cita={s.motivo_exclusion.cita} />
+              </div>
+            )}
+            {avisos.length > 0 && <ul className="space-y-1">{avisos.map((a, i) => <Aviso key={i} texto={a} />)}</ul>}
+            {esCA && (s.pasos?.length ?? 0) > 0 && (
+              <div>
+                <button onClick={() => setVerDesglose(v => !v)} className="text-xs font-medium text-marca hover:text-marca-fuerte inline-flex items-center gap-1">
+                  <ChevronDown size={13} className={`transition-transform ${verDesglose ? 'rotate-180' : ''}`} /> Desglose del nivel (solo admin)
+                </button>
+                {verDesglose && (
+                  <div className="mt-1.5 bg-slate-50 rounded-xl p-3 space-y-0.5 dark:bg-slate-800/60">
+                    {s.pasos.map((p: any, i: number) => <p key={i} className="text-xs text-tinta-2 dark:text-slate-400"><span className="font-medium text-tinta dark:text-slate-200">{p.regla}</span> · {p.efecto} · {p.dato}</p>)}
+                    <p className="text-[11px] text-slate-400 pt-1">Reglas {s.version_reglas} · calculado {s.calculado_en ? new Date(s.calculado_en).toLocaleString('es-CL') : ''}{s.supuesto_no_claro ? ` · supuesto: ${s.supuesto_no_claro === 'GLOBAL' ? 'global' : 'por línea'}` : ''}</p>
+                  </div>
+                )}
               </div>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      </section>
     </Aparece>
   );
 }
 
-// ─── Datos clave: 4 tarjetas iguales (mismo molde que StatCard) ────────────────────────────
+// ─── Datos clave: 4 bloques iguales (bento, skill licitank-ui) ─────────────────────────────
 function TarjetaClave({ i, etiqueta, icono, color, alerta, titulo, valor, numero, formato, unidad, clave, texto, textoClase, pie, children }: {
   i: number; etiqueta: string; icono: React.ReactNode; color: string; alerta?: boolean; titulo?: string; valor: string;
   numero?: number; formato?: (n: number) => string; unidad?: string;
@@ -125,24 +156,42 @@ function TarjetaClave({ i, etiqueta, icono, color, alerta, titulo, valor, numero
 }) {
   const animado = useContador(numero ?? 0);
   const visible = numero != null && formato ? formato(Math.round(animado)) : valor;
-  const clsValor = valor.length > 13 ? 'text-[18px]' : valor.length > 10 ? 'text-[21px]' : 'text-[24px]';
+  const clsValor = valor.length > 13 ? 'text-[19px]' : valor.length > 10 ? 'text-[22px]' : 'text-[26px]';
   return (
     <Aparece i={i} alto>
-      <div title={titulo} className="relative min-w-0 overflow-hidden border rounded-2xl h-full flex flex-col break-words bg-white border-slate-200 shadow-sm transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
-        <div className="h-1 w-full flex-shrink-0" style={{ background: color }} />
-        <div className="flex flex-col gap-2.5 p-4 flex-1">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">{etiqueta}</p>
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: color + '18', color }}>{icono}</div>
-          </div>
-          <p className={`${clsValor} font-black leading-tight tabular-nums text-slate-900`}>{visible}{unidad ? <span className="text-[11px] font-semibold text-slate-400"> {unidad}</span> : null}</p>
+      <div title={titulo} className={`relative min-w-0 rounded-2xl border h-full flex flex-col break-words bg-white shadow-tarjeta dark:bg-slate-900 ${alerta ? 'border-red-200 dark:border-red-900' : 'border-linea dark:border-slate-800'}`}>
+        <div className="flex flex-col gap-2.5 p-5 flex-1">
+          <p className="flex items-center gap-2 text-[13px] text-tinta-2 dark:text-slate-400">
+            <span className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: color + '14', color }}>{icono}</span>{etiqueta}
+          </p>
+          <p className={`${clsValor} font-semibold tracking-tight leading-tight tabular-nums text-tinta dark:text-slate-50`}>{visible}{unidad ? <span className="text-xs font-medium text-tinta-2"> {unidad}</span> : null}</p>
           {clave && <div>{clave}</div>}
-          {texto && <p className={`text-[12px] leading-snug ${textoClase || 'text-slate-500'}`}>{texto}</p>}
+          {texto && <p className={`text-[12.5px] leading-snug ${textoClase || 'text-tinta-2 dark:text-slate-400'}`}>{texto}</p>}
           {children}
         </div>
-        {pie && <div className={`px-4 py-2.5 border-t ${alerta ? 'border-red-100' : 'border-slate-100'} bg-slate-50/60`}>{pie}</div>}
+        {pie && <div className={`px-5 py-3 border-t ${alerta ? 'border-red-100 dark:border-red-900' : 'border-linea/80 dark:border-slate-800'}`}>{pie}</div>}
       </div>
     </Aparece>
+  );
+}
+
+// Dato corto con punto de color (reemplaza las pastillas de las tarjetas clave).
+function Marca({ color, children }: { color: string; children: React.ReactNode }) {
+  return <span className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-tinta dark:text-slate-200"><span aria-hidden className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />{children}</span>;
+}
+
+// Tope por línea: con pocas líneas, a la vista; con muchas (2446-307-LE26 trae 44), plegado en una lista compacta.
+function PresupuestoPorLinea({ lineas }: { lineas: any[] }) {
+  const [abierto, setAbierto] = useState(false);
+  const fila = (l: any) => <li key={l.linea} className="flex justify-between gap-2 text-[11.5px] tabular-nums"><span className="font-bold text-slate-800">{l.linea}</span><span className="text-slate-600">{fmt(l.monto_pesos)}</span></li>;
+  if (lineas.length <= 6) return <ul className="grid grid-cols-2 gap-x-4 gap-y-0.5">{lineas.map(fila)}</ul>;
+  return (
+    <div>
+      <button type="button" onClick={() => setAbierto(v => !v)} className="text-[12px] font-semibold text-marca inline-flex items-center gap-1">
+        <ChevronDown size={12} className={`transition-transform ${abierto ? 'rotate-180' : ''}`} /> Tope por línea ({lineas.length} líneas)
+      </button>
+      {abierto && <ul className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5 max-h-48 overflow-y-auto pr-1">{lineas.map(fila)}</ul>}
+    </div>
   );
 }
 
@@ -161,39 +210,39 @@ export function TarjetasClaveV4({ informe, onVerPlazos }: { informe: any; onVerP
   const multaDia = atraso?.calculo?.pesos_dia_estimado;
   const hayMulta = atraso?.existe !== false && (multaDia != null || atraso?.valor);
   const prefijoPlazo = pp?.al_menos ? 'Al menos ' : '';
-  const enlace = (txt: string) => <button type="button" onClick={onVerPlazos} className="text-[12px] font-semibold text-violet-700 hover:underline">{txt} →</button>;
+  const enlace = (txt: string) => <button type="button" onClick={onVerPlazos} className="text-[13px] font-medium text-marca hover:text-marca-fuerte">{txt} →</button>;
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 items-stretch">
-      <TarjetaClave i={0} etiqueta="Presupuesto" icono={<Wallet size={20} />} color={excluyente ? '#dc2626' : '#059669'} alerta={excluyente}
+      <TarjetaClave i={0} etiqueta="Presupuesto" icono={<Wallet size={16} />} color={excluyente ? '#dc2626' : '#047857'} alerta={excluyente}
         valor={pres.bruto ? fmt(pres.bruto) : 'No publicado'} numero={pres.bruto ? Number(pres.bruto) : undefined} formato={fmt} unidad={pres.bruto && !pres.regimen_fora ? 'IVA incl.' : undefined}
         clave={excluyente
-          ? <span className="inline-flex items-center gap-1 text-[11px] font-black uppercase tracking-wide text-red-700 bg-red-100 border border-red-200 px-2 py-0.5 rounded-md"><Ban size={12} /> Excluyente</span>
-          : <Badge>{mayus(cap(pres.caracter || 'NO_DECLARADO').toLowerCase())}</Badge>}
+          ? <span className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-urgente"><Ban size={14} /> Excluyente</span>
+          : <Marca color="#94a3b8">{mayus(cap(pres.caracter || 'NO_DECLARADO').toLowerCase())}</Marca>}
         texto={excluyente ? 'Si lo superas, tu oferta queda fuera de la licitación.' : pres.nota_art_32 ? mayus(pres.nota_art_32) : 'Las bases no declaran si superarlo deja fuera la oferta.'}
-        textoClase={excluyente ? 'text-red-700 font-semibold' : undefined}
+        textoClase={excluyente ? 'text-red-700 font-medium dark:text-red-300' : undefined}
         pie={pres.cita ? <Cita cita={pres.cita} compacta /> : undefined}>
-        {porLinea.length >= 2 && <div className="flex flex-wrap gap-1.5">{porLinea.map((l: any) => <span key={l.linea} className="text-[11.5px] text-slate-600 bg-slate-100 rounded-md px-2 py-0.5 tabular-nums"><span className="font-bold text-slate-800">{l.linea}</span> {fmt(l.monto_pesos)}</span>)}</div>}
+        {porLinea.length >= 2 && <PresupuestoPorLinea lineas={porLinea} />}
       </TarjetaClave>
-      <TarjetaClave i={1} etiqueta="Cómo se adjudica" icono={<Gavel size={20} />} color={adj.resultado === 'NO_CLARO' ? '#d97706' : '#7c3aed'} alerta={false}
+      <TarjetaClave i={1} etiqueta="Cómo se adjudica" icono={<Gavel size={16} />} color={adj.resultado === 'NO_CLARO' ? '#d97706' : '#0f766e'} alerta={false}
         valor={adj.resultado === 'POR_LINEAS' ? 'Por línea' : adj.resultado === 'GLOBAL' ? 'Global' : 'No está claro'}
-        clave={adj.cotizar_100_texto ? <Badge variant="primary" className="text-[12px]">{mayus(adj.cotizar_100_texto)}</Badge> : undefined}
+        clave={adj.cotizar_100_texto ? <Marca color="#0f766e">{mayus(adj.cotizar_100_texto)}</Marca> : undefined}
         texto={evidencia ? `Las bases dicen que ${EVIDENCIA_TEXTO[evidencia.tipo] || cap(evidencia.tipo).toLowerCase()}.`
           : adj.resultado === 'GLOBAL' ? 'Todo se adjudica a un solo proveedor.'
           : adj.resultado === 'POR_LINEAS' ? 'Se puede ganar una o más líneas por separado.'
           : 'Confírmalo en las bases antes de decidir.'}
         pie={evidencia ? <Cita cita={evidencia.cita} compacta /> : undefined}>
-        {adj.regla_aplicada === 'CONFIRMADA' && adj.motivo && <p className="text-[12px] text-sky-700">{mayus(adj.motivo)}</p>}
+        {adj.regla_aplicada === 'CONFIRMADA' && adj.motivo && <p className="text-[12.5px] text-tinta-2 dark:text-slate-400">{mayus(adj.motivo)}</p>}
       </TarjetaClave>
-      <TarjetaClave i={2} etiqueta="Plazo previo" icono={<Clock size={20} />} color="#0284c7" titulo="Tiempo administrativo entre la adjudicación y el inicio del plazo de entrega"
-        valor={!pp ? '—' : sinPlazo ? 'Sin plazo previo' : `${prefijoPlazo}${dias} Días`}
-        numero={pp && !sinPlazo ? dias! : undefined} formato={n => `${prefijoPlazo}${n} Días`}
-        clave={pp ? <Badge variant={sinPlazo ? 'default' : 'info'} className="text-[12px]">{sinPlazo ? (plazoNoExigido ? 'Las bases no lo exigen' : 'No indicado en las bases') : 'Días corridos'}</Badge> : undefined}
+      <TarjetaClave i={2} etiqueta="Plazo previo" icono={<Clock size={16} />} color="#0891b2" titulo="Tiempo administrativo entre la adjudicación y el inicio del plazo de entrega"
+        valor={!pp ? '—' : sinPlazo ? 'Sin plazo previo' : `${prefijoPlazo}${dias} días`}
+        numero={pp && !sinPlazo ? dias! : undefined} formato={n => `${prefijoPlazo}${n} días`}
+        clave={pp ? <Marca color={sinPlazo ? '#94a3b8' : '#0891b2'}>{sinPlazo ? (plazoNoExigido ? 'Las bases no lo exigen' : 'No indicado en las bases') : 'Días corridos'}</Marca> : undefined}
         texto="Desde que se adjudica hasta que parte el plazo de entrega."
         pie={enlace('Ver plazos')} />
-      <TarjetaClave i={3} etiqueta="Multa por atraso" icono={<AlertTriangle size={20} />} color="#d97706"
+      <TarjetaClave i={3} etiqueta="Multa por atraso" icono={<AlertTriangle size={16} />} color="#d97706"
         valor={atraso?.existe === false ? 'No hay' : multaDia != null ? `≈ ${fmt(multaDia)}` : atraso?.valor ? valorMulta(atraso) : '—'}
         numero={atraso?.existe !== false && multaDia != null ? Number(multaDia) : undefined} formato={n => `≈ ${fmt(n)}`}
-        clave={hayMulta ? <Badge variant="warning" className="text-[12px]">Por {PERIODO[String(atraso?.periodo || '').toUpperCase()] || 'día'} de atraso</Badge> : undefined}
+        clave={hayMulta ? <Marca color="#d97706">Por {PERIODO[String(atraso?.periodo || '').toUpperCase()] || 'día'} de atraso</Marca> : undefined}
         texto={atraso?.existe === false ? 'Las bases no establecen multa por atraso.' : atraso?.calculo?.nota ? mayus(atraso.calculo.nota) : 'Se descuenta por cada día de atraso.'}
         pie={enlace('Ver detalle')} />
     </div>
@@ -204,12 +253,12 @@ export function TarjetasClaveV4({ informe, onVerPlazos }: { informe: any; onVerP
 function Bloque({ i, icon, titulo, subtitulo, derecha, children }: { i: number; icon: React.ReactNode; titulo: string; subtitulo?: string; derecha?: React.ReactNode; children: React.ReactNode }) {
   return (
     <Aparece i={i}>
-      <section className="border border-slate-200 rounded-2xl bg-white p-5">
+      <section className={`${CAJA_V4} p-5`}>
         <div className="flex items-start gap-3 mb-4">
-          <span className="flex-shrink-0 w-9 h-9 rounded-xl bg-violet-100 text-violet-600 flex items-center justify-center">{icon}</span>
+          <span className="flex-shrink-0 w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center dark:bg-slate-800 dark:text-slate-400">{icon}</span>
           <div className="min-w-0 flex-1">
-            <h3 className="text-[17px] font-black text-slate-900 leading-tight">{titulo}</h3>
-            {subtitulo && <p className="text-[12.5px] text-slate-500 mt-0.5">{subtitulo}</p>}
+            <h3 className="text-[16px] font-semibold tracking-tight text-tinta dark:text-slate-50 leading-tight">{titulo}</h3>
+            {subtitulo && <p className="text-[13px] text-tinta-2 dark:text-slate-400 mt-0.5">{subtitulo}</p>}
           </div>
           {derecha}
         </div>
@@ -219,9 +268,38 @@ function Bloque({ i, icon, titulo, subtitulo, derecha, children }: { i: number; 
   );
 }
 
-// El dato más importante de un criterio: cómo se puntúa el valor. Siempre sólido y destacado.
+// Marca de la ley de puntaje (ley del mínimo / del máximo): es la clave para ganar, va resaltada.
 function MarcaLey({ clase }: { clase: { label: string; tip: string } }) {
-  return <span title={clase.tip} className="inline-flex items-center gap-1.5 bg-emerald-600 text-white text-[12px] font-black uppercase tracking-wide px-2.5 py-1 rounded-md cursor-help"><StarFilled size={13} />{clase.label}</span>;
+  return (
+    <span title={clase.tip} className="inline-flex items-center gap-1.5 rounded-md bg-emerald-100 px-2 py-0.5 text-[13px] font-semibold text-emerald-900 cursor-help dark:bg-emerald-900/50 dark:text-emerald-200">
+      <Trophy size={14} />{clase.label}
+    </span>
+  );
+}
+
+// Clase del criterio: la ley resaltada en verde; las demás (por tramos, cumple o no…) como marca gris.
+function ClaseCriterio({ clase }: { clase: { label: string; tip: string; ley?: boolean } }) {
+  if (clase.ley) return <MarcaLey clase={clase} />;
+  return (
+    <span title={clase.tip} className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-[13px] font-medium text-tinta dark:bg-slate-800 dark:text-slate-200 cursor-help">{clase.label}</span>
+  );
+}
+
+// «Gana quien oferte el valor más bajo: cada unidad…» → la frase antes de los dos puntos va en negrita.
+function TipNegrita({ tip }: { tip: string }) {
+  const i = tip.indexOf(':');
+  if (i < 0) return <strong className="font-semibold text-tinta dark:text-slate-50">{tip}</strong>;
+  return <><strong className="font-semibold text-tinta dark:text-slate-50">{tip.slice(0, i)}</strong>{tip.slice(i)}</>;
+}
+
+// Cómo se puntúa / cómo se gana: el dato más importante de un criterio, siempre visible y marcado.
+function ComoPuntua({ cl }: { cl: { tip: string; ley?: boolean } }) {
+  return (
+    <div className={`rounded-lg px-3.5 py-2.5 ${cl.ley ? 'bg-emerald-100/70 dark:bg-emerald-900/30' : 'bg-marca-suave dark:bg-teal-950/30'}`}>
+      <p className={`text-[13px] font-semibold ${cl.ley ? 'text-emerald-800 dark:text-emerald-300' : 'text-teal-800 dark:text-teal-300'}`}>{cl.ley ? 'Cómo se gana' : 'Cómo puntúa'}</p>
+      <p className="mt-0.5 text-[14px] leading-snug text-tinta-2 dark:text-slate-300"><TipNegrita tip={cl.tip} /></p>
+    </div>
+  );
 }
 
 // Gráfico circular del peso del criterio: el arco se dibuja y el número sube al mismo tiempo.
@@ -230,87 +308,161 @@ function Anillo({ pond, hex }: { pond: number; hex: string }) {
   const R = 30, C = 2 * Math.PI * R;
   const destino = C * (1 - Math.max(0, Math.min(100, pond)) / 100);
   return (
-    <div className="relative flex-shrink-0 w-[76px] h-[76px]">
-      <svg viewBox="0 0 76 76" className="w-full h-full -rotate-90">
-        <circle cx="38" cy="38" r={R} fill="none" stroke="#e2e8f0" strokeWidth="8" />
+    <div className="relative flex-shrink-0 w-16 h-16">
+      <svg viewBox="0 0 76 76" className="w-full h-full -rotate-90" aria-hidden>
+        <circle cx="38" cy="38" r={R} fill="none" strokeWidth="8" className="stroke-slate-200 dark:stroke-slate-700" />
         <motion.circle cx="38" cy="38" r={R} fill="none" stroke={hex} strokeWidth="8" strokeLinecap="round" strokeDasharray={C}
-          initial={{ strokeDashoffset: reducido ? destino : C }} animate={{ strokeDashoffset: destino }} transition={{ duration: 1.1, ease: [0.22, 1, 0.36, 1] }} />
+          initial={{ strokeDashoffset: reducido ? destino : C }} animate={{ strokeDashoffset: destino }} transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }} />
       </svg>
-      <p className="absolute inset-0 flex items-center justify-center text-[18px] font-black tabular-nums text-slate-900"><Pct valor={pond} /><span className="text-[11px] font-bold text-slate-500">%</span></p>
+      <p className="absolute inset-0 flex items-center justify-center text-[15px] font-semibold tabular-nums text-tinta dark:text-slate-50"><Pct valor={pond} /><span className="text-[11px] font-medium text-tinta-2">%</span></p>
     </div>
   );
 }
 
-function BarraDistribucion({ items }: { items: { nombre: string; pond: number; barra: string }[] }) {
-  const p = useContador(1);
+// Barra de reparto del puntaje: cada tramo es un botón (pasa el mouse = resalta, clic = ir al criterio).
+function BarraDistribucion({ items, activo, onHover, onElegir }: {
+  items: { nombre: string; pond: number; barra: string }[]; activo: number | null; onHover: (k: number | null) => void; onElegir: (k: number) => void;
+}) {
+  const reducido = useReducedMotion();
   return (
-    <div className="flex h-4 rounded-full overflow-hidden bg-slate-100">
-      {items.map((it, i) => <div key={i} title={`${it.nombre}: ${it.pond} %`} className={it.barra} style={{ width: `${Math.max(0, it.pond * p)}%` }} />)}
+    <div className="flex h-4 rounded-full overflow-hidden bg-slate-100 gap-0.5 dark:bg-slate-800" onMouseLeave={() => onHover(null)}>
+      {items.map((it, k) => (
+        <motion.button key={k} type="button" aria-label={`${it.nombre}: ${it.pond} %. Ver el criterio`} title={`${it.nombre}: ${it.pond} %`}
+          onMouseEnter={() => onHover(k)} onFocus={() => onHover(k)} onBlur={() => onHover(null)} onClick={() => onElegir(k)}
+          className={`${it.barra} h-full cursor-pointer transition-opacity duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca focus-visible:ring-offset-1 ${activo !== null && activo !== k ? 'opacity-30' : ''}`}
+          initial={reducido ? false : { width: 0 }} animate={{ width: `${Math.max(0, it.pond)}%` }}
+          transition={{ duration: 0.7, delay: k * 0.05, ease: [0.22, 1, 0.36, 1] }} />
+      ))}
     </div>
   );
 }
+
+const pondCrit = (c: any) => Number(c.ponderacion_efectiva) || Number(c.ponderacion_nominal) || Number(c.ponderacion) || Number(c.ponderacion_pct) || 0;
+const claseCrit = (c: any) => CLASE[String(c?.clase || '').toUpperCase()];
 
 // Criterios de evaluación: lo usan "Cómo ganar" (informe de viabilidad) y la pestaña Criterios, con los datos que tenga cada fuente.
+// Interactivo: la barra, la leyenda y el aviso de «dónde se gana» llevan al criterio; cada criterio se abre y se cierra.
 export function CriteriosEvaluacionV4({ criterios, crit = {}, i = 1 }: { criterios: object[]; crit?: any; i?: number }) {
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
+  const [hover, setHover] = useState<number | null>(null);
+  const [fijado, setFijado] = useState<number | null>(null);
+  const [cerrados, setCerrados] = useState<Set<number>>(new Set());
   const lista = criterios as any[];
-  const pondDe = (c: any) => Number(c.ponderacion_efectiva) || Number(c.ponderacion_nominal) || Number(c.ponderacion) || Number(c.ponderacion_pct) || 0;
-  const ordenados = [...lista].sort((a, b) => pondDe(b) - pondDe(a));
-  const claseDe = (c: any) => CLASE[String(c?.clase || '').toUpperCase()];
-  const critLey = ordenados.find(c => claseDe(c)?.ley);
-  const suma = Number(crit.suma_ponderaciones_real) || ordenados.reduce((a, c) => a + pondDe(c), 0);
+  const ordenados = [...lista].sort((a, b) => pondCrit(b) - pondCrit(a));
+  const kLey = ordenados.findIndex(c => claseCrit(c)?.ley);
+  const critLey = kLey >= 0 ? ordenados[kLey] : null;
+  const suma = Number(crit.suma_ponderaciones_real) || ordenados.reduce((a, c) => a + pondCrit(c), 0);
   const sumaValida = crit.suma_valida ?? Math.round(suma) === 100;
+  const activo = hover ?? fijado;
+  const todosAbiertos = cerrados.size === 0;
+  const alternar = (k: number) => setCerrados(prev => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const elegir = (k: number) => {
+    setFijado(f => (f === k ? null : k));
+    setCerrados(prev => { if (!prev.has(k)) return prev; const n = new Set(prev); n.delete(k); return n; });
+    setTimeout(() => document.getElementById(`${uid}-${k}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 60);
+  };
   if (ordenados.length === 0) return null;
   return (
-    <Bloque i={i} icon={<Scale size={18} />} titulo="Criterios de evaluación" subtitulo="Así se reparte el puntaje: mientras más alto el porcentaje, más pesa en la decisión."
-      derecha={<span className={`text-[12px] font-bold px-2.5 py-1 rounded-full ${sumaValida ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>Suma {Math.round(suma)} %{sumaValida ? ' ✓' : ' · Revisar'}</span>}>
+    <Bloque i={i} icon={<Scale size={18} />} titulo="Criterios de evaluación" subtitulo="Así se reparte el puntaje: mientras más alto el porcentaje, más pesa en la decisión. Toca un criterio para verlo."
+      derecha={(
+        <div className="flex items-center gap-4 flex-shrink-0">
+          <button type="button" onClick={() => setCerrados(todosAbiertos ? new Set(ordenados.map((_, k) => k)) : new Set())}
+            className="text-[13px] font-medium text-marca hover:text-marca-fuerte whitespace-nowrap">{todosAbiertos ? 'Contraer todos' : 'Expandir todos'}</button>
+          <span className={`text-[13px] font-medium tabular-nums whitespace-nowrap ${sumaValida ? 'text-exito' : 'text-alerta'}`}>Suma {Math.round(suma)} %{sumaValida ? ' ✓' : ' · revisar'}</span>
+        </div>
+      )}>
       <div className="space-y-4">
         <div>
-          <BarraDistribucion items={ordenados.map((c, i) => ({ nombre: c.nombre, pond: pondDe(c), barra: COLOR_CRITERIO[i % COLOR_CRITERIO.length].barra }))} />
-          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
-            {ordenados.map((c, i) => <span key={i} className="inline-flex items-center gap-1.5 text-[12px] text-slate-600"><span className={`w-2.5 h-2.5 rounded-sm ${COLOR_CRITERIO[i % COLOR_CRITERIO.length].barra}`} />{oracion(c.nombre)} <strong className="text-slate-800">{pondDe(c)} %</strong></span>)}
+          <BarraDistribucion items={ordenados.map((c, k) => ({ nombre: c.nombre, pond: pondCrit(c), barra: COLOR_CRITERIO[k % COLOR_CRITERIO.length].barra }))}
+            activo={activo} onHover={setHover} onElegir={elegir} />
+          <div className="flex flex-wrap gap-x-1 gap-y-1 mt-2.5 -ml-2" onMouseLeave={() => setHover(null)}>
+            {ordenados.map((c, k) => (
+              <button key={k} type="button" onMouseEnter={() => setHover(k)} onFocus={() => setHover(k)} onBlur={() => setHover(null)} onClick={() => elegir(k)}
+                className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-tinta-2 transition-[background-color,opacity] duration-150 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 ${activo === k ? 'bg-slate-100 dark:bg-slate-800' : ''} ${activo !== null && activo !== k ? 'opacity-50' : ''}`}>
+                <span aria-hidden className={`w-2 h-2 rounded-sm ${COLOR_CRITERIO[k % COLOR_CRITERIO.length].barra}`} />{oracion(c.nombre)} <span className="font-semibold tabular-nums text-tinta dark:text-slate-100">{pondCrit(c)} %</span>
+              </button>
+            ))}
           </div>
         </div>
+
         {critLey && (
-          <div className="rounded-xl bg-emerald-600 text-white px-4 py-3 flex items-center gap-3 flex-wrap">
-            <span className="inline-flex items-center gap-1.5 text-[13px] font-black uppercase tracking-wide"><StarFilled size={15} />{claseDe(critLey).label}</span>
-            <span className="text-[13.5px] font-semibold leading-snug flex-1 min-w-[220px]">«{oracion(critLey.nombre)}» · {pondDe(critLey)} %: {claseDe(critLey).tip.charAt(0).toLowerCase() + claseDe(critLey).tip.slice(1)}</span>
-          </div>
+          <button type="button" onClick={() => elegir(kLey)}
+            className="group w-full text-left rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 flex items-start gap-3 transition-colors duration-150 hover:bg-emerald-50 hover:border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-900">
+            <span className="w-9 h-9 rounded-lg bg-white text-exito flex items-center justify-center flex-shrink-0 shadow-tarjeta dark:bg-slate-900"><Trophy size={18} /></span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-2 flex-wrap"><MarcaLey clase={claseCrit(critLey)} /><span className="text-[13px] text-emerald-800 dark:text-emerald-300">dónde se gana</span></span>
+              <span className="mt-1 block text-[15px] font-semibold text-tinta dark:text-slate-50 leading-snug">«{oracion(critLey.nombre)}» · {pondCrit(critLey)} %</span>
+              <span className="mt-0.5 block text-[14px] text-tinta-2 dark:text-slate-300 leading-snug"><TipNegrita tip={claseCrit(critLey).tip} /></span>
+            </span>
+            <span className="flex-shrink-0 self-center inline-flex items-center gap-1 text-[13px] font-medium text-marca">Ver criterio <ArrowRight size={14} className="transition-transform duration-150 group-hover:translate-x-0.5" /></span>
+          </button>
         )}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
-          {ordenados.map((c, i) => {
-            const cl = claseDe(c);
-            const col = COLOR_CRITERIO[i % COLOR_CRITERIO.length];
-            const pond = pondDe(c);
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+          {ordenados.map((c, k) => {
+            const cl = claseCrit(c);
+            const col = COLOR_CRITERIO[k % COLOR_CRITERIO.length];
+            const pond = pondCrit(c);
+            const abierto = !cerrados.has(k);
+            const detalle = c.forma_aplicacion || c.descripcion || c.fuente;
             return (
-              <Aparece key={i} i={i + 2} alto>
-                <div className={`rounded-xl p-4 h-full flex flex-col gap-2 ${cl?.ley ? 'border-2 border-emerald-500 bg-emerald-50/60' : 'border border-slate-200 bg-white'}`}>
-                  <div className="flex items-start gap-3">
+              <Aparece key={k} i={k + 2} alto>
+                <div id={`${uid}-${k}`} onMouseEnter={() => setHover(k)} onMouseLeave={() => setHover(null)}
+                  className={`rounded-xl border bg-white transition-[box-shadow,border-color] duration-150 hover:shadow-tarjeta-hover dark:bg-slate-900 ${cl?.ley ? 'border-emerald-300 dark:border-emerald-800' : 'border-linea dark:border-slate-800'} ${activo === k ? 'ring-2 ring-marca/40 shadow-tarjeta-hover' : 'shadow-tarjeta'}`}>
+                  <button type="button" onClick={() => alternar(k)} aria-expanded={abierto}
+                    className="w-full flex items-start gap-3 p-4 text-left rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marca/60">
                     <Anillo pond={pond} hex={col.hex} />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[15px] font-bold text-slate-900 leading-snug">{oracion(c.nombre)}</p>
-                      <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
-                        {cl?.ley ? <MarcaLey clase={cl} /> : cl && <span title={cl.tip} className="cursor-help"><Badge variant={cl.variante}>{cl.label}</Badge></span>}
-                        {c.tramo_max_puntaje?.borde_comodo && <span title="Valor que da el máximo puntaje con menos riesgo"><Badge variant="warning">Valor cómodo: {c.tramo_max_puntaje.borde_comodo}</Badge></span>}
-                      </div>
-                    </div>
-                  </div>
-                  {cl && <p className={`text-[12.5px] leading-snug ${cl.ley ? 'font-bold text-emerald-900' : 'text-slate-700'}`}><span className="font-bold">{cl.ley ? 'Cómo se gana: ' : 'Cómo puntúa: '}</span>{cl.tip}</p>}
-                  {(c.forma_aplicacion || c.descripcion || c.fuente) && <p className="text-[12.5px] text-slate-500 leading-snug">{mayus(c.forma_aplicacion || c.descripcion || c.fuente)}</p>}
-                  {c.puntaje_minimo?.valor && <p className="text-[12.5px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">Puntaje mínimo: {c.puntaje_minimo.valor} {c.puntaje_minimo.unidad || ''} — {c.puntaje_minimo.consecuencia}</p>}
-                  {c.cita && <div className="mt-auto"><Cita cita={c.cita} /></div>}
+                    <span className="min-w-0 flex-1 pt-0.5">
+                      <span className="block text-[15px] font-semibold text-tinta dark:text-slate-100 leading-snug">{oracion(c.nombre)}</span>
+                      {cl && <span className="mt-1.5 inline-flex"><ClaseCriterio clase={cl} /></span>}
+                    </span>
+                    <ChevronDown size={18} className={`flex-shrink-0 mt-1 text-slate-400 transition-transform duration-200 ${abierto ? 'rotate-180' : ''}`} />
+                  </button>
+                  <AnimatePresence initial={false}>
+                    {abierto && (
+                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }} className="overflow-hidden">
+                        <div className="px-4 pb-4 space-y-2.5">
+                          {cl && <ComoPuntua cl={cl} />}
+                          {c.tramo_max_puntaje?.borde_comodo && (
+                            <div className="rounded-lg bg-amber-50 px-3.5 py-2.5 dark:bg-amber-950/30" title="Valor que da el máximo puntaje con menos riesgo">
+                              <p className="text-[13px] font-semibold text-amber-800 dark:text-amber-300">Valor cómodo</p>
+                              <p className="mt-0.5 text-[14px] font-medium text-tinta dark:text-slate-100 leading-snug">{c.tramo_max_puntaje.borde_comodo}</p>
+                            </div>
+                          )}
+                          {detalle && <p className="text-[13px] text-tinta-2 dark:text-slate-400 leading-relaxed">{mayus(detalle)}</p>}
+                          {c.puntaje_minimo?.valor && <p className="flex items-start gap-1.5 text-[13px] font-medium text-urgente"><AlertTriangle size={15} className="flex-shrink-0 mt-px" />Puntaje mínimo: {c.puntaje_minimo.valor} {c.puntaje_minimo.unidad || ''} — {c.puntaje_minimo.consecuencia}</p>}
+                          {c.cita && <div className="pt-0.5"><Cita cita={c.cita} /></div>}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               </Aparece>
             );
           })}
         </div>
-        {crit.puntaje_minimo_total?.valor && <p className="text-[13px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">Puntaje mínimo total: {crit.puntaje_minimo_total.valor} {crit.puntaje_minimo_total.unidad || ''} — {crit.puntaje_minimo_total.consecuencia} <Cita cita={crit.puntaje_minimo_total.cita} /></p>}
-        {(crit.alertas?.length ?? 0) > 0 && <div className="text-[12.5px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-0.5">{crit.alertas.map((a: string, i: number) => <p key={i} className="flex items-start gap-1.5"><AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />{mayus(a)}</p>)}</div>}
+        {crit.puntaje_minimo_total?.valor && <p className="flex items-start gap-1.5 text-[13px] font-medium text-urgente"><AlertTriangle size={15} className="flex-shrink-0 mt-px" /><span>Puntaje mínimo total: {crit.puntaje_minimo_total.valor} {crit.puntaje_minimo_total.unidad || ''} — {crit.puntaje_minimo_total.consecuencia} <Cita cita={crit.puntaje_minimo_total.cita} /></span></p>}
+        {(crit.alertas?.length ?? 0) > 0 && <div className="text-[13px] text-amber-900 bg-amber-50 rounded-xl px-4 py-3 space-y-1 dark:bg-amber-950/30 dark:text-amber-200">{crit.alertas.map((a: string, i: number) => <p key={i} className="flex items-start gap-1.5"><AlertTriangle size={15} className="flex-shrink-0 mt-0.5 text-alerta" />{mayus(a)}</p>)}</div>}
       </div>
     </Bloque>
   );
 }
 
+// Bloque destacado (se gana en / dónde se decide): suave y con el ícono en un cuadro, sin fondo sólido.
+function Destacado({ icono, etiqueta, texto }: { icono: React.ReactNode; etiqueta: string; texto: string }) {
+  return (
+    <div className="h-full rounded-2xl border border-teal-200 bg-marca-suave/70 p-5 flex items-start gap-3.5 shadow-tarjeta dark:bg-teal-950/30 dark:border-teal-900">
+      <span className="w-10 h-10 rounded-xl bg-white text-marca flex items-center justify-center flex-shrink-0 shadow-tarjeta dark:bg-slate-900">{icono}</span>
+      <div className="min-w-0">
+        <p className="text-[13px] text-teal-800 dark:text-teal-300">{etiqueta}</p>
+        <p className="mt-1 text-[17px] font-semibold tracking-tight text-tinta dark:text-slate-50 leading-snug">{texto}</p>
+      </div>
+    </div>
+  );
+}
+
 export function GanarV4({ informe }: { informe: any }) {
+  const [filtro, setFiltro] = useState<string | null>(null);
   const t = informe.tarjeta_decision || {};
   const crit = informe.criterios_evaluacion || {};
   const criterios: any[] = Array.isArray(crit.criterios) ? crit.criterios : [];
@@ -320,93 +472,131 @@ export function GanarV4({ informe }: { informe: any }) {
   const noFuera: string[] = Array.isArray(t.no_quedes_fuera) ? t.no_quedes_fuera : [];
   const jugadas: any[] = Array.isArray(est.jugadas) ? est.jugadas : [];
   const lectura = informe.atractivo?.lectura_comercial ? mayus(sinCA(informe.atractivo.lectura_comercial)) : '';
+  const dosDestacados = !!(t.se_gana_en && dsd.orden_final);
+  // Tipos de jugada presentes, para filtrar la estrategia (Oportunidad, Por resolver, Empate, En contra).
+  const claveJugada = (j: any) => (JUGADA[String(j.etiqueta || '').toUpperCase()] ? String(j.etiqueta).toUpperCase() : 'EMPATE');
+  const tipos = Object.keys(JUGADA).map(k => ({ k, n: jugadas.filter(j => claveJugada(j) === k).length })).filter(x => x.n > 0);
+  const visibles = filtro ? jugadas.filter(j => claveJugada(j) === filtro) : jugadas;
+  const pesoDe = (nombre: string) => {
+    const c = criterios.find(x => _norm(String(x.nombre || '')) === _norm(String(nombre || '')));
+    const p = c ? pondCrit(c) : 0;
+    return p > 0 ? p : null;
+  };
   return (
     <div className="space-y-3">
-      {(t.se_gana_en || dsd.orden_final || lectura || paraGanar.length > 0 || noFuera.length > 0) && (
-        <Bloque i={0} icon={<Target size={18} />} titulo="Resumen para decidir" subtitulo="Lo esencial: dónde se gana, qué hacer y qué evitar.">
-          <div className="space-y-3">
-            {t.se_gana_en && (
-              <div className="rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white p-4 flex items-start gap-3">
-                <Trophy size={26} className="flex-shrink-0 mt-0.5" />
-                <div><p className="text-[11px] font-bold uppercase tracking-wider text-violet-200">Se gana en</p><p className="text-[16px] font-bold leading-snug">{oracion(t.se_gana_en)}</p></div>
-              </div>
-            )}
-            {dsd.orden_final && (
-              <div className="rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white p-4 flex items-start gap-3">
-                <Compass size={26} className="flex-shrink-0 mt-0.5" />
-                <div><p className="text-[11px] font-bold uppercase tracking-wider text-violet-200">Dónde se decide</p><p className="text-[15px] font-semibold leading-snug">{oracion(dsd.orden_final)}</p></div>
-              </div>
-            )}
-            {lectura && (
-              <div className="rounded-xl border border-slate-200 bg-white p-4 flex items-start gap-3">
-                <Scale size={20} className="text-violet-600 flex-shrink-0 mt-0.5" />
-                <div><p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Lectura comercial</p><p className="text-[14px] text-slate-700 leading-relaxed">{lectura}</p></div>
-              </div>
-            )}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
-              {paraGanar.length > 0 && (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
-                  <p className="flex items-center gap-1.5 text-[13px] font-black uppercase tracking-wide text-emerald-700 mb-2.5"><Check size={16} /> Para ganar</p>
-                  <ol className="space-y-2">{paraGanar.map((x, i) => (
-                    <li key={i} className="flex items-start gap-2.5"><span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-600 text-white text-[12px] font-black flex items-center justify-center">{i + 1}</span><span className="text-[14px] text-slate-800 leading-snug">{oracion(x)}</span></li>
-                  ))}</ol>
-                </div>
-              )}
-              {noFuera.length > 0 && (
-                <div className="rounded-xl border border-red-200 bg-red-50/50 p-4">
-                  <p className="flex items-center gap-1.5 text-[13px] font-black uppercase tracking-wide text-red-700 mb-2.5"><Ban size={16} /> No quedes fuera</p>
-                  <ul className="space-y-2">{noFuera.map((x, i) => (
-                    <li key={i} className="flex items-start gap-2.5"><span className="flex-shrink-0 w-6 h-6 rounded-full bg-red-600 text-white flex items-center justify-center"><X size={14} /></span><span className="text-[14px] text-slate-800 leading-snug">{oracion(x)}</span></li>
-                  ))}</ul>
-                </div>
-              )}
-            </div>
-            {t.antes_de_ir && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 flex items-start gap-2.5">
-                <Bulb size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
-                <p className="text-[13.5px] text-amber-900 leading-snug"><span className="font-black uppercase text-[11px] tracking-wide block text-amber-700">Antes de ir</span>{oracion(t.antes_de_ir)}</p>
-              </div>
-            )}
-          </div>
-        </Bloque>
+      {(t.se_gana_en || dsd.orden_final) && (
+        <div className={`grid grid-cols-1 gap-3 items-stretch ${dosDestacados ? 'md:grid-cols-2' : ''}`}>
+          {t.se_gana_en && <Aparece i={0} alto><Destacado icono={<Trophy size={20} />} etiqueta="Se gana en" texto={oracion(t.se_gana_en)} /></Aparece>}
+          {dsd.orden_final && <Aparece i={1} alto><Destacado icono={<Compass size={20} />} etiqueta="Dónde se decide" texto={oracion(dsd.orden_final)} /></Aparece>}
+        </div>
       )}
 
-      <CriteriosEvaluacionV4 criterios={criterios} crit={crit} i={1} />
+      {lectura && (
+        <Aparece i={2}>
+          <section className={`${CAJA_V4} p-5 flex items-start gap-3`}>
+            <span className="w-9 h-9 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center flex-shrink-0 dark:bg-slate-800 dark:text-slate-400"><Scale size={18} /></span>
+            <div className="min-w-0">
+              <p className="text-[13px] text-tinta-2 dark:text-slate-400">Lectura comercial</p>
+              <p className="mt-1 text-sm text-tinta dark:text-slate-200 leading-relaxed">{lectura}</p>
+            </div>
+          </section>
+        </Aparece>
+      )}
+
+      {(paraGanar.length > 0 || noFuera.length > 0) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
+          {paraGanar.length > 0 && (
+            <Aparece i={3} alto>
+              <section className={`${CAJA_V4} p-5 h-full`}>
+                <p className="flex items-center gap-2 text-[15px] font-semibold text-tinta dark:text-slate-100 mb-3">
+                  <span className="w-7 h-7 rounded-lg bg-emerald-50 text-exito flex items-center justify-center dark:bg-emerald-950/40"><Check size={16} /></span>Para ganar
+                </p>
+                <ol className="space-y-2.5">{paraGanar.map((x, i) => (
+                  <li key={i} className="flex items-start gap-3"><span className="flex-shrink-0 w-5 text-sm font-semibold tabular-nums text-exito">{i + 1}</span><span className="text-sm text-tinta dark:text-slate-200 leading-snug">{oracion(x)}</span></li>
+                ))}</ol>
+              </section>
+            </Aparece>
+          )}
+          {noFuera.length > 0 && (
+            <Aparece i={4} alto>
+              <section className={`${CAJA_V4} p-5 h-full`}>
+                <p className="flex items-center gap-2 text-[15px] font-semibold text-tinta dark:text-slate-100 mb-3">
+                  <span className="w-7 h-7 rounded-lg bg-red-50 text-urgente flex items-center justify-center dark:bg-red-950/40"><Ban size={16} /></span>No quedes fuera
+                </p>
+                <ul className="space-y-2.5">{noFuera.map((x, i) => (
+                  <li key={i} className="flex items-start gap-3"><span className="flex-shrink-0 w-5 pt-0.5 text-urgente"><X size={15} /></span><span className="text-sm text-tinta dark:text-slate-200 leading-snug">{oracion(x)}</span></li>
+                ))}</ul>
+              </section>
+            </Aparece>
+          )}
+        </div>
+      )}
+
+      {t.antes_de_ir && (
+        <Aparece i={5}>
+          <div className="rounded-2xl bg-amber-50 px-5 py-4 flex items-start gap-3 dark:bg-amber-950/30">
+            <Bulb size={18} className="text-alerta flex-shrink-0 mt-0.5" />
+            <div><p className="text-xs text-amber-800 dark:text-amber-300">Antes de ir</p><p className="mt-0.5 text-sm text-amber-950 dark:text-amber-100 leading-snug">{oracion(t.antes_de_ir)}</p></div>
+          </div>
+        </Aparece>
+      )}
+
+      <CriteriosEvaluacionV4 criterios={criterios} crit={crit} i={6} />
 
       {jugadas.length > 0 && (
-        <Bloque i={3} icon={<ListChecks size={18} />} titulo="Estrategia" subtitulo="Dónde se gana el puntaje y qué hacer en cada criterio.">
-          <div className="space-y-3">
-            {jugadas.length > 0 && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
-                {jugadas.map((j, i) => {
-                  const jg = JUGADA[String(j.etiqueta || '').toUpperCase()] || JUGADA.EMPATE;
-                  const cl = CLASE[String(j.clase || '').toUpperCase()];
-                  return (
-                    <Aparece key={i} i={i + 1} alto>
-                      <div className="rounded-xl border border-slate-200 bg-white p-4 h-full flex flex-col gap-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${jg.tono}`}>{jg.icono}</span>
-                          <span className={`text-[11px] font-black uppercase tracking-wide ${jg.texto}`}>{jg.label}</span>
+        <Bloque i={7} icon={<ListChecks size={18} />} titulo="Estrategia" subtitulo="Dónde se gana el puntaje y qué hacer en cada criterio."
+          derecha={tipos.length > 1 ? (
+            <div className="flex flex-wrap justify-end gap-1.5">
+              <button type="button" onClick={() => setFiltro(null)}
+                className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border text-[13px] font-medium transition-colors duration-150 ${filtro === null ? 'bg-slate-100 border-slate-300 text-tinta dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100' : 'border-linea text-tinta-2 hover:border-slate-300 hover:text-tinta dark:border-slate-700 dark:text-slate-400'}`}>
+                Todas <span className="tabular-nums text-tinta-3">{jugadas.length}</span>
+              </button>
+              {tipos.map(({ k, n }) => (
+                <button key={k} type="button" onClick={() => setFiltro(filtro === k ? null : k)}
+                  className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border text-[13px] font-medium transition-colors duration-150 ${filtro === k ? 'bg-slate-100 border-slate-300 text-tinta dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100' : 'border-linea text-tinta-2 hover:border-slate-300 hover:text-tinta dark:border-slate-700 dark:text-slate-400'}`}>
+                  <span aria-hidden className="w-1.5 h-1.5 rounded-full" style={{ background: JUGADA[k].color }} />{JUGADA[k].label.split(':')[0]} <span className="tabular-nums text-tinta-3">{n}</span>
+                </button>
+              ))}
+            </div>
+          ) : undefined}>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
+            {visibles.map((j, i) => {
+              const jg = JUGADA[claveJugada(j)];
+              const cl = CLASE[String(j.clase || '').toUpperCase()];
+              const peso = pesoDe(j.criterio);
+              return (
+                <Aparece key={`${j.criterio}-${i}`} i={i + 1} alto>
+                  <div className="h-full flex flex-col gap-3 rounded-xl border bg-white p-5 shadow-tarjeta transition-shadow duration-150 hover:shadow-tarjeta-hover dark:bg-slate-900" style={{ borderColor: jg.color + '55' }}>
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[13px] font-semibold" style={{ background: jg.color + '14', color: jg.color }}>{jg.icono}{jg.label}</span>
+                      {peso != null && (
+                        <span className="flex-shrink-0 text-right leading-none">
+                          <span className="block text-[24px] font-semibold tracking-tight tabular-nums text-tinta dark:text-slate-50">{peso} %</span>
+                          <span className="text-[11px] text-slate-500">del puntaje</span>
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-x-3 gap-y-1.5 flex-wrap">
+                      <p className="text-[17px] font-semibold tracking-tight text-tinta dark:text-slate-50 leading-snug">{oracion(j.criterio)}</p>
+                      {cl && <ClaseCriterio clase={cl} />}
+                      {j.exige_respaldo && <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-50 px-2 py-0.5 text-[13px] font-medium text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"><AlertTriangle size={13} />Exige stock o respaldo</span>}
+                    </div>
+                    {j.lectura && <p className="text-[14px] text-tinta-2 dark:text-slate-300 leading-relaxed">{oracion(j.lectura)}</p>}
+                    {j.orden && (
+                      <div className="rounded-xl bg-marca-suave border border-teal-200 px-4 py-3 flex items-start gap-3 dark:bg-teal-950/30 dark:border-teal-900">
+                        <span className="w-7 h-7 rounded-lg bg-white text-marca flex items-center justify-center flex-shrink-0 shadow-tarjeta dark:bg-slate-900"><ArrowRight size={16} /></span>
+                        <div className="min-w-0">
+                          <p className="text-[13px] font-semibold text-teal-800 dark:text-teal-300">Qué hacer</p>
+                          <p className="mt-0.5 text-[15px] font-medium text-tinta dark:text-slate-50 leading-snug">{oracion(j.orden)}</p>
+                          {j.valor_a_ofertar ? <p className="mt-2"><span className="inline-flex rounded-md bg-white border border-teal-200 px-2 py-0.5 text-[13px] font-semibold text-marca dark:bg-slate-900 dark:border-teal-800">{j.valor_a_ofertar}</span></p> : null}
                         </div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-[15px] font-bold text-slate-900 leading-snug">{oracion(j.criterio)}</p>
-                          {cl?.ley ? <MarcaLey clase={cl} /> : cl && <span title={cl.tip} className="cursor-help"><Badge variant={cl.variante}>{cl.label}</Badge></span>}
-                          {j.exige_respaldo && <Badge variant="warning">Exige stock o respaldo</Badge>}
-                        </div>
-                        {j.lectura && <p className="text-[13px] text-slate-600 leading-snug">{oracion(j.lectura)}</p>}
-                        {j.orden && (
-                          <div className="rounded-lg bg-slate-900 text-white px-3 py-2.5 flex items-start gap-2">
-                            <ArrowRight size={16} className="flex-shrink-0 mt-0.5 text-emerald-400" />
-                            <p className="text-[13.5px] font-semibold leading-snug"><span className="block text-[10.5px] font-bold uppercase tracking-wide text-slate-400">Qué hacer</span>{oracion(j.orden)}{j.valor_a_ofertar ? <span className="text-emerald-300"> ({j.valor_a_ofertar})</span> : null}</p>
-                          </div>
-                        )}
-                        {j.cita && <div className="mt-auto"><Cita cita={j.cita} /></div>}
                       </div>
-                    </Aparece>
-                  );
-                })}
-              </div>
-            )}
+                    )}
+                    {j.cita && <div className="mt-auto pt-0.5"><Cita cita={j.cita} /></div>}
+                  </div>
+                </Aparece>
+              );
+            })}
           </div>
         </Bloque>
       )}
@@ -443,7 +633,7 @@ function FichaPresencial({ icono, titulo, estado, tono, datos, consecuencia, cit
       <div className="flex items-start gap-2.5">
         <span className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${color}`}>{icono}</span>
         <div className="min-w-0">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{titulo}</p>
+          <p className="text-[11px] font-bold text-slate-400">{titulo}</p>
           <p className="text-[14.5px] font-bold text-slate-900 leading-snug">{estado}</p>
         </div>
       </div>
@@ -451,7 +641,7 @@ function FichaPresencial({ icono, titulo, estado, tono, datos, consecuencia, cit
         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {filas.map(([k, v]) => (
             <div key={k} className="rounded-lg bg-slate-50 px-2.5 py-1.5">
-              <dt className="text-[10.5px] font-bold uppercase tracking-wide text-slate-400">{k}</dt>
+              <dt className="text-[10.5px] font-bold text-slate-400">{k}</dt>
               <dd className="text-[12.5px] font-semibold text-slate-800 leading-snug">{mayus(String(v))}</dd>
             </div>
           ))}
@@ -500,11 +690,11 @@ function PresencialesV4({ adm }: { adm: any }) {
       )}
       {conds.length > 0 && (
         <div className="mt-3 pt-3 border-t border-slate-100">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Condiciones comerciales</p>
+          <p className="text-[11px] font-bold text-slate-400 mb-2">Condiciones comerciales</p>
           <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden">
             {conds.map((c, i) => (
               <li key={i} className="px-4 py-2.5 flex items-start gap-3">
-                <Wallet size={16} className="text-violet-600 flex-shrink-0 mt-0.5" />
+                <Wallet size={16} className="text-marca flex-shrink-0 mt-0.5" />
                 <div className="min-w-0 space-y-0.5">
                   <p className="text-[13.5px] text-slate-800 leading-snug"><span className="font-bold">{COND_TITULO[String(c.tipo || '').toUpperCase()] || 'Condición'}: </span>{mayus(c.que)}</p>
                   {c.cita && <Cita cita={c.cita} />}
@@ -547,7 +737,7 @@ export function AdmisibilidadV4({ informe }: { informe: any }) {
                       <dl className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         {datos.map(([k, v]) => (
                           <div key={k} className="rounded-lg bg-slate-50 px-2.5 py-1.5">
-                            <dt className="text-[10.5px] font-bold uppercase tracking-wide text-slate-400">{k}</dt>
+                            <dt className="text-[10.5px] font-bold text-slate-400">{k}</dt>
                             <dd className="text-[12.5px] font-semibold text-slate-800 leading-snug">{mayus(v)}</dd>
                           </div>
                         ))}
@@ -589,9 +779,9 @@ export function AdmisibilidadV4({ informe }: { informe: any }) {
             return (
               <Aparece key={k} i={i + 3} alto>
                 <div className="rounded-xl border border-slate-200 bg-white p-4 h-full flex flex-col gap-2">
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
+                  <p className="text-[11px] font-bold text-slate-400">{label}</p>
                   <div><Badge variant={est === 'EXISTE' ? 'warning' : est === 'NO_EXISTE' ? 'success' : 'default'} className="text-[12px]">{est === 'EXISTE' ? 'Se exige' : est === 'NO_EXISTE' ? 'No se exige' : 'No indicado'}</Badge></div>
-                  {g.monto && <p className="text-[18px] font-black text-slate-900 leading-tight tabular-nums">{g.monto}</p>}
+                  {g.monto && <p className="text-[18px] font-semibold text-slate-900 leading-tight tabular-nums">{g.monto}</p>}
                   {g.cita && <div className="mt-auto pt-1"><Cita cita={g.cita} /></div>}
                 </div>
               </Aparece>
@@ -600,7 +790,7 @@ export function AdmisibilidadV4({ informe }: { informe: any }) {
           {firma && (
             <Aparece i={6} alto>
               <div className="rounded-xl border border-slate-200 bg-white p-4 h-full flex flex-col gap-2">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Firma</p>
+                <p className="text-[11px] font-bold text-slate-400">Firma</p>
                 <div className="flex items-center gap-2"><span className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${firma.tono} ${firma.texto}`}>{firma.icono}</span><p className="text-[14px] font-bold text-slate-900 leading-snug">{firma.titulo}</p></div>
                 <p className="text-[12.5px] text-slate-500 leading-snug">{firma.accion}</p>
                 {adm.firma?.cita && <div className="mt-auto pt-1"><Cita cita={adm.firma.cita} /></div>}
@@ -626,7 +816,7 @@ const HITO_LABEL: Record<string, string> = {
 function Dato({ etiqueta, children, alerta }: { etiqueta: string; children: React.ReactNode; alerta?: boolean }) {
   return (
     <div className={`rounded-xl border p-4 h-full flex flex-col gap-1.5 ${alerta ? 'border-red-200 bg-red-50/40' : 'border-slate-200 bg-white'}`}>
-      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{etiqueta}</p>
+      <p className="text-[11px] font-bold text-slate-400">{etiqueta}</p>
       {children}
     </div>
   );
@@ -652,7 +842,7 @@ export function PlazosV4({ informe }: { informe: any }) {
         <div className="overflow-x-auto rounded-xl border border-slate-200">
           <table className="w-full min-w-[640px] text-[13px]">
             <thead>
-              <tr className="bg-slate-50 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              <tr className="bg-slate-50 text-left text-[11px] font-bold text-slate-500">
                 <th className="px-4 py-2.5">Hito</th>
                 <th className="px-4 py-2.5">Se cuenta desde</th>
                 <th className="px-4 py-2.5 text-right whitespace-nowrap">Plazo</th>
@@ -669,7 +859,7 @@ export function PlazosV4({ informe }: { informe: any }) {
                     <td className="px-4 py-3 font-semibold text-slate-800">{HITO_LABEL[h.hito] || mayus(cap(h.hito).toLowerCase())}</td>
                     <td className="px-4 py-3 text-slate-600">{h.desde && est === 'EXISTE' ? mayus(h.desde) : <span className="text-slate-300">—</span>}</td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
-                      {est === 'EXISTE' ? <span className="font-black text-slate-900 tabular-nums">{h.plazo ?? '?'} <span className="font-semibold text-slate-500">{h.unidad_original || ''}</span></span>
+                      {est === 'EXISTE' ? <span className="font-semibold text-slate-900 tabular-nums">{h.plazo ?? '?'} <span className="font-semibold text-slate-500">{h.unidad_original || ''}</span></span>
                         : est === 'NO_EXISTE' ? <Badge variant="success">No se exige</Badge>
                         : <Badge>No indicado en las bases</Badge>}
                     </td>
@@ -681,9 +871,9 @@ export function PlazosV4({ informe }: { informe: any }) {
             {pp && (
               <tfoot>
                 <tr className="bg-sky-50/70 border-t border-sky-200">
-                  <td className="px-4 py-3 font-black text-slate-900">Total plazo previo</td>
+                  <td className="px-4 py-3 font-semibold text-slate-900">Total plazo previo</td>
                   <td className="px-4 py-3 text-[12.5px] text-slate-600" colSpan={2}>{pp.fecha_base_origen ? <>Contado desde {pp.fecha_base_origen}{pp.fecha_base ? ` (${pp.fecha_base})` : ''}</> : null}</td>
-                  <td className="px-4 py-3 text-right whitespace-nowrap font-black text-sky-800 text-[15px] tabular-nums">{textoTotal}</td>
+                  <td className="px-4 py-3 text-right whitespace-nowrap font-semibold text-sky-800 text-[15px] tabular-nums">{textoTotal}</td>
                 </tr>
               </tfoot>
             )}
@@ -712,7 +902,7 @@ export function PlazosV4({ informe }: { informe: any }) {
             {entrega && (
               <Aparece i={3} alto>
                 <Dato etiqueta="Plazo de entrega" alerta={!!entrega.fuera_de_rango_inadmisible}>
-                  <p className="text-[22px] font-black text-slate-900 leading-tight tabular-nums">{[entrega.min && `Mín. ${entrega.min}`, entrega.max && `Máx. ${entrega.max}`].filter(Boolean).join(' · ')} <span className="text-[13px] font-semibold text-slate-500">{entrega.unidad || ''}</span></p>
+                  <p className="text-[22px] font-semibold text-slate-900 leading-tight tabular-nums">{[entrega.min && `Mín. ${entrega.min}`, entrega.max && `Máx. ${entrega.max}`].filter(Boolean).join(' · ')} <span className="text-[13px] font-semibold text-slate-500">{entrega.unidad || ''}</span></p>
                   {entrega.fuera_de_rango_inadmisible && <p className="text-[12.5px] font-semibold text-red-700">Fuera de este rango, la oferta es inadmisible.</p>}
                   {entrega.cita && <div className="mt-auto pt-1"><Cita cita={entrega.cita} /></div>}
                 </Dato>
@@ -730,14 +920,14 @@ export function PlazosV4({ informe }: { informe: any }) {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-stretch">
               <Aparece i={3} alto>
                 <Dato etiqueta="Según las bases">
-                  <p className="text-[24px] font-black text-slate-900 leading-tight tabular-nums">{valorMulta(atraso)}</p>
+                  <p className="text-[24px] font-semibold text-slate-900 leading-tight tabular-nums">{valorMulta(atraso)}</p>
                   <p className="text-[12.5px] text-slate-500 leading-snug">Por {PERIODO[String(atraso.periodo || '').toUpperCase()] || 'día'} de atraso{atraso.base_calculo ? `, sobre ${atraso.base_calculo}` : ''}.</p>
                 </Dato>
               </Aparece>
               {multaDia != null && (
                 <Aparece i={4} alto>
                   <Dato etiqueta="Estimado por día" alerta>
-                    <p className="text-[24px] font-black text-red-700 leading-tight tabular-nums">≈ <Contado valor={Number(multaDia)} /></p>
+                    <p className="text-[24px] font-semibold text-red-700 leading-tight tabular-nums">≈ <Contado valor={Number(multaDia)} /></p>
                     {atraso.calculo?.nota && <p className="text-[12.5px] text-slate-500 leading-snug">{mayus(atraso.calculo.nota)}{atraso.calculo.valor_uf_utm ? ` · valor ${fmt(atraso.calculo.valor_uf_utm)} del ${atraso.calculo.fecha_valor}` : ''}</p>}
                   </Dato>
                 </Aparece>
@@ -745,7 +935,7 @@ export function PlazosV4({ informe }: { informe: any }) {
               {(topeTexto || atraso.al_superar_tope) && (
                 <Aparece i={5} alto>
                   <Dato etiqueta="Tope de la multa">
-                    <p className="text-[20px] font-black text-slate-900 leading-tight tabular-nums">{topeTexto || 'No indicado'}</p>
+                    <p className="text-[20px] font-semibold text-slate-900 leading-tight tabular-nums">{topeTexto || 'No indicado'}</p>
                     {atraso.al_superar_tope && <p className="text-[12.5px] text-slate-500 leading-snug">Al superarlo: {atraso.al_superar_tope.charAt(0).toLowerCase() + atraso.al_superar_tope.slice(1)}</p>}
                   </Dato>
                 </Aparece>
@@ -773,7 +963,7 @@ function FilaProducto({ p, abierta, onToggle, codigo, informe }: { p: any; abier
       <div role={hayDetalle ? 'button' : undefined} tabIndex={hayDetalle ? 0 : undefined} onClick={hayDetalle ? onToggle : undefined}
         onKeyDown={hayDetalle ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } } : undefined}
         className={`grid grid-cols-[40px_1fr_auto] md:grid-cols-[48px_1fr_120px_96px_24px] items-center gap-x-3 gap-y-1 px-4 py-3 ${hayDetalle ? 'cursor-pointer hover:bg-slate-50 transition-colors' : ''}`}>
-        <span className="text-[11px] font-black text-slate-500 bg-slate-100 rounded-md px-1.5 py-1 text-center">{p.linea}</span>
+        <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 rounded-md px-1.5 py-1 text-center">{p.linea}</span>
         <div className="min-w-0">
           <p className="text-[14px] font-bold text-slate-900 leading-snug">{oracion(p.nombre)}{p.marca_modelo_referencia ? <span className="font-medium text-slate-500"> · {p.marca_modelo_referencia}</span> : null}</p>
           <div className="flex items-center gap-1.5 flex-wrap mt-0.5 empty:hidden">
@@ -783,7 +973,7 @@ function FilaProducto({ p, abierta, onToggle, codigo, informe }: { p: any; abier
             {noEnc.length > 0 && <Badge variant="warning">{noEnc.length} por revisar</Badge>}
           </div>
         </div>
-        <p className="text-right text-[14px] font-black text-slate-900 tabular-nums whitespace-nowrap">
+        <p className="text-right text-[14px] font-semibold text-slate-900 tabular-nums whitespace-nowrap">
           {p.cantidad != null ? <>{p.cantidad}<span className="text-[12px] font-semibold text-slate-500">{p.unidad_medida ? ` ${p.unidad_medida}` : ''}{p.unidad_inferida ? '*' : ''}</span></> : <span className="text-slate-300">—</span>}
         </p>
         <span className="hidden md:block"><Badge variant={esEsp ? 'primary' : 'default'}>{esEsp ? 'Específico' : 'Genérico'}</Badge></span>
@@ -795,7 +985,7 @@ function FilaProducto({ p, abierta, onToggle, codigo, informe }: { p: any; abier
             <div className="px-4 pb-4 pl-[68px] space-y-3">
               {cs.length > 0 && (
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1.5">Ficha técnica · {cs.length}</p>
+                  <p className="text-[11px] font-bold text-slate-400 mb-1.5">Ficha técnica · {cs.length}</p>
                   <ul className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-1">
                     {cs.map((c, k) => <li key={k} className="flex items-start gap-1.5 text-[12.5px] text-slate-700 leading-snug"><Check size={14} className="text-emerald-600 flex-shrink-0 mt-0.5" />{mayus(c)}</li>)}
                   </ul>
@@ -846,7 +1036,7 @@ export function ProductosV4({ informe, codigo }: { informe: any; codigo: string 
   });
   const alternar = (i: number) => setAbiertos(prev => { const n = new Set(prev); if (n.has(i)) n.delete(i); else n.add(i); return n; });
 
-  const pill = (activo: boolean) => `text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${activo ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`;
+  const pill = (activo: boolean) => `text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${activo ? 'bg-marca text-white border-marca' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`;
   const tiles: Array<{ id: FiltroProd; etiqueta: string; n: number; color: string; icono: React.ReactNode }> = [
     { id: 'todos', etiqueta: 'Productos a cotizar', n: cuentas.todos, color: '#7c3aed', icono: <Package size={20} /> },
     { id: 'especificos', etiqueta: 'Específicos', n: cuentas.especificos, color: '#4f46e5', icono: <ListChecks size={20} /> },
@@ -860,11 +1050,11 @@ export function ProductosV4({ informe, codigo }: { informe: any; codigo: string 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 items-stretch">
           {tiles.map(tl => (
             <button key={tl.id} type="button" onClick={() => setFiltro(f => f === tl.id ? 'todos' : tl.id)} aria-pressed={filtro === tl.id}
-              className={`text-left border rounded-2xl p-4 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 ${filtro === tl.id && tl.id !== 'todos' ? 'ring-2 ring-violet-500 border-violet-300 bg-violet-50/40' : 'bg-white border-slate-200'}`}>
+              className={`text-left border rounded-2xl p-4 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 ${filtro === tl.id && tl.id !== 'todos' ? 'ring-2 ring-marca border-teal-300 bg-marca-suave/40' : 'bg-white border-slate-200'}`}>
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-[11px] text-slate-500 font-semibold uppercase tracking-wide mb-1.5">{tl.etiqueta}</p>
-                  <p className="text-[28px] font-black leading-none tabular-nums text-slate-900"><Pct valor={tl.n} /></p>
+                  <p className="text-[11px] text-slate-500 font-semibold mb-1.5">{tl.etiqueta}</p>
+                  <p className="text-[28px] font-semibold leading-none tabular-nums text-slate-900"><Pct valor={tl.n} /></p>
                 </div>
                 <div className="w-[38px] h-[38px] rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: tl.color + '18', color: tl.color }}>{tl.icono}</div>
               </div>
@@ -899,12 +1089,12 @@ export function ProductosV4({ informe, codigo }: { informe: any; codigo: string 
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar producto, marca o línea" aria-label="Buscar producto"
-              className="w-full h-10 pl-9 pr-9 rounded-xl border border-slate-200 bg-white text-[13.5px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100" />
+              className="w-full h-10 pl-9 pr-9 rounded-xl border border-slate-200 bg-white text-[13.5px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-marca focus:ring-2 focus:ring-marca/15" />
             {q && <button type="button" onClick={() => setQ('')} aria-label="Borrar búsqueda" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><X size={16} /></button>}
           </div>
 
           <div className="rounded-xl border border-slate-200 overflow-hidden">
-            <div className="hidden md:grid grid-cols-[48px_1fr_120px_96px_24px] gap-x-3 px-4 py-2.5 bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            <div className="hidden md:grid grid-cols-[48px_1fr_120px_96px_24px] gap-x-3 px-4 py-2.5 bg-slate-50 text-[11px] font-bold text-slate-500">
               <span>Línea</span><span>Producto</span><span className="text-right">Cantidad</span><span>Tipo</span><span />
             </div>
             <div className="divide-y divide-slate-100">
@@ -928,7 +1118,7 @@ export function ProductosV4({ informe, codigo }: { informe: any; codigo: string 
           <ul className="divide-y divide-slate-100">
             {requisitos.map((r: any, i: number) => (
               <li key={i} className="py-2.5 flex items-start gap-2.5">
-                <Check size={16} className="text-violet-600 flex-shrink-0 mt-0.5" />
+                <Check size={16} className="text-marca flex-shrink-0 mt-0.5" />
                 <div className="min-w-0 space-y-0.5">
                   <p className="text-[13.5px] text-slate-800 leading-snug">{r.producto ? <span className="font-bold text-slate-500">{mayus(r.producto)}: </span> : null}{mayus(r.texto)}</p>
                   {r.cita && <Cita cita={r.cita} />}
@@ -972,8 +1162,8 @@ export function PreparacionV4({ informe }: { informe: any }) {
               className="text-left bg-white border border-slate-200 rounded-2xl p-4 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-[11px] text-slate-500 font-semibold uppercase tracking-wide mb-1.5">{tl.etiqueta}</p>
-                  <p className="text-[28px] font-black leading-none tabular-nums text-slate-900"><Pct valor={tl.n} /></p>
+                  <p className="text-[11px] text-slate-500 font-semibold mb-1.5">{tl.etiqueta}</p>
+                  <p className="text-[28px] font-semibold leading-none tabular-nums text-slate-900"><Pct valor={tl.n} /></p>
                 </div>
                 <div className="w-[38px] h-[38px] rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: tl.color + '18', color: tl.color }}>{tl.icono}</div>
               </div>
@@ -988,10 +1178,10 @@ export function PreparacionV4({ informe }: { informe: any }) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5">
               {acciones.length > 0 && (
                 <div>
-                  <p className="flex items-center gap-1.5 text-[13px] font-black uppercase tracking-wide text-emerald-700 mb-3"><Check size={16} /> Para postular</p>
+                  <p className="flex items-center gap-1.5 text-[13px] font-semibold text-emerald-700 mb-3"><Check size={16} /> Para postular</p>
                   <ol className="space-y-3">{acciones.map((a, i) => (
                     <li key={i} className="flex items-start gap-2.5">
-                      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-600 text-white text-[12px] font-black flex items-center justify-center">{i + 1}</span>
+                      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-600 text-white text-[12px] font-semibold flex items-center justify-center">{i + 1}</span>
                       <div className="min-w-0 space-y-0.5">
                         <p className="text-[14px] font-semibold text-slate-900 leading-snug pt-px">{oracion(a.orden)}</p>
                         {a.por_que && <p className="text-[12.5px] text-slate-500 leading-snug">{oracion(a.por_que)}</p>}
@@ -1003,7 +1193,7 @@ export function PreparacionV4({ informe }: { informe: any }) {
               )}
               {advertencias.length > 0 && (
                 <div>
-                  <p className="flex items-center gap-1.5 text-[13px] font-black uppercase tracking-wide text-amber-700 mb-3"><AlertTriangle size={16} /> Advertencias</p>
+                  <p className="flex items-center gap-1.5 text-[13px] font-semibold text-amber-700 mb-3"><AlertTriangle size={16} /> Advertencias</p>
                   <ul className="space-y-3">{advertencias.map((a, i) => (
                     <li key={i} className="flex items-start gap-2.5">
                       <span className="flex-shrink-0 w-6 h-6 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center"><AlertTriangle size={14} /></span>
@@ -1023,12 +1213,12 @@ export function PreparacionV4({ informe }: { informe: any }) {
 
       <div id="prep-empresa" className="scroll-mt-4">
         <Bloque i={2} icon={<ClipboardCheck size={18} />} titulo="Documentos de empresa" subtitulo="Estatuto, vigencia, certificados y otros papeles que la empresa debe tener al día."
-          derecha={docsEmpresa.length ? <span className="text-[12px] font-bold px-2.5 py-1 rounded-full bg-violet-100 text-violet-700">{docsEmpresa.length}</span> : undefined}>
+          derecha={docsEmpresa.length ? <span className="text-[12px] font-bold px-2.5 py-1 rounded-full bg-teal-50 text-marca">{docsEmpresa.length}</span> : undefined}>
           {docsEmpresa.length === 0 ? <Vacio texto="Las bases no piden documentos de empresa aparte de los anexos." /> : (
             <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden">
               {docsEmpresa.map((d, i) => (
                 <li key={i} className="px-4 py-3 flex items-start gap-3 hover:bg-slate-50/70 transition-colors">
-                  <Check size={16} className="text-violet-600 flex-shrink-0 mt-0.5" />
+                  <Check size={16} className="text-marca flex-shrink-0 mt-0.5" />
                   <div className="min-w-0 flex-1 space-y-0.5">
                     <p className="text-[13.5px] font-semibold text-slate-900 leading-snug">{oracion(d.nombre)}</p>
                     {d.cita && <Cita cita={d.cita} />}
@@ -1078,7 +1268,7 @@ export function PreparacionV4({ informe }: { informe: any }) {
                     </div>
                     {d.contenido_exigido && (
                       <div className="rounded-lg bg-slate-50 px-2.5 py-1.5">
-                        <p className="text-[10.5px] font-bold uppercase tracking-wide text-slate-400">Contenido exigido</p>
+                        <p className="text-[10.5px] font-bold text-slate-400">Contenido exigido</p>
                         <p className="text-[12.5px] text-slate-700 leading-snug">{mayus(d.contenido_exigido)}</p>
                       </div>
                     )}

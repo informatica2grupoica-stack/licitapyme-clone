@@ -889,4 +889,20 @@ test('bases con fichas + pauta de evaluación + anexo económico numerado: manda
   const r = parsearPlanillaCosteo([{ nombre: 'D.A._Bases_de_licitación.pdf', texto: fichas + pauta + anexo }]);
   assert.ok(r);
   assert.deepEqual(r!.items.map(i => [i.numero, i.cantidad]), prods.map(([, c], i) => [i + 1, c]));
+  assert.equal(r!.items[0].descripcion, 'Manguera Espiralada 2"x50(m)', 'la pulgada sale como comilla, no como &quot;');
+});
+
+// 2446-307-LE26: el Formulario N°4 (.doc) trae una fila por tabulación; dos descripciones con 3 o más
+// comas («Tineta látex amarillo rey, antihongos, inoloro, terminación mate») se leían como CSV y se
+// perdían: 42 de 44, y el manifiesto quedó en manos del modelo, que además se saltó el ítem 24.
+test('fila tabulada de Word con comas en la descripción no se lee como CSV', () => {
+  const filas = ['1\t10\tPack de 10 un de discos de desbaste', '2\t2\tSet de brocas SDS Plus', '3\t2\tJuego de brocas paleta',
+    '4\t2\tJuego de destornilladores', '5\t1\tJuego de herramientas', '6\t1\tSet de herramientas manuales',
+    '7\t2\tLlave ajustable de 12" de acero', '8\t5\tTineta látex amarillo rey, antihongos, inoloro, terminación mate',
+    '9\t20\tTineta de pintura látex, extra cubriente, color blanco, acabado mate, Sipa o equivalente.'];
+  const texto = 'N°\tCANTIDAD\tPRODUCTO\tMODELO Y/O MARCA OFERTADA\tVALOR UNITARIO NETO\tVALOR TOTAL NETO\n' + filas.join('\n');
+  const r = parsearPlanillaCosteo([{ nombre: 'FORMULARIO_N°4_OFERTA_ECONOMICA.doc', texto }]);
+  assert.ok(r);
+  assert.deepEqual(r!.items.map(i => [i.numero, i.cantidad]), [[1, 10], [2, 2], [3, 2], [4, 2], [5, 1], [6, 1], [7, 2], [8, 5], [9, 20]]);
+  assert.equal(r!.items[7].descripcion, 'Tineta látex amarillo rey, antihongos, inoloro, terminación mate');
 });

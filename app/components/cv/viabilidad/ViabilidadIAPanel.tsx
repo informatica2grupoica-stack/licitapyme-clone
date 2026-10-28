@@ -196,7 +196,7 @@ function Gauge({ score, sem }: { score: number; sem: { ring: string } }) {
         <circle cx="44" cy="44" r={r} fill="none" stroke={sem.ring} strokeWidth="8" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={off} />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-2xl font-black text-slate-800 leading-none">{score}</span>
+        <span className="text-2xl font-semibold text-slate-800 leading-none">{score}</span>
         <span className="text-[10px] text-slate-400">/100</span>
       </div>
     </div>
@@ -221,7 +221,7 @@ function PaginaImg({ url, pagina, q, esCitada = true }: { url: string; pagina: n
         Página {pagina}{esCitada ? ' · citada' : ' · referencia'}
       </div>
       {!cargada && !error && <div className="flex items-center gap-2 text-slate-400 text-[13px] py-16"><Loader2 size={18} className="animate-spin" /> Renderizando página {pagina}…</div>}
-      {error && <div className="text-slate-400 text-[13px] py-16">No se pudo renderizar la página {pagina}. <a href={`${url}#page=${pagina}`} target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline">Abrir el PDF</a>.</div>}
+      {error && <div className="text-slate-400 text-[13px] py-16">No se pudo renderizar la página {pagina}. <a href={`${url}#page=${pagina}`} target="_blank" rel="noopener noreferrer" className="text-marca underline">Abrir el PDF</a>.</div>}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={src} alt={`Página ${pagina}`} onLoad={() => setCargada(true)} onError={() => setError(true)} onClick={() => setZoom(z => !z)}
         className={`${cargada ? 'block' : 'hidden'} h-fit rounded shadow ${zoom ? 'max-w-none w-[1100px] cursor-zoom-out' : 'max-w-full cursor-zoom-in'}`} />
@@ -294,15 +294,15 @@ function Fuente({ children, destacar }: { children?: string; destacar?: string }
     // en su lugar dejamos solo el enlace al PDF completo + un aviso honesto "(sin pág.)".
     const tienePagina = cita.pagina != null;
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] text-indigo-600">
+      <span className="inline-flex items-center gap-1 text-[11px] text-marca">
         <a href={cita.href} target="_blank" rel="noopener noreferrer" title="Abrir el PDF completo"
-          className="inline-flex items-center gap-1 hover:text-indigo-800 hover:underline">
+          className="inline-flex items-center gap-1 hover:text-marca-fuerte hover:underline">
           <FileSearch size={10} />{children}
         </a>
         {tienePagina && abrirVisor ? (
           <button type="button" onClick={() => abrirVisor({ url: cita.href.split('#')[0], pagina: cita.pagina, paginas: cita.paginas, q: aResaltar, titulo: children })}
             title="Ver y resaltar en el documento"
-            className="inline-flex items-center text-violet-500 hover:text-violet-700">
+            className="inline-flex items-center text-teal-600 hover:text-marca-fuerte">
             <Eye size={13} />
           </button>
         ) : (
@@ -311,7 +311,7 @@ function Fuente({ children, destacar }: { children?: string; destacar?: string }
       </span>
     );
   }
-  return <span className="inline-flex items-center gap-1 text-[11px] text-indigo-500"><FileSearch size={10} />{children}</span>;
+  return <span className="inline-flex items-center gap-1 text-[11px] text-teal-600"><FileSearch size={10} />{children}</span>;
 }
 
 /**
@@ -373,7 +373,7 @@ function TarjetaAdjudicacion({ informe }: { informe: InformeIA }) {
         <button
           type="button"
           onClick={() => setAbierto(v => !v)}
-          className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-semibold text-violet-600 hover:text-violet-800"
+          className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-semibold text-marca hover:text-marca-fuerte"
         >
           <Compass size={11} /> {abierto ? 'Ocultar' : '¿Cómo lo determinó?'}
         </button>
@@ -425,7 +425,7 @@ const TIPO_BADGE: Record<string, { label: string; cls: string; tip: string }> = 
   LEY_DEL_MAXIMO: { label: '⭐ LEY DEL MÁXIMO', cls: 'bg-emerald-100 text-emerald-700', tip: 'Gana quien oferte el valor más ALTO (ej.: más meses de garantía = máximo puntaje). Es un criterio decisivo.' },
   POR_TRAMOS:     { label: 'POR TRAMOS',       cls: 'bg-slate-100 text-slate-500', tip: 'El puntaje se asigna por rangos: basta con quedar dentro del mejor tramo, no hace falta ser el mejor absoluto.' }, // v3.3
   TRAMO_CERRADO:  { label: 'TRAMO CERRADO',    cls: 'bg-slate-100 text-slate-500', tip: 'El puntaje se asigna por rangos cerrados definidos en las bases.' }, // v3.2 (informes guardados)
-  BINARIO:        { label: 'BINARIO',          cls: 'bg-indigo-50 text-indigo-600', tip: 'Se cumple o no se cumple: no hay puntaje intermedio.' },
+  BINARIO:        { label: 'BINARIO',          cls: 'bg-marca-suave text-marca', tip: 'Se cumple o no se cumple: no hay puntaje intermedio.' },
 };
 const VER_TARJETA: Record<string, { label: string; ring: string; text: string; bg: string; soft: string; tip: string }> = {
   GANABLE:  { label: 'GANABLE',  ring: '#10b981', text: 'text-emerald-700', bg: 'bg-emerald-600', soft: 'bg-emerald-50 border-emerald-200', tip: 'El análisis estima que esta licitación se puede ganar siguiendo las instrucciones de esta tarjeta.' },
@@ -662,7 +662,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
           <Gauge score={score} sem={sem} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <span title={ver.tip} className={`text-[11px] font-black text-white px-2 py-0.5 rounded cursor-help ${ver.bg}`}>{ver.label}</span>
+              <span title={ver.tip} className={`text-[11px] font-semibold text-white px-2 py-0.5 rounded cursor-help ${ver.bg}`}>{ver.label}</span>
               {informe.area_negocio && <span className="text-[11px] text-slate-500 bg-white/60 border border-slate-200 px-2 py-0.5 rounded-full">{cap(informe.area_negocio)}</span>}
               <span title={enRevision ? 'La IA no quedó 100% segura del veredicto: una persona debe confirmarlo antes de decidir' : 'Análisis firme: no requiere confirmación humana'}
                 className={`text-[10px] font-bold px-2 py-0.5 rounded-full border cursor-help ${enRevision ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>{enRevision ? 'REVISIÓN HUMANA' : 'DEFINITIVO'}</span>
@@ -743,7 +743,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
           "Ver análisis completo" la revela a un clic — nunca hay que navegar a otra pantalla. */}
       {!detalleAbierto ? (
         <button onClick={() => setDetalleAbierto(true)}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-violet-300 bg-violet-50 text-violet-700 font-semibold text-[13.5px] hover:bg-violet-100 hover:border-violet-400 transition-colors">
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-teal-300 bg-marca-suave text-marca font-semibold text-[13.5px] hover:bg-teal-50 hover:border-teal-400 transition-colors">
           <ChevronDown size={16} /> Ver análisis completo (los 4 módulos de detalle)
         </button>
       ) : (
@@ -751,7 +751,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
           {usuario?.modoPrincipiante && (
             <div className="flex items-center justify-between gap-3 text-[11.5px] bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
               <span className="text-slate-500 flex items-center gap-1.5"><GraduationCap size={13} className="text-slate-400" /> Estás viendo el detalle completo (modo principiante).</span>
-              <button onClick={graduarse} disabled={graduando} className="text-violet-600 hover:text-violet-800 font-semibold whitespace-nowrap disabled:opacity-50">
+              <button onClick={graduarse} disabled={graduando} className="text-marca hover:text-marca-fuerte font-semibold whitespace-nowrap disabled:opacity-50">
                 {graduando ? 'Guardando…' : 'Mostrar siempre el detalle por defecto'}
               </button>
             </div>
@@ -761,7 +761,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
           <div className="flex items-end gap-0.5 border-b border-slate-200 overflow-x-auto">
         {tabs.map(tb => (
           <button key={tb.id} onClick={() => setTab(tb.id)}
-            className={`flex items-center gap-1.5 px-3 py-2 text-[13px] font-semibold whitespace-nowrap border-b-2 -mb-px transition-colors ${tab === tb.id ? 'border-violet-600 text-violet-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+            className={`flex items-center gap-1.5 px-3 py-2 text-[13px] font-semibold whitespace-nowrap border-b-2 -mb-px transition-colors ${tab === tb.id ? 'border-marca text-marca' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
             {tb.icon} {tb.label}
             {tb.badge && <span className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded-full ${tb.badgeRojo ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>{tb.badge}</span>}
           </button>
@@ -773,7 +773,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
 
       {/* Criterios */}
       {tab === 'ganar' && criterios.length > 0 && (
-        <Seccion icon={<Target size={14} className="text-violet-500" />} titulo="Criterios de evaluación — dónde se gana el puntaje" badge={`suma ${Math.round(sumaReal)}%${crit.suma_valida ? ' ✓' : ' ⚠'}${crit.evaluacion_puntaje === 'por_linea' ? ' · por línea' : ' · al total'}`} defaultOpen>
+        <Seccion icon={<Target size={14} className="text-teal-600" />} titulo="Criterios de evaluación — dónde se gana el puntaje" badge={`suma ${Math.round(sumaReal)}%${crit.suma_valida ? ' ✓' : ' ⚠'}${crit.evaluacion_puntaje === 'por_linea' ? ' · por línea' : ' · al total'}`} defaultOpen>
           <div className="space-y-3">
             {[...criterios].sort((a, b) => (Number(b.ponderacion_efectiva) || 0) - (Number(a.ponderacion_efectiva) || 0)).map((c, i) => {
               const tb = TIPO_BADGE[c.clase ?? c.tipo_aplicacion]; // v3.3 clase; v3.2 tipo_aplicacion
@@ -793,7 +793,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
                   </div>
                   {/* Barra proporcional: dónde está el puntaje, de un vistazo (verde = el que más pesa) */}
                   <div className="h-1.5 bg-slate-100 rounded-full mt-1.5 overflow-hidden">
-                    <div className={`h-full rounded-full ${i === 0 ? 'bg-emerald-500' : 'bg-violet-400'}`} style={{ width: `${Math.max(2, Math.min(100, pond))}%` }} />
+                    <div className={`h-full rounded-full ${i === 0 ? 'bg-emerald-500' : 'bg-teal-500'}`} style={{ width: `${Math.max(2, Math.min(100, pond))}%` }} />
                   </div>
                   {c.forma_aplicacion && <p className="text-[12.5px] text-slate-600 mt-1.5 leading-snug">{c.forma_aplicacion}</p>}
                   {c.medio_verificacion && <p className="text-[11.5px] text-slate-400 mt-0.5">Verificación: {c.medio_verificacion}</p>}
@@ -808,14 +808,14 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
 
       {/* Atractivo */}
       {tab === 'ganar' && atr.lectura_comercial && (
-        <Seccion icon={<Scale size={14} className="text-violet-500" />} titulo="Atractivo" badge={cap(atr.nivel || atr.veredicto)} defaultOpen>
+        <Seccion icon={<Scale size={14} className="text-teal-600" />} titulo="Atractivo" badge={cap(atr.nivel || atr.veredicto)} defaultOpen>
           <p className="text-[13px] text-slate-700 leading-snug">{atr.lectura_comercial}</p>
         </Seccion>
       )}
 
       {/* Estrategia */}
       {tab === 'ganar' && ((est.jugadas?.length ?? 0) > 0 || dsd.orden_final) && (
-        <Seccion icon={<ListChecks size={14} className="text-violet-500" />} titulo="Estrategia — dónde se gana y qué hacer" defaultOpen>
+        <Seccion icon={<ListChecks size={14} className="text-teal-600" />} titulo="Estrategia — dónde se gana y qué hacer" defaultOpen>
           <div className="space-y-1.5 text-[12px]">
             {(est.jugadas || []).map((j: any, i: number) => (
               <div key={i} className="bg-slate-50 rounded-lg p-2">
@@ -826,11 +826,11 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
               </div>
             ))}
             {dsd.orden_final && (
-              <div className="rounded-lg border border-violet-200 bg-violet-50/60 p-2.5 mt-1">
-                <p className="flex items-center gap-1.5 text-[12px] font-bold text-violet-800 mb-1"><Compass size={13} /> Dónde se decide</p>
+              <div className="rounded-lg border border-teal-200 bg-marca-suave/60 p-2.5 mt-1">
+                <p className="flex items-center gap-1.5 text-[12px] font-bold text-teal-900 mb-1"><Compass size={13} /> Dónde se decide</p>
                 <p className="text-[12px] text-slate-700 leading-snug">{dsd.orden_final}</p>
                 <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
-                  {dsd.se_decide_en && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white border border-violet-200 text-violet-700">se decide en: {cap(dsd.se_decide_en)}</span>}
+                  {dsd.se_decide_en && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white border border-teal-200 text-marca">se decide en: {cap(dsd.se_decide_en)}</span>}
                   {dsd.tenemos_ventaja_costo === 'si' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">ventaja de costo</span>}
                   {dsd.tenemos_ventaja_costo === 'no' && dsd.se_decide_en === 'precio' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">⚠ guerra de precio</span>}
                 </div>
@@ -842,7 +842,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
 
       {/* Requisitos de admisibilidad — checklist única ordenada por gravedad */}
       {tab === 'riesgos' && (
-        <Seccion icon={<ShieldCheck size={14} className="text-violet-500" />} titulo="Requisitos de admisibilidad — qué nos deja fuera" badge={nBloq > 0 ? `${nBloq} bloqueante(s)` : 'sin bloqueantes'} defaultOpen>
+        <Seccion icon={<ShieldCheck size={14} className="text-teal-600" />} titulo="Requisitos de admisibilidad — qué nos deja fuera" badge={nBloq > 0 ? `${nBloq} bloqueante(s)` : 'sin bloqueantes'} defaultOpen>
           <div className="space-y-1.5">
             {riesgos.length === 0 && <p className="text-[13px] text-slate-500">Sin requisitos de admisibilidad detectados en las bases.</p>}
             {riesgos.map((r, i) => (
@@ -864,7 +864,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
 
       {/* Documentos propios a crear */}
       {tab === 'preparacion' && (adm.orden_anexos_propios?.length ?? 0) > 0 && (
-        <Seccion icon={<ClipboardCheck size={14} className="text-violet-500" />} titulo="Documentos propios a crear — orden de trabajo" badge={`${adm.orden_anexos_propios.length}`} defaultOpen>
+        <Seccion icon={<ClipboardCheck size={14} className="text-teal-600" />} titulo="Documentos propios a crear — orden de trabajo" badge={`${adm.orden_anexos_propios.length}`} defaultOpen>
           <div className="space-y-1.5 text-[12px]">
             {[...adm.orden_anexos_propios].sort((a: any, b: any) => (a.criticidad === 'ADMISIBILIDAD_DURA' ? 0 : a.criticidad === 'PUNTAJE_CONDICIONANTE' ? 1 : 2) - (b.criticidad === 'ADMISIBILIDAD_DURA' ? 0 : b.criticidad === 'PUNTAJE_CONDICIONANTE' ? 1 : 2)).map((d: any, i: number) => {
               const cr = CRIT_ICON[d.criticidad] || CRIT_ICON.COMPROMISO_EJECUCION;
@@ -878,7 +878,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
                         en viabilidad-ia.ts). Se marca para que quede claro que su criticidad no
                         viene leída de las bases y hay que confirmarla. */}
                     {d._agregado_por_cruce && <span title="El organismo publicó este anexo pero el análisis de las bases no lo había listado — se agregó cruzando contra los archivos de la licitación. Confirma su obligatoriedad en las bases." className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 flex-shrink-0 cursor-help">por cruce</span>}
-                    {d.responsable && <span title="Quién (o en qué fase del flujo) se prepara este documento" className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 flex-shrink-0 cursor-help">{cap(d.responsable)}</span>}
+                    {d.responsable && <span title="Quién (o en qué fase del flujo) se prepara este documento" className="text-[10px] px-1.5 py-0.5 rounded bg-teal-50 text-marca flex-shrink-0 cursor-help">{cap(d.responsable)}</span>}
                   </div>
                   {d.por_que && <p className="text-slate-500 mt-0.5 pl-5 leading-snug">POR QUÉ: {d.por_que}</p>}
                   {d.que_debe_contener && <p className="text-slate-500 pl-5 leading-snug">CONTENER: {d.que_debe_contener}</p>}
@@ -893,7 +893,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
 
       {/* Plazos */}
       {tab === 'riesgos' && (plz.colchon_dias_corridos != null || (plz.hitos?.length ?? 0) > 0) && (
-        <Seccion icon={<Gavel size={14} className="text-violet-500" />} titulo="Plazos (colchón administrativo)" badge={plz.colchon_dias_corridos != null ? `colchón ${plz.colchon_dias_corridos} días` : undefined} defaultOpen>
+        <Seccion icon={<Gavel size={14} className="text-teal-600" />} titulo="Plazos (colchón administrativo)" badge={plz.colchon_dias_corridos != null ? `colchón ${plz.colchon_dias_corridos} días` : undefined} defaultOpen>
           <p className="text-[13px] text-slate-700 mb-2">
             <strong title="Días “gratis” entre la adjudicación y el inicio del plazo de entrega" className="cursor-help">Colchón:</strong> ≈ {plz.colchon_dias_corridos ?? '—'} días corridos
             {' · '}<span title={plz.cadena === 'larga' ? 'Cadena LARGA: hay contrato y/o garantía que firmar antes de poder empezar a entregar (más trámites, más días)' : 'Cadena corta: casi no hay trámites entre la adjudicación y el inicio de la entrega'} className="cursor-help underline decoration-dotted decoration-slate-300 underline-offset-2">cadena {cap(plz.cadena)}</span>
@@ -906,7 +906,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
           <div className="space-y-1.5">
             {(plz.hitos || []).map((h: any, i: number) => (
               <div key={i} className="flex items-start gap-2 text-[13px]">
-                <span className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-1.5 flex-shrink-0" />
+                <span className="w-1.5 h-1.5 rounded-full bg-teal-500 mt-1.5 flex-shrink-0" />
                 <div className="flex-1 min-w-0"><p className="text-slate-700">{h.hito}{h.duracion != null ? ` — ${h.duracion} ${h.unidad || ''}` : ''}{h.duracion_corridos != null && h.duracion_corridos > 0 && h.unidad !== 'corridos' ? ` (≈ ${h.duracion_corridos} corridos)` : ''}{h.inferido ? ' (inferido ⚠)' : ''}</p>{h.fuente && <p className="text-[11px] text-slate-400"><Fuente>{h.fuente}</Fuente></p>}</div>
               </div>
             ))}
@@ -916,7 +916,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
 
       {/* Multas */}
       {tab === 'riesgos' && (mul.detectadas || mul.estructura) && (
-        <Seccion icon={<Gavel size={14} className="text-violet-500" />} titulo="Multas por atraso" defaultOpen>
+        <Seccion icon={<Gavel size={14} className="text-teal-600" />} titulo="Multas por atraso" defaultOpen>
           {mul.detectadas === false
             ? <p className="text-[13px] text-slate-500">No se detectaron multas por atraso en las bases.</p>
             : <p className="text-[13px] text-slate-700">{mul.estructura}{mul.costo_por_dia_pesos ? ` · ${mul.costo_por_dia_pesos}/día` : ''}{mul.valor_utm_usado ? ` (UTM ${mul.valor_utm_usado})` : ''}{mul.tope ? ` · tope: ${mul.tope}` : ''}{mul.efecto_al_superar_tope ? ` · ${mul.efecto_al_superar_tope}` : ''}</p>}
@@ -927,7 +927,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
       {/* Costeo — TODOS los ítems que alimentan el Excel de costeo (manifiesto completo),
           ahora como TABLA: con 10+ ítems las cantidades y tipos quedan alineados y legibles. */}
       {tab === 'productos' && itemsCosteo.length > 0 && (
-        <Seccion icon={<Package size={14} className="text-violet-500" />} titulo="Productos a cotizar" badge={`${itemsCosteo.length} ítems · ${hojasCosteo}`} defaultOpen>
+        <Seccion icon={<Package size={14} className="text-teal-600" />} titulo="Productos a cotizar" badge={`${itemsCosteo.length} ítems · ${hojasCosteo}`} defaultOpen>
           {entregablesWord.length > 0 && (
             <p className="text-[11px] text-slate-400 mb-1.5">Entregables: {entregablesWord.map(w => cap(w)).join(' · ')} <span className="text-slate-300">(fichas en el JSON; Word pendiente de generar)</span></p>
           )}
@@ -958,14 +958,14 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
                             <span className="inline-flex gap-1 flex-wrap ml-1.5 align-middle">
                               {p.libertad_de_oferta && <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 cursor-help" title="Las bases no exigen especificaciones para este ítem: se puede ofertar el producto que más nos convenga">🟢 Libertad de oferta</span>}
                               {p.admite_equivalente === false && <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 cursor-help" title="Piden una marca específica y NO aceptan alternativas equivalentes en este ítem">marca exacta</span>}
-                              {p.ruta && <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 cursor-help" title="Ruta de abastecimiento sugerida por el análisis para conseguir este producto">Ruta {p.ruta}</span>}
+                              {p.ruta && <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-teal-50 text-marca cursor-help" title="Ruta de abastecimiento sugerida por el análisis para conseguir este producto">Ruta {p.ruta}</span>}
                               {p.marca_exclusiva && <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 cursor-help" title="Exigen una marca sin admitir “o equivalente”: riesgo de margen">⚠ marca exclusiva</span>}
                             </span>
                           )}
                         </td>
                         <td className="py-1.5 pr-2 text-right text-slate-600 whitespace-nowrap">{p.cantidad != null ? <>{p.cantidad}{p.unidad_medida ? ` ${p.unidad_medida}` : ''}{p.unidad_inferida ? '*' : ''}</> : '—'}</td>
                         <td className="py-1.5">
-                          {esEspecifico ? <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 cursor-help" title="Ítem con especificaciones técnicas detalladas en las bases: hay que cumplirlas">Específico</span>
+                          {esEspecifico ? <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-marca-suave text-marca cursor-help" title="Ítem con especificaciones técnicas detalladas en las bases: hay que cumplirlas">Específico</span>
                             : esGenerico ? <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 cursor-help" title="Ítem sin especificaciones detalladas: más libertad para elegir qué ofertar">Genérico</span>
                             : <span className="text-slate-300">—</span>}
                         </td>
@@ -975,7 +975,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
                           <td />
                           <td colSpan={3} className="pb-2">
                             <details>
-                              <summary className="text-[11px] text-violet-600 cursor-pointer select-none">Ficha técnica ({p.caracteristicas.length})</summary>
+                              <summary className="text-[11px] text-marca cursor-pointer select-none">Ficha técnica ({p.caracteristicas.length})</summary>
                               <ul className="text-[11px] text-slate-500 list-disc pl-4 mt-0.5 space-y-0.5">
                                 {p.caracteristicas.map((c: string, k: number) => <li key={k}>{c}</li>)}
                               </ul>
@@ -1001,7 +1001,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
 
       {/* Líneas a atacar */}
       {tab === 'productos' && (lin.modo === 'POR_LINEAS' ? (lin.lineas?.length ?? 0) > 0 : !!lin.mensaje_global_o_lote) && (
-        <Seccion icon={<Swords size={14} className="text-violet-500" />} titulo="Líneas a atacar" badge={cap(lin.modo)} defaultOpen>
+        <Seccion icon={<Swords size={14} className="text-teal-600" />} titulo="Líneas a atacar" badge={cap(lin.modo)} defaultOpen>
           {lin.modo === 'POR_LINEAS'
             ? <div className="space-y-1 text-[12px]">{(lin.lineas || []).map((l: any, i: number) => (
                 <div key={i} className="flex items-start gap-2 border-b border-slate-100 last:border-0 py-1">
@@ -1014,7 +1014,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
 
       {/* Acciones y advertencias */}
       {tab === 'preparacion' && ((acc.acciones?.length ?? 0) > 0 || (acc.advertencias?.length ?? 0) > 0) && (
-        <Seccion icon={<Target size={14} className="text-violet-500" />} titulo="Acciones y advertencias" defaultOpen>
+        <Seccion icon={<Target size={14} className="text-teal-600" />} titulo="Acciones y advertencias" defaultOpen>
           {(acc.acciones?.length ?? 0) > 0 && <><p className="text-[11px] font-bold text-slate-400 uppercase mb-1">Para postular</p><ul className="text-[12px] text-slate-700 space-y-1 list-decimal pl-4 mb-2">{acc.acciones.map((a: any, i: number) => <li key={i}><span className="font-semibold">{a.orden}</span>{a.por_que ? ` — ${a.por_que}` : ''} <Fuente>{a.fuente}</Fuente></li>)}</ul></>}
           {(acc.advertencias?.length ?? 0) > 0 && <><p className="text-[11px] font-bold text-red-500 uppercase mb-1">Advertencias</p><ul className="text-[12px] text-amber-700 space-y-1 list-disc pl-4">{acc.advertencias.map((a: any, i: number) => <li key={i}>⚠ {a.riesgo}{a.consecuencia ? ` — ${a.consecuencia}` : ''} <Fuente>{a.fuente}</Fuente></li>)}</ul></>}
         </Seccion>
@@ -1025,7 +1025,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
 
       <p className="text-[11px] text-slate-400 text-center pt-1">
         {(informe.pendientes_fase3?.length ?? 0) > 0 && <>Pendiente Fase 3: {informe.pendientes_fase3.join(', ')} · </>}
-        Leídos {informe.documentos_leidos?.length ?? 0} doc(s) · confianza {Math.round((informe.confianza_global ?? 0) * 100)}% · <span className="text-violet-500 font-semibold">v3</span>
+        Leídos {informe.documentos_leidos?.length ?? 0} doc(s) · confianza {Math.round((informe.confianza_global ?? 0) * 100)}% · <span className="text-teal-600 font-semibold">v3</span>
       </p>
         </>
       )}
@@ -1353,9 +1353,9 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
   // Panel "Enseñar a la IA": en la vista v3 se muestra dentro de la pestaña Preparación;
   // en la v2 (o sin informe) se mantiene al final de la página, como antes.
   const panelFeedback = puedeComentar ? (
-      <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-4">
+      <div className="rounded-xl border border-teal-200 bg-marca-suave/40 p-4">
         <div className="flex items-center gap-2 mb-1">
-          <GraduationCap size={16} className="text-violet-600" />
+          <GraduationCap size={16} className="text-marca" />
           <h3 className="text-[13px] font-bold text-slate-800">Enseñarle a la IA · Reglas que aprende</h3>
         </div>
         <p className="text-[11.5px] text-slate-500 mb-3">Tu corrección se convierte en una regla que el sistema aplicará en <strong>todos los análisis futuros</strong>. Puedes agregar reglas aunque no hayas analizado esta licitación.</p>
@@ -1364,7 +1364,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
         <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5 mb-3 w-fit">
           {([['global', 'Viabilidad / Descarte'], ['lectura', 'Lectura de documentos / Costeo']] as const).map(([a, lbl]) => (
             <button key={a} onClick={() => setFbAmbito(a)}
-              className={`text-[12px] font-semibold px-3 py-1.5 rounded-md transition-colors ${fbAmbito === a ? 'bg-white text-violet-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+              className={`text-[12px] font-semibold px-3 py-1.5 rounded-md transition-colors ${fbAmbito === a ? 'bg-white text-marca shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
               {lbl}
             </button>
           ))}
@@ -1373,11 +1373,11 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
         {/* v4.0 (P12): se sacaron los botones "Sí es viable / No es viable / Parcial" — el nivel lo
             calcula el sistema; la regla solo enseña qué leer, reportar o advertir. */}
         {fbAmbito === 'global' ? (
-          <p className="text-[11.5px] text-violet-700 bg-violet-50 border border-violet-100 rounded-lg px-2.5 py-2 mb-2">
+          <p className="text-[11.5px] text-marca bg-marca-suave border border-teal-100 rounded-lg px-2.5 py-2 mb-2">
             Explica <strong>qué debió leer, reportar o advertir</strong> el análisis. La regla no cambia el nivel ni la adjudicación: eso lo decide el sistema.
           </p>
         ) : (
-          <p className="text-[11.5px] text-violet-700 bg-violet-50 border border-violet-100 rounded-lg px-2.5 py-2 mb-2">
+          <p className="text-[11.5px] text-marca bg-marca-suave border border-teal-100 rounded-lg px-2.5 py-2 mb-2">
             Explica <strong>cómo debe leerse el documento</strong> para que la extracción de ítems y el costeo salgan bien. Se aplica al leer las planillas y anexos de futuras licitaciones.
           </p>
         )}
@@ -1387,30 +1387,30 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
             ? 'Ej: En listados con encabezado "Cantidad solicitada", esa columna es la cantidad. / Si la descripción trae "MARCA SUGERIDA:", esa es referencial, no obligatoria. / Ignorar las filas de "Solped" y "Material" como si fueran ítems.'
             : 'Ej: Si las bases piden certificación ISO-9001 del oferente, repórtala como requisito de admisibilidad. / Advertir cuando la garantía se exige en UTM.'}
           rows={3}
-          className="w-full text-[13px] rounded-lg border border-slate-200 p-2.5 focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 outline-none resize-y" />
+          className="w-full text-[13px] rounded-lg border border-slate-200 p-2.5 focus:ring-2 focus:ring-marca/20 focus:border-marca outline-none resize-y" />
 
         <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
           <p className={`text-[11.5px] ${fbOk?.startsWith('Aprendido') ? 'text-emerald-600' : 'text-amber-600'}`}>{fbOk}</p>
           <div className="flex items-center gap-2">
             {informe && fbOk?.startsWith('Aprendido') && (esAdmin || puedeReanalizar) && (
-              <button onClick={analizar} disabled={cargando} className="text-[12px] font-semibold text-violet-600 hover:underline">Re-analizar con lo aprendido</button>
+              <button onClick={analizar} disabled={cargando} className="text-[12px] font-semibold text-marca hover:underline">Re-analizar con lo aprendido</button>
             )}
             <button onClick={enviarFeedback} disabled={fbEnviando || fbComentario.trim().length < 4}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-[12px] font-semibold rounded-lg">
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-marca hover:bg-marca-fuerte disabled:opacity-50 text-white text-[12px] font-semibold rounded-lg">
               {fbEnviando ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Guardar y enseñar
             </button>
           </div>
         </div>
 
         {feedback.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-violet-100 space-y-2">
+          <div className="mt-3 pt-3 border-t border-teal-100 space-y-2">
             <p className="text-[11px] font-bold text-slate-400 uppercase">Lecciones registradas ({feedback.length})</p>
             {feedback.map(f => (
               <div key={f.id} className="flex items-start gap-2 text-[12px] bg-white rounded-lg border border-slate-200 p-2">
-                <GraduationCap size={13} className="text-violet-500 mt-0.5 flex-shrink-0" />
+                <GraduationCap size={13} className="text-teal-600 mt-0.5 flex-shrink-0" />
                 <div className="min-w-0 flex-1">
                   <p className="text-slate-700">
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded mr-1.5 align-middle ${f.ambito === 'lectura' ? 'bg-sky-100 text-sky-700' : 'bg-violet-100 text-violet-700'}`}>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded mr-1.5 align-middle ${f.ambito === 'lectura' ? 'bg-sky-100 text-sky-700' : 'bg-teal-50 text-marca'}`}>
                       {f.ambito === 'lectura' ? 'Lectura' : 'Viabilidad'}
                     </span>
                     <strong>Regla:</strong> {f.regla}
@@ -1430,7 +1430,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
       {/* Cabecera + acción */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center flex-shrink-0"><Sparkles size={16} className="text-white" /></div>
+          <div className="w-8 h-8 rounded-lg bg-marca flex items-center justify-center flex-shrink-0"><Sparkles size={16} className="text-white" /></div>
           <div className="min-w-0">
             <h2 className="text-[15px] font-bold text-slate-800 leading-tight">Análisis de viabilidad</h2>
             <p className="text-[11px] text-slate-400 truncate">El sistema lee todas las bases (incl. escaneadas) y emite el veredicto con su fuente</p>
@@ -1446,7 +1446,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
           </button>
         ) : !informe || esAdmin || puedeReanalizar ? (
           <button onClick={analizar}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-violet-600 hover:bg-violet-700 text-white text-[13px] font-semibold rounded-lg transition-colors flex-shrink-0">
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-marca hover:bg-marca-fuerte text-white text-[13px] font-semibold rounded-lg transition-colors flex-shrink-0">
             <Sparkles size={14} /> {informe ? 'Re-analizar' : 'Analizar'}
           </button>
         ) : (
@@ -1484,7 +1484,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
       {/* Cargando el informe YA guardado (GET inicial): no confundir con "sin análisis". */}
       {!informe && !cargando && cargandoInforme && (
         <div className="flex flex-col items-center justify-center py-14 bg-white rounded-2xl border border-slate-200 text-center">
-          <Loader2 size={22} className="animate-spin text-violet-500 mb-3" />
+          <Loader2 size={22} className="animate-spin text-teal-600 mb-3" />
           <p className="text-[13px] text-slate-500">Cargando el análisis guardado…</p>
         </div>
       )}
@@ -1503,7 +1503,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
 
       {!informe && !cargando && !error && !cargandoInforme && !errorCarga && (
         <div className="flex flex-col items-center justify-center py-14 bg-white rounded-2xl border border-slate-200 text-center">
-          <div className="w-12 h-12 rounded-xl bg-violet-50 flex items-center justify-center mb-3"><Sparkles size={22} className="text-violet-500" /></div>
+          <div className="w-12 h-12 rounded-xl bg-marca-suave flex items-center justify-center mb-3"><Sparkles size={22} className="text-teal-600" /></div>
           <p className="text-[14px] font-semibold text-slate-700">Aún sin análisis</p>
           <p className="text-[12px] text-slate-400 max-w-xs mt-1">Pulsa “Analizar”: se leerán todos los documentos y se entregará el nivel de atractivo, qué hacer con el proyecto y todo el detalle con su fuente.</p>
         </div>
@@ -1531,7 +1531,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
               <Gauge score={score} sem={sem} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`text-[11px] font-black text-white px-2 py-0.5 rounded ${sem.bg}`}>{ganaLabel}</span>
+                  <span className={`text-[11px] font-semibold text-white px-2 py-0.5 rounded ${sem.bg}`}>{ganaLabel}</span>
                   <span className={`text-[13px] font-bold ${sem.text}`}>{SEM[informe.semaforo || '']?.label || cap(v?.nivel)}</span>
                   {informe.area_negocio && <span className="text-[11px] text-slate-500 bg-white/60 border border-slate-200 px-2 py-0.5 rounded-full">{cap(informe.area_negocio)}</span>}
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${enRevision ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
@@ -1565,7 +1565,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
                 {informe.presupuesto?.es_excluyente
                   ? <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700">EXCLUYENTE</span>
                   : <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-slate-100 text-slate-500">referencial</span>}
-                {informe.presupuesto?.regimen_fora && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-violet-100 text-violet-700">FORA</span>}
+                {informe.presupuesto?.regimen_fora && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-teal-50 text-marca">FORA</span>}
               </div>
               {Array.isArray(informe.presupuesto?.por_linea) && informe.presupuesto.por_linea.length >= 2 && (
                 <div className="mt-1 space-y-0.5">
@@ -1575,7 +1575,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
                 </div>
               )}
               {hrefCita(informe.presupuesto?.fuente)
-                ? <a href={hrefCita(informe.presupuesto?.fuente)} target="_blank" rel="noopener noreferrer" className="block text-[10px] text-indigo-600 hover:underline truncate" title={informe.presupuesto?.fuente}>{informe.presupuesto?.bruto ? (informe.presupuesto?.regimen_fora ? 'exento · ' : 'IVA incl. · ') : ''}{informe.presupuesto?.fuente}</a>
+                ? <a href={hrefCita(informe.presupuesto?.fuente)} target="_blank" rel="noopener noreferrer" className="block text-[10px] text-marca hover:underline truncate" title={informe.presupuesto?.fuente}>{informe.presupuesto?.bruto ? (informe.presupuesto?.regimen_fora ? 'exento · ' : 'IVA incl. · ') : ''}{informe.presupuesto?.fuente}</a>
                 : <p className="text-[10px] text-slate-400 truncate" title={informe.presupuesto?.fuente}>{informe.presupuesto?.bruto ? (informe.presupuesto?.regimen_fora ? 'exento · ' : 'IVA incl. · ') : ''}{informe.presupuesto?.fuente}</p>}
             </div>
             <TarjetaAdjudicacion informe={informe} />
@@ -1597,7 +1597,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
 
           {/* DETALLE — acordeón */}
           {criterios.length > 0 && (
-            <Seccion icon={<Target size={14} className="text-violet-500" />} titulo="Criterios de evaluación y forma de aplicación" badge={`suma ${Math.round(sumaCriterios)}%${sumaValida ? ' ✓' : ' ⚠ no cuadra'}${crit?.forma_aplicacion_completa === false ? ' · forma incompleta ⚠' : ''}${informe.modalidad?.evaluacion_puntaje === 'por_linea' ? ' · por línea' : ''}`} defaultOpen>
+            <Seccion icon={<Target size={14} className="text-teal-600" />} titulo="Criterios de evaluación y forma de aplicación" badge={`suma ${Math.round(sumaCriterios)}%${sumaValida ? ' ✓' : ' ⚠ no cuadra'}${crit?.forma_aplicacion_completa === false ? ' · forma incompleta ⚠' : ''}${informe.modalidad?.evaluacion_puntaje === 'por_linea' ? ' · por línea' : ''}`} defaultOpen>
               <div className="space-y-2.5">
                 {criterios.map((c, i) => (
                   <div key={i} className="border-b border-slate-100 last:border-0 pb-2 last:pb-0">
@@ -1638,7 +1638,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
 
           {/* Línea de tiempo post-adjudicación */}
           {(lt?.hitos?.length ?? 0) > 0 && (
-            <Seccion icon={<Gavel size={14} className="text-violet-500" />} titulo="Módulo plazos (colchón + entrega)" badge={lt?.colchon_dias_corridos != null ? `colchón ${lt.colchon_dias_corridos} días corr.` : lt?.colchon_dias_habiles != null ? `colchón ${lt.colchon_dias_habiles} días háb.` : undefined} defaultOpen>
+            <Seccion icon={<Gavel size={14} className="text-teal-600" />} titulo="Módulo plazos (colchón + entrega)" badge={lt?.colchon_dias_corridos != null ? `colchón ${lt.colchon_dias_corridos} días corr.` : lt?.colchon_dias_habiles != null ? `colchón ${lt.colchon_dias_habiles} días háb.` : undefined} defaultOpen>
               <div className="grid grid-cols-3 gap-2 mb-3">
                 <div className="bg-emerald-50 rounded-lg p-2"><p className="text-[10px] text-emerald-500 uppercase font-bold">Colchón admin.</p><p className="text-[13px] font-bold text-emerald-700">{lt?.colchon_dias_corridos != null ? `${lt.colchon_dias_corridos} corr.` : lt?.colchon_dias_habiles != null ? `${lt.colchon_dias_habiles} háb.` : '—'}</p><p className="text-[9px] text-emerald-600">tiempo gratis pre-entrega</p></div>
                 <div className="bg-slate-50 rounded-lg p-2"><p className="text-[10px] text-slate-400 uppercase font-bold">Ofertable (puntaje)</p><p className="text-[13px] font-bold text-slate-800">{lt?.plazo_ofertable_puntaje || '—'}</p><p className="text-[9px] text-slate-400">no es colchón</p></div>
@@ -1652,7 +1652,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
               <div className="space-y-1.5">
                 {lt!.hitos!.map((h, i) => (
                   <div key={i} className="flex items-start gap-2 text-[13px]">
-                    <span className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-1.5 flex-shrink-0" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-teal-500 mt-1.5 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
                       <p className="text-slate-700">{h.hito}{h.duracion_dias != null ? ` — ${h.duracion_dias} día(s) ${h.tipo_dias || ''}` : ''}{h.inferido ? ' (inferido ⚠)' : ''}</p>
                       {(h.base_computo || h.fuente) && <p className="text-[11px] text-slate-400">{h.base_computo ? `cómputo: ${cap(h.base_computo)} · ` : ''}<Fuente>{h.fuente}</Fuente></p>}
@@ -1665,7 +1665,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
           )}
 
           {informe.capa_a && (
-            <Seccion icon={<Scale size={14} className="text-violet-500" />} titulo="Atractivo (Capa A)" badge={`${informe.capa_a.score_total ?? '?'}/15 · ${cap(informe.capa_a.nivel)}`}>
+            <Seccion icon={<Scale size={14} className="text-teal-600" />} titulo="Atractivo (Capa A)" badge={`${informe.capa_a.score_total ?? '?'}/15 · ${cap(informe.capa_a.nivel)}`}>
               <div className="space-y-1.5 text-[12px]">
                 {[['Presupuesto', informe.capa_a.presupuesto], ['Cantidad', informe.capa_a.cantidad_items], ['Complejidad', informe.capa_a.complejidad], ['Ejecución', informe.capa_a.ejecucion]].map(([lbl, o]: any, i) => (
                   <div key={i} className="bg-slate-50 rounded-lg p-2">
@@ -1682,7 +1682,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
           )}
 
           {((informe.capa_b_palancas?.length ?? 0) > 0 || informe.donde_se_decide?.mensaje) && (
-            <Seccion icon={<ListChecks size={14} className="text-violet-500" />} titulo="Palancas y jugadas (Capa B)" defaultOpen={!!informe.donde_se_decide?.mensaje}>
+            <Seccion icon={<ListChecks size={14} className="text-teal-600" />} titulo="Palancas y jugadas (Capa B)" defaultOpen={!!informe.donde_se_decide?.mensaje}>
               <div className="space-y-1.5 text-[12px]">
                 {informe.capa_b_palancas!.map((p, i) => (
                   <div key={i} className="bg-slate-50 rounded-lg p-2">
@@ -1697,11 +1697,11 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
                 ))}
                 {/* v2.1: DÓNDE SE DECIDE — síntesis de la Capa B */}
                 {informe.donde_se_decide?.mensaje && (
-                  <div className="rounded-lg border border-violet-200 bg-violet-50/60 p-2.5 mt-1">
-                    <p className="flex items-center gap-1.5 text-[12px] font-bold text-violet-800 mb-1"><Compass size={13} /> Dónde se decide</p>
+                  <div className="rounded-lg border border-teal-200 bg-marca-suave/60 p-2.5 mt-1">
+                    <p className="flex items-center gap-1.5 text-[12px] font-bold text-teal-900 mb-1"><Compass size={13} /> Dónde se decide</p>
                     <p className="text-[12px] text-slate-700 leading-snug">{informe.donde_se_decide.mensaje}</p>
                     <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
-                      {informe.donde_se_decide.se_decide_en && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white border border-violet-200 text-violet-700">se decide en: {cap(informe.donde_se_decide.se_decide_en)}</span>}
+                      {informe.donde_se_decide.se_decide_en && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white border border-teal-200 text-marca">se decide en: {cap(informe.donde_se_decide.se_decide_en)}</span>}
                       {informe.donde_se_decide.tenemos_ventaja_costo === 'si' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">ventaja de costo{informe.donde_se_decide.via && informe.donde_se_decide.via !== 'ninguna' ? ` · ${cap(informe.donde_se_decide.via)}` : ''}</span>}
                       {informe.donde_se_decide.tenemos_ventaja_costo === 'no' && informe.donde_se_decide.se_decide_en === 'precio' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">⚠ guerra de precio</span>}
                       {(informe.donde_se_decide.criterios_abiertos_diferenciadores ?? []).map((c, i) => <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700">diferenciar: {c}</span>)}
@@ -1713,7 +1713,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
           )}
 
           {cc && (
-            <Seccion icon={<ShieldCheck size={14} className="text-violet-500" />} titulo="Admisibilidad (Capa C)" badge={(cc.bloqueantes?.length ?? 0) > 0 ? `${cc.bloqueantes!.length} bloqueante(s)` : 'sin bloqueantes'}>
+            <Seccion icon={<ShieldCheck size={14} className="text-teal-600" />} titulo="Admisibilidad (Capa C)" badge={(cc.bloqueantes?.length ?? 0) > 0 ? `${cc.bloqueantes!.length} bloqueante(s)` : 'sin bloqueantes'}>
               <div className="space-y-1.5 text-[13px]">
                 {cc.presupuesto_excluyente?.aplica && (
                   <p className="flex items-start gap-1.5 text-red-700 font-semibold"><Ban size={13} className="mt-0.5 flex-shrink-0" /> Presupuesto EXCLUYENTE — no superar el techo <Fuente>{cc.presupuesto_excluyente.fuente}</Fuente></p>
@@ -1730,7 +1730,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
           )}
 
           {(informe.documentos_infaltables?.length ?? 0) > 0 && (
-            <Seccion icon={<ClipboardCheck size={14} className="text-violet-500" />} titulo="Documentos infaltables" badge={`${informe.documentos_infaltables!.length} · orden de trabajo`} defaultOpen>
+            <Seccion icon={<ClipboardCheck size={14} className="text-teal-600" />} titulo="Documentos infaltables" badge={`${informe.documentos_infaltables!.length} · orden de trabajo`} defaultOpen>
               <div className="space-y-1.5 text-[12px]">
                 {informe.documentos_infaltables!.map((d, i) => {
                   const dur = d.tipo === 'admisibilidad_dura' ? { ic: '🔴', txt: 'Admisibilidad dura' }
@@ -1741,7 +1741,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
                       <div className="flex items-start gap-1.5">
                         <span className="flex-shrink-0" title={dur.txt}>{dur.ic}</span>
                         <p className="text-slate-700 font-medium flex-1">{d.exige}</p>
-                        {d.responsable && <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 flex-shrink-0">{cap(d.responsable)}</span>}
+                        {d.responsable && <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-50 text-marca flex-shrink-0">{cap(d.responsable)}</span>}
                       </div>
                       {d.cubre && <p className="text-slate-500 mt-0.5 pl-5 leading-snug">Lo cubre: {d.cubre}</p>}
                       {d.fuente && <div className="mt-0.5 pl-5"><Fuente>{d.fuente}</Fuente></div>}
@@ -1754,7 +1754,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
           )}
 
           {(informe.multas?.estructura || informe.multas?.costo_por_dia) && (
-            <Seccion icon={<Gavel size={14} className="text-violet-500" />} titulo="Multas">
+            <Seccion icon={<Gavel size={14} className="text-teal-600" />} titulo="Multas">
               <p className="text-[13px] text-slate-700">{informe.multas?.estructura}{informe.multas?.costo_por_dia ? ` · costo/día: ${informe.multas.costo_por_dia}` : ''}{informe.multas?.costo_maximo ? ` · tope: ${informe.multas.costo_maximo}` : ''}{informe.multas?.umbral_termino ? ` · término: ${informe.multas.umbral_termino}` : ''}</p>
               <div className="mt-1"><Fuente>{informe.multas?.fuente}</Fuente></div>
             </Seccion>
@@ -1767,7 +1767,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
             const lotes = new Set(manifLimpio.map(p => p.linea));
             const multiLote = lotes.size >= 2;
             return (
-            <Seccion icon={<Package size={14} className="text-violet-500" />} titulo="Productos (manifiesto)" badge={`${nProd} ítems`}>
+            <Seccion icon={<Package size={14} className="text-teal-600" />} titulo="Productos (manifiesto)" badge={`${nProd} ítems`}>
               <div className="space-y-1">
                 {manifLimpio.map((p, i) => (
                   <div key={i} className="flex gap-2 text-[13px] border-b border-slate-100 last:border-0 py-1">
@@ -1777,7 +1777,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
                     {p.cantidad != null && <span className="text-slate-500 flex-shrink-0">{p.cantidad}{p.unidad_medida ? ` ${p.unidad_medida}` : ''}{p.unidad_inferida ? '*' : ''}</span>}
                     {p.presupuesto_linea != null && <span className="text-[11px] text-emerald-600 flex-shrink-0">{fmt(p.presupuesto_linea)}</span>}
                     {p.tipo && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 flex-shrink-0">{p.tipo}</span>}
-                    {p.ruta && <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 flex-shrink-0">Ruta {p.ruta}</span>}
+                    {p.ruta && <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-50 text-marca flex-shrink-0">Ruta {p.ruta}</span>}
                   </div>
                 ))}
                 {manifLimpio.some(p => p.unidad_inferida) && <p className="text-[10px] text-slate-400 pt-1">* unidad de medida inferida (no especificada en las bases)</p>}
@@ -1788,7 +1788,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
 
           {/* v2.1: líneas a atacar / soltar (solo POR LÍNEAS de mini-proyectos) */}
           {(informe.lineas_a_atacar?.length ?? 0) > 0 && (
-            <Seccion icon={<Swords size={14} className="text-violet-500" />} titulo="Líneas a atacar / soltar" badge={`${informe.lineas_a_atacar!.filter(l => l.decision === 'atacar').length} atacar · ${informe.lineas_a_atacar!.filter(l => l.decision === 'soltar').length} soltar`}>
+            <Seccion icon={<Swords size={14} className="text-teal-600" />} titulo="Líneas a atacar / soltar" badge={`${informe.lineas_a_atacar!.filter(l => l.decision === 'atacar').length} atacar · ${informe.lineas_a_atacar!.filter(l => l.decision === 'soltar').length} soltar`}>
               <div className="space-y-1 text-[12px]">
                 {informe.lineas_a_atacar!.map((l, i) => (
                   <div key={i} className="flex items-start gap-2 border-b border-slate-100 last:border-0 py-1">
@@ -1801,7 +1801,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
           )}
 
           {((v?.acciones_AC?.length ?? 0) > 0 || (v?.advertencias?.length ?? 0) > 0) && (
-            <Seccion icon={<Target size={14} className="text-violet-500" />} titulo="Acciones y advertencias" defaultOpen>
+            <Seccion icon={<Target size={14} className="text-teal-600" />} titulo="Acciones y advertencias" defaultOpen>
               {(v?.acciones_AC?.length ?? 0) > 0 && <><p className="text-[11px] font-bold text-slate-400 uppercase mb-1">Para postular</p><ul className="text-[12px] text-slate-700 space-y-1 list-disc pl-4 mb-2">{v!.acciones_AC!.map((a, i) => <li key={i}>{a}</li>)}</ul></>}
               {(v?.advertencias?.length ?? 0) > 0 && <><p className="text-[11px] font-bold text-slate-400 uppercase mb-1">Advertencias</p><ul className="text-[12px] text-amber-700 space-y-1 list-disc pl-4">{v!.advertencias!.map((a, i) => <li key={i}>{a}</li>)}</ul></>}
             </Seccion>

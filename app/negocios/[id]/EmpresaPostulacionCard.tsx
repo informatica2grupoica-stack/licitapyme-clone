@@ -57,18 +57,19 @@ export function EmpresaPostulacionCard({ negocioId, empresaId, onChange, bloquea
   ] : [];
 
   return (
-    <div className={`rounded-xl border px-4 py-3 flex items-center gap-3 flex-wrap ${empresaId ? 'bg-white border-zinc-200' : 'bg-amber-50 border-amber-200'}`}>
-      <Building2 size={16} className={empresaId ? 'text-zinc-400' : 'text-amber-600'} />
+    // Estilo del sistema de diseño (skill licitank-ui); ámbar suave mientras falta elegirla.
+    <div className={`rounded-2xl border px-5 py-4 flex items-center gap-3 flex-wrap shadow-tarjeta ${empresaId ? 'bg-white border-linea dark:bg-slate-900 dark:border-slate-800' : 'bg-amber-50/70 border-amber-200 dark:bg-amber-950/30 dark:border-amber-900'}`}>
+      <span className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${empresaId ? 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400' : 'bg-white text-alerta dark:bg-slate-900'}`}><Building2 size={18} /></span>
       <div className="min-w-0">
-        <p className={`text-[12.5px] font-bold ${empresaId ? 'text-zinc-800' : 'text-amber-900'}`}>{empresaId ? 'Empresa con la que se postula' : '¿Con qué empresa se postula?'}</p>
-        {!empresaId && <p className="text-[11.5px] text-amber-800">Elígela una vez: los anexos se llenan con sus datos.</p>}
+        <p className={`text-[14px] font-semibold ${empresaId ? 'text-tinta dark:text-slate-100' : 'text-amber-900 dark:text-amber-200'}`}>{empresaId ? 'Empresa con la que se postula' : '¿Con qué empresa se postula?'}</p>
+        <p className={`text-xs ${empresaId ? 'text-tinta-2 dark:text-slate-400' : 'text-amber-800 dark:text-amber-300'}`}>{empresaId ? 'Los anexos se llenan con sus datos desde el Auditor.' : 'Elígela una vez: los anexos se llenan con sus datos.'}</p>
       </div>
-      <div className="w-full sm:w-72 sm:ml-2">
+      <div className="w-full sm:w-72 sm:ml-auto">
         <Select value={empresaId ? String(empresaId) : ''} onChange={elegir} placeholder="Elegir empresa…" disabled={bloqueado || guardando}
           options={lista.map(e => ({ value: String(e.id), label: e.razon_social }))} />
       </div>
-      {guardando && <Loader2 size={14} className="animate-spin text-zinc-400" />}
-      {empresaId && <button onClick={() => setVerDatos(true)} className="ml-auto text-[12px] font-semibold text-indigo-600 hover:text-indigo-700">Ver datos de la empresa</button>}
+      {guardando && <Loader2 size={14} className="animate-spin text-slate-400" />}
+      {empresaId && <button onClick={() => setVerDatos(true)} className="text-[13px] font-medium text-marca hover:text-marca-fuerte">Ver datos</button>}
 
       <Modal open={verDatos} onClose={() => setVerDatos(false)} title={empresa?.razon_social || 'Datos de la empresa'} size="md"
         footer={<button onClick={() => setVerDatos(false)} className="px-4 py-2 text-[13px] font-semibold text-zinc-600 hover:text-zinc-900">Cerrar</button>}>
@@ -78,8 +79,8 @@ export function EmpresaPostulacionCard({ negocioId, empresaId, onChange, bloquea
               <button key={label} onClick={() => copiar(valor, label)} title={`Copiar ${label.toLowerCase()}`}
                 className="group flex items-center gap-2 text-left px-2.5 py-1.5 rounded-lg hover:bg-zinc-50">
                 <div className="min-w-0 flex-1">
-                  <p className="text-[9.5px] text-zinc-400 uppercase font-bold tracking-wide">{label}</p>
-                  <p className="text-[12.5px] text-zinc-700 font-medium break-words">{valor}</p>
+                  <p className="text-[11px] text-slate-500">{label}</p>
+                  <p className="text-[13px] text-tinta font-medium break-words">{valor}</p>
                 </div>
                 <Copy size={12} className="text-zinc-300 group-hover:text-zinc-500 shrink-0" />
               </button>

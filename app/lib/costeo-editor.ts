@@ -130,7 +130,36 @@ function mismoProducto(a: string, b: string): boolean {
   if (!na || !nb) return false;
   if (na === nb) return true;
   const [corta, larga] = na.length <= nb.length ? [na, nb] : [nb, na];
-  return corta.length >= 12 && larga.startsWith(corta);
+  if (corta.length >= 12 && larga.startsWith(corta)) return true;
+  // Mismo nombre escrito distinto (3712-74-LP26, 28-oct-2026: «Quimitank 150 (Lt)» / «150(Lt)», «90cm,
+  // base pesada» / «90 cm. base pesada», y erratas de OCR «portátil»/«partátil», «Esfuerzo»/«Estuerzo»):
+  // «Actualizar» agregaba 23 copias. Sin espacios ni signos, y hasta 2 letras distintas si los NÚMEROS
+  // son los mismos («DN 63» y «DN 75» siguen siendo productos distintos).
+  const ca = na.normalize('NFKD').replace(/[^a-z0-9]/g, ''), cb = nb.normalize('NFKD').replace(/[^a-z0-9]/g, '');
+  if (ca === cb) return true;
+  const [cc, cl] = ca.length <= cb.length ? [ca, cb] : [cb, ca];
+  if (cc.length >= 12 && cl.startsWith(cc)) return true;
+  const numeros = (s: string) => (s.match(/\d+(?:\.\d+)?/g) || []).join(' ');
+  return cc.length >= 15 && numeros(na.normalize('NFKD')) === numeros(nb.normalize('NFKD')) && distanciaHasta2(ca, cb);
+}
+
+/** Mismo texto salvo espacios, signos y hasta 2 letras (errata de OCR): «Estuerzo» / «Esfuerzo». */
+function casiIgual(a: string, b: string): boolean {
+  const c = (s: string) => normDesc(s).normalize('NFKD').replace(/[^a-z0-9]/g, '');
+  return distanciaHasta2(c(a), c(b));
+}
+
+/** ¿Se pasa de `a` a `b` con 2 cambios de letra o menos (Levenshtein ≤ 2)? */
+function distanciaHasta2(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 2) return false;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    if (Math.min(...cur) > 2) return false;
+    prev = cur;
+  }
+  return prev[b.length] <= 2;
 }
 
 /** Encuentra, dentro de `filas`, la que representa el mismo producto real que `detalle` — ver
@@ -284,6 +313,42 @@ export function fusionarConViabilidad(
     estado: { modalidad: actual.grupos.length ? actual.modalidad : nuevo.modalidad, margenVenta: actual.margenVenta ?? MARGEN_VENTA_DEFECTO, grupos },
     agregados, reclasificados,
   };
+}
+
+/** Al re-analizar, corrige NOMBRE y CANTIDAD de las filas que ya están cuando el documento cambió —
+ *  decisión del dueño (28-oct-2026, 3712-74-LP26: «al re-analizar el costeo se debería actualizar
+ *  solo»). Solo se pisa lo que vino del documento y nadie tocó: la fila tiene todavía el valor que
+ *  traía el informe ANTERIOR (`anterior`). Un detalle complementado a mano (`detalleBase`) cambia solo
+ *  su parte original. Diferencias de forma («&quot;», coma/punto) se corrigen siempre. Nunca toca
+ *  precio, links, SKU, costo real, recargo ni filas de Compras o costos adicionales. */
+export function corregirDesdeViabilidad(
+  actual: EstadoCosteoEditor,
+  nuevo: EstadoCosteoEditor,
+  anterior: EstadoCosteoEditor | null,
+): { estado: EstadoCosteoEditor; corregidos: number } {
+  const frescas = nuevo.grupos.flatMap(g => g.filas).filter(f => f.detalle?.trim());
+  const viejas = anterior?.grupos.flatMap(g => g.filas) ?? [];
+  let corregidos = 0;
+  const grupos = actual.grupos.map(g => ({
+    ...g,
+    filas: g.filas.map(f => {
+      if (f.esCostoAdicional || f.agregadoPorCompras || !f.detalle?.trim()) return f;
+      const original = f.detalleBase ?? f.detalle;
+      const fresca = buscarMismoProducto(frescas, original);
+      if (!fresca) return f;
+      const vieja = buscarMismoProducto(viejas, original);
+      const out = { ...f };
+      if (fresca.detalle !== original && (normDesc(fresca.detalle) === normDesc(original) || vieja?.detalle === original || (f.detalleBase == null && casiIgual(original, fresca.detalle)))) {
+        if (f.detalleBase == null) out.detalle = fresca.detalle;
+        else if (f.detalle.startsWith(f.detalleBase)) { out.detalle = fresca.detalle + f.detalle.slice(f.detalleBase.length); out.detalleBase = fresca.detalle; }
+      }
+      if (fresca.cantidad != null && fresca.cantidad !== f.cantidad && (f.cantidad == null || vieja?.cantidad === f.cantidad)) out.cantidad = fresca.cantidad;
+      if (out.detalle === f.detalle && out.cantidad === f.cantidad) return f;
+      corregidos++;
+      return out;
+    }),
+  }));
+  return { estado: { ...actual, grupos }, corregidos };
 }
 
 /** ¿Alguien trabajó esta fila? Precio, link, SKU o costo real — decisión del dueño (27-oct-2026):

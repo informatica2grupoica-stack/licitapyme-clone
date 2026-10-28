@@ -17,7 +17,7 @@
 
 /** Extensiones que el sistema SABE leer. Si un documento tiene una de estas y quedó sin texto,
  *  es un fallo nuestro — no una limitación del formato. */
-const FORMATOS_LEGIBLES = new Set(['pdf', 'docx', 'doc', 'xlsx', 'xls']);
+const FORMATOS_LEGIBLES = new Set(['pdf', 'docx', 'dotx', 'doc', 'xlsx', 'xls']);
 
 /** Extensiones que NO se pueden leer y nunca deben contar como fallo: comprimidos, planos CAD,
  *  imágenes sueltas, mapas. Se listan explícitas para que un formato nuevo caiga en "legible" y

@@ -3,6 +3,24 @@
 Costeo digital del negocio (editor + burbuja flotante) y Excel de costeo (plantilla V3).
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-28 — Re-analizar la viabilidad SÍ actualiza el costeo digital (cambia la regla del 27-oct)
+**Regla / decisión (dueño, 2026-10-28, a raíz de 3712-74-LP26):** al terminar un (re)análisis, el costeo
+digital guardado de cada negocio de esa licitación se pone al día solo: agrega productos nuevos y reubica
+líneas (lo mismo que «Actualizar») y corrige NOMBRE y CANTIDAD de las filas existentes si el documento
+cambió. Solo se pisa lo que vino del documento y nadie tocó: la fila tiene aún el valor del informe
+ANTERIOR; las diferencias de forma («&quot;», coma/punto) se corrigen siempre; un detalle complementado
+a mano (`detalleBase`) cambia solo su parte original. Nunca borra filas ni toca precio, links, SKU, costo
+real ni recargos; las filas que la viabilidad ya no trae se siguen quitando con «Actualizar». No toca un
+negocio congelado (postulado), no crea versión y queda en el registro de cambios del editor
+(`COSTEO_ACTUALIZADO_VIABILIDAD`). El presupuesto de la hoja ya era automático salvo que alguien lo haya
+escrito a mano (ese manda). Código: `corregirDesdeViabilidad` (`costeo-editor.ts`),
+`actualizarCosteosTrasReanalisis` (`costeo-editor-reanalisis.ts`), llamado al final de
+`analizarYGuardarViabilidadIAImpl` (`viabilidad-ia.ts`; la copia `cv/` no toca el costeo). Como cambia
+`actualizado_at`, una pestaña del editor abierta desde antes recibe el aviso de conflicto al guardar.
+El cruce de nombres (`mismoProducto`, en `costeo-editor.ts` y su copia de `CosteoEditorCard.tsx`) ahora tolera espacios, signos, «½”» = «1/2"» y hasta 2 letras de errata si los NÚMEROS son iguales («DN 63» ≠ «DN 75»): antes «Actualizar» agregaba copias.
+Caso 3712-74-LP26 (negocio 1511): el costeo había llegado a 62 filas (23 copias sin precio de «Actualizar»). Re-analizado el 28-oct: el manifiesto ahora sale del anexo editable (.dotx), con los nombres limpios (portátil, demoledor, Clorimetro); costeo aplicado a 39 filas, todas con precio y link, 23 copias quitadas, 16 nombres corregidos (script `scripts/scratch/_3712_aplicar_costeo.mts`, respaldos en el scratchpad de la sesión). Nivel de viabilidad MUY_ALTO.
+**Verificado:** tests 1.617/1.617; `tsc` limpio; costeo de 3712 verificado contra la BD. NO visto en navegador.
+
 ## 2026-10-27 — Filtros por columna estilo Excel en la grilla del costeo digital
 Pedido del dueño: cada encabezado tiene una flechita (azul cuando filtra u ordena) que abre un menú como
 el autofiltro de Excel: ordenar asc/desc, buscador, casillas por valor con «(Vacías)», rango Desde/Hasta en
@@ -18,7 +36,7 @@ con su índice real en la hoja (`filasVista` guarda `fi`); el número de fila qu
 desde 1.000.000» deja 3 de 39 filas con los totales intactos, Z→A por detalle ordena bien y «Quitar filtros»
 vuelve a las 39. No se probó editar una celda con filtro puesto (el costeo es real y se autoguarda).
 
-## 2026-10-27 — Re-viabilidad no cambia el costeo digital (regla) + «Actualizar» duplicaba por coma decimal
+## 2026-10-27 — Re-viabilidad no cambia el costeo digital (regla REEMPLAZADA el 28-oct, ver arriba) + «Actualizar» duplicaba por coma decimal
 Caso real: 3712-74-LP26, negocio 1511. La viabilidad re-analizada dejó 39 productos; el costeo digital
 guardado sigue con 77 filas: 29 fichas técnicas sin número, «120 días corridos», X1…X6 de la pauta y la lista
 numerada (versión 1, 22-oct, armada con el parser viejo), más 2 duplicados que agregó «Actualizar» el 27-oct.

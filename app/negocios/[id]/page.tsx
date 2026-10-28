@@ -46,7 +46,7 @@ import { ResumenAuditorPanel } from './ResumenAuditorPanel';
 import { SelectorLineasOferta } from './SelectorLineasOferta';
 import { tieneInformacionComercial } from '@/app/lib/checklist-comercial';
 import { registrarVerSeccion } from '@/app/lib/actividad-cliente';
-import { IconArrowLeft as ArrowLeft, IconCalendar as Calendar, IconCurrencyDollar as DollarSign, IconTag as Tag, IconLoader2 as Loader2, IconAlertCircle as AlertCircle, IconFileText as FileText, IconX as X, IconPackage as Package, IconHash as Hash, IconClock as Clock, IconDownload as Download, IconRobot as Bot, IconBrain as Brain, IconRefresh as RefreshCw, IconChartBar as BarChart3, IconBook2 as BookOpen, IconTrendingUp as TrendingUp, IconCircleCheck as CheckCircle, IconUpload as Upload, IconFiles as Files, IconShieldExclamation as ShieldAlert, IconAward as Award, IconTool as Wrench, IconShoppingCart as ShoppingCart, IconArrowUpRight as ArrowUpRight } from '@tabler/icons-react';
+import { IconArrowLeft as ArrowLeft, IconCalendar as Calendar, IconCurrencyDollar as DollarSign, IconTag as Tag, IconLoader2 as Loader2, IconAlertCircle as AlertCircle, IconFileText as FileText, IconX as X, IconPackage as Package, IconHash as Hash, IconClock as Clock, IconDownload as Download, IconRobot as Bot, IconBrain as Brain, IconRefresh as RefreshCw, IconChartBar as BarChart3, IconBook2 as BookOpen, IconTrendingUp as TrendingUp, IconCircleCheck as CheckCircle, IconUpload as Upload, IconFiles as Files, IconShieldExclamation as ShieldAlert, IconAward as Award, IconTool as Wrench, IconShoppingCart as ShoppingCart, IconArrowUpRight as ArrowUpRight, IconBuilding as Building2, IconCalculator as Calculator } from '@tabler/icons-react';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
 interface Etiqueta { id: number; nombre: string; color: string; }
@@ -869,25 +869,17 @@ function DetalleContent() {
               del usuario, 28-sep-2026) — el propio grid/flex de cada sección se encarga de
               reacomodarse en pantallas chicas, así que no rompe el responsive. */}
           <div className="p-5 sm:p-7 w-full">
-            {/* Header */}
-            <div className="mb-5">
-              <div className="flex items-center gap-2 mb-3 lg:hidden">
-                <Link href="/negocios" className="flex items-center gap-1 text-[12px] text-zinc-500 hover:text-zinc-800">
-                  <ArrowLeft size={12} /> Volver
-                </Link>
-              </div>
+            {/* Encabezado (skill licitank-ui): código y estados como texto con punto, título grande. */}
+            <header className="mb-6">
+              <Link href="/negocios" className="lg:hidden mb-3 inline-flex items-center gap-1 text-[13px] text-tinta-2 hover:text-tinta">
+                <ArrowLeft size={14} /> Volver
+              </Link>
 
-              <p className="text-[11px] text-zinc-400 font-semibold uppercase tracking-wider mb-1">
-                Detalle Licitación · <span className="text-zinc-600 font-mono">{negocio.licitacion_codigo}</span>
-              </p>
-
-              <div className="flex items-start gap-2 flex-wrap mb-1.5">
+              <div className="flex items-center gap-x-4 gap-y-1.5 flex-wrap text-[13px] text-tinta-2 dark:text-slate-400">
+                <span className="font-mono text-[13px] font-medium text-tinta dark:text-slate-100">{negocio.licitacion_codigo}</span>
                 {tipo && (
-                  <span
-                    className="text-white text-[11px] font-black px-2 py-0.5 rounded flex-shrink-0"
-                    style={{ backgroundColor: tipoColor! }}
-                  >
-                    {tipo}
+                  <span className="inline-flex items-center gap-1.5">
+                    <span aria-hidden className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: tipoColor! }} />{tipo}
                   </span>
                 )}
                 {negocio.licitacion_estado && (() => {
@@ -895,41 +887,43 @@ function DetalleContent() {
                   const cod = estadoEfectivoCodigo(negocio.licitacion_estado, negocio.licitacion_cierre);
                   const st = ESTADO_MP_STYLE[cod ?? -1] || { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' };
                   return (
-                    <span className="text-[11px] px-2.5 py-0.5 rounded-full font-bold border"
-                      style={{ backgroundColor: st.bg, color: st.color, borderColor: st.border }}>
+                    <span className="inline-flex items-center gap-1.5" title="Estado en Mercado Público">
+                      <span aria-hidden className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: st.color }} />
                       {estadoEfectivoNombre(negocio.licitacion_estado, negocio.licitacion_cierre)}
                     </span>
                   );
                 })()}
                 <InsigniaReadjudicada negocioId={negocio.id} />
                 {loadingLic && (
-                  <span className="text-[11px] text-zinc-400 flex items-center gap-1">
-                    <Loader2 size={10} className="animate-spin" /> Cargando desde MP…
+                  <span className="inline-flex items-center gap-1 text-slate-400">
+                    <Loader2 size={12} className="animate-spin" /> Cargando desde Mercado Público…
                   </span>
                 )}
               </div>
 
-              <h1 className="text-[18px] font-bold text-zinc-900 leading-snug">
+              <h1 className="mt-2 text-[22px] sm:text-[24px] font-semibold tracking-tight text-tinta dark:text-slate-50 leading-tight max-w-5xl">
                 {negocio.licitacion_nombre || 'Sin nombre'}
               </h1>
-              <p className="text-[12px] text-zinc-400 uppercase tracking-wide mt-0.5">
-                {negocio.licitacion_organismo}
-              </p>
-            </div>
+              {negocio.licitacion_organismo && (
+                <p className="mt-1.5 inline-flex items-center gap-1.5 text-sm text-tinta-2 dark:text-slate-400">
+                  <Building2 size={15} className="text-slate-400 flex-shrink-0" />{negocio.licitacion_organismo}
+                </p>
+              )}
+            </header>
 
-            {/* Mobile tabs */}
+            {/* Pestañas en celular (en escritorio está el menú lateral) */}
             {(hayCosteo || verCosteoDescartado) && (
               <button onClick={() => flot.abrir(negocio.id, negocio.licitacion_codigo)}
-                className="lg:hidden mb-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200">
-                Costeo
+                className="lg:hidden mb-3 inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-medium text-tinta bg-white border border-linea shadow-tarjeta dark:bg-slate-900 dark:text-slate-100 dark:border-slate-700">
+                <Calculator size={15} className="text-slate-500" /> Costeo
               </button>
             )}
-            <div className="flex gap-1 mb-5 lg:hidden overflow-x-auto pb-1">
+            <div className="flex gap-1 mb-5 lg:hidden overflow-x-auto pb-1 -mx-1 px-1">
               {NAV_SECTIONS.map(s => s.disabled ? (
                 <span
                   key={s.key}
                   title="Se habilita cuando el negocio gane"
-                  className="flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold text-zinc-300 cursor-not-allowed"
+                  className="flex-shrink-0 h-8 px-3 inline-flex items-center rounded-lg text-[13px] font-medium text-slate-300 cursor-not-allowed"
                 >
                   {s.label}
                 </span>
@@ -937,14 +931,14 @@ function DetalleContent() {
                 <button
                   key={s.key}
                   onClick={() => setSeccion(s.key as Seccion)}
-                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold transition-colors ${
+                  className={`flex-shrink-0 h-8 px-3 inline-flex items-center gap-1.5 rounded-lg text-[13px] font-medium transition-colors duration-150 ${
                     grupoActivo === s.key
-                      ? 'bg-zinc-900 text-white'
-                      : 'bg-zinc-100 text-zinc-500 hover:text-zinc-700'
+                      ? 'bg-marca text-white'
+                      : 'bg-slate-100 text-tinta-2 hover:text-tinta dark:bg-slate-800 dark:text-slate-300'
                   }`}
                 >
                   {s.label}
-                  {s.count != null && s.count > 0 && <span className="ml-1 opacity-60">{s.count}</span>}
+                  {s.count != null && s.count > 0 && <span className="text-xs font-semibold tabular-nums opacity-70">{s.count}</span>}
                 </button>
               ))}
             </div>
@@ -961,11 +955,13 @@ function DetalleContent() {
                 este es solo el puente de salida para quien viene de acá. */}
             {seccion === 'resumen' && hayCompras && (
               <Link href={`/compras/${negocio.id}`}
-                className="flex items-center justify-between gap-3 bg-teal-50 border border-teal-200 rounded-xl px-4 py-3 hover:bg-teal-100 transition-colors">
-                <span className="flex items-center gap-2 text-[13px] font-semibold text-teal-800">
-                  <ShoppingCart size={16} /> Este negocio ganó — ir al Módulo de Compras
+                className="group mb-4 flex items-center gap-3 rounded-2xl border border-linea bg-white px-4 py-3 shadow-tarjeta transition-[box-shadow,transform] duration-150 ease-lk hover:shadow-tarjeta-hover hover:-translate-y-px dark:bg-slate-900 dark:border-slate-800">
+                <span className="w-9 h-9 rounded-xl bg-emerald-50 text-exito flex items-center justify-center flex-shrink-0 dark:bg-emerald-950/40"><ShoppingCart size={18} /></span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-tinta dark:text-slate-100">Este negocio ganó</span>
+                  <span className="block text-xs text-tinta-2 dark:text-slate-400">La compra y la entrega siguen en el módulo de Compras</span>
                 </span>
-                <ArrowUpRight size={15} className="text-teal-600 flex-shrink-0" />
+                <span className="inline-flex items-center gap-1 text-[13px] font-medium text-marca">Ir a Compras <ArrowUpRight size={15} className="transition-transform duration-150 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" /></span>
               </Link>
             )}
 
@@ -1068,7 +1064,6 @@ function DetalleContent() {
                 clasificando={clasificando}
                 onReClasificar={handleClasificar}
                 resumenClasificacion={resumenClasificacion}
-                empresaId={negocio.empresa_id}
                 negocioId={negocio.id}
               />
               </div>
