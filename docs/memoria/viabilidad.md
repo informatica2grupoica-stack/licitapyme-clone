@@ -18,8 +18,9 @@ falla cae a la cadena GLM) y guarda en `modelo` el que respondió de verdad.
 (`scripts/scratch/probar-prefiltro-kimi.mts`): ~57 s y ~$0,066 por lote de 15; maquinaria agrícola/vial/reciclaje → PASA,
 mantención de maquinarias → EXCLUIDO, 4 convenios de insumos médicos que GLM pasaba → EXCLUIDO. Diagnóstico:
 `scripts/scratch/diag-intake-radar.mts`. NO desplegado ni corrido el intake en producción.
-**Pendiente:** desplegar; tras la primera corrida (00/04/08/12/16/20 h) revisar que todas las palabras clave tengan
-`ultima_busqueda` nueva. La API de MP devuelve 429 a las 16 consultas en paralelo de `obtenerUltimosDias` (tras 3
+**Verificado en producción (28-oct, corrida de las 16:00 tras el deploy):** las 170 palabras clave buscadas, 0
+congeladas; entraron 223 licitaciones nuevas al radar (212 aún abiertas), entre ellas 1173467-1-LE26 y 3920-26-LR26.
+**Pendiente:** confirmar que el prefiltro de las 17:00 las decidió con Kimi (columna `modelo`). La API de MP devuelve 429 a las 16 consultas en paralelo de `obtenerUltimosDias` (tras 3
 reintentos un día queda vacío en silencio) — no se tocó. Si sigue existiendo el disparador externo viejo (cron-job.org
 u otro), apunta a la BD de respaldo: apagarlo.
 
