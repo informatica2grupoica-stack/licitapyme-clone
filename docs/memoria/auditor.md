@@ -3,6 +3,10 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-29 (tarde) — 2827-102-LE26 L2: «Técnico sin comparar» aunque estaba aprobada (la viabilidad copió los requisitos de L1 a L2)
+**Causa (BD del VPS, solo lectura):** la opción 676 (Luster 780E, L2) se comparó el 28-oct con 11 requisitos (los de EETT_B_Manual: 12 V, 20 Ah, 50 L…). El re-análisis de viabilidad del 28-oct 18:01 dejó `productos.items` con L1 y L2 **idénticos** (los mismos 19 requisitos de la barredora industrial del TDR; ambos con la cita del TDR; el informe mismo avisa `conteo_cruzado.cuadra=false`). `armarPanelAuditor` compara filas guardadas vs requisitos del ítem (11 ≠ 19) y por diseño oculta la comparación: «Comparación desactualizada» → «Sin comparar», paso 2 del Auditor «1 de 2». La aprobación y la firma siguen intactas. Mismo origen que el costeo del 29-oct: las dos líneas se llaman «Barredora de suelos».
+**Pendiente (no tocado):** corregir la viabilidad — que el ítem de la línea 2 lleve los requisitos de EETT_B_Manual.docx (documento «especificaciones» que el propio mapa del informe lista con 1 ítem) — y recién ahí «Comparar la línea pendiente». Re-analizar a ciegas puede repetir el error. Pre-postulación sigue bloqueando económico/técnico por: 1 causal de inadmisibilidad (19 de 20) y «Revisar compromisos» (0 de 0): los cierra el equipo.
+
 ## 2026-10-29 — Nuestra ficha técnica llevaba notas internas del comparador (2827-102-LE26 L1)
 Caso real: ficha L1 de 2827-102-LE26 (barredora, opción 678): «hasta 5 horas (texto) / hasta 6 horas (ficha);
 bases exigen 6 a 8 h», «hidrolavadora integrada; largo de manguera no indicado» iban al documento que se

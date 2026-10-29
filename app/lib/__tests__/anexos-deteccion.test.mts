@@ -2536,3 +2536,23 @@ test('«Nombre Licitación» centrado y sin dos puntos es una casilla (2827-102-
   const r = detectarCamposConDosPuntos([p(0, 'IDENTIFICACIÓN DEL OFERENTE', true), p(1, 'Nombre Licitación ', true), p(2, 'ID: ____')]);
   assert.deepEqual(r.map(c => c.etiqueta), ['Nombre Licitación']);
 });
+
+test('compactarVaciosDeRelleno: baja los vacíos de antes de la firma y del final sin quitar párrafos (2827-102-LE26, Anexo 1)', async () => {
+  const { compactarVaciosDeRelleno, listarParrafos } = await import('../anexos-docx');
+  const vacio = '<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="right"/></w:pPr></w:p>';
+  const xml = '<w:document><w:body>'
+    + '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>Firma</w:t></w:r></w:p><w:p></w:p><w:p></w:p><w:p></w:p><w:p></w:p><w:p></w:p></w:tc></w:tr></w:tbl>'
+    + vacio.repeat(8)
+    + '<w:p><w:r><w:t>__________________ Nombre y Firma del Proponente</w:t></w:r></w:p>'
+    + vacio.repeat(4)
+    + '<w:sectPr><w:pgSz w:w="12240" w:h="18720"/></w:sectPr></w:body></w:document>';
+  const n = compactarVaciosDeRelleno(xml);
+  assert.equal(listarParrafos(n).length, listarParrafos(xml).length);                 // ningún párrafo se pierde
+  assert.equal((n.match(/w:line="80" w:lineRule="exact"/g) || []).length, 5 + 4);       // 8-3 antes de la firma + 4 al final
+  assert.ok(n.includes('Nombre y Firma del Proponente'));
+  assert.equal(compactarVaciosDeRelleno(n), n);                                        // idempotente
+  const celda = n.slice(n.indexOf('<w:tbl>'), n.indexOf('</w:tbl>'));
+  assert.ok(!celda.includes('w:line="80"'));                                           // los vacíos de una tabla no se tocan
+  const conSalto = xml.replace(vacio.repeat(4), vacio + '<w:p><w:r><w:br w:type="page"/></w:r></w:p>' + vacio);
+  assert.ok(compactarVaciosDeRelleno(conSalto).includes('<w:br w:type="page"/>'));      // un salto de página queda como está
+});

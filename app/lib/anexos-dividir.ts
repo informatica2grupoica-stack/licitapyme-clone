@@ -15,7 +15,7 @@
 // generando un solo archivo como antes (ver `< 2` abajo). Documentos sin ese patrón (la
 // mayoría) no se ven afectados.
 import JSZip from 'jszip';
-import { finDeTabla } from '@/app/lib/anexos-docx';
+import { finDeTabla, compactarVaciosDeRelleno } from '@/app/lib/anexos-docx';
 
 export interface FormularioDetectado { titulo: string; indiceInicio: number; indiceFin: number }
 
@@ -1097,7 +1097,7 @@ export async function dividirPorFormularios(bufferBase: Buffer, xml: string): Pr
     while (ultimoConContenido > 0 && esParrafoDeRelleno(delFormulario[ultimoConContenido])) ultimoConContenido--;
     delFormulario.splice(ultimoConContenido + 1 + PARRAFOS_VACIOS_QUE_SE_DEJAN);
     const cuerpo = quitarSaltosDePaginaEnBordes(delFormulario.map(b => b.xmlCompleto).join(''));
-    const xmlFragmento = `${preBody}${aperturaBody}${cuerpo}${sectPr}</w:body></w:document>`;
+    const xmlFragmento = compactarVaciosDeRelleno(`${preBody}${aperturaBody}${cuerpo}${sectPr}</w:body></w:document>`);
 
     const zip = await JSZip.loadAsync(bufferBase);
     zip.file('word/document.xml', xmlFragmento);

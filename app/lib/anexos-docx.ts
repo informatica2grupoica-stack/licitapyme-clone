@@ -1514,6 +1514,87 @@ export function marcarKeepNext(xml: string, paraId: string): string {
   return xml.slice(0, m.index) + apertura + nuevoCuerpo + cierre + xml.slice((m.index ?? 0) + entero.length);
 }
 
+// ── Hojas de más por párrafos vacíos de relleno ────────────────────────────────────────────────
+// CASO REAL (2827-102-LE26, ANEXO N°1): el formulario deja 8 párrafos vacíos entre la tabla de firma
+// y la raya de «Nombre y Firma», y otros 4 después (uno trae el escudo anclado) para llegar al pie
+// de la hoja. En Word calza justo; al convertir a PDF (otras métricas de fuente) la raya, el nombre
+// y el escudo caen SOLOS en una segunda hoja. Los vacíos no llevan contenido: se les baja la altura
+// (sin quitar ninguno, así que el conteo de párrafos que vigila verificarParrafos no cambia).
+//   · antes de una raya o leyenda de firma: se dejan 3 normales (espacio para la firma) y el resto baja;
+//   · al final del cuerpo: todos bajan.
+// Nunca toca párrafos con texto, salto de página, sección ni campos. Idempotente.
+const ESPACIO_VACIO_COMPACTO = '<w:spacing w:before="0" w:after="0" w:line="80" w:lineRule="exact"/>';
+const VACIOS_QUE_SE_DEJAN_ANTES_DE_FIRMA = 3;
+// Solo tramos largos: unos pocos vacíos antes de una firma son el espacio normal de la firma.
+const VACIOS_SEGUIDOS_PARA_COMPACTAR = 6;
+const VACIOS_FINALES_PARA_COMPACTAR = 3;
+
+function esParrafoVacioDeRelleno(p: string): boolean {
+  if (/<w:br\b[^>]*w:type="(?:page|column)"|<w:sectPr|<w:fldChar|<w:fldSimple|<w:instrText|<w:sdt\b|<w:pict/.test(p)) return false;
+  return textoDeRuns(p).trim() === '';
+}
+
+function compactarParrafo(p: string): string {
+  if (p.includes(ESPACIO_VACIO_COMPACTO)) return p;
+  if (/<w:pPr>[\s\S]*?<w:spacing\b[^>]*\/>/.test(p)) return p.replace(/(<w:pPr>[\s\S]*?)<w:spacing\b[^>]*\/>/, `$1${ESPACIO_VACIO_COMPACTO}`);
+  const abre = p.match(/^<w:p\b[^>]*>/);
+  if (!abre) return p;
+  const pPr = p.match(/<w:pPr>([\s\S]*?)<\/w:pPr>/);
+  if (!pPr) return abre[0] + `<w:pPr>${ESPACIO_VACIO_COMPACTO}</w:pPr>` + p.slice(abre[0].length);
+  const dentro = pPr[1];
+  const ancla = dentro.search(/<w:(?:ind|contextualSpacing|mirrorIndents|suppressOverlap|jc|textDirection|textAlignment|textboxTightWrap|outlineLvl|divId|cnfStyle|rPr|sectPr|pPrChange)\b/);
+  const nuevo = ancla >= 0 ? dentro.slice(0, ancla) + ESPACIO_VACIO_COMPACTO + dentro.slice(ancla) : dentro + ESPACIO_VACIO_COMPACTO;
+  return p.replace(pPr[0], `<w:pPr>${nuevo}</w:pPr>`);
+}
+
+export function compactarVaciosDeRelleno(xml: string): string {
+  const cuerpoIni = xml.search(/<w:body\b[^>]*>/);
+  if (cuerpoIni < 0) return xml;
+  // Rangos de tablas de primer nivel: sus párrafos no se tocan.
+  const tablas: [number, number][] = [];
+  {
+    let prof = 0, ini = -1;
+    for (const m of xml.matchAll(/<w:tbl>|<\/w:tbl>/g)) {
+      if (m[0] === '<w:tbl>') { if (prof++ === 0) ini = m.index!; } else if (--prof === 0) tablas.push([ini, m.index! + m[0].length]);
+    }
+  }
+  const enTabla = (pos: number) => tablas.some(([a, b]) => pos >= a && pos < b);
+  const ps: { ini: number; fin: number; txt: string; vacio: boolean }[] = [];
+  for (const m of xml.matchAll(/<w:p\b[^>]*?(?:\/>|>[\s\S]*?<\/w:p>)/g)) {
+    if (m.index! < cuerpoIni || enTabla(m.index!)) continue;
+    ps.push({ ini: m.index!, fin: m.index! + m[0].length, txt: m[0], vacio: esParrafoVacioDeRelleno(m[0]) });
+  }
+  const aCompactar = new Set<number>();
+  const esFirma = (p: string) => /_{5,}|…{3,}|firma/i.test(textoDeRuns(p));
+  const adyacentes = (a: number, b: number) => xml.slice(ps[a].fin, ps[b].ini).trim() === '';
+  // Tramo final: vacíos pegados al cierre del cuerpo.
+  const sectFinal = xml.lastIndexOf('<w:sectPr');
+  for (let i = ps.length - 1; i >= 0; i--) {
+    if (!ps[i].vacio) break;
+    const pegadoAlFinal = i === ps.length - 1 ? (sectFinal < 0 || xml.slice(ps[i].fin, sectFinal).trim() === '') : adyacentes(i, i + 1);
+    if (!pegadoAlFinal) break;
+    aCompactar.add(i);
+  }
+  // Un final de 1-2 vacíos es normal: solo se compacta un tramo final largo.
+  { const finales = [...aCompactar]; if (finales.length < VACIOS_FINALES_PARA_COMPACTAR) for (const k of finales) aCompactar.delete(k); }
+  // Tramos de vacíos justo antes de una raya/leyenda de firma.
+  for (let i = 0; i < ps.length; i++) {
+    if (ps[i].vacio || !esFirma(ps[i].txt)) continue;
+    let j = i - 1;
+    while (j >= 0 && ps[j].vacio && adyacentes(j, j + 1)) j--;
+    const tramo: number[] = [];
+    for (let k = j + 1; k < i; k++) tramo.push(k);
+    if (tramo.length >= VACIOS_SEGUIDOS_PARA_COMPACTAR) for (const k of tramo.slice(VACIOS_QUE_SE_DEJAN_ANTES_DE_FIRMA)) aCompactar.add(k);
+  }
+  if (!aCompactar.size) return xml;
+  let salida = '', cursor = 0;
+  for (const i of [...aCompactar].sort((a, b) => a - b)) {
+    salida += xml.slice(cursor, ps[i].ini) + compactarParrafo(ps[i].txt);
+    cursor = ps[i].fin;
+  }
+  return salida + xml.slice(cursor);
+}
+
 // ── Abrir / guardar el .docx completo (ZIP) ───────────────────────────────────────────────
 export async function abrirDocx(buffer: Buffer): Promise<{ zip: JSZip; xml: string }> {
   const zip = await JSZip.loadAsync(buffer);

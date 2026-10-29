@@ -25,7 +25,7 @@
 import {
   normalizarParaIds, unificarRunsDeMarcadores, rellenarCeldaVacia, rellenarRunPorIndice,
   insertarImagenEnParrafo, rellenarFinDeParrafo, reemplazarTextoDeParrafo, verificarParrafos, abrirDocx, guardarDocx,
-  eliminarRespaldoVmlDuplicado, sustituirCamposFormularioLegado, marcarKeepNext, agregarTextoBajoLineaFirma, marcarCheckbox, type Parrafo,
+  eliminarRespaldoVmlDuplicado, sustituirCamposFormularioLegado, compactarVaciosDeRelleno, marcarKeepNext, agregarTextoBajoLineaFirma, marcarCheckbox, type Parrafo,
 } from '@/app/lib/anexos-docx';
 import {
   analizarAnexo, extraerTablasCrudo,
@@ -1479,6 +1479,7 @@ export async function generarAnexoFinal(
     }
   }
 
+  xml = compactarVaciosDeRelleno(xml);
   const integridad = verificarParrafos(xmlCrudo, xml);
   const buffer = await guardarDocx(zip, xml);
 
