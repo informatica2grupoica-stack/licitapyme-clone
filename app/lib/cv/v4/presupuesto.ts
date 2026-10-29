@@ -53,7 +53,16 @@ export function interpretarPorLinea(porLinea: unknown, exento: boolean, conIvaDe
   return porLinea.filter(p => p && typeof p === 'object').map((p: any) => {
     // Informes que ya traen el monto numérico (bruto) — tabla determinista de distribución.
     const directo = typeof p.bruto === 'number' && p.bruto > 0 ? p.bruto : null;
-    const it = directo != null ? { pesos: directo, miles: false, con_iva: true } : interpretarMonto(p.monto_texto);
+    let it = directo != null ? { pesos: directo, miles: false, con_iva: true } : interpretarMonto(p.monto_texto);
+    // El modelo a veces antepone un "M$" que las bases no escriben (1079694-51-LE26: «M$ 1.000.000» sobre la
+    // frase «…MAMBO 10.1MM 60 MT $1.000.000» → $1.000 millones). Si la frase citada trae la misma cifra y NO
+    // trae marca de miles, la marca es del modelo: se lee el monto en pesos.
+    if (directo == null && it.miles && p.cita?.frase) {
+      const frase = String(p.cita.frase);
+      const sinMarca = (s: string) => s.replace(/\bM\s*\$|\$\s*M\b/gi, '$');
+      const cifra = sinMarca(String(p.monto_texto ?? '')).match(/\d[\d.\s]*\d|\d/)?.[0]?.trim();
+      if (cifra && frase.includes(cifra) && !/\bM\s*\$|\$\s*M\b|miles\s+de\s+pesos/i.test(frase)) it = interpretarMonto(sinMarca(String(p.monto_texto)));
+    }
     const conIva = it.con_iva ?? conIvaDefault;
     const neto = it.pesos == null ? null : Math.round(exento || !conIva ? it.pesos : it.pesos / 1.19);
     // `monto_pesos` va siempre CON IVA (salvo exento), como el total: el costeo y el Motor Comercial lo
@@ -138,4 +147,18 @@ export function detectarPresupuestoExcluyente(docs: { nombre: string; texto: str
     return { documento: d.nombre, frase: frase.slice(0, 300) };
   }
   return null;
+}
+
+/**
+ * Si el total y la suma de los montos por línea difieren por un factor de ~1.000 (300–3.000×), uno de los dos
+ * quedó mal escalado por un "M$" que no estaba en las bases. Las líneas son lo que se verifica contra la frase
+ * citada: manda su suma. null = no hay descuadre de escala.
+ */
+export function totalPorEscalaDeLineas(totalBruto: number | null, lineas: LineaPresupuesto[]): number | null {
+  const con = lineas.filter(l => l.monto_pesos != null);
+  if (con.length < 2 || !totalBruto) return null;
+  const suma = con.reduce((a, l) => a + (l.monto_pesos as number), 0);
+  if (suma <= 0) return null;
+  const r = totalBruto / suma;
+  return r >= 300 && r <= 3000 ? suma : null;
 }

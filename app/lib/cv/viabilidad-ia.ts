@@ -56,7 +56,7 @@ import { CATALOGO, decidirAdjudicacion, deduplicarEvidencias, evidenciasDeDetect
 import { HITO_LABEL, NOTA_ACEPTACION_OC, calcularPlazoPrevio, detectarNegaciones, feriadosPara, normalizarHitos, type HitoInforme } from '@/app/lib/cv/v4/plazo-previo';
 import { calcularMulta, indicadorNecesario } from '@/app/lib/cv/v4/multa';
 import { extraerPasajesPlazosMultas, necesitaLecturaDirigida, aplicarLecturaDirigida, repararGarantiaPorTexto, SYSTEM_LECTURA_DIRIGIDA, promptUsuarioLecturaDirigida } from '@/app/lib/cv/v4/lectura-dirigida';
-import { NOTA_ART_32, brutoDesdeTexto, detectarPresupuestoExcluyente, escalarLineasEnMiles, interpretarPorLinea, normalizarCaracter, sumaLineasCuadra } from '@/app/lib/cv/v4/presupuesto';
+import { NOTA_ART_32, brutoDesdeTexto, detectarPresupuestoExcluyente, escalarLineasEnMiles, interpretarPorLinea, totalPorEscalaDeLineas, normalizarCaracter, sumaLineasCuadra } from '@/app/lib/cv/v4/presupuesto';
 import { barridoConsecuencias, consolidarVisitaYMuestras, decidirSuministro, detectarSenalesSuministro, esObviedad } from '@/app/lib/cv/v4/admisibilidad';
 import { normalizarTextosInforme } from '@/app/lib/cv/v4/textos';
 import { descartarItemsInventados, reasignarLineasPorTablaDeMontos, construirListaUnica, conteoCruzado, problemasCalidadManifiesto, verificarCaracteristicasLiterales } from '@/app/lib/cv/v4/productos';
@@ -1547,6 +1547,7 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
     } catch { /* opcional */ }
   }
   if (escalarLineasEnMiles(porLinea, _num(pres.bruto))) console.log(`[viabilidad-ia-v4] ${codigo}: montos por línea en miles (la suma ×1.000 da el total) → multiplicados por 1.000.`);
+  { const t = totalPorEscalaDeLineas(_num(pres.bruto), porLinea); if (t) { console.log(`[viabilidad-ia-v4] ${codigo}: el total ${Number(pres.bruto).toLocaleString('es-CL')} descuadra ×1.000 con la suma de las líneas → se usa la suma: ${t.toLocaleString('es-CL')}.`); pres.bruto = t; } }
   // Sin total en el texto (las bases remiten a "el monto de cada línea"), el total es la suma de las líneas.
   if (!(_num(pres.bruto) && Number(pres.bruto) > 0) && porLinea.length >= 2 && porLinea.every(l => l.monto_pesos != null)) {
     pres.bruto = porLinea.reduce((a, l) => a + (l.monto_pesos as number), 0);

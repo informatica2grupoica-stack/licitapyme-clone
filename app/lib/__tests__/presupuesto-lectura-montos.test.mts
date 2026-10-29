@@ -2,7 +2,7 @@
 //   npx tsx --test app/lib/__tests__/presupuesto-lectura-montos.test.mts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { interpretarMonto, interpretarPorLinea, escalarLineasEnMiles, brutoDesdeTexto, sumaLineasCuadra } from '../viabilidad-v4/presupuesto';
+import { interpretarMonto, interpretarPorLinea, escalarLineasEnMiles, brutoDesdeTexto, sumaLineasCuadra, totalPorEscalaDeLineas } from '../viabilidad-v4/presupuesto';
 import * as cv from '../cv/v4/presupuesto';
 
 test('una frase sin cifra no es un monto: el N° del numeral no es el presupuesto (2905-52-LE26)', () => {
@@ -68,4 +68,23 @@ test('con dos montos en el texto no se elige ninguno: queda el del modelo (4697-
   assert.equal(brutoDesdeTexto('$20.168.067.- Valor neto $24.000.000.- con impuestos incluidos', 24_000_000, false), null);
   // El mismo monto repetido (cifra + glosa) sigue siendo uno.
   assert.equal(brutoDesdeTexto('$ 17.000.000.- (Diecisiete millones de pesos) IVA incluido. Total $17.000.000', 17_000_000, false)!.cambia, false);
+});
+
+test('un «M$» que la frase citada no trae no multiplica por 1.000 (1079694-51-LE26)', () => {
+  const frases = ['1 ADQUISICIÓN DE 04 CUERDAS DINÁMICAS MAMBO 10.1MM 60 MT $1.000.000', '2 04 CUERDAS SEMI ESTÁTICAS PARALLEL 10.5, 60 MTS. $790.636', '3 ADQUISICIÓN DE 04 POLEAS TWIN $767.312'];
+  const montos = ['1.000.000', '790.636', '767.312'];
+  const l = interpretarPorLinea(montos.map((m, i) => ({ linea: `L${i + 1}`, monto_texto: `M$ ${m}`, cita: { frase: frases[i] } })), false);
+  assert.deepEqual(l.map(x => x.monto_pesos), [1_000_000, 790_636, 767_312]);
+  // Si la frase SÍ trae la marca (Cholchol), se sigue leyendo en miles.
+  assert.equal(interpretarPorLinea([{ linea: 'L1', monto_texto: 'M$ 872.079', cita: { frase: 'Presupuesto M$ 872.079' } }], false)[0].monto_pesos, 872_079_000);
+  // Sin cita no hay con qué contrastar: igual que antes.
+  assert.equal(interpretarPorLinea([{ linea: 'L1', monto_texto: 'M$ 872.079' }], false)[0].monto_pesos, 872_079_000);
+});
+
+test('total y suma de líneas con escala distinta (×1.000): manda la suma de las líneas', () => {
+  const l = interpretarPorLinea([{ linea: 'L1', monto_texto: '$1.000.000' }, { linea: 'L2', monto_texto: '$790.636' }], false);
+  assert.equal(totalPorEscalaDeLineas(1_790_636_000, l), 1_790_636);
+  assert.equal(totalPorEscalaDeLineas(1_790_636, l), null);
+  assert.equal(totalPorEscalaDeLineas(2_500_000, l), null);   // descuadre normal, no de escala
+  assert.equal(totalPorEscalaDeLineas(null, l), null);
 });

@@ -52,7 +52,20 @@ bloque P2 de `viabilidad-ia.ts` / `cv/viabilidad-ia.ts`:
 **Verificado:** test nuevo `presupuesto-lectura-montos.test.mts` (casos reales), 1.651 tests, tsc. Barrido sobre los
 327 informes v4 con `_presupuesto_antes_despues.mts` (solo lectura): cambian 19 totales y 8 informes en montos por línea,
 revisados. NO desplegado; los informes guardados siguen mal hasta re-analizarlos (pedir OK: gasta IA y toca el costeo).
-**Pendiente:** re-analizar esas 27 licitaciones; las alertas del costeo no se recalculan solas al re-analizar.
+**Re-análisis (dueño, 29-oct: «solo las activas, asignadas, en proceso o que se pueda trabajar; cerradas, revocadas o desiertas no»):**
+de las 25 licitaciones con presupuesto cambiado, solo 5 son ASIGNADO con la licitación Publicada: 1057898-103-LP26,
+1063534-9-LE26, 1079694-51-LE26, 3587-24-LP26 y 564162-120-LE26; se re-analizaron desde el PC con el código nuevo
+(`scripts/scratch/_reanalizar_lote_291026.mts`, respaldos en `respaldos_reanalisis_291026/`). El resto NO se tocó:
+Cerradas/Descartadas (incl. 2424-90 y 2785-90, abiertas en MP pero descartadas por el equipo), Desierta (1057898-88),
+Adjudicada (3328-82) y Postuladas (2730-133, 1414396-26). Resultado: 1057898-103 líneas en pesos reales ($77,6M…),
+1063534-9 $14.129.000, 3587-24 $141.662.000 (la IA marcó sin IVA: neto = bruto, las bases no dicen), 564162-120 $10.901.000.
+**Hallazgo en el re-análisis:** en 1079694-51-LE26 la IA antepuso un «M$» que las bases no escriben («M$ 1.000.000» sobre la frase
+«…$1.000.000») y el total salió $8.799 millones. Dos guardias nuevos (`presupuesto.ts`, copia `cv/v4/`): (a) si la frase citada
+trae la misma cifra y NO trae marca de miles, el «M$» es del modelo y se lee en pesos; (b) `totalPorEscalaDeLineas`: si total y
+suma de líneas difieren ×300–3.000, manda la suma (quedó $11.569.000). Re-analizado de nuevo con el guardia: OK.
+La lectura de la IA no es determinista: la corrida anterior de esa misma licitación había leído las líneas sin «M$».
+**Verificado:** 1.654 tests, tsc. NO desplegado (si otro re-análisis corre en el VPS antes del deploy, vuelve el código viejo).
+Costeo: solo 564162-120 (negocio 1640) tiene costeo; sus 4 hojas y topes no cambiaron, no había alertas que recalcular.
 
 ## 2026-10-28 — El radar no recibía licitaciones: el intake no corría desde el 22-oct; prefiltro pasa a Kimi
 Caso real: «no caen licitaciones de maquinaria». El scheduler del VPS llama a todos los cron con POST y
