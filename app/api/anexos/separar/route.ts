@@ -1,5 +1,5 @@
 // app/api/anexos/separar/route.ts
-// POST /api/anexos/separar { codigo, documentoId }
+// POST /api/anexos/separar { codigo, documentoId, soloVer?, ajustes? }
 // Paso INDEPENDIENTE del relleno: toma un .docx/.doc/.pdf TAL COMO se bajó de Mercado Público
 // (nunca lo modifica) y, si trae varios anexos pegados en un solo archivo (patrón "FORMULARIO
 // N°X" / "ANEXO N°X" — ver anexos-dividir.ts), sube un archivo .docx nuevo por cada uno, nombrado
@@ -94,64 +94,45 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Generar anexos requiere ser administrador o tener el permiso "Anexos".' }, { status: 403 });
   }
 
+  // Vista previa (28-oct-2026, pedido del dueño tras 2827-102-LE26: «hay forma de ver cómo queda
+  // antes de que se corten»): con soloVer se corta en memoria y se devuelve cada anexo con su
+  // texto, sin subir nada. Al confirmar, la pantalla manda `ajustes` por posición: la caja que el
+  // usuario eligió y los que no quiere guardar. El corte es determinista, así que la posición i
+  // de la vista previa es el mismo anexo i al guardar.
+  const soloVer = body?.soloVer === true;
+  const ajustes = new Map<number, { categoria?: string; omitir: boolean }>();
+  for (const a of Array.isArray(body?.ajustes) ? body.ajustes : []) {
+    if (Number.isInteger(a?.indice)) ajustes.set(a.indice, { categoria: a.categoria, omitir: a.omitir === true });
+  }
+
   try {
     const documento = await cargarDocumentoParaSeparar(codigo, documentoId);
     const { bufferOriginal, nombreOriginal } = documento;
+    const escaneado = documento.tipo === 'pdf_escaneado';
 
-    if (documento.tipo === 'pdf_escaneado') {
-      return await separarPdfEscaneado(codigo, usuario.id, bufferOriginal, nombreOriginal);
-    }
+    const piezas = escaneado
+      ? await piezasDePdfEscaneado(codigo, bufferOriginal, nombreOriginal)
+      : await piezasDeDocx(codigo, bufferOriginal, nombreOriginal);
+    if (!Array.isArray(piezas)) return piezas; // nada que separar, o un fragmento salió roto
 
-    const { xml: xmlCrudo } = await abrirDocx(bufferOriginal);
-    // BUG REAL (13-ago-2026, caso 1211839-58-LE26): un .docx convertido por el conversor de
-    // producción (LibreOffice) puede no traer w14:paraId en sus párrafos (mismo caso ya conocido
-    // en anexos-docx.ts — ver su comentario arriba, "1 de 4 documentos probados no lo traía").
-    // listarBloquesCrudos (anexos-dividir.ts) SOLO reconoce un párrafo como bloque si trae ese
-    // atributo — sin él, todo el contenido (títulos de FORMULARIO incluidos) cae como texto de
-    // relleno pegado al bloque anterior y detectarFormularios ve 0, sin importar qué tan limpios
-    // estén los encabezados. Las otras rutas que dividen (anexos-rellenar → /api/anexos/generar)
-    // no tenían este problema porque el relleno ya normaliza los IDs antes de llegar acá — este
-    // paso es INDEPENDIENTE del relleno (ver comentario de arriba) y nunca pasaba por ahí.
-    const { xml } = normalizarParaIds(xmlCrudo);
-    const formularios = await dividirPorFormularios(bufferOriginal, xml);
-
-    if (formularios.length < 2) {
-      // DIAGNÓSTICO (13-ago-2026, caso real 1211839-58-LE26): un .doc convertido por el
-      // conversor de producción (LibreOffice) puede estructurar el XML distinto a como lo hace
-      // Word para el MISMO documento origen — el mismo archivo separó perfecto (6 formularios)
-      // al convertirlo con Word, pero el detector encontró <2 acá. Sin este log, un caso así
-      // queda como "no hay nada que separar" indistinguible de un documento que de verdad no
-      // trae nada pegado — no hay forma de diagnosticarlo sin reproducirlo a mano.
-      const textoPlano = [...xml.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>|<w:(?:br|cr)\b[^>]*\/?>/g)]
-        .map(m => (m[1] !== undefined ? m[1] : '\n')).join('');
-      const candidatos = [...textoPlano.matchAll(/(?:formulario|anexo)[^\n]{0,60}/gi)].slice(0, 15).map(m => m[0].trim());
-      console.log(`[anexos-separar] ${codigo}: "${nombreOriginal}" — solo ${formularios.length} formulario(s) detectado(s), no se divide. Menciones de "formulario/anexo" en el texto (${candidatos.length}):`, candidatos);
+    if (soloVer) {
       return NextResponse.json({
         success: true,
-        separado: false,
-        archivos: [],
-        mensaje: `"${nombreOriginal}" no trae más de un anexo pegado — no hay nada que separar.`,
+        separado: true,
+        vistaPrevia: piezas.map((p, indice) => ({
+          indice, nombre: p.nombre, titulo: p.titulo, categoria: p.categoria,
+          lineas: p.lineas.slice(0, LINEAS_MAX_VISTA_PREVIA), totalLineas: p.lineas.length,
+        })),
       });
     }
 
-    // Igual que /api/anexos/generar: valida TODOS los fragmentos antes de subir el primero, para
-    // no dejar una subida a medias si uno sale mal formado y otro no.
-    for (const f of formularios) {
-      const { xml: fxml } = await abrirDocx(f.buffer);
-      const chequeo = verificarXmlBienFormado(fxml);
-      if (!chequeo.valido) {
-        return NextResponse.json(
-          { error: `El fragmento "${f.titulo}" quedó mal formado (${chequeo.error}). No se subió nada.` },
-          { status: 500 },
-        );
-      }
-    }
-
     const archivos: { nombre: string; categoria: string; titulo: string; url: string }[] = [];
-    for (const f of formularios) {
-      const nombre = `${f.nombreArchivo}.docx`;
-      const categoriaCaja = CATEGORIA_POR_CLASIFICACION[f.categoria] || 'ANEXOS_OFERENTE';
-      const url = await subirDocumentoR2(codigo, nombre, f.buffer, CONTENT_TYPE_DOCX);
+    for (const [indice, p] of piezas.entries()) {
+      const ajuste = ajustes.get(indice);
+      if (ajuste?.omitir) continue;
+      const categoria = ajuste?.categoria && ajuste.categoria in CATEGORIA_POR_CLASIFICACION ? ajuste.categoria : p.categoria;
+      const categoriaCaja = CATEGORIA_POR_CLASIFICACION[categoria] || 'ANEXOS_OFERENTE';
+      const url = await subirDocumentoR2(codigo, p.nombre, p.buffer, p.contentType);
       // BUG REAL (13-ago-2026, caso 1211839-58-LE26): categoria NO estaba en el UPDATE — un
       // reintento sobre un nombre que ya existía (ej. de un intento anterior fallido a medias)
       // dejaba la categoría VIEJA pegada para siempre, aunque este mismo cálculo determinista
@@ -172,18 +153,20 @@ export async function POST(request: NextRequest) {
            size_bytes          = VALUES(size_bytes),
            categoria           = VALUES(categoria),
            updated_at          = CURRENT_TIMESTAMP`,
-        [codigo, nombre, url, f.buffer.length, CONTENT_TYPE_DOCX, categoriaCaja, usuario.id],
+        [codigo, p.nombre, url, p.buffer.length, p.contentType, categoriaCaja, usuario.id],
       ) as any;
       await marcarGeneradoPorSeparar(r.insertId);
-      archivos.push({ nombre, categoria: f.categoria, titulo: f.titulo, url });
+      archivos.push({ nombre: p.nombre, categoria, titulo: p.titulo, url });
     }
 
     registrarActividad({
       usuarioId: usuario.id, accion: 'anexo_separado',
       entidadTipo: 'licitacion', entidadId: codigo,
-      descripcion: `Separó "${nombreOriginal}" en ${archivos.length} anexos independientes`,
+      descripcion: escaneado
+        ? `Separó el PDF escaneado "${nombreOriginal}" en ${archivos.length} formatos independientes (recorte del original)`
+        : `Separó "${nombreOriginal}" en ${archivos.length} anexos independientes`,
       metadata: {
-        licitacion_codigo: codigo, documento: nombreOriginal,
+        licitacion_codigo: codigo, documento: nombreOriginal, ...(escaneado ? { escaneado: true } : {}),
         archivos: archivos.map(a => ({ nombre: a.nombre, categoria: a.categoria })),
       },
     });
@@ -192,6 +175,75 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || String(error) }, { status: 400 });
   }
+}
+
+// Un anexo técnico largo (una tabla de 300 filas) no necesita viajar entero para revisarlo.
+const LINEAS_MAX_VISTA_PREVIA = 400;
+
+interface Pieza {
+  nombre: string;
+  titulo: string;
+  categoria: string;
+  buffer: Buffer;
+  contentType: string;
+  lineas: string[]; // texto del anexo, un párrafo con texto por línea — para la vista previa
+}
+
+async function piezasDeDocx(codigo: string, bufferOriginal: Buffer, nombreOriginal: string): Promise<Pieza[] | NextResponse> {
+  const { xml: xmlCrudo } = await abrirDocx(bufferOriginal);
+  // BUG REAL (13-ago-2026, caso 1211839-58-LE26): un .docx convertido por el conversor de
+  // producción (LibreOffice) puede no traer w14:paraId en sus párrafos (mismo caso ya conocido
+  // en anexos-docx.ts — ver su comentario arriba, "1 de 4 documentos probados no lo traía").
+  // listarBloquesCrudos (anexos-dividir.ts) SOLO reconoce un párrafo como bloque si trae ese
+  // atributo — sin él, todo el contenido (títulos de FORMULARIO incluidos) cae como texto de
+  // relleno pegado al bloque anterior y detectarFormularios ve 0, sin importar qué tan limpios
+  // estén los encabezados. Las otras rutas que dividen (anexos-rellenar → /api/anexos/generar)
+  // no tenían este problema porque el relleno ya normaliza los IDs antes de llegar acá — este
+  // paso es INDEPENDIENTE del relleno (ver comentario de arriba) y nunca pasaba por ahí.
+  const { xml } = normalizarParaIds(xmlCrudo);
+  const formularios = await dividirPorFormularios(bufferOriginal, xml);
+
+  if (formularios.length < 2) {
+    // DIAGNÓSTICO (13-ago-2026, caso real 1211839-58-LE26): un .doc convertido por el
+    // conversor de producción (LibreOffice) puede estructurar el XML distinto a como lo hace
+    // Word para el MISMO documento origen — el mismo archivo separó perfecto (6 formularios)
+    // al convertirlo con Word, pero el detector encontró <2 acá. Sin este log, un caso así
+    // queda como "no hay nada que separar" indistinguible de un documento que de verdad no
+    // trae nada pegado — no hay forma de diagnosticarlo sin reproducirlo a mano.
+    const textoPlano = [...xml.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>|<w:(?:br|cr)\b[^>]*\/?>/g)]
+      .map(m => (m[1] !== undefined ? m[1] : '\n')).join('');
+    const candidatos = [...textoPlano.matchAll(/(?:formulario|anexo)[^\n]{0,60}/gi)].slice(0, 15).map(m => m[0].trim());
+    console.log(`[anexos-separar] ${codigo}: "${nombreOriginal}" — solo ${formularios.length} formulario(s) detectado(s), no se divide. Menciones de "formulario/anexo" en el texto (${candidatos.length}):`, candidatos);
+    return NextResponse.json({
+      success: true,
+      separado: false,
+      archivos: [],
+      mensaje: `"${nombreOriginal}" no trae más de un anexo pegado — no hay nada que separar.`,
+    });
+  }
+
+  // Igual que /api/anexos/generar: valida TODOS los fragmentos antes de subir el primero, para
+  // no dejar una subida a medias si uno sale mal formado y otro no.
+  const piezas: Pieza[] = [];
+  for (const f of formularios) {
+    const { xml: fxml } = await abrirDocx(f.buffer);
+    const chequeo = verificarXmlBienFormado(fxml);
+    if (!chequeo.valido) {
+      return NextResponse.json(
+        { error: `El fragmento "${f.titulo}" quedó mal formado (${chequeo.error}). No se subió nada.` },
+        { status: 500 },
+      );
+    }
+    const lineas = [...fxml.matchAll(/<w:p\b[\s\S]*?<\/w:p>/g)]
+      .map(m => decodificarEntidades([...m[0].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('').trim()))
+      .filter(Boolean);
+    piezas.push({ nombre: `${f.nombreArchivo}.docx`, titulo: f.titulo, categoria: f.categoria, buffer: f.buffer, contentType: CONTENT_TYPE_DOCX, lineas });
+  }
+  return piezas;
+}
+
+function decodificarEntidades(s: string): string {
+  return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
 }
 
 /**
@@ -203,9 +255,7 @@ export async function POST(request: NextRequest) {
  * fragmento cae en su caja de "Documentos y Bases" según `clasificarAnexo` —el MISMO clasificador,
  * no una copia— y nunca en Documentos Propios; y si no hay más de un formato, no se sube nada.
  */
-async function separarPdfEscaneado(
-  codigo: string, usuarioId: number, bufferOriginal: Buffer, nombreOriginal: string,
-) {
+async function piezasDePdfEscaneado(codigo: string, bufferOriginal: Buffer, nombreOriginal: string): Promise<Pieza[] | NextResponse> {
   const secciones = await detectarSeccionesPdfEscaneado(bufferOriginal);
   if (secciones.length < 2) {
     console.log(`[anexos-separar] ${codigo}: "${nombreOriginal}" (PDF escaneado) — ${secciones.length} formato(s) detectado(s), no se divide.`);
@@ -218,37 +268,12 @@ async function separarPdfEscaneado(
   }
 
   const partes = await dividirPdfEnFormatos(bufferOriginal, secciones);
-  const archivos: { nombre: string; categoria: string; titulo: string; url: string }[] = [];
-
-  for (const parte of partes) {
-    const categoria = clasificarAnexo(parte.seccion.titulo, parte.seccion.texto);
-    const categoriaCaja = CATEGORIA_POR_CLASIFICACION[categoria] || 'ANEXOS_OFERENTE';
-    const url = await subirDocumentoR2(codigo, parte.nombreArchivo, parte.buffer, CONTENT_TYPE_PDF);
-    const [r] = await pool.query(
-      `INSERT INTO documentos_cache
-         (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, categoria_manual, usuario_id)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?)
-       ON DUPLICATE KEY UPDATE
-         id                  = LAST_INSERT_ID(id),
-         documento_url_local = VALUES(documento_url_local),
-         size_bytes          = VALUES(size_bytes),
-         categoria           = VALUES(categoria),
-         updated_at          = CURRENT_TIMESTAMP`,
-      [codigo, parte.nombreArchivo, url, parte.buffer.length, CONTENT_TYPE_PDF, categoriaCaja, usuarioId],
-    ) as any;
-    await marcarGeneradoPorSeparar(r.insertId);
-    archivos.push({ nombre: parte.nombreArchivo, categoria, titulo: parte.seccion.titulo, url });
-  }
-
-  registrarActividad({
-    usuarioId, accion: 'anexo_separado',
-    entidadTipo: 'licitacion', entidadId: codigo,
-    descripcion: `Separó el PDF escaneado "${nombreOriginal}" en ${archivos.length} formatos independientes (recorte del original)`,
-    metadata: {
-      licitacion_codigo: codigo, documento: nombreOriginal, escaneado: true,
-      archivos: archivos.map(a => ({ nombre: a.nombre, categoria: a.categoria })),
-    },
-  });
-
-  return NextResponse.json({ success: true, separado: true, archivos });
+  return partes.map(parte => ({
+    nombre: parte.nombreArchivo,
+    titulo: parte.seccion.titulo,
+    categoria: clasificarAnexo(parte.seccion.titulo, parte.seccion.texto),
+    buffer: parte.buffer,
+    contentType: CONTENT_TYPE_PDF,
+    lineas: parte.seccion.texto.split('\n').map(l => l.trim()).filter(Boolean),
+  }));
 }

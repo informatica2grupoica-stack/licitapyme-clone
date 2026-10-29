@@ -845,3 +845,34 @@ test('clasificarAnexo: frase clave con artículo tras «de» («DE LAS CONDICION
   assert.equal(clasificarAnexo('ANEXO N°3 ACEPTACIÓN DE LAS CONDICIONES DE LA PROPUESTA Y DE LAS BASES ADMINISTRATIVAS',
     'Haber considerado en la Oferta Económica todos los gastos directos e indirectos, valor total'), 'administrativo');
 });
+
+test('dividirPorFormularios: el mismo título escrito dos veces seguidas es un solo anexo, y el subtítulo en una tabla con estilo de título lo clasifica (regresión 2827-102-LE26)', async () => {
+  const conEstilo = (t: string) => `<w:p><w:pPr><w:pStyle w:val="Ttulo1"/></w:pPr><w:r><w:t>${t}</w:t></w:r></w:p>`;
+  const xml = NS
+    + p('ANEXO N° 1') + p('DECLARACIÓN JURADA SIMPLE') + p('Nombre y Firma del Proponente')
+    // Como en el Word real: el subtítulo va en una tabla-recuadro con estilo «Título 1».
+    + p('ANEXO N° 3') + p('') + `<w:tbl><w:tr><w:tc>${conEstilo('')}${conEstilo('FORMULARIO PROPUESTA ECONÓMICA')}</w:tc></w:tr></w:tbl>`
+    + p('II.-IDENTIFICACION DEL PROPONENTE:') + p('3.-NOMBRE DEL REPRESENTANTE LEGAL:') + p('PLAZO DE ENTREGA……')
+    + p('Nombre y Firma del Proponente')
+    // «ANEXO N.º 4» dos veces, solo vacíos entre medio.
+    + p('ANEXO N.º 4') + p('') + p('') + p('ANEXO N.º 4') + p('REPRESENTANTE LEGAL')
+    + `<w:tbl><w:tr><w:tc>${p('Detalle')}</w:tc><w:tc>${p('Valor')}</w:tc></w:tr>`
+    + `<w:tr><w:tc>${p('')}</w:tc><w:tc>${p('Valor total')}</w:tc></w:tr><w:tr><w:tc>${p('')}</w:tc><w:tc>${p('Con Iva')}</w:tc></w:tr></w:tbl>`
+    + p('Nombre y Firma del Proponente')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const divididos = await dividirPorFormularios(await bufferDe(norm), norm);
+  assert.deepEqual(divididos.map(d => [d.titulo, d.categoria]), [
+    ['ANEXO N° 1 DECLARACIÓN JURADA SIMPLE', 'administrativo'],
+    ['ANEXO N° 3 FORMULARIO PROPUESTA ECONÓMICA', 'economico'],
+    ['ANEXO N.º 4', 'economico'],
+  ]);
+  const cuatro = (await abrirDocx(divididos[2].buffer)).xml;
+  assert.equal((cuatro.match(/ANEXO N\.º 4/g) || []).length, 2, 'el anexo 4 lleva sus dos títulos y su tabla');
+});
+
+test('detectarFormularios: el mismo número con contenido entre medio sigue siendo dos anexos', () => {
+  const xml = NS + p('ANEXO N°2') + p('Declaro conocer las bases') + p('ANEXO N°2') + p('Declaro no tener deudas') + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  assert.equal(detectarFormularios(norm).length, 2);
+});

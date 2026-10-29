@@ -4,6 +4,35 @@ Reglas vigentes del motor: ver también `.claude/skills/motor-anexos/SKILL.md` y
 `docs/anexos-motor-reglas.md`. Las entradas con fecha van arriba; al final, lo traspasado desde la
 memoria personal el 2026-10-27.
 
+## 2026-10-28 — Separar anexos: título repetido, económicos sin clasificar y vista previa
+Caso real: 2827-102-LE26 (barredoras), `ANEXOS.docx` (doc 30926): salían 7 trozos en vez de 6 y
+los dos económicos en «Anexos Oferente».
+- «ANEXO N.º 4» escrito dos veces seguidas con solo vacíos entre medio: se cortaba en ambos y el
+  primero salía como un archivo con solo el título. `detectarFormularios` junta dos títulos
+  seguidos cuando el segundo es el primero (o el primero + subtítulo) y no hay texto entre ellos.
+  «FORMULARIO N°1 - A» / «- B» siguen siendo dos.
+- Anexo 3: el subtítulo «FORMULARIO PROPUESTA ECONÓMICA» va en una tabla-recuadro con estilo
+  «Título 1»; la búsqueda de subtítulo se cortaba en las tablas. Ahora toma el primer párrafo de
+  la tabla solo si tiene estilo de título de Word (`RE_ESTILO_TITULO`).
+- Anexo 4: «con iva» se suma a las palabras económicas (empataba con «representante legal»).
+- Vista previa: «Separar» ya no guarda de una. `POST /api/anexos/separar` con `soloVer` corta en
+  memoria y devuelve cada anexo con su texto; el modal `VistaPreviaSeparacion` (Documentos) deja
+  ver el texto completo, cambiar la caja y desmarcar anexos, y al guardar manda `ajustes` por
+  posición. Avisa en ámbar los anexos de ≤2 líneas (corte falso probable) y los sin clasificar.
+**Ojo:** el commit d07b23b del dueño se llevó una primera versión a medias de este arreglo (juntaba
+de más: «Formulario Nº1A»/«Nº1B» de 1057922-25-LE26 por comparar solo el número, y un `<w:t>`
+vacío contaba como texto). La versión del disco lo corrige; comparar el banco contra eb38d86.
+**Verificado:** documento real → 6 anexos, cada uno de su título a su firma, 3 y 4 económicos.
+Banco de 400 .docx contra eb38d86 con `--fragmentos`: cambian 3, todos mejoras (2827-102-LE26 y los
+anexos 1 y 3 de 3253-91-LE26, que ahora llevan su subtítulo). Suite 1634/1634, tsc limpio.
+No se vio el modal en el navegador (la app local pide sesión contra la BD real).
+**Pendiente:** relleno del económico de 2827-102-LE26 (no tocado): representante legal recibe el
+RUT, «VALOR TOTAL (CON IVA)», «en palabras» y «PLAZO DE ENTREGA» vacíos, nombre del firmante 5
+veces, fila «Neto» vacía (la casilla está a la izquierda del rótulo), «LICITACION ID» vacío; costeo
+línea 2 $609.989 vs Auditor $774.687. Ficha técnica L1 trae notas internas («bases exigen 6 a 8 h»,
+«no indicado»). En la BD no hay anexos separados de 2827-102-LE26 todavía: separar de nuevo una vez
+desplegado.
+
 ## 2026-10-28 — Separar anexos: cada anexo terminaba con el título del siguiente
 Caso real: 3712-74-LP26 (Los Vilos), `anexos-editablles.docx`, 7 anexos; mismo formato en
 3712-76-LE26. La detección estaba bien; el armado no: el título va en una tabla cuyo 1.er párrafo

@@ -134,7 +134,10 @@ export function normalizarEtiqueta(s: string): string {
     // la etiqueta quedaba como "a - razon social del proponente", sin matchear nada. El espacio
     // final obligatorio sigue protegiendo "R.U.T." igual que en la viñeta de número: ahí no hay
     // espacio entre la "r." y la "U", así que nunca se confunde con una viñeta.
-    .replace(/^\s*(?:\d+\s*[.)-]+|[a-z]\s*[.)-]+|[-•*])\s+/, ' ')
+    // La viñeta de NÚMERO también va pegada a la palabra («3.-NOMBRE DEL REPRESENTANTE LEGAL»,
+    // 2827-102-LE26): ahí no hay «R.U.T.» que proteger — un número seguido de su signo y una
+    // letra no puede ser otra cosa que una viñeta.
+    .replace(/^\s*(?:\d+\s*[.)-]+(?:\s+|(?=[a-z]))|[a-z]\s*[.)-]+\s+|[-•*]\s+)/, ' ')
     // BUG REAL (1-sep-2026, FORMATO N°1 IDENTIFICACIÓN DEL PROPONENTE, 4328-32-LP26, reportado por
     // el usuario: "por qué no me pone la dirección del oferente ni del representante legal"):
     // "Domicilio del Oferente*" y "Domicilio del Representante Legal*" traen un asterisco de
@@ -1488,6 +1491,16 @@ export function campoDeBlancoInline(b: CandidatoInline): Campo | null {
   if (etiqueta) {
     const campo = campoDeEtiquetaInequivoca(etiqueta);
     if (campo) return campo;
+  }
+  // La misma etiqueta SIN dos puntos, pegada a la raya: «LICITACION ID___________» (2827-102-LE26).
+  // Solo el tramo desde la raya anterior (o el inicio del párrafo), y solo si el diccionario cerrado
+  // lo reconoce ENTERO: «En ____» o una frase cualquiera no calzan con ninguna etiqueta.
+  if (!etiqueta) {
+    const tramo = antes.split(/_{2,}|…{2,}|\.{4,}/).pop()!.trim();
+    if (tramo.length >= 2 && tramo.length <= 40) {
+      const campo = campoDeEtiquetaInequivoca(tramo);
+      if (campo) return campo;
+    }
   }
 
   // BUG REAL (18-ago-2026, "Formatos Esmaltes" de La Serena): el organismo rotula la casilla con un

@@ -285,3 +285,41 @@ export function resolverPieApilado(
   const iva = Math.round(neto * (porcentajeIvaDeclarado(rotulos.map(r => r.texto)) ?? 19) / 100);
   return rotulos.map(r => fmtCL(r.rol === 'neto' ? neto : r.rol === 'iva' ? iva : neto + iva));
 }
+
+// ── El mismo monto EN PALABRAS ────────────────────────────────────────────────────────────────
+// «VALOR TOTAL OFERTA EN PALABRAS: ____» justo debajo del monto en número (2827-102-LE26). Es el
+// MISMO número escrito con letras, no un dato nuevo: si el monto de arriba se resolvió, esto es
+// pura aritmética. Forma chilena de un cheque: «veinticuatro millones doscientos cincuenta y cinco
+// mil setecientos cincuenta y siete pesos».
+const UNIDADES = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez',
+  'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve', 'veinte',
+  'veintiuno', 'veintidós', 'veintitrés', 'veinticuatro', 'veinticinco', 'veintiséis', 'veintisiete', 'veintiocho', 'veintinueve'];
+const DECENAS = ['', '', '', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];
+const CENTENAS = ['', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos', 'seiscientos', 'setecientos', 'ochocientos', 'novecientos'];
+
+function hastaMil(n: number): string {
+  if (n === 100) return 'cien';
+  const c = Math.floor(n / 100), r = n % 100;
+  const resto = r < 30 ? UNIDADES[r] : `${DECENAS[Math.floor(r / 10)]}${r % 10 ? ` y ${UNIDADES[r % 10]}` : ''}`;
+  return [CENTENAS[c], resto].filter(Boolean).join(' ');
+}
+
+// «uno» se apocopa delante de «mil», «millón» y «pesos»: «veintiún mil», «un millón», «un peso».
+const apocopar = (s: string) => s.replace(/(^|\s)(veinti)?uno$/, (_, a, v) => `${a}${v ? 'veintiún' : 'un'}`);
+
+export function montoEnPalabras(monto: number): string | null {
+  const n = Math.round(monto);
+  if (!Number.isFinite(n) || n <= 0 || n >= 1e12) return null;
+  const millones = Math.floor(n / 1e6), miles = Math.floor((n % 1e6) / 1000), resto = n % 1000;
+  const partes: string[] = [];
+  if (millones) partes.push(millones === 1 ? 'un millón' : `${apocopar(millonesEnPalabras(millones))} millones`);
+  if (miles) partes.push(miles === 1 ? 'mil' : `${apocopar(hastaMil(miles))} mil`);
+  if (resto) partes.push(apocopar(hastaMil(resto)));
+  const texto = partes.join(' ');
+  return `${texto}${!miles && !resto ? ' de' : ''} ${n === 1 ? 'peso' : 'pesos'}`;
+}
+
+function millonesEnPalabras(n: number): string {
+  const miles = Math.floor(n / 1000), resto = n % 1000;
+  return [miles ? (miles === 1 ? 'mil' : `${apocopar(hastaMil(miles))} mil`) : '', resto ? hastaMil(resto) : ''].filter(Boolean).join(' ');
+}

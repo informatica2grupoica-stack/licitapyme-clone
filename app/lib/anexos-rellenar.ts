@@ -39,13 +39,13 @@ import { repasarConIA, repasoActivado } from '@/app/lib/anexos-repaso-ia';
 import { matchearPreciosConIA } from '@/app/lib/anexos-precios-ia';
 import { esCandidatoDePrecioUnitario } from '@/app/lib/anexos-precios-columnas';
 import { resolverTablaProductosEnBlanco } from '@/app/lib/anexos-oferta-tecnica-tabla';
-import { resolverMontoUnicoOferta, resolverPieApilado, porcentajeIvaDeclarado, totalNetoDeItemsCosteo } from '@/app/lib/anexos-monto-oferta';
+import { resolverMontoUnicoOferta, resolverPieApilado, porcentajeIvaDeclarado, totalNetoDeItemsCosteo, montoEnPalabras } from '@/app/lib/anexos-monto-oferta';
 import {
   resolverTablaConAuditor, resolverPreciosConAuditor, resolverCamposSueltosConAuditor,
   type DatosAuditorAnexo,
 } from '@/app/lib/anexos-auditor-fuente';
 import { calcularTotalesPorSeccion, calcularTotalesAlPie, calcularTotalesPorLinea, celdasDeRellenoDelPie, resolverTablaResumen, tituloDeTabla, encabezadosLibres, type TituloCercano } from '@/app/lib/anexos-totales-seccion';
-import { detectarFormularios, type FormularioDetectado } from '@/app/lib/anexos-dividir';
+import { detectarFormularios, RE_ENCABEZADO_FORMULARIO, type FormularioDetectado } from '@/app/lib/anexos-dividir';
 import { construirDocumentoUI, leerNumeracion, type BloqueUI, type Resuelto } from '@/app/lib/anexos-documento-ui';
 import { analizarSeccionesEscaneadas, type SeccionEscaneada } from '@/app/lib/anexos-imagen-escaneada';
 import { cargarReglasAprendidasAnexo, cargarOverridesAprendidosAnexo } from '@/app/lib/anexos-feedback';
@@ -143,7 +143,7 @@ interface ResultadoResolucion {
   matcheados: CampoResuelto[];
   pendientes: CandidatoCelda[];
   pendientesConMotivo: Map<number, { categoria: string; motivo: string; alternativas?: PendienteCelda['alternativas'] }>;
-  inlineAuto: { b: CandidatoInline; valor: string; etiqueta: string; via: 'ia' | 'bases' | 'ordenes_compra'; pegadoALaIzquierda?: boolean }[];
+  inlineAuto: { b: CandidatoInline; valor: string; etiqueta: string; via: 'ia' | 'bases' | 'ordenes_compra' | 'auditor' | 'costeo'; pegadoALaIzquierda?: boolean; montoOferta?: boolean }[];
   inlinePendientes: { b: CandidatoInline; categoria: string; motivo: string }[];
   alertasInadmisibilidad: AlertaInadmisibilidad[];
   checklistPendientes: string[];
@@ -384,7 +384,7 @@ async function resolverTodo(
     const montos = resolverMontoUnicoOferta(
       pendientesTrasPrecio.map(c => c.etiqueta),
       totalNetoDeItemsCosteo(itemsCosteo),
-      { hayTablaDeItems, porcentajeIva: porcentajeIvaDeclarado(parrafos.map(p => p.texto || '')) },
+      { hayTablaDeItems, porcentajeIva: porcentajeIvaDeclarado(parrafos.map(p => p.texto || '')) ?? IVA_CHILE_POR_DEFECTO },
     );
     const mapaMonto = new Map(montos.map(m => [m.etiqueta, m]));
     const restantes: CandidatoCelda[] = [];
@@ -410,7 +410,7 @@ async function resolverTodo(
     });
   }
 
-  const inlineAuto: { b: CandidatoInline; valor: string; etiqueta: string; via: 'ia' | 'bases' | 'ordenes_compra'; pegadoALaIzquierda?: boolean }[] = [];
+  const inlineAuto: ResultadoResolucion['inlineAuto'] = [];
   const inlinePendientes: { b: CandidatoInline; categoria: string; motivo: string }[] = [];
   for (const { b, valor, pegadoALaIzquierda } of inlineFecha) {
     inlineAuto.push({ b, valor, etiqueta: (b.contexto || '').replace(/\s*:\s*$/, ''), via: 'ia', pegadoALaIzquierda });
@@ -487,11 +487,77 @@ async function resolverTodo(
     }
   }
 
+  inlinePendientesFinal = resolverMontoYPlazoInline(
+    inlinePendientesFinal, inlineAuto, candidatosCelda, parrafos, itemsCosteo, datosAuditor,
+  );
+
   return {
     matcheados, pendientes: pendientesFinal, pendientesConMotivo, inlineAuto,
     inlinePendientes: inlinePendientesFinal, alertasInadmisibilidad, checklistPendientes,
     faltantesFicha: faltantesFicha || [], costeoCubierto,
   };
+}
+
+// ── Monto de la oferta y plazo escritos como RAYA dentro de un párrafo ──────────────────────
+// 2827-102-LE26, «FORMULARIO PROPUESTA ECONÓMICA»: «1.-VALOR TOTAL OFERTA EN PESOS (CON IVA)$____»,
+// «2.-VALOR TOTAL OFERTA EN PALABRAS:____» y «PLAZO DE ENTREGA………». El monto único y el plazo del
+// Auditor solo miraban casillas de TABLA; como raya en prosa quedaban vacíos teniendo el costeo y
+// el Auditor aprobados.
+//   · El monto usa las mismas reglas que la casilla de tabla (resolverMontoUnicoOferta), pero la
+//     condición «sin tabla de ítems» se mira en el MISMO anexo: este documento trae la tabla de
+//     precios en el Anexo 4 y el monto pelado en el Anexo 3.
+//   · «En palabras» es el monto que se acaba de escribir arriba (hasta 3 párrafos, mismo anexo),
+//     con letras. Sin monto arriba no se escribe nada.
+const IVA_CHILE_POR_DEFECTO = 19; // decisión del dueño, 26-oct-2026 (ver anexos-totales-seccion.ts)
+const DISTANCIA_MAX_MONTO_EN_PALABRAS = 3;
+
+function resolverMontoYPlazoInline(
+  pendientes: ResultadoResolucion['inlinePendientes'],
+  inlineAuto: ResultadoResolucion['inlineAuto'],
+  candidatosCelda: CandidatoCelda[],
+  parrafos: Parrafo[],
+  itemsCosteo: ItemCosteoPrecio[] | undefined,
+  datosAuditor: DatosAuditorAnexo | undefined,
+): ResultadoResolucion['inlinePendientes'] {
+  if (!pendientes.length) return pendientes;
+  const inicios = parrafos.filter(p => RE_ENCABEZADO_FORMULARIO.test((p.texto || '').trim())).map(p => p.indice);
+  const anexoDe = (indice: number) => inicios.filter(i => i <= indice).at(-1) ?? -1;
+  const anexosConTablaDeItems = new Set(candidatosCelda.filter(c => esCandidatoDePrecioUnitario(c.etiqueta)).map(c => anexoDe(c.indice)));
+  const neto = itemsCosteo?.length ? totalNetoDeItemsCosteo(itemsCosteo) : null;
+  const porcentajeIva = porcentajeIvaDeclarado(parrafos.map(p => p.texto || '')) ?? IVA_CHILE_POR_DEFECTO;
+  // «1.-VALOR TOTAL…(CON IVA)$» → «VALOR TOTAL…(CON IVA)»: sin viñeta ni el «$» impreso al lado.
+  const etiquetaDe = (b: CandidatoInline) => (b.contexto || '').replace(/^[\s\d.)-]+/, '').replace(/[\s:$]+$/, '');
+
+  const restantes: typeof pendientes = [];
+  let montoArriba: { anexo: number; indice: number; monto: number } | null = null;
+  for (const p of pendientes) {
+    const etiqueta = etiquetaDe(p.b);
+    const anexo = anexoDe(p.b.indiceParrafo);
+    const plazo = datosAuditor ? resolverCamposSueltosConAuditor([etiqueta], datosAuditor)[0] : undefined;
+    if (plazo) {
+      inlineAuto.push({ b: p.b, valor: plazo.valor, etiqueta, via: 'auditor' });
+      continue;
+    }
+    const [monto] = resolverMontoUnicoOferta([etiqueta], neto, { hayTablaDeItems: anexosConTablaDeItems.has(anexo), porcentajeIva });
+    if (monto) {
+      const numero = Number(monto.valor.replace(/\D/g, ''));
+      // Si el papel ya trae el «$» impreso pegado a la raya, va solo el número.
+      const valor = /\$\s*$/.test(p.b.contexto || '') ? new Intl.NumberFormat('es-CL').format(numero) : monto.valor;
+      inlineAuto.push({ b: p.b, valor, etiqueta, via: 'costeo', montoOferta: true });
+      montoArriba = { anexo, indice: p.b.indiceParrafo, monto: numero };
+      continue;
+    }
+    if (/\ben\s+(palabras|letras)\b/i.test(etiqueta) && montoArriba && montoArriba.anexo === anexo
+      && p.b.indiceParrafo - montoArriba.indice <= DISTANCIA_MAX_MONTO_EN_PALABRAS) {
+      const palabras = montoEnPalabras(montoArriba.monto);
+      if (palabras) {
+        inlineAuto.push({ b: p.b, valor: palabras, etiqueta, via: 'costeo' });
+        continue;
+      }
+    }
+    restantes.push(p);
+  }
+  return restantes;
 }
 
 // ── Totales por sección (LÍNEA/LOTE/ÍTEM...) — ver anexos-totales-seccion.ts ─────────────────
@@ -1189,6 +1255,12 @@ export async function generarAnexoFinal(
   // escrito —lo del humano si corrigió— para que el guardarraíl de total lo compare contra el
   // costeo, igual que los totales al pie. Ver CAMPO_MONTO_TOTAL_OFERTA.
   const totalesMontoUnico: { etiqueta: string; valor: string }[] = [];
+  // El monto escrito como raya en prosa (resolverMontoYPlazoInline) pasa por el mismo guardarraíl.
+  for (const a of inlineAuto) {
+    if (!a.montoOferta) continue;
+    const escrito = respuestas[`inline:${a.b.indiceRun}:${a.b.posEnTexto}`];
+    totalesMontoUnico.push({ etiqueta: a.etiqueta, valor: escrito?.trim() ? escrito.trim() : a.valor });
+  }
   for (const m of [...matcheados, ...matcheadosExtra]) {
     if (m.campo === CAMPO_MONTO_TOTAL_OFERTA) {
       const escrito = respuestas[`celda:${m.c.indice}`];

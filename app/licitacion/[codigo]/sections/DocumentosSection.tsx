@@ -12,6 +12,7 @@ import { DocumentoIAModal } from '@/app/components/DocumentoIAModal';
 import { Boton } from '@/app/components/ui/kit/Boton';
 import { Esqueleto } from '@/app/components/ui/kit/Estructura';
 import { DocSplitLoader } from '@/app/components/ui/DocSplitLoader';
+import { VistaPreviaSeparacion, type PiezaVistaPrevia, type AjusteSeparacion } from './VistaPreviaSeparacion';
 import { useSession } from '@/app/lib/session-context';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
@@ -369,7 +370,8 @@ function DocumentosGrid({
   const [errorSubida, setErrorSubida] = useState<string | null>(null);
   // Nombre del documento que se está separando ahora mismo (null = ninguno) — muestra el
   // overlay con DocSplitLoader mientras dura el fetch a /api/anexos/separar.
-  const [separando, setSeparando] = useState<string | null>(null);
+  const [separando, setSeparando] = useState<{ nombre: string; fase: 'revisando' | 'guardando' } | null>(null);
+  const [vistaPrevia, setVistaPrevia] = useState<{ doc: DocRef; piezas: PiezaVistaPrevia[] } | null>(null);
   const dragEnterCount = useRef<Record<string, number>>({});
   const confirmar = useConfirm();
   const toast = useToast();
@@ -419,24 +421,38 @@ function DocumentosGrid({
   // archivo por anexo (nombrado por su título y clasificado admin/técnico/económico — ver
   // anexos-dividir.ts). Nunca toca el original: los resultados quedan en sus propias cajas de
   // "Documentos y Bases" (Anexos Administrativos/Técnicos/Económicos), no en Documentos Propios.
+  // Primero se corta SIN guardar y se muestra la vista previa (VistaPreviaSeparacion); recién al
+  // confirmar ahí se guarda, con los ajustes del usuario (28-oct-2026, 2827-102-LE26).
   const handleSepararAnexo = async (doc: DocRef) => {
-    const esPdf = /\.pdf$/i.test(doc.nombre || '');
-    const ok = await confirmar({
-      titulo: '¿Separar anexos?',
-      mensaje: (esPdf
-        ? `Se convertirá "${doc.nombre}" a Word y se revisará en busca de varios anexos pegados. `
-        : `Se revisará "${doc.nombre}" en busca de varios anexos pegados en un solo Word. `)
-        + 'Si se detecta más de uno, cada uno queda como archivo Word independiente en su caja de anexos '
-        + '(Administrativos/Técnicos/Económicos, según corresponda) — el original no se modifica.',
-      confirmarLabel: 'Separar',
-    });
-    if (!ok) return;
-    setSeparando(doc.nombre);
+    setSeparando({ nombre: doc.nombre, fase: 'revisando' });
     try {
       const res = await fetch('/api/anexos/separar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ codigo: codigoDecoded, documentoId: doc.id }),
+        body: JSON.stringify({ codigo: codigoDecoded, documentoId: doc.id, soloVer: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo separar el documento');
+      if (!data.separado) {
+        toast.info('Nada que separar', data.mensaje);
+        return;
+      }
+      setVistaPrevia({ doc, piezas: data.vistaPrevia });
+    } catch (e: any) {
+      toast.error('No se pudo separar', e?.message);
+    } finally {
+      setSeparando(null);
+    }
+  };
+
+  const guardarSeparacion = async (doc: DocRef, ajustes: AjusteSeparacion[]) => {
+    setVistaPrevia(null);
+    setSeparando({ nombre: doc.nombre, fase: 'guardando' });
+    try {
+      const res = await fetch('/api/anexos/separar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo: codigoDecoded, documentoId: doc.id, ajustes }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo separar el documento');
@@ -704,10 +720,21 @@ function DocumentosGrid({
       {separando && createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm overlay-in">
           <div className="bg-white rounded-2xl shadow-2xl px-8 py-7 modal-in">
-            <DocSplitLoader titulo="Separando anexos…" subtitulo={`Revisando "${separando}"`} />
+            <DocSplitLoader
+              titulo={separando.fase === 'revisando' ? 'Buscando anexos…' : 'Guardando anexos…'}
+              subtitulo={`${separando.fase === 'revisando' ? 'Revisando' : 'Separando'} "${separando.nombre}"`}
+            />
           </div>
         </div>,
         document.body,
+      )}
+      {vistaPrevia && (
+        <VistaPreviaSeparacion
+          documento={vistaPrevia.doc.nombre}
+          piezas={vistaPrevia.piezas}
+          onCancelar={() => setVistaPrevia(null)}
+          onConfirmar={ajustes => guardarSeparacion(vistaPrevia.doc, ajustes)}
+        />
       )}
     </div>
   );

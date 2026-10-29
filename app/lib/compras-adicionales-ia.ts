@@ -37,7 +37,12 @@ export function adicionalesDesdeIA(raw: unknown, cantidadProducto: number | null
     const cant = Number(a?.cantidadLinea ?? a?.cantidad ?? 1);
     const precio = Number(a?.precioUnitario);
     if (!concepto || !Number.isFinite(cant) || cant <= 0 || !Number.isFinite(precio) || precio <= 0) continue;
-    out.push({ concepto, cantidad: Math.round((cant / divisor) * 100) / 100, precioUnitario: Math.round(aNeto(precio)) });
+    const porUnidad = cant / divisor;
+    // La cantidad se guarda con 2 decimales: 1 instalación para 200 basureros (0,005) quedaba en 0,01 y cobraba el doble
+    // (1202333-67-LE26: $400.000 → $800.000). Si no cabe exacta, se reparte el MONTO: 1 × ($400.000 ÷ 200) por unidad.
+    if (Math.abs(Math.round(porUnidad * 100) / 100 - porUnidad) > 1e-9) {
+      out.push({ concepto: `${concepto} (${cant} × $${Math.round(aNeto(precio)).toLocaleString('es-CL')} repartido en ${divisor} u)`.slice(0, 160), cantidad: 1, precioUnitario: Math.round(aNeto(precio) * porUnidad) });
+    } else out.push({ concepto, cantidad: porUnidad, precioUnitario: Math.round(aNeto(precio)) });
     if (out.length >= MAX_POR_PRODUCTO) break;
   }
   return out;

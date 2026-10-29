@@ -293,7 +293,8 @@ export function corregirAdicionalesConLineas(raw: unknown, lineas: LineaCotizaci
 /** Líneas del documento que no calzan con ningún producto asignado ni adicional (por palabras en común): se avisan, no se pierden en silencio. */
 export function lineasSinAsignar(lineas: LineaCotizacion[], asignados: string[]): LineaCotizacion[] {
   if (!lineas.length) return [];
-  return lineas.filter(l => l.total !== 0 && !asignados.some(a => parecido(l.descripcion, a) >= 0.5));
+  // Sin precio no hay nada que perder («ACCESORIOS», resto de una celda «INSTALACIÓN ACCESORIOS» partida en dos renglones).
+  return lineas.filter(l => (l.total ?? l.precioUnitario ?? 0) !== 0 && !asignados.some(a => parecido(l.descripcion, a) >= 0.5));
 }
 
 // ─── ¿La línea cotizada es de verdad el producto pedido? Talla y tipo de chasis (1110) ────────────────────────────────────────────

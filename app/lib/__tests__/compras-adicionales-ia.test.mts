@@ -42,3 +42,9 @@ test('faltantes e incluidos sin cita verificada se descartan', () => {
   assert.deepEqual(incluidosDesdeIA([{ producto: 'P3', incluidoEn: 'P1', citaIncluido: 'el carro viene con el horno' }], DOC), []);
   assert.equal(incluidosDesdeIA([{ producto: 'P3', incluidoEn: 'P1', citaIncluido: 'Incluye 1 carro 18x60x40' }], DOC).length, 1);
 });
+
+test('1 instalación para 200 unidades: se reparte el monto, no se redondea la cantidad a 0,01 (1202333-67-LE26)', () => {
+  const [a] = adicionalesDesdeIA([{ concepto: 'INSTALACIÓN', cantidadLinea: 1, precioUnitario: 400_000 }], 200, igual);
+  assert.equal(a.cantidad * a.precioUnitario * 200, 400_000);
+  assert.match(a.concepto, /^INSTALACIÓN \(1 × \$400\.000 repartido en 200 u\)$/);
+});

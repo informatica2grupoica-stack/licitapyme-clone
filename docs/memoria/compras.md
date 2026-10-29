@@ -9,6 +9,14 @@ pasa solo si el precio (proveedor elegido, sin pérdida, no más caro que lo cos
 cumple) están bien. `compras-aprobacion-tabla.ts` ahora calcula `porPrecio` y `porFicha` (null = sin proveedor) y `estado` es el peor
 de los dos (mismas reglas que antes); bajo el veredicto se ve «Precio: OK / por revisar / no pasa» y «Ficha: …». Sin ver en navegador.
 
+## 2026-10-29 — La instalación de la cotización no entraba como adicional
+1202333-67-LE26 (negocio 708), cotización Bioplastic 00202780: 200 basureros + «INSTALACIÓN» $400.000. El prompt de
+homologación (`SYS_HOMOLOGACION`, `compras-auditor.ts`) decía «IGNORA los servicios»: ahora van en `adicionales`. Además
+`adicionalesDesdeIA` guardaba la cantidad por unidad con 2 decimales: 1 ÷ 200 = 0,005 → 0,01 cobraba el doble (también la
+«PANTALLA SERIGRAFIA» de la cotización 179); si no cabe exacta, se reparte el monto (1 × $2.000/u). `lineasSinAsignar` ya
+no avisa líneas sin precio. Probado con la IA real sin escribir; **las cotizaciones 209 y 179 siguen con lo viejo hasta
+re-homologarlas** (y lo hecho antes en otros negocios con cantidades no exactas también).
+
 ## Decisiones vigentes del dueño
 
 - **Una sola pantalla con stepper** (2026-09-11, tras 5 vueltas). No volver a páginas por
@@ -28,8 +36,10 @@ de los dos (mismas reglas que antes); bajo el veredicto se ve «Precio: OK / por
 - **Obuma = registro pasivo** por ahora (2026-09-09). No adelantarse a integrar más sin pedido.
   Crear SKU u OC en Obuma escribe en el ERP real: pedir OK antes de probarlo.
 - **Separar Compras como producto aparte**: pospuesto (2026-09-11), sigue dentro del proyecto.
-- Vigencia vencida de una cotización SÍ alerta; servicios (puesta en marcha) no se unen como
-  adicionales; un descuento por pago contado se aplica como descuento normal (2026-10-07).
+- Vigencia vencida de una cotización SÍ alerta; un descuento por pago contado se aplica como
+  descuento normal (2026-10-07). **Servicios con precio (instalación, armado, puesta en marcha,
+  capacitación) SÍ van como adicionales** del producto (cambió el 2026-10-29; antes se ignoraban).
+  El flete sigue aparte (`flete_monto`).
 - Descuento global de una cotización solo se aplica con prueba en el documento
   (`descuentoGlobalPorAplicar`, 2026-10-21).
 - Línea perdida en el acta → subestado `NO_ADJUDICADA` automático. Ante la duda NO se marca:

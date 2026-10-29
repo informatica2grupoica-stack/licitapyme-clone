@@ -537,7 +537,7 @@ function buscarSubtituloTrasEncabezadoPelado(
     // celda de una tabla de datos («Detalle», «NOMBRE») nunca lo trae.
     if (b.tipo === 'tabla' && !partes.length) {
       const primero = [...b.xmlCompleto.matchAll(/<w:p\b[\s\S]*?<\/w:p>/g)]
-        .find(p => /<w:t(?:\s[^>]*)?>[^<]*\S/.test(p[0]))?.[0] ?? '';
+        .find(p => /<w:t(?:\s[^>]*)?>[^<]*[^\s<]/.test(p[0]))?.[0] ?? '';
       const texto = [...primero.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('').trim();
       if (RE_ESTILO_TITULO.test(primero) && texto && !cortaSubtitulo(texto, repetidas)) partes.push(sinComillas(texto));
       break;
@@ -691,12 +691,16 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
   encabezados.sort((a, b) => a.indice - b.indice);
   // El mismo título escrito dos veces seguidas, sin nada entre medio («ANEXO N.º 4» dos veces,
   // 2827-102-LE26): es un anexo, no dos. Se cortaba en ambos y el primero salía como un archivo con
-  // solo el título. Se queda el primero.
+  // solo el título. Se queda el primero. «Mismo título» = el segundo es el primero, o el primero
+  // más un subtítulo (el pelado no alcanzó a tomar subtítulo porque se topó con el repetido);
+  // «FORMULARIO N°1 - A» y «- B» son dos anexos.
+  const normalizarTitulo = (t: string) => t.replace(/\s+/g, ' ').trim().toUpperCase();
   for (let i = encabezados.length - 1; i > 0; i--) {
     const [a, c] = [encabezados[i - 1], encabezados[i]];
-    if (sufijoDeArchivo(a.titulo) !== sufijoDeArchivo(c.titulo)) continue;
+    const [ta, tc] = [normalizarTitulo(a.titulo), normalizarTitulo(c.titulo)];
+    if (tc !== ta && !tc.startsWith(`${ta} `)) continue;
     const hayTextoEntreMedio = bloques.some(b => b.ordinalInicio > a.indice && b.ordinalInicio < c.indice
-      && /<w:t(?:\s[^>]*)?>[^<]*\S/.test(b.xmlCompleto));
+      && /<w:t(?:\s[^>]*)?>[^<]*[^\s<]/.test(b.xmlCompleto));
     if (!hayTextoEntreMedio) encabezados.splice(i, 1);
   }
   const totalOrdinales = bloques.length ? bloques[bloques.length - 1].ordinalFin + 1 : 0;

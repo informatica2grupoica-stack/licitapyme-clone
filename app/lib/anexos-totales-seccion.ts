@@ -190,6 +190,11 @@ export function pareceFilaDePie(celdas: CeldaTablaCruda[], rotulo: string): bool
   return RE_PIE_NETO.test(limpio) || RE_PIE_IVA.test(limpio) || RE_PIE_BRUTO.test(limpio);
 }
 
+// Fila de pie que dice solo «Neto» / «Valor neto» (2827-102-LE26: «Valor total / Neto / Con Iva»).
+// pareceFilaDePie no la acepta sola —«valor neto» suelto no basta para saber que es un pie—, así que
+// se acepta únicamente cuando la tabla ya tiene otra fila de pie (ver calcularTotalesAlPie).
+const RE_FILA_SOLO_NETO = /^(?:(?:valor|monto|precio|total)\s+)?net[oa]s?(?:\s+\$)?$/;
+
 export interface RellenoPie { paraId: string; indiceGlobal: number; valor: string; etiqueta: string }
 
 function textoDeFila(celdas: { texto: string }[]): string {
@@ -233,6 +238,7 @@ export function calcularTotalesAlPie(
     // Se separan las filas de PIE de las de ítem antes de sumar: una fila de pie no es un ítem
     // (no tiene precio propio que sumar) y un ítem sin resolver invalida el total.
     const filasPie: { celdas: CeldaTablaCruda[]; rotulo: string }[] = [];
+    const netosSueltos: typeof filasPie = [];
     let total = 0;
     let itemsConDato = 0;
     let completo = true;
@@ -240,6 +246,10 @@ export function calcularTotalesAlPie(
       const rotulo = textoDeFila(fila.celdas);
       if (pareceFilaDePie(fila.celdas, rotulo)) {
         filasPie.push({ celdas: fila.celdas, rotulo });
+        continue;
+      }
+      if (RE_FILA_SOLO_NETO.test(normalizarRotuloPie(rotulo).toLowerCase())) {
+        netosSueltos.push({ celdas: fila.celdas, rotulo });
         continue;
       }
       const celdaPrecio = fila.celdas[iPrecio];
@@ -262,11 +272,25 @@ export function calcularTotalesAlPie(
         total += precio;
       }
     }
+    // «Neto» solo es pie cuando la tabla YA tiene otro pie; si no, la fila se cuenta como antes,
+    // como un ítem sin precio.
+    if (filasPie.length) filasPie.push(...netosSueltos);
+    else if (netosSueltos.length && !lineasSinPrecioNoOfertadas) completo = false;
     if (!completo || itemsConDato === 0 || filasPie.length === 0) continue;
+
+    // «Valor total» a secas encima de «Neto» y «Con IVA» (2827-102-LE26) es el rótulo del grupo, no
+    // un tercer monto: con neto y bruto explícitos, un «total» que no dice cuál de los dos es se
+    // deja vacío en vez de repetir el neto donde el lector puede esperar el total final.
+    const rotuloPie = (f: { rotulo: string }) => normalizarRotuloPie(f.rotulo).toLowerCase();
+    const hayNetoExplicito = filasPie.some(f => /\bnet[oa]s?\b|\bsin iva\b/.test(rotuloPie(f)));
+    const hayBruto = filasPie.some(f => RE_PIE_BRUTO.test(f.rotulo));
 
     const neto = total;
     for (const fila of filasPie) {
       if (rotuloAmbiguo(fila.rotulo)) continue;
+      const totalSinDecirCual = !RE_PIE_BRUTO.test(fila.rotulo) && !RE_PIE_IVA.test(fila.rotulo)
+        && !/\bnet[oa]s?\b|\bsin iva\b/.test(rotuloPie(fila));
+      if (totalSinDecirCual && hayNetoExplicito && hayBruto) continue;
       const celda = celdaDelMonto(fila.celdas, iTotalLinea >= 0 ? iTotalLinea : iPrecio);
       if (!celda?.ultimoParaId || celda.indiceGlobal == null) continue;
       let valor: number | null = null;

@@ -1999,6 +1999,14 @@ function esRayaLarga(texto: string): boolean {
 // en anexos-determinista.ts: no existe otra palabra del dominio que se escriba así, y perder el
 // bloque de firma por una letra transpuesta deja el anexo sin dónde firmar.
 const RE_LEYENDA_FIRMA = /f[ir]{2}ma|representante\s+legal|persona\s+natural/i;
+// «3.-NOMBRE DEL REPRESENTANTE LEGAL:» / «4.-R.U.T. DEL REPRESENTANTE LEGAL:», cada uno con su raya
+// debajo (2827-102-LE26, formulario económico): nombra al representante pero es la ETIQUETA de un
+// campo — termina en dos puntos y no dice «firma». Se tomaba como leyenda de firma y bajo la raya
+// del nombre se escribía el RUT. Una leyenda de pie de firma no pide un dato con dos puntos.
+function esLeyendaDeFirmaConRaya(texto: string): boolean {
+  if (!RE_LEYENDA_FIRMA.test(texto)) return false;
+  return !(/:\s*$/.test(texto) && !/f[ir]{2}ma/i.test(texto));
+}
 
 // Ver el uso en detectarCandidatosCeldaCrudos: un párrafo que es SOLO uno de estos roles (con o
 // sin paréntesis) es un caption de "de quién es la columna de arriba", nunca la etiqueta de un
@@ -2140,7 +2148,7 @@ export function detectarLineasFirma(parrafos: Parrafo[], indicesConBordeSuperior
       // nombra al evaluador, ahora sí se ve y el bloque se excluye.
       const paginas = [siguiente1, siguiente2, siguiente3];
       const partes = paginas.filter(t => t && t.length <= LARGO_MAX_LEYENDA_FIRMA && !RE_TIENE_BLANCO_PROPIO.test(t));
-      const contexto = partes.some(t => RE_LEYENDA_FIRMA.test(t)) ? partes.join(' ').trim() : '';
+      const contexto = partes.some(esLeyendaDeFirmaConRaya) ? partes.join(' ').trim() : '';
       // BUG REAL (1-sep-2026, ANEXO N°2 de Cholchol, reportado con captura: "donde dice nombre de
       // la empresa y esta la linea arriba es facil de poner"). El pie es de DOS columnas y el
       // documento pone primero las dos rayas y despues los dos rotulos:
@@ -2176,7 +2184,7 @@ export function detectarLineasFirma(parrafos: Parrafo[], indicesConBordeSuperior
     if (esRayaLarga(p.texto) && !usados.has(p.indice)) {
       const arriba = parrafos[i - 1];
       const leyendaArriba = arriba && !arriba.vacio && arriba.texto.length <= LARGO_MAX_LEYENDA_FIRMA
-        && !RE_TIENE_BLANCO_PROPIO.test(arriba.texto) && RE_LEYENDA_FIRMA.test(arriba.texto)
+        && !RE_TIENE_BLANCO_PROPIO.test(arriba.texto) && esLeyendaDeFirmaConRaya(arriba.texto)
         ? arriba
         : null;
       if (leyendaArriba) {
@@ -2258,6 +2266,45 @@ export function detectarLineasFirma(parrafos: Parrafo[], indicesConBordeSuperior
     }
   }
   return out;
+}
+
+// Un bloque de firma = un lugar donde firmar. BUG REAL (2827-102-LE26, formulario económico):
+// «V.-NOMBRE Y FIRMA DEL PROPONENTE:», dos párrafos vacíos y «Nombre y Firma del Proponente»
+// salían como CINCO lugares (la etiqueta con dos puntos, el vacío bajo cada leyenda, y ese mismo
+// vacío otra vez como celda «Firma + vacío»), y en cada uno se escribía el nombre: el firmante
+// quedaba 5 veces. Lugares separados solo por párrafos vacíos o por sus propias leyendas son el
+// mismo pie. Manda el lugar que eligió detectarLineasFirma (`principales`: sabe de rayas, bordes
+// de celda y leyendas; 1426039-8-LE26 firma DENTRO de la celda de la leyenda, no en la vacía de
+// abajo); entre varios de esos, el ÚLTIMO, el más cercano a la leyenda de abajo, que es donde se
+// firma. Los otros patrones (celda «Firma + vacío», «Etiqueta:») solo quedan si el pie no tiene
+// ninguno principal.
+// Con tope de distancia: en el mismo documento, «Firma del Representante» en una fila de la tabla
+// de identificación y «Nombre y Firma del Proponente» al pie quedan a 8 párrafos vacíos y son dos
+// lugares distintos (el párrafo no sabe si está en una tabla, la distancia sí lo delata).
+const DISTANCIA_MAX_MISMO_PIE = 4;
+function unaFirmaPorBloque(parrafos: Parrafo[], principales: LineaFirma[], otras: LineaFirma[]): LineaFirma[] {
+  const lineas = [...principales, ...otras];
+  const esPrincipal = new Set(principales);
+  const orden = [...lineas].sort((a, b) => a.indice - b.indice || Number(esPrincipal.has(b)) - Number(esPrincipal.has(a)));
+  const leyendas = new Set(lineas.map(l => l.paraIdLeyenda).filter(Boolean));
+  const propios = new Set(lineas.map(l => l.indice));
+  const bloques: LineaFirma[][] = [];
+  for (const l of orden) {
+    const anterior = bloques.at(-1)?.at(-1);
+    let mismoBloque = !!anterior && l.indice - anterior.indice <= DISTANCIA_MAX_MISMO_PIE;
+    for (let i = (anterior?.indice ?? 0) + 1; i < l.indice && mismoBloque; i++) {
+      const p = parrafos[i];
+      mismoBloque = !p || p.vacio || propios.has(i) || leyendas.has(p.paraId);
+    }
+    if (mismoBloque) bloques.at(-1)!.push(l); else bloques.push([l]);
+  }
+  // Para el MISMO párrafo, la detección que más dice de él: «Firma: — Para uso exclusivo Proveedor
+  // Adjudicado» y no «Firma:» a secas (de ese texto sale de quién es la firma y si pide nombre o RUT).
+  const quedan = new Set(bloques.map(b => {
+    const lugar = b.filter(l => esPrincipal.has(l)).at(-1) ?? b.at(-1)!;
+    return b.filter(l => l.indice === lugar.indice).reduce((x, y) => (y.contexto.length > x.contexto.length ? y : x), lugar);
+  }));
+  return lineas.filter(l => quedan.has(l));
 }
 
 // ── Datos PEGADOS a una línea de firma: de quién son ya lo dice el documento ──────────────
@@ -2740,8 +2787,7 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   const indicesConRayaArriba = new Set(
     lineasFirmaRaya.filter(f => !parrafos[f.indice]?.vacio).map(f => f.indice + 1),
   );
-  const lineasFirma: LineaFirma[] = [
-    ...lineasFirmaRaya,
+  const lineasFirma: LineaFirma[] = unaFirmaPorBloque(parrafos, lineasFirmaRaya, [
     ...candidatosFirmaCelda.map(c => ({
       paraId: c.paraId, indice: c.indice, contexto: c.etiqueta,
       pideTimbre: /timbre/i.test(c.etiqueta), pideNombre: RE_PIDE_NOMBRE.test(c.etiqueta), pideRut: RE_PIDE_RUT.test(c.etiqueta),
@@ -2752,7 +2798,7 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
         paraId: c.paraId, indice: c.indice, contexto: c.etiqueta,
         pideTimbre: /timbre/i.test(c.etiqueta), pideNombre: RE_PIDE_NOMBRE.test(c.etiqueta), pideRut: RE_PIDE_RUT.test(c.etiqueta), sinRaya: true,
       })),
-  ];
+  ]);
   // La raya de una línea de firma también matchea el patrón 2 (blanco inline, "_{4,}") — se
   // excluye de ahí para no ofrecer un input de texto Y la firma para el mismo párrafo. Esto vale
   // para CUALQUIER raya de firma, sea nuestra o ajena: una raya de guiones bajo "FIRMA Y TIMBRE
