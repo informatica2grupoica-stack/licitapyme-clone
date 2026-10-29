@@ -2078,3 +2078,9 @@ test('la comuna derivada de la dirección no lleva el rótulo «Comuna»', async
   const e: any = conCamposDerivados({ direccion: 'Camino El Oliveto N° 575 N° 6, Comuna Talagante' } as any);
   assert.equal(e.comuna, 'Talagante');
 });
+
+test('«Razón Social o nombre completo persona natural»: el remate no se come la «o» de «completo»', () => {
+  assert.equal(campoDeEtiquetaInequivoca('Razón Social o nombre completo persona natural'), 'razon_social');
+  assert.equal(campoDeEtiquetaInequivoca('Razón social o nombre persona natural'), 'razon_social');
+  assert.equal(normalizarEtiqueta('RUT persona natural o jurídica'), 'rut');
+});

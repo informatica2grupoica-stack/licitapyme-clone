@@ -344,6 +344,58 @@ async function datosLicitacionDesdeNegocio(codigo: string): Promise<{
   }
 }
 
+// RESPALDO ESTABLE DE LA UNIDAD COMPRADORA (comuna, dirección, RUT del organismo, unidad). Estos datos
+// solo existían en la llamada LIVE a MP: si esa corrida daba 429 o timeout, «En ___, a …» y «Comuna
+// de la unidad» salían en raya, y la MISMA licitación salía distinta de una corrida a otra (lo midió
+// scripts/anexos-banco-humano.mts el 29-oct-2026). Ahora cada respuesta buena de MP deja su copia acá
+// y la siguiente corrida la usa solo para lo que MP no trajo. La unidad compradora de una licitación
+// no cambia, así que una copia vieja no engaña. Tabla creada al vuelo (mismo patrón que
+// anexos-feedback.ts): no exige migración, y si falla algo se sigue como antes.
+type UnidadLicitacion = Pick<CamposLicitacion, 'licitacion_organismo_rut' | 'licitacion_direccion' | 'licitacion_comuna' | 'licitacion_unidad_compradora'>;
+let tablaUnidadLista: Promise<void> | null = null;
+function asegurarTablaUnidad(): Promise<void> {
+  tablaUnidadLista ??= pool.query(`CREATE TABLE IF NOT EXISTS licitacion_unidad_cache (
+    licitacion_codigo VARCHAR(64) NOT NULL PRIMARY KEY,
+    organismo_rut     VARCHAR(32) NULL,
+    direccion         VARCHAR(255) NULL,
+    comuna            VARCHAR(128) NULL,
+    unidad            VARCHAR(255) NULL,
+    updated_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  )`).then(() => undefined).catch(e => { tablaUnidadLista = null; throw e; });
+  return tablaUnidadLista;
+}
+async function guardarUnidadLicitacion(codigo: string, c: CamposLicitacion): Promise<void> {
+  if (!c.licitacion_comuna && !c.licitacion_direccion) return;
+  try {
+    await asegurarTablaUnidad();
+    await pool.query(
+      `INSERT INTO licitacion_unidad_cache (licitacion_codigo, organismo_rut, direccion, comuna, unidad)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE organismo_rut = VALUES(organismo_rut), direccion = VALUES(direccion),
+                               comuna = VALUES(comuna), unidad = VALUES(unidad)`,
+      [codigo, c.licitacion_organismo_rut ?? null, c.licitacion_direccion ?? null, c.licitacion_comuna ?? null, c.licitacion_unidad_compradora ?? null],
+    );
+  } catch (e) {
+    console.error(`[anexos-datos] no se pudo guardar la unidad de ${codigo}:`, String(e).slice(0, 200));
+  }
+}
+async function leerUnidadLicitacion(codigo: string): Promise<UnidadLicitacion | null> {
+  try {
+    await asegurarTablaUnidad();
+    const [rows] = await pool.query(
+      `SELECT organismo_rut, direccion, comuna, unidad FROM licitacion_unidad_cache WHERE licitacion_codigo = ? LIMIT 1`, [codigo]) as any;
+    const r = (rows as any[])[0];
+    if (!r) return null;
+    return {
+      licitacion_organismo_rut: r.organismo_rut || null, licitacion_direccion: r.direccion || null,
+      licitacion_comuna: r.comuna || null, licitacion_unidad_compradora: r.unidad || null,
+    };
+  } catch (e) {
+    console.error(`[anexos-datos] no se pudo leer la unidad de ${codigo}:`, String(e).slice(0, 200));
+    return null;
+  }
+}
+
 // `fechaCierre` viaja SUELTA (además de dentro de `campos`, ya formateada como texto largo) porque
 // cargarDocumentoYEmpresa la necesita como Date real para conCamposDerivados — ver el comentario
 // de ahí sobre por qué "fecha_hoy" pasó a basarse en el cierre de la licitación, no en el reloj.
@@ -369,9 +421,21 @@ async function obtenerLicitacionParaAnexo(codigo: string): Promise<{ campos: Cam
         licitacion_fecha_publicacion: formatearFechaLicitacion(lic.FechaPublicacion),
         licitacion_fecha_cierre: fechaCierre ? fechaLargaChile(fechaCierre) : null,
       };
+      await guardarUnidadLicitacion(codigo, campos);
     }
   } catch (e) {
     console.error(`[anexos-datos] no se pudo obtener la licitación ${codigo} para el Anexo Creator:`, String(e).slice(0, 200));
+  }
+
+  if (!campos.licitacion_comuna || !campos.licitacion_direccion || !campos.licitacion_organismo_rut) {
+    const u = await leerUnidadLicitacion(codigo);
+    if (u) campos = {
+      ...campos,
+      licitacion_organismo_rut: campos.licitacion_organismo_rut ?? u.licitacion_organismo_rut,
+      licitacion_direccion: campos.licitacion_direccion ?? u.licitacion_direccion,
+      licitacion_comuna: campos.licitacion_comuna ?? u.licitacion_comuna,
+      licitacion_unidad_compradora: campos.licitacion_unidad_compradora ?? u.licitacion_unidad_compradora,
+    };
   }
 
   if (!campos.licitacion_nombre || !campos.licitacion_organismo || !fechaCierre) {

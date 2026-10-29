@@ -86,7 +86,9 @@ function sinParentesisEnvolvente(s: string): string {
 // fila de toda tabla de identificación) quedaba pendiente. Mismo criterio que ya aplica
 // REGLAS_MARCADOR con "o persona natural según corresponda": el QUÉ manda, el DE QUIÉN no.
 const RE_TIPO_DE_PERSONA_AL_FINAL =
-  /\s*(?:o\s+|de\s+la\s+|de\s+|para\s+)?personas?\s+(?:natural(?:es)?|juridicas?)(?:\s*(?:o|y|\/)\s*(?:personas?\s+)?(?:natural(?:es)?|juridicas?))?(?:\s+segun\s+corresponda)?$/;
+  // El «o» tiene que ser una palabra suelta: «nombre complet[o] persona natural» (2827-102-LE26,
+  // Anexo 1) perdía la «o» de «completo» y la razón social quedaba sin casilla en el Auditor.
+  /\s*(?:(?<![a-z])(?:o|de\s+la|de|para)\s+)?personas?\s+(?:natural(?:es)?|juridicas?)(?:\s*(?:o|y|\/)\s*(?:personas?\s+)?(?:natural(?:es)?|juridicas?))?(?:\s+segun\s+corresponda)?$/;
 
 // Ver el uso en normalizarEtiqueta: son las etiquetas que quedan SIN SENTIDO si se les saca el
 // remate "persona natural/jurídica", porque preguntan justamente por esa clasificación.
