@@ -195,7 +195,8 @@ export function pareceFilaDePie(celdas: CeldaTablaCruda[], rotulo: string): bool
 // se acepta únicamente cuando la tabla ya tiene otra fila de pie (ver calcularTotalesAlPie).
 const RE_FILA_SOLO_NETO = /^(?:(?:valor|monto|precio|total)\s+)?net[oa]s?(?:\s+\$)?$/;
 
-export interface RellenoPie { paraId: string; indiceGlobal: number; valor: string; etiqueta: string }
+// `anexar`: el monto se agrega al final del texto de la celda del propio rótulo (no hay casilla vacía a su derecha).
+export interface RellenoPie { paraId: string; indiceGlobal: number; valor: string; etiqueta: string; anexar?: boolean; indiceParrafoReal?: number }
 
 function textoDeFila(celdas: { texto: string }[]): string {
   return celdas.map(c => c.texto).filter(Boolean).join(' ').trim();
@@ -292,7 +293,13 @@ export function calcularTotalesAlPie(
         && !/\bnet[oa]s?\b|\bsin iva\b/.test(rotuloPie(fila));
       if (totalSinDecirCual && hayNetoExplicito && hayBruto) continue;
       const celda = celdaDelMonto(fila.celdas, iTotalLinea >= 0 ? iTotalLinea : iPrecio);
-      if (!celda?.ultimoParaId || celda.indiceGlobal == null) continue;
+      // El rótulo vive EN la columna de los valores y la única casilla vacía queda a su IZQUIERDA
+      // (2827-102-LE26, Anexo 4: «Valor total / Neto / Con Iva» bajo la columna «Valor»): el monto no
+      // va a la izquierda del rótulo, va en la misma celda, a continuación de él.
+      const celdaRotulo = fila.celdas[iTotalLinea >= 0 ? iTotalLinea : iPrecio];
+      const anexar = !!celdaRotulo && !!celdaRotulo.texto.trim() && !!celdaRotulo.ultimoParaId && celdaRotulo.indicesParrafos.length > 0
+        && !!celda && fila.celdas.indexOf(celda) < fila.celdas.indexOf(celdaRotulo);
+      if (!anexar && (!celda?.ultimoParaId || celda.indiceGlobal == null)) continue;
       let valor: number | null = null;
       if (RE_PIE_BRUTO.test(fila.rotulo)) {
         // neto + IVA YA REDONDEADO, no round(neto × 1,19): así el papel cuadra a la vista (las
@@ -307,9 +314,14 @@ export function calcularTotalesAlPie(
         valor = Math.round(neto);
       }
       if (valor == null) continue; // sin porcentaje declarado no se adivina — la casilla queda pendiente
+      const monto = new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(valor);
+      if (anexar) {
+        out.push({ paraId: celdaRotulo.ultimoParaId!, indiceGlobal: -1, indiceParrafoReal: celdaRotulo.indicesParrafos[celdaRotulo.indicesParrafos.length - 1], anexar: true, etiqueta: fila.rotulo.slice(0, 80), valor: monto });
+        continue;
+      }
       out.push({
-        paraId: celda.ultimoParaId, indiceGlobal: celda.indiceGlobal, etiqueta: fila.rotulo.slice(0, 80),
-        valor: new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(valor),
+        paraId: celda!.ultimoParaId!, indiceGlobal: celda!.indiceGlobal!, etiqueta: fila.rotulo.slice(0, 80),
+        valor: monto,
       });
     }
   }

@@ -612,10 +612,9 @@ function aplicarTotalesPorSeccion(
     // va a leer el organismo, y contra el que se compara el costeo aprobado antes de subir el
     // archivo (ver auditor-verificacion-total.ts).
     totalesPie.push({ etiqueta: r.etiqueta, valor: r.valor });
-    matcheadosExtra.push({
-      c: { etiqueta: r.etiqueta, paraId: r.paraId, indice: r.indiceGlobal },
-      campo: 'total_calculado', valor: r.valor, via: 'costeo',
-    });
+    matcheadosExtra.push(r.anexar && r.indiceParrafoReal != null
+      ? { c: { etiqueta: r.etiqueta, paraId: r.paraId, indice: r.indiceParrafoReal }, campo: 'total_calculado', valor: r.valor, via: 'costeo', dosPuntos: true }
+      : { c: { etiqueta: r.etiqueta, paraId: r.paraId, indice: r.indiceGlobal }, campo: 'total_calculado', valor: r.valor, via: 'costeo' });
   }
 
   for (const r of rellenos) {

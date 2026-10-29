@@ -2556,3 +2556,25 @@ test('compactarVaciosDeRelleno: baja los vacíos de antes de la firma y del fina
   const conSalto = xml.replace(vacio.repeat(4), vacio + '<w:p><w:r><w:br w:type="page"/></w:r></w:p>' + vacio);
   assert.ok(compactarVaciosDeRelleno(conSalto).includes('<w:br w:type="page"/>'));      // un salto de página queda como está
 });
+
+test('pie «Valor total / Neto / Con Iva» bajo la columna Valor: el monto va en la celda del rótulo, no a su izquierda (2827-102-LE26, Anexo 4)', async () => {
+  const { calcularTotalesAlPie } = await import('../anexos-totales-seccion');
+  const celda = (texto: string, indiceGlobal: number | null, paraId: string, parrafo: number) =>
+    ({ texto, indiceGlobal, anchoPct: 50, ultimoParaId: paraId, indicesParrafos: [parrafo] });
+  const tabla = { indicePrimero: 0, filas: [
+    { celdas: [celda('Detalle', null, 'h1', 0), celda('Valor', null, 'h2', 1)] },
+    { celdas: [celda('barredora industrial', null, 'a1', 2), celda('', 3, 'a2', 3)] },
+    { celdas: [celda('barredora manual', null, 'b1', 4), celda('', 5, 'b2', 5)] },
+    { celdas: [celda('', 6, 'c1', 6), celda('Valor total', null, 'c2', 7)] },
+    { celdas: [celda('', 8, 'd1', 8), celda('Neto', null, 'd2', 9)] },
+    { celdas: [celda('', 10, 'e1', 10), celda('Con Iva', null, 'e2', 11)] },
+  ] } as any;
+  const precios: Record<number, number> = { 3: 19773000, 5: 774687 };
+  const r = calcularTotalesAlPie([tabla], i => precios[i] ?? null);
+  const neto = r.find(x => /neto/i.test(x.etiqueta))!, bruto = r.find(x => /iva/i.test(x.etiqueta))!;
+  assert.equal(neto.valor, '20.547.687');
+  assert.equal(neto.paraId, 'd2');            // la celda del rótulo, no la vacía de la izquierda (d1)
+  assert.equal(neto.anexar, true);
+  assert.equal(bruto.valor, '24.451.748');
+  assert.equal(bruto.paraId, 'e2');
+});
