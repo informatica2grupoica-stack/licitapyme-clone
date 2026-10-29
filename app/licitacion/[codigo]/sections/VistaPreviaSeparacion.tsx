@@ -17,6 +17,8 @@ export interface PiezaVistaPrevia {
   categoria: string;
   lineas: string[];
   totalLineas: number;
+  miniatura?: string | null; // primera página como se ve en Word (PNG); null si no se pudo convertir
+  paginas?: number | null;
 }
 
 export interface AjusteSeparacion { indice: number; categoria: string; omitir: boolean }
@@ -41,12 +43,13 @@ export function VistaPreviaSeparacion({ documento, piezas, onCancelar, onConfirm
     () => piezas.map(p => ({ indice: p.indice, categoria: p.categoria, omitir: false })),
   );
   const [abiertos, setAbiertos] = useState<Set<number>>(new Set());
+  const [ampliada, setAmpliada] = useState<PiezaVistaPrevia | null>(null);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancelar(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { if (ampliada) setAmpliada(null); else onCancelar(); } };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onCancelar]);
+  }, [onCancelar, ampliada]);
 
   const cambiar = (indice: number, cambio: Partial<AjusteSeparacion>) =>
     setAjustes(prev => prev.map(a => (a.indice === indice ? { ...a, ...cambio } : a)));
@@ -63,7 +66,7 @@ export function VistaPreviaSeparacion({ documento, piezas, onCancelar, onConfirm
         role="dialog"
         aria-modal="true"
         aria-labelledby="vista-previa-separacion-titulo"
-        className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl bg-white shadow-flotante modal-in dark:bg-slate-900"
+        className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded-2xl bg-white shadow-flotante modal-in dark:bg-slate-900"
         onClick={e => e.stopPropagation()}
       >
         <div className="border-b border-linea px-6 py-4 dark:border-slate-800">
@@ -85,10 +88,26 @@ export function VistaPreviaSeparacion({ documento, piezas, onCancelar, onConfirm
               <li key={p.indice} className={`border-t border-linea py-4 first:border-t-0 dark:border-slate-800 ${ajuste.omitir ? 'opacity-50' : ''}`}>
                 <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
                   <span className="w-5 pt-0.5 text-xs font-semibold tabular-nums text-tinta-3">{p.indice + 1}</span>
+                  {p.miniatura ? (
+                    <button
+                      type="button"
+                      onClick={() => setAmpliada(p)}
+                      title="Ampliar"
+                      className="w-28 shrink-0 overflow-hidden rounded-md border border-linea bg-white shadow-tarjeta transition hover:shadow-tarjeta-hover dark:border-slate-700"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={p.miniatura} alt={"Anexo "+(p.indice+1)+": "+p.titulo} className="block w-full" />
+                    </button>
+                  ) : (
+                    <div className="flex h-36 w-28 shrink-0 items-center justify-center rounded-md border border-dashed border-linea px-2 text-center text-[11px] text-tinta-3 dark:border-slate-700">
+                      Sin imagen: revisa el texto
+                    </div>
+                  )}
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-tinta dark:text-slate-100">{p.titulo}</p>
                     <p className="mt-0.5 text-xs text-tinta-3">
                       {p.nombre} · <span className="tabular-nums">{p.totalLineas}</span> {p.totalLineas === 1 ? 'línea' : 'líneas'}
+                      {p.paginas ? <> · <span className="tabular-nums">{p.paginas}</span> {p.paginas === 1 ? 'página' : 'páginas'}</> : null}
                     </p>
                     {(sospechoso || ajuste.categoria === 'sin_clasificar') && (
                       <p className="mt-1 text-xs text-alerta">
@@ -159,6 +178,13 @@ export function VistaPreviaSeparacion({ documento, piezas, onCancelar, onConfirm
           </Boton>
         </div>
       </div>
+
+      {ampliada?.miniatura && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-4 overflow-y-auto" onClick={() => setAmpliada(null)}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={ampliada.miniatura} alt={ampliada.titulo} className="max-h-full w-auto max-w-2xl rounded bg-white shadow-flotante" />
+        </div>
+      )}
     </div>,
     document.body,
   );

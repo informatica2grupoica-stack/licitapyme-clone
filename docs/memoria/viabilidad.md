@@ -85,7 +85,12 @@ mantención de maquinarias → EXCLUIDO, 4 convenios de insumos médicos que GLM
 `scripts/scratch/diag-intake-radar.mts`. NO desplegado ni corrido el intake en producción.
 **Verificado en producción (28-oct, corrida de las 16:00 tras el deploy):** las 170 palabras clave buscadas, 0
 congeladas; entraron 223 licitaciones nuevas al radar (212 aún abiertas), entre ellas 1173467-1-LE26 y 3920-26-LR26.
-**Pendiente:** confirmar que el prefiltro de las 17:00 las decidió con Kimi (columna `modelo`). La API de MP devuelve 429 a las 16 consultas en paralelo de `obtenerUltimosDias` (tras 3
+**Verificado 29-oct (solo lectura):** desde el fix entraron 2.419 licitaciones distintas (888 abiertas); el prefiltro
+las decidió con Kimi (`kimi-k3` 314 filas vs 13 con respaldo GLM) y solo quedan 16 pendientes del cliente 1. Las corridas
+normales traen 2–14; los picos (28-oct 16:00 = 1.268, 29-oct 00:00 = 823, 12:00 = 304) son en su mayoría licitaciones
+publicadas antes del 27-oct (890/782/269): rezago, probablemente por los días que la API de MP devuelve vacíos por 429.
+Causa del rezago NO confirmada. Scripts: `scripts/scratch/radar-conteo*.mts`.
+**Pendiente (antes):** confirmar que el prefiltro de las 17:00 las decidió con Kimi (columna `modelo`) — ya confirmado. La API de MP devuelve 429 a las 16 consultas en paralelo de `obtenerUltimosDias` (tras 3
 reintentos un día queda vacío en silencio) — no se tocó. Si sigue existiendo el disparador externo viejo (cron-job.org
 u otro), apunta a la BD de respaldo: apagarlo.
 

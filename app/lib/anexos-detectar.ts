@@ -1747,11 +1747,21 @@ const RE_ETIQUETA_ES_AVISO_DEL_ORGANISMO = /^(?:notas?|obs\.?|observaci[oó]n(?:
 // completo de que el diccionario resuelva `limpio` con certeza (ver el comentario de arriba).
 const RE_TERMINA_ETIQUETA = /[:,]\s*$/;
 
+// CASO REAL (2827-102-LE26, ANEXO N°1): el encabezado del formulario es «Nombre Licitación» en una
+// línea centrada y «ID: ____» en la siguiente — sin dos puntos ni raya, así que no era casilla y el
+// nombre de la licitación quedaba sin escribir. Solo estas tres etiquetas exactas valen sin dos
+// puntos: nombran un dato de la licitación y no una oración.
+const RE_NOMBRE_LICITACION_SUELTO = /^nombre\s+(?:de\s+(?:la\s+)?)?(?:licitaci[óo]n|proceso|proyecto)$/i;
+
 export function detectarCamposConDosPuntos(parrafos: Parrafo[]): CandidatoCelda[] {
   const out: CandidatoCelda[] = [];
   for (let i = 0; i < parrafos.length; i++) {
     const p = parrafos[i];
     const texto = p.texto.trim();
+    if (RE_NOMBRE_LICITACION_SUELTO.test(texto)) {
+      out.push({ etiqueta: texto, paraId: p.paraId, indice: p.indice });
+      continue;
+    }
     if (!RE_TERMINA_ETIQUETA.test(texto) || texto.length > 80 || p.centrado) continue;
     if (RE_TIENE_BLANCO_PROPIO.test(texto)) continue;   // tiene su propio blanco → lo cubre el patrón 2
     const limpio = texto.replace(/\s*[:,]\s*$/, '').trim();

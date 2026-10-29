@@ -10,6 +10,7 @@ import {
 } from '@/app/types/mercado-publico.types';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { normalizar } from '@/app/lib/text-match';
+import { diasCalendarioChile } from '@/app/lib/tz';
 
 export class SearchEngine {
   // Delegamos en el normalizador compartido (app/lib/text-match.ts) para que la
@@ -95,7 +96,8 @@ export class SearchEngine {
 
   private getDiasHastaCierre(fechaCierre: string): number {
     if (!fechaCierre) return -1;
-    return Math.ceil((new Date(fechaCierre).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    if (new Date(fechaCierre).getTime() < Date.now()) return -1;
+    return diasCalendarioChile(fechaCierre) ?? -1;
   }
 
   // API pública — acepta query como string para compatibilidad externa

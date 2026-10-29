@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { IconCalendarEvent as CalendarEvent, IconCheck as Check, IconFlag as Flag, IconTimeline as Timeline } from '@tabler/icons-react';
 import { useContador } from '@/app/lib/use-contador';
+import { diasCalendarioChile } from '@/app/lib/tz';
 import { LineaTiempo } from '@/app/components/ui/kit/LineaTiempo';
 import { Esqueleto, Vacio } from '@/app/components/ui/kit/Estructura';
 
@@ -67,12 +68,12 @@ export function FechasNegocio({ licitacion }: { licitacion: any | null }) {
   const cumplidas = items.filter(f => f.t < ahora).length;
   const pct = items.length ? Math.round((cumplidas / items.length) * 100) : 0;
   const proxima = idxProxima >= 0 ? items[idxProxima] : null;
-  const diasProxima = proxima ? Math.round((proxima.t - ahora) / 86_400_000) : null;
+  const diasProxima = proxima ? diasCalendarioChile(proxima.t, ahora) : null;
   const animDias = useContador(diasProxima && diasProxima > 0 ? diasProxima : 0);
   const animPct = useContador(pct);
 
   const fmtRel = (t: number) => {
-    const d = Math.round((t - ahora) / 86_400_000);
+    const d = diasCalendarioChile(t, ahora) ?? 0;
     if (d === 0) return 'Hoy';
     if (d === 1) return 'Mañana';
     if (d === -1) return 'Ayer';

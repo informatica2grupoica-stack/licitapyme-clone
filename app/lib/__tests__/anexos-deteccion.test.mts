@@ -2529,3 +2529,10 @@ test('totales al pie «Valor total / Neto / Con Iva»: el neto en «Neto», el t
   assert.equal(porRotulo.get('Con Iva'), '24.255.757');
   assert.equal(porRotulo.has('Valor total'), false);
 });
+
+test('«Nombre Licitación» centrado y sin dos puntos es una casilla (2827-102-LE26, Anexo 1)', async () => {
+  const { detectarCamposConDosPuntos } = await import('../anexos-detectar');
+  const p = (indice: number, texto: string, centrado = false) => ({ indice, paraId: `P${indice}`, texto, centrado }) as any;
+  const r = detectarCamposConDosPuntos([p(0, 'IDENTIFICACIÓN DEL OFERENTE', true), p(1, 'Nombre Licitación ', true), p(2, 'ID: ____')]);
+  assert.deepEqual(r.map(c => c.etiqueta), ['Nombre Licitación']);
+});

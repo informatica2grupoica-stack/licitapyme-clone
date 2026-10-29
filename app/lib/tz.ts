@@ -19,6 +19,21 @@ export function ahoraChileSQL(d: Date = new Date()): string {
   return d.toLocaleString('sv-SE', { timeZone: TZ_CHILE });
 }
 
+// Días de CALENDARIO (hora de Chile) entre hoy y la fecha dada: 0 = hoy, 1 = mañana, -1 = ayer.
+// NUNCA dividir milisegundos por 24 h para esto: un cierre hoy a las 20:00 visto a las 08:00 da 0,5
+// y Math.ceil/round lo convertían en "mañana" (y uno de mañana 09:00 visto a las 15:00 en "hoy").
+// Independiente de la zona del navegador/servidor.
+export function diasCalendarioChile(fecha: Date | string | number | null | undefined, ahora: Date | number = new Date()): number | null {
+  if (fecha == null || fecha === '') return null;
+  const t = new Date(fecha).getTime();
+  if (Number.isNaN(t)) return null;
+  const dia = (ms: number) => {
+    const [y, m, d] = new Date(ms).toLocaleDateString('en-CA', { timeZone: TZ_CHILE }).split('-').map(Number);
+    return Date.UTC(y, m - 1, d) / 86_400_000;
+  };
+  return Math.round(dia(t) - dia(new Date(ahora).getTime()));
+}
+
 // Minutos que faltan para la medianoche de HOY en hora de Chile. Usado por el gobernador de
 // cuota de la API de Mercado Público (mercado-publico.ts) para repartir lo que queda del
 // presupuesto diario entre las corridas que faltan hasta que el contador se reinicie a las 00:00.

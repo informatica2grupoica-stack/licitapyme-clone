@@ -4,6 +4,30 @@ Reglas vigentes del motor: ver también `.claude/skills/motor-anexos/SKILL.md` y
 `docs/anexos-motor-reglas.md`. Las entradas con fecha van arriba; al final, lo traspasado desde la
 memoria personal el 2026-10-27.
 
+## 2026-10-29 (tarde) — 2827-102-LE26: nombre de la licitación y de la empresa en blanco (generado desde Pre-postulación)
+Generar desde Pre-postulación › Anexos a generar usa el mismo `/api/anexos/generar`. Regenerados los 5 anexos separados (docs 31467-31472) con el motor del disco:
+- Anexo 1 (y 1B): «Nombre Licitación» es un título centrado sin dos puntos ni raya → no era casilla. `detectarCamposConDosPuntos` acepta, sin dos puntos, SOLO «Nombre (de la) Licitación/Proceso/Proyecto» exacto.
+- Anexo 3: «I.-IDENTIFICACION DEL PROYECTO:» ahora lleva el nombre (patrón de `licitacion_nombre`, con numeral romano opcional; «II.- …DEL PROPONENTE» sigue sin tocarse porque es título de sección).
+- Anexo 5: «de la Empresa proponente ___» (razón social) y «Dirección Comercial ___» (dirección) ya salen del diccionario, sin depender de la IA.
+**Pendiente / ojo:** Anexo 5 trae el año **2025 impreso** («____2025»): día y mes quedan a mano a propósito (rellenarlos daría una fecha de 2025). `En___ a ___` (sin espacio tras «En») no calza `RE_ANTES_DIA`. Anexo 4 «Línea N°» sigue al humano. No se vio en la plataforma ni se corrió el banco de 400 .docx (suite 1657/1657, tsc limpio). Hoja en blanco al final de 1-3 y firma pisando texto: sin tocar.
+
+## 2026-10-29 — PENDIENTE: la vista previa de «Separar anexos» debe ser una miniatura como se ve en Word
+El dueño vio el modal `VistaPreviaSeparacion` (lista de títulos y líneas en texto) y pidió otra cosa:
+**ver cada anexo como miniatura de página, tal cual se ve en el Word**, antes de guardar. No hecho.
+Idea: `soloVer` arma cada fragmento .docx → conversor-doc (LibreOffice, `convertirDocxAPdf` en
+`anexos-doc-legacy.ts`, igual que `app/api/anexos/vista-previa-pdf`) → imagen de la 1.ª página
+(`pdfjs-dist`, ya instalado) → el modal las muestra con título, caja y «Guardar»; el texto queda como
+detalle plegable. Ojo con el tiempo (una conversión por anexo): hacerlas en paralelo y con tope.
+Anexos que dejó el dueño para ver cómo se llenan (2827-102-LE26, PDF generados el 29-oct 11:39 en
+`C:\Users\droku\Downloads\ANEXO_Anexo 1…5*.pdf`). Lo visto, por revisar:
+- Hoja final en blanco con solo el escudo en Anexos 1, 2 y 3.
+- Anexo 3: «Nombre y firma» se va a la página 2; la raya de «en palabras» se parte y deja «__»;
+  nombre/RUT del representante salen con letra más grande que el resto.
+- Anexo 2: la firma pisa el final del último punto. Anexo 1: la firma queda bajo la tabla, no en su celda.
+- Anexo 5: «En Constitución a 29 día del mes de octubre **2025**» — año 2025 (hoy es 2026): ver si viene fijo
+  en la plantilla o lo escribe el motor; si es el motor, es un dato equivocado.
+- Anexo 4: «Línea N°» queda vacío (se deja a la persona).
+
 ## 2026-10-29 — Formulario económico de 2827-102-LE26: casillas vacías, RUT en el nombre, firma ×5
 Caso real: 2827-102-LE26, `ANEXOS.docx` (doc 30926), Anexo 3 «FORMULARIO PROPUESTA ECONÓMICA» y
 Anexo 4 (tabla de precios). Todo general; reglas en `docs/anexos-motor-reglas.md`.

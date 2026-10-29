@@ -35,6 +35,7 @@ import { dividirPorFormularios, clasificarAnexo } from '@/app/lib/anexos-dividir
 import { detectarSeccionesPdfEscaneado } from '@/app/lib/anexos-pdf-secciones';
 import { dividirPdfEnFormatos } from '@/app/lib/anexos-pdf-dividir';
 import { registrarActividad } from '@/app/lib/actividad';
+import { miniaturasDePiezas } from '@/app/lib/anexos-miniatura';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -116,12 +117,14 @@ export async function POST(request: NextRequest) {
     if (!Array.isArray(piezas)) return piezas; // nada que separar, o un fragmento salió roto
 
     if (soloVer) {
+      const miniaturas = await miniaturasDePiezas(piezas);
       return NextResponse.json({
         success: true,
         separado: true,
         vistaPrevia: piezas.map((p, indice) => ({
           indice, nombre: p.nombre, titulo: p.titulo, categoria: p.categoria,
           lineas: p.lineas.slice(0, LINEAS_MAX_VISTA_PREVIA), totalLineas: p.lineas.length,
+          miniatura: miniaturas[indice]?.imagen ?? null, paginas: miniaturas[indice]?.paginas ?? null,
         })),
       });
     }

@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { searchEngine } from '@/app/lib/search-engine';
+import { diasCalendarioChile } from '@/app/lib/tz';
 import { SearchRequest, SearchResponse, Oportunidad } from '@/app/types/search.types';
 import { Licitacion } from '@/app/types/mercado-publico.types';
 import { leerCache, enriquecerYCachear } from '@/app/lib/licitaciones-cache';
@@ -163,7 +164,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               estado: licitacion.Estado,
               fecha_publicacion: licitacion.FechaPublicacion,
               fecha_cierre: licitacion.FechaCierre,
-              dias_cierre: Math.ceil((new Date(licitacion.FechaCierre).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)),
+              dias_cierre: new Date(licitacion.FechaCierre).getTime() < Date.now() ? -1 : (diasCalendarioChile(licitacion.FechaCierre) ?? -1),
               monto_total: licitacion.MontoTotal || 0,
               items: (licitacion.Items || []).map(item => ({
                 codigo_producto: item.CodigoProducto,

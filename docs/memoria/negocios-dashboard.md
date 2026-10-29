@@ -45,3 +45,8 @@ es válida (ver viabilidad.md, «Completar cada línea»).
 - Dashboard: descarte antes de asignar (nivel 0) no se representa; «Posible adjudicado»
   automático fuera de alcance.
 - Refresco garantizado de «Destacadas» cada 2 h necesitaría un cron dedicado (decisión del dueño).
+
+## Días al cierre = días de CALENDARIO en hora Chile (29-oct-2026)
+- Bug: «Cierra mañana» con fecha impresa «jueves 29» (= hoy). Causa: `Math.ceil`/`Math.round` de ms/24 h (cierre hoy 20:00 visto a las 08:00 → 0,5 → «mañana»).
+- Regla: contar SIEMPRE con `diasCalendarioChile()` de `app/lib/tz.ts` (0 = hoy, 1 = mañana); nunca dividir ms por 86400000. Aplicado en getDiasRestantes (licitación/Resumen), ResumenNegocio, FechasNegocio, search-engine, api/search, negocios/page. Sin verificar en navegador.
+- Pendiente: fechas de otros módulos (reloj de entrega de Compras ya usa YMD; postuladas usa dayjs del navegador).

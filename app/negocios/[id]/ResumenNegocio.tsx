@@ -4,6 +4,7 @@
 // Misma lógica y datos que tenía SeccionResumen (page.tsx), con el lenguaje visual de las pestañas de
 // viabilidad: tarjeta de viabilidad con el nivel, tarjetas de datos clave, recorrido, y los datos
 // de la licitación en grillas (etiqueta arriba, valor abajo; los campos vacíos no se muestran).
+import { diasCalendarioChile } from '@/app/lib/tz';
 import { useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { IconTarget as Target, IconArrowUpRight as ArrowUpRight, IconCircleX as CircleX, IconClock as Clock, IconChevronRight as ChevronRight, IconBan as Ban, IconCheck as Check, IconX as X, IconEdit as Edit3, IconWallet as Wallet, IconGavel as Gavel, IconPackage as Package, IconFileText as FileText, IconBuilding as Building2, IconShield as Shield, IconListCheck as ListChecks, IconPhone as Phone, IconMail as Mail, IconExternalLink as ExternalLink, IconCircleCheck as CheckCircle, IconAlertTriangle as AlertTriangle, IconBulb as Lightbulb, IconThumbUp as ThumbsUp, IconTag as Tag } from '@tabler/icons-react';
@@ -275,7 +276,7 @@ export function ResumenNegocio({ negocio, licitacion, oportunidad, onMontoChange
   // Cierre: días que faltan (se calcula con la fecha del negocio).
   const [ahora] = useState(() => Date.now());
   const cierreMs = negocio.licitacion_cierre ? new Date(negocio.licitacion_cierre).getTime() : NaN;
-  const dias = Number.isFinite(cierreMs) ? Math.ceil((cierreMs - ahora) / 86400000) : null;
+  const dias = Number.isFinite(cierreMs) ? (cierreMs < ahora ? -1 : diasCalendarioChile(cierreMs, ahora)) : null;
 
   const d = viabIA ? datosViabilidad(viabIA, montoMP) : null;
   const presupuestoBarra = Number(d?.presupuesto) || montoMP;

@@ -1,5 +1,6 @@
 ﻿'use client';
 
+import { diasCalendarioChile } from '@/app/lib/tz';
 import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
@@ -857,7 +858,7 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
   // Urgencia en días de CALENDARIO (antes Math.ceil sobre ms: "cierra hoy 15:00" salía como "1d").
   let urg: { texto: string; cls: string } | null = null;
   if (neg.licitacion_cierre) {
-    const d = dayjs(neg.licitacion_cierre).startOf('day').diff(dayjs().startOf('day'), 'day');
+    const d = diasCalendarioChile(neg.licitacion_cierre) ?? 0;
     if (new Date(neg.licitacion_cierre).getTime() < Date.now()) urg = { texto: 'Cerrada', cls: 'text-slate-400' };
     else if (d <= 0) urg = { texto: 'Hoy', cls: 'text-red-600' };
     else if (d === 1) urg = { texto: 'Mañana', cls: 'text-red-600' };
@@ -989,7 +990,7 @@ function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Nego
   const tipo   = extractTipoFromCodigo(neg.licitacion_codigo || '');
   const col    = colorUsuario(neg.usuario_email || neg.usuario_nombre);
   const cierre = neg.licitacion_cierre ? dayjs(neg.licitacion_cierre) : null;
-  const dias   = cierre ? cierre.startOf('day').diff(dayjs().startOf('day'), 'day') : null;
+  const dias   = cierre ? diasCalendarioChile(neg.licitacion_cierre) : null;
   const e = getEstadoPipeline(neg.estado_pipeline || 'ASIGNADO');
   const viab = viabilidadDe(neg);
   const inf  = extra?.viabilidad_informe;

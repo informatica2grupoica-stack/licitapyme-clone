@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCircleCheck as CheckCircle, IconCircleX as XCircle, IconAlertCircle as AlertCircle, IconInfoCircle as Info, IconSparkles as Sparkles } from '@tabler/icons-react';
 import { estadoEfectivoCodigo, CODIGO_ESTADO_MP } from '@/app/lib/estado-mp';
+import { diasCalendarioChile } from '@/app/lib/tz';
 
 // ======================================================
 // ANÁLISIS IA (Gemini) — campos extraídos automáticamente de las bases
@@ -112,10 +113,8 @@ export function getDiasRestantes(fechaCierre?: string | null) {
   if (!fechaCierre) return null;
   const diff = new Date(fechaCierre).getTime() - Date.now();
   if (isNaN(diff)) return null;
-  const DIA = 1000 * 60 * 60 * 24;
-  if (diff < 0) return -1;          // ya cerró (Math.ceil dejaba -0 === 0 → "Cierra hoy")
-  if (diff < DIA) return 0;         // cierra dentro de las próximas 24 h
-  return Math.ceil(diff / DIA);
+  if (diff < 0) return -1;          // ya cerró
+  return diasCalendarioChile(fechaCierre); // 0 = hoy (en calendario de Chile), 1 = mañana…
 }
 
 export function getFileIcon(nombre: string) {

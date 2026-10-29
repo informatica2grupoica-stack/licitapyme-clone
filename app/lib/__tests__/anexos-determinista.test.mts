@@ -2039,3 +2039,17 @@ test('etiqueta SIN dos puntos que abre el párrafo («LICITACION ID____») (regr
   const suscribe = 'Quien suscribe (razón social) ______________, proponente de la licitación';
   assert.equal(campoDeBlancoInline(blanco(suscribe, suscribe.indexOf(' ____') + 1)), 'razon_social');
 });
+
+// ── 2827-102-LE26: Anexo 3 y Anexo 5 con casillas que quedaban en blanco ─────────────────────
+test('«I.- IDENTIFICACION DEL PROYECTO» es el nombre de la licitación; «II.- …DEL PROPONENTE» no se toca', () => {
+  assert.equal(campoDeEtiquetaInequivoca('I.-IDENTIFICACION DEL PROYECTO:'), 'licitacion_nombre');
+  assert.equal(campoDeEtiquetaInequivoca('Nombre Licitación'), 'licitacion_nombre');
+  assert.notEqual(campoDeEtiquetaInequivoca('II.-IDENTIFICACION DEL PROPONENTE:'), 'razon_social');
+});
+
+test('«Empresa proponente ___» y «Dirección Comercial ___» dentro de una oración de declaración', () => {
+  const oracion = 'en mi calidad de Representante Legal de la Empresa proponente _________ RUT N.º ____, Dirección Comercial _______, declaro';
+  const pos = (s: string) => oracion.indexOf(s) + s.length;
+  assert.equal(campoDeBlancoInline(blanco(oracion, pos('Empresa proponente '), { contexto: 'de la Empresa proponente' })), 'razon_social');
+  assert.equal(campoDeBlancoInline(blanco(oracion, pos('Dirección Comercial '), { contexto: 'Dirección Comercial' })), 'direccion');
+});

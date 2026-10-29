@@ -601,7 +601,7 @@ export const DICCIONARIO: Entrada[] = [
   // ── CAPA 4 — Datos de ESTA licitación (vienen de la API de MP, nunca de un juicio) ──
   { campo: 'licitacion_codigo', patrones: [
     /^(?:id|codigo|n[°º]|numero)(?: de(?: la)?)? (?:licitacion|adquisicion|proceso|propuesta)(?: publica)?$/,
-    /^id(?: de)? mercado publico$/, /^licitacion (?:id|n[°º]|numero)$/, /^id$/,
+    /^id(?: de)? mercado publico$/, /^licitacion (?:publica |privada )?(?:id|n[°º]|numero|codigo)(?: n[°º])?$/, /^id$/,
     // "ADQUISICIÓN CHILE COMPRA ID N°:" — orden INVERTIDO al de las reglas de arriba (que exigen
     // ID/CÓDIGO/N°/NÚMERO primero y "licitación/adquisición" después). BUG REAL
     // (FORMATOS_ADMINISTRATIVOS.docx, 15-sep-2026, reportado por el usuario: "no me lee el nombre
@@ -615,6 +615,8 @@ export const DICCIONARIO: Entrada[] = [
   { campo: 'licitacion_nombre', patrones: [
     /^nombre(?: de(?: la)?)? licitacion(?: publica)?$/, /^licitacion publica$/,
     /^nombre del (?:proceso|proyecto|servicio licitado)$/, /^denominacion de la licitacion$/,
+    // «I.- IDENTIFICACION DEL PROYECTO:» del formulario económico (2827-102-LE26): la casilla es el nombre.
+    /^(?:[ivx]+ )?identificacion del (?:proyecto|proceso)$/,
     // "Licitación: ____" pelado (FORMATO N°1 y N°3 de Chimbarongo, 2-sep-2026). Es el NOMBRE, no
     // el código: en el FORMATO N°3 el propio documento pide las dos cosas en líneas seguidas
     // —"ID: ____" y "Licitación: ____"— así que si el ID va aparte, lo que queda es el título.
@@ -1020,15 +1022,23 @@ export const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // palabra, escrita como el organismo realmente la escribe, se le escapaba a esta regla y a la
   // gemela de RUT dos líneas más abajo. "Yo, <nombre>" resolvía bien; "cédula de identidad número
   // <RUT>", pegado al lado, se quedaba en blanco.
-  { re: /\b(?:c(?:é|e)dula\s+(?:nacional\s+)?de\s+identi(?:dad|ficaci(?:o|ó)n)|c\.?\s*i\.?|run)\s*(?:n[°º.]*|n(?:u|ú)mero|nro)?\s*:?\s*$/i, campo: 'representante_rut' },
+  // «Cédula Nacional Identidad N°» sin el «de» (1057678-2-LE26) es la misma cédula.
+  { re: /\b(?:c(?:é|e)dula\s+(?:nacional\s+)?(?:de\s+)?identi(?:dad|ficaci(?:o|ó)n)|c\.?\s*i\.?|run)\s*(?:n[°º.]*|n(?:u|ú)mero|nro)?\s*:?\s*$/i, campo: 'representante_rut' },
   // Domicilio. El "en" es OPCIONAL (1042-9-LE26, F3): "con domicilio ______ en representación de…"
   // pega el blanco directo a "domicilio", sin la preposición — la forma con "en" sigue siendo la
   // más común, pero exigirla dejaba esta variante sin resolver.
   { re: /\b(?:con\s+)?domicili(?:o|ado)\s*(?:en|para\s+estos\s+efectos\s+en)?(?:\s+(?:la\s+)?(?:ciudad|comuna)\s+de)?\s*$/i, campo: 'direccion' },
   { re: /\bdirecci(?:o|ó)n\s*:?\s*$/i, campo: 'direccion' },
+  // «Dirección Comercial ___» / «Dirección legal ___»: el adjetivo no cambia que es el domicilio de
+  // la empresa (2827-102-LE26, Anexo 5).
+  { re: /\bdirecci(?:o|ó)n\s+(?:comercial|legal|particular)\s*:?\s*$/i, campo: 'direccion' },
+  // «…Representante Legal de la Empresa proponente ___»: la empresa que postula es la razón social.
+  { re: /\bde\s+la\s+empresa\s+(?:proponente|oferente|participante|postulante)\s*:?\s*$/i, campo: 'razon_social' },
   // "…residente en la comuna de ___" sin "domicilio" delante (esa forma ya la cubre la regla de
   // arriba) — sinónimo medido en el banco de 300 anexos (1-sep-2026, 3 casillas / 3 licitaciones).
   { re: /\bcomuna\s+de\s*$/i, campo: 'comuna' },
+  // «…de la Comuna de ___ de la ciudad de ___» (1057678-2-LE26): la ciudad de la empresa, no la de la firma.
+  { re: /\bde\s+la\s+ciudad\s+de\s*$/i, campo: 'ciudad' },
   // RUT que sigue al NOMBRE de la persona ("don/doña <nombre>, RUT N°…", con o sin el cargo entre
   // comillas en el medio: "don (doña)___, "___", RUT___" de 1042-9-LE26). Va ANTES que la regla
   // genérica de abajo — sin esto, cualquier "RUT" en una declaración jurada se leía como el de la
@@ -1376,6 +1386,9 @@ export function campoDeFechaEnFormula(antes: string, despues: string): Campo | n
   // cualquier etiqueta corta terminada en coma (que casi siempre usa ":" en vez de ",") con una
   // fecha. Va AL FINAL, después de agotar las fórmulas de pieza suelta.
   if (/^[A-ZÁÉÍÓÚÑ][\p{L}\s.'-]{1,28},\s*$/u.test(antes) && /^[\s.\-]*$/.test(despues)) return 'fecha_hoy' as Campo;
+  // Misma fórmula con el AÑO impreso después: «Osorno, ______ de 2026» (1063538-204-LE26, lo que
+  // el equipo escribió a mano: «18 de agosto»). Un solo blanco = día + mes; el año ya está.
+  if (/^[A-ZÁÉÍÓÚÑ][\p{L}\s.'-]{1,28},\s*$/u.test(antes) && /^\s*de\s+20\d{2}\b/i.test(despues)) return 'fecha_hoy_dia_mes' as Campo;
   return null;
 }
 
