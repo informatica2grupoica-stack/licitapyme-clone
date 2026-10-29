@@ -3,6 +3,25 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-29 — Nuestra ficha técnica llevaba notas internas del comparador (2827-102-LE26 L1)
+Caso real: ficha L1 de 2827-102-LE26 (barredora, opción 678): «hasta 5 horas (texto) / hasta 6 horas (ficha);
+bases exigen 6 a 8 h», «hidrolavadora integrada; largo de manguera no indicado» iban al documento que se
+presenta. `datoParaPresentar` (`auditor-ficha-propia-core.ts`) solo quitaba tramos con «;» y no veía el
+participio («no indicado»), las notas entre paréntesis ni las de tras una coma; además cortaba al medio
+un paréntesis con «;» adentro y en «…; dato contradictorio, confirmar» dejaba la nota y botaba el dato.
+**Regla / decisión:** dos lecturas de fuentes distintas («(texto) / (ficha)») o un dato marcado
+contradictorio/ambiguo → casilla VACÍA (la pantalla ya cuenta «sin completar»); nunca se elige una. Nota
+entre paréntesis, tras coma o en lista hasta el fin del tramo → se quita; «confirmado»/«cumple» pegados
+al dato también. Lo que es dato se queda aunque diga «no» («(no melanina)», «requiere 1 batería»).
+**Verificado:** los 2.292 datos ofertados reales del comparador (BD del VPS, solo lectura), viejo vs nuevo:
+cambian 156 de 1.928 distintos, revisados uno a uno; 13 quedan vacíos (contradictorios, dos fuentes,
+o eran solo nota). Ficha L1 rearmada sin guardar: limpia, «Autonomía» vacía (1 sin completar). Suite
+1642/1642, tsc limpio.
+**Pendiente:** la FICHA_TECNICA_2827-102-LE26_L1.docx guardada (doc 31074) sigue con las notas: generarla
+de nuevo una vez desplegado. «Autonomía» de esa barredora la decide el equipo: el texto dice 5 h, la ficha
+6 h y las bases piden 6 a 8 h (el requisito se cerró a mano como cumple). Otras fichas ya generadas con
+el filtro viejo pueden traer notas igual: no se revisaron en la BD.
+
 ## 2026-10-28 — Bloque Comercial sin casilla de plazo de entrega (2736-44-LE26, negocio 1525)
 **Causa (BD del VPS, solo lectura):** la casilla «Plazo de entrega ofertado» (`comercial:plazo_entrega`) solo se creaba si el
 informe de viabilidad traía rango (`plazos.plazo_entrega.min/max`) o un criterio de plazo. En 2736-44-LE26 la IA dejó min/max vacíos

@@ -39,6 +39,11 @@ re-homologarlas** (y lo hecho antes en otros negocios con cantidades no exactas 
 - Vigencia vencida de una cotización SÍ alerta; un descuento por pago contado se aplica como
   descuento normal (2026-10-07). **Servicios con precio (instalación, armado, puesta en marcha,
   capacitación) SÍ van como adicionales** del producto (cambió el 2026-10-29; antes se ignoraban).
+  **Si el servicio lleva SKU propio** (la instalación de 1202333-67-LE26), no es adicional: se crea
+  en Productos con «Comprar una parte aparte» y la cotización le asigna su línea (probado con la IA:
+  2/2 la puso como producto a $400.000). Así tiene su SKU y su línea en la OC. Hecho en el 708 el
+  29-oct a pedido del dueño: parte 513 «Instalación» 1 UND, cotización 211 re-homologada (basurero
+  $143.516,58 + instalación $400.000, sin adicional).
   El flete sigue aparte (`flete_monto`).
 - Descuento global de una cotización solo se aplica con prueba en el documento
   (`descuentoGlobalPorAplicar`, 2026-10-21).

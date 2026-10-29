@@ -3,6 +3,30 @@
 Costeo digital del negocio (editor + burbuja flotante) y Excel de costeo (plantilla V3).
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-29 — El re-análisis movía de línea un producto con nombre repetido (2827-102-LE26 L2)
+**Caso real:** 2827-102-LE26 (negocio 1596). El anexo económico salía con la línea 2 a $609.989 y el Auditor la
+tenía aprobada en $774.687. Las dos líneas de la viabilidad se llaman «Barredora de suelos» (nombre genérico de
+Mercado Público); el re-análisis del 28-oct 17:52 (`fusionarConViabilidad`) tomó la primera coincidencia y movió
+la barredora manual de la hoja LINEA2 a LINEA1, que tenía recargo 0 % (el Asesor se lo puso a las 16:50 porque la
+fila 1 lleva su 17 % propio). Precio = costo: 609.989 en vez de 609.989 × 1,27. El registro de cambios no lo
+anotó (solo el cambio de nombre).
+**Arreglo general** (`costeo-editor.ts` y su copia `fusionarLocal` en `CosteoEditorCard.tsx`):
+`mismoProductoEnSuLinea` — si el nombre calza con productos de más de una línea vale el de la línea de la fila, y
+si ninguno es de su línea la fila no se mueve. Lo usan fusionar (reubicar) y corregir (nombre y cantidad).
+`resumenCambiosCosteo` ahora anota «hoja A → B · línea 1 → 2».
+**Verificado:** tests nuevos (1651/1651), tsc. Barrido de los 146 costeos guardados contra su viabilidad actual
+(HEAD vs nuevo): cambia solo 1002588-102-LP26 (neg 1418, postulado): HEAD habría movido «ASIENTOS PARA MESA DE
+AJEDREZ» L36 → L25 y «TACA TACA DE MADERA Y FIERRO» L38 → L30, el mismo error (los dos nombres existen en ambas
+líneas); el nuevo los deja donde están.
+**Dato corregido (29-oct, con OK del dueño):** `scripts/scratch/_2827_restaurar_linea2.mts --aplicar` devolvió la
+barredora manual a la hoja LINEA2 (línea 2) en la BD del VPS; respaldo previo en el scratchpad de esa sesión
+(`costeo_1596_respaldo.json`), huella en el historial («Corrección línea 2 (QA)»). Verificado: el costeo que lee el
+anexo económico da $19.773.000 + $774.687 = $20.547.687 neto, igual a la versión 8 y al Auditor. No crea versión
+nueva del costeo (la vigente sigue siendo la 8, con el mismo total).
+**Pendiente:** regenerar el anexo económico de 2827-102-LE26 (el generado antes trae $609.989 en la línea 2).
+**Ojo:** se borró sin querer `scripts/scratch/_head/costeo-editor.ts` (copia de HEAD que usa `qa-costeo-barrido.mts`);
+se regenera con `git show <ref>:app/lib/costeo-editor.ts`.
+
 ## 2026-10-28 (noche) — Re-analizar duplicaba productos cuando la IA reescribía el nombre
 **Caso real:** 1028897-42-LP26 (negocio 1513). En cada re-análisis la IA escribe distinto el mismo producto
 («Notebook» → «Notebook - Ryzen 5 3450U», «Tablet» → «Tablet - Dimensity 6300», «… igual o superior» → «… o superior»)

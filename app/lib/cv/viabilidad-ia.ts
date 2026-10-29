@@ -56,7 +56,7 @@ import { CATALOGO, decidirAdjudicacion, deduplicarEvidencias, evidenciasDeDetect
 import { HITO_LABEL, NOTA_ACEPTACION_OC, calcularPlazoPrevio, detectarNegaciones, feriadosPara, normalizarHitos, type HitoInforme } from '@/app/lib/cv/v4/plazo-previo';
 import { calcularMulta, indicadorNecesario } from '@/app/lib/cv/v4/multa';
 import { extraerPasajesPlazosMultas, necesitaLecturaDirigida, aplicarLecturaDirigida, repararGarantiaPorTexto, SYSTEM_LECTURA_DIRIGIDA, promptUsuarioLecturaDirigida } from '@/app/lib/cv/v4/lectura-dirigida';
-import { NOTA_ART_32, detectarPresupuestoExcluyente, interpretarMonto, interpretarPorLinea, normalizarCaracter, sumaLineasCuadra } from '@/app/lib/cv/v4/presupuesto';
+import { NOTA_ART_32, brutoDesdeTexto, detectarPresupuestoExcluyente, escalarLineasEnMiles, interpretarPorLinea, normalizarCaracter, sumaLineasCuadra } from '@/app/lib/cv/v4/presupuesto';
 import { barridoConsecuencias, consolidarVisitaYMuestras, decidirSuministro, detectarSenalesSuministro, esObviedad } from '@/app/lib/cv/v4/admisibilidad';
 import { normalizarTextosInforme } from '@/app/lib/cv/v4/textos';
 import { descartarItemsInventados, reasignarLineasPorTablaDeMontos, construirListaUnica, conteoCruzado, problemasCalidadManifiesto, verificarCaracteristicasLiterales } from '@/app/lib/cv/v4/productos';
@@ -201,7 +201,7 @@ function noRequiereOCR(nombre: string): boolean {
 // Largo del texto SIN los marcadores [[PÁGINA N]]: un escaneado leído con omitirOCR guarda solo los
 // marcadores (2827-72-LP26: 438 chars, 0 de texto real) y con el largo bruto pasaba por «leído».
 function largoTextoReal(t: string): number {
-  return t.replace(/[[P[ÁA]GINA[^]]*]]/gi, '').trim().length;
+  return t.replace(/\[\[P[ÁA]GINA[^\]]*\]\]/gi, '').trim().length;
 }
 
 interface DocLeido { nombre: string; categoria: string | null; texto: string; metodo: string; ok: boolean }
@@ -1517,16 +1517,16 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
   pres.caracter = normalizarCaracter(pres.caracter);
   const exentoPres = !!pres.presupuesto_exento || !!pres.regimen_fora || pres.con_iva === false;
   {
-    // Bruto desde el monto tal cual si el modelo no lo trajo (o lo trajo sin interpretar "M$").
-    const it = interpretarMonto(pres.monto_texto);
+    // Bruto desde el monto tal cual: el texto citado manda sobre la cifra que escribió el modelo
+    // (puntos de miles leídos como decimal, "M$" sin interpretar, otra cifra o un IVA de más).
     const brutoModelo = _num(pres.bruto);
-    // Un bruto que no se parece al texto citado (fuera de ×0,5–×2) es una mala lectura de la cifra:
-    // 2446-307-LE26 traía "$28.003.098" y bruto 28.003098 (puntos de miles leídos como decimal) → $28.
-    const brutoDescuadrado = !!it.pesos && brutoModelo != null && brutoModelo > 0 && (brutoModelo / it.pesos < 0.5 || brutoModelo / it.pesos > 2);
-    if (it.pesos && (brutoModelo == null || brutoModelo <= 0 || brutoDescuadrado || (it.miles && Math.abs(brutoModelo * 1000 - it.pesos) < 1000))) {
-      if (brutoModelo !== it.pesos) console.log(`[viabilidad-ia-v4] ${codigo}: presupuesto desde "${pres.monto_texto}" → $${it.pesos.toLocaleString('es-CL')}${it.miles ? ' (M$ = miles de pesos)' : ''}.`);
-      pres.bruto = it.pesos;
+    const t = brutoDesdeTexto(pres.monto_texto, brutoModelo, exentoPres);
+    if (t?.cambia) {
+      console.log(`[viabilidad-ia-v4] ${codigo}: presupuesto desde "${pres.monto_texto}" → $${t.bruto.toLocaleString('es-CL')}${t.miles ? ' (M$ = miles de pesos)' : ''} (el modelo traía ${brutoModelo ?? 'nada'}).`);
+      pres.bruto = t.bruto;
     }
+    // Un total de menos de $100.000 no es un presupuesto de licitación (2905-52-LE26: $13, el N° del numeral).
+    if (!t && brutoModelo != null && brutoModelo > 0 && brutoModelo < 100_000) pres.bruto = null;
   }
   try {
     // Respaldo: si el modelo no trajo total, la suma del desglose por línea de las bases (tabla).
@@ -1538,6 +1538,20 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
       }
     }
   } catch (e) { console.warn(`[viabilidad-ia-v4] ${codigo}: backfill de presupuesto total falló:`, String(e).slice(0, 140)); }
+  // Presupuesto por línea: los montos tal cual del modelo; si no hay, la tabla de distribución.
+  let porLinea = interpretarPorLinea(pres.por_linea, exentoPres);
+  if (porLinea.length < 2) {
+    try {
+      const tabla = extraerPresupuestoPorLineaTabla(leidos.map(d => ({ texto: d.texto })));
+      if (tabla && tabla.size >= 2) porLinea = interpretarPorLinea([...tabla.entries()].map(([l, m]) => ({ linea: `L${l}`, bruto: m })), exentoPres);
+    } catch { /* opcional */ }
+  }
+  if (escalarLineasEnMiles(porLinea, _num(pres.bruto))) console.log(`[viabilidad-ia-v4] ${codigo}: montos por línea en miles (la suma ×1.000 da el total) → multiplicados por 1.000.`);
+  // Sin total en el texto (las bases remiten a "el monto de cada línea"), el total es la suma de las líneas.
+  if (!(_num(pres.bruto) && Number(pres.bruto) > 0) && porLinea.length >= 2 && porLinea.every(l => l.monto_pesos != null)) {
+    pres.bruto = porLinea.reduce((a, l) => a + (l.monto_pesos as number), 0);
+    console.log(`[viabilidad-ia-v4] ${codigo}: presupuesto.bruto desde la suma de ${porLinea.length} montos por línea: $${Number(pres.bruto).toLocaleString('es-CL')}.`);
+  }
   // El NETO es un derivado del bruto (÷1,19 salvo exento/FORA), nunca un dato del modelo.
   {
     const bruto = _num(pres.bruto);
@@ -1548,14 +1562,6 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
       atr.presupuesto_neto = pres.neto;
       atr.presupuesto_mostrar = `$${Number(pres.bruto).toLocaleString('es-CL')} ${exentoPres ? '(exento)' : 'IVA incl.'}`;
     }
-  }
-  // Presupuesto por línea: los montos tal cual del modelo; si no hay, la tabla de distribución.
-  let porLinea = interpretarPorLinea(pres.por_linea, exentoPres);
-  if (porLinea.length < 2) {
-    try {
-      const tabla = extraerPresupuestoPorLineaTabla(leidos.map(d => ({ texto: d.texto })));
-      if (tabla && tabla.size >= 2) porLinea = interpretarPorLinea([...tabla.entries()].map(([l, m]) => ({ linea: `L${l}`, bruto: m })), exentoPres);
-    } catch { /* opcional */ }
   }
   // Con UNA sola línea en la API el tope es el total: los «montos por línea» que lea el modelo son
   // otra cosa (3712-74-LP26: las líneas de intervención del convenio, M$ 28.097 / 40.294 / 25.113,

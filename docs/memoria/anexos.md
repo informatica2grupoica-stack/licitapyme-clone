@@ -4,6 +4,35 @@ Reglas vigentes del motor: ver también `.claude/skills/motor-anexos/SKILL.md` y
 `docs/anexos-motor-reglas.md`. Las entradas con fecha van arriba; al final, lo traspasado desde la
 memoria personal el 2026-10-27.
 
+## 2026-10-29 — Formulario económico de 2827-102-LE26: casillas vacías, RUT en el nombre, firma ×5
+Caso real: 2827-102-LE26, `ANEXOS.docx` (doc 30926), Anexo 3 «FORMULARIO PROPUESTA ECONÓMICA» y
+Anexo 4 (tabla de precios). Todo general; reglas en `docs/anexos-motor-reglas.md`.
+- `3.-NOMBRE DEL REPRESENTANTE LEGAL:` / `4.-R.U.T. …:` + raya se tomaban como leyenda de firma
+  (dicen «representante legal») y bajo la raya del nombre salía el RUT. `esLeyendaDeFirmaConRaya`
+  (anexos-detectar): con dos puntos y sin «firma» es un campo. Además la viñeta pegada («3.-NOMBRE»)
+  no se quitaba en `normalizarEtiqueta`: ahora sí, solo para números.
+- Nombre del firmante 5 veces: el mismo pie salía como 5 lugares de firma. `unaFirmaPorBloque`.
+- Valor total (con IVA), en palabras y plazo vacíos: el monto único y el plazo del Auditor solo
+  miraban celdas de tabla. `resolverMontoYPlazoInline` (anexos-rellenar) los resuelve como raya en
+  prosa; «sin tabla de ítems» se mira por anexo; `montoEnPalabras` nuevo (anexos-monto-oferta).
+- «LICITACION ID____» sin dos puntos: etiqueta que abre el párrafo, último recurso.
+- Pie «Valor total / Neto / Con Iva»: «Neto» suelto no era pie y el neto caía en «Valor total».
+**Regla / decisión:** el 19% por defecto (dueño, 26-oct) ahora vale también para el monto único
+(celda y raya), no solo el pie de tabla.
+**Verificado:** documento real → nombre y RUT del representante, $24.255.757 con IVA, el mismo monto
+en palabras, plazo «30 dias», LICITACION ID, Neto 20.382.989 / Con Iva 24.255.757, firmante una vez;
+pantalla igual al Word; XML válido. Comparación determinista HEAD-previo (d07b23b) vs disco en 400
+.docx: cambian 67; revisados — 19 celdas numeradas que ahora calzan, rayas que pasan de vacío a su
+dato (ciudad, comuna y fecha, ID, nombre/RUT del representante), lugares de firma duplicados que
+desaparecen, y 4 etiquetas con dos puntos que dejaron de ser firma (1754-55-LE26, 1216060-2-LP26,
+2827-102-LE26) — mejoras. Se corrigieron en el camino dos retrocesos que mostró la comparación
+(«Quien suscribe (razón social)» y el pie «raya / FIRMA / raya / NOMBRE» de 1057499-59-LE26). Suite
+1641/1641, tsc limpio. El banco con IA (`anexos-banco.mts`) no se usó para comparar: solo 3 documentos.
+**Ojo:** el commit 1bd999d del dueño se llevó una versión intermedia de esto; lo del disco la completa.
+**Pendiente:** el motor de IA de respaldo (`anexos-ia-motor.ts`) no recibió estas reglas (son de
+detección y deterministas). «Línea N° ___» del Anexo 4 queda al humano (el anexo cubre las 2 líneas).
+No visto en la plataforma.
+
 ## 2026-10-28 — Separar anexos: título repetido, económicos sin clasificar y vista previa
 Caso real: 2827-102-LE26 (barredoras), `ANEXOS.docx` (doc 30926): salían 7 trozos en vez de 6 y
 los dos económicos en «Anexos Oferente».
@@ -26,12 +55,10 @@ vacío contaba como texto). La versión del disco lo corrige; comparar el banco 
 Banco de 400 .docx contra eb38d86 con `--fragmentos`: cambian 3, todos mejoras (2827-102-LE26 y los
 anexos 1 y 3 de 3253-91-LE26, que ahora llevan su subtítulo). Suite 1634/1634, tsc limpio.
 No se vio el modal en el navegador (la app local pide sesión contra la BD real).
-**Pendiente:** relleno del económico de 2827-102-LE26 (no tocado): representante legal recibe el
-RUT, «VALOR TOTAL (CON IVA)», «en palabras» y «PLAZO DE ENTREGA» vacíos, nombre del firmante 5
-veces, fila «Neto» vacía (la casilla está a la izquierda del rótulo), «LICITACION ID» vacío; costeo
-línea 2 $609.989 vs Auditor $774.687. Ficha técnica L1 trae notas internas («bases exigen 6 a 8 h»,
-«no indicado»). En la BD no hay anexos separados de 2827-102-LE26 todavía: separar de nuevo una vez
-desplegado.
+**Pendiente:** el relleno del económico se arregló el 29-oct (entrada de arriba). Siguen abiertos:
+la línea 2 ($609.989 vs $774.687) se diagnosticó el 29-oct (ver `costeo.md`). Las notas internas de la ficha técnica L1 se arreglaron el
+29-oct (ver `auditor.md`). En la BD no hay anexos separados de 2827-102-LE26 todavía: separar de
+nuevo una vez desplegado.
 
 ## 2026-10-28 — Separar anexos: cada anexo terminaba con el título del siguiente
 Caso real: 3712-74-LP26 (Los Vilos), `anexos-editablles.docx`, 7 anexos; mismo formato en

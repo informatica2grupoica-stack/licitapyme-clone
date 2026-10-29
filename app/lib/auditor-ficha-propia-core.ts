@@ -32,12 +32,59 @@ export function motivoFichaNoLista(o: OpcionDTO): string | null {
 
 // El dato ofertado viene del comparador y a veces trae su propia observación pegada («GPU Intel ARC 140T
 // (integrada); ningún documento acredita rendimiento suficiente para ARBOTOM», 2427-98-LE26). Esa frase es
-// una nota interna: en el documento que se presenta no puede ir. Se quita cada tramo (separado por «;») que
-// dice que falta el dato; si no queda nada, la casilla sale vacía.
-// También el tramo que habla de nuestros documentos («cotización incluye 4 bandejas…»): eso va en «Incluye».
-const RE_NOTA_SIN_DATO = /\b(ning[uú]n documento|no (se )?(indica|acredita|declara|especifica|informa|menciona|detalla)|sin (dato|informaci[oó]n|respaldo)|cotizaci[oó]n|proveedor)\b/i;
+// una nota interna: en el documento que se presenta no puede ir. Si no queda nada, la casilla sale vacía.
+// También lo que habla de nuestros documentos («cotización incluye 4 bandejas…»): eso va en «Incluye».
+//
+// 29-oct-2026, ficha L1 de 2827-102-LE26 («hasta 5 horas (texto) / hasta 6 horas (ficha); bases exigen 6 a
+// 8 h», «hidrolavadora integrada; largo de manguera no indicado»), y revisados los 2.292 datos reales del
+// comparador: la nota también viene entre paréntesis («(material no indicado)», «(se exigen 110 cm)»), tras
+// una coma («parlante sí, potencia no indicada») o en participio («no indicado», que el regex de antes no
+// veía). Y hay datos que no se pueden presentar: dos lecturas de fuentes distintas o uno marcado como
+// contradictorio. Ahí la casilla queda vacía para que la complete una persona: elegir una sería inventar.
+const RE_NOTA_SIN_DATO = new RegExp([
+  String.raw`\bning[uú]n documento\b`,
+  String.raw`\bno\s+(?:se\s+)?(?:indic|acredit|declar|especific|inform|mencion|detall)\w*`,
+  String.raw`\bsin\s+(?:dato|valor|informaci[oó]n|respaldo)\b`,
+  String.raw`\bsin\b[^,;()]*\b(?:declarad|indicad|informad|especificad)[oa]s?\b`,
+  String.raw`\b(?:las\s+)?(?:bases?|texto)\s+(?:exige|pide|solicita|requiere)n?\b`,
+  String.raw`\b(?:se\s+)?exig(?:e|en|id[oa]s?)\b`, String.raw`\bsuperior al\b`, String.raw`\bsolo se indica\b`,
+  String.raw`\bdato general dice\b`, String.raw`\bconfirmar\b`, String.raw`\brevisar\b`,
+  String.raw`\bcotizaci[oó]n\b`, String.raw`\bcotizad[oa]s?\b`, String.raw`\bproveedor\b`,
+].join('|'), 'i');
+// Paréntesis que solo dice que cumple: «Potencia 2000 W (cumple)».
+const RE_PARENTESIS_CUMPLE = /^cumplen?$/i;
+// Paréntesis que dice de qué documento salió el dato: «(texto)», «(ficha)», «(ficha fabricante)».
+const RE_FUENTE = /^(?:texto|ficha(?:\s+t[eé]cnica)?(?:\s+(?:del\s+)?fabricante)?|cotizaci[oó]n|link|cat[aá]logo|manual|web|sitio web)$/i;
+const RE_LISTA_NO_DECLARADA = /\bno\s+(?:se\s+)?(?:indic|acredit|declar|especific|inform|mencion|detall)ad[oa]s\s*$/i;
+const RE_DATO_CONTRADICTORIO = /\bcontradictori|\bambigu|\bpero\b[^;]*\b(?:indica|sugiere|dice)\b|\b(?:cotizaci[oó]n|texto|ficha|link)\s+(?:indica|dice|se[ñn]ala)\b/i;
+
 export function datoParaPresentar(datoOfertado: string | null | undefined): string | null {
-  const tramos = String(datoOfertado || '').split(';').map(t => t.trim()).filter(t => t && !RE_NOTA_SIN_DATO.test(t));
+  let texto = String(datoOfertado || '').replace(/\s+/g, ' ').trim();
+  if (!texto || RE_DATO_CONTRADICTORIO.test(texto)) return null;
+  // Paréntesis primero (pueden traer «;» adentro). La fuente se marca para contar lecturas por tramo.
+  const FUENTE = '\u0001';
+  let antes: string;
+  do {
+    antes = texto;
+    texto = texto.replace(/\s*\(([^()]*)\)/g, (todo, dentro: string) => {
+      const d = dentro.trim();
+      if (RE_FUENTE.test(d)) return FUENTE;
+      return RE_NOTA_SIN_DATO.test(d) || RE_PARENTESIS_CUMPLE.test(d) ? '' : todo;
+    });
+  } while (texto !== antes);
+  const tramos = texto.split(';').map(tramo => {
+    if ((tramo.split(FUENTE).length - 1) >= 2) return '';   // «5 h (texto) / 6 h (ficha)»: dos lecturas, ninguna manda
+    // La nota suele ser una LISTA hasta el final del tramo («sin dato de: apto alza-contenedores, paredes
+    // lisas, rango…»): desde la primera parte que es nota, se va todo lo que sigue. Y «X, Y y Z no
+    // indicados» (plural al final) es entero la lista de lo que falta.
+    const partes = tramo.split(FUENTE).join('').split(', ');
+    const primeraNota = partes.findIndex(t => RE_NOTA_SIN_DATO.test(t));
+    if (primeraNota >= 0 && RE_LISTA_NO_DECLARADA.test(partes.at(-1)!)) return '';
+    return (primeraNota < 0 ? partes : partes.slice(0, primeraNota))
+      .map(t => t.replace(/\s+(?:confirmad[oa]s?|cumplen?)$/i, '').trim())
+      .filter(Boolean)
+      .join(', ');
+  }).map(t => t.trim()).filter(Boolean);
   return tramos.join('; ') || null;
 }
 

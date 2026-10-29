@@ -169,6 +169,20 @@ function buscarMismoProducto<T extends { detalle: string }>(filas: T[], detalle:
   return filas.find(f => mismoProducto(f.detalle, detalle));
 }
 
+/** El producto de la viabilidad que corresponde a una fila del costeo, cuidando las líneas. BUG REAL
+ *  (28-oct-2026, 2827-102-LE26): las DOS líneas se llamaban «Barredora de suelos» (el nombre genérico de
+ *  Mercado Público) y el re-análisis tomó la primera: movió la barredora manual de la hoja LINEA2 a LINEA1,
+ *  que tenía recargo 0 %, y su precio bajó en silencio de $774.687 a $609.989. Si el nombre calza con
+ *  productos de más de una línea, vale el de la línea de la fila; si ninguno es de su línea, no se sabe
+ *  cuál es: undefined. */
+function mismoProductoEnSuLinea<T extends { detalle: string; lineaReal?: number | null }>(
+  filas: T[], detalle: string, lineaReal: number | null | undefined,
+): T | undefined {
+  const candidatos = filas.filter(f => mismoProducto(f.detalle, detalle));
+  if (new Set(candidatos.map(f => f.lineaReal ?? null)).size <= 1) return candidatos[0];
+  return candidatos.find(f => (f.lineaReal ?? null) === (lineaReal ?? null));
+}
+
 /** Palabras que no dicen qué producto es («igual o superior», «o equivalente»…). */
 const PALABRAS_DE_RELLENO = new Set(['igual', 'equivalente', 'similar', 'superior', 'marca', 'modelo', 'referencia', 'tipo']);
 
@@ -306,7 +320,7 @@ export function fusionarConViabilidad(
   let grupos: GrupoEditorCosteo[] = actual.grupos.map(g => {
     const filas: FilaEditorCosteo[] = [];
     for (const f of g.filas) {
-      const fresco = buscarMismoProducto(frescas, f.detalle);
+      const fresco = mismoProductoEnSuLinea(frescas, f.detalle, f.lineaReal);
       const lineaFresca = fresco?.lineaReal ?? f.lineaReal;
       if (lineaFresca === f.lineaReal) { filas.push(f); continue; }
       reclasificados++;
@@ -385,9 +399,9 @@ export function corregirDesdeViabilidad(
       if (f.esCostoAdicional || f.agregadoPorCompras || !f.detalle?.trim()) return f;
       const original = f.detalleBase ?? f.detalle;
       // Nombre reescrito: se toma el nuevo solo si la fila aún tiene el nombre del informe anterior.
-      const fresca = buscarMismoProducto(frescas, original) ?? reescritos.get(f);
+      const fresca = mismoProductoEnSuLinea(frescas, original, f.lineaReal) ?? reescritos.get(f);
       if (!fresca) return f;
-      const vieja = buscarMismoProducto(viejas, original);
+      const vieja = mismoProductoEnSuLinea(viejas, original, f.lineaReal);
       const out = { ...f };
       if (fresca.detalle !== original && (normDesc(fresca.detalle) === normDesc(original) || vieja?.detalle === original || (f.detalleBase == null && casiIgual(original, fresca.detalle)))) {
         if (f.detalleBase == null) out.detalle = fresca.detalle;
@@ -764,12 +778,17 @@ export function resumenCambiosCosteo(antes: EstadoCosteoEditor | null, despues: 
   }
 
   const filasAntes = new Map(antes.grupos.flatMap(g => g.filas).map(f => [f.id, f]));
+  // Hoja de cada fila: un cambio de hoja cambia el recargo que se le aplica (2827-102-LE26, 28-oct-2026: el
+  // re-análisis movió una fila a una hoja con recargo 0 % y el registro no lo dijo).
+  const hojaAntes = new Map(antes.grupos.flatMap(g => g.filas.map(f => [f.id, g.nombre] as const)));
   const idsDespues = new Set<string>();
-  for (const f of despues.grupos.flatMap(g => g.filas)) {
+  for (const g of despues.grupos) for (const f of g.filas) {
     idsDespues.add(f.id);
     const a = filasAntes.get(f.id);
     if (!a) { out.push(`Agregó el ítem ${nombre(f)}`); continue; }
     const campos: string[] = [];
+    if (hojaAntes.get(f.id) !== g.nombre) campos.push(`hoja ${hojaAntes.get(f.id)} → ${g.nombre}`);
+    if ((a.lineaReal ?? null) !== (f.lineaReal ?? null)) campos.push(`línea ${num(a.lineaReal)} → ${num(f.lineaReal)}`);
     if ((a.detalle || '') !== (f.detalle || '')) campos.push(`detalle ${txt(a.detalle)} → ${txt(f.detalle)}`);
     if ((a.complemento || '') !== (f.complemento || '')) campos.push('complemento');
     if ((a.unidad || '') !== (f.unidad || '')) campos.push(`unidad ${txt(a.unidad)} → ${txt(f.unidad)}`);

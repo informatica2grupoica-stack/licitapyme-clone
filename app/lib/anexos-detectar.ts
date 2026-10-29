@@ -2300,8 +2300,14 @@ function unaFirmaPorBloque(parrafos: Parrafo[], principales: LineaFirma[], otras
   }
   // Para el MISMO párrafo, la detección que más dice de él: «Firma: — Para uso exclusivo Proveedor
   // Adjudicado» y no «Firma:» a secas (de ese texto sale de quién es la firma y si pide nombre o RUT).
+  // Entre los principales gana la raya con su leyenda DEBAJO, la firma clásica: en «raya / FIRMA DEL
+  // PROPONENTE / raya / NOMBRE / raya / RUT» (1057499-59-LE26) la segunda raya también se veía como
+  // firma (leyenda arriba), pero es la del nombre.
+  const indicePorParaId = new Map(parrafos.map(p => [p.paraId, p.indice]));
+  const leyendaDebajo = (l: LineaFirma) => l.paraIdLeyenda != null && (indicePorParaId.get(l.paraIdLeyenda) ?? -1) > l.indice;
   const quedan = new Set(bloques.map(b => {
-    const lugar = b.filter(l => esPrincipal.has(l)).at(-1) ?? b.at(-1)!;
+    const principalesDelPie = b.filter(l => esPrincipal.has(l));
+    const lugar = principalesDelPie.filter(leyendaDebajo).at(-1) ?? principalesDelPie.at(-1) ?? b.at(-1)!;
     return b.filter(l => l.indice === lugar.indice).reduce((x, y) => (y.contexto.length > x.contexto.length ? y : x), lugar);
   }));
   return lineas.filter(l => quedan.has(l));

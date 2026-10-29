@@ -2,6 +2,58 @@
 
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-29 — PDF escaneado sin leer contaba como «leído»: nunca iba a OCR y el informe decía «lectura completa»
+Pedido del dueño: «que lea siempre los documentos en su totalidad; si falla, que reintente con GLM o Kimi».
+`largoTextoReal` (`viabilidad-ia.ts` y `cv/viabilidad-ia.ts`, desde 88076a6 del 22-oct) tenía la regex sin
+barras (`/[[P[ÁA]GINA[^]]*]]/`) y NO quitaba los marcadores `[[PÁGINA N]]`: un escaneado guardado con solo
+marcadores (≥4 páginas ≈ 50 chars) pasaba por leído → se reusaba la caché, no iba a GLM-OCR ni a la 2.ª pasada de
+críticos. `evaluarCoberturaLectura` (`lectura-documentos.ts`) medía el largo bruto: mismo efecto en el portero.
+Medido (solo lectura, `scripts/scratch/_audit_cob2.mts` / `_audit_cob3.mts`): 338 documentos de licitaciones con
+negocio tienen <50 chars reales y la cobertura los cuenta como leídos (141 son bases/anexos/EETT); 23 informes dicen
+«completa» con un crítico sin texto (4 v4: 387-55-LE26 bases adm. 11 MB, 377-48-LE26, 1095439-28-LP26, 3328-82-LE26).
+Arreglo: regex con barras en las dos copias y cobertura sin marcadores. Test nuevo en `lectura-documentos.test.mts`.
+**Verificado:** 1.643 tests, tsc. NO desplegado; los informes guardados no cambian hasta re-analizar.
+**Pendiente (lectura, sin decidir):** (1) .zip/.rar no se descomprimen y cuentan como «no legibles» (no falla):
+3443-44-LP26 tiene las EETT dentro de un .zip, 2928-26-LR26 los anexos editables. (2) Imágenes .jpg/.jpeg no van a
+GLM-OCR (2827-72-LP26: certificado de disponibilidad presupuestaria en .jpg). (3) `.odt/.ods` y archivos sin extensión
+(«download») se ignoran en silencio: `esFormatoLegible` devuelve false para todo lo que no está en la lista, contra lo
+que dice su comentario. (4) `noRequiereOCR` decide por nombre («imagen», «planta»): 2950-49-LE26
+«IMAGEN_DEL_ITEM_N°29_DEL_ANEXO_ECONÓMICO.pdf» no se OCR-eó. (5) La cadena de OCR es GLM-OCR → Tesseract; Kimi no
+está (habría que ver si la cuenta tiene modelo con visión). (6) `recortarDocsParaAnalisis` corta anexos no protegidos
+a 15k y el total a 350k sin dejarlo en el informe (el resultado se descarta): 109 licitaciones con negocio pasan el
+tope (varias por Word con base64 sin limpiar, ver documentos-ocr.md) y 569 tienen algún anexo cortado. El chatbot
+responde bien porque recibe los documentos para UNA pregunta; la viabilidad pide ~40 campos en una sola respuesta.
+
+## 2026-10-29 — Auditoría del presupuesto guardado (solo lectura, `scripts/scratch/_audit_viab_presupuesto.mts`)
+Sobre 1.133 informes v4. Errores que el código ACTUAL todavía comete (probado con `_audit_monto_actual.mts`):
+- Monto por línea en miles sin «M$» en la frase: 1057898-88-LP26, -103-LP26, -74-LE26 (Salud Ñuble, «VALOR TOTAL
+  IVA INCLUIDO $ 10.710» = $10.710.000) → tope de línea ÷1000; suma de líneas ≈ total/1000 y nadie lo corrige.
+- Frase sin cifra: 2905-52-LE26 «…en el numeral 13 de las presentes Bases» → presupuesto total $13 (toma el 13).
+- Bruto del modelo distinto del texto dentro de ×0,5–×2 manda el modelo: 2711-19-LP26 texto $72.911.000, guardado
+  $61.163.293; 1057898-74-LE26 texto $14.544.000, guardado $17.287.376 (le sumó IVA).
+- Montos por línea marcados «(neto)» quedan en `presupuesto_linea` sin la marca y el costeo/Motor Comercial los
+  vuelve a dividir por 1,19 (1488-39-LE26, negocio 1486: tope de cada hoja 16 % más bajo).
+Ya arreglados en el código pero guardados mal (falta re-analizar): «millones» ×1.000.000 en 2730-133-LE26 (negocio
+1453, costeo por línea con topes de $15 billones) y 1002588-103-LE26.
+Costeo (146 guardados): 8 tienen más filas vendibles que la viabilidad (1002588-102 +14 postulado, 4697-25 +8,
+2446-225 +7, 5040-11 +5, 701426-14 +4); 9 costos adicionales y 5 filas de Compras (no se venden, correcto).
+**Arreglado (dueño, 29-oct, «sí, arréglalos»)** en `viabilidad-v4/presupuesto.ts` (copia idéntica `cv/v4/`) y en el
+bloque P2 de `viabilidad-ia.ts` / `cv/viabilidad-ia.ts`:
+1. `interpretarMonto`: una cifra sin «$», sin puntos de miles y menor a 100.000 no es monto (el «13» del numeral).
+   Un total del modelo bajo $100.000 sin cifra en el texto se descarta.
+2. `escalarLineasEnMiles`: si ninguna línea llega a $1M y la suma ×1.000 da el total (±2 %), ×1.000.
+3. `brutoDesdeTexto`: el monto citado manda sobre el `bruto` del modelo si difieren más de 1 % (antes solo fuera de
+   ×0,5–×2); texto «neto» → ×1,19 salvo exento; con DOS montos distintos en el texto no decide (queda el modelo).
+   Revisado en las bases de 9 casos dudosos (3328-82, 745712-26, 2289-52, 2785-90, 2424-90, 3587-24, 4777-28,
+   4592-20, 1057898-74): en todos el texto tenía razón (el modelo había sumado o quitado IVA).
+4. `interpretarPorLinea`: `monto_pesos` va siempre CON IVA (línea «(neto)» → ×1,19, salvo exento); `neto` igual.
+5. Sin total en el texto y con ≥2 montos por línea, el total es la suma de las líneas («RESERVADO / NO INFORMADO»:
+   1388961-49, 1414396-26, 2320-32, 1079694-51, 564162-120 quedaban con presupuesto $0).
+**Verificado:** test nuevo `presupuesto-lectura-montos.test.mts` (casos reales), 1.651 tests, tsc. Barrido sobre los
+327 informes v4 con `_presupuesto_antes_despues.mts` (solo lectura): cambian 19 totales y 8 informes en montos por línea,
+revisados. NO desplegado; los informes guardados siguen mal hasta re-analizarlos (pedir OK: gasta IA y toca el costeo).
+**Pendiente:** re-analizar esas 27 licitaciones; las alertas del costeo no se recalculan solas al re-analizar.
+
 ## 2026-10-28 — El radar no recibía licitaciones: el intake no corría desde el 22-oct; prefiltro pasa a Kimi
 Caso real: «no caen licitaciones de maquinaria». El scheduler del VPS llama a todos los cron con POST y
 `/api/cron/alertas` (intake) solo exportaba GET → 405 en cada corrida. Antes del 22-oct el intake lo hacía otro

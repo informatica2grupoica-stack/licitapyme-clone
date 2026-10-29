@@ -135,3 +135,20 @@ test('V-17 no opina sobre informes viejos que no traen el dato', () => {
   assert.match(cuerpo, /if \(!c \|\| typeof c !== 'object'\) return;/,
     'sin cobertura registrada la regla debe callarse, no marcar todo como incompleto');
 });
+
+test('un PDF escaneado con solo marcadores [[PÁGINA N]] NO está leído (387-55-LE26)', () => {
+  // Caso real: «Bases_administrativas_equipamiento.pdf» (11 MB, escaneado, pdf-sin-texto) quedó con
+  // texto = solo los marcadores de página y el informe dijo «lectura completa 17/17».
+  const marcadores = Array.from({ length: 30 }, (_, i) => `\n\n[[PÁGINA ${i + 1}]]\n`).join('');
+  const c = evaluarCoberturaLectura([{ nombre: 'Bases_administrativas_equipamiento.pdf', categoria: 'BASES_ADMINISTRATIVAS', texto: marcadores, metodo: 'pdf-sin-texto' }]);
+  assert.equal(c.leidos, 0);
+  assert.equal(c.completa, false);
+  assert.deepEqual(c.criticosFaltantes, ['Bases_administrativas_equipamiento.pdf']);
+  // La medida de texto real de la viabilidad (largoTextoReal) tiene que quitar los marcadores.
+  for (const f of ['../viabilidad-ia.ts', '../cv/viabilidad-ia.ts']) {
+    const src = readFileSync(new URL(f, import.meta.url), 'utf8');
+    const linea = src.slice(src.indexOf('function largoTextoReal'), src.indexOf('function largoTextoReal') + 200);
+    const re = new RegExp(linea.match(/replace\(\/(.+?)\/gi/)![1], 'gi');
+    assert.equal(marcadores.replace(re, '').trim().length, 0, `${f}: largoTextoReal no quita los marcadores`);
+  }
+});

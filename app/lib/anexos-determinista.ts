@@ -1492,17 +1492,6 @@ export function campoDeBlancoInline(b: CandidatoInline): Campo | null {
     const campo = campoDeEtiquetaInequivoca(etiqueta);
     if (campo) return campo;
   }
-  // La misma etiqueta SIN dos puntos, pegada a la raya: «LICITACION ID___________» (2827-102-LE26).
-  // Solo el tramo desde la raya anterior (o el inicio del párrafo), y solo si el diccionario cerrado
-  // lo reconoce ENTERO: «En ____» o una frase cualquiera no calzan con ninguna etiqueta.
-  if (!etiqueta) {
-    const tramo = antes.split(/_{2,}|…{2,}|\.{4,}/).pop()!.trim();
-    if (tramo.length >= 2 && tramo.length <= 40) {
-      const campo = campoDeEtiquetaInequivoca(tramo);
-      if (campo) return campo;
-    }
-  }
-
   // BUG REAL (18-ago-2026, "Formatos Esmaltes" de La Serena): el organismo rotula la casilla con un
   // PARÉNTESIS en vez de una etiqueta con dos puntos — "_________ (Razón social empresa)",
   // "________ (Rut representante legal)". El match de arriba exige que el texto termine en ":", así
@@ -1517,7 +1506,20 @@ export function campoDeBlancoInline(b: CandidatoInline): Campo | null {
     if (campo) return campo;
   }
   const rotuloDespues = despues.match(/^\s*\(([^()]{2,60})\)/)?.[0];
-  return rotuloDespues ? campoDeEtiquetaInequivoca(rotuloDespues) : null;
+  const porRotuloDespues = rotuloDespues ? campoDeEtiquetaInequivoca(rotuloDespues) : null;
+  if (porRotuloDespues) return porRotuloDespues;
+
+  // La misma etiqueta SIN dos puntos, pegada a la raya: «LICITACION ID___________» (2827-102-LE26).
+  // Va AL FINAL: el rótulo entre paréntesis manda («Quien suscribe (razón social) ____» es la razón
+  // social; el diccionario, que ignora el paréntesis, leería «quien suscribe» = el representante).
+  // Solo cuando la etiqueta ABRE el párrafo (sin otra raya antes) y el diccionario cerrado la
+  // reconoce ENTERA. En prosa con varias rayas («YO, ____, RUT N° ____, en representación de ____,
+  // RUT N° ____») el mismo «RUT N°» es a veces de la persona y a veces de la empresa: ahí no.
+  if (!etiqueta && !/_{2,}|…{2,}|\.{4,}|\(/.test(antes)) {
+    const tramo = antes.trim();
+    if (tramo.length >= 2 && tramo.length <= 40) return campoDeEtiquetaInequivoca(tramo);
+  }
+  return null;
 }
 
 // Nombre de cada campo de la ficha tal como lo ve el usuario en la pantalla de Empresas — para

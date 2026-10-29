@@ -2474,3 +2474,58 @@ test('Una celda con un rótulo apilado y texto ajeno no se toma como pie apilado
   const { xml: norm } = normalizarParaIds(xml);
   assert.ok(!analizarAnexo(norm).candidatosCelda.some(c => c.pieApilado));
 });
+
+// 2827-102-LE26, «FORMULARIO PROPUESTA ECONÓMICA». Dos errores en el mismo anexo:
+//  · «3.-NOMBRE DEL REPRESENTANTE LEGAL:» + raya y «4.-R.U.T. DEL REPRESENTANTE LEGAL:» + raya se
+//    tomaban como leyendas de firma (dicen «representante legal») y bajo la raya del NOMBRE salía el RUT.
+//  · «V.-NOMBRE Y FIRMA DEL PROPONENTE:», vacíos y «Nombre y Firma del Proponente» eran 5 lugares
+//    de firma y el nombre del firmante se escribía 5 veces.
+test('etiqueta con dos puntos no es leyenda de firma, y un pie = un lugar de firma (regresión 2827-102-LE26)', () => {
+  const xml = NS
+    + p('3.-NOMBRE DEL REPRESENTANTE LEGAL: ') + p('______________________________________')
+    + p('4.-R.U.T. DEL REPRESENTANTE LEGAL: ') + p('______________________________________')
+    + p('5.-DIRECCION DEL PROPONENTE')
+    + p('') + p('V.-NOMBRE Y FIRMA DEL PROPONENTE:') + p('') + p('') + p('')
+    + p('Nombre y Firma del Proponente') + p('') + p('')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const analisis = analizarAnexo(norm);
+  assert.equal(analisis.lineasFirma.length, 1, JSON.stringify(analisis.lineasFirma.map(f => [f.indice, f.contexto])));
+  assert.equal(analisis.lineasFirma[0].contexto, 'Nombre y Firma del Proponente');
+  // Las dos rayas quedan como casillas de texto, con su etiqueta de arriba.
+  const rayas = analisis.blancosInline.filter(b => /^_+$/.test((b.parrafoCompleto ?? '').trim()));
+  assert.deepEqual(rayas.map(b => b.rotuloArriba?.trim()), ['3.-NOMBRE DEL REPRESENTANTE LEGAL', '4.-R.U.T. DEL REPRESENTANTE LEGAL']);
+});
+
+test('pie con raya de firma y raya de NOMBRE debajo: se firma en la de la leyenda de abajo (regresión 1057499-59-LE26)', () => {
+  const xml = NS
+    + p('Declaro conocer las bases.') + p('')
+    + p('_______________________________________') + p('FIRMA DEL PROPONENTE O REPRESENTANTE LEGAL')
+    + p('_________________________________________') + p('NOMBRE')
+    + p('_____________________________________') + p('RUT')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const firmas = analizarAnexo(norm).lineasFirma;
+  assert.equal(firmas.length, 1);
+  assert.equal(firmas[0].indice, 2, 'la raya de arriba, la que tiene «FIRMA…» debajo');
+});
+
+test('totales al pie «Valor total / Neto / Con Iva»: el neto en «Neto», el total con IVA en «Con Iva» y «Valor total» vacío (regresión 2827-102-LE26)', () => {
+  // Como en el Word real: el rótulo va en la columna «Valor» y la casilla del monto queda a la izquierda.
+  const xml = NS + tabla(
+    fila('Detalle', 'Valor'),
+    fila('barredora industrial', ''),
+    fila('barredora manual', ''),
+    fila('', 'Valor total'),
+    fila('', 'Neto'),
+    fila('', 'Con Iva'),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const tablas = extraerTablasCrudo(norm);
+  const idx = tablas[0].filas.slice(1, 3).map(f => f.celdas[1].indiceGlobal!);
+  const valores = new Map([[idx[0], 19_773_000], [idx[1], 609_989]]);
+  const porRotulo = new Map(calcularTotalesAlPie(tablas, i => valores.get(i) ?? null).map(r => [r.etiqueta.trim(), r.valor]));
+  assert.equal(porRotulo.get('Neto'), '20.382.989', JSON.stringify([...porRotulo]));
+  assert.equal(porRotulo.get('Con Iva'), '24.255.757');
+  assert.equal(porRotulo.has('Valor total'), false);
+});

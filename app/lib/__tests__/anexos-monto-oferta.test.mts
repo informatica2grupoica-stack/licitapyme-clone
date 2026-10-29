@@ -117,3 +117,13 @@ test('resolverPieApilado: montos del costeo real de 4022-19-LE26, IVA 19% por de
   assert.deepEqual(resolverPieApilado([...rotulos], 8_267_078, { hayTablaDeItems: true }), [null, null, null]);
   assert.deepEqual(resolverPieApilado([...rotulos], null, { hayTablaDeItems: false }), [null, null, null]);
 });
+
+test('montoEnPalabras: forma chilena, con apócope y «de pesos» en millones redondos (2827-102-LE26)', async () => {
+  const { montoEnPalabras } = await import('../anexos-monto-oferta');
+  assert.equal(montoEnPalabras(24255757), 'veinticuatro millones doscientos cincuenta y cinco mil setecientos cincuenta y siete pesos');
+  assert.equal(montoEnPalabras(21000), 'veintiún mil pesos');
+  assert.equal(montoEnPalabras(1000000), 'un millón de pesos');
+  assert.equal(montoEnPalabras(1500000), 'un millón quinientos mil pesos');
+  assert.equal(montoEnPalabras(101), 'ciento un pesos');
+  assert.equal(montoEnPalabras(0), null);
+});

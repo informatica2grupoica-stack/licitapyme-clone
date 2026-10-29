@@ -5,7 +5,7 @@
 //   npx tsx --test app/lib/__tests__/costeo-editor-fusion-viabilidad.test.mts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fusionarConViabilidad, filasQueViabilidadYaNoTrae, corregirDesdeViabilidad, ordenarComoViabilidad, type EstadoCosteoEditor, type FilaEditorCosteo } from '../costeo-editor';
+import { fusionarConViabilidad, filasQueViabilidadYaNoTrae, corregirDesdeViabilidad, ordenarComoViabilidad, resumenCambiosCosteo, type EstadoCosteoEditor, type FilaEditorCosteo } from '../costeo-editor';
 
 const fila = (detalle: string, cantidad: number): FilaEditorCosteo => ({
   id: detalle, item: 1, lineaReal: null, detalle, unidad: 'UN', skuProveedor: '',
@@ -215,4 +215,35 @@ test('701426-14 / 1002588-102: palabras reordenadas o nombre corto vs largo no d
 
 test('701426-14: «set de vasos» y «set de copas» con el mismo número no se confunden', () => {
   assert.equal(fusionarConViabilidad(estado([fila('SET VASOS CORTOS 12 VIDRIO', 3)]), estado([fila('SET COPAS 12 DE AGUA VIDRIO 390 ML.', 3)])).agregados, 1);
+});
+
+// 2827-102-LE26 (28-oct-2026): las dos líneas de la viabilidad se llaman igual («Barredora de suelos», el nombre
+// genérico de Mercado Público). El re-análisis tomaba la primera y movía la barredora manual de LINEA2 a LINEA1,
+// donde la hoja tenía recargo 0 %: el precio de venta bajaba en silencio de $774.687 a $609.989.
+test('dos líneas con el mismo nombre: la fila no se cambia de línea ni de hoja (regresión 2827-102-LE26)', () => {
+  const conLinea = (detalle: string, lineaReal: number): FilaEditorCosteo => ({ ...fila(detalle, 1), lineaReal });
+  const guardado: EstadoCosteoEditor = { modalidad: 'por_linea', margenVenta: 27, grupos: [
+    { nombre: 'LINEA1', linea: 1, ofertamos: true, margenVenta: 0, filas: [{ ...conLinea('Barredora mecánica eléctrica para limpieza urbana', 1), margenVenta: 17 }] },
+    { nombre: 'LINEA2', linea: 2, ofertamos: true, filas: [conLinea('Barredora de suelos manual - sin especificaciones adicionales', 2)] },
+  ] };
+  const fresco: EstadoCosteoEditor = { modalidad: 'por_linea', margenVenta: 27, grupos: [
+    { nombre: 'LINEA1', linea: 1, ofertamos: true, filas: [conLinea('Barredora de suelos', 1)] },
+    { nombre: 'LINEA2', linea: 2, ofertamos: true, filas: [conLinea('Barredora de suelos', 2)] },
+  ] };
+  const r = fusionarConViabilidad(guardado, fresco);
+  assert.equal(r.reclasificados, 0);
+  assert.deepEqual(r.estado.grupos.map(g => [g.nombre, g.filas.map(f => f.lineaReal)]), [['LINEA1', [1]], ['LINEA2', [2]]]);
+  // Un producto que la viabilidad trae SOLO en otra línea sí se mueve (la reclasificación de siempre).
+  const movido = fusionarConViabilidad(guardado, { ...fresco, grupos: [fresco.grupos[0]] });
+  assert.equal(movido.reclasificados, 1);
+});
+
+test('el registro de cambios dice cuando una fila cambia de hoja o de línea (regresión 2827-102-LE26)', () => {
+  const f = { ...fila('Barredora de suelos', 1), lineaReal: 1 };
+  const antes: EstadoCosteoEditor = { modalidad: 'por_linea', margenVenta: 27, grupos: [{ nombre: 'LINEA1', linea: 1, ofertamos: true, filas: [f] }] };
+  const despues: EstadoCosteoEditor = { modalidad: 'por_linea', margenVenta: 27, grupos: [
+    { nombre: 'LINEA1', linea: 1, ofertamos: true, filas: [] },
+    { nombre: 'LINEA2', linea: 2, ofertamos: true, filas: [{ ...f, lineaReal: 2 }] },
+  ] };
+  assert.deepEqual(resumenCambiosCosteo(antes, despues), ['"Barredora de suelos": hoja LINEA1 → LINEA2 · línea 1 → 2']);
 });

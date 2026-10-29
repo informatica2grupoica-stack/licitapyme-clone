@@ -2018,3 +2018,24 @@ test('resolverDeterminista: el anexo de 2446-250-LE26 llena celular y cédula, y
   // El celular del representante es el MISMO de la empresa: la ficha tiene un solo teléfono.
   assert.equal(valorAuto(r.celda, 3), '+56 45 2 123456');
 });
+
+// 2827-102-LE26, «FORMULARIO PROPUESTA ECONÓMICA»: la viñeta va pegada a la palabra («3.-NOMBRE…»)
+// y el normalizador exigía un espacio después: la etiqueta quedaba «3 nombre del…» y no calzaba.
+test('viñeta de número pegada a la palabra («3.-NOMBRE DEL REPRESENTANTE LEGAL:») (regresión 2827-102-LE26)', () => {
+  assert.equal(campoDeEtiquetaInequivoca('3.-NOMBRE DEL REPRESENTANTE LEGAL:'), 'representante_nombre');
+  assert.equal(campoDeEtiquetaInequivoca('4.-R.U.T. DEL REPRESENTANTE LEGAL:'), 'representante_rut');
+  assert.equal(campoDeEtiquetaInequivoca('9.TELÉFONO'), 'telefono1');
+  // «R.U.T.» sin viñeta sigue siendo RUT: la letra «r.» no se toma como viñeta.
+  assert.equal(normalizarEtiqueta('R.U.T.'), normalizarEtiqueta('RUT').replace('rut', 'r u t'));
+});
+
+test('etiqueta SIN dos puntos que abre el párrafo («LICITACION ID____») (regresión 2827-102-LE26)', () => {
+  const texto = 'LICITACION ID_______________________________';
+  assert.equal(campoDeBlancoInline(blanco(texto, 'LICITACION ID'.length)), 'licitacion_codigo');
+  // Con otra raya antes en el mismo párrafo no: ahí la etiqueta suelta puede ser de otra persona.
+  const prosa = 'Se adjunta ________ LICITACION ID ________';
+  assert.equal(campoDeBlancoInline(blanco(prosa, prosa.lastIndexOf('LICITACION ID ') + 'LICITACION ID '.length)), null);
+  // Y el rótulo entre paréntesis manda: «Quien suscribe (razón social)» es la razón social.
+  const suscribe = 'Quien suscribe (razón social) ______________, proponente de la licitación';
+  assert.equal(campoDeBlancoInline(blanco(suscribe, suscribe.indexOf(' ____') + 1)), 'razon_social');
+});

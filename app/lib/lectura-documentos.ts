@@ -110,7 +110,8 @@ export function evaluarCoberturaLectura(docs: DocParaCobertura[]): CoberturaLect
     if (esFormatoLegible(d.nombre)) legiblesArr.push(d);
     else noLegibles.push(d.nombre);
   }
-  const tieneTexto = (d: DocParaCobertura) => (d.texto || '').trim().length >= MIN_CHARS_UTIL;
+  // Sin los marcadores [[PÁGINA N]]: un escaneado sin OCR trae solo marcadores y no está leído.
+  const tieneTexto = (d: DocParaCobertura) => (d.texto || '').replace(/\[\[P[ÁA]GINA[^\]]*\]\]/gi, '').trim().length >= MIN_CHARS_UTIL;
   const faltantesArr = legiblesArr.filter(d => !tieneTexto(d));
   const criticosFaltantes = faltantesArr.filter(d => esDocumentoCritico(d.categoria, d.nombre)).map(d => d.nombre);
   const leidos = legiblesArr.length - faltantesArr.length;

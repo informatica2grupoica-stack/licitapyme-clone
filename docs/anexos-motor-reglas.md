@@ -185,6 +185,12 @@ LEGAL`), el borde inferior de un párrafo, o el borde superior de una celda de t
 donde la etiqueta dice que la firma es **nuestra** — nunca en el bloque de un tercero. La leyenda
 misma no genera un campo fantasma. Una leyenda tipo `Nombre, RUT y Firma` marca que hay que poner
 las tres cosas.
+- Una etiqueta con dos puntos que nombra al representante pero no dice «firma» (`3.-NOMBRE DEL
+  REPRESENTANTE LEGAL:` + raya) **no** es leyenda de firma: es un campo de texto (2827-102-LE26).
+- **Un pie = un lugar de firma.** Los lugares a ≤4 párrafos y separados solo por vacíos o por sus
+  leyendas son el mismo pie. Manda el que tiene la leyenda **debajo**, si no el último que encontró
+  `detectarLineasFirma`, y para el mismo párrafo la detección con el contexto más largo. Antes el
+  nombre del firmante podía salir hasta 5 veces.
 
 **Alternativas excluyentes.** `___ registra saldos insolutos` / `___ no registra saldos insolutos`:
 dos blancos con la misma frase, una negada. Es una decisión del oferente sobre sí mismo, no un dato
@@ -282,6 +288,22 @@ de algunos organismos, así que no sirve para desambiguar. Lo que decide es la p
 
 Un marcador que es una **instrucción** al oferente (`indicar`, `indique`, `marque`, `completar`,
 `adjuntar`, `describir`, `detallar`, `explicar`) **nunca** se autocompleta.
+
+**Etiqueta sin dos puntos pegada a la raya** (`LICITACION ID_____`): se resuelve por el diccionario
+cerrado solo si **abre el párrafo** (sin otra raya antes) y como **último** recurso, después del
+rótulo entre paréntesis (`Quien suscribe (razón social) ___` es la razón social). La viñeta de número
+también se reconoce pegada a la palabra (`3.-NOMBRE…`, `9.TELÉFONO`).
+
+**Monto de la oferta como raya en prosa** (`VALOR TOTAL OFERTA EN PESOS (CON IVA)$____`): mismas
+reglas que la casilla de monto único, pero «sin tabla de ítems» se mira **en el mismo anexo**. Con IVA
+sin tasa declarada se usa 19% (decisión del dueño 26-oct-2026, igual que el pie de tabla; vale
+también para la casilla de monto en tabla). Si el `$` ya está impreso, va solo el número. Entra a
+`totalesEscritos` (guardarraíl). **En palabras** (`…EN PALABRAS: ____`): el monto que se acaba de
+escribir hasta 3 párrafos arriba en el mismo anexo, con letras (`montoEnPalabras`); sin monto arriba,
+nada. **Plazo de entrega** como raya en prosa: el del Auditor, igual que en tabla.
+
+**Pie de tabla «Valor total / Neto / Con IVA»**: una fila que dice solo «Neto» es pie si la tabla ya
+tiene otro pie; con neto y bruto explícitos, un «total» que no dice cuál es se deja vacío.
 
 **Localidad de firma**: `En ____ a 12 de agosto` → comuna del **ORGANISMO**, no de la empresa. Es el
 único caso donde se usa la comuna del organismo. Un marcador `<comuna>` o `<ciudad>` es del oferente.

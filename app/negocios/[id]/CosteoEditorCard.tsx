@@ -172,6 +172,14 @@ function distanciaHasta2(a: string, b: string): boolean {
 function buscarMismoProducto<T extends { detalle: string }>(filas: T[], detalle: string): T | undefined {
   return filas.find(f => mismoProducto(f.detalle, detalle));
 }
+/** Misma regla que costeo-editor.ts:mismoProductoEnSuLinea (2827-102-LE26: dos líneas «Barredora de suelos»). */
+function mismoProductoEnSuLinea<T extends { detalle: string; lineaReal?: number | null }>(
+  filas: T[], detalle: string, lineaReal: number | null | undefined,
+): T | undefined {
+  const candidatos = filas.filter(f => mismoProducto(f.detalle, detalle));
+  if (new Set(candidatos.map(f => f.lineaReal ?? null)).size <= 1) return candidatos[0];
+  return candidatos.find(f => (f.lineaReal ?? null) === (lineaReal ?? null));
+}
 
 /** RECONCILIA, no solo agrega — MISMA lógica que app/lib/costeo-editor.ts:fusionarConViabilidad
  *  (duplicada acá porque este componente es cliente y se mantiene autocontenido, y porque
@@ -192,7 +200,7 @@ function fusionarLocal(actual: EstadoEditor, nuevo: EstadoEditor): { estado: Est
   let grupos: GrupoEditor[] = actual.grupos.map(g => {
     const filas: FilaEditor[] = [];
     for (const f of g.filas) {
-      const fresco = buscarMismoProducto(frescas, f.detalle);
+      const fresco = mismoProductoEnSuLinea(frescas, f.detalle, f.lineaReal);
       const lineaFresca = fresco?.lineaReal ?? f.lineaReal;
       if (lineaFresca === f.lineaReal) { filas.push(f); continue; }
       reclasificados++;

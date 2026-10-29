@@ -123,3 +123,29 @@ test('ficha propia por línea: el botón de un ítem arma todos los ítems de su
   assert.match(r.faltan[0], /Línea 1 · ítem 3/);
   assert.deepEqual(opcionesDeLaLinea(panel, 41).ids, [41], 'una línea de un solo ítem: solo ese');
 });
+
+// 2827-102-LE26, ficha L1 (barredora): las notas del comparador llegaban al documento que se presenta. Los textos
+// son reales, sacados de los 2.292 datos ofertados del comparador (29-oct-2026).
+test('ficha propia: la nota interna no llega al documento, sea tramo, paréntesis, coma o lista (regresión 2827-102-LE26)', () => {
+  // Dos lecturas de fuentes distintas, o un dato marcado contradictorio: la casilla queda vacía, nadie elige.
+  assert.equal(datoParaPresentar('hasta 5 horas (texto) / hasta 6 horas (ficha); bases exigen 6 a 8 h'), null);
+  assert.equal(datoParaPresentar('15" según cotización (381 mm), pero el modelo M485 sugiere 485 mm; dato contradictorio, confirmar'), null);
+  assert.equal(datoParaPresentar('300" (ficha fabricante); cotización indica 350"'), null);
+  // Participio («no indicado»), que el filtro anterior no veía.
+  assert.equal(datoParaPresentar('hidrolavadora integrada; largo de manguera no indicado'), 'hidrolavadora integrada');
+  assert.equal(datoParaPresentar('cañón nebulizador incluido; alcance no indicado'), 'cañón nebulizador incluido');
+  // Entre paréntesis, también con «;» adentro, sin romper el paréntesis.
+  assert.equal(datoParaPresentar('altura 23 cm (bases piden 30 a 38 cm; base 9 cm sin dato)'), 'altura 23 cm');
+  assert.equal(datoParaPresentar('Motor generador hidráulico de 10 HP diésel (se exigen 13 hp)'), 'Motor generador hidráulico de 10 HP diésel');
+  assert.equal(datoParaPresentar('guante de nitrilo (el texto exige masking tape)'), 'guante de nitrilo');
+  assert.equal(datoParaPresentar('Potencia 2000 W (cumple); voltaje no informado'), 'Potencia 2000 W');
+  // Tras una coma, y como lista hasta el final del tramo.
+  assert.equal(datoParaPresentar('78 cm, sin regulación declarada'), '78 cm');
+  assert.equal(datoParaPresentar('Resortes, 1,5 plaza; sin dato de densidad 21 kg/m3, altura ni \'tubular\''), 'Resortes, 1,5 plaza');
+  assert.equal(datoParaPresentar('Solo se indica capacidad del balde de excavación; hoja topadora, iluminación, alarma de retroceso, bocina, cinturón y espejos no indicados'), null);
+  assert.equal(datoParaPresentar('Dante confirmado; expansión LVDS (RJ-50) no indicada'), 'Dante');
+  // Lo que es dato se queda, aunque diga «no» o «requiere».
+  assert.equal(datoParaPresentar('faldón MDF 18mm laminado decorativo de alta presión (no melanina)'), 'faldón MDF 18mm laminado decorativo de alta presión (no melanina)');
+  assert.equal(datoParaPresentar('sin batería incluida (requiere 1 batería 18 V)'), 'sin batería incluida (requiere 1 batería 18 V)');
+  assert.equal(datoParaPresentar('Tineta 5 galones (19 lt aprox), esmalte sintético, terminación brillante'), 'Tineta 5 galones (19 lt aprox), esmalte sintético, terminación brillante');
+});
