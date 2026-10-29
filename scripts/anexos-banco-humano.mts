@@ -123,7 +123,7 @@ interface Sobra { licitacion: string; documento: string; etiqueta: string; motor
 
 // ── Pares ──────────────────────────────────────────────────────────────────────────────────
 const [propios]: any = await pool.query(
-  `SELECT d.id, d.licitacion_codigo, d.documento_nombre, d.documento_url_local,
+  `SELECT d.id, d.created_at, d.licitacion_codigo, d.documento_nombre, d.documento_url_local,
           (SELECT n.empresa_id FROM negocios n WHERE n.licitacion_codigo = d.licitacion_codigo AND n.activo = TRUE LIMIT 1) AS empresa_id
      FROM documentos_cache d
     WHERE d.categoria = 'DOCUMENTOS_PROPIOS' AND d.documento_nombre LIKE '%.docx'
@@ -134,11 +134,11 @@ const [propios]: any = await pool.query(
 
 const casos: Caso[] = [];
 const sobras: Sobra[] = [];
-let sinPar = 0, sinInserciones = 0, demasiadoGrande = 0, errores = 0, comparados = 0;
+let anteriores = 0, sinPar = 0, sinInserciones = 0, demasiadoGrande = 0, errores = 0, comparados = 0;
 const cacheOriginal = new Map<string, { palabras: string[]; motor: string[]; nombre: string } | null>();
 // El .docx propio puede ser de OTRA empresa que la del negocio activo (Comercial MP, Claro…): la
 // empresa del documento es la que tiene su RUT escrito en él, no la que el negocio tiene hoy.
-const [empresasBd]: any = await pool.query('SELECT id, rut FROM empresas');
+const [empresasBd]: any = await pool.query('SELECT id, rut, updated_at FROM empresas');
 const digitos = (s: string) => (s || '').replace(/[^0-9kK]/g, '').toLowerCase();
 
 async function bajar(url: string, nombre: string): Promise<Buffer> {
@@ -178,6 +178,9 @@ async function procesar(h: any) {
     const textoH = digitos(palH.join(' '));
     const deDoc = empresasBd.find((e: any) => digitos(e.rut).length >= 8 && textoH.includes(digitos(e.rut)));
     const empresaId = String(deDoc?.id || h.empresa_id || 1);
+    // Una ficha que cambió DESPUÉS de que el equipo llenó el documento (otro representante, otro banco)
+    // haría parecer error lo que era el dato vigente de entonces: esos documentos no sirven de vara.
+    if (deDoc && h.created_at && new Date(h.created_at) < new Date(deDoc.updated_at)) { anteriores++; return; }
     const claveCache = mejor.id + ':' + empresaId;
     let cache = cacheOriginal.get(claveCache);
     if (cache === undefined) {
@@ -225,7 +228,7 @@ await Promise.all(Array.from({ length: 4 }, async () => { while (cola.length) aw
 // ── Informe ────────────────────────────────────────────────────────────────────────────────
 const cuenta = (v: Veredicto) => casos.filter(c => c.veredicto === v).length;
 console.log(`\nDocumentos propios .docx revisados: ${propios.length}`);
-console.log(`  comparados con su original: ${comparados} · sin original que calce: ${sinPar} · muy grandes: ${demasiadoGrande} · errores: ${errores}`);
+console.log(`  comparados con su original: ${comparados} · sin original que calce: ${sinPar} · muy grandes: ${demasiadoGrande} · errores: ${errores} · anteriores al último cambio de la ficha: ${anteriores}`);
 console.log(`Inserciones de la persona: ${casos.length}`);
 for (const v of ['IGUAL', 'PARECIDO', 'DISTINTO', 'FALTA'] as Veredicto[]) {
   console.log(`  ${v.padEnd(9)} ${String(cuenta(v)).padStart(5)}  ${(100 * cuenta(v) / Math.max(1, casos.length)).toFixed(1)} %`);

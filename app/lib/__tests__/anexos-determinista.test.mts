@@ -2053,3 +2053,28 @@ test('«Empresa proponente ___» y «Dirección Comercial ___» dentro de una or
   assert.equal(campoDeBlancoInline(blanco(oracion, pos('Empresa proponente '), { contexto: 'de la Empresa proponente' })), 'razon_social');
   assert.equal(campoDeBlancoInline(blanco(oracion, pos('Dirección Comercial '), { contexto: 'Dirección Comercial' })), 'direccion');
 });
+
+// ── Banco contra lo que llenó el equipo (anexos-banco-humano.mts) ───────────────────────────
+test('«LICITACIÓN PÚBLICA ID:» y «ID Nº» son el código de la licitación (1180885-8-LP26)', () => {
+  for (const e of ['LICITACIÓN PÚBLICA ID:', 'LICITACIÓN PÚBLICA ID Nº:', 'Licitación Pública N°']) {
+    assert.equal(campoDeEtiquetaInequivoca(e), 'licitacion_codigo', e);
+  }
+  assert.notEqual(campoDeEtiquetaInequivoca('Licitación Pública'), 'licitacion_codigo');
+});
+
+test('fórmulas de firma: «Osorno, ___ de 2026», «Cédula Nacional Identidad N°», «de la ciudad de»', () => {
+  const par = 'Yo……………, Cédula Nacional Identidad N°……………. de la Comuna de……………………. de la ciudad de ................. firma';
+  const hueco = (antes: string) => {
+    const pos = par.indexOf(antes) + antes.length;
+    return blanco(par, pos, { contexto: par.slice(0, pos), largo: 5 });
+  };
+  assert.equal(campoDeBlancoInline(hueco('Cédula Nacional Identidad N°')), 'representante_rut');
+  assert.equal(campoDeBlancoInline(hueco('de la ciudad de ')), 'ciudad');
+  assert.equal(campoDeFechaEnFormula('Osorno, ', 'de 2026'), 'fecha_hoy_dia_mes');
+});
+
+test('la comuna derivada de la dirección no lleva el rótulo «Comuna»', async () => {
+  const { conCamposDerivados } = await import('../anexos-derivados');
+  const e: any = conCamposDerivados({ direccion: 'Camino El Oliveto N° 575 N° 6, Comuna Talagante' } as any);
+  assert.equal(e.comuna, 'Talagante');
+});

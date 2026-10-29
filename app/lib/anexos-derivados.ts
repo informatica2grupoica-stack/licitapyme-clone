@@ -46,7 +46,10 @@ export function fechaLargaChile(ahora = new Date()): string {
 // con región Y comuna juntas (ej. "Región del Bío Bío, Concepción"), así que se deriva de nuevo.
 function comunaDeDireccion(direccion: string | null | undefined): string | null {
   const partes = (direccion || '').split(',').map(s => s.trim()).filter(Boolean);
-  return partes.length > 1 ? partes[partes.length - 1] : null;
+  if (partes.length <= 1) return null;
+  // «…N° 6, Comuna Talagante»: el rótulo no es parte del nombre. Sin esto los anexos decían
+  // «de la Comuna de Comuna Talagante» (Comercial MP, 1057678-2-LE26).
+  return partes[partes.length - 1].replace(/^comuna\s+(?:de\s+)?/i, '') || null;
 }
 
 // Calle y número, sueltos de `direccion` — pedido explícito del usuario (6-ago-2026, caso real
