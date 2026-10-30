@@ -7,6 +7,7 @@
 // explícito: una sola URL, stepper arriba, el contenido de abajo cambia al instante con estado
 // local — no `<Link>`, no rutas por submódulo. Costeo y Auditoría van JUNTAS otra vez (se habían
 // separado por pedido propio del usuario y luego pidió deshacerlo: "yo no pedí eso").
+import DocumentosCompraCard from './DocumentosCompraCard';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useToast } from '@/app/components/ui/toast';
@@ -71,10 +72,12 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   const flot = useCosteoFlotante();
   const {
     loading, error, asignacion, tareas, hitosGantt, candidatos, resumenFases, licitacionNombre, licitacionOrganismo, licitacionCodigoActual, ocMp, facturacionActa,
-    recargar, puedeOperar, esJefeDeVentas, esAdministracion, esBodega, esAdmin,
+    recargar, puedeOperar, esJefeDeVentas, esAdministracion, esBodega, esAdmin, soloDesdeAprobacion,
   } = useCompras();
 
-  const [faseActiva, setFaseActiva] = useState<Fase>('tareas');
+  const [faseElegida, setFaseActiva] = useState<Fase>('tareas');
+  // El Auditor de Compras no ve Tareas ni Costeo: arranca (y cae) en Aprobación y SKU.
+  const faseActiva: Fase = soloDesdeAprobacion && (faseElegida === 'tareas' || faseElegida === 'costeo') ? 'aprobacion' : faseElegida;
   // El botón «Obuma» abre un resumen de lo creado en Obuma desde Licitank (ya no lleva a otra pantalla).
   const [resumenObumaAbierto, setResumenObumaAbierto] = useState(false);
   // Otras tarjetas pueden mandar al encargado a otro paso (ej. «Ir a crear proveedor» desde una compra directa).
@@ -811,7 +814,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
           <div id="compras-flujo" className="px-3 sm:px-5 pt-4 pb-3 flex items-start justify-between gap-3 flex-wrap scroll-mt-4">
             <div className="overflow-x-auto -mt-2 pt-3 px-2 -mx-2 pb-1">
               <div className="flex items-start min-w-max">
-                {FASES.filter(f => !f.secundaria).map((f, i) => {
+                {FASES.filter(f => !f.secundaria && !(soloDesdeAprobacion && (f.key === 'tareas' || f.key === 'costeo'))).map((f, i) => {
                   const activa = faseActiva === f.key;
                   const { badge, estado } = calcFase(f.key);
                   const ESTADO_STYLE = {
@@ -941,6 +944,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             {faseActiva === 'documentos' && (
               <div className="space-y-3">
                 <DocumentosLicitacionCard licitacionCodigo={licitacionCodigoActual || asignacion.licitacionCodigo} />
+                {soloDesdeAprobacion && <DocumentosCompraCard negocioId={negocioId} />}
                 <AuditoriaAgenteNegocioCard negocioId={negocioId} />
               </div>
             )}

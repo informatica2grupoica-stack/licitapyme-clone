@@ -83,6 +83,25 @@ export interface ProductoNormalizado {
   esCargo: boolean;
   /** El código corrigió lo que leyó el Lector (p. ej. precio pegado a la cantidad); se muestra como alerta. */
   correccion?: string | null;
+  /** Solo links: precios que la propia tienda declara en sus datos estructurados (JSON-LD / meta), para cruzarlos con lo que leyó la IA. */
+  preciosDeLaPagina?: number[];
+}
+
+/** Precios que una tienda declara en sus datos estructurados. La captura los deja en el texto como «JSON-LD Oferta: precio=17990» y «META precio: 7,990 | …».
+ *  Admite 1529990, 7,990, 7.990 y 29.99 (algunas tiendas publican en miles: 29.99 = $29.990). Devuelve los valores distintos, sin ceros. */
+export function preciosEstructuradosDeLaPagina(texto: string): number[] {
+  const valor = (s: string): number | null => {
+    const t = s.trim();
+    if (/^\d+(\.\d+)?$/.test(t)) return Number(t);
+    if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(t)) return Number(t.replace(/,/g, ''));
+    if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(t)) return Number(t.replace(/\./g, '').replace(',', '.'));
+    return null;
+  };
+  const crudos = [...texto.matchAll(/JSON-LD Oferta: precio=([\d.,]+)/g)].map(m => m[1])
+    .concat([...texto.matchAll(/^META precio: (.+)$/gm)].flatMap(m => m[1].split('|')));
+  const out = new Set<number>();
+  for (const c of crudos) { const v = valor(c); if (v != null && v > 0) { out.add(v); if (v < 1000 && !Number.isInteger(v)) out.add(Math.round(v * 1000)); } }
+  return [...out];
 }
 
 const CONDICIONES_NO_RIGEN = new Set(['tachado', 'tarjeta', 'desde']);
@@ -132,6 +151,16 @@ function elegirPrecio(p: ProductoLector, cantidad: number | null): { precio: num
   if (lista.length === 0) return { precio: null, ambiguo: false, otros: [] };
   let elegido = lista.find(x => x.seleccionada) || lista.find(x => x.condicion === 'actual')
     || lista.find(x => !CONDICIONES_NO_RIGEN.has(x.condicion || '')) || lista[0];
+  // Regla del dueño (30-oct-2026): si la tienda da dos precios vigentes (transferencia/efectivo vs otros medios), rige el MÁS ALTO como costo.
+  // Solo entre precios vigentes del producto (actual, internet, otro): nunca tachado, tarjeta, desde, volumen, variante ni totales.
+  if (!lista.some(x => x.seleccionada)) {
+    const vigentes = lista.filter(x => ['actual', 'internet', 'otro', ''].includes(x.condicion || '') && !/total/i.test(`${x.condicion || ''} ${x.detalle_condicion || ''}`));
+    // Un precio que es múltiplo exacto de otro (precio × cantidad) es el total de la línea, no otro precio del producto.
+    const esMultiplo = (x: { n: number | null }) => vigentes.some(y => y.n! < x.n! && x.n! / y.n! >= 2 && Math.abs(x.n! - Math.round(x.n! / y.n!) * y.n!) <= Math.max(2, x.n! / y.n!))
+      || (cantidad != null && cantidad > 1 && vigentes.some(y => y.n! < x.n! && Math.abs(x.n! - y.n! * cantidad) <= Math.max(2, cantidad)));
+    const candidatos = vigentes.filter(x => !esMultiplo(x));
+    if (candidatos.length > 1) elegido = candidatos.reduce((a, b) => (b.n! > a.n! ? b : a));
+  }
   // Aritmética sobre el propio documento: con un total de línea a la vista, el precio unitario es el que lo divide exacto (52.990 con 7 % → 49.281; 100 × 49.281 = 4.928.100).
   const esTotal = (x: { condicion?: string; detalle_condicion?: string }) => /total/i.test(`${x.condicion || ''} ${x.detalle_condicion || ''}`);
   const totales = lista.filter(esTotal), unitarios = lista.filter(x => !esTotal(x));
@@ -237,6 +266,7 @@ export function normalizarProductos(salida: SalidaLector, texto?: string, esWeb 
       sku: d.sku_fabricante || d.sku_proveedor || '',
       precio, preciosMultiples: otros, precioAmbiguo: pegado ? false : ambiguo,
       moneda: monedaDoc, conversion,
+      preciosDeLaPagina: esWeb && texto ? preciosEstructuradosDeLaPagina(texto) : undefined,
       iva, ivaSupuesto, ivaTexto: ivaPorTotales ?? (c.iva_texto_literal || ''),
       unidadPrecio: c.unidad_precio || '', contenidoEmpaque: c.contenido_empaque || '',
       unidadesPorEmpaque: unidadesPorEmpaqueValidas(parsearMonto(c.unidades_por_empaque), [c.contenido_empaque || '', c.unidad_precio || '', nombre]),
@@ -484,6 +514,16 @@ export function verificarOpcion(e: EntradaVerificacion): ResultadoVerificacion {
   const neto = esRutaB ? netoRutaB : norm.neto;
   if (p.ivaSupuesto && !esRutaB && norm.neto != null) {
     alertas.push({ codigo: 'V3', nivel: 'info', mensaje: `Precio del link $${p.precio.toLocaleString('es-CL')}: la página no dice si incluye IVA y las tiendas publican con IVA, así que se asumió CON IVA y se le sacó → neto $${norm.neto.toLocaleString('es-CL')}.`, accion: 'revisar' });
+  }
+  // Cruce con lo que la tienda declara en sus datos estructurados: si la IA leyó otro precio, se avisa (descuento por transferencia, otra variante, otro producto).
+  const declarados = p.preciosDeLaPagina || [];
+  // Algunas tiendas (enertik, maquipan) declaran el precio NETO en sus datos y muestran el precio con IVA: d × 1,19 también cuenta como coincidencia.
+  const coincide = (d: number) => [d, d * 1.19].some(v => Math.abs(v - p.precio!) <= Math.max(2, p.precio! * 0.002));
+  if (p.precio != null && declarados.length && !declarados.some(coincide)) {
+    const lista = declarados.slice(0, 4).map(d => `$${d.toLocaleString('es-CL')}`).join(', ');
+    alertas.push({ codigo: 'V4', nivel: 'amarillo', accion: 'revisar', mensaje: declarados.length > 1
+      ? `La página declara varios precios en sus datos (${lista}: suele ser una por variante) y se leyó $${p.precio.toLocaleString('es-CL')}. Confirma que ese es el de la variante que ofertamos.`
+      : `La página declara ${lista} en sus datos y se leyó $${p.precio.toLocaleString('es-CL')}: suele ser el descuento por transferencia u otro medio de pago. Confirma cuál rige.` });
   }
   // Un precio AMBIGUO (¿1.022.000 o 1.022? ¿miles o decimales?) no se usa para nada: ni costo, ni diferencia, ni margen. Si entrara,
   // una mala lectura hunde el margen del proyecto entero (caso real: un proyector leído a $840 millones). Se bloquea y pide confirmarlo.

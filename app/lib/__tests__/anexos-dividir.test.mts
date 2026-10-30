@@ -876,3 +876,19 @@ test('detectarFormularios: el mismo número con contenido entre medio sigue sien
   const { xml: norm } = normalizarParaIds(xml);
   assert.equal(detectarFormularios(norm).length, 2);
 });
+
+// BUG REAL (2483-265-LE26, ANEXOS_1.DOC de Quilicura): cada anexo cierra con «FIRMA…» y, justo debajo, la línea
+// de lugar y fecha «QUILICURA……… DE……… DEL 2026.». La octava forma (título tras un cierre) la tomaba por el
+// título del anexo siguiente: salían 5 archivos «QUILICURA_DE_DEL_2026» con una sola línea y los anexos reales
+// perdían su fecha. Una línea con relleno de puntos o rayas nunca es un título.
+test('detectarFormularios: la línea de lugar y fecha con puntos tras la firma no es un título (2483-265-LE26)', () => {
+  const cierre = p('________________________') + p('FIRMA OFERENTE Y/O REPRESENTANTE LEGAL EMPRESA') + p('QUILICURA……………….. DE………………………..DEL 2026.');
+  const xml = NS
+    + p('ANEXO Nº 1') + p('IDENTIFICACIÓN DEL OFERENTE') + p('RUT :') + cierre
+    + p('ANEXO N° 2') + p('PROPUESTA TÉCNICA') + p('OFERENTE') + cierre
+    + p('ANEXO Nº 3') + p('OFERTA ECONÓMICA') + p('NOMBRE:') + cierre
+    + FIN;
+  const f = detectarFormularios(normalizarParaIds(xml).xml);
+  assert.equal(f.length, 3, f.map(x => x.titulo).join(' | '));
+  assert.ok(f.every(x => /^ANEXO/.test(x.titulo)), f.map(x => x.titulo).join(' | '));
+});

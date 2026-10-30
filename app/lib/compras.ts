@@ -2381,6 +2381,23 @@ async function contarProductosSinCotizacion(negocioId: number): Promise<number> 
   } catch { return 0; }
 }
 
+/** Negocios con la COMPRA ya aprobada (compra directa o cuadro de compra): desde ahí trabaja el perfil Auditor de Compras. Con `negocioId`, solo ese. */
+export async function negociosConCompraAprobada(negocioId?: number): Promise<Set<number>> {
+  const filtro = negocioId != null ? ' AND negocio_id = ?' : '';
+  const args = negocioId != null ? [negocioId] : [];
+  // Dos vías de aprobar: el cuadro de compra (compras_aprobacion) y la compra directa/rápida (compras_compra_rapida, salta la compuerta 1).
+  const [[cuadro], rapida] = await Promise.all([
+    pool.query(`SELECT DISTINCT negocio_id FROM compras_aprobacion WHERE tipo = 'COMPRA' AND estado LIKE 'APROBADA%'${filtro}`, args) as Promise<any>,
+    (pool.query(`SELECT DISTINCT negocio_id FROM compras_compra_rapida WHERE estado = 'APROBADA'${filtro}`, args) as Promise<any>).catch(() => [[]]),
+  ]);
+  return new Set([...(cuadro as any[]), ...(rapida[0] as any[])].map(r => Number(r.negocio_id)));
+}
+
+/** Auditor de Compras "acotado": tiene `compras_auditor` y ningún permiso amplio de Compras (esos ven todo, como siempre). */
+export function esAuditorAcotado(p: Record<string, boolean | undefined>): boolean {
+  return !!p.compras_auditor && !(p.compras_todo || p.compras || p.aprobar_comercial);
+}
+
 async function estadoDelFlujo(negocioId: number): Promise<{ escenarioElegido: boolean; compraAprobada: boolean; margenAprobado: boolean; compraRechazada: boolean; margenRechazado: boolean }> {
   try {
     const [[[e]], [aprs]]: any = await Promise.all([

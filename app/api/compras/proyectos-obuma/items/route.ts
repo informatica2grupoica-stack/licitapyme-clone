@@ -17,7 +17,7 @@ function getUser(req: NextRequest) {
 
 async function puedeVer(userId: number): Promise<boolean> {
   const p = await permisosCrudosDeUsuario(userId);
-  return !!(p.compras_todo || p.compras || p.aprobar_comercial || p.compras_ver);
+  return !!(p.compras_todo || p.compras || p.aprobar_comercial || p.compras_ver || p.compras_auditor);
 }
 
 export async function GET(request: NextRequest) {

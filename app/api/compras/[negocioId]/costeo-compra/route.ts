@@ -5,14 +5,14 @@ import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { planTrasladoCompraAlCosteo, trasladarCompraAlCosteo } from '@/app/lib/compras-compra-a-costeo';
-import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
+import { puedeOperarPreAprobacion, puedeVerPreAprobacion } from '@/app/api/compras/[negocioId]/route';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type Params = { params: Promise<{ negocioId: string }> };
 
-async function acceso(request: NextRequest, params: Params['params']) {
+async function acceso(request: NextRequest, params: Params['params'], lectura = false) {
   const userId = request.headers.get('x-user-id') ? parseInt(request.headers.get('x-user-id') as string) : null;
   const rol = request.headers.get('x-user-rol');
   const nombre = request.headers.get('x-user-nombre');
@@ -20,13 +20,13 @@ async function acceso(request: NextRequest, params: Params['params']) {
   const id = parseInt((await params).negocioId);
   const asignacion = await obtenerAsignacion(id);
   if (!asignacion) return { error: NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 }) };
-  if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados))) return { error: NextResponse.json({ error: 'Sin acceso.' }, { status: 403 }) };
+  if (!(await (lectura ? puedeVerPreAprobacion : puedeOperarPreAprobacion)(userId, rol, asignacion.asignadoA, asignacion.coencargados))) return { error: NextResponse.json({ error: 'Sin acceso.' }, { status: 403 }) };
   return { id, userId, nombre };
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
   try {
-    const a = await acceso(request, params);
+    const a = await acceso(request, params, true);
     if ('error' in a) return a.error;
     return NextResponse.json({ success: true, ...(await planTrasladoCompraAlCosteo(a.id)) });
   } catch (error) {

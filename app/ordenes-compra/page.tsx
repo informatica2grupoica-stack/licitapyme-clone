@@ -326,8 +326,8 @@ export default function OrdenesCompraPage() {
   const router = useRouter();
   // Admin, o perfil de Compras (permiso compras / compras_todo).
   // Solo lectura: no puede copiar OC como experiencia a otras licitaciones.
-  const soloLectura = usuario?.rol !== 'admin' && !usuario?.permisos?.compras && !usuario?.permisos?.compras_todo;
-  const puedeVer = usuario?.rol === 'admin' || !!usuario?.permisos?.compras || !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras_ver;
+  const soloLectura = usuario?.rol !== 'admin' && !usuario?.permisos?.compras && !usuario?.permisos?.compras_todo && !usuario?.permisos?.compras_auditor;
+  const puedeVer = usuario?.rol === 'admin' || !!usuario?.permisos?.compras || !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras_ver || !!usuario?.permisos?.compras_auditor;
 
   const [ordenes, setOrdenes] = useState<OrdenCompra[]>([]);
   const [total, setTotal] = useState(0);

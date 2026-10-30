@@ -5,7 +5,7 @@ import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { actualizarCotizacion, eliminarCotizacion, listarCotizaciones, type DatosEdicionCotizacion } from '@/app/lib/compras-auditor';
-import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
+import { puedeOperarPreAprobacion } from '@/app/api/compras/[negocioId]/route';
 import { parsearMontoCL } from '@/app/lib/numeros';
 
 export const runtime = 'nodejs';
@@ -29,7 +29,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(negId);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
+    if (!(await puedeOperarPreAprobacion(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const body = await request.json();
@@ -68,7 +68,7 @@ async function __DELETE(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(negId);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
+    if (!(await puedeOperarPreAprobacion(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     await eliminarCotizacion(negId, parseInt(cotizacionId), userId, nombre);

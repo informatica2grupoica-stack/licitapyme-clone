@@ -26,6 +26,7 @@ interface Permisos {
   compras_todo?: boolean;
   solo_compras?: boolean;
   compras_ver?: boolean;
+  compras_auditor?: boolean;
   costeo_editor?: boolean;
   auditor_tecnico?: boolean;
   auditor_compra?: boolean;
@@ -97,13 +98,14 @@ const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string; cat
   // ÚNICO permiso que se muestra también a un admin (ver el comentario largo en app/lib/api-auth.ts).
   { key: 'compras_todo',        label: 'Todo el módulo de Compras',      desc: 'Ve y opera Compras completo (si no, solo los negocios donde es encargado). Todo admin ya lo tiene.', categoria: 'compras' },
   { key: 'compras_ver',         label: 'Compras solo lectura',           desc: 'Ve Compras, Proyectos, Órdenes de compra, Proveedores y Fleteros sin poder modificar.', categoria: 'compras' },
+  { key: 'compras_auditor',     label: 'Auditor de Compras (perfil)',    desc: 'Opera Compras desde que se aprueba la compra (directa o cuadro): crea SKU, emite OC, logística, entrega y cierre. No ve Tareas ni Costeo. Ve Proveedores, Proyectos y OC.', categoria: 'compras' },
   // Restricción, no privilegio: no se activa con "Activar todo".
   { key: 'solo_compras',        label: 'Encerrar en Compras (restricción)', desc: 'Su menú queda limitado a los módulos de Compras. Úsalo junto con los permisos de arriba.', categoria: 'compras' },
 ];
 
 /** Permisos que "Activar todo" del grupo enciende/apaga (deja fuera las restricciones). */
 const clavesDeGrupo = (cat: CategoriaPermiso) =>
-  CATALOGO_PERMISOS.filter(p => p.categoria === cat && p.key !== 'solo_compras').map(p => p.key);
+  CATALOGO_PERMISOS.filter(p => p.categoria === cat && p.key !== 'solo_compras' && p.key !== 'compras_auditor').map(p => p.key);
 
 const CLAVE_COMPRAS_TODO: keyof Permisos = 'compras_todo';
 
@@ -218,6 +220,15 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
                           {todos ? 'Quitar todo' : destacado ? 'Dar acceso completo al Auditor' : 'Activar todo'}
                         </button>
                       </div>
+                      {cat.key === 'compras' && (
+                        <div className="flex items-center justify-between gap-3 rounded-lg border border-teal-200 dark:border-teal-500/30 bg-teal-50/60 dark:bg-teal-500/[0.06] px-3 py-2 mb-2">
+                          <span className="text-[12.5px] text-teal-900 dark:text-teal-200 leading-snug"><b>Perfil Auditor de Compras:</b> opera desde la aprobación de la compra hasta el cierre, encerrado en Compras.</span>
+                          <button type="button" onClick={() => setPermisos(p => ({ ...p, compras_auditor: !p.compras_auditor, solo_compras: !p.compras_auditor }))}
+                            className="flex-shrink-0 px-3 py-1.5 rounded-lg text-[13px] font-semibold bg-teal-600 hover:bg-teal-700 text-white">
+                            {permisos.compras_auditor ? 'Quitar perfil' : 'Aplicar perfil'}
+                          </button>
+                        </div>
+                      )}
                       <div className={`grid gap-x-6 ${destacado ? 'md:grid-cols-2' : ''}`}>
                         {CATALOGO_PERMISOS.filter(p => p.categoria === cat.key).map(p => (
                           <div key={p.key} className="flex items-start justify-between gap-3 py-3 border-t border-gray-100 dark:border-white/[0.06]">
@@ -686,6 +697,9 @@ export default function AdminUsuariosPage() {
                           {u.rol === 'admin' ? <ShieldCheck size={10} /> : <User size={10} />}
                           {u.rol === 'admin' ? 'Admin' : u.rol === 'externo' ? 'Externo' : 'Usuario'}
                         </span>
+                        {u.rol !== 'admin' && parsePermisos(u.permisos).compras_auditor && (
+                          <span className="ml-1 inline-flex items-center text-xs px-2 py-0.5 rounded-full font-medium bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300">Auditor de Compras</span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${

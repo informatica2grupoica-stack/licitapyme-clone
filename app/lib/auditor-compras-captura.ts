@@ -58,6 +58,20 @@ export function resumirJsonLd(bloques: string[]): string {
   return lineas.join('\n');
 }
 
+/** El texto de la página se corta a MAX_TEXTO desde el principio, y en muchas tiendas los primeros miles de caracteres son el menú de navegación: el precio nunca
+ *  llegaba a la IA (sdmed.cl, aguaclima.cl: «sin precio»). Si el cuerpo no cabe, se parte desde el título del producto (h1) y las líneas con precio del resto
+ *  de la página se agregan al final, rotuladas (pueden ser de otros productos). */
+export function recortarCuerpo(cuerpo: string, h1: string, max: number): string {
+  if (cuerpo.length <= max) return cuerpo;
+  const clave = h1.trim().slice(0, 40);
+  const hallado = clave.length >= 8 ? cuerpo.indexOf(clave) : -1;
+  const reserva = 2_500;
+  const base = cuerpo.slice(Math.max(0, hallado), Math.max(0, hallado) + max - reserva);
+  const incluidas = new Set(base.split('\n'));
+  const extra = [...new Set(cuerpo.split('\n').map(l => l.trim()).filter(l => l.length > 2 && l.length < 200 && /\$\s?\d/.test(l) && !incluidas.has(l)))].slice(0, 20).join('\n');
+  return extra ? `${base}\nPRECIOS EN EL RESTO DE LA PÁGINA (pueden ser de otros productos):\n${extra}` : base;
+}
+
 function detectarEstado(urlOriginal: string, urlFinal: string, http: number | null, texto: string): EstadoLink {
   if (http != null && (http >= 400)) return 'caido';
   const rutaO = (() => { try { return new URL(urlOriginal).pathname.replace(/\/+$/, ''); } catch { return ''; } })();
@@ -84,6 +98,7 @@ export async function capturarConNavegador(browser: any, url: string): Promise<C
     const urlFinal = page.url();
     const datos = await page.evaluate(() => ({
       titulo: document.title || '',
+      h1: document.querySelector('h1')?.textContent || '',
       texto: (document.body?.innerText || '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n'),
       jsonld: [...document.querySelectorAll('script[type="application/ld+json"]')].map(s => s.textContent || ''),
       metaPrecio: [...document.querySelectorAll('meta[property="product:price:amount"],meta[property="og:price:amount"],meta[itemprop="price"]')].map(m => (m as HTMLMetaElement).content || m.getAttribute('content') || ''),
@@ -91,7 +106,7 @@ export async function capturarConNavegador(browser: any, url: string): Promise<C
     let imagen: Buffer | null = null;
     try { imagen = Buffer.from(await page.screenshot({ type: 'jpeg', quality: 55, clip: { x: 0, y: 0, width: 1280, height: 1100 } })); } catch { /* sin imagen: queda el texto */ }
     const ld = resumirJsonLd(datos.jsonld);
-    const texto = [`TITULO: ${datos.titulo}`, `URL FINAL: ${urlFinal}`, ld, datos.metaPrecio.filter(Boolean).length ? `META precio: ${datos.metaPrecio.filter(Boolean).join(' | ')}` : '', datos.texto].filter(Boolean).join('\n').slice(0, MAX_TEXTO);
+    const texto = [`TITULO: ${datos.titulo}`, `URL FINAL: ${urlFinal}`, ld, datos.metaPrecio.filter(Boolean).length ? `META precio: ${datos.metaPrecio.filter(Boolean).join(' | ')}` : '', recortarCuerpo(datos.texto, datos.h1, MAX_TEXTO - 1_500)].filter(Boolean).join('\n').slice(0, MAX_TEXTO);
     return { url, urlFinal, estado: detectarEstado(url, urlFinal, http, datos.texto), httpStatus: http, titulo: datos.titulo.slice(0, 400), texto, imagen, capturadoAt, metodo: 'navegador' };
   } finally { await page.close().catch(() => {}); }
 }
@@ -106,10 +121,11 @@ export async function capturarConFetch(url: string): Promise<Captura> {
     const $ = cheerio.load(html);
     const jsonld = $('script[type="application/ld+json"]').map((_, e) => $(e).text()).get();
     const titulo = $('title').first().text().trim();
+    const h1 = $('h1').first().text().trim();
     $('script,style,noscript,svg').remove();
     const cuerpo = $('body').text().replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
     const ld = resumirJsonLd(jsonld);
-    const texto = [`TITULO: ${titulo}`, `URL FINAL: ${res.url}`, ld, cuerpo].filter(Boolean).join('\n').slice(0, MAX_TEXTO);
+    const texto = [`TITULO: ${titulo}`, `URL FINAL: ${res.url}`, ld, recortarCuerpo(cuerpo, h1, MAX_TEXTO - 1_500)].filter(Boolean).join('\n').slice(0, MAX_TEXTO);
     return { url, urlFinal: res.url, estado: detectarEstado(url, res.url, res.status, cuerpo), httpStatus: res.status, titulo: titulo.slice(0, 400), texto, imagen: null, capturadoAt, metodo: 'fetch' };
   } catch (e) {
     return { url, urlFinal: null, estado: 'caido', httpStatus: null, titulo: '', texto: '', imagen: null, capturadoAt, metodo: 'fetch', error: String((e as Error).message || e).slice(0, 200) };

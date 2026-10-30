@@ -8,7 +8,7 @@ import { obtenerAsignacion } from '@/app/lib/compras';
 import { listarCotizaciones } from '@/app/lib/compras-auditor';
 import { guardarAdicionales } from '@/app/lib/compras-adicionales';
 import { auditarCotizacion } from '@/app/lib/compras-auditoria-cotizacion';
-import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
+import { puedeOperarPreAprobacion } from '@/app/api/compras/[negocioId]/route';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,7 +25,7 @@ async function __PUT(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(negId);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
+    if (!(await puedeOperarPreAprobacion(userId, rol, asignacion.asignadoA, asignacion.coencargados))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const body = await request.json();
     const productoId = Number(body.productoId);

@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   // mismo criterio del resto del módulo).
   {
     const p = await permisosCrudosDeUsuario(userId);
-    if (!p.compras_todo && !p.compras && !p.aprobar_comercial) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
+    if (!p.compras_todo && !p.compras && !p.aprobar_comercial && !p.compras_auditor) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
   }
 
   const q = request.nextUrl.searchParams.get('q')?.trim() || '';

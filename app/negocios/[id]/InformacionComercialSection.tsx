@@ -1086,8 +1086,8 @@ function FilaItem({ tarjeta = false, item, licitacionCodigo, puedeAprobar, bloqu
           );
 
   return (
-    <div className={`${tarjeta ? 'rounded-xl border border-linea bg-white dark:bg-slate-900 shadow-tarjeta p-4' : 'px-4 py-3'} ${noOfertada ? 'opacity-50' : ''} ${!tarjeta && item.estado === 'OBSERVADO' ? 'bg-orange-50/40' : ''}`}>
-      <div className="flex items-start gap-3">
+    <div className={`${tarjeta ? 'rounded-xl border border-linea bg-white dark:bg-slate-900 shadow-tarjeta p-4 flex flex-col' : 'px-4 py-3'} ${noOfertada ? 'opacity-50' : ''} ${!tarjeta && item.estado === 'OBSERVADO' ? 'bg-orange-50/40' : ''}`}>
+      <div className="flex items-start gap-3 flex-1">
 
         {/* Estado */}
         <div className="pt-0.5">
@@ -1101,7 +1101,7 @@ function FilaItem({ tarjeta = false, item, licitacionCodigo, puedeAprobar, bloqu
         {/* Contenido */}
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-2 flex-wrap">
-            <p className="text-[13px] font-semibold text-zinc-800 leading-snug">{item.titulo}</p>
+            <p className={`text-[13px] font-semibold text-zinc-800 leading-snug ${tarjeta ? 'line-clamp-2' : ''}`} title={tarjeta ? item.titulo : undefined}>{item.titulo}</p>
             {/* Mismo chip que la fila técnica (FilaLineaTecnica): una línea que se decidió no
                 ofertar se lee igual en los dos bloques. Solo atenuarla no alcanzaba — se veía como
                 una fila más, apagada, sin decir por qué. */}
@@ -1121,7 +1121,7 @@ function FilaItem({ tarjeta = false, item, licitacionCodigo, puedeAprobar, bloqu
             <span className={`inline-flex items-center gap-1.5 ${est.text}`}><span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />{est.label}</span>
           </div>
 
-          {item.descripcion && <p className="text-xs text-zinc-500 leading-snug mt-0.5">{item.descripcion}</p>}
+          {item.descripcion && <p className={`text-xs text-zinc-500 leading-snug mt-0.5 ${tarjeta ? 'line-clamp-3' : ''}`} title={tarjeta ? item.descripcion : undefined}>{item.descripcion}</p>}
           {item.fuente_cita && <p className="text-xs text-slate-500 truncate mt-0.5" title={item.fuente_cita}>Fuente: {item.fuente_cita}</p>}
 
           {/* Evidencia cargada */}

@@ -27,7 +27,7 @@ async function puedeVerProveedores(userId: number): Promise<boolean> {
 async function puedeLeerProveedores(userId: number): Promise<boolean> {
   if (await puedeVerProveedores(userId)) return true;
   const p = await permisosCrudosDeUsuario(userId);
-  return !!p.compras_ver;
+  return !!(p.compras_ver || p.compras_auditor);
 }
 
 export async function GET(request: NextRequest) {

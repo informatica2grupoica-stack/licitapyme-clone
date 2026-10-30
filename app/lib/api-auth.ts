@@ -218,13 +218,14 @@ export async function puedeChatearLicitacion(req: NextRequest, codigo: string): 
 //   chat_global        → (20-oct-2026) chat IA sobre TODAS las licitaciones (rankings, competencia, búsqueda por contenido).
 //   anexos             → (05-oct-2026, pedido explícito) generar, separar y rellenar anexos (el creador de
 //                       anexos era admin-only "mientras se decidía quiénes más lo usaban").
-export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente' | 'compras' | 'compras_administracion' | 'compras_bodega' | 'compras_todo' | 'solo_compras' | 'compras_ver' | 'costeo_editor' | 'auditor_tecnico' | 'auditor_compra' | 'auditor_aprobar' | 'anexos' | 'reglas_ia' | 'costeo_exportar' | 'chat_licitacion' | 'chat_global';
+export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente' | 'compras' | 'compras_administracion' | 'compras_bodega' | 'compras_todo' | 'solo_compras' | 'compras_ver' | 'compras_auditor' | 'costeo_editor' | 'auditor_tecnico' | 'auditor_compra' | 'auditor_aprobar' | 'anexos' | 'reglas_ia' | 'costeo_exportar' | 'chat_licitacion' | 'chat_global';
 export type Permisos = Partial<Record<Permiso, boolean>>;
 const PERMISOS_ADMIN: Record<Permiso, boolean> = {
   ver_otros_negocios: true, acceso_radar: true, comentar_viabilidad: true, exportar: true, alertas_anexos: true,
   aprobar_comercial: true, entrega_proyectos: true, viabilidad_automatica: true, repartir_puente: true, compras: true,
   compras_administracion: true, compras_bodega: true,
   compras_ver: true,
+  compras_auditor: false, // perfil acotado (Auditor de Compras): no se hereda por ser admin; el admin ya tiene compras_todo.
   costeo_editor: true, auditor_tecnico: true, auditor_compra: true, auditor_aprobar: true, anexos: true, costeo_exportar: true,
   chat_licitacion: true, chat_global: true, // 20-oct-2026: burbuja de chat IA (de la licitación / general). Admin siempre; el resto desde Editar permisos.
   reglas_ia: false,    // 07-oct-2026 (P12, spec v4.0): "solo CA" crea/ve las reglas aprendidas. NO se hereda por ser admin: se otorga desde /admin/usuarios (Asesor + superusuario).

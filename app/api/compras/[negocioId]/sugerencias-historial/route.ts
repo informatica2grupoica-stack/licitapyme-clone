@@ -6,7 +6,7 @@
 // vendieron algo parecido antes.
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion, listarProductosCompra } from '@/app/lib/compras';
-import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
+import { puedeOperarPreAprobacion, puedeVerPreAprobacion } from '@/app/api/compras/[negocioId]/route';
 import { sugerirProveedoresPorDescripcion } from '@/app/lib/compras-proveedores';
 import { esSubestadoFuera } from '@/app/lib/compras-no-adjudicadas';
 
@@ -30,7 +30,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
+    if (!(await puedeVerPreAprobacion(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const productos = (await listarProductosCompra(id)).filter(p => !esSubestadoFuera(p.subestado));

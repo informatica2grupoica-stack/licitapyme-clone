@@ -106,6 +106,8 @@ interface ComprasContextValue {
   esJefeDeVentas: boolean;
   esAdministracion: boolean;
   esBodega: boolean;
+  /** Perfil Auditor de Compras: opera desde la aprobación de la compra; sin Tareas ni Costeo y auditoría (ve los archivos en Documentos). */
+  soloDesdeAprobacion: boolean;
   esAdmin: boolean;
 }
 
@@ -155,9 +157,10 @@ export function ComprasProvider({ negocioId, children }: { negocioId: number; ch
   // (app/api/compras/[negocioId]/route.ts): `compras_todo` es el único permiso que reemplaza ese
   // bypass, ninguno de los demás se auto-otorga por ser admin.
   const esJefeDeVentas = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.aprobar_comercial;
-  const puedeOperar = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial || asignacion?.asignadoA === usuario?.id;
+  const puedeOperar = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial || !!usuario?.permisos?.compras_auditor || asignacion?.asignadoA === usuario?.id;
   const esAdministracion = !!usuario?.permisos?.compras_administracion;
   const esBodega = !!usuario?.permisos?.compras_bodega;
+  const soloDesdeAprobacion = !!usuario?.permisos?.compras_auditor && !esJefeDeVentas && !usuario?.permisos?.compras;
   // Pedido explícito del usuario, 15-sep-2026: cambiar un encargado que YA tiene otro asignado es
   // solo de admin (mismo corte que el backend en /api/compras/[negocioId]/asignar/route.ts) —
   // esJefeDeVentas de arriba sigue habilitando la asignación INICIAL.
@@ -167,7 +170,7 @@ export function ComprasProvider({ negocioId, children }: { negocioId: number; ch
     <Ctx.Provider value={{
       negocioId, loading, error, asignacion, tareas, hitosGantt, candidatos, resumenFases,
       licitacionNombre, licitacionOrganismo, licitacionCodigoActual, ocMp, facturacionActa, recargar,
-      puedeOperar, esJefeDeVentas, esAdministracion, esBodega, esAdmin,
+      puedeOperar, esJefeDeVentas, esAdministracion, esBodega, esAdmin, soloDesdeAprobacion,
     }}>
       {children}
     </Ctx.Provider>

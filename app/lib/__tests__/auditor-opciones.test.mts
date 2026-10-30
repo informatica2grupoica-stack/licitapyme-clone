@@ -509,3 +509,45 @@ test('IVA 3b: el pie se encuentra aunque haya un «Total Neto» de encabezado, u
   assert.match(ivaPorTotalesDelDocumento('neto ‖ $ 11.614.113 IVA 19% ‖ $ 2.206.681 Total ‖ $ 13.820.794') ?? '', /netos/);
   assert.equal(ivaPorTotalesDelDocumento('Subtotal 1.000.000\nIVA 190.000\nTotal 1.300.000'), null, 'si no cuadra no se supone');
 });
+
+test('precios que la tienda declara en sus datos estructurados (JSON-LD / META) en los formatos reales', async () => {
+  const { preciosEstructuradosDeLaPagina } = await import('../auditor-opciones-core');
+  assert.deepEqual(preciosEstructuradosDeLaPagina('JSON-LD Oferta: precio=1529990 moneda=CLP'), [1529990]);
+  assert.deepEqual(preciosEstructuradosDeLaPagina('META precio: 7,990'), [7990]);
+  assert.deepEqual(preciosEstructuradosDeLaPagina('JSON-LD Oferta: precio=29.99 moneda=CLP').sort((a, b) => a - b), [29.99, 29990]);
+  assert.deepEqual(preciosEstructuradosDeLaPagina('JSON-LD Oferta: precio= moneda=CLP\nMETA precio: 0'), [], 'precio vacío o 0 no cuenta');
+  assert.deepEqual(preciosEstructuradosDeLaPagina('JSON-LD Oferta: precio=79990\nJSON-LD Oferta: precio=119990\nJSON-LD Oferta: precio=79990').sort((a, b) => a - b), [79990, 119990]);
+});
+
+test('V4: si la IA leyó otro precio que el que la tienda declara se avisa; si coincide, no', () => {
+  const base = { precio: 41_780, iva: 'incluido' as const, ivaSupuesto: true };
+  const avisa = verificarOpcion(entrada(prod({ ...base, preciosDeLaPagina: [39_980] })));
+  assert.ok(avisa.alertas.some(a => /declara \$39\.980/.test(a.mensaje) && /transferencia/.test(a.mensaje)));
+  const variantes = verificarOpcion(entrada(prod({ ...base, precio: 99_990, preciosDeLaPagina: [79_990, 119_990] })));
+  assert.ok(variantes.alertas.some(a => /varios precios/.test(a.mensaje)));
+  const ok = verificarOpcion(entrada(prod({ ...base, preciosDeLaPagina: [41_780] })));
+  assert.ok(!ok.alertas.some(a => /declara/.test(a.mensaje)));
+});
+
+test('captura: si el cuerpo no cabe, se parte desde el h1 y los precios del resto de la página se conservan', async () => {
+  const { recortarCuerpo } = await import('../auditor-compras-captura');
+  const menu = Array.from({ length: 1500 }, (_, i) => `Categoría número ${i}`).join('\n');
+  const cuerpo = `${menu}\nBiblioteca de 2 puertas 165 cm\nPrecio $89.990\nDescripción del producto\n${'texto de relleno\n'.repeat(1500)}Otros: $12.345`;
+  const r = recortarCuerpo(cuerpo, 'Biblioteca de 2 puertas 165 cm', 12_000);
+  assert.ok(r.includes('$89.990'), 'el precio del producto está');
+  assert.ok(!r.includes('Categoría número 3'), 'el menú ya no ocupa el texto');
+  assert.ok(r.includes('PRECIOS EN EL RESTO DE LA PÁGINA') && r.includes('$12.345'));
+  assert.equal(recortarCuerpo('corto $1.000', 'x', 12_000), 'corto $1.000', 'si cabe no se toca');
+});
+
+test('V4: una tienda que declara el precio NETO en sus datos y muestra el con IVA no dispara el aviso (enertik: 185.210 × 1,19 = 220.400)', () => {
+  const r = verificarOpcion(entrada(prod({ precio: 220_400, iva: 'incluido', ivaSupuesto: true, preciosDeLaPagina: [185_210] })));
+  assert.ok(!r.alertas.some(a => /declara/.test(a.mensaje)));
+});
+
+test('dos precios vigentes de la tienda: rige el más alto (transferencia vs otros medios); el tachado y el total de línea no cuentan', () => {
+  const [p] = normalizarProductos({ productos: [{ comercial: { precios: [
+    { valor: '95.000', condicion: 'actual', detalle_condicion: 'transferencia' }, { valor: '100.000', condicion: 'otro', detalle_condicion: 'otros medios de pago' },
+    { valor: '120.000', condicion: 'tachado' }, { valor: '500.000', condicion: 'otro' }], iva: 'incluido', iva_texto_literal: 'IVA incluido' } }] } as any);
+  assert.equal(p.precio, 100000);
+});

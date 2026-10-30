@@ -344,6 +344,11 @@ function lineasSueltasRepetidas(bloques: BloqueCrudo[]): Set<string> {
 const RE_TODO_MAYUSCULAS = /^[^a-záéíóúñü]*[A-ZÁÉÍÓÚÑÜ][^a-záéíóúñü]*$/;
 const RE_ROTULO_NOMBRE = /^nombre\b/i;
 const RE_CIERRE_SECCION_ANTERIOR = /^(?:firma|fecha)\b/i;
+// Línea de LUGAR Y FECHA con puntos o rayas para completar («QUILICURA……… DE……… DEL 2026.», ANEXOS_1.DOC de
+// 2483-265-LE26): va justo después de la firma al cierre de CADA anexo. Un título nunca trae relleno de puntos
+// ni rayas, así que esa línea jamás es el título del anexo que sigue — antes se cortaba ahí y salían archivos
+// «QUILICURA_DE_DEL_2026» con una sola línea.
+const RE_LINEA_CON_RELLENO = /[….·]{3,}|\.{4,}|_{3,}/;
 // Dos ventanas DISTINTAS a propósito, no una sola: VENTANA_CLUSTER (chica) solo pregunta "¿esta
 // repetición es la MISMA que ya cubrió un encabezado normal?" ("ANEXO Nº6" + "OFERTA ECONÓMICA" +
 // la repetición quedan a 1-2 líneas entre sí) — VENTANA_TITULO (más ancha) es cuánto hay que
@@ -486,6 +491,7 @@ function detectarEncabezadosTrasCierreDeSeccion(
     if (!texto) continue; // párrafo vacío: no rompe la espera (es justo el hueco típico entre anexos)
     if (RE_CIERRE_SECCION_ANTERIOR.test(texto)) { esperandoTitulo = true; continue; } // "FIRMA…"/"FECHA…"
     if (!esperandoTitulo) continue;
+    if (RE_LINEA_CON_RELLENO.test(texto)) continue; // lugar/fecha por completar: sigue siendo el cierre; el título viene después
     esperandoTitulo = false;
     if (texto.includes('\n')) continue; // el título real va solo en su párrafo
     if (RE_ROTULO_NOMBRE.test(texto) || RE_EMPIEZA_CON_COMILLA.test(texto)) continue;

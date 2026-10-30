@@ -2578,3 +2578,23 @@ test('pie «Valor total / Neto / Con Iva» bajo la columna Valor: el monto va en
   assert.equal(bruto.valor, '24.451.748');
   assert.equal(bruto.paraId, 'e2');
 });
+
+// BUG REAL (2483-265-LE26, ANEXO Nº 1): tabla MEZCLADA — filas de 2 celdas («DOMICILIO : | COMUNA :») y filas de
+// 1 celda que SON campos («RUT :», «NOMBRE REPRESENTANTE LEGAL :»). Como la tabla tiene filas de varias celdas, las
+// de 1 celda se tomaban por título mergeado y el RUT y el representante legal salían en blanco. Un título real
+// («DATOS DEL PROPONENTE:») no empieza nombrando el dato que pide.
+test('tabla mezclada: una fila de 1 celda «RUT :» es un campo, «DATOS DEL PROPONENTE:» sigue siendo título (2483-265-LE26)', () => {
+  const xml = NS + tabla(
+    fila('DATOS DEL PROPONENTE:'),
+    fila('RUT :'),
+    fila('DOMICILIO :', 'COMUNA :'),
+    fila('NOMBRE REPRESENTANTE LEGAL :'),
+    fila('RUT REPRESENTANTE LEGAL :'),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const etiquetas = analizarAnexo(norm).camposConDosPuntos.map(c => c.etiqueta);
+  assert.ok(etiquetas.includes('RUT'), `falta RUT: ${JSON.stringify(etiquetas)}`);
+  assert.ok(etiquetas.includes('NOMBRE REPRESENTANTE LEGAL'), `falta el representante: ${JSON.stringify(etiquetas)}`);
+  assert.ok(etiquetas.includes('RUT REPRESENTANTE LEGAL'), `falta el RUT del representante: ${JSON.stringify(etiquetas)}`);
+  assert.ok(!etiquetas.some(e => e.includes('DATOS DEL PROPONENTE')), `el título no es un campo: ${JSON.stringify(etiquetas)}`);
+});

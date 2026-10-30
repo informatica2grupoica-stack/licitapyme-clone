@@ -26,7 +26,7 @@ async function puedeVerLogistica(userId: number, rol: string | null): Promise<bo
 async function puedeLeerLogistica(userId: number, rol: string | null): Promise<boolean> {
   if (await puedeVerLogistica(userId, rol)) return true;
   const p = await permisosDeUsuario(userId, rol);
-  return !!p.compras_ver;
+  return !!(p.compras_ver || p.compras_auditor);
 }
 
 export async function GET(request: NextRequest) {

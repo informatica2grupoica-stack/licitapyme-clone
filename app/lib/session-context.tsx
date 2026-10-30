@@ -35,6 +35,7 @@ export interface UsuarioSession {
     solo_compras?: boolean;
     // Compras en SOLO LECTURA: ve el módulo y sus catálogos, no puede modificar nada.
     compras_ver?: boolean;
+    compras_auditor?: boolean;
     // Costeo del sistema y Auditor Técnico del negocio (28-sep-2026): admin-only por defecto,
     // estos dos permisos dejan trabajarlos a un asistente puntual sin abrirlos a todos.
     costeo_editor?: boolean;

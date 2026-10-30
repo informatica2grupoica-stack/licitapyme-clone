@@ -11,7 +11,7 @@
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
-import { puedeOperarCompras, puedeVerCompras } from '@/app/api/compras/[negocioId]/route';
+import { puedeOperarPreAprobacion, puedeVerPreAprobacion } from '@/app/api/compras/[negocioId]/route';
 import { esAsesor } from '@/app/api/negocios/[id]/comercial/route';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import {
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(negId);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeVerCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
+    if (!(await puedeVerPreAprobacion(userId, rol, asignacion.asignadoA, asignacion.coencargados))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
     return NextResponse.json({ success: true, ...(await armarPanel(negId)) });
   } catch (error: any) {
     console.error('[compras/auditor-costeo][GET]', String(error));
@@ -52,7 +52,7 @@ async function __POST(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(negId);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
+    if (!(await puedeOperarPreAprobacion(userId, rol, asignacion.asignadoA, asignacion.coencargados))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
     const body = await request.json().catch(() => ({}));
     const actor = { id: userId, nombre };
 

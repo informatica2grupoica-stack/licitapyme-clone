@@ -1124,7 +1124,10 @@ export async function agregarLinkALinea(negocioId: number, filaId: string, urlEn
   const idxPrincipal = Math.max(0, (ex?.data?.salida.productos || []).findIndex(p => p.es_producto_principal));
   if (!ex?.data || ex.data.salida.documento?.es_listado_web || !productos[idxPrincipal] || productos[idxPrincipal].precio == null) {
     const opcionId = await crearOpcionSinLectura(negocioId, filaId, url, cap.titulo, capturaId, actor);
-    return { opcionId, estadoLink: cap.estado, error: lectura.error || (ex?.data?.salida.documento?.es_listado_web ? 'La página es un listado, no la ficha de un producto.' : 'No se encontró un precio legible en la página.') };
+    // Tiendas que no publican precio («Añadir al cotizador», «Solicitar cotización por WhatsApp»): no es un fallo de lectura, el precio no está en la página.
+    const sinPrecioPublicado = /cotiz|no (?:es )?visible|no publicad|consult/i.test(JSON.stringify(ex?.data?.salida.productos?.[0]?.comercial?.precios ?? []) + ' ' + (cap.texto || '').slice(0, 6000)) && !/\$\s?[1-9]\d{2,}/.test(cap.texto || '');
+    return { opcionId, estadoLink: cap.estado, error: lectura.error || (ex?.data?.salida.documento?.es_listado_web ? 'La página es un listado, no la ficha de un producto.'
+      : sinPrecioPublicado ? 'Esta tienda no publica el precio (pide cotización): sube la cotización del proveedor o ingresa el precio a mano.' : 'No se encontró un precio legible en la página.') };
   }
   const { opcionId } = await crearOpcionDesdeProducto({
     negocioId, filaId, extraccionId: lectura.id, productoIdx: idxPrincipal, data: ex.data, documentoUrl: url,

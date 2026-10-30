@@ -292,3 +292,21 @@ De paso: «representación de ___» sin «en» delante también se llena con la 
 - Cargo del representante de una empresa de la ficha tenía una profesión en vez del cargo: falta
   el dato real.
 - `.doc` en local no se procesan sin `DOC_CONVERSOR_URL` (en el VPS sí).
+
+## 2026-10-30 — Separar: la línea «LUGAR … DE … DEL 2026.» cortaba un anexo falso; RUT/representante en blanco (2483-265-LE26)
+
+- **Separar** (`ANEXOS_1.DOC` de Quilicura, 5 anexos): el dueño recibió 10 archivos, 5 «Anexo N» y 5 «QUILICURA_DE_DEL_2026» con una sola línea.
+  Causa: cada anexo cierra con `FIRMA…` y debajo `QUILICURA……… DE……… DEL 2026.`; la octava forma de `anexos-dividir.ts`
+  (título tras un cierre) la tomó por el título del anexo siguiente. Arreglo general: una línea con relleno de puntos/rayas
+  (`RE_LINEA_CON_RELLENO`) nunca es título y sigue siendo cierre. Reproducido localmente convirtiendo el .DOC con Word (COM):
+  ahora 5 cortes, cada uno de título a fecha, 1 hoja cada uno (el Anexo 5 sale en 2 hojas en Word por una línea: la nota «(*)»; en
+  el original cabe, con margen inferior de 21 pt — no resuelto, el .docx original separado por el conversor VPS puede diferir).
+  Banco de separación (400 .docx): solo cambian 2 documentos y los dos pierden cortes falsos en líneas «EN ____, A ____ DE ____ 2026.» / «FECHA____.».
+  Test en `anexos-dividir.test.mts`. Los archivos mal separados siguen en la BD: hay que volver a separar y borrar los «QUILICURA_…».
+- **Relleno del Anexo 1**: tabla MEZCLADA (filas «DOMICILIO : | COMUNA :» y filas de 1 celda «RUT :», «NOMBRE REPRESENTANTE LEGAL :»).
+  `indicesFilaTituloMergeada` tomaba las de 1 celda por título y el RUT, el representante y su RUT salían en blanco aunque la ficha
+  los tenía. Arreglo: una fila de 1 celda que EMPIEZA nombrando un dato (`RE_FILA_UNICA_ES_CAMPO`) es campo; «DATOS DEL PROPONENTE:» sigue título.
+  Verificado generando el anexo real: RUT, representante y RUT del representante se llenan. Test en `anexos-deteccion.test.mts`.
+  Pendiente: el «OFERENTE:» pegado a «El arriba firmante declara bajo juramento:» (razón social) no se rellena.
+- Separar nunca devuelve PDF salvo un PDF ESCANEADO (se recorta el original) — la separación por título/firma es la que sirve; por página no se puede
+  en Word sin maquetarlo.

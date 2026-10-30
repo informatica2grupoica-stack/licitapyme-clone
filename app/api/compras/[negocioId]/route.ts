@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
-import { armarRelojAutomatico, obtenerAsignacion, listarTareas, candidatosEncargado, crearTareasCatalogoSiCorresponde, obtenerResumenFases, obtenerHitosGantt } from '@/app/lib/compras';
+import { armarRelojAutomatico, obtenerAsignacion, listarTareas, candidatosEncargado, crearTareasCatalogoSiCorresponde, obtenerResumenFases, obtenerHitosGantt, negociosConCompraAprobada, esAuditorAcotado } from '@/app/lib/compras';
 import { ordenesDeLicitacion } from '@/app/lib/ordenes-compra';
 import { facturacionActaGuardada } from '@/app/lib/acta-adjudicacion';
 
@@ -38,7 +38,21 @@ export async function puedeOperarCompras(userId: number, rol: string | null, asi
   if (asignadoA != null && Number(asignadoA) === Number(userId)) return true;
   if (coencargados.some(c => Number(c.id) === Number(userId))) return true;   // otro encargado del mismo negocio (migration-142)
   const p = await permisosCrudosDeUsuario(userId);
+  return !!(p.compras_todo || p.compras || p.aprobar_comercial || p.compras_auditor);
+}
+
+// Igual que `puedeOperarCompras`, pero SIN el perfil Auditor de Compras (`compras_auditor`): el Auditor trabaja desde que se
+// aprueba la compra (SKU, OC, logística, entrega, cierre) y no entra a cotizar/costear (cotizaciones, escenarios, fichas, costeo).
+export async function puedeOperarPreAprobacion(userId: number, rol: string | null, asignadoA: number | null, coencargados: Array<{ id: number }> = []): Promise<boolean> {
+  if (asignadoA != null && Number(asignadoA) === Number(userId)) return true;
+  if (coencargados.some(c => Number(c.id) === Number(userId))) return true;
+  const p = await permisosCrudosDeUsuario(userId);
   return !!(p.compras_todo || p.compras || p.aprobar_comercial);
+}
+export async function puedeVerPreAprobacion(userId: number, rol: string | null, asignadoA: number | null, coencargados: Array<{ id: number }> = []): Promise<boolean> {
+  if (await puedeOperarPreAprobacion(userId, rol, asignadoA, coencargados)) return true;
+  const p = await permisosCrudosDeUsuario(userId);
+  return !!(p.compras_administracion || p.compras_bodega || p.compras_ver || p.compras_auditor);
 }
 
 // Gate ANCHO, solo para VER: suma administración y bodega (§2.2, sep-2026) — necesitan poder abrir
@@ -65,6 +79,11 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     if (!(await puedeVerCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados))) {
       return NextResponse.json({ error: 'Sin acceso a Compras de este negocio.' }, { status: 403 });
+    }
+    // Auditor de Compras: entra recién cuando la compra del negocio está aprobada (compra directa o cuadro de compra).
+    if (esAuditorAcotado(await permisosCrudosDeUsuario(userId)) && !(await puedeVerPreAprobacion(userId, rol, asignacion.asignadoA, asignacion.coencargados))
+        && !(await negociosConCompraAprobada(id)).has(id)) {
+      return NextResponse.json({ error: 'Este negocio todavía no tiene la compra aprobada. El Auditor entra desde la aprobación.' }, { status: 403 });
     }
 
     // Backfill perezoso: negocios asignados antes de que existiera una tarea nueva en el catálogo

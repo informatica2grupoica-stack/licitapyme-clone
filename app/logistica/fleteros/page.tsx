@@ -51,7 +51,7 @@ export default function FleterosPage() {
   // Solo lectura (permiso compras_ver sin ninguno de operación): ve el catálogo, no lo modifica.
   const soloLectura = usuario?.rol !== 'admin' && !usuario?.permisos?.compras && !usuario?.permisos?.compras_todo && !usuario?.permisos?.aprobar_comercial;
 
-  const puedeVer = esAdmin || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial || !!usuario?.permisos?.compras_ver;
+  const puedeVer = esAdmin || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial || !!usuario?.permisos?.compras_ver || !!usuario?.permisos?.compras_auditor;
 
   const cargar = useCallback(async () => {
     try {

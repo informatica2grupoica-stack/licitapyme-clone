@@ -9,7 +9,7 @@ import { obtenerAsignacion } from '@/app/lib/compras';
 import { solicitarCompraRapida, exigirTablaCompraRapida, rutChilenoValido } from '@/app/lib/compras-compra-rapida';
 import { listarAuditoriasNegocio, costeadoPorProducto, ventaPorProducto } from '@/app/lib/compras-auditoria-cotizacion';
 import { registrarCotizacion, listarCotizaciones, type DatosCotizacion, type OrigenCotizacion } from '@/app/lib/compras-auditor';
-import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
+import { puedeOperarPreAprobacion, puedeVerPreAprobacion } from '@/app/api/compras/[negocioId]/route';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { extraerDatosCotizacionDeDocumento } from '@/app/lib/compras-cotizacion-ocr';
 import { parsearMontoCL } from '@/app/lib/numeros';
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
+    if (!(await puedeVerPreAprobacion(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const [cotizaciones, auditorias, costeado, venta] = await Promise.all([listarCotizaciones(id), listarAuditoriasNegocio(id).catch(() => []), costeadoPorProducto(id).catch(() => ({})), ventaPorProducto(id).catch(() => ({}))]);
@@ -58,7 +58,7 @@ async function __POST(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
+    if (!(await puedeOperarPreAprobacion(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const contentType = request.headers.get('content-type') || '';

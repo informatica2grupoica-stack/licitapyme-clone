@@ -247,7 +247,7 @@ export function GestionAside({
   // Mismo criterio que /compras para decidir quién entra (así no se ofrece un botón que lo rebota al dashboard).
   const { usuario } = useSession();
   const pc = usuario?.permisos;
-  const puedeVerCompras = !!(pc?.compras_todo || pc?.compras || pc?.aprobar_comercial || pc?.compras_administracion || pc?.compras_bodega || pc?.compras_ver);
+  const puedeVerCompras = !!(pc?.compras_todo || pc?.compras || pc?.aprobar_comercial || pc?.compras_administracion || pc?.compras_bodega || pc?.compras_ver || pc?.compras_auditor);
   const confirmar = useConfirm();
 
   const [descarteOpen, setDescarteOpen] = useState(false);

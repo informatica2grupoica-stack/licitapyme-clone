@@ -53,6 +53,16 @@ re-homologarlas** (y lo hecho antes en otros negocios con cantidades no exactas 
 - «Datos para facturar» salen del acta desde el día 1; la OC solo completa lo que falta.
 - La vista mensual se ancla en `ganado_at` (fecha real de adjudicación).
 - El auditor de cotizaciones no puede dar «CUMPLE» sin cita literal verificada por código.
+- **2026-10-30 · Perfil «Auditor de Compras»** (permiso `compras_auditor`; se aplica con un botón en Editar permisos → Compras,
+  que además marca `solo_compras`). Opera Compras DESDE que la compra está aprobada (compra directa o cuadro): SKU, OC,
+  logística, entrega, cierre; ve Proveedores, Proyectos, OC y Fleteros (esos catálogos en solo lectura). NO ve Tareas ni
+  Tareas ni Costeo y auditoría (pestañas ocultas, el servidor las niega: los GET usan
+  `puedeVerPreAprobacion` y las escrituras `puedeOperarPreAprobacion`, ninguno deja pasar al Auditor; ambos en `/api/compras/[negocioId]/route.ts`).
+  Para ver los archivos de cotizaciones y fichas tiene la tarjeta `DocumentosCompraCard` en la pestaña Documentos (ruta `documentos-compra`, solo archivos, sin precios).
+  «Compra aprobada» = cuadro (`compras_aprobacion` COMPRA) **o** compra directa (`compras_compra_rapida` APROBADA): al
+  principio solo se contaba el cuadro y el Auditor no veía los negocios con solo compra directa. Solo lista/abre negocios con la COMPRA aprobada
+  (`negociosConCompraAprobada`, `esAuditorAcotado` en `compras.ts`). No aprueba (eso sigue siendo del jefe de ventas) ni
+  ve el dashboard de Compras. **Pendiente:** probarlo con un usuario real (no se creó ninguno).
 - **Comparar precios: línea sin cotización muestra su costeo en rojo** donde iba «Mejor + %», y
   bajo «Por proveedor» va un resumen contra lo costeado: cotizadas a su MEJOR precio (no la
   elegida) + sin cotizar a lo costeado = total nuevo, y el margen a favor o sobrecosto en $ y %

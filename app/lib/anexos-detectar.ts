@@ -2433,6 +2433,8 @@ function blancoPrecedeBloqueNoRellenable(xml: string, paraId: string): boolean {
 // nombre del contacto, aunque nunca se iba a estampar ahí (el dato real vive en las celdas de la
 // fila siguiente, ya cubiertas por el patrón de tabla).
 const RE_FILA_SOLO_FECHA = /^\s*fecha\s*[:,]\s*$/i;
+const RE_FILA_UNICA_ES_CAMPO =
+  /^\s*(?:nombre|raz[oó]n\s+social|r\.?\s*u\.?\s*t\.?|rol\s+[uú]nico|run|c[eé]dula|domicilio|direcci[oó]n|giro|correo|e-?mail|tel[eé]fono|fono|celular|ciudad|comuna|regi[oó]n)\b[^:]{0,60}:\s*$/i;
 
 function indicesFilaTituloMergeada(xml: string): Set<number> {
   const offsetsIndices = offsetsAIndices(xml);
@@ -2461,6 +2463,11 @@ function indicesFilaTituloMergeada(xml: string): Set<number> {
         // "FECHA :" a secas en su propia fila (4494-69-LE26): es el campo de la fecha de firma, no
         // el título de una sección — se deja pasar para que el patrón 5 le escriba la fecha.
         if (RE_FILA_SOLO_FECHA.test(textoDeRuns(p[0]))) continue;
+        // Tabla MEZCLADA (2483-265-LE26, ANEXO 1): filas de 2 celdas ("DOMICILIO : | COMUNA :") y filas de 1
+        // celda que son CAMPOS ("RUT :", "NOMBRE REPRESENTANTE LEGAL :"). Se distinguen de un título
+        // ("DATOS DEL PROPONENTE:") porque el campo EMPIEZA nombrando el dato que pide. Sin esto el RUT y el
+        // representante legal salían en blanco.
+        if (RE_FILA_UNICA_ES_CAMPO.test(textoDeRuns(p[0]))) continue;
         const indice = offsetsIndices.get(offsetCelda + p.index!);
         if (indice != null) out.add(indice);
       }

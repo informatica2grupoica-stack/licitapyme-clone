@@ -8,7 +8,7 @@ import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { obtenerAsignacion } from '@/app/lib/compras';
-import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
+import { puedeOperarPreAprobacion, puedeVerPreAprobacion } from '@/app/api/compras/[negocioId]/route';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import {
   panelFichas, procesarFicha, asignarProductoDeFicha, cambiarProveedorDeOpcion, compararProducto, filaDeProductoCompra, quitarOpcionDeCompras, moverOpcionDeCompras, quitarFichaDeOpcion, olvidarDocumentoDeCompras, complementarRequisito, restaurarOpcionDeCompras,
@@ -30,7 +30,7 @@ export const parecefichaPorNombre = (nombre: string) => !NO_ES_FICHA.test(nombre
 
 type Params = { params: Promise<{ negocioId: string }> };
 
-async function contexto(request: NextRequest, params: Params['params']) {
+async function contexto(request: NextRequest, params: Params['params'], lectura = false) {
   const userId = request.headers.get('x-user-id') ? parseInt(request.headers.get('x-user-id')!) : null;
   const rol = request.headers.get('x-user-rol');
   const nombre = request.headers.get('x-user-nombre') || 'Usuario';
@@ -38,12 +38,12 @@ async function contexto(request: NextRequest, params: Params['params']) {
   const id = parseInt((await params).negocioId);
   const asignacion = await obtenerAsignacion(id);
   if (!asignacion) return { error: NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 }) };
-  if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados))) return { error: NextResponse.json({ error: 'Sin acceso.' }, { status: 403 }) };
+  if (!(await (lectura ? puedeVerPreAprobacion : puedeOperarPreAprobacion)(userId, rol, asignacion.asignadoA, asignacion.coencargados))) return { error: NextResponse.json({ error: 'Sin acceso.' }, { status: 403 }) };
   return { id, codigo: asignacion.licitacionCodigo, actor: { id: userId, nombre } };
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
-  const c = await contexto(request, params);
+  const c = await contexto(request, params, true);
   if ('error' in c) return c.error;
   try {
     if (request.nextUrl.searchParams.get('proyecto')) {

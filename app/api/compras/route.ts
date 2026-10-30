@@ -7,7 +7,7 @@
 // compras) — el mismo círculo que puede operar el módulo, no solo mirarlo.
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
-import { listarAsignacionesCompras, candidatosEncargado } from '@/app/lib/compras';
+import { listarAsignacionesCompras, candidatosEncargado, negociosConCompraAprobada, esAuditorAcotado } from '@/app/lib/compras';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,7 +26,7 @@ async function puedeVerCompras(userId: number, rol: string | null): Promise<bool
   const p = await permisosCrudosDeUsuario(userId);
   // administración/bodega (§2.2) también entran al listado: necesitan llegar a SU negocio para
   // operar su sección angosta, aunque no sean el encargado de compras/entrega.
-  return !!(p.compras_todo || p.compras || p.aprobar_comercial || p.compras_administracion || p.compras_bodega || p.compras_ver);
+  return !!(p.compras_todo || p.compras || p.aprobar_comercial || p.compras_administracion || p.compras_bodega || p.compras_ver || p.compras_auditor);
 }
 
 export async function GET(request: NextRequest) {
@@ -35,7 +35,12 @@ export async function GET(request: NextRequest) {
   if (!(await puedeVerCompras(userId, rol))) return NextResponse.json({ error: 'Sin acceso a Compras.' }, { status: 403 });
 
   try {
-    const [filas, candidatos] = await Promise.all([listarAsignacionesCompras(), candidatosEncargado()]);
+    const [filas, candidatos, p] = await Promise.all([listarAsignacionesCompras(), candidatosEncargado(), permisosCrudosDeUsuario(userId)]);
+    // Auditor de Compras: solo los negocios cuya compra ya se aprobó (desde ahí es su trabajo).
+    if (esAuditorAcotado(p)) {
+      const aprobados = await negociosConCompraAprobada();
+      return NextResponse.json({ success: true, negocios: filas.filter(f => aprobados.has(Number(f.negocioId))), candidatos: [] });
+    }
     return NextResponse.json({ success: true, negocios: filas, candidatos });
   } catch (error: any) {
     console.error('[compras][GET]', String(error));

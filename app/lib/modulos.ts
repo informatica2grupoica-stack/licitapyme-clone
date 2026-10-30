@@ -30,7 +30,7 @@ export const PERMISOS_DEL_MODULO: Record<Modulo, string[]> = {
   auditor:    ['auditor_tecnico', 'auditor_compra', 'auditor_aprobar', 'aprobar_comercial'],
   costeo:     ['costeo_editor', 'costeo_exportar'],
   anexos:     ['anexos'],
-  compras:    ['compras', 'compras_administracion', 'compras_bodega', 'compras_todo', 'compras_ver', 'solo_compras'],
+  compras:    ['compras', 'compras_administracion', 'compras_bodega', 'compras_todo', 'compras_ver', 'compras_auditor', 'solo_compras'],
   entregas:   ['entrega_proyectos'],
   competencia: [],
 };
