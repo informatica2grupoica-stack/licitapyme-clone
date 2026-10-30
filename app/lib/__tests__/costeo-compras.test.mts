@@ -63,3 +63,26 @@ test('distinta cantidad de hojas → error claro; números negativos o basura �
   assert.equal(r.estado.grupos[0].filas[0].costoRealUnitario, null);
   assert.equal(r.estado.grupos[0].filas[1].costoRealUnitario, null);
 });
+
+// ── Permisos costeo_agregar_* (30-oct-2026) ──────────────────────────────────────────────────────
+test('fila ofertada y costo adicional de Compras: solo entran con su permiso', () => {
+  const nueva = { grupos: [{ filas: [fila('a'), fila('b'), fila('n1', { propiaCompras: true, detalle: 'CABLE', cantidad: 3, valorConIva: 5000, margenVenta: 30 }), fila('n2', { esCostoAdicional: true, detalle: 'FLETE', costoAdicionalNeto: 40000, cantidad: 9 })] }] };
+  const sin: any = fusionarEdicionCompras(guardado(), nueva);
+  assert.equal(sin.ok, false);
+  assert.match(sin.error, /agregar filas/);
+  const con: any = fusionarEdicionCompras(guardado(), nueva, { fila: true, adicional: true });
+  assert.equal(con.ok, true);
+  const [, , f, a] = con.estado.grupos[0].filas;
+  assert.equal(f.valorConIva, 5000); assert.equal(f.margenVenta, 30); assert.equal(f.propiaCompras, true); assert.equal(f.agregadoPorCompras, undefined);
+  assert.equal(a.esCostoAdicional, true); assert.equal(a.costoAdicionalNeto, 40000); assert.equal(a.cantidad, null);
+});
+
+test('las filas propias ya guardadas se siguen editando y borrando aunque se quite el permiso', () => {
+  const g = guardado();
+  g.grupos[0].filas.push(fila('p', { item: 3, propiaCompras: true, detalle: 'CABLE', cantidad: 3, valorConIva: 5000 }));
+  const edit: any = fusionarEdicionCompras(g, { grupos: [{ filas: [fila('a'), fila('b'), fila('p', { propiaCompras: true, detalle: 'CABLE 2M', cantidad: 4, valorConIva: 6000 })] }] }, {});
+  assert.equal(edit.ok, true);
+  assert.equal(edit.estado.grupos[0].filas[2].detalle, 'CABLE 2M');
+  const borra: any = fusionarEdicionCompras(g, { grupos: [{ filas: [fila('a'), fila('b')] }] }, {});
+  assert.equal(borra.estado.grupos[0].filas.length, 2);
+});

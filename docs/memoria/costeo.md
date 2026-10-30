@@ -3,6 +3,14 @@
 Costeo digital del negocio (editor + burbuja flotante) y Excel de costeo (plantilla V3).
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-30 — El registro de cambios del costeo anota TODO lo que se modifica
+**Pedido del dueño:** el «Registro de cambios» solo mostraba «Primer guardado del costeo»; debe dejar constancia de todo.
+**Cambio** (`resumenCambiosCosteo`, `costeo-editor.ts`): ahora anota también hojas nuevas y hojas eliminadas/unidas, ítems
+agregados/eliminados con su cantidad, precio o costo adicional y la hoja, qué link (1/2/3) se agregó/quitó/cambió, imagen
+agregada/quitada, complemento con el texto antes → después, paso a/desde costo adicional, cambio de orden de ítems en una hoja,
+y el primer guardado dice cuántas hojas e ítems trae. Tope 80 líneas (antes 40). Los guardados anteriores no se reescriben.
+**Verificado:** tests (20/20) y tsc; sin ver en navegador.
+
 ## 2026-10-30 — Re-análisis a GLOBAL no unía las hojas del costeo (1090-17-LE26)
 **Caso real:** 1090-17-LE26 (negocio 1629). 1er análisis por línea → costeo con 13 hojas; el re-análisis dejó `adjudicacion.resultado = GLOBAL` pero `modalidad.tipo` quedó en por_linea, y `adaptarViabilidadACosteo` solo leía ese campo heredado.
 **Arreglo:** `generar-costeo.ts` no usa por_linea si la adjudicación es GLOBAL; `costeo-editor-reanalisis.ts` une las hojas (`unirEnUnaHoja`, sin tocar precios; no si alguna hoja está apagada) y actualiza también la columna `modalidad`.
@@ -185,3 +193,17 @@ con el Auditor y reparte hojas) y sale en el tooltip del número; ya no se edita
 - Negocio 427 (1173418-1-LE26, otro responsable) sin costeo ni decisión de líneas; la línea 3
   (perdida) no tiene hoja — si «Actualizar» trae filas de L3 hay que apagarla.
 - Botón «Generar costeo» visible aunque no exista uno previo (sugerido).
+
+## Permisos de los botones «Agregar …» (30-oct-2026)
+
+- «Agregar fila», «Agregar gasto extra» y «Agregar costo adicional» del Costeo digital son 3 permisos por perfil
+  (`costeo_agregar_fila`, `costeo_agregar_gasto`, `costeo_agregar_adicional`, en Editar permisos → Auditor y Anexos).
+  Admin siempre los tiene. El GET devuelve `puedeAgregar` y la pantalla muestra solo esos botones.
+- Compras ahora puede agregar los tres (antes solo gasto extra), validado en `fusionarEdicionCompras(…, permitidos)`:
+  una fila nueva sin permiso devuelve error. Sus filas se marcan `propiaCompras` (fila/adicional) o `agregadoPorCompras` (gasto)
+  y siguen siendo editables/borrables por Compras aunque después se le quite el permiso.
+- Quien edita con `costeo_editor` (PUT completo) solo tiene el límite en la pantalla, no en el servidor.
+- PENDIENTE: correr `node scripts/aplicar-migration-175.mjs --produccion` (con OK del dueño) para dar los 3 permisos a quienes ya
+  usaban costeo_editor/compras; sin eso, esos perfiles pierden los botones hasta activarlos a mano.
+
+- **Admin edita todo en el costeo digital (30-oct-2026):** las filas «gasto extra» (de Compras o convertidas) ya no tienen Valor c/IVA, Costo total, Recargo ni Precio bloqueados para admin/asistente; solo se bloquean en modo Compras. Si el admin les pone precio, recargo o costo total, la fila deja de ser gasto extra y pasa a ofertada/costo adicional. Cambio en `CosteoEditorCard.tsx`; sin ver en navegador.

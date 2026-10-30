@@ -25,6 +25,11 @@ export interface Parrafo {
   texto: string;
   vacio: boolean;   // sin ningún <w:r> adentro (candidato a "celda para rellenar")
   indice: number;   // posición en el documento, en orden de aparición
+  // Texto del párrafo ANIDADO de un cuadro flotante (<w:txbxContent>) que el regex no-greedy dejó
+  // pegado al párrafo ancla ("El arriba firmante declara bajo juramento:" + "OFERENTE:", 2483-265-
+  // LE26). Solo viene cuando el ancla trae texto propio ANTES del cuadro; `texto` sigue siendo el
+  // pegado de siempre (los índices no cambian), y esto permite ver la etiqueta de adentro.
+  textoCuadro?: string;
   centrado: boolean; // <w:jc w:val="center"> — señal de encabezado/título, no de etiqueta de campo
   // <w:pBdr><w:bottom .../></w:pBdr> — la "raya" de firma en varios anexos de Los Vilos NO es
   // texto (`_____`), es un borde inferior puesto en párrafos vacíos consecutivos. BUG REAL
@@ -258,9 +263,15 @@ export function listarParrafos(xml: string): Parrafo[] {
   const rangosTapados = rangosTapadosPorCuadroOpaco(xml);
   return matches.map((match, indice) => {
     const [, paraId, cuerpo] = match;
+    // Ancla con texto propio + cuadro flotante: el match se corta en el </w:p> del primer párrafo
+    // de adentro, así que la etiqueta del cuadro queda pegada al texto del ancla.
+    const posCuadro = cuerpo.search(/<w:txbxContent\b/);
+    const textoPropio = posCuadro > 0 ? textoDeRuns(cuerpo.slice(0, posCuadro)).trim() : '';
+    const textoCuadro = textoPropio ? textoDeRuns(cuerpo.slice(posCuadro)).trim() : '';
     return {
       paraId,
       texto: textoDeRuns(cuerpo).trim(),
+      ...(textoCuadro ? { textoCuadro } : {}),
       vacio: parrafoEstaVacio(cuerpo),
       indice,
       centrado: /<w:jc\s+w:val="center"/.test(cuerpo),

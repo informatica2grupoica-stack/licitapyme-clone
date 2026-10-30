@@ -68,6 +68,8 @@ interface FilaEditor {
   link1: string; link2: string; link3: string;
   // Fila agregada por el perfil de Compras: solo esas puede editar y borrar (ver costeo-compras.ts).
   agregadoPorCompras?: boolean;
+  // Fila (ofertada o costo adicional) que agregó Compras con el permiso correspondiente: Compras puede editarla y borrarla.
+  propiaCompras?: boolean;
   // Costo adicional a mano (flete, despacho…): se escribe el «Costo total neto» directo. Suma al costo y al margen, no se vende.
   // Ver FilaEditorCosteo en costeo-editor.ts.
   esCostoAdicional?: boolean;
@@ -1241,6 +1243,8 @@ export function CosteoEditorCard({
   const [exportando, setExportando] = useState(false);
   // Exportar a Excel: solo administradores (el servidor también lo corta).
   const [esAdmin, setEsAdmin] = useState(false);
+  // Qué botones «Agregar …» puede usar este perfil (permisos costeo_agregar_*; el servidor manda).
+  const [puedeAgregar, setPuedeAgregar] = useState({ fila: false, gasto: false, adicional: false });
   // Registro de cambios: quién guardó/modificó el costeo, cuándo y qué cambió. Apartado propio (botón
   // «Registro» de la cabecera), fuera de las tablas.
   const [registro, setRegistro] = useState<EntradaRegistro[]>([]);
@@ -1259,6 +1263,7 @@ export function CosteoEditorCard({
       setCongelado(!!d.congelado);
       setModoCompras(!!d.modoCompras);
       setEsAdmin(!!d.esAdmin);
+      setPuedeAgregar({ fila: !!d.puedeAgregar?.fila, gasto: !!d.puedeAgregar?.gasto, adicional: !!d.puedeAgregar?.adicional });
       setRegistro(Array.isArray(d.registro) ? d.registro : []);
       const pub = Number(d.presupuestoPublicado); // ojo: Number(null) es 0, no NaN
       setPresupuestoPublicado(d.presupuestoPublicado != null && Number.isFinite(pub) && pub > 0 ? pub : null);
@@ -1416,10 +1421,10 @@ export function CosteoEditorCard({
 
   // `gastoExtra`: ítem que NO se vende (flete, horas extra, un imprevisto) — suma solo al costo real.
   // Compras siempre agrega gastos extra; el admin elige entre agregar una fila ofertada o un gasto.
-  const agregarFila = (gi: number, gastoExtra = modoCompras) => {
+  const agregarFila = (gi: number, gastoExtra = false) => {
     setEstado(prev => {
       if (!prev) return prev;
-      const grupos = prev.grupos.map((g, i) => i !== gi ? g : { ...g, filas: [...g.filas, gastoExtra ? { ...nuevaFila(g.filas.length + 1), cantidad: 1, agregadoPorCompras: true } : nuevaFila(g.filas.length + 1)] });
+      const grupos = prev.grupos.map((g, i) => i !== gi ? g : { ...g, filas: [...g.filas, gastoExtra ? { ...nuevaFila(g.filas.length + 1), cantidad: 1, agregadoPorCompras: true } : { ...nuevaFila(g.filas.length + 1), ...(modoCompras ? { propiaCompras: true } : {}) }] });
       return { ...prev, grupos };
     });
   };
@@ -1429,7 +1434,7 @@ export function CosteoEditorCard({
     if (!(await avisarFormula('costo'))) return;
     setEstado(prev => {
       if (!prev) return prev;
-      const grupos = prev.grupos.map((g, i) => i !== gi ? g : { ...g, filas: [...g.filas, { ...nuevaFila(g.filas.length + 1), unidad: '', esCostoAdicional: true, costoAdicionalNeto: null }] });
+      const grupos = prev.grupos.map((g, i) => i !== gi ? g : { ...g, filas: [...g.filas, { ...nuevaFila(g.filas.length + 1), unidad: '', esCostoAdicional: true, costoAdicionalNeto: null, ...(modoCompras ? { propiaCompras: true } : {}) }] });
       return { ...prev, grupos };
     });
   };
@@ -1778,7 +1783,7 @@ export function CosteoEditorCard({
               {ultimoGuardado && ` · guardado ${ultimoGuardado}`}
               {registro[0] && ` · último cambio: ${registro[0].quien}, ${fechaRegistro(registro[0].fecha)}`}
               {dirty && <span className="text-amber-600 font-semibold"> · cambios sin guardar</span>}
-              {modoCompras && <span className="text-indigo-600 font-semibold"> · modo Compras: costo real, links y gastos extra (no se venden, solo suman al costo real)</span>}
+              {modoCompras && <span className="text-indigo-600 font-semibold"> · modo Compras: costo real, links y las filas que tu perfil puede agregar</span>}
             </p>
           </div>
         </div>
@@ -2116,7 +2121,7 @@ export function CosteoEditorCard({
               const variacion = variacionFila(f, costoUnitario);
               // Compras: lo ajeno queda bloqueado; solo Costo REAL y Links se habilitan, y sus propias filas nuevas por completo.
               const esAdic = !!f.esCostoAdicional;
-              const baseBloq = congelado && !(modoCompras && f.agregadoPorCompras);
+              const baseBloq = congelado && !(modoCompras && (f.agregadoPorCompras || f.propiaCompras));
               const realBloq = congelado && !modoCompras;
               const celda = { border: `1px solid ${GRID_BORDE}`, height: 24 };
               const celdaFormula = { ...celda, background: bajoCosto ? '#fdeceb' : '#f8f9fb' };
@@ -2146,7 +2151,7 @@ export function CosteoEditorCard({
                     <input value={f.skuProveedor} onChange={e => actualizarFila(grupoActivo, fi, { skuProveedor: e.target.value })} disabled={baseBloq || esAdic} className={celdaInput()} placeholder={esAdic ? '' : 'Tienda / SKU'} />
                   </td>
                   <td style={celda} className="p-0"><CeldaNumero value={f.cantidad} onChange={v => actualizarFila(grupoActivo, fi, { cantidad: v })} disabled={baseBloq || esAdic} /></td>
-                  <td style={celda} className="p-0" title={f.agregadoPorCompras ? 'Gasto extra de Compras: no se vende, solo tiene costo real.' : esAdic ? 'Costo adicional: no tiene valor de mercado, se escribe el Costo total neto.' : undefined}><CeldaNumero value={esAdic ? null : f.valorConIva} moneda onChange={v => actualizarFila(grupoActivo, fi, { valorConIva: v })} disabled={baseBloq || !!f.agregadoPorCompras || esAdic} /></td>
+                  <td style={celda} className="p-0" title={f.agregadoPorCompras ? 'Gasto extra de Compras: no se vende, solo tiene costo real.' : esAdic ? 'Costo adicional: no tiene valor de mercado, se escribe el Costo total neto.' : undefined}><CeldaNumero value={esAdic ? null : f.valorConIva} moneda onChange={v => actualizarFila(grupoActivo, fi, { valorConIva: v, ...(v != null && f.agregadoPorCompras ? { agregadoPorCompras: false } : {}) })} disabled={baseBloq || (modoCompras && !!f.agregadoPorCompras) || esAdic} /></td>
                   <td style={celdaFormula} onClick={() => !esAdic && explicarCeldaGris('Costo unit. neto')} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title="= Valor c/IVA / 1.19">{esAdic ? '—' : fmtCLP(costoUnitario != null ? Math.round(costoUnitario) : null)}</td>
                   {/* COSTO TOTAL NETO: en un ítem normal es una fórmula (cantidad × costo unitario) y no se escribe. En un COSTO ADICIONAL es lo único
                       que se tipea: el monto a mano que suma al costo total y baja el margen (no se vende). */}
@@ -2159,12 +2164,12 @@ export function CosteoEditorCard({
                     <td style={celda} className="p-0">
                       <CeldaCostoTotal
                         costoTotal={costoTotal} fondo={celdaFormula.background as string}
-                        disabled={baseBloq || !!f.agregadoPorCompras}
+                        disabled={baseBloq || (modoCompras && !!f.agregadoPorCompras)}
                         onAvisar={() => avisarFormula('total')}
                         onFijarTotal={t => {
                           // Solo el costo total neto: no se rellena Valor c/IVA, cantidad ni precio. La fila pasa a costo a mano (suma al costo, no se vende).
                           if (t == null) { actualizarFila(grupoActivo, fi, { valorConIva: null }); return; }
-                          actualizarFila(grupoActivo, fi, { esCostoAdicional: true, costoAdicionalNeto: t });
+                          actualizarFila(grupoActivo, fi, { esCostoAdicional: true, costoAdicionalNeto: t, agregadoPorCompras: false });
                         }}
                       />
                     </td>
@@ -2175,8 +2180,8 @@ export function CosteoEditorCard({
                     <CeldaMargenFila
                       propio={Number.isFinite(f.margenVenta as number) ? (f.margenVenta as number) : null}
                       efectivo={margenFila}
-                      onChange={v => actualizarFila(grupoActivo, fi, { margenVenta: v })}
-                      disabled={baseBloq || !!f.agregadoPorCompras || esAdic}
+                      onChange={v => actualizarFila(grupoActivo, fi, { margenVenta: v, ...(v != null && f.agregadoPorCompras ? { agregadoPorCompras: false } : {}) })}
+                      disabled={baseBloq || (modoCompras && !!f.agregadoPorCompras) || esAdic}
                     />
                   </td>
                   {/* PRECIO UNIT. VENTA: se puede escribir. Calcula solo el % margen de la fila (con aviso de que es una columna con fórmula). */}
@@ -2186,9 +2191,9 @@ export function CosteoEditorCard({
                     <td style={{ ...celda, background: f.margenVenta != null ? '#e8f0fe' : celdaFormula.background }} className="p-0">
                       <CeldaPrecioVenta
                         precio={precioUnitarioSinDecimales} costoUnit={costoUnitario} fondo="transparent"
-                        disabled={baseBloq || !!f.agregadoPorCompras}
+                        disabled={baseBloq || (modoCompras && !!f.agregadoPorCompras)}
                         onAvisar={() => avisarFormula('precio')}
-                        onFijarRecargo={r => actualizarFila(grupoActivo, fi, { margenVenta: r })}
+                        onFijarRecargo={r => actualizarFila(grupoActivo, fi, { margenVenta: r, ...(f.agregadoPorCompras ? { agregadoPorCompras: false } : {}) })}
                         onSinCosto={() => toast.info('Primero ingresa el costo de este ítem', 'Escribe el «Valor c/IVA» o el «Costo total neto»: sin costo no se puede calcular el % margen.')}
                       />
                     </td>
@@ -2243,7 +2248,7 @@ export function CosteoEditorCard({
                         GASTO
                       </button>
                     )}
-                    {(!congelado || (modoCompras && f.agregadoPorCompras)) && (
+                    {(!congelado || (modoCompras && (f.agregadoPorCompras || f.propiaCompras))) && (
                       <button onClick={() => eliminarFila(grupoActivo, fi)} className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-300 hover:text-rose-600 transition-opacity">
                         <Trash2 size={11} />
                       </button>
@@ -2279,20 +2284,22 @@ export function CosteoEditorCard({
           </tbody>
         </table>
       </div>
-      {(!congelado || modoCompras) && (
+      {(!congelado || modoCompras) && (puedeAgregar.fila || puedeAgregar.gasto || puedeAgregar.adicional) && (
         <div className="px-2 py-1.5 border-t border-[#c6c6c6] flex-shrink-0" style={{ background: '#f9fafb' }}>
           <div className="flex items-center gap-4">
-            {!modoCompras && (
+            {puedeAgregar.fila && (
               <button onClick={() => agregarFila(grupoActivo, false)} className="flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-indigo-700">
                 <Plus size={12} /> Agregar fila
               </button>
             )}
-            <button onClick={() => agregarFila(grupoActivo, true)}
-              title="Un costo que no se le vendió al cliente (flete, horas extra, un imprevisto): suma al costo real y a los gastos adicionales del comparativo, pero no a la venta."
-              className="flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-indigo-700">
-              <Plus size={12} /> Agregar gasto extra
-            </button>
-            {!modoCompras && (
+            {puedeAgregar.gasto && (
+              <button onClick={() => agregarFila(grupoActivo, true)}
+                title="Un costo que no se le vendió al cliente (flete, horas extra, un imprevisto): suma al costo real y a los gastos adicionales del comparativo, pero no a la venta."
+                className="flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-indigo-700">
+                <Plus size={12} /> Agregar gasto extra
+              </button>
+            )}
+            {puedeAgregar.adicional && (
               <button onClick={() => agregarCostoAdicional(grupoActivo)}
                 title="Un costo que se suma a mano al costo total (flete, despacho, capacitación…): baja el margen pero no se vende ni va al anexo económico. Escribes directo el Costo total neto."
                 className="flex items-center gap-1 text-[11.5px] font-semibold text-amber-700 hover:text-amber-900">

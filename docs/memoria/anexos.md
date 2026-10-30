@@ -307,6 +307,10 @@ De paso: «representación de ___» sin «en» delante también se llena con la 
   `indicesFilaTituloMergeada` tomaba las de 1 celda por título y el RUT, el representante y su RUT salían en blanco aunque la ficha
   los tenía. Arreglo: una fila de 1 celda que EMPIEZA nombrando un dato (`RE_FILA_UNICA_ES_CAMPO`) es campo; «DATOS DEL PROPONENTE:» sigue título.
   Verificado generando el anexo real: RUT, representante y RUT del representante se llenan. Test en `anexos-deteccion.test.mts`.
-  Pendiente: el «OFERENTE:» pegado a «El arriba firmante declara bajo juramento:» (razón social) no se rellena.
+  «OFERENTE:» (razón social): era la primera fila de esa tabla, dentro de un cuadro flotante anclado en el párrafo «El arriba firmante
+  declara bajo juramento:». `listarParrafos` (regex no-greedy) cortaba el ancla en el `</w:p>` de adentro y la etiqueta quedaba pegada
+  a la oración. Arreglo: `Parrafo.textoCuadro` (texto del cuadro cuando el ancla trae texto propio antes) y `detectarCamposConDosPuntos`
+  lo usa como etiqueta; `RE_FILA_UNICA_ES_CAMPO` también acepta «OFERENTE:»/«PROPONENTE:» a secas. Los índices de párrafo no cambian.
+  Verificado generando el anexo real: sale «OFERENTE: Comercial MP SpA». Test en `anexos-deteccion.test.mts` (suite 1677/1677).
 - Separar nunca devuelve PDF salvo un PDF ESCANEADO (se recorta el original) — la separación por título/firma es la que sirve; por página no se puede
   en Word sin maquetarlo.

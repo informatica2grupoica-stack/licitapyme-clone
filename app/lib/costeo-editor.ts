@@ -70,6 +70,8 @@ export interface FilaEditorCosteo {
   // Fila agregada por el perfil de Compras (no viene de la viabilidad): a diferencia del resto, Compras
   // puede editarla entera y borrarla. Ver fusionarEdicionCompras (costeo-compras.ts).
   agregadoPorCompras?: boolean;
+  // Fila (ofertada o costo adicional) que agregó Compras con el permiso correspondiente: Compras puede editarla y borrarla.
+  propiaCompras?: boolean;
   // COSTO ADICIONAL a mano (flete, despacho, capacitación…): se escribe el «Costo total neto» directamente, sin cantidad ni costo unitario.
   // Suma al costo total, a la utilidad y al margen del costeo, pero NO se vende: no tiene precio, no va al anexo económico, al Motor
   // Comercial ni al Auditor. Es lo que el comercial hace en el Excel pisando la fórmula de esa celda (caso 1288505-5-LE26).
@@ -757,25 +759,41 @@ export function fusionarDesdeExcel(actual: EstadoCosteoEditor, excel: FilaExcelI
 /** Lo que cambió entre dos versiones guardadas del costeo, en frases legibles — para el registro de
  *  cambios del editor («quién modificó qué»). Las filas se emparejan por `id` (se guarda en
  *  datos_json, así que sobrevive entre guardados). Sin versión previa = primer guardado. */
-export function resumenCambiosCosteo(antes: EstadoCosteoEditor | null, despues: EstadoCosteoEditor, max = 40): string[] {
-  if (!antes) return ['Primer guardado del costeo'];
+export function resumenCambiosCosteo(antes: EstadoCosteoEditor | null, despues: EstadoCosteoEditor, max = 80): string[] {
+  if (!antes) return [`Primer guardado del costeo (${despues.grupos.length} hoja(s), ${despues.grupos.reduce((n, g) => n + g.filas.length, 0)} ítem(s))`];
   const out: string[] = [];
   const pesos = (n: number | null | undefined) => n == null ? 'vacío' : `$${Math.round(n).toLocaleString('es-CL')}`;
   const num = (n: number | null | undefined, suf = '') => n == null ? 'vacío' : `${String(n).replace('.', ',')}${suf}`;
   const txt = (s: string | null | undefined) => (s || '').trim() ? `"${(s || '').trim().slice(0, 60)}"` : 'vacío';
   const nombre = (f: FilaEditorCosteo) => `"${(f.detalle || `ítem ${f.item}`).slice(0, 50)}"`;
+  // Qué traía un ítem recién agregado o eliminado (cantidad, precio, costo adicional).
+  const datosDe = (f: FilaEditorCosteo) => {
+    const d: string[] = [];
+    if (f.esCostoAdicional) d.push(`costo adicional ${pesos(f.costoAdicionalNeto)}`);
+    else {
+      if (f.cantidad != null) d.push(`cantidad ${num(f.cantidad)}`);
+      if (f.valorConIva != null) d.push(`valor c/IVA ${pesos(f.valorConIva)}`);
+    }
+    return d.length ? ` (${d.join(', ')})` : '';
+  };
+  const linksCambiados = (a: FilaEditorCosteo, f: FilaEditorCosteo) => {
+    const ks = (['link1', 'link2', 'link3'] as const).filter(k => (a[k] || '').trim() !== (f[k] || '').trim());
+    return ks.length ? `${ks.map(k => `link ${k.slice(-1)} ${!(a[k] || '').trim() ? 'agregado' : !(f[k] || '').trim() ? 'quitado' : 'cambiado'}`).join(', ')}` : '';
+  };
 
   if (antes.margenVenta !== despues.margenVenta) out.push(`Recargo general: ${num(antes.margenVenta, '%')} → ${num(despues.margenVenta, '%')}`);
   if (antes.modalidad !== despues.modalidad) out.push(`Estructura: ${antes.modalidad} → ${despues.modalidad}`);
 
   const hojasAntes = new Map(antes.grupos.map(g => [g.nombre, g]));
+  const hojasDespues = new Set(despues.grupos.map(g => g.nombre));
   for (const g of despues.grupos) {
     const a = hojasAntes.get(g.nombre);
-    if (!a) continue;
+    if (!a) { out.push(`Nueva hoja ${g.nombre} (${g.filas.length} ítem(s))`); continue; }
     if (a.ofertamos !== g.ofertamos) out.push(`Hoja ${g.nombre}: ${g.ofertamos ? 'se vuelve a ofertar' : 'no se oferta'}`);
     if ((a.margenVenta ?? null) !== (g.margenVenta ?? null)) out.push(`Hoja ${g.nombre}: recargo ${num(a.margenVenta, '%')} → ${num(g.margenVenta, '%')}`);
     if ((a.presupuestoNeto ?? null) !== (g.presupuestoNeto ?? null)) out.push(`Hoja ${g.nombre}: presupuesto ${pesos(a.presupuestoNeto)} → ${pesos(g.presupuestoNeto)}`);
   }
+  for (const a of antes.grupos) if (!hojasDespues.has(a.nombre)) out.push(`Hoja ${a.nombre} eliminada o unida con otra (${a.filas.length} ítem(s))`);
 
   const filasAntes = new Map(antes.grupos.flatMap(g => g.filas).map(f => [f.id, f]));
   // Hoja de cada fila: un cambio de hoja cambia el recargo que se le aplica (2827-102-LE26, 28-oct-2026: el
@@ -785,24 +803,37 @@ export function resumenCambiosCosteo(antes: EstadoCosteoEditor | null, despues: 
   for (const g of despues.grupos) for (const f of g.filas) {
     idsDespues.add(f.id);
     const a = filasAntes.get(f.id);
-    if (!a) { out.push(`Agregó el ítem ${nombre(f)}`); continue; }
+    if (!a) { out.push(`Agregó el ítem ${nombre(f)}${datosDe(f)} en ${g.nombre}`); continue; }
     const campos: string[] = [];
     if (hojaAntes.get(f.id) !== g.nombre) campos.push(`hoja ${hojaAntes.get(f.id)} → ${g.nombre}`);
     if ((a.lineaReal ?? null) !== (f.lineaReal ?? null)) campos.push(`línea ${num(a.lineaReal)} → ${num(f.lineaReal)}`);
     if ((a.detalle || '') !== (f.detalle || '')) campos.push(`detalle ${txt(a.detalle)} → ${txt(f.detalle)}`);
-    if ((a.complemento || '') !== (f.complemento || '')) campos.push('complemento');
+    if ((a.complemento || '') !== (f.complemento || '')) campos.push(`complemento ${txt(a.complemento)} → ${txt(f.complemento)}`);
     if ((a.unidad || '') !== (f.unidad || '')) campos.push(`unidad ${txt(a.unidad)} → ${txt(f.unidad)}`);
     if ((a.skuProveedor || '') !== (f.skuProveedor || '')) campos.push(`proveedor ${txt(a.skuProveedor)} → ${txt(f.skuProveedor)}`);
     if ((a.cantidad ?? null) !== (f.cantidad ?? null)) campos.push(`cantidad ${num(a.cantidad)} → ${num(f.cantidad)}`);
     if ((a.valorConIva ?? null) !== (f.valorConIva ?? null)) campos.push(`valor c/IVA ${pesos(a.valorConIva)} → ${pesos(f.valorConIva)}`);
+    if (!!a.esCostoAdicional !== !!f.esCostoAdicional) campos.push(f.esCostoAdicional ? 'pasó a costo adicional' : 'dejó de ser costo adicional');
     if ((a.costoAdicionalNeto ?? null) !== (f.costoAdicionalNeto ?? null)) campos.push(`costo adicional ${pesos(a.costoAdicionalNeto)} → ${pesos(f.costoAdicionalNeto)}`);
     if ((a.margenVenta ?? null) !== (f.margenVenta ?? null)) campos.push(`recargo ${num(a.margenVenta, '%')} → ${num(f.margenVenta, '%')}`);
     if ((a.costoRealUnitario ?? null) !== (f.costoRealUnitario ?? null)) campos.push(`costo real ${pesos(a.costoRealUnitario)} → ${pesos(f.costoRealUnitario)}`);
-    if ([a.link1, a.link2, a.link3].join('|') !== [f.link1, f.link2, f.link3].join('|')) campos.push('links');
-    if ((a.imagenUrl || '') !== (f.imagenUrl || '')) campos.push('imagen');
+    const links = linksCambiados(a, f);
+    if (links) campos.push(links);
+    if ((a.imagenUrl || '') !== (f.imagenUrl || '')) campos.push(!(a.imagenUrl || '') ? 'imagen agregada' : !(f.imagenUrl || '') ? 'imagen quitada' : 'imagen cambiada');
     if (campos.length) out.push(`${nombre(f)}: ${campos.join(' · ')}`);
   }
-  for (const [id, a] of filasAntes) if (!idsDespues.has(id)) out.push(`Eliminó el ítem ${nombre(a)}`);
+  for (const [id, a] of filasAntes) if (!idsDespues.has(id)) out.push(`Eliminó el ítem ${nombre(a)}${datosDe(a)} de ${hojaAntes.get(id)}`);
+
+  // Orden: ítems que siguen en la misma hoja pero cambiaron de posición.
+  for (const g of despues.grupos) {
+    const previa = hojasAntes.get(g.nombre);
+    if (!previa) continue;
+    const ids = new Set(previa.filas.map(f => f.id));
+    const ahora = g.filas.map(f => f.id).filter(id => ids.has(id));
+    const antesIds = new Set(ahora);
+    const antiguo = previa.filas.map(f => f.id).filter(id => antesIds.has(id));
+    if (ahora.some((id, i) => id !== antiguo[i])) out.push(`Hoja ${g.nombre}: cambió el orden de los ítems`);
+  }
 
   if (!out.length) return ['Guardó sin cambios en los ítems'];
   return out.length > max ? [...out.slice(0, max), `… y ${out.length - max} cambio(s) más`] : out;

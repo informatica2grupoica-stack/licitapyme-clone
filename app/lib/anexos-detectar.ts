@@ -1757,7 +1757,9 @@ export function detectarCamposConDosPuntos(parrafos: Parrafo[]): CandidatoCelda[
   const out: CandidatoCelda[] = [];
   for (let i = 0; i < parrafos.length; i++) {
     const p = parrafos[i];
-    const texto = p.texto.trim();
+    // Si el párrafo es un ancla con cuadro flotante, la etiqueta es la del cuadro ("OFERENTE:"),
+    // no el pegado con el texto del ancla.
+    const texto = (p.textoCuadro ?? p.texto).trim();
     if (RE_NOMBRE_LICITACION_SUELTO.test(texto)) {
       out.push({ etiqueta: texto, paraId: p.paraId, indice: p.indice });
       continue;
@@ -2434,7 +2436,7 @@ function blancoPrecedeBloqueNoRellenable(xml: string, paraId: string): boolean {
 // fila siguiente, ya cubiertas por el patrón de tabla).
 const RE_FILA_SOLO_FECHA = /^\s*fecha\s*[:,]\s*$/i;
 const RE_FILA_UNICA_ES_CAMPO =
-  /^\s*(?:nombre|raz[oó]n\s+social|r\.?\s*u\.?\s*t\.?|rol\s+[uú]nico|run|c[eé]dula|domicilio|direcci[oó]n|giro|correo|e-?mail|tel[eé]fono|fono|celular|ciudad|comuna|regi[oó]n)\b[^:]{0,60}:\s*$/i;
+  /^\s*(?:nombre|raz[oó]n\s+social|r\.?\s*u\.?\s*t\.?|rol\s+[uú]nico|run|c[eé]dula|domicilio|direcci[oó]n|giro|correo|e-?mail|tel[eé]fono|fono|celular|ciudad|comuna|regi[oó]n)\b[^:]{0,60}:\s*$|^\s*(?:oferente|proponente)\s*:\s*$/i;
 
 function indicesFilaTituloMergeada(xml: string): Set<number> {
   const offsetsIndices = offsetsAIndices(xml);

@@ -2598,3 +2598,16 @@ test('tabla mezclada: una fila de 1 celda «RUT :» es un campo, «DATOS DEL PRO
   assert.ok(etiquetas.includes('RUT REPRESENTANTE LEGAL'), `falta el RUT del representante: ${JSON.stringify(etiquetas)}`);
   assert.ok(!etiquetas.some(e => e.includes('DATOS DEL PROPONENTE')), `el título no es un campo: ${JSON.stringify(etiquetas)}`);
 });
+
+// BUG REAL (2483-265-LE26, ANEXO Nº 1): «OFERENTE:» es la primera fila de una tabla que vive en un cuadro de
+// texto flotante anclado en el párrafo «El arriba firmante declara bajo juramento:». El regex de párrafo se corta
+// en el </w:p> del primero de adentro y la etiqueta quedaba pegada a la oración del ancla ("…juramento:OFERENTE:"),
+// que no es una etiqueta: la razón social nunca se llenaba.
+test('cuadro flotante anclado en un párrafo con texto: la etiqueta de adentro («OFERENTE:») es un campo (2483-265-LE26)', () => {
+  const ancla = '<w:p><w:r><w:t>El arriba firmante declara bajo juramento:</w:t></w:r><w:r><mc:AlternateContent><mc:Choice Requires="wps"><w:drawing><wps:wsp><wps:txbx><w:txbxContent>'
+    + tabla(fila('OFERENTE:'), fila('RUT :'), fila('DOMICILIO :', 'COMUNA :'))
+    + '</w:txbxContent></wps:txbx></wps:wsp></w:drawing></mc:Choice></mc:AlternateContent></w:r></w:p>';
+  const { xml: norm } = normalizarParaIds(NS + ancla + FIN);
+  const etiquetas = analizarAnexo(norm).camposConDosPuntos.map(c => c.etiqueta);
+  assert.ok(etiquetas.includes('OFERENTE'), `falta OFERENTE: ${JSON.stringify(etiquetas)}`);
+});

@@ -73,6 +73,12 @@ async function esOperadorCompras(userId: number): Promise<boolean> {
   return !!(p.compras || p.compras_todo);
 }
 
+async function puedeAgregarFilas(userId: number, rol: string | null): Promise<{ fila: boolean; gasto: boolean; adicional: boolean }> {
+  if (rol === 'admin') return { fila: true, gasto: true, adicional: true };
+  const p = await permisosCrudosDeUsuario(userId);
+  return { fila: !!p.costeo_agregar_fila, gasto: !!p.costeo_agregar_gasto, adicional: !!p.costeo_agregar_adicional };
+}
+
 async function estadoGuardado(negocioId: number): Promise<EstadoCosteoEditor | null> {
   const [rows] = await pool.query(
     `SELECT modalidad, datos_json FROM negocio_costeo_editor WHERE negocio_id = ? LIMIT 1`,
@@ -260,6 +266,8 @@ export async function GET(request: NextRequest, { params }: Params) {
       modoCompras: soloLectura && await esOperadorCompras(userId),
       // Exportar el costeo digital a Excel: administradores o quien tenga el permiso `costeo_exportar`.
       esAdmin: rol === 'admin' || !!(await permisosCrudosDeUsuario(userId)).costeo_exportar,
+      // Botones «Agregar fila / gasto extra / costo adicional» (permisos costeo_agregar_*, 30-oct-2026). Admin: los tres.
+      puedeAgregar: await puedeAgregarFilas(userId, rol),
       registro: await registroDeCambios(negocio).catch(e => { console.error('[comercial/costeo-editor] registro de cambios:', String(e).slice(0, 150)); return []; }),
     });
   } catch (error) {
@@ -287,7 +295,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     const body = await request.json().catch(() => ({}));
     const conflicto = await conflictoDeVersion(negocio.id, body);
     if (conflicto) return conflicto;
-    const r = fusionarEdicionCompras(guardado, body);
+    const pc = await permisosCrudosDeUsuario(userId);
+    const r = fusionarEdicionCompras(guardado, body, { fila: !!pc.costeo_agregar_fila, gasto: !!pc.costeo_agregar_gasto, adicional: !!pc.costeo_agregar_adicional });
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
 
     const nombreActor = request.headers.get('x-user-nombre') || (await nombreDe(userId)) || 'Usuario';

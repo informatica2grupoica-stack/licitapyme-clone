@@ -33,6 +33,9 @@ interface Permisos {
   auditor_aprobar?: boolean;
   anexos?: boolean;
   costeo_exportar?: boolean;
+  costeo_agregar_fila?: boolean;
+  costeo_agregar_gasto?: boolean;
+  costeo_agregar_adicional?: boolean;
   reglas_ia?: boolean;
   chat_licitacion?: boolean;
   chat_global?: boolean;
@@ -72,7 +75,10 @@ const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string; cat
   // ── Auditor y Anexos ──
   { key: 'costeo_editor',       label: 'Costeo',                         desc: 'Ve y guarda la pestaña "Costeo" del negocio.', categoria: 'auditor' },
   { key: 'costeo_exportar',     label: 'Exportar costeo a Excel',        desc: 'Botón "Exportar Excel" del Costeo digital (requiere también el permiso Costeo para abrir la pestaña).', categoria: 'auditor' },
-  { key: 'auditor_tecnico',     label: 'Auditor Técnico',               desc: 'Ve y carga el checklist técnico/comercial y el comparador de fichas, Pre-postulación y Postulación. También puede "Enviar al Auditor" desde Documentos.', categoria: 'auditor' },
+  { key: 'costeo_agregar_fila',      label: 'Costeo: Agregar fila',           desc: 'Botón "Agregar fila" del Costeo digital: un ítem ofertado (con precio de venta). En Compras también lo guarda.', categoria: 'auditor' },
+  { key: 'costeo_agregar_gasto',     label: 'Costeo: Agregar gasto extra',    desc: 'Botón "Agregar gasto extra": un costo que no se vendió (flete, horas extra). Suma al costo real.', categoria: 'auditor' },
+  { key: 'costeo_agregar_adicional', label: 'Costeo: Agregar costo adicional', desc: 'Botón "Agregar costo adicional": se escribe el Costo total neto a mano; baja el margen y no se vende.', categoria: 'auditor' },
+  { key: 'auditor_tecnico',     label: 'Auditor Técnico',              desc: 'Ve y carga el checklist técnico/comercial y el comparador de fichas, Pre-postulación y Postulación. También puede "Enviar al Auditor" desde Documentos.', categoria: 'auditor' },
   { key: 'auditor_compra',      label: 'Auditor de Compra', desc: 'Ve y trabaja la pestaña "Auditor · compra y técnico" (opciones, links, precios, cotizaciones), Pre-postulación y Postulación.', categoria: 'auditor' },
   { key: 'auditor_aprobar',     label: 'Aprobar en el Auditor',          desc: 'Aprueba, observa o rechaza puntos y opciones del Auditor. NO le abre la bandeja de Aprobaciones ni Compras.', categoria: 'auditor' },
   { key: 'anexos',              label: 'Anexos (generar, separar, rellenar)', desc: 'Usa el creador de anexos en Documentos: separar, rellenar uno o todos, firmar y vista previa. Gasta IA.', categoria: 'auditor' },

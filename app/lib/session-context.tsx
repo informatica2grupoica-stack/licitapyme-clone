@@ -48,6 +48,10 @@ export interface UsuarioSession {
     anexos?: boolean;
     // Exportar el costeo digital a Excel (16-oct-2026).
     costeo_exportar?: boolean;
+    // Botones del Costeo digital (30-oct-2026).
+    costeo_agregar_fila?: boolean;
+    costeo_agregar_gasto?: boolean;
+    costeo_agregar_adicional?: boolean;
     // "CA" (07-oct-2026): crea/ve las reglas aprendidas de viabilidad. No viene gratis con admin.
     reglas_ia?: boolean;
     // Burbuja de chat IA (20-oct-2026): de la licitación y general. Admin siempre.

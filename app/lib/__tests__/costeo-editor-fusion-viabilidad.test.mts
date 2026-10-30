@@ -245,5 +245,20 @@ test('el registro de cambios dice cuando una fila cambia de hoja o de línea (re
     { nombre: 'LINEA1', linea: 1, ofertamos: true, filas: [] },
     { nombre: 'LINEA2', linea: 2, ofertamos: true, filas: [{ ...f, lineaReal: 2 }] },
   ] };
-  assert.deepEqual(resumenCambiosCosteo(antes, despues), ['"Barredora de suelos": hoja LINEA1 → LINEA2 · línea 1 → 2']);
+  assert.deepEqual(resumenCambiosCosteo(antes, despues), ['Nueva hoja LINEA2 (1 ítem(s))', '"Barredora de suelos": hoja LINEA1 → LINEA2 · línea 1 → 2']);
+});
+
+test('resumenCambiosCosteo: anota hojas nuevas/eliminadas, detalle de ítems, links y orden', () => {
+  const a = { ...fila('Horno', 1), id: 'a' }, b = { ...fila('Mesa', 2), id: 'b', link1: 'x' };
+  const antes: EstadoCosteoEditor = { modalidad: 'por_linea', margenVenta: 27, grupos: [
+    { nombre: 'LINEA1', linea: 1, ofertamos: true, filas: [a, b] },
+    { nombre: 'LINEA2', linea: 2, ofertamos: true, filas: [] },
+  ] };
+  const nueva = { ...fila('Flete', 1), id: 'c', esCostoAdicional: true, costoAdicionalNeto: 5000 };
+  const despues: EstadoCosteoEditor = { modalidad: 'por_linea', margenVenta: 27, grupos: [
+    { nombre: 'LINEA1', linea: 1, ofertamos: true, filas: [{ ...b, link1: '', link2: 'y' }, a, nueva] },
+    { nombre: 'LINEA3', linea: 3, ofertamos: true, filas: [] },
+  ] };
+  const r = resumenCambiosCosteo(antes, despues).join(' | ');
+  for (const t of ['Nueva hoja LINEA3', 'Hoja LINEA2 eliminada', 'Agregó el ítem "Flete" (costo adicional $5.000) en LINEA1', 'link 1 quitado, link 2 agregado', 'cambió el orden']) assert.ok(r.includes(t), t + ' ← ' + r);
 });
