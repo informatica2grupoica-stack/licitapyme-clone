@@ -121,8 +121,10 @@ export function parsearSalidaV3(salida: SalidaV3, requisitos: RequisitoV3[], opc
     const celdas: CeldaV3[] = requisitos.map(r => {
       const c = celdasModelo.find(x => Number(x.n) === r.n);
       if (!c) return { n: r.n, estado: 'FALTA_DATO' as const, datoOfertado: '', cita: '', citaNoVerificada: false, revisar: false, origen: null };
-      const cita = s(c.cita, 500), dato = s(c.dato_ofertado, 200), estado = estadoCeldaDe(c.estado);
+      const cita = s(c.cita, 500), estado = estadoCeldaDe(c.estado);
       const enDocumento = cita ? o.docs.find(d => citaExiste(d.texto, cita)) : undefined;
+      // CUMPLE con el dato vacío pero con una cita que SÍ está en el documento (pistola calafatera, 2446-307-LE26): el dato es lo citado, textual.
+      const dato = s(c.dato_ofertado, 200) || ((estado === 'CUMPLE' || estado === 'SOBRECUMPLE') && enDocumento ? s(cita, 200) : '');
       return {
         n: r.n, estado, datoOfertado: dato, cita,
         citaNoVerificada: !!cita && !enDocumento && !citaExiste(textoOpcion, cita),

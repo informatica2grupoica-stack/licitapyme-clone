@@ -185,6 +185,24 @@ export function lineasTecnicasDelInforme(informe: any): LineaTecnica[] {
  * === 1`) — es exactamente esa normalización, aplicada a cada producto por separado en vez de al
  * grupo completo. `.linea` en cada resultado es la línea REAL compartida (no un índice distinto).
  */
+/** Exigencias que el informe de viabilidad dejó SOLO dentro del nombre de la línea. El nombre es el texto de las bases («14 piezas que incluyen: brocas de
+ *  5; 6; 7 y 8 mm x 110 mm», «Brocha multiuso 2"», «rendimiento de 9,7 m2 por capa»), pero a veces `caracteristicas` queda vacía o sin la medida y el Auditor
+ *  decía «las bases no traen exigencias» (2446-307-LE26 L2, L6, L37). Devuelve los tramos del nombre con un número que NINGUNA característica cubre
+ *  (el 1 suelto es cantidad, no medida). Un nombre cuyas cifras ya están en las características no agrega nada. */
+export function exigenciasDelNombre(nombre: string, caracteristicas: string[]): string[] {
+  const nums = (s: string) => (s.match(/\d+(?:[.,]\d+)?/g) || []).map(n => Number(n.replace(',', '.'))).filter(n => Number.isFinite(n) && n !== 1);
+  const cubiertos = new Set(caracteristicas.flatMap(nums));
+  const out: string[] = [];
+  for (const tramo of nombre.split(/\s+que\s+incluyen?\s*:?\s*|\s+-\s+|,\s+|\.\s+|:\s+/i)) {
+    const t = tramo.trim().replace(/[.;,]+$/, '');
+    const nuevos = nums(t).filter(n => !cubiertos.has(n));
+    if (!t || !nuevos.length) continue;
+    out.push(t);
+    nuevos.forEach(n => cubiertos.add(n));
+  }
+  return out;
+}
+
 export function productosCrudosDeLinea(informe: any, linea: number): LineaTecnica[] {
   const productos = agruparCrudoPorLinea(informe).get(linea) || [];
   return productos.map((it: any) => fusionarProductosDeLinea(linea, [it]));

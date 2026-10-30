@@ -200,3 +200,18 @@ test('alertas generales: contradicción letra vs mérito técnico trae la pregun
   assert.ok(r.alertas.some(a => a.nivel === 'rojo' && a.texto.includes('¿Se acepta un ángulo')));
   assert.ok(r.alertas.some(a => a.texto.includes('Prevalece la ficha')));
 });
+
+test('exigenciasDelNombre: las medidas que el informe dejó solo en el nombre de la línea (2446-307-LE26)', async () => {
+  const { exigenciasDelNombre } = await import('../auditor-tecnico-core');
+  // sin características: el nombre trae las exigencias
+  assert.deepEqual(exigenciasDelNombre('Set de brocas SDS Plus, makita o equivalente, 14 piezas que incluyen: brocas de 5; 6; 7 y 8 mm x 110 mm.', []),
+    ['14 piezas', 'brocas de 5; 6; 7 y 8 mm x 110 mm']);
+  assert.deepEqual(exigenciasDelNombre('Set de herramientas manuales de 120 piezas. Makita o equivalente.', []), ['Set de herramientas manuales de 120 piezas']);
+  assert.deepEqual(exigenciasDelNombre('1 galón de pintura de alto tráfico amarillo rey. Cerecita o equivalente, Con un rendimiento de 9.7 m2 por capa.', []), ['Con un rendimiento de 9.7 m2 por capa']);
+  // la característica cubre la cifra de la medida pero no la otra
+  assert.deepEqual(exigenciasDelNombre('Brocha multiuso 2"', ['Brocha multiuso']), ['Brocha multiuso 2"']);
+  assert.deepEqual(exigenciasDelNombre('Pack 10 unidades de disco de lija con velcro 125 mm g 120', ['Disco de lija con velcro', '125 mm']), ['Pack 10 unidades de disco de lija con velcro 125 mm g 120']);
+  // todo cubierto: no agrega nada
+  assert.deepEqual(exigenciasDelNombre('Perfil cuadrado de acero 40x40x2 mm x 6 mts', ['Perfil cuadrado de acero', '40x40x2 mm', '6 mts']), []);
+  assert.deepEqual(exigenciasDelNombre('Llave ajustable de 12" de acero', ['Llave ajustable', '12" de acero']), []);
+});

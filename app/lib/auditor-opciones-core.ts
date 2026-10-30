@@ -104,22 +104,42 @@ export function ivaConfiable(iva: string | undefined, frase: string | undefined)
  *  subtotal y subtotal + IVA = total, los precios del documento son NETOS. Es aritmética del propio documento, no un supuesto:
  *  sin las tres cifras, o si no cuadran (±$2 por redondeo), se devuelve null y sigue la regla 3. */
 export function ivaPorTotalesDelDocumento(texto: string): string | null {
-  const monto = (re: RegExp) => { const m = texto.match(re); return m ? parsearMonto(m[1]) : null; };
-  const CIFRA = String.raw`[|:\s]*\$?\s*([\d.,]+)`;
-  const neto = monto(new RegExp(String.raw`\b(?:sub\s*-?\s*total|total\s+neto|monto\s+neto|neto)\b` + CIFRA, 'i'));
-  const iva = monto(new RegExp(String.raw`\bi\.?v\.?a\.?(?:\s*\(?19\s*%\)?)?` + CIFRA, 'i'));
-  const total = monto(new RegExp(String.raw`(?:^|\n)\s*total(?:\s+a\s+pagar|\s+general|\s+con\s+i\.?v\.?a\.?)?` + CIFRA, 'i'));
-  if (!neto || !iva || !total || neto < 1000) return null;
-  if (Math.abs(neto * 0.19 - iva) > 2 || Math.abs(neto + iva - total) > 2) return null;
+  // TODAS las coincidencias de cada cifra, no solo la primera: un encabezado «Total Neto | Cantidad 100» o un «Total» pegado a otra frase hacían fallar la regla
+  // (Locker Plus, mesas y sillas, Presupuesto S26799). Vale el trío que cuadra: IVA = 19 % del neto y neto + IVA = total.
+  const montos = (re: RegExp) => [...texto.matchAll(re)].map(m => parsearMonto(m[1])).filter((n): n is number => n != null && n > 0).slice(0, 12);
+  const CIFRA = String.raw`[|‖:\s]*\$?\s*([\d.,]+)`;
+  const netos = montos(new RegExp(String.raw`\b(?:sub\s*-?\s*total|total\s+neto|monto\s+neto|neto)\b` + CIFRA, 'gi'));
+  const ivas = montos(new RegExp(String.raw`\bi\.?v\.?a\.?(?:\s*\(?19\s*%\)?)?` + CIFRA, 'gi'));
+  const totales = montos(new RegExp(String.raw`\btotal(?:\s+a\s+pagar|\s+general|\s+con\s+i\.?v\.?a\.?)?` + CIFRA, 'gi'));
   const f = (n: number) => `$${n.toLocaleString('es-CL')}`;
-  return `Subtotal ${f(neto)} + IVA 19% ${f(iva)} = Total ${f(total)}: los precios del documento son netos`;
+  for (const neto of netos) {
+    if (neto < 1000) continue;
+    for (const iva of ivas) {
+      if (Math.abs(neto * 0.19 - iva) > 2) continue;
+      const total = totales.find(t => Math.abs(neto + iva - t) <= 2);
+      if (total != null) return `Subtotal ${f(neto)} + IVA 19% ${f(iva)} = Total ${f(total)}: los precios del documento son netos`;
+    }
+  }
+  return null;
 }
 
 function elegirPrecio(p: ProductoLector, cantidad: number | null): { precio: number | null; ambiguo: boolean; otros: string[] } {
-  const lista = (p.comercial?.precios || []).map(x => ({ ...x, n: parsearMonto(x.valor) })).filter(x => x.n != null && x.n > 0);
+  const todos = (p.comercial?.precios || []).map(x => ({ ...x, n: parsearMonto(x.valor) })).filter(x => x.n != null && x.n > 0);
+  // Un código de producto no es un precio: el Lector leyó «10304040004» (código de la barrera DEF-61A) como $10.304 millones (Locker Plus, ext 473).
+  const codigos = [p.producto?.sku_proveedor, p.producto?.sku_fabricante, p.producto?.ean].map(s => String(s || '').replace(/\D/g, '')).filter(s => s.length >= 6);
+  const sinCodigos = todos.filter(x => !(x.n! >= 1e9 && todos.some(y => y.n! < 1e9)) && !codigos.includes(String(Math.round(x.n!))));
+  const lista = sinCodigos.length ? sinCodigos : todos;
   if (lista.length === 0) return { precio: null, ambiguo: false, otros: [] };
-  const elegido = lista.find(x => x.seleccionada) || lista.find(x => x.condicion === 'actual')
+  let elegido = lista.find(x => x.seleccionada) || lista.find(x => x.condicion === 'actual')
     || lista.find(x => !CONDICIONES_NO_RIGEN.has(x.condicion || '')) || lista[0];
+  // Aritmética sobre el propio documento: con un total de línea a la vista, el precio unitario es el que lo divide exacto (52.990 con 7 % → 49.281; 100 × 49.281 = 4.928.100).
+  const esTotal = (x: { condicion?: string; detalle_condicion?: string }) => /total/i.test(`${x.condicion || ''} ${x.detalle_condicion || ''}`);
+  const totales = lista.filter(esTotal), unitarios = lista.filter(x => !esTotal(x));
+  if (totales.length === 1 && unitarios.length > 1 && !lista.some(x => x.seleccionada)) {
+    const t = totales[0].n!;
+    const exactos = unitarios.filter(u => t > u.n! && Math.abs(t - Math.round(t / u.n!) * u.n!) <= 2);
+    if (exactos.length === 1) elegido = exactos[0];
+  }
   // Otros precios "distintos": no cuenta el total de la línea (precio × cantidad), que no es otro precio.
   const esTotalDeLinea = (n: number) => cantidad != null && cantidad > 1 && Math.abs(n - (elegido.n as number) * cantidad) <= Math.max(2, cantidad);
   const otros = lista.filter(x => x !== elegido && x.n !== elegido.n && !esTotalDeLinea(x.n as number) && !/total/i.test(x.detalle_condicion || ''))
@@ -149,10 +169,23 @@ export function separarPrecioPegadoACantidad(texto: string, precio: number): { c
  *  Solo cuenta como multipack si el texto habla de VARIOS sets («caja de 6 sets», «pack 3 juegos»). */
 export function unidadesPorEmpaqueValidas(n: number | null, textos: string[]): number | null {
   if (n == null || n <= 1) return n;
+  // Sin ningún texto que describa un empaque (contenido vacío y unidad de precio genérica «unid.») el número es la CANTIDAD de la fila, no un empaque:
+  // PC Factory ext 472 (5 notebooks a $909.655) salía a $181.931 y Locker Plus ext 473 (100 barreras) a un centésimo.
+  const [contenido = '', unidadPrecio = ''] = textos;
+  if (!contenido.trim() && !/\b(caja|pack|paquete|bolsa|bulto|docena|display|cart[oó]n|set|kit|juego|rollo)s?\b/i.test(unidadPrecio)) return null;
   const t = textos.join(' ');
   const esConjunto = /\b(set|kit|juego|surtido|estuche|maleta|conjunto)\b/i.test(t);
   const variosConjuntos = /\b\d+\s*(sets?|kits?|juegos?|conjuntos?|estuches?)\b/i.test(t) || /\b(caja|bulto|display|cart[oó]n|docena)s?\b/i.test(t);
   return esConjunto && !variosConjuntos ? null : n;
+}
+
+/** Si la línea de la licitación pide el empaque entero («Caja de 100 un de tornillo», «Pack 10 unidades de disco», «set de 14 piezas»), el precio
+ *  del empaque YA es el de la unidad pedida: no se divide (2446-307-LE26 L31: $8.657 por caja salía $87). */
+export function factorSegunLinea(n: number | null | undefined, detalleLinea: string | null | undefined): number | null {
+  if (n == null || n <= 1) return n ?? null;
+  const t = detalleLinea || '';
+  const pideEmpaque = new RegExp(`\\b(caja|pack|paquete|bolsa|bulto|set|juego|kit)\\b[^.;]{0,25}\\b${n}\\b|\\b${n}\\s*(un|uds?|unid|unidades|piezas|pzas?|pz|pcs)\\b`, 'i').test(t);
+  return pideEmpaque ? null : n;
 }
 
 /**
@@ -264,7 +297,7 @@ export function puntuar(prod: ProductoNormalizado, linea: LineaCosteo): { puntaj
   // Cantidad cotizada = cantidad de la línea.
   if (prod.cantidadCotizada != null && linea.cantidad != null && prod.cantidadCotizada === linea.cantidad) { puntaje += 0.2; motivos.push(`cantidad ${linea.cantidad}`); }
   // Precio en el mismo orden de magnitud que lo costeado.
-  const neto = prod.precio != null ? precioNetoUnitario({ precio: prod.precio, iva: prod.iva, moneda: prod.moneda, factor_unidades: prod.unidadesPorEmpaque }).neto : null;
+  const neto = prod.precio != null ? precioNetoUnitario({ precio: prod.precio, iva: prod.iva, moneda: prod.moneda, factor_unidades: factorSegunLinea(prod.unidadesPorEmpaque, linea.detalle) }).neto : null;
   if (neto != null && linea.costoEstimadoNeto) {
     const r = neto / linea.costoEstimadoNeto;
     if (r > 0.4 && r < 2.5) { puntaje += 0.15; motivos.push('precio en el orden de lo costeado'); }
@@ -438,15 +471,16 @@ export function verificarOpcion(e: EntradaVerificacion): ResultadoVerificacion {
   }
   const pareceEmpaque = /(caja|pack|pack\.|docena|set|kit|rollo|bolsa|display)/i.test(p.contenidoEmpaque + ' ' + p.unidadPrecio);
   const lineaPideConjunto = /\b(set|kit|juego|conjunto|surtido)\b/i.test(linea.detalle || '');
-  if (p.unidadesPorEmpaque && p.unidadesPorEmpaque > 1 && p.precio != null) {
-    alertas.push({ codigo: 'V2', nivel: 'amarillo', mensaje: `El precio del respaldo ($${p.precio.toLocaleString('es-CL')}) se dividió por ${p.unidadesPorEmpaque} unidades del empaque «${(p.contenidoEmpaque || p.unidadPrecio).trim()}». Confirma que la licitación pide la unidad suelta.`, accion: 'revisar' });
+  const factorEmpaque = factorSegunLinea(p.unidadesPorEmpaque, linea.detalle);
+  if (factorEmpaque && factorEmpaque > 1 && p.precio != null) {
+    alertas.push({ codigo: 'V2', nivel: 'amarillo', mensaje: `El precio del respaldo ($${p.precio.toLocaleString('es-CL')}) se dividió por ${factorEmpaque} unidades del empaque «${(p.contenidoEmpaque || p.unidadPrecio).trim()}». Confirma que la licitación pide la unidad suelta.`, accion: 'revisar' });
   }
   if (pareceEmpaque && !lineaPideConjunto && !(p.unidadesPorEmpaque && p.unidadesPorEmpaque >= 1)) {
     alertas.push({ codigo: 'V2', nivel: 'amarillo', mensaje: `El precio parece ser por "${(p.contenidoEmpaque || p.unidadPrecio).trim()}": confirma cuántas unidades trae para calcular el costo unitario.`, accion: 'pedir_proveedor' });
   }
 
   // ── V4 precio (regla por impacto en el margen) ──
-  const norm = precioNetoUnitario({ precio: p.precio, iva: p.iva, moneda: p.moneda, factor_unidades: p.unidadesPorEmpaque });
+  const norm = precioNetoUnitario({ precio: p.precio, iva: p.iva, moneda: p.moneda, factor_unidades: factorEmpaque });
   const neto = esRutaB ? netoRutaB : norm.neto;
   if (p.ivaSupuesto && !esRutaB && norm.neto != null) {
     alertas.push({ codigo: 'V3', nivel: 'info', mensaje: `Precio del link $${p.precio.toLocaleString('es-CL')}: la página no dice si incluye IVA y las tiendas publican con IVA, así que se asumió CON IVA y se le sacó → neto $${norm.neto.toLocaleString('es-CL')}.`, accion: 'revisar' });

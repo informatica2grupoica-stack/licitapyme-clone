@@ -1161,6 +1161,21 @@ export function tituloDesdeNombreDeArchivo(nombre: string): string {
     .slice(0, 280);
 }
 
+/** Un archivo suelto «Anexo N°3.pdf» / «Formulario N°2» / «Formato 5» que cayó en la caja catch-all
+ *  ANEXOS_OFERENTE: es un anexo individual (no un paquete apilado, cuyo nombre no es así), así que
+ *  tiene casilla sin que haya que arrastrarlo a mano a Anexos Administrativos (1090-17-LE26). */
+export function esArchivoDeAnexoSuelto(nombre: string): boolean {
+  return /^(?:anexo|formulario|formato)[\s_.-]*n?[°º.]*[\s_.-]*\d+[a-z]?(?:[\s_.-]|$)/i.test(String(nombre || '').replace(RE_EXT_DOC, '').trim());
+}
+
+/** Los archivos de «Documentos» que alimentan las casillas de anexo: las 3 cajas de anexos ya
+ *  clasificados + los anexos sueltos de Anexos Oferente. */
+export function nombresDeArchivosConCasilla(docs: Array<{ documento_nombre: string; categoria: string }>): string[] {
+  return docs
+    .filter(d => d.categoria !== 'ANEXOS_OFERENTE' || esArchivoDeAnexoSuelto(d.documento_nombre))
+    .map(d => d.documento_nombre);
+}
+
 /**
  * Una casilla por cada archivo de anexo de la licitación que todavía no tenga la suya.
  * `yaGenerados` son los ítems que salieron del informe en esta misma corrida; el filtro contra lo

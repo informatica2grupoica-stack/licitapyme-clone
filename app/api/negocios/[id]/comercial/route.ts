@@ -23,7 +23,7 @@ import {
   planDeLineasTecnicas, hayLineasTecnicasHuerfanas, type FilaLineaTecnicaExistente,
   planDeFilasPrecio, hayPreciosObsoletos, type FilaPrecioExistente,
   ACCIONES_ITEM, type AccionItem,
-  tituloDesdeNombreDeArchivo, slug,
+  tituloDesdeNombreDeArchivo, nombresDeArchivosConCasilla, slug,
 } from '@/app/lib/checklist-comercial';
 import { calcularSemaforo, causalesDeBloqueo } from '@/app/lib/semaforo-auditor';
 import { leerCachePreguntas } from '@/app/lib/preguntas-respuestas';
@@ -232,6 +232,7 @@ export async function sincronizar(negocioId: number, codigo: string, informe: an
   const lineasOfertadas = await leerLineasOfertadas(negocioId);
   let items = generarItemsDesdeViabilidad(informe, lineasOfertadas);
   if (!items.length) return 0;
+  const clavesVigentes = new Set(items.map(i => i.claveOrigen));
 
   // Los ARCHIVOS de anexo que bajaron de Mercado Público también mandan: si existe el archivo,
   // existe la casilla, aunque el informe no lo haya listado (986278-14-LE26 traía 5 anexos y el
@@ -248,13 +249,13 @@ export async function sincronizar(negocioId: number, codigo: string, informe: an
   // limpiarCasillasDeArchivosMovidos más abajo para el sentido inverso).
   try {
     const [anexoRows] = await pool.query(
-      `SELECT documento_nombre FROM documentos_cache
+      `SELECT documento_nombre, categoria FROM documentos_cache
         WHERE licitacion_codigo = ?
-          AND categoria IN ('ANEXOS_ADMINISTRATIVOS', 'ANEXOS_TECNICOS', 'ANEXOS_ECONOMICOS')`,
+          AND categoria IN ('ANEXOS_ADMINISTRATIVOS', 'ANEXOS_TECNICOS', 'ANEXOS_ECONOMICOS', 'ANEXOS_OFERENTE')`,
       [codigo],
     ) as any;
     items = items.concat(itemsDesdeArchivosDeAnexo(
-      (anexoRows as Array<{ documento_nombre: string }>).map(r => r.documento_nombre), items,
+      nombresDeArchivosConCasilla(anexoRows as Array<{ documento_nombre: string; categoria: string }>), items,
     ));
   } catch { /* si la consulta falla, el checklist igual se arma con lo del informe */ }
 
@@ -286,6 +287,7 @@ export async function sincronizar(negocioId: number, codigo: string, informe: an
     if ((r as any).affectedRows) nuevos++;
   }
 
+  await podarFilasObsoletas(negocioId, clavesVigentes);
   await reubicarExistentes(negocioId);
   await reconciliarExistentes(negocioId);
   await reconciliarLineasTecnicas(negocioId, informe);
@@ -295,7 +297,35 @@ export async function sincronizar(negocioId: number, codigo: string, informe: an
   // sin volver a proyectarla, esas filas quedan sin marca y el bloque técnico muestra líneas que
   // no se ofertan como si fueran trabajo pendiente (1271359-92-LE26).
   await reproyectarDecisionGuardada(negocioId);
+  // Word con varios anexos pegados → se cortan solos en segundo plano y vuelve a sincronizar para
+  // que salgan sus casillas (ver anexos-separar-auto.ts).
+  void import('@/app/lib/anexos-separar-auto').then(m => m.separarAnexosAutomatico(codigo, async () => { await sincronizar(negocioId, codigo, informe); }));
   return nuevos;
+}
+
+/**
+ * Quita las casillas VÍRGENES que nacieron de un análisis anterior y que el análisis vigente ya no
+ * trae (1090-17-LE26: el primer análisis lo vio por línea y el re-análisis lo dejó global; las
+ * exigencias del primero seguían en el Auditor). Solo origen 'viabilidad', sin línea (las de línea las
+ * resuelven reconciliarLineasTecnicas/reconciliarFilasPrecio) y sin ningún trabajo cargado.
+ */
+async function podarFilasObsoletas(negocioId: number, vigentes: Set<string>): Promise<void> {
+  try {
+    const [rows] = await pool.query(
+      `SELECT c.id, c.clave_origen FROM checklist_comercial c
+        WHERE c.negocio_id = ? AND c.origen = 'viabilidad' AND c.linea_numero IS NULL AND c.clave_origen IS NOT NULL
+          AND c.estado = 'PENDIENTE' AND c.valor_texto IS NULL AND c.valor_numero IS NULL AND c.observacion IS NULL
+          AND c.cargado_por IS NULL AND c.aprobado_por IS NULL
+          AND NOT EXISTS (SELECT 1 FROM checklist_comercial_documentos d WHERE d.item_id = c.id)`,
+      [negocioId],
+    ) as any;
+    const borrar = (rows as Array<{ id: number; clave_origen: string }>).filter(r => !vigentes.has(r.clave_origen)).map(r => r.id);
+    if (!borrar.length) return;
+    await pool.query(`DELETE FROM checklist_comercial WHERE id IN (?)`, [borrar]);
+    console.log(`[checklist] negocio ${negocioId}: ${borrar.length} casilla(s) virgen(es) de un análisis anterior quitadas.`);
+  } catch (e) {
+    console.error('[checklist] poda de casillas obsoletas falló (no bloquea):', String(e).slice(0, 200));
+  }
 }
 
 /**
@@ -334,13 +364,13 @@ async function limpiarCasillasDeArchivosMovidos(negocioId: number, codigo: strin
     if (!virgenes.length) return;
 
     const [docsRows] = await pool.query(
-      `SELECT documento_nombre FROM documentos_cache
+      `SELECT documento_nombre, categoria FROM documentos_cache
         WHERE licitacion_codigo = ?
-          AND categoria IN ('ANEXOS_ADMINISTRATIVOS', 'ANEXOS_TECNICOS', 'ANEXOS_ECONOMICOS')`,
+          AND categoria IN ('ANEXOS_ADMINISTRATIVOS', 'ANEXOS_TECNICOS', 'ANEXOS_ECONOMICOS', 'ANEXOS_OFERENTE')`,
       [codigo],
     ) as any;
     const slugsVigentes = new Set(
-      (docsRows as Array<{ documento_nombre: string }>).map(r => slug(tituloDesdeNombreDeArchivo(r.documento_nombre))),
+      nombresDeArchivosConCasilla(docsRows as Array<{ documento_nombre: string; categoria: string }>).map(n => slug(tituloDesdeNombreDeArchivo(n))),
     );
 
     const aBorrar = virgenes

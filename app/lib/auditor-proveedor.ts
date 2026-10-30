@@ -7,6 +7,7 @@
 //     forma de pago y banco van como TEXTO: OBUMA los pide como ID de catálogo y ese catálogo aún no está
 //     cargado (pendiente P-8), por lo que la columna queda vacía y el texto viaja en `pendientes_catalogo`.
 import type { OpcionDTO, LineaAuditorDTO } from '@/app/lib/auditor-opciones';
+import { factorSegunLinea } from '@/app/lib/auditor-opciones-core';
 
 const clp = (n: number | null | undefined) => (n == null ? '' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n));
 
@@ -128,7 +129,8 @@ export function productoOBUMA(o: OpcionDTO, linea: LineaAuditorDTO): FilaOBUMA {
   const p = o.producto, avisos: string[] = [];
   const respaldo = o.respaldos.find(r => r.sostieneCosto) || o.respaldos[0];
   if (o.verificacion?.costoNetoUnitario == null) avisos.push('Sin costo neto verificado: la columna de costo queda vacía.');
-  const factor = p?.unidadesPorEmpaque && p.unidadesPorEmpaque > 1 ? p.unidadesPorEmpaque : '';
+  const fe = factorSegunLinea(p?.unidadesPorEmpaque, linea.detalle);
+  const factor = fe && fe > 1 ? fe : '';
   return {
     columnas: {
       producto_nombre: [p?.tipo, o.marca, o.modelo].filter(Boolean).join(' ') || linea.detalle.split(' - ')[0],

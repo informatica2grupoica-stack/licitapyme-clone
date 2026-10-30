@@ -14,7 +14,7 @@ import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('auditor', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { MOTOR_KIMI_ESTRICTO, type MotorComparacion } from '@/app/lib/auditor-tecnico';
-import { productosCrudosDeLinea, productoDeInformePorNombre } from '@/app/lib/auditor-tecnico-core';
+import { productosCrudosDeLinea, productoDeInformePorNombre, exigenciasDelNombre } from '@/app/lib/auditor-tecnico-core';
 import { extraccionPorId } from '@/app/lib/auditor-lector';
 import { agregarCostoAsociado } from '@/app/lib/auditor-lineas';
 import {
@@ -116,6 +116,9 @@ export async function requisitosDeLinea(negocioId: number, licitacionCodigo: str
     const texto = String(c || '').trim();
     if (texto) requisitos.push({ n: requisitos.length + 1, texto, fuente: 'Bases técnicas (informe de viabilidad)', criticidad: criticidadLinea, producto: productos.length > 1 ? p.nombre : undefined });
   }
+  for (const p of productos) for (const texto of exigenciasDelNombre(p.nombre, p.caracteristicas)) {
+    requisitos.push({ n: requisitos.length + 1, texto, fuente: 'Descripción de la línea en las bases', criticidad: criticidadLinea, producto: productos.length > 1 ? p.nombre : undefined });
+  }
   const foro = informe?.foro ?? informe?.foro_qa ?? informe?.aclaraciones ?? null;
   const cri = informe?.criterios_evaluacion ?? null;
   // REGLA: las especificaciones de un ítem son SOLO las de ese ítem en las bases. Si la línea del informe agrupa varios productos
@@ -165,6 +168,7 @@ export async function contarRequisitosPorLinea(negocioId: number, licitacionCodi
       const texto = String(c || '').trim();
       if (texto) reqs.push({ n: reqs.length + 1, texto, fuente: '', criticidad: 'SIN_CLASIFICAR', producto: prods.length > 1 ? p.nombre : undefined });
     }
+    for (const p of prods) for (const texto of exigenciasDelNombre(p.nombre, p.caracteristicas)) reqs.push({ n: reqs.length + 1, texto, fuente: '', criticidad: 'SIN_CLASIFICAR', producto: prods.length > 1 ? p.nombre : undefined });
     out.set(claveReqLinea(l.lineaReal, l.producto), requisitosParaLinea(reqs, l.producto).length);
   }
   return out;

@@ -3,6 +3,15 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-30 — Corte automático de Word con anexos pegados (sin desplegar, sin probar en vivo)
+Aprendido de lo que el equipo ya hace: 67 cortes a mano en 45 licitaciones, casi todos .docx en Anexos Oferente. Calibración: el detector vio ≥2 anexos en los 40 .docx separados por el equipo (0 falsos negativos); entre ~120 docx no separados dio 32 «positivos», casi todos paquetes reales; los de un solo anexo («Anexo_N°4.docx») se excluyen por nombre. `anexos-separar-auto.ts`: `sincronizar` lo lanza en segundo plano; corta solo Word (.doc/.docx), una vez por documento (revisa actividad `anexo_separado` y evento `ANEXOS_SEPARADOS_AUTO`), original intacto, aviso en historial, y re-sincroniza para crear las casillas. **Pendiente:** probarlo en vivo en un negocio (la prueba contra la BD fue bloqueada por permisos), decidir si se muestra el aviso en el Auditor.
+
+## 2026-10-30 — Anexos sueltos en «Anexos Oferente» ya tienen casilla (1090-17-LE26)
+Los 10 `Anexo_N°X.pdf` quedaban en Anexos Oferente y la pre-postulación mostraba solo el N°1 (había que arrastrarlos a mano). `esArchivoDeAnexoSuelto`/`nombresDeArchivosConCasilla` (checklist-comercial.ts): un archivo llamado «Anexo/Formulario/Formato N°X» en Anexos Oferente genera su casilla; los paquetes apilados (otro nombre) no. Neg 1629: 9 casillas nuevas. **Pendiente (propuesto, sin hacer):** detectar paquetes y cortarlos solos avisando.
+
+## 2026-10-30 — El checklist del Auditor conservaba casillas del análisis anterior (1090-17-LE26)
+Re-analizar solo agregaba casillas y quitaba las de líneas inexistentes; las exigencias que el análisis nuevo ya no trae seguían (42 casillas, 9 viejas). `sincronizar` (comercial/route.ts) ahora llama a `podarFilasObsoletas`: borra casillas de origen viabilidad, sin línea y **vírgenes** que ya no están en el análisis vigente. Nunca toca trabajo cargado. Aplicado al neg 1629: 42 → 33. Sin test nuevo; sin desplegar.
+
 ## 2026-10-30 — Costo neto 14 veces menor: el precio del set se dividía por sus piezas (2446-307-LE26, Makita D-71956)
 **Causa (BD del VPS, solo lectura):** la página decía «$17.990 IVA incluido» y el Lector lo leyó bien, pero anotó `unidades_por_empaque = 14`
 (las 14 brocas del set). `precioNetoUnitario` dividió: 17.990 ÷ 1,19 ÷ 14 = $1.080 (debía ser $15.118, lo costeado) y la tarjeta mostraba «-92,9 %».
@@ -11,7 +20,22 @@ personal el 2026-10-27; las fechas son de cuando se decidió.
 Lector lo dice; cuando SÍ se divide aparece una alerta V2 amarilla («se dividió por N»); la alerta «parece empaque» no sale si la línea pide un set.
 La opción ya guardada se corrige sola (se recalcula desde la extracción). **Verificado:** test con el caso real + variantes, suite 1664/1664.
 **Medido:** 7 de 53 respaldos con factor eran sets (negocios 1522: opciones 735-737; 1561: 722-723; 1243: 680 queda dividida por decir «caja»).
-**Pendiente:** seguir el ciclo del Auditor en 2446-307-LE26 (otras líneas, cotizaciones, fichas); desplegar para ver el $15.118 en pantalla.
+**Segunda pasada (mismo día):** si la línea pide el empaque entero («Caja de 100 un de tornillo» L31, «Pack 10 unidades» L21) tampoco se divide
+(`factorSegunLinea`; el tornillo habría salido $87 en vez de $8.657). Se usa en la verificación, el emparejado y la columna de factor de OBUMA.
+**Verificado con las 28 opciones reales del 1522** (código nuevo contra la BD, `scripts/scratch/_qa_2446_neto_nuevo.mts`): todas calzan con lo costeado;
+solo L32 y L33 (perfiles) quedan +10 % sobre el costeo, diferencia real de precio. Suite 1665/1665, tsc limpio.
+**Cotizaciones (el 1522 solo tiene links; se auditaron las 271 subidas de todos los negocios, código nuevo contra la BD, solo lectura):**
+- *Cantidad leída como empaque:* PC Factory (ext 472, neg 1376) 5 notebooks a $909.655 salían a $181.931 (÷5); Locker Plus (ext 473, neg 1515) ÷100/÷20. Regla: «unidades por empaque» solo vale si el documento describe un empaque (contenido o unidad de precio con caja/pack/set…); si no, es la cantidad de la fila. Factores dudosos 5 → 0.
+- *Código leído como precio:* Locker Plus tomó `10304040004` (código DEF-61A) como $10.304 millones. Un número ≥ 1.000 millones o igual al SKU/EAN no es precio; con un total de línea a la vista el unitario es el que lo divide exacto (52.990 con 7 % → 49.281; 100 × 49.281 = 4.928.100).
+- *IVA por totales (3b) fallaba en 12 documentos con pie que cuadra:* tomaba solo la primera coincidencia («Total Neto 100» de encabezado, «Total» pegado a otra frase, separador «‖»). Ahora prueba todas y vale el trío que cuadra. Documentos con IVA no declarado 34 → 30.
+- *Sin tocar:* Play Plaza (neg 1373, ext 392/393) trae «Valores INCLUYEN IVA» y el pie en formato inglés (92,352,883) y sigue «no declarado» (conservador); su «Juego Modular 47» viene con el número corrupto en el PDF («15,294,11», real ≈ 15.294.112) y el Lector lo marcó ambiguo: queda bloqueado hasta confirmarlo.
+Suite 1668/1668, tsc limpio.
+**Fichas técnicas / comparador (2446-307-LE26, 25 de 28 opciones comparadas; los CUMPLE de la BD están todos sustentados con cita de la página):**
+- *Exigencias que solo estaban en el nombre:* el informe de viabilidad dejó `caracteristicas` vacías en L2 («14 piezas… brocas de 5; 6; 7 y 8 mm × 110 mm»), L6 («120 piezas») y L37 («rendimiento de 9,7 m² por capa»), y sin la medida en «Brocha multiuso 2"», «Prensa 8"», «Esmeril 9"», disco «g 120»: la pantalla decía «las bases no traen exigencias» y nada se comparaba. `exigenciasDelNombre` (`auditor-tecnico-core.ts`) agrega como requisito cada tramo del nombre con una cifra que ninguna característica cubre (el 1 suelto no cuenta); fuente «Descripción de la línea en las bases». Solo en `requisitosDeLinea` y `contarRequisitosPorLinea` (Auditor): Checklist y anexos no cambian.
+- **Efecto colateral:** 99 de 515 comparaciones guardadas (19 %: 31 POSTULADAS, 29 ADJUDICADAS, 15 VISADO, 9 PERDIDAS, 15 DESCARTADAS) ganan un requisito y la pantalla las mostrará «comparación desactualizada» hasta recomparar la línea (gasta IA). No se recompararon.
+- *CUMPLE con dato vacío:* si la cita está verificada en el documento, el dato ofertado es esa cita (pistola calafatera #749); antes la ficha propia salía con la casilla en blanco.
+- Suite 1669/1669, tsc limpio.
+**Pendiente:** desplegar y ver en pantalla el $15.118 y los requisitos nuevos (sin verlo en navegador); recomparar L2, L6 y L37 del 1522 (no hecho: gasta IA); decidir si «Valores INCLUYEN IVA» al pie basta como declaración de IVA (Play Plaza); el informe de viabilidad de 2446-307-LE26 pone las 44 líneas bajo «L1» (se resuelve por nombre).
 
 ## 2026-10-29 (tarde) — 2827-102-LE26 L2: «Técnico sin comparar» aunque estaba aprobada (la viabilidad copió los requisitos de L1 a L2)
 **Causa (BD del VPS, solo lectura):** la opción 676 (Luster 780E, L2) se comparó el 28-oct con 11 requisitos (los de EETT_B_Manual: 12 V, 20 Ah, 50 L…). El re-análisis de viabilidad del 28-oct 18:01 dejó `productos.items` con L1 y L2 **idénticos** (los mismos 19 requisitos de la barredora industrial del TDR; ambos con la cita del TDR; el informe mismo avisa `conteo_cruzado.cuadra=false`). `armarPanelAuditor` compara filas guardadas vs requisitos del ítem (11 ≠ 19) y por diseño oculta la comparación: «Comparación desactualizada» → «Sin comparar», paso 2 del Auditor «1 de 2». La aprobación y la firma siguen intactas. Mismo origen que el costeo del 29-oct: las dos líneas se llaman «Barredora de suelos».

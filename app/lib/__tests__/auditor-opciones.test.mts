@@ -3,7 +3,7 @@
 // bloqueo (V1, V2, V3, V4 con R1/R2, V6, V7). Correr con: npx tsx --test app/lib/__tests__/auditor-opciones.test.mts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parsearMonto, fechaISO, normalizarProductos, emparejarProductos, puntuar, verificarOpcion, faltantesProveedor, coincidenciaIdentidad, modelosParecidos, emparejarProductoReleido, separarPrecioPegadoACantidad, ivaPorTotalesDelDocumento, margenProyectoConOpciones, margenConAsociados, evaluarAvance, type ProductoNormalizado } from '../auditor-opciones-core';
+import { factorSegunLinea, parsearMonto, fechaISO, normalizarProductos, emparejarProductos, puntuar, verificarOpcion, faltantesProveedor, coincidenciaIdentidad, modelosParecidos, emparejarProductoReleido, separarPrecioPegadoACantidad, ivaPorTotalesDelDocumento, margenProyectoConOpciones, margenConAsociados, evaluarAvance, type ProductoNormalizado } from '../auditor-opciones-core';
 import type { LineaCosteo } from '../auditor-compras-core';
 import type { SalidaLector } from '../auditor-lector';
 
@@ -478,4 +478,34 @@ test('un set de 14 brocas es UNA unidad: sus piezas no dividen el precio (Makita
   assert.equal(normalizarProductos(salida('Caja de 10 unidades', '10', 'Guante'), '', true)[0].unidadesPorEmpaque, 10);
   assert.equal(normalizarProductos(salida('Caja de 6 sets de brocas', '6'), '', true)[0].unidadesPorEmpaque, 6);
   assert.equal(normalizarProductos(salida('Unidades por caja: 12 unidades. Juego de sábanas', '12'), '', true)[0].unidadesPorEmpaque, 12);
+});
+
+test('si la línea pide el empaque entero no se divide (2446-307-LE26 L31 «Caja de 100 un» salía $87)', () => {
+  assert.equal(factorSegunLinea(100, 'Caja de 100 un de tornillo autoperforante cabeza hexagonal 2"'), null);
+  assert.equal(factorSegunLinea(10, 'Pack 10 unidades de disco de lija con velcro 125 mm g 120'), null);
+  assert.equal(factorSegunLinea(14, 'Set de brocas SDS Plus, 14 piezas'), null);
+  assert.equal(factorSegunLinea(10, 'Guante de seguridad talla L'), 10, 'línea de unidad suelta: sí divide');
+  assert.equal(factorSegunLinea(12, 'Tornillo 2" (se compran 120 en total)'), 12, '120 no es 12');
+});
+
+test('cotización: la cantidad de la fila no es «unidades por empaque» (PC Factory ext 472: 5 × $909.655 salía $181.931)', () => {
+  const salida = { documento: { tipo: 'cotizacion' }, productos: [{ es_producto_principal: true, producto: { tipo: 'Asus All in One', sku_proveedor: '55153' },
+    comercial: { precios: [{ valor: '909.655', condicion: 'actual', cita: 'p.1' }], moneda: 'CLP', unidad_precio: 'unid.', unidades_por_empaque: '5', iva: 'no_declarado' } }] } as unknown as SalidaLector;
+  assert.equal(normalizarProductos(salida, '')[0].unidadesPorEmpaque, null);
+});
+
+test('cotización: un código de producto no es precio y el unitario es el que divide el total de la línea (Locker Plus ext 473)', () => {
+  const precios = [{ valor: '10304040004', condicion: 'neto' }, { valor: '52.990', condicion: 'neto' }, { valor: '49.281', condicion: 'con descuento', detalle_condicion: '7 %' }, { valor: '4.928.100', condicion: 'total neto' }];
+  const salida = { documento: { tipo: 'cotizacion' }, productos: [{ es_producto_principal: true, producto: { tipo: 'Barrera recta', sku_proveedor: 'DEF-61A', ean: '10304040004' },
+    comercial: { precios, moneda: 'CLP', unidades_por_empaque: '100', iva: 'no_declarado' } }] } as unknown as SalidaLector;
+  const [p] = normalizarProductos(salida, '');
+  assert.equal(p.precio, 49_281);
+  assert.equal(p.unidadesPorEmpaque, null);
+});
+
+test('IVA 3b: el pie se encuentra aunque haya un «Total Neto» de encabezado, un «Total» sin salto de línea o separadores ‖', () => {
+  assert.match(ivaPorTotalesDelDocumento('Cant | Total Neto 100 | x\nSubtotal | 6.899.340\nIVA | 1.310.875\nTotal | 8.210.215') ?? '', /netos/);
+  assert.match(ivaPorTotalesDelDocumento('Subtotal | $4.474.904 Garantia 1 año\nIva | $850.232 PRECIO NO INCLUYE TRASLADO | Total | $5.325.136') ?? '', /netos/);
+  assert.match(ivaPorTotalesDelDocumento('neto ‖ $ 11.614.113 IVA 19% ‖ $ 2.206.681 Total ‖ $ 13.820.794') ?? '', /netos/);
+  assert.equal(ivaPorTotalesDelDocumento('Subtotal 1.000.000\nIVA 190.000\nTotal 1.300.000'), null, 'si no cuadra no se supone');
 });
