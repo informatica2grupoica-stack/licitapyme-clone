@@ -95,7 +95,10 @@ B) PROVEEDOR — todo lo que aparezca:
 
 C) CONDICIONES COMERCIALES — por cada producto:
    precio(s) con su condición · moneda · unidad a la que corresponde el precio · contenido del empaque
-   (texto literal) · unidades por empaque (número, solo si está explícito) ·
+   (texto literal) · unidades por empaque (número, solo si está explícito y SOLO cuando el precio es de un
+   paquete de varias unidades que también se venden sueltas: «caja de 10 unidades»). Un set, kit, juego,
+   surtido o estuche («set de 14 brocas», «juego de 8 llaves») es UNA unidad: sus piezas NO son unidades
+   por empaque, déjalo vacío y describe las piezas en «contenido_empaque» ·
    IVA: incluido | neto | no_declarado (con la frase literal que lo indica) ·
    descuentos y condiciones del precio (oferta con fecha de término, precio con tarjeta, precio por
    volumen, "precio desde") ·

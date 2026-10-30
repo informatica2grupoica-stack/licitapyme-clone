@@ -144,6 +144,17 @@ export function separarPrecioPegadoACantidad(texto: string, precio: number): { c
   return null;
 }
 
+/** Un set, kit o juego se vende como UNA unidad: sus piezas no son «unidades por empaque». Si el Lector las anotó como tales,
+ *  se ignoran; dividir el precio del set por sus piezas daba un costo 14 veces menor (Makita D-71956, 2446-307-LE26: $15.118 → $1.080).
+ *  Solo cuenta como multipack si el texto habla de VARIOS sets («caja de 6 sets», «pack 3 juegos»). */
+export function unidadesPorEmpaqueValidas(n: number | null, textos: string[]): number | null {
+  if (n == null || n <= 1) return n;
+  const t = textos.join(' ');
+  const esConjunto = /\b(set|kit|juego|surtido|estuche|maleta|conjunto)\b/i.test(t);
+  const variosConjuntos = /\b\d+\s*(sets?|kits?|juegos?|conjuntos?|estuches?)\b/i.test(t) || /\b(caja|bulto|display|cart[oó]n|docena)s?\b/i.test(t);
+  return esConjunto && !variosConjuntos ? null : n;
+}
+
 /**
  * REGLA ÚNICA DE IVA (decisión CA, 1-oct-2026). Es la ÚNICA: el comparador técnico v3.0 (Paso 3 del prompt) y el verificador de costo (V3) se rigen por esto,
  * porque el costo sale del código con la extracción del Lector, no del modelo.
@@ -195,7 +206,7 @@ export function normalizarProductos(salida: SalidaLector, texto?: string, esWeb 
       moneda: monedaDoc, conversion,
       iva, ivaSupuesto, ivaTexto: ivaPorTotales ?? (c.iva_texto_literal || ''),
       unidadPrecio: c.unidad_precio || '', contenidoEmpaque: c.contenido_empaque || '',
-      unidadesPorEmpaque: parsearMonto(c.unidades_por_empaque),
+      unidadesPorEmpaque: unidadesPorEmpaqueValidas(parsearMonto(c.unidades_por_empaque), [c.contenido_empaque || '', c.unidad_precio || '', nombre]),
       cantidadCotizada: parsearMonto(cantTexto) ?? cantidadCorregida, moq: parsearMonto(c.moq), correccion,
       stock: c.stock || '', plazoTexto, plazoDias: diasDelTexto(plazoTexto), tipoDias: c.tipo_dias || 'no_declarado',
       despacho: c.despacho || '', incoterm: (c.incoterm || '').trim(),
@@ -426,7 +437,11 @@ export function verificarOpcion(e: EntradaVerificacion): ResultadoVerificacion {
       mensaje: `La cotización es por ${p.cantidadCotizada} unidades y la licitación pide ${linea.cantidad}: el precio unitario puede cambiar con otra cantidad.`, accion: 'pedir_proveedor' });
   }
   const pareceEmpaque = /(caja|pack|pack\.|docena|set|kit|rollo|bolsa|display)/i.test(p.contenidoEmpaque + ' ' + p.unidadPrecio);
-  if (pareceEmpaque && !(p.unidadesPorEmpaque && p.unidadesPorEmpaque >= 1)) {
+  const lineaPideConjunto = /\b(set|kit|juego|conjunto|surtido)\b/i.test(linea.detalle || '');
+  if (p.unidadesPorEmpaque && p.unidadesPorEmpaque > 1 && p.precio != null) {
+    alertas.push({ codigo: 'V2', nivel: 'amarillo', mensaje: `El precio del respaldo ($${p.precio.toLocaleString('es-CL')}) se dividió por ${p.unidadesPorEmpaque} unidades del empaque «${(p.contenidoEmpaque || p.unidadPrecio).trim()}». Confirma que la licitación pide la unidad suelta.`, accion: 'revisar' });
+  }
+  if (pareceEmpaque && !lineaPideConjunto && !(p.unidadesPorEmpaque && p.unidadesPorEmpaque >= 1)) {
     alertas.push({ codigo: 'V2', nivel: 'amarillo', mensaje: `El precio parece ser por "${(p.contenidoEmpaque || p.unidadPrecio).trim()}": confirma cuántas unidades trae para calcular el costo unitario.`, accion: 'pedir_proveedor' });
   }
 

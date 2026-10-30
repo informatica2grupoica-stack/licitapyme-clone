@@ -3,6 +3,11 @@
 Costeo digital del negocio (editor + burbuja flotante) y Excel de costeo (plantilla V3).
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-30 — Re-análisis a GLOBAL no unía las hojas del costeo (1090-17-LE26)
+**Caso real:** 1090-17-LE26 (negocio 1629). 1er análisis por línea → costeo con 13 hojas; el re-análisis dejó `adjudicacion.resultado = GLOBAL` pero `modalidad.tipo` quedó en por_linea, y `adaptarViabilidadACosteo` solo leía ese campo heredado.
+**Arreglo:** `generar-costeo.ts` no usa por_linea si la adjudicación es GLOBAL; `costeo-editor-reanalisis.ts` une las hojas (`unirEnUnaHoja`, sin tocar precios; no si alguna hoja está apagada) y actualiza también la columna `modalidad`.
+**Dato corregido:** costeo del neg 1629 unido en 1 hoja de 13 filas (respaldo en %TEMP%/costeo_1090_respaldo.json). tsc ok; sin test nuevo.
+
 ## 2026-10-29 — El re-análisis movía de línea un producto con nombre repetido (2827-102-LE26 L2)
 **Caso real:** 2827-102-LE26 (negocio 1596). El anexo económico salía con la línea 2 a $609.989 y el Auditor la
 tenía aprobada en $774.687. Las dos líneas de la viabilidad se llaman «Barredora de suelos» (nombre genérico de

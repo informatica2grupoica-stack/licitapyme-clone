@@ -462,3 +462,20 @@ test('IVA 3b: Subtotal + IVA 19% = Total → precios netos; si no cuadra, sigue 
   assert.match(p.ivaTexto, /Subtotal/);
   assert.equal(normalizarProductos(salida, pie, true)[0].iva, 'incluido', 'una página web sigue con su propia regla');
 });
+
+test('un set de 14 brocas es UNA unidad: sus piezas no dividen el precio (Makita D-71956, 2446-307-LE26)', () => {
+  const salida = (empaque: string, unidades: string, tipo = 'Set brocas SDS-Plus') => ({
+    documento: { tipo: 'pagina_web' },
+    productos: [{ es_producto_principal: true, producto: { tipo, marca: 'MAKITA', modelo: 'D-71956' },
+      comercial: { precios: [{ valor: '$17.990', condicion: 'actual', seleccionada: true }], moneda: 'CLP', iva: 'incluido', iva_texto_literal: '$17.990 IVA incluido', contenido_empaque: empaque, unidades_por_empaque: unidades } }],
+  }) as unknown as SalidaLector;
+  const set = normalizarProductos(salida('Set de 14 brocas SDS-Plus TCT', '14'), '', true)[0];
+  assert.equal(set.unidadesPorEmpaque, null);
+  const lin = linea({ detalle: 'Set de brocas SDS Plus, makita o equivalente, 14 piezas', cantidad: 2, costoEstimadoNeto: 15_118 });
+  const v = verificarOpcion(entrada({ ...set, precio: 17_990, iva: 'incluido', ivaSupuesto: false } as ProductoNormalizado, { linea: lin, opcion: { marca: 'MAKITA', modelo: 'D-71956' } }));
+  assert.equal(v.costoNetoUnitario, 15_118);
+  // una caja de 10 unidades sueltas SÍ divide; una caja de 6 sets también
+  assert.equal(normalizarProductos(salida('Caja de 10 unidades', '10', 'Guante'), '', true)[0].unidadesPorEmpaque, 10);
+  assert.equal(normalizarProductos(salida('Caja de 6 sets de brocas', '6'), '', true)[0].unidadesPorEmpaque, 6);
+  assert.equal(normalizarProductos(salida('Unidades por caja: 12 unidades. Juego de sábanas', '12'), '', true)[0].unidadesPorEmpaque, 12);
+});

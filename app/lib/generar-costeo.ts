@@ -604,7 +604,10 @@ export function adaptarViabilidadACosteo(
       lineas.get(nLinea)!.push(p);
     }
     const lineasOrden = [...lineas.entries()].sort((a, b) => a[0] - b[0]);
-    if (tipoAdj === 'por_linea' && lineasOrden.length >= 2) {
+    // La decisión de adjudicación de la v4 manda: GLOBAL («ofertar la totalidad») = una sola hoja,
+    // aunque `modalidad.tipo` (campo heredado) quedara en por_linea tras un re-análisis (1090-17-LE26).
+    const adjGlobal = String((informe as any).adjudicacion?.resultado || '').toUpperCase() === 'GLOBAL';
+    if (tipoAdj === 'por_linea' && lineasOrden.length >= 2 && !adjGlobal) {
       modalidad = 'por_linea';
       grupos = lineasOrden.map(([n, items]) => ({ nombre: `LINEA${n}`, items }));
     } else {

@@ -3,6 +3,16 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-30 — Costo neto 14 veces menor: el precio del set se dividía por sus piezas (2446-307-LE26, Makita D-71956)
+**Causa (BD del VPS, solo lectura):** la página decía «$17.990 IVA incluido» y el Lector lo leyó bien, pero anotó `unidades_por_empaque = 14`
+(las 14 brocas del set). `precioNetoUnitario` dividió: 17.990 ÷ 1,19 ÷ 14 = $1.080 (debía ser $15.118, lo costeado) y la tarjeta mostraba «-92,9 %».
+**Regla:** un set/kit/juego/surtido/estuche es UNA unidad; sus piezas no son «unidades por empaque». Solo se divide si el texto habla de varios
+(«caja de 6 sets», «caja/bulto/display/cartón/docena»). **Arreglo:** `unidadesPorEmpaqueValidas` (`auditor-opciones-core.ts`) al normalizar; el prompt del
+Lector lo dice; cuando SÍ se divide aparece una alerta V2 amarilla («se dividió por N»); la alerta «parece empaque» no sale si la línea pide un set.
+La opción ya guardada se corrige sola (se recalcula desde la extracción). **Verificado:** test con el caso real + variantes, suite 1664/1664.
+**Medido:** 7 de 53 respaldos con factor eran sets (negocios 1522: opciones 735-737; 1561: 722-723; 1243: 680 queda dividida por decir «caja»).
+**Pendiente:** seguir el ciclo del Auditor en 2446-307-LE26 (otras líneas, cotizaciones, fichas); desplegar para ver el $15.118 en pantalla.
+
 ## 2026-10-29 (tarde) — 2827-102-LE26 L2: «Técnico sin comparar» aunque estaba aprobada (la viabilidad copió los requisitos de L1 a L2)
 **Causa (BD del VPS, solo lectura):** la opción 676 (Luster 780E, L2) se comparó el 28-oct con 11 requisitos (los de EETT_B_Manual: 12 V, 20 Ah, 50 L…). El re-análisis de viabilidad del 28-oct 18:01 dejó `productos.items` con L1 y L2 **idénticos** (los mismos 19 requisitos de la barredora industrial del TDR; ambos con la cita del TDR; el informe mismo avisa `conteo_cruzado.cuadra=false`). `armarPanelAuditor` compara filas guardadas vs requisitos del ítem (11 ≠ 19) y por diseño oculta la comparación: «Comparación desactualizada» → «Sin comparar», paso 2 del Auditor «1 de 2». La aprobación y la firma siguen intactas. Mismo origen que el costeo del 29-oct: las dos líneas se llaman «Barredora de suelos».
 **Pendiente (no tocado):** corregir la viabilidad — que el ítem de la línea 2 lleve los requisitos de EETT_B_Manual.docx (documento «especificaciones» que el propio mapa del informe lista con 1 ítem) — y recién ahí «Comparar la línea pendiente». Re-analizar a ciegas puede repetir el error. Pre-postulación sigue bloqueando económico/técnico por: 1 causal de inadmisibilidad (19 de 20) y «Revisar compromisos» (0 de 0): los cierra el equipo.

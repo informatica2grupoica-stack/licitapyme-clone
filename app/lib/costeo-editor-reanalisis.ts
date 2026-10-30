@@ -10,7 +10,7 @@
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { adaptarViabilidadACosteo } from '@/app/lib/generar-costeo';
-import { datosCosteoAEditor, fusionarConViabilidad, corregirDesdeViabilidad, ordenarComoViabilidad, resumenCambiosCosteo, MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor } from '@/app/lib/costeo-editor';
+import { datosCosteoAEditor, fusionarConViabilidad, corregirDesdeViabilidad, ordenarComoViabilidad, unirEnUnaHoja, resumenCambiosCosteo, MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor } from '@/app/lib/costeo-editor';
 import { yaCongelado } from '@/app/lib/congelamiento';
 import { registrarEvento } from '@/app/lib/historial';
 
@@ -37,15 +37,18 @@ export async function actualizarCosteosTrasReanalisis(codigo: string, informeAnt
         modalidad: row.modalidad, margenVenta: Number(datos?.margenVenta) || MARGEN_VENTA_DEFECTO,
         grupos: (datos?.grupos || []).map((g: any) => ({ ...g, ofertamos: g.ofertamos !== false })),
       };
-      const f = fusionarConViabilidad(actual, nuevo);
+      // Si el re-análisis dejó la licitación global (una sola hoja) y el costeo seguía por línea, se unen
+      // las hojas: solo mueve filas (no toca precios). Si alguna hoja está apagada a propósito, no se une.
+      const unir = actual.modalidad === 'por_linea' && nuevo.modalidad === 'suma_alzada' && actual.grupos.length > 1 && actual.grupos.every(g => g.ofertamos);
+      const f = fusionarConViabilidad(unir ? unirEnUnaHoja(actual) : actual, nuevo);
       const c = corregirDesdeViabilidad(f.estado, nuevo, anterior);
       const o = ordenarComoViabilidad(c.estado, nuevo);
-      if (!f.agregados && !f.reclasificados && !c.corregidos && !o.reordenados) continue;
+      if (!unir && !f.agregados && !f.reclasificados && !c.corregidos && !o.reordenados) continue;
       const cambios = resumenCambiosCosteo(actual, o.estado);
       await pool.query(
-        `UPDATE negocio_costeo_editor SET datos_json = ?, actualizado_por = NULL, actualizado_por_nombre = ?, actualizado_at = ? WHERE negocio_id = ?`,
-        [JSON.stringify(o.estado), ACTOR_REANALISIS, ahoraChileSQL(), row.negocio_id]);
-      const partes = [f.agregados && `${f.agregados} producto(s) nuevo(s)`, f.reclasificados && `${f.reclasificados} reubicado(s) de línea`, c.corregidos && `${c.corregidos} corregido(s) en nombre o cantidad`, o.reordenados && `${o.reordenados} fila(s) ordenada(s) como el anexo económico`].filter(Boolean);
+        `UPDATE negocio_costeo_editor SET modalidad = ?, datos_json = ?, actualizado_por = NULL, actualizado_por_nombre = ?, actualizado_at = ? WHERE negocio_id = ?`,
+        [o.estado.modalidad, JSON.stringify(o.estado), ACTOR_REANALISIS, ahoraChileSQL(), row.negocio_id]);
+      const partes = [unir && 'hojas unidas en una (licitación global)', f.agregados && `${f.agregados} producto(s) nuevo(s)`, f.reclasificados && `${f.reclasificados} reubicado(s) de línea`, c.corregidos && `${c.corregidos} corregido(s) en nombre o cantidad`, o.reordenados && `${o.reordenados} fila(s) ordenada(s) como el anexo económico`].filter(Boolean);
       await registrarEvento({
         tipo: 'COSTEO_ACTUALIZADO_VIABILIDAD', licitacionCodigo: codigo, actorNombre: ACTOR_REANALISIS,
         mensaje: `El costeo se actualizó con el re-análisis de viabilidad: ${partes.join(', ')}.`.slice(0, 500),
