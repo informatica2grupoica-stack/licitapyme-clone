@@ -19,6 +19,8 @@ export interface EntradaMargen {
   /** Mejor cotización unitaria (neta); null = sin cotizar. */
   cotizado: number | null;
   proveedor: string | null;
+  /** Costo unitario que costeó COMPRAS por su cuenta (neto); null/ausente = no lo anotó (30-oct-2026). */
+  compras?: number | null;
 }
 
 export interface LineaMargen {
@@ -27,6 +29,8 @@ export interface LineaMargen {
   venta: number; costoInicial: number; costoNuevo: number;
   margenInicial: number; margenNuevo: number;
   pctInicial: number | null; pctNuevo: number | null;
+  /** Costo total con el costeo de Compras; null si Compras no costeó esta línea (entonces cuenta al costo inicial). */
+  costoCompras: number | null;
   /** Variación del margen % en puntos (nuevo − inicial). */
   puntos: number | null;
 }
@@ -36,6 +40,8 @@ export interface BloqueMargen {
   margenInicial: number; margenNuevo: number;
   pctInicial: number | null; pctNuevo: number | null; puntos: number | null;
   recargoInicial: number | null; recargoNuevo: number | null;
+  /** Con el costeo de Compras: las líneas que Compras no costeó cuentan al costo inicial. */
+  nCompras: number; costoCompras: number; margenCompras: number; pctCompras: number | null; puntosCompras: number | null;
 }
 
 export interface ResumenMargen {
@@ -59,10 +65,14 @@ function bloque(ls: LineaMargen[]): BloqueMargen {
   const costoNuevo = ls.reduce((s, l) => s + l.costoNuevo, 0);
   const margenInicial = venta - costoInicial, margenNuevo = venta - costoNuevo;
   const pi = pct(margenInicial, venta), pn = pct(margenNuevo, venta);
+  const costoCompras = ls.reduce((s, l) => s + (l.costoCompras ?? l.costoInicial), 0);
+  const margenCompras = venta - costoCompras, pc = pct(margenCompras, venta);
   return {
     n: ls.length, venta, costoInicial, costoNuevo, margenInicial, margenNuevo,
     pctInicial: pi, pctNuevo: pn, puntos: pi != null && pn != null ? r1(pn - pi) : null,
     recargoInicial: pct(margenInicial, costoInicial), recargoNuevo: pct(margenNuevo, costoNuevo),
+    nCompras: ls.filter(l => l.costoCompras != null).length, costoCompras, margenCompras,
+    pctCompras: pc, puntosCompras: pi != null && pc != null ? r1(pc - pi) : null,
   };
 }
 
@@ -81,6 +91,7 @@ export function margenCosteoVsCotizaciones(entradas: EntradaMargen[]): ResumenMa
       id: e.id, descripcion: e.descripcion, cantidad: q, cotizada, proveedor: cotizada ? e.proveedor : null,
       ventaUnitaria: e.venta, costeoUnitario: e.costeo, cotizadoUnitario: cotizada ? (e.cotizado as number) : null,
       venta, costoInicial, costoNuevo, margenInicial, margenNuevo, pctInicial: pi, pctNuevo: pn,
+      costoCompras: e.compras != null && e.compras > 0 ? r0(e.compras * q) : null,
       puntos: pi != null && pn != null ? r1(pn - pi) : null,
     });
   }

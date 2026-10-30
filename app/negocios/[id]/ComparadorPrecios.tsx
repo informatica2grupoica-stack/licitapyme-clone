@@ -43,8 +43,8 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
   const margen = useMemo(() => margenCosteoVsCotizaciones(productos.map(p => {
     const m = menorDe.get(p.id) ?? null;
     const proveedor = m == null ? null : cotizaciones.find(c => !reemp.has(`${c.id}:${p.id}`) && c.items.find(i => i.productoId === p.id)?.precioUnitario === m)?.proveedorNombre ?? null;
-    return { id: p.id, descripcion: p.descripcion, cantidad: num(p.cantidad), venta: venta?.[p.id] ?? null, costeo: costeado[p.id] ?? null, cotizado: m, proveedor };
-  })), [productos, cotizaciones, costeado, venta, menorDe, reemp]);
+    return { id: p.id, descripcion: p.descripcion, cantidad: num(p.cantidad), venta: venta?.[p.id] ?? null, costeo: costeado[p.id] ?? null, cotizado: m, proveedor, compras: costeoCompras[p.id]?.costo ?? null };
+  })), [productos, cotizaciones, costeado, venta, menorDe, reemp, costeoCompras]);
 
   if (productos.length === 0 || (cotizaciones.length === 0 && !lecLink?.disponible)) return null;
 

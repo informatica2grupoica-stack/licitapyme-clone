@@ -9,6 +9,9 @@ al final del editor: «Costo unit. COMPRAS» y «Link COMPRAS» (`costoCompraUni
 sin migración; las guarda `fusionarEdicionCompras` en filas ajenas y propias; el link no es obligatorio). En «Compara y elige a
 quién comprar» (`ComparadorPrecios`) cada producto muestra en columnas: Costeo · Costeo compras (con su link) · Cotización
 mejor (+ chip vs costeo) · Elegido. Datos por `costeoComprasPorProducto` → `/api/compras/[negocioId]/cotizaciones`.
+Mismo día, a pedido del dueño: el cuadro «Margen: costeo inicial vs cotizaciones» suma una columna «Con costeo de Compras» (y una frase
+de conclusión) para que Compras vea su margen ANTES de seguir cotizando; líneas que Compras no costeó cuentan al costo inicial
+(provisional). Solo aparece si Compras anotó algún costo. `compras-margen-vs-costeo.ts` (+ test).
 Supuesto: NO es el costo real (ese es lo pagado); esto es el estimado de Compras antes de comprar. tsc limpio; sin ver en navegador.
 
 ## 2026-10-28 — «Pasa» decía poco: el veredicto ahora se separa en Precio y Ficha

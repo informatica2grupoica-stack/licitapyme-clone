@@ -20,7 +20,7 @@ const TH = 'px-3 py-2 text-left text-xs font-medium text-slate-500 whitespace-no
 const THR = `${TH} text-right`;
 const TD = 'px-3 py-2 text-[13px] tabular-nums text-right whitespace-nowrap';
 
-function FilaResumen({ rotulo, nota, a, b, dif, difTono, fuerte }: { rotulo: string; nota?: string; a: string; b: string; dif: string; difTono?: string; fuerte?: boolean }) {
+function FilaResumen({ rotulo, nota, a, b, dif, difTono, fuerte, compras, comprasTono }: { rotulo: string; nota?: string; a: string; b: string; dif: string; difTono?: string; fuerte?: boolean; compras?: string; comprasTono?: string }) {
   const t = difTono ?? 'text-slate-500';
   return (
     <tr className={fuerte ? 'border-y border-zinc-200 bg-slate-50' : ''}>
@@ -29,6 +29,7 @@ function FilaResumen({ rotulo, nota, a, b, dif, difTono, fuerte }: { rotulo: str
         {nota && <span className="block text-xs text-slate-500">{nota}</span>}
       </th>
       <td className={`${TD} ${fuerte ? 'text-lg font-bold text-slate-900' : 'text-slate-700'}`}>{a}</td>
+      {compras != null && <td className={`${TD} ${fuerte ? 'text-lg font-bold' : 'font-medium'} ${comprasTono ?? 'text-slate-700'}`}>{compras}</td>}
       <td className={`${TD} ${fuerte ? `text-lg font-bold ${t}` : 'text-slate-700'}`}>{b}</td>
       <td className={`${TD} ${fuerte ? 'text-lg font-bold' : 'font-semibold'} ${t}`}>{dif}</td>
     </tr>
@@ -60,6 +61,9 @@ export function MargenCosteoVsCotizaciones({ resumen: r }: { resumen: ResumenMar
     );
   }
   const sube = (t.puntos ?? 0) > 0, baja = (t.puntos ?? 0) < 0;
+  // Costeo de Compras (30-oct-2026): para que Compras vea su margen ANTES de seguir cotizando. Solo si anotó algún costo.
+  const hayCompras = t.nCompras > 0;
+  const cc = (v: string) => (hayCompras ? v : undefined);
   return (
     <section className="border-t border-zinc-200 px-4 py-4" data-testid="margen-costeo-vs-cotizaciones">
       <h3 className="text-base font-medium text-slate-800">Margen: costeo inicial vs cotizaciones</h3>
@@ -75,6 +79,16 @@ export function MargenCosteoVsCotizaciones({ resumen: r }: { resumen: ResumenMar
         </p>
       )}
 
+      {hayCompras ? (
+        <p className="mt-3 text-base text-slate-800" data-testid="margen-compras-frase">
+          Con el <b className="font-bold text-slate-900">costeo de Compras</b> el margen sobre la venta {(t.puntosCompras ?? 0) > 0 ? 'sube' : (t.puntosCompras ?? 0) < 0 ? 'baja' : 'no cambia'}: de <b className="font-bold text-slate-900">{pct(t.pctInicial)}</b> a <b className={`font-bold ${tono(t.puntosCompras)}`}>{pct(t.pctCompras)}</b>
+          {t.puntosCompras !== 0 && <> (<b className={`font-bold ${tono(t.puntosCompras)}`}>{pts(t.puntosCompras)}</b>, <b className={`font-bold ${tono(t.puntosCompras)}`}>{clpFirmado(t.margenCompras - t.margenInicial)}</b> en pesos)</>}.
+          <span className="block text-[13px] text-slate-500">Compras costeó {t.nCompras} de {r.lineas.length} líneas; las demás cuentan al costo inicial, así que este margen es una idea provisional.</span>
+        </p>
+      ) : (
+        <p className="mt-3 text-[13px] text-slate-500">Anota el «Costo unit. COMPRAS» en el costeo y aquí verás el margen que tendrías con tus propios costos, antes de seguir cotizando.</p>
+      )}
+
       {/* 1 · Margen inicial del costeo frente al margen con las cotizaciones */}
       <div className="mt-3 overflow-x-auto">
         <table className="w-full min-w-[540px]">
@@ -82,19 +96,20 @@ export function MargenCosteoVsCotizaciones({ resumen: r }: { resumen: ResumenMar
             <tr className="border-b border-zinc-200">
               <th className={TH}><span className="sr-only">Concepto</span></th>
               <th className={THR}>Costeo inicial</th>
+              {hayCompras && <th className={THR}>Con costeo de Compras</th>}
               <th className={THR}>Con cotizaciones</th>
               <th className={THR}>Diferencia</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100">
-            <FilaResumen rotulo="Venta neta" nota="precio de venta del costeo × cantidad" a={clp(t.venta)} b={clp(t.venta)} dif="sin cambio" />
-            <FilaResumen rotulo="Costo neto" nota="lo costeado · con cotizaciones: mejor precio de cada línea" a={clp(t.costoInicial)} b={clp(t.costoNuevo)}
+            <FilaResumen rotulo="Venta neta" nota="precio de venta del costeo × cantidad" a={clp(t.venta)} b={clp(t.venta)} compras={cc(clp(t.venta))} dif="sin cambio" />
+            <FilaResumen rotulo="Costo neto" nota="lo costeado · con cotizaciones: mejor precio de cada línea" a={clp(t.costoInicial)} b={clp(t.costoNuevo)} compras={cc(clp(t.costoCompras))} comprasTono={tono(t.costoInicial - t.costoCompras)}
               dif={clpFirmado(t.costoNuevo - t.costoInicial)} difTono={tono(t.costoInicial - t.costoNuevo)} />
-            <FilaResumen rotulo="Margen en pesos" nota="venta neta − costo neto" a={clp(t.margenInicial)} b={clp(t.margenNuevo)}
+            <FilaResumen rotulo="Margen en pesos" nota="venta neta − costo neto" a={clp(t.margenInicial)} b={clp(t.margenNuevo)} compras={cc(clp(t.margenCompras))} comprasTono={tono(t.margenCompras - t.margenInicial)}
               dif={clpFirmado(t.margenNuevo - t.margenInicial)} difTono={tono(t.margenNuevo - t.margenInicial)} />
-            <FilaResumen fuerte rotulo="Margen sobre la venta" nota="margen en pesos ÷ venta neta" a={pct(t.pctInicial)} b={pct(t.pctNuevo)}
+            <FilaResumen fuerte rotulo="Margen sobre la venta" nota="margen en pesos ÷ venta neta" a={pct(t.pctInicial)} b={pct(t.pctNuevo)} compras={cc(pct(t.pctCompras))} comprasTono={tono(t.puntosCompras)}
               dif={`${flecha(t.puntos)}${pts(t.puntos)}`} difTono={tono(t.puntos)} />
-            <FilaResumen rotulo="Recargo sobre el costo" nota="margen en pesos ÷ costo neto (el «margen» con que el costeo arma el precio)" a={pct(t.recargoInicial)} b={pct(t.recargoNuevo)}
+            <FilaResumen rotulo="Recargo sobre el costo" nota="margen en pesos ÷ costo neto (el «margen» con que el costeo arma el precio)" a={pct(t.recargoInicial)} b={pct(t.recargoNuevo)} compras={cc(pct(t.costoCompras > 0 ? Math.round((t.margenCompras / t.costoCompras) * 1000) / 10 : null))}
               dif={t.recargoInicial != null && t.recargoNuevo != null ? pts(Math.round((t.recargoNuevo - t.recargoInicial) * 10) / 10) : '—'}
               difTono={tono(t.recargoInicial != null && t.recargoNuevo != null ? t.recargoNuevo - t.recargoInicial : null)} />
           </tbody>
