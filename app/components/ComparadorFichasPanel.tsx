@@ -15,25 +15,25 @@ import { urlComparador, type EstadoComparador, type FilaEstado } from '@/app/lib
 import type { OrigenDato, CriticidadP4 } from '@/app/lib/auditor-comparador-core';
 
 const CRITICIDAD: Record<CriticidadP4, { label: string; cls: string }> = {
-  INADMISIBLE: { label: 'INADMISIBLE', cls: 'bg-rose-100 text-rose-700' },
-  PUNTAJE: { label: 'PUNTAJE', cls: 'bg-amber-100 text-amber-700' },
-  COMPROMISO: { label: 'COMPROMISO', cls: 'bg-emerald-100 text-emerald-700' },
-  SIN_CLASIFICAR: { label: 'SIN CLASIFICAR', cls: 'bg-zinc-200 text-zinc-700' },
+  INADMISIBLE: { label: 'INADMISIBLE', cls: 'text-rose-700' },
+  PUNTAJE: { label: 'PUNTAJE', cls: 'text-amber-700' },
+  COMPROMISO: { label: 'COMPROMISO', cls: 'text-emerald-700' },
+  SIN_CLASIFICAR: { label: 'SIN CLASIFICAR', cls: 'text-zinc-700' },
 };
 
 const ORIGEN: Record<OrigenDato, { label: string; cls: string; title: string }> = {
-  FICHA: { label: 'ficha', cls: 'bg-zinc-100 text-zinc-500', title: 'Escrito en el documento formal del fabricante o distribuidor' },
-  CONFIRMACION_INFORMAL: { label: 'informal', cls: 'bg-amber-100 text-amber-700', title: 'Dato con respaldo de fuente informal (foto, captura, WhatsApp, correo): requiere habilitación del Encargado de Mercado Público' },
-  DECLARADO: { label: 'declarado', cls: 'bg-amber-100 text-amber-700', title: 'La ficha calla y el asistente lo declara con respaldo: requiere habilitación del Encargado de Mercado Público' },
-  CONTRADICE_FICHA: { label: 'contradice la ficha', cls: 'bg-rose-100 text-rose-700', title: 'La ficha dice lo contrario de lo declarado: requiere habilitación' },
-  HEREDADO: { label: 'heredado', cls: 'bg-zinc-100 text-zinc-500', title: 'Proviene de la fase previa' },
-  NO_LEGIBLE: { label: 'no legible', cls: 'bg-zinc-200 text-zinc-600', title: 'No se pudo leer' },
+  FICHA: { label: 'ficha', cls: 'text-zinc-500', title: 'Escrito en el documento formal del fabricante o distribuidor' },
+  CONFIRMACION_INFORMAL: { label: 'informal', cls: 'text-amber-700', title: 'Dato con respaldo de fuente informal (foto, captura, WhatsApp, correo): requiere habilitación del Encargado de Mercado Público' },
+  DECLARADO: { label: 'declarado', cls: 'text-amber-700', title: 'La ficha calla y el asistente lo declara con respaldo: requiere habilitación del Encargado de Mercado Público' },
+  CONTRADICE_FICHA: { label: 'contradice la ficha', cls: 'text-rose-700', title: 'La ficha dice lo contrario de lo declarado: requiere habilitación' },
+  HEREDADO: { label: 'heredado', cls: 'text-zinc-500', title: 'Proviene de la fase previa' },
+  NO_LEGIBLE: { label: 'no legible', cls: 'text-zinc-600', title: 'No se pudo leer' },
 };
 
 const ESTADO_STYLE = {
-  NO_CUMPLIDA: { label: 'NO CUMPLE', cls: 'bg-rose-100 text-rose-700', borde: 'border-rose-200' },
-  PENDIENTE: { label: 'PENDIENTE', cls: 'bg-sky-100 text-sky-700', borde: 'border-sky-200' },
-  CUMPLIDA: { label: 'CUMPLE', cls: 'bg-emerald-100 text-emerald-700', borde: 'border-emerald-200' },
+  NO_CUMPLIDA: { label: 'NO CUMPLE', cls: 'text-rose-700', borde: 'border-rose-200' },
+  PENDIENTE: { label: 'PENDIENTE', cls: 'text-sky-700', borde: 'border-sky-200' },
+  CUMPLIDA: { label: 'CUMPLE', cls: 'text-emerald-700', borde: 'border-emerald-200' },
 } as const;
 
 function exigidoDe(f: FilaEstado): string {
@@ -111,11 +111,11 @@ export function ComparadorFichasPanel({ estado, negocioId, itemId, puedeAprobar,
   return (
     <div className="space-y-4">
       {/* Resumen — el veredicto global lo calcula el sistema, no el modelo. */}
-      <div className="flex items-center gap-2 flex-wrap text-[11.5px] font-bold">
-        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{estado.resumen.cumplen} CUMPLE</span>
-        {noCumplen > 0 && <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">{noCumplen} NO CUMPLE</span>}
-        {pendientes > 0 && <span className="px-2 py-0.5 rounded-full bg-sky-100 text-sky-700">{pendientes} PENDIENTE</span>}
-        {estado.resumen.sobrecumplen > 0 && <span className="px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600">{estado.resumen.sobrecumplen} sobrecumplen</span>}
+      <div className="flex items-center gap-2 flex-wrap text-[11.5px] font-semibold">
+        <span className="px-2 py-0.5 rounded-full text-emerald-700">{estado.resumen.cumplen} CUMPLE</span>
+        {noCumplen > 0 && <span className="px-2 py-0.5 rounded-full text-rose-700">{noCumplen} NO CUMPLE</span>}
+        {pendientes > 0 && <span className="px-2 py-0.5 rounded-full text-sky-700">{pendientes} PENDIENTE</span>}
+        {estado.resumen.sobrecumplen > 0 && <span className="px-2 py-0.5 rounded-full text-zinc-600">{estado.resumen.sobrecumplen} sobrecumplen</span>}
         <span className="text-zinc-400 font-medium">de {estado.resumen.total} características técnicas</span>
       </div>
 
@@ -129,7 +129,7 @@ export function ComparadorFichasPanel({ estado, negocioId, itemId, puedeAprobar,
       {/* ── Fichas: inventario y asignación ── */}
       <div className="border border-zinc-100 rounded-lg overflow-hidden">
         <button type="button" onClick={() => setVerFichas(v => !v)}
-          className="w-full flex items-center gap-1.5 px-3 py-2 bg-zinc-50 text-left text-[11px] font-bold text-zinc-500 uppercase tracking-wide">
+          className="w-full flex items-center gap-1.5 px-3 py-2 bg-zinc-50 text-left text-[11px] font-semibold text-zinc-500">
           {verFichas ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
           Fichas cargadas ({estado.inventario_fichas.length})
           {estado.requiere_confirmacion_modelo && <span className="ml-2 normal-case text-amber-700">· elige el modelo del catálogo</span>}
@@ -145,10 +145,10 @@ export function ComparadorFichasPanel({ estado, negocioId, itemId, puedeAprobar,
                   <div className="flex items-center gap-2 flex-wrap">
                     <FileText size={13} className="text-zinc-400 flex-shrink-0" />
                     <span className="text-[12px] font-semibold text-zinc-800 break-all">{f.archivo}</span>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500">{f.tipo.replace('_', ' ')}</span>
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${f.formalidad === 'informal' ? 'bg-amber-100 text-amber-700' : 'bg-zinc-100 text-zinc-500'}`}>{f.emisor} · {f.formalidad}</span>
-                    {f.legibilidad !== 'completa' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">legibilidad {f.legibilidad}</span>}
-                    {f.duplicado_de && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500">duplicado de {f.duplicado_de}</span>}
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500">{f.tipo.replace('_', ' ')}</span>
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${f.formalidad === 'informal' ? 'bg-amber-100 text-amber-700' : 'bg-zinc-100 text-zinc-500'}`}>{f.emisor} · {f.formalidad}</span>
+                    {f.legibilidad !== 'completa' && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">legibilidad {f.legibilidad}</span>}
+                    {f.duplicado_de && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500">duplicado de {f.duplicado_de}</span>}
                   </div>
                   {(f.marca || f.modelos.length > 0) && (
                     <p className="text-[11.5px] text-zinc-600">
@@ -190,7 +190,7 @@ export function ComparadorFichasPanel({ estado, negocioId, itemId, puedeAprobar,
       {/* ── Ítems que no quedaron cerrados como CUMPLE: con sus cinco campos de ayuda ── */}
       {porResolver.length > 0 && (
         <div className="space-y-2.5">
-          <p className="text-[11.5px] font-bold text-zinc-500 uppercase tracking-wide">Por resolver ({porResolver.length})</p>
+          <p className="text-[11.5px] font-semibold text-zinc-500">Por resolver ({porResolver.length})</p>
           {porResolver.map(f => (
             <TarjetaPendiente key={f.id} f={f} puedeAprobar={puedeAprobar} bloqueado={bloqueado} ocupado={ocupado} copiado={copiado} copiar={copiar}
               onConfirmar={confirmarPropuesta} onHabilitar={(fila, habilitar) => enviar(`hab-${fila.id}`, { accion: 'habilitar', caracteristicaId: fila.id, habilitar }, habilitar ? 'Dato habilitado' : 'Habilitación retirada')} />
@@ -200,7 +200,7 @@ export function ComparadorFichasPanel({ estado, negocioId, itemId, puedeAprobar,
 
       {/* ── Las características (tabla clásica, editable a mano) ── */}
       <div>
-        <button type="button" onClick={() => setVerTodas(v => !v)} className="inline-flex items-center gap-1 text-[12px] font-semibold text-violet-600 hover:text-violet-800">
+        <button type="button" onClick={() => setVerTodas(v => !v)} className="inline-flex items-center gap-1 text-[12px] font-semibold text-teal-600 hover:text-teal-800">
           {verTodas ? <ChevronDown size={13} /> : <ChevronRight size={13} />} Ver las {estado.caracteristicas.length} características
         </button>
         {verTodas && <div className="mt-2">{renderTabla()}</div>}
@@ -210,7 +210,7 @@ export function ComparadorFichasPanel({ estado, negocioId, itemId, puedeAprobar,
       {estado.tecnico_administrativo.length > 0 && (
         <div className="border border-zinc-100 rounded-lg overflow-hidden">
           <div className="px-3 py-2 bg-zinc-50 flex items-center justify-between gap-2">
-            <p className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide">Requisitos técnico-administrativos</p>
+            <p className="text-[11px] font-semibold text-zinc-500">Requisitos técnico-administrativos</p>
             <span className="text-[10.5px] text-zinc-400">{adminPendientes > 0 ? `${adminPendientes} por confirmar — bloquean igual que un NO CUMPLE` : 'todos confirmados'}</span>
           </div>
           <div className="divide-y divide-zinc-100">
@@ -225,7 +225,7 @@ export function ComparadorFichasPanel({ estado, negocioId, itemId, puedeAprobar,
                   </p>
                 </div>
                 {ocupado === `adm-${a.id}` ? <Loader2 size={13} className="animate-spin text-zinc-400 mt-0.5" /> : (
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${CRITICIDAD[a.criticidad].cls}`}>{CRITICIDAD[a.criticidad].label}</span>
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap ${CRITICIDAD[a.criticidad].cls}`}>{CRITICIDAD[a.criticidad].label}</span>
                 )}
               </label>
             ))}
@@ -236,12 +236,12 @@ export function ComparadorFichasPanel({ estado, negocioId, itemId, puedeAprobar,
       {/* ── Mensajes al proveedor: UNO por proveedor ── */}
       {estado.mensajes_proveedor.length > 0 && (
         <div className="space-y-2">
-          <p className="text-[11.5px] font-bold text-zinc-500 uppercase tracking-wide">Mensaje al proveedor</p>
+          <p className="text-[11.5px] font-semibold text-zinc-500">Mensaje al proveedor</p>
           {estado.mensajes_proveedor.map(m => (
             <div key={m.proveedor} className="border border-zinc-100 rounded-lg p-3 bg-zinc-50/60">
               <div className="flex items-center justify-between gap-2 mb-1.5">
                 <p className="text-[12px] font-semibold text-zinc-700">{m.proveedor} <span className="text-zinc-400 font-normal">· {m.productos_incluidos.join(', ')}</span></p>
-                <button onClick={() => copiar(`msg-${m.proveedor}`, m.mensaje)} className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-600 hover:text-violet-800">
+                <button onClick={() => copiar(`msg-${m.proveedor}`, m.mensaje)} className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-600 hover:text-teal-800">
                   <Copy size={11} /> {copiado === `msg-${m.proveedor}` ? 'Copiado' : 'Copiar mensaje'}
                 </button>
               </div>
@@ -254,11 +254,11 @@ export function ComparadorFichasPanel({ estado, negocioId, itemId, puedeAprobar,
       {/* ── Certificado de admisibilidad ── */}
       {estado.certificado_admisibilidad.length > 0 && (
         <div className="border border-zinc-100 rounded-lg overflow-hidden">
-          <p className="px-3 py-2 bg-zinc-50 text-[11px] font-bold text-zinc-500 uppercase tracking-wide">Certificado de admisibilidad</p>
+          <p className="px-3 py-2 bg-zinc-50 text-[11px] font-semibold text-zinc-500">Certificado de admisibilidad</p>
           <div className="divide-y divide-zinc-100">
             {estado.certificado_admisibilidad.map(c => (
               <div key={c.caracteristica_id} className="px-3 py-2 flex items-start gap-2.5">
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap mt-0.5 ${c.estado === 'CUMPLIDA' ? 'bg-emerald-100 text-emerald-700' : c.estado === 'NO_CUMPLIDA' ? 'bg-rose-100 text-rose-700' : 'bg-sky-100 text-sky-700'}`}>
+                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap mt-0.5 ${c.estado === 'CUMPLIDA' ? 'bg-emerald-100 text-emerald-700' : c.estado === 'NO_CUMPLIDA' ? 'bg-rose-100 text-rose-700' : 'bg-sky-100 text-sky-700'}`}>
                   {c.estado.replace('_', ' ')}
                 </span>
                 <div className="min-w-0 flex-1">
@@ -296,13 +296,13 @@ function TarjetaPendiente({ f, puedeAprobar, bloqueado, ocupado, copiado, copiar
   return (
     <div className={`rounded-lg border ${est.borde} bg-white p-3 space-y-2`}>
       <div className="flex items-center gap-2 flex-wrap">
-        <span className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded ${est.cls}`}>
+        <span className={`text-[10.5px] font-semibold px-1.5 py-0.5 rounded ${est.cls}`}>
           {f.estado === 'PENDIENTE' && f.veredicto === 'CUMPLE' ? 'CUMPLE — falta cerrar' : est.label}
         </span>
         <span className="text-[12.5px] font-semibold text-zinc-800">{f.descripcion}</span>
-        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${CRITICIDAD[f.criticidad].cls}`}>{CRITICIDAD[f.criticidad].label}</span>
-        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500">{f.tipo}</span>
-        {origen && <span title={origen.title} className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${origen.cls}`}>{origen.label}</span>}
+        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${CRITICIDAD[f.criticidad].cls}`}>{CRITICIDAD[f.criticidad].label}</span>
+        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500">{f.tipo}</span>
+        {origen && <span title={origen.title} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${origen.cls}`}>{origen.label}</span>}
       </div>
 
       <div className="grid sm:grid-cols-2 gap-x-4 gap-y-1 text-[11.5px]">
@@ -315,16 +315,16 @@ function TarjetaPendiente({ f, puedeAprobar, bloqueado, ocupado, copiado, copiar
       {a.rectificacion && <p className="text-[11.5px] text-rose-700 bg-rose-50 rounded px-2 py-1">Rectificado en la segunda lectura: {a.rectificacion}</p>}
 
       {prop && (
-        <div className="rounded-lg border border-violet-200 bg-violet-50/60 p-2.5 space-y-1.5">
-          <p className="text-[11.5px] text-violet-900 leading-snug">
+        <div className="rounded-lg border border-teal-200 bg-teal-50/60 p-2.5 space-y-1.5">
+          <p className="text-[11.5px] text-teal-900 leading-snug">
             Las bases piden <b>{prop.parametro_bases}</b>. La ficha declara <b>{prop.parametro_ficha || '(sin indicar)'}</b>, que interpreto como {prop.tipo === 'equivalencia_normativa' ? 'una norma equivalente' : 'el mismo parámetro'}
             {prop.razon ? ` porque ${prop.razon}` : ''}. <b>{prop.tipo === 'equivalencia_normativa' ? 'CONFIRMA ESTA EQUIVALENCIA.' : 'CONFIRMA ESTE EMPAREJAMIENTO.'}</b>
           </p>
-          {prop.fuente_equivalencia && <p className="text-[10.5px] text-violet-700">Fuente de la equivalencia: {prop.fuente_equivalencia}</p>}
-          {prop.veredicto_propuesto && <p className="text-[10.5px] text-violet-700">Si lo confirmas, el ítem queda: {prop.veredicto_propuesto.replace(/_/g, ' ')}.</p>}
+          {prop.fuente_equivalencia && <p className="text-[10.5px] text-teal-700">Fuente de la equivalencia: {prop.fuente_equivalencia}</p>}
+          {prop.veredicto_propuesto && <p className="text-[10.5px] text-teal-700">Si lo confirmas, el ítem queda: {prop.veredicto_propuesto.replace(/_/g, ' ')}.</p>}
           {!bloqueado && (
             <div className="flex items-center gap-2">
-              <button disabled={ocupado != null} onClick={() => onConfirmar(f, true)} className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11.5px] font-semibold rounded-lg disabled:opacity-50">
+              <button disabled={ocupado != null} onClick={() => onConfirmar(f, true)} className="px-2.5 py-1 bg-teal-600 hover:bg-teal-700 text-white text-[11.5px] font-semibold rounded-lg disabled:opacity-50">
                 {ocupado?.startsWith(`prop-${f.id}`) || ocupado === `rev-${f.id}` ? <Loader2 size={11} className="animate-spin inline" /> : 'Confirmar'}
               </button>
               <button disabled={ocupado != null} onClick={() => onConfirmar(f, false)} className="text-[11.5px] font-semibold text-zinc-500 hover:text-zinc-800 disabled:opacity-50">No es equivalente</button>
@@ -356,7 +356,7 @@ function TarjetaPendiente({ f, puedeAprobar, bloqueado, ocupado, copiado, copiar
           {ayuda.pregunta_proveedor && (
             <div className="rounded-lg bg-zinc-50 px-2.5 py-2 flex items-start gap-2">
               <p className="flex-1"><b className="text-zinc-500">Pregunta al proveedor:</b> “{ayuda.pregunta_proveedor}”</p>
-              <button onClick={() => copiar(`preg-${f.id}`, ayuda.pregunta_proveedor)} className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-600 hover:text-violet-800 flex-shrink-0">
+              <button onClick={() => copiar(`preg-${f.id}`, ayuda.pregunta_proveedor)} className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-600 hover:text-teal-800 flex-shrink-0">
                 <Copy size={11} /> {copiado === `preg-${f.id}` ? 'Copiado' : 'Copiar'}
               </button>
             </div>
@@ -364,7 +364,7 @@ function TarjetaPendiente({ f, puedeAprobar, bloqueado, ocupado, copiado, copiar
           {ayuda.veredicto_equivalencia && <p><b className="text-zinc-500">Por qué no satisface lo exigido:</b> {ayuda.veredicto_equivalencia}</p>}
           {ayuda.ruta && (
             <p>
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded mr-1.5 ${ayuda.ruta === 'SALVABLE' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{ayuda.ruta}</span>
+              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded mr-1.5 ${ayuda.ruta === 'SALVABLE' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{ayuda.ruta}</span>
               {ayuda.accion_concreta || (ayuda.ruta === 'INSALVABLE' ? 'Volver a la búsqueda de producto.' : '')}
             </p>
           )}

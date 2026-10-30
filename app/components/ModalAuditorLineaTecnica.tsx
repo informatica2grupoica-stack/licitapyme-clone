@@ -524,7 +524,7 @@ caracteristicas.length === 0 ? (
           </p>
           {exigencias.map(p => (
             <div key={p.index} className="border border-zinc-100 rounded-lg overflow-hidden">
-              <div className="px-3 py-2 bg-zinc-100/70 text-[11px] font-bold text-zinc-600">
+              <div className="px-3 py-2 bg-zinc-100/70 text-[11px] font-semibold text-zinc-600">
                 {p.nombre || `Producto ${p.index + 1}`}
               </div>
               <ul className="divide-y divide-zinc-100">
@@ -547,10 +547,10 @@ caracteristicas.length === 0 ? (
         if (!delGrupo.length) return null;
         return (
           <div key={p.index} className="border border-zinc-100 rounded-lg overflow-hidden">
-            <div className="px-3 py-2 bg-zinc-100/70 text-[11px] font-bold text-zinc-600">
+            <div className="px-3 py-2 bg-zinc-100/70 text-[11px] font-semibold text-zinc-600">
               {p.nombre || `Producto ${p.index + 1}`}
             </div>
-            <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_auto] gap-x-3 px-3 py-2 bg-zinc-50 text-[10px] font-bold text-zinc-400 uppercase tracking-wide">
+            <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_auto] gap-x-3 px-3 py-2 bg-zinc-50 text-[10px] font-semibold text-zinc-400">
               <span>Lo que pide el producto</span>
               <span>Lo que subió el asistente</span>
               <span>Resultado</span>
@@ -569,7 +569,7 @@ caracteristicas.length === 0 ? (
     </div>
                 ) : (
     <div className="border border-zinc-100 rounded-lg overflow-hidden">
-      <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_auto] gap-x-3 px-3 py-2 bg-zinc-50 text-[10px] font-bold text-zinc-400 uppercase tracking-wide">
+      <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_auto] gap-x-3 px-3 py-2 bg-zinc-50 text-[10px] font-semibold text-zinc-400">
         <span>Lo que pide el producto</span>
         <span>Lo que subió el asistente</span>
         <span>Resultado</span>
@@ -596,9 +596,9 @@ caracteristicas.length === 0 ? (
       <div className="w-[96vw] max-w-[1400px] h-[94vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col">
         <div ref={contenidoRef} className="flex flex-col flex-1 min-h-0">
         <div className="px-5 py-4 border-b border-zinc-100 flex items-start gap-3 flex-shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0"><Wrench size={15} className="text-violet-600" /></div>
+          <div className="w-8 h-8 rounded-lg bg-teal-50 flex items-center justify-center flex-shrink-0"><Wrench size={15} className="text-teal-600" /></div>
           <div className="min-w-0 flex-1">
-            <p className="text-[14.5px] font-bold text-zinc-900 leading-snug">{item?.titulo || 'Comparación técnica'}</p>
+            <p className="text-[14.5px] font-semibold text-zinc-900 leading-snug">{item?.titulo || 'Comparación técnica'}</p>
             <p className="text-[12px] text-zinc-400 mt-0.5">
               {resumen.total > 0 ? (
                 <>
@@ -615,11 +615,11 @@ caracteristicas.length === 0 ? (
             )}
           </div>
           <button onClick={copiarTodo} title="Copiar todo el contenido de este panel como texto"
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-semibold text-zinc-500 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors flex-shrink-0">
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-semibold text-zinc-500 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors flex-shrink-0">
             <Copy size={14} /> {copiadoTodo ? 'Copiado' : 'Copiar'}
           </button>
           <button onClick={descargarPdf} disabled={descargandoPdf} title="Descargar esta comparación como PDF"
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-semibold text-zinc-500 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors flex-shrink-0 disabled:opacity-50">
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-semibold text-zinc-500 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors flex-shrink-0 disabled:opacity-50">
             {descargandoPdf ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} {descargandoPdf ? 'Generando…' : 'PDF'}
           </button>
           <button onClick={onClose} className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-lg transition-colors flex-shrink-0" aria-label="Cerrar"><X size={16} /></button>
@@ -631,7 +631,7 @@ caracteristicas.length === 0 ? (
           ) : (
             <>
               {progreso && (
-                <div className="flex items-center gap-2 px-3 py-2.5 bg-violet-50 border border-violet-100 rounded-lg text-[12.5px] text-violet-700">
+                <div className="flex items-center gap-2 px-3 py-2.5 bg-teal-50 border border-teal-100 rounded-lg text-[12.5px] text-teal-700">
                   <Loader2 size={13} className="animate-spin flex-shrink-0" /> {progreso}
                 </div>
               )}
@@ -650,7 +650,7 @@ caracteristicas.length === 0 ? (
                 return (
                   <div key={p.index} className="mb-3 rounded-lg border border-zinc-100 bg-zinc-50/60 p-3">
                     <div className="flex items-center justify-between gap-2 mb-2">
-                      <p className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide">
+                      <p className="text-[11px] font-semibold text-zinc-500">
                         {productos.length > 1 && p.nombre ? p.nombre : 'Producto que ofertamos'}
                       </p>
                       {!editando && !bloqueado && (
@@ -663,7 +663,7 @@ caracteristicas.length === 0 ? (
                             });
                             setEditandoIndex(p.index);
                           }}
-                          className="text-[11px] font-semibold text-violet-600 hover:text-violet-800"
+                          className="text-[11px] font-semibold text-teal-600 hover:text-teal-800"
                         >
                           {producto ? 'Corregir' : 'Completar'}
                         </button>
@@ -674,15 +674,15 @@ caracteristicas.length === 0 ? (
                       <div className="space-y-1.5">
                         <div className="grid grid-cols-2 gap-1.5">
                           <input value={formProducto.marca} onChange={e => setFormProducto(f => ({ ...f, marca: e.target.value }))}
-                            placeholder="Marca" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                            placeholder="Marca" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-200" />
                           <input value={formProducto.modelo} onChange={e => setFormProducto(f => ({ ...f, modelo: e.target.value }))}
-                            placeholder="Modelo" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                            placeholder="Modelo" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-200" />
                           <input value={formProducto.fabricante} onChange={e => setFormProducto(f => ({ ...f, fabricante: e.target.value }))}
-                            placeholder="Fabricante" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                            placeholder="Fabricante" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-200" />
                           <input value={formProducto.paisFabricacion} onChange={e => setFormProducto(f => ({ ...f, paisFabricacion: e.target.value }))}
-                            placeholder="País de fabricación" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                            placeholder="País de fabricación" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-200" />
                           <input value={formProducto.anioFabricacion} onChange={e => setFormProducto(f => ({ ...f, anioFabricacion: e.target.value }))}
-                            placeholder="Año de fabricación" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                            placeholder="Año de fabricación" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-200" />
                         </div>
                         <div className="flex items-center gap-2">
                           <button
@@ -704,7 +704,7 @@ caracteristicas.length === 0 ? (
                               } finally { setConfirmandoProducto(false); }
                             }}
                             disabled={confirmandoProducto}
-                            className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11.5px] font-semibold rounded-lg disabled:opacity-50"
+                            className="px-2.5 py-1 bg-teal-600 hover:bg-teal-700 text-white text-[11.5px] font-semibold rounded-lg disabled:opacity-50"
                           >
                             {confirmandoProducto ? <Loader2 size={11} className="animate-spin inline" /> : 'Confirmar'}
                           </button>
@@ -718,12 +718,12 @@ caracteristicas.length === 0 ? (
                         {producto.fabricante && producto.fabricante !== producto.marca && <span><b>Fabricante:</b> {producto.fabricante}</span>}
                         {producto.paisFabricacion && <span><b>País:</b> {producto.paisFabricacion}</span>}
                         {producto.origen === 'ficha' && (
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700" title={producto.fuenteDocumento || ''}>
+                          <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-amber-700" title={producto.fuenteDocumento || ''}>
                             leído de la ficha — sin confirmar
                           </span>
                         )}
                         {producto.origen === 'manual' && (
-                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">confirmado</span>
+                          <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold text-emerald-700">confirmado</span>
                         )}
                       </div>
                     ) : (
@@ -740,9 +740,9 @@ caracteristicas.length === 0 ? (
                         <img src={producto.imagenUrl} alt="Foto del producto" className="w-16 h-16 object-contain rounded-lg border border-zinc-200 bg-white flex-shrink-0" />
                         <div className="min-w-0 flex-1">
                           {producto.imagenConfirmada ? (
-                            <span className="inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">foto confirmada</span>
+                            <span className="inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold text-emerald-700">foto confirmada</span>
                           ) : (
-                            <span className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                            <span className="inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold text-amber-700">
                               foto leída automáticamente — revisar antes de confirmar
                             </span>
                           )}
@@ -755,7 +755,7 @@ caracteristicas.length === 0 ? (
                                 </button>
                               )}
                               <button onClick={() => { imgTargetIndex.current = p.index; imgFileRef.current?.click(); }} disabled={subiendoImagenIndex === p.index}
-                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-600 hover:bg-violet-50 px-1.5 py-0.5 rounded-lg disabled:opacity-50">
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-600 hover:bg-teal-50 px-1.5 py-0.5 rounded-lg disabled:opacity-50">
                                 {subiendoImagenIndex === p.index ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />} Reemplazar
                               </button>
                               <button onClick={() => quitarImagen(p.index)} disabled={quitandoImagenIndex === p.index}
@@ -770,7 +770,7 @@ caracteristicas.length === 0 ? (
                     {!producto?.imagenUrl && !bloqueado && (
                       <div className="mt-2.5 pt-2.5 border-t border-zinc-200/70">
                         <button onClick={() => { imgTargetIndex.current = p.index; imgFileRef.current?.click(); }} disabled={subiendoImagenIndex === p.index}
-                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-violet-600 hover:bg-violet-50 px-1.5 py-0.5 rounded-lg disabled:opacity-50">
+                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-teal-600 hover:bg-teal-50 px-1.5 py-0.5 rounded-lg disabled:opacity-50">
                           {subiendoImagenIndex === p.index ? <Loader2 size={11} className="animate-spin" /> : <ImageIcon size={11} />} Subir foto del producto
                         </button>
                       </div>
@@ -785,16 +785,16 @@ caracteristicas.length === 0 ? (
 
               <div>
                 <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
-                  <p className="text-[11.5px] font-bold text-zinc-500 uppercase tracking-wide">Comparación técnica</p>
+                  <p className="text-[11.5px] font-semibold text-zinc-500">Comparación técnica</p>
                   <div className="flex items-center gap-1.5">
                     <button onClick={() => validar()} disabled={validando || bloqueado}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-violet-600 hover:bg-violet-50 rounded-lg transition-colors disabled:opacity-50">
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-teal-600 hover:bg-teal-50 rounded-lg transition-colors disabled:opacity-50">
                       {validando ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} {resumen.total > 0 ? 'Re-validar' : 'Validar'}
                     </button>
                     <input ref={fileRefAuditor} type="file" multiple className="hidden" onChange={e => auditarConIA(e.target.files)} />
                     <button onClick={() => fileRefAuditor.current?.click()} disabled={auditando || bloqueado}
                       title="Sube una o varias fichas juntas (una parte del equipo cada una, o varios modelos candidatos) — la IA decide sola cómo compararlas y audita cobertura, faltantes y conflictos."
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-violet-600 hover:bg-violet-50 rounded-lg border border-violet-200 transition-colors disabled:opacity-50">
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-teal-600 hover:bg-teal-50 rounded-lg border border-teal-200 transition-colors disabled:opacity-50">
                       {auditando ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Auditar con IA
                     </button>
                     {caracteristicas.length > 0 && !bloqueado && (
@@ -818,11 +818,11 @@ caracteristicas.length === 0 ? (
                       if (!auditando && e.dataTransfer.files?.length) auditarConIA(e.dataTransfer.files);
                     }}
                     className={`mb-3 rounded-lg border border-dashed px-3 py-2 text-center text-[11px] transition-colors ${
-                      arrastrandoAuditor ? 'border-violet-400 bg-violet-50 text-violet-700' : 'border-zinc-200 text-zinc-400 hover:border-zinc-300'
+                      arrastrandoAuditor ? 'border-teal-400 bg-teal-50 text-teal-700' : 'border-zinc-200 text-zinc-400 hover:border-zinc-300'
                     }`}
                   >
                     {auditando
-                      ? <span className="inline-flex items-center gap-1.5 text-violet-700 font-semibold"><Loader2 size={11} className="animate-spin" /> Auditando fichas contra las bases…</span>
+                      ? <span className="inline-flex items-center gap-1.5 text-teal-700 font-semibold"><Loader2 size={11} className="animate-spin" /> Auditando fichas contra las bases…</span>
                       : 'Suelta aquí una o varias fichas — camión + grúa + canastillo, o varios modelos candidatos — la IA audita y guía'}
                   </div>
                 )}
@@ -838,7 +838,7 @@ caracteristicas.length === 0 ? (
               </div>
 
               <div>
-                <p className="text-[11.5px] font-bold text-zinc-500 uppercase tracking-wide mb-2">Comercial</p>
+                <p className="text-[11.5px] font-semibold text-zinc-500 mb-2">Comercial</p>
                 <div className="space-y-2">
                   {comercial.precio && (
                     <div className="border border-zinc-100 rounded-lg px-3 py-2 flex items-center justify-between gap-2">
@@ -846,7 +846,7 @@ caracteristicas.length === 0 ? (
                         <p className="text-[12.5px] font-medium text-zinc-800">Precio de esta línea</p>
                         <p className="text-[10.5px] text-zinc-400">Definido en el bloque Comercial</p>
                       </div>
-                      <span className="text-[13px] font-bold text-emerald-700 flex-shrink-0">{fmtCLP(comercial.precio.valorNumero)}</span>
+                      <span className="text-[13px] font-semibold text-emerald-700 flex-shrink-0">{fmtCLP(comercial.precio.valorNumero)}</span>
                     </div>
                   )}
                   {comercial.plazo && (
@@ -883,13 +883,13 @@ caracteristicas.length === 0 ? (
                           }}
                           disabled={recomparandoId != null}
                           title="Volver a comparar con este documento"
-                          className="p-1 text-zinc-400 hover:text-violet-600 hover:bg-violet-50 rounded transition-colors flex-shrink-0 disabled:opacity-50"
+                          className="p-1 text-zinc-400 hover:text-teal-600 hover:bg-teal-50 rounded transition-colors flex-shrink-0 disabled:opacity-50"
                         >
                           {recomparandoId === doc.id ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
                         </button>
                       )}
                       <button onClick={() => setVisorDoc({ nombre: doc.nombre, url: doc.url })} title="Ver documento"
-                        className="p-1 text-zinc-400 hover:text-violet-600 hover:bg-violet-50 rounded transition-colors flex-shrink-0">
+                        className="p-1 text-zinc-400 hover:text-teal-600 hover:bg-teal-50 rounded transition-colors flex-shrink-0">
                         <Eye size={14} />
                       </button>
                       {!bloqueado && onAccion && (
@@ -1046,7 +1046,7 @@ function FilaComparacion({ c, puedeAprobar, bloqueado, onResponder, onCorregir, 
         <div className="min-w-0">
           <p className="text-[10px] text-zinc-400 leading-snug">
             {c.descripcion}
-            {(c.tipo === 'CUALITATIVO' || c.tipo === 'NORMATIVO') && <span className="ml-1 font-bold text-violet-500">{c.tipo}</span>}
+            {(c.tipo === 'CUALITATIVO' || c.tipo === 'NORMATIVO') && <span className="ml-1 font-semibold text-teal-500">{c.tipo}</span>}
           </p>
           <p className="text-[12.5px] font-medium text-zinc-800 leading-snug mt-0.5 break-words">{exigido}</p>
         </div>
@@ -1062,7 +1062,7 @@ function FilaComparacion({ c, puedeAprobar, bloqueado, onResponder, onCorregir, 
             <p className="text-[10px] text-amber-700 mt-0.5">origen: {c.analisis.origen_dato.toLowerCase().replace(/_/g, ' ')}</p>
           )}
           {c.adjunto_url && (
-            <p className="text-[10px] text-violet-600 flex items-center gap-1 mt-0.5 truncate">
+            <p className="text-[10px] text-teal-600 flex items-center gap-1 mt-0.5 truncate">
               <Paperclip size={10} className="flex-shrink-0" /> {c.adjunto_nombre || 'Respaldo adjunto'}
             </p>
           )}
@@ -1072,7 +1072,7 @@ function FilaComparacion({ c, puedeAprobar, bloqueado, onResponder, onCorregir, 
             <span title="Contestada a mano — la IA ya no la modifica"
               className="text-[10px] font-semibold text-zinc-400 bg-zinc-100 px-1.5 py-0.5 rounded whitespace-nowrap">a mano</span>
           )}
-          <span className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${est.bg} ${est.text}`}>{est.label}</span>
+          <span className={`text-[10.5px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap ${est.bg} ${est.text}`}>{est.label}</span>
         </div>
       </button>
 
@@ -1086,19 +1086,19 @@ function FilaComparacion({ c, puedeAprobar, bloqueado, onResponder, onCorregir, 
                 {esNumerica ? (
                   <>
                     <input type="text" inputMode="decimal" autoFocus value={valorNumero} onChange={e => setValorNumero(e.target.value)}
-                      placeholder="Valor ofertado" className="w-28 px-2 py-1 text-[12px] border border-zinc-200 rounded focus:outline-none focus:ring-1 focus:ring-violet-300" />
+                      placeholder="Valor ofertado" className="w-28 px-2 py-1 text-[12px] border border-zinc-200 rounded focus:outline-none focus:ring-1 focus:ring-teal-300" />
                     <input type="text" value={unidad} onChange={e => setUnidad(e.target.value)}
-                      placeholder="Unidad" className="w-20 px-2 py-1 text-[12px] border border-zinc-200 rounded focus:outline-none focus:ring-1 focus:ring-violet-300" />
+                      placeholder="Unidad" className="w-20 px-2 py-1 text-[12px] border border-zinc-200 rounded focus:outline-none focus:ring-1 focus:ring-teal-300" />
                   </>
                 ) : (
                   <textarea autoFocus rows={3} value={valorTexto} onChange={e => setValorTexto(e.target.value)}
                     placeholder="Escribe o pega lo que se ofrece (por ejemplo: la capacitación que se dictará, dónde y a cuántas personas)"
-                    className="w-full px-2 py-1.5 text-[12px] leading-snug border border-zinc-200 rounded resize-y focus:outline-none focus:ring-1 focus:ring-violet-300" />
+                    className="w-full px-2 py-1.5 text-[12px] leading-snug border border-zinc-200 rounded resize-y focus:outline-none focus:ring-1 focus:ring-teal-300" />
                 )}
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
-                <button type="button" onClick={usarLoExigido} className="text-[11px] font-semibold text-violet-600 hover:text-violet-800">
+                <button type="button" onClick={usarLoExigido} className="text-[11px] font-semibold text-teal-600 hover:text-teal-800">
                   Usar lo exigido
                 </button>
                 <button type="button" onClick={copiarExigido} className="text-[11px] text-zinc-400 hover:text-zinc-600 inline-flex items-center gap-1">
@@ -1114,7 +1114,7 @@ function FilaComparacion({ c, puedeAprobar, bloqueado, onResponder, onCorregir, 
                   <span className="text-zinc-400">Resultado:</span>
                   {([['', 'Que lo evalúe el sistema'], ['CUMPLE', 'Cumple'], ['NO_CUMPLE', 'No cumple'], ['CUMPLE_CON_COMPLEMENTO', 'Con complemento']] as const).map(([v, label]) => (
                     <button key={v || 'auto'} type="button" onClick={() => setVeredictoManual(v as '' | Veredicto)}
-                      className={`px-1.5 py-0.5 rounded font-semibold ${veredictoManual === v ? 'bg-violet-600 text-white' : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'}`}>
+                      className={`px-1.5 py-0.5 rounded font-semibold ${veredictoManual === v ? 'bg-teal-600 text-white' : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'}`}>
                       {label}
                     </button>
                   ))}
@@ -1122,7 +1122,7 @@ function FilaComparacion({ c, puedeAprobar, bloqueado, onResponder, onCorregir, 
               )}
 
               <div className="flex items-center gap-1.5">
-                <button onClick={guardar} disabled={guardando} className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-semibold rounded disabled:opacity-50">
+                <button onClick={guardar} disabled={guardando} className="px-2.5 py-1 bg-teal-600 hover:bg-teal-700 text-white text-[11px] font-semibold rounded disabled:opacity-50">
                   {guardando ? <Loader2 size={11} className="animate-spin" /> : 'Guardar'}
                 </button>
                 <button onClick={() => setRespondiendo(false)} className="text-[11px] text-zinc-400 hover:text-zinc-600">Cancelar</button>
@@ -1131,7 +1131,7 @@ function FilaComparacion({ c, puedeAprobar, bloqueado, onResponder, onCorregir, 
           ) : (
             <div className="flex items-center gap-2 flex-wrap">
               {!bloqueado && (
-                <button onClick={abrirEditor} className="text-[11px] font-semibold text-violet-600 hover:text-violet-800">
+                <button onClick={abrirEditor} className="text-[11px] font-semibold text-teal-600 hover:text-teal-800">
                   {c.veredicto ? 'Corregir respuesta' : 'Responder'}
                 </button>
               )}

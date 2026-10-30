@@ -10,9 +10,9 @@ import { pedirJson, ultimoJson } from '@/app/lib/pedir-json';
 
 const clp = (n: number | null | undefined) => (n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n));
 const ESTADO_OP: Record<string, { label: string; cls: string }> = {
-  aprobada: { label: 'Aprobada', cls: 'bg-emerald-600 text-white' }, en_aprobacion: { label: 'En aprobación', cls: 'bg-amber-100 text-amber-800' },
-  definitiva: { label: 'Firmada', cls: 'bg-indigo-100 text-indigo-700' }, verificada: { label: 'Verificada', cls: 'bg-emerald-100 text-emerald-700' },
-  formalizada: { label: 'Formalizada', cls: 'bg-sky-100 text-sky-700' }, tanteo: { label: 'Tanteo', cls: 'bg-zinc-100 text-zinc-600' },
+  aprobada: { label: 'Aprobada', cls: 'text-emerald-700' }, en_aprobacion: { label: 'En aprobación', cls: 'text-amber-800' },
+  definitiva: { label: 'Firmada', cls: 'text-teal-700' }, verificada: { label: 'Verificada', cls: 'text-emerald-700' },
+  formalizada: { label: 'Formalizada', cls: 'text-sky-700' }, tanteo: { label: 'Tanteo', cls: 'text-zinc-600' },
 };
 const TEC: Record<string, string> = { CUMPLE: 'Cumple', NO_CUMPLE: 'No cumple', CON_PENDIENTES: 'Falta dato', SIN_EVALUAR: 'Sin evaluar', NO_CORRIDO: 'Sin comparar', NO_APLICA: 'No aplica', SIN_REQUISITOS: 'Sin requisitos' };
 
@@ -70,11 +70,11 @@ export function ResumenAuditorPanel({ negocioId, onIrAlAuditor, panelInicial, pr
   return (
     <div className="space-y-4">
       {/* 2 · Resumen de lo realizado en el Auditor */}
-      <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-linea shadow-tarjeta overflow-hidden">
         <div className="px-5 py-3 border-b border-zinc-100 flex items-center gap-2 flex-wrap">
-          <h3 className="text-[13.5px] font-bold text-zinc-900">Resumen de lo realizado en el Auditor</h3>
+          <h3 className="text-[13.5px] font-semibold text-zinc-900">Resumen de lo realizado en el Auditor</h3>
           <span className="text-[11.5px] text-zinc-400">La opción de cada línea, su costo, el precio de venta y el margen.</span>
-          <button onClick={onIrAlAuditor} className="ml-auto text-[12px] font-semibold text-indigo-600 hover:underline">Abrir el Auditor</button>
+          <button onClick={onIrAlAuditor} className="ml-auto text-[12px] font-semibold text-teal-600 hover:underline">Abrir el Auditor</button>
         </div>
         {cargando ? (
           <div className="flex items-center gap-2 text-[12.5px] text-zinc-400 px-5 py-8 justify-center"><Loader2 size={14} className="animate-spin" /> Cargando resumen…</div>
@@ -91,10 +91,10 @@ export function ResumenAuditorPanel({ negocioId, onIrAlAuditor, panelInicial, pr
             <div className="overflow-x-auto">
               <table className="w-full text-[12px] border-collapse">
                 <thead>
-                  <tr className="text-left text-[10.5px] uppercase tracking-wide text-zinc-400">
-                    <th className="px-5 py-2 font-bold">Línea</th><th className="px-3 py-2 font-bold">Producto y proveedor</th><th className="px-3 py-2 font-bold text-right">Cant.</th>
-                    <th className="px-3 py-2 font-bold text-right">Costo unit.</th><th className="px-3 py-2 font-bold text-right">Venta unit.</th><th className="px-3 py-2 font-bold text-right">Margen</th>
-                    <th className="px-3 py-2 font-bold">Técnico</th><th className="px-5 py-2 font-bold">Estado</th>
+                  <tr className="text-left text-[10.5px] text-zinc-400">
+                    <th className="px-5 py-2 font-semibold">Línea</th><th className="px-3 py-2 font-semibold">Producto y proveedor</th><th className="px-3 py-2 font-semibold text-right">Cant.</th>
+                    <th className="px-3 py-2 font-semibold text-right">Costo unit.</th><th className="px-3 py-2 font-semibold text-right">Venta unit.</th><th className="px-3 py-2 font-semibold text-right">Margen</th>
+                    <th className="px-3 py-2 font-semibold">Técnico</th><th className="px-5 py-2 font-semibold">Estado</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -109,14 +109,14 @@ export function ResumenAuditorPanel({ negocioId, onIrAlAuditor, panelInicial, pr
                           <td className="px-3 py-2.5 text-right">{clp(f.venta)}</td>
                           <td className={`px-3 py-2.5 text-right font-semibold ${f.margen != null && f.margen < 20 ? 'text-rose-600' : 'text-zinc-700'}`}>{f.margen != null ? `${f.margen}%` : '—'}</td>
                           <td className="px-3 py-2.5 text-zinc-600">{TEC[f.o.tecnico.estado] || f.o.tecnico.estado}</td>
-                          <td className="px-5 py-2.5"><span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full ${ESTADO_OP[f.o.estado]?.cls || 'bg-zinc-100 text-zinc-600'}`}>{ESTADO_OP[f.o.estado]?.label || f.o.estado}</span>{f.o.firmadaPorNombre && <p className="text-[10.5px] text-zinc-400 mt-0.5">{f.o.firmadaPorNombre}</p>}</td>
+                          <td className="px-5 py-2.5"><span className={`text-[10.5px] font-semibold ${ESTADO_OP[f.o.estado]?.cls || 'bg-zinc-100 text-zinc-600'}`}>{ESTADO_OP[f.o.estado]?.label || f.o.estado}</span>{f.o.firmadaPorNombre && <p className="text-[10.5px] text-zinc-400 mt-0.5">{f.o.firmadaPorNombre}</p>}</td>
                         </>
                       )}
                     </tr>
                   ))}
                   {filas.some(f => !f.o) && (
                     <tr className="border-t border-zinc-100"><td colSpan={8} className="px-5 py-3 text-zinc-500">
-                      <b className="text-zinc-700">Sin opción aprobada todavía:</b> {filas.filter(f => !f.o).map(f => `línea ${f.l.item}`).join(', ')}. <button onClick={onIrAlAuditor} className="text-indigo-600 font-semibold hover:underline">Ir al Auditor</button>
+                      <b className="text-zinc-700">Sin opción aprobada todavía:</b> {filas.filter(f => !f.o).map(f => `línea ${f.l.item}`).join(', ')}. <button onClick={onIrAlAuditor} className="text-teal-600 font-semibold hover:underline">Ir al Auditor</button>
                     </td></tr>
                   )}
                 </tbody>
@@ -139,8 +139,8 @@ export function ResumenAuditorPanel({ negocioId, onIrAlAuditor, panelInicial, pr
 function Dato({ titulo, valor, sub, alerta }: { titulo: string; valor: string; sub?: string; alerta?: boolean }) {
   return (
     <div>
-      <p className="text-[10.5px] uppercase tracking-wide text-zinc-400 font-bold">{titulo}</p>
-      <p className={`text-[16px] font-bold ${alerta ? 'text-rose-600' : 'text-zinc-800'}`}>{valor}</p>
+      <p className="text-[10.5px] text-zinc-400 font-semibold">{titulo}</p>
+      <p className={`text-[16px] font-semibold ${alerta ? 'text-rose-600' : 'text-zinc-800'}`}>{valor}</p>
       {sub && <p className="text-[11px] text-zinc-400">{sub}</p>}
     </div>
   );

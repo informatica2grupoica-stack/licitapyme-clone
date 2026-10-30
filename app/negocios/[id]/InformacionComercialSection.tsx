@@ -121,7 +121,7 @@ const SEMAFORO_BADGE: Record<'VERDE' | 'AMARILLO' | 'ROJO', { bg: string; text: 
 
 const ESTADO_STYLE: Record<Item['estado'], { bg: string; text: string; label: string }> = {
   PENDIENTE: { bg: 'bg-zinc-100',    text: 'text-zinc-500',    label: 'Pendiente' },
-  CARGADO:   { bg: 'bg-indigo-100',  text: 'text-indigo-700',  label: 'Por aprobar' },
+  CARGADO:   { bg: 'bg-teal-100',  text: 'text-teal-700',  label: 'Por aprobar' },
   APROBADO:  { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'Aprobado' },
   OBSERVADO: { bg: 'bg-orange-100',  text: 'text-orange-700',  label: 'Observado' },
 };
@@ -161,14 +161,14 @@ function BannerCambioForo({ negocioId, snapshot }: {
     <div className="bg-sky-50 border border-sky-200 rounded-xl px-4 py-3 flex items-start gap-2.5">
       <History size={15} className="text-sky-600 flex-shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0">
-        <p className="text-[12.5px] font-bold text-sky-800">Las bases cambiaron desde el análisis de viabilidad</p>
+        <p className="text-[12.5px] font-semibold text-sky-800">Las bases cambiaron desde el análisis de viabilidad</p>
         <ul className="mt-1 space-y-0.5">
           {snapshot.ultimoDelta.map((d, i) => (
-            <li key={i} className="text-[11.5px] text-sky-700">{d.detalle}</li>
+            <li key={i} className="text-xs text-sky-700">{d.detalle}</li>
           ))}
         </ul>
         {snapshot.bloquesRevertidos.length > 0 && (
-          <p className="text-[11.5px] text-sky-800 font-semibold mt-1">
+          <p className="text-xs text-sky-800 font-semibold mt-1">
             Se revirtió la aprobación de {snapshot.bloquesRevertidos.map(b => b === 'TECNICO' ? 'técnico' : 'comercial').join(' y ')} — vuelve a la bandeja del asesor.
           </p>
         )}
@@ -393,7 +393,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
 
   // ── Render ───────────────────────────────────────────────────────────────────
   if (cargando) {
-    return <div className="flex items-center gap-2 text-[13px] text-zinc-400 py-10 justify-center">
+    return <div className="flex items-center gap-2 text-[13px] text-slate-500 py-10 justify-center">
       <Loader2 size={14} className="animate-spin" /> Cargando información comercial…
     </div>;
   }
@@ -426,8 +426,8 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
         <div className="bg-zinc-800 text-white rounded-xl px-4 py-3 flex items-center gap-2.5">
           <ShieldCheck size={16} className="text-zinc-300 flex-shrink-0" />
           <div>
-            <p className="text-[12.5px] font-bold">Congelado — registro histórico, de solo lectura</p>
-            <p className="text-[11px] text-zinc-400">
+            <p className="text-[12.5px] font-semibold">Congelado — registro histórico, de solo lectura</p>
+            <p className="text-xs text-slate-500">
               Se postuló el {fmtFecha(congelado.congeladoAt)}{congelado.congeladoPorNombre ? ` · ${congelado.congeladoPorNombre}` : ''}. Ya no se puede cargar, aprobar ni corregir nada acá.
             </p>
           </div>
@@ -444,20 +444,22 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
 
       {vista !== 'oferta' && (<>
       {/* ── Cabecera + avance ────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-zinc-200 p-4">
+      <div className="@container">
+      <div className="grid gap-3 @3xl:grid-cols-[1.6fr_1fr]">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-linea shadow-tarjeta p-5 @3xl:row-span-2">
         <div className="flex items-start justify-between gap-3 mb-3">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center">
-              <ShieldCheck size={16} className="text-violet-600" />
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+              <ShieldCheck size={18} className="text-slate-500" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-[15px] font-bold text-zinc-900 leading-tight">Checklist</h2>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${SEMAFORO_BADGE[semaforo].bg} ${SEMAFORO_BADGE[semaforo].text}`}>
+                <h2 className="text-[17px] font-semibold tracking-tight text-zinc-900 leading-tight">Checklist</h2>
+                <span className={`text-xs font-semibold ${SEMAFORO_BADGE[semaforo].text}`}>
                   {SEMAFORO_BADGE[semaforo].label}
                 </span>
               </div>
-              <p className="text-[11.5px] text-zinc-400">
+              <p className="text-xs text-slate-600">
                 El asistente carga · el asesor aprueba
               </p>
             </div>
@@ -466,7 +468,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
             onClick={resincronizar}
             disabled={resincronizando}
             title="Trae al checklist los puntos nuevos del informe de viabilidad, sin tocar lo ya aprobado"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-semibold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors disabled:opacity-50"
           >
             {resincronizando ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
             Resincronizar
@@ -474,43 +476,43 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
         </div>
 
         {causalesBloqueo.length > 0 && (
-          <div className={`mb-3 rounded-lg px-3 py-2 space-y-1 border ${semaforo === 'ROJO' ? 'bg-rose-50 border-rose-200' : 'bg-amber-50 border-amber-200'}`}>
+          <div className={`rounded-lg px-3 py-2 space-y-1 border ${semaforo === 'ROJO' ? 'bg-rose-50 border-rose-200' : 'bg-amber-50 border-amber-200'}`}>
             {causalesBloqueo.map(c => (
-              <p key={c.codigo} className={`text-[11.5px] leading-snug ${semaforo === 'ROJO' ? 'text-rose-700' : 'text-amber-800'}`}>
+              <p key={c.codigo} className={`text-xs leading-snug ${semaforo === 'ROJO' ? 'text-rose-700' : 'text-amber-800'}`}>
                 <span className="font-semibold">{c.descripcion}.</span> {c.rutaDesbloqueo}
               </p>
             ))}
           </div>
-        )}
-
-        {resumen && resumen.total > 0 && (
-          <>
-            <div className="flex items-baseline justify-between mb-1.5">
-              <p className="text-[12.5px] font-semibold text-zinc-700">
-                {resumen.listoParaPostular
-                  ? <span className="text-emerald-600">Listo para postular</span>
-                  : <>Faltan <span className="text-rose-600">{resumen.bloqueantesPendientes}</span> punto{resumen.bloqueantesPendientes === 1 ? '' : 's'} de admisibilidad</>}
-              </p>
-              <p className="text-[12px] text-zinc-400">{resumen.aprobados}/{resumen.total} aprobados</p>
-            </div>
-            <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${resumen.listoParaPostular ? 'bg-emerald-500' : 'bg-violet-500'}`}
-                style={{ width: `${resumen.avance}%` }}
-              />
-            </div>
-            <div className="flex gap-3 mt-2 text-[11px]">
-              {resumen.porAprobar > 0 && <span className="text-indigo-600 font-semibold">{resumen.porAprobar} por aprobar</span>}
-              {resumen.observados > 0 && <span className="text-orange-600 font-semibold">{resumen.observados} observado{resumen.observados === 1 ? '' : 's'}</span>}
-              {resumen.pendientes > 0 && <span className="text-zinc-400">{resumen.pendientes} sin cargar</span>}
-            </div>
-          </>
         )}
         {vista === 'checklist' && (
           <p className="mt-3 text-xs text-slate-500">
             Aquí se cuentan el bloque Comercial y las Alertas de cumplimiento. Los anexos administrativos se generan y se aprueban en la pestaña <b className="font-medium text-slate-700">Pre-postulación</b>, sección «Anexos a generar».
           </p>
         )}
+      </div>
+      {resumen && resumen.total > 0 && (<>
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-linea shadow-tarjeta p-5">
+          <p className="text-xs text-slate-600 flex items-center gap-2"><span className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500"><ShieldCheck size={15} /></span>Puntos aprobados</p>
+          <p className="mt-3 text-[28px] leading-none font-semibold tracking-tight tabular-nums text-zinc-900">{resumen.aprobados}<span className="text-base font-normal text-slate-500"> de {resumen.total}</span></p>
+          <div className="mt-3 h-1.5 rounded-full bg-zinc-100 dark:bg-slate-800 overflow-hidden">
+            <div className={`h-full rounded-full transition-all duration-500 ${resumen.listoParaPostular ? 'bg-emerald-600' : 'bg-teal-600'}`} style={{ width: `${resumen.avance}%` }} />
+          </div>
+        </div>
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-linea shadow-tarjeta p-5">
+          <p className="text-xs text-slate-600">Admisibilidad</p>
+          <p className={`mt-2 text-[15px] font-semibold ${resumen.listoParaPostular ? 'text-emerald-700' : 'text-zinc-900'}`}>
+            {resumen.listoParaPostular
+              ? 'Listo para postular'
+              : <>Faltan <span className="text-rose-600 tabular-nums">{resumen.bloqueantesPendientes}</span> punto{resumen.bloqueantesPendientes === 1 ? '' : 's'}</>}
+          </p>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-xs">
+            {resumen.porAprobar > 0 && <span className="text-teal-700 font-semibold">{resumen.porAprobar} por aprobar</span>}
+            {resumen.observados > 0 && <span className="text-orange-600 font-semibold">{resumen.observados} observado{resumen.observados === 1 ? '' : 's'}</span>}
+            {resumen.pendientes > 0 && <span className="text-slate-500">{resumen.pendientes} sin cargar</span>}
+          </div>
+        </div>
+      </>)}
+      </div>
       </div>
       </>)}
 
@@ -554,21 +556,41 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
         if (delBloque.length === 0) return null;
         const Icono = b.icon;
         const bloqueadoPorEmpresa = b.key === 'ADMINISTRATIVO' && sinEmpresa;
+        // Comercial: las líneas que decidimos no ofertar no estorban la lista; quedan plegadas al final (ahí mismo se pueden «Incluir»).
+        const fueraDeOferta = b.key === 'COMERCIAL' ? delBloque.filter(i => i.tipo === 'precio' && i.ofertamos === false) : [];
+        const enLista = fueraDeOferta.length ? delBloque.filter(i => !fueraDeOferta.includes(i)) : delBloque;
+        const filaDe = (item: Item) => (
+          <FilaItem
+            key={item.id}
+            tarjeta={b.key !== 'COMERCIAL'}
+            item={item}
+            licitacionCodigo={licitacionCodigo}
+            puedeAprobar={puedeAprobar}
+            bloqueado={bloqueadoPorEmpresa}
+            ocupado={ocupado === item.id}
+            onAccion={accionar}
+            onVer={setVisorDoc}
+            onGenerar={puedeAnexos ? setGenerandoItem : undefined}
+            onTraer={vista === 'oferta' && item.tipo === 'documento' ? () => setModoTraer({ tipo: 'punto', punto: item }) : undefined}
+            traerBloqueado={traerBloqueado}
+            toast={toast}
+          />
+        );
 
         // Sin restricción por etapa (1-oct-2026): los bloques Administrativo y Técnico se trabajan siempre.
         return (
           <div key={b.key} className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
             <div className="px-4 py-3 border-b border-zinc-100 flex items-center gap-2">
-              <Icono size={14} className="text-zinc-400" />
-              <h3 className="text-[13px] font-bold text-zinc-800">{b.label}</h3>
-              <span className="text-[10.5px] text-zinc-400">{b.hint}</span>
-              <span className="ml-auto text-[11px] font-bold text-zinc-400">
-                {delBloque.filter(i => i.estado === 'APROBADO').length}/{delBloque.length}
+              <Icono size={14} className="text-slate-500" />
+              <h3 className="text-[13px] font-semibold text-zinc-800">{b.label}</h3>
+              <span className="text-xs text-slate-500">{b.hint}</span>
+              <span className="ml-auto text-xs font-semibold text-slate-500">
+                {enLista.filter(i => i.estado === 'APROBADO').length}/{enLista.length}
               </span>
             </div>
 
             {bloqueadoPorEmpresa && (
-              <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-100 text-[11.5px] text-amber-800 flex items-center gap-1.5">
+              <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-100 text-xs text-amber-800 flex items-center gap-1.5">
                 <AlertTriangle size={13} /> Elige primero la empresa: sin eso no se pueden llenar los anexos.
               </div>
             )}
@@ -592,8 +614,8 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
             {/* Anexos hechos fuera de la app (firma a puño y letra) que se subieron a Documentos y no
                 quedaron en ninguna casilla: sin esto Postulación sale vacía (4022-19-LE26). */}
             {vista === 'oferta' && b.key === 'ADMINISTRATIVO' && sueltos.length > 0 && (
-              <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-100 flex items-center gap-3 flex-wrap">
-                <p className="text-xs text-amber-900 flex-1 min-w-[14rem]">
+              <div className="px-4 py-3 bg-slate-50 dark:bg-slate-800/40 border-b border-linea flex items-center gap-3 flex-wrap">
+                <p className="text-xs text-slate-700 flex-1 min-w-[14rem]">
                   <span className="font-semibold tabular-nums">{sueltos.length}</span> archivo{sueltos.length === 1 ? '' : 's'} en Documentos no {sueltos.length === 1 ? 'está' : 'están'} en ninguna casilla
                   {' '}({sueltos.slice(0, 3).map(d => d.documento_nombre).join(', ')}{sueltos.length > 3 ? '…' : ''}).
                   {traerBloqueado && <> {traerBloqueado}</>}
@@ -607,23 +629,22 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
               </div>
             )}
 
-            <div className="divide-y divide-zinc-100">
-              {delBloque.map(item => (
-                <FilaItem
-                  key={item.id}
-                  item={item}
-                  licitacionCodigo={licitacionCodigo}
-                  puedeAprobar={puedeAprobar}
-                  bloqueado={bloqueadoPorEmpresa}
-                  ocupado={ocupado === item.id}
-                  onAccion={accionar}
-                  onVer={setVisorDoc}
-                  onGenerar={puedeAnexos ? setGenerandoItem : undefined}
-                  onTraer={vista === 'oferta' && item.tipo === 'documento' ? () => setModoTraer({ tipo: 'punto', punto: item }) : undefined}
-                  traerBloqueado={traerBloqueado}
-                  toast={toast}
-                />
-              ))}
+            <div className={b.key === 'COMERCIAL' ? '' : '@container'}>
+            <div className={b.key === 'COMERCIAL' ? 'divide-y divide-zinc-100' : 'grid gap-3 p-4 @3xl:grid-cols-2'}>
+              {enLista.map(filaDe)}
+            </div>
+            {fueraDeOferta.length > 0 && (
+              <details className="border-t border-zinc-100 group">
+                <summary className="cursor-pointer px-4 py-3 text-xs font-semibold text-slate-600 hover:text-zinc-900 list-none flex items-center gap-2">
+                  <span className="text-slate-400 group-open:rotate-90 transition-transform">▸</span>
+                  {fueraDeOferta.length} línea{fueraDeOferta.length === 1 ? '' : 's'} fuera de la oferta
+                  <span className="font-normal text-slate-500">— no se ofertan; ábrelas si quieres incluir alguna</span>
+                </summary>
+                <div className="divide-y divide-zinc-100 border-t border-zinc-100">
+                  {fueraDeOferta.map(filaDe)}
+                </div>
+              </details>
+            )}
             </div>
 
             {/* Total de la oferta, solo en el bloque comercial por línea */}
@@ -632,7 +653,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
                 <span className="text-[12px] font-semibold text-zinc-500">
                   Total ofertado ({delBloque.filter(i => i.tipo === 'precio' && i.ofertamos !== false).length} línea(s))
                 </span>
-                <span className="text-[15px] font-bold text-emerald-700">
+                <span className="text-[15px] font-semibold text-emerald-700">
                   {fmtCLP(delBloque
                     .filter(i => i.tipo === 'precio' && i.ofertamos !== false)
                     .reduce((s, i) => s + (i.valor_numero || 0), 0))}
@@ -662,10 +683,10 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
         return (
           <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
             <div className="px-4 py-3 border-b border-zinc-100 flex items-center gap-2">
-              <AlertTriangle size={14} className="text-zinc-400" />
-              <h3 className="text-[13px] font-bold text-zinc-800">Alertas de cumplimiento</h3>
-              <span className="text-[10.5px] text-zinc-400">Condiciones a tener en cuenta — el asistente confirma que las leyó</span>
-              <span className="ml-auto text-[11px] font-bold text-zinc-400">
+              <AlertTriangle size={14} className="text-slate-500" />
+              <h3 className="text-[13px] font-semibold text-zinc-800">Alertas de cumplimiento</h3>
+              <span className="text-xs text-slate-500">Condiciones a tener en cuenta — el asistente confirma que las leyó</span>
+              <span className="ml-auto text-xs font-semibold text-slate-500">
                 {alertas.filter(i => i.estado === 'APROBADO').length}/{alertas.length} vistas
               </span>
             </div>
@@ -693,10 +714,10 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
         <div className="bg-white rounded-xl border border-zinc-200 p-10 text-center">
           <ClipboardCheck size={26} className="text-zinc-300 mx-auto mb-3" />
           <p className="text-[13px] font-semibold text-zinc-700 mb-1">Sin puntos todavía</p>
-          <p className="text-[12px] text-zinc-400 mb-4 max-w-sm mx-auto">
+          <p className="text-[12px] text-slate-500 mb-4 max-w-sm mx-auto">
             El checklist se arma desde el informe de viabilidad. Si el informe existe, resincroniza.
           </p>
-          <button onClick={resincronizar} className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-[12px] font-semibold rounded-lg">
+          <button onClick={resincronizar} className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-[12px] font-semibold rounded-lg">
             Armar checklist
           </button>
         </div>
@@ -767,7 +788,7 @@ function BloqueEmpresa({ empresa, empresas, onElegir, toast, bloqueado }: {
       <div className="bg-amber-50 rounded-xl border border-amber-200 p-4">
         <div className="flex items-center gap-2 mb-2">
           <Building2 size={15} className="text-amber-600" />
-          <h3 className="text-[13px] font-bold text-amber-900">¿Con qué empresa se postula?</h3>
+          <h3 className="text-[13px] font-semibold text-amber-900">¿Con qué empresa se postula?</h3>
         </div>
         <p className="text-[12px] text-amber-800 mb-3">
           Los anexos administrativos se llenan con los datos de la empresa. Elige antes de empezar.
@@ -810,11 +831,11 @@ function BloqueEmpresa({ empresa, empresas, onElegir, toast, bloqueado }: {
   return (
     <div className="bg-white rounded-xl border border-zinc-200 px-4 py-3">
       <div className="flex items-center gap-2 flex-wrap">
-        <Building2 size={15} className="text-zinc-400" />
-        <h3 className="text-[13px] font-bold text-zinc-800">Se postula con {empresa.razon_social}</h3>
-        <button onClick={() => setVerDatos(true)} className="text-[11.5px] font-semibold text-indigo-600 hover:text-indigo-700">Ver datos</button>
+        <Building2 size={15} className="text-slate-500" />
+        <h3 className="text-[13px] font-semibold text-zinc-800">Se postula con {empresa.razon_social}</h3>
+        <button onClick={() => setVerDatos(true)} className="text-xs font-semibold text-teal-600 hover:text-teal-700">Ver datos</button>
         {!bloqueado && (
-          <button onClick={() => setCambiando(true)} className="ml-auto text-[11.5px] font-semibold text-zinc-500 hover:text-zinc-800">Cambiar empresa</button>
+          <button onClick={() => setCambiando(true)} className="ml-auto text-xs font-semibold text-zinc-500 hover:text-zinc-800">Cambiar empresa</button>
         )}
       </div>
       <Modal open={verDatos} onClose={() => setVerDatos(false)} title={empresa.razon_social} size="md"
@@ -823,7 +844,7 @@ function BloqueEmpresa({ empresa, empresas, onElegir, toast, bloqueado }: {
           {campos.filter(([, v]) => v).map(([label, valor]) => (
             <button key={label} onClick={() => copiar(valor, label)} className="group flex items-center gap-2 text-left px-2.5 py-1.5 rounded-lg hover:bg-zinc-50 transition-colors" title={`Copiar ${label.toLowerCase()}`}>
               <div className="min-w-0 flex-1">
-                <p className="text-[9.5px] text-zinc-400 uppercase font-bold tracking-wide">{label}</p>
+                <p className="text-xs text-slate-500 font-semibold">{label}</p>
                 <p className="text-[12px] text-zinc-700 font-medium break-words">{valor}</p>
               </div>
               <Copy size={12} className="text-zinc-300 group-hover:text-zinc-500 flex-shrink-0" />
@@ -852,8 +873,8 @@ function GenerarAnexoDeBloque({ decision, etiqueta, onGenerar }: {
 }) {
   if (!decision.puede) {
     return (
-      <div className="px-4 py-2.5 bg-zinc-50 border-b border-zinc-100 text-[11.5px] text-zinc-600 flex items-start gap-1.5">
-        <AlertTriangle size={13} className="text-zinc-400 mt-px flex-shrink-0" />
+      <div className="px-4 py-2.5 bg-zinc-50 border-b border-zinc-100 text-xs text-zinc-600 flex items-start gap-1.5">
+        <AlertTriangle size={13} className="text-slate-500 mt-px flex-shrink-0" />
         <span><b className="text-zinc-700">Anexo {etiqueta}:</b> {decision.motivo}</span>
       </div>
     );
@@ -864,29 +885,30 @@ function GenerarAnexoDeBloque({ decision, etiqueta, onGenerar }: {
   // común mide justo 40— los 7 botones salían idénticos. Ver etiquetasDistinguibles().
   const etiquetas = etiquetasDistinguibles(docs.map(d => d.nombre));
   return (
-    <div className="px-4 py-2.5 bg-violet-50 border-b border-violet-100">
+    <div className="px-4 py-2.5 bg-teal-50 border-b border-teal-100">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[11.5px] text-violet-900"><b>Anexo {etiqueta} listo para generar.</b> {decision.motivo}</span>
+        <span className="text-xs text-teal-900"><b>Anexo {etiqueta} listo para generar.</b> {decision.motivo}</span>
       </div>
       <div className="flex items-center gap-2 flex-wrap mt-2">
         {docs.map((d, i) => (
           <button key={d.id} onClick={() => onGenerar(d)}
             title={d.nombre}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-[11.5px] font-semibold rounded-lg transition-colors">
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg transition-colors">
             <Sparkles size={12} /> {docs.length > 1 ? etiquetas[i] : `Generar anexo ${etiqueta}`}
           </button>
         ))}
       </div>
       {/* El documento es SIEMPRE el que publicó el organismo; el motor escribe dentro de ese
           archivo y verifica que no cambió su estructura antes de subirlo. */}
-      <p className="text-[10.5px] text-violet-700/80 mt-1.5">Se rellena el documento original de la licitación, no una plantilla.</p>
+      <p className="text-xs text-teal-700/80 mt-1.5">Se rellena el documento original de la licitación, no una plantilla.</p>
     </div>
   );
 }
 
 const MSG_CONGELADO = 'Este negocio ya se postuló: el checklist quedó congelado y ya no se puede marcar como visto.';
 
-function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, modoAcuse = false, onAccion, onVer, onGenerar, onTraer, traerBloqueado, toast }: {
+function FilaItem({ tarjeta = false, item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, modoAcuse = false, onAccion, onVer, onGenerar, onTraer, traerBloqueado, toast }: {
+  tarjeta?: boolean;
   item: Item;
   licitacionCodigo: string;
   puedeAprobar: boolean;
@@ -1036,8 +1058,35 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
     }
   };
 
+  const botonesAnexo = ((item.generable && item.tipo === 'documento' && onGenerar) || onTraer) && !editando && (
+            <div className={tarjeta ? 'mt-3 pt-3 border-t border-linea flex items-center gap-2 flex-wrap' : 'mt-2 flex items-center gap-2 flex-wrap'}>
+              {item.generable && item.tipo === 'documento' && onGenerar && (<>
+              <button type="button" disabled={bloqueado}
+                onClick={async () => {
+                  // Un anexo ya aprobado se puede generar de nuevo (p. ej. para probar o corregir), pero vuelve a «Por aprobar».
+                  if (item.estado === 'APROBADO' && !(await confirmar({ titulo: '¿Generar este anexo de nuevo?', mensaje: `«${item.titulo}» ya está aprobado. Si lo generas otra vez, el archivo nuevo se suma y el punto vuelve a «Por aprobar».`, confirmarLabel: 'Sí, generar' }))) return;
+                  onGenerar(item);
+                }}
+                title={bloqueado ? 'Elige primero la empresa con la que se postula (en Documentos)' : 'Rellena el anexo con los datos de la empresa y la firma; queda cargado aquí'}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${tarjeta ? 'flex-1 min-w-[9rem] justify-center' : ''} ${item.estado === 'APROBADO' ? 'border border-teal-200 text-teal-600 hover:bg-teal-50' : 'bg-teal-600 text-white hover:bg-teal-700'}`}>
+                <ClipboardCheck size={13} /> {item.documentos.length > 0 ? 'Volver a generar' : 'Generar anexo'}
+              </button>
+              {bloqueado && <span className="text-xs text-amber-700">Elige primero la empresa (en Documentos).</span>}
+              </>)}
+              {/* No depende de la empresa: el archivo ya está hecho y firmado, solo falta enlazarlo. */}
+              {onTraer && (
+                <button type="button"
+                  onClick={() => traerBloqueado ? toast.info('Este negocio ya se postuló', traerBloqueado) : onTraer()}
+                  title={traerBloqueado || 'Enlaza un archivo que ya subiste en Documentos (por ejemplo, un anexo firmado a mano)'}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-teal-700 hover:bg-slate-50 ${tarjeta ? 'flex-1 min-w-[9rem] justify-center' : ''} ${traerBloqueado ? 'opacity-50' : ''}`}>
+                  <FileText size={13} /> Traer desde Documentos
+                </button>
+              )}
+            </div>
+          );
+
   return (
-    <div className={`px-4 py-3 ${noOfertada ? 'opacity-50' : ''} ${item.estado === 'OBSERVADO' ? 'bg-orange-50/40' : ''}`}>
+    <div className={`${tarjeta ? 'rounded-xl border border-linea bg-white dark:bg-slate-900 shadow-tarjeta p-4' : 'px-4 py-3'} ${noOfertada ? 'opacity-50' : ''} ${!tarjeta && item.estado === 'OBSERVADO' ? 'bg-orange-50/40' : ''}`}>
       <div className="flex items-start gap-3">
 
         {/* Estado */}
@@ -1046,7 +1095,7 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
             ? <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center"><Check size={12} className="text-white" /></div>
             : item.estado === 'OBSERVADO'
               ? <div className="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center"><X size={12} className="text-white" /></div>
-              : <div className={`w-5 h-5 rounded-full border-2 ${item.estado === 'CARGADO' ? 'border-indigo-400 bg-indigo-50' : 'border-zinc-200'}`} />}
+              : <div className={`w-5 h-5 rounded-full border-2 ${item.estado === 'CARGADO' ? 'border-teal-400 bg-teal-50' : 'border-zinc-200'}`} />}
         </div>
 
         {/* Contenido */}
@@ -1057,7 +1106,7 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
                 ofertar se lee igual en los dos bloques. Solo atenuarla no alcanzaba — se veía como
                 una fila más, apagada, sin decir por qué. */}
             {noOfertada && (
-              <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-zinc-600">
+              <span className="text-xs font-semibold text-slate-500">
                 {/* El "precio total" de una licitación que hoy se cotiza por línea no está "fuera
                     de la oferta": quedó reemplazado por las filas por línea (ver
                     planDeFilasPrecio). Decirlo con las palabras correctas evita que alguien lo
@@ -1065,21 +1114,21 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
                 {item.clave_origen === 'precio:total' ? 'Reemplazado por las líneas' : 'Fuera de la oferta'}
               </span>
             )}
-            <span className={`text-[9.5px] font-bold px-1.5 py-px rounded ${crit.bg} ${crit.text}`}>{crit.label}</span>
-            {item.ponderacion != null && item.ponderacion > 0 && (
-              <span className="text-[9.5px] font-bold px-1.5 py-px rounded bg-violet-100 text-violet-700">{item.ponderacion}%</span>
-            )}
-            <span className={`text-[9.5px] font-bold px-1.5 py-px rounded ${est.bg} ${est.text}`}>{est.label}</span>
+          </div>
+          <div className="mt-1 flex items-center gap-x-3 gap-y-0.5 flex-wrap text-xs font-semibold">
+            <span className={crit.text}>{crit.label}</span>
+            {item.ponderacion != null && item.ponderacion > 0 && <span className="text-teal-700 tabular-nums">{item.ponderacion}% del puntaje</span>}
+            <span className={`inline-flex items-center gap-1.5 ${est.text}`}><span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />{est.label}</span>
           </div>
 
-          {item.descripcion && <p className="text-[11.5px] text-zinc-500 leading-snug mt-0.5">{item.descripcion}</p>}
-          {item.fuente_cita && <p className="text-[10px] text-zinc-400 truncate mt-0.5" title={item.fuente_cita}>Fuente: {item.fuente_cita}</p>}
+          {item.descripcion && <p className="text-xs text-zinc-500 leading-snug mt-0.5">{item.descripcion}</p>}
+          {item.fuente_cita && <p className="text-xs text-slate-500 truncate mt-0.5" title={item.fuente_cita}>Fuente: {item.fuente_cita}</p>}
 
           {/* Evidencia cargada */}
           {(item.valor_numero != null || item.valor_texto) && !editando && (
             <div className="mt-1.5 flex items-center gap-2 flex-wrap">
               {item.valor_numero != null && (
-                <span className="text-[13px] font-bold text-emerald-700">{fmtCLP(item.valor_numero)}</span>
+                <span className="text-[13px] font-semibold text-emerald-700">{fmtCLP(item.valor_numero)}</span>
               )}
               {item.valor_texto && <span className="text-[12px] text-zinc-700">{item.valor_texto}</span>}
             </div>
@@ -1088,7 +1137,7 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
           {/* Plazo fuera de rango YA guardado (o aprobado antes de que existiera este cruce):
               se marca en rojo en la fila, no solo al escribirlo. */}
           {avisoPlazo && (
-            <p className={`mt-1.5 text-[11.5px] font-semibold flex items-start gap-1 ${avisoPlazo.nivel === 'error' ? 'text-rose-600' : 'text-amber-600'}`}>
+            <p className={`mt-1.5 text-xs font-semibold flex items-start gap-1 ${avisoPlazo.nivel === 'error' ? 'text-rose-600' : 'text-amber-600'}`}>
               <AlertTriangle size={12} className="flex-shrink-0 mt-px" /> {avisoPlazo.mensaje}
             </p>
           )}
@@ -1098,19 +1147,19 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
             <div className="mt-1.5 space-y-1">
               {item.documentos.map(doc => (
                 <div key={doc.id} className="flex items-center gap-1 max-w-full">
-                  <FileText size={11} className="text-zinc-400 flex-shrink-0" />
-                  <span className="text-[11.5px] text-zinc-700 truncate" title={doc.nombre}>{doc.nombre}</span>
+                  <FileText size={11} className="text-slate-500 flex-shrink-0" />
+                  <span className="text-xs text-zinc-700 truncate" title={doc.nombre}>{doc.nombre}</span>
                   <button
                     onClick={() => onVer({ nombre: doc.nombre, url: doc.url })}
                     title="Ver documento"
-                    className="p-0.5 text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors flex-shrink-0"
+                    className="p-0.5 text-slate-500 hover:text-teal-600 hover:bg-teal-50 rounded transition-colors flex-shrink-0"
                   >
                     <Eye size={12} />
                   </button>
                   <a
                     href={urlDescarga(doc.url)} download={doc.nombre}
                     title="Descargar"
-                    className="p-0.5 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors flex-shrink-0"
+                    className="p-0.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors flex-shrink-0"
                   >
                     <Download size={12} />
                   </a>
@@ -1131,37 +1180,12 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
 
           {/* «Generar anexo» A LA VISTA (antes solo aparecía dentro del modo edición): abre el mismo modal de Documentos, lo rellena con los datos de la
               empresa y la firma, y el archivo queda cargado aquí mismo. */}
-          {((item.generable && item.tipo === 'documento' && onGenerar) || onTraer) && !editando && (
-            <div className="mt-2 flex items-center gap-2 flex-wrap">
-              {item.generable && item.tipo === 'documento' && onGenerar && (<>
-              <button type="button" disabled={bloqueado}
-                onClick={async () => {
-                  // Un anexo ya aprobado se puede generar de nuevo (p. ej. para probar o corregir), pero vuelve a «Por aprobar».
-                  if (item.estado === 'APROBADO' && !(await confirmar({ titulo: '¿Generar este anexo de nuevo?', mensaje: `«${item.titulo}» ya está aprobado. Si lo generas otra vez, el archivo nuevo se suma y el punto vuelve a «Por aprobar».`, confirmarLabel: 'Sí, generar' }))) return;
-                  onGenerar(item);
-                }}
-                title={bloqueado ? 'Elige primero la empresa con la que se postula (en Documentos)' : 'Rellena el anexo con los datos de la empresa y la firma; queda cargado aquí'}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${item.estado === 'APROBADO' ? 'border border-indigo-200 text-indigo-600 hover:bg-indigo-50' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
-                <Sparkles size={13} /> {item.documentos.length > 0 ? 'Volver a generar' : 'Generar anexo'}
-              </button>
-              {bloqueado && <span className="text-[11px] text-amber-700">Elige primero la empresa (en Documentos).</span>}
-              </>)}
-              {/* No depende de la empresa: el archivo ya está hecho y firmado, solo falta enlazarlo. */}
-              {onTraer && (
-                <button type="button"
-                  onClick={() => traerBloqueado ? toast.info('Este negocio ya se postuló', traerBloqueado) : onTraer()}
-                  title={traerBloqueado || 'Enlaza un archivo que ya subiste en Documentos (por ejemplo, un anexo firmado a mano)'}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium border border-slate-200 text-teal-700 hover:bg-slate-50 ${traerBloqueado ? 'opacity-50' : ''}`}>
-                  <FileText size={13} /> Traer desde Documentos
-                </button>
-              )}
-            </div>
-          )}
+          {!tarjeta && botonesAnexo}
 
           {/* Observación del asesor */}
           {item.estado === 'OBSERVADO' && item.observacion && (
-            <div className="mt-2 text-[11.5px] text-orange-800 bg-orange-100/60 rounded-lg px-2.5 py-1.5">
-              <span className="font-bold">Observado:</span> {item.observacion}
+            <div className="mt-2 text-xs text-orange-800 bg-orange-100/60 rounded-lg px-2.5 py-1.5">
+              <span className="font-semibold">Observado:</span> {item.observacion}
             </div>
           )}
 
@@ -1169,7 +1193,7 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
               entregó ni visó nada, alguien declaró que lo leyó. Decirlo con las palabras del
               flujo normal haría creer que un asesor lo revisó. */}
           {(item.cargado_por_nombre || item.aprobado_por_nombre) && (
-            <p className="text-[10px] text-zinc-400 mt-1.5">
+            <p className="text-xs text-slate-500 mt-1.5">
               {modoAcuse
                 ? item.cargado_por_nombre && <>Visto por {item.cargado_por_nombre} · {fmtFecha(item.cargado_at)}</>
                 : <>
@@ -1188,7 +1212,7 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
                   value={valorNumero}
                   onChange={e => setValorNumero(e.target.value)}
                   placeholder="Precio neto ofertado"
-                  className="w-full px-3 py-2 text-[13px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200"
+                  className="w-full px-3 py-2 text-[13px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-200"
                 />
               ) : (
                 <textarea
@@ -1203,12 +1227,12 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
                     ? 'Escribe el dato comprometido (opcional) — o guarda para confirmar que quedó tomado en cuenta'
                     : 'Adjunta el documento, o explica acá por qué no aplica o no lo tienes'}
                   rows={2}
-                  className="w-full px-3 py-2 text-[13px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none"
+                  className="w-full px-3 py-2 text-[13px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-200 resize-none"
                 />
               )}
               <div className="flex items-center gap-2 flex-wrap">
                 <button onClick={guardar} disabled={ocupado}
-                  className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-[11.5px] font-semibold rounded-lg disabled:opacity-50">
+                  className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded-lg disabled:opacity-50">
                   {ocupado ? <Loader2 size={12} className="animate-spin" /> : 'Guardar y enviar a visar'}
                 </button>
                 {/* El adjunto también existe en las alertas: varias piden evidencia real
@@ -1219,7 +1243,7 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
                   <>
                     <input ref={fileRef} type="file" multiple className="hidden" onChange={e => subirArchivo(e.target.files)} />
                     <button onClick={() => fileRef.current?.click()} disabled={subiendo}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-zinc-200 text-zinc-600 hover:bg-zinc-50 text-[11.5px] font-semibold rounded-lg disabled:opacity-50">
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-zinc-200 text-zinc-600 hover:bg-zinc-50 text-xs font-semibold rounded-lg disabled:opacity-50">
                       {subiendo ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
                       {item.documentos.length > 0 ? 'Adjuntar más' : item.tipo === 'dato' ? 'Adjuntar (opcional)' : 'Adjuntar'}
                     </button>
@@ -1230,12 +1254,12 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
                     type="button"
                     onClick={() => onGenerar(item)}
                     title="Rellenar este anexo con los datos de la empresa"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-indigo-200 text-indigo-600 hover:bg-indigo-50 text-[11.5px] font-semibold rounded-lg transition-colors"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-teal-200 text-teal-600 hover:bg-teal-50 text-xs font-semibold rounded-lg transition-colors"
                   >
                     <Sparkles size={12} /> Generar
                   </button>
                 )}
-                <button onClick={() => setEditando(false)} className="text-[11.5px] text-zinc-400 hover:text-zinc-600 px-1">Cancelar</button>
+                <button onClick={() => setEditando(false)} className="text-xs text-slate-500 hover:text-zinc-600 px-1">Cancelar</button>
               </div>
             </div>
           )}
@@ -1252,10 +1276,10 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
               />
               <div className="flex items-center gap-2">
                 <button onClick={observar} disabled={ocupado}
-                  className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-[11.5px] font-semibold rounded-lg disabled:opacity-50">
+                  className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold rounded-lg disabled:opacity-50">
                   Devolver al asistente
                 </button>
-                <button onClick={() => setObservando(false)} className="text-[11.5px] text-zinc-400 hover:text-zinc-600 px-1">Cancelar</button>
+                <button onClick={() => setObservando(false)} className="text-xs text-slate-500 hover:text-zinc-600 px-1">Cancelar</button>
               </div>
             </div>
           )}
@@ -1269,7 +1293,7 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
                 onClick={() => bloqueado ? avisoCongelado() : onAccion(item.id, 'DESACUSAR')}
                 disabled={ocupado}
                 title={bloqueado ? MSG_CONGELADO : 'Deshacer: volver a marcarlo como no leído'}
-                className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1 text-[11.5px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-50"
+                className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-50"
               >
                 {ocupado ? <Loader2 size={11} className="animate-spin" /> : <Check size={12} />} Visto
               </button>
@@ -1278,7 +1302,7 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
                 onClick={() => bloqueado ? avisoCongelado() : onAccion(item.id, 'ACUSAR')}
                 disabled={ocupado}
                 title={bloqueado ? MSG_CONGELADO : 'Confirmo que leí esta condición y la voy a tener en cuenta'}
-                className={`inline-flex items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1 text-[11.5px] font-semibold transition-colors disabled:opacity-50 ${bloqueado ? 'text-zinc-400 cursor-not-allowed' : 'text-zinc-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700'}`}
+                className={`inline-flex items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1 text-xs font-semibold transition-colors disabled:opacity-50 ${bloqueado ? 'text-slate-500 cursor-not-allowed' : 'text-zinc-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700'}`}
               >
                 {ocupado ? <Loader2 size={11} className="animate-spin" /> : <Check size={12} />} Marcar como visto
               </button>
@@ -1292,7 +1316,7 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
             {!bloqueado && item.estado !== 'APROBADO' && (
               <button
                 onClick={() => setEditando(true)}
-                className="px-2.5 py-1 text-[11.5px] font-semibold text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
+                className="px-2.5 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
               >
                 {item.estado === 'PENDIENTE' ? 'Cargar' : 'Corregir'}
               </button>
@@ -1303,7 +1327,7 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
               <button
                 onClick={() => onAccion(item.id, 'CARGAR', { ofertamos: !noOfertada ? false : true })}
                 title={noOfertada ? 'Volver a incluir esta línea en la oferta' : 'No ofertamos esta línea'}
-                className="px-2.5 py-1 text-[11.5px] font-semibold text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 rounded-lg transition-colors"
+                className="px-2.5 py-1 text-xs font-semibold text-slate-500 hover:text-zinc-700 hover:bg-zinc-50 rounded-lg transition-colors"
               >
                 {noOfertada ? 'Incluir' : 'No ofertar'}
               </button>
@@ -1320,13 +1344,13 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
                     onAccion(item.id, 'APROBAR');
                   }}
                   disabled={ocupado}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11.5px] font-semibold rounded-lg disabled:opacity-50 transition-colors"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg disabled:opacity-50 transition-colors"
                 >
                   {ocupado ? <Loader2 size={11} className="animate-spin" /> : <Check size={12} />} Aprobar
                 </button>
                 <button
                   onClick={() => setObservando(true)}
-                  className="px-2.5 py-1 text-[11.5px] font-semibold text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                  className="px-2.5 py-1 text-xs font-semibold text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
                 >
                   Observar
                 </button>
@@ -1360,6 +1384,7 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
           </div>
         )}
       </div>
+      {tarjeta && botonesAnexo}
     </div>
   );
 }

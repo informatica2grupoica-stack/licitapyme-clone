@@ -49,7 +49,7 @@ function ProductosDeLaLinea({ nombres }: { nombres: string[] }) {
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setDesplegado(v => !v); }}
-          className="ml-1 font-semibold text-violet-600 hover:underline"
+          className="ml-1 font-semibold text-teal-600 hover:underline"
         >
           {desplegado ? 'mostrar menos' : `y ${nombres.length - TOPE_PRODUCTOS_SIN_DESPLEGAR} más…`}
         </button>
@@ -170,7 +170,7 @@ export function FilaLineaTecnica({ item, negocioId, licitacionCodigo, puedeAprob
       onDragOver={e => { if (puedeSoltar) { e.preventDefault(); setArrastrando(true); } }}
       onDragLeave={() => setArrastrando(false)}
       onDrop={onDrop}
-      className={`px-4 py-3 transition-colors ${item.estado === 'OBSERVADO' ? 'bg-orange-50/40' : ''} ${fueraDeLaOferta ? 'opacity-55' : ''} ${arrastrando ? 'bg-violet-50 ring-2 ring-inset ring-violet-300' : ''}`}
+      className={`px-4 py-3 transition-colors ${item.estado === 'OBSERVADO' ? 'bg-orange-50/40' : ''} ${fueraDeLaOferta ? 'opacity-55' : ''} ${arrastrando ? 'bg-teal-50 ring-2 ring-inset ring-teal-300' : ''}`}
     >
       <div className="flex items-start gap-3">
         <div className="pt-0.5">
@@ -178,21 +178,21 @@ export function FilaLineaTecnica({ item, negocioId, licitacionCodigo, puedeAprob
             ? <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center"><Check size={12} className="text-white" /></div>
             : item.estado === 'OBSERVADO'
               ? <div className="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center"><X size={12} className="text-white" /></div>
-              : <div className={`w-5 h-5 rounded-full border-2 ${item.estado === 'CARGADO' ? 'border-indigo-400 bg-indigo-50' : 'border-zinc-200'}`} />}
+              : <div className={`w-5 h-5 rounded-full border-2 ${item.estado === 'CARGADO' ? 'border-teal-400 bg-teal-50' : 'border-zinc-200'}`} />}
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold text-zinc-800 leading-snug flex items-center gap-1.5">
             <Wrench size={12} className="text-zinc-400 flex-shrink-0" />
             {item.titulo}
             {fueraDeLaOferta && (
-              <span className="flex-shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-zinc-600">
+              <span className="flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold text-zinc-600">
                 Fuera de la oferta
               </span>
             )}
           </p>
           <div className="mt-1">
             {resumen && resumen.total > 0 ? (
-              <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded-full ${
+              <span className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full ${
                 resumen.noCumplen > 0 ? 'bg-rose-100 text-rose-700'
                 : (resumen.conComplemento > 0 || resumen.pendientesProveedor > 0) ? 'bg-amber-100 text-amber-700'
                 : 'bg-emerald-100 text-emerald-700'
@@ -203,7 +203,7 @@ export function FilaLineaTecnica({ item, negocioId, licitacionCodigo, puedeAprob
                 {resumen.pendientesProveedor > 0 && ` · ${resumen.pendientesProveedor} por confirmar`}
               </span>
             ) : (
-              <span className="inline-block text-[11px] font-medium text-zinc-400 bg-zinc-100 px-2 py-0.5 rounded-full">Sin validar todavía</span>
+              <span className="inline-block text-[11px] font-medium text-zinc-400">Sin validar todavía</span>
             )}
           </div>
           {item.descripcion && <p className="text-[11.5px] text-zinc-500 leading-snug mt-1">{item.descripcion}</p>}
@@ -213,7 +213,7 @@ export function FilaLineaTecnica({ item, negocioId, licitacionCodigo, puedeAprob
 
       <div className="flex items-center gap-2 mt-2 ml-8 flex-wrap">
         <button onClick={() => setModalAbierto(true)}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-violet-600 hover:bg-violet-50 rounded-lg transition-colors">
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-teal-600 hover:bg-teal-50 rounded-lg transition-colors">
           Ver comparación
         </button>
 
@@ -238,7 +238,7 @@ export function FilaLineaTecnica({ item, negocioId, licitacionCodigo, puedeAprob
         )}
 
         {subiendoFicha || arrastrando ? (
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-violet-600">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-teal-600">
             {subiendoFicha ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
             {progreso || 'Suelta la(s) ficha(s) técnica(s) acá'}
           </span>

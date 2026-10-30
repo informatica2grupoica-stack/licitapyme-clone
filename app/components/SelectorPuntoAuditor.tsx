@@ -19,10 +19,10 @@ interface ItemChecklist {
 
 const BLOQUE_LABEL: Record<string, string> = { ADMINISTRATIVO: 'Administrativo', TECNICO: 'Técnico', COMERCIAL: 'Comercial' };
 const ESTADO_LABEL: Record<string, { label: string; cls: string }> = {
-  PENDIENTE: { label: 'Sin cargar', cls: 'bg-zinc-100 text-zinc-500' },
-  CARGADO:   { label: 'Por aprobar', cls: 'bg-indigo-100 text-indigo-700' },
-  APROBADO:  { label: 'Aprobado', cls: 'bg-emerald-100 text-emerald-700' },
-  OBSERVADO: { label: 'Observado', cls: 'bg-orange-100 text-orange-700' },
+  PENDIENTE: { label: 'Sin cargar', cls: 'text-zinc-500' },
+  CARGADO:   { label: 'Por aprobar', cls: 'text-teal-700' },
+  APROBADO:  { label: 'Aprobado', cls: 'text-emerald-700' },
+  OBSERVADO: { label: 'Observado', cls: 'text-orange-700' },
 };
 
 export function SelectorPuntoAuditor({
@@ -120,14 +120,14 @@ export function SelectorPuntoAuditor({
                   </p>
                 </div>
                 {esTecnica ? (
-                  <span className="flex-shrink-0 text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700">
+                  <span className="flex-shrink-0 text-[9.5px] font-semibold text-teal-700">
                     Comparar ficha
                   </span>
                 ) : (
-                  <span className={`flex-shrink-0 text-[9.5px] font-bold px-1.5 py-0.5 rounded-full ${est.cls}`}>{est.label}</span>
+                  <span className={`flex-shrink-0 text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full ${est.cls}`}>{est.label}</span>
                 )}
                 {i === 0 && mejorPuntaje > 0 && (
-                  <span className="flex-shrink-0 text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                  <span className="flex-shrink-0 text-[9.5px] font-semibold text-emerald-700">
                     Sugerido
                   </span>
                 )}

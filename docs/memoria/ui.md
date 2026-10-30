@@ -149,3 +149,56 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
 - Backfill del Content-Type de ~8.000 objetos en R2 para que el visor de Office funcione en
   archivos viejos (opcional).
 - Resaltado del «ojo» de citas en PDF escaneado (sin capa de texto).
+
+## Auditor — primera pasada visual (2026-10-29)
+
+- Pedido del dueño: «arregla todo el front del auditor con las skill». Barrido SOLO visual con las reglas de
+  `licitank-ui` en 7 archivos: `AuditorOpcionesPanel`, `ResumenAuditorPanel`, `PrePostulacionPanel`,
+  `FilaLineaTecnica`, `SelectorPuntoAuditor`, `ComparadorFichasPanel`, `ModalAuditorLineaTecnica`.
+- Hecho: violeta/índigo → teal (76), `font-bold` → `font-semibold` (97), rótulos sin MAYÚSCULAS ni
+  tracking (17), pastillas de estado → texto de color sin fondo (≈63, incluye los mapas `cls`),
+  ícono de chispas → `IconScan`. `tsc` limpio; eslint conserva sus `any` preexistentes.
+- NO hecho: rediseño bento del Auditor (jerarquía, tarjetas, `Lista`/`Tarjeta` del kit, puntos de estado,
+  grillas `@container`). Tampoco se vio en navegador (login + sin desplegar). Anexo 4: el dueño dijo
+  «déjalo como estaba», no se tocó el pie «Valor total / Neto / Con Iva».
+
+## Auditor — bento aplicado (2026-10-29, segunda pasada)
+
+- Pedido del dueño: «aplícalo» tras ver la maqueta; luego «te falta el checklist y el pre-postulación, y después postulación».
+- Hecho, solo visual y con `@container`: encabezado del Auditor (`AuditorOpcionesPanel`: bloque grande con el
+  recorrido de 5 pasos + bloques «Líneas aprobadas» y «Documentos del proveedor»); Pre-postulación
+  (`PrePostulacionPanel`: candado como bloque grande tintado + 3 pasos como bloques con barra);
+  Checklist (cabecera de `InformacionComercialSection`: bloque grande + «Puntos aprobados» + «Admisibilidad»);
+  Postulación (`PostulacionPanel`: 3 bloques —archivos listos, aprobados, faltan— sobre la lista).
+  Las tarjetas de esos archivos usan `border-linea shadow-tarjeta` y `dark:`.
+- NO hecho: las tarjetas por línea y el cuadro de opciones del Auditor (siguen con su estilo anterior), las
+  filas del checklist y sus pastillas internas. Sin ver en navegador: el login lo hace el dueño (local :3000,
+  túnel SSH 3307 abierto a mano).
+
+## Pre-postulación sin aspecto IA (2026-10-29)
+
+- Pedido del dueño: «en pre-postulación aplica la skill para sacar el front IA». En `PrePostulacionPanel.tsx`:
+  emojis ✅❌⏳ de las causales → punto de color; pastillas («criticidad sospechosa», origen del compromiso,
+  «No aplica») → texto de color; cada compromiso ya no es una caja dentro de la tarjeta sino una fila con
+  línea divisoria; botones tintados (ámbar/teal pálido) → secundario neutro; «Confirmar los N» pasó de verde
+  sólido a teal (acción primaria); el candado quedó en superficie neutra, con el color solo en el ícono y el
+  título; textos de 10–11,5 px → `text-xs`; `text-zinc-400` → `text-slate-500` (contraste); títulos de
+  sección 15 px. Solo visual: nada de datos ni textos de negocio. Sin ver en navegador (login del dueño).
+
+## Checklist: lista de anexos en cuadros (2026-10-29)
+
+- Pedido del dueño (con captura del bloque «Administrativo»): lista más ordenada, «en cuadros unificados o como se vea mejor».
+  En `InformacionComercialSection.tsx`, los bloques Administrativo y Técnico muestran cada punto como cuadro
+  (`FilaItem` con `tarjeta`: borde fino, sombra suave, 2 columnas a partir de `@3xl`); el bloque Comercial
+  (filas de precio) sigue como lista. Las 3 pastillas de la fila (Admisibilidad / % / estado) pasaron a una línea
+  bajo el título: tipo en texto de color, «N% del puntaje» y estado con punto. «Generar anexo» sin ícono de chispas;
+  aviso de archivos sueltos en gris neutro. Sin ver en navegador (login del dueño).
+- (2026-10-29, ajuste de la tarjeta, pedido del dueño con captura): en el cuadro del anexo, «Generar anexo» y
+  «Traer desde Documentos» salieron de la columna del texto y van como pie de la tarjeta, bajo una línea, lado a
+  lado a todo el ancho (`flex-1 min-w-[9rem]`; si no caben, uno bajo el otro). Fuera del modo cuadro (bloque
+  Comercial y alertas) los botones siguen donde estaban. Sin ver en navegador.
+- (2026-10-29, pedido del dueño con captura del bloque Comercial «0/46»): las líneas con `ofertamos === false`
+  se sacan de la lista y quedan plegadas al final en «N líneas fuera de la oferta» (`<details>`, se abre para
+  «Incluir» alguna); la lista y el contador «aprobados/total» muestran solo las que se ofertan. Solo visual:
+  no cambia qué líneas se ofertan ni el total. De paso se arregló que mi cambio a cuadros había quitado las
+  líneas divisorias entre filas del Comercial. Sin ver en navegador.

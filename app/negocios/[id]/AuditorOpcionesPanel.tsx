@@ -12,7 +12,7 @@ import { useConfirm } from '@/app/components/ui/confirm';
 import { resumenLicitacion, type LineaParaResumen } from '@/app/lib/auditor-resumen-licitacion';
 import { motivoFichaNoLista } from '@/app/lib/auditor-ficha-propia-core';
 import {
-  IconLoader2 as Loader2, IconFileText as FileText, IconSparkles as Sparkles, IconChevronDown as ChevronDown,
+  IconLoader2 as Loader2, IconFileText as FileText, IconScan as Escanear, IconChevronDown as ChevronDown,
   IconChevronRight as ChevronRight, IconAlertTriangle as Alerta, IconCircleCheck as Check, IconExternalLink as ExternalLink,
   IconRefresh as Refresh, IconEye as Eye, IconPaperclip as Clip, IconUpload as Upload, IconCopy as Copy, IconDownload as Download, IconTrash as Trash,
 } from '@tabler/icons-react';
@@ -28,21 +28,21 @@ const fmtCLP = (n: number | null | undefined) =>
   n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 
 const ESTADO_OPCION: Record<string, { label: string; cls: string }> = {
-  tanteo: { label: 'Tanteo', cls: 'bg-zinc-100 text-zinc-600' },
-  formalizada: { label: 'Formalizada', cls: 'bg-sky-100 text-sky-700' },
-  verificada: { label: 'Verificada', cls: 'bg-emerald-100 text-emerald-700' },
-  definitiva: { label: 'Definitiva', cls: 'bg-teal-100 text-teal-700' },
-  en_aprobacion: { label: 'En aprobación', cls: 'bg-amber-100 text-amber-700' },
-  aprobada: { label: 'Aprobada', cls: 'bg-emerald-600 text-white' },
+  tanteo: { label: 'Tanteo', cls: 'text-zinc-600' },
+  formalizada: { label: 'Formalizada', cls: 'text-sky-700' },
+  verificada: { label: 'Verificada', cls: 'text-emerald-700' },
+  definitiva: { label: 'Definitiva', cls: 'text-teal-700' },
+  en_aprobacion: { label: 'En aprobación', cls: 'text-amber-700' },
+  aprobada: { label: 'Aprobada', cls: 'text-emerald-700' },
   descartada: { label: 'Descartada', cls: 'bg-zinc-200 text-slate-600 line-through' },
 };
 const VEREDICTO: Record<string, { label: string; cls: string }> = {
-  VERIFICADO: { label: 'Verificado', cls: 'bg-emerald-100 text-emerald-700' },
-  VERIFICADO_CON_ALERTAS: { label: 'Verificado con alertas', cls: 'bg-lime-100 text-lime-800' },
-  REQUIERE_HABILITACION: { label: 'Requiere habilitación EM', cls: 'bg-amber-100 text-amber-800' },
-  NO_VERIFICADO: { label: 'No verificado', cls: 'bg-red-100 text-red-700' },
-  SIN_RESPALDO: { label: 'Sin respaldo', cls: 'bg-red-100 text-red-700' },
-  PENDIENTE_CRUCE_TECNICO: { label: 'Pendiente cruce técnico', cls: 'bg-zinc-100 text-zinc-600' },
+  VERIFICADO: { label: 'Verificado', cls: 'text-emerald-700' },
+  VERIFICADO_CON_ALERTAS: { label: 'Verificado con alertas', cls: 'text-lime-800' },
+  REQUIERE_HABILITACION: { label: 'Requiere habilitación EM', cls: 'text-amber-800' },
+  NO_VERIFICADO: { label: 'No verificado', cls: 'text-red-700' },
+  SIN_RESPALDO: { label: 'Sin respaldo', cls: 'text-red-700' },
+  PENDIENTE_CRUCE_TECNICO: { label: 'Pendiente cruce técnico', cls: 'text-zinc-600' },
 };
 
 async function post(negocioId: number, body: Record<string, unknown>) {
@@ -613,11 +613,11 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   const lineasSinAsignar = (panel?.lineas || []).map(l => ({ id: l.filaId, label: `Ítem ${etiquetaItem.get(l.filaId)} · ${l.detalle.slice(0, 48)}` }));
 
   if (cargando) {
-    return <div className="bg-white rounded-2xl border border-zinc-200 p-10 flex items-center justify-center gap-2 text-slate-500"><Loader2 size={18} className="animate-spin" /> Cargando Auditor…</div>;
+    return <div className="bg-white dark:bg-slate-900 rounded-2xl border border-linea shadow-tarjeta p-10 flex items-center justify-center gap-2 text-slate-500"><Loader2 size={18} className="animate-spin" /> Cargando Auditor…</div>;
   }
   if (!panel) return null;
   if (panel.sinCosteo) {
-    return <div className="bg-white rounded-2xl border border-zinc-200 p-10 text-center text-[13px] text-slate-600">Este negocio todavía no tiene un Costeo guardado: el Auditor trabaja sobre sus líneas.</div>;
+    return <div className="bg-white dark:bg-slate-900 rounded-2xl border border-linea shadow-tarjeta p-10 text-center text-[13px] text-slate-600">Este negocio todavía no tiene un Costeo guardado: el Auditor trabaja sobre sus líneas.</div>;
   }
 
   const sinLeer = panel.documentos.filter(d => !d.leido).length;
@@ -727,13 +727,18 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
     <ImprimirCtx.Provider value={imprimir}>
     <div className="space-y-4" data-auditor-panel data-auditor-listo="1">
       {/* ── Encabezado: lo esencial y las acciones de la pantalla ── */}
-      <div className="bg-white rounded-2xl border border-zinc-200 px-5 py-4">
+      <div className="@container">
+      <div className="grid gap-3 @3xl:grid-cols-[1.6fr_1fr]">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-linea shadow-tarjeta p-5 @3xl:row-span-2">
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-        <div>
-          <h2 className="text-[15px] font-medium text-zinc-900">Auditor</h2>
+        <div className="flex items-center gap-3">
+          <span className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500"><FileText size={18} /></span>
+          <div>
+          <h2 className="text-[17px] font-semibold tracking-tight text-zinc-900">Auditor</h2>
           <p className="text-[13px] text-slate-600">
             {recorrido.total} línea{recorrido.total === 1 ? '' : 's'} a ofertar{panel.lineas.length > recorrido.total ? ` · ${panel.lineas.length - recorrido.total} no ofertada${panel.lineas.length - recorrido.total === 1 ? '' : 's'}` : ''}
           </p>
+          </div>
         </div>
         <div className="ml-auto flex items-center gap-2 text-[12.5px]">
           <button data-no-pdf onClick={copiarInforme} disabled={exportando !== null} title="Copiar TODO el contenido del Auditor como texto (con todo desplegado)"
@@ -749,19 +754,19 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
       </div>
       {recorrido.total > 0 && (<>
         {/* Recorrido del Auditor: cada paso cuenta líneas a ofertar; el primero sin terminar es el que toca */}
-        <ol className="mt-4 grid grid-cols-2 sm:grid-cols-5 gap-x-3 gap-y-3">
+        <ol className="mt-4 grid grid-cols-2 @xl:grid-cols-5 gap-x-3 gap-y-3">
           {recorrido.pasos.map((p, i) => {
             const hecho = p.hechas >= recorrido.total, actual = i === recorrido.actual;
             return (
               <li key={p.titulo} aria-current={actual ? 'step' : undefined}>
-                <div className={`h-1 rounded-full ${hecho ? 'bg-teal-600' : actual ? 'bg-amber-500' : 'bg-zinc-200'}`} />
+                <div className={`h-1.5 rounded-full ${hecho ? 'bg-teal-600' : actual ? 'bg-amber-500' : 'bg-zinc-200'}`} />
                 <p className={`mt-1.5 text-[13px] font-medium ${actual ? 'text-slate-900' : 'text-slate-600'}`}>{i + 1} · {p.titulo}</p>
                 <p className={`text-xs tabular-nums ${hecho ? 'text-teal-700' : 'text-slate-600'}`}>{hecho ? '✓ ' : ''}{p.hechas} de {recorrido.total}</p>
               </li>
             );
           })}
           <li aria-current={recorrido.actual === recorrido.pasos.length ? 'step' : undefined}>
-            <div className={`h-1 rounded-full ${recorrido.actual === recorrido.pasos.length ? 'bg-teal-600' : 'bg-zinc-200'}`} />
+            <div className={`h-1.5 rounded-full ${recorrido.actual === recorrido.pasos.length ? 'bg-teal-600' : 'bg-zinc-200'}`} />
             <p className={`mt-1.5 text-[13px] font-medium ${recorrido.actual === recorrido.pasos.length ? 'text-slate-900' : 'text-slate-600'}`}>5 · Pre-postulación</p>
             <p className="text-xs text-slate-600">{recorrido.actual === recorrido.pasos.length ? 'lista para seguir' : 'al aprobar todo'}</p>
           </li>
@@ -777,7 +782,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
             const girando = ocupadoGeneral ? <Loader2 size={13} className="animate-spin" /> : null;
             switch (recorrido.accion.tipo) {
               case 'subir': return <>
-                {(panel.linksPendientes?.length ?? 0) > 0 && <button onClick={traerLinksDelCosteo} disabled={ocupadoGeneral} className={secundario}><Sparkles size={13} /> Traer {panel.linksPendientes.length} link{panel.linksPendientes.length === 1 ? '' : 's'} del costeo</button>}
+                {(panel.linksPendientes?.length ?? 0) > 0 && <button onClick={traerLinksDelCosteo} disabled={ocupadoGeneral} className={secundario}><Escanear size={13} /> Traer {panel.linksPendientes.length} link{panel.linksPendientes.length === 1 ? '' : 's'} del costeo</button>}
                 <button onClick={() => inputCotRef.current?.click()} disabled={ocupadoGeneral} className={primario}>{girando ?? <Upload size={13} />} Subir cotizaciones</button>
               </>;
               case 'comparar': return pendientesComparar > 0
@@ -790,6 +795,25 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
           })()}
         </div>
       </>)}
+      </div>
+      {/* Bloques chicos del bento: el dato que más se mira, grande, con su contexto debajo */}
+      {recorrido.total > 0 && (() => {
+        const aprobadas = recorrido.pasos[recorrido.pasos.length - 1]?.hechas ?? 0;
+        const bloque = 'bg-white dark:bg-slate-900 rounded-2xl border border-linea shadow-tarjeta p-5';
+        return <>
+          <div className={bloque}>
+            <p className="text-xs text-slate-600 flex items-center gap-2"><span className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500"><Check size={15} /></span>Líneas aprobadas</p>
+            <p className="mt-3 text-[28px] leading-none font-semibold tracking-tight tabular-nums text-zinc-900">{aprobadas}<span className="text-base font-normal text-slate-500"> de {recorrido.total}</span></p>
+            <div className="mt-3 h-1.5 rounded-full bg-zinc-100 dark:bg-slate-800 overflow-hidden"><div className="h-full rounded-full bg-teal-600 transition-all duration-500" style={{ width: `${Math.round(aprobadas / recorrido.total * 100)}%` }} /></div>
+          </div>
+          <div className={bloque}>
+            <p className="text-xs text-slate-600 flex items-center gap-2"><span className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500"><FileText size={15} /></span>Documentos del proveedor</p>
+            <p className="mt-3 text-[28px] leading-none font-semibold tracking-tight tabular-nums text-zinc-900">{panel.documentos.length}</p>
+            <p className="mt-2 text-xs text-slate-600">{sinLeer > 0 ? <span className="text-amber-700">{sinLeer} sin leer</span> : panel.documentos.length > 0 ? 'todos leídos' : 'ninguno subido todavía'}</p>
+          </div>
+        </>;
+      })()}
+      </div>
       </div>
 
       {/* ── Solo el EM: lo que espera su decisión en ESTE negocio, con los botones ahí mismo (también está en Aprobaciones, junto a los demás negocios) ── */}
@@ -852,7 +876,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
             {sinLeer > 0 && (
               <button data-no-pdf onClick={leerTodas} disabled={leyendo.size > 0 || !!subiendo}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-[13px] font-semibold hover:bg-amber-700 disabled:opacity-50">
-                <Sparkles size={13} /> Leer {sinLeer} sin leer
+                <Escanear size={13} /> Leer {sinLeer} sin leer
               </button>
             )}
             <input ref={inputCotRef} type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.csv" className="hidden"
@@ -1024,11 +1048,11 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                     : !d.leido ? <p className="mt-3 pt-3 border-t border-zinc-100 text-[13px] font-medium text-amber-700">Sin leer</p>
                     : (
                       <dl className="mt-3 pt-3 border-t border-zinc-100 grid grid-cols-3 gap-x-3">
-                        <div><dt className="text-xs text-slate-600">Productos</dt><dd className="mt-0.5 text-[13px] font-bold tabular-nums text-slate-800">{productos.length}</dd></div>
-                        <div><dt className="text-xs text-slate-600">Con su línea</dt><dd className="mt-0.5 text-[13px] font-bold tabular-nums text-slate-800">{productos.filter(p => p.filaId || p.complementoDe).length}</dd></div>
+                        <div><dt className="text-xs text-slate-600">Productos</dt><dd className="mt-0.5 text-[13px] font-semibold tabular-nums text-slate-800">{productos.length}</dd></div>
+                        <div><dt className="text-xs text-slate-600">Con su línea</dt><dd className="mt-0.5 text-[13px] font-semibold tabular-nums text-slate-800">{productos.filter(p => p.filaId || p.complementoDe).length}</dd></div>
                         {noVan > 0 && sinLinea === 0
-                          ? <div><dt className="text-xs text-slate-600">No van</dt><dd className="mt-0.5 text-[13px] font-bold tabular-nums text-slate-600">{noVan}</dd></div>
-                          : <div><dt className="text-xs text-slate-600">Sin línea</dt><dd className={`mt-0.5 text-[13px] font-bold tabular-nums ${sinLinea > 0 ? 'text-amber-700' : 'text-slate-500'}`}>{sinLinea}</dd></div>}
+                          ? <div><dt className="text-xs text-slate-600">No van</dt><dd className="mt-0.5 text-[13px] font-semibold tabular-nums text-slate-600">{noVan}</dd></div>
+                          : <div><dt className="text-xs text-slate-600">Sin línea</dt><dd className={`mt-0.5 text-[13px] font-semibold tabular-nums ${sinLinea > 0 ? 'text-amber-700' : 'text-slate-500'}`}>{sinLinea}</dd></div>}
                         {d.formalidad === 'informal' && <div className="col-span-3 mt-1.5 text-xs text-slate-600">Cotización informal</div>}
                       </dl>
                     )}
@@ -1047,11 +1071,11 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
         <div className={`rounded-2xl border px-5 py-3.5 ${productosSinLinea.length > 0 ? 'border-amber-200 bg-amber-50/60' : 'border-zinc-200 bg-white'}`}>
           {productosSinLinea.length > 0 && <>
             <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-[13.5px] font-bold text-amber-900">Productos sin línea ({productosSinLinea.length})</p>
+              <p className="text-[13.5px] font-semibold text-amber-900">Productos sin línea ({productosSinLinea.length})</p>
               <span className="text-[12.5px] text-amber-800/80">— cotizados por un proveedor pero no se sabe a qué línea van. La IA los revisa sola al leer la cotización.</span>
               <button data-no-pdf onClick={sugerirLineasIA} disabled={sugiriendo}
                 className="ml-auto flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-600 text-white text-[12.5px] font-semibold hover:bg-amber-700 disabled:opacity-60">
-                {sugiriendo ? <><Loader2 size={12} className="animate-spin" /> Revisando…</> : <><Sparkles size={12} /> Revisar con IA</>}
+                {sugiriendo ? <><Loader2 size={12} className="animate-spin" /> Revisando…</> : <><Escanear size={12} /> Revisar con IA</>}
               </button>
             </div>
             <ul className="mt-2 space-y-2">
@@ -1123,7 +1147,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
           {(panel.linksPendientes?.length ?? 0) > 0 && (
             <button onClick={traerLinksDelCosteo} disabled={!!traiendo || leyendo.size > 0}
               className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-200 text-zinc-700 text-[13px] font-semibold hover:bg-zinc-50 disabled:opacity-60">
-              {traiendo ? <><Loader2 size={13} className="animate-spin" /> Leyendo link {traiendo.actual} de {traiendo.total}…</> : <><Sparkles size={13} /> Traer {panel.linksPendientes.length} link{panel.linksPendientes.length === 1 ? '' : 's'} del costeo</>}
+              {traiendo ? <><Loader2 size={13} className="animate-spin" /> Leyendo link {traiendo.actual} de {traiendo.total}…</> : <><Escanear size={13} /> Traer {panel.linksPendientes.length} link{panel.linksPendientes.length === 1 ? '' : 's'} del costeo</>}
             </button>
           )}
         </div>
@@ -1224,11 +1248,11 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
 
       {/* ── Mensaje único por proveedor: la tarjeta y cada mensaje se pliegan (la lista es larga) ── */}
       {panel.mensajes.length > 0 && (
-        <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-linea shadow-tarjeta overflow-hidden">
           <div className="px-5 py-3 flex items-center gap-2">
             <button onClick={() => setMensajesAbierto(v => !v)} className="flex items-center gap-2 text-left flex-1 min-w-0">
               {msgAbierto ? <ChevronDown size={14} className="text-slate-500 shrink-0" /> : <ChevronRight size={14} className="text-slate-500 shrink-0" />}
-              <h3 className="text-[13.5px] font-bold text-zinc-900 whitespace-nowrap">Mensaje al proveedor</h3>
+              <h3 className="text-[13.5px] font-semibold text-zinc-900 whitespace-nowrap">Mensaje al proveedor</h3>
               <span className="text-[12.5px] text-slate-500 truncate">— {panel.mensajes.length} proveedor{panel.mensajes.length === 1 ? '' : 'es'}{panel.mensajes.some(m => m.bloquea) ? ` · ${panel.mensajes.filter(m => m.bloquea).length} con algo que bloquea` : ''}. Lo envías tú.</span>
             </button>
             {msgAbierto && (
@@ -1250,7 +1274,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                         {abierto ? <ChevronDown size={13} className="text-slate-500 shrink-0" /> : <ChevronRight size={13} className="text-slate-500 shrink-0" />}
                         <span className="text-[13.5px] font-semibold text-zinc-800">{m.proveedor}</span>
                       </button>
-                      {m.bloquea && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">responde algo que bloquea</span>}
+                      {m.bloquea && <span className="text-xs font-semibold text-red-700">responde algo que bloquea</span>}
                       <span className="text-xs text-slate-500">{m.preguntas} pregunta{m.preguntas === 1 ? '' : 's'}</span>
                       <span className="text-[12.5px] text-slate-500 truncate">{[m.vendedor, m.email, m.telefono].filter(Boolean).join(' · ')}</span>
                       <button onClick={() => { navigator.clipboard?.writeText(m.texto); toast.success('Mensaje copiado'); }}
@@ -1266,15 +1290,15 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
       )}
 
       {/* ── Más herramientas: lo que NO pide el comparador técnico, guardado aparte para no estorbar ── */}
-      <details className="bg-white rounded-2xl border border-zinc-200 overflow-hidden" open={imprimir}>
-        <summary className="cursor-pointer px-5 py-3.5 text-[13.5px] font-bold text-zinc-900 flex items-center gap-2">
+      <details className="bg-white dark:bg-slate-900 rounded-2xl border border-linea shadow-tarjeta overflow-hidden" open={imprimir}>
+        <summary className="cursor-pointer px-5 py-3.5 text-[13.5px] font-semibold text-zinc-900 flex items-center gap-2">
           Más herramientas <span className="text-[12.5px] font-normal text-slate-500">— posición de precio, costos asociados, avance a PRE-POSTULACIÓN y datos para OBUMA</span>
         </summary>
         <div className="p-4 space-y-4 border-t border-zinc-100 bg-zinc-50/40">
           <PosicionPrecioCard posicion={panel.posicion ?? null} calculando={calculandoPosicion} onCalcular={calcularPosicion} />
       {/* ── Avance a PRE-POSTULACIÓN (avance parcial permitido salvo licitación GLOBAL) ── */}
       <div className={`rounded-2xl border px-5 py-3 text-[13.5px] ${panel.avance.puede ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-zinc-200 bg-white text-zinc-600'}`}>
-        <span className="font-bold">{panel.avance.puede ? '✓ Listo para PRE-POSTULACIÓN' : 'Avance a PRE-POSTULACIÓN'}</span>
+        <span className="font-semibold">{panel.avance.puede ? '✓ Listo para PRE-POSTULACIÓN' : 'Avance a PRE-POSTULACIÓN'}</span>
         <span className="ml-2">{panel.avance.mensaje}</span>
         <span className="ml-2 text-slate-500">({panel.avance.aprobadas} de {panel.avance.ofertadas} líneas ofertadas con opción aprobada)</span>
       </div>
@@ -1300,7 +1324,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
           return (
             <div className="flex items-center gap-2 flex-wrap w-full">
               <a href={d.url} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 rounded-lg border border-zinc-200 text-zinc-700 text-[13.5px] font-semibold hover:bg-zinc-50 flex items-center gap-1.5"><ExternalLink size={13} /> Ver el archivo</a>
-              {!d.leido && <button onClick={() => leerDocumento(d)} disabled={ocupadaDoc} className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-[13.5px] font-semibold hover:bg-amber-700 disabled:opacity-60 flex items-center gap-1.5"><Sparkles size={13} /> {d.error ? 'Reintentar la lectura' : 'Leer con IA'}</button>}
+              {!d.leido && <button onClick={() => leerDocumento(d)} disabled={ocupadaDoc} className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-[13.5px] font-semibold hover:bg-amber-700 disabled:opacity-60 flex items-center gap-1.5"><Escanear size={13} /> {d.error ? 'Reintentar la lectura' : 'Leer con IA'}</button>}
               {d.leido && <button onClick={() => releerDocumento(d)} disabled={ocupadaDoc} title="Analiza de nuevo esta cotización con los dos lectores de texto a la vez (útil cuando el Lector leyó mal)" className="px-3 py-1.5 rounded-lg border border-teal-200 text-teal-700 text-[13.5px] font-semibold hover:bg-teal-50 disabled:opacity-60">Volver a leer</button>}
               {d.leido && d.productos.some(p => !p.filaId && !p.esCargo && p.precio != null) && <button onClick={() => emparejarDeNuevo(d)} className="px-3 py-1.5 rounded-lg border border-amber-200 text-amber-800 text-[13.5px] font-semibold hover:bg-amber-50">Emparejar de nuevo</button>}
               {ocupadaDoc && <span className="flex items-center gap-1.5 text-[13px] text-amber-700"><Loader2 size={13} className="animate-spin" /> Leyendo…</span>}
@@ -1316,7 +1340,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
           return (
             <div className="overflow-x-auto">
               <table className="w-full text-[13px] border-collapse">
-                <thead><tr className="text-left text-xs uppercase tracking-wide text-slate-500"><th className="py-2 pr-3 font-bold">Producto</th><th className="py-2 pr-3 font-bold text-right">Precio</th><th className="py-2 pr-3 font-bold">IVA</th><th className="py-2 pr-3 font-bold">Cant.</th><th className="py-2 font-bold">Línea a la que va</th></tr></thead>
+                <thead><tr className="text-left text-xs text-slate-500"><th className="py-2 pr-3 font-semibold">Producto</th><th className="py-2 pr-3 font-semibold text-right">Precio</th><th className="py-2 pr-3 font-semibold">IVA</th><th className="py-2 pr-3 font-semibold">Cant.</th><th className="py-2 font-semibold">Línea a la que va</th></tr></thead>
                 <tbody>
                   {d.productos.map(p => (
                     <tr key={p.idx} className="border-t border-zinc-100 align-top">
@@ -1419,10 +1443,10 @@ function CostosAsociados({ costos, total, lineas, onAccion, onAnular }: {
   const [montos, setMontos] = useState<Record<number, string>>({});
   const activos = costos.filter(c => !c.anulado), sinMonto = activos.filter(c => c.montoEstimado == null).length;
   return (
-    <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
+    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-linea shadow-tarjeta overflow-hidden">
       <button onClick={() => setAbierto(a => !a)} className="w-full px-5 py-3.5 flex items-center gap-2 text-left hover:bg-zinc-50">
         {abierto ? <ChevronDown size={14} className="text-slate-500" /> : <ChevronRight size={14} className="text-slate-500" />}
-        <h3 className="text-[13.5px] font-bold text-zinc-900">Costos asociados</h3>
+        <h3 className="text-[13.5px] font-semibold text-zinc-900">Costos asociados</h3>
         <span className="text-[12.5px] text-slate-500">— compromisos de las bases que cuestan plata: solo suben el costo, sin margen, y los estimas tú</span>
         <span className="ml-auto text-[13px] font-semibold text-zinc-700">{activos.length} activo{activos.length === 1 ? '' : 's'} · {fmtCLP(total)}{sinMonto > 0 && <span className="text-red-600"> · {sinMonto} sin estimar</span>}</span>
       </button>
@@ -1434,7 +1458,7 @@ function CostosAsociados({ costos, total, lineas, onAccion, onAnular }: {
               <li key={c.id} className={`py-2 flex items-start gap-3 flex-wrap ${c.anulado ? 'opacity-50' : ''}`}>
                 <div className="flex-1 min-w-[240px]">
                   <p className="text-[13.5px] font-semibold text-zinc-800">{c.materia.replace(/_/g, ' ')}{c.cuantificacion ? ` · ${c.cuantificacion}` : ''}
-                    <span className="ml-2 text-xs font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">ESTIMACIÓN</span>
+                    <span className="ml-2 text-xs font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">ESTIMACIÓN</span>
                     {c.origen === 'tecnico' && <span className="ml-1 text-xs text-slate-500">detectado por el verificador técnico</span>}</p>
                   {c.exigeBaseLiteral && <p className="text-[12.5px] text-slate-600">«{c.exigeBaseLiteral}»{c.fuenteBases ? ` — ${c.fuenteBases}` : ''}</p>}
                   {c.filaId && <p className="text-xs text-slate-500">Línea {lineas.find(l => l.filaId === c.filaId)?.item ?? '?'}</p>}
@@ -1612,7 +1636,7 @@ function EsperanAlEM({ panel, etiquetaItem, ocupado, onIrALinea, onAprobar, onRe
                   <button onClick={() => onIrALinea(l.filaId)} className="font-semibold hover:underline">Línea {etiquetaItem.get(l.filaId)}</button> · {nombre(o)} <span className="text-slate-600">· {o.proveedorRazonSocial || 'proveedor sin identificar'}</span>
                 </p>
                 <dl className="mt-1.5 flex flex-wrap gap-x-6 gap-y-1">
-                  <div><dt className="text-xs text-slate-500">Costo neto unitario</dt><dd className="text-[13px] font-bold tabular-nums text-slate-900">{fmtCLP(c)}<DifCosteo costo={c} costeo={l.costeadoNeto} /></dd></div>
+                  <div><dt className="text-xs text-slate-500">Costo neto unitario</dt><dd className="text-[13px] font-semibold tabular-nums text-slate-900">{fmtCLP(c)}<DifCosteo costo={c} costeo={l.costeadoNeto} /></dd></div>
                   <div><dt className="text-xs text-slate-500">En el costeo</dt><dd className="text-[13px] tabular-nums text-slate-800">{fmtCLP(l.costeadoNeto)}</dd></div>
                   {o.firmadaPorNombre && <div><dt className="text-xs text-slate-500">Firmada por</dt><dd className="text-[13px] text-slate-800">{o.firmadaPorNombre}</dd></div>}
                 </dl>
@@ -1784,7 +1808,7 @@ function ResumenLicitacionCard({ panel, etiquetaItem, onIrALinea }: { panel: Pan
     <div><p className="text-[11px] text-slate-500">{rotulo}</p><p className="text-[17px] font-semibold tracking-tight tabular-nums text-slate-900">{valor}</p>{extra}</div>
   );
   return (
-    <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
+    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-linea shadow-tarjeta overflow-hidden">
       <div className="px-5 py-3.5 flex items-center gap-2 flex-wrap">
         <h3 className="text-[13.5px] font-medium text-zinc-900">2 · Resumen de la licitación</h3>
         {conOpcion.length > 0 && <span className="text-[13px] text-slate-600 tabular-nums">· {conOpcion.length} de {r.filas.length} líneas con cotización</span>}
@@ -1843,7 +1867,7 @@ function ResumenLicitacionCard({ panel, etiquetaItem, onIrALinea }: { panel: Pan
                     : cotizado ? <>{fmtCLP(cotizado.producto!.precio)}<span className="block text-xs text-amber-700">{cotizado.producto!.iva === 'no_declarado' ? 'IVA sin definir' : 'sin verificar'}</span></>
                     : <span className="text-slate-300">—</span>}
                 </td>
-                <td className="py-2 pr-5 text-right font-bold tabular-nums text-slate-900">{f.totalNeto != null ? fmtCLP(f.totalNeto) : <span className="font-normal text-slate-300">—</span>}</td>
+                <td className="py-2 pr-5 text-right font-semibold tabular-nums text-slate-900">{f.totalNeto != null ? fmtCLP(f.totalNeto) : <span className="font-normal text-slate-300">—</span>}</td>
               </tr>
               );
             })}
@@ -1868,9 +1892,9 @@ function PosicionPrecioCard({ posicion, calculando, onCalcular }: { posicion: im
   const color = { rojo: 'text-red-600', amarillo: 'text-amber-700', info: 'text-slate-600', ok: 'text-emerald-600' } as Record<string, string>;
   const icono = { rojo: '🔴', amarillo: '🟡', info: 'ℹ️', ok: '✅' } as Record<string, string>;
   return (
-    <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
+    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-linea shadow-tarjeta overflow-hidden">
       <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center gap-2">
-        <h3 className="text-[13.5px] font-bold text-zinc-900">Posición de precio</h3>
+        <h3 className="text-[13.5px] font-semibold text-zinc-900">Posición de precio</h3>
         <span className="text-[12.5px] text-slate-500">— dónde está nuestro costo frente al mercado y al presupuesto, para fijar el precio de venta</span>
         <button onClick={onCalcular} disabled={calculando}
           className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-teal-200 text-teal-700 text-[13px] font-semibold hover:bg-teal-50 disabled:opacity-60">
@@ -2175,7 +2199,7 @@ function OpcionSinLink({ filaId, ocupadoFicha, onCrear, onSubirFicha }: {
 }
 
 function Stat({ label, valor, rojo }: { label: string; valor: string; rojo?: boolean }) {
-  return <div><p className="text-xs text-slate-600">{label}</p><p className={`text-[15px] font-bold tabular-nums ${rojo ? 'text-red-600' : 'text-zinc-800'}`}>{valor}</p></div>;
+  return <div><p className="text-xs text-slate-600">{label}</p><p className={`text-[15px] font-semibold tabular-nums ${rojo ? 'text-red-600' : 'text-zinc-800'}`}>{valor}</p></div>;
 }
 
 // ── Cuadro comparativo de UNA línea: columnas = opciones, filas = costo y verificación ────────────
@@ -2205,12 +2229,12 @@ function CuadroLinea({ negocioId, linea, vista = 'todo', onIrAFicha, onVerificar
       <table className="w-full text-[13px] border-collapse">
         <thead>
           <tr className="text-left align-top">
-            <th className="w-32 pr-3 pb-2 text-xs uppercase tracking-wide text-slate-500 font-bold">Opción</th>
+            <th className="w-32 pr-3 pb-2 text-xs text-slate-500 font-semibold">Opción</th>
             {columnas.map(o => (
               <th key={o.id} className={`pb-2 pr-4 min-w-[210px] font-normal ${o.estado === 'descartada' ? 'opacity-50' : ''}`}>
                 <p className="font-semibold text-zinc-800">{o.proveedorRazonSocial || 'Proveedor sin identificar'}</p>
                 <p className="text-slate-600">{[o.marca, o.modelo].filter(Boolean).join(' ') || o.producto?.nombre || 'Producto sin identificar'}</p>
-                <span className={`inline-block mt-1 text-xs font-bold px-2 py-0.5 rounded-full ${ESTADO_OPCION[o.estado]?.cls}`}>{ESTADO_OPCION[o.estado]?.label}</span>
+                <span className={`inline-block mt-1 text-xs font-semibold px-2 py-0.5 rounded-full ${ESTADO_OPCION[o.estado]?.cls}`}>{ESTADO_OPCION[o.estado]?.label}</span>
               </th>
             ))}
           </tr>
@@ -2219,7 +2243,7 @@ function CuadroLinea({ negocioId, linea, vista = 'todo', onIrAFicha, onVerificar
           <Fila etiqueta="Costo unit. neto">
             {columnas.map(o => {
               const c = o.verificacion?.costoNetoUnitario ?? null;
-              return <td key={o.id} className="py-1.5 pr-4"><span className={`text-[13px] font-bold ${c != null && c === minimo ? 'text-emerald-600' : 'text-zinc-800'}`}>{fmtCLP(c)}</span>{c != null && c === minimo && <span className="ml-1 text-xs text-emerald-600 font-bold">más barata</span>}
+              return <td key={o.id} className="py-1.5 pr-4"><span className={`text-[13px] font-semibold ${c != null && c === minimo ? 'text-emerald-600' : 'text-zinc-800'}`}>{fmtCLP(c)}</span>{c != null && c === minimo && <span className="ml-1 text-xs text-emerald-600 font-semibold">más barata</span>}
                 {c == null && o.producto?.precio != null && <span className="block text-xs text-slate-500">el documento dice {fmtCLP(o.producto.precio)} ({o.producto.iva === 'no_declarado' ? 'IVA sin definir' : o.producto.moneda})</span>}
                 <ConversionMoneda p={o.producto} compacto />
                 {c != null && o.producto?.ivaSupuesto && <span className="block text-xs text-slate-500">precio web {fmtCLP(o.producto.precio)} con IVA (asumido: la página no lo dice): se sacó el IVA</span>}</td>;
@@ -2232,7 +2256,7 @@ function CuadroLinea({ negocioId, linea, vista = 'todo', onIrAFicha, onVerificar
             })}
           </Fila>
           <Fila etiqueta="Veredicto">
-            {columnas.map(o => <td key={o.id} className="py-1.5 pr-4">{o.verificacion ? <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded-full ${VEREDICTO[o.verificacion.veredicto]?.cls}`}>{VEREDICTO[o.verificacion.veredicto]?.label}</span> : <span className="text-zinc-300">—</span>}</td>)}
+            {columnas.map(o => <td key={o.id} className="py-1.5 pr-4">{o.verificacion ? <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${VEREDICTO[o.verificacion.veredicto]?.cls}`}>{VEREDICTO[o.verificacion.veredicto]?.label}</span> : <span className="text-zinc-300">—</span>}</td>)}
           </Fila>
           <Fila etiqueta="Técnico">
             {columnas.map(o => <td key={o.id} className="py-1.5 pr-4"><EstadoTecnico o={o} ocupado={verificando.has(o.id)} onVerificar={onVerificar} /></td>)}
@@ -2297,13 +2321,13 @@ function CuadroLinea({ negocioId, linea, vista = 'todo', onIrAFicha, onVerificar
 }
 
 const CHIP_TECNICO: Record<string, { label: string; cls: string }> = {
-  CUMPLE: { label: 'CUMPLE', cls: 'bg-emerald-100 text-emerald-700' },
-  CON_PENDIENTES: { label: 'FALTA DATO', cls: 'bg-amber-100 text-amber-800' },
-  NO_CUMPLE: { label: 'NO CUMPLE', cls: 'bg-red-100 text-red-700' },
-  NO_CORRIDO: { label: 'Sin comparar', cls: 'bg-zinc-100 text-zinc-600' },
-  SIN_REQUISITOS: { label: 'Sin requisitos heredados', cls: 'bg-zinc-100 text-slate-600' },
-  NO_APLICA: { label: 'Vía liviana: no corre', cls: 'bg-zinc-100 text-slate-600' },
-  SIN_EVALUAR: { label: 'Sin evaluar', cls: 'bg-zinc-100 text-zinc-600' },
+  CUMPLE: { label: 'CUMPLE', cls: 'text-emerald-700' },
+  CON_PENDIENTES: { label: 'FALTA DATO', cls: 'text-amber-800' },
+  NO_CUMPLE: { label: 'NO CUMPLE', cls: 'text-red-700' },
+  NO_CORRIDO: { label: 'Sin comparar', cls: 'text-zinc-600' },
+  SIN_REQUISITOS: { label: 'Sin requisitos heredados', cls: 'text-slate-600' },
+  NO_APLICA: { label: 'Vía liviana: no corre', cls: 'text-slate-600' },
+  SIN_EVALUAR: { label: 'Sin evaluar', cls: 'text-zinc-600' },
 };
 const ICONO_VEREDICTO: Record<string, string> = { CUMPLE: '✅', NO_CUMPLE: '❌', CUMPLE_CON_COMPLEMENTO: '➕', SIN_VEREDICTO: '⏳' };
 const MARCA_ORIGEN: Record<string, string> = { FICHA_WEB: '🌐', CONFIRMACION_INFORMAL: '💬', DECLARADO: '✍️', CONTRADICE_FICHA: '⚠️' };
@@ -2314,7 +2338,7 @@ function EstadoTecnico({ o, ocupado, onVerificar }: { o: OpcionDTO; ocupado: boo
   const puede = o.via === 'completa' && t.requisitosTotal > 0 && o.estado !== 'descartada' && !['aprobada', 'en_aprobacion'].includes(o.estado);
   return (
     <div>
-      <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded-full ${CHIP_TECNICO[t.estado]?.cls}`}>{CHIP_TECNICO[t.estado]?.label}</span>
+      <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${CHIP_TECNICO[t.estado]?.cls}`}>{CHIP_TECNICO[t.estado]?.label}</span>
       {r && <span className="ml-1.5 text-xs text-slate-600">{r.resumen.cumple} ✅ · {r.resumen.noCumple} ❌ · {r.resumen.sinVeredicto} ❓</span>}
       {t.error && <p className="text-xs text-red-600 mt-0.5">{t.error}</p>}
       {t.corridoAt && <p className="text-xs text-slate-500">Comparado {t.corridoAt.slice(0, 16).replace('T', ' ')}</p>}
@@ -2594,11 +2618,11 @@ function CuadroTecnico({ negocioId, linea, vista = 'todo', onIrAFicha, onVerific
                       <dl className="mt-3 rounded-lg bg-zinc-50 px-3 py-2.5 space-y-1.5">
                         <div className="flex items-baseline justify-between gap-3">
                           <dt className="text-[13px] text-slate-600">Cotización <span className="text-xs text-slate-500">(neto unit.)</span></dt>
-                          <dd className="text-[15px] font-bold tabular-nums text-slate-900">{neto != null ? fmtCLP(neto) : p?.precio != null ? fmtCLP(p.precio) : '—'}</dd>
+                          <dd className="text-[15px] font-semibold tabular-nums text-slate-900">{neto != null ? fmtCLP(neto) : p?.precio != null ? fmtCLP(p.precio) : '—'}</dd>
                         </div>
                         <div className="flex items-baseline justify-between gap-3">
                           <dt className="text-[13px] text-slate-600">Costeo</dt>
-                          <dd className="text-[15px] font-bold tabular-nums text-slate-900">{fmtCLP(costeo)}</dd>
+                          <dd className="text-[15px] font-semibold tabular-nums text-slate-900">{fmtCLP(costeo)}</dd>
                         </div>
                         <div className="pt-1.5 border-t border-zinc-200">
                           {dif == null
@@ -2968,7 +2992,7 @@ function ComplementoRequisito({ ocupado, onEnviar }: { ocupado: boolean; onEnvia
 const o_nombre = (o: OpcionDTO) => [o.proveedorRazonSocial, [o.marca, o.modelo].filter(Boolean).join(' ')].filter(Boolean).join(' · ') || `Opción #${o.id}`;
 
 function Fila({ etiqueta, children }: { etiqueta: string; children: React.ReactNode }) {
-  return <tr className="border-t border-zinc-100"><td className="pr-3 py-1.5 text-xs uppercase tracking-wide text-slate-500 font-bold align-top">{etiqueta}</td>{children}</tr>;
+  return <tr className="border-t border-zinc-100"><td className="pr-3 py-1.5 text-xs text-slate-500 font-semibold align-top">{etiqueta}</td>{children}</tr>;
 }
 
 /** Vía completa y las bases no traen requisitos técnicos para su línea: no hay nada que comparar (compite solo por precio). */
