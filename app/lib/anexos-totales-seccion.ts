@@ -446,3 +446,64 @@ export function resolverTablaResumen(tablasCrudo: TablaCruda[], totales: TotalSe
   }
   return out;
 }
+
+// ── Monto total NETO y total CON IVA de cada línea, SIN columna de precio unitario ───────────
+// "Cantidad | DESCRIPCIÓN | MONTO TOTAL NETO | MONTO TOTAL IVA INCLUIDO" (2483-265-LE26, ANEXO Nº 3):
+// la tabla solo pide los totales de cada línea, no el unitario, así que ni el motor de precios
+// unitarios ni calcularTotalesPorLinea (que parte del unitario) tenían dónde trabajar y las dos
+// casillas quedaban vacías con el costeo cargado. Neto = cantidad × precio unitario del costeo; con
+// IVA = neto × (1 + IVA%), el % del propio documento o 19. La fila se empareja con su ítem del
+// costeo: una sola fila y un solo ítem es obvio; con varios, solo por parecido claro de descripción
+// (nunca se adivina — la casilla queda pendiente).
+const RE_TOTAL_NETO = /total.*neto|neto.*total/i;
+const RE_TOTAL_CON_IVA = /total.*(iva\s*inclu|con\s*iva|bruto)|(iva\s*inclu|con\s*iva|bruto).*total/i;
+
+function tokensDescripcion(s: string): Set<string> {
+  return new Set(normalizar(s).split(/[^a-z0-9]+/).filter(t => t.length > 2));
+}
+
+export function calcularMontosTotalesPorLineaSinUnitario(
+  tablasCrudo: TablaCruda[],
+  items: { descripcion: string; precioUnitario: number; cantidad: number | null }[],
+): RellenoPie[] {
+  const out: RellenoPie[] = [];
+  if (!items.length) return out;
+  for (const t of tablasCrudo) {
+    if (t.filas.length < 2) continue;
+    const header = t.filas[0].celdas.map(c => c.texto);
+    if (header.some(h => esCandidatoDePrecioUnitario(`x — ${h}`))) continue; // esa tabla ya tiene su camino
+    const iNeto = header.findIndex(h => RE_TOTAL_NETO.test(h) && !RE_TOTAL_CON_IVA.test(h));
+    const iBruto = header.findIndex(h => RE_TOTAL_CON_IVA.test(h));
+    if (iNeto < 0) continue;
+    const iCantidad = header.findIndex(h => RE_COLUMNA_CANTIDAD.test(h.trim()));
+    const filas = t.filas.slice(1).filter(f => !pareceFilaDePie(f.celdas, textoDeFila(f.celdas)));
+    const pct = porcentajeIva(header.join(' '), []) ?? IVA_CHILE_POR_DEFECTO;
+    for (const fila of filas) {
+      let item = filas.length === 1 && items.length === 1 ? items[0] : null;
+      if (!item) {
+        const tf = tokensDescripcion(textoDeFila(fila.celdas.filter((_, i) => i !== iCantidad && i !== iNeto && i !== iBruto)));
+        const puntaje = items.map(it => {
+          const ti = tokensDescripcion(it.descripcion);
+          const comunes = [...tf].filter(x => ti.has(x)).length;
+          return { it, s: comunes / Math.max(1, Math.min(tf.size, ti.size)) };
+        }).sort((a, b) => b.s - a.s);
+        if (puntaje[0] && puntaje[0].s >= 0.6 && (!puntaje[1] || puntaje[1].s < puntaje[0].s)) item = puntaje[0].it;
+      }
+      if (!item) continue;
+      const cantFila = iCantidad >= 0 ? Number(String(fila.celdas[iCantidad]?.texto ?? '').trim().replace(',', '.')) : NaN;
+      const cantidad = Number.isFinite(cantFila) && cantFila > 0 ? cantFila : item.cantidad;
+      if (!cantidad || cantidad <= 0) continue;
+      const neto = Math.round(cantidad * item.precioUnitario);
+      const fmt = (n: number) => new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(n);
+      const celdaNeto = fila.celdas[iNeto];
+      if (celdaNeto?.indiceGlobal != null && celdaNeto.ultimoParaId) {
+        out.push({ paraId: celdaNeto.ultimoParaId, indiceGlobal: celdaNeto.indiceGlobal, etiqueta: `${item.descripcion.slice(0, 50)} — ${header[iNeto]}`, valor: fmt(neto) });
+      }
+      const celdaBruto = iBruto >= 0 ? fila.celdas[iBruto] : undefined;
+      if (celdaBruto?.indiceGlobal != null && celdaBruto.ultimoParaId) {
+        out.push({ paraId: celdaBruto.ultimoParaId, indiceGlobal: celdaBruto.indiceGlobal, etiqueta: `${item.descripcion.slice(0, 50)} — ${header[iBruto]}`, valor: fmt(Math.round(neto * (1 + pct / 100))) });
+      }
+    }
+  }
+  return out;
+}

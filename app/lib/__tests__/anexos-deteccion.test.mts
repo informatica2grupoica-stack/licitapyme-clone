@@ -2611,3 +2611,31 @@ test('cuadro flotante anclado en un párrafo con texto: la etiqueta de adentro (
   const etiquetas = analizarAnexo(norm).camposConDosPuntos.map(c => c.etiqueta);
   assert.ok(etiquetas.includes('OFERENTE'), `falta OFERENTE: ${JSON.stringify(etiquetas)}`);
 });
+
+// BUG REAL (2483-265-LE26, ANEXO Nº 4 Programa de Integridad): el organismo deja el NOMBRE del dato SUBRAYADO dentro de la
+// oración ("Yo, _nombre de representante legal o persona natural_, cédula N° _RUT_ _representante legal…_"). Se traduce
+// a marcador; un título subrayado solo en su línea ("Nombre y firma…") no es placeholder.
+test('placeholders subrayados en medio de una oración se vuelven marcadores; un título subrayado no (2483-265-LE26)', async () => {
+  const { marcarPlaceholdersSubrayados } = await import('../anexos-docx');
+  const run = (t: string, u = false) => `<w:r>${u ? '<w:rPr><w:u w:val="single"/></w:rPr>' : ''}<w:t xml:space="preserve">${t}</w:t></w:r>`;
+  const oracion = `<w:p>${run('Yo, ')}${run('nombre de representante legal o persona natural', true)}${run(', cédula N° ')}${run('RUT', true)}${run(' ')}${run('representante legal o de persona natural', true)}${run(', fin')}</w:p>`;
+  const titulo = `<w:p>${run('Nombre y firma del proponente', true)}</w:p>`;
+  const salida = marcarPlaceholdersSubrayados(NS + oracion + titulo + FIN);
+  const textos = listarParrafos(normalizarParaIds(salida).xml).map(x => x.texto);
+  assert.equal(textos[0], 'Yo, <nombre de representante legal o persona natural>, cédula N° <RUT representante legal o de persona natural>, fin');
+  assert.equal(textos[1], 'Nombre y firma del proponente');
+});
+
+// BUG REAL (2483-265-LE26, ANEXO Nº 3): tabla «Cantidad | DESCRIPCIÓN | MONTO TOTAL NETO | MONTO TOTAL IVA INCLUIDO» SIN
+// columna de precio unitario: el neto (cantidad × costeo) y el total con IVA (×1,19) quedaban vacíos.
+test('totales por línea sin precio unitario: neto = cantidad × costeo y con IVA = neto × 1,19 (2483-265-LE26)', async () => {
+  const { calcularMontosTotalesPorLineaSinUnitario } = await import('../anexos-totales-seccion');
+  const c = (texto: string, i: number | null, id: string) => ({ texto, indiceGlobal: i, anchoPct: 25, ultimoParaId: id, indicesParrafos: [0] });
+  const tabla = { indicePrimero: 0, filas: [
+    { celdas: [c('Cantidad', null, 'h1'), c('DESCRIPCIÓN', null, 'h2'), c('MONTO TOTAL NETO', null, 'h3'), c('MONTO TOTAL IVA INCLUIDO', null, 'h4')] },
+    { celdas: [c('2', null, 'a1'), c('Tomógrafo sónico 2D/3D', null, 'a2'), c('', 10, 'a3'), c('', 11, 'a4')] },
+  ] } as any;
+  const r = calcularMontosTotalesPorLineaSinUnitario([tabla], [{ descripcion: 'Tomógrafo sónico 2D/3D completo', precioUnitario: 1000000, cantidad: 2 }]);
+  assert.equal(r.find(x => x.paraId === 'a3')?.valor, '2.000.000');
+  assert.equal(r.find(x => x.paraId === 'a4')?.valor, '2.380.000');
+});

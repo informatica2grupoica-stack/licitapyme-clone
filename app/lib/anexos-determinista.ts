@@ -946,6 +946,10 @@ export function resolverPeladaPorBloque(
   if (ctxEmpresa && !ctxPersona) return regla.empresa;
   // 3. Pie de firma sin más contexto: quien firma es la persona.
   if (esPieDeFirma) return regla.persona;
+  // 4. "NOMBRE: / RUT N°" sin ninguna otra señal (cabecera del anexo económico, 2483-265-LE26): el
+  //    RUT pelado ya se resuelve como el de la EMPRESA (capa 1), así que el nombre pelado que lo
+  //    acompaña es su razón social — si no, quedaba el RUT de una empresa sin su nombre.
+  if (regla.empresa === 'razon_social' && propias.some(h => /^(?:rut|r u t|rol unico tributario)(?: n[°º]?)?$/.test(h))) return regla.empresa;
   return null;
 }
 
@@ -1058,6 +1062,9 @@ export const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // Datos de la licitación.
   { re: /\b(?:licitaci(?:o|ó)n\s+p(?:u|ú)blica|id\s+(?:de\s+)?mercado\s+p(?:u|ú)blico|propuesta\s+p(?:u|ú)blica)\s*(?:n[°º.]*|id)?\s*:?\s*$/i, campo: 'licitacion_codigo' },
   { re: /\b(?:denominada|individualizada\s+como|cuyo\s+nombre\s+es)\s*$/i, campo: 'licitacion_nombre' },
+  // "…para la licitación pública para la ______” (Programa de Integridad, 2483-265-LE26): el blanco
+  // es el NOMBRE de la licitación (lo que sigue a "para la" ya es el objeto, no el código).
+  { re: /\blicitaci(?:o|ó)n\s+p(?:u|ú)blica\s+para\s+la\s*$/i, campo: 'licitacion_nombre' },
   // "Mediante el presente Formulario, la empresa ______ certifica que el plazo para entrega…"
   // (FORMULARIO N°5 de 1063538-204-LE26, reportado por el usuario 18-ago-2026). El blanco viene
   // pegado a "la empresa" y es siempre la razón social del oferente — sea Comercial MP o

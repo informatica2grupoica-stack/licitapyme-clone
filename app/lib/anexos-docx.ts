@@ -807,6 +807,62 @@ export function listarBlancosInline(textoRun: string): BlancoInline[] {
   return out;
 }
 
+// ── Placeholders SUBRAYADOS dentro de una oración ──────────────────────────────────────────
+// BUG REAL (2483-265-LE26, ANEXO 4 "Programa de Integridad", formato tipo de Mercado Público): el
+// organismo no usa <…>, […] ni rayas: deja el NOMBRE del dato subrayado dentro de la oración —
+// "Yo, _nombre de representante legal o persona natural_, cédula de identidad N° _RUT_ _representante
+// legal o de persona natural_, con domicilio en _Domicilio, Comuna, Ciudad_ en representación de
+// _Razón social empresa o nombre UTP_, RUT: _Rut empresa o de apoderado_ _UTP_". Nada de eso era
+// casilla: el anexo salía con el texto instructivo intacto. Se traduce al marcador de un solo ángulo
+// que el resto del módulo ya sabe detectar, resolver con su diccionario y reemplazar.
+//
+// Acotado a propósito: el tramo subrayado tiene que EMPEZAR por el nombre de un campo real
+// (RE_BASE_CAMPO_ENTRE_PARENTESIS) y tener texto normal ANTES en el mismo párrafo — un título o un
+// pie subrayado ("Nombre y firma del proponente" solo en su línea) nunca es un placeholder. Varios
+// runs subrayados separados solo por espacios (Word los parte por cosmética) cuentan como UNO. El
+// conteo de <w:t> no cambia (los runs sobrantes quedan con texto vacío), así que los índices valen.
+const RE_RUN_SIMPLE = /^<w:r\b[^>]*>(?:<w:rPr>[\s\S]*?<\/w:rPr>)?<w:t(?:\s[^>]*)?>([^<]*)<\/w:t><\/w:r>$/;
+const subrayado = (run: string) => /<w:u\b/.test(run) && !/<w:u\s+w:val="none"/.test(run);
+
+export function marcarPlaceholdersSubrayados(xml: string): string {
+  return xml.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, parrafo => {
+    if (!/<w:u\b/.test(parrafo)) return parrafo;
+    const runs = [...parrafo.matchAll(/<w:r\b[^>]*>[\s\S]*?<\/w:r>/g)].map(m => ({ xml: m[0], ini: m.index!, ...(RE_RUN_SIMPLE.exec(m[0]) ? { t: RE_RUN_SIMPLE.exec(m[0])![1] } : {}) }));
+    const cambios: { run: typeof runs[number]; nuevo: string }[] = [];
+    let textoNormalPrevio = false;
+    for (let i = 0; i < runs.length; i++) {
+      const r = runs[i];
+      if (r.t == null) { if (/<w:t[\s>]/.test(r.xml)) textoNormalPrevio = true; continue; }
+      if (!subrayado(r.xml) || !r.t.trim()) { if (r.t.trim() && !subrayado(r.xml)) textoNormalPrevio = true; continue; }
+      // tramo: este run subrayado + los siguientes subrayados (o solo espacios) hasta el último subrayado
+      let fin = i;
+      for (let j = i + 1; j < runs.length; j++) {
+        const rj = runs[j];
+        if (rj.t == null) break;
+        if (subrayado(rj.xml) && rj.t.trim()) fin = j;
+        else if (!rj.t.trim()) continue;
+        else break;
+      }
+      const tramo = runs.slice(i, fin + 1);
+      const texto = tramo.map(x => x.t ?? '').join('').replace(/\s+/g, ' ').trim();
+      if (textoNormalPrevio && texto.length <= 80 && !/_{3,}/.test(texto) && RE_BASE_CAMPO_ENTRE_PARENTESIS.test(decodificarXml(texto))) {
+        cambios.push({ run: tramo[0], nuevo: `&lt;${texto}&gt;` });
+        for (const x of tramo.slice(1)) cambios.push({ run: x, nuevo: '' });
+      }
+      textoNormalPrevio = true;
+      i = fin;
+    }
+    if (!cambios.length) return parrafo;
+    // de atrás hacia adelante para no correr los offsets
+    let out = parrafo;
+    for (const c of cambios.sort((a, b) => b.run.ini - a.run.ini)) {
+      const nuevoRun = c.run.xml.replace(/<w:t(?:\s[^>]*)?>[^<]*<\/w:t>/, `<w:t xml:space="preserve">${c.nuevo}</w:t>`);
+      out = out.slice(0, c.run.ini) + nuevoRun + out.slice(c.run.ini + c.run.xml.length);
+    }
+    return out;
+  });
+}
+
 // ── Pre-paso obligatorio del patrón 2b: juntar en UN solo <w:t> los marcadores partidos ──
 // Word parte un párrafo en varios <w:r> por cualquier motivo cosmético (revisión ortográfica,
 // un cambio de idioma, un rsid distinto). En el documento real 1057480-41-LP26 eso deja el MISMO
@@ -824,6 +880,7 @@ export function listarBlancosInline(textoRun: string): BlancoInline[] {
 // total del párrafo tampoco cambia — solo cambia en qué run vive cada carácter. El formato que
 // pierde la cola del marcador da igual: ese texto se reemplaza entero por el dato real.
 export function unificarRunsDeMarcadores(xml: string): string {
+  xml = marcarPlaceholdersSubrayados(xml);
   return xml.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, parrafo => {
     const runs = [...parrafo.matchAll(/<w:t([^>]*)>([^<]*)<\/w:t>/g)];
     if (runs.length < 2) return parrafo;

@@ -44,7 +44,7 @@ import {
   resolverTablaConAuditor, resolverPreciosConAuditor, resolverCamposSueltosConAuditor,
   type DatosAuditorAnexo,
 } from '@/app/lib/anexos-auditor-fuente';
-import { calcularTotalesPorSeccion, calcularTotalesAlPie, calcularTotalesPorLinea, celdasDeRellenoDelPie, resolverTablaResumen, tituloDeTabla, encabezadosLibres, type TituloCercano } from '@/app/lib/anexos-totales-seccion';
+import { calcularTotalesPorSeccion, calcularTotalesAlPie, calcularTotalesPorLinea, calcularMontosTotalesPorLineaSinUnitario, celdasDeRellenoDelPie, resolverTablaResumen, tituloDeTabla, encabezadosLibres, type TituloCercano } from '@/app/lib/anexos-totales-seccion';
 import { detectarFormularios, RE_ENCABEZADO_FORMULARIO, type FormularioDetectado } from '@/app/lib/anexos-dividir';
 import { construirDocumentoUI, leerNumeracion, type BloqueUI, type Resuelto } from '@/app/lib/anexos-documento-ui';
 import { analizarSeccionesEscaneadas, type SeccionEscaneada } from '@/app/lib/anexos-imagen-escaneada';
@@ -590,6 +590,15 @@ function aplicarTotalesPorSeccion(
   // Total de cada línea (cantidad × precio) — ver calcularTotalesPorLinea. No va a `totalesPie`:
   // ese es solo el total de la oferta, contra el que se compara el costeo aprobado.
   for (const r of calcularTotalesPorLinea(tablasCrudo, valorResuelto)) {
+    paraIdsResueltos.add(r.paraId);
+    matcheadosExtra.push({
+      c: { etiqueta: r.etiqueta, paraId: r.paraId, indice: r.indiceGlobal },
+      campo: 'total_linea_calculado', valor: r.valor, via: 'costeo',
+    });
+  }
+  // Tabla de solo totales por línea («MONTO TOTAL NETO | MONTO TOTAL IVA INCLUIDO», sin unitario).
+  for (const r of calcularMontosTotalesPorLineaSinUnitario(tablasCrudo, itemsCosteo ?? [])) {
+    if (paraIdsResueltos.has(r.paraId)) continue;
     paraIdsResueltos.add(r.paraId);
     matcheadosExtra.push({
       c: { etiqueta: r.etiqueta, paraId: r.paraId, indice: r.indiceGlobal },

@@ -312,5 +312,15 @@ De paso: «representación de ___» sin «en» delante también se llena con la 
   a la oración. Arreglo: `Parrafo.textoCuadro` (texto del cuadro cuando el ancla trae texto propio antes) y `detectarCamposConDosPuntos`
   lo usa como etiqueta; `RE_FILA_UNICA_ES_CAMPO` también acepta «OFERENTE:»/«PROPONENTE:» a secas. Los índices de párrafo no cambian.
   Verificado generando el anexo real: sale «OFERENTE: Comercial MP SpA». Test en `anexos-deteccion.test.mts` (suite 1677/1677).
+- **Anexo 4 (Programa de Integridad) y Anexo 3 (económico) de 2483-265-LE26** (ojo: el negocio 1598 tiene asignada la empresa 1, Inversiones Claro ARZ SPA):
+  · Placeholders SUBRAYADOS en la oración («Yo, _nombre de representante legal o persona natural_, cédula N° _RUT_ _representante legal…_»)
+    no se detectaban. `marcarPlaceholdersSubrayados` (anexos-docx.ts, corre dentro de `unificarRunsDeMarcadores`, o sea en las 3 rutas) los
+    traduce a `<…>`, que el diccionario de marcadores ya resuelve. Solo si el tramo empieza por un nombre de campo y hay texto normal antes
+    en el párrafo (un título subrayado no cuenta); runs subrayados separados por espacios = uno solo. «para la licitación pública para la ___»
+    → nombre de la licitación (regla nueva en REGLAS_PREVIAS). Queda un « ” » de cierre suelto tras el nombre (el original trae solo la comilla de cierre).
+  · Económico sin precio unitario («Cantidad | DESCRIPCIÓN | MONTO TOTAL NETO | MONTO TOTAL IVA INCLUIDO»): `calcularMontosTotalesPorLineaSinUnitario`
+    (anexos-totales-seccion.ts) = cantidad × costeo, con IVA = ×(1+IVA%); una fila y un ítem se emparejan directo, con varios solo por
+    parecido de descripción ≥0,6. «NOMBRE:» pelado junto a «RUT N°» pelado sin más señal = razón social (`resolverPeladaPorBloque`, regla 4).
+    Verificado generando: neto 29.302.521 / con IVA 34.870.000. Pendiente por diseño: plazo de entrega y garantía (los pone el equipo).
 - Separar nunca devuelve PDF salvo un PDF ESCANEADO (se recorta el original) — la separación por título/firma es la que sirve; por página no se puede
   en Word sin maquetarlo.
