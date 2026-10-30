@@ -66,6 +66,8 @@ interface FilaEditor {
   // Foto del producto (URL pública en R2) — columna «Imagen», justo después del detalle. Ver FilaEditorCosteo.
   imagenUrl?: string | null;
   link1: string; link2: string; link3: string;
+  // Columnas espejo de Compras (30-oct-2026): lo que COSTEA Compras por su cuenta (neto/u) y el link donde lo vio.
+  costoCompraUnitario?: number | null; linkCompra?: string;
   // Fila agregada por el perfil de Compras: solo esas puede editar y borrar (ver costeo-compras.ts).
   agregadoPorCompras?: boolean;
   // Fila (ofertada o costo adicional) que agregó Compras con el permiso correspondiente: Compras puede editarla y borrarla.
@@ -352,7 +354,7 @@ function costoRealGrupo(grp: GrupoEditor) {
 // grueso, celdas con fórmula con un tinte gris que las distingue de las que se tipean a mano.
 const GRID_BORDE = '#d0d3d8';
 const FUENTE_HOJA = "Calibri, 'Segoe UI', Arial, sans-serif";
-const LETRAS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S'];
+const LETRAS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U'];
 
 function celdaInput(extra = '') {
   return `w-full h-full bg-transparent text-[12.5px] px-1.5 py-1 outline-none disabled:opacity-60 ` +
@@ -704,6 +706,8 @@ const COLUMNAS_FILTRO: Record<string, { tipo: TipoFiltro; valor: (f: FilaEditor,
   'Link 1': { tipo: 'dato', valor: f => f.link1 },
   'Link 2': { tipo: 'dato', valor: f => f.link2 },
   'Link 3': { tipo: 'dato', valor: f => f.link3 },
+  'Costo unit. COMPRAS': { tipo: 'numero', valor: f => f.costoCompraUnitario ?? null },
+  'Link COMPRAS': { tipo: 'dato', valor: f => f.linkCompra ?? '' },
 };
 
 function valorFiltro(col: string, f: FilaEditor, grp: GrupoEditor, general: number): string | number | null {
@@ -2040,7 +2044,7 @@ export function CosteoEditorCard({
         </div>
       )}
       <div className="overflow-auto flex-1">
-        <table className="border-collapse w-full" style={{ minWidth: 1672 }}>
+        <table className="border-collapse w-full" style={{ minWidth: 1892 }}>
           <colgroup>
             <col style={{ width: 34 }} />{/* # de fila */}
             <col style={{ width: 56 }} />{/* A Línea */}
@@ -2062,6 +2066,8 @@ export function CosteoEditorCard({
             <col style={{ width: 100 }} />{/* O Link 1 */}
             <col style={{ width: 100 }} />{/* P Link 2 */}
             <col style={{ width: 100 }} />{/* Q Link 3 */}
+            <col style={{ width: 110 }} />{/* Costo unit. COMPRAS (espejo del REAL) */}
+            <col style={{ width: 110 }} />{/* Link COMPRAS */}
             <col style={{ width: 28 }} />{/* borrar fila */}
           </colgroup>
           <thead className="sticky top-0 z-10">
@@ -2091,6 +2097,8 @@ export function CosteoEditorCard({
                 // ("Costo real unit.") hasta el 03-sep-2026.
                 ['Costo unit. REAL', 'Se tipea a mano cuando llega la factura/OC del proveedor. Alimenta el bloque "COMPARATIVO REAL" del costado — mientras esté vacía, ese bloque no tiene costo real que mostrar.'],
                 ['Costo total REAL', ''], ['VARIACIÓN', ''], ['Link 1', ''], ['Link 2', ''], ['Link 3', ''],
+                ['Costo unit. COMPRAS', 'Lo que costea Compras por su cuenta (neto por unidad), antes de comprar. Se ve en «Compara y elige a quién comprar» junto al costeo y la cotización.'],
+                ['Link COMPRAS', 'Link donde Compras vio ese precio.'],
               ] as const).map(([h, tip]) => {
                 const filtrada = !!af?.filtros[h];
                 const dir = af?.orden?.col === h ? af.orden.dir : null;
@@ -2223,6 +2231,13 @@ export function CosteoEditorCard({
                       </td>
                     );
                   })}
+                  <td style={{ ...celda, background: f.costoCompraUnitario != null ? '#e8f7f4' : undefined }} className="p-0"
+                      title="Costo unitario NETO que costea Compras por su cuenta, antes de comprar. No cambia lo costeado por licitaciones.">
+                    <CeldaNumero value={f.costoCompraUnitario ?? null} moneda onChange={v => actualizarFila(grupoActivo, fi, { costoCompraUnitario: v })} disabled={realBloq} />
+                  </td>
+                  <td style={celda} className="p-0">
+                    <CeldaLink value={f.linkCompra ?? ''} onChange={v => actualizarFila(grupoActivo, fi, { linkCompra: v })} disabled={realBloq} label="Link Compras" />
+                  </td>
                   <td style={{ border: `1px solid ${GRID_BORDE}` }} className="text-center whitespace-nowrap">
                     {(f.link1 || f.link2 || f.link3) && (
                       generandoFicha.has(f.id) ? (

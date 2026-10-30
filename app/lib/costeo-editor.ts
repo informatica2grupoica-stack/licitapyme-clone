@@ -64,6 +64,10 @@ export interface FilaEditorCosteo {
   margenVenta?: number | null;
   // Foto del producto (URL pública en R2): columna «Imagen», justo después del detalle. Opcional: los costeos anteriores no la traen.
   imagenUrl?: string | null;
+  // Columnas espejo del costo real, para Compras (30-oct-2026): lo que COSTEA Compras por su cuenta (neto/u) y su link.
+  // No tocan lo costeado por licitaciones; se ven en «Compara y elige a quién comprar». Opcionales: costeos anteriores no las traen.
+  costoCompraUnitario?: number | null;
+  linkCompra?: string;
   link1: string;                    // S — Link 1
   link2: string;                    // T — Link 2
   link3: string;                    // V — Link 3

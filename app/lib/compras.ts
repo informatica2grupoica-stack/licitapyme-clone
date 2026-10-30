@@ -1053,6 +1053,7 @@ export async function obtenerAsignacion(negocioId: number): Promise<AsignacionCo
 
 export interface ComprasFila {
   negocioId: number; licitacionCodigo: string; licitacionNombre: string | null; licitacionOrganismo: string | null;
+  licitacionRegion: string | null;
   urgente: boolean; asignadoA: number | null; asignadoNombre: string | null; asignadoAt: string | null;
   vencimientoAsignacionAt: string; ganadoAt: string; montoNuestro: number | null;
   tareasTotal: number; tareasHechas: number; tareasVencidas: number;
@@ -1120,7 +1121,7 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
             DATE_FORMAT(COALESCE(ca.oc_aceptada_at, ca.oc_emitida_at), '%Y-%m-%d') AS oc_fecha,
             DATE_FORMAT(ca.oc_emitida_at, '%Y-%m-%d') AS oc_emitida_at,
             DATE_FORMAT(ca.oc_aceptada_at, '%Y-%m-%d') AS oc_aceptada_at,
-            n.licitacion_nombre, n.licitacion_organismo, u.nombre AS asignado_nombre,
+            n.licitacion_nombre, n.licitacion_organismo, n.licitacion_region, u.nombre AS asignado_nombre,
             up.nombre AS postulado_por_nombre,
             (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id) AS tareas_total,
             (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id AND t.estado = 'HECHA') AS tareas_hechas,
@@ -1219,6 +1220,7 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
     return {
       negocioId: r.negocio_id, licitacionCodigo: r.licitacion_codigo,
       licitacionNombre: r.licitacion_nombre, licitacionOrganismo: r.licitacion_organismo,
+      licitacionRegion: r.licitacion_region ?? null,
       urgente: !!r.urgente, asignadoA: r.asignado_a, asignadoNombre: r.asignado_nombre, asignadoAt: r.asignado_at,
       // En pre-compra la fecha que ordena y ubica la fila es la adjudicación ESTIMADA de Mercado Público (aún no se ganó nada).
       vencimientoAsignacionAt: r.vencimiento_asignacion_at,

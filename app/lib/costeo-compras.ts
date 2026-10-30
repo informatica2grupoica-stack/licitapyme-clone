@@ -49,6 +49,7 @@ function filaNueva(f: any, item: number, tipo: TipoFilaCompras): FilaEditorCoste
     detalle: txt(f.detalle, 300), skuProveedor: txt(f.skuProveedor, 120),
     costoRealUnitario: num(f.costoRealUnitario),
     link1: link(f.link1), link2: link(f.link2), link3: link(f.link3),
+    costoCompraUnitario: num(f.costoCompraUnitario), linkCompra: link(f.linkCompra),
   };
   if (tipo === 'adicional') {
     return { ...base, unidad: '', cantidad: null, valorConIva: null, margenVenta: null, esCostoAdicional: true, costoAdicionalNeto: num(f.costoAdicionalNeto), propiaCompras: true };
@@ -91,7 +92,7 @@ export function fusionarEdicionCompras(guardado: EstadoCosteoEditor, cliente: { 
         filas.push(filaNueva({ ...c, id: f.id }, f.item, tipoDe(f)));
       } else {
         // Fila ajena: el resto de lo que mande el cliente se ignora.
-        filas.push(c ? { ...f, costoRealUnitario: num(c.costoRealUnitario), link1: link(c.link1), link2: link(c.link2), link3: link(c.link3) } : f);
+        filas.push(c ? { ...f, costoRealUnitario: num(c.costoRealUnitario), link1: link(c.link1), link2: link(c.link2), link3: link(c.link3), costoCompraUnitario: num(c.costoCompraUnitario), linkCompra: link(c.linkCompra) } : f);
       }
     }
     for (const c of filasCliente) {

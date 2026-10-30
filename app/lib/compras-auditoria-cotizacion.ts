@@ -240,6 +240,18 @@ export async function costeadoPorProducto(negocioId: number): Promise<Record<num
   return out;
 }
 
+/** Lo que costeó COMPRAS por su cuenta (columnas espejo del costo real: costo neto/u y link), por producto. Solo los que tienen algo. */
+export async function costeoComprasPorProducto(negocioId: number): Promise<Record<number, { costo: number | null; link: string }>> {
+  const [productos, estado] = await Promise.all([listarProductosCompra(negocioId), cargarEstadoCosteo(negocioId).catch(() => null)]);
+  const lineas = estado ? lineasDelCosteo(estado).filter(l => !l.esGastoExtra) : [];
+  const out: Record<number, { costo: number | null; link: string }> = {};
+  for (const p of productos) {
+    const l = lineaCosteoDeProducto(lineas, p);
+    if (l && (l.costoCompraNeto != null || l.linkCompra)) out[p.id] = { costo: l.costoCompraNeto ?? null, link: l.linkCompra ?? '' };
+  }
+  return out;
+}
+
 /** Precio de venta neto/u del costeo de cada producto del negocio, para el margen del costeo inicial vs las cotizaciones. */
 export async function ventaPorProducto(negocioId: number): Promise<Record<number, number | null>> {
   const [productos, estado] = await Promise.all([listarProductosCompra(negocioId), cargarEstadoCosteo(negocioId).catch(() => null)]);

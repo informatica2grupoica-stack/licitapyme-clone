@@ -32,6 +32,7 @@ interface RelojEntregaResumen { fechaLimiteVigente: string | null; prorrogado: b
 
 interface ComprasFila {
   negocioId: number; licitacionCodigo: string; licitacionNombre: string | null; licitacionOrganismo: string | null;
+  licitacionRegion: string | null;
   urgente: boolean; asignadoA: number | null; asignadoNombre: string | null; asignadoAt: string | null;
   vencimientoAsignacionAt: string; ganadoAt: string; montoNuestro: number | null;
   tareasTotal: number; tareasHechas: number; tareasVencidas: number;
@@ -58,6 +59,15 @@ const explicacionUrgente = (f: ComprasFila) =>
   f.plazoEntregaDias != null
     ? `Urgente: el plazo de entrega ofertado es de ${f.plazoEntregaDias} día(s) — menos de 3, entra en la Cadena de Urgencia.`
     : 'Urgente: el plazo de entrega ofertado es menor a 3 días (Cadena de Urgencia).';
+
+// Lugar corto de la licitación: la comuna si el organismo es una municipalidad («Ilustre Municipalidad de
+// Futrono» → «Futrono»); si no, la región sin el prefijo («Región de Coquimbo» → «Coquimbo»).
+function lugarCorto(f: Pick<ComprasFila, 'licitacionOrganismo' | 'licitacionRegion'>): string | null {
+  const m = f.licitacionOrganismo?.match(/municipalidad\s+de\s+(?:la\s+|las\s+|los\s+)?(.+)$/i);
+  if (m) return m[1].trim().replace(/\b\p{L}/gu, c => c.toUpperCase());
+  const r = f.licitacionRegion?.replace(/^regi[oó]n\s+(?:de\s+los\s+|de\s+las\s+|de\s+la\s+|del\s+|de\s+)?/i, '').trim();
+  return r || null;
+}
 
 type Orden = 'reciente' | 'antiguo' | 'monto_desc' | 'monto_asc';
 type Vista = 'gantt' | 'lista' | 'mes';
@@ -629,7 +639,7 @@ function ModalDiaCompras({ dia, negocios, onClose }: { dia: string; negocios: Co
 //      dibuja el tramo — no hay fecha que inventar.
 const PX_DIA: Record<'compacta' | 'normal' | 'amplia', number> = { compacta: 16, normal: 26, amplia: 40 };
 const ANCHO_ETIQUETA_GANTT = 390;
-const ALTO_FILA_GANTT = 78;
+const ALTO_FILA_GANTT = 92;
 const ALTO_REGLA_MESES = 26;
 const ALTO_REGLA_DIAS = 22;
 const TOPE_LEGAL_ACEPTACION_OC_DIAS = 5;
@@ -736,6 +746,12 @@ function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaU
             {f.reloj?.prorrogado && <CalendarClock size={11} className="text-amber-500 flex-shrink-0" />}
             <span className="text-[10.5px] font-semibold text-zinc-600">{fmtCLPCorto(f.montoNuestro)}</span>
           </div>
+          {lugarCorto(f) && (
+            <p className="flex items-center gap-1 mt-0.5 text-[10px] font-semibold text-zinc-600 min-w-0" title={[f.licitacionOrganismo, f.licitacionRegion].filter(Boolean).join(' · ')}>
+              <Building2 size={10} className="flex-shrink-0 text-zinc-400" />
+              <span className="truncate">{lugarCorto(f)}</span>
+            </p>
+          )}
           <div className="flex items-center gap-1.5 mt-1">
             {ultimaUrgente && !f.precompra && <ChipUltimaGanada />}
             <span className="text-[10px] text-zinc-500 whitespace-nowrap" title={f.precompra ? 'Fecha estimada de adjudicación según Mercado Público' : `Ganado ${fmtFecha(f.ganadoAt)}`}>
@@ -1072,6 +1088,7 @@ export default function ComprasPage() {
   const [q, setQ] = useState('');
   const [fAsignado, setFAsignado] = useState<string[]>([]);
   const [fOrganismo, setFOrganismo] = useState<string[]>([]);
+  const [fRegion, setFRegion] = useState<string[]>([]);
   // "Postuló" = quién preparó/postuló la licitación en Negocios (negocios.asignado_a) — persona
   // distinta del "Encargado" de Compras (fAsignado), que la ejecuta recién después de ganada.
   // Filtro pedido explícito del usuario, 16-sep-2026.
@@ -1105,6 +1122,7 @@ export default function ComprasPage() {
         if (typeof f.q === 'string') setQ(f.q);
         if (Array.isArray(f.fAsignado)) setFAsignado(f.fAsignado.map(String));
         if (Array.isArray(f.fOrganismo)) setFOrganismo(f.fOrganismo.map(String));
+        if (Array.isArray(f.fRegion)) setFRegion(f.fRegion.map(String));
         if (Array.isArray(f.fPostulador)) setFPostulador(f.fPostulador.map(String));
         if (f.fOC === 'con' || f.fOC === 'sin' || f.fOC === 'todos') setFOC(f.fOC);
         if (typeof f.montoMin === 'string') setMontoMin(f.montoMin);
@@ -1131,21 +1149,21 @@ export default function ComprasPage() {
     if (!hidratado) return;
     try {
       sessionStorage.setItem(SS_COMPRAS_FILTROS, JSON.stringify({
-        q, fAsignado, fOrganismo, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
+        q, fAsignado, fOrganismo, fRegion, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
         soloUrgentes, soloSinAsignar, verCerradas, fechaDesde, fechaHasta, orden, vista, mesesVista, ambito,
       }));
     } catch { /* cuota llena */ }
-  }, [hidratado, q, fAsignado, fOrganismo, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
+  }, [hidratado, q, fAsignado, fOrganismo, fRegion, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
       soloUrgentes, soloSinAsignar, verCerradas, fechaDesde, fechaHasta, orden, vista, mesesVista, ambito]);
 
   const cerradasCount = useMemo(() => negocios.filter(f => f.cierreLegado).length, [negocios]);
   const nGanadas = useMemo(() => negocios.filter(f => !f.precompra && !f.cierreLegado).length, [negocios]);
   const nPrecompras = useMemo(() => negocios.filter(f => f.precompra && !f.cierreLegado).length, [negocios]);
-  const hayFiltro = fAsignado.length > 0 || fOrganismo.length > 0 || fPostulador.length > 0 || fOC !== 'todos'
+  const hayFiltro = fAsignado.length > 0 || fOrganismo.length > 0 || fRegion.length > 0 || fPostulador.length > 0 || fOC !== 'todos'
     || !!montoMin || !!montoMax || !!plazoMin || !!plazoMax || soloTareasVencidas
     || soloUrgentes || soloSinAsignar || !!fechaDesde || !!fechaHasta;
   const limpiar = () => {
-    setFAsignado([]); setFOrganismo([]); setFPostulador([]); setFOC('todos');
+    setFAsignado([]); setFOrganismo([]); setFRegion([]); setFPostulador([]); setFOC('todos');
     setMontoMin(''); setMontoMax(''); setPlazoMin(''); setPlazoMax(''); setSoloTareasVencidas(false);
     setSoloUrgentes(false); setSoloSinAsignar(false); setFechaDesde(''); setFechaHasta('');
   };
@@ -1190,6 +1208,7 @@ export default function ComprasPage() {
   const opciones = useMemo(() => {
     const asig = new Map<string, { nombre: string; n: number }>();
     const org = new Map<string, number>();
+    const reg = new Map<string, number>();
     const post = new Map<string, number>();
     for (const f of negocios) {
       if (f.asignadoNombre) {
@@ -1197,12 +1216,16 @@ export default function ComprasPage() {
         const cur = asig.get(key) || { nombre: f.asignadoNombre, n: 0 }; cur.n++; asig.set(key, cur);
       }
       if (f.licitacionOrganismo) org.set(f.licitacionOrganismo, (org.get(f.licitacionOrganismo) || 0) + 1);
+      const lugar = lugarCorto(f);
+      if (lugar) reg.set(lugar, (reg.get(lugar) || 0) + 1);
       if (f.postuladoPorNombre) post.set(f.postuladoPorNombre, (post.get(f.postuladoPorNombre) || 0) + 1);
     }
     return {
       asignado: [...asig.entries()].sort((a, b) => b[1].n - a[1].n)
         .map(([v, o]) => ({ value: v, label: o.nombre, color: colorUsuario(v), count: o.n })),
       organismo: [...org.entries()].sort((a, b) => b[1] - a[1])
+        .map(([v, n]) => ({ value: v, label: v, count: n })),
+      region: [...reg.entries()].sort((a, b) => b[1] - a[1])
         .map(([v, n]) => ({ value: v, label: v, count: n })),
       postulador: [...post.entries()].sort((a, b) => b[1] - a[1])
         .map(([v, n]) => ({ value: v, label: v, color: colorUsuario(v), count: n })),
@@ -1224,6 +1247,7 @@ export default function ComprasPage() {
       }
       if (fAsignado.length > 0 && !fAsignado.includes(String(f.asignadoA || f.asignadoNombre || ''))) return false;
       if (fOrganismo.length > 0 && !fOrganismo.includes(f.licitacionOrganismo || '')) return false;
+      if (fRegion.length > 0 && !fRegion.includes(lugarCorto(f) || '')) return false;
       if (fPostulador.length > 0 && !fPostulador.includes(f.postuladoPorNombre || '')) return false;
       if (fOC === 'con' && !f.ocFecha) return false;
       if (fOC === 'sin' && f.ocFecha) return false;
@@ -1254,7 +1278,7 @@ export default function ComprasPage() {
     // Urgentes siempre primero, dentro del orden elegido.
     arr.sort((a, b) => Number(b.urgente) - Number(a.urgente));
     return arr;
-  }, [negocios, q, fAsignado, fOrganismo, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
+  }, [negocios, q, fAsignado, fOrganismo, fRegion, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
       soloUrgentes, soloSinAsignar, verCerradas, fechaDesde, fechaHasta, orden, ambito]);
   const urgentes = useMemo(() => filtrados.filter(f => f.urgente), [filtrados]);
   // La licitación que se ganó más recientemente (sea cual sea el orden elegido), urgente o no.
@@ -1368,6 +1392,9 @@ export default function ComprasPage() {
             )}
             {opciones.organismo.length > 0 && (
               <MultiSelect label="Organismo" icon={<Building2 size={13} />} options={opciones.organismo} selected={fOrganismo} onChange={setFOrganismo} minWidth={240} />
+            )}
+            {opciones.region.length > 0 && (
+              <MultiSelect label="Comuna / región" icon={<Building2 size={13} />} options={opciones.region} selected={fRegion} onChange={setFRegion} minWidth={240} />
             )}
             <div className="inline-flex items-center bg-zinc-100 rounded-lg p-0.5" title="Orden de compra">
               {([

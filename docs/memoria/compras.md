@@ -3,6 +3,14 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-10-30 — Columnas espejo de Compras en el costeo + tabla Costeo / Costeo compras / Cotización
+Pedido del dueño: junto al «Costo unit. REAL» el perfil de Compras anota lo que COSTEA él (neto/u) y su link. Nuevas columnas
+al final del editor: «Costo unit. COMPRAS» y «Link COMPRAS» (`costoCompraUnitario`, `linkCompra` en `FilaEditorCosteo`, opcionales,
+sin migración; las guarda `fusionarEdicionCompras` en filas ajenas y propias; el link no es obligatorio). En «Compara y elige a
+quién comprar» (`ComparadorPrecios`) cada producto muestra en columnas: Costeo · Costeo compras (con su link) · Cotización
+mejor (+ chip vs costeo) · Elegido. Datos por `costeoComprasPorProducto` → `/api/compras/[negocioId]/cotizaciones`.
+Supuesto: NO es el costo real (ese es lo pagado); esto es el estimado de Compras antes de comprar. tsc limpio; sin ver en navegador.
+
 ## 2026-10-28 — «Pasa» decía poco: el veredicto ahora se separa en Precio y Ficha
 En «Qué se va a aprobar» (`TablaAprobacionCompra`) el dueño no sabía si «Pasa» era por el precio o por la ficha. Es por LOS DOS:
 pasa solo si el precio (proveedor elegido, sin pérdida, no más caro que lo costeado, margen ≥ mínimo) y la ficha (comparada y
@@ -113,3 +121,12 @@ re-homologarlas** (y lo hecho antes en otros negocios con cantidades no exactas 
 - Gastos de la tarjeta Gastos: ¿neto o con IVA? y posible doble conteo con Importación.
 - Cruce Obuma ↔ `experiencia_caso` (alimenta `/memoria`) sin construir.
 - Correo SMTP propio: el servidor acepta pero Gmail no entrega (falta DKIM/DMARC).
+
+## 2026-10-30 — Gantt de /compras: organismo y región por fila + filtro Región
+- Cada fila del Gantt muestra solo el lugar corto (`lugarCorto` en compras/page.tsx): comuna si el organismo es «Municipalidad de X» (→ X), si no la región sin prefijo. El selector **Comuna / región** filtra por ese mismo nombre. La fila subió de 78 a 92 px.
+- La región sale de `negocios.licitacion_region`. La **comuna no se guarda** en `negocios`; solo se ve a través del nombre del organismo. Pendiente si se quiere filtrar por comuna: guardarla (viene de `ComunaUnidad` de MP).
+
+## 2026-10-30 — Pantalla en blanco abajo + menú lateral cortado (Costeo/Auditoría/Comprar precios)
+**Causa (probable, no reproducida en navegador):** `AppLayout` tenía `h-screen overflow-hidden` en la raíz; un `scrollIntoView` (botones «Siguiente», Auditor de compras) que no cabe en `<main>` desplazaba la raíz entera y quedaba un tramo vacío debajo.
+**Arreglo:** raíz y contenedor interno de `AppLayout.tsx` pasan a `overflow-clip` (no admite scroll programático). Además `app/compras/[negocioId]/error.tsx`: si Compras falla al dibujarse, muestra el error en vez de blanco.
+**Pendiente:** confirmar con el dueño que ya no ocurre.

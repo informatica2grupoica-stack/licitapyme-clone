@@ -9,6 +9,7 @@ import { IconStar as Star, IconCheck as Check, IconChevronDown as ChevronDown, I
 import { MenuAcciones } from '@/app/components/ui/MenuAcciones';
 import { LinksProducto } from './LinksProducto';
 import { compararPrecioConCosteo } from '@/app/lib/compras-precio-vs-costeo';
+import { esLinkDeProducto } from '@/app/lib/costeo-comparativo';
 import { margenCosteoVsCotizaciones } from '@/app/lib/compras-margen-vs-costeo';
 import { MargenCosteoVsCotizaciones } from './MargenCosteoVsCotizaciones';
 import { ESTILO_VEREDICTO, ESTILO_TECNICO, cotizacionesReemplazadas } from './MatrizPrecios';
@@ -17,7 +18,7 @@ import type { MatrizProps } from './MatrizPrecios';
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 const num = (v: unknown) => { const n = typeof v === 'number' ? v : Number(v); return Number.isFinite(n) && n > 0 ? n : 1; };
 
-export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, linksCosteo = {}, lecturaLink: lecLink, onCompraPorLink, seleccion, onSeleccionar, alertas, tecnico, onAgregar, compra, onElegirCelda, onComprarTodoAqui, acciones, onVerMatriz }: MatrizProps & { onVerMatriz?: () => void }) {
+export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, linksCosteo = {}, lecturaLink: lecLink, onCompraPorLink, seleccion, onSeleccionar, alertas, tecnico, onAgregar, compra, onElegirCelda, onComprarTodoAqui, acciones, onVerMatriz, costeoCompras = {} }: MatrizProps & { onVerMatriz?: () => void; costeoCompras?: Record<number, { costo: number | null; link: string }> }) {
   const [abiertos, setAbiertos] = useState<Set<number>>(() => new Set(productos.length <= 4 ? productos.map(p => p.id) : []));
   const [buscaProducto, setBuscaProducto] = useState('');
   const [buscaProveedor, setBuscaProveedor] = useState('');
@@ -96,6 +97,14 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
         </div>
       )}
 
+      {/* Encabezado de la tabla: los tres precios de cada producto, en columnas (costeo · costeo de Compras · cotización). */}
+      <div className="hidden md:flex items-center gap-3 px-4 py-1.5 border-b border-zinc-100 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
+        <span className="flex-1 pl-7">Producto</span>
+        <span className="w-[104px] text-right">Costeo</span>
+        <span className="w-[124px] text-right">Costeo compras</span>
+        <span className="w-[230px]">Cotización (mejor)</span>
+        <span className="w-[150px] text-right">Elegido</span>
+      </div>
       <div className="divide-y divide-zinc-100">
         {productosVisibles.map(p => {
           const base = costeado[p.id] ?? null;
@@ -122,27 +131,37 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
                 <div className="min-w-0 flex-1">
                   <p className="text-[13.5px] font-semibold text-zinc-900 truncate" title={p.descripcion}>{p.descripcion}</p>
                   <p className="text-[11.5px] text-zinc-500">
-                    {p.cantidad != null && <>{num(p.cantidad)} un. · </>}
-                    Costeado {base != null ? <b className="text-zinc-700">{clp(base)}</b> : '—'}
+                    {p.cantidad != null && <>{num(p.cantidad)} un.</>}
+                    <span className="md:hidden"> · Costeado {base != null ? <b className="text-zinc-700">{clp(base)}</b> : '—'}</span>
                     {sinOfertas && <b className="ml-2 text-amber-600">Sin cotizar todavía</b>}
                   </p>
                 </div>
-                <div className="hidden md:flex items-center gap-2 text-[12px] flex-shrink-0">
-                  {menor != null && cmpMenor && (
-                    <span className="flex items-center gap-1.5">
-                      <span className="text-zinc-500">Mejor</span><b className="text-zinc-900 tabular-nums">{clp(menor)}</b>
-                      <span className={`font-semibold px-1.5 py-0.5 rounded border ${ESTILO_VEREDICTO[cmpMenor.veredicto].chip}`}>{ESTILO_VEREDICTO[cmpMenor.veredicto].texto(cmpMenor.diffPct)}</span>
-                    </span>
-                  )}
-                  {menor == null && base != null && (
-                    <span className="flex items-center gap-1.5" title="Sin cotización: se toma lo costeado">
-                      <span className="text-zinc-500">Costeo</span><b className="text-rose-600 tabular-nums">{clp(base)}</b>
-                    </span>
-                  )}
-                  <span className="text-zinc-400">· {ofertas.length} oferta{ofertas.length === 1 ? '' : 's'}</span>
+                <div className="hidden md:flex items-center gap-3 text-[12px] flex-shrink-0">
+                  <span className="w-[104px] text-right tabular-nums text-zinc-700 font-semibold" title="Costo neto por unidad que costeó licitaciones">{base != null ? clp(base) : <span className="text-zinc-300">—</span>}</span>
+                  <span className="w-[124px] text-right tabular-nums" title="Costo neto por unidad que costeó Compras (columna «Costo unit. COMPRAS» del costeo)">
+                    {costeoCompras[p.id]?.costo != null ? (
+                      <>
+                        {costeoCompras[p.id].link && esLinkDeProducto(costeoCompras[p.id].link) && (
+                          <a href={costeoCompras[p.id].link} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="mr-1.5 text-[11px] text-teal-700 underline underline-offset-2">link</a>
+                        )}
+                        <b className="text-zinc-900">{clp(costeoCompras[p.id].costo!)}</b>
+                      </>
+                    ) : <span className="text-zinc-300">—</span>}
+                  </span>
+                  <span className="w-[230px] flex items-center gap-1.5">
+                    {menor != null && cmpMenor ? (
+                      <>
+                        <b className="text-zinc-900 tabular-nums">{clp(menor)}</b>
+                        <span className={`font-semibold px-1.5 py-0.5 rounded border ${ESTILO_VEREDICTO[cmpMenor.veredicto].chip}`}>{ESTILO_VEREDICTO[cmpMenor.veredicto].texto(cmpMenor.diffPct)}</span>
+                        <span className="text-zinc-400">· {ofertas.length} oferta{ofertas.length === 1 ? '' : 's'}</span>
+                      </>
+                    ) : <span className="text-zinc-300" title="Sin cotización: se toma lo costeado">sin cotización</span>}
+                  </span>
                 </div>
-                <span className={`text-[11.5px] font-semibold flex-shrink-0 px-2 py-0.5 rounded-full border ${elegida ? 'text-teal-800 bg-teal-50 border-teal-200' : 'text-zinc-400 bg-white border-zinc-200'}`}>
-                  {elegida ? <><Check size={11} className="inline -mt-0.5 mr-0.5" />{elegida.proveedorNombre.length > 22 ? `${elegida.proveedorNombre.slice(0, 22)}…` : elegida.proveedorNombre}</> : 'Sin elegir'}
+                <span className="flex-shrink-0 md:w-[150px] md:text-right">
+                  <span className={`text-[11.5px] font-semibold px-2 py-0.5 rounded-full border ${elegida ? 'text-teal-800 bg-teal-50 border-teal-200' : 'text-zinc-400 bg-white border-zinc-200'}`}>
+                    {elegida ? <><Check size={11} className="inline -mt-0.5 mr-0.5" />{elegida.proveedorNombre.length > 22 ? `${elegida.proveedorNombre.slice(0, 22)}…` : elegida.proveedorNombre}</> : 'Sin elegir'}
+                  </span>
                 </span>
               </button>
 
