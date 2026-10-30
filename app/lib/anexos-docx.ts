@@ -863,6 +863,30 @@ export function marcarPlaceholdersSubrayados(xml: string): string {
   });
 }
 
+// ── Hueco entre un rótulo y su unidad: «PLAZO DE ENTREGA ⇥ DÍAS HABILES», «GARANTÍA …     MESES» ──
+// BUG REAL (2483-265-LE26, ANEXO Nº 3 económico): el espacio donde va el número es un TABULADOR o
+// una tira de espacios, no una raya, así que no era casilla: plazo y garantía no se podían ni llenar
+// ni escribir a mano. Se vuelve una raya "________" (el blanco que el módulo ya detecta, resuelve o
+// deja pendiente). Acotado al rótulo (plazo/garantía/vigencia/validez) y a una unidad de tiempo.
+const RE_ROTULO_CON_UNIDAD = /^\s*(?:plazo|garant[ií]a|vigencia|validez)\b[^\t]*?(?:\t|\s{4,})\s*(?:d[ií]as?|meses|a[ñn]os|semanas)\b/i;
+const RAYA_DE_HUECO = '________';
+
+export function marcarHuecosDeUnidad(xml: string): string {
+  return xml.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, parrafo => {
+    if (!/plazo|garant|vigencia|validez/i.test(parrafo)) return parrafo;
+    const texto = decodificarXml(parrafo.replace(/<w:tab\s*\/>/g, '<w:t>\t</w:t>').match(/<w:t[^>]*>[^<]*<\/w:t>/g)?.map(t => t.replace(/<[^>]+>/g, '')).join('') ?? '');
+    if (!RE_ROTULO_CON_UNIDAD.test(texto)) return parrafo;
+    if (/_{2,}/.test(texto)) return parrafo;
+    // Tabulador entre el rótulo y la unidad.
+    if (/\t/.test(texto.split(/(?:d[ií]as?|meses|a[ñn]os|semanas)\b/i)[0])) {
+      return parrafo.replace(/<w:tab\s*\/>/, `<w:t xml:space="preserve"> ${RAYA_DE_HUECO} </w:t>`);
+    }
+    // Tira de espacios dentro de un <w:t>.
+    return parrafo.replace(/(<w:t(?:\s[^>]*)?>)([^<]*?)(\s{4,})(\s*(?:d[ií]as?|meses|a[ñn]os|semanas)\b[^<]*<\/w:t>)/i,
+      (_, abre, antes, _gap, resto) => `${/xml:space/.test(abre) ? abre : abre.replace('<w:t', '<w:t xml:space="preserve"')}${antes} ${RAYA_DE_HUECO} ${resto}`);
+  });
+}
+
 // ── Pre-paso obligatorio del patrón 2b: juntar en UN solo <w:t> los marcadores partidos ──
 // Word parte un párrafo en varios <w:r> por cualquier motivo cosmético (revisión ortográfica,
 // un cambio de idioma, un rsid distinto). En el documento real 1057480-41-LP26 eso deja el MISMO
@@ -880,7 +904,7 @@ export function marcarPlaceholdersSubrayados(xml: string): string {
 // total del párrafo tampoco cambia — solo cambia en qué run vive cada carácter. El formato que
 // pierde la cola del marcador da igual: ese texto se reemplaza entero por el dato real.
 export function unificarRunsDeMarcadores(xml: string): string {
-  xml = marcarPlaceholdersSubrayados(xml);
+  xml = marcarHuecosDeUnidad(marcarPlaceholdersSubrayados(xml));
   return xml.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, parrafo => {
     const runs = [...parrafo.matchAll(/<w:t([^>]*)>([^<]*)<\/w:t>/g)];
     if (runs.length < 2) return parrafo;

@@ -321,6 +321,11 @@ De paso: «representación de ___» sin «en» delante también se llena con la 
   · Económico sin precio unitario («Cantidad | DESCRIPCIÓN | MONTO TOTAL NETO | MONTO TOTAL IVA INCLUIDO»): `calcularMontosTotalesPorLineaSinUnitario`
     (anexos-totales-seccion.ts) = cantidad × costeo, con IVA = ×(1+IVA%); una fila y un ítem se emparejan directo, con varios solo por
     parecido de descripción ≥0,6. «NOMBRE:» pelado junto a «RUT N°» pelado sin más señal = razón social (`resolverPeladaPorBloque`, regla 4).
-    Verificado generando: neto 29.302.521 / con IVA 34.870.000. Pendiente por diseño: plazo de entrega y garantía (los pone el equipo).
+    Verificado generando: neto 29.302.521 / con IVA 34.870.000.
+  · Segunda vuelta del mismo económico (captura del dueño): «RUT N°» (sin dos puntos, en una celda) se emparejaba con el vacío de DEBAJO de la tabla
+    y el RUT caía lejos de su celda → patrón 1 ya no empareja una etiqueta de celda con un vacío fuera de su tabla, y `RE_RUT_CON_NUMERO_AL_FINAL`
+    hace de «RUT N°» un campo que se completa en su celda. «PLAZO DE ENTREGA ⇥ DÍAS HABILES» / «GARANTÍA …   MESES»: el hueco es tabulador o tira de
+    espacios, no raya, así que no había casilla ni se podía escribir a mano → `marcarHuecosDeUnidad` (anexos-docx.ts, junto a `unificarRunsDeMarcadores`)
+    lo vuelve «________». Pendiente por diseño: plazo y garantía los pone el equipo (ahora con casilla en su línea).
 - Separar nunca devuelve PDF salvo un PDF ESCANEADO (se recorta el original) — la separación por título/firma es la que sirve; por página no se puede
   en Word sin maquetarlo.

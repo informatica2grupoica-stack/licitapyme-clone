@@ -163,6 +163,9 @@ export function detectarCandidatosCeldaCrudos(
     // 4999-8-LE26 arriba): dentro de un <w:tc> mandan las filas, no la tipografía.
     const topeLargoEtiqueta = indicesEnCelda.has(actual.indice) ? LARGO_MAX_ETIQUETA_EN_CELDA : LARGO_MAX_ETIQUETA;
     if (!actual.texto || actual.texto.length > topeLargoEtiqueta || (actual.centrado && !indicesEnCelda.has(actual.indice)) || !siguiente || !siguiente.vacio) continue;
+    // Una etiqueta DENTRO de una celda no se empareja con un vacío FUERA de su tabla (2483-265-LE26, «RUT N°» al
+    // final de la tabla de cabecera: el RUT caía en el párrafo vacío de debajo, lejos de su celda).
+    if (indicesEnCelda.has(actual.indice) && !indicesEnCelda.has(siguiente.indice)) continue;
 
     // La LEYENDA de una línea de firma ("Firma del Oferente o Represente Legal.", el párrafo justo
     // debajo de la raya) no es la etiqueta de un campo — el párrafo vacío que le sigue es puro
@@ -1746,6 +1749,8 @@ const RE_ETIQUETA_ES_AVISO_DEL_ORGANISMO = /^(?:notas?|obs\.?|observaci[oó]n(?:
 // como alternativa — nunca se activa por sí sola para un dato no reconocido: sigue dependiendo por
 // completo de que el diccionario resuelva `limpio` con certeza (ver el comentario de arriba).
 const RE_TERMINA_ETIQUETA = /[:,]\s*$/;
+// «RUT N°» / «RUN Nº» sin dos puntos: el dato va a continuación, en la misma celda.
+const RE_RUT_CON_NUMERO_AL_FINAL = /^\s*(?:r\.?\s*u\.?\s*[tn]\.?)\s*(?:n[°º.]+|nro\.?|n[uú]mero)\s*$/i;
 
 // CASO REAL (2827-102-LE26, ANEXO N°1): el encabezado del formulario es «Nombre Licitación» en una
 // línea centrada y «ID: ____» en la siguiente — sin dos puntos ni raya, así que no era casilla y el
@@ -1764,7 +1769,7 @@ export function detectarCamposConDosPuntos(parrafos: Parrafo[]): CandidatoCelda[
       out.push({ etiqueta: texto, paraId: p.paraId, indice: p.indice });
       continue;
     }
-    if (!RE_TERMINA_ETIQUETA.test(texto) || texto.length > 80 || p.centrado) continue;
+    if (!(RE_TERMINA_ETIQUETA.test(texto) || RE_RUT_CON_NUMERO_AL_FINAL.test(texto)) || texto.length > 80 || p.centrado) continue;
     if (RE_TIENE_BLANCO_PROPIO.test(texto)) continue;   // tiene su propio blanco → lo cubre el patrón 2
     const limpio = texto.replace(/\s*[:,]\s*$/, '').trim();
     if (!esEtiquetaDeCampo(limpio)) continue;           // es una oración, no una etiqueta

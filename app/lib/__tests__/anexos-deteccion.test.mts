@@ -2639,3 +2639,22 @@ test('totales por línea sin precio unitario: neto = cantidad × costeo y con IV
   assert.equal(r.find(x => x.paraId === 'a3')?.valor, '2.000.000');
   assert.equal(r.find(x => x.paraId === 'a4')?.valor, '2.380.000');
 });
+
+// BUG REAL (2483-265-LE26, ANEXO Nº 3 económico): (1) «RUT N°» (sin dos puntos) al final de una tabla se emparejaba con el
+// párrafo vacío de DEBAJO de la tabla y el RUT caía lejos de su celda; (2) el hueco de «PLAZO DE ENTREGA ⇥ DÍAS HABILES» /
+// «GARANTÍA …    MESES» es un tabulador o una tira de espacios y no se podía llenar.
+test('«RUT N°» en una celda es un campo de su propia celda y plazo/garantía tienen casilla (2483-265-LE26)', async () => {
+  const { marcarHuecosDeUnidad } = await import('../anexos-docx');
+  const xml = NS + tabla(fila('NOMBRE: '), fila('RUT N°')) + p('') + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const a = analizarAnexo(norm);
+  assert.ok(a.camposConDosPuntos.some(c => c.etiqueta === 'RUT N°'), 'RUT N° debe ser un campo');
+  assert.ok(!a.candidatosCelda.some(c => /RUT/.test(c.etiqueta)), 'no debe emparejarse con el vacío de afuera de la tabla');
+  const hueco = marcarHuecosDeUnidad(NS
+    + '<w:p><w:r><w:t xml:space="preserve">PLAZO DE ENTREGA </w:t><w:tab/><w:t xml:space="preserve"> DÍAS HABILES</w:t></w:r></w:p>'
+    + p('GARANTÍA DE LOS PRODUCTOS                                 MESES') + p('RUT N°') + FIN);
+  const textos = listarParrafos(normalizarParaIds(hueco).xml).map(x => x.texto);
+  assert.match(textos[0], /PLAZO DE ENTREGA\s+_{4,}\s+DÍAS HABILES/);
+  assert.match(textos[1], /PRODUCTOS\s+_{4,}\s+MESES/);
+  assert.equal(textos[2], 'RUT N°');
+});
