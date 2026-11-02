@@ -252,6 +252,14 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
                         {item.adicionales.length > 0 && <span className="text-[11px] text-zinc-400">incluye {item.adicionales.length} adicional{item.adicionales.length === 1 ? '' : 'es'}</span>}
                         {al.map(x => <span key={x} className="text-[11.5px] font-bold text-rose-600">⚠ {x}</span>)}
                         <span className="ml-auto flex items-center gap-1">
+                          {c.archivoUrl && (
+                            <button type="button" onClick={() => window.open(c.archivoUrl!, '_blank', 'noopener,noreferrer')} title="Abrir el documento de esta cotización"
+                              className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-teal-700 px-2 py-1 rounded-md hover:bg-white" data-testid={`ver-cotizacion-${c.id}-${p.id}`}>Ver cotización</button>
+                          )}
+                          {acciones && (
+                            <button type="button" onClick={() => acciones.onAsignar(c.id)} title="Cambiar a qué producto(s) está asignada esta cotización"
+                              className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-indigo-700 px-2 py-1 rounded-md hover:bg-white" data-testid={`cambiar-producto-${c.id}-${p.id}`}>Cambiar producto</button>
+                          )}
                           <button type="button" onClick={() => onSeleccionar({ cotizacionId: c.id, productoId: p.id })} title="Ver el detalle de este precio (desglose, adicionales, avisos)"
                             className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-indigo-700 px-2 py-1 rounded-md hover:bg-white"><Info size={13} /> Detalle</button>
                         </span>

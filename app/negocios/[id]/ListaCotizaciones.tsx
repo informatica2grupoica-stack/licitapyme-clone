@@ -52,7 +52,7 @@ const fmtFecha = (ymd: string) => `${ymd.slice(8, 10)}-${ymd.slice(5, 7)}-${ymd.
 
 export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPorCotizacion, origenLabel, puedeOperar, homologandoId, onAsignar, onHomologar, onEditar, onEliminar, onCambio }: {
   negocioId?: number;
-  cotizaciones: CotizacionFilaUI[]; productos: Array<{ id: number; descripcion: string; cantidad?: number | string | null }>;
+  cotizaciones: CotizacionFilaUI[]; productos: Array<{ id: number; descripcion: string; cantidad?: number | string | null; esServicio?: boolean }>;
   avisosPorCotizacion: Record<number, number>; origenLabel: Record<string, string>; puedeOperar: boolean; homologandoId: number | null;
   onAsignar: (id: number) => void; onHomologar: (id: number) => void; onEditar: (id: number) => void; onEliminar: (id: number) => void;
   /** Recarga la lista tras agregar una línea como adicional. Sin esto (o sin negocioId) no se ofrece agregar. */
@@ -136,12 +136,18 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                         {cubiertos.map(p => {
                           const it = c.items.find(i => i.productoId === p.id)!;
                           const incluido = it.precioBase === 0;
+                          // Otra cotización cubre el mismo SERVICIO (transportes): casi siempre es una cotización mal asignada.
+                          const repetido = p.esServicio && cotizaciones.some(o => o.id !== c.id && o.items.some(i => i.productoId === p.id));
+                          const Pill = puedeOperar ? 'button' : 'span';
                           return (
-                            <span key={p.id} title={p.descripcion} className="inline-flex items-center gap-1.5 border border-zinc-200 rounded-md px-1.5 py-0.5 bg-white">
+                            <Pill key={p.id} {...(puedeOperar ? { type: 'button' as const, onClick: () => onAsignar(c.id) } : {})}
+                              title={repetido ? `Otra cotización también está asignada a «${p.descripcion}»: haz clic para cambiar el producto` : puedeOperar ? `${p.descripcion} — clic para cambiar el producto de esta cotización` : p.descripcion}
+                              className={`inline-flex items-center gap-1.5 border rounded-md px-1.5 py-0.5 bg-white ${repetido ? 'border-amber-400' : 'border-zinc-200'} ${puedeOperar ? 'hover:border-teal-400 cursor-pointer' : ''}`}>
+                              {repetido && <span className="text-amber-600" aria-label="Servicio repetido">⚠</span>}
                               <span className="text-zinc-600">{corto(p.descripcion)}</span>
                               <span className="font-bold text-zinc-900">{incluido && !it.adicionales.length ? 'incluido' : it.precioUnitario != null ? clp(it.precioUnitario) : 'sin precio'}</span>
                               {it.adicionales.length > 0 && <span className="text-[10.5px] text-zinc-400">+{it.adicionales.length} adic.</span>}
-                            </span>
+                            </Pill>
                           );
                         })}
                         {flete > 0 && (

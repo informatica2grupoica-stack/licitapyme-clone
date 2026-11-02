@@ -25,6 +25,7 @@ import type { LinksCosteo } from './LinksProducto';
 import { useLinksLeidos } from './LinksLeidos';
 import { useFichasCompras, tecnicoPorCelda, TecnicoDeCelda } from './FichasEnCotizacion';
 import { ArmarCompra, type Comb, type Recomendada, type EvaluacionCompra } from './ArmarCompra';
+import { lineasDesdeTabla } from '@/app/lib/compras-cotizacion-lineas';
 import { DESPACHO_OPCIONES, condicionesPara, condicionDesdeLegacy, aplicarDespacho } from '@/app/lib/compras-despacho';
 import { IconGavel as Gavel, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconSparkles as Sparkles, IconTrendingDown as TrendingDown, IconTruck as Truck, IconBolt as Zap, IconScale as Scale, IconCurrencyDollar as DollarSign, IconCircleCheck as CheckCircle2, IconPaperclip as Paperclip, IconListCheck as ListChecks, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconLink as Link2, IconShieldCheck as ShieldCheck, IconPencil as Pencil, IconTrash as Trash2, IconRobot as Bot, IconEye as Eye } from '@tabler/icons-react';
 
@@ -40,7 +41,7 @@ interface Cotizacion {
   plazoEntregaTexto: string | null; incluyeFlete: boolean | null; fleteMonto: number | null; despachoModalidad?: string | null; fleteCondicion?: string | null; homologadaAt: string | null; archivoUrl: string | null;
   items: Array<{ productoId: number; precioUnitario: number | null; precioBase: number | null; adicionales: Array<{ id: number; concepto: string; cantidad: number; precioUnitario: number }>; cumple: Cumple; detalleDesviacion: string | null }>;
 }
-interface Producto { id: number; descripcion: string; subestado: string; cantidad?: number | null }
+interface Producto { id: number; descripcion: string; subestado: string; cantidad?: number | null; esServicio?: boolean }
 interface ProveedorSugerido {
   proveedorId: number | null; obumaProveedorId: string; nombreEmpresa: string; rut: string | null;
   productos: Array<{ nombre: string; veces: number; ultimaFecha: string | null }>;
@@ -1113,10 +1114,41 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           if (!c) return null;
           return (
             <div id={`cotizacion-${c.id}`} className="px-4 py-3 border-t border-zinc-100">
-              <p className="text-[12.5px] font-semibold text-zinc-500 mb-1">Cotización de {c.proveedorNombre} (#{c.id})</p>
+              <p className="text-[12.5px] font-semibold text-zinc-500 mb-1 flex items-center gap-3 flex-wrap">Cotización de {c.proveedorNombre} (#{c.id})
+                {c.archivoUrl && <button type="button" onClick={() => window.open(c.archivoUrl!, '_blank', 'noopener,noreferrer')} className="text-[12px] font-semibold text-teal-700 hover:text-teal-900 underline underline-offset-2" data-testid="asignar-ver-documento">Ver el documento</button>}
+              </p>
               {(
                   <div className="mt-2 border border-teal-200 rounded-lg p-3 space-y-2 bg-teal-50/40">
                     <p className="text-[12.5px] font-bold text-zinc-800">¿Qué productos cubre esta cotización?</p>
+                    {/* Lo que dice el documento, para decidir sin salir de aquí */}
+                    {(() => {
+                      const lineas = lineasDesdeTabla(String(c.descripcionLibre || ''));
+                      return lineas.length > 0 && (
+                        <ul className="text-[11.5px] text-zinc-600 bg-white border border-zinc-200 rounded-lg px-3 py-2 space-y-0.5" data-testid="asignar-lineas-documento">
+                          <li className="font-semibold text-zinc-700">El documento trae:</li>
+                          {lineas.map((l, i) => <li key={i} className="flex justify-between gap-3"><span className="truncate" title={l.descripcion}>{l.descripcion}</span><b className="text-zinc-800 tabular-nums whitespace-nowrap">{l.cantidad != null ? `${l.cantidad} × ` : ''}{l.precioUnitario != null ? `$${Math.round(l.precioUnitario).toLocaleString('es-CL')}` : '—'}</b></li>)}
+                        </ul>
+                      );
+                    })()}
+                    {/* Atajo: la cotización es de UN solo producto (lo típico en transportes y servicios) */}
+                    <label className="block text-[12px] font-semibold text-zinc-600">Es de un solo producto: elígelo aquí
+                      <select value="" onChange={e => {
+                        const pid = Number(e.target.value); if (!pid) return;
+                        setBorradorAsignacion(() => {
+                          const nuevo: typeof borradorAsignacion = {};
+                          for (const p of productos) {
+                            const ex = c.items.find(it => it.productoId === p.id);
+                            nuevo[p.id] = p.id === pid
+                              ? { activo: true, incluido: false, precioUnitario: String(ex?.precioBase ?? ex?.precioUnitario ?? c.precioUnitario ?? ''), cumple: ex?.cumple || 'CUMPLE' }
+                              : { activo: false, incluido: false, precioUnitario: '', cumple: 'CUMPLE' };
+                          }
+                          return nuevo;
+                        });
+                      }} className="mt-0.5 block w-full sm:w-96 text-[12.5px] font-normal border border-zinc-300 rounded-lg px-2 py-1.5 bg-white">
+                        <option value="">— elegir producto (deja solo ese) —</option>
+                        {productos.map(p => <option key={p.id} value={p.id}>{p.esServicio ? '[Servicio] ' : ''}{p.descripcion.slice(0, 90)}</option>)}
+                      </select>
+                    </label>
                     <p className="text-[11.5px] text-zinc-500">Para cada producto elige una opción. Si el proveedor no lo cobra aparte porque va dentro del precio de otro (por ejemplo el carro dentro del horno), elige «Va incluido».</p>
                     {productos.map(p => {
                       const draft = borradorAsignacion[p.id] || { activo: false, precioUnitario: '', cumple: 'CUMPLE' as Cumple };
