@@ -801,7 +801,7 @@ export function AppLayout({ children, breadcrumb }: AppLayoutProps) {
   return (
     // overflow-clip (no hidden): con hidden un scrollIntoView que no cabe en <main> desplaza TODA la app
     // hacia arriba y queda un tramo en blanco abajo con el menú lateral cortado.
-    <div className="flex h-screen bg-[var(--color-surface-2)] overflow-clip transition-colors">
+    <div className="relative flex h-screen bg-[var(--color-surface-2)] overflow-clip transition-colors">
       <Sidebar mobileOpen={mobileOpen} onCloseMobile={() => setMobileOpen(false)} />
       <div className="flex-1 flex flex-col overflow-clip min-w-0">
         <TopBar breadcrumb={breadcrumb} onOpenMobile={() => setMobileOpen(true)} />
