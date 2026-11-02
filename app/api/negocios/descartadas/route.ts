@@ -2,6 +2,7 @@
 // Apartado "Descartadas" (SOLO ADMIN): lista los negocios con estado_pipeline = 'DESCARTADA'
 // con quién los descartó, el motivo, la fecha y los datos de la licitación.
 
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser } from '@/app/lib/api-auth';
@@ -76,6 +77,6 @@ export async function GET(request: NextRequest) {
       usuarios: (usuariosRes as any)[0],
     });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

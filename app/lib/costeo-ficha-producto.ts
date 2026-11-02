@@ -19,6 +19,7 @@
 //   * Profundidad 45 CM.\nVolumen en caja: 0,0657 MT3\nMaterial: Acero laminado en frío...". Se
 //   agregó un paso de cascada que parsea esas líneas con el mismo criterio de vocabulario acotado
 //   que usa el resto del proyecto (nunca NLP genérico): clave corta (≤4 palabras) seguida de ":".
+import { fetchSeguro } from '@/app/lib/url-segura';
 import { generarInformePdf } from '@/app/lib/generar-informe';
 
 export interface EspecificacionProducto { clave: string; valor: string }
@@ -44,7 +45,7 @@ async function descargarHtml(url: string): Promise<string | null> {
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
-    const res = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': USER_AGENT, Accept: 'text/html' } });
+    const res = await fetchSeguro(url, { signal: ctrl.signal, headers: { 'User-Agent': USER_AGENT, Accept: 'text/html' } });
     if (!res.ok) return null;
     return await res.text();
   } catch {
@@ -146,7 +147,7 @@ async function descargarImagenComoDataUri(url: string): Promise<string | null> {
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
-    const res = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': USER_AGENT } });
+    const res = await fetchSeguro(url, { signal: ctrl.signal, headers: { 'User-Agent': USER_AGENT } });
     if (!res.ok) return null;
     const buf = Buffer.from(await res.arrayBuffer());
     if (!buf.length || buf.length > MAX_BYTES_IMAGEN) return null;

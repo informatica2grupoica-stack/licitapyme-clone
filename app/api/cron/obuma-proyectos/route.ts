@@ -6,6 +6,7 @@
 // Protección igual que los demás cron: x-vercel-cron:1 · Bearer <CRON_SECRET> · ?secret= · x-cron-secret.
 // GET  → estado (cuántos proyectos hay guardados y de cuándo es el último snapshot).
 // POST → corre el scrape + guardado. Puede tardar (abre un Chrome real, hace login) — maxDuration alto.
+import { igualSecreto } from '@/app/lib/cron-secret';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { actualizarProyectosObuma } from '@/app/lib/obuma-proyectos-scraper';
@@ -17,10 +18,9 @@ export const maxDuration = 120;
 function autorizado(req: NextRequest): boolean {
   if (process.env.VERCEL && req.headers.get('x-vercel-cron') === '1') return true;
   const secret =
-    req.nextUrl.searchParams.get('secret') ||
     req.headers.get('x-cron-secret') ||
     (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
-  return !!process.env.CRON_SECRET && secret === process.env.CRON_SECRET;
+  return igualSecreto(secret, process.env.CRON_SECRET);
 }
 
 export async function GET(req: NextRequest) {

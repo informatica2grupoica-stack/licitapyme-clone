@@ -1,5 +1,6 @@
 // app/api/palabras-clave/route.ts
 // CRUD de palabras clave para búsqueda automática
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { clienteDeHeader } from '@/app/lib/tenant';
@@ -71,7 +72,7 @@ export async function GET(request: NextRequest) {
       );
       return NextResponse.json({ success: true, keywords: rows });
     }
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -138,7 +139,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, id, keyword: kw, es_negativa: negativa });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -172,7 +173,7 @@ export async function PATCH(request: NextRequest) {
     );
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -196,6 +197,6 @@ export async function DELETE(request: NextRequest) {
     );
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

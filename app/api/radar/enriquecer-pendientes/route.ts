@@ -19,6 +19,7 @@
 // (NO requiere IP chilena, a diferencia de la descarga de documentos).
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import type { Licitacion } from '@/app/types/mercado-publico.types';
@@ -158,6 +159,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('[enriquecer:POST]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

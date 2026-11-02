@@ -11,6 +11,7 @@
 // GET  → estado (cuántas compras hay guardadas y de cuándo es la última).
 // POST → corre la sincronización. Body/query: { paginas?: number } (default 5, máximo 50 — el
 //        backfill inicial se corrió a mano con 39, que cubre el historial completo a ago-2026).
+import { igualSecreto } from '@/app/lib/cron-secret';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { sincronizarComprasObuma } from '@/app/lib/obuma-compras';
@@ -22,10 +23,9 @@ export const maxDuration = 300;
 function autorizado(req: NextRequest): boolean {
   if (process.env.VERCEL && req.headers.get('x-vercel-cron') === '1') return true;
   const secret =
-    req.nextUrl.searchParams.get('secret') ||
     req.headers.get('x-cron-secret') ||
     (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
-  return !!process.env.CRON_SECRET && secret === process.env.CRON_SECRET;
+  return igualSecreto(secret, process.env.CRON_SECRET);
 }
 
 export async function GET(req: NextRequest) {

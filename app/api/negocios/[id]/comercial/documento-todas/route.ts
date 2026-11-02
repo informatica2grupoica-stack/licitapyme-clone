@@ -9,6 +9,7 @@
 //     Las líneas sin bloque quedan intactas y se listan; los bloques sin línea también se listan.
 //
 // Por qué no manda el documento completo a cada línea: produce falsos "0 de N cumple" (ver auditor-segmentacion.ts).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { publicarCambio } from '@/app/lib/sse-bus';
@@ -189,6 +190,6 @@ export async function POST(request: NextRequest, { params }: Params) {
     });
   } catch (error) {
     console.error('[comercial][documento-todas]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

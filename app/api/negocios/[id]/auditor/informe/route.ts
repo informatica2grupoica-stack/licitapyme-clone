@@ -7,6 +7,7 @@
 //                            sesión del usuario (?imprimir=1) y la imprime.
 //   GET ?formato=documento → PDF A4 del documento aparte (informe de texto ordenado), por si la impresión de la pantalla no está disponible
 //   GET ?formato=html  → el mismo documento como HTML imprimible (respaldo si el chromium del servidor no está disponible)
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { contextoAuditor } from '@/app/lib/auditor-acceso';
 import { armarPanelAuditor } from '@/app/lib/auditor-opciones';
@@ -58,6 +59,6 @@ export async function GET(request: NextRequest, { params }: Params) {
     }
   } catch (e) {
     console.error('[auditor][informe]', String(e).slice(0, 300));
-    return NextResponse.json({ error: String(e instanceof Error ? e.message : e) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(e, 'No se pudo generar el informe.') }, { status: 500 });
   }
 }

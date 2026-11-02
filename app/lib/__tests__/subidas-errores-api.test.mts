@@ -23,3 +23,14 @@ test('errores: los del sistema (MySQL, red, código) no salen al navegador', () 
   assert.equal(mensajeSeguro(null, 'No se pudo'), 'No se pudo');
   assert.equal(mensajeSeguro(new Error(''), 'No se pudo'), 'No se pudo');
 });
+
+import { igualSecreto } from '../cron-secret';
+test('cron: el secreto se compara completo y falla cerrado si falta alguno', () => {
+  assert.equal(igualSecreto('abc123', 'abc123'), true);
+  assert.equal(igualSecreto('abc124', 'abc123'), false);
+  assert.equal(igualSecreto('abc', 'abc123'), false);
+  assert.equal(igualSecreto('', 'abc123'), false);
+  assert.equal(igualSecreto('abc123', ''), false);
+  assert.equal(igualSecreto('abc123', undefined), false);
+  assert.equal(igualSecreto(null, null), false);
+});

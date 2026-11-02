@@ -8,6 +8,7 @@
 //          Documentos y el mensaje único por proveedor.
 //   POST → { accion, ... }: leer_documento · releer_documento · emparejar_documento · asignar_producto · cambiar_via ·
 //          crear_opcion · agregar_ficha · verificar_mercado · verificar_costo_ia · justificar_ahorro · posicion_precio · verificar_tecnico (compara la línea de la opción) · confirmar_celda · agregar_link · no_ofertar · reofertar · agregar/estimar/anular/restaurar_costo_asociado · descartar · restaurar · firmar · quitar_firma · solicitar_aprobacion · aprobar · rechazar
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { invalidarEnVuelo } from '@/app/lib/en-vuelo';
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, ...panel, posicion, presupuesto: pres ? { neto: pres.neto, fuente: pres.fuente } : null });
   } catch (e) {
     console.error('[auditor][GET]', String(e));
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(e, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 

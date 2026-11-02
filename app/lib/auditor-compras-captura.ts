@@ -221,16 +221,8 @@ export interface EnlaceFicha { url: string; texto: string; nombre: string }
 const RE_FICHA = /ficha|datasheet|data sheet|especificaci|manual|brochure|cat[aá]logo|hoja t[eé]cnica|technical/i;
 const RE_NO_FICHA = /pol[ií]tica|t[eé]rminos|condiciones|devoluci|garant[ií]a|privacidad|reclamos|cambios|despacho|bases|boleta|factura/i;
 
-/** Dirección que el servidor puede bajar sin riesgo: http(s), nunca localhost ni redes privadas (evita que un link mande al servidor a leer algo interno). */
-export async function urlPublicaSegura(url: string): Promise<boolean> {
-  try {
-    const u = new URL(url);
-    if (!/^https?:$/.test(u.protocol)) return false;
-    const { lookup } = await import('node:dns/promises');
-    const dirs = await lookup(u.hostname, { all: true });
-    return dirs.length > 0 && dirs.every(d => !/^(10\.|127\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$|fc|fd|fe80)/i.test(d.address));
-  } catch { return false; }
-}
+// Guardián compartido (SSRF): vive en url-segura.ts; se re-exporta para no tocar a quien ya lo importa desde aquí.
+export { urlPublicaSegura } from '@/app/lib/url-segura';
 
 /** Abre la página del producto y devuelve los enlaces que parecen una ficha técnica (PDF o texto «ficha técnica», «datasheet», «manual»…). No descarga nada. */
 export async function buscarFichasEnPagina(url: string): Promise<EnlaceFicha[]> {

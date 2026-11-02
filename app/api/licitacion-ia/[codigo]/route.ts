@@ -3,6 +3,7 @@
 // GET  → devuelve el análisis guardado en BD.
 // POST → extrae texto de todos los documentos, analiza con Gemini y guarda.
 
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { generarAnalisisExhaustivo } from '@/app/lib/analisis-exhaustivo';
@@ -63,7 +64,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!row) return NextResponse.json({ success: true, analisis: null });
     return NextResponse.json({ success: true, analisis: rowToAnalisis(row) });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -99,6 +100,6 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   } catch (error) {
     console.error('[licitacion-ia] Error:', error);
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

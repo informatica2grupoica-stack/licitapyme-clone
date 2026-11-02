@@ -9,6 +9,7 @@
 //          planilla, sin tocar lo que el usuario ya tipeó (ver fusionarConViabilidad).
 //   PUT  → guarda lo editado y lo ingresa como una nueva versión de checklist_comercial_costeo
 //          (origen='editor') — misma alerta, mismo auto-precarga del checklist que el Excel.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { puedeVerNegocioAsignado, permisosCrudosDeUsuario } from '@/app/lib/api-auth';
@@ -325,7 +326,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, estado: r.estado, actualizadoAt: ahora });
   } catch (error) {
     console.error('[comercial/costeo-editor][PATCH]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -413,7 +414,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, version, alertas, totales, actualizadoAt: ahora });
   } catch (error) {
     console.error('[comercial/costeo-editor][PUT]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 

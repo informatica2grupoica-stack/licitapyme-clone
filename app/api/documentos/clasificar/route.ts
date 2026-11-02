@@ -4,6 +4,7 @@
 // POST { codigo } → clasifica y persiste la categoría de cada documento.
 // PATCH → mueve un documento a otra caja manualmente.
 
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { puedeVerLicitacion } from '@/app/lib/api-auth';
@@ -112,6 +113,6 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

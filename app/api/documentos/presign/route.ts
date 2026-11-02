@@ -8,6 +8,7 @@
 //   2. Frontend → PUT <uploadUrl> con el archivo (directo a R2, sin Vercel)
 //   3. Frontend → POST /api/documentos/guardar  → guarda en MySQL
 
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -60,6 +61,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ uploadUrl, publicUrl, key });
   } catch (error) {
     console.error('Error generando URL presignada:', error);
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

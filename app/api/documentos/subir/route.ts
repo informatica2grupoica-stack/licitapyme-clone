@@ -1,4 +1,5 @@
 // app/api/documentos/subir/route.ts
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { guardarDocumentoEnCache } from '@/app/services/documentosService.server';
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, documentos: resultado });
   } catch (error) {
     console.error('Error subiendo documentos:', error);
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 

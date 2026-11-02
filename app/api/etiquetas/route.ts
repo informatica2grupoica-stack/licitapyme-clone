@@ -1,5 +1,6 @@
 // app/api/etiquetas/route.ts
 // Gestión de etiquetas/líneas de negocio — GET público, POST/DELETE solo admin
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { registrarActividad } from '@/app/lib/actividad';
@@ -26,7 +27,7 @@ export async function GET(request: NextRequest) {
     if (error?.code === 'ER_NO_SUCH_TABLE') {
       return NextResponse.json({ success: true, etiquetas: [] });
     }
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -54,7 +55,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     if (error.code === 'ER_DUP_ENTRY')
       return NextResponse.json({ error: 'Esa etiqueta ya existe' }, { status: 409 });
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -80,7 +81,7 @@ export async function PATCH(request: NextRequest) {
     });
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -110,6 +111,6 @@ export async function DELETE(request: NextRequest) {
     });
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

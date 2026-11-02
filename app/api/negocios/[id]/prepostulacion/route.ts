@@ -5,6 +5,7 @@
 //
 //   GET  → tablero: líneas, certificado por línea, ítems técnico-administrativos y candado con sus causales.
 //   POST → { accion, ... }: revisar_linea · revisar_todas · confirmar · desconfirmar · confirmar_varios · no_aplica · restaurar · agregar_item · segunda_pasada
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { contextoAuditor } from '@/app/lib/auditor-acceso';
 import { invalidarEnVuelo } from '@/app/lib/en-vuelo';
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, ...dto });
   } catch (e) {
     console.error('[prepostulacion][GET]', String(e));
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(e, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 

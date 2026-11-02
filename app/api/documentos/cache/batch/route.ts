@@ -3,6 +3,7 @@
 // consulta (evita el N+1 de disparar un fetch por cada tarjeta en Postuladas/listas).
 // Body: { codigos: string[], categoria?: string }
 // Respuesta: { success, docs: { [codigo]: fila[] } }
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser, permisosDeUsuario } from '@/app/lib/api-auth';
@@ -83,6 +84,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, docs });
   } catch (error) {
     console.error('Error batch documentos/cache:', error);
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

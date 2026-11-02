@@ -5,6 +5,7 @@
 // nombre de la caja y nunca la IA. El WHERE categoria = 'DOCUMENTOS_PROPIOS' impide que
 // esto toque documentos de la licitación aunque el front tenga un bug.
 
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getClienteId, puedeVerLicitacion } from '@/app/lib/api-auth';
@@ -26,6 +27,6 @@ export async function PATCH(req: NextRequest) {
     );
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

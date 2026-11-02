@@ -9,6 +9,7 @@
 //   PATCH → guarda el cotizado sí/no, el precio cotizado y/o el documento legado de UNA fila (filaId).
 //   POST  → crea UNA cotización (un documento) que cubre una o más filas a la vez, cada una con su
 //           propio precio cotizado (migration-130: antes solo se podía un documento por fila).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { puedeVerNegocioAsignado, permisosCrudosDeUsuario } from '@/app/lib/api-auth';
@@ -113,7 +114,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('[comercial/auditor-compra][PATCH]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -160,6 +161,6 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, cotizacionId });
   } catch (error) {
     console.error('[comercial/auditor-compra][POST]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

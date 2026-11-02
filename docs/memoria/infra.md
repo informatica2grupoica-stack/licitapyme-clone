@@ -3,6 +3,23 @@
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió. Sin
 direcciones de servidores ni claves: esos datos viven en los `.env`, fuera del repo.
 
+## 2026-11-02 — Auditoría de seguridad de toda la plataforma: lo corregido y lo pendiente
+- **Next 16.2.6 → 16.4.4** (exacta, con eslint-config-next igual). La anterior tenía bypass del proxy con Turbopack (toda la autenticación vive en
+  `proxy.ts`) y RCE en optimizador de imágenes/next/og (la app no usa next/image ni next/og). `npm audit`: de 35 (1 crítica, 16 altas) a 16
+  (0 críticas, 1 alta). Build de producción OK y 1692 tests OK; **sin probar la app corriendo**: desplegar con `deploy.sh` y revisar login y Compras.
+- **xlsx 0.18.5 → 0.20.3 desde el CDN de SheetJS** (`package.json` apunta a la URL; el de npm no tiene arreglo). Cualquier `npm install` limpio lo baja de ahí.
+- **SSRF**: `app/lib/url-segura.ts` (`urlPublicaSegura`, `fetchSeguro` con redirecciones a mano). Lo usan costeo-ficha-producto, producto-referencia,
+  la subida de costeo (`comercial/costeo`, URL que manda el navegador), las imágenes de las fichas y la captura del auditor. Riesgo restante: DNS rebinding.
+- Mismo día, segunda tanda: **nodemailer 9 → 10.3.1** (compila igual; **probar un correo tras desplegar**: `/api/admin/test-email`). `npm audit`: 15
+  (0 críticas, 0 altas). **Cron y `admin/prefiltro` ya NO aceptan `?secret=`**: solo `Authorization: Bearer` o `x-cron-secret` (el scheduler ya
+  manda ambos), con comparación en tiempo constante (`app/lib/cron-secret.ts`). Borrada la ruta temporal `admin/clasificar-test`. `String(error)`
+  al cliente reemplazado por `mensajeSeguro` en rutas de negocios. Subidas de `empresas/[id]/documentos` (20 MB) y `firmas` (5 MB); las demás ya tenían tope.
+- Revisadas a mano las 38 rutas que mi búsqueda marcó «sin chequeo»: casi todas usan `getAuthedUser` (api-auth) o `auditor-acceso`; `usuarios`, `debug/*`,
+  `analizadas`, `radar/*` exigen admin; `documentos/estado`, `analizar-documento` y `pdf-pagina` solo piden sesión y no entregan datos de negocios.
+  Ningún IDOR confirmado. El `UPDATE` que parecía estar en un GET de `comercial/costeo` está en `ingresarVersionCosteo` (no es GET).
+- **Sigue pendiente**: pasar el CSP de `Report-Only` a bloqueo (mirar la consola del navegador en producción); filtro `cliente_id` en Compras antes de
+  activarla para otras empresas; DNS rebinding del guardián de URLs.
+
 ## Estado vigente
 
 - **Producción en el VPS chileno** (reemplazó al notebook). El dominio `licitank.cl` apunta al VPS

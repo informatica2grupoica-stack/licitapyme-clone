@@ -4,6 +4,7 @@
 // Queda en `reportes_error` (migration-123) y se avisa por campana a TODOS los admin, que lo
 // gestionan en /admin/errores (API: /api/admin/reportes-error).
 // GET — los reportes PROPIOS del usuario, para /mis-reportes (ver cómo se resolvió cada uno).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser } from '@/app/lib/api-auth';
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest) {
     const reportes = (rows as any[]).map(r => ({ ...r, adjuntos: (adj as any[]).filter(a => a.reporte_id === r.id) }));
     return NextResponse.json({ success: true, reportes });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(e, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 

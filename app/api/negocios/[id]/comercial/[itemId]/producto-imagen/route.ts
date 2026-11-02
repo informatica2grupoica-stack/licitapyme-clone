@@ -7,6 +7,7 @@
 //
 // Ruta aparte porque el resto de acciones de la línea viajan como JSON y esta necesita
 // multipart/form-data para el archivo (mismo patrón que app/api/empresas/[id]/documentos/route.ts).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 import { yaCongelado } from '@/app/lib/congelamiento';
@@ -68,6 +69,6 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, productos: await productosDeItem(item, negocio.licitacion_codigo) });
   } catch (error) {
     console.error('[comercial][producto-imagen][POST]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

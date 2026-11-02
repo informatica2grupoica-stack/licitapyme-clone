@@ -4,6 +4,7 @@
 // que /negocios/[id], sin tener el `id` de la fila a mano (solo el código de la licitación).
 // Mismo shape que la lista de /api/negocios (GET), sin el enrichment de documentos/viabilidad/
 // adjudicación que la página de licitación ya trae por su cuenta.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getClienteId, puedeVerLicitacion } from '@/app/lib/api-auth';
@@ -53,6 +54,6 @@ export async function GET(
     return NextResponse.json({ success: true, negocio });
   } catch (error) {
     console.error('Error negocio por código:', error);
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

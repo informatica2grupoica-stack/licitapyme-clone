@@ -6,6 +6,7 @@
 // decide el aviso de "especificaciones copiadas". El modelo extrae, el código decide.
 // Corre solo a pedido y solo en proyectos asignados (lo exige la ruta). Rotulado "Referencia para buscar":
 // no cambia la ficha ni lo que se oferta.
+import { fetchSeguro } from '@/app/lib/url-segura';
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 import { parseJsonIA } from '@/app/lib/json-ia';
@@ -168,7 +169,7 @@ function htmlATexto(html: string): string {
 
 async function descargarTextoCandidato(url: string): Promise<string> {
   try {
-    const r = await fetch(url, { signal: AbortSignal.timeout(15_000), redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Licitank/1.0)' } });
+    const r = await fetchSeguro(url, { signal: AbortSignal.timeout(15_000), headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Licitank/1.0)' } });
     if (!r.ok) return '';
     const buf = Buffer.from(await r.arrayBuffer());
     if (buf.length === 0 || buf.length > MAX_BYTES_DESCARGA) return '';

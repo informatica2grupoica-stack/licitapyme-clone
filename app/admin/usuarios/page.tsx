@@ -20,6 +20,7 @@ interface Permisos {
   entrega_proyectos?: boolean;
   viabilidad_automatica?: boolean;
   repartir_puente?: boolean;
+  recibe_licitaciones?: boolean;
   compras?: boolean;
   compras_administracion?: boolean;
   compras_bodega?: boolean;
@@ -98,7 +99,8 @@ const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string; cat
   // ── Aprobaciones y reparto ──
   { key: 'aprobar_comercial',   label: 'Jefe de ventas (aprobar Información Comercial)', desc: 'Bandeja de Aprobaciones, aprobar en el Auditor y acceso a Compras como jefatura.', categoria: 'gestion' },
   { key: 'repartir_puente',     label: 'Puente (repartir trabajo)',      desc: 'Empuja licitaciones del Radar al Puente y las reparte entre perfiles.', categoria: 'gestion' },
-  { key: 'entrega_proyectos',   label: 'Entrega de Proyectos',           desc: 'Recibe el aviso cuando ganamos y debe acusar recibo del proyecto.', categoria: 'gestion' },
+  { key: 'recibe_licitaciones', label: 'Recibe licitaciones (aparece en el Puente)', desc: 'Trabaja licitaciones: aparece en «Repartir a» del Puente. Sirve también para un admin. Si nunca se toca, aparece salvo que esté encerrado en Compras o sea externo.', categoria: 'gestion' },
+  { key: 'entrega_proyectos',   label: 'Entrega de Proyectos',          desc: 'Recibe el aviso cuando ganamos y debe acusar recibo del proyecto.', categoria: 'gestion' },
   // ── Compras ──
   { key: 'compras',             label: 'Encargado de Compras',           desc: 'Entra al pool de asignación de negocios ganados y opera todo el negocio.', categoria: 'compras' },
   { key: 'compras_administracion', label: 'Administración (pagos/facturación)', desc: 'Solo el Proceso Administrativo: OC emitida, pago, anticipo, factura, carpeta y fondos.', categoria: 'compras' },
@@ -132,7 +134,12 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const toggle = (k: keyof Permisos) => setPermisos(p => ({ ...p, [k]: !p[k] }));
+  // `recibe_licitaciones` sin fijar equivale a «sí» salvo Compras-encerrado/externo (misma regla que el Puente).
+  const valor = (k: keyof Permisos) =>
+    k === 'recibe_licitaciones' && permisos[k] === undefined
+      ? usuario.rol !== 'externo' && !permisos.solo_compras && !permisos.compras_auditor
+      : !!permisos[k];
+  const toggle = (k: keyof Permisos) => setPermisos(p => ({ ...p, [k]: !valor(k) }));
   const fijarGrupo = (cat: CategoriaPermiso, valor: boolean) =>
     setPermisos(p => ({ ...p, ...Object.fromEntries(clavesDeGrupo(cat).map(k => [k, valor])) }));
 
@@ -181,19 +188,19 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
 
           {usuario.rol === 'admin' ? (
             <>
-              <p className="text-xs text-gray-500 dark:text-zinc-400">El resto de los permisos granulares no aplica: un admin ya los tiene todos implícitos. La única excepción es Compras (ver arriba en el catálogo por qué).</p>
+              <p className="text-xs text-gray-500 dark:text-zinc-400">El resto de los permisos granulares no aplica: un admin ya los tiene todos implícitos. Las excepciones son Compras (ver arriba en el catálogo por qué) y «Recibe licitaciones» (quién aparece en el Puente).</p>
               <div className="rounded-xl border border-gray-100 dark:border-white/10 bg-gray-50/70 dark:bg-white/[0.03] p-3">
                 <div className="flex items-center gap-1.5 mb-1 text-[10.5px] font-bold uppercase tracking-wide text-gray-400 dark:text-zinc-500">
                   <Briefcase size={12} /> Flujo comercial
                 </div>
                 <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
-                  {CATALOGO_PERMISOS.filter(p => p.key === CLAVE_COMPRAS_TODO).map(p => (
+                  {CATALOGO_PERMISOS.filter(p => p.key === CLAVE_COMPRAS_TODO || p.key === 'recibe_licitaciones').map(p => (
                     <div key={p.key} className="flex items-start justify-between gap-2 py-2.5">
                       <span className="min-w-0">
                         <span className="block text-[12.5px] font-medium text-gray-800 dark:text-zinc-200 leading-snug">{p.label}</span>
                         <span className="block text-[11px] text-gray-400 dark:text-zinc-500 leading-snug mt-0.5">{p.desc}</span>
                       </span>
-                      <Switch checked={!!permisos[p.key]} onChange={() => toggle(p.key)} label={p.label} />
+                      <Switch checked={valor(p.key)} onChange={() => toggle(p.key)} label={p.label} />
                     </div>
                   ))}
                 </div>
@@ -205,7 +212,7 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {CATEGORIAS_PERMISOS.map(cat => {
                   const claves = clavesDeGrupo(cat.key);
-                  const activos = claves.filter(k => permisos[k]).length;
+                  const activos = claves.filter(k => valor(k)).length;
                   const todos = activos === claves.length;
                   const destacado = cat.key === 'auditor';
                   return (
@@ -244,7 +251,7 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
                               <span className="block text-sm font-semibold text-gray-800 dark:text-zinc-200 leading-snug">{p.label}</span>
                               <span className="block text-[12.5px] text-gray-500 dark:text-zinc-400 leading-snug mt-0.5">{p.desc}</span>
                             </span>
-                            <Switch checked={!!permisos[p.key]} onChange={() => toggle(p.key)} label={p.label} />
+                            <Switch checked={valor(p.key)} onChange={() => toggle(p.key)} label={p.label} />
                           </div>
                         ))}
                       </div>

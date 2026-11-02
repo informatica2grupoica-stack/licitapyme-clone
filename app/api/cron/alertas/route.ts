@@ -13,6 +13,8 @@
 //      prioriza los que pegaron y rota el resto → cobertura crece entre corridas y
 //      se persiste en el caché (compartido con la búsqueda manual)
 
+import { mensajeSeguro } from '@/app/lib/errores-api';
+import { igualSecreto } from '@/app/lib/cron-secret';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
@@ -263,7 +265,7 @@ async function batchInsertAlertas(
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
   const isCron     = !!process.env.VERCEL && request.headers.get('x-vercel-cron') === '1';
-  const isManual   = CRON_SECRET !== '' && authHeader === `Bearer ${CRON_SECRET}`;
+  const isManual   = igualSecreto((authHeader || '').replace(/^Bearer\s+/i, ''), CRON_SECRET);
 
   if (!isCron && !isManual) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
@@ -644,7 +646,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     stats.duracionMs = elapsed();
     console.error('[Cron] ❌ Error general:', error);
-    return NextResponse.json({ success: false, error: String(error), ...stats }, { status: 500 });
+    return NextResponse.json({ success: false, error: mensajeSeguro(error, 'No se pudo completar la operación.'), ...stats }, { status: 500 });
   }
 }
 

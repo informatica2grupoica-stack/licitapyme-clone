@@ -1,4 +1,5 @@
 // src/app/api/documentos/estado/route.ts
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerJob } from '@/app/lib/redis';
 
@@ -22,6 +23,6 @@ export async function GET(request: NextRequest) {
       error: job.error,
     });
   } catch (error) {
-    return NextResponse.json({ status: 'error', error: String(error) }, { status: 500 });
+    return NextResponse.json({ status: 'error', error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

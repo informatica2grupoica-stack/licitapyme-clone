@@ -17,6 +17,7 @@
 //                    Gestión en Anexos+) inferido del máximo estado alcanzado antes del descarte.
 //   · mpEstado     → estado EFECTIVO de Mercado Público (Publicada vencida → Cerrada).
 //   · resultado    → ganada/perdida/evaluación desde estado_pipeline (el cron lo auto-promueve).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
@@ -275,6 +276,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('Error en dashboard/analitica:', error);
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

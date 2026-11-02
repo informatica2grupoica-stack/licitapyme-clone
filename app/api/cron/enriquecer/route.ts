@@ -16,6 +16,7 @@
 //
 // Protección: x-vercel-cron:1 · Authorization: Bearer <CRON_SECRET> · ?secret= · x-cron-secret.
 
+import { igualSecreto } from '@/app/lib/cron-secret';
 import { NextRequest, NextResponse } from 'next/server';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import type { Licitacion } from '@/app/types/mercado-publico.types';
@@ -34,10 +35,9 @@ const PRESUPUESTO_MS   = 52_000; // margen bajo maxDuration=60
 function autorizado(req: NextRequest): boolean {
   if (process.env.VERCEL && req.headers.get('x-vercel-cron') === '1') return true;
   const secret =
-    req.nextUrl.searchParams.get('secret') ||
     req.headers.get('x-cron-secret') ||
     (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
-  return !!process.env.CRON_SECRET && secret === process.env.CRON_SECRET;
+  return igualSecreto(secret, process.env.CRON_SECRET);
 }
 
 // Universo a cubrir: activas + últimos N días, deduplicado (preferir versión con fecha).

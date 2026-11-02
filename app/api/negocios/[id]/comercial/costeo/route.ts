@@ -18,6 +18,8 @@
 // asistente→asesor), pero no está protegido: el siguiente guardado del costeo lo pisa igual. El
 // ÚNICO freno real es aprobar el punto — ahí sí queda fijo hasta que el asesor lo reabra, que es
 // la decisión que la alerta de discordancia existe para avisar.
+import { mensajeSeguro } from '@/app/lib/errores-api';
+import { fetchSeguro } from '@/app/lib/url-segura';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { registrarEvento } from '@/app/lib/historial';
@@ -294,7 +296,9 @@ export async function POST(request: NextRequest, { params }: Params) {
     const nombreArchivo = String(body.nombre || 'costeo.xlsx').trim();
     if (!url) return NextResponse.json({ error: 'Falta la URL del archivo subido' }, { status: 400 });
 
-    const res = await fetch(url);
+    // La URL la manda el navegador: se baja solo si es pública (no una dirección interna del servidor).
+    let res: Response;
+    try { res = await fetchSeguro(url); } catch { return NextResponse.json({ error: 'No se pudo descargar el archivo subido' }, { status: 400 }); }
     if (!res.ok) return NextResponse.json({ error: 'No se pudo descargar el archivo subido' }, { status: 400 });
     const buffer = Buffer.from(await res.arrayBuffer());
 
@@ -311,7 +315,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, version, alertas, totales });
   } catch (error) {
     console.error('[comercial/costeo][POST]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -357,6 +361,6 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('[comercial/costeo][DELETE]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

@@ -9,6 +9,8 @@
 //          ?tipo=logo|firma|timbre  → limpia la columna singular correspondiente
 //
 // Mutaciones solo admin, igual que el resto del CRUD de empresas (app/api/empresas/[id]/route.ts).
+import { errorDeArchivoSubido } from '@/app/lib/subidas';
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { subirDocumentoR2 } from '@/app/lib/r2';
@@ -43,6 +45,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     const tipo = String(formData.get('tipo') || '');
     const file = formData.get('file') as File | null;
     if (!file) return NextResponse.json({ error: 'Falta el archivo' }, { status: 400 });
+    const errArchivo = errorDeArchivoSubido(file);
+    if (errArchivo) return NextResponse.json({ error: errArchivo }, { status: 400 });
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const publicUrl = await subirDocumentoR2(`empresas/${id}`, file.name, buffer, file.type);
@@ -78,7 +82,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: `Tipo de documento inválido: "${tipo}"` }, { status: 400 });
   } catch (error) {
     console.error('[empresas][documentos][POST]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -133,6 +137,6 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Falta documentoId o tipo' }, { status: 400 });
   } catch (error) {
     console.error('[empresas][documentos][DELETE]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

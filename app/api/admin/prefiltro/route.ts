@@ -6,13 +6,14 @@
 //   1. Enriquecer las que no tienen caché (llama a MP API para obtener descripción + ítems).
 //   2. Prefiltrar con la metadata completa (nombre + descripción + ítems).
 //
-// GET  ?secret=...              → estado: total / con_prefiltro / pendientes
-// POST ?secret=...              → procesa el siguiente lote
+// GET  (cabecera x-cron-secret)  → estado: total / con_prefiltro / pendientes
+// POST (cabecera x-cron-secret)  → procesa el siguiente lote
 //   body: { lote?: number, reset?: boolean }
 //   reset=true borra registros existentes (re-run completo con nuevo prompt v2.0)
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { igualSecreto } from '@/app/lib/cron-secret';
 import { prefiltrarYGuardar } from '@/app/lib/prefiltro';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { leerCache, enriquecerYCachear } from '@/app/lib/licitaciones-cache';
@@ -21,10 +22,11 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
+// Solo por cabecera (x-cron-secret o Bearer): en la URL el secreto quedaba en los logs, y este endpoint puede BORRAR todo el prefiltro (reset).
 function autenticado(req: NextRequest): boolean {
-  const secret = req.nextUrl.searchParams.get('secret')
-    || req.headers.get('x-cron-secret');
-  return !!secret && secret === process.env.CRON_SECRET;
+  const secret = req.headers.get('x-cron-secret')
+    || (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  return igualSecreto(secret, process.env.CRON_SECRET);
 }
 
 async function contarEstado(): Promise<{ total: number; con_prefiltro: number; pendientes: number }> {

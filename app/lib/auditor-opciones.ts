@@ -236,6 +236,10 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
   const respaldosPorOpcion = new Map<number, any[]>();
   for (const r of reRows as any[]) (respaldosPorOpcion.get(r.opcion_id) || respaldosPorOpcion.set(r.opcion_id, []).get(r.opcion_id)!).push(r);
 
+  // «extracción:producto» que ya es la opción de SU línea: no se ofrece como complemento de otra (1090-17-LE26: los 10 productos de un PDF salían como «también trae» del azadón).
+  const conLineaPropia = new Set<string>();
+  for (const o of opRows as any[]) if (o.estado !== 'descartada')
+    for (const r of respaldosPorOpcion.get(o.id) || []) if (r.vigente && r.tipo !== 'ficha_tecnica' && r.extraccion_id != null && r.producto_idx != null) conLineaPropia.add(`${r.extraccion_id}:${r.producto_idx}`);
   const opcionesPorFila = new Map<string, OpcionDTO[]>();
   // «extracción:producto» de cada producto que se sumó como complemento de una opción: en su cotización ya no cuenta como «sin línea».
   const usadosComoComplemento = new Map<string, { opcionId: number; filaId: string; nombre: string }>();
@@ -269,7 +273,8 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
     if (sostiene?.extraccion_id != null && o.estado !== 'descartada') for (const c of comps) if (c.clave.startsWith('p:'))
       usadosComoComplemento.set(`${sostiene.extraccion_id}:${c.clave.slice(2)}`, { opcionId: o.id, filaId: o.fila_id, nombre: [o.marca, o.modelo].filter(Boolean).join(' ') || productoBase?.nombre || 'la opción' });
     const sugerenciasComplemento = data && sostiene?.producto_idx != null && sostiene.tipo !== 'link_web' && !['descartada', 'en_aprobacion', 'aprobada'].includes(o.estado)
-      ? sugerenciasDeComplementos(data, sostiene.producto_idx, new Set(comps.map(c => c.clave))) : [];
+      ? sugerenciasDeComplementos(data, sostiene.producto_idx, new Set(comps.map(c => c.clave)))
+        .filter(sg => !sg.clave.startsWith('p:') || !conLineaPropia.has(`${sostiene.extraccion_id}:${sg.clave.slice(2)}`)) : [];
     if (correccionCosto && productoLeido) correccionCosto.leido = { precio: productoLeido.precio, iva: productoLeido.iva };
     const capturas = capturasPorOpcion.get(o.id) || [];
     const capSostiene = sostiene?.tipo === 'link_web' ? capturas.find(c => c.respaldoId === sostiene.id) ?? null : null;
@@ -469,6 +474,14 @@ async function crearOpcionDesdeProducto(params: {
       || (!prod.modelo && !o.modelo && (prod.marca || '').toLowerCase() === String(o.marca || '').toLowerCase());
     return mismoProveedor && mismoProducto;
   });
+  // Dos productos DISTINTOS del mismo documento nunca son la misma opción (1090-17-LE26: «Azadón con mango de 2 LBS» y «… 2 1/2 LBS» de una misma captura,
+  // sin marca ni modelo, se tomaban por uno solo: asignar el segundo a la línea no hacía nada y seguía en «Productos sin línea»).
+  if (coincide.length) {
+    const [mismoDoc] = await pool.query(`SELECT DISTINCT opcion_id FROM auditor_respaldo WHERE extraccion_id = ? AND producto_idx <> ? AND vigente = 1 AND opcion_id IN (?)`,
+      [extraccionId, productoIdx, coincide.map(o => o.id)]) as any;
+    const deOtroProducto = new Set((mismoDoc as any[]).map(r => r.opcion_id));
+    for (let i = coincide.length - 1; i >= 0; i--) if (deOtroProducto.has(coincide[i].id)) coincide.splice(i, 1);
+  }
   // Una opción FIRMADA o en aprobación no cambia de costo en silencio: la cotización nueva (p. ej. con mejor precio) entra como OTRA opción de la línea.
   // Para reemplazar la firmada hay que quitarle la firma (o rechazar la aprobación); entonces el documento nuevo sí se suma a ella.
   const mismo = coincide.find(o => !['definitiva', 'en_aprobacion', 'aprobada'].includes(o.estado));

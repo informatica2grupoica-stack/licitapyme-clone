@@ -10,6 +10,20 @@ import type { ConfigReparto, Estrategia, LicitacionPuente, PerfilDestino } from 
 
 const ESTRATEGIAS: Estrategia[] = ['equitativa', 'carga', 'categoria', 'monto', 'region', 'viabilidad', 'manual'];
 
+/**
+ * ¿Este usuario trabaja licitaciones? Manda el permiso `recibe_licitaciones` si el dueño lo fijó
+ * (sí o no, también para admins). Si nunca se tocó, se excluye por defecto a los perfiles
+ * encerrados en Compras (`solo_compras`, incluye el Auditor de Compras) y a los externos.
+ * `permisos` viene crudo de la columna JSON de usuarios.
+ */
+export function recibeLicitaciones(u: { rol?: string | null; permisos?: unknown }): boolean {
+  if (u.rol === 'externo') return false;
+  let p: any = u.permisos;
+  if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = {}; } }
+  if (typeof p?.recibe_licitaciones === 'boolean') return p.recibe_licitaciones;
+  return !(p?.solo_compras || p?.compras_auditor);
+}
+
 /** Todo lo que el motor necesita: qué hay en el puente y quiénes pueden recibirlo. */
 export async function contextoReparto(clienteId: number): Promise<{ licitaciones: LicitacionPuente[]; perfiles: PerfilDestino[] }> {
   const [licRes, usuRes, carga] = await Promise.all([
@@ -20,7 +34,7 @@ export async function contextoReparto(clienteId: number): Promise<{ licitaciones
        FROM puente_radar
        WHERE cliente_id = ?
        ORDER BY agregado_en DESC, id DESC`, [clienteId]),
-    pool.query(`SELECT id, nombre, email FROM usuarios WHERE activo = TRUE AND cliente_id = ? ORDER BY nombre ASC`, [clienteId]),
+    pool.query(`SELECT id, nombre, email, rol, permisos FROM usuarios WHERE activo = TRUE AND cliente_id = ? ORDER BY nombre ASC`, [clienteId]),
     cargaDeEquipo(clienteId),
   ]);
 
@@ -32,7 +46,7 @@ export async function contextoReparto(clienteId: number): Promise<{ licitaciones
     licitacion_cierre: l.licitacion_cierre ? new Date(l.licitacion_cierre).toISOString() : null,
   })) as LicitacionPuente[];
 
-  const perfiles = ((usuRes as any)[0] as any[]).map(u => ({
+  const perfiles = ((usuRes as any)[0] as any[]).filter(recibeLicitaciones).map(u => ({
     id: u.id, nombre: u.nombre, email: u.email, cargaActual: mapCarga.get(u.id) ?? 0,
   })) as PerfilDestino[];
 

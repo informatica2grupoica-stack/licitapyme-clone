@@ -45,8 +45,8 @@
     "modern-screenshot": "^4.7.0",
     "mupdf": "^1.28.0",
     "mysql2": "^3.22.3",
-    "next": "16.2.6",
-    "nodemailer": "^9.0.1",
+    "next": "16.4.4",
+    "nodemailer": "10.3.1",
     "openai": "^6.39.0",
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.4",
@@ -62,7 +62,7 @@
     "tailwind-merge": "^3.6.0",
     "tesseract.js": "^7.0.0",
     "word-extractor": "^1.0.4",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -74,7 +74,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.6",
+    "eslint-config-next": "16.4.4",
     "postcss-preset-mantine": "^1.18.0",
     "postcss-simple-vars": "^7.0.1",
     "tailwindcss": "^4",

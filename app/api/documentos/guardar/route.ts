@@ -1,4 +1,5 @@
 // app/api/documentos/guardar/route.ts
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { CopyObjectCommand } from '@aws-sdk/client-s3';
 import pool from '@/app/lib/db';
@@ -139,6 +140,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error guardando documento:', error);
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

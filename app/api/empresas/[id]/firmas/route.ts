@@ -12,6 +12,7 @@
 // La columna espejo `empresas.firma_url` la mantiene sincronizada empresa-firmas.ts en cada
 // mutación — ver el comentario de ese archivo: nada de lo que ya leía la firma única se entera.
 // Mutaciones solo admin, igual que el resto del CRUD de empresas.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { subirDocumentoR2 } from '@/app/lib/r2';
@@ -57,6 +58,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       );
     }
 
+    if (file.size > 5 * 1024 * 1024) return NextResponse.json({ error: 'La firma pesa más de 5 MB: usa una imagen más liviana.' }, { status: 400 });
+
     // Sin etiqueta escrita se usa el nombre del archivo — nunca vacía: la etiqueta ES lo que el
     // usuario ve al elegir qué firma arrastrar sobre el PDF.
     const etiqueta = String(formData.get('etiqueta') || '').trim() || file.name.replace(EXTENSIONES_OK, '');
@@ -72,7 +75,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, id: firmaId, url, firmas: await listarFirmasEmpresa(id) });
   } catch (error) {
     console.error('[empresas][firmas][POST]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -100,7 +103,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, firmas: await listarFirmasEmpresa(id) });
   } catch (error) {
     console.error('[empresas][firmas][PATCH]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -122,6 +125,6 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, firmas: await listarFirmasEmpresa(id) });
   } catch (error) {
     console.error('[empresas][firmas][DELETE]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

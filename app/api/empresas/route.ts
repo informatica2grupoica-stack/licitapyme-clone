@@ -3,6 +3,7 @@
 //   GET  → lista de empresas activas (cualquier usuario autenticado; se usa en el
 //          selector al marcar una licitación como Postulada).
 //   POST → crea una empresa (solo admin).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { clienteDeHeader } from '@/app/lib/tenant';
@@ -45,7 +46,7 @@ export async function GET(request: NextRequest) {
     );
     return NextResponse.json({ success: true, empresas: rows });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -76,6 +77,6 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     if (String(error).toLowerCase().includes('duplicate'))
       return NextResponse.json({ error: 'Ya existe una empresa con ese RUT' }, { status: 409 });
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

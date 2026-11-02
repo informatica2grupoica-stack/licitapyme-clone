@@ -4,6 +4,7 @@
 // Una licitación siempre tiene, como máximo, UN perfil activo (ver POST /api/negocios).
 // Body: { codigos: string[] }
 // Respuesta: { success, asignaciones: { [codigo]: { asignado_a, asignado_nombre } } }
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser } from '@/app/lib/api-auth';
@@ -41,6 +42,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, asignaciones });
   } catch (error) {
     console.error('Error asignaciones:', error);
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

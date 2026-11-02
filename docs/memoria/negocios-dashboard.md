@@ -50,3 +50,8 @@ es válida (ver viabilidad.md, «Completar cada línea»).
 - Bug: «Cierra mañana» con fecha impresa «jueves 29» (= hoy). Causa: `Math.ceil`/`Math.round` de ms/24 h (cierre hoy 20:00 visto a las 08:00 → 0,5 → «mañana»).
 - Regla: contar SIEMPRE con `diasCalendarioChile()` de `app/lib/tz.ts` (0 = hoy, 1 = mañana); nunca dividir ms por 86400000. Aplicado en getDiasRestantes (licitación/Resumen), ResumenNegocio, FechasNegocio, search-engine, api/search, negocios/page. Sin verificar en navegador.
 - Pendiente: fechas de otros módulos (reloj de entrega de Compras ya usa YMD; postuladas usa dayjs del navegador).
+
+## Puente: «Repartir a» solo muestra perfiles que trabajan licitaciones (02-nov-2026)
+- Bug: el Puente listaba TODOS los usuarios activos (compras, bodega, etc.). Decisión del dueño: criterio **automático por exclusión**.
+- Regla: `recibeLicitaciones()` en `app/lib/puente.ts` deja fuera a rol `externo` y a quien tenga `solo_compras` o `compras_auditor`. Se aplica en `GET /api/puente` (chips) y en `contextoReparto` (simular/repartir), así un id colado no recibe nada.
+- Actualización (mismo día): una admin SÍ hace licitaciones → se agregó el permiso explícito `recibe_licitaciones` (selector en /admin/usuarios, también para admins). Si está fijado manda (sí/no); si nunca se tocó vale la exclusión de arriba. Sin verificar en navegador.

@@ -1,5 +1,6 @@
 // app/api/licitacion-comentarios/[codigo]/route.ts
 // Comentarios de una licitación (sección "Comentarios" de la ficha de detalle).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { registrarActividad } from '@/app/lib/actividad';
@@ -84,7 +85,7 @@ async function responderComentario({ userId, clienteId, codigo, padreId, origen,
     // Sin la columna `padre_id` (migration-138 sin aplicar) no se pueden guardar respuestas.
     if ((error as any)?.code === 'ER_BAD_FIELD_ERROR')
       return { status: 409, cuerpo: { error: 'Falta aplicar la migración 138 (hilos de comentarios): node scripts/aplicar-migration-138.mjs' } };
-    return { status: 500, cuerpo: { error: String(error) } };
+    return { status: 500, cuerpo: { error: mensajeSeguro(error, 'No se pudo completar la operación.') } };
   }
 }
 
@@ -132,7 +133,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     return NextResponse.json({ success: true, comentarios });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -178,7 +179,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     return NextResponse.json({ success: true, id: (result as any).insertId });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -219,6 +220,6 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     if ((r as any).affectedRows > 0) await borrarRespuestas('comentarios_licitacion', comentarioId);
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

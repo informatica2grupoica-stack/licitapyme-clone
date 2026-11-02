@@ -3,6 +3,7 @@
 // GET  → devuelve la viabilidad guardada en BD.
 // POST → asegura el análisis exhaustivo (lo genera si falta) y calcula + guarda la viabilidad.
 
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { rowToViabilidad } from '@/app/lib/viabilidad';
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!row) return NextResponse.json({ success: true, viabilidad: null });
     return NextResponse.json({ success: true, viabilidad: rowToViabilidad(row) });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -62,6 +63,6 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, viabilidad: res.viabilidad });
   } catch (error) {
     console.error('[licitacion-viabilidad] Error:', error);
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

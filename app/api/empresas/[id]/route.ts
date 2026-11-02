@@ -1,5 +1,6 @@
 // app/api/empresas/[id]/route.ts
 // Detalle de una empresa: GET, PATCH (editar) y DELETE (desactivar). Mutaciones solo admin.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { registroEsDeMiEmpresa } from '@/app/lib/tenant';
 import pool from '@/app/lib/db';
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!(rows as any[]).length) return NextResponse.json({ error: 'No encontrada' }, { status: 404 });
     return NextResponse.json({ success: true, empresa: (rows as any[])[0] });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -68,7 +69,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   } catch (error: any) {
     if (String(error).toLowerCase().includes('duplicate'))
       return NextResponse.json({ error: 'Ya existe una empresa con ese RUT' }, { status: 409 });
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -83,6 +84,6 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     await pool.query(`UPDATE empresas SET activo = FALSE WHERE id = ?`, [id]);
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

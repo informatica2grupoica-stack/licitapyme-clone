@@ -15,6 +15,7 @@
 // igual pega UNA consulta en vivo cuando no hay ninguna fila de cache — ver adjudicacion.ts). El
 // único que consulta MP y llena `adjudicacion_cache` es el cron de 5 min (procesar-postuladas /
 // estados-asignadas); esta ruta solo lee lo que haya ahí, aunque no haya nada todavía.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { getClienteId, puedeVerLicitacion } from '@/app/lib/api-auth';
 import { obtenerAdjudicacion } from '@/app/lib/adjudicacion';
@@ -46,6 +47,6 @@ export async function GET(
       ganamos: false, montoNuestro: null, desdeCache: false,
     });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

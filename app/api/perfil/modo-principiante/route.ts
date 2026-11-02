@@ -3,6 +3,7 @@
 // modo principiante. No requiere admin: es el botón "Ver análisis completo" / "graduarse" de
 // la vista resumida de viabilidad. El admin también puede fijarlo por perfil desde
 // /admin/usuarios (app/api/admin/usuarios/route.ts) — ambos caminos escriben la misma columna.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthedUser } from '@/app/lib/api-auth';
 import pool from '@/app/lib/db';
@@ -23,6 +24,6 @@ export async function PATCH(request: NextRequest) {
     if (e?.code === 'ER_BAD_FIELD_ERROR') {
       return NextResponse.json({ error: 'Falta la migración 56 (usuarios.modo_principiante)' }, { status: 503 });
     }
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(e, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

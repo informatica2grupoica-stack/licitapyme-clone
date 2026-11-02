@@ -13,6 +13,7 @@
 // El certificado, los bloqueos, la alerta, el resumen y los mensajes se CALCULAN acá por código
 // a partir de las filas (auditor-comparador-core.ts): siempre reflejan el estado real, incluso
 // después de que una persona confirme, habilite o marque algo.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { publicarCambio } from '@/app/lib/sse-bus';
@@ -155,7 +156,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, migracion: await migracion127Aplicada(), ...(await armarEstado(item)) });
   } catch (error) {
     console.error('[comercial][comparador][GET]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -444,6 +445,6 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Acción desconocida' }, { status: 400 });
   } catch (error) {
     console.error('[comercial][comparador][POST]', String(error));
-    return NextResponse.json({ error: String(error instanceof Error ? error.message : error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la comparación.') }, { status: 500 });
   }
 }

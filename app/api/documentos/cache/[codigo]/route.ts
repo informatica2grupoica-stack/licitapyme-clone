@@ -1,4 +1,5 @@
 // src/app/api/documentos/cache/[codigo]/route.ts
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getClienteId, puedeVerLicitacion } from '@/app/lib/api-auth';
@@ -92,6 +93,6 @@ export async function GET(
     });
   } catch (error) {
     console.error('Error:', error);
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

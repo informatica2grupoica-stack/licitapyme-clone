@@ -1,4 +1,5 @@
 // src/app/api/search/route.ts
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { searchEngine } from '@/app/lib/search-engine';
@@ -378,7 +379,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         tipo_orden_aplicado: 'relevancia',
         fuente_datos: 'ERROR',
         total_licitaciones_procesadas: 0,
-        error: String(error)
+        error: mensajeSeguro(error, 'No se pudo completar la operación.')
       }
     };
     return NextResponse.json(errorResponse, { status: 500 });
@@ -404,7 +405,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     } catch (error) {
       return NextResponse.json({ 
         conexion: 'ERROR',
-        error: String(error),
+        error: mensajeSeguro(error, 'No se pudo completar la operación.'),
         message: 'Error al conectar con la API. Verifica tu ticket en .env.local'
       }, { status: 500 });
     }

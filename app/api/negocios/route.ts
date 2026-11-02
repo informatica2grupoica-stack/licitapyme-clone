@@ -1,5 +1,6 @@
 // app/api/negocios/route.ts
 // Lista y crea asignaciones de licitaciones
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { tienePermiso } from '@/app/lib/api-auth';
@@ -186,7 +187,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ success: true, negocios, usuarios, carga });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -224,6 +225,6 @@ export async function POST(request: NextRequest) {
     if (!r.ok) return NextResponse.json({ error: r.error || 'No se pudo asignar' }, { status: 500 });
     return NextResponse.json({ success: true, id: r.id });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

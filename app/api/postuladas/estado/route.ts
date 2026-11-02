@@ -8,6 +8,7 @@
 // esperando a Mercado Público. El refresco de adjudicaciones y aperturas lo hace el
 // scheduler cada 2 horas (procesar-postuladas + detectar-aperturas).
 
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { tienePermiso } from '@/app/lib/api-auth';
@@ -122,6 +123,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ estados });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(e, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

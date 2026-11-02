@@ -2,6 +2,7 @@
 // GET /api/negocios/buscar?q=... — búsqueda rápida de licitaciones (tabla negocios) por código o
 // nombre, para selectores de "vincular a licitación" (ver /ordenes-compra). Admin-only: el único
 // consumidor hoy es la vista de gestión de órdenes de compra, que ya es admin-only.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { clienteDeHeader } from '@/app/lib/tenant';
@@ -34,6 +35,6 @@ export async function GET(request: NextRequest) {
     );
     return NextResponse.json({ success: true, negocios: rows });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

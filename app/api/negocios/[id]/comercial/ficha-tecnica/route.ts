@@ -7,6 +7,7 @@
 // Se sube a R2 en vez de devolver el binario porque así el visor inline y la descarga con nombre
 // real funcionan igual que con el resto de los documentos del negocio (el `download` de un <a> no
 // aplica cross-origin: el nombre lo tiene que poner el Content-Disposition del propio objeto).
+import { fetchSeguro } from '@/app/lib/url-segura';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
@@ -39,7 +40,7 @@ type Params = { params: Promise<{ id: string }> };
 async function comoDataUri(url: string | null): Promise<string | null> {
   if (!url) return null;
   try {
-    const r = await fetch(url);
+    const r = await fetchSeguro(url);
     if (!r.ok) return null;
     const buf = Buffer.from(await r.arrayBuffer());
     if (!buf.length || buf.length > 4_000_000) return null;   // un logo de 4 MB es un error de carga

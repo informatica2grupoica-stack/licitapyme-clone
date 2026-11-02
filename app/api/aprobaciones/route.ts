@@ -18,6 +18,7 @@
 // /admin/* a cualquiera que no sea rol==='admin', y un asesor/CA típico es rol='usuario' con el
 // permiso aprobar_comercial — quedaría afuera de su propia bandeja. Se agrupa visualmente bajo
 // "ADMIN" en el sidebar (igual que /empresas), pero la URL no lleva ese prefijo.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { registrarEvento } from '@/app/lib/historial';
@@ -205,7 +206,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, negocios, totalPendientes: totalPendientes + compras.length, compras });
   } catch (error) {
     console.error('[aprobaciones][GET]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -392,6 +393,6 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ success: true, ...(await construirBandeja()) });
   } catch (error) {
     console.error('[aprobaciones][PATCH]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

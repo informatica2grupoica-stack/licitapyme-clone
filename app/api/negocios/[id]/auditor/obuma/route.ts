@@ -4,6 +4,7 @@
 // este archivo. Comuna, región, forma de pago y banco salen vacíos (OBUMA pide IDs de catálogo; ver
 // app/lib/auditor-proveedor.ts) y el texto extraído viaja en el JSON como `pendientes_catalogo`.
 //   GET ?tipo=proveedores|productos&formato=csv|json&incluir=firmadas|aprobadas (defecto: aprobadas)
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { contextoAuditor } from '@/app/lib/auditor-acceso';
 import { armarPanelAuditor } from '@/app/lib/auditor-opciones';
@@ -41,6 +42,6 @@ export async function GET(request: NextRequest, { params }: Params) {
     } });
   } catch (e) {
     console.error('[auditor/obuma][GET]', String(e));
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(e, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

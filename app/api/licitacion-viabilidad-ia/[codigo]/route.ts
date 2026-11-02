@@ -8,6 +8,7 @@
 // Requiere GEMINI_API_KEY con cuota (plan de pago de Gemini): las bases suelen ser
 // PDF de imagen escaneada que solo un modelo de visión puede leer.
 
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { normalizarTextosInforme } from '@/app/lib/viabilidad-v4/textos';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
@@ -266,7 +267,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       motivoNoPuedeReanalizar: reanalisis.puede ? null : reanalisis.motivo,
     });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 

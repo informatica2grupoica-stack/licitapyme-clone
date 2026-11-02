@@ -1,4 +1,5 @@
 // src/app/api/documentos/solicitar/route.ts
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { crearJob } from '@/app/lib/redis';
 import { documentoYaDescargado, obtenerUrlDocumentoCache } from '@/app/services/documentosService.server';
@@ -45,6 +46,6 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Error:', error);
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

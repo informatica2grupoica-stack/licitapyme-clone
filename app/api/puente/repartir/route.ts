@@ -10,6 +10,7 @@
 //  · La descarga de documentos + viabilidad va DESPUÉS, en segundo plano y EN SERIE: 30
 //    descargas simultáneas contra Mercado Público es cómo se gana un bloqueo.
 
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser, tienePermiso } from '@/app/lib/api-auth';
@@ -189,6 +190,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('[puente:repartir]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

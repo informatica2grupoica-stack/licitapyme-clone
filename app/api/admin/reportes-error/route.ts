@@ -1,6 +1,7 @@
 // app/api/admin/reportes-error/route.ts
 // GET — bandeja de reportes de error de todos los perfiles (/admin/errores). Solo admin.
 // proxy.ts ya bloquea /api/admin a no-admins; se reverifica contra el JWT (defensa en profundidad).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { esAdmin } from '@/app/lib/api-auth';
@@ -28,6 +29,6 @@ export async function GET(req: NextRequest) {
     const reportes = (rows as any[]).map(r => ({ ...r, adjuntos: (adj as any[]).filter(a => a.reporte_id === r.id) }));
     return NextResponse.json({ success: true, reportes });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(e, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

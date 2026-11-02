@@ -18,6 +18,7 @@
 // Protección: mismo esquema que los demás cron (x-vercel-cron:1 · Bearer <CRON_SECRET> · ?secret= · x-cron-secret).
 // GET → cuántas quedan (healthcheck). POST → procesa un lote.
 
+import { igualSecreto } from '@/app/lib/cron-secret';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { procesarLicitacionCompleta } from '@/app/lib/pipeline-licitacion';
@@ -34,10 +35,9 @@ const PRESUPUESTO_MS  = 240_000;
 function autorizado(req: NextRequest): boolean {
   if (process.env.VERCEL && req.headers.get('x-vercel-cron') === '1') return true;
   const secret =
-    req.nextUrl.searchParams.get('secret') ||
     req.headers.get('x-cron-secret') ||
     (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
-  return !!process.env.CRON_SECRET && secret === process.env.CRON_SECRET;
+  return igualSecreto(secret, process.env.CRON_SECRET);
 }
 
 // Mismo gate de prefiltro que el cron de sistema (Fase 0): solo PASA / REVISION_HUMANA.

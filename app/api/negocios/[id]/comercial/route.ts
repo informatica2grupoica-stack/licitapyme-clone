@@ -9,6 +9,7 @@
 // DOBLE FIRMA: el asistente CARGA, el asesor APRUEBA. Cada acción notifica al otro lado EN EL
 // ACTO (SSE + campana), porque el flujo real es "sube a las 10:32, se aprueba a las 10:33" —
 // un digest agrupado llegaría cuando la licitación ya cerró.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { registrarEvento } from '@/app/lib/historial';
@@ -815,7 +816,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     });
   } catch (error) {
     console.error('[comercial][GET]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -865,7 +866,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Acción desconocida' }, { status: 400 });
   } catch (error) {
     console.error('[comercial][POST]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -1178,7 +1179,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, items, resumen: resumirChecklist(items) });
   } catch (error) {
     console.error('[comercial][PATCH]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 

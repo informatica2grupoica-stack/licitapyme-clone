@@ -1,5 +1,6 @@
 // app/api/negocios/[id]/route.ts
 // Detalle de un negocio: GET, PATCH (actualizar monto ofertado / etiquetas), DELETE (admin)
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { negocioEsDeMiEmpresa, registroEsDeMiEmpresa, clienteDeHeader, clienteTieneModulo, usaViabilidadDeICA } from '@/app/lib/tenant';
 import pool from '@/app/lib/db';
@@ -192,7 +193,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     return NextResponse.json({ success: true, negocio });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -537,7 +538,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -568,6 +569,6 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     publicarCambio('negocio');
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

@@ -18,6 +18,8 @@
 // pendientes de proveedor), la cabecera pasa sola a CARGADO — el asesor sigue aprobando/
 // observando la LÍNEA completa igual que cualquier otro punto del checklist (mismo transicion(),
 // misma doble firma, mismo SSE).
+import { mensajeSeguro } from '@/app/lib/errores-api';
+import { fetchSeguro } from '@/app/lib/url-segura';
 import { NextRequest, NextResponse } from 'next/server';
 import type { RowDataPacket } from 'mysql2';
 import pool from '@/app/lib/db';
@@ -327,7 +329,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, caracteristicas, productos, exigencias });
   } catch (error) {
     console.error('[comercial][caracteristicas][GET]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -922,7 +924,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Acción desconocida' }, { status: 400 });
   } catch (error) {
     console.error('[comercial][caracteristicas][POST]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -968,7 +970,7 @@ export async function prepararSegmentosDeLaFicha(args: {
   let bufferPdf: Buffer | null = null;
   if (/\.pdf(\?|$)/i.test(documentoUrl) || /\.pdf$/i.test(documentoNombre)) {
     try {
-      const res = await fetch(documentoUrl);
+      const res = await fetchSeguro(documentoUrl);
       if (res.ok) bufferPdf = Buffer.from(await res.arrayBuffer());
     } catch { /* sin buffer no hay foto ni segmentación — sigue solo con el texto completo */ }
   }
@@ -1169,7 +1171,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Acción desconocida' }, { status: 400 });
   } catch (error) {
     console.error('[comercial][caracteristicas][PATCH]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -1196,6 +1198,6 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, caracteristicas });
   } catch (error) {
     console.error('[comercial][caracteristicas][DELETE]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

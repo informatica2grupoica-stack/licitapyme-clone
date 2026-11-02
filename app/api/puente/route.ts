@@ -8,12 +8,14 @@
 // Permiso: `repartir_puente` (el admin lo tiene implícito). Es el permiso del "asesor":
 // reparte trabajo del equipo sin necesidad de ser administrador.
 
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser, tienePermiso } from '@/app/lib/api-auth';
 import { cargaDeEquipo } from '@/app/lib/carga-perfiles';
 import { registrarActividad } from '@/app/lib/actividad';
 import { usaViabilidadDeICA } from '@/app/lib/tenant';
+import { recibeLicitaciones } from '@/app/lib/puente';
 
 export const dynamic = 'force-dynamic';
 
@@ -63,7 +65,7 @@ export async function GET(request: NextRequest) {
          WHERE cliente_id = ?
          ORDER BY agregado_en DESC, id DESC`, [clienteId]),
       pool.query(
-        `SELECT id, nombre, email, rol FROM usuarios WHERE activo = TRUE AND cliente_id = ? ORDER BY nombre ASC`, [clienteId]),
+        `SELECT id, nombre, email, rol, permisos FROM usuarios WHERE activo = TRUE AND cliente_id = ? ORDER BY nombre ASC`, [clienteId]),
       cargaDeEquipo(clienteId!),
     ]);
 
@@ -73,7 +75,7 @@ export async function GET(request: NextRequest) {
     }
 
     const licitaciones = ((licRes.value as any)[0] || []) as any[];
-    const usuarios = usuRes.status === 'fulfilled' ? (((usuRes.value as any)[0] || []) as any[]) : [];
+    const usuarios = usuRes.status === 'fulfilled' ? (((usuRes.value as any)[0] || []) as any[]).filter(recibeLicitaciones) : [];
     const carga = cargaRes.status === 'fulfilled' ? cargaRes.value : [];
     const mapCarga = new Map(carga.map(c => [c.usuario_id, c]));
 
@@ -228,7 +230,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('[puente:POST]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -264,6 +266,6 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: true, eliminadas: (r as any).affectedRows || 0 });
   } catch (error) {
     console.error('[puente:DELETE]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

@@ -3,6 +3,7 @@
 // Una ficha por opción pedida (una por producto), con logo, firma y timbre de la empresa del negocio. Queda
 // en Documentos Propios, caja «Anexos Técnicos» (no en «fichas_tecnicas»: esa caja es de las fichas de los
 // PROVEEDORES y el Auditor las compararía como si fueran una más).
+import { fetchSeguro } from '@/app/lib/url-segura';
 import pool from '@/app/lib/db';
 import { armarPanelAuditor, cargarEstadoCosteo } from '@/app/lib/auditor-opciones';
 import { motivoFichaNoLista, productoFichaDeOpcion, opcionesDeLaOferta, opcionesDeLaLinea } from '@/app/lib/auditor-ficha-propia-core';
@@ -22,7 +23,7 @@ import { subirDocumentoR2 } from '@/app/lib/r2';
 async function comoDataUri(url: string | null | undefined): Promise<string | null> {
   if (!url) return null;
   try {
-    const r = await fetch(url);
+    const r = await fetchSeguro(url);
     if (!r.ok) return null;
     const buf = Buffer.from(await r.arrayBuffer());
     const tipo = r.headers.get('content-type') || 'image/png';

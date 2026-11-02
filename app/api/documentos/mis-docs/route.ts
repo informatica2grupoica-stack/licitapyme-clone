@@ -1,5 +1,6 @@
 // app/api/documentos/mis-docs/route.ts
 // Lista todos los documentos subidos por el usuario autenticado
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 
@@ -25,6 +26,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ success: true, documentos: rows });
   } catch (error) {
-    return NextResponse.json({ success: false, error: String(error) }, { status: 500 });
+    return NextResponse.json({ success: false, error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

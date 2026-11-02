@@ -2,6 +2,7 @@
 // Negocios cuya fecha de cierre YA venció y que siguen en un estado intermedio
 // del pipeline (ni postulados ni descartados). Alimenta el modal bloqueante que
 // obliga a cerrar el ciclo al entrar a la plataforma.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
@@ -59,6 +60,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ success: true, pendientes: rows as any[] });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

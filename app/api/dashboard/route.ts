@@ -2,6 +2,7 @@
 // Estadísticas del dashboard. Dos vistas según rol:
 //  • admin  → panorama de la empresa (radar, viabilidad, pipeline, usuarios, tendencia)
 //  • usuario→ sus licitaciones asignadas (etapas del pipeline, montos, próximos cierres)
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
@@ -179,6 +180,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, rol: sesion.rol, admin, usuario, favoritosRecientes });
   } catch (error) {
     console.error('Error en dashboard stats:', error);
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

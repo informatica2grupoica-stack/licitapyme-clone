@@ -7,6 +7,7 @@
 // Pensado para el scheduler (cada 2h). Protección igual que los otros cron.
 // GET  → healthcheck simple. POST → ejecuta una pasada.
 
+import { igualSecreto } from '@/app/lib/cron-secret';
 import { NextRequest, NextResponse } from 'next/server';
 import { procesarPostuladas } from '@/app/lib/procesar-postuladas';
 import { repararContactosFaltantes, congelarPendientes } from '@/app/lib/congelamiento';
@@ -20,10 +21,9 @@ export const maxDuration = 60;
 function autorizado(req: NextRequest): boolean {
   if (process.env.VERCEL && req.headers.get('x-vercel-cron') === '1') return true;
   const secret =
-    req.nextUrl.searchParams.get('secret') ||
     req.headers.get('x-cron-secret') ||
     (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
-  return !!process.env.CRON_SECRET && secret === process.env.CRON_SECRET;
+  return igualSecreto(secret, process.env.CRON_SECRET);
 }
 
 export async function GET(req: NextRequest) {

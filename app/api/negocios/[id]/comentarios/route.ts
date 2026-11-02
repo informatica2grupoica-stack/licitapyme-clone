@@ -1,6 +1,7 @@
 // app/api/negocios/[id]/comentarios/route.ts
 // Hilo de comentarios de un negocio
 // pipeline_estado: cuando se envía, también actualiza negocios.estado_pipeline
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { negocioEsDeMiEmpresa } from '@/app/lib/tenant';
 import pool from '@/app/lib/db';
@@ -69,7 +70,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     return NextResponse.json({ success: true, comentarios: rows });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -178,7 +179,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     return NextResponse.json({ success: true, id: insertId, nuevo_estado: nuevoEstado });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
 
@@ -204,6 +205,6 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     }
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

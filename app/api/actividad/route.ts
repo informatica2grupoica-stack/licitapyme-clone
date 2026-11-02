@@ -5,6 +5,7 @@
 //      (ver un documento, entrar a una sección, abrir una cita). Se limita a un conjunto seguro
 //      de acciones y exige acceso a la licitación. Aparece en el Historial de la licitación.
 //      Best-effort y DEDUPLICADO POR DÍA: el cliente puede reintentar sin ensuciar el historial.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser, puedeVerLicitacion } from '@/app/lib/api-auth';
@@ -114,6 +115,6 @@ export async function GET(request: NextRequest) {
       const [usuarios] = await pool.query(`SELECT id, nombre, email FROM usuarios WHERE activo = TRUE ORDER BY nombre ASC`);
       return NextResponse.json({ success: true, actividad: [], usuarios, migracionPendiente: true });
     }
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

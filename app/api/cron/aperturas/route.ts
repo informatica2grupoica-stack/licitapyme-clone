@@ -7,6 +7,7 @@
 // GET  → cuántas postuladas cerradas quedan por verificar.
 // POST → verifica el siguiente lote. Body/query: { lote?: number }  (default 40)
 
+import { igualSecreto } from '@/app/lib/cron-secret';
 import { NextRequest, NextResponse } from 'next/server';
 import { detectarAperturas, contarPendientesApertura } from '@/app/lib/detectar-aperturas';
 import { publicarCambio } from '@/app/lib/sse-bus';
@@ -18,10 +19,9 @@ export const maxDuration = 300;
 function autorizado(req: NextRequest): boolean {
   if (process.env.VERCEL && req.headers.get('x-vercel-cron') === '1') return true;
   const secret =
-    req.nextUrl.searchParams.get('secret') ||
     req.headers.get('x-cron-secret') ||
     (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
-  return !!process.env.CRON_SECRET && secret === process.env.CRON_SECRET;
+  return igualSecreto(secret, process.env.CRON_SECRET);
 }
 
 export async function GET(req: NextRequest) {

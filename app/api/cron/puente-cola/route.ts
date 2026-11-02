@@ -4,6 +4,7 @@
 // lo que falló (con espera creciente, hasta 6 intentos) y lo que quedó a medias por un reinicio.
 // Protección: mismo esquema que los demás cron. GET → cuántas hay por estado. POST → arranca la cola.
 
+import { igualSecreto } from '@/app/lib/cron-secret';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { AUTOMATIZACION_PAUSADA } from '@/app/lib/automatizacion';
@@ -15,10 +16,9 @@ export const dynamic = 'force-dynamic';
 function autorizado(req: NextRequest): boolean {
   if (process.env.VERCEL && req.headers.get('x-vercel-cron') === '1') return true;
   const secret =
-    req.nextUrl.searchParams.get('secret') ||
     req.headers.get('x-cron-secret') ||
     (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
-  return !!process.env.CRON_SECRET && secret === process.env.CRON_SECRET;
+  return igualSecreto(secret, process.env.CRON_SECRET);
 }
 
 export async function GET(req: NextRequest) {

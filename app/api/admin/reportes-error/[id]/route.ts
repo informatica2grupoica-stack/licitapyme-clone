@@ -6,6 +6,7 @@
 // Llega como FormData: además del estado y el texto, el admin puede adjuntar archivos de respaldo
 // (`archivos`: PDF, Word, TXT, imágenes… → reportes_error_adjuntos, migration-148) y quitar los
 // ya guardados (`quitar_adjuntos`: JSON con ids). Siguen la misma visibilidad que el texto.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser } from '@/app/lib/api-auth';
@@ -93,6 +94,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
     return NextResponse.json({ success: true, avisado });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(e, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

@@ -5,6 +5,7 @@
 // así que lo que se ve acá es exactamente lo que va a pasar al confirmar — siempre que se
 // reenvíe la `semilla` que devuelve esta respuesta.
 
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthedUser, tienePermiso } from '@/app/lib/api-auth';
 import { contextoReparto, parsearConfig, nuevaSemilla } from '@/app/lib/puente';
@@ -37,6 +38,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, resultado, licitaciones, semilla: resultado.semilla });
   } catch (error) {
     console.error('[puente:simular]', String(error));
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }
