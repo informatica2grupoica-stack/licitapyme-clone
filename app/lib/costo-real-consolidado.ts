@@ -22,6 +22,9 @@ export interface EntradaConsolidado {
   gastosRegistrados: number;
   /** Flete internacional + aduana + logística local de Importación (solo CLP). */
   importacion: number;
+  /** Parte de los gastos registrados que YA tiene su OC en Obuma (transporte, armado…). Ya está dentro de
+   *  `gastosRegistrados` (no se suma otra vez); solo sirve para comparar con Obuma, que sí la trae. */
+  gastosEnOc?: number;
   /** Lo que dice Obuma. null = no hay datos o no se consultó. */
   obuma: { ocCreadas: number; comprasCruzadas: number; facturas: number } | null;
 }
@@ -42,7 +45,7 @@ export interface CostoRealConsolidado {
     gastado: number;             // OC creadas, o si no hay, compras cruzadas
     facturas: number;
     /** (Obuma − costeo) / costeo, en %. Compara contra el costo de PRODUCTOS del costeo (ofertado +
-     *  gastos extra): los gastos registrados y la importación no pasan por OC de productos. null si
+     *  gastos extra + gastos registrados que ya tienen OC en Obuma): el resto de los gastos registrados y la importación no pasan por OC. null si
      *  falta alguno de los dos lados. */
     diferenciaPct: number | null;
   } | null;
@@ -74,7 +77,7 @@ export function consolidarCostoReal(e: EntradaConsolidado): CostoRealConsolidado
     // Lo que Obuma tiene (NETO, sin anuladas) manda; lo que guardó Licitank es el respaldo. Antes se usaba primero lo emitido por Licitank y
     // se ignoraban las OC hechas directo en Obuma (387-55-LE26: 8 de 18 OC → «Obuma −57,6 %») y el respaldo venía con IVA.
     const gastado = e.obuma.comprasCruzadas || e.obuma.ocCreadas || 0;
-    const productosCosteo = ofertado + extraCosteo;
+    const productosCosteo = ofertado + extraCosteo + Math.max(0, e.gastosEnOc ?? 0);
     const diferenciaPct = gastado > 0 && productosCosteo > 0 ? pct(gastado - productosCosteo, productosCosteo) : null;
     obuma = { gastado, facturas: e.obuma.facturas, diferenciaPct };
     // Solo con el costeo COMPLETO: a medio cargar, "Obuma compró más" es lo esperado, no un desvío.

@@ -1847,6 +1847,8 @@ export interface ProductoCompra {
   subestado: SubestadoProducto;
   /** Parte que se compra aparte (migration-163): los pernos de una butaca «que incluye pernos». null = producto del costeo. */
   productoPadreId: number | null;
+  /** Servicio que se compra con proveedor, cotización, SKU y OC pero no se vende (flete de toda la entrega, armado; migration-177). No es del costeo ni del acta. */
+  esServicio: boolean;
   renunciaMotivo: string | null; renunciaPropuestaPorNombre: string | null; renunciaPropuestaAt: string | null;
   renunciaAprobadaPorNombre: string | null; renunciaAprobadaAt: string | null;
 }
@@ -1956,8 +1958,8 @@ export async function sincronizarProductosConCosteo(negocioId: number): Promise<
   if (filasCosteo.length === 0) throw new Error('Este negocio no tiene Costeo cargado todavía.');
 
   const [existentesRows] = await pool.query(
-    // Las partes que se compran aparte no vienen del costeo: no se emparejan con sus filas (ni se borran como duplicados).
-    `SELECT id, correlativo, descripcion FROM compras_producto WHERE negocio_id = ? AND producto_padre_id IS NULL ORDER BY correlativo IS NULL, correlativo, id`,
+    // Las partes que se compran aparte y los servicios no vienen del costeo: no se emparejan con sus filas (ni se borran como duplicados).
+    `SELECT id, correlativo, descripcion FROM compras_producto WHERE negocio_id = ? AND producto_padre_id IS NULL${(await hayColumnaServicio()) ? ' AND es_servicio = 0' : ''} ORDER BY correlativo IS NULL, correlativo, id`,
     [negocioId],
   ) as any;
   const { existentePorFila, duplicados } = emparejarProductos(existentesRows as ProductoExistente[], filasCosteo);
@@ -2039,9 +2041,18 @@ async function filasProductoDelCosteo(licitacionCodigo: string): Promise<import(
   }
 }
 
+/** ¿Ya está aplicada migration-177 (compras_producto.es_servicio)? Se consulta una vez: en un entorno viejo la lista de productos carga igual. */
+let columnaServicio: Promise<boolean> | null = null;
+export function hayColumnaServicio(): Promise<boolean> {
+  columnaServicio ??= pool.query(`SHOW COLUMNS FROM compras_producto LIKE 'es_servicio'`)
+    .then(([r]) => (r as any[]).length > 0).catch(() => { columnaServicio = null; return false; });
+  return columnaServicio;
+}
+
 export async function listarProductosCompra(negocioId: number): Promise<ProductoCompra[]> {
+  const colServicio = (await hayColumnaServicio()) ? 'es_servicio' : '0 AS es_servicio';
   const [rows] = await pool.query(
-    `SELECT id, negocio_id, correlativo, producto_padre_id, descripcion, cantidad, unidad, monto_unitario, subestado,
+    `SELECT id, negocio_id, correlativo, producto_padre_id, ${colServicio}, descripcion, cantidad, unidad, monto_unitario, subestado,
             renuncia_motivo, renuncia_propuesta_por_nombre, DATE_FORMAT(renuncia_propuesta_at, '%Y-%m-%d %H:%i:%s') AS renuncia_propuesta_at,
             renuncia_aprobada_por_nombre, DATE_FORMAT(renuncia_aprobada_at, '%Y-%m-%d %H:%i:%s') AS renuncia_aprobada_at
        FROM compras_producto WHERE negocio_id = ? ORDER BY correlativo IS NULL, correlativo, id`,
@@ -2051,7 +2062,7 @@ export async function listarProductosCompra(negocioId: number): Promise<Producto
     id: r.id, negocioId: r.negocio_id, correlativo: r.correlativo, descripcion: r.descripcion,
     cantidad: r.cantidad == null ? null : Number(r.cantidad), unidad: r.unidad,
     montoUnitario: r.monto_unitario == null ? null : Number(r.monto_unitario),
-    subestado: r.subestado, productoPadreId: r.producto_padre_id ?? null, renunciaMotivo: r.renuncia_motivo,
+    subestado: r.subestado, productoPadreId: r.producto_padre_id ?? null, esServicio: !!r.es_servicio, renunciaMotivo: r.renuncia_motivo,
     renunciaPropuestaPorNombre: r.renuncia_propuesta_por_nombre, renunciaPropuestaAt: r.renuncia_propuesta_at,
     renunciaAprobadaPorNombre: r.renuncia_aprobada_por_nombre, renunciaAprobadaAt: r.renuncia_aprobada_at,
   }));
@@ -2173,11 +2184,12 @@ export async function crearParteProducto(
  *  cotizó o compró es historial, y para sacarlo de la compra está «Renunciar». */
 export async function eliminarParteProducto(productoId: number, actorId: number, actorNombre: string | null): Promise<void> {
   const [rows] = await pool.query(
-    `SELECT cp.negocio_id, cp.descripcion, cp.subestado, cp.producto_padre_id, n.licitacion_codigo
+    `SELECT cp.*, n.licitacion_codigo
        FROM compras_producto cp JOIN negocios n ON n.id = cp.negocio_id WHERE cp.id = ? LIMIT 1`, [productoId],
   ) as any;
   const p = (rows as any[])[0];
-  if (!p || p.producto_padre_id == null) throw new Error('Solo se puede quitar una parte agregada en Compras.');
+  const esServicio = !!p?.es_servicio;
+  if (!p || (p.producto_padre_id == null && !esServicio)) throw new Error('Solo se puede quitar una parte o un servicio agregado en Compras.');
   const tiene = async (sql: string) => {
     try { const [x] = await pool.query(sql, [productoId]) as any; return (x as any[]).length > 0; }
     catch (e: any) { if (e?.code === 'ER_NO_SUCH_TABLE') return false; throw e; }
@@ -2188,12 +2200,42 @@ export async function eliminarParteProducto(productoId: number, actorId: number,
     || await tiene(`SELECT 1 FROM compras_veredicto WHERE producto_id = ? LIMIT 1`))
     throw new Error('Esta parte ya tiene cotizaciones o una compra: no se puede quitar. Si ya no va, usa «Renunciar».');
   await pool.query(`DELETE FROM compras_producto WHERE id = ?`, [productoId]);
-  await invalidarAprobacionesCompras(p.negocio_id, 'Se quitó una parte que se compraba aparte: cambió el alcance de la compra.');
+  // Un servicio es costo, no alcance de lo vendido: quitarlo no invalida las aprobaciones.
+  if (!esServicio) await invalidarAprobacionesCompras(p.negocio_id, 'Se quitó una parte que se compraba aparte: cambió el alcance de la compra.');
   await registrarEvento({
-    tipo: 'COMPRAS_PARTE_QUITADA', licitacionCodigo: p.licitacion_codigo, actorId, actorNombre,
-    mensaje: `Se quitó la parte «${String(p.descripcion).slice(0, 80)}» que se iba a comprar aparte.`,
+    tipo: esServicio ? 'COMPRAS_SERVICIO_QUITADO' : 'COMPRAS_PARTE_QUITADA', licitacionCodigo: p.licitacion_codigo, actorId, actorNombre,
+    mensaje: `Se quitó ${esServicio ? 'el servicio' : 'la parte'} «${String(p.descripcion).slice(0, 80)}»${esServicio ? '.' : ' que se iba a comprar aparte.'}`,
     metadata: { negocio_id: p.negocio_id, producto_id: productoId, producto_padre_id: p.producto_padre_id },
   }).catch(() => {});
+}
+
+/** SERVICIO (migration-177, pedido del 02-nov-2026, 387-55-LE26): el transporte que lleva TODA la entrega junta se compra a un proveedor
+ *  con cotización, SKU y OC propios, pero no es de ninguna línea ni se vende. Es un producto más de Compras: sin línea del costeo, sin
+ *  precio de venta, sin producto del que colgar (a diferencia de una «parte»), fuera de la cobertura de entrega y del acta. Su costo va al
+ *  costo real como gasto. Es costo, no alcance de lo vendido: agregarlo NO invalida las aprobaciones ya dadas. */
+export async function crearServicioProducto(
+  negocioId: number, datos: { descripcion: string; cantidad: number; unidad?: string | null },
+  actorId: number, actorNombre: string | null,
+): Promise<number> {
+  const descripcion = datos.descripcion.trim().slice(0, 500);
+  if (!descripcion) throw new Error('Falta qué servicio se compra (ej. Transporte y armado a la obra).');
+  if (!Number.isFinite(datos.cantidad) || datos.cantidad <= 0) throw new Error('La cantidad debe ser mayor a cero.');
+  if (!(await hayColumnaServicio())) throw new Error('Falta aplicar la migración de servicios (migration-177) en esta base.');
+  const [rows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
+  const negocio = (rows as any[])[0];
+  if (!negocio) throw new Error('Negocio no encontrado.');
+  const ahora = ahoraChileSQL();
+  const [r] = await pool.query(
+    `INSERT INTO compras_producto (negocio_id, correlativo, producto_padre_id, es_servicio, descripcion, cantidad, unidad, monto_unitario, subestado, created_at, updated_at)
+     VALUES (?, NULL, NULL, 1, ?, ?, ?, NULL, 'PENDIENTE', ?, ?)`,
+    [negocioId, descripcion, datos.cantidad, datos.unidad?.trim().slice(0, 30) || null, ahora, ahora],
+  ) as any;
+  await registrarEvento({
+    tipo: 'COMPRAS_SERVICIO_AGREGADO', licitacionCodigo: negocio.licitacion_codigo, actorId, actorNombre,
+    mensaje: `Se agregó el servicio «${descripcion}» (${datos.cantidad}${datos.unidad ? ` ${datos.unidad}` : ''}): se cotiza, lleva SKU y OC, y no se vende.`,
+    metadata: { negocio_id: negocioId, producto_id: r.insertId },
+  }).catch(() => {});
+  return r.insertId as number;
 }
 
 // ── Compuertas de aprobación (§10) ──────────────────────────────────────────────────────────────
@@ -2293,7 +2335,8 @@ export interface CoberturaProyecto { total: number; listos: number; renunciados:
  *  se las dio a otro proveedor) salen del cómputo; de las que quedan, TODAS deben estar en ENTREGADO
  *  para que el proyecto sea entregable. */
 export async function coberturaProyecto(negocioId: number): Promise<CoberturaProyecto> {
-  const productos = await listarProductosCompra(negocioId);
+  // Un servicio (flete, armado) no es algo que se entregue al cliente: no cuenta para la cobertura.
+  const productos = (await listarProductosCompra(negocioId)).filter(p => !p.esServicio);
   const vigentes = productos.filter(p => !esSubestadoFuera(p.subestado));
   const listos = vigentes.filter(p => p.subestado === 'ENTREGADO').length;
   const noAdjudicadas = productos.filter(p => p.subestado === 'NO_ADJUDICADA').length;
@@ -2330,7 +2373,7 @@ export async function aplicarAdjudicacionPorLinea(negocioId: number): Promise<Re
   const lineas = acta.lineasAdjudicadas || [];
   const productos = await productosP;
   // Las partes que se compran aparte repiten la línea de su producto: se deciden con él (si no, su correlativo repetido impedía cruzar).
-  const d = decidirNoAdjudicadas(productos.filter(p => p.productoPadreId == null).map(p => ({ id: p.id, correlativo: p.correlativo, subestado: p.subestado })), lineas, acta.esAdjudicada);
+  const d = decidirNoAdjudicadas(productos.filter(p => p.productoPadreId == null && !p.esServicio).map(p => ({ id: p.id, correlativo: p.correlativo, subestado: p.subestado })), lineas, acta.esAdjudicada);
   const partesDe = (ids: number[]) => productos.filter(p => p.productoPadreId != null && ids.includes(p.productoPadreId)).map(p => p.id);
   d.marcar.push(...partesDe(d.marcar).filter(id => ['PENDIENTE', 'COTIZANDO'].includes(productos.find(p => p.id === id)!.subestado)));
   d.restaurar.push(...partesDe(d.restaurar).filter(id => productos.find(p => p.id === id)!.subestado === 'NO_ADJUDICADA'));

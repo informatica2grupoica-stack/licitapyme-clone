@@ -99,7 +99,10 @@ export async function tablaAprobacion(negocioId: number): Promise<TablaAprobacio
     const difPct = difUnit != null && costUnit ? pct((difUnit / costUnit) * 100) : null;
     const margenLineaPct = compraUnit != null && p.montoUnitario ? pct(((p.montoUnitario - compraUnit) / p.montoUnitario) * 100) : null;
     // Una compra rápida sigue las mismas reglas de ficha que el resto: hay que completar sus documentos igual (pedido del dueño, 22-oct-2026).
-    const tecnico = tecnicoDe(panel, p.id, proveedor, rap && mismoProveedor({ nombre: rap.proveedorNombre }, { nombre: proveedor }) ? rap.proveedorRut : null);
+    // Un servicio (transporte de toda la entrega) no tiene ficha técnica ni línea de bases: lo técnico no aplica.
+    const tecnico: LineaAprobacion['tecnico'] = p.esServicio
+      ? { estado: 'SIN_COMPRA', cumple: 0, total: 0, modelo: null }
+      : tecnicoDe(panel, p.id, proveedor, rap && mismoProveedor({ nombre: rap.proveedorNombre }, { nombre: proveedor }) ? rap.proveedorRut : null);
 
     const motivos: string[] = [];
     let porPrecio: EstadoLinea = 'PASA';

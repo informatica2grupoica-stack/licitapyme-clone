@@ -65,7 +65,7 @@ export async function planTrasladoCompraAlCosteo(negocioId: number): Promise<Pla
   const out: LineaTraslado[] = [];
   for (const d of porProducto) {
     const prod = productos.find(p => p.id === Number(d.productoId));
-    if (!prod || prod.productoPadreId != null) continue;
+    if (!prod || prod.productoPadreId != null || prod.esServicio) continue;   // un servicio no tiene fila en el costeo: su costo va como gasto
     const sel = elegidaDe(prod, d);
     if (!sel) continue;
     const { cot, item } = sel;

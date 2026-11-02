@@ -6,7 +6,7 @@ import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
-import { registrarGasto, listarGastos, resumenGastos, eliminarGasto, promoverCategoriaGasto, type DatosGasto } from '@/app/lib/compras-gastos';
+import { registrarGasto, listarGastos, resumenGastos, eliminarGasto, promoverCategoriaGasto, listarOcsDisponiblesParaGasto, type DatosGasto } from '@/app/lib/compras-gastos';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { errorDeArchivoSubido } from '@/app/lib/subidas';
@@ -36,8 +36,11 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
-    const [gastos, resumen] = await Promise.all([listarGastos(id), resumenGastos(id)]);
-    return NextResponse.json({ success: true, gastos, resumen });
+    // Las OC de Obuma que ya respaldan un gasto (transporte, armado…) y aún no están anotadas; si Obuma no responde la tarjeta carga igual.
+    const [gastos, resumen, ocsDisponibles] = await Promise.all([
+      listarGastos(id), resumenGastos(id), listarOcsDisponiblesParaGasto(id).catch(() => []),
+    ]);
+    return NextResponse.json({ success: true, gastos, resumen, ocsDisponibles });
   } catch (error) {
     console.error('[compras/gastos][GET]', String(error));
     return NextResponse.json({ error: 'No se pudieron cargar los gastos.' }, { status: 500 });
@@ -80,6 +83,7 @@ async function __POST(request: NextRequest, { params }: Params) {
         fechaGasto: (form.get('fechaGasto') as string) || null,
         comprobanteUrl,
         notas: (form.get('notas') as string) || null,
+        ocObumaFolio: (form.get('ocObumaFolio') as string) || null,
       };
     } else {
       const body = await request.json();
@@ -87,7 +91,7 @@ async function __POST(request: NextRequest, { params }: Params) {
       datos = {
         categoriaClave: body.categoriaClave || null, descripcion: String(body.descripcion || '').trim(),
         monto: Number(body.monto || 0), moneda: body.moneda || 'CLP', fechaGasto: body.fechaGasto || null,
-        comprobanteUrl: null, notas: body.notas || null,
+        comprobanteUrl: null, notas: body.notas || null, ocObumaFolio: body.ocObumaFolio || null,
       };
     }
 

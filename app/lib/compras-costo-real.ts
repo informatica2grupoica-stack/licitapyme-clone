@@ -32,6 +32,36 @@ function estadoDeFila(row: any): EstadoCosteoEditor | null {
 
 const placeholders = (ids: number[]) => ids.map(() => '?').join(',');
 
+const SUBESTADOS_CON_COMPRA = new Set(['COMPRADO', 'EN_BODEGA', 'LISTO_ENTREGA', 'ENTREGADO']);
+
+/** Costo de los SERVICIOS de cada negocio (transporte de toda la entrega, migration-177): lo que cuesta el proveedor elegido en el escenario de
+ *  compra. No tienen fila en el costeo, así que entran al costo real como gasto (una sola vez). `enOc` = la parte ya comprada, que Obuma sí trae. */
+async function costoServiciosPorNegocio(ids: number[]): Promise<Map<number, { total: number; enOc: number }>> {
+  const out = new Map<number, { total: number; enOc: number }>();
+  const { hayColumnaServicio } = await import('@/app/lib/compras');
+  if (!(await hayColumnaServicio())) return out;
+  const [rows] = await pool.query(
+    `SELECT id, negocio_id, subestado FROM compras_producto WHERE es_servicio = 1 AND negocio_id IN (${placeholders(ids)}) AND subestado NOT IN ('RENUNCIADO', 'NO_ADJUDICADA')`, ids) as any;
+  const porNegocio = new Map<number, Array<{ id: number; subestado: string }>>();
+  for (const r of rows as any[]) porNegocio.set(Number(r.negocio_id), [...(porNegocio.get(Number(r.negocio_id)) || []), { id: Number(r.id), subestado: String(r.subestado) }]);
+  if (porNegocio.size === 0) return out;
+  const { obtenerEscenarioElegido } = await import('@/app/lib/compras-aprobaciones');
+  await Promise.all([...porNegocio.entries()].map(async ([negocioId, servicios]) => {
+    const esc = await obtenerEscenarioElegido(negocioId).catch(() => null);
+    let detalle: any = null;
+    try { detalle = esc ? (typeof esc.detalle_json === 'string' ? JSON.parse(esc.detalle_json) : esc.detalle_json) : null; } catch { /* escenario ilegible: sin costo de servicios */ }
+    const subtotalDe = new Map<number, number>((detalle?.porProducto || []).map((x: any) => [Number(x.productoId), num(x.subtotal)]));
+    let total = 0, enOc = 0;
+    for (const s of servicios) {
+      const v = subtotalDe.get(s.id) || 0;
+      total += v;
+      if (SUBESTADOS_CON_COMPRA.has(s.subestado)) enOc += v;
+    }
+    if (total > 0) out.set(negocioId, { total, enOc });
+  }));
+  return out;
+}
+
 /** Costo real consolidado de varios negocios con UNA consulta por fuente (sirve al dashboard y a un
  *  solo negocio). `obumaPorNegocio` es opcional: solo se pasa cuando se mira un negocio suelto. */
 export async function costoRealDeNegocios(
@@ -46,7 +76,9 @@ export async function costoRealDeNegocios(
   const [[negRows], [costeoRows], [gastoRows], embRows]: any = await Promise.all([
     pool.query(`SELECT id, licitacion_codigo FROM negocios WHERE id IN (${ph})`, ids),
     pool.query(`SELECT negocio_id, modalidad, datos_json FROM negocio_costeo_editor WHERE negocio_id IN (${ph})`, ids),
-    pool.query(`SELECT negocio_id, moneda, SUM(monto) total FROM compras_gasto WHERE negocio_id IN (${ph}) GROUP BY negocio_id, moneda`, ids),
+    // `en_oc` = parte del gasto que ya tiene su OC en Obuma (migration-176); sin la columna cae a la consulta de antes.
+    (pool.query(`SELECT negocio_id, moneda, SUM(monto) total, SUM(IF(oc_obuma_folio IS NULL, 0, monto)) en_oc FROM compras_gasto WHERE negocio_id IN (${ph}) GROUP BY negocio_id, moneda`, ids) as Promise<any>)
+      .catch(() => pool.query(`SELECT negocio_id, moneda, SUM(monto) total, 0 en_oc FROM compras_gasto WHERE negocio_id IN (${ph}) GROUP BY negocio_id, moneda`, ids)),
     // Desde migration-160 un negocio puede tener varios embarques: se suman todos (compras_embarque quedó sin uso).
     pool.query(
       `SELECT negocio_id, SUM(COALESCE(flete_internacional,0) + COALESCE(costos_aduana,0) + COALESCE(costo_logistico_local,0)) AS total
@@ -59,13 +91,17 @@ export async function costoRealDeNegocios(
 
   const gastosClp = new Map<number, number>();
   const gastosOtra = new Map<number, number>();
+  const gastosEnOcClp = new Map<number, number>();
   for (const r of gastoRows as any[]) {
-    const m = String(r.moneda || 'CLP').toUpperCase() === 'CLP' ? gastosClp : gastosOtra;
+    const esClp = String(r.moneda || 'CLP').toUpperCase() === 'CLP';
+    const m = esClp ? gastosClp : gastosOtra;
     m.set(Number(r.negocio_id), (m.get(Number(r.negocio_id)) || 0) + num(r.total));
+    if (esClp) gastosEnOcClp.set(Number(r.negocio_id), (gastosEnOcClp.get(Number(r.negocio_id)) || 0) + num(r.en_oc));
   }
 
   const importacionDe = new Map<number, number>();
   for (const r of embRows as any[]) importacionDe.set(Number(r.negocio_id), num(r.total));
+  const serviciosDe = await costoServiciosPorNegocio(ids).catch(() => new Map<number, { total: number; enOc: number }>());   // sin migration-177 el resto sigue igual
 
   for (const id of ids) {
     const estado = costeoDe.get(id) ?? null;
@@ -74,7 +110,8 @@ export async function costoRealDeNegocios(
     };
     out.set(id, {
       ...consolidarCostoReal({
-        costeo, gastosRegistrados: gastosClp.get(id) || 0, importacion: importacionDe.get(id) || 0,
+        costeo, gastosRegistrados: (gastosClp.get(id) || 0) + (serviciosDe.get(id)?.total || 0),
+        gastosEnOc: (gastosEnOcClp.get(id) || 0) + (serviciosDe.get(id)?.enOc || 0), importacion: importacionDe.get(id) || 0,
         obuma: obumaPorNegocio.get(id) ?? null,
       }),
       negocioId: id, licitacionCodigo: codigoDe.get(id) ?? null, tieneCosteo: !!estado,

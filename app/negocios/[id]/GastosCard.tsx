@@ -12,9 +12,11 @@ import { IconReceipt as Receipt, IconLoader2 as Loader2, IconPlus as Plus, IconX
 interface Gasto {
   id: number; categoriaClave: string | null; categoriaEtiqueta: string | null;
   descripcion: string; monto: number; moneda: string; fechaGasto: string | null;
-  comprobanteUrl: string | null; registradoPorNombre: string | null; createdAt: string;
+  comprobanteUrl: string | null; ocObumaFolio: string | null; registradoPorNombre: string | null; createdAt: string;
 }
 interface Categoria { clave: string; etiqueta: string }
+/** Línea de gasto de una OC que ya existe en Obuma y todavía no está anotada. */
+interface OcDisponible { folio: string; proveedor: string | null; fecha: string | null; descripcion: string; monto: number }
 
 const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 
@@ -24,6 +26,8 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
   const [gastos, setGastos] = useState<Gasto[]>([]);
   const [resumen, setResumen] = useState<{ total: number; porCategoria: Array<{ clave: string | null; etiqueta: string; total: number }> }>({ total: 0, porCategoria: [] });
   const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [ocsDisponibles, setOcsDisponibles] = useState<OcDisponible[]>([]);
+  const [ocElegida, setOcElegida] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [formAbierto, setFormAbierto] = useState(false);
   const [guardando, setGuardando] = useState(false);
@@ -35,7 +39,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
     try {
       const [rG, rC] = await Promise.all([fetch(`/api/compras/${negocioId}/gastos`), fetch(`/api/compras/gastos/categorias`)]);
       const [dG, dC] = await Promise.all([rG.json(), rC.json()]);
-      if (dG.success) { setGastos(dG.gastos || []); setResumen(dG.resumen || { total: 0, porCategoria: [] }); }
+      if (dG.success) { setGastos(dG.gastos || []); setResumen(dG.resumen || { total: 0, porCategoria: [] }); setOcsDisponibles(dG.ocsDisponibles || []); }
       if (dC.success) setCategorias(dC.categorias || []);
     } catch (e: any) {
       toast.error('No se pudieron cargar los gastos', e.message);
@@ -60,6 +64,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
         fd.set('monto', form.monto);
         fd.set('moneda', form.moneda);
         if (form.fechaGasto) fd.set('fechaGasto', form.fechaGasto);
+        if (ocElegida) fd.set('ocObumaFolio', ocElegida);
         res = await fetch(`/api/compras/${negocioId}/gastos`, { method: 'POST', body: fd });
       } else {
         res = await fetch(`/api/compras/${negocioId}/gastos`, {
@@ -67,6 +72,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
           body: JSON.stringify({
             categoriaClave: form.categoriaClave || null, categoriaLibre: form.categoriaClave ? null : (form.categoriaLibre.trim() || null),
             descripcion: form.descripcion.trim(), monto: Number(form.monto), moneda: form.moneda, fechaGasto: form.fechaGasto || null,
+            ocObumaFolio: ocElegida,
           }),
         });
       }
@@ -75,6 +81,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
       toast.success('Gasto registrado');
       setForm({ categoriaClave: '', categoriaLibre: '', descripcion: '', monto: '', moneda: 'CLP', fechaGasto: '' });
       setArchivo(null);
+      setOcElegida(null);
       setFormAbierto(false);
       await cargar();
       recargarCompartido();
@@ -128,6 +135,28 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
 
       {formAbierto && (
         <div className="border-b border-zinc-100 px-4 py-4 space-y-3 bg-zinc-50/60" data-testid="gasto-form">
+          {ocsDisponibles.length > 0 && (
+            <div data-testid="gasto-oc-existente">
+              <p className="text-[12.5px] font-bold text-zinc-800 mb-1">¿Este gasto ya tiene su orden de compra en Obuma?</p>
+              <p className="text-[11.5px] text-zinc-500 mb-1.5">Estas órdenes ya existen y tienen una línea de transporte, flete o armado sin anotar. Si eliges una, el gasto queda enlazado a ella y <b>no se crea otra orden</b>.</p>
+              <div className="space-y-1">
+                {ocsDisponibles.map(o => {
+                  const on = ocElegida === o.folio;
+                  return (
+                    <button key={`${o.folio}-${o.monto}`} type="button" data-testid={`gasto-oc-${o.folio}`}
+                      onClick={() => {
+                        if (on) { setOcElegida(null); return; }
+                        setOcElegida(o.folio);
+                        setForm(f => ({ ...f, descripcion: o.descripcion, monto: String(o.monto), moneda: 'CLP', fechaGasto: o.fecha ? o.fecha.slice(0, 10) : f.fechaGasto }));
+                      }}
+                      className={`w-full text-left text-[12px] px-3 py-2 rounded-lg border transition-colors ${on ? 'bg-teal-50 border-teal-500 text-teal-900' : 'bg-white border-zinc-300 text-zinc-700 hover:border-teal-400'}`}>
+                      <span className="font-semibold">OC {o.folio}</span>{o.proveedor ? ` · ${o.proveedor}` : ''} · {o.descripcion} · <span className="font-semibold">{fmtCLP(o.monto)}</span> neto
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div>
             <p className="text-[12.5px] font-bold text-zinc-800 mb-1">1. ¿Qué tipo de gasto es?</p>
             <div className="flex items-center gap-1.5 flex-wrap">
@@ -199,6 +228,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
                 <p className="text-[12px] text-zinc-800">
                   {g.categoriaEtiqueta && <span className="text-[9.5px] font-bold text-zinc-500 bg-zinc-100 border border-zinc-200 px-1.5 py-0.5 rounded-full mr-1.5">{g.categoriaEtiqueta}</span>}
                   {g.descripcion}
+                  {g.ocObumaFolio && <span className="text-[9.5px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full ml-1.5">OC Obuma {g.ocObumaFolio}</span>}
                 </p>
                 <p className="text-[10.5px] text-zinc-400">
                   {g.fechaGasto || g.createdAt.slice(0, 10)}{g.registradoPorNombre && ` · ${g.registradoPorNombre}`}

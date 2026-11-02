@@ -9,6 +9,8 @@
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
+import { comprasObumaDeLicitacion } from '@/app/lib/obuma-compras';
+import { ocsDisponiblesParaGasto, type OcDisponibleParaGasto } from '@/app/lib/compras-gastos-oc';
 
 async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
   const [rows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
@@ -37,20 +39,49 @@ export async function promoverCategoriaGasto(etiquetaLibre: string): Promise<str
 export interface DatosGasto {
   categoriaClave?: string | null; descripcion: string; monto: number; moneda?: string;
   fechaGasto?: string | null; comprobanteUrl?: string | null; notas?: string | null;
+  /** Folio de la OC de Obuma que ya respalda este gasto (se enlaza, no se crea otra). */
+  ocObumaFolio?: string | null;
+}
+
+/** Las líneas de gasto (transporte, flete, armado…) de las OC vigentes de Obuma que aún no tienen gasto anotado. */
+export async function listarOcsDisponiblesParaGasto(negocioId: number): Promise<OcDisponibleParaGasto[]> {
+  const codigo = await licitacionDeNegocio(negocioId);
+  if (!codigo) return [];
+  const [compras, [propias], vinculados] = await Promise.all([
+    comprasObumaDeLicitacion(codigo),
+    pool.query(`SELECT obuma_folio, flete_monto FROM compras_orden_compra_obuma WHERE negocio_id = ?`, [negocioId]) as Promise<any>,
+    listarGastos(negocioId),
+  ]);
+  return ocsDisponiblesParaGasto(
+    compras.map(c => ({
+      folio: c.folio || c.compraOcId, proveedor: c.proveedorRazonSocial, estado: c.estado, fecha: c.fechaIngreso,
+      lineas: c.items.map(i => ({ descripcion: i.descripcion, subtotal: i.subtotal })),
+    })),
+    (propias as any[]).map(p => ({ folio: p.obuma_folio, fleteMonto: Number(p.flete_monto) || 0 })),
+    vinculados.map(g => ({ ocObumaFolio: g.ocObumaFolio, monto: g.monto })),
+  );
 }
 
 export async function registrarGasto(
   negocioId: number, datos: DatosGasto, actorId: number, actorNombre: string | null,
 ): Promise<number> {
+  const ocFolio = datos.ocObumaFolio?.trim() || null;
+  if (ocFolio) {
+    // Solo se enlaza a una OC que de verdad existe para esta licitación y cuya línea de gasto sigue libre: nunca se inventa el vínculo.
+    const libres = await listarOcsDisponiblesParaGasto(negocioId);
+    if (!libres.some(o => o.folio === ocFolio && o.monto === Math.round(datos.monto)))
+      throw new Error(`La OC ${ocFolio} no tiene una línea de gasto libre por ese monto: revisa el folio y el monto, o si ya está anotada.`);
+  }
   const ahora = ahoraChileSQL();
+  // La columna del enlace solo entra al INSERT cuando hay OC: sin migration-176 los gastos normales se siguen guardando.
   const [r] = await pool.query(
     `INSERT INTO compras_gasto
-       (negocio_id, categoria_clave, descripcion, monto, moneda, fecha_gasto, comprobante_url, notas,
+       (negocio_id, categoria_clave, descripcion, monto, moneda, fecha_gasto, comprobante_url, ${ocFolio ? 'oc_obuma_folio, ' : ''}notas,
         registrado_por, registrado_por_nombre, created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,${ocFolio ? '?,' : ''}?,?,?,?)`,
     [
       negocioId, datos.categoriaClave || null, datos.descripcion.slice(0, 500), datos.monto,
-      datos.moneda || 'CLP', datos.fechaGasto || null, datos.comprobanteUrl || null, datos.notas || null,
+      datos.moneda || 'CLP', datos.fechaGasto || null, datos.comprobanteUrl || null, ...(ocFolio ? [ocFolio] : []), datos.notas || null,
       actorId, actorNombre, ahora,
     ],
   ) as any;
@@ -60,7 +91,7 @@ export async function registrarGasto(
     tipo: 'COMPRAS_GASTO_REGISTRADO', licitacionCodigo: await licitacionDeNegocio(negocioId),
     actorId, actorNombre,
     mensaje: `Se registró un gasto: "${datos.descripcion}" — ${fmtMonto(datos.monto)}.`,
-    metadata: { negocio_id: negocioId, gasto_id: id, categoria: datos.categoriaClave, monto: datos.monto },
+    metadata: { negocio_id: negocioId, gasto_id: id, categoria: datos.categoriaClave, monto: datos.monto, oc_obuma_folio: ocFolio },
   });
   return id;
 }
@@ -81,23 +112,25 @@ export async function eliminarGasto(negocioId: number, gastoId: number, actorId:
 export interface GastoFila {
   id: number; categoriaClave: string | null; categoriaEtiqueta: string | null;
   descripcion: string; monto: number; moneda: string; fechaGasto: string | null;
-  comprobanteUrl: string | null; notas: string | null;
+  comprobanteUrl: string | null; notas: string | null; ocObumaFolio: string | null;
   registradoPorNombre: string | null; createdAt: string;
 }
 
 export async function listarGastos(negocioId: number): Promise<GastoFila[]> {
-  const [rows] = await pool.query(
+  const consulta = (colOc: string) => pool.query(
     `SELECT g.id, g.categoria_clave, c.etiqueta AS categoria_etiqueta, g.descripcion, g.monto, g.moneda,
-            DATE_FORMAT(g.fecha_gasto, '%Y-%m-%d') AS fecha_gasto, g.comprobante_url, g.notas,
+            DATE_FORMAT(g.fecha_gasto, '%Y-%m-%d') AS fecha_gasto, g.comprobante_url, ${colOc} AS oc_obuma_folio, g.notas,
             g.registrado_por_nombre, DATE_FORMAT(g.created_at, '%Y-%m-%d %H:%i:%s') AS created_at
        FROM compras_gasto g LEFT JOIN compras_gasto_categoria c ON c.clave = g.categoria_clave
        WHERE g.negocio_id = ? ORDER BY g.created_at DESC`,
     [negocioId],
-  ) as any;
+  ) as Promise<any>;
+  // migration-176 pendiente en un entorno viejo: la lista carga igual, sin el enlace a la OC.
+  const [rows] = await consulta('g.oc_obuma_folio').catch(() => consulta('NULL'));
   return (rows as any[]).map(r => ({
     id: r.id, categoriaClave: r.categoria_clave, categoriaEtiqueta: r.categoria_etiqueta,
     descripcion: r.descripcion, monto: Number(r.monto), moneda: r.moneda, fechaGasto: r.fecha_gasto,
-    comprobanteUrl: r.comprobante_url, notas: r.notas,
+    comprobanteUrl: r.comprobante_url, notas: r.notas, ocObumaFolio: r.oc_obuma_folio ?? null,
     registradoPorNombre: r.registrado_por_nombre, createdAt: r.created_at,
   }));
 }

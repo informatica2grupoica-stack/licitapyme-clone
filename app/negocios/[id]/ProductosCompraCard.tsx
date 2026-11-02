@@ -10,7 +10,7 @@ import { MenuAcciones } from '@/app/components/ui/MenuAcciones';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { LinksProducto } from './LinksProducto';
 import { fetchJsonReintento } from '@/app/lib/fetch-reintento';
-import { IconPackage as Package, IconLoader2 as Loader2, IconX as X, IconFlag as Flag, IconRefresh as RefreshCw, IconSearch as Search } from '@tabler/icons-react';
+import { IconPackage as Package, IconLoader2 as Loader2, IconX as X, IconFlag as Flag, IconRefresh as RefreshCw, IconSearch as Search, IconPlus as Plus } from '@tabler/icons-react';
 
 type Subestado = 'PENDIENTE' | 'COTIZANDO' | 'COMPRADO' | 'EN_BODEGA' | 'LISTO_ENTREGA' | 'ENTREGADO' | 'RENUNCIADO' | 'NO_ADJUDICADA';
 
@@ -19,6 +19,8 @@ interface Producto {
   montoUnitario: number | null; subestado: Subestado;
   /** Parte que se compra aparte (los pernos de una butaca «que incluye pernos»): cuelga de este producto. */
   productoPadreId: number | null;
+  /** Servicio que se compra con proveedor, cotización, SKU y OC pero no se vende (el flete de toda la entrega). */
+  esServicio?: boolean;
   renunciaMotivo: string | null; renunciaPropuestaPorNombre: string | null; renunciaAprobadaPorNombre: string | null;
 }
 interface Cobertura { total: number; listos: number; renunciados: number; noAdjudicadas: number; cobertura: boolean }
@@ -57,7 +59,10 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
   const [motivoRenuncia, setMotivoRenuncia] = useState('');
   const [sincronizando, setSincronizando] = useState(false);
   const [busqueda, setBusqueda] = useState('');
-  const [filtro, setFiltro] = useState<'todos' | 'pendientes' | 'listos' | 'fuera'>('todos');
+  const [filtro, setFiltro] = useState<'todos' | 'pendientes' | 'listos' | 'fuera' | 'servicios'>('todos');
+  // «Agregar servicio»: el transporte que lleva TODA la entrega no es de una línea; se compra con proveedor, cotización, SKU y OC (migration-177).
+  const [servicioAbierto, setServicioAbierto] = useState(false);
+  const [servicio, setServicio] = useState({ descripcion: '', cantidad: '1', unidad: '' });
   // Compra rápida (migration-151): el jefe de ventas la aprueba o rechaza ANTES de comprar; rechazada = fila roja parpadeante.
   const [rapidas, setRapidas] = useState<Record<number, CompraRapidaFila>>({});
   const [notaReenvio, setNotaReenvio] = useState('');
@@ -139,6 +144,26 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
     setParteAbierta(null); setParte({ descripcion: '', cantidad: '', unidad: '' });
   };
 
+  const agregarServicio = async () => {
+    const cantidad = Number(servicio.cantidad.replace(/\./g, '').replace(',', '.'));
+    if (!servicio.descripcion.trim() || !(cantidad > 0)) return;
+    setGuardando(-1);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/productos`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: 'agregar_servicio', descripcion: servicio.descripcion.trim(), cantidad, unidad: servicio.unidad.trim() || null }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo agregar');
+      setProductos(data.productos); setCobertura(data.cobertura);
+      setServicioAbierto(false); setServicio({ descripcion: '', cantidad: '1', unidad: '' });
+      recargarCompartido();
+      toast.success('Servicio agregado', 'Ya aparece en Cotizaciones para cotizarlo, y después lleva SKU y OC.');
+    } catch (e: any) {
+      toast.error('No se pudo agregar el servicio', e.message);
+    } finally { setGuardando(null); }
+  };
+
   const proponerRenuncia = async (productoId: number) => {
     if (!motivoRenuncia.trim()) return;
     await accion({ productoId, accion: 'proponer_renuncia', motivo: motivoRenuncia.trim() });
@@ -172,23 +197,25 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
   const grupoDe = (st: Subestado): 'pendientes' | 'listos' | 'fuera' =>
     st === 'RENUNCIADO' || st === 'NO_ADJUDICADA' ? 'fuera' : st === 'LISTO_ENTREGA' || st === 'ENTREGADO' ? 'listos' : 'pendientes';
   const conteo = useMemo(() => {
-    const c = { pendientes: 0, listos: 0, fuera: 0 };
-    for (const p of productos) c[grupoDe(p.subestado)]++;
+    const c = { pendientes: 0, listos: 0, fuera: 0, servicios: 0 };
+    // Un servicio no se entrega al cliente: no cuenta en «hay que cumplir».
+    for (const p of productos) { if (p.esServicio) c.servicios++; else c[grupoDe(p.subestado)]++; }
     return c;
   }, [productos]);
   // Si el número de línea viene repetido (pasa en algunas licitaciones), se muestra un número corrido para poder ubicarse.
   // Las partes que se compran aparte repiten la línea de su producto: no cuentan para decidir la numeración.
-  const principales = useMemo(() => productos.filter(p => p.productoPadreId == null), [productos]);
+  const principales = useMemo(() => productos.filter(p => p.productoPadreId == null && !p.esServicio), [productos]);
   const lineasUnicas = useMemo(() => new Set(principales.map(p => p.correlativo)).size === principales.length, [principales]);
-  const ventaTotal = useMemo(() => productos.filter(p => grupoDe(p.subestado) !== 'fuera').reduce((t, p) => t + (p.montoUnitario ?? 0) * (p.cantidad != null && Number(p.cantidad) > 0 ? Number(p.cantidad) : 1), 0), [productos]);
+  const ventaTotal = useMemo(() => productos.filter(p => !p.esServicio && grupoDe(p.subestado) !== 'fuera').reduce((t, p) => t + (p.montoUnitario ?? 0) * (p.cantidad != null && Number(p.cantidad) > 0 ? Number(p.cantidad) : 1), 0), [productos]);
   // Cada parte va justo debajo de su producto.
   const ordenados = useMemo(() => {
-    const partes = productos.filter(p => p.productoPadreId != null);
-    return [...principales.flatMap(p => [p, ...partes.filter(x => x.productoPadreId === p.id)]), ...partes.filter(x => !principales.some(p => p.id === x.productoPadreId))];
+    const partes = productos.filter(p => p.productoPadreId != null && !p.esServicio);
+    // Los servicios van al final: no son de ninguna línea.
+    return [...principales.flatMap(p => [p, ...partes.filter(x => x.productoPadreId === p.id)]), ...partes.filter(x => !principales.some(p => p.id === x.productoPadreId)), ...productos.filter(p => p.esServicio)];
   }, [productos, principales]);
   const visibles = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
-    return ordenados.filter(p => (filtro === 'todos' || grupoDe(p.subestado) === filtro) && (!q || p.descripcion.toLowerCase().includes(q) || String(p.correlativo ?? '').includes(q)));
+    return ordenados.filter(p => (filtro === 'todos' || (filtro === 'servicios' ? !!p.esServicio : !p.esServicio && grupoDe(p.subestado) === filtro)) && (!q || p.descripcion.toLowerCase().includes(q) || String(p.correlativo ?? '').includes(q)));
   }, [ordenados, busqueda, filtro]);
 
   if (loading) return <div className="flex items-center justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-zinc-400" /></div>;
@@ -207,7 +234,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
       <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-100 space-y-2.5">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <p className="text-[13px] font-bold text-zinc-800 flex items-center gap-1.5"><Package size={15} /> {productos.length} producto{productos.length === 1 ? '' : 's'} · venta neta {fmtCLP(ventaTotal)}</p>
+          <p className="text-[13px] font-bold text-zinc-800 flex items-center gap-1.5"><Package size={15} /> {productos.length - conteo.servicios} producto{productos.length - conteo.servicios === 1 ? '' : 's'} · venta neta {fmtCLP(ventaTotal)}</p>
           {puedeOperar && (
             <button onClick={sincronizarConCosteo} disabled={sincronizando} title="Vuelve a traer descripción, cantidad y monto desde el Costeo vigente — no toca el subestado ni renuncias"
               className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 disabled:opacity-50 px-2 py-1 rounded-lg transition-colors">
@@ -229,12 +256,40 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
           {chip('pendientes', 'Por avanzar', conteo.pendientes)}
           {chip('listos', 'Listos', conteo.listos)}
           {conteo.fuera > 0 && chip('fuera', 'Fuera de la compra', conteo.fuera)}
-          <div className="relative ml-auto">
-            <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-400" />
-            <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar producto o línea…"
-              className="w-56 text-[12.5px] border border-zinc-200 rounded-lg pl-7 pr-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500 bg-white" />
+          {conteo.servicios > 0 && chip('servicios', 'Servicios', conteo.servicios)}
+          <div className="relative ml-auto flex items-center gap-2">
+            {puedeOperar && (
+              <button type="button" onClick={() => setServicioAbierto(v => !v)} data-testid="agregar-servicio"
+                title="Un servicio que lleva toda la entrega (transporte, armado): se cotiza, lleva SKU y OC, y no se vende"
+                className="inline-flex items-center gap-1 text-[12px] font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 px-2.5 py-1.5 rounded-lg transition-colors">
+                {servicioAbierto ? <X size={12} /> : <Plus size={12} />} Agregar servicio
+              </button>
+            )}
+            <div className="relative">
+              <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-400" />
+              <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar producto o línea…"
+                className="w-56 text-[12.5px] border border-zinc-200 rounded-lg pl-7 pr-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500 bg-white" />
+            </div>
           </div>
         </div>
+        {servicioAbierto && (
+          <div className="border border-zinc-200 rounded-lg bg-white px-3 py-2.5" data-testid="form-servicio">
+            <p className="text-xs text-zinc-600 mb-1.5">
+              Un servicio que se compra para <b>toda la entrega</b> y no es de ninguna línea (ej. el transporte y armado a la obra). Queda como un producto más:
+              se cotiza con su proveedor, se aprueba, lleva SKU y OC. No se vende ni cuenta para la entrega; su costo va al costo real como gasto.
+            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <input autoFocus value={servicio.descripcion} onChange={e => setServicio(s => ({ ...s, descripcion: e.target.value }))} placeholder="Qué servicio es (ej. Transporte y armado de mobiliario a la obra)"
+                className="flex-1 min-w-64 text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none bg-white" />
+              <input value={servicio.cantidad} onChange={e => setServicio(s => ({ ...s, cantidad: e.target.value }))} placeholder="Cantidad" inputMode="decimal"
+                className="w-24 text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none bg-white tabular-nums" />
+              <input value={servicio.unidad} onChange={e => setServicio(s => ({ ...s, unidad: e.target.value }))} placeholder="Unidad (viaje, un…)"
+                className="w-36 text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none bg-white" />
+              <button onClick={agregarServicio} disabled={!servicio.descripcion.trim() || !(Number(servicio.cantidad.replace(/\./g, '').replace(',', '.')) > 0) || guardando === -1}
+                className="text-[12px] font-semibold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">Agregar servicio</button>
+            </div>
+          </div>
+        )}
       </div>
       {aviso && (
         <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-[11.5px] font-semibold text-amber-800">{aviso}</div>
@@ -266,7 +321,11 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
               const fuera = p.subestado === 'NO_ADJUDICADA' || p.subestado === 'RENUNCIADO';
               const l = p.subestado === 'NO_ADJUDICADA' ? perdidas.find(x => x.correlativo === p.correlativo) : null;
               const padre = p.productoPadreId != null ? productos.find(x => x.id === p.productoPadreId) ?? null : null;
-              const acciones = p.productoPadreId == null
+              const acciones = p.esServicio
+                ? p.subestado === 'PENDIENTE' && !rapidas[p.id]
+                  ? [{ label: 'Quitar este servicio', onClick: () => { if (window.confirm(`¿Quitar el servicio «${p.descripcion}»?`)) accion({ productoId: p.id, accion: 'quitar_parte' }); } }]
+                  : []
+                : p.productoPadreId == null
                 ? [{ label: 'Comprar una parte aparte', onClick: () => { setParteAbierta(p.id); setParte({ descripcion: '', cantidad: '', unidad: '' }); } }]
                 : p.subestado === 'PENDIENTE' && !rapidas[p.id]
                   ? [{ label: 'Quitar esta parte', onClick: () => { if (window.confirm(`¿Quitar «${p.descripcion}» de la compra?`)) accion({ productoId: p.id, accion: 'quitar_parte' }); } }]
@@ -275,16 +334,19 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
                 <Fragment key={p.id}>
                   <tr className={`border-b border-zinc-100 align-middle ${fuera ? 'bg-zinc-50/70 text-zinc-400' : rapidas[p.id]?.estado === 'RECHAZADA' ? 'bg-rose-100 animate-pulse border-l-4 border-l-rose-500' : 'hover:bg-zinc-50/60'}`}
                     data-testid={`fila-producto-${p.id}`}>
-                    <td className="px-4 py-2 text-[12px] text-zinc-400 tabular-nums">{padre ? '' : lineasUnicas ? (p.correlativo ?? '—') : principales.indexOf(p) + 1}</td>
+                    <td className="px-4 py-2 text-[12px] text-zinc-400 tabular-nums">{padre || p.esServicio ? '' : lineasUnicas ? (p.correlativo ?? '—') : principales.indexOf(p) + 1}</td>
                     <td className={`py-2 max-w-0 ${padre ? 'pl-8 pr-3' : 'px-3'}`}>
                       <p title={p.descripcion} className={`text-[13px] font-semibold truncate ${fuera ? 'text-zinc-400' : 'text-zinc-800'} ${p.subestado === 'NO_ADJUDICADA' ? 'line-through decoration-zinc-400' : ''}`}>{padre && <span aria-hidden className="text-zinc-400 font-normal mr-1">↳</span>}{p.descripcion}</p>
                       {padre && <p title={padre.descripcion} className="text-xs text-zinc-500 truncate">Parte de «{padre.descripcion}» · se compra aparte, no se vende sola</p>}
+                      {p.esServicio && <p className="text-xs text-zinc-500 truncate">Servicio de toda la entrega · se cotiza, lleva SKU y OC · no se vende</p>}
                     </td>
                     <td className="px-3 py-2 w-64" data-testid={`links-costeo-${p.id}`}>
                       {!fuera && <LinksProducto links={linksCosteo[p.id]?.links} />}
                     </td>
                     <td className="px-3 py-2 text-[12.5px] text-zinc-600 whitespace-nowrap">{p.cantidad != null ? `${p.cantidad}${p.unidad ? ` ${p.unidad}` : ''}` : '—'}</td>
-                    {padre
+                    {p.esServicio
+                      ? <td className="px-3 py-2 text-xs text-zinc-400 whitespace-nowrap" title="Es un costo de la entrega: no tiene precio de venta">no se vende</td>
+                      : padre
                       ? <td className="px-3 py-2 text-xs text-zinc-400 whitespace-nowrap" title="Lo que paga el cliente está en el producto del que es parte">en su producto</td>
                       : <td className="px-3 py-2 text-[12.5px] text-zinc-600 whitespace-nowrap tabular-nums" title="Precio de venta unitario de la oferta (no es lo que cuesta comprarlo)">{fmtCLP(p.montoUnitario)}</td>}
                     <td className="px-3 py-2">

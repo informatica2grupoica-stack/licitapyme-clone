@@ -6,7 +6,7 @@ import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion, listarProductosCompra, poblarProductosCompraBase, cambiarSubestadoProducto,
   proponerRenunciaLinea, aprobarRenunciaLinea, coberturaProyecto, sincronizarProductosConCosteo, aplicarAdjudicacionPorLinea,
-  crearParteProducto, eliminarParteProducto,
+  crearParteProducto, eliminarParteProducto, crearServicioProducto,
   type SubestadoProducto } from '@/app/lib/compras';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
@@ -74,6 +74,13 @@ async function __PATCH(request: NextRequest, { params }: Params) {
       const r = await sincronizarProductosConCosteo(id);
       const [productos, cobertura] = await Promise.all([listarProductosCompra(id), coberturaProyecto(id)]);
       return NextResponse.json({ success: true, productos, cobertura, ...r });
+    }
+
+    if (body.accion === 'agregar_servicio') {
+      // Servicio que se compra con proveedor/cotización/SKU/OC pero no se vende (el flete que lleva toda la entrega, migration-177).
+      await crearServicioProducto(id, { descripcion: String(body.descripcion || ''), cantidad: Number(body.cantidad), unidad: body.unidad ?? null }, userId, nombre);
+      const [productos, cobertura] = await Promise.all([listarProductosCompra(id), coberturaProyecto(id)]);
+      return NextResponse.json({ success: true, productos, cobertura });
     }
 
     const productoId = Number(body.productoId);
