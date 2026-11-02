@@ -731,6 +731,31 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
       [producto.id, parsed.puntosCriticos || null, ahora],
     );
   }
+  // SERVICIO de transporte (2906-19-LE26, «Trasporte»): si la cotización trae una línea de flete y el negocio tiene un servicio sin precio
+  // en ella, la línea ES el precio de ese servicio (se cotiza, lleva SKU y OC). La IA la dejaba como «flete aparte» (flete_monto) y el
+  // servicio quedaba sin cotizar. Al asignarla se libera flete_monto: si no, el flete se contaba dos veces (servicio + «Flete / logística»).
+  const lineasEnServicio = new Set<string>();
+  try {
+    const yaConPrecio = new Set(resueltos.map(r => r.producto.id));
+    const servicios = productos.filter(p => p.esServicio && !yaConPrecio.has(p.id));
+    const RE_TRANSPORTE = /flete|transport|trasport|despacho|env[ií]o|reparto/i;
+    const lineasFlete = lineasDelDoc.filter(l => RE_TRANSPORTE.test(l.descripcion) && (l.total ?? l.precioUnitario ?? 0) > 0);
+    if ((cotiz.moneda || 'CLP') === 'CLP' && servicios.length === 1 && lineasFlete.length === 1) {
+      const serv = servicios[0], linea = lineasFlete[0];
+      const cant = serv.cantidad != null && Number(serv.cantidad) > 0 ? Number(serv.cantidad) : 1;
+      const totalLinea = Number(linea.total ?? linea.precioUnitario);
+      const neto = ivaIncluido ? Number(netoDesdeBruto(totalLinea)) : totalLinea;
+      const precio = Math.round((neto / cant) * 100) / 100;
+      await pool.query(
+        `INSERT INTO compras_cotizacion_item (cotizacion_id, producto_id, precio_unitario, precio_base, cumple, detalle_desviacion)
+         VALUES (?,?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE precio_unitario = VALUES(precio_unitario), precio_base = VALUES(precio_base), cumple = VALUES(cumple), detalle_desviacion = VALUES(detalle_desviacion)`,
+        [cotizacionId, serv.id, precio, precio, 'CUMPLE', `Línea «${linea.descripcion.slice(0, 60)}» de la cotización.`]);
+      await pool.query(`UPDATE compras_cotizacion SET flete_monto = NULL, incluye_flete = NULL WHERE id = ?`, [cotizacionId]);
+      lineasEnServicio.add(linea.descripcion);
+      escritos++;
+    }
+  } catch (e) { console.warn('[homologar] no se pudo asignar el flete al servicio de transporte:', String(e).slice(0, 120)); }
   // Re-homologar dejaba filas de una pasada anterior que la nueva lectura ya no asigna (producto "sin precio", $0) y su aviso en la matriz.
   // Se limpian solo las vacías (sin precio, sin adicionales): lo que tiene precio o lo cargó una persona se conserva.
   const asignados = resueltos.filter(r => incluidos.has(codigo(r.it.producto)) || !(hayConPrecio && r.precioClp == null)).map(r => r.producto.id);
@@ -753,7 +778,7 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     const [asig]: any = await pool.query(
       `SELECT p.descripcion FROM compras_cotizacion_item i JOIN compras_producto p ON p.id = i.producto_id WHERE i.cotizacion_id = ?`, [cotizacionId]);
     const [adics]: any = await pool.query(`SELECT concepto FROM compras_cotizacion_adicional WHERE cotizacion_id = ?`, [cotizacionId]);
-    const sin = lineasSinAsignar(lineasDelDoc, [...(asig as any[]).flatMap(x => [String(x.descripcion), String(x.descripcion).split(' - ')[0]]), ...(adics as any[]).map(x => String(x.concepto))]);
+    const sin = lineasSinAsignar(lineasDelDoc, [...lineasEnServicio, ...(asig as any[]).flatMap(x => [String(x.descripcion), String(x.descripcion).split(' - ')[0]]), ...(adics as any[]).map(x => String(x.concepto))]);
     const marca = 'Revisa la asignación:';
     const marcaMismo = 'Revisa que sea el mismo producto:';
     const notasSinAviso = String(a?.notas || '').split(' · ').filter(t => !t.startsWith(marca) && !t.startsWith(marcaMismo)).join(' · ');
