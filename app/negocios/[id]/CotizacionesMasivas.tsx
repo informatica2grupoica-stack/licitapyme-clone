@@ -10,7 +10,7 @@
 // puede identificar el proveedor NO se registra (se avisa), en vez de guardar una cotización a ciegas.
 import { useState, useRef, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
-import { IconLoader2 as Loader2, IconUpload as Upload, IconCircleCheck as CheckCircle2, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconX as X } from '@tabler/icons-react';
+import { IconLoader2 as Loader2, IconUpload as Upload, IconCircleCheck as CheckCircle2, IconAlertTriangle as AlertTriangle, IconClock as Clock } from '@tabler/icons-react';
 
 interface ProductoLite { id: number; descripcion: string }
 interface ItemCot { productoId: number; precioUnitario: number | null; cumple: string }
@@ -29,8 +29,8 @@ const CUMPLE_TXT: Record<string, string> = {
   INFERIOR_INSALVABLE: 'inferior (insalvable)', NO_ES_EL_PRODUCTO: 'no es el producto',
 };
 
-export function CotizacionesMasivas({ negocioId, productos, onTerminado, onCerrar }: {
-  negocioId: number; productos: ProductoLite[]; onTerminado: () => void | Promise<void>; onCerrar: () => void;
+export function CotizacionesMasivas({ negocioId, productos, onTerminado }: {
+  negocioId: number; productos: ProductoLite[]; onTerminado: () => void | Promise<void>;
 }) {
   const toast = useToast();
   const [filas, setFilas] = useState<Fila[]>([]);
@@ -121,14 +121,8 @@ export function CotizacionesMasivas({ negocioId, productos, onTerminado, onCerra
   const registradas = filas.filter(f => f.estado === 'registrada').length;
 
   return (
-    <div className="border-b border-zinc-100 px-4 py-3 space-y-3 bg-indigo-50/30">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="text-[12px] font-bold text-zinc-700">Cargar varias cotizaciones a la vez</p>
-          <p className="text-[11px] text-zinc-500">Suelta los PDF o imágenes: cada uno se lee, se registra y la IA lo asigna al producto que corresponde. Revisa la asignación abajo; puedes corregirla con &quot;Asignar productos&quot;.</p>
-        </div>
-        <button onClick={onCerrar} className="text-zinc-400 hover:text-zinc-600 flex-shrink-0" title="Cerrar"><X size={14} /></button>
-      </div>
+    <div className="space-y-3">
+      <p className="text-sm text-tinta-2">Suelta los PDF o imágenes: cada uno se lee, se registra y la IA lo asigna al producto que corresponde. Revisa la asignación abajo; puedes corregirla con &quot;Asignar productos&quot;.</p>
 
       <div
         onDragOver={e => e.preventDefault()}

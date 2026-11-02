@@ -45,12 +45,12 @@ export default function DocumentosCompraCard({ negocioId }: { negocioId: number 
         <p className="text-[12.5px] text-zinc-500 mt-0.5">Los archivos que subió Compras para este negocio. Se abren en una pestaña nueva.</p>
       </div>
       <section className="space-y-1.5">
-        <h4 className="text-[12px] font-bold uppercase tracking-wide text-zinc-500">Cotizaciones ({datos.cotizaciones.length})</h4>
+        <h4 className="text-[12px] font-bold text-zinc-500">Cotizaciones ({datos.cotizaciones.length})</h4>
         {datos.cotizaciones.length === 0 ? <p className="text-[13px] text-zinc-400">Aún no hay cotizaciones con archivo.</p>
           : datos.cotizaciones.map(c => <Fila key={c.id} titulo={c.proveedor} sub={[c.nombre, c.fecha].filter(Boolean).join(' · ')} url={c.url} />)}
       </section>
       <section className="space-y-1.5">
-        <h4 className="text-[12px] font-bold uppercase tracking-wide text-zinc-500">Fichas técnicas ({datos.fichas.length})</h4>
+        <h4 className="text-[12px] font-bold text-zinc-500">Fichas técnicas ({datos.fichas.length})</h4>
         {datos.fichas.length === 0 ? <p className="text-[13px] text-zinc-400">Aún no hay fichas técnicas.</p>
           : datos.fichas.map((f, i) => <Fila key={i} titulo={f.nombre} sub={f.proveedor} url={f.url} />)}
       </section>

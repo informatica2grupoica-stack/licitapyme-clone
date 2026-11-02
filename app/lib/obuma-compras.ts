@@ -111,6 +111,17 @@ export async function sincronizarComprasObuma(
   const resolverProveedor = async (id: string) => {
     if (!id || id === '0') return { rut: null, razonSocial: null };
     if (proveedorCache.has(id)) return proveedorCache.get(id)!;
+    // Primero el catálogo propio (compras_proveedor guarda el id de Obuma): evita gastar consultas de la API de Obuma, que tiene tope diario
+    // por método («Error 005… límite de consultas diario… proveedores.findById»). Cuando se agotaba, el RUT quedaba NULL y las OC hechas
+    // directo en Obuma no se reconocían (387-55-LE26).
+    try {
+      const [loc] = await pool.query(`SELECT rut, nombre_empresa FROM compras_proveedor WHERE obuma_proveedor_id = ? AND rut IS NOT NULL AND rut <> '' LIMIT 1`, [id]) as any;
+      if (loc[0]) {
+        const datos = { rut: String(loc[0].rut), razonSocial: loc[0].nombre_empresa ? String(loc[0].nombre_empresa) : null };
+        proveedorCache.set(id, datos);
+        return datos;
+      }
+    } catch { /* sin catálogo local: se consulta a Obuma */ }
     try {
       const p = await proveedorPorId(id);
       const datos = { rut: p?.proveedor_rut || null, razonSocial: p?.proveedor_razon_social || null };
@@ -181,8 +192,9 @@ export async function sincronizarComprasObuma(
          empresa_id = COALESCE(empresa_id, VALUES(empresa_id)),
          estado = VALUES(estado), centro_costo = VALUES(centro_costo),
          subtotal = VALUES(subtotal), neto = VALUES(neto), iva = VALUES(iva), total = VALUES(total),
-         proveedor_id = VALUES(proveedor_id), proveedor_rut = VALUES(proveedor_rut),
-         proveedor_razon_social = VALUES(proveedor_razon_social),
+         proveedor_id = VALUES(proveedor_id),
+         proveedor_rut = COALESCE(VALUES(proveedor_rut), proveedor_rut),
+         proveedor_razon_social = COALESCE(VALUES(proveedor_razon_social), proveedor_razon_social),
          items_json = VALUES(items_json), facturas_json = VALUES(facturas_json), raw_json = VALUES(raw_json)`,
       [
         c.compra_oc_id, c.compra_oc_folio || null, fechaMySQL(c.compra_oc_fecha_ingreso),
@@ -218,6 +230,8 @@ export interface CompraObumaFila {
   total: number | null;
   proveedorRut: string | null;
   proveedorRazonSocial: string | null;
+  /** Id del proveedor en Obuma (rel_proveedor_id). Siempre viene; el RUT a veces queda vacío cuando falla la consulta del proveedor. */
+  proveedorObumaId: string | null;
   items: ItemCompraObuma[];
   facturas: FacturaObuma[];
 }
@@ -270,6 +284,7 @@ export async function comprasObumaDeLicitacion(codigo: string): Promise<CompraOb
     total: r.total != null ? Number(r.total) : null,
     proveedorRut: r.proveedor_rut,
     proveedorRazonSocial: r.proveedor_razon_social,
+    proveedorObumaId: r.proveedor_id != null ? String(r.proveedor_id) : null,
     items: itemsDesdeJson(r.items_json),
     facturas: facturasDesdeJson(r.facturas_json),
   }));

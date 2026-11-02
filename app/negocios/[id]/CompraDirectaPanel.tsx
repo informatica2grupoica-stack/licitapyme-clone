@@ -8,13 +8,14 @@ import { useEffect, useState } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { irAFase } from '@/app/compras/[negocioId]/comprasNavegacion';
-import { IconX as X } from '@tabler/icons-react';
+import { Boton } from '@/app/components/ui/kit/Boton';
 
 export interface InicialDirecta { productoId?: number; proveedor?: string; precio?: number; link?: string }
 interface ProductoMin { id: number; descripcion: string; cantidad?: number | null }
 
 const VACIO = { proveedor: '', rut: '', precio: '', motivo: '', modelo: '', link: '' };
-const inputCls = 'w-full text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none bg-white';
+const inputCls = 'w-full h-10 text-sm text-tinta border border-linea rounded-lg px-3 bg-white outline-none transition-colors focus:border-marca focus:ring-2 focus:ring-marca/20 placeholder:text-tinta-3 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100';
+const labelCls = 'block text-xs font-medium text-tinta-2 mb-1';
 
 /** Monto chileno con decimales: «63.016,806723», «63016,806», «10.670» (miles) o «63016.81» (punto decimal). Sin dato válido → 0. */
 const montoCL = (t: string): number => {
@@ -139,22 +140,16 @@ export function CompraDirectaPanel({ negocioId, productos, inicial, onRegistrada
   };
 
   return (
-    <div className="border-b border-zinc-100 px-4 py-3 bg-teal-50/40" data-testid="form-compra-directa">
-      <div className="flex items-start justify-between gap-3 mb-2">
-        <div>
-          <p className="text-[12.5px] font-bold text-teal-900">Compra rápida — sin cotización</p>
-          <p className="text-[11.5px] text-zinc-500">Para ítems de bajo monto o de retail (ferretería, tienda): anota la tienda, su RUT y el precio neto. <b>El jefe de ventas la aprueba antes de comprar</b>; aprobada, el producto pasa a «Comprado» y puedes crear el SKU y la OC. Lo demás, cotízalo.</p>
-        </div>
-        <button type="button" onClick={onCerrar} aria-label="Cerrar compra directa" className="text-zinc-400 hover:text-zinc-600 flex-shrink-0"><X size={16} /></button>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-        <div className="md:col-span-3">
-          <label className="block text-[11px] font-semibold text-zinc-500 mb-0.5">Producto</label>
+    <div className="@container space-y-4" data-testid="form-compra-directa">
+      <p className="text-sm text-tinta-2">Para ítems de bajo monto o de retail (ferretería, tienda): anota la tienda, su RUT y el precio. <b className="font-semibold text-tinta">El jefe de ventas la aprueba antes de comprar</b>; aprobada, el producto pasa a «Comprado» y puedes crear el SKU y la OC. Lo demás, cotízalo.</p>
+      <div className="grid grid-cols-1 @md:grid-cols-2 gap-x-4 gap-y-3">
+        <div className="@md:col-span-2">
+          <label className={labelCls}>Producto</label>
           <Select value={productoId == null ? '' : String(productoId)} onChange={v => setProductoId(v ? Number(v) : null)} placeholder="Elige el producto que se compra directo…"
             options={productos.map(p => ({ value: String(p.id), label: p.descripcion }))} />
         </div>
         <div className="relative">
-          <label className="block text-[11px] font-semibold text-zinc-500 mb-0.5" htmlFor="directa-proveedor">Proveedor</label>
+          <label className={labelCls} htmlFor="directa-proveedor">Proveedor</label>
           <input id="directa-proveedor" value={directa.proveedor} onChange={e => { setDirecta(d => ({ ...d, proveedor: e.target.value })); setProvId(null); setBuscarNombre(true); setProvObuma({ estado: 'idle' }); }}
             placeholder="Nombre o RUT (ej. Sodimac)" autoComplete="off" className={inputCls} />
           {sugerencias.length > 0 && (
@@ -163,7 +158,7 @@ export function CompraDirectaPanel({ negocioId, productos, inicial, onRegistrada
                 <li key={x.id}>
                   <button type="button" onMouseDown={e => { e.preventDefault(); elegirProveedor(x); }} className="w-full text-left px-2.5 py-1.5 hover:bg-teal-50 text-[12.5px]">
                     <span className="font-semibold text-zinc-800">{x.nombreEmpresa}</span>
-                    <span className="text-zinc-400"> · {x.rut || 'sin RUT'}{x.obumaProveedorId ? ' · en Obuma' : ''}</span>
+                    <span className="text-tinta-3"> · {x.rut || 'sin RUT'}{x.obumaProveedorId ? ' · en Obuma' : ''}</span>
                   </button>
                 </li>
               ))}
@@ -171,71 +166,69 @@ export function CompraDirectaPanel({ negocioId, productos, inicial, onRegistrada
           )}
         </div>
         <div>
-          <label className="block text-[11px] font-semibold text-zinc-500 mb-0.5" htmlFor="directa-rut">RUT de la tienda <span className="font-normal text-rose-500">(obligatorio)</span></label>
+          <label className={labelCls} htmlFor="directa-rut">RUT de la tienda <span className="font-normal text-urgente">(obligatorio)</span></label>
           <input id="directa-rut" value={directa.rut} onChange={e => { setDirecta(d => ({ ...d, rut: formatearRutVivo(e.target.value) })); setProvObuma({ estado: 'idle' }); setProvId(null); setBuscarNombre(false); setSugerencias([]); }}
             onBlur={e => verificarProveedorObuma(e.target.value)} placeholder="Se verifica en Obuma" className={inputCls} />
         </div>
         <div>
-          <label className="block text-[11px] font-semibold text-zinc-500 mb-0.5" htmlFor="directa-precio">{conIva ? 'Precio de la tienda (con IVA)' : 'Precio neto unitario'}</label>
+          <label className={labelCls} htmlFor="directa-precio">{conIva ? 'Precio de la tienda (con IVA)' : 'Precio neto unitario'}</label>
           <input id="directa-precio" inputMode="decimal" value={directa.precio} onChange={e => setDirecta(d => ({ ...d, precio: e.target.value }))} placeholder="Acepta decimales (ej. 63.016,81)" className={inputCls} />
-          <label className="flex items-center gap-1.5 mt-1 text-[11.5px] text-zinc-600 cursor-pointer" data-testid="directa-con-iva">
+          <label className="flex items-center gap-1.5 mt-2 text-xs text-tinta-2 cursor-pointer" data-testid="directa-con-iva">
             <input type="checkbox" checked={conIva} onChange={e => setConIva(e.target.checked)} className="accent-teal-600" /> El precio incluye IVA
           </label>
-          {precioIngresado > 0 && <p className="text-[11px] text-zinc-500 mt-0.5" data-testid="directa-neto-calculado">{conIva ? <>Se guarda como <b>{clp2(precio)}</b> neto + IVA {clp2(precioIngresado - precio)}</> : <>Con IVA serían <b>{clp2(precio * 1.19)}</b></>}</p>}
+          {precioIngresado > 0 && <p className="text-xs text-tinta-3 mt-1" data-testid="directa-neto-calculado">{conIva ? <>Se guarda como <b>{clp2(precio)}</b> neto + IVA {clp2(precioIngresado - precio)}</> : <>Con IVA serían <b>{clp2(precio * 1.19)}</b></>}</p>}
         </div>
         <div>
-          <label className="block text-[11px] font-semibold text-zinc-500 mb-0.5" htmlFor="directa-modelo">Marca y modelo <span className="font-normal text-zinc-400">(opcional)</span></label>
+          <label className={labelCls} htmlFor="directa-modelo">Marca y modelo <span className="font-normal text-tinta-3">(opcional)</span></label>
           <input id="directa-modelo" value={directa.modelo} onChange={e => setDirecta(d => ({ ...d, modelo: e.target.value }))} className={inputCls} />
         </div>
         <div>
-          <label className="block text-[11px] font-semibold text-zinc-500 mb-0.5" htmlFor="directa-link">Link del producto <span className="font-normal text-zinc-400">(opcional)</span></label>
+          <label className={labelCls} htmlFor="directa-link">Link del producto <span className="font-normal text-tinta-3">(opcional)</span></label>
           <input id="directa-link" value={directa.link} onChange={e => setDirecta(d => ({ ...d, link: e.target.value }))} className={inputCls} />
         </div>
         <div>
-          <label className="block text-[11px] font-semibold text-zinc-500 mb-0.5" htmlFor="directa-motivo">Motivo <span className="font-normal text-zinc-400">(opcional)</span></label>
+          <label className={labelCls} htmlFor="directa-motivo">Motivo <span className="font-normal text-tinta-3">(opcional)</span></label>
           <input id="directa-motivo" value={directa.motivo} onChange={e => setDirecta(d => ({ ...d, motivo: e.target.value }))} placeholder="Precio de lista, ítem menor…" className={inputCls} />
         </div>
       </div>
       {provObuma.estado !== 'idle' && (
-        <p data-testid="proveedor-obuma" className={`text-[11.5px] font-semibold mt-2 ${provObuma.estado === 'existe' ? 'text-emerald-700' : provObuma.estado === 'no_existe' ? 'text-amber-700' : provObuma.estado === 'cargando' ? 'text-zinc-500' : 'text-rose-600'}`}>
+        <p data-testid="proveedor-obuma" className={`text-xs font-medium ${provObuma.estado === 'existe' ? 'text-exito' : provObuma.estado === 'no_existe' ? 'text-alerta' : provObuma.estado === 'cargando' ? 'text-zinc-500' : 'text-urgente'}`}>
           {provObuma.estado === 'cargando' && 'Consultando Obuma…'}
           {provObuma.estado === 'existe' && `✓ Ya existe en Obuma: ${provObuma.razonSocial}. Proveedor conocido.`}
           {provObuma.estado === 'no_existe' && (<>Proveedor nuevo: no existe en Obuma. Hay que crearlo antes de emitir la orden de compra, y se le exige la factura antes de pagar.{' '}
             <button type="button" onClick={() => irAFase('obuma', { accion: 'crear-proveedor', rut: directa.rut.trim(), nombre: directa.proveedor.trim() })}
-              className="underline font-bold text-indigo-700 hover:text-indigo-900">Ir a crear proveedor</button> (puedes registrar la compra directa ahora y crearlo después).</>)}
+              className="underline font-semibold text-marca hover:text-marca-fuerte">Ir a crear proveedor</button> (puedes registrar la compra directa ahora y crearlo después).</>)}
           {provObuma.estado === 'invalido' && 'El RUT no es válido (revisa el dígito verificador).'}
           {provObuma.estado === 'error' && 'No se pudo consultar Obuma ahora; puedes registrar igual y se verificará después.'}
         </p>
       )}
-      <div className="flex items-center gap-4 mt-3 flex-wrap" role="radiogroup" aria-label="¿Tiene flete?" data-testid="directa-flete">
-        <span className="text-[11px] font-semibold text-zinc-500">¿Tiene flete?</span>
-        <label className="flex items-center gap-1.5 text-[12.5px] text-zinc-700 cursor-pointer"><input type="radio" name="directa-flete" checked={!tieneFlete} onChange={() => setTieneFlete(false)} /> No <span className="text-zinc-400">(retiro en tienda)</span></label>
-        <label className="flex items-center gap-1.5 text-[12.5px] text-zinc-700 cursor-pointer"><input type="radio" name="directa-flete" checked={tieneFlete} onChange={() => setTieneFlete(true)} /> Sí</label>
+      <div className="flex items-center gap-x-5 gap-y-2 flex-wrap border-t border-linea pt-3" role="radiogroup" aria-label="¿Tiene flete?" data-testid="directa-flete">
+        <span className="text-xs font-medium text-tinta-2">¿Tiene flete?</span>
+        <label className="flex items-center gap-1.5 text-sm text-tinta cursor-pointer"><input type="radio" name="directa-flete" checked={!tieneFlete} onChange={() => setTieneFlete(false)} /> No <span className="text-tinta-3">(retiro en tienda)</span></label>
+        <label className="flex items-center gap-1.5 text-sm text-tinta cursor-pointer"><input type="radio" name="directa-flete" checked={tieneFlete} onChange={() => setTieneFlete(true)} /> Sí</label>
         {tieneFlete && (
           <>
-            <input aria-label="Monto del flete" inputMode="decimal" value={fleteTexto} onChange={e => setFleteTexto(e.target.value)} placeholder="Monto del flete" className={`${inputCls} !w-36`} />
-            <label className="flex items-center gap-1.5 text-[11.5px] text-zinc-600 cursor-pointer"><input type="checkbox" checked={fleteConIva} onChange={e => setFleteConIva(e.target.checked)} className="accent-teal-600" /> incluye IVA</label>
+            <input aria-label="Monto del flete" inputMode="decimal" value={fleteTexto} onChange={e => setFleteTexto(e.target.value)} placeholder="Monto del flete" className={`${inputCls} !w-40`} />
+            <label className="flex items-center gap-1.5 text-xs text-tinta-2 cursor-pointer"><input type="checkbox" checked={fleteConIva} onChange={e => setFleteConIva(e.target.checked)} className="accent-teal-600" /> incluye IVA</label>
           </>
         )}
       </div>
       {!!producto && precio > 0 && (
-        <p className="text-[11.5px] text-zinc-600 mt-1.5" data-testid="directa-total-con-flete">
+        <p className="text-xs text-tinta-2" data-testid="directa-total-con-flete">
           Producto {clp2(precio * cantidad)} neto{cantidad > 1 ? ` (${cantidad} × ${clp2(precio)})` : ''}
           {tieneFlete && fleteNeto > 0 ? <> + flete {clp2(fleteNeto)} = <b>{clp2(precio * cantidad + fleteNeto)}</b> neto</> : null}
         </p>
       )}
-      <div className="flex items-center gap-4 mt-3 flex-wrap" role="radiogroup" aria-label="¿Ya se compró?" data-testid="directa-ya-comprada">
-        <span className="text-[11px] font-semibold text-zinc-500">¿Ya se compró?</span>
-        <label className="flex items-center gap-1.5 text-[12.5px] text-zinc-700 cursor-pointer"><input type="radio" name="directa-ya-comprada" checked={!yaComprada} onChange={() => setYaComprada(false)} /> Por comprar <span className="text-zinc-400">(el jefe la aprueba antes)</span></label>
-        <label className="flex items-center gap-1.5 text-[12.5px] text-zinc-700 cursor-pointer"><input type="radio" name="directa-ya-comprada" checked={yaComprada} onChange={() => setYaComprada(true)} /> Ya comprada <span className="text-zinc-400">(el jefe la ratifica)</span></label>
+      <div className="flex items-center gap-x-5 gap-y-2 flex-wrap border-t border-linea pt-3" role="radiogroup" aria-label="¿Ya se compró?" data-testid="directa-ya-comprada">
+        <span className="text-xs font-medium text-tinta-2">¿Ya se compró?</span>
+        <label className="flex items-center gap-1.5 text-sm text-tinta cursor-pointer"><input type="radio" name="directa-ya-comprada" checked={!yaComprada} onChange={() => setYaComprada(false)} /> Por comprar <span className="text-tinta-3">(el jefe la aprueba antes)</span></label>
+        <label className="flex items-center gap-1.5 text-sm text-tinta cursor-pointer"><input type="radio" name="directa-ya-comprada" checked={yaComprada} onChange={() => setYaComprada(true)} /> Ya comprada <span className="text-tinta-3">(el jefe la ratifica)</span></label>
       </div>
-      <div className="flex items-center gap-2 mt-3">
-        <button type="button" onClick={registrar} disabled={!puedeRegistrar} className="text-[12.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3.5 py-1.5 rounded-lg">
-          {guardando ? 'Guardando…' : 'Enviar a aprobación del jefe'}
-        </button>
-        <button type="button" onClick={onCerrar} className="text-[12.5px] font-semibold text-zinc-500 hover:text-zinc-700 px-2 py-1.5">Cancelar</button>
-        {!producto && <span className="text-[11.5px] text-zinc-400">Elige primero el producto.</span>}
-        {!!producto && !rutValidoCL(directa.rut) && <span className="text-[11.5px] text-rose-500">Falta el RUT de la tienda (válido).</span>}
+      <div className="flex items-center gap-2 flex-wrap border-t border-linea pt-4">
+        <Boton variante="primario" onClick={registrar} disabled={!puedeRegistrar}>{guardando ? 'Guardando…' : 'Enviar a aprobación del jefe'}</Boton>
+        <Boton variante="fantasma" onClick={onCerrar}>Cancelar</Boton>
+        {!producto && <span className="text-xs text-tinta-3">Elige primero el producto.</span>}
+        {!!producto && !rutValidoCL(directa.rut) && <span className="text-xs text-urgente">Falta el RUT de la tienda (válido).</span>}
       </div>
     </div>
   );

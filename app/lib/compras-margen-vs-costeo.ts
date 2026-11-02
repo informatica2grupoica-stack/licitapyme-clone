@@ -8,6 +8,8 @@
 //   · Margen $ = venta − costo.  Margen % = margen / venta (sobre la venta, igual que «% Margen» del cuadro comparativo).
 //   · Recargo sobre el costo % = margen / costo (es lo que el costeo llama «margen» al armar el precio: costo × (1 + recargo)).
 // Solo entran las líneas que tienen precio de venta Y costo costeado; las demás se cuentan aparte para que nada se pierda en silencio.
+// Gasto de entrega (flete) automático (02-nov-2026, pedido del dueño): se carga siempre un % del margen inicial de cada línea como
+// costo extra (5 % en la pantalla), el MISMO monto en costo inicial, con cotizaciones y con costo de Compras, para tener el flete considerado.
 // Puro (sin BD): lo usa la pantalla y lo prueban los tests.
 
 export interface EntradaMargen {
@@ -33,9 +35,12 @@ export interface LineaMargen {
   costoCompras: number | null;
   /** Variación del margen % en puntos (nuevo − inicial). */
   puntos: number | null;
+  /** Gasto de entrega ya incluido en los tres costos de la línea. */
+  gastoEntrega: number;
 }
 
 export interface BloqueMargen {
+  gastoEntrega: number;
   n: number; venta: number; costoInicial: number; costoNuevo: number;
   margenInicial: number; margenNuevo: number;
   pctInicial: number | null; pctNuevo: number | null; puntos: number | null;
@@ -68,7 +73,7 @@ function bloque(ls: LineaMargen[]): BloqueMargen {
   const costoCompras = ls.reduce((s, l) => s + (l.costoCompras ?? l.costoInicial), 0);
   const margenCompras = venta - costoCompras, pc = pct(margenCompras, venta);
   return {
-    n: ls.length, venta, costoInicial, costoNuevo, margenInicial, margenNuevo,
+    n: ls.length, gastoEntrega: ls.reduce((s, l) => s + l.gastoEntrega, 0), venta, costoInicial, costoNuevo, margenInicial, margenNuevo,
     pctInicial: pi, pctNuevo: pn, puntos: pi != null && pn != null ? r1(pn - pi) : null,
     recargoInicial: pct(margenInicial, costoInicial), recargoNuevo: pct(margenNuevo, costoNuevo),
     nCompras: ls.filter(l => l.costoCompras != null).length, costoCompras, margenCompras,
@@ -76,7 +81,10 @@ function bloque(ls: LineaMargen[]): BloqueMargen {
   };
 }
 
-export function margenCosteoVsCotizaciones(entradas: EntradaMargen[]): ResumenMargen {
+export const GASTO_ENTREGA_PCT = 0.05;
+
+/** `gastoEntregaPct`: fracción del margen inicial que se carga como costo de entrega (0 = sin cargo). */
+export function margenCosteoVsCotizaciones(entradas: EntradaMargen[], gastoEntregaPct = 0): ResumenMargen {
   const lineas: LineaMargen[] = [];
   let sinVenta = 0, sinCosteo = 0;
   for (const e of entradas) {
@@ -84,14 +92,16 @@ export function margenCosteoVsCotizaciones(entradas: EntradaMargen[]): ResumenMa
     if (e.venta == null || !(e.venta > 0)) { sinVenta++; continue; }
     const q = e.cantidad > 0 ? e.cantidad : 1;
     const cotizada = e.cotizado != null && e.cotizado > 0;
-    const venta = r0(e.venta * q), costoInicial = r0(e.costeo * q), costoNuevo = cotizada ? r0((e.cotizado as number) * q) : costoInicial;
+    const venta = r0(e.venta * q), base = r0(e.costeo * q);
+    const gastoEntrega = r0(Math.max(0, venta - base) * gastoEntregaPct);
+    const costoInicial = base + gastoEntrega, costoNuevo = (cotizada ? r0((e.cotizado as number) * q) : base) + gastoEntrega;
     const margenInicial = venta - costoInicial, margenNuevo = venta - costoNuevo;
     const pi = pct(margenInicial, venta), pn = pct(margenNuevo, venta);
     lineas.push({
       id: e.id, descripcion: e.descripcion, cantidad: q, cotizada, proveedor: cotizada ? e.proveedor : null,
       ventaUnitaria: e.venta, costeoUnitario: e.costeo, cotizadoUnitario: cotizada ? (e.cotizado as number) : null,
       venta, costoInicial, costoNuevo, margenInicial, margenNuevo, pctInicial: pi, pctNuevo: pn,
-      costoCompras: e.compras != null && e.compras > 0 ? r0(e.compras * q) : null,
+      costoCompras: e.compras != null && e.compras > 0 ? r0(e.compras * q) + gastoEntrega : null, gastoEntrega,
       puntos: pi != null && pn != null ? r1(pn - pi) : null,
     });
   }

@@ -17,7 +17,7 @@ export default function ComprasError({
 
   return (
     <div className="mx-auto flex min-h-[50vh] max-w-xl flex-col items-center justify-center gap-3 px-6 py-16 text-center">
-      <p className="text-[13px] font-bold uppercase tracking-widest text-zinc-400">Algo falló en Compras</p>
+      <p className="text-[13px] font-boldst text-zinc-400">Algo falló en Compras</p>
       <h1 className="text-xl font-bold text-zinc-900 dark:text-slate-100">Esta pantalla no pudo mostrarse</h1>
       <p className="text-[14px] text-zinc-500 dark:text-slate-400">
         Tus datos no se perdieron. Reintenta; si vuelve a pasar, avísanos con el detalle de abajo.

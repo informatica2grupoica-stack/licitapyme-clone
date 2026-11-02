@@ -62,7 +62,10 @@ export async function emparejarPlanConObuma(negocioId: number): Promise<Empareja
 
   for (const grupo of grupos) {
     const rut = rutNormalizado(grupo.proveedorRut);
-    const delProveedor = rut ? lineas.map((x, i) => (rutNormalizado(x.oc.proveedorRut) === rut ? i : -1)).filter(i => i >= 0) : [];
+    const obumaId = grupo.proveedorObumaId ? String(grupo.proveedorObumaId) : null;
+    const delProveedor = (rut || obumaId)
+      ? lineas.map((x, i) => (((!!rut && rutNormalizado(x.oc.proveedorRut) === rut) || (!!obumaId && x.oc.proveedorObumaId === obumaId)) ? i : -1)).filter(i => i >= 0)
+      : [];
     for (const item of grupo.items) {
       const i = mejorLinea(item, delProveedor, TOLERANCIA_EXACTA);
       if (i < 0) { pendientes.push({ item, grupo }); continue; }

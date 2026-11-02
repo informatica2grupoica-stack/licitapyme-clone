@@ -91,7 +91,7 @@ export async function costoRealDeNegocio(negocioId: number): Promise<ResultadoCo
   try {
     const r = await resumenGastosCompra(negocioId, null);
     if (r.ocCreadas.cantidad > 0 || r.comprasCruzadas.cantidad > 0) {
-      obuma = { ocCreadas: r.ocCreadas.totalNeto, comprasCruzadas: r.comprasCruzadas.total, facturas: r.facturas.total };
+      obuma = { ocCreadas: r.ocCreadas.totalNeto, comprasCruzadas: r.comprasCruzadas.neto, facturas: r.facturas.total };
     }
   } catch { /* Obuma sin datos: el consolidado se arma igual, solo sin contraste */ }
   const m = await costoRealDeNegocios([negocioId], new Map([[negocioId, obuma]]));

@@ -3,6 +3,39 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-02 — Gasto de entrega (flete) automático en el margen de Cotizaciones paso 2
+Decisión del dueño: en «Margen: costeo inicial vs cotizaciones» siempre se carga un 5 % del margen costeado de cada línea como costo extra de entrega (`GASTO_ENTREGA_PCT` en `compras-margen-vs-costeo.ts`). Mismo monto en costo inicial, con cotizaciones y con costo de Compras; sale como fila propia. Negocio 1154: margen 27,9 % → 26,5 %, flete $153.169. El 5 % es sobre el margen inicial, no sobre cada columna (así el flete no cambia con la cotización); si el dueño lo quería por columna, cambiar ahí.
+Bug de pantalla: el `<span class="sr-only">` de la cabecera de esa tabla (absoluto, sin ancestro `relative`) estiraba el documento y dejaba un hueco gris al fondo con el menú cortado; arreglado con `relative` en el `th`. Mismo riesgo con cualquier `sr-only` dentro de un contenedor con scroll interno.
+
+## 2026-11-02 — Tarea «Emisión de órdenes de compra a proveedores» ahora se cierra sola
+Negocio 1191: 8 OC en Obuma y las 21 líneas «Comprado», pero la tarea `emitir_oc_proveedores` seguía pendiente (nadie la cerraba).
+`sincronizarTareaOcProveedores` (compras.ts): cierra si hay ≥1 OC y ninguna línea en Pendiente/Cotizando; solo cierra, nunca reabre. Se llama
+desde `marcarCompradosConOc` (al emitir OC / tocar productos) y desde el GET de `/api/compras/[negocioId]` (arregla los negocios ya hechos).
+**Siguen manuales a propósito:** las 3 validaciones (técnica real, cotización, costeo), `contacto_pagos` y `factura_cierre` (son juicio humano
+o dato que no queda registrado). tsc limpio; sin probar en navegador ni contra BD.
+
+## 2026-11-02 — Conciliación 387-55-LE26 (negocio 1191, a cerrar) y causa del RUT vacío
+- Causa del RUT NULL en `obuma_compras`: la API de Obuma cortó `proveedores.findById` por tope diario («Error 005… límite de consultas diario»); la sync lo tragaba y SOBRESCRIBÍA el RUT con NULL. Ahora: `resolverProveedor` mira primero `compras_proveedor` (por `obuma_proveedor_id`), el upsert no pisa con NULL (COALESCE) y los cruces OC↔proveedor (`proveedoresParaOrdenCompra`, `emparejarPlanConObuma`) usan también el id de Obuma. PENDIENTE (el dueño debe OK): UPDATE de relleno de los `proveedor_rut` NULL ya guardados desde `compras_proveedor` (bloqueado por seguridad al intentarlo).
+- Alerta falsa «Obuma −57,6 %»: el consolidado comparaba solo las 8 OC emitidas por Licitank (con respaldo con IVA). Ahora manda el neto de TODAS las OC de Obuma sin anuladas (18 OC = $12.648.392) → +38,6 % real, explicado abajo.
+- Cuadre: costeo estimado $12.210.692 = presupuesto del proyecto Obuma #198 ($12.210.695); venta neta $18.865.472 igual en ambos. Costo real Licitank (21 líneas, cotizaciones) $9.123.706 vs OC Obuma neto $12.648.392 → dif. $3.524.686 = carro tecnológico OC 3985 ($2.034.000, no está en el costeo ni en los productos) + transportes sin registrar como gasto extra (OC 4015 $1.400.000, 3998 $10.670, 3996 $59.000; `compras_gasto` vacío) + silla auditorio +$21.008 (plan $18.400 vs OC 3995 $18.925). Sin cierre aún.
+- Proyecto Obuma #198: costo $10.706.261, gastado $12.881.106, 27 documentos; anomalías: Punta Ranco (OC 3998) factura $537.627 con NC −$537.627 (neto 0); GRUPO CRUZADOS (OC 3997) neto −$18.000; NC −$441.209 de LOCKERS STORE SPA que calza con la factura de Roco Import; gastos sin folio $356.900 (limpieza, horas extras, colación, salidas a retiro) que Licitank no tiene.
+
+## 2026-11-02 — OC hechas en Obuma salían «Sin emitir» (387-55-LE26, Roco Import / banca de camarín)
+- Causa: el cruce «OC real de Obuma ↔ proveedor» era solo por RUT, y las 22 filas de `obuma_compras` de esa licitación tienen `proveedor_rut` y razón social NULL (la sync no pudo leer el proveedor; sí guarda `proveedor_id` = `rel_proveedor_id`). La OC folio 3984 (PR-198 ID 387-55-LE26 LOS MUERMOS BOMBEROS, FACTURADA, neto $370.764) es de Roco Import (`compras_proveedor` 479, `obuma_proveedor_id` 202896) y no se veía.
+- Arreglo: `proveedoresParaOrdenCompra` ahora cruza también por id de proveedor en Obuma (`CompraObumaFila.proveedorObumaId`). Pendiente: por qué `proveedorPorId` deja el RUT en NULL desde mediados de oct (las OC de sept sí traen RUT); `compras-pagos-oc.ts` y `/api/compras/[id]/factura` también cruzan por RUT y podrían tener el mismo hueco. Sin ver en navegador.
+
+## 2026-11-02 — Analítica de Compras (`/compras/analitica`)
+- Pantalla nueva con gráficos (recharts): ganado por mes, estado de la entrega, monto por encargado y por comuna/región, tiempos del proceso OC, tareas por categoría, incidencias, proveedores, gastos, margen. Datos: `app/lib/compras-analitica.ts` (filas de `listarAsignacionesCompras` + consultas sueltas) y `/api/compras/analitica` (misma puerta que el dashboard). Botón «Analítica» junto a «Dashboard» en Compras; ambas páginas tienen «Volver a Compras» y se refrescan solas (SSE). Paleta: teal/pizarra/ámbar/cian/verde/naranja/rosa/piedra; el validador marca teal↔pizarra como poco separables, por eso no van juntas en un mismo gráfico apilado. Sin ver en navegador.
+
+## 2026-11-02 — Fases en la línea de tiempo del Gantt (y pestaña «Fases de la OC»)
+- Las barras del Gantt ahora siguen el flujo real: Adjudicación (fecha) → Espera de OC → Llegó la OC (fecha) → Aceptación de la OC (hasta el límite de las bases, o fecha de aceptada; punteada «sin dato» si las bases no dan el plazo) → Plazo de entrega. Ya no se usa el tope legal de 5 días como estimado. Pestaña «Fases de la OC» = misma info en tarjetas, se deja. Pendiente: el plazo para que LLEGUE la OC no está guardado (solo aceptación y entrega). Sin ver en navegador.
+
+## 2026-11-02 — Gantt con dos pestañas
+- «Por plazo de entrega» (entrega rápida primero, centrado en hoy) y «Desde las últimas ganadas» (filas por `ganadoAt` descendente, la línea de tiempo parte en la última ganada). Fechas: `app/lib/compras-plan.ts` (`calcularHitosGantt`). Organismo: negocio → caché → OC (`ordenes_compra.comprador_organismo`). Sin ver en navegador.
+
+## 2026-11-02 — Compras (`app/compras/page.tsx`) con la skill licitank-ui
+- Gantt: sin scroll vertical interno, filas de 172 px con datos rotulados, estados como texto+punto, modal grande sin degradado. Lista/Mes/modal del día/pestañas/banner: sin pastillas, sin degradados, sin índigo, sin barra de color lateral, sin mayúsculas. También `GanttComprasCard` (compartido con el negocio: sin degradados ni pastillas) y, en `compras/[negocioId]` y `dashboard`, solo lo mecánico (índigo→teal, sin mayúsculas). Falta el rediseño a fondo de esas dos pantallas (pastillas, `font-bold`). Tarjetas del Gantt: nombre a 2 líneas con alto fijo. Sin ver en navegador.
+
 ## 2026-11-02 — Gantt de Compras: fila reordenada
 - Fila: organismo/región arriba en negrita; el nombre lleva a la licitación de compra (`/compras/[id]`); el botón chico (ícono Gantt) abre el detalle de tareas en un modal (antes panel a la derecha). Solo visual, sin ver en navegador.
 
@@ -153,3 +186,7 @@ re-homologarlas** (y lo hecho antes en otros negocios con cantidades no exactas 
 **Causa (probable, no reproducida en navegador):** `AppLayout` tenía `h-screen overflow-hidden` en la raíz; un `scrollIntoView` (botones «Siguiente», Auditor de compras) que no cabe en `<main>` desplazaba la raíz entera y quedaba un tramo vacío debajo.
 **Arreglo:** raíz y contenedor interno de `AppLayout.tsx` pasan a `overflow-clip` (no admite scroll programático). Además `app/compras/[negocioId]/error.tsx`: si Compras falla al dibujarse, muestra el error en vez de blanco.
 **Pendiente:** confirmar con el dueño que ya no ocurre.
+
+## 2026-11-02 — Formularios de Cotizaciones en modal
+- «Compra directa» (compra rápida), «Registrar una a mano / Editar» y «Cargar varias cotizaciones» ya no se despliegan dentro de la tarjeta: abren en `Modal` (`AuditorComprasCard.tsx`). `CompraDirectaPanel` restyleado con tokens licitank-ui (inputs h-10, sin índigo, `Boton`).
+- Pendiente: el formulario «a mano» conserva sus inputs de 12 px (solo se movió al modal); no verificado en navegador (login requerido). Otros formularios de Compras aún inline.

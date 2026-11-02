@@ -18,7 +18,7 @@ import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { useRealtime } from '@/app/lib/use-realtime';
 import { GanttComprasCard } from '@/app/negocios/[id]/GanttComprasCard';
 import type { FaseTarea, HitosGantt as HitosPlan } from '@/app/lib/compras-plan';
-import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconBuilding as Building2, IconArrowUpRight as ArrowUpRight, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconUsers as Users, IconArrowsUpDown as ArrowUpDown, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconUserPlus as UserPlus, IconCircleCheck as CheckCircle2, IconChartBar as BarChart3, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconChevronsLeft as ChevronsLeft, IconChevronsRight as ChevronsRight, IconList as List, IconPackage as PackageCheck, IconCircleX as XCircle, IconArchive as Archive, IconArrowBackUp as Undo2, IconPencil as Pencil, IconTimeline as GanttChart, IconZoomIn as ZoomIn, IconZoomOut as ZoomOut, IconDiamond as Diamond, IconCalendarClock as CalendarClock } from '@tabler/icons-react';
+import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconBuilding as Building2, IconArrowUpRight as ArrowUpRight, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconUsers as Users, IconArrowsUpDown as ArrowUpDown, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconUserPlus as UserPlus, IconCircleCheck as CheckCircle2, IconChartBar as BarChart3, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconChevronsLeft as ChevronsLeft, IconChevronsRight as ChevronsRight, IconList as List, IconPackage as PackageCheck, IconCircleX as XCircle, IconArchive as Archive, IconArrowBackUp as Undo2, IconPencil as Pencil, IconTimeline as GanttChart, IconChartLine as LineChart, IconZoomIn as ZoomIn, IconZoomOut as ZoomOut, IconDiamond as Diamond, IconCalendarClock as CalendarClock } from '@tabler/icons-react';
 
 type CierreLegado = 'ENTREGADA' | 'NO_REALIZADA' | 'PRECOMPRA_SIN_ADJUDICAR';
 type EstadoTareaGantt = 'PENDIENTE' | 'EN_CURSO' | 'HECHA';
@@ -64,8 +64,8 @@ const explicacionUrgente = (f: ComprasFila) =>
 // Lugar corto de la licitación: la comuna si el organismo es una municipalidad («Ilustre Municipalidad de
 // Futrono» → «Futrono»); si no, la región sin el prefijo («Región de Coquimbo» → «Coquimbo»).
 function lugarCorto(f: Pick<ComprasFila, 'licitacionOrganismo' | 'licitacionRegion'>): string | null {
-  const m = f.licitacionOrganismo?.match(/municipalidad\s+de\s+(?:la\s+|las\s+|los\s+)?(.+)$/i);
-  if (m) return m[1].trim().replace(/\b\p{L}/gu, c => c.toUpperCase());
+  const m = f.licitacionOrganismo?.match(/municipalidad\s+de\s+(.+)$/i);
+  if (m) return m[1].trim().toLowerCase().replace(/(^|\s)\p{L}/gu, c => c.toUpperCase());
   const r = f.licitacionRegion?.replace(/^regi[oó]n\s+(?:de\s+los\s+|de\s+las\s+|de\s+la\s+|del\s+|de\s+)?/i, '').trim();
   return r || null;
 }
@@ -119,7 +119,7 @@ const haceCuanto = (ganadoAt: string): string => {
 const diaHoraCorta = (ganadoAt: string): string => `${ganadoAt.slice(8, 10)}-${ganadoAt.slice(5, 7)} ${ganadoAt.slice(11, 16)}`;
 const ChipUltimaGanada = () => (
   <span title="La licitación que se ganó más recientemente"
-    className="inline-flex items-center gap-1 text-[9.5px] font-bold uppercase tracking-wide text-white bg-rose-600 px-1.5 py-0.5 rounded-full flex-shrink-0">Última ganada</span>
+    className="inline-flex items-center gap-1.5 text-xs font-medium text-rose-700 flex-shrink-0"><span className="w-1.5 h-1.5 rounded-full bg-rose-500" />Última ganada</span>
 );
 
 // Botones de cierre legado (backlog histórico) — deliberadamente separados del flujo de
@@ -164,8 +164,8 @@ function AccionesCierreLegado({ f, onCambio }: { f: ComprasFila; onCambio: () =>
   if (f.cierreLegado) {
     return (
       <div className="flex items-center gap-2">
-        <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-full ${
-          f.cierreLegado === 'ENTREGADA' ? 'text-emerald-700 bg-emerald-50' : 'text-zinc-500 bg-zinc-100'
+        <span className={`inline-flex items-center gap-1 text-xs font-medium ${
+          f.cierreLegado === 'ENTREGADA' ? 'text-emerald-700' : 'text-zinc-500'
         }`}>
           {f.cierreLegado === 'ENTREGADA' ? <PackageCheck size={11} /> : <XCircle size={11} />}
           {f.cierreLegado === 'ENTREGADA' ? 'Entregada (histórico)' : f.cierreLegado === 'PRECOMPRA_SIN_ADJUDICAR' ? 'Pre-compra sin adjudicar' : 'No realizada (histórico)'}
@@ -244,8 +244,8 @@ function FilaCompras({ f, esJefeDeVentas, esAdmin, candidatos, onAsignado, ultim
             {ultimaUrgente && <ChipUltimaGanada />}
             {f.precompra && (
               <span title="Posible adjudicación: se puede cotizar y costear, pero aún no emitir órdenes de compra ni crear SKU en Obuma."
-                className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded-full cursor-help">
-                PRE-COMPRA
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 cursor-help">
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />Pre-compra
               </span>
             )}
             <span className="text-[10.5px] text-zinc-500" title={f.precompra ? 'Fecha estimada de adjudicación según Mercado Público' : `Ganado ${fmtFecha(f.ganadoAt)}`}>{f.precompra
@@ -258,7 +258,7 @@ function FilaCompras({ f, esJefeDeVentas, esAdmin, candidatos, onAsignado, ultim
             )}
             {f.urgente ? (
               <span title={explicacionUrgente(f)}
-                className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full cursor-help">
+                className="inline-flex items-center gap-1 text-xs font-medium text-rose-700 cursor-help">
                 <AlertTriangle size={10} /> Urgente{f.plazoEntregaDias != null ? ` · entrega en ${f.plazoEntregaDias} día(s)` : ''}
               </span>
             ) : f.plazoEntregaDias != null && (
@@ -266,12 +266,12 @@ function FilaCompras({ f, esJefeDeVentas, esAdmin, candidatos, onAsignado, ultim
               // usuario, 16-sep-2026: necesita ver los días de TODAS las licitaciones de Compras
               // para transcribirlos al Auditor Técnico.
               <span title="Plazo de entrega ofertado"
-                className="inline-flex items-center gap-1 text-[10px] font-semibold text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded-full">
+                className="inline-flex items-center gap-1 text-xs text-zinc-500">
                 <Clock size={10} /> Entrega: {f.plazoEntregaDias} día(s)
               </span>
             )}
           </div>
-          <Link href={`/compras/${f.negocioId}`} className="block text-[13.5px] font-bold text-zinc-800 hover:text-teal-700 leading-snug mt-0.5">
+          <Link href={`/compras/${f.negocioId}`} className="block text-[13.5px] font-semibold text-zinc-900 hover:text-teal-700 leading-snug mt-0.5">
             {f.licitacionNombre || f.licitacionCodigo}
           </Link>
           <div className="flex items-center gap-3 mt-1 text-[11.5px] text-zinc-500 flex-wrap">
@@ -356,7 +356,6 @@ const SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 // en vertical porque la columna del día es angosta. Pedido explícito del usuario: "quiero que me
 // entregue la misma info que me entregaba en lista, pero en el cuadro del día".
 function TarjetaDiaCompras({ f, compacta = false }: { f: ComprasFila; compacta?: boolean }) {
-  const acento = f.urgente ? '#e11d48' : colorUsuario(f.asignadoA ?? f.asignadoNombre);
   // Variante compacta (vista de 2/3 meses a la vez, pedido explícito del usuario 16-sep-2026):
   // el cuadro del día es mucho más chico, así que se corta a lo esencial — nombre, monto,
   // plazo/urgente y encargado — pero sin perder el dato que importa (código, organismo y tareas
@@ -364,18 +363,17 @@ function TarjetaDiaCompras({ f, compacta = false }: { f: ComprasFila; compacta?:
   if (compacta) {
     return (
       <Link href={`/compras/${f.negocioId}`}
-        style={{ borderLeftColor: acento }}
         title={`${f.licitacionNombre || f.licitacionCodigo} — ${fmtCLP(f.montoNuestro)}`}
-        className={`block rounded-md border border-zinc-200 border-l-[3px] bg-white px-1.5 py-1 shadow-sm transition-all hover:shadow-md ${f.urgente ? 'ring-1 ring-rose-100' : ''}`}>
-        <p className="text-[10px] font-bold text-zinc-800 leading-snug line-clamp-2">{f.licitacionNombre || f.licitacionCodigo}</p>
+        className={`block rounded-md border border-zinc-200 bg-white px-1.5 py-1 shadow-sm transition-all hover:shadow-md ${f.urgente ? 'ring-1 ring-rose-100' : ''}`}>
+        <p className="text-[10px] font-semibold text-zinc-900 leading-snug line-clamp-2">{f.licitacionNombre || f.licitacionCodigo}</p>
         <div className="flex items-center justify-between gap-1 mt-0.5">
           <span className="text-[9.5px] font-bold text-teal-700 flex-shrink-0">{fmtCLPCorto(f.montoNuestro)}</span>
           {f.urgente ? (
-            <span title={explicacionUrgente(f)} className="inline-flex items-center gap-0.5 text-[8px] font-bold text-rose-700 bg-rose-50 px-1 py-0.5 rounded-full flex-shrink-0 cursor-help">
+            <span title={explicacionUrgente(f)} className="inline-flex items-center gap-0.5 text-[10px] font-medium text-rose-700 flex-shrink-0 cursor-help">
               <AlertTriangle size={7} /> {f.plazoEntregaDias != null ? `${f.plazoEntregaDias}d` : 'Urg'}
             </span>
           ) : f.plazoEntregaDias != null && (
-            <span title="Plazo de entrega ofertado" className="text-[8px] font-semibold text-zinc-400 bg-zinc-100 px-1 py-0.5 rounded-full flex-shrink-0">{f.plazoEntregaDias}d</span>
+            <span title="Plazo de entrega ofertado" className="text-[10px] text-zinc-400 flex-shrink-0">{f.plazoEntregaDias}d</span>
           )}
         </div>
         <div className="flex items-center gap-1 mt-0.5">
@@ -387,37 +385,36 @@ function TarjetaDiaCompras({ f, compacta = false }: { f: ComprasFila; compacta?:
   }
   return (
     <Link href={`/compras/${f.negocioId}`}
-      style={{ borderLeftColor: acento }}
-      className={`block rounded-lg border border-zinc-200 border-l-[4px] bg-white px-2.5 py-2 shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 ${f.urgente ? 'ring-1 ring-rose-100' : ''}`}>
+      className={`block rounded-lg border border-zinc-200 bg-white px-2.5 py-2 shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 ${f.urgente ? 'ring-1 ring-rose-100' : ''}`}>
       <div className="flex items-center justify-between gap-1">
         <p className="text-[9.5px] font-mono text-zinc-400">{f.licitacionCodigo}</p>
         {f.cierreLegado ? (
-          <span className={`inline-flex items-center gap-0.5 text-[8.5px] font-bold px-1 py-0.5 rounded-full flex-shrink-0 ${
-            f.cierreLegado === 'ENTREGADA' ? 'text-emerald-700 bg-emerald-50' : 'text-zinc-500 bg-zinc-100'
+          <span className={`inline-flex items-center gap-0.5 text-[10px] font-medium flex-shrink-0 ${
+            f.cierreLegado === 'ENTREGADA' ? 'text-emerald-700' : 'text-zinc-500'
           }`}>
             {f.cierreLegado === 'ENTREGADA' ? <PackageCheck size={8} /> : <XCircle size={8} />}
             {f.cierreLegado === 'ENTREGADA' ? 'Entregada' : 'No realizada'}
           </span>
         ) : f.urgente ? (
           <span title={explicacionUrgente(f)}
-            className="inline-flex items-center gap-0.5 text-[8.5px] font-bold text-rose-700 bg-rose-50 px-1 py-0.5 rounded-full flex-shrink-0 cursor-help">
+            className="inline-flex items-center gap-0.5 text-[10px] font-medium text-rose-700 flex-shrink-0 cursor-help">
             <AlertTriangle size={8} /> Urgente{f.plazoEntregaDias != null ? ` · ${f.plazoEntregaDias}d` : ''}
           </span>
         ) : f.plazoEntregaDias != null && (
           <span title="Plazo de entrega ofertado"
-            className="inline-flex items-center gap-0.5 text-[8.5px] font-semibold text-zinc-500 bg-zinc-100 px-1 py-0.5 rounded-full flex-shrink-0">
+            className="inline-flex items-center gap-0.5 text-[10px] text-zinc-500 flex-shrink-0">
             <Clock size={8} /> {f.plazoEntregaDias}d
           </span>
         )}
       </div>
-      <p className="text-[12px] font-bold text-zinc-800 leading-snug line-clamp-2 mt-0.5">{f.licitacionNombre || f.licitacionCodigo}</p>
+      <p className="text-[12px] font-semibold text-zinc-900 leading-snug line-clamp-2 mt-0.5">{f.licitacionNombre || f.licitacionCodigo}</p>
       {f.licitacionOrganismo && (
         <p className="text-[9.5px] text-zinc-500 flex items-center gap-1 mt-0.5 truncate"><Building2 size={9} className="flex-shrink-0" /> {f.licitacionOrganismo}</p>
       )}
       <div className="flex items-center justify-between gap-1 mt-1.5">
         <span className="text-[11px] font-bold text-teal-700">{fmtCLP(f.montoNuestro)}</span>
         {f.tareasTotal > 0 && (
-          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${f.tareasVencidas > 0 ? 'text-rose-700 bg-rose-50' : 'text-zinc-500 bg-zinc-100'}`}>{f.tareasHechas}/{f.tareasTotal} tareas</span>
+          <span className={`text-[11px] tabular-nums ${f.tareasVencidas > 0 ? 'text-rose-700 font-medium' : 'text-zinc-500'}`}>{f.tareasHechas}/{f.tareasTotal} tareas</span>
         )}
       </div>
       <div className="flex items-center gap-1.5 mt-1.5 pt-1.5 border-t border-zinc-100">
@@ -467,13 +464,13 @@ function GrillaMesCompras({ mes, porDia, hoy, compacta, onAbrirDia }: {
 
   return (
     <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden">
-      <div className={`text-center bg-gradient-to-r from-teal-600 to-teal-700 ${compacta ? 'py-1.5' : 'py-2.5'}`}>
-        <span className={`font-bold text-white capitalize ${compacta ? 'text-[12.5px]' : 'text-[14px]'}`}>{MESES[mes.month()]} {mes.year()}</span>
+      <div className={`text-center border-b border-zinc-200 ${compacta ? 'py-1.5' : 'py-2.5'}`}>
+        <span className={`font-semibold tracking-tight text-zinc-900 capitalize ${compacta ? 'text-[12.5px]' : 'text-[14px]'}`}>{MESES[mes.month()]} {mes.year()}</span>
       </div>
       <div className={compacta ? 'p-1.5' : 'p-3'}>
         <div className={`grid grid-cols-7 ${compacta ? 'gap-1 mb-1' : 'gap-1.5 mb-1.5'}`}>
           {SEMANA.map(d => (
-            <div key={d} className={`text-center font-bold text-teal-700 bg-teal-50 rounded-md ${compacta ? 'text-[9px] py-0.5' : 'text-[10.5px] py-1'}`}>
+            <div key={d} className={`text-center font-medium text-zinc-400 ${compacta ? 'text-[9px] py-0.5' : 'text-[10.5px] py-1'}`}>
               {compacta ? d[0] : d}
             </div>
           ))}
@@ -499,14 +496,14 @@ function GrillaMesCompras({ mes, porDia, hoy, compacta, onAbrirDia }: {
                     ? `bg-teal-600 text-white rounded-full inline-flex items-center justify-center font-bold shadow-sm ${compacta ? 'w-4.5 h-4.5 text-[9.5px]' : 'w-5.5 h-5.5 text-[11px]'}`
                     : `font-bold ${fueraMes ? 'text-zinc-300' : 'text-zinc-600'} ${compacta ? 'text-[10px]' : 'text-[11.5px]'}`}>{d.date()}</span>
                   {items.length > 0 && (
-                    <span className={`font-bold rounded-full tabular-nums ${hayUrgente ? 'text-rose-700 bg-rose-50' : 'text-teal-700 bg-teal-50'} ${compacta ? 'text-[8.5px] px-1' : 'text-[9.5px] px-1.5 py-0.5'}`}>{items.length}</span>
+                    <span className={`font-semibold tabular-nums ${hayUrgente ? 'text-rose-700' : 'text-zinc-500'} ${compacta ? 'text-[10px]' : 'text-[11px]'}`}>{items.length}</span>
                   )}
                 </div>
                 <div className="flex flex-col gap-1 flex-1 min-h-0">
                   {visibles.map(f => <TarjetaDiaCompras key={f.negocioId} f={f} compacta={compacta} />)}
                   {resto > 0 && (
                     <button onClick={() => onAbrirDia(k)}
-                      className={`font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-md transition-colors ${compacta ? 'text-[8.5px] py-0.5' : 'text-[10px] py-1'}`}>
+                      className={`font-semibold text-teal-700 hover:bg-teal-50 rounded-md transition-colors ${compacta ? 'text-[10px] py-0.5' : 'text-xs py-1'}`}>
                       +{resto} más
                     </button>
                   )}
@@ -563,35 +560,35 @@ function VistaMensualCompras({ negocios, onAbrirDia, mesesVista }: {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between px-5 py-4 bg-gradient-to-r from-teal-600 to-teal-700 rounded-2xl shadow-sm">
+      <div className="flex items-center justify-between px-5 py-3 bg-white border border-zinc-200 rounded-xl shadow-tarjeta">
         <div className="flex items-center gap-0.5">
           <button onClick={() => mesAnteriorConDatos && setMes(dayjs(`${mesAnteriorConDatos}-01`))} disabled={!mesAnteriorConDatos}
             title="Saltar al mes anterior con negocios ganados" aria-label="Ganada anterior"
-            className="p-1.5 rounded-lg hover:bg-white/15 text-white/80 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-colors"><ChevronsLeft size={16} /></button>
+            className="p-1.5 rounded-lg hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"><ChevronsLeft size={16} /></button>
           <button onClick={() => setMes(m => m.subtract(1, 'month'))} aria-label="Mes anterior"
-            className="p-1.5 rounded-lg hover:bg-white/15 text-white/80 hover:text-white transition-colors"><ChevronLeft size={18} /></button>
+            className="p-1.5 rounded-lg hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900 transition-colors"><ChevronLeft size={18} /></button>
         </div>
         <div className="flex items-center gap-2.5">
-          <span className="text-[15px] font-bold text-white capitalize">{rango}</span>
+          <span className="text-[15px] font-semibold tracking-tight text-zinc-900 capitalize">{rango}</span>
           {/* Siempre visible (antes se ocultaba en el mes actual y eso confundía — parecía que
               "Hoy" fallaba justo en septiembre). Acá queda deshabilitado en vez de desaparecer. */}
           <button onClick={() => setMes(dayjs().startOf('month'))} disabled={esMesActual}
-            className={`text-[10.5px] font-bold px-2 py-1 rounded-full transition-colors ${
-              esMesActual ? 'text-white/50 bg-white/10 cursor-default' : 'text-teal-700 bg-white hover:bg-teal-50'
+            className={`text-xs font-semibold px-2 py-1 rounded-md transition-colors ${
+              esMesActual ? 'text-zinc-300 cursor-default' : 'text-teal-700 hover:bg-teal-50'
             }`}>Hoy</button>
           {/* Saltar directo a cualquier mes — pedido explícito del usuario, 16-sep-2026: antes solo
               se podía avanzar/retroceder de a uno. Con la ventana de varios meses este mes elegido
               queda como el PRIMERO del rango. */}
           <input type="month" value={mes.format('YYYY-MM')} onChange={e => e.target.value && setMes(dayjs(`${e.target.value}-01`))}
             title="Ir a un mes específico" aria-label="Ir a un mes específico"
-            className="text-[11px] font-semibold text-teal-800 bg-white/90 rounded-full px-2 py-1 outline-none cursor-pointer" />
+            className="text-xs font-medium text-zinc-700 border border-zinc-200 rounded-md px-2 py-1 outline-none cursor-pointer" />
         </div>
         <div className="flex items-center gap-0.5">
           <button onClick={() => setMes(m => m.add(1, 'month'))} aria-label="Mes siguiente"
-            className="p-1.5 rounded-lg hover:bg-white/15 text-white/80 hover:text-white transition-colors"><ChevronRight size={18} /></button>
+            className="p-1.5 rounded-lg hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900 transition-colors"><ChevronRight size={18} /></button>
           <button onClick={() => mesSiguienteConDatos && setMes(dayjs(`${mesSiguienteConDatos}-01`))} disabled={!mesSiguienteConDatos}
             title="Saltar al mes siguiente con negocios ganados" aria-label="Ganada siguiente"
-            className="p-1.5 rounded-lg hover:bg-white/15 text-white/80 hover:text-white disabled:opacity-30 disabled:hover:bg-transparent transition-colors"><ChevronsRight size={16} /></button>
+            className="p-1.5 rounded-lg hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"><ChevronsRight size={16} /></button>
         </div>
       </div>
       <div className={`grid gap-3 ${
@@ -610,9 +607,9 @@ function ModalDiaCompras({ dia, negocios, onClose }: { dia: string; negocios: Co
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3.5 bg-gradient-to-r from-teal-600 to-teal-700 sticky top-0">
-          <p className="text-[13.5px] font-bold text-white">{dayjs(dia).date()} de {MESES[dayjs(dia).month()]}</p>
-          <button onClick={onClose} aria-label="Cerrar" className="text-white/70 hover:text-white"><X size={16} /></button>
+        <div className="flex items-center justify-between px-5 py-4 bg-white border-b border-zinc-200 sticky top-0">
+          <p className="text-[15px] font-semibold tracking-tight text-zinc-900">{dayjs(dia).date()} de {MESES[dayjs(dia).month()]}</p>
+          <button onClick={onClose} aria-label="Cerrar" className="text-zinc-400 hover:text-zinc-700"><X size={16} /></button>
         </div>
         <div className="p-3 space-y-2">
           {negocios.map(f => <TarjetaDiaCompras key={f.negocioId} f={f} />)}
@@ -640,8 +637,9 @@ function ModalDiaCompras({ dia, negocios, onClose }: { dia: string; negocios: Co
 //      de OC del punto 2) + `plazoEntregaDias`. Si no hay plazo de entrega identificado, no se
 //      dibuja el tramo — no hay fecha que inventar.
 const PX_DIA: Record<'compacta' | 'normal' | 'amplia', number> = { compacta: 16, normal: 26, amplia: 40 };
-const ANCHO_ETIQUETA_GANTT = 390;
-const ALTO_FILA_GANTT = 92;
+const ANCHO_ETIQUETA_GANTT = 430;
+const ALTO_FILA_GANTT = 172;
+const CENTRO_FILA_GANTT = ALTO_FILA_GANTT / 2;
 const ALTO_REGLA_MESES = 26;
 const ALTO_REGLA_DIAS = 22;
 const TOPE_LEGAL_ACEPTACION_OC_DIAS = 5;
@@ -695,21 +693,27 @@ function calcularHitosGantt(f: ComprasFila): HitosGantt {
 
 // Estado de la entrega en palabras. Va en la columna fija de la izquierda: así cada fila se entiende aunque sus barras queden fuera de la
 // parte visible de la línea de tiempo (licitaciones viejas, o lejos en el futuro).
-function estadoEntregaGantt(f: ComprasFila, h: HitosGantt): { texto: string; clase: string } {
-  if (f.cierreLegado === 'ENTREGADA') return { texto: 'Entregada', clase: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
-  if (f.cierreLegado === 'NO_REALIZADA') return { texto: 'No realizada', clase: 'bg-zinc-100 text-zinc-500 border-zinc-200' };
-  if (f.cierreLegado === 'PRECOMPRA_SIN_ADJUDICAR') return { texto: 'Pre-compra sin adjudicar', clase: 'bg-zinc-100 text-zinc-500 border-zinc-200' };
-  if (f.precompra) return { texto: 'Pre-compra (sin adjudicar aún)', clase: 'bg-indigo-50 text-indigo-700 border-indigo-200' };
-  if (h.porValidar) return { texto: 'Inicio del plazo por validar', clase: 'bg-zinc-100 text-zinc-600 border-zinc-200' };
-  if (h.faltaAceptar) return { texto: 'Falta aceptar la OC', clase: 'bg-amber-50 text-amber-800 border-amber-200' };
+// Estado sin pastilla: texto con punto de color (skill licitank-ui, regla 2).
+function mk(texto: string, clase: string) {
+  const tono = /rose/.test(clase) ? ['text-rose-700', 'bg-rose-500'] : /amber/.test(clase) ? ['text-amber-700', 'bg-amber-500']
+    : /emerald/.test(clase) ? ['text-emerald-700', 'bg-emerald-500'] : /teal/.test(clase) ? ['text-teal-700', 'bg-teal-600'] : ['text-zinc-500', 'bg-zinc-400'];
+  return { texto, clase, texto_clase: tono[0], punto: tono[1] };
+}
+function estadoEntregaGantt(f: ComprasFila, h: HitosGantt): { texto: string; clase: string; texto_clase: string; punto: string } {
+  if (f.cierreLegado === 'ENTREGADA') return mk('Entregada', 'bg-emerald-50 text-emerald-700 border-emerald-200');
+  if (f.cierreLegado === 'NO_REALIZADA') return mk('No realizada', 'bg-zinc-100 text-zinc-500 border-zinc-200');
+  if (f.cierreLegado === 'PRECOMPRA_SIN_ADJUDICAR') return mk('Pre-compra sin adjudicar', 'bg-zinc-100 text-zinc-500 border-zinc-200');
+  if (f.precompra) return mk('Pre-compra (sin adjudicar aún)', 'bg-slate-50 text-slate-700 border-slate-200');
+  if (h.porValidar) return mk('Inicio del plazo por validar', 'bg-zinc-100 text-zinc-600 border-zinc-200');
+  if (h.faltaAceptar) return mk('Falta aceptar la OC', 'bg-amber-50 text-amber-800 border-amber-200');
   if (h.esperandoOC) return h.ocAtrasada
-    ? { texto: `OC atrasada ${diasEntre(h.aceptacionOCLimite, dayjs())} d`, clase: 'bg-rose-50 text-rose-700 border-rose-200' }
-    : { texto: 'Esperando OC', clase: 'bg-amber-50 text-amber-800 border-amber-200' };
-  if (!h.entrega) return { texto: 'Sin plazo de entrega', clase: 'bg-zinc-50 text-zinc-400 border-zinc-200' };
+    ? mk(`OC atrasada ${diasEntre(h.aceptacionOCLimite, dayjs())} d`, 'bg-rose-50 text-rose-700 border-rose-200')
+    : mk('Esperando OC', 'bg-amber-50 text-amber-800 border-amber-200');
+  if (!h.entrega) return mk('Sin plazo de entrega', 'bg-zinc-50 text-zinc-400 border-zinc-200');
   const d = h.entrega.diff(dayjs().startOf('day'), 'day');
-  if (d < 0) return { texto: `Vencida hace ${-d} d`, clase: 'bg-rose-50 text-rose-700 border-rose-200' };
-  if (d === 0) return { texto: 'Entrega hoy', clase: 'bg-rose-50 text-rose-700 border-rose-200' };
-  return { texto: `Entrega en ${d} d`, clase: d <= 3 ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-teal-50 text-teal-700 border-teal-200' };
+  if (d < 0) return mk(`Vencida hace ${-d} d`, 'bg-rose-50 text-rose-700 border-rose-200');
+  if (d === 0) return mk('Entrega hoy', 'bg-rose-50 text-rose-700 border-rose-200');
+  return mk(`Entrega en ${d} d`, d <= 3 ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-teal-50 text-teal-700 border-teal-200');
 }
 
 function colorEstadoTareaGantt(t: TareaGantt): string {
@@ -735,49 +739,60 @@ function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaU
   const colorBarraEntrega = noRealizada ? '#a1a1aa' : entregada ? '#10b981' : h.entregaVencida || f.urgente ? '#e11d48' : '#0d9488';
 
   return (
-    <div className={`flex border-b border-zinc-100 transition-colors ${seleccionada ? 'bg-teal-50/60' : 'hover:bg-teal-50/30'}`} style={{ height: ALTO_FILA_GANTT }}>
+    <div className={`flex border-b border-zinc-300 transition-colors ${seleccionada ? 'bg-teal-50/60' : 'hover:bg-teal-50/30'}`} style={{ height: ALTO_FILA_GANTT }}>
       <div
-        className={`sticky left-0 z-10 flex items-center gap-2 px-3 border-r border-zinc-200 flex-shrink-0 overflow-hidden ${seleccionada ? 'bg-teal-50/60' : 'bg-white'}`}
+        className={`sticky left-0 z-10 flex items-stretch gap-3 px-4 py-3 border-r border-zinc-200 flex-shrink-0 overflow-hidden ${seleccionada ? 'bg-teal-50/60' : 'bg-white'}`}
         style={{ width: ANCHO_ETIQUETA_GANTT }}>
-        <AvatarAsignado nombre={f.asignadoNombre} seed={f.asignadoA ?? f.asignadoNombre} size={26} />
-        <div className="min-w-0 flex-1">
-          {lugarCorto(f) && (
-            <p className="flex items-center gap-1 mb-0.5 text-[11px] font-bold text-zinc-800 min-w-0" title={[f.licitacionOrganismo, f.licitacionRegion].filter(Boolean).join(' · ')}>
-              <Building2 size={11} className="flex-shrink-0 text-zinc-400" />
-              <span className="truncate">{lugarCorto(f)}</span>
-            </p>
-          )}
-          <Link href={`/compras/${f.negocioId}`} title="Abrir la licitación de compra"
-            className="block text-[12px] font-semibold leading-tight line-clamp-2 text-zinc-900 hover:text-teal-700 hover:underline">{f.licitacionNombre || f.licitacionCodigo}</Link>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            <span className="text-[10px] font-mono text-zinc-400">{f.licitacionCodigo}</span>
-            {f.urgente && <AlertTriangle size={11} className="text-rose-600 flex-shrink-0" aria-label="Entrega rápida" />}
-            {f.reloj?.prorrogado && <CalendarClock size={11} className="text-amber-500 flex-shrink-0" />}
-            <span className="text-[10.5px] font-semibold text-zinc-600">{fmtCLPCorto(f.montoNuestro)}</span>
+        <div className="min-w-0 flex-1 flex flex-col">
+          <div className="flex items-start justify-between gap-2">
+            {lugarCorto(f)
+              ? <p className="flex items-center gap-1.5 text-[12px] font-semibold text-zinc-900 min-w-0" title={[f.licitacionOrganismo, f.licitacionRegion].filter(Boolean).join(' · ')}>
+                  <Building2 size={13} className="flex-shrink-0 text-slate-400" />
+                  <span className="truncate">{lugarCorto(f)}</span>
+                </p>
+              : <span />}
+            {(() => {
+              const e = estadoEntregaGantt(f, h);
+              return (
+                <span className={`flex items-center gap-1.5 text-xs font-medium whitespace-nowrap flex-shrink-0 ${e.texto_clase}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${e.punto}`} />{e.texto}
+                </span>
+              );
+            })()}
           </div>
-          <div className="flex items-center gap-1.5 mt-1">
-            {ultimaUrgente && !f.precompra && <ChipUltimaGanada />}
-            <span className="text-[10px] text-zinc-500 whitespace-nowrap" title={f.precompra ? 'Fecha estimada de adjudicación según Mercado Público' : `Ganado ${fmtFecha(f.ganadoAt)}`}>
-              {f.precompra ? (f.adjudicacionEstimadaAt ? `Adjudicación est. ${dayjs(f.adjudicacionEstimadaAt.slice(0, 10)).format('DD-MM-YYYY')}` : 'Sin fecha de adjudicación')
-                : <>{ultimaUrgente ? '' : 'Ganada '}{haceCuanto(f.ganadoAt)} · {diaHoraCorta(f.ganadoAt)}</>}
-            </span>
+          <Link href={`/compras/${f.negocioId}`} title="Abrir la licitación de compra"
+            className="mt-1.5 h-[38px] text-[13px] font-semibold leading-[19px] line-clamp-2 overflow-hidden text-zinc-900 hover:text-teal-700 hover:underline">{f.licitacionNombre || f.licitacionCodigo}</Link>
+          <div className="mt-auto grid grid-cols-3 gap-x-3 pt-1.5">
+            <div className="min-w-0">
+              <p className="text-[11px] text-slate-400">Código</p>
+              <p className="flex items-center gap-1 text-xs font-mono text-zinc-700 truncate">{f.licitacionCodigo}
+                {f.urgente && <AlertTriangle size={11} className="text-rose-600 flex-shrink-0" aria-label="Entrega rápida" />}
+                {f.reloj?.prorrogado && <CalendarClock size={11} className="text-amber-500 flex-shrink-0" />}</p>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] text-slate-400">Monto</p>
+              <p className="text-xs font-semibold tabular-nums text-zinc-800">{fmtCLPCorto(f.montoNuestro)}</p>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] text-slate-400">{f.precompra ? 'Adjudicación est.' : ultimaUrgente ? 'Última ganada' : 'Ganada'}</p>
+              <p className="text-xs text-zinc-700 truncate" title={f.precompra ? 'Fecha estimada de adjudicación según Mercado Público' : `Ganado ${fmtFecha(f.ganadoAt)}`}>
+                {f.precompra ? (f.adjudicacionEstimadaAt ? dayjs(f.adjudicacionEstimadaAt.slice(0, 10)).format('DD-MM-YYYY') : 'Sin fecha') : haceCuanto(f.ganadoAt)}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-zinc-100">
+            <AvatarAsignado nombre={f.asignadoNombre} seed={f.asignadoA ?? f.asignadoNombre} size={20} />
+            <span className="text-xs text-zinc-600 truncate flex-1" title="Encargado">{f.asignadoNombre || 'Sin asignar'}</span>
+            {f.tareasTotal > 0 && (
+              <span className="flex items-center gap-1.5 flex-shrink-0" title="Tareas hechas / total">
+                <span className="w-14 h-1 rounded-full bg-zinc-100 overflow-hidden"><span className={`block h-full ${f.tareasVencidas > 0 ? 'bg-rose-500' : 'bg-teal-600'}`} style={{ width: `${Math.round((f.tareasHechas / f.tareasTotal) * 100)}%` }} /></span>
+                <span className={`text-xs tabular-nums ${f.tareasVencidas > 0 ? 'text-rose-600 font-medium' : 'text-zinc-500'}`}>{f.tareasHechas}/{f.tareasTotal}{f.tareasVencidas > 0 ? ` · ${f.tareasVencidas} venc.` : ''}</span>
+              </span>
+            )}
           </div>
         </div>
-        {(() => {
-          const e = estadoEntregaGantt(f, h);
-          return (
-            <div className="flex flex-col items-end gap-1 flex-shrink-0">
-              <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border whitespace-nowrap ${e.clase}`}>{e.texto}</span>
-              {f.tareasTotal > 0 && (
-                <span className={`text-[10px] font-semibold whitespace-nowrap ${f.tareasVencidas > 0 ? 'text-rose-600' : 'text-zinc-500'}`} title="Tareas hechas / total">
-                  {f.tareasHechas}/{f.tareasTotal} tareas{f.tareasVencidas > 0 ? ` · ${f.tareasVencidas} venc.` : ''}
-                </span>
-              )}
-            </div>
-          );
-        })()}
         <button type="button" onClick={onSeleccionar} title="Ver el detalle del Gantt (todas las tareas)" aria-label="Ver el detalle del Gantt"
-          className="flex-shrink-0 p-1.5 rounded-md text-zinc-400 hover:text-teal-700 hover:bg-teal-50 transition-colors"><GanttChart size={15} /></button>
+          className="self-start flex-shrink-0 p-1.5 rounded-md text-zinc-400 hover:text-teal-700 hover:bg-teal-50 transition-colors"><GanttChart size={15} /></button>
       </div>
       <div className="relative flex-1" style={{ minWidth: 0 }}>
         {(() => {
@@ -785,53 +800,87 @@ function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaU
           // Antes había barra, puntos, rombo y fechas sueltas sin rótulo y no se entendían. Las tareas se ven en el panel (clic en la fila).
           // Pre-compra: aún no hay adjudicación, así que NO se arma la secuencia OC → entrega. Solo se marca la fecha estimada que informa Mercado Público.
           if (f.precompra) {
-            if (!f.adjudicacionEstimadaAt) return <span className="absolute text-[11px] text-zinc-400 whitespace-nowrap" style={{ left: 12, top: 29 }}>Mercado Público no informa fecha de adjudicación</span>;
+            if (!f.adjudicacionEstimadaAt) return <span className="absolute text-[11px] text-zinc-400 whitespace-nowrap" style={{ left: 12, top: CENTRO_FILA_GANTT - 7 }}>Mercado Público no informa fecha de adjudicación</span>;
             const dAdj = dayjs(f.adjudicacionEstimadaAt.slice(0, 10));
             const xa = x(dAdj);
             const dd = dAdj.diff(dayjs().startOf('day'), 'day');
             return (
               <>
-                <Diamond size={18} className="absolute text-indigo-500 fill-indigo-100" style={{ left: xa - 9, top: 27 }} />
-                <span className="absolute text-[11px] font-bold text-indigo-700 whitespace-nowrap" style={{ left: xa + 14, top: 29 }}>
+                <Diamond size={18} className="absolute text-slate-500 fill-slate-100" style={{ left: xa - 9, top: CENTRO_FILA_GANTT - 9 }} />
+                <span className="absolute text-[11px] font-semibold text-slate-700 whitespace-nowrap" style={{ left: xa + 14, top: CENTRO_FILA_GANTT - 7 }}>
                   {`Adjudicación estimada ${dAdj.format('DD-MM')} · ${dd < 0 ? `atrasada ${-dd} d` : dd === 0 ? 'hoy' : `en ${dd} d`}`}
                 </span>
               </>
             );
           }
-          const e = estadoEntregaGantt(f, h);
+          // UNA línea por licitación, en orden y sin tramos encimados: espera de OC → aceptación de la OC → plazo de entrega.
+          // Cada tramo lleva color por situación (verde = ya pasó, amarillo = en curso, rojo = vencido, punteado = sin dato) y un rótulo corto
+          // con su fecha, alternando arriba y abajo para que no se pisen. El detalle fino va en el tooltip y en el modal del Gantt.
           const hoy = dayjs().startOf('day');
-          const diasEntrega = h.entrega ? h.entrega.diff(hoy, 'day') : null;
-          const colorEntrega = noRealizada ? '#a1a1aa' : entregada ? '#10b981' : h.entregaVencida ? '#e11d48' : diasEntrega != null && diasEntrega <= 3 ? '#f59e0b' : '#0d9488';
-          // Sin OC y vencido el límite: la barra de espera llega hasta hoy (crece mientras la OC no llegue).
-          const x0 = xAdj, x1 = (h.esperandoOC || h.porValidar) && h.ocAtrasada ? Math.max(xInicioEntrega, x(hoy)) : xInicioEntrega, x2 = xEntrega;
-          const ancho1 = Math.max(x1 - x0, 4);
-          const ancho2 = x2 != null ? Math.max(x2 - x1, 4) : 0;
-          const finBarra = x2 != null ? x1 + ancho2 : x1 + ancho1;
-          const fin = h.entrega ? h.entrega.format('DD-MM') : null;
-          const ocTxt = h.ocReal ? 'OC recibida' : 'Esperando OC';
+          const pl = f.hitosGantt;
+          const ocAcept = pl?.ocAceptada ? dayjs(pl.ocAceptada.slice(0, 10)) : null;
+          const limiteConocido = !!pl && !pl.ocLimiteEstimado && !!h.ocReal;
+          const fmtD = (d: dayjs.Dayjs) => d.format('DD-MM');
+          const VERDE = '#34d399', AMARILLO = '#fbbf24', ROJO = '#e11d48', GRIS = '#a1a1aa', TEAL = '#0d9488';
+
+          // Posiciones siempre crecientes (si un dato viene desordenado, la barra no se da vuelta; el rótulo igual dice la fecha real).
+          const x0 = xAdj;
+          const xOC = Math.max(h.ocReal ? x(h.ocReal) : x(hoy), x0);
+          const xAcept = Math.max(ocAcept ? x(ocAcept) : limiteConocido ? x(h.aceptacionOCLimite) : x(hoy), xOC);
+          const aceptVencida = !ocAcept && limiteConocido && h.aceptacionOCLimite.isBefore(hoy, 'day');
+          const aceptaAntes = !!h.entrega && x(h.entrega) <= xAcept;       // las bases hacen correr la entrega antes de aceptar la OC
+          const diasEsperando = Math.max(0, hoy.diff(h.adjudicacion.startOf('day'), 'day'));
+          const desde = pl?.inicioPlazoTipo === 'OC_ACEPTADA' ? 'desde aceptar la OC' : pl?.inicioPlazoTipo === 'OC_EMITIDA' ? 'desde la OC' : pl?.inicioPlazoTipo === 'ADJUDICACION' ? 'desde la adjudicación' : '';
+          const colorEntrega = noRealizada ? GRIS : entregada ? '#10b981' : h.entregaVencida ? ROJO : h.entrega && h.entrega.diff(hoy, 'day') <= 3 ? '#f59e0b' : TEAL;
+
           const Tramo = ({ left, width, color, texto, title, borde }: { left: number; width: number; color: string; texto: string; title: string; borde?: boolean }) => (
-            <div title={title} className="absolute flex items-center justify-center overflow-hidden rounded-md text-[10px] font-bold text-white whitespace-nowrap"
-              style={{ left, width, top: 24, height: 24, background: borde ? 'transparent' : color, border: borde ? `1.5px dashed ${color}` : undefined, color: borde ? color : '#fff' }}>
-              {width >= 64 ? texto : ''}
+            <div title={title} className="absolute flex items-center justify-center overflow-hidden rounded-md text-[10px] font-medium whitespace-nowrap"
+              style={{ left, width: Math.max(width, 6), top: CENTRO_FILA_GANTT - 11, height: 22, background: borde ? 'transparent' : color, border: borde ? `1.5px dashed ${color}` : undefined, color: borde ? color : '#fff' }}>
+              {width >= 80 ? texto : ''}
             </div>
           );
+          // Rótulo corto con fecha. Cada fase tiene su propia altura (dos arriba, dos abajo), así nunca se pisan ni se cortan.
+          const Rotulo = ({ left, lado, texto, color, title }: { left: number; lado: number; texto: string; color: string; title?: string }) => (
+            <span title={title ?? texto} className="absolute text-[11px] font-medium leading-[14px] whitespace-nowrap"
+              style={{ left, top: CENTRO_FILA_GANTT + lado, color }}>{texto}</span>
+          );
+
+          const rAdj = { left: x0, lado: -30, texto: `Adjudicación ${fmtD(h.adjudicacion)}`, color: '#52525b' };
           return (
             <>
-              <span className="absolute text-[10.5px] font-semibold text-zinc-500 whitespace-nowrap text-right" style={{ left: x0 - 54, width: 48, top: 29 }}>{h.adjudicacion.format('DD-MM')}</span>
-              <Tramo left={x0} width={ancho1} color={h.ocReal ? '#34d399' : h.ocAtrasada ? '#e11d48' : '#fbbf24'}
-                texto={h.ocAtrasada && !h.ocReal ? 'OC atrasada' : ocTxt} title={`${ocTxt}: ${h.adjudicacion.format('DD-MM-YYYY')} → ${h.ocReal ? h.ocReal.format('DD-MM-YYYY') : h.aceptacionOCLimite.format('DD-MM-YYYY') + (h.aceptacionOCEstimada ? ' (tope legal, estimado)' : '')}${h.ocAtrasada && !h.ocReal ? ' · pasó el límite y la OC no ha llegado' : ''}`} />
-              {h.esperandoOC || h.porValidar
-                ? <Tramo left={x1} width={pxDia * 14} color="#a1a1aa" borde texto={h.porValidar ? 'Inicio del plazo por validar' : `Entrega: ${f.plazoEntregaDias} d ${f.hitosGantt?.inicioPlazoTipo === 'OC_ACEPTADA' ? 'desde aceptar la OC' : 'desde la OC'}`}
-                    title={h.porValidar ? 'Las bases no dicen desde cuándo corre el plazo de entrega: confírmalo en la tarea «Fijación y validación del reloj de entrega».' : `El plazo de entrega (${f.plazoEntregaDias} días) corre desde ${f.hitosGantt?.inicioPlazoTipo === 'OC_ACEPTADA' ? 'que se acepta la OC' : 'que llega la OC'} (según las bases). Aún no ocurre, por eso no hay fecha de entrega.`} />
-                : x2 != null
-                ? <Tramo left={x1} width={ancho2} color={colorEntrega}
-                    texto={entregada ? 'Entregada' : 'Plazo de entrega'}
-                    title={`Plazo de entrega: ${h.inicioEntrega.format('DD-MM-YYYY')} → ${h.entrega!.format('DD-MM-YYYY')}${h.entregaOficial ? '' : ' (estimado: el Reloj de Entrega aún no se fijó)'}${f.reloj?.prorrogado ? ' · con prórroga' : ''}`} />
-                : <Tramo left={x1} width={pxDia * 14} color="#a1a1aa" borde texto="Sin plazo de entrega" title="Plazo de entrega: sin dato — cárgalo en el Auditor Técnico o corre la auditoría con IA." />}
-              {x2 != null && diasEntrega != null && Math.abs(diasEntrega) <= 30 && (
-                <span className="absolute text-[11px] font-bold whitespace-nowrap" style={{ left: finBarra + 8, top: 29, color: colorEntrega }}>
-                  {`${entregada ? 'Entregada' : fin} · ${e.texto}${h.entregaOficial ? '' : ' (estimado)'}${f.reloj?.prorrogado ? ' · prorrogada' : ''}`}
-                </span>
+              {/* Tramos */}
+              <Tramo left={x0} width={xOC - x0} color={h.ocReal ? VERDE : AMARILLO}
+                texto={h.ocReal ? 'Espera de OC' : `Espera de OC · ${diasEsperando} d`}
+                title={h.ocReal ? `La OC llegó el ${h.ocReal.format('DD-MM-YYYY')}` : `Sin OC: ${diasEsperando} día(s) desde la adjudicación del ${h.adjudicacion.format('DD-MM-YYYY')}`} />
+              {h.ocReal && (
+                <Tramo left={xOC} width={xAcept - xOC} borde={!ocAcept && !limiteConocido}
+                  color={ocAcept ? VERDE : aceptVencida ? ROJO : limiteConocido ? AMARILLO : GRIS} texto="Aceptación de la OC"
+                  title={ocAcept ? `OC aceptada el ${ocAcept.format('DD-MM-YYYY')}` : limiteConocido ? `Plazo para aceptar la OC según las bases: hasta el ${h.aceptacionOCLimite.format('DD-MM-YYYY')}` : 'Las bases no dicen cuántos días hay para aceptar la OC'} />
+              )}
+              {h.entrega && !aceptaAntes && (
+                <Tramo left={xAcept} width={x(h.entrega) - xAcept} color={colorEntrega} texto={entregada ? 'Entregada' : 'Plazo de entrega'}
+                  title={`Plazo de entrega: ${h.inicioEntrega.format('DD-MM-YYYY')} → ${h.entrega.format('DD-MM-YYYY')}${h.entregaOficial ? '' : ' (estimado: el Reloj de Entrega aún no se fijó)'}${f.reloj?.prorrogado ? ' · con prórroga' : ''}`} />
+              )}
+              {!h.entrega && (
+                <Tramo left={xAcept} width={pxDia * 14} color={GRIS} borde
+                  texto={h.porValidar ? 'Inicio del plazo por validar' : f.plazoEntregaDias != null ? `Entrega: ${f.plazoEntregaDias} d ${desde}`.trim() : 'Sin plazo de entrega'}
+                  title={h.porValidar ? 'Las bases no dicen desde cuándo corre el plazo de entrega: confírmalo en la tarea «Fijación y validación del reloj de entrega».' : f.plazoEntregaDias != null ? `El plazo de entrega (${f.plazoEntregaDias} días) corre ${desde || 'según las bases'}. Aún no ocurre, por eso no hay fecha de entrega.` : 'Plazo de entrega: sin dato — cárgalo en el Auditor Técnico o corre la auditoría con IA.'} />
+              )}
+
+              {/* Rótulos: adjudicación y aceptación arriba; OC y entrega abajo */}
+              <Rotulo {...rAdj} />
+              <Rotulo left={xOC} lado={17}
+                texto={h.ocReal ? `OC llegó ${fmtD(h.ocReal)}` : 'OC sin llegar'} color={h.ocReal ? '#059669' : '#b45309'}
+                title={h.ocReal && h.ocReal.isBefore(h.adjudicacion, 'day') ? 'La OC figura recibida antes de la adjudicación: revisa la fecha.' : undefined} />
+              {h.ocReal && (
+                <Rotulo left={xAcept} lado={-47}
+                  texto={ocAcept ? `OC aceptada ${fmtD(ocAcept)}` : limiteConocido ? `Aceptar hasta ${fmtD(h.aceptacionOCLimite)}${aceptVencida ? ' · vencido' : ''}` : 'Plazo de aceptación sin dato'}
+                  color={ocAcept ? '#059669' : aceptVencida ? '#be123c' : '#71717a'} />
+              )}
+              {h.entrega && (
+                <Rotulo left={aceptaAntes ? xAcept : x(h.entrega)} lado={34}
+                  texto={`Entrega ${fmtD(h.entrega)}${aceptaAntes ? ` · corre ${desde || 'antes de aceptar la OC'}` : ''} · ${estadoEntregaGantt(f, h).texto}${h.entregaOficial ? '' : ' (estimado)'}`}
+                  color={colorEntrega} title={`Entrega ${h.entrega.format('DD-MM-YYYY')}${desde ? `, ${desde}` : ''}${f.reloj?.prorrogado ? ' · prorrogada' : ''}`} />
               )}
             </>
           );
@@ -849,26 +898,26 @@ function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaU
 function PanelDetalleGantt({ f, onClose }: { f: ComprasFila; onClose: () => void }) {
   const h = calcularHitosGantt(f);
   return (
-    <div className="flex flex-col bg-white border border-zinc-200 rounded-2xl shadow-xl overflow-hidden w-full max-w-xl" style={{ maxHeight: '88vh' }} onClick={e => e.stopPropagation()}>
-      <div className="flex items-start justify-between gap-2 px-4 py-3 bg-gradient-to-r from-teal-600 to-teal-700">
+    <div className="flex flex-col bg-white border border-zinc-200 rounded-2xl shadow-flotante overflow-hidden w-full max-w-5xl" style={{ maxHeight: '92vh' }} onClick={e => e.stopPropagation()}>
+      <div className="flex items-start justify-between gap-2 px-6 py-4 border-b border-zinc-200">
         <div className="min-w-0">
-          <p className="text-[13px] font-bold text-white leading-snug">{f.licitacionNombre || f.licitacionCodigo}</p>
-          <p className="text-[10.5px] font-mono text-teal-100 mt-0.5">{f.licitacionCodigo}</p>
+          <p className="text-[17px] font-semibold tracking-tight text-zinc-900 leading-snug">{f.licitacionNombre || f.licitacionCodigo}</p>
+          <p className="text-xs font-mono text-zinc-400 mt-0.5">{f.licitacionCodigo}</p>
         </div>
-        <button onClick={onClose} title="Cerrar" className="text-white/70 hover:text-white flex-shrink-0"><X size={16} /></button>
+        <button onClick={onClose} title="Cerrar" className="text-zinc-400 hover:text-zinc-700 flex-shrink-0"><X size={16} /></button>
       </div>
-      <div className="overflow-y-auto px-4 py-3 space-y-3">
+      <div className="overflow-y-auto px-6 py-4 space-y-4">
         <div className="grid grid-cols-3 gap-1.5 text-center">
           <div className="bg-zinc-50 rounded-lg py-1.5">
-            <p className="text-[9px] font-bold text-zinc-400 uppercase">Adjudicación</p>
+            <p className="text-[11px] text-zinc-400">Adjudicación</p>
             <p className="text-[11px] font-bold text-zinc-700">{h.adjudicacion.format('DD-MM-YY')}</p>
           </div>
           <div className="bg-amber-50 rounded-lg py-1.5">
-            <p className="text-[9px] font-bold text-amber-500 uppercase">Aceptar OC</p>
+            <p className="text-[11px] text-amber-500">Aceptar OC</p>
             <p className="text-[11px] font-bold text-amber-700">{h.aceptacionOCLimite.format('DD-MM-YY')}{h.aceptacionOCEstimada && '*'}</p>
           </div>
           <div className={`rounded-lg py-1.5 ${h.entregaVencida ? 'bg-rose-50' : 'bg-teal-50'}`}>
-            <p className={`text-[9px] font-bold uppercase ${h.entregaVencida ? 'text-rose-500' : 'text-teal-600'}`}>Entrega</p>
+            <p className={`text-[11px] ${h.entregaVencida ? 'text-rose-500' : 'text-teal-600'}`}>Entrega</p>
             <p className={`text-[11px] font-bold ${h.entregaVencida ? 'text-rose-700' : 'text-teal-800'}`}>{h.entrega ? h.entrega.format('DD-MM-YY') : h.porValidar ? 'Por validar' : h.esperandoOC ? (h.faltaAceptar ? 'Al aceptar la OC' : 'Al llegar la OC') : '— sin dato'}</p>
           </div>
         </div>
@@ -903,7 +952,7 @@ function PanelDetalleGantt({ f, onClose }: { f: ComprasFila; onClose: () => void
         )}
 
         <div>
-          <p className="text-[10.5px] font-bold text-zinc-400 uppercase mb-1.5">Todas las tareas ({f.tareasGantt.length})</p>
+          <p className="text-xs text-zinc-500 mb-1.5">Todas las tareas ({f.tareasGantt.length})</p>
           <GanttComprasCard tareas={f.tareasGantt} hitos={f.hitosGantt} plegable={false} />
         </div>
 
@@ -919,7 +968,7 @@ function PanelDetalleGantt({ f, onClose }: { f: ComprasFila; onClose: () => void
 function SeparadorGrupoCompras({ urgente, n }: { urgente: boolean; n: number }) {
   return (
     <div className={`flex items-center border-b ${urgente ? 'bg-rose-50 border-rose-100' : 'bg-zinc-50 border-zinc-200'}`} style={{ height: 28 }}>
-      <div className={`sticky left-0 z-10 flex items-center gap-2 px-3 text-[10.5px] font-bold uppercase tracking-wide ${urgente ? 'text-rose-700' : 'text-zinc-500'}`}>
+      <div className={`sticky left-0 z-10 flex items-center gap-2 px-3 text-xs font-semibold ${urgente ? 'text-rose-700' : 'text-zinc-500'}`}>
         {urgente ? <AlertTriangle size={12} /> : <ShoppingCart size={12} />}
         {urgente ? 'Entrega rápida' : 'Resto de las licitaciones'} · {n}
         {urgente && <span className="font-medium normal-case tracking-normal text-rose-500">plazo menor a 3 días · la más reciente primero</span>}
@@ -928,9 +977,94 @@ function SeparadorGrupoCompras({ urgente, n }: { urgente: boolean; n: number }) 
   );
 }
 
+// Pestaña «Fases de la OC»: la licitación en el orden real del proceso — adjudicación → llega la OC → se acepta la OC → plazo de entrega.
+// Solo se muestra lo que existe: una fecha real o un plazo que dicen las bases. Si las bases no lo dicen, «sin dato» (no se estima).
+function FaseOC({ n, estado, titulo, fecha, nota }: { n: number; estado: 'ok' | 'curso' | 'atraso' | 'sin'; titulo: string; fecha: string; nota: string }) {
+  const barra = estado === 'ok' ? 'bg-teal-600' : estado === 'curso' ? 'bg-amber-500' : estado === 'atraso' ? 'bg-rose-500' : 'bg-zinc-200';
+  return (
+    <div className="min-w-0 pr-3">
+      <div className={`h-1 rounded-full mb-2 ${barra}`} />
+      <p className="text-xs text-zinc-500"><span className="font-semibold text-zinc-700 tabular-nums mr-1">{n}.</span>{titulo}</p>
+      <p className={`text-sm font-semibold tabular-nums ${estado === 'atraso' ? 'text-rose-700' : estado === 'sin' ? 'text-zinc-400' : 'text-zinc-900'}`}>{fecha}</p>
+      <p className={`text-xs ${estado === 'atraso' ? 'text-rose-600' : 'text-zinc-500'}`}>{nota}</p>
+    </div>
+  );
+}
+
+function FilaFasesCompras({ f, onDetalle }: { f: ComprasFila; onDetalle: () => void }) {
+  const h = calcularHitosGantt(f);
+  const p = f.hitosGantt;
+  const hoy = dayjs().startOf('day');
+  const fmt = (d: dayjs.Dayjs | null | undefined) => (d ? d.format('DD-MM-YYYY') : '—');
+  const dias = (n: number) => `${n} día${n === 1 ? '' : 's'}`;
+  const e = estadoEntregaGantt(f, h);
+  const desde = p?.inicioPlazoTipo === 'OC_ACEPTADA' ? 'la aceptación de la OC' : p?.inicioPlazoTipo === 'OC_EMITIDA' ? 'la llegada de la OC' : p?.inicioPlazoTipo === 'ADJUDICACION' ? 'la adjudicación' : null;
+
+  // 1 · Adjudicación
+  const fase1 = f.precompra
+    ? <FaseOC n={1} estado="sin" titulo="Adjudicación estimada" fecha={f.adjudicacionEstimadaAt ? fmt(dayjs(f.adjudicacionEstimadaAt.slice(0, 10))) : 'Sin fecha'} nota="Según Mercado Público" />
+    : <FaseOC n={1} estado="ok" titulo="Adjudicación" fecha={fmt(h.adjudicacion)} nota="Fecha real" />;
+
+  // 2 · Llega la OC
+  const fase2 = f.precompra ? <FaseOC n={2} estado="sin" titulo="Llegada de la OC" fecha="—" nota="Aún no adjudicada" />
+    : h.ocReal ? <FaseOC n={2} estado="ok" titulo="Llegó la OC" fecha={fmt(h.ocReal)} nota="Fecha real" />
+    : <FaseOC n={2} estado="curso" titulo="Espera de OC" fecha="En espera" nota={`${dias(Math.max(0, hoy.diff(h.adjudicacion.startOf('day'), 'day')))} desde la adjudicación`} />;
+
+  // 3 · Aceptación de la OC
+  const diasAceptar = f.plazoAceptacionOCDias;
+  const fase3 = f.precompra ? <FaseOC n={3} estado="sin" titulo="Aceptación de la OC" fecha="—" nota="Aún no adjudicada" />
+    : p?.ocAceptada ? <FaseOC n={3} estado="ok" titulo="OC aceptada" fecha={fmt(dayjs(p.ocAceptada.slice(0, 10)))} nota="Fecha real" />
+    : h.ocReal && p && !p.ocLimiteEstimado
+      ? <FaseOC n={3} estado={h.aceptacionOCLimite.isBefore(hoy, 'day') ? 'atraso' : 'curso'} titulo="Aceptar la OC" fecha={`hasta ${fmt(h.aceptacionOCLimite)}`}
+          nota={`${diasAceptar != null ? dias(diasAceptar) : 'Plazo'} desde que llegó${h.aceptacionOCLimite.isBefore(hoy, 'day') ? ' · vencido' : ''}`} />
+      : <FaseOC n={3} estado="sin" titulo="Aceptar la OC" fecha={h.ocReal ? 'Sin dato' : '—'}
+          nota={diasAceptar != null ? `${dias(diasAceptar)} desde que llega` : 'Las bases no dicen el plazo'} />;
+
+  // 4 · Plazo de entrega
+  const entregada = f.cierreLegado === 'ENTREGADA';
+  const fase4 = f.precompra ? <FaseOC n={4} estado="sin" titulo="Plazo de entrega" fecha="—" nota="Aún no adjudicada" />
+    : h.entrega
+      ? <FaseOC n={4} estado={entregada ? 'ok' : h.entregaVencida ? 'atraso' : 'curso'} titulo={entregada ? 'Entregada' : 'Plazo de entrega'}
+          fecha={`${h.entregaVencida && !entregada ? 'venció ' : ''}${fmt(h.entrega)}`}
+          nota={`${f.plazoEntregaDias != null ? dias(f.plazoEntregaDias) : 'Plazo'}${desde ? ` desde ${desde}` : ''}${h.entregaOficial ? '' : ' · estimado'}`} />
+      : <FaseOC n={4} estado="sin" titulo="Plazo de entrega" fecha="—"
+          nota={h.porValidar ? 'Las bases no dicen desde cuándo' : f.plazoEntregaDias != null ? `${dias(f.plazoEntregaDias)} desde ${desde ?? 'la OC'}` : 'Sin plazo de entrega'} />;
+
+  return (
+    <div className="bg-white border border-zinc-200 rounded-xl shadow-tarjeta px-5 py-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          {lugarCorto(f) && (
+            <p className="flex items-center gap-1.5 text-[12px] font-semibold text-zinc-900" title={[f.licitacionOrganismo, f.licitacionRegion].filter(Boolean).join(' · ')}>
+              <Building2 size={13} className="text-slate-400 flex-shrink-0" />{lugarCorto(f)}
+            </p>
+          )}
+          <Link href={`/compras/${f.negocioId}`} title="Abrir la licitación de compra" className="block text-[15px] font-semibold tracking-tight text-zinc-900 hover:text-teal-700 hover:underline">
+            {f.licitacionNombre || f.licitacionCodigo}
+          </Link>
+          <p className="text-xs text-zinc-500 mt-0.5"><span className="font-mono">{f.licitacionCodigo}</span> · <span className="tabular-nums">{fmtCLPCorto(f.montoNuestro)}</span> · {f.asignadoNombre || 'Sin asignar'}</p>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className={`flex items-center gap-1.5 text-xs font-medium whitespace-nowrap ${e.texto_clase}`}><span className={`w-1.5 h-1.5 rounded-full ${e.punto}`} />{e.texto}</span>
+          <button type="button" onClick={onDetalle} title="Ver el detalle del Gantt (todas las tareas)" aria-label="Ver el detalle del Gantt"
+            className="p-1.5 rounded-md text-zinc-400 hover:text-teal-700 hover:bg-teal-50 transition-colors"><GanttChart size={15} /></button>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 @xl:grid-cols-4 gap-y-3 mt-3">{fase1}{fase2}{fase3}{fase4}</div>
+      {f.tareasTotal > 0 && (
+        <div className="flex items-center gap-4 mt-3 pt-3 border-t border-zinc-100 text-xs text-zinc-500">
+          <span className="tabular-nums">Tareas {f.tareasHechas}/{f.tareasTotal}</span>
+          {f.tareasVencidas > 0 && <span className="text-rose-600 font-medium tabular-nums">{f.tareasVencidas} vencidas</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function VistaGanttCompras({ negocios, ultimaUrgenteId }: { negocios: ComprasFila[]; ultimaUrgenteId: number | null }) {
   const [densidad, setDensidad] = useState<'compacta' | 'normal' | 'amplia'>('normal');
   const [seleccionadoId, setSeleccionadoId] = useState<number | null>(null);
+  const [modo, setModo] = useState<'plazos' | 'ultimas' | 'fases'>('plazos');
   const scrollRef = useRef<HTMLDivElement>(null);
   const yaCentrado = useRef(false);
   const pxDia = PX_DIA[densidad];
@@ -965,9 +1099,30 @@ function VistaGanttCompras({ negocios, ultimaUrgenteId }: { negocios: ComprasFil
   const irAHoy = useCallback((suave: boolean) => {
     const el = scrollRef.current;
     if (!el) return;
-    const left = Math.max(0, ANCHO_ETIQUETA_GANTT + xHoy - (el.clientWidth - ANCHO_ETIQUETA_GANTT) / 2);
+    // La línea de tiempo empieza después de la columna fija, así que "hoy" queda al centro del espacio libre.
+    const left = Math.max(0, xHoy - (el.clientWidth - ANCHO_ETIQUETA_GANTT) / 2);
     el.scrollTo({ left, behavior: suave ? 'smooth' : 'auto' });
   }, [xHoy]);
+
+  // Pestaña «Desde las últimas ganadas»: las filas van de la más reciente a la más antigua y la línea de tiempo
+  // arranca en el día de la última ganada (lo anterior queda hacia la izquierda).
+  const lista = useMemo(() => modo !== 'plazos' ? [...negocios].sort((a, b) => b.ganadoAt.localeCompare(a.ganadoAt)) : negocios, [negocios, modo]);
+  const xUltima = useMemo(() => {
+    const ult = negocios.reduce<string | null>((m, f) => (m == null || f.ganadoAt > m ? f.ganadoAt : m), null);
+    return ult ? diasEntre(inicioRango, dayjs(ult.slice(0, 10))) * pxDia : 0;
+  }, [negocios, inicioRango, pxDia]);
+  const irAUltima = useCallback((suave: boolean) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // La última ganada queda a ~35 % del espacio libre (después de la columna fija): se ve lo que viene y también los días anteriores.
+    el.scrollTo({ left: Math.max(0, xUltima - (el.clientWidth - ANCHO_ETIQUETA_GANTT) * 0.35), behavior: suave ? 'smooth' : 'auto' });
+  }, [xUltima]);
+  const modoPrevio = useRef(modo);
+  useEffect(() => {
+    if (modoPrevio.current === modo) return;
+    modoPrevio.current = modo;
+    if (modo === 'ultimas') irAUltima(false); else irAHoy(false);
+  }, [modo, irAHoy, irAUltima]);
 
   // Centrar el scroll en "hoy" al entrar — solo una vez, para no pelear con el usuario si después
   // se mueve solo (llega tiempo real vía SSE) o cambia de densidad.
@@ -982,13 +1137,32 @@ function VistaGanttCompras({ negocios, ultimaUrgenteId }: { negocios: ComprasFil
 
   return (
     <div className="space-y-2">
+      <div className="flex items-center gap-1 border-b border-zinc-200" role="tablist">
+        {([
+          { key: 'plazos', label: 'Por plazo de entrega', ayuda: 'Primero las de entrega rápida; la línea de tiempo se centra en hoy' },
+          { key: 'ultimas', label: 'Desde las últimas ganadas', ayuda: 'De la más reciente a la más antigua; la línea de tiempo parte en la última ganada' },
+          { key: 'fases', label: 'Fases de la OC', ayuda: 'Adjudicación → llega la OC → se acepta la OC → plazo de entrega, solo con datos reales' },
+        ] as const).map(t => (
+          <button key={t.key} role="tab" aria-selected={modo === t.key} onClick={() => setModo(t.key)} title={t.ayuda}
+            className={`text-[13px] font-semibold px-3.5 py-2 -mb-px border-b-2 transition-colors ${modo === t.key ? 'border-teal-600 text-teal-700' : 'border-transparent text-zinc-500 hover:text-zinc-700'}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {modo === 'fases' ? (
+        <div className="@container space-y-3">
+          {lista.map(f => <FilaFasesCompras key={f.negocioId} f={f} onDetalle={() => setSeleccionadoId(f.negocioId)} />)}
+        </div>
+      ) : (<>
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-[11.5px] text-zinc-400">
-          {negocios.length} licitación(es) · adjudicación → aceptación de OC → entrega, con tareas marcadas en el camino. Clic en una licitación para ver todas sus tareas.
+          {negocios.length} licitación(es) · adjudicación → aceptación de OC → entrega, con tareas marcadas en el camino. Usa el botón del Gantt de cada tarjeta para ver todas sus tareas.
         </p>
         <div className="flex items-center gap-2">
+          <button onClick={() => irAUltima(true)} title="Ir al día de la última licitación ganada"
+            className="text-xs font-semibold text-teal-700 hover:bg-teal-50 px-2.5 py-1.5 rounded-md transition-colors">Última ganada</button>
           <button onClick={() => irAHoy(true)} title="Volver a centrar en hoy"
-            className="text-[11px] font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 px-2.5 py-1.5 rounded-full transition-colors">Hoy</button>
+            className="text-xs font-semibold text-teal-700 hover:bg-teal-50 px-2.5 py-1.5 rounded-md transition-colors">Hoy</button>
           <div className="inline-flex items-center bg-zinc-100 rounded-lg p-0.5">
             <button onClick={() => setDensidad('compacta')} title="Zoom compacto"
               className={`p-1.5 rounded-md transition-colors ${densidad === 'compacta' ? 'bg-white text-teal-700 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}><ZoomOut size={14} /></button>
@@ -1002,7 +1176,7 @@ function VistaGanttCompras({ negocios, ultimaUrgenteId }: { negocios: ComprasFil
 
       <div className="flex items-start gap-3">
         <div className="flex-1 bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden min-w-0">
-          <div ref={scrollRef} className="overflow-auto" style={{ maxHeight: '72vh' }}>
+          <div ref={scrollRef} className="overflow-x-auto">
             <div style={{ width: ANCHO_ETIQUETA_GANTT + anchoTimeline }}>
               {/* Regla de meses + días — sticky arriba mientras se hace scroll vertical. */}
               <div className="sticky top-0 z-20 flex bg-white border-b border-zinc-200" style={{ height: ALTO_REGLA_MESES + ALTO_REGLA_DIAS }}>
@@ -1041,9 +1215,9 @@ function VistaGanttCompras({ negocios, ultimaUrgenteId }: { negocios: ComprasFil
               </div>
               {/* Filas */}
               <div className="relative">
-                {negocios.map((f, i) => (
+                {lista.map((f, i) => (
                   <Fragment key={f.negocioId}>
-                    {(i === 0 || negocios[i - 1].urgente !== f.urgente) && (
+                    {modo === 'plazos' && (i === 0 || lista[i - 1].urgente !== f.urgente) && (
                       <SeparadorGrupoCompras urgente={f.urgente} n={negocios.filter(x => x.urgente === f.urgente).length} />
                     )}
                     <FilaGantt f={f} inicioRango={inicioRango} pxDia={pxDia} ultimaUrgente={f.negocioId === ultimaUrgenteId}
@@ -1059,20 +1233,21 @@ function VistaGanttCompras({ negocios, ultimaUrgenteId }: { negocios: ComprasFil
           </div>
         </div>
       </div>
+      </>)}
       {seleccionado && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={() => setSeleccionadoId(null)}>
           <PanelDetalleGantt f={seleccionado} onClose={() => setSeleccionadoId(null)} />
         </div>
       )}
 
-      <div className="flex items-center gap-4 flex-wrap text-[11px] text-zinc-500">
+      {modo !== 'fases' && <div className="flex items-center gap-4 flex-wrap text-[11px] text-zinc-500">
         <span className="font-semibold text-zinc-600">Cada barra empieza el día que se ganó:</span>
         <span className="flex items-center gap-1.5"><span className="w-4 h-3 rounded-sm" style={{ background: '#fbbf24' }} /> Esperando la OC del cliente</span>
         <span className="flex items-center gap-1.5"><span className="w-4 h-3 rounded-sm" style={{ background: '#34d399' }} /> OC ya recibida</span>
         <span className="flex items-center gap-1.5"><span className="w-4 h-3 rounded-sm bg-teal-600" /> Plazo de entrega (naranja si quedan 3 días o menos, rojo si venció)</span>
         <span className="flex items-center gap-1.5"><span className="border-l-2 border-dashed border-rose-300 h-3" /> Hoy</span>
-        <span>· Las tareas de cada licitación se ven al hacer clic en la fila.</span>
-      </div>
+        <span>· Las tareas de cada licitación se ven con el botón del Gantt de cada tarjeta.</span>
+      </div>}
     </div>
   );
 }
@@ -1328,6 +1503,13 @@ export default function ComprasPage() {
                 <BarChart3 size={13} /> Dashboard
               </Link>
             )}
+            {esJefeDeVentas && (
+              <Link href="/compras/analitica"
+                className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-zinc-600 bg-white border border-zinc-200 hover:bg-zinc-50 px-3 py-2 rounded-lg transition-colors"
+                title="Gráficos de todo Compras: ganado, entregas, encargados, OC, tareas, gastos y proveedores">
+                <LineChart size={13} /> Analítica
+              </Link>
+            )}
             {negocios.length > 0 && (
               <div className="inline-flex items-center bg-zinc-100 rounded-lg p-0.5">
                 {([
@@ -1375,14 +1557,14 @@ export default function ComprasPage() {
           <div className="flex items-center gap-1 border-b border-zinc-200" role="tablist">
             {([
               { key: 'ganadas', label: 'Ganadas', n: nGanadas, clase: 'border-teal-600 text-teal-700' },
-              { key: 'precompras', label: 'Pre-compras (POSIBLE ADJ)', n: nPrecompras, clase: 'border-indigo-600 text-indigo-700' },
+              { key: 'precompras', label: 'Pre-compras (POSIBLE ADJ)', n: nPrecompras, clase: 'border-slate-600 text-slate-700' },
             ] as const).map(t => (
               <button key={t.key} role="tab" aria-selected={ambito === t.key} onClick={() => setAmbito(t.key)}
                 className={`inline-flex items-center gap-2 text-[13px] font-semibold px-3.5 py-2 -mb-px border-b-2 transition-colors ${
                   ambito === t.key ? t.clase : 'border-transparent text-zinc-500 hover:text-zinc-700'
                 }`}>
                 {t.label}
-                <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${ambito === t.key ? (t.key === 'precompras' ? 'bg-indigo-50' : 'bg-teal-50') : 'bg-zinc-100'}`}>{t.n}</span>
+                <span className={`text-xs font-semibold tabular-nums`}>{t.n}</span>
               </button>
             ))}
           </div>
@@ -1504,10 +1686,10 @@ export default function ComprasPage() {
         {!loading && ultimaUrgente && ambito === 'ganadas' && (
           <Link href={`/compras/${ultimaUrgente.negocioId}`} data-testid="ultima-urgente"
             className="flex items-center gap-3 flex-wrap rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100/70 px-4 py-2.5 transition-colors">
-            <span className="w-8 h-8 rounded-full bg-rose-600 text-white flex items-center justify-center flex-shrink-0"><AlertTriangle size={15} /></span>
+            <AlertTriangle size={18} className="text-rose-600 flex-shrink-0" />
             <span className="min-w-0 flex-1">
-              <span className="block text-[10.5px] font-bold uppercase tracking-wide text-rose-700">{ultimaUrgente.urgente ? 'Entrega rápida · ' : ''}La última que se ganó{urgentes.length > 0 ? ` · ${urgentes.length} de entrega rápida` : ''}</span>
-              <span className="block text-[13px] font-bold text-zinc-900 truncate">{ultimaUrgente.licitacionNombre || ultimaUrgente.licitacionCodigo}</span>
+              <span className="block text-xs font-semibold text-rose-700">{ultimaUrgente.urgente ? 'Entrega rápida · ' : ''}La última que se ganó{urgentes.length > 0 ? ` · ${urgentes.length} de entrega rápida` : ''}</span>
+              <span className="block text-[13px] font-semibold text-zinc-900 truncate">{ultimaUrgente.licitacionNombre || ultimaUrgente.licitacionCodigo}</span>
               <span className="block text-[11.5px] text-zinc-600">{ultimaUrgente.licitacionCodigo} · ganada {haceCuanto(ultimaUrgente.ganadoAt)} ({diaHoraCorta(ultimaUrgente.ganadoAt)}){ultimaUrgente.plazoEntregaDias != null ? ` · entrega en ${ultimaUrgente.plazoEntregaDias} día(s)` : ''}</span>
             </span>
             <span className="text-[12px] font-semibold text-rose-700 flex-shrink-0 inline-flex items-center gap-1">Abrir <ArrowUpRight size={14} /></span>
@@ -1539,7 +1721,7 @@ export default function ComprasPage() {
             {filtrados.map((f, i) => (
               <Fragment key={f.negocioId}>
                 {(i === 0 || filtrados[i - 1].urgente !== f.urgente) && (
-                  <p className={`text-[11px] font-bold uppercase tracking-wide pt-1 flex items-center gap-1.5 ${f.urgente ? 'text-rose-700' : 'text-zinc-500'}`}>
+                  <p className={`text-xs font-semibold pt-1 flex items-center gap-1.5 ${f.urgente ? 'text-rose-700' : 'text-zinc-500'}`}>
                     {f.urgente ? <><AlertTriangle size={12} /> Entrega rápida · {urgentes.length}</> : <>Resto de las licitaciones · {filtrados.length - urgentes.length}</>}
                   </p>
                 )}

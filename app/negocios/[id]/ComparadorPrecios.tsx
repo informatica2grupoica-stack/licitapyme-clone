@@ -10,7 +10,7 @@ import { MenuAcciones } from '@/app/components/ui/MenuAcciones';
 import { LinksProducto } from './LinksProducto';
 import { compararPrecioConCosteo } from '@/app/lib/compras-precio-vs-costeo';
 import { esLinkDeProducto } from '@/app/lib/costeo-comparativo';
-import { margenCosteoVsCotizaciones } from '@/app/lib/compras-margen-vs-costeo';
+import { margenCosteoVsCotizaciones, GASTO_ENTREGA_PCT } from '@/app/lib/compras-margen-vs-costeo';
 import { MargenCosteoVsCotizaciones } from './MargenCosteoVsCotizaciones';
 import { ESTILO_VEREDICTO, ESTILO_TECNICO, cotizacionesReemplazadas } from './MatrizPrecios';
 import type { MatrizProps } from './MatrizPrecios';
@@ -44,7 +44,7 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
     const m = menorDe.get(p.id) ?? null;
     const proveedor = m == null ? null : cotizaciones.find(c => !reemp.has(`${c.id}:${p.id}`) && c.items.find(i => i.productoId === p.id)?.precioUnitario === m)?.proveedorNombre ?? null;
     return { id: p.id, descripcion: p.descripcion, cantidad: num(p.cantidad), venta: venta?.[p.id] ?? null, costeo: costeado[p.id] ?? null, cotizado: m, proveedor, compras: costeoCompras[p.id]?.costo ?? null };
-  })), [productos, cotizaciones, costeado, venta, menorDe, reemp, costeoCompras]);
+  }), GASTO_ENTREGA_PCT), [productos, cotizaciones, costeado, venta, menorDe, reemp, costeoCompras]);
 
   if (productos.length === 0 || (cotizaciones.length === 0 && !lecLink?.disponible)) return null;
 

@@ -13,7 +13,7 @@ import { registrarEvento } from '@/app/lib/historial';
 import { obtenerAprobaciones, obtenerEscenarioElegido } from '@/app/lib/compras-aprobaciones';
 import { marcarHitoReparto, obtenerReparto } from '@/app/lib/compras-reparto';
 import { listarAprobacionesLinea } from '@/app/lib/compras-aprobacion-lineas';
-import { listarProductosCompra } from '@/app/lib/compras';
+import { listarProductosCompra, sincronizarTareaOcProveedores } from '@/app/lib/compras';
 import { productosConCompraRapidaAprobada, listarComprasRapidas, type CompraRapida } from '@/app/lib/compras-compra-rapida';
 import {
   crearOrdenCompraObuma, listarFormasPago, centrosDeCostoCompleto, proveedorPorRut, crearProveedorObuma, buscarCentroCostoPorLicitacion,
@@ -38,6 +38,8 @@ export interface ItemOrdenCompra {
 }
 export interface ProveedorOrdenCompra {
   proveedorNombre: string; proveedorId: number | null; proveedorRut: string | null;
+  /** Id del proveedor en Obuma (catálogo propio): sirve para cruzar con las OC de Obuma cuando el RUT no vino. */
+  proveedorObumaId?: string | null;
   proveedorDireccion: string | null; proveedorComuna: string | null; proveedorEmail: string | null; proveedorTelefono: string | null;
   proveedorGiro: string | null; proveedorContacto: string | null;
   items: ItemOrdenCompra[]; subtotal: number;
@@ -175,7 +177,7 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
     const sku = skuPorProducto.get(p.productoId);
     if (!grupos.has(nombre)) {
       grupos.set(nombre, {
-        proveedorNombre: nombre, proveedorId: ficha.proveedorId, proveedorRut: ficha.rut,
+        proveedorNombre: nombre, proveedorId: ficha.proveedorId, proveedorRut: ficha.rut, proveedorObumaId: extra?.obumaProveedorId ?? null,
         proveedorDireccion: extra?.direccion ?? null, proveedorComuna: extra?.comuna ?? null,
         proveedorEmail: extra?.email ?? null, proveedorTelefono: extra?.telefono ?? null,
         proveedorGiro: extra?.giro ?? null, proveedorContacto: extra?.contacto ?? null,
@@ -211,9 +213,13 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
   }
   for (const g of grupos.values()) {
     const rut = rutNormalizado(g.proveedorRut);
-    if (!rut) continue;
+    // Se cruza por RUT y también por el id del proveedor en Obuma: cuando la sincronización no logra leer el RUT del proveedor
+    // (caso 387-55-LE26: las 22 OC quedaron sin RUT) el RUT solo no alcanza y la OC ya hecha en Obuma aparecía «Sin emitir».
+    const obumaProvId = g.proveedorId != null ? fichaCompleta.get(g.proveedorId)?.obumaProveedorId ?? null : null;
+    if (!rut && !obumaProvId) continue;
     // La OC que emitió Licitank (yaCreada) no cuenta como "real": la real es la que ya existía en Obuma antes.
-    const delProveedor = realesObuma.filter(c => rutNormalizado(c.proveedorRut) === rut && c.compraOcId !== g.yaCreada?.obumaCompraOcId);
+    const delProveedor = realesObuma.filter(c => c.compraOcId !== g.yaCreada?.obumaCompraOcId
+      && ((!!rut && rutNormalizado(c.proveedorRut) === rut) || (!!obumaProvId && c.proveedorObumaId === String(obumaProvId))));
     if (delProveedor.length === 0) continue;
     g.ocRealObuma = {
       folios: delProveedor.map(c => c.folio || c.compraOcId),
@@ -236,6 +242,10 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
  *  una OC real hecha directo en Obuma al mismo proveedor (por RUT, sin anuladas). Solo avanza desde Pendiente o Cotizando: nunca retrocede
  *  ni pisa En bodega / Entregado. Antes crear la OC no tocaba el estado y la 1191 seguía «Pendiente» con OC y factura (22-oct-2026). */
 export async function marcarCompradosConOc(negocioId: number, grupos?: ProveedorOrdenCompra[]): Promise<number[]> {
+  try { return await marcarCompradosConOcInterno(negocioId, grupos); } finally { await sincronizarTareaOcProveedores(negocioId); }
+}
+
+async function marcarCompradosConOcInterno(negocioId: number, grupos?: ProveedorOrdenCompra[]): Promise<number[]> {
   const gs = grupos ?? await proveedoresParaOrdenCompra(negocioId, { buscarDuplicados: false });
   const ids = new Set<number>();
   // Una sola lectura de las OC del negocio (antes una por proveedor, en serie).

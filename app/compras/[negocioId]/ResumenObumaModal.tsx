@@ -53,7 +53,7 @@ export function ResumenObumaModal({ negocioId, onCerrar, onIrGestion, onIrSku }:
       <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl my-10" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200">
           <div>
-            <p className="text-[15px] font-bold text-zinc-900 flex items-center gap-1.5"><Zap size={16} className="text-indigo-600" /> Lo creado en Obuma</p>
+            <p className="text-[15px] font-bold text-zinc-900 flex items-center gap-1.5"><Zap size={16} className="text-teal-600" /> Lo creado en Obuma</p>
             <p className="text-[12px] text-zinc-500">Resumen de lo que este negocio ya tiene en Obuma, creado desde Licitank.</p>
           </div>
           <button type="button" onClick={onCerrar} className="text-zinc-400 hover:text-zinc-700" aria-label="Cerrar"><X size={18} /></button>
@@ -75,7 +75,7 @@ export function ResumenObumaModal({ negocioId, onCerrar, onIrGestion, onIrSku }:
                       <li key={s.productoId} className="px-3 py-2 flex items-center gap-2.5 text-[12.5px]">
                         {s.codigo ? <Check size={16} className="text-emerald-600 flex-shrink-0" /> : <Pendiente size={16} className="text-zinc-300 flex-shrink-0" />}
                         <span className="flex-1 min-w-0 truncate text-zinc-800">{s.descripcion}</span>
-                        {s.codigo ? <b className="text-indigo-700">{s.codigo}</b> : <span className="text-zinc-400">sin crear</span>}
+                        {s.codigo ? <b className="text-teal-700">{s.codigo}</b> : <span className="text-zinc-400">sin crear</span>}
                       </li>
                     ))}
                   </ul>
@@ -110,7 +110,7 @@ export function ResumenObumaModal({ negocioId, onCerrar, onIrGestion, onIrSku }:
 
         <div className="px-5 py-3 border-t border-zinc-200 flex items-center justify-between gap-3 flex-wrap">
           <p className="text-[11.5px] text-zinc-400">Aquí solo se mira. Crear proveedores y órdenes de compra se hace en la gestión de Obuma.</p>
-          <button type="button" onClick={() => { onCerrar(); onIrGestion(); }} className="text-[12.5px] font-semibold text-indigo-700 border border-indigo-200 hover:bg-indigo-50 px-3 py-1.5 rounded-lg">Abrir la gestión de Obuma</button>
+          <button type="button" onClick={() => { onCerrar(); onIrGestion(); }} className="text-[12.5px] font-semibold text-teal-700 border border-teal-200 hover:bg-teal-50 px-3 py-1.5 rounded-lg">Abrir la gestión de Obuma</button>
         </div>
       </div>
     </div>

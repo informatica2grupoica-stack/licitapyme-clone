@@ -60,6 +60,15 @@ test('un costo cotizado de 0 no cuenta como cotización (precio no leído)', () 
   assert.equal(r.lineas[0].margenNuevo, r.lineas[0].margenInicial);
 });
 
+test('gasto de entrega: 5 % del margen inicial se suma como costo igual en los tres escenarios', () => {
+  const r = margenCosteoVsCotizaciones([e(1, 1, 1000, 800, 700)], 0.05);
+  assert.equal(r.total.gastoEntrega, 10);                   // 5 % de 200
+  assert.equal(r.total.costoInicial, 810);
+  assert.equal(r.total.costoNuevo, 710);
+  assert.equal(r.total.margenInicial, 190);
+  assert.equal(r.total.margenNuevo, 290);
+});
+
 test('costeo de Compras: margen con sus costos; la línea que Compras no costeó cuenta al costo inicial', () => {
   const r = margenCosteoVsCotizaciones([
     { id: 1, descripcion: 'A', cantidad: 2, venta: 150, costeo: 100, cotizado: null, proveedor: null, compras: 120 },

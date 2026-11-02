@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
-import { armarRelojAutomatico, obtenerAsignacion, listarTareas, candidatosEncargado, crearTareasCatalogoSiCorresponde, obtenerResumenFases, obtenerHitosGantt, negociosConCompraAprobada, esAuditorAcotado } from '@/app/lib/compras';
+import { armarRelojAutomatico, obtenerAsignacion, listarTareas, candidatosEncargado, crearTareasCatalogoSiCorresponde, obtenerResumenFases, obtenerHitosGantt, negociosConCompraAprobada, esAuditorAcotado, sincronizarTareaOcProveedores } from '@/app/lib/compras';
 import { ordenesDeLicitacion } from '@/app/lib/ordenes-compra';
 import { facturacionActaGuardada } from '@/app/lib/acta-adjudicacion';
 
@@ -93,6 +93,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     await Promise.all([
       asignacion.asignadoA != null ? crearTareasCatalogoSiCorresponde(id, asignacion.asignadoA, asignacion.asignadoNombre).catch(() => {}) : null,
       armarRelojAutomatico(id),
+      sincronizarTareaOcProveedores(id),
     ]);
 
     // Contadores por pestaña (solo tiene sentido pedirlos con encargado asignado — antes no hay

@@ -1121,13 +1121,16 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
             DATE_FORMAT(COALESCE(ca.oc_aceptada_at, ca.oc_emitida_at), '%Y-%m-%d') AS oc_fecha,
             DATE_FORMAT(ca.oc_emitida_at, '%Y-%m-%d') AS oc_emitida_at,
             DATE_FORMAT(ca.oc_aceptada_at, '%Y-%m-%d') AS oc_aceptada_at,
-            n.licitacion_nombre, n.licitacion_organismo, n.licitacion_region, u.nombre AS asignado_nombre,
+            n.licitacion_nombre, COALESCE(NULLIF(n.licitacion_organismo, ''), lc.organismo,
+              (SELECT o.comprador_organismo FROM ordenes_compra o WHERE o.licitacion_codigo = n.licitacion_codigo AND o.comprador_organismo <> '' LIMIT 1)) AS licitacion_organismo,
+            COALESCE(NULLIF(n.licitacion_region, ''), lc.region) AS licitacion_region, u.nombre AS asignado_nombre,
             up.nombre AS postulado_por_nombre,
             (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id) AS tareas_total,
             (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id AND t.estado = 'HECHA') AS tareas_hechas,
             (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id AND t.estado <> 'HECHA' AND t.plazo_at IS NOT NULL AND t.plazo_at < ?) AS tareas_vencidas
        FROM compras_asignacion ca
        JOIN negocios n ON n.id = ca.negocio_id
+       LEFT JOIN licitaciones_cache lc ON lc.codigo = n.licitacion_codigo
        LEFT JOIN usuarios u ON u.id = ca.asignado_a
        LEFT JOIN usuarios up ON up.id = n.asignado_a
       ORDER BY ca.urgente DESC, ca.ganado_at DESC`,
@@ -2226,6 +2229,26 @@ export async function cerrarTareaDeCatalogo(negocioId: number, clave: string, ac
     );
   } catch (e) {
     console.error(`[compras] no se pudo cerrar la tarea ${clave}:`, String(e).slice(0, 200));
+  }
+}
+
+/** La tarea «Emisión de órdenes de compra a proveedores» (`emitir_oc_proveedores`) se cierra sola cuando ya hay al menos una OC emitida en
+ *  Obuma y NINGUNA línea vigente sigue en Pendiente/Cotizando (todas compradas o más allá). Nadie la cerraba: la 1191 tenía 8 OC y las 21
+ *  líneas «Comprado» y la tarea seguía pendiente. Solo cierra (nunca reabre). Nunca bloquea la acción principal. */
+export async function sincronizarTareaOcProveedores(negocioId: number): Promise<void> {
+  try {
+    const [ya] = await pool.query(
+      `SELECT 1 FROM compras_tarea WHERE negocio_id = ? AND catalogo_clave = 'emitir_oc_proveedores' AND estado <> 'HECHA' LIMIT 1`, [negocioId]) as any;
+    if (!(ya as any[]).length) return;
+    const [[oc]] = await pool.query(`SELECT COUNT(*) AS n FROM compras_orden_compra_obuma WHERE negocio_id = ?`, [negocioId]) as any;
+    if (!Number(oc?.n)) return;
+    const [[pend]] = await pool.query(
+      `SELECT COUNT(*) AS n FROM compras_producto
+        WHERE negocio_id = ? AND subestado IN ('PENDIENTE', 'COTIZANDO')`, [negocioId]) as any;
+    if (Number(pend?.n)) return;
+    await cerrarTareaDeCatalogo(negocioId, 'emitir_oc_proveedores', null, `Órdenes de compra emitidas a los proveedores (${Number(oc.n)}).`);
+  } catch (e) {
+    console.error('[compras] no se pudo sincronizar la tarea de OC a proveedores:', String(e).slice(0, 200));
   }
 }
 

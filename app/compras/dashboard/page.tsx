@@ -20,7 +20,7 @@ import { ChartCard } from '@/app/components/ui/ChartCard';
 import { Banner } from '@/app/components/ui/Banner';
 import { MetricInfo } from '@/app/components/ui/MetricInfo';
 import { useRealtime } from '@/app/lib/use-realtime';
-import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconFileAlert as FileWarning, IconHourglass as Timer, IconBolt as Zap, IconUserCheck as UserCheck, IconListCheck as ListChecks, IconArrowLeft as ArrowLeft, IconUserX as UserX, IconPackage as PackageCheck, IconPackageOff as PackageX, IconCircleX as XCircle, IconCalendarWeek as CalendarDays } from '@tabler/icons-react';
+import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconFileAlert as FileWarning, IconHourglass as Timer, IconBolt as Zap, IconUserCheck as UserCheck, IconListCheck as ListChecks, IconArrowLeft as ArrowLeft, IconUserX as UserX, IconPackage as PackageCheck, IconPackageOff as PackageX, IconCircleX as XCircle, IconCalendarWeek as CalendarDays, IconChartLine as LineChart } from '@tabler/icons-react';
 
 interface CuelloBotella { clave: string; titulo: string; total: number; hechas: number; vencidas: number; horasPromedioCierre: number | null }
 interface RankingEncargado { id: number; nombre: string; tareasCerradas: number; tareasVencidasAbiertas: number; horasPromedioCierre: number | null }
@@ -101,18 +101,20 @@ export default function CompraDashboardPage() {
   return (
     <AppLayout breadcrumb={[{ label: 'Compras', href: '/compras' }, { label: 'Dashboard' }]}>
       <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-5">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div>
-            <Link href="/compras"
-              className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-teal-700 mb-1.5 transition-colors">
-              <ArrowLeft size={12} /> Volver a Compras
-            </Link>
-            <h1 className="text-[17px] font-bold text-zinc-900 flex items-center gap-2">
-              <ShoppingCart size={18} className="text-teal-600" /> Dashboard de Compras
-            </h1>
-            <p className="text-[12.5px] text-zinc-500 mt-0.5">
-              Cuellos de botella y estadística de gestión — solo jefatura. Nadie ve acá su propio tiempo, es una foto del equipo.
+        <div className="flex items-end justify-between gap-4 flex-wrap">
+          <div className="min-w-0">
+            <h1 className="text-[22px] leading-tight font-semibold tracking-tight text-zinc-900">Dashboard de Compras</h1>
+            <p className="text-sm text-zinc-500 mt-1 max-w-2xl">
+              Cuellos de botella y estadística de gestión, solo para jefatura. Es una foto del equipo: nadie ve acá su propio tiempo. Se actualiza sola.
             </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link href="/compras" className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-lg border border-zinc-200 bg-white text-zinc-800 shadow-tarjeta hover:bg-zinc-50 transition-colors">
+              <ArrowLeft size={15} /> Volver a Compras
+            </Link>
+            <Link href="/compras/analitica" className="inline-flex items-center gap-2 h-9 px-3.5 text-sm font-medium rounded-lg border border-zinc-200 bg-white text-zinc-800 shadow-tarjeta hover:bg-zinc-50 transition-colors">
+              <LineChart size={15} /> Analítica
+            </Link>
           </div>
         </div>
 
@@ -152,12 +154,12 @@ export default function CompraDashboardPage() {
                 ) : (
                   <>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div><p className="text-[10.5px] font-semibold text-zinc-500 uppercase">Margen estimado</p><p className="text-[20px] font-black text-zinc-900">{fmtPct(dashboard.resultados.margenEstimadoPct)}</p></div>
-                      <div><p className="text-[10.5px] font-semibold text-zinc-500 uppercase">Margen real</p>
-                        <p className={`text-[20px] font-black ${(dashboard.resultados.margenRealPct ?? 0) < (dashboard.resultados.margenEstimadoPct ?? 0) ? 'text-rose-600' : 'text-emerald-600'}`}>{fmtPct(dashboard.resultados.margenRealPct)}</p></div>
-                      <div><p className="text-[10.5px] font-semibold text-zinc-500 uppercase">Utilidad real</p><p className="text-[20px] font-black text-zinc-900">{fmtCLP(dashboard.resultados.utilidadRealTotal)}</p></div>
-                      <div><p className="text-[10.5px] font-semibold text-zinc-500 uppercase">Con desvío</p>
-                        <p className={`text-[20px] font-black ${dashboard.resultados.conDesvio > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{dashboard.resultados.conDesvio}</p>
+                      <div><p className="text-[10.5px] font-semibold text-zinc-500">Margen estimado</p><p className="text-[20px] font-semibold text-zinc-900">{fmtPct(dashboard.resultados.margenEstimadoPct)}</p></div>
+                      <div><p className="text-[10.5px] font-semibold text-zinc-500">Margen real</p>
+                        <p className={`text-[20px] font-semibold ${(dashboard.resultados.margenRealPct ?? 0) < (dashboard.resultados.margenEstimadoPct ?? 0) ? 'text-rose-600' : 'text-emerald-600'}`}>{fmtPct(dashboard.resultados.margenRealPct)}</p></div>
+                      <div><p className="text-[10.5px] font-semibold text-zinc-500">Utilidad real</p><p className="text-[20px] font-semibold text-zinc-900">{fmtCLP(dashboard.resultados.utilidadRealTotal)}</p></div>
+                      <div><p className="text-[10.5px] font-semibold text-zinc-500">Con desvío</p>
+                        <p className={`text-[20px] font-semibold ${dashboard.resultados.conDesvio > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{dashboard.resultados.conDesvio}</p>
                         {dashboard.resultados.conUtilidadNegativa > 0 && <p className="text-[10.5px] text-rose-600 font-semibold">{dashboard.resultados.conUtilidadNegativa} con utilidad negativa</p>}
                       </div>
                     </div>
@@ -180,7 +182,7 @@ export default function CompraDashboardPage() {
             <ChartCard title="Asignación (§3.3 — SLA de 3h hábiles)" icon={<Timer size={15} />}
               accion={<MetricInfo spec={{ mide: 'Cuánto tarda en la práctica que un negocio ganado tenga encargado de Compras.', calculo: 'Promedio de horas entre ganado_at y asignado_at, de todos los negocios ya asignados (manual o por fallback automático). El SLA es 3h hábiles; esto es lo que pasa REALMENTE, no el tope.', fuente: 'compras_asignacion (ganado_at, asignado_at, asignado_por)' }} />}
               sub={`${dashboard.slaAsignacion.total} negocio(s) asignado(s) · ${dashboard.slaAsignacion.automaticas} por fallback automático · ${dashboard.slaAsignacion.manuales} manual(es)`}>
-              <p className="text-[24px] font-black text-zinc-900">{fmtHoras(dashboard.slaAsignacion.promedioHoras)}</p>
+              <p className="text-[24px] font-semibold text-zinc-900">{fmtHoras(dashboard.slaAsignacion.promedioHoras)}</p>
               <p className="text-[11.5px] text-zinc-400">promedio real desde que se gana hasta que hay encargado (tope: 3h hábiles)</p>
             </ChartCard>
 
@@ -244,7 +246,7 @@ export default function CompraDashboardPage() {
                         </span>
                       </div>
                       <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${Math.max(3, (r.tareasCerradas / maxCerradas) * 100)}%` }} />
+                        <div className="h-full bg-teal-500 rounded-full" style={{ width: `${Math.max(3, (r.tareasCerradas / maxCerradas) * 100)}%` }} />
                       </div>
                     </div>
                   ))}

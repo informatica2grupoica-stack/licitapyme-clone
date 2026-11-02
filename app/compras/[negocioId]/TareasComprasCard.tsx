@@ -14,7 +14,7 @@ const CATEGORIA_LABEL: Record<string, string> = { VALIDACION: 'Validación', ADM
 
 function BadgeEstadoTarea({ estado, vencida }: { estado: Tarea['estado']; vencida: boolean }) {
   if (estado === 'HECHA') return <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full"><CheckCircle2 size={11} /> Hecha</span>;
-  if (estado === 'EN_CURSO') return <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded-full"><PlayCircle size={11} /> En curso</span>;
+  if (estado === 'EN_CURSO') return <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full"><PlayCircle size={11} /> En curso</span>;
   return (
     <span className={`inline-flex items-center gap-1 text-[10.5px] font-bold px-1.5 py-0.5 rounded-full border ${
       vencida ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-zinc-500 bg-zinc-50 border-zinc-200'
@@ -161,7 +161,7 @@ export function TareasComprasCard() {
         const hechasCat = todas.filter(t => t.estado === 'HECHA').length;
         return (
           <div key={cat} className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-            <p className="px-4 py-2.5 text-[11px] font-bold text-zinc-500 uppercase bg-zinc-50 border-b border-zinc-100 flex items-center justify-between"><span>{CATEGORIA_LABEL[cat] || cat}</span><span className="font-semibold normal-case text-zinc-400">{hechasCat} de {todas.length} hechas</span></p>
+            <p className="px-4 py-2.5 text-[11px] font-bold text-zinc-500 bg-zinc-50 border-b border-zinc-100 flex items-center justify-between"><span>{CATEGORIA_LABEL[cat] || cat}</span><span className="font-semibold normal-case text-zinc-400">{hechasCat} de {todas.length} hechas</span></p>
             <div className="divide-y divide-zinc-100">
               {items.map(t => (
                 <div key={t.id} className="px-4 py-3 flex items-start gap-3">
@@ -173,7 +173,7 @@ export function TareasComprasCard() {
                   >
                     {guardandoTarea === t.id ? <Loader2 size={16} className="animate-spin text-zinc-400" /> :
                       t.estado === 'HECHA' ? <CheckCircle2 size={17} className="text-emerald-500" /> :
-                      t.estado === 'EN_CURSO' ? <PlayCircle size={17} className="text-indigo-500" /> :
+                      t.estado === 'EN_CURSO' ? <PlayCircle size={17} className="text-teal-500" /> :
                       <Circle size={17} className={t.vencida ? 'text-rose-400' : 'text-zinc-300'} />}
                   </button>
                   <div className="min-w-0 flex-1">
@@ -221,7 +221,7 @@ export function TareasComprasCard() {
                           <div className="space-y-1.5">
                             <button type="button" onClick={rellenarDesdeAuditorTecnico} disabled={sugiriendo}
                               title="Trae producto, ficha, fuente y veredictos de lo que el Auditor Técnico ya comprobó. No guarda nada: tú revisas y guardas."
-                              className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 disabled:opacity-50 px-2.5 py-1 rounded-lg">
+                              className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 disabled:opacity-50 px-2.5 py-1 rounded-lg">
                               {sugiriendo ? <Loader2 size={12} className="animate-spin" /> : <ClipboardList size={12} />} Rellenar desde el Auditor Técnico
                             </button>
                             {avisosSugerencia.length > 0 && (

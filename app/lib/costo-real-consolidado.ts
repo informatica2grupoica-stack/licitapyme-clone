@@ -71,7 +71,9 @@ export function consolidarCostoReal(e: EntradaConsolidado): CostoRealConsolidado
 
   let obuma: CostoRealConsolidado['obuma'] = null;
   if (e.obuma) {
-    const gastado = e.obuma.ocCreadas || e.obuma.comprasCruzadas || 0;
+    // Lo que Obuma tiene (NETO, sin anuladas) manda; lo que guardó Licitank es el respaldo. Antes se usaba primero lo emitido por Licitank y
+    // se ignoraban las OC hechas directo en Obuma (387-55-LE26: 8 de 18 OC → «Obuma −57,6 %») y el respaldo venía con IVA.
+    const gastado = e.obuma.comprasCruzadas || e.obuma.ocCreadas || 0;
     const productosCosteo = ofertado + extraCosteo;
     const diferenciaPct = gastado > 0 && productosCosteo > 0 ? pct(gastado - productosCosteo, productosCosteo) : null;
     obuma = { gastado, facturas: e.obuma.facturas, diferenciaPct };

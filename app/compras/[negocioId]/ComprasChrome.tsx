@@ -338,7 +338,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
         </div>
         <button
           onClick={() => flot.abrir(negocioId, asignacion.licitacionCodigo)}
-          className="flex-shrink-0 inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-2 rounded-lg transition-colors"
+          className="flex-shrink-0 inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-3 py-2 rounded-lg transition-colors"
           title="Abre el costeo digital del proyecto (misma burbuja flotante que en la pestaña Costeo de la licitación)"
         >
           <Calculator size={14} /> Ver costeo
@@ -348,7 +348,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
       {/* Encargado: chico, una sola línea (pedido explícito, 17-sep-2026: "en encargado debe ser
           pequeño") — antes era una tarjeta grande, ahora es una franja delgada. */}
       <div id="compras-encargado" className="bg-white rounded-lg border border-zinc-200 px-3 py-2 flex items-center gap-2 flex-wrap text-[12px] scroll-mt-4">
-        <span className="text-[10px] font-bold text-zinc-400 uppercase flex-shrink-0">Encargado</span>
+        <span className="text-[10px] font-bold text-zinc-400 flex-shrink-0">Encargado</span>
         {asignacion.asignadoA && !reasignando ? (
           <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
             <span className="font-bold text-zinc-800">{asignacion.asignadoNombre}</span>
@@ -407,7 +407,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
           {paso.tono === 'ok' ? <Check size={22} /> : paso.tono === 'alerta' ? <AlertTriangle size={22} /> : <Target size={22} />}
         </span>
         <div className="flex-1 min-w-[220px]">
-          <p className={`text-[11px] font-bold uppercase tracking-wide ${paso.tono === 'alerta' ? 'text-rose-700' : paso.tono === 'ok' ? 'text-emerald-700' : 'text-amber-700'}`}>
+          <p className={`text-[11px] font-bold ${paso.tono === 'alerta' ? 'text-rose-700' : paso.tono === 'ok' ? 'text-emerald-700' : 'text-amber-700'}`}>
             {paso.tono === 'ok' ? 'Todo en orden' : 'Lo siguiente que hay que hacer'}
           </p>
           <p className="text-[15px] font-extrabold text-zinc-900 leading-snug">{paso.titulo}</p>
@@ -624,7 +624,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
         <div className="lg:grid lg:grid-cols-2 lg:items-start lg:divide-x divide-zinc-100">
         <div className="flex items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0">
-            <p className="text-[11px] font-bold text-zinc-400 uppercase flex items-center gap-1.5">
+            <p className="text-[11px] font-bold text-zinc-400 flex items-center gap-1.5">
               <FileText size={12} /> Orden de compra del cliente
               {oc.origen === 'mp' && (
                 <span className="inline-flex items-center gap-1 text-[9.5px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full normal-case">
@@ -646,20 +646,20 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                   {oc.estadoMp && <span className="text-[10.5px] font-semibold text-zinc-500">Estado en MP: {oc.estadoMp}</span>}
                   {ocMp?.url && (
                     <a href={ocMp.url} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-indigo-600 hover:text-indigo-700">
+                      className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-teal-600 hover:text-teal-700">
                       <ExternalLink size={10} /> Ver en Mercado Público
                     </a>
                   )}
                   {ocMp?.pdfUrl && (
                     <button type="button" onClick={verPdfOC} disabled={cargandoPdfOC}
-                      className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-indigo-600 hover:text-indigo-700 disabled:opacity-50">
+                      className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-teal-600 hover:text-teal-700 disabled:opacity-50">
                       {cargandoPdfOC ? <Loader2 size={10} className="animate-spin" /> : <FileText size={10} />} PDF de la orden
                     </button>
                   )}
                   {ocMp?.codigo && ocMp.url && puedeOperar && (
                     <SubirPdfOficialOC codigoOC={ocMp.codigo} urlFicha={ocMp.url}
                       onSubido={url => { recargar(); setVisorOC({ nombre: `OC_${ocMp.codigo}.pdf`, url }); }}
-                      className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-indigo-600 hover:text-indigo-700" />
+                      className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-teal-600 hover:text-teal-700" />
                   )}
                 </div>
               </>
@@ -673,7 +673,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             <div className="flex-shrink-0 flex items-center gap-3">
               {oc.origen !== 'mp' && (
                 <button onClick={buscarOC} disabled={buscandoOC}
-                  className="inline-flex items-center gap-1 text-[12px] font-semibold text-indigo-600 hover:text-indigo-700 disabled:opacity-50">
+                  className="inline-flex items-center gap-1 text-[12px] font-semibold text-teal-600 hover:text-teal-700 disabled:opacity-50">
                   {buscandoOC ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
                   Buscar automáticamente
                 </button>
@@ -722,7 +722,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                 </Banner>
               )}
               <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 px-3 py-2.5">
-                <p className="text-[11px] font-bold text-zinc-500 uppercase mb-1.5">Datos para facturar ({origen})</p>
+                <p className="text-[11px] font-bold text-zinc-500 mb-1.5">Datos para facturar ({origen})</p>
                 <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
                   {filas.filter(([, v]) => v).map(([k, v]) => (
                     <div key={k} className="flex gap-2 text-[12px] min-w-0">
@@ -847,7 +847,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                 return (
                   <button key={f.key} onClick={() => (f.key === 'obuma' ? setResumenObumaAbierto(true) : setFaseActiva(f.key))} aria-current={activa ? 'page' : undefined}
                     title={f.key === 'obuma' ? 'Ver lo que ya se creó en Obuma desde Licitank' : undefined}
-                    className={`inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${activa ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-zinc-200 text-zinc-600 hover:border-indigo-300 hover:text-indigo-700'}`}>
+                    className={`inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${activa ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-zinc-200 text-zinc-600 hover:border-teal-300 hover:text-teal-700'}`}>
                     <Icon size={14} /> {f.label}
                   </button>
                 );

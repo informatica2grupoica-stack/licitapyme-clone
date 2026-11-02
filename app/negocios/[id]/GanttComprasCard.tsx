@@ -50,9 +50,9 @@ const fmtDur = (a: number, b: number) => { const h = Math.max(1, Math.round((b -
 const fmtRestante = (dif: number) => { const h = Math.round(Math.abs(dif) / MS_HORA); return h < 48 ? `${Math.max(1, h)} h` : `${Math.round(h / 24)} d`; };
 
 const ESTILO_ESTADO: Record<string, { barra: string; punto: string; Icon: typeof Circle }> = {
-  HECHA: { barra: 'bg-gradient-to-r from-emerald-500 to-emerald-400', punto: 'bg-emerald-500', Icon: CheckCircle2 },
-  EN_CURSO: { barra: 'bg-gradient-to-r from-teal-500 to-teal-400', punto: 'bg-teal-500', Icon: PlayCircle },
-  VENCIDA: { barra: 'bg-gradient-to-r from-rose-500 to-rose-400', punto: 'bg-rose-500', Icon: AlertTriangle },
+  HECHA: { barra: 'bg-emerald-500', punto: 'bg-emerald-500', Icon: CheckCircle2 },
+  EN_CURSO: { barra: 'bg-teal-500', punto: 'bg-teal-500', Icon: PlayCircle },
+  VENCIDA: { barra: 'bg-rose-500', punto: 'bg-rose-500', Icon: AlertTriangle },
   PENDIENTE: { barra: 'bg-zinc-300', punto: 'bg-zinc-300', Icon: Circle },
 };
 
@@ -166,21 +166,21 @@ export function GanttComprasCard({ tareas, hitos = null, plegable = true }: { ta
     : `Entrega: se calcula ${hitos.inicioPlazoTipo === 'OC_ACEPTADA' ? 'al aceptarse la OC' : 'al llegar la OC'} (el plazo corre desde ${desdeBases}, según las bases)`;
 
   return (
-    <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-xl border border-zinc-200 shadow-tarjeta overflow-hidden">
       <button type="button" onClick={plegable ? alternar : undefined} aria-expanded={abierto} disabled={!plegable} data-testid="gantt-tareas-toggle"
-        className={`w-full flex items-center justify-between gap-3 px-5 py-3.5 bg-gradient-to-r from-teal-600 to-teal-700 flex-wrap text-left ${plegable ? 'cursor-pointer hover:from-teal-700 hover:to-teal-800' : 'cursor-default'}`}>
+        className={`w-full flex items-center justify-between gap-3 px-5 py-3.5 border-b border-zinc-200 flex-wrap text-left ${plegable ? 'cursor-pointer hover:bg-zinc-50' : 'cursor-default'}`}>
         <div className="flex items-center gap-2.5 flex-wrap min-w-0">
-          <GanttChartSquare size={17} className="text-white flex-shrink-0" />
-          <span className="text-[14px] font-bold text-white">Gantt de tareas</span>
+          <GanttChartSquare size={17} className="text-slate-400 flex-shrink-0" />
+          <span className="text-[15px] font-semibold tracking-tight text-zinc-900">Gantt de tareas</span>
           {!abierto && (
             <span className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[10.5px] font-bold text-white bg-white/20 px-2 py-0.5 rounded-full">{hechas}/{todas.length} hechas</span>
-              {vencidas > 0 && <span className="text-[10.5px] font-bold text-white bg-rose-500 px-2 py-0.5 rounded-full">{vencidas} vencida{vencidas === 1 ? '' : 's'}</span>}
-              {proxima && <span className="text-[11px] text-teal-50 truncate max-w-[420px]">Próxima: <b className="font-semibold">{proxima.t.titulo}</b> · {proxima.t.vencida ? 'venció' : 'vence'} {proxima.vence}</span>}
+              <span className="text-xs tabular-nums text-zinc-600">{hechas}/{todas.length} hechas</span>
+              {vencidas > 0 && <span className="text-xs font-medium text-rose-700">{vencidas} vencida{vencidas === 1 ? '' : 's'}</span>}
+              {proxima && <span className="text-xs text-zinc-500 truncate max-w-[420px]">Próxima: <b className="font-semibold">{proxima.t.titulo}</b> · {proxima.t.vencida ? 'venció' : 'vence'} {proxima.vence}</span>}
             </span>
           )}
         </div>
-        <span className="flex items-center gap-2 text-[11px] text-teal-50 flex-shrink-0">
+        <span className="flex items-center gap-2 text-xs text-zinc-500 flex-shrink-0">
           {abierto && <span>{fmtCorta(inicio)} — {fmtCorta(inicio + total - MS_DIA)}</span>}
           {plegable && <span className="inline-flex items-center gap-1 font-semibold">{abierto ? 'Ocultar' : 'Ver detalle'} <ChevronDown size={15} className={`transition-transform ${abierto ? 'rotate-180' : ''}`} /></span>}
         </span>
@@ -188,11 +188,11 @@ export function GanttComprasCard({ tareas, hitos = null, plegable = true }: { ta
       {abierto && (<>
 
       <div className="flex items-center gap-2 flex-wrap px-4 sm:px-5 pt-4">
-        <span className="text-[11px] font-bold text-zinc-600 bg-zinc-100 border border-zinc-200 px-2 py-0.5 rounded-full">{todas.length} tarea{todas.length === 1 ? '' : 's'}</span>
-        {hechas > 0 && <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">{hechas} hecha{hechas === 1 ? '' : 's'}</span>}
-        {enCurso > 0 && <span className="text-[11px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full">{enCurso} en curso</span>}
-        {vencidas > 0 && <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">{vencidas} vencida{vencidas === 1 ? '' : 's'}</span>}
-        {pendientes > 0 && <span className="text-[11px] font-bold text-zinc-500 bg-zinc-50 border border-zinc-200 px-2 py-0.5 rounded-full">{pendientes} pendiente{pendientes === 1 ? '' : 's'}</span>}
+        <span className="text-xs font-medium text-zinc-700">{todas.length} tarea{todas.length === 1 ? '' : 's'}</span>
+        {hechas > 0 && <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />{hechas} hecha{hechas === 1 ? '' : 's'}</span>}
+        {enCurso > 0 && <span className="inline-flex items-center gap-1.5 text-xs font-medium text-teal-700"><span className="w-1.5 h-1.5 rounded-full bg-teal-600" />{enCurso} en curso</span>}
+        {vencidas > 0 && <span className="inline-flex items-center gap-1.5 text-xs font-medium text-rose-700"><span className="w-1.5 h-1.5 rounded-full bg-rose-500" />{vencidas} vencida{vencidas === 1 ? '' : 's'}</span>}
+        {pendientes > 0 && <span className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500"><span className="w-1.5 h-1.5 rounded-full bg-zinc-400" />{pendientes} pendiente{pendientes === 1 ? '' : 's'}</span>}
       </div>
 
       <div className="px-4 sm:px-5 pt-3 pb-5">
@@ -256,7 +256,7 @@ export function GanttComprasCard({ tareas, hitos = null, plegable = true }: { ta
             return (
               <div key={fase.clave}>
                 <div className="flex items-center gap-2 mb-2 flex-wrap">
-                  <p className="text-[10.5px] font-bold text-teal-700 bg-teal-50 inline-block px-2 py-0.5 rounded-full uppercase" title={fase.ayuda}>{fase.titulo}</p>
+                  <p className="text-xs font-semibold text-zinc-800" title={fase.ayuda}>{fase.titulo}</p>
                   <span className="text-[10px] font-semibold text-zinc-400">{hechasFase}/{items.length} hechas</span>
                 </div>
                 <div className="space-y-1">
@@ -275,7 +275,7 @@ export function GanttComprasCard({ tareas, hitos = null, plegable = true }: { ta
                           <div className="flex items-center gap-1.5">
                             <estilo.Icon size={12} className={`flex-shrink-0 ${claveEstado === 'VENCIDA' ? 'text-rose-500' : claveEstado === 'HECHA' ? 'text-emerald-500' : claveEstado === 'EN_CURSO' ? 'text-teal-500' : 'text-zinc-300'}`} />
                             <span className="text-[11.5px] font-semibold text-zinc-700 truncate" title={t.titulo}>{t.titulo}</span>
-                            {t.esManual && <span title="Tarea propia del proyecto"><Wand size={10} className="flex-shrink-0 text-indigo-400" /></span>}
+                            {t.esManual && <span title="Tarea propia del proyecto"><Wand size={10} className="flex-shrink-0 text-slate-400" /></span>}
                             {t.hallazgo && <span title="Quedó un hallazgo registrado"><Flag size={10} className="flex-shrink-0 text-rose-500" /></span>}
                           </div>
                           <p className="text-[9.5px] text-zinc-400 truncate pl-[18px]">

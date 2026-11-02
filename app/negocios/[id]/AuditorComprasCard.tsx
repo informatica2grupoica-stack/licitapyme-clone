@@ -10,6 +10,7 @@ import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { Select } from '@/app/components/ui/Select';
 import { Banner } from '@/app/components/ui/Banner';
+import { Modal } from '@/app/components/ui/Modal';
 import { parsearMontoCL } from '@/app/lib/numeros';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { AuditoriaCotizacionPanel, type AuditoriaUI } from './AuditoriaCotizacionPanel';
@@ -785,19 +786,22 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           )}
         </div>
 
-        {directaAbierta && puedeOperar && (
-          <CompraDirectaPanel key={directaAbierta.productoId ?? 'nueva'} negocioId={negocioId} inicial={directaAbierta}
-            productos={productos.filter(p => p.subestado !== 'RENUNCIADO' && p.subestado !== 'NO_ADJUDICADA').map(p => ({ id: p.id, descripcion: p.descripcion }))}
-            onRegistrada={async () => { await cargar(); recargarCompartido(); }} onCerrar={() => setDirectaAbierta(null)} />
-        )}
+        {/* Los tres formularios de carga se abren en un modal: dentro de la tarjeta se perdían entre la lista. */}
+        <Modal open={!!directaAbierta && puedeOperar} onClose={() => setDirectaAbierta(null)} size="lg" title="Compra rápida — sin cotización">
+          {directaAbierta && (
+            <CompraDirectaPanel key={directaAbierta.productoId ?? 'nueva'} negocioId={negocioId} inicial={directaAbierta}
+              productos={productos.filter(p => p.subestado !== 'RENUNCIADO' && p.subestado !== 'NO_ADJUDICADA').map(p => ({ id: p.id, descripcion: p.descripcion }))}
+              onRegistrada={async () => { await cargar(); recargarCompartido(); }} onCerrar={() => setDirectaAbierta(null)} />
+          )}
+        </Modal>
 
-        {masivaAbierta && puedeOperar && (
+        <Modal open={masivaAbierta && puedeOperar} onClose={() => setMasivaAbierta(false)} size="lg" title="Cargar varias cotizaciones a la vez">
           <CotizacionesMasivas negocioId={negocioId} productos={productos}
-            onTerminado={async () => { await cargar(); recargarCompartido(); }} onCerrar={() => setMasivaAbierta(false)} />
-        )}
+            onTerminado={async () => { await cargar(); recargarCompartido(); }} />
+        </Modal>
 
-        {formAbierto && (
-          <div className="border-b border-zinc-100 px-4 py-3 space-y-2 bg-zinc-50/60">
+        <Modal open={formAbierto && puedeOperar} onClose={cancelarFormulario} size="lg" title={editandoId != null ? 'Editar cotización' : 'Registrar cotización a mano'}>
+          <div className="space-y-3.5">
             {editandoId != null && (() => {
               // Pedido explícito del usuario (15-sep-2026: "no tengo dónde poner... la cantidad de
               // productos... lo podemos sacar del costeo") — la cantidad NO es un dato de la
@@ -807,7 +811,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
               const cot = cotizaciones.find(c => c.id === editandoId);
               const asignados = (cot?.items || []).map(it => productos.find(p => p.id === it.productoId)).filter((p): p is Producto => !!p);
               return (
-                <p className="text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg px-2 py-1">
+                <p className="text-xs font-semibold text-tinta-2 bg-slate-50 border border-linea rounded-lg px-2 py-1">
                   Editando cotización — el archivo no se toca acá.{' '}
                   {asignados.length > 0
                     ? <>Producto/cantidad asignados: {asignados.map(p => `${p.descripcion} (${p.cantidad ?? '?'} un.)`).join(', ')} — para cambiarlo, usa <span className="underline">Asignar productos</span>.</>
@@ -815,11 +819,35 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
                 </p>
               );
             })()}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {editandoId == null && productos.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-tinta">¿A qué producto(s) corresponde? <span className="font-normal text-tinta-3">(opcional)</span></p>
+                <p className="text-xs text-tinta-3">Si lo sabes con certeza, márcalo acá y no hará falta «Asignar productos» después. Si no marcas nada, la cotización se homologa sola apenas guardes.</p>
+                <div className="border border-linea rounded-lg divide-y divide-linea max-h-56 overflow-y-auto">
+                  {productos.map(p => {
+                    const draft = itemsCreacion[p.id] || { activo: false, precioUnitario: '', cumple: 'CUMPLE' as Cumple };
+                    return (
+                      <label key={p.id} className={`flex items-center gap-3 px-3 py-2 cursor-pointer ${draft.activo ? 'bg-marca-suave' : 'hover:bg-slate-50'}`}>
+                        <input type="checkbox" checked={draft.activo} className="accent-teal-600 w-4 h-4"
+                          onChange={e => setItemsCreacion(b => ({ ...b, [p.id]: { ...draft, activo: e.target.checked } }))} />
+                        <span className="text-sm text-tinta flex-1 min-w-0 truncate" title={p.descripcion}>{p.descripcion}</span>
+                        {draft.activo && (
+                          <input inputMode="numeric" value={draft.precioUnitario} placeholder={`Precio unitario${form.moneda !== 'CLP' ? ` (${form.moneda})` : ''}`}
+                            onClick={e => e.preventDefault()}
+                            onChange={e => setItemsCreacion(b => ({ ...b, [p.id]: { ...draft, precioUnitario: e.target.value } }))}
+                            className="w-40 h-9 text-sm border border-linea rounded-lg px-2.5 bg-white outline-none focus:border-marca focus:ring-2 focus:ring-marca/20" />
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <input value={form.proveedorNombre} onChange={e => setForm(f => ({ ...f, proveedorNombre: e.target.value }))}
-                placeholder="Proveedor (nombre)" className="text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+                placeholder="Proveedor (nombre)" className="h-10 text-sm text-tinta border border-linea rounded-lg px-3 bg-white outline-none transition-colors focus:border-marca focus:ring-2 focus:ring-marca/20 placeholder:text-tinta-3 dark:bg-slate-900 dark:border-slate-700" />
               <input value={form.proveedorRut} onChange={e => setForm(f => ({ ...f, proveedorRut: e.target.value }))} onBlur={() => validarProveedor()}
-                placeholder="RUT (opcional)" className="text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+                placeholder="RUT (opcional)" className="h-10 text-sm text-tinta border border-linea rounded-lg px-3 bg-white outline-none transition-colors focus:border-marca focus:ring-2 focus:ring-marca/20 placeholder:text-tinta-3 dark:bg-slate-900 dark:border-slate-700" />
               <Select value={form.origen} onChange={v => setForm(f => ({ ...f, origen: v as Origen }))}
                 options={(Object.keys(ORIGEN_LABEL) as Origen[]).map(o => ({ value: o, label: ORIGEN_LABEL[o] }))} minWidth={120} />
             </div>
@@ -827,51 +855,51 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
                 ingresemos debe estar validado") — corre al salir del campo RUT Y apenas el
                 documento lo autocompleta solo (ver leerArchivo). Tres estados posibles. */}
             {historicoProveedor.estado === 'cargando' && (
-              <p className="text-[10.5px] text-zinc-400 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Validando el RUT contra Obuma…</p>
+              <p className="text-xs text-tinta-3 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Validando el RUT contra Obuma…</p>
             )}
             {historicoProveedor.estado === 'listo' && historicoProveedor.validacion === 'en_catalogo' && (
-              <p className="text-[10.5px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1 flex items-center gap-1">
+              <p className="text-xs text-exito bg-emerald-50/60 border border-emerald-200 rounded-lg px-2 py-1 flex items-center gap-1">
                 <ShieldCheck size={11} /> Proveedor validado — reconocido en Obuma como <b>{historicoProveedor.nombreEmpresa}</b>.
                 {historicoProveedor.historico && ` Ya le compramos antes${historicoProveedor.historico.ultimaOcFolio ? ` — última OC ${historicoProveedor.historico.ultimaOcFolio}` : ''}${historicoProveedor.historico.ultimaOcFecha ? ` (${historicoProveedor.historico.ultimaOcFecha})` : ''}.`}
               </p>
             )}
             {historicoProveedor.estado === 'listo' && historicoProveedor.validacion === 'en_obuma_no_catalogo' && (
-              <p className="text-[10.5px] text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg px-2 py-1 flex items-center gap-1">
+              <p className="text-xs text-tinta-2 bg-slate-50 border border-linea rounded-lg px-2 py-1 flex items-center gap-1">
                 <Link2 size={11} /> Existe en Obuma como <b>{historicoProveedor.nombreEmpresa}</b> pero todavía no está en nuestro catálogo — se enlaza solo al guardar.
               </p>
             )}
             {historicoProveedor.estado === 'listo' && historicoProveedor.validacion === 'no_existe_en_obuma' && (
-              <p className="text-[10.5px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 flex items-center gap-1">
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 flex items-center gap-1">
                 <AlertTriangle size={11} /> Este RUT NO existe en Obuma — al guardar se crea un proveedor nuevo solo en Licitank (no en Obuma).
               </p>
             )}
-            <textarea rows={2} value={form.descripcionLibre} onChange={e => setForm(f => ({ ...f, descripcionLibre: e.target.value }))}
-              placeholder="Qué cotizó (productos, condiciones)…" className="w-full text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <textarea rows={3} value={form.descripcionLibre} onChange={e => setForm(f => ({ ...f, descripcionLibre: e.target.value }))}
+              placeholder="Qué cotizó (productos, condiciones)…" className="w-full h-10 text-sm text-tinta border border-linea rounded-lg px-3 bg-white outline-none transition-colors focus:border-marca focus:ring-2 focus:ring-marca/20 placeholder:text-tinta-3 dark:bg-slate-900 dark:border-slate-700" />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <input inputMode="numeric" value={form.precioUnitario} onChange={e => setForm(f => ({ ...f, precioUnitario: e.target.value }))}
-                placeholder="Precio unitario" className="text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+                placeholder="Precio unitario" className="h-10 text-sm text-tinta border border-linea rounded-lg px-3 bg-white outline-none transition-colors focus:border-marca focus:ring-2 focus:ring-marca/20 placeholder:text-tinta-3 dark:bg-slate-900 dark:border-slate-700" />
               {/* Descuento (pedido explícito, 14-sep-2026: cotización de Trotec con 4% de descuento
                   que antes no había dónde tipear — se perdía y el precio quedaba con el bruto). */}
               <input inputMode="numeric" value={form.descuentoPct} onChange={e => setForm(f => ({ ...f, descuentoPct: e.target.value }))}
-                placeholder="Descuento % (opcional)" className="text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+                placeholder="Descuento % (opcional)" className="h-10 text-sm text-tinta border border-linea rounded-lg px-3 bg-white outline-none transition-colors focus:border-marca focus:ring-2 focus:ring-marca/20 placeholder:text-tinta-3 dark:bg-slate-900 dark:border-slate-700" />
               <Select value={form.moneda} onChange={v => setForm(f => ({ ...f, moneda: v }))} minWidth={90}
                 options={MONEDAS_SOPORTADAS.map(m => ({ value: m, label: m }))} />
               <input value={form.plazoEntregaTexto} onChange={e => setForm(f => ({ ...f, plazoEntregaTexto: e.target.value }))}
-                placeholder="Plazo de entrega" className="text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+                placeholder="Plazo de entrega" className="h-10 text-sm text-tinta border border-linea rounded-lg px-3 bg-white outline-none transition-colors focus:border-marca focus:ring-2 focus:ring-marca/20 placeholder:text-tinta-3 dark:bg-slate-900 dark:border-slate-700" />
             </div>
             {editandoId == null && form.moneda === 'CLP' && (
-              <label className="flex items-center gap-2 text-[11px] text-zinc-600">
+              <label className="flex items-center gap-2 text-xs text-tinta-2">
                 <input type="checkbox" checked={form.ivaIncluido} onChange={e => setForm(f => ({ ...f, ivaIncluido: e.target.checked }))} />
                 El precio de arriba incluye IVA (se guarda en neto, dividido por 1,19)
               </label>
             )}
             {form.precioUnitario.trim() && form.descuentoPct.trim() && parsearMontoCL(form.descuentoPct) != null && (parsearMontoCL(form.descuentoPct) as number) > 0 && (
-              <p className="text-[10.5px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1">
+              <p className="text-xs text-exito bg-emerald-50/60 border border-emerald-200 rounded-lg px-2 py-1">
                 Bruto {fmtCLP(parsearMontoCL(form.precioUnitario))} − {form.descuentoPct}% de descuento = <b>neto {fmtCLP(Math.round((parsearMontoCL(form.precioUnitario) || 0) * (1 - (parsearMontoCL(form.descuentoPct) || 0) / 100)))}</b> por unidad — este es el precio que entra al cuadro comparativo y los escenarios.
               </p>
             )}
             {form.moneda !== 'CLP' && (
-              <p className="text-[10.5px] text-amber-600">Se convierte a CLP con el tipo de cambio del día (fuente: mindicador.cl) al guardar — la ficha del cuadro comparativo usa el valor convertido.</p>
+              <p className="text-xs text-amber-600">Se convierte a CLP con el tipo de cambio del día (fuente: mindicador.cl) al guardar — la ficha del cuadro comparativo usa el valor convertido.</p>
             )}
             {/* Despacho/flete — REDISEÑADO (pedido explícito, 15-sep-2026: "en ningún lado me
                 pusiste para poner retiramos nosotros entonces no pagamos flete queda en cero").
@@ -895,7 +923,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
               };
               return (
                 <>
-                  <div className="grid grid-cols-2 gap-2 items-center">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
                     <Select value={form.despacho} placeholder="¿Quién lleva la mercadería?" minWidth={220}
                       onChange={v => aplicar(v, condEf === 'INCLUIDO' && v !== 'PROVEEDOR' ? '' : condEf, form.fleteMonto)}
                       options={DESPACHO_OPCIONES} />
@@ -906,10 +934,10 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
                   {condEf === 'APARTE' && (
                     <input inputMode="numeric" value={form.fleteMonto} onChange={e => aplicar(form.despacho, 'APARTE', e.target.value)}
                       placeholder="Monto neto del flete (uno por cotización, aparte del precio)"
-                      className="w-full text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+                      className="w-full h-10 text-sm text-tinta border border-linea rounded-lg px-3 bg-white outline-none transition-colors focus:border-marca focus:ring-2 focus:ring-marca/20 placeholder:text-tinta-3 dark:bg-slate-900 dark:border-slate-700" />
                   )}
                   {(condEf === 'POR_CONFIRMAR' || (condEf === 'APARTE' && form.fleteMonto.trim() === '')) && (
-                    <p className="text-[10.5px] text-amber-600">Si todavía no sabés cuánto cobran, dejalo así — el escenario va a avisar «flete sin confirmar» en vez de inventar un número.</p>
+                    <p className="text-xs text-amber-600">Si todavía no sabés cuánto cobran, dejalo así — el escenario va a avisar «flete sin confirmar» en vez de inventar un número.</p>
                   )}
                 </>
               );
@@ -921,28 +949,28 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
               <div className="flex items-center gap-2 flex-wrap">
                 <button onClick={revisarConAgente}
                   disabled={revisionAgente.estado === 'revisando' || !form.proveedorNombre.trim() || !!usoAgente?.agotado}
-                  className="flex items-center gap-1.5 text-[11.5px] font-semibold text-indigo-700 hover:text-indigo-800 disabled:opacity-50">
+                  className="flex items-center gap-1.5 text-[13px] font-medium text-marca hover:text-marca-fuerte disabled:opacity-50">
                   {revisionAgente.estado === 'revisando' ? <Loader2 size={13} className="animate-spin" /> : <Bot size={13} />}
                   Revisar con IA contra los documentos del proyecto
                 </button>
                 {/* Contador de tope diario (pedido explícito, 14-sep-2026) — cada revisión gasta
                     créditos reales de Gemini, así que se ve cuánto queda antes de apretar. */}
                 {usoAgente && (
-                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${usoAgente.agotado ? 'text-rose-700 bg-rose-50' : 'text-zinc-400 bg-zinc-100'}`}>
+                  <span className={`text-xs tabular-nums ${usoAgente.agotado ? 'text-urgente' : 'text-tinta-3'}`}>
                     {usoAgente.llamadas}/{usoAgente.tope} hoy
                   </span>
                 )}
               </div>
               {usoAgente?.agotado && (
-                <p className="text-[10.5px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2 py-1.5">
+                <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2 py-1.5">
                   Se alcanzó el tope de revisiones con IA de hoy — vuelve a intentar mañana.
                 </p>
               )}
               {revisionAgente.estado === 'error' && (
-                <p className="text-[10.5px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2 py-1.5">{revisionAgente.mensaje}</p>
+                <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2 py-1.5">{revisionAgente.mensaje}</p>
               )}
               {revisionAgente.estado === 'listo' && !revisionAgente.encontroDocumentos && (
-                <p className="text-[10.5px] text-zinc-500 bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1.5">{revisionAgente.resumen}</p>
+                <p className="text-xs text-zinc-500 bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1.5">{revisionAgente.resumen}</p>
               )}
               {revisionAgente.estado === 'listo' && revisionAgente.encontroDocumentos && (() => {
                 // Cita + link "ver documento" (pedido explícito, 15-sep-2026: "ponele un ojo...
@@ -955,7 +983,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
                   if (!documento && !citaTextual) return null;
                   const url = urlDeFuente(documento);
                   return (
-                    <div className="mt-1 flex items-start gap-1 text-[9.5px] text-zinc-500">
+                    <div className="mt-1 flex items-start gap-1 text-xs text-zinc-500">
                       {citaTextual && <span className="italic">"{citaTextual}"</span>}
                       {documento && (
                         <span className={`flex-shrink-0 font-semibold ${citaVerificada ? 'text-emerald-600' : 'text-amber-600'}`}>
@@ -963,7 +991,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
                         </span>
                       )}
                       {url && (
-                        <a href={url} target="_blank" rel="noopener noreferrer" className="flex-shrink-0 text-indigo-600 hover:text-indigo-700" title="Ver documento">
+                        <a href={url} target="_blank" rel="noopener noreferrer" className="flex-shrink-0 text-marca hover:text-marca-fuerte" title="Ver documento">
                           <Eye size={11} />
                         </a>
                       )}
@@ -971,10 +999,10 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
                   );
                 };
                 return (
-                  <div className="border border-indigo-200 bg-indigo-50/50 rounded-lg p-2.5 space-y-2">
-                    <p className="text-[10.5px] text-indigo-800">{revisionAgente.resumen}</p>
+                  <div className="border border-linea bg-slate-50 rounded-lg p-2.5 space-y-2">
+                    <p className="text-xs text-tinta-2">{revisionAgente.resumen}</p>
                     {revisionAgente.alertas.map((a, i) => (
-                      <div key={i} className={`text-[10.5px] rounded-lg px-2 py-1 border ${
+                      <div key={i} className={`text-xs rounded-lg px-2 py-1 border ${
                         a.gravedad === 'critico' ? 'text-rose-700 bg-rose-50 border-rose-200' :
                         a.gravedad === 'aviso' ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-zinc-600 bg-white border-zinc-200'}`}>
                         <p className="flex items-start gap-1"><AlertTriangle size={11} className="flex-shrink-0 mt-0.5" /> {a.mensaje}</p>
@@ -982,22 +1010,22 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
                       </div>
                     ))}
                     {revisionAgente.sugerencias.map((s, i) => (
-                      <div key={i} className="text-[10.5px] bg-white border border-indigo-200 rounded-lg px-2 py-1">
+                      <div key={i} className="text-xs bg-white border border-linea rounded-lg px-2 py-1">
                         <div className="flex items-center gap-2">
                           <span className="text-zinc-600 flex-1">{s.razon} → <b>{s.valor}</b></span>
-                          <button onClick={() => aplicarSugerenciaAgente(s)} className="flex-shrink-0 font-semibold text-indigo-700 hover:text-indigo-800">Usar</button>
+                          <button onClick={() => aplicarSugerenciaAgente(s)} className="flex-shrink-0 font-semibold text-marca hover:text-marca-fuerte">Usar</button>
                         </div>
                         <Cita documento={s.documento} citaTextual={s.citaTextual} citaVerificada={s.citaVerificada} />
                       </div>
                     ))}
                     {revisionAgente.documentosLeidos.length > 0 && (
-                      <p className="text-[9.5px] text-zinc-400 flex items-center gap-1 flex-wrap">
+                      <p className="text-xs text-tinta-3 flex items-center gap-1 flex-wrap">
                         Fuentes leídas:
                         {fuentes.map((f, i) => (
                           <span key={i} className="inline-flex items-center gap-0.5">
                             {f.nombre}
                             {f.url && (
-                              <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-700" title="Ver documento"><Eye size={10} /></a>
+                              <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-marca hover:text-marca-fuerte" title="Ver documento"><Eye size={10} /></a>
                             )}
                             {i < fuentes.length - 1 && ','}
                           </span>
@@ -1008,51 +1036,27 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
                 );
               })()}
             </div>
-            {editandoId == null && productos.length > 0 && (
-              <div className="border border-zinc-200 rounded-lg p-2.5 space-y-1.5 bg-white">
-                <p className="text-[11px] font-semibold text-zinc-500">
-                  ¿A qué producto(s) corresponde? (opcional) — si lo sabés con certeza marcalo acá, así no hace falta "Asignar productos" después. Si no marcás nada, el agente de IA la homologa sola apenas guardes.
-                </p>
-                {productos.map(p => {
-                  const draft = itemsCreacion[p.id] || { activo: false, precioUnitario: '', cumple: 'CUMPLE' as Cumple };
-                  return (
-                    <div key={p.id} className="flex items-center gap-2">
-                      <input type="checkbox" checked={draft.activo} className="accent-teal-600"
-                        onChange={e => setItemsCreacion(b => ({ ...b, [p.id]: { ...draft, activo: e.target.checked } }))} />
-                      <span className="text-[11.5px] text-zinc-700 flex-1 min-w-0 truncate">{p.descripcion}</span>
-                      {draft.activo && (
-                        <>
-                          <input inputMode="numeric" value={draft.precioUnitario} placeholder={`Precio unitario${form.moneda !== 'CLP' ? ` (${form.moneda})` : ''}`}
-                            onChange={e => setItemsCreacion(b => ({ ...b, [p.id]: { ...draft, precioUnitario: e.target.value } }))}
-                            className="w-32 text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-teal-500" />
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
             {editandoId == null && (
-              <label className="block text-[11px] font-semibold text-zinc-500">
+              <label className="block text-xs font-medium text-tinta-2">
                 Archivo (PDF, imagen o texto .txt de WhatsApp/correo — opcional)
                 <input type="file" accept=".pdf,.txt,image/*,text/plain" onChange={e => {
                   const f = e.target.files?.[0] || null;
                   setArchivo(f); setArchivoExtraido({ estado: 'idle' });
                   if (f) leerArchivo(f);
-                }} className="mt-0.5 w-full text-[11.5px] text-zinc-600 file:mr-2 file:text-[11px] file:font-semibold file:text-teal-700 file:bg-teal-50 file:border-0 file:rounded-lg file:px-2 file:py-1" />
-                {archivo && <span className="text-[10.5px] text-zinc-400">{archivo.name}</span>}
+                }} className="mt-1.5 w-full text-sm text-tinta-2 file:mr-2 file:text-xs file:font-semibold file:text-teal-700 file:bg-teal-50 file:border-0 file:rounded-lg file:px-2 file:py-1" />
+                {archivo && <span className="text-xs text-tinta-3">{archivo.name}</span>}
               </label>
             )}
             {archivoExtraido.estado === 'leyendo' && (
-              <p className="text-[10.5px] text-indigo-600 flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> Leyendo el documento — completando lo que falte…</p>
+              <p className="text-xs text-marca flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> Leyendo el documento — completando lo que falte…</p>
             )}
             {archivoExtraido.estado === 'listo' && archivoExtraido.huboDatos && (
-              <p className="text-[10.5px] text-indigo-600 bg-indigo-50/60 border border-indigo-100 rounded-lg px-2 py-1 flex items-center gap-1">
+              <p className="text-xs text-tinta-2 bg-slate-50 border border-linea rounded-lg px-2 py-1 flex items-center gap-1">
                 <CheckCircle2 size={11} /> Datos leídos del documento y completados arriba — revísalos antes de guardar.
               </p>
             )}
             {archivoExtraido.estado === 'listo' && !archivoExtraido.huboDatos && (
-              <p className="text-[10.5px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 flex items-center justify-between gap-2 flex-wrap">
+              <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 flex items-center justify-between gap-2 flex-wrap">
                 <span>No se pudo leer con certeza — completa los datos a mano, el archivo queda igual adjunto a la cotización.</span>
                 {archivo && (
                   <button onClick={() => leerArchivo(archivo)} className="flex-shrink-0 font-semibold underline hover:text-amber-800">Reintentar lectura</button>
@@ -1063,7 +1067,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
                 15-sep-2026) — garantía, condiciones de pago, vigencia, etc. Persistente (no solo el
                 toast, que desaparece) para que quede a la vista mientras se llena el resto. */}
             {archivoExtraido.estado === 'listo' && archivoExtraido.notasAdicionales.length > 0 && (
-              <div className="text-[10.5px] text-indigo-700 bg-indigo-50/60 border border-indigo-100 rounded-lg px-2 py-1.5">
+              <div className="text-xs text-tinta-2 bg-slate-50 border border-linea rounded-lg px-2 py-1.5">
                 <p className="font-semibold mb-0.5">El documento también menciona:</p>
                 <ul className="list-disc list-inside space-y-0.5">
                   {archivoExtraido.notasAdicionales.map((n, i) => <li key={i}>{n}</li>)}
@@ -1071,27 +1075,27 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
               </div>
             )}
             {archivoExtraido.estado === 'error' && (
-              <p className="text-[10.5px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 flex items-center justify-between gap-2 flex-wrap">
+              <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 flex items-center justify-between gap-2 flex-wrap">
                 <span>No se pudo leer el documento ahora — se sube igual al guardar e intenta leerse de nuevo.</span>
                 {archivo && (
                   <button onClick={() => leerArchivo(archivo)} className="flex-shrink-0 font-semibold underline hover:text-amber-800">Reintentar lectura</button>
                 )}
               </p>
             )}
-            <p className="text-[10.5px] text-zinc-400">
+            <p className="text-xs text-tinta-3">
               El proveedor que escribas acá se reconoce (por RUT) o se crea solo en el catálogo — para completarle correo, teléfono, categoría o cuenta bancaria, entra a <a href="/compras/proveedores" target="_blank" rel="noopener noreferrer" className="text-teal-600 hover:text-teal-700 font-semibold">Proveedores</a>.
             </p>
             <div className="flex items-center gap-2">
               {/* Mientras se lee el documento no se guarda: guardar en ese momento lo volvía a subir y a leer con IA desde cero
                   (el doble de espera y de costo, 22-oct-2026). */}
               <button onClick={editandoId != null ? guardarEdicion : crearCotizacion} disabled={(!form.proveedorNombre.trim() && !archivo) || guardandoForm || archivoExtraido.estado === 'leyendo'}
-                className="text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
+                className="inline-flex items-center justify-center h-9 text-sm font-medium text-white bg-marca hover:bg-marca-fuerte disabled:opacity-50 px-4 rounded-lg shadow-tarjeta">
                 {guardandoForm ? <Loader2 size={13} className="animate-spin" /> : archivoExtraido.estado === 'leyendo' ? 'Leyendo…' : editandoId != null ? 'Guardar cambios' : 'Guardar'}
               </button>
-              <button onClick={cancelarFormulario} aria-label="Cancelar y cerrar el formulario" className="text-zinc-400 hover:text-zinc-600"><X size={16} /></button>
+              <button onClick={cancelarFormulario} aria-label="Cancelar y cerrar el formulario" className="text-[13px] font-medium text-tinta-2 hover:text-tinta px-2 py-2">Cancelar</button>
             </div>
           </div>
-        )}
+        </Modal>
 
         <ListaCotizaciones cotizaciones={cotizaciones} productos={productos} origenLabel={ORIGEN_LABEL} puedeOperar={puedeOperar} homologandoId={homologando}
           avisosPorCotizacion={Object.fromEntries(cotizaciones.map(c => [c.id, auditorias.filter(a => a.cotizacionId === c.id).reduce((n, a) => n + a.revisiones.filter(r => r.resultado === 'NO_CUMPLE' && r.criterio !== 'Precio vs. lo costeado').length, 0)]))}

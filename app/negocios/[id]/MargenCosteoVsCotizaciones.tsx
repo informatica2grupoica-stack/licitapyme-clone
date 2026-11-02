@@ -6,7 +6,7 @@
 // (las líneas sin cotizar siguen al costo costeado). Cada cifra dice qué es y cómo se calcula: es un documento de supervisión.
 // Ajuste del dueño (mismo día): letra más grande, lo relevante en negrita y color, y el detalle por línea cerrado por defecto
 // y mejor detallado (verde = mejora el margen, rojo = lo baja, gris = sin cotizar).
-import type { BloqueMargen, ResumenMargen } from '@/app/lib/compras-margen-vs-costeo';
+import { GASTO_ENTREGA_PCT, type BloqueMargen, type ResumenMargen } from '@/app/lib/compras-margen-vs-costeo';
 
 const clp = (n: number) => `$${Math.round(Math.abs(n)).toLocaleString('es-CL')}`;
 const clpFirmado = (n: number) => `${n < 0 ? '−' : n > 0 ? '+' : ''}${clp(n)}`;
@@ -94,7 +94,7 @@ export function MargenCosteoVsCotizaciones({ resumen: r }: { resumen: ResumenMar
         <table className="w-full min-w-[540px]">
           <thead>
             <tr className="border-b border-zinc-200">
-              <th className={TH}><span className="sr-only">Concepto</span></th>
+              <th className={`${TH} relative`}><span className="sr-only">Concepto</span></th>
               <th className={THR}>Costeo inicial</th>
               {hayCompras && <th className={THR}>Con costo real de Compras</th>}
               <th className={THR}>Con cotizaciones</th>
@@ -103,11 +103,14 @@ export function MargenCosteoVsCotizaciones({ resumen: r }: { resumen: ResumenMar
           </thead>
           <tbody className="divide-y divide-zinc-100">
             <FilaResumen rotulo="Venta neta" nota="precio de venta del costeo × cantidad" a={clp(t.venta)} b={clp(t.venta)} compras={cc(clp(t.venta))} dif="sin cambio" />
-            <FilaResumen rotulo="Costo neto" nota="lo costeado · con cotizaciones: mejor precio de cada línea" a={clp(t.costoInicial)} b={clp(t.costoNuevo)} compras={cc(clp(t.costoCompras))} comprasTono={tono(t.costoInicial - t.costoCompras)}
+            <FilaResumen rotulo="Costo neto" nota="lo costeado · con cotizaciones: mejor precio de cada línea" a={clp(t.costoInicial - t.gastoEntrega)} b={clp(t.costoNuevo - t.gastoEntrega)} compras={cc(clp(t.costoCompras - t.gastoEntrega))} comprasTono={tono(t.costoInicial - t.costoCompras)}
               dif={clpFirmado(t.costoNuevo - t.costoInicial)} difTono={tono(t.costoInicial - t.costoNuevo)} />
-            <FilaResumen rotulo="Margen en pesos" nota="venta neta − costo neto" a={clp(t.margenInicial)} b={clp(t.margenNuevo)} compras={cc(clp(t.margenCompras))} comprasTono={tono(t.margenCompras - t.margenInicial)}
+            <FilaResumen rotulo="Margen antes de la reserva" nota="venta neta − costo neto" a={clp(t.margenInicial + t.gastoEntrega)} b={clp(t.margenNuevo + t.gastoEntrega)} compras={cc(clp(t.margenCompras + t.gastoEntrega))}
               dif={clpFirmado(t.margenNuevo - t.margenInicial)} difTono={tono(t.margenNuevo - t.margenInicial)} />
-            <FilaResumen fuerte rotulo="Margen sobre la venta" nota="margen en pesos ÷ venta neta" a={pct(t.pctInicial)} b={pct(t.pctNuevo)} compras={cc(pct(t.pctCompras))} comprasTono={tono(t.puntosCompras)}
+            <FilaResumen rotulo="Reserva para flete" nota={`automática: ${Math.round(GASTO_ENTREGA_PCT * 100)} % del margen costeado, se descuenta del margen por si hay que pagar un flete`} a={`−${clp(t.gastoEntrega)}`} b={`−${clp(t.gastoEntrega)}`} compras={cc(`−${clp(t.gastoEntrega)}`)} dif="mismo monto" />
+            <FilaResumen rotulo="Margen en pesos" nota="margen − reserva para flete" a={clp(t.margenInicial)} b={clp(t.margenNuevo)} compras={cc(clp(t.margenCompras))} comprasTono={tono(t.margenCompras - t.margenInicial)}
+              dif={clpFirmado(t.margenNuevo - t.margenInicial)} difTono={tono(t.margenNuevo - t.margenInicial)} />
+            <FilaResumen fuerte rotulo="Margen sobre la venta" nota="margen después de la reserva ÷ venta neta" a={pct(t.pctInicial)} b={pct(t.pctNuevo)} compras={cc(pct(t.pctCompras))} comprasTono={tono(t.puntosCompras)}
               dif={`${flecha(t.puntos)}${pts(t.puntos)}`} difTono={tono(t.puntos)} />
             <FilaResumen rotulo="Recargo sobre el costo" nota="margen en pesos ÷ costo neto (el «margen» con que el costeo arma el precio)" a={pct(t.recargoInicial)} b={pct(t.recargoNuevo)} compras={cc(pct(t.costoCompras > 0 ? Math.round((t.margenCompras / t.costoCompras) * 1000) / 10 : null))}
               dif={t.recargoInicial != null && t.recargoNuevo != null ? pts(Math.round((t.recargoNuevo - t.recargoInicial) * 10) / 10) : '—'}
