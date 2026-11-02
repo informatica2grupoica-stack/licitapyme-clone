@@ -1037,6 +1037,12 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
         <p className="text-[10px] font-bold uppercase tracking-wide text-orange-900/70 leading-none">Total costo neto</p>
         <p className="mt-1 leading-none tabular-nums text-[19px] font-bold text-zinc-900">{fmtCLP(Math.round(comp.costoNetoEstimado))}</p>
       </div>
+      {/* Utilidad total neta: también se muestra aquí (sigue en el cuadro Costeo de la izquierda). */}
+      <div className="border border-emerald-300 px-2 pt-1.5 pb-1.5" style={{ background: CUADRO_VERDE }}
+           title="= Total neto venta − Total costo neto">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-900/70 leading-none">Utilidad total neta</p>
+        <p className={`mt-1 leading-none tabular-nums text-[19px] font-bold ${comp.utilidadEstimada < 0 ? 'text-red-600' : 'text-zinc-900'}`}>{fmtCLP(Math.round(comp.utilidadEstimada))}</p>
+      </div>
       </div>
 
       {/* ── Real: lo que de verdad costó ───────────────────────────────────────────────────── */}
