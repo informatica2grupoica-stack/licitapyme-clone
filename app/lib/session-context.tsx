@@ -52,6 +52,7 @@ export interface UsuarioSession {
     costeo_agregar_fila?: boolean;
     costeo_agregar_gasto?: boolean;
     costeo_agregar_adicional?: boolean;
+    costeo_editar_postulado?: boolean;
     // "CA" (07-oct-2026): crea/ve las reglas aprendidas de viabilidad. No viene gratis con admin.
     reglas_ia?: boolean;
     // Burbuja de chat IA (20-oct-2026): de la licitación y general. Admin siempre.

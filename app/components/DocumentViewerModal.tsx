@@ -33,6 +33,16 @@ export function tipoDe(nombre: string, url: string): Tipo {
 
 // Excel: el visor de Microsoft no puede leer archivos que no sean públicos en internet
 // (R2 privado, localhost), y queda en blanco. Se lee el archivo vía proxy y se dibuja aquí.
+// sheet_to_html escapa el texto de las celdas pero NO el destino de los hipervínculos: un Excel de un tercero con un enlace
+// `javascript:…` quedaba como <a href="javascript:…"> y, al hacer clic, corría con la sesión del usuario. Solo se dejan enlaces http(s),
+// y siempre en pestaña nueva y sin referrer.
+export function sanearHtmlExcel(html: string): string {
+  return html.replace(/<a\s+href="([^"]*)"/gi, (_m, href: string) => {
+    const real = href.replace(/&amp;/g, '&').trim();
+    return /^https?:\/\//i.test(real) ? `<a href="${href}" target="_blank" rel="noopener noreferrer"` : '<a';
+  });
+}
+
 function VisorExcel({ url }: { url: string }) {
   const [hojas, setHojas] = useState<{ nombre: string; html: string }[] | null>(null);
   const [activa, setActiva] = useState(0);
@@ -48,7 +58,7 @@ function VisorExcel({ url }: { url: string }) {
         const buf = await res.arrayBuffer();
         const XLSX = await import('xlsx');
         const wb = XLSX.read(buf, { type: 'array' });
-        const out = wb.SheetNames.map(n => ({ nombre: n, html: XLSX.utils.sheet_to_html(wb.Sheets[n], { header: '', footer: '' }) }));
+        const out = wb.SheetNames.map(n => ({ nombre: n, html: sanearHtmlExcel(XLSX.utils.sheet_to_html(wb.Sheets[n], { header: '', footer: '' })) }));
         if (vivo) setHojas(out);
       } catch (e) {
         if (vivo) setError(e instanceof Error ? e.message : 'No se pudo leer el archivo');

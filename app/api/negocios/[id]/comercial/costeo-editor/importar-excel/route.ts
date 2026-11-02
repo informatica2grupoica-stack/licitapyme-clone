@@ -8,7 +8,7 @@ import { puedeVerNegocioAsignado, permisosCrudosDeUsuario } from '@/app/lib/api-
 import { parsearCosteo } from '@/app/lib/motor-comercial';
 import { fusionarDesdeExcel, type EstadoCosteoEditor, type FilaExcelImport } from '@/app/lib/costeo-editor';
 import { cargarNegocio } from '../../route';
-import { yaCongelado } from '@/app/lib/congelamiento';
+import { costeoCongelado } from '@/app/lib/congelamiento';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (!negocio) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
     // Compras ve todos los negocios del módulo y trabaja sobre costeos ya congelados (igual que el GET/PATCH del editor).
     if (!esCompras && !(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a))) return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
-    if (!esCompras && await yaCongelado(negocio.id, rol)) return NextResponse.json({ error: 'Este negocio ya se postuló: el costeo quedó congelado, de solo lectura.' }, { status: 409 });
+    if (!esCompras && await costeoCongelado(negocio.id, userId, rol)) return NextResponse.json({ error: 'Este negocio ya se postuló: el costeo quedó congelado, de solo lectura.' }, { status: 409 });
 
     const form = await request.formData().catch(() => null);
     const file = form?.get('file');

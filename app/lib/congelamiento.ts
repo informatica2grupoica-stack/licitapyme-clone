@@ -5,6 +5,7 @@
 // (spec §12.2/12.3): producto validado, costeo, plazos comprometidos, matriz técnica aprobada,
 // compromisos de postventa y contactos del cliente.
 import pool from '@/app/lib/db';
+import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 
@@ -75,6 +76,13 @@ export async function yaCongelado(negocioId: number, rol?: string | null): Promi
     [negocioId, ESTADOS_OFERTA_ENVIADA],
   ) as any;
   return (rows as any[]).length > 0;
+}
+
+/** Congelamiento del COSTEO digital: igual que yaCongelado, pero quien tenga `costeo_editar_postulado` (02-nov-2026) puede seguir editando un negocio ya postulado/adjudicado. */
+export async function costeoCongelado(negocioId: number, userId: number | null, rol?: string | null): Promise<boolean> {
+  if (!(await yaCongelado(negocioId, rol))) return false;
+  if (!userId) return true;
+  return !(await permisosCrudosDeUsuario(userId)).costeo_editar_postulado;
 }
 
 export async function leerCongelamiento(negocioId: number, rol?: string | null): Promise<{ congeladoAt: string; congeladoPorNombre: string | null; paquete: PaqueteTraspaso } | null> {

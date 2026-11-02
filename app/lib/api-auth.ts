@@ -216,11 +216,12 @@ export async function puedeChatearLicitacion(req: NextRequest, codigo: string): 
 //   costeo_exportar    → (16-oct-2026, pedido explícito) botón "Exportar Excel" del Costeo digital (era admin-only).
 //   costeo_agregar_*   → (30-oct-2026, pedido explícito) botones del Costeo digital «Agregar fila» / «Agregar gasto extra» /
 //                       «Agregar costo adicional», uno por permiso. Admin siempre; Compras los guarda por servidor (costeo-compras.ts).
+//   costeo_editar_postulado → (02-nov-2026, pedido explícito) seguir editando el Costeo digital de un negocio YA postulado/adjudicado (congelado). Antes solo el rol admin se saltaba el bloqueo.
 //   chat_licitacion    → (20-oct-2026) burbuja de chat IA dentro de una licitación (documentos, viabilidad, auditor, costeo, compras).
 //   chat_global        → (20-oct-2026) chat IA sobre TODAS las licitaciones (rankings, competencia, búsqueda por contenido).
 //   anexos             → (05-oct-2026, pedido explícito) generar, separar y rellenar anexos (el creador de
 //                       anexos era admin-only "mientras se decidía quiénes más lo usaban").
-export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente' | 'compras' | 'compras_administracion' | 'compras_bodega' | 'compras_todo' | 'solo_compras' | 'compras_ver' | 'compras_auditor' | 'costeo_editor' | 'auditor_tecnico' | 'auditor_compra' | 'auditor_aprobar' | 'anexos' | 'reglas_ia' | 'costeo_exportar' | 'costeo_agregar_fila' | 'costeo_agregar_gasto' | 'costeo_agregar_adicional' | 'chat_licitacion' | 'chat_global';
+export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente' | 'compras' | 'compras_administracion' | 'compras_bodega' | 'compras_todo' | 'solo_compras' | 'compras_ver' | 'compras_auditor' | 'costeo_editor' | 'auditor_tecnico' | 'auditor_compra' | 'auditor_aprobar' | 'anexos' | 'reglas_ia' | 'costeo_exportar' | 'costeo_agregar_fila' | 'costeo_agregar_gasto' | 'costeo_agregar_adicional' | 'costeo_editar_postulado' | 'chat_licitacion' | 'chat_global';
 export type Permisos = Partial<Record<Permiso, boolean>>;
 const PERMISOS_ADMIN: Record<Permiso, boolean> = {
   ver_otros_negocios: true, acceso_radar: true, comentar_viabilidad: true, exportar: true, alertas_anexos: true,
@@ -229,7 +230,7 @@ const PERMISOS_ADMIN: Record<Permiso, boolean> = {
   compras_ver: true,
   compras_auditor: false, // perfil acotado (Auditor de Compras): no se hereda por ser admin; el admin ya tiene compras_todo.
   costeo_editor: true, auditor_tecnico: true, auditor_compra: true, auditor_aprobar: true, anexos: true, costeo_exportar: true,
-  costeo_agregar_fila: true, costeo_agregar_gasto: true, costeo_agregar_adicional: true,
+  costeo_agregar_fila: true, costeo_agregar_gasto: true, costeo_agregar_adicional: true, costeo_editar_postulado: true,
   chat_licitacion: true, chat_global: true, // 20-oct-2026: burbuja de chat IA (de la licitación / general). Admin siempre; el resto desde Editar permisos.
   reglas_ia: false,    // 07-oct-2026 (P12, spec v4.0): "solo CA" crea/ve las reglas aprendidas. NO se hereda por ser admin: se otorga desde /admin/usuarios (Asesor + superusuario).
   solo_compras: false, // restricción, no privilegio: un admin nunca queda encerrado en Compras.

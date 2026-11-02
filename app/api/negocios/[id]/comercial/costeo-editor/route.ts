@@ -23,7 +23,7 @@ import { leerDecisionLineas, guardarLineasOfertadas } from '@/app/lib/lineas-ofe
 import { presupuestoDeLineaEsUnitario } from '@/app/lib/motor-comercial';
 import { cargarNegocio, leerInforme, nombreDe, sincronizar } from '../route';
 import { ingresarVersionCosteo } from '../costeo/route';
-import { yaCongelado } from '@/app/lib/congelamiento';
+import { costeoCongelado } from '@/app/lib/congelamiento';
 import { obtenerAsignacion, sincronizarProductosConCosteo } from '@/app/lib/compras';
 import { fusionarEdicionCompras, cambiosDeCompras, mensajeCambiosCompras } from '@/app/lib/costeo-compras';
 import { auditarFilasCambiadasEnSegundoPlano } from '@/app/lib/auditor-compras';
@@ -261,7 +261,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       actualizadoAt: (await marcaGuardado(negocio.id)).at,
       sinViabilidad: !guardado && !desdeViab,
       // congelado = el editor deshabilita todos los campos: así el perfil de Compras lo ve sin poder tocarlo.
-      congelado: soloLectura || await yaCongelado(negocio.id, rol),
+      congelado: soloLectura || await costeoCongelado(negocio.id, userId, rol),
       // El editor habilita SOLO costo real, links y filas nuevas cuando esto es true (ver PATCH).
       modoCompras: soloLectura && await esOperadorCompras(userId),
       // Exportar el costeo digital a Excel: administradores o quien tenga el permiso `costeo_exportar`.
@@ -341,7 +341,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
     if (!negocio) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
     if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
-    if (await yaCongelado(negocio.id, rol))
+    if (await costeoCongelado(negocio.id, userId, rol))
       return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
 
     const body = await request.json().catch(() => ({}));
