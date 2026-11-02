@@ -454,6 +454,9 @@ test('IVA 3b: Subtotal + IVA 19% = Total → precios netos; si no cuadra, sigue 
   assert.match(ivaPorTotalesDelDocumento('Total neto: $100.000\nI.V.A. (19%): $19.000\nTotal a pagar: $119.000')!, /netos/);
   assert.equal(ivaPorTotalesDelDocumento('Subtotal | $3.953.475\nIVA | $700.000\nTotal | $4.653.475'), null, 'el IVA no es el 19%');
   assert.equal(ivaPorTotalesDelDocumento('Subtotal | $100.000\nTotal | $119.000'), null, 'sin línea de IVA no se decide');
+  // PDF 86884 (1090-17-LE26): «Impuesto» en vez de IVA y las cifras impresas antes de sus rótulos.
+  assert.match(ivaPorTotalesDelDocumento('| 6.422.288 CLP | 7.370.158 CLP |\n1.400.330 CLP |\n8.770.488 CLP |\n SubTotal: |\nImpuesto: |\nTotal : |')!, /netos/);
+  assert.equal(ivaPorTotalesDelDocumento('| 7.370.158 CLP |\n1.500.000 CLP |\n8.870.158 CLP |'), null, 'el impuesto no es el 19%');
   assert.equal(ivaPorTotalesDelDocumento('Precio $119.000 IVA incluido'), null);
 
   const salida: any = { productos: [{ producto: { tipo: 'Horno' }, comercial: { precios: [{ valor: '$3.142.840' }], iva: 'no_declarado' } }] };

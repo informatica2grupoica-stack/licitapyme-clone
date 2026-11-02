@@ -139,6 +139,11 @@ export function ivaPorTotalesDelDocumento(texto: string): string | null {
       if (total != null) return `Subtotal ${f(neto)} + IVA 19% ${f(iva)} = Total ${f(total)}: los precios del documento son netos`;
     }
   }
+  // Sin rótulos que sirvan («Impuesto» en vez de «IVA», o las cifras impresas ANTES de sus rótulos: PDF 86884 de 1090-17-LE26, «7.370.158 | 1.400.330 | 8.770.488 | SubTotal: Impuesto: Total:»):
+  // vale el trío de cifras con puntos de miles que cuadra solo, neto + 19 % = total (±$2). Que tres cifras cuadren así sin ser el IVA es casi imposible.
+  const cifras = [...new Set([...texto.matchAll(/(?<![\d.,])(\d{1,3}(?:\.\d{3})+)(?![\d,]|\.\d)/g)].map(m => parsearMonto(m[1])).filter((n): n is number => n != null && n >= 10000))].slice(0, 400);
+  const hay = (v: number) => cifras.some(c => Math.abs(c - v) <= 2);
+  for (const neto of cifras) if (hay(neto * 0.19) && hay(neto * 1.19)) return `Neto ${f(neto)} + IVA 19% ${f(Math.round(neto * 0.19))} = Total ${f(Math.round(neto * 1.19))}: los precios del documento son netos`;
   return null;
 }
 
