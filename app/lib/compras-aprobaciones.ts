@@ -168,6 +168,11 @@ export async function proponerAprobacionCompra(
       + (presupuesto.excede ? ` — ${presupuesto.excedePct}% sobre presupuesto: ${motivoSiExcedePresupuesto?.trim()}.` : '.'),
     metadata: { negocio_id: negocioId, escenario: escenario.tipo, excede_presupuesto_pct: presupuesto.excedePct },
   });
+  // Los costos reales anotados a mano (rango de precios mientras se cotizaba) se reemplazan por los precios cotizados de la compra
+  // propuesta (pedido del dueño, 02-nov-2026). No crítico: si falla, la aprobación igual queda propuesta y el botón manual sigue ahí.
+  await import('@/app/lib/compras-compra-a-costeo')
+    .then(m => m.trasladarCompraAlCosteo(negocioId, { id: actorId, nombre: actorNombre }))
+    .catch(e => console.error('[compras-aprobaciones] no se pudo cargar la compra al costeo (no crítico):', String(e).slice(0, 150)));
   // Alerta al jefe de ventas (campana + /aprobaciones): lo lleva directo al paso donde decide.
   await notificarJefesVentas(negocioId, 'COMPRAS_COMPRA_POR_APROBAR',
     `${actorNombre || 'El encargado'} mandó a aprobar la compra (cuadro comparativo, ${new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(Number(escenario.costo_total))}). Revísala y apruébala.`,

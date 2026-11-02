@@ -3,16 +3,13 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
-## 2026-10-30 — Columnas espejo de Compras en el costeo + tabla Costeo / Costeo compras / Cotización
-Pedido del dueño: junto al «Costo unit. REAL» el perfil de Compras anota lo que COSTEA él (neto/u) y su link. Nuevas columnas
-al final del editor: «Costo unit. COMPRAS» y «Link COMPRAS» (`costoCompraUnitario`, `linkCompra` en `FilaEditorCosteo`, opcionales,
-sin migración; las guarda `fusionarEdicionCompras` en filas ajenas y propias; el link no es obligatorio). En «Compara y elige a
-quién comprar» (`ComparadorPrecios`) cada producto muestra en columnas: Costeo · Costeo compras (con su link) · Cotización
-mejor (+ chip vs costeo) · Elegido. Datos por `costeoComprasPorProducto` → `/api/compras/[negocioId]/cotizaciones`.
-Mismo día, a pedido del dueño: el cuadro «Margen: costeo inicial vs cotizaciones» suma una columna «Con costeo de Compras» (y una frase
-de conclusión) para que Compras vea su margen ANTES de seguir cotizando; líneas que Compras no costeó cuentan al costo inicial
-(provisional). Solo aparece si Compras anotó algún costo. `compras-margen-vs-costeo.ts` (+ test).
-Supuesto: NO es el costo real (ese es lo pagado); esto es el estimado de Compras antes de comprar. tsc limpio; sin ver en navegador.
+## 2026-11-02 — Costo real manual como rango de precios (reemplaza las columnas espejo del 30-oct)
+El dueño descartó las columnas espejo «Costo unit. COMPRAS / Link COMPRAS» (quitadas). Lo vigente: Compras anota a mano el «Costo unit. REAL»
+del costeo (ya existía) como RANGO de precios mientras cotiza. Ese monto se ve en «Compara y elige a quién comprar» (columnas Costeo ·
+Costo real (Compras) · Cotización mejor · Elegido) y en el cuadro de margen (columna «Con costo real de Compras», solo si hay alguno;
+líneas sin costo real cuentan al costo inicial, provisional). Al MANDAR LA COMPRA A APROBACIÓN (`proponerAprobacionCompra`) se llama a
+`trasladarCompraAlCosteo`: los costos reales manuales se PISAN con los precios cotizados elegidos (best-effort; solo líneas con fila y link).
+Datos: `costeoComprasPorProducto` (ahora lee costoRealUnitario). tsc limpio; sin ver en navegador ni probado contra BD.
 
 ## 2026-10-28 — «Pasa» decía poco: el veredicto ahora se separa en Precio y Ficha
 En «Qué se va a aprobar» (`TablaAprobacionCompra`) el dueño no sabía si «Pasa» era por el precio o por la ficha. Es por LOS DOS:

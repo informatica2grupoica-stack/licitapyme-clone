@@ -240,14 +240,15 @@ export async function costeadoPorProducto(negocioId: number): Promise<Record<num
   return out;
 }
 
-/** Lo que costeó COMPRAS por su cuenta (columnas espejo del costo real: costo neto/u y link), por producto. Solo los que tienen algo. */
+/** El «Costo unit. REAL» que Compras anota a mano en el costeo (neto/u) y su Link 1, por producto: un rango de precios mientras se cotiza.
+ *  Al mandar la compra a aprobación se pisa con el precio cotizado elegido (trasladarCompraAlCosteo). Solo los que tienen algo. */
 export async function costeoComprasPorProducto(negocioId: number): Promise<Record<number, { costo: number | null; link: string }>> {
   const [productos, estado] = await Promise.all([listarProductosCompra(negocioId), cargarEstadoCosteo(negocioId).catch(() => null)]);
   const lineas = estado ? lineasDelCosteo(estado).filter(l => !l.esGastoExtra) : [];
   const out: Record<number, { costo: number | null; link: string }> = {};
   for (const p of productos) {
     const l = lineaCosteoDeProducto(lineas, p);
-    if (l && (l.costoCompraNeto != null || l.linkCompra)) out[p.id] = { costo: l.costoCompraNeto ?? null, link: l.linkCompra ?? '' };
+    if (l && l.costoRealUnitario != null) out[p.id] = { costo: l.costoRealUnitario, link: l.links[0] ?? '' };
   }
   return out;
 }

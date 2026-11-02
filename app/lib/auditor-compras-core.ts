@@ -194,8 +194,6 @@ export interface LineaCosteo {
   cantidad: number | null; valorConIva: number | null; costoRealUnitario: number | null;
   links: string[]; esGastoExtra: boolean; ofertamos: boolean;
   costoEstimadoNeto: number | null;   // lo que costeó el asistente: valorConIva / 1,19
-  costoCompraNeto?: number | null;    // lo que costeó Compras por su cuenta (columna espejo del real)
-  linkCompra?: string;
   costoRegistradoNeto: number | null; // lo que hoy está costeado: el REAL de Compras si lo cargó, si no el estimado
   precioVentaUnitario: number | null; // precio unitario de venta registrado (sin decimales)
 }
@@ -211,9 +209,7 @@ export function lineasDelCosteo(estado: EstadoCosteoEditor): LineaCosteo[] {
       out.push({
         id: f.id, item: f.item, lineaReal: f.lineaReal ?? g.linea ?? null, grupo: g.nombre, detalle: f.detalle?.trim() || '',
         unidad: f.unidad || '', sku: f.skuProveedor || '', cantidad: f.cantidad ?? null, valorConIva: f.valorConIva ?? null,
-        costoRealUnitario: f.costoRealUnitario ?? null,
-        costoCompraNeto: f.costoCompraUnitario ?? null, linkCompra: f.linkCompra?.trim() || '',
-        links: [f.link1, f.link2, f.link3].filter(Boolean),
+        costoRealUnitario: f.costoRealUnitario ?? null,        links: [f.link1, f.link2, f.link3].filter(Boolean),
         esGastoExtra: !!f.agregadoPorCompras || !!f.esCostoAdicional, ofertamos: g.ofertamos !== false,
         costoEstimadoNeto: f.agregadoPorCompras || f.esCostoAdicional ? null : est,
         costoRegistradoNeto: f.costoRealUnitario ?? (f.agregadoPorCompras || f.esCostoAdicional ? null : est),

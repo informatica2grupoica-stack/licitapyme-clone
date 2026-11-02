@@ -101,7 +101,7 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
       <div className="hidden md:flex items-center gap-3 px-4 py-1.5 border-b border-zinc-100 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
         <span className="flex-1 pl-7">Producto</span>
         <span className="w-[104px] text-right">Costeo</span>
-        <span className="w-[124px] text-right">Costeo compras</span>
+        <span className="w-[124px] text-right">Costo real (Compras)</span>
         <span className="w-[230px]">Cotización (mejor)</span>
         <span className="w-[150px] text-right">Elegido</span>
       </div>
@@ -138,7 +138,7 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
                 </div>
                 <div className="hidden md:flex items-center gap-3 text-[12px] flex-shrink-0">
                   <span className="w-[104px] text-right tabular-nums text-zinc-700 font-semibold" title="Costo neto por unidad que costeó licitaciones">{base != null ? clp(base) : <span className="text-zinc-300">—</span>}</span>
-                  <span className="w-[124px] text-right tabular-nums" title="Costo neto por unidad que costeó Compras (columna «Costo unit. COMPRAS» del costeo)">
+                  <span className="w-[124px] text-right tabular-nums" title="«Costo unit. REAL» que Compras anotó a mano en el costeo (neto por unidad). Se reemplaza por el precio cotizado al mandar la compra a aprobación.">
                     {costeoCompras[p.id]?.costo != null ? (
                       <>
                         {costeoCompras[p.id].link && esLinkDeProducto(costeoCompras[p.id].link) && (

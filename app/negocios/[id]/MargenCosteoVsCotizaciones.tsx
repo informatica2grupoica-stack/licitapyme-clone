@@ -81,12 +81,12 @@ export function MargenCosteoVsCotizaciones({ resumen: r }: { resumen: ResumenMar
 
       {hayCompras ? (
         <p className="mt-3 text-base text-slate-800" data-testid="margen-compras-frase">
-          Con el <b className="font-bold text-slate-900">costeo de Compras</b> el margen sobre la venta {(t.puntosCompras ?? 0) > 0 ? 'sube' : (t.puntosCompras ?? 0) < 0 ? 'baja' : 'no cambia'}: de <b className="font-bold text-slate-900">{pct(t.pctInicial)}</b> a <b className={`font-bold ${tono(t.puntosCompras)}`}>{pct(t.pctCompras)}</b>
+          Con el <b className="font-bold text-slate-900">costo real de Compras</b> el margen sobre la venta {(t.puntosCompras ?? 0) > 0 ? 'sube' : (t.puntosCompras ?? 0) < 0 ? 'baja' : 'no cambia'}: de <b className="font-bold text-slate-900">{pct(t.pctInicial)}</b> a <b className={`font-bold ${tono(t.puntosCompras)}`}>{pct(t.pctCompras)}</b>
           {t.puntosCompras !== 0 && <> (<b className={`font-bold ${tono(t.puntosCompras)}`}>{pts(t.puntosCompras)}</b>, <b className={`font-bold ${tono(t.puntosCompras)}`}>{clpFirmado(t.margenCompras - t.margenInicial)}</b> en pesos)</>}.
-          <span className="block text-[13px] text-slate-500">Compras costeó {t.nCompras} de {r.lineas.length} líneas; las demás cuentan al costo inicial, así que este margen es una idea provisional.</span>
+          <span className="block text-[13px] text-slate-500">Compras anotó el costo real de {t.nCompras} de {r.lineas.length} líneas; las demás cuentan al costo inicial, así que este margen es una idea provisional. Al mandar la compra a aprobación estos montos se reemplazan por los precios cotizados.</span>
         </p>
       ) : (
-        <p className="mt-3 text-[13px] text-slate-500">Anota el «Costo unit. COMPRAS» en el costeo y aquí verás el margen que tendrías con tus propios costos, antes de seguir cotizando.</p>
+        <p className="mt-3 text-[13px] text-slate-500">Anota el «Costo unit. REAL» en el costeo y aquí verás el margen que tendrías con esos costos, antes de seguir cotizando.</p>
       )}
 
       {/* 1 · Margen inicial del costeo frente al margen con las cotizaciones */}
@@ -96,7 +96,7 @@ export function MargenCosteoVsCotizaciones({ resumen: r }: { resumen: ResumenMar
             <tr className="border-b border-zinc-200">
               <th className={TH}><span className="sr-only">Concepto</span></th>
               <th className={THR}>Costeo inicial</th>
-              {hayCompras && <th className={THR}>Con costeo de Compras</th>}
+              {hayCompras && <th className={THR}>Con costo real de Compras</th>}
               <th className={THR}>Con cotizaciones</th>
               <th className={THR}>Diferencia</th>
             </tr>
