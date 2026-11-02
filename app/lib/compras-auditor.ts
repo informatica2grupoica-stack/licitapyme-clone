@@ -753,7 +753,7 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     const [asig]: any = await pool.query(
       `SELECT p.descripcion FROM compras_cotizacion_item i JOIN compras_producto p ON p.id = i.producto_id WHERE i.cotizacion_id = ?`, [cotizacionId]);
     const [adics]: any = await pool.query(`SELECT concepto FROM compras_cotizacion_adicional WHERE cotizacion_id = ?`, [cotizacionId]);
-    const sin = lineasSinAsignar(lineasDelDoc, [...(asig as any[]).map(x => String(x.descripcion).split(' - ')[0]), ...(adics as any[]).map(x => String(x.concepto))]);
+    const sin = lineasSinAsignar(lineasDelDoc, [...(asig as any[]).flatMap(x => [String(x.descripcion), String(x.descripcion).split(' - ')[0]]), ...(adics as any[]).map(x => String(x.concepto))]);
     const marca = 'Revisa la asignación:';
     const marcaMismo = 'Revisa que sea el mismo producto:';
     const notasSinAviso = String(a?.notas || '').split(' · ').filter(t => !t.startsWith(marca) && !t.startsWith(marcaMismo)).join(' · ');

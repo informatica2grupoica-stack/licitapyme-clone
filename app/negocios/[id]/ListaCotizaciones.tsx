@@ -31,11 +31,16 @@ function lineasPendientes(c: CotizacionFilaUI, productos: Array<{ id: number; de
   const lineas = lineasDesdeTabla(String(c.descripcionLibre || ''));
   if (!lineas.length) return [];
   const asignados = [
-    ...c.items.map(i => String(productos.find(p => p.id === i.productoId)?.descripcion ?? '').split(' - ')[0]),
+    // Descripción COMPLETA del producto: cortar en « - » dejaba fuera «vertical extra reforzado 15.000L» y la línea del propio estanque
+    // salía como «sin asignar» (2906-19-LE26: al agregarla se sumó el estanque dos veces).
+    ...c.items.flatMap(i => { const d = String(productos.find(p => p.id === i.productoId)?.descripcion ?? ''); return [d, d.split(' - ')[0]]; }),
     ...c.items.flatMap(i => (i.adicionales as AdicionalFila[]).map(a => String(a.concepto))),
   ];
   const fleteAparte = c.fleteMonto != null && c.fleteMonto > 0;
-  return lineasSinAsignar(lineas, asignados).filter(l => !(fleteAparte && /flete|transport|despacho|env[ií]o/i.test(l.descripcion)));
+  return lineasSinAsignar(lineas, asignados)
+    .filter(l => !(fleteAparte && /flete|transport|despacho|env[ií]o/i.test(l.descripcion)))
+    // Segunda red: una línea con el mismo precio unitario que el producto ya asignado es ese producto, aunque el nombre difiera.
+    .filter(l => !(l.precioUnitario != null && c.items.some(i => i.precioBase != null && Math.abs(i.precioBase - l.precioUnitario!) <= 1)));
 }
 
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;

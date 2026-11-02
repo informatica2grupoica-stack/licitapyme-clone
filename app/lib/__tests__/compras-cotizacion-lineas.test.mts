@@ -221,3 +221,11 @@ test('descuento que YA viene dentro de los precios: no se aplica de nuevo', () =
   const r2 = normalizarLineas([{ descripcion: 'Silla', cantidad: 10, precioUnitario: 90000, total: 900000 }], texto, 900000);
   assert.equal(descuentoGlobalPorAplicar(r2, 10, null, 900000, texto).pct, null);
 });
+
+test('2906-19-LE26: la línea del propio estanque no es «sin asignar» (se compara con la descripción COMPLETA del producto)', () => {
+  const lineas = lineasDesdeTabla('LÍNEAS DEL DOCUMENTO (leídas y verificadas):\n1. Estanque Vertical Extra Reforzado 15000 EVEX15000 | cantidad 4 | precio unitario 1888782.5 | total 7555130\n2. Flete | cantidad 1 | precio unitario 458600 | total 458600\n\nresto');
+  const producto = 'Estanque de almacenamiento de agua (potable / no potable) - Estanque vertical extra reforzado 15.000L';
+  // Cortando en « - » (como antes) la línea del estanque salía como sin asignar: sumarla duplicaba el precio.
+  assert.equal(lineasSinAsignar(lineas, [producto.split(' - ')[0]]).length, 2);
+  assert.deepEqual(lineasSinAsignar(lineas, [producto, producto.split(' - ')[0]]).map(l => l.descripcion), ['Flete']);
+});
