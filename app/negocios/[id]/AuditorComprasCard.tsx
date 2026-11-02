@@ -5,7 +5,7 @@
 // 4 escenarios de compra (el de "Más rápido" como principal). Es un SUGERIDOR: nunca excluye un
 // proveedor por incumplimiento técnico, solo lo clasifica.
 import { netoDesdeBruto } from '@/app/lib/compras-cotizacion-lectura';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { Select } from '@/app/components/ui/Select';
@@ -218,7 +218,8 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   const [elegidaComb, setElegidaComb] = useState<Comb | null>(null);
   // La compra que se va armando en la matriz: productoId → cotizacionId. Arranca con la ya elegida, si hay.
   const [compra, setCompra] = useState<Record<number, number>>({});
-  const [compraIniciada, setCompraIniciada] = useState(false);
+  // Ref y no estado: `cargar` se memoriza por negocio y con estado veía siempre el valor inicial, así cada recarga pisaba los círculos elegidos sin guardar.
+  const compraIniciada = useRef(false);
   const [evaluacion, setEvaluacion] = useState<EvaluacionCompra | null>(null);
   // Compra directa = decisión ya tomada: su proveedor queda elegido en «Tu compra» sin que haya que volver a marcarlo. Se aplica UNA vez
   // por cotización (si después se quita a mano, no se vuelve a poner).
@@ -247,7 +248,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           setNegociacion(d.negociacion || []); setEscenarios(d.escenarios || []);
           setElegidoTipo(d.elegidoTipo || null); setElegidoCostoGuardado(d.elegidoCostoGuardado ?? null);
           setRecomendadas(d.combinaciones?.recomendadas || []); setElegidaComb(d.elegida ?? null);
-          if (d.elegida && !compraIniciada) { setCompra(Object.fromEntries((d.elegida as Comb).items.map(i => [i.productoId, i.cotizacionId]))); setCompraIniciada(true); }
+          if (d.elegida && !compraIniciada.current) { setCompra(Object.fromEntries((d.elegida as Comb).items.map(i => [i.productoId, i.cotizacionId]))); compraIniciada.current = true; }
         }),
         traer(`/api/compras/${negocioId}/productos`, d => { setProductos((d.productos || []).filter((p: any) => !['RENUNCIADO', 'NO_ADJUDICADA'].includes(p.subestado))); setLinksCosteo(d.linksCosteo || {}); }),
         traer(`/api/compras/${negocioId}/sugerencias-historial`, d => setSugerenciasHistorial(d.productos || [])),
@@ -1087,7 +1088,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
                 className="text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
                 {guardandoForm ? <Loader2 size={13} className="animate-spin" /> : archivoExtraido.estado === 'leyendo' ? 'Leyendo…' : editandoId != null ? 'Guardar cambios' : 'Guardar'}
               </button>
-              <button onClick={cancelarFormulario} className="text-zinc-400 hover:text-zinc-600"><X size={16} /></button>
+              <button onClick={cancelarFormulario} aria-label="Cancelar y cerrar el formulario" className="text-zinc-400 hover:text-zinc-600"><X size={16} /></button>
             </div>
           </div>
         )}

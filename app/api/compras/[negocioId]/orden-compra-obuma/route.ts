@@ -2,6 +2,7 @@
 // Órdenes de compra REALES contra Obuma (spec §11.1) — una por proveedor del escenario elegido.
 // GET: proveedores del escenario elegido con sus ítems y si ya tienen OC creada.
 // POST: crea la OC de verdad en Obuma para UN proveedor (escritura real).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -31,6 +32,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -60,7 +62,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, proveedores, centroCosto, centrosCosto });
   } catch (error: any) {
     console.error('[compras/orden-compra-obuma][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudieron cargar las órdenes de compra.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudieron cargar las órdenes de compra.') }, { status: 500 });
   }
 }
 
@@ -69,6 +71,7 @@ async function __POST(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -97,7 +100,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, ...resultado });
   } catch (error: any) {
     console.error('[compras/orden-compra-obuma][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo crear la orden de compra.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo crear la orden de compra.') }, { status: 400 });
   }
 }
 

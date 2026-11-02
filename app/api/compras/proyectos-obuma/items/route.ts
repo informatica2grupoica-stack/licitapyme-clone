@@ -3,6 +3,7 @@
 // /compras/proyectos (pedido explícito del usuario, 22-sep-2026: "necesito poder ver las OC de
 // estas compras" → qué se compró en cada una). Reusa itemsCompraOcObuma (compras-proveedores.ts):
 // primero mira la tabla local sincronizada, si no está ahí recién pide a Obuma en vivo.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { itemsCompraOcObuma } from '@/app/lib/compras-proveedores';
@@ -33,6 +34,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, items });
   } catch (error: any) {
     console.error('[compras/proyectos-obuma/items][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudieron cargar los ítems.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudieron cargar los ítems.') }, { status: 500 });
   }
 }

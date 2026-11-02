@@ -1,5 +1,6 @@
 // app/api/compras/[negocioId]/comparar-oc/route.ts
 // GET ?oc=<folio de la OC en Obuma>: cotización del plan, OC de Obuma y factura(s), lado a lado. Solo lectura.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { compararOrdenCompra } from '@/app/lib/compras-comparar-oc';
@@ -26,6 +27,6 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, comparacion });
   } catch (error: any) {
     console.error('[compras/comparar-oc][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo armar la comparación.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo armar la comparación.') }, { status: 500 });
   }
 }

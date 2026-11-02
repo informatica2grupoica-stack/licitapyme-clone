@@ -1,5 +1,6 @@
 // app/api/compras/[negocioId]/sku/[skuId]/historico/route.ts
 // §19.3 — sugerencia de proveedor histórico, a partir del SKU ya homologado con OBUMA.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -22,6 +23,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId, skuId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -39,6 +41,6 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, sugerencias });
   } catch (error: any) {
     console.error('[compras/sku/historico][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo consultar el histórico.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo consultar el histórico.') }, { status: 500 });
   }
 }

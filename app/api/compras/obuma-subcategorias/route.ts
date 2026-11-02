@@ -2,6 +2,7 @@
 // Subcategorías reales de Obuma bajo "Mercado Publico" (§7, escritura real, 10-sep-2026) — para
 // el selector del formulario de creación de SKU. Transversal (no depende de un negocio puntual),
 // mismo criterio que /api/compras/proveedores.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { listarSubcategoriasProductos, listarCategoriasProductos } from '@/app/lib/obuma';
@@ -41,6 +42,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, categorias, subcategorias });
   } catch (error: any) {
     console.error('[compras/obuma-subcategorias][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo consultar Obuma.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo consultar Obuma.') }, { status: 500 });
   }
 }

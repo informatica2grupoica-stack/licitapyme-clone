@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/postventa/route.ts
 // §17.1 — los compromisos de postventa vienen del resumen ejecutivo (paquete de traspaso); acá
 // solo se marca cuáles ya se resolvieron.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -24,6 +25,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -50,6 +52,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -63,7 +66,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('[compras/postventa][PATCH]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo actualizar.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo actualizar.') }, { status: 400 });
   }
 }
 

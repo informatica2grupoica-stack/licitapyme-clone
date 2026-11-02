@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/reparto/route.ts
 // Proceso administrativo post-aprobación (spec §11) — el módulo solo registra el estado de hitos
 // que EJECUTA OBUMA, nunca los dispara.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -8,6 +9,7 @@ import { obtenerReparto, marcarHitoReparto, marcarHitoNoAplica, listarRespaldosH
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
+import { errorDeArchivoSubido } from '@/app/lib/subidas';
 import { parsearMontoCL } from '@/app/lib/numeros';
 
 export const runtime = 'nodejs';
@@ -38,6 +40,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -60,6 +63,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -84,6 +88,8 @@ async function __PATCH(request: NextRequest, { params }: Params) {
       cuentaOrigen = form.get('cuentaOrigen');
       const file = form.get('file') as File | null;
       if (file && file.size > 0) {
+        const errArchivo = errorDeArchivoSubido(file);
+        if (errArchivo) return NextResponse.json({ error: errArchivo }, { status: 400 });
         const buffer = Buffer.from(await file.arrayBuffer());
         archivoUrl = await subirDocumentoR2(`compras/${asignacion.licitacionCodigo}/reparto`, file.name, buffer, file.type);
         archivoNombre = file.name;
@@ -115,7 +121,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, reparto, respaldos });
   } catch (error: any) {
     console.error('[compras/reparto][PATCH]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo actualizar.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo actualizar.') }, { status: 400 });
   }
 }
 

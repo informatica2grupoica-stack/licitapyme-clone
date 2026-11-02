@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/orden-compra-obuma/detalle/route.ts
 // Vista propia de la(s) orden(es) de compra ya emitidas para este negocio (spec §11 — "rescatar el
 // documento de Obuma para ver la OC"). Ver ordenesCompraParaVista en compras-oc-obuma.ts.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { ordenesCompraParaVista } from '@/app/lib/compras-oc-obuma';
@@ -23,6 +24,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -34,6 +36,6 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, ordenes });
   } catch (error: any) {
     console.error('[compras/orden-compra-obuma/detalle][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo cargar la orden de compra.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo cargar la orden de compra.') }, { status: 500 });
   }
 }

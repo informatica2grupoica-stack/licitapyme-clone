@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/auditor-costeo/evidencia/route.ts
 // "El ojo": de dónde salió una conclusión del Auditor de Compras. Devuelve los respaldos de una línea (cotizaciones con
 // su documento original y los links capturados) con el texto leído, marcando cuál contiene la cita literal.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { puedeVerPreAprobacion } from '@/app/api/compras/[negocioId]/route';
@@ -24,6 +25,6 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, ...(await obtenerEvidencia(negId, filaId, cita)) });
   } catch (error: any) {
     console.error('[compras/auditor-costeo/evidencia][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo leer la evidencia.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo leer la evidencia.') }, { status: 500 });
   }
 }

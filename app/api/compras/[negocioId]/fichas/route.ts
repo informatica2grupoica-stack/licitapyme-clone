@@ -4,12 +4,14 @@
 //   GET ?proyecto=1    → documentos del proyecto que se pueden traer como fichas (los que sube Compras).
 //   POST multipart     → { file }: sube UNA ficha y la rutea sola (producto + proveedor). El cliente las sube de a una (con progreso).
 //   POST json          → { accion: 'procesar_url', url, nombre } | 'asignar' | 'proveedor' | 'comparar'
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { puedeOperarPreAprobacion, puedeVerPreAprobacion } from '@/app/api/compras/[negocioId]/route';
 import { subirDocumentoR2 } from '@/app/lib/r2';
+import { MAX_SUBIDA_BYTES, MAX_SUBIDA_MB } from '@/app/lib/subidas';
 import {
   panelFichas, procesarFicha, asignarProductoDeFicha, cambiarProveedorDeOpcion, compararProducto, filaDeProductoCompra, quitarOpcionDeCompras, moverOpcionDeCompras, quitarFichaDeOpcion, olvidarDocumentoDeCompras, complementarRequisito, restaurarOpcionDeCompras,
 } from '@/app/lib/compras-fichas';
@@ -64,7 +66,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, panel: await panelFichas(c.id, c.codigo) });
   } catch (e: any) {
     console.error('[compras/fichas][GET]', String(e));
-    return NextResponse.json({ error: e?.message || 'No se pudieron cargar las fichas.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(e, 'No se pudieron cargar las fichas.') }, { status: 500 });
   }
 }
 
@@ -79,12 +81,13 @@ async function __POST(request: NextRequest, { params }: Params) {
       if (form.get('accion') === 'complementar') {
         // Complemento con adjunto (documento o imagen que respalda el dato): se guarda en R2 y queda ligado al registro del complemento.
         if (!ADJUNTOS.test(file.name)) return NextResponse.json({ error: 'El adjunto debe ser PDF, imagen, Word, Excel o texto.' }, { status: 400 });
-        if (file.size > 15 * 1024 * 1024) return NextResponse.json({ error: 'El adjunto pesa más de 15 MB.' }, { status: 400 });
+        if (file.size > MAX_SUBIDA_BYTES) return NextResponse.json({ error: `El adjunto pesa más de ${MAX_SUBIDA_MB} MB.` }, { status: 400 });
         const resultado = form.get('resultado') === 'CUMPLE' || form.get('resultado') === 'NO_CUMPLE' ? form.get('resultado') as 'CUMPLE' | 'NO_CUMPLE' : null;
         const urlAdj = await subirDocumentoR2(`compras/${c.codigo}/complementos`, file.name, Buffer.from(await file.arrayBuffer()), file.type);
         await complementarRequisito({ negocioId: c.id, opcionId: Number(form.get('opcionId')), n: Number(form.get('n')), resultado, dato: String(form.get('dato') || ''), fuente: String(form.get('fuente') || ''), actor: c.actor, adjunto: { url: urlAdj, nombre: file.name } });
         return NextResponse.json({ success: true });
       }
+      if (file.size > MAX_SUBIDA_BYTES) return NextResponse.json({ error: `La ficha pesa más de ${MAX_SUBIDA_MB} MB.` }, { status: 400 });
       if (!EXTENSIONES.test(file.name)) return NextResponse.json({ error: 'Formato no soportado. Sube PDF, imagen (PNG/JPG), Word, Excel o texto (TXT).' }, { status: 400 });
       const url = await subirDocumentoR2(`compras/${c.codigo}/fichas`, file.name, Buffer.from(await file.arrayBuffer()), file.type);
       return NextResponse.json({ success: true, resultado: await procesarFicha({ negocioId: c.id, url, nombre: file.name, actor: c.actor }) });
@@ -150,7 +153,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     }
   } catch (e: any) {
     console.error('[compras/fichas][POST]', String(e));
-    return NextResponse.json({ error: e?.message || 'No se pudo completar la acción.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(e, 'No se pudo completar la acción.') }, { status: 400 });
   }
 }
 

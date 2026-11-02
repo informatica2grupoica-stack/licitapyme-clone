@@ -2,6 +2,7 @@
 // Corre el AUDITOR de cotizaciones (compras-auditoria-cotizacion.ts) sobre una cotización: dictamen
 // formal por producto asignado, con requisito, lo cotizado y la evidencia de cada punto.
 // Body opcional: { productoId } para auditar solo ese producto.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -39,7 +40,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, resultados });
   } catch (error: any) {
     console.error('[compras/cotizaciones/auditar][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo auditar la cotización.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo auditar la cotización.') }, { status: 500 });
   }
 }
 

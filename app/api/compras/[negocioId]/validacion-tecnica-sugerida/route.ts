@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/validacion-tecnica-sugerida/route.ts
 // Propuesta de formulario para la tarea "Validación técnica real", armada con lo que el Auditor
 // Técnico ya comprobó (24-sep-2026). Solo LEE: no escribe nada — la persona revisa y guarda.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { cargarDatosSugerencia, sugerirValidacionTecnica } from '@/app/lib/compras-validacion-sugerida';
@@ -17,6 +18,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
@@ -24,6 +26,6 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, ...sugerirValidacionTecnica(await cargarDatosSugerencia(id)) });
   } catch (error: any) {
     console.error('[compras/validacion-tecnica-sugerida][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo armar la sugerencia.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo armar la sugerencia.') }, { status: 500 });
   }
 }

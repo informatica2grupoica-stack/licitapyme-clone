@@ -2,12 +2,14 @@
 // Pagos a proveedores por orden de compra (migration-157): anticipo / pago total / saldo, cada uno
 // con su comprobante. GET también devuelve las OC reales de Obuma con sus facturas, para que la
 // pantalla muestre la factura de cada OC sin que nadie la registre a mano.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { listarPagosOc, ocsConFacturas, registrarPagoOc, quitarPagoOc, type TipoPagoOc } from '@/app/lib/compras-pagos-oc';
 import { puedeOperarReparto } from '@/app/api/compras/[negocioId]/reparto/route';
 import { subirDocumentoR2 } from '@/app/lib/r2';
+import { errorDeArchivoSubido } from '@/app/lib/subidas';
 import { parsearMontoCL } from '@/app/lib/numeros';
 
 export const runtime = 'nodejs';
@@ -24,6 +26,7 @@ async function acceso(request: NextRequest, negocioId: string) {
   const { id: userId, rol, nombre } = getUser(request);
   if (!userId) return { error: NextResponse.json({ error: 'No autenticado' }, { status: 401 }) };
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return { error: NextResponse.json({ error: 'negocioId inválido' }, { status: 400 }) };
   const asignacion = await obtenerAsignacion(id);
   if (!asignacion) return { error: NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 }) };
   if (!(await puedeOperarReparto(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
@@ -51,6 +54,8 @@ async function __POST(request: NextRequest, { params }: Params) {
     // Uno o varios comprobantes por pago (transferencia + factura, pago en partes, etc.).
     const files = (form.getAll('file') as File[]).filter(f => f && f.size > 0);
     if (files.length === 0) return NextResponse.json({ error: 'Falta el comprobante del pago.' }, { status: 400 });
+    if (files.length > 10) return NextResponse.json({ error: 'Máximo 10 comprobantes por pago.' }, { status: 400 });
+    for (const f of files) { const errArchivo = errorDeArchivoSubido(f); if (errArchivo) return NextResponse.json({ error: errArchivo }, { status: 400 }); }
     const adjuntos = await Promise.all(files.map(async f => ({
       url: await subirDocumentoR2(`compras/${a.asignacion.licitacionCodigo}/pagos`, f.name, Buffer.from(await f.arrayBuffer()), f.type),
       nombre: f.name,
@@ -67,7 +72,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, pagos: await listarPagosOc(a.id) });
   } catch (error: any) {
     console.error('[compras/pagos-oc][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo registrar el pago.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo registrar el pago.') }, { status: 400 });
   }
 }
 
@@ -81,7 +86,7 @@ async function __DELETE(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, pagos: await listarPagosOc(a.id) });
   } catch (error: any) {
     console.error('[compras/pagos-oc][DELETE]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo quitar el pago.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo quitar el pago.') }, { status: 400 });
   }
 }
 

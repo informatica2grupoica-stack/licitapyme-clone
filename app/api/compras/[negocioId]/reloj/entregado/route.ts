@@ -2,6 +2,7 @@
 // Registra la fecha real de entrega. A diferencia de la prórroga/multa (excepciones que solo
 // autoriza jefe de ventas o CA), dejar constancia de que ya se entregó es un hecho operativo —
 // lo puede hacer cualquiera con acceso al negocio en Compras.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -25,6 +26,7 @@ async function __POST(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -38,7 +40,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, reloj });
   } catch (error: any) {
     console.error('[compras/reloj/entregado][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo registrar la entrega.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo registrar la entrega.') }, { status: 400 });
   }
 }
 

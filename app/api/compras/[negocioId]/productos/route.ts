@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/productos/route.ts
 // Estados y subestados de cobertura por producto (spec §14). GET lista, PATCH cambia subestado,
 // propone/aprueba renuncia a una línea (§14.5) o agrega/quita una parte que se compra aparte.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion, listarProductosCompra, poblarProductosCompraBase, cambiarSubestadoProducto,
@@ -112,7 +113,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, productos, cobertura });
   } catch (error: any) {
     console.error('[compras/productos][PATCH]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo actualizar el producto.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo actualizar el producto.') }, { status: 400 });
   }
 }
 

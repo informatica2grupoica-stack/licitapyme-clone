@@ -2,6 +2,7 @@
 // Ruta de importación y costeo aterrizado (spec §12). GET trae origen + productos + embarques (cada
 // uno con su seguimiento y costos, migration-160) + costo aterrizado calculado. PATCH aplica una acción:
 // 'origen' | 'producto' | 'productoEmbarque' | 'fichaProducto' | 'embarqueCrear' | 'embarqueGuardar' | 'embarqueEliminar' | 'embarqueEtapa'.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -36,6 +37,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -54,6 +56,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -76,7 +79,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json(await estadoCompleto(id));
   } catch (error: any) {
     console.error('[compras/importacion][PATCH]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo actualizar.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo actualizar.') }, { status: 400 });
   }
 }
 

@@ -2,6 +2,7 @@
 // §9.4 — Oportunidad de Mejora. POST la crea (paso 1: la detecta el encargado). PATCH avanza el
 // circuito: 'aprobar_jefe_ventas' (paso 2, solo jefe de ventas), 'plantear_cliente' (paso 3),
 // 'respuesta_cliente' (registra qué contestó, con constancia mínima).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -29,6 +30,7 @@ async function __POST(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -47,7 +49,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, id: incidenciaId, incidencias });
   } catch (error: any) {
     console.error('[compras/incidencias/oportunidad-mejora][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo registrar la Oportunidad de Mejora.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo registrar la Oportunidad de Mejora.') }, { status: 400 });
   }
 }
 
@@ -56,6 +58,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -86,7 +89,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, incidencias });
   } catch (error: any) {
     console.error('[compras/incidencias/oportunidad-mejora][PATCH]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo actualizar la Oportunidad de Mejora.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo actualizar la Oportunidad de Mejora.') }, { status: 400 });
   }
 }
 

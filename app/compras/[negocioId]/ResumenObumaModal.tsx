@@ -3,6 +3,7 @@
 // RESUMEN DE OBUMA (14-oct-2026): al pulsar «Obuma» arriba del flujo se muestra, solo para leer, lo que ya se creó
 // en Obuma DESDE Licitank en este negocio: los SKU de los productos y las órdenes de compra a proveedores.
 // Crear cosas sigue en sus pasos (SKU en «Aprobación y SKU»; proveedores y órdenes en la gestión de Obuma).
+import { useCerrarConEsc } from '@/app/lib/use-cerrar-con-esc';
 import { useEffect, useState } from 'react';
 import { IconX as X, IconLoader2 as Loader2, IconCircleCheck as Check, IconCircle as Pendiente, IconBolt as Zap } from '@tabler/icons-react';
 import { fmtCLP } from './ComprasContext';
@@ -16,6 +17,7 @@ export function ResumenObumaModal({ negocioId, onCerrar, onIrGestion, onIrSku }:
   const [datos, setDatos] = useState<{ skus: SkuFila[]; ocs: OcFila[]; pendientesOc: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  useCerrarConEsc(onCerrar);
   useEffect(() => {
     let vivo = true;
     (async () => {
@@ -47,7 +49,7 @@ export function ResumenObumaModal({ negocioId, onCerrar, onIrGestion, onIrSku }:
   const conSku = datos?.skus.filter(s => s.codigo).length ?? 0;
 
   return (
-    <div className="fixed inset-0 z-[90] bg-black/50 flex items-start justify-center overflow-y-auto p-4" onClick={onCerrar} data-testid="resumen-obuma">
+    <div className="fixed inset-0 z-[90] bg-black/50 flex items-start justify-center overflow-y-auto p-4" role="dialog" aria-modal="true" onClick={onCerrar} data-testid="resumen-obuma">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl my-10" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200">
           <div>

@@ -2,6 +2,7 @@
 // ADICIONALES de un producto en una cotización (quemador, bandejas, puesta en marcha…): la cotización cotiza el
 // producto "pelado" y lo demás aparte, y el precio que se compara contra el costeo es producto + adicionales.
 //   PUT { productoId, precioBase?, adicionales: [{ concepto, cantidad, precioUnitario }] }  → reemplaza la lista de ese producto.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -41,7 +42,7 @@ async function __PUT(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, cotizaciones: await listarCotizaciones(negId) });
   } catch (error: any) {
     console.error('[compras/cotizaciones/adicionales][PUT]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudieron guardar los adicionales.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudieron guardar los adicionales.') }, { status: 400 });
   }
 }
 

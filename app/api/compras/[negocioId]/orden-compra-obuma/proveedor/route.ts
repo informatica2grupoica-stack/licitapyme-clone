@@ -2,6 +2,7 @@
 // Verificar/crear el proveedor en Obuma ANTES de emitir la orden de compra — pedido explícito del
 // usuario: nunca automático. GET verifica por RUT (solo lectura). POST crea de verdad (escritura
 // real, gatillada solo por el clic explícito de la persona en el modal).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -32,6 +33,7 @@ async function autorizar(request: NextRequest, negId: number) {
 export async function GET(request: NextRequest, { params }: Params) {
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
   const auth = await autorizar(request, id);
   if ('error' in auth) return auth.error;
 
@@ -43,13 +45,14 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, existe: !!ficha, ficha });
   } catch (error: any) {
     console.error('[orden-compra-obuma/proveedor][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo verificar el proveedor.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo verificar el proveedor.') }, { status: 500 });
   }
 }
 
 async function __POST(request: NextRequest, { params }: Params) {
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
   const auth = await autorizar(request, id);
   if ('error' in auth) return auth.error;
 
@@ -58,7 +61,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, ...resultado });
   } catch (error: any) {
     console.error('[orden-compra-obuma/proveedor][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo crear el proveedor.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo crear el proveedor.') }, { status: 400 });
   }
 }
 

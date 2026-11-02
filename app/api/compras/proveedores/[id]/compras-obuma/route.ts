@@ -2,6 +2,7 @@
 // Historial REAL de compras a un proveedor puntual (pedido explícito del usuario, 14-sep-2026: "si
 // les hemos comprado" y "qué le hemos comprado") — se pide bajo demanda al expandir la ficha de ESE
 // proveedor en /compras/proveedores, nunca precargado para todo el catálogo.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { obtenerProveedor, historialComprasObuma, itemsCompraOcObuma } from '@/app/lib/compras-proveedores';
@@ -50,6 +51,6 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, tieneObuma: true, compras, totalComprado, totalReal, hayMas: totalReal > compras.length });
   } catch (error: any) {
     console.error('[compras/proveedores/[id]/compras-obuma][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo consultar el historial de compras en Obuma.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo consultar el historial de compras en Obuma.') }, { status: 500 });
   }
 }

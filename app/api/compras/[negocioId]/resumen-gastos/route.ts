@@ -3,6 +3,7 @@
 // 22-sep-2026: antes este número solo se veía en la ficha de la licitación, no acá). Lee de BASE
 // (compras_orden_compra_obuma + obuma_compras), no llama a Obuma en vivo — ver resumenGastosCompra
 // en compras-oc-obuma.ts.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { resumenGastosCompra } from '@/app/lib/compras-oc-obuma';
@@ -25,6 +26,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -51,6 +53,6 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, resumen, licitacionCodigo: asignacion.licitacionCodigo, cobertura, ocCliente });
   } catch (error: any) {
     console.error('[compras/resumen-gastos][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo cargar el resumen de gastos.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo cargar el resumen de gastos.') }, { status: 500 });
   }
 }

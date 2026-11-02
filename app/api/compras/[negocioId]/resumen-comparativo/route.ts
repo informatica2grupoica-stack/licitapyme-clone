@@ -1,5 +1,6 @@
 // app/api/compras/[negocioId]/resumen-comparativo/route.ts
 // ¿Coinciden costeo, plan de compra de Licitank y lo comprado en Obuma? Solo lectura (de base).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { resumenComparativoCompra } from '@/app/lib/compras-resumen-comparativo';
@@ -22,6 +23,6 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, resumen: await resumenComparativoCompra(id) });
   } catch (error: any) {
     console.error('[compras/resumen-comparativo][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo armar el resumen comparativo.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo armar el resumen comparativo.') }, { status: 500 });
   }
 }

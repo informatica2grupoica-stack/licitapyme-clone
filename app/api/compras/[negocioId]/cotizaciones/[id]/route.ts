@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/cotizaciones/[id]/route.ts
 // Editar y eliminar una cotización ya registrada (pedido explícito del usuario, 14-sep-2026:
 // "tampoco se pueden eliminar ni editar las cotizaciones y eso es básico").
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -55,7 +56,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, cotizaciones });
   } catch (error: any) {
     console.error('[compras/cotizaciones/[id]][PATCH]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo editar la cotización.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo editar la cotización.') }, { status: 400 });
   }
 }
 
@@ -76,7 +77,7 @@ async function __DELETE(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, cotizaciones });
   } catch (error: any) {
     console.error('[compras/cotizaciones/[id]][DELETE]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo eliminar la cotización.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo eliminar la cotización.') }, { status: 400 });
   }
 }
 

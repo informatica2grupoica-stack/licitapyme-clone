@@ -4,6 +4,7 @@
 // por producto) es una tarjeta compacta; al abrirla, un modal muestra todo su detalle y permite elegirla. Los 4 escenarios
 // clásicos (más rápido, mínimo precio, mínimos viajes, equilibrado) ya no son tarjetas aparte: son etiquetas sobre la combinación
 // que les corresponde. Los números vienen calculados del servidor (enumerarCombinaciones en compras-auditor.ts).
+import { useCerrarConEsc } from '@/app/lib/use-cerrar-con-esc';
 import { useMemo, useState } from 'react';
 import { IconCircleCheck as CheckCircle2, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconX as X, IconTruck as Truck, IconClock as Clock, IconUsers as Users } from '@tabler/icons-react';
 
@@ -132,9 +133,10 @@ export function ModalCombinacion({ c, elegida, puedeOperar, eligiendo, onClose, 
   c: Comb; elegida: boolean; puedeOperar: boolean; eligiendo: boolean; onClose: () => void; onElegir: (justificacion: string | null) => Promise<void>;
 }) {
   const [just, setJust] = useState('');
+  useCerrarConEsc(onClose);
   const esMasRapido = c.etiquetas.includes('MAS_RAPIDO');
   return (
-    <div className="fixed inset-0 z-[80] bg-black/40 flex items-start justify-center p-3 overflow-y-auto" onClick={onClose}>
+    <div className="fixed inset-0 z-[80] bg-black/40 flex items-start justify-center p-3 overflow-y-auto" role="dialog" aria-modal="true" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-xl w-full max-w-6xl my-6" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-zinc-100">
           <div>
@@ -145,7 +147,7 @@ export function ModalCombinacion({ c, elegida, puedeOperar, eligiendo, onClose, 
               {elegida && <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full"><CheckCircle2 size={10} /> Elegida</span>}
             </div>
           </div>
-          <button onClick={onClose} className="p-1 rounded-md hover:bg-zinc-100"><X size={16} /></button>
+          <button onClick={onClose} aria-label="Cerrar" className="p-1 rounded-md hover:bg-zinc-100"><X size={16} /></button>
         </div>
         <div className="p-4 space-y-3">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">

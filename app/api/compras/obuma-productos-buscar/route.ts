@@ -2,6 +2,7 @@
 // Búsqueda de posibles duplicados en Obuma por nombre (pedido explícito del usuario, 10-sep-2026:
 // "si pongo pala debe de mostrar todas las palas que estan en obuma para no duplicarlas") — se usa
 // en vivo mientras se escribe el nombre del producto en el formulario de SKU, antes de crear.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { buscarProductosObumaPorNombre } from '@/app/lib/obuma';
@@ -33,6 +34,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, productos });
   } catch (error: any) {
     console.error('[compras/obuma-productos-buscar][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo consultar Obuma.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo consultar Obuma.') }, { status: 500 });
   }
 }

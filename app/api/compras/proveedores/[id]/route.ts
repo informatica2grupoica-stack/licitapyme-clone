@@ -1,5 +1,6 @@
 // app/api/compras/proveedores/[id]/route.ts
 // PATCH edita un proveedor del catálogo (incluye activar/desactivar).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { actualizarProveedor, listarProveedores } from '@/app/lib/compras-proveedores';
@@ -36,6 +37,6 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, proveedores });
   } catch (error: any) {
     console.error('[compras/proveedores/[id]][PATCH]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo actualizar el proveedor.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo actualizar el proveedor.') }, { status: 400 });
   }
 }

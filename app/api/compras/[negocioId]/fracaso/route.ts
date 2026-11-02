@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/fracaso/route.ts
 // Estado de fracaso (spec §14.6). GET trae el estado. POST declara (encargado). PATCH dictamina
 // (solo jefe de ventas — análisis independiente).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -25,6 +26,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -45,6 +47,7 @@ async function __POST(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -58,7 +61,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, fracaso });
   } catch (error: any) {
     console.error('[compras/fracaso][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo declarar el fracaso.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo declarar el fracaso.') }, { status: 400 });
   }
 }
 
@@ -67,6 +70,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -86,7 +90,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, fracaso });
   } catch (error: any) {
     console.error('[compras/fracaso][PATCH]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo dictaminar.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo dictaminar.') }, { status: 400 });
   }
 }
 

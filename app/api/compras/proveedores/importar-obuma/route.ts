@@ -1,6 +1,7 @@
 // app/api/compras/proveedores/importar-obuma/route.ts
 // Sincroniza el catálogo de /compras/proveedores con el catálogo REAL de Obuma (pedido explícito
 // del usuario, 14-sep-2026) — acción consciente disparada por un botón, nunca automática.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { sincronizarProveedoresObuma, sincronizarHistorialOcHeaders, listarProveedores } from '@/app/lib/compras-proveedores';
@@ -33,6 +34,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, ...resultado, historialOc, proveedores });
   } catch (error: any) {
     console.error('[compras/proveedores/importar-obuma][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo sincronizar con Obuma.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo sincronizar con Obuma.') }, { status: 500 });
   }
 }

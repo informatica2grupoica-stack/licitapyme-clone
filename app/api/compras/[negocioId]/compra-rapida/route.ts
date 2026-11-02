@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/compra-rapida/route.ts
 // Compra rápida por producto. GET: estado de cada una (quien puede ver Compras). POST: el encargado reenvía una rechazada.
 // PATCH: aprobar / rechazar (solo jefe de ventas). La solicitud inicial nace al registrar una compra directa (cotizaciones/route.ts).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -53,7 +54,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, ...(await listarComprasRapidas(id)) });
   } catch (error: any) {
     console.error('[compras/compra-rapida][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo reenviar.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo reenviar.') }, { status: 400 });
   }
 }
 
@@ -74,7 +75,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, ...(await listarComprasRapidas(id)) });
   } catch (error: any) {
     console.error('[compras/compra-rapida][PATCH]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo guardar.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo guardar.') }, { status: 400 });
   }
 }
 

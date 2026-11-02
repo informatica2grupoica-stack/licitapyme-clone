@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/aprobaciones/linea/route.ts
 // Aprobación por producto de la compra. GET: estado de cada producto (quien puede ver Compras). PATCH: aprobar / rechazar / quitar
 // uno o varios productos (solo jefe de ventas, igual que las compuertas).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -57,7 +58,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, ...(await listarAprobacionesLinea(id)) });
   } catch (error: any) {
     console.error('[compras/aprobaciones/linea][PATCH]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo guardar.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo guardar.') }, { status: 400 });
   }
 }
 

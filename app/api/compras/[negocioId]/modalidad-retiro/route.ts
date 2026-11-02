@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/modalidad-retiro/route.ts
 // §13.2 — modalidad de retiro (interna/externa/mixta): se define en el primer instante, la define
 // el humano, el sistema no la calcula ni la propone acá.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -24,6 +25,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -44,6 +46,7 @@ async function __PUT(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -60,7 +63,7 @@ async function __PUT(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, ...info, porProveedor: await obtenerRetiroPorProveedor(id), transportes: await obtenerTransportesRetiro(id) });
   } catch (error: any) {
     console.error('[compras/modalidad-retiro][PUT]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo definir la modalidad.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo definir la modalidad.') }, { status: 400 });
   }
 }
 

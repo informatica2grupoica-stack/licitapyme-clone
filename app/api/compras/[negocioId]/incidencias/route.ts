@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/incidencias/route.ts
 // Zona de incidencias (spec §9) — GET lista, POST abre (manual, defensiva u ofensiva simple; la
 // Oportunidad de Mejora con su formulario propio va en /oportunidad-mejora).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -24,6 +25,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -44,6 +46,7 @@ async function __POST(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -63,7 +66,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, id: incidenciaId, incidencias });
   } catch (error: any) {
     console.error('[compras/incidencias][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo abrir la incidencia.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo abrir la incidencia.') }, { status: 400 });
   }
 }
 

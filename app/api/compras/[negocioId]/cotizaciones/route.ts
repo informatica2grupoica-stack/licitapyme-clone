@@ -3,6 +3,7 @@
 // posibles. PDF, imagen, captura de WhatsApp, texto pegado, correo, registro manual de llamada."
 // Sin límite de proveedores (§8.2). POST admite multipart (con archivo) o JSON (registro manual
 // sin archivo, ej. cotización telefónica).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -11,6 +12,7 @@ import { listarAuditoriasNegocio, costeadoPorProducto, ventaPorProducto, costeoC
 import { registrarCotizacion, listarCotizaciones, type DatosCotizacion, type OrigenCotizacion } from '@/app/lib/compras-auditor';
 import { puedeOperarPreAprobacion, puedeVerPreAprobacion } from '@/app/api/compras/[negocioId]/route';
 import { subirDocumentoR2 } from '@/app/lib/r2';
+import { errorDeArchivoSubido } from '@/app/lib/subidas';
 import { extraerDatosCotizacionDeDocumento } from '@/app/lib/compras-cotizacion-ocr';
 import { parsearMontoCL } from '@/app/lib/numeros';
 import { fusionarDirectasDelNegocio } from '@/app/lib/compras-directas';
@@ -34,6 +36,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -54,6 +57,7 @@ async function __POST(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -69,6 +73,8 @@ async function __POST(request: NextRequest, { params }: Params) {
       const file = form.get('file') as File | null;
       let archivoUrl: string | null = null, archivoNombre: string | null = null, buffer: Buffer | null = null;
       if (file) {
+        const errArchivo = errorDeArchivoSubido(file);
+        if (errArchivo) return NextResponse.json({ error: errArchivo }, { status: 400 });
         buffer = Buffer.from(await file.arrayBuffer());
         archivoUrl = await subirDocumentoR2(`compras/${asignacion.licitacionCodigo}`, file.name, buffer, file.type);
         archivoNombre = file.name;
@@ -189,7 +195,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, id: cotizacionId });
   } catch (error: any) {
     console.error('[compras/cotizaciones][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo registrar la cotización.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo registrar la cotización.') }, { status: 500 });
   }
 }
 

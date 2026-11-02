@@ -1,6 +1,7 @@
 // app/api/compras/proveedores/buscar-producto/route.ts
 // "Si pongo martillo, decime a quién le hemos comprado martillo" (pedido explícito del usuario,
 // 14-sep-2026) — busca el producto en el catálogo de Obuma y agrupa por proveedor real.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { buscarProveedoresPorProducto } from '@/app/lib/compras-proveedores';
@@ -31,6 +32,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, resultados });
   } catch (error: any) {
     console.error('[compras/proveedores/buscar-producto][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo buscar por producto.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo buscar por producto.') }, { status: 500 });
   }
 }

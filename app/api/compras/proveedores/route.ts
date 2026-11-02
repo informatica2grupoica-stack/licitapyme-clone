@@ -1,5 +1,6 @@
 // app/api/compras/proveedores/route.ts
 // Catálogo de proveedores — transversal, mismo círculo de acceso que el resto de Compras.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { listarProveedores, crearProveedor, validarProveedorObuma } from '@/app/lib/compras-proveedores';
@@ -78,6 +79,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, id, proveedores });
   } catch (error: any) {
     console.error('[compras/proveedores][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo crear el proveedor.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo crear el proveedor.') }, { status: 400 });
   }
 }

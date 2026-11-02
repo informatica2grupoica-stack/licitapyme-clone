@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/cotizaciones/[id]/auditoria-override/route.ts
 // Una persona decide distinto al auditor: motivo obligatorio, queda a su nombre en el historial.
 // Body: { productoId, cumple: CumpleItem | null, motivo } — cumple null = volver al dictamen del auditor.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -38,7 +39,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('[compras/cotizaciones/auditoria-override][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo registrar la decisión.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo registrar la decisión.') }, { status: 400 });
   }
 }
 

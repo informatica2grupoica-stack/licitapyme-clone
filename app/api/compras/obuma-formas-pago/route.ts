@@ -2,6 +2,7 @@
 // Formas de pago reales de Obuma (habilitadas para compras) — para el selector del formulario de
 // creación de orden de compra. Transversal (no depende de un negocio puntual), mismo criterio que
 // /api/compras/obuma-subcategorias.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { formasDePagoObuma } from '@/app/lib/compras-oc-obuma';
@@ -30,6 +31,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, formas });
   } catch (error: any) {
     console.error('[compras/obuma-formas-pago][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo consultar Obuma.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo consultar Obuma.') }, { status: 500 });
   }
 }

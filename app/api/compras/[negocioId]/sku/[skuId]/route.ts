@@ -1,5 +1,6 @@
 // app/api/compras/[negocioId]/sku/[skuId]/route.ts
 // DELETE: deshace un SKU SOLO en Licitank (el producto creado en Obuma no se borra desde acá).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -18,6 +19,7 @@ async function __DELETE(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId, skuId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
@@ -27,7 +29,7 @@ async function __DELETE(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, ...r });
   } catch (error: any) {
     console.error('[compras/sku][DELETE]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo deshacer el SKU.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo deshacer el SKU.') }, { status: 400 });
   }
 }
 

@@ -2,12 +2,14 @@
 // Registro de gastos reales del negocio (flete, horas extras, productos extra, etc. — pedido del
 // usuario 09-sep-2026). GET lista + resumen por categoría. POST crea (multipart si trae comprobante,
 // JSON si no). DELETE elimina uno (por si se registró por error).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { registrarGasto, listarGastos, resumenGastos, eliminarGasto, promoverCategoriaGasto, type DatosGasto } from '@/app/lib/compras-gastos';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { subirDocumentoR2 } from '@/app/lib/r2';
+import { errorDeArchivoSubido } from '@/app/lib/subidas';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,6 +28,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -46,6 +49,7 @@ async function __POST(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -62,6 +66,8 @@ async function __POST(request: NextRequest, { params }: Params) {
       const file = form.get('file') as File | null;
       let comprobanteUrl: string | null = null;
       if (file) {
+        const errArchivo = errorDeArchivoSubido(file);
+        if (errArchivo) return NextResponse.json({ error: errArchivo }, { status: 400 });
         const buffer = Buffer.from(await file.arrayBuffer());
         comprobanteUrl = await subirDocumentoR2(`compras/${asignacion.licitacionCodigo}`, file.name, buffer, file.type);
       }
@@ -96,7 +102,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, id: gastoId });
   } catch (error: any) {
     console.error('[compras/gastos][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo registrar el gasto.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo registrar el gasto.') }, { status: 500 });
   }
 }
 
@@ -105,6 +111,7 @@ async function __DELETE(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -120,7 +127,7 @@ async function __DELETE(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('[compras/gastos][DELETE]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo eliminar el gasto.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo eliminar el gasto.') }, { status: 400 });
   }
 }
 

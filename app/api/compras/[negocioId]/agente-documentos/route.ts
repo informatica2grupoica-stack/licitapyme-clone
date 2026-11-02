@@ -2,6 +2,7 @@
 // Agente que lee los documentos del proyecto (bases, anexos propios, acta) y audita/guía el
 // borrador de una cotización antes de guardarla — pedido explícito del usuario (14-sep-2026).
 // Ver app/lib/compras-agente-documentos.ts.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -28,6 +29,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -39,7 +41,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, disponible: agenteDocumentosDisponible(), usoHoy });
   } catch (error: any) {
     console.error('[compras/agente-documentos][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo consultar el uso del agente.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo consultar el uso del agente.') }, { status: 500 });
   }
 }
 
@@ -48,6 +50,7 @@ async function __POST(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   if (!agenteDocumentosDisponible())
     return NextResponse.json({ error: 'El agente de documentos no está configurado (falta GEMINI_API_KEY).' }, { status: 503 });
@@ -76,7 +79,7 @@ async function __POST(request: NextRequest, { params }: Params) {
   } catch (error: any) {
     console.error('[compras/agente-documentos][POST]', String(error));
     const tope = String(error?.message || '').includes('tope de revisiones');
-    return NextResponse.json({ error: error.message || 'El agente no pudo revisar el borrador.' }, { status: tope ? 429 : 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'El agente no pudo revisar el borrador.') }, { status: tope ? 429 : 500 });
   }
 }
 

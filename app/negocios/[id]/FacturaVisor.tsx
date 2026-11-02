@@ -2,6 +2,7 @@
 
 // Visor de factura de compra: la dibuja Licitank con los datos del XML (emisor, receptor, líneas, totales).
 // No es el PDF oficial del SII: es una vista para revisar rápido; el XML original se baja desde el mismo cuadro.
+import { useCerrarConEsc } from '@/app/lib/use-cerrar-con-esc';
 import { useEffect, useState } from 'react';
 import { IconX as X, IconLoader2 as Loader2, IconPrinter as Printer, IconFileCode as FileCode } from '@tabler/icons-react';
 import type { FacturaLeida } from '@/app/lib/factura-xml';
@@ -14,6 +15,7 @@ export function FacturaVisor({ negocioId, dteId, onCerrar }: { negocioId: number
   const [xmlUrl, setXmlUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  useCerrarConEsc(onCerrar);
   useEffect(() => {
     let vivo = true;
     fetch(`/api/compras/${negocioId}/factura?dte=${encodeURIComponent(dteId)}`)
@@ -24,7 +26,7 @@ export function FacturaVisor({ negocioId, dteId, onCerrar }: { negocioId: number
   }, [negocioId, dteId]);
 
   return (
-    <div className="fixed inset-0 z-[80] bg-black/50 flex items-start justify-center overflow-y-auto p-4 print:bg-white print:p-0" onClick={onCerrar} data-testid="factura-visor">
+    <div className="fixed inset-0 z-[80] bg-black/50 flex items-start justify-center overflow-y-auto p-4 print:bg-white print:p-0" role="dialog" aria-modal="true" onClick={onCerrar} data-testid="factura-visor">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl my-6 print:shadow-none print:my-0" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200 print:hidden">
           <p className="text-[13px] font-bold text-zinc-800">Vista de factura · generada por Licitank desde el XML</p>

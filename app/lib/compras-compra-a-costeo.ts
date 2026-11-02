@@ -99,10 +99,12 @@ export async function planTrasladoCompraAlCosteo(negocioId: number): Promise<Pla
 }
 
 /** Carga al costeo lo que dice el plan (solo las líneas en estado CARGA). Devuelve cuántas cargó. */
-export async function trasladarCompraAlCosteo(negocioId: number, actor: { id: number; nombre: string | null }): Promise<{ cargadas: number; omitidas: number }> {
+export interface CostoRealPrevio { filaId: string; anterior: number | null; cargado: number }
+
+export async function trasladarCompraAlCosteo(negocioId: number, actor: { id: number; nombre: string | null }): Promise<{ cargadas: number; omitidas: number; previos: CostoRealPrevio[] }> {
   const plan = await planTrasladoCompraAlCosteo(negocioId);
   const aCargar = plan.lineas.filter(l => l.estado === 'CARGA' && l.filaId);
-  if (aCargar.length === 0) return { cargadas: 0, omitidas: plan.lineas.length };
+  if (aCargar.length === 0) return { cargadas: 0, omitidas: plan.lineas.length, previos: [] };
 
   const antes = await cargarEstadoCosteo(negocioId);
   if (!antes) throw new Error('Este negocio todavía no tiene un costeo guardado.');
@@ -133,5 +135,43 @@ export async function trasladarCompraAlCosteo(negocioId: number, actor: { id: nu
     return sincronizarProductosConCosteo(negocioId);
   }).catch(() => {});
   publicarCambio('compras');
-  return { cargadas: aCargar.length, omitidas: plan.lineas.length - aCargar.length };
+  return {
+    cargadas: aCargar.length, omitidas: plan.lineas.length - aCargar.length,
+    previos: aCargar.map(l => ({ filaId: l.filaId as string, anterior: l.anterior, cargado: l.costoNeto })),
+  };
+}
+
+/** Devuelve al costeo los costos reales que Compras tenía anotados a mano antes de que la compra propuesta los pisara (al rechazarla).
+ *  Solo toca las filas que siguen con el valor que cargó la propuesta: si alguien las editó después, no se pisa lo suyo. */
+export async function restaurarCostosRealesPrevios(negocioId: number, previos: CostoRealPrevio[], actor: { id: number; nombre: string | null }): Promise<number> {
+  if (!previos.length) return 0;
+  const antes = await cargarEstadoCosteo(negocioId);
+  if (!antes) return 0;
+  const despues: EstadoCosteoEditor = JSON.parse(JSON.stringify(antes));
+  const porId = new Map(previos.map(p => [p.filaId, p]));
+  let n = 0;
+  for (const g of despues.grupos || []) for (const f of g.filas || []) {
+    const p = porId.get(f.id);
+    if (!p || f.costoRealUnitario !== p.cargado) continue;
+    f.costoRealUnitario = p.anterior;
+    n++;
+  }
+  if (!n) return 0;
+  await pool.query(
+    `UPDATE negocio_costeo_editor SET datos_json = ?, actualizado_por = ?, actualizado_por_nombre = ?, actualizado_at = ? WHERE negocio_id = ?`,
+    [JSON.stringify(despues), actor.id, actor.nombre, ahoraChileSQL(), negocioId],
+  );
+  const [lic] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
+  await registrarEvento({
+    tipo: 'COMPRAS_COSTEO_ACTUALIZADO', licitacionCodigo: (lic as any[])[0]?.licitacion_codigo ?? null, actorId: actor.id, actorNombre: actor.nombre,
+    mensaje: `Se rechazó la compra: ${n} costo(s) real(es) volvieron a lo que Compras tenía anotado antes de proponerla.`,
+    metadata: { negocio_id: negocioId, restauradas: n },
+  }).catch(() => {});
+  obtenerAsignacion(negocioId).then(asig => {
+    if (!asig) return;
+    auditarFilasCambiadasEnSegundoPlano(negocioId, antes, despues, actor);
+    return sincronizarProductosConCosteo(negocioId);
+  }).catch(() => {});
+  publicarCambio('compras');
+  return n;
 }

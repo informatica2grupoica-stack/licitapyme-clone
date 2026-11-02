@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/costeo-compra/route.ts
 // La compra elegida pasa al costeo. GET = qué cargaría (sin tocar nada); POST = cargarlo.
 // Compras solo toca «Costo unit. REAL» y Link 1 de filas existentes (regla de costeo-compras.ts).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -43,7 +44,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, ...r, ...(await planTrasladoCompraAlCosteo(a.id)) });
   } catch (error: any) {
     console.error('[compras/costeo-compra][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo cargar al costeo.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo cargar al costeo.') }, { status: 400 });
   }
 }
 

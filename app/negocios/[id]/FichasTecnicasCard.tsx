@@ -3,6 +3,7 @@
 // FICHAS TÉCNICAS · paso 3 de «Costeo y auditoría». Se suben TODAS las fichas juntas (sin decir de qué son) y el sistema
 // detecta a qué producto y a qué proveedor corresponde cada una; después se compara lo que dicen contra los requisitos de las
 // bases (comparador técnico del Auditor, v3.0). Lógica en app/lib/compras-fichas.ts; este archivo solo la muestra.
+import { useCerrarConEsc } from '@/app/lib/use-cerrar-con-esc';
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
@@ -74,6 +75,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
   const [arrastrando, setArrastrando] = useState(false);
   const [proyecto, setProyecto] = useState<DocProyecto[] | null>(null);
   const [pegando, setPegando] = useState<{ nombre: string; texto: string } | null>(null);
+  useCerrarConEsc(() => setPegando(null), !!pegando);
   const [visor, setVisor] = useState<VisorDoc | null>(null);
   const [quitadas, setQuitadas] = useState<Set<number>>(new Set());
   const [verOtros, setVerOtros] = useState(false);
@@ -526,7 +528,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
 
       {/* Modal: pegar texto */}
       {pegando && (
-        <div className="fixed inset-0 z-[90] bg-black/50 flex items-start justify-center overflow-y-auto p-4" onClick={() => setPegando(null)}>
+        <div className="fixed inset-0 z-[90] bg-black/50 flex items-start justify-center overflow-y-auto p-4" role="dialog" aria-modal="true" onClick={() => setPegando(null)}>
           <div className="bg-white rounded-xl shadow-xl w-full max-w-xl my-10" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200">
               <p className="text-[14px] font-bold text-zinc-800">Pegar una ficha técnica como texto</p>

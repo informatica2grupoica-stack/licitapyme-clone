@@ -2,6 +2,7 @@
 // Asignación MANUAL de una cotización a uno o varios productos (§8.7) — complemento de
 // "homologar con IA": deja corregir lo que la IA decidió, o saltársela cuando el comprador ya sabe
 // con certeza a qué producto(s) corresponde una cotización.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -48,7 +49,7 @@ async function __PUT(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, cotizaciones });
   } catch (error: any) {
     console.error('[compras/cotizaciones/items][PUT]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo asignar la cotización.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo asignar la cotización.') }, { status: 400 });
   }
 }
 

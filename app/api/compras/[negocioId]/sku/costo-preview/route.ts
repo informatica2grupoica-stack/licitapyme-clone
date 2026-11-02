@@ -5,6 +5,7 @@
 // costoEscenarioParaProducto en compras-aprobaciones.ts) para que la UI lo muestre antes de crear,
 // y compras-aprobaciones.ts vuelve a comprobarlo al momento de crear — si el escenario cambió
 // entremedio, rechaza en vez de mandar un número viejo.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion, listarProductosCompra } from '@/app/lib/compras';
 import { costoEscenarioParaProducto, sugerenciaSkuParaProducto } from '@/app/lib/compras-aprobaciones';
@@ -48,6 +49,6 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, costo: costo.costoUnitario, venta, escenarioTipo: costo.escenarioTipo, sugerencia });
   } catch (error: any) {
     console.error('[compras/sku/costo-preview][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo consultar el costo.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo consultar el costo.') }, { status: 500 });
   }
 }

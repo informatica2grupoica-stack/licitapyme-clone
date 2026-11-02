@@ -3,6 +3,7 @@
 // MÓDULO DE COMPRAS — listado transversal (Fase 1, spec §3-§5). Un negocio ganado por fila: quién
 // lo tiene, si vence el plazo de asignación, si es urgente y cuánto avanzó de sus tareas. El
 // detalle completo (resumen ejecutivo + tareas) vive en la pestaña "Compras" de cada negocio.
+import { useCerrarConEsc } from '@/app/lib/use-cerrar-con-esc';
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -605,12 +606,13 @@ function VistaMensualCompras({ negocios, onAbrirDia, mesesVista }: {
 }
 
 function ModalDiaCompras({ dia, negocios, onClose }: { dia: string; negocios: ComprasFila[]; onClose: () => void }) {
+  useCerrarConEsc(onClose);
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3.5 bg-gradient-to-r from-teal-600 to-teal-700 sticky top-0">
           <p className="text-[13.5px] font-bold text-white">{dayjs(dia).date()} de {MESES[dayjs(dia).month()]}</p>
-          <button onClick={onClose} className="text-white/70 hover:text-white"><X size={16} /></button>
+          <button onClick={onClose} aria-label="Cerrar" className="text-white/70 hover:text-white"><X size={16} /></button>
         </div>
         <div className="p-3 space-y-2">
           {negocios.map(f => <TarjetaDiaCompras key={f.negocioId} f={f} />)}

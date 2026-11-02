@@ -10,6 +10,26 @@ Costo real (Compras) · Cotización mejor · Elegido) y en el cuadro de margen (
 líneas sin costo real cuentan al costo inicial, provisional). Al MANDAR LA COMPRA A APROBACIÓN (`proponerAprobacionCompra`) se llama a
 `trasladarCompraAlCosteo`: los costos reales manuales se PISAN con los precios cotizados elegidos (best-effort; solo líneas con fila y link).
 Datos: `costeoComprasPorProducto` (ahora lee costoRealUnitario). tsc limpio; sin ver en navegador ni probado contra BD.
+**Si el jefe RECHAZA la compra**, los costos reales manuales vuelven a lo anotado antes: `trasladarCompraAlCosteo` devuelve `previos`, se guardan en
+`detalle_json.costosRealesPrevios` de la propuesta y `resolverAprobacion` (RECHAZAR) llama a `restaurarCostosRealesPrevios` (solo filas que siguen con
+el valor cargado). Sin probar contra BD.
+
+## 2026-11-02 — Auditoría de seguridad/QA de Compras: lo corregido
+- `/api/proxy`: redirecciones a mano con host revalidado (SSRF), tope de 60 MB, `Cache-Control: private`, y `CSP: sandbox` para SVG/HTML/XML (un SVG
+  abierto directo corría scripts con la sesión). Riesgo conocido: si algún documento de Mercado Público redirige a un host fuera de la lista, ahora da 403.
+- Visor de Excel (`sanearHtmlExcel`, DocumentViewerModal): solo deja enlaces http(s); `javascript:` se quita (probado con xlsx real).
+- **Subidas de Compras: máximo 20 MB por archivo** (decisión del dueño, 02-nov-2026) y sin svg/html/ejecutables: `app/lib/subidas.ts` en cotizaciones
+  (+extraer), gastos, pagos-oc (máx. 10 comprobantes), reparto y fichas; `proxyClientMaxBodySize: '25mb'` en next.config (Next recortaba a 10 MB).
+- `error.message` ya no sale crudo: `mensajeSeguro` (`app/lib/errores-api.ts`) deja pasar los mensajes de negocio y esconde los de MySQL/red/código
+  (80 sitios en `app/api/compras`). `negocioId` no numérico → 400. CSP parcial en next.config (object-src, base-uri, form-action, frame-ancestors;
+  sin script-src porque Next/Mantine usan código en línea).
+- `compraIniciada` (AuditorComprasCard) pasó a ref: recargar ya no pisa los círculos elegidos sin guardar. LinksProducto: una nota en Link 1 ya no es
+  enlace. aria-label en 4 botones «X», role=dialog en 9 modales, noopener en un window.open.
+- Filtro `cliente_id` en Compras: NO hace falta hoy, porque `MODULOS_ACTIVABLES` (modulos.ts) deja fuera Compras para clientes externos; el proxy ya
+  les niega `/compras` y `/api/compras`. Es OBLIGATORIO hacerlo cuando Compras se agregue a esa lista.
+- Esc cierra 7 modales (hook `useCerrarConEsc`, app/lib/use-cerrar-con-esc.ts). CSP con `script-src` en modo SOLO AVISO
+  (`Content-Security-Policy-Report-Only` en next.config.ts): recorrer la app con la consola abierta; si no sale ninguna violación, pasarla a
+  `Content-Security-Policy`. Hay que reiniciar `next dev` para que lea next.config. Sin probar en navegador.
 
 ## 2026-10-28 — «Pasa» decía poco: el veredicto ahora se separa en Precio y Ficha
 En «Qué se va a aprobar» (`TablaAprobacionCompra`) el dueño no sabía si «Pasa» era por el precio o por la ficha. Es por LOS DOS:

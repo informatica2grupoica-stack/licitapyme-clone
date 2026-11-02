@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/reloj/prorroga/route.ts
 // §15.4 — "la autoriza jefe de ventas o CA" (permiso aprobar_comercial, mismo criterio que el
 // resto del módulo).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -25,6 +26,7 @@ async function __POST(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -44,7 +46,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, reloj });
   } catch (error: any) {
     console.error('[compras/reloj/prorroga][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo registrar la prórroga.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo registrar la prórroga.') }, { status: 400 });
   }
 }
 
@@ -53,6 +55,7 @@ async function __DELETE(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -68,7 +71,7 @@ async function __DELETE(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, reloj });
   } catch (error: any) {
     console.error('[compras/reloj/prorroga][DELETE]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo cancelar la prórroga.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo cancelar la prórroga.') }, { status: 400 });
   }
 }
 

@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/cotizaciones/[id]/homologar/route.ts
 // Dispara el Auditor de Compras (IA) sobre una cotización: homologa por significado contra los
 // productos ganados y dictamina cumplimiento técnico (spec §8.6-§8.8).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -34,7 +35,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, ...resultado });
   } catch (error: any) {
     console.error('[compras/cotizaciones/homologar][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo homologar la cotización.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo homologar la cotización.') }, { status: 500 });
   }
 }
 

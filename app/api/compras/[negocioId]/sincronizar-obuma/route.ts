@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/sincronizar-obuma/route.ts
 // POST: corre YA la misma sincronización que el cron de las 07:45 (compras de Obuma ↔ licitaciones), pero solo
 // para la licitación de este negocio, para no esperar al día siguiente después de corregir algo en Obuma. Solo lee de Obuma y escribe en la copia local.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -26,7 +27,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, resumen });
   } catch (error: any) {
     console.error('[compras/sincronizar-obuma][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo sincronizar con Obuma.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo sincronizar con Obuma.') }, { status: 500 });
   }
 }
 

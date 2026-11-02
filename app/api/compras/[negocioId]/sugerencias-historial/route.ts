@@ -4,6 +4,7 @@
 // del usuario, 14-sep-2026). Para cada producto del negocio (los que hay que cotizar de verdad,
 // §14), busca en el historial LOCAL de compras (compras_historial_oc_item) qué proveedores ya nos
 // vendieron algo parecido antes.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion, listarProductosCompra } from '@/app/lib/compras';
 import { puedeOperarPreAprobacion, puedeVerPreAprobacion } from '@/app/api/compras/[negocioId]/route';
@@ -26,6 +27,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -43,6 +45,6 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, productos: conSugerencias });
   } catch (error: any) {
     console.error('[compras/sugerencias-historial][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudieron cargar las sugerencias.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudieron cargar las sugerencias.') }, { status: 500 });
   }
 }

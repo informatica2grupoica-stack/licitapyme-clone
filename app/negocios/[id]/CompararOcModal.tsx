@@ -2,6 +2,7 @@
 
 // COMPARACIÓN VISUAL DE UNA OC: cotización del plan · OC de Obuma · factura, lado a lado y todo NETO.
 // Solo lectura (lee /comparar-oc). Marca con color donde un precio cambia entre una columna y la siguiente.
+import { useCerrarConEsc } from '@/app/lib/use-cerrar-con-esc';
 import { useEffect, useState } from 'react';
 import { IconX as X, IconLoader2 as Loader2, IconExternalLink as Ext, IconAlertTriangle as Alerta, IconFileText as Doc } from '@tabler/icons-react';
 import type { ComparacionOc } from '@/app/lib/compras-comparar-oc';
@@ -32,6 +33,7 @@ export function CompararOcModal({ negocioId, ocFolio, onCerrar }: { negocioId: n
   const [error, setError] = useState<string | null>(null);
   const [verArchivo, setVerArchivo] = useState<number | null>(null);
 
+  useCerrarConEsc(onCerrar);
   useEffect(() => {
     let vivo = true;
     fetch(`/api/compras/${negocioId}/comparar-oc?oc=${encodeURIComponent(ocFolio)}`)
@@ -63,7 +65,7 @@ export function CompararOcModal({ negocioId, ocFolio, onCerrar }: { negocioId: n
   const factNeto = factOk.reduce((s, f) => s + (f.neto ?? (f.total != null ? Math.round(f.total / 1.19) : 0)), 0);
 
   return (
-    <div className="fixed inset-0 z-[80] bg-black/50 flex items-start justify-center overflow-y-auto p-3" onClick={onCerrar} data-testid="comparar-oc">
+    <div className="fixed inset-0 z-[80] bg-black/50 flex items-start justify-center overflow-y-auto p-3" role="dialog" aria-modal="true" onClick={onCerrar} data-testid="comparar-oc">
       <div className="bg-zinc-50 rounded-xl shadow-xl w-full max-w-[1500px] my-4" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-zinc-200 bg-white rounded-t-xl">
           <p className="text-[14px] font-bold text-zinc-800">

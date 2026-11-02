@@ -2,6 +2,7 @@
 // Compuertas de aprobación (spec §10): Compuerta 1 (compra) y Compuerta 2 (margen), separadas e
 // independientes. GET lee el estado de ambas + el margen calculado en vivo. POST propone una
 // (encargado). PATCH resuelve una (solo jefe de ventas — §10.2/§10.3: "la aprueba el jefe de ventas").
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -40,6 +41,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -74,6 +76,7 @@ async function __POST(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -91,7 +94,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, ...aprobaciones });
   } catch (error: any) {
     console.error('[compras/aprobaciones][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo proponer la aprobación.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo proponer la aprobación.') }, { status: 400 });
   }
 }
 
@@ -100,6 +103,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const body = await request.json();
@@ -120,7 +124,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, ...aprobaciones });
   } catch (error: any) {
     console.error('[compras/aprobaciones][PATCH]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo resolver la compuerta.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo resolver la compuerta.') }, { status: 400 });
   }
 }
 

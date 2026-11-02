@@ -5,11 +5,13 @@
 // endpoint sube el archivo y extrae los campos de una vez, apenas se elige el archivo en pantalla,
 // para que el formulario se autocomplete y la persona pueda revisar/corregir ANTES de confirmar —
 // mismo criterio que el preview de costo en Aprobaciones/SKU. No crea ninguna cotización.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { puedeOperarPreAprobacion } from '@/app/api/compras/[negocioId]/route';
 import { subirDocumentoR2 } from '@/app/lib/r2';
+import { errorDeArchivoSubido } from '@/app/lib/subidas';
 import { extraerDatosCotizacionDeDocumento } from '@/app/lib/compras-cotizacion-ocr';
 
 export const runtime = 'nodejs';
@@ -28,6 +30,7 @@ async function __POST(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -38,6 +41,8 @@ async function __POST(request: NextRequest, { params }: Params) {
     const form = await request.formData();
     const file = form.get('file') as File | null;
     if (!file) return NextResponse.json({ error: 'Falta el archivo.' }, { status: 400 });
+    const errArchivo = errorDeArchivoSubido(file);
+    if (errArchivo) return NextResponse.json({ error: errArchivo }, { status: 400 });
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const archivoUrl = await subirDocumentoR2(`compras/${asignacion.licitacionCodigo}`, file.name, buffer, file.type);
@@ -46,7 +51,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, archivoUrl, archivoNombre: file.name, extraido });
   } catch (error: any) {
     console.error('[compras/cotizaciones/extraer][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo leer el documento.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo leer el documento.') }, { status: 500 });
   }
 }
 

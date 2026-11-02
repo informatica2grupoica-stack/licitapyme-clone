@@ -1,6 +1,7 @@
 // app/api/compras/proveedores/crear-obuma/route.ts
 // Crear un proveedor en Obuma desde el catálogo (/compras/proveedores), sin negocio de por medio.
 // Escritura real, solo por el clic explícito de la persona. Mismo círculo de acceso que crear en el catálogo.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { crearProveedorEnObumaExplicito, datosProveedorDesdeBody, verificarProveedorEnObuma } from '@/app/lib/compras-oc-obuma';
@@ -26,6 +27,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, ...resultado, proveedores: await listarProveedores() });
   } catch (error: any) {
     console.error('[proveedores/crear-obuma][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo crear el proveedor.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo crear el proveedor.') }, { status: 400 });
   }
 }

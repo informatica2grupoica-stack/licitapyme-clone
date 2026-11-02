@@ -8,6 +8,7 @@
 //         { accion: 'lectura' }                    L3: redacta la lectura de la posición de precio
 //         { accion: 'justificar', filaId, texto }  V10: por qué no se usó la opción más barata
 //         { accion: 'habilitar', filaId, nivel: 'EM'|'CA'|null, motivo }
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, ...(await armarPanel(negId)) });
   } catch (error: any) {
     console.error('[compras/auditor-costeo][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo leer el auditor de compras.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo leer el auditor de compras.') }, { status: 500 });
   }
 }
 
@@ -90,7 +91,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     }
   } catch (error: any) {
     console.error('[compras/auditor-costeo][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo completar la acción.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la acción.') }, { status: 500 });
   }
 }
 

@@ -1,5 +1,6 @@
 // app/api/compras/[negocioId]/sku/route.ts
 // Creación de SKU (spec §7): se habilita recién con la Compuerta 1 (Aprobación de compra) resuelta.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -80,7 +81,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, id: skuId, skus });
   } catch (error: any) {
     console.error('[compras/sku][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo crear el SKU.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo crear el SKU.') }, { status: 400 });
   }
 }
 

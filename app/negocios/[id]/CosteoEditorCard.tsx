@@ -1121,7 +1121,7 @@ function RegistroCambiosModal({ registro, codigo, onCerrar }: { registro: Entrad
   }, [onCerrar]);
   const pesos = (n: number) => `${Math.round(n).toLocaleString('es-CL')}`;
   return (
-    <div className="fixed inset-0 z-[120] bg-black/40 flex items-center justify-center p-4" onClick={onCerrar}>
+    <div className="fixed inset-0 z-[120] bg-black/40 flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={onCerrar}>
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-200">
           <History size={16} className="text-zinc-500" />

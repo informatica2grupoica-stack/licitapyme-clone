@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/costo-real/route.ts
 // Costo real CONSOLIDADO del negocio (costeo + gastos + importación, contrastado con Obuma) y su
 // CIERRE con resultado final (24-sep-2026). GET = mirar; POST = cerrar el resultado.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -23,6 +24,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
@@ -31,7 +33,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, resultado, cierre });
   } catch (error: any) {
     console.error('[compras/costo-real][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo calcular el costo real.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo calcular el costo real.') }, { status: 500 });
   }
 }
 
@@ -40,6 +42,7 @@ async function __POST(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
@@ -50,7 +53,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, cierre: r.cierre });
   } catch (error: any) {
     console.error('[compras/costo-real][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo cerrar el resultado.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo cerrar el resultado.') }, { status: 500 });
   }
 }
 

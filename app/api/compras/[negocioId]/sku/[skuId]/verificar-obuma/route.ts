@@ -3,6 +3,7 @@
 // conectado) — pedido explícito del usuario tras encontrar un SKU que seguía mostrando "Creado en
 // Obuma" con un producto que él mismo había borrado ahí. Este endpoint releé en vivo y corrige el
 // vínculo local si ya no coincide con la realidad.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -26,6 +27,7 @@ async function __POST(request: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { negocioId, skuId } = await params;
   const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
 
   try {
     const asignacion = await obtenerAsignacion(id);
@@ -37,7 +39,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, ...resultado });
   } catch (error: any) {
     console.error('[compras/sku/verificar-obuma][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo verificar contra Obuma.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo verificar contra Obuma.') }, { status: 400 });
   }
 }
 

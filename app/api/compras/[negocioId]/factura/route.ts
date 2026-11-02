@@ -1,6 +1,7 @@
 // app/api/compras/[negocioId]/factura/route.ts
 // Vista de una factura de compra (Obuma) dibujada por Licitank a partir de su XML. GET ?dte=<dteId>.
 // El XML se busca solo entre las facturas de ESTE negocio (no se acepta una URL del cliente).
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
@@ -37,6 +38,6 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!factura) return NextResponse.json({ error: 'El XML no tiene el formato de una factura.' }, { status: 422 });
     return NextResponse.json({ success: true, factura, xmlUrl: fac.s3Link });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'Error al leer la factura.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(e, 'Error al leer la factura.') }, { status: 500 });
   }
 }

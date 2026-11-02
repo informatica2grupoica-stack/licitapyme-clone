@@ -170,8 +170,15 @@ export async function proponerAprobacionCompra(
   });
   // Los costos reales anotados a mano (rango de precios mientras se cotizaba) se reemplazan por los precios cotizados de la compra
   // propuesta (pedido del dueño, 02-nov-2026). No crítico: si falla, la aprobación igual queda propuesta y el botón manual sigue ahí.
+  // Lo que había antes se guarda en la propia propuesta: si el jefe la rechaza, se devuelve (ver resolverAprobacion).
   await import('@/app/lib/compras-compra-a-costeo')
-    .then(m => m.trasladarCompraAlCosteo(negocioId, { id: actorId, nombre: actorNombre }))
+    .then(async m => {
+      const { previos } = await m.trasladarCompraAlCosteo(negocioId, { id: actorId, nombre: actorNombre });
+      if (previos.length) {
+        await pool.query(`UPDATE compras_aprobacion SET detalle_json = ? WHERE negocio_id = ? AND tipo = 'COMPRA'`,
+          [JSON.stringify({ ...detalle, costosRealesPrevios: previos }), negocioId]);
+      }
+    })
     .catch(e => console.error('[compras-aprobaciones] no se pudo cargar la compra al costeo (no crítico):', String(e).slice(0, 150)));
   // Alerta al jefe de ventas (campana + /aprobaciones): lo lleva directo al paso donde decide.
   await notificarJefesVentas(negocioId, 'COMPRAS_COMPRA_POR_APROBAR',
@@ -302,6 +309,15 @@ export async function resolverAprobacion(
   // Campana + aviso central + correo (con el enlace a donde corregir). Aprobar a secas también avisa: el encargado necesita saber que puede seguir.
   const actor = { id: actorId, nombre: actorNombre };
   if (decision === 'RECHAZAR') {
+    if (tipo === 'COMPRA') {
+      // La propuesta había pisado los costos reales manuales con los cotizados: al rechazarla vuelven a lo anotado antes. No crítico.
+      await leerAprobacion(negocioId, tipo).then(a => {
+        const previos = (a?.detalle as any)?.costosRealesPrevios;
+        return Array.isArray(previos) && previos.length
+          ? import('@/app/lib/compras-compra-a-costeo').then(m => m.restaurarCostosRealesPrevios(negocioId, previos, actor))
+          : 0;
+      }).catch(e => console.error('[compras-aprobaciones] no se pudieron restaurar los costos reales (no crítico):', String(e).slice(0, 150)));
+    }
     await notificarEncargadosCompras(negocioId, `COMPRAS_APROB_${tipo}_RECHAZADA`,
       `${actorNombre || 'El jefe de ventas'} rechazó ${que}. Motivo: ${comentario!.trim()} — corrígelo y vuelve a enviarlo a aprobación.`, actor,
       { resultado: 'RECHAZADA', que, comentario: comentario!.trim() });

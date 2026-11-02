@@ -451,7 +451,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
       const res = await fetch(`/api/negocios/${negocioId}/auditor/informe?formato=pdf`);
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
-        if (d.alternativa) { toast.error(d.error || 'No se pudo generar el PDF', 'Se descarga la versión en documento.'); window.open(d.alternativa, '_blank'); return; }
+        if (d.alternativa) { toast.error(d.error || 'No se pudo generar el PDF', 'Se descarga la versión en documento.'); window.open(d.alternativa, '_blank', 'noopener,noreferrer'); return; }
         throw new Error(d.error || 'No se pudo generar el PDF');
       }
       const blob = await res.blob();

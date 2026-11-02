@@ -1,5 +1,6 @@
 // app/api/compras/[negocioId]/incidencias/[id]/route.ts
 // §9.5 — cierra el encargado de entrega del proyecto.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -36,7 +37,7 @@ async function __PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ success: true, incidencias });
   } catch (error: any) {
     console.error('[compras/incidencias/[id]][PATCH]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo cerrar la incidencia.' }, { status: 400 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo cerrar la incidencia.') }, { status: 400 });
   }
 }
 

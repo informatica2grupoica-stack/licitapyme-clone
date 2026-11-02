@@ -3,6 +3,7 @@
 // de costo (hoja "Proyectos") y una fila por orden de compra (hoja "Órdenes de compra"), con link
 // directo al documento en Obuma. Reusa el mismo listarProyectosObuma() de la pantalla — mismos
 // datos, misma caché de 5 min.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
 import pool from '@/app/lib/db';
@@ -184,6 +185,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error: any) {
     console.error('[compras/proyectos-obuma/exportar][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo exportar.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo exportar.') }, { status: 500 });
   }
 }

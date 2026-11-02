@@ -2,6 +2,7 @@
 // Preview del código comercial que Obuma va a asignar (§7.3) — mismo gesto que grupoica-intranet:
 // se muestra ANTES de crear, apenas se elige la subcategoría, para que quien está armando el SKU
 // vea el código real y no una sorpresa después de guardar.
+import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { siguienteSkuMercadoPublico } from '@/app/lib/obuma';
@@ -33,6 +34,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, sku });
   } catch (error: any) {
     console.error('[compras/obuma-siguiente-sku][GET]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo consultar Obuma.' }, { status: 500 });
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo consultar Obuma.') }, { status: 500 });
   }
 }

@@ -5,6 +5,7 @@
 // captura fechada, cotización, histórico), que sea el mismo producto, unidad, IVA y sin costos ocultos, y
 // ubica el proyecto frente al precio de mercado y al presupuesto. El tono es de ayuda: cada bloqueo trae su
 // ruta de salida. Toda la aritmética y los bloqueos vienen calculados del servidor (auditor-compras-core.ts).
+import { useCerrarConEsc } from '@/app/lib/use-cerrar-con-esc';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import {
@@ -469,6 +470,7 @@ function resaltar(texto: string, cita: string | null): Array<{ t: string; m: boo
 function EvidenciaModal({ negocioId, filaId, cita, titulo, respaldoId, onClose }: { negocioId: number; filaId: string; cita: string | null; titulo: string; respaldoId?: string; onClose: () => void }) {
   const [data, setData] = useState<{ respaldos: EvidenciaResp[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useCerrarConEsc(onClose);
   useEffect(() => {
     let vivo = true;
     fetch(`/api/compras/${negocioId}/auditor-costeo/evidencia?filaId=${encodeURIComponent(filaId)}${cita ? `&cita=${encodeURIComponent(cita)}` : ''}`)
@@ -477,13 +479,13 @@ function EvidenciaModal({ negocioId, filaId, cita, titulo, respaldoId, onClose }
     return () => { vivo = false; };
   }, [negocioId, filaId, cita]);
   return (
-    <div className="fixed inset-0 z-[80] bg-black/40 flex items-start justify-center p-3 overflow-y-auto" onClick={onClose}>
+    <div className="fixed inset-0 z-[80] bg-black/40 flex items-start justify-center p-3 overflow-y-auto" role="dialog" aria-modal="true" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-xl w-full max-w-6xl my-6" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-zinc-100">
           <div><p className="text-[13px] font-bold text-zinc-800 flex items-center gap-1.5"><Eye size={15} /> De dónde salió esta conclusión</p>
             <p className="text-[11.5px] text-zinc-500 mt-0.5">{titulo}</p>
             {cita && <p className="text-[11.5px] mt-1 px-2 py-1 rounded bg-yellow-50 border border-yellow-200 text-yellow-900">Cita literal buscada: «{cita}»</p>}</div>
-          <button onClick={onClose} className="p-1 rounded-md hover:bg-zinc-100"><X size={16} /></button>
+          <button onClick={onClose} aria-label="Cerrar" className="p-1 rounded-md hover:bg-zinc-100"><X size={16} /></button>
         </div>
         <div className="p-4 space-y-3">
           {!data && !error && <p className="text-[12px] text-zinc-500 flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Buscando en los documentos…</p>}
