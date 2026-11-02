@@ -3,7 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionFromRequest } from '@/app/lib/auth-edge';
 import { estadoVigente } from '@/app/lib/rol-vigente';
-import { fichaCliente } from '@/app/lib/tenant';
+import { fichaCliente, negocioEsDeCliente } from '@/app/lib/tenant';
 import { rutaPermitida, moduloDeRuta } from '@/app/lib/modulos';
 
 // Rutas que NO requieren autenticación
@@ -118,6 +118,13 @@ export async function proxy(request: NextRequest) {
       if (m && m !== 'comun' && m !== 'interno') destino.searchParams.set('m', m);
       if (!ficha.vigente) destino.searchParams.set('suspendido', '1');
       return NextResponse.redirect(destino);
+    }
+    // Defensa en profundidad: aunque Compras hoy no se pueda activar a otras empresas (MODULOS_ACTIVABLES), el día que se active ningún
+    // /compras/<id> ni /api/compras/<id>/… puede entregar un negocio que no sea de esa empresa.
+    const idNegocio = pathname.match(/^\/(?:api\/)?compras\/(\d+)(?:\/|$)/)?.[1];
+    if (idNegocio && !(await negocioEsDeCliente(Number(idNegocio), clienteId))) {
+      if (pathname.startsWith('/api/')) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
+      return NextResponse.redirect(new URL('/dashboard', request.url));
     }
   }
 

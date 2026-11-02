@@ -85,6 +85,19 @@ export async function negocioEsDeMiEmpresa(req: Request, negocioId: string | num
   }
 }
 
+/** ¿Este negocio es de la empresa que consulta? Grupo ICA (1) pasa siempre, como siempre; para las demás, solo si negocios.cliente_id coincide. Falla cerrado.
+ *  Lo usa proxy.ts para que ninguna ruta de Compras (/compras/<id>, /api/compras/<id>/…) entregue un negocio de otra empresa. */
+export async function negocioEsDeCliente(negocioId: number, clienteId: number): Promise<boolean> {
+  if (clienteId === CLIENTE_ICA) return true;
+  if (!Number.isFinite(negocioId) || negocioId <= 0) return false;
+  try {
+    const [rows] = await pool.query(`SELECT 1 FROM negocios WHERE id = ? AND cliente_id = ? LIMIT 1`, [negocioId, clienteId]);
+    return (rows as unknown[]).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 /** Anti-IDOR para ids que llegan en el cuerpo de una petición (a quién reasignar, con qué empresa postular, qué etiquetas poner):
  *  true solo si TODOS pertenecen a la empresa de quien consulta. Lista blanca de tablas (todas tienen cliente_id). */
 export async function registroEsDeMiEmpresa(

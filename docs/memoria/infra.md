@@ -17,8 +17,11 @@ direcciones de servidores ni claves: esos datos viven en los `.env`, fuera del r
 - Revisadas a mano las 38 rutas que mi búsqueda marcó «sin chequeo»: casi todas usan `getAuthedUser` (api-auth) o `auditor-acceso`; `usuarios`, `debug/*`,
   `analizadas`, `radar/*` exigen admin; `documentos/estado`, `analizar-documento` y `pdf-pagina` solo piden sesión y no entregan datos de negocios.
   Ningún IDOR confirmado. El `UPDATE` que parecía estar en un GET de `comercial/costeo` está en `ingresarVersionCosteo` (no es GET).
-- **Sigue pendiente**: pasar el CSP de `Report-Only` a bloqueo (mirar la consola del navegador en producción); filtro `cliente_id` en Compras antes de
-  activarla para otras empresas; DNS rebinding del guardián de URLs.
+- 02-nov-2026 (tercera tanda, pedido del dueño tras desplegar): **CSP en BLOQUEO** en next.config.ts (script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:;
+  worker-src; object-src 'none'; base-uri; form-action; frame-ancestors). Sin default-src/img-src/connect-src a propósito: se pulen con la consola del navegador
+  («Refused to load the script… Content-Security-Policy» → agregar ese origen). **Filtro por empresa en Compras**: `proxy.ts` + `negocioEsDeCliente`
+  (tenant.ts) niegan `/compras/<id>` y `/api/compras/<id>/…` si el negocio no es de la empresa; Grupo ICA (1) pasa igual que siempre.
+- **Sigue pendiente**: pulir el CSP con la consola; DNS rebinding del guardián de URLs (riesgo bajo); la lista `MODULOS_ACTIVABLES` sigue sin Compras.
 
 ## Estado vigente
 

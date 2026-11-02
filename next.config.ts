@@ -31,11 +31,11 @@ const nextConfig: NextConfig = {
         { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
         // CSP parcial a propósito: sin script-src/style-src porque Next y Mantine usan código y estilos en línea. Estas directivas
         // no los tocan y cierran lo demás: plugins, <base> falso, formularios hacia otro sitio y que otro sitio nos enmarque.
-        { key: 'Content-Security-Policy', value: "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'" },
-        // Política con script-src en modo SOLO AVISO: no bloquea nada, pero el navegador anota en la consola cada violación («Content-Security-Policy-Report-Only»).
-        // Se recorre la app con la consola abierta y, si no sale ninguna, se pasa a Content-Security-Policy. 'unsafe-inline' sigue porque Next
-        // inyecta scripts en línea (sin nonce); lo que corta es cargar scripts desde OTRO sitio, que es lo que usaría un XSS para traer su código.
-        { key: 'Content-Security-Policy-Report-Only', value: `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === 'production' ? '' : " 'unsafe-eval'"} blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'` },
+        // CSP en BLOQUEO (02-nov-2026), a pulir con lo que salga en la consola del navegador. 'unsafe-inline' sigue porque Next inyecta scripts en línea
+        // (sin nonce); lo que corta es cargar scripts desde OTRO sitio, que es lo que usaría un XSS para traer su código. Sin default-src/img-src/
+        // connect-src/frame-src a propósito: la app carga imágenes, PDF y visores de R2, Mercado Público y Microsoft; eso se afina con la consola abierta.
+        // Si algo legítimo queda bloqueado, la consola dice «Refused to load the script … Content-Security-Policy»: agregar ese origen a script-src.
+        { key: 'Content-Security-Policy', value: `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${process.env.NODE_ENV === 'production' ? '' : " 'unsafe-eval'"} blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'` },
       ],
     }];
   },
