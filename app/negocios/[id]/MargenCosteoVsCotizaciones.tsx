@@ -50,7 +50,7 @@ function FilaGrupo({ rotulo, b }: { rotulo: string; b: BloqueMargen }) {
   );
 }
 
-export function MargenCosteoVsCotizaciones({ resumen: r }: { resumen: ResumenMargen }) {
+export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [] }: { resumen: ResumenMargen; fletesCotizados?: Array<{ proveedor: string; cotizacionId: number; monto: number }> }) {
   const t = r.total;
   if (r.lineas.length === 0) {
     return (
@@ -141,6 +141,14 @@ export function MargenCosteoVsCotizaciones({ resumen: r }: { resumen: ResumenMar
       </div>
 
       <ul className="mt-3 space-y-1.5 text-[13px] text-slate-700">
+        {fletesCotizados.length > 0 && (
+          <li data-testid="margen-fletes-cotizados">
+            Flete cotizado aparte (no incluido en el costo de arriba): {fletesCotizados.map((f, i) => (
+              <span key={f.cotizacionId}>{i > 0 && ' · '}<b className="font-bold text-slate-900">{clp(f.monto)}</b> de {f.proveedor} (cotización #{f.cotizacionId})</span>
+            ))}
+            {fletesCotizados.length > 1 && <> = <b className="font-bold text-slate-900">{clp(fletesCotizados.reduce((s, f) => s + f.monto, 0))}</b></>}. La reserva automática para flete es de {clp(t.gastoEntrega)}.
+          </li>
+        )}
         {r.sinCotizar.n > 0 && (
           <li>{r.cotizadas.n} de {r.lineas.length} líneas ya tienen cotización. El margen con cotizaciones es <b className="font-bold text-amber-700">provisional</b>: las {r.sinCotizar.n} sin cotizar se mantienen al costo costeado y pueden mover el margen cuando se coticen.</li>
         )}

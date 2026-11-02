@@ -17,6 +17,8 @@ import { compararPrecioConCosteo, type VeredictoPrecio } from '@/app/lib/compras
 export interface SeleccionCelda { cotizacionId: number; productoId: number }
 export interface CotizacionMin {
   id: number; proveedorNombre: string; proveedorRut?: string | null; plazoEntregaTexto?: string | null; archivoUrl?: string | null;
+  /** Flete cobrado aparte por el proveedor (neto). null/0 = incluido o sin costo. */
+  fleteMonto?: number | null;
   items: Array<{ productoId: number; precioUnitario: number | null; precioBase?: number | null; adicionales: unknown[] }>;
 }
 export interface AccionesCotizacion {
@@ -91,9 +93,11 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo =
   const num = (v: unknown) => { const n = typeof v === 'number' ? v : Number(v); return Number.isFinite(n) && n > 0 ? n : 1; };   // la cantidad viene como número (o decimal con punto de la BD)
   const resumen = useMemo(() => cotizaciones.map(c => {
     const cubiertos = productos.filter(p => c.items.some(i => i.productoId === p.id));
-    const total = productos.reduce((s, p) => { const it = c.items.find(i => i.productoId === p.id); return s + (it?.precioUnitario != null ? it.precioUnitario * num(p.cantidad) : 0); }, 0);
+    const subtotal = productos.reduce((s, p) => { const it = c.items.find(i => i.productoId === p.id); return s + (it?.precioUnitario != null ? it.precioUnitario * num(p.cantidad) : 0); }, 0);
+    const flete = subtotal > 0 && c.fleteMonto != null && c.fleteMonto > 0 ? c.fleteMonto : 0;   // flete cobrado aparte: cuenta en el total
+    const total = subtotal + flete;
     const nAvisos = productos.reduce((s, p) => s + (alertas?.[`${c.id}:${p.id}`]?.length ?? 0), 0);
-    return { c, cubiertos: cubiertos.length, faltan: productos.length - cubiertos.length, total, nAvisos };
+    return { c, cubiertos: cubiertos.length, faltan: productos.length - cubiertos.length, subtotal, flete, total, nAvisos };
   }), [cotizaciones, productos, alertas]);
 
   const usadas = new Set([...Object.values(compra ?? {}), ...(seleccion ? [seleccion.cotizacionId] : [])]);
@@ -322,7 +326,7 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo =
               ? <span className="font-semibold text-emerald-700">Todos ({r.cubiertos} de {productos.length})</span>
               : <span className="font-semibold text-amber-700">{r.cubiertos} de {productos.length} · faltan {r.faltan}</span>)}
             {fila('Total si compras aquí', r => r.total > 0
-              ? <span className="font-bold text-zinc-900">{clp(r.total)}{menor != null && r.faltan === 0 && r.nAvisos === 0 && r.total === menor ? <span className="ml-1 text-[10.5px] font-bold text-amber-600">★ menor</span> : null}</span>
+              ? <span className="font-bold text-zinc-900">{clp(r.total)}{menor != null && r.faltan === 0 && r.nAvisos === 0 && r.total === menor ? <span className="ml-1 text-[10.5px] font-bold text-amber-600">★ menor</span> : null}{r.flete > 0 && <span className="block text-[11px] font-normal text-zinc-500">Productos {clp(r.subtotal)} + flete {clp(r.flete)}</span>}</span>
               : <span className="text-zinc-300">—</span>)}
             {tecnico && fila('Ficha técnica', r => {
               const celdas = r.c.items.map(i => tecnico[`${r.c.id}:${i.productoId}`]).filter(Boolean);

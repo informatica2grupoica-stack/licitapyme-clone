@@ -28,9 +28,11 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
 
   const resumen = useMemo(() => cotizaciones.map(c => {
     const cubiertos = productos.filter(p => c.items.some(i => i.productoId === p.id)).length;
-    const total = productos.reduce((s, p) => { const it = c.items.find(i => i.productoId === p.id); return s + (it?.precioUnitario != null ? it.precioUnitario * num(p.cantidad) : 0); }, 0);
+    const subtotal = productos.reduce((s, p) => { const it = c.items.find(i => i.productoId === p.id); return s + (it?.precioUnitario != null ? it.precioUnitario * num(p.cantidad) : 0); }, 0);
+    // El flete que el proveedor cobra aparte se suma al total (antes quedaba fuera y el total parecía solo los productos).
+    const flete = subtotal > 0 && c.fleteMonto != null && c.fleteMonto > 0 ? c.fleteMonto : 0;
     const nAvisos = productos.reduce((s, p) => s + (alertas?.[`${c.id}:${p.id}`]?.length ?? 0), 0);
-    return { c, cubiertos, faltan: productos.length - cubiertos, total, nAvisos };
+    return { c, cubiertos, faltan: productos.length - cubiertos, subtotal, flete, total: subtotal + flete, nAvisos };
   }), [cotizaciones, productos, alertas]);
 
   // Mejor precio por producto (sin las ofertas reemplazadas): el mismo «Mejor» de cada fila. null = sin cotización.
@@ -45,6 +47,11 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
     const proveedor = m == null ? null : cotizaciones.find(c => !reemp.has(`${c.id}:${p.id}`) && c.items.find(i => i.productoId === p.id)?.precioUnitario === m)?.proveedorNombre ?? null;
     return { id: p.id, descripcion: p.descripcion, cantidad: num(p.cantidad), venta: venta?.[p.id] ?? null, costeo: costeado[p.id] ?? null, cotizado: m, proveedor, compras: costeoCompras[p.id]?.costo ?? null };
   }), GASTO_ENTREGA_PCT), [productos, cotizaciones, costeado, venta, menorDe, reemp, costeoCompras]);
+
+  // Fletes que cobran aparte los proveedores que dan el mejor precio de alguna línea: el cuadro de margen los muestra junto a la reserva.
+  const fletesCotizados = cotizaciones
+    .filter(c => c.fleteMonto != null && c.fleteMonto > 0 && margen.lineas.some(l => l.cotizada && l.proveedor === c.proveedorNombre))
+    .map(c => ({ proveedor: c.proveedorNombre, cotizacionId: c.id, monto: c.fleteMonto as number }));
 
   if (productos.length === 0 || (cotizaciones.length === 0 && !lecLink?.disponible)) return null;
 
@@ -290,11 +297,12 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
                 </tr>
               </thead>
               <tbody>
-                {resumenVisible.map(({ c, cubiertos, faltan, total, nAvisos }) => (
+                {resumenVisible.map(({ c, cubiertos, faltan, subtotal, flete, total, nAvisos }) => (
                   <tr key={c.id} className="border-b border-zinc-100 last:border-0 align-middle">
                     <td className="px-4 py-2"><p className="text-[13px] font-semibold text-zinc-900">{c.proveedorNombre}</p><p className="text-[11px] text-zinc-400">Cotización #{c.id}</p></td>
                     <td className="px-3 py-2 text-[12.5px] whitespace-nowrap">{faltan === 0 ? <span className="font-semibold text-emerald-700">Todos ({cubiertos} de {productos.length})</span> : <span className="font-semibold text-amber-700">{cubiertos} de {productos.length} · faltan {faltan}</span>}</td>
-                    <td className="px-3 py-2 text-right text-[13px] font-bold text-zinc-900 tabular-nums whitespace-nowrap">{total > 0 ? clp(total) : <span className="text-zinc-300">—</span>}{menorTotal != null && faltan === 0 && nAvisos === 0 && total === menorTotal && <span className="ml-1 text-[10.5px] font-bold text-amber-600">★ menor</span>}</td>
+                    <td className="px-3 py-2 text-right text-[13px] font-bold text-zinc-900 tabular-nums whitespace-nowrap">{total > 0 ? clp(total) : <span className="text-zinc-300">—</span>}{menorTotal != null && faltan === 0 && nAvisos === 0 && total === menorTotal && <span className="ml-1 text-[10.5px] font-bold text-amber-600">★ menor</span>}
+                      {flete > 0 && <span className="block text-[11px] font-normal text-zinc-500" data-testid={`total-desglose-${c.id}`}>Productos {clp(subtotal)} + flete {clp(flete)}</span>}</td>
                     <td className="px-3 py-2 text-[12.5px] text-zinc-700">{c.plazoEntregaTexto || <span className="text-zinc-300">no dice</span>}</td>
                     <td className="px-3 py-2 text-[12.5px] whitespace-nowrap">{nAvisos > 0 ? <span className="font-bold text-rose-600">⚠ {nAvisos}</span> : <span className="text-emerald-600">sin avisos</span>}</td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
@@ -313,7 +321,7 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
           </div>
         </details>
       )}
-      {(margen.lineas.length > 0 || margen.sinVenta > 0 || margen.sinCosteo < productos.length) && <MargenCosteoVsCotizaciones resumen={margen} />}
+      {(margen.lineas.length > 0 || margen.sinVenta > 0 || margen.sinCosteo < productos.length) && <MargenCosteoVsCotizaciones resumen={margen} fletesCotizados={fletesCotizados} />}
       <p className="px-4 py-2 text-[11.5px] text-zinc-400 border-t border-zinc-100">Verde: más barata que lo costeado · Rojo: más cara · Azul: igual (±1 %) · Gris: no se puede comparar. ⚠ rojo = un problema del proveedor (plazo, RUT, mínimo de venta, falta un componente).</p>
     </div>
   );

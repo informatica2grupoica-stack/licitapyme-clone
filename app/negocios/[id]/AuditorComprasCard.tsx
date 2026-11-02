@@ -1097,7 +1097,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           </div>
         </Modal>
 
-        <ListaCotizaciones cotizaciones={cotizaciones} productos={productos} origenLabel={ORIGEN_LABEL} puedeOperar={puedeOperar} homologandoId={homologando}
+        <ListaCotizaciones negocioId={negocioId} onCambio={async () => { await cargar(); recargarCompartido(); }} cotizaciones={cotizaciones} productos={productos} origenLabel={ORIGEN_LABEL} puedeOperar={puedeOperar} homologandoId={homologando}
           avisosPorCotizacion={Object.fromEntries(cotizaciones.map(c => [c.id, auditorias.filter(a => a.cotizacionId === c.id).reduce((n, a) => n + a.revisiones.filter(r => r.resultado === 'NO_CUMPLE' && r.criterio !== 'Precio vs. lo costeado').length, 0)]))}
           onAsignar={(id) => { const c = cotizaciones.find(x => x.id === id); if (c) { abrirAsignacion(c); setTimeout(() => document.getElementById(`cotizacion-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150); } }}
           onHomologar={(id) => homologar(id)}
