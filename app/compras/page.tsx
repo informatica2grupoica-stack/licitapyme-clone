@@ -18,7 +18,7 @@ import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { useRealtime } from '@/app/lib/use-realtime';
 import { GanttComprasCard } from '@/app/negocios/[id]/GanttComprasCard';
 import type { FaseTarea, HitosGantt as HitosPlan } from '@/app/lib/compras-plan';
-import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconBuilding as Building2, IconArrowUpRight as ArrowUpRight, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconUsers as Users, IconArrowsUpDown as ArrowUpDown, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconUserPlus as UserPlus, IconCircleCheck as CheckCircle2, IconChartBar as BarChart3, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconChevronsLeft as ChevronsLeft, IconChevronsRight as ChevronsRight, IconList as List, IconPackage as PackageCheck, IconCircleX as XCircle, IconArchive as Archive, IconArrowBackUp as Undo2, IconPencil as Pencil, IconTimeline as GanttChart, IconZoomIn as ZoomIn, IconZoomOut as ZoomOut, IconDiamond as Diamond, IconCalendarClock as CalendarClock, IconLayoutSidebarRightCollapse as PanelRightClose } from '@tabler/icons-react';
+import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconBuilding as Building2, IconArrowUpRight as ArrowUpRight, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconUsers as Users, IconArrowsUpDown as ArrowUpDown, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconUserPlus as UserPlus, IconCircleCheck as CheckCircle2, IconChartBar as BarChart3, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconChevronsLeft as ChevronsLeft, IconChevronsRight as ChevronsRight, IconList as List, IconPackage as PackageCheck, IconCircleX as XCircle, IconArchive as Archive, IconArrowBackUp as Undo2, IconPencil as Pencil, IconTimeline as GanttChart, IconZoomIn as ZoomIn, IconZoomOut as ZoomOut, IconDiamond as Diamond, IconCalendarClock as CalendarClock } from '@tabler/icons-react';
 
 type CierreLegado = 'ENTREGADA' | 'NO_REALIZADA' | 'PRECOMPRA_SIN_ADJUDICAR';
 type EstadoTareaGantt = 'PENDIENTE' | 'EN_CURSO' | 'HECHA';
@@ -736,24 +736,25 @@ function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaU
 
   return (
     <div className={`flex border-b border-zinc-100 transition-colors ${seleccionada ? 'bg-teal-50/60' : 'hover:bg-teal-50/30'}`} style={{ height: ALTO_FILA_GANTT }}>
-      <div role="button" tabIndex={0} onClick={onSeleccionar} onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && onSeleccionar()}
-        className={`sticky left-0 z-10 flex items-center gap-2 px-3 border-r border-zinc-200 flex-shrink-0 overflow-hidden cursor-pointer ${seleccionada ? 'bg-teal-50/60' : 'bg-white'}`}
-        style={{ width: ANCHO_ETIQUETA_GANTT }} title="Ver todas las tareas de esta licitación">
+      <div
+        className={`sticky left-0 z-10 flex items-center gap-2 px-3 border-r border-zinc-200 flex-shrink-0 overflow-hidden ${seleccionada ? 'bg-teal-50/60' : 'bg-white'}`}
+        style={{ width: ANCHO_ETIQUETA_GANTT }}>
         <AvatarAsignado nombre={f.asignadoNombre} seed={f.asignadoA ?? f.asignadoNombre} size={26} />
         <div className="min-w-0 flex-1">
-          <p className={`text-[12px] font-bold leading-tight line-clamp-2 ${seleccionada ? 'text-teal-700' : 'text-zinc-900'}`} title={f.licitacionNombre || f.licitacionCodigo}>{f.licitacionNombre || f.licitacionCodigo}</p>
+          {lugarCorto(f) && (
+            <p className="flex items-center gap-1 mb-0.5 text-[11px] font-bold text-zinc-800 min-w-0" title={[f.licitacionOrganismo, f.licitacionRegion].filter(Boolean).join(' · ')}>
+              <Building2 size={11} className="flex-shrink-0 text-zinc-400" />
+              <span className="truncate">{lugarCorto(f)}</span>
+            </p>
+          )}
+          <Link href={`/compras/${f.negocioId}`} title="Abrir la licitación de compra"
+            className="block text-[12px] font-semibold leading-tight line-clamp-2 text-zinc-900 hover:text-teal-700 hover:underline">{f.licitacionNombre || f.licitacionCodigo}</Link>
           <div className="flex items-center gap-1.5 mt-0.5">
             <span className="text-[10px] font-mono text-zinc-400">{f.licitacionCodigo}</span>
             {f.urgente && <AlertTriangle size={11} className="text-rose-600 flex-shrink-0" aria-label="Entrega rápida" />}
             {f.reloj?.prorrogado && <CalendarClock size={11} className="text-amber-500 flex-shrink-0" />}
             <span className="text-[10.5px] font-semibold text-zinc-600">{fmtCLPCorto(f.montoNuestro)}</span>
           </div>
-          {lugarCorto(f) && (
-            <p className="flex items-center gap-1 mt-0.5 text-[10px] font-semibold text-zinc-600 min-w-0" title={[f.licitacionOrganismo, f.licitacionRegion].filter(Boolean).join(' · ')}>
-              <Building2 size={10} className="flex-shrink-0 text-zinc-400" />
-              <span className="truncate">{lugarCorto(f)}</span>
-            </p>
-          )}
           <div className="flex items-center gap-1.5 mt-1">
             {ultimaUrgente && !f.precompra && <ChipUltimaGanada />}
             <span className="text-[10px] text-zinc-500 whitespace-nowrap" title={f.precompra ? 'Fecha estimada de adjudicación según Mercado Público' : `Ganado ${fmtFecha(f.ganadoAt)}`}>
@@ -775,8 +776,8 @@ function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaU
             </div>
           );
         })()}
-        <Link href={`/compras/${f.negocioId}`} onClick={e => e.stopPropagation()} title="Ir al negocio"
-          className="text-zinc-300 hover:text-teal-600 flex-shrink-0"><ArrowUpRight size={14} /></Link>
+        <button type="button" onClick={onSeleccionar} title="Ver el detalle del Gantt (todas las tareas)" aria-label="Ver el detalle del Gantt"
+          className="flex-shrink-0 p-1.5 rounded-md text-zinc-400 hover:text-teal-700 hover:bg-teal-50 transition-colors"><GanttChart size={15} /></button>
       </div>
       <div className="relative flex-1" style={{ minWidth: 0 }}>
         {(() => {
@@ -848,13 +849,13 @@ function FilaGantt({ f, inicioRango, pxDia, onSeleccionar, seleccionada, ultimaU
 function PanelDetalleGantt({ f, onClose }: { f: ComprasFila; onClose: () => void }) {
   const h = calcularHitosGantt(f);
   return (
-    <div className="flex flex-col bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden flex-shrink-0" style={{ width: 380, maxHeight: '72vh' }}>
+    <div className="flex flex-col bg-white border border-zinc-200 rounded-2xl shadow-xl overflow-hidden w-full max-w-xl" style={{ maxHeight: '88vh' }} onClick={e => e.stopPropagation()}>
       <div className="flex items-start justify-between gap-2 px-4 py-3 bg-gradient-to-r from-teal-600 to-teal-700">
         <div className="min-w-0">
           <p className="text-[13px] font-bold text-white leading-snug">{f.licitacionNombre || f.licitacionCodigo}</p>
           <p className="text-[10.5px] font-mono text-teal-100 mt-0.5">{f.licitacionCodigo}</p>
         </div>
-        <button onClick={onClose} title="Cerrar" className="text-white/70 hover:text-white flex-shrink-0"><PanelRightClose size={16} /></button>
+        <button onClick={onClose} title="Cerrar" className="text-white/70 hover:text-white flex-shrink-0"><X size={16} /></button>
       </div>
       <div className="overflow-y-auto px-4 py-3 space-y-3">
         <div className="grid grid-cols-3 gap-1.5 text-center">
@@ -1057,8 +1058,12 @@ function VistaGanttCompras({ negocios, ultimaUrgenteId }: { negocios: ComprasFil
             </div>
           </div>
         </div>
-        {seleccionado && <PanelDetalleGantt f={seleccionado} onClose={() => setSeleccionadoId(null)} />}
       </div>
+      {seleccionado && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" onClick={() => setSeleccionadoId(null)}>
+          <PanelDetalleGantt f={seleccionado} onClose={() => setSeleccionadoId(null)} />
+        </div>
+      )}
 
       <div className="flex items-center gap-4 flex-wrap text-[11px] text-zinc-500">
         <span className="font-semibold text-zinc-600">Cada barra empieza el día que se ganó:</span>

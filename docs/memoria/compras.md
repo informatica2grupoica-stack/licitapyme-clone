@@ -3,6 +3,9 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-02 — Gantt de Compras: fila reordenada
+- Fila: organismo/región arriba en negrita; el nombre lleva a la licitación de compra (`/compras/[id]`); el botón chico (ícono Gantt) abre el detalle de tareas en un modal (antes panel a la derecha). Solo visual, sin ver en navegador.
+
 ## 2026-11-02 — Costo real manual como rango de precios (reemplaza las columnas espejo del 30-oct)
 El dueño descartó las columnas espejo «Costo unit. COMPRAS / Link COMPRAS» (quitadas). Lo vigente: Compras anota a mano el «Costo unit. REAL»
 del costeo (ya existía) como RANGO de precios mientras cotiza. Ese monto se ve en «Compara y elige a quién comprar» (columnas Costeo ·
