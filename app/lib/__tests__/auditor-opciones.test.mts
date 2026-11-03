@@ -564,3 +564,20 @@ test('emparejar: «Rastrillo McLeod» va a la herramienta y «Astil para McLeod�
   assert.equal(asignaciones.find(x => x.productoIdx === 0)?.filaId, 'rastrillo');
   assert.equal(asignaciones.find(x => x.productoIdx === 1)?.filaId, 'mango');
 });
+
+test('re-análisis: la lectura nueva reescribe nombre/marca y corta el código; el mismo código con el mismo precio es el mismo producto (607-84-LE26)', () => {
+  const v = (nombre: string, marca: string, sku: string, precio: number) => ({ nombre, marca, modelo: '', sku, precio });
+  const nuevos = [
+    { idx: 1, ...v('Astil Para McLeod Council Tool', 'Coucil Tool (sic; en otros ítems aparece Council Tool)', '85278', 36_000) },
+    { idx: 5, ...v('Pala Forestal Council Tool 8 FSS', 'Council Tool', 'FFSHOSS3', 128_000) },
+    { idx: 6, ...v('Rastrillo Segador Council Tool 60\'\'', 'Council Tool', '85207', 85_000) },
+  ];
+  assert.equal(emparejarProductoReleido(v('Astil para McLeod', "Council Tool (escrito 'Coucil Tool' en el documento)", '85278', 36_000), nuevos), 1);
+  assert.equal(emparejarProductoReleido(v('Pala Forestal', 'Council Tool', 'FFSHOSS38 FSS', 128_000), nuevos), 5);
+  assert.equal(emparejarProductoReleido(v('Pala Forestal', 'Council Tool', 'FFSHOSS38 FSS', 99_000), nuevos), null);
+});
+
+test('identidad: marca con acotación o mal escrita no hace «otro producto» si el código del proveedor es el mismo (607-84-LE26)', () => {
+  assert.equal(coincidenciaIdentidad({ marca: "Council Tool (escrito 'Coucil Tool' en el documento)", sku: '85278' }, { marca: 'Coucil Tool (sic; en otros ítems aparece Council Tool)', sku: '85278' }), 'coincide');
+  assert.equal(coincidenciaIdentidad({ marca: 'Council Tool', sku: '85278' }, { marca: 'Otra Marca', sku: '99999' }), 'distinto');
+});

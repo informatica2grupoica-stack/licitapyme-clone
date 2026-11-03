@@ -3,6 +3,15 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-03 (tarde) — «Releer» le quitaba el precio a las líneas (607-84-LE26; sin desplegar)
+**Síntoma:** línea con «Cotizado 1» pero sin monto («La opción no tiene respaldo con precio legible», estado Tanteo).
+**Causa:** al releer un PDF el modelo reescribe nombre/marca/código («Astil para McLeod» → «Astil Para McLeod Council Tool», marca «Coucil Tool (sic…)», «FFSHOSS38 FSS» → «FFSHOSS3»).
+`emparejarProductoReleido` no los reconocía → respaldo viejo sin vigencia (opciones 815 y 817 sin precio) y opciones duplicadas (825, 826).
+**Arreglos (core):** (1) `emparejarProductoReleido` cae a «mismo código ≥5 caracteres (igual o uno dentro del otro) + mismo precio»; (2) `coincidenciaIdentidad` compara la marca sin
+lo que va entre paréntesis y da «coincide» si el código del proveedor es igual (≥5) y los modelos no chocan (antes: «el respaldo es de otro producto»); (3) `sugerirLineas` numera las líneas
+1..N para la IA: con 2 grupos el «item» se repite (1.3 y 2.3) y el astil McLeod cayó en la manguera verde (2.3); también arregla compras-fichas.ts.
+**Datos:** respaldos 1032/1033 devueltos a 815/817 (formalizada), 825/826 descartadas. Tests 1704, tsc limpio.
+
 ## 2026-11-03 — Repuesto/mango se mezclaba con la herramienta (607-84-LE26, negocio 1630; sin desplegar)
 Start Fire cotizó «Rastrillo McLeod forestal» y el emparejador lo puso en «MANGO DE REEMPLAZO PARA RASTRILLO MCLEOD» (empate de palabras; ganó el primero).
 **Regla** (`puntuar`, auditor-opciones-core.ts): si solo UNO de producto/línea es pieza (mango, astil, repuesto, reemplazo, recambio; en las 2 primeras

@@ -617,10 +617,14 @@ export function coincidenciaIdentidad(
   opcion: { marca?: string | null; modelo?: string | null; sku?: string | null },
   ficha: { marca?: string | null; modelo?: string | null; sku?: string | null },
 ): CoincidenciaProducto {
-  const oMarca = idNorm(opcion.marca), oModelo = idNorm(opcion.modelo), oSku = idNorm(opcion.sku);
-  const fMarca = idNorm(ficha.marca), fModelo = idNorm(ficha.modelo), fSku = idNorm(ficha.sku);
+  // La marca que lee el Lector a veces trae acotaciones («Council Tool (escrito 'Coucil Tool' en el documento)»): se comparan sin lo que va entre paréntesis.
+  const marcaNorm = (v: string | null | undefined) => idNorm((v || '').replace(/\([^)]*\)/g, ''));
+  const oMarca = marcaNorm(opcion.marca), oModelo = idNorm(opcion.modelo), oSku = idNorm(opcion.sku);
+  const fMarca = marcaNorm(ficha.marca), fModelo = idNorm(ficha.modelo), fSku = idNorm(ficha.sku);
   if (!oMarca && !oModelo && !oSku) return 'sin_dato';
   if (!fMarca && !fModelo && !fSku) return 'sin_dato';
+  // Mismo código del proveedor (≥5 caracteres) y sin modelos que choquen: es el mismo producto aunque la marca esté mal escrita en uno de los dos («Coucil Tool»).
+  if (oSku.length >= 5 && oSku === fSku && !(oModelo && fModelo && !mismoOContiene(oModelo, fModelo))) return 'coincide';
   if (oMarca && fMarca && !mismoOContiene(oMarca, fMarca)) return 'distinto';
   if (oModelo && fModelo) return mismoOContiene(oModelo, fModelo) ? 'coincide' : 'distinto';
   if (oSku && fSku) return oSku === fSku ? 'coincide' : 'distinto';
@@ -646,11 +650,18 @@ export function modelosParecidos(a: { marca?: string | null; modelo?: string | n
 // ── Re-análisis de un documento: ¿qué producto de la lectura nueva es el que ya estaba en una opción? ──
 const nombreNorm = (v: string) => v.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/(\d)[.,](\d{3})(?!\d)/g, '$1$2').replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean).sort().join(' ');
 /** Devuelve el idx del producto NUEVO que corresponde al VIEJO (mismo nombre, o mismo modelo/SKU con la misma marca), o null si no hay equivalente. */
-export function emparejarProductoReleido(viejo: Pick<ProductoNormalizado, 'nombre' | 'marca' | 'modelo' | 'sku'>, nuevos: Array<Pick<ProductoNormalizado, 'idx' | 'nombre' | 'marca' | 'modelo' | 'sku'>>): number | null {
+export function emparejarProductoReleido(viejo: Pick<ProductoNormalizado, 'nombre' | 'marca' | 'modelo' | 'sku'> & { precio?: number | null }, nuevos: Array<Pick<ProductoNormalizado, 'idx' | 'nombre' | 'marca' | 'modelo' | 'sku'> & { precio?: number | null }>): number | null {
   const n = nombreNorm(viejo.nombre);
   if (n) { const igual = nuevos.find(x => nombreNorm(x.nombre) === n); if (igual) return igual.idx; }
   if (viejo.modelo || viejo.sku) {
     const cand = nuevos.filter(x => coincidenciaIdentidad(viejo, x) === 'coincide');
+    if (cand.length === 1) return cand[0].idx;
+  }
+  // La lectura nueva a veces reescribe nombre y marca («Council Tool» → «Coucil Tool (sic…)») o corta el código («FFSHOSS38 FSS» → «FFSHOSS3»):
+  // el mismo código del proveedor (igual o uno dentro del otro) con el mismo precio es el mismo producto.
+  const sku = idNorm(viejo.sku);
+  if (sku.length >= 5) {
+    const cand = nuevos.filter(x => { const s = idNorm(x.sku); return s.length >= 5 && mismoOContiene(sku, s) && (viejo.precio == null || x.precio == null || viejo.precio === x.precio); });
     if (cand.length === 1) return cand[0].idx;
   }
   return null;

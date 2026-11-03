@@ -49,11 +49,14 @@ export function interpretarSugerencias(raw: unknown, productos: ProductoParaSuge
 
 export async function sugerirLineas(productos: ProductoParaSugerir[], lineas: LineaParaSugerir[]): Promise<SugerenciaLinea[]> {
   if (!productos.length || !lineas.length) return [];
+  // Con 2+ grupos (Línea 1, Línea 2…) el «item» se repite (1.3 y 2.3) y una respuesta «línea 3» caía en la última: al modelo se le da un número único por línea.
+  const numeradas = lineas.map((l, i) => ({ ...l, item: i + 1 }));
+  const real = (n: number | null) => n == null ? null : lineas[n - 1]?.item ?? null;
   const completion: any = await crearChatIA({
-    messages: [{ role: 'system', content: SISTEMA_SUGERIR }, { role: 'user', content: construirUsuarioSugerir(productos, lineas) }],
+    messages: [{ role: 'system', content: SISTEMA_SUGERIR }, { role: 'user', content: construirUsuarioSugerir(productos, numeradas) }],
     temperature: 0, stream: false, max_tokens: 8_000, response_format: { type: 'json_object' },
   }, { timeoutMs: 150_000, proveedorPreferido: MODELO });
   const parsed = parseJsonIA<any>(String(completion.choices?.[0]?.message?.content ?? ''));
   if (!parsed) throw new Error('el modelo no devolvió una respuesta interpretable');
-  return interpretarSugerencias(parsed, productos, lineas);
+  return interpretarSugerencias(parsed, productos, numeradas).map(s => ({ ...s, item: real(s.item) }));
 }
