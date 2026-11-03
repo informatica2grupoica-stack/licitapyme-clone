@@ -3,6 +3,12 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-03 — «Aprobar la compra completa» aprueba todo de una vez (`TablaAprobacionCompra.tsx`; sin desplegar, sin probar clic)
+Decisión del dueño: el botón no puede exigir aprobar los 17 productos uno por uno. Ahora (solo jefe de ventas, compra en PENDIENTE) está activo aunque falten:
+pide confirmación («se aprobarán los N que faltan y luego la compra completa»), aprueba en un PATCH los productos sin decisión o «Corregidos» (`aprobaciones/linea`),
+las compras rápidas pendientes una a una (`compra-rapida`) y recién después llama `onAprobarCompra`. Si falla algo, avisa y recarga sin aprobar la compra.
+**Los RECHAZADOS no se aprueban solos:** con alguno rechazado el botón queda apagado (hay que corregirlo o deshacer el rechazo). tsc limpio; no se pulsó nada en producción.
+
 ## 2026-11-02 — «Agregar flete» en Compara precios (reemplaza «Agregar servicio» de Productos)
 - Decisión del dueño: los fletes ya no se crean en Productos. Apartado «Fletes» (`FletesCompra.tsx`, en la etapa Comparar, sobre «Compara y elige»): botón «Agregar flete» → nombre + «¿Tiene cotización?». SÍ: proveedor (nombre y RUT con dígito verificador, obligatorios) + documento; NO: proveedor + RUT + precio neto a mano, editable («Editar precio») y después «+ Agregar cotización». Entra a «Compara y elige» como un producto: se elige, va a aprobación, SKU y OC.
 - Por dentro sigue siendo el servicio (`compras_producto.es_servicio`, migration-177): reutiliza aprobación/SKU/OC. Los fletes ya cargados (negocios 308 y 1350) aparecen solos en «Fletes». El PATCH `agregar_servicio` ahora devuelve `productoId`.

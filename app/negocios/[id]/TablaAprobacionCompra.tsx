@@ -147,6 +147,28 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
   const todosAprobados = tabla.lineas.length > 0 && aprobados === tabla.lineas.length;
   const compraAprobada = compraEstado === 'APROBADA' || compraEstado === 'APROBADA_CON_MODIFICACION';
   const pasanSinDecidir = tabla.lineas.filter(l => l.estado === 'PASA' && !l.compraRapida && !decisiones[l.productoId]).map(l => l.productoId);
+  // «Aprobar la compra completa» sin tener que ir uno por uno: aprueba lo que falta (productos y compras rápidas pendientes) y luego la compra. Los rechazados NO se aprueban solos.
+  const porAprobar = tabla.lineas.filter(l => !l.compraRapida && (!decisiones[l.productoId] || decisiones[l.productoId].estado === 'CORREGIDA')).map(l => l.productoId);
+  const rapidasPorAprobar = tabla.lineas.filter(l => l.compraRapida && l.compraRapida.estado === 'PENDIENTE').map(l => l.productoId);
+  const aprobarTodoYCompra = async () => {
+    const faltan = porAprobar.length + rapidasPorAprobar.length;
+    if (faltan > 0 && !window.confirm(`Se aprobarán los ${faltan} producto(s) que faltan y luego la compra completa. ¿Seguimos?`)) return;
+    setAprobandoCompra(true);
+    try {
+      if (porAprobar.length) {
+        const r = await fetch(`/api/compras/${negocioId}/aprobaciones/linea`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productoIds: porAprobar, decision: 'APROBAR', comentario: null }) }).then(x => x.json());
+        if (!r.success) throw new Error(r.error || 'No se pudieron aprobar los productos');
+        setDecisiones(Object.fromEntries((r.lineas || []).map(aDecision)));
+      }
+      for (const productoId of rapidasPorAprobar) {
+        const r = await fetch(`/api/compras/${negocioId}/compra-rapida`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productoId, decision: 'APROBAR', comentario: null }) }).then(x => x.json());
+        if (!r.success) throw new Error(r.error || 'No se pudo aprobar una compra rápida');
+      }
+      if (rapidasPorAprobar.length) { await cargar(); await onRapidaCambio?.(); }
+      await onAprobarCompra();
+    } catch (e: any) { toast.error('No se pudo aprobar todo', e.message); await cargar(); await cargarDecisiones(); }
+    finally { setAprobandoCompra(false); }
+  };
 
   return (
     <div className="space-y-3" data-testid="tabla-aprobacion">
@@ -395,14 +417,14 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
               : compraAprobada ? '✔ La compra completa ya está aprobada.'
               : corregidos > 0 && esJefeDeVentas ? `${corregidos} producto(s) corregido(s) esperan tu revisión: apruébalos o recházalos de nuevo.`
               : rechazados > 0 ? `Hay ${rechazados} producto(s) rechazado(s): corrígelos (o deshaz el rechazo) antes de aprobar la compra completa.`
-              : sinDecidir > 0 ? `Faltan ${sinDecidir} por aprobar. Apruébalos uno a uno arriba, o usa «Aprobar los que pasan».`
+              : sinDecidir > 0 ? `Faltan ${sinDecidir} por aprobar. Apruébalos uno a uno arriba, o todos de una vez con «Aprobar la compra completa».`
               : compraEstado !== 'PENDIENTE' ? 'Todos aprobados. Falta que el encargado envíe la propuesta (Paso A, más abajo).'
               : 'Todos los productos están aprobados: ya puedes aprobar la compra completa.'}
           </p>
         </div>
         {esJefeDeVentas && !compraAprobada && (
-          <button type="button" disabled={!todosAprobados || compraEstado !== 'PENDIENTE' || aprobandoCompra} data-testid="apr-aprobar-compra-completa"
-            onClick={async () => { setAprobandoCompra(true); try { await onAprobarCompra(); } finally { setAprobandoCompra(false); } }}
+          <button type="button" disabled={!tablaLineasOk || tabla.lineas.length === 0 || rechazados > 0 || compraEstado !== 'PENDIENTE' || aprobandoCompra} data-testid="apr-aprobar-compra-completa"
+            onClick={aprobarTodoYCompra}
             className="inline-flex items-center gap-1.5 text-[13.5px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed px-5 py-2.5 rounded-lg">
             {aprobandoCompra && <Loader2 size={14} className="animate-spin" />} Aprobar la compra completa
           </button>
