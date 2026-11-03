@@ -3,6 +3,13 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-02 — «Agregar flete» en Compara precios (reemplaza «Agregar servicio» de Productos)
+- Decisión del dueño: los fletes ya no se crean en Productos. Apartado «Fletes» (`FletesCompra.tsx`, en la etapa Comparar, sobre «Compara y elige»): botón «Agregar flete» → nombre + «¿Tiene cotización?». SÍ: proveedor (nombre y RUT con dígito verificador, obligatorios) + documento; NO: proveedor + RUT + precio neto a mano, editable («Editar precio») y después «+ Agregar cotización». Entra a «Compara y elige» como un producto: se elige, va a aprobación, SKU y OC.
+- Por dentro sigue siendo el servicio (`compras_producto.es_servicio`, migration-177): reutiliza aprobación/SKU/OC. Los fletes ya cargados (negocios 308 y 1350) aparecen solos en «Fletes». El PATCH `agregar_servicio` ahora devuelve `productoId`.
+- Sacado: «Agregar servicio», su formulario y el chip «Servicios» de `ProductosCompraCard` (los servicios ya no se listan en Productos) y la asignación automática de la línea de flete al servicio en `compras-auditor.ts`. Se dejaron los campos de flete del formulario de cotización y el «flete aparte» sumado al total.
+- La reserva del 5 % se queda SIEMPRE (decisión del dueño: con ella ve si gasta más o menos en flete). El cuadro de margen muestra el comparativo: flete real cargado (servicios + flete aparte de los ganadores) vs reserva estimada, con «gastas $X más/menos». Los servicios ya no cuentan como líneas «sin precio de venta» del margen.
+- Sin ver en navegador ni probado contra BD (tsc limpio). Fletes sin cotización usan origen «llamada» y nota «Flete sin cotización: precio puesto a mano.»; «Editar precio» solo en los sin documento (el PATCH reescribe las notas).
+
 ## 2026-11-02 — Flete cotizado aparte ahora suma y se detalla (2906-19-LE26, cotización #231 Bioplastic)
 - La cotización traía estanque $7.555.130 + flete $458.600 (neto $8.013.730); el flete SÍ estaba guardado (`flete_monto`) pero «Total si compras aquí» (`ComparadorPrecios` y `MatrizPrecios`) sumaba solo los productos ($7.555.130) y no mostraba el flete. Ahora total = productos + flete, con la línea «Productos X + flete Y» debajo. `CotizacionMin.fleteMonto` opcional.
 - Lo mismo en la tabla «Cotizaciones recibidas» (`ListaCotizaciones.tsx`): chip «Flete $X» en «Qué cubre» y Total = productos + flete con el desglose debajo.
@@ -214,3 +221,14 @@ re-homologarlas** (y lo hecho antes en otros negocios con cantidades no exactas 
 ## 2026-11-02 — Formularios de Cotizaciones en modal
 - «Compra directa» (compra rápida), «Registrar una a mano / Editar» y «Cargar varias cotizaciones» ya no se despliegan dentro de la tarjeta: abren en `Modal` (`AuditorComprasCard.tsx`). `CompraDirectaPanel` restyleado con tokens licitank-ui (inputs h-10, sin índigo, `Boton`).
 - Pendiente: el formulario «a mano» conserva sus inputs de 12 px (solo se movió al modal); no verificado en navegador (login requerido). Otros formularios de Compras aún inline.
+
+## 03-nov-2026 — Quitar un flete con cotización (negocio 308, flete 520)
+- `eliminarParteProducto` (compras.ts): para un SERVICIO/flete ya no bloquean las cotizaciones ni el veredicto IA; se borran sus líneas de cotización, adicionales, veredicto y decisión de aprobación. Sigue bloqueado si está comprado (subestado ≠ PENDIENTE), tiene compra rápida o SKU → «Renunciar». Las partes de producto no cambian.
+- «Quitar flete» (FletesCompra.tsx) abre un modal al centro que explica qué pasa; el documento de cotización queda en «Cotizaciones recibidas» sin producto. Sin probar en navegador.
+
+- Flete: al escribir un RUT válido se busca el proveedor en nuestro sistema (/api/compras/proveedores?q=) y luego en Obuma, y rellena el nombre si está vacío; avisa si es proveedor nuevo. Sin probar en navegador.
+- Flete con cotización: al elegir el documento se lee con /cotizaciones/extraer (spinner «Leyendo…») y propone precio neto (descuenta IVA si el documento lo trae incluido), proveedor y RUT sin pisar lo escrito. Antes no se veía nada hasta Guardar. Sin probar en navegador.
+- Margen costeo vs cotizaciones (MargenCosteoVsCotizaciones.tsx): cambios en palabras («sube $X», «baja $X», «sube 42,9 puntos», «sin cambio»), nunca con + ni −. Con fletes cargados hay sección «Fletes: lo estimado contra lo real» (cada flete, total, reserva 5 % vs real, margen en pesos y % con el flete real, frase final). Sin probar en navegador.
+- Margen: la tabla principal ahora trae la columna «Con cotizaciones y flete real» (el flete real reemplaza la reserva del 5 %; el costo neto no cambia) y la Diferencia pasa a ser frente al costeo inicial con flete real; frase propia con el margen resultante. Sin probar en navegador.
+- «Tu compra»/combinaciones (compras-auditor.ts armarCombinacion y armar): un flete contratado (servicio) ya NO suma a la mercadería ni genera «viaje»/«flete sin confirmar»; suma a costoLogistico como flete cierto (Combinacion.costoFleteContratado). Pantalla: etiqueta FLETE en su fila (al final de la lista) y «Flete … confirmado». Si hay un flete elegido se asume que cubre el transporte (no se avisa «sin confirmar» de los otros proveedores). Aprobación/SKU/OC leen el escenario guardado: sin revisar con datos reales.
+- Marcas de «Elegir a quién comprar» (AuditorComprasCard.tsx): eran solo estado en memoria hasta «Elegir esta compra», por eso se desmarcaban al actualizar. Ahora el borrador se guarda en localStorage (compras-borrador-compra:{negocioId}) y se restaura filtrando lo que ya no vale. Es por navegador, no compartido entre personas. Sin probar en navegador.

@@ -2194,14 +2194,27 @@ export async function eliminarParteProducto(productoId: number, actorId: number,
     try { const [x] = await pool.query(sql, [productoId]) as any; return (x as any[]).length > 0; }
     catch (e: any) { if (e?.code === 'ER_NO_SUCH_TABLE') return false; throw e; }
   };
+  // Un flete (servicio) nace con su cotización, así que las cotizaciones no lo bloquean: se van con él. Lo que sí lo bloquea es una
+  // compra o un veredicto, que son historial.
   if (p.subestado !== 'PENDIENTE'
-    || await tiene(`SELECT 1 FROM compras_cotizacion_item WHERE producto_id = ? LIMIT 1`)
+    || (!esServicio && await tiene(`SELECT 1 FROM compras_cotizacion_item WHERE producto_id = ? LIMIT 1`))
     || await tiene(`SELECT 1 FROM compras_compra_rapida WHERE producto_id = ? LIMIT 1`)
-    || await tiene(`SELECT 1 FROM compras_veredicto WHERE producto_id = ? LIMIT 1`))
-    throw new Error('Esta parte ya tiene cotizaciones o una compra: no se puede quitar. Si ya no va, usa «Renunciar».');
+    || (!esServicio && await tiene(`SELECT 1 FROM compras_veredicto WHERE producto_id = ? LIMIT 1`))
+    || (esServicio && await tiene(`SELECT 1 FROM compras_sku WHERE producto_id = ? LIMIT 1`)))
+    throw new Error(esServicio
+      ? 'Este flete ya se compró o ya tiene SKU: no se puede quitar. Si ya no va, usa «Renunciar».'
+      : 'Esta parte ya tiene cotizaciones o una compra: no se puede quitar. Si ya no va, usa «Renunciar».');
+  if (esServicio) {
+    // El veredicto de la IA y la decisión de aprobación sobre este flete eran de una compra que ya no lo incluye.
+    for (const t of ['compras_cotizacion_item', 'compras_cotizacion_adicional', 'compras_veredicto', 'compras_aprobacion_linea']) {
+      try { await pool.query(`DELETE FROM ${t} WHERE producto_id = ?`, [productoId]); }
+      catch (e: any) { if (e?.code !== 'ER_NO_SUCH_TABLE') throw e; }
+    }
+  }
   await pool.query(`DELETE FROM compras_producto WHERE id = ?`, [productoId]);
   // Un servicio es costo, no alcance de lo vendido: quitarlo no invalida las aprobaciones.
   if (!esServicio) await invalidarAprobacionesCompras(p.negocio_id, 'Se quitó una parte que se compraba aparte: cambió el alcance de la compra.');
+  else await sincronizarTareaAprobacion(p.negocio_id).catch(() => {});
   await registrarEvento({
     tipo: esServicio ? 'COMPRAS_SERVICIO_QUITADO' : 'COMPRAS_PARTE_QUITADA', licitacionCodigo: p.licitacion_codigo, actorId, actorNombre,
     mensaje: `Se quitó ${esServicio ? 'el servicio' : 'la parte'} «${String(p.descripcion).slice(0, 80)}»${esServicio ? '.' : ' que se iba a comprar aparte.'}`,

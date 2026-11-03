@@ -12,8 +12,10 @@ export interface ItemComb {
   productoId: number; descripcion: string; cotizacionId: number; proveedor: string; cumple: string; detalleDesviacion: string | null;
   moneda: string; tipoCambioUsado: number | null; precioUnitario: number | null; cantidad: number | null; subtotal: number | null;
   plazoEntregaDias: number | null; incluyeFlete: boolean | null; fleteMonto: number | null;
+  esServicio?: boolean;
 }
 export interface Comb {
+  costoFleteContratado?: number;
   clave: string; costoMercaderia: number; costoLogistico: number; costoTotal: number; diasEstimados: number | null; viajes: number;
   nProveedores: number; proveedores: string[]; peorCumple: string; fleteSinConfirmar: boolean; items: ItemComb[]; etiquetas: string[];
   diferenciaVsMasBarata: number; diferenciaPctVsMasBarata: number | null; avisos: string[];
@@ -152,7 +154,7 @@ export function ModalCombinacion({ c, elegida, puedeOperar, eligiendo, onClose, 
         <div className="p-4 space-y-3">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
             <Caja t="Mercadería" v={clp(c.costoMercaderia)} />
-            <Caja t="Flete / logística" v={clp(c.costoLogistico)} extra={c.fleteSinConfirmar ? 'sin confirmar' : undefined} />
+            <Caja t="Flete / logística" v={clp(c.costoLogistico)} extra={c.fleteSinConfirmar ? 'sin confirmar' : (c.costoFleteContratado ?? 0) > 0 ? `flete contratado ${clp(c.costoFleteContratado)}` : undefined} />
             <Caja t="Total" v={clp(c.costoTotal)} fuerte />
             <Caja t="Vs. la más barata" v={c.diferenciaVsMasBarata === 0 ? 'es la más barata' : `+${clp(c.diferenciaVsMasBarata)} (${c.diferenciaPctVsMasBarata}%)`} />
             <Caja t="Proveedores" v={String(c.nProveedores)} />
@@ -164,7 +166,7 @@ export function ModalCombinacion({ c, elegida, puedeOperar, eligiendo, onClose, 
           {c.items.map(x => (
             <div key={x.productoId} className="rounded-lg border border-zinc-200 px-3 py-2.5 text-[12.5px]">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-semibold text-zinc-800">{x.descripcion}</p>
+                <p className="font-semibold text-zinc-800">{x.esServicio && <span className="mr-1.5 text-[10px] font-bold text-sky-800 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded">FLETE</span>}{x.descripcion}</p>
                 <span className={`text-[10px] font-bold border px-1.5 py-0.5 rounded-full ${cumpleDe(x.cumple).c}`}>{cumpleDe(x.cumple).t}</span>
               </div>
               <p className="text-zinc-500 mt-0.5"><b className="text-zinc-700">{x.proveedor}</b> · cotización #{x.cotizacionId}</p>

@@ -554,3 +554,13 @@ test('dos precios vigentes de la tienda: rige el más alto (transferencia vs otr
     { valor: '120.000', condicion: 'tachado' }, { valor: '500.000', condicion: 'otro' }], iva: 'incluido', iva_texto_literal: 'IVA incluido' } }] } as any);
   assert.equal(p.precio, 100000);
 });
+
+test('emparejar: «Rastrillo McLeod» va a la herramienta y «Astil para McLeod» al mango de reemplazo (607-84-LE26)', () => {
+  const mango = linea({ id: 'mango', item: 3, detalle: 'MANGO DE REEMPLAZO PARA RASTRILLO MCLEOD', cantidad: 10, costoEstimadoNeto: 36_000 });
+  const rastrillo = linea({ id: 'rastrillo', item: 10, detalle: 'RASTRILLO MCLEOD', cantidad: 10, costoEstimadoNeto: 24_250 });
+  const r = prod({ idx: 0, nombre: 'RASTRILLO MCLEOD FORESTAL', tipo: 'RASTRILLO MCLEOD FORESTAL', marca: '', modelo: '', sku: 'HER-INC-FOR-0004', cantidadCotizada: 30, precio: 24_450 });
+  const a = prod({ idx: 1, nombre: 'Astil para McLeod', tipo: 'Astil para McLeod', marca: 'Council Tool', modelo: '', sku: '85278', cantidadCotizada: 10, precio: 36_000 });
+  const { asignaciones } = emparejarProductos([r, a], [mango, rastrillo]);
+  assert.equal(asignaciones.find(x => x.productoIdx === 0)?.filaId, 'rastrillo');
+  assert.equal(asignaciones.find(x => x.productoIdx === 1)?.filaId, 'mango');
+});

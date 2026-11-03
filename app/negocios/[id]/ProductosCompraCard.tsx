@@ -60,9 +60,6 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
   const [sincronizando, setSincronizando] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [filtro, setFiltro] = useState<'todos' | 'pendientes' | 'listos' | 'fuera' | 'servicios'>('todos');
-  // «Agregar servicio»: el transporte que lleva TODA la entrega no es de una línea; se compra con proveedor, cotización, SKU y OC (migration-177).
-  const [servicioAbierto, setServicioAbierto] = useState(false);
-  const [servicio, setServicio] = useState({ descripcion: '', cantidad: '1', unidad: '' });
   // Compra rápida (migration-151): el jefe de ventas la aprueba o rechaza ANTES de comprar; rechazada = fila roja parpadeante.
   const [rapidas, setRapidas] = useState<Record<number, CompraRapidaFila>>({});
   const [notaReenvio, setNotaReenvio] = useState('');
@@ -144,26 +141,6 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
     setParteAbierta(null); setParte({ descripcion: '', cantidad: '', unidad: '' });
   };
 
-  const agregarServicio = async () => {
-    const cantidad = Number(servicio.cantidad.replace(/\./g, '').replace(',', '.'));
-    if (!servicio.descripcion.trim() || !(cantidad > 0)) return;
-    setGuardando(-1);
-    try {
-      const res = await fetch(`/api/compras/${negocioId}/productos`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accion: 'agregar_servicio', descripcion: servicio.descripcion.trim(), cantidad, unidad: servicio.unidad.trim() || null }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo agregar');
-      setProductos(data.productos); setCobertura(data.cobertura);
-      setServicioAbierto(false); setServicio({ descripcion: '', cantidad: '1', unidad: '' });
-      recargarCompartido();
-      toast.success('Servicio agregado', 'Ya aparece en Cotizaciones para cotizarlo, y después lleva SKU y OC.');
-    } catch (e: any) {
-      toast.error('No se pudo agregar el servicio', e.message);
-    } finally { setGuardando(null); }
-  };
-
   const proponerRenuncia = async (productoId: number) => {
     if (!motivoRenuncia.trim()) return;
     await accion({ productoId, accion: 'proponer_renuncia', motivo: motivoRenuncia.trim() });
@@ -210,8 +187,8 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
   // Cada parte va justo debajo de su producto.
   const ordenados = useMemo(() => {
     const partes = productos.filter(p => p.productoPadreId != null && !p.esServicio);
-    // Los servicios van al final: no son de ninguna línea.
-    return [...principales.flatMap(p => [p, ...partes.filter(x => x.productoPadreId === p.id)]), ...partes.filter(x => !principales.some(p => p.id === x.productoPadreId)), ...productos.filter(p => p.esServicio)];
+    // Los fletes (servicios) no se listan aquí: viven en «Fletes» de Cotizaciones.
+    return [...principales.flatMap(p => [p, ...partes.filter(x => x.productoPadreId === p.id)]), ...partes.filter(x => !principales.some(p => p.id === x.productoPadreId)) ];
   }, [productos, principales]);
   const visibles = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -256,15 +233,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
           {chip('pendientes', 'Por avanzar', conteo.pendientes)}
           {chip('listos', 'Listos', conteo.listos)}
           {conteo.fuera > 0 && chip('fuera', 'Fuera de la compra', conteo.fuera)}
-          {conteo.servicios > 0 && chip('servicios', 'Servicios', conteo.servicios)}
           <div className="relative ml-auto flex items-center gap-2">
-            {puedeOperar && (
-              <button type="button" onClick={() => setServicioAbierto(v => !v)} data-testid="agregar-servicio"
-                title="Un servicio que lleva toda la entrega (transporte, armado): se cotiza, lleva SKU y OC, y no se vende"
-                className="inline-flex items-center gap-1 text-[12px] font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 px-2.5 py-1.5 rounded-lg transition-colors">
-                {servicioAbierto ? <X size={12} /> : <Plus size={12} />} Agregar servicio
-              </button>
-            )}
             <div className="relative">
               <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-400" />
               <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar producto o línea…"
@@ -272,24 +241,6 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
             </div>
           </div>
         </div>
-        {servicioAbierto && (
-          <div className="border border-zinc-200 rounded-lg bg-white px-3 py-2.5" data-testid="form-servicio">
-            <p className="text-xs text-zinc-600 mb-1.5">
-              Un servicio que se compra para <b>toda la entrega</b> y no es de ninguna línea (ej. el transporte y armado a la obra). Queda como un producto más:
-              se cotiza con su proveedor, se aprueba, lleva SKU y OC. No se vende ni cuenta para la entrega; su costo va al costo real como gasto.
-            </p>
-            <div className="flex items-center gap-2 flex-wrap">
-              <input autoFocus value={servicio.descripcion} onChange={e => setServicio(s => ({ ...s, descripcion: e.target.value }))} placeholder="Qué servicio es (ej. Transporte y armado de mobiliario a la obra)"
-                className="flex-1 min-w-64 text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none bg-white" />
-              <input value={servicio.cantidad} onChange={e => setServicio(s => ({ ...s, cantidad: e.target.value }))} placeholder="Cantidad" inputMode="decimal"
-                className="w-24 text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none bg-white tabular-nums" />
-              <input value={servicio.unidad} onChange={e => setServicio(s => ({ ...s, unidad: e.target.value }))} placeholder="Unidad (viaje, un…)"
-                className="w-36 text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-teal-500 outline-none bg-white" />
-              <button onClick={agregarServicio} disabled={!servicio.descripcion.trim() || !(Number(servicio.cantidad.replace(/\./g, '').replace(',', '.')) > 0) || guardando === -1}
-                className="text-[12px] font-semibold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">Agregar servicio</button>
-            </div>
-          </div>
-        )}
       </div>
       {aviso && (
         <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-[11.5px] font-semibold text-amber-800">{aviso}</div>

@@ -303,6 +303,11 @@ function palabras(s: string): string[] {
 
 export interface Emparejamiento { productoIdx: number; filaId: string; puntaje: number; confianza: 'alta' | 'media'; motivos: string[] }
 
+// «Mango de reemplazo para rastrillo» y «Rastrillo» comparten casi todas las palabras pero son cosas distintas: una pieza de repuesto
+// (mango, astil, repuesto…) no es la herramienta completa. Se mira la cabeza del nombre (2 primeras palabras) o «reemplazo/repuesto» en cualquier parte.
+const PIEZA = new Set(['mango', 'astil', 'repuesto', 'reemplazo', 'recambio']);
+function esPieza(ws: string[]): boolean { return ws.slice(0, 2).some(w => PIEZA.has(w)) || ws.some(w => w === 'repuesto' || w === 'reemplazo' || w === 'recambio'); }
+
 export function puntuar(prod: ProductoNormalizado, linea: LineaCosteo): { puntaje: number; motivos: string[] } {
   const wp = new Set(palabras(`${prod.tipo} ${prod.marca} ${prod.modelo} ${prod.version} ${prod.nombre}`));
   const textoLinea = `${linea.detalle} ${linea.sku}`;
@@ -329,6 +334,8 @@ export function puntuar(prod: ProductoNormalizado, linea: LineaCosteo): { puntaj
   const tk = tokensDeProducto(prod.modelo, prod.sku).filter(k => /[a-z]/.test(k));
   const tl = textoLinea.toLowerCase().replace(/[^a-z0-9]/g, '');
   if (tk.some(k => tl.includes(k))) { puntaje += 0.5; motivos.push('modelo/SKU coincide'); }
+  // Pieza de repuesto vs herramienta completa (solo uno de los dos es pieza): no son la misma línea.
+  if (esPieza(palabras(prod.tipo || prod.nombre)) !== esPieza(palabras(linea.detalle.split(/\s[-–—]\s/)[0] || ''))) { puntaje -= 0.5; motivos.push('uno es pieza/repuesto y el otro la herramienta completa'); }
   // Cantidad cotizada = cantidad de la línea.
   if (prod.cantidadCotizada != null && linea.cantidad != null && prod.cantidadCotizada === linea.cantidad) { puntaje += 0.2; motivos.push(`cantidad ${linea.cantidad}`); }
   // Precio en el mismo orden de magnitud que lo costeado.

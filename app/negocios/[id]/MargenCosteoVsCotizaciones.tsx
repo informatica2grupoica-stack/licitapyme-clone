@@ -9,10 +9,11 @@
 import { GASTO_ENTREGA_PCT, type BloqueMargen, type ResumenMargen } from '@/app/lib/compras-margen-vs-costeo';
 
 const clp = (n: number) => `$${Math.round(Math.abs(n)).toLocaleString('es-CL')}`;
-const clpFirmado = (n: number) => `${n < 0 ? '−' : n > 0 ? '+' : ''}${clp(n)}`;
+/** Cambios en palabras (sin signos + ni −, que se confunden): «sube $X», «baja $X» o «sin cambio». */
+const clpFirmado = (n: number) => (Math.round(n) === 0 ? 'sin cambio' : `${n > 0 ? 'sube' : 'baja'} ${clp(n)}`);
 const pct = (n: number | null) => n == null ? '—' : `${n.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
-const pts = (n: number | null) => n == null ? '—' : `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n).toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} pts`;
-/** Verde cuando el margen sube, rojo cuando baja, gris si no cambia. El color nunca es la única señal: siempre va con signo o flecha. */
+const pts = (n: number | null) => n == null ? '—' : n === 0 ? 'sin cambio' : `${n > 0 ? 'sube' : 'baja'} ${Math.abs(n).toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} puntos`;
+/** Verde cuando el margen sube, rojo cuando baja, gris si no cambia. El color nunca es la única señal: siempre va con palabra o flecha. */
 const tono = (n: number | null) => n == null || n === 0 ? 'text-slate-500' : n > 0 ? 'text-emerald-700' : 'text-red-600';
 const flecha = (n: number | null) => n == null || n === 0 ? '' : n > 0 ? '▲ ' : '▼ ';
 
@@ -20,7 +21,7 @@ const TH = 'px-3 py-2 text-left text-xs font-medium text-slate-500 whitespace-no
 const THR = `${TH} text-right`;
 const TD = 'px-3 py-2 text-[13px] tabular-nums text-right whitespace-nowrap';
 
-function FilaResumen({ rotulo, nota, a, b, dif, difTono, fuerte, compras, comprasTono }: { rotulo: string; nota?: string; a: string; b: string; dif: string; difTono?: string; fuerte?: boolean; compras?: string; comprasTono?: string }) {
+function FilaResumen({ rotulo, nota, a, b, dif, difTono, fuerte, compras, comprasTono, flete, fleteTono }: { rotulo: string; nota?: string; a: string; b: string; dif: string; difTono?: string; fuerte?: boolean; compras?: string; comprasTono?: string; flete?: string; fleteTono?: string }) {
   const t = difTono ?? 'text-slate-500';
   return (
     <tr className={fuerte ? 'border-y border-zinc-200 bg-slate-50' : ''}>
@@ -31,6 +32,7 @@ function FilaResumen({ rotulo, nota, a, b, dif, difTono, fuerte, compras, compra
       <td className={`${TD} ${fuerte ? 'text-lg font-bold text-slate-900' : 'text-slate-700'}`}>{a}</td>
       {compras != null && <td className={`${TD} ${fuerte ? 'text-lg font-bold' : 'font-medium'} ${comprasTono ?? 'text-slate-700'}`}>{compras}</td>}
       <td className={`${TD} ${fuerte ? `text-lg font-bold ${t}` : 'text-slate-700'}`}>{b}</td>
+      {flete != null && <td className={`${TD} ${fuerte ? 'text-lg font-bold' : 'font-medium'} ${fleteTono ?? 'text-slate-700'}`}>{flete}</td>}
       <td className={`${TD} ${fuerte ? 'text-lg font-bold' : 'font-semibold'} ${t}`}>{dif}</td>
     </tr>
   );
@@ -45,12 +47,12 @@ function FilaGrupo({ rotulo, b }: { rotulo: string; b: BloqueMargen }) {
       <td className={`${TD} text-slate-700`}>{clp(b.costoNuevo)}</td>
       <td className={`${TD} text-slate-700`}>{pct(b.pctInicial)}</td>
       <td className={`${TD} font-bold ${tono(b.puntos)}`}>{pct(b.pctNuevo)}</td>
-      <td className={`${TD} font-bold ${tono(b.puntos)}`}>{b.puntos === 0 ? '0,0 pts · sin cambio' : `${flecha(b.puntos)}${pts(b.puntos)}`}</td>
+      <td className={`${TD} font-bold ${tono(b.puntos)}`}>{b.puntos === 0 ? 'sin cambio' : `${flecha(b.puntos)}${pts(b.puntos)}`}</td>
     </tr>
   );
 }
 
-export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [] }: { resumen: ResumenMargen; fletesCotizados?: Array<{ proveedor: string; cotizacionId: number; monto: number }> }) {
+export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [] }: { resumen: ResumenMargen; fletesCotizados?: Array<{ proveedor: string; cotizacionId: number; monto: number; nombre?: string }> }) {
   const t = r.total;
   if (r.lineas.length === 0) {
     return (
@@ -64,6 +66,18 @@ export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [] }:
   // Costeo de Compras (30-oct-2026): para que Compras vea su margen ANTES de seguir cotizando. Solo si anotó algún costo.
   const hayCompras = t.nCompras > 0;
   const cc = (v: string) => (hayCompras ? v : undefined);
+  // Con fletes cargados: el flete real REEMPLAZA a la reserva del 5 %. El costo neto no cambia (el flete se muestra aparte, como la reserva).
+  const hayFlete = fletesCotizados.length > 0;
+  const fleteReal = fletesCotizados.reduce((a, f) => a + f.monto, 0);
+  const margenAntesNuevo = t.margenNuevo + t.gastoEntrega;
+  const margenConFlete = margenAntesNuevo - fleteReal;
+  const costoNetoNuevo = t.costoNuevo - t.gastoEntrega;
+  const pctConFlete = t.venta > 0 ? Math.round((margenConFlete / t.venta) * 1000) / 10 : null;
+  const recargoConFlete = costoNetoNuevo > 0 ? Math.round((margenConFlete / costoNetoNuevo) * 1000) / 10 : null;
+  const dMargenFlete = margenConFlete - t.margenInicial;
+  const dPtsFlete = pctConFlete != null && t.pctInicial != null ? Math.round((pctConFlete - t.pctInicial) * 10) / 10 : null;
+  const dFleteVsReserva = fleteReal - t.gastoEntrega;
+  const ff = (v: string) => (hayFlete ? v : undefined);
   return (
     <section className="border-t border-zinc-200 px-4 py-4" data-testid="margen-costeo-vs-cotizaciones">
       <h3 className="text-base font-medium text-slate-800">Margen: costeo inicial vs cotizaciones</h3>
@@ -75,14 +89,20 @@ export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [] }:
       {t.pctInicial != null && t.pctNuevo != null && (
         <p className="mt-3 text-base text-slate-800">
           Con las cotizaciones el margen sobre la venta {sube ? 'sube' : baja ? 'baja' : 'no cambia'}: de <b className="font-bold text-slate-900">{pct(t.pctInicial)}</b> a <b className={`font-bold ${tono(t.puntos)}`}>{pct(t.pctNuevo)}</b>
-          {t.puntos !== 0 && <> (<b className={`font-bold ${tono(t.puntos)}`}>{pts(t.puntos)}</b>, <b className={`font-bold ${tono(t.puntos)}`}>{clpFirmado(t.margenNuevo - t.margenInicial)}</b> en pesos)</>}.
+          {t.puntos !== 0 && <> (<b className={`font-bold ${tono(t.puntos)}`}>{pts(t.puntos)}</b>; en pesos <b className={`font-bold ${tono(t.puntos)}`}>{clpFirmado(t.margenNuevo - t.margenInicial)}</b>)</>}.
+        </p>
+      )}
+
+      {hayFlete && pctConFlete != null && t.pctInicial != null && (
+        <p className="mt-3 text-base text-slate-800" data-testid="margen-flete-frase">
+          Con el <b className="font-bold text-slate-900">flete real ({clp(fleteReal)})</b> el margen sobre la venta queda en <b className={`font-bold ${tono(dPtsFlete)}`}>{pct(pctConFlete)}</b> ({clp(margenConFlete)} en pesos): frente al costeo inicial <b className={`font-bold ${tono(dPtsFlete)}`}>{pts(dPtsFlete)}</b>.
         </p>
       )}
 
       {hayCompras ? (
         <p className="mt-3 text-base text-slate-800" data-testid="margen-compras-frase">
           Con el <b className="font-bold text-slate-900">costo real de Compras</b> el margen sobre la venta {(t.puntosCompras ?? 0) > 0 ? 'sube' : (t.puntosCompras ?? 0) < 0 ? 'baja' : 'no cambia'}: de <b className="font-bold text-slate-900">{pct(t.pctInicial)}</b> a <b className={`font-bold ${tono(t.puntosCompras)}`}>{pct(t.pctCompras)}</b>
-          {t.puntosCompras !== 0 && <> (<b className={`font-bold ${tono(t.puntosCompras)}`}>{pts(t.puntosCompras)}</b>, <b className={`font-bold ${tono(t.puntosCompras)}`}>{clpFirmado(t.margenCompras - t.margenInicial)}</b> en pesos)</>}.
+          {t.puntosCompras !== 0 && <> (<b className={`font-bold ${tono(t.puntosCompras)}`}>{pts(t.puntosCompras)}</b>; en pesos <b className={`font-bold ${tono(t.puntosCompras)}`}>{clpFirmado(t.margenCompras - t.margenInicial)}</b>)</>}.
           <span className="block text-[13px] text-slate-500">Compras anotó el costo real de {t.nCompras} de {r.lineas.length} líneas; las demás cuentan al costo inicial, así que este margen es una idea provisional. Al mandar la compra a aprobación estos montos se reemplazan por los precios cotizados.</span>
         </p>
       ) : (
@@ -98,26 +118,80 @@ export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [] }:
               <th className={THR}>Costeo inicial</th>
               {hayCompras && <th className={THR}>Con costo real de Compras</th>}
               <th className={THR}>Con cotizaciones</th>
-              <th className={THR}>Diferencia</th>
+              {hayFlete && <th className={THR}>Con cotizaciones y flete real</th>}
+              <th className={THR}>{hayFlete ? 'Diferencia frente al costeo inicial (con flete real)' : 'Diferencia'}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100">
-            <FilaResumen rotulo="Venta neta" nota="precio de venta del costeo × cantidad" a={clp(t.venta)} b={clp(t.venta)} compras={cc(clp(t.venta))} dif="sin cambio" />
-            <FilaResumen rotulo="Costo neto" nota="lo costeado · con cotizaciones: mejor precio de cada línea" a={clp(t.costoInicial - t.gastoEntrega)} b={clp(t.costoNuevo - t.gastoEntrega)} compras={cc(clp(t.costoCompras - t.gastoEntrega))} comprasTono={tono(t.costoInicial - t.costoCompras)}
+            <FilaResumen rotulo="Venta neta" nota="precio de venta del costeo × cantidad" a={clp(t.venta)} b={clp(t.venta)} compras={cc(clp(t.venta))} flete={ff(clp(t.venta))} dif="sin cambio" />
+            <FilaResumen rotulo="Costo neto" nota="lo costeado · con cotizaciones: mejor precio de cada línea" a={clp(t.costoInicial - t.gastoEntrega)} b={clp(t.costoNuevo - t.gastoEntrega)} compras={cc(clp(t.costoCompras - t.gastoEntrega))} comprasTono={tono(t.costoInicial - t.costoCompras)} flete={ff(clp(costoNetoNuevo))}
               dif={clpFirmado(t.costoNuevo - t.costoInicial)} difTono={tono(t.costoInicial - t.costoNuevo)} />
-            <FilaResumen rotulo="Margen antes de la reserva" nota="venta neta − costo neto" a={clp(t.margenInicial + t.gastoEntrega)} b={clp(t.margenNuevo + t.gastoEntrega)} compras={cc(clp(t.margenCompras + t.gastoEntrega))}
+            <FilaResumen rotulo="Margen antes de la reserva" nota="venta neta menos costo neto" a={clp(t.margenInicial + t.gastoEntrega)} b={clp(t.margenNuevo + t.gastoEntrega)} compras={cc(clp(t.margenCompras + t.gastoEntrega))} flete={ff(clp(margenAntesNuevo))}
               dif={clpFirmado(t.margenNuevo - t.margenInicial)} difTono={tono(t.margenNuevo - t.margenInicial)} />
-            <FilaResumen rotulo="Reserva para flete" nota={`automática: ${Math.round(GASTO_ENTREGA_PCT * 100)} % del margen costeado, se descuenta del margen por si hay que pagar un flete`} a={`−${clp(t.gastoEntrega)}`} b={`−${clp(t.gastoEntrega)}`} compras={cc(`−${clp(t.gastoEntrega)}`)} dif="mismo monto" />
-            <FilaResumen rotulo="Margen en pesos" nota="margen − reserva para flete" a={clp(t.margenInicial)} b={clp(t.margenNuevo)} compras={cc(clp(t.margenCompras))} comprasTono={tono(t.margenCompras - t.margenInicial)}
-              dif={clpFirmado(t.margenNuevo - t.margenInicial)} difTono={tono(t.margenNuevo - t.margenInicial)} />
-            <FilaResumen fuerte rotulo="Margen sobre la venta" nota="margen después de la reserva ÷ venta neta" a={pct(t.pctInicial)} b={pct(t.pctNuevo)} compras={cc(pct(t.pctCompras))} comprasTono={tono(t.puntosCompras)}
-              dif={`${flecha(t.puntos)}${pts(t.puntos)}`} difTono={tono(t.puntos)} />
-            <FilaResumen rotulo="Recargo sobre el costo" nota="margen en pesos ÷ costo neto (el «margen» con que el costeo arma el precio)" a={pct(t.recargoInicial)} b={pct(t.recargoNuevo)} compras={cc(pct(t.costoCompras > 0 ? Math.round((t.margenCompras / t.costoCompras) * 1000) / 10 : null))}
-              dif={t.recargoInicial != null && t.recargoNuevo != null ? pts(Math.round((t.recargoNuevo - t.recargoInicial) * 10) / 10) : '—'}
-              difTono={tono(t.recargoInicial != null && t.recargoNuevo != null ? t.recargoNuevo - t.recargoInicial : null)} />
+            <FilaResumen rotulo={hayFlete ? "Reserva para flete / flete real" : "Reserva para flete"} nota={hayFlete ? `las dos primeras columnas descuentan la reserva automática (${Math.round(GASTO_ENTREGA_PCT * 100)} % del margen costeado); la tercera descuenta el flete real cargado` : `automática: ${Math.round(GASTO_ENTREGA_PCT * 100)} % del margen costeado, se descuenta del margen por si hay que pagar un flete`} a={`se resta ${clp(t.gastoEntrega)}`} b={`se resta ${clp(t.gastoEntrega)}`} compras={cc(`se resta ${clp(t.gastoEntrega)}`)} flete={ff(`flete real ${clp(fleteReal)}`)} fleteTono="font-semibold text-slate-900"
+              dif={hayFlete ? (dFleteVsReserva === 0 ? "gastas lo mismo que la reserva" : `gastas ${clp(dFleteVsReserva)} ${dFleteVsReserva > 0 ? "más" : "menos"} que la reserva`) : "mismo monto"} difTono={hayFlete && dFleteVsReserva !== 0 ? (dFleteVsReserva > 0 ? "text-red-600" : "text-emerald-700") : undefined} />
+            <FilaResumen rotulo="Margen en pesos" nota="margen menos reserva para flete" a={clp(t.margenInicial)} b={clp(t.margenNuevo)} compras={cc(clp(t.margenCompras))} comprasTono={tono(t.margenCompras - t.margenInicial)} flete={ff(clp(margenConFlete))} fleteTono={tono(dMargenFlete)}
+              dif={hayFlete ? clpFirmado(dMargenFlete) : clpFirmado(t.margenNuevo - t.margenInicial)} difTono={hayFlete ? tono(dMargenFlete) : tono(t.margenNuevo - t.margenInicial)} />
+            <FilaResumen fuerte rotulo="Margen sobre la venta" nota="margen después de la reserva dividido por la venta neta" a={pct(t.pctInicial)} b={pct(t.pctNuevo)} compras={cc(pct(t.pctCompras))} comprasTono={tono(t.puntosCompras)} flete={ff(pct(pctConFlete))} fleteTono={tono(dPtsFlete)}
+              dif={hayFlete ? `${flecha(dPtsFlete)}${pts(dPtsFlete)}` : `${flecha(t.puntos)}${pts(t.puntos)}`} difTono={hayFlete ? tono(dPtsFlete) : tono(t.puntos)} />
+            <FilaResumen rotulo="Recargo sobre el costo" nota="margen en pesos dividido por el costo neto (el «margen» con que el costeo arma el precio)" a={pct(t.recargoInicial)} b={pct(t.recargoNuevo)} compras={cc(pct(t.costoCompras > 0 ? Math.round((t.margenCompras / t.costoCompras) * 1000) / 10 : null))} flete={ff(pct(recargoConFlete))}
+              dif={hayFlete ? (t.recargoInicial != null && recargoConFlete != null ? pts(Math.round((recargoConFlete - t.recargoInicial) * 10) / 10) : '—') : t.recargoInicial != null && t.recargoNuevo != null ? pts(Math.round((t.recargoNuevo - t.recargoInicial) * 10) / 10) : '—'}
+              difTono={tono(t.recargoInicial != null && (hayFlete ? recargoConFlete : t.recargoNuevo) != null ? (hayFlete ? recargoConFlete! : t.recargoNuevo!) - t.recargoInicial : null)} />
           </tbody>
         </table>
       </div>
+
+      {/* 1b · Fletes: la reserva del 5 % es la estimación; el flete real cargado dice cuánto margen queda de verdad */}
+      {fletesCotizados.length > 0 && (() => {
+        const real = fletesCotizados.reduce((a, f) => a + f.monto, 0);
+        const reserva = t.gastoEntrega;
+        const margenReal = t.margenNuevo + reserva - real;
+        const pctReal = t.venta > 0 ? Math.round((margenReal / t.venta) * 1000) / 10 : null;
+        const difFlete = real - reserva;
+        const difMargen = margenReal - t.margenNuevo;
+        const difPts = pctReal != null && t.pctNuevo != null ? Math.round((pctReal - t.pctNuevo) * 10) / 10 : null;
+        const mal = difFlete > 0;
+        return (
+          <div className="mt-5" data-testid="margen-fletes-detalle">
+            <h4 className="text-[13px] font-bold text-slate-900">Fletes: lo estimado contra lo real</h4>
+            <p className="mt-0.5 text-xs text-slate-500">Se parte del margen con cotizaciones antes de la reserva. En vez de la reserva del {Math.round(GASTO_ENTREGA_PCT * 100)} % se resta el flete real cargado (neto, sin IVA).</p>
+            <ul className="mt-2 divide-y divide-zinc-100 rounded-xl border border-zinc-200 text-[13px]">
+              {fletesCotizados.map((f, i) => (
+                <li key={`${f.cotizacionId}-${i}`} className="flex items-baseline gap-3 px-3 py-2">
+                  <span className="min-w-0 flex-1 truncate text-slate-800" title={f.nombre}>{f.nombre || 'Flete'}{f.proveedor ? <span className="text-slate-500"> · {f.proveedor}</span> : null}</span>
+                  <span className="font-bold tabular-nums text-slate-900">{clp(f.monto)}</span>
+                </li>
+              ))}
+              {fletesCotizados.length > 1 && (
+                <li className="flex items-baseline gap-3 bg-slate-50 px-3 py-2"><span className="flex-1 font-bold text-slate-900">Total flete real</span><span className="font-bold tabular-nums text-slate-900">{clp(real)}</span></li>
+              )}
+            </ul>
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full min-w-[540px]">
+                <thead>
+                  <tr className="border-b border-zinc-200">
+                    <th className={TH}><span className="sr-only">Concepto</span></th>
+                    <th className={THR}>Con la reserva ({Math.round(GASTO_ENTREGA_PCT * 100)} %)</th>
+                    <th className={THR}>Con el flete real</th>
+                    <th className={THR}>Diferencia</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100">
+                  <FilaResumen rotulo="Margen antes del flete" nota="margen con cotizaciones, antes de la reserva" a={clp(t.margenNuevo + reserva)} b={clp(t.margenNuevo + reserva)} dif="sin cambio" />
+                  <FilaResumen rotulo="Flete que se resta" nota="reserva automática frente al flete real cargado" a={clp(reserva)} b={clp(real)} dif={difFlete === 0 ? 'gastas lo mismo' : `gastas ${clp(difFlete)} ${mal ? 'más' : 'menos'}`} difTono={difFlete === 0 ? undefined : mal ? 'text-red-600' : 'text-emerald-700'} />
+                  <FilaResumen rotulo="Margen en pesos" nota="margen antes del flete menos el flete" a={clp(t.margenNuevo)} b={clp(margenReal)} dif={clpFirmado(difMargen)} difTono={tono(difMargen)} />
+                  <FilaResumen fuerte rotulo="Margen sobre la venta" nota="margen en pesos dividido por la venta neta" a={pct(t.pctNuevo)} b={pct(pctReal)} dif={`${flecha(difPts)}${pts(difPts)}`} difTono={tono(difPts)} />
+                </tbody>
+              </table>
+            </div>
+            <p className={`mt-2 text-[13px] font-bold ${difFlete === 0 ? 'text-slate-600' : mal ? 'text-red-600' : 'text-emerald-700'}`}>
+              {difFlete === 0 ? 'El flete real es igual a la reserva: el margen no cambia.'
+                : mal ? `El flete real es ${clp(difFlete)} más caro que la reserva: el margen final es ${clp(Math.abs(difMargen))} menor.`
+                : `El flete real es ${clp(difFlete)} más barato que la reserva: el margen final es ${clp(Math.abs(difMargen))} mayor.`}
+            </p>
+          </div>
+        );
+      })()}
 
       {/* 2 · Qué parte ya tiene cotización: el margen con cotizaciones es provisional mientras queden líneas sin cotizar */}
       <div className="mt-5 overflow-x-auto">
@@ -141,14 +215,6 @@ export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [] }:
       </div>
 
       <ul className="mt-3 space-y-1.5 text-[13px] text-slate-700">
-        {fletesCotizados.length > 0 && (
-          <li data-testid="margen-fletes-cotizados">
-            Flete cotizado aparte (no incluido en el costo de arriba): {fletesCotizados.map((f, i) => (
-              <span key={f.cotizacionId}>{i > 0 && ' · '}<b className="font-bold text-slate-900">{clp(f.monto)}</b> de {f.proveedor} (cotización #{f.cotizacionId})</span>
-            ))}
-            {fletesCotizados.length > 1 && <> = <b className="font-bold text-slate-900">{clp(fletesCotizados.reduce((s, f) => s + f.monto, 0))}</b></>}. La reserva automática para flete es de {clp(t.gastoEntrega)}.
-          </li>
-        )}
         {r.sinCotizar.n > 0 && (
           <li>{r.cotizadas.n} de {r.lineas.length} líneas ya tienen cotización. El margen con cotizaciones es <b className="font-bold text-amber-700">provisional</b>: las {r.sinCotizar.n} sin cotizar se mantienen al costo costeado y pueden mover el margen cuando se coticen.</li>
         )}

@@ -42,16 +42,22 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
   })), [cotizaciones, productos, reemp]);
 
   // Margen del costeo inicial vs margen con las cotizaciones (Carolina, 27-oct-2026): misma venta, costo costeado vs mejor cotización por línea.
-  const margen = useMemo(() => margenCosteoVsCotizaciones(productos.map(p => {
+  const margen = useMemo(() => margenCosteoVsCotizaciones(productos.filter(p => !p.esServicio).map(p => {
     const m = menorDe.get(p.id) ?? null;
     const proveedor = m == null ? null : cotizaciones.find(c => !reemp.has(`${c.id}:${p.id}`) && c.items.find(i => i.productoId === p.id)?.precioUnitario === m)?.proveedorNombre ?? null;
     return { id: p.id, descripcion: p.descripcion, cantidad: num(p.cantidad), venta: venta?.[p.id] ?? null, costeo: costeado[p.id] ?? null, cotizado: m, proveedor, compras: costeoCompras[p.id]?.costo ?? null };
   }), GASTO_ENTREGA_PCT), [productos, cotizaciones, costeado, venta, menorDe, reemp, costeoCompras]);
 
   // Fletes que cobran aparte los proveedores que dan el mejor precio de alguna línea: el cuadro de margen los muestra junto a la reserva.
-  const fletesCotizados = cotizaciones
+  const fletesCotizados: Array<{ proveedor: string; cotizacionId: number; monto: number; nombre?: string }> = cotizaciones
     .filter(c => c.fleteMonto != null && c.fleteMonto > 0 && margen.lineas.some(l => l.cotizada && l.proveedor === c.proveedorNombre))
-    .map(c => ({ proveedor: c.proveedorNombre, cotizacionId: c.id, monto: c.fleteMonto as number }));
+    .map(c => ({ proveedor: c.proveedorNombre, cotizacionId: c.id, monto: c.fleteMonto as number, nombre: undefined as string | undefined }));
+  // Fletes agregados en «Fletes» (servicios): su mejor oferta cuenta como flete real contra la reserva del 5 %.
+  for (const p of productos.filter(p => p.esServicio)) {
+    const m = menorDe.get(p.id); if (m == null) continue;
+    const c = cotizaciones.find(c => !reemp.has(`${c.id}:${p.id}`) && c.items.find(i => i.productoId === p.id)?.precioUnitario === m);
+    fletesCotizados.push({ proveedor: c?.proveedorNombre ?? '', cotizacionId: c?.id ?? 0, monto: m * num(p.cantidad), nombre: p.descripcion });
+  }
 
   if (productos.length === 0 || (cotizaciones.length === 0 && !lecLink?.disponible)) return null;
 

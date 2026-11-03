@@ -3,6 +3,13 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-03 — Repuesto/mango se mezclaba con la herramienta (607-84-LE26, negocio 1630; sin desplegar)
+Start Fire cotizó «Rastrillo McLeod forestal» y el emparejador lo puso en «MANGO DE REEMPLAZO PARA RASTRILLO MCLEOD» (empate de palabras; ganó el primero).
+**Regla** (`puntuar`, auditor-opciones-core.ts): si solo UNO de producto/línea es pieza (mango, astil, repuesto, reemplazo, recambio; en las 2 primeras
+palabras, o reemplazo/repuesto en cualquier parte) → −0,5. Test con el caso. Suite 1701/1701, tsc limpio. Dato: opción 823 movida a la línea 10 (`moverOpcionALinea`).
+**Pendiente (ambiguo, no tocado):** astil 69089 «para Pala Forestal» (38'') está en la línea 6 (mango pala de combinación, 42''); probable línea 5 (pala de combate).
+«Pala incendio forestal» de Start Fire (opción 824) está en «Pala de combinación – Combi Tool». Manguera ZYFIRE 1.5'' (15 u.) cubre solo la línea verde (5 u.).
+
 ## 2026-11-02 — «Asignar a la línea» no hacía nada (1090-17-LE26, negocio 1629; sin desplegar)
 Dos productos distintos de una misma captura sin marca ni modelo («Azadón con mango de 2 LBS» $11.320 y «2 1/2 LBS» $11.490) se tomaban por la MISMA opción (mismo proveedor + marca vacía), y como el documento ya respaldaba esa opción, `crearOpcionDesdeProducto` devolvía la existente sin crear respaldo: el segundo seguía en «Productos sin línea». Arreglo en `auditor-opciones.ts`: una opción que ya respalda otro producto del mismo documento no cuenta como «la misma». Pendiente: tras desplegar, volver a asignar ese producto a la línea 2. Revisado después: los precios del PDF 86884 están bien (cantidad × unitario = total de cada ítem); la lista «La misma cotización también trae» mostraba total ÷ cantidad de la línea del azadón (90), por eso no coincidía, y ofrecía como complemento productos que ya son la opción de otra línea (un clic habría inflado el costo del azadón). Ahora esa lista excluye los productos que ya tienen línea propia (`conLineaPropia`). Pendiente de decisión del equipo: pala jardinera → línea 8 (confianza media, el PDF no dice «punta cuadrada» ni «mango corto»).
 

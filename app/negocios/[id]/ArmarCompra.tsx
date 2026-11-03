@@ -125,18 +125,18 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
             {comb && (
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[12px]">
-                  <Caja t="Mercadería" v={clp(comb.costoMercaderia)} />
-                  <Caja t="Flete" v={clp(comb.costoLogistico)} nota={comb.fleteSinConfirmar ? 'sin confirmar' : undefined} />
+                  <Caja t="Mercadería" v={clp(comb.costoMercaderia)} nota="sin fletes" />
+                  <Caja t="Flete" v={clp(comb.costoLogistico)} nota={comb.fleteSinConfirmar ? 'sin confirmar' : (comb.costoFleteContratado ?? 0) > 0 ? 'confirmado' : undefined} notaOk={!comb.fleteSinConfirmar && (comb.costoFleteContratado ?? 0) > 0} />
                   <Caja t="Total" v={clp(comb.costoTotal)} fuerte />
                   <Caja t="Proveedores / viajes" v={`${comb.nProveedores} / ${comb.viajes}`} />
                   <Caja t="Plazo mayor" v={comb.diasEstimados != null ? `${comb.diasEstimados} días` : 'sin declarar'} />
                 </div>
                 <ul className="text-[12.5px] text-zinc-700 space-y-0.5">
-                  {comb.items.map(i => {
+                  {[...comb.items].sort((a, b) => Number(!!a.esServicio) - Number(!!b.esServicio)).map(i => {
                     const r = rapidas[i.productoId];
                     return (
                       <li key={i.productoId} className="flex justify-between gap-3" data-testid={`tu-compra-${i.productoId}`}>
-                        <span className="truncate">{i.descripcion}
+                        <span className="truncate">{i.esServicio && <span className="mr-1.5 text-[10.5px] font-bold px-1.5 py-0.5 rounded border bg-sky-50 text-sky-800 border-sky-200">🚚 FLETE</span>}{i.descripcion}
                           {r && (
                             <span className={`ml-2 text-[10.5px] font-bold px-1.5 py-0.5 rounded border ${r.yaComprada ? 'bg-sky-50 text-sky-800 border-sky-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}
                               title="Compra rápida: se compró (o se compra) en una tienda, sin cotización ni ficha">
@@ -258,9 +258,9 @@ export function CargarCompraAlCosteo({ negocioId, proveedores, costoTotal, refre
   );
 }
 
-function Caja({ t, v, nota, fuerte }: { t: string; v: string; nota?: string; fuerte?: boolean }) {
+function Caja({ t, v, nota, fuerte, notaOk }: { t: string; v: string; nota?: string; fuerte?: boolean; notaOk?: boolean }) {
   return (
     <div className="rounded-lg bg-zinc-50 px-2.5 py-1.5"><p className="text-zinc-400 text-[11px]">{t}</p>
-      <p className={`tabular-nums ${fuerte ? 'font-bold text-zinc-900 text-[14px]' : 'font-semibold text-zinc-800'}`}>{v}{nota && <span className="ml-1 text-amber-600 font-semibold text-[11px]">{nota}</span>}</p></div>
+      <p className={`tabular-nums ${fuerte ? 'font-bold text-zinc-900 text-[14px]' : 'font-semibold text-zinc-800'}`}>{v}{nota && <span className={`ml-1 font-semibold text-[11px] ${notaOk ? 'text-emerald-600' : 'text-amber-600'}`}>{nota}</span>}</p></div>
   );
 }

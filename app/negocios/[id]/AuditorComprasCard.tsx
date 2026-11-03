@@ -26,6 +26,7 @@ import { useLinksLeidos } from './LinksLeidos';
 import { useFichasCompras, tecnicoPorCelda, TecnicoDeCelda } from './FichasEnCotizacion';
 import { ArmarCompra, type Comb, type Recomendada, type EvaluacionCompra } from './ArmarCompra';
 import { lineasDesdeTabla } from '@/app/lib/compras-cotizacion-lineas';
+import { FletesCompra } from './FletesCompra';
 import { DESPACHO_OPCIONES, condicionesPara, condicionDesdeLegacy, aplicarDespacho } from '@/app/lib/compras-despacho';
 import { IconGavel as Gavel, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconSparkles as Sparkles, IconTrendingDown as TrendingDown, IconTruck as Truck, IconBolt as Zap, IconScale as Scale, IconCurrencyDollar as DollarSign, IconCircleCheck as CheckCircle2, IconPaperclip as Paperclip, IconListCheck as ListChecks, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconLink as Link2, IconShieldCheck as ShieldCheck, IconPencil as Pencil, IconTrash as Trash2, IconRobot as Bot, IconEye as Eye } from '@tabler/icons-react';
 
@@ -237,6 +238,29 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
     setDirectasAplicadas(a => [...a, ...nuevas.map(c => c.id)]);
   }, [cotizaciones, directasAplicadas]);
   const [evaluando, setEvaluando] = useState(false);
+  // Lo que vas marcando en la matriz es un borrador hasta «Elegir esta compra»: se guarda en este navegador para que no se desmarque al
+  // actualizar o cambiar de página. Al volver se restauran solo las marcas que siguen valiendo (la cotización todavía cubre ese producto).
+  const borradorKey = `compras-borrador-compra:${negocioId}`;
+  const borradorListo = useRef(false);
+  useEffect(() => {
+    if (borradorListo.current || cotizaciones.length === 0) return;
+    borradorListo.current = true;
+    try {
+      const guardado = JSON.parse(localStorage.getItem(borradorKey) || '{}') as Record<string, number>;
+      const vigente: Record<number, number> = {};
+      for (const [pid, cid] of Object.entries(guardado)) {
+        if (cotizaciones.some(c => c.id === cid && c.items.some(i => i.productoId === Number(pid)))) vigente[Number(pid)] = cid;
+      }
+      if (Object.keys(vigente).length > 0) { setCompra(vigente); compraIniciada.current = true; }
+    } catch { /* sin borrador guardado: se usa la compra elegida, si hay */ }
+  }, [cotizaciones, borradorKey]);
+  useEffect(() => {
+    if (!borradorListo.current) return;
+    try {
+      if (Object.keys(compra).length === 0) localStorage.removeItem(borradorKey);
+      else localStorage.setItem(borradorKey, JSON.stringify(compra));
+    } catch { /* navegador sin almacenamiento: la marca dura hasta recargar */ }
+  }, [compra, borradorKey]);
 
   const cargar = useCallback(async () => {
     // Cada bloque se pinta apenas llega (auditoría 07-oct-2026): antes todo esperaba a la consulta más lenta (las combinaciones
@@ -1214,6 +1238,8 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           </details>
         </Banner>
       )}
+
+      <FletesCompra negocioId={negocioId} puedeOperar={puedeOperar} productos={productos} cotizaciones={cotizaciones} onCambio={async () => { await cargar(); recargarCompartido(); }} />
 
       {vistaMatriz ? (
         <div className="space-y-2">

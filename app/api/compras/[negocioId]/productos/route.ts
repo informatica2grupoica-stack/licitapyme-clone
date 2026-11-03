@@ -78,9 +78,9 @@ async function __PATCH(request: NextRequest, { params }: Params) {
 
     if (body.accion === 'agregar_servicio') {
       // Servicio que se compra con proveedor/cotización/SKU/OC pero no se vende (el flete que lleva toda la entrega, migration-177).
-      await crearServicioProducto(id, { descripcion: String(body.descripcion || ''), cantidad: Number(body.cantidad), unidad: body.unidad ?? null }, userId, nombre);
+      const productoId = await crearServicioProducto(id, { descripcion: String(body.descripcion || ''), cantidad: Number(body.cantidad), unidad: body.unidad ?? null }, userId, nombre);
       const [productos, cobertura] = await Promise.all([listarProductosCompra(id), coberturaProyecto(id)]);
-      return NextResponse.json({ success: true, productos, cobertura });
+      return NextResponse.json({ success: true, productoId, productos, cobertura });
     }
 
     const productoId = Number(body.productoId);

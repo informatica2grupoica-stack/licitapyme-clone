@@ -731,31 +731,6 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
       [producto.id, parsed.puntosCriticos || null, ahora],
     );
   }
-  // SERVICIO de transporte (2906-19-LE26, «Trasporte»): si la cotización trae una línea de flete y el negocio tiene un servicio sin precio
-  // en ella, la línea ES el precio de ese servicio (se cotiza, lleva SKU y OC). La IA la dejaba como «flete aparte» (flete_monto) y el
-  // servicio quedaba sin cotizar. Al asignarla se libera flete_monto: si no, el flete se contaba dos veces (servicio + «Flete / logística»).
-  const lineasEnServicio = new Set<string>();
-  try {
-    const yaConPrecio = new Set(resueltos.map(r => r.producto.id));
-    const servicios = productos.filter(p => p.esServicio && !yaConPrecio.has(p.id));
-    const RE_TRANSPORTE = /flete|transport|trasport|despacho|env[ií]o|reparto/i;
-    const lineasFlete = lineasDelDoc.filter(l => RE_TRANSPORTE.test(l.descripcion) && (l.total ?? l.precioUnitario ?? 0) > 0);
-    if ((cotiz.moneda || 'CLP') === 'CLP' && servicios.length === 1 && lineasFlete.length === 1) {
-      const serv = servicios[0], linea = lineasFlete[0];
-      const cant = serv.cantidad != null && Number(serv.cantidad) > 0 ? Number(serv.cantidad) : 1;
-      const totalLinea = Number(linea.total ?? linea.precioUnitario);
-      const neto = ivaIncluido ? Number(netoDesdeBruto(totalLinea)) : totalLinea;
-      const precio = Math.round((neto / cant) * 100) / 100;
-      await pool.query(
-        `INSERT INTO compras_cotizacion_item (cotizacion_id, producto_id, precio_unitario, precio_base, cumple, detalle_desviacion)
-         VALUES (?,?,?,?,?,?)
-         ON DUPLICATE KEY UPDATE precio_unitario = VALUES(precio_unitario), precio_base = VALUES(precio_base), cumple = VALUES(cumple), detalle_desviacion = VALUES(detalle_desviacion)`,
-        [cotizacionId, serv.id, precio, precio, 'CUMPLE', `Línea «${linea.descripcion.slice(0, 60)}» de la cotización.`]);
-      await pool.query(`UPDATE compras_cotizacion SET flete_monto = NULL, incluye_flete = NULL WHERE id = ?`, [cotizacionId]);
-      lineasEnServicio.add(linea.descripcion);
-      escritos++;
-    }
-  } catch (e) { console.warn('[homologar] no se pudo asignar el flete al servicio de transporte:', String(e).slice(0, 120)); }
   // Re-homologar dejaba filas de una pasada anterior que la nueva lectura ya no asigna (producto "sin precio", $0) y su aviso en la matriz.
   // Se limpian solo las vacías (sin precio, sin adicionales): lo que tiene precio o lo cargó una persona se conserva.
   const asignados = resueltos.filter(r => incluidos.has(codigo(r.it.producto)) || !(hayConPrecio && r.precioClp == null)).map(r => r.producto.id);
@@ -778,7 +753,7 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     const [asig]: any = await pool.query(
       `SELECT p.descripcion FROM compras_cotizacion_item i JOIN compras_producto p ON p.id = i.producto_id WHERE i.cotizacion_id = ?`, [cotizacionId]);
     const [adics]: any = await pool.query(`SELECT concepto FROM compras_cotizacion_adicional WHERE cotizacion_id = ?`, [cotizacionId]);
-    const sin = lineasSinAsignar(lineasDelDoc, [...lineasEnServicio, ...(asig as any[]).flatMap(x => [String(x.descripcion), String(x.descripcion).split(' - ')[0]]), ...(adics as any[]).map(x => String(x.concepto))]);
+    const sin = lineasSinAsignar(lineasDelDoc, [...(asig as any[]).flatMap(x => [String(x.descripcion), String(x.descripcion).split(' - ')[0]]), ...(adics as any[]).map(x => String(x.concepto))]);
     const marca = 'Revisa la asignación:';
     const marcaMismo = 'Revisa que sea el mismo producto:';
     const notasSinAviso = String(a?.notas || '').split(' · ').filter(t => !t.startsWith(marca) && !t.startsWith(marcaMismo)).join(' · ');
@@ -961,6 +936,8 @@ export async function calcularEscenarios(negocioId: number): Promise<Escenario[]
     const proveedoresNecesitanViaje = new Map<string, number | null>(); // proveedor -> fleteMonto real (null = usar el interno fijo)
     const modalidadViaje = new Map<string, string | null>(); // proveedor -> quién despacha (si despacha el proveedor, el flete cuesta pero no hay viaje nuestro)
     let costoMercaderia = 0;
+    let costoFleteContratado = 0;
+    let hayFleteContratado = false;
     let diasMax = 0;
     let cubreTodo = true;
     for (const p of productos) {
@@ -968,9 +945,9 @@ export async function calcularEscenarios(negocioId: number): Promise<Escenario[]
       const elegido = candidatos.length ? elegir(candidatos) : undefined;
       if (!elegido) { cubreTodo = false; porProductoDetalle.push({ productoId: p.id, descripcion: p.descripcion, proveedor: null, precioUnitario: null, cantidad: p.cantidad, subtotal: null, plazoEntregaDias: null, incluyeFlete: null, fleteMonto: null }); continue; }
       const subtotal = (elegido.precioUnitario || 0) * (p.cantidad || 1);
-      costoMercaderia += subtotal;
+      if (p.esServicio) { costoFleteContratado += subtotal; hayFleteContratado = true; } else costoMercaderia += subtotal;
       proveedoresSet.add(elegido.proveedor);
-      if (elegido.incluyeFlete !== true) {
+      if (elegido.incluyeFlete !== true && !p.esServicio) {
         const actual = proveedoresNecesitanViaje.get(elegido.proveedor);
         if (actual === undefined || (actual == null && elegido.fleteMonto != null)) {
           proveedoresNecesitanViaje.set(elegido.proveedor, elegido.fleteMonto);
@@ -989,8 +966,8 @@ export async function calcularEscenarios(negocioId: number): Promise<Escenario[]
     // hubiera escrito ni confirmado. Ahora un monto no informado cuenta como $0 (no se inventa un
     // número), y `fleteSinConfirmar` avisa en la UI que ese $0 no es un dato real, es solo que
     // todavía nadie lo cargó — mismo criterio "avisa, no adivina" que el resto del módulo.
-    const fleteSinConfirmar = [...proveedoresNecesitanViaje.values()].some(monto => monto == null);
-    const costoLogistico = [...proveedoresNecesitanViaje.values()].reduce((s: number, monto) => s + (monto ?? 0), 0);
+    const fleteSinConfirmar = !hayFleteContratado && [...proveedoresNecesitanViaje.values()].some(monto => monto == null);
+    const costoLogistico = [...proveedoresNecesitanViaje.values()].reduce((s: number, monto) => s + (monto ?? 0), 0) + costoFleteContratado;
     return {
       tipo, costoTotal: costoMercaderia + costoLogistico, diasEstimados: diasMax || null, viajesEstimados: viajes,
       detalle: { porProducto: porProductoDetalle, proveedoresInvolucrados: [...proveedoresSet] },
@@ -1035,8 +1012,12 @@ export interface ItemCombinacion {
   productoId: number; descripcion: string; cotizacionId: number; proveedor: string; cumple: CumpleItem; detalleDesviacion: string | null;
   moneda: string; tipoCambioUsado: number | null; precioUnitario: number | null; cantidad: number | null; subtotal: number | null;
   plazoEntregaDias: number | null; incluyeFlete: boolean | null; fleteMonto: number | null; despachoModalidad?: string | null;
+  /** Flete/servicio contratado aparte (con su cotización, SKU y OC): cuenta como flete cierto, no como mercadería. */
+  esServicio?: boolean;
 }
 export interface Combinacion {
+  /** Parte del flete que son fletes contratados (servicios) elegidos en esta compra. */
+  costoFleteContratado: number;
   clave: string; costoMercaderia: number; costoLogistico: number; costoTotal: number; diasEstimados: number | null; viajes: number;
   nProveedores: number; proveedores: string[]; peorCumple: CumpleItem; fleteSinConfirmar: boolean; proveedoresSinPlazo: string[];
   items: ItemCombinacion[]; etiquetas: TipoEscenario[]; diferenciaVsMasBarata: number; diferenciaPctVsMasBarata: number | null; avisos: string[];
@@ -1195,15 +1176,19 @@ function armarCombinacion(productos: ProductoCompra[], elegidos: EleccionPorProd
       productoId: p.id, descripcion: p.descripcion, cotizacionId: e.cotizacionId, proveedor: e.proveedor, cumple: e.cumple, detalleDesviacion: e.detalleDesviacion ?? null,
       moneda: e.moneda, tipoCambioUsado: e.tipoCambioUsado, precioUnitario: e.precioUnitario, cantidad: p.cantidad, subtotal: (e.precioUnitario || 0) * (p.cantidad || 1),
       plazoEntregaDias: e.plazoEntregaDias, incluyeFlete: e.incluyeFlete, fleteMonto: e.fleteMonto, despachoModalidad: e.despachoModalidad ?? null,
+      esServicio: !!p.esServicio,
     };
   });
-  const costoMercaderia = items.reduce((s, x) => s + (x.subtotal || 0), 0);
+  // Un flete contratado (servicio) es flete CIERTO: no suma a la mercadería, no genera «viaje» ni deja el flete «sin confirmar».
+  const costoFleteContratado = items.filter(x => x.esServicio).reduce((s, x) => s + (x.subtotal || 0), 0);
+  const hayFleteContratado = items.some(x => x.esServicio);
+  const costoMercaderia = items.filter(x => !x.esServicio).reduce((s, x) => s + (x.subtotal || 0), 0);
   // Mismo criterio que armar(): un viaje por proveedor cuyo flete no viene incluido; si trae monto, ese es el cargo real.
   const viaje = new Map<string, number | null>();
   const modalViaje = new Map<string, string | null>();
-  for (const x of items) if (x.incluyeFlete !== true) { const a = viaje.get(x.proveedor); if (a === undefined || (a == null && x.fleteMonto != null)) { viaje.set(x.proveedor, x.fleteMonto); modalViaje.set(x.proveedor, x.despachoModalidad ?? null); } }
-  const fleteSinConfirmar = [...viaje.values()].some(m => m == null);
-  const costoLogistico = [...viaje.values()].reduce((s: number, m) => s + (m ?? 0), 0);
+  for (const x of items) if (x.incluyeFlete !== true && !x.esServicio) { const a = viaje.get(x.proveedor); if (a === undefined || (a == null && x.fleteMonto != null)) { viaje.set(x.proveedor, x.fleteMonto); modalViaje.set(x.proveedor, x.despachoModalidad ?? null); } }
+  const fleteSinConfirmar = !hayFleteContratado && [...viaje.values()].some(m => m == null);
+  const costoLogistico = [...viaje.values()].reduce((s: number, m) => s + (m ?? 0), 0) + costoFleteContratado;
   const proveedores = [...new Set(items.map(x => x.proveedor))];
   const dias = items.reduce((m, x) => Math.max(m, x.plazoEntregaDias ?? 0), 0);
   const sinPlazo = proveedores.filter(pv => items.filter(x => x.proveedor === pv).every(x => x.plazoEntregaDias == null));
@@ -1218,7 +1203,7 @@ function armarCombinacion(productos: ProductoCompra[], elegidos: EleccionPorProd
 
   const clave = items.map(x => `${x.productoId}:${x.cotizacionId}`).join('|');
   return {
-    clave, costoMercaderia, costoLogistico, costoTotal: costoMercaderia + costoLogistico, diasEstimados: dias || null, viajes: [...viaje.keys()].filter(pv => modalViaje.get(pv) !== 'PROVEEDOR').length,
+    clave, costoFleteContratado, costoMercaderia, costoLogistico, costoTotal: costoMercaderia + costoLogistico, diasEstimados: dias || null, viajes: [...viaje.keys()].filter(pv => modalViaje.get(pv) !== 'PROVEEDOR').length,
     nProveedores: proveedores.length, proveedores, peorCumple: peor, fleteSinConfirmar, proveedoresSinPlazo: sinPlazo, items, etiquetas: [],
     diferenciaVsMasBarata: 0, diferenciaPctVsMasBarata: null, avisos,
     detalle: {
