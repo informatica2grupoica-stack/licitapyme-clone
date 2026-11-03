@@ -24,7 +24,7 @@ export interface AdjuntoPago { url: string; nombre: string | null }
 /** Una OC real de Obuma de la licitación, con sus facturas (para mostrar «Factura N° … · Ver XML»). */
 export interface OcConFacturas {
   folio: string; estado: string | null; total: number | null; proveedorRut: string | null;
-  facturas: Array<{ folio: string; fecha: string | null; total: number | null; s3Link: string | null }>;
+  facturas: Array<{ dteId: string; folio: string; fecha: string | null; total: number | null; s3Link: string | null }>;
 }
 
 async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
@@ -53,10 +53,15 @@ export async function ocsConFacturas(negocioId: number): Promise<OcConFacturas[]
   const compras = await comprasObumaDeLicitacion(codigo);
   return compras
     .filter(c => !/anulad/i.test(c.estado || '') && !esOcDeGarantia(c))
-    .map(c => ({
-      folio: c.folio || c.compraOcId, estado: c.estado, total: c.total, proveedorRut: c.proveedorRut,
-      facturas: c.facturas.map(f => ({ folio: f.folioDte, fecha: f.fecha, total: f.total, s3Link: f.s3Link })),
-    }));
+    .map(c => {
+      // Obuma guarda la misma factura más de una vez en la OC (una por línea facturada): se cuenta una sola vez.
+      const vistos = new Set<string>();
+      const unicas = c.facturas.filter(f => { const k = String(f.dteId || `${f.tipoDcto}#${f.folioDte}`); if (vistos.has(k)) return false; vistos.add(k); return true; });
+      return {
+        folio: c.folio || c.compraOcId, estado: c.estado, total: c.total, proveedorRut: c.proveedorRut,
+        facturas: unicas.map(f => ({ dteId: String(f.dteId), folio: f.folioDte, fecha: f.fecha, total: f.total, s3Link: f.s3Link })),
+      };
+    });
 }
 
 /** Una OC está pagada cuando tiene un pago total o el saldo registrado (un anticipo solo es pago parcial). */

@@ -15,6 +15,8 @@ import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { irAFase } from '@/app/compras/[negocioId]/comprasNavegacion';
 import { fetchJsonReintento } from '@/app/lib/fetch-reintento';
 import { METODOS_DESPACHO_OBUMA } from '@/app/lib/obuma-despacho';
+import { FacturaVisor } from './FacturaVisor';
+import { OrdenCompraVisor } from './OrdenCompraVisor';
 import { CrearProveedorObumaModal, type FormProveedor } from './CrearProveedorObumaModal';
 import { IconClipboardList as ClipboardList, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconFileText as FileText, IconBolt as Zap, IconTruck as Truck, IconPaperclip as Paperclip, IconX as X } from '@tabler/icons-react';
 
@@ -55,7 +57,7 @@ interface RespaldoHito {
 // Pagos por OC (migration-157) y OC reales de Obuma con sus facturas — ver app/lib/compras-pagos-oc.ts.
 type TipoPago = 'ANTICIPO' | 'PAGO_TOTAL' | 'SALDO';
 interface PagoOc { id: number; ocFolio: string; proveedorNombre: string | null; tipo: TipoPago; monto: number; fecha: string; archivoUrl: string; archivoNombre: string | null; nota: string | null; adjuntos?: Array<{ url: string; nombre: string | null }> }
-interface OcObuma { folio: string; estado: string | null; total: number | null; facturas: Array<{ folio: string; fecha: string | null; total: number | null; s3Link: string | null }> }
+interface OcObuma { folio: string; estado: string | null; total: number | null; facturas: Array<{ dteId: string; folio: string; fecha: string | null; total: number | null; s3Link: string | null }> }
 interface ProyectoOpcion { folio: number; nombre: string | null; referencia: string | null; cliente: string | null; estado: string | null; sugerido: boolean }
 const TIPOS_PAGO: Array<{ key: TipoPago; label: string; ayuda: string }> = [
   { key: 'PAGO_TOTAL', label: 'Pago total', ayuda: 'Se pagó la orden completa de una vez.' },
@@ -109,6 +111,8 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
   const [pagosOc, setPagosOc] = useState<PagoOc[]>([]);
   const [ocsObuma, setOcsObuma] = useState<OcObuma[]>([]);
   const [pagoAbierto, setPagoAbierto] = useState<string | null>(null); // folio de la OC
+  const [ocDocAbierta, setOcDocAbierta] = useState<string | null>(null); // folio de la OC de Obuma que se ve como documento
+  const [facturaAbierta, setFacturaAbierta] = useState<string | null>(null); // dteId de la factura que se ve como documento
   const [pagoTipo, setPagoTipo] = useState<TipoPago>('PAGO_TOTAL');
   const [pagoMonto, setPagoMonto] = useState('');
   const [pagoFecha, setPagoFecha] = useState('');
@@ -442,6 +446,8 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
 
   return (
     <div className="space-y-3">
+      {ocDocAbierta && <OrdenCompraVisor negocioId={negocioId} folio={ocDocAbierta} onCerrar={() => setOcDocAbierta(null)} />}
+      {facturaAbierta && <FacturaVisor negocioId={negocioId} dteId={facturaAbierta} onCerrar={() => setFacturaAbierta(null)} />}
       {parte === 'oc' && proveedoresOC.length === 0 && (
         <p className="text-[12.5px] text-zinc-500 bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3">Todavía no hay una forma de comprar elegida: las órdenes de compra salen del escenario elegido en «Costeo y auditoría».</p>
       )}
@@ -614,6 +620,8 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                               <div>
                                 <dt className="text-[11px] text-slate-500">Orden</dt>
                                 <dd className="mt-0.5 text-xs font-bold tabular-nums text-slate-900">OC {folio}</dd>
+                                <dd className="text-[11px] text-slate-500">{p.yaCreada && folio === (p.yaCreada.folio ?? p.yaCreada.obumaCompraOcId) ? 'Emitida desde Licitank' : 'Hecha en Obuma'}</dd>
+                                {oc && <dd><button type="button" onClick={() => setOcDocAbierta(folio)} data-testid={`oc-ver-${folio}`} className="text-[11.5px] font-medium text-teal-700 hover:text-teal-900">Ver OC</button></dd>}
                               </div>
                               <div>
                                 <dt className="text-[11px] text-slate-500">Factura del proveedor</dt>
@@ -623,7 +631,8 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                                       {conPunto('#059669', `N° ${f.folio}`)}
                                       {f.fecha && <span className="text-slate-500">{fechaCorta(f.fecha)}</span>}
                                       {f.total != null && <span className="tabular-nums text-slate-500">{fmtCLP(f.total)}</span>}
-                                      {f.s3Link && <a href={f.s3Link} target="_blank" rel="noopener noreferrer" className="font-medium text-teal-700 hover:text-teal-900">Ver XML</a>}
+                                      {f.s3Link && <button type="button" onClick={() => setFacturaAbierta(f.dteId)} data-testid={`factura-ver-${f.folio}`} className="font-medium text-teal-700 hover:text-teal-900">Ver factura</button>}
+                                      {f.s3Link && <a href={f.s3Link} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-slate-600" title="Descargar el XML original">XML</a>}
                                     </div>
                                   )) : /factur/i.test(oc?.estado || '') ? conPunto('#059669', 'Facturada en Obuma')
                                     : conPunto('#94a3b8', 'Todavía no factura')}
@@ -1004,13 +1013,24 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                           ))}
                         </tbody>
                       </table>
-                      <div className="flex justify-end">
-                        <div className="w-48 space-y-0.5 text-[11px]">
-                          <div className="flex justify-between"><span className="text-zinc-400">Mercadería</span><span>{fmtCLP(oc.subtotal)}</span></div>
-                          {oc.flete > 0 && <div className="flex justify-between"><span className="text-zinc-400">Flete</span><span>{fmtCLP(oc.flete)}</span></div>}
-                          <div className="flex justify-between font-bold text-zinc-800 border-t border-zinc-200 pt-0.5"><span>Total</span><span>{fmtCLP(oc.total)}</span></div>
-                        </div>
-                      </div>
+                      {(() => {
+                        // Licitank guarda el total NETO (mercadería + flete); la registrada directo en Obuma trae el total con IVA.
+                        const neto = oc.origen === 'LICITANK' ? oc.total : oc.subtotal;
+                        const iva = oc.origen === 'LICITANK' ? Math.round(neto * 0.19) : Math.max(0, oc.total - neto);
+                        return (
+                          <div className="flex justify-between items-end gap-3 flex-wrap">
+                            {oc.folio ? <button type="button" onClick={() => { setVerOcAbierto(false); setOcDocAbierta(oc.folio!); }} className="text-[11.5px] font-medium text-teal-700 hover:text-teal-900 print:hidden">Ver como documento de Obuma</button> : <span />}
+                            <div className="w-56 space-y-0.5 text-[11px]">
+                              <div className="flex justify-between"><span className="text-zinc-400">Subtotal mercadería</span><span className="tabular-nums">{fmtCLP(oc.subtotal)}</span></div>
+                              {oc.flete > 0 && <div className="flex justify-between"><span className="text-zinc-400">Flete</span><span className="tabular-nums">{fmtCLP(oc.flete)}</span></div>}
+                              <div className="flex justify-between"><span className="text-zinc-400">Descuento</span><span className="tabular-nums">{fmtCLP(0)}</span></div>
+                              <div className="flex justify-between border-t border-zinc-200 pt-0.5"><span className="text-zinc-500">Neto</span><span className="tabular-nums">{fmtCLP(neto)}</span></div>
+                              <div className="flex justify-between"><span className="text-zinc-400">IVA 19%</span><span className="tabular-nums">{fmtCLP(iva)}</span></div>
+                              <div className="flex justify-between font-bold text-zinc-800 border-t border-zinc-200 pt-0.5"><span>Total con IVA</span><span className="tabular-nums">{fmtCLP(neto + iva)}</span></div>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>

@@ -211,15 +211,24 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
     // Estado real en Obuma de la OC nuestra (SOLICITADA, FACTURADA…), para no mostrarla siempre como "emitida".
     if (g.yaCreada) g.yaCreada.estado = todasObuma.find(c => c.compraOcId === g.yaCreada!.obumaCompraOcId)?.estado ?? null;
   }
+  // Tercera vía de reconocimiento: por SKU de los productos. Cuando el proveedor de la ficha no tiene RUT ni id de Obuma (cotización
+  // leída de un PDF, proveedor extranjero «SinRut») el cruce por proveedor falla aunque la OC ya exista en Obuma con los mismos SKU
+  // (1095439-8-LP26: Dercomaq, Metalúrgica Hund, Yucheng y Henan Saloni aparecían «Sin emitir»). Solo vale un SKU propio de UN producto
+  // de este negocio y que no sea un código genérico de servicio (p. ej. «100 · TRANSPORTE», compartido por todos los fletes).
+  const usosSku = new Map<string, number>();
+  for (const g of grupos.values()) for (const it of g.items) for (const k of [it.obumaProductoId, it.obumaCodigoComercial]) if (k) usosSku.set(String(k), (usosSku.get(String(k)) ?? 0) + 1);
+  const skuUtil = (k: string | null | undefined): k is string => !!k && usosSku.get(String(k)) === 1 && !/^\d{1,4}$/.test(String(k));
   for (const g of grupos.values()) {
     const rut = rutNormalizado(g.proveedorRut);
     // Se cruza por RUT y también por el id del proveedor en Obuma: cuando la sincronización no logra leer el RUT del proveedor
     // (caso 387-55-LE26: las 22 OC quedaron sin RUT) el RUT solo no alcanza y la OC ya hecha en Obuma aparecía «Sin emitir».
     const obumaProvId = g.proveedorId != null ? fichaCompleta.get(g.proveedorId)?.obumaProveedorId ?? null : null;
-    if (!rut && !obumaProvId) continue;
+    const skusDelGrupo = new Set(g.items.flatMap(it => [it.obumaProductoId, it.obumaCodigoComercial]).filter(skuUtil).map(String));
+    if (!rut && !obumaProvId && skusDelGrupo.size === 0) continue;
     // La OC que emitió Licitank (yaCreada) no cuenta como "real": la real es la que ya existía en Obuma antes.
     const delProveedor = realesObuma.filter(c => c.compraOcId !== g.yaCreada?.obumaCompraOcId
-      && ((!!rut && rutNormalizado(c.proveedorRut) === rut) || (!!obumaProvId && c.proveedorObumaId === String(obumaProvId))));
+      && ((!!rut && rutNormalizado(c.proveedorRut) === rut) || (!!obumaProvId && c.proveedorObumaId === String(obumaProvId))
+        || c.items.some(i => (!!i.productoId && skusDelGrupo.has(String(i.productoId))) || (!!i.codigoComercial && skusDelGrupo.has(String(i.codigoComercial))))));
     if (delProveedor.length === 0) continue;
     g.ocRealObuma = {
       folios: delProveedor.map(c => c.folio || c.compraOcId),
