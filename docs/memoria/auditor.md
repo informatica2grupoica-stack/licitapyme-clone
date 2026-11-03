@@ -3,6 +3,10 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-03 (tarde) — Lista de líneas sin precio cuando no se había comparado (607-84-LE26; sin desplegar, sin ver en navegador)
+«Sin comparar» y «Ninguna cumple todavía» no mostraban monto: no se sabía si la línea tenía cotización. `estadoDeLinea` (AuditorOpcionesPanel.tsx) ahora dice
+«Cotizada · sin comparar» / «Cotizada · ninguna cumple» y muestra el menor precio cotizado (neto verificado, o lo que dice el documento). tsc limpio.
+
 ## 2026-11-03 (tarde) — «Releer» le quitaba el precio a las líneas (607-84-LE26; sin desplegar)
 **Síntoma:** línea con «Cotizado 1» pero sin monto («La opción no tiene respaldo con precio legible», estado Tanteo).
 **Causa:** al releer un PDF el modelo reescribe nombre/marca/código («Astil para McLeod» → «Astil Para McLeod Council Tool», marca «Coucil Tool (sic…)», «FFSHOSS38 FSS» → «FFSHOSS3»).

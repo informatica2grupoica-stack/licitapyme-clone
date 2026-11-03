@@ -648,9 +648,12 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
     const f = resumenDeLinea.get(l.filaId);
     if (!f?.mejor) {
       if (!activas.length) return { color: 'bg-slate-300', texto: 'Sin cotización' };
+      // Aunque aún no se compare, la lista dice que la línea YA tiene cotización y a cuánto: el neto verificado, o lo que dice el documento.
+      const precios = activas.map(o => o.verificacion?.costoNetoUnitario ?? o.producto?.precio ?? null).filter((x): x is number => x != null);
+      const cotizado = precios.length ? Math.min(...precios) : null;
       const nunca = activas.some(porComparar) && !activas.some(o => o.tecnico.resultado);
-      if (!nunca && activas.some(precioPendiente)) return { color: 'bg-amber-500', texto: 'Falta confirmar el precio' };
-      return { color: nunca ? 'bg-amber-500' : 'bg-slate-400', texto: nunca ? 'Sin comparar' : 'Ninguna cumple todavía' };
+      if (!nunca && activas.some(precioPendiente)) return { color: 'bg-amber-500', texto: 'Falta confirmar el precio', costo: cotizado };
+      return { color: nunca ? 'bg-amber-500' : 'bg-slate-400', texto: nunca ? 'Cotizada · sin comparar' : 'Cotizada · ninguna cumple', costo: cotizado };
     }
     return { color: f.faltaDato ? 'bg-amber-500' : 'bg-emerald-600', texto: f.faltaDato ? 'Falta dato' : 'Cumple', costo: f.mejor.costoUnitNeto };
   };
