@@ -18,7 +18,8 @@ import { ComparadorPrecios } from './ComparadorPrecios';
 import { MatrizPrecios, cotizacionesReemplazadas, ESTILO_VEREDICTO, ETIQUETA_ALERTA, type SeleccionCelda } from './MatrizPrecios';
 import { compararPrecioConCosteo } from '@/app/lib/compras-precio-vs-costeo';
 import { CotizacionesMasivas } from './CotizacionesMasivas';
-import { CompraDirectaPanel, type InicialDirecta } from './CompraDirectaPanel';
+import { ProveedorFichaModal, type ProveedorRef } from './ProveedorFichaModal';
+import { CompraDirectaPanel,type InicialDirecta } from './CompraDirectaPanel';
 import { ListaCotizaciones } from './ListaCotizaciones';
 import { CoberturaCotizaciones } from './CoberturaCotizaciones';
 import type { LinksCosteo } from './LinksProducto';
@@ -28,7 +29,7 @@ import { ArmarCompra, type Comb, type Recomendada, type EvaluacionCompra } from 
 import { lineasDesdeTabla } from '@/app/lib/compras-cotizacion-lineas';
 import { FletesCompra } from './FletesCompra';
 import { DESPACHO_OPCIONES, condicionesPara, condicionDesdeLegacy, aplicarDespacho } from '@/app/lib/compras-despacho';
-import { IconGavel as Gavel, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconSparkles as Sparkles, IconTrendingDown as TrendingDown, IconTruck as Truck, IconBolt as Zap, IconScale as Scale, IconCurrencyDollar as DollarSign, IconCircleCheck as CheckCircle2, IconPaperclip as Paperclip, IconListCheck as ListChecks, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconLink as Link2, IconShieldCheck as ShieldCheck, IconPencil as Pencil, IconTrash as Trash2, IconRobot as Bot, IconEye as Eye } from '@tabler/icons-react';
+import { IconGavel as Gavel, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconTrendingDown as TrendingDown, IconTruck as Truck, IconBolt as Zap, IconScale as Scale, IconCurrencyDollar as DollarSign, IconCircleCheck as CheckCircle2, IconPaperclip as Paperclip, IconListCheck as ListChecks, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconLink as Link2, IconShieldCheck as ShieldCheck, IconPencil as Pencil, IconTrash as Trash2, IconRobot as Bot, IconEye as Eye } from '@tabler/icons-react';
 
 type Origen = 'pdf' | 'imagen' | 'whatsapp' | 'texto' | 'correo' | 'llamada' | 'directa';
 type Cumple = 'CUMPLE' | 'MEJORA' | 'INFERIOR_NEGOCIABLE' | 'INFERIOR_INSALVABLE' | 'NO_ES_EL_PRODUCTO';
@@ -197,6 +198,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   // Obuma en vivo — ver sugerirProveedoresPorDescripcion en compras-proveedores.ts) y se muestra
   // como aviso, sin que nadie tenga que ir a buscarlo a mano.
   const [sugerenciasHistorial, setSugerenciasHistorial] = useState<SugerenciaProducto[]>([]);
+  const [fichaProveedor, setFichaProveedor] = useState<ProveedorRef | null>(null);
   // Editar/eliminar una cotización ya registrada (pedido explícito, 14-sep-2026: "tampoco se pueden
   // eliminar ni editar las cotizaciones y eso es básico"). Editar reusa el MISMO formulario de
   // "Registrar cotización" precargado — sin volver a subir el archivo, solo los campos de texto —
@@ -774,16 +776,20 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
       {sugerenciasHistorial.length > 0 && (
         <Banner variante="info">
           <details>
-          <summary className="cursor-pointer font-semibold flex items-center gap-1"><Sparkles size={13} /> Hay proveedores con compras anteriores parecidas ({sugerenciasHistorial.length} producto{sugerenciasHistorial.length === 1 ? '' : 's'}) — ver</summary>
-          <ul className="mt-1.5 space-y-1.5">
+          <summary className="cursor-pointer font-semibold">Hay proveedores con compras anteriores parecidas ({sugerenciasHistorial.length} producto{sugerenciasHistorial.length === 1 ? '' : 's'}) — ver</summary>
+          <p className="text-[11.5px] text-zinc-500 mt-1">Toca un proveedor para ver sus datos de contacto y lo que le hemos comprado.</p>
+          <ul className="mt-1.5 space-y-2">
             {sugerenciasHistorial.map(s => (
               <li key={s.productoId} className="text-[12px]">
                 <span className="font-semibold">{s.descripcion}</span>
-                <div className="flex flex-wrap gap-1 mt-0.5">
+                <div className="flex flex-wrap gap-1.5 mt-1">
                   {s.sugerencias.slice(0, 3).map(prov => (
-                    <span key={prov.obumaProveedorId} className="text-[10.5px] font-semibold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full">
-                      {prov.nombreEmpresa} · {prov.productos.reduce((n, p) => n + p.veces, 0)}× "{prov.productos[0]?.nombre}"
-                    </span>
+                    <button key={prov.obumaProveedorId} type="button"
+                      onClick={() => setFichaProveedor({ proveedorId: prov.proveedorId, obumaProveedorId: prov.obumaProveedorId, nombreEmpresa: prov.nombreEmpresa, rut: prov.rut, productosParecidos: prov.productos.map(p => p.nombre) })}
+                      title="Ver ficha del proveedor"
+                      className="text-left text-[11.5px] font-medium text-teal-800 bg-white border border-teal-200 hover:border-teal-500 hover:bg-teal-50 px-2 py-1 rounded-md transition-colors">
+                      <span className="font-semibold">{prov.nombreEmpresa}</span> · {prov.productos.reduce((n, p) => n + p.veces, 0)}× “{prov.productos[0]?.nombre}”
+                    </button>
                   ))}
                 </div>
               </li>
@@ -792,6 +798,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
           </details>
         </Banner>
       )}
+      <ProveedorFichaModal prov={fichaProveedor} onClose={() => setFichaProveedor(null)} />
 
       <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
         <div className="flex items-center justify-between gap-3 px-4 py-3 bg-zinc-50 border-b border-zinc-100">

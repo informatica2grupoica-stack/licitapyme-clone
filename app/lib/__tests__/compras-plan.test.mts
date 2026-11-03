@@ -115,3 +115,10 @@ test('tareas de entrega con plazo largo no parten antes de que corra el plazo', 
   const p = planificarTarea({ ancla: 'FIN_PLAZO', desfaseHoras: -168, duracionHoras: 72, plazoAt: null }, h);
   assert.equal(p.inicio, '2026-10-13 23:59:00');
 });
+
+test('reloj fijado a mano: su inicio manda aunque las bases no digan desde cuándo corre', () => {
+  const h = calcularHitosGantt({ ...base, hitoInicioPlazo: null, ocEmitidaAt: '2026-10-02', entregaOficialAt: '2026-10-30', relojInicioAt: '2026-10-15' });
+  assert.equal(h.inicioPlazo?.slice(0, 10), '2026-10-15');
+  assert.equal(h.entrega?.slice(0, 10), '2026-10-30');
+  assert.equal(h.inicioProyectado, false);
+});

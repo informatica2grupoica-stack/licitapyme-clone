@@ -548,6 +548,24 @@ export async function historialComprasObuma(
   return { compras, totalReal: total };
 }
 
+export interface ProductoCompradoProveedor { nombre: string; cantidad: number; veces: number; ultimaFecha: string | null; ultimoPrecio: number | null }
+
+/** Productos que le hemos comprado a un proveedor, agrupados por nombre (SQL local: solo cuentan las
+ *  órdenes cuyos ítems ya se sincronizaron — ver sincronizarItemsHistorialOc). */
+export async function productosCompradosAProveedor(obumaProveedorId: string, limite = 200): Promise<ProductoCompradoProveedor[]> {
+  const [rows] = await pool.query(
+    `SELECT it.producto_nombre AS nombre, SUM(it.cantidad) AS cantidad, COUNT(DISTINCT oc.id) AS veces, MAX(oc.fecha) AS ultima,
+            SUBSTRING_INDEX(GROUP_CONCAT(it.precio_unitario ORDER BY oc.fecha DESC SEPARATOR '|'), '|', 1) AS ultimo_precio
+       FROM compras_historial_oc_item it JOIN compras_historial_oc oc ON oc.id = it.historial_oc_id
+      WHERE oc.obuma_proveedor_id = ? GROUP BY it.producto_nombre ORDER BY ultima DESC LIMIT ?`,
+    [obumaProveedorId, limite],
+  ) as any;
+  return (rows as any[]).map(r => ({
+    nombre: r.nombre, cantidad: Number(r.cantidad) || 0, veces: Number(r.veces) || 0,
+    ultimaFecha: fechaSqlAIso(r.ultima), ultimoPrecio: r.ultimo_precio != null ? Number(r.ultimo_precio) : null,
+  }));
+}
+
 export interface ItemCompraOc { nombre: string; cantidad: number; precioUnitario: number; subtotal: number }
 
 /** Ítems de UNA orden de compra puntual, por folio. Local primero (instantáneo, si ya se

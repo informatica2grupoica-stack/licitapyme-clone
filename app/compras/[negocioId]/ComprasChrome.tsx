@@ -42,7 +42,6 @@ import { GanttComprasCard } from '@/app/negocios/[id]/GanttComprasCard';
 import { TareasComprasCard } from './TareasComprasCard';
 import { Seccion } from './Seccion';
 import { Pestanas, irAPestana } from './Pestanas';
-import { TutorialPaso } from './TutorialPaso';
 import { FranjaCompra } from './FranjaCompra';
 import { siguientePaso, type SiguientePaso } from '@/app/lib/compras-siguiente-paso';
 import { useCompras, fmtCLP, fmtFecha, type OrdenCompra } from './ComprasContext';
@@ -309,16 +308,21 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
     return { badge: null, estado: 'neutral' };
   };
 
+  const pasosFlujo = FASES.filter(f => !f.secundaria && !(soloDesdeAprobacion && (f.key === 'tareas' || f.key === 'costeo')));
+  const irAFaseFlujo = (k: Fase) => { setFaseActiva(k); setTimeout(() => document.getElementById('compras-flujo')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); };
+
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center gap-2.5">
-        <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${asignacion.urgente ? 'bg-rose-50' : 'bg-teal-50'}`}>
-          <ShoppingCart size={17} className={asignacion.urgente ? 'text-rose-600' : 'text-teal-600'} />
+    <div className="space-y-3 @container">
+      {/* Cabecera + encargado en UNA tarjeta (antes dos cajas apiladas: en un notebook se comían la
+          primera pantalla antes de llegar al flujo). */}
+      <div className="bg-white rounded-xl border border-zinc-200 shadow-tarjeta overflow-hidden">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${asignacion.urgente ? 'bg-rose-50' : 'bg-teal-50'}`}>
+          <ShoppingCart size={18} className={asignacion.urgente ? 'text-rose-600' : 'text-teal-600'} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h2 className="text-[15px] font-bold text-zinc-900 leading-tight">
+            <h2 className="text-[17px] font-semibold tracking-tight text-zinc-900 leading-tight">
               {licitacionNombre || `Negocio #${negocioId}`}
             </h2>
             {asignacion.urgente && (
@@ -327,8 +331,8 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
               </span>
             )}
           </div>
-          <p className="text-[12px] text-zinc-500 flex items-center gap-2 flex-wrap">
-            <span>{asignacion.licitacionCodigo}</span>
+          <p className="text-[12px] text-zinc-500 flex items-center gap-x-2 gap-y-0.5 flex-wrap mt-0.5">
+            <span className="font-medium text-zinc-700 tabular-nums">{asignacion.licitacionCodigo}</span>
             {licitacionOrganismo && <span>· {licitacionOrganismo}</span>}
             <span>· Ganado {fmtFecha(asignacion.ganadoAt)}</span>
             <Link href={`/negocios/${negocioId}`} className="inline-flex items-center gap-0.5 text-teal-700 hover:text-teal-800 font-semibold">
@@ -346,9 +350,9 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
       </div>
 
       {/* Encargado: chico, una sola línea (pedido explícito, 17-sep-2026: "en encargado debe ser
-          pequeño") — antes era una tarjeta grande, ahora es una franja delgada. */}
-      <div id="compras-encargado" className="bg-white rounded-lg border border-zinc-200 px-3 py-2 flex items-center gap-2 flex-wrap text-[12px] scroll-mt-4">
-        <span className="text-[10px] font-bold text-zinc-400 flex-shrink-0">Encargado</span>
+          pequeño") — ahora es la fila de abajo de la tarjeta de cabecera. */}
+      <div id="compras-encargado" className="bg-zinc-50/70 border-t border-zinc-100 px-4 py-2 flex items-center gap-2 flex-wrap text-[12px] scroll-mt-4">
+        <span className="text-[11px] font-medium text-zinc-400 flex-shrink-0">Encargado</span>
         {asignacion.asignadoA && !reasignando ? (
           <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
             <span className="font-bold text-zinc-800">{asignacion.asignadoNombre}</span>
@@ -398,32 +402,31 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
           </div>
         )}
       </div>
-
-      {/* SIGUIENTE PASO: lo primero que se lee. Un solo pendiente, con un botón que lleva a donde se hace. */}
-      <div className={`rounded-xl border-2 px-4 py-2.5 flex items-center gap-3 flex-wrap ${
-        paso.tono === 'alerta' ? 'bg-rose-50 border-rose-300' : paso.tono === 'ok' ? 'bg-emerald-50 border-emerald-300' : 'bg-amber-50 border-amber-300'}`}>
-        <span className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
-          paso.tono === 'alerta' ? 'bg-rose-500 text-white' : paso.tono === 'ok' ? 'bg-emerald-500 text-white' : 'bg-amber-400 text-white'}`}>
-          {paso.tono === 'ok' ? <Check size={22} /> : paso.tono === 'alerta' ? <AlertTriangle size={22} /> : <Target size={22} />}
-        </span>
-        <div className="flex-1 min-w-[220px]">
-          <p className={`text-[11px] font-bold ${paso.tono === 'alerta' ? 'text-rose-700' : paso.tono === 'ok' ? 'text-emerald-700' : 'text-amber-700'}`}>
-            {paso.tono === 'ok' ? 'Todo en orden' : 'Lo siguiente que hay que hacer'}
-          </p>
-          <p className="text-[15px] font-extrabold text-zinc-900 leading-snug">{paso.titulo}</p>
-          <p className="text-[13px] text-zinc-600 mt-0.5">{paso.detalle}</p>
-        </div>
-        <button type="button" onClick={irAlPaso}
-          className={`inline-flex items-center gap-1.5 text-[13.5px] font-bold text-white px-4 py-2.5 rounded-lg transition-colors ${
-            paso.tono === 'alerta' ? 'bg-rose-600 hover:bg-rose-700' : paso.tono === 'ok' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-teal-600 hover:bg-teal-700'}`}>
-          {paso.boton} <ArrowRight size={16} />
-        </button>
       </div>
 
-      <FranjaCompra negocioId={negocioId} incidenciasAbiertas={resumenFases?.entrega.incidenciasAbiertas ?? 0}
-        version={tareas.filter(t => t.estado === 'HECHA').length}
-        onIrEntrega={() => { setFaseActiva('entrega'); setTimeout(() => document.getElementById('compras-flujo')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }}
-        onIrIncidencias={() => { setFaseActiva('entrega'); setTimeout(() => { irAPestana('incidencias'); document.getElementById('compras-incidencias')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 120); }} />
+      {/* SIGUIENTE PASO: lo primero que se lee. Un solo pendiente, con un botón que lleva a donde se hace. */}
+      {/* Se unió con el reloj de entrega y las incidencias (antes: banner alto + chips aparte, con la
+          incidencia repetida dos veces). Superficie blanca; el color va solo en ícono, reloj y botón.
+          El detalle largo queda en el tooltip. */}
+      <div className="bg-white rounded-xl border border-zinc-200 shadow-tarjeta px-3.5 py-2.5 flex items-center gap-x-3 gap-y-2 flex-wrap">
+        <span className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
+          paso.tono === 'alerta' ? 'bg-rose-50 text-rose-600' : paso.tono === 'ok' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+          {paso.tono === 'ok' ? <Check size={18} /> : paso.tono === 'alerta' ? <AlertTriangle size={18} /> : <Target size={18} />}
+        </span>
+        <div className="flex-1 min-w-[200px]" title={paso.detalle}>
+          <p className="text-[11px] text-zinc-400 leading-none">{paso.tono === 'ok' ? 'Todo en orden' : 'Siguiente paso'}</p>
+          <p className="text-[14px] font-semibold tracking-tight text-zinc-900 leading-snug mt-1 truncate">{paso.titulo}</p>
+        </div>
+        <FranjaCompra compacto ocultarIncidencias={/incidencia/i.test(paso.titulo)} negocioId={negocioId} incidenciasAbiertas={resumenFases?.entrega.incidenciasAbiertas ?? 0}
+          version={tareas.filter(t => t.estado === 'HECHA').length}
+          onIrEntrega={() => { setFaseActiva('entrega'); setTimeout(() => document.getElementById('compras-flujo')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }}
+          onIrIncidencias={() => { setFaseActiva('entrega'); setTimeout(() => { irAPestana('incidencias'); document.getElementById('compras-incidencias')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 120); }} />
+        <button type="button" onClick={irAlPaso}
+          className={`inline-flex items-center gap-1.5 text-[13px] font-semibold text-white px-3.5 py-2 rounded-lg transition-colors ${
+            paso.tono === 'alerta' ? 'bg-rose-600 hover:bg-rose-700' : paso.tono === 'ok' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-teal-600 hover:bg-teal-700'}`}>
+          {paso.boton} <ArrowRight size={15} />
+        </button>
+      </div>
 
       {/* Gantt, aparte del flujo por pestañas (pedido explícito, 17-sep-2026): "es aparte de todo ese
           flujo y es lo primero que se debe ver". */}
@@ -464,7 +467,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                   que antes tenía Presupuesto del proyecto, que baja a las secundarias. Los montos
                   se guardan NETOS (ver construirResumenEjecutivoCompras en compras.ts) — se
                   especifica también el equivalente con IVA (×1,19) para no tener que calcularlo a mano. */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 @xl:grid-cols-3 gap-3">
                 <button type="button" onClick={alternarGanadas} aria-expanded={ganadasAbierto} title="Ver las líneas que se ganaron"
                   className="group text-left rounded-xl px-3.5 py-3 bg-white border border-zinc-200 hover:border-emerald-400 hover:shadow-sm transition cursor-pointer">
                   <p className="text-[12px] font-semibold text-zinc-500 flex items-center gap-1.5">
@@ -476,7 +479,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                 </button>
                 <div className={`rounded-xl px-3.5 py-3 border ${excedePresupuesto ? 'bg-amber-50/60 border-amber-300' : 'bg-white border-zinc-200'}`}>
                   <p className="text-[12px] font-semibold text-zinc-500 flex items-center gap-1.5">
-                    <span className={`w-6 h-6 rounded-lg flex items-center justify-center ${excedePresupuesto ? 'bg-amber-100 text-amber-600' : 'bg-violet-50 text-violet-600'}`}><Calculator size={14} /></span> Monto costeado
+                    <span className={`w-6 h-6 rounded-lg flex items-center justify-center ${excedePresupuesto ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'}`}><Calculator size={14} /></span> Monto costeado
                     {excedePresupuesto && <span className="ml-auto text-[11px] font-bold text-amber-700 flex items-center gap-1"><AlertTriangle size={12} /> Sobre el presupuesto</span>}
                   </p>
                   <p className="text-[21px] leading-tight font-extrabold text-zinc-900 mt-1 tabular-nums">
@@ -548,41 +551,42 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
               )}
 
               {/* Datos del proyecto: una sola tarjeta con columnas etiqueta/valor (antes 4 cajas de colores distintos). */}
-              <div className="rounded-xl border border-zinc-200 divide-y divide-zinc-100 sm:divide-y-0 sm:grid sm:grid-cols-2 lg:grid-cols-5 sm:divide-x">
+              <div className="rounded-xl border border-zinc-200 bg-zinc-100 overflow-hidden grid grid-cols-1 @xl:grid-cols-6 gap-px">
                 {([
                   { icono: <Building2 size={13} />, etiqueta: 'Empresa adjudicada', valor: r.empresaNombre || '—', extra: r.empresaRut ? `RUT ${r.empresaRut}` : null },
                   { icono: <UserPlus size={13} />, etiqueta: 'Asistente comercial', valor: r.responsableNombre || '—', extra: null },
                   { icono: <Wallet size={13} />, etiqueta: 'Presupuesto del proyecto', valor: r.presupuestoProyecto != null ? fmtCLP(r.presupuestoProyecto) : '—', extra: r.presupuestoProyecto != null ? `neto · ${fmtCLP(Math.round(r.presupuestoProyecto * 1.19))} con IVA` : null },
                   { icono: <CalendarTime size={13} />, etiqueta: 'Plazo de entrega ofertado', valor: r.plazoEntregaOfertado || '—', extra: null },
                   { icono: <Hourglass size={13} />, etiqueta: 'Desde cuándo corre', valor: r.hitoInicioPlazo || '—', extra: null },
-                ] as Array<{ icono: React.ReactNode; etiqueta: string; valor: string; extra: string | null }>).map(d => (
-                  <div key={d.etiqueta} className="px-4 py-3 min-w-0">
+                ] as Array<{ icono: React.ReactNode; etiqueta: string; valor: string; extra: string | null }>).map((d, i) => (
+                  // 3 arriba (empresa, asistente, presupuesto) y 2 abajo (plazo, desde cuándo corre: texto largo).
+                  <div key={d.etiqueta} className={`bg-white px-4 py-3 min-w-0 ${i < 3 ? '@xl:col-span-2' : '@xl:col-span-3'}`}>
                     <p className="text-[11.5px] font-medium text-zinc-500 flex items-center gap-1.5">{d.icono} {d.etiqueta}</p>
-                    <p className="text-[14px] font-bold text-zinc-900 mt-1 leading-snug break-words">{d.valor}</p>
+                    <p className="text-[14px] font-semibold text-zinc-900 mt-1 leading-snug break-words">{d.valor}</p>
                     {d.extra && <p className="text-[11.5px] text-zinc-500 mt-0.5">{d.extra}</p>}
                   </div>
                 ))}
               </div>
 
-              {/* Condiciones de las bases: neutras; ámbar solo cuando exigen algo. */}
-              <div className="flex flex-wrap items-center gap-2">
-                {[
-                  { ok: !!r.requiereBoletaFielCumplimiento, texto: `Boleta de fiel cumplimiento: ${r.requiereBoletaFielCumplimiento ? 'Sí' : 'No'}` },
-                  { ok: !!r.requiereFirmaContrato, texto: `Firma de contrato: ${r.requiereFirmaContrato ? 'Sí' : 'No'}` },
-                ].map(c => (
-                  <span key={c.texto} className={`inline-flex items-center gap-1.5 text-[12px] font-medium px-2.5 py-1 rounded-full border ${c.ok ? 'text-amber-800 bg-amber-50 border-amber-300' : 'text-zinc-500 bg-white border-zinc-200'}`}>
-                    <FileWarning size={13} /> {c.texto}
-                  </span>
+              {/* Condiciones críticas de las bases: una sola franja delgada, tres celdas. El valor va en
+                  negrita; ámbar solo cuando las bases exigen algo. */}
+              <div className="grid grid-cols-1 @xl:grid-cols-3 gap-px rounded-lg border border-amber-300 bg-amber-200 overflow-hidden">
+                {([
+                  { rotulo: 'Boleta de fiel cumplimiento', valor: r.requiereBoletaFielCumplimiento ? 'Sí' : 'No', exige: !!r.requiereBoletaFielCumplimiento },
+                  { rotulo: 'Firma de contrato', valor: r.requiereFirmaContrato ? 'Sí' : 'No', exige: !!r.requiereFirmaContrato },
+                  { rotulo: 'Plazo para aceptar la OC', valor: r.plazoAceptacionOC, exige: true },
+                ] as Array<{ rotulo: string; valor: string; exige: boolean }>).map(c => (
+                  <div key={c.rotulo} className={`px-3 py-2.5 min-w-0 flex items-baseline gap-2 ${c.exige ? 'bg-amber-50' : 'bg-white'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 translate-y-[-1px] ${c.exige ? 'bg-amber-500' : 'bg-zinc-300'}`} />
+                    <p className={`text-[12.5px] min-w-0 ${c.exige ? 'text-amber-900/80' : 'text-zinc-500'}`}>{c.rotulo}: <b className={`text-[13.5px] font-semibold ${c.exige ? 'text-amber-950' : 'text-zinc-500'}`}>{c.valor}</b></p>
+                  </div>
                 ))}
-                <span className="inline-flex items-center gap-1.5 text-[12px] font-medium px-2.5 py-1 rounded-full border text-zinc-600 bg-white border-zinc-200">
-                  <Clock size={13} /> Plazo para aceptar la OC: <b className="font-semibold text-zinc-900">{r.plazoAceptacionOC}</b>
-                </span>
               </div>
 
               {r.contactosCliente && (
                 <div className="rounded-xl border border-zinc-200 overflow-hidden">
                   <div className="px-4 py-3 bg-zinc-50/70 border-b border-zinc-100">
-                    <p className="text-[12.5px] font-bold text-zinc-800 flex items-center gap-1.5"><Building2 size={14} className="text-zinc-400" /> Contactos del cliente</p>
+                    <p className="text-[13px] font-semibold text-zinc-800 flex items-center gap-1.5"><Building2 size={14} className="text-slate-400" /> Contactos del cliente</p>
                     <p className="text-[12.5px] text-zinc-600 mt-0.5">
                       {[r.contactosCliente.organismo, r.contactosCliente.unidad].filter(Boolean).join(' · ')}
                       {(r.contactosCliente.rut || facturacionActa?.rut) && <span className="text-zinc-500"> · RUT {r.contactosCliente.rut || facturacionActa?.rut}</span>}
@@ -591,7 +595,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                       <p className="text-[11.5px] text-zinc-400">{[r.contactosCliente.direccion, r.contactosCliente.comuna, r.contactosCliente.region].filter(Boolean).join(', ')}</p>
                     )}
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 sm:divide-x divide-y sm:divide-y-0 divide-zinc-100">
+                  <div className="grid grid-cols-1 @xl:grid-cols-3 @xl:divide-x divide-y @xl:divide-y-0 divide-zinc-100">
                     {([
                       { rol: 'Contraparte', nombre: r.contactosCliente.usuarioNombre, datos: [r.contactosCliente.usuarioCargo, r.contactosCliente.usuarioTelefono, r.contactosCliente.usuarioEmail] },
                       { rol: 'Responsable del contrato', nombre: r.contactosCliente.responsableContratoNombre, datos: [r.contactosCliente.responsableContratoEmail, r.contactosCliente.responsableContratoFono] },
@@ -599,7 +603,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                     ] as const).map(({ rol, nombre, datos }) => nombre ? (
                       <div key={rol} className="px-4 py-3 min-w-0">
                         <p className="text-[11.5px] font-medium text-zinc-500 flex items-center gap-1.5"><UserCircle size={13} /> {rol}</p>
-                        <p className="text-[13.5px] font-bold text-zinc-900 mt-1">{nombre}</p>
+                        <p className="text-[13px] font-semibold text-zinc-900 mt-1">{nombre}</p>
                         {datos.filter(Boolean).map(d => (
                           <p key={String(d)} className="text-[12px] text-zinc-500 break-words flex items-center gap-1.5 mt-0.5">
                             {String(d).includes('@') ? <Mail size={12} className="flex-shrink-0 text-zinc-400" /> : /\d/.test(String(d)) ? <Phone size={12} className="flex-shrink-0 text-zinc-400" /> : null}
@@ -620,51 +624,50 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
       {/* Orden de compra del cliente, junto al resumen ejecutivo (pedido explícito, 17-sep-2026:
           "eso metelo a resumen igual") — antes quedaba abajo de todo, separada. */}
       <DocumentViewerModal doc={visorOC} onClose={() => setVisorOC(null)} />
-      <div id="compras-oc" className="bg-white rounded-xl border border-zinc-200 overflow-hidden scroll-mt-4">
-        <div className="lg:grid lg:grid-cols-2 lg:items-start lg:divide-x divide-zinc-100">
-        <div className="flex items-center justify-between gap-3 px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-[11px] font-bold text-zinc-400 flex items-center gap-1.5">
-              <FileText size={12} /> Orden de compra del cliente
+      <div id="compras-oc" className="bg-white rounded-xl border border-zinc-200 shadow-tarjeta overflow-hidden scroll-mt-4">
+        <div>
+        <div className="flex items-start justify-between gap-3 px-4 py-3 flex-wrap">
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-semibold text-zinc-800 flex items-center gap-2 flex-wrap">
+              <FileText size={15} className="text-slate-400" /> Orden de compra del cliente
               {oc.origen === 'mp' && (
-                <span className="inline-flex items-center gap-1 text-[9.5px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-1.5 py-0.5 rounded-full normal-case">
-                  <Zap size={10} /> Llegó sola desde Mercado Público
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-teal-700">
+                  <Zap size={11} /> Llegó sola desde Mercado Público
                 </span>
               )}
             </p>
             {oc.numero || oc.aceptadaAt ? (
               <>
-                <p className="text-[12.5px] text-zinc-700 mt-0.5">
-                  {oc.numero && <span className="font-bold">N° {oc.numero}</span>}
-                  {oc.monto != null && <span className="text-zinc-500"> · {fmtCLP(oc.monto)} c/IVA</span>}
-                  {oc.emitidaAt && <span className="text-zinc-400"> · emitida {oc.emitidaAt}</span>}
-                  {oc.aceptadaAt
-                    ? <span className="text-emerald-700 font-semibold"> · aceptada {oc.aceptadaAt}</span>
-                    : <span className="text-amber-600 font-semibold"> · sin aceptar todavía</span>}
-                </p>
-                <div className="flex items-center gap-3 mt-1">
-                  {oc.estadoMp && <span className="text-[10.5px] font-semibold text-zinc-500">Estado en MP: {oc.estadoMp}</span>}
+                <dl className="mt-2.5 grid grid-cols-2 @2xl:grid-cols-5 gap-x-6 gap-y-2.5">
+                  {oc.numero && <div><dt className="text-[11px] text-zinc-500">N° de la orden</dt><dd className="text-[13px] font-semibold text-zinc-900 tabular-nums mt-0.5">{oc.numero}</dd></div>}
+                  {oc.monto != null && <div><dt className="text-[11px] text-zinc-500">Monto con IVA</dt><dd className="text-[13px] font-semibold text-zinc-900 tabular-nums mt-0.5">{fmtCLP(oc.monto)}</dd></div>}
+                  {oc.emitidaAt && <div><dt className="text-[11px] text-zinc-500">Emitida</dt><dd className="text-[13px] font-semibold text-zinc-900 tabular-nums mt-0.5">{oc.emitidaAt}</dd></div>}
+                  <div><dt className="text-[11px] text-zinc-500">Aceptada</dt>
+                    <dd className={`text-[13px] font-semibold tabular-nums mt-0.5 ${oc.aceptadaAt ? 'text-emerald-700' : 'text-amber-600'}`}>{oc.aceptadaAt || 'Todavía no'}</dd></div>
+                  {oc.estadoMp && <div><dt className="text-[11px] text-zinc-500">Estado en Mercado Público</dt><dd className="text-[13px] font-semibold text-zinc-900 mt-0.5">{oc.estadoMp}</dd></div>}
+                </dl>
+                <div className="flex items-center gap-x-4 gap-y-1 mt-3 flex-wrap">
                   {ocMp?.url && (
                     <a href={ocMp.url} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-teal-600 hover:text-teal-700">
-                      <ExternalLink size={10} /> Ver en Mercado Público
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-teal-700 hover:text-teal-800 whitespace-nowrap">
+                      <ExternalLink size={13} /> Ver en Mercado Público
                     </a>
                   )}
                   {ocMp?.pdfUrl && (
                     <button type="button" onClick={verPdfOC} disabled={cargandoPdfOC}
-                      className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-teal-600 hover:text-teal-700 disabled:opacity-50">
-                      {cargandoPdfOC ? <Loader2 size={10} className="animate-spin" /> : <FileText size={10} />} PDF de la orden
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-teal-700 hover:text-teal-800 disabled:opacity-50 whitespace-nowrap">
+                      {cargandoPdfOC ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />} PDF de la orden
                     </button>
                   )}
                   {ocMp?.codigo && ocMp.url && puedeOperar && (
                     <SubirPdfOficialOC codigoOC={ocMp.codigo} urlFicha={ocMp.url}
                       onSubido={url => { recargar(); setVisorOC({ nombre: `OC_${ocMp.codigo}.pdf`, url }); }}
-                      className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-teal-600 hover:text-teal-700" />
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-teal-700 hover:text-teal-800 whitespace-nowrap" />
                   )}
                 </div>
               </>
             ) : (
-              <p className="text-[12px] text-zinc-400 mt-0.5">
+              <p className="text-[12px] text-zinc-400 mt-1">
                 Todavía no llega. El sistema la busca solo en Mercado Público y la carga acá apenas aparece.
               </p>
             )}
@@ -679,7 +682,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                 </button>
               )}
               <button onClick={() => setOcAbierta(v => !v)}
-                className="text-[12px] font-semibold text-teal-700 hover:text-teal-800">
+                className="text-[12px] font-semibold text-teal-700 hover:text-teal-800 whitespace-nowrap">
                 {ocAbierta ? 'Cerrar' : oc.origen === 'mp' ? 'Corregir a mano' : (oc.numero || oc.aceptadaAt ? 'Editar' : 'Registrar a mano')}
               </button>
             </div>
@@ -693,7 +696,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
           const cc = asignacion?.resumen?.contactosCliente ?? null;
           const fa = facturacionActa;
           const f = ocMp?.facturacion ?? null;
-          if (!fa?.razonSocial && !fa?.rut && !cc && !f) return <div className="hidden lg:block" />;
+          if (!fa?.razonSocial && !fa?.rut && !cc && !f) return null;
           const unir = (...xs: Array<string | null | undefined>) => xs.filter(Boolean).join(', ') || null;
           const filas: Array<[string, string | null]> = [
             ['Razón social', fa?.razonSocial || cc?.organismo || f?.razonSocial || null],
@@ -714,23 +717,39 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
           const rutMostrado = filas.find(([k]) => k === 'RUT')?.[1];
           const otroTitular = fa?.facturaRut && rutPlano(fa.facturaRut) !== rutPlano(rutMostrado) ? fa : null;
           return (
-            <div className="px-4 py-3 space-y-2">
+            <div className="border-t border-zinc-100 px-4 py-3 space-y-2.5">
               {otroTitular && (
                 <Banner variante="warning">
                   <span className="font-semibold">La factura va a nombre de {otroTitular.facturaANombre}, RUT {otroTitular.facturaRut}</span>, no del comprador. Lo dice la resolución de adjudicación.
                   {otroTitular.facturaCita && <span className="block mt-0.5 text-[11px] italic">“{otroTitular.facturaCita}…”</span>}
                 </Banner>
               )}
-              <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 px-3 py-2.5">
-                <p className="text-[11px] font-bold text-zinc-500 mb-1.5">Datos para facturar ({origen})</p>
-                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
-                  {filas.filter(([, v]) => v).map(([k, v]) => (
-                    <div key={k} className="flex gap-2 text-[12px] min-w-0">
-                      <dt className="text-zinc-500 flex-shrink-0 w-24">{k}</dt>
-                      <dd className="text-zinc-900 font-medium break-words min-w-0">{v}</dd>
-                    </div>
-                  ))}
-                </dl>
+              <div>
+                <p className="text-[13px] font-semibold text-zinc-800">Datos para facturar <span className="text-[11px] font-normal text-zinc-400">· {origen}</span></p>
+                {/* Tres grupos con título (antes una grilla corrida: la dirección quedaba entre el giro y el correo). */}
+                <div className="mt-3 grid grid-cols-1 @3xl:grid-cols-3 gap-4 @3xl:gap-0 @3xl:divide-x divide-zinc-100">
+                  {([
+                    ['Cliente', ['Razón social', 'RUT', 'Giro', 'Unidad']],
+                    ['Contacto', ['Contacto', 'Teléfono', 'Correo']],
+                    ['Dirección y pago', ['Dirección', 'Despacho', 'Forma de pago']],
+                  ] as Array<[string, string[]]>).map(([titulo, claves], gi) => {
+                    const items = filas.filter(([k, v]) => claves.includes(k) && v);
+                    if (items.length === 0) return null;
+                    return (
+                      <section key={titulo} className={`min-w-0 ${gi > 0 ? '@3xl:pl-5' : ''} ${gi < 2 ? '@3xl:pr-5' : ''}`}>
+                        <h4 className="text-[12px] font-semibold text-teal-700 pb-1.5 mb-2 border-b border-zinc-100">{titulo}</h4>
+                        <dl className="space-y-2.5">
+                          {items.map(([k, v]) => (
+                            <div key={k} className="min-w-0">
+                              <dt className="text-[11px] text-zinc-500">{k}</dt>
+                              <dd className="text-[13px] font-medium text-zinc-900 break-words mt-0.5">{v}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </section>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           );
@@ -814,27 +833,25 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
           <div id="compras-flujo" className="px-3 sm:px-5 pt-4 pb-3 flex items-start justify-between gap-3 flex-wrap scroll-mt-4">
             <div className="overflow-x-auto -mt-2 pt-3 px-2 -mx-2 pb-1">
               <div className="flex items-start min-w-max">
-                {FASES.filter(f => !f.secundaria && !(soloDesdeAprobacion && (f.key === 'tareas' || f.key === 'costeo'))).map((f, i) => {
+                {pasosFlujo.map((f, i) => {
                   const activa = faseActiva === f.key;
                   const { badge, estado } = calcFase(f.key);
                   const ESTADO_STYLE = {
                     alerta: 'bg-rose-50 border-rose-500 text-rose-600', pendiente: 'bg-amber-50 border-amber-400 text-amber-600',
                     ok: 'bg-emerald-50 border-emerald-500 text-emerald-600', neutral: 'bg-white border-zinc-300 text-zinc-400',
                   } as const;
-                  const LINEA = { alerta: 'bg-rose-300', pendiente: 'bg-amber-300', ok: 'bg-emerald-300', neutral: 'bg-zinc-200' } as const;
-                  return (
+                                    return (
                     <div key={f.key} className="flex items-start">
-                      {i > 0 && <div className={`h-0.5 w-6 sm:w-12 mt-5 flex-shrink-0 ${LINEA[estado]}`} />}
+                      {i > 0 && <div className={`h-0.5 w-6 sm:w-12 mt-[30px] flex-shrink-0 ${calcFase(pasosFlujo[i - 1].key).estado === 'ok' ? 'bg-emerald-300' : 'bg-zinc-200'}`} />}
                       <button onClick={() => setFaseActiva(f.key)} aria-current={activa ? 'step' : undefined}
-                        className="group flex flex-col items-center gap-1.5 flex-shrink-0 px-1.5 w-[104px]">
-                        <span className={`relative inline-flex items-center justify-center w-10 h-10 rounded-full border-2 text-[15px] font-bold transition-all ${ESTADO_STYLE[estado]} ${activa ? 'ring-4 ring-teal-200 scale-110' : 'group-hover:border-zinc-500'}`}>
+                        className={`group flex flex-col items-center gap-1.5 flex-shrink-0 px-1.5 py-2 w-[110px] rounded-xl transition-colors ${activa ? 'bg-teal-50' : 'hover:bg-zinc-50'}`}>
+                        <span className={`relative inline-flex items-center justify-center w-10 h-10 rounded-full border-2 text-[15px] font-semibold transition-all ${ESTADO_STYLE[estado]} ${activa ? '' : 'group-hover:border-zinc-500'}`}>
                           {estado === 'ok' ? <Check size={18} strokeWidth={3} /> : estado === 'alerta' ? '!' : i + 1}
                           {badge != null && badge > 0 && estado !== 'ok' && (
                             <span className={`absolute -top-1.5 -right-1.5 text-[10px] font-bold min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center ring-2 ring-white text-white ${estado === 'alerta' ? 'bg-rose-500' : 'bg-amber-400'}`}>{badge}</span>
                           )}
                         </span>
-                        <span className={`text-[12.5px] leading-tight text-center ${activa ? 'font-extrabold text-teal-800' : 'font-semibold text-zinc-600 group-hover:text-zinc-900'}`}>{f.label}</span>
-                        <span className={`h-0.5 w-8 rounded-full ${activa ? 'bg-teal-600' : 'bg-transparent'}`} />
+                        <span className={`text-[12.5px] leading-tight text-center ${activa ? 'font-semibold text-teal-800' : 'font-medium text-zinc-600 group-hover:text-zinc-900'}`}>{f.label}</span>
                       </button>
                     </div>
                   );
@@ -854,11 +871,11 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
               })}
             </div>
           </div>
-          <p className="text-[13px] text-zinc-600 px-4 py-3 bg-zinc-50/60 border-y border-zinc-100">
-            {FASES.find(f => f.key === faseActiva)?.descripcion}
-          </p>
+          <div className="px-4 py-2.5 border-t border-zinc-100 flex items-baseline gap-x-2.5 gap-y-0.5 flex-wrap">
+            <h3 className="text-[14px] font-semibold tracking-tight text-zinc-900">{FASES.find(f => f.key === faseActiva)?.label}</h3>
+            <p className="text-[12.5px] text-zinc-500">{FASES.find(f => f.key === faseActiva)?.descripcion}</p>
+          </div>
           <div className="p-3 sm:p-4 space-y-3">
-            <TutorialPaso fase={faseActiva} />
             {faseActiva === 'tareas' && (
               <div className="space-y-3">
                 <Seccion titulo="Lista de tareas" ayuda="Lo que hay que hacer, cada una con su plazo. Ciérralas a medida que avances." badge={pendientesN ? `${pendientesN} pendiente${pendientesN === 1 ? '' : 's'}` : 'Al día'} tono={(resumenFases?.tareas.vencidas ?? 0) > 0 ? 'alerta' : pendientesN > 0 ? 'pendiente' : 'ok'} defaultAbierta>
@@ -868,15 +885,15 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             )}
             {faseActiva === 'costeo' && (
               <Pestanas id="costeo" pestanas={[
-                { clave: 'productos', titulo: '1 · Productos', ayuda: 'Cada producto ganado y cómo va. Todos deben quedar cubiertos para poder entregar.',
+                { clave: 'productos', titulo: 'Productos', ayuda: 'Cada producto ganado y cómo va. Todos deben quedar cubiertos para poder entregar.',
                   contenido: <ProductosCompraCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} /> },
-                { clave: 'cotizaciones', titulo: '2 · Cotizaciones', ayuda: 'Sube la cotización de cada proveedor. El sistema compara su PRECIO contra lo que se costeó al ofertar: más barata, igual o más cara, y por cuánto.',
+                { clave: 'cotizaciones', titulo: 'Cotizaciones', ayuda: 'Sube la cotización de cada proveedor. El sistema compara su PRECIO contra lo que se costeó al ofertar: más barata, igual o más cara, y por cuánto.',
                   badge: resumenFases?.costeo.productosSinCotizacion ? `${resumenFases.costeo.productosSinCotizacion} sin cotizar` : null, tono: 'pendiente',
                   contenido: <AuditorComprasCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
-                { clave: 'fichas', titulo: '3 · Fichas técnicas', ayuda: 'Sube las fichas técnicas (todas juntas): el sistema detecta de qué producto y proveedor es cada una y compara lo que dice contra lo que exigen las bases.',
+                { clave: 'fichas', titulo: 'Fichas técnicas', ayuda: 'Sube las fichas técnicas (todas juntas): el sistema detecta de qué producto y proveedor es cada una y compara lo que dice contra lo que exigen las bases.',
                   contenido: <FichasTecnicasCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
                 /* PROMPT 5: verifica cada línea de la tabla de costeo (respaldo real, producto, unidad, IVA, costos ocultos) y da la posición de precio. */
-                { clave: 'costo', titulo: '4 · Verificar el costo', ayuda: 'Revisa que cada costo del costeo tenga respaldo real (link o cotización), sea el mismo producto y no esconda costos.',
+                { clave: 'costo', titulo: 'Verificar el costo', ayuda: 'Revisa que cada costo del costeo tenga respaldo real (link o cotización), sea el mismo producto y no esconda costos.',
                   contenido: <AuditorCosteoCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
               ]} />
             )}
@@ -889,7 +906,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             {faseActiva === 'obuma' && <ObumaHubCard negocioId={negocioId} puedeOperar={puedeOperar} esAdministracion={esAdministracion} />}
             {faseActiva === 'compra' && (
               <Pestanas id="compra" inicial="pasos" pestanas={[
-                { clave: 'pasos', titulo: '1 · Órdenes y facturas', ayuda: 'Aquí emites las órdenes de compra a los proveedores (y creas al proveedor si no está en Obuma), registras cada pago con su comprobante y ves la factura de cada orden, que llega sola desde Obuma.',
+                { clave: 'pasos', titulo: 'Órdenes y facturas', ayuda: 'Aquí emites las órdenes de compra a los proveedores (y creas al proveedor si no está en Obuma), registras cada pago con su comprobante y ves la factura de cada orden, que llega sola desde Obuma.',
                   badge: resumenFases?.compra.hitosAdminPendientes || null, tono: 'pendiente',
                   contenido: (
                     <div className="space-y-6">
@@ -903,11 +920,11 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                       </section>
                     </div>
                   ) },
-                { clave: 'retiro', titulo: '2 · Retiro por proveedor', ayuda: 'Cada proveedor está en un lugar distinto: defines para cada uno si lo buscamos nosotros o lo trae un transporte, y el sistema sugiere fleteros.',
+                { clave: 'retiro', titulo: 'Retiro por proveedor', ayuda: 'Cada proveedor está en un lugar distinto: defines para cada uno si lo buscamos nosotros o lo trae un transporte, y el sistema sugiere fleteros.',
                   contenido: <ModalidadRetiroCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
-                { clave: 'importacion', titulo: '3 · Importación (si aplica)', ayuda: 'Solo si el producto viene del extranjero: flete, aduana y costo final puesto en bodega. Si no, sáltate esta pestaña.',
+                { clave: 'importacion', titulo: 'Importación (si aplica)', ayuda: 'Solo si el producto viene del extranjero: flete, aduana y costo final puesto en bodega. Si no, sáltate esta pestaña.',
                   contenido: <ImportacionCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
-                { clave: 'gastos', titulo: '4 · Gastos extra', ayuda: 'Gastos que no son productos: fletes, puesta en marcha, viáticos, etc.',
+                { clave: 'gastos', titulo: 'Gastos extra', ayuda: 'Gastos que no son productos: fletes, puesta en marcha, viáticos, etc.',
                   contenido: <GastosCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
                 { clave: 'resumen', titulo: 'Seguimiento · Resumen', ayuda: 'Para mirar cómo va: productos cubiertos, órdenes de compra emitidas, facturas recibidas y cuánto se gastó contra lo costeado.',
                   contenido: <ResumenGastosCard negocioId={negocioId} /> },
@@ -920,14 +937,14 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                 {/* Incidencias (§9): transversales (pueden aparecer en cualquier etapa); se llega desde la franja fija de arriba. */}
                 <div id="compras-incidencias" className="scroll-mt-4" />
                 <Pestanas id="entrega" inicial={(resumenFases?.entrega.incidenciasAbiertas ?? 0) > 0 ? 'incidencias' : 'plazo'} pestanas={[
-                  { clave: 'plazo', titulo: '1 · Plazo de entrega', ayuda: 'Cuánto queda para entregar y qué hacer si no se alcanza: pedir prórroga sin multa o, solo con autorización, entregar con multa.',
+                  { clave: 'plazo', titulo: 'Plazo de entrega', ayuda: 'Cuánto queda para entregar y qué hacer si no se alcanza: pedir prórroga sin multa o, solo con autorización, entregar con multa.',
                     badge: resumenFases?.entrega.relojVencido ? 'Vencido' : null, tono: 'alerta',
                     contenido: <RelojEntregaCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} /> },
-                  { clave: 'entrega', titulo: '2 · Entrega y acta', ayuda: 'Preparación, despacho y el acta de entrega que firma el cliente. El acta cierra el proyecto.',
+                  { clave: 'entrega', titulo: 'Entrega y acta', ayuda: 'Preparación, despacho y el acta de entrega que firma el cliente. El acta cierra el proyecto.',
                     contenido: <EntregaCard negocioId={negocioId} puedeOperar={puedeOperar} puedeVerificar={esBodega} /> },
-                  { clave: 'costoreal', titulo: '3 · Costo real y cierre', ayuda: 'Resultado final del proyecto: lo costeado contra lo realmente gastado.',
+                  { clave: 'costoreal', titulo: 'Costo real y cierre', ayuda: 'Resultado final del proyecto: lo costeado contra lo realmente gastado.',
                     contenido: <CostoRealCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
-                  { clave: 'postventa', titulo: '4 · Postventa y pagos', ayuda: 'Garantías, capacitación y los datos de quien paga la factura (deben capturarse mientras hay contacto).',
+                  { clave: 'postventa', titulo: 'Postventa y pagos', ayuda: 'Garantías, capacitación y los datos de quien paga la factura (deben capturarse mientras hay contacto).',
                     contenido: <PostventaCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
                   { clave: 'incidencias', titulo: 'Si hay un problema · Incidencias', ayuda: 'Problemas u oportunidades que pueden aparecer en cualquier etapa: sin stock, plazo incompatible, una alternativa más barata.',
                     badge: (resumenFases?.entrega.incidenciasAbiertas ?? 0) || null, tono: 'alerta',
@@ -949,6 +966,18 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
               </div>
             )}
             {faseActiva === 'actividad' && <ActividadComprasCard negocioId={negocioId} />}
+            {(() => {
+              const i = pasosFlujo.findIndex(f => f.key === faseActiva);
+              if (i < 0) return null;
+              const ant = pasosFlujo[i - 1], sig = pasosFlujo[i + 1];
+              if (!ant && !sig) return null;
+              return (
+                <div className="flex items-center justify-between gap-3 pt-3 border-t border-zinc-100">
+                  {ant ? <button type="button" onClick={() => irAFaseFlujo(ant.key)} className="text-[12.5px] font-semibold text-zinc-500 hover:text-zinc-800">← {ant.label}</button> : <span />}
+                  {sig && <button type="button" onClick={() => irAFaseFlujo(sig.key)} className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-teal-700 hover:text-teal-800">Siguiente: {sig.label} <ArrowRight size={15} /></button>}
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}

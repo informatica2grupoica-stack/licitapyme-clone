@@ -1297,10 +1297,11 @@ export function parsearCamposCatalogo(json: string | null): CampoRegistroTarea[]
 const SQL_ANCLAS = `DATE_FORMAT(ca.ganado_at, '%Y-%m-%d %H:%i:%s') AS ganado_at, ca.resumen_json,
             DATE_FORMAT(ca.oc_emitida_at, '%Y-%m-%d') AS oc_emitida_at,
             DATE_FORMAT(ca.oc_aceptada_at, '%Y-%m-%d') AS oc_aceptada_at,
-            DATE_FORMAT(COALESCE(rl.prorroga_fecha_limite, rl.fecha_limite), '%Y-%m-%d') AS entrega_oficial`;
+            DATE_FORMAT(COALESCE(rl.prorroga_fecha_limite, rl.fecha_limite), '%Y-%m-%d') AS entrega_oficial,
+            DATE_FORMAT(rl.fecha_inicio, '%Y-%m-%d') AS reloj_inicio`;
 
 export function construirEntradaAnclas(
-  d: { ganadoAt: string; ocEmitidaAt: string | null; ocAceptadaAt: string | null; entregaOficialAt: string | null }, resumen: any,
+  d: { ganadoAt: string; ocEmitidaAt: string | null; ocAceptadaAt: string | null; entregaOficialAt: string | null; relojInicioAt?: string | null }, resumen: any,
 ): EntradaAnclas {
   // "1 día corrido", "2 días hábiles": las bases dicen si el plazo cuenta días hábiles o corridos.
   const entrega = interpretarPlazoOfertado(resumen?.plazoEntregaOfertado);
@@ -1313,13 +1314,14 @@ export function construirEntradaAnclas(
     plazoAceptacionOCDias: parsearDiasDeTexto(resumen?.plazoAceptacionOC ?? null),
     plazoAceptacionTipo: aceptacion?.tipo ?? 'CORRIDOS',
     entregaOficialAt: d.entregaOficialAt ?? null,
+    relojInicioAt: d.relojInicioAt ?? null,
   };
 }
 
 function entradaAnclasDeFila(r: any): EntradaAnclas {
   let resumen: any = null;
   try { resumen = JSON.parse(r.resumen_json); } catch { /* sin resumen legible: los hitos quedan sin dato */ }
-  return construirEntradaAnclas({ ganadoAt: r.ganado_at, ocEmitidaAt: r.oc_emitida_at, ocAceptadaAt: r.oc_aceptada_at, entregaOficialAt: r.entrega_oficial }, resumen);
+  return construirEntradaAnclas({ ganadoAt: r.ganado_at, ocEmitidaAt: r.oc_emitida_at, ocAceptadaAt: r.oc_aceptada_at, entregaOficialAt: r.entrega_oficial, relojInicioAt: r.reloj_inicio ?? null }, resumen);
 }
 
 /** Hitos del Gantt de un negocio (adjudicación, OC, inicio del plazo, entrega). null si no está asignado. */

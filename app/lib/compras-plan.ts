@@ -40,6 +40,7 @@ export interface EntradaAnclas {
   plazoAceptacionOCDias: number | null;
   plazoAceptacionTipo?: TipoDias;        // por defecto CORRIDOS
   entregaOficialAt: string | null;       // Reloj de Entrega fijado (con prórroga aplicada)
+  relojInicioAt?: string | null;         // Desde cuándo corre el plazo según el reloj fijado a mano (manda sobre lo que digan las bases)
 }
 
 export interface HitosGantt {
@@ -144,10 +145,13 @@ export function calcularHitosGantt(e: EntradaAnclas): HitosGantt {
     : inicioPlazoTipo === 'OC_EMITIDA' ? ocEmitida
     : inicioPlazoTipo === 'OC_ACEPTADA' ? (ocAceptada ?? ocAceptadaProyectada)
     : null;
-  const inicioProyectado = inicioPlazoTipo === 'OC_ACEPTADA' && !ocAceptada && !!ocAceptadaProyectada;
-  const inicioPlazo = disparador
+  // Reloj fijado: el inicio que validó el equipo manda (antes, si las bases no decían desde cuándo
+  // corre el plazo, el Gantt seguía diciendo «inicio por validar» aunque ya estuviera fijado).
+  const inicioDelReloj = e.entregaOficialAt && e.relojInicioAt ? inicioDelDia(e.relojInicioAt) : null;
+  const inicioProyectado = !inicioDelReloj && inicioPlazoTipo === 'OC_ACEPTADA' && !ocAceptada && !!ocAceptadaProyectada;
+  const inicioPlazo = inicioDelReloj ?? (disparador
     ? (desfase ? sumarDias(inicioDelDia(disparador), desfase.n, desfase.tipo) : inicioDelDia(disparador))
-    : null;
+    : null);
 
   // Con desfase ("+1 día hábil siguiente") el primer día del plazo es el propio día de inicio.
   const entregaOficial = !!e.entregaOficialAt;

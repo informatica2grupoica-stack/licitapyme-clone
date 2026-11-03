@@ -10,7 +10,8 @@
 //
 // Las tareas manuales no tienen plan: siguen mostrándose como registro (creadoAt → cierre/plazo/hoy).
 import { useEffect, useMemo, useState } from 'react';
-import { IconTimeline as GanttChartSquare, IconCircleCheck as CheckCircle2, IconPlayerPlay as PlayCircle, IconAlertTriangle as AlertTriangle, IconCircle as Circle, IconUserFilled as UserFilled, IconFlag as Flag, IconWand as Wand, IconChevronDown as ChevronDown } from '@tabler/icons-react';
+import { createPortal } from 'react-dom';
+import { IconX, IconArrowsMaximize, IconTimeline as GanttChartSquare, IconCircleCheck as CheckCircle2, IconPlayerPlay as PlayCircle, IconAlertTriangle as AlertTriangle, IconCircle as Circle, IconUserFilled as UserFilled, IconFlag as Flag, IconWand as Wand } from '@tabler/icons-react';
 import type { FaseTarea, HitosGantt } from '@/app/lib/compras-plan';
 
 interface TareaGantt {
@@ -56,17 +57,43 @@ const ESTILO_ESTADO: Record<string, { barra: string; punto: string; Icon: typeof
   PENDIENTE: { barra: 'bg-zinc-300', punto: 'bg-zinc-300', Icon: Circle },
 };
 
-const CLAVE_ABIERTO = 'compras:gantt-tareas-abierto';
+// Modal a pantalla casi completa (Esc o clic afuera cierran). Sin plegable, el cuerpo va en línea.
+function Envoltorio({ modal, titulo, rango, onCerrar, children }: { modal: boolean; titulo: string; rango: string; onCerrar: () => void; children: React.ReactNode }) {
+  useEffect(() => {
+    if (!modal) return;
+    const tecla = (e: KeyboardEvent) => { if (e.key === 'Escape') onCerrar(); };
+    const previo = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', tecla);
+    return () => { window.removeEventListener('keydown', tecla); document.body.style.overflow = previo; };
+  }, [modal, onCerrar]);
+  if (!modal) return <>{children}</>;
+  return createPortal(
+    <div className="fixed inset-0 z-[80] bg-slate-900/50 p-2 sm:p-4 flex" onMouseDown={e => { if (e.target === e.currentTarget) onCerrar(); }} role="dialog" aria-modal="true" aria-label={titulo}>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-flotante w-full h-full flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-zinc-200 flex-shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <GanttChartSquare size={18} className="text-slate-400 flex-shrink-0" />
+            <h2 className="text-[17px] font-semibold tracking-tight text-zinc-900">{titulo}</h2>
+            <span className="text-xs text-zinc-500 tabular-nums">{rango}</span>
+          </div>
+          <button type="button" onClick={onCerrar} aria-label="Cerrar" className="inline-flex items-center gap-1.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-100 px-2.5 py-1.5 rounded-lg transition-colors">
+            Cerrar <IconX size={15} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto">{children}</div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
 
 interface Fila { t: TareaGantt; desde: number | null; hasta: number | null; claveEstado: string; estilo: typeof ESTILO_ESTADO[string] }
 
 export function GanttComprasCard({ tareas, hitos = null, plegable = true }: { tareas: TareaGantt[]; hitos?: HitosGantt | null; plegable?: boolean }) {
+  // Plegable = la tarjeta es una barra resumen y el Gantt completo se abre en un modal a pantalla casi completa.
   const [abierto, setAbierto] = useState(!plegable);
-  useEffect(() => {
-    if (!plegable) return;
-    try { setAbierto(localStorage.getItem(CLAVE_ABIERTO) === '1'); } catch { /* sin almacenamiento: queda cerrado */ }
-  }, [plegable]);
-  const alternar = () => setAbierto(v => { const n = !v; try { localStorage.setItem(CLAVE_ABIERTO, n ? '1' : '0'); } catch { /* no se pudo recordar */ } return n; });
+  const alternar = () => setAbierto(v => !v);
 
   const { filasPorFase, inicio, total, hoy, marcas, intervaloDia } = useMemo(() => {
     const hoy = ahoraPared();
@@ -168,11 +195,11 @@ export function GanttComprasCard({ tareas, hitos = null, plegable = true }: { ta
   return (
     <div className="bg-white rounded-xl border border-zinc-200 shadow-tarjeta overflow-hidden">
       <button type="button" onClick={plegable ? alternar : undefined} aria-expanded={abierto} disabled={!plegable} data-testid="gantt-tareas-toggle"
-        className={`w-full flex items-center justify-between gap-3 px-5 py-3.5 border-b border-zinc-200 flex-wrap text-left ${plegable ? 'cursor-pointer hover:bg-zinc-50' : 'cursor-default'}`}>
+        className={`w-full flex items-center justify-between gap-3 px-5 py-3.5 ${abierto && !plegable ? 'border-b border-zinc-200' : ''} flex-wrap text-left ${plegable ? 'cursor-pointer hover:bg-zinc-50' : 'cursor-default'}`}>
         <div className="flex items-center gap-2.5 flex-wrap min-w-0">
           <GanttChartSquare size={17} className="text-slate-400 flex-shrink-0" />
           <span className="text-[15px] font-semibold tracking-tight text-zinc-900">Gantt de tareas</span>
-          {!abierto && (
+          {(!abierto || plegable) && (
             <span className="flex items-center gap-1.5 flex-wrap">
               <span className="text-xs tabular-nums text-zinc-600">{hechas}/{todas.length} hechas</span>
               {vencidas > 0 && <span className="text-xs font-medium text-rose-700">{vencidas} vencida{vencidas === 1 ? '' : 's'}</span>}
@@ -181,11 +208,11 @@ export function GanttComprasCard({ tareas, hitos = null, plegable = true }: { ta
           )}
         </div>
         <span className="flex items-center gap-2 text-xs text-zinc-500 flex-shrink-0">
-          {abierto && <span>{fmtCorta(inicio)} — {fmtCorta(inicio + total - MS_DIA)}</span>}
-          {plegable && <span className="inline-flex items-center gap-1 font-semibold">{abierto ? 'Ocultar' : 'Ver detalle'} <ChevronDown size={15} className={`transition-transform ${abierto ? 'rotate-180' : ''}`} /></span>}
+          {abierto && !plegable && <span>{fmtCorta(inicio)} — {fmtCorta(inicio + total - MS_DIA)}</span>}
+          {plegable && <span className="inline-flex items-center gap-1.5 font-semibold">Abrir Gantt <IconArrowsMaximize size={15} /></span>}
         </span>
       </button>
-      {abierto && (<>
+      {abierto && (<Envoltorio modal={plegable} titulo="Gantt de tareas" rango={`${fmtCorta(inicio)} — ${fmtCorta(inicio + total - MS_DIA)}`} onCerrar={() => setAbierto(false)}>
 
       <div className="flex items-center gap-2 flex-wrap px-4 sm:px-5 pt-4">
         <span className="text-xs font-medium text-zinc-700">{todas.length} tarea{todas.length === 1 ? '' : 's'}</span>
@@ -320,7 +347,7 @@ export function GanttComprasCard({ tareas, hitos = null, plegable = true }: { ta
           {intervaloDia > 1 && <span className="text-zinc-400">Eje cada {intervaloDia} días</span>}
         </div>
       </div>
-      </>)}
+      </Envoltorio>)}
     </div>
   );
 }

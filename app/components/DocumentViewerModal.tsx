@@ -14,7 +14,8 @@ import { createPortal } from 'react-dom';
 import { IconX as X, IconDownload as Download, IconExternalLink as ExternalLink, IconFileText as FileText, IconFileUnknown as FileQuestion, IconLoader2 as Loader2 } from '@tabler/icons-react';
 import { urlDescarga } from '@/app/lib/descargas-cliente';
 
-export interface VisorDoc { nombre: string; url: string }
+/** `titulo`/`detalle` solo se usan en la lista lateral cuando el visor muestra varios documentos juntos. */
+export interface VisorDoc { nombre: string; url: string; titulo?: string; detalle?: string }
 
 export function extDe(nombre: string, url: string): string {
   const fromName = (nombre.split('.').pop() || '').toLowerCase();
@@ -87,13 +88,21 @@ function VisorExcel({ url }: { url: string }) {
   );
 }
 
-export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; onClose: () => void }) {
+/** Con `lista` + `onElegir` el visor muestra todos los documentos juntos: lista lateral (tira arriba en pantallas chicas), ‹ › y las flechas del teclado. */
+export function DocumentViewerModal({ doc, onClose, lista, onElegir }: { doc: VisorDoc | null; onClose: () => void; lista?: VisorDoc[]; onElegir?: (d: VisorDoc) => void }) {
   const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
     if (!doc) return;
     setCargando(true);
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (lista && lista.length > 1 && onElegir && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        const i = lista.findIndex(d => d.url === doc.url);
+        const sig = lista[(i + (e.key === 'ArrowRight' ? 1 : -1) + lista.length) % lista.length];
+        if (sig) onElegir(sig);
+      }
+    };
     window.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -101,7 +110,7 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [doc, onClose]);
+  }, [doc, onClose, lista, onElegir]);
 
   if (!doc) return null;
   const tipo = tipoDe(doc.nombre, doc.url);
@@ -110,6 +119,9 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
   const proxyInline = `/api/proxy?url=${encodeURIComponent(doc.url)}&inline=1`;
   // El visor de Office descarga el archivo desde los servidores de Microsoft, así
   // que necesita la URL pública directa (no el proxy local).
+  const varios = !!lista && lista.length > 1 && !!onElegir;
+  const idx = varios ? lista!.findIndex(d => d.url === doc.url) : -1;
+  const mover = (paso: number) => { if (varios) onElegir!(lista![(idx + paso + lista!.length) % lista!.length]); };
   const officeSrc = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(doc.url)}`;
   // El visor de Microsoft muestra el Excel con su formato (colores, bordes, anchos); el VisorExcel
   // propio es solo una tabla plana. Se usa el propio únicamente cuando Microsoft no puede llegar al
@@ -137,6 +149,13 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
           <p className="flex-1 min-w-0 text-[13px] font-semibold text-slate-800 truncate" title={doc.nombre}>
             {doc.nombre}
           </p>
+          {varios && (
+            <div className="flex items-center gap-0.5 text-[12px] text-slate-500 tabular-nums">
+              <button onClick={() => mover(-1)} className="px-2 py-1 rounded-lg hover:bg-slate-200 font-semibold" aria-label="Anterior" title="Anterior (←)">‹</button>
+              {idx + 1} / {lista!.length}
+              <button onClick={() => mover(1)} className="px-2 py-1 rounded-lg hover:bg-slate-200 font-semibold" aria-label="Siguiente" title="Siguiente (→)">›</button>
+            </div>
+          )}
           <a
             href={doc.url} target="_blank" rel="noopener noreferrer"
             className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
@@ -161,7 +180,25 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
         </div>
 
         {/* Cuerpo */}
-        <div className="flex-1 min-h-0 bg-slate-100 relative">
+        <div className="flex-1 min-h-0 flex flex-col md:flex-row">
+        {varios && (<>
+          <div className="md:hidden flex gap-1.5 overflow-x-auto px-2 py-1.5 border-b border-slate-200 bg-white flex-shrink-0">
+            {lista!.map(d => (
+              <button key={d.url} onClick={() => onElegir!(d)} className={`flex-shrink-0 max-w-[200px] truncate text-[12px] px-2.5 py-1 rounded-lg border ${d.url === doc.url ? 'border-teal-500 bg-teal-50 text-teal-800 font-semibold' : 'border-slate-200 text-slate-600'}`}>{d.titulo || d.nombre}</button>
+            ))}
+          </div>
+          <aside className="hidden md:flex w-72 flex-shrink-0 flex-col border-r border-slate-200 bg-white overflow-y-auto">
+            <p className="px-3 py-2 text-[11px] font-medium text-slate-500 border-b border-slate-100 sticky top-0 bg-white">{lista!.length} documentos</p>
+            {lista!.map(d => (
+              <button key={d.url} onClick={() => onElegir!(d)} title={d.nombre}
+                className={`text-left px-3 py-2 border-b border-slate-100 border-l-2 ${d.url === doc.url ? 'border-l-teal-500 bg-teal-50' : 'border-l-transparent hover:bg-slate-50'}`}>
+                <span className={`block text-[12.5px] truncate ${d.url === doc.url ? 'font-semibold text-teal-900' : 'font-medium text-slate-800'}`}>{d.titulo || d.nombre}</span>
+                <span className="block text-[11px] text-slate-500 truncate">{d.detalle || d.nombre}</span>
+              </button>
+            ))}
+          </aside>
+        </>)}
+        <div className="flex-1 min-h-0 min-w-0 bg-slate-100 relative">
           {tipo === 'pdf' && cargando && (
             <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-slate-500 pointer-events-none">
               <Loader2 size={16} className="animate-spin text-indigo-500" /> Cargando documento…
@@ -214,6 +251,7 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
               </div>
             </div>
           )}
+        </div>
         </div>
       </div>
     </div>,
