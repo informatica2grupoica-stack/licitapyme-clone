@@ -13,6 +13,7 @@ import {
 } from '@tabler/icons-react';
 import { LinksProducto, type LinksCosteo } from './LinksProducto';
 import { IncidenciaFichaModal } from './IncidenciaFichaModal';
+import { urlDescarga } from '@/app/lib/descargas-cliente';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import type { PanelFichasDTO, ProductoFichasDTO, OpcionFichaDTO, ResultadoRuteo, ProductoRuteado, FilaRequisito } from '@/app/lib/compras-fichas';
 
@@ -259,6 +260,19 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
   const olvidar = async (extraccionId: number) => {
     try { await post({ accion: 'olvidar_documento', extraccionId }); await cargar(); } catch (e: any) { toast.error('No se pudo quitar de la lista', e.message); }
   };
+  const [asignandoSug, setAsignandoSug] = useState(false);
+  const asignarSugeridas = async () => {
+    setAsignandoSug(true);
+    let ok = 0;
+    for (const f of panel?.pendientes ?? []) {
+      if (!f.sugerencia?.productoCompraId) continue;
+      try { await post({ accion: 'asignar', extraccionId: f.extraccionId, productoIdx: f.idx, productoCompraId: f.sugerencia.productoCompraId, proveedor: null, sinMarca: f.sinMarca }); ok++; }
+      catch (e: any) { toast.error(`No se pudo asignar «${f.documento}»`, e.message); }
+    }
+    setAsignandoSug(false);
+    if (ok) toast.success(`${ok} ficha(s) asignadas`, 'Revisa en cada producto y usa «Comparar».');
+    await cargar();
+  };
   const asignar = async (extraccionId: number, idx: number, productoCompraId: number, proveedor: string, sinMarca = false) => {
     try { await post({ accion: 'asignar', extraccionId, productoIdx: idx, productoCompraId, proveedor: proveedor || null, sinMarca }); toast.success('Ficha asignada'); await cargar(); }
     catch (e: any) { toast.error('No se pudo asignar', e.message); }
@@ -281,6 +295,23 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
     if (con.every(o => o.tecnico.estado === 'CUMPLE')) return 'CUMPLE';
     if (con.some(o => o.tecnico.estado === 'CON_PENDIENTES')) return 'CON_PENDIENTES';
     return 'NO_CORRIDO';
+  };
+  // Todos los documentos subidos aquí (asignados o no), para verlos y bajarlos sin abrir producto por producto.
+  const subidas = (() => {
+    const m = new Map<string, { nombre: string; url: string; estado: string; tono: string }>();
+    const poner = (nombre: string, url: string | null, estado: string, tono: string) => { if (url && !m.has(url)) m.set(url, { nombre, url, estado, tono }); };
+    for (const p of panel.productos) for (const o of p.opciones) for (const f of o.fichas) poner(f.nombre, f.url, `Asignada a: ${p.descripcion.slice(0, 60)}`, 'text-emerald-700');
+    for (const f of panel.pendientes) poner(f.documento, f.url, 'Por asignar a un producto', 'text-amber-700');
+    for (const d of panel.noSonFichas) poner(d.documento, d.url, 'No es ficha de un producto', 'text-zinc-500');
+    for (const e of panel.conError) poner(e.documento, e.url, 'No se pudo leer', 'text-rose-700');
+    return [...m.values()];
+  })();
+  const descargarTodas = async () => {
+    for (const d of subidas) {
+      const a = document.createElement('a');
+      a.href = urlDescarga(d.url); a.download = d.nombre; document.body.appendChild(a); a.click(); a.remove();
+      await new Promise(r => setTimeout(r, 400));
+    }
   };
   const cumplen = conFicha.filter(p => estadoProducto(p) === 'CUMPLE').length;
   const noCumplen = conFicha.filter(p => estadoProducto(p) === 'NO_CUMPLE').length;
@@ -359,10 +390,40 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
         </div>
       )}
 
+      {/* Documentos subidos: ver y descargar todos */}
+      {subidas.length > 0 && (
+        <details open className="rounded-xl border border-zinc-200 bg-white" data-testid="fichas-subidas">
+          <summary className="cursor-pointer px-3 py-2 flex items-center gap-2 text-[12.5px] font-bold text-zinc-700">
+            <Doc size={14} className="text-teal-600" /> Fichas subidas ({subidas.length})
+            <button type="button" onClick={e => { e.preventDefault(); void descargarTodas(); }} data-testid="fichas-descargar-todas"
+              className="ml-auto inline-flex items-center gap-1 text-[12px] font-semibold text-teal-700 border border-teal-200 hover:bg-teal-50 px-2.5 py-1 rounded-lg">Descargar todas</button>
+          </summary>
+          <ul className="divide-y divide-zinc-100 border-t border-zinc-100 max-h-[360px] overflow-y-auto">
+            {subidas.map(d => (
+              <li key={d.url} className="px-3 py-1.5 flex items-center gap-2 text-[12.5px]">
+                <Doc size={14} className="text-zinc-400 flex-shrink-0" />
+                <span className="min-w-0 flex-1 truncate"><b className="text-zinc-800">{d.nombre}</b> <span className={`text-[11.5px] ${d.tono}`}>· {d.estado}</span></span>
+                <button type="button" onClick={() => setVisor({ nombre: d.nombre, url: d.url })} className="inline-flex items-center gap-1 text-[12px] font-semibold text-teal-700 hover:text-teal-900"><Eye size={14} /> Ver</button>
+                <a href={urlDescarga(d.url)} download={d.nombre} className="text-[12px] font-semibold text-zinc-600 hover:text-zinc-900">Descargar</a>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
       {/* 3 · Por confirmar */}
       {panel.pendientes.length > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3 space-y-2" data-testid="fichas-pendientes">
-          <p className="text-[12.5px] font-bold text-amber-900 flex items-center gap-1.5"><Alerta size={14} /> {panel.pendientes.length} ficha(s) por asignar a un producto</p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <p className="text-[12.5px] font-bold text-amber-900 flex items-center gap-1.5"><Alerta size={14} /> {panel.pendientes.length} ficha(s) por asignar a un producto</p>
+            {puedeOperar && panel.pendientes.some(f => f.sugerencia?.productoCompraId) && (
+              <button type="button" onClick={asignarSugeridas} disabled={asignandoSug} data-testid="fichas-asignar-sugeridas"
+                className="inline-flex items-center gap-1 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1 rounded-lg">
+                {asignandoSug && <Loader2 size={12} className="animate-spin" />} Asignar todas las sugeridas ({panel.pendientes.filter(f => f.sugerencia?.productoCompraId).length})
+              </button>
+            )}
+          </div>
+          <p className="text-[11.5px] text-amber-800">Elige a qué producto pertenece cada ficha. Si asignas una mal no pasa nada grave: abre ese producto y usa «Cambiar de producto…» (o la ✕ de la ficha) y vuelve a comparar. Nada se compra ni se envía por asignar.</p>
           {panel.pendientes.map(f => <PendienteFila key={`${f.extraccionId}:${f.idx}`} f={f} panel={panel} puedeOperar={puedeOperar} onAsignar={asignar} onDescartar={olvidar} />)}
         </div>
       )}
@@ -523,7 +584,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
 
       <input ref={subirRef} type="file" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.md,.csv" data-testid="ficha-input-producto"
         onChange={e => { const fl = e.target.files ? Array.from(e.target.files) : []; const d = destino; e.target.value = ''; if (fl.length && d) void subirParaProducto(d, fl); }} />
-      <DocumentViewerModal doc={visor} onClose={() => setVisor(null)} />
+      <DocumentViewerModal doc={visor} onClose={() => setVisor(null)} lista={subidas.map(d => ({ nombre: d.nombre, url: d.url }))} onElegir={setVisor} />
       <IncidenciaFichaModal negocioId={negocioId} productos={incidenciaDe} onClose={() => setIncidenciaDe([])} onCreada={() => { setIncidenciaDe([]); setMarcados(new Set()); void recargarCompras(); }} />
 
       {/* Modal: pegar texto */}
@@ -616,7 +677,7 @@ function PendienteFila({ f, panel, puedeOperar, onAsignar, onDescartar }: {
         <div className="flex items-center gap-2 flex-wrap">
           <select value={producto} onChange={e => { setProducto(Number(e.target.value)); setProveedor(''); }} className="text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 bg-white">
             <option value={0}>¿De qué producto es?</option>
-            {panel.productos.map(p => <option key={p.productoId} value={p.productoId}>{p.descripcion}</option>)}
+            {panel.productos.map(p => <option key={p.productoId} value={p.productoId}>{p.productoId === f.sugerencia?.productoCompraId ? '★ Sugerido: ' : ''}{p.descripcion}{p.opciones.some(o => o.fichas.length > 0) ? ' (ya tiene ficha)' : ' (sin ficha)'}</option>)}
           </select>
           <select value={proveedor} onChange={e => setProveedor(e.target.value)} disabled={!producto} className="text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 bg-white">
             <option value="">{cotizados.length ? '¿De qué proveedor? (detectar)' : 'Proveedor (opcional)'}</option>
@@ -624,7 +685,7 @@ function PendienteFila({ f, panel, puedeOperar, onAsignar, onDescartar }: {
           </select>
           <button type="button" disabled={!producto || enviando} onClick={async () => { setEnviando(true); await onAsignar(f.extraccionId, f.idx, producto, proveedor, f.sinMarca); setEnviando(false); }}
             className="inline-flex items-center gap-1 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
-            {enviando && <Loader2 size={12} className="animate-spin" />} Asignar
+            {enviando && <Loader2 size={12} className="animate-spin" />} {producto ? `Asignar a «${(panel.productos.find(p => p.productoId === producto)?.descripcion ?? '').slice(0, 32)}»` : 'Asignar'}
           </button>
           <button type="button" onClick={() => onDescartar(f.extraccionId)} className="text-[12px] font-semibold text-zinc-500 hover:text-rose-700">Descartar</button>
         </div>

@@ -56,8 +56,10 @@ export function lineaDeProducto(prod: ProductoCompra, lineas: LineaCosteo[]): Li
   const d = (x: string) => x.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 80);
   return lineas.find(l => d(l.detalle) === d(String(prod.descripcion))) ?? null;
 }
-const productoDeLinea = (linea: LineaCosteo, productos: ProductoCompra[]): ProductoCompra | null =>
-  productos.find(p => lineaDeProducto(p, [linea])?.id === linea.id) ?? null;
+// Se cruza contra TODAS las líneas: con varias líneas del costeo bajo el mismo ítem (correlativo repetido) el número no decide y manda la
+// descripción; mirando una sola línea, «L1» valía para cualquier producto (la ficha de los fonos caía en el pantalón cargo).
+const productoDeLinea = (linea: LineaCosteo, productos: ProductoCompra[], lineas: LineaCosteo[]): ProductoCompra | null =>
+  productos.find(p => lineaDeProducto(p, lineas)?.id === linea.id) ?? null;
 
 // ── Proveedor de una ficha ─────────────────────────────────────────────────────────────────────────
 export interface ProveedorElegido { proveedor: string | null; rut: string | null; confianza: 'alta' | 'media' | null; motivo: string; candidatos: string[] }
@@ -163,7 +165,7 @@ export async function asignarProductoDeFicha(params: {
   if (!linea) return { ok: false, proveedor: null, motivoProveedor: '', candidatosProveedor: [], error: 'Ese producto no tiene línea en el Costeo.' };
 
   const [productos, cotizaciones] = await Promise.all([listarProductosCompra(negocioId), listarCotizaciones(negocioId)]);
-  const prodCompra = productoDeLinea(linea, productos);
+  const prodCompra = productoDeLinea(linea, productos, lineas);
   const cubren = prodCompra ? cotizaciones.filter(c => c.items.some(i => i.productoId === prodCompra.id && i.precioUnitario != null)) : [];
   let prov: ProveedorElegido;
   if (params.proveedor?.trim()) {
@@ -262,7 +264,7 @@ export async function procesarFicha(params: { negocioId: number; url: string; no
           const s = de(x.idx);
           s.resultado = x.filaId ? 'por_confirmar' : 'sin_producto';
           s.motivo = x.motivo;
-          if (x.filaId) { s.productoCompraId = productoDeLinea(lineas.find(l => l.id === x.filaId)!, productosCompra)?.id ?? null; s.confianza = x.confianza; }
+          if (x.filaId) { s.productoCompraId = productoDeLinea(lineas.find(l => l.id === x.filaId)!, productosCompra, lineas)?.id ?? null; s.confianza = x.confianza; }
           await guardarSugerencia(negocioId, extraccionId, x.idx, x.filaId, x.item, x.confianza, x.motivo);
         }
       }
@@ -275,7 +277,7 @@ export async function procesarFicha(params: { negocioId: number; url: string; no
   for (const [idx, d] of decision) {
     const s = de(idx);
     const linea = lineas.find(l => l.id === d.filaId)!;
-    const prod = productoDeLinea(linea, productosCompra);
+    const prod = productoDeLinea(linea, productosCompra, lineas);
     s.productoCompraId = prod?.id ?? null; s.productoNombre = prod ? corto(prod.descripcion) : corto(linea.detalle); s.confianza = d.confianza;
     const r = await asignarProductoDeFicha({ negocioId, extraccionId, productoIdx: idx, filaId: d.filaId, actor });
     s.candidatosProveedor = r.candidatosProveedor;
@@ -457,11 +459,17 @@ export async function panelFichas(negocioId: number, licitacionCodigo: string): 
     if (esDocumentoComercial(tipoDoc)) { noSonFichas.push({ extraccionId: ex.id, documento: ex.documentoNombre || 'documento', url: ex.documentoUrl, motivo: `Es ${tipoDoc.replace(/_/g, ' ').toLowerCase()}: sirve para el precio, no como ficha técnica.` }); continue; }
     for (const p of prods) {
       if (asignado.has(`${ex.id}:${p.idx}`) || docsConAsignado.has(String(ex.id))) continue;
-      const s = sugerencias.get(`${ex.id}:${p.idx}`);
+      // Sin sugerencia guardada (las fichas sin marca ni modelo no pasan por la IA): se sugiere por el nombre, solo si una línea gana con claridad.
+      let s = sugerencias.get(`${ex.id}:${p.idx}`);
+      if (!s) {
+        const ranking = lineas.map(l => ({ l, ...puntuar(p, l) })).sort((a, b) => b.puntaje - a.puntaje);
+        if (ranking[0] && ranking[0].puntaje >= 0.5 && ranking[0].puntaje - (ranking[1]?.puntaje ?? 0) >= 0.2 && !ranking[0].motivos.some(m => m.startsWith('número distinto')))
+          s = { filaId: ranking[0].l.id, confianza: 'media', motivo: `Por el nombre de la ficha se parece a «${corto(ranking[0].l.detalle)}» (${ranking[0].motivos[0] || 'nombre'}). Confírmalo.` };
+      }
       const linea = s?.filaId ? lineas.find(l => l.id === s.filaId) : null;
       pendientes.push({
         extraccionId: ex.id, idx: p.idx, documento: ex.documentoNombre || 'documento', url: ex.documentoUrl, nombre: corto(p.nombre || `${p.marca} ${p.modelo}`), marca: p.marca, modelo: p.modelo, sinMarca: !identificable(p),
-        sugerencia: s ? { filaId: s.filaId ?? null, productoCompraId: linea ? (productoDeLinea(linea, productos)?.id ?? null) : null, confianza: String(s.confianza || ''), motivo: String(s.motivo || '') } : null,
+        sugerencia: s ? { filaId: s.filaId ?? null, productoCompraId: linea ? (productoDeLinea(linea, productos, lineas)?.id ?? null) : null, confianza: String(s.confianza || ''), motivo: String(s.motivo || '') } : null,
       });
     }
   }
