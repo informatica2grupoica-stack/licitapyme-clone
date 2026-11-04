@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   normalizarParaIds, listarParrafos, rellenarFinDeParrafo, rellenarCeldaVacia, parrafoEstaVacio,
-  unificarRunsDeMarcadores, rellenarRunPorIndice, verificarParrafos, verificarXmlBienFormado,
+  unificarRunsDeMarcadores, rellenarRunPorIndice, verificarParrafos, verificarXmlBienFormado, marcarOpcionPersonaJuridica,
 } from '../anexos-docx';
 import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, detectarBlancosInline, indiceFilaEncabezado, extraerTablasCrudo, detectarCandidatosTabla, detectarTripletesFecha, detectarAlternativasExcluyentes, esEtiquetaDeCampo } from '../anexos-detectar';
 import { valorExisteEnFicha, campoCalzaConLaEtiqueta, type EmpresaCampos } from '../anexos-ia-motor';
@@ -2718,4 +2718,14 @@ test('escribir tras un rótulo sin «:» agrega los dos puntos pegados («Giro �
   let x = rellenarRunPorIndice(fecha, 1, [{ pos: 0, largo: 2, valor: '' }]);
   x = rellenarRunPorIndice(x, 0, [{ pos: 8, largo: 4, valor: 'noviembre' }]);
   assert.match(x.replace(/<[^>]+>/g, ''), /noviembre de 2026/);
+});
+
+test('«( ) Persona Natural / ( ) Persona Jurídica / ( ) Otra»: se marca la X en Persona Jurídica sin cambiar el largo (Formulario Nº1A, 1057922-28-LP26)', () => {
+  const xml = NS + `<w:p><w:r><w:t xml:space="preserve">(</w:t></w:r><w:r><w:t xml:space="preserve">        ) Persona Natural</w:t></w:r></w:p>`
+    + p('(        ) Persona Jurídica') + p('(        )Otra (Indicar) _____________') + FIN;
+  const textos = listarParrafos(marcarOpcionPersonaJuridica(normalizarParaIds(xml).xml)).map(x => x.texto);
+  assert.deepEqual(textos, ['(        ) Persona Natural', '(    X   ) Persona Jurídica', '(        )Otra (Indicar) _____________']);
+  // Sin la opción «Persona Natural» al lado no es una lista de opciones: no se toca.
+  const suelto = NS + p('(        ) Persona Jurídica') + FIN;
+  assert.equal(marcarOpcionPersonaJuridica(suelto), suelto);
 });

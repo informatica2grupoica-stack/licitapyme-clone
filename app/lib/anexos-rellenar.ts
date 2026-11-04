@@ -25,7 +25,7 @@
 import {
   normalizarParaIds, unificarRunsDeMarcadores, rellenarCeldaVacia, rellenarRunPorIndice,
   insertarImagenEnParrafo, rellenarFinDeParrafo, reemplazarTextoDeParrafo, verificarParrafos, abrirDocx, guardarDocx,
-  eliminarRespaldoVmlDuplicado, sustituirCamposFormularioLegado, compactarVaciosDeRelleno, marcarKeepNext, agregarTextoBajoLineaFirma, marcarCheckbox, type Parrafo,
+  eliminarRespaldoVmlDuplicado, sustituirCamposFormularioLegado, compactarVaciosDeRelleno, marcarKeepNext, agregarTextoBajoLineaFirma, marcarCheckbox, marcarOpcionPersonaJuridica, type Parrafo,
 } from '@/app/lib/anexos-docx';
 import {
   analizarAnexo, extraerTablasCrudo,
@@ -138,6 +138,11 @@ export interface CampoResuelto {
 export const CAMPO_MONTO_TOTAL_OFERTA = 'monto_total_oferta';
 
 const MOTIVO_SOLO_MANUAL = 'Bloque de Persona Natural o UTP — no aplica (esta empresa postula como persona jurídica individual).';
+/** Ficha de empresa de persona jurídica (SPA, Ltda., S.A., EIRL…): todas las de hoy lo son. */
+function esPersonaJuridica(empresa: EmpresaCampos): boolean {
+  const t = String(empresa.tipo_persona_juridica || '');
+  return !!t.trim() && !/persona\s+natural/i.test(t);
+}
 const RE_COMPROMISO_DEL_OFERENTE = /garant[ií]a|plazo\s+de\s+entrega|d[ií]as\s+(corridos|h[aá]biles)|marcar\s+con\s+una?\s+x|\bcumple\b/i;
 
 interface ResultadoResolucion {
@@ -927,7 +932,8 @@ export async function analizarAnexoParaUI(
   // una de las dos rutas se lo saltara, los ids de los pendientes (que son índices de aparición) no
   // calzarían entre el análisis y la generación.
   const { xml: xmlConIds } = normalizarParaIds(xmlSinCamposLegados);
-  const xmlNormalizado = unificarRunsDeMarcadores(xmlConIds);
+  // «( X ) Persona Jurídica»: dato de la empresa, no decisión (ver marcarOpcionPersonaJuridica).
+  const xmlNormalizado = esPersonaJuridica(empresa) ? marcarOpcionPersonaJuridica(unificarRunsDeMarcadores(xmlConIds)) : unificarRunsDeMarcadores(xmlConIds);
   const analisis = analizarAnexo(xmlNormalizado, { postulaComoUTP: forzarAplica });
   const formularios = detectarFormularios(xmlNormalizado);
   const numeracion = await leerNumeracion(zip);
@@ -1179,7 +1185,8 @@ export async function generarAnexoFinal(
   // una de las dos rutas se lo saltara, los ids de los pendientes (que son índices de aparición) no
   // calzarían entre el análisis y la generación.
   const { xml: xmlConIds } = normalizarParaIds(xmlCrudo);
-  const xmlNormalizado = unificarRunsDeMarcadores(xmlConIds);
+  // «( X ) Persona Jurídica»: dato de la empresa, no decisión (ver marcarOpcionPersonaJuridica).
+  const xmlNormalizado = esPersonaJuridica(empresa) ? marcarOpcionPersonaJuridica(unificarRunsDeMarcadores(xmlConIds)) : unificarRunsDeMarcadores(xmlConIds);
   const analisis = analizarAnexo(xmlNormalizado, { postulaComoUTP: respuestas.anexoAplica === '1' });
   const formularios = detectarFormularios(xmlNormalizado);
   // Mismo recorte que en el análisis — ver celdasDeRellenoDelPie.

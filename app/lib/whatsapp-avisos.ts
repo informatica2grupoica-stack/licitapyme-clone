@@ -1,5 +1,5 @@
 // app/lib/whatsapp-avisos.ts
-// Avisos por WhatsApp (ganada / perdida / apertura) desde el número emisor de la empresa. Vía NO oficial (Evolution/Baileys):
+// Avisos por WhatsApp (ganada / perdida / apertura / orden de compra) desde el número emisor de la empresa. Vía NO oficial (Evolution/Baileys):
 // por eso se manda de a uno, con pausa entre mensajes, un tope diario y solo a personas del equipo con su celular registrado.
 //   encolarAvisoWhatsapp()  → decide a quién le toca y deja los mensajes en la cola (best-effort: nunca rompe el cron que llama).
 //   drenarCola()            → envía lo pendiente; lo dispara el propio encolado y /api/cron/whatsapp-cola (reintentos).
@@ -57,14 +57,17 @@ export interface EventoAviso {
   monto?: number | null;
   asignadoId: number | null;
   clienteId: number;
+  /** Solo en 'oc': código de la orden (va en la clave: cada orden se avisa una vez por persona). */
+  ordenCodigo?: string | null;
 }
 
 export async function encolarAvisoWhatsapp(ev: EventoAviso): Promise<number> {
   try {
     if (!whatsappConfigurado()) return 0;
+    // La orden de compra va a quien la tenga activada, sea o no el responsable: ahí se miran todos los perfiles activos.
     const [rows] = await pool.query(
-      `SELECT id, nombre, rol, activo, telefono FROM usuarios WHERE cliente_id = ? AND activo = TRUE AND (rol = 'admin' OR id = ?)`,
-      [ev.clienteId, ev.asignadoId ?? 0],
+      `SELECT id, nombre, rol, activo, telefono FROM usuarios WHERE cliente_id = ? AND activo = TRUE AND (rol = 'admin' OR id = ? OR ? = 1)`,
+      [ev.clienteId, ev.asignadoId ?? 0, ev.tipo === 'oc' ? 1 : 0],
     ) as any[];
     const candidatos = rows as Destinatario[];
     const prefs = await prefsDe(candidatos.map(c => Number(c.id)));
@@ -73,11 +76,11 @@ export async function encolarAvisoWhatsapp(ev: EventoAviso): Promise<number> {
     for (const d of destinos) {
       const texto = redactarAviso({
         tipo: ev.tipo, codigo: ev.codigo, licitacionNombre: ev.nombre, organismo: ev.organismo, monto: ev.monto,
-        nombreDestinatario: d.nombre, urlBase: process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000',
+        nombreDestinatario: d.nombre, urlBase: process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000', ordenCodigo: ev.ordenCodigo,
       });
       const [r] = await pool.query(
         `INSERT IGNORE INTO whatsapp_cola (cliente_id, usuario_id, telefono, tipo, licitacion_codigo, clave, texto, creado_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [ev.clienteId, d.id, d.telefonoNormalizado, ev.tipo, ev.codigo, claveAviso(ev.tipo, ev.codigo, Number(d.id)), texto, ahoraChileSQL()],
+        [ev.clienteId, d.id, d.telefonoNormalizado, ev.tipo, ev.codigo, claveAviso(ev.tipo, ev.tipo === 'oc' && ev.ordenCodigo ? ev.ordenCodigo : ev.codigo, Number(d.id)), texto, ahoraChileSQL()],
       ) as any[];
       nuevos += Number((r as any).affectedRows) || 0;
     }

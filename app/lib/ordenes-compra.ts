@@ -30,6 +30,7 @@ import { subirDocumentoR2 } from '@/app/lib/r2';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { MP_UA, fetchMPConReintentos } from '@/app/lib/mp-adjuntos';
 import { vincularOrdenCompraDeMP, claveLicitacionSinTipo } from '@/app/lib/compras';
+import { encolarAvisoWhatsapp } from '@/app/lib/whatsapp-avisos';
 import type { OrdenCompraAPI } from '@/app/types/mercado-publico.types';
 
 // Códigos de estado de la API (documentación de ChileCompra). Se guardan los dos: el código es
@@ -106,6 +107,7 @@ export interface NegocioOfertado {
   licitacion_nombre: string | null;
   empresa_id: number | null;
   asignado_a: number | null;
+  cliente_id?: number | null;
 }
 
 // Exportada: la reusa app/lib/obuma-compras.ts (mismo criterio de "qué licitaciones son nuestras"
@@ -113,7 +115,7 @@ export interface NegocioOfertado {
 export async function licitacionesOfertadas(): Promise<Map<string, NegocioOfertado>> {
   const ph = ETAPAS_CON_OFERTA.map(() => '?').join(',');
   const [rows] = await pool.query(
-    `SELECT licitacion_codigo, licitacion_nombre, empresa_id, asignado_a
+    `SELECT licitacion_codigo, licitacion_nombre, empresa_id, asignado_a, cliente_id
        FROM negocios
       WHERE activo = TRUE AND estado_pipeline IN (${ph})`,
     ETAPAS_CON_OFERTA,
@@ -355,6 +357,15 @@ export async function sincronizarOrdenesCompra(
     const { eventos, correos } = await avisarOrdenes(avisos);
     resumen.eventos = eventos;
     resumen.correos = correos;
+    // WhatsApp (04-nov-2026): solo las órdenes NUEVAS (no cada cambio de estado), y solo a los perfiles a los que el admin les
+    // activó «Orden de compra». Best-effort: encolarAvisoWhatsapp nunca lanza.
+    for (const a of avisos.filter(x => x.esNueva)) {
+      await encolarAvisoWhatsapp({
+        tipo: 'oc', codigo: a.negocio.licitacion_codigo, nombre: a.negocio.licitacion_nombre,
+        organismo: a.oc.Comprador?.NombreOrganismo || null, monto: num(a.oc.Total),
+        asignadoId: a.negocio.asignado_a, clienteId: Number(a.negocio.cliente_id) || 1, ordenCodigo: a.oc.Codigo || null,
+      });
+    }
   }
 
   // ── 5. PDF ───────────────────────────────────────────────────────────────────────────────

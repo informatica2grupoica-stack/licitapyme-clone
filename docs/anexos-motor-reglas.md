@@ -181,6 +181,10 @@ PUNTAJE ASIGNADO»): la fila divisoria numerada «1 | CARACTERÍSTICAS GENERALES
 columna «CUMPLE» cuenta aunque sea angosta; «PUNTAJE ASIGNADO» / «uso de la comisión» no es del
 oferente y no genera casilla; una unidad entre corchetes («200 [kg]») no es un campo.
 
+**Lista de tipo de oferente con paréntesis** («( ) Persona Natural / ( ) Persona Jurídica / ( ) Otra»):
+se marca «( X ) Persona Jurídica» cuando la ficha es persona jurídica (`marcarOpcionPersonaJuridica`).
+Es un dato de la empresa, no una decisión; exige que la lista traiga también «Persona Natural».
+
 **Plazo a elegir, meses de garantía, «marcar con una X»**: los compromete el oferente; nunca pasan por
 la IA de bases ni por la de órdenes de compra (antes elegía «15 días» y la garantía mínima sola).
 

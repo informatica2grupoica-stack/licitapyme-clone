@@ -539,6 +539,40 @@ export function marcarCheckbox(xml: string, paraId: string, marcado: boolean): s
 // Agrega un run al final del párrafo (nunca un <w:p>: el conteo de párrafos debe quedar idéntico,
 // regla intocable del módulo) heredando el formato del último run existente, para que el valor se
 // vea con la misma letra que la etiqueta.
+// ── «( ) Persona Natural / ( ) Persona Jurídica / ( ) Otra» ──────────────────────────────────────
+// Lista para marcar el tipo de oferente con paréntesis vacíos (FORMULARIO Nº1A, 1057922-28-LP26). No
+// es una decisión: la empresa es persona jurídica (el motor ya omite las secciones de persona natural
+// por lo mismo). Se pone una «X» en lugar de UN espacio del paréntesis de «Persona Jurídica», sin
+// cambiar el largo del texto (los blancos inline se ubican por posición). Solo si el mismo documento
+// trae también la opción «( ) Persona Natural»: así es una lista de opciones y no una frase suelta.
+const RE_OPCION_VACIA = /^\s*[([]\s+[)\]]\s*/;
+export function marcarOpcionPersonaJuridica(xml: string): string {
+  const parrafos = [...xml.matchAll(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g)];
+  const textoDe = (p: string) => [...p.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map(t => decodificarXml(t[1])).join('');
+  const textos = parrafos.map(p => textoDe(p[0]));
+  if (!textos.some(t => RE_OPCION_VACIA.test(t) && /^\s*[([]\s+[)\]]\s*persona\s+natural\b/i.test(t))) return xml;
+  let salida = xml;
+  for (let i = parrafos.length - 1; i >= 0; i--) {
+    if (!/^\s*[([]\s+[)\]]\s*persona\s+jur[ií]dica\b/i.test(textos[i])) continue;
+    // Posición (en el texto del párrafo) de un espacio dentro del paréntesis, lo más al centro posible.
+    const m = textos[i].match(/[([](\s+)[)\]]/)!;
+    const objetivo = m.index! + 1 + Math.floor(m[1].length / 2);
+    let acumulado = 0;
+    const p = parrafos[i][0];
+    const nuevo = p.replace(/(<w:t(?:\s[^>]*)?>)([^<]*)(<\/w:t>)/g, (todo, a, cuerpo, c) => {
+      const texto = decodificarXml(cuerpo);
+      const desde = acumulado;
+      acumulado += texto.length;
+      if (objetivo < desde || objetivo >= acumulado) return todo;
+      const k = objetivo - desde;
+      return `${a}${xmlEscape(texto.slice(0, k) + 'X' + texto.slice(k + 1))}${c}`;
+    });
+    const inicio = parrafos[i].index!;
+    salida = salida.slice(0, inicio) + nuevo + salida.slice(inicio + p.length);
+  }
+  return salida;
+}
+
 export function rellenarFinDeParrafo(xml: string, paraId: string, valor: string): string {
   const re = new RegExp(`(<w:p\\b[^>]*w14:paraId="${paraId}"[^>]*>)([\\s\\S]*?)(<\\/w:p>)`);
   const m = xml.match(re);

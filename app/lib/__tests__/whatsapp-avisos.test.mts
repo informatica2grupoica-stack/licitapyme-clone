@@ -6,11 +6,24 @@ import { elegirDestinatarios, redactarAviso, porDefecto, claveAviso, type Destin
 const u = (o: Partial<Destinatario> & { id: number }): Destinatario => ({ nombre: 'Alexis Tobar', rol: 'usuario', activo: 1, telefono: '+56 9 7792 2875', ...o });
 const sinPrefs = new Map<number, any>();
 
-test('el responsable recibe sus tres avisos; el admin solo las ganadas de toda la empresa', () => {
+test('el responsable y los admin reciben los tres avisos por defecto (el admin, de toda la empresa)', () => {
   const cand = [u({ id: 1 }), u({ id: 2, rol: 'admin' })];
   assert.deepEqual(elegirDestinatarios('ganada', 1, cand, sinPrefs).map(x => x.id), [1, 2]);
-  assert.deepEqual(elegirDestinatarios('perdida', 1, cand, sinPrefs).map(x => x.id), [1]);
-  assert.deepEqual(elegirDestinatarios('apertura', 1, cand, sinPrefs).map(x => x.id), [1]);
+  assert.deepEqual(elegirDestinatarios('perdida', 1, cand, sinPrefs).map(x => x.id), [1, 2]);
+  assert.deepEqual(elegirDestinatarios('apertura', 1, cand, sinPrefs).map(x => x.id), [1, 2]);
+});
+
+test('orden de compra: nadie la recibe por defecto; le llega a quien se le active, sea o no el responsable', () => {
+  const cand = [u({ id: 1 }), u({ id: 2, rol: 'admin' }), u({ id: 3 })];
+  assert.deepEqual(elegirDestinatarios('oc', 1, cand, sinPrefs), []);
+  assert.deepEqual(elegirDestinatarios('oc', 1, cand, new Map([[3, { oc: true }], [2, { oc: true }]])).map(x => x.id), [2, 3]);
+});
+
+test('el mensaje de orden de compra lleva el código de la orden y el monto', () => {
+  const t = redactarAviso({ tipo: 'oc', codigo: '2415-19-LE26', ordenCodigo: '2415-88-SE26', licitacionNombre: 'Materiales', monto: 1190000, nombreDestinatario: 'Consuelo Ramirez', urlBase: 'https://app.licitank.cl' });
+  assert.match(t, /^🧾 \*Licitank · Orden de compra recibida\*/);
+  assert.match(t, /Orden de compra: 2415-88-SE26/);
+  assert.match(t, /Monto: \$1\.190\.000/);
 });
 
 test('quien no es el responsable ni admin no recibe nada aunque tenga el aviso activado', () => {
@@ -55,7 +68,9 @@ test('en perdida y apertura no se muestra monto y el texto cambia', () => {
 
 test('valores por defecto y clave de deduplicación', () => {
   assert.equal(porDefecto('admin', 'ganada'), true);
-  assert.equal(porDefecto('admin', 'apertura'), false);
+  assert.equal(porDefecto('admin', 'apertura'), true);
   assert.equal(porDefecto('usuario', 'perdida'), true);
+  assert.equal(porDefecto('admin', 'oc'), false);
+  assert.equal(porDefecto('usuario', 'oc'), false);
   assert.equal(claveAviso('ganada', '2415-19-LE26', 7), 'ganada:2415-19-LE26:7');
 });

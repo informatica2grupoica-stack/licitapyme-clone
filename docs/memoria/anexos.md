@@ -4,6 +4,9 @@ Reglas vigentes del motor: ver también `.claude/skills/motor-anexos/SKILL.md` y
 `docs/anexos-motor-reglas.md`. Las entradas con fecha van arriba; al final, lo traspasado desde la
 memoria personal el 2026-10-27.
 
+## 2026-11-04 (tarde, 2) — «( X ) Persona Jurídica» en la lista de tipo de oferente (Formulario Nº1A)
+Pedido del dueño con captura: la lista «( ) Persona Natural / ( ) Persona Jurídica / ( )Otra (Indicar)» se marca. `marcarOpcionPersonaJuridica` (anexos-docx.ts) pone la X dentro del paréntesis de «Persona Jurídica» sin cambiar el largo del texto, en las dos rutas (pantalla y generación), solo si la ficha es persona jurídica y el documento trae también la opción «Persona Natural». Es dato de la empresa, no decisión (misma lógica que omitir las secciones de persona natural). Test en anexos-deteccion. «Otra (Indicar) ____» sigue como casilla pendiente.
+
 ## 2026-11-04 (tarde) — Test de llenado de los 10 anexos de 1057922-28-LP26
 Pedido del dueño: «dime por qué no los llena», técnicos desde las fichas del asistente (y si no, aviso), empresa al 100%, casilla para lo que no se encuentra. Test: `analizarAnexoParaUI` + `generarAnexoFinal` sobre los 10 separados, mirando el Word resultante.
 **Causas y arreglos (generales):**
