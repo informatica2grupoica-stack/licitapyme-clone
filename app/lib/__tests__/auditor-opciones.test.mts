@@ -581,3 +581,16 @@ test('identidad: marca con acotación o mal escrita no hace «otro producto» si
   assert.equal(coincidenciaIdentidad({ marca: "Council Tool (escrito 'Coucil Tool' en el documento)", sku: '85278' }, { marca: 'Coucil Tool (sic; en otros ítems aparece Council Tool)', sku: '85278' }), 'coincide');
   assert.equal(coincidenciaIdentidad({ marca: 'Council Tool', sku: '85278' }, { marca: 'Otra Marca', sku: '99999' }), 'distinto');
 });
+
+test('coincidenciaIdentidad: el mismo código leído como «modelo» en un documento y como «SKU» en otro es el mismo producto (ficha vs foto de etiqueta)', async () => {
+  const { coincidenciaIdentidad } = await import('../auditor-opciones-core');
+  assert.equal(coincidenciaIdentidad({ marca: 'DermaShield', modelo: 'DS-F50-1L', sku: null }, { marca: 'DermaShield', modelo: '', sku: 'DS-F50-1L' }), 'coincide');
+  assert.equal(coincidenciaIdentidad({ marca: 'DermaShield', modelo: null, sku: 'DS-F50-1L' }, { marca: 'DermaShield', modelo: 'DS-F50-1L', sku: '' }), 'coincide');
+  assert.equal(coincidenciaIdentidad({ marca: 'DermaShield', modelo: 'DS-F50-1L', sku: null }, { marca: 'Otra', modelo: '', sku: 'DS-F50-1L' }), 'distinto');
+  assert.notEqual(coincidenciaIdentidad({ marca: 'DermaShield', modelo: 'DS-F50-1L', sku: null }, { marca: 'DermaShield', modelo: '', sku: 'DS-F20-2L' }), 'coincide');
+});
+
+test('coincidenciaIdentidad: una foto que lee «FPS 50+» como modelo pero deja el código real en el SKU sigue siendo la misma opción', () => {
+  assert.equal(coincidenciaIdentidad({ marca: 'DermaShield', modelo: 'DS-F50-1L', sku: null }, { marca: 'DermaShield', modelo: 'FPS 50+', sku: 'DS-F50-1L' }), 'coincide');
+  assert.equal(coincidenciaIdentidad({ marca: 'Grip-Tek', modelo: 'GT-AV60', sku: null }, { marca: 'Grip-Tek', modelo: 'GT-C5 HPPE', sku: '' }), 'distinto');
+});

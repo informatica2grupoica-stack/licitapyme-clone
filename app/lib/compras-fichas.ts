@@ -46,6 +46,14 @@ export function esDocumentoComercial(tipo: string | null | undefined): boolean {
   return /cotiz|presupuesto|proforma|factura|orden de compra|boleta|nota de venta/i.test(tipo || '');
 }
 
+/** Un Excel/Word de ficha con una hoja de «condiciones comerciales» (pago, entrega, validez) sale clasificado como cotización aunque NINGÚN producto traiga precio:
+ *  sin precios no sirve para el paso 2 y sí describe productos identificables, así que se trata como ficha (probado con 15_polainas_y_piola, 3-nov-2026). */
+export function esSoloComercial(tipo: string | null | undefined, productos: ProductoNormalizado[]): boolean {
+  if (!esDocumentoComercial(tipo)) return false;
+  const sinPrecios = productos.length > 0 && productos.every(p => p.precio == null && p.preciosMultiples.length === 0);
+  return !(sinPrecios && productos.every(identificable));
+}
+
 // ── Producto de Compras ↔ línea del costeo (mismo criterio que costeadoDeProducto) ─────────────────
 export function lineaDeProducto(prod: ProductoCompra, lineas: LineaCosteo[]): LineaCosteo | null {
   if (prod.productoPadreId != null || prod.esServicio) return null;   // servicio: sin línea del costeo. Parte que se compra aparte: la fila de su línea es la del producto
@@ -60,6 +68,14 @@ export function lineaDeProducto(prod: ProductoCompra, lineas: LineaCosteo[]): Li
 // descripción; mirando una sola línea, «L1» valía para cualquier producto (la ficha de los fonos caía en el pantalón cargo).
 const productoDeLinea = (linea: LineaCosteo, productos: ProductoCompra[], lineas: LineaCosteo[]): ProductoCompra | null =>
   productos.find(p => lineaDeProducto(p, lineas)?.id === linea.id) ?? null;
+
+/** Lo que dice la ficha del producto (color, material, norma…) para que la IA que decide la línea no dependa solo del nombre: «Parka VF-P500» sola no dice que es amarilla con reflectante. */
+export function resumenCaracteristicas(prod: { caracteristicas?: Array<{ nombre?: string; valor?: unknown }> } | undefined, maxChars = 320): string {
+  const partes = (prod?.caracteristicas || []).filter(c => c.valor != null && String(c.valor).trim()).map(c => [c.nombre, c.valor].filter(x => x != null && String(x).trim()).join(': '));
+  let out = '';
+  for (const t of partes) { if ((out + t).length > maxChars) break; out += (out ? '; ' : '') + t; }
+  return out ? ` — según la ficha: ${out}` : '';
+}
 
 // ── Proveedor de una ficha ─────────────────────────────────────────────────────────────────────────
 export interface ProveedorElegido { proveedor: string | null; rut: string | null; confianza: 'alta' | 'media' | null; motivo: string; candidatos: string[] }
@@ -224,7 +240,7 @@ export async function procesarFicha(params: { negocioId: number; url: string; no
 
   // Un documento comercial (cotización, factura…) no es una ficha: sirve para el precio. Se informa y no se asigna.
   const tipoDoc = ex.data.salida.documento?.tipo || '';
-  if (esDocumentoComercial(tipoDoc)) {
+  if (esSoloComercial(tipoDoc, productos)) {
     const quien = ex.data.salida.documento?.emisor ? ` de ${ex.data.salida.documento.emisor}` : '';
     return { documento: nombre, extraccionId, error: null, productos: productos.map(p => ({ idx: p.idx, nombre: p.nombre, marca: p.marca, modelo: p.modelo, resultado: 'no_es_ficha' as const, motivo: `Es ${tipoDoc.replace(/_/g, ' ').toLowerCase()}${quien}: sirve para el precio (paso 2), no para juzgar si el producto cumple. Sube la ficha técnica del producto.` })) };
   }
@@ -256,7 +272,7 @@ export async function procesarFicha(params: { negocioId: number; url: string; no
   if (dudosos.length) {
     try {
       const sug = await sugerirLineas(
-        dudosos.map(idx => { const p = productos.find(x => x.idx === idx)!; return { idx, nombre: p.nombre || `${p.marca} ${p.modelo}`, precioNeto: null, cantidad: null, proveedor: '' }; }),
+        dudosos.map(idx => { const p = productos.find(x => x.idx === idx)!; return { idx, nombre: `${p.nombre || `${p.marca} ${p.modelo}`}${resumenCaracteristicas(ex.data!.salida.productos?.[idx])}`, precioNeto: null, cantidad: null, proveedor: '' }; }),
         lineas.map(l => ({ item: l.item, filaId: l.id, detalle: l.detalle, cantidad: l.cantidad, costoNeto: l.costoEstimadoNeto })));
       for (const x of sug) {
         if (x.filaId && x.confianza === 'alta') decision.set(x.idx, { filaId: x.filaId, confianza: 'alta', motivo: x.motivo });
@@ -456,7 +472,7 @@ export async function panelFichas(negocioId: number, licitacionCodigo: string): 
     if (!ex.data) continue;
     const prods = normalizarExtraccion(ex.data).filter(x => !x.esCargo);
     const tipoDoc = ex.data.salida.documento?.tipo || '';
-    if (esDocumentoComercial(tipoDoc)) { noSonFichas.push({ extraccionId: ex.id, documento: ex.documentoNombre || 'documento', url: ex.documentoUrl, motivo: `Es ${tipoDoc.replace(/_/g, ' ').toLowerCase()}: sirve para el precio, no como ficha técnica.` }); continue; }
+    if (esSoloComercial(tipoDoc, prods)) { noSonFichas.push({ extraccionId: ex.id, documento: ex.documentoNombre || 'documento', url: ex.documentoUrl, motivo: `Es ${tipoDoc.replace(/_/g, ' ').toLowerCase()}: sirve para el precio, no como ficha técnica.` }); continue; }
     for (const p of prods) {
       if (asignado.has(`${ex.id}:${p.idx}`) || docsConAsignado.has(String(ex.id))) continue;
       // Sin sugerencia guardada (las fichas sin marca ni modelo no pasan por la IA): se sugiere por el nombre, solo si una línea gana con claridad.

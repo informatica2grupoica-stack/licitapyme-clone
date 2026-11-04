@@ -634,6 +634,55 @@ export async function enviarAvisoOrdenesCompra(p: OrdenCompraEmail): Promise<boo
   }
 }
 
+// ── Aceptación de la OC por vencer (Compras) ───────────────────────────────────────────────
+interface OcPorVencerEmail {
+  to: string; nombre?: string | null;
+  codigoOc: string; licitacionCodigo: string; licitacionNombre?: string | null;
+  limite: string;                      // 'YYYY-MM-DD HH:mm:ss' hora de Chile
+  etapa: 'h24' | 'h3' | 'vencida';
+  negocioId: number;
+}
+
+const TEXTO_OC_POR_VENCER: Record<OcPorVencerEmail['etapa'], { asunto: string; frase: string; acento: string }> = {
+  h24:     { asunto: '⏰ Mañana vence el plazo para aceptar la OC', frase: 'vence en menos de 24 horas', acento: '#d97706' },
+  h3:      { asunto: '🚨 Quedan pocas horas para aceptar la OC',   frase: 'vence en menos de 3 horas',  acento: '#dc2626' },
+  vencida: { asunto: '❗ Venció el plazo para aceptar la OC',      frase: 'ya venció',                  acento: '#dc2626' },
+};
+
+export async function enviarAvisoOcPorVencer(p: OcPorVencerEmail): Promise<boolean> {
+  const t = transporter();
+  if (!t) { console.warn('[email] SMTP no configurado — aviso de OC por vencer omitido'); return false; }
+  if (!p.to) return false;
+  const x = TEXTO_OC_POR_VENCER[p.etapa];
+  const base = (process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/$/, '');
+  const url = base ? `${base}/compras/${p.negocioId}` : '';
+  const [f, h] = p.limite.slice(0, 16).split(' ');
+  const limite = `${f.split('-').reverse().join('-')} ${h}`;
+  const cuerpo = `
+    <p style="margin:0 0 14px;color:#374151;font-size:14px;line-height:1.55;">Hola ${esc(p.nombre || '')}:</p>
+    <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.55;">
+      El plazo para <b>aceptar en Mercado Público</b> la orden de compra ${esc(p.codigoOc)} ${x.frase}. No se te vaya a pasar.
+    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #e5e7eb;border-left:3px solid ${x.acento};border-radius:8px;">
+      <tr><td style="padding:15px 18px;">
+        <div style="color:#0f172a;font-size:15px;font-weight:700;line-height:1.4;">${esc(p.licitacionNombre || p.licitacionCodigo)}</div>
+        <div style="margin-top:3px;color:#94a3b8;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;">${esc(p.licitacionCodigo)} · ${esc(p.codigoOc)}</div>
+        <div style="margin-top:10px;color:${x.acento};font-size:13px;font-weight:700;">Límite para aceptar: ${esc(limite)}</div>
+        ${url ? `<div style="margin-top:12px;"><a href="${url}" style="color:${C_ACCION};font-size:13px;font-weight:600;text-decoration:none;">Abrir en Compras &rsaquo;</a></div>` : ''}
+      </td></tr>
+    </table>`;
+  try {
+    await t.sendMail({
+      attachments: ADJUNTO_LOGO, from: FROM(), to: p.to, subject: x.asunto,
+      html: layoutEmail({ titulo: x.asunto, cuerpo }),
+    });
+    return true;
+  } catch (e) {
+    console.error('[email] envío de aviso de OC por vencer falló:', String(e));
+    return false;
+  }
+}
+
 // ── Resultado de licitación (ganada / perdida / apertura) ──────────────────────────────────
 // Antes estos 3 eventos SOLO empujaban a la campana (historial_eventos) del perfil asignado —
 // nadie recibía correo, y los admins no se enteraban salvo que fueran ellos el asignado. Ver

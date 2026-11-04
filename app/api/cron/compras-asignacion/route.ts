@@ -19,7 +19,7 @@
 // Protección igual que los demás cron: x-vercel-cron:1 · Bearer <CRON_SECRET> · ?secret= · x-cron-secret.
 import { igualSecreto } from '@/app/lib/cron-secret';
 import { NextRequest, NextResponse } from 'next/server';
-import { asignacionAutomaticaFallback, engancharOrdenesCompraPendientes } from '@/app/lib/compras';
+import { asignacionAutomaticaFallback, avisarAceptacionOcPorVencer, engancharOrdenesCompraPendientes } from '@/app/lib/compras';
 import { sincronizarOrdenesCompra } from '@/app/lib/ordenes-compra';
 import { licitacionesEnComprasSinActa, traerActaAutomatico } from '@/app/lib/acta-adjudicacion';
 
@@ -62,6 +62,14 @@ export async function GET(req: NextRequest) {
       console.warn('[cron/compras-asignacion] enganche de órdenes falló:', String(e).slice(0, 150));
     }
 
+    // Recordatorio de aceptar la OC antes de que venza el plazo (<24 h, <3 h y «venció»).
+    let aceptacion = { revisadas: 0, avisadas: 0 };
+    try {
+      aceptacion = await avisarAceptacionOcPorVencer();
+    } catch (e: any) {
+      console.warn('[cron/compras-asignacion] aviso de OC por vencer falló:', String(e).slice(0, 150));
+    }
+
     // El acta de evaluación (y el contacto de la licitación que trae, ver acta-adjudicacion.ts)
     // antes solo llegaba si un admin la pedía a mano en "Resultado". Se trae sola acá, de a pocas
     // por corrida — el cron vuelve a pasar en 15-30 min. Requiere IP chilena (igual que la OC de
@@ -83,7 +91,7 @@ export async function GET(req: NextRequest) {
       console.warn('[cron/compras-asignacion] búsqueda de actas pendientes falló:', String(e).slice(0, 150));
     }
 
-    return NextResponse.json({ success: true, ...r, oc, acta, duracionMs: Date.now() - t0 });
+    return NextResponse.json({ success: true, ...r, oc, aceptacion, acta, duracionMs: Date.now() - t0 });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e.message }, { status: 500 });
   }

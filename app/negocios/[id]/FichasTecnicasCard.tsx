@@ -9,10 +9,14 @@ import { useToast } from '@/app/components/ui/toast';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import {
   IconLoader2 as Loader2, IconUpload as Upload, IconFolderPlus as FolderPlus, IconCircleCheck as Check, IconAlertTriangle as Alerta,
-  IconChevronDown as Chevron, IconFileText as Doc, IconEye as Eye, IconX as X, IconRefresh as Refresh, IconSparkles as Chispa,
+  IconChevronDown as Chevron, IconFileText as Doc, IconEye as Eye, IconX as X, IconRefresh as Refresh, IconChecklist as Chispa, IconDownload as Descarga,
 } from '@tabler/icons-react';
 import { LinksProducto, type LinksCosteo } from './LinksProducto';
 import { IncidenciaFichaModal } from './IncidenciaFichaModal';
+import { Tarjeta, Datos, Dato, Estado } from '@/app/components/ui/kit/Tarjeta';
+import { Pestanas } from '@/app/components/ui/kit/Pestanas';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Lista } from '@/app/components/ui/kit/Aparecer';
 import { urlDescarga } from '@/app/lib/descargas-cliente';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import type { PanelFichasDTO, ProductoFichasDTO, OpcionFichaDTO, ResultadoRuteo, ProductoRuteado, FilaRequisito } from '@/app/lib/compras-fichas';
@@ -26,18 +30,19 @@ interface DocProyecto { nombre: string; url: string; yaLeido: boolean; parece: b
 
 const FORMATOS = /\.(pdf|png|jpe?g|webp|docx?|xlsx?|txt|md|csv|tsv)$/i;
 
-const ESTADO_TEC: Record<string, { texto: string; clase: string }> = {
-  CUMPLE: { texto: 'Cumple', clase: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
-  NO_CUMPLE: { texto: 'No cumple', clase: 'bg-rose-100 text-rose-800 border-rose-200' },
-  CON_PENDIENTES: { texto: 'Falta dato', clase: 'bg-amber-100 text-amber-800 border-amber-200' },
-  SIN_EVALUAR: { texto: 'Sin evaluar', clase: 'bg-zinc-100 text-zinc-600 border-zinc-200' },
-  NO_CORRIDO: { texto: 'Sin comparar', clase: 'bg-zinc-100 text-zinc-600 border-zinc-200' },
-  SIN_REQUISITOS: { texto: 'Sin requisitos', clase: 'bg-zinc-100 text-zinc-600 border-zinc-200' },
-  NO_APLICA: { texto: 'No aplica', clase: 'bg-zinc-100 text-zinc-600 border-zinc-200' },
+const VERDE = '#059669', ROJO = '#dc2626', AMBAR = '#d97706', GRIS = '#94a3b8';
+const ESTADO_TEC: Record<string, { texto: string; color: string }> = {
+  CUMPLE: { texto: 'Cumple', color: VERDE },
+  NO_CUMPLE: { texto: 'No cumple', color: ROJO },
+  CON_PENDIENTES: { texto: 'Falta dato', color: AMBAR },
+  SIN_EVALUAR: { texto: 'Sin evaluar', color: GRIS },
+  NO_CORRIDO: { texto: 'Sin comparar', color: GRIS },
+  SIN_REQUISITOS: { texto: 'Sin requisitos', color: GRIS },
+  NO_APLICA: { texto: 'No aplica', color: GRIS },
 };
 const CELDA: Record<string, { texto: string; clase: string }> = {
   CUMPLE: { texto: 'Cumple', clase: 'text-emerald-700' }, SOBRECUMPLE: { texto: 'Sobrecumple', clase: 'text-emerald-700' },
-  NO_CUMPLE: { texto: 'No cumple', clase: 'text-rose-700 font-bold' }, FALTA_DATO: { texto: 'Falta dato', clase: 'text-amber-700' },
+  NO_CUMPLE: { texto: 'No cumple', clase: 'text-rose-700 font-semibold' }, FALTA_DATO: { texto: 'Falta dato', clase: 'text-amber-700' },
   CUMPLE_CON_COMPLEMENTO: { texto: 'Cumple con complemento', clase: 'text-emerald-700' }, SIN_VEREDICTO: { texto: 'Sin veredicto', clase: 'text-amber-700' },
 };
 
@@ -61,7 +66,7 @@ export function mismoProveedorFicha(op: { proveedor: string | null; proveedorRut
 
 function Insignia({ estado }: { estado: string }) {
   const e = ESTADO_TEC[estado] ?? ESTADO_TEC.NO_CORRIDO;
-  return <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${e.clase}`}>{e.texto}</span>;
+  return <span className="text-[12px] font-medium text-tinta-2 dark:text-slate-300"><Estado color={e.color}>{e.texto}</Estado></span>;
 }
 
 export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
@@ -298,12 +303,12 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
   };
   // Todos los documentos subidos aquí (asignados o no), para verlos y bajarlos sin abrir producto por producto.
   const subidas = (() => {
-    const m = new Map<string, { nombre: string; url: string; estado: string; tono: string }>();
-    const poner = (nombre: string, url: string | null, estado: string, tono: string) => { if (url && !m.has(url)) m.set(url, { nombre, url, estado, tono }); };
-    for (const p of panel.productos) for (const o of p.opciones) for (const f of o.fichas) poner(f.nombre, f.url, `Asignada a: ${p.descripcion.slice(0, 60)}`, 'text-emerald-700');
-    for (const f of panel.pendientes) poner(f.documento, f.url, 'Por asignar a un producto', 'text-amber-700');
-    for (const d of panel.noSonFichas) poner(d.documento, d.url, 'No es ficha de un producto', 'text-zinc-500');
-    for (const e of panel.conError) poner(e.documento, e.url, 'No se pudo leer', 'text-rose-700');
+    const m = new Map<string, FichaSubida>();
+    const poner = (nombre: string, url: string | null, estado: string, color: string, producto: string | null = null) => { if (url && !m.has(url)) m.set(url, { nombre, url, estado, color, producto }); };
+    for (const p of panel.productos) for (const o of p.opciones) for (const f of o.fichas) poner(f.nombre, f.url, 'Asignada', VERDE, p.descripcion);
+    for (const f of panel.pendientes) poner(f.documento, f.url, 'Por asignar', AMBAR);
+    for (const d of panel.noSonFichas) poner(d.documento, d.url, 'No es ficha de un producto', GRIS);
+    for (const e of panel.conError) poner(e.documento, e.url, 'No se pudo leer', ROJO);
     return [...m.values()];
   })();
   const descargarTodas = async () => {
@@ -323,20 +328,19 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
         <div
           onDragOver={e => { e.preventDefault(); setArrastrando(true); }} onDragLeave={() => setArrastrando(false)}
           onDrop={e => { e.preventDefault(); setArrastrando(false); if (e.dataTransfer.files.length) agregarArchivos(e.dataTransfer.files); }}
-          className={`rounded-xl border-2 border-dashed px-4 py-4 transition-colors ${arrastrando ? 'border-teal-500 bg-teal-50/60' : 'border-zinc-200 bg-zinc-50/50'}`}>
-          <div className="flex items-center gap-3 flex-wrap">
-            <Upload size={20} className="text-teal-600" />
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-teal-700">Paso 1 · Sube las fichas</p>
-              <p className="text-[13.5px] font-bold text-zinc-800">Arrastra aquí todas las fichas técnicas juntas</p>
-              <p className="text-[12px] text-zinc-500">PDF, imagen, Word, Excel o texto (hasta 100). No hace falta decir de qué son: el sistema detecta solo el producto y el proveedor.</p>
+          className={`@container rounded-xl border border-dashed px-5 py-4 shadow-tarjeta transition-colors duration-150 ${arrastrando ? 'border-marca bg-marca-suave' : 'border-slate-300 bg-white dark:bg-slate-900 dark:border-slate-700'}`}>
+          <div className="flex items-center gap-4 flex-wrap">
+            <span className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center flex-shrink-0"><Upload size={20} className="text-slate-500" /></span>
+            <div className="min-w-0 flex-1 basis-64">
+              <p className="text-[11px] font-medium text-marca">Paso 1 · Sube las fichas</p>
+              <p className="text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-100">Arrastra aquí todas las fichas técnicas juntas</p>
+              <p className="text-xs text-tinta-2 dark:text-slate-400 mt-0.5">PDF, imagen, Word, Excel o texto (hasta 100). El sistema detecta solo el producto y el proveedor de cada una.</p>
             </div>
-            <button type="button" onClick={() => inputRef.current?.click()} disabled={procesando} data-testid="fichas-subir"
-              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3.5 py-2 rounded-lg"><Upload size={14} /> Subir fichas</button>
-            <button type="button" onClick={() => setPegando({ nombre: '', texto: '' })} disabled={procesando} data-testid="fichas-pegar"
-              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-teal-700 border border-teal-200 hover:bg-teal-50 disabled:opacity-50 px-3.5 py-2 rounded-lg"><Doc size={14} /> Pegar texto</button>
-            <button type="button" onClick={abrirProyecto} disabled={procesando} data-testid="fichas-proyecto"
-              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-teal-700 border border-teal-200 hover:bg-teal-50 disabled:opacity-50 px-3.5 py-2 rounded-lg"><FolderPlus size={14} /> Traer del proyecto</button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Boton variante="primario" onClick={() => inputRef.current?.click()} disabled={procesando} data-testid="fichas-subir" icono={<Upload size={15} />}>Subir fichas</Boton>
+              <Boton onClick={() => setPegando({ nombre: '', texto: '' })} disabled={procesando} data-testid="fichas-pegar" icono={<Doc size={15} />}>Pegar texto</Boton>
+              <Boton onClick={abrirProyecto} disabled={procesando} data-testid="fichas-proyecto" icono={<FolderPlus size={15} />}>Traer del proyecto</Boton>
+            </div>
             <input ref={inputRef} type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt,.md,.csv,.tsv" className="hidden"
               onChange={e => { if (e.target.files?.length) agregarArchivos(e.target.files); e.target.value = ''; }} />
           </div>
@@ -347,7 +351,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
       {cola.length > 0 && (
         <div className="rounded-xl border border-zinc-200 bg-white overflow-hidden" data-testid="fichas-cola">
           <div className="flex items-center justify-between px-3 py-2 bg-zinc-50 border-b border-zinc-100">
-            <p className="text-[12px] font-bold text-zinc-600 uppercase tracking-wide">
+            <p className="text-[12px] font-semibold text-zinc-600">
               {procesando ? `Leyendo y clasificando… ${cola.filter(c => c.estado === 'listo' || c.estado === 'error').length} de ${cola.length}` : `${cola.length} ficha(s) procesadas`}
             </p>
             {!procesando && <button type="button" onClick={() => setCola([])} className="text-[11.5px] font-semibold text-zinc-500 hover:text-zinc-800">Limpiar</button>}
@@ -391,51 +395,32 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
       )}
 
       {/* Documentos subidos: ver y descargar todos */}
-      {subidas.length > 0 && (
-        <details open className="rounded-xl border border-zinc-200 bg-white" data-testid="fichas-subidas">
-          <summary className="cursor-pointer px-3 py-2 flex items-center gap-2 text-[12.5px] font-bold text-zinc-700">
-            <Doc size={14} className="text-teal-600" /> Fichas subidas ({subidas.length})
-            <button type="button" onClick={e => { e.preventDefault(); void descargarTodas(); }} data-testid="fichas-descargar-todas"
-              className="ml-auto inline-flex items-center gap-1 text-[12px] font-semibold text-teal-700 border border-teal-200 hover:bg-teal-50 px-2.5 py-1 rounded-lg">Descargar todas</button>
-          </summary>
-          <ul className="divide-y divide-zinc-100 border-t border-zinc-100 max-h-[360px] overflow-y-auto">
-            {subidas.map(d => (
-              <li key={d.url} className="px-3 py-1.5 flex items-center gap-2 text-[12.5px]">
-                <Doc size={14} className="text-zinc-400 flex-shrink-0" />
-                <span className="min-w-0 flex-1 truncate"><b className="text-zinc-800">{d.nombre}</b> <span className={`text-[11.5px] ${d.tono}`}>· {d.estado}</span></span>
-                <button type="button" onClick={() => setVisor({ nombre: d.nombre, url: d.url })} className="inline-flex items-center gap-1 text-[12px] font-semibold text-teal-700 hover:text-teal-900"><Eye size={14} /> Ver</button>
-                <a href={urlDescarga(d.url)} download={d.nombre} className="text-[12px] font-semibold text-zinc-600 hover:text-zinc-900">Descargar</a>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
+      {subidas.length > 0 && <FichasSubidas subidas={subidas} onVer={setVisor} onDescargarTodas={descargarTodas} />}
 
       {/* 3 · Por confirmar */}
       {panel.pendientes.length > 0 && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3 space-y-2" data-testid="fichas-pendientes">
+        <div className="rounded-xl border border-linea bg-white shadow-tarjeta p-4 space-y-3 dark:bg-slate-900 dark:border-slate-800" data-testid="fichas-pendientes">
           <div className="flex items-center gap-3 flex-wrap">
-            <p className="text-[12.5px] font-bold text-amber-900 flex items-center gap-1.5"><Alerta size={14} /> {panel.pendientes.length} ficha(s) por asignar a un producto</p>
+            <h3 className="text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-100"><Estado color={AMBAR}>Por asignar a un producto</Estado> <span className="ml-1 text-xs font-semibold tabular-nums text-tinta-3">{panel.pendientes.length}</span></h3>
             {puedeOperar && panel.pendientes.some(f => f.sugerencia?.productoCompraId) && (
-              <button type="button" onClick={asignarSugeridas} disabled={asignandoSug} data-testid="fichas-asignar-sugeridas"
-                className="inline-flex items-center gap-1 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1 rounded-lg">
-                {asignandoSug && <Loader2 size={12} className="animate-spin" />} Asignar todas las sugeridas ({panel.pendientes.filter(f => f.sugerencia?.productoCompraId).length})
-              </button>
+              <Boton variante="primario" tamano="sm" className="ml-auto" onClick={asignarSugeridas} disabled={asignandoSug} data-testid="fichas-asignar-sugeridas" icono={asignandoSug ? <Loader2 size={13} className="animate-spin" /> : undefined}>
+                Asignar todas las sugeridas ({panel.pendientes.filter(f => f.sugerencia?.productoCompraId).length})
+              </Boton>
             )}
           </div>
-          <p className="text-[11.5px] text-amber-800">Elige a qué producto pertenece cada ficha. Si asignas una mal no pasa nada grave: abre ese producto y usa «Cambiar de producto…» (o la ✕ de la ficha) y vuelve a comparar. Nada se compra ni se envía por asignar.</p>
+          <p className="text-xs text-tinta-2 dark:text-slate-400">Elige a qué producto pertenece cada ficha. Si asignas una mal no pasa nada grave: abre ese producto y usa «Cambiar de producto…» (o la ✕ de la ficha) y vuelve a comparar. Nada se compra ni se envía por asignar.</p>
           {panel.pendientes.map(f => <PendienteFila key={`${f.extraccionId}:${f.idx}`} f={f} panel={panel} puedeOperar={puedeOperar} onAsignar={asignar} onDescartar={olvidar} />)}
         </div>
       )}
       {panel.noSonFichas.length > 0 && (
         <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 px-3 py-2 space-y-0.5" data-testid="fichas-no-son">
-          <p className="text-[12px] font-bold text-zinc-600">Documentos que no son fichas de un producto</p>
+          <p className="text-[12px] font-semibold text-zinc-600">Documentos que no son fichas de un producto</p>
           {panel.noSonFichas.map((d, i) => <p key={i} className="text-[11.5px] text-zinc-500"><b className="text-zinc-700">{d.documento}</b> · {d.motivo}{d.url && <a href={d.url} target="_blank" rel="noreferrer" className="ml-2 font-semibold text-teal-700 hover:text-teal-900">Ver</a>}{puedeOperar && <button type="button" onClick={() => olvidar(d.extraccionId)} className="ml-2 font-semibold text-zinc-500 hover:text-rose-700">Quitar</button>}</p>)}
         </div>
       )}
       {panel.quitados.length > 0 && (
         <details className="rounded-xl border border-zinc-200 bg-zinc-50/60" data-testid="fichas-quitadas">
-          <summary className="cursor-pointer px-3 py-2 text-[12px] font-bold text-zinc-600">Fichas de modelos quitados ({panel.quitados.length}): siguen guardadas, se pueden restaurar</summary>
+          <summary className="cursor-pointer px-3 py-2 text-[12px] font-semibold text-zinc-600">Fichas de modelos quitados ({panel.quitados.length}): siguen guardadas, se pueden restaurar</summary>
           <div className="px-3 pb-2 space-y-1">
             {panel.quitados.map(q => (
               <p key={q.opcionId} className="text-[11.5px] text-zinc-500">
@@ -448,7 +433,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
       )}
       {panel.conError.length > 0 && (
         <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-3 space-y-1.5">
-          <p className="text-[12.5px] font-bold text-rose-800">No se pudieron leer</p>
+          <p className="text-[12.5px] font-semibold text-rose-800">No se pudieron leer</p>
           {panel.conError.map(e => (
             <div key={e.extraccionId} className="flex items-center gap-3 text-[12px] text-rose-900 flex-wrap">
               <span className="font-semibold">{e.documento}</span><span className="min-w-0 flex-1">{e.error}</span>
@@ -462,19 +447,26 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
 
       {/* 4 · Resultado por producto */}
       <div>
-        <p className="text-[11px] font-bold uppercase tracking-wide text-teal-700">Paso 2 · Revisa y compara con las bases</p>
-        <div className="grid grid-cols-3 gap-2 my-2" data-testid="fichas-resumen">
-          <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2"><p className="text-[22px] font-extrabold leading-none tabular-nums text-zinc-900">{conFicha.length}<span className="text-[13px] font-semibold text-zinc-400"> de {panel.productos.length}</span></p><p className="text-[12px] font-bold text-zinc-700 mt-1">Productos con ficha</p></div>
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2"><p className="text-[22px] font-extrabold leading-none tabular-nums text-emerald-800">{cumplen}</p><p className="text-[12px] font-bold text-emerald-800 mt-1">Cumplen las bases</p></div>
-          <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2"><p className="text-[22px] font-extrabold leading-none tabular-nums text-rose-800">{noCumplen}</p><p className="text-[12px] font-bold text-rose-800 mt-1">No cumplen</p></div>
+        <p className="text-[11px] font-medium text-marca">Paso 2 · Revisa y compara con las bases</p>
+        <div className="@container my-2.5" data-testid="fichas-resumen">
+          <div className="grid grid-cols-1 @xl:grid-cols-3 gap-3">
+            {[
+              { rotulo: 'Productos con ficha', valor: conFicha.length, de: panel.productos.length, color: GRIS },
+              { rotulo: 'Cumplen las bases', valor: cumplen, de: null, color: VERDE },
+              { rotulo: 'No cumplen', valor: noCumplen, de: null, color: ROJO },
+            ].map(k => (
+              <div key={k.rotulo} className="rounded-xl border border-linea bg-white shadow-tarjeta px-4 py-3 dark:bg-slate-900 dark:border-slate-800">
+                <p className="text-[11px] text-tinta-2/80 dark:text-slate-400 flex items-center gap-1.5"><span aria-hidden style={{ backgroundColor: k.color }} className="w-1.5 h-1.5 rounded-full" />{k.rotulo}</p>
+                <p className="mt-1 text-[26px] font-semibold tracking-tight leading-none tabular-nums text-tinta dark:text-slate-100">{k.valor}{k.de != null && <span className="text-sm font-medium text-tinta-3"> de {k.de}</span>}</p>
+              </div>
+            ))}
+          </div>
         </div>
         <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
-          <p className="text-[12.5px] text-zinc-500">Abre un producto para ver su ficha contra lo que piden las bases.</p>
+          <p className="text-xs text-tinta-2 dark:text-slate-400">Abre un producto para ver su ficha contra lo que piden las bases.</p>
           {puedeOperar && conFicha.length > 0 && (
-            <button type="button" onClick={compararTodos} disabled={comparando.size > 0 || procesando} data-testid="fichas-comparar-todos"
-              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-3.5 py-2 rounded-lg">
-              {comparando.size > 0 ? <Loader2 size={13} className="animate-spin" /> : <Chispa size={14} />} Comparar todos con las bases
-            </button>
+            <Boton variante="primario" tamano="sm" onClick={compararTodos} disabled={comparando.size > 0 || procesando} data-testid="fichas-comparar-todos"
+              icono={comparando.size > 0 ? <Loader2 size={14} className="animate-spin" /> : <Chispa size={15} />}>Comparar todos con las bases</Boton>
           )}
         </div>
         {puedeOperar && panel.productos.length > 0 && (
@@ -485,8 +477,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
             {marcados.size > 0 && (
               <>
                 <span className="text-zinc-500">{marcados.size} marcado(s)</span>
-                <button type="button" onClick={() => setIncidenciaDe(panel.productos.filter(x => marcados.has(x.productoId)))} data-testid="fichas-incidencia-varios"
-                  className="inline-flex items-center gap-1.5 font-semibold text-white bg-amber-600 hover:bg-amber-700 px-3 py-1.5 rounded-lg"><Alerta size={13} /> Crear incidencias de los marcados</button>
+                <Boton tamano="sm" onClick={() => setIncidenciaDe(panel.productos.filter(x => marcados.has(x.productoId)))} data-testid="fichas-incidencia-varios" icono={<Alerta size={14} />}>Crear incidencias de los marcados</Boton>
                 <button type="button" onClick={() => setMarcados(new Set())} className="font-semibold text-zinc-500 hover:text-zinc-800">Quitar marcas</button>
               </>
             )}
@@ -498,13 +489,13 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
             const abierta = abiertas.has(p.productoId);
             const conFichas = opcionesDeCompra(p).filter(o => o.fichas.length > 0);
             return (
-              <div key={p.productoId} className="rounded-xl border border-zinc-200 bg-white overflow-hidden" data-testid={`ficha-producto-${p.productoId}`}>
+              <div key={p.productoId} className="rounded-xl border border-linea bg-white shadow-tarjeta overflow-hidden dark:bg-slate-900 dark:border-slate-800" data-testid={`ficha-producto-${p.productoId}`}>
                 <div className="px-3 py-2.5 flex items-center gap-3 flex-wrap">
                   {puedeOperar && <input type="checkbox" checked={marcados.has(p.productoId)} onChange={e => setMarcados(s => { const n = new Set(s); if (e.target.checked) n.add(p.productoId); else n.delete(p.productoId); return n; })} aria-label={`Marcar ${p.descripcion}`} data-testid={`ficha-marcar-${p.productoId}`} className="w-4 h-4 accent-amber-600 flex-shrink-0" />}
                   <button type="button" onClick={() => setAbiertas(s => { const n = new Set(s); if (n.has(p.productoId)) n.delete(p.productoId); else n.add(p.productoId); return n; })} className="flex items-center gap-2 min-w-0 flex-1 text-left">
                     <Chevron size={16} className={`text-zinc-400 transition-transform flex-shrink-0 ${abierta ? 'rotate-180' : ''}`} />
                     <span className="min-w-0">
-                      <span className="block text-[13.5px] font-bold text-zinc-900 truncate">{p.descripcion} <span className="font-normal text-zinc-400">· {p.cantidad ?? '?'} un.</span></span>
+                      <span className="block text-[13.5px] font-semibold text-zinc-900 truncate">{p.descripcion} <span className="font-normal text-zinc-400">· {p.cantidad ?? '?'} un.</span></span>
                       <span className="block text-[11.5px] text-zinc-500 truncate">
                         {p.cotizados.length ? `Cotizado por ${p.cotizados.map(c => c.proveedor).join(', ')}` : 'Sin cotización todavía'}
                         {conFichas.length ? ` · con ficha (${conFichas.reduce((n, o) => n + o.fichas.length, 0)})` : ' · sin ficha'}
@@ -512,31 +503,29 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
                       </span>
                     </span>
                   </button>
-                  <div className="w-64 flex-shrink-0"><LinksProducto links={linksCosteo[p.productoId]?.links} /></div>
-                  {est ? <Insignia estado={est} /> : <span className="text-[11px] font-semibold text-zinc-400">sin ficha</span>}
-                  {puedeOperar && (
-                    <button type="button" onClick={() => { setDestino(p); subirRef.current?.click(); }} disabled={subiendoA === p.productoId} data-testid={`ficha-subir-${p.productoId}`}
-                      title="Sube otra ficha técnica de este producto: se compara con las bases y se muestra cuál cumple más."
-                      className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-teal-700 border border-teal-200 hover:bg-teal-50 disabled:opacity-50 px-3 py-1.5 rounded-lg">
-                      {subiendoA === p.productoId ? <Loader2 size={12} className="animate-spin" /> : <Upload size={13} />} {conFichas.length > 0 ? 'Subir otra ficha' : 'Subir ficha'}
-                    </button>
-                  )}
-                  {puedeOperar && (
-                    <button type="button" onClick={() => setIncidenciaDe([p])} data-testid={`ficha-incidencia-${p.productoId}`}
-                      title="Levanta una o más incidencias de este ítem: quedan como tareas de la licitación y se avisa a los encargados."
-                      className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-amber-700 border border-amber-200 hover:bg-amber-50 px-3 py-1.5 rounded-lg">
-                      <Alerta size={13} /> Incidencias
-                    </button>
-                  )}
+                  {est ? <Insignia estado={est} /> : <span className="text-[12px] font-medium text-tinta-3">Sin ficha</span>}
                   {puedeOperar && conFichas.length > 0 && (
-                    <button type="button" onClick={() => comparar(p)} disabled={comparando.has(p.productoId)} data-testid={`ficha-comparar-${p.productoId}`}
-                      className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-indigo-700 border border-indigo-200 hover:bg-indigo-50 disabled:opacity-50 px-3 py-1.5 rounded-lg">
-                      {comparando.has(p.productoId) ? <Loader2 size={12} className="animate-spin" /> : <Chispa size={13} />} {est && est !== 'NO_CORRIDO' ? 'Comparar de nuevo' : 'Comparar'}
-                    </button>
+                    <Boton tamano="sm" onClick={() => comparar(p)} disabled={comparando.has(p.productoId)} data-testid={`ficha-comparar-${p.productoId}`}
+                      icono={comparando.has(p.productoId) ? <Loader2 size={13} className="animate-spin" /> : <Chispa size={14} />}>
+                      {est && est !== 'NO_CORRIDO' ? 'Comparar de nuevo' : 'Comparar'}
+                    </Boton>
                   )}
                 </div>
                 {abierta && (
-                  <div className="border-t border-zinc-100 px-3 py-3 space-y-3 bg-zinc-50/40">
+                  <div className="border-t border-linea/80 dark:border-slate-800 px-4 py-3 space-y-3 bg-slate-50/60 dark:bg-slate-900/40">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {puedeOperar && (
+                        <Boton tamano="sm" onClick={() => { setDestino(p); subirRef.current?.click(); }} disabled={subiendoA === p.productoId} data-testid={`ficha-subir-${p.productoId}`}
+                          title="Sube otra ficha técnica de este producto: se compara con las bases y se muestra cuál cumple más."
+                          icono={subiendoA === p.productoId ? <Loader2 size={13} className="animate-spin" /> : <Upload size={14} />}>{conFichas.length > 0 ? 'Subir otra ficha' : 'Subir ficha'}</Boton>
+                      )}
+                      {puedeOperar && (
+                        <Boton tamano="sm" variante="fantasma" onClick={() => setIncidenciaDe([p])} data-testid={`ficha-incidencia-${p.productoId}`}
+                          title="Levanta una o más incidencias de este ítem: quedan como tareas de la licitación y se avisa a los encargados."
+                          icono={<Alerta size={14} />}>Incidencias</Boton>
+                      )}
+                      <div className="ml-auto min-w-0 max-w-full"><LinksProducto links={linksCosteo[p.productoId]?.links} /></div>
+                    </div>
                     {(() => {
                       // Lo que se va a comprar: modelos con ficha o de un proveedor cotizado. El resto (links de tiendas, comparación de precios del Auditor) va aparte.
                       const nombres = p.cotizados.map(c => c.proveedor);
@@ -547,7 +536,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
                       return (
                         <>
                           {!hayComparacion && <div className="rounded-lg border border-teal-200 bg-teal-50/50 px-3 py-2.5" data-testid={`bases-${p.productoId}`}>
-                            <p className="text-[12px] font-bold text-teal-900">Lo que piden las bases para este producto{p.requisitosBase.length > 0 ? ` (${p.requisitosBase.length})` : ''}</p>
+                            <p className="text-[12px] font-semibold text-teal-900">Lo que piden las bases para este producto{p.requisitosBase.length > 0 ? ` (${p.requisitosBase.length})` : ''}</p>
                             {p.requisitosBase.length === 0
                               ? <p className="text-[12px] text-zinc-500 mt-1">No hay requisitos técnicos de las bases cargados para este producto.</p>
                               : (
@@ -592,7 +581,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
         <div className="fixed inset-0 z-[90] bg-black/50 flex items-start justify-center overflow-y-auto p-4" role="dialog" aria-modal="true" onClick={() => setPegando(null)}>
           <div className="bg-white rounded-xl shadow-xl w-full max-w-xl my-10" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200">
-              <p className="text-[14px] font-bold text-zinc-800">Pegar una ficha técnica como texto</p>
+              <p className="text-[14px] font-semibold text-zinc-800">Pegar una ficha técnica como texto</p>
               <button onClick={() => setPegando(null)} aria-label="Cerrar" className="text-zinc-500 hover:text-zinc-900"><X size={18} /></button>
             </div>
             <div className="p-4 space-y-3">
@@ -601,7 +590,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
               <textarea value={pegando.texto} onChange={e => setPegando(p => p && { ...p, texto: e.target.value })} rows={10} placeholder="Pega aquí el texto de la ficha…" className="w-full text-[13px] border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500 font-mono" />
               <div className="flex items-center justify-end gap-3">
                 <button onClick={() => setPegando(null)} className="text-[13px] text-zinc-500 hover:text-zinc-800">Cancelar</button>
-                <button onClick={enviarTexto} disabled={pegando.texto.trim().length < 40} className="text-[13px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-4 py-2 rounded-lg">Procesar texto</button>
+                <button onClick={enviarTexto} disabled={pegando.texto.trim().length < 40} className="text-[13px] font-semibold text-white bg-marca hover:bg-marca-fuerte disabled:opacity-50 px-4 py-2 rounded-lg">Procesar texto</button>
               </div>
             </div>
           </div>
@@ -613,7 +602,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
         <div className="fixed inset-0 z-[90] bg-black/50 flex items-start justify-center overflow-y-auto p-4" onClick={() => setProyecto(null)}>
           <div className="bg-white rounded-xl shadow-xl w-full max-w-xl my-10" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200">
-              <p className="text-[14px] font-bold text-zinc-800">Traer fichas del proyecto</p>
+              <p className="text-[14px] font-semibold text-zinc-800">Traer fichas del proyecto</p>
               <button onClick={() => setProyecto(null)} aria-label="Cerrar" className="text-zinc-500 hover:text-zinc-900"><X size={18} /></button>
             </div>
             <div className="p-4 space-y-3">
@@ -649,13 +638,77 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
               })()}
               <div className="flex items-center justify-end gap-3">
                 <button onClick={() => setProyecto(null)} className="text-[13px] text-zinc-500 hover:text-zinc-800">Cancelar</button>
-                <button onClick={traerDelProyecto} disabled={elegidos.size === 0} className="text-[13px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-4 py-2 rounded-lg">Procesar {elegidos.size || ''} ficha(s)</button>
+                <button onClick={traerDelProyecto} disabled={elegidos.size === 0} className="text-[13px] font-semibold text-white bg-marca hover:bg-marca-fuerte disabled:opacity-50 px-4 py-2 rounded-lg">Procesar {elegidos.size || ''} ficha(s)</button>
               </div>
             </div>
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+interface FichaSubida { nombre: string; url: string; estado: string; color: string; producto: string | null }
+const extension = (nombre: string) => (nombre.match(/\.([a-z0-9]{2,4})$/i)?.[1] || 'doc').toUpperCase();
+const sinExtension = (nombre: string) => nombre.replace(/\.[a-z0-9]{2,4}$/i, '');
+const VISIBLES = 6;
+
+/** Documentos subidos: tarjetas (o lista) con Ver y Descargar, para revisarlos todos sin abrir producto por producto. */
+function FichasSubidas({ subidas, onVer, onDescargarTodas }: { subidas: FichaSubida[]; onVer: (d: VisorDoc) => void; onDescargarTodas: () => Promise<void> }) {
+  const [vista, setVista] = useState<'tarjetas' | 'lista'>('tarjetas');
+  const [todas, setTodas] = useState(false);
+  const [bajando, setBajando] = useState(false);
+  const mostradas = todas ? subidas : subidas.slice(0, VISIBLES);
+  return (
+    <section className="@container" data-testid="fichas-subidas">
+      <div className="flex items-center gap-3 flex-wrap mb-2.5">
+        <h3 className="text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-100">Fichas subidas <span className="ml-1 text-xs font-semibold tabular-nums text-tinta-3">{subidas.length}</span></h3>
+        <div className="ml-auto flex items-center gap-2">
+          <Pestanas id="fichas-vista" valor={vista} onCambio={setVista} opciones={[{ valor: 'tarjetas', etiqueta: 'Tarjetas' }, { valor: 'lista', etiqueta: 'Lista' }]} />
+          <Boton tamano="sm" data-testid="fichas-descargar-todas" disabled={bajando} icono={bajando ? <Loader2 size={14} className="animate-spin" /> : <Descarga size={14} />}
+            onClick={async () => { setBajando(true); await onDescargarTodas(); setBajando(false); }}>Descargar todas</Boton>
+        </div>
+      </div>
+      {vista === 'tarjetas' ? (
+        <Lista className="grid grid-cols-1 @xl:grid-cols-2 @4xl:grid-cols-3 gap-3">
+          {mostradas.map(d => (
+            <Tarjeta key={d.url}>
+              <div className="flex items-start gap-3">
+                <span className="w-9 h-9 rounded-lg bg-slate-100 dark:bg-slate-800 text-[10px] font-semibold text-tinta-2 dark:text-slate-300 flex items-center justify-center flex-shrink-0 tracking-tight">{extension(d.nombre)}</span>
+                <div className="min-w-0 flex-1">
+                  <p title={d.nombre} className="text-[13px] font-semibold text-tinta dark:text-slate-100 leading-snug line-clamp-2">{sinExtension(d.nombre)}</p>
+                  <p className="mt-1 text-xs text-tinta-2 dark:text-slate-400"><Estado color={d.color}>{d.estado}</Estado></p>
+                </div>
+              </div>
+              <Datos columnas={2}><Dato rotulo="Producto">{d.producto}</Dato></Datos>
+              <div className="mt-3 pt-3 border-t border-linea/80 dark:border-slate-800 flex items-center gap-2">
+                <Boton tamano="sm" variante="secundario" icono={<Eye size={14} />} onClick={() => onVer({ nombre: d.nombre, url: d.url })}>Ver</Boton>
+                <a href={urlDescarga(d.url)} download={d.nombre} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[13px] font-medium text-tinta-2 hover:bg-slate-100 hover:text-tinta dark:text-slate-300 dark:hover:bg-slate-800 transition-colors duration-150"><Descarga size={14} /> Descargar</a>
+              </div>
+            </Tarjeta>
+          ))}
+        </Lista>
+      ) : (
+        <ul className="rounded-xl border border-linea bg-white shadow-tarjeta divide-y divide-linea/80 dark:bg-slate-900 dark:border-slate-800 dark:divide-slate-800">
+          {mostradas.map(d => (
+            <li key={d.url} className="px-3.5 py-2.5 flex items-center gap-3">
+              <span className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 text-[10px] font-semibold text-tinta-2 dark:text-slate-300 flex items-center justify-center flex-shrink-0">{extension(d.nombre)}</span>
+              <div className="min-w-0 flex-1">
+                <p title={d.nombre} className="text-[13px] font-medium text-tinta dark:text-slate-100 truncate">{sinExtension(d.nombre)}</p>
+                <p className="text-xs text-tinta-2 dark:text-slate-400 truncate"><Estado color={d.color}>{d.estado}</Estado>{d.producto ? ` · ${d.producto}` : ''}</p>
+              </div>
+              <Boton tamano="sm" variante="secundario" icono={<Eye size={14} />} onClick={() => onVer({ nombre: d.nombre, url: d.url })}>Ver</Boton>
+              <a href={urlDescarga(d.url)} download={d.nombre} title="Descargar" aria-label={`Descargar ${d.nombre}`} className="inline-flex items-center justify-center h-8 w-8 rounded-lg text-tinta-2 hover:bg-slate-100 hover:text-tinta dark:text-slate-300 dark:hover:bg-slate-800 transition-colors duration-150"><Descarga size={15} /></a>
+            </li>
+          ))}
+        </ul>
+      )}
+      {subidas.length > VISIBLES && (
+        <div className="mt-2.5 flex justify-center">
+          <Boton tamano="sm" variante="fantasma" onClick={() => setTodas(v => !v)}>{todas ? 'Mostrar menos' : `Ver las ${subidas.length} fichas`}</Boton>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -669,7 +722,7 @@ function PendienteFila({ f, panel, puedeOperar, onAsignar, onDescartar }: {
   const [enviando, setEnviando] = useState(false);
   const cotizados = panel.productos.find(p => p.productoId === producto)?.cotizados.map(c => c.proveedor) ?? [];
   return (
-    <div className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-[12.5px] space-y-1.5">
+    <div className="rounded-xl border border-linea bg-white shadow-tarjeta px-3.5 py-3 text-[12.5px] space-y-1.5 dark:bg-slate-900 dark:border-slate-800">
       <p className="text-zinc-800"><b>{[f.marca, f.modelo].filter(Boolean).join(' ') || f.nombre}</b> <span className="text-zinc-400">· {f.documento}</span>{f.url && <a href={f.url} target="_blank" rel="noreferrer" className="ml-2 text-[11.5px] font-semibold text-teal-700 hover:text-teal-900">Ver</a>}</p>
       {f.sinMarca && <p className="text-[11.5px] text-amber-800">No trae marca ni modelo: si es la ficha del producto que se va a comprar, asígnala igual (el nombre hará de modelo). Si es la propuesta técnica de la oferta, descártala.</p>}
       {f.sugerencia?.motivo && <p className="text-[11.5px] text-amber-800">{f.sugerencia.productoCompraId ? `Sugerencia (${f.sugerencia.confianza}): ` : 'No pude ubicarla: '}{f.sugerencia.motivo}</p>}
@@ -684,7 +737,7 @@ function PendienteFila({ f, panel, puedeOperar, onAsignar, onDescartar }: {
             {cotizados.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           <button type="button" disabled={!producto || enviando} onClick={async () => { setEnviando(true); await onAsignar(f.extraccionId, f.idx, producto, proveedor, f.sinMarca); setEnviando(false); }}
-            className="inline-flex items-center gap-1 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
+            className="inline-flex items-center gap-1 text-[12px] font-semibold text-white bg-marca hover:bg-marca-fuerte disabled:opacity-50 px-3 py-1.5 rounded-lg">
             {enviando && <Loader2 size={12} className="animate-spin" />} {producto ? `Asignar a «${(panel.productos.find(p => p.productoId === producto)?.descripcion ?? '').slice(0, 32)}»` : 'Asignar'}
           </button>
           <button type="button" onClick={() => onDescartar(f.extraccionId)} className="text-[12px] font-semibold text-zinc-500 hover:text-rose-700">Descartar</button>
@@ -731,7 +784,7 @@ function ComplementoForm({ f, onGuardar, onCancelar }: { f: FilaRequisito; onGua
     <div className="space-y-2" data-testid={`complemento-form-${f.n}`}>
       <p className="text-[11.5px] text-zinc-600"><b>Requisito {f.n}:</b> {f.requerido}</p>
       <textarea value={dato} onChange={e => setDato(e.target.value)} rows={2} placeholder="¿Qué dato aportas? (ej. «Soporte VESA 400×200, según el manual del fabricante»)"
-        className="w-full text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-400 bg-white" />
+        className="w-full text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500 bg-white" />
       <div className="flex items-center gap-3 flex-wrap">
         <select value={fuente} onChange={e => setFuente(e.target.value)} className="text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 bg-white">
           {FUENTES.map(x => <option key={x} value={x}>{x}</option>)}
@@ -744,7 +797,7 @@ function ComplementoForm({ f, onGuardar, onCancelar }: { f: FilaRequisito; onGua
         ))}
       </div>
       <div className="flex items-center gap-2 flex-wrap" data-testid={`complemento-adjunto-${f.n}`}>
-        <button type="button" onClick={() => adjuntoRef.current?.click()} className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-indigo-700 border border-indigo-200 hover:bg-indigo-50 px-2.5 py-1 rounded-lg"><Upload size={12} /> {archivo || actual ? 'Cambiar adjunto' : 'Adjuntar documento o imagen'}</button>
+        <button type="button" onClick={() => adjuntoRef.current?.click()} className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-teal-700 border border-slate-200 hover:bg-slate-50 px-2.5 py-1 rounded-lg"><Upload size={12} /> {archivo || actual ? 'Cambiar adjunto' : 'Adjuntar documento o imagen'}</button>
         <input ref={adjuntoRef} type="file" accept={FORMATOS_ADJUNTO} className="hidden" onChange={e => { const x = e.target.files?.[0]; if (x) { setArchivo(x); setQuitarActual(false); } e.target.value = ''; }} />
         {archivo && <span className="text-[11.5px] text-zinc-700">{archivo.name} <button type="button" onClick={() => setArchivo(null)} className="text-zinc-400 hover:text-rose-700" aria-label="Quitar adjunto nuevo">✕</button></span>}
         {!archivo && actual && <span className="text-[11.5px] text-zinc-700">{actual.adjuntoNombre} <button type="button" onClick={() => setQuitarActual(true)} className="text-zinc-400 hover:text-rose-700" aria-label="Quitar adjunto">✕</button></span>}
@@ -752,7 +805,7 @@ function ComplementoForm({ f, onGuardar, onCancelar }: { f: FilaRequisito; onGua
       </div>
       <div className="flex items-center gap-3">
         <button type="button" disabled={guardando || !resultado || dato.trim().length < 3} onClick={() => enviar(resultado || null)}
-          className="inline-flex items-center gap-1 text-[12px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">{guardando && <Loader2 size={12} className="animate-spin" />} Guardar complemento</button>
+          className="inline-flex items-center gap-1 text-[12px] font-semibold text-white bg-marca hover:bg-marca-fuerte disabled:opacity-50 px-3 py-1.5 rounded-lg">{guardando && <Loader2 size={12} className="animate-spin" />} Guardar complemento</button>
         {f.complemento && <button type="button" disabled={guardando} onClick={() => enviar(null)} className="text-[12px] font-semibold text-rose-700 hover:text-rose-900">Quitar complemento</button>}
         <button type="button" onClick={onCancelar} className="text-[12px] text-zinc-500 hover:text-zinc-800">Cancelar</button>
         <span className="text-[11px] text-zinc-400">Queda registrado quién lo complementó y cuándo.</span>
@@ -774,8 +827,8 @@ function RankingFichas({ opciones }: { opciones: OpcionFichaDTO[] }) {
   const ganadora = empatan.length === 1 ? comparadas[0] : null;
   const ningunaCumple = !comparadas.some(o => o.tecnico.estado === 'CUMPLE');
   return (
-    <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 px-3 py-2.5" data-testid="ranking-fichas">
-      <p className="text-[12.5px] font-bold text-indigo-900">
+    <div className="rounded-lg border border-slate-200 bg-slate-50/40 px-3 py-2.5" data-testid="ranking-fichas">
+      <p className="text-[12.5px] font-semibold text-slate-900">
         {comparadas.length === 1 ? 'Resultado de la ficha' : ganadora ? `La ficha que más cumple: ${nombreOpcion(ganadora)}` : `Empatan: ${empatan.map(nombreOpcion).join(' y ')}`}
       </p>
       {ningunaCumple && <p className="text-[11.5px] text-amber-800 mt-0.5">Ninguna ficha cumple todas las bases todavía{comparadas.length === 1 ? '' : ': la de arriba es la más cercana'}. Sube otra ficha o completa los datos que faltan.</p>}
@@ -787,7 +840,7 @@ function RankingFichas({ opciones }: { opciones: OpcionFichaDTO[] }) {
           return (
             <li key={o.opcionId} className="flex items-center gap-3 text-[12.5px]">
               <span className="w-5 text-right tabular-nums text-zinc-400">{i + 1}.</span>
-              <span className="min-w-0 flex-1 truncate"><b className="text-zinc-900">{nombreOpcion(o)}</b>{o.proveedor ? <span className="text-zinc-500"> · {o.proveedor}</span> : null}{mejor && <span className="ml-1.5 text-[10.5px] font-bold text-amber-700">★ Mejor</span>}</span>
+              <span className="min-w-0 flex-1 truncate"><b className="text-zinc-900">{nombreOpcion(o)}</b>{o.proveedor ? <span className="text-zinc-500"> · {o.proveedor}</span> : null}{mejor && <span className="ml-1.5 text-[10.5px] font-semibold text-amber-700">★ Mejor</span>}</span>
               <span className="w-28 h-2 rounded-full bg-zinc-200 overflow-hidden flex-shrink-0" role="img" aria-label={`${pct} % de los requisitos cumplen`}><span className={`block h-full ${pct === 100 ? 'bg-emerald-500' : pct >= 70 ? 'bg-amber-400' : 'bg-rose-400'}`} style={{ width: `${pct}%` }} /></span>
               <span className="w-32 text-right tabular-nums text-zinc-700 flex-shrink-0">{r.cumple} de {r.total} cumplen</span>
               <Insignia estado={o.tecnico.estado} />
@@ -814,12 +867,12 @@ export function OpcionFila({ o, cotizados, puedeOperar, onProveedor, onQuitar, o
     <div className="rounded-lg border border-zinc-200 bg-white">
       <div className="px-3 py-2 flex items-center gap-3 flex-wrap">
         <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-bold text-zinc-800">{[o.marca, o.modelo].filter(Boolean).join(' ') || 'Opción sin marca ni modelo'}</p>
+          <p className="text-[13px] font-semibold text-zinc-800">{[o.marca, o.modelo].filter(Boolean).join(' ') || 'Opción sin marca ni modelo'}</p>
           <p className="text-[11.5px] text-zinc-500">
             {sinFicha ? <span className="text-amber-700 font-semibold">Falta la ficha técnica de este modelo</span> : o.fichas.map((f, i) => (
               <span key={i}>{i > 0 && ' · '}{f.url ? <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-teal-700 hover:underline">{f.nombre}</a> : f.nombre}
                 {puedeOperar && f.url && onQuitarFicha && (fichaPorQuitar === f.url
-                  ? <span className="ml-1 text-[11px] text-zinc-600">¿Quitar esta ficha? <button type="button" onClick={() => { setFichaPorQuitar(null); void onQuitarFicha(o, f.url!); }} className="font-bold text-rose-700 hover:text-rose-900">Sí</button> · <button type="button" onClick={() => setFichaPorQuitar(null)} className="font-semibold text-zinc-500">No</button></span>
+                  ? <span className="ml-1 text-[11px] text-zinc-600">¿Quitar esta ficha? <button type="button" onClick={() => { setFichaPorQuitar(null); void onQuitarFicha(o, f.url!); }} className="font-semibold text-rose-700 hover:text-rose-900">Sí</button> · <button type="button" onClick={() => setFichaPorQuitar(null)} className="font-semibold text-zinc-500">No</button></span>
                   : <button type="button" onClick={() => setFichaPorQuitar(f.url)} title="Quitar solo esta ficha (por ejemplo si subiste la equivocada). El modelo y sus otras fichas siguen." className="ml-1 text-zinc-400 hover:text-rose-700">✕</button>)}
               </span>
             ))}
@@ -839,7 +892,7 @@ export function OpcionFila({ o, cotizados, puedeOperar, onProveedor, onQuitar, o
         )}
         {!sinFicha && <Insignia estado={t.estado} />}
         {puedeOperar && (confirmando
-          ? <span className="text-[11.5px] text-zinc-600">¿Quitar este modelo y su ficha? <button type="button" onClick={() => onQuitar(o)} className="font-bold text-rose-700 hover:text-rose-900">Sí, quitar</button> · <button type="button" onClick={() => setConfirmando(false)} className="font-semibold text-zinc-500">No</button></span>
+          ? <span className="text-[11.5px] text-zinc-600">¿Quitar este modelo y su ficha? <button type="button" onClick={() => onQuitar(o)} className="font-semibold text-rose-700 hover:text-rose-900">Sí, quitar</button> · <button type="button" onClick={() => setConfirmando(false)} className="font-semibold text-zinc-500">No</button></span>
           : <button type="button" onClick={() => setConfirmando(true)} className="text-[11.5px] font-semibold text-zinc-400 hover:text-rose-700">Quitar</button>)}
       </div>
       {!sinFicha && t.error && <p className="px-3 pb-2 text-[12px] text-rose-700">{t.error}</p>}
@@ -854,13 +907,13 @@ export function OpcionFila({ o, cotizados, puedeOperar, onProveedor, onQuitar, o
           {t.notas.length > 0 && <ul className="list-disc pl-5 text-[11.5px] text-zinc-500">{t.notas.map((n, i) => <li key={i}>{n}</li>)}</ul>}
           {t.preguntas.length > 0 && (
             <div className="rounded-md border border-amber-200 bg-amber-50/60 px-2.5 py-1.5">
-              <p className="text-[11.5px] font-bold text-amber-900">Preguntas para el proveedor</p>
+              <p className="text-[11.5px] font-semibold text-amber-900">Preguntas para el proveedor</p>
               <ul className="list-disc pl-5 text-[11.5px] text-amber-900">{t.preguntas.map((q, i) => <li key={i}>{q.texto}</li>)}</ul>
             </div>
           )}
           <div className="overflow-x-auto">
             <table className="w-full text-[11.5px] border-collapse">
-              <thead><tr className="text-left text-[10px] uppercase tracking-wide text-zinc-400"><th className="py-1 pr-2">#</th><th className="py-1 pr-3">Lo que piden las bases</th><th className="py-1 pr-3">Resultado</th><th className="py-1 pr-3">Lo que dice la ficha</th></tr></thead>
+              <thead><tr className="text-left text-[10px] text-zinc-400"><th className="py-1 pr-2">#</th><th className="py-1 pr-3">Lo que piden las bases</th><th className="py-1 pr-3">Resultado</th><th className="py-1 pr-3">Lo que dice la ficha</th></tr></thead>
               <tbody>
                 {t.filas.map(f => {
                   const c = CELDA[f.estado] ?? { texto: f.estado, clase: 'text-zinc-600' };
@@ -869,30 +922,30 @@ export function OpcionFila({ o, cotizados, puedeOperar, onProveedor, onQuitar, o
                     <Fragment key={f.n}>
                       <tr className={`border-t border-zinc-100 align-top ${f.estado === 'NO_CUMPLE' ? 'bg-rose-50/40' : ''}`}>
                         <td className="py-1 pr-2 text-zinc-400 tabular-nums">{f.n}</td>
-                        <td className="py-1 pr-3 text-zinc-700 min-w-[220px]">{f.requerido}{f.criticidad === 'INADMISIBLE' && <span className="ml-1 text-[10px] font-bold text-rose-700">EXCLUYENTE</span>}</td>
+                        <td className="py-1 pr-3 text-zinc-700 min-w-[220px]">{f.requerido}{f.criticidad === 'INADMISIBLE' && <span className="ml-1 text-[10px] font-semibold text-rose-700">EXCLUYENTE</span>}</td>
                         <td className={`py-1 pr-3 whitespace-nowrap ${c.clase}`}>
                           {c.texto}{f.confirmada && <span className="text-zinc-400 font-normal"> (confirmada)</span>}
-                          {f.complemento && <span className="block text-[10px] font-semibold text-indigo-600">complementado</span>}
+                          {f.complemento && <span className="block text-[10px] font-semibold text-teal-700">complementado</span>}
                           {puedeOperar && sinDato && editando !== f.n && (
-                            <button type="button" onClick={() => setEditando(f.n)} data-testid={`complementar-${o.opcionId}-${f.n}`} className="block text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 underline">{f.complemento ? 'Editar complemento' : 'Complementar'}</button>
+                            <button type="button" onClick={() => setEditando(f.n)} data-testid={`complementar-${o.opcionId}-${f.n}`} className="block text-[11px] font-semibold text-teal-700 hover:text-slate-900 underline">{f.complemento ? 'Editar complemento' : 'Complementar'}</button>
                           )}
                         </td>
                         <td className="py-1 pr-3 text-zinc-600">
                           {f.valor || '—'}
                           {f.cita && <span className="block text-[10.5px] text-zinc-400 italic">«{f.cita.slice(0, 140)}»</span>}
                           {f.complemento && (
-                            <span className="block text-[10.5px] text-indigo-700">
+                            <span className="block text-[10.5px] text-teal-700">
                               {f.complemento.fuente ? `${f.complemento.fuente} · ` : ''}complementó <b>{f.complemento.por}</b> el {hora(f.complemento.at.replace(' ', 'T'))}
                             </span>
                           )}
                           {f.complemento?.adjuntoUrl && (
                             <button type="button" onClick={() => setVerAdjunto({ nombre: f.complemento!.adjuntoNombre || 'Adjunto', url: f.complemento!.adjuntoUrl! })} data-testid={`ver-adjunto-${o.opcionId}-${f.n}`}
-                              className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 underline"><Eye size={12} /> Ver adjunto: {f.complemento.adjuntoNombre || 'documento'}</button>
+                              className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-teal-700 hover:text-slate-900 underline"><Eye size={12} /> Ver adjunto: {f.complemento.adjuntoNombre || 'documento'}</button>
                           )}
                         </td>
                       </tr>
                       {editando === f.n && (
-                        <tr className="bg-indigo-50/40">
+                        <tr className="bg-slate-50/40">
                           <td colSpan={4} className="px-2 py-2">
                             <ComplementoForm f={f} onCancelar={() => setEditando(null)}
                               onGuardar={async (resultado, dato, fuente, adjunto) => { await onComplementar(o, f.n, resultado, dato, fuente, adjunto); setEditando(null); }} />

@@ -22,7 +22,7 @@ import { registrarEvento } from '@/app/lib/historial';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
 import { construirResumenEjecutivo, type ResumenEjecutivo } from '@/app/lib/entrega-proyecto';
 import { obtenerContactosCliente } from '@/app/lib/congelamiento';
-import { enviarAvisoComprasGanado, enviarAvisoPrecompra } from '@/app/lib/email';
+import { enviarAvisoComprasGanado, enviarAvisoOcPorVencer, enviarAvisoPrecompra } from '@/app/lib/email';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { normalizarEstado, getEstadoPipeline } from '@/app/lib/pipeline';
 import { plazoEntregaDetectadoNegocio } from '@/app/lib/compras-agente-documentos';
@@ -1791,6 +1791,80 @@ async function avisarOrdenCompraLlegada(
       console.error(`[compras] aviso de OC al usuario ${uid} falló:`, String(e).slice(0, 150));
     }
   }
+}
+
+/**
+ * Recordatorio de que se acaba el plazo para ACEPTAR la OC en el portal (campana + correo al encargado,
+ * coencargados y admins). Tres momentos, cada uno una sola vez por orden: faltan <24 h, faltan <3 h y
+ * «ya venció» (este último solo dentro de las 24 h siguientes, para no resucitar OC viejas).
+ * El límite sale del mismo cálculo del Gantt (plazo de las bases desde que llegó la OC).
+ * Pensado para el cron frecuente de compras-asignacion.
+ */
+export async function avisarAceptacionOcPorVencer(): Promise<{ revisadas: number; avisadas: number }> {
+  const res = { revisadas: 0, avisadas: 0 };
+  const [rows] = await pool.query(
+    `SELECT ca.negocio_id, ca.licitacion_codigo, ca.asignado_a, ca.oc_codigo_mp, ca.oc_numero, ${SQL_ANCLAS}
+       FROM compras_asignacion ca LEFT JOIN compras_reloj rl ON rl.negocio_id = ca.negocio_id
+      WHERE ca.oc_emitida_at IS NOT NULL AND ca.oc_aceptada_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id
+                           AND t.catalogo_clave = 'aceptar_oc' AND t.estado = 'HECHA')`,
+  ) as any;
+  const ahoraMs = parsearFechaPared(ahoraChileSQL()).getTime();
+
+  for (const r of rows as any[]) {
+    res.revisadas++;
+    try {
+      const limite = calcularHitosGantt(entradaAnclasDeFila(r)).ocLimite;
+      const horas = (parsearFechaPared(limite).getTime() - ahoraMs) / 3_600_000;
+      const etapa: 'h24' | 'h3' | 'vencida' | null =
+        horas <= -24 ? null : horas <= 0 ? 'vencida' : horas <= 3 ? 'h3' : horas <= 24 ? 'h24' : null;
+      if (!etapa) continue;
+
+      const codigoOc = String(r.oc_codigo_mp || r.oc_numero || '');
+      const cod = String(r.licitacion_codigo);
+      const [ya] = await pool.query(
+        `SELECT 1 FROM historial_eventos WHERE tipo = 'COMPRAS_OC_POR_VENCER' AND licitacion_codigo = ?
+            AND metadata LIKE ? AND metadata LIKE ? LIMIT 1`,
+        [cod, `%"etapa":"${etapa}"%`, `%"oc_codigo":"${codigoOc}"%`],
+      ) as any;
+      if ((ya as any[]).length) continue;
+
+      const ids = new Set<number>();
+      if (r.asignado_a) ids.add(Number(r.asignado_a));
+      for (const c of await listarCoencargados(Number(r.negocio_id))) ids.add(Number(c.id));
+      const [adm] = await pool.query(`SELECT id FROM usuarios WHERE rol = 'admin' AND activo = TRUE`) as any;
+      for (const a of adm as any[]) ids.add(Number(a.id));
+      if (ids.size === 0) continue;
+
+      const [us] = await pool.query(
+        `SELECT id, nombre, email FROM usuarios WHERE id IN (?) AND activo = TRUE`, [[...ids]],
+      ) as any;
+      const [lic] = await pool.query(`SELECT licitacion_nombre AS n FROM negocios WHERE id = ? LIMIT 1`, [r.negocio_id]).catch(() => [[]]) as any;
+      const nombreLic: string | null = (lic as any[])[0]?.n ?? null;
+      const dd = limite.slice(0, 10).split('-').reverse().join('-');
+      const mensaje = etapa === 'vencida'
+        ? `❗ Venció el plazo para aceptar la OC ${codigoOc} de ${cod} (límite ${dd}). Acéptala en el portal ya.`
+        : `⏰ La OC ${codigoOc} de ${cod} ${etapa === 'h3' ? 'vence en menos de 3 horas' : 'vence en menos de 24 horas'} (límite ${dd} ${limite.slice(11, 16)}). Acéptala en el portal.`;
+
+      for (const u of us as any[]) {
+        await registrarEvento({
+          tipo: 'COMPRAS_OC_POR_VENCER', licitacionCodigo: cod,
+          usuarioId: Number(u.id), usuarioNombre: null, actorId: null, actorNombre: 'Mercado Público', mensaje,
+          metadata: { negocio_id: Number(r.negocio_id), oc_codigo: codigoOc, etapa, limite },
+        }).catch(e => console.error(`[compras] aviso de OC por vencer al usuario ${u.id} falló:`, String(e).slice(0, 150)));
+        if (u.email && process.env.ALERTAS_EMAIL !== 'false') {
+          await enviarAvisoOcPorVencer({
+            to: u.email, nombre: u.nombre, codigoOc, licitacionCodigo: cod, licitacionNombre: nombreLic,
+            limite, etapa, negocioId: Number(r.negocio_id),
+          });
+        }
+      }
+      res.avisadas++;
+    } catch (e) {
+      console.error(`[compras] aviso de OC por vencer del negocio ${r.negocio_id} falló:`, String(e).slice(0, 200));
+    }
+  }
+  return res;
 }
 
 /**

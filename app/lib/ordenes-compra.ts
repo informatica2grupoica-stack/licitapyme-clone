@@ -530,8 +530,33 @@ async function avisarOrdenes(
     const admins = arows as Array<{ id: number; nombre: string | null; email: string | null }>;
     const adminIds = new Set(admins.map(a => Number(a.id)));
 
+    // Encargados del módulo de Compras de cada licitación (principal + coencargados): también
+    // tienen que enterarse de que llegó la orden, no solo el asignado del radar y los admin.
+    const encargadosCompras = new Map<string, Set<number>>();
+    const codsAvisos = [...new Set(avisos.map(a => a.negocio.licitacion_codigo))];
+    try {
+      const phc = codsAvisos.map(() => '?').join(',');
+      const [erows] = await pool.query(
+        `SELECT ca.licitacion_codigo AS cod, ca.asignado_a AS uid
+           FROM compras_asignacion ca WHERE ca.licitacion_codigo IN (${phc}) AND ca.asignado_a IS NOT NULL
+         UNION
+         SELECT ca.licitacion_codigo AS cod, cc.usuario_id AS uid
+           FROM compras_coencargado cc JOIN compras_asignacion ca ON ca.negocio_id = cc.negocio_id
+          WHERE ca.licitacion_codigo IN (${phc})`,
+        [...codsAvisos, ...codsAvisos],
+      ) as any[];
+      for (const r of erows as any[]) {
+        const s = encargadosCompras.get(String(r.cod)) ?? new Set<number>();
+        s.add(Number(r.uid));
+        encargadosCompras.set(String(r.cod), s);
+      }
+    } catch (e) { console.warn('[ordenes-compra] no se pudieron leer los encargados de Compras:', String(e).slice(0, 150)); }
+
     // Perfiles asignados que no son admin (los admin ya reciben todo).
-    const idsAsignados = [...new Set(avisos.map(a => a.negocio.asignado_a).filter((x): x is number => !!x && !adminIds.has(x)))];
+    const idsAsignados = [...new Set([
+      ...avisos.map(a => a.negocio.asignado_a),
+      ...[...encargadosCompras.values()].flatMap(s => [...s]),
+    ].filter((x): x is number => !!x && !adminIds.has(x)))];
     const perfiles = new Map<number, { nombre: string | null; email: string | null }>();
     if (idsAsignados.length) {
       const ph = idsAsignados.map(() => '?').join(',');
@@ -561,8 +586,10 @@ async function avisarOrdenes(
       g.items.push(a);
     };
     for (const a of avisos) {
-      const uid = a.negocio.asignado_a;
-      if (uid && !adminIds.has(uid) && perfiles.has(uid)) {
+      const ids = new Set<number>(encargadosCompras.get(a.negocio.licitacion_codigo) ?? []);
+      if (a.negocio.asignado_a) ids.add(Number(a.negocio.asignado_a));
+      for (const uid of ids) {
+        if (adminIds.has(uid) || !perfiles.has(uid)) continue;
         const p = perfiles.get(uid)!;
         push(uid, p.nombre, p.email, false, a);
       }

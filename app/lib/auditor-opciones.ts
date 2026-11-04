@@ -28,7 +28,7 @@ import { ultimasCostoIA, verificarCostoIAOpcion } from '@/app/lib/auditor-costo-
 import type { AyudaCosto } from '@/app/lib/auditor-costo-ia-core';
 import { estadosDeLineas, lineasQueExigenViaCompleta, listarCostosAsociados, totalCostosAsociados, type CostoAsociadoDTO } from '@/app/lib/auditor-lineas';
 import {
-  normalizarProductos, normalizarExtraccion, emparejarProductos, coincidenciaIdentidad, modelosParecidos, emparejarProductoReleido, verificarOpcion, margenProyectoConOpciones, evaluarAvance, type ResultadoAvance,
+  normalizarProductos, normalizarExtraccion, emparejarProductos, puntuar, coincidenciaIdentidad, modelosParecidos, emparejarProductoReleido, verificarOpcion, margenProyectoConOpciones, evaluarAvance, type ResultadoAvance,
   type ProductoNormalizado, type ResultadoVerificacion, type Emparejamiento,
 } from '@/app/lib/auditor-opciones-core';
 
@@ -903,9 +903,25 @@ export async function crearOpcionManual(negocioId: number, filaId: string,
   return ins.insertId as number;
 }
 
+/** ¿El producto de la ficha NO es de esta línea? Primero por palabras (puntuar ≥ 0,5 = sí es); si el nombre no alcanza decide la IA (la misma que rutea las fichas de Compras).
+ *  Devuelve null si es de la línea o si no se pudo decidir (sin IA no se bloquea la subida), y la línea correcta (o ninguna) si no lo es. */
+async function fichaNoEsDeLaLinea(p: ProductoNormalizado, linea: LineaCosteo, lineas: LineaCosteo[]): Promise<{ sugerida: { filaId: string; item: number; detalle: string } | null; motivo: string } | null> {
+  if (puntuar(p, linea).puntaje >= 0.5) return null;
+  try {
+    const [s] = await sugerirLineas(
+      [{ idx: p.idx, nombre: p.nombre || `${p.marca} ${p.modelo}`, precioNeto: null, cantidad: null, proveedor: '' }],
+      lineas.map(l => ({ item: l.item, filaId: l.id, detalle: l.detalle, cantidad: l.cantidad, costoNeto: l.costoEstimadoNeto })));
+    if (!s) return null;
+    if (s.filaId === linea.id) return null;
+    const otra = s.filaId ? lineas.find(l => l.id === s.filaId) : null;
+    return { sugerida: otra ? { filaId: otra.id, item: otra.item, detalle: otra.detalle.slice(0, 120) } : null, motivo: s.motivo };
+  } catch { return null; }
+}
+
 export type ResultadoFicha =
   | { estado: 'agregada'; opcionId: number; opcionCreada: boolean; avisos: string[] }
   | { estado: 'elegir_producto'; extraccionId: number; opcionId: number | null; productos: Array<{ idx: number; nombre: string }>; motivo: string }
+  | { estado: 'linea_distinta'; extraccionId: number; productoIdx: number; marca: string; modelo: string; nombre: string; lineaElegida: string; lineaSugerida: { filaId: string; item: number; detalle: string } | null; motivo: string }
   | { estado: 'producto_distinto'; extraccionId: number; opcionId: number; productoIdx: number; marca: string; modelo: string; modeloOpcion: string; parecido: boolean }
   | { estado: 'error'; error: string };
 
@@ -923,7 +939,9 @@ export async function agregarFichaAOpcion(params: {
   if (!filaId) return { estado: 'error', error: 'Indica la opción o la línea a la que pertenece la ficha.' };
   if (opcion?.estado === 'descartada') return { estado: 'error', error: 'La opción está descartada: restáurala antes de subirle una ficha.' };
   if (opcion && ['en_aprobacion', 'aprobada'].includes(opcion.estado)) return { estado: 'error', error: 'La opción ya está en aprobación: pide rechazarla antes de cambiar sus documentos.' };
-  if (!lineasAuditables(await cargarEstadoCosteo(negocioId)).some(l => l.id === filaId)) return { estado: 'error', error: 'Esa línea no existe en el Costeo de este negocio.' };
+  const lineasAud = lineasAuditables(await cargarEstadoCosteo(negocioId));
+  const lineaElegida = lineasAud.find(l => l.id === filaId);
+  if (!lineaElegida) return { estado: 'error', error: 'Esa línea no existe en el Costeo de este negocio.' };
 
   // El Lector lee UNA sola vez cada documento.
   const [previas] = await pool.query(`SELECT id FROM auditor_extraccion WHERE negocio_id = ? AND documento_url = ? AND error IS NULL AND modo = 'completo' ORDER BY id DESC LIMIT 1`, [negocioId, url]) as any;
@@ -957,6 +975,12 @@ export async function agregarFichaAOpcion(params: {
       } else return { estado: 'elegir_producto', extraccionId, opcionId: opcion.id, productos: productos.map(p => ({ idx: p.idx, nombre: p.nombre })), motivo: 'El documento trae varios modelos y ninguno calza con la opción: elige la columna que corresponde (o sube la ficha del modelo correcto).' };
     } else if (productos.length === 1) elegido = productos[0];
     else return { estado: 'elegir_producto', extraccionId, opcionId: null, productos: productos.map(p => ({ idx: p.idx, nombre: p.nombre })), motivo: 'El documento trae varios modelos: elige para cuál es esta opción.' };
+  }
+
+  // Subida a una LÍNEA (sin opción de partida): la ficha tiene que ser de lo que esa línea pide. Si la persona se equivocó de línea, se le dice y se le ofrece la correcta.
+  if (!opcion && !forzar) {
+    const dudosa = await fichaNoEsDeLaLinea(elegido, lineaElegida, lineasAud);
+    if (dudosa) return { estado: 'linea_distinta', extraccionId, productoIdx: elegido.idx, marca: elegido.marca, modelo: elegido.modelo, nombre: elegido.nombre, lineaElegida: lineaElegida.detalle.slice(0, 120), lineaSugerida: dudosa.sugerida, motivo: dudosa.motivo };
   }
 
   const avisos: string[] = [];

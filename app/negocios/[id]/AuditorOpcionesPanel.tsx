@@ -18,6 +18,7 @@ import {
 } from '@tabler/icons-react';
 import { pedirJson, ultimoJson } from '@/app/lib/pedir-json';
 import type { PanelAuditorDTO, LineaAuditorDTO, OpcionDTO, DocumentoCotizacionDTO } from '@/app/lib/auditor-opciones';
+import RankingOpcionesAuditor from './RankingOpcionesAuditor';
 
 // Formatos de una ficha técnica (26-oct-2026: cuando la página del link no trae la ficha, se adjunta foto, PDF, Word, Excel o el texto).
 // El Lector los transcribe todos (transcribirDocumento: OCR para imagen/PDF escaneado, mammoth/word-extractor, xlsx→csv, texto plano).
@@ -258,7 +259,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
   // moverDe: la ficha se está cambiando de opción (pestaña Fichas técnicas); el servidor la quita de esa solo si quedó agregada en la nueva.
   const [fichaPorResolver, setFichaPorResolver] = useState<{ res: any; ref: { opcionId?: number; filaId?: string }; url: string; nombre: string; moverDe?: number } | null>(null);
   const procesarResultadoFicha = async (r: any, ref: { opcionId?: number; filaId?: string }, url: string, nombre: string, moverDe?: number) => {
-    if (r.estado === 'elegir_producto' || r.estado === 'producto_distinto') { setFichaPorResolver({ res: r, ref, url, nombre, moverDe }); return; }
+    if (r.estado === 'elegir_producto' || r.estado === 'producto_distinto' || r.estado === 'linea_distinta') { setFichaPorResolver({ res: r, ref, url, nombre, moverDe }); return; }
     setFichaPorResolver(null);
     if (r.movidaDe) {
       const lineaOrigen = etiquetaItem.get(r.movidaDe.filaId);
@@ -1232,6 +1233,11 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                   </dl>
                 </div>
                 <div className="px-5 pt-3 pb-5">
+                  <RankingOpcionesAuditor opciones={vivas.map(o => ({
+                    id: o.id, nombre: [o.marca, o.modelo].filter(Boolean).join(' ') || 'Opción sin nombre', proveedor: o.proveedorRazonSocial,
+                    fichas: o.respaldos.filter(x => x.tipo === 'ficha_tecnica' && x.vigente).map(x => x.documentoNombre || 'ficha'),
+                    estado: o.tecnico.estado, cumple: o.tecnico.resultado?.resumen.cumple ?? null, total: o.tecnico.resultado?.resumen.total ?? null, noCumple: o.tecnico.resultado?.resumen.noCumple ?? null,
+                  }))} />
                   {sel.opciones.length > 0 && (
                     <div data-no-pdf className="mb-3">
                       <Pestanas id="linea-auditor" valor={pestanaLinea} onCambio={setPestanaLinea} opciones={[
@@ -1380,9 +1386,18 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
           );
         })()}
       </Modal>
-      <Modal open={fichaPorResolver !== null} onClose={() => setFichaPorResolver(null)} title={fichaPorResolver?.res.estado === 'producto_distinto' ? (fichaPorResolver.res.parecido ? '¿Es el mismo producto?' : 'La ficha es de otro producto') : 'Elige el producto de la ficha'} size="md"
+      <Modal open={fichaPorResolver !== null} onClose={() => setFichaPorResolver(null)} title={fichaPorResolver?.res.estado === 'linea_distinta' ? 'La ficha no parece de esta línea' : fichaPorResolver?.res.estado === 'producto_distinto' ? (fichaPorResolver.res.parecido ? '¿Es el mismo producto?' : 'La ficha es de otro producto') : 'Elige el producto de la ficha'} size="md"
         footer={<button onClick={() => setFichaPorResolver(null)} className="px-4 py-2 text-[13px] font-semibold text-zinc-600 hover:text-zinc-900">Cancelar</button>}>
-        {fichaPorResolver?.res.estado === 'producto_distinto' ? (
+        {fichaPorResolver?.res.estado === 'linea_distinta' ? (
+          <div className="space-y-3 text-[13px] text-zinc-700">
+            <p>«{fichaPorResolver.nombre}» es de <b>{[fichaPorResolver.res.marca, fichaPorResolver.res.modelo].filter(Boolean).join(' ') || fichaPorResolver.res.nombre}</b> y no parece ser de la línea <b>{fichaPorResolver.res.lineaElegida}</b>. {fichaPorResolver.res.motivo}</p>
+            <div className="flex flex-wrap gap-2">
+              {fichaPorResolver.res.lineaSugerida && <button onClick={() => { const { url, nombre, moverDe } = fichaPorResolver; const filaId = fichaPorResolver.res.lineaSugerida.filaId; setFichaPorResolver(null); subirFichasDesdeUrl(url, nombre, { filaId }, moverDe); }}
+                className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[13.5px] font-semibold hover:bg-emerald-700">Pasarla a «{fichaPorResolver.res.lineaSugerida.detalle}»</button>}
+              <button onClick={() => resolverFicha({ forzar: true, productoIdx: fichaPorResolver.res.productoIdx })} className="px-3 py-1.5 rounded-lg border border-zinc-200 text-zinc-700 text-[13.5px] font-semibold hover:bg-zinc-50">Sí es de esta línea: usarla igual</button>
+            </div>
+          </div>
+        ) : fichaPorResolver?.res.estado === 'producto_distinto' ? (
           <div className="space-y-3 text-[13px] text-zinc-700">
             {fichaPorResolver.res.parecido
               ? <p>La ficha «{fichaPorResolver.nombre}» es del modelo <b>{[fichaPorResolver.res.marca, fichaPorResolver.res.modelo].filter(Boolean).join(' ')}</b> y esta opción está como <b>{fichaPorResolver.res.modeloOpcion}</b>. Se diferencian en una sola letra o número: <b>probablemente es el mismo producto</b> y la cotización o la ficha tiene un error de tipeo. Si lo es, úsala igual.</p>

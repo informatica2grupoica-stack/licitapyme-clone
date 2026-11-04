@@ -626,6 +626,10 @@ export function coincidenciaIdentidad(
   // Mismo código del proveedor (≥5 caracteres) y sin modelos que choquen: es el mismo producto aunque la marca esté mal escrita en uno de los dos («Coucil Tool»).
   if (oSku.length >= 5 && oSku === fSku && !(oModelo && fModelo && !mismoOContiene(oModelo, fModelo))) return 'coincide';
   if (oMarca && fMarca && !mismoOContiene(oMarca, fMarca)) return 'distinto';
+  // El mismo código leído en un documento como «modelo» y en otro como «SKU» (ficha en texto vs foto de la etiqueta): es el mismo producto si la marca no choca.
+  // Va ANTES de comparar modelos: una foto puede leer «FPS 50+» como modelo y dejar el código real (DS-F50-1L) en el SKU.
+  const cruce = [oModelo, oSku].filter(x => x.length >= 4).some(x => [fModelo, fSku].includes(x));
+  if (cruce) return 'coincide';
   if (oModelo && fModelo) return mismoOContiene(oModelo, fModelo) ? 'coincide' : 'distinto';
   if (oSku && fSku) return oSku === fSku ? 'coincide' : 'distinto';
   return 'sin_dato';
