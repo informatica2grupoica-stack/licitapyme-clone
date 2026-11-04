@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizarParaIds, verificarXmlBienFormado, eliminarRespaldoVmlDuplicado, abrirDocx } from '../anexos-docx';
-import { dividirPorFormularios, detectarFormularios, clasificarAnexo, nombreArchivoDesdeTitulo } from '../anexos-dividir';
+import { dividirPorFormularios, detectarFormularios, clasificarAnexo, nombreArchivoDesdeTitulo, nombresDeArchivoDesdeTitulos } from '../anexos-dividir';
 import { puntajeCoincidencia } from '../anexos-match';
 import JSZip from 'jszip';
 
@@ -891,4 +891,25 @@ test('detectarFormularios: la línea de lugar y fecha con puntos tras la firma n
   const f = detectarFormularios(normalizarParaIds(xml).xml);
   assert.equal(f.length, 3, f.map(x => x.titulo).join(' | '));
   assert.ok(f.every(x => /^ANEXO/.test(x.titulo)), f.map(x => x.titulo).join(' | '));
+});
+
+test('nombres al separar: letra pegada al número («Nº1A») y un mismo formulario por producto (1057922-28-LP26)', () => {
+  const nombres = nombresDeArchivoDesdeTitulos([
+    'FORMULARIO Nº1A',
+    'FORMULARIO Nº1B',
+    'FORMULARIO N°2 ESPECIFICACIONES TÉCNICAS CAMILLA DE TRANSPORTE',
+    'FORMULARIO N°2 ESPECIFICACIONES TÉCNICAS SET OTO-OFTALMOSCOPIOS',
+    'FORMULARIO N°2 ESPECIFICACIONES TÉCNICAS SET REFRIGERADORES CLÍNICOS',
+    'ANEXO N°1 DECLARACIÓN JURADA SIMPLE COMPLEMENTARIA SOBRE INHABILIDADES',
+  ]);
+  assert.deepEqual(nombres, [
+    'Formulario 1-A',
+    'Formulario 1-B',
+    'Formulario 2 - Camilla Transporte',
+    'Formulario 2 - Set Oto-oftalmoscopios',
+    'Formulario 2 - Set Refrigeradores Clínicos',
+    'Anexo 1 - Declaración Jurada Simple',
+  ]);
+  // Una palabra cualquiera después del número no es letra de sufijo.
+  assert.equal(nombreArchivoDesdeTitulo('FORMULARIO N°2 ESPECIFICACIONES TÉCNICAS'), 'Formulario 2 - Especificaciones Técnicas');
 });

@@ -3,6 +3,14 @@
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió. Sin
 direcciones de servidores ni claves: esos datos viven en los `.env`, fuera del repo.
 
+## 2026-11-04 — Avisos por WhatsApp (ganada, perdida, apertura) desde un número emisor por QR
+- Decisión del dueño: la vía OFICIAL de Meta se descartó por costo/trámite; se usa Evolution API (Baileys, NO oficial) con UN número emisor por empresa (Grupo ICA: +56 9 7549 1040, instancia `emisor-ica`), vinculado por QR. Solo avisa al equipo (contactos que ya lo tienen guardado): nada masivo, nada a externos. Riesgo asumido: Meta puede cortar el número; al vender el sistema el cliente debe saberlo y usar un número secundario. Se evaluó y se sacó un chat completo tipo WhatsApp Web (contactos @lid sin nombre/teléfono, sin buscador): NO se hace.
+- Quién recibe: el responsable de la licitación sus 3 avisos; el admin, por defecto solo las GANADAS de toda la empresa. Selector por perfil en Editar permisos (tabla `whatsapp_aviso_pref`, migration-178, NO son permisos). Requiere celular válido en el perfil y cuenta activa.
+- Envío: cola `whatsapp_cola` (clave única = no repite), de a uno con pausa 8-20 s, tope `WHATSAPP_TOPE_DIARIO` (150/día), reintentos cada 5 min (`/api/cron/whatsapp-cola`). Mensaje con emoji de encabezado, negritas y enlace `/licitacion/<código>`. Botones: no existen en la vía no oficial.
+- Código: `app/lib/whatsapp.ts` (cliente), `whatsapp-avisos-core.ts` (reglas y texto, probado), `whatsapp-avisos.ts` (BD y cola); gancho en `avisar-resultado-licitacion.ts`; pantalla `/admin/whatsapp` (QR, estado, prueba, cola). Servicio: `docker-compose.whatsapp.yml` (local) y perfil `whatsapp` en `docker-compose.yml` (VPS: COMPOSE_PROFILES=db,whatsapp + EVOLUTION_API_KEY + EVOLUTION_API_URL=http://evolution-api:8080).
+- Pendiente: aviso de cierre próximo por WhatsApp (el cron de cierres no está enganchado); ver la pantalla en el navegador; migration-178 YA aplicada en la BD de producción (2026-11-04, dueño dio el OK); falta levantar Evolution en el VPS y volver a escanear el QR allá (la sesión local no se traslada); alertas de otras empresas-cliente usarán la ruta `/api/admin` (hoy solo ICA la ve en el menú de admin).
+- Trampa: al probar por consola de Windows, curl rompe los emojis y tildes (llegó `??`); usar fetch/Node con UTF-8.
+
 ## 2026-11-02 — Auditoría de seguridad de toda la plataforma: lo corregido y lo pendiente
 - **Next 16.2.6 → 16.4.4** (exacta, con eslint-config-next igual). La anterior tenía bypass del proxy con Turbopack (toda la autenticación vive en
   `proxy.ts`) y RCE en optimizador de imágenes/next/og (la app no usa next/image ni next/og). `npm audit`: de 35 (1 crítica, 16 altas) a 16

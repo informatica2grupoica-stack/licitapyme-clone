@@ -5,11 +5,12 @@
 // salvo que fueran ellos el asignado. Esto AGREGA (no reemplaza) esas llamadas:
 //   · Correo al asignado (nuevo) + a cada admin (nuevo).
 //   · Campana a cada admin que NO sea el asignado (nuevo; el asignado ya la recibe del llamador).
-// (WhatsApp se evaluó y se descartó por ahora — ago-2026 — hasta decidir el mecanismo.)
+//   · WhatsApp (nov-2026): ver whatsapp-avisos.ts — número emisor por QR (vía no oficial), solo al equipo.
 // Best-effort: cualquier fallo se loguea y no interrumpe el cron que llama esto.
 import pool from '@/app/lib/db';
 import { registrarEvento } from '@/app/lib/historial';
 import { enviarAvisoResultadoLicitacion, type TipoResultadoLicitacion } from '@/app/lib/email';
+import { encolarAvisoWhatsapp } from '@/app/lib/whatsapp-avisos';
 
 interface AsignadoInfo { id: number; nombre: string | null; email: string | null }
 
@@ -75,6 +76,13 @@ export async function avisarResultadoLicitacion(a: AvisoResultado): Promise<void
         }).catch(e => console.error('[avisar-resultado] correo falló:', String(e).slice(0, 200)));
       }
     }
+
+    // WhatsApp (nov-2026): el responsable recibe sus tres avisos y cada admin los que activó en su perfil (por defecto, las ganadas).
+    // Cola con pausa y tope diario; no bloquea ni rompe este aviso si falla.
+    await encolarAvisoWhatsapp({
+      tipo: a.tipo, codigo: a.codigo, nombre: a.nombre, organismo: a.organismo ?? null, monto: a.monto ?? null,
+      asignadoId: a.asignado?.id ?? null, clienteId: clienteId ?? 1,
+    });
   } catch (e) {
     console.error('[avisar-resultado] falló (no crítico):', String(e).slice(0, 200));
   }

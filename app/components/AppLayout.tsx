@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconPackage as PackageCheck, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders, IconBug as Bug, IconCoin as Coin, IconBrain as Brain, IconLock as Lock } from '@tabler/icons-react';
+import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconPackage as PackageCheck, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders, IconBug as Bug, IconCoin as Coin, IconBrain as Brain, IconLock as Lock, IconBrandWhatsapp as Whatsapp } from '@tabler/icons-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { Tooltip } from '@/app/components/ui/Tooltip';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
@@ -121,6 +121,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'ADMINISTRACIÓN',
     items: [
       { label: 'Usuarios',       href: '/admin/usuarios',  icon: <Users size={17} />, adminOnly: true },
+      { label: 'Avisos por WhatsApp', href: '/admin/whatsapp', icon: <Whatsapp size={17} />, adminOnly: true },
       { label: 'Empresas-cliente', href: '/admin/clientes', icon: <Building2 size={17} />, adminOnly: true },
       // Reportes del botón flotante "Reportar error" (components/ReportarErrorBoton) de todos los perfiles.
       { label: 'Errores reportados', href: '/admin/errores', icon: <Bug size={17} />, adminOnly: true },

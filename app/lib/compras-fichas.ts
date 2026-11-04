@@ -116,7 +116,9 @@ async function marcarFichaCompras(negocioId: number, extraccionId: number) {
 }
 
 // ── Asignar un producto de una ficha a un producto de Compras (+ proveedor) ─────────────────────────
-export interface ResultadoAsignacion { ok: boolean; opcionId?: number; proveedor: string | null; motivoProveedor: string; candidatosProveedor: string[]; error?: string }
+export interface ResultadoAsignacion { ok: boolean; opcionId?: number; proveedor: string | null; motivoProveedor: string; candidatosProveedor: string[]; error?: string;
+  /** La ficha no trae marca ni modelo: la persona debe confirmar y reenviar con `sinMarca`. */
+  confirmarSinMarca?: boolean }
 
 async function opcionParaFicha(negocioId: number, filaId: string, p: ProductoNormalizado, proveedor: string | null, rut: string | null, actor: Actor): Promise<number> {
   const [existentes] = await pool.query(
@@ -176,6 +178,11 @@ export async function asignarProductoDeFicha(params: {
   if (!p) return { ok: false, proveedor: null, motivoProveedor: '', candidatosProveedor: [], error: 'Ese producto no está en la ficha.' };
   if (!identificable(p) && params.sinMarca) p = { ...p, modelo: (p.modelo || p.nombre).slice(0, 160) };
   if (!identificable(p)) return { ok: false, proveedor: null, motivoProveedor: '', candidatosProveedor: [], error: 'Este documento no trae la marca ni un modelo identificable: no es una ficha de un producto real (¿es la propuesta técnica?).' };
+  // Identificable solo por SKU/código, sin marca ni modelo: se avisa y, si la persona confirma, el nombre hace de modelo.
+  if (!p.marca && !p.modelo) {
+    if (!params.sinMarca) return { ok: false, proveedor: null, motivoProveedor: '', candidatosProveedor: [], confirmarSinMarca: true, error: 'La ficha no dice la marca ni el modelo del producto.' };
+    p = { ...p, modelo: (p.nombre || p.sku || 'Sin modelo').slice(0, 160) };
+  }
   const lineas = lineasAuditables(await cargarEstadoCosteo(negocioId));
   const linea = lineas.find(l => l.id === filaId);
   if (!linea) return { ok: false, proveedor: null, motivoProveedor: '', candidatosProveedor: [], error: 'Ese producto no tiene línea en el Costeo.' };

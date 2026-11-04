@@ -405,3 +405,10 @@ test('ordenarAnexosPorNumero: N°1…N°6 en orden, lo demás no se mueve', asyn
   assert.deepEqual(out, ['Ficha técnica del fabricante', 'Anexo N°1 Declaración', 'Anexo N°2 Oferta Económica',
     'Carta de servicio técnico', 'Anexo N°5 Delitos', 'Anexo N°6 Integridad']);
 });
+
+test('archivo «Formulario 1-A» no abre otra casilla si el informe ya listó «Formulario N°1A» (1057922-28-LP26)', async () => {
+  const { itemsDesdeArchivosDeAnexo } = await import('../checklist-comercial');
+  const ya = ['Formulario N°1A Identificación del Oferente', 'Formulario N°1B Declaración de Constitución UTP']
+    .map(titulo => ({ tipo: 'documento', titulo })) as any;
+  assert.deepEqual(itemsDesdeArchivosDeAnexo(['Formulario 1-A.docx', 'Formulario 1-B.docx'], ya), []);
+});

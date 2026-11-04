@@ -1,0 +1,48 @@
+# docker-compose.whatsapp.yml — Evolution API (WhatsApp por QR) para las ALERTAS por WhatsApp del equipo.
+# NO es parte de la app: es un servicio aparte que la app llama por HTTP (EVOLUTION_API_URL / EVOLUTION_API_KEY).
+# Un número emisor por empresa (instancia), no una por usuario. Vía NO oficial (Baileys): puede perder el número.
+#
+#   docker compose -f docker-compose.whatsapp.yml up -d      ← levanta (127.0.0.1:8085)
+#   docker compose -f docker-compose.whatsapp.yml down       ← apaga (la sesión se conserva)
+#   docker compose -f docker-compose.whatsapp.yml down -v    ← apaga y BORRA la sesión (hay que re-escanear el QR)
+services:
+  evolution-db:
+    image: postgres:15
+    container_name: evolution-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: evolution_local
+      POSTGRES_DB: evolution
+    volumes:
+      - evolution-pg:/var/lib/postgresql/data
+
+  evolution-api:
+    image: evoapicloud/evolution-api:v2.3.7
+    container_name: evolution-api
+    restart: unless-stopped
+    depends_on:
+      - evolution-db
+    ports:
+      - "127.0.0.1:8085:8080"
+    environment:
+      SERVER_URL: http://localhost:8085
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-licitank-whatsapp-local}
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:evolution_local@evolution-db:5432/evolution?schema=public
+      DATABASE_CONNECTION_CLIENT_NAME: licitank
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
+      LOG_LEVEL: ERROR,WARN
+    volumes:
+      - evolution-instancias:/evolution/instances
+
+volumes:
+  evolution-pg:
+  evolution-instancias:

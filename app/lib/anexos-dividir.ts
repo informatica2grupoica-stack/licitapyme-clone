@@ -925,7 +925,9 @@ function limpiarParaNombreArchivo(texto: string, maxLargo = 80): string {
 // Declaración jurada simple", ver la cabecera de anexos-match.ts) y el que su regex de
 // emparejamiento (RE_NUMERO) sabe leer — un espacio ahí rompería en silencio el reparto
 // automático de archivos generados a su punto correcto del checklist.
-const RE_TIPO_NUMERO = /^(FORMULARIO|ANEXO|FORMATO)\s*N[.\s]*[°ºO]?[.\s]*(\d+(?:-[A-Z])?)/i;
+// La letra también puede venir pegada al número («FORMULARIO Nº1A», 1057922-28-LP26): antes se
+// perdía y el 1A y el 1B salían los dos como «Formulario 1». Se escribe igual con guion («1-A»).
+const RE_TIPO_NUMERO = /^(FORMULARIO|ANEXO|FORMATO)\s*N[.\s]*[°ºO]?[.\s]*(\d+(?:-[A-Z]|[A-Z]\b)?)/i;
 const RE_TIPO_PARENTESIS = /\(\s*(ANEXO)\s*N?[.\s]*[°ºO]?[.\s]*(\d+(?:-[A-Z])?)\s*\)\s*$/i;
 const RE_TIPO_LETRA_COMILLAS = /^(FORMULARIO|ANEXO|FORMATO)\s*["“‘']([A-Z])["”’']/i;
 const RE_TIPO_CATEGORIA_LETRA = /^(FORMULARIO|ANEXO|FORMATO)\s*([A-Z]{1,8})\s*-\s*(\d+)/i;
@@ -937,7 +939,7 @@ const RE_TIPO_SIN_NUMERO = /^(FORMULARIO|ANEXO|FORMATO)\s+TIPO\b/i;
 function tipoEIdentificador(titulo: string): { palabra: string; id: string; coincidencia: string } | null {
   const t = titulo.trim();
   let m = t.match(RE_TIPO_NUMERO);
-  if (m) return { palabra: m[1], id: m[2].replace(/\s+/g, ''), coincidencia: m[0] };
+  if (m) return { palabra: m[1], id: m[2].replace(/\s+/g, '').replace(/^(\d+)([A-Z])$/i, '$1-$2').toUpperCase(), coincidencia: m[0] };
   m = t.match(RE_TIPO_PARENTESIS);
   if (m) return { palabra: m[1], id: m[2].replace(/\s+/g, ''), coincidencia: m[0] };
   m = t.match(RE_TIPO_LETRA_COMILLAS);
@@ -990,14 +992,43 @@ export function nombreArchivoDesdeTitulo(titulo: string): string {
   // acá con títulos que YA calzaron con RE_ENCABEZADO_FORMULARIO — ver más abajo) se cae al
   // recorte genérico de siempre, solo que más corto.
   if (!info) return limpiarParaNombreArchivo(titulo, MAX_LARGO_NOMBRE_CORTO);
+  return armarNombreCorto(info, titulo.replace(info.coincidencia, ''));
+}
 
+function armarNombreCorto(info: { palabra: string; id: string }, resto: string): string {
   const palabra = info.palabra.charAt(0).toUpperCase() + info.palabra.slice(1).toLowerCase();
-  const resto = titulo.replace(info.coincidencia, '');
   const descriptor = descriptorCorto(resto);
   let base = descriptor ? `${palabra} ${info.id} - ${descriptor}` : `${palabra} ${info.id}`;
   base = base.replace(/[^\p{L}\p{N} -]+/gu, '').replace(/\s+/g, ' ').trim();
   if (base.length > MAX_LARGO_NOMBRE_CORTO) base = base.slice(0, MAX_LARGO_NOMBRE_CORTO).replace(/[\s-]+$/, '');
   return base || `${palabra} ${info.id}`;
+}
+
+/** Nombres de archivo de todos los anexos de un documento. Cuando varios comparten tipo y número
+ *  (un «FORMULARIO N°2 ESPECIFICACIONES TÉCNICAS <producto>» por línea, 1057922-28-LP26), el nombre
+ *  corto cortaba justo antes de lo que los distingue y salían «…Técnicas», «…Técnicas_2», «…Técnicas S».
+ *  Ahí las palabras clave se toman de lo que viene DESPUÉS de lo que tienen en común: «Formulario 2 -
+ *  Camilla Transporte». */
+export function nombresDeArchivoDesdeTitulos(titulos: string[]): string[] {
+  const infos = titulos.map(t => tipoEIdentificador(t));
+  const usados = new Set<string>();
+  return titulos.map((titulo, i) => {
+    const info = infos[i];
+    let base = nombreArchivoDesdeTitulo(titulo);
+    if (info) {
+      const llave = (x: { palabra: string; id: string }) => `${x.palabra.toUpperCase()} ${x.id.toUpperCase()}`;
+      const restos = titulos
+        .filter((_, j) => infos[j] && llave(infos[j]!) === llave(info))
+        .map(t => t.trim().replace(tipoEIdentificador(t)!.coincidencia, '').trim().split(/\s+/));
+      if (new Set(restos.map(r => r.join(' ').toUpperCase())).size > 1) {
+        let comunes = 0;
+        while (restos.every(r => comunes < r.length - 1 && r[comunes].toUpperCase() === restos[0][comunes].toUpperCase())) comunes++;
+        const propio = titulo.trim().replace(info.coincidencia, '').trim().split(/\s+/).slice(comunes).join(' ');
+        if (propio) base = armarNombreCorto(info, propio);
+      }
+    }
+    return nombreConDesempate(base, usados);
+  });
 }
 
 // Mismo criterio de extracción de texto que usa listarBloquesCrudos para el título de un párrafo
@@ -1089,7 +1120,7 @@ export async function dividirPorFormularios(bufferBase: Buffer, xml: string): Pr
   const sectPr = sectPrMatches.length ? sectPrMatches[sectPrMatches.length - 1][0] : '';
 
   const resultados: FormularioDividido[] = [];
-  const nombresUsados = new Set<string>();
+  const nombres = nombresDeArchivoDesdeTitulos(formularios.map(f => f.titulo));
   for (const [i, f] of formularios.entries()) {
     // Un bloque entra en el fragmento si CUALQUIER parte de su rango de ordinales cae dentro
     // del rango del formulario — así una tabla se incluye COMPLETA (nunca cortada a la mitad)
@@ -1114,7 +1145,7 @@ export async function dividirPorFormularios(bufferBase: Buffer, xml: string): Pr
       titulo: f.titulo,
       buffer,
       categoria,
-      nombreArchivo: nombreConDesempate(nombreArchivoDesdeTitulo(f.titulo), nombresUsados),
+      nombreArchivo: nombres[i],
     });
   }
   return resultados;

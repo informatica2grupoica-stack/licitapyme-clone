@@ -186,7 +186,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
   const post = async (cuerpo: object) => {
     const r = await fetch(`/api/compras/${negocioId}/fichas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) });
     const d = await r.json();
-    if (!r.ok || !d.success) throw new Error(d.error || 'No se pudo completar');
+    if (!r.ok || !d.success) throw Object.assign(new Error(d.error || 'No se pudo completar'), { confirmarSinMarca: !!d.confirmarSinMarca });
     window.dispatchEvent(new Event('compras:fichas-cambio'));   // la matriz de precios (paso 2) también se actualiza
     return d;
   };
@@ -265,13 +265,26 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
   const olvidar = async (extraccionId: number) => {
     try { await post({ accion: 'olvidar_documento', extraccionId }); await cargar(); } catch (e: any) { toast.error('No se pudo quitar de la lista', e.message); }
   };
+  // Ficha sin marca ni modelo: se pregunta al centro de la pantalla y, si se confirma, se asigna igual (el nombre hace de modelo).
+  const [confirmaSinMarca, setConfirmaSinMarca] = useState<{ documento: string; responder: (si: boolean) => void } | null>(null);
+  const preguntarSinMarca = (documento: string) => new Promise<boolean>(resolve => setConfirmaSinMarca({ documento, responder: si => { setConfirmaSinMarca(null); resolve(si); } }));
+  /** Asigna; si el servidor avisa que no hay marca ni modelo, pregunta y reintenta con `sinMarca`. Devuelve false si la persona cancela. */
+  const postAsignar = async (cuerpo: { extraccionId: number; productoIdx: number; productoCompraId: number; proveedor: string | null; sinMarca: boolean }, documento: string) => {
+    try { await post({ accion: 'asignar', ...cuerpo }); return true; }
+    catch (e: any) {
+      if (!e?.confirmarSinMarca) throw e;
+      if (!(await preguntarSinMarca(documento))) return false;
+      await post({ accion: 'asignar', ...cuerpo, sinMarca: true });
+      return true;
+    }
+  };
   const [asignandoSug, setAsignandoSug] = useState(false);
   const asignarSugeridas = async () => {
     setAsignandoSug(true);
     let ok = 0;
     for (const f of panel?.pendientes ?? []) {
       if (!f.sugerencia?.productoCompraId) continue;
-      try { await post({ accion: 'asignar', extraccionId: f.extraccionId, productoIdx: f.idx, productoCompraId: f.sugerencia.productoCompraId, proveedor: null, sinMarca: f.sinMarca }); ok++; }
+      try { if (await postAsignar({ extraccionId: f.extraccionId, productoIdx: f.idx, productoCompraId: f.sugerencia.productoCompraId, proveedor: null, sinMarca: f.sinMarca }, f.documento)) ok++; }
       catch (e: any) { toast.error(`No se pudo asignar «${f.documento}»`, e.message); }
     }
     setAsignandoSug(false);
@@ -279,7 +292,8 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
     await cargar();
   };
   const asignar = async (extraccionId: number, idx: number, productoCompraId: number, proveedor: string, sinMarca = false) => {
-    try { await post({ accion: 'asignar', extraccionId, productoIdx: idx, productoCompraId, proveedor: proveedor || null, sinMarca }); toast.success('Ficha asignada'); await cargar(); }
+    const documento = panel?.pendientes.find(f => f.extraccionId === extraccionId && f.idx === idx)?.documento ?? 'esta ficha';
+    try { if (await postAsignar({ extraccionId, productoIdx: idx, productoCompraId, proveedor: proveedor || null, sinMarca }, documento)) { toast.success('Ficha asignada'); await cargar(); } }
     catch (e: any) { toast.error('No se pudo asignar', e.message); }
   };
 
@@ -575,6 +589,22 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
         onChange={e => { const fl = e.target.files ? Array.from(e.target.files) : []; const d = destino; e.target.value = ''; if (fl.length && d) void subirParaProducto(d, fl); }} />
       <DocumentViewerModal doc={visor} onClose={() => setVisor(null)} lista={subidas.map(d => ({ nombre: d.nombre, url: d.url }))} onElegir={setVisor} />
       <IncidenciaFichaModal negocioId={negocioId} productos={incidenciaDe} onClose={() => setIncidenciaDe([])} onCreada={() => { setIncidenciaDe([]); setMarcados(new Set()); void recargarCompras(); }} />
+
+      {/* Modal: confirmar ficha sin marca ni modelo */}
+      {confirmaSinMarca && (
+        <div className="fixed inset-0 z-[95] bg-black/50 flex items-center justify-center p-4" role="alertdialog" aria-modal="true" onClick={() => confirmaSinMarca.responder(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="px-5 pt-4 pb-3">
+              <p className="text-[15px] font-semibold text-zinc-900">La ficha no dice la marca ni el modelo</p>
+              <p className="mt-2 text-[13px] text-zinc-600">«{confirmaSinMarca.documento}» no trae marca ni modelo del producto. Si es la ficha del producto que se va a comprar, puedes asignarla igual: el nombre del producto hará de modelo. Si es la propuesta técnica de la oferta, cancela y descártala.</p>
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-3 border-t border-zinc-200">
+              <button type="button" onClick={() => confirmaSinMarca.responder(false)} className="px-3 py-1.5 text-[13px] font-semibold text-zinc-700 hover:text-zinc-950">Cancelar</button>
+              <button type="button" autoFocus onClick={() => confirmaSinMarca.responder(true)} className="px-3 py-1.5 rounded-lg text-[13px] font-semibold text-white bg-teal-700 hover:bg-teal-800">Asignar igual</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal: pegar texto */}
       {pegando && (

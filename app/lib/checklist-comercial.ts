@@ -195,8 +195,10 @@ function num(v: unknown): number | null {
 // descargado) — dos filas para el mismo formulario. El grupo captor 2 ahora admite ese código
 // (2-6 letras) entre la palabra clave y el número; se guarda como parte del identificador para no
 // fundir series independientes ("ADMI-1" y "ECO-1" siguen siendo documentos distintos).
-const RE_NUM_FORMATO = /(formato|anexo|formulario)s?\s*n?[°ºo]?\s*[.]?\s*(?:([a-z]{2,6})[.\-\s]*)?(\d{1,2}(?:\s*[.\-]\s*[a-z0-9]{1,3})?)\b/i;
-const RE_STRIP_FORMATO = /\(?\s*(?:formato|anexo|formulario)s?\s*n?[°ºo]?\s*[.]?\s*(?:[a-z]{2,6}[.\-\s]*)?\d{1,2}(?:\s*[.\-]\s*[a-z0-9]{1,3})?\s*\)?\s*:?\s*/gi;
+// La letra también puede ir pegada al número («Formulario N°1A», 1057922-28-LP26): sin aceptarla, el
+// 1A del informe no tenía número y el archivo «Formulario 1-A» abría una casilla duplicada.
+const RE_NUM_FORMATO = /(formato|anexo|formulario)s?\s*n?[°ºo]?\s*[.]?\s*(?:([a-z]{2,6})[.\-\s]*)?(\d{1,2}(?:\s*[.\-]\s*[a-z0-9]{1,3}|[a-z])?)\b/i;
+const RE_STRIP_FORMATO = /\(?\s*(?:formato|anexo|formulario)s?\s*n?[°ºo]?\s*[.]?\s*(?:[a-z]{2,6}[.\-\s]*)?\d{1,2}(?:\s*[.\-]\s*[a-z0-9]{1,3}|[a-z]\b)?\s*\)?\s*:?\s*/gi;
 
 // Exportadas: el script de limpieza de duplicados ya materializados (checklist_comercial viejo,
 // insertado antes de este fix) reusa exactamente este criterio — ver scripts/limpiar-checklist-duplicados.mjs.

@@ -103,6 +103,46 @@ services:
     ports:
       - "127.0.0.1:3306:3306"        # solo el propio VPS (y túnel SSH desde el PC); nunca público
 
+  # Avisos por WhatsApp (nov-2026): Evolution API mantiene vinculado el número emisor (QR, vía NO oficial) y la app le pide
+  # los envíos por la red interna (EVOLUTION_API_URL=http://evolution-api:8080). SIN "ports:": nada público.
+  # Va en el perfil "whatsapp": no arranca hasta poner COMPOSE_PROFILES=db,whatsapp (y EVOLUTION_API_KEY) en el .env del VPS.
+  evolution-db:
+    image: postgres:15
+    container_name: licitapyme-evolution-db
+    restart: unless-stopped
+    profiles: ["whatsapp"]
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${EVOLUTION_DB_PASSWORD:-evolution_interno}
+      POSTGRES_DB: evolution
+    volumes:
+      - evolution-pg:/var/lib/postgresql/data
+
+  evolution-api:
+    image: evoapicloud/evolution-api:v2.3.7
+    container_name: licitapyme-evolution
+    restart: unless-stopped
+    profiles: ["whatsapp"]
+    depends_on:
+      - evolution-db
+    environment:
+      SERVER_URL: http://evolution-api:8080
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:${EVOLUTION_DB_PASSWORD:-evolution_interno}@evolution-db:5432/evolution?schema=public
+      DATABASE_CONNECTION_CLIENT_NAME: licitank
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "false"
+      DATABASE_SAVE_MESSAGE_UPDATE: "false"
+      DATABASE_SAVE_DATA_CONTACTS: "false"
+      DATABASE_SAVE_DATA_CHATS: "false"
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
+      LOG_LEVEL: ERROR,WARN
+    volumes:
+      - evolution-instancias:/evolution/instances
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: licitapyme-tunnel
@@ -117,4 +157,6 @@ services:
       - app
 
 volumes:
+  evolution-pg:                    # sesión del número emisor de WhatsApp (si se borra hay que re-escanear el QR)
+  evolution-instancias:
   mysql-datos:                     # datos de MySQL; sobreviven a «docker compose down» y a los deploy

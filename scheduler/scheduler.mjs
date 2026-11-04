@@ -180,6 +180,9 @@ async function jobComprasObuma() { await loop('compras Obuma', '/api/cron/obuma-
 // para que el SLA de 3h no se sienta, sin ser tan frecuente como el aviso de resultados.
 async function jobComprasAsignacion() { await loop('compras asignación', '/api/cron/compras-asignacion', { maxPasadas: 1 }); }
 
+// Avisos por WhatsApp: reintenta los que quedaron pendientes (emisor desconectado o servicio caído). Barato: solo BD si no hay nada.
+async function jobWhatsappCola() { await loop('whatsapp cola', '/api/cron/whatsapp-cola', { maxPasadas: 1 }); }
+
 // ── Programación (hora Chile) ───────────────────────────────────────────────────
 const opts = { timezone: TZ };
 
@@ -208,6 +211,7 @@ cron.schedule('45 7 * * *',     jobComprasObuma, opts);
 // cron.schedule('50 7 * * *',  jobObumaProyectos, opts);
 // CADA 20 MINUTOS: fallback de asignación de Compras (§3.3). Barato (sin llamadas externas, solo BD).
 cron.schedule('*/20 * * * *',   () => sinSolapar('compras-asignacion', jobComprasAsignacion), opts);
+cron.schedule('*/5 * * * *',    () => sinSolapar('whatsapp-cola', jobWhatsappCola), opts); // cada 5 min: reintenta avisos de WhatsApp pendientes
 
 console.log(`[scheduler] 🚀 iniciado — base=${BASE} TZ=${TZ} pausada=${PAUSADA} — ${ahora()}`);
 console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · viabilidad 30 1-23/4 · viabilidad-perfil 35 1-23/4 · docs-negocios 0 */2 · ganada/perdida (estados-asignadas+postuladas) */30 · aperturas 10 * (cada hora) · ofertas+preguntas 15 * (cada hora) · órdenes de compra 40 7 · compras Obuma 45 7 (1×/día) · compras-asignación */20 (fallback 3h hábiles)');

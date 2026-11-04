@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/app/components/AppLayout';
-import { IconUsers as Users, IconPlus as Plus, IconShieldCheck as ShieldCheck, IconUser as User, IconCircleCheck as CheckCircle, IconCircleX as XCircle, IconLoader2 as Loader2, IconTrash as Trash2, IconEdit as Edit3, IconX as X, IconAlertCircle as AlertCircle, IconMail as Mail, IconLock as Lock, IconBriefcase as Briefcase, IconEye as Eye, IconEyeOff as EyeOff, IconCalendar as Calendar, IconSparkles as Sparkles, IconSchool as GraduationCap, IconPhone as Phone, IconId as IdCard, IconBadge as Badge } from '@tabler/icons-react';
+import { IconUsers as Users, IconPlus as Plus, IconShieldCheck as ShieldCheck, IconUser as User, IconCircleCheck as CheckCircle, IconCircleX as XCircle, IconLoader2 as Loader2, IconTrash as Trash2, IconEdit as Edit3, IconX as X, IconAlertCircle as AlertCircle, IconMail as Mail, IconLock as Lock, IconBriefcase as Briefcase, IconEye as Eye, IconEyeOff as EyeOff, IconCalendar as Calendar, IconSparkles as Sparkles, IconSchool as GraduationCap, IconPhone as Phone, IconId as IdCard, IconBadge as Badge, IconBrandWhatsapp as Whatsapp } from '@tabler/icons-react';
 import { formatearRut, formatearTelefono } from '@/app/lib/perfil-datos';
+import { TIPOS_AVISO, type TipoAviso } from '@/app/lib/whatsapp-avisos-core';
 import { useSession } from '@/app/lib/session-context';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
@@ -133,6 +134,16 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
   const [modoPrincipiante, setModoPrincipiante] = useState(!!usuario.modo_principiante);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Avisos por WhatsApp de este perfil (tabla aparte, no son permisos): null = aún no cargados o sin migración 178.
+  const [avisos, setAvisos] = useState<Record<TipoAviso, boolean> | null>(null);
+  const [aviso, setAviso] = useState<{ telefono: string | null; activo: boolean; falla?: string } | null>(null);
+  useEffect(() => {
+    fetch(`/api/admin/whatsapp/avisos?usuario=${usuario.id}`).then(async r => {
+      const j = await r.json();
+      if (!r.ok) { setAviso({ telefono: null, activo: true, falla: j.error }); return; }
+      setAvisos(j.avisos); setAviso({ telefono: j.telefono, activo: j.activo });
+    }).catch(() => {});
+  }, [usuario.id]);
 
   // `recibe_licitaciones` sin fijar equivale a «sí» salvo Compras-encerrado/externo (misma regla que el Puente).
   const valor = (k: keyof Permisos) =>
@@ -152,6 +163,10 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'No se pudo guardar (¿falta la migración 28?)'); return; }
+      if (avisos) {
+        const rw = await fetch('/api/admin/whatsapp/avisos', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ usuario: usuario.id, avisos }) });
+        if (!rw.ok) { setError((await rw.json()).error || 'Los permisos se guardaron, pero no los avisos de WhatsApp'); return; }
+      }
       onGuardado();
     } catch { setError('Error de conexión'); }
     finally { setCargando(false); }
@@ -260,6 +275,33 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
                 })}
               </div>
             </>
+          )}
+
+          {aviso && !aviso.falla && avisos && (
+            <div className="rounded-xl border border-emerald-200 dark:border-emerald-500/30 bg-emerald-50/40 dark:bg-emerald-500/[0.05] p-3">
+              <div className="flex items-center gap-1.5 mb-1 text-[10.5px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                <Whatsapp size={12} /> Avisos por WhatsApp
+              </div>
+              <p className="text-[11.5px] text-gray-500 dark:text-zinc-400 leading-snug mb-1">
+                {usuario.rol === 'admin'
+                  ? 'Como administrador, lo que active lo recibe de TODAS las licitaciones de la empresa.'
+                  : 'Recibe estos avisos de las licitaciones que tiene asignadas.'}
+                {' '}Se envían al celular de su perfil{aviso.telefono ? <> (<b>{formatearTelefono(aviso.telefono)}</b>)</> : ''}.
+              </p>
+              {!aviso.telefono && <p className="text-[11.5px] font-semibold text-amber-600 mb-1">Este perfil no tiene un celular válido: sin él no recibirá avisos. Se agrega en Mi perfil.</p>}
+              {!aviso.activo && <p className="text-[11.5px] font-semibold text-amber-600 mb-1">La cuenta está desactivada: no recibirá avisos.</p>}
+              <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
+                {TIPOS_AVISO.map(t => (
+                  <div key={t.tipo} className="flex items-start justify-between gap-3 py-2">
+                    <span className="min-w-0">
+                      <span className="block text-[12.5px] font-medium text-gray-800 dark:text-zinc-200">{t.label}</span>
+                      <span className="block text-[11px] text-gray-400 dark:text-zinc-500 mt-0.5 leading-snug">{t.desc}</span>
+                    </span>
+                    <Switch checked={avisos[t.tipo]} onChange={() => setAvisos(a => a && ({ ...a, [t.tipo]: !a[t.tipo] }))} label={t.label} />
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           <div className="rounded-xl border border-gray-100 dark:border-white/10 bg-gray-50/70 dark:bg-white/[0.03] p-3">
