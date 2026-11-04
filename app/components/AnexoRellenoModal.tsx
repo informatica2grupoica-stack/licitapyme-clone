@@ -6,7 +6,7 @@
 // Word mientras se llena, en vez de adivinar a ciegas desde un fragmento de texto corto. Al
 // generar, el .docx final se sube a R2 y queda registrado como documento propio — aparece en
 // "Documentos para MP" (misma lista que el costeo/informe generados).
-import { useEffect, useRef, useState } from 'react';
+import { createContext, Fragment, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { DatosEmpresaBoton } from '@/app/components/DatosEmpresaBoton';
 import { IconX as X, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconWand as Wand2, IconFileText as FileText, IconExternalLink as ExternalLink, IconChevronDown as ChevronDown, IconShieldExclamation as ShieldAlert, IconListCheck as ListChecks, IconPencil as Pencil, IconCheck as Check, IconSchool as GraduationCap, IconArrowLeftRight as ArrowLeftRight, IconSquare as Square, IconSquareCheck as CheckSquare } from '@tabler/icons-react';
@@ -83,7 +83,7 @@ interface Analisis {
   seccionesEscaneadas?: SeccionEscaneada[];
   // Checkboxes NATIVOS de Word en grupo (Cumple/No cumple y similares) — ver GrupoCheckboxUI en
   // anexos-rellenar.ts. El usuario elige UNA opción por grupo; nunca se autocompletan solos.
-  gruposCheckbox?: { id: string; contexto: string; formulario?: string; opciones: { id: string; etiqueta: string; marcado: boolean }[]; sugerida?: string }[];
+  gruposCheckbox?: { id: string; contexto: string; formulario?: string; opciones: { id: string; etiqueta: string; marcado: boolean }[]; sugerida?: string; parentesis?: boolean }[];
 }
 
 // Un valor que el motor completó solo, mostrado en su lugar dentro de la réplica del documento —
@@ -253,6 +253,42 @@ function BlancoOriginal({ largo }: { largo?: number }) {
   );
 }
 
+// «( ) Persona Natural ( ) Persona Jurídica ( )Otra» — se elige tocando el paréntesis EN el documento,
+// donde está la opción (pedido del dueño, 04-nov-2026: un recuadro aparte arriba se presta a confusión).
+// El contexto lo da solo el panel derecho; el original de la izquierda no lo tiene y se ve tal cual.
+type OpcionesParentesis = { porEtiqueta: Map<string, { grupo: string; opcion: string }>; respuestas: Record<string, string>; onChange: (id: string, v: string) => void };
+const OpcionesParentesisCtx = createContext<OpcionesParentesis | null>(null);
+const RE_PARENTESIS_VACIO = /[([]\s*[)\]]\s*/g;
+
+function TextoConOpciones({ v }: { v: string }) {
+  const ctx = useContext(OpcionesParentesisCtx);
+  if (!ctx || !ctx.porEtiqueta.size || !/[([]\s*[)\]]/.test(v)) return <>{v}</>;
+  const partes: ReactNode[] = [];
+  let ultimo = 0;
+  for (const m of v.matchAll(RE_PARENTESIS_VACIO)) {
+    const resto = v.slice(m.index! + m[0].length).toLowerCase();
+    const hit = [...ctx.porEtiqueta.entries()].find(([et]) => resto.startsWith(et));
+    if (!hit) continue;
+    const { grupo, opcion } = hit[1];
+    const elegida = ctx.respuestas[grupo] === opcion;
+    partes.push(<Fragment key={`t${m.index}`}>{v.slice(ultimo, m.index)}</Fragment>);
+    partes.push(
+      <button
+        key={`b${m.index}`}
+        type="button"
+        onClick={() => ctx.onChange(grupo, elegida ? '' : opcion)}
+        title={elegida ? 'Quitar la marca' : 'Marcar esta opción'}
+        className={`inline-flex items-center justify-center min-w-[2.1rem] mx-0.5 px-1 rounded border text-[11px] font-bold leading-5 align-baseline transition ${
+          elegida ? 'bg-emerald-50 border-emerald-400 text-emerald-700' : 'bg-white border-indigo-300 text-indigo-400 hover:bg-indigo-50'
+        }`}
+      >{elegida ? '( X )' : '(   )'}</button>,
+    );
+    ultimo = m.index! + m[0].length;
+  }
+  partes.push(<Fragment key="fin">{v.slice(ultimo)}</Fragment>);
+  return <>{partes}</>;
+}
+
 function TablaReal({
   tabla, respuestas, onChange, codigo, onCorregido, modoOriginal = false,
 }: {
@@ -309,7 +345,7 @@ function TablaReal({
                     // que la réplica de párrafo (BloqueParrafo), pero en línea dentro de la celda.
                     <span className="leading-relaxed">
                       {c.segmentosInline.map((s, k) => {
-                        if (s.t === 'texto') return <span key={k}>{s.v}</span>;
+                        if (s.t === 'texto') return <span key={k}><TextoConOpciones v={s.v} /></span>;
                         if (s.t === 'auto') {
                           return (
                             <CampoAuto
@@ -352,7 +388,7 @@ function TablaReal({
                       id={c.auto.id} valorEditado={c.auto.id ? respuestas[c.auto.id] : undefined} onEditar={onChange}
                     />
                   ) : (
-                    <span className="text-slate-700">{c.texto}</span>
+                    <span className="text-slate-700"><TextoConOpciones v={c.texto} /></span>
                   )}
                 </td>
               ))}
@@ -401,7 +437,7 @@ function BloqueParrafo({ b, respuestas, onChange, motivoPorId, alternativasPorId
         if (s.t === 'texto') {
           return (
             <span key={i} className={`${s.negrita ? 'font-bold' : ''} ${s.subrayado ? 'underline' : ''}`}>
-              {s.v}
+              {modoOriginal ? s.v : <TextoConOpciones v={s.v} />}
             </span>
           );
         }
@@ -1042,6 +1078,12 @@ export function AnexoRellenoModal({
   };
 
   const setRespuesta = (id: string, v: string) => setRespuestas(prev => ({ ...prev, [id]: v }));
+  // Opciones «( ) …» que se marcan dentro del documento: etiqueta (en minúsculas) → su grupo y opción.
+  const opcionesParentesis = new Map<string, { grupo: string; opcion: string }>();
+  for (const g of analisis?.gruposCheckbox || []) if (g.parentesis) for (const o of g.opciones) {
+    const et = o.etiqueta.toLowerCase();
+    if (!opcionesParentesis.has(et)) opcionesParentesis.set(et, { grupo: g.id, opcion: o.id });
+  }
 
   return createPortal(
     <div
@@ -1223,8 +1265,9 @@ export function AnexoRellenoModal({
                 </div>
               )}
 
-              {analisis.gruposCheckbox && analisis.gruposCheckbox.length > 0 && (
-                <BloqueGruposCheckbox grupos={analisis.gruposCheckbox} respuestas={respuestas} onChange={setRespuesta} />
+              {/* Los grupos «( ) opción» se eligen dentro del documento (TextoConOpciones); aquí solo los checkboxes de Word. */}
+              {analisis.gruposCheckbox && analisis.gruposCheckbox.some(g => !g.parentesis) && (
+                <BloqueGruposCheckbox grupos={analisis.gruposCheckbox.filter(g => !g.parentesis)} respuestas={respuestas} onChange={setRespuesta} />
               )}
 
               <BloqueFirmaTimbre firma={analisis.firma} />
@@ -1234,11 +1277,13 @@ export function AnexoRellenoModal({
               )}
 
               {analisis.documento.length > 0 ? (
-                <DocumentoReplica
-                  documento={analisis.documento} respuestas={respuestas} onChange={setRespuesta} motivoPorId={motivoPorId}
-                  alternativasPorId={alternativasPorId}
-                  codigo={codigo} onCorregido={recargarAnalisis}
-                />
+                <OpcionesParentesisCtx.Provider value={{ porEtiqueta: opcionesParentesis, respuestas, onChange: setRespuesta }}>
+                  <DocumentoReplica
+                    documento={analisis.documento} respuestas={respuestas} onChange={setRespuesta} motivoPorId={motivoPorId}
+                    alternativasPorId={alternativasPorId}
+                    codigo={codigo} onCorregido={recargarAnalisis}
+                  />
+                </OpcionesParentesisCtx.Provider>
               ) : (
                 <div className="flex items-center gap-2 text-[12.5px] text-slate-400 py-6 justify-center">
                   <FileText size={14} /> No se detectaron campos para completar en este documento.

@@ -902,6 +902,8 @@ export interface GrupoCheckboxUI {
   opciones: { id: string; etiqueta: string; marcado: boolean }[];
   /** Opción que la pantalla trae elegida de entrada (el usuario la puede cambiar). */
   sugerida?: string;
+  /** «( ) opción» con paréntesis: se elige tocando el paréntesis dentro del documento, no en un recuadro aparte. */
+  parentesis?: boolean;
 }
 
 type ResolucionMostrada =
@@ -1099,6 +1101,7 @@ export async function analizarAnexoParaUI(
     contexto: g.contexto,
     formulario: formularioDe(analisis.parrafos.find(p => p.paraId === g.id)?.indice ?? -1, formularios),
     opciones: g.opciones.map(o => ({ id: o.paraId, etiqueta: o.etiqueta, marcado: o.marcado })),
+    ...(g.parentesis ? { parentesis: true } : {}),
     // «( ) Persona Natural / ( ) Persona Jurídica»: viene elegida la de la empresa (dato de la ficha),
     // pero el usuario la puede cambiar en la pantalla — no se escribe sola en el documento.
     ...(g.parentesis && esPersonaJuridica(empresa) && g.opciones.some(o => /persona\s+natural/i.test(o.etiqueta))
