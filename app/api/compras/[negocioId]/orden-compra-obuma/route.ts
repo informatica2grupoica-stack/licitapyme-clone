@@ -10,7 +10,8 @@ import { proveedoresParaOrdenCompra, crearOrdenCompraParaProveedor, marcarCompra
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { parsearMontoCL } from '@/app/lib/numeros';
 import { sincronizarComprasObuma } from '@/app/lib/obuma-compras';
-import { buscarCentroCostoPorLicitacion, centrosDeCostoCompleto } from '@/app/lib/obuma';
+import { buscarCentroCostoPorLicitacion, centrosDeCostoCompleto, listarMonedasExtranjerasObuma } from '@/app/lib/obuma';
+import { obtenerTipoCambio } from '@/app/lib/tipo-cambio';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -50,16 +51,24 @@ export async function GET(request: NextRequest, { params }: Params) {
       ]).catch(e => console.warn('[compras/orden-compra-obuma] sync previo falló:', String(e).slice(0, 150)));
     }
 
-    const [proveedores, centroCosto, centros] = await Promise.all([
+    const [proveedores, centroCosto, centros, monedas, usdHoy, eurHoy] = await Promise.all([
       proveedoresParaOrdenCompra(id),
       buscarCentroCostoPorLicitacion(asignacion.licitacionCodigo).catch(() => null),
       centrosDeCostoCompleto().catch(() => []),
+      // Para la OC internacional: monedas extranjeras de Obuma y el tipo de cambio de hoy (precarga, la persona lo puede cambiar).
+      listarMonedasExtranjerasObuma().catch(() => []),
+      // Con tope de 4 s: si mindicador.cl está lento no frena la pantalla (queda el campo vacío para escribirlo a mano).
+      Promise.race([obtenerTipoCambio('USD'), new Promise<null>(r => setTimeout(() => r(null), 4_000))]).catch(() => null),
+      Promise.race([obtenerTipoCambio('EUR'), new Promise<null>(r => setTimeout(() => r(null), 4_000))]).catch(() => null),
     ]);
+    const tiposCambioHoy: Record<string, number> = {};
+    if (usdHoy) tiposCambioHoy.USD = usdHoy.valor;
+    if (eurHoy) tiposCambioHoy.EUR = eurHoy.valor;
     // Recién sincronizado con Obuma: lo que ya tiene OC pasa a «Comprado».
     await marcarCompradosConOc(id, proveedores).catch(e => console.warn('[compras/orden-compra-obuma] marcar Comprado por OC:', String(e).slice(0, 150)));
     // Lista para el selector del formulario de la OC (solo activos, los más nuevos primero).
     const centrosCosto = centros.filter(c => c.activo).sort((a, b) => Number(b.id) - Number(a.id)).map(c => ({ id: c.id, nombre: c.nombre }));
-    return NextResponse.json({ success: true, proveedores, centroCosto, centrosCosto });
+    return NextResponse.json({ success: true, proveedores, centroCosto, centrosCosto, monedas, tiposCambioHoy });
   } catch (error: any) {
     console.error('[compras/orden-compra-obuma][GET]', String(error));
     return NextResponse.json({ error: mensajeSeguro(error, 'No se pudieron cargar las órdenes de compra.') }, { status: 500 });
@@ -95,6 +104,10 @@ async function __POST(request: NextRequest, { params }: Params) {
       centroCostoId: /^\d+$/.test(String(body.centroCostoId ?? '')) ? String(body.centroCostoId) : undefined,
       fechaEntrega: String(body.fechaEntrega || '').trim(), metodoDespacho: String(body.metodoDespacho || '').trim(),
       productoIds: Array.isArray(body.productoIds) ? body.productoIds.map(Number).filter((n: number) => Number.isInteger(n) && n > 0) : undefined,
+      internacional: !!body.internacional,
+      monedaId: body.internacional ? String(body.monedaId ?? '').trim() || null : null,
+      // Tipo de cambio con decimales («943,52» o «943.52»).
+      tipoCambio: body.internacional ? Number(String(body.tipoCambio ?? '').trim().replace(',', '.')) : null,
     }, userId, nombre);
 
     return NextResponse.json({ success: true, ...resultado });

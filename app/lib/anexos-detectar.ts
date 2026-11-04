@@ -2630,7 +2630,42 @@ export function detectarAvisoNoAplica(parrafos: Parrafo[]): AvisoNoAplica | null
 // Un checkbox suelto (sin hermanos en su fila) queda fuera de este barrido — no hay como decidir
 // solo, así que se deja para cuando aparezca un caso real que lo pida.
 export interface OpcionCheckbox { paraId: string; etiqueta: string; marcado: boolean }
-export interface GrupoCheckbox { id: string; contexto: string; opciones: OpcionCheckbox[] }
+export interface GrupoCheckbox {
+  id: string; contexto: string; opciones: OpcionCheckbox[];
+  /** Opciones escritas con paréntesis vacíos «( ) Persona Natural», no checkboxes de Word: se marcan
+   *  escribiendo una X dentro del paréntesis (marcarParentesis), no con marcarCheckbox. */
+  parentesis?: boolean;
+}
+
+// «( ) Persona Natural / ( ) Persona Jurídica / ( )Otra (Indicar) ____» — una opción por párrafo, con
+// el paréntesis (o corchete) vacío al inicio (FORMULARIO Nº1A, 1057922-28-LP26). Dos o más párrafos
+// seguidos así forman UN grupo: el usuario elige una opción en la pantalla, igual que con los
+// checkboxes de Word. El contexto es el párrafo con texto anterior («Naturaleza Jurídica (marcar opción):»).
+const RE_OPCION_PARENTESIS = /^\s*[([](\s*[xX✓✔]?\s*)[)\]]\s*(\S.*)$/;
+export function detectarGruposParentesis(parrafos: Parrafo[]): GrupoCheckbox[] {
+  const grupos: GrupoCheckbox[] = [];
+  let actual: { opciones: OpcionCheckbox[]; contexto: string } | null = null;
+  let ultimoTexto = '';
+  const cerrar = () => {
+    if (actual && actual.opciones.length >= 2) grupos.push({ id: actual.opciones[0].paraId, contexto: actual.contexto, opciones: actual.opciones, parentesis: true });
+    actual = null;
+  };
+  for (const p of parrafos) {
+    const texto = (p.texto || '').replace(/\s+$/, '');
+    if (!texto.trim()) continue;                      // los vacíos de espaciado no cortan el grupo
+    const m = texto.match(RE_OPCION_PARENTESIS);
+    // El paréntesis tiene que estar VACÍO (o ya marcado) y ser corto: «(Ley 19.886) …» no es una opción.
+    if (m && m[1].length <= 20 && m[2].replace(/_{3,}.*$/, '').trim().length <= 60) {
+      if (!actual) actual = { opciones: [], contexto: ultimoTexto };
+      actual.opciones.push({ paraId: p.paraId, etiqueta: m[2].replace(/\s*_{3,}.*$/, '').trim(), marcado: /[xX✓✔]/.test(m[1]) });
+      continue;
+    }
+    cerrar();
+    ultimoTexto = texto.trim().slice(0, 200);
+  }
+  cerrar();
+  return grupos;
+}
 
 // Bloques `<w:sdt>...</w:sdt>` de un tramo de XML. Los checkbox de Word nunca traen otro `<w:sdt>`
 // adentro (a diferencia de las tablas, que sí anidan) — el primer `</w:sdt>` que aparece siempre
@@ -3011,7 +3046,7 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
     avisoNoAplica: detectarAvisoNoAplica(parrafos),
     tripletesFecha: detectarTripletesFecha(blancosInline),
     alternativasExcluyentes: detectarAlternativasExcluyentes(blancosInline),
-    gruposCheckbox: detectarGruposCheckbox(xml),
+    gruposCheckbox: [...detectarGruposCheckbox(xml), ...detectarGruposParentesis(parrafos)],
   };
 }
 

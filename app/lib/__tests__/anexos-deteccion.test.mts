@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   normalizarParaIds, listarParrafos, rellenarFinDeParrafo, rellenarCeldaVacia, parrafoEstaVacio,
-  unificarRunsDeMarcadores, rellenarRunPorIndice, verificarParrafos, verificarXmlBienFormado, marcarOpcionPersonaJuridica,
+  unificarRunsDeMarcadores, rellenarRunPorIndice, verificarParrafos, verificarXmlBienFormado, marcarParentesis,
 } from '../anexos-docx';
 import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, detectarBlancosInline, indiceFilaEncabezado, extraerTablasCrudo, detectarCandidatosTabla, detectarTripletesFecha, detectarAlternativasExcluyentes, esEtiquetaDeCampo } from '../anexos-detectar';
 import { valorExisteEnFicha, campoCalzaConLaEtiqueta, type EmpresaCampos } from '../anexos-ia-motor';
@@ -2720,12 +2720,19 @@ test('escribir tras un rótulo sin «:» agrega los dos puntos pegados («Giro �
   assert.match(x.replace(/<[^>]+>/g, ''), /noviembre de 2026/);
 });
 
-test('«( ) Persona Natural / ( ) Persona Jurídica / ( ) Otra»: se marca la X en Persona Jurídica sin cambiar el largo (Formulario Nº1A, 1057922-28-LP26)', () => {
-  const xml = NS + `<w:p><w:r><w:t xml:space="preserve">(</w:t></w:r><w:r><w:t xml:space="preserve">        ) Persona Natural</w:t></w:r></w:p>`
-    + p('(        ) Persona Jurídica') + p('(        )Otra (Indicar) _____________') + FIN;
-  const textos = listarParrafos(marcarOpcionPersonaJuridica(normalizarParaIds(xml).xml)).map(x => x.texto);
-  assert.deepEqual(textos, ['(        ) Persona Natural', '(    X   ) Persona Jurídica', '(        )Otra (Indicar) _____________']);
-  // Sin la opción «Persona Natural» al lado no es una lista de opciones: no se toca.
-  const suelto = NS + p('(        ) Persona Jurídica') + FIN;
-  assert.equal(marcarOpcionPersonaJuridica(suelto), suelto);
+test('«( ) Persona Natural / ( ) Persona Jurídica / ( ) Otra» es un grupo para elegir; se marca la X en la elegida sin cambiar el largo (Formulario Nº1A, 1057922-28-LP26)', () => {
+  const xml = normalizarParaIds(NS + p('Naturaleza Jurídica (marcar opción):')
+    + `<w:p><w:r><w:t xml:space="preserve">(</w:t></w:r><w:r><w:t xml:space="preserve">        ) Persona Natural</w:t></w:r></w:p>`
+    + p('(        ) Persona Jurídica') + p('(        )Otra (Indicar) _____________') + FIN).xml;
+  const g = analizarAnexo(xml).gruposCheckbox.find(x => x.parentesis)!;
+  assert.ok(g, 'debe haber un grupo de opciones con paréntesis');
+  assert.equal(g.contexto, 'Naturaleza Jurídica (marcar opción):');
+  assert.deepEqual(g.opciones.map(o => o.etiqueta), ['Persona Natural', 'Persona Jurídica', 'Otra (Indicar)']);
+  // Nada se marca solo: la X la pone la elección del usuario.
+  assert.equal(listarParrafos(xml)[2].texto, '(        ) Persona Jurídica');
+  const marcado = listarParrafos(marcarParentesis(xml, g.opciones[1].paraId)).map(x => x.texto).slice(1);
+  assert.deepEqual(marcado, ['(        ) Persona Natural', '(    X   ) Persona Jurídica', '(        )Otra (Indicar) _____________']);
+  // «(Ley 19.886) …» no es una opción.
+  const leyes = normalizarParaIds(NS + p('(Ley 19.886) aplica') + p('(Decreto 250) aplica') + FIN).xml;
+  assert.equal(analizarAnexo(leyes).gruposCheckbox.length, 0);
 });

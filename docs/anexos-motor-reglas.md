@@ -182,8 +182,9 @@ columna «CUMPLE» cuenta aunque sea angosta; «PUNTAJE ASIGNADO» / «uso de la
 oferente y no genera casilla; una unidad entre corchetes («200 [kg]») no es un campo.
 
 **Lista de tipo de oferente con paréntesis** («( ) Persona Natural / ( ) Persona Jurídica / ( ) Otra»):
-se marca «( X ) Persona Jurídica» cuando la ficha es persona jurídica (`marcarOpcionPersonaJuridica`).
-Es un dato de la empresa, no una decisión; exige que la lista traiga también «Persona Natural».
+es un grupo de opciones que el usuario elige en la pantalla (`detectarGruposParentesis`, igual que
+los checkboxes de Word); viene preseleccionada «Persona Jurídica» si la ficha lo es y se puede cambiar.
+Al generar se escribe la X en la elegida (`marcarParentesis`).
 
 **Plazo a elegir, meses de garantía, «marcar con una X»**: los compromete el oferente; nunca pasan por
 la IA de bases ni por la de órdenes de compra (antes elegía «15 días» y la garantía mínima sola).

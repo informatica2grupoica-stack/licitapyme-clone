@@ -596,6 +596,16 @@ export async function listarFormasPago(): Promise<ObumaFormaPago[]> {
     .map(f => ({ id: String(f.empresa_fp_id), codigo: String(f.empresa_fp_codigo || ''), nombre: String(f.empresa_fp_nombre) }));
 }
 
+export interface ObumaMoneda { id: string; codigo: string; nombre: string }
+/** Monedas extranjeras de la cuenta (`pg_moneda_foreign=1`, leído en vivo 04-nov-2026: USD=3, EUR=4, GBP=6, AUD=7), para la OC
+ *  internacional. UF/UTM/CLP no son extranjeras y no se ofrecen. */
+export async function listarMonedasExtranjerasObuma(): Promise<ObumaMoneda[]> {
+  const r = await llamar<ObumaListado<any>>(BASE_V1, '/pg-monedas.list.json');
+  return (r.data || [])
+    .filter(m => String(m.pg_moneda_foreign) === '1')
+    .map(m => ({ id: String(m.pg_moneda_id), codigo: String(m.pg_moneda_codigo || '').trim(), nombre: String(m.pg_moneda_nombre || '').trim() }));
+}
+
 // `proveedor_forma_pago` en la ficha de un proveedor es un ID numérico (ej. "2824"), no el nombre —
 // para mostrarlo hay que resolverlo contra el catálogo COMPLETO de formas de pago (sin el filtro
 // usar_en_compras=1 de arriba: la forma de pago propia de un proveedor puede ser cualquiera de las
@@ -738,6 +748,11 @@ export interface DatosCrearOrdenCompra {
   // es INVENTARIO/nacional; si algún día se necesita un concepto distinto (ej. un servicio de
   // logística que sea GASTO puro) habría que exponerlo como opción, no queda hardcodeado por gusto.
   internacional?: boolean; // default false (Nacional)
+  /** Solo OC internacional: ID de `pg-monedas.list.json` (USD=3, EUR=4…) y cuántos CLP vale 1 unidad. Los precios de `items` y
+   *  `fleteMonto` ya vienen en ESA moneda. Igual que las OC internacionales hechas a mano en Obuma (folios 174, 384, 385): precios
+   *  con decimales, cada línea exenta, sin IVA (el IVA de una importación se paga en aduana) y el total en la moneda extranjera. */
+  monedaId?: string | null;
+  tipoCambio?: number | null;
   conceptoGasto?: 'GASTO' | 'INVENTARIO' | 'ACTIVO'; // default INVENTARIO
   // ID real del centro de costo (contabilidadCentrosDeCostos.list.json) — ver
   // buscarCentroCostoPorLicitacion. Se omite del payload cuando es null: no se manda un centro de
@@ -759,6 +774,13 @@ export interface DatosCrearOrdenCompra {
 export async function crearOrdenCompraObuma(
   datos: DatosCrearOrdenCompra,
 ): Promise<{ compraOcId: string; folio: string | null; subtotalNeto: number; iva: number; total: number }> {
+  const internacional = !!datos.internacional;
+  if (internacional) {
+    if (!datos.monedaId || datos.monedaId === MONEDA_CLP_ID) throw new Error('Una orden de compra internacional necesita una moneda extranjera.');
+    if (!(Number(datos.tipoCambio) > 0)) throw new Error('Falta el tipo de cambio de la orden de compra internacional.');
+  }
+  // Pesos sin decimales; moneda extranjera con 2 (OC 174 hecha a mano: «precio 3.45», «subtotal 362.25»).
+  const redondear = (n: number) => internacional ? Math.round(n * 100) / 100 : Math.round(n);
   const itemsPayload: Record<string, unknown>[] = datos.items.map(it => ({
     ...(it.productoIdObuma ? { producto_id: it.productoIdObuma } : {}),
     ...(it.codigoComercial ? { codigo_comercial: it.codigoComercial } : {}),
@@ -767,11 +789,13 @@ export async function crearOrdenCompraObuma(
     cantidad: String(it.cantidad),
     // Prueba 3988 (16-oct-2026): con `precio` como texto Obuma guardó 0 (y solo respetó el subtotal). Se manda numérico, con el descuento en 0
     // explícito (la OC hecha a mano lo trae) y el centro de costo también en la línea (la OC hecha a mano lo tiene en cada ítem).
-    precio: Math.round(it.precioUnitarioNeto),
+    precio: redondear(it.precioUnitarioNeto),
     // Probado en vivo (OC 3989): Obuma IGNORA `precio` y guarda el precio de la línea solo si viene como `producto_precio` (sin él queda en 0).
-    producto_precio: Math.round(it.precioUnitarioNeto),
+    producto_precio: redondear(it.precioUnitarioNeto),
     descuento: 0,
-    subtotal: Math.round(it.cantidad * it.precioUnitarioNeto),
+    subtotal: redondear(it.cantidad * it.precioUnitarioNeto),
+    // Las líneas de las OC internacionales hechas a mano van todas con «producto_exento 1».
+    ...(internacional ? { producto_exento: '1' } : {}),
     // Por API no existe centro de costo por línea: todas toman el de la cabecera (soporte de Obuma).
   }));
   if (datos.fleteMonto != null) {
@@ -782,29 +806,32 @@ export async function crearOrdenCompraObuma(
     if (datos.fleteMonto > 0) {
       itemsPayload.push({
         producto_nombre: 'FLETE / DESPACHO', unidad_medida: 'UN', cantidad: '1',
-        precio: String(Math.round(datos.fleteMonto)), subtotal: String(Math.round(datos.fleteMonto)),
+        precio: String(redondear(datos.fleteMonto)), subtotal: String(redondear(datos.fleteMonto)),
+        ...(internacional ? { producto_precio: redondear(datos.fleteMonto), producto_exento: '1' } : {}),
       });
     }
   }
   if (itemsPayload.length === 0) throw new Error('La orden de compra no tiene ningún ítem.');
 
-  const subtotalNeto = itemsPayload.reduce((s, it) => s + Number(it.subtotal), 0);
-  const iva = Math.round(subtotalNeto * 0.19);
-  const total = subtotalNeto + iva;
+  const subtotalNeto = redondear(itemsPayload.reduce((s, it) => s + Number(it.subtotal), 0));
+  // Internacional: todo exento, sin IVA (OC 384/385 hechas a mano: exento = total, neto 0, IVA 0).
+  const iva = internacional ? 0 : Math.round(subtotalNeto * 0.19);
+  const total = redondear(subtotalNeto + iva);
 
   const doc: Record<string, unknown> = {
     proveedor_razon_social: datos.proveedorRazonSocial,
     oc_fecha: datos.fecha,
     oc_sucursal: SUCURSAL_TALAGANTE,
-    oc_moneda: MONEDA_CLP_ID,
+    oc_moneda: internacional ? datos.monedaId : MONEDA_CLP_ID,
     // Obuma guarda este campo como TEXTO tal cual llega (la OC 3988 quedó con «2824», la 3982 hecha a mano con el nombre): se manda el NOMBRE.
     oc_forma_pago: datos.formaPagoNombre?.trim() || datos.formaPagoId,
     oc_subtotal: String(subtotalNeto),
-    oc_neto: String(subtotalNeto),
+    oc_neto: String(internacional ? 0 : subtotalNeto),
     oc_iva: String(iva),
     oc_total: String(total),
     oc_referencia: datos.referencia,
-    oc_internacional: datos.internacional ? '1' : '0',
+    oc_internacional: internacional ? '1' : '0',
+    ...(internacional ? { oc_exento: String(subtotalNeto), oc_internacional_tipocambio: String(datos.tipoCambio) } : {}),
     oc_concepto_gasto: datos.conceptoGasto || 'INVENTARIO',
     oc_detalle: itemsPayload,
   };

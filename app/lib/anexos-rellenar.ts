@@ -25,7 +25,7 @@
 import {
   normalizarParaIds, unificarRunsDeMarcadores, rellenarCeldaVacia, rellenarRunPorIndice,
   insertarImagenEnParrafo, rellenarFinDeParrafo, reemplazarTextoDeParrafo, verificarParrafos, abrirDocx, guardarDocx,
-  eliminarRespaldoVmlDuplicado, sustituirCamposFormularioLegado, compactarVaciosDeRelleno, marcarKeepNext, agregarTextoBajoLineaFirma, marcarCheckbox, marcarOpcionPersonaJuridica, type Parrafo,
+  eliminarRespaldoVmlDuplicado, sustituirCamposFormularioLegado, compactarVaciosDeRelleno, marcarKeepNext, agregarTextoBajoLineaFirma, marcarCheckbox, marcarParentesis, type Parrafo,
 } from '@/app/lib/anexos-docx';
 import {
   analizarAnexo, extraerTablasCrudo,
@@ -900,6 +900,8 @@ export interface GrupoCheckboxUI {
   contexto: string;
   formulario?: string;
   opciones: { id: string; etiqueta: string; marcado: boolean }[];
+  /** Opción que la pantalla trae elegida de entrada (el usuario la puede cambiar). */
+  sugerida?: string;
 }
 
 type ResolucionMostrada =
@@ -932,8 +934,7 @@ export async function analizarAnexoParaUI(
   // una de las dos rutas se lo saltara, los ids de los pendientes (que son índices de aparición) no
   // calzarían entre el análisis y la generación.
   const { xml: xmlConIds } = normalizarParaIds(xmlSinCamposLegados);
-  // «( X ) Persona Jurídica»: dato de la empresa, no decisión (ver marcarOpcionPersonaJuridica).
-  const xmlNormalizado = esPersonaJuridica(empresa) ? marcarOpcionPersonaJuridica(unificarRunsDeMarcadores(xmlConIds)) : unificarRunsDeMarcadores(xmlConIds);
+  const xmlNormalizado = unificarRunsDeMarcadores(xmlConIds);
   const analisis = analizarAnexo(xmlNormalizado, { postulaComoUTP: forzarAplica });
   const formularios = detectarFormularios(xmlNormalizado);
   const numeracion = await leerNumeracion(zip);
@@ -1098,6 +1099,11 @@ export async function analizarAnexoParaUI(
     contexto: g.contexto,
     formulario: formularioDe(analisis.parrafos.find(p => p.paraId === g.id)?.indice ?? -1, formularios),
     opciones: g.opciones.map(o => ({ id: o.paraId, etiqueta: o.etiqueta, marcado: o.marcado })),
+    // «( ) Persona Natural / ( ) Persona Jurídica»: viene elegida la de la empresa (dato de la ficha),
+    // pero el usuario la puede cambiar en la pantalla — no se escribe sola en el documento.
+    ...(g.parentesis && esPersonaJuridica(empresa) && g.opciones.some(o => /persona\s+natural/i.test(o.etiqueta))
+      ? { sugerida: g.opciones.find(o => /persona\s+jur[ií]dica/i.test(o.etiqueta))?.paraId }
+      : {}),
   }));
 
   return {
@@ -1185,8 +1191,7 @@ export async function generarAnexoFinal(
   // una de las dos rutas se lo saltara, los ids de los pendientes (que son índices de aparición) no
   // calzarían entre el análisis y la generación.
   const { xml: xmlConIds } = normalizarParaIds(xmlCrudo);
-  // «( X ) Persona Jurídica»: dato de la empresa, no decisión (ver marcarOpcionPersonaJuridica).
-  const xmlNormalizado = esPersonaJuridica(empresa) ? marcarOpcionPersonaJuridica(unificarRunsDeMarcadores(xmlConIds)) : unificarRunsDeMarcadores(xmlConIds);
+  const xmlNormalizado = unificarRunsDeMarcadores(xmlConIds);
   const analisis = analizarAnexo(xmlNormalizado, { postulaComoUTP: respuestas.anexoAplica === '1' });
   const formularios = detectarFormularios(xmlNormalizado);
   // Mismo recorte que en el análisis — ver celdasDeRellenoDelPie.
@@ -1397,7 +1402,7 @@ export async function generarAnexoFinal(
       continue;
     }
     try {
-      xml = marcarCheckbox(xml, opcion.paraId, true);
+      xml = g.parentesis ? marcarParentesis(xml, opcion.paraId) : marcarCheckbox(xml, opcion.paraId, true);
       respondidos++;
     } catch (error) {
       console.error(`[anexos-rellenar] No se pudo marcar el checkbox "${opcion.etiqueta}" (paraId ${opcion.paraId}):`, String(error).slice(0, 200));

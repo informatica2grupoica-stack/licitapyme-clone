@@ -83,7 +83,7 @@ interface Analisis {
   seccionesEscaneadas?: SeccionEscaneada[];
   // Checkboxes NATIVOS de Word en grupo (Cumple/No cumple y similares) — ver GrupoCheckboxUI en
   // anexos-rellenar.ts. El usuario elige UNA opción por grupo; nunca se autocompletan solos.
-  gruposCheckbox?: { id: string; contexto: string; formulario?: string; opciones: { id: string; etiqueta: string; marcado: boolean }[] }[];
+  gruposCheckbox?: { id: string; contexto: string; formulario?: string; opciones: { id: string; etiqueta: string; marcado: boolean }[]; sugerida?: string }[];
 }
 
 // Un valor que el motor completó solo, mostrado en su lugar dentro de la réplica del documento —
@@ -711,7 +711,7 @@ function BloqueGruposCheckbox({
                   <button
                     key={o.id}
                     type="button"
-                    onClick={() => onChange(g.id, o.id)}
+                    onClick={() => onChange(g.id, seleccionada ? '' : o.id)}
                     className={`flex items-center gap-1.5 text-[12px] font-medium px-2.5 py-1.5 rounded-md border transition ${
                       seleccionada
                         ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
@@ -885,6 +885,8 @@ export function AnexoRellenoModal({
         for (const p of (data.pendientesCelda as PendienteCelda[] | undefined) || []) {
           if (p.alternativas?.length) defaults[p.id] = p.alternativas[0].valor;
         }
+        // «( ) Persona Natural / ( ) Persona Jurídica»: viene elegida la de la empresa; se puede cambiar.
+        for (const g of data.gruposCheckbox || []) if (g.sugerida) defaults[g.id] = g.sugerida;
         if (Object.keys(defaults).length) setRespuestas(prev => ({ ...defaults, ...prev }));
       })
       .catch(e => setError(e.message || 'Error al analizar el documento'))

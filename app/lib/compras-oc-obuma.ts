@@ -17,7 +17,7 @@ import { listarProductosCompra, sincronizarTareaOcProveedores } from '@/app/lib/
 import { productosConCompraRapidaAprobada, listarComprasRapidas, type CompraRapida } from '@/app/lib/compras-compra-rapida';
 import {
   crearOrdenCompraObuma, listarFormasPago, centrosDeCostoCompleto, proveedorPorRut, crearProveedorObuma, buscarCentroCostoPorLicitacion,
-  listarComprasOc, listarComprasOcItems, mapaFormasPagoCompleto, type ObumaFormaPago, type DatosCrearProveedorObuma,
+  listarComprasOc, listarComprasOcItems, mapaFormasPagoCompleto, listarMonedasExtranjerasObuma, type ObumaFormaPago, type DatosCrearProveedorObuma,
 } from '@/app/lib/obuma';
 import { METODOS_DESPACHO_OBUMA } from '@/app/lib/obuma-despacho';
 import { comprasObumaDeLicitacion, netoDeCompra, type FacturaObuma } from '@/app/lib/obuma-compras';
@@ -45,6 +45,8 @@ export interface ProveedorOrdenCompra {
   items: ItemOrdenCompra[]; subtotal: number;
   /** Flete neto de la compra directa a este proveedor (se precarga en el formulario de la OC). */
   fleteSugerido?: number | null;
+  /** Moneda y tipo de cambio de la cotización de este proveedor cuando NO es en pesos: precargan la OC como internacional. */
+  monedaCotizacion?: string | null; tipoCambioCotizacion?: number | null;
   yaCreada: { obumaCompraOcId: string; folio: string | null; total: number; fechaOc: string; estado?: string | null } | null;
   // Pedido explícito del usuario (14-sep-2026, caso real: el encargado de compras ya había creado
   // la OC directo en Obuma — "yaCreada" (arriba) no lo veía porque solo mira lo que creó Licitank).
@@ -122,7 +124,7 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
       [negocioId, ...productoIds],
     ) as any,
     pool.query(
-      `SELECT proveedor_nombre, proveedor_id, proveedor_rut, origen, flete_monto FROM compras_cotizacion WHERE negocio_id = ?`,
+      `SELECT proveedor_nombre, proveedor_id, proveedor_rut, origen, flete_monto, moneda, tipo_cambio_usado FROM compras_cotizacion WHERE negocio_id = ?`,
       [negocioId],
     ) as any,
     pool.query(
@@ -142,9 +144,11 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
   // de verdad de a quién se le está comprando, no un texto libre que puede escribirse distinto.
   const fichaPorNombre = new Map<string, { proveedorId: number | null; rut: string | null }>();
   const fletePorDirecta = new Map<string, number>();
+  const monedaPorProveedor = new Map<string, { moneda: string; tipoCambio: number | null }>();
   for (const c of cotRows as any[]) {
     fichaPorNombre.set(c.proveedor_nombre, { proveedorId: c.proveedor_id, rut: c.proveedor_rut });
     if (c.origen === 'directa' && Number(c.flete_monto) > 0) fletePorDirecta.set(c.proveedor_nombre, Number(c.flete_monto));
+    if (c.moneda && c.moneda !== 'CLP') monedaPorProveedor.set(c.proveedor_nombre, { moneda: c.moneda, tipoCambio: Number(c.tipo_cambio_usado) > 0 ? Number(c.tipo_cambio_usado) : null });
   }
 
   const idsProveedor = [...new Set([...fichaPorNombre.values()].map(f => f.proveedorId).filter((v): v is number => v != null))];
@@ -181,7 +185,9 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
         proveedorDireccion: extra?.direccion ?? null, proveedorComuna: extra?.comuna ?? null,
         proveedorEmail: extra?.email ?? null, proveedorTelefono: extra?.telefono ?? null,
         proveedorGiro: extra?.giro ?? null, proveedorContacto: extra?.contacto ?? null,
-        items: [], subtotal: 0, fleteSugerido: fletePorDirecta.get(nombre) ?? null, yaCreada: ocPorProveedor.get(nombre) ?? null, posibleDuplicadoObuma: null, ocRealObuma: null,
+        items: [], subtotal: 0, fleteSugerido: fletePorDirecta.get(nombre) ?? null,
+        monedaCotizacion: monedaPorProveedor.get(nombre)?.moneda ?? null, tipoCambioCotizacion: monedaPorProveedor.get(nombre)?.tipoCambio ?? null,
+        yaCreada: ocPorProveedor.get(nombre) ?? null, posibleDuplicadoObuma: null, ocRealObuma: null,
       });
     }
     const grupo = grupos.get(nombre)!;
@@ -334,9 +340,13 @@ export async function crearProveedorEnObumaExplicito(datos: DatosCrearProveedorO
  *  hay compra real que emitir. */
 export async function crearOrdenCompraParaProveedor(
   negocioId: number, proveedorNombre: string,
-  opciones: { formaPagoId: string; incluirFlete: boolean; fleteMonto: number | null; confirmarPeseADuplicado?: boolean; productoIds?: number[]; centroCostoId?: string; fechaEntrega: string; metodoDespacho: string },
+  opciones: {
+    formaPagoId: string; incluirFlete: boolean; fleteMonto: number | null; confirmarPeseADuplicado?: boolean; productoIds?: number[]; centroCostoId?: string; fechaEntrega: string; metodoDespacho: string;
+    /** OC internacional: moneda de Obuma (ID de pg-monedas) y tipo de cambio (CLP por 1 unidad). Los montos de Licitank (pesos) se convierten. */
+    internacional?: boolean; monedaId?: string | null; tipoCambio?: number | null;
+  },
   actorId: number, actorNombre: string | null,
-): Promise<{ obumaCompraOcId: string; folio: string | null; total: number }> {
+): Promise<{ obumaCompraOcId: string; folio: string | null; total: number; monedaCodigo: string; totalMoneda: number }> {
   // Control de gasto (pedido explícito del usuario): dinero de verdad sale recién cuando se crea la
   // OC en Obuma, así que ese es el punto de mayor riesgo — se exigen AMBAS compuertas aprobadas, no
   // solo la de compra. La spec (§11.1) solo pide la Compuerta 1 para arrancar "el proceso documental
@@ -376,6 +386,17 @@ export async function crearOrdenCompraParaProveedor(
   if (opciones.incluirFlete && !(opciones.fleteMonto! > 0)) throw new Error('Falta el monto del flete.');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(opciones.fechaEntrega)) throw new Error('Falta la fecha de entrega de los productos.');
   if (!(METODOS_DESPACHO_OBUMA as readonly string[]).includes(opciones.metodoDespacho)) throw new Error('Falta el método de despacho.');
+  // Nacional o internacional: lo elige la persona en el formulario. Internacional exige una moneda extranjera real de Obuma y su tipo de cambio.
+  const internacional = !!opciones.internacional;
+  let moneda: { id: string; codigo: string } | null = null;
+  const tc = Number(opciones.tipoCambio);
+  if (internacional) {
+    moneda = (await listarMonedasExtranjerasObuma()).find(m => m.id === String(opciones.monedaId ?? '')) ?? null;
+    if (!moneda) throw new Error('Elige la moneda de la orden de compra internacional.');
+    if (!(Number.isFinite(tc) && tc > 0)) throw new Error('Falta el tipo de cambio de la orden de compra internacional.');
+  }
+  // Licitank guarda los precios en pesos; la OC internacional va en la moneda extranjera (pesos ÷ tipo de cambio).
+  const aMonedaOc = (clp: number) => internacional ? clp / tc : clp;
 
   // Qué productos entran en la orden: los que la persona marcó; si no marcó, los aprobados. Un producto RECHAZADO nunca entra.
   const marcados = opciones.productoIds?.length ? new Set(opciones.productoIds) : null;
@@ -422,11 +443,18 @@ export async function crearOrdenCompraParaProveedor(
     centroCostoCodigo: centroCosto ? ((await centrosDeCostoCompleto().catch(() => [])).find(c => c.id === centroCosto.id)?.codigo || null) : null,
     items: itemsOrden.map(it => ({
       productoIdObuma: it.obumaProductoId, codigoComercial: it.obumaCodigoComercial,
-      nombre: it.descripcion, cantidad: it.cantidad, precioUnitarioNeto: it.precioUnitario,
+      nombre: it.descripcion, cantidad: it.cantidad, precioUnitarioNeto: aMonedaOc(it.precioUnitario),
     })),
-    fleteMonto: opciones.incluirFlete ? opciones.fleteMonto : null,
+    fleteMonto: opciones.incluirFlete && opciones.fleteMonto != null ? aMonedaOc(opciones.fleteMonto) : null,
     fechaEntrega: opciones.fechaEntrega, metodoDespacho: opciones.metodoDespacho,
+    internacional, monedaId: moneda?.id ?? null, tipoCambio: internacional ? tc : null,
   });
+  // En Licitank (margen, pagos, «Sin emitir»/emitida) todo se mide en pesos: la OC internacional se guarda con su equivalente en CLP.
+  const subtotalClp = internacional ? Math.round(creada.subtotalNeto * tc) : creada.subtotalNeto;
+  const totalClp = internacional ? Math.round(creada.total * tc) : creada.total;
+  const montoTexto = internacional
+    ? `${moneda!.codigo} ${creada.total.toLocaleString('es-CL', { maximumFractionDigits: 2 })} (internacional, TC ${tc}, ≈ ${new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(totalClp)})`
+    : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(creada.total);
 
   const ahora = ahoraChileSQL();
   await pool.query(
@@ -439,15 +467,15 @@ export async function crearOrdenCompraParaProveedor(
       negocioId, grupo.proveedorId, grupo.proveedorNombre, grupo.proveedorRut,
       creada.compraOcId, creada.folio, JSON.stringify(itemsOrden),
       opciones.incluirFlete ? 1 : 0, opciones.incluirFlete ? opciones.fleteMonto : null,
-      creada.subtotalNeto, creada.total, opciones.formaPagoId, null, fecha,
+      subtotalClp, totalClp, opciones.formaPagoId, null, fecha,
       actorId, actorNombre, ahora,
     ],
   );
 
   await registrarEvento({
     tipo: 'COMPRAS_OC_OBUMA_CREADA', licitacionCodigo, actorId, actorNombre,
-    mensaje: `Se creó la orden de compra en Obuma para "${grupo.proveedorNombre}" — folio ${creada.folio ?? creada.compraOcId}, ${new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(creada.total)}.`,
-    metadata: { negocio_id: negocioId, proveedor: grupo.proveedorNombre, obuma_compra_oc_id: creada.compraOcId },
+    mensaje: `Se creó la orden de compra en Obuma para "${grupo.proveedorNombre}" — folio ${creada.folio ?? creada.compraOcId}, ${montoTexto}.`,
+    metadata: { negocio_id: negocioId, proveedor: grupo.proveedorNombre, obuma_compra_oc_id: creada.compraOcId, internacional, moneda: moneda?.codigo ?? 'CLP', tipo_cambio: internacional ? tc : null },
   });
 
   // Refleja el hito del checklist (§11) con TODOS los folios emitidos hasta ahora para este
@@ -461,11 +489,11 @@ export async function crearOrdenCompraParaProveedor(
   // Antes faltaba y la OC quedaba creada en Obuma pero la pantalla mostraba «No se pudo crear la orden de compra».
   await marcarHitoReparto(negocioId, 'ocEmitida', {
     activo: true, ocNumero: resumenFolios,
-    nota: `OC emitida desde Licitank en Obuma: folio ${creada.folio ?? creada.compraOcId} a ${grupo.proveedorNombre}, ${new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(creada.subtotalNeto)} neto.`,
+    nota: `OC emitida desde Licitank en Obuma: folio ${creada.folio ?? creada.compraOcId} a ${grupo.proveedorNombre}, ${internacional ? montoTexto : `${new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(creada.subtotalNeto)} neto`}.`,
   }, actorId, actorNombre);
   await marcarCompradosConOc(negocioId).catch(e => console.warn('[compras-oc] no se pudo marcar Comprado:', String(e).slice(0, 150)));
 
-  return { obumaCompraOcId: creada.compraOcId, folio: creada.folio, total: creada.total };
+  return { obumaCompraOcId: creada.compraOcId, folio: creada.folio, total: totalClp, monedaCodigo: moneda?.codigo ?? 'CLP', totalMoneda: creada.total };
 }
 
 export interface ItemOrdenCompraVista {

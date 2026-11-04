@@ -36,6 +36,7 @@ interface ProveedorOC {
   proveedorDireccion: string | null; proveedorComuna: string | null; proveedorEmail: string | null; proveedorTelefono: string | null;
   proveedorGiro: string | null; proveedorContacto: string | null;
   items: ItemOC[]; subtotal: number; fleteSugerido?: number | null;
+  monedaCotizacion?: string | null; tipoCambioCotizacion?: number | null;
   yaCreada: { obumaCompraOcId: string; folio: string | null; total: number; fechaOc: string; estado?: string | null } | null;
   posibleDuplicadoObuma: { folio: string | null; referencia: string; fecha: string; total: number } | null;
   ocRealObuma?: { folios: string[]; totalNeto: number; estados: string[]; fecha: string | null } | null;
@@ -71,6 +72,10 @@ const conPunto = (color: string, label: string) => (
   </span>
 );
 const fmtCLP = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
+// Monto en moneda extranjera (OC internacional), con 2 decimales.
+const fmtMoneda = (n: number | null) => n == null ? '—' : n.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Tipo de cambio escrito a mano: acepta «943,52» o «943.52».
+const tcNumero = (s: string) => Number(s.trim().replace(',', '.'));
 
 type EstadoProveedorObuma = 'idle' | 'cargando' | 'existe' | 'no_existe' | 'sin_rut';
 
@@ -135,6 +140,12 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
   const [metodoDespacho, setMetodoDespacho] = useState('');
   const [incluirFlete, setIncluirFlete] = useState(false);
   const [fleteMonto, setFleteMonto] = useState('');
+  // OC nacional (pesos, con IVA) o internacional (moneda extranjera, exenta). Se precarga internacional si la cotización vino en otra moneda.
+  const [ocInternacional, setOcInternacional] = useState(false);
+  const [monedaOcId, setMonedaOcId] = useState('');
+  const [tipoCambioOc, setTipoCambioOc] = useState('');
+  const [monedasObuma, setMonedasObuma] = useState<Array<{ id: string; codigo: string; nombre: string }>>([]);
+  const [tiposCambioHoy, setTiposCambioHoy] = useState<Record<string, number>>({});
   const [confirmadoOC, setConfirmadoOC] = useState(false);
   // Pedido explícito del usuario (14-sep-2026, caso real: el encargado de compras ya había creado
   // esta OC directo en Obuma) — segunda casilla, solo aparece cuando hay un posible duplicado real.
@@ -163,7 +174,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
       // se avisa acá ANTES de que la persona llene todo el formulario y recién ahí se entere.
       setMargenAprobado(dApr.success && ['APROBADA', 'APROBADA_CON_MODIFICACION'].includes(dApr.margen?.estado));
       if (dRep.success) { setReparto(dRep.reparto); setRespaldos(dRep.respaldos || []); }
-      if (dOC.success) { setProveedoresOC(dOC.proveedores || []); setCentroCosto(dOC.centroCosto || null); setCentrosCosto(dOC.centrosCosto || []); setCentroElegido(prev => prev || dOC.centroCosto?.id || ''); }
+      if (dOC.success) { setProveedoresOC(dOC.proveedores || []); setCentroCosto(dOC.centroCosto || null); setCentrosCosto(dOC.centrosCosto || []); setCentroElegido(prev => prev || dOC.centroCosto?.id || ''); setMonedasObuma(dOC.monedas || []); setTiposCambioHoy(dOC.tiposCambioHoy || {}); }
     } catch (e: any) {
       toast.error('No se pudo cargar el proceso administrativo', e.message);
     } finally {
@@ -237,6 +248,10 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
 
   const abrirOC = (p: ProveedorOC) => {
     setOcAbierta(p.proveedorNombre); setFormaPagoId(''); setIncluirFlete(!!p.fleteSugerido); setFleteMonto(p.fleteSugerido ? String(Math.round(p.fleteSugerido)) : ''); setConfirmadoOC(false); setConfirmadoPeseADuplicado(false);
+    const monedaCot = p.monedaCotizacion ? monedasObuma.find(m => m.codigo === p.monedaCotizacion) : undefined;
+    setOcInternacional(!!monedaCot); setMonedaOcId(monedaCot?.id ?? '');
+    const tcInicial = p.tipoCambioCotizacion ?? (monedaCot ? tiposCambioHoy[monedaCot.codigo] : undefined);
+    setTipoCambioOc(tcInicial ? String(tcInicial) : '');
     setEstadoProveedorObuma('idle');
     cargarFormasPago();
     verificarProveedor(p.proveedorRut);
@@ -256,6 +271,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
     if (!formaPagoId) { toast.error('Falta la forma de pago', 'Elige una antes de crear la orden.'); return; }
     if (!fechaEntrega || !metodoDespacho) { toast.error('Faltan datos de entrega', 'Elige la fecha de entrega y el método de despacho.'); return; }
     if (incluirFlete && !fleteMonto.trim()) { toast.error('Falta el monto del flete', ''); return; }
+    if (ocInternacional && (!monedaOcId || !(tcNumero(tipoCambioOc) > 0))) { toast.error('Faltan datos de la OC internacional', 'Elige la moneda y escribe el tipo de cambio.'); return; }
     if (!confirmadoOC) { toast.error('Falta confirmar', 'Revisa los datos y marca la casilla de confirmación.'); return; }
     if (hayDuplicado && !confirmadoPeseADuplicado) { toast.error('Falta confirmar el posible duplicado', 'Revisa la OC real que encontramos antes de seguir.'); return; }
     setCreandoOC(proveedorNombre);
@@ -265,12 +281,13 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
         body: JSON.stringify({
           proveedorNombre, formaPagoId, incluirFlete, fleteMonto: incluirFlete ? fleteMonto : null, productoIds, centroCostoId: centroElegido || undefined,
           fechaEntrega, metodoDespacho,
+          internacional: ocInternacional, monedaId: ocInternacional ? monedaOcId : undefined, tipoCambio: ocInternacional ? tipoCambioOc : undefined,
           confirmarPeseADuplicado: hayDuplicado ? confirmadoPeseADuplicado : undefined,
         }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo crear');
-      toast.success('Orden de compra creada en Obuma', `Folio ${data.folio ?? data.obumaCompraOcId} — ${fmtCLP(data.total)}`);
+      toast.success('Orden de compra creada en Obuma', `Folio ${data.folio ?? data.obumaCompraOcId} — ${data.monedaCodigo && data.monedaCodigo !== 'CLP' ? `${data.monedaCodigo} ${fmtMoneda(data.totalMoneda)} (≈ ${fmtCLP(data.total)})` : fmtCLP(data.total)}`);
       setOcAbierta(null);
       await cargar();
     } catch (e: any) {
@@ -777,6 +794,55 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                       )}
 
                       {estadoProveedorObuma === 'existe' && (<>
+                      <div className="space-y-1.5" data-testid="oc-tipo">
+                        <div className="inline-flex rounded-lg border border-zinc-200 p-0.5 bg-zinc-50" role="radiogroup" aria-label="Tipo de orden de compra">
+                          {([['nacional', 'Nacional'], ['internacional', 'Internacional']] as const).map(([v, txt]) => {
+                            const activo = (v === 'internacional') === ocInternacional;
+                            return (
+                              <button key={v} type="button" role="radio" aria-checked={activo} data-testid={`oc-tipo-${v}`}
+                                onClick={() => {
+                                  setOcInternacional(v === 'internacional');
+                                  if (v === 'internacional' && !monedaOcId) {
+                                    const usd = monedasObuma.find(m => m.codigo === 'USD');
+                                    if (usd) { setMonedaOcId(usd.id); if (!tipoCambioOc && tiposCambioHoy.USD) setTipoCambioOc(String(tiposCambioHoy.USD)); }
+                                  }
+                                }}
+                                className={`text-[11.5px] px-3 py-1 rounded-md transition-colors ${activo ? 'bg-white text-indigo-700 font-semibold shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}>
+                                {txt}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {ocInternacional && (
+                          <div className="flex gap-1.5">
+                            <label className="flex-1 text-[10.5px] text-zinc-500">Moneda
+                              <select value={monedaOcId} data-testid="oc-moneda"
+                                onChange={e => {
+                                  setMonedaOcId(e.target.value);
+                                  const cod = monedasObuma.find(m => m.id === e.target.value)?.codigo;
+                                  setTipoCambioOc(cod && p.monedaCotizacion === cod && p.tipoCambioCotizacion ? String(p.tipoCambioCotizacion) : cod && tiposCambioHoy[cod] ? String(tiposCambioHoy[cod]) : '');
+                                }}
+                                className="mt-0.5 w-full text-[11.5px] text-zinc-800 border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-500 bg-white">
+                                <option value="">{monedasObuma.length ? 'Elegir…' : 'Sin monedas leídas de Obuma'}</option>
+                                {monedasObuma.map(m => <option key={m.id} value={m.id}>{m.codigo} — {m.nombre}</option>)}
+                              </select>
+                            </label>
+                            <label className="flex-1 text-[10.5px] text-zinc-500">Tipo de cambio (CLP por 1)
+                              <input value={tipoCambioOc} onChange={e => setTipoCambioOc(e.target.value)} inputMode="decimal" placeholder="Ej. 943,52" data-testid="oc-tipo-cambio"
+                                className="mt-0.5 w-full text-[11.5px] text-zinc-800 border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-500" />
+                            </label>
+                          </div>
+                        )}
+                        {ocInternacional && (
+                          <p className="text-[10.5px] text-zinc-500">
+                            {p.monedaCotizacion && p.tipoCambioCotizacion && monedasObuma.find(m => m.id === monedaOcId)?.codigo === p.monedaCotizacion
+                              ? `Tipo de cambio de la cotización de ${p.monedaCotizacion}. `
+                              : 'Tipo de cambio de hoy (dólar/euro observado); puedes cambiarlo. '}
+                            Los precios van en la moneda elegida (precio en pesos ÷ tipo de cambio), exentos y sin IVA, igual que las OC internacionales hechas a mano en Obuma.
+                          </p>
+                        )}
+                      </div>
+
                       <select value={formaPagoId} onChange={e => setFormaPagoId(e.target.value)}
                         className="w-full text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500">
                         <option value="">{cargandoFormasPago ? 'Cargando formas de pago…' : 'Elegir forma de pago…'}</option>
@@ -802,14 +868,14 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                         <span className="flex items-center gap-1"><Truck size={11} /> Incluir flete/despacho en esta orden</span>
                       </label>
                       {incluirFlete && (
-                        <input value={fleteMonto} onChange={e => setFleteMonto(e.target.value)} placeholder="Monto del flete"
+                        <input value={fleteMonto} onChange={e => setFleteMonto(e.target.value)} placeholder={ocInternacional ? 'Monto del flete en pesos (se convierte)' : 'Monto del flete'}
                           className="w-full text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
                       )}
 
                       <div className="bg-white border border-indigo-100 rounded-lg px-2.5 py-2 space-y-1">
                         <p className="text-[10px] font-bold text-indigo-600 uppercase">Esto es lo que se va a mandar a Obuma</p>
                         <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Proveedor: </span><b>{p.proveedorNombre}</b>{p.proveedorRut && ` (${p.proveedorRut})`}</p>
-                        <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Tipo: </span>Nacional · Inventario</p>
+                        <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Tipo: </span>{ocInternacional ? `Internacional (${monedasObuma.find(m => m.id === monedaOcId)?.codigo ?? 'falta moneda'})` : 'Nacional'} · Inventario</p>
                         <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Entrega: </span>{fechaEntrega ? fechaEntrega.split('-').reverse().join('-') : <span className="text-rose-500">falta fecha</span>} · {metodoDespacho || <span className="text-rose-500">falta método de despacho</span>}</p>
                         <p className="text-[11px] text-zinc-700">
                           <span className="text-zinc-400">Centro de costo: </span>
@@ -823,7 +889,18 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                         <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Mercadería ({idsSel(p).length} producto(s)): </span>{fmtCLP(subtotalSel(p))}</p>
                         {p.items.some(it => idsSel(p).includes(it.productoId) && it.aprobado === false) && <p className="text-[11px] font-semibold text-amber-700">⚠ Incluye productos que aún no están aprobados.</p>}
                         {incluirFlete && <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Flete: </span>{previewFlete != null ? fmtCLP(previewFlete) : <span className="text-rose-500">monto inválido</span>}</p>}
-                        <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Neto total: </span><b>{fmtCLP(total)}</b> <span className="text-zinc-400">+ IVA</span></p>
+                        {ocInternacional ? (() => {
+                          const tc = tcNumero(tipoCambioOc);
+                          const cod = monedasObuma.find(m => m.id === monedaOcId)?.codigo;
+                          return (
+                            <p className="text-[11px] text-zinc-700" data-testid="oc-total-internacional">
+                              <span className="text-zinc-400">Total exento (sin IVA): </span>
+                              {cod && tc > 0 ? <><b>{cod} {fmtMoneda(Math.round(total / tc * 100) / 100)}</b> <span className="text-zinc-400">≈ {fmtCLP(total)} con TC {tipoCambioOc}</span></> : <span className="text-rose-500">falta moneda o tipo de cambio</span>}
+                            </p>
+                          );
+                        })() : (
+                          <p className="text-[11px] text-zinc-700"><span className="text-zinc-400">Neto total: </span><b>{fmtCLP(total)}</b> <span className="text-zinc-400">+ IVA</span></p>
+                        )}
                         <label className="flex items-center gap-1.5 text-[10.5px] text-indigo-700 pt-0.5">
                           <input type="checkbox" checked={confirmadoOC} onChange={e => setConfirmadoOC(e.target.checked)} className="accent-indigo-600" />
                           Confirmo estos datos — se va a crear de verdad en Obuma
@@ -832,7 +909,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
 
                       <div className="flex items-center gap-1.5">
                         <button onClick={() => crearOC(p.proveedorNombre, !!p.posibleDuplicadoObuma || !!p.ocRealObuma, idsSel(p))}
-                          disabled={creandoOC === p.proveedorNombre || idsSel(p).length === 0 || !formaPagoId || !fechaEntrega || !metodoDespacho || !confirmadoOC || !puedeEmitirOC(p) || ((!!p.posibleDuplicadoObuma || !!p.ocRealObuma) && !confirmadoPeseADuplicado)}
+                          disabled={creandoOC === p.proveedorNombre || idsSel(p).length === 0 || !formaPagoId || !fechaEntrega || !metodoDespacho || !confirmadoOC || (ocInternacional && (!monedaOcId || !(tcNumero(tipoCambioOc) > 0))) || !puedeEmitirOC(p) || ((!!p.posibleDuplicadoObuma || !!p.ocRealObuma) && !confirmadoPeseADuplicado)}
                           className="text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">
                           {creandoOC === p.proveedorNombre ? <Loader2 size={12} className="animate-spin" /> : 'Crear en Obuma'}
                         </button>
