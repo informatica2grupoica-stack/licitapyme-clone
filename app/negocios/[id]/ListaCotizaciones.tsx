@@ -34,10 +34,17 @@ function lineasPendientes(c: CotizacionFilaUI, productos: Array<{ id: number; de
     // Descripción COMPLETA del producto: cortar en « - » dejaba fuera «vertical extra reforzado 15.000L» y la línea del propio estanque
     // salía como «sin asignar» (2906-19-LE26: al agregarla se sumó el estanque dos veces).
     ...c.items.flatMap(i => { const d = String(productos.find(p => p.id === i.productoId)?.descripcion ?? ''); return [d, d.split(' - ')[0]]; }),
-    ...c.items.flatMap(i => (i.adicionales as AdicionalFila[]).map(a => String(a.concepto))),
   ];
+  // Cada adicional tapa UNA sola línea (la de su mismo precio si hay varias parecidas): por nombre, «ACOPLE RAPIDO DE BOLA … AHNPROC»
+  // escondía también «ACOPLE RAPIDO MACHO … AHNPROC» y no se podía agregar (979, cotización AHN 9853).
+  const tapadas = new Set<LineaCotizacion>();
+  for (const a of c.items.flatMap(i => i.adicionales as AdicionalFila[])) {
+    const parecidas = lineas.filter(l => !tapadas.has(l) && lineasSinAsignar([l], [String(a.concepto)]).length === 0);
+    const l = parecidas.find(x => x.precioUnitario != null && Math.abs(x.precioUnitario - Number(a.precioUnitario)) <= 1) ?? parecidas[0];
+    if (l) tapadas.add(l);
+  }
   const fleteAparte = c.fleteMonto != null && c.fleteMonto > 0;
-  return lineasSinAsignar(lineas, asignados)
+  return lineasSinAsignar(lineas.filter(l => !tapadas.has(l)), asignados)
     .filter(l => !(fleteAparte && /flete|transport|despacho|env[ií]o/i.test(l.descripcion)))
     // Segunda red: una línea con el mismo precio unitario que el producto ya asignado es ese producto, aunque el nombre difiera.
     .filter(l => !(l.precioUnitario != null && c.items.some(i => i.precioBase != null && Math.abs(i.precioBase - l.precioUnitario!) <= 1)));

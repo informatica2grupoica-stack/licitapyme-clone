@@ -1951,6 +1951,8 @@ export async function poblarProductosCompra(negocioId: number): Promise<void> {
   await aplicarAdjudicacionPorLinea(negocioId).catch(e => console.error('[compras] adjudicación por línea:', String(e).slice(0, 200)));
 }
 
+const DESCRIPCION_PROYECTO_GLOBAL = 'Proyecto (adjudicación total, sin detalle de líneas)';
+
 export async function poblarProductosCompraBase(negocioId: number): Promise<void> {
   const [ya] = await pool.query(`SELECT 1 FROM compras_producto WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
   if ((ya as any[]).length > 0) return;
@@ -1992,8 +1994,8 @@ export async function poblarProductosCompraBase(negocioId: number): Promise<void
   if (nuestras.length === 0) {
     await pool.query(
       `INSERT INTO compras_producto (negocio_id, descripcion, monto_unitario, subestado, created_at, updated_at)
-       VALUES (?, 'Proyecto (adjudicación total, sin detalle de líneas)', ?, 'PENDIENTE', ?, ?)`,
-      [negocioId, neg.monto_ofertado ?? null, ahora, ahora],
+       VALUES (?, ?, ?, 'PENDIENTE', ?, ?)`,
+      [negocioId, DESCRIPCION_PROYECTO_GLOBAL, neg.monto_ofertado ?? null, ahora, ahora],
     );
     return;
   }
@@ -2088,6 +2090,19 @@ export async function sincronizarProductosConCosteo(negocioId: number): Promise<
       aInsertar.flat(),
     );
   }
+
+  // La fila "Proyecto (adjudicación total…)" de poblarProductosCompraBase solo existía porque no había costeo
+  // al abrir Compras; con los productos reales ya cargados quedaba "Sin elegir" y trababa Pedir aprobación/SKU/OC
+  // (caso 2446-240-LE26). Se borra con las mismas condiciones que los duplicados.
+  await pool.query(
+    `DELETE FROM compras_producto
+      WHERE negocio_id = ? AND correlativo IS NULL AND descripcion = ?
+        AND subestado = 'PENDIENTE' AND renuncia_motivo IS NULL
+        AND NOT EXISTS (SELECT 1 FROM compras_cotizacion_item ci WHERE ci.producto_id = compras_producto.id)
+        AND NOT EXISTS (SELECT 1 FROM compras_veredicto v WHERE v.producto_id = compras_producto.id)
+        AND NOT EXISTS (SELECT 1 FROM compras_auditoria_cotizacion a WHERE a.producto_id = compras_producto.id)`,
+    [negocioId, DESCRIPCION_PROYECTO_GLOBAL],
+  );
 
   // Una línea nueva (o recién traída del costeo) que el acta dio a otro proveedor entra ya atenuada.
   await aplicarAdjudicacionPorLinea(negocioId).catch(e => console.error('[compras] adjudicación por línea:', String(e).slice(0, 200)));
