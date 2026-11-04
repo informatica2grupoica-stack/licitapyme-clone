@@ -3,6 +3,9 @@
 Pantalla: ítem «Auditor» del negocio, `AuditorOpcionesPanel.tsx`. Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-04 (tarde) — «Cotizado» ya no muestra las opciones que solo traen ficha técnica (1057922-28-LP26)
+Dueño, con captura: «las fichas me las muestra en Cotizado… se mezcla información». Decisión (elegida entre dos): **solo en «Ficha y requisitos»**. `tienePrecio(o)` (cotización/link vigente, precio leído, costo verificado o precio a mano): «Cotizado» muestra solo esas tarjetas y su contador cuenta solo esas; si no hay ninguna, un aviso con el número de productos con ficha y enlace a la pestaña. En «Ficha y requisitos», cada opción sin precio dice «Sin cotización todavía…» con «Ingresar precio a mano» y «Descartar» (con precio pasa a «Cotizado», donde se firma). El PDF (vista 'todo') sigue mostrando todas. **Sin ver en navegador:** mientras se hacía, el equipo descartó la YXZ-E-4L («no va») y borró la YA-PS07, así que la línea quedó sin opciones. tsc limpio.
+
 ## 2026-11-04 — QA de fichas en el AUDITOR del negocio (no Compras) con 31 fichas: varias por ítem, línea equivocada, «cuál cumple más» (negocio 296 = 1191688-50-LE26; sin desplegar, sin ver en navegador)
 Misma batería de Compras (`scripts/scratch/fichas-prueba-1191688/`, scripts `_aud_subir.mts` / `_aud_chequear.mts` / `_aud_limpiar.mts`), pero con el flujo del Auditor: la ficha entra a la caja «Fichas técnicas» (documentos_cache) y se agrega a la LÍNEA elegida a mano con `agregarFichaAOpcion` (el Auditor NO rutea solo como Compras). Todo lo creado se borró (opciones, lecturas, documentos).
 - **Varias fichas por ítem YA funcionaba:** cada modelo distinto crea su propia opción en la línea (calzado 3, parka 2, lentes 2…), el mismo modelo en otra ficha se suma a la misma opción (sin duplicar) y `verificarTecnicoDeOpcion` compara la línea entera en una llamada (6 líneas a la vez, 32-93 s). 42 de 42 subidas correctas aceptadas.

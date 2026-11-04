@@ -1241,7 +1241,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                   {sel.opciones.length > 0 && (
                     <div data-no-pdf className="mb-3">
                       <Pestanas id="linea-auditor" valor={pestanaLinea} onCambio={setPestanaLinea} opciones={[
-                        { valor: 'cotizado', etiqueta: 'Cotizado', contador: vivas.length },
+                        { valor: 'cotizado', etiqueta: 'Cotizado', contador: vivas.filter(tienePrecio).length },
                         { valor: 'ficha', etiqueta: 'Ficha y requisitos', ...(requisitosAbiertos ? { contador: requisitosAbiertos } : {}) },
                         { valor: 'avanzado', etiqueta: 'Detalle avanzado' },
                       ]} />
@@ -2599,6 +2599,8 @@ function CuadroTecnico({ negocioId, linea, vista = 'todo', onIrAFicha, onVerific
     .filter(f0 => !q || f0.requeridoTexto.toLowerCase().includes(q))
     .filter(f0 => !soloDifieren || difieren(f0.n));
   const nombreCorto = (o: OpcionDTO) => [o.marca, o.modelo].filter(Boolean).join(' ') || o.producto?.nombre || 'Producto sin identificar';
+  // Tarjetas de «Cotizado»: solo opciones con precio (el PDF, vista 'todo', las muestra todas).
+  const tarjetas = vista === 'cotizado' ? columnas.filter(tienePrecio) : columnas;
   // El panel recorre los pendientes en el orden de la lista (si el abierto ya no está pendiente, recorre todo lo visible).
   const recorrido = pendientes.some(f => f.n === detalle) ? pendientes : filas;
   const idx = recorrido.findIndex(f => f.n === detalle);
@@ -2608,12 +2610,23 @@ function CuadroTecnico({ negocioId, linea, vista = 'todo', onIrAFicha, onVerific
     <div className="space-y-3">
       {/* ── Una tarjeta por opción: aquí se decide. Tres partes: el producto y su precio · qué falta · respaldo y acciones.
              Con UNA opción la tarjeta usa todo el ancho y las tres partes van lado a lado; con varias, cada tarjeta las apila. ── */}
-      {vista !== 'ficha' && <div className={`grid grid-cols-1 gap-3 ${columnas.length === 2 ? 'lg:grid-cols-2' : columnas.length >= 3 ? 'lg:grid-cols-2 2xl:grid-cols-3' : ''}`}>
-        {columnas.map(o => {
+      {/* En «Cotizado» solo lo que tiene precio; lo que solo trae ficha técnica está en «Ficha y requisitos». */}
+      {vista === 'cotizado' && !tarjetas.length && (
+        <p className="rounded-xl border border-zinc-200 px-4 py-4 text-[13.5px] text-slate-600">
+          Esta línea todavía no tiene cotización. {columnas.length} producto{columnas.length === 1 ? '' : 's'} con ficha técnica: {onIrAFicha
+            ? <button data-no-pdf onClick={onIrAFicha} className="font-medium text-teal-700 hover:underline">revísalos en Ficha y requisitos</button>
+            : 'revísalos en Ficha y requisitos'}. Sube la cotización del proveedor en «1 · Documentos del proveedor» o ingresa el precio a mano desde ahí.
+        </p>
+      )}
+      {vista === 'cotizado' && tarjetas.length > 0 && tarjetas.length < columnas.length && (
+        <p className="text-[12.5px] text-slate-600">{columnas.length - tarjetas.length} producto{columnas.length - tarjetas.length === 1 ? '' : 's'} solo con ficha técnica (sin precio) {onIrAFicha ? <button data-no-pdf onClick={onIrAFicha} className="font-medium text-teal-700 hover:underline">en Ficha y requisitos</button> : 'en Ficha y requisitos'}.</p>
+      )}
+      {vista !== 'ficha' && tarjetas.length > 0 && <div className={`grid grid-cols-1 gap-3 ${tarjetas.length === 2 ? 'lg:grid-cols-2' : tarjetas.length >= 3 ? 'lg:grid-cols-2 2xl:grid-cols-3' : ''}`}>
+        {tarjetas.map(o => {
           const c = o.verificacion?.costoNetoUnitario ?? null, r = o.tecnico.resultado, k = cuenta(o);
           const bloqueos = (o.verificacion?.bloqueos || []).filter(b => !(b.codigo === 'LECTURA' && o.producto?.precioAmbiguo));   // el precio dudoso tiene su propio aviso
           const notas = [...(r?.notas || []).slice(0, 3), ...(r?.alertas.filter(a => a.nivel !== 'info').slice(0, 1).map(a => a.texto) || [])];
-          const ancha = columnas.length === 1;
+          const ancha = tarjetas.length === 1;
           const precioPendiente = c == null && o.producto?.precio != null;
           const nadaFalta = !precioPendiente && !bloqueos.length && !notas.length && !(r && (k.falta || k.no || k.complementadas));
           const rotulo = 'text-xs text-slate-600';
@@ -2713,7 +2726,7 @@ function CuadroTecnico({ negocioId, linea, vista = 'todo', onIrAFicha, onVerific
         })}
       </div>}
 
-      {vista === 'ficha' && <FichasDeLaLinea negocioId={negocioId} columnas={columnas} ocupado={ocupado} verificando={verificando} onVerificar={id => onVerificarSolo?.(id)} subiendoFicha={subiendoFicha} onSubirFicha={onSubirFicha} onAccion={onAccion} />}
+      {vista === 'ficha' && <FichasDeLaLinea negocioId={negocioId} columnas={columnas} ocupado={ocupado} verificando={verificando} onVerificar={id => onVerificarSolo?.(id)} subiendoFicha={subiendoFicha} onSubirFicha={onSubirFicha} onAccion={onAccion} onModal={onModal} />}
 
       {/* ── Requisitos: primero lo que falta resolver. Solo lectura: clic en una fila abre su panel ── */}
       {vista !== 'cotizado' && (base.length === 0 ? (
@@ -2859,11 +2872,20 @@ function EstadoFicha({ o, r, comparando, onComparar }: { o: OpcionDTO; r: Opcion
     <button data-no-pdf onClick={onComparar} className="text-[13px] font-medium text-teal-700 hover:underline">Comparar</button></span>;
 }
 
+/** ¿La opción ya tiene precio (cotización, link con precio o precio a mano)? Las que solo traen una ficha técnica no son
+ *  «cotizado»: se ven en «Ficha y requisitos» hasta que llegue el precio (pedido del dueño, 04-nov-2026, 1057922-28-LP26:
+ *  las dos fichas de la camilla salían como tarjetas de cotización vacías y se mezclaba la información). */
+export function tienePrecio(o: OpcionDTO): boolean {
+  return o.producto?.precio != null || o.verificacion?.costoNetoUnitario != null || o.correccionCosto?.precio != null
+    || o.respaldos.some(r => r.vigente && r.tipo !== 'ficha_tecnica');
+}
+
 /** Pestaña «Ficha y requisitos»: de dónde sale lo técnico de cada opción (su ficha o la página del link), con abrir y agregar ficha. */
-function FichasDeLaLinea({ negocioId, columnas, ocupado, verificando, onVerificar, subiendoFicha, onSubirFicha, onAccion }: {
+function FichasDeLaLinea({ negocioId, columnas, ocupado, verificando, onVerificar, subiendoFicha, onSubirFicha, onAccion, onModal }: {
   negocioId: number; columnas: OpcionDTO[]; ocupado: number | null; verificando: Set<number>; onVerificar: (opcionId: number) => void; subiendoFicha: Set<string>;
   onSubirFicha: (opcionId: number, archivos: File[], origen?: File) => void;
   onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void;
+  onModal: (tipo: 'descartar' | 'rechazar', opcionId: number) => void;
 }) {
   return (
     <div className="rounded-xl border border-zinc-200 divide-y divide-zinc-100">
@@ -2888,6 +2910,16 @@ function FichasDeLaLinea({ negocioId, columnas, ocupado, verificando, onVerifica
               {fichas.length === 0 && links.map(r => <a key={r.id} href={r.url!} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[13px] text-teal-700 hover:underline truncate"><ExternalLink size={11} className="shrink-0" /> Página del link</a>)}
               {fichas.length === 0 && links.length > 0 && <p className="text-xs text-slate-500">Sin ficha aparte: lo técnico sale de la página</p>}
             </div>
+            {!tienePrecio(o) && (
+              // Solo ficha: todavía no es una cotización. Cuando llega el precio pasa a «Cotizado», donde se firma y aprueba.
+              <div className="basis-full -mt-1">
+                <p className="text-[12.5px] text-amber-800">Sin cotización todavía: sube la cotización del proveedor en «1 · Documentos del proveedor» o ingresa el precio. Con precio pasa a «Cotizado».</p>
+                {editable && <div data-no-pdf className="flex flex-wrap items-center gap-x-4">
+                  <CorregirCosto o={o} editable={editable} ocupado={ocupado === o.id} onAccion={onAccion} />
+                  <button onClick={() => onModal('descartar', o.id)} className="mt-1.5 text-xs font-semibold text-slate-600 hover:text-red-600">Descartar</button>
+                </div>}
+              </div>
+            )}
             {editable && (
               <div data-no-pdf className="flex flex-wrap items-center gap-x-4 gap-y-1">
                 <BotonSubirFicha ocupado={subiendoFicha.has(`o${o.id}`)} discreto etiqueta={fichas.length ? 'Agregar otra ficha' : 'Subir ficha técnica'} onArchivos={f => onSubirFicha(o.id, f)} />
