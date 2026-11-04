@@ -34,7 +34,7 @@ const ids = (arg('--ids') ?? '').split(',').map(s => Number(s.trim())).filter(Bo
 type Formulario = { titulo: string; indiceInicio: number };
 type Detector = {
   detectarFormularios: (xml: string) => Formulario[];
-  dividirPorFormularios: (buffer: Buffer, xml: string) => Promise<{ buffer: Buffer; categoria: string }[]>;
+  dividirPorFormularios: (buffer: Buffer, xml: string) => Promise<{ buffer: Buffer; categoria: string; nombreArchivo: string }[]>;
 };
 const conFragmentos = process.argv.includes('--fragmentos');
 
@@ -59,13 +59,13 @@ const [filas] = await pool.query(
 const docs = filas as { id: number; licitacion_codigo: string; documento_nombre: string; documento_url_local: string }[];
 
 const resumir = (fs: Formulario[]) => fs.map(f => `${f.indiceInicio}: ${f.titulo}`);
-// Primera y última línea con texto de cada fragmento ya armado, y su categoría.
+// Nombre de archivo, primera y última línea con texto de cada fragmento ya armado, y su categoría.
 async function bordesDeFragmentos(d: Detector, buffer: Buffer, xml: string): Promise<string[]> {
   const out: string[] = [];
   for (const f of await d.dividirPorFormularios(buffer, xml)) {
     const lineas = [...(await abrirDocx(f.buffer)).xml.matchAll(/<w:p\b[\s\S]*?<\/w:p>/g)]
       .map(m => [...m[0].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('').trim()).filter(Boolean);
-    out.push(`  [${lineas.length} líneas, ${f.categoria}] «${(lineas[0] ?? '').slice(0, 50)}» … «${(lineas.at(-1) ?? '').slice(0, 50)}»`);
+    out.push(`  [${lineas.length} líneas, ${f.categoria}] ${f.nombreArchivo} · «${(lineas[0] ?? '').slice(0, 50)}» … «${(lineas.at(-1) ?? '').slice(0, 50)}»`);
   }
   return out;
 }

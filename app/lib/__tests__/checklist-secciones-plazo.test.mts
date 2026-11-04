@@ -412,3 +412,25 @@ test('archivo «Formulario 1-A» no abre otra casilla si el informe ya listó «
     .map(titulo => ({ tipo: 'documento', titulo })) as any;
   assert.deepEqual(itemsDesdeArchivosDeAnexo(['Formulario 1-A.docx', 'Formulario 1-B.docx'], ya), []);
 });
+
+test('anexos separados con el mismo número: una casilla por archivo y reemplazan a la genérica (1057922-28-LP26)', async () => {
+  const { casillasDeAnexosSeparados, planDeReconciliacion, CLAVE_ANEXO_SEPARADO } = await import('../checklist-comercial');
+  const informe = [
+    { tipo: 'documento', titulo: 'Formulario N°1A Identificación del Oferente', claveOrigen: 'anexo:formulario_n_1a', descripcion: null, criticidad: 'ADMISIBILIDAD_DURA', orden: 1 },
+    { tipo: 'documento', titulo: 'Formulario N°2 Especificaciones Técnicas', claveOrigen: 'anexo:formulario_n_2', descripcion: 'Copias: 1 por ítem', criticidad: 'ADMISIBILIDAD_DURA', orden: 4 },
+  ] as any;
+  const r = casillasDeAnexosSeparados([
+    'Formulario 1-A.docx', 'Formulario 2 - Camilla Transporte.docx', 'Formulario 2 - Tensiómetro Rodable.docx', 'Formulario 2 - Calentador Compresas.docx',
+  ], informe);
+  assert.deepEqual(r.items.map(i => i.titulo), ['Formulario 2 - Camilla Transporte', 'Formulario 2 - Tensiómetro Rodable', 'Formulario 2 - Calentador Compresas']);
+  assert.ok(r.items.every(i => i.claveOrigen.startsWith(CLAVE_ANEXO_SEPARADO) && i.descripcion === 'Copias: 1 por ítem' && i.bloque === 'ADMINISTRATIVO'));
+  assert.deepEqual([...r.reemplazados], ['anexo:formulario_n_2']);   // el 1-A es uno solo: sigue en su casilla de siempre
+  // Ya guardadas, la reconciliación no las funde aunque compartan número.
+  const filas = r.items.map((i, k) => ({ id: k + 1, bloque: i.bloque, tipo: i.tipo, titulo: i.titulo, descripcion: i.descripcion, clave_origen: i.claveOrigen, ponderacion: null, virgen: true }));
+  assert.deepEqual(planDeReconciliacion(filas as any).borrar, []);
+});
+
+test('anexos separados: el mismo anexo en Word y PDF no abre dos casillas', async () => {
+  const { casillasDeAnexosSeparados } = await import('../checklist-comercial');
+  assert.deepEqual(casillasDeAnexosSeparados(['Anexo 2 - Declaración.docx', 'Anexo 2 - Declaración.pdf'], []).items, []);
+});

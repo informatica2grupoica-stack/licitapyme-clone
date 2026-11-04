@@ -1209,6 +1209,54 @@ export function itemsDesdeArchivosDeAnexo(
   return out;
 }
 
+/**
+ * Anexos que salieron de «Separar» y comparten número — un «Formulario N°2 Especificaciones Técnicas»
+ * por producto (1057922-28-LP26: 7 archivos). Pedido del dueño (04-nov-2026): «si los separo es porque
+ * se deben llenar»; con una sola casilla «Formulario N°2» seis de los siete no aparecían en
+ * Pre-postulación. Cada archivo tiene su casilla, y la casilla genérica del informe con ese número
+ * queda reemplazada (sincronizar() la saca si nadie la trabajó). Solo archivos de Separar: dos archivos
+ * con el mismo número bajados de Mercado Público suelen ser el mismo anexo en Word y PDF.
+ */
+/** Clave de esas casillas: la reconciliación no las funde entre sí aunque compartan número. */
+export const CLAVE_ANEXO_SEPARADO = 'anexo:separado:';
+
+export function casillasDeAnexosSeparados(
+  nombresSeparados: string[], informe: ItemGenerado[], ordenInicial = 850,
+): { items: ItemGenerado[]; nombres: string[]; reemplazados: Set<string> } {
+  const grupos = new Map<string, Map<string, string>>();   // número → título → nombre de archivo
+  for (const nombre of nombresSeparados) {
+    const titulo = tituloDesdeNombreDeArchivo(nombre);
+    const numeros = numerosDeFormatoEn(titulo);
+    if (!titulo || !tituloEsAnexo(titulo) || numeros.length !== 1) continue;
+    const g = grupos.get(numeros[0]) ?? new Map<string, string>();
+    if (!g.has(titulo)) g.set(titulo, nombre);
+    grupos.set(numeros[0], g);
+  }
+  const items: ItemGenerado[] = [];
+  const nombres: string[] = [];
+  const reemplazados = new Set<string>();
+  let orden = ordenInicial;
+  for (const [numero, porTitulo] of grupos) {
+    if (porTitulo.size < 2) continue;
+    const base = informe.find(it => it.tipo === 'documento' && numerosDeFormatoEn(it.titulo).includes(numero));
+    for (const it of informe) {
+      if (it.tipo === 'documento' && it.claveOrigen.startsWith('anexo:') && numerosDeFormatoEn(it.titulo).length === 1
+        && numerosDeFormatoEn(it.titulo)[0] === numero) reemplazados.add(it.claveOrigen);
+    }
+    for (const [titulo, nombre] of porTitulo) {
+      nombres.push(nombre);
+      items.push({
+        bloque: bloqueDeAnexo(titulo), tipo: 'documento', titulo,
+        descripcion: base?.descripcion ?? `Anexo separado de la licitación (${nombre}).`,
+        criticidad: base?.criticidad ?? 'ADMISIBILIDAD_DURA', ponderacion: null, fuenteCita: nombre,
+        origen: 'documentos', claveOrigen: `${CLAVE_ANEXO_SEPARADO}${slug(titulo)}`,
+        generable: true, lineaNumero: null, orden: base?.orden ?? orden++,
+      });
+    }
+  }
+  return { items, nombres, reemplazados };
+}
+
 // ═══ RECONCILIAR LO YA GUARDADO ════════════════════════════════════════════════
 // sincronizar() nunca borra ni edita filas existentes, y por eso las decisiones nuevas solo
 // aplicaban a negocios nuevos. Dos casos reales quedaron a la vista en 986278-14-LE26 (25-ago-2026):
@@ -1332,9 +1380,11 @@ export function planDeReconciliacion(filas: FilaReconciliable[]): PlanReconcilia
       //    Gana la fila con TRABAJO real (no virgen); si ninguna lo tiene, gana la del INFORME —
       //    trae ponderación y criticidad de las bases, que la del archivo no tiene — y se absorbe
       //    en su descripción una referencia al archivo real, para no perder ese dato.
-      if (!plan.borrar.includes(f.id) && numerosF.length <= 1) {
+      //    Las casillas de anexos SEPARADOS que comparten número (un Formulario N°2 por producto) son
+      //    anexos distintos a propósito: no se funden (1057922-28-LP26).
+      if (!plan.borrar.includes(f.id) && numerosF.length <= 1 && !clave.startsWith(CLAVE_ANEXO_SEPARADO)) {
         const pareja = anexos.find(o => o.id !== f.id && !plan.borrar.includes(o.id)
-          && String(o.clave_origen || '').startsWith('anexo:')
+          && String(o.clave_origen || '').startsWith('anexo:') && !String(o.clave_origen || '').startsWith(CLAVE_ANEXO_SEPARADO)
           && numerosDeFormatoEn(o.titulo).length <= 1
           && coincidenEntradas(
             { numeros: numerosF, nucleo: nucleoDeTitulo(f.titulo) },

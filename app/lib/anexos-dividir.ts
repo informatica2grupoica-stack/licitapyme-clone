@@ -1020,9 +1020,11 @@ export function nombresDeArchivoDesdeTitulos(titulos: string[]): string[] {
       const restos = titulos
         .filter((_, j) => infos[j] && llave(infos[j]!) === llave(info))
         .map(t => t.trim().replace(tipoEIdentificador(t)!.coincidencia, '').trim().split(/\s+/));
-      if (new Set(restos.map(r => r.join(' ').toUpperCase())).size > 1) {
+      // Sin tildes: «PÚBLICA» y «PUBLICA» no distinguen nada (4610-85-LE26).
+      const norm = (w: string) => w.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      if (new Set(restos.map(r => r.map(norm).join(' '))).size > 1) {
         let comunes = 0;
-        while (restos.every(r => comunes < r.length - 1 && r[comunes].toUpperCase() === restos[0][comunes].toUpperCase())) comunes++;
+        while (restos.every(r => comunes < r.length - 1 && norm(r[comunes]) === norm(restos[0][comunes]))) comunes++;
         const propio = titulo.trim().replace(info.coincidencia, '').trim().split(/\s+/).slice(comunes).join(' ');
         if (propio) base = armarNombreCorto(info, propio);
       }

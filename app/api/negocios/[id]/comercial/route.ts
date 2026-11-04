@@ -20,7 +20,7 @@ import {
   generarItemsDesdeViabilidad, resumirChecklist, esLineaTecnica, transicion, tieneInformacionComercial,
   esPorLinea, modalidadDudosa, estadoDeBloque, lineasDelInforme, excluirYaExistentes, type EstadoItem,
   CLAVE_ITEM_PLAZO, rangoPlazoDeDescripcion, validarPlazoOfertado, reubicacionDeItemGuardado,
-  itemsDesdeArchivosDeAnexo, esAlertaDeCumplimiento, planDeReconciliacion, ordenarAnexosPorNumero, type FilaReconciliable,
+  itemsDesdeArchivosDeAnexo, casillasDeAnexosSeparados, CLAVE_ANEXO_SEPARADO, esAlertaDeCumplimiento, planDeReconciliacion, ordenarAnexosPorNumero, type FilaReconciliable,
   planDeLineasTecnicas, hayLineasTecnicasHuerfanas, type FilaLineaTecnicaExistente,
   planDeFilasPrecio, hayPreciosObsoletos, type FilaPrecioExistente,
   ACCIONES_ITEM, type AccionItem,
@@ -233,6 +233,20 @@ export async function sincronizar(negocioId: number, codigo: string, informe: an
   const lineasOfertadas = await leerLineasOfertadas(negocioId);
   let items = generarItemsDesdeViabilidad(informe, lineasOfertadas);
   if (!items.length) return 0;
+  // Anexos separados que comparten número (un Formulario N°2 por producto): una casilla por archivo,
+  // en lugar de la genérica del informe — ver casillasDeAnexosSeparados().
+  let separados: ReturnType<typeof casillasDeAnexosSeparados> = { items: [], nombres: [], reemplazados: new Set() };
+  try {
+    const [sepRows] = await pool.query(
+      `SELECT dc.documento_nombre FROM documentos_cache dc
+         JOIN documentos_generados_separar gs ON gs.documento_id = dc.id
+        WHERE dc.licitacion_codigo = ?
+          AND dc.categoria IN ('ANEXOS_ADMINISTRATIVOS', 'ANEXOS_TECNICOS', 'ANEXOS_ECONOMICOS', 'ANEXOS_OFERENTE')`,
+      [codigo],
+    ) as any;
+    separados = casillasDeAnexosSeparados((sepRows as Array<{ documento_nombre: string }>).map(r => r.documento_nombre), items);
+    items = items.filter(i => !separados.reemplazados.has(i.claveOrigen));
+  } catch { /* sin la tabla de Separar (migración 89) queda como antes */ }
   const clavesVigentes = new Set(items.map(i => i.claveOrigen));
 
   // Los ARCHIVOS de anexo que bajaron de Mercado Público también mandan: si existe el archivo,
@@ -255,8 +269,9 @@ export async function sincronizar(negocioId: number, codigo: string, informe: an
           AND categoria IN ('ANEXOS_ADMINISTRATIVOS', 'ANEXOS_TECNICOS', 'ANEXOS_ECONOMICOS', 'ANEXOS_OFERENTE')`,
       [codigo],
     ) as any;
+    const yaConCasilla = new Set(separados.nombres);
     items = items.concat(itemsDesdeArchivosDeAnexo(
-      nombresDeArchivosConCasilla(anexoRows as Array<{ documento_nombre: string; categoria: string }>), items,
+      nombresDeArchivosConCasilla(anexoRows as Array<{ documento_nombre: string; categoria: string }>).filter(n => !yaConCasilla.has(n)), items,
     ));
   } catch { /* si la consulta falla, el checklist igual se arma con lo del informe */ }
 
@@ -270,7 +285,9 @@ export async function sincronizar(negocioId: number, codigo: string, informe: an
     `SELECT titulo FROM checklist_comercial WHERE negocio_id = ? AND clave_origen LIKE 'anexo:%'`,
     [negocioId],
   );
-  items = excluirYaExistentes(items, (existentesRows as Array<{ titulo: string }>).map(r => r.titulo));
+  items = excluirYaExistentes(items, (existentesRows as Array<{ titulo: string }>).map(r => r.titulo))
+    // Después del filtro: comparten número con la casilla genérica ya guardada y con las demás a propósito.
+    .concat(separados.items);
 
   let nuevos = 0;
   for (const it of items) {
@@ -349,6 +366,8 @@ async function podarFilasObsoletas(negocioId: number, vigentes: Set<string>): Pr
  */
 async function limpiarCasillasDeArchivosMovidos(negocioId: number, codigo: string): Promise<void> {
   const PREFIJO = 'anexo:archivo:';
+  // Las de anexos separados (CLAVE_ANEXO_SEPARADO) se limpian igual: se vuelve a separar y el archivo viejo se va.
+  const quitarPrefijo = (c: string) => c.startsWith(CLAVE_ANEXO_SEPARADO) ? c.slice(CLAVE_ANEXO_SEPARADO.length) : c.slice(PREFIJO.length);
   try {
     const [filas] = await pool.query(
       `SELECT c.id, c.clave_origen, c.estado, c.valor_texto, c.valor_numero, c.observacion,
@@ -356,8 +375,8 @@ async function limpiarCasillasDeArchivosMovidos(negocioId: number, codigo: strin
               (SELECT COUNT(*) FROM checklist_comercial_documentos d WHERE d.item_id = c.id) AS n_docs
          FROM checklist_comercial c
         WHERE c.negocio_id = ? AND c.bloque = 'ADMINISTRATIVO' AND c.tipo = 'documento'
-          AND c.clave_origen LIKE ?`,
-      [negocioId, `${PREFIJO}%`],
+          AND (c.clave_origen LIKE ? OR c.clave_origen LIKE ?)`,
+      [negocioId, `${PREFIJO}%`, `${CLAVE_ANEXO_SEPARADO}%`],
     ) as any;
     const virgenes = (filas as any[]).filter(f =>
       f.estado === 'PENDIENTE' && Number(f.n_docs) === 0 && f.valor_texto == null
@@ -375,7 +394,7 @@ async function limpiarCasillasDeArchivosMovidos(negocioId: number, codigo: strin
     );
 
     const aBorrar = virgenes
-      .filter(f => !slugsVigentes.has(String(f.clave_origen).slice(PREFIJO.length)))
+      .filter(f => !slugsVigentes.has(quitarPrefijo(String(f.clave_origen))))
       .map(f => f.id);
     if (!aBorrar.length) return;
 

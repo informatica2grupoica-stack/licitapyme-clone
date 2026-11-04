@@ -36,6 +36,7 @@ import { detectarSeccionesPdfEscaneado } from '@/app/lib/anexos-pdf-secciones';
 import { dividirPdfEnFormatos } from '@/app/lib/anexos-pdf-dividir';
 import { registrarActividad } from '@/app/lib/actividad';
 import { miniaturasDePiezas } from '@/app/lib/anexos-miniatura';
+import { sanarChecklistDeLicitacion } from '@/app/api/negocios/[id]/comercial/route';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -173,6 +174,10 @@ export async function POST(request: NextRequest) {
         archivos: archivos.map(a => ({ nombre: a.nombre, categoria: a.categoria })),
       },
     });
+
+    // Cada anexo separado se llena: que aparezca ya en Pre-postulación, sin esperar a que algo más
+    // vuelva a sincronizar el checklist (1057922-28-LP26). Nunca bloquea: los archivos ya quedaron.
+    await sanarChecklistDeLicitacion(codigo).catch(() => {});
 
     return NextResponse.json({ success: true, separado: true, archivos });
   } catch (error: any) {
