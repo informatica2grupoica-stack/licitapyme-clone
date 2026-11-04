@@ -2658,3 +2658,64 @@ test('«RUT N°» en una celda es un campo de su propia celda y plazo/garantía 
   assert.match(textos[1], /PRODUCTOS\s+_{4,}\s+MESES/);
   assert.equal(textos[2], 'RUT N°');
 });
+
+// ── 1057922-28-LP26 (04-nov-2026): Formulario 2 de especificaciones y Formulario Nº1A ─────────
+const celdaAncho = (texto: string, ancho: number, span = 0) =>
+  `<w:tc><w:tcPr><w:tcW w:w="${ancho}" w:type="pct"/>${span ? `<w:gridSpan w:val="${span}"/>` : ''}</w:tcPr>${p(texto)}</w:tc>`;
+
+test('ficha de especificaciones: la fila «1 | CARACTERÍSTICAS GENERALES» no es encabezado, «CUMPLE SI/NO» angosta sí es casilla y «PUNTAJE ASIGNADO» no (1057922-28-LP26)', () => {
+  const xml = NS + `<w:tbl><w:tblPr/>`
+    + `<w:tr>${celdaAncho('', 300)}${celdaAncho('NOMBRE DEL EQUIPO: CAMILLA', 2500, 4)}${celdaAncho('OFERENTE', 2200, 3)}</w:tr>`
+    + `<w:tr>${celdaAncho('', 300)}${celdaAncho('ESPECIFICACIONES TÉCNICAS', 1500)}${celdaAncho('TIPO DE REQUERIMIENTO', 500)}${celdaAncho('PUNTAJE EETT', 350)}${celdaAncho('CUMPLE SI/NO', 345)}${celdaAncho('CATÁLOGO/ PÁGINA PROVEEDOR/ DATASHEET', 900)}${celdaAncho('OBSERVACIONES', 700)}${celdaAncho('PUNTAJE ASIGNADO', 405)}</w:tr>`
+    + `<w:tr>${celdaAncho('1', 300)}${celdaAncho('CARACTERÍSTICAS GENERALES', 4700, 7)}</w:tr>`
+    + `<w:tr>${celdaAncho('1.1', 300)}${celdaAncho('Camilla de transporte para traslado de pacientes', 1500)}${celdaAncho('OBLIGATORIO', 500)}${celdaAncho('', 350)}${celdaAncho('', 345)}${celdaAncho('', 900)}${celdaAncho('', 700)}${celdaAncho('', 405)}</w:tr>`
+    + `<w:tr>${celdaAncho('2', 300)}${celdaAncho('DIMENSIONES Y MOVIMIENTO', 4700, 7)}</w:tr>`
+    + `<w:tr>${celdaAncho('2.1', 300)}${celdaAncho('Largo total: 215 [cm] ±5 [cm]', 1500)}${celdaAncho('OBLIGATORIO', 500)}${celdaAncho('', 350)}${celdaAncho('', 345)}${celdaAncho('', 900)}${celdaAncho('', 700)}${celdaAncho('', 405)}</w:tr>`
+    + `</w:tbl>` + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const etiquetas = detectarCandidatosTabla(norm).map(c => c.etiqueta);
+  const columnas = new Set(etiquetas.map(e => e.split(' — ').at(-1)));
+  assert.deepEqual([...columnas].sort(), ['CATÁLOGO/ PÁGINA PROVEEDOR/ DATASHEET', 'CUMPLE SI/NO', 'OBSERVACIONES'], JSON.stringify(etiquetas));
+  assert.ok(etiquetas.includes('Largo total: 215 [cm] ±5 [cm] — CUMPLE SI/NO'));
+  // «[cm]» es una unidad, no un campo entre corchetes.
+  assert.equal(detectarBlancosInline(norm).length, 0, JSON.stringify(detectarBlancosInline(norm).map(b => b.contexto)));
+});
+
+test('Formulario Nº1A: rótulos solos en su celda («Teléfono», «Nombre» bajo REPRESENTANTE LEGAL) son casillas; un encabezado de columnas no (1057922-28-LP26)', () => {
+  const una = (t: string) => `<w:tr>${celdaAncho(t, 5000, 2)}</w:tr>`;
+  const dos = (a: string, b: string) => `<w:tr>${celdaAncho(a, 2500)}${celdaAncho(b, 2500)}</w:tr>`;
+  const xml = NS + `<w:tbl><w:tblPr/>`
+    + una('DOMICILIO LEGAL') + dos('Calle', 'Ciudad') + dos('', '') + dos('Teléfono', 'Correo Electrónico')
+    + una('REPRESENTANTE LEGAL') + dos('Nombre', 'Rut')
+    + una('RESPONSABLE DE TECNOVIGILANCIA') + una('Nombre')
+    + una('RELACIONES EXTERNAS') + dos('DATOS DEL PROPONENTE:', 'Tipo de Tributación:')
+    + `</w:tbl>` + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const a = analizarAnexo(norm);
+  const celdas = a.candidatosCelda.map(c => c.etiqueta);
+  for (const e of ['DOMICILIO LEGAL — Teléfono', 'DOMICILIO LEGAL — Correo Electrónico', 'REPRESENTANTE LEGAL — Nombre', 'REPRESENTANTE LEGAL — Rut', 'RESPONSABLE DE TECNOVIGILANCIA — Nombre']) {
+    assert.ok(celdas.includes(e), `falta ${e}: ${JSON.stringify(celdas)}`);
+  }
+  assert.ok(!celdas.some(e => /— (Calle|Ciudad)$/.test(e) && !e.includes(' — ')), 'Calle/Ciudad son encabezados de columna');
+  assert.ok(!celdas.some(e => /DATOS DEL PROPONENTE$/.test(e)), 'un título en mayúsculas no es casilla');
+  assert.ok(a.camposConDosPuntos.some(c => c.etiqueta === 'Tipo de Tributación' && c.campoEnCelda), 'el «Etiqueta:» en celda queda marcado para no desaparecer');
+});
+
+test('anexo «deberá ser completado EXCLUSIVAMENTE por proponentes que presenten su oferta a través de una UTP» no corresponde (Formulario Nº1B, 1057922-28-LP26)', () => {
+  const xml = NS + p('FORMULARIO Nº1B') + p('(ESTE FORMULARIO DEBERÁ SER COMPLETADO EXCLUSIVAMENTE POR PROPONENTES QUE PRESENTEN SU OFERTA A TRAVÉS DE UNA UNIÓN TEMPORAL DE PROVEEDORES).') + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  assert.ok(analizarAnexo(norm).avisoNoAplica, 'debe avisar que no corresponde');
+  // Mencionar la UTP sin «exclusivamente» no basta.
+  const otro = normalizarParaIds(NS + p('Los integrantes de la Unión Temporal de Proveedores deberán firmar.') + FIN).xml;
+  assert.equal(analizarAnexo(otro).avisoNoAplica, null);
+});
+
+test('escribir tras un rótulo sin «:» agrega los dos puntos pegados («Giro » → «Giro: …») y un resto de raya borrado no pega palabras', () => {
+  const xml = NS + `<w:p w14:paraId="0000AAAA"><w:r><w:t xml:space="preserve">Giro </w:t></w:r></w:p>` + FIN;
+  const salida = rellenarFinDeParrafo(xml, '0000AAAA', 'Venta de equipos');
+  assert.match(salida.replace(/<[^>]+>/g, ''), /^Giro: Venta de equipos$/);
+  const fecha = NS + `<w:p><w:r><w:t>a……de…………</w:t></w:r><w:r><w:t>……</w:t></w:r><w:r><w:t>de 2026.</w:t></w:r></w:p>` + FIN;
+  let x = rellenarRunPorIndice(fecha, 1, [{ pos: 0, largo: 2, valor: '' }]);
+  x = rellenarRunPorIndice(x, 0, [{ pos: 8, largo: 4, valor: 'noviembre' }]);
+  assert.match(x.replace(/<[^>]+>/g, ''), /noviembre de 2026/);
+});

@@ -51,9 +51,25 @@ export interface ItemComercialAuditor {
   valorNumero: number | null;
 }
 
+/** Una línea del Auditor NUEVO (auditor_opcion + comparador técnico), lista para la ficha de
+ *  especificaciones del anexo técnico. `opcion` es la opción APROBADA de la línea; sin ella, todo
+ *  queda pendiente y `motivo` dice por qué (lo que ve el equipo en el anexo). */
+export interface FichaLineaAuditor {
+  lineaNumero: number | null;
+  producto: string;                       // "Camilla de Transporte"
+  opcion: {
+    marca: string | null; modelo: string | null; fabricante: string | null; pais: string | null; anio: string | null;
+    documento: string | null;             // la ficha técnica que respalda (nombre del archivo)
+  } | null;
+  requisitos: Array<{ texto: string; estado: 'CUMPLE' | 'NO_CUMPLE' | 'FALTA_DATO' | null; ofertado: string; cita: string }>;
+  motivo: string | null;
+}
+
 export interface DatosAuditorAnexo {
   lineasTecnicas: LineaTecnicaAuditor[];
   itemsComerciales: ItemComercialAuditor[];
+  /** Auditor nuevo (opciones + comparador). Vacío/ausente en licitaciones del Auditor antiguo. */
+  fichas?: FichaLineaAuditor[];
 }
 
 export interface MatchAuditor { etiqueta: string; valor: string }
@@ -219,4 +235,100 @@ export function resolverPreciosConAuditor(etiquetas: string[], datos: DatosAudit
     }
   }
   return resultados;
+}
+
+// ── Ficha de especificaciones contra el Auditor NUEVO (opción aprobada + comparador) ─────────────
+// Forma real (1057922-28-LP26, «FORMULARIO N°2 ESPECIFICACIONES TÉCNICAS <EQUIPO>»): arriba
+// «Marca | Modelo | Fabricante | País/Año de Fabricación» y abajo una fila por requisito de las bases
+// con «CUMPLE SI/NO | CATÁLOGO/PÁGINA/DATASHEET | OBSERVACIONES». El Auditor ya comparó cada requisito
+// contra la ficha del fabricante: aquí solo se copia lo que dijo, y SOLO lo que cumple — un «NO» o un
+// requisito sin dato queda en blanco para que el equipo lo resuelva (escribir «NO» en un obligatorio
+// es dejar la oferta inadmisible). Sin opción aprobada no se escribe nada y cada casilla dice por qué.
+const RE_COL_CUMPLE = /\bcumple\b/i;
+const RE_COL_RESPALDO = /cat[aá]logo|datasheet|data\s*sheet|ficha|folleto|brochure|p[aá]gina|respaldo|documento|referencia/i;
+const RE_COL_OBSERVACION = /observaci|ofertad|valor\s+ofrecido|caracter[ií]stica\s+ofrecida|propuesta\s+del\s+oferente/i;
+const RE_ETQ_MARCA = /^marca\b/i;
+const RE_ETQ_MODELO = /^modelo\b/i;
+const RE_ETQ_FABRICANTE = /^fabricante\b/i;
+const RE_ETQ_PAIS = /^pa[ií]s\b|procedencia|origen/i;
+
+const norm = (s: string) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+const palabras = (s: string) => new Set(norm(s).split(' ').filter(w => w.length > 1));
+
+/** La línea del Auditor a la que corresponde este documento: por el nombre del equipo en su título. */
+export function fichaDelDocumento(titulos: string[], datos: DatosAuditorAnexo): FichaLineaAuditor | null {
+  const fichas = datos.fichas ?? [];
+  if (!fichas.length) return null;
+  const t = norm(titulos.join(' '));
+  const porTitulo = fichas.filter(f => { const p = norm(f.producto); return p.length > 3 && t.includes(p); });
+  if (porTitulo.length === 1) return porTitulo[0];
+  if (porTitulo.length > 1) {
+    // «Set refrigeradores clínicos» contiene «refrigeradores clínicos»: gana el nombre más largo.
+    const largo = [...porTitulo].sort((a, b) => norm(b.producto).length - norm(a.producto).length);
+    return norm(largo[0].producto).length > norm(largo[1].producto).length ? largo[0] : null;
+  }
+  // Sin el nombre del equipo en el título no se adivina: con una sola línea en el Auditor, el
+  // formulario del tensiómetro recibía la marca y el modelo de la camilla (1057922-28-LP26).
+  return null;
+}
+
+/** El requisito del Auditor que es esta fila del formulario (mismo texto de las bases, con o sin recorte). */
+function requisitoDeFila(ficha: FichaLineaAuditor, fila: string): FichaLineaAuditor['requisitos'][number] | null {
+  const f = norm(fila);
+  if (f.length < 4) return null;
+  const exactos = ficha.requisitos.filter(r => { const n = norm(r.texto); return n === f || (f.length >= 40 && n.startsWith(f)) || (n.length >= 40 && f.startsWith(n)); });
+  if (exactos.length === 1) return exactos[0];
+  if (exactos.length > 1) return null;
+  const pf = palabras(fila);
+  let mejor: { r: FichaLineaAuditor['requisitos'][number]; s: number } | null = null, segundo = 0;
+  for (const r of ficha.requisitos) {
+    const pr = palabras(r.texto);
+    const comunes = [...pf].filter(w => pr.has(w)).length;
+    const s = comunes / Math.max(pf.size, pr.size, 1);
+    if (!mejor || s > mejor.s) { segundo = mejor?.s ?? 0; mejor = { r, s }; } else if (s > segundo) segundo = s;
+  }
+  return mejor && mejor.s >= 0.75 && mejor.s - segundo >= 0.15 ? mejor.r : null;
+}
+
+export interface ResultadoFichaTecnica { matches: MatchAuditor[]; motivos: Map<string, string> }
+
+export function resolverFichaTecnicaConAuditor(etiquetas: string[], datos: DatosAuditorAnexo, titulos: string[]): ResultadoFichaTecnica {
+  const matches: MatchAuditor[] = [];
+  const motivos = new Map<string, string>();
+  if (!datos.fichas?.length) return { matches, motivos };
+  // Solo en un formulario de especificaciones (tiene la columna «CUMPLE»): un «País» o «Marca» de otro
+  // anexo no es asunto de la ficha técnica.
+  if (!etiquetas.some(e => { const p = e.split(' — '); return p.length > 1 && RE_COL_CUMPLE.test(p[p.length - 1]); })) return { matches, motivos };
+  const ficha = fichaDelDocumento(titulos, datos);
+  for (const etiqueta of etiquetas) {
+    const partes = etiqueta.split(' — ');
+    const columna = partes.length > 1 ? partes[partes.length - 1].trim() : '';
+    const fila = partes.length > 1 ? partes.slice(0, -1).join(' — ').trim() : etiqueta.trim();
+    const esCabecera = !columna && (RE_ETQ_MARCA.test(fila) || RE_ETQ_MODELO.test(fila) || RE_ETQ_FABRICANTE.test(fila) || RE_ETQ_PAIS.test(fila));
+    const esColumnaFicha = RE_COL_CUMPLE.test(columna) || RE_COL_RESPALDO.test(columna) || RE_COL_OBSERVACION.test(columna);
+    if (!esCabecera && !esColumnaFicha) continue;
+    if (!ficha) { motivos.set(etiqueta, 'Este equipo no está entre las líneas que se ofertan en el Auditor (revisar el costeo): no hay producto ni ficha técnica que poner.'); continue; }
+    if (!ficha.opcion) { motivos.set(etiqueta, ficha.motivo || `Línea ${ficha.lineaNumero ?? '?'} (${ficha.producto}): sin opción aprobada en el Auditor.`); continue; }
+    const o = ficha.opcion;
+    if (esCabecera) {
+      const valor = RE_ETQ_MARCA.test(fila) ? o.marca : RE_ETQ_MODELO.test(fila) ? o.modelo : RE_ETQ_FABRICANTE.test(fila) ? o.fabricante
+        // «País/Año de Fabricación» pide los dos: con uno solo queda para completar a mano.
+        : /a[ñn]o/i.test(fila) ? (o.pais && o.anio ? `${o.pais} / ${o.anio}` : null) : o.pais;
+      if (valor) matches.push({ etiqueta, valor });
+      else motivos.set(etiqueta, `La ficha técnica de la opción aprobada no trae «${fila}».`);
+      continue;
+    }
+    const req = requisitoDeFila(ficha, fila);
+    if (!req) { motivos.set(etiqueta, 'Este requisito no aparece en la comparación técnica del Auditor.'); continue; }
+    if (req.estado !== 'CUMPLE') {
+      motivos.set(etiqueta, req.estado === 'NO_CUMPLE'
+        ? `El Auditor marcó que NO cumple${req.ofertado ? ` (ofertado: ${req.ofertado})` : ''}: decidirlo antes de presentar.`
+        : 'La ficha técnica no trae este dato: falta confirmarlo con el proveedor.');
+      continue;
+    }
+    if (RE_COL_CUMPLE.test(columna)) matches.push({ etiqueta, valor: 'SI' });
+    else if (RE_COL_RESPALDO.test(columna)) { if (o.documento) matches.push({ etiqueta, valor: o.documento }); else motivos.set(etiqueta, 'La opción aprobada no tiene ficha técnica cargada.'); }
+    else if (req.ofertado) matches.push({ etiqueta, valor: req.ofertado });
+  }
+  return { matches, motivos };
 }

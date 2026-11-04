@@ -64,6 +64,9 @@ const RE_FIRMA_CONTRAPARTE = /(evaluador|entidad\s+licitante|comisi[óo]n\s+eval
 // conocido, no se autocompleta nada, como mucho queda disponible para que un humano la vea.
 export interface CandidatoCelda {
   etiqueta: string; paraId: string; indice: number;
+  // «Etiqueta:» sola en una celda de formulario («Tipo de Tributación:»): si no se puede llenar queda
+  // como casilla pendiente, en vez de descartarse como cualquier «Título:» suelto (patrón 5).
+  campoEnCelda?: boolean;
   // Campo de la ficha resuelto DE FORMA DETERMINISTA por la estructura del documento, sin pasar
   // por la IA — hoy solo lo pone asignarCamposDeBloqueFirma (ver más abajo): un "RUT:" / "NOMBRE:"
   // pegado bajo "FIRMA REPRESENTANTE LEGAL:" es, sin ninguna ambigüedad, el dato de esa persona.
@@ -665,6 +668,8 @@ interface CeldaCruda {
 // columna mal calzada, ver comentario en detectarCandidatosTabla) — nunca son un dato real, son
 // puro relleno visual de layout.
 const ANCHO_PCT_MINIMO_COLUMNA_REAL = 400;
+const RE_COLUMNA_RESPUESTA_CUMPLE = /\bcumple\b|^s[ií]\s*\/\s*no$|^s[ií]$|^no$/i;
+const RE_COLUMNA_DEL_ORGANISMO = /puntaje\s+(asignado|obtenido)|uso\s+(exclusivo\s+)?(de\s+la\s+)?comisi[oó]n|para\s+uso\s+(del|de\s+la)\s+(organismo|comisi[oó]n|evaluador)/i;
 
 // Columnas que NOMBRAN la fila (qué producto/servicio es), distintas de las que la describen de
 // otra forma (unidad de medida, cantidad, plazo). Se usan para elegir el texto que identifica a la
@@ -827,10 +832,17 @@ export function indiceFilaEncabezado(filas: { completa: boolean; numCeldas: numb
 // como encabezado. El requisito de "como mucho una celda en blanco" ya descarta las filas de DATOS
 // de esta misma tabla (traen 1 sola celda con texto de 5), así que no hay riesgo real de tomar una
 // fila de datos por encabezado solo por sacar esta condición.
+// Fila divisoria de sección dentro de una tabla de especificaciones: «1 | CARACTERÍSTICAS GENERALES»,
+// «2. | DIMENSIONES», «IV | ACCESORIOS» — el número de sección en la primera celda y el título combinado
+// en la segunda. Tiene 2 celdas con texto y gridSpan, igual que el encabezado ancho de 2 columnas de
+// abajo, y se tomaba por encabezado: todas las filas de requisitos quedaban bajo la columna
+// «CARACTERÍSTICAS GENERALES» en vez de «CUMPLE SI/NO» / «CATÁLOGO» / «OBSERVACIONES» (1057922-28-LP26).
+const RE_NUMERO_DE_SECCION = /^(?:\d{1,2}|[IVX]{1,4}|[A-Z])[.)]?$/;
+
 function siguienteEncabezadoTablaExtenso(
-  filas: { numCeldas: number; numCeldasConTexto: number; tieneCeldaCombinada?: boolean }[], desde: number,
+  filas: { numCeldas: number; numCeldasConTexto: number; tieneCeldaCombinada?: boolean; primerTexto?: string }[], desde: number,
 ): number {
-  const esCandidata = (f: { numCeldas: number; numCeldasConTexto: number; tieneCeldaCombinada?: boolean }) =>
+  const esCandidata = (f: { numCeldas: number; numCeldasConTexto: number; tieneCeldaCombinada?: boolean; primerTexto?: string }) =>
     (f.numCeldas >= 3 && f.numCeldasConTexto >= f.numCeldas - 1)
     // BUG REAL (2908-16-LE26, 10-ago-2026): "NOMBRE O RAZÓN SOCIAL DEL OFERENTE" | "RUT EMPRESA"
     // — la tabla de identificación más común que existe — usa gridSpan para repartir el ANCHO
@@ -845,7 +857,7 @@ function siguienteEncabezadoTablaExtenso(
     // encabezado ancho de 2 columnas siempre tiene sus 2 nombres completos; una fila de ítem con
     // gridSpan real trae solo el rótulo del cajón con texto, el resto de sus celdas (Cumple,
     // Catálogo, Observaciones) vienen vacías y esa asimetría ya la descarta esta regla.
-    || (f.numCeldas === 2 && f.numCeldasConTexto === 2 && !!f.tieneCeldaCombinada);
+    || (f.numCeldas === 2 && f.numCeldasConTexto === 2 && !!f.tieneCeldaCombinada && !RE_NUMERO_DE_SECCION.test(f.primerTexto ?? ''));
   let i = desde;
   while (i < filas.length && !esCandidata(filas[i])) i++;
   if (i >= filas.length) return -1;
@@ -945,6 +957,7 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
         numCeldasConTexto: textos.filter(t => t !== '').length,
         tieneCeldaCombinada: filaTieneCeldaCombinada(f[1]),
         celdaLarga: filaEsCeldaLarga(textos),
+        primerTexto: textos[0] ?? '',
       };
     });
     const primerEncabezado = indiceFilaEncabezado(filasInfo);
@@ -1058,7 +1071,10 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
       // CAMPOS_PERMITIDOS_POR_CATEGORIA) es el mismo que ya resuelve bien estos campos cuando vienen
       // por el patrón 5 ("Nombre del Representante Legal:" + valor en la misma línea). Con DOS O MÁS
       // filas de datos sigue siendo una LISTA (asistentes, integrantes) y se mantiene solo-manual.
-      const esListaDeVariasFilas = filasDeDatos.length > 1;
+      // Solo cuentan las filas que traen algo para llenar: en un formulario grande, bajo «Calle | Nº |
+      // Ciudad | País» vienen filas de rótulos llenos («Teléfono | Correo», «Giro | Fecha») que no son
+      // otra entidad de una lista — con ellas contadas, el domicilio quedaba solo-manual (1057922-28-LP26).
+      const esListaDeVariasFilas = filasDeDatos.filter(celdas => celdas.some(c => c.vacio)).length > 1;
 
       // BUG REAL (4494-69-LE26, FORMATO N°1-A): "TELEFONO | E-MAIL" del oferente va seguido de DOS
       // filas en blanco (la segunda es solo aire de la plantilla) y la regla de "lista de varias
@@ -1108,11 +1124,18 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
           if (!c.vacio || c.indiceGlobal == null || !c.paraId) return;
           // Celda angosta a propósito (relleno de layout, ver ANCHO_PCT_MINIMO_COLUMNA_REAL) —
           // nunca es un dato real que pedir, se ignora aunque esté "vacía".
-          if (c.anchoPct != null && c.anchoPct < ANCHO_PCT_MINIMO_COLUMNA_REAL) return;
           const nombreColumna = hayEncabezado ? nombresColumna[columnaDeCadaCelda[colIndex]] : '';
-          const etiqueta = filaContexto && nombreColumna
-            ? `${filaContexto} — ${nombreColumna}`
-            : (filaContexto || nombreColumna);
+          // Salvo la columna de respuesta «CUMPLE SI/NO»: es angosta porque solo lleva «SI», y era la
+          // única casilla que importa en una ficha de especificaciones (1057922-28-LP26).
+          if (c.anchoPct != null && c.anchoPct < ANCHO_PCT_MINIMO_COLUMNA_REAL && !RE_COLUMNA_RESPUESTA_CUMPLE.test(nombreColumna)) return;
+          // La columna que llena el ORGANISMO («PUNTAJE ASIGNADO», «uso exclusivo de la comisión») no es del oferente.
+          if (RE_COLUMNA_DEL_ORGANISMO.test(nombreColumna)) return;
+          // La etiqueta se acota en la FILA, no al final: con un requisito largo el recorte a 160 se
+          // comía « — <columna>» y la casilla quedaba sin saber a qué columna pertenecía.
+          const filaAcotada = filaContexto.length > 120 ? filaContexto.slice(0, 120) : filaContexto;
+          const etiqueta = filaAcotada && nombreColumna
+            ? `${filaAcotada} — ${nombreColumna}`
+            : (filaAcotada || nombreColumna);
           if (!etiqueta) return; // ni fila ni columna dan un nombre: no hay cómo describir la celda
           // Si la fila no aporta NINGÚN texto, la etiqueta es solo el nombre de la columna. Si
           // ADEMÁS hay más de una fila así (una LISTA — especificaciones, participantes de una
@@ -1165,6 +1188,7 @@ function indicesEnCeldasDeDatosDeTabla(xml: string): Set<number> {
         numCeldasConTexto: textos.filter(t => t !== '').length,
         tieneCeldaCombinada: filaTieneCeldaCombinada(f[1]),
         celdaLarga: filaEsCeldaLarga(textos),
+        primerTexto: textos[0] ?? '',
       };
     });
     const primerEncabezado = indiceFilaEncabezado(filasInfo);
@@ -1757,6 +1781,66 @@ const RE_RUT_CON_NUMERO_AL_FINAL = /^\s*(?:r\.?\s*u\.?\s*[tn]\.?)\s*(?:n[°º.]+
 // nombre de la licitación quedaba sin escribir. Solo estas tres etiquetas exactas valen sin dos
 // puntos: nombran un dato de la licitación y no una oración.
 const RE_NOMBRE_LICITACION_SUELTO = /^nombre\s+(?:de\s+(?:la\s+)?)?(?:licitaci[óo]n|proceso|proyecto)$/i;
+
+// ── Rótulo SOLO en su celda, sin dos puntos ni celda vacía al lado ──────────────────────────
+// Forma real (1057922-28-LP26, FORMULARIO Nº1A): «Teléfono | Correo Electrónico», «Giro | Fecha
+// Escritura», y bajo «REPRESENTANTE LEGAL»: «Nombre | Rut». Cada celda trae SOLO el nombre del dato y
+// el valor se escribe a continuación, en la misma celda. Sin «:» el patrón 5 no la veía y sin celda
+// vacía tampoco el patrón 1: 16 datos del formulario quedaban invisibles, ni llenos ni pendientes.
+// Solo nombres de dato conocidos (lista cerrada, el rótulo ENTERO) y nunca una fila de encabezado de
+// columnas (la fila siguiente vacía: «Calle | Nº | Ciudad» sobre una fila en blanco). La etiqueta lleva
+// el título de la sección de arriba («REPRESENTANTE LEGAL — Nombre») para saber de quién es el dato.
+const RE_ROTULO_DE_DATO = /^(?:nombres?(?:\s+completo)?|apellidos?|r\.?\s*u\.?\s*t\.?|run|c[eé]dula(?:\s+de\s+identidad)?|cargo|profesi[oó]n|nacionalidad|tel[eé]fono(?:\s+(?:fijo|m[oó]vil|celular|de\s+contacto))?|fono|celular|m[oó]vil|correo(?:\s+electr[oó]nico)?|e-?\s?mail|giro|actividad(?:\s+econ[oó]mica)?|direcci[oó]n|domicilio|comuna|ciudad|regi[oó]n|fecha\s+(?:de\s+)?escritura(?:\s*\(si\s+procede\))?|notar[ií]a|banco(?:\s+con\s+(?:el\s+)?(?:que|cual)\s+opera)?|tipo\s+de\s+tributaci[oó]n|afecta\s+o\s+exenta|tipo\s+de\s+cuenta|n[º°o]\.?\s+de\s+cuenta)$/i;
+
+// También «Etiqueta:» sola en su celda («Banco con que opera:», «Tipo de Tributación:», «Afecta o
+// Exenta:», «Otros:»): el patrón 5 la descarta si el dato no está en la ficha, y en una celda de
+// formulario eso es justo la casilla que hay que dejar para llenar a mano. Sin «marcar»/paréntesis:
+// «Naturaleza Jurídica (marcar opción):» pide marcar en la celda de al lado, no escribir.
+function esRotuloDeCelda(texto: string): boolean {
+  if (RE_ROTULO_DE_DATO.test(texto.replace(/\s*:\s*$/, ''))) return true;
+  if (!/:\s*$/.test(texto) || texto.length > 40 || /marcar|\(/i.test(texto)) return false;
+  const limpio = texto.replace(/\s*:\s*$/, '').trim();
+  // Todo en mayúsculas («DATOS DEL PROPONENTE:») es el título de un bloque, no un campo.
+  return limpio.length >= 3 && /[a-záéíóúñ]/.test(limpio) && esEtiquetaDeCampo(limpio) && !RE_ETIQUETA_ES_AVISO_DEL_ORGANISMO.test(limpio);
+}
+
+export function detectarRotulosSolosEnCelda(xml: string): CandidatoCelda[] {
+  const out: CandidatoCelda[] = [];
+  const offsetsIndices = offsetsAIndices(xml);
+  for (const tabla of iterarTablas(xml)) {
+    const filas = [...tabla.cuerpo.matchAll(/<w:tr\b[^>]*>([\s\S]*?)<\/w:tr>/g)];
+    let seccion = '';
+    filas.forEach((fila, iFila) => {
+      const textos = textosDeFila(fila[1]);
+      // Fila de título de sección (una sola celda con texto que no es un dato): da el contexto de lo
+      // que sigue. «Nombre» / «Correo Electrónico» solos en una fila ancha son campos, no títulos.
+      if (textos.length === 1 && !esRotuloDeCelda(textos[0].replace(/\s+/g, ' ').trim())) {
+        if (textos[0]) seccion = textos[0].replace(/\s+/g, ' ').replace(/[:\s]+$/, '');
+        return;
+      }
+      if (textos.some(t => t === '')) return;                       // hay celda vacía: la cubre el patrón 1/tabla
+      // Encabezado de columnas: la fila de abajo tiene casillas vacías («Calle | Nº | Ciudad» sobre una fila
+      // en blanco, «Nombre Integrante | RUT» sobre «1 | ___ | ___»).
+      const siguiente = filas[iFila + 1] ? textosDeFila(filas[iFila + 1][1]) : null;
+      if (siguiente && siguiente.length > 1 && siguiente.some(t => t === '')) return;
+      const offsetFila = tabla.indexCuerpo + fila.index! + fila[0].indexOf(fila[1]);
+      for (const tc of fila[1].matchAll(/<w:tc\b[^>]*>([\s\S]*?)<\/w:tc>/g)) {
+        const cuerpoCelda = tc[1];
+        const conTexto = [...cuerpoCelda.matchAll(/<w:p\b[^>]*w14:paraId="([0-9A-Fa-f]+)"[^>]*>([\s\S]*?)<\/w:p>/g)]
+          .filter(p => textoDeRuns(p[2]).trim() !== '');
+        if (conTexto.length !== 1) continue;
+        const texto = textoDeRuns(conTexto[0][2]).replace(/\s+/g, ' ').trim();
+        if (!esRotuloDeCelda(texto)) continue;
+        const offsetCelda = offsetFila + tc.index! + tc[0].indexOf(cuerpoCelda);
+        const indice = offsetsIndices.get(offsetCelda + (conTexto[0].index ?? 0));
+        if (indice == null) continue;
+        const rotulo = texto.replace(/\s*:\s*$/, '');
+        out.push({ etiqueta: seccion ? `${seccion} — ${rotulo}` : rotulo, paraId: conTexto[0][1], indice, dosPuntos: true });
+      }
+    });
+  }
+  return out;
+}
 
 export function detectarCamposConDosPuntos(parrafos: Parrafo[]): CandidatoCelda[] {
   const out: CandidatoCelda[] = [];
@@ -2507,9 +2591,15 @@ const RE_NO_PRESENTAR = /no\s+(?:debe|deben|corresponde|correspondera|correspond
 const RE_CONDICION_UTP = /(uni[óo]n\s+temporal|u\.?t\.?p\.?)/i;
 const RE_CONDICION_NATURAL = /persona\s+natural/i;
 
+// La misma nota dicha al revés: «ESTE FORMULARIO DEBERÁ SER COMPLETADO EXCLUSIVAMENTE POR PROPONENTES
+// QUE PRESENTEN SU OFERTA A TRAVÉS DE UNA UNIÓN TEMPORAL DE PROVEEDORES» (FORMULARIO Nº1B,
+// 1057922-28-LP26): se llenaba con la razón social y el RUT como si postuláramos en UTP. Igual de
+// estrecha: exige «exclusiva/únicamente» y que lo que sigue nombre a la UTP o a la persona natural.
+const RE_SOLO_PARA = /(?:exclusivamente|[uú]nicamente)\s+(?:por|para|a|en\s+caso\s+de)\b[^.]{0,120}?(uni[óo]n(?:es)?\s+temporal(?:es)?|\bu\.?t\.?p\.?\b|persona\s+natural)/i;
+
 export function detectarAvisoNoAplica(parrafos: Parrafo[]): AvisoNoAplica | null {
   for (const p of parrafos) {
-    if (!RE_NO_PRESENTAR.test(p.texto)) continue;
+    if (!RE_NO_PRESENTAR.test(p.texto) && !RE_SOLO_PARA.test(p.texto)) continue;
     // Solo interesa la condición que NO cumplimos: la empresa postula como persona jurídica
     // individual. Una nota tipo "las personas jurídicas no deben presentar este anexo" es
     // justamente la que aplica; una que hable de otra cosa se ignora.
@@ -2676,7 +2766,15 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
     .filter(c => !indicesTapadosPorCuadro.has(c.indice));
   const placeholdersFirmaSinTexto = detectarPlaceholdersFirmaSinTexto(parrafos)
     .filter(c => !indicesTapadosPorCuadro.has(c.indice));
-  const candidatosCeldaTodos = [...candidatosTabla, ...candidatosCeldaCrudos, ...candidatosPlaceholderReemplazar];
+  const yaCandidatos = new Set([...candidatosTabla, ...candidatosCeldaCrudos, ...candidatosPlaceholderReemplazar].map(c => c.indice));
+  // Los «Etiqueta:» que ya ve el patrón 5 siguen siendo suyos (mismo flujo de siempre); solo se marcan
+  // para que no desaparezcan si quedan sin dato. Los rótulos sin «:» entran como casillas nuevas.
+  const indicesPatron5 = new Set(detectarCamposConDosPuntos(parrafos).map(c => c.indice));
+  const rotulosSolos = detectarRotulosSolosEnCelda(xml)
+    .filter(c => !yaCandidatos.has(c.indice) && !indicesTapadosPorCuadro.has(c.indice));
+  const candidatosRotuloSolo = rotulosSolos.filter(c => !indicesPatron5.has(c.indice));
+  const indicesCampoEnCelda = new Set(rotulosSolos.filter(c => indicesPatron5.has(c.indice)).map(c => c.indice));
+  const candidatosCeldaTodos = [...candidatosTabla, ...candidatosCeldaCrudos, ...candidatosPlaceholderReemplazar, ...candidatosRotuloSolo];
   const indicesDeTabla = new Set(candidatosTabla.map(c => c.indice));
   const habilitados = new Set(acotarASeccionesHabilitadas(candidatosCeldaTodos, secciones, indicesDeTabla).map(c => c.indice));
   const indicesSoloManual = new Set(
@@ -2754,7 +2852,8 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // ACÁ, antes de armar `parrafos` en RAW (detectarCamposConDosPuntos no depende de nada de lo de
   // abajo), para que reciba la imagen igual que cualquier otra firma.
   const camposConDosPuntosCrudo = acotarASeccionesHabilitadas(detectarCamposConDosPuntos(parrafos), secciones)
-    .filter(c => !indicesTapadosPorCuadro.has(c.indice));
+    .filter(c => !indicesTapadosPorCuadro.has(c.indice))
+    .map(c => (indicesCampoEnCelda.has(c.indice) ? { ...c, campoEnCelda: true } : c));
   const camposDosPuntosFirma = camposConDosPuntosCrudo.filter(c => esFirmaPropia(c.etiqueta));
   const camposConDosPuntosSinFirma = camposConDosPuntosCrudo.filter(c => !esEtiquetaFirma(c.etiqueta));
 

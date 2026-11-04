@@ -166,6 +166,23 @@ productos que filas o alguna fila trae texto, no se escribe nada.
 
 **Anexo que no corresponde presentar.** Si el propio documento avisa que es solo para UTP o solo
 para persona natural, el anexo entero se marca "no aplica" con su motivo. El usuario puede forzarlo.
+Vale la nota «no debe presentar este anexo» y también «deberá ser completado **exclusivamente** por
+proponentes que presenten su oferta a través de una UTP» (Formulario Nº1B, 1057922-28-LP26).
+
+**Rótulo solo en su celda** («Teléfono», «Giro», «Nombre» / «Rut» bajo «REPRESENTANTE LEGAL», sin «:»
+ni celda vacía al lado): es una casilla, y el valor se escribe a continuación con «: »
+(`detectarRotulosSolosEnCelda`). La etiqueta lleva el título de la sección de arriba
+(«REPRESENTANTE LEGAL — Nombre»). No cuenta si la fila de abajo trae celdas vacías (es un encabezado
+de columnas) ni un título en mayúsculas. Un «Etiqueta:» en celda («Tipo de Tributación:») queda como
+casilla pendiente aunque no sea un dato de la ficha (`campoEnCelda`).
+
+**Fichas de especificaciones** («ESPECIFICACIONES | … | CUMPLE SI/NO | CATÁLOGO | OBSERVACIONES |
+PUNTAJE ASIGNADO»): la fila divisoria numerada «1 | CARACTERÍSTICAS GENERALES» no es encabezado; la
+columna «CUMPLE» cuenta aunque sea angosta; «PUNTAJE ASIGNADO» / «uso de la comisión» no es del
+oferente y no genera casilla; una unidad entre corchetes («200 [kg]») no es un campo.
+
+**Plazo a elegir, meses de garantía, «marcar con una X»**: los compromete el oferente; nunca pasan por
+la IA de bases ni por la de órdenes de compra (antes elegía «15 días» y la garantía mínima sola).
 
 **Fecha partida en casillas.** Nunca pasa por IA: es siempre la fecha de hoy, en el mismo orden.
 
@@ -377,6 +394,14 @@ Estas tres no dependen de `ANEXOS_IA_RESPALDO`, porque resuelven cosas que no sa
 
 Y una cuarta, informativa: **alertas de inadmisibilidad** desde las bases (garantías, firma de puño y
 letra, cotizar el 100%).
+
+**Ficha técnica desde el Auditor nuevo** (sin IA, `resolverFichaTecnicaConAuditor` +
+`fichasDelAuditorParaAnexo`): solo con la opción **aprobada** de la línea. El formulario se empareja
+con la línea por el nombre del equipo en su título (nunca «la única línea que hay»). Escribe marca y
+modelo, y por cada requisito que el comparador dio por cumplido: «SI», el nombre de la ficha técnica
+en la columna de catálogo y lo ofertado en observaciones (en blanco si el equipo lo confirmó a mano).
+«No cumple» y «falta dato» quedan en blanco. Fabricante y país/año quedan pendientes: un distribuidor
+no es el fabricante. El porqué de lo que no se llenó va en «Antes de generar».
 
 ---
 

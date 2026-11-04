@@ -546,8 +546,14 @@ export function rellenarFinDeParrafo(xml: string, paraId: string, valor: string)
   const [entero, apertura, cuerpo, cierre] = m;
   const runs = [...cuerpo.matchAll(/<w:r\b[\s\S]*?<\/w:r>/g)];
   const rPrMatch = runs.length ? runs[runs.length - 1][0].match(/<w:rPr>[\s\S]*?<\/w:rPr>/) : null;
-  const run = `<w:r>${rPrMatch ? rPrMatch[0] : ''}<w:t xml:space="preserve"> ${xmlEscape(valor)}</w:t></w:r>`;
-  return xml.slice(0, m.index) + apertura + cuerpo + run + cierre + xml.slice((m.index ?? 0) + entero.length);
+  // Rótulo sin dos puntos («Teléfono», «Giro», «Nombre de licitación»): se los pone, para que no quede
+  // «Teléfono +56 9…» pegado (FORMULARIO Nº1A de 1057922-28-LP26).
+  const textoActual = [...cuerpo.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map(t => t[1]).join('').trim();
+  const agregarDosPuntos = /[\p{L})]$/u.test(textoActual);
+  // «Giro » (con espacio al final): los dos puntos van pegados a la palabra, no «Giro :».
+  const cuerpoFinal = agregarDosPuntos ? cuerpo.replace(/(<w:t(?:\s[^>]*)?>)([^<]*?)\s+(<\/w:t>)(?![\s\S]*<w:t[\s>])/, '$1$2$3') : cuerpo;
+  const run = `<w:r>${rPrMatch ? rPrMatch[0] : ''}<w:t xml:space="preserve">${agregarDosPuntos ? ':' : ''} ${xmlEscape(valor)}</w:t></w:r>`;
+  return xml.slice(0, m.index) + apertura + cuerpoFinal + run + cierre + xml.slice((m.index ?? 0) + entero.length);
 }
 
 // Reemplaza TODO el contenido de un párrafo por un único run con el valor nuevo — a diferencia de
@@ -632,6 +638,7 @@ function esCampoEntreParentesis(dentro: string): boolean {
   return RE_BASE_CAMPO_ENTRE_PARENTESIS.test(dentro.replace(RE_INSTRUCCION_LEVE_ANTES, ''));
 }
 
+const RE_UNIDAD_DE_MEDIDA = /^(?:[kmµu]?g|t|ton|[kcmµ]?m[²³23]?|pulg(?:adas?)?|in|ft|[mµ]?l|lts?|cc|°\s?[cf]?|º\s?[cf]?|grados?|%|[km]?w|kva|[km]?v|[mµ]?a|mah|[kmg]?hz|mmhg|cmh2o|[mk]?pa|bar|psi|seg|s|min|h|hrs?|d[ií]as?|kcal|cal|db|lux|lm|rpm|btu|l\/min|ml\/h|ml\/min|ppm|mbar|nm|ohm|Ω)$/i;
 const RE_MARCADORES: { re: RegExp; valido: (dentro: string) => boolean }[] = [
   { re: /<<([^<>]{2,200}?)>>/g, valido: (d) => RE_LETRA.test(d) },      // <<NOMBRE PERSONA NATURAL O PERSONA JURIDICA>>
   // BUG REAL (18-ago-2026, 1247197-54-LE26, "DECLARACIÓN JURADA PARA CONTRATAR"): el organismo usa
@@ -645,7 +652,9 @@ const RE_MARCADORES: { re: RegExp; valido: (dentro: string) => boolean }[] = [
   { re: /<([^<>]{2,200}?)>/g, valido: (d) => RE_LETRA.test(d) },        // <nombre del representante legal>
   { re: /«([^«»]{2,200}?)»/g, valido: (d) => RE_LETRA.test(d) },        // variante tipográfica de lo mismo
   { re: /\{\{([^{}]{2,200}?)\}\}/g, valido: (d) => RE_LETRA.test(d) },  // {{razon_social}} — plantillas
-  { re: /\[([^[\]]{2,200}?)\]/g, valido: (d) => RE_LETRA.test(d) },     // [Insertar RUT] / [fecha] / [indicar "en esta casilla"…]
+  // Una UNIDAD entre corchetes no es un campo: «Capacidad de carga: al menos 200 [kg]», «215 [cm] ±5 [cm]»
+  // (fichas de especificaciones técnicas, 1057922-28-LP26): cada «[cm]» salía como casilla para llenar.
+  { re: /\[([^[\]]{2,200}?)\]/g, valido: (d) => RE_LETRA.test(d) && !RE_UNIDAD_DE_MEDIDA.test(d.trim()) },     // [Insertar RUT] / [fecha] / [indicar "en esta casilla"…]
   // BUG REAL (10-ago-2026, declaración jurada corrida: "Yo (nombre), cédula de identidad Nº
   // (RUT)…, (razón social empresa), RUT N° (RUT empresa), con domicilio en (domicilio),
   // (comuna), (ciudad), declaro bajo juramento que:"): el organismo usa PARÉNTESIS en vez de
@@ -1052,15 +1061,20 @@ export function rellenarRunPorIndice(
   // vecino SOLO si sigue dentro del mismo <w:p>: cruzar a otro párrafo o celda daría un espacio
   // basado en texto que no tiene nada que ver con este blanco.
   const mismoParrafo = (desde: number, hasta: number) => !xml.slice(desde, hasta).includes('</w:p>');
+  // Un run vecino VACÍO (el resto de una raya ya borrado) no es el límite: se sigue al próximo del
+  // mismo párrafo — si no, «noviembre» quedaba pegado al «de 2026» que venía detrás (1057922-28-LP26).
   const charLimite = (lado: 'antes' | 'despues'): string => {
-    const vecino = matches[indiceRun + (lado === 'antes' ? -1 : 1)];
-    if (!vecino) return '';
-    const dentro = lado === 'antes'
-      ? mismoParrafo((vecino.index ?? 0) + vecino[0].length, m.index ?? 0)
-      : mismoParrafo((m.index ?? 0) + entero.length, vecino.index ?? 0);
-    if (!dentro) return '';
-    const texto = decodificarXml(vecino[2]);
-    return lado === 'antes' ? (texto[texto.length - 1] || '') : (texto[0] || '');
+    for (let k = indiceRun + (lado === 'antes' ? -1 : 1); k >= 0 && k < matches.length; k += lado === 'antes' ? -1 : 1) {
+      const vecino = matches[k];
+      const dentro = lado === 'antes'
+        ? mismoParrafo((vecino.index ?? 0) + vecino[0].length, m.index ?? 0)
+        : mismoParrafo((m.index ?? 0) + entero.length, vecino.index ?? 0);
+      if (!dentro) return '';
+      const texto = decodificarXml(vecino[2]);
+      if (!texto) continue;
+      return lado === 'antes' ? texto[texto.length - 1] : texto[0];
+    }
+    return '';
   };
 
   let textoNuevo = textoOriginal;
@@ -1079,9 +1093,14 @@ export function rellenarRunPorIndice(
     // imprimió el siglo ("del 20___") SÍ debe quedar pegado al dígito de la izquierda — separarlos
     // da "20 26" en vez de "2026". Ver 'anio_2digitos'/'anio_1digito' en anexos-detectar.ts y
     // fecha_hoy_anio_corto en anexos-determinista.ts, los dos casos que la marcan.
-    const valorFinal = (!pegadoALaIzquierda && /[A-Za-zÀ-ÿ0-9°º)]/.test(charPrevio) ? ' ' : '')
-      + valor
-      + (/[A-Za-zÀ-ÿ0-9]/.test(charSiguiente) ? ' ' : '');
+    // Un blanco que se BORRA (valor vacío: el resto de una raya que Word partió en dos runs, «…………» +
+    // «…….») deja un solo espacio si las palabras de los lados quedaban pegadas: «noviembrede 2026»
+    // (FORMULARIO Nº1A, 1057922-28-LP26).
+    const valorFinal = valor === ''
+      ? (/[A-Za-zÀ-ÿ0-9]/.test(charPrevio) && /[A-Za-zÀ-ÿ0-9]/.test(charSiguiente) ? ' ' : '')
+      : (!pegadoALaIzquierda && /[A-Za-zÀ-ÿ0-9°º)]/.test(charPrevio) ? ' ' : '')
+        + valor
+        + (/[A-Za-zÀ-ÿ0-9]/.test(charSiguiente) ? ' ' : '');
     textoNuevo = textoNuevo.slice(0, pos) + valorFinal + textoNuevo.slice(pos + largo);
   }
 

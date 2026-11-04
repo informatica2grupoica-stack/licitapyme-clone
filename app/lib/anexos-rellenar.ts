@@ -41,7 +41,7 @@ import { esCandidatoDePrecioUnitario } from '@/app/lib/anexos-precios-columnas';
 import { resolverTablaProductosEnBlanco } from '@/app/lib/anexos-oferta-tecnica-tabla';
 import { resolverMontoUnicoOferta, resolverPieApilado, porcentajeIvaDeclarado, totalNetoDeItemsCosteo, montoEnPalabras } from '@/app/lib/anexos-monto-oferta';
 import {
-  resolverTablaConAuditor, resolverPreciosConAuditor, resolverCamposSueltosConAuditor,
+  resolverTablaConAuditor, resolverPreciosConAuditor, resolverCamposSueltosConAuditor, resolverFichaTecnicaConAuditor,
   type DatosAuditorAnexo,
 } from '@/app/lib/anexos-auditor-fuente';
 import { calcularTotalesPorSeccion, calcularTotalesAlPie, calcularTotalesPorLinea, calcularMontosTotalesPorLineaSinUnitario, celdasDeRellenoDelPie, resolverTablaResumen, tituloDeTabla, encabezadosLibres, type TituloCercano } from '@/app/lib/anexos-totales-seccion';
@@ -138,6 +138,7 @@ export interface CampoResuelto {
 export const CAMPO_MONTO_TOTAL_OFERTA = 'monto_total_oferta';
 
 const MOTIVO_SOLO_MANUAL = 'Bloque de Persona Natural o UTP — no aplica (esta empresa postula como persona jurídica individual).';
+const RE_COMPROMISO_DEL_OFERENTE = /garant[ií]a|plazo\s+de\s+entrega|d[ií]as\s+(corridos|h[aá]biles)|marcar\s+con\s+una?\s+x|\bcumple\b/i;
 
 interface ResultadoResolucion {
   matcheados: CampoResuelto[];
@@ -318,7 +319,7 @@ async function resolverTodo(
     // por eso el chequeo de abajo sigue siendo solo `indicesDosPuntos`, nunca `c.dosPuntos`.
     if (res?.tipo === 'auto') {
       matcheados.push({ c, campo: res.categoria, valor: res.valor, via: 'ia', dosPuntos: c.dosPuntos || indicesDosPuntos.has(c.indice) });
-    } else if (!indicesDosPuntos.has(c.indice) || esPendienteQueSiPideUnDato(res)) {
+    } else if (!indicesDosPuntos.has(c.indice) || esPendienteQueSiPideUnDato(res) || c.campoEnCelda) {
       // "Etiqueta:" (patrón 5) casi nunca alimenta la lista de pendientes — ver el comentario de
       // detectarCamposConDosPuntos en anexos-detectar.ts: muchos títulos terminan en dos puntos y
       // mostrarlos todos llenaría la pantalla de campos que no existen.
@@ -356,6 +357,26 @@ async function resolverTodo(
       if (m) { matcheados.push({ c, campo: 'auditor_tecnico_comercial', valor: m.valor, via: 'auditor' }); pendientesConMotivo.delete(c.indice); }
       else pendientesTrasAuditor.push(c);
     }
+  }
+  // Ficha de especificaciones (marca, modelo, CUMPLE/CATÁLOGO/OBSERVACIONES) desde el Auditor NUEVO:
+  // opción aprobada + comparación técnica. Lo que no se puede llenar queda con el motivo a la vista.
+  const indicesDeFichaAuditor = new Set<number>();
+  if (datosAuditor?.fichas?.length) {
+    const { matches, motivos } = resolverFichaTecnicaConAuditor(pendientesTrasAuditor.map(c => c.etiqueta), datosAuditor, tituloAnexos ?? []);
+    const porEtiqueta = new Map(matches.map(m => [m.etiqueta, m.valor]));
+    const quedan: typeof pendientesTrasAuditor = [];
+    for (const c of pendientesTrasAuditor) {
+      const valor = porEtiqueta.get(c.etiqueta);
+      if (valor) { matcheados.push({ c, campo: 'auditor_tecnico_comercial', valor, via: 'auditor' }); pendientesConMotivo.delete(c.indice); continue; }
+      const motivo = motivos.get(c.etiqueta);
+      if (motivo) { pendientesConMotivo.set(c.indice, { categoria: 'especifico_licitacion', motivo }); indicesDeFichaAuditor.add(c.indice); }
+      quedan.push(c);
+    }
+    pendientesTrasAuditor = quedan;
+    // Las casillas de una tabla no muestran motivo propio: el porqué va arriba, en «Antes de generar».
+    const conteo = new Map<string, number>();
+    for (const m of motivos.values()) conteo.set(m, (conteo.get(m) || 0) + 1);
+    for (const [m, n] of conteo) checklistPendientes.push(n > 1 && /^El Auditor|^La ficha t[eé]cnica no trae este/.test(m) ? `Ficha técnica (${n} casillas): ${m}` : `Ficha técnica: ${m}`);
   }
 
   // Precios del Motor Comercial: no es un dato de la ficha de empresa, sale del .xlsx del
@@ -438,8 +459,19 @@ async function resolverTodo(
   // texto de bases, así que ni se intenta (ahorra la llamada).
   let pendientesFinal = pendientesTrasPrecio;
   let inlinePendientesFinal = inlinePendientes;
+  // Lo que COMPROMETE la oferta (plazo de entrega a elegir, meses de garantía, «marcar con una X») y
+  // las casillas de la ficha técnica que el Auditor dejó pendientes con motivo NO pasan por la IA de
+  // bases ni por la de órdenes de compra: la de bases elegía «15 días» y la garantía mínima por su
+  // cuenta, y la de OC escribía «SI» en «CUMPLE SI/NO» (1057922-28-LP26). Quedan para el equipo.
+  for (const p of inlinePendientes) {
+    if (p.categoria === 'especifico_licitacion' && RE_COMPROMISO_DEL_OFERENTE.test(`${p.b.contexto || ''} ${p.b.parrafoCompleto || ''}`)) {
+      p.categoria = 'decision_del_usuario';
+      p.motivo = 'Plazo, garantía u opción a marcar: lo compromete el oferente — se define en el Auditor o a mano.';
+    }
+  }
+  const puedeIrALaIA = (c: CandidatoCelda) => !indicesDeFichaAuditor.has(c.indice) && !RE_COMPROMISO_DEL_OFERENTE.test(c.etiqueta);
   if (basesTexto && basesTexto.trim()) {
-    const celdaEspecifico = pendientesTrasPrecio.filter(c => pendientesConMotivo.get(c.indice)?.categoria === 'especifico_licitacion');
+    const celdaEspecifico = pendientesTrasPrecio.filter(c => pendientesConMotivo.get(c.indice)?.categoria === 'especifico_licitacion' && puedeIrALaIA(c));
     const inlineEspecifico = inlinePendientes.filter(p => p.categoria === 'especifico_licitacion').map(p => p.b);
     if (celdaEspecifico.length || inlineEspecifico.length) {
       const desdeBases = await resolverEspecificacionesDesdeBasesConIA(celdaEspecifico, inlineEspecifico, parrafos, basesTexto);
@@ -466,7 +498,7 @@ async function resolverTodo(
   // que no hace falta filtrar más acá — una casilla ajena (ej. "Plazo de entrega") simplemente
   // vuelve con valor null y sigue pendiente igual que antes.
   if (ocsTexto && ocsTexto.trim()) {
-    const celdaEspecifico = pendientesFinal.filter(c => pendientesConMotivo.get(c.indice)?.categoria === 'especifico_licitacion');
+    const celdaEspecifico = pendientesFinal.filter(c => pendientesConMotivo.get(c.indice)?.categoria === 'especifico_licitacion' && puedeIrALaIA(c));
     const inlineEspecifico = inlinePendientesFinal.filter(p => p.categoria === 'especifico_licitacion').map(p => p.b);
     if (celdaEspecifico.length || inlineEspecifico.length) {
       const desdeOc = await resolverExperienciaDesdeOrdenesCompra(celdaEspecifico, inlineEspecifico, parrafos, ocsTexto);

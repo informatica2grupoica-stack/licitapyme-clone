@@ -12,7 +12,7 @@ import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { MONEDA_LABEL_MAP } from '@/app/types/mercado-publico.types';
 import { ocsParaExperiencia } from '@/app/lib/ordenes-compra';
-import type { DatosAuditorAnexo, LineaTecnicaAuditor, ItemComercialAuditor } from '@/app/lib/anexos-auditor-fuente';
+import type { DatosAuditorAnexo, LineaTecnicaAuditor, ItemComercialAuditor, FichaLineaAuditor } from '@/app/lib/anexos-auditor-fuente';
 
 export interface DocumentoBase {
   bufferOriginal: Buffer;
@@ -613,6 +613,57 @@ export async function obtenerExperienciaOcParaAnexo(empresaId: number): Promise<
 // si un asesor observó un ítem puntual y el resto del bloque sigue aprobado, ese ítem puntual
 // simplemente no aparece como fuente — el resolutor (anexos-auditor-fuente.ts) no se entera de
 // que existió, así que no hay forma de que se cuele en el anexo.
+// Auditor NUEVO (auditor_opcion + comparador técnico): por línea, la opción APROBADA con su marca,
+// modelo, ficha técnica y el veredicto de cada requisito de las bases — la fuente de la ficha de
+// especificaciones del anexo técnico (1057922-28-LP26). Sin opción aprobada la línea viaja igual, con
+// el motivo, para que el anexo diga por qué no se llenó en vez de quedar en blanco sin explicación.
+export async function fichasDelAuditorParaAnexo(negocioId: number, codigo: string): Promise<FichaLineaAuditor[]> {
+  try {
+    const { armarPanelAuditor } = await import('@/app/lib/auditor-opciones');
+    return fichasDesdePanel(await armarPanelAuditor(negocioId, codigo));
+  } catch (e) {
+    console.error(`[anexos-datos] no se pudieron leer las fichas del Auditor de ${codigo}:`, String(e).slice(0, 200));
+    return [];
+  }
+}
+
+/** Parte pura de fichasDelAuditorParaAnexo: del panel del Auditor a las fichas por línea. */
+export function fichasDesdePanel(panel: import('@/app/lib/auditor-opciones').PanelAuditorDTO): FichaLineaAuditor[] {
+    return panel.lineas.filter(l => !l.noOfertada).map(l => {
+      const producto = String(l.detalle || '').split(/\s*[|·\n]\s*/)[0].trim() || `Línea ${l.lineaReal ?? l.item}`;
+      const lineaNumero = l.lineaReal ?? l.item ?? null;
+      const aprobada = l.opciones.find(o => o.estado === 'aprobada') ?? null;
+      const vivas = l.opciones.filter(o => o.estado !== 'descartada');
+      if (!aprobada) {
+        const motivo = vivas.length
+          ? `Línea ${lineaNumero} (${producto}): ${vivas.length} opción(es) en el Auditor, ninguna aprobada todavía. Se llena cuando se apruebe.`
+          : `Línea ${lineaNumero} (${producto}): no hay ficha técnica ni opción cargada en el Auditor.`;
+        return { lineaNumero, producto, opcion: null, requisitos: [], motivo };
+      }
+      const ficha = aprobada.respaldos.filter(r => r.vigente && r.tipo === 'ficha_tecnica').at(-1)
+        ?? aprobada.respaldos.filter(r => r.vigente && r.documentoNombre).at(-1) ?? null;
+      const filas = aprobada.tecnico.resultado?.filas ?? [];
+      const requisitos = filas.map(f => {
+        const e = f.estadoCelda ?? (f.veredicto === 'CUMPLE' ? 'CUMPLE' : f.veredicto === 'NO_CUMPLE' ? 'NO_CUMPLE' : 'FALTA_DATO');
+        const estado: 'CUMPLE' | 'NO_CUMPLE' | 'FALTA_DATO' = f.revisar ? 'FALTA_DATO' : e === 'SOBRECUMPLE' || e === 'CUMPLE' ? 'CUMPLE' : e === 'NO_CUMPLE' ? 'NO_CUMPLE' : 'FALTA_DATO';
+        // Lo ofertado tal como lo leyó el comparador. Si el equipo confirmó el requisito a mano, lo leído antes
+        // puede contradecir la confirmación («solo se menciona 1 portasuero»): la observación la escribe el equipo.
+        return { texto: f.requeridoTexto, estado, ofertado: f.confirmada ? '' : (f.partes?.[0]?.ofertadoValor || f.valorCorto || ''), cita: f.partes?.[0]?.citaOriginal || '' };
+      });
+      return {
+        lineaNumero, producto, requisitos,
+        motivo: requisitos.length ? null : `Línea ${lineaNumero} (${producto}): la opción aprobada no tiene comparación técnica.`,
+        opcion: {
+          marca: aprobada.marca || aprobada.producto?.marca || null,
+          modelo: aprobada.modelo || aprobada.producto?.modelo || null,
+          // Fabricante y país solo si el documento lo emite el propio fabricante: un distribuidor no es el fabricante.
+          fabricante: null, pais: null, anio: null,
+          documento: ficha?.documentoNombre ?? null,
+        },
+      };
+    });
+}
+
 export async function obtenerDatosAuditorParaAnexo(codigo: string): Promise<DatosAuditorAnexo> {
   const vacio: DatosAuditorAnexo = { lineasTecnicas: [], itemsComerciales: [] };
   try {
@@ -622,6 +673,7 @@ export async function obtenerDatosAuditorParaAnexo(codigo: string): Promise<Dato
     ) as any;
     const negocioId = (negRows as any[])[0]?.id;
     if (!negocioId) return vacio;
+    vacio.fichas = await fichasDelAuditorParaAnexo(negocioId, codigo);
 
     const [itemRows] = await pool.query(
       `SELECT id, bloque, tipo, titulo, linea_numero, descripcion, valor_texto, valor_numero
@@ -646,7 +698,7 @@ export async function obtenerDatosAuditorParaAnexo(codigo: string): Promise<Dato
         });
       }
     }
-    if (!lineasTecnicasPorId.size) return { lineasTecnicas: [], itemsComerciales };
+    if (!lineasTecnicasPorId.size) return { lineasTecnicas: [], itemsComerciales, fichas: vacio.fichas };
 
     const [caractRows] = await pool.query(
       `SELECT item_id, descripcion, valor_ofertado_texto, valor_ofertado_numero, unidad_requerida,
@@ -668,7 +720,7 @@ export async function obtenerDatosAuditorParaAnexo(codigo: string): Promise<Dato
       });
     }
 
-    return { lineasTecnicas: Array.from(lineasTecnicasPorId.values()), itemsComerciales };
+    return { lineasTecnicas: Array.from(lineasTecnicasPorId.values()), itemsComerciales, fichas: vacio.fichas };
   } catch (e) {
     console.error(`[anexos-datos] no se pudieron leer los datos del Auditor de ${codigo}:`, String(e).slice(0, 200));
     return vacio;

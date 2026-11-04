@@ -578,7 +578,7 @@ export const DICCIONARIO: Entrada[] = [
   ] },
 
   // ── Bancario ──
-  { campo: 'banco_nombre', patrones: [/^(?:nombre del )?banco$/, /^institucion (?:bancaria|financiera)$/] },
+  { campo: 'banco_nombre', patrones: [/^(?:nombre del )?banco$/, /^institucion (?:bancaria|financiera)$/, /^banco con (?:el )?(?:que|cual) (?:opera|trabaja)$/] },
   { campo: 'banco_tipo_cuenta', patrones: [/^tipo de cuenta$/, /^cuenta (?:corriente\/vista|tipo)$/] },
   // "Nº Cuenta:" SIN el "de" — la forma más común en los formularios de datos de pago y la que
   // faltaba (2-sep-2026, ANEXO FORMULARIO N°1 de Coquimbo, reportado con el .docx generado en la
@@ -756,7 +756,9 @@ const RE_HERMANA_DOMICILIO = /\b(?:direccion|domicilio|calle|avenida|comuna|ciud
 // RE_BLOQUE_DESIGNADO_POR_NOSOTROS), y su "Nombre completo" es el de una PERSONA. Sin esto ganaba
 // RE_CTX_EMPRESA (el encabezado dice "del OFERENTE") y la casilla del nombre salía con la razón
 // social — una empresa donde el organismo espera a quién llamar por teléfono.
-const RE_CTX_PERSONA = /\b(representante(\s+legal)?|apoderado|declarante|firmante|don|dona|suscribe|persona natural|encargado|administrador de contrato|contacto|contraparte|coordinador)\b/;
+// «referente técnico del proveedor» (1057922-28-LP26) es de la misma familia que el coordinador: salía
+// con la razón social en «Nombre» y el cargo del representante al lado.
+const RE_CTX_PERSONA = /\b(representante(\s+legal)?|apoderado|declarante|firmante|don|dona|suscribe|persona natural|encargado|administrador de contrato|contacto|contraparte|coordinador|referente)\b/;
 
 // BUG REAL (18-ago-2026, FORMULARIO N°1 de 1063538-204-LE26): "jefe de proyecto" / "supervisor del
 // contrato" / "administrador del contrato" son roles que el organismo designa para EJECUTAR el
@@ -771,7 +773,9 @@ const RE_CTX_PERSONA = /\b(representante(\s+legal)?|apoderado|declarante|firmant
 // pero el usuario decidió que a secas también se llenan con los datos del oferente (antes solo se
 // llenaba cuando el documento decía explícitamente "...del oferente"). Confiar en que se
 // desambigüen la ficha era peor que dejarlas en blanco.
-const RE_BLOQUE_DESIGNADO_POR_NOSOTROS = /\b(jefe\s+de\s+proyecto|supervisor\s+del\s+contrato|administrador\s+del\s+contrato)\b/;
+// «responsable de tecnovigilancia» (equipos médicos, 1057922-28-LP26): un cargo regulatorio que la
+// empresa designa ante el ISP; poner al gerente ahí sin preguntar es declarar algo que no se sabe.
+const RE_BLOQUE_DESIGNADO_POR_NOSOTROS = /\b(jefe\s+de\s+proyecto|supervisor\s+del\s+contrato|administrador\s+del\s+contrato|tecnovigilancia)\b/;
 
 /** ¿Este bloque describe a alguien que el asistente designa para ESTA licitación, y no a la empresa
  *  ni a su representante legal? Ver RE_BLOQUE_DESIGNADO_POR_NOSOTROS. */
