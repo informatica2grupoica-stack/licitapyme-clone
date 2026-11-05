@@ -1025,6 +1025,33 @@ export function AnexoRellenoModal({
     }
   };
 
+  // «Firmar en Word» (2026-11-05, 4844-24-LE26): genera el .docx con la firma (y el timbre si la
+  // leyenda lo pide) apoyada sobre cada raya de firma, sin pasar por el PDF de LibreOffice, que no
+  // pagina igual que Word. El equipo abre el Word y lo guarda como PDF: sale idéntico al original.
+  const handleFirmarEnWord = async () => {
+    setGenerando(true);
+    setErrorGenerar(null);
+    try {
+      const conFirma: Record<string, string> = { ...respuestas, firmaEnWord: '1' };
+      for (const l of analisis?.firma.lugares ?? []) {
+        conFirma[l.id] = l.porDefecto !== 'ninguna' ? l.porDefecto : (analisis?.firma.disponible ? 'firma' : 'ninguna');
+      }
+      const r = await fetch('/api/anexos/generar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo, documentoId: doc.id, empresaId, respuestas: conFirma }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.success) throw new Error(data.error || 'No se pudo generar el documento');
+      avisarYCerrar(data);
+    } catch (e: any) {
+      toast.error('No se pudo generar el anexo', e.message);
+      setErrorGenerar(e.message || 'No se pudo generar el documento.');
+    } finally {
+      setGenerando(false);
+    }
+  };
+
   // El documento SÍ tiene firma/timbre que posicionar: en vez de generar directo, se pide la
   // vista previa en PDF (texto ya puesto, sin firma) y se pasa al paso de firma libre.
   const handleContinuarAFirma = async () => {
@@ -1328,6 +1355,21 @@ export function AnexoRellenoModal({
                   {generando
                     ? <><Loader2 size={13} className="animate-spin" /> Generando…</>
                     : <><Wand2 size={13} /> Generar documento</>}
+                </button>
+              )}
+              {analisis.firma.lugares.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleFirmarEnWord}
+                  disabled={generando || cargandoPdf || !analisis.firma.disponible}
+                  title={analisis.firma.disponible
+                    ? 'Genera el Word con la firma sobre la raya. Ábrelo en Word y guárdalo como PDF: queda igual al original.'
+                    : 'La empresa no tiene firma cargada'}
+                  className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-indigo-600 border border-indigo-200 hover:bg-indigo-50 disabled:opacity-50 px-3 py-2 rounded-lg transition-colors"
+                >
+                  {generando
+                    ? <><Loader2 size={13} className="animate-spin" /> Generando…</>
+                    : <><FileText size={13} /> Firmar en Word</>}
                 </button>
               )}
               <button

@@ -1445,6 +1445,7 @@ export async function generarAnexoFinal(
   //    elegir era `porDefectoEnLugar` (el mismo criterio automático de siempre); ahora es `ninguna`.
   //    `porDefectoEnLugar` queda solo para el hint informativo `lugares[].porDefecto` que ve el modal.
   if (analisis.lineasFirma.length > 0) {
+    const firmarEnWord = respuestas.firmaEnWord === '1';
     const decisiones = analisis.lineasFirma.map(linea => {
       const elegido = respuestas[`firma:${linea.indice}`] as QueEstampar | undefined;
       const que: QueEstampar = elegido && ['ambas', 'firma', 'timbre', 'ninguna'].includes(elegido)
@@ -1506,6 +1507,19 @@ export async function generarAnexoFinal(
       // párrafo (la etiqueta "FIRMA REPRESENTANTE LEGAL:" tiene que sobrevivir intacta).
       let primera = true;
       let estampoAlgo = false;
+      // «Firmar en Word» (botón del modal, 2026-11-05): firma y timbre FLOTANTES sobre la raya, sin
+      // borrarla ni mover texto — el .docx queda con las mismas hojas que el original y el PDF lo
+      // saca el equipo desde Word (LibreOffice no pagina igual que Word, ver docs/memoria/anexos.md).
+      if (firmarEnWord) {
+        if (firma && (que === 'ambas' || que === 'firma')) {
+          xml = await insertarImagenEnParrafo(zip, xml, linea.paraId, firma.buffer, firma.extension, { etiqueta: 'firma', alineacion, sobreLaRaya: true });
+        }
+        if (timbre && (que === 'ambas' || que === 'timbre')) {
+          xml = await insertarImagenEnParrafo(zip, xml, linea.paraId, timbre.buffer, timbre.extension,
+            { etiqueta: 'timbre', anchoCm: 2.8, sobreLaRaya: true, alineacion: que === 'ambas' ? 'derecha' : alineacion });
+        }
+        continue;
+      }
       if (firma && (que === 'ambas' || que === 'firma')) {
         // linea.saltoAntesDeFirma: SOLO la raya-borde-de-celda lo pide (leyenda larga que envuelve
         // 2+ líneas visuales) — ver el comentario en insertarImagenEnParrafo. El sinRaya "clásico"

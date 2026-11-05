@@ -2774,7 +2774,11 @@ test('unitario CON IVA con celdas «$»: encabezado real, total por línea y pie
   assert.deepEqual(calcularTotalesPorLinea(tablas, valor).map(r => [r.valor, !!r.dosPuntos]), [['9.644.336', true], ['6.645.912', false]]);
 
   const pieR = calcularTotalesAlPie(tablas, valor);
-  assert.equal(pieR.length, 1, JSON.stringify(pieR));
+  assert.equal(pieR.length, 2, JSON.stringify(pieR));
+  // Bajo el unitario: la suma de los unitarios con IVA (regla del dueño, misma licitación).
+  assert.equal(pieR[1].valor, '1.156.597');
+  assert.equal(pieR[1].indiceGlobal, pie.celdas[1].indiceGlobal);
+  assert.equal(pieR[1].dosPuntos, true);
   assert.equal(pieR[0].valor, '16.290.248', 'la suma de los totales con IVA, sin volver a sumar IVA');
   assert.equal(pieR[0].indiceGlobal, pie.celdas[2].indiceGlobal, 'bajo la columna del total');
   assert.equal(pieR[0].dosPuntos, true);

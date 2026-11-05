@@ -246,6 +246,7 @@ export function calcularTotalesAlPie(
     const netosSueltos: typeof filasPie = [];
     let total = 0;
     let unidades = 0;
+    let sumaUnitarios = 0;
     let itemsConDato = 0;
     let completo = true;
     for (const fila of t.filas.slice(1)) {
@@ -271,6 +272,7 @@ export function calcularTotalesAlPie(
         continue;
       }
       itemsConDato++;
+      sumaUnitarios += precio;
       if (iCantidad >= 0) {
         const cantidad = Number(String(fila.celdas[iCantidad]?.texto ?? '').trim().replace(',', '.'));
         total += Number.isFinite(cantidad) && cantidad > 0 ? cantidad * precio : precio;
@@ -339,6 +341,19 @@ export function calcularTotalesAlPie(
         // ½ peso por unidad. El guardarraíl contra el costeo (auditor-verificacion-total.ts) lo admite.
         ...(unitarioConIva ? { holguraRedondeoIva: Math.ceil(unidades / 2) } : {}),
       });
+      // La casilla del mismo pie bajo «VALOR UNITARIO CON IVA» es la suma de los unitarios con IVA
+      // (regla del dueño, 4844-24-LE26: «aquí va el total unitario con IVA»). Solo cuando la columna
+      // del total va justo a la derecha de la del unitario, para no adivinar qué celda es cuál.
+      if (unitarioConIva && iTotalLinea === iPrecio + 1) {
+        const izq = fila.celdas[fila.celdas.indexOf(celda!) - 1];
+        if (izq && izq.indiceGlobal != null && izq.ultimoParaId && (!izq.texto.trim() || soloMoneda(izq))) {
+          out.push({
+            paraId: izq.ultimoParaId, indiceGlobal: izq.indiceGlobal, etiqueta: `${fila.rotulo.slice(0, 60)} — ${header[iPrecio]}`,
+            valor: new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(Math.round(sumaUnitarios)),
+            ...(soloMoneda(izq) ? { dosPuntos: true } : {}),
+          });
+        }
+      }
     }
   }
   return out;

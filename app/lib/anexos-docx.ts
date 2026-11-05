@@ -1389,19 +1389,29 @@ export async function insertarImagenEnParrafo(
   // ancho de página, y no agrega ningún <w:p> nuevo (la regla intocable de este módulo).
   {
     anchoCm = 3.5, etiqueta = 'firma', conservar = false, alineacion, nombreDebajo, saltoAntesDeImagen = false,
-    flotarSobreLinea = false, columnaDerecha = false,
+    flotarSobreLinea = false, columnaDerecha = false, sobreLaRaya = false,
   }: {
     anchoCm?: number; etiqueta?: string; conservar?: boolean; alineacion?: 'izquierda' | 'centro' | 'derecha';
     saltoAntesDeImagen?: boolean;
     flotarSobreLinea?: boolean;
+    /** «Firmar en Word» (2026-11-05, 4844-24-LE26): la imagen se apoya SOBRE la raya como una firma
+     *  a mano — flotante, sin borrar la raya ni mover una sola línea del documento. Ignora el resto
+     *  de las opciones de ubicación (conservar, salto, columnaDerecha, nombreDebajo). */
+    sobreLaRaya?: boolean;
     columnaDerecha?: boolean;
     nombreDebajo?: string | string[];
   } = {},
 ): Promise<string> {
   const dim = leerDimensionesImagen(imagen);
   const relacionAltoAncho = dim && dim.anchoPx > 0 ? dim.altoPx / dim.anchoPx : 0.4;
-  const anchoEmu = Math.round(anchoCm * EMU_POR_CM);
-  const altoEmu = Math.round(anchoEmu * relacionAltoAncho);
+  let anchoEmu = Math.round(anchoCm * EMU_POR_CM);
+  let altoEmu = Math.round(anchoEmu * relacionAltoAncho);
+  // Sobre la raya, una firma muy alta tapa el texto de arriba: se limita el alto a 2,2 cm.
+  const ALTO_MAX_SOBRE_RAYA_EMU = Math.round(2.2 * EMU_POR_CM);
+  if (sobreLaRaya && altoEmu > ALTO_MAX_SOBRE_RAYA_EMU) {
+    anchoEmu = Math.round(anchoEmu * ALTO_MAX_SOBRE_RAYA_EMU / altoEmu);
+    altoEmu = ALTO_MAX_SOBRE_RAYA_EMU;
+  }
 
   const nombreImagen = `imagen_${etiqueta}_${paraId}.${extension}`;
   zip.file(`word/media/${nombreImagen}`, imagen);
@@ -1508,6 +1518,30 @@ export async function insertarImagenEnParrafo(
   const m = xmlConNamespaces.match(re);
   if (!m) throw new Error(`No se encontró el párrafo w14:paraId="${paraId}" para insertar la firma`);
   const [entero, apertura, cuerpo, cierre] = m;
+
+  if (sobreLaRaya) {
+    // El borde inferior de la imagen queda ~0,7 cm bajo el inicio del párrafo de la raya: la
+    // firma «pisa» la línea como cuando se firma con lápiz (con 0,4 quedaba flotando arriba en
+    // 4844-24-LE26). Flotante y sin ajuste de texto (wrapNone): el documento queda con exactamente
+    // las mismas líneas y hojas que el original.
+    const offsetV = -altoEmu + Math.round(0.7 * EMU_POR_CM);
+    const alinear = alineacion === 'izquierda' ? 'left' : alineacion === 'derecha' ? 'right' : 'center';
+    const anclada = `<w:r><w:drawing><wp:anchor${declsDibujo} distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="${idDocPr}" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">`
+      + `<wp:simplePos x="0" y="0"/>`
+      + `<wp:positionH relativeFrom="column"><wp:align>${alinear}</wp:align></wp:positionH>`
+      + `<wp:positionV relativeFrom="paragraph"><wp:posOffset>${offsetV}</wp:posOffset></wp:positionV>`
+      + `<wp:extent cx="${anchoEmu}" cy="${altoEmu}"/>`
+      + `<wp:effectExtent l="0" t="0" r="0" b="0"/>`
+      + `<wp:wrapNone/>`
+      + `<wp:docPr id="${idDocPr}" name="${etiqueta}_${idDocPr}"/>`
+      + `<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>`
+      + `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">${picXml}</a:graphicData></a:graphic>`
+      + `</wp:anchor></w:drawing></w:r>`;
+    const pPr = cuerpo.match(/^\s*<w:pPr>[\s\S]*?<\/w:pPr>/)?.[0] ?? '';
+    const nuevo = apertura + pPr + anclada + cuerpo.slice(pPr.length) + cierre;
+    const inicio = m.index ?? 0;
+    return xmlConNamespaces.slice(0, inicio) + nuevo + xmlConNamespaces.slice(inicio + entero.length);
+  }
 
   // Si el párrafo trae SOLO la raya (patrón A), no hay nada más que preservar: se limpian
   // todos sus <w:r> y se deja el dibujo. Si la raya y la leyenda comparten párrafo (patrón B),

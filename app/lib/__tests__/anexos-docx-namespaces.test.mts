@@ -429,3 +429,20 @@ test('insertarImagenEnParrafo con columnaDerecha: texto a la izquierda, firma+ti
   const chequeo = verificarXmlBienFormado(final);
   assert.equal(chequeo.valido, true, `quedó mal formado: ${chequeo.error}`);
 });
+
+// «Firmar en Word» (4844-24-LE26, 2026-11-05): la firma se apoya SOBRE la raya, flotante — la raya
+// y el texto del párrafo siguen intactos, y no se agrega ni quita ningún párrafo (mismas hojas).
+test('firma sobre la raya: flotante, sin borrar la raya ni cambiar párrafos', async () => {
+  const { zip, xml } = await abrirDocx(await docxDePrueba());
+  const { xml: xmlNorm } = normalizarParaIds(xml);
+  const antes = listarParrafos(xmlNorm).length;
+  const textos = (s: string) => (s.match(/<w:t(?:\s[^>]*)?>[^<]*<\/w:t>/g) ?? []).join('');
+  const textoAntes = textos(xmlNorm.match(/<w:p\b[^>]*w14:paraId="0000A005"[\s\S]*?<\/w:p>/)![0]);
+  const xmlFinal = await insertarImagenEnParrafo(zip, xmlNorm, '0000A005', PNG_1X1, 'png', { sobreLaRaya: true });
+  assert.equal(verificarXmlBienFormado(xmlFinal).valido, true);
+  assert.equal(listarParrafos(xmlFinal).length, antes, 'mismo número de párrafos');
+  const parrafo = xmlFinal.match(/<w:p\b[^>]*w14:paraId="0000A005"[\s\S]*?<\/w:p>/)![0];
+  assert.match(parrafo, /<wp:anchor\b[^>]*behindDoc="0"/, 'imagen flotante');
+  assert.match(parrafo, /<wp:wrapNone\/>/, 'sin ajuste de texto: no mueve líneas');
+  assert.equal(textos(parrafo), textoAntes, 'la raya y la leyenda quedan tal cual');
+});

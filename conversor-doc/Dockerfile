@@ -48,11 +48,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-crosextra-carlito \
     fonts-crosextra-caladea \
     fonts-ebgaramond \
+    fonts-urw-base35 \
     ca-certificates \
     tzdata \
   && rm -rf /var/lib/apt/lists/*
 
+# QUATTROCENTO SANS y BOOKMAN OLD STYLE (2026-11-05, BUG REAL: 4844-24-LE26, Municipalidad de El
+# Tabo, Anexo N°5 — reportado por el dueño: «me lo das distinto», el Word del organismo cabe en una
+# hoja y el PDF generado pasaba Nombre/Rut a una segunda, con los montos partidos en dos renglones).
+# La plantilla escribe todo en Quattrocento Sans (Google Fonts) y el título en Bookman Old Style;
+# sin ellas LibreOffice cae a Liberation Sans/Serif, más anchas, y el documento se estira.
+#   · Quattrocento Sans: la fuente REAL (licencia OFL) desde el repositorio oficial de Google
+#     Fonts — no hay paquete Debian; al ser la misma fuente, la paginación calza exacta.
+#   · Bookman Old Style (Microsoft): «URW Bookman» de fonts-urw-base35 es el Bookman libre de
+#     métricas compatibles; necesita alias en fontconfig/local.conf (el nombre no calza solo).
+ADD https://github.com/google/fonts/raw/main/ofl/quattrocentosans/QuattrocentoSans-Regular.ttf \
+    https://github.com/google/fonts/raw/main/ofl/quattrocentosans/QuattrocentoSans-Bold.ttf \
+    https://github.com/google/fonts/raw/main/ofl/quattrocentosans/QuattrocentoSans-Italic.ttf \
+    https://github.com/google/fonts/raw/main/ofl/quattrocentosans/QuattrocentoSans-BoldItalic.ttf \
+    /usr/share/fonts/truetype/quattrocento-sans/
+
 COPY fontconfig/local.conf /etc/fonts/local.conf
+RUN chmod 644 /usr/share/fonts/truetype/quattrocento-sans/*.ttf && fc-cache -f
 
 ENV TZ=America/Santiago
 
