@@ -4,15 +4,17 @@
 // Obuma no entrega el PDF por API). Se ve aquí mismo, se imprime y se descarga.
 import { useCerrarConEsc } from '@/app/lib/use-cerrar-con-esc';
 import { useEffect, useRef, useState } from 'react';
-import { IconX as X, IconLoader2 as Loader2, IconPrinter as Printer, IconDownload as Download } from '@tabler/icons-react';
+import { IconX as X, IconLoader2 as Loader2, IconPrinter as Printer, IconDownload as Download, IconSend as Send } from '@tabler/icons-react';
+import { EnviarOcModal } from './EnviarOcModal';
 
 export function OrdenCompraVisor({ negocioId, folio, onCerrar }: { negocioId: number; folio: string; onCerrar: () => void }) {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [enviar, setEnviar] = useState(false);
   const marco = useRef<HTMLIFrameElement>(null);
   const base = `/api/compras/${negocioId}/orden-compra-obuma/documento?folio=${encodeURIComponent(folio)}`;
 
-  useCerrarConEsc(onCerrar);
+  useCerrarConEsc(onCerrar, !enviar);
   useEffect(() => {
     let vivo = true;
     let objeto: string | null = null;
@@ -32,6 +34,7 @@ export function OrdenCompraVisor({ negocioId, folio, onCerrar }: { negocioId: nu
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
           <p className="text-[13px] font-semibold text-slate-800">Orden de compra {folio}</p>
           <div className="flex items-center gap-4">
+            {url && <button onClick={() => setEnviar(true)} data-testid="oc-enviar" className="flex items-center gap-1 text-[12px] font-semibold text-teal-700 hover:text-teal-900"><Send size={14} /> Enviar al proveedor</button>}
             {url && <button onClick={() => marco.current?.contentWindow?.print()} className="flex items-center gap-1 text-[12px] font-semibold text-slate-600 hover:text-slate-900"><Printer size={14} /> Imprimir</button>}
             <a href={`${base}&descargar=1`} className="flex items-center gap-1 text-[12px] font-semibold text-teal-700 hover:text-teal-900"><Download size={14} /> Descargar PDF</a>
             <button onClick={onCerrar} aria-label="Cerrar" className="text-slate-500 hover:text-slate-900"><X size={18} /></button>
@@ -41,6 +44,7 @@ export function OrdenCompraVisor({ negocioId, folio, onCerrar }: { negocioId: nu
         {error && <div className="p-8 text-[13px] text-rose-700">{error}</div>}
         {url && <iframe ref={marco} src={url} title={`Orden de compra ${folio}`} className="flex-1 w-full rounded-b-xl" />}
       </div>
+      {enviar && <div onClick={e => e.stopPropagation()}><EnviarOcModal negocioId={negocioId} folio={folio} onCerrar={() => setEnviar(false)} /></div>}
     </div>
   );
 }

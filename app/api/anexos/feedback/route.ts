@@ -4,7 +4,7 @@
 // regla general por TIPO de etiqueta y se inyecta en el prompt de cada análisis futuro.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthedUser, esAdmin, puedeVerLicitacion, tienePermiso } from '@/app/lib/api-auth';
-import { guardarFeedbackAnexo, listarFeedbackAnexo, eliminarFeedbackAnexo, esEtiquetaAprendible } from '@/app/lib/anexos-feedback';
+import { guardarFeedbackAnexo, listarFeedbackAnexo, eliminarFeedbackAnexo, esEtiquetaAprendible, esCorreccionAprendible } from '@/app/lib/anexos-feedback';
 import { cargarFichaEmpresaDeLicitacion } from '@/app/lib/anexos-datos';
 import { registrarActividad } from '@/app/lib/actividad';
 
@@ -49,6 +49,12 @@ export async function POST(request: NextRequest) {
       { error: 'Esa casilla no tiene un nombre propio del que aprender. Corrígela a mano en el documento generado.' },
       { status: 400 },
     );
+  }
+
+  // Montos, plazos y correcciones que no cambian nada no son reglas: ver esCorreccionAprendible.
+  const aprendible = esCorreccionAprendible(etiqueta, valorIA, valorCorrecto);
+  if (!aprendible.ok) {
+    return NextResponse.json({ error: aprendible.motivo + ' Corrígelo a mano en el documento generado.' }, { status: 400 });
   }
 
   try {

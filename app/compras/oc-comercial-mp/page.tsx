@@ -2,7 +2,8 @@
 
 // /compras/oc-comercial-mp — menú «OC Comercial MP» (pedido del dueño, 05-nov-2026): todas las órdenes de compra que Comercial MP
 // emite desde Licitank (migration-180, compras_oc_propia), de todas las licitaciones, con su licitación, ítems y factura.
-// Solo lectura: emitir, subir la factura y anular se hacen en el negocio (Compras → Órdenes y facturas → paso 1).
+// Solo lectura: emitir, subir la factura y anular se hacen en el negocio (Compras → Órdenes y facturas → paso 1). Lo único que se hace
+// aquí es «Enviar al proveedor» (EnviarOcModal; pide el mismo permiso que en el negocio).
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -15,7 +16,8 @@ import { Lista } from '@/app/components/ui/kit/Aparecer';
 import { Indicador } from '@/app/components/ui/kit/Indicador';
 import { Pestanas } from '@/app/components/ui/kit/Pestanas';
 import { Tarjeta, Datos, Dato, Estado } from '@/app/components/ui/kit/Tarjeta';
-import { IconSearch as Search, IconFileInvoice as FileInvoice, IconChevronDown as ChevronDown } from '@tabler/icons-react';
+import { IconSearch as Search, IconFileInvoice as FileInvoice, IconChevronDown as ChevronDown, IconSend as Send } from '@tabler/icons-react';
+import { EnviarOcModal } from '@/app/negocios/[id]/EnviarOcModal';
 
 interface Oc {
   id: number; folio: string; estado: 'EMITIDA' | 'FACTURADA' | 'ANULADA'; fechaOc: string; fechaEntrega: string | null;
@@ -139,6 +141,7 @@ export default function OcComercialMpPage() {
 
 function FilaOc({ oc, abierta, onAbrir }: { oc: Oc; abierta: boolean; onAbrir: () => void }) {
   const dif = oc.factura?.neto != null ? Math.round(oc.factura.neto - oc.neto) : null;
+  const [enviar, setEnviar] = useState(false);
   return (
     <Tarjeta className="!p-0">
       <button type="button" onClick={onAbrir} aria-expanded={abierta}
@@ -225,6 +228,10 @@ function FilaOc({ oc, abierta, onAbrir }: { oc: Oc; abierta: boolean; onAbrir: (
           <div className="mt-4 flex flex-wrap gap-2">
             <a href={`/api/compras/oc-comercial-mp?pdf=${oc.id}`} target="_blank" rel="noopener noreferrer"
               className="inline-flex items-center h-8 px-3 text-[13px] font-medium rounded-lg border border-linea dark:border-slate-700 text-tinta dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800">Ver PDF de la OC</a>
+            {oc.estado !== 'ANULADA' && (
+              <button type="button" onClick={() => setEnviar(true)} data-testid={`oc-mp-enviar-${oc.id}`}
+                className="inline-flex items-center gap-1.5 h-8 px-3 text-[13px] font-medium rounded-lg border border-linea dark:border-slate-700 text-tinta dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800"><Send size={14} /> Enviar al proveedor</button>
+            )}
             {oc.factura?.url && (
               <a href={oc.factura.url} target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center h-8 px-3 text-[13px] font-medium rounded-lg border border-linea dark:border-slate-700 text-tinta dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800">Ver la factura</a>
@@ -236,6 +243,7 @@ function FilaOc({ oc, abierta, onAbrir }: { oc: Oc; abierta: boolean; onAbrir: (
         </motion.div>
       )}
       </AnimatePresence>
+      {enviar && <EnviarOcModal negocioId={oc.negocioId} ocPropiaId={oc.id} onCerrar={() => setEnviar(false)} />}
     </Tarjeta>
   );
 }

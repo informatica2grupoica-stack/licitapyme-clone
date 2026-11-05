@@ -31,7 +31,7 @@ const mysql = (await import('mysql2/promise')).default;
 const { abrirDocx, normalizarParaIds, verificarXmlBienFormado } = await import('@/app/lib/anexos-docx');
 const { dividirPorFormularios } = await import('@/app/lib/anexos-dividir');
 const { analizarAnexoParaUI, generarAnexoFinal } = await import('@/app/lib/anexos-rellenar');
-const { conCamposDerivados } = await import('@/app/lib/anexos-derivados');
+const { conCamposDerivados, camposDelCodigoLicitacion } = await import('@/app/lib/anexos-derivados');
 const { analizarAnexo } = await import('@/app/lib/anexos-detectar');
 const { resolverDeterminista, clasificarPendiente } = await import('@/app/lib/anexos-determinista');
 const { unificarRunsDeMarcadores } = await import('@/app/lib/anexos-docx');
@@ -66,6 +66,9 @@ const porDefecto = porId.get(empresas[0]?.id);
 const [docs]: any = await pool.query(
   `SELECT d.id, d.licitacion_codigo, d.documento_nombre, d.documento_url_local,
           (SELECT n.empresa_id FROM negocios n WHERE n.licitacion_codigo = d.licitacion_codigo AND n.activo = TRUE LIMIT 1) AS empresa_id,
+          (SELECT n.licitacion_nombre FROM negocios n WHERE n.licitacion_codigo COLLATE utf8mb4_general_ci = d.licitacion_codigo COLLATE utf8mb4_general_ci ORDER BY n.activo DESC, n.id DESC LIMIT 1) AS lic_nombre,
+          (SELECT n.licitacion_organismo FROM negocios n WHERE n.licitacion_codigo COLLATE utf8mb4_general_ci = d.licitacion_codigo COLLATE utf8mb4_general_ci ORDER BY n.activo DESC, n.id DESC LIMIT 1) AS lic_organismo,
+          (SELECT u.comuna FROM licitacion_unidad_cache u WHERE u.licitacion_codigo COLLATE utf8mb4_general_ci = d.licitacion_codigo COLLATE utf8mb4_general_ci LIMIT 1) AS lic_comuna,
           (SELECT MAX(a.licitacion_cierre) FROM alertas_licitaciones a
             WHERE a.licitacion_codigo = CONVERT(d.licitacion_codigo USING utf8) COLLATE utf8_unicode_ci) AS cierre
      FROM documentos_cache d
@@ -116,7 +119,16 @@ saltados = docs.length - pendientes.length;
 
 async function auditar(d: any): Promise<void> {
   const base = { codigo: d.licitacion_codigo, documento: d.documento_nombre, cierre: d.cierre };
-  const empresa = porId.get(d.empresa_id) ?? porDefecto;
+  // Mismos datos de LICITACIÓN que arma cargarEmpresaEnriquecida en producción (código siempre; nombre,
+  // organismo y comuna desde el respaldo guardado). Sin esto el barrido reportaba como «falta en la
+  // ficha» datos que la app sí entrega, y inflaba la lista de pendientes.
+  const fichaBase = porId.get(d.empresa_id) ?? porDefecto;
+  const empresa = {
+    ...fichaBase, licitacion_codigo: d.licitacion_codigo, licitacion_nombre: d.lic_nombre ?? null,
+    licitacion_organismo: d.lic_organismo ?? null, licitacion_comuna: d.lic_comuna ?? null,
+    ...camposDelCodigoLicitacion(d.licitacion_codigo),
+    licitacion_comuna_y_fecha: d.lic_comuna ? `${d.lic_comuna}, ${fichaBase.fecha_hoy}` : null,
+  };
   const t0 = Date.now();
   const roto = (etapa: Etapa, motivo: string): void => {
     hallazgos.push({ ...base, severidad: 'roto', etapa, motivo: motivo.slice(0, 220), ms: Date.now() - t0 });

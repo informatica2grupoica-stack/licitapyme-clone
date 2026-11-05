@@ -63,3 +63,25 @@ test('campoDeLaFichaConEsteValor: las imágenes y los valores muy cortos quedan 
   assert.equal(campoDeLaFichaConEsteValor('SpA', FICHA), 'tipo_persona_juridica');
   assert.equal(campoDeLaFichaConEsteValor('S', FICHA), null);
 });
+
+// Auditoría 5-nov-2026: 16 correcciones guardadas, ninguna con campo; varias no enseñaban nada.
+test('esCorreccionAprendible: rechaza montos, plazos y correcciones que no cambian nada', async () => {
+  const { esCorreccionAprendible } = await import('../anexos-feedback');
+  // monto de UNA licitación (viene del costeo)
+  assert.equal(esCorreccionAprendible('GRÚA HORQUILLA — Valor total de la Oferta IVA incluido ($)', '$32.000.000', '27070418').ok, false);
+  assert.equal(esCorreccionAprendible('Valor total', null, '$27.070.418').ok, false);
+  // plazo de UNA licitación (viene del Auditor)
+  assert.equal(esCorreccionAprendible('3.- PLAZO ENTREGA.', '20 días hábiles', '8 días hábiles').ok, false);
+  // el valor no cambió
+  assert.equal(esCorreccionAprendible('RAZON SOCIAL EMPRESA', 'Comercial MP SpA', 'Comercial MP SpA').ok, false);
+  assert.equal(esCorreccionAprendible('Cuenta con programa de integridad — Marcar alternativa', 'SÍ', 'sí').ok, false);
+  // sin nombre propio
+  assert.equal(esCorreccionAprendible('(sin contexto)', 'x', 'Santiago').ok, false);
+});
+
+test('esCorreccionAprendible: deja pasar una corrección real de etiqueta → dato de la ficha', async () => {
+  const { esCorreccionAprendible } = await import('../anexos-feedback');
+  assert.equal(esCorreccionAprendible('Número de calle:', 'Lidia Valenzuela', '575 N° 6').ok, true);
+  assert.equal(esCorreccionAprendible('Domicilio', 'Barros Arana N°492 Of.78, Concepción', 'Barros Arana N°492 Of.78,').ok, true);
+  assert.equal(esCorreccionAprendible('Ciudad:', 'Comuna Talagante', 'Santiago').ok, true);
+});

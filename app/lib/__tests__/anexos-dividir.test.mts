@@ -913,3 +913,33 @@ test('nombres al separar: letra pegada al número («Nº1A») y un mismo formula
   // Una palabra cualquiera después del número no es letra de sufijo.
   assert.equal(nombreArchivoDesdeTitulo('FORMULARIO N°2 ESPECIFICACIONES TÉCNICAS'), 'Formulario 2 - Especificaciones Técnicas');
 });
+
+// BUG REAL (2467-119-LE26, «Anexo N°1 Identificación del oferente»): el banner «ANEXO Nº1 / BASES
+// ADMINISTRATIVAS» es un cuadro de texto en <mc:AlternateContent> con su copia en <mc:Fallback>.
+// La copia se leía como un segundo formulario, el corte caía a mitad del cuadro y los dos archivos
+// salían con XML mal formado (Word no los abre). /api/anexos/separar no quitaba la copia.
+test('dividirPorFormularios: la copia mc:Fallback de un banner no parte el anexo ni corrompe el XML (regresión 2467-119-LE26)', async () => {
+  const banner = (t1: string, t2: string) => '<w:txbxContent>' + p(t1) + p(t2) + '</w:txbxContent>';
+  const ancla = '<w:p><w:r><mc:AlternateContent><mc:Choice Requires="wps"><w:drawing>' + banner('ANEXO Nº1', 'BASES ADMINISTRATIVAS')
+    + '</w:drawing></mc:Choice><mc:Fallback><w:pict>' + banner('ANEXO Nº1', 'BASES ADMINISTRATIVAS')
+    + '</w:pict></mc:Fallback></mc:AlternateContent></w:r></w:p>';
+  const xml = NS + ancla + p('FORMULARIO IDENTIFICACIÓN DEL OFERENTE') + p('Nombre o Razón Social') + p('RUT') + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const partes = await dividirPorFormularios(await bufferDe(norm), norm);
+  for (const f of partes) {
+    const { xml: fxml } = await abrirDocx(f.buffer);
+    assert.equal(verificarXmlBienFormado(fxml).valido, true, `"${f.nombreSufijo}" quedó con XML mal formado`);
+  }
+  assert.equal(partes.length, 0, 'un solo anexo no se divide en dos por el banner duplicado');
+});
+
+test('dividirPorFormularios: si un fragmento saliera mal formado, no divide (nunca entrega archivos corruptos)', async () => {
+  // Un <w:txbxContent> que nunca cierra: cualquier corte deja un fragmento inválido.
+  const xml = NS + p('ANEXO N°1: UNO') + p('Nombre') + '<w:p><w:r><w:drawing><w:txbxContent>' + p('ANEXO N°2: DOS') + p('RUT') + '</w:drawing></w:r></w:p>' + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const partes = await dividirPorFormularios(await bufferDe(norm), norm);
+  for (const f of partes) {
+    const { xml: fxml } = await abrirDocx(f.buffer);
+    assert.equal(verificarXmlBienFormado(fxml).valido, true);
+  }
+});

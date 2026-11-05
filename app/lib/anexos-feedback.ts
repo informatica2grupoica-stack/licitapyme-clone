@@ -94,6 +94,34 @@ export function esEtiquetaAprendible(etiqueta: string): boolean {
 }
 
 /**
+ * ¿Esta corrección enseña algo que se pueda aplicar a OTROS anexos? Auditoría 5-nov-2026: de las 16
+ * correcciones guardadas, varias no enseñaban nada y ensuciaban la lista de reglas:
+ *   · el valor corregido era idéntico al que puso el motor (SÍ → SÍ, la misma razón social);
+ *   · era un MONTO («27070418») o un PLAZO («8 días hábiles»): son datos de ESA licitación y salen
+ *     siempre del costeo / Auditor aprobado, nunca de una regla aprendida por etiqueta.
+ * Cualquiera de las dos se corrige a mano en el documento generado, pero no se guarda como regla.
+ */
+export function esCorreccionAprendible(etiqueta: string, valorIA: string | null, valorCorrecto: string):
+  { ok: true } | { ok: false; motivo: string } {
+  if (!esEtiquetaAprendible(etiqueta)) {
+    return { ok: false, motivo: 'La casilla no tiene un nombre propio del que aprender.' };
+  }
+  const nuevo = normalizarValor(valorCorrecto);
+  if (!nuevo) return { ok: false, motivo: 'El valor corregido está vacío.' };
+  if (valorIA && normalizarValor(valorIA) === nuevo) {
+    return { ok: false, motivo: 'El valor corregido es igual al que había: no hay nada que aprender.' };
+  }
+  const soloNumero = /^\$?\s*\d[\d.,\s]*$/.test(valorCorrecto.trim()) && (valorCorrecto.match(/\d/g) || []).length >= 5;
+  if (soloNumero) {
+    return { ok: false, motivo: 'Es un monto: sale del costeo aprobado de cada licitación, no de una regla aprendida.' };
+  }
+  if (/^\d+\s*d[ií]as?\b/i.test(valorCorrecto.trim())) {
+    return { ok: false, motivo: 'Es un plazo: sale del Auditor aprobado de cada licitación, no de una regla aprendida.' };
+  }
+  return { ok: true };
+}
+
+/**
  * Qué campo de la ficha vale EXACTAMENTE lo que el experto escribió. null si ninguno — y eso es
  * una respuesta legítima, no un fallo: significa que la corrección no es generalizable a un campo.
  * Las URLs de imagen quedan fuera (no son texto que se escriba en una casilla).

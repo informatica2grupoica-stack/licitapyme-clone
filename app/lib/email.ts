@@ -979,3 +979,28 @@ export async function enviarAvisoAprobacionCompras(p: AvisoAprobacionComprasEmai
     return false;
   }
 }
+
+// ─── OC al proveedor (para que emita la factura) ─────────────────────────────
+// Correo de empresa a empresa, sin la marca LICITANK: el mensaje lo escribe quien envía y la OC va en PDF adjunto. Sale por la
+// cuenta SMTP (no se puede firmar como otra casilla sin que Gmail lo bote), pero con el NOMBRE de quien envía, su correo en
+// «Responder a» y en copia: el proveedor le responde a esa persona. Lanza con el motivo si no sale (la pantalla lo muestra).
+export interface OcProveedorEmail {
+  para: string[]; cc: string[]; asunto: string; mensaje: string;
+  remitente: { nombre: string | null; email: string | null };
+  pdf: { nombre: string; contenido: Buffer };
+}
+export async function enviarOcAlProveedor(p: OcProveedorEmail): Promise<void> {
+  const t = transporter();
+  if (!t) throw new Error('El correo de la plataforma no está configurado (SMTP). Avísale al administrador.');
+  const cuenta = process.env.SMTP_USER || '';
+  const nombre = (p.remitente.nombre || '').replace(/["<>\r\n]/g, '').trim();
+  const html = `<div style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.55;color:#111827;">${
+    esc(p.mensaje).replace(/\r?\n/g, '<br>')}</div>`;
+  await t.sendMail({
+    from: nombre ? `"${nombre}" <${cuenta}>` : FROM(),
+    replyTo: p.remitente.email || undefined,
+    to: p.para, cc: p.cc.length ? p.cc : undefined,
+    subject: p.asunto, text: p.mensaje, html,
+    attachments: [{ filename: p.pdf.nombre, content: p.pdf.contenido, contentType: 'application/pdf' }],
+  });
+}

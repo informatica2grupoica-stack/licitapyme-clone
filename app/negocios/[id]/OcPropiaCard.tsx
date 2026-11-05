@@ -4,7 +4,8 @@
 // en Obuma (Comercial MP): ahí la OC a Inversiones Claro se emite desde Licitank (folio MP-año-correlativo, PDF con su logo) y la
 // factura de Inversiones Claro se sube a mano para emparejarla. Diseño con la skill licitank-ui.
 import { useCallback, useEffect, useState } from 'react';
-import { IconFileInvoice as FileInvoice, IconPlus as Plus, IconUpload as Upload, IconLoader2 as Loader2 } from '@tabler/icons-react';
+import { IconFileInvoice as FileInvoice, IconPlus as Plus, IconUpload as Upload, IconLoader2 as Loader2, IconSend as Send } from '@tabler/icons-react';
+import { EnviarOcModal } from './EnviarOcModal';
 import { Boton } from '@/app/components/ui/kit/Boton';
 import { Modal } from '@/app/components/ui/Modal';
 import { MenuAcciones } from '@/app/components/ui/MenuAcciones';
@@ -36,6 +37,7 @@ export function OcPropiaCard({ negocioId, puedeOperar }: { negocioId: number; pu
   const [nueva, setNueva] = useState(false);
   const [facturaDe, setFacturaDe] = useState<Oc | null>(null);
   const [anularDe, setAnularDe] = useState<Oc | null>(null);
+  const [enviarDe, setEnviarDe] = useState<Oc | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -87,6 +89,7 @@ export function OcPropiaCard({ negocioId, puedeOperar }: { negocioId: number; pu
               <span className="flex items-center gap-1.5">
                 <a href={`/api/compras/${negocioId}/oc-propia?pdf=${oc.id}`} target="_blank" rel="noopener noreferrer"
                   className="inline-flex items-center h-8 px-3 text-[13px] font-medium rounded-lg border border-linea dark:border-slate-700 text-tinta dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800">Ver PDF</a>
+                {puedeOperar && oc.estado !== 'ANULADA' && <Boton tamano="sm" icono={<Send size={14} />} onClick={() => setEnviarDe(oc)} data-testid={`oc-propia-enviar-${oc.id}`}>Enviar al proveedor</Boton>}
                 {puedeOperar && oc.estado === 'EMITIDA' && <Boton tamano="sm" icono={<Upload size={14} />} onClick={() => setFacturaDe(oc)}>Subir factura</Boton>}
                 {puedeOperar && oc.estado !== 'ANULADA' && (
                   <MenuAcciones etiqueta={`Más acciones de la ${oc.folio}`} acciones={[
@@ -106,6 +109,7 @@ export function OcPropiaCard({ negocioId, puedeOperar }: { negocioId: number; pu
           onCerrar={() => setNueva(false)} onCreada={async folio => { setNueva(false); toast.success(`Orden de compra ${folio} emitida`); await cargar(); }} />
       )}
       {facturaDe && <ModalFactura negocioId={negocioId} oc={facturaDe} onCerrar={() => setFacturaDe(null)} onListo={async () => { setFacturaDe(null); toast.success('Factura emparejada'); await cargar(); }} />}
+      {enviarDe && <EnviarOcModal negocioId={negocioId} ocPropiaId={enviarDe.id} onCerrar={() => setEnviarDe(null)} />}
       {anularDe && <ModalAnular oc={anularDe} onCerrar={() => setAnularDe(null)} onAnular={async motivo => { await accion({ accion: 'anular', ocId: anularDe.id, motivo }, `Orden de compra ${anularDe.folio} anulada`); setAnularDe(null); }} />}
     </div>
   );

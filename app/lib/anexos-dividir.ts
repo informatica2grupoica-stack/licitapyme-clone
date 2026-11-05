@@ -15,7 +15,7 @@
 // generando un solo archivo como antes (ver `< 2` abajo). Documentos sin ese patrón (la
 // mayoría) no se ven afectados.
 import JSZip from 'jszip';
-import { finDeTabla, compactarVaciosDeRelleno } from '@/app/lib/anexos-docx';
+import { finDeTabla, compactarVaciosDeRelleno, eliminarRespaldoVmlDuplicado, verificarXmlBienFormado } from '@/app/lib/anexos-docx';
 
 export interface FormularioDetectado { titulo: string; indiceInicio: number; indiceFin: number }
 
@@ -1090,7 +1090,11 @@ function tituloAbreLaTabla(b: BloqueCrudo, indiceTitulo: number): boolean {
   return !/<w:t(?:\s[^>]*)?>[^<]*[^\s<]/.test(antes);
 }
 
-export async function dividirPorFormularios(bufferBase: Buffer, xml: string): Promise<FormularioDividido[]> {
+export async function dividirPorFormularios(bufferBase: Buffer, xmlEntrada: string): Promise<FormularioDividido[]> {
+  // Sin la copia de respaldo (<mc:Fallback>) de los cuadros de texto: el corte caía a mitad de una
+  // de las dos copias y el fragmento quedaba con un <w:txbxContent> sin cerrar (2467-119-LE26,
+  // 4-nov-2026). La ruta /api/anexos/separar no limpiaba el duplicado; las de relleno sí.
+  const xml = eliminarRespaldoVmlDuplicado(xmlEntrada);
   const bloques = listarBloquesCrudos(xml);
   const formularios = detectarFormularios(xml);
   if (formularios.length < 2) return []; // 0 o 1 no amerita dividir — se mantiene un solo archivo
@@ -1137,6 +1141,9 @@ export async function dividirPorFormularios(bufferBase: Buffer, xml: string): Pr
     delFormulario.splice(ultimoConContenido + 1 + PARRAFOS_VACIOS_QUE_SE_DEJAN);
     const cuerpo = quitarSaltosDePaginaEnBordes(delFormulario.map(b => b.xmlCompleto).join(''));
     const xmlFragmento = compactarVaciosDeRelleno(`${preBody}${aperturaBody}${cuerpo}${sectPr}</w:body></w:document>`);
+    // Red de seguridad: un fragmento mal formado es un archivo que Word se niega a abrir. Mejor no
+    // dividir (queda un solo archivo, como el original) que entregar piezas corruptas.
+    if (!verificarXmlBienFormado(xmlFragmento).valido) return [];
 
     const zip = await JSZip.loadAsync(bufferBase);
     zip.file('word/document.xml', xmlFragmento);

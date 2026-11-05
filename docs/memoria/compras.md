@@ -3,6 +3,15 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-05 — «Enviar al proveedor»: la OC por correo, con PDF, desde Licitank (`compras-oc-envio.ts`, ruta `oc-envio`, `EnviarOcModal.tsx`, `enviarOcAlProveedor` en `email.ts`; tsc ok, borrador probado contra la BD con la 4035 de 1154, SIN enviar un correo real NI ver en navegador)
+- Pedido del dueño: mandarle la OC al proveedor (él dice «cliente») para que emita la factura, sin salir de la plataforma, tanto las OC de Obuma como las propias de Comercial MP. Los correos salen **del perfil que envía**.
+- Dónde: botón «Enviar al proveedor» en el visor «Ver OC» (Obuma, `OrdenCompraVisor.tsx`), en cada fila de `OcPropiaCard.tsx` y en el detalle del menú «OC Comercial MP». No aparece en OC anuladas, y el servidor también las rechaza. Permiso: `puedeOperarReparto`, el mismo de emitir.
+- Ventana: Para (correo del proveedor), Con copia (por defecto quien envía), asunto y mensaje editables con plantilla («emitir la factura a nombre de <emisor> RUT …, referencia OC N° folio tipo 801, enviarla respondiendo este correo») y el PDF adjunto, el mismo de «Ver OC». Muestra los envíos anteriores de esa OC. Máximo 6 correos por campo.
+- «Del perfil»: el correo sale por la cuenta SMTP con el **nombre** de quien envía, su correo en «Responder a» y en copia. NO sale desde su casilla real: firmar como otra dirección por el SMTP compartido lo bota Gmail (DMARC). Para que salga de verdad desde la casilla de cada uno falta conectar Gmail/Workspace (OAuth), y eso no está hecho.
+- Correo del proveedor: el 05-nov **ningún** proveedor tenía correo en `compras_proveedor` (0 de 139 con OC). El primero se escribe a mano y, al enviar, queda en `compras_proveedor.correo` (por RUT, solo si estaba vacío). Así la próxima vez se propone solo.
+- Registro: `historial_eventos` tipo `COMPRAS_OC_ENVIADA_PROVEEDOR` (metadata folio, para, cc, proveedor_rut; sin destinatario, no va a la campana).
+- **Pendiente:** (1) mandar UNA OC real y ver que llegue. Gmail hoy no entrega lo del SMTP propio porque falta DKIM/DMARC en el DNS del dominio; sin eso, lo más probable es que caiga en spam o no llegue. (2) Verlo en el navegador. (3) Opcional: envío desde la casilla real de cada perfil (Gmail API).
+
 ## 2026-11-05 — «Comparar» de una OC: trae la factura sola + botón Sincronizar; Comparativo con licitank-ui
 Caso real: 1154, la tabla decía facturado y el modal «Comparar» de la OC 4035 decía «Todavía no hay factura» (la copia local la había vaciado producción con el código viejo, ver la entrada de abajo).
 `CompararOcModal.tsx`: botón «Sincronizar con Obuma» en la cabecera (misma ruta `sincronizar-obuma` de la licitación). Si Obuma marca la OC FACTURADA y no llegó la factura, sincroniza una vez sola al abrir, y después la tabla de atrás se vuelve a armar. En la tabla por OC, una OC facturada sin factura dice «falta traer la factura» en vez de «sin factura».
