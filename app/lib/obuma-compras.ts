@@ -15,6 +15,7 @@
 import pool from '@/app/lib/db';
 import { listarComprasOc, listarComprasOcItems, listarComprasDte, proveedorPorId, centrosDeCostoCompleto, proyectosExtCompleto, type ObumaCompraOc } from '@/app/lib/obuma';
 import { mencionaCodigo, licitacionesOfertadas } from '@/app/lib/ordenes-compra';
+import { paresFacturaDeOc } from '@/app/lib/obuma-facturas-enlace';
 
 function num(v: unknown): number | null {
   const n = Number(v);
@@ -135,14 +136,14 @@ export async function sincronizarComprasObuma(
   // Factura(s) real(es) — ver docs/migration-67-obuma-facturas.sql para el porqué. Solo cuando la
   // OC está facturada: `compra_oc_facturada_tipo_dcto` trae "tipo#folio" por cada documento
   // (varias, separadas por coma, si son varias facturas para la misma OC — probado en vivo).
+  // El formato varía ("33#81" o "T33 # 7280216"): lo resuelve paresFacturaDeOc.
   const resolverFacturas = async (c: ObumaCompraOc): Promise<FacturaObuma[]> => {
     const crudo = String(c.compra_oc_facturada_tipo_dcto || '').trim();
     if (!crudo) return [];
-    const pares = crudo.split(',').filter(Boolean);
+    const pares = paresFacturaDeOc(crudo);
+    if (!pares.length) console.warn(`[obuma-compras] OC ${c.compra_oc_folio}: enlace de factura en formato desconocido "${crudo}" — queda sin factura.`);
     const facturas: FacturaObuma[] = [];
-    for (const par of pares) {
-      const [tipoDcto, folioDte] = par.split('#');
-      if (!tipoDcto || !folioDte) continue;
+    for (const { tipoDcto, folioDte } of pares) {
       try {
         const r = await listarComprasDte({ tipo_dcto: tipoDcto, folio_dcto: folioDte });
         const dte = r.data?.[0];
@@ -153,6 +154,8 @@ export async function sincronizarComprasObuma(
             proveedorRazonSocial: dte.dte_razonsocial_emisor || null, proveedorRut: dte.dte_rut_emisor || null,
             s3Link: dte.s3_link || null,
           });
+        } else {
+          console.warn(`[obuma-compras] OC ${c.compra_oc_folio}: Obuma no encontró la factura ${tipoDcto}#${folioDte} (enlace "${crudo}").`);
         }
       } catch (err) {
         console.warn(`[obuma-compras] factura ${tipoDcto}#${folioDte} de OC ${c.compra_oc_folio} falló:`, String(err).slice(0, 120));
