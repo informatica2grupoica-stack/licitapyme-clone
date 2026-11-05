@@ -17,6 +17,10 @@ personal el 2026-10-27; las fechas son de cuando se decidió.
 - Decisión tomada sin preguntar: la **venta también se calcula con la cantidad a comprar** (margen 20 contra 20; así no sale inflado). Si se compran menos porque hay stock y se venden igual 30, el margen en pesos sale más bajo que el real (en % da lo mismo). Pendiente de confirmar con el dueño.
 - **Pendiente:** desplegar el código al VPS y probar en un negocio **sin** compra aprobada (anula aprobaciones). El espejo local (:3308) no tiene la migración: `node scripts/aplicar-migration-179.mjs`.
 
+## 2026-11-05 — «Deshacer SKU» ya no lo bloquea una OC ANULADA en Obuma (979; `eliminarSkuLocal` en `compras-aprobaciones.ts`; tsc ok, consulta probada contra la BD, sin pulsar Deshacer)
+- Caso: la OC 4038 a General Trade (Limpiador 343 y Filtros 347) se anuló en Obuma, pero «Deshacer SKU» seguía diciendo «ya está en una orden de compra emitida»: miraba `compras_orden_compra_obuma` sin cruzar el estado. Ahora cruza con `obuma_compras.estado` y no cuenta las ANULADAS (mismo criterio que `compras-oc-obuma.ts`). Contra la BD: 343 y 347 quedan libres; 340 y 341 siguen bloqueados por la 4037 de AHN (SOLICITADA). El aviso ahora dice el folio y que, si se acaba de anular, hay que esperar la sincronización de Obuma.
+- Ojo (dato, sin tocar): Limpiador y Filtros comparten el SKU 6026434235 / id Obuma 1124173 («LIMPIADOR DE FILTROS», costo $4.710.000); en Filtros sale el aviso «No coincide con esta licitación». Al deshacer, el producto en Obuma NO se borra.
+
 ## 2026-11-05 — «Ver detalle del precio» se abre en un modal (`AuditorComprasCard.tsx`; tsc ok, sin ver en navegador)
 - Pedido del dueño: en «Compara y elige», el detalle (desglose, adicionales, auditoría y ficha técnica de la oferta) se dibujaba al final de toda la lista y no se entendía dónde había aparecido. Ahora abre un `Modal` (lg) con el proveedor en el título y producto + cotización debajo; Esc o la X lo cierran. Mismo contenido (`AuditoriaCotizacionPanel` + `TecnicoDeCelda`); también vale para la vista de matriz.
 

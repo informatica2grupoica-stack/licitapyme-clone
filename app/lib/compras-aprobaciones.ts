@@ -396,9 +396,13 @@ export async function listarSkus(negocioId: number): Promise<Sku[]> {
 export async function eliminarSkuLocal(negocioId: number, skuId: number, actorId: number, actorNombre: string | null): Promise<{ obumaProductoId: string | null; skuPropio: string }> {
   const [[sku]]: any = await pool.query(`SELECT id, producto_id, sku_propio, obuma_producto_id FROM compras_sku WHERE id = ? AND negocio_id = ?`, [skuId, negocioId]);
   if (!sku) throw new Error('Ese SKU no existe en este negocio.');
-  const [ocs]: any = await pool.query(`SELECT items_json FROM compras_orden_compra_obuma WHERE negocio_id = ?`, [negocioId]);
-  const enOc = (ocs as any[]).some(o => { try { return (JSON.parse(o.items_json) as any[]).some(it => it.productoId === sku.producto_id); } catch { return false; } });
-  if (enOc) throw new Error('Este producto ya está en una orden de compra emitida: no se puede deshacer su SKU.');
+  // Una OC que en Obuma quedó ANULADA ya no amarra el SKU (979, 05-nov-2026: la 4038 de General Trade se anuló y no dejaba deshacer el SKU).
+  const [ocs]: any = await pool.query(
+    `SELECT o.items_json, o.obuma_folio FROM compras_orden_compra_obuma o
+       LEFT JOIN obuma_compras c ON c.compra_oc_id = o.obuma_compra_oc_id
+      WHERE o.negocio_id = ? AND (c.estado IS NULL OR UPPER(c.estado) NOT LIKE '%ANULAD%')`, [negocioId]);
+  const enOc = (ocs as any[]).find(o => { try { return (JSON.parse(o.items_json) as any[]).some(it => it.productoId === sku.producto_id); } catch { return false; } });
+  if (enOc) throw new Error(`Este producto está en la orden de compra ${enOc.obuma_folio ? `${enOc.obuma_folio} ` : ''}de Obuma, que sigue vigente: no se puede deshacer su SKU. Si la anulaste recién en Obuma, espera a que se sincronice y vuelve a intentarlo.`);
   await pool.query(`DELETE FROM compras_sku WHERE id = ? AND negocio_id = ?`, [skuId, negocioId]);
   await registrarEvento({
     tipo: 'COMPRAS_SKU_DESHECHO', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,

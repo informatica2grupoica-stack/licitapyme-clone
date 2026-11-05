@@ -26,9 +26,10 @@ test('el mensaje de orden de compra lleva el código de la orden y el monto', ()
   assert.match(t, /Monto: \$1\.190\.000/);
 });
 
-test('quien no es el responsable ni admin no recibe nada aunque tenga el aviso activado', () => {
-  const cand = [u({ id: 3 })];
-  assert.deepEqual(elegirDestinatarios('ganada', 1, cand, new Map([[3, { ganada: true }]])), []);
+test('todo el equipo recibe las licitaciones de toda la empresa, sea o no el responsable; el externo solo las suyas', () => {
+  const cand = [u({ id: 3 }), u({ id: 4, rol: 'externo' }), u({ id: 5, rol: 'externo' })];
+  assert.deepEqual(elegirDestinatarios('ganada', 5, cand, new Map([[3, { ganada: true }]])).map(x => x.id), [3, 5]);
+  assert.deepEqual(elegirDestinatarios('ganada', 1, cand, new Map([[3, { ganada: false }]])).map(x => x.id), []);
 });
 
 test('el selector del perfil manda: un admin puede activar perdidas y un responsable apagar ganadas', () => {

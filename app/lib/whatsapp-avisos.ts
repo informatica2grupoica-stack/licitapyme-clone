@@ -64,10 +64,10 @@ export interface EventoAviso {
 export async function encolarAvisoWhatsapp(ev: EventoAviso): Promise<number> {
   try {
     if (!whatsappConfigurado()) return 0;
-    // La orden de compra va a quien la tenga activada, sea o no el responsable: ahí se miran todos los perfiles activos.
+    // Todo el equipo activo es candidato: cada perfil recibe lo que tenga activado, de toda la empresa (ver elegirDestinatarios).
     const [rows] = await pool.query(
-      `SELECT id, nombre, rol, activo, telefono FROM usuarios WHERE cliente_id = ? AND activo = TRUE AND (rol = 'admin' OR id = ? OR ? = 1)`,
-      [ev.clienteId, ev.asignadoId ?? 0, ev.tipo === 'oc' ? 1 : 0],
+      `SELECT id, nombre, rol, activo, telefono FROM usuarios WHERE cliente_id = ? AND activo = TRUE`,
+      [ev.clienteId],
     ) as any[];
     const candidatos = rows as Destinatario[];
     const prefs = await prefsDe(candidatos.map(c => Number(c.id)));

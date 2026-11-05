@@ -283,9 +283,9 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
                 <Whatsapp size={12} /> Avisos por WhatsApp
               </div>
               <p className="text-[11.5px] text-gray-500 dark:text-zinc-400 leading-snug mb-1">
-                {usuario.rol === 'admin'
-                  ? 'Como administrador, lo que active lo recibe de TODAS las licitaciones de la empresa.'
-                  : 'Recibe estos avisos de las licitaciones que tiene asignadas.'}
+                {usuario.rol === 'externo'
+                  ? 'Recibe estos avisos de las licitaciones que tiene asignadas.'
+                  : 'Lo que active lo recibe de TODAS las licitaciones de la empresa.'}
                 {' '}Se envían al celular de su perfil{aviso.telefono ? <> (<b>{formatearTelefono(aviso.telefono)}</b>)</> : ''}.
               </p>
               {!aviso.telefono && <p className="text-[11.5px] font-semibold text-amber-600 mb-1">Este perfil no tiene un celular válido: sin él no recibirá avisos. Se agrega en Mi perfil.</p>}

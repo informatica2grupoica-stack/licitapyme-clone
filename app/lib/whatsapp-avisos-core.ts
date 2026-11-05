@@ -19,17 +19,16 @@ export interface Destinatario {
   telefono: string | null;
 }
 
-/** ¿Este aviso se manda por defecto cuando el perfil no eligió nada? Todos reciben ganada/perdida/apertura (el admin, de toda la
- *  empresa); la orden de compra solo le llega a quien el admin se la active (decisión del dueño, 04-nov-2026). */
+/** ¿Este aviso se manda por defecto cuando el perfil no eligió nada? Todos reciben ganada/perdida/apertura de toda la empresa;
+ *  la orden de compra solo le llega a quien el admin se la active (decisión del dueño, 04-nov-2026). */
 export function porDefecto(_rol: string, tipo: TipoAviso): boolean {
   return tipo !== 'oc';
 }
 
 /**
- * Quién recibe un aviso de una licitación:
- *  · el responsable (asignado) de esa licitación, y
- *  · los admin de la empresa (solo si activaron ese tipo: ven TODAS las de la empresa).
- *  · Orden de compra: cualquier perfil al que se le haya activado, de toda la empresa (no depende de quién es el responsable).
+ * Quién recibe un aviso de una licitación: todo perfil del equipo que tenga ese aviso activado, de TODAS las licitaciones de la
+ * empresa, sea o no el responsable (decisión del dueño, 05-nov-2026: antes el rol «usuario» solo recibía las suyas).
+ *  · El perfil externo solo recibe las licitaciones de las que es responsable.
  * Siempre que la cuenta esté activa y tenga un celular chileno válido. `prefs` = lo que cada perfil eligió (usuario → tipo → sí/no).
  */
 export function elegirDestinatarios(
@@ -43,7 +42,7 @@ export function elegirDestinatarios(
   for (const c of candidatos) {
     if (vistos.has(c.id) || !c.activo) continue;
     const esAsignado = asignadoId != null && Number(c.id) === Number(asignadoId);
-    const alcance = esAsignado || c.rol === 'admin' || tipo === 'oc';
+    const alcance = esAsignado || c.rol !== 'externo';
     if (!alcance) continue;
     const elegido = prefs.get(c.id)?.[tipo];
     if (!(elegido ?? porDefecto(c.rol, tipo))) continue;
