@@ -26,7 +26,7 @@ export interface CotizacionFilaUI {
 interface AdicionalFila { concepto: string; cantidad: number; precioUnitario: number }
 
 /** Líneas del documento que no calzan con ningún producto asignado ni adicional. Con flete aparte ya cargado, su línea de flete no se ofrece (se suma sola). */
-function lineasPendientes(c: CotizacionFilaUI, productos: Array<{ id: number; descripcion: string }>): LineaCotizacion[] {
+export function lineasPendientes(c: Pick<CotizacionFilaUI, 'moneda' | 'descripcionLibre' | 'fleteMonto' | 'items'>, productos: Array<{ id: number; descripcion: string }>): LineaCotizacion[] {
   if (c.moneda !== 'CLP') return [];
   const lineas = lineasDesdeTabla(String(c.descripcionLibre || ''));
   if (!lineas.length) return [];
@@ -57,6 +57,26 @@ const hoy = () => new Date().toISOString().slice(0, 10);
 const nombreDeArchivo = (url: string) => { try { return decodeURIComponent(url.split('?')[0].split('/').pop() || 'cotizacion').replace(/^\d+_/, ''); } catch { return 'cotizacion'; } };
 const fmtFecha = (ymd: string) => `${ymd.slice(8, 10)}-${ymd.slice(5, 7)}-${ymd.slice(0, 4)}`;
 
+/** Agrega UNA línea del documento como adicional del producto en esa cotización. El PUT reemplaza la lista del producto: se manda lo
+ *  que ya tenía + la nueva. La usan la lista de cotizaciones y la lista de opciones de cada producto (`ComparadorPrecios`). */
+export async function agregarLineaComoAdicional(
+  negocioId: number, c: Pick<CotizacionFilaUI, 'id' | 'items'>, l: LineaCotizacion, productoId: number,
+  productos: Array<{ id: number; cantidad?: number | string | null }>,
+): Promise<void> {
+  const prod = productos.find(p => p.id === productoId);
+  const item = c.items.find(i => i.productoId === productoId);
+  const cantProd = prod?.cantidad != null && Number(prod.cantidad) > 0 ? Number(prod.cantidad) : null;
+  const nuevos = l.precioUnitario == null || l.cantidad == null ? []
+    : adicionalesDesdeIA([{ concepto: l.descripcion, cantidadLinea: l.cantidad, precioUnitario: l.precioUnitario }], cantProd, n => n);
+  if (!nuevos.length) throw new Error('La línea no trae cantidad o precio válidos.');
+  const previos = ((item?.adicionales ?? []) as AdicionalFila[]).map(a => ({ concepto: a.concepto, cantidad: a.cantidad, precioUnitario: a.precioUnitario }));
+  const res = await fetch(`/api/compras/${negocioId}/cotizaciones/${c.id}/adicionales`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productoId, adicionales: [...previos, ...nuevos] }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo agregar');
+}
+
 export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPorCotizacion, origenLabel, puedeOperar, homologandoId, onAsignar, onHomologar, onEditar, onEliminar, onCambio }: {
   negocioId?: number;
   cotizaciones: CotizacionFilaUI[]; productos: Array<{ id: number; descripcion: string; cantidad?: number | string | null; esServicio?: boolean }>;
@@ -73,23 +93,11 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
   const [abiertas, setAbiertas] = useState<Set<number>>(new Set());   // filas con el detalle desplegado
   const [filtro, setFiltro] = useState('');
 
-  // Agrega UNA línea como adicional del producto elegido. El PUT reemplaza la lista del producto: se manda lo que ya tenía + la nueva.
   const agregar = async (c: CotizacionFilaUI, l: LineaCotizacion, productoId: number) => {
     if (negocioId == null || l.precioUnitario == null || l.cantidad == null) return;
-    const clave = `${c.id}|${l.descripcion}`;
-    setAgregando(clave);
+    setAgregando(`${c.id}|${l.descripcion}`);
     try {
-      const prod = productos.find(p => p.id === productoId);
-      const item = c.items.find(i => i.productoId === productoId);
-      const cantProd = prod?.cantidad != null && Number(prod.cantidad) > 0 ? Number(prod.cantidad) : null;
-      const nuevos = adicionalesDesdeIA([{ concepto: l.descripcion, cantidadLinea: l.cantidad, precioUnitario: l.precioUnitario }], cantProd, n => n);
-      if (!nuevos.length) throw new Error('La línea no trae cantidad o precio válidos.');
-      const previos = ((item?.adicionales ?? []) as AdicionalFila[]).map(a => ({ concepto: a.concepto, cantidad: a.cantidad, precioUnitario: a.precioUnitario }));
-      const res = await fetch(`/api/compras/${negocioId}/cotizaciones/${c.id}/adicionales`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productoId, adicionales: [...previos, ...nuevos] }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo agregar');
+      await agregarLineaComoAdicional(negocioId, c, l, productoId, productos);
       toast.success('Línea agregada', `«${l.descripcion.slice(0, 50)}» se suma al precio de ese producto.`);
       await onCambio?.();
     } catch (e: any) {

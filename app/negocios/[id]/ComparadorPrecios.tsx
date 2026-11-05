@@ -14,12 +14,21 @@ import { margenCosteoVsCotizaciones, GASTO_ENTREGA_PCT } from '@/app/lib/compras
 import { MargenCosteoVsCotizaciones } from './MargenCosteoVsCotizaciones';
 import { ESTILO_VEREDICTO, ESTILO_TECNICO, cotizacionesReemplazadas } from './MatrizPrecios';
 import type { MatrizProps } from './MatrizPrecios';
+import { lineasPendientes } from './ListaCotizaciones';
+import type { LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
 
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 const num = (v: unknown) => { const n = typeof v === 'number' ? v : Number(v); return Number.isFinite(n) && n > 0 ? n : 1; };
 
-export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, linksCosteo = {}, lecturaLink: lecLink, onCompraPorLink, seleccion, onSeleccionar, alertas, tecnico, onAgregar, compra, onElegirCelda, onComprarTodoAqui, acciones, onVerMatriz, costeoCompras = {} }: MatrizProps & { onVerMatriz?: () => void; costeoCompras?: Record<number, { costo: number | null; link: string }> }) {
+export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, linksCosteo = {}, lecturaLink: lecLink, onCompraPorLink, seleccion, onSeleccionar, alertas, tecnico, onAgregar, compra, onElegirCelda, onComprarTodoAqui, acciones, onVerMatriz, costeoCompras = {}, onAgregarLinea }: MatrizProps & {
+  onVerMatriz?: () => void; costeoCompras?: Record<number, { costo: number | null; link: string }>;
+  /** Suma una línea del documento que no quedó en ningún producto (acoples, manguera…) como adicional de ESE producto en esa cotización. */
+  onAgregarLinea?: (cotizacionId: number, linea: LineaCotizacion, productoId: number) => Promise<void>;
+}) {
   const [abiertos, setAbiertos] = useState<Set<number>>(() => new Set(productos.length <= 4 ? productos.map(p => p.id) : []));
+  const [agregandoLinea, setAgregandoLinea] = useState<string | null>(null);
+  // Líneas del documento sin usar, por cotización (las cotizaciones llegan completas, con el texto del documento).
+  const pendientesPorCot = useMemo(() => new Map(cotizaciones.map(c => [c.id, lineasPendientes(c as unknown as Parameters<typeof lineasPendientes>[0], productos)] as const)), [cotizaciones, productos]);
   const [buscaProducto, setBuscaProducto] = useState('');
   const [buscaProveedor, setBuscaProveedor] = useState('');
 
@@ -269,6 +278,23 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
                           <button type="button" onClick={() => onSeleccionar({ cotizacionId: c.id, productoId: p.id })} title="Ver el detalle de este precio (desglose, adicionales, avisos)"
                             className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-indigo-700 px-2 py-1 rounded-md hover:bg-white"><Info size={13} /> Detalle</button>
                         </span>
+                        {onAgregarLinea && !bloqueada && (pendientesPorCot.get(c.id)?.length ?? 0) > 0 && (
+                          <div className="basis-full flex flex-wrap items-center gap-1.5 border-t border-dashed border-zinc-200 pt-1.5 mt-0.5" data-testid={`lineas-sin-usar-${c.id}-${p.id}`}>
+                            <span className="text-[11px] text-zinc-500">Trae además, sin asignar:</span>
+                            {pendientesPorCot.get(c.id)!.map(l => {
+                              const clave = `${c.id}|${p.id}|${l.descripcion}`;
+                              return (
+                                <button key={l.descripcion} type="button" disabled={agregandoLinea != null}
+                                  onClick={async () => { setAgregandoLinea(clave); try { await onAgregarLinea(c.id, l, p.id); } finally { setAgregandoLinea(null); } }}
+                                  title={`Sumar «${l.descripcion}» al precio de este producto, como adicional`}
+                                  className="px-2 py-0.5 rounded-md border border-dashed border-zinc-300 text-[11px] text-zinc-600 hover:border-teal-400 hover:text-teal-700 disabled:opacity-50">
+                                  {agregandoLinea === clave ? 'Agregando…' : `+ ${l.descripcion.length > 42 ? `${l.descripcion.slice(0, 42).trim()}…` : l.descripcion}`}
+                                  {l.cantidad != null && l.precioUnitario != null && <span className="text-zinc-400 tabular-nums"> · {l.cantidad} × {clp(l.precioUnitario)}</span>}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     );
                   })}

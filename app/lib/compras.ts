@@ -1952,6 +1952,8 @@ export async function poblarProductosCompra(negocioId: number): Promise<void> {
 }
 
 const DESCRIPCION_PROYECTO_GLOBAL = 'Proyecto (adjudicación total, sin detalle de líneas)';
+/** Motivo con que la sincronización saca de la compra lo que ya no está en el costeo (y la marca para revivirlo si vuelve). */
+const MOTIVO_FUERA_DEL_COSTEO = 'Ya no está en el costeo';
 
 export async function poblarProductosCompraBase(negocioId: number): Promise<void> {
   const [ya] = await pool.query(`SELECT 1 FROM compras_producto WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
@@ -2024,10 +2026,14 @@ export async function poblarProductosCompraBase(negocioId: number): Promise<void
  * hay, para no perder el subestado ni el historial de renuncia de un producto que sigue siendo el
  * mismo — solo actualiza descripción/cantidad/unidad/monto. Los ítems del costeo sin correlativo
  * que calzan (mismo orden) con filas sin correlativo también actualizan; el resto se inserta como
- * PENDIENTE nuevo. Las filas existentes que ya no aparecen en el costeo NO se borran (podrían tener
- * una renuncia aprobada — es historial), quedan tal cual.
+ * PENDIENTE nuevo.
+ *
+ * Lo que ya NO está en el costeo sale de la compra (5-nov-2026, negocio 979 / 2446-240-LE26: se borraron filas del
+ * costeo y Compras las seguía mostrando; el equipo tuvo que renunciarlas a mano). Sin nada colgando se borra; con
+ * cotizaciones/veredicto y todavía sin comprar queda RENUNCIADO con MOTIVO_FUERA_DEL_COSTEO (si vuelve al costeo,
+ * revive). Lo ya comprado o más adelante y lo que tiene una renuncia propuesta no se toca: se informa como «conservados».
  */
-export async function sincronizarProductosConCosteo(negocioId: number): Promise<{ actualizados: number; agregados: number }> {
+export async function sincronizarProductosConCosteo(negocioId: number): Promise<{ actualizados: number; agregados: number; retirados: number; conservados: number }> {
   const [negRows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
   const licitacionCodigo = (negRows as any[])[0]?.licitacion_codigo;
   if (!licitacionCodigo) throw new Error('Negocio no encontrado.');
@@ -2037,10 +2043,13 @@ export async function sincronizarProductosConCosteo(negocioId: number): Promise<
 
   const [existentesRows] = await pool.query(
     // Las partes que se compran aparte y los servicios no vienen del costeo: no se emparejan con sus filas (ni se borran como duplicados).
-    `SELECT id, correlativo, descripcion FROM compras_producto WHERE negocio_id = ? AND producto_padre_id IS NULL${(await hayColumnaServicio()) ? ' AND es_servicio = 0' : ''} ORDER BY correlativo IS NULL, correlativo, id`,
-    [negocioId],
+    // Las renunciadas a mano van al final: una fila del costeo se empareja primero con un producto vigente de su línea.
+    `SELECT id, correlativo, descripcion, renuncia_motivo FROM compras_producto WHERE negocio_id = ? AND producto_padre_id IS NULL${(await hayColumnaServicio()) ? ' AND es_servicio = 0' : ''}
+      ORDER BY (subestado = 'RENUNCIADO' AND COALESCE(renuncia_motivo, '') <> ?), correlativo IS NULL, correlativo, id`,
+    [negocioId, MOTIVO_FUERA_DEL_COSTEO],
   ) as any;
-  const { existentePorFila, duplicados } = emparejarProductos(existentesRows as ProductoExistente[], filasCosteo);
+  const existentes = existentesRows as (ProductoExistente & { renuncia_motivo: string | null })[];
+  const { existentePorFila } = emparejarProductos(existentes, filasCosteo);
 
   const ahora = ahoraChileSQL();
   let actualizados = 0;
@@ -2066,21 +2075,6 @@ export async function sincronizarProductosConCosteo(negocioId: number): Promise<
     }
   }
 
-  // Duplicados heredados del bug de emparejamiento: solo se borran los que no tienen NADA colgando
-  // (sin cotizaciones, veredicto ni auditoría), siguen PENDIENTE y no tienen renuncia. Los que sí tienen datos se fusionan con
-  // scripts/fusionar-productos-duplicados.mts (mueve lo colgado al producto original).
-  if (duplicados.length) {
-    await pool.query(
-      `DELETE FROM compras_producto
-        WHERE negocio_id = ? AND id IN (${duplicados.map(() => '?').join(',')})
-          AND subestado = 'PENDIENTE' AND renuncia_motivo IS NULL
-          AND NOT EXISTS (SELECT 1 FROM compras_cotizacion_item ci WHERE ci.producto_id = compras_producto.id)
-          AND NOT EXISTS (SELECT 1 FROM compras_veredicto v WHERE v.producto_id = compras_producto.id)
-          AND NOT EXISTS (SELECT 1 FROM compras_auditoria_cotizacion a WHERE a.producto_id = compras_producto.id)`,
-      [negocioId, ...duplicados],
-    );
-  }
-
   if (aInsertar.length) {
     const ph = aInsertar.map(() => '(?,?,?,?,?,?,?,?,?)').join(',');
     await pool.query(
@@ -2091,23 +2085,56 @@ export async function sincronizarProductosConCosteo(negocioId: number): Promise<
     );
   }
 
-  // La fila "Proyecto (adjudicación total…)" de poblarProductosCompraBase solo existía porque no había costeo
-  // al abrir Compras; con los productos reales ya cargados quedaba "Sin elegir" y trababa Pedir aprobación/SKU/OC
-  // (caso 2446-240-LE26). Se borra con las mismas condiciones que los duplicados.
-  await pool.query(
-    `DELETE FROM compras_producto
-      WHERE negocio_id = ? AND correlativo IS NULL AND descripcion = ?
-        AND subestado = 'PENDIENTE' AND renuncia_motivo IS NULL
-        AND NOT EXISTS (SELECT 1 FROM compras_cotizacion_item ci WHERE ci.producto_id = compras_producto.id)
-        AND NOT EXISTS (SELECT 1 FROM compras_veredicto v WHERE v.producto_id = compras_producto.id)
-        AND NOT EXISTS (SELECT 1 FROM compras_auditoria_cotizacion a WHERE a.producto_id = compras_producto.id)`,
-    [negocioId, DESCRIPCION_PROYECTO_GLOBAL],
-  );
+  const emparejados = new Set(existentePorFila.filter((x): x is number => x != null));
+
+  // Volvió al costeo un producto que esta misma sincronización había sacado: vuelve a la compra, con sus partes.
+  const revivir = existentes.filter(e => emparejados.has(e.id) && e.renuncia_motivo === MOTIVO_FUERA_DEL_COSTEO).map(e => e.id);
+  if (revivir.length) {
+    await pool.query(
+      `UPDATE compras_producto
+          SET subestado = 'PENDIENTE', renuncia_motivo = NULL, renuncia_aprobada_por_nombre = NULL, renuncia_aprobada_at = NULL, updated_at = ?
+        WHERE negocio_id = ? AND (id IN (?) OR producto_padre_id IN (?)) AND renuncia_motivo = ?`,
+      [ahora, negocioId, revivir, revivir, MOTIVO_FUERA_DEL_COSTEO],
+    );
+  }
+
+  // Lo que ya no está en el costeo: filas borradas del costeo, duplicados heredados del bug de emparejamiento y la fila
+  // «Proyecto (adjudicación total…)» de poblarProductosCompraBase (caso 2446-240-LE26). Lo ya renunciado o no adjudicado no se toca.
+  const sobrantes = existentes.filter(e => !emparejados.has(e.id)).map(e => e.id);
+  let retirados = 0, conservados = 0;
+  if (sobrantes.length) {
+    // Sin nada colgando (ni partes, cotizaciones, veredicto o auditoría): se borra.
+    const [borrados] = await pool.query(
+      `DELETE FROM compras_producto
+        WHERE negocio_id = ? AND id IN (?)
+          AND subestado = 'PENDIENTE' AND renuncia_motivo IS NULL
+          AND id NOT IN (SELECT padre FROM (SELECT producto_padre_id AS padre FROM compras_producto WHERE negocio_id = ? AND producto_padre_id IS NOT NULL) h)
+          AND NOT EXISTS (SELECT 1 FROM compras_cotizacion_item ci WHERE ci.producto_id = compras_producto.id)
+          AND NOT EXISTS (SELECT 1 FROM compras_veredicto v WHERE v.producto_id = compras_producto.id)
+          AND NOT EXISTS (SELECT 1 FROM compras_auditoria_cotizacion a WHERE a.producto_id = compras_producto.id)`,
+      [negocioId, sobrantes, negocioId],
+    ) as any;
+    // Con historial pero todavía sin comprar: sale de la compra sin perderlo. Sus partes salen con él (igual que al aprobar una renuncia).
+    const [fuera] = await pool.query(
+      `UPDATE compras_producto
+          SET subestado = 'RENUNCIADO', renuncia_motivo = ?, renuncia_aprobada_por_nombre = 'Sincronización con el costeo', renuncia_aprobada_at = ?, updated_at = ?
+        WHERE negocio_id = ? AND (id IN (?) OR producto_padre_id IN (?)) AND subestado IN ('PENDIENTE', 'COTIZANDO') AND renuncia_motivo IS NULL`,
+      [MOTIVO_FUERA_DEL_COSTEO, ahora, ahora, negocioId, sobrantes, sobrantes],
+    ) as any;
+    const [quedan] = await pool.query(
+      `SELECT COUNT(*) AS n FROM compras_producto WHERE negocio_id = ? AND id IN (?) AND subestado NOT IN ('RENUNCIADO', 'NO_ADJUDICADA')`,
+      [negocioId, sobrantes],
+    ) as any;
+    retirados = Number(borrados?.affectedRows || 0) + Number(fuera?.affectedRows || 0);
+    conservados = Number((quedan as any[])[0]?.n || 0);
+    // Igual que renunciar a mano: cambió el alcance de la compra, la aprobación ya dada no vale (§10.5; decisión del dueño 5-nov-2026).
+    if (retirados > 0) await invalidarAprobacionesCompras(negocioId, 'Se sacaron del costeo productos de la compra.');
+  }
 
   // Una línea nueva (o recién traída del costeo) que el acta dio a otro proveedor entra ya atenuada.
   await aplicarAdjudicacionPorLinea(negocioId).catch(e => console.error('[compras] adjudicación por línea:', String(e).slice(0, 200)));
 
-  return { actualizados, agregados: aInsertar.length };
+  return { actualizados, agregados: aInsertar.length, retirados, conservados };
 }
 
 /** Lee el Costeo digital del negocio (mismo origen que Viabilidad/Anexo Económico) y lo aplana a

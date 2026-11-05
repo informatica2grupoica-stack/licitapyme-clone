@@ -162,7 +162,8 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
       setProductos(data.productos); setCobertura(data.cobertura);
       await cargar(); // trae también quién se llevó las líneas no adjudicadas
       recargarCompartido();
-      toast.success('Sincronizado con el costeo', `${data.actualizados} actualizado(s) · ${data.agregados} nuevo(s)`);
+      toast.success('Sincronizado con el costeo', `${data.actualizados} actualizado(s) · ${data.agregados} nuevo(s) · ${data.retirados} fuera (ya no están en el costeo)`
+        + (data.conservados ? ` · ${data.conservados} ya comprado(s) o con renuncia propuesta que no están en el costeo: revísalos` : ''));
     } catch (e: any) {
       toast.error('No se pudo sincronizar con el costeo', e.message);
     } finally {

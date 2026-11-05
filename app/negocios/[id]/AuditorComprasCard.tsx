@@ -20,7 +20,7 @@ import { compararPrecioConCosteo } from '@/app/lib/compras-precio-vs-costeo';
 import { CotizacionesMasivas } from './CotizacionesMasivas';
 import { ProveedorFichaModal, type ProveedorRef } from './ProveedorFichaModal';
 import { CompraDirectaPanel,type InicialDirecta } from './CompraDirectaPanel';
-import { ListaCotizaciones } from './ListaCotizaciones';
+import { ListaCotizaciones, agregarLineaComoAdicional } from './ListaCotizaciones';
 import { CoberturaCotizaciones } from './CoberturaCotizaciones';
 import type { LinksCosteo } from './LinksProducto';
 import { useLinksLeidos } from './LinksLeidos';
@@ -1273,6 +1273,14 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
       ) : (
         <ComparadorPrecios productos={productos} cotizaciones={cotizaciones} costeado={costeado} costeoCompras={costeoCompras} venta={venta} linksCosteo={linksCosteo}
         lecturaLink={lecturaLink}
+        onAgregarLinea={puedeOperar ? async (cotizacionId, l, productoId) => {
+          const c = cotizaciones.find(x => x.id === cotizacionId); if (!c) return;
+          try {
+            await agregarLineaComoAdicional(negocioId, c, l, productoId, productos);
+            toast.success('Línea agregada', `«${l.descripcion.slice(0, 50)}» se suma al precio de ese producto.`);
+            await cargar(); recargarCompartido();
+          } catch (e: any) { toast.error('No se pudo agregar la línea', e.message); }
+        } : undefined}
         onCompraPorLink={puedeOperar ? (productoId, d) => {
           setDirectaAbierta({ productoId, ...d });
           setTimeout(() => document.querySelector('[data-testid="form-compra-directa"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150);
