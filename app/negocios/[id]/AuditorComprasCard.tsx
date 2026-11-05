@@ -43,7 +43,9 @@ interface Cotizacion {
   plazoEntregaTexto: string | null; incluyeFlete: boolean | null; fleteMonto: number | null; despachoModalidad?: string | null; fleteCondicion?: string | null; homologadaAt: string | null; archivoUrl: string | null;
   items: Array<{ productoId: number; precioUnitario: number | null; precioBase: number | null; adicionales: Array<{ id: number; concepto: string; cantidad: number; precioUnitario: number }>; cumple: Cumple; detalleDesviacion: string | null }>;
 }
-interface Producto { id: number; descripcion: string; subestado: string; cantidad?: number | null; esServicio?: boolean }
+interface Producto { id: number; descripcion: string; subestado: string; cantidad?: number | null; esServicio?: boolean; unidad?: string | null
+  /** Cantidad a comprar cambiada desde Compara precios (migration-179): la del costeo y la observación. */
+  cantidadCosteo?: number | null; cantidadMotivo?: string | null; cantidadCambiadaPorNombre?: string | null; cantidadCambiadaAt?: string | null }
 interface ProveedorSugerido {
   proveedorId: number | null; obumaProveedorId: string; nombreEmpresa: string; rut: string | null;
   productos: Array<{ nombre: string; veces: number; ultimaFecha: string | null }>;
@@ -1273,6 +1275,13 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
       ) : (
         <ComparadorPrecios productos={productos} cotizaciones={cotizaciones} costeado={costeado} costeoCompras={costeoCompras} venta={venta} linksCosteo={linksCosteo}
         lecturaLink={lecturaLink}
+        onCambiarCantidad={puedeOperar ? async (productoId, cantidad, motivo) => {
+          const r = await fetch(`/api/compras/${negocioId}/productos`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'cambiar_cantidad', productoId, cantidad, motivo }) });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok || !d.success) throw new Error(d.error || 'No se pudo cambiar la cantidad.');
+          toast.success('Cantidad a comprar guardada', 'El costeo no se tocó. Si la compra estaba aprobada, hay que volver a mandarla.');
+          await cargar(); recargarCompartido();
+        } : undefined}
         onAgregarLinea={puedeOperar ? async (cotizacionId, l, productoId) => {
           const c = cotizaciones.find(x => x.id === cotizacionId); if (!c) return;
           try {
@@ -1328,7 +1337,8 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
       <GuiaPaso titulo="Qué hacer aquí" estado={elegidaComb ? { ok: true, texto: 'Ya hay una compra elegida. Pídela a aprobación en el paso «Aprobación y SKU».' } : { ok: false, texto: 'Todavía no has elegido tu compra.' }}
         pasos={['Mira las compras recomendadas (la más barata, la más rápida, a un solo proveedor) o la que armaste tú en el paso anterior.', 'Toca «Ver detalle» para revisar proveedores, precios y avisos, y pulsa «Elegir esta combinación» (si te apartas de la más rápida, escribe el motivo).', 'Listo: el jefe de ventas la aprueba en «Aprobación y SKU».']} />
       <ArmarCompra negocioId={negocioId} recomendadas={recomendadas} elegida={elegidaComb} compra={compra} setCompra={setCompra}
-        evaluacion={evaluacion} evaluando={evaluando} puedeOperar={puedeOperar} onElegida={async () => { await cargar(); recargarCompartido(); }} />
+        evaluacion={evaluacion} evaluando={evaluando} puedeOperar={puedeOperar} onElegida={async () => { await cargar(); recargarCompartido(); }}
+        cambiosCantidad={productos.filter(p => p.cantidadMotivo).map(p => ({ productoId: p.id, descripcion: p.descripcion, cantidad: p.cantidad ?? null, costeo: p.cantidadCosteo ?? null, motivo: p.cantidadMotivo!, por: p.cantidadCambiadaPorNombre ?? null }))} />
       </div>
     </div>
   );

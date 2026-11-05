@@ -24,10 +24,14 @@ const RAZON: Record<string, { t: string; c: string }> = {
 const seleccionDe = (c: Comb): Record<number, number> => Object.fromEntries(c.items.map(i => [i.productoId, i.cotizacionId]));
 const mismaSeleccion = (a: Record<number, number>, b: Record<number, number>) => { const ka = Object.keys(a), kb = Object.keys(b); return ka.length === kb.length && ka.every(k => a[Number(k)] === b[Number(k)]); };
 
-export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompra, evaluacion, evaluando, puedeOperar, onElegida }: {
+/** Producto cuya cantidad a comprar se cambió en Compara precios (migration-179): se avisa aquí para que se vea antes de mandar a aprobar. */
+export interface CambioCantidad { productoId: number; descripcion: string; cantidad: number | null; costeo: number | null; motivo: string; por: string | null }
+
+export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompra, evaluacion, evaluando, puedeOperar, onElegida, cambiosCantidad = [] }: {
   negocioId: number; recomendadas: Recomendada[]; elegida: Comb | null; compra: Record<number, number>; setCompra: (s: Record<number, number>) => void;
-  evaluacion: EvaluacionCompra | null; evaluando: boolean; puedeOperar: boolean; onElegida: () => Promise<void>;
+  evaluacion: EvaluacionCompra | null; evaluando: boolean; puedeOperar: boolean; onElegida: () => Promise<void>; cambiosCantidad?: CambioCantidad[];
 }) {
+  const cambioDe = new Map(cambiosCantidad.map(c => [c.productoId, c]));
   const toast = useToast();
   const [just, setJust] = useState('');
   const [eligiendo, setEligiendo] = useState(false);
@@ -64,6 +68,17 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
 
   return (
     <div className="space-y-3">
+      {cambiosCantidad.length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5" data-testid="cambios-cantidad">
+          <p className="text-[13px] font-bold text-amber-900">Cantidades distintas a las del costeo ({cambiosCantidad.length})</p>
+          <p className="text-[12px] text-amber-800">Estas compras ya usan la cantidad a comprar. El costeo no se cambió.</p>
+          <ul className="mt-1 space-y-0.5 text-[12.5px] text-amber-900">
+            {cambiosCantidad.map(c => (
+              <li key={c.productoId}><b>{c.descripcion.length > 60 ? `${c.descripcion.slice(0, 60)}…` : c.descripcion}:</b> se compran <b>{c.cantidad ?? '—'}</b> en vez de {c.costeo ?? '—'} — {c.motivo}{c.por && <span className="text-amber-700/80"> ({c.por})</span>}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       {recomendadas.length > 0 && (
         <div className="bg-white rounded-xl border border-zinc-200 p-3.5 space-y-2.5">
           <div>
@@ -141,6 +156,11 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
                             <span className={`ml-2 text-[10.5px] font-bold px-1.5 py-0.5 rounded border ${r.yaComprada ? 'bg-sky-50 text-sky-800 border-sky-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}
                               title="Compra rápida: se compró (o se compra) en una tienda, sin cotización ni ficha">
                               ⚡ {r.yaComprada ? 'Ya comprada' : 'Por comprar'} · {r.estado === 'APROBADA' ? (r.yaComprada ? 'ratificada' : 'aprobada') : r.estado === 'RECHAZADA' ? 'rechazada' : 'por aprobar'}
+                            </span>
+                          )}
+                          {cambioDe.has(i.productoId) && (
+                            <span className="ml-2 text-[10.5px] font-bold px-1.5 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-200" title={cambioDe.get(i.productoId)!.motivo}>
+                              {cambioDe.get(i.productoId)!.cantidad} en vez de {cambioDe.get(i.productoId)!.costeo ?? '—'}
                             </span>
                           )}
                         </span>

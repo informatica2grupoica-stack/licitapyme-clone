@@ -16,6 +16,8 @@ export type EstadoTecnico = 'CUMPLE' | 'NO_CUMPLE' | 'FALTA_DATO' | 'SIN_COMPARA
 
 export interface LineaAprobacion {
   productoId: number; linea: number | null; descripcion: string; cantidad: number | null;
+  /** Cantidad a comprar distinta de la del costeo (migration-179): la del costeo, la observación y quién la cambió. null = la del costeo. */
+  cambioCantidad: { costeo: number | null; motivo: string; por: string | null; at: string | null } | null;
   ventaUnit: number | null; ventaTotal: number | null;
   costeadoUnit: number | null; costeadoTotal: number | null;
   proveedor: string | null; compraUnit: number | null; compraTotal: number | null; plazoDias: number | null;
@@ -121,6 +123,7 @@ export async function tablaAprobacion(negocioId: number): Promise<TablaAprobacio
 
     return {
       productoId: p.id, linea: p.correlativo, descripcion: p.descripcion, cantidad: cant,
+      cambioCantidad: p.cantidadMotivo ? { costeo: p.cantidadCosteo, motivo: p.cantidadMotivo, por: p.cantidadCambiadaPorNombre, at: p.cantidadCambiadaAt } : null,
       ventaUnit: p.montoUnitario, ventaTotal,
       costeadoUnit: costUnit, costeadoTotal: costUnit != null && cant != null ? costUnit * cant : null,
       proveedor, compraUnit, compraTotal, plazoDias: c?.plazoEntregaDias ?? null,

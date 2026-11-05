@@ -20,8 +20,78 @@ import type { LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 const num = (v: unknown) => { const n = typeof v === 'number' ? v : Number(v); return Number.isFinite(n) && n > 0 ? n : 1; };
 
-export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, linksCosteo = {}, lecturaLink: lecLink, onCompraPorLink, seleccion, onSeleccionar, alertas, tecnico, onAgregar, compra, onElegirCelda, onComprarTodoAqui, acciones, onVerMatriz, costeoCompras = {}, onAgregarLinea }: MatrizProps & {
+const fechaCorta = (s: string) => { const [d, h] = s.split(' '); const [y, m, dd] = d.split('-'); return `${dd}-${m}-${y}${h ? ` ${h.slice(0, 5)}` : ''}`; };
+const leerNumero = (s: string) => Number(s.trim().replace(/\./g, '').replace(',', '.'));
+
+type ProductoCmp = MatrizProps['productos'][number];
+
+/** Cantidad a comprar de un producto (migration-179): el costeo dice 30 y se compran 20, sin tocar el costeo. Muestra lo que cambia
+ *  el total a precio costeado y pide la observación, que después se ve aquí, en la aprobación y en el historial. */
+function CantidadAComprar({ p, base, onGuardar }: { p: ProductoCmp; base: number | null; onGuardar?: (productoId: number, cantidad: number, motivo: string) => Promise<void> }) {
+  const [editando, setEditando] = useState(false);
+  const [valor, setValor] = useState('');
+  const [motivo, setMotivo] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const actual = p.cantidad != null ? num(p.cantidad) : null;
+  const delCosteo = p.cantidadMotivo ? (p.cantidadCosteo ?? null) : actual;
+  const nueva = leerNumero(valor);
+  const valida = Number.isFinite(nueva) && nueva > 0;
+  const vuelve = valida && delCosteo != null && nueva === delCosteo;
+  const un = p.unidad || 'un.';
+  const abrir = () => { setValor(actual != null ? String(actual) : ''); setMotivo(p.cantidadMotivo ?? ''); setError(null); setEditando(true); };
+  const guardar = async () => {
+    if (!onGuardar || !valida || (!vuelve && !motivo.trim())) return;
+    setGuardando(true); setError(null);
+    try { await onGuardar(p.id, nueva, vuelve ? '' : motivo.trim()); setEditando(false); }
+    catch (e: any) { setError(e.message || 'No se pudo guardar.'); }
+    finally { setGuardando(false); }
+  };
+
+  if (!editando) return (
+    <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-[12px] text-zinc-600">
+      <span>Cantidad a comprar: <b className="text-zinc-900 tabular-nums">{actual ?? '—'} {un}</b>
+        {p.cantidadMotivo && delCosteo != null && <span className="text-zinc-400"> (costeo: {delCosteo})</span>}
+        {base != null && actual != null && <span className="text-zinc-400"> · a lo costeado {actual} × {clp(base)} = <b className="text-zinc-700">{clp(actual * base)}</b></span>}
+      </span>
+      {onGuardar && <button type="button" onClick={abrir} className="text-[12px] font-semibold text-teal-700 hover:underline underline-offset-2">Cambiar cantidad</button>}
+    </div>
+  );
+
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2.5 space-y-2" data-testid={`editar-cantidad-${p.id}`}>
+      <div className="flex items-end gap-3 flex-wrap">
+        <label className="text-[11.5px] font-semibold text-zinc-600">Cantidad a comprar
+          <input value={valor} onChange={e => setValor(e.target.value)} inputMode="decimal" autoFocus
+            className="mt-0.5 block w-28 rounded-md border border-zinc-300 bg-white px-2 py-1 text-[13px] tabular-nums focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none" />
+        </label>
+        <span className="text-[12px] text-zinc-500 pb-1.5">Costeo: <b className="text-zinc-700">{delCosteo ?? '—'} {un}</b>
+          {base != null && valida && delCosteo != null && nueva !== delCosteo && (
+            <> · a lo costeado {clp(delCosteo * base)} → <b className="text-zinc-900">{clp(nueva * base)}</b> <span className={nueva < delCosteo ? 'text-emerald-700' : 'text-red-600'}>({nueva < delCosteo ? '−' : '+'}{clp(Math.abs(nueva - delCosteo) * base)})</span></>
+          )}
+        </span>
+      </div>
+      {vuelve
+        ? <p className="text-[12px] text-zinc-600">Es la misma cantidad del costeo: al guardar se quita el cambio y la observación.</p>
+        : <label className="block text-[11.5px] font-semibold text-zinc-600">Observación (obligatoria: la ve quien aprueba la compra)
+            <textarea value={motivo} onChange={e => setMotivo(e.target.value)} rows={2} maxLength={500} placeholder="Ej.: hay 10 en bodega, se compran solo 20"
+              className="mt-0.5 block w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-[12.5px] font-normal focus:border-teal-500 focus:ring-1 focus:ring-teal-500 outline-none" />
+          </label>}
+      <p className="text-[11.5px] text-zinc-500">El costeo no se cambia. Si la compra ya estaba aprobada, al guardar vuelve a quedar por aprobar.</p>
+      {error && <p className="text-[12px] font-semibold text-red-600">{error}</p>}
+      <div className="flex gap-2">
+        <button type="button" onClick={guardar} disabled={guardando || !valida || (!vuelve && !motivo.trim())}
+          className="rounded-md bg-teal-600 px-3 py-1 text-[12.5px] font-semibold text-white hover:bg-teal-700 disabled:opacity-50">{guardando ? 'Guardando…' : 'Guardar'}</button>
+        <button type="button" onClick={() => setEditando(false)} disabled={guardando} className="rounded-md border border-zinc-300 bg-white px-3 py-1 text-[12.5px] font-semibold text-zinc-700 hover:bg-zinc-50">Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
+export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, linksCosteo = {}, lecturaLink: lecLink, onCompraPorLink, seleccion, onSeleccionar, alertas, tecnico, onAgregar, compra, onElegirCelda, onComprarTodoAqui, acciones, onVerMatriz, costeoCompras = {}, onAgregarLinea, onCambiarCantidad }: MatrizProps & {
   onVerMatriz?: () => void; costeoCompras?: Record<number, { costo: number | null; link: string }>;
+  /** Cambia la cantidad a comprar de un producto con observación, sin tocar el costeo (migration-179). */
+  onCambiarCantidad?: (productoId: number, cantidad: number, motivo: string) => Promise<void>;
   /** Suma una línea del documento que no quedó en ningún producto (acoples, manguera…) como adicional de ESE producto en esa cotización. */
   onAgregarLinea?: (cotizacionId: number, linea: LineaCotizacion, productoId: number) => Promise<void>;
 }) {
@@ -181,7 +251,6 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
     );
   };
 
-
   return (
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden" data-testid="comparador-precios">
       <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-100 flex items-start justify-between gap-3 flex-wrap">
@@ -249,7 +318,9 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
                 <div className="min-w-0 flex-1">
                   <p className="text-[13.5px] font-semibold text-zinc-900 truncate" title={p.descripcion}>{p.descripcion}</p>
                   <p className="text-[11.5px] text-zinc-500">
-                    {p.cantidad != null && <>{num(p.cantidad)} un.</>}
+                    {p.cantidadMotivo && p.cantidadCosteo != null && <s className="text-zinc-400 mr-1" title="Cantidad del costeo">{num(p.cantidadCosteo)}</s>}
+                    {p.cantidad != null && <span className={p.cantidadMotivo ? 'font-bold text-amber-700' : ''}>{num(p.cantidad)} {p.unidad || 'un.'}</span>}
+                    {p.cantidadMotivo && <span className="ml-1 text-[10.5px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1 py-px">a comprar</span>}
                     <span className="md:hidden"> · Costeado {base != null ? <b className="text-zinc-700">{clp(base)}</b> : '—'}</span>
                     {sinOfertas && <b className="ml-2 text-amber-600">Sin cotizar todavía</b>}
                   </p>
@@ -283,8 +354,17 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
                 </span>
               </button>
 
+              {/* Observación del cambio de cantidad: a la vista aunque el producto esté plegado. */}
+              {p.cantidadMotivo && (
+                <div className="mx-4 mb-2 ml-11 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-[12px] text-amber-900" data-testid={`obs-cantidad-${p.id}`}>
+                  <b>Se compran {num(p.cantidad)} en vez de {p.cantidadCosteo != null ? num(p.cantidadCosteo) : '—'} del costeo:</b> {p.cantidadMotivo}
+                  {(p.cantidadCambiadaPorNombre || p.cantidadCambiadaAt) && <span className="text-amber-700/80"> — {p.cantidadCambiadaPorNombre || 'alguien'}{p.cantidadCambiadaAt ? `, ${fechaCorta(p.cantidadCambiadaAt)}` : ''}</span>}
+                </div>
+              )}
+
               {abierto && (
                 <div className="px-4 pb-3 pl-11 space-y-1.5">
+                  {!p.esServicio && <CantidadAComprar p={p} base={base} onGuardar={onCambiarCantidad} />}
                   {linksCosteo[p.id] && <div className="text-[11.5px] text-zinc-500 flex items-center gap-1.5">Link del costeo: <span className="[&_a]:max-w-[220px]"><LinksProducto links={linksCosteo[p.id].links} /></span></div>}
 
                   {lecturas.map(l => {

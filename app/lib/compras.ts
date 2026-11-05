@@ -1927,6 +1927,9 @@ export interface ProductoCompra {
   esServicio: boolean;
   renunciaMotivo: string | null; renunciaPropuestaPorNombre: string | null; renunciaPropuestaAt: string | null;
   renunciaAprobadaPorNombre: string | null; renunciaAprobadaAt: string | null;
+  /** Cantidad a comprar cambiada a mano desde «Compara precios» (migration-179): `cantidad` es la que se compra y `cantidadCosteo`,
+   *  la del costeo. Todo null = la cantidad es la del costeo. */
+  cantidadCosteo: number | null; cantidadMotivo: string | null; cantidadCambiadaPorNombre: string | null; cantidadCambiadaAt: string | null;
 }
 
 /** Puebla `compras_producto` con los PRODUCTOS REALES a comprar — no el catálogo de MercadoPúblico,
@@ -2054,6 +2057,8 @@ export async function sincronizarProductosConCosteo(negocioId: number): Promise<
   const ahora = ahoraChileSQL();
   let actualizados = 0;
   const aInsertar: any[][] = [];
+  // Cantidad a comprar cambiada a mano en Compras (migration-179): la sincronización no la pisa, solo actualiza la del costeo.
+  const conCantidadCompra = await hayColumnaCantidadCompra();
 
   for (let i = 0; i < filasCosteo.length; i++) {
     const f = filasCosteo[i];
@@ -2065,9 +2070,13 @@ export async function sincronizarProductosConCosteo(negocioId: number): Promise<
 
     if (idExistente != null) {
       // COALESCE: si el producto se creó cuando la fila aún no tenía línea, ahora recibe su correlativo.
-      await pool.query(
-        `UPDATE compras_producto SET descripcion = ?, cantidad = ?, unidad = ?, monto_unitario = ?, correlativo = COALESCE(correlativo, ?), updated_at = ? WHERE id = ?`,
-        [descripcion, cantidad, unidad, montoUnitario, f.lineaPublicada ?? null, ahora, idExistente],
+      await pool.query(conCantidadCompra
+        ? `UPDATE compras_producto SET descripcion = ?, cantidad_costeo = IF(cantidad_motivo IS NULL, NULL, ?), cantidad = IF(cantidad_motivo IS NULL, ?, cantidad),
+              unidad = ?, monto_unitario = ?, correlativo = COALESCE(correlativo, ?), updated_at = ? WHERE id = ?`
+        : `UPDATE compras_producto SET descripcion = ?, cantidad = ?, unidad = ?, monto_unitario = ?, correlativo = COALESCE(correlativo, ?), updated_at = ? WHERE id = ?`,
+        conCantidadCompra
+          ? [descripcion, cantidad, cantidad, unidad, montoUnitario, f.lineaPublicada ?? null, ahora, idExistente]
+          : [descripcion, cantidad, unidad, montoUnitario, f.lineaPublicada ?? null, ahora, idExistente],
       );
       actualizados++;
     } else {
@@ -2167,10 +2176,22 @@ export function hayColumnaServicio(): Promise<boolean> {
   return columnaServicio;
 }
 
+/** ¿Ya está aplicada migration-179 (cantidad a comprar con observación)? Igual que hayColumnaServicio: sin ella todo funciona como antes. */
+let columnaCantidadCompra: Promise<boolean> | null = null;
+export function hayColumnaCantidadCompra(): Promise<boolean> {
+  columnaCantidadCompra ??= pool.query(`SHOW COLUMNS FROM compras_producto LIKE 'cantidad_motivo'`)
+    .then(([r]) => (r as any[]).length > 0).catch(() => { columnaCantidadCompra = null; return false; });
+  return columnaCantidadCompra;
+}
+
 export async function listarProductosCompra(negocioId: number): Promise<ProductoCompra[]> {
-  const colServicio = (await hayColumnaServicio()) ? 'es_servicio' : '0 AS es_servicio';
+  const [conServicio, conCantidad] = await Promise.all([hayColumnaServicio(), hayColumnaCantidadCompra()]);
+  const colServicio = conServicio ? 'es_servicio' : '0 AS es_servicio';
+  const colCantidad = conCantidad
+    ? `cantidad_costeo, cantidad_motivo, cantidad_cambiada_por_nombre, DATE_FORMAT(cantidad_cambiada_at, '%Y-%m-%d %H:%i:%s') AS cantidad_cambiada_at`
+    : 'NULL AS cantidad_costeo, NULL AS cantidad_motivo, NULL AS cantidad_cambiada_por_nombre, NULL AS cantidad_cambiada_at';
   const [rows] = await pool.query(
-    `SELECT id, negocio_id, correlativo, producto_padre_id, ${colServicio}, descripcion, cantidad, unidad, monto_unitario, subestado,
+    `SELECT id, negocio_id, correlativo, producto_padre_id, ${colServicio}, descripcion, cantidad, ${colCantidad}, unidad, monto_unitario, subestado,
             renuncia_motivo, renuncia_propuesta_por_nombre, DATE_FORMAT(renuncia_propuesta_at, '%Y-%m-%d %H:%i:%s') AS renuncia_propuesta_at,
             renuncia_aprobada_por_nombre, DATE_FORMAT(renuncia_aprobada_at, '%Y-%m-%d %H:%i:%s') AS renuncia_aprobada_at
        FROM compras_producto WHERE negocio_id = ? ORDER BY correlativo IS NULL, correlativo, id`,
@@ -2183,7 +2204,67 @@ export async function listarProductosCompra(negocioId: number): Promise<Producto
     subestado: r.subestado, productoPadreId: r.producto_padre_id ?? null, esServicio: !!r.es_servicio, renunciaMotivo: r.renuncia_motivo,
     renunciaPropuestaPorNombre: r.renuncia_propuesta_por_nombre, renunciaPropuestaAt: r.renuncia_propuesta_at,
     renunciaAprobadaPorNombre: r.renuncia_aprobada_por_nombre, renunciaAprobadaAt: r.renuncia_aprobada_at,
+    cantidadCosteo: r.cantidad_costeo == null ? null : Number(r.cantidad_costeo), cantidadMotivo: r.cantidad_motivo ?? null,
+    cantidadCambiadaPorNombre: r.cantidad_cambiada_por_nombre ?? null, cantidadCambiadaAt: r.cantidad_cambiada_at ?? null,
   }));
+}
+
+/** Cambia la CANTIDAD A COMPRAR de un producto sin tocar el costeo (migration-179): el costeo dice 30 y se compran 20.
+ *  La observación es obligatoria y queda a la vista en Compara precios y en la aprobación. Volver a la cantidad del costeo
+ *  borra el cambio. Ajusta el escenario elegido (subtotal del producto y costo total, el flete no cambia) para que el
+ *  cuadro y el monto a aprobar cuadren, y anula las aprobaciones ya dadas (se aprobó otra cantidad). */
+export async function cambiarCantidadCompra(
+  productoId: number, cantidadNueva: number, motivo: string, actorId: number, actorNombre: string | null,
+): Promise<void> {
+  if (!(await hayColumnaCantidadCompra())) throw new Error('Falta aplicar migration-179 (cantidad a comprar) en la base de datos.');
+  if (!Number.isFinite(cantidadNueva) || cantidadNueva <= 0) throw new Error('La cantidad tiene que ser mayor que cero.');
+  const [rows] = await pool.query(
+    `SELECT cp.negocio_id, cp.descripcion, cp.cantidad, cp.cantidad_costeo, cp.cantidad_motivo, cp.unidad, cp.subestado, n.licitacion_codigo
+       FROM compras_producto cp JOIN negocios n ON n.id = cp.negocio_id WHERE cp.id = ?`, [productoId],
+  ) as any;
+  const p = (rows as any[])[0];
+  if (!p) throw new Error('Producto no encontrado.');
+  if (['RENUNCIADO', 'NO_ADJUDICADA'].includes(p.subestado)) throw new Error('Este producto ya no está en la compra.');
+  const anterior = p.cantidad == null ? null : Number(p.cantidad);
+  const delCosteo = p.cantidad_motivo != null ? (p.cantidad_costeo == null ? null : Number(p.cantidad_costeo)) : anterior;
+  const vuelveAlCosteo = delCosteo != null && cantidadNueva === delCosteo;
+  const obs = String(motivo || '').trim().slice(0, 500);
+  if (!vuelveAlCosteo && !obs) throw new Error('Escribe la observación: por qué se compra una cantidad distinta a la del costeo.');
+  if (cantidadNueva === anterior && (vuelveAlCosteo ? p.cantidad_motivo == null : obs === p.cantidad_motivo)) return;
+
+  const ahora = ahoraChileSQL();
+  await pool.query(
+    `UPDATE compras_producto SET cantidad = ?, cantidad_costeo = ?, cantidad_motivo = ?, cantidad_cambiada_por = ?, cantidad_cambiada_por_nombre = ?,
+            cantidad_cambiada_at = ?, updated_at = ? WHERE id = ?`,
+    vuelveAlCosteo
+      ? [cantidadNueva, null, null, null, null, null, ahora, productoId]
+      : [cantidadNueva, delCosteo, obs, actorId, actorNombre, ahora, ahora, productoId],
+  );
+
+  if (cantidadNueva !== anterior) {
+    // El escenario elegido guarda subtotal por producto y costo total: se corrige solo la diferencia de este producto.
+    const [esc] = await pool.query(`SELECT id, detalle_json, costo_total FROM compras_escenario WHERE negocio_id = ? AND elegido = 1`, [p.negocio_id]) as any;
+    for (const e of esc as any[]) {
+      let detalle: any = null;
+      try { detalle = typeof e.detalle_json === 'string' ? JSON.parse(e.detalle_json) : e.detalle_json; } catch { continue; }
+      const item = (detalle?.porProducto as any[] | undefined)?.find(x => x.productoId === productoId);
+      if (!item || item.precioUnitario == null) continue;
+      const subtotalNuevo = Number(item.precioUnitario) * cantidadNueva;
+      const delta = subtotalNuevo - Number(item.subtotal || 0);
+      item.cantidad = cantidadNueva; item.subtotal = subtotalNuevo;
+      await pool.query(`UPDATE compras_escenario SET detalle_json = ?, costo_total = ? WHERE id = ?`, [JSON.stringify(detalle), Number(e.costo_total) + delta, e.id]);
+    }
+    await invalidarAprobacionesCompras(p.negocio_id, `Cambió la cantidad a comprar de "${p.descripcion}".`);
+  }
+
+  const un = p.unidad ? ` ${p.unidad}` : '';
+  await registrarEvento({
+    tipo: 'COMPRAS_CANTIDAD_CAMBIADA', licitacionCodigo: p.licitacion_codigo, actorId, actorNombre,
+    mensaje: vuelveAlCosteo
+      ? `La cantidad a comprar de "${p.descripcion}" volvió a la del costeo (${cantidadNueva}${un}).`
+      : `Cantidad a comprar de "${p.descripcion}": ${anterior ?? '—'} → ${cantidadNueva}${un} (costeo: ${delCosteo ?? '—'}). Observación: ${obs}`,
+    metadata: { negocio_id: p.negocio_id, producto_id: productoId, anterior, nueva: cantidadNueva, costeo: delCosteo, motivo: vuelveAlCosteo ? null : obs },
+  });
 }
 
 // NO_ADJUDICADA no está acá a propósito: es un hecho del acta de MP que solo aplica

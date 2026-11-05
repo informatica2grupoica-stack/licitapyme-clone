@@ -6,7 +6,7 @@ import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion, listarProductosCompra, poblarProductosCompraBase, cambiarSubestadoProducto,
   proponerRenunciaLinea, aprobarRenunciaLinea, coberturaProyecto, sincronizarProductosConCosteo, aplicarAdjudicacionPorLinea,
-  crearParteProducto, eliminarParteProducto, crearServicioProducto,
+  crearParteProducto, eliminarParteProducto, crearServicioProducto, cambiarCantidadCompra,
   type SubestadoProducto } from '@/app/lib/compras';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
@@ -94,8 +94,11 @@ async function __PATCH(request: NextRequest, { params }: Params) {
         if (cr && cr.estado !== 'APROBADA') return NextResponse.json({ error: `Este producto tiene una compra rápida ${cr.estado === 'PENDIENTE' ? 'esperando' : 'rechazada por'} el jefe de ventas: no se puede marcar Comprado hasta que la apruebe.` }, { status: 400 });
       }
       await cambiarSubestadoProducto(productoId, body.subestado as SubestadoProducto);
-    } else if ((body.accion === 'agregar_parte' || body.accion === 'quitar_parte') && !(await listarProductosCompra(id)).some(p => p.id === productoId)) {
+    } else if ((body.accion === 'agregar_parte' || body.accion === 'quitar_parte' || body.accion === 'cambiar_cantidad') && !(await listarProductosCompra(id)).some(p => p.id === productoId)) {
       return NextResponse.json({ error: 'Ese producto no es de esta compra.' }, { status: 400 });
+    } else if (body.accion === 'cambiar_cantidad') {
+      // Cantidad a comprar distinta de la del costeo, con observación (migration-179). El costeo no se toca.
+      await cambiarCantidadCompra(productoId, Number(body.cantidad), String(body.motivo || ''), userId, nombre);
     } else if (body.accion === 'agregar_parte') {
       // Parte que se compra aparte (migration-163): los pernos de una butaca «que incluye pernos», a otro proveedor.
       await crearParteProducto(productoId, { descripcion: String(body.descripcion || ''), cantidad: Number(body.cantidad), unidad: body.unidad ?? null }, userId, nombre);

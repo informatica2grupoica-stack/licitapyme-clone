@@ -247,9 +247,17 @@ export function TablaAprobacionCompra({ negocioId, refresco, esJefeDeVentas, pue
                           ⚡ Compra rápida · {l.compraRapida.yaComprada ? 'Ya comprada' : 'Por comprar'} · {l.compraRapida.proveedor} · {clp(l.compraRapida.precio)}
                         </p>
                       )}
+                      {l.cambioCantidad && (
+                        <p className="mt-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-1 text-[11px] text-amber-900 leading-snug" data-testid={`apr-cantidad-${l.productoId}`}>
+                          <b>Cantidad cambiada: {l.cantidad} en vez de {l.cambioCantidad.costeo ?? '—'} del costeo.</b> {l.cambioCantidad.motivo}
+                          {l.cambioCantidad.por && <span className="text-amber-700/80"> — {l.cambioCantidad.por}</span>}
+                        </p>
+                      )}
                       {l.motivos.length > 0 && <ul className="mt-1 space-y-0.5">{l.motivos.map(m => <li key={m} className="text-[11px] text-zinc-500 leading-snug">• {m}</li>)}</ul>}
                     </td>
-                    <td className="px-2 py-2 text-right align-top tabular-nums">{l.cantidad ?? '—'}</td>
+                    <td className="px-2 py-2 text-right align-top tabular-nums">
+                      {l.cambioCantidad ? <><b className="text-amber-700">{l.cantidad ?? '—'}</b>{l.cambioCantidad.costeo != null && <s className="block text-[10.5px] text-zinc-400" title="Cantidad del costeo">{l.cambioCantidad.costeo}</s>}</> : (l.cantidad ?? '—')}
+                    </td>
                     <td className="px-2 py-2 text-right align-top tabular-nums">{clp(l.ventaUnit)}</td>
                     <td className="px-2 py-2 text-right align-top tabular-nums text-zinc-500">{clp(l.costeadoUnit)}</td>
                     <td className="px-2 py-2 align-top">{l.proveedor ? <span className="text-zinc-800">{l.proveedor}</span> : <span className="text-rose-600 font-semibold">sin proveedor</span>}{l.plazoDias != null && <span className="block text-[10.5px] text-zinc-400">entrega {l.plazoDias} d</span>}</td>

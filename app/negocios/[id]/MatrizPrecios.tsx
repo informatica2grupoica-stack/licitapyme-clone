@@ -68,7 +68,9 @@ export type MatrizProps = {
   lecturaLink?: ReturnType<typeof useLinksLeidos>;
   /** «Comprar por este link»: lleva a la compra directa de ese producto con link, precio neto y proveedor ya puestos. */
   onCompraPorLink?: (productoId: number, d: { link: string; precio: number; proveedor: string }) => void;
-  productos: Array<{ id: number; descripcion: string; cantidad?: number | string | null; esServicio?: boolean }>; cotizaciones: CotizacionMin[];
+  productos: Array<{ id: number; descripcion: string; cantidad?: number | string | null; esServicio?: boolean; unidad?: string | null;
+    /** Cantidad a comprar cambiada desde Compara precios (migration-179): la del costeo y la observación. */
+    cantidadCosteo?: number | null; cantidadMotivo?: string | null; cantidadCambiadaPorNombre?: string | null; cantidadCambiadaAt?: string | null }>; cotizaciones: CotizacionMin[];
   costeado: Record<number, number | null>;
   /** Precio de venta neto/u del costeo de cada producto (para el margen del costeo inicial vs las cotizaciones). */
   venta?: Record<number, number | null>;
