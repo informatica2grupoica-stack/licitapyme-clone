@@ -2,11 +2,15 @@
 
 // RESUMEN COMPARATIVO — ¿coinciden lo costeado, el plan de compra de Licitank y lo comprado de verdad
 // en Obuma? Por producto y por orden de compra, todo NETO. Solo lectura: lee /resumen-comparativo.
-import { useEffect, useState } from 'react';
-import { CompararOcModal } from './CompararOcModal';
+// Diseño: skill licitank-ui (bloques rounded-2xl, rótulos en minúscula, estado con punto, teal como marca).
+import { useCallback, useEffect, useState } from 'react';
+import { CompararOcModal, colorEstadoOc } from './CompararOcModal';
 import { GastoExtraModal } from './GastoExtraModal';
 import { useToast } from '@/app/components/ui/toast';
-import { IconLoader2 as Loader2, IconScale as Scale, IconAlertTriangle as Alerta, IconCircleCheck as Check } from '@tabler/icons-react';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Estado } from '@/app/components/ui/kit/Tarjeta';
+import { Esqueleto } from '@/app/components/ui/kit/Estructura';
+import { IconAlertTriangle as Alerta, IconCircleCheck as Check, IconRefresh as Refrescar, IconPlus as Mas } from '@tabler/icons-react';
 
 interface Fila {
   productoId: number; producto: string; cantidad: number;
@@ -29,14 +33,34 @@ interface Resumen {
 
 const fmt = (n: number | null | undefined) => n == null ? '—'
   : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
+const estadoLegible = (e: string | null) => e ? e.charAt(0) + e.slice(1).toLowerCase() : '—';
+
+// Piezas de tabla comunes (tarjeta con borde fino, encabezado en minúscula, filas separadas por línea).
+const CAJA_TABLA = 'overflow-x-auto rounded-2xl border border-linea bg-white shadow-tarjeta dark:bg-slate-900 dark:border-slate-800';
+const THEAD = 'bg-slate-50/80 text-left text-[11px] text-tinta-2 dark:bg-slate-800/60 dark:text-slate-400';
+const TH = 'px-3 py-2 font-medium';
+const TR = 'border-t border-linea/70 align-top dark:border-slate-800';
+const TFOOT = 'border-t border-linea bg-slate-50/80 font-semibold text-tinta dark:bg-slate-800/60 dark:border-slate-700 dark:text-slate-100';
+const SUB = 'block text-[11px] text-tinta-3';
 
 /** Diferencia de A contra B (A − B) con su % y color: pagar más que la referencia es rojo, menos es verde. */
 function Dif({ a, b }: { a: number | null; b: number | null }) {
-  if (a == null || b == null || b === 0) return <span className="text-zinc-300">—</span>;
+  if (a == null || b == null || b === 0) return <span className="text-tinta-3">—</span>;
   const d = Math.round(a - b);
   const pct = Math.round(((a - b) / b) * 1000) / 10;
-  if (Math.abs(pct) < 1) return <span className="text-zinc-500">≈ igual</span>;
-  return <span className={`font-semibold ${d > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{d > 0 ? '+' : '−'}{fmt(Math.abs(d))} <span className="font-normal">({pct > 0 ? '+' : ''}{String(pct).replace('.', ',')}%)</span></span>;
+  if (Math.abs(pct) < 1) return <span className="text-tinta-2">≈ igual</span>;
+  return <span className={`font-semibold ${d > 0 ? 'text-urgente' : 'text-exito'}`}>{d > 0 ? '+' : '−'}{fmt(Math.abs(d))} <span className="font-normal">({pct > 0 ? '+' : ''}{String(pct).replace('.', ',')}%)</span></span>;
+}
+
+function Titulo({ children, detalle, accion }: { children: React.ReactNode; detalle?: string; accion?: React.ReactNode }) {
+  return (
+    <div className="mb-2 flex items-end justify-between gap-3 flex-wrap">
+      <h3 className="text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-100">
+        {children}{detalle && <span className="ml-2 text-[12px] font-normal text-tinta-3">{detalle}</span>}
+      </h3>
+      {accion}
+    </div>
+  );
 }
 
 export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
@@ -47,6 +71,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
   const [agregandoGasto, setAgregandoGasto] = useState<{ categoria: string; descripcion?: string; monto?: number } | null>(null);   // null = cerrado
   const [sincronizando, setSincronizando] = useState(false);
   const toast = useToast();
+  const recargar = useCallback(() => setVersion(v => v + 1), []);
 
   // Corre YA la sincronización con Obuma (la misma del cron de las 07:45) y vuelve a armar el comparativo.
   const sincronizar = async () => {
@@ -55,7 +80,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
       const r = await fetch(`/api/compras/${negocioId}/sincronizar-obuma`, { method: 'POST' }).then(x => x.json());
       if (r.error) throw new Error(r.error);
       toast.success('Obuma sincronizado', `${r.resumen?.candidatas ?? 0} compra(s) de Obuma cruzadas con licitaciones nuestras.`);
-      setVersion(v => v + 1);
+      recargar();
     } catch (e: any) { toast.error('No se pudo sincronizar con Obuma', e.message); }
     finally { setSincronizando(false); }
   };
@@ -68,63 +93,71 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
     return () => { vivo = false; };
   }, [negocioId, version]);
 
-  if (error) return <p className="px-1 py-2 text-[12px] text-rose-600">{error}</p>;
-  if (!r) return <div className="flex items-center gap-2 text-[12px] text-zinc-400 py-3"><Loader2 size={14} className="animate-spin" /> Armando el comparativo…</div>;
+  if (error) return <p className="px-1 py-2 text-[12.5px] text-urgente">{error}</p>;
+  if (!r) return (
+    <div className="space-y-3" aria-label="Armando el comparativo">
+      <Esqueleto className="h-20 rounded-2xl" />
+      <div className="grid grid-cols-3 gap-3">{[0, 1, 2, 3, 4, 5].map(i => <Esqueleto key={i} className="h-[84px] rounded-2xl" />)}</div>
+      <Esqueleto className="h-48 rounded-2xl" />
+    </div>
+  );
   const t = r.totales;
   const coincide = r.avisos.length === 0;
 
   return (
-    <div className="space-y-4" data-testid="resumen-comparativo">
-      <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3 space-y-1.5" data-testid="comparativo-guia">
-        <p className="text-[13px] font-bold text-zinc-800">Para qué sirve esta pestaña</p>
-        <p className="text-[12px] text-zinc-600">Compara tres cosas para cada producto: <b>lo que se costeó</b> al ofertar, <b>la cotización elegida</b> en Licitank y <b>lo que de verdad se compró</b> en Obuma. Así ves si pagaste más o menos de lo previsto. Es solo para mirar: no hay nada que llenar.</p>
-        <ul className="text-[12px] text-zinc-600 space-y-0.5">
-          <li><b className="text-emerald-700">Verde</b> = pagaste menos que la referencia · <b className="text-rose-600">Rojo</b> = pagaste más · «≈ igual» = diferencia menor al 1 %.</li>
-          <li>Todos los montos son <b>sin IVA</b>, salvo la tabla de «Cuadre con Obuma», que va con IVA como la muestra Obuma.</li>
+    <div className="@container space-y-6" data-testid="resumen-comparativo">
+      <div className="rounded-2xl border border-linea bg-white px-5 py-4 shadow-tarjeta space-y-1.5 dark:bg-slate-900 dark:border-slate-800" data-testid="comparativo-guia">
+        <p className="text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-100">Para qué sirve esta pestaña</p>
+        <p className="text-[12.5px] text-tinta-2 dark:text-slate-400">Compara tres cosas para cada producto: <b className="text-tinta dark:text-slate-200">lo que se costeó</b> al ofertar, <b className="text-tinta dark:text-slate-200">la cotización elegida</b> en Licitank y <b className="text-tinta dark:text-slate-200">lo que de verdad se compró</b> en Obuma. Así ves si pagaste más o menos de lo previsto. Es solo para mirar: no hay nada que llenar.</p>
+        <ul className="text-[12.5px] text-tinta-2 space-y-0.5 dark:text-slate-400">
+          <li><b className="text-exito">Verde</b> = pagaste menos que la referencia · <b className="text-urgente">Rojo</b> = pagaste más · «≈ igual» = diferencia menor al 1 %.</li>
+          <li>Todos los montos son <b className="text-tinta dark:text-slate-200">sin IVA</b>, salvo la tabla de «Cuadre con Obuma», que va con IVA como la muestra Obuma.</li>
           <li>Si algo no coincide, el recuadro de abajo dice qué. Corrígelo en Obuma (o anota el gasto en «Gastos extra») y esta pantalla se actualiza sola.</li>
         </ul>
       </div>
 
-      <div className={`rounded-xl border px-3 py-2.5 ${coincide ? 'border-emerald-200 bg-emerald-50/60' : 'border-amber-200 bg-amber-50/60'}`}>
-        <p className={`text-[13px] font-bold flex items-center gap-1.5 ${coincide ? 'text-emerald-800' : 'text-amber-900'}`}>
-          {coincide ? <Check size={15} /> : <Alerta size={15} />}
+      <div className={`rounded-2xl border px-5 py-3.5 ${coincide ? 'border-green-200 bg-green-50/60 dark:bg-green-950/30 dark:border-green-900' : 'border-amber-200 bg-amber-50/60 dark:bg-amber-950/30 dark:border-amber-900'}`}>
+        <p className={`text-[13.5px] font-semibold flex items-center gap-2 ${coincide ? 'text-exito' : 'text-alerta'}`}>
+          {coincide ? <Check size={16} /> : <Alerta size={16} />}
           {coincide ? 'Costeo, cotización elegida y Obuma coinciden.' : `Hay ${r.avisos.length} cosa(s) que no coinciden — revisar`}
         </p>
-        {r.avisos.length > 0 && <ul className="mt-1 list-disc pl-5 space-y-0.5 text-[12px] text-amber-900">{r.avisos.map((a, i) => <li key={i}>{a}</li>)}</ul>}
+        {r.avisos.length > 0 && <ul className="mt-1.5 list-disc pl-6 space-y-0.5 text-[12.5px] text-amber-900 dark:text-amber-200">{r.avisos.map((a, i) => <li key={i}>{a}</li>)}</ul>}
       </div>
 
       {r.cuadre && (
-        <div className={`rounded-xl border px-3 py-2.5 ${r.cuadre.cuadra ? 'border-emerald-200 bg-emerald-50/50' : 'border-amber-200 bg-amber-50/60'}`} data-testid="cuadre-obuma">
-          <p className="text-[12.5px] font-bold text-zinc-800">
-            Cuadre con el proyecto en Obuma{r.cuadre.proyectoFolio ? ` · PR-${r.cuadre.proyectoFolio}` : ''} <span className="font-medium text-zinc-400">· con IVA, como lo muestra Obuma</span>
+        <div className={`rounded-2xl border px-5 py-4 ${r.cuadre.cuadra ? 'border-linea bg-white shadow-tarjeta dark:bg-slate-900 dark:border-slate-800' : 'border-amber-200 bg-amber-50/60 dark:bg-amber-950/30 dark:border-amber-900'}`} data-testid="cuadre-obuma">
+          <p className="text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-100 flex items-center gap-2 flex-wrap">
+            Cuadre con el proyecto en Obuma{r.cuadre.proyectoFolio ? ` · PR-${r.cuadre.proyectoFolio}` : ''}
+            <span className="text-[12px] font-normal text-tinta-3">con IVA, como lo muestra Obuma</span>
+            <span className="text-[12px] font-medium"><Estado color={r.cuadre.cuadra ? '#15803d' : '#b45309'}>{r.cuadre.cuadra ? 'Cuadra' : 'No cuadra'}</Estado></span>
           </p>
-          <div className="overflow-x-auto mt-1.5">
-            <table className="w-full text-[12px] border-collapse">
+          <div className="overflow-x-auto mt-2">
+            <table className="w-full text-[12.5px] border-collapse">
               <thead>
-                <tr className="text-left text-[10.5px] uppercase tracking-wide text-zinc-500">
-                  <th className="py-1 pr-3 font-semibold"> </th>
-                  <th className="py-1 px-3 font-semibold text-right">En Obuma</th>
-                  <th className="py-1 px-3 font-semibold text-right">En Licitank</th>
-                  <th className="py-1 px-3 font-semibold text-right">Obuma − Licitank</th>
-                  <th className="py-1 pl-3 font-semibold">Por qué</th>
+                <tr className="text-left text-[11px] text-tinta-2 dark:text-slate-400">
+                  <th className="py-1.5 pr-3 font-medium"> </th>
+                  <th className="py-1.5 px-3 font-medium text-right">En Obuma</th>
+                  <th className="py-1.5 px-3 font-medium text-right">En Licitank</th>
+                  <th className="py-1.5 px-3 font-medium text-right">Obuma − Licitank</th>
+                  <th className="py-1.5 pl-3 font-medium">Por qué</th>
                 </tr>
               </thead>
               <tbody>
                 {([['Órdenes de compra', r.cuadre.oc], ['Facturas', r.cuadre.facturas]] as const).map(([nombre, l]) => (
-                  <tr key={nombre} className="border-t border-zinc-200/70 align-top">
-                    <td className="py-1.5 pr-3 font-semibold text-zinc-800 whitespace-nowrap">{nombre}</td>
-                    <td className="py-1.5 px-3 text-right tabular-nums whitespace-nowrap">{fmt(l.obumaTotal)}<span className="block text-[10.5px] text-zinc-400">{l.obumaCantidad} documento(s)</span></td>
-                    <td className="py-1.5 px-3 text-right tabular-nums whitespace-nowrap">{fmt(l.licitankTotal)}<span className="block text-[10.5px] text-zinc-400">{l.licitankCantidad} documento(s)</span></td>
-                    <td className="py-1.5 px-3 text-right tabular-nums whitespace-nowrap font-semibold">{fmt(l.obumaTotal - l.licitankTotal)}</td>
-                    <td className="py-1.5 pl-3 text-zinc-700">
-                      {l.diferencias.length === 0 && Math.abs(l.sinExplicar) <= 2 && <span className="text-emerald-700 font-semibold">Cuadra exacto.</span>}
+                  <tr key={nombre} className={TR}>
+                    <td className="py-2 pr-3 font-semibold text-tinta whitespace-nowrap dark:text-slate-100">{nombre}</td>
+                    <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap text-tinta dark:text-slate-200">{fmt(l.obumaTotal)}<span className={SUB}>{l.obumaCantidad} documento(s)</span></td>
+                    <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap text-tinta dark:text-slate-200">{fmt(l.licitankTotal)}<span className={SUB}>{l.licitankCantidad} documento(s)</span></td>
+                    <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap font-semibold text-tinta dark:text-slate-100">{fmt(l.obumaTotal - l.licitankTotal)}</td>
+                    <td className="py-2 pl-3 text-tinta-2 dark:text-slate-300">
+                      {l.diferencias.length === 0 && Math.abs(l.sinExplicar) <= 2 && <span className="text-exito font-semibold">Cuadra exacto.</span>}
                       {l.diferencias.map((d, i) => (
                         <span key={i} className="block">
-                          <span className="font-semibold tabular-nums">{d.monto >= 0 ? '+' : '−'} {fmt(Math.abs(d.monto))}</span> · {d.concepto}
-                          {d.gastoPropio && <button type="button" onClick={() => setAgregandoGasto({ categoria: d.gastoPropio!.categoria, descripcion: d.gastoPropio!.descripcion, monto: Math.abs(d.monto) })} className="ml-2 text-[11px] font-semibold text-teal-700 hover:text-teal-900">Registrar en Gastos extra</button>}
+                          <span className="font-semibold tabular-nums text-tinta dark:text-slate-100">{d.monto >= 0 ? '+' : '−'} {fmt(Math.abs(d.monto))}</span> · {d.concepto}
+                          {d.gastoPropio && <button type="button" onClick={() => setAgregandoGasto({ categoria: d.gastoPropio!.categoria, descripcion: d.gastoPropio!.descripcion, monto: Math.abs(d.monto) })} className="ml-2 text-[12px] font-medium text-marca hover:text-marca-fuerte">Registrar en Gastos extra</button>}
                         </span>
                       ))}
-                      {Math.abs(l.sinExplicar) > 2 && <span className="block font-semibold text-amber-800">{l.sinExplicar > 0 ? '+' : '−'} {fmt(Math.abs(l.sinExplicar))} sin explicar (puede faltar sincronizar con Obuma)</span>}
+                      {Math.abs(l.sinExplicar) > 2 && <span className="block font-semibold text-alerta">{l.sinExplicar > 0 ? '+' : '−'} {fmt(Math.abs(l.sinExplicar))} sin explicar (puede faltar sincronizar con Obuma)</span>}
                     </td>
                   </tr>
                 ))}
@@ -132,137 +165,141 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
             </table>
           </div>
           {r.cuadre.soloEnOc.length > 0 && (
-            <ul className="mt-1.5 list-disc pl-5 text-[11.5px] text-amber-900 space-y-0.5">{r.cuadre.soloEnOc.map((t, i) => <li key={i}>{t}</li>)}</ul>
+            <ul className="mt-2 list-disc pl-5 text-[12px] text-amber-900 space-y-0.5 dark:text-amber-200">{r.cuadre.soloEnOc.map((t, i) => <li key={i}>{t}</li>)}</ul>
           )}
-          <p className="mt-1 text-[11px] text-zinc-500">{r.cuadre.cuadra ? 'Todo lo que Obuma tiene en este proyecto está en Licitank o está explicado arriba.' : 'Hay diferencias sin explicar: sincroniza con Obuma y, si siguen, avisa al administrador.'} Lo que Licitank deja fuera es porque Obuma lo tiene mal (OC anulada, factura duplicada o enlazada a la OC equivocada): se corrige en Obuma y aquí se actualiza solo.</p>
+          <p className="mt-2 text-[12px] text-tinta-3">{r.cuadre.cuadra ? 'Todo lo que Obuma tiene en este proyecto está en Licitank o está explicado arriba.' : 'Hay diferencias sin explicar: sincroniza con Obuma y, si siguen, avisa al administrador.'} Lo que Licitank deja fuera es porque Obuma lo tiene mal (OC anulada, factura duplicada o enlazada a la OC equivocada): se corrige en Obuma y aquí se actualiza solo.</p>
         </div>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
-        {[
-          ['Venta ganada', t.venta, 'text-zinc-800'],
-          ['Costeado', t.costeo, 'text-zinc-800'],
-          ['Cotización elegida', t.plan, 'text-zinc-800'],
-          ['OC en Obuma', t.obumaOc, 'text-sky-800'],
-          ['Facturado', t.facturado, 'text-zinc-800'],
-          ['Gastos extra', t.gastosExtra, 'text-zinc-800'],
-        ].map(([n, v, c]) => (
-          <div key={n as string} className="rounded-xl border border-zinc-100 bg-zinc-50/60 px-3 py-2">
-            <p className="text-[10.5px] font-semibold text-zinc-500 uppercase tracking-wide flex items-center justify-between">
-              {n as string}
-              {n === 'Gastos extra' && (
-                <button type="button" onClick={() => setAgregandoGasto({ categoria: '' })} title="Agregar un gasto extra" aria-label="Agregar gasto extra" data-testid="agregar-gasto-extra"
-                  className="w-5 h-5 rounded-full bg-teal-600 hover:bg-teal-700 text-white text-[14px] leading-none flex items-center justify-center">+</button>
-              )}
-            </p>
-            <p className={`text-[14px] font-bold mt-0.5 tabular-nums ${c}`}>{fmt(v as number)}</p>
-            <p className="text-[10.5px] text-zinc-400">neto</p>
-          </div>
-        ))}
+      <div>
+        <div className="grid grid-cols-2 @xl:grid-cols-3 @5xl:grid-cols-6 gap-3">
+          {([
+            ['Venta ganada', t.venta],
+            ['Costeado', t.costeo],
+            ['Cotización elegida', t.plan],
+            ['OC en Obuma', t.obumaOc],
+            ['Facturado', t.facturado],
+            ['Gastos extra', t.gastosExtra],
+          ] as const).map(([n, v]) => (
+            <div key={n} className="rounded-2xl border border-linea bg-white px-4 py-3 shadow-tarjeta dark:bg-slate-900 dark:border-slate-800">
+              <p className="text-[11px] text-tinta-2 flex items-center justify-between gap-2 dark:text-slate-400">
+                {n}
+                {n === 'Gastos extra' && (
+                  <button type="button" onClick={() => setAgregandoGasto({ categoria: '' })} title="Agregar un gasto extra" aria-label="Agregar gasto extra" data-testid="agregar-gasto-extra"
+                    className="w-6 h-6 rounded-lg bg-marca hover:bg-marca-fuerte text-white flex items-center justify-center transition-colors duration-150"><Mas size={14} /></button>
+                )}
+              </p>
+              <p className="mt-0.5 text-[20px] leading-tight font-semibold tracking-tight tabular-nums text-tinta dark:text-slate-50">{fmt(v)}</p>
+              <p className="text-[11px] text-tinta-3">neto</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-[13px] text-tinta-2 dark:text-slate-400">
+            Margen real (OC de Obuma + gastos extra): <b className="font-semibold text-tinta tabular-nums dark:text-slate-100">{fmt(t.margenRealNeto)}</b>
+            {t.margenRealPct != null && <> ({String(t.margenRealPct).replace('.', ',')}% de la venta)</>} · contra lo costeado: <Dif a={t.obumaOc + t.gastosExtra} b={t.costeo} />
+          </p>
+          <span className="flex items-center gap-2.5 text-[12px] text-tinta-3">
+            Las OC y facturas de Obuma se copian una vez al día (07:45).
+            <Boton tamano="sm" onClick={sincronizar} disabled={sincronizando} data-testid="sincronizar-obuma"
+              icono={<Refrescar size={14} className={sincronizando ? 'animate-spin' : ''} />}>
+              {sincronizando ? 'Sincronizando…' : 'Sincronizar con Obuma ahora'}
+            </Boton>
+          </span>
+        </div>
       </div>
-      <div className="flex items-center gap-3 flex-wrap text-[11.5px] text-zinc-500">
-        <span>Las OC y facturas de Obuma se copian una vez al día (07:45). Si acabas de corregir algo allá:</span>
-        <button type="button" onClick={sincronizar} disabled={sincronizando} className="inline-flex items-center gap-1.5 font-semibold text-indigo-700 hover:text-indigo-900 disabled:opacity-50" data-testid="sincronizar-obuma">
-          {sincronizando && <Loader2 size={12} className="animate-spin" />} Sincronizar con Obuma ahora
-        </button>
-      </div>
-      <p className="text-[12px] text-zinc-600">
-        Margen real (OC de Obuma + gastos extra): <b className="text-zinc-800">{fmt(t.margenRealNeto)}</b>
-        {t.margenRealPct != null && <> ({String(t.margenRealPct).replace('.', ',')}% de la venta)</>} · contra lo costeado: <Dif a={t.obumaOc + t.gastosExtra} b={t.costeo} />
-      </p>
 
       <div>
-        <p className="text-[10.5px] font-semibold text-zinc-500 uppercase tracking-wide mb-1 flex items-center gap-1.5"><Scale size={12} /> Por producto · todo neto</p>
-        <div className="overflow-x-auto rounded-lg border border-zinc-100">
-          <table className="w-full text-[12px] border-collapse">
+        <Titulo detalle="todo neto">Por producto</Titulo>
+        <div className={CAJA_TABLA}>
+          <table className="w-full text-[12.5px] border-collapse">
             <thead>
-              <tr className="bg-zinc-50 text-left text-[10.5px] uppercase tracking-wide text-zinc-500">
-                <th className="px-3 py-1.5 font-semibold">Producto</th>
-                <th className="px-3 py-1.5 font-semibold text-right">Cant.</th>
-                <th className="px-3 py-1.5 font-semibold text-right">Venta</th>
-                <th className="px-3 py-1.5 font-semibold text-right">Costeo</th>
-                <th className="px-3 py-1.5 font-semibold">Cotización elegida</th>
-                <th className="px-3 py-1.5 font-semibold">Comprado en Obuma</th>
-                <th className="px-3 py-1.5 font-semibold text-right">Obuma vs costeo</th>
+              <tr className={THEAD}>
+                <th className={TH}>Producto</th>
+                <th className={`${TH} text-right`}>Cant.</th>
+                <th className={`${TH} text-right`}>Venta</th>
+                <th className={`${TH} text-right`}>Costeo</th>
+                <th className={TH}>Cotización elegida</th>
+                <th className={TH}>Comprado en Obuma</th>
+                <th className={`${TH} text-right`}>Obuma vs costeo</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="text-tinta-2 dark:text-slate-300">
               {r.filas.map(f => (
-                <tr key={f.productoId} className="border-t border-zinc-100 align-top">
-                  <td className="px-3 py-1.5 font-semibold text-zinc-800 min-w-[170px]">{f.producto}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-zinc-700">{f.cantidad}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-zinc-700">{fmt(f.ventaNeto)}<span className="block text-[10.5px] text-zinc-400">{fmt(f.ventaUnit)} c/u</span></td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-zinc-700">{fmt(f.costeoNeto)}<span className="block text-[10.5px] text-zinc-400">{fmt(f.costeoUnit)} c/u</span></td>
-                  <td className="px-3 py-1.5 tabular-nums text-zinc-700">
-                    {f.planProveedor ? <>{fmt(f.planNeto)}<span className="block text-[10.5px] text-zinc-400">{f.planProveedor} · {fmt(f.planUnit)} c/u</span></> : <span className="text-zinc-300">sin cotización</span>}
+                <tr key={f.productoId} className={TR}>
+                  <td className="px-3 py-2 font-semibold text-tinta min-w-[170px] dark:text-slate-100">{f.producto}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{f.cantidad}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmt(f.ventaNeto)}<span className={SUB}>{fmt(f.ventaUnit)} c/u</span></td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmt(f.costeoNeto)}<span className={SUB}>{fmt(f.costeoUnit)} c/u</span></td>
+                  <td className="px-3 py-2 tabular-nums">
+                    {f.planProveedor ? <>{fmt(f.planNeto)}<span className={SUB}>{f.planProveedor} · {fmt(f.planUnit)} c/u</span></> : <span className="text-tinta-3">sin cotización</span>}
                   </td>
-                  <td className="px-3 py-1.5 tabular-nums text-zinc-700">
+                  <td className="px-3 py-2 tabular-nums">
                     {f.obumaOc ? (
                       <>
                         {fmt(f.obumaNeto)}
-                        <span className="block text-[10.5px] text-zinc-400">{f.obumaProveedor} · OC {f.obumaOc}{f.obumaEstado ? ` · ${f.obumaEstado}` : ''} · {fmt(f.obumaUnit)} c/u</span>
-                        {f.obumaSku && <span className="block text-[10.5px] font-semibold text-indigo-600">SKU {f.obumaSku}</span>}
-                        {f.otroProveedor && <span className="block text-[10.5px] font-semibold text-amber-700">⚠ proveedor distinto a la cotización elegida</span>}
+                        <span className={SUB}>{f.obumaProveedor} · OC {f.obumaOc}{f.obumaEstado ? ` · ${estadoLegible(f.obumaEstado)}` : ''} · {fmt(f.obumaUnit)} c/u</span>
+                        {f.obumaSku && <span className="block text-[11px] font-medium text-tinta-2 dark:text-slate-400">SKU {f.obumaSku}</span>}
+                        {f.otroProveedor && <span className="block text-[11px] font-medium text-alerta">Proveedor distinto a la cotización elegida</span>}
                       </>
-                    ) : <span className="text-amber-700 font-semibold">sin OC en Obuma</span>}
+                    ) : <span className="text-alerta font-medium">sin OC en Obuma</span>}
                   </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums"><Dif a={f.obumaNeto} b={f.costeoNeto} /></td>
+                  <td className="px-3 py-2 text-right tabular-nums"><Dif a={f.obumaNeto} b={f.costeoNeto} /></td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
-              <tr className="border-t border-zinc-200 bg-zinc-50 font-semibold text-zinc-800">
-                <td className="px-3 py-1.5" colSpan={2}>{r.filas.length} productos</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{fmt(t.venta)}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{fmt(t.costeo)}</td>
-                <td className="px-3 py-1.5 tabular-nums">{fmt(t.plan)}</td>
-                <td className="px-3 py-1.5 tabular-nums">{fmt(r.filas.reduce((s, f) => s + (f.obumaNeto ?? 0), 0))}</td>
-                <td className="px-3 py-1.5 text-right"><Dif a={r.filas.reduce((s, f) => s + (f.obumaNeto ?? 0), 0)} b={t.costeo} /></td>
+              <tr className={TFOOT}>
+                <td className="px-3 py-2" colSpan={2}>{r.filas.length} productos</td>
+                <td className="px-3 py-2 text-right tabular-nums">{fmt(t.venta)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{fmt(t.costeo)}</td>
+                <td className="px-3 py-2 tabular-nums">{fmt(t.plan)}</td>
+                <td className="px-3 py-2 tabular-nums">{fmt(r.filas.reduce((s, f) => s + (f.obumaNeto ?? 0), 0))}</td>
+                <td className="px-3 py-2 text-right"><Dif a={r.filas.reduce((s, f) => s + (f.obumaNeto ?? 0), 0)} b={t.costeo} /></td>
               </tr>
             </tfoot>
           </table>
         </div>
         {r.lineasSinPlan.length > 0 && (
-          <p className="mt-1 text-[11.5px] text-zinc-500">
+          <p className="mt-2 text-[12px] text-tinta-3">
             Además, en Obuma hay líneas que no son un producto de la cotización elegida: {r.lineasSinPlan.map(l => `${l.producto.slice(0, 40)} (OC ${l.ocFolio}, ${fmt(l.neto)})`).join(' · ')}.
           </p>
         )}
       </div>
 
       <div data-testid="resumen-gastos-extra">
-        <div className="flex items-center justify-between mb-1">
-          <p className="text-[10.5px] font-semibold text-zinc-500 uppercase tracking-wide">Gastos extra del proyecto <span className="normal-case font-medium text-zinc-400">· se suman al costo real</span></p>
-          <span className="inline-flex items-center gap-3">
-            <button type="button" onClick={() => setAgregandoGasto({ categoria: 'Garantía de fiel cumplimiento' })} className="text-[11.5px] font-semibold text-zinc-500 hover:text-teal-700">+ Garantía</button>
-            <button type="button" onClick={() => setAgregandoGasto({ categoria: '' })} className="text-[11.5px] font-semibold text-teal-700 hover:text-teal-900">+ Agregar gasto extra</button>
+        <Titulo detalle="se suman al costo real" accion={
+          <span className="inline-flex items-center gap-1">
+            <Boton tamano="sm" variante="fantasma" onClick={() => setAgregandoGasto({ categoria: 'Garantía de fiel cumplimiento' })}>+ Garantía</Boton>
+            <Boton tamano="sm" variante="secundario" onClick={() => setAgregandoGasto({ categoria: '' })} icono={<Mas size={14} />}>Agregar gasto extra</Boton>
           </span>
-        </div>
-        {r.gastosExtra.length === 0 && <p className="rounded-lg border border-dashed border-zinc-200 px-3 py-2 text-[12px] text-zinc-400">Sin gastos extra. Usa «+» para agregar uno (flete, garantía, horas extras…).</p>}
+        }>Gastos extra del proyecto</Titulo>
+        {r.gastosExtra.length === 0 && <p className="rounded-2xl border border-dashed border-slate-300 px-4 py-3 text-[12.5px] text-tinta-3 dark:border-slate-700">Sin gastos extra. Usa «+» para agregar uno (flete, garantía, horas extras…).</p>}
         {r.gastosExtra.length > 0 && (
-          <div className="overflow-x-auto rounded-lg border border-zinc-100">
-            <table className="w-full text-[12px] border-collapse">
+          <div className={CAJA_TABLA}>
+            <table className="w-full text-[12.5px] border-collapse">
               <thead>
-                <tr className="bg-zinc-50 text-left text-[10.5px] uppercase tracking-wide text-zinc-500">
-                  <th className="px-3 py-1.5 font-semibold">Categoría</th>
-                  <th className="px-3 py-1.5 font-semibold">Descripción</th>
-                  <th className="px-3 py-1.5 font-semibold">Fecha</th>
-                  <th className="px-3 py-1.5 font-semibold text-right">Monto</th>
+                <tr className={THEAD}>
+                  <th className={TH}>Categoría</th>
+                  <th className={TH}>Descripción</th>
+                  <th className={TH}>Fecha</th>
+                  <th className={`${TH} text-right`}>Monto</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="text-tinta-2 dark:text-slate-300">
                 {r.gastosExtra.map(g => (
-                  <tr key={g.id} className="border-t border-zinc-100">
-                    <td className="px-3 py-1.5 font-semibold text-zinc-800 whitespace-nowrap">{g.categoria}</td>
-                    <td className="px-3 py-1.5 text-zinc-700">{g.descripcion}{g.origen === 'obuma' && <span className="ml-1.5 text-[10px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded-full">desde Obuma</span>}</td>
-                    <td className="px-3 py-1.5 text-zinc-600 whitespace-nowrap">{g.fecha ? g.fecha.split('-').reverse().join('-') : '—'}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-zinc-800">{g.moneda === 'CLP' ? fmt(g.monto) : <span className="text-amber-700">{g.monto} {g.moneda} (no suma)</span>}</td>
+                  <tr key={g.id} className={TR}>
+                    <td className="px-3 py-2 font-semibold text-tinta whitespace-nowrap dark:text-slate-100">{g.categoria}</td>
+                    <td className="px-3 py-2">{g.descripcion}{g.origen === 'obuma' && <span className="ml-2 text-[11px] font-medium text-tinta-3"><Estado color="#0891b2">desde Obuma</Estado></span>}</td>
+                    <td className="px-3 py-2 whitespace-nowrap tabular-nums">{g.fecha ? g.fecha.split('-').reverse().join('-') : '—'}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-semibold text-tinta dark:text-slate-100">{g.moneda === 'CLP' ? fmt(g.monto) : <span className="text-alerta">{g.monto} {g.moneda} (no suma)</span>}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
-                <tr className="border-t border-zinc-200 bg-zinc-50 font-semibold text-zinc-800">
-                  <td className="px-3 py-1.5" colSpan={3}>{r.gastosExtra.length} gasto(s)</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{fmt(t.gastosExtra)}</td>
+                <tr className={TFOOT}>
+                  <td className="px-3 py-2" colSpan={3}>{r.gastosExtra.length} gasto(s)</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmt(t.gastosExtra)}</td>
                 </tr>
               </tfoot>
             </table>
@@ -271,51 +308,54 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
       </div>
 
       <div>
-        <p className="text-[10.5px] font-semibold text-zinc-500 uppercase tracking-wide mb-1">Por orden de compra · cotización elegida contra Obuma contra factura</p>
-        <div className="overflow-x-auto rounded-lg border border-zinc-100">
-          <table className="w-full text-[12px] border-collapse">
+        <Titulo detalle="cotización elegida contra Obuma contra factura">Por orden de compra</Titulo>
+        <div className={CAJA_TABLA}>
+          <table className="w-full text-[12.5px] border-collapse">
             <thead>
-              <tr className="bg-zinc-50 text-left text-[10.5px] uppercase tracking-wide text-zinc-500">
-                <th className="px-3 py-1.5 font-semibold">OC</th>
-                <th className="px-3 py-1.5 font-semibold">Proveedor</th>
-                <th className="px-3 py-1.5 font-semibold">Estado</th>
-                <th className="px-3 py-1.5 font-semibold text-right">Cotización elegida</th>
-                <th className="px-3 py-1.5 font-semibold text-right">OC Obuma</th>
-                <th className="px-3 py-1.5 font-semibold text-right">Facturado</th>
-                <th className="px-3 py-1.5 font-semibold text-right">OC − factura</th>
-                <th className="px-3 py-1.5 font-semibold text-right">Ver</th>
+              <tr className={THEAD}>
+                <th className={TH}>OC</th>
+                <th className={TH}>Proveedor</th>
+                <th className={TH}>Estado</th>
+                <th className={`${TH} text-right`}>Cotización elegida</th>
+                <th className={`${TH} text-right`}>OC Obuma</th>
+                <th className={`${TH} text-right`}>Facturado</th>
+                <th className={`${TH} text-right`}>OC − factura</th>
+                <th className={`${TH} text-right`}>Ver</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="text-tinta-2 dark:text-slate-300">
               {r.porOc.map(o => (
-                <tr key={o.ocFolio} className="border-t border-zinc-100">
-                  <td className="px-3 py-1.5 tabular-nums text-zinc-600 whitespace-nowrap">OC {o.ocFolio}</td>
-                  <td className="px-3 py-1.5 font-semibold text-zinc-800">{o.proveedor || '—'}</td>
-                  <td className="px-3 py-1.5 whitespace-nowrap"><span className="text-[10.5px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded-full">{o.estado || '—'}</span></td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-zinc-700">{fmt(o.planNeto)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-zinc-700">{fmt(o.obumaNeto)}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums text-zinc-700">{o.facturas ? fmt(o.facturadoNeto) : <span className="text-amber-700 font-semibold">sin factura</span>}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{o.facturas ? <Dif a={o.obumaNeto} b={o.facturadoNeto} /> : <span className="text-zinc-300">—</span>}</td>
-                  <td className="px-3 py-1.5 text-right whitespace-nowrap"><button type="button" onClick={() => setComparando(o.ocFolio)} className="text-[11.5px] font-semibold text-indigo-700 hover:text-indigo-900" data-testid={`comparar-${o.ocFolio}`}>Comparar</button></td>
+                <tr key={o.ocFolio} className={`${TR} align-middle`}>
+                  <td className="px-3 py-2 tabular-nums whitespace-nowrap">OC {o.ocFolio}</td>
+                  <td className="px-3 py-2 font-semibold text-tinta dark:text-slate-100">{o.proveedor || '—'}</td>
+                  <td className="px-3 py-2 whitespace-nowrap"><Estado color={colorEstadoOc(o.estado)}>{estadoLegible(o.estado)}</Estado></td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmt(o.planNeto)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmt(o.obumaNeto)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {o.facturas ? <span className="font-semibold text-tinta dark:text-slate-100">{fmt(o.facturadoNeto)}</span>
+                      : <span className="text-alerta font-medium">{/facturad/i.test(o.estado || '') ? 'falta traer la factura' : 'sin factura'}</span>}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">{o.facturas ? <Dif a={o.obumaNeto} b={o.facturadoNeto} /> : <span className="text-tinta-3">—</span>}</td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap"><button type="button" onClick={() => setComparando(o.ocFolio)} className="text-[12.5px] font-medium text-marca hover:text-marca-fuerte" data-testid={`comparar-${o.ocFolio}`}>Comparar</button></td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
-              <tr className="border-t border-zinc-200 bg-zinc-50 font-semibold text-zinc-800">
-                <td className="px-3 py-1.5" colSpan={3}>{r.porOc.length} OC</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{fmt(r.porOc.reduce((s, o) => s + (o.planNeto ?? 0), 0))}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{fmt(t.obumaOc)}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{fmt(t.facturado)}</td>
-                <td className="px-3 py-1.5" />
-                <td className="px-3 py-1.5" />
+              <tr className={TFOOT}>
+                <td className="px-3 py-2" colSpan={3}>{r.porOc.length} OC</td>
+                <td className="px-3 py-2 text-right tabular-nums">{fmt(r.porOc.reduce((s, o) => s + (o.planNeto ?? 0), 0))}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{fmt(t.obumaOc)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{fmt(t.facturado)}</td>
+                <td className="px-3 py-2" />
+                <td className="px-3 py-2" />
               </tr>
             </tfoot>
           </table>
         </div>
-        <p className="mt-1 text-[11px] text-zinc-400">«Comparar» abre, lado a lado, la cotización elegida, la OC de Obuma y la factura de esa orden.</p>
+        <p className="mt-2 text-[12px] text-tinta-3">«Comparar» abre, lado a lado, la cotización elegida, la OC de Obuma y la factura de esa orden. Si Obuma la marca facturada y aquí falta la factura, la trae sola al abrir.</p>
       </div>
-      {agregandoGasto !== null && <GastoExtraModal negocioId={negocioId} categoriaInicial={agregandoGasto.categoria || undefined} descripcionInicial={agregandoGasto.descripcion} montoInicial={agregandoGasto.monto} onCerrar={() => setAgregandoGasto(null)} onGuardado={() => { setAgregandoGasto(null); setVersion(v => v + 1); }} />}
-      {comparando && <CompararOcModal negocioId={negocioId} ocFolio={comparando} onCerrar={() => setComparando(null)} />}
+      {agregandoGasto !== null && <GastoExtraModal negocioId={negocioId} categoriaInicial={agregandoGasto.categoria || undefined} descripcionInicial={agregandoGasto.descripcion} montoInicial={agregandoGasto.monto} onCerrar={() => setAgregandoGasto(null)} onGuardado={() => { setAgregandoGasto(null); recargar(); }} />}
+      {comparando && <CompararOcModal negocioId={negocioId} ocFolio={comparando} onCerrar={() => setComparando(null)} onSincronizado={recargar} />}
     </div>
   );
 }

@@ -4,6 +4,10 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
 
 ## Decisiones vigentes del dueño
 
+- **licitank-ui aplicada a Compras → «Seguimiento · Comparativo»** (2026-11-05, pedido del dueño):
+  `ResumenComparativoCard.tsx` y el modal `CompararOcModal.tsx`, solo lo visual. Detalle en `compras.md`.
+  Visto en localhost con 1154, en modo claro y oscuro; falta que el dueño lo apruebe.
+
 - **Menú lateral ordenado por etapa** (2026-10-28, pedido del dueño antes de sumar más módulos):
   PRINCIPAL (Dashboard, Negocios, Aprobaciones, Postuladas, Ganadas/Perdidas) → EJECUCIÓN (Compras,
   Proyectos (Obuma), Órdenes de compra, Entregas, Proveedores, Fleteros) → OPORTUNIDADES (Radar,

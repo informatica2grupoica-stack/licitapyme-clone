@@ -3,6 +3,12 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-05 — «Comparar» de una OC: trae la factura sola + botón Sincronizar; Comparativo con licitank-ui
+Caso real: 1154, la tabla decía facturado y el modal «Comparar» de la OC 4035 decía «Todavía no hay factura» (la copia local la había vaciado producción con el código viejo, ver la entrada de abajo).
+`CompararOcModal.tsx`: botón «Sincronizar con Obuma» en la cabecera (misma ruta `sincronizar-obuma` de la licitación). Si Obuma marca la OC FACTURADA y no llegó la factura, sincroniza una vez sola al abrir, y después la tabla de atrás se vuelve a armar. En la tabla por OC, una OC facturada sin factura dice «falta traer la factura» en vez de «sin factura».
+`ResumenComparativoCard.tsx` + el modal con la skill licitank-ui, solo lo visual: bloques rounded-2xl, rótulos en minúscula, estado con punto (Facturada verde, Anulada rojo, resto gris), teal en vez de índigo, esqueleto de carga, grillas @container, modo oscuro. Datos, textos y orden de secciones iguales.
+**Verificado:** tsc y eslint sin errores nuevos; visto en localhost:3000 con 1154 (vista, modal, botón Sincronizar y modo oscuro). La sincronización automática al abrir NO se probó en vivo, porque ninguna OC de 1154 quedó sin factura.
+
 ## 2026-11-05 — OC «FACTURADA» en Obuma salía «sin factura» en Licitank
 Caso real: negocio 1154 (2415-19-LE26), OC 4035 ELECTROCOM, factura 33 folio 7280216 por $1.743.350.
 Obuma escribe el enlace OC → factura (`compra_oc_facturada_tipo_dcto`) de dos formas: `,33#101006` y `,T33 # 7280216`. La sync solo leía la primera; con «T33 » Obuma responde 0 resultados y la OC quedaba sin factura (17 OC afectadas, 3743 a 4035). Ahora lo lee `paresFacturaDeOc` (`app/lib/obuma-facturas-enlace.ts`, usado en `obuma-compras.ts`): toma los números de tipo y folio en cualquier formato y no repite la misma factura. Si el enlace no se entiende o Obuma no encuentra la factura, queda un aviso en el log `[obuma-compras]`.
