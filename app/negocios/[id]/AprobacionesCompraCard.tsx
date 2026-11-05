@@ -239,7 +239,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
   const formSkuVacio = {
     skuPropio: '', skuProveedor: '', proveedorNombre: '', marca: '', modelo: '', obumaProductoId: '',
     crearEnObuma: true, obumaCategoriaId: OBUMA_CATEGORIA_MERCADO_PUBLICO_UI, obumaSubcategoriaId: '', obTipo: '', obAtributo: '', medidas: '',
-    precioVenta: '', paraVenta: true, paraCompra: true, inventariable: true, venderEnWeb: false,
+    precioVenta: '', costoManual: '', paraVenta: true, paraCompra: true, inventariable: true, venderEnWeb: false,
   };
   const [formSku, setFormSku] = useState(formSkuVacio);
   const [guardandoSku, setGuardandoSku] = useState(false);
@@ -279,6 +279,10 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
   // que va a quedar guardado, no una versión distinta que después "cambia sola".
   const nombreObumaPreview = [formSku.obTipo, formSku.obAtributo, formSku.medidas, formSku.marca, formSku.modelo]
     .map(s => s.trim()).filter(Boolean).join(' ').toUpperCase();
+  // Costo que se manda a Obuma: el del escenario elegido; si el producto no está en ningún escenario (no se cotizó), el que se escribe a mano
+  // (pedido del dueño, 05-nov-2026). Con escenario, el escenario manda y no se ofrece el campo manual.
+  const costoManualNum = Number(formSku.costoManual.replace(/[^\d]/g, '')) || 0;
+  const costoUsar = costoPreview.estado === 'listo' ? costoPreview.monto : costoPreview.estado === 'sin_datos' && costoManualNum > 0 ? costoManualNum : null;
 
   // Solo la ÚLTIMA carga pinta: una lectura anterior que llega tarde no debe pisar el estado nuevo (visto el 14-oct-2026:
   // tras aprobar, la tarjeta a veces seguía en «Pendiente» aunque el servidor ya la había aprobado).
@@ -488,8 +492,8 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
       toast.error('Hay productos parecidos en Obuma', 'Revisa la lista de abajo — si ninguno es este, marca "Crear de todas formas" para continuar.');
       return;
     }
-    if (formSku.crearEnObuma && costoPreview.estado !== 'listo') {
-      toast.error('Falta el costo', 'No se pudo obtener el costo del escenario elegido — sin eso no se puede crear en Obuma.');
+    if (formSku.crearEnObuma && costoUsar == null) {
+      toast.error('Falta el costo', 'Este producto no está en el escenario de compra: escribe el precio de costo neto a mano (paso 5).');
       return;
     }
     if (formSku.crearEnObuma && formSku.paraVenta && !(Number(formSku.precioVenta.replace(/[^\d]/g, '')) > 0)) {
@@ -502,10 +506,10 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
     }
     setGuardandoSku(true);
     try {
-      const { obTipo, obAtributo, medidas, precioVenta, ...resto } = formSku;
+      const { obTipo, obAtributo, medidas, precioVenta, costoManual, ...resto } = formSku;
       const res = await fetch(`/api/compras/${negocioId}/sku`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productoId: formSkuProducto, ...resto, nombreObuma: nombreObumaPreview || null, costoEsperado: costoPreview.monto, precioVentaNeto: Number(precioVenta.replace(/[^\d]/g, '')) || null }),
+        body: JSON.stringify({ productoId: formSkuProducto, ...resto, nombreObuma: nombreObumaPreview || null, costoEsperado: costoPreview.estado === 'listo' ? costoPreview.monto : null, costoManual: costoPreview.estado === 'sin_datos' && costoManual.trim() ? costoManualNum : null, precioVentaNeto: Number(precioVenta.replace(/[^\d]/g, '')) || null }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo crear');
@@ -821,10 +825,11 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
                                 : duplicados.productos.length > 0 && !confirmarPeseADuplicado ? 'Falta: usar uno existente o marcar que ninguno es (paso 2)'
                                 : !formSku.obumaSubcategoriaId ? 'Falta: la subcategoría (paso 4)'
                                 : formSku.paraVenta && !(Number(formSku.precioVenta.replace(/[^\d]/g, '')) > 0) ? 'Falta: el precio de venta (paso 5)'
+                                : costoUsar == null ? 'Falta: el precio de costo (paso 5)'
                                 : !costoConfirmado ? 'Falta: confirmar el costo (paso 6)' : ''}
                             </span>}
                   <Boton variante="fantasma" onClick={cerrar}>Cancelar</Boton>
-                  <Boton variante="primario" onClick={crearSku} disabled={(!formSku.crearEnObuma && !formSku.skuPropio.trim()) || guardandoSku || (formSku.crearEnObuma && (!formSku.obumaSubcategoriaId || !nombreObumaPreview || (duplicados.productos.length > 0 && !confirmarPeseADuplicado) || costoPreview.estado !== 'listo' || !costoConfirmado || (formSku.paraVenta && !(Number(formSku.precioVenta.replace(/[^\d]/g, '')) > 0))))}>
+                  <Boton variante="primario" onClick={crearSku} disabled={(!formSku.crearEnObuma && !formSku.skuPropio.trim()) || guardandoSku || (formSku.crearEnObuma && (!formSku.obumaSubcategoriaId || !nombreObumaPreview || (duplicados.productos.length > 0 && !confirmarPeseADuplicado) || costoUsar == null || !costoConfirmado || (formSku.paraVenta && !(Number(formSku.precioVenta.replace(/[^\d]/g, '')) > 0))))}>
                     {guardandoSku ? <Loader2 size={14} className="animate-spin" /> : formSku.crearEnObuma ? 'Crear el SKU en Obuma' : 'Guardar SKU'}
                   </Boton>
                 </>}>
@@ -980,17 +985,26 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
                               <p className="text-[13px] font-semibold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-md bg-slate-100 text-zinc-600 text-[11px] tabular-nums items-center justify-center">5</span>Precios y opciones en Obuma</p>
                               {(() => {
                                 const venta = Number(formSku.precioVenta.replace(/[^\d]/g, '')) || 0;
-                                const costo = costoPreview.estado === 'listo' ? (costoPreview.monto || 0) : 0;
+                                const costo = costoUsar || 0;
                                 const iva = Math.round(venta * 0.19);
                                 const margen = venta > 0 && costo > 0 ? Math.round(((venta - costo) / venta) * 1000) / 10 : null;
                                 return (
                                   <>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                      <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
-                                        <p className="text-[11.5px] font-semibold text-zinc-500">Precio de costo (neto) · lo que vamos a comprar</p>
-                                        <p className="text-[17px] font-semibold text-zinc-900 tabular-nums">{costoPreview.estado === 'listo' ? fmtCLP(costoPreview.monto) : costoPreview.estado === 'cargando' ? 'consultando…' : '—'}</p>
-                                        <p className="text-[11px] text-zinc-400">{costoPreview.estado === 'listo' ? costoPreview.escenarioTipo === 'COMPRA_RAPIDA' ? 'De la compra rápida aprobada por el jefe de ventas' : `Del escenario de compra elegido (${costoPreview.escenarioTipo})` : 'Falta elegir el escenario de compra'}</p>
-                                      </div>
+                                      {costoPreview.estado === 'sin_datos' ? (
+                                        <label className="rounded-lg border border-zinc-200 px-3 py-2 block" data-testid="sku-costo-manual">
+                                          <span className="block text-[11.5px] font-semibold text-zinc-500">Precio de costo (neto) · lo que vamos a comprar</span>
+                                          <input inputMode="numeric" value={formSku.costoManual} onChange={e => { setFormSku(f => ({ ...f, costoManual: e.target.value })); setCostoConfirmado(false); }} placeholder="Ej: 1000000" autoComplete="off"
+                                            className={`mt-0.5 w-full text-[17px] font-semibold tabular-nums text-zinc-900 border rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-teal-500 ${costoManualNum > 0 ? 'border-zinc-200' : 'border-amber-300 bg-amber-50/40'}`} />
+                                          <span className="block text-[11px] text-amber-700 mt-0.5">Este producto no está en el escenario de compra (no se cotizó): escríbelo a mano, neto y por unidad.</span>
+                                        </label>
+                                      ) : (
+                                        <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
+                                          <p className="text-[11.5px] font-semibold text-zinc-500">Precio de costo (neto) · lo que vamos a comprar</p>
+                                          <p className="text-[17px] font-semibold text-zinc-900 tabular-nums">{costoPreview.estado === 'listo' ? fmtCLP(costoPreview.monto) : 'consultando…'}</p>
+                                          <p className="text-[11px] text-zinc-400">{costoPreview.estado === 'listo' ? costoPreview.escenarioTipo === 'COMPRA_RAPIDA' ? 'De la compra rápida aprobada por el jefe de ventas' : `Del escenario de compra elegido (${costoPreview.escenarioTipo})` : 'Buscando el costo en el escenario de compra…'}</p>
+                                        </div>
+                                      )}
                                       <label className="rounded-lg border border-zinc-200 px-3 py-2 block">
                                         <span className="block text-[11.5px] font-semibold text-zinc-500">Precio de venta (neto) · lo que cobramos al cliente</span>
                                         <input inputMode="numeric" value={formSku.precioVenta} onChange={e => setFormSku(f => ({ ...f, precioVenta: e.target.value }))} placeholder="Ej: 1173769"
@@ -1023,13 +1037,13 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
                                 <span className="text-zinc-500">Costo neto (compra): </span>
                                 {costoPreview.estado === 'cargando' && <span className="inline-flex items-center gap-1 text-zinc-400"><Loader2 size={12} className="animate-spin" /> consultando el escenario…</span>}
                                 {costoPreview.estado === 'listo' && <><b>{fmtCLP(costoPreview.monto)}</b> <span className="text-zinc-500">(escenario {costoPreview.escenarioTipo})</span></>}
-                                {costoPreview.estado === 'sin_datos' && <span className="text-rose-600">no se pudo obtener el costo del escenario elegido</span>}
+                                {costoPreview.estado === 'sin_datos' && (costoManualNum > 0 ? <><b>{fmtCLP(costoManualNum)}</b> <span className="text-zinc-500">(puesto a mano)</span></> : <span className="text-amber-700">escríbelo a mano en el paso 5</span>)}
                               </p>
                               <p className="text-[13px] text-zinc-800"><span className="text-zinc-500">Precio de venta neto: </span>{Number(formSku.precioVenta.replace(/[^\d]/g, '')) > 0 ? <b>{fmtCLP(Number(formSku.precioVenta.replace(/[^\d]/g, '')))}</b> : <span className="text-zinc-400">sin precio de venta</span>}</p>
-                              {costoPreview.estado === 'listo' && (
+                              {costoUsar != null && (
                                 <label className="flex items-center gap-2 text-[12.5px] text-teal-900 pt-1 cursor-pointer">
                                   <input type="checkbox" checked={costoConfirmado} onChange={e => setCostoConfirmado(e.target.checked)} className="accent-teal-600" />
-                                  Confirmo que este costo es el correcto (puede haber cambiado si se editó el escenario)
+                                  {costoPreview.estado === 'listo' ? 'Confirmo que este costo es el correcto (puede haber cambiado si se editó el escenario)' : 'Confirmo que este costo puesto a mano es el correcto'}
                                 </label>
                               )}
                             </section>

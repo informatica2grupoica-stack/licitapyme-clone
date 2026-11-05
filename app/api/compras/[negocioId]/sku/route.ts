@@ -72,6 +72,7 @@ async function __POST(request: NextRequest, { params }: Params) {
       crearEnObuma: !!body.crearEnObuma, obumaSubcategoriaId: body.obumaSubcategoriaId || null, obumaCategoriaId: body.obumaCategoriaId || null,
       nombreObuma: body.nombreObuma || null,
       costoEsperado: body.costoEsperado != null ? Number(body.costoEsperado) : null,
+      costoManual: body.costoManual != null ? Number(body.costoManual) : null,
       precioVentaNeto: body.precioVentaNeto != null ? Number(body.precioVentaNeto) : null,
       paraVenta: body.paraVenta !== undefined ? !!body.paraVenta : undefined, paraCompra: body.paraCompra !== undefined ? !!body.paraCompra : undefined,
       inventariable: body.inventariable !== undefined ? !!body.inventariable : undefined, venderEnWeb: body.venderEnWeb !== undefined ? !!body.venderEnWeb : undefined,

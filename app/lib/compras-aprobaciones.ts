@@ -426,6 +426,9 @@ export interface DatosSku {
   // usa la UI). Si al momento de crear el costo real del escenario ya cambió, crearSku rechaza en
   // vez de mandar a Obuma un número que el usuario nunca llegó a confirmar.
   costoEsperado?: number | null;
+  // Costo neto por unidad escrito a mano (05-nov-2026, pedido del dueño): SOLO vale si el producto no está en ningún escenario de compra
+  // (no se cotizó). Si hay escenario, manda el escenario y esto se rechaza para que el usuario vuelva a revisar.
+  costoManual?: number | null;
   // Lo que se manda a Obuma además del costo (14-oct-2026, mismo formulario que usa el usuario en su otra app):
   // precio de venta neto (viene del costeo/acta y se puede corregir a mano) y las cuatro opciones del producto.
   precioVentaNeto?: number | null;
@@ -444,7 +447,7 @@ export async function costoEscenarioParaProducto(negocioId: number, productoId: 
 
 /** Lo mismo que costoEscenarioParaProducto, leyendo escenario y compras rápidas UNA vez para muchos productos
  *  (listarSkus lo pedía por cada SKU en serie: 21 SKU de la 1191 = ~4,5 s, 22-oct-2026). */
-async function costosEscenarioPorProducto(negocioId: number): Promise<(productoId: number) => CostoEscenarioProducto | null> {
+export async function costosEscenarioPorProducto(negocioId: number): Promise<(productoId: number) => CostoEscenarioProducto | null> {
   const [escenario, { compras }] = await Promise.all([
     obtenerEscenarioElegido(negocioId),
     listarComprasRapidas(negocioId).catch(() => ({ compras: [] as CompraRapida[] })),
@@ -588,14 +591,19 @@ export async function crearSku(negocioId: number, productoId: number, datos: Dat
   let obumaProductoId = datos.obumaProductoId?.trim() || null;
   let obumaCodigoComercial: string | null = null;
   let verificadoObuma = !!obumaProductoId;
+  let costoManualUsado: number | null = null;
 
   if (datos.crearEnObuma) {
     if (!datos.obumaSubcategoriaId?.trim()) throw new Error('Falta elegir la categoría y la subcategoría de Obuma para crear el producto.');
     if (!datos.nombreObuma?.trim()) throw new Error('Falta el nombre del producto (Tipo/Atributo/Medida/Marca) — es lo que se está cotizando, no la línea de la licitación.');
 
     const costo = await costoEscenarioParaProducto(negocioId, productoId);
-    if (!costo) throw new Error('Falta elegir un escenario de compra antes de crear el SKU en Obuma — no hay costo real de dónde partir.');
-    if (datos.costoEsperado != null && Math.round(datos.costoEsperado) !== Math.round(costo.costoUnitario)) {
+    const costoManual = datos.costoManual != null && Number.isFinite(Number(datos.costoManual)) && Number(datos.costoManual) > 0 ? Math.round(Number(datos.costoManual)) : null;
+    if (!costo && costoManual == null) throw new Error('Falta el precio de costo: este producto no está en el escenario de compra; escríbelo a mano.');
+    if (costo && costoManual != null && datos.costoEsperado == null) {
+      throw new Error(`Este producto ya tiene costo en el escenario de compra (${Math.round(costo.costoUnitario).toLocaleString('es-CL')}): vuelve a abrir el formulario para usar ese costo.`);
+    }
+    if (costo && datos.costoEsperado != null && Math.round(datos.costoEsperado) !== Math.round(costo.costoUnitario)) {
       throw new Error(`El costo del escenario cambió desde que se abrió el formulario (ahora es ${Math.round(costo.costoUnitario).toLocaleString('es-CL')}, no ${Math.round(datos.costoEsperado).toLocaleString('es-CL')}) — vuelve a revisar antes de crear en Obuma.`);
     }
 
@@ -611,13 +619,14 @@ export async function crearSku(negocioId: number, productoId: number, datos: Dat
     const codigoSugerido = await siguienteSkuMercadoPublico(datos.obumaSubcategoriaId.trim());
     const { productoId: idCreado, codigoComercial } = await crearProductoObuma({
       nombre: nombreObuma, codigoComercial: codigoSugerido, subcategoriaId: datos.obumaSubcategoriaId.trim(), categoriaId,
-      costoClpNeto: costo.costoUnitario,
+      costoClpNeto: costo ? costo.costoUnitario : costoManual!,
       precioVentaClpNeto: datos.precioVentaNeto != null && Number.isFinite(Number(datos.precioVentaNeto)) && Number(datos.precioVentaNeto) > 0 ? Number(datos.precioVentaNeto) : 0,
       paraVenta: datos.paraVenta, paraCompra: datos.paraCompra, inventariable: datos.inventariable, venderEnWeb: datos.venderEnWeb,
     });
     obumaProductoId = idCreado;
     obumaCodigoComercial = codigoComercial; // el que Obuma confirmó al releer, no el sugerido
     verificadoObuma = true;
+    if (!costo) costoManualUsado = costoManual;
   }
 
   // Una sola fuente de identidad: si se creó en Obuma, el código de Obuma ES el "SKU propio" — no
@@ -645,8 +654,9 @@ export async function crearSku(negocioId: number, productoId: number, datos: Dat
   await registrarEvento({
     tipo: 'COMPRAS_SKU_CREADO', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
     mensaje: `Se creó el SKU "${skuPropioFinal}"${datos.marca ? ` (${datos.marca}${datos.modelo ? ` ${datos.modelo}` : ''})` : ''}`
-      + (datos.crearEnObuma ? ` — creado en Obuma con código ${obumaCodigoComercial}.` : '.'),
-    metadata: { negocio_id: negocioId, producto_id: productoId, sku: skuPropioFinal, obuma_producto_id: obumaProductoId },
+      + (datos.crearEnObuma ? ` — creado en Obuma con código ${obumaCodigoComercial}.` : '.')
+      + (costoManualUsado != null ? ` Costo puesto a mano: ${costoManualUsado.toLocaleString('es-CL')} neto (el producto no estaba en el escenario de compra).` : ''),
+    metadata: { negocio_id: negocioId, producto_id: productoId, sku: skuPropioFinal, obuma_producto_id: obumaProductoId, costo_manual: costoManualUsado },
   });
   if (r.insertId) return r.insertId as number;
   const [rows] = await pool.query(`SELECT id FROM compras_sku WHERE producto_id = ?`, [productoId]) as any;

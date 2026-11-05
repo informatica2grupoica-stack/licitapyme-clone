@@ -30,14 +30,21 @@ async function bajarFoto(url: string | null): Promise<Buffer | null> {
   } catch { return null; }
 }
 
-const imagen = (nombre: string) => fs.readFileSync(path.join(process.cwd(), 'public', 'oc-obuma', nombre));
+const imagen = (ruta: string) => fs.readFileSync(path.join(process.cwd(), 'public', ruta));
 
-export async function generarPdfOc(oc: OcDocumento): Promise<Uint8Array> {
+/** Para una OC que no sale de Obuma (OC propia de Comercial MP, 05-nov-2026): otro logo y, si no hay firma, sin imagen de firma. */
+export interface OpcionesPdfOc { logo?: string; firma?: string | null }
+
+export async function generarPdfOc(oc: OcDocumento, opciones: OpcionesPdfOc = {}): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   const helv = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const logo = await pdf.embedPng(imagen('logo.png'));
-  const firma = await pdf.embedPng(imagen('firma.png'));
+  const logo = await pdf.embedPng(imagen(opciones.logo ?? 'oc-obuma/logo.png'));
+  const firmaRuta = opciones.firma === undefined ? 'oc-obuma/firma.png' : opciones.firma;
+  const firma = firmaRuta ? await pdf.embedPng(imagen(firmaRuta)) : null;
+  // Logo propio: cabe en la caja de 180 × 100 pt sin deformarse, pegado arriba a la derecha. El de Obuma queda exactamente como antes.
+  const kLogo = opciones.logo ? Math.min(180 / logo.width, 100 / logo.height) : 0;
+  const logoW = kLogo ? logo.width * kLogo : 180, logoH = kLogo ? logo.height * kLogo : 100;
   const paginas: PDFPage[] = [];
 
   let page!: PDFPage;
@@ -90,7 +97,7 @@ export async function generarPdfOc(oc: OcDocumento): Promise<Uint8Array> {
       texto('Telefono:', 28, y + 10, 8, bold); texto(` ${oc.emisor.telefono}`, 28 + w('Telefono:', bold, 8), y + 10);
       texto('E-mail:', 28, y + 24, 8, bold); texto(` ${oc.emisor.email}`, 28 + w('E-mail:', bold, 8), y + 24);
     }
-    page.drawImage(logo, { x: 389.7, y: PH - 40.8 - 100, width: 180, height: 100 });
+    page.drawImage(logo, { x: 389.7 + 180 - logoW, y: PH - 40.8 - logoH, width: logoW, height: logoH });
     derecha(`ORDEN DE COMPRA N° ${oc.folio}`, 566.5, 175, 10, bold);
   };
   const nuevaHoja = () => { page = pdf.addPage([PW, PH]); paginas.push(page); encabezado(); };
@@ -194,13 +201,13 @@ export async function generarPdfOc(oc: OcDocumento): Promise<Uint8Array> {
   }
 
   // Firmas: «Emitido por» y «Aprobado por», con la imagen de firma de la plantilla de Obuma.
-  if (cursor + 61 + 120 > PIE_Y) { nuevaHoja(); cursor = 197; }
+  if (cursor + 61 + (firma ? 120 : 45) > PIE_Y) { nuevaHoja(); cursor = 197; }
   const fy = cursor + 61;
   for (const [rotulo, xRot, xCen, xImg] of [['Emitido por:', 35, 161.5, 110.9], ['Aprobado por:', 304, 430.5, 380.2]] as const) {
     texto(rotulo, xRot, fy + 2, 8, bold);
     if (oc.generadoPor) centro(oc.generadoPor, xCen, fy + 22);
     centro('_________________________', xCen, fy + 32.5);
-    page.drawImage(firma, { x: xImg, y: PH - (fy + 41.4) - 77.1, width: 100, height: 77.1 });
+    if (firma) page.drawImage(firma, { x: xImg, y: PH - (fy + 41.4) - 77.1, width: 100, height: 77.1 });
   }
 
   // Pie de cada hoja.

@@ -23,6 +23,7 @@ import { AuditorComprasCard } from '@/app/negocios/[id]/AuditorComprasCard';
 import { AuditorCosteoCard } from '@/app/negocios/[id]/AuditorCosteoCard';
 import { AprobacionesCompraCard } from '@/app/negocios/[id]/AprobacionesCompraCard';
 import { RepartoAdminCard } from '@/app/negocios/[id]/RepartoAdminCard';
+import { OcPropiaCard } from '@/app/negocios/[id]/OcPropiaCard';
 import { ObumaHubCard } from '@/app/negocios/[id]/ObumaHubCard';
 import { irAFase, enfocarProducto } from './comprasNavegacion';
 import { ResumenGastosCard } from '@/app/negocios/[id]/ResumenGastosCard';
@@ -913,6 +914,8 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                       <section className="space-y-2">
                         <p className="text-[13px] font-bold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">1</span>Emite las órdenes de compra a los proveedores</p>
                         <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} parte="oc" />
+                        {/* OC que emite una empresa del grupo sin Obuma (Comercial MP → Inversiones Claro); no se muestra si el negocio va por Obuma. */}
+                        <OcPropiaCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} />
                       </section>
                       <section className="space-y-2">
                         <p className="text-[13px] font-bold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">2</span>Avance: pagos, facturas y proyecto en Obuma</p>
