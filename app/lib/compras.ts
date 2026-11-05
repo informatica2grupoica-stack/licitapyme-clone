@@ -1795,13 +1795,20 @@ async function avisarOrdenCompraLlegada(
 
 /**
  * Recordatorio de que se acaba el plazo para ACEPTAR la OC en el portal (campana + correo al encargado,
- * coencargados y admins). Tres momentos, cada uno una sola vez por orden: faltan <24 h, faltan <3 h y
- * «ya venció» (este último solo dentro de las 24 h siguientes, para no resucitar OC viejas).
+ * coencargados y admins). Desde que faltan <24 h hasta 24 h después de vencida (para no resucitar OC
+ * viejas), dos veces al día: a las 09:00 y a las 17:00 Chile; el texto dice si faltan <24 h, <3 h o si ya venció.
  * El límite sale del mismo cálculo del Gantt (plazo de las bases desde que llegó la OC).
  * Pensado para el cron frecuente de compras-asignacion.
  */
 export async function avisarAceptacionOcPorVencer(): Promise<{ revisadas: number; avisadas: number }> {
   const res = { revisadas: 0, avisadas: 0 };
+  // Dueño, 05-nov-2026: estos avisos llegan DOS veces al día, a las 09:00 y a las 17:00 hora Chile.
+  // El cron corre cada 20 min: solo actúa dentro de esas dos horas, y cada OC recibe a lo más un
+  // aviso por turno (si la corrida de las :00 falla, la de las :20 lo recupera).
+  const ahoraSQL = ahoraChileSQL();
+  const hora = Number(ahoraSQL.slice(11, 13));
+  if (hora !== 9 && hora !== 17) return res;
+  const turno = `${ahoraSQL.slice(0, 10)} ${hora === 9 ? 'am' : 'pm'}`;
   const [rows] = await pool.query(
     `SELECT ca.negocio_id, ca.licitacion_codigo, ca.asignado_a, ca.oc_codigo_mp, ca.oc_numero, ${SQL_ANCLAS}
        FROM compras_asignacion ca LEFT JOIN compras_reloj rl ON rl.negocio_id = ca.negocio_id
@@ -1809,7 +1816,7 @@ export async function avisarAceptacionOcPorVencer(): Promise<{ revisadas: number
         AND NOT EXISTS (SELECT 1 FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id
                            AND t.catalogo_clave = 'aceptar_oc' AND t.estado = 'HECHA')`,
   ) as any;
-  const ahoraMs = parsearFechaPared(ahoraChileSQL()).getTime();
+  const ahoraMs = parsearFechaPared(ahoraSQL).getTime();
 
   for (const r of rows as any[]) {
     res.revisadas++;
@@ -1825,7 +1832,7 @@ export async function avisarAceptacionOcPorVencer(): Promise<{ revisadas: number
       const [ya] = await pool.query(
         `SELECT 1 FROM historial_eventos WHERE tipo = 'COMPRAS_OC_POR_VENCER' AND licitacion_codigo = ?
             AND metadata LIKE ? AND metadata LIKE ? LIMIT 1`,
-        [cod, `%"etapa":"${etapa}"%`, `%"oc_codigo":"${codigoOc}"%`],
+        [cod, `%"turno":"${turno}"%`, `%"oc_codigo":"${codigoOc}"%`],
       ) as any;
       if ((ya as any[]).length) continue;
 
@@ -1850,7 +1857,7 @@ export async function avisarAceptacionOcPorVencer(): Promise<{ revisadas: number
         await registrarEvento({
           tipo: 'COMPRAS_OC_POR_VENCER', licitacionCodigo: cod,
           usuarioId: Number(u.id), usuarioNombre: null, actorId: null, actorNombre: 'Mercado Público', mensaje,
-          metadata: { negocio_id: Number(r.negocio_id), oc_codigo: codigoOc, etapa, limite },
+          metadata: { negocio_id: Number(r.negocio_id), oc_codigo: codigoOc, etapa, limite, turno },
         }).catch(e => console.error(`[compras] aviso de OC por vencer al usuario ${u.id} falló:`, String(e).slice(0, 150)));
         if (u.email && process.env.ALERTAS_EMAIL !== 'false') {
           await enviarAvisoOcPorVencer({

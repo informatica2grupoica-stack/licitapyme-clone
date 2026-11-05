@@ -11,6 +11,7 @@ import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { TablaAprobacionCompra } from './TablaAprobacionCompra';
 import { DetalleCompuerta } from './DetalleCompuerta';
 import { CargarCompraAlCosteo } from './ArmarCompra';
+import { Boton } from '@/app/components/ui/kit/Boton';
 import { IconShieldCheck as ShieldCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconEdit as Edit3, IconAlertTriangle as AlertTriangle, IconTag as Tag, IconPlus as Plus, IconX as X, IconBolt as Zap } from '@tabler/icons-react';
 
 type Estado = 'PENDIENTE' | 'APROBADA' | 'APROBADA_CON_MODIFICACION' | 'RECHAZADA';
@@ -657,25 +658,39 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
         <p className="text-[12.5px] text-zinc-500 bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3">El SKU se crea cuando la jefatura aprueba la compra (paso «Aprobación y SKU»). Todavía no está aprobada.</p>
       )}
       {parte !== 'aprobaciones' && (compraAprobada || rapidasOk.length > 0) && (
-        <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-          <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-100 flex items-center gap-3 flex-wrap" data-testid="sku-lista">
-            <div className="flex-1 min-w-[220px]">
-              <p className="text-[13.5px] font-bold text-zinc-800 flex items-center gap-1.5"><Tag size={14} /> Crear el SKU de cada producto <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-zinc-200 text-zinc-700">{skus.filter(s => productosSku.some(p => p.id === s.productoId)).length} de {productosSku.length}</span></p>
-              <p className="text-[12px] text-zinc-500">{compraAprobada ? 'La compra ya está aprobada. Crea el SKU de un producto desde su fila, o todos seguidos.' : 'La compra completa aún no está aprobada: acá solo están los productos con compra rápida aprobada por el jefe de ventas.'}</p>
-            </div>
-            {puedeOperar && formSkuProducto == null && productosSku.filter(p => !skus.some(s => s.productoId === p.id)).length > 1 && (
-              <button type="button" onClick={() => {
-                const faltan = productosSku.filter(p => !skus.some(s => s.productoId === p.id)).map(p => p.id);
-                setColaSku(faltan); setFormSkuProducto(faltan[0]); setFormSku(formSkuVacio); cargarSubcategorias();
-              }} className="text-[12.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-3.5 py-2 rounded-lg">Crear los {productosSku.filter(p => !skus.some(s => s.productoId === p.id)).length} que faltan, uno tras otro</button>
-            )}
-            {colaSku && formSkuProducto != null && <span className="text-[12px] font-semibold text-teal-700">Quedan {colaSku.length} por crear</span>}
-          </div>
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-linea dark:border-slate-800 shadow-tarjeta overflow-hidden">
+          {(() => {
+            const hechos = skus.filter(s => productosSku.some(p => p.id === s.productoId)).length;
+            const total = productosSku.length;
+            const faltan = productosSku.filter(p => !skus.some(s => s.productoId === p.id)).map(p => p.id);
+            const pct = total > 0 ? Math.round((hechos / total) * 100) : 0;
+            return (
+              <div className="px-5 py-4 flex items-center gap-x-5 gap-y-3 flex-wrap border-b border-linea dark:border-slate-800" data-testid="sku-lista">
+                <span className="w-9 h-9 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 flex-shrink-0"><Tag size={18} /></span>
+                <div className="flex-1 min-w-[220px]">
+                  <p className="text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-100">Crear el SKU de cada producto</p>
+                  <p className="text-xs text-tinta-3 mt-0.5">{compraAprobada ? 'La compra ya está aprobada. Crea el SKU de un producto desde su fila, o todos seguidos.' : 'La compra completa aún no está aprobada: acá solo están los productos con compra rápida aprobada por el jefe de ventas.'}</p>
+                </div>
+                <div className="w-44" aria-label={`${hechos} de ${total} SKU creados`}>
+                  <p className="text-xs text-tinta-3"><b className="text-[15px] font-semibold tabular-nums text-tinta dark:text-slate-100">{hechos}</b> de {total} creados</p>
+                  <div className="mt-1.5 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                    <div className={`h-full rounded-full transition-[width] duration-300 ease-lk ${hechos === total && total > 0 ? 'bg-emerald-500' : 'bg-marca'}`} style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+                {puedeOperar && formSkuProducto == null && faltan.length > 1 && (
+                  <Boton variante="primario" onClick={() => { setColaSku(faltan); setFormSkuProducto(faltan[0]); setFormSku(formSkuVacio); cargarSubcategorias(); }}>
+                    Crear los {faltan.length} que faltan, uno tras otro
+                  </Boton>
+                )}
+                {colaSku && formSkuProducto != null && <span className="text-xs font-medium text-marca">Quedan {colaSku.length} por crear</span>}
+              </div>
+            );
+          })()}
           {skus.some(s => productosSku.some(p => p.id === s.productoId)) && (
             <div className="overflow-x-auto border-b border-zinc-100" data-testid="tabla-skus">
               <table className="w-full text-[12px] min-w-[1040px]">
                 <thead>
-                  <tr className="text-left text-[10.5px] font-bold uppercase text-zinc-400 border-b border-zinc-100 bg-white">
+                  <tr className="text-left text-[11px] font-medium text-tinta-3 border-b border-linea bg-white dark:bg-slate-900">
                     <th className="px-3 py-2">Producto (licitación)</th>
                     <th className="px-2 py-2">SKU</th>
                     <th className="px-2 py-2">Nombre en Obuma</th>
@@ -701,7 +716,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
                         <td className="px-3 py-2 max-w-[220px]"><p className="font-semibold text-zinc-800 leading-snug">{(sku.productoDescripcion || '').split(' - ')[0]}</p></td>
                         <td className="px-2 py-2 whitespace-nowrap">
                           <b className="text-zinc-800">{sku.skuPropio}</b>
-                          {sku.obumaProductoId ? <span className="block text-[10.5px] text-indigo-600 font-semibold">{sku.verificadoObuma ? '✔ en Obuma' : 'en Obuma'} · id {sku.obumaProductoId}</span> : <span className="block text-[10.5px] text-zinc-400">solo en Licitank</span>}
+                          {sku.obumaProductoId ? <span className="block text-[10.5px] text-teal-700 font-semibold">{sku.verificadoObuma ? '✔ en Obuma' : 'en Obuma'} · id {sku.obumaProductoId}</span> : <span className="block text-[10.5px] text-zinc-400">solo en Licitank</span>}
                           {sku.skuProveedor && <span className="block text-[10.5px] text-zinc-400">SKU proveedor: {sku.skuProveedor}</span>}
                         </td>
                         <td className="px-2 py-2 max-w-[260px]">
@@ -719,7 +734,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
                                   </p>
                                 )}
                               </div>
-                            ) : <button type="button" onClick={() => verDatosObuma(sku)} className="text-indigo-600 font-semibold underline decoration-dotted">Ver nombre y precio en Obuma</button>}
+                            ) : <button type="button" onClick={() => verDatosObuma(sku)} className="text-teal-700 font-semibold underline decoration-dotted">Ver nombre y precio en Obuma</button>}
                         </td>
                         <td className="px-2 py-2">{[sku.marca, sku.modelo].filter(Boolean).join(' ') || <span className="text-zinc-300">—</span>}</td>
                         <td className="px-2 py-2">{sku.proveedorNombre || <span className="text-zinc-300">—</span>}</td>
@@ -732,8 +747,8 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
                             <div className="space-y-1">
                               {sku.obumaProductoId && (
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  {!ob && o !== 'cargando' && <button type="button" onClick={() => verDatosObuma(sku)} className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800">Ver en Obuma</button>}
-                                  <button type="button" onClick={() => verificarObuma(sku)} disabled={verificandoObumaId === sku.id} className="text-[11px] text-zinc-400 hover:text-indigo-600 underline decoration-dotted disabled:opacity-50">{verificandoObumaId === sku.id ? 'Verificando…' : 'Verificar vínculo'}</button>
+                                  {!ob && o !== 'cargando' && <button type="button" onClick={() => verDatosObuma(sku)} className="text-[11px] font-semibold text-teal-700 hover:text-teal-800">Ver en Obuma</button>}
+                                  <button type="button" onClick={() => verificarObuma(sku)} disabled={verificandoObumaId === sku.id} className="text-[11px] text-zinc-400 hover:text-teal-700 underline decoration-dotted disabled:opacity-50">{verificandoObumaId === sku.id ? 'Verificando…' : 'Verificar vínculo'}</button>
                                 </div>
                               )}
                               {confirmandoDeshacer === sku.id ? (
@@ -755,37 +770,42 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
               </table>
             </div>
           )}
-          <div className="divide-y divide-zinc-100">
-            {productosSku.map(p => {
+          <div className="divide-y divide-linea dark:divide-slate-800">
+            {productosSku.map((p, i) => {
               const sku = skus.find(s => s.productoId === p.id);
               if (sku?.obumaProductoId && formSkuProducto !== p.id) return null;   // ya está en la tabla de arriba
+              const [nombre, ...resto] = p.descripcion.split(' - ');
+              const detalle = resto.join(' - ');
               return (
-                <div key={p.id} className="px-4 py-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-[12px] font-semibold text-zinc-800">{p.descripcion}</p>
+                <div key={p.id} className="px-5 py-3">
+                  <div className="flex items-center gap-3">
+                    <span className="w-5 text-xs tabular-nums text-tinta-3 flex-shrink-0">{i + 1}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-medium text-tinta dark:text-slate-100 truncate" title={p.descripcion}>{nombre}</p>
+                      {detalle && <p className="text-xs text-tinta-3 truncate">{detalle}</p>}
+                    </div>
+                    {sku
+                      ? <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400"><span className="w-1.5 h-1.5 rounded-full bg-amber-500" />SKU <b className="font-semibold tabular-nums">{sku.skuPropio}</b> · falta crearlo en Obuma</span>
+                      : <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-tinta-3"><span className="w-1.5 h-1.5 rounded-full bg-slate-300" />Sin SKU</span>}
                     {!sku && puedeOperar && formSkuProducto !== p.id && (
-                      <button onClick={() => { setFormSkuProducto(p.id); setFormSku(formSkuVacio); cargarSubcategorias(); }}
-                        className="text-[11px] font-semibold text-teal-700 hover:text-teal-800 flex items-center gap-1"><Plus size={12} /> Crear SKU</button>
+                      <Boton tamano="sm" icono={<Plus size={14} />} onClick={() => { setFormSkuProducto(p.id); setFormSku(formSkuVacio); cargarSubcategorias(); }}>Crear SKU</Boton>
                     )}
                     {sku && !sku.obumaProductoId && puedeOperar && formSkuProducto !== p.id && (
-                      <button onClick={() => {
+                      <Boton tamano="sm" icono={<Zap size={14} />} onClick={() => {
                         setFormSkuProducto(p.id);
                         setFormSku({
                           ...formSkuVacio, skuPropio: sku.skuPropio, marca: sku.marca || '', modelo: sku.modelo || '',
                           proveedorNombre: sku.proveedorNombre || '', skuProveedor: sku.skuProveedor || '', crearEnObuma: true,
                         });
                         cargarSubcategorias();
-                      }} className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-1">
-                        <Zap size={12} /> Crear en Obuma
-                      </button>
+                      }}>Crear en Obuma</Boton>
                     )}
                   </div>
-                  {sku && !sku.obumaProductoId && <p className="text-[11px] text-zinc-400 mt-0.5">SKU <b className="text-zinc-600">{sku.skuPropio}</b> · sin homologar con Obuma.</p>}
                   {formSkuProducto === p.id && (
-                    <div className="mt-3 rounded-xl border-2 border-teal-200 bg-white overflow-hidden" data-testid="form-sku">
+                    <div className="mt-3 rounded-xl border border-teal-200 bg-white dark:bg-slate-900 shadow-tarjeta overflow-hidden" data-testid="form-sku">
                       <div className="px-4 py-3 bg-teal-50/60 border-b border-teal-100 flex items-center justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="text-[13.5px] font-bold text-teal-900">Crear el SKU de este producto</p>
+                          <p className="text-[13.5px] font-semibold text-teal-900">Crear el SKU de este producto</p>
                           <p className="text-[12px] text-teal-800/80 truncate">En la licitación: {p.descripcion}</p>
                         </div>
                         <button onClick={() => { setFormSkuProducto(null); setColaSku(null); }} className="text-zinc-400 hover:text-zinc-700 flex-shrink-0" aria-label="Cerrar"><X size={16} /></button>
@@ -795,7 +815,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
                           <p className="text-[12px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">{sugerenciaSku.motivo}</p>
                         )}
                         {sugerenciaSku.estado === 'listo' && (sugerenciaSku.descripcionLibre || sugerenciaSku.archivoUrl) && (
-                          <details className="text-[12px] text-indigo-800 bg-indigo-50/60 border border-indigo-100 rounded-lg px-3 py-2">
+                          <details className="text-[12px] text-zinc-700 bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2">
                             <summary className="cursor-pointer font-semibold flex items-center gap-1"><Zap size={12} /> Ver lo que dice el documento de este producto (para copiar marca, modelo y medidas)</summary>
                             {sugerenciaSku.descripcionLibre && <p className="mt-1.5 text-zinc-700 whitespace-pre-line">{sugerenciaSku.descripcionLibre}</p>}
                             {sugerenciaSku.archivoUrl && (
@@ -806,12 +826,12 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
                           </details>
                         )}
 
-                        <label className="flex items-start gap-2.5 text-[12.5px] text-zinc-700 bg-indigo-50/60 border border-indigo-100 rounded-lg px-3 py-2.5 cursor-pointer">
+                        <label className="flex items-start gap-2.5 text-[12.5px] text-zinc-700 bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2.5 cursor-pointer">
                           <input type="checkbox" checked={formSku.crearEnObuma}
                             onChange={e => setFormSku(f => ({ ...f, crearEnObuma: e.target.checked, obumaProductoId: '' }))}
-                            className="mt-0.5 accent-indigo-600" />
+                            className="mt-0.5 accent-teal-600" />
                           <span>
-                            <span className="font-bold flex items-center gap-1 text-indigo-900"><Zap size={13} className="text-indigo-600" /> Crearlo también en Obuma</span>
+                            <span className="font-semibold flex items-center gap-1 text-zinc-900"><Zap size={13} className="text-teal-700" /> Crearlo también en Obuma</span>
                             <span className="block text-zinc-500">Se crea el producto real en el ERP (categoría «Mercado Publico») y el código que Obuma le dé es el SKU. Si lo desmarcas, solo se guarda un SKU propio aquí.</span>
                           </span>
                         </label>
@@ -820,7 +840,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
                           <>
                             {/* Paso 1 */}
                             <section className="space-y-1.5">
-                              <p className="text-[13px] font-bold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">1</span>¿Qué producto es?</p>
+                              <p className="text-[13px] font-semibold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-md bg-slate-100 text-zinc-600 text-[11px] tabular-nums items-center justify-center">1</span>¿Qué producto es?</p>
                               <p className="text-[12px] text-zinc-500">Con tus palabras, sin marca ni modelo (eso va en el paso 3).</p>
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 <label className="text-[11.5px] font-semibold text-zinc-600">Tipo de producto
@@ -836,7 +856,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
 
                             {/* Paso 2 */}
                             <section className="space-y-1.5" data-testid="sku-existentes">
-                              <p className="text-[13px] font-bold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">2</span>¿Ya lo tenemos en Obuma?</p>
+                              <p className="text-[13px] font-semibold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-md bg-slate-100 text-zinc-600 text-[11px] tabular-nums items-center justify-center">2</span>¿Ya lo tenemos en Obuma?</p>
                               {duplicados.estado === 'idle' && <p className="text-[12px] text-zinc-400">Escribe el tipo de producto (paso 1) y busco en Obuma todas sus variantes.</p>}
                               {duplicados.estado === 'cargando' && <p className="text-[12px] text-zinc-500 flex items-center gap-1.5"><Loader2 size={13} className="animate-spin" /> Buscando en Obuma todo lo que se parece a «{formSku.obTipo.trim()}»…</p>}
                               {duplicados.estado === 'listo' && duplicados.productos.length === 0 && (
@@ -844,7 +864,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
                               )}
                               {duplicados.estado === 'listo' && duplicados.productos.length > 0 && (
                                 <div className="border border-amber-200 bg-amber-50/60 rounded-lg overflow-hidden">
-                                  <p className="px-3 py-2 text-[12.5px] font-bold text-amber-900 flex items-center gap-1.5"><AlertTriangle size={14} /> Encontré {duplicados.productos.length} producto{duplicados.productos.length === 1 ? '' : 's'} en Obuma que se parece{duplicados.productos.length === 1 ? '' : 'n'}. Si uno es el que compras, úsalo en vez de crear otro.</p>
+                                  <p className="px-3 py-2 text-[12.5px] font-semibold text-amber-900 flex items-center gap-1.5"><AlertTriangle size={14} /> Encontré {duplicados.productos.length} producto{duplicados.productos.length === 1 ? '' : 's'} en Obuma que se parece{duplicados.productos.length === 1 ? '' : 'n'}. Si uno es el que compras, úsalo en vez de crear otro.</p>
                                   <ul className="max-h-60 overflow-y-auto divide-y divide-amber-100 bg-white">
                                     {duplicados.productos.map(m => (
                                       <li key={m.id} className="px-3 py-2 flex items-center gap-3 text-[12.5px]">
@@ -852,7 +872,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
                                           <b className="block text-zinc-900 truncate">{m.nombre}</b>
                                           <span className="text-zinc-500">código {m.codigoComercial}{String(m.categoriaId) === OBUMA_CATEGORIA_MERCADO_PUBLICO_UI ? '' : ' · otra categoría'}</span>
                                         </span>
-                                        <button type="button" onClick={() => usarProductoExistente(m)} className="flex-shrink-0 text-[12px] font-semibold text-indigo-700 border border-indigo-200 hover:bg-indigo-50 px-2.5 py-1 rounded-lg">Usar este</button>
+                                        <button type="button" onClick={() => usarProductoExistente(m)} className="flex-shrink-0 text-[12px] font-semibold text-teal-700 border border-zinc-200 hover:bg-zinc-50 px-2.5 py-1 rounded-lg">Usar este</button>
                                       </li>
                                     ))}
                                   </ul>
@@ -866,7 +886,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
 
                             {/* Paso 3 */}
                             <section className="space-y-1.5">
-                              <p className="text-[13px] font-bold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">3</span>Marca, modelo y medidas</p>
+                              <p className="text-[13px] font-semibold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-md bg-slate-100 text-zinc-600 text-[11px] tabular-nums items-center justify-center">3</span>Marca, modelo y medidas</p>
                               <p className="text-[12px] text-zinc-500">Se leen de la cotización. Lo que no aparezca queda en ámbar: complétalo a mano (si el producto no tiene marca, modelo o medida, déjalo vacío). Se agregan al nombre y lo distinguen de otras variantes.</p>
                               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                 <label className="text-[11.5px] font-semibold text-zinc-600">Marca
@@ -902,7 +922,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
 
                             {/* Paso 4 */}
                             <section className="space-y-1.5">
-                              <p className="text-[13px] font-bold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">4</span>¿En qué categoría y subcategoría de Obuma va?</p>
+                              <p className="text-[13px] font-semibold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-md bg-slate-100 text-zinc-600 text-[11px] tabular-nums items-center justify-center">4</span>¿En qué categoría y subcategoría de Obuma va?</p>
                               {errorSubcats && (
                                 <p className="text-[12.5px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 flex items-center gap-2 flex-wrap">
                                   No se pudieron cargar las categorías de Obuma: {errorSubcats}
@@ -929,7 +949,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
                                 <p className="text-[12px] text-amber-700">Esa categoría no tiene subcategorías en Obuma: elige otra.</p>
                               )}
                               {formSku.obumaSubcategoriaId && (
-                                <p className="text-[12px] text-indigo-700 font-semibold flex items-center gap-1">
+                                <p className="text-[12px] text-teal-700 font-semibold flex items-center gap-1">
                                   {skuPreview.estado === 'cargando' && <><Loader2 size={12} className="animate-spin" /> Consultando el código en Obuma…</>}
                                   {skuPreview.estado === 'listo' && <><Zap size={12} /> Código que le dará Obuma: {skuPreview.codigo}</>}
                                   {skuPreview.estado === 'error' && <span className="text-rose-500">No se pudo consultar el código ahora; se generará igual al guardar.</span>}
@@ -939,7 +959,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
 
                             {/* Paso 5 */}
                             <section className="space-y-2" data-testid="sku-precios">
-                              <p className="text-[13px] font-bold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">5</span>Precios y opciones en Obuma</p>
+                              <p className="text-[13px] font-semibold text-zinc-800"><span className="inline-flex w-5 h-5 mr-1.5 rounded-md bg-slate-100 text-zinc-600 text-[11px] tabular-nums items-center justify-center">5</span>Precios y opciones en Obuma</p>
                               {(() => {
                                 const venta = Number(formSku.precioVenta.replace(/[^\d]/g, '')) || 0;
                                 const costo = costoPreview.estado === 'listo' ? (costoPreview.monto || 0) : 0;
@@ -950,13 +970,13 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                       <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
                                         <p className="text-[11.5px] font-semibold text-zinc-500">Precio de costo (neto) · lo que vamos a comprar</p>
-                                        <p className="text-[17px] font-extrabold text-zinc-900 tabular-nums">{costoPreview.estado === 'listo' ? fmtCLP(costoPreview.monto) : costoPreview.estado === 'cargando' ? 'consultando…' : '—'}</p>
+                                        <p className="text-[17px] font-semibold text-zinc-900 tabular-nums">{costoPreview.estado === 'listo' ? fmtCLP(costoPreview.monto) : costoPreview.estado === 'cargando' ? 'consultando…' : '—'}</p>
                                         <p className="text-[11px] text-zinc-400">{costoPreview.estado === 'listo' ? costoPreview.escenarioTipo === 'COMPRA_RAPIDA' ? 'De la compra rápida aprobada por el jefe de ventas' : `Del escenario de compra elegido (${costoPreview.escenarioTipo})` : 'Falta elegir el escenario de compra'}</p>
                                       </div>
                                       <label className="rounded-lg border border-zinc-200 px-3 py-2 block">
                                         <span className="block text-[11.5px] font-semibold text-zinc-500">Precio de venta (neto) · lo que cobramos al cliente</span>
                                         <input inputMode="numeric" value={formSku.precioVenta} onChange={e => setFormSku(f => ({ ...f, precioVenta: e.target.value }))} placeholder="Ej: 1173769"
-                                          className={`mt-0.5 w-full text-[17px] font-extrabold tabular-nums text-zinc-900 border rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-teal-500 ${venta > 0 ? 'border-zinc-200' : 'border-amber-300 bg-amber-50/40'}`} />
+                                          className={`mt-0.5 w-full text-[17px] font-semibold tabular-nums text-zinc-900 border rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-teal-500 ${venta > 0 ? 'border-zinc-200' : 'border-amber-300 bg-amber-50/40'}`} />
                                         {venta > 0
                                           ? <span className="block text-[11px] text-zinc-400 mt-0.5">IVA {fmtCLP(iva)} · total {fmtCLP(venta + iva)}{margen != null ? ` · margen ${margen} %` : ''}</span>
                                           : <span className="block text-[11px] font-semibold text-amber-700 mt-0.5">⚠ No se encontró el precio de venta de la licitación: complétalo a mano.</span>}
@@ -978,7 +998,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
 
                             {/* Paso 6 */}
                             <section className="rounded-lg border border-teal-200 bg-teal-50/50 px-3.5 py-3 space-y-1.5">
-                              <p className="text-[13px] font-bold text-teal-900"><span className="inline-flex w-5 h-5 mr-1.5 rounded-full bg-teal-600 text-white text-[11px] items-center justify-center">6</span>Revisa lo que se va a crear en Obuma</p>
+                              <p className="text-[13px] font-semibold text-teal-900"><span className="inline-flex w-5 h-5 mr-1.5 rounded-md bg-slate-100 text-zinc-600 text-[11px] tabular-nums items-center justify-center">6</span>Revisa lo que se va a crear en Obuma</p>
                               <p className="text-[13px] text-zinc-800"><span className="text-zinc-500">Nombre: </span><b>{nombreObumaPreview || <span className="font-normal text-zinc-400 italic">completa el paso 1…</span>}</b></p>
                               <p className="text-[13px] text-zinc-800"><span className="text-zinc-500">Código: </span>{skuPreview.estado === 'listo' ? <b>{skuPreview.codigo}</b> : <span className="text-zinc-400">elige la subcategoría (paso 4)</span>}</p>
                               <p className="text-[13px] text-zinc-800">
@@ -1018,7 +1038,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
 
                         <div className="flex items-center gap-3 pt-1">
                           <button onClick={crearSku} disabled={(!formSku.crearEnObuma && !formSku.skuPropio.trim()) || guardandoSku || (formSku.crearEnObuma && (!formSku.obumaSubcategoriaId || !nombreObumaPreview || (duplicados.productos.length > 0 && !confirmarPeseADuplicado) || costoPreview.estado !== 'listo' || !costoConfirmado || (formSku.paraVenta && !(Number(formSku.precioVenta.replace(/[^\d]/g, '')) > 0))))}
-                            className="text-[13.5px] font-bold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed px-5 py-2.5 rounded-lg">
+                            className="text-[13.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed px-5 py-2.5 rounded-lg">
                             {guardandoSku ? <Loader2 size={14} className="animate-spin" /> : formSku.crearEnObuma ? 'Crear el SKU en Obuma' : 'Guardar SKU'}
                           </button>
                           <button onClick={() => { setFormSkuProducto(null); setColaSku(null); }} className="text-[12.5px] text-zinc-500 hover:text-zinc-800">Cancelar</button>

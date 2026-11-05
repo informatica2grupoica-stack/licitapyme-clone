@@ -3,6 +3,12 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-05 — Recordatorio «aceptar la OC»: dos veces al día, a las 09:00 y a las 17:00 Chile (`avisarAceptacionOcPorVencer` en `compras.ts`; tsc ok, sin correr contra la BD)
+- Pedido del dueño: los avisos de aceptación de la OC (campana + correo) llegan dos veces al día, **a las 09:00 y a las 17:00** hora Chile (aclaró: horas fijas, no un rango).
+- El cron `compras-asignacion` corre cada 20 min; solo actúa en la hora 09 y en la hora 17. Cada OC recibe a lo más un aviso por turno (dedupe por `metadata.turno` = «AAAA-MM-DD am|pm»); si falla la corrida de las :00, la de las :20 lo recupera.
+- La ventana no cambió: desde que faltan <24 h hasta 24 h después de vencida. Antes eran 3 avisos sueltos (<24 h, <3 h, vencida) a cualquier hora; el texto sigue diciendo cuál de esos casos es. Consecuencia: un plazo que vence a las 14:00 recibe su último aviso a las 09:00 (ya no hay «<3 h» suelto).
+- Pendiente: desplegar al VPS.
+
 ## 2026-11-05 — Cantidad a comprar distinta de la del costeo, con observación (migration-179; `cambiarCantidadCompra` en `compras.ts`, acción `cambiar_cantidad` en la ruta `productos`, `ComparadorPrecios.tsx`, `TablaAprobacionCompra.tsx`, `ArmarCompra.tsx`; tsc + 245 tests ok; migración APLICADA en la BD del VPS el mismo día (477 productos, ninguno cambiado); SIN probar el cambio de cantidad contra la BD ni ver en navegador)
 - Pedido del dueño: el costeo dice 30 y se compran 20, pero el costeo inicial no se toca. Se cambia en **Compara precios** (producto abierto → «Cambiar cantidad»), con **observación obligatoria**.
 - Diseño: `compras_producto.cantidad` pasa a ser la cantidad **a comprar** (así el escenario, el cuadro, la aprobación y la OC la toman sin más cambios) y la del costeo queda en `cantidad_costeo`, junto con el motivo, quién y cuándo. Mientras haya motivo, **«Sincronizar con costeo» no pisa la cantidad**: solo actualiza `cantidad_costeo`. Si se vuelve a poner la cantidad del costeo, se borra el cambio.
@@ -10,6 +16,9 @@ personal el 2026-10-27; las fechas son de cuando se decidió.
 - Dónde se ve: franja ámbar bajo el producto en Compara precios (aunque esté plegado), cantidad tachada → nueva en la fila; en la aprobación, la cantidad tachada y la observación bajo el producto; en «Elige tu compra», un cuadro «Cantidades distintas a las del costeo» y una etiqueta en «Tu compra».
 - Decisión tomada sin preguntar: la **venta también se calcula con la cantidad a comprar** (margen 20 contra 20; así no sale inflado). Si se compran menos porque hay stock y se venden igual 30, el margen en pesos sale más bajo que el real (en % da lo mismo). Pendiente de confirmar con el dueño.
 - **Pendiente:** desplegar el código al VPS y probar en un negocio **sin** compra aprobada (anula aprobaciones). El espejo local (:3308) no tiene la migración: `node scripts/aplicar-migration-179.mjs`.
+
+## 2026-11-05 — «Crear el SKU de cada producto» con el diseño licitank-ui (`AprobacionesCompraCard.tsx`, solo visual; tsc ok, SIN ver en navegador)
+- Encabezado con ícono en cuadro suave, barra de avance «N de M creados» (teal; verde al completar) y botón del kit (`Boton` primario). Filas con número, nombre arriba y marca/modelo (lo que va tras « - ») abajo en gris, estado con punto («Sin SKU» / «SKU X · falta crearlo en Obuma») y botones `Boton` sm. En la tabla de SKU creados y en el formulario: sin índigo (pasó a teal/gris), sin mayúsculas en los encabezados, `font-semibold` en vez de bold/extrabold, pasos 1-6 en cuadro gris suave. Sin cambios de datos, reglas ni textos de negocio.
 
 ## 2026-11-05 — «Compara y elige»: cada oferta muestra qué incluye su precio (fase 1 del rediseño; `ComparadorPrecios.tsx`; tsc + eslint ok, SIN ver en navegador)
 - Reporte del dueño: la pantalla «no se entiende nada» y de AHN (#266, negocio 979) solo decía «incluye 3 adicionales». El dato sí estaba guardado (`compras_cotizacion_adicional`: 2 acoples + 15 m de manguera = $87.200 sobre $2.100.000); faltaba mostrarlo. Riesgo de fondo: «Mejor» comparaba el equipo solo de Aquapress contra equipo + accesorios de AHN.
