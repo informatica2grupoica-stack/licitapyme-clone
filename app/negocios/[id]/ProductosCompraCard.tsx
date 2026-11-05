@@ -193,7 +193,8 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
   }, [productos, principales]);
   const visibles = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
-    return ordenados.filter(p => (filtro === 'todos' || (filtro === 'servicios' ? !!p.esServicio : !p.esServicio && grupoDe(p.subestado) === filtro)) && (!q || p.descripcion.toLowerCase().includes(q) || String(p.correlativo ?? '').includes(q)));
+    // «En la compra» muestra solo lo vigente (lo del costeo); lo renunciado o no adjudicado se ve en «Fuera de la compra» (pedido del dueño, 5-nov-2026, 979).
+    return ordenados.filter(p => ((filtro === 'todos' && grupoDe(p.subestado) !== 'fuera') || (filtro === 'servicios' ? !!p.esServicio : !p.esServicio && grupoDe(p.subestado) === filtro)) && (!q || p.descripcion.toLowerCase().includes(q) || String(p.correlativo ?? '').includes(q)));
   }, [ordenados, busqueda, filtro]);
 
   if (loading) return <div className="flex items-center justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-zinc-400" /></div>;
@@ -230,7 +231,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {chip('todos', 'Todos', productos.length)}
+          {chip('todos', 'En la compra', totalVivos)}
           {chip('pendientes', 'Por avanzar', conteo.pendientes)}
           {chip('listos', 'Listos', conteo.listos)}
           {conteo.fuera > 0 && chip('fuera', 'Fuera de la compra', conteo.fuera)}
