@@ -1312,12 +1312,11 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
         const c = cotizaciones.find(x => x.id === seleccion.cotizacionId);
         const it = c?.items.find(x => x.productoId === seleccion.productoId);
         if (!c || !it) return null;
+        // En un modal (pedido del dueño, 05-nov-2026): antes se dibujaba al final de la lista y no se veía dónde había aparecido.
         return (
-          <div className="rounded-xl border-2 border-indigo-200 bg-white p-3">
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <p className="text-[13px] font-bold text-indigo-900">Detalle · {c.proveedorNombre}</p>
-              <button onClick={() => setSeleccion(null)} className="text-[12.5px] font-semibold text-zinc-500 hover:text-zinc-800">Cerrar</button>
-            </div>
+          <Modal open onClose={() => setSeleccion(null)} size="lg" title={`Detalle del precio · ${c.proveedorNombre}`}
+            subtitle={`${productos.find(p => p.id === it.productoId)?.descripcion || `Producto #${it.productoId}`} · cotización #${c.id}`}>
+            <div className="space-y-4">
             <AuditoriaCotizacionPanel
               negocioId={negocioId} cotizacionId={c.id} productoId={it.productoId}
               productoNombre={productos.find(p => p.id === it.productoId)?.descripcion || `#${it.productoId}`}
@@ -1327,7 +1326,8 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
             <TecnicoDeCelda negocioId={negocioId} productoId={it.productoId} proveedor={c.proveedorNombre} proveedorRut={c.proveedorRut}
               precioVeredicto={compararPrecioConCosteo(it.precioUnitario, costeado[it.productoId] ?? null).veredicto}
               panel={fichas.panel} cargando={fichas.cargando} recargar={fichas.recargar} puedeOperar={puedeOperar} />
-          </div>
+            </div>
+          </Modal>
         );
       })()}
       <SiguientePasoBtn texto="Siguiente: elegir cómo comprar →" onClick={() => setVista('elegir')} />
