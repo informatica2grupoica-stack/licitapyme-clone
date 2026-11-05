@@ -409,3 +409,9 @@ en producción requiere el OK del dueño) y desplegar el arreglo.
 - `elegirPrecio` (auditor-opciones-core.ts): si la página trae dos o más precios vigentes (condición actual / internet / otro: transferencia o efectivo vs otros medios de pago) y ninguno viene «seleccionado», el costo es el **más alto**. Protege el margen y no depende de pagar por transferencia.
 - No entran: tachado, tarjeta, desde, volumen, variante, totales, ni un precio que sea múltiplo exacto de otro (total de línea = precio × cantidad).
 - Test: «dos precios vigentes de la tienda: rige el más alto…». Sin desplegar.
+
+## 2026-11-05 · Nuestra ficha: fuera la fila cuyo ofertado es solo marca y modelo (decisión del dueño)
+- Caso 4844-24-LE26 (negocio 1635): requisito «Impresora Cannon Maxify GX7110 (similar o superior)», ofertado «Canon MAXIFY GX7110». Como nuestra ficha no nombra marca ni modelo, la casilla quedaba vacía y salía «1 casilla sin dato ofertado».
+- `productoFichaDeOpcion` (auditor-ficha-propia-core.ts) saca la fila cuando lo ofertado, sin marca ni modelo, queda vacío. Una fila que no trae dato ofertado sigue saliendo vacía y se avisa, porque no se inventa el dato.
+- Test: «la fila cuyo ofertado es solo marca y modelo no va». Sin desplegar. Las fichas ya generadas siguen igual hasta volver a generarlas.
+- «X productos salieron sin foto» es solo un aviso: la foto sale de «Foto para la ficha», de la fila del costeo o del PDF del proveedor. Un respaldo que es solo link web no trae foto.

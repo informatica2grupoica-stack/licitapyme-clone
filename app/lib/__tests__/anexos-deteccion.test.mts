@@ -13,7 +13,7 @@ import {
 import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, detectarBlancosInline, indiceFilaEncabezado, extraerTablasCrudo, detectarCandidatosTabla, detectarTripletesFecha, detectarAlternativasExcluyentes, esEtiquetaDeCampo } from '../anexos-detectar';
 import { valorExisteEnFicha, campoCalzaConLaEtiqueta, type EmpresaCampos } from '../anexos-ia-motor';
 import { resolverDeterminista } from '../anexos-determinista';
-import { esCandidatoDePrecioUnitario } from '../anexos-precios-columnas';
+import { esCandidatoDePrecioUnitario, esPrecioUnitarioConIva } from '../anexos-precios-columnas';
 import { calcularTotalesAlPie, pareceFilaDePie, calcularTotalesPorSeccion, resolverTablaResumen, calcularTotalesPorLinea, celdasDeRellenoDelPie } from '../anexos-totales-seccion';
 
 const NS = '<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body>';
@@ -930,13 +930,22 @@ test('esCandidatoDePrecioUnitario reconoce los encabezados reales y sigue excluy
     'CANTIDAD', 'UNIDAD DE MEDIDA', 'PLAZO DE ENTREGA', 'IVA 19%',
     // Todos estos existen tal cual en los anexos ya descargados:
     'Precio Unitario Total (Neto )',                                   // dice unitario Y total
-    'Valor Unitario (Impuestos incluidos)',                            // unitario pero CON impuestos
-    'VALOR UNITARIO CON IVA $',                                        // idem
-    'Precio unitario BRUTO (Precio unitario neto + IVA)',              // el costeo entrega NETOS
-    'Valor bruto',
+    'VALOR TOTAL CON IVA',                                             // total, aunque diga con IVA
     'PRECIO MÁXIMO DISPONIBLE (INCLUYE IMPUESTOS Y FLETE) POR UNIDAD', // presupuesto del organismo
   ]) {
     assert.equal(esCandidatoDePrecioUnitario(`EMPANADA PINO — ${columna}`), false, `NO debería aceptar "${columna}"`);
+  }
+
+  // Unitario CON IVA: es candidata, pero marcada para escribir neto × 1,19 (4844-24-LE26, Anexo N°5).
+  for (const columna of [
+    'Valor Unitario (Impuestos incluidos)', 'VALOR UNITARIO CON IVA $', 'VALOR UNITARIO CON IVA',
+    'Precio unitario BRUTO (Precio unitario neto + IVA)', 'Valor bruto',
+  ]) {
+    assert.equal(esCandidatoDePrecioUnitario(`EMPANADA PINO — ${columna}`), true, `debería aceptar "${columna}"`);
+    assert.equal(esPrecioUnitarioConIva(`EMPANADA PINO — ${columna}`), true, `"${columna}" pide el valor con IVA`);
+  }
+  for (const columna of ['PRECIO UNITARIO NETO', 'Monto unitario (sin IVA)', 'Precio unitario']) {
+    assert.equal(esPrecioUnitarioConIva(`EMPANADA PINO — ${columna}`), false, `"${columna}" va neto`);
   }
 
   // Y estos SÍ, sacados del mismo corpus.

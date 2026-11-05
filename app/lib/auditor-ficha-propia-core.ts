@@ -12,6 +12,7 @@
 // Puro (sin BD): lo usa auditor-ficha-propia.ts y lo prueban los tests.
 import type { OpcionDTO, LineaAuditorDTO } from '@/app/lib/auditor-opciones';
 import type { ProductoFicha, EspecificacionFicha } from '@/app/lib/ficha-tecnica';
+import { textoOfertado, sinMarcaNiModelo } from '@/app/lib/ficha-tecnica';
 
 /** null = la opción está lista para su ficha; si no, el motivo en palabras simples. */
 export function motivoFichaNoLista(o: OpcionDTO): string | null {
@@ -178,6 +179,7 @@ export function incluyeDeOpcion(o: OpcionDTO): string[] {
 /** `imagen.puestaPorPersona`: la subió alguien en el costeo (true) o salió sola de la ficha del proveedor (false, se avisa en pantalla).
  *  `fotosExtra`: más fotos del producto, debajo de la principal. */
 export function productoFichaDeOpcion(o: OpcionDTO, l: LineaAuditorDTO, imagen: { dataUri: string; puestaPorPersona: boolean } | null, fotosExtra: string[] = []): ProductoFicha {
+  const marcaModelo = { marca: o.marca, modelo: modeloConVersion(o.modelo, o.version) };
   return {
     nombre: nombreDeLinea(l.detalle),
     marca: o.marca, modelo: modeloConVersion(o.modelo, o.version),
@@ -188,7 +190,9 @@ export function productoFichaDeOpcion(o: OpcionDTO, l: LineaAuditorDTO, imagen: 
     imagenConfirmada: imagen?.puestaPorPersona ?? false,
     imagenesExtraDataUri: imagen ? fotosExtra : [],
     incluye: incluyeDeOpcion(o),
-    especificaciones: especificacionesDeOpcion(o),
+    // Fila cuyo ofertado es solo marca y modelo («Impresora Cannon Maxify GX7110 (similar o superior)» → «Canon MAXIFY
+    // GX7110», 4844-24-LE26): sin marca ni modelo queda vacía y no dice nada técnico; se saca (dueño, 05-nov-2026).
+    especificaciones: especificacionesDeOpcion(o).filter(e => { const t = textoOfertado(e); return !t || !!sinMarcaNiModelo(t, marcaModelo); }),
     cantidad: l.cantidad, unidad: l.unidad || null, item: l.item,
   };
 }

@@ -23,6 +23,13 @@ test('ficha propia: solo con lo técnico TODO cumplido', () => {
   assert.match(motivoFichaNoLista(opcion('CUMPLE', [fila(1, 'x', 'y')], { tecnico: { estado: 'CUMPLE', legado: true, resultado: { filas: [fila(1, 'x', 'y')] } } }))!, /antigua/);
 });
 
+test('ficha propia: la fila cuyo ofertado es solo marca y modelo no va (no nombramos marca ni modelo)', () => {
+  const o = opcion('CUMPLE', [fila(1, 'Horno Unox Bakerlux (similar o superior)', 'Unox Bakerlux Shop.Pro Touch'), fila(2, 'Capacidad mínima 4 bandejas', '4 bandejas 460x330')]);
+  const p = productoFichaDeOpcion(o, linea, null);
+  assert.deepEqual(p.especificaciones.map(e => e.valorOfertadoTexto), ['4 bandejas 460x330']);
+  assert.equal(especificacionesSinCompletar([{ linea: 7, titulo: p.nombre, productos: [p] }]), 0);
+});
+
 test('ficha propia: requisito + lo ofertado; sin dato ofertado la casilla queda vacía (no se inventa)', () => {
   const o = opcion('CUMPLE', [fila(1, 'Capacidad mínima 4 bandejas', '4 bandejas 460x330'), fila(2, 'Alimentación 220 V', '')]);
   const esp = especificacionesDeOpcion(o);

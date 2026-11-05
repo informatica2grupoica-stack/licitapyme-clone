@@ -12,7 +12,7 @@
 // pero le falta un ítem es peor que uno visiblemente vacío.
 import type { TablaCruda, CeldaTablaCruda } from '@/app/lib/anexos-detectar';
 import type { Parrafo } from '@/app/lib/anexos-docx';
-import { esCandidatoDePrecioUnitario } from '@/app/lib/anexos-precios-columnas';
+import { esCandidatoDePrecioUnitario, esPrecioUnitarioConIva } from '@/app/lib/anexos-precios-columnas';
 
 export interface TituloCercano { texto: string; indice: number }
 
@@ -196,7 +196,11 @@ export function pareceFilaDePie(celdas: CeldaTablaCruda[], rotulo: string): bool
 const RE_FILA_SOLO_NETO = /^(?:(?:valor|monto|precio|total)\s+)?net[oa]s?(?:\s+\$)?$/;
 
 // `anexar`: el monto se agrega al final del texto de la celda del propio rótulo (no hay casilla vacía a su derecha).
-export interface RellenoPie { paraId: string; indiceGlobal: number; valor: string; etiqueta: string; anexar?: boolean; indiceParrafoReal?: number }
+// `dosPuntos`: la celda ya trae un «$» impreso y el monto se escribe a continuación, en el mismo párrafo.
+export interface RellenoPie { paraId: string; indiceGlobal: number; valor: string; etiqueta: string; anexar?: boolean; indiceParrafoReal?: number; dosPuntos?: boolean }
+
+// Celda cuyo único contenido es el signo de moneda («$»): es la casilla del monto, no texto propio.
+const soloMoneda = (c: { texto: string }) => /^(?:US$|CLP$|$)$/.test(c.texto.trim());
 
 function textoDeFila(celdas: { texto: string }[]): string {
   return celdas.map(c => c.texto).filter(Boolean).join(' ').trim();
@@ -207,7 +211,7 @@ function textoDeFila(celdas: { texto: string }[]): string {
 // última — por eso no sirve el índice de columna del encabezado (con celdas combinadas la
 // alineación por ancho no calza; ver alinearFilaConEncabezado).
 function celdaDelMonto(celdas: CeldaTablaCruda[], iPrecio: number): CeldaTablaCruda | null {
-  const rellenable = (c?: CeldaTablaCruda) => !!c && c.indiceGlobal != null && !!c.ultimoParaId && !c.texto.trim();
+  const rellenable = (c?: CeldaTablaCruda) => !!c && c.indiceGlobal != null && !!c.ultimoParaId && (!c.texto.trim() || soloMoneda(c));
   // Primero, la celda que cae en la MISMA columna de los precios: es donde el lector espera el
   // total. Si esa no está disponible (el rótulo va combinado y corre la alineación), la última
   // vacía de la fila — en un pie el monto siempre va a la derecha del rótulo.
@@ -287,6 +291,9 @@ export function calcularTotalesAlPie(
     const hayBruto = filasPie.some(f => RE_PIE_BRUTO.test(f.rotulo));
 
     const neto = total;
+    // Con unitario CON IVA la suma ya es el total con IVA: solo se escribe el pie que lo pide (o un
+    // «Total» a secas). Neto e IVA saldrían de dividir por 1,19 — se dejan para el equipo.
+    const unitarioConIva = esPrecioUnitarioConIva(`x — ${header[iPrecio]}`);
     for (const fila of filasPie) {
       if (rotuloAmbiguo(fila.rotulo)) continue;
       const totalSinDecirCual = !RE_PIE_BRUTO.test(fila.rotulo) && !RE_PIE_IVA.test(fila.rotulo)
@@ -301,7 +308,10 @@ export function calcularTotalesAlPie(
         && !!celda && fila.celdas.indexOf(celda) < fila.celdas.indexOf(celdaRotulo);
       if (!anexar && (!celda?.ultimoParaId || celda.indiceGlobal == null)) continue;
       let valor: number | null = null;
-      if (RE_PIE_BRUTO.test(fila.rotulo)) {
+      if (unitarioConIva) {
+        if (!RE_PIE_BRUTO.test(fila.rotulo) && (RE_PIE_IVA.test(fila.rotulo) || /net[oa]s?|sin iva/.test(rotuloPie(fila)))) continue;
+        valor = Math.round(total);
+      } else if (RE_PIE_BRUTO.test(fila.rotulo)) {
         // neto + IVA YA REDONDEADO, no round(neto × 1,19): así el papel cuadra a la vista (las
         // dos líneas de arriba suman exactamente esta), que es lo primero que revisa quien evalúa.
         // Las dos formas pueden diferir en $1 por el redondeo, y esa diferencia se ve.
@@ -321,7 +331,7 @@ export function calcularTotalesAlPie(
       }
       out.push({
         paraId: celda!.ultimoParaId!, indiceGlobal: celda!.indiceGlobal!, etiqueta: fila.rotulo.slice(0, 80),
-        valor: monto,
+        valor: monto, ...(soloMoneda(celda!) ? { dosPuntos: true } : {}),
       });
     }
   }
@@ -343,9 +353,14 @@ const IVA_CHILE_POR_DEFECTO = 19;
 // La columna del total de cada línea, si la tabla la trae: un encabezado "total"/"A*B" a la
 // DERECHA de la columna del precio unitario.
 function columnaTotalLinea(header: string[], iPrecio: number): number {
-  // "Total con IVA" por línea no es cantidad × precio neto: esa columna no se toca.
-  return header.findIndex((h, i) => i > iPrecio && RE_COLUMNA_TOTAL_LINEA.test(h) && !/\biva\b|brut[oa]/i.test(h));
+  // El total de la línea va en la MISMA base que el unitario: con unitario neto, una columna
+  // «Total con IVA» no es cantidad × precio y no se toca; con unitario CON IVA (4844-24-LE26,
+  // «VALOR UNITARIO CON IVA | VALOR TOTAL CON IVA») es justo la que corresponde.
+  const unitarioConIva = esPrecioUnitarioConIva(`x — ${header[iPrecio]}`);
+  const baseCalza = (h: string) => (unitarioConIva ? RE_TOTAL_CON_IVA_COLUMNA.test(h) : !/\biva\b|brut[oa]/i.test(h));
+  return header.findIndex((h, i) => i > iPrecio && RE_COLUMNA_TOTAL_LINEA.test(h) && baseCalza(h));
 }
+const RE_TOTAL_CON_IVA_COLUMNA = /con\s+iva|c\/\s*iva|iva\s+inclu|impuestos?\s+inclu|brut[oa]/i;
 
 // ── Total de CADA línea (cantidad × precio unitario) ─────────────────────────────────────────
 // "Línea | Producto | Cantidad(A) | Precio Unitario(B) | Total Neto(A*B)" (1414396-26-LP26, ANEXO
@@ -374,6 +389,7 @@ export function calcularTotalesPorLinea(
         paraId: celdaTotal.ultimoParaId, indiceGlobal: celdaTotal.indiceGlobal,
         etiqueta: `${textoDeFila(fila.celdas.slice(0, iCantidad)).slice(0, 60)} — ${header[iTotal]}`,
         valor: new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(Math.round(cantidad * precio)),
+        ...(soloMoneda(celdaTotal) ? { dosPuntos: true } : {}),
       });
     }
   }

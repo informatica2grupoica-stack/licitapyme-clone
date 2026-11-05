@@ -839,6 +839,9 @@ export function indiceFilaEncabezado(filas: { completa: boolean; numCeldas: numb
 // «CARACTERÍSTICAS GENERALES» en vez de «CUMPLE SI/NO» / «CATÁLOGO» / «OBSERVACIONES» (1057922-28-LP26).
 const RE_NUMERO_DE_SECCION = /^(?:\d{1,2}|[IVX]{1,4}|[A-Z])[.)]?$/;
 
+// `numCeldasConTexto` no cuenta las celdas que traen solo «$»: son casillas de monto, no nombres de
+// columna. Con el «$» contado, la primera fila de productos de 4844-24-LE26 (Anexo N°5: «| ESCÁNER…
+// | 16 | $ | $») pasaba por encabezado y la tabla entera quedaba con la columna «$».
 function siguienteEncabezadoTablaExtenso(
   filas: { numCeldas: number; numCeldasConTexto: number; tieneCeldaCombinada?: boolean; primerTexto?: string }[], desde: number,
 ): number {
@@ -954,7 +957,7 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
       const textos = textosDeFila(f[1]);
       return {
         completa: filaTieneTodasSusCeldasConTexto(f[1]), numCeldas: textos.length,
-        numCeldasConTexto: textos.filter(t => t !== '').length,
+        numCeldasConTexto: textos.filter(t => t !== '' && !RE_PREFIJO_MONEDA.test(t)).length,
         tieneCeldaCombinada: filaTieneCeldaCombinada(f[1]),
         celdaLarga: filaEsCeldaLarga(textos),
         primerTexto: textos[0] ?? '',
@@ -1185,7 +1188,7 @@ function indicesEnCeldasDeDatosDeTabla(xml: string): Set<number> {
       const textos = textosDeFila(f[1]);
       return {
         completa: filaTieneTodasSusCeldasConTexto(f[1]), numCeldas: textos.length,
-        numCeldasConTexto: textos.filter(t => t !== '').length,
+        numCeldasConTexto: textos.filter(t => t !== '' && !RE_PREFIJO_MONEDA.test(t)).length,
         tieneCeldaCombinada: filaTieneCeldaCombinada(f[1]),
         celdaLarga: filaEsCeldaLarga(textos),
         primerTexto: textos[0] ?? '',

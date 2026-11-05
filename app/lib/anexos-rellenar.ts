@@ -37,7 +37,7 @@ import {
 } from '@/app/lib/anexos-ia-motor';
 import { repasarConIA, repasoActivado } from '@/app/lib/anexos-repaso-ia';
 import { matchearPreciosConIA } from '@/app/lib/anexos-precios-ia';
-import { esCandidatoDePrecioUnitario } from '@/app/lib/anexos-precios-columnas';
+import { esCandidatoDePrecioUnitario, esPrecioUnitarioConIva } from '@/app/lib/anexos-precios-columnas';
 import { resolverTablaProductosEnBlanco } from '@/app/lib/anexos-oferta-tecnica-tabla';
 import { resolverMontoUnicoOferta, resolverPieApilado, porcentajeIvaDeclarado, totalNetoDeItemsCosteo, montoEnPalabras } from '@/app/lib/anexos-monto-oferta';
 import {
@@ -57,6 +57,15 @@ export type { SeccionEscaneada } from '@/app/lib/anexos-imagen-escaneada';
 export type { EmpresaCampos } from '@/app/lib/anexos-ia-motor';
 
 const fmtNumeroCL = (n: number) => new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(n);
+
+// El costeo y el Auditor guardan el unitario NETO. Si la columna lo pide CON IVA («VALOR UNITARIO
+// CON IVA», 4844-24-LE26 Anexo N°5) va neto × (1 + IVA) redondeado al peso: el total de la línea
+// (cantidad × este unitario) y el pie salen de este mismo número, así el papel cuadra a la vista.
+function precioSegunColumna(etiqueta: string, neto: number, parrafos: Parrafo[]): number {
+  if (!esPrecioUnitarioConIva(etiqueta)) return neto;
+  const pct = porcentajeIvaDeclarado(parrafos.map(p => p.texto || '')) ?? IVA_CHILE_POR_DEFECTO;
+  return Math.round(neto * (1 + pct / 100));
+}
 
 export interface CampoCompletado {
   etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor';
@@ -352,7 +361,8 @@ async function resolverTodo(
     const etiquetasPendientes = pendientes.map(c => c.etiqueta);
     const matchesAuditor = [
       ...resolverTablaConAuditor(etiquetasPendientes, datosAuditor),
-      ...resolverPreciosConAuditor(etiquetasPendientes, datosAuditor),
+      ...resolverPreciosConAuditor(etiquetasPendientes, datosAuditor).map(m =>
+        ({ ...m, valor: fmtNumeroCL(precioSegunColumna(m.etiqueta, Number(m.valor.replace(/\D/g, '')), parrafos)) })),
       ...resolverCamposSueltosConAuditor(etiquetasPendientes, datosAuditor),
     ];
     const mapaAuditor = new Map(matchesAuditor.map(m => [m.etiqueta, m]));
@@ -395,7 +405,7 @@ async function resolverTodo(
     pendientesTrasPrecio = [];
     for (const c of pendientesTrasAuditor) {
       const m = mapaPrecio.get(c.etiqueta);
-      if (m) { matcheados.push({ c, campo: 'precio_unitario_costeo', valor: fmtNumeroCL(m.precioUnitario), via: 'costeo' }); pendientesConMotivo.delete(c.indice); }
+      if (m) { matcheados.push({ c, campo: 'precio_unitario_costeo', valor: fmtNumeroCL(precioSegunColumna(c.etiqueta, m.precioUnitario, parrafos)), via: 'costeo' }); pendientesConMotivo.delete(c.indice); }
       else pendientesTrasPrecio.push(c);
     }
   }
@@ -630,7 +640,7 @@ function aplicarTotalesPorSeccion(
     paraIdsResueltos.add(r.paraId);
     matcheadosExtra.push({
       c: { etiqueta: r.etiqueta, paraId: r.paraId, indice: r.indiceGlobal },
-      campo: 'total_linea_calculado', valor: r.valor, via: 'costeo',
+      campo: 'total_linea_calculado', valor: r.valor, via: 'costeo', ...(r.dosPuntos ? { dosPuntos: true } : {}),
     });
   }
   // Tabla de solo totales por línea («MONTO TOTAL NETO | MONTO TOTAL IVA INCLUIDO», sin unitario).
@@ -660,7 +670,7 @@ function aplicarTotalesPorSeccion(
     totalesPie.push({ etiqueta: r.etiqueta, valor: r.valor });
     matcheadosExtra.push(r.anexar && r.indiceParrafoReal != null
       ? { c: { etiqueta: r.etiqueta, paraId: r.paraId, indice: r.indiceParrafoReal }, campo: 'total_calculado', valor: r.valor, via: 'costeo', dosPuntos: true }
-      : { c: { etiqueta: r.etiqueta, paraId: r.paraId, indice: r.indiceGlobal }, campo: 'total_calculado', valor: r.valor, via: 'costeo' });
+      : { c: { etiqueta: r.etiqueta, paraId: r.paraId, indice: r.indiceGlobal }, campo: 'total_calculado', valor: r.valor, via: 'costeo', ...(r.dosPuntos ? { dosPuntos: true } : {}) });
   }
 
   for (const r of rellenos) {

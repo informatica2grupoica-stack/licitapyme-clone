@@ -26,9 +26,11 @@
 const RE_MONEDA = /\b(precio|valor|monto|costo)s?\b/;
 const RE_NO_ES_UNITARIO = /\b(total(es)?|subtotal(es)?|cantidad(es)?|iva|impuestos?|descuento|plazo)\b/;
 const RE_UNITARIO = /\b(unitarios?|unit\.?|c\/u|por\s+unidad)\b/;
-// "bruto" NO está entre los adornos aceptados a propósito: el costeo entrega precios NETOS, así
-// que escribirlos en una columna que pide el valor bruto sería un error de $ — mismo motivo por el
-// que RE_NO_ES_UNITARIO bota "con IVA" / "impuestos incluidos".
+// "bruto" NO está entre los adornos de RE_ENCABEZADO_NEUTRO: el costeo entrega precios NETOS. Una
+// columna que pide el unitario CON IVA («VALOR UNITARIO CON IVA», «Precio bruto») sí es candidata,
+// pero solo a través de RE_PIDE_IVA: quien la llena tiene que preguntar esPrecioUnitarioConIva y
+// escribir neto × (1 + IVA), nunca el neto pelado (4844-24-LE26, Anexo N°5, 2026-11-05).
+const RE_PIDE_IVA = /\b(con\s+iva|c\/\s*iva|iva\s+inclu\w*|impuestos?\s+inclu\w*|brut[oa]s?)\b/;
 const RE_ENCABEZADO_NEUTRO = /^(precio|valor|monto|costo)s?(\s+(neto|netos|ofertado|ofertados|oferta|final|\$|clp))*$/;
 
 function normalizarColumna(s: string): string {
@@ -41,10 +43,23 @@ function normalizarColumna(s: string): string {
     .replace(/\s+/g, ' ').trim();
 }
 
-export function esCandidatoDePrecioUnitario(etiqueta: string): boolean {
+function columnaDe(etiqueta: string): string | null {
   const partes = etiqueta.split(' — ');
-  if (partes.length < 2) return false; // siempre viene como "<ítem> — <columna>" (patrón 1b de tablas)
-  const columna = normalizarColumna(partes[partes.length - 1]);
+  if (partes.length < 2) return null; // siempre viene como "<ítem> — <columna>" (patrón 1b de tablas)
+  return normalizarColumna(partes[partes.length - 1]);
+}
+
+export function esCandidatoDePrecioUnitario(etiqueta: string): boolean {
+  const col = columnaDe(etiqueta);
+  if (col == null) return false;
+  // «Valor unitario con IVA» se evalúa como «valor unitario»; el IVA lo agrega quien escribe.
+  const columna = col.replace(RE_PIDE_IVA, ' ').replace(/\s+/g, ' ').trim();
   if (!RE_MONEDA.test(columna) || RE_NO_ES_UNITARIO.test(columna)) return false;
   return RE_UNITARIO.test(columna) || RE_ENCABEZADO_NEUTRO.test(columna);
+}
+
+/** Columna de precio unitario que pide el valor CON IVA: ahí va neto × (1 + IVA), no el neto. */
+export function esPrecioUnitarioConIva(etiqueta: string): boolean {
+  const col = columnaDe(etiqueta);
+  return col != null && RE_PIDE_IVA.test(col) && esCandidatoDePrecioUnitario(etiqueta);
 }
