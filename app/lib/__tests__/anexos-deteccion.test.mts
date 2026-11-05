@@ -931,6 +931,7 @@ test('esCandidatoDePrecioUnitario reconoce los encabezados reales y sigue excluy
     // Todos estos existen tal cual en los anexos ya descargados:
     'Precio Unitario Total (Neto )',                                   // dice unitario Y total
     'VALOR TOTAL CON IVA',                                             // total, aunque diga con IVA
+    'Precio unitario BRUTO (Precio unitario neto + IVA)',              // neto Y bruto en el mismo rótulo: queda al equipo
     'PRECIO MÁXIMO DISPONIBLE (INCLUYE IMPUESTOS Y FLETE) POR UNIDAD', // presupuesto del organismo
   ]) {
     assert.equal(esCandidatoDePrecioUnitario(`EMPANADA PINO — ${columna}`), false, `NO debería aceptar "${columna}"`);
@@ -938,8 +939,7 @@ test('esCandidatoDePrecioUnitario reconoce los encabezados reales y sigue excluy
 
   // Unitario CON IVA: es candidata, pero marcada para escribir neto × 1,19 (4844-24-LE26, Anexo N°5).
   for (const columna of [
-    'Valor Unitario (Impuestos incluidos)', 'VALOR UNITARIO CON IVA $', 'VALOR UNITARIO CON IVA',
-    'Precio unitario BRUTO (Precio unitario neto + IVA)', 'Valor bruto',
+    'Valor Unitario (Impuestos incluidos)', 'VALOR UNITARIO CON IVA $', 'VALOR UNITARIO CON IVA', 'Valor bruto',
   ]) {
     assert.equal(esCandidatoDePrecioUnitario(`EMPANADA PINO — ${columna}`), true, `debería aceptar "${columna}"`);
     assert.equal(esPrecioUnitarioConIva(`EMPANADA PINO — ${columna}`), true, `"${columna}" pide el valor con IVA`);
@@ -2782,6 +2782,7 @@ test('unitario CON IVA con celdas «$»: encabezado real, total por línea y pie
 
   // En el papel el número reemplaza los espacios de relleno y va pegado al «$».
   const escrito = rellenarFinDeParrafo(norm, f1.celdas[3].ultimoParaId!, '602.771');
-  const parrafo = escrito.match(new RegExp(`<w:p\b[^>]*w14:paraId="${f1.celdas[3].ultimoParaId}"[\s\S]*?</w:p>`))![0];
+  const desde = escrito.indexOf(`w14:paraId="${f1.celdas[3].ultimoParaId}"`);
+  const parrafo = escrito.slice(desde, escrito.indexOf('</w:p>', desde));
   assert.equal([...parrafo.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map(t => t[1]).join(''), '$602.771');
 });

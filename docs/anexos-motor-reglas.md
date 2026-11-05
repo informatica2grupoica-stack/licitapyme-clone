@@ -322,7 +322,21 @@ sin tasa declarada se usa 19% (decisión del dueño 26-oct-2026, igual que el pi
 también para la casilla de monto en tabla). Si el `$` ya está impreso, va solo el número. Entra a
 `totalesEscritos` (guardarraíl). **En palabras** (`…EN PALABRAS: ____`): el monto que se acaba de
 escribir hasta 3 párrafos arriba en el mismo anexo, con letras (`montoEnPalabras`); sin monto arriba,
-nada. **Plazo de entrega** como raya en prosa: el del Auditor, igual que en tabla.
+nada. **Plazo de entrega** como raya en prosa: el del Auditor, igual que en tabla. Si el papel ya
+imprime la unidad después de la raya (`____ días hábiles`), va solo el número; si el Auditor dice
+corridos y el papel hábiles (o al revés), queda pendiente (`plazoSinUnidadImpresa`).
+
+**Precio unitario CON IVA** (`VALOR UNITARIO CON IVA`, `Valor bruto`, `(Impuestos incluidos)`): el
+costeo y el Auditor guardan el neto; en esa columna va neto × (1 + IVA) redondeado al peso (19% si el
+documento no declara otra tasa). El total de la línea va en la columna total de la **misma base**
+(cantidad × unitario con IVA) y el pie «Total con IVA» es la suma de esos totales; neto e IVA al pie de
+esa tabla quedan para el equipo. El guardarraíl acepta contra costeo × 1,19 hasta ½ peso por unidad
+(`holguraRedondeoIva`). Un rótulo que dice neto y bruto a la vez (`BRUTO (neto + IVA)`) no se llena.
+
+**Celda que trae solo «$»** (con o sin espacios de relleno): es la casilla del monto, nunca un nombre
+de columna — una fila con «$» no se toma por encabezado. El número va pegado al signo, en lugar de los
+espacios (`$602.771`), para que no se parta en una columna angosta. Una casilla que el costeo calcula
+(total de línea, pie) no la disputa ninguna otra capa (`sinCasillasCalculadas`).
 
 **Pie de tabla «Valor total / Neto / Con IVA»**: una fila que dice solo «Neto» es pie si la tabla ya
 tiene otro pie; con neto y bruto explícitos, un «total» que no dice cuál es se deja vacío.
