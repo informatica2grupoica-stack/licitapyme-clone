@@ -5,10 +5,10 @@
 // barata a la más cara (crece hacia abajo, no hacia el lado). Elegir = el círculo de la oferta. El cuadro «Por proveedor» resume cada
 // cotización (qué cubre, total, plazo, avisos) y permite «Comprar todo aquí». Mismos datos, mismas acciones y mismas reglas que la matriz.
 import { useMemo, useState } from 'react';
-import { IconStar as Star, IconCheck as Check, IconChevronDown as ChevronDown, IconChevronRight as ChevronRight, IconInfoCircle as Info, IconSearch as Search } from '@tabler/icons-react';
+import { IconStar as Star, IconCheck as Check, IconChevronDown as ChevronDown, IconChevronRight as ChevronRight, IconSearch as Search } from '@tabler/icons-react';
 import { MenuAcciones } from '@/app/components/ui/MenuAcciones';
 import { LinksProducto } from './LinksProducto';
-import { compararPrecioConCosteo } from '@/app/lib/compras-precio-vs-costeo';
+import { compararPrecioConCosteo, totalAdicionales, type AdicionalCotizacion } from '@/app/lib/compras-precio-vs-costeo';
 import { esLinkDeProducto } from '@/app/lib/costeo-comparativo';
 import { margenCosteoVsCotizaciones, GASTO_ENTREGA_PCT } from '@/app/lib/compras-margen-vs-costeo';
 import { MargenCosteoVsCotizaciones } from './MargenCosteoVsCotizaciones';
@@ -31,6 +31,8 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
   const pendientesPorCot = useMemo(() => new Map(cotizaciones.map(c => [c.id, lineasPendientes(c as unknown as Parameters<typeof lineasPendientes>[0], productos)] as const)), [cotizaciones, productos]);
   const [buscaProducto, setBuscaProducto] = useState('');
   const [buscaProveedor, setBuscaProveedor] = useState('');
+  // Productos con las cotizaciones reemplazadas desplegadas (por defecto van plegadas en una línea).
+  const [conReemplazadas, setConReemplazadas] = useState<Set<number>>(() => new Set());
 
   const reemp = useMemo(() => cotizacionesReemplazadas(cotizaciones), [cotizaciones]);
   const alternar = (id: number) => setAbiertos(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -85,6 +87,100 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
       { label: 'Eliminar cotización', onClick: () => acciones.onEliminar(c.id), peligro: true },
     ]} />
   ) : null;
+
+  // Una oferta: proveedor, precio por unidad y, debajo, QUÉ TRAE ese precio (producto solo + cada adicional), para comparar
+  // ofertas equivalentes: el precio guardado ya es producto + adicionales (compras-adicionales.ts).
+  const filaOferta = (p: typeof productos[number], { c, item }: { c: typeof cotizaciones[number]; item: typeof cotizaciones[number]['items'][number] }, base: number | null, mejor: number | null) => {
+    const cmp = compararPrecioConCosteo(item.precioUnitario, base);
+    const est = ESTILO_VEREDICTO[cmp.veredicto];
+    const incluido = item.precioBase === 0;
+    const esElegida = compra?.[p.id] === c.id;
+    const esMejor = mejor != null && item.precioUnitario === mejor;
+    const detalleActivo = seleccion?.cotizacionId === c.id && seleccion.productoId === p.id;
+    const al = alertas?.[`${c.id}:${p.id}`] ?? [];
+    const t = tecnico?.[`${c.id}:${p.id}`];
+    const et = t ? (ESTILO_TECNICO[t.estado] ?? ESTILO_TECNICO.NO_CORRIDO) : null;
+    const reemplazadaPor = reemp.get(`${c.id}:${p.id}`);
+    const bloqueada = reemplazadaPor != null && !esElegida;   // si ya estaba elegida se deja quitarla, no volver a elegirla
+    const ads = item.adicionales as AdicionalCotizacion[];
+    const sumaAds = totalAdicionales(ads);
+    const soloProducto = item.precioBase != null ? item.precioBase : item.precioUnitario != null ? item.precioUnitario - sumaAds : null;
+    const pendientes = onAgregarLinea && !bloqueada ? (pendientesPorCot.get(c.id) ?? []) : [];
+    const acc = [
+      ...(c.archivoUrl ? [{ label: 'Ver cotización', onClick: () => window.open(c.archivoUrl!, '_blank', 'noopener,noreferrer') }] : []),
+      { label: 'Ver detalle del precio', onClick: () => onSeleccionar({ cotizacionId: c.id, productoId: p.id }) },
+      ...(acciones ? [{ label: 'Cambiar producto', onClick: () => acciones.onAsignar(c.id) }] : []),
+    ];
+    return (
+      <div key={c.id} className={`rounded-lg border px-3 py-2 transition-colors ${reemplazadaPor != null ? 'opacity-60 bg-zinc-50 ' : ''}${esElegida ? 'border-teal-500 bg-teal-50/60 ring-1 ring-teal-200' : detalleActivo ? 'border-teal-300 bg-teal-50/20' : 'border-zinc-200 hover:border-zinc-300'}`}>
+        <div className="flex items-center gap-x-4 gap-y-1 flex-wrap">
+          {onElegirCelda && (
+            <button type="button" onClick={() => onElegirCelda(p.id, c.id)} aria-pressed={esElegida} aria-label={`${esElegida ? 'Quitar de mi compra' : 'Comprar este producto a'} ${c.proveedorNombre}`} disabled={bloqueada}
+              title={bloqueada ? `Reemplazada por la cotización #${reemplazadaPor} del mismo proveedor` : esElegida ? 'Quitar de mi compra' : 'Comprar este producto a este proveedor'} className={`p-1 -m-1 rounded-full focus-visible:ring-2 focus-visible:ring-teal-500 outline-none ${bloqueada ? 'cursor-not-allowed' : ''}`}>
+              <span className={`flex w-5 h-5 rounded-full border items-center justify-center ${esElegida ? 'bg-teal-600 border-teal-600 text-white' : 'border-zinc-300 bg-white hover:border-teal-500'}`}>{esElegida && <Check size={12} />}</span>
+            </button>
+          )}
+          <div className="min-w-[170px] flex-1">
+            <p className="text-[13px] font-semibold text-zinc-900 leading-tight" title={c.proveedorNombre}>{c.proveedorNombre}</p>
+            <p className="text-[11.5px] text-zinc-500">
+              Cotización #{c.id}{c.plazoEntregaTexto ? ` · ${c.plazoEntregaTexto}` : ''}
+              {' · '}{incluido ? 'va incluido en otro producto' : ads.length > 0 ? <b className="font-semibold text-zinc-700">producto + {ads.length} adicional{ads.length === 1 ? '' : 'es'}</b> : 'solo el producto, sin adicionales'}
+            </p>
+            {reemplazadaPor != null && <p className="text-[11px] font-semibold text-zinc-500">Reemplazada por la #{reemplazadaPor} del mismo proveedor</p>}
+          </div>
+          {tecnico && !incluido && (et && t
+            ? <span title={`Ficha de ${t.modelo || 'este modelo'} contra las bases`} data-testid={`tecnico-${c.id}-${p.id}`} className={`text-[11.5px] font-semibold px-1.5 py-0.5 rounded border ${et.chip}`}>Ficha: {et.texto}{t.total > 0 ? ` ${t.cumple}/${t.total}` : ''}</span>
+            : <span className="text-[11.5px] text-zinc-400">sin ficha técnica</span>)}
+          <div className="flex flex-col items-end">
+            <span className="flex items-center gap-1.5">
+              {esMejor && <span title="Mejor precio de este producto" className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-amber-600"><Star size={12} className="fill-amber-400" /> Mejor precio</span>}
+              <span className="text-[14px] font-bold text-zinc-900 tabular-nums">{item.precioUnitario != null ? clp(item.precioUnitario) : 'sin precio'}</span>
+            </span>
+            {incluido
+              ? <span className="text-[11.5px] font-semibold text-sky-700">Incluido en otro producto</span>
+              : <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded border ${est.chip}`} title="Precio neto por unidad comparado con lo costeado">{est.texto(cmp.diffPct)}{cmp.veredicto === 'MEJOR' || cmp.veredicto === 'PEOR' ? ' que lo costeado' : ''}</span>}
+          </div>
+          <MenuAcciones etiqueta={`Acciones de la oferta de ${c.proveedorNombre}`} acciones={acc} />
+        </div>
+        {al.length > 0 && <div className="mt-1 pl-8 flex flex-wrap gap-x-3">{al.map(x => <span key={x} className="text-[11.5px] font-bold text-rose-600">⚠ {x}</span>)}</div>}
+        {ads.length > 0 && (
+          <div className={`mt-2 border-t border-dashed border-zinc-200 pt-1.5 ${onElegirCelda ? 'pl-8' : ''}`} data-testid={`desglose-${c.id}-${p.id}`}>
+            <p className="text-[11px] text-zinc-500 mb-0.5">Qué incluye este precio, por unidad</p>
+            <table className="w-full max-w-[520px] text-[12px] tabular-nums">
+              <tbody>
+                <tr><td className="py-0.5 text-zinc-800">{incluido ? 'Producto (va incluido en otro)' : 'Producto solo'}</td><td className="py-0.5 text-right text-zinc-800">{soloProducto != null ? clp(soloProducto) : '—'}</td></tr>
+                {ads.map((a, i) => (
+                  <tr key={`${a.concepto}-${i}`}>
+                    <td className="py-0.5 text-zinc-600">+ {a.concepto}{a.cantidad !== 1 && <span className="text-zinc-400"> · {a.cantidad.toLocaleString('es-CL')} × {clp(a.precioUnitario)}</span>}</td>
+                    <td className="py-0.5 text-right text-zinc-600">{clp(a.cantidad * a.precioUnitario)}</td>
+                  </tr>
+                ))}
+                <tr className="border-t border-zinc-200"><td className="pt-1 font-semibold text-zinc-900">Total por unidad</td><td className="pt-1 text-right font-semibold text-zinc-900">{item.precioUnitario != null ? clp(item.precioUnitario) : '—'}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+        {pendientes.length > 0 && (
+          <div className={`mt-1.5 flex flex-wrap items-center gap-1.5 border-t border-dashed border-zinc-200 pt-1.5 ${onElegirCelda ? 'pl-8' : ''}`} data-testid={`lineas-sin-usar-${c.id}-${p.id}`}>
+            <span className="text-[11px] text-zinc-500">El documento trae además, sin sumar a ningún producto:</span>
+            {pendientes.map(l => {
+              const clave = `${c.id}|${p.id}|${l.descripcion}`;
+              return (
+                <button key={l.descripcion} type="button" disabled={agregandoLinea != null}
+                  onClick={async () => { setAgregandoLinea(clave); try { await onAgregarLinea!(c.id, l, p.id); } finally { setAgregandoLinea(null); } }}
+                  title={`Sumar «${l.descripcion}» al precio de este producto, como adicional`}
+                  className="px-2 py-0.5 rounded-md border border-dashed border-zinc-300 text-[11px] text-zinc-600 hover:border-teal-400 hover:text-teal-700 disabled:opacity-50">
+                  {agregandoLinea === clave ? 'Agregando…' : `+ Sumar ${l.descripcion.length > 42 ? `${l.descripcion.slice(0, 42).trim()}…` : l.descripcion}`}
+                  {l.cantidad != null && l.precioUnitario != null && <span className="text-zinc-400 tabular-nums"> · {l.cantidad} × {clp(l.precioUnitario)}</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
 
   return (
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden" data-testid="comparador-precios">
@@ -229,75 +325,26 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
                     </button>
                   )}
 
-                  {ofertas.map(({ c, item }) => {
-                    const cmp = compararPrecioConCosteo(item.precioUnitario, base);
-                    const est = ESTILO_VEREDICTO[cmp.veredicto];
-                    const incluido = item.precioBase === 0;
-                    const esElegida = compra?.[p.id] === c.id;
-                    const esMejor = mejor != null && item.precioUnitario === mejor;
-                    const detalleActivo = seleccion?.cotizacionId === c.id && seleccion.productoId === p.id;
-                    const al = alertas?.[`${c.id}:${p.id}`] ?? [];
-                    const t = tecnico?.[`${c.id}:${p.id}`];
-                    const et = t ? (ESTILO_TECNICO[t.estado] ?? ESTILO_TECNICO.NO_CORRIDO) : null;
-                    const reemplazadaPor = reemp.get(`${c.id}:${p.id}`);
-                    const bloqueada = reemplazadaPor != null && !esElegida;   // si ya estaba elegida se deja quitarla, no volver a elegirla
+                  {(() => {
+                    // Las reemplazadas por una cotización más nueva del mismo proveedor no se pueden elegir: van plegadas al final (la elegida se queda a la vista).
+                    const esOculta = (cid: number) => reemp.has(`${cid}:${p.id}`) && compra?.[p.id] !== cid;
+                    const vigentes = ofertas.filter(o => !esOculta(o.c.id));
+                    const viejas = ofertas.filter(o => esOculta(o.c.id));
+                    const verViejas = conReemplazadas.has(p.id);
                     return (
-                      <div key={c.id} className={`rounded-lg border px-3 py-2 flex items-center gap-x-4 gap-y-1 flex-wrap transition-colors ${reemplazadaPor != null ? 'opacity-50 bg-zinc-50 ' : ''}${esElegida ? 'border-teal-500 bg-teal-50/60 ring-1 ring-teal-200' : detalleActivo ? 'border-indigo-300 bg-indigo-50/30' : 'border-zinc-200 hover:border-zinc-300'}`}>
-                        {onElegirCelda && (
-                          <button type="button" onClick={() => onElegirCelda(p.id, c.id)} aria-pressed={esElegida} aria-label={`${esElegida ? 'Quitar de mi compra' : 'Comprar este producto a'} ${c.proveedorNombre}`} disabled={bloqueada}
-                            title={bloqueada ? `Reemplazada por la cotización #${reemplazadaPor} del mismo proveedor` : esElegida ? 'Quitar de mi compra' : 'Comprar este producto a este proveedor'} className={`p-1 -m-1 rounded-full focus-visible:ring-2 focus-visible:ring-teal-500 outline-none ${bloqueada ? 'cursor-not-allowed' : ''}`}>
-                            <span className={`flex w-5 h-5 rounded-full border items-center justify-center ${esElegida ? 'bg-teal-600 border-teal-600 text-white' : 'border-zinc-300 bg-white hover:border-teal-500'}`}>{esElegida && <Check size={12} />}</span>
+                      <>
+                        {vigentes.map(o => filaOferta(p, o, base, mejor))}
+                        {viejas.length > 0 && (
+                          <button type="button" onClick={() => setConReemplazadas(prev => { const n = new Set(prev); if (n.has(p.id)) n.delete(p.id); else n.add(p.id); return n; })}
+                            aria-expanded={verViejas} className="flex items-center gap-1 text-[11.5px] text-zinc-500 hover:text-zinc-800 px-1 py-0.5" data-testid={`reemplazadas-${p.id}`}>
+                            {verViejas ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                            {viejas.length} cotización{viejas.length === 1 ? '' : 'es'} anterior{viejas.length === 1 ? '' : 'es'} reemplazada{viejas.length === 1 ? '' : 's'} por una más nueva del mismo proveedor ({viejas.map(o => `#${o.c.id}`).join(', ')})
                           </button>
                         )}
-                        <div className="min-w-[170px] flex-1">
-                          <p className="text-[13px] font-semibold text-zinc-900 leading-tight" title={c.proveedorNombre}>{c.proveedorNombre}</p>
-                          <p className="text-[11px] text-zinc-400">Cotización #{c.id}{c.plazoEntregaTexto ? ` · ${c.plazoEntregaTexto}` : ''}</p>
-                          {reemplazadaPor != null && <p className="text-[11px] font-semibold text-zinc-500">Reemplazada por la #{reemplazadaPor} del mismo proveedor</p>}
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[14px] font-bold text-zinc-900 tabular-nums">{item.precioUnitario != null ? clp(item.precioUnitario) : 'sin precio'}</span>
-                          {esMejor && <span title="Mejor precio de este producto" className="inline-flex items-center gap-0.5 text-[10.5px] font-bold text-amber-600"><Star size={12} className="fill-amber-400" /> Mejor</span>}
-                          {incluido
-                            ? <span className="text-[11.5px] font-semibold text-sky-700">Incluido en otro producto</span>
-                            : <span className={`text-[11.5px] font-semibold px-1.5 py-0.5 rounded border ${est.chip}`}>{est.texto(cmp.diffPct)}</span>}
-                        </div>
-                        {tecnico && !incluido && (et && t
-                          ? <span title={`Ficha de ${t.modelo || 'este modelo'} contra las bases`} data-testid={`tecnico-${c.id}-${p.id}`} className={`text-[11.5px] font-semibold px-1.5 py-0.5 rounded border ${et.chip}`}>Ficha: {et.texto}{t.total > 0 ? ` ${t.cumple}/${t.total}` : ''}</span>
-                          : <span className="text-[11.5px] text-zinc-400">sin ficha técnica</span>)}
-                        {item.adicionales.length > 0 && <span className="text-[11px] text-zinc-400">incluye {item.adicionales.length} adicional{item.adicionales.length === 1 ? '' : 'es'}</span>}
-                        {al.map(x => <span key={x} className="text-[11.5px] font-bold text-rose-600">⚠ {x}</span>)}
-                        <span className="ml-auto flex items-center gap-1">
-                          {c.archivoUrl && (
-                            <button type="button" onClick={() => window.open(c.archivoUrl!, '_blank', 'noopener,noreferrer')} title="Abrir el documento de esta cotización"
-                              className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-teal-700 px-2 py-1 rounded-md hover:bg-white" data-testid={`ver-cotizacion-${c.id}-${p.id}`}>Ver cotización</button>
-                          )}
-                          {acciones && (
-                            <button type="button" onClick={() => acciones.onAsignar(c.id)} title="Cambiar a qué producto(s) está asignada esta cotización"
-                              className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-indigo-700 px-2 py-1 rounded-md hover:bg-white" data-testid={`cambiar-producto-${c.id}-${p.id}`}>Cambiar producto</button>
-                          )}
-                          <button type="button" onClick={() => onSeleccionar({ cotizacionId: c.id, productoId: p.id })} title="Ver el detalle de este precio (desglose, adicionales, avisos)"
-                            className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-indigo-700 px-2 py-1 rounded-md hover:bg-white"><Info size={13} /> Detalle</button>
-                        </span>
-                        {onAgregarLinea && !bloqueada && (pendientesPorCot.get(c.id)?.length ?? 0) > 0 && (
-                          <div className="basis-full flex flex-wrap items-center gap-1.5 border-t border-dashed border-zinc-200 pt-1.5 mt-0.5" data-testid={`lineas-sin-usar-${c.id}-${p.id}`}>
-                            <span className="text-[11px] text-zinc-500">Trae además, sin asignar:</span>
-                            {pendientesPorCot.get(c.id)!.map(l => {
-                              const clave = `${c.id}|${p.id}|${l.descripcion}`;
-                              return (
-                                <button key={l.descripcion} type="button" disabled={agregandoLinea != null}
-                                  onClick={async () => { setAgregandoLinea(clave); try { await onAgregarLinea(c.id, l, p.id); } finally { setAgregandoLinea(null); } }}
-                                  title={`Sumar «${l.descripcion}» al precio de este producto, como adicional`}
-                                  className="px-2 py-0.5 rounded-md border border-dashed border-zinc-300 text-[11px] text-zinc-600 hover:border-teal-400 hover:text-teal-700 disabled:opacity-50">
-                                  {agregandoLinea === clave ? 'Agregando…' : `+ ${l.descripcion.length > 42 ? `${l.descripcion.slice(0, 42).trim()}…` : l.descripcion}`}
-                                  {l.cantidad != null && l.precioUnitario != null && <span className="text-zinc-400 tabular-nums"> · {l.cantidad} × {clp(l.precioUnitario)}</span>}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
+                        {verViejas && viejas.map(o => filaOferta(p, o, base, mejor))}
+                      </>
                     );
-                  })}
+                  })()}
 
                   {sinOfertas && <p className="text-[12px] text-zinc-400">Todavía no hay ofertas para este producto: sube cotizaciones con «Cargar varias cotizaciones» o registra una compra directa.</p>}
 

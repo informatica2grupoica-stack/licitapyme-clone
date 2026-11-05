@@ -3,6 +3,11 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-05 — «Compara y elige»: cada oferta muestra qué incluye su precio (fase 1 del rediseño; `ComparadorPrecios.tsx`; tsc + eslint ok, SIN ver en navegador)
+- Reporte del dueño: la pantalla «no se entiende nada» y de AHN (#266, negocio 979) solo decía «incluye 3 adicionales». El dato sí estaba guardado (`compras_cotizacion_adicional`: 2 acoples + 15 m de manguera = $87.200 sobre $2.100.000); faltaba mostrarlo. Riesgo de fondo: «Mejor» comparaba el equipo solo de Aquapress contra equipo + accesorios de AHN.
+- Ahora, por oferta: desglose por unidad (producto solo + cada adicional con cantidad × precio + total), etiqueta «producto + N adicionales» / «solo el producto, sin adicionales», «% menos/más que lo costeado» y «Mejor precio». Las reemplazadas del mismo proveedor van plegadas en una línea (la elegida queda a la vista). «Ver cotización», «Ver detalle del precio» y «Cambiar producto» pasaron al menú «⋯». Las líneas sin sumar siguen en la oferta («+ Sumar …»). Sin cambios de datos ni cálculos.
+- Pendiente (propuesto, sin hacer): fase 2 = frase de recomendación por producto y «Mejor» = la más barata que cumple la ficha (cambia la regla: requiere OK del dueño); fase 3 = historial por producto (cotizaciones, reemplazos, adicionales, cambios de producto, elección) con los eventos de `registrarEvento`.
+
 ## 2026-11-05 — «Sincronizar con costeo» ahora SACA lo que ya no está en el costeo (2446-240-LE26, negocio 979; `sincronizarProductosConCosteo` en `compras.ts`, aviso en `ProductosCompraCard.tsx`; tsc + test ok, corrido contra la BD en 979, sin ver en navegador)
 - Reporte del dueño: al sincronizar, Compras no quedaba igual al costeo; tuvo que renunciar a mano 4 filas (RETIRO, ENTREGA y dos con el nombre cortado «impiador…»/«iltros…» de un costeo viejo).
 - Causa: la sincronización solo actualizaba y agregaba; por diseño nunca sacaba las filas que ya no estaban en el costeo. Además quedaba un duplicado (id 344, «Limpiador de filtros» ×2, con cotización) que nadie había visto.
