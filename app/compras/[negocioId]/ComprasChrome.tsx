@@ -33,6 +33,7 @@ import { CostoRealCard } from '@/app/negocios/[id]/CostoRealCard';
 import { ImportacionCard } from '@/app/negocios/[id]/ImportacionCard';
 import { ModalidadRetiroCard } from '@/app/negocios/[id]/ModalidadRetiroCard';
 import { GastosCard } from '@/app/negocios/[id]/GastosCard';
+import { ServiciosConSkuCard } from '@/app/negocios/[id]/ServiciosConSkuCard';
 import { RelojEntregaCard } from '@/app/negocios/[id]/RelojEntregaCard';
 import { IncidenciasCard } from '@/app/negocios/[id]/IncidenciasCard';
 import { EntregaCard } from '@/app/negocios/[id]/EntregaCard';
@@ -927,8 +928,13 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                   contenido: <ModalidadRetiroCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
                 { clave: 'importacion', titulo: 'Importación (si aplica)', ayuda: 'Solo si el producto viene del extranjero: flete, aduana y costo final puesto en bodega. Si no, sáltate esta pestaña.',
                   contenido: <ImportacionCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
-                { clave: 'gastos', titulo: 'Gastos extra', ayuda: 'Gastos que no son productos: fletes, puesta en marcha, viáticos, etc.',
-                  contenido: <GastosCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
+                { clave: 'gastos', titulo: 'Gastos extra', ayuda: 'Gastos que no son productos. Si necesita SKU, OC y factura (un flete o un adicional como una grúa), agrégalo con SKU y OC: va a aprobación solo ese ítem. Si no (colación, bencina, viáticos), anótalo como gasto.',
+                  contenido: (
+                    <div className="space-y-4">
+                      <ServiciosConSkuCard negocioId={negocioId} puedeOperar={puedeOperar} />
+                      <GastosCard negocioId={negocioId} puedeOperar={puedeOperar} />
+                    </div>
+                  ) },
                 { clave: 'resumen', titulo: 'Seguimiento · Resumen', ayuda: 'Para mirar cómo va: productos cubiertos, órdenes de compra emitidas, facturas recibidas y cuánto se gastó contra lo costeado.',
                   contenido: <ResumenGastosCard negocioId={negocioId} /> },
                 { clave: 'comparativo', titulo: 'Seguimiento · Comparativo', ayuda: 'Por producto y por orden de compra, todo neto: lo costeado, lo planeado en Licitank y lo que de verdad se compró en Obuma, para ver si coincide.',

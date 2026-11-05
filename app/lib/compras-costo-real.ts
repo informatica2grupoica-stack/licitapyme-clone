@@ -41,19 +41,24 @@ async function costoServiciosPorNegocio(ids: number[]): Promise<Map<number, { to
   const { hayColumnaServicio } = await import('@/app/lib/compras');
   if (!(await hayColumnaServicio())) return out;
   const [rows] = await pool.query(
-    `SELECT id, negocio_id, subestado FROM compras_producto WHERE es_servicio = 1 AND negocio_id IN (${placeholders(ids)}) AND subestado NOT IN ('RENUNCIADO', 'NO_ADJUDICADA')`, ids) as any;
-  const porNegocio = new Map<number, Array<{ id: number; subestado: string }>>();
-  for (const r of rows as any[]) porNegocio.set(Number(r.negocio_id), [...(porNegocio.get(Number(r.negocio_id)) || []), { id: Number(r.id), subestado: String(r.subestado) }]);
+    `SELECT id, negocio_id, subestado, cantidad FROM compras_producto WHERE es_servicio = 1 AND negocio_id IN (${placeholders(ids)}) AND subestado NOT IN ('RENUNCIADO', 'NO_ADJUDICADA')`, ids) as any;
+  const porNegocio = new Map<number, Array<{ id: number; subestado: string; cantidad: number }>>();
+  for (const r of rows as any[]) porNegocio.set(Number(r.negocio_id), [...(porNegocio.get(Number(r.negocio_id)) || []), { id: Number(r.id), subestado: String(r.subestado), cantidad: num(r.cantidad) > 0 ? num(r.cantidad) : 1 }]);
   if (porNegocio.size === 0) return out;
-  const { obtenerEscenarioElegido } = await import('@/app/lib/compras-aprobaciones');
+  const [{ obtenerEscenarioElegido }, { listarComprasRapidas }] = await Promise.all([import('@/app/lib/compras-aprobaciones'), import('@/app/lib/compras-compra-rapida')]);
   await Promise.all([...porNegocio.entries()].map(async ([negocioId, servicios]) => {
-    const esc = await obtenerEscenarioElegido(negocioId).catch(() => null);
+    const [esc, { compras: rapidas }] = await Promise.all([
+      obtenerEscenarioElegido(negocioId).catch(() => null),
+      listarComprasRapidas(negocioId).catch(() => ({ compras: [] as Array<{ productoId: number; estado: string; precioUnitario: number | null }> })),
+    ]);
     let detalle: any = null;
     try { detalle = esc ? (typeof esc.detalle_json === 'string' ? JSON.parse(esc.detalle_json) : esc.detalle_json) : null; } catch { /* escenario ilegible: sin costo de servicios */ }
     const subtotalDe = new Map<number, number>((detalle?.porProducto || []).map((x: any) => [Number(x.productoId), num(x.subtotal)]));
+    // Flete o adicional agregado después de aprobar (Gastos extra, 05-nov-2026): no está en el escenario elegido; cuenta su compra rápida APROBADA.
+    const rapidaAprobada = new Map(rapidas.filter(c => c.estado === 'APROBADA' && c.precioUnitario != null).map(c => [c.productoId, c.precioUnitario as number]));
     let total = 0, enOc = 0;
     for (const s of servicios) {
-      const v = subtotalDe.get(s.id) || 0;
+      const v = subtotalDe.get(s.id) ?? (rapidaAprobada.has(s.id) ? rapidaAprobada.get(s.id)! * s.cantidad : 0);
       total += v;
       if (SUBESTADOS_CON_COMPRA.has(s.subestado)) enOc += v;
     }

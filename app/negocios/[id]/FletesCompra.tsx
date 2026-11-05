@@ -14,7 +14,7 @@ const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 const monto = (t: string): number | null => { const n = Number(String(t).replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.')); return Number.isFinite(n) && n > 0 ? n : null; };
 
 /** «778977893» → «77.897.789-3». */
-const formatearRut = (v: string) => {
+export const formatearRut = (v: string) => {
   const l = v.replace(/[^\dkK]/g, '').toUpperCase().slice(0, 9);
   return l.length < 2 ? l : `${l.slice(0, -1).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}-${l.slice(-1)}`;
 };
@@ -30,7 +30,7 @@ export function rutValido(rut: string): boolean {
   return dv === (r === 11 ? '0' : r === 10 ? 'K' : String(r));
 }
 
-interface ProductoFlete { id: number; descripcion: string; cantidad?: number | null; esServicio?: boolean; subestado?: string }
+interface ProductoFlete { id: number; descripcion: string; cantidad?: number | null; esServicio?: boolean; servicioTipo?: 'FLETE' | 'ADICIONAL' | null; subestado?: string }
 interface CotizacionFlete {
   id: number; proveedorNombre: string; proveedorRut: string | null; archivoUrl: string | null; descripcionLibre: string | null; moneda: string;
   plazoEntregaTexto: string | null; vigenciaAt?: string | null;
@@ -52,7 +52,7 @@ export function FletesCompra({ negocioId, puedeOperar, productos, cotizaciones, 
   const [quitando, setQuitando] = useState(false);
   const [leyendo, setLeyendo] = useState<{ estado: 'leyendo' | 'ok' | 'sin_precio' | 'error'; texto?: string } | null>(null);
   const [provInfo, setProvInfo] = useState<{ estado: 'cargando' | 'sistema' | 'obuma' | 'no_existe' | 'error'; nombre?: string } | null>(null);
-  const fletes = productos.filter(p => p.esServicio);
+  const fletes = productos.filter(p => p.esServicio && p.servicioTipo !== 'ADICIONAL');   // los adicionales (grúa, armado) viven en «Gastos extra»
   if (fletes.length === 0 && !puedeOperar) return null;
 
   /** Al completar un RUT válido: busca el proveedor en nuestro sistema y, si no está, en Obuma, y rellena el nombre si está vacío. */

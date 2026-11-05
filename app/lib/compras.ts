@@ -1922,6 +1922,7 @@ export async function engancharOrdenesCompraPendientes(limite = 25): Promise<{ r
 // El proyecto es dicotómico (se entrega o no se entrega, §14.1); lo que tiene grados es CADA
 // producto. "Cobertura total o nada" (§14.2): con un solo producto pendiente, el proyecto entero
 // no se puede entregar.
+export type TipoServicio = 'FLETE' | 'ADICIONAL';
 export type SubestadoProducto = 'PENDIENTE' | 'COTIZANDO' | 'COMPRADO' | 'EN_BODEGA' | 'LISTO_ENTREGA' | 'ENTREGADO' | 'RENUNCIADO' | 'NO_ADJUDICADA';
 
 export interface ProductoCompra {
@@ -1932,6 +1933,8 @@ export interface ProductoCompra {
   productoPadreId: number | null;
   /** Servicio que se compra con proveedor, cotización, SKU y OC pero no se vende (flete de toda la entrega, armado; migration-177). No es del costeo ni del acta. */
   esServicio: boolean;
+  /** Tipo del servicio (migration-181): 'FLETE' o 'ADICIONAL' (grúa, armado…). null = no es servicio o es anterior a la migración (se trata como flete). */
+  servicioTipo: TipoServicio | null;
   renunciaMotivo: string | null; renunciaPropuestaPorNombre: string | null; renunciaPropuestaAt: string | null;
   renunciaAprobadaPorNombre: string | null; renunciaAprobadaAt: string | null;
   /** Cantidad a comprar cambiada a mano desde «Compara precios» (migration-179): `cantidad` es la que se compra y `cantidadCosteo`,
@@ -2183,6 +2186,14 @@ export function hayColumnaServicio(): Promise<boolean> {
   return columnaServicio;
 }
 
+/** ¿Ya está aplicada migration-181 (compras_producto.servicio_tipo)? Sin ella todo funciona y los servicios se tratan como fletes. */
+let columnaServicioTipo: Promise<boolean> | null = null;
+export function hayColumnaServicioTipo(): Promise<boolean> {
+  columnaServicioTipo ??= pool.query(`SHOW COLUMNS FROM compras_producto LIKE 'servicio_tipo'`)
+    .then(([r]) => (r as any[]).length > 0).catch(() => { columnaServicioTipo = null; return false; });
+  return columnaServicioTipo;
+}
+
 /** ¿Ya está aplicada migration-179 (cantidad a comprar con observación)? Igual que hayColumnaServicio: sin ella todo funciona como antes. */
 let columnaCantidadCompra: Promise<boolean> | null = null;
 export function hayColumnaCantidadCompra(): Promise<boolean> {
@@ -2192,8 +2203,8 @@ export function hayColumnaCantidadCompra(): Promise<boolean> {
 }
 
 export async function listarProductosCompra(negocioId: number): Promise<ProductoCompra[]> {
-  const [conServicio, conCantidad] = await Promise.all([hayColumnaServicio(), hayColumnaCantidadCompra()]);
-  const colServicio = conServicio ? 'es_servicio' : '0 AS es_servicio';
+  const [conServicio, conCantidad, conTipo] = await Promise.all([hayColumnaServicio(), hayColumnaCantidadCompra(), hayColumnaServicioTipo()]);
+  const colServicio = `${conServicio ? 'es_servicio' : '0 AS es_servicio'}, ${conTipo ? 'servicio_tipo' : 'NULL AS servicio_tipo'}`;
   const colCantidad = conCantidad
     ? `cantidad_costeo, cantidad_motivo, cantidad_cambiada_por_nombre, DATE_FORMAT(cantidad_cambiada_at, '%Y-%m-%d %H:%i:%s') AS cantidad_cambiada_at`
     : 'NULL AS cantidad_costeo, NULL AS cantidad_motivo, NULL AS cantidad_cambiada_por_nombre, NULL AS cantidad_cambiada_at';
@@ -2208,7 +2219,8 @@ export async function listarProductosCompra(negocioId: number): Promise<Producto
     id: r.id, negocioId: r.negocio_id, correlativo: r.correlativo, descripcion: r.descripcion,
     cantidad: r.cantidad == null ? null : Number(r.cantidad), unidad: r.unidad,
     montoUnitario: r.monto_unitario == null ? null : Number(r.monto_unitario),
-    subestado: r.subestado, productoPadreId: r.producto_padre_id ?? null, esServicio: !!r.es_servicio, renunciaMotivo: r.renuncia_motivo,
+    subestado: r.subestado, productoPadreId: r.producto_padre_id ?? null, esServicio: !!r.es_servicio,
+    servicioTipo: r.es_servicio && (r.servicio_tipo === 'FLETE' || r.servicio_tipo === 'ADICIONAL') ? r.servicio_tipo : null, renunciaMotivo: r.renuncia_motivo,
     renunciaPropuestaPorNombre: r.renuncia_propuesta_por_nombre, renunciaPropuestaAt: r.renuncia_propuesta_at,
     renunciaAprobadaPorNombre: r.renuncia_aprobada_por_nombre, renunciaAprobadaAt: r.renuncia_aprobada_at,
     cantidadCosteo: r.cantidad_costeo == null ? null : Number(r.cantidad_costeo), cantidadMotivo: r.cantidad_motivo ?? null,
@@ -2433,25 +2445,27 @@ export async function eliminarParteProducto(productoId: number, actorId: number,
  *  precio de venta, sin producto del que colgar (a diferencia de una «parte»), fuera de la cobertura de entrega y del acta. Su costo va al
  *  costo real como gasto. Es costo, no alcance de lo vendido: agregarlo NO invalida las aprobaciones ya dadas. */
 export async function crearServicioProducto(
-  negocioId: number, datos: { descripcion: string; cantidad: number; unidad?: string | null },
+  negocioId: number, datos: { descripcion: string; cantidad: number; unidad?: string | null; tipo?: TipoServicio | null },
   actorId: number, actorNombre: string | null,
 ): Promise<number> {
   const descripcion = datos.descripcion.trim().slice(0, 500);
   if (!descripcion) throw new Error('Falta qué servicio se compra (ej. Transporte y armado a la obra).');
   if (!Number.isFinite(datos.cantidad) || datos.cantidad <= 0) throw new Error('La cantidad debe ser mayor a cero.');
   if (!(await hayColumnaServicio())) throw new Error('Falta aplicar la migración de servicios (migration-177) en esta base.');
+  const conTipo = await hayColumnaServicioTipo();
+  if (datos.tipo === 'ADICIONAL' && !conTipo) throw new Error('Falta aplicar la migración 181 (node scripts/aplicar-migration-181.mjs) para los adicionales.');
   const [rows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
   const negocio = (rows as any[])[0];
   if (!negocio) throw new Error('Negocio no encontrado.');
   const ahora = ahoraChileSQL();
   const [r] = await pool.query(
-    `INSERT INTO compras_producto (negocio_id, correlativo, producto_padre_id, es_servicio, descripcion, cantidad, unidad, monto_unitario, subestado, created_at, updated_at)
-     VALUES (?, NULL, NULL, 1, ?, ?, ?, NULL, 'PENDIENTE', ?, ?)`,
-    [negocioId, descripcion, datos.cantidad, datos.unidad?.trim().slice(0, 30) || null, ahora, ahora],
+    `INSERT INTO compras_producto (negocio_id, correlativo, producto_padre_id, es_servicio, ${conTipo ? 'servicio_tipo, ' : ''}descripcion, cantidad, unidad, monto_unitario, subestado, created_at, updated_at)
+     VALUES (?, NULL, NULL, 1, ${conTipo ? '?, ' : ''}?, ?, ?, NULL, 'PENDIENTE', ?, ?)`,
+    [negocioId, ...(conTipo ? [datos.tipo ?? 'FLETE'] : []), descripcion, datos.cantidad, datos.unidad?.trim().slice(0, 30) || null, ahora, ahora],
   ) as any;
   await registrarEvento({
     tipo: 'COMPRAS_SERVICIO_AGREGADO', licitacionCodigo: negocio.licitacion_codigo, actorId, actorNombre,
-    mensaje: `Se agregó el servicio «${descripcion}» (${datos.cantidad}${datos.unidad ? ` ${datos.unidad}` : ''}): se cotiza, lleva SKU y OC, y no se vende.`,
+    mensaje: `Se agregó ${datos.tipo === 'ADICIONAL' ? 'el adicional' : 'el servicio'} «${descripcion}» (${datos.cantidad}${datos.unidad ? ` ${datos.unidad}` : ''}): se cotiza, lleva SKU y OC, y no se vende.`,
     metadata: { negocio_id: negocioId, producto_id: r.insertId },
   }).catch(() => {});
   return r.insertId as number;
