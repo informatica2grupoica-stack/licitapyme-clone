@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconPackage as PackageCheck, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders, IconBug as Bug, IconCoin as Coin, IconBrain as Brain, IconLock as Lock, IconBrandWhatsapp as Whatsapp } from '@tabler/icons-react';
+import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconPackage as PackageCheck, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconFileInvoice as FileInvoice,IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders, IconBug as Bug, IconCoin as Coin, IconBrain as Brain, IconLock as Lock, IconBrandWhatsapp as Whatsapp } from '@tabler/icons-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { Tooltip } from '@/app/components/ui/Tooltip';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
@@ -70,6 +70,8 @@ const NAV_GROUPS: NavGroup[] = [
       // Vista transversal de las OC de las dos empresas (ver app/lib/ordenes-compra.ts). Admin-only
       // porque toca RUT/montos de ambas empresas a la vez, igual criterio que Compras.
       { label: 'Órdenes de compra', href: '/ordenes-compra', icon: <Receipt size={17} />, adminOnly: true },
+      // OC que Comercial MP emite desde Licitank (migration-180), de todas las licitaciones, con su factura. Pedido del dueño 05-nov-2026.
+      { label: 'OC Comercial MP', href: '/compras/oc-comercial-mp', icon: <FileInvoice size={17} />, adminOnly: true },
       // Entregas: no es una consola, es algo que cada involucrado tiene que hacer. Visible para
       // admin, para quien tenga el permiso `entrega_proyectos`, y para cualquiera que tenga una
       // entrega asignada (el responsable del negocio ganado, aunque no tenga permisos especiales).
@@ -141,7 +143,7 @@ const NAV_GROUPS: NavGroup[] = [
 
 // Perfil de Compras: ítems del menú visibles y prefijos de página permitidos. Las páginas de
 // detalle de negocio/licitación quedan permitidas (van enlazadas desde Compras) pero sin ítem propio.
-const HREFS_SOLO_COMPRAS = ['/compras', '/compras/proyectos', '/compras/proveedores', '/logistica/fleteros', '/ordenes-compra', '/entregas', '/mis-reportes'];
+const HREFS_SOLO_COMPRAS = ['/compras', '/compras/proyectos', '/compras/proveedores', '/compras/oc-comercial-mp', '/logistica/fleteros', '/ordenes-compra', '/entregas', '/mis-reportes'];
 const PAGINAS_SOLO_COMPRAS = ['/compras', '/logistica', '/ordenes-compra', '/entregas', '/perfil', '/mis-reportes', '/negocios/', '/licitacion/'];
 
 const AVATAR_BG: Record<string, string> = {
@@ -275,7 +277,10 @@ let colapsadoCache: boolean | null = null;
 function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMobile: () => void }) {
   const pathname = usePathname();
   const { usuario } = useSession();
-  const isActive = (item: NavItem) => (item.exact ? pathname === item.href : pathname.startsWith(item.href));
+  const calza = (item: NavItem) => (item.exact ? pathname === item.href : pathname.startsWith(item.href));
+  // Si un ítem más específico también calza (/compras/proyectos dentro de /compras), se marca solo ese.
+  const isActive = (item: NavItem) => calza(item)
+    && !NAV_GROUPS.some(g => g.items.some(o => o.href.length > item.href.length && o.href.startsWith(item.href) && calza(o)));
 
   // Si el módulo ya sabe la preferencia (o sea: no es la primera carga), se arranca con ella.
   // En la primera carga arranca en false para coincidir con el HTML del servidor, que no puede
@@ -402,6 +407,7 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
       if (i.href === '/logistica/fleteros' && puedeVerCompras) return true;
       if (i.href === '/compras/proveedores' && puedeVerCompras) return true;
       if (i.href === '/compras/proyectos' && puedeVerCompras) return true;
+      if (i.href === '/compras/oc-comercial-mp' && puedeVerCompras) return true;
       return false;
     }),
   })).map(group => ({

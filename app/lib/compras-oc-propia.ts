@@ -87,6 +87,27 @@ export async function listarOcPropias(negocioId: number): Promise<OcPropia[]> {
   return (rows as any[]).map(filaAOc);
 }
 
+export interface OcPropiaConNegocio extends OcPropia { negocioId: number; licitacionCodigo: string | null; licitacionNombre: string | null }
+
+/** Todas las OC propias de una empresa-cliente (menú «OC Comercial MP»), con la licitación de cada una. */
+export async function listarTodasOcPropias(clienteId: number): Promise<OcPropiaConNegocio[]> {
+  const [rows] = await pool.query(
+    `SELECT o.*, n.licitacion_codigo, n.licitacion_nombre
+       FROM compras_oc_propia o JOIN negocios n ON n.id = o.negocio_id
+      WHERE COALESCE(n.cliente_id, 1) = ? ORDER BY o.id DESC`, [clienteId],
+  ) as any;
+  return (rows as any[]).map(r => ({ ...filaAOc(r), negocioId: r.negocio_id, licitacionCodigo: r.licitacion_codigo ?? null, licitacionNombre: r.licitacion_nombre ?? null }));
+}
+
+/** Negocio de una OC propia, solo si es de esa empresa-cliente (para abrir su PDF desde el menú). */
+export async function negocioDeOcPropia(ocId: number, clienteId: number): Promise<number | null> {
+  const [rows] = await pool.query(
+    `SELECT o.negocio_id FROM compras_oc_propia o JOIN negocios n ON n.id = o.negocio_id WHERE o.id = ? AND COALESCE(n.cliente_id, 1) = ? LIMIT 1`,
+    [ocId, clienteId],
+  ) as any;
+  return (rows as any[])[0]?.negocio_id ?? null;
+}
+
 async function leerOc(negocioId: number, ocId: number): Promise<OcPropia> {
   const [rows] = await pool.query(`SELECT * FROM compras_oc_propia WHERE id = ? AND negocio_id = ? LIMIT 1`, [ocId, negocioId]) as any;
   const r = (rows as any[])[0];
