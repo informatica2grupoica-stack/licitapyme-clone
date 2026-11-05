@@ -197,10 +197,10 @@ const RE_FILA_SOLO_NETO = /^(?:(?:valor|monto|precio|total)\s+)?net[oa]s?(?:\s+\
 
 // `anexar`: el monto se agrega al final del texto de la celda del propio rótulo (no hay casilla vacía a su derecha).
 // `dosPuntos`: la celda ya trae un «$» impreso y el monto se escribe a continuación, en el mismo párrafo.
-export interface RellenoPie { paraId: string; indiceGlobal: number; valor: string; etiqueta: string; anexar?: boolean; indiceParrafoReal?: number; dosPuntos?: boolean }
+export interface RellenoPie { paraId: string; indiceGlobal: number; valor: string; etiqueta: string; anexar?: boolean; indiceParrafoReal?: number; dosPuntos?: boolean; holguraRedondeoIva?: number }
 
 // Celda cuyo único contenido es el signo de moneda («$»): es la casilla del monto, no texto propio.
-const soloMoneda = (c: { texto: string }) => /^(?:US$|CLP$|$)$/.test(c.texto.trim());
+const soloMoneda = (c: { texto: string }) => /^(?:US\$|CLP\$|\$)$/.test(c.texto.trim());
 
 function textoDeFila(celdas: { texto: string }[]): string {
   return celdas.map(c => c.texto).filter(Boolean).join(' ').trim();
@@ -245,6 +245,7 @@ export function calcularTotalesAlPie(
     const filasPie: { celdas: CeldaTablaCruda[]; rotulo: string }[] = [];
     const netosSueltos: typeof filasPie = [];
     let total = 0;
+    let unidades = 0;
     let itemsConDato = 0;
     let completo = true;
     for (const fila of t.filas.slice(1)) {
@@ -273,7 +274,9 @@ export function calcularTotalesAlPie(
       if (iCantidad >= 0) {
         const cantidad = Number(String(fila.celdas[iCantidad]?.texto ?? '').trim().replace(',', '.'));
         total += Number.isFinite(cantidad) && cantidad > 0 ? cantidad * precio : precio;
+        unidades += Number.isFinite(cantidad) && cantidad > 0 ? cantidad : 1;
       } else {
+        unidades += 1;
         total += precio;
       }
     }
@@ -309,7 +312,7 @@ export function calcularTotalesAlPie(
       if (!anexar && (!celda?.ultimoParaId || celda.indiceGlobal == null)) continue;
       let valor: number | null = null;
       if (unitarioConIva) {
-        if (!RE_PIE_BRUTO.test(fila.rotulo) && (RE_PIE_IVA.test(fila.rotulo) || /net[oa]s?|sin iva/.test(rotuloPie(fila)))) continue;
+        if (!RE_PIE_BRUTO.test(fila.rotulo) && (RE_PIE_IVA.test(fila.rotulo) || /\bnet[oa]s?\b|\bsin iva\b/.test(rotuloPie(fila)))) continue;
         valor = Math.round(total);
       } else if (RE_PIE_BRUTO.test(fila.rotulo)) {
         // neto + IVA YA REDONDEADO, no round(neto × 1,19): así el papel cuadra a la vista (las
@@ -332,6 +335,9 @@ export function calcularTotalesAlPie(
       out.push({
         paraId: celda!.ultimoParaId!, indiceGlobal: celda!.indiceGlobal!, etiqueta: fila.rotulo.slice(0, 80),
         valor: monto, ...(soloMoneda(celda!) ? { dosPuntos: true } : {}),
+        // Cada unitario con IVA se redondeó al peso: el total puede alejarse de costeo × 1,19 hasta
+        // ½ peso por unidad. El guardarraíl contra el costeo (auditor-verificacion-total.ts) lo admite.
+        ...(unitarioConIva ? { holguraRedondeoIva: Math.ceil(unidades / 2) } : {}),
       });
     }
   }

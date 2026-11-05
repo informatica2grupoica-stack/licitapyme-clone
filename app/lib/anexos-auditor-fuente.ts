@@ -213,6 +213,21 @@ export function resolverCamposSueltosConAuditor(etiquetas: string[], datos: Dato
   return resultados;
 }
 
+// «PLAZO DE ENTREGA: ______ días hábiles…» (4844-24-LE26, Anexo N°5): el papel ya trae la unidad
+// impresa después de la raya, así que va solo el número — con el plazo del Auditor completo salía
+// «1 día habil días hábiles». Si el Auditor dice corridos y el papel hábiles (o al revés) no se
+// convierte nada: null, la casilla queda para el equipo.
+export function plazoSinUnidadImpresa(valor: string, textoDespues: string): string | null {
+  const impresa = textoDespues.match(/^\s*d[ií]as?\b\s*(h[aá]bil(?:es)?|corridos?)?/i);
+  if (!impresa) return valor;
+  const m = valor.match(/^\s*(\d+)\s*(?:d[ií]as?\b\s*(h[aá]bil(?:es)?|corridos?)?)?\s*$/i);
+  if (!m) return valor;
+  const tipo = (s?: string) => (s ? (/^h/i.test(s) ? 'habil' : 'corrido') : null);
+  const enPapel = tipo(impresa[1]), enValor = tipo(m[2]);
+  if (enPapel && enValor && enPapel !== enValor) return null;
+  return m[1];
+}
+
 /** Precio por línea del bloque COMERCIAL — mismo rol que matchearPreciosConIA pero desde el
  *  Auditor ya aprobado en vez del Costeo. Se intenta ANTES que el Costeo (ver anexos-rellenar.ts):
  *  si el Auditor ya tiene el precio visado, es más autoritativo que la planilla que lo calculó. */

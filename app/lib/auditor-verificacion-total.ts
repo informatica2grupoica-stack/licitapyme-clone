@@ -72,9 +72,14 @@ export function verificarTotalEconomico(args: {
   totalCosteoNeto: number | null;
   /** Cuántas líneas de precio tiene el anexo — define la holgura de redondeo admitida. */
   lineas?: number;
+  /** Pesos de holgura contra el bruto cuando el anexo pide el UNITARIO con IVA: cada unitario se
+   *  redondea al peso, así que el total escrito puede alejarse de neto × 1,19 hasta ½ peso por
+   *  unidad (4844-24-LE26: $8 en 131 unidades). Solo vale para la referencia con IVA. */
+  holguraConIva?: number;
 }): VerificacionTotal {
   const { totalEnAnexo, totalCosteoNeto } = args;
   const holgura = Math.max(1, args.lineas ?? 1) * TOLERANCIA_POR_LINEA;
+  const holguraIva = Math.max(holgura, args.holguraConIva ?? 0);
 
   // Sin costeo no hay contra qué comparar: no se bloquea, pero se dice. El chequeo de que HAYA
   // costeo vive en auditor-generacion.ts; acá no se duplica.
@@ -99,7 +104,7 @@ export function verificarTotalEconomico(args: {
   if (difNeto <= holgura) {
     return { calza: true, diferencia: 0, referencia: 'neto', mensaje: `El total del anexo (${fmt(totalEnAnexo)}) coincide con el costeo aprobado.` };
   }
-  if (difIva <= holgura) {
+  if (difIva <= holguraIva) {
     return { calza: true, diferencia: 0, referencia: 'con_iva', mensaje: `El total del anexo (${fmt(totalEnAnexo)}) coincide con el costeo aprobado, con IVA incluido.` };
   }
 

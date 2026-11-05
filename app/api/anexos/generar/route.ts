@@ -54,7 +54,7 @@ async function subirYRegistrar(codigo: string, nombre: string, buffer: Buffer, u
  * precio unitario o total por línea, y equivocarse ahí sería peor que no verificar.
  */
 async function verificarTotalContraCosteo(
-  codigo: string, totalesEscritos: { etiqueta: string; valor: string }[],
+  codigo: string, totalesEscritos: { etiqueta: string; valor: string; holguraRedondeoIva?: number }[],
 ): Promise<VerificacionTotal | null> {
   if (!totalesEscritos?.length) return null;
 
@@ -71,7 +71,8 @@ async function verificarTotalContraCosteo(
   const neto = totalesEscritos.find(t => /neto/i.test(t.etiqueta) && !/iva/i.test(t.etiqueta));
   const totalEnAnexo = neto ? montoDesdeTexto(neto.valor) : Math.max(...totalesEscritos.map(t => montoDesdeTexto(t.valor)));
 
-  return verificarTotalEconomico({ totalEnAnexo, totalCosteoNeto: Number(totalCosteoNeto) });
+  const holguraConIva = Math.max(0, ...totalesEscritos.map(t => t.holguraRedondeoIva ?? 0));
+  return verificarTotalEconomico({ totalEnAnexo, totalCosteoNeto: Number(totalCosteoNeto), holguraConIva });
 }
 
 export async function POST(request: NextRequest) {

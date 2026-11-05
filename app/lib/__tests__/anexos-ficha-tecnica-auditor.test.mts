@@ -60,3 +60,15 @@ test('un documento sin columna «CUMPLE» no es una ficha técnica: su «País»
   const { matches, motivos } = resolverFichaTecnicaConAuditor(['Marca', 'País'], datos(true), TITULO);
   assert.equal(matches.length + motivos.size, 0);
 });
+
+// 4844-24-LE26, ANEXO N°5: «PLAZO DE ENTREGA DE LOS PRODUCTOS: ______ días hábiles…» — el papel
+// ya imprime la unidad; con el valor del Auditor entero salía «1 día habil días hábiles».
+test('plazo en raya con la unidad impresa: va solo el número', async () => {
+  const { plazoSinUnidadImpresa } = await import('../anexos-auditor-fuente');
+  assert.equal(plazoSinUnidadImpresa('1 día habil', ' días hábiles a contar de la aceptación'), '1');
+  assert.equal(plazoSinUnidadImpresa('10 días hábiles', ' DIAS HABILES'), '10');
+  assert.equal(plazoSinUnidadImpresa('5', ' días corridos'), '5');
+  assert.equal(plazoSinUnidadImpresa('5 días corridos', ' días hábiles'), null, 'corridos ≠ hábiles: no se convierte');
+  assert.equal(plazoSinUnidadImpresa('1 día habil', ' a contar de la orden'), '1 día habil', 'sin unidad impresa, va completo');
+  assert.equal(plazoSinUnidadImpresa('Inmediato', ' días hábiles'), 'Inmediato');
+});

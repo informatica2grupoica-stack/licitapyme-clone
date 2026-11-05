@@ -2745,3 +2745,43 @@ test('«( ) Persona Natural / ( ) Persona Jurídica / ( ) Otra» es un grupo par
   const leyes = normalizarParaIds(NS + p('(Ley 19.886) aplica') + p('(Decreto 250) aplica') + FIN).xml;
   assert.equal(analizarAnexo(leyes).gruposCheckbox.length, 0);
 });
+
+// 4844-24-LE26, ANEXO N°5 (2026-11-05): «DESCRIPCION | CANTIDAD | VALOR UNITARIO CON IVA | VALOR
+// TOTAL CON IVA», con la primera fila de productos y el pie trayendo «$» + espacios de relleno.
+// Antes: la fila del escáner se tomaba por encabezado (las demás quedaban bajo la columna «$»),
+// la columna «CON IVA» no recibía el precio del costeo y el pie quedaba vacío.
+test('unitario CON IVA con celdas «$»: encabezado real, total por línea y pie con IVA (4844-24-LE26)', () => {
+  const PESOS = '$                      ';
+  const xml = NS + tabla(
+    fila('', 'DESCRIPCION', 'CANTIDAD', 'VALOR UNITARIO CON IVA', 'VALOR TOTAL CON IVA'),
+    fila('', 'ESCANER DE DOCUMENTOS DS-530', '16', PESOS, PESOS),
+    fila('', 'IMPRESORA CANNON MAXIFY GX7110', '12', '', ''),
+    fila('Total con IVA', PESOS, PESOS),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const tablas = extraerTablasCrudo(norm);
+  const [f1, f2, pie] = tablas[0].filas.slice(1);
+
+  const porIndice = new Map(detectarCandidatosTabla(norm).map(c => [c.indice, c]));
+  const unitarioEscaner = porIndice.get(f1.celdas[3].indiceGlobal!);
+  assert.match(unitarioEscaner?.etiqueta ?? '', /— VALOR UNITARIO CON IVA$/, 'la fila con «$» no es el encabezado');
+  assert.equal(unitarioEscaner?.dosPuntos, true);
+  assert.match(porIndice.get(f2.celdas[4].indiceGlobal!)?.etiqueta ?? '', /— VALOR TOTAL CON IVA$/);
+
+  // Los unitarios ya vienen con IVA (neto × 1,19 redondeado, ver precioSegunColumna).
+  const valores = new Map([[f1.celdas[3].indiceGlobal!, 602_771], [f2.celdas[3].indiceGlobal!, 553_826]]);
+  const valor = (i: number) => valores.get(i) ?? null;
+  assert.deepEqual(calcularTotalesPorLinea(tablas, valor).map(r => [r.valor, !!r.dosPuntos]), [['9.644.336', true], ['6.645.912', false]]);
+
+  const pieR = calcularTotalesAlPie(tablas, valor);
+  assert.equal(pieR.length, 1, JSON.stringify(pieR));
+  assert.equal(pieR[0].valor, '16.290.248', 'la suma de los totales con IVA, sin volver a sumar IVA');
+  assert.equal(pieR[0].indiceGlobal, pie.celdas[2].indiceGlobal, 'bajo la columna del total');
+  assert.equal(pieR[0].dosPuntos, true);
+  assert.equal(pieR[0].holguraRedondeoIva, 14, '½ peso por unidad (28 unidades)');
+
+  // En el papel el número reemplaza los espacios de relleno y va pegado al «$».
+  const escrito = rellenarFinDeParrafo(norm, f1.celdas[3].ultimoParaId!, '602.771');
+  const parrafo = escrito.match(new RegExp(`<w:p\b[^>]*w14:paraId="${f1.celdas[3].ultimoParaId}"[\s\S]*?</w:p>`))![0];
+  assert.equal([...parrafo.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map(t => t[1]).join(''), '$602.771');
+});

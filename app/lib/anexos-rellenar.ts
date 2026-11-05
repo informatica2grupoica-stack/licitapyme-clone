@@ -41,7 +41,7 @@ import { esCandidatoDePrecioUnitario, esPrecioUnitarioConIva } from '@/app/lib/a
 import { resolverTablaProductosEnBlanco } from '@/app/lib/anexos-oferta-tecnica-tabla';
 import { resolverMontoUnicoOferta, resolverPieApilado, porcentajeIvaDeclarado, totalNetoDeItemsCosteo, montoEnPalabras } from '@/app/lib/anexos-monto-oferta';
 import {
-  resolverTablaConAuditor, resolverPreciosConAuditor, resolverCamposSueltosConAuditor, resolverFichaTecnicaConAuditor,
+  resolverTablaConAuditor, resolverPreciosConAuditor, resolverCamposSueltosConAuditor, plazoSinUnidadImpresa, resolverFichaTecnicaConAuditor,
   type DatosAuditorAnexo,
 } from '@/app/lib/anexos-auditor-fuente';
 import { calcularTotalesPorSeccion, calcularTotalesAlPie, calcularTotalesPorLinea, calcularMontosTotalesPorLineaSinUnitario, celdasDeRellenoDelPie, resolverTablaResumen, tituloDeTabla, encabezadosLibres, type TituloCercano } from '@/app/lib/anexos-totales-seccion';
@@ -369,7 +369,7 @@ async function resolverTodo(
     pendientesTrasAuditor = [];
     for (const c of pendientes) {
       const m = mapaAuditor.get(c.etiqueta);
-      if (m) { matcheados.push({ c, campo: 'auditor_tecnico_comercial', valor: m.valor, via: 'auditor' }); pendientesConMotivo.delete(c.indice); }
+      if (m) { matcheados.push({ c, campo: 'auditor_tecnico_comercial', valor: m.valor, via: 'auditor', ...(c.dosPuntos ? { dosPuntos: true } : {}) }); pendientesConMotivo.delete(c.indice); }
       else pendientesTrasAuditor.push(c);
     }
   }
@@ -405,7 +405,7 @@ async function resolverTodo(
     pendientesTrasPrecio = [];
     for (const c of pendientesTrasAuditor) {
       const m = mapaPrecio.get(c.etiqueta);
-      if (m) { matcheados.push({ c, campo: 'precio_unitario_costeo', valor: fmtNumeroCL(precioSegunColumna(c.etiqueta, m.precioUnitario, parrafos)), via: 'costeo' }); pendientesConMotivo.delete(c.indice); }
+      if (m) { matcheados.push({ c, campo: 'precio_unitario_costeo', valor: fmtNumeroCL(precioSegunColumna(c.etiqueta, m.precioUnitario, parrafos)), via: 'costeo', ...(c.dosPuntos ? { dosPuntos: true } : {}) }); pendientesConMotivo.delete(c.indice); }
       else pendientesTrasPrecio.push(c);
     }
   }
@@ -556,6 +556,7 @@ async function resolverTodo(
 //   · «En palabras» es el monto que se acaba de escribir arriba (hasta 3 párrafos, mismo anexo),
 //     con letras. Sin monto arriba no se escribe nada.
 const IVA_CHILE_POR_DEFECTO = 19; // decisión del dueño, 26-oct-2026 (ver anexos-totales-seccion.ts)
+
 const DISTANCIA_MAX_MONTO_EN_PALABRAS = 3;
 
 function resolverMontoYPlazoInline(
@@ -582,7 +583,9 @@ function resolverMontoYPlazoInline(
     const anexo = anexoDe(p.b.indiceParrafo);
     const plazo = datosAuditor ? resolverCamposSueltosConAuditor([etiqueta], datosAuditor)[0] : undefined;
     if (plazo) {
-      inlineAuto.push({ b: p.b, valor: plazo.valor, etiqueta, via: 'auditor' });
+      const valor = plazoSinUnidadImpresa(plazo.valor, p.b.parrafoCompleto.slice(p.b.posEnParrafo + p.b.largo));
+      if (valor == null) { restantes.push(p); continue; }
+      inlineAuto.push({ b: p.b, valor, etiqueta, via: 'auditor' });
       continue;
     }
     const [monto] = resolverMontoUnicoOferta([etiqueta], neto, { hayTablaDeItems: anexosConTablaDeItems.has(anexo), porcentajeIva });
@@ -607,12 +610,20 @@ function resolverMontoYPlazoInline(
   return restantes;
 }
 
+// Una casilla que el costeo calcula (total de línea, pie, total de sección) no la disputa otra
+// capa: la segunda pasada con IA sobre las bases le daba un monto propio a «Total con IVA» al
+// generar (4844-24-LE26), y por ir antes en la lista ese valor le ganaba al total calculado.
+function sinCasillasCalculadas(matcheados: CampoResuelto[], calculados: CampoResuelto[]): CampoResuelto[] {
+  const paraIds = new Set(calculados.map(m => m.c.paraId));
+  return matcheados.filter(m => !paraIds.has(m.c.paraId));
+}
+
 // ── Totales por sección (LÍNEA/LOTE/ÍTEM...) — ver anexos-totales-seccion.ts ─────────────────
 function aplicarTotalesPorSeccion(
   tablasCrudo: TablaCruda[], parrafos: Parrafo[], indicesEnTablas: Set<number>,
   matcheados: CampoResuelto[], pendientes: CandidatoCelda[], costeoCubierto: boolean, respuestas?: Record<string, string>,
   itemsCosteo?: ItemCosteoPrecio[],
-): { matcheadosExtra: CampoResuelto[]; pendientesFiltrados: CandidatoCelda[]; titulos: TituloCercano[]; totalesPie: { etiqueta: string; valor: string }[] } {
+): { matcheadosExtra: CampoResuelto[]; pendientesFiltrados: CandidatoCelda[]; titulos: TituloCercano[]; totalesPie: { etiqueta: string; valor: string; holguraRedondeoIva?: number }[] } {
   const titulos: TituloCercano[] = encabezadosLibres(parrafos, indicesEnTablas);
   const valoresPrecio = new Map(
     matcheados.filter(m => m.via === 'costeo').map(m => [m.c.indice, Number(m.valor.replace(/\./g, '').replace(',', '.'))]),
@@ -661,13 +672,13 @@ function aplicarTotalesPorSeccion(
       campo: 'producto_oferta_tecnica', valor: r.valor, via: 'costeo',
     });
   }
-  const totalesPie: { etiqueta: string; valor: string }[] = [];
+  const totalesPie: { etiqueta: string; valor: string; holguraRedondeoIva?: number }[] = [];
   for (const r of calcularTotalesAlPie(tablasCrudo, valorResuelto, { lineasSinPrecioNoOfertadas: costeoCubierto })) {
     paraIdsResueltos.add(r.paraId);
     // Se guarda lo que de verdad quedó escrito en la casilla de TOTAL del anexo: es el número que
     // va a leer el organismo, y contra el que se compara el costeo aprobado antes de subir el
     // archivo (ver auditor-verificacion-total.ts).
-    totalesPie.push({ etiqueta: r.etiqueta, valor: r.valor });
+    totalesPie.push({ etiqueta: r.etiqueta, valor: r.valor, ...(r.holguraRedondeoIva ? { holguraRedondeoIva: r.holguraRedondeoIva } : {}) });
     matcheadosExtra.push(r.anexar && r.indiceParrafoReal != null
       ? { c: { etiqueta: r.etiqueta, paraId: r.paraId, indice: r.indiceParrafoReal }, campo: 'total_calculado', valor: r.valor, via: 'costeo', dosPuntos: true }
       : { c: { etiqueta: r.etiqueta, paraId: r.paraId, indice: r.indiceGlobal }, campo: 'total_calculado', valor: r.valor, via: 'costeo', ...(r.dosPuntos ? { dosPuntos: true } : {}) });
@@ -989,7 +1000,7 @@ export async function analizarAnexoParaUI(
   } = resolucion;
   const { matcheadosExtra, pendientesFiltrados, titulos }
     = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablas, matcheados, pendientes, costeoCubierto, undefined, itemsCosteo);
-  const matcheadosTodos = [...matcheados, ...matcheadosExtra];
+  const matcheadosTodos = [...sinCasillasCalculadas(matcheados, matcheadosExtra), ...matcheadosExtra];
   for (const m of matcheadosTodos) {
     completadosAuto.push({
       etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: m.via,
@@ -1173,7 +1184,7 @@ export interface ResultadoGeneracion {
    * costeo aprobado antes de subir el archivo — ver auditor-verificacion-total.ts. Vacío si el
    * documento no tiene tabla de precios (todos los anexos administrativos).
    */
-  totalesEscritos: { etiqueta: string; valor: string }[];
+  totalesEscritos: { etiqueta: string; valor: string; holguraRedondeoIva?: number }[];
   /** true si el documento tiene al menos un lugar de firma detectado (analisis.lineasFirma) — ver
    *  el guardarraíl en /api/anexos/generar: ese endpoint nunca estampa firma, así que si el
    *  documento la requiere, generar ahí en vez de por /api/anexos/generar-firmado dejaría un
@@ -1326,7 +1337,7 @@ export async function generarAnexoFinal(
     const escrito = respuestas[`inline:${a.b.indiceRun}:${a.b.posEnTexto}`];
     totalesMontoUnico.push({ etiqueta: a.etiqueta, valor: escrito?.trim() ? escrito.trim() : a.valor });
   }
-  for (const m of [...matcheados, ...matcheadosExtra]) {
+  for (const m of [...sinCasillasCalculadas(matcheados, matcheadosExtra), ...matcheadosExtra]) {
     if (m.campo === CAMPO_MONTO_TOTAL_OFERTA) {
       const escrito = respuestas[`celda:${m.c.indice}`];
       totalesMontoUnico.push({ etiqueta: m.c.etiqueta, valor: escrito?.trim() ? escrito.trim() : m.valor });

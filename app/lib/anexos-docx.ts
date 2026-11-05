@@ -576,8 +576,15 @@ export function rellenarFinDeParrafo(xml: string, paraId: string, valor: string)
   const textoActual = [...cuerpo.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map(t => t[1]).join('').trim();
   const agregarDosPuntos = /[\p{L})]$/u.test(textoActual);
   // «Giro » (con espacio al final): los dos puntos van pegados a la palabra, no «Giro :».
-  const cuerpoFinal = agregarDosPuntos ? cuerpo.replace(/(<w:t(?:\s[^>]*)?>)([^<]*?)\s+(<\/w:t>)(?![\s\S]*<w:t[\s>])/, '$1$2$3') : cuerpo;
-  const run = `<w:r>${rPrMatch ? rPrMatch[0] : ''}<w:t xml:space="preserve">${agregarDosPuntos ? ':' : ''} ${xmlEscape(valor)}</w:t></w:r>`;
+  // Celda que trae «$» y una tira de espacios de relleno («$                      », 4844-24-LE26):
+  // el número va en lugar de esos espacios, como al tipear encima. Agregado DESPUÉS quedaba
+  // empujado contra el borde y se partía en dos renglones («20.157.83 / 0»).
+  const soloMonedaConRelleno = /^(?:US\$|CLP\$|\$)$/.test(textoActual);
+  const cuerpoFinal = agregarDosPuntos || soloMonedaConRelleno ? cuerpo.replace(/(<w:t(?:\s[^>]*)?>)([^<]*?)\s+(<\/w:t>)(?![\s\S]*<w:t[\s>])/, '$1$2$3') : cuerpo;
+  // Tras el «$» el número va pegado («$9.644.336»): con el espacio, Word lo partía en dos renglones
+  // en una columna angosta («$» arriba, el monto abajo).
+  const separador = soloMonedaConRelleno ? '' : ' ';
+  const run = `<w:r>${rPrMatch ? rPrMatch[0] : ''}<w:t xml:space="preserve">${agregarDosPuntos ? ':' : ''}${separador}${xmlEscape(valor)}</w:t></w:r>`;
   return xml.slice(0, m.index) + apertura + cuerpoFinal + run + cierre + xml.slice((m.index ?? 0) + entero.length);
 }
 
