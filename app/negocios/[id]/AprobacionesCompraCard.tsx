@@ -12,7 +12,8 @@ import { TablaAprobacionCompra } from './TablaAprobacionCompra';
 import { DetalleCompuerta } from './DetalleCompuerta';
 import { CargarCompraAlCosteo } from './ArmarCompra';
 import { Boton } from '@/app/components/ui/kit/Boton';
-import { IconShieldCheck as ShieldCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconEdit as Edit3, IconAlertTriangle as AlertTriangle, IconTag as Tag, IconPlus as Plus, IconX as X, IconBolt as Zap } from '@tabler/icons-react';
+import { Modal } from '@/app/components/ui/Modal';
+import { IconShieldCheck as ShieldCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconEdit as Edit3, IconAlertTriangle as AlertTriangle, IconTag as Tag, IconPlus as Plus, IconBolt as Zap } from '@tabler/icons-react';
 
 type Estado = 'PENDIENTE' | 'APROBADA' | 'APROBADA_CON_MODIFICACION' | 'RECHAZADA';
 type Tipo = 'COMPRA' | 'MARGEN';
@@ -801,16 +802,33 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
                       }}>Crear en Obuma</Boton>
                     )}
                   </div>
-                  {formSkuProducto === p.id && (
-                    <div className="mt-3 rounded-xl border border-teal-200 bg-white dark:bg-slate-900 shadow-tarjeta overflow-hidden" data-testid="form-sku">
-                      <div className="px-4 py-3 bg-teal-50/60 border-b border-teal-100 flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-[13.5px] font-semibold text-teal-900">Crear el SKU de este producto</p>
-                          <p className="text-[12px] text-teal-800/80 truncate">En la licitación: {p.descripcion}</p>
-                        </div>
-                        <button onClick={() => { setFormSkuProducto(null); setColaSku(null); }} className="text-zinc-400 hover:text-zinc-700 flex-shrink-0" aria-label="Cerrar"><X size={16} /></button>
-                      </div>
-                      <div className="p-4 space-y-4">
+                </div>
+              );
+            })}
+          </div>
+
+          {(() => {
+            // Formulario del SKU en un modal (pedido del dueño, 05-nov): cabecera y botones fijos, los pasos se desplazan al medio.
+            const p = formSkuProducto != null ? productosSku.find(x => x.id === formSkuProducto) : null;
+            if (!p) return null;
+            const cerrar = () => { setFormSkuProducto(null); setColaSku(null); };
+            return (
+              <Modal open onClose={cerrar} size="lg" title="Crear el SKU de este producto"
+                subtitle={`${p.descripcion}${colaSku && colaSku.length > 1 ? ` · quedan ${colaSku.length} por crear` : ''}`}
+                footer={<>
+                  {formSku.crearEnObuma && <span className="mr-auto text-xs text-amber-700 dark:text-amber-400">
+                              {!nombreObumaPreview ? 'Falta: el tipo de producto (paso 1)'
+                                : duplicados.productos.length > 0 && !confirmarPeseADuplicado ? 'Falta: usar uno existente o marcar que ninguno es (paso 2)'
+                                : !formSku.obumaSubcategoriaId ? 'Falta: la subcategoría (paso 4)'
+                                : formSku.paraVenta && !(Number(formSku.precioVenta.replace(/[^\d]/g, '')) > 0) ? 'Falta: el precio de venta (paso 5)'
+                                : !costoConfirmado ? 'Falta: confirmar el costo (paso 6)' : ''}
+                            </span>}
+                  <Boton variante="fantasma" onClick={cerrar}>Cancelar</Boton>
+                  <Boton variante="primario" onClick={crearSku} disabled={(!formSku.crearEnObuma && !formSku.skuPropio.trim()) || guardandoSku || (formSku.crearEnObuma && (!formSku.obumaSubcategoriaId || !nombreObumaPreview || (duplicados.productos.length > 0 && !confirmarPeseADuplicado) || costoPreview.estado !== 'listo' || !costoConfirmado || (formSku.paraVenta && !(Number(formSku.precioVenta.replace(/[^\d]/g, '')) > 0))))}>
+                    {guardandoSku ? <Loader2 size={14} className="animate-spin" /> : formSku.crearEnObuma ? 'Crear el SKU en Obuma' : 'Guardar SKU'}
+                  </Boton>
+                </>}>
+                <div className="space-y-6" data-testid="form-sku">
                         {sugerenciaSku.estado === 'listo' && sugerenciaSku.motivo && (
                           <p className="text-[12px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">{sugerenciaSku.motivo}</p>
                         )}
@@ -1036,29 +1054,10 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
                           </section>
                         )}
 
-                        <div className="flex items-center gap-3 pt-1">
-                          <button onClick={crearSku} disabled={(!formSku.crearEnObuma && !formSku.skuPropio.trim()) || guardandoSku || (formSku.crearEnObuma && (!formSku.obumaSubcategoriaId || !nombreObumaPreview || (duplicados.productos.length > 0 && !confirmarPeseADuplicado) || costoPreview.estado !== 'listo' || !costoConfirmado || (formSku.paraVenta && !(Number(formSku.precioVenta.replace(/[^\d]/g, '')) > 0))))}
-                            className="text-[13.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-40 disabled:cursor-not-allowed px-5 py-2.5 rounded-lg">
-                            {guardandoSku ? <Loader2 size={14} className="animate-spin" /> : formSku.crearEnObuma ? 'Crear el SKU en Obuma' : 'Guardar SKU'}
-                          </button>
-                          <button onClick={() => { setFormSkuProducto(null); setColaSku(null); }} className="text-[12.5px] text-zinc-500 hover:text-zinc-800">Cancelar</button>
-                          {formSku.crearEnObuma && (
-                            <span className="text-[11.5px] text-zinc-400">
-                              {!nombreObumaPreview ? 'Falta: el tipo de producto (paso 1)'
-                                : duplicados.productos.length > 0 && !confirmarPeseADuplicado ? 'Falta: usar uno existente o marcar que ninguno es (paso 2)'
-                                : !formSku.obumaSubcategoriaId ? 'Falta: la subcategoría (paso 4)'
-                                : formSku.paraVenta && !(Number(formSku.precioVenta.replace(/[^\d]/g, '')) > 0) ? 'Falta: el precio de venta (paso 5)'
-                                : !costoConfirmado ? 'Falta: confirmar el costo (paso 6)' : ''}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
-              );
-            })}
-          </div>
+              </Modal>
+            );
+          })()}
         </div>
       )}
     </div>
