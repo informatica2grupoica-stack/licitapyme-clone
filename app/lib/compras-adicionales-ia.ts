@@ -25,12 +25,38 @@ export function citaVerificada(cita: unknown, textoDocumento: string | null | un
 /** Línea de accesorio que la IA leyó, tal como aparece en el documento (cantidad de la LÍNEA, no por unidad del producto). */
 export interface AdicionalLeido { concepto: string; cantidadLinea: number; precioUnitario: number }
 
+const ES_SERVICIO = /flete|transport|despacho|env[ií]o|instala|capacita|mano de obra|armado|montaje|puesta en marcha/i;
+
+/** ¿La cotización es de UNA unidad del producto (un set, un kit) y no del lote completo?
+ *  Caso 3789-30-LE26: 30 sets de podología, la cotización trae 14 instrumentos con 1 a 5 piezas cada uno = el contenido de UN set
+ *  ($171.671). Dividir esas cantidades por 30 daba 0,1 caja por set y un precio 11 veces más bajo.
+ *  Si hay ≥ 4 líneas de piezas (no servicios) y NINGUNA llega a la cantidad del producto, no pueden ser del lote: son por unidad. */
+export function cotizacionEsPorUnidad(raw: unknown, cantidadProducto: number | null): boolean {
+  if (!Array.isArray(raw) || cantidadProducto == null || !Number.isFinite(cantidadProducto) || cantidadProducto <= 1) return false;
+  const piezas = raw
+    .filter(a => typeof a?.concepto === 'string' && a.concepto.trim() && Number(a?.precioUnitario) > 0 && !ES_SERVICIO.test(a.concepto))
+    .map(a => Number(a?.cantidadLinea ?? a?.cantidad ?? 1))
+    .filter(n => Number.isFinite(n) && n > 0);
+  return piezas.length >= 4 && piezas.every(n => n < cantidadProducto);
+}
+
+/** En una cotización por unidad el precio de cabecera es el de UNA línea (la primera: 9.900 del alicate). Esa misma línea no puede
+ *  contar otra vez como adicional: pasa a ser la base, con toda su cantidad (5 alicates = $49.500). Sin línea igual, no cambia nada. */
+export function baseDeCotizacionPorUnidad(adicionales: AdicionalEntrada[], precioBase: number | null): { base: number | null; adicionales: AdicionalEntrada[] } {
+  if (precioBase == null) return { base: precioBase, adicionales };
+  const i = adicionales.findIndex(a => Math.abs(a.precioUnitario - precioBase) <= 1);
+  if (i < 0) return { base: precioBase, adicionales };
+  const l = adicionales[i];
+  return { base: Math.round(l.precioUnitario * l.cantidad), adicionales: adicionales.filter((_, j) => j !== i) };
+}
+
 /** Limpia lo que devolvió la IA y lo deja como adicionales por unidad del producto, con el precio en NETO.
  *  · cantidad por unidad = cantidad de la línea ÷ cantidad del producto (18 bandejas para 1 carro → 18; para 2 carros → 9);
+ *  · si la cotización es de UNA unidad (`cotizacionEsPorUnidad`), la cantidad de la línea ya es por unidad: no se divide;
  *  · precio ≤ 0, sin nombre o sin cantidad: se descarta (nunca se inventa un adicional). */
 export function adicionalesDesdeIA(raw: unknown, cantidadProducto: number | null, aNeto: (n: number) => number): AdicionalEntrada[] {
   if (!Array.isArray(raw)) return [];
-  const divisor = cantidadProducto != null && Number.isFinite(cantidadProducto) && cantidadProducto > 0 ? cantidadProducto : 1;
+  const divisor = cantidadProducto != null && Number.isFinite(cantidadProducto) && cantidadProducto > 0 && !cotizacionEsPorUnidad(raw, cantidadProducto) ? cantidadProducto : 1;
   const out: AdicionalEntrada[] = [];
   for (const a of raw) {
     const concepto = typeof a?.concepto === 'string' ? a.concepto.trim().slice(0, 160) : '';

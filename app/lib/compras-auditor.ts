@@ -32,7 +32,7 @@ import { obtenerTipoCambio } from '@/app/lib/tipo-cambio';
 import { parsearDiasDeTexto } from '@/app/lib/numeros';
 import { auditarCotizacionEnSegundoPlano, rutValido } from '@/app/lib/compras-auditoria-cotizacion';
 import { netoDesdeBruto, precioONull, conDescuento } from '@/app/lib/compras-cotizacion-lectura';
-import { adicionalesDesdeIA, faltantesDesdeIA, incluidosDesdeIA, citaVerificada } from '@/app/lib/compras-adicionales-ia';
+import { adicionalesDesdeIA, cotizacionEsPorUnidad, baseDeCotizacionPorUnidad, faltantesDesdeIA, incluidosDesdeIA, citaVerificada } from '@/app/lib/compras-adicionales-ia';
 import { recomendarCombinaciones, type EtiquetaRecomendada } from '@/app/lib/compras-recomendaciones';
 import { esSubestadoFuera } from '@/app/lib/compras-no-adjudicadas';
 import { aplicarDespacho, esCondicion, esDespacho } from '@/app/lib/compras-despacho';
@@ -686,15 +686,8 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
   }
   for (const { it, producto, precioClp: precioIA } of resueltos) {
     const esIncluido = incluidos.has(codigo(it.producto));
-    const precioClp = esIncluido ? 0 : precioIA;
+    let precioClp = esIncluido ? 0 : precioIA;
     if (hayConPrecio && precioClp == null) continue;
-    await pool.query(
-      `INSERT INTO compras_cotizacion_item (cotizacion_id, producto_id, precio_unitario, precio_base, cumple, detalle_desviacion)
-       VALUES (?,?,?,?,?,?)
-       ON DUPLICATE KEY UPDATE precio_unitario = VALUES(precio_unitario), precio_base = VALUES(precio_base), cumple = VALUES(cumple), detalle_desviacion = VALUES(detalle_desviacion)`,
-      [cotizacionId, producto.id, precioClp, precioClp, it.cumple, esIncluido ? `Va incluido en el precio de «${productos[codigo(it.incluidoEn) - 1]?.descripcion?.slice(0, 60) ?? 'otro producto'}».` : (it.detalle || null)],
-    );
-    escritos++;
     // Componentes con precio propio que el documento cotiza aparte (quemador, bandejas…): se unen al producto como adicionales.
     // Si ya hay adicionales cargados (a mano o de una pasada anterior) no se pisan: lo hecho por una persona manda.
     // La cantidad y el precio de cada adicional salen de la línea verificada del documento (no de lo que la IA recuerde de ella).
@@ -710,7 +703,21 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     // Cotización en moneda extranjera (1120, €710 de transporte quedó como $710): el adicional viene en la moneda del documento
     // y se guarda en CLP, igual que el precio del producto (precioClpDeItemIA ya multiplica por el tipo de cambio).
     const aNetoClp = (n: number) => (tipoCambio ? Number(aNeto(n)) * tipoCambio : Number(aNeto(n)));
-    const adic = adicionalesDesdeIA(adicCorregidos, producto.cantidad != null ? Number(producto.cantidad) : null, aNetoClp);
+    const cantProducto = producto.cantidad != null ? Number(producto.cantidad) : null;
+    let adic = adicionalesDesdeIA(adicCorregidos, cantProducto, aNetoClp);
+    // TIPO «cotización de UNA unidad» (set/kit: 14 instrumentos para 1 set, el producto pide 30): cada línea ya es por unidad y la línea del
+    // precio de cabecera no cuenta dos veces. Generalizado a partir de 3789-30-LE26 (#278: $15.623 en vez de $171.671).
+    if (!esIncluido && cotizacionEsPorUnidad(adicCorregidos, cantProducto)) {
+      const k = baseDeCotizacionPorUnidad(adic, precioClp);
+      adic = k.adicionales; precioClp = k.base;
+    }
+    await pool.query(
+      `INSERT INTO compras_cotizacion_item (cotizacion_id, producto_id, precio_unitario, precio_base, cumple, detalle_desviacion)
+       VALUES (?,?,?,?,?,?)
+       ON DUPLICATE KEY UPDATE precio_unitario = VALUES(precio_unitario), precio_base = VALUES(precio_base), cumple = VALUES(cumple), detalle_desviacion = VALUES(detalle_desviacion)`,
+      [cotizacionId, producto.id, precioClp, precioClp, it.cumple, esIncluido ? `Va incluido en el precio de «${productos[codigo(it.incluidoEn) - 1]?.descripcion?.slice(0, 60) ?? 'otro producto'}».` : (it.detalle || null)],
+    );
+    escritos++;
     // Los que puso el agente (creado_por NULL) se rehacen en cada homologación: si no, una lectura mala (1110: el colchón y la batería
     // del catre como adicionales a $618.000) se quedaba para siempre aunque se corrigiera el código. Los de una persona no se tocan.
     await pool.query(`DELETE FROM compras_cotizacion_adicional WHERE cotizacion_id = ? AND producto_id = ? AND creado_por IS NULL`, [cotizacionId, producto.id]).catch(() => {});

@@ -8,7 +8,7 @@ import { useMemo, useState } from 'react';
 import { IconStar as Star, IconCheck as Check, IconChevronDown as ChevronDown, IconChevronRight as ChevronRight, IconSearch as Search } from '@tabler/icons-react';
 import { MenuAcciones } from '@/app/components/ui/MenuAcciones';
 import { LinksProducto } from './LinksProducto';
-import { compararPrecioConCosteo, totalAdicionales, type AdicionalCotizacion } from '@/app/lib/compras-precio-vs-costeo';
+import { compararPrecioConCosteo, totalAdicionales, DIFERENCIA_SOSPECHOSA_PCT, type AdicionalCotizacion } from '@/app/lib/compras-precio-vs-costeo';
 import { esLinkDeProducto } from '@/app/lib/costeo-comparativo';
 import { margenCosteoVsCotizaciones, GASTO_ENTREGA_PCT } from '@/app/lib/compras-margen-vs-costeo';
 import { MargenCosteoVsCotizaciones } from './MargenCosteoVsCotizaciones';
@@ -168,7 +168,10 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
     const est = ESTILO_VEREDICTO[cmp.veredicto];
     const incluido = item.precioBase === 0;
     const esElegida = compra?.[p.id] === c.id;
-    const esMejor = mejor != null && item.precioUnitario === mejor;
+    // Una oferta ≥ 50 % bajo lo costeado casi nunca es una ganga: otro producto, otra unidad (¿cotizó 1 set y no 30?) o mal leída.
+    // No se corona «Mejor precio» ni se pinta de verde: se pide revisar primero.
+    const sospechosa = !incluido && cmp.veredicto === 'MEJOR' && cmp.diffPct != null && Math.abs(cmp.diffPct) >= DIFERENCIA_SOSPECHOSA_PCT;
+    const esMejor = mejor != null && item.precioUnitario === mejor && !sospechosa;
     const detalleActivo = seleccion?.cotizacionId === c.id && seleccion.productoId === p.id;
     const al = alertas?.[`${c.id}:${p.id}`] ?? [];
     const t = tecnico?.[`${c.id}:${p.id}`];
@@ -211,7 +214,9 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
             </span>
             {incluido
               ? <span className="text-[11.5px] font-semibold text-sky-700">Incluido en otro producto</span>
-              : <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded border ${est.chip}`} title="Precio neto por unidad comparado con lo costeado">{est.texto(cmp.diffPct)}{cmp.veredicto === 'MEJOR' || cmp.veredicto === 'PEOR' ? ' que lo costeado' : ''}</span>}
+              : sospechosa
+                ? <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-300" title="Una diferencia tan grande suele ser otro producto, otra unidad (¿cotizó 1 set y no el lote?) o una cotización mal leída. Revisa antes de elegirla.">⚠ {Math.abs(cmp.diffPct!).toString().replace('.', ',')} % bajo lo costeado: revisa</span>
+                : <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded border ${est.chip}`} title="Precio neto por unidad comparado con lo costeado">{est.texto(cmp.diffPct)}{cmp.veredicto === 'MEJOR' || cmp.veredicto === 'PEOR' ? ' que lo costeado' : ''}</span>}
           </div>
           <MenuAcciones etiqueta={`Acciones de la oferta de ${c.proveedorNombre}`} acciones={acc} />
         </div>
