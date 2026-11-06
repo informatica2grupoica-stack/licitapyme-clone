@@ -73,6 +73,9 @@ export interface EmpresaCampos {
   // "20" del año y el blanco es solo lo que falta ("26"). Igual que fecha_hoy_mes_palabra, en la
   // práctica solo lo pide campoDeFechaEnFormula; nunca pasa por este motor de IA.
   fecha_hoy_anio_corto?: string | null;
+  // Casilla que escribe el formato de la fecha ("DD/MM/AA", "dd/mm/aaaa"): la fecha numérica de hoy.
+  fecha_hoy_numerica?: string | null;
+  fecha_hoy_numerica_corta?: string | null;
   // El OTRO formato de fecha partida, igual de común: "___ de ___ de ___" (con la palabra "de"
   // en vez de barras) — ahí la casilla del medio pide el MES EN PALABRA ("agosto"), no el número.
   // En la práctica este trío lo resuelve detectarTripletesFecha (anexos-detectar.ts) sin pasar por
@@ -210,7 +213,7 @@ const CAMPOS_DE_LA_MISMA_PERSONA_Y_EMPRESA: (keyof EmpresaCampos)[] = [
   'representante_nombre', 'representante_rut', 'representante_cargo',
   'representante_nombres', 'representante_apellidos',
   'email1', 'telefono1',
-  'fecha_hoy', 'fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_anio_corto', 'fecha_hoy_mes_palabra', 'fecha_hoy_dia_mes',
+  'fecha_hoy', 'fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_anio_corto', 'fecha_hoy_mes_palabra', 'fecha_hoy_dia_mes', 'fecha_hoy_numerica', 'fecha_hoy_numerica_corta',
   'socio_nombre', 'socio_participacion', 'programa_integridad_respuesta', 'nacionalidad',
 ];
 
@@ -417,6 +420,8 @@ export const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
   fecha_hoy_anio: 'Solo el AÑO de hoy (4 dígitos) — la última casilla de "Fecha: __ /__ /__"',
   fecha_hoy_anio_corto: 'Solo los ÚLTIMOS 2 DÍGITOS del año de hoy — cuando el "20" ya viene impreso en la plantilla, ej. "…del 20___"',
   fecha_hoy_mes_palabra: 'Solo el MES de hoy EN PALABRA ("agosto") — la casilla del medio de "___ de __ de ___" (NUNCA el número ahí)',
+  fecha_hoy_numerica: 'Fecha de hoy en números con año de 4 dígitos ("05/11/2026") — SOLO cuando la casilla escribe el formato "DD/MM/AAAA"',
+  fecha_hoy_numerica_corta: 'Fecha de hoy en números con año de 2 dígitos ("05/11/26") — SOLO cuando la casilla escribe el formato "DD/MM/AA"',
   fecha_hoy_dia_mes: 'Día + mes en palabra de HOY, SIN año ("06 de agosto") — para una casilla SUELTA (no un triplete) donde el año ya viene impreso fijo en la plantilla, ej. "LA UNIÓN, ___ DE 2026"',
   socio_nombre: 'Nombre del Socio/Accionista — por política de la empresa, el representante legal (socio único). Casilla "Nombre Socio/Accionista".',
   socio_participacion: 'Porcentaje de Derechos o Participación del socio — siempre "100%" (socio único). Casilla "Porcentaje de Derechos"/"% de Participación".',

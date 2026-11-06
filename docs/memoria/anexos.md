@@ -4,6 +4,23 @@ Reglas vigentes del motor: ver también `.claude/skills/motor-anexos/SKILL.md` y
 `docs/anexos-motor-reglas.md`. Las entradas con fecha van arriba; al final, lo traspasado desde la
 memoria personal el 2026-10-27.
 
+## 2026-11-05 (auditoría QA) — Barrido de 400 documentos reales: 3 bugs generales arreglados
+Pedido del dueño: auditar si el motor es eficiente y si aprende. `auditor-anexos-generacion.mts` sobre 400 docs (598 anexos), sin IA opcional: 7 rotos, 282 con casillas pendientes, 30 % de las casillas «de ficha» sin llenar, 0 ciegos.
+**Arreglado (con test):**
+- **XML roto al separar (2467-119-LE26):** el banner «ANEXO Nº1 / BASES ADMINISTRATIVAS» es un cuadro de texto con copia en `mc:Fallback`; la copia se leía como 2.º formulario y los 2 archivos salían corruptos. `dividirPorFormularios` ahora quita la copia (`eliminarRespaldoVmlDuplicado`; `/api/anexos/separar` no lo hacía) y, si un fragmento sale mal formado, **no divide** (nunca entrega archivos corruptos).
+- **Razón social duplicada (2013-22-LE26 Anexo 11):** «Quien suscribe (razón social) ____» — el paréntesis pegado a una raya es su **rótulo**, no otra casilla (`listarBlancosInline`). Antes salía «Quien suscribe Inversiones X Inversiones X» y se perdía el rótulo.
+- **«(Ciudad) DD/MM/AA» dejaba el formato a la vista (Anexos 5/10/11):** el formato de fecha escrito suelto es ahora casilla; campos nuevos `fecha_hoy_numerica` (05/11/2026) y `fecha_hoy_numerica_corta` (05/11/26). **Cambio de regla:** «dd/mm/aaaa» / «DD-MM-AAAA» antes escribía la fecha larga; ahora numérica del mismo largo («día/mes/año» sigue larga).
+- **Aprendizaje:** `esCorreccionAprendible` rechaza (con motivo) montos, plazos y correcciones que no cambian nada. De las 16 correcciones guardadas ninguna tenía `campo`, así que **ninguna ha cambiado jamás un anexo**; varias eran montos/plazos de una licitación.
+- El auditor ahora mide con los mismos datos de licitación que producción (código, nombre, comuna): «falta código/nombre» era un artefacto; bajó de 30,8 % a 29,7 % pendientes de ficha.
+**No eran bugs:** los 5 `.doc` «rotos» fallaron solo desde el PC (el conversor está en la red docker); en el VPS `/convertir` responde 200 con un .doc real. Producción tiene `conversor-doc` con las 4 Quattrocento Sans.
+**Pendiente / decisión del dueño:**
+- `ANEXOS_IA_REPASO` está **apagado en producción**. Medido en 8 anexos de 2013-22-LE26: 1 corrección en 19 casillas, 0 degradadas, mismos totales; ~$0,002 por documento. Beneficio chico y barato; encenderlo es una variable en el `.env` del VPS (no se tocó).
+- Comuna del organismo: 9 licitaciones sin fila en `licitacion_unidad_cache` (se llena sola cuando MP responde); se podría precalentar.
+- 22 anexos «sin clasificar» (títulos como «(NOMBRE FIRMA Y TIMBRE)», «DEL PROPONENTE», «DECLARA:») caen en la caja genérica.
+- Nombramiento de representante / experiencia: las casillas pendientes son cláusulas de un mandato entre dos partes y tablas que dependen de las OC; el banco no las mide con OC (en la app sí se pasan).
+- Las 16 correcciones ya guardadas con basura (monto, plazo, «SÍ→SÍ», «(sin contexto)») siguen activas: se pueden desactivar (`activa=0`) con OK del dueño.
+Suite 1764/1764, tsc limpio.
+
 ## 2026-11-05 (noche) — Botón «Firmar en Word» (4844-24-LE26)
 Decisión del dueño tras descartar LibreOffice y OnlyOffice: cuando el anexo tiene línea de firma, el modal ofrece **«Firmar en Word»** junto a «Continuar a firma» (que sigue igual). Genera el .docx por `/api/anexos/generar` con `firmaEnWord: '1'` y cada lugar `firma:N` = su `porDefecto` (o «firma» si hay firma cargada); en `generarAnexoFinal` la firma (y el timbre, a la derecha, si la leyenda lo pide) va con `insertarImagenEnParrafo(..., { sobreLaRaya: true })`: imagen FLOTANTE (`wp:anchor`, `wrapNone`) apoyada sobre la raya (borde inferior 0,7 cm bajo el inicio del párrafo; alto máx. 2,2 cm), sin borrar la raya ni mover texto. El equipo abre el Word y lo guarda como PDF: sale idéntico al original. Este camino sí pasa por el guardarraíl del total contra el costeo (el de firma en PDF no).
 **Verificado:** 4844 Anexo N°5 generado y exportado con Word → 1 hoja, firma sobre la raya sin tapar el plazo, Nombre/Rut abajo; test en anexos-docx-namespaces; suite 1753/1753, tsc. **No visto en el navegador** (otra sesión tenía `next dev` en la misma carpeta). Usa la firma principal de la empresa (no elige entre varias firmas). Sin desplegar.

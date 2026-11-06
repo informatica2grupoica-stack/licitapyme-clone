@@ -2790,3 +2790,30 @@ test('unitario CON IVA con celdas «$»: encabezado real, total por línea y pie
   const parrafo = escrito.slice(desde, escrito.indexOf('</w:p>', desde));
   assert.equal([...parrafo.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map(t => t[1]).join(''), '$602.771');
 });
+
+// BUG REAL (2013-22-LE26, Anexo N°11 «Servicio Post Venta»): «Quien suscribe (razón social) ______»
+// — el paréntesis pegado a la raya es su RÓTULO. Se leía como una casilla más: la razón social salía
+// dos veces y el rótulo desaparecía («Quien suscribe Inversiones X Inversiones X, proponente…»).
+test('listarBlancosInline: un paréntesis pegado a una raya es su rótulo, no otra casilla (regresión 2013-22-LE26)', async () => {
+  const { listarBlancosInline } = await import('../anexos-docx');
+  const b = listarBlancosInline('Quien suscribe (razón social) __________________________________, proponente de la licitación ID _____________________, declara');
+  assert.equal(b.length, 2, 'una raya para la razón social y otra para el ID');
+  assert.equal(b[0].contexto, 'Quien suscribe (razón social)');
+  assert.equal(b[0].textoMarcador, undefined);
+  // sin raya a continuación, el paréntesis SÍ es el marcador (declaración corrida de siempre)
+  const c = listarBlancosInline('Yo (nombre), cédula de identidad (RUT), declaro');
+  assert.deepEqual(c.map(x => x.textoMarcador), ['nombre', 'RUT']);
+});
+
+// BUG REAL (2013-22-LE26, Anexos 5/10/11): el pie decía «(Ciudad) DD/MM/AA». La ciudad se llenaba y
+// «DD/MM/AA» quedaba escrito tal cual en el documento que se sube. El formato suelto es un marcador.
+test('listarBlancosInline: «DD/MM/AA» escrito tal cual es una casilla de fecha (regresión 2013-22-LE26)', async () => {
+  const { listarBlancosInline } = await import('../anexos-docx');
+  const b = listarBlancosInline('(Ciudad) DD/MM/AA');
+  assert.deepEqual(b.map(x => x.textoMarcador), ['Ciudad', 'DD/MM/AA']);
+  assert.deepEqual(listarBlancosInline('Fecha: dd/mm/aaaa').map(x => x.textoMarcador), ['dd/mm/aaaa']);
+  // el marcador con ángulos no se cuenta dos veces
+  assert.equal(listarBlancosInline('Santiago, <dd/mm/aaaa>').length, 1);
+  // texto normal con barras no es un formato de fecha
+  assert.equal(listarBlancosInline('Resolución 12/05/2026 del servicio').length, 0);
+});

@@ -1189,6 +1189,10 @@ export const REGLAS_MARCADOR: { re: RegExp; campo: Campo }[] = [
   // marcador literal a la vista en el documento que se sube al portal. Es la fecha completa en UN
   // solo hueco — distinto del triplete "___ de ___ de ___", que ya resuelve detectarTripletesFecha
   // con sus tres campos por separado.
+  // Si el formato dice cuántos dígitos tiene el año («dd/mm/aaaa» / «DD/MM/AA»), la fecha va numérica
+  // y del MISMO largo; «día/mes/año» sin más sigue siendo la fecha larga de siempre.
+  { re: /^\s*dd?\s*[/\-.]\s*mm?\s*[/\-.]\s*(?:a{4}|y{4})\s*$/i, campo: 'fecha_hoy_numerica' },
+  { re: /^\s*dd?\s*[/\-.]\s*mm?\s*[/\-.]\s*(?:a{2}|y{2})\s*$/i, campo: 'fecha_hoy_numerica_corta' },
   { re: /^\s*(?:d(?:i|í)a|dd?)\s*[/\-.]\s*(?:mes|mm?)\s*[/\-.]\s*(?:a(?:n|ñ)o|a{2,4}|yy(?:yy)?)\s*$/i, campo: 'fecha_hoy' },
   // BUG REAL (18-ago-2026, ANEXO N°4 de 1247197-54-LE26): esta regla mandaba CUALQUIER marcador
   // que dijera "comuna"/"ciudad" a la comuna del ORGANISMO comprador. En "con domicilio en

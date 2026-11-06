@@ -886,9 +886,13 @@ test('un marcador con el formato de la fecha ("<día/mes/año>") es la fecha de 
     indiceParrafo: 0, indiceRun: 0, posEnTexto: 0, largo: 1,
     contexto: texto, textoMarcador: texto,
   } as CandidatoInline);
-  for (const m of ['día/mes/año', 'dd/mm/aaaa', 'DD-MM-AAAA', 'dia/mes/ano']) {
+  for (const m of ['día/mes/año', 'dia/mes/ano']) {
     assert.equal(conMarcador(m), 'fecha_hoy', `"${m}" debe resolverse como la fecha de hoy`);
   }
+  // Si el formato dice cuántos dígitos tiene el año, la fecha va numérica y del MISMO largo
+  // (2013-22-LE26: «(Ciudad) DD/MM/AA» dejaba el formato a la vista).
+  for (const m of ['dd/mm/aaaa', 'DD-MM-AAAA']) assert.equal(conMarcador(m), 'fecha_hoy_numerica', m);
+  for (const m of ['DD/MM/AA', 'dd/mm/aa']) assert.equal(conMarcador(m), 'fecha_hoy_numerica_corta', m);
 });
 
 // BUG REAL (2724-35-LP26, ANEXO N°1, bloque "B) DATOS DEL CONTACTO DEL OFERENTE"): el bloque pide

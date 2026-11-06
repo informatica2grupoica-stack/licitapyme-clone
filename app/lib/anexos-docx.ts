@@ -671,6 +671,7 @@ function esCampoEntreParentesis(dentro: string): boolean {
 }
 
 const RE_UNIDAD_DE_MEDIDA = /^(?:[kmµu]?g|t|ton|[kcmµ]?m[²³23]?|pulg(?:adas?)?|in|ft|[mµ]?l|lts?|cc|°\s?[cf]?|º\s?[cf]?|grados?|%|[km]?w|kva|[km]?v|[mµ]?a|mah|[kmg]?hz|mmhg|cmh2o|[mk]?pa|bar|psi|seg|s|min|h|hrs?|d[ií]as?|kcal|cal|db|lux|lm|rpm|btu|l\/min|ml\/h|ml\/min|ppm|mbar|nm|ohm|Ω)$/i;
+const RE_FORMATO_DE_FECHA_ESCRITO = /\b(?:dd|d[ií]a)\s*[/-]\s*(?:mm|mes)\s*[/-]\s*(?:aaaa|aa|a[ñn]o)\b/gi;
 const RE_MARCADORES: { re: RegExp; valido: (dentro: string) => boolean }[] = [
   { re: /<<([^<>]{2,200}?)>>/g, valido: (d) => RE_LETRA.test(d) },      // <<NOMBRE PERSONA NATURAL O PERSONA JURIDICA>>
   // BUG REAL (18-ago-2026, 1247197-54-LE26, "DECLARACIÓN JURADA PARA CONTRATAR"): el organismo usa
@@ -823,6 +824,8 @@ export function listarBlancosInline(textoRun: string): BlancoInline[] {
     if (pesoPuntos(m[0]) < UMBRAL_PESO_PUNTOS) continue;
     crudos.push({ pos: m.index!, largo: m[0].length });
   }
+  // El formato escrito tal cual, sin marcas alrededor: «(Ciudad) DD/MM/AA». Es un marcador de fecha.
+  for (const m of textoRun.matchAll(RE_FORMATO_DE_FECHA_ESCRITO)) crudos.push({ pos: m.index!, largo: m[0].length, textoMarcador: m[0] });
   for (const { re, valido } of RE_MARCADORES) {
     for (const m of textoRun.matchAll(re)) {
       const dentro = m[1].trim();
@@ -837,8 +840,16 @@ export function listarBlancosInline(textoRun: string): BlancoInline[] {
   const out: BlancoInline[] = [];
   let finAceptado = -1;
   let ultimo = 0;
-  for (const c of crudos) {
+  for (const [i, c] of crudos.entries()) {
     if (c.pos < finAceptado) continue;
+    // «Quien suscribe (razón social) ________»: el paréntesis PEGADO a una raya es el rótulo de esa
+    // raya, no una casilla aparte. Tratarlo como casilla escribía la razón social dos veces y
+    // borraba el rótulo (Anexo N°11 de 2013-22-LE26: «Quien suscribe Inversiones X Inversiones X,
+    // proponente…»). Sin raya a continuación el paréntesis sí es el marcador, como siempre.
+    if (c.textoMarcador && textoRun[c.pos] === '(') {
+      const sig = crudos.slice(i + 1).find(o => o.pos >= c.pos + c.largo);
+      if (sig && !sig.textoMarcador && /^\s*$/.test(textoRun.slice(c.pos + c.largo, sig.pos))) continue;
+    }
     const previo = textoRun.slice(ultimo, c.pos);
     const contexto = (previo.split(/[,.;]|\(\*+\)/).pop() || previo).trim().slice(-40);
     out.push({ posEnTexto: c.pos, largo: c.largo, contexto, ...(c.textoMarcador ? { textoMarcador: c.textoMarcador } : {}) });

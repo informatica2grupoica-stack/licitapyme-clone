@@ -232,6 +232,11 @@ export function conCamposDerivados(empresa: EmpresaCampos, ahora = new Date()): 
       // campoDeFechaEnFormula (anexos-determinista.ts). El organismo ya imprimió el "20" del año;
       // escribir el año completo ahí deja "del 202026".
       fecha_hoy_anio_corto: anio.slice(-2),
+      // Casilla que ESCRIBE el formato («DD/MM/AA», «dd/mm/aaaa»): se llena con la fecha numérica del
+      // mismo largo (2013-22-LE26, pie «(Ciudad) DD/MM/AA»: la ciudad se llenaba y el formato quedaba
+      // a la vista en el documento que se sube).
+      fecha_hoy_numerica: `${dia}/${mes}/${anio}`,
+      fecha_hoy_numerica_corta: `${dia}/${mes}/${anio.slice(-2)}`,
     }))(partesFechaChile(ahora)),
   };
 }
