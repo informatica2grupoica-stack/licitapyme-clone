@@ -2475,7 +2475,7 @@ export async function crearServicioProducto(
 // "Todo cambio posterior a una aprobación la invalida y devuelve el proyecto a la bandeja" (§10.5).
 // Vive acá (no en compras-aprobaciones.ts) para que tanto ese módulo como compras-auditor.ts (al
 // elegir un escenario) puedan llamarla sin crear un ciclo de imports entre los tres archivos.
-export async function invalidarAprobacionesCompras(negocioId: number, motivo: string): Promise<void> {
+export async function invalidarAprobacionesCompras(negocioId: number, motivo: string, conservarLineas: number[] = []): Promise<void> {
   const ahora = ahoraChileSQL();
   await pool.query(
     `UPDATE compras_aprobacion
@@ -2486,7 +2486,11 @@ export async function invalidarAprobacionesCompras(negocioId: number, motivo: st
   );
   await sincronizarTareaAprobacion(negocioId);
   // Las decisiones por producto (aprobado/rechazado) eran sobre la compra anterior: al cambiar el escenario hay que volver a decidirlas.
-  await pool.query(`DELETE FROM compras_aprobacion_linea WHERE negocio_id = ?`, [negocioId]).catch(() => { /* migración 147 sin aplicar */ });
+  // `conservarLineas`: productos cuya compra no cambió (misma cotización) al ampliar la selección: su decisión sigue valiendo.
+  await (conservarLineas.length
+    ? pool.query(`DELETE FROM compras_aprobacion_linea WHERE negocio_id = ? AND producto_id NOT IN (?)`, [negocioId, conservarLineas])
+    : pool.query(`DELETE FROM compras_aprobacion_linea WHERE negocio_id = ?`, [negocioId])
+  ).catch(() => { /* migración 147 sin aplicar */ });
 }
 
 /** Cierra sola una tarea del catálogo cuando ocurre el hecho que ella pide (mismo criterio que `reloj_entrega` y `aprobar_compra`): anotar el

@@ -3,6 +3,11 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-06 (noche) — «Tu compra» se puede elegir PARCIAL para adelantar compras (`ArmarCompra.tsx`, `compras-auditor.ts` elegirSeleccion, `compras.ts` invalidarAprobacionesCompras; tsc ok, SIN ver en navegador ni desplegar)
+- Pedido del dueño: marcar y mandar a aprobar solo algunos productos para comprarlos antes y marcar el resto después. Antes `elegirSeleccion` y el botón exigían proveedor en TODOS los productos con oferta.
+- Ahora «Elegir esta compra parcial» funciona con faltantes (aviso ámbar informativo). Al ampliar la selección, las decisiones por producto (`compras_aprobacion_linea`) de los productos cuya cotización no cambió se conservan; la aprobación de toda la compra sí vuelve a pendiente (el costo total cambió).
+- Sin probar: cómo se ven aprobación, SKU y OC con una compra parcial elegida (productos sin proveedor aún).
+
 ## 2026-11-06 (tarde, 2) — Margen: la grúa del 1154 (ADICIONAL) salía como flete (`ComparadorPrecios.tsx`, `MargenCosteoVsCotizaciones.tsx`, `MatrizPrecios.tsx` tipo; tsc ok, SIN tests de UI, SIN desplegar ni ver en navegador)
 - Los servicios con `servicio_tipo = ADICIONAL` ya no van a `fletesCotizados`: van a `adicionales`. El flete reemplaza la reserva del 5 %; el adicional se resta además (fila «Adicionales», bloque «Adicionales: gastos que no estaban en el costeo»). En 1154: antes 30,1 % con la grúa como flete; ahora reserva $112.921 + grúa $60.000 → ~29,4 % − 0,7 pts (sin ver).
 
@@ -12,7 +17,7 @@ personal el 2026-10-27; las fechas son de cuando se decidió.
 - **979, dato del costeo por revisar (decisión del equipo):** la venta del costeo suma $34.680.000 y la OC del cliente $40.560.000; faltan $5.880.000 = un limpiador (la línea 2 del cliente vale $11.760.000 y en el costeo vale $5.880.000). El costo estimado del costeo es igual al precio de venta en todas las filas.
 - **Pagos por OC** (`ocsConFacturas`): incluye las OC propias vigentes (con SQL directo; importar `compras-oc-propia` arma un ciclo con `compras.ts`). «Ver factura» de una OC propia abre el archivo (`RepartoAdminCard.tsx`). Efecto: una OC propia sin pago cuenta como hito administrativo pendiente.
 - **Analítica de proveedores:** neto (antes sumaba `total_neto`, que es CON IVA), sin las anuladas en Obuma y con las OC propias.
-- **Costeo:** `cargarOcPropiaAlCosteo` (`compras-compra-a-costeo.ts`) pone el precio de la OC propia como costo real del producto, **solo al emitirla** (no en cada sync, para no pisar correcciones a mano). En 979 NO se aplicó (se negó el permiso para escribir en producción): la vacuolavadora sigue con costo real $1.000.000 en el costeo; la OC es a $3.500.000. Hay que corregirlo a mano en el costeo, o correr `scripts/scratch/_qa979/costeo_oc_propia.mts`.
+- **Costeo:** `cargarOcPropiaAlCosteo` (`compras-compra-a-costeo.ts`) pone el precio de la OC propia como costo real del producto, **solo al emitirla** (no en cada sync, para no pisar correcciones a mano). En 979 se aplicó el 2026-11-06 (OK del dueño, precio real): la vacuolavadora pasó de $1.000.000 a $3.500.000 de costo real (script `scripts/scratch/_qa979/costeo_oc_propia.mts`, carpeta ignorada por git; correr con `npx tsx --env-file=.env.local` y túnel 3307). Ojo: la venta es ~$2,1M netos por unidad, así que esa línea queda con pérdida y el margen se reabre.
 - No cambia: el precio de las OC de Obuma no se carga solo al costeo (lo hace «Cargar compra al costeo» desde la cotización; la diferencia se ve en el Comparativo).
 
 ## 2026-11-06 — Que todo quede sincronizado solo, en TODOS los negocios de Compras (pedido del dueño: «si cambio algo, obvio que se debe sincronizar»; tsc ok, 259 tests ok, SIN desplegar)

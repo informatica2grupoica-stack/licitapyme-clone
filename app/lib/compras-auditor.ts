@@ -1157,15 +1157,23 @@ export async function evaluarSeleccion(negocioId: number, seleccion: Record<numb
   return { combinacion: comb, faltan, sinOferta, errores };
 }
 
-/** Elige la compra armada a mano. Exige que TODOS los productos con oferta tengan proveedor y, salvo que coincida con «Más rápido», una justificación (§8.10.4). */
+/** Elige la compra armada a mano. Puede ser PARCIAL (pedido 06-nov-2026: adelantar la compra de unos productos y marcar el resto después):
+ *  los productos sin proveedor elegido simplemente quedan fuera. Salvo que coincida con «Más rápido», pide una justificación (§8.10.4).
+ *  Las decisiones por producto ya tomadas (aprobado/rechazado) se conservan para los productos cuya cotización no cambió. */
 export async function elegirSeleccion(
   negocioId: number, seleccion: Record<number, number>, justificacion: string | null, actorId: number, actorNombre: string | null,
 ): Promise<void> {
   const ev = await evaluarSeleccion(negocioId, seleccion);
   if (ev.errores.length) throw new Error(ev.errores[0]);
   if (!ev.combinacion) throw new Error('Elige al menos un producto con su proveedor.');
-  if (ev.faltan.length) throw new Error(`Falta elegir proveedor para: ${ev.faltan.map(f => f.descripcion.slice(0, 40)).join(', ')}.`);
-  await guardarCombinacionElegida(negocioId, ev.combinacion, justificacion, actorId, actorNombre);
+  let anterior: Record<number, number> = {};
+  try {
+    const [rows] = await pool.query(`SELECT detalle_json FROM compras_escenario WHERE negocio_id = ? AND elegido = 1 ORDER BY generado_at DESC LIMIT 1`, [negocioId]) as any;
+    const dj = (rows as any[])[0]?.detalle_json;
+    anterior = seleccionDesdeClave((typeof dj === 'string' ? JSON.parse(dj) : dj)?.clave);
+  } catch { /* sin selección previa legible */ }
+  const iguales = ev.combinacion.items.filter(i => anterior[i.productoId] === i.cotizacionId).map(i => i.productoId);
+  await guardarCombinacionElegida(negocioId, ev.combinacion, justificacion, actorId, actorNombre, iguales);
 }
 
 
@@ -1226,7 +1234,7 @@ export async function elegirCombinacion(
 }
 
 async function guardarCombinacionElegida(
-  negocioId: number, c: Combinacion, justificacion: string | null, actorId: number, actorNombre: string | null,
+  negocioId: number, c: Combinacion, justificacion: string | null, actorId: number, actorNombre: string | null, conservarLineas: number[] = [],
 ): Promise<void> {
   if (!c.etiquetas.includes('MAS_RAPIDO') && !justificacion?.trim()) throw new Error('Elegir una compra distinta de "Más rápido" requiere justificación (spec §8.10.4).');
   const ahora = ahoraChileSQL();
@@ -1236,7 +1244,7 @@ async function guardarCombinacionElegida(
      VALUES (?,?,?,?,?,?,?,1,?,?,?,?)`,
     [negocioId, 'COMBINACION', JSON.stringify(c.detalle), c.costoTotal, c.diasEstimados, c.viajes, ahora, justificacion || null, actorId, actorNombre, ahora],
   );
-  await invalidarAprobacionesCompras(negocioId, 'Se eligió una combinación de compra distinta.');
+  await invalidarAprobacionesCompras(negocioId, 'Se eligió una combinación de compra distinta.', conservarLineas);
   await registrarEvento({
     tipo: 'COMPRAS_ESCENARIO_ELEGIDO', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
     mensaje: `Se eligió una compra con ${c.proveedores.join(' + ')} (${fmtMonto(c.costoTotal)})${justificacion ? `: ${justificacion}` : ''}.`,

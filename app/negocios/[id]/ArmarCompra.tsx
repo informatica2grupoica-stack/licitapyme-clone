@@ -173,7 +173,7 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
               </>
             )}
             {evaluacion && evaluacion.faltan.length > 0 && (
-              <p className="text-[12.5px] text-amber-800 bg-amber-50 border border-amber-100 rounded px-2 py-1">Falta elegir proveedor para: {evaluacion.faltan.map(f => f.descripcion.slice(0, 45)).join(', ')}.</p>
+              <p className="text-[12.5px] text-amber-800 bg-amber-50 border border-amber-100 rounded px-2 py-1">Todavía sin proveedor ({evaluacion.faltan.length}): {evaluacion.faltan.map(f => f.descripcion.slice(0, 45)).join(', ')}. Puedes elegir esta compra parcial para adelantarla y marcar el resto después.</p>
             )}
             {evaluacion && evaluacion.sinOferta.length > 0 && (
               <p className="text-[12.5px] text-rose-800 bg-rose-50 border border-rose-100 rounded px-2 py-1">Nadie cotizó todavía: {evaluacion.sinOferta.map(f => f.descripcion.slice(0, 45)).join(', ')}.</p>
@@ -181,7 +181,7 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
 
             {esLaElegida ? (
               <p className="flex items-center gap-1.5 text-[13px] font-semibold text-emerald-700"><CheckCircle2 size={15} /> Esta es la compra elegida: pide su aprobación en el paso siguiente.</p>
-            ) : puedeOperar && comb && evaluacion && evaluacion.faltan.length === 0 && evaluacion.errores.length === 0 && (
+            ) : puedeOperar && comb && evaluacion && evaluacion.errores.length === 0 && (
               <div className="space-y-1.5 pt-1">
                 {!esMasRapida && (
                   <input value={just} onChange={e => setJust(e.target.value)} placeholder="¿Por qué esta compra y no la más rápida? (queda registrado)"
@@ -189,9 +189,9 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
                 )}
                 <button type="button" onClick={() => elegir()} disabled={eligiendo || (!esMasRapida && !just.trim())}
                   className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3.5 py-2 rounded-lg">
-                  {eligiendo ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />} Elegir esta compra
+                  {eligiendo ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />} {evaluacion.faltan.length > 0 ? 'Elegir esta compra parcial' : 'Elegir esta compra'}
                 </button>
-                <p className="text-[11.5px] text-zinc-400">Al elegirla se invalida una aprobación de compra previa.</p>
+                <p className="text-[11.5px] text-zinc-400">Al elegirla se invalida la aprobación de compra previa; las decisiones por producto que no cambiaron se conservan.</p>
               </div>
             )}
           </div>
