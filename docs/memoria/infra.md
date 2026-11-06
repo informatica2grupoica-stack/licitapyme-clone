@@ -14,12 +14,16 @@ Visto en cPanel → Track Delivery (Chrome, sesión del dueño; solo lectura).
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió. Sin
 direcciones de servidores ni claves: esos datos viven en los `.env`, fuera del repo.
 
-## 2026-11-06 — Kimi bajado de K3 a K3.1 Pro y K2.6 (sin razonar)
-Caso real: `ia_uso` del VPS, 30 días: kimi-k3 era el mayor gasto de IA (US$91; 88 del Auditor, 2,8 del prefiltro), más que glm-5 (US$71).
-K3 cuesta $3/$15 por M y corría razonando en `high`. Se partió en dos proveedores en `app/lib/gemini.ts`: `kimi` = kimi-k3.1-pro ($2/$10, esfuerzo `medium`: comparador, ficha propia, posición, costo, segmentación, pre-postulación del Auditor) y `kimi_rapido` = kimi-k2.6 ($0,95/$4) SIN razonar (prefiltro, Lector del Auditor, evaluar empresa por RUT; también será el de anexos). Variables nuevas `KIMI_MODELO` / `KIMI_MODELO_RAPIDO` (la vieja `KIMI_TEXT_MODEL` ya no se lee). La etiqueta del motor que se guarda en el Auditor ya no dice «kimi-k3» fijo (`MODELO_KIMI`). Precio de K3.1 en la telemetría.
-**Regla / decisión:** el dueño pidió «bájale las versiones, la más barata estable que sirva». Kimi SÍ permite apagar el razonamiento: `thinking:{type:'disabled'}` con `temperature` 0.6 obligatoria (razonando, solo 1); otro valor = 400. `response_format` se sigue quitando en Kimi (claves rotas en K3).
-**Verificado:** prueba en vivo de `crearChatIA` con ambos (K2.6: 1,5 s, 22 tokens; K3.1 Pro: 7 s), tsc OK. NO verificado: calidad del comparador en K3.1 Pro contra auditorías ya hechas (3712, 2427-98) ni del Lector en K2.6 con cotizaciones reales; no desplegado.
-**Pendiente:** deploy al VPS (si su `.env` tiene `KIMI_REASONING_EFFORT`, ese valor manda sobre `medium`); comparar el gasto en `ia_uso` una semana después.
+## 2026-11-06 — Kimi: se probaron versiones más baratas y ninguna sirve; todo sigue en K3
+Caso real: `ia_uso` del VPS, 30 días: kimi-k3 era el mayor gasto de IA (US$91; 88 del Auditor, 2,8 del prefiltro), más que glm-5 (US$71). K3 cuesta $3/$15 por M.
+El dueño pidió «bájale las versiones, la más barata estable que sirva». Se probó todo contra datos reales ya procesados, sin escribir en la BD:
+- **Comparador técnico con K3.1 Pro ($2/$10, `medium`)**, 5 líneas (634-96, 607-84 ×2, 2483-265, 2013-22): se pasó de 240 s en 2 líneas que K3 terminó, gastó más tokens de salida y en 2013-22-LE26 bajó un ❌ a ❓. K3 repetido coincidió 98% con lo guardado; K3.1 Pro 92%.
+- **Lector con K2.6 ($0,95/$4) sin razonar**, 14 documentos: en 5 de 8 cotizaciones no vio «PRECIO NETO»/«TOTAL NETO» (IVA «no_declarado») y en una tomó el total con IVA como precio. **K2.6 razonando en `low`**: 7 de 8 se pasaron de 240 s.
+- 634-96-LE26 L1 (36 requisitos × 4 opciones) se pasa de 240 s con cualquier modelo.
+Queda en código (`app/lib/gemini.ts`): `kimi` = K3 (`KIMI_MODELO`, por defecto `high`; Lector y prefiltro piden `low`) y `kimi_rapido` = K2.6 sin razonar (`KIMI_MODELO_RAPIDO`), que hoy solo usa evaluar empresa por RUT y queda para elegir el campo de una casilla en anexos (ahí sí acertó en la prueba simple). La vieja `KIMI_TEXT_MODEL` ya no se lee. La etiqueta del motor guardada en el Auditor sale de `MODELO_KIMI`. Precio de K3.1 en la telemetría.
+**Regla / decisión:** no bajar el Auditor ni el prefiltro de K3 sin repetir estas pruebas. Kimi SÍ permite apagar el razonamiento: `thinking:{type:'disabled'}` con `temperature` 0.6 obligatoria (razonando, solo 1); otro valor = 400. `response_format` se sigue quitando en Kimi (claves rotas en K3).
+**Verificado:** las tres pruebas de arriba (gastaron ~US$1,50 en `ia_uso`, módulo auditor) y tsc OK. No desplegado.
+**Pendiente:** el ahorro tendría que salir de otra parte: K3 en `medium` para el comparador (sin probar), o mandar menos texto y hacer menos llamadas; 634-96-LE26 L1 no cabe en 240 s.
 **Multiempresa:** la cuenta Kimi sigue siendo una sola (`KIMI_API_KEY`); al vender, la key y el modelo tienen que ir por cliente.
 
 ## 2026-11-04 — Avisos por WhatsApp (ganada, perdida, apertura) desde un número emisor por QR

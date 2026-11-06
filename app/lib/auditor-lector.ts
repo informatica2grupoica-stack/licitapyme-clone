@@ -19,7 +19,9 @@ import { limpiarProveedorPropio } from '@/app/lib/auditor-complementos-core';
 import { monedaDeTexto } from '@/app/lib/moneda-texto';
 
 export type ModoLector = 'completo' | 'comercial';
-const MOTOR_LECTOR = 'kimi_rapido';     // Kimi en todo el Auditor (26-oct-2026); el Lector solo transcribe → K2.6 sin razonar (06-nov-2026)
+// Kimi en todo el Auditor (26-oct-2026). NO usar K2.6 sin razonar (kimi_rapido): probado 06-nov-2026 contra 8 cotizaciones ya
+// leídas, en 5 no vio «PRECIO NETO»/«TOTAL NETO» (IVA quedó «no_declarado») y en una tomó el total con IVA como precio.
+const MOTOR_LECTOR = 'kimi';
 const MODELO_RESPALDO_GLM = 'glm-4.7';   // si Kimi falla
 const MAX_CHARS_TEXTO = 40_000;
 
@@ -237,7 +239,7 @@ async function llamarLector(texto: string, nombre: string, modo: ModoLector, esW
   const pedir = async (): Promise<any> => {
     if (motor !== MOTOR_LECTOR) return crearChatIA(params, { timeoutMs: 240_000, modeloPreferido: MODELO_RESPALDO_GLM, soloGlm: true });
     // max_tokens 16k: el razonamiento de Kimi gasta del MISMO presupuesto que el JSON (margen como el del comparador).
-    try { return await crearChatIA({ ...params, max_tokens: 16_000 }, { timeoutMs: 240_000, proveedorPreferido: MOTOR_LECTOR, sinRespaldo: true }); }
+    try { return await crearChatIA({ ...params, max_tokens: 16_000, _esfuerzoKimi: 'low' }, { timeoutMs: 240_000, proveedorPreferido: MOTOR_LECTOR, sinRespaldo: true }); }
     catch (e) {
       const msgKimi = (e instanceof Error ? e.message : String(e)).slice(0, 200);
       console.warn(`[auditor-lector] Kimi no pudo leer «${nombre}» (${msgKimi}): se lee con ${MODELO_RESPALDO_GLM}`);

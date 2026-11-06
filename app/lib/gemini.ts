@@ -174,13 +174,14 @@ const PROVEEDORES_TEXTO: Record<string, ProveedorTexto> = {
   // con api.moonshot.cn (China), las keys no son intercambiables.
   // 06-nov-2026 (pedido del dueño: "bájale las versiones, está en la más cara"): K3 a $3/$15 por M y razonando en 'high' era
   // el mayor gasto de IA del sistema (US$91 en 30 días, 97% el Auditor). Se separa en dos:
-  //   · kimi        → K3.1 Pro ($2/$10, más nuevo que K3) razonando en 'medium': comparar especificaciones (Auditor).
+  //   · kimi        → SIGUE en K3 'high': comparar especificaciones (Auditor). Se probó K3.1 Pro ($2/$10) en 'medium' contra 5
+  //     líneas reales ya auditadas (06-nov-2026) y salió peor: se pasó de los 240 s en 2 líneas que K3 terminó (111 s y 236 s),
+  //     gastó MÁS tokens de salida, y en 2013-22-LE26 bajó un ❌ NO_CUMPLE a ❓ (un incumplimiento que se escapa). No usar.
   //   · kimi_rapido → K2.6 ($0,95/$4) SIN razonar: clasificar, transcribir, elegir un campo (prefiltro, Lector, anexos).
   //     Medido en vivo: apagar el razonamiento sí funciona en Kimi (thinking:disabled + temperature 0.6) y deja la
   //     salida en ~12 tokens donde razonando gastaba ~130.
-  // Variables NUEVAS a propósito (KIMI_MODELO / KIMI_MODELO_RAPIDO): la vieja KIMI_TEXT_MODEL=kimi-k3 sigue en los .env
-  // de los servidores y habría tapado el cambio.
-  kimi:        { baseURL: 'https://api.moonshot.ai/v1', keyEnv: 'KIMI_API_KEY', model: process.env.KIMI_MODELO || 'kimi-k3.1-pro', sinThinking: false, reasoningEffort: process.env.KIMI_REASONING_EFFORT || 'medium', kimi: true },
+  // Variables NUEVAS a propósito (KIMI_MODELO / KIMI_MODELO_RAPIDO): la vieja KIMI_TEXT_MODEL sigue en los .env de los servidores.
+  kimi:        { baseURL: 'https://api.moonshot.ai/v1', keyEnv: 'KIMI_API_KEY', model: process.env.KIMI_MODELO || 'kimi-k3', sinThinking: false, reasoningEffort: process.env.KIMI_REASONING_EFFORT || 'high', kimi: true },
   kimi_rapido: { baseURL: 'https://api.moonshot.ai/v1', keyEnv: 'KIMI_API_KEY', model: process.env.KIMI_MODELO_RAPIDO || 'kimi-k2.6', sinThinking: true, kimi: true },
 };
 export const IA_TEXT_PROVIDER = (process.env.IA_TEXT_PROVIDER ?? 'zai').toLowerCase();

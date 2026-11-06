@@ -21,7 +21,7 @@ import pool from '@/app/lib/db';
 import { crearChatIA as crearChatIABase, iaTextoConfigurada, MODELO_TEXTO } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('prefiltro', crearChatIABase);
-const MOTOR_PREFILTRO = 'kimi_rapido'; // K2.6 sin razonar (06-nov-2026): clasificar metadata corta no necesita K3
+const MOTOR_PREFILTRO = 'kimi'; // K3 en 'low'. K2.6 se descartó el 06-nov-2026 (se saltó datos en el Lector) y aquí ahorraba ~US$2/mes: un descarte malo cuesta más
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { leerCache } from '@/app/lib/licitaciones-cache';
 
@@ -355,7 +355,8 @@ export async function prefiltrarLote(metas: MetaLic[]): Promise<PrefiltroResult[
 
       // Hasta 2 intentos: JSON truncado/vacío o error de red no deben caer directo a PASA.
       // max_tokens amplio (el JSON de 15 ítems con motivo+evidencia truncaba a 4000).
-      // Kimi va sin razonar (kimi_rapido); el tope amplio queda por si cae al respaldo GLM.
+      // Kimi razona siempre y ese razonamiento sale del mismo max_tokens: esfuerzo 'low' (clasificar
+      // con metadata corta no necesita más) y tope amplio para que el JSON no quede truncado.
       let arr: any[] = [];
       let modeloLote = MODELO;
       for (let intento = 0; intento < 2 && arr.length === 0; intento++) {
@@ -368,6 +369,7 @@ export async function prefiltrarLote(metas: MetaLic[]): Promise<PrefiltroResult[
             temperature: 0.1,
             max_tokens: 16_000,
             response_format: { type: 'json_object' },
+            _esfuerzoKimi: 'low',
           }, { timeoutMs: 180_000, proveedorPreferido: MOTOR_PREFILTRO });
           modeloLote = completion.model || modeloLote;
           const raw = completion.choices[0]?.message?.content || '';
