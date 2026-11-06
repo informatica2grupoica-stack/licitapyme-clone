@@ -72,11 +72,20 @@ function tecnicoDe(panel: PanelFichasDTO | null, productoId: number, proveedor: 
 export async function tablaAprobacion(negocioId: number): Promise<TablaAprobacion> {
   // Todo a la par (antes: código → productos → fichas → compras rápidas, en serie; 22-oct-2026). Las fichas solo esperan el código.
   const codigoP = (pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any).then(([[neg]]: any) => neg?.licitacion_codigo ?? '');
-  const [productos, costeado, escenario, panel, { compras: rapidas }] = await Promise.all([
+  const [productos, costeado, escenario, panel, { compras: rapidas }, ocsPropias] = await Promise.all([
     listarProductosCompra(negocioId), costeadoPorProducto(negocioId).catch(() => ({} as Record<number, number | null>)), obtenerEscenarioElegido(negocioId),
     codigoP.then((c: string) => panelFichas(negocioId, c)).catch(() => null),
     listarComprasRapidas(negocioId).catch(() => ({ compras: [] as CompraRapida[] })),
+    // OC propias vigentes (Comercial MP): lo que se compró así también es una compra con proveedor y precio (SQL directo, igual que compras-pagos-oc.ts).
+    (pool.query(`SELECT proveedor_nombre, proveedor_rut, items_json FROM compras_oc_propia WHERE negocio_id = ? AND estado <> 'ANULADA' ORDER BY id`, [negocioId]) as any)
+      .then(([r]: any) => r as any[]).catch(() => [] as any[]),
   ]);
+  const ocPropiaDe = new Map<number, { proveedor: string | null; rut: string | null; precio: number }>();
+  for (const oc of ocsPropias) {
+    let items: any[] = [];
+    try { items = JSON.parse(oc.items_json || '[]'); } catch { continue; }
+    for (const it of items) if (it?.productoId != null && Number(it.precio) > 0 && !ocPropiaDe.has(Number(it.productoId))) ocPropiaDe.set(Number(it.productoId), { proveedor: oc.proveedor_nombre ?? null, rut: oc.proveedor_rut ?? null, precio: Number(it.precio) });
+  }
 
   let detalle: any = null;
   try { detalle = escenario ? (typeof escenario.detalle_json === 'string' ? JSON.parse(escenario.detalle_json) : escenario.detalle_json) : null; } catch { /* escenario ilegible: se trata como sin compra */ }
@@ -95,6 +104,10 @@ export async function tablaAprobacion(negocioId: number): Promise<TablaAprobacio
     let proveedor: string | null = compraUnit != null ? (c?.proveedor ?? null) : null;
     // Compra rápida que el escenario elegido todavía no incluye: se compara con SU tienda y SU precio, para que el jefe vea de una vez si sale más caro que lo costeado.
     if (compraUnit == null && rap?.precioUnitario != null) { compraUnit = rap.precioUnitario; proveedor = rap.proveedorNombre; rapidaFueraEscenario.add(p.id); }
+    // Comprado con una OC propia de Comercial MP: es la compra real aunque el escenario elegido no la traiga (igual que una compra rápida).
+    const ocp = compraUnit == null ? ocPropiaDe.get(p.id) : undefined;
+    let proveedorRutOcp: string | null = null;
+    if (ocp) { compraUnit = ocp.precio; proveedor = ocp.proveedor; proveedorRutOcp = ocp.rut; rapidaFueraEscenario.add(p.id); }
     const compraTotal = compraUnit != null ? (c?.subtotal ?? (cant != null ? compraUnit * cant : null)) : null;
     const ventaTotal = p.montoUnitario != null && cant != null ? p.montoUnitario * cant : null;
     const difUnit = compraUnit != null && costUnit != null ? compraUnit - costUnit : null;
@@ -104,7 +117,7 @@ export async function tablaAprobacion(negocioId: number): Promise<TablaAprobacio
     // Un servicio (transporte de toda la entrega) no tiene ficha técnica ni línea de bases: lo técnico no aplica.
     const tecnico: LineaAprobacion['tecnico'] = p.esServicio
       ? { estado: 'SIN_COMPRA', cumple: 0, total: 0, modelo: null }
-      : tecnicoDe(panel, p.id, proveedor, rap && mismoProveedor({ nombre: rap.proveedorNombre }, { nombre: proveedor }) ? rap.proveedorRut : null);
+      : tecnicoDe(panel, p.id, proveedor, rap && mismoProveedor({ nombre: rap.proveedorNombre }, { nombre: proveedor }) ? rap.proveedorRut : proveedorRutOcp);
 
     const motivos: string[] = [];
     let porPrecio: EstadoLinea = 'PASA';

@@ -971,6 +971,19 @@ function extraerCeldasDeFila(filaXml: string, offsetFila: number, offsetsIndices
 
 const RE_COLUMNA_CONTACTO = /^(?:telefono|fono|celular|movil|e-?\s?mail|correo(?: electronico)?)\b/;
 
+// «EQUIPOS», «MATERIALES»… son subtítulos de grupo DENTRO de la misma tabla de precios (3712-74-LP26,
+// Anexo 7: el primero va justo bajo el encabezado y antes dejaba la tabla sin una sola fila de
+// datos). Un divisor de una celda NO termina el segmento si la próxima fila con datos tiene tantas
+// celdas como el encabezado. Solo con 3+ columnas: con 2, el [etiqueta][valor] de un formulario sí
+// puede arrancar otra sub-tabla (611669-17-LE26). detectarCandidatosTabla y el set de tablas
+// cubiertas tienen que cortar en el MISMO punto.
+function esSubtituloDeGrupo(filasInfo: { numCeldas: number }[], iEncabezado: number, i: number, fin: number): boolean {
+  const n = filasInfo[iEncabezado].numCeldas;
+  if (n < 3) return false;
+  const sig = filasInfo.slice(i + 1, fin).find(f => f.numCeldas >= 2);
+  return !!sig && sig.numCeldas === n;
+}
+
 export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
   const out: CandidatoCelda[] = [];
   const offsetsIndices = offsetsAIndices(xml);
@@ -1041,7 +1054,7 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
       // solo, con su propia etiqueta ("NOMBRE COMPLETO" a secas) intacta.
       let finSegmentoReal = finSegmento;
       for (let i = iEncabezado + 1; i < finSegmento; i++) {
-        if (filasInfo[i].numCeldas < 2) { finSegmentoReal = i; break; }
+        if (filasInfo[i].numCeldas < 2 && !esSubtituloDeGrupo(filasInfo, iEncabezado, i, finSegmento)) { finSegmentoReal = i; break; }
       }
 
       const primeraFila = filas[iEncabezado];
@@ -1252,7 +1265,7 @@ function indicesEnCeldasDeDatosDeTabla(xml: string): Set<number> {
       // sigue creyendo suyas.
       let finSegmentoReal = finSegmento;
       for (let i = iEncabezado + 1; i < finSegmento; i++) {
-        if (filasInfo[i].numCeldas < 2) { finSegmentoReal = i; break; }
+        if (filasInfo[i].numCeldas < 2 && !esSubtituloDeGrupo(filasInfo, iEncabezado, i, finSegmento)) { finSegmentoReal = i; break; }
       }
       const restoFilas = filas.slice(iEncabezado + 1, finSegmentoReal);
       for (const fila of restoFilas) {
@@ -2758,6 +2771,7 @@ export function detectarGruposCheckbox(xml: string): GrupoCheckbox[] {
 // lado (caso real 4022-19-LE26, Anexo 4: «Valor neto», «Impuesto IVA», «Valor Total» dentro de la
 // celda «Precio Total»). Cada rótulo es una casilla que se escribe al final de su propio párrafo.
 // `textoCelda` es como la ve el patrón de tabla al usarla de etiqueta de fila para la celda vecina.
+const PIE_SUELTO = '\u0000pie-suelto';
 function detectarPieApiladoEnCelda(xml: string, parrafos: Parrafo[]): { textoCelda: string; candidatos: CandidatoCelda[] }[] {
   const porIndice = new Map(parrafos.map(p => [p.indice, p]));
   const out: { textoCelda: string; candidatos: CandidatoCelda[] }[] = [];
@@ -2773,6 +2787,28 @@ function detectarPieApiladoEnCelda(xml: string, parrafos: Parrafo[]): { textoCel
         });
       }
     }
+  }
+  // Lo mismo con párrafos SUELTOS, cada uno con su «$» ya impreso y nada después (808211-6-LE26,
+  // Anexo 8: «NETO: $ / IVA: $ / BRUTO: $» bajo «Completar los siguientes datos»). Seguidos, 2 o 3,
+  // con el vocabulario cerrado de rolesPieApilado; el monto va pegado al «$».
+  const yaTomados = new Set(out.flatMap(o => o.candidatos.map(c => c.indice)));
+  const conTextoSuelto = parrafos.filter(p => p.texto.trim() !== '');
+  for (let i = 0; i < conTextoSuelto.length; i++) {
+    const racha: Parrafo[] = [];
+    for (let j = i; j < conTextoSuelto.length && racha.length < 3; j++) {
+      const p = conTextoSuelto[j];
+      if (!/^[^$]{2,40}\$\s*$/.test(p.texto) || yaTomados.has(p.indice)) break;
+      if (racha.length && p.indice !== racha[racha.length - 1].indice + 1) break;
+      racha.push(p);
+    }
+    const roles = racha.length >= 2 ? rolesPieApilado(racha.map(p => p.texto.replace(/[\s:.\-]*\$\s*$/, ''))) : null;
+    if (!roles) continue;
+    racha.forEach(p => yaTomados.add(p.indice));
+    out.push({
+      textoCelda: PIE_SUELTO,
+      candidatos: racha.map((p, k) => ({ etiqueta: p.texto.trim(), paraId: p.paraId, indice: p.indice, dosPuntos: true, pieApilado: roles[k] })),
+    });
+    i += racha.length - 1;
   }
   return out;
 }
@@ -2905,8 +2941,9 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // deja de heredarlos como etiqueta de fila (si no, «Descripción» parecía pedir el monto).
   const pieApilado = detectarPieApiladoEnCelda(xml, parrafos);
   const rotulosApilados = new Set(pieApilado.map(p => p.textoCelda));
+  const textosPieSuelto = new Set(pieApilado.filter(p => p.textoCelda === PIE_SUELTO).flatMap(p => p.candidatos.map(c => c.etiqueta.replace(/\s+/g, ' '))));
   const candidatosCelda = [
-    ...candidatosCeldaTodos.filter(c => !esEtiquetaFirma(c.etiqueta)).map(c => {
+    ...candidatosCeldaTodos.filter(c => !esEtiquetaFirma(c.etiqueta) && !textosPieSuelto.has(c.etiqueta.replace(/\s+/g, ' ').trim())).map(c => {
       const [fila, ...columna] = c.etiqueta.split(' — ');
       return columna.length && rotulosApilados.has(fila.replace(/\s+/g, ' ').trim()) ? { ...c, etiqueta: columna.join(' — ') } : c;
     }),

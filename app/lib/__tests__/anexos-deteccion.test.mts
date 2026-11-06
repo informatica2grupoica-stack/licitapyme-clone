@@ -13,6 +13,7 @@ import {
 import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, detectarBlancosInline, indiceFilaEncabezado, extraerTablasCrudo, detectarCandidatosTabla, detectarTripletesFecha, detectarAlternativasExcluyentes, esEtiquetaDeCampo } from '../anexos-detectar';
 import { valorExisteEnFicha, campoCalzaConLaEtiqueta, type EmpresaCampos } from '../anexos-ia-motor';
 import { resolverDeterminista } from '../anexos-determinista';
+import { tipoDeMontoDeOferta } from '../anexos-monto-oferta';
 import { esCandidatoDePrecioUnitario, esPrecioUnitarioConIva } from '../anexos-precios-columnas';
 import { calcularTotalesAlPie, pareceFilaDePie, calcularTotalesPorSeccion, resolverTablaResumen, calcularTotalesPorLinea, celdasDeRellenoDelPie } from '../anexos-totales-seccion';
 
@@ -2866,4 +2867,59 @@ test('fila de pie que empieza más a la derecha (gridBefore): NETO bajo CANTIDAD
   assert.equal(pie[4].texto, 'NETO', JSON.stringify(pie.map(c => c.texto)));
   assert.ok(pie[5].indiceGlobal != null && pie[6].indiceGlobal != null, 'casillas bajo VALOR UNITARIO y VALOR TOTAL');
   assert.ok(pie.slice(0, 4).every(c => c.indiceGlobal == null && c.texto === ''), 'nada bajo las 4 primeras columnas');
+});
+
+
+// 3712-74-LP26, Anexo 7: «EQUIPOS» (subtítulo de grupo de UNA celda) va justo bajo el encabezado de 5
+// columnas y cortaba la tabla: ni un precio se ofrecía. Un divisor no termina la tabla si la fila que
+// sigue tiene tantas celdas como el encabezado.
+test('Subtítulo de grupo de una celda dentro de una tabla de precios: las filas de abajo siguen siendo suyas', () => {
+  const xml = NS + tabla(
+    fila('N°', 'INSUMO', 'CANTIDAD', 'VALOR UNITARIO NETO', 'VALOR TOTAL NETO'),
+    fila('EQUIPOS'),
+    fila('1', 'Generador eléctrico diésel portátil 4 kw', '9', '', ''),
+    fila('2', 'Estanque Quimitank 150 (Lt)', '9', '', ''),
+    fila('MATERIALES'),
+    fila('3', 'Cable 10 mm', '100', '', ''),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const etiquetas = detectarCandidatosTabla(norm).map(c => c.etiqueta);
+  assert.ok(etiquetas.includes('Generador eléctrico diésel portátil 4 kw — VALOR UNITARIO NETO'), etiquetas.join(' | '));
+  assert.ok(etiquetas.includes('Cable 10 mm — VALOR TOTAL NETO'), 'también después del segundo subtítulo');
+  assert.equal(etiquetas.length, 6);
+});
+
+test('Un divisor de una celda sí termina la tabla cuando lo que sigue tiene otra forma (sub-tabla de formulario)', () => {
+  const xml = NS + tabla(
+    fila('PARTICIPANTE', 'RUT', 'CARGO'),
+    fila('Ana Pérez', '', ''),
+    fila('DATOS BANCARIOS'),
+    fila('Banco', ''),
+    fila('Cuenta', ''),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const etiquetas = detectarCandidatosTabla(norm).map(c => c.etiqueta);
+  assert.ok(!etiquetas.some(e => /Banco|Cuenta/.test(e)), etiquetas.join(' | '));
+});
+
+// 808211-6-LE26, Anexo 8: «NETO: $ / IVA: $ / BRUTO: $» como párrafos sueltos. El BRUTO tomaba como
+// valor el párrafo vacío de la firma y NETO e IVA no eran casillas.
+test('Neto / IVA / bruto en párrafos sueltos con «$» impreso: tres casillas con su rol, sin duplicar el último', () => {
+  const xml = NS + p('Completar los siguientes datos:') + p('NETO:    $') + p('IVA:        $') + p('BRUTO: $')
+    + p('') + p('Oferente o Representante legal, Firma y Timbre') + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const cands = analizarAnexo(norm).candidatosCelda;
+  assert.deepEqual(cands.filter(c => c.pieApilado).map(c => [c.pieApilado, c.dosPuntos]), [['neto', true], ['iva', true], ['bruto', true]]);
+  assert.ok(!cands.some(c => !c.pieApilado && /BRUTO/.test(c.etiqueta)), cands.map(c => c.etiqueta).join(' | '));
+});
+
+test('Dos párrafos con «$» que no son neto/IVA/total no se toman como pie', () => {
+  const xml = NS + p('Anticipo: $') + p('Garantía: $') + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  assert.ok(!analizarAnexo(norm).candidatosCelda.some(c => c.pieApilado));
+});
+
+test('«por el VALOR NETO de $» es el monto de la oferta; «por el valor agregado» no', () => {
+  assert.equal(tipoDeMontoDeOferta('por el             VALOR     NETO      de $'), 'neto');
+  assert.equal(tipoDeMontoDeOferta('por el valor agregado'), null);
 });

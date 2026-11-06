@@ -443,7 +443,8 @@ async function resolverTodo(
       { hayTablaDeItems },
     );
     pieApilado.forEach((c, i) => {
-      const valor = valores[i];
+      // Si el papel ya imprime el «$» al final del rótulo («NETO: $»), va solo el número.
+      const valor = /\$\s*$/.test(c.etiqueta) ? valores[i]?.replace(/^\$\s*/, '') : valores[i];
       // El neto y el total entran a `totalesEscritos` (guardarraíl contra el costeo aprobado); el IVA no.
       if (valor) matcheados.push({ c, campo: c.pieApilado === 'iva' ? 'iva_calculado' : CAMPO_MONTO_TOTAL_OFERTA, valor, via: 'costeo', dosPuntos: true });
       else pendientesTrasPrecio.push(c);

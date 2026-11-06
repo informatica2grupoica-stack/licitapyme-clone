@@ -109,7 +109,7 @@ const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string; cat
   // ÚNICO permiso que se muestra también a un admin (ver el comentario largo en app/lib/api-auth.ts).
   { key: 'compras_todo',        label: 'Todo el módulo de Compras',      desc: 'Ve y opera Compras completo (si no, solo los negocios donde es encargado). Todo admin ya lo tiene.', categoria: 'compras' },
   { key: 'compras_ver',         label: 'Compras solo lectura',           desc: 'Ve Compras, Proyectos, Órdenes de compra, Proveedores y Fleteros sin poder modificar.', categoria: 'compras' },
-  { key: 'compras_auditor',     label: 'Auditor de Compras (perfil)',    desc: 'Opera Compras desde que se aprueba la compra (directa o cuadro): crea SKU, emite OC, logística, entrega y cierre. No ve Tareas ni Costeo. Ve Proveedores, Proyectos y OC.', categoria: 'compras' },
+  { key: 'compras_auditor',     label: 'Auditor de Compras (perfil)',    desc: 'Opera Compras desde que se aprueba la compra (directa o cuadro): crea SKU, emite OC, logística, entrega y cierre. No ve Tareas ni Costeo y auditoría; el costeo digital («Ver costeo») lo ve solo lectura. Ve Proveedores, Proyectos y OC.', categoria: 'compras' },
   // Restricción, no privilegio: no se activa con "Activar todo".
   { key: 'solo_compras',        label: 'Encerrar en Compras (restricción)', desc: 'Su menú queda limitado a los módulos de Compras. Úsalo junto con los permisos de arriba.', categoria: 'compras' },
 ];

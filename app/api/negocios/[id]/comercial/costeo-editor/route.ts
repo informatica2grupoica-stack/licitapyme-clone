@@ -62,9 +62,11 @@ function sinAccesoCosteo() {
 
 // Perfil de Compras: puede VER el costeo (GET), nunca modificarlo (PUT y ficha-producto siguen
 // siendo solo admin). Lee los permisos guardados de verdad, ignorando el rol.
+// `compras_auditor` (06-nov-2026, pedido del dueño): el Auditor de Compras también lo VE (botón «Ver costeo»), solo lectura:
+// no es operador (esOperadorCompras no lo incluye), así que el editor queda congelado y PATCH/PUT lo niegan.
 async function esVisorCompras(userId: number): Promise<boolean> {
   const p = await permisosCrudosDeUsuario(userId);
-  return !!(p.compras_ver || p.compras_todo || p.compras);
+  return !!(p.compras_ver || p.compras_todo || p.compras || p.compras_auditor);
 }
 
 // ¿Puede el perfil de Compras cargar costo real / agregar filas? Solo quien OPERA (compras o ver y

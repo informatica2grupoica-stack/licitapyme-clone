@@ -206,6 +206,18 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
       const licOcTotal = Math.round(vigentes.reduce((s, o) => s + (o.total ?? 0), 0));
       const anuladas = proy.ocs.filter(o => /anulad/i.test(o.estado || ''));
       const ocDif: DiferenciaCuadre[] = anuladas.map(o => ({ concepto: `OC ${o.folio} ${o.proveedorNombre || ''} — ANULADA en Obuma, no es gasto`, monto: Math.round(o.total) }));
+      // OC vigente que Obuma tiene en este proyecto pero que es de OTRA licitación (su referencia/licitación en la OC es otra): Obuma la enlazó mal.
+      const foliosVigentes = new Set(vigentes.map(o => String(o.folio || o.compraOcId)));
+      const ajenas = proy.ocs.filter(o => !/anulad/i.test(o.estado || '') && !foliosVigentes.has(String(o.folio)));
+      if (ajenas.length) {
+        const [[neg]]: any = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]);
+        const [filas]: any = await pool.query(`SELECT folio, licitacion_codigo FROM obuma_compras WHERE folio IN (${ajenas.map(() => '?').join(',')})`, ajenas.map(o => String(o.folio)));
+        const codigoDe = new Map<string, string | null>((filas as any[]).map(r => [String(r.folio), r.licitacion_codigo ?? null]));
+        for (const o of ajenas) {
+          const cod = codigoDe.get(String(o.folio));
+          if (cod && neg?.licitacion_codigo && cod !== neg.licitacion_codigo) ocDif.push({ concepto: `OC ${o.folio} ${o.proveedorNombre || ''} — es de otra licitación (${cod}): Obuma la tiene en este proyecto por error, no es gasto de este negocio`, monto: Math.round(o.total) });
+        }
+      }
       const ocSin = Math.round(proy.totalGastado - ocDif.reduce((s, d) => s + d.monto, 0) - licOcTotal);
 
       // Facturas: se compara documento a documento lo que Obuma contabilizó en el centro de costo del proyecto.

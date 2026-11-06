@@ -45,7 +45,11 @@ export async function GET(request: NextRequest, { params }: Params) {
                 EXISTS (SELECT 1 FROM compras_cotizacion_item ci JOIN compras_cotizacion c ON c.id = ci.cotizacion_id
                          WHERE c.negocio_id = p.negocio_id AND ci.producto_id = p.id AND c.origen = 'directa') AS directo
            FROM compras_producto p WHERE p.negocio_id = ? AND p.subestado NOT IN ('RENUNCIADO','NO_ADJUDICADA')`, [id]);
-      const lista = prods as Array<{ descripcion: string; cubierto: number; directo: number }>;
+      // Lo comprado con una OC propia (Comercial MP) también cubre el producto, aunque no haya cotización.
+      const [ocs]: any = await pool.query(`SELECT items_json FROM compras_oc_propia WHERE negocio_id = ? AND estado <> 'ANULADA'`, [id]);
+      const conOcPropia = new Set<number>();
+      for (const oc of ocs as any[]) { try { for (const it of JSON.parse(oc.items_json || '[]')) if (it?.productoId != null) conOcPropia.add(Number(it.productoId)); } catch { /* OC ilegible: no cubre nada */ } }
+      const lista = (prods as Array<{ id: number; descripcion: string; cubierto: number; directo: number }>).map(x => ({ ...x, cubierto: x.cubierto || conOcPropia.has(Number(x.id)) ? 1 : 0 }));
       cobertura = { total: lista.length, cubiertos: lista.filter(x => x.cubierto).length, directos: lista.filter(x => x.directo).length, sinCubrir: lista.filter(x => !x.cubierto).map(x => x.descripcion) };
     } catch { /* sin tabla de productos: el resumen sigue sin cobertura */ }
     const oc = asignacion.ordenCompra;

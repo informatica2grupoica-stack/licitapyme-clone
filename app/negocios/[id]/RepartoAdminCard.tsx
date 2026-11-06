@@ -15,6 +15,8 @@ import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { irAFase } from '@/app/compras/[negocioId]/comprasNavegacion';
 import { fetchJsonReintento } from '@/app/lib/fetch-reintento';
 import { METODOS_DESPACHO_OBUMA } from '@/app/lib/obuma-despacho';
+import { Modal } from '@/app/components/ui/Modal';
+import { Boton } from '@/app/components/ui/kit/Boton';
 import { FacturaVisor } from './FacturaVisor';
 import { OrdenCompraVisor } from './OrdenCompraVisor';
 import { CrearProveedorObumaModal, type FormProveedor } from './CrearProveedorObumaModal';
@@ -752,7 +754,19 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                   )}
 
                   {ocAbierta === p.proveedorNombre && (
-                    <div className="mt-2.5 space-y-2 bg-zinc-50 border border-zinc-200 rounded-lg p-2.5">
+                    <Modal open onClose={() => setOcAbierta(null)} size="md" title={`Crear orden de compra en Obuma · ${p.proveedorNombre}`}
+                      subtitle="Revisa los datos: al confirmar se crea de verdad en Obuma."
+                      footer={<>
+                        <Boton variante="fantasma" onClick={() => setOcAbierta(null)}>Cancelar</Boton>
+                        {estadoProveedorObuma === 'existe' && (
+                          <Boton variante="primario" onClick={() => crearOC(p.proveedorNombre, !!p.posibleDuplicadoObuma || !!p.ocRealObuma, idsSel(p))}
+                            icono={creandoOC === p.proveedorNombre ? <Loader2 size={15} className="animate-spin" /> : undefined}
+                            disabled={creandoOC === p.proveedorNombre || idsSel(p).length === 0 || !formaPagoId || !fechaEntrega || !metodoDespacho || !confirmadoOC || (ocInternacional && (!monedaOcId || !(tcNumero(tipoCambioOc) > 0))) || !puedeEmitirOC(p) || ((!!p.posibleDuplicadoObuma || !!p.ocRealObuma) && !confirmadoPeseADuplicado)}>
+                            Crear en Obuma
+                          </Boton>
+                        )}
+                      </>}>
+                    <div className="space-y-2">
                       {estadoProveedorObuma === 'cargando' && (
                         <p className="text-[11px] text-zinc-400 flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> Verificando si el proveedor ya está en Obuma…</p>
                       )}
@@ -909,19 +923,9 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                         </label>
                       </div>
 
-                      <div className="flex items-center gap-1.5">
-                        <button onClick={() => crearOC(p.proveedorNombre, !!p.posibleDuplicadoObuma || !!p.ocRealObuma, idsSel(p))}
-                          disabled={creandoOC === p.proveedorNombre || idsSel(p).length === 0 || !formaPagoId || !fechaEntrega || !metodoDespacho || !confirmadoOC || (ocInternacional && (!monedaOcId || !(tcNumero(tipoCambioOc) > 0))) || !puedeEmitirOC(p) || ((!!p.posibleDuplicadoObuma || !!p.ocRealObuma) && !confirmadoPeseADuplicado)}
-                          className="text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">
-                          {creandoOC === p.proveedorNombre ? <Loader2 size={12} className="animate-spin" /> : 'Crear en Obuma'}
-                        </button>
-                        <button onClick={() => setOcAbierta(null)} className="text-[11px] text-zinc-400 hover:text-zinc-600">Cancelar</button>
-                      </div>
                       </>)}
-                      {estadoProveedorObuma !== 'existe' && (
-                        <button onClick={() => setOcAbierta(null)} className="text-[11px] text-zinc-400 hover:text-zinc-600">Cancelar</button>
-                      )}
                     </div>
+                    </Modal>
                   )}
                 </div>
               );

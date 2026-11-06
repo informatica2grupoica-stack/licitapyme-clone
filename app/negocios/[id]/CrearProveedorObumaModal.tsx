@@ -69,7 +69,7 @@ export function CrearProveedorObumaModal({ negocioId, inicial, onCerrar, onCread
 
   return (
     // No se cierra al hacer clic fuera: solo con "Cancelar" o al crear (así no se pierde lo tipeado).
-    <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[210] bg-black/30 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl border border-zinc-200 shadow-xl w-[96vw] max-w-7xl max-h-[94vh] overflow-y-auto">
         <p className="px-4 py-3 text-[12px] font-bold text-zinc-800 border-b border-zinc-100 flex items-center gap-1.5">
           <Zap size={13} className="text-indigo-600" /> Crear proveedor en Obuma

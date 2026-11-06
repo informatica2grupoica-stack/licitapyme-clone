@@ -126,7 +126,10 @@ export function tipoDeMontoDeOferta(etiqueta: string): TipoMontoOferta | null {
   const limpio = normalizar(rotulo);
   if (!limpio || limpio.length > LARGO_MAX_ROTULO) return null;
   if (RE_DESCALIFICA.test(limpio)) return null;
-  if (!RE_DINERO.test(limpio) || !RE_ES_LA_OFERTA.test(limpio)) return null;
+  // «…se compromete a ejecutar … por el VALOR NETO de $___» (808211-6-LE26): la frase completa dice
+  // que es el monto de la oferta aunque el rótulo suelto no nombre «oferta».
+  const esPorElValor = /^por el valor (neto|bruto|total)( de)?( \$)?$/.test(limpio);
+  if (!RE_DINERO.test(limpio) || (!RE_ES_LA_OFERTA.test(limpio) && !esPorElValor)) return null;
 
   // Vocabulario cerrado: cada palabra del rótulo tiene que ser conocida.
   let resto = limpio;
