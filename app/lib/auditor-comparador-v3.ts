@@ -5,7 +5,7 @@
 // Cada opción guarda su propia corrida en auditor_verificacion_tecnica con version_prompt = 'v3.0' (las filas v2.0 anteriores ya no se usan).
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
-import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase, MODELO_KIMI } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('auditor', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
@@ -96,7 +96,7 @@ ${bloqueOpciones}`;
 
   const guardar = (opcionId: number, datos: unknown, estado: string | null, error: string | null) => pool.query(
     `INSERT INTO auditor_verificacion_tecnica (negocio_id, opcion_id, pasada, resultado_json, estado_tecnico, motor, version_prompt, error, creado_por, creado_at)
-     VALUES (?, ?, 'L1', ?, ?, ?, 'v3.0', ?, ?, ?)`, [negocioId, opcionId, JSON.stringify(datos), estado, 'kimi-k3', error, actor.id, ahoraChileSQL()]);
+     VALUES (?, ?, 'L1', ?, ?, ?, 'v3.0', ?, ?, ?)`, [negocioId, opcionId, JSON.stringify(datos), estado, MODELO_KIMI, error, actor.id, ahoraChileSQL()]);
 
   let salida: SalidaV3;
   try {
@@ -117,7 +117,7 @@ ${bloqueOpciones}`;
   const resumen: ResumenCorridaV3 = { opciones: [], preguntas: 0 };
   for (const { o } of conDocs) {
     const c = corridas.get(o.id)!;
-    const guardada: GuardadaV3 = { version: 'v3.0', requisitos, opcion: c, motor: 'kimi-k3' };
+    const guardada: GuardadaV3 = { version: 'v3.0', requisitos, opcion: c, motor: MODELO_KIMI };
     const estado = estadoDeProducto(c.celdas, new Map());
     await guardar(o.id, guardada, estado, null);
     resumen.opciones.push({ opcionId: o.id, estado, sinFicha: c.sinFicha });

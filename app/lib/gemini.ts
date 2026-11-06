@@ -141,10 +141,9 @@ function modeloGeminiSeguro(pedido: string | undefined, porDefecto: string): str
   return v;
 }
 
-// reasoningEffort: para proveedores donde el razonamiento NO se puede apagar (Kimi K3 — a
-// diferencia de GLM/DeepSeek, `thinking:{type:'disabled'}` no existe ahí, solo se puede marcar el
-// ESFUERZO de razonamiento con reasoning_effort: 'low'|'high'|'max'). Ver cuerpoPara().
-type ProveedorTexto = { baseURL: string; keyEnv: string; model: string; sinThinking: boolean; reasoningEffort?: string };
+// reasoningEffort: esfuerzo de razonamiento de Kimi cuando razona (reasoning_effort: 'low'|'medium'|'high'|'max').
+// kimi: marca los proveedores Moonshot, que tienen reglas propias de temperatura y JSON. Ver cuerpoPara().
+type ProveedorTexto = { baseURL: string; keyEnv: string; model: string; sinThinking: boolean; reasoningEffort?: string; kimi?: boolean };
 const PROVEEDORES_TEXTO: Record<string, ProveedorTexto> = {
   zai:      { baseURL: 'https://api.z.ai/api/paas/v4', keyEnv: 'ZAI_API_KEY',      model: process.env.GLM_TEXT_MODEL || 'glm-4.7-flashx', sinThinking: true  },
   // CADENA de respaldo GLM en la MISMA cuenta Z.AI (23-jul-2026: se pasó de 1 a 3 rungs — un
@@ -170,16 +169,19 @@ const PROVEEDORES_TEXTO: Record<string, ProveedorTexto> = {
   // tokens de salida, 0 caracteres útiles). V4 acepta el mismo `thinking:{type:'disabled'}` de GLM.
   deepseek: { baseURL: 'https://api.deepseek.com',     keyEnv: 'DEEPSEEK_API_KEY', model: process.env.DEEPSEEK_TEXT_MODEL || 'deepseek-v4-flash', sinThinking: true },
   gemini:   { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY', model: modeloGeminiSeguro(process.env.GEMINI_MODEL, 'gemini-2.5-flash'), sinThinking: false },
-  // Kimi K3 (Moonshot AI, 07-sep-2026) — el modelo "100% IA" pedido para el Auditor Técnico
-  // (compararFichaProveedor / compararFichasMultiModelo en auditor-tecnico.ts), NUNCA el proveedor
-  // de texto por defecto: se invoca puntualmente con crearChatIA(..., {proveedorPreferido:'kimi'}).
-  // Endpoint INTERNACIONAL (api.moonshot.ai) — no confundir con api.moonshot.cn (China), las keys
-  // no son intercambiables. sinThinking:false porque K3 NO admite apagar el razonamiento (a
-  // diferencia de GLM/DeepSeek); reasoningEffort controla cuánto piensa — 'low' para textos de
-  // extracción simples, pero acá se deja 'high' por defecto porque la tarea (comparar
-  // especificaciones técnicas entre varios modelos de equipo) se beneficia de más razonamiento y
-  // el usuario pidió explícitamente "la mejor version" para este uso puntual, no el más barato.
-  kimi: { baseURL: 'https://api.moonshot.ai/v1', keyEnv: 'KIMI_API_KEY', model: process.env.KIMI_TEXT_MODEL || 'kimi-k3', sinThinking: false, reasoningEffort: process.env.KIMI_REASONING_EFFORT || 'high' },
+  // Kimi (Moonshot AI) — NUNCA el proveedor de texto por defecto: se invoca puntualmente con
+  // crearChatIA(..., {proveedorPreferido:'kimi' | 'kimi_rapido'}). Endpoint INTERNACIONAL (api.moonshot.ai) — no confundir
+  // con api.moonshot.cn (China), las keys no son intercambiables.
+  // 06-nov-2026 (pedido del dueño: "bájale las versiones, está en la más cara"): K3 a $3/$15 por M y razonando en 'high' era
+  // el mayor gasto de IA del sistema (US$91 en 30 días, 97% el Auditor). Se separa en dos:
+  //   · kimi        → K3.1 Pro ($2/$10, más nuevo que K3) razonando en 'medium': comparar especificaciones (Auditor).
+  //   · kimi_rapido → K2.6 ($0,95/$4) SIN razonar: clasificar, transcribir, elegir un campo (prefiltro, Lector, anexos).
+  //     Medido en vivo: apagar el razonamiento sí funciona en Kimi (thinking:disabled + temperature 0.6) y deja la
+  //     salida en ~12 tokens donde razonando gastaba ~130.
+  // Variables NUEVAS a propósito (KIMI_MODELO / KIMI_MODELO_RAPIDO): la vieja KIMI_TEXT_MODEL=kimi-k3 sigue en los .env
+  // de los servidores y habría tapado el cambio.
+  kimi:        { baseURL: 'https://api.moonshot.ai/v1', keyEnv: 'KIMI_API_KEY', model: process.env.KIMI_MODELO || 'kimi-k3.1-pro', sinThinking: false, reasoningEffort: process.env.KIMI_REASONING_EFFORT || 'medium', kimi: true },
+  kimi_rapido: { baseURL: 'https://api.moonshot.ai/v1', keyEnv: 'KIMI_API_KEY', model: process.env.KIMI_MODELO_RAPIDO || 'kimi-k2.6', sinThinking: true, kimi: true },
 };
 export const IA_TEXT_PROVIDER = (process.env.IA_TEXT_PROVIDER ?? 'zai').toLowerCase();
 
@@ -232,6 +234,7 @@ function cfgTextoRespaldos(activo: ProveedorTexto): ProveedorTexto[] {
 
 // Modelo del proveedor activo (glm-4.6 por defecto). Exportado para etiquetar resultados.
 export const MODELO_TEXTO = cfgTexto().model;
+export const MODELO_KIMI = PROVEEDORES_TEXTO.kimi.model; // etiqueta del motor que se guarda con cada resultado del Auditor
 
 // ¿Hay key para el proveedor de texto activo? Reemplaza los checks de DEEPSEEK_API_KEY.
 export function iaTextoConfigurada(): boolean { return Boolean(process.env[cfgTexto().keyEnv]); }
@@ -257,21 +260,16 @@ function cuerpoPara(cfg: ProveedorTexto, params: any): any {
   // pueden truncar la salida). reasoning_effort:'none' lo desactiva → menos tokens/costo.
   // Solo afecta a Gemini (no a DeepSeek/GLM, que se llaman con su propio cfg).
   else if (cfg.baseURL.includes('generativelanguage')) body.reasoning_effort = 'none';
-  // cfg.reasoningEffort (Kimi K3): el razonamiento no se puede apagar, solo graduar. Se aplica
-  // DESPUÉS del `else if` de arriba porque son ramas mutuamente excluyentes por proveedor
-  // (ningún cfg tiene sinThinking=true, baseURL de Gemini Y reasoningEffort a la vez).
-  if (cfg.reasoningEffort) {
-    body.reasoning_effort = _esfuerzoKimi || cfg.reasoningEffort;
+  if (cfg.kimi) {
     // BUG REAL (26-oct-2026, medido contra api.moonshot.ai con la cotización GETAC del 2427-98-LE26): con response_format json_object
     // Kimi K3 devuelve CLAVES ROTAS ({": ":{": ":[...]}} en vez de {"comercial":{"precios":[...]}}) — 1 de 4 lecturas buenas, en
     // esfuerzo low y high. Sin response_format: 4 de 4. Los prompts ya piden JSON y parseJsonIA lo saca del texto.
     delete body.response_format;
-    // BUG REAL (08-sep-2026, verificado en vivo contra api.moonshot.ai): Kimi K3 devuelve 400
-    // "invalid temperature: only 1 is allowed for this model" con CUALQUIER otro valor. Todos los
-    // prompts del proyecto mandan temperature:0.1 (pensado para GLM/DeepSeek/Gemini) — sin este
-    // override, TODAS las llamadas a Kimi fallaban con 400 y caían en silencio al respaldo
-    // (deepseek-v4-flash), o sea nunca se llegaba a usar el modelo "mejor versión" pedido.
-    body.temperature = 1;
+    // Kimi solo acepta UNA temperatura fija y es distinta según si razona (medido en vivo 06-nov-2026, K2.6/K3/K3.1 Pro):
+    // con thinking:disabled → solo 0.6; razonando → solo 1. Cualquier otro valor da 400 "invalid temperature" y la
+    // llamada caía en silencio al respaldo (08-sep-2026). Todos los prompts del proyecto mandan 0.1 (pensado para GLM).
+    if (cfg.sinThinking) body.temperature = 0.6;
+    else { body.reasoning_effort = _esfuerzoKimi || cfg.reasoningEffort; body.temperature = 1; }
   }
   return body;
 }
@@ -342,6 +340,7 @@ function tarifaModelo(model: string): { precIn: number; precOut: number } {
       precOut: Number(process.env[o] ?? dobj),
     });
     if (m.includes('k2')) return env('KIMI_PRICE_IN_USD_PER_M_K2', 'KIMI_PRICE_OUT_USD_PER_M_K2', 0.95, 4.00);
+    if (m.includes('k3.1')) return env('KIMI_PRICE_IN_USD_PER_M_K31', 'KIMI_PRICE_OUT_USD_PER_M_K31', 2.00, 10.00); // K3.1 Pro (06-nov-2026)
     return env('KIMI_PRICE_IN_USD_PER_M_K3', 'KIMI_PRICE_OUT_USD_PER_M_K3', 3.00, 15.00); // k3 (default)
   }
   return { precIn: 0.27, precOut: 1.10 }; // otros

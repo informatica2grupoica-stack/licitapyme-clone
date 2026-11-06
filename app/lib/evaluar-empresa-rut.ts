@@ -145,7 +145,7 @@ No inventes rubros que no estén en la lista.`;
   const resp: any = await conModuloIA('otros', async () => crearChatIA({
     model: MODELO_TEXTO, temperature: 0.3,
     messages: [{ role: 'system', content: sistema }, { role: 'user', content: usuario }],
-  }, { proveedorPreferido: 'kimi', timeoutMs: 240_000 }))();
+  }, { proveedorPreferido: 'kimi_rapido', timeoutMs: 240_000 }))();
   const txt = String(resp?.choices?.[0]?.message?.content ?? '').replace(/```json|```/gi, '');
   const raw = JSON.parse(txt.slice(txt.indexOf('{'), txt.lastIndexOf('}') + 1));
   const limpiar = (v: unknown, n: number) => [...new Set((Array.isArray(v) ? v : []).map(x => String(x).toLowerCase().trim()).filter(x => x.length >= 3 && x.length <= 60))].slice(0, n);

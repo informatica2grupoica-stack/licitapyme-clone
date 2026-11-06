@@ -9,7 +9,7 @@
 // documento, así que un dato que no aparece ya está buscado en todo el documento (ver `no_encontrado_en_extraccion`).
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
-import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase, MODELO_KIMI } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('auditor', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
@@ -262,7 +262,7 @@ ${bloque}`;
     for (let i = 1; i < lotes.length; i += 2) await Promise.all(lotes.slice(i, i + 2).map(l => correr(l, false)));
   }
   merged.matriz_tecnica = matriz;
-  return { salida: merged, requisitos: ctx.requisitos, textoEnviado: enviado, motor: 'kimi-k3' };
+  return { salida: merged, requisitos: ctx.requisitos, textoEnviado: enviado, motor: MODELO_KIMI };
 }
 
 // ── Persistencia y lectura del estado (se recalcula al leer: habilitaciones y declaraciones cambian sin volver a llamar a la IA) ─────────
@@ -356,7 +356,7 @@ export async function verificarTecnicoOpcion(params: {
   try { corrida = await correrL1(o, ctx, docs, nombreLinea || ctx.nombreLinea, cantidad, unidad); }
   catch (e) {
     const msg = (e instanceof Error ? e.message : String(e)).slice(0, 480);
-    await guardar(negocioId, opcionId, 'L1', {}, null, 'kimi-k3', actor.id, msg);
+    await guardar(negocioId, opcionId, 'L1', {}, null, MODELO_KIMI, actor.id, msg);
     throw new Error(`No se pudo completar la verificación técnica: ${msg}`);
   }
   const hd = (await habilitacionesYDeclaraciones(negocioId)).get(opcionId);
@@ -409,6 +409,6 @@ ${texto}`;
     if (!rojos.some(f => f.n === n)) continue;
     if (r.confirmado === false) rectificados.push({ n, texto: s(r.rectificacion, 400) || 'El dato no aparece donde se citó.' }); else confirmados.push(n);
   }
-  await guardar(negocioId, opcionId, 'L2', { rectificados, confirmados }, null, 'kimi-k3', actor.id);
+  await guardar(negocioId, opcionId, 'L2', { rectificados, confirmados }, null, MODELO_KIMI, actor.id);
   return { revisados: rojos.length, rectificados: rectificados.length };
 }

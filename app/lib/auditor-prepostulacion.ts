@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
-import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
+import { crearChatIA as crearChatIABase, MODELO_KIMI } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('auditor', crearChatIABase);
 import { parseJsonIA } from '@/app/lib/json-ia';
@@ -229,7 +229,7 @@ export async function revisarCompromisosDeLinea(params: { negocioId: number; lic
     if (!Array.isArray(parsed.tecnico_administrativo)) throw new Error('El modelo no devolvió la lista de compromisos (respuesta vacía o ilegible).');
   } catch (e) {
     const msg = (e instanceof Error ? e.message : String(e)).slice(0, 480);
-    await marcar('kimi-k3', 0, msg);
+    await marcar(MODELO_KIMI, 0, msg);
     return { filaId, creados: 0, descartados: 0, error: msg };
   }
 
@@ -250,7 +250,7 @@ export async function revisarCompromisosDeLinea(params: { negocioId: number; lic
       [negocioId, filaId, clave, materia, literal, s(x?.fuente_bases, 300) || null, s(x?.se_compromete, 600) || 'no cuantificado', s(x?.se_compromete, 300) || 'no cuantificado', criticidadDe(x?.criticidad), ahora, ahora]) as any;
     if (r.affectedRows > 0) creados++;
   }
-  await marcar('kimi-k3', creados, null);
+  await marcar(MODELO_KIMI, creados, null);
   return { filaId, creados, descartados, error: null };
 }
 
