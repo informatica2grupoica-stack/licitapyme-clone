@@ -18,6 +18,9 @@ function transporter(): Transporter | null {
   if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) return null;
   if (!_transporter) {
     _transporter = nodemailer.createTransport({
+      // Nombre con que se presenta al servidor (EHLO). Sin esto nodemailer dice «[127.0.0.1]» y el antispam de salida de Bluehost
+      // (fightspamHG) descartaba TODO lo que iba a Gmail, sin rebote (06-nov-2026; con el dominio de la casilla sale «Aceptado»).
+      name: (process.env.SMTP_USER || '').split('@')[1] || undefined,
       host: process.env.SMTP_HOST,
       port: parseInt(process.env.SMTP_PORT || '465', 10),
       secure: process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : (process.env.SMTP_PORT || '465') === '465',
