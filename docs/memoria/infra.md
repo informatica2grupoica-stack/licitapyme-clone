@@ -14,6 +14,12 @@ Visto en cPanel → Track Delivery (Chrome, sesión del dueño; solo lectura).
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió. Sin
 direcciones de servidores ni claves: esos datos viven en los `.env`, fuera del repo.
 
+## 2026-11-06 — Gasto de IA del Auditor: ahora se sabe qué función lo hace
+Caso real: `ia_uso` 30 días, 2.065 llamadas Kimi del Auditor (US$89,8) **sin licitación ni función**: no se podía saber dónde se repetía. Señal de repetición: ~630 llamadas con el mismo tamaño de pedido que otra (≈US$30; 280 a menos de 10 min, US$15,4); un proceso SIN usuario repitió el mismo pedido hasta 19 veces entre el 3 y el 4-nov. Tamaño igual no prueba pedido igual (parte es casualidad).
+Cambio: `conModuloIA(modulo, fn, funcion)` guarda «modulo.funcion» en `ia_uso.modulo` (sin migración, VARCHAR(40)); los 12 archivos del Auditor llevan su etiqueta (lector, comparador, comparador-req, tecnico, tecnico-v2, ficha-propia, posicion, costo, segmentacion, prepostulacion, sugerir-linea, compras). /admin/gasto-ia agrupa por lo de antes del punto (se ve igual) y el detalle muestra la función.
+**Verificado:** llamada real del Lector en la BD local → `auditor.lector`; tsc y suite 1766/1766. No desplegado; panel no visto en el navegador.
+**Pendiente:** tras desplegar, mirar una semana qué función repite (`SELECT modulo, tokens_in, COUNT(*) ... GROUP BY modulo, tokens_in HAVING COUNT(*)>1`) y cortar ahí. La licitación sigue sin registrarse en el Auditor (se conoce en ~22 rutas; habría que envolver cada una con `conUsuarioIA({licitacion})`).
+
 ## 2026-11-06 — Kimi: se probaron versiones más baratas y ninguna sirve; todo sigue en K3
 Caso real: `ia_uso` del VPS, 30 días: kimi-k3 era el mayor gasto de IA (US$91; 88 del Auditor, 2,8 del prefiltro), más que glm-5 (US$71). K3 cuesta $3/$15 por M.
 El dueño pidió «bájale las versiones, la más barata estable que sirva». Se probó todo contra datos reales ya procesados, sin escribir en la BD:

@@ -37,12 +37,12 @@ export async function GET(req: NextRequest) {
 
     // Cruce usuario × módulo (para el desglose de cada perfil)
     const [usuarioModulo] = await pool.query(
-      `SELECT u.usuario_id, u.modulo, COUNT(*) llamadas, SUM(u.costo_usd) costo
-         FROM ia_uso u ${W} GROUP BY u.usuario_id, u.modulo`, rango) as any;
+      `SELECT u.usuario_id, SUBSTRING_INDEX(u.modulo, '.', 1) modulo, COUNT(*) llamadas, SUM(u.costo_usd) costo
+         FROM ia_uso u ${W} GROUP BY u.usuario_id, SUBSTRING_INDEX(u.modulo, '.', 1)`, rango) as any;
 
     const [porModulo] = await pool.query(
-      `SELECT u.modulo, COUNT(*) llamadas, SUM(u.costo_usd) costo, SUM(u.tokens_in) tin, SUM(u.tokens_out) tout
-         FROM ia_uso u ${W} GROUP BY u.modulo ORDER BY costo DESC`, rango) as any;
+      `SELECT SUBSTRING_INDEX(u.modulo, '.', 1) modulo, COUNT(*) llamadas, SUM(u.costo_usd) costo, SUM(u.tokens_in) tin, SUM(u.tokens_out) tout
+         FROM ia_uso u ${W} GROUP BY SUBSTRING_INDEX(u.modulo, '.', 1) ORDER BY costo DESC`, rango) as any;
 
     const [porModelo] = await pool.query(
       `SELECT u.modelo, u.proveedor, COUNT(*) llamadas, SUM(u.costo_usd) costo, SUM(u.tokens_in) tin, SUM(u.tokens_out) tout, SUM(u.respaldo) respaldo

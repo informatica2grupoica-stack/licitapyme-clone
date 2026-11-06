@@ -4,7 +4,7 @@
 // Solo se asigna sola cuando la confianza es ALTA y trae motivo; lo demás queda como sugerencia de un clic o como «no corresponde».
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
-const crearChatIA = conModuloIA('auditor', crearChatIABase);
+const crearChatIA = conModuloIA('auditor', crearChatIABase, 'sugerir-linea');
 import { parseJsonIA } from '@/app/lib/json-ia';
 
 export interface ProductoParaSugerir { idx: number; nombre: string; precioNeto: number | null; cantidad: number | null; proveedor: string }

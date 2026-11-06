@@ -13,7 +13,7 @@ import { construirFichaTecnicaHtml, especificacionesSinCompletar, productosSinCo
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 import { parseJsonIA } from '@/app/lib/json-ia';
-const crearChatIA = conModuloIA('auditor', crearChatIABase);
+const crearChatIA = conModuloIA('auditor', crearChatIABase, 'ficha-propia');
 import { extraerImagenesProducto } from '@/app/lib/ficha-imagen-extraer';
 import { construirFichaTecnicaDocx } from '@/app/lib/ficha-tecnica-docx';
 import { generarInformePdf } from '@/app/lib/generar-informe';

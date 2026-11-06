@@ -5,7 +5,7 @@
 // bloque es el del documento tal cual. La comparación posterior sigue siendo la de siempre.
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
-const crearChatIA = conModuloIA('auditor', crearChatIABase);
+const crearChatIA = conModuloIA('auditor', crearChatIABase, 'segmentacion');
 import { parseJsonIA } from '@/app/lib/json-ia';
 import type { BloqueDocumento, LineaAMapear } from '@/app/lib/auditor-segmentacion';
 

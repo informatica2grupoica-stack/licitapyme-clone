@@ -315,7 +315,7 @@ export default function GastoIAPage() {
                             <tr key={r.id} title={`${r.modelo}${r.respaldo ? ' (respaldo)' : ''} · ${(r.ms / 1000).toFixed(1)}s`}>
                               <td className="py-1 pr-2 text-slate-500 whitespace-nowrap">{fechaHora(r.fecha)}</td>
                               <td className="pr-2 text-slate-700 max-w-[110px] truncate">{r.nombre}</td>
-                              <td className="pr-2"><span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: colMod(r.modulo) }} />{NOMBRE_MODULO[r.modulo] || r.modulo}</span></td>
+                              <td className="pr-2"><span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: colMod(r.modulo.split('.')[0]) }} />{NOMBRE_MODULO[r.modulo.split('.')[0]] || r.modulo.split('.')[0]}{r.modulo.includes('.') && <span className="text-slate-400">· {r.modulo.split('.').slice(1).join('.')}</span>}</span></td>
                               <td className="pr-2">{r.codigo ? <Link href={`/licitacion/${encodeURIComponent(r.codigo)}`} className="text-indigo-600 hover:underline">{r.codigo}</Link> : <span className="text-slate-300">—</span>}</td>
                               <td className="pr-2 text-right tabular-nums text-slate-500">{tok(r.tokens_in + r.tokens_out)}</td>
                               <td className="text-right tabular-nums font-semibold text-slate-800">{usd(r.costo)}</td>

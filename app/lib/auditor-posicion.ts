@@ -8,7 +8,7 @@ import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
-const crearChatIA = conModuloIA('auditor', crearChatIABase);
+const crearChatIA = conModuloIA('auditor', crearChatIABase, 'posicion');
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { PARAMS, calcularPosicionPrecio, type PosicionPrecio, type LineaGuardada } from '@/app/lib/auditor-compras-core';
 import { presupuestoNeto } from '@/app/lib/auditor-compras';

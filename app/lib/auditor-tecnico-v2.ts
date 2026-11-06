@@ -11,7 +11,7 @@ import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { crearChatIA as crearChatIABase, MODELO_KIMI } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
-const crearChatIA = conModuloIA('auditor', crearChatIABase);
+const crearChatIA = conModuloIA('auditor', crearChatIABase, 'tecnico-v2');
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { MOTOR_KIMI_ESTRICTO, type MotorComparacion } from '@/app/lib/auditor-tecnico';
 import { productosCrudosDeLinea, productoDeInformePorNombre, exigenciasDelNombre } from '@/app/lib/auditor-tecnico-core';

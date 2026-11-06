@@ -24,12 +24,14 @@ export const MODULOS_IA: Record<ModuloIA, string> = {
   otros: 'Otros',
 };
 
-interface ContextoIA { modulo?: ModuloIA; licitacion?: string; usuarioId?: number | null; usuarioNombre?: string | null }
+interface ContextoIA { modulo?: ModuloIA; funcion?: string; licitacion?: string; usuarioId?: number | null; usuarioNombre?: string | null }
 const als = new AsyncLocalStorage<ContextoIA>();
 
-/** Envuelve `crearChatIA` de un archivo: toda llamada que haga queda atribuida a ese módulo. */
-export function conModuloIA<F extends (...a: any[]) => Promise<any>>(modulo: ModuloIA, fn: F): F {
-  return ((...args: any[]) => als.run({ ...als.getStore(), modulo: als.getStore()?.modulo ?? modulo }, () => fn(...args))) as F;
+/** Envuelve `crearChatIA` de un archivo: toda llamada que haga queda atribuida a ese módulo. `funcion` (opcional) dice cuál
+ *  parte del módulo la hizo y se guarda como «modulo.funcion» (p. ej. «auditor.lector»): el panel agrupa por lo de antes del
+ *  punto. Gana el módulo de AFUERA (quien originó la llamada) y la función de ADENTRO (el archivo que de verdad llamó al modelo). */
+export function conModuloIA<F extends (...a: any[]) => Promise<any>>(modulo: ModuloIA, fn: F, funcion?: string): F {
+  return ((...args: any[]) => als.run({ ...als.getStore(), modulo: als.getStore()?.modulo ?? modulo, funcion: funcion ?? als.getStore()?.funcion }, () => fn(...args))) as F;
 }
 
 /** Corre `fn` atribuyendo el gasto a un usuario (y licitación) explícitos. */
@@ -67,7 +69,7 @@ export function registrarUsoIA(d: { modelo: string; respaldo: boolean; tokensIn:
       await pool.query(
         `INSERT INTO ia_uso (created_at, usuario_id, usuario_nombre, modulo, licitacion_codigo, proveedor, modelo, respaldo, tokens_in, tokens_out, costo_usd, duracion_ms)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [ahoraChileSQL(), u.id, u.nombre, ctx?.modulo ?? 'otros', ctx?.licitacion ?? null, proveedorDe(d.modelo), d.modelo, d.respaldo ? 1 : 0,
+        [ahoraChileSQL(), u.id, u.nombre, `${ctx?.modulo ?? 'otros'}${ctx?.funcion ? `.${ctx.funcion}` : ''}`.slice(0, 40), ctx?.licitacion ?? null, proveedorDe(d.modelo), d.modelo, d.respaldo ? 1 : 0,
          Math.round(d.tokensIn), Math.round(d.tokensOut), d.costoUSD.toFixed(6), Math.round(d.ms)],
       );
     } catch (e) {

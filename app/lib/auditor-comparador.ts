@@ -11,7 +11,7 @@
 // Lo que la IA devuelve NO se guarda directo: pasa por procesarItemComparador() (core).
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
-const crearChatIA = conModuloIA('auditor', crearChatIABase);
+const crearChatIA = conModuloIA('auditor', crearChatIABase, 'comparador-req');
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { MOTOR_KIMI_ESTRICTO, MOTOR_GLM, type MotorComparacion } from '@/app/lib/auditor-tecnico';
 import {

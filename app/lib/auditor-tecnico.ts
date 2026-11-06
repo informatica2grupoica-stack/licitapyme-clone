@@ -19,7 +19,7 @@
 // y se re-exporta aquí para no romper a los consumidores existentes de este archivo.
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
-const crearChatIA = conModuloIA('auditor', crearChatIABase);
+const crearChatIA = conModuloIA('auditor', crearChatIABase, 'tecnico');
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { extraerProductoOfertado, type ProductoOfertado } from '@/app/lib/producto-ofertado';
 import {
