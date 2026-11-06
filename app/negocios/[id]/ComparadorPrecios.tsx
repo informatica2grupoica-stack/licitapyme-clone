@@ -133,11 +133,14 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
   const fletesCotizados: Array<{ proveedor: string; cotizacionId: number; monto: number; nombre?: string }> = cotizaciones
     .filter(c => c.fleteMonto != null && c.fleteMonto > 0 && margen.lineas.some(l => l.cotizada && l.proveedor === c.proveedorNombre))
     .map(c => ({ proveedor: c.proveedorNombre, cotizacionId: c.id, monto: c.fleteMonto as number, nombre: undefined as string | undefined }));
-  // Fletes agregados en «Fletes» (servicios): su mejor oferta cuenta como flete real contra la reserva del 5 %.
+  // Servicios con SKU: el FLETE cuenta como flete real contra la reserva del 5 %; el ADICIONAL (grúa, instalación) es un gasto que no
+  // estaba en el costeo y se resta aparte, sin tocar la reserva (1154: la grúa horquilla salía como flete y «ahorraba» contra la reserva).
+  const adicionalesCotizados: Array<{ proveedor: string; cotizacionId: number; monto: number; nombre?: string }> = [];
   for (const p of productos.filter(p => p.esServicio)) {
     const m = menorDe.get(p.id); if (m == null) continue;
     const c = cotizaciones.find(c => !reemp.has(`${c.id}:${p.id}`) && c.items.find(i => i.productoId === p.id)?.precioUnitario === m);
-    fletesCotizados.push({ proveedor: c?.proveedorNombre ?? '', cotizacionId: c?.id ?? 0, monto: m * num(p.cantidad), nombre: p.descripcion });
+    const fila = { proveedor: c?.proveedorNombre ?? '', cotizacionId: c?.id ?? 0, monto: m * num(p.cantidad), nombre: p.descripcion };
+    (p.servicioTipo === 'ADICIONAL' ? adicionalesCotizados : fletesCotizados).push(fila);
   }
 
   if (productos.length === 0 || (cotizaciones.length === 0 && !lecLink?.disponible)) return null;
@@ -488,7 +491,7 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
           </div>
         </details>
       )}
-      {(margen.lineas.length > 0 || margen.sinVenta > 0 || margen.sinCosteo < productos.length) && <MargenCosteoVsCotizaciones resumen={margen} fletesCotizados={fletesCotizados} />}
+      {(margen.lineas.length > 0 || margen.sinVenta > 0 || margen.sinCosteo < productos.length) && <MargenCosteoVsCotizaciones resumen={margen} fletesCotizados={fletesCotizados} adicionales={adicionalesCotizados} />}
       <p className="px-4 py-2 text-[11.5px] text-zinc-400 border-t border-zinc-100">Verde: más barata que lo costeado · Rojo: más cara · Azul: igual (±1 %) · Gris: no se puede comparar. ⚠ rojo = un problema del proveedor (plazo, RUT, mínimo de venta, falta un componente).</p>
     </div>
   );

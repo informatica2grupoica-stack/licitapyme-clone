@@ -98,6 +98,48 @@ export async function planTrasladoCompraAlCosteo(negocioId: number): Promise<Pla
   return { hayCompraElegida: true, lineas: out, aviso: null };
 }
 
+/** Al emitir una OC propia (Comercial MP), su precio neto por unidad queda como costo real del producto en el costeo. Antes no se
+ *  enteraba nadie: 979 tenía la vacuolavadora a $1.000.000 en el costeo y la OC MP-2026-0001 era a $3.500.000. Se llama una vez, al
+ *  emitirla (no en cada sincronización), para no pisar lo que alguien corrija después a mano. Devuelve cuántas filas cambió. */
+export async function cargarOcPropiaAlCosteo(negocioId: number, ocPropiaId: number, actor: { id: number | null; nombre: string | null }): Promise<number> {
+  const [[oc]] = await pool.query(`SELECT folio, items_json, estado FROM compras_oc_propia WHERE id = ? AND negocio_id = ?`, [ocPropiaId, negocioId]) as any;
+  if (!oc || oc.estado === 'ANULADA') return 0;
+  let items: { productoId: number | null; cantidad: number; precio: number }[] = [];
+  try { items = JSON.parse(oc.items_json || '[]'); } catch { return 0; }
+  const [productos, antes] = await Promise.all([listarProductosCompra(negocioId), cargarEstadoCosteo(negocioId)]);
+  if (!antes) return 0;
+  const lineas = lineasDelCosteo(antes).filter(l => !l.esGastoExtra);
+  const cambios = new Map<string, { costo: number; descripcion: string; anterior: number | null }>();
+  for (const it of items) {
+    const prod = it.productoId != null ? productos.find(p => p.id === Number(it.productoId)) : undefined;
+    if (!prod || prod.productoPadreId != null || prod.esServicio || !(Number(it.precio) > 0)) continue;
+    const linea = lineas.find(l => prod.correlativo != null && l.lineaReal === prod.correlativo && lineas.filter(y => y.lineaReal === prod.correlativo).length === 1)
+      ?? lineas.find(l => norm(l.detalle) === norm(String(prod.descripcion)));
+    const costo = Math.round(Number(it.precio));
+    if (linea && linea.costoRealUnitario !== costo) cambios.set(linea.id, { costo, descripcion: prod.descripcion, anterior: linea.costoRealUnitario ?? null });
+  }
+  if (!cambios.size) return 0;
+  const despues: EstadoCosteoEditor = JSON.parse(JSON.stringify(antes));
+  for (const g of despues.grupos || []) for (const f of g.filas || []) {
+    const c = cambios.get(f.id);
+    if (!c) continue;
+    f.costoRealUnitario = c.costo;
+    if (!f.link1) f.link1 = `OC ${oc.folio}`;     // el costeo exige un respaldo para todo costo real
+  }
+  await pool.query(
+    `UPDATE negocio_costeo_editor SET datos_json = ?, actualizado_por = ?, actualizado_por_nombre = ?, actualizado_at = ? WHERE negocio_id = ?`,
+    [JSON.stringify(despues), actor.id, actor.nombre, ahoraChileSQL(), negocioId],
+  );
+  const [lic] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
+  await registrarEvento({
+    tipo: 'COMPRAS_COSTEO_ACTUALIZADO', licitacionCodigo: (lic as any[])[0]?.licitacion_codigo ?? null, actorId: actor.id, actorNombre: actor.nombre,
+    mensaje: `Se cargó al costeo el costo real de la OC ${oc.folio}: ${[...cambios.values()].map(c => `«${c.descripcion.slice(0, 40)}» $${c.costo.toLocaleString('es-CL')} (antes ${c.anterior != null ? `$${c.anterior.toLocaleString('es-CL')}` : 'vacío'})`).join('; ')}.`,
+    metadata: { negocio_id: negocioId, oc_propia_id: ocPropiaId, filas: [...cambios.entries()].map(([filaId, c]) => ({ filaId, costo: c.costo, anterior: c.anterior })) },
+  }).catch(() => {});
+  publicarCambio('compras');
+  return cambios.size;
+}
+
 /** Carga al costeo lo que dice el plan (solo las líneas en estado CARGA). Devuelve cuántas cargó. */
 export interface CostoRealPrevio { filaId: string; anterior: number | null; cargado: number }
 

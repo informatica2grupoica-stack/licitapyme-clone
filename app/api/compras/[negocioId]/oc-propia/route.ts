@@ -12,6 +12,7 @@ import { errorDeArchivoSubido } from '@/app/lib/subidas';
 import { parsearMontoCL } from '@/app/lib/numeros';
 import { generarPdfOc } from '@/app/lib/compras-oc-pdf';
 import { sincronizarTrasCambioDeOc } from '@/app/lib/compras-oc-obuma';
+import { cargarOcPropiaAlCosteo } from '@/app/lib/compras-compra-a-costeo';
 import {
   emisorOcPropia, listarOcPropias, productosParaOcPropia, crearOcPropia, documentoOcPropia,
   registrarFacturaOcPropia, revisarFacturaXmlOcPropia, quitarFacturaOcPropia, anularOcPropia, type DatosOcPropia,
@@ -97,6 +98,9 @@ async function __POST(request: NextRequest, { params }: Params) {
     const body = await request.json();
     if (body.accion === 'crear') {
       const oc = await crearOcPropia(a.id, body as DatosOcPropia, a.userId, a.nombre);
+      // Su precio pasa a costo real en el costeo (antes de revisar el margen, que también lo mira).
+      await cargarOcPropiaAlCosteo(a.id, oc.id, { id: a.userId, nombre: a.nombre })
+        .catch(e => console.warn('[compras/oc-propia] no se pudo cargar al costeo:', String(e).slice(0, 150)));
       await sincronizarTrasCambioDeOc(a.id);   // Comprado, tarea de OC, folios del reparto y margen al día
       return NextResponse.json({ success: true, oc, ocs: await listarOcPropias(a.id) });
     }

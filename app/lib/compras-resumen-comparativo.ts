@@ -10,6 +10,8 @@ import { emparejarPlanConObuma } from '@/app/lib/compras-sku-obuma';
 import { netoDeCompra, esOcDeGarantia } from '@/app/lib/obuma-compras';
 import { listarProyectosObuma } from '@/app/lib/compras-proyectos-obuma';
 import { listarGastos } from '@/app/lib/compras-gastos';
+import { listarOcPropias } from '@/app/lib/compras-oc-propia';
+import pool from '@/app/lib/db';
 
 export interface FilaComparativa {
   productoId: number; producto: string; cantidad: number;
@@ -20,10 +22,13 @@ export interface FilaComparativa {
   obumaUnit: number | null; obumaNeto: number | null;
   /** La OC de Obuma es de un proveedor distinto al del plan de compra. */
   otroProveedor: boolean;
+  /** Lo comprado viene de una OC propia (Comercial MP, emitida en Licitank, no pasa por Obuma). */
+  ocPropia?: boolean;
 }
 export interface FilaPorOc {
   ocFolio: string; proveedor: string | null; estado: string | null;
   planNeto: number | null; obumaNeto: number; facturadoNeto: number; facturas: number;
+  ocPropia?: boolean;
 }
 /** Cuadre entre lo que dice el PROYECTO en Obuma y lo que cuenta Licitank (todo con IVA, tal como lo muestra Obuma). */
 export interface DiferenciaCuadre {
@@ -54,7 +59,7 @@ export interface ResumenComparativo {
   porOc: FilaPorOc[];
   /** Gastos extra del negocio (módulo «Gastos extra»: flete cobrado aparte, puesta en marcha…). Solo los en CLP suman. */
   gastosExtra: { id: number; categoria: string; descripcion: string; monto: number; moneda: string; fecha: string | null; origen: 'licitank' | 'obuma' }[];
-  totales: { venta: number; costeo: number; plan: number; obumaOc: number; facturado: number; gastosExtra: number; margenRealNeto: number; margenRealPct: number | null };
+  totales: { venta: number; /** Lo que paga el cliente: su OC de Mercado Público (neto) o, si no hay, la suma del costeo. */ ventaGanada: number; costeo: number; plan: number; obumaOc: number; facturado: number; gastosExtra: number; margenRealNeto: number; margenRealPct: number | null };
   avisos: string[];
 }
 
@@ -63,13 +68,27 @@ const corto = (s: string) => s.replace(/\s+/g, ' ').trim().split(' - ')[0].slice
 const r0 = (n: number) => Math.round(n);
 
 export async function resumenComparativoCompra(negocioId: number): Promise<ResumenComparativo> {
-  const [productos, costeo, emp, gastos, gastosRows] = await Promise.all([
+  const [productos, costeo, emp, gastos, gastosRows, propiasTodas, ocCliente] = await Promise.all([
     listarProductosCompra(negocioId),
     costeadoPorProducto(negocioId).catch(() => ({} as Record<number, number | null>)),
     emparejarPlanConObuma(negocioId),
     resumenGastosCompra(negocioId, null),
     listarGastos(negocioId).catch(() => []),
+    listarOcPropias(negocioId).catch(() => []),
+    pool.query(`SELECT oc_total_neto, oc_codigo_mp FROM compras_asignacion WHERE negocio_id = ? LIMIT 1`, [negocioId])
+      .then(([r]: any) => r[0] ?? null).catch(() => null),
   ]);
+  // OC propias vigentes (Comercial MP): lo que se compró por fuera de Obuma. 979: la vacuolavadora salía «sin OC en Obuma».
+  const propias = propiasTodas.filter(o => o.estado !== 'ANULADA');
+  const propiaDe = new Map<number, { folio: string; proveedor: string; estado: string; codigo: string | null; cantidad: number; neto: number }>();
+  for (const o of propias) for (const it of o.items) {
+    if (it.productoId == null) continue;
+    const prev = propiaDe.get(it.productoId);
+    propiaDe.set(it.productoId, {
+      folio: prev ? `${prev.folio}, ${o.folio}` : o.folio, proveedor: o.proveedor.nombre, estado: o.estado, codigo: it.codigo,
+      cantidad: (prev?.cantidad ?? 0) + it.cantidad, neto: (prev?.neto ?? 0) + it.cantidad * it.precio,
+    });
+  }
   const vigentes = productos.filter(p => !['RENUNCIADO', 'NO_ADJUDICADA'].includes(p.subestado));
   const parDe = new Map(emp.pares.map(p => [p.item.productoId, p]));
   const planDe = new Map<number, { grupo: string; unit: number; neto: number }>();
@@ -81,6 +100,18 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
     const par = parDe.get(p.id); const plan = planDe.get(p.id);
     const cUnit = costeo[p.id] ?? null;
     const obumaUnit = par?.linea.precio ?? null;
+    const pr = !par ? propiaDe.get(p.id) : undefined;
+    if (pr) {
+      return {
+        productoId: p.id, producto: corto(p.descripcion), cantidad: cant,
+        ventaUnit: p.montoUnitario, ventaNeto: p.montoUnitario != null ? r0(cant * p.montoUnitario) : null,
+        costeoUnit: cUnit, costeoNeto: cUnit != null ? r0(cant * cUnit) : null,
+        planProveedor: plan?.grupo ?? null, planUnit: plan?.unit ?? null, planNeto: plan ? r0(plan.neto) : null,
+        obumaProveedor: pr.proveedor, obumaOc: pr.folio, obumaEstado: pr.estado, obumaSku: pr.codigo,
+        obumaUnit: pr.cantidad > 0 ? r0(pr.neto / pr.cantidad) : null, obumaNeto: r0(pr.neto),
+        otroProveedor: !!plan && plan.grupo !== pr.proveedor, ocPropia: true,
+      };
+    }
     return {
       productoId: p.id, producto: corto(p.descripcion), cantidad: cant,
       ventaUnit: p.montoUnitario, ventaNeto: p.montoUnitario != null ? r0(cant * p.montoUnitario) : null,
@@ -114,6 +145,12 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
       facturadoNeto: r0(fs.reduce((s, f) => s + (f.total || 0), 0) / 1.19), facturas: fs.length,
     };
   });
+  for (const o of propias) {
+    porOc.push({
+      ocFolio: o.folio, proveedor: o.proveedor.nombre, estado: o.estado, planNeto: null, obumaNeto: r0(o.neto),
+      facturadoNeto: o.factura ? r0(o.factura.neto ?? (o.factura.total != null ? o.factura.total / 1.19 : 0)) : 0, facturas: o.factura ? 1 : 0, ocPropia: true,
+    });
+  }
 
   const sum = (xs: (number | null)[]) => xs.reduce<number>((s, x) => s + (x ?? 0), 0);
   const venta = sum(filas.map(f => f.ventaNeto));
@@ -127,14 +164,25 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
   ];
   const gastosExtraClp = gastosExtra.filter(g => g.moneda === 'CLP').reduce((s, g) => s + g.monto, 0);
   const costoReal = obumaOc + gastosExtraClp;
+  // La venta por producto sale del costeo; lo que de verdad paga el cliente es su OC de Mercado Público. El margen real se calcula
+  // sobre esa OC cuando existe (el mismo número que usa la aprobación del margen), no sobre la suma del costeo.
+  const ventaOc = ocCliente?.oc_total_neto != null && Number(ocCliente.oc_total_neto) > 0 ? Number(ocCliente.oc_total_neto) : null;
+  const ventaGanada = ventaOc ?? venta;
   const totales = {
-    venta, costeo: costeoTot, plan: planTot, obumaOc, facturado, gastosExtra: r0(gastosExtraClp),
-    margenRealNeto: venta - costoReal, margenRealPct: venta > 0 ? Math.round(((venta - costoReal) / venta) * 1000) / 10 : null,
+    venta, ventaGanada, costeo: costeoTot, plan: planTot, obumaOc, facturado, gastosExtra: r0(gastosExtraClp),
+    margenRealNeto: ventaGanada - costoReal, margenRealPct: ventaGanada > 0 ? Math.round(((ventaGanada - costoReal) / ventaGanada) * 1000) / 10 : null,
   };
 
   const avisos: string[] = [];
+  // Si no calzan, los números por producto están mal (979: costeo $34.680.000 contra OC del cliente $40.560.000; la línea 2 valía la
+  // mitad en el costeo).
+  if (ventaOc != null && ventaOc > 0 && Math.abs(ventaOc - venta) > 1) {
+    avisos.push(`La venta del costeo (${clp(venta)}) no calza con la OC del cliente${ocCliente?.oc_codigo_mp ? ` ${ocCliente.oc_codigo_mp}` : ''} (${clp(ventaOc)} neto): diferencia de ${clp(Math.abs(ventaOc - venta))}. Revisa los precios de venta del costeo; el margen real depende de eso.`);
+  }
+  const sinVenta = filas.filter(f => f.ventaNeto == null);
+  if (sinVenta.length) avisos.push(`${sinVenta.length} producto(s) sin precio de venta en el costeo (no suman a la venta): ${sinVenta.map(f => f.producto).join(', ')}.`);
   const sinOc = filas.filter(f => !f.obumaOc);
-  if (sinOc.length) avisos.push(`${sinOc.length} producto(s) de la cotización elegida no tienen OC en Obuma: ${sinOc.map(f => f.producto).join(', ')}.`);
+  if (sinOc.length) avisos.push(`${sinOc.length} producto(s) de la cotización elegida no tienen OC (ni en Obuma ni propia): ${sinOc.map(f => f.producto).join(', ')}.`);
   const otro = filas.filter(f => f.otroProveedor);
   if (otro.length) avisos.push(`${otro.length} producto(s) se compraron a un proveedor distinto al de la cotización elegida: ${otro.map(f => `${f.producto} (cotización ${f.planProveedor}, Obuma ${f.obumaProveedor})`).join('; ')}.`);
   // Una OC en $0 (p. ej. la garantía de seriedad de FINFAST) no es una compra: no necesita factura.
@@ -161,8 +209,10 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
       const ocSin = Math.round(proy.totalGastado - ocDif.reduce((s, d) => s + d.monto, 0) - licOcTotal);
 
       // Facturas: se compara documento a documento lo que Obuma contabilizó en el centro de costo del proyecto.
-      const licFacTotal = Math.round(gastos.facturas.total);
-      const enLicitank = new Set(gastos.facturas.detalle.map(f => `${f.folio}`));
+      // Solo las facturas de Obuma: las de OC propias (dteId vacío) no existen en el proyecto de Obuma y descuadrarían.
+      const facObuma = gastos.facturas.detalle.filter(f => !!f.dteId);
+      const licFacTotal = Math.round(facObuma.reduce((s, f) => s + (f.total || 0), 0));
+      const enLicitank = new Set(facObuma.map(f => `${f.folio}`));
       const descartada = new Map(gastos.facturas.descartadas.map(f => [`${f.folio}`, f]));
       const facDif: DiferenciaCuadre[] = [];
       const foliosObuma = new Set<string>();
@@ -185,7 +235,7 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
       cuadre = {
         proyectoFolio: proy.folio, proyectoNombre: proy.nombre,
         oc: { obumaCantidad: proy.cantidadOc, obumaTotal: Math.round(proy.totalGastado), licitankCantidad: vigentes.length, licitankTotal: licOcTotal, diferencias: ocDif, sinExplicar: ocSin },
-        facturas: { obumaCantidad: proy.cantidadFacturas, obumaTotal: Math.round(proy.totalFacturado), licitankCantidad: gastos.facturas.cantidad, licitankTotal: licFacTotal, diferencias: facDif, sinExplicar: facSin },
+        facturas: { obumaCantidad: proy.cantidadFacturas, obumaTotal: Math.round(proy.totalFacturado), licitankCantidad: facObuma.length, licitankTotal: licFacTotal, diferencias: facDif, sinExplicar: facSin },
         soloEnOc, cuadra: Math.abs(ocSin) <= 2 && Math.abs(facSin) <= 2,
       };
     }

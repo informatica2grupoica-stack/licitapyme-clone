@@ -68,8 +68,14 @@ export async function obtenerAnaliticaCompras(): Promise<AnaliticaCompras> {
     q(`SELECT COALESCE(c.etiqueta, g.categoria_clave) AS categoria, SUM(g.monto) AS monto FROM compras_gasto g
          LEFT JOIN compras_gasto_categoria c ON c.clave COLLATE utf8mb4_general_ci = g.categoria_clave COLLATE utf8mb4_general_ci
         GROUP BY COALESCE(c.etiqueta, g.categoria_clave) ORDER BY monto DESC LIMIT 8`),
-    q(`SELECT proveedor_nombre AS nombre, COUNT(*) AS ordenes, SUM(total_neto) AS monto FROM compras_orden_compra_obuma
-        WHERE proveedor_nombre IS NOT NULL GROUP BY proveedor_nombre ORDER BY monto DESC LIMIT 8`),
+    // Neto (total_neto guarda el total CON IVA), sin las OC anuladas en Obuma y con las OC propias de Comercial MP.
+    q(`SELECT nombre, COUNT(*) AS ordenes, SUM(neto) AS monto FROM (
+          SELECT o.proveedor_nombre AS nombre, COALESCE(o.subtotal_neto, ROUND(o.total_neto / 1.19)) AS neto
+            FROM compras_orden_compra_obuma o LEFT JOIN obuma_compras c ON c.compra_oc_id = o.obuma_compra_oc_id
+           WHERE o.proveedor_nombre IS NOT NULL AND COALESCE(c.estado, '') NOT LIKE '%ANULAD%'
+          UNION ALL
+          SELECT proveedor_nombre, neto FROM compras_oc_propia WHERE estado <> 'ANULADA'
+        ) x GROUP BY nombre ORDER BY monto DESC LIMIT 8`),
     q(`SELECT naturaleza, estado, COUNT(*) AS n FROM compras_incidencia GROUP BY naturaleza, estado`),
     resultadosParaDashboard().then(resumirResultados).catch(() => null),
   ]);

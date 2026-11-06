@@ -52,7 +52,9 @@ function FilaGrupo({ rotulo, b }: { rotulo: string; b: BloqueMargen }) {
   );
 }
 
-export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [] }: { resumen: ResumenMargen; fletesCotizados?: Array<{ proveedor: string; cotizacionId: number; monto: number; nombre?: string }> }) {
+type GastoCotizado = { proveedor: string; cotizacionId: number; monto: number; nombre?: string };
+
+export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [], adicionales = [] }: { resumen: ResumenMargen; fletesCotizados?: GastoCotizado[]; adicionales?: GastoCotizado[] }) {
   const t = r.total;
   if (r.lineas.length === 0) {
     return (
@@ -67,17 +69,23 @@ export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [] }:
   const hayCompras = t.nCompras > 0;
   const cc = (v: string) => (hayCompras ? v : undefined);
   // Con fletes cargados: el flete real REEMPLAZA a la reserva del 5 %. El costo neto no cambia (el flete se muestra aparte, como la reserva).
+  // Los ADICIONALES (grúa, instalación) no reemplazan nada: son gastos que no estaban en el costeo y se restan además del flete o la reserva.
   const hayFlete = fletesCotizados.length > 0;
+  const hayAdicional = adicionales.length > 0;
+  const hayReal = hayFlete || hayAdicional;
   const fleteReal = fletesCotizados.reduce((a, f) => a + f.monto, 0);
+  const adicionalTotal = adicionales.reduce((a, f) => a + f.monto, 0);
   const margenAntesNuevo = t.margenNuevo + t.gastoEntrega;
-  const margenConFlete = margenAntesNuevo - fleteReal;
+  const margenConFlete = margenAntesNuevo - (hayFlete ? fleteReal : t.gastoEntrega) - adicionalTotal;
+  const tituloReal = hayFlete && hayAdicional ? 'Con cotizaciones, flete real y adicionales' : hayFlete ? 'Con cotizaciones y flete real' : 'Con cotizaciones y adicionales';
   const costoNetoNuevo = t.costoNuevo - t.gastoEntrega;
   const pctConFlete = t.venta > 0 ? Math.round((margenConFlete / t.venta) * 1000) / 10 : null;
   const recargoConFlete = costoNetoNuevo > 0 ? Math.round((margenConFlete / costoNetoNuevo) * 1000) / 10 : null;
   const dMargenFlete = margenConFlete - t.margenInicial;
   const dPtsFlete = pctConFlete != null && t.pctInicial != null ? Math.round((pctConFlete - t.pctInicial) * 10) / 10 : null;
   const dFleteVsReserva = fleteReal - t.gastoEntrega;
-  const ff = (v: string) => (hayFlete ? v : undefined);
+  const ff = (v: string) => (hayReal ? v : undefined);
+  const nombresAdic = adicionales.map(a => a.nombre || 'Adicional').join(', ');
   return (
     <section className="border-t border-zinc-200 px-4 py-4" data-testid="margen-costeo-vs-cotizaciones">
       <h3 className="text-base font-medium text-slate-800">Margen: costeo inicial vs cotizaciones</h3>
@@ -93,9 +101,9 @@ export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [] }:
         </p>
       )}
 
-      {hayFlete && pctConFlete != null && t.pctInicial != null && (
+      {hayReal && pctConFlete != null && t.pctInicial != null && (
         <p className="mt-3 text-base text-slate-800" data-testid="margen-flete-frase">
-          Con el <b className="font-bold text-slate-900">flete real ({clp(fleteReal)})</b> el margen sobre la venta queda en <b className={`font-bold ${tono(dPtsFlete)}`}>{pct(pctConFlete)}</b> ({clp(margenConFlete)} en pesos): frente al costeo inicial <b className={`font-bold ${tono(dPtsFlete)}`}>{pts(dPtsFlete)}</b>.
+          Con {hayFlete && <>el <b className="font-bold text-slate-900">flete real ({clp(fleteReal)})</b></>}{hayFlete && hayAdicional && ' y '}{hayAdicional && <>los <b className="font-bold text-slate-900">adicionales ({clp(adicionalTotal)}: {nombresAdic})</b></>} el margen sobre la venta queda en <b className={`font-bold ${tono(dPtsFlete)}`}>{pct(pctConFlete)}</b> ({clp(margenConFlete)} en pesos): frente al costeo inicial <b className={`font-bold ${tono(dPtsFlete)}`}>{pts(dPtsFlete)}</b>.
         </p>
       )}
 
@@ -118,8 +126,8 @@ export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [] }:
               <th className={THR}>Costeo inicial</th>
               {hayCompras && <th className={THR}>Con costo real de Compras</th>}
               <th className={THR}>Con cotizaciones</th>
-              {hayFlete && <th className={THR}>Con cotizaciones y flete real</th>}
-              <th className={THR}>{hayFlete ? 'Diferencia frente al costeo inicial (con flete real)' : 'Diferencia'}</th>
+              {hayReal && <th className={THR}>{tituloReal}</th>}
+              <th className={THR}>{hayReal ? `Diferencia frente al costeo inicial (${tituloReal.replace('Con cotizaciones, ', 'con ').replace('Con cotizaciones y ', 'con ')})` : 'Diferencia'}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100">
@@ -128,15 +136,19 @@ export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [] }:
               dif={clpFirmado(t.costoNuevo - t.costoInicial)} difTono={tono(t.costoInicial - t.costoNuevo)} />
             <FilaResumen rotulo="Margen antes de la reserva" nota="venta neta menos costo neto" a={clp(t.margenInicial + t.gastoEntrega)} b={clp(t.margenNuevo + t.gastoEntrega)} compras={cc(clp(t.margenCompras + t.gastoEntrega))} flete={ff(clp(margenAntesNuevo))}
               dif={clpFirmado(t.margenNuevo - t.margenInicial)} difTono={tono(t.margenNuevo - t.margenInicial)} />
-            <FilaResumen rotulo={hayFlete ? "Reserva para flete / flete real" : "Reserva para flete"} nota={hayFlete ? `las dos primeras columnas descuentan la reserva automática (${Math.round(GASTO_ENTREGA_PCT * 100)} % del margen costeado); la tercera descuenta el flete real cargado` : `automática: ${Math.round(GASTO_ENTREGA_PCT * 100)} % del margen costeado, se descuenta del margen por si hay que pagar un flete`} a={`se resta ${clp(t.gastoEntrega)}`} b={`se resta ${clp(t.gastoEntrega)}`} compras={cc(`se resta ${clp(t.gastoEntrega)}`)} flete={ff(`flete real ${clp(fleteReal)}`)} fleteTono="font-semibold text-slate-900"
+            <FilaResumen rotulo={hayFlete ? "Reserva para flete / flete real" : "Reserva para flete"} nota={hayFlete ? `las primeras columnas descuentan la reserva automática (${Math.round(GASTO_ENTREGA_PCT * 100)} % del margen costeado); la última descuenta el flete real cargado` : `automática: ${Math.round(GASTO_ENTREGA_PCT * 100)} % del margen costeado, se descuenta del margen por si hay que pagar un flete`} a={`se resta ${clp(t.gastoEntrega)}`} b={`se resta ${clp(t.gastoEntrega)}`} compras={cc(`se resta ${clp(t.gastoEntrega)}`)} flete={ff(hayFlete ? `flete real ${clp(fleteReal)}` : `se resta ${clp(t.gastoEntrega)}`)} fleteTono="font-semibold text-slate-900"
               dif={hayFlete ? (dFleteVsReserva === 0 ? "gastas lo mismo que la reserva" : `gastas ${clp(dFleteVsReserva)} ${dFleteVsReserva > 0 ? "más" : "menos"} que la reserva`) : "mismo monto"} difTono={hayFlete && dFleteVsReserva !== 0 ? (dFleteVsReserva > 0 ? "text-red-600" : "text-emerald-700") : undefined} />
-            <FilaResumen rotulo="Margen en pesos" nota="margen menos reserva para flete" a={clp(t.margenInicial)} b={clp(t.margenNuevo)} compras={cc(clp(t.margenCompras))} comprasTono={tono(t.margenCompras - t.margenInicial)} flete={ff(clp(margenConFlete))} fleteTono={tono(dMargenFlete)}
-              dif={hayFlete ? clpFirmado(dMargenFlete) : clpFirmado(t.margenNuevo - t.margenInicial)} difTono={hayFlete ? tono(dMargenFlete) : tono(t.margenNuevo - t.margenInicial)} />
-            <FilaResumen fuerte rotulo="Margen sobre la venta" nota="margen después de la reserva dividido por la venta neta" a={pct(t.pctInicial)} b={pct(t.pctNuevo)} compras={cc(pct(t.pctCompras))} comprasTono={tono(t.puntosCompras)} flete={ff(pct(pctConFlete))} fleteTono={tono(dPtsFlete)}
-              dif={hayFlete ? `${flecha(dPtsFlete)}${pts(dPtsFlete)}` : `${flecha(t.puntos)}${pts(t.puntos)}`} difTono={hayFlete ? tono(dPtsFlete) : tono(t.puntos)} />
+            {hayAdicional && (
+              <FilaResumen rotulo="Adicionales" nota={`${nombresAdic}: gasto que no estaba en el costeo, se resta además del flete`} a="no estaba" b="no estaba" compras={cc('no estaba')} flete={`se resta ${clp(adicionalTotal)}`} fleteTono="font-semibold text-red-600"
+                dif={`baja ${clp(adicionalTotal)}`} difTono="text-red-600" />
+            )}
+            <FilaResumen rotulo="Margen en pesos" nota={hayAdicional ? 'margen menos flete (o reserva) y adicionales' : 'margen menos reserva para flete'} a={clp(t.margenInicial)} b={clp(t.margenNuevo)} compras={cc(clp(t.margenCompras))} comprasTono={tono(t.margenCompras - t.margenInicial)} flete={ff(clp(margenConFlete))} fleteTono={tono(dMargenFlete)}
+              dif={hayReal ? clpFirmado(dMargenFlete) : clpFirmado(t.margenNuevo - t.margenInicial)} difTono={hayReal ? tono(dMargenFlete) : tono(t.margenNuevo - t.margenInicial)} />
+            <FilaResumen fuerte rotulo="Margen sobre la venta" nota="margen en pesos dividido por la venta neta" a={pct(t.pctInicial)} b={pct(t.pctNuevo)} compras={cc(pct(t.pctCompras))} comprasTono={tono(t.puntosCompras)} flete={ff(pct(pctConFlete))} fleteTono={tono(dPtsFlete)}
+              dif={hayReal ? `${flecha(dPtsFlete)}${pts(dPtsFlete)}` : `${flecha(t.puntos)}${pts(t.puntos)}`} difTono={hayReal ? tono(dPtsFlete) : tono(t.puntos)} />
             <FilaResumen rotulo="Recargo sobre el costo" nota="margen en pesos dividido por el costo neto (el «margen» con que el costeo arma el precio)" a={pct(t.recargoInicial)} b={pct(t.recargoNuevo)} compras={cc(pct(t.costoCompras > 0 ? Math.round((t.margenCompras / t.costoCompras) * 1000) / 10 : null))} flete={ff(pct(recargoConFlete))}
-              dif={hayFlete ? (t.recargoInicial != null && recargoConFlete != null ? pts(Math.round((recargoConFlete - t.recargoInicial) * 10) / 10) : '—') : t.recargoInicial != null && t.recargoNuevo != null ? pts(Math.round((t.recargoNuevo - t.recargoInicial) * 10) / 10) : '—'}
-              difTono={tono(t.recargoInicial != null && (hayFlete ? recargoConFlete : t.recargoNuevo) != null ? (hayFlete ? recargoConFlete! : t.recargoNuevo!) - t.recargoInicial : null)} />
+              dif={hayReal ? (t.recargoInicial != null && recargoConFlete != null ? pts(Math.round((recargoConFlete - t.recargoInicial) * 10) / 10) : '—') : t.recargoInicial != null && t.recargoNuevo != null ? pts(Math.round((t.recargoNuevo - t.recargoInicial) * 10) / 10) : '—'}
+              difTono={tono(t.recargoInicial != null && (hayReal ? recargoConFlete : t.recargoNuevo) != null ? (hayReal ? recargoConFlete! : t.recargoNuevo!) - t.recargoInicial : null)} />
           </tbody>
         </table>
       </div>
@@ -192,6 +204,28 @@ export function MargenCosteoVsCotizaciones({ resumen: r, fletesCotizados = [] }:
           </div>
         );
       })()}
+
+      {/* 1c · Adicionales (grúa, instalación…): no son flete. No reemplazan la reserva: son un gasto más que el costeo no tenía. */}
+      {hayAdicional && (
+        <div className="mt-5" data-testid="margen-adicionales-detalle">
+          <h4 className="text-[13px] font-bold text-slate-900">Adicionales: gastos que no estaban en el costeo</h4>
+          <p className="mt-0.5 text-xs text-slate-500">Servicios que se compran con su SKU y su orden de compra (grúa, instalación, armado). No son flete: no reemplazan la reserva del {Math.round(GASTO_ENTREGA_PCT * 100)} %, se restan aparte (neto, sin IVA).</p>
+          <ul className="mt-2 divide-y divide-zinc-100 rounded-xl border border-zinc-200 text-[13px]">
+            {adicionales.map((f, i) => (
+              <li key={`${f.cotizacionId}-${i}`} className="flex items-baseline gap-3 px-3 py-2">
+                <span className="min-w-0 flex-1 truncate text-slate-800" title={f.nombre}>{f.nombre || 'Adicional'}{f.proveedor ? <span className="text-slate-500"> · {f.proveedor}</span> : null}</span>
+                <span className="font-bold tabular-nums text-slate-900">{clp(f.monto)}</span>
+              </li>
+            ))}
+            {adicionales.length > 1 && (
+              <li className="flex items-baseline gap-3 bg-slate-50 px-3 py-2"><span className="flex-1 font-bold text-slate-900">Total adicionales</span><span className="font-bold tabular-nums text-slate-900">{clp(adicionalTotal)}</span></li>
+            )}
+          </ul>
+          <p className="mt-2 text-[13px] font-bold text-red-600">
+            Los adicionales bajan el margen en {clp(adicionalTotal)}{t.venta > 0 ? ` (${(Math.round((adicionalTotal / t.venta) * 1000) / 10).toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} puntos de la venta)` : ''}.
+          </p>
+        </div>
+      )}
 
       {/* 2 · Qué parte ya tiene cotización: el margen con cotizaciones es provisional mientras queden líneas sin cotizar */}
       <div className="mt-5 overflow-x-auto">

@@ -17,9 +17,9 @@ interface Fila {
   ventaUnit: number | null; ventaNeto: number | null; costeoUnit: number | null; costeoNeto: number | null;
   planProveedor: string | null; planUnit: number | null; planNeto: number | null;
   obumaProveedor: string | null; obumaOc: string | null; obumaEstado: string | null; obumaSku: string | null;
-  obumaUnit: number | null; obumaNeto: number | null; otroProveedor: boolean;
+  obumaUnit: number | null; obumaNeto: number | null; otroProveedor: boolean; ocPropia?: boolean;
 }
-interface PorOc { ocFolio: string; proveedor: string | null; estado: string | null; planNeto: number | null; obumaNeto: number; facturadoNeto: number; facturas: number }
+interface PorOc { ocFolio: string; proveedor: string | null; estado: string | null; planNeto: number | null; obumaNeto: number; facturadoNeto: number; facturas: number; ocPropia?: boolean }
 interface CuadreLado { obumaCantidad: number; obumaTotal: number; licitankCantidad: number; licitankTotal: number; diferencias: { concepto: string; monto: number; gastoPropio?: { descripcion: string; categoria: string } }[]; sinExplicar: number }
 interface Resumen {
   cuadre: { proyectoFolio: number | null; proyectoNombre: string | null; oc: CuadreLado; facturas: CuadreLado; soloEnOc: string[]; cuadra: boolean } | null;
@@ -27,7 +27,7 @@ interface Resumen {
   lineasSinPlan: { ocFolio: string; proveedor: string | null; producto: string; sku: string | null; cantidad: number | null; neto: number | null }[];
   porOc: PorOc[];
   gastosExtra: { id: number; categoria: string; descripcion: string; monto: number; moneda: string; fecha: string | null; origen: 'licitank' | 'obuma' }[];
-  totales: { venta: number; costeo: number; plan: number; obumaOc: number; facturado: number; gastosExtra: number; margenRealNeto: number; margenRealPct: number | null };
+  totales: { venta: number; ventaGanada?: number; costeo: number; plan: number; obumaOc: number; facturado: number; gastosExtra: number; margenRealNeto: number; margenRealPct: number | null };
   avisos: string[];
 }
 
@@ -174,10 +174,10 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
       <div>
         <div className="grid grid-cols-2 @xl:grid-cols-3 @5xl:grid-cols-6 gap-3">
           {([
-            ['Venta ganada', t.venta],
+            ['Venta ganada', t.ventaGanada ?? t.venta],
             ['Costeado', t.costeo],
             ['Cotización elegida', t.plan],
-            ['OC en Obuma', t.obumaOc],
+            ['OC emitidas', t.obumaOc],
             ['Facturado', t.facturado],
             ['Gastos extra', t.gastosExtra],
           ] as const).map(([n, v]) => (
@@ -196,7 +196,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
         </div>
         <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
           <p className="text-[13px] text-tinta-2 dark:text-slate-400">
-            Margen real (OC de Obuma + gastos extra): <b className="font-semibold text-tinta tabular-nums dark:text-slate-100">{fmt(t.margenRealNeto)}</b>
+            Margen real (OC de Obuma y propias + gastos extra): <b className="font-semibold text-tinta tabular-nums dark:text-slate-100">{fmt(t.margenRealNeto)}</b>
             {t.margenRealPct != null && <> ({String(t.margenRealPct).replace('.', ',')}% de la venta)</>} · contra lo costeado: <Dif a={t.obumaOc + t.gastosExtra} b={t.costeo} />
           </p>
           <span className="flex items-center gap-2.5 text-[12px] text-tinta-3">
@@ -220,8 +220,8 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
                 <th className={`${TH} text-right`}>Venta</th>
                 <th className={`${TH} text-right`}>Costeo</th>
                 <th className={TH}>Cotización elegida</th>
-                <th className={TH}>Comprado en Obuma</th>
-                <th className={`${TH} text-right`}>Obuma vs costeo</th>
+                <th className={TH}>Comprado (OC)</th>
+                <th className={`${TH} text-right`}>Comprado vs costeo</th>
               </tr>
             </thead>
             <tbody className="text-tinta-2 dark:text-slate-300">
@@ -238,11 +238,11 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
                     {f.obumaOc ? (
                       <>
                         {fmt(f.obumaNeto)}
-                        <span className={SUB}>{f.obumaProveedor} · OC {f.obumaOc}{f.obumaEstado ? ` · ${estadoLegible(f.obumaEstado)}` : ''} · {fmt(f.obumaUnit)} c/u</span>
+                        <span className={SUB}>{f.obumaProveedor} · {f.ocPropia ? 'OC propia ' : 'OC '}{f.obumaOc}{f.obumaEstado ? ` · ${estadoLegible(f.obumaEstado)}` : ''} · {fmt(f.obumaUnit)} c/u</span>
                         {f.obumaSku && <span className="block text-[11px] font-medium text-tinta-2 dark:text-slate-400">SKU {f.obumaSku}</span>}
                         {f.otroProveedor && <span className="block text-[11px] font-medium text-alerta">Proveedor distinto a la cotización elegida</span>}
                       </>
-                    ) : <span className="text-alerta font-medium">sin OC en Obuma</span>}
+                    ) : <span className="text-alerta font-medium">sin OC</span>}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums"><Dif a={f.obumaNeto} b={f.costeoNeto} /></td>
                 </tr>
@@ -317,7 +317,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
                 <th className={TH}>Proveedor</th>
                 <th className={TH}>Estado</th>
                 <th className={`${TH} text-right`}>Cotización elegida</th>
-                <th className={`${TH} text-right`}>OC Obuma</th>
+                <th className={`${TH} text-right`}>OC</th>
                 <th className={`${TH} text-right`}>Facturado</th>
                 <th className={`${TH} text-right`}>OC − factura</th>
                 <th className={`${TH} text-right`}>Ver</th>
@@ -326,7 +326,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
             <tbody className="text-tinta-2 dark:text-slate-300">
               {r.porOc.map(o => (
                 <tr key={o.ocFolio} className={`${TR} align-middle`}>
-                  <td className="px-3 py-2 tabular-nums whitespace-nowrap">OC {o.ocFolio}</td>
+                  <td className="px-3 py-2 tabular-nums whitespace-nowrap">OC {o.ocFolio}{o.ocPropia && <span className="block text-[11px] text-tinta-3">propia (Licitank)</span>}</td>
                   <td className="px-3 py-2 font-semibold text-tinta dark:text-slate-100">{o.proveedor || '—'}</td>
                   <td className="px-3 py-2 whitespace-nowrap"><Estado color={colorEstadoOc(o.estado)}>{estadoLegible(o.estado)}</Estado></td>
                   <td className="px-3 py-2 text-right tabular-nums">{fmt(o.planNeto)}</td>
@@ -336,7 +336,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
                       : <span className="text-alerta font-medium">{/facturad/i.test(o.estado || '') ? 'falta traer la factura' : 'sin factura'}</span>}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">{o.facturas ? <Dif a={o.obumaNeto} b={o.facturadoNeto} /> : <span className="text-tinta-3">—</span>}</td>
-                  <td className="px-3 py-2 text-right whitespace-nowrap"><button type="button" onClick={() => setComparando(o.ocFolio)} className="text-[12.5px] font-medium text-marca hover:text-marca-fuerte" data-testid={`comparar-${o.ocFolio}`}>Comparar</button></td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap">{o.ocPropia ? <span className="text-tinta-3">—</span> : <button type="button" onClick={() => setComparando(o.ocFolio)} className="text-[12.5px] font-medium text-marca hover:text-marca-fuerte" data-testid={`comparar-${o.ocFolio}`}>Comparar</button>}</td>
                 </tr>
               ))}
             </tbody>

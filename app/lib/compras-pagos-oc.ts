@@ -50,8 +50,20 @@ export async function listarPagosOc(negocioId: number): Promise<PagoOc[]> {
 export async function ocsConFacturas(negocioId: number): Promise<OcConFacturas[]> {
   const codigo = await licitacionDeNegocio(negocioId);
   if (!codigo) return [];
-  const compras = await comprasObumaDeLicitacion(codigo);
-  return compras
+  const [compras, [propRows]] = await Promise.all([
+    comprasObumaDeLicitacion(codigo),
+    // OC propias (Comercial MP) también se pagan. SQL directo: importar compras-oc-propia aquí arma un ciclo con compras.ts.
+    pool.query(`SELECT id, folio, estado, total, proveedor_rut, factura_folio, factura_fecha, factura_total, factura_url
+                  FROM compras_oc_propia WHERE negocio_id = ? AND estado <> 'ANULADA' ORDER BY id`, [negocioId]).catch(() => [[]]) as any,
+  ]);
+  const propias: OcConFacturas[] = (propRows as any[]).map(r => ({
+    folio: String(r.folio), estado: r.estado, total: r.total != null ? Number(r.total) : null, proveedorRut: r.proveedor_rut ?? null,
+    facturas: r.factura_folio || r.factura_url ? [{
+      dteId: `propia-${r.id}`, folio: String(r.factura_folio || 's/folio'), fecha: r.factura_fecha ? String(r.factura_fecha).slice(0, 10) : null,
+      total: r.factura_total != null ? Number(r.factura_total) : null, s3Link: r.factura_url ?? null,
+    }] : [],
+  }));
+  return [...compras
     .filter(c => !/anulad/i.test(c.estado || '') && !esOcDeGarantia(c))
     .map(c => {
       // Obuma guarda la misma factura más de una vez en la OC (una por línea facturada): se cuenta una sola vez.
@@ -61,7 +73,7 @@ export async function ocsConFacturas(negocioId: number): Promise<OcConFacturas[]
         folio: c.folio || c.compraOcId, estado: c.estado, total: c.total, proveedorRut: c.proveedorRut,
         facturas: unicas.map(f => ({ dteId: String(f.dteId), folio: f.folioDte, fecha: f.fecha, total: f.total, s3Link: f.s3Link })),
       };
-    });
+    }), ...propias];
 }
 
 /** Una OC está pagada cuando tiene un pago total o el saldo registrado (un anticipo solo es pago parcial). */

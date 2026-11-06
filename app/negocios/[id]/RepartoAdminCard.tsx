@@ -648,8 +648,10 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                                       {conPunto('#059669', `N° ${f.folio}`)}
                                       {f.fecha && <span className="text-slate-500">{fechaCorta(f.fecha)}</span>}
                                       {f.total != null && <span className="tabular-nums text-slate-500">{fmtCLP(f.total)}</span>}
-                                      {f.s3Link && <button type="button" onClick={() => setFacturaAbierta(f.dteId)} data-testid={`factura-ver-${f.folio}`} className="font-medium text-teal-700 hover:text-teal-900">Ver factura</button>}
-                                      {f.s3Link && <a href={f.s3Link} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-slate-600" title="Descargar el XML original">XML</a>}
+                                      {/* Factura de una OC propia (subida a mano en Licitank): no está en Obuma, se abre el archivo tal cual. */}
+                                      {f.s3Link && f.dteId.startsWith('propia-') && <a href={f.s3Link} target="_blank" rel="noopener noreferrer" data-testid={`factura-ver-${f.folio}`} className="font-medium text-teal-700 hover:text-teal-900">Ver factura</a>}
+                                      {f.s3Link && !f.dteId.startsWith('propia-') && <button type="button" onClick={() => setFacturaAbierta(f.dteId)} data-testid={`factura-ver-${f.folio}`} className="font-medium text-teal-700 hover:text-teal-900">Ver factura</button>}
+                                      {f.s3Link && !f.dteId.startsWith('propia-') && <a href={f.s3Link} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-slate-600" title="Descargar el XML original">XML</a>}
                                     </div>
                                   )) : /factur/i.test(oc?.estado || '') ? conPunto('#059669', 'Facturada en Obuma')
                                     : conPunto('#94a3b8', 'Todavía no factura')}
