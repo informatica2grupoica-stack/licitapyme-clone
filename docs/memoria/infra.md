@@ -1,5 +1,15 @@
 # Infraestructura, stack, seguridad y multi-cliente
 
+## 2026-11-06 — Casilla licitaciones@ comprometida: Bluehost bota todo lo que sale a Gmail (fightspamHG)
+Visto en cPanel → Track Delivery (Chrome, sesión del dueño; solo lectura).
+- El 04-11-2026 de 22:01 a 22:24 la IP **85.239.245.1** (ajena: VPS = 216.185.51.104, oficina = 45.4.1.30) entró como licitaciones@sociedadcomercialmp.cl y mandó **102 correos de spam** (rechazados por Proofpoint «AUP#SNDR»).
+- Desde entonces el antispam de Bluehost (`router fightspamHG`, entrega a `/dev/null`) marca «Filtrado» todo lo que sale de esa casilla hacia afuera: 104 correos a informatica2.grupoica@gmail.com (pruebas y avisos del VPS), nunca salieron. Por eso «a Gmail no llega» y al corporativo sí (es entrega local en el mismo servidor). Los correos de las personas desde Outlook (carolina.sepulveda@, asistentemp@…) a Gmail salen «Aceptado»: el problema es SOLO esta casilla. DNS (SPF/DKIM/DMARC) está bien.
+- Causa de la filtración: la clave SMTP estaba escrita en `docs/DESPLIEGUE_NOTEBOOK.md` y `docs/actualizar-notebook.md` (desde 2026-07) y el repo **informatica2grupoica-stack/licitapyme-clone es PÚBLICO** en GitHub. Se sacó de los dos documentos el 06-nov; sigue en el historial de git.
+- **Pendiente (lo hace el dueño):** (1) cambiar la clave de licitaciones@ en cPanel → Cuentas de correo; (2) poner la nueva en `.env.local` y en el `.env` del VPS y reiniciar la app; (3) pedir a soporte de Bluehost que quite el bloqueo de fightspamHG a esa casilla (ej. msgid 1xPIc2-00000003eM4-1jR7); (4) evaluar dejar el repo privado; (5) después, mandar pruebas a Gmail y al corporativo.
+- **Corrección (mismo 06-nov, más tarde):** el dueño creó notificaciones@sociedadcomercialmp.cl (ya está en `.env.local`; falta en el VPS) y las pruebas desde ella TAMBIÉN salieron «Filtrado» (fightspamHG) hacia informatica2.grupoica@gmail.com, y «Aceptado» al corporativo. Ese Gmail sale filtrado desde por lo menos el 30-oct (antes del spam), desde cualquier casilla; el resto del correo externo de la cuenta sale «Aceptado» (71 desde el 04-11). Entonces el bloqueo es del DESTINATARIO (probable lista de supresión por una queja de spam marcada desde ese Gmail), no de la casilla. Falta: probar a OTRO Gmail y pedir a Bluehost que saque informatica2.grupoica@gmail.com de la supresión. La clave de licitaciones@ igual hay que cambiarla (la IP 85.239.245.1 sí la usó).
+- **Regla:** nunca escribir claves en archivos versionados (el repo es público): solo `<placeholder>`.
+
+
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió. Sin
 direcciones de servidores ni claves: esos datos viven en los `.env`, fuera del repo.
 
@@ -72,6 +82,8 @@ direcciones de servidores ni claves: esos datos viven en los `.env`, fuera del r
 - `.env` del VPS no está en git.
 
 ## Multi-cliente (vender Radar + Negocios a otras empresas)
+
+- 2026-11-06 — Pedido del dueño: todo lo nuevo tiene que servir para venderlo a otras empresas. Skill `multiempresa-escalable` (`.claude/skills/multiempresa-escalable/SKILL.md`), citada en `AGENTS.md`: cliente vs razón social, `cliente_id` desde la sesión, anti-IDOR, nada de RUT/razón social/logo en el código, cuentas externas (correo, Obuma, WhatsApp, IA) detrás de una función que recibe el cliente, crons y límites por cliente, línea «Multiempresa:» en cada entrada de memoria. Primera aplicación: «Enviar al proveedor» (Compras).
 
 - Desarrollo SOLO en BD local Docker (puerto 3308); nada en producción.
 - Decisión del dueño (2026-10-23): «lo nuestro no se toca ni modifica». Rama

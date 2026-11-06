@@ -45,7 +45,7 @@ El código nuevo ya está en GitHub (origin/master). NO reinicies cloudflared (p
    SMTP_PORT=465
    SMTP_SECURE=true
    SMTP_USER=licitaciones@sociedadcomercialmp.cl
-   SMTP_PASS=Licitaciones2026!
+   SMTP_PASS=<clave de la casilla, NO escribirla aquí: el repo es público>
    SMTP_FROM="ICA Licitaciones <licitaciones@sociedadcomercialmp.cl>"
    (deja CRON_SECRET, DB_*, MERCADO_PUBLICO_TICKET, R2/S3, etc. como están)
 

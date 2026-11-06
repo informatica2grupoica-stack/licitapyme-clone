@@ -103,7 +103,7 @@ export interface DatosEnvioOc { para: string; cc: string; asunto: string; mensaj
 
 /** Manda la OC en PDF al proveedor y anota el envío. Devuelve los envíos de esta OC (el nuevo primero). */
 export async function enviarOc(negocioId: number, fuente: FuenteOc, d: DatosEnvioOc,
-  actor: { id: number; nombre: string | null; email: string | null }): Promise<EnvioOc[]> {
+  actor: { id: number; nombre: string | null; email: string | null; clienteId: number }): Promise<EnvioOc[]> {
   const para = separarCorreos(d.para, 'Para');
   if (!para.length) throw new Error('Falta el correo del proveedor.');
   const cc = separarCorreos(d.cc, 'Con copia').filter(c => !para.includes(c));
@@ -117,12 +117,12 @@ export async function enviarOc(negocioId: number, fuente: FuenteOc, d: DatosEnvi
   const bytes = await pdf();
   try {
     await enviarOcAlProveedor({
-      para, cc, asunto, mensaje, remitente: { nombre: actor.nombre, email: actor.email },
+      clienteId: actor.clienteId, para, cc, asunto, mensaje, remitente: { nombre: actor.nombre, email: actor.email },
       pdf: { nombre: `orden-de-compra-${doc.folio.replace(/[^\w-]/g, '')}.pdf`, contenido: Buffer.from(bytes) },
     });
   } catch (e: any) {
     console.error('[compras-oc-envio] no salió el correo:', String(e));
-    throw new Error(String(e?.message || '').includes('SMTP') ? e.message : 'El servidor de correo no aceptó el envío. Revisa los correos o inténtalo de nuevo.');
+    throw new Error(/SMTP|Tu empresa/.test(String(e?.message || '')) ? e.message : 'El servidor de correo no aceptó el envío. Revisa los correos o inténtalo de nuevo.');
   }
   await guardarCorreoEnFicha(doc.proveedor.rut, para);
   await registrarEvento({

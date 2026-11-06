@@ -39,7 +39,7 @@ SMTP_HOST=mail.sociedadcomercialmp.cl
 SMTP_PORT=465
 SMTP_SECURE=true
 SMTP_USER=licitaciones@sociedadcomercialmp.cl
-SMTP_PASS=Licitaciones2026!
+SMTP_PASS=<clave de la casilla, NO escribirla aquí: el repo es público>
 SMTP_FROM="ICA Licitaciones <licitaciones@sociedadcomercialmp.cl>"
 
 # ── Descarga al asignar (dejar como está / no definir para que esté ON) ──

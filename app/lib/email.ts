@@ -11,6 +11,7 @@
 //   NEXT_PUBLIC_APP_URL=https://tu-app   (para los enlaces del correo)
 import nodemailer, { type Transporter } from 'nodemailer';
 import { LOGO_CID, LOGO_PNG_BASE64 } from './email-logo';
+import { CLIENTE_ICA } from './tenant';
 
 let _transporter: Transporter | null = null;
 function transporter(): Transporter | null {
@@ -985,11 +986,15 @@ export async function enviarAvisoAprobacionCompras(p: AvisoAprobacionComprasEmai
 // cuenta SMTP (no se puede firmar como otra casilla sin que Gmail lo bote), pero con el NOMBRE de quien envía, su correo en
 // «Responder a» y en copia: el proveedor le responde a esa persona. Lanza con el motivo si no sale (la pantalla lo muestra).
 export interface OcProveedorEmail {
+  clienteId: number;   // de quién es el envío (multiempresa): hoy solo Grupo ICA tiene cuenta (la de .env)
   para: string[]; cc: string[]; asunto: string; mensaje: string;
   remitente: { nombre: string | null; email: string | null };
   pdf: { nombre: string; contenido: Buffer };
 }
 export async function enviarOcAlProveedor(p: OcProveedorEmail): Promise<void> {
+  // Skill multiempresa-escalable: la cuenta SMTP de .env es de Grupo ICA. Otra empresa-cliente necesita su propia cuenta de envío
+  // (pendiente: configuración por cliente); mientras no exista, no se le manda nada a nombre de ICA.
+  if (p.clienteId !== CLIENTE_ICA) throw new Error('Tu empresa todavía no tiene configurado el correo de envío. Pídele al administrador de LICITANK que lo active.');
   const t = transporter();
   if (!t) throw new Error('El correo de la plataforma no está configurado (SMTP). Avísale al administrador.');
   const cuenta = process.env.SMTP_USER || '';

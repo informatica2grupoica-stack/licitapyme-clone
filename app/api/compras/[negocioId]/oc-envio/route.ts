@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { puedeOperarReparto } from '@/app/api/compras/[negocioId]/reparto/route';
 import { borradorEnvioOc, enviarOc, type FuenteOc } from '@/app/lib/compras-oc-envio';
+import { clienteDeHeader } from '@/app/lib/tenant';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,7 +24,9 @@ async function acceso(request: NextRequest, negocioId: string) {
   if (!asignacion) return { error: NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 }) };
   if (!(await puedeOperarReparto(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
     return { error: NextResponse.json({ error: 'No tienes permiso para enviar órdenes de compra de este negocio.' }, { status: 403 }) };
-  return { id, actor: { id: userId, nombre: request.headers.get('x-user-nombre'), email: request.headers.get('x-user-email') } };
+  const clienteId = clienteDeHeader(request);
+  if (!clienteId) return { error: NextResponse.json({ error: 'No autenticado' }, { status: 401 }) };
+  return { id, actor: { id: userId, nombre: request.headers.get('x-user-nombre'), email: request.headers.get('x-user-email'), clienteId } };
 }
 
 function fuente(folio: unknown, ocPropia: unknown): FuenteOc | null {
