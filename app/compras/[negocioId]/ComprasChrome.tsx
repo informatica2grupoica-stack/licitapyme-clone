@@ -35,6 +35,7 @@ import { ModalidadRetiroCard } from '@/app/negocios/[id]/ModalidadRetiroCard';
 import { GastosCard } from '@/app/negocios/[id]/GastosCard';
 import { ServiciosConSkuCard } from '@/app/negocios/[id]/ServiciosConSkuCard';
 import { RelojEntregaCard } from '@/app/negocios/[id]/RelojEntregaCard';
+import { RELOJ_ENTREGA_ACTIVO } from '@/app/lib/compras-reloj-activo';
 import { IncidenciasCard } from '@/app/negocios/[id]/IncidenciasCard';
 import { EntregaCard } from '@/app/negocios/[id]/EntregaCard';
 import { PostventaCard } from '@/app/negocios/[id]/PostventaCard';
@@ -945,10 +946,12 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
               <div>
                 {/* Incidencias (§9): transversales (pueden aparecer en cualquier etapa); se llega desde la franja fija de arriba. */}
                 <div id="compras-incidencias" className="scroll-mt-4" />
-                <Pestanas id="entrega" inicial={(resumenFases?.entrega.incidenciasAbiertas ?? 0) > 0 ? 'incidencias' : 'plazo'} pestanas={[
+                <Pestanas id="entrega" inicial={(resumenFases?.entrega.incidenciasAbiertas ?? 0) > 0 ? 'incidencias' : (RELOJ_ENTREGA_ACTIVO ? 'plazo' : 'entrega')} pestanas={[
+                  ...(RELOJ_ENTREGA_ACTIVO ? [
                   { clave: 'plazo', titulo: 'Plazo de entrega', ayuda: 'Cuánto queda para entregar y qué hacer si no se alcanza: pedir prórroga sin multa o, solo con autorización, entregar con multa.',
-                    badge: resumenFases?.entrega.relojVencido ? 'Vencido' : null, tono: 'alerta',
-                    contenido: <RelojEntregaCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} /> },
+                    badge: resumenFases?.entrega.relojVencido ? 'Vencido' : null, tono: 'alerta' as const,
+                    contenido: <RelojEntregaCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} /> }
+                  ] : []),
                   { clave: 'entrega', titulo: 'Entrega y acta', ayuda: 'Preparación, despacho y el acta de entrega que firma el cliente. El acta cierra el proyecto.',
                     contenido: <EntregaCard negocioId={negocioId} puedeOperar={puedeOperar} puedeVerificar={esBodega} /> },
                   { clave: 'costoreal', titulo: 'Costo real y cierre', ayuda: 'Resultado final del proyecto: lo costeado contra lo realmente gastado.',

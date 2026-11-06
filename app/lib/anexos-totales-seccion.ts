@@ -294,6 +294,7 @@ export function calcularTotalesAlPie(
     const rotuloPie = (f: { rotulo: string }) => normalizarRotuloPie(f.rotulo).toLowerCase();
     const hayNetoExplicito = filasPie.some(f => /\bnet[oa]s?\b|\bsin iva\b/.test(rotuloPie(f)));
     const hayBruto = filasPie.some(f => RE_PIE_BRUTO.test(f.rotulo));
+    const hayIvaEnElPie = filasPie.some(f => RE_PIE_IVA.test(f.rotulo));
 
     const neto = total;
     // Con unitario CON IVA la suma ya es el total con IVA: solo se escribe el pie que lo pide (o un
@@ -325,6 +326,11 @@ export function calcularTotalesAlPie(
       } else if (RE_PIE_IVA.test(fila.rotulo)) {
         const pct = porcentajeIva(fila.rotulo, filasPie);
         valor = pct == null ? null : Math.round(neto * pct / 100);
+      } else if (totalSinDecirCual && hayNetoExplicito && hayIvaEnElPie && !hayBruto) {
+        // «NETO / IVA / VALOR TOTAL» (3712-74-LP26): con neto e IVA explícitos, el «total» a secas es
+        // el bruto, neto + IVA. Escribir el neto ahí dejaba un total que no suma con las líneas de arriba.
+        const pct = porcentajeIva(fila.rotulo, filasPie);
+        valor = pct == null ? null : Math.round(neto) + Math.round(neto * pct / 100);
       } else {
         valor = Math.round(neto);
       }

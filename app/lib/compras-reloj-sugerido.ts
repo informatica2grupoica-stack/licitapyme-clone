@@ -33,6 +33,14 @@ export function interpretarPlazoOfertado(texto: string | null | undefined): { di
   return { dias, tipo: habil && !corrido ? 'HABILES' : 'CORRIDOS', inferido: !habil && !corrido };
 }
 
+/** true si el texto trae plazos DISTINTOS por línea («línea 1: 10 días hábiles, línea 2: 30 días hábiles»): un solo reloj no puede
+ *  representarlos, así que el sistema no lo fija solo (tomaría el primero) y lo deja para que una persona lo confirme. */
+export function plazoOfertadoEsVariado(texto: string | null | undefined): boolean {
+  const t = String(texto ?? '').replace(/\s+/g, ' ');
+  const dias = new Set([...t.matchAll(/(\d{1,3})\s*(?:\(\s*\d+\s*\)\s*)?d[ií]as?/gi)].map(m => Number(m[1])));
+  return dias.size > 1;
+}
+
 const ymd = (s: string | null | undefined): string | null => {
   const m = String(s ?? '').match(/^(\d{4})-(\d{2})-(\d{2})/);
   return m ? `${m[1]}-${m[2]}-${m[3]}` : null;

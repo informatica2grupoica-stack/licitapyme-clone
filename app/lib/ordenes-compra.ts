@@ -726,6 +726,7 @@ export interface ListadoOrdenesFiltro {
   codigoEstado?: number;
   q?: string;                  // busca en código, nombre, organismo, proveedor, licitación e ítems
   incluirTerceros?: boolean;   // por defecto solo es_nuestra = 1
+  codigos?: string[];          // solo estas OC (pestaña «Aceptación»)
   limit?: number;
   offset?: number;
 }
@@ -742,6 +743,10 @@ export async function listarOrdenesCompra(
   const params: unknown[] = [];
 
   if (!filtro.incluirTerceros) cond.push('oc.es_nuestra = 1');
+  if (filtro.codigos) {
+    if (filtro.codigos.length === 0) cond.push('1 = 0');
+    else { cond.push('oc.codigo IN (?)'); params.push(filtro.codigos); }
+  }
   if (filtro.empresaId) { cond.push('oc.empresa_id = ?'); params.push(filtro.empresaId); }
   if (filtro.codigoEstado != null) { cond.push('oc.codigo_estado = ?'); params.push(filtro.codigoEstado); }
   if (filtro.desde) { cond.push('COALESCE(oc.fecha_envio, oc.fecha_creacion) >= ?'); params.push(`${filtro.desde} 00:00:00`); }

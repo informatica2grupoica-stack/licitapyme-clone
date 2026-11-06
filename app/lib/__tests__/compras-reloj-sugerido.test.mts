@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { interpretarPlazoOfertado, sugerirReloj } from '../compras-reloj-sugerido';
+import { interpretarPlazoOfertado, sugerirReloj, plazoOfertadoEsVariado } from '../compras-reloj-sugerido';
 
 test('plazo ofertado: hábiles, corridos y sin tipo (se asume corridos y se avisa)', () => {
   assert.deepEqual(interpretarPlazoOfertado('15 Días hábiles'), { dias: 15, tipo: 'HABILES', inferido: false });
@@ -16,4 +16,11 @@ test('reloj sugerido: parte de la aceptación de la OC; sin OC o sin plazo no in
   assert.equal(sugerirReloj({ aceptadaAt: null, emitidaAt: '2026-10-04 10:00:00', plazoOfertadoTexto: '10 días corridos' })?.origenFecha, 'emision_oc');
   assert.equal(sugerirReloj({ aceptadaAt: null, emitidaAt: null, plazoOfertadoTexto: '10 días' }), null);
   assert.equal(sugerirReloj({ aceptadaAt: '2026-10-05', emitidaAt: null, plazoOfertadoTexto: null }), null);
+});
+
+test('plazos distintos por línea no se pueden fijar solos (979: línea 1 10 días, línea 2 30 días)', () => {
+  assert.equal(plazoOfertadoEsVariado('linea 1: 10 días hábiles linea 2 : 30 días hábiles'), true);
+  assert.equal(plazoOfertadoEsVariado('15 Días hábiles'), false);
+  assert.equal(plazoOfertadoEsVariado('10 días hábiles en todas las líneas (10 días)'), false);
+  assert.equal(plazoOfertadoEsVariado(null), false);
 });

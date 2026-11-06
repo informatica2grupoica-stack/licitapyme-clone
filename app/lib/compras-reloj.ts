@@ -7,7 +7,8 @@ import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { sumarDiasHabiles, sumarDiasCorridos, obtenerAsignacion, construirEntradaAnclas, cerrarTareaDeCatalogo } from '@/app/lib/compras';
 import { calcularHitosGantt } from '@/app/lib/compras-plan';
-import { interpretarPlazoOfertado } from '@/app/lib/compras-reloj-sugerido';
+import { RELOJ_ENTREGA_ACTIVO } from '@/app/lib/compras-reloj-activo';
+import { interpretarPlazoOfertado, plazoOfertadoEsVariado } from '@/app/lib/compras-reloj-sugerido';
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('compras', crearChatIABase);
@@ -142,6 +143,7 @@ export async function fijarReloj(
  * aceptación supuesta, NO se fija: queda para validar a mano (§15.1). Nunca pisa un reloj ya fijado.
  */
 export async function autoFijarReloj(negocioId: number): Promise<boolean> {
+  if (!RELOJ_ENTREGA_ACTIVO) return false;   // reloj desactivado (ver compras-reloj-activo.ts)
   const [rows] = await pool.query(`SELECT fijado_at FROM compras_reloj WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
   if ((rows as any[])[0]?.fijado_at) return false;
   const asig = await obtenerAsignacion(negocioId);
@@ -149,6 +151,7 @@ export async function autoFijarReloj(negocioId: number): Promise<boolean> {
   if (!asig || !resumen) return false;
   const plazo = interpretarPlazoOfertado(resumen.plazoEntregaOfertado);
   if (!plazo) return false;
+  if (plazoOfertadoEsVariado(resumen.plazoEntregaOfertado)) return false;   // plazos distintos por línea: no se elige uno solo, lo confirma una persona
   const h = calcularHitosGantt(construirEntradaAnclas({
     ganadoAt: asig.ganadoAt, ocEmitidaAt: asig.ordenCompra?.emitidaAt ?? null, ocAceptadaAt: asig.ordenCompra?.aceptadaAt ?? null, entregaOficialAt: null,
   }, resumen));

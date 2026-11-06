@@ -245,7 +245,24 @@ function AccionesDocumento({ codigo, nombre, pdfUrlInicial, urlFicha, onVer }: {
   );
 }
 
-function FilaOrden({ oc, onVer, onEnviarExperiencia }: { oc: OrdenCompra; onVer: (doc: VisorDoc) => void; onEnviarExperiencia?: (oc: OrdenCompra) => void }) {
+interface OcAceptacion extends OrdenCompra { limite: string | null; horas: number | null; aceptadaEn: string | null }
+
+// Etiqueta de plazo para aceptar la OC: «Vence hoy 23:59», «Venció hace 2 d», «Vence en 3 d (09-11)».
+function etiquetaPlazo(oc: OcAceptacion): { texto: string; clase: string } {
+  if (oc.horas == null || !oc.limite) return { texto: 'Plazo sin calcular', clase: 'bg-slate-100 text-slate-500 border-slate-200' };
+  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+  const dia = oc.limite.slice(0, 10);
+  const dd = dia.split('-').reverse().slice(0, 2).join('-');
+  if (oc.horas <= 0) {
+    const h = Math.abs(oc.horas);
+    return { texto: `Venció hace ${h >= 24 ? `${Math.floor(h / 24)} d` : `${Math.max(1, Math.round(h))} h`}`, clase: 'bg-rose-50 text-rose-700 border-rose-200' };
+  }
+  if (dia === hoy) return { texto: `Vence hoy ${oc.limite.slice(11, 16)}`, clase: 'bg-rose-50 text-rose-700 border-rose-200' };
+  const dias = Math.ceil(oc.horas / 24);
+  return { texto: `Vence en ${dias} d (${dd})`, clase: dias <= 2 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-50 text-slate-600 border-slate-200' };
+}
+
+function FilaOrden({ oc, onVer, onEnviarExperiencia, etiqueta }: { oc: OrdenCompra; onVer: (doc: VisorDoc) => void; onEnviarExperiencia?: (oc: OrdenCompra) => void; etiqueta?: { texto: string; clase: string } }) {
   const [abierto, setAbierto] = useState(false);
   const c = colorEstado(oc.codigoEstado);
   const fecha = fmtFecha(oc.fechaEnvio) || fmtFecha(oc.fechaCreacion);
@@ -257,6 +274,7 @@ function FilaOrden({ oc, onVer, onEnviarExperiencia }: { oc: OrdenCompra; onVer:
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[13px] font-bold text-slate-800 font-mono">{oc.codigo}</span>
+            {etiqueta && <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border ${etiqueta.clase}`}>{etiqueta.texto}</span>}
             {oc.estado && <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border ${c.fondo} ${c.texto} ${c.borde}`}>{oc.estado}</span>}
             {oc.empresaNombre && <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{oc.empresaNombre}</span>}
             {fecha && <span className="text-[10.5px] text-slate-400">{fecha}</span>}
@@ -321,6 +339,63 @@ function FilaOrden({ oc, onVer, onEnviarExperiencia }: { oc: OrdenCompra; onVer:
   );
 }
 
+// Pestaña «Aceptación»: arriba las OC por aceptar (la que vence antes primero), abajo las ya aceptadas.
+function PestanaAceptacion({ onVer }: { onVer: (doc: VisorDoc) => void }) {
+  const [porAceptar, setPorAceptar] = useState<OcAceptacion[]>([]);
+  const [aceptadas, setAceptadas] = useState<OcAceptacion[]>([]);
+  const [totalPor, setTotalPor] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const cargar = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/ordenes-compra/aceptacion');
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'No se pudo cargar');
+      setPorAceptar(d.porAceptar || []); setAceptadas(d.aceptadas || []); setTotalPor(d.totalPorAceptar || 0);
+      setError(null);
+    } catch (e: any) { setError(e.message); } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { cargar(); }, [cargar]);
+
+  if (loading) return <div className="flex items-center justify-center py-16"><Loader2 className="w-5 h-5 animate-spin text-slate-400" /></div>;
+  if (error) return <Banner variante="error" accion={{ label: 'Reintentar', onClick: cargar }}>{error}</Banner>;
+
+  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' });
+  const venceHoy = porAceptar.filter(o => o.limite && o.horas != null && o.horas > 0 && o.limite.slice(0, 10) === hoy).length;
+  const vencidas = porAceptar.filter(o => o.horas != null && o.horas <= 0).length;
+
+  return (
+    <div className="space-y-6">
+      <section className="space-y-2">
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <h2 className="text-[14px] font-bold text-slate-800">Por aceptar</h2>
+          <span className="text-[12px] text-slate-500">
+            {totalPor} orden{totalPor !== 1 ? 'es' : ''} · {venceHoy} vence{venceHoy !== 1 ? 'n' : ''} hoy · {vencidas} vencida{vencidas !== 1 ? 's' : ''}
+          </span>
+        </div>
+        {porAceptar.length === 0
+          ? <p className="text-[12.5px] text-slate-400 py-4">No hay órdenes pendientes de aceptar.</p>
+          : porAceptar.map(oc => <FilaOrden key={oc.codigo} oc={oc} onVer={onVer} etiqueta={etiquetaPlazo(oc)} />)}
+      </section>
+
+      <section className="space-y-2">
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <h2 className="text-[14px] font-bold text-slate-800">Aceptadas</h2>
+          <span className="text-[12px] text-slate-500">{aceptadas.length} orden{aceptadas.length !== 1 ? 'es' : ''} · las más recientes primero</span>
+        </div>
+        {aceptadas.length === 0
+          ? <p className="text-[12.5px] text-slate-400 py-4">Todavía no hay órdenes aceptadas.</p>
+          : aceptadas.map(oc => (
+            <FilaOrden key={oc.codigo} oc={oc} onVer={onVer}
+              etiqueta={{ texto: oc.aceptadaEn ? `Aceptada ${fmtFecha(oc.aceptadaEn) ?? ''}`.trim() : 'Aceptada', clase: 'bg-emerald-50 text-emerald-700 border-emerald-200' }} />
+          ))}
+      </section>
+    </div>
+  );
+}
+
 export default function OrdenesCompraPage() {
   const { usuario, cargando: cargandoSesion } = useSession();
   const router = useRouter();
@@ -347,6 +422,7 @@ export default function OrdenesCompraPage() {
   const [incluirTerceros, setIncluirTerceros] = useState(false);
   const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
   const [experienciaOC, setExperienciaOC] = useState<OrdenCompra | null>(null);
+  const [pestana, setPestana] = useState<'todas' | 'aceptacion'>('todas');
 
   useEffect(() => {
     const t = setTimeout(() => setQDebounced(q.trim()), 350);
@@ -414,14 +490,24 @@ export default function OrdenesCompraPage() {
               </p>
             </div>
           </div>
-          <div className="relative">
+          {pestana === 'todas' && <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input value={q} onChange={e => setQ(e.target.value)}
               placeholder="Buscar código, organismo, proveedor, licitación o ítem…"
               className="pl-8 pr-3 py-2 text-[13px] border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none w-80" />
-          </div>
+          </div>}
         </div>
 
+        <div className="flex gap-1 border-b border-slate-200">
+          {([['todas', 'Todas'], ['aceptacion', 'Aceptación']] as const).map(([v, label]) => (
+            <button key={v} onClick={() => setPestana(v)}
+              className={`px-3.5 py-2 text-[13px] font-semibold -mb-px border-b-2 transition-colors ${pestana === v ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {pestana === 'aceptacion' ? <PestanaAceptacion onVer={setVisorDoc} /> : <>
         {migracionPendiente && <Banner variante="warning">Falta aplicar la migración de órdenes de compra en la base de datos.</Banner>}
         {error && <Banner variante="error" accion={{ label: 'Reintentar', onClick: () => cargar(0) }}>{error}</Banner>}
 
@@ -486,6 +572,7 @@ export default function OrdenesCompraPage() {
             )}
           </>
         )}
+        </>}
       </div>
 
       <DocumentViewerModal doc={visorDoc} onClose={() => setVisorDoc(null)} />

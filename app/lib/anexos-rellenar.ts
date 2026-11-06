@@ -39,6 +39,7 @@ import { repasarConIA, repasoActivado } from '@/app/lib/anexos-repaso-ia';
 import { matchearPreciosConIA } from '@/app/lib/anexos-precios-ia';
 import { esCandidatoDePrecioUnitario, esPrecioUnitarioConIva } from '@/app/lib/anexos-precios-columnas';
 import { resolverTablaProductosEnBlanco } from '@/app/lib/anexos-oferta-tecnica-tabla';
+import { resolverTablaPorOrden } from '@/app/lib/anexos-tabla-por-orden';
 import { resolverMontoUnicoOferta, resolverPieApilado, porcentajeIvaDeclarado, totalNetoDeItemsCosteo, montoEnPalabras } from '@/app/lib/anexos-monto-oferta';
 import {
   resolverTablaConAuditor, resolverPreciosConAuditor, resolverCamposSueltosConAuditor, plazoSinUnidadImpresa, resolverFichaTecnicaConAuditor,
@@ -628,7 +629,7 @@ function sinCasillasCalculadas(matcheados: CampoResuelto[], calculados: CampoRes
 function aplicarTotalesPorSeccion(
   tablasCrudo: TablaCruda[], parrafos: Parrafo[], indicesEnTablas: Set<number>,
   matcheados: CampoResuelto[], pendientes: CandidatoCelda[], costeoCubierto: boolean, respuestas?: Record<string, string>,
-  itemsCosteo?: ItemCosteoPrecio[],
+  itemsCosteo?: ItemCosteoPrecio[], datosAuditor?: DatosAuditorAnexo,
 ): { matcheadosExtra: CampoResuelto[]; pendientesFiltrados: CandidatoCelda[]; titulos: TituloCercano[]; totalesPie: { etiqueta: string; valor: string; holguraRedondeoIva?: number }[] } {
   const titulos: TituloCercano[] = encabezadosLibres(parrafos, indicesEnTablas);
   const valoresPrecio = new Map(
@@ -671,7 +672,7 @@ function aplicarTotalesPorSeccion(
   }
   // Tabla «PRODUCTO | ESPECIFICACIÓN | CANTIDAD» en blanco del anexo técnico: la lista de lo que
   // ofrecemos sale del costeo (ver anexos-oferta-tecnica-tabla.ts).
-  for (const r of resolverTablaProductosEnBlanco(tablasCrudo, itemsCosteo ?? [])) {
+  for (const r of resolverTablaProductosEnBlanco(tablasCrudo, itemsCosteo ?? [], datosAuditor?.fichas)) {
     paraIdsResueltos.add(r.paraId);
     matcheadosExtra.push({
       c: { etiqueta: r.etiqueta, paraId: r.paraId, indice: r.indiceGlobal },
@@ -679,6 +680,17 @@ function aplicarTotalesPorSeccion(
     });
   }
   const totalesPie: { etiqueta: string; valor: string; holguraRedondeoIva?: number }[] = [];
+  // Tabla con solo el N.º de ítem (2013-22-LE26): la línea N del costeo va en la fila N — ver
+  // anexos-tabla-por-orden.ts. Los totales neto y bruto entran al guardarraíl contra el costeo.
+  for (const r of resolverTablaPorOrden(tablasCrudo, itemsCosteo ?? [])) {
+    if (paraIdsResueltos.has(r.paraId)) continue;
+    paraIdsResueltos.add(r.paraId);
+    if (r.total) totalesPie.push({ etiqueta: r.etiqueta, valor: r.valor });
+    matcheadosExtra.push({
+      c: { etiqueta: r.etiqueta, paraId: r.paraId, indice: r.indiceGlobal },
+      campo: 'costeo_por_orden', valor: r.valor, via: 'costeo',
+    });
+  }
   for (const r of calcularTotalesAlPie(tablasCrudo, valorResuelto, { lineasSinPrecioNoOfertadas: costeoCubierto })) {
     paraIdsResueltos.add(r.paraId);
     // Se guarda lo que de verdad quedó escrito en la casilla de TOTAL del anexo: es el número que
@@ -1005,7 +1017,7 @@ export async function analizarAnexoParaUI(
     alertasInadmisibilidad, checklistPendientes, costeoCubierto,
   } = resolucion;
   const { matcheadosExtra, pendientesFiltrados, titulos }
-    = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablas, matcheados, pendientes, costeoCubierto, undefined, itemsCosteo);
+    = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablas, matcheados, pendientes, costeoCubierto, undefined, itemsCosteo, datosAuditor);
   const matcheadosTodos = [...sinCasillasCalculadas(matcheados, matcheadosExtra), ...matcheadosExtra];
   for (const m of matcheadosTodos) {
     completadosAuto.push({
@@ -1322,7 +1334,7 @@ export async function generarAnexoFinal(
   const indicesEnTablasGen = new Set(
     tablasCrudo.flatMap(t => t.filas.flatMap(f => f.celdas.map(c => c.indiceGlobal).filter((i): i is number => i != null))),
   );
-  const { matcheadosExtra, pendientesFiltrados, totalesPie } = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablasGen, matcheados, pendientes, costeoCubierto, respuestas, itemsCosteo);
+  const { matcheadosExtra, pendientesFiltrados, totalesPie } = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablasGen, matcheados, pendientes, costeoCubierto, respuestas, itemsCosteo, datosAuditor);
   // BUG REAL (1954-1-LE26, 11-ago-2026): "El párrafo <paraId> ya tiene contenido" tumbaba la
   // generación ENTERA del anexo — un solo campo en conflicto (ej. dos candidatos estructuralmente
   // distintos que, por lo que sea, terminan apuntando al mismo w14:paraId; o `analizar`/`generar`

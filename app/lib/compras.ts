@@ -1874,6 +1874,68 @@ export async function avisarAceptacionOcPorVencer(): Promise<{ revisadas: number
   return res;
 }
 
+export interface AceptacionOc {
+  codigo: string;
+  aceptada: boolean;
+  /** Fecha en que se aceptó (aceptadas) — 'YYYY-MM-DD HH:mm:ss'. */
+  aceptadaEn: string | null;
+  /** Último momento para aceptar (mismo cálculo del Gantt y de los avisos). null si la OC no está enganchada a un negocio. */
+  limite: string | null;
+  /** Horas que faltan para el límite (negativo = ya venció). */
+  horas: number | null;
+}
+
+/**
+ * Pantalla «Aceptación» de Órdenes de compra: nuestras OC aún sin aceptar (con su límite, mismo cálculo
+ * del Gantt) y las ya aceptadas. Las sin aceptar salen de la más próxima a vencer a la más lejana; las
+ * que no tienen negocio enganchado (sin límite calculable) van al final. Las canceladas no entran.
+ */
+export async function estadoAceptacionOcs(): Promise<{ porAceptar: AceptacionOc[]; aceptadas: AceptacionOc[] }> {
+  const [rows] = await pool.query(
+    `SELECT oc.codigo, oc.codigo_estado, oc.fecha_aceptacion, ca.negocio_id,
+            DATE_FORMAT(ca.oc_aceptada_at, '%Y-%m-%d %H:%i:%s') AS ca_aceptada_at,
+            (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id
+                AND t.catalogo_clave = 'aceptar_oc' AND t.estado = 'HECHA') AS tarea_hecha,
+            ${SQL_ANCLAS}
+       FROM ordenes_compra oc
+       LEFT JOIN compras_asignacion ca
+              ON ca.oc_codigo_mp = oc.codigo
+              OR (ca.oc_codigo_mp IS NULL AND ca.licitacion_codigo = oc.licitacion_codigo)
+       LEFT JOIN compras_reloj rl ON rl.negocio_id = ca.negocio_id
+      WHERE oc.es_nuestra = 1 AND (oc.codigo_estado IS NULL OR oc.codigo_estado <> 9)
+        AND COALESCE(oc.fecha_envio, oc.fecha_creacion) >= DATE_SUB(NOW(), INTERVAL 120 DAY)`,
+  ) as any;
+
+  const ahoraSQL = ahoraChileSQL();
+  const ahoraMs = parsearFechaPared(ahoraSQL).getTime();
+  const porAceptar: AceptacionOc[] = [];
+  const aceptadas: AceptacionOc[] = [];
+  const vistos = new Set<string>();
+
+  for (const r of rows as any[]) {
+    if (vistos.has(r.codigo)) continue;
+    vistos.add(r.codigo);
+    const estadoAceptada = [6, 12, 13, 14, 15].includes(Number(r.codigo_estado));
+    const aceptada = !!r.fecha_aceptacion || !!r.ca_aceptada_at || Number(r.tarea_hecha) > 0 || estadoAceptada;
+    if (aceptada) {
+      const f = r.fecha_aceptacion ? new Date(r.fecha_aceptacion).toISOString() : (r.ca_aceptada_at || null);
+      aceptadas.push({ codigo: r.codigo, aceptada: true, aceptadaEn: f, limite: null, horas: null });
+      continue;
+    }
+    let limite: string | null = null;
+    if (r.negocio_id && r.ganado_at) {
+      try { limite = calcularHitosGantt(entradaAnclasDeFila(r)).ocLimite; } catch { limite = null; }
+    }
+    porAceptar.push({
+      codigo: r.codigo, aceptada: false, aceptadaEn: null, limite,
+      horas: limite ? (parsearFechaPared(limite).getTime() - ahoraMs) / 3_600_000 : null,
+    });
+  }
+  porAceptar.sort((a, b) => (a.horas ?? Infinity) - (b.horas ?? Infinity));
+  aceptadas.sort((a, b) => String(b.aceptadaEn ?? '').localeCompare(String(a.aceptadaEn ?? '')));
+  return { porAceptar, aceptadas: aceptadas.slice(0, 100) };
+}
+
 /**
  * Engancha a sus fichas de Compras las órdenes de compra que YA están guardadas en `ordenes_compra`
  * pero que nunca se vincularon — las que llegaron antes de que este enganche existiera, y las de

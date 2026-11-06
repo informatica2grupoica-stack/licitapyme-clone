@@ -19,6 +19,7 @@
 import type { TablaCruda } from '@/app/lib/anexos-detectar';
 import type { ItemCosteoPrecio } from '@/app/lib/motor-comercial';
 import { esCandidatoDePrecioUnitario } from '@/app/lib/anexos-precios-columnas';
+import type { FichaLineaAuditor } from '@/app/lib/anexos-auditor-fuente';
 
 export interface RellenoProductoTecnico { paraId: string; indiceGlobal: number; valor: string; etiqueta: string }
 
@@ -47,7 +48,41 @@ export function nombreDeProductoParaAnexo(descripcion: string): string {
   return d.replace(/\s*\|\s*/g, ' ');
 }
 
-export function resolverTablaProductosEnBlanco(tablasCrudo: TablaCruda[], items: ItemCosteoPrecio[]): RellenoProductoTecnico[] {
+const tokens = (s: string) => new Set(sinTildes(s).split(/[^a-z0-9]+/).filter(t => t.length > 2));
+
+/**
+ * La ficha APROBADA del Auditor que corresponde a un producto del costeo: por parecido claro del
+ * nombre (60 % de las palabras del más corto y sin empate). Sin opción aprobada o sin parecido
+ * claro, null — la especificación queda en blanco para el equipo, nunca se adivina.
+ */
+export function fichaDeProducto(nombre: string, fichas: FichaLineaAuditor[] | undefined): FichaLineaAuditor | null {
+  const tn = tokens(nombre);
+  if (!fichas?.length || !tn.size) return null;
+  const puntaje = fichas.filter(f => f.opcion).map(f => {
+    const tf = tokens(f.producto);
+    const comunes = [...tn].filter(x => tf.has(x)).length;
+    return { f, s: comunes / Math.max(1, Math.min(tn.size, tf.size)) };
+  }).sort((a, b) => b.s - a.s);
+  return puntaje[0] && puntaje[0].s >= 0.6 && (!puntaje[1] || puntaje[1].s < puntaje[0].s) ? puntaje[0].f : null;
+}
+
+/** Lo que se escribe en la columna ESPECIFICACIÓN: marca, modelo, fabricante, país y los requisitos que cumple con su valor ofertado. */
+export function textoEspecificacionDeFicha(f: FichaLineaAuditor): string | null {
+  const o = f.opcion;
+  if (!o) return null;
+  const partes: string[] = [];
+  if (o.marca) partes.push(`Marca: ${o.marca}`);
+  if (o.modelo) partes.push(`Modelo: ${o.modelo}`);
+  if (o.fabricante) partes.push(`Fabricante: ${o.fabricante}`);
+  if (o.pais) partes.push(`País de origen: ${o.pais}`);
+  for (const r of f.requisitos) {
+    if (r.estado !== 'CUMPLE' || !r.ofertado?.trim()) continue;
+    partes.push(`${r.texto.replace(/\s+/g, ' ').trim().replace(/[.:;\s]+$/, '')}: ${r.ofertado.replace(/\s+/g, ' ').trim()}`);
+  }
+  return partes.length ? partes.join('. ') + '.' : null;
+}
+
+export function resolverTablaProductosEnBlanco(tablasCrudo: TablaCruda[], items: ItemCosteoPrecio[], fichas?: FichaLineaAuditor[]): RellenoProductoTecnico[] {
   if (!items.length) return [];
   const out: RellenoProductoTecnico[] = [];
   for (const t of tablasCrudo) {
@@ -69,6 +104,10 @@ export function resolverTablaProductosEnBlanco(tablasCrudo: TablaCruda[], items:
       const fila = datos[k].celdas;
       const nombre = nombreDeProductoParaAnexo(item.descripcion);
       if (nombre) out.push({ paraId: fila[iProducto].ultimoParaId!, indiceGlobal: fila[iProducto].indiceGlobal!, valor: nombre, etiqueta: 'PRODUCTO' });
+      // La especificación SOLO sale de la ficha aprobada del Auditor (nunca del costeo ni inventada).
+      const ficha = fichaDeProducto(nombre || item.descripcion, fichas);
+      const especificacion = ficha ? textoEspecificacionDeFicha(ficha) : null;
+      if (especificacion) out.push({ paraId: fila[iEspecificacion].ultimoParaId!, indiceGlobal: fila[iEspecificacion].indiceGlobal!, valor: especificacion, etiqueta: 'ESPECIFICACIÓN' });
       const cantidad = item.cantidad;
       if (cantidad != null && Number.isFinite(cantidad) && cantidad > 0) {
         out.push({ paraId: fila[iCantidad].ultimoParaId!, indiceGlobal: fila[iCantidad].indiceGlobal!, valor: String(cantidad), etiqueta: 'CANTIDAD' });

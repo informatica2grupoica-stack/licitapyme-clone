@@ -14,6 +14,7 @@ import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, detectarBlan
 import { valorExisteEnFicha, campoCalzaConLaEtiqueta, type EmpresaCampos } from '../anexos-ia-motor';
 import { resolverDeterminista } from '../anexos-determinista';
 import { tipoDeMontoDeOferta } from '../anexos-monto-oferta';
+import { resolverTablaPorOrden } from '../anexos-tabla-por-orden';
 import { esCandidatoDePrecioUnitario, esPrecioUnitarioConIva } from '../anexos-precios-columnas';
 import { calcularTotalesAlPie, pareceFilaDePie, calcularTotalesPorSeccion, resolverTablaResumen, calcularTotalesPorLinea, celdasDeRellenoDelPie } from '../anexos-totales-seccion';
 
@@ -2922,4 +2923,67 @@ test('Dos párrafos con «$» que no son neto/IVA/total no se toman como pie', (
 test('«por el VALOR NETO de $» es el monto de la oferta; «por el valor agregado» no', () => {
   assert.equal(tipoDeMontoDeOferta('por el             VALOR     NETO      de $'), 'neto');
   assert.equal(tipoDeMontoDeOferta('por el valor agregado'), null);
+});
+
+// 3712-74-LP26, Anexo 7: «VALOR TOTAL NETO / IVA / VALOR TOTAL». El «VALOR TOTAL» a secas llevaba el
+// mismo monto que el neto; con neto e IVA explícitos es neto + IVA.
+test('pie «NETO / IVA / VALOR TOTAL»: el total a secas es neto + IVA, no el neto repetido', () => {
+  const xml = NS + tabla(
+    fila('N°', 'INSUMO', 'CANTIDAD', 'VALOR UNITARIO NETO', 'VALOR TOTAL NETO'),
+    fila('1', 'Generador', '9', '', ''),
+    fila('2', 'Bomba', '2', '', ''),
+    fila('', 'VALOR TOTAL NETO', '', '', ''),
+    fila('', 'IVA', '', '', ''),
+    fila('', 'VALOR TOTAL', '', '', ''),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const tablas = extraerTablasCrudo(norm);
+  const idx = tablas[0].filas.slice(1, 3).map(f => f.celdas[3].indiceGlobal!);
+  const valores = new Map([[idx[0], 1000], [idx[1], 500]]);
+  const porRotulo = new Map(calcularTotalesAlPie(tablas, i => valores.get(i) ?? null).map(r => [r.etiqueta.trim(), r.valor]));
+  assert.equal(porRotulo.get('VALOR TOTAL NETO'), '10.000', JSON.stringify([...porRotulo]));
+  assert.equal(porRotulo.get('IVA'), '1.900');
+  assert.equal(porRotulo.get('VALOR TOTAL'), '11.900');
+});
+
+// 2013-22-LE26, Anexo 6: «ITEM | DESCRIPCIÓN | CANTIDAD | VALOR TOTAL NETO» con solo el N.º de ítem y
+// el pie «TOTAL NETO / IVA / TOTAL IMPUESTO INCLUIDO». Regla del dueño: la línea N del costeo va en
+// la fila N (nombre, cantidad y valor neto del costeo).
+const itemsPorOrden = [
+  { descripcion: 'Multímetro digital', precioUnitario: 1000, unidad: 'UN', cantidad: 2 },
+  { descripcion: 'Pinza amperimétrica', precioUnitario: 500, unidad: 'UN', cantidad: 3 },
+];
+const tablaPorOrden = (...filasDatos: string[][]) => NS + tabla(
+  fila('ITEM', 'DESCRIPCIÓN', 'CANTIDAD', 'VALOR TOTAL NETO'),
+  ...filasDatos.map(f => fila(...f)),
+  fila('VALOR TOTAL NETO', '', '', ''),
+  fila('TOTAL, NETO', ''),
+  fila('19 % IVA u otro Impuesto', ''),
+  fila('TOTAL, IMPUESTO INCLUIDO', ''),
+) + FIN;
+
+test('tabla con solo el N.º de ítem: nombre, cantidad y valor neto del costeo por orden, y el pie sumado', () => {
+  const { xml } = normalizarParaIds(tablaPorOrden(['1', '', '', ''], ['2', '', '', '']));
+  const r = resolverTablaPorOrden(extraerTablasCrudo(xml), itemsPorOrden);
+  const por = new Map(r.map(x => [x.etiqueta, x.valor]));
+  assert.equal(por.get('1 — DESCRIPCIÓN'), 'Multímetro digital', JSON.stringify([...por]));
+  assert.equal(por.get('1 — CANTIDAD'), '2');
+  assert.equal(por.get('1 — VALOR TOTAL NETO'), '2.000');
+  assert.equal(por.get('2 — VALOR TOTAL NETO'), '1.500');
+  assert.equal(por.get('VALOR TOTAL NETO'), '3.500');
+  assert.equal(por.get('TOTAL, NETO'), '3.500');
+  assert.equal(por.get('19 % IVA u otro Impuesto'), '665');
+  assert.equal(por.get('TOTAL, IMPUESTO INCLUIDO'), '4.165');
+});
+
+test('tabla por orden: no se toca si faltan/sobran filas, si ya hay texto o si alguna línea no trae cantidad', () => {
+  const dos = [['1', '', '', ''], ['2', '', '', '']];
+  const un = normalizarParaIds(tablaPorOrden(['1', '', '', ''])).xml;
+  assert.equal(resolverTablaPorOrden(extraerTablasCrudo(un), itemsPorOrden).length, 0, 'una fila y dos líneas de costeo');
+  const conTexto = normalizarParaIds(tablaPorOrden(['1', 'Otro producto', '', ''], ['2', '', '', ''])).xml;
+  assert.equal(resolverTablaPorOrden(extraerTablasCrudo(conTexto), itemsPorOrden).length, 0, 'el organismo ya escribió en una fila');
+  const ok = normalizarParaIds(tablaPorOrden(...dos)).xml;
+  assert.equal(resolverTablaPorOrden(extraerTablasCrudo(ok), [itemsPorOrden[0], { ...itemsPorOrden[1], cantidad: null }]).length, 0, 'línea sin cantidad');
+  const salteada = normalizarParaIds(tablaPorOrden(['1', '', '', ''], ['3', '', '', ''])).xml;
+  assert.equal(resolverTablaPorOrden(extraerTablasCrudo(salteada), itemsPorOrden).length, 0, 'numeración 1,3');
 });

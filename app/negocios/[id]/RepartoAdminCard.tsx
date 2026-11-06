@@ -937,8 +937,11 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
       {parte !== 'oc' && (() => {
         // Avance administrativo (rehecho 21-oct-2026): ya no son 6 casillas a marcar a mano. Las OC,
         // los pagos y las facturas se cuentan solos desde cada orden; solo el proyecto de Obuma se vincula aquí.
-        const todosFolios = proveedoresOC.flatMap(foliosDe);
-        const conOc = proveedoresOC.filter(p => p.yaCreada || p.ocRealObuma).length;
+        // Las OC propias de Comercial MP (MP-año-n) no son un proveedor del plan: vienen en la lista de OC con sus facturas y también cuentan aquí.
+        const foliosPropios = ocsObuma.filter(o => /^MP-d{4}-d+$/.test(o.folio) && !/anulad/i.test(o.estado || '')).map(o => o.folio);
+        const todosFolios = [...proveedoresOC.flatMap(foliosDe), ...foliosPropios];
+        const totalOrdenes = proveedoresOC.length + foliosPropios.length;
+        const conOc = proveedoresOC.filter(p => p.yaCreada || p.ocRealObuma).length + foliosPropios.length;
         const pagadas = todosFolios.filter(f => pagosOc.some(x => x.ocFolio === f && x.tipo !== 'ANTICIPO')).length;
         const facturadas = todosFolios.filter(f => { const o = ocsObuma.find(x => x.folio === f); return !!o && (o.facturas.length > 0 || /factur/i.test(o.estado || '')); }).length;
         const totalPagado = pagosOc.reduce((s, x) => s + x.monto, 0);
@@ -966,7 +969,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
             </div>
             <div className="divide-y divide-slate-100">
               {fila('Órdenes de compra',
-                conPunto(color(conOc === proveedoresOC.length && conOc > 0, conOc > 0), `${conOc} de ${proveedoresOC.length} emitidas`),
+                conPunto(color(conOc === totalOrdenes && conOc > 0, conOc > 0), `${conOc} de ${totalOrdenes} emitidas`),
                 'Una por proveedor. Se emiten arriba; las que se hicieron directo en Obuma aparecen solas.',
                 conOc > 0 ? <button type="button" onClick={verOc} className="text-[12px] font-medium text-teal-700 hover:text-teal-900">Ver órdenes</button> : undefined)}
               {fila('Pagos a proveedores',

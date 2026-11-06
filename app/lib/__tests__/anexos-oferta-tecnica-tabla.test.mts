@@ -4,7 +4,8 @@
 // costeo con 7 productos. Antes la tabla salía vacía; ahora el producto i del costeo va en la fila i.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolverTablaProductosEnBlanco, nombreDeProductoParaAnexo } from '../anexos-oferta-tecnica-tabla';
+import { resolverTablaProductosEnBlanco, nombreDeProductoParaAnexo, fichaDeProducto, textoEspecificacionDeFicha } from '../anexos-oferta-tecnica-tabla';
+import type { FichaLineaAuditor } from '../anexos-auditor-fuente';
 import type { TablaCruda, CeldaTablaCruda } from '../anexos-detectar';
 import type { ItemCosteoPrecio } from '../motor-comercial';
 
@@ -68,4 +69,32 @@ test('nombreDeProductoParaAnexo quita el «- Modelo» repetido sin tocar los « 
   assert.equal(nombreDeProductoParaAnexo('SmartSolar MPPT 100/50 | Victron - Victron SmartSolar MPPT 100/50'), 'SmartSolar MPPT 100/50 Victron');
   assert.equal(nombreDeProductoParaAnexo('Escalera Telescópica Fibra de Vidrio 24 peldaños - 7.2m - Fibra de Vidrio 24 peldaños - 7.2m'), 'Escalera Telescópica Fibra de Vidrio 24 peldaños - 7.2m');
   assert.equal(nombreDeProductoParaAnexo('Cinturón electricista profesional respaldo suela'), 'Cinturón electricista profesional respaldo suela');
+});
+
+// 4022-19-LE26, Anexo 3 «Oferta técnica»: con las 7 líneas aprobadas en el Auditor la columna
+// ESPECIFICACIÓN salía vacía (las filas en blanco no nombraban el producto para cruzar la ficha).
+const ficha = (producto: string, conOpcion = true): FichaLineaAuditor => ({
+  lineaNumero: 1, producto, motivo: null,
+  opcion: conOpcion ? { marca: 'NiMac', modelo: 'LFP-100', fabricante: 'NiMac Ltd', pais: 'China', anio: null, documento: 'ficha.pdf' } : null,
+  requisitos: [
+    { texto: 'Capacidad mínima 100 Ah.', estado: 'CUMPLE', ofertado: '100 Ah', cita: '' },
+    { texto: 'Tensión 12 V', estado: 'CUMPLE', ofertado: '12,8 V', cita: '' },
+    { texto: 'Peso máximo 12 kg', estado: 'FALTA_DATO', ofertado: '', cita: '' },
+    { texto: 'Garantía', estado: 'NO_CUMPLE', ofertado: '6 meses', cita: '' },
+  ],
+});
+
+test('la especificación sale de la ficha APROBADA del Auditor: marca, modelo, fabricante, país y lo que cumple', () => {
+  const t = tabla(COLS, 3);
+  const r = resolverTablaProductosEnBlanco([t], ITEMS_REALES, [ficha('Batería Litio NiMac 12.8v 100ah')]);
+  const espec = r.filter(x => x.etiqueta === 'ESPECIFICACIÓN');
+  assert.equal(espec.length, 1);
+  assert.equal(espec[0].valor, 'Marca: NiMac. Modelo: LFP-100. Fabricante: NiMac Ltd. País de origen: China. Capacidad mínima 100 Ah: 100 Ah. Tensión 12 V: 12,8 V.');
+  assert.equal(espec[0].indiceGlobal, t.filas[1].celdas[1].indiceGlobal, 'en la fila de su producto');
+});
+
+test('sin opción aprobada, o sin parecido claro con el producto, la especificación queda en blanco', () => {
+  assert.equal(resolverTablaProductosEnBlanco([tabla(COLS, 3)], ITEMS_REALES, [ficha('Batería Litio NiMac 12.8v 100ah', false)]).filter(x => x.etiqueta === 'ESPECIFICACIÓN').length, 0);
+  assert.equal(fichaDeProducto('Panel Solar Enertik Policristalino 120W', [ficha('Escalera telescópica fibra de vidrio')]), null);
+  assert.equal(textoEspecificacionDeFicha(ficha('x', false)), null);
 });

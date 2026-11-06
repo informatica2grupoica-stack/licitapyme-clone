@@ -3,6 +3,7 @@
 // FRANJA FIJA del módulo de Compras: lo que el encargado necesita ver en TODOS los pasos sin
 // buscarlo — el reloj de entrega (cuándo vence, cuántos días quedan o si falta confirmarlo) y las
 // incidencias abiertas. Antes el reloj vivía enterrado en el paso "Tareas" y no era una tarea.
+import { RELOJ_ENTREGA_ACTIVO } from '@/app/lib/compras-reloj-activo';
 import { useEffect, useState } from 'react';
 import { IconClock as Clock, IconAlertTriangle as AlertTriangle, IconSparkles as Sparkles, IconChevronRight as Chevron } from '@tabler/icons-react';
 
@@ -36,6 +37,7 @@ export function FranjaCompra({ negocioId, incidenciasAbiertas, onIrEntrega, onIr
   const fijado = !!reloj.fijadoAt && reloj.color;
   return (
     <div className="flex flex-wrap items-center gap-2" data-testid="franja-compra">
+      {RELOJ_ENTREGA_ACTIVO && (
       <button type="button" onClick={onIrEntrega}
         className={`inline-flex items-center gap-2 ${compacto ? 'text-[12px] px-2.5 py-1.5' : 'text-[13px] px-3 py-2'} font-semibold rounded-lg border transition-colors hover:shadow-sm ${fijado ? ESTILO[reloj.color!] : haySugerido ? 'border-teal-300 bg-teal-50 text-teal-800' : 'border-zinc-200 bg-white text-zinc-500'}`}>
         {fijado ? <Clock size={15} /> : haySugerido ? <Sparkles size={15} /> : <Clock size={15} />}
@@ -49,6 +51,7 @@ export function FranjaCompra({ negocioId, incidenciasAbiertas, onIrEntrega, onIr
           : haySugerido ? 'Plazo de entrega calculado: confírmalo' : 'Plazo de entrega: falta la OC aceptada'}
         <Chevron size={14} className="opacity-60" />
       </button>
+      )}
       {incidenciasAbiertas > 0 && !ocultarIncidencias && (
         <button type="button" onClick={onIrIncidencias}
           className={`inline-flex items-center gap-1.5 ${compacto ? 'text-[12px] px-2.5 py-1.5' : 'text-[13px] px-3 py-2'} font-semibold rounded-lg border border-rose-300 bg-rose-50 text-rose-800 hover:shadow-sm transition-colors`}>
