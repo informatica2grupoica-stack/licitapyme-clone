@@ -24,7 +24,7 @@ interface Aprobacion {
   propuestoPorNombre: string | null; propuestoAt: string | null;
   resueltoPorNombre: string | null; resueltoAt: string | null; comentarioResolucion: string | null;
 }
-interface Margen { ventaNeta: number | null; costoNeto: number | null; margenPct: number | null; fuenteCosto: string | null }
+interface Margen { ventaNeta: number | null; costoNeto: number | null; margenPct: number | null; fuenteCosto: string | null; fueraDelEscenario?: { productoId: number; descripcion: string; costo: number | null; fuente: string | null }[] }
 interface Presupuesto { presupuestoOriginal: number | null; costoEscenario: number | null; excedePct: number | null; excede: boolean; costoFlete: number | null }
 interface Sku { id: number; productoId: number; skuPropio: string; skuProveedor: string | null; proveedorNombre: string | null; marca: string | null; modelo: string | null; obumaProductoId: string | null; obumaCodigoComercial: string | null; verificadoObuma?: boolean; creadoPorNombre?: string | null; createdAt?: string; productoDescripcion?: string | null; costoNeto?: number | null; ventaNeta?: number | null }
 // Lo que Obuma tiene hoy de un producto (se consulta a pedido: Obuma responde lento y tiene cuota diaria).
@@ -507,11 +507,18 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
     setGuardandoSku(true);
     try {
       const { obTipo, obAtributo, medidas, precioVenta, costoManual, ...resto } = formSku;
-      const res = await fetch(`/api/compras/${negocioId}/sku`, {
+      const enviar = (permitirRepetido: boolean) => fetch(`/api/compras/${negocioId}/sku`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productoId: formSkuProducto, ...resto, nombreObuma: nombreObumaPreview || null, costoEsperado: costoPreview.estado === 'listo' ? costoPreview.monto : null, costoManual: costoPreview.estado === 'sin_datos' && costoManual.trim() ? costoManualNum : null, precioVentaNeto: Number(precioVenta.replace(/[^\d]/g, '')) || null }),
+        body: JSON.stringify({ productoId: formSkuProducto, ...resto, nombreObuma: nombreObumaPreview || null, costoEsperado: costoPreview.estado === 'listo' ? costoPreview.monto : null, costoManual: costoPreview.estado === 'sin_datos' && costoManual.trim() ? costoManualNum : null, precioVentaNeto: Number(precioVenta.replace(/[^\d]/g, '')) || null, permitirRepetido }),
       });
-      const data = await res.json();
+      let res = await enviar(false);
+      let data = await res.json();
+      // Mismo producto de Obuma que otro producto de la licitación (979: los Filtros quedaron con el código del Limpiador): se confirma.
+      if (res.status === 409 && data.codigo === 'SKU_REPETIDO') {
+        if (!window.confirm(`${data.error}\n\n¿Son el mismo artículo y quieres usar ese mismo SKU?`)) return;
+        res = await enviar(true);
+        data = await res.json();
+      }
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo crear');
       toast.success(formSku.crearEnObuma ? 'SKU creado — también se creó el producto real en Obuma' : 'SKU creado');
       setSkus(data.skus); setFormSku(formSkuVacio);
@@ -647,6 +654,12 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
             <span className={margenActual.margenPct < 20 ? 'text-rose-600 font-semibold flex items-center gap-1' : ''}>
               {margenActual.margenPct < 20 && <AlertTriangle size={12} />} Ganancia prevista: {margenActual.margenPct} % <span className="font-normal text-zinc-500">· el mínimo exigido es 20 %{margenActual.margenPct >= 20 ? ' ✔ lo cumple' : ' ✖ no lo cumple, hay que explicar el motivo'}</span>
               {margenActual.fuenteCosto === 'costeo_estimado' && ' (costeo estimado, sin escenario elegido aún)'}
+              {(margenActual.fueraDelEscenario?.length ?? 0) > 0 && (
+                <span className="block font-normal text-zinc-500 mt-0.5">
+                  Incluye {margenActual.fueraDelEscenario!.length === 1 ? 'un producto que no está' : `${margenActual.fueraDelEscenario!.length} productos que no están`} en el cuadro comparativo:{' '}
+                  {margenActual.fueraDelEscenario!.map(f => `${f.descripcion.split(' - ')[0].slice(0, 40)} (${f.costo != null ? `$${f.costo.toLocaleString('es-CL')} ${f.fuente === 'oc_propia' ? 'de su OC' : 'costeado'}` : 'sin costo: no suma'})`).join(' · ')}
+                </span>
+              )}
             </span>
           ) : <span>Sin datos suficientes para calcular margen todavía.</span>}
         />

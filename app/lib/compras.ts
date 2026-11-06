@@ -2515,7 +2515,17 @@ export async function sincronizarTareaOcProveedores(negocioId: number): Promise<
     const [ya] = await pool.query(
       `SELECT 1 FROM compras_tarea WHERE negocio_id = ? AND catalogo_clave = 'emitir_oc_proveedores' AND estado <> 'HECHA' LIMIT 1`, [negocioId]) as any;
     if (!(ya as any[]).length) return;
-    const [[oc]] = await pool.query(`SELECT COUNT(*) AS n FROM compras_orden_compra_obuma WHERE negocio_id = ?`, [negocioId]) as any;
+    // OC vigentes: las emitidas en Obuma que no estén anuladas allá + las OC propias (Comercial MP) no anuladas + las hechas directo en
+    // Obuma para esta licitación. Antes contaba solo las de Licitank, anuladas incluidas.
+    const [[oc]] = await pool.query(
+      `SELECT
+         (SELECT COUNT(*) FROM compras_orden_compra_obuma o LEFT JOIN obuma_compras c ON c.compra_oc_id = o.obuma_compra_oc_id
+           WHERE o.negocio_id = ? AND COALESCE(c.estado, '') NOT LIKE '%ANULAD%')
+       + (SELECT COUNT(*) FROM compras_oc_propia WHERE negocio_id = ? AND estado <> 'ANULADA')
+       + (SELECT COUNT(*) FROM obuma_compras c JOIN negocios n ON n.licitacion_codigo = c.licitacion_codigo
+           WHERE n.id = ? AND COALESCE(c.estado, '') NOT LIKE '%ANULAD%'
+             AND c.compra_oc_id NOT IN (SELECT obuma_compra_oc_id FROM compras_orden_compra_obuma WHERE negocio_id = ? AND obuma_compra_oc_id IS NOT NULL)) AS n`,
+      [negocioId, negocioId, negocioId, negocioId]) as any;
     if (!Number(oc?.n)) return;
     const [[pend]] = await pool.query(
       `SELECT COUNT(*) AS n FROM compras_producto

@@ -4,7 +4,7 @@ import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
-import { listarSkus, crearSku, type DatosSku } from '@/app/lib/compras-aprobaciones';
+import { listarSkus, crearSku, SkuRepetidoError, type DatosSku } from '@/app/lib/compras-aprobaciones';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { detectarSkuExistentesEnObuma, enlazarSkuExistentesEnObuma } from '@/app/lib/compras-sku-obuma';
 
@@ -76,8 +76,15 @@ async function __POST(request: NextRequest, { params }: Params) {
       precioVentaNeto: body.precioVentaNeto != null ? Number(body.precioVentaNeto) : null,
       paraVenta: body.paraVenta !== undefined ? !!body.paraVenta : undefined, paraCompra: body.paraCompra !== undefined ? !!body.paraCompra : undefined,
       inventariable: body.inventariable !== undefined ? !!body.inventariable : undefined, venderEnWeb: body.venderEnWeb !== undefined ? !!body.venderEnWeb : undefined,
+      permitirRepetido: !!body.permitirRepetido,
     };
-    const skuId = await crearSku(id, productoId, datos, userId, nombre);
+    let skuId: number;
+    try {
+      skuId = await crearSku(id, productoId, datos, userId, nombre);
+    } catch (e) {
+      if (e instanceof SkuRepetidoError) return NextResponse.json({ error: e.message, codigo: e.codigo }, { status: 409 });
+      throw e;
+    }
     const skus = await listarSkus(id);
     return NextResponse.json({ success: true, id: skuId, skus });
   } catch (error: any) {

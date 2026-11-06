@@ -18,6 +18,8 @@ interface ResumenGastos {
   ocCreadas: { cantidad: number; totalNeto: number; proveedores: { nombre: string; folio: string | null; total: number; fecha: string }[] };
   comprasCruzadas: { cantidad: number; total: number; neto: number };
   ocsObuma?: { folio: string; proveedor: string | null; estado: string | null; fecha: string | null; neto: number; total: number; skus: string[]; lineas: LineaOc[] }[];
+  ocsPropias?: { folio: string; proveedor: string; estado: string; fecha: string; neto: number; total: number; lineas: LineaOc[] }[];
+  gastadoNeto?: number | null;
   facturas: {
     cantidad: number; total: number;
     detalle?: { dteId?: string; folio: string; proveedor: string | null; total: number | null; fecha: string | null; xmlUrl: string | null; ocFolio?: string | null }[];
@@ -32,7 +34,7 @@ interface GastosProyecto {
   totalOc: number; cantidadOc: number; totalOcNeto?: number; cantidadAnuladas?: number;
 }
 /** Una fila de la tabla de órdenes de compra: las emitidas desde Licitank y las hechas directo en Obuma, sin repetir. */
-interface FilaOc { folio: string; proveedor: string; fecha: string | null; estado: string | null; origen: 'licitank' | 'obuma'; neto: number | null; total: number | null; lineas: LineaOc[] }
+interface FilaOc { folio: string; proveedor: string; fecha: string | null; estado: string | null; origen: 'licitank' | 'obuma' | 'propia'; neto: number | null; total: number | null; lineas: LineaOc[] }
 
 const fmtCLP = (n: number | null | undefined) => n == null ? '—'
   : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
@@ -114,6 +116,10 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
       if (o.folio && filas.some(f => f.folio === String(o.folio))) continue;
       filas.push({ folio: o.folio || 's/folio', proveedor: o.nombre, fecha: o.fecha, estado: null, origen: 'licitank', neto: o.total, total: null, lineas: [] });
     }
+    // OC propias (Comercial MP): no pasan por Obuma. El servidor ya saca las anuladas, igual que las de Obuma.
+    for (const o of resumen.ocsPropias ?? []) {
+      filas.push({ folio: o.folio, proveedor: o.proveedor, fecha: o.fecha, estado: o.estado, origen: 'propia', neto: o.neto, total: o.total, lineas: o.lineas });
+    }
     return filas.sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')));
   }, [resumen]);
 
@@ -128,7 +134,8 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
   );
 
   // Gasto real = lo que Obuma tiene (sin anuladas), neto, igual que lo costeado; si Obuma aún no trae nada, lo que guardó Licitank.
-  const gastado = resumen.comprasCruzadas.neto || resumen.ocCreadas.totalNeto || null;
+  // gastadoNeto lo arma el servidor (Obuma o lo de Licitank + OC propias); el resto es por si responde un servidor viejo.
+  const gastado = resumen.gastadoNeto !== undefined ? resumen.gastadoNeto : (resumen.comprasCruzadas.neto || resumen.ocCreadas.totalNeto || null);
   const costeado = resumen.montoCosteado;
   const variacion = costeado && costeado > 0 && gastado != null ? Math.round(((gastado - costeado) / costeado) * 1000) / 10 : null;
   const nOc = filasOc.length;
@@ -283,7 +290,7 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
                       <td className="px-2 py-2 text-right whitespace-nowrap">
                         <span className="inline-flex items-center gap-3">
                           {f.xmlUrl && f.dteId && <button type="button" onClick={() => setFacturaAbierta(f.dteId!)} title="Ver la factura" aria-label={`Ver factura ${f.folio}`} className="text-teal-700 hover:text-teal-900"><Eye size={16} /></button>}
-                          {f.xmlUrl && <a href={f.xmlUrl} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-semibold text-teal-700 hover:text-teal-900">XML</a>}
+                          {f.xmlUrl && <a href={f.xmlUrl} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-semibold text-teal-700 hover:text-teal-900">{f.dteId ? 'XML' : 'Archivo'}</a>}
                         </span>
                       </td>
                     </tr>
@@ -348,7 +355,7 @@ function FilaOrden({ f, abierta, anulada, facturas, onAlternar }: { f: FilaOc; a
         <td className="px-2 py-2 whitespace-nowrap text-zinc-600">{fmtFecha(f.fecha)}</td>
         <td className="px-2 py-2">{f.estado ? <span className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border ${estadoCls}`}>{f.estado}</span> : <span className="text-zinc-300">—</span>}</td>
         <td className="px-2 py-2">
-          <span className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-full border ${f.origen === 'licitank' ? 'bg-teal-50 text-teal-700 border-teal-200' : 'bg-sky-50 text-sky-700 border-sky-200'}`}>{f.origen === 'licitank' ? 'Desde Licitank' : 'Directo en Obuma'}</span>
+          <span className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-full border ${f.origen === 'obuma' ? 'bg-sky-50 text-sky-700 border-sky-200' : 'bg-teal-50 text-teal-700 border-teal-200'}`}>{f.origen === 'licitank' ? 'Desde Licitank' : f.origen === 'propia' ? 'OC propia (Licitank)' : 'Directo en Obuma'}</span>
         </td>
         <td className="px-2 py-2 text-right tabular-nums font-semibold text-zinc-800">{fmtCLP(f.neto)}</td>
         <td className="px-2 py-2 text-right tabular-nums text-zinc-600">{fmtCLP(f.total ?? (f.neto != null ? Math.round(f.neto * 1.19) : null))}</td>

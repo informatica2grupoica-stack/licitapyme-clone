@@ -15,6 +15,7 @@ import { igualSecreto } from '@/app/lib/cron-secret';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { sincronizarComprasObuma } from '@/app/lib/obuma-compras';
+import { sincronizarNegociosDeLicitaciones } from '@/app/lib/compras-oc-obuma';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -49,10 +50,12 @@ export async function POST(req: NextRequest) {
   const t0 = Date.now();
   try {
     const r = await sincronizarComprasObuma({ paginas });
+    // Una OC que cambió en Obuma (anulada, facturada, rehecha) deja al día su negocio de Compras: Comprado/Pendiente, tarea, reparto y margen.
+    const negociosSincronizados = await sincronizarNegociosDeLicitaciones(r.codigos).catch(e => { console.warn('[cron/obuma-compras] no se pudo sincronizar Compras:', String(e).slice(0, 150)); return 0; });
     if (r.nuevasOActualizadas > 0) {
       console.log(`[cron/obuma-compras] ${r.nuevasOActualizadas} compra(s) nueva(s)/actualizada(s) de ${r.candidatas} candidata(s), ${r.vistas} vistas en ${r.paginasBarridas} página(s)`);
     }
-    return NextResponse.json({ success: true, ...r, duracionMs: Date.now() - t0 });
+    return NextResponse.json({ success: true, ...r, negociosSincronizados, duracionMs: Date.now() - t0 });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e.message }, { status: 500 });
   }

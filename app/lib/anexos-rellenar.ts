@@ -153,6 +153,10 @@ function esPersonaJuridica(empresa: EmpresaCampos): boolean {
   return !!t.trim() && !/persona\s+natural/i.test(t);
 }
 const RE_COMPROMISO_DEL_OFERENTE = /garant[ií]a|plazo\s+de\s+entrega|d[ií]as\s+(corridos|h[aá]biles)|marcar\s+con\s+una?\s+x|\bcumple\b/i;
+// Casilla de MONTO de nuestra oferta. Nunca sale de las bases: ahí solo está el presupuesto del organismo. BUG REAL
+// (4170-63-LE26, Anexo Nº4, 06-nov-2026): la IA de bases escribió el «presupuesto máximo» de cada ítem ($19.063.800, el
+// «$ 7-514-850» del OCR, $3.927.000) en «Monto total Neto» y en el pie. Los montos salen del costeo / Auditor o quedan pendientes.
+const RE_MONTO_DE_LA_OFERTA = /\b(monto|montos|precio|precios|valor(es)?\s+(unitario|total|neto|bruto|ofertado)|sub\s*total|total\s+(neto|bruto|general|oferta|ofertado|con\s+iva|iva)|i\.?\s?v\.?\s?a\.?|neto|bruto)\b|\$/i;
 
 interface ResultadoResolucion {
   matcheados: CampoResuelto[];
@@ -485,9 +489,10 @@ async function resolverTodo(
     }
   }
   const puedeIrALaIA = (c: CandidatoCelda) => !indicesDeFichaAuditor.has(c.indice) && !RE_COMPROMISO_DEL_OFERENTE.test(c.etiqueta);
+  // Montos: fuera solo de la IA de BASES (en la de órdenes de compra el «Monto» de la experiencia sí es un dato real de la OC).
   if (basesTexto && basesTexto.trim()) {
-    const celdaEspecifico = pendientesTrasPrecio.filter(c => pendientesConMotivo.get(c.indice)?.categoria === 'especifico_licitacion' && puedeIrALaIA(c));
-    const inlineEspecifico = inlinePendientes.filter(p => p.categoria === 'especifico_licitacion').map(p => p.b);
+    const celdaEspecifico = pendientesTrasPrecio.filter(c => pendientesConMotivo.get(c.indice)?.categoria === 'especifico_licitacion' && puedeIrALaIA(c) && !RE_MONTO_DE_LA_OFERTA.test(c.etiqueta));
+    const inlineEspecifico = inlinePendientes.filter(p => p.categoria === 'especifico_licitacion' && !RE_MONTO_DE_LA_OFERTA.test(p.b.contexto || '')).map(p => p.b);
     if (celdaEspecifico.length || inlineEspecifico.length) {
       const desdeBases = await resolverEspecificacionesDesdeBasesConIA(celdaEspecifico, inlineEspecifico, parrafos, basesTexto);
       pendientesFinal = [];

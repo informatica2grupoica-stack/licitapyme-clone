@@ -160,6 +160,11 @@ del otro dentro de «Precio Total», sin casilla al lado — 4022-19-LE26). Cada
 tasa del rótulo, neto + IVA). Solo sin tabla de ítems; cualquier rótulo fuera del vocabulario
 («IVA (si aplicará)») descarta la celda entera.
 
+**Columnas por ancho real** (`anchosParaAlinear`, `columnasPorAncho`): cada celda de una fila se ubica bajo la
+columna del encabezado que ocupa según su ancho, en `pct` o en `dxa` (si encabezado y fila usan la misma unidad;
+si no, como antes). Una fila que empieza más a la derecha (`<w:gridBefore>` + `<w:wBefore>`) se corre ese espacio.
+Una celda de más a la derecha (columna fantasma) cae en la última columna y no recibe datos (4170-63-LE26, 5827-4-LE26).
+
 **Tabla PRODUCTO | ESPECIFICACIÓN | CANTIDAD en blanco** (anexo técnico, 4022-19-LE26): el producto i
 del costeo va en la fila i (`anexos-oferta-tecnica-tabla.ts`). ESPECIFICACIÓN no se toca; si hay más
 productos que filas o alguna fila trae texto, no se escribe nada.
@@ -401,6 +406,10 @@ Estas tres no dependen de `ANEXOS_IA_RESPALDO`, porque resuelven cosas que no sa
 1. **Especificaciones desde las BASES** (`resolverEspecificacionesDesdeBasesConIA`). Segunda
    oportunidad solo para lo que quedó como `especifico_licitacion`. Ninguna otra categoría entra:
    una firma o una decisión del usuario no las responde un texto de bases.
+   **Ninguna casilla de monto** (monto, precio, valor unitario/total, neto, IVA, «$») pasa por acá:
+   en las bases solo está el presupuesto del organismo, nunca nuestra oferta (4170-63-LE26 escribía el
+   presupuesto máximo de cada ítem en «Monto total»). Los montos salen del costeo/Auditor o quedan
+   pendientes. La IA de órdenes de compra sí puede llenar el «Monto» de la experiencia.
 2. **Precios desde el COSTEO** (`anexos-precios-ia.ts` + `motor-comercial.ts`). El costeo aporta
    descripción + precio unitario de venta por ítem. El parser lee **cualquier planilla**, no solo la
    plantilla V3: detecta el encabezado, exige columna de precio de venta, excluye la sección "REAL"

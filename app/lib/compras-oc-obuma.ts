@@ -10,7 +10,7 @@
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
-import { obtenerAprobaciones, obtenerEscenarioElegido } from '@/app/lib/compras-aprobaciones';
+import { obtenerAprobaciones, obtenerEscenarioElegido, revisarMargenAprobado } from '@/app/lib/compras-aprobaciones';
 import { marcarHitoReparto, obtenerReparto } from '@/app/lib/compras-reparto';
 import { listarAprobacionesLinea } from '@/app/lib/compras-aprobacion-lineas';
 import { listarProductosCompra, sincronizarTareaOcProveedores } from '@/app/lib/compras';
@@ -22,6 +22,7 @@ import {
 import { METODOS_DESPACHO_OBUMA } from '@/app/lib/obuma-despacho';
 import { comprasObumaDeLicitacion, netoDeCompra, type FacturaObuma } from '@/app/lib/obuma-compras';
 import { rutNormalizado } from '@/app/lib/ordenes-compra';
+import { listarOcPropias } from '@/app/lib/compras-oc-propia';
 
 async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
   const [rows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
@@ -257,19 +258,102 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
  *  una OC real hecha directo en Obuma al mismo proveedor (por RUT, sin anuladas). Solo avanza desde Pendiente o Cotizando: nunca retrocede
  *  ni pisa En bodega / Entregado. Antes crear la OC no tocaba el estado y la 1191 seguía «Pendiente» con OC y factura (22-oct-2026). */
 export async function marcarCompradosConOc(negocioId: number, grupos?: ProveedorOrdenCompra[]): Promise<number[]> {
-  try { return await marcarCompradosConOcInterno(negocioId, grupos); } finally { await sincronizarTareaOcProveedores(negocioId); }
+  try { return await marcarCompradosConOcInterno(negocioId, grupos); } finally {
+    await sincronizarTareaOcProveedores(negocioId);
+    await refrescarFoliosReparto(negocioId).catch(e => console.warn('[compras-oc] no se pudo refrescar los folios del reparto:', String(e).slice(0, 150)));
+  }
+}
+
+/** Todo lo que tiene que quedar al día cuando cambia una OC (se emite, se anula, se factura, llega desde Obuma), en CUALQUIER negocio:
+ *  productos Comprado/Pendiente, tarea de OC a proveedores, folios del reparto y el margen aprobado. Nunca bloquea la acción principal. */
+export async function sincronizarTrasCambioDeOc(negocioId: number): Promise<void> {
+  await marcarCompradosConOc(negocioId).catch(e => console.warn(`[compras-oc] negocio ${negocioId}: no se pudo marcar Comprado:`, String(e).slice(0, 150)));
+  await revisarMargenAprobado(negocioId).catch(e => console.warn(`[compras-oc] negocio ${negocioId}: no se pudo revisar el margen:`, String(e).slice(0, 150)));
+}
+
+/** Después de traer OC desde Obuma (botón o cron): sincroniza los negocios de Compras de esas licitaciones. */
+export async function sincronizarNegociosDeLicitaciones(codigos: string[]): Promise<number> {
+  if (!codigos.length) return 0;
+  const [rows] = await pool.query(`SELECT negocio_id FROM compras_asignacion WHERE licitacion_codigo IN (?)`, [[...new Set(codigos)]]) as any;
+  for (const r of rows as any[]) await sincronizarTrasCambioDeOc(Number(r.negocio_id));   // en serie a propósito: no saturar la BD desde el cron
+  return (rows as any[]).length;
+}
+
+/** El «N° de OC» del reparto administrativo se escribía una vez, al emitir desde Licitank, y no se enteraba de nada más (979: quedó
+ *  «4037, 4038» con la 4038 anulada y sin la 4041 hecha directo en Obuma). Ahora se mantiene: saca los folios anulados (Obuma u OC propia)
+ *  y agrega los vigentes que falten (emitidos desde Licitank, hechos directo en Obuma, OC propias). Lo escrito a mano se respeta. Solo
+ *  toca el texto si el hito ya existe; no marca el hito por su cuenta. */
+export async function refrescarFoliosReparto(negocioId: number): Promise<void> {
+  const [[rep]] = await pool.query(`SELECT oc_numero FROM compras_reparto_administrativo WHERE negocio_id = ? AND oc_emitida_at IS NOT NULL`, [negocioId]) as any;
+  if (!rep) return;
+  const codigo = await licitacionDeNegocio(negocioId);
+  const [obuma, [lic], [prop]] = await Promise.all([
+    codigo ? comprasObumaDeLicitacion(codigo) : Promise.resolve([]),
+    pool.query(`SELECT COALESCE(obuma_folio, obuma_compra_oc_id) AS ref, obuma_compra_oc_id FROM compras_orden_compra_obuma WHERE negocio_id = ? ORDER BY created_at`, [negocioId]) as any,
+    pool.query(`SELECT folio, estado FROM compras_oc_propia WHERE negocio_id = ? ORDER BY id`, [negocioId]).catch(() => [[]]) as any,
+  ]);
+  const anulada = (c: { estado: string | null }) => /anulad/i.test(c.estado || '');
+  const estadoPorId = new Map(obuma.map(c => [String(c.compraOcId), c]));
+  const anulados = new Set<string>([
+    ...obuma.filter(anulada).map(c => String(c.folio || c.compraOcId)),
+    ...(prop as any[]).filter(p => p.estado === 'ANULADA').map(p => String(p.folio)),
+  ]);
+  const vigentes: string[] = [
+    ...(lic as any[]).filter(r => { const c = estadoPorId.get(String(r.obuma_compra_oc_id)); return !c || !anulada(c); }).map(r => String(r.ref)),
+    ...obuma.filter(c => !anulada(c)).map(c => String(c.folio || c.compraOcId)),
+    ...(prop as any[]).filter(p => p.estado !== 'ANULADA').map(p => String(p.folio)),
+  ];
+  const actuales = String(rep.oc_numero || '').split(/[,;]+|\s+/).map(s => s.trim()).filter(Boolean);
+  const nuevos = [...new Set([...actuales.filter(f => !anulados.has(f)), ...vigentes])];
+  const texto = nuevos.join(', ') || null;
+  if (texto === (rep.oc_numero || null)) return;
+  await pool.query(`UPDATE compras_reparto_administrativo SET oc_numero = ? WHERE negocio_id = ?`, [texto, negocioId]);
 }
 
 async function marcarCompradosConOcInterno(negocioId: number, grupos?: ProveedorOrdenCompra[]): Promise<number[]> {
-  const gs = grupos ?? await proveedoresParaOrdenCompra(negocioId, { buscarDuplicados: false });
-  const ids = new Set<number>();
-  // Una sola lectura de las OC del negocio (antes una por proveedor, en serie).
-  const ocIds = gs.filter(g => g.yaCreada).map(g => g.yaCreada!.obumaCompraOcId);
-  const [ocRows] = ocIds.length ? await pool.query(`SELECT items_json FROM compras_orden_compra_obuma WHERE negocio_id = ? AND obuma_compra_oc_id IN (?)`, [negocioId, ocIds]) as any : [[]];
-  for (const r of ocRows as any[]) { try { for (const it of JSON.parse(r.items_json || '[]')) ids.add(Number(it.productoId)); } catch { /* items_json corrupto: no se adivina */ } }
+  const [gs, [ocRows], [propRows]] = await Promise.all([
+    grupos ? Promise.resolve(grupos) : proveedoresParaOrdenCompra(negocioId, { buscarDuplicados: false }),
+    // Todas las OC que emitió Licitank en Obuma, con su estado real en Obuma (si la sincronización aún no la trae, cuenta como vigente).
+    pool.query(
+      `SELECT o.items_json, oc.estado FROM compras_orden_compra_obuma o
+         LEFT JOIN obuma_compras oc ON oc.compra_oc_id = o.obuma_compra_oc_id
+        WHERE o.negocio_id = ?`, [negocioId]) as any,
+    // OC propias (Comercial MP): también compran (979: la vacuolavadora seguía «Pendiente» con su OC MP-2026-0001 emitida).
+    pool.query(`SELECT items_json, estado FROM compras_oc_propia WHERE negocio_id = ?`, [negocioId]).catch(() => [[]]) as any,
+  ]);
+  const ids = new Set<number>();        // productos con una OC vigente
+  const enAnulada = new Set<number>();  // productos que estaban en una OC que se anuló
+  const leer = (json: string | null, destino: Set<number>) => {
+    try { for (const it of JSON.parse(json || '[]')) if (it?.productoId != null) destino.add(Number(it.productoId)); } catch { /* items_json corrupto: no se adivina */ }
+  };
+  for (const r of ocRows as any[]) leer(r.items_json, /anulad/i.test(r.estado || '') ? enAnulada : ids);
+  for (const r of propRows as any[]) leer(r.items_json, r.estado === 'ANULADA' ? enAnulada : ids);
   for (const g of gs) {
     if (!g.yaCreada && g.ocRealObuma) for (const it of g.items) if (it.aprobado && it.estadoLinea !== 'RECHAZADA') ids.add(it.productoId);
   }
+
+  // Vuelta atrás: un producto que quedó «Comprado» por una OC que después se anuló, y que no está en ninguna OC vigente ni tiene compra
+  // rápida aprobada, vuelve a «Pendiente». Antes se quedaba «Comprado» para siempre y nadie veía que faltaba comprarlo.
+  const sinOc = [...enAnulada].filter(id => !ids.has(id));
+  if (sinOc.length) {
+    const rapidas = await productosConCompraRapidaAprobada(negocioId);
+    const volver = sinOc.filter(id => !rapidas.has(id));
+    if (volver.length) {
+      const [comp] = await pool.query(
+        `SELECT id, descripcion FROM compras_producto WHERE negocio_id = ? AND id IN (?) AND subestado = 'COMPRADO'`, [negocioId, volver]) as any;
+      const reabrir = comp as { id: number; descripcion: string }[];
+      if (reabrir.length) {
+        await pool.query(`UPDATE compras_producto SET subestado = 'PENDIENTE', updated_at = ? WHERE negocio_id = ? AND id IN (?) AND subestado = 'COMPRADO'`,
+          [ahoraChileSQL(), negocioId, reabrir.map(r => Number(r.id))]);
+        await registrarEvento({
+          tipo: 'COMPRAS_PRODUCTO_REABIERTO', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId: null, actorNombre: 'Sistema',
+          mensaje: `Vuelve a «Pendiente» porque su orden de compra se anuló y no hay otra vigente: ${reabrir.map(r => `«${String(r.descripcion).split(' - ')[0].slice(0, 60)}»`).join(', ')}.`,
+          metadata: { negocio_id: negocioId, productos: reabrir.map(r => Number(r.id)) },
+        }).catch(() => {});
+      }
+    }
+  }
+
   if (ids.size === 0) return [];
   const [pend] = await pool.query(
     `SELECT id FROM compras_producto WHERE negocio_id = ? AND id IN (?) AND subestado IN ('PENDIENTE', 'COTIZANDO')`, [negocioId, [...ids]]) as any;
@@ -491,7 +575,7 @@ export async function crearOrdenCompraParaProveedor(
     activo: true, ocNumero: resumenFolios,
     nota: `OC emitida desde Licitank en Obuma: folio ${creada.folio ?? creada.compraOcId} a ${grupo.proveedorNombre}, ${internacional ? montoTexto : `${new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(creada.subtotalNeto)} neto`}.`,
   }, actorId, actorNombre);
-  await marcarCompradosConOc(negocioId).catch(e => console.warn('[compras-oc] no se pudo marcar Comprado:', String(e).slice(0, 150)));
+  await sincronizarTrasCambioDeOc(negocioId);
 
   return { obumaCompraOcId: creada.compraOcId, folio: creada.folio, total: totalClp, monedaCodigo: moneda?.codigo ?? 'CLP', totalMoneda: creada.total };
 }
@@ -557,9 +641,14 @@ export async function ordenesCompraParaVista(negocioId: number): Promise<OrdenCo
   // vivo para ellos aunque el texto de ocNumero los mencione también.
   const foliosLicitank = new Set(vistas.map(v => v.folio).filter((f): f is string => !!f));
 
-  const reparto = await obtenerReparto(negocioId);
+  const [reparto, [propRows]] = await Promise.all([
+    obtenerReparto(negocioId),
+    pool.query(`SELECT folio FROM compras_oc_propia WHERE negocio_id = ?`, [negocioId]).catch(() => [[]]) as any,
+  ]);
+  // Los folios de OC propias (Comercial MP) también quedan en el texto (refrescarFoliosReparto), pero no existen en Obuma: no se buscan allá.
+  const foliosPropios = new Set((propRows as any[]).map(r => String(r.folio)));
   const foliosManual = (reparto.ocNumero || '')
-    .split(/[,;\s]+/).map(f => f.trim()).filter(f => f && !foliosLicitank.has(f));
+    .split(/[,;\s]+/).map(f => f.trim()).filter(f => f && !foliosLicitank.has(f) && !foliosPropios.has(f));
 
   for (const folio of foliosManual) {
     try {
@@ -615,6 +704,10 @@ export interface ResumenGastosCompra {
   // Las OC reales que YA existen en Obuma para esta licitación (hechas directo, no por Licitank),
   // con los SKU (código comercial) de sus líneas — para mostrarlas aparte de las que emite Licitank.
   ocsObuma: { folio: string; proveedor: string | null; estado: string | null; fecha: string | null; neto: number; total: number; skus: string[]; lineas: { producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }[] }[];
+  // OC propias (Comercial MP: se emiten en Licitank, no pasan por Obuma), sin anuladas. También son gasto (979: las vacuolavadoras, $10,5M, quedaban fuera).
+  ocsPropias: { folio: string; proveedor: string; estado: string; fecha: string; neto: number; total: number; lineas: { producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }[] }[];
+  /** Gasto real NETO: lo de Obuma sin anuladas (si Obuma aún no trae nada, lo emitido por Licitank) + las OC propias. */
+  gastadoNeto: number | null;
   facturas: {
     cantidad: number; total: number;
     detalle: { dteId: string; folio: string; proveedor: string | null; total: number | null; fecha: string | null; xmlUrl: string | null; ocFolio: string | null }[];
@@ -629,16 +722,25 @@ export async function resumenGastosCompra(negocioId: number, montoCosteado: numb
   codigoP.catch(() => {});   // si la lectura de OC falla primero, que este error no quede suelto (se relanza igual en el await)
   const [ocRows] = await pool.query(
     // OJO: la columna `total_neto` guarda el TOTAL CON IVA de la orden (el nombre engaña, se vio con la OC 3989); el neto real es `subtotal_neto`.
-    `SELECT proveedor_nombre, obuma_folio, COALESCE(subtotal_neto, ROUND(total_neto / 1.19)) AS total_neto, DATE_FORMAT(fecha_oc, '%Y-%m-%d') AS fecha_oc
+    `SELECT proveedor_nombre, obuma_folio, obuma_compra_oc_id, COALESCE(subtotal_neto, ROUND(total_neto / 1.19)) AS total_neto, DATE_FORMAT(fecha_oc, '%Y-%m-%d') AS fecha_oc
        FROM compras_orden_compra_obuma WHERE negocio_id = ? ORDER BY created_at`,
     [negocioId],
   ) as any;
-  const ocCreadas = (ocRows as any[]).map(r => ({ nombre: r.proveedor_nombre, folio: r.obuma_folio, total: Number(r.total_neto), fecha: r.fecha_oc }));
-  const totalOcCreadas = ocCreadas.reduce((s, o) => s + o.total, 0);
+  const propiasP = listarOcPropias(negocioId).catch(() => []);
 
   const codigo = await codigoP;
+  const todasObuma = codigo ? await comprasObumaDeLicitacion(codigo) : [];
   // Una OC ANULADA no es gasto (caso 759-21-LE26: WINPY 26 por $6,9M inflaba el total).
-  const cruzadas = (codigo ? await comprasObumaDeLicitacion(codigo) : []).filter(c => !/anulad/i.test(c.estado || ''));
+  const cruzadas = todasObuma.filter(c => !/anulad/i.test(c.estado || ''));
+  // Tampoco la que emitió Licitank y después se anuló en Obuma: la tabla de OC la volvía a meter sin estado
+  // (979: la 4038 → 3 OC por $15,7M en vez de 2 por $10,3M).
+  const anuladasObuma = new Set(todasObuma.filter(c => /anulad/i.test(c.estado || '')).map(c => String(c.compraOcId)));
+  const ocCreadas = (ocRows as any[])
+    .filter(r => !r.obuma_compra_oc_id || !anuladasObuma.has(String(r.obuma_compra_oc_id)))
+    .map(r => ({ nombre: r.proveedor_nombre, folio: r.obuma_folio, total: Number(r.total_neto), fecha: r.fecha_oc }));
+  const totalOcCreadas = ocCreadas.reduce((s, o) => s + o.total, 0);
+  const propias = (await propiasP).filter(o => o.estado !== 'ANULADA');
+  const netoPropias = propias.reduce((s, o) => s + o.neto, 0);
   const totalCruzadas = cruzadas.reduce((s, c) => s + (c.total || 0), 0);
   const netoCruzadas = cruzadas.reduce((s, c) => s + netoDeCompra(c), 0);
 
@@ -672,10 +774,16 @@ export async function resumenGastosCompra(negocioId: number, montoCosteado: numb
       ocDeFactura.set(k, c.folio || c.compraOcId);
     }
   }
-  const totalFacturas = facturas.reduce((s, f) => s + (f.total || 0), 0);
+  // Facturas de las OC propias (se suben a mano en Licitank; no tienen XML de Obuma).
+  const facturasPropias = propias.filter(o => o.factura).map(o => ({
+    dteId: '', folio: String(o.factura!.folio || 's/folio'), proveedor: o.proveedor.nombre as string | null, total: o.factura!.total ?? o.total,
+    fecha: o.factura!.fecha, xmlUrl: o.factura!.url, ocFolio: o.folio as string | null,
+  }));
+  const totalFacturas = facturas.reduce((s, f) => s + (f.total || 0), 0) + facturasPropias.reduce((s, f) => s + (f.total || 0), 0);
 
   // Costeado es NETO: se compara contra neto (antes se mezclaba el total con IVA de las compras).
-  const gastadoRealNeto = netoCruzadas || totalOcCreadas || null;   // lo que Obuma tiene (sin anuladas) manda; lo guardado por Licitank es el respaldo
+  // Lo que Obuma tiene (sin anuladas) manda; lo guardado por Licitank es el respaldo. Las OC propias se suman aparte (no pasan por Obuma).
+  const gastadoRealNeto = ((netoCruzadas || totalOcCreadas) + netoPropias) || null;
   const variacionPct = montoCosteado && montoCosteado > 0 && gastadoRealNeto != null
     ? Math.round(((gastadoRealNeto - montoCosteado) / montoCosteado) * 1000) / 10
     : null;
@@ -692,9 +800,17 @@ export async function resumenGastosCompra(negocioId: number, montoCosteado: numb
         cantidad: i.cantidad, precio: i.precio, subtotal: i.subtotal,
       })),
     })),
+    ocsPropias: propias.map(o => ({
+      folio: o.folio, proveedor: o.proveedor.nombre, estado: o.estado, fecha: o.fechaOc, neto: Math.round(o.neto), total: Math.round(o.total),
+      lineas: o.items.map(i => ({ producto: i.descripcion, sku: i.codigo, cantidad: i.cantidad, precio: i.precio, subtotal: Math.round(i.cantidad * i.precio) })),
+    })),
+    gastadoNeto: gastadoRealNeto != null ? Math.round(gastadoRealNeto) : null,
     facturas: {
-      cantidad: facturas.length, total: totalFacturas,
-      detalle: facturas.map(f => ({ dteId: f.dteId, folio: f.folioDte, proveedor: f.proveedorRazonSocial, total: f.total, fecha: f.fecha, xmlUrl: f.s3Link, ocFolio: ocDeFactura.get(String(f.dteId || `${f.tipoDcto}#${f.folioDte}`)) ?? null })),
+      cantidad: facturas.length + facturasPropias.length, total: totalFacturas,
+      detalle: [
+        ...facturas.map(f => ({ dteId: f.dteId, folio: f.folioDte, proveedor: f.proveedorRazonSocial, total: f.total, fecha: f.fecha, xmlUrl: f.s3Link, ocFolio: ocDeFactura.get(String(f.dteId || `${f.tipoDcto}#${f.folioDte}`)) ?? null })),
+        ...facturasPropias,
+      ],
       descartadas,
     },
     montoCosteado, variacionPct,

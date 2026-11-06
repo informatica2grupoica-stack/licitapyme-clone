@@ -7,6 +7,7 @@ import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { proveedoresParaOrdenCompra, crearOrdenCompraParaProveedor, marcarCompradosConOc } from '@/app/lib/compras-oc-obuma';
+import { revisarMargenAprobado } from '@/app/lib/compras-aprobaciones';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { parsearMontoCL } from '@/app/lib/numeros';
 import { sincronizarComprasObuma } from '@/app/lib/obuma-compras';
@@ -66,6 +67,8 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (eurHoy) tiposCambioHoy.EUR = eurHoy.valor;
     // Recién sincronizado con Obuma: lo que ya tiene OC pasa a «Comprado».
     await marcarCompradosConOc(id, proveedores).catch(e => console.warn('[compras/orden-compra-obuma] marcar Comprado por OC:', String(e).slice(0, 150)));
+    // Y si una OC cambió el costo de la compra, el margen aprobado se revisa (reabre la compuerta 2 si bajó).
+    await revisarMargenAprobado(id).catch(e => console.warn('[compras/orden-compra-obuma] revisar margen:', String(e).slice(0, 150)));
     // Lista para el selector del formulario de la OC (solo activos, los más nuevos primero).
     const centrosCosto = centros.filter(c => c.activo).sort((a, b) => Number(b.id) - Number(a.id)).map(c => ({ id: c.id, nombre: c.nombre }));
     return NextResponse.json({ success: true, proveedores, centroCosto, centrosCosto, monedas, tiposCambioHoy });

@@ -132,8 +132,9 @@ export async function costoRealDeNegocio(negocioId: number): Promise<ResultadoCo
   let obuma: EntradaConsolidado['obuma'] = null;
   try {
     const r = await resumenGastosCompra(negocioId, null);
-    if (r.ocCreadas.cantidad > 0 || r.comprasCruzadas.cantidad > 0) {
-      obuma = { ocCreadas: r.ocCreadas.totalNeto, comprasCruzadas: r.comprasCruzadas.neto, facturas: r.facturas.total };
+    if (r.ocCreadas.cantidad > 0 || r.comprasCruzadas.cantidad > 0 || r.ocsPropias.length > 0) {
+      // gastadoNeto ya junta Obuma (o lo emitido por Licitank) + las OC propias de Comercial MP, sin anuladas.
+      obuma = { ocCreadas: r.ocCreadas.totalNeto, comprasCruzadas: r.gastadoNeto ?? 0, facturas: r.facturas.total };
     }
   } catch { /* Obuma sin datos: el consolidado se arma igual, solo sin contraste */ }
   const m = await costoRealDeNegocios([negocioId], new Map([[negocioId, obuma]]));

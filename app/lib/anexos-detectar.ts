@@ -641,6 +641,11 @@ function primerParrafoTrasTablaSiEstaVacio(xml: string): Set<number> {
 
 interface CeldaCruda {
   texto: string; vacio: boolean; paraId: string | null; indiceGlobal: number | null; anchoPct: number | null;
+  // Ancho de la celda en SU unidad (pct o dxa) — solo para ubicar columnas (anchosParaAlinear). anchoPct sigue
+  // siendo el único que mide «celda decorativa» (su umbral está en pct).
+  anchoGeo: number | null; anchoTipo: string | null;
+  // Solo en la PRIMERA celda: espacio que la fila deja vacío antes de ella (<w:wBefore>, con <w:gridBefore>), en la misma unidad.
+  antesGeo?: number;
   // El paraId del ÚLTIMO párrafo de la celda, SIEMPRE presente (a diferencia de `paraId`, que
   // solo se llena si la celda está vacía) — lo necesita anexos-totales-seccion.ts para poder
   // escribir en celdas que no son técnicamente "vacías" pero traen un prefijo fijo sin blanco
@@ -695,9 +700,33 @@ function sinTildesMinuscula(s: string): string {
 // en la vista de tabla) — antes cada uno tenía su propia lógica de alineación y podían no
 // coincidir (un PRECIO real detectado como candidato, pero mostrado bajo la columna equivocada,
 // o directamente no detectado porque el índice desde la derecha caía mal).
-function columnasPorAncho(anchosHeader: (number | null)[], anchosFila: (number | null)[]): number[] {
+// Ancho de una celda tal como lo trae el Word: `pct` (0-5000) o `dxa` (twips). Otras unidades (auto, nil) no sirven para medir.
+function anchoDeCelda(tcXml: string): { anchoGeo: number | null; anchoTipo: string | null } {
+  const tag = tcXml.match(/<w:tcW\b[^>]*>/)?.[0];
+  const w = tag?.match(/\bw:w="(\d+)"/)?.[1];
+  const tipo = tag?.match(/\bw:type="(\w+)"/)?.[1] ?? null;
+  return w && (tipo === 'pct' || tipo === 'dxa') ? { anchoGeo: Number(w), anchoTipo: tipo } : { anchoGeo: null, anchoTipo: null };
+}
+
+// Anchos con que se ubica cada celda de la fila bajo su columna. BUG REAL (4170-63-LE26, Anexo Nº4 económico, 06-nov-2026):
+// el Word medía en `dxa` y solo se leía `pct` → todas las celdas "sin ancho" → reparto parejo; con 4 columnas en el encabezado
+// y 5 celdas por fila (una columna fantasma a la derecha), todo quedó corrido una columna: el unitario del costeo bajo «Monto
+// total» y el monto total en la columna fantasma, fuera de la tabla. Si encabezado y fila usan la MISMA unidad se usan los
+// anchos reales; si no (mezcla o sin ancho) se sigue como antes, con anchoPct.
+// También corre la fila (o el encabezado) que empieza más a la derecha por <w:gridBefore> (antesGeo).
+function anchosParaAlinear(
+  header: { anchoPct: number | null; anchoGeo?: number | null; anchoTipo?: string | null; antesGeo?: number }[], fila: typeof header,
+): [(number | null)[], (number | null)[], number, number] {
+  const tipo = header[0]?.anchoTipo;
+  const misma = !!tipo && [...header, ...fila].every(c => c.anchoTipo === tipo && c.anchoGeo != null);
+  return misma
+    ? [header.map(c => c.anchoGeo!), fila.map(c => c.anchoGeo!), header[0]?.antesGeo ?? 0, fila[0]?.antesGeo ?? 0]
+    : [header.map(c => c.anchoPct), fila.map(c => c.anchoPct), 0, 0];
+}
+
+function columnasPorAncho(anchosHeader: (number | null)[], anchosFila: (number | null)[], inicioHeader = 0, inicioFila = 0): number[] {
   const anchoTotal = anchosHeader.reduce((a: number, w) => a + (w ?? 0), 0) || 5000;
-  let acc = 0;
+  let acc = inicioHeader;
   const inicios = anchosHeader.map(w => {
     const inicio = acc;
     acc += w ?? (anchoTotal / anchosHeader.length);
@@ -705,7 +734,7 @@ function columnasPorAncho(anchosHeader: (number | null)[], anchosFila: (number |
   });
 
   const resultado: number[] = [];
-  let pos = 0;
+  let pos = inicioFila;
   for (const w of anchosFila) {
     const ancho = w ?? (anchoTotal / anchosFila.length);
     let col = 0;
@@ -888,6 +917,7 @@ function extraerCeldasDeFila(filaXml: string, offsetFila: number, offsetsIndices
     const cuerpoCelda = tc[1];
     const anchoMatch = tc[0].match(/<w:tcW\s+w:w="(\d+)"\s+w:type="pct"/);
     const anchoPct = anchoMatch ? Number(anchoMatch[1]) : null;
+    const { anchoGeo, anchoTipo } = anchoDeCelda(tc[0]);
     const parrafosCelda = [...cuerpoCelda.matchAll(/<w:p\b[^>]*w14:paraId="([0-9A-Fa-f]+)"[^>]*>([\s\S]*?)<\/w:p>/g)];
     const textoCelda = parrafosCelda.map(p => textoDeRuns(p[2])).join(' ').trim();
     // tc.index es la posición del <w:tc>...</w:tc> completo; cuerpoCelda (tc[1]) arranca DESPUÉS
@@ -930,9 +960,12 @@ function extraerCeldasDeFila(filaXml: string, offsetFila: number, offsetsIndices
     const ultimoParaId = parrafosCelda.length ? parrafosCelda[parrafosCelda.length - 1][1] : null;
     celdas.push({
       texto: textoCelda, vacio: (textoCelda === '' && paraId != null) || dosPuntos,
-      paraId, indiceGlobal, anchoPct, ultimoParaId, dosPuntos, indicesParrafos,
+      paraId, indiceGlobal, anchoPct, anchoGeo, anchoTipo, ultimoParaId, dosPuntos, indicesParrafos,
     });
   }
+  // Fila que empieza más a la derecha (<w:gridBefore> + <w:wBefore>): el pie «NETO | $ | $» de 5827-4-LE26 arranca bajo CANTIDAD.
+  const antes = anchoDeCelda(filaXml.match(/<w:wBefore\b[^>]*>/)?.[0].replace('wBefore', 'tcW') ?? '');
+  if (celdas[0] && antes.anchoGeo && antes.anchoTipo === celdas[0].anchoTipo) celdas[0].antesGeo = antes.anchoGeo;
   return celdas;
 }
 
@@ -1016,7 +1049,6 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
       if (!restoFilas.length) continue;
       const celdasEncabezado = extraerCeldasDeFila(primeraFila[1], 0, new Map());
       const nombresColumna = celdasEncabezado.map(c => c.texto);
-      const anchosHeader = celdasEncabezado.map(c => c.anchoPct);
 
       // ¿Es una tabla de DATOS (primera fila = nombres de columna, resto = filas de datos) o una
       // tabla de FORMULARIO ([etiqueta][valor][etiqueta][valor], sin encabezado)? Todo lo que sigue
@@ -1096,7 +1128,7 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
         // relleno en cantidad y posición distintas fila a fila — con índices, cualquier fila que no
         // calzara con el patrón asumido perdía su candidato real de PRECIO (o lo etiquetaba con la
         // columna equivocada).
-        const columnaDeCadaCelda = columnasPorAncho(anchosHeader, celdas.map(c => c.anchoPct));
+        const columnaDeCadaCelda = columnasPorAncho(...anchosParaAlinear(celdasEncabezado, celdas));
 
         // Qué texto de la fila la identifica. El criterio "la celda con más texto" funciona en la
         // mayoría de las tablas, pero se equivoca justo donde más duele: BUG REAL
@@ -3061,6 +3093,8 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
 // misma lógica en los dos lugares — nunca dos criterios de "vacío" que puedan divergir.
 export interface CeldaTablaCruda {
   texto: string; indiceGlobal: number | null; anchoPct: number | null; ultimoParaId: string | null;
+  anchoGeo?: number | null; anchoTipo?: string | null; antesGeo?: number; // ver CeldaCruda
+
   // Índice global de cada párrafo de la celda — permite cruzar contra blancosInline para pintar
   // un blanco DENTRO de una celda con texto propio (ver el comentario en CeldaCruda).
   indicesParrafos: number[];
@@ -3083,7 +3117,7 @@ export interface TablaCruda { indicePrimero: number | null; filas: FilaTablaCrud
 function alinearFilaConEncabezado(header: CeldaTablaCruda[], fila: CeldaTablaCruda[]): CeldaTablaCruda[] {
   if (fila.length === header.length) return fila; // caso normal (la inmensa mayoría) — nada que alinear
 
-  const columnaDeCadaCelda = columnasPorAncho(header.map(c => c.anchoPct), fila.map(c => c.anchoPct));
+  const columnaDeCadaCelda = columnasPorAncho(...anchosParaAlinear(header, fila));
   const grupos: CeldaTablaCruda[][] = header.map(() => []);
   fila.forEach((c, i) => grupos[columnaDeCadaCelda[i]].push(c));
 
@@ -3121,7 +3155,7 @@ export function extraerTablasCrudo(xml: string): TablaCruda[] {
     const filasCrudo: FilaTablaCruda[] = filasXml.map(filaM => {
       const offsetFila = offsetTabla + filaM.index! + filaM[0].indexOf(filaM[1]);
       const celdas = extraerCeldasDeFila(filaM[1], offsetFila, offsetsIndices);
-      return { celdas: celdas.map(c => ({ texto: c.texto, indiceGlobal: c.indiceGlobal, anchoPct: c.anchoPct, ultimoParaId: c.ultimoParaId, indicesParrafos: c.indicesParrafos })) };
+      return { celdas: celdas.map(c => ({ texto: c.texto, indiceGlobal: c.indiceGlobal, anchoPct: c.anchoPct, anchoGeo: c.anchoGeo, anchoTipo: c.anchoTipo, antesGeo: c.antesGeo, ultimoParaId: c.ultimoParaId, indicesParrafos: c.indicesParrafos })) };
     });
 
     // Se alinea contra el encabezado REAL (que puede no ser la fila 0 si la tabla abre con un

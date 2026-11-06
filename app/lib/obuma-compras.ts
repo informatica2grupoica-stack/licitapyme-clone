@@ -50,6 +50,8 @@ export interface ResumenSyncObuma {
   vistas: number;
   candidatas: number;
   nuevasOActualizadas: number;
+  /** Licitaciones con al menos una OC traída en esta corrida: sus negocios de Compras se vuelven a sincronizar (Comprado, tarea, margen). */
+  codigos: string[];
 }
 
 /**
@@ -61,7 +63,7 @@ export interface ResumenSyncObuma {
 export async function sincronizarComprasObuma(
   { paginas = 5, soloCodigo }: { paginas?: number; soloCodigo?: string } = {},
 ): Promise<ResumenSyncObuma> {
-  const resumen: ResumenSyncObuma = { paginasBarridas: 0, vistas: 0, candidatas: 0, nuevasOActualizadas: 0 };
+  const resumen: ResumenSyncObuma = { paginasBarridas: 0, vistas: 0, candidatas: 0, nuevasOActualizadas: 0, codigos: [] };
   const nuestras = await licitacionesOfertadas();
   if (nuestras.size === 0) return resumen;
   const codigos = [...nuestras.keys()];
@@ -182,6 +184,14 @@ export async function sincronizarComprasObuma(
 
     const facturas = await resolverFacturas(c);
 
+    // ¿Cambió algo que Compras use? (nueva, estado, neto, líneas o facturas). Solo esas licitaciones se re-sincronizan después.
+    const [prevRows] = await pool.query(`SELECT estado, neto, items_json, facturas_json FROM obuma_compras WHERE compra_oc_id = ? LIMIT 1`, [c.compra_oc_id]) as any;
+    const prev = (prevRows as any[])[0];
+    const cambio = !prev || String(prev.estado ?? '') !== String(c.compra_oc_estado ?? '')
+      || num(prev.neto) !== num(c.compra_oc_neto)
+      || String(prev.items_json ?? '') !== String(items ? JSON.stringify(items) : '')
+      || String(prev.facturas_json ?? '') !== String(facturas.length ? JSON.stringify(facturas) : '');
+
     await pool.query(
       `INSERT INTO obuma_compras
          (compra_oc_id, folio, fecha_ingreso, referencia, licitacion_codigo, empresa_id,
@@ -211,6 +221,7 @@ export async function sincronizarComprasObuma(
       ],
     );
     resumen.nuevasOActualizadas++;
+    if (cambio && licitacionCodigo && !resumen.codigos.includes(licitacionCodigo)) resumen.codigos.push(licitacionCodigo);
   }
 
   return resumen;

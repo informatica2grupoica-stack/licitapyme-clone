@@ -23,7 +23,8 @@ El dueño pidió «bájale las versiones, la más barata estable que sirva». Se
 Queda en código (`app/lib/gemini.ts`): `kimi` = K3 (`KIMI_MODELO`, por defecto `high`; Lector y prefiltro piden `low`) y `kimi_rapido` = K2.6 sin razonar (`KIMI_MODELO_RAPIDO`), que hoy solo usa evaluar empresa por RUT y queda para elegir el campo de una casilla en anexos (ahí sí acertó en la prueba simple). La vieja `KIMI_TEXT_MODEL` ya no se lee. La etiqueta del motor guardada en el Auditor sale de `MODELO_KIMI`. Precio de K3.1 en la telemetría.
 **Regla / decisión:** no bajar el Auditor ni el prefiltro de K3 sin repetir estas pruebas. Kimi SÍ permite apagar el razonamiento: `thinking:{type:'disabled'}` con `temperature` 0.6 obligatoria (razonando, solo 1); otro valor = 400. `response_format` se sigue quitando en Kimi (claves rotas en K3).
 **Verificado:** las tres pruebas de arriba (gastaron ~US$1,50 en `ia_uso`, módulo auditor) y tsc OK. No desplegado.
-**Pendiente:** el ahorro tendría que salir de otra parte: K3 en `medium` para el comparador (sin probar), o mandar menos texto y hacer menos llamadas; 634-96-LE26 L1 no cabe en 240 s.
+- **Comparador con K3 en `medium`** (mismas 4 líneas, sin 634-96): mismo estado por opción en las 4, 97% de celdas iguales a `high`, pero gastó MÁS salida en las 4 (6.502 vs 5.741, 6.226 vs 5.853, 9.004 vs 8.624, 3.964 vs 3.505 tokens; US$0,50 vs 0,47). En K3 bajar el esfuerzo no ahorra: se queda en `high`.
+**Pendiente:** el ahorro tendría que salir de mandar menos texto o hacer menos llamadas (revisar en `ia_uso` cuántas veces se vuelve a comparar la misma línea); 634-96-LE26 L1 no cabe en 240 s.
 **Multiempresa:** la cuenta Kimi sigue siendo una sola (`KIMI_API_KEY`); al vender, la key y el modelo tienen que ir por cliente.
 
 ## 2026-11-04 — Avisos por WhatsApp (ganada, perdida, apertura) desde un número emisor por QR

@@ -11,6 +11,7 @@ import { subirDocumentoR2 } from '@/app/lib/r2';
 import { errorDeArchivoSubido } from '@/app/lib/subidas';
 import { parsearMontoCL } from '@/app/lib/numeros';
 import { generarPdfOc } from '@/app/lib/compras-oc-pdf';
+import { sincronizarTrasCambioDeOc } from '@/app/lib/compras-oc-obuma';
 import {
   emisorOcPropia, listarOcPropias, productosParaOcPropia, crearOcPropia, documentoOcPropia,
   registrarFacturaOcPropia, revisarFacturaXmlOcPropia, quitarFacturaOcPropia, anularOcPropia, type DatosOcPropia,
@@ -96,10 +97,12 @@ async function __POST(request: NextRequest, { params }: Params) {
     const body = await request.json();
     if (body.accion === 'crear') {
       const oc = await crearOcPropia(a.id, body as DatosOcPropia, a.userId, a.nombre);
+      await sincronizarTrasCambioDeOc(a.id);   // Comprado, tarea de OC, folios del reparto y margen al día
       return NextResponse.json({ success: true, oc, ocs: await listarOcPropias(a.id) });
     }
     if (body.accion === 'anular') {
       await anularOcPropia(a.id, Number(body.ocId), String(body.motivo || ''), a.userId, a.nombre);
+      await sincronizarTrasCambioDeOc(a.id);   // si quedó sin OC vigente, el producto vuelve a Pendiente
       return NextResponse.json({ success: true, ocs: await listarOcPropias(a.id) });
     }
     if (body.accion === 'quitar-factura') {

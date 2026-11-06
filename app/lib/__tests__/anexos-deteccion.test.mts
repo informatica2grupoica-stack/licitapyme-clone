@@ -2817,3 +2817,53 @@ test('listarBlancosInline: «DD/MM/AA» escrito tal cual es una casilla de fecha
   // texto normal con barras no es un formato de fecha
   assert.equal(listarBlancosInline('Resolución 12/05/2026 del servicio').length, 0);
 });
+
+// ── Columnas por ancho en `dxa` y filas con <w:gridBefore> (4170-63-LE26 / 5827-4-LE26, 06-nov-2026) ─────────────
+// Solo se leían anchos en `pct`: con anchos en `dxa` todo caía al reparto parejo, y con 4 columnas en el encabezado y 5
+// celdas por fila (una columna fantasma a la derecha) el unitario del costeo quedaba bajo «Monto total» y el total afuera.
+const celdaDxa = (w: number, texto: string, span = 1) =>
+  `<w:tc><w:tcPr><w:tcW w:w="${w}" w:type="dxa"/>${span > 1 ? `<w:gridSpan w:val="${span}"/>` : ''}</w:tcPr>${p(texto)}</w:tc>`;
+const filaDxa = (celdas: string[], antes?: { columnas: number; ancho: number }) =>
+  `<w:tr>${antes ? `<w:trPr><w:gridBefore w:val="${antes.columnas}"/><w:wBefore w:w="${antes.ancho}" w:type="dxa"/></w:trPr>` : ''}${celdas.join('')}</w:tr>`;
+
+test('tabla con anchos en dxa y columna fantasma: unitario y total quedan en su columna, el pie suma cantidad × unitario', () => {
+  const xml = NS + tabla(
+    filaDxa([celdaDxa(1276, 'Cantidad'), celdaDxa(4678, 'Descripción de los productos'), celdaDxa(1842, 'Valor Unitario Neto $'), celdaDxa(1702, 'Monto total Neto $')]),
+    filaDxa([celdaDxa(1276, '180'), celdaDxa(4678, 'tubo hormigón 1000 mm x 1m'), celdaDxa(1842, ''), celdaDxa(1702, ''), celdaDxa(10208, '')]),
+    filaDxa([celdaDxa(1276, '150'), celdaDxa(4678, 'tubo hormigón 600 mm x 1m'), celdaDxa(1842, ''), celdaDxa(1702, ''), celdaDxa(10208, '')]),
+    filaDxa([celdaDxa(7796, 'IVA', 3), celdaDxa(1702, '$'), celdaDxa(10264, '', 2)]),
+    filaDxa([celdaDxa(7796, 'Monto Total IVA Incluido', 3), celdaDxa(1702, '$'), celdaDxa(10264, '', 2)]),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const [t] = extraerTablasCrudo(norm);
+  assert.deepEqual(t.filas[1].celdas.slice(0, 2).map(c => c.texto), ['180', 'tubo hormigón 1000 mm x 1m'], 'cantidad y descripción, cada una en su columna');
+  const unit = t.filas.slice(1, 3).map(f => f.celdas[2].indiceGlobal);
+  assert.ok(unit.every(i => i != null), 'la celda vacía bajo «Valor Unitario» es casilla');
+
+  const etiquetas = detectarCandidatosTabla(norm).map(c => c.etiqueta);
+  assert.ok(etiquetas.includes('tubo hormigón 1000 mm x 1m — Valor Unitario Neto $'), JSON.stringify(etiquetas));
+
+  const precios = new Map([[unit[0]!, 86400], [unit[1]!, 39600]]);
+  const porLinea = calcularTotalesPorLinea([t], i => precios.get(i) ?? null).map(r => r.valor);
+  assert.deepEqual(porLinea, ['15.552.000', '5.940.000']);
+  const pie = new Map(calcularTotalesAlPie([t], i => precios.get(i) ?? null).map(r => [r.etiqueta.trim(), r.valor]));
+  // 15.552.000 + 5.940.000 = 21.492.000 neto → IVA 4.083.480 → total 25.575.480 (antes: 19% de la suma de los unitarios).
+  assert.equal(pie.get('IVA $'), '4.083.480', JSON.stringify([...pie]));
+  assert.equal(pie.get('Monto Total IVA Incluido $'), '25.575.480');
+});
+
+test('fila de pie que empieza más a la derecha (gridBefore): NETO bajo CANTIDAD y los montos bajo sus columnas', () => {
+  const anchos = [868, 2485, 1365, 1231, 1365, 1271, 938];
+  const nombres = ['N.° LÍNEA', 'REPUESTOS', 'GARANTÍA POST VENTA', 'PLAZO DE ENTREGA', 'CANTIDAD', 'VALOR UNITARIO', 'VALOR TOTAL'];
+  const xml = NS + tabla(
+    filaDxa(nombres.map((n, i) => celdaDxa(anchos[i], n))),
+    filaDxa(['1', 'CAMILLA CLÍNICA', '', '', '2', '', ''].map((n, i) => celdaDxa(anchos[i], n))),
+    filaDxa([celdaDxa(1365, 'NETO'), celdaDxa(1271, ''), celdaDxa(938, '')], { columnas: 4, ancho: 5949 }),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const [t] = extraerTablasCrudo(norm);
+  const pie = t.filas[2].celdas;
+  assert.equal(pie[4].texto, 'NETO', JSON.stringify(pie.map(c => c.texto)));
+  assert.ok(pie[5].indiceGlobal != null && pie[6].indiceGlobal != null, 'casillas bajo VALOR UNITARIO y VALOR TOTAL');
+  assert.ok(pie.slice(0, 4).every(c => c.indiceGlobal == null && c.texto === ''), 'nada bajo las 4 primeras columnas');
+});

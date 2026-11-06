@@ -4,6 +4,15 @@ Reglas vigentes del motor: ver también `.claude/skills/motor-anexos/SKILL.md` y
 `docs/anexos-motor-reglas.md`. Las entradas con fecha van arriba; al final, lo traspasado desde la
 memoria personal el 2026-10-27.
 
+## 2026-11-06 — Económico con columnas corridas y presupuesto de las bases como oferta (4170-63-LE26 Anexo Nº4)
+Caso real: «ANEXO Nº4 OFERTA ECONÓMICA», tubos de hormigón (Galvarino), negocio 1633, costeo con unitarios netos 86.400 / 39.600 / 27.000. El PDF que mandó el dueño traía: el unitario bajo «Monto total», en la columna del total el **presupuesto máximo del municipio** por ítem ($19.063.800, «$ 7-514-850» tal cual del OCR, $3.927.000) y el pie IVA $29.070 / total $182.070 (19 % de la SUMA DE LOS UNITARIOS).
+**Causas y arreglos (generales):**
+- Las columnas se ubican por ancho de celda, pero solo se leía `w:type="pct"`; este Word mide en `dxa` → reparto parejo → con 4 columnas en el encabezado y 5 celdas por fila (columna fantasma a la derecha) todo corrido uno. Ahora `anchosParaAlinear` usa `pct` o `dxa` (misma unidad en encabezado y fila; si no, como antes) y corre las filas con `<w:gridBefore>`/`<w:wBefore>` (pie «NETO | $ | $» de 5827-4-LE26, que antes quedaba bajo GARANTÍA/CANTIDAD). anexos-detectar.ts.
+- Sin cantidad bien ubicada no había total por línea, y la casilla quedaba «dato de la licitación» → la IA de BASES le ponía el presupuesto. **Regla nueva:** ninguna casilla de monto (monto, precio, valor unitario/total, neto, IVA, «$») pasa por la IA de bases (`RE_MONTO_DE_LA_OFERTA`, anexos-rellenar.ts). La de órdenes de compra sí (Monto de la experiencia).
+**Resultado:** 86.400 / 39.600 / 27.000, totales 15.552.000 / 5.940.000 / 2.700.000, IVA $4.596.480, total $28.788.480; exportado con Word cada número bajo su columna, 1 hoja.
+**Verificado:** reproducido con el .docx real + costeo de la BD; banco de alineación sobre los últimos 400 Word reales: 34 cambian la foto interna, 21 cambian en pantalla y todos con las mismas casillas/automáticos salvo 4170 y 1057448 (abajo); 2 tests nuevos en anexos-deteccion (fallan con la alineación vieja); suite 1766/1766, tsc. No visto en el navegador; no desplegado.
+**Pendiente:** 1057448-25-LR26 «Anexo 7-A Personal Técnico Certificado»: el motor escribe razón social, RUT y teléfono de la EMPRESA en el listado de técnicos (antes y después; ahora al menos en su columna) — es un dato de terceros, no debería autocompletarse. «Plazo de entrega» del Anexo Nº4 queda pendiente (correcto: lo compromete el oferente).
+
 ## 2026-11-05 (auditoría QA) — Barrido de 400 documentos reales: 3 bugs generales arreglados
 Pedido del dueño: auditar si el motor es eficiente y si aprende. `auditor-anexos-generacion.mts` sobre 400 docs (598 anexos), sin IA opcional: 7 rotos, 282 con casillas pendientes, 30 % de las casillas «de ficha» sin llenar, 0 ciegos.
 **Arreglado (con test):**

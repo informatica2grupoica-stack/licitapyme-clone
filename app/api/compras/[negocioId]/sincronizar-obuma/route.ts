@@ -6,6 +6,7 @@ import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { sincronizarComprasObuma } from '@/app/lib/obuma-compras';
+import { sincronizarTrasCambioDeOc } from '@/app/lib/compras-oc-obuma';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 
 export const runtime = 'nodejs';
@@ -24,6 +25,8 @@ async function __POST(request: NextRequest, { params }: Params) {
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
     if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
     const resumen = await sincronizarComprasObuma({ paginas: 5, soloCodigo: asignacion.licitacionCodigo });
+    // Siempre, aunque no haya cambiado nada en Obuma: deja este negocio al día (Comprado, tarea de OC, folios del reparto, margen).
+    await sincronizarTrasCambioDeOc(id);
     return NextResponse.json({ success: true, resumen });
   } catch (error: any) {
     console.error('[compras/sincronizar-obuma][POST]', String(error));

@@ -186,7 +186,37 @@ export async function proponerAprobacionCompra(
     { id: actorId, nombre: actorNombre }, null, `/compras/${negocioId}?fase=aprobacion`);
 }
 
-export interface MargenCalculado { ventaNeta: number | null; costoNeto: number | null; margenPct: number | null; fuenteCosto: 'costo_aterrizado' | 'escenario_elegido' | 'costeo_estimado' | null }
+export interface MargenCalculado {
+  ventaNeta: number | null; costoNeto: number | null; margenPct: number | null; fuenteCosto: 'costo_aterrizado' | 'escenario_elegido' | 'costeo_estimado' | null;
+  /** Productos vigentes que el escenario no trae (sin cotización): se suman con su OC propia o, si no hay, con lo costeado. */
+  fueraDelEscenario?: { productoId: number; descripcion: string; costo: number | null; fuente: 'oc_propia' | 'costeo' | null }[];
+}
+
+/** Costo de los productos vigentes que el escenario elegido no trae. 979: la vacuolavadora no tenía cotización, el escenario costaba
+ *  $10,3M sin ella y el margen se aprobó en 74,6 %; con su OC propia ($10,5M) el margen real es ~48,7 %. */
+async function costoFueraDelEscenario(negocioId: number, escenario: any): Promise<NonNullable<MargenCalculado['fueraDelEscenario']>> {
+  let detalle: any = null;
+  try { detalle = typeof escenario.detalle_json === 'string' ? JSON.parse(escenario.detalle_json) : escenario.detalle_json; } catch { /* sin detalle */ }
+  const enEscenario = new Set<number>(((detalle?.porProducto ?? []) as any[]).map(p => Number(p.productoId)));
+  if (enEscenario.size === 0) return [];   // escenario viejo sin detalle por producto: no se adivina qué falta
+  const fuera = (await listarProductosCompra(negocioId))
+    .filter(p => !['RENUNCIADO', 'NO_ADJUDICADA'].includes(p.subestado) && !enEscenario.has(p.id));
+  if (fuera.length === 0) return [];
+  const [[propRows], costeado] = await Promise.all([
+    pool.query(`SELECT items_json FROM compras_oc_propia WHERE negocio_id = ? AND estado <> 'ANULADA'`, [negocioId]).catch(() => [[]]) as any,
+    import('@/app/lib/compras-auditoria-cotizacion').then(m => m.costeadoPorProducto(negocioId)).catch(() => ({} as Record<number, number | null>)),
+  ]);
+  const enPropia = new Map<number, number>();
+  for (const r of propRows as any[]) {
+    try { for (const it of JSON.parse(r.items_json || '[]')) if (it?.productoId != null) enPropia.set(Number(it.productoId), (enPropia.get(Number(it.productoId)) ?? 0) + Number(it.cantidad) * Number(it.precio)); } catch { /* ítems ilegibles */ }
+  }
+  return fuera.map(p => {
+    if (enPropia.has(p.id)) return { productoId: p.id, descripcion: p.descripcion, costo: Math.round(enPropia.get(p.id)!), fuente: 'oc_propia' as const };
+    const unit = costeado[p.id];
+    if (unit != null && p.cantidad != null) return { productoId: p.id, descripcion: p.descripcion, costo: Math.round(unit * p.cantidad), fuente: 'costeo' as const };
+    return { productoId: p.id, descripcion: p.descripcion, costo: null, fuente: null };
+  });
+}
 
 /** §10.3 — margen sobre precio de venta NETO vs costo NETO. Orden de preferencia de la fuente de
  *  costo: (1) costo ATERRIZADO si el proyecto es de importación y ya tiene los datos del embarque
@@ -207,13 +237,18 @@ export async function calcularMargenPrevisto(negocioId: number): Promise<MargenC
   }
 
   const escenario = await obtenerEscenarioElegido(negocioId);
-  if (fuenteCosto == null && escenario) { costoNeto = Number(escenario.costo_total); fuenteCosto = 'escenario_elegido'; }
+  let fueraDelEscenario: MargenCalculado['fueraDelEscenario'];
+  if (fuenteCosto == null && escenario) {
+    costoNeto = Number(escenario.costo_total); fuenteCosto = 'escenario_elegido';
+    fueraDelEscenario = await costoFueraDelEscenario(negocioId, escenario).catch(() => []);
+    costoNeto += fueraDelEscenario.reduce((s, f) => s + (f.costo ?? 0), 0);
+  }
   else if (fuenteCosto == null && asignacion?.resumen?.existeCosteo && asignacion.resumen.montoCosteado != null) {
     costoNeto = asignacion.resumen.montoCosteado; fuenteCosto = 'costeo_estimado';
   }
   const margenPct = (ventaNeta && costoNeto != null && ventaNeta > 0)
     ? Math.round(((ventaNeta - costoNeto) / ventaNeta) * 1000) / 10 : null;
-  return { ventaNeta, costoNeto, margenPct, fuenteCosto };
+  return { ventaNeta, costoNeto, margenPct, fuenteCosto, ...(fueraDelEscenario?.length ? { fueraDelEscenario } : {}) };
 }
 
 export const MARGEN_MINIMO_PCT = 20; // §10.3
@@ -245,6 +280,43 @@ export async function proponerAprobacionMargen(
     `${actorNombre || 'El encargado'} mandó a aprobar el margen (${margen.margenPct ?? '—'}%${motivoSiBajo ? `, bajo el mínimo: ${motivoSiBajo}` : ''}).`,
     { id: actorId, nombre: actorNombre }, null, `/compras/${negocioId}?fase=aprobacion`);
   return margen;
+}
+
+/** Cuántos puntos tiene que BAJAR el margen respecto del aprobado para volver a pedir aprobación. Subir no reabre (es buena noticia) y
+ *  menos de esto es ruido (redondeos, una OC que cambia unos pesos respecto de la cotización). */
+export const BAJA_MARGEN_REABRE_PTS = 2;
+
+/** El margen se aprueba con un costo y después la compra cambia (una OC propia, una OC anulada y rehecha, una cantidad). Antes el margen
+ *  aprobado quedaba congelado: 979 se aprobó en 74,6 % sin la vacuolavadora y el real era 48,7 %. Esto se llama después de cada cambio
+ *  de OC: si el margen recalculado cae {@link BAJA_MARGEN_REABRE_PTS} puntos o más bajo el aprobado, la compuerta 2 vuelve a PENDIENTE
+ *  con el dato nuevo (el jefe de ventas puede aprobarla directo) y se le avisa. Pendiente o rechazada, no se toca. Devuelve si reabrió. */
+export async function revisarMargenAprobado(negocioId: number): Promise<boolean> {
+  const actual = await leerAprobacion(negocioId, 'MARGEN');
+  if (!actual || !String(actual.estado).startsWith('APROBADA')) return false;
+  const aprobado = actual.detalle?.margenPct;
+  if (aprobado == null) return false;
+  const margen = await calcularMargenPrevisto(negocioId);
+  if (margen.margenPct == null || margen.margenPct > Number(aprobado) - BAJA_MARGEN_REABRE_PTS) return false;
+  const ahora = ahoraChileSQL();
+  const motivo = `El costo de la compra cambió después de aprobar: el margen bajó de ${aprobado}% a ${margen.margenPct}%.`;
+  const [r] = await pool.query(
+    `UPDATE compras_aprobacion
+        SET estado = 'PENDIENTE', detalle_json = ?, motivo = ?, propuesto_por = NULL, propuesto_por_nombre = 'Sistema', propuesto_at = ?,
+            resuelto_por = NULL, resuelto_por_nombre = NULL, resuelto_at = NULL, comentario_resolucion = NULL, updated_at = ?
+      WHERE negocio_id = ? AND tipo = 'MARGEN' AND estado LIKE 'APROBADA%'`,
+    [JSON.stringify(margen), motivo, ahora, ahora, negocioId],
+  ) as any;
+  if (!r?.affectedRows) return false;
+  await sincronizarTareaAprobacion(negocioId);
+  await registrarEvento({
+    tipo: 'COMPRAS_APROBACION_MARGEN_PROPUESTA', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId: null, actorNombre: 'Sistema',
+    mensaje: `Compuerta 2 (margen) vuelve a aprobación: ${motivo}`,
+    metadata: { negocio_id: negocioId, margen_pct: margen.margenPct, margen_aprobado_pct: aprobado, automatico: true },
+  });
+  await notificarJefesVentas(negocioId, 'COMPRAS_MARGEN_POR_APROBAR',
+    `${motivo}${margen.margenPct < MARGEN_MINIMO_PCT ? ` Queda bajo el mínimo de ${MARGEN_MINIMO_PCT}%.` : ''} Revísalo y vuelve a aprobarlo.`,
+    { id: 0, nombre: 'Sistema' }, null, `/compras/${negocioId}?fase=aprobacion`);
+  return true;
 }
 
 const ESTADO_POR_DECISION: Record<DecisionAprobacion, EstadoAprobacion> = {
@@ -437,7 +509,12 @@ export interface DatosSku {
   // precio de venta neto (viene del costeo/acta y se puede corregir a mano) y las cuatro opciones del producto.
   precioVentaNeto?: number | null;
   paraVenta?: boolean; paraCompra?: boolean; inventariable?: boolean; venderEnWeb?: boolean;
+  // El usuario confirmó que dos productos del negocio SÍ son el mismo artículo (mismo producto de Obuma o mismo SKU).
+  permitirRepetido?: boolean;
 }
+
+/** Error con código para que la pantalla pida confirmación y reintente con `permitirRepetido`. */
+export class SkuRepetidoError extends Error { readonly codigo = 'SKU_REPETIDO'; }
 
 export interface CostoEscenarioProducto { costoUnitario: number; escenarioTipo: string; proveedorNombre: string | null }
 
@@ -643,6 +720,22 @@ export async function crearSku(negocioId: number, productoId: number, datos: Dat
   }
   const skuPropioFinal = (datos.crearEnObuma && obumaCodigoComercial ? obumaCodigoComercial : datos.skuPropio?.trim()) || '';
   if (!skuPropioFinal) throw new Error('Falta el SKU propio.');
+
+  // Mismo producto de Obuma (o mismo SKU) que OTRO producto de este negocio: casi siempre es un error de «usar uno existente».
+  // 979: los Filtros quedaron con el producto del Limpiador y la OC 4038 salió con dos líneas del mismo código (hubo que anularla).
+  // Puede ser legítimo (el mismo artículo en dos líneas de la licitación), por eso se pide confirmar en vez de bloquear.
+  if (!datos.crearEnObuma && !datos.permitirRepetido) {
+    const [rep] = await pool.query(
+      `SELECT s.producto_id, s.sku_propio, p.descripcion FROM compras_sku s LEFT JOIN compras_producto p ON p.id = s.producto_id
+        WHERE s.negocio_id = ? AND s.producto_id <> ? AND (s.sku_propio = ? OR (? IS NOT NULL AND s.obuma_producto_id = ?)) LIMIT 1`,
+      [negocioId, productoId, skuPropioFinal, obumaProductoId, obumaProductoId],
+    ) as any;
+    const otro = (rep as any[])[0];
+    if (otro) {
+      const nombreOtro = String(otro.descripcion || `producto #${otro.producto_id}`).split(' - ')[0].slice(0, 80);
+      throw new SkuRepetidoError(`Ese producto de Obuma (SKU ${otro.sku_propio}) ya es el de «${nombreOtro}» en esta licitación. Si los dos son de verdad el mismo artículo, confirma; si no, crea uno nuevo en Obuma para este producto.`);
+    }
+  }
 
   const ahora = ahoraChileSQL();
   const [r] = await pool.query(

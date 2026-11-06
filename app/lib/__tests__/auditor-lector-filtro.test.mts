@@ -29,7 +29,9 @@ test('el Lector lee con Kimi, cae a GLM si Kimi falla y guarda el motor que leyÃ
 // Caso real 26-oct-2026: con response_format json_object Kimi K3 devolvÃ­a claves rotas ({": ":{...}}) en 3 de cada 4 lecturas.
 test('a Kimi nunca se le manda response_format (guardia sobre gemini.ts)', () => {
   const fuente = readFileSync(fileURLToPath(new URL('../gemini.ts', import.meta.url)), 'utf8');
-  const bloque = fuente.slice(fuente.indexOf('if (cfg.reasoningEffort) {'), fuente.indexOf('if (cfg.reasoningEffort) {') + 900);
+  // Bloque de los proveedores Kimi (kimi y kimi_rapido) en cuerpoPara.
+  assert.ok(fuente.includes('if (cfg.kimi) {'), 'cuerpoPara tiene que tratar aparte a los proveedores Kimi');
+  const bloque = fuente.slice(fuente.indexOf('if (cfg.kimi) {'), fuente.indexOf('if (cfg.kimi) {') + 900);
   assert.match(bloque, /delete body\.response_format/);
   assert.match(fuente, /const \{ _esfuerzoKimi, \.\.\.resto \} = params/, '_esfuerzoKimi nunca le llega a otro proveedor');
 });
