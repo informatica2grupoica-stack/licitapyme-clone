@@ -911,6 +911,25 @@ function DetalleContent() {
               )}
             </header>
 
+            {/* Barra de gestión (2026-11-09): antes era la columna derecha; ahora va arriba y queda
+                fija al bajar. Estado, responsable, cierre, historial (panel lateral) y más acciones. */}
+            <div className="sticky top-0 z-20 -mx-1 px-1 pt-1 pb-3 mb-3 bg-slate-50/95 dark:bg-slate-950/95">
+              <GestionAside
+                variante="barra"
+                negocio={negocio}
+                onNegocioChange={patch => setNegocio(prev => prev ? { ...prev, ...patch } : prev)}
+                viabIA={viabIA}
+                isAdmin={isAdmin}
+                fechaPublicacion={licitacion?.FechaPublicacion}
+                documentosCount={documentos.length}
+                mpUrl={mpUrl}
+                onDocumentosRefrescar={() => fetchDocumentos(negocio.licitacion_codigo)}
+                onEliminado={() => router.push('/negocios')}
+                onIrAViabilidad={() => setSeccion('viabilidad')}
+                onIrADocumentos={() => setSeccion('documentos')}
+              />
+            </div>
+
             {/* Pestañas en celular (en escritorio está el menú lateral) */}
             {(hayCosteo || verCosteoDescartado) && (
               <button onClick={() => flot.abrir(negocio.id, negocio.licitacion_codigo)}
@@ -1127,20 +1146,6 @@ function DetalleContent() {
             )}
           </div>
         </div>
-
-        {/* ── RIGHT SIDEBAR — componente compartido con /licitacion/[codigo] ──── */}
-        <GestionAside
-          negocio={negocio}
-          onNegocioChange={patch => setNegocio(prev => prev ? { ...prev, ...patch } : prev)}
-          viabIA={viabIA}
-          isAdmin={isAdmin}
-          fechaPublicacion={licitacion?.FechaPublicacion}
-          documentosCount={documentos.length}
-          mpUrl={mpUrl}
-          onDocumentosRefrescar={() => fetchDocumentos(negocio.licitacion_codigo)}
-          onEliminado={() => router.push('/negocios')}
-          onIrAViabilidad={() => setSeccion('viabilidad')}
-        />
 
       </div>
     </AppLayout>

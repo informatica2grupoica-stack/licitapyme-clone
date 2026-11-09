@@ -70,7 +70,7 @@ export interface FilaTecnica {
   cerrada: boolean; motivoPendiente: 'RIESGO' | 'POR_AFINAR' | null; ayuda: AyudaFila | null; ayudaIncompleta: boolean;
   valorCorto: string; sobrecumple: boolean; rojo: boolean; rutaCierre: string; cambio: string; rectificacion: string; reverificado: boolean;
   /** Solo comparador v3.0 (auditor-comparador-v3-core.ts): ❓ que el asistente cerró con un clic; número sin unidad marcado para revisión; cita que el modelo dio pero no figura en el documento; estado de la celda tal como se ve. */
-  confirmada?: { por: string; at: string } | null; revisar?: boolean; citaNoVerificada?: boolean; estadoCelda?: 'CUMPLE' | 'SOBRECUMPLE' | 'NO_CUMPLE' | 'FALTA_DATO';
+  confirmada?: { por: string; at: string; motivo?: string; valor?: string } | null; revisar?: boolean; citaNoVerificada?: boolean; estadoCelda?: 'CUMPLE' | 'SOBRECUMPLE' | 'NO_CUMPLE' | 'FALTA_DATO';
 }
 export interface BloqueoTec { codigo: string; item: number | null; mensaje: string; salida: string }
 export interface EventoTec { tipo: 'producto_cambiado' | 'complemento_requerido' | 'compromiso_con_costo' | 'ruta_insalvable' | 'sobredimensionamiento'; itemRef: string; detalle: string; /** complemento_requerido: ¿ya está cotizado o respaldado? */ costeado?: boolean }

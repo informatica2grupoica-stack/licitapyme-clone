@@ -4,6 +4,16 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
 
 ## Decisiones vigentes del dueño
 
+- **Barra de gestión del negocio en vez de columna derecha** (2026-11-09, pedido del dueño): en `/negocios/[id]`
+  la columna de Estado/Responsable/Historial pasó a una franja fija (`sticky`) bajo el título, con
+  `GestionAside variante="barra"`: Estado (se abre hacia abajo), En proceso, Descartar, Responsable
+  (clic = Reasignar, admin), Cierre, semáforo «N días sin cambios» (punto, sin animación), Fechas
+  (Asignación/Publicación/Cierre), N archivos (lleva a Documentos), Historial y menú ⋯. **Historial** = panel
+  que se desliza desde la derecha (Esc / clic fuera cierran). **«Productos a costeo» escondido** con
+  `MOSTRAR_PRODUCTOS_COSTEO = false` en `GestionAside.tsx` (código y API intactos). `/licitacion/[codigo]`
+  sigue con la columna (`variante="columna"`, por defecto). Las «Líneas de negocio» ya no salen en la barra
+  (siguen en el Resumen). Timeline del historial sin pastillas. `tsc` limpio; NO visto en navegador (login).
+
 - **licitank-ui aplicada a Compras → «Seguimiento · Comparativo»** (2026-11-05, pedido del dueño):
   `ResumenComparativoCard.tsx` y el modal `CompararOcModal.tsx`, solo lo visual. Detalle en `compras.md`.
   Visto en localhost con 1154, en modo claro y oscuro; falta que el dueño lo apruebe.

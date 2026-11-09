@@ -14,7 +14,7 @@ import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, detectarBlan
 import { valorExisteEnFicha, campoCalzaConLaEtiqueta, type EmpresaCampos } from '../anexos-ia-motor';
 import { resolverDeterminista } from '../anexos-determinista';
 import { tipoDeMontoDeOferta } from '../anexos-monto-oferta';
-import { resolverTablaPorOrden } from '../anexos-tabla-por-orden';
+import { resolverTablaPorOrden, resolverDescripcionDeItems } from '../anexos-tabla-por-orden';
 import { esCandidatoDePrecioUnitario, esPrecioUnitarioConIva } from '../anexos-precios-columnas';
 import { calcularTotalesAlPie, pareceFilaDePie, calcularTotalesPorSeccion, resolverTablaResumen, calcularTotalesPorLinea, celdasDeRellenoDelPie } from '../anexos-totales-seccion';
 
@@ -2986,4 +2986,24 @@ test('tabla por orden: no se toca si faltan/sobran filas, si ya hay texto o si a
   assert.equal(resolverTablaPorOrden(extraerTablasCrudo(ok), [itemsPorOrden[0], { ...itemsPorOrden[1], cantidad: null }]).length, 0, 'línea sin cantidad');
   const salteada = normalizarParaIds(tablaPorOrden(['1', '', '', ''], ['3', '', '', ''])).xml;
   assert.equal(resolverTablaPorOrden(extraerTablasCrudo(salteada), itemsPorOrden).length, 0, 'numeración 1,3');
+});
+
+// 4022-19-LE26, Anexo 4: «Descripción | Precio Total» con UNA fila; la Descripción quedaba en blanco.
+// Ahí van los nombres de los ítems del costeo (el encabezado también puede decir Ítem o Producto).
+test('económico de una fila: la Descripción lleva los nombres de los ítems del costeo', () => {
+  for (const col of ['Descripción', 'Ítem', 'Producto', 'Detalle']) {
+    const { xml } = normalizarParaIds(NS + tabla(fila(col, 'Precio Total'), fila('', 'Valor neto')) + FIN);
+    const r = resolverDescripcionDeItems(extraerTablasCrudo(xml), itemsPorOrden);
+    assert.equal(r.length, 1, col);
+    assert.equal(r[0].valor, 'Multímetro digital; Pinza amperimétrica');
+  }
+});
+
+test('Descripción de una fila: no se toca con varias filas, con columna de precio unitario o si ya hay texto', () => {
+  const dos = normalizarParaIds(NS + tabla(fila('Descripción', 'Precio Total'), fila('', 'a'), fila('', 'b')) + FIN).xml;
+  assert.equal(resolverDescripcionDeItems(extraerTablasCrudo(dos), itemsPorOrden).length, 0);
+  const unit = normalizarParaIds(NS + tabla(fila('Descripción', 'Precio Unitario', 'Precio Total'), fila('', '', '')) + FIN).xml;
+  assert.equal(resolverDescripcionDeItems(extraerTablasCrudo(unit), itemsPorOrden).length, 0);
+  const lleno = normalizarParaIds(NS + tabla(fila('Descripción', 'Precio Total'), fila('Lo escribió una persona', 'x')) + FIN).xml;
+  assert.equal(resolverDescripcionDeItems(extraerTablasCrudo(lleno), itemsPorOrden).length, 0);
 });

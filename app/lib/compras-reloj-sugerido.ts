@@ -24,7 +24,8 @@ export interface RelojSugerido {
 export function interpretarPlazoOfertado(texto: string | null | undefined): { dias: number; tipo: PlazoTipoSug; inferido: boolean } | null {
   const t = String(texto ?? '').replace(/\s+/g, ' ').trim();
   if (!t) return null;
-  const m = t.match(/(\d{1,3})\s*(?:\(\s*\d+\s*\)\s*)?d[ií]as?/i);
+  // «2 días hábiles», pero también «2 hábiles» / «2 corridos» sin la palabra «días» (así sale en 1145-64-LE26).
+  const m = t.match(/(\d{1,3})\s*(?:\(\s*\d+\s*\)\s*)?(?:d[ií]as?|h[aá]biles?|corridos?)/i);
   if (!m) return null;
   const dias = Number(m[1]);
   if (!Number.isFinite(dias) || dias <= 0) return null;

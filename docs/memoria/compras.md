@@ -3,6 +3,10 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-09 — Plazo para aceptar la OC: «2 hábiles» (sin la palabra «días») se leía como 2 corridos (1145-64-LE26, negocio 1192)
+- OC emitida viernes 06-11; bases dicen «2 hábiles». `interpretarPlazoOfertado` (`compras-reloj-sugerido.ts`) exigía «días», no lo encontraba y caía a CORRIDOS → límite domingo 08-11 y aviso «Venció el plazo» falso. Ahora acepta «N hábiles» / «N corridos» solas: límite = martes 10-11 (fin de semana no corre).
+- Sin desplegar. El aviso ya enviado queda en la campana; no se borró.
+
 ## 2026-11-06 (noche, 3) — «Crear OC» en Obuma (Órdenes y facturas) ahora abre un MODAL, no un panel dentro de la fila (`RepartoAdminCard.tsx` con `Modal` + `Boton`; `CrearProveedorObumaModal` subido a z-210 para quedar sobre él; tsc ok, SIN ver en navegador ni desplegar). Misma lógica y validaciones; los botones Cancelar/Crear van en el pie del modal.
 
 ## 2026-11-06 (noche, 2) — TIPO DE COTIZACIÓN «de UNA unidad» (set/kit): no se divide por la cantidad del lote (3789-30-LE26, Megamed #278; `compras-adicionales-ia.ts`, `compras-auditor.ts`, `ComparadorPrecios.tsx`; 13 pruebas ok, tsc ok, SIN desplegar ni ver en navegador)

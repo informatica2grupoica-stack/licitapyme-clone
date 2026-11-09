@@ -43,7 +43,8 @@ export interface CorridaOpcionV3 {
 }
 /** Fila de auditor_verificacion_tecnica (resultado_json) de una opción con la v3. */
 export interface GuardadaV3 { version: 'v3.0'; requisitos: RequisitoV3[]; opcion: CorridaOpcionV3; motor: string }
-export interface Confirmacion { por: string; at: string; motivo?: string }
+/** `valor` = lo que NOSOTROS ofertamos para ese requisito, escrito por el asistente al dar por cumplido un ❌ o un ❓: va a la ficha técnica y al anexo técnico. */
+export interface Confirmacion { por: string; at: string; motivo?: string; valor?: string }
 /** Resultado de la segunda pasada de rojos para UN requisito (se relee el documento ORIGINAL en la pasada final). */
 export interface SegundaPasadaCelda { estado: 'confirmada' | 'rectificada'; texto: string }
 

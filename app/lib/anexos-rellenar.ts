@@ -39,7 +39,7 @@ import { repasarConIA, repasoActivado } from '@/app/lib/anexos-repaso-ia';
 import { matchearPreciosConIA } from '@/app/lib/anexos-precios-ia';
 import { esCandidatoDePrecioUnitario, esPrecioUnitarioConIva } from '@/app/lib/anexos-precios-columnas';
 import { resolverTablaProductosEnBlanco } from '@/app/lib/anexos-oferta-tecnica-tabla';
-import { resolverTablaPorOrden } from '@/app/lib/anexos-tabla-por-orden';
+import { resolverTablaPorOrden, resolverDescripcionDeItems } from '@/app/lib/anexos-tabla-por-orden';
 import { resolverMontoUnicoOferta, resolverPieApilado, porcentajeIvaDeclarado, totalNetoDeItemsCosteo, montoEnPalabras } from '@/app/lib/anexos-monto-oferta';
 import {
   resolverTablaConAuditor, resolverPreciosConAuditor, resolverCamposSueltosConAuditor, plazoSinUnidadImpresa, resolverFichaTecnicaConAuditor,
@@ -682,7 +682,7 @@ function aplicarTotalesPorSeccion(
   const totalesPie: { etiqueta: string; valor: string; holguraRedondeoIva?: number }[] = [];
   // Tabla con solo el N.º de ítem (2013-22-LE26): la línea N del costeo va en la fila N — ver
   // anexos-tabla-por-orden.ts. Los totales neto y bruto entran al guardarraíl contra el costeo.
-  for (const r of resolverTablaPorOrden(tablasCrudo, itemsCosteo ?? [])) {
+  for (const r of [...resolverTablaPorOrden(tablasCrudo, itemsCosteo ?? []), ...resolverDescripcionDeItems(tablasCrudo, itemsCosteo ?? [])]) {
     if (paraIdsResueltos.has(r.paraId)) continue;
     paraIdsResueltos.add(r.paraId);
     if (r.total) totalesPie.push({ etiqueta: r.etiqueta, valor: r.valor });

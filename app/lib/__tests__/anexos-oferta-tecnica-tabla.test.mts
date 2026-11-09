@@ -84,17 +84,39 @@ const ficha = (producto: string, conOpcion = true): FichaLineaAuditor => ({
   ],
 });
 
-test('la especificación sale de la ficha APROBADA del Auditor: marca, modelo, fabricante, país y lo que cumple', () => {
+test('la especificación lleva SOLO lo que ofertamos (columna derecha), sin el texto de la exigencia ni marca ni modelo', () => {
   const t = tabla(COLS, 3);
   const r = resolverTablaProductosEnBlanco([t], ITEMS_REALES, [ficha('Batería Litio NiMac 12.8v 100ah')]);
   const espec = r.filter(x => x.etiqueta === 'ESPECIFICACIÓN');
   assert.equal(espec.length, 1);
-  assert.equal(espec[0].valor, 'Marca: NiMac. Modelo: LFP-100. Fabricante: NiMac Ltd. País de origen: China. Capacidad mínima 100 Ah: 100 Ah. Tensión 12 V: 12,8 V.');
+  assert.equal(espec[0].valor, '100 Ah. 12,8 V.', 'ni «Capacidad mínima…», ni «Marca», ni «Modelo»');
   assert.equal(espec[0].indiceGlobal, t.filas[1].celdas[1].indiceGlobal, 'en la fila de su producto');
+});
+
+test('si el dato ofertado nombra la marca o el modelo, se quitan (nuestra ficha no los nombra)', () => {
+  const f = ficha('x');
+  f.requisitos = [{ texto: 'Tipo', estado: 'CUMPLE', ofertado: 'Batería NiMac LFP-100 de litio, 100 Ah', cita: '' }];
+  assert.equal(textoEspecificacionDeFicha(f), 'Batería de litio, 100 Ah.');
+});
+
+test('un requisito ❌ o ❓ sin cerrar no se escribe; confirmado a mano entra con el valor que escribió el asistente', () => {
+  const f = ficha('x');
+  // El ❓ y el ❌ de la ficha de prueba tienen estado FALTA_DATO/NO_CUMPLE: no salen aunque traigan un dato leído.
+  assert.equal(textoEspecificacionDeFicha(f), '100 Ah. 12,8 V.');
+  // Confirmado a mano: el panel lo entrega como CUMPLE con lo que escribió el asistente.
+  f.requisitos[2] = { texto: 'Peso máximo 12 kg', estado: 'CUMPLE', ofertado: 'Peso 9,5 kg', cita: '' };
+  assert.equal(textoEspecificacionDeFicha(f), '100 Ah. 12,8 V. Peso 9,5 kg.');
 });
 
 test('sin opción aprobada, o sin parecido claro con el producto, la especificación queda en blanco', () => {
   assert.equal(resolverTablaProductosEnBlanco([tabla(COLS, 3)], ITEMS_REALES, [ficha('Batería Litio NiMac 12.8v 100ah', false)]).filter(x => x.etiqueta === 'ESPECIFICACIÓN').length, 0);
   assert.equal(fichaDeProducto('Panel Solar Enertik Policristalino 120W', [ficha('Escalera telescópica fibra de vidrio')]), null);
   assert.equal(textoEspecificacionDeFicha(ficha('x', false)), null);
+});
+
+test('al quitar marca y modelo no queda el rótulo «marca,» suelto', () => {
+  const f = ficha('x');
+  f.opcion!.marca = 'Victron'; f.opcion!.modelo = 'SmartSolar MPPT 100/50';
+  f.requisitos = [{ texto: 'Controlador', estado: 'CUMPLE', ofertado: 'SmartSolar MPPT 100/50, marca Victron, 100V 50A', cita: '' }];
+  assert.equal(textoEspecificacionDeFicha(f), '100V 50A.');
 });

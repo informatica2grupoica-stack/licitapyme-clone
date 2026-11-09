@@ -20,6 +20,8 @@ import type { TablaCruda } from '@/app/lib/anexos-detectar';
 import type { ItemCosteoPrecio } from '@/app/lib/motor-comercial';
 import { esCandidatoDePrecioUnitario } from '@/app/lib/anexos-precios-columnas';
 import type { FichaLineaAuditor } from '@/app/lib/anexos-auditor-fuente';
+import { sinMarcaNiModelo } from '@/app/lib/ficha-tecnica';
+import { normalizarValorParaDocumento } from '@/app/lib/valor-ofertado-normalizar';
 
 export interface RellenoProductoTecnico { paraId: string; indiceGlobal: number; valor: string; etiqueta: string }
 
@@ -66,18 +68,23 @@ export function fichaDeProducto(nombre: string, fichas: FichaLineaAuditor[] | un
   return puntaje[0] && puntaje[0].s >= 0.6 && (!puntaje[1] || puntaje[1].s < puntaje[0].s) ? puntaje[0].f : null;
 }
 
-/** Lo que se escribe en la columna ESPECIFICACIÓN: marca, modelo, fabricante, país y los requisitos que cumple con su valor ofertado. */
+/**
+ * Lo que se escribe en la columna ESPECIFICACIÓN: SOLO lo que nosotros ofertamos (la columna derecha del Auditor), no el
+ * texto del requisito de las bases (regla del dueño, 09-nov-2026). Sin marca ni modelo: nuestra ficha no los nombra para no
+ * amarrarnos a entregar ese equipo (ver sinMarcaNiModelo). Solo requisitos cerrados (CUMPLE o confirmados a mano con su
+ * valor); uno sin valor ofertado no se inventa.
+ */
 export function textoEspecificacionDeFicha(f: FichaLineaAuditor): string | null {
   const o = f.opcion;
   if (!o) return null;
   const partes: string[] = [];
-  if (o.marca) partes.push(`Marca: ${o.marca}`);
-  if (o.modelo) partes.push(`Modelo: ${o.modelo}`);
-  if (o.fabricante) partes.push(`Fabricante: ${o.fabricante}`);
-  if (o.pais) partes.push(`País de origen: ${o.pais}`);
   for (const r of f.requisitos) {
     if (r.estado !== 'CUMPLE' || !r.ofertado?.trim()) continue;
-    partes.push(`${r.texto.replace(/\s+/g, ' ').trim().replace(/[.:;\s]+$/, '')}: ${r.ofertado.replace(/\s+/g, ' ').trim()}`);
+    // Al quitar la marca o el modelo puede quedar su rótulo suelto («SmartSolar, marca Victron, 100V» → «marca, 100V»): se descarta.
+    const v = sinMarcaNiModelo(normalizarValorParaDocumento(r.ofertado), { marca: o.marca, modelo: o.modelo })
+      .split(/\s*,\s+/).filter(seg => !/^(?:marca|modelo|versi[oó]n|fabricante)$/i.test(seg.trim())).join(', ')
+      .replace(/[.\s]+$/, '');
+    if (v && !partes.includes(v)) partes.push(v);
   }
   return partes.length ? partes.join('. ') + '.' : null;
 }

@@ -120,3 +120,37 @@ export function resolverTablaPorOrden(tablas: TablaCruda[], items: ItemCosteoPre
   }
   return out;
 }
+
+// ── La celda «Descripción» de un anexo económico con UNA sola fila ────────────────────────────────
+// 4022-19-LE26, Anexo 4: «Descripción | Precio Total» con una sola fila: a la izquierda va el nombre de
+// lo que se entrega y a la derecha el neto / IVA / total apilados. La celda de la izquierda quedaba en
+// blanco. Regla del dueño (09-nov-2026): ahí van los nombres de los ítems del costeo; según el anexo la
+// columna se llama Descripción, Ítem, Producto o Detalle.
+//
+// Solo con UNA fila de datos (con varias, cada fila ya nombra su producto y las resuelve el motor de
+// precios), sin columna de precio unitario y con una columna de total: es el anexo económico de monto
+// único. La celda tiene que estar vacía; nunca se pisa lo que escribió alguien.
+const RE_COL_NOMBRE = /^(?:descripcion|detalle|item|items|producto|productos|bien|bienes|articulo|articulos|insumo|insumos)$/;
+const RE_COL_TOTAL = /\btotal\b/;
+
+export function resolverDescripcionDeItems(tablas: TablaCruda[], items: ItemCosteoPrecio[]): RellenoPorOrden[] {
+  if (!items.length) return [];
+  for (const t of tablas) {
+    if (t.filas.length !== 2) continue;
+    const header = t.filas[0].celdas.map(c => c.texto);
+    const hn = header.map(norm);
+    // «Precio Total» NO es un precio unitario: solo se descarta si hay una columna «unitario» / «c/u».
+    if (header.length < 2 || hn.some(h => /unitari|\bc\/u\b/.test(h))) continue;
+    const iNombre = hn.findIndex(h => RE_COL_NOMBRE.test(h));
+    if (iNombre < 0 || !hn.some((h, i) => i !== iNombre && RE_COL_TOTAL.test(h))) continue;
+    const fila = t.filas[1].celdas;
+    if (fila.length !== header.length || !llenable(fila[iNombre])) continue;
+    const nombres = items.map(it => nombreDeProductoParaAnexo(it.descripcion)).filter(Boolean);
+    if (!nombres.length) continue;
+    return [{
+      paraId: fila[iNombre].ultimoParaId!, indiceGlobal: fila[iNombre].indiceGlobal!,
+      valor: nombres.join('; '), etiqueta: header[iNombre].trim() || 'Descripción',
+    }];
+  }
+  return [];
+}

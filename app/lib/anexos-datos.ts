@@ -627,6 +627,8 @@ export async function fichasDelAuditorParaAnexo(negocioId: number, codigo: strin
   }
 }
 
+import { datoParaPresentar, datoDeComplemento } from '@/app/lib/auditor-ficha-propia-core';
+
 /** Parte pura de fichasDelAuditorParaAnexo: del panel del Auditor a las fichas por línea. */
 export function fichasDesdePanel(panel: import('@/app/lib/auditor-opciones').PanelAuditorDTO): FichaLineaAuditor[] {
     return panel.lineas.filter(l => !l.noOfertada).map(l => {
@@ -648,7 +650,12 @@ export function fichasDesdePanel(panel: import('@/app/lib/auditor-opciones').Pan
         const estado: 'CUMPLE' | 'NO_CUMPLE' | 'FALTA_DATO' = f.revisar ? 'FALTA_DATO' : e === 'SOBRECUMPLE' || e === 'CUMPLE' ? 'CUMPLE' : e === 'NO_CUMPLE' ? 'NO_CUMPLE' : 'FALTA_DATO';
         // Lo ofertado tal como lo leyó el comparador. Si el equipo confirmó el requisito a mano, lo leído antes
         // puede contradecir la confirmación («solo se menciona 1 portasuero»): la observación la escribe el equipo.
-        return { texto: f.requeridoTexto, estado, ofertado: f.confirmada ? '' : (f.partes?.[0]?.ofertadoValor || f.valorCorto || ''), cita: f.partes?.[0]?.citaOriginal || '' };
+        // Lo que OFERTAMOS (columna derecha del Auditor): si el asistente lo escribió a mano al dar por cumplido un ❌/❓, manda eso;
+        // si no, lo leído de la ficha, sin notas internas ni lecturas contradictorias (misma regla que la ficha propia).
+        const ofertado = f.confirmada
+          ? (f.confirmada.valor?.trim() || '')
+          : (datoParaPresentar(f.partes?.[0]?.ofertadoValor) ?? datoDeComplemento((aprobada.tecnico.respaldosCelda?.[f.n] ?? []).map(r => r.nota)) ?? '');
+        return { texto: f.requeridoTexto, estado, ofertado, cita: f.partes?.[0]?.citaOriginal || '' };
       });
       return {
         lineaNumero, producto, requisitos,

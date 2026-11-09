@@ -1316,9 +1316,9 @@ export async function respaldarCeldaTecnica(negocioId: number, opcionId: number,
   await agregarRespaldoCelda(negocioId, opcionId, n, url, nombre, nota, actor, quitar);
 }
 
-export async function confirmarCeldaTecnica(negocioId: number, opcionId: number, n: number, confirmada: boolean, actor: Actor, motivo = '', esEM = false): Promise<void> {
+export async function confirmarCeldaTecnica(negocioId: number, opcionId: number, n: number, confirmada: boolean, actor: Actor, motivo = '', esEM = false, valor = ''): Promise<void> {
   await opcionDe(negocioId, opcionId);
-  await confirmarCelda(negocioId, opcionId, n, confirmada, actor, motivo, esEM);
+  await confirmarCelda(negocioId, opcionId, n, confirmada, actor, motivo, esEM, valor);
 }
 
 /** Segunda pasada de rojos de UNA opción (botón «Correr segunda pasada» de Pre-postulación). */

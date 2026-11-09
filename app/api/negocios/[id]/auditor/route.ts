@@ -154,7 +154,11 @@ export async function POST(request: NextRequest, { params }: Params) {
         await justificarAhorroDeOpcion(negocio.id, opcionId, String(body.texto || ''), actor); break;
       case 'confirmar_celda':
         // El asistente cierra un ❓ con un clic (comparador técnico v3.0): sin respaldo, queda quién y cuándo.
-        await confirmarCeldaTecnica(negocio.id, opcionId, Number(body.n), body.confirmada !== false, actor, String(body.motivo || ''), perm.esEM); break;
+        // Regla del dueño (09-nov-2026): al dar por cumplido un ❌ o un ❓ el asistente escribe LO QUE OFERTAMOS: es lo que va a la ficha técnica y
+        // al anexo técnico, para que la casilla no quede vacía. La aceptación en lote del EM (`exigirValor: false`) acepta lo ya complementado.
+        if (body.confirmada !== false && body.exigirValor !== false && String(body.valor || '').trim().length < 3)
+          return NextResponse.json({ error: 'Escribe lo que ofertamos para este requisito: se usa en la ficha técnica y en el anexo.' }, { status: 400 });
+        await confirmarCeldaTecnica(negocio.id, opcionId, Number(body.n), body.confirmada !== false, actor, String(body.motivo || ''), perm.esEM, String(body.valor || '')); break;
       case 'respaldar_celda':
         // El asistente adjunta un documento o imagen a un requisito (no lo cierra: lo revisa el EM con el «ojo»).
         await respaldarCeldaTecnica(negocio.id, opcionId, Number(body.n), String(body.url || ''), String(body.nombre || 'respaldo'), String(body.nota || ''), actor, body.quitar === true);

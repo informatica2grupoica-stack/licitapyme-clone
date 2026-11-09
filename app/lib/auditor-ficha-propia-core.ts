@@ -152,7 +152,9 @@ export function especificacionesDeOpcion(o: OpcionDTO): EspecificacionFicha[] {
     tipo: null,
     valorRequeridoTexto: f.requeridoTexto,
     valorRequeridoNumero: null, valorRequeridoNumeroMax: null, unidadRequerida: null,
-    valorOfertadoTexto: datoParaPresentar(f.partes[0]?.ofertadoValor)
+    // Lo que el asistente escribió a mano al dar por cumplido un ❌/❓ (cuadro «Lo que ofertamos») manda sobre lo leído.
+    valorOfertadoTexto: (f.confirmada?.valor?.trim() || null)
+      ?? datoParaPresentar(f.partes[0]?.ofertadoValor)
       ?? datoDeComplemento((o.tecnico.respaldosCelda?.[f.n] ?? []).map(r => r.nota)),
     valorOfertadoNumero: null, unidadOfertada: null,
   }));

@@ -152,14 +152,14 @@ export async function confirmacionesTecnicas(negocioId: number): Promise<Map<num
       const d = JSON.parse(r.detalle || '{}');
       const m = out.get(r.opcion_id) || new Map<number, Confirmacion>();
       if (d.confirmada === false) m.delete(Number(d.n));
-      else m.set(Number(d.n), { por: String(d.por || ''), motivo: d.motivo ? String(d.motivo) : undefined, at: r.creado_at instanceof Date ? r.creado_at.toISOString() : String(r.creado_at) });
+      else m.set(Number(d.n), { por: String(d.por || ''), motivo: d.motivo ? String(d.motivo) : undefined, valor: d.valor ? String(d.valor) : undefined, at: r.creado_at instanceof Date ? r.creado_at.toISOString() : String(r.creado_at) });
       out.set(r.opcion_id, m);
     } catch { /* evento mal formado: se ignora */ }
   }
   return out;
 }
 
-export async function confirmarCelda(negocioId: number, opcionId: number, n: number, confirmada: boolean, actor: { id: number; nombre: string }, motivo = '', esEM = false): Promise<void> {
+export async function confirmarCelda(negocioId: number, opcionId: number, n: number, confirmada: boolean, actor: { id: number; nombre: string }, motivo = '', esEM = false, valor = ''): Promise<void> {
   const [ors] = await pool.query(`SELECT estado FROM auditor_opcion WHERE id = ? AND negocio_id = ?`, [opcionId, negocioId]) as any;
   if (!(ors as any[]).length) throw new Error('La opción no existe en este negocio.');
   if (['en_aprobacion', 'aprobada'].includes((ors as any[])[0].estado)) throw new Error('La opción ya está en aprobación: pide rechazarla antes de cambiarle datos.');
@@ -178,7 +178,7 @@ export async function confirmarCelda(negocioId: number, opcionId: number, n: num
   const razon = motivo.trim().slice(0, 500);
   if (confirmada && cierraSoloEM(estadoReal, criticidad) && razon.length < 8) throw new Error('Escribe el motivo y el respaldo (por ejemplo: «el proveedor confirmó por correo que trae AM; correo adjunto en la opción»).');
   await pool.query(`INSERT INTO auditor_evento (negocio_id, opcion_id, tipo, emisor, detalle, creado_at) VALUES (?, ?, 'confirmacion_tecnica', 'asistente', ?, ?)`,
-    [negocioId, opcionId, JSON.stringify({ n, confirmada, por: actor.nombre, motivo: razon || undefined, antes: celda.estado, em: esEM || undefined }), ahoraChileSQL()]);
+    [negocioId, opcionId, JSON.stringify({ n, confirmada, por: actor.nombre, motivo: razon || undefined, valor: (confirmada && valor.trim()) ? valor.trim().slice(0, 500) : undefined, antes: celda.estado, em: esEM || undefined }), ahoraChileSQL()]);
 }
 
 // ── Respaldos de un requisito (documento o imagen que sube el asistente para complementar una celda) ──

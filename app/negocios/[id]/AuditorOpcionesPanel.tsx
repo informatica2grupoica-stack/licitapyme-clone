@@ -563,7 +563,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
       mensaje: 'Queda como cumplido a tu nombre, con el complemento del asistente como respaldo. Después el asistente puede firmar la opción.',
       confirmarLabel: items.length === 1 ? 'Dar por cumplido' : `Dar por cumplidos (${items.length})`,
     });
-    if (si) await enLoteEM(items.map(it => () => post(negocioId, { accion: 'confirmar_celda', opcionId: it.opcionId, n: it.n, confirmada: true, motivo: 'Aceptado por el EM con el complemento del asistente.' })),
+    if (si) await enLoteEM(items.map(it => () => post(negocioId, { accion: 'confirmar_celda', opcionId: it.opcionId, n: it.n, confirmada: true, exigirValor: false, motivo: 'Aceptado por el EM con el complemento del asistente.' })),
       n => n === 1 ? 'Requisito dado por cumplido' : `${n} requisitos dados por cumplidos`);
   };
 
@@ -2410,18 +2410,20 @@ function RespaldosCelda({ respaldos, editable, subiendo, onSubir, onQuitar, sinS
   );
 }
 
-function CeldaTecnica({ f, editable, puedeEM, onConfirmar, onComplementar, subiendo, respaldos = [], onRespaldar, onQuitarRespaldo, subiendoRespaldo }: { f: any; editable: boolean; puedeEM: boolean; onConfirmar: (confirmada: boolean, motivo?: string) => void; onComplementar?: (archivos: File[]) => void; subiendo?: boolean;
+function CeldaTecnica({ f, editable, puedeEM, onConfirmar, onComplementar, subiendo, respaldos = [], onRespaldar, onQuitarRespaldo, subiendoRespaldo }: { f: any; editable: boolean; puedeEM: boolean; onConfirmar: (confirmada: boolean, motivo?: string, valor?: string) => void; onComplementar?: (archivos: File[]) => void; subiendo?: boolean;
   respaldos?: { url: string; nombre: string; nota?: string; por: string; at: string }[]; onRespaldar?: (archivos: File[]) => void; onQuitarRespaldo?: (r: { url: string; nombre: string }) => void; subiendoRespaldo?: boolean }) {
   const estado: string = f.estadoCelda ?? (f.veredicto === 'NO_CUMPLE' ? 'NO_CUMPLE' : f.veredicto === 'SIN_VEREDICTO' ? 'FALTA_DATO' : f.sobrecumple ? 'SOBRECUMPLE' : 'CUMPLE');
   const dato = f.valorCorto && !f.confirmada ? ` (${f.valorCorto})` : '';
   const aviso = f.revisar ? <span title="Número sin unidad que no calza con lo exigido: revisa el dato." className="ml-1 text-amber-600">⚠</span> : null;
   const [abierto, setAbierto] = useState(false);
   const [motivo, setMotivo] = useState('');
+  const [valor, setValor] = useState('');
   const corregido = f.confirmada && f.valorCorto === 'corregido a mano';
   // Decisión CA (1-oct-2026): un ❌ (siempre) y un ❓ de una exigencia inadmisible (rojo) solo los cierra el EM.
   const soloEM = estado === 'NO_CUMPLE' || (estado === 'FALTA_DATO' && !!f.rojo);
   if (f.confirmada) return (
     <span className="text-emerald-700">✅ <span className="text-xs text-slate-600">{corregido ? 'corregido' : 'confirmado'} por {f.confirmada.por || 'el asistente'}</span>
+      {f.confirmada.valor && <span className="block text-xs text-slate-700"><b className="font-semibold">Ofertamos:</b> {f.confirmada.valor}</span>}
       {f.confirmada.motivo && <span className="block text-xs text-slate-600 italic">«{f.confirmada.motivo}»</span>}
       {corregido && f.partes?.[0]?.ofertadoValor && <span className="block text-xs text-slate-500">el documento decía: {f.partes[0].ofertadoValor}</span>}
       {editable && (puedeEM || !(corregido || f.rojo)) && <button onClick={() => onConfirmar(false)} className="text-xs text-slate-500 underline hover:text-zinc-700">deshacer</button>}
@@ -2430,7 +2432,7 @@ function CeldaTecnica({ f, editable, puedeEM, onConfirmar, onComplementar, subie
   if (estado === 'SOBRECUMPLE') return <span className="font-semibold text-emerald-800">🟩{dato}{aviso}</span>;
   if (estado === 'CUMPLE') return <span className="text-emerald-700">✅{f.valorCorto ? <span className="text-xs text-slate-500"> ({f.valorCorto})</span> : null}{aviso}</span>;
   const noCumple = estado === 'NO_CUMPLE';
-  const guardar = () => { onConfirmar(true, motivo.trim()); setAbierto(false); setMotivo(''); };
+  const guardar = () => { onConfirmar(true, motivo.trim(), valor.trim()); setAbierto(false); setMotivo(''); setValor(''); };
   return (
     <span className={noCumple ? 'text-red-600' : 'text-amber-700'}>
       <span className="text-[13px] font-medium">{noCumple ? <>❌ No cumple{dato}{aviso}</> : <>❓ Falta dato</>}</span>
@@ -2445,12 +2447,16 @@ function CeldaTecnica({ f, editable, puedeEM, onConfirmar, onComplementar, subie
           className="text-[13px] font-medium text-teal-700 hover:underline">{noCumple ? 'Sí cumple…' : 'Lo confirmo'}</button>)}
       {editable && abierto && (
         <span className="mt-1.5 block font-normal">
-          <textarea value={motivo} onChange={e => setMotivo(e.target.value)} rows={2} autoFocus
+          <label className="block text-xs font-semibold text-slate-700">Lo que ofertamos <span className="font-normal text-slate-500">(obligatorio: se escribe en la ficha técnica y en el anexo técnico)</span></label>
+          <textarea value={valor} onChange={e => setValor(e.target.value)} rows={2} autoFocus
+            placeholder="Ej.: Litio LiFePO4 12,8 V, 100 Ah, más de 6.000 ciclos. Escribe el dato del producto que entregamos, no la exigencia de las bases."
+            className="mb-1.5 w-full min-w-[200px] text-[12.5px] text-zinc-700 border border-zinc-200 rounded-md px-2 py-1 outline-none focus:border-teal-500" />
+          <textarea value={motivo} onChange={e => setMotivo(e.target.value)} rows={2}
             placeholder={soloEM ? 'Motivo y respaldo (obligatorio): ¿cómo se sabe que sí cumple? (ej. «el proveedor lo confirmó por correo; el correo está adjunto en la opción»)' : 'Detalle (opcional): ¿cómo lo sabes?'}
             className="w-full min-w-[200px] text-[12.5px] text-zinc-700 border border-zinc-200 rounded-md px-2 py-1 outline-none focus:border-amber-400" />
           <span className="flex gap-2 mt-1">
-            <button onClick={guardar} disabled={soloEM && motivo.trim().length < 8} className="px-2 py-0.5 rounded bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-40">Dar por cumplido</button>
-            <button onClick={() => { setAbierto(false); setMotivo(''); }} className="text-xs text-slate-500 hover:text-zinc-700">Cancelar</button>
+            <button onClick={guardar} disabled={valor.trim().length < 3 || (soloEM && motivo.trim().length < 8)} className="px-2 py-0.5 rounded bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-40">Dar por cumplido</button>
+            <button onClick={() => { setAbierto(false); setMotivo(''); setValor(''); }} className="text-xs text-slate-500 hover:text-zinc-700">Cancelar</button>
           </span>
         </span>
       )}
@@ -2804,7 +2810,7 @@ function CuadroTecnico({ negocioId, linea, vista = 'todo', onIrAFicha, onVerific
                 <p className="text-[13px] font-medium text-slate-800">{nombreCorto(o)} <span className="font-normal text-slate-600">· {o.proveedorRazonSocial || 'proveedor sin identificar'}</span></p>
                 {!f ? <p className="mt-1 text-[13px] text-slate-500">Esta opción todavía no se compara.</p> : (<>
                   <div className="mt-1.5 text-[13px]">
-                    <CeldaTecnica f={f} editable={editable(o)} puedeEM={puedeAprobar} onConfirmar={(c, motivo) => onAccion(o.id, 'confirmar_celda', { n, confirmada: c, motivo: motivo || '' }, c ? 'Requisito dado por cumplido' : 'Cambio deshecho')}
+                    <CeldaTecnica f={f} editable={editable(o)} puedeEM={puedeAprobar} onConfirmar={(c, motivo, valor) => onAccion(o.id, 'confirmar_celda', { n, confirmada: c, motivo: motivo || '', valor: valor || '' }, c ? 'Requisito dado por cumplido' : 'Cambio deshecho')}
                       onComplementar={fs => onSubirFicha(o.id, fs)} subiendo={subiendoFicha.has(`o${o.id}`)} />
                   </div>
                   <dl className="mt-2 space-y-1.5 text-[13px]">
