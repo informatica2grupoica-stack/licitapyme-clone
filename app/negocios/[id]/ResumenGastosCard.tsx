@@ -13,11 +13,11 @@ import { IconLoader2 as Loader2, IconFolderSearch as FolderSearch, IconEye as Ey
 import { FacturaVisor } from './FacturaVisor';
 import { enfocarProducto } from '@/app/compras/[negocioId]/comprasNavegacion';
 
-interface LineaOc { producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }
+interface LineaOc { lineaId?: string | null; cantidadNegocio?: number | null; producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }
 interface ResumenGastos {
   ocCreadas: { cantidad: number; totalNeto: number; proveedores: { nombre: string; folio: string | null; total: number; fecha: string }[] };
   comprasCruzadas: { cantidad: number; total: number; neto: number };
-  ocsObuma?: { din?: string[]; folio: string; proveedor: string | null; estado: string | null; fecha: string | null; neto: number; total: number; skus: string[]; lineas: LineaOc[] }[];
+  ocsObuma?: { din?: string[]; compraOcId?: string; excluidoNeto?: number; folio: string; proveedor: string | null; estado: string | null; fecha: string | null; neto: number; total: number; skus: string[]; lineas: LineaOc[] }[];
   ocsPropias?: { folio: string; proveedor: string; estado: string; fecha: string; neto: number; total: number; lineas: LineaOc[] }[];
   gastadoNeto?: number | null;
   facturas: {
@@ -34,7 +34,7 @@ interface GastosProyecto {
   totalOc: number; cantidadOc: number; totalOcNeto?: number; cantidadAnuladas?: number;
 }
 /** Una fila de la tabla de órdenes de compra: las emitidas desde Licitank y las hechas directo en Obuma, sin repetir. */
-interface FilaOc { din?: string[]; folio: string; proveedor: string; fecha: string | null; estado: string | null; origen: 'licitank' | 'obuma' | 'propia'; neto: number | null; total: number | null; lineas: LineaOc[] }
+interface FilaOc { din?: string[]; compraOcId?: string; excluidoNeto?: number; folio: string; proveedor: string; fecha: string | null; estado: string | null; origen: 'licitank' | 'obuma' | 'propia'; neto: number | null; total: number | null; lineas: LineaOc[] }
 
 const fmtCLP = (n: number | null | undefined) => n == null ? '—'
   : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
@@ -109,7 +109,7 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
     if (!resumen) return [];
     const delicitank = new Map(resumen.ocCreadas.proveedores.filter(o => o.folio).map(o => [String(o.folio), o]));
     const filas: FilaOc[] = (resumen.ocsObuma ?? []).map(o => ({
-      din: o.din, folio: o.folio, proveedor: o.proveedor || 'Proveedor', fecha: o.fecha, estado: o.estado,
+      din: o.din, compraOcId: o.compraOcId, excluidoNeto: o.excluidoNeto, folio: o.folio, proveedor: o.proveedor || 'Proveedor', fecha: o.fecha, estado: o.estado,
       origen: delicitank.has(String(o.folio)) ? 'licitank' : 'obuma', neto: o.neto, total: o.total, lineas: o.lineas,
     }));
     for (const o of resumen.ocCreadas.proveedores) {
@@ -225,7 +225,7 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
                   const facturas = facturasPorOc.get(f.folio) ?? [];
                   const anulada = /anulad/i.test(f.estado || '');
                   return (
-                    <FilaOrden key={f.folio} f={f} abierta={abierta} anulada={anulada} facturas={facturas} onAlternar={() => alternar(f.folio)} />
+                    <FilaOrden key={f.folio} f={f} abierta={abierta} anulada={anulada} facturas={facturas} onAlternar={() => alternar(f.folio)} negocioId={negocioId} onGuardado={cargar} />
                   );
                 })}
               </tbody>
@@ -341,8 +341,46 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
   );
 }
 
+/** «Para este negocio»: cuántas unidades de la línea cuentan en el costo de este negocio (la OC puede traer más de las que se venden). */
+function UnidadesDelNegocio({ negocioId, compraOcId, lineaId, cantidad, cantidadNegocio, onGuardado }: { negocioId: number; compraOcId: string; lineaId: string; cantidad: number; cantidadNegocio: number; onGuardado: () => void }) {
+  const toast = useToast();
+  const [valor, setValor] = useState(String(cantidadNegocio));
+  const [nota, setNota] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  useEffect(() => { setValor(String(cantidadNegocio)); }, [cantidadNegocio]);
+  const n = Number(valor.replace(',', '.'));
+  const cambio = valor.trim() !== '' && Number.isFinite(n) && n !== cantidadNegocio;
+  const guardar = async () => {
+    setGuardando(true);
+    try {
+      const r = await fetch(`/api/compras/${negocioId}/oc-lineas`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ compraOcId, lineaId, cantidadNegocio: n, nota: n < cantidad ? nota : null }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.success) { toast.error('No se pudo guardar', d.error || 'Intenta de nuevo.'); return; }
+      toast.success(n < cantidad ? `Quedó: ${n} de ${cantidad} son de este negocio` : 'Todas las unidades cuentan para este negocio');
+      onGuardado();
+    } catch (e: any) { toast.error('No se pudo guardar', e.message); } finally { setGuardando(false); }
+  };
+  const sobran = cantidad - cantidadNegocio;
+  return (
+    <div className="inline-flex flex-col items-end gap-1">
+      <div className="inline-flex items-center gap-1.5">
+        <input type="number" min={0} max={cantidad} step="any" value={valor} onChange={e => setValor(e.target.value)} disabled={guardando}
+          onKeyDown={e => { if (e.key === 'Enter' && cambio) guardar(); }} aria-label="Unidades de este negocio"
+          className="w-14 px-1.5 py-0.5 text-right tabular-nums border border-zinc-200 rounded-md text-[12px] focus:outline-none focus:border-teal-500" data-testid={`unidades-negocio-${lineaId}`} />
+        <span className="text-zinc-400 tabular-nums">de {cantidad}</span>
+        {cambio && <button type="button" onClick={guardar} disabled={guardando} className="text-[11.5px] font-semibold text-teal-700 hover:text-teal-900 disabled:opacity-50">{guardando ? '…' : 'Guardar'}</button>}
+      </div>
+      {cambio && n < cantidad && <input type="text" value={nota} onChange={e => setNota(e.target.value)} maxLength={300} placeholder="¿Qué pasa con lo que sobra? (stock, otro negocio…)" className="w-64 px-1.5 py-0.5 border border-zinc-200 rounded-md text-[11.5px] focus:outline-none focus:border-teal-500" />}
+      {!cambio && sobran > 0 && <span className="text-[10.5px] text-amber-700">{sobran} sin costo para este negocio</span>}
+    </div>
+  );
+}
+
 /** Fila de una orden de compra, con sus productos al abrirla. */
-function FilaOrden({ f, abierta, anulada, facturas, onAlternar }: { f: FilaOc; abierta: boolean; anulada: boolean; facturas: string[]; onAlternar: () => void }) {
+function FilaOrden({ f, abierta, anulada, facturas, onAlternar, negocioId, onGuardado }: { f: FilaOc; abierta: boolean; anulada: boolean; facturas: string[]; onAlternar: () => void; negocioId: number; onGuardado: () => void }) {
   const estadoCls = anulada ? 'bg-zinc-100 text-zinc-500 border-zinc-200'
     : /emitid|aprobad|recibid|cerrad/i.test(f.estado || '') ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
     : 'bg-amber-50 text-amber-800 border-amber-200';
@@ -357,7 +395,7 @@ function FilaOrden({ f, abierta, anulada, facturas, onAlternar }: { f: FilaOc; a
         <td className="px-2 py-2">
           <span className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-full border ${f.origen === 'obuma' ? 'bg-sky-50 text-sky-700 border-sky-200' : 'bg-teal-50 text-teal-700 border-teal-200'}`}>{f.origen === 'licitank' ? 'Desde Licitank' : f.origen === 'propia' ? 'OC propia (Licitank)' : 'Directo en Obuma'}</span>
         </td>
-        <td className="px-2 py-2 text-right tabular-nums font-semibold text-zinc-800">{fmtCLP(f.neto)}</td>
+        <td className="px-2 py-2 text-right tabular-nums font-semibold text-zinc-800">{fmtCLP(f.neto)}{f.excluidoNeto ? <span className="block text-[10.5px] font-normal text-amber-700" title="Unidades de esta orden que no son de este negocio (inventario u otro uso): no suman a su costo">sin {fmtCLP(f.excluidoNeto)} de otro uso</span> : null}</td>
         <td className="px-2 py-2 text-right tabular-nums text-zinc-600">{fmtCLP(f.total ?? (f.neto != null ? Math.round(f.neto * 1.19) : null))}</td>
         <td className="px-2 py-2 text-[11.5px]">{facturas.length > 0 ? <span className="font-semibold text-emerald-700">✔ {facturas.join(', ')}</span> : f.din?.length ? <span className="font-semibold text-sky-700" title="Importación: se cierra con la declaración de ingreso (DIN), no con factura de compra">DIN N° {f.din.join(', ')}</span> : <span className="text-zinc-400">sin factura</span>}</td>
       </tr>
@@ -372,6 +410,7 @@ function FilaOrden({ f, abierta, anulada, facturas, onAlternar }: { f: FilaOc; a
                 <thead>
                   <tr className="text-left text-[10px] font-bold uppercase text-zinc-400">
                     <th className="px-3 py-1.5">Producto</th><th className="px-2 py-1.5">SKU</th><th className="px-2 py-1.5 text-right">Cant.</th>
+                    <th className="px-2 py-1.5 text-right" title="Cuántas unidades de esta línea son de ESTE negocio. Las que sobran no suman a su costo (quedan de inventario u otro uso).">Para este negocio</th>
                     <th className="px-2 py-1.5 text-right">Precio neto c/u</th><th className="px-2 py-1.5 text-right">Subtotal neto</th>
                   </tr>
                 </thead>
@@ -381,6 +420,9 @@ function FilaOrden({ f, abierta, anulada, facturas, onAlternar }: { f: FilaOc; a
                       <td className="px-3 py-1.5 text-zinc-700" title={l.producto}>{l.producto.length > 90 ? `${l.producto.slice(0, 90)}…` : l.producto}</td>
                       <td className="px-2 py-1.5 whitespace-nowrap tabular-nums">{l.sku ? <span className="font-semibold text-indigo-600">{l.sku}</span> : <span className="text-zinc-300">sin SKU</span>}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums text-zinc-700">{l.cantidad ?? '—'}</td>
+                      <td className="px-2 py-1.5 text-right">{f.origen !== 'propia' && f.compraOcId && l.lineaId && l.cantidad && l.cantidad >= 1 && !anulada
+                        ? <UnidadesDelNegocio negocioId={negocioId} compraOcId={f.compraOcId} lineaId={l.lineaId} cantidad={l.cantidad} cantidadNegocio={l.cantidadNegocio ?? l.cantidad} onGuardado={onGuardado} />
+                        : <span className="text-zinc-300">—</span>}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums text-zinc-700">{l.precio != null ? fmtCLP(l.precio) : '—'}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-zinc-800">{fmtCLP(l.subtotal)}</td>
                     </tr>

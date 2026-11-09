@@ -15,6 +15,7 @@
 import pool from '@/app/lib/db';
 import { listarComprasOc, listarComprasOcItems, listarComprasDte, proveedorPorId, centrosDeCostoCompleto, proyectosExtCompleto, type ObumaCompraOc } from '@/app/lib/obuma';
 import { mencionaCodigo, licitacionesOfertadas } from '@/app/lib/ordenes-compra';
+import { ajustesDeLicitacion, claveLineaOc, type AjusteLineaOc } from '@/app/lib/compras-oc-lineas-negocio';
 import { paresFacturaDeOc, dinesDeOc, TIPO_DOC_DIN } from '@/app/lib/obuma-facturas-enlace';
 
 function num(v: unknown): number | null {
@@ -232,6 +233,8 @@ export interface ItemCompraObuma {
   descripcion: string; cantidad: number | null; precio: number | null; subtotal: number | null;
   // El producto del catálogo de Obuma al que apunta la línea (SKU ya creado por fuera de Licitank).
   productoId?: string | null; codigoComercial?: string | null;
+  /** cod_id de la línea en Obuma y cuántas unidades cuentan para ESTE negocio (migration-184); null = todas. */
+  lineaId?: string | null; cantidadNegocio?: number | null;
 }
 export interface CompraObumaFila {
   compraOcId: string;
@@ -249,6 +252,10 @@ export interface CompraObumaFila {
   proveedorObumaId: string | null;
   items: ItemCompraObuma[];
   facturas: FacturaObuma[];
+  /** Neto de las unidades que NO son de este negocio (migration-184): ya está descontado de subtotal/neto/iva/total. */
+  excluidoNeto: number;
+  /** Total con IVA que dice Obuma, antes de descontar las unidades de otro uso (solo si excluidoNeto > 0). */
+  totalOriginal: number | null;
   /** OC marcada como internacional en Obuma. */
   internacional: boolean;
   /** N° de la(s) declaración(es) de ingreso (DIN, documento 914) enlazadas a la OC; no son facturas. */
@@ -276,6 +283,7 @@ function itemsDesdeJson(json: string | null): ItemCompraObuma[] {
       cantidad: num(it.cantidad), precio: num(it.precio), subtotal: num(it.subtotal),
       productoId: it.producto_id && String(it.producto_id) !== '0' ? String(it.producto_id) : null,
       codigoComercial: it.codigo_comercial ? String(it.codigo_comercial) : null,
+      lineaId: it.cod_id != null && String(it.cod_id) !== '' ? String(it.cod_id) : null,
     }));
   } catch { return []; }
 }
@@ -298,21 +306,48 @@ export async function comprasObumaDeLicitacion(codigo: string): Promise<CompraOb
     `SELECT * FROM obuma_compras WHERE licitacion_codigo = ? ORDER BY fecha_ingreso DESC`,
     [codigo],
   ) as any[];
-  return (rows as any[]).map(r => ({
-    compraOcId: r.compra_oc_id,
-    folio: r.folio,
-    fechaIngreso: r.fecha_ingreso,
-    referencia: r.referencia,
-    estado: r.estado,
-    subtotal: r.subtotal != null ? Number(r.subtotal) : null,
-    neto: r.neto != null ? Number(r.neto) : null,
-    iva: r.iva != null ? Number(r.iva) : null,
-    total: r.total != null ? Number(r.total) : null,
-    proveedorRut: r.proveedor_rut,
-    proveedorRazonSocial: r.proveedor_razon_social,
-    proveedorObumaId: r.proveedor_id != null ? String(r.proveedor_id) : null,
-    items: itemsDesdeJson(r.items_json),
-    facturas: facturasDesdeJson(r.facturas_json),
-    ...datosImportacionDesdeRaw(r.raw_json),
-  }));
+  const ajustes = await ajustesDeLicitacion(codigo);
+  return (rows as any[]).map(r => {
+    const fila: CompraObumaFila = {
+      compraOcId: r.compra_oc_id,
+      folio: r.folio,
+      fechaIngreso: r.fecha_ingreso,
+      referencia: r.referencia,
+      estado: r.estado,
+      subtotal: r.subtotal != null ? Number(r.subtotal) : null,
+      neto: r.neto != null ? Number(r.neto) : null,
+      iva: r.iva != null ? Number(r.iva) : null,
+      total: r.total != null ? Number(r.total) : null,
+      proveedorRut: r.proveedor_rut,
+      proveedorRazonSocial: r.proveedor_razon_social,
+      proveedorObumaId: r.proveedor_id != null ? String(r.proveedor_id) : null,
+      items: itemsDesdeJson(r.items_json),
+      facturas: facturasDesdeJson(r.facturas_json),
+      excluidoNeto: 0, totalOriginal: null,
+      ...datosImportacionDesdeRaw(r.raw_json),
+    };
+    return ajustes.size ? descontarUnidadesAjenas(fila, ajustes) : fila;
+  });
+}
+
+/** Descuenta de la OC las unidades que el equipo marcó como «no son de este negocio» (migration-184). Deja el IVA proporcional:
+ *  una OC exenta (iva 0) descuenta el neto tal cual; una con IVA descuenta también su 19 %. */
+export function descontarUnidadesAjenas(c: CompraObumaFila, ajustes: Map<string, AjusteLineaOc>): CompraObumaFila {
+  let excluido = 0;
+  const items = c.items.map(it => {
+    const aj = it.lineaId ? ajustes.get(claveLineaOc(c.compraOcId, it.lineaId)) : undefined;
+    if (!aj || !it.cantidad || it.precio == null) return it;
+    const mias = Math.min(Math.max(aj.cantidadNegocio, 0), it.cantidad);
+    excluido += (it.cantidad - mias) * it.precio;
+    return { ...it, cantidadNegocio: mias };
+  });
+  if (excluido <= 0) return c;
+  const conIva = (c.iva ?? 0) > 0;
+  return {
+    ...c, items, excluidoNeto: Math.round(excluido), totalOriginal: c.total,
+    subtotal: c.subtotal != null && conIva ? c.subtotal - excluido : c.subtotal,
+    neto: c.neto != null && conIva ? c.neto - excluido : c.neto,
+    iva: c.iva != null && conIva ? c.iva - excluido * 0.19 : c.iva,
+    total: c.total != null ? c.total - excluido * (conIva ? 1.19 : 1) : null,
+  };
 }

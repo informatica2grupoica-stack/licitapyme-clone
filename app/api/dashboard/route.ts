@@ -8,6 +8,22 @@ import pool from '@/app/lib/db';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { clienteDeHeader, usaViabilidadDeICA } from '@/app/lib/tenant';
+import { versionCambios } from '@/app/lib/sse-bus';
+
+// Caché del panorama de ADMIN: son ~6 agregados de 100-135 ms sobre alertas_licitaciones y los números son los mismos para todos los
+// admins de la empresa (prueba de carga 09-nov: 11 req/s con 20 simultáneas). Vale 30 s o hasta que el pipeline publique un cambio
+// (SSE `publicarCambio`), y las peticiones simultáneas comparten UN solo cálculo. Va por empresa (cliente_id).
+const PANORAMA_TTL_MS = 30_000;
+const panoramaCache = new Map<number, { hasta: number; version: number; valor?: Promise<any> }>();
+function panoramaAdmin(clienteId: number, calcular: () => Promise<any>): Promise<any> {
+  const v = versionCambios();
+  const c = panoramaCache.get(clienteId);
+  if (c?.valor && c.hasta > Date.now() && c.version === v) return c.valor;
+  const valor = calcular();
+  panoramaCache.set(clienteId, { hasta: Date.now() + PANORAMA_TTL_MS, version: v, valor });
+  valor.catch(() => { if (panoramaCache.get(clienteId)?.valor === valor) panoramaCache.delete(clienteId); }); // un fallo no se queda en caché
+  return valor;
+}
 
 function getUserFromHeaders(request: NextRequest) {
   const id = request.headers.get('x-user-id');
@@ -49,7 +65,7 @@ export async function GET(request: NextRequest) {
 
     // ── Vista ADMIN: panorama de la empresa ──────────────────────────────────────
     let admin: any = null;
-    if (esAdmin) {
+    if (esAdmin) admin = await panoramaAdmin(clienteId, async () => {
       const [tUsers] = await q(`SELECT COUNT(*) AS n FROM usuarios WHERE cliente_id = ?`, [clienteId]);
       const [aUsers] = await q(`SELECT COUNT(*) AS n FROM usuarios WHERE activo = TRUE AND cliente_id = ?`, [clienteId]);
       const [nUsers] = await q(`SELECT COUNT(*) AS n FROM usuarios WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) AND cliente_id = ?`, [clienteId]);
@@ -146,12 +162,12 @@ export async function GET(request: NextRequest) {
       }
       const porPerfil = [...perfilMap.values()].sort((a, b) => b.total - a.total);
 
-      admin = {
+      return {
         usuarios: { total: tUsers?.n || 0, activos: aUsers?.n || 0, nuevosSemana: nUsers?.n || 0, ultimosAccesos },
         radar: { totalLicitaciones: tLic?.n || 0, sinAsignar: tSinAsig?.n || 0 },
         viabilidad, prefiltro, pipeline, montoPipeline: Number(mPipe?.total || 0), porDia, porPerfil,
       };
-    }
+    });
 
     // ── Vista USUARIO: sus licitaciones asignadas ────────────────────────────────
     // (también se calcula para admins, por si quieren ver "lo mío")

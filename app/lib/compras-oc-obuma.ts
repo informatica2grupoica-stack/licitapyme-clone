@@ -59,6 +59,11 @@ export interface ProveedorOrdenCompra {
   ocRealObuma: { folios: string[]; totalNeto: number; estados: string[]; fecha: string | null } | null;
 }
 
+/** Razón social comparable: sin tildes, mayúsculas y solo letras/números («NINGBO BOPU ENGINEERING MACHINERY CO.,LTD» = «Ningbo Bopu Engineering Machinery Co Ltd»). */
+function nombreComparable(n: string | null | undefined): string {
+  return String(n ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '');
+}
+
 /** Busca si YA existe una OC real en Obuma para este proveedor que mencione alguno de los productos
  *  que estamos por comprar — mismo criterio que `sugerirProveedoresPorDescripcion`
  *  (compras-proveedores.ts): palabras clave de 4+ letras contra el texto de referencia/observación
@@ -77,6 +82,7 @@ async function buscarOcRealSimilar(
 
   const r = await listarComprasOc({ proveedor: proveedorObumaId, limit: 20 }).catch(() => null);
   for (const oc of r?.data || []) {
+    if (/anulad/i.test(String(oc.compra_oc_estado || ''))) continue;   // una OC anulada no es duplicado (negocio 256: la 3810 anulada hacía saltar el aviso de la 3811)
     const texto = normalizar(`${oc.compra_oc_referencia || ''} ${oc.compra_oc_observacion || ''}`);
     if (palabrasClave.some(p => texto.includes(p))) {
       return {
@@ -230,12 +236,16 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
     // Se cruza por RUT y también por el id del proveedor en Obuma: cuando la sincronización no logra leer el RUT del proveedor
     // (caso 387-55-LE26: las 22 OC quedaron sin RUT) el RUT solo no alcanza y la OC ya hecha en Obuma aparecía «Sin emitir».
     const obumaProvId = g.proveedorId != null ? fichaCompleta.get(g.proveedorId)?.obumaProveedorId ?? null : null;
+    // Cuarta vía: la razón social. Obuma puede tener el mismo proveedor extranjero DOS veces (NINGBO BOPU: 198849 «SinRut» y 198850 con el RUT genérico),
+    // y la OC hecha a mano quedó en el otro: ni RUT, ni id, ni SKU (línea suelta «fc-…» sin código) la reconocen. Solo entre OC ya cruzadas con ESTA licitación.
+    const nombreGrupo = nombreComparable(g.proveedorNombre);
     const skusDelGrupo = new Set(g.items.flatMap(it => [it.obumaProductoId, it.obumaCodigoComercial]).filter(skuUtil).map(String));
-    if (!rut && !obumaProvId && skusDelGrupo.size === 0) continue;
+    if (!rut && !obumaProvId && skusDelGrupo.size === 0 && nombreGrupo.length < 8) continue;
     // La OC que emitió Licitank (yaCreada) no cuenta como "real": la real es la que ya existía en Obuma antes.
     const delProveedor = realesObuma.filter(c => c.compraOcId !== g.yaCreada?.obumaCompraOcId
       && ((!!rut && rutNormalizado(c.proveedorRut) === rut) || (!!obumaProvId && c.proveedorObumaId === String(obumaProvId))
-        || c.items.some(i => (!!i.productoId && skusDelGrupo.has(String(i.productoId))) || (!!i.codigoComercial && skusDelGrupo.has(String(i.codigoComercial))))));
+        || c.items.some(i => (!!i.productoId && skusDelGrupo.has(String(i.productoId))) || (!!i.codigoComercial && skusDelGrupo.has(String(i.codigoComercial))))
+        || (nombreGrupo.length >= 8 && nombreComparable(c.proveedorRazonSocial) === nombreGrupo)));
     if (delProveedor.length === 0) continue;
     g.ocRealObuma = {
       folios: delProveedor.map(c => c.folio || c.compraOcId),
@@ -713,7 +723,7 @@ export interface ResumenGastosCompra {
   comprasCruzadas: { cantidad: number; total: number; neto: number };
   // Las OC reales que YA existen en Obuma para esta licitación (hechas directo, no por Licitank),
   // con los SKU (código comercial) de sus líneas — para mostrarlas aparte de las que emite Licitank.
-  ocsObuma: { din: string[]; folio: string; proveedor: string | null; estado: string | null; fecha: string | null; neto: number; total: number; skus: string[]; lineas: { producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }[] }[];
+  ocsObuma: { din: string[]; compraOcId: string; excluidoNeto: number; folio: string; proveedor: string | null; estado: string | null; fecha: string | null; neto: number; total: number; skus: string[]; lineas: { lineaId: string | null; cantidadNegocio: number | null; producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }[] }[];
   // OC propias (Comercial MP: se emiten en Licitank, no pasan por Obuma), sin anuladas. También son gasto (979: las vacuolavadoras, $10,5M, quedaban fuera).
   ocsPropias: { folio: string; proveedor: string; estado: string; fecha: string; neto: number; total: number; lineas: { producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }[] }[];
   /** Gasto real NETO: lo de Obuma sin anuladas (si Obuma aún no trae nada, lo emitido por Licitank) + las OC propias. */
@@ -802,11 +812,12 @@ export async function resumenGastosCompra(negocioId: number, montoCosteado: numb
     ocCreadas: { cantidad: ocCreadas.length, totalNeto: totalOcCreadas, proveedores: ocCreadas },
     comprasCruzadas: { cantidad: cruzadas.length, total: totalCruzadas, neto: Math.round(netoCruzadas) },
     ocsObuma: cruzadas.map(c => ({
-      din: c.din,
+      din: c.din, compraOcId: c.compraOcId, excluidoNeto: c.excluidoNeto,
       folio: c.folio || c.compraOcId, proveedor: c.proveedorRazonSocial, estado: c.estado, fecha: c.fechaIngreso,
       neto: netoDeCompra(c), total: Math.round(c.total || 0),
       skus: [...new Set(c.items.map(i => i.codigoComercial).filter((x): x is string => !!x))],
       lineas: c.items.map(i => ({
+        lineaId: i.lineaId ?? null, cantidadNegocio: i.cantidadNegocio ?? null,
         producto: i.descripcion.replace(/\s+/g, ' ').trim(), sku: i.codigoComercial || null,
         cantidad: i.cantidad, precio: i.precio, subtotal: i.subtotal,
       })),

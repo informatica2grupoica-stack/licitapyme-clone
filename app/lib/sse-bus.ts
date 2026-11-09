@@ -41,10 +41,16 @@ export function publicar(userId: number, evento: unknown): void {
  * propio endpoint, que ya filtra por permisos.
  */
 export function publicarCambio(tipo: string): void {
+  g.__sseVersionCambios = (g.__sseVersionCambios ?? 0) + 1; // invalida cachés de tableros (ver versionCambios)
   const payload = `event: cambio\ndata: ${JSON.stringify({ tipo, at: Date.now() })}\n\n`;
   for (const set of clientes.values()) {
     for (const fn of set) { try { fn(payload); } catch { /* conexión muerta: se limpia al abort */ } }
   }
+}
+
+/** Contador que sube cada vez que se publica un cambio del pipeline: los cachés de tableros lo usan para no mostrar datos viejos. */
+export function versionCambios(): number {
+  return g.__sseVersionCambios ?? 0;
 }
 
 export function conexionesDe(userId: number): number {
