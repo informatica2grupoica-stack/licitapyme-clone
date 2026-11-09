@@ -8,6 +8,7 @@
 // solos sin demorar la apertura. También lo usa el botón "Actualizar" para un pull manual.
 import { NextRequest, NextResponse } from 'next/server';
 import { refrescarEstadosAsignadas } from '@/app/lib/refrescar-estados';
+import { clienteDeHeader } from '@/app/lib/tenant';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30; // margen para el sondeo acotado a MP
@@ -15,11 +16,14 @@ export const maxDuration = 30; // margen para el sondeo acotado a MP
 export async function POST(request: NextRequest) {
   const userId = request.headers.get('x-user-id');
   if (!userId) return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+  const clienteId = clienteDeHeader(request);
+  if (!clienteId) return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
 
   try {
     // Presupuesto/timeout más ajustados que el cron: es interactivo. Notifica en transición real
     // (el UPDATE atómico con guardia evita duplicar la campana aunque coincida con el cron).
-    const r = await refrescarEstadosAsignadas({ presupuestoMs: 22_000, timeoutMs: 6_000, notificar: true });
+    // Solo los negocios de la empresa de quien pide (no gasta cuota de MP en los de otras empresas).
+    const r = await refrescarEstadosAsignadas({ presupuestoMs: 22_000, timeoutMs: 6_000, notificar: true, clienteId });
     return NextResponse.json({ success: true, ...r });
   } catch (e) {
     console.error('[negocios/refrescar-estados] falló:', String(e));

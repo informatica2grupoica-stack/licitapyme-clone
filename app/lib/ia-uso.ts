@@ -65,13 +65,18 @@ export function registrarUsoIA(d: { modelo: string; respaldo: boolean; tokensIn:
   const ctx = als.getStore();
   void (async () => {
     try {
-      const [{ default: pool }, { ahoraChileSQL }, u] = await Promise.all([import('@/app/lib/db'), import('@/app/lib/tz'), usuarioActual()]);
-      await pool.query(
-        `INSERT INTO ia_uso (created_at, usuario_id, usuario_nombre, modulo, licitacion_codigo, proveedor, modelo, respaldo, tokens_in, tokens_out, costo_usd, duracion_ms)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [ahoraChileSQL(), u.id, u.nombre, `${ctx?.modulo ?? 'otros'}${ctx?.funcion ? `.${ctx.funcion}` : ''}`.slice(0, 40), ctx?.licitacion ?? null, proveedorDe(d.modelo), d.modelo, d.respaldo ? 1 : 0,
-         Math.round(d.tokensIn), Math.round(d.tokensOut), d.costoUSD.toFixed(6), Math.round(d.ms)],
-      );
+      const [{ default: pool }, { ahoraChileSQL }, { clienteActual }, u] = await Promise.all([import('@/app/lib/db'), import('@/app/lib/tz'), import('@/app/lib/medidor-cliente'), usuarioActual()]);
+      const clienteId = await clienteActual(u.id); // multiempresa: de qué empresa-cliente es el gasto (medidor-cliente.ts)
+      const resto = [u.id, u.nombre, `${ctx?.modulo ?? 'otros'}${ctx?.funcion ? `.${ctx.funcion}` : ''}`.slice(0, 40), ctx?.licitacion ?? null, proveedorDe(d.modelo), d.modelo, d.respaldo ? 1 : 0,
+        Math.round(d.tokensIn), Math.round(d.tokensOut), d.costoUSD.toFixed(6), Math.round(d.ms)];
+      const columnas = 'usuario_id, usuario_nombre, modulo, licitacion_codigo, proveedor, modelo, respaldo, tokens_in, tokens_out, costo_usd, duracion_ms';
+      try {
+        await pool.query(`INSERT INTO ia_uso (created_at, cliente_id, ${columnas}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, [ahoraChileSQL(), clienteId, ...resto]);
+      } catch (e) {
+        // migration-185 sin aplicar todavía: se guarda igual, sin la empresa (queda en 1 por defecto cuando se aplique).
+        if ((e as { code?: string })?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+        await pool.query(`INSERT INTO ia_uso (created_at, ${columnas}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, [ahoraChileSQL(), ...resto]);
+      }
     } catch (e) {
       if (!avisoTabla) { avisoTabla = true; console.warn('[ia-uso] no se pudo registrar el gasto de IA (¿falta aplicar migration-139?):', String((e as Error)?.message ?? e).slice(0, 120)); }
     }

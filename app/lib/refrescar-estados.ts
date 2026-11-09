@@ -449,7 +449,7 @@ export async function notificarCambioFechaCierre(codigo: string, fechaAnterior: 
 }
 
 export async function refrescarEstadosAsignadas(
-  opts: { presupuestoMs?: number; timeoutMs?: number; notificar?: boolean; maxCodigos?: number } = {},
+  opts: { presupuestoMs?: number; timeoutMs?: number; notificar?: boolean; maxCodigos?: number; clienteId?: number } = {},
 ): Promise<{ codigos: number; actualizadas: number; errores: number }> {
   const presupuestoMs = opts.presupuestoMs ?? PRESUPUESTO_MS;
   const timeoutMs      = opts.timeoutMs ?? TIMEOUT_DETALLE_MS;
@@ -473,10 +473,12 @@ export async function refrescarEstadosAsignadas(
        FROM negocios n
        WHERE n.activo = TRUE
          AND (n.estado_pipeline IS NULL OR n.estado_pipeline NOT IN (${placeholders}))
+         ${opts.clienteId ? 'AND n.cliente_id = ?' : ''}
        GROUP BY n.licitacion_codigo
        ORDER BY MIN(n.licitacion_cierre) ASC
        LIMIT ${MAX_CODIGOS}`,
-      PIPELINE_RESUELTOS,
+      // Multi-cliente: el refresco manual solo sondea los negocios de la empresa de quien lo pide; el cron (sin clienteId) sondea todos.
+      opts.clienteId ? [...PIPELINE_RESUELTOS, opts.clienteId] : PIPELINE_RESUELTOS,
     ) as any[];
     filas = rows as Array<{ codigo: string; estado_cache: string | null }>;
   } catch (e) {

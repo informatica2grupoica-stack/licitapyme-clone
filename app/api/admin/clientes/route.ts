@@ -10,6 +10,7 @@ import pool from '@/app/lib/db';
 import { getAuthedUser } from '@/app/lib/api-auth';
 import { olvidarFichaCliente, CLIENTE_ICA } from '@/app/lib/tenant';
 import { evaluarEmpresaPorRut, leerEvaluacion } from '@/app/lib/evaluar-empresa-rut';
+import { gastoIaMesPorCliente, consultasMpHoyPorCliente } from '@/app/lib/medidor-cliente';
 import { TODOS_LOS_MODULOS, MODULOS_BASE, MODULOS_ACTIVABLES, modulosEfectivos } from '@/app/lib/modulos';
 
 export const runtime = 'nodejs';
@@ -35,14 +36,19 @@ export async function GET(req: NextRequest) {
   const evId = Number(req.nextUrl.searchParams.get('evaluacion'));
   if (evId) return NextResponse.json({ success: true, evaluacion: await leerEvaluacion(evId) });
   const [clientes] = await pool.query(
-    `SELECT c.id, c.nombre, c.rut, c.plan, c.estado, c.max_usuarios, c.cupo_ia_mensual, c.modulos, c.notas, c.contacto_nombre, c.contacto_email,
+    `SELECT c.id, c.nombre, c.rut, c.plan, c.estado, c.max_usuarios, c.cupo_ia_mensual, c.tope_ia_usd_mes, c.tope_mp_diario, c.modulos, c.notas, c.contacto_nombre, c.contacto_email,
             DATE_FORMAT(c.vence_at, '%Y-%m-%d') AS vence_at,
             (SELECT COUNT(*) FROM usuarios u WHERE u.cliente_id = c.id AND u.activo = TRUE) AS usuarios
        FROM clientes c WHERE c.activo = TRUE ORDER BY c.id`);
   const [bit] = await pool.query(
     `SELECT b.cliente_id, b.accion, b.detalle, b.created_at, u.nombre AS por
        FROM clientes_bitacora b LEFT JOIN usuarios u ON u.id = b.usuario_id ORDER BY b.id DESC LIMIT 60`).catch(() => [[]] as unknown as [unknown]);
-  const lista = (clientes as Array<Record<string, unknown>>).map(c => ({ ...c, modulos: modulosEfectivos(c.modulos).filter(m => MODULOS_ACTIVABLES.includes(m)) }));
+  // Medidor (migration-185): gasto de IA del mes y consultas a MP de hoy, por empresa.
+  const [iaMes, mpHoy] = await Promise.all([gastoIaMesPorCliente(), consultasMpHoyPorCliente()]).catch(() => [new Map<number, number>(), new Map<number, number>()]);
+  const lista = (clientes as Array<Record<string, unknown>>).map(c => ({
+    ...c, modulos: modulosEfectivos(c.modulos).filter(m => MODULOS_ACTIVABLES.includes(m)),
+    ia_usd_mes: Math.round((iaMes.get(Number(c.id)) ?? 0) * 100) / 100, mp_hoy: mpHoy.get(Number(c.id)) ?? 0,
+  }));
   return NextResponse.json({ success: true, clientes: lista, catalogo: TODOS_LOS_MODULOS, activables: MODULOS_ACTIVABLES, bitacora: bit });
 }
 
@@ -122,6 +128,9 @@ export async function PATCH(req: NextRequest) {
   if ('venceAt' in b) { sets.push('vence_at = ?'); vals.push(b.venceAt || null); det.venceAt = b.venceAt || null; }
   if (b.maxUsuarios != null) { sets.push('max_usuarios = ?'); vals.push(Math.max(1, Number(b.maxUsuarios) || 1)); det.maxUsuarios = b.maxUsuarios; }
   if (b.cupoIa != null) { sets.push('cupo_ia_mensual = ?'); vals.push(Math.max(0, Number(b.cupoIa) || 0)); det.cupoIa = b.cupoIa; }
+  // Topes del medidor: vacío o null = sin tope.
+  if ('topeIaUsd' in b) { const v = b.topeIaUsd === null || b.topeIaUsd === '' ? null : Math.max(0, Number(b.topeIaUsd) || 0); sets.push('tope_ia_usd_mes = ?'); vals.push(v); det.topeIaUsd = v; }
+  if ('topeMp' in b) { const v = b.topeMp === null || b.topeMp === '' ? null : Math.max(0, Math.round(Number(b.topeMp) || 0)); sets.push('tope_mp_diario = ?'); vals.push(v); det.topeMp = v; }
   if (typeof b.notas === 'string') { sets.push('notas = ?'); vals.push(b.notas.slice(0, 2000)); det.notas = true; }
   if (!sets.length) return NextResponse.json({ error: 'Nada que cambiar' }, { status: 400 });
   vals.push(id);

@@ -62,7 +62,11 @@ export async function proxy(request: NextRequest) {
         return NextResponse.redirect(new URL('/dashboard', request.url));
       }
     }
-    return NextResponse.next();
+    // Sin sesión no hay identidad: se borran los headers de identidad que pudiera mandar el navegador (el medidor y los topes
+    // por cliente de medidor-cliente.ts confían en x-cliente-id).
+    const sinIdentidad = new Headers(request.headers);
+    for (const h of ['x-user-id', 'x-user-email', 'x-user-rol', 'x-user-nombre', 'x-cliente-id']) sinIdentidad.delete(h);
+    return NextResponse.next({ request: { headers: sinIdentidad } });
   }
 
   // Verificar sesión para todas las demás rutas

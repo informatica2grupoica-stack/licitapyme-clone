@@ -11,6 +11,7 @@ import {
 } from '@/app/types/mercado-publico.types';
 import pool from '@/app/lib/db';
 import { ahoraChileSQL, minutosHastaMedianocheChile } from '@/app/lib/tz';
+import { registrarConsultaMpCliente, verificarTopeMP } from '@/app/lib/medidor-cliente';
 
 const API_BASE = 'https://api.mercadopublico.cl/servicios/v1/publico';
 
@@ -50,6 +51,7 @@ async function registrarConsultaMP(): Promise<void> {
       [hoyChile()],
     );
   } catch (e) { console.error('[MP API] no se pudo registrar el contador de uso diario:', String(e)); }
+  void registrarConsultaMpCliente(); // multiempresa: la misma consulta, anotada a la empresa-cliente que la pidió
 }
 
 // Cuánto queda del presupuesto diario TOTAL (todos los tickets configurados, con margen de
@@ -148,6 +150,7 @@ export class MercadoPublicoClient {
     // justamente lo que hay que evitar (ver el freno en procesar-postuladas.ts).
     onFallo?: (motivo: 'rate-limit' | 'red' | 'http') => void,
   ): Promise<Licitacion | null> {
+    try { await verificarTopeMP(); } catch { onFallo?.('rate-limit'); return null; } // empresa-cliente sin cupo de MP hoy
     const url = `${API_BASE}/licitaciones.json?codigo=${encodeURIComponent(codigo)}&ticket=${this.ticket}`;
     let ultimoMotivo = 'sin respuesta';
     let clase: 'rate-limit' | 'red' | 'http' = 'red';
@@ -193,6 +196,7 @@ export class MercadoPublicoClient {
     codigo: string,
     timeoutMs = 8_000,
   ): Promise<{ lic: Licitacion | null; status: number }> {
+    try { await verificarTopeMP(); } catch { return { lic: null, status: 429 }; } // empresa-cliente sin cupo de MP hoy
     try {
       const url = `${API_BASE}/licitaciones.json?codigo=${encodeURIComponent(codigo)}&ticket=${this.ticket}`;
       const res = await globalThis.fetch(this.conTicketActual(url), {
@@ -512,6 +516,7 @@ export class MercadoPublicoClient {
   // esto, un hipo transitorio de la API tumbaba en silencio TODA la tarjeta de datos de
   // Mercado Público en el resumen (el front no distinguía "no existe" de "falló una vez").
   private async fetch<T>(url: string, intentos = 3): Promise<T> {
+    await verificarTopeMP(); // lanza TopeClienteError si la empresa-cliente ya gastó su cupo diario de MP
     let ultimoError: Error = new Error('Error desconocido consultando la API de Mercado Público');
     for (let i = 0; i < intentos; i++) {
       if (i > 0) await new Promise(r => setTimeout(r, 1500 * i)); // espera 1.5s, luego 3s

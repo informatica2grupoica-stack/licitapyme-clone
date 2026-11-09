@@ -15,6 +15,7 @@ import pool from '@/app/lib/db';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { crearChatIA, iaTextoConfigurada, MODELO_TEXTO } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
+import { conCliente, TopeClienteError } from '@/app/lib/medidor-cliente';
 
 const OBJETIVO_OC = 50;
 const MAX_DIAS = 300;
@@ -47,8 +48,13 @@ export async function leerEvaluacion(clienteId: number) {
 
 interface Linea { producto: string; categoria: string; detalle: string; monto: number; origen: 'OC' | 'ACTA' }
 
-/** Corre la evaluación completa y aplica lo propuesto a la empresa. No lanza: deja el error en cliente_evaluacion. */
-export async function evaluarEmpresaPorRut(clienteId: number, rutCrudo: string): Promise<void> {
+/** Corre la evaluación completa y aplica lo propuesto a la empresa. No lanza: deja el error en cliente_evaluacion.
+ *  Todo lo que gasta (consultas a MP, IA) queda anotado a ESA empresa y cuenta contra sus topes, aunque la lance el superusuario. */
+export function evaluarEmpresaPorRut(clienteId: number, rutCrudo: string): Promise<void> {
+  return conCliente(clienteId, () => evaluar(clienteId, rutCrudo));
+}
+
+async function evaluar(clienteId: number, rutCrudo: string): Promise<void> {
   const rut = formatearRut(rutCrudo);
   try {
     if (!rut) throw new Error('RUT no válido');
@@ -65,7 +71,10 @@ export async function evaluarEmpresaPorRut(clienteId: number, rutCrudo: string):
       try {
         for (const oc of await mp.listarOrdenesCompraPorProveedor(prov.codigo, f))
           if (oc.Codigo && !codigosOC.includes(oc.Codigo)) codigosOC.push(oc.Codigo);
-      } catch { /* día que falló: se sigue, no vale la pena frenar por uno */ }
+      } catch (e) {
+        if (e instanceof TopeClienteError) throw e; // sin cupo de MP hoy: seguir barriendo días no sirve
+        /* día que falló: se sigue, no vale la pena frenar por uno */
+      }
       if (dias % 10 === 0) await guardarEstado(clienteId, 'EN_CURSO', `Revisando órdenes de compra: ${dias} días, ${codigosOC.length} encontradas`);
       await dormir(PAUSA_MS);
     }

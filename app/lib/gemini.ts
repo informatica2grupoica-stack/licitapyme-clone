@@ -561,6 +561,8 @@ async function intentarCadena(chain: ProveedorTexto[], params: any, reqOpts: any
 // lo espera. La cadena de respaldo se arma igual a partir de ese proveedor (cfgTextoRespaldos ya
 // sabe deduplicar contra el activo), así que un fallo de Kimi cae a DeepSeek/GLM en vez de morir.
 export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeoutMsPrimario?: number; sinRespaldo?: boolean; soloGlm?: boolean; modeloPreferido?: string; proveedorPreferido?: string; deepSeekUltimoRecurso?: boolean; geminiUltimoRecurso?: boolean; deadlineMs?: number; streamIdleMs?: number; streamCapMsPrimario?: number; streamCapMs?: number } = {}) {
+  // Multiempresa: una empresa-cliente que ya gastó su tope mensual de IA no sigue gastando (Grupo ICA no tiene tope).
+  await (await import('@/app/lib/medidor-cliente')).verificarTopeIA();
   const proveedorForzado = opts.proveedorPreferido ? PROVEEDORES_TEXTO[opts.proveedorPreferido] : undefined;
   const activo = proveedorForzado && process.env[proveedorForzado.keyEnv]
     ? proveedorForzado
