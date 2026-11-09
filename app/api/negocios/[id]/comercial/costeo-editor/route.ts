@@ -66,14 +66,23 @@ function sinAccesoCosteo() {
 // no es operador (esOperadorCompras no lo incluye), así que el editor queda congelado y PATCH/PUT lo niegan.
 async function esVisorCompras(userId: number): Promise<boolean> {
   const p = await permisosCrudosDeUsuario(userId);
-  return !!(p.compras_ver || p.compras_todo || p.compras || p.compras_auditor);
+  return !!(p.compras_ver || p.compras_todo || p.compras || p.compras_auditor || p.costeo_ver);
 }
 
 // ¿Puede el perfil de Compras cargar costo real / agregar filas? Solo quien OPERA (compras o ver y
 // operar todo); "solo ver" mira sin tocar. Ver fusionarEdicionCompras para lo que sí puede escribir.
 async function esOperadorCompras(userId: number): Promise<boolean> {
   const p = await permisosCrudosDeUsuario(userId);
+  if (esSoloVerCosteo(p)) return false;
   return !!(p.compras || p.compras_todo);
+}
+
+// `costeo_ver` (09-nov-2026, pedido del dueño): ve el costeo de cualquier negocio SOLO LECTURA, aunque
+// además tenga permisos de operar Compras. Si tiene `costeo_editor`, ese manda (puede trabajarlo).
+// Todo el perfil «Auditor de Compras» (`compras_auditor`) queda igual: ve el costeo, nunca lo edita,
+// aunque se le haya sumado `compras_todo` u otro permiso de operar.
+function esSoloVerCosteo(p: Awaited<ReturnType<typeof permisosCrudosDeUsuario>>): boolean {
+  return !!(p.costeo_ver || p.compras_auditor) && !p.costeo_editor;
 }
 
 async function puedeAgregarFilas(userId: number, rol: string | null): Promise<{ fila: boolean; gasto: boolean; adicional: boolean }> {

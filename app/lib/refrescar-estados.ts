@@ -24,6 +24,8 @@ import { enviarCorreoCambio } from '@/app/lib/email';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { adjudicacionPorCliente, construirConReadjudicacion, enriquecer, guardarCache } from '@/app/lib/adjudicacion';
 import { avisarResultadoLicitacion } from '@/app/lib/avisar-resultado-licitacion';
+import { destinatariosDe, reservarCorreo } from '@/app/lib/avisos-destinatarios';
+import { encolarAvisoWhatsapp } from '@/app/lib/whatsapp-avisos';
 import type { Licitacion } from '@/app/types/mercado-publico.types';
 
 const CODIGO_CONCURRENCIA = 4;       // detalles de MP consultados en paralelo
@@ -61,7 +63,7 @@ async function obtenerConReintento(
 // y difiere del cacheado, se persiste. Publicada(5) no se persiste (no aporta sobre la fecha).
 const ESTADOS_DEFINITIVOS = new Set([6, 7, 8, 18, 19]);
 
-// Estados que DISPARAN CORREO al admin + asignado (decisión del dueño). El resto de terminales
+// Estados que DISPARAN CORREO y WhatsApp a encargado + admins + Compras (decisión del dueño, 09-nov-2026). El resto de terminales
 // (Adjudicada/Suspendida) igual se persisten y avisan por campana, pero sin correo.
 const ESTADOS_CON_CORREO = new Set(['Cerrada', 'Revocada', 'Desierta']);
 
@@ -323,14 +325,9 @@ async function notificarCambioEstado(codigo: string, nombre: string, lic?: Licit
     }
   }
 
-  // Admins (siempre reciben campana; y correo en los estados con correo).
-  // Multi-cliente: solo los de la(s) empresa(s) que trabajan esta licitación — un admin no se entera de lo de otra empresa.
-  const [arows] = await pool.query(
-    `SELECT id, nombre, email, cliente_id FROM usuarios WHERE rol = 'admin' AND activo = TRUE`,
-  ) as any[];
-  const empresasDeLaLicitacion = new Set(negs.map(n => Number(n.cliente_id ?? 1)));
-  const admins = (arows as Array<{ id: number; nombre: string | null; email: string | null; cliente_id: number }>)
-    .filter(a => empresasDeLaLicitacion.has(Number(a.cliente_id)));
+  // Destinatarios (regla única, avisos-reglas.ts): encargado de la licitación + admins + Compras de la(s) empresa(s) que la
+  // trabajan. Multi-cliente: un admin o Compras no se entera de lo de otra empresa.
+  const empresasDeLaLicitacion = [...new Set(negs.map(n => Number(n.cliente_id ?? 1)))];
 
   // 1) Historial de la licitación (actor = Mercado Público). Aparece en el timeline del detalle.
   await registrarActividad({
@@ -340,10 +337,13 @@ async function notificarCambioEstado(codigo: string, nombre: string, lic?: Licit
     metadata: { licitacion_codigo: codigo, estado: nombre },
   });
 
-  // Destinatarios = asignado(s) + admins, deduplicados por id de usuario.
   const dest = new Map<number, { nombre: string | null; email: string | null }>();
-  for (const n of negs) if (n.asignado_a) dest.set(Number(n.asignado_a), { nombre: n.usuario_nombre, email: n.usuario_email });
-  for (const a of admins) dest.set(Number(a.id), { nombre: a.nombre, email: a.email });
+  for (const cid of empresasDeLaLicitacion) {
+    const asignados = negs.filter(n => Number(n.cliente_id ?? 1) === cid).map(n => Number(n.asignado_a));
+    for (const d of await destinatariosDe('estado_mp', cid, asignados)) dest.set(Number(d.id), { nombre: d.nombre, email: d.email });
+  }
+  // El asignado siempre se entera (aunque su ficha no venga en la lista de la empresa).
+  for (const n of negs) if (n.asignado_a && !dest.has(Number(n.asignado_a))) dest.set(Number(n.asignado_a), { nombre: n.usuario_nombre, email: n.usuario_email });
 
   // 2) Campana + SSE.
   const mensaje = `${licNombre} pasó a ${nombre} en Mercado Público`;
@@ -356,15 +356,25 @@ async function notificarCambioEstado(codigo: string, nombre: string, lic?: Licit
     }).catch(() => {});
   }
 
-  // 3) Correo SOLO para Cerrada/Revocada/Desierta, a admins + asignado (best-effort).
+  // 3) Correo y WhatsApp SOLO para Cerrada/Revocada/Desierta (best-effort). El correo lleva freno anti-duplicado.
   if (ESTADOS_CON_CORREO.has(nombre)) {
-    for (const [, u] of dest) {
-      if (!u.email) continue;
-      enviarCorreoCambio({
-        to: u.email, nombre: u.nombre, codigo, licitacionNombre: licNombre,
-        cambios: [{ tipo: 'Estado', detalle: `Estado en Mercado Público: ${nombre}` }],
-        actorNombre: 'Mercado Público',
-      }).catch(() => {});
+    if (process.env.ALERTAS_EMAIL !== 'false') {
+      for (const [uid, u] of dest) {
+        if (!u.email) continue;
+        if (!(await reservarCorreo(`estado_mp:${codigo}:${nombre}:${uid}`))) continue;
+        enviarCorreoCambio({
+          to: u.email, nombre: u.nombre, codigo, licitacionNombre: licNombre,
+          cambios: [{ tipo: 'Estado', detalle: `Estado en Mercado Público: ${nombre}` }],
+          actorNombre: 'Mercado Público',
+        }).catch(() => {});
+      }
+    }
+    for (const cid of empresasDeLaLicitacion) {
+      const asignados = negs.filter(n => Number(n.cliente_id ?? 1) === cid).map(n => Number(n.asignado_a));
+      await encolarAvisoWhatsapp({
+        tipo: 'estado_mp', codigo, nombre: licNombre, detalle: nombre,
+        asignadoId: asignados[0] ?? null, encargadosIds: asignados, clienteId: cid, claveExtra: `${codigo}:${nombre}`,
+      });
     }
   }
 }

@@ -24,6 +24,8 @@ import { construirResumenEjecutivo, type ResumenEjecutivo } from '@/app/lib/entr
 import { obtenerContactosCliente } from '@/app/lib/congelamiento';
 import { enviarAvisoComprasGanado, enviarAvisoOcPorVencer, enviarAvisoPrecompra } from '@/app/lib/email';
 import { publicarCambio } from '@/app/lib/sse-bus';
+import { destinatariosDe } from '@/app/lib/avisos-destinatarios';
+import { encolarAvisoWhatsapp } from '@/app/lib/whatsapp-avisos';
 import { normalizarEstado, getEstadoPipeline } from '@/app/lib/pipeline';
 import { plazoEntregaDetectadoNegocio } from '@/app/lib/compras-agente-documentos';
 import { parsearDiasDeTexto } from '@/app/lib/numeros';
@@ -1836,17 +1838,13 @@ export async function avisarAceptacionOcPorVencer(): Promise<{ revisadas: number
       ) as any;
       if ((ya as any[]).length) continue;
 
-      const ids = new Set<number>();
-      if (r.asignado_a) ids.add(Number(r.asignado_a));
-      for (const c of await listarCoencargados(Number(r.negocio_id))) ids.add(Number(c.id));
-      const [adm] = await pool.query(`SELECT id FROM usuarios WHERE rol = 'admin' AND activo = TRUE`) as any;
-      for (const a of adm as any[]) ids.add(Number(a.id));
-      if (ids.size === 0) continue;
-
-      const [us] = await pool.query(
-        `SELECT id, nombre, email FROM usuarios WHERE id IN (?) AND activo = TRUE`, [[...ids]],
-      ) as any;
-      const [lic] = await pool.query(`SELECT licitacion_nombre AS n FROM negocios WHERE id = ? LIMIT 1`, [r.negocio_id]).catch(() => [[]]) as any;
+      // Quién lo recibe (09-nov-2026, decisión del dueño; avisos-reglas.ts): Compras, la encargada de Mercado Público y los
+      // encargados de esta licitación (asignado y coencargados de Compras). Los admins ya no.
+      const enc = [r.asignado_a, ...(await listarCoencargados(Number(r.negocio_id))).map(c => Number(c.id))].map(Number).filter(Boolean);
+      const [lic] = await pool.query(`SELECT licitacion_nombre AS n, cliente_id AS c FROM negocios WHERE id = ? LIMIT 1`, [r.negocio_id]).catch(() => [[]]) as any;
+      const cid = Number((lic as any[])[0]?.c) || 1;
+      const us = await destinatariosDe('oc_vencer', cid, enc);
+      if (us.length === 0) continue;
       const nombreLic: string | null = (lic as any[])[0]?.n ?? null;
       const dd = limite.slice(0, 10).split('-').reverse().join('-');
       const mensaje = etapa === 'vencida'
@@ -1866,6 +1864,12 @@ export async function avisarAceptacionOcPorVencer(): Promise<{ revisadas: number
           });
         }
       }
+      // WhatsApp: los mismos destinatarios, con «OC por vencer» activado en su perfil. Una vez por OC, etapa y turno.
+      await encolarAvisoWhatsapp({
+        tipo: 'oc_vencer', codigo: cod, nombre: nombreLic, asignadoId: Number(r.asignado_a) || null, encargadosIds: enc, clienteId: cid,
+        ordenCodigo: codigoOc, detalle: etapa === 'vencida' ? `Venció el plazo (límite ${dd}). Acéptala en el portal ya.` : `Vence en menos de ${etapa === 'h3' ? '3' : '24'} horas (límite ${dd} ${limite.slice(11, 16)}).`,
+        claveExtra: `${codigoOc}:${etapa}:${turno}`,
+      });
       res.avisadas++;
     } catch (e) {
       console.error(`[compras] aviso de OC por vencer del negocio ${r.negocio_id} falló:`, String(e).slice(0, 200));

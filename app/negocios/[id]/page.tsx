@@ -743,7 +743,7 @@ function DetalleContent() {
   // useFlujoNegocio es un hook: llamarlo después de un `return` condicional violaría las reglas de
   // hooks (se llamarían menos hooks mientras carga que una vez cargado el negocio).
   const infoComercialLista = tieneInformacionComercial(negocio?.estado_pipeline);
-  const hayCosteo = ((isAdmin && conCosteo) || !!usuario?.permisos?.costeo_editor) && infoComercialLista;
+  const hayCosteo = ((isAdmin && conCosteo) || !!usuario?.permisos?.costeo_editor || !!usuario?.permisos?.costeo_ver) && infoComercialLista;
   const hayAuditorTecnico = ((isAdmin && conAuditor) || !!usuario?.permisos?.auditor_tecnico) && infoComercialLista;
   // Costeo en un negocio DESCARTADO (19-oct-2026, pedido explícito): el admin lo sigue viendo en todo el
   // proceso, y lo puede editar igual que en las demás etapas.

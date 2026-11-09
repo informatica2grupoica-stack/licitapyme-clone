@@ -3,6 +3,13 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-09 — Permiso `costeo_ver` («Costeo — solo ver»): Carla (id 31) no podía abrir el costeo (`api-auth.ts`, `costeo-editor/route.ts`, `negocios/[id]/page.tsx`, `admin/usuarios`, `modulos.ts`; tsc sin errores propios, SIN probar con su sesión ni desplegar)
+- Causa: tenía `costeo_editor` → el GET la trataba de editora y exigía ser admin/asignada/`ver_otros_negocios` → 403 en negocios ajenos. Además `compras_todo` la hacía operadora (podía editar Costo REAL/Links por PATCH).
+- Regla: `costeo_ver` sin `costeo_editor` = solo lectura total (congelado, `modoCompras` false, `esOperadorCompras` false → PATCH 403). `costeo_editor` manda sobre `costeo_ver`. Admin lo hereda.
+- Ampliado el mismo día (pedido del dueño): TODO el perfil Auditor de Compras (`compras_auditor`) ve el costeo solo lectura, aunque tenga `compras_todo`/`compras` (`esSoloVerCosteo` en `costeo-editor/route.ts`). `costeo_ver` queda para dar solo-vista a quien no es auditor.
+- Datos: a Carla se le quitó `costeo_editor`, `costeo_agregar_fila` y `costeo_agregar_adicional` y se le puso `costeo_ver` (BD del VPS). Consecuencia: ya no carga Costo REAL desde Compras.
+- Pendiente: desplegar y que ella pruebe (pestaña Costeo en /negocios/[id] y «Ver costeo» en Compras).
+
 ## 2026-11-09 — Plazo para aceptar la OC: «2 hábiles» (sin la palabra «días») se leía como 2 corridos (1145-64-LE26, negocio 1192)
 - OC emitida viernes 06-11; bases dicen «2 hábiles». `interpretarPlazoOfertado` (`compras-reloj-sugerido.ts`) exigía «días», no lo encontraba y caía a CORRIDOS → límite domingo 08-11 y aviso «Venció el plazo» falso. Ahora acepta «N hábiles» / «N corridos» solas: límite = martes 10-11 (fin de semana no corre).
 - Sin desplegar. El aviso ya enviado queda en la campana; no se borró.
@@ -447,3 +454,8 @@ re-homologarlas** (y lo hecho antes en otros negocios con cantidades no exactas 
 - Pestaña nueva junto a «Todas»: arriba «Por aceptar» (la que vence antes primero; etiqueta «Vence hoy HH:mm», «Vence en N d», «Venció hace…»; sin negocio enganchado = «Plazo sin calcular», al final) y abajo «Aceptadas» (más recientes primero). Límite = el mismo `ocLimite` del Gantt y de los avisos. Solo nuestras OC, últimos 120 días, sin canceladas.
 - Aceptada = fecha de MP, `oc_aceptada_at`, tarea `aceptar_oc` HECHA o estado 6/12/13/14/15.
 - Pendiente: consulta SQL y pantalla sin probar contra la BD ni ver en navegador (solo `tsc` limpio).
+
+## Ver la OC = solo lectura para todo el que vea Compras (09-nov-2026)
+- Decision del dueno: todos los perfiles que ven Compras (area compras, admin, administracion, bodega, compras_ver, Auditor acotado) pueden ver/abrir/descargar la OC.
+- Cambio: GET `orden-compra-obuma/documento`, GET `orden-compra-obuma/detalle` y GET `reparto` usan `puedeVerCompras` (antes `puedeOperarCompras`/`puedeOperarReparto`, que dejaban a administracion/bodega/compras_ver con 403 en "Ver OC"). Escrituras (emitir OC, pagos) siguen igual.
+- Sin probar en navegador con un usuario de cada perfil.

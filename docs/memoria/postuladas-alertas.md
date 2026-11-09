@@ -11,15 +11,27 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
 - Revocada/Desierta: estados de pipeline propios, fuera de Postuladas y KPIs (ver
   `auditor.md`).
 - Alerta de apertura solo para POSTULADAS.
-- Avisos de ganada/perdida/apertura: campana + correo al asignado y a los admins.
+- **A QUIÉN le llega cada alerta (09-nov-2026, decisión del dueño; correo y WhatsApp igual).** Una sola regla en
+  `app/lib/avisos-reglas.ts`; Compras y Mercado Público se reconocen por el campo **Área** del perfil (texto libre en
+  Admin > Usuarios: «Compras», «Mercado Público»; se compara sin tildes ni mayúsculas), no por nombres en el código:
+  ganada / perdida / cerrada-revocada-desierta → encargado de la licitación + admins + Compras;
+  apertura → encargado + Compras + Mercado Público; orden de compra y OC por vencer → encargado (comercial y de Compras) + Compras
+  + Mercado Público (los admins ya NO); cierra pronto → encargado + Mercado Público (admins ya NO); digest del radar → solo admins.
+  Un asistente solo se entera de SUS licitaciones. El WhatsApp además exige tener el aviso activado en el perfil: ganada, perdida y
+  apertura vienen encendidos; los demás (estado, OC, OC por vencer, cierra pronto, radar) nacen apagados y los autoriza el admin.
+  Cierra pronto y radar van a WhatsApp como UN resumen por corrida, no uno por licitación (el número es no oficial: riesgo de bloqueo).
+  Correo de ganada/perdida/apertura/estado con freno anti-duplicado (`avisos_correo_enviados`, migration-182). Falta: aplicar
+  migration-182 en el VPS, poner el Área a María Elena y Carolina Sepúlveda («Compras») y a Carolina González («Mercado Público»),
+  y encender los avisos nuevos de WhatsApp por perfil. Sin desplegar ni probado en vivo. El aviso de cambio de fecha de cierre y
+  los de Compras (aprobaciones) no se tocaron.
 - **Nunca avisar por vista de pantalla**: que alguien abra Postuladas no puede disparar ni
   «consumir» un aviso; el aviso lo da el cron. Mismo blindaje para Adjudicada, Revocada, Desierta,
   Cerrada, Suspendida y apertura.
 - **Una orden de compra nunca se revincula a otra licitación**: es un hecho histórico. Lo que sí
   se hace es copiarla como documento de experiencia a otra licitación.
 - Las OC alimentan los certificados de experiencia: se guardan comprador, montos e ítems.
-- **Aviso de OC nueva o con cambio de estado (campana + correo): admins + asignado del radar +
-  encargado principal y coencargados de Compras de esa licitación** (2026-11-03, tras 4152-22-LE26:
+- **Aviso de OC nueva o con cambio de estado (campana + correo): [desde el 09-nov solo Compras + Mercado Público + encargados, ver arriba; antes admins + asignado del radar +
+  encargado principal y coencargados de Compras de esa licitación]** (2026-11-03, tras 4152-22-LE26:
   la OC llegó y los encargados de Compras no recibieron correo). Va en `avisarOrdenes`
   (`app/lib/ordenes-compra.ts`). Sin desplegar ni probado en vivo. Este aviso solo sale desde el
   cron de OC; el enganche de pendientes de Compras no manda correo.

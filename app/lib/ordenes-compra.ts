@@ -31,6 +31,7 @@ import { ahoraChileSQL } from '@/app/lib/tz';
 import { MP_UA, fetchMPConReintentos } from '@/app/lib/mp-adjuntos';
 import { vincularOrdenCompraDeMP, claveLicitacionSinTipo } from '@/app/lib/compras';
 import { encolarAvisoWhatsapp } from '@/app/lib/whatsapp-avisos';
+import { destinatariosDe } from '@/app/lib/avisos-destinatarios';
 import type { OrdenCompraAPI } from '@/app/types/mercado-publico.types';
 
 // Códigos de estado de la API (documentación de ChileCompra). Se guardan los dos: el código es
@@ -357,10 +358,12 @@ export async function sincronizarOrdenesCompra(
     const { eventos, correos } = await avisarOrdenes(avisos);
     resumen.eventos = eventos;
     resumen.correos = correos;
-    // WhatsApp (04-nov-2026): solo las órdenes NUEVAS (no cada cambio de estado), y solo a los perfiles a los que el admin les
-    // activó «Orden de compra». Best-effort: encolarAvisoWhatsapp nunca lanza.
+    // WhatsApp: solo las órdenes NUEVAS (no cada cambio de estado), a los mismos destinatarios que el correo y solo si tienen
+    // activado «Orden de compra» en su perfil. Best-effort: encolarAvisoWhatsapp nunca lanza.
     for (const a of avisos.filter(x => x.esNueva)) {
+      const encCompras = await encargadosComprasDe(a.negocio.licitacion_codigo);
       await encolarAvisoWhatsapp({
+        encargadosIds: encCompras,
         tipo: 'oc', codigo: a.negocio.licitacion_codigo, nombre: a.negocio.licitacion_nombre,
         organismo: a.oc.Comprador?.NombreOrganismo || null, monto: num(a.oc.Total),
         asignadoId: a.negocio.asignado_a, clienteId: Number(a.negocio.cliente_id) || 1, ordenCodigo: a.oc.Codigo || null,
@@ -523,6 +526,19 @@ export async function descargarPdfsPendientes(max = 20): Promise<{ ok: number; f
   return stats;
 }
 
+/** Encargado y coencargados de Compras de una licitación (también tienen que enterarse de que llegó la orden). */
+async function encargadosComprasDe(codigo: string): Promise<number[]> {
+  try {
+    const [erows] = await pool.query(
+      `SELECT ca.asignado_a AS uid FROM compras_asignacion ca WHERE ca.licitacion_codigo = ? AND ca.asignado_a IS NOT NULL
+       UNION
+       SELECT cc.usuario_id AS uid FROM compras_coencargado cc JOIN compras_asignacion ca ON ca.negocio_id = cc.negocio_id WHERE ca.licitacion_codigo = ?`,
+      [codigo, codigo],
+    ) as any[];
+    return (erows as any[]).map(r => Number(r.uid));
+  } catch { return []; }
+}
+
 // ── Campana + correo ───────────────────────────────────────────────────────────────────────
 // Mismo patrón que cierres-proximos.ts: evento en historial_eventos (que además empuja el SSE a la
 // campana) para el perfil asignado y para cada admin, y un correo por destinatario. El kill-switch
@@ -535,12 +551,6 @@ async function avisarOrdenes(
   let correos = 0;
 
   try {
-    const [arows] = await pool.query(
-      `SELECT id, nombre, email FROM usuarios WHERE rol = 'admin' AND activo = TRUE`,
-    ) as any[];
-    const admins = arows as Array<{ id: number; nombre: string | null; email: string | null }>;
-    const adminIds = new Set(admins.map(a => Number(a.id)));
-
     // Encargados del módulo de Compras de cada licitación (principal + coencargados): también
     // tienen que enterarse de que llegó la orden, no solo el asignado del radar y los admin.
     const encargadosCompras = new Map<string, Set<number>>();
@@ -563,20 +573,6 @@ async function avisarOrdenes(
       }
     } catch (e) { console.warn('[ordenes-compra] no se pudieron leer los encargados de Compras:', String(e).slice(0, 150)); }
 
-    // Perfiles asignados que no son admin (los admin ya reciben todo).
-    const idsAsignados = [...new Set([
-      ...avisos.map(a => a.negocio.asignado_a),
-      ...[...encargadosCompras.values()].flatMap(s => [...s]),
-    ].filter((x): x is number => !!x && !adminIds.has(x)))];
-    const perfiles = new Map<number, { nombre: string | null; email: string | null }>();
-    if (idsAsignados.length) {
-      const ph = idsAsignados.map(() => '?').join(',');
-      const [urows] = await pool.query(
-        `SELECT id, nombre, email FROM usuarios WHERE id IN (${ph}) AND activo = TRUE`, idsAsignados,
-      ) as any[];
-      for (const u of urows as any[]) perfiles.set(Number(u.id), { nombre: u.nombre, email: u.email });
-    }
-
     const mensajeDe = (a: typeof avisos[number]) => {
       const estado = ESTADOS_OC[Number(a.oc.CodigoEstado)] || (a.oc as any).Estado || 'sin estado';
       const nom = a.negocio.licitacion_nombre || a.negocio.licitacion_codigo;
@@ -596,15 +592,12 @@ async function avisarOrdenes(
       if (!g) { g = { nombre, email, esAdmin, items: [] }; porDestinatario.set(uid, g); }
       g.items.push(a);
     };
+    // Quién recibe la orden (09-nov-2026, decisión del dueño; avisos-reglas.ts): Compras, la encargada de Mercado Público y
+    // los encargados de esa licitación (el comercial asignado + el encargado y coencargados de Compras). Los admins ya no.
     for (const a of avisos) {
-      const ids = new Set<number>(encargadosCompras.get(a.negocio.licitacion_codigo) ?? []);
-      if (a.negocio.asignado_a) ids.add(Number(a.negocio.asignado_a));
-      for (const uid of ids) {
-        if (adminIds.has(uid) || !perfiles.has(uid)) continue;
-        const p = perfiles.get(uid)!;
-        push(uid, p.nombre, p.email, false, a);
-      }
-      for (const ad of admins) push(Number(ad.id), ad.nombre, ad.email, true, a);
+      const cid = Number(a.negocio.cliente_id) || 1;
+      const enc = [a.negocio.asignado_a, ...(encargadosCompras.get(a.negocio.licitacion_codigo) ?? [])];
+      for (const d of await destinatariosDe('oc', cid, enc)) push(Number(d.id), d.nombre, d.email, d.rol === 'admin', a);
     }
     if (planos.length === 0) return { eventos: 0, correos: 0 };
 

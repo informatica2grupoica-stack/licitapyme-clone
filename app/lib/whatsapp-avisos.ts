@@ -55,32 +55,44 @@ export interface EventoAviso {
   nombre: string | null;
   organismo?: string | null;
   monto?: number | null;
+  /** Encargado comercial de la licitación (el asignado del negocio). */
   asignadoId: number | null;
+  /** Otros encargados de ESA licitación (encargado y coencargados de Compras). */
+  encargadosIds?: number[];
   clienteId: number;
-  /** Solo en 'oc': código de la orden (va en la clave: cada orden se avisa una vez por persona). */
+  /** Solo en 'oc' y 'oc_vencer': código de la orden (va en la clave: cada orden se avisa una vez por persona). */
   ordenCodigo?: string | null;
+  /** Texto propio del tipo (estado, plazo, cierre o resumen); ver redactarAviso. */
+  detalle?: string | null;
+  /** Para que el mismo aviso pueda repetirse legítimamente (p. ej. «oc_vencer»: una vez por turno y etapa). Va en la clave. */
+  claveExtra?: string;
+  /** Resúmenes por persona: el llamador ya decidió quién recibe; solo se aplican perfil, cuenta y celular. */
+  destinoIds?: number[];
 }
 
 export async function encolarAvisoWhatsapp(ev: EventoAviso): Promise<number> {
   try {
     if (!whatsappConfigurado()) return 0;
-    // Todo el equipo activo es candidato: cada perfil recibe lo que tenga activado, de toda la empresa (ver elegirDestinatarios).
+    // Candidatos = equipo activo de la empresa; quién recibe cada alerta lo decide avisos-reglas.ts y cada perfil
+    // además tiene que tener el aviso activado (ver elegirDestinatarios).
     const [rows] = await pool.query(
-      `SELECT id, nombre, rol, activo, telefono FROM usuarios WHERE cliente_id = ? AND activo = TRUE`,
+      `SELECT id, nombre, rol, area, activo, telefono FROM usuarios WHERE cliente_id = ? AND activo = TRUE`,
       [ev.clienteId],
     ) as any[];
-    const candidatos = rows as Destinatario[];
+    let candidatos = rows as Destinatario[];
+    if (ev.destinoIds) { const ids = new Set(ev.destinoIds.map(Number)); candidatos = candidatos.filter(c => ids.has(Number(c.id))); }
     const prefs = await prefsDe(candidatos.map(c => Number(c.id)));
-    const destinos = elegirDestinatarios(ev.tipo, ev.asignadoId, candidatos, prefs);
+    const destinos = elegirDestinatarios(ev.tipo, [ev.asignadoId, ...(ev.encargadosIds ?? [])], candidatos, prefs, { omitirAudiencia: !!ev.destinoIds });
     let nuevos = 0;
     for (const d of destinos) {
       const texto = redactarAviso({
         tipo: ev.tipo, codigo: ev.codigo, licitacionNombre: ev.nombre, organismo: ev.organismo, monto: ev.monto,
-        nombreDestinatario: d.nombre, urlBase: process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000', ordenCodigo: ev.ordenCodigo,
+        nombreDestinatario: d.nombre, urlBase: process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000', ordenCodigo: ev.ordenCodigo, detalle: ev.detalle,
       });
+      const base = ev.claveExtra ?? ((ev.tipo === 'oc' || ev.tipo === 'oc_vencer') && ev.ordenCodigo ? ev.ordenCodigo : ev.codigo);
       const [r] = await pool.query(
         `INSERT IGNORE INTO whatsapp_cola (cliente_id, usuario_id, telefono, tipo, licitacion_codigo, clave, texto, creado_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [ev.clienteId, d.id, d.telefonoNormalizado, ev.tipo, ev.codigo, claveAviso(ev.tipo, ev.tipo === 'oc' && ev.ordenCodigo ? ev.ordenCodigo : ev.codigo, Number(d.id)), texto, ahoraChileSQL()],
+        [ev.clienteId, d.id, d.telefonoNormalizado, ev.tipo, ev.codigo, claveAviso(ev.tipo, base, Number(d.id)), texto, ahoraChileSQL()],
       ) as any[];
       nuevos += Number((r as any).affectedRows) || 0;
     }

@@ -6,7 +6,7 @@ import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { obtenerReparto, marcarHitoReparto, marcarHitoNoAplica, listarRespaldosHito, type HitoReparto } from '@/app/lib/compras-reparto';
-import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
+import { puedeOperarCompras, puedeVerCompras } from '@/app/api/compras/[negocioId]/route';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { errorDeArchivoSubido } from '@/app/lib/subidas';
@@ -45,7 +45,8 @@ export async function GET(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarReparto(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
+    // GET = solo lectura: la tarjeta de órdenes la ve quien puede ver Compras (las escrituras siguen con puedeOperarReparto).
+    if (!(await puedeVerCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const [reparto, respaldos] = await Promise.all([obtenerReparto(id), listarRespaldosHito(id)]);

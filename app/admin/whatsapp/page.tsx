@@ -13,7 +13,7 @@ interface Datos {
   resumen?: { pendientes: number; errores: number; enviadosHoy: number; topeDiario: number; ultimos: Fila[] } | null;
 }
 
-const TIPO: Record<string, string> = { ganada: 'Ganada', perdida: 'Perdida', apertura: 'Apertura' };
+const TIPO: Record<string, string> = { ganada: 'Ganada', perdida: 'Perdida', estado_mp: 'Cerrada/revocada/desierta', apertura: 'Apertura', oc: 'Orden de compra', oc_vencer: 'OC por vencer', cierra_pronto: 'Cierra pronto', radar: 'Radar' };
 const ESTADO: Record<string, string> = { pendiente: 'text-amber-600', enviado: 'text-emerald-600', error: 'text-red-600' };
 const fmtNumero = (n: string | null | undefined) => (n && /^56\d{9}$/.test(n) ? `+56 ${n[2]} ${n.slice(3, 7)} ${n.slice(7)}` : n ? `+${n}` : '');
 
@@ -74,7 +74,7 @@ export default function AvisosWhatsappPage() {
           <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600"><Whatsapp size={20} /></div>
           <div>
             <h1 className="text-[15px] font-bold text-slate-900">Avisos por WhatsApp</h1>
-            <p className="text-xs text-slate-500">Desde el número de la empresa, al equipo: licitaciones ganadas, perdidas y aperturas</p>
+            <p className="text-xs text-slate-500">Desde el número de la empresa, a quien corresponde: ganadas, perdidas, estados, aperturas, órdenes de compra, cierres y radar</p>
           </div>
         </div>
 

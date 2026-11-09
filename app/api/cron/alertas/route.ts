@@ -24,6 +24,7 @@ import { indexarLicitacion, evaluarKeyword, normalizar, tokenizar, type Licitaci
 import { leerCache, planificarEnriquecimiento, enriquecerYCachear } from '@/app/lib/licitaciones-cache';
 import { matchearEInsertar } from '@/app/lib/radar-matching';
 import { enviarDigestRadar } from '@/app/lib/email';
+import { encolarAvisoWhatsapp } from '@/app/lib/whatsapp-avisos';
 import { avisarCierresProximos } from '@/app/lib/cierres-proximos';
 import { procesarPostuladas } from '@/app/lib/procesar-postuladas';
 import { refrescarEstadosRadar, marcarCerradasPorFecha } from '@/app/lib/refrescar-estados';
@@ -513,37 +514,49 @@ export async function GET(request: NextRequest) {
       console.warn(`[Cron] ⏭ Enrichment de fondo omitido — sin presupuesto (${presupuesto}ms)`);
     }
 
-    // ── Paso 6: Digest por correo a cada perfil con licitaciones nuevas ────────
-    // Un solo correo por usuario con SUS coincidencias nuevas de esta corrida. Se
+    // ── Paso 6: Digest (correo + WhatsApp) SOLO a los administradores ──────────
+    // Decisión del dueño (09-nov-2026): el resumen de licitaciones nuevas del radar le llega solo a los admins; los asistentes
+    // ven sus coincidencias dentro de la app. Un solo correo por admin con SUS coincidencias nuevas de esta corrida. Se
     // determina "nuevas" por created_at dentro de la ventana del run (INTERVAL desde
     // NOW() del servidor de BD → sin depender del reloj de la app). Best-effort: si
     // falla el envío o falta SMTP, NO rompe el cron (el radar ya tiene las alertas).
     // Kill-switch: ALERTAS_EMAIL=false lo desactiva.
-    if (process.env.ALERTAS_EMAIL !== 'false') {
+    {
       try {
+        const emailActivo = process.env.ALERTAS_EMAIL !== 'false';
         const cutoffSeg = Math.ceil(elapsed() / 1000) + 120; // duración del run + margen
         const [nuevasRows] = await pool.query(
-          `SELECT a.usuario_id, u.email, u.nombre,
+          `SELECT a.usuario_id, u.email, u.nombre, u.cliente_id,
                   a.licitacion_codigo, a.licitacion_nombre, a.licitacion_organismo,
                   a.licitacion_monto, a.licitacion_cierre, a.keyword_texto
            FROM alertas_licitaciones a
            JOIN usuarios u ON u.id = a.usuario_id AND u.activo = TRUE
            WHERE a.created_at >= (NOW() - INTERVAL ? SECOND)
-             AND u.email IS NOT NULL AND u.email <> ''
+             AND u.rol = 'admin'
            ORDER BY a.usuario_id, a.created_at DESC`,
           [cutoffSeg],
         ) as any[];
 
         // Agrupar por usuario (unique_alerta garantiza 1 fila por usuario+código).
-        const porUsuario = new Map<number, { email: string; nombre: string | null; items: any[] }>();
+        const porUsuario = new Map<number, { email: string | null; nombre: string | null; clienteId: number; items: any[] }>();
         for (const r of nuevasRows as any[]) {
           let g = porUsuario.get(r.usuario_id);
-          if (!g) { g = { email: r.email, nombre: r.nombre, items: [] }; porUsuario.set(r.usuario_id, g); }
+          if (!g) { g = { email: r.email, nombre: r.nombre, clienteId: Number(r.cliente_id) || 1, items: [] }; porUsuario.set(r.usuario_id, g); }
           g.items.push(r);
         }
 
         const TOP = 12; // máximo de licitaciones listadas en el correo (el resto va como "+N más")
-        for (const [, g] of porUsuario) {
+        const corrida = new Date().toISOString().slice(0, 16);
+        for (const [uid, g] of porUsuario) {
+          // WhatsApp: UN resumen por corrida, solo si el admin tiene «Licitaciones nuevas del radar» activado en su perfil.
+          const lista = g.items.slice(0, 5).map(r => `• ${String(r.licitacion_nombre || r.licitacion_codigo).trim().slice(0, 70)} (${r.licitacion_codigo})`);
+          if (g.items.length > 5) lista.push(`… y ${g.items.length - 5} más`);
+          await encolarAvisoWhatsapp({
+            tipo: 'radar', codigo: 'RADAR', nombre: null, asignadoId: uid, clienteId: g.clienteId, destinoIds: [uid],
+            detalle: `${g.items.length} licitación${g.items.length !== 1 ? 'es' : ''} nueva${g.items.length !== 1 ? 's' : ''} que calza${g.items.length !== 1 ? 'n' : ''} con tus palabras clave:\n${lista.join('\n')}`,
+            claveExtra: `radar-${corrida}`,
+          });
+          if (!emailActivo || !g.email) continue;
           const enviado = await enviarDigestRadar({
             to: g.email, nombre: g.nombre,
             totalNuevas: g.items.length,

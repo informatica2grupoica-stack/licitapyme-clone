@@ -6,8 +6,8 @@
 //     los 13; 6 días → avisa a los ~4).
 //   · Piso de seguridad: si faltan ≤ `horas` (72 por defecto) para el cierre, avisa
 //     igual — cubre las que no tienen fecha de publicación y los plazos muy cortos.
-// Por cada una se empuja UNA notificación a la campana del perfil asignado y se manda un
-// correo digest por perfil. Dedup vía historial_eventos: no se re-avisa la misma en días.
+// Por cada una se empuja UNA notificación a la campana del encargado y de la encargada de Mercado Público, con un
+// correo digest (y un resumen por WhatsApp, si lo tienen activado) por persona. Los admins ya no reciben este aviso (09-nov-2026). Dedup vía historial_eventos: no se re-avisa la misma en días.
 //
 // Se engancha al cron existente (/api/cron/alertas), como paso final best-effort: si algo
 // falla (tabla faltante, SMTP), NO rompe el cron.
@@ -16,6 +16,8 @@ import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { publicar } from '@/app/lib/sse-bus';
 import { enviarDigestCierresProximos } from '@/app/lib/email';
+import { destinatariosDe } from '@/app/lib/avisos-destinatarios';
+import { encolarAvisoWhatsapp } from '@/app/lib/whatsapp-avisos';
 
 // Estados que "cierran el ciclo" → ya no se avisa (mismos que el modal de vencidas).
 const ESTADOS_RESUELTOS = ['POSTULADA', 'DESCARTADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA', 'REVOCADA', 'DESIERTA'];
@@ -101,13 +103,15 @@ export async function avisarCierresProximos(horas = 72): Promise<{ eventos: numb
     });
     if (filas.length === 0) return { eventos: 0, correos: 0 };
 
-    // Admins activos: reciben TODAS las licitaciones por cerrar del equipo, etiquetadas con
-    // el perfil responsable. Los perfiles no-admin reciben solo las suyas.
-    // Multi-cliente: «del equipo» es el de SU empresa — un admin jamás recibe lo de otra.
-    const [arows] = await pool.query(
-      `SELECT id, nombre, email, cliente_id FROM usuarios WHERE rol = 'admin' AND activo = TRUE`,
-    ) as any[];
-    const admins = arows as Array<{ id: number; nombre: string | null; email: string | null; cliente_id: number }>;
+    // Quién recibe «cierra pronto» (09-nov-2026, decisión del dueño; avisos-reglas.ts): el encargado de la licitación y la
+    // encargada de Mercado Público (Área del perfil), que recibe las de todos los asistentes etiquetadas con el responsable.
+    // Los admins ya no. Multi-cliente: «MP» es el de SU empresa.
+    const clientes = [...new Set(filas.map(f => Number(f.cliente_id ?? 1)))];
+    const equipoMp = new Map<number, Array<{ id: number; nombre: string | null; email: string | null }>>();
+    for (const cid of clientes) {
+      const todos = await destinatariosDe('cierra_pronto', cid, []); // sin encargados: solo quedan los de Mercado Público
+      equipoMp.set(cid, todos.map(p => ({ id: Number(p.id), nombre: p.nombre, email: p.email })));
+    }
 
     // Dedup POR DESTINATARIO (código+usuario avisado en los últimos 3 días). Un solo query
     // para todos los códigos en ventana; se arma un Set `codigo|uid`.
@@ -124,27 +128,21 @@ export async function avisarCierresProximos(horas = 72): Promise<{ eventos: numb
       for (const h of hrows as any[]) yaAvisado.add(`${h.licitacion_codigo}|${h.usuario_id}`);
     } catch { /* si falla, no deduplica (peor caso: re-aviso) */ }
 
-    // Fan-out: cada fila va a su perfil asignado (sin etiqueta) y a cada admin (etiquetada
-    // con el perfil), saltando a quien ya se le avisó en los últimos 3 días.
+    // Fan-out: cada fila va a su encargado (sin etiqueta) y a cada persona de Mercado Público de su empresa (etiquetada con el
+    // perfil responsable), saltando a quien ya se le avisó en los últimos 3 días.
     type Item = { fila: FilaCierre; perfil: string | null };
     const destinatarios = new Map<number, { nombre: string | null; email: string | null; esAdmin: boolean; clienteId: number; items: Item[] }>();
-    const push = (uid: number, nombre: string | null, email: string | null, esAdmin: boolean, it: Item) => {
+    const push = (uid: number, nombre: string | null, email: string | null, it: Item) => {
       if (yaAvisado.has(`${it.fila.licitacion_codigo}|${uid}`)) return;
       let g = destinatarios.get(uid);
-      if (!g) { g = { nombre, email, esAdmin, clienteId: Number(it.fila.cliente_id ?? 1), items: [] }; destinatarios.set(uid, g); }
+      if (!g) { g = { nombre, email, esAdmin: false, clienteId: Number(it.fila.cliente_id ?? 1), items: [] }; destinatarios.set(uid, g); }
       g.items.push(it);
     };
-    const adminIds = new Set(admins.map(a => Number(a.id)));
     for (const f of filas) {
-      // Perfil asignado (si no es admin: los admins reciben el digest global etiquetado).
-      if (!adminIds.has(Number(f.asignado_a))) {
-        push(Number(f.asignado_a), f.nombre, f.email, false, { fila: f, perfil: null });
-      }
-      // Cada admin recibe TODAS, etiquetadas con el perfil responsable.
-      for (const a of admins) {
-        if (Number(a.cliente_id) !== Number(f.cliente_id)) continue; // solo los admin de la MISMA empresa
-        const propia = Number(a.id) === Number(f.asignado_a);
-        push(Number(a.id), a.nombre, a.email, true, { fila: f, perfil: propia ? null : (f.nombre || null) });
+      push(Number(f.asignado_a), f.nombre, f.email, { fila: f, perfil: null });
+      for (const m of equipoMp.get(Number(f.cliente_id ?? 1)) ?? []) {
+        if (m.id === Number(f.asignado_a)) continue; // ya la recibe como encargada
+        push(m.id, m.nombre, m.email, { fila: f, perfil: f.nombre || null });
       }
     }
     if (destinatarios.size === 0) return { eventos: 0, correos: 0 };
@@ -193,7 +191,7 @@ export async function avisarCierresProximos(horas = 72): Promise<{ eventos: numb
       for (const [, g] of destinatarios) {
         if (!g.email) continue;
         const enviado = await enviarDigestCierresProximos({
-          to: g.email, nombre: g.nombre, horas, esAdmin: g.esAdmin,
+          to: g.email, nombre: g.nombre, horas, esAdmin: g.items.some(it => !!it.perfil),
           licitaciones: g.items.slice(0, TOP_CORREO).map(it => ({
             codigo: it.fila.licitacion_codigo, nombre: it.fila.licitacion_nombre,
             organismo: it.fila.licitacion_organismo, monto: it.fila.licitacion_monto,
@@ -203,6 +201,17 @@ export async function avisarCierresProximos(horas = 72): Promise<{ eventos: numb
         });
         if (enviado) correos++;
       }
+    }
+
+    // WhatsApp: el mismo destinatario, UN resumen por corrida (no uno por licitación) y solo si tiene «Cierra pronto» activado.
+    const corrida = ahora.slice(0, 16);
+    for (const [uid, g] of destinatarios) {
+      const lista = g.items.slice(0, 8).map(it => `• ${(it.fila.licitacion_nombre || it.fila.licitacion_codigo).trim().slice(0, 70)} (${it.fila.licitacion_codigo}) — cierra ${fmtHoraCL(it.fila.licitacion_cierre)}${it.perfil ? ` · ${it.perfil}` : ''}`);
+      if (g.items.length > 8) lista.push(`… y ${g.items.length - 8} más`);
+      await encolarAvisoWhatsapp({
+        tipo: 'cierra_pronto', codigo: 'CIERRA-PRONTO', nombre: null, asignadoId: uid, clienteId: g.clienteId,
+        destinoIds: [uid], detalle: lista.join('\n'), claveExtra: `cierra-${corrida}`,
+      });
     }
   } catch (e) {
     console.error('[cierres-proximos] falló (no crítico):', String(e));

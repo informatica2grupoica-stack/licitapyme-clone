@@ -39,6 +39,7 @@ export interface UsuarioSession {
     // Costeo del sistema y Auditor Técnico del negocio (28-sep-2026): admin-only por defecto,
     // estos dos permisos dejan trabajarlos a un asistente puntual sin abrirlos a todos.
     costeo_editor?: boolean;
+    costeo_ver?: boolean;
     auditor_tecnico?: boolean;
     // Auditor de Compra del negocio (28-sep-2026): mismo criterio, gateado por hayGanado en vez
     // de infoComercialLista.

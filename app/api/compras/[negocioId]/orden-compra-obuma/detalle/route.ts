@@ -5,7 +5,7 @@ import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { ordenesCompraParaVista } from '@/app/lib/compras-oc-obuma';
-import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
+import { puedeVerCompras } from '@/app/api/compras/[negocioId]/route';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,7 +29,8 @@ export async function GET(request: NextRequest, { params }: Params) {
   try {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
-    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
+    // Solo lectura: cualquiera que pueda ver Compras abre la OC.
+    if (!(await puedeVerCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const ordenes = await ordenesCompraParaVista(id);

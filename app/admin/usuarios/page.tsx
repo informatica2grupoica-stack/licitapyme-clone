@@ -5,6 +5,7 @@ import { AppLayout } from '@/app/components/AppLayout';
 import { IconUsers as Users, IconPlus as Plus, IconShieldCheck as ShieldCheck, IconUser as User, IconCircleCheck as CheckCircle, IconCircleX as XCircle, IconLoader2 as Loader2, IconTrash as Trash2, IconEdit as Edit3, IconX as X, IconAlertCircle as AlertCircle, IconMail as Mail, IconLock as Lock, IconBriefcase as Briefcase, IconEye as Eye, IconEyeOff as EyeOff, IconCalendar as Calendar, IconSparkles as Sparkles, IconSchool as GraduationCap, IconPhone as Phone, IconId as IdCard, IconBadge as Badge, IconBrandWhatsapp as Whatsapp } from '@tabler/icons-react';
 import { formatearRut, formatearTelefono } from '@/app/lib/perfil-datos';
 import { TIPOS_AVISO, type TipoAviso } from '@/app/lib/whatsapp-avisos-core';
+import { alertaAplicaAPerfil } from '@/app/lib/avisos-reglas';
 import { useSession } from '@/app/lib/session-context';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
@@ -30,6 +31,7 @@ interface Permisos {
   compras_ver?: boolean;
   compras_auditor?: boolean;
   costeo_editor?: boolean;
+  costeo_ver?: boolean;
   auditor_tecnico?: boolean;
   auditor_compra?: boolean;
   auditor_aprobar?: boolean;
@@ -77,7 +79,8 @@ const CATEGORIAS_PERMISOS: { key: CategoriaPermiso; label: string; resumen: stri
 const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string; categoria: CategoriaPermiso }[] = [
   // ── Auditor y Anexos ──
   { key: 'costeo_editor',       label: 'Costeo',                         desc: 'Ve y guarda la pestaña "Costeo" del negocio.', categoria: 'auditor' },
-  { key: 'costeo_exportar',     label: 'Exportar costeo a Excel',        desc: 'Botón "Exportar Excel" del Costeo digital (requiere también el permiso Costeo para abrir la pestaña).', categoria: 'auditor' },
+  { key: 'costeo_ver',          label: 'Costeo — solo ver',              desc: 'Ve la pestaña "Costeo" de cualquier negocio sin poder modificar nada (ni Costo REAL ni Links ni filas). Si tiene "Costeo" completo, ese manda.', categoria: 'auditor' },
+  { key: 'costeo_exportar',    label: 'Exportar costeo a Excel',        desc: 'Botón "Exportar Excel" del Costeo digital (requiere también el permiso Costeo para abrir la pestaña).', categoria: 'auditor' },
   { key: 'costeo_agregar_fila',      label: 'Costeo: Agregar fila',           desc: 'Botón "Agregar fila" del Costeo digital: un ítem ofertado (con precio de venta). En Compras también lo guarda.', categoria: 'auditor' },
   { key: 'costeo_agregar_gasto',     label: 'Costeo: Agregar gasto extra',    desc: 'Botón "Agregar gasto extra": un costo que no se vendió (flete, horas extra). Suma al costo real.', categoria: 'auditor' },
   { key: 'costeo_agregar_adicional', label: 'Costeo: Agregar costo adicional', desc: 'Botón "Agregar costo adicional": se escribe el Costo total neto a mano; baja el margen y no se vende.', categoria: 'auditor' },
@@ -284,14 +287,14 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
               </div>
               <p className="text-[11.5px] text-gray-500 dark:text-zinc-400 leading-snug mb-1">
                 {usuario.rol === 'externo'
-                  ? 'Recibe estos avisos de las licitaciones que tiene asignadas.'
-                  : 'Lo que active lo recibe de TODAS las licitaciones de la empresa.'}
+                  ? 'Recibe estos avisos solo de las licitaciones que tiene asignadas.'
+                  : 'Cada aviso le llega solo si le corresponde por su cargo (encargado de la licitación, administrador, Área Compras o Mercado Público) y lo tiene activado aquí.'}
                 {' '}Se envían al celular de su perfil{aviso.telefono ? <> (<b>{formatearTelefono(aviso.telefono)}</b>)</> : ''}.
               </p>
               {!aviso.telefono && <p className="text-[11.5px] font-semibold text-amber-600 mb-1">Este perfil no tiene un celular válido: sin él no recibirá avisos. Se agrega en Mi perfil.</p>}
               {!aviso.activo && <p className="text-[11.5px] font-semibold text-amber-600 mb-1">La cuenta está desactivada: no recibirá avisos.</p>}
               <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
-                {TIPOS_AVISO.map(t => (
+                {TIPOS_AVISO.filter(t => alertaAplicaAPerfil(t.tipo, { rol: usuario.rol, area: usuario.area })).map(t => (
                   <div key={t.tipo} className="flex items-start justify-between gap-3 py-2">
                     <span className="min-w-0">
                       <span className="block text-[12.5px] font-medium text-gray-800 dark:text-zinc-200">{t.label}</span>

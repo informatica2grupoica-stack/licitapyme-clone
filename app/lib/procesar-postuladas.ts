@@ -638,6 +638,7 @@ export async function avisarReadjudicacion(n: { licitacion_codigo: string; licit
   await avisarResultadoLicitacion({
     tipo: 'ganada', codigo: n.licitacion_codigo, nombre: n.licitacion_nombre, monto: adj.montoNuestro ?? null,
     asignado: { id: n.asignado_a, nombre: n.usuario_nombre, email: n.usuario_email },
+    variante: `readj-${adj.readjudicadaEn ?? ''}`, // una readjudicación es un aviso nuevo: no lo frena el anti-duplicado
   });
 }
 

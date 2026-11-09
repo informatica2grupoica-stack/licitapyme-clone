@@ -1,22 +1,80 @@
 // Avisos por WhatsApp: quién recibe qué y cómo se redacta (puro, sin BD).
+// Regla (09-nov-2026): el destinatario sale de avisos-reglas.ts (el mismo criterio que el correo) y además el perfil tiene que
+// tener el aviso activado. Compras y Mercado Público se reconocen por el «Área» del perfil.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { elegirDestinatarios, redactarAviso, porDefecto, claveAviso, type Destinatario } from '../whatsapp-avisos-core';
 
-const u = (o: Partial<Destinatario> & { id: number }): Destinatario => ({ nombre: 'Alexis Tobar', rol: 'usuario', activo: 1, telefono: '+56 9 7792 2875', ...o });
+const u = (o: Partial<Destinatario> & { id: number }): Destinatario => ({ nombre: 'Alexis Tobar', rol: 'usuario', activo: 1, telefono: '+56 9 7792 2875', area: null, ...o });
 const sinPrefs = new Map<number, any>();
+const ids = (r: Array<{ id: number }>) => r.map(x => x.id);
 
-test('el responsable y los admin reciben los tres avisos por defecto (el admin, de toda la empresa)', () => {
-  const cand = [u({ id: 1 }), u({ id: 2, rol: 'admin' })];
-  assert.deepEqual(elegirDestinatarios('ganada', 1, cand, sinPrefs).map(x => x.id), [1, 2]);
-  assert.deepEqual(elegirDestinatarios('perdida', 1, cand, sinPrefs).map(x => x.id), [1, 2]);
-  assert.deepEqual(elegirDestinatarios('apertura', 1, cand, sinPrefs).map(x => x.id), [1, 2]);
+// Equipo de ejemplo: 1 y 2 son asistentes (cada uno con SUS licitaciones), 3 admin, 4 y 5 Compras, 6 Mercado Público.
+const equipo = [
+  u({ id: 1 }), u({ id: 2 }), u({ id: 3, rol: 'admin' }),
+  u({ id: 4, area: 'Compras' }), u({ id: 5, area: ' compras ' }), u({ id: 6, area: 'Mercado Público' }),
+];
+
+test('ganada y perdida: encargado de la licitación, admins y Compras; otro asistente NO', () => {
+  assert.deepEqual(ids(elegirDestinatarios('ganada', 1, equipo, sinPrefs)), [1, 3, 4, 5]);
+  assert.deepEqual(ids(elegirDestinatarios('perdida', 2, equipo, sinPrefs)), [2, 3, 4, 5]);
 });
 
-test('orden de compra: nadie la recibe por defecto; le llega a quien se le active, sea o no el responsable', () => {
-  const cand = [u({ id: 1 }), u({ id: 2, rol: 'admin' }), u({ id: 3 })];
-  assert.deepEqual(elegirDestinatarios('oc', 1, cand, sinPrefs), []);
-  assert.deepEqual(elegirDestinatarios('oc', 1, cand, new Map([[3, { oc: true }], [2, { oc: true }]])).map(x => x.id), [2, 3]);
+test('apertura: encargado, Compras y Mercado Público; los admins no', () => {
+  assert.deepEqual(ids(elegirDestinatarios('apertura', 1, equipo, sinPrefs)), [1, 4, 5, 6]);
+});
+
+test('los avisos nuevos nacen apagados: hay que activarlos en el perfil (cerrada/revocada/desierta, OC, cierra pronto, radar)', () => {
+  assert.deepEqual(elegirDestinatarios('estado_mp', 1, equipo, sinPrefs), []);
+  assert.deepEqual(elegirDestinatarios('oc', 1, equipo, sinPrefs), []);
+  assert.deepEqual(elegirDestinatarios('cierra_pronto', 1, equipo, sinPrefs), []);
+  assert.deepEqual(elegirDestinatarios('radar', null, equipo, sinPrefs), []);
+});
+
+test('orden de compra: Compras, Mercado Público y los encargados (comercial y de Compras); admins y otros asistentes no', () => {
+  const prefs = new Map<number, any>(equipo.map(p => [p.id, { oc: true }]));
+  // encargados: asistente 1 (comercial) y asistente 2 (encargado de Compras de ese negocio)
+  assert.deepEqual(ids(elegirDestinatarios('oc', [1, 2], equipo, prefs)), [1, 2, 4, 5, 6]);
+  const prefsVencer = new Map<number, any>(equipo.map(p => [p.id, { oc_vencer: true }]));
+  assert.deepEqual(ids(elegirDestinatarios('oc_vencer', [1], equipo, prefsVencer)), [1, 4, 5, 6]);
+});
+
+test('cierra pronto: el encargado y Mercado Público; admins y Compras no', () => {
+  const prefs = new Map<number, any>(equipo.map(p => [p.id, { cierra_pronto: true }]));
+  assert.deepEqual(ids(elegirDestinatarios('cierra_pronto', 1, equipo, prefs)), [1, 6]);
+});
+
+test('radar: solo administradores', () => {
+  const prefs = new Map<number, any>(equipo.map(p => [p.id, { radar: true }]));
+  assert.deepEqual(ids(elegirDestinatarios('radar', 1, equipo, prefs)), [3]);
+});
+
+test('resumen por persona (omitirAudiencia): el llamador ya eligió; se respetan perfil, cuenta y celular', () => {
+  const prefs = new Map<number, any>([[3, { radar: true }]]);
+  assert.deepEqual(ids(elegirDestinatarios('radar', null, [equipo[2]], prefs, { omitirAudiencia: true })), [3]);
+  assert.deepEqual(ids(elegirDestinatarios('radar', null, [equipo[2]], sinPrefs, { omitirAudiencia: true })), []);
+});
+
+test('el externo solo recibe lo que lleva él', () => {
+  const ext = u({ id: 9, rol: 'externo', area: 'Compras' });
+  assert.deepEqual(ids(elegirDestinatarios('ganada', 9, [ext], sinPrefs)), [9]);
+  assert.deepEqual(ids(elegirDestinatarios('ganada', 1, [ext], sinPrefs)), []);
+});
+
+test('el selector del perfil manda: apagar un aviso lo corta aunque le corresponda', () => {
+  const prefs = new Map<number, any>([[1, { ganada: false }], [4, { ganada: false }]]);
+  assert.deepEqual(ids(elegirDestinatarios('ganada', 1, equipo, prefs)), [3, 5]);
+});
+
+test('sin celular válido o con la cuenta desactivada no se manda', () => {
+  const cand = [u({ id: 1, telefono: null }), u({ id: 2, telefono: '12345' }), u({ id: 3, activo: 0, rol: 'admin' }), u({ id: 4, rol: 'admin' })];
+  assert.deepEqual(ids(elegirDestinatarios('ganada', [1, 2], cand, sinPrefs)), [4]);
+});
+
+test('el celular sale normalizado y sin repetir a una persona que es encargada y admin a la vez', () => {
+  const r = elegirDestinatarios('ganada', 2, [u({ id: 2, rol: 'admin' }), u({ id: 2, rol: 'admin' })], sinPrefs);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].telefonoNormalizado, '+56977922875');
 });
 
 test('el mensaje de orden de compra lleva el código de la orden y el monto', () => {
@@ -24,30 +82,6 @@ test('el mensaje de orden de compra lleva el código de la orden y el monto', ()
   assert.match(t, /^🧾 \*Licitank · Orden de compra recibida\*/);
   assert.match(t, /Orden de compra: 2415-88-SE26/);
   assert.match(t, /Monto: \$1\.190\.000/);
-});
-
-test('todo el equipo recibe las licitaciones de toda la empresa, sea o no el responsable; el externo solo las suyas', () => {
-  const cand = [u({ id: 3 }), u({ id: 4, rol: 'externo' }), u({ id: 5, rol: 'externo' })];
-  assert.deepEqual(elegirDestinatarios('ganada', 5, cand, new Map([[3, { ganada: true }]])).map(x => x.id), [3, 5]);
-  assert.deepEqual(elegirDestinatarios('ganada', 1, cand, new Map([[3, { ganada: false }]])).map(x => x.id), []);
-});
-
-test('el selector del perfil manda: un admin puede activar perdidas y un responsable apagar ganadas', () => {
-  const cand = [u({ id: 1 }), u({ id: 2, rol: 'admin' })];
-  const prefs = new Map<number, any>([[2, { perdida: true, ganada: false }], [1, { ganada: false }]]);
-  assert.deepEqual(elegirDestinatarios('perdida', 1, cand, prefs).map(x => x.id), [1, 2]);
-  assert.deepEqual(elegirDestinatarios('ganada', 1, cand, prefs).map(x => x.id), []);
-});
-
-test('sin celular válido o con la cuenta desactivada no se manda', () => {
-  const cand = [u({ id: 1, telefono: null }), u({ id: 2, telefono: '12345' }), u({ id: 3, activo: 0, rol: 'admin' }), u({ id: 4, rol: 'admin' })];
-  assert.deepEqual(elegirDestinatarios('ganada', 1, cand, sinPrefs).map(x => x.id), [4]);
-});
-
-test('el celular sale normalizado y sin repetir a una persona que es responsable y admin a la vez', () => {
-  const r = elegirDestinatarios('ganada', 2, [u({ id: 2, rol: 'admin' }), u({ id: 2, rol: 'admin' })], sinPrefs);
-  assert.equal(r.length, 1);
-  assert.equal(r[0].telefonoNormalizado, '+56977922875');
 });
 
 test('el mensaje es profesional: emoji de encabezado, con negritas, datos y enlace a la licitación', () => {
@@ -67,11 +101,25 @@ test('en perdida y apertura no se muestra monto y el texto cambia', () => {
   assert.match(redactarAviso({ ...base, tipo: 'apertura' }), /^📂 \*Licitank · Apertura de ofertas\*\n\nHola, /);
 });
 
+test('mensajes de los avisos nuevos: estado, OC por vencer y resúmenes', () => {
+  const base = { codigo: 'X-1', licitacionNombre: 'Camillas', nombreDestinatario: 'Carolina Gonzalez', urlBase: 'http://localhost:3000' };
+  const e = redactarAviso({ ...base, tipo: 'estado_mp', detalle: 'Revocada' });
+  assert.match(e, /Cambio de estado en Mercado Público/);
+  assert.match(e, /Estado: Revocada/);
+  const v = redactarAviso({ ...base, tipo: 'oc_vencer', ordenCodigo: '77-1-SE26', detalle: 'Vence en menos de 3 horas (límite 10-11 17:00).' });
+  assert.match(v, /Orden de compra: 77-1-SE26/);
+  assert.match(v, /Vence en menos de 3 horas/);
+  const r = redactarAviso({ ...base, tipo: 'radar', detalle: '3 licitaciones nuevas que calzan con tus palabras clave:\n• A (1)' });
+  assert.match(r, /^📡 \*Licitank · Licitaciones nuevas en el radar\*/);
+  assert.match(r, /• A \(1\)/);
+  assert.match(r, /\/radar$/);
+  assert.match(redactarAviso({ ...base, tipo: 'cierra_pronto', detalle: '• B (2) — cierra 10/11' }), /\/negocios$/);
+});
+
 test('valores por defecto y clave de deduplicación', () => {
   assert.equal(porDefecto('admin', 'ganada'), true);
   assert.equal(porDefecto('admin', 'apertura'), true);
   assert.equal(porDefecto('usuario', 'perdida'), true);
-  assert.equal(porDefecto('admin', 'oc'), false);
-  assert.equal(porDefecto('usuario', 'oc'), false);
+  for (const t of ['oc', 'oc_vencer', 'estado_mp', 'cierra_pronto', 'radar'] as const) assert.equal(porDefecto('admin', t), false);
   assert.equal(claveAviso('ganada', '2415-19-LE26', 7), 'ganada:2415-19-LE26:7');
 });
