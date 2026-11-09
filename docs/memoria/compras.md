@@ -3,6 +3,11 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-09 — OC internacional 3811 enlazada al negocio 256 (4152-22-LE26) + DIN (documento 914) en vez de «sin factura» (`obuma-compras.ts`, `obuma-facturas-enlace.ts`, `compras-resumen-comparativo.ts`, `ResumenComparativoCard`, `ResumenGastosCard`; test ok, tsc limpio, SIN ver en navegador ni desplegar)
+- La 3811 (NINGBO BOPU, $6.942.245 exento, internacional) no calzaba por referencia ni centro de costo (TECNOMAQ). El equipo puso `4152-22-le26` en Referencia en Obuma y la sync (`soloCodigo`) la enlazó. Falta recalcular el negocio 256 (botón Sincronizar con Obuma) y revisar el margen: la OC suma $6,9 M contra $20,3 M ofertados.
+- Obuma enlaza a la OC el documento tipo 914 (Declaración de Ingreso, DIN) como si fuera factura (`,914#2850014688`) y `comprasDte` NO lo entrega (ni por listado ni por id; no hay API de DIN/importaciones). Ahora la sync lo salta, el N° del DIN se lee de `raw_json` (`dinesDeOc`, `CompraObumaFila.din/internacional`) y las dos tablas muestran «DIN N° …»; el aviso «OC sin factura todavía» no cuenta las OC con DIN. Sin migración.
+- Pendiente: las otras OC con 914 (3702, 3843, 3855, 3951, 3957, 3994) quedan cubiertas por el mismo arreglo, sin verlas. Datos del DIN (valor CIF, aranceles) NO existen en la API: `compra_oc_din_valor_*` vienen en 0; si se quieren hay que cargarlos a mano.
+
 ## 2026-11-09 — Compra rápida: proveedor extranjero SIN RUT (ej. Ningbo, que ya está en Obuma) (`CompraDirectaPanel.tsx`, `compras-compra-rapida.ts`, rutas `cotizaciones` y `compra-rapida`; tsc sin errores propios, SIN ver en navegador ni desplegar)
 - Antes el RUT chileno válido era obligatorio y bloqueaba «Enviar a aprobación del jefe». Ahora hay un check «Proveedor extranjero (sin RUT chileno)»: el RUT pasa a opcional (acepta un ID tributario tal cual, sin formato chileno) y no se verifica en Obuma. Se marca solo al elegir del catálogo un proveedor sin RUT o con un RUT que no es chileno.
 - Se guarda `proveedor_rut` NULL (la columna ya era nullable; sin migración). El reenvío de una compra rechazada deja pasar si el RUT guardado no es chileno válido. El aviso al jefe dice «proveedor extranjero, sin RUT».

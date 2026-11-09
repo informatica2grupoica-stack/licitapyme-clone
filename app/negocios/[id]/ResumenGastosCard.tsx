@@ -17,7 +17,7 @@ interface LineaOc { producto: string; sku: string | null; cantidad: number | nul
 interface ResumenGastos {
   ocCreadas: { cantidad: number; totalNeto: number; proveedores: { nombre: string; folio: string | null; total: number; fecha: string }[] };
   comprasCruzadas: { cantidad: number; total: number; neto: number };
-  ocsObuma?: { folio: string; proveedor: string | null; estado: string | null; fecha: string | null; neto: number; total: number; skus: string[]; lineas: LineaOc[] }[];
+  ocsObuma?: { din?: string[]; folio: string; proveedor: string | null; estado: string | null; fecha: string | null; neto: number; total: number; skus: string[]; lineas: LineaOc[] }[];
   ocsPropias?: { folio: string; proveedor: string; estado: string; fecha: string; neto: number; total: number; lineas: LineaOc[] }[];
   gastadoNeto?: number | null;
   facturas: {
@@ -34,7 +34,7 @@ interface GastosProyecto {
   totalOc: number; cantidadOc: number; totalOcNeto?: number; cantidadAnuladas?: number;
 }
 /** Una fila de la tabla de órdenes de compra: las emitidas desde Licitank y las hechas directo en Obuma, sin repetir. */
-interface FilaOc { folio: string; proveedor: string; fecha: string | null; estado: string | null; origen: 'licitank' | 'obuma' | 'propia'; neto: number | null; total: number | null; lineas: LineaOc[] }
+interface FilaOc { din?: string[]; folio: string; proveedor: string; fecha: string | null; estado: string | null; origen: 'licitank' | 'obuma' | 'propia'; neto: number | null; total: number | null; lineas: LineaOc[] }
 
 const fmtCLP = (n: number | null | undefined) => n == null ? '—'
   : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
@@ -109,7 +109,7 @@ export function ResumenGastosCard({ negocioId }: { negocioId: number }) {
     if (!resumen) return [];
     const delicitank = new Map(resumen.ocCreadas.proveedores.filter(o => o.folio).map(o => [String(o.folio), o]));
     const filas: FilaOc[] = (resumen.ocsObuma ?? []).map(o => ({
-      folio: o.folio, proveedor: o.proveedor || 'Proveedor', fecha: o.fecha, estado: o.estado,
+      din: o.din, folio: o.folio, proveedor: o.proveedor || 'Proveedor', fecha: o.fecha, estado: o.estado,
       origen: delicitank.has(String(o.folio)) ? 'licitank' : 'obuma', neto: o.neto, total: o.total, lineas: o.lineas,
     }));
     for (const o of resumen.ocCreadas.proveedores) {
@@ -359,7 +359,7 @@ function FilaOrden({ f, abierta, anulada, facturas, onAlternar }: { f: FilaOc; a
         </td>
         <td className="px-2 py-2 text-right tabular-nums font-semibold text-zinc-800">{fmtCLP(f.neto)}</td>
         <td className="px-2 py-2 text-right tabular-nums text-zinc-600">{fmtCLP(f.total ?? (f.neto != null ? Math.round(f.neto * 1.19) : null))}</td>
-        <td className="px-2 py-2 text-[11.5px]">{facturas.length > 0 ? <span className="font-semibold text-emerald-700">✔ {facturas.join(', ')}</span> : <span className="text-zinc-400">sin factura</span>}</td>
+        <td className="px-2 py-2 text-[11.5px]">{facturas.length > 0 ? <span className="font-semibold text-emerald-700">✔ {facturas.join(', ')}</span> : f.din?.length ? <span className="font-semibold text-sky-700" title="Importación: se cierra con la declaración de ingreso (DIN), no con factura de compra">DIN N° {f.din.join(', ')}</span> : <span className="text-zinc-400">sin factura</span>}</td>
       </tr>
       {abierta && (
         <tr className="bg-zinc-50/60">

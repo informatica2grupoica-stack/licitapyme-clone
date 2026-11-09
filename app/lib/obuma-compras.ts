@@ -15,7 +15,7 @@
 import pool from '@/app/lib/db';
 import { listarComprasOc, listarComprasOcItems, listarComprasDte, proveedorPorId, centrosDeCostoCompleto, proyectosExtCompleto, type ObumaCompraOc } from '@/app/lib/obuma';
 import { mencionaCodigo, licitacionesOfertadas } from '@/app/lib/ordenes-compra';
-import { paresFacturaDeOc } from '@/app/lib/obuma-facturas-enlace';
+import { paresFacturaDeOc, dinesDeOc, TIPO_DOC_DIN } from '@/app/lib/obuma-facturas-enlace';
 
 function num(v: unknown): number | null {
   const n = Number(v);
@@ -146,6 +146,7 @@ export async function sincronizarComprasObuma(
     if (!pares.length) console.warn(`[obuma-compras] OC ${c.compra_oc_folio}: enlace de factura en formato desconocido "${crudo}" — queda sin factura.`);
     const facturas: FacturaObuma[] = [];
     for (const { tipoDcto, folioDte } of pares) {
+      if (tipoDcto === TIPO_DOC_DIN) continue;   // DIN de importación: no es factura ni se busca en comprasDte (se lee del enlace al mostrar)
       try {
         const r = await listarComprasDte({ tipo_dcto: tipoDcto, folio_dcto: folioDte });
         const dte = r.data?.[0];
@@ -248,6 +249,10 @@ export interface CompraObumaFila {
   proveedorObumaId: string | null;
   items: ItemCompraObuma[];
   facturas: FacturaObuma[];
+  /** OC marcada como internacional en Obuma. */
+  internacional: boolean;
+  /** N° de la(s) declaración(es) de ingreso (DIN, documento 914) enlazadas a la OC; no son facturas. */
+  din: string[];
 }
 
 /** Neto REAL de una compra: total − IVA. `neto` viene en 0 cuando la compra es EXENTA de IVA (caso real: la
@@ -281,6 +286,13 @@ function facturasDesdeJson(json: string | null): FacturaObuma[] {
 }
 
 /** Compras de Obuma ya guardadas para una licitación — no llama a la API, lee de obuma_compras. */
+function datosImportacionDesdeRaw(raw: unknown): { internacional: boolean; din: string[] } {
+  try {
+    const o = JSON.parse(String(raw ?? ''));
+    return { internacional: String(o?.compra_oc_internacional) === '1', din: dinesDeOc(o?.compra_oc_facturada_tipo_dcto) };
+  } catch { return { internacional: false, din: [] }; }
+}
+
 export async function comprasObumaDeLicitacion(codigo: string): Promise<CompraObumaFila[]> {
   const [rows] = await pool.query(
     `SELECT * FROM obuma_compras WHERE licitacion_codigo = ? ORDER BY fecha_ingreso DESC`,
@@ -301,5 +313,6 @@ export async function comprasObumaDeLicitacion(codigo: string): Promise<CompraOb
     proveedorObumaId: r.proveedor_id != null ? String(r.proveedor_id) : null,
     items: itemsDesdeJson(r.items_json),
     facturas: facturasDesdeJson(r.facturas_json),
+    ...datosImportacionDesdeRaw(r.raw_json),
   }));
 }

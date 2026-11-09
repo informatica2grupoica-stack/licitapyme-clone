@@ -30,3 +30,10 @@ test('vacío o sin pares', () => {
   assert.deepEqual(paresFacturaDeOc(null), []);
   assert.deepEqual(paresFacturaDeOc(','), []);
 });
+
+test('DIN de importación (tipo 914, OC 3811): se separa de las facturas', async () => {
+  const { dinesDeOc } = await import('../obuma-facturas-enlace');
+  assert.deepEqual(dinesDeOc(',914#2850014688'), ['2850014688']);
+  assert.deepEqual(dinesDeOc(',33#101006,914#2850014688'), ['2850014688']);
+  assert.deepEqual(dinesDeOc(',33#101006'), []);
+});

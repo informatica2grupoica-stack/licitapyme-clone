@@ -29,6 +29,8 @@ export interface FilaPorOc {
   ocFolio: string; proveedor: string | null; estado: string | null;
   planNeto: number | null; obumaNeto: number; facturadoNeto: number; facturas: number;
   ocPropia?: boolean;
+  /** N° de DIN (declaración de ingreso, importación) enlazada a la OC: no es factura. */
+  din?: string[];
 }
 /** Cuadre entre lo que dice el PROYECTO en Obuma y lo que cuenta Licitank (todo con IVA, tal como lo muestra Obuma). */
 export interface DiferenciaCuadre {
@@ -142,7 +144,7 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
       ocFolio: folio, proveedor: oc.proveedorRazonSocial, estado: oc.estado,
       planNeto: planPorOc.has(folio) ? r0(planPorOc.get(folio)!) : null,
       obumaNeto: netoDeCompra(oc),
-      facturadoNeto: r0(fs.reduce((s, f) => s + (f.total || 0), 0) / 1.19), facturas: fs.length,
+      facturadoNeto: r0(fs.reduce((s, f) => s + (f.total || 0), 0) / 1.19), facturas: fs.length, din: oc.din,
     };
   });
   for (const o of propias) {
@@ -186,7 +188,7 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
   const otro = filas.filter(f => f.otroProveedor);
   if (otro.length) avisos.push(`${otro.length} producto(s) se compraron a un proveedor distinto al de la cotización elegida: ${otro.map(f => `${f.producto} (cotización ${f.planProveedor}, Obuma ${f.obumaProveedor})`).join('; ')}.`);
   // Una OC en $0 (p. ej. la garantía de seriedad de FINFAST) no es una compra: no necesita factura.
-  const sinFactura = porOc.filter(o => o.facturas === 0 && o.obumaNeto > 0);
+  const sinFactura = porOc.filter(o => o.facturas === 0 && o.obumaNeto > 0 && !o.din?.length);
   if (sinFactura.length) avisos.push(`${sinFactura.length} OC sin factura todavía: ${sinFactura.map(o => `OC ${o.ocFolio} ${o.proveedor || ''} (${o.estado || '—'})`).join('; ')}.`);
   if (gastos.facturas.descartadas.length) avisos.push(`${gastos.facturas.descartadas.length} factura(s) no se suman por estar mal enlazadas o duplicadas en Obuma (ver el recuadro de arriba).`);
   if (costeoTot > 0 && costoReal > costeoTot) avisos.push(`Lo comprado (${clp(costoReal)} entre OC de Obuma y gastos extra) supera lo costeado (${clp(costeoTot)}).`);

@@ -713,7 +713,7 @@ export interface ResumenGastosCompra {
   comprasCruzadas: { cantidad: number; total: number; neto: number };
   // Las OC reales que YA existen en Obuma para esta licitación (hechas directo, no por Licitank),
   // con los SKU (código comercial) de sus líneas — para mostrarlas aparte de las que emite Licitank.
-  ocsObuma: { folio: string; proveedor: string | null; estado: string | null; fecha: string | null; neto: number; total: number; skus: string[]; lineas: { producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }[] }[];
+  ocsObuma: { din: string[]; folio: string; proveedor: string | null; estado: string | null; fecha: string | null; neto: number; total: number; skus: string[]; lineas: { producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }[] }[];
   // OC propias (Comercial MP: se emiten en Licitank, no pasan por Obuma), sin anuladas. También son gasto (979: las vacuolavadoras, $10,5M, quedaban fuera).
   ocsPropias: { folio: string; proveedor: string; estado: string; fecha: string; neto: number; total: number; lineas: { producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }[] }[];
   /** Gasto real NETO: lo de Obuma sin anuladas (si Obuma aún no trae nada, lo emitido por Licitank) + las OC propias. */
@@ -802,6 +802,7 @@ export async function resumenGastosCompra(negocioId: number, montoCosteado: numb
     ocCreadas: { cantidad: ocCreadas.length, totalNeto: totalOcCreadas, proveedores: ocCreadas },
     comprasCruzadas: { cantidad: cruzadas.length, total: totalCruzadas, neto: Math.round(netoCruzadas) },
     ocsObuma: cruzadas.map(c => ({
+      din: c.din,
       folio: c.folio || c.compraOcId, proveedor: c.proveedorRazonSocial, estado: c.estado, fecha: c.fechaIngreso,
       neto: netoDeCompra(c), total: Math.round(c.total || 0),
       skus: [...new Set(c.items.map(i => i.codigoComercial).filter((x): x is string => !!x))],

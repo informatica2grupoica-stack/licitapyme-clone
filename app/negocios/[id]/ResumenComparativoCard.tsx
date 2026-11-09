@@ -19,7 +19,7 @@ interface Fila {
   obumaProveedor: string | null; obumaOc: string | null; obumaEstado: string | null; obumaSku: string | null;
   obumaUnit: number | null; obumaNeto: number | null; otroProveedor: boolean; ocPropia?: boolean;
 }
-interface PorOc { ocFolio: string; proveedor: string | null; estado: string | null; planNeto: number | null; obumaNeto: number; facturadoNeto: number; facturas: number; ocPropia?: boolean }
+interface PorOc { ocFolio: string; proveedor: string | null; estado: string | null; planNeto: number | null; obumaNeto: number; facturadoNeto: number; facturas: number; ocPropia?: boolean; din?: string[] }
 interface CuadreLado { obumaCantidad: number; obumaTotal: number; licitankCantidad: number; licitankTotal: number; diferencias: { concepto: string; monto: number; gastoPropio?: { descripcion: string; categoria: string } }[]; sinExplicar: number }
 interface Resumen {
   cuadre: { proyectoFolio: number | null; proyectoNombre: string | null; oc: CuadreLado; facturas: CuadreLado; soloEnOc: string[]; cuadra: boolean } | null;
@@ -333,6 +333,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
                   <td className="px-3 py-2 text-right tabular-nums">{fmt(o.obumaNeto)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {o.facturas ? <span className="font-semibold text-tinta dark:text-slate-100">{fmt(o.facturadoNeto)}</span>
+                      : o.din?.length ? <span className="text-tinta-2 font-medium" title="Importación: la OC se cierra con la declaración de ingreso (DIN), no con una factura de compra">DIN N° {o.din.join(', ')}</span>
                       : <span className="text-alerta font-medium">{/facturad/i.test(o.estado || '') ? 'falta traer la factura' : 'sin factura'}</span>}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">{o.facturas ? <Dif a={o.obumaNeto} b={o.facturadoNeto} /> : <span className="text-tinta-3">—</span>}</td>

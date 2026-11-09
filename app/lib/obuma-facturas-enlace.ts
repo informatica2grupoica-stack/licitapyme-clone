@@ -17,3 +17,11 @@ export function paresFacturaDeOc(crudo: unknown): { tipoDcto: string; folioDte: 
   }
   return pares;
 }
+
+/** Tipo de documento 914 del SII = Declaración de Ingreso (DIN) de una importación. Obuma lo enlaza a la OC igual que una factura
+ *  (`,914#2850014688`), pero NO lo entrega por `comprasDte` (OC 3811, negocio 256): el número del DIN sale solo de este enlace. */
+export const TIPO_DOC_DIN = '914';
+
+export function dinesDeOc(crudo: unknown): string[] {
+  return paresFacturaDeOc(crudo).filter(p => p.tipoDcto === TIPO_DOC_DIN).map(p => p.folioDte);
+}
