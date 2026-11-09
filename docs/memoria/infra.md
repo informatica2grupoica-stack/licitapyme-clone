@@ -1,5 +1,10 @@
 # Infraestructura, stack, seguridad y multi-cliente
 
+## 2026-11-09 — Prueba de carga de 100 usuarios (local, sin arreglar nada aún)
+Montaje: copia de producción (sin `documentos_cache` ni capturas) en la BD dev (3308) + imagen Docker `licitank-carga` (4 CPU / 4 GB, puerto 3010, env en el scratchpad); script `scripts/scratch/carga-100.mjs` (`sembrar` / `correr` / `limpiar`; solo corre contra el puerto 3308). Siembra: 5 empresas «SIM Empresa n» + 100 usuarios `uNNN@sim.licitank.test` (clave en el script) — borrar con `limpiar`.
+- **100 logins en 5 s: 87 fallan con 500 «Queue limit reached»** (pool 8 + cola 24 = 32). Con los logins repartidos en 60 s: 100/100 ok, p95 343 ms; el resto de las pantallas p95 < 200 ms, p99 < 400 ms, 0 errores 5xx, MySQL 17 conexiones máx. y 52 consultas/s. CPU del proceso Node llega a ~97 % de UN núcleo (event loop saturado en la llegada; bcryptjs es JS puro).
+- Pendiente: reparar (pool mayor, login sin 3 consultas ni bcrypt bloqueante, estampida de SSE), medir 200 usuarios y con latencia de BD, y probar `publicarCambio`.
+
 ## 2026-11-06 — Casilla licitaciones@ comprometida: Bluehost bota todo lo que sale a Gmail (fightspamHG)
 Visto en cPanel → Track Delivery (Chrome, sesión del dueño; solo lectura).
 - El 04-11-2026 de 22:01 a 22:24 la IP **85.239.245.1** (ajena: VPS = 216.185.51.104, oficina = 45.4.1.30) entró como licitaciones@sociedadcomercialmp.cl y mandó **102 correos de spam** (rechazados por Proofpoint «AUP#SNDR»).

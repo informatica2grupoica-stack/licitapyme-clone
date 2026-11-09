@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import pool from '@/app/lib/db';
-import { respuestaConSession, type UsuarioSession } from '@/app/lib/auth';
+import { respuestaConSession, crearToken, type UsuarioSession } from '@/app/lib/auth';
 import { ipDeRequest, estaBloqueado, registrarIntento } from '@/app/lib/login-rate-limit';
 import { registrarActividad } from '@/app/lib/actividad';
 import { fichaCliente } from '@/app/lib/tenant';
@@ -114,7 +114,9 @@ export async function POST(request: NextRequest) {
       clienteId,
     };
 
-    return respuestaConSession(usuario, {});
+    // App móvil: no usa cookie, necesita el token en el cuerpo para guardarlo de forma segura.
+    const esMovil = request.headers.get('x-cliente-app') === 'movil';
+    return respuestaConSession(usuario, esMovil ? { token: await crearToken(usuario) } : {});
   } catch (error) {
     console.error('Error en login:', error);
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });

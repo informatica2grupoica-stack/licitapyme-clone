@@ -1,8 +1,7 @@
 // app/api/auth/me/route.ts
 // Retorna el usuario de la sesión actual (para el cliente)
-import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { verificarToken } from '@/app/lib/auth-edge';
+import { NextResponse, type NextRequest } from 'next/server';
+import { verificarToken, tokenDeRequest } from '@/app/lib/auth-edge';
 import { permisosDeUsuario, esCA } from '@/app/lib/api-auth';
 import { estadoVigente } from '@/app/lib/rol-vigente';
 import { fichaCliente } from '@/app/lib/tenant';
@@ -34,10 +33,9 @@ async function leerContacto(userId: number) {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const cookieStore = await cookies();
-    const token = cookieStore.get('licitapyme_session')?.value;
+    const token = tokenDeRequest(request);
     if (!token) {
       return NextResponse.json({ autenticado: false, usuario: null });
     }

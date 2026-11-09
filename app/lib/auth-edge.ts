@@ -40,9 +40,17 @@ export async function verificarToken(token: string): Promise<TokenPayload | null
   }
 }
 
-/** Usa en middleware — lee la cookie del objeto Request directamente */
+/** Token de la petición: cookie (web) o `Authorization: Bearer` (app móvil). */
+export function tokenDeRequest(req: NextRequest): string | undefined {
+  const cookie = req.cookies.get(COOKIE_NAME)?.value;
+  if (cookie) return cookie;
+  const auth = req.headers.get('authorization');
+  return auth?.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() || undefined : undefined;
+}
+
+/** Usa en middleware — lee la cookie (o el Bearer de la app móvil) del objeto Request directamente */
 export async function getSessionFromRequest(req: NextRequest): Promise<UsuarioSession | null> {
-  const token = req.cookies.get(COOKIE_NAME)?.value;
+  const token = tokenDeRequest(req);
   if (!token) return null;
   const payload = await verificarToken(token);
   if (!payload) return null;
