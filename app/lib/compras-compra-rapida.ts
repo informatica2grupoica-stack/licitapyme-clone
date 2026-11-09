@@ -13,7 +13,8 @@ export interface CompraRapida {
   resueltoPorNombre: string | null; resueltoAt: string | null;
 }
 /** `yaComprada`: la compra ya se hizo en la tienda (el jefe de ventas la ratifica); si no, se aprueba ANTES de comprar. */
-export interface DatosCompraRapida { proveedorNombre: string; proveedorRut: string; precioUnitario: number; link?: string | null; motivo?: string | null; yaComprada?: boolean }
+/** `sinRutChileno`: proveedor extranjero (ej. Ningbo, ya en Obuma) que no tiene RUT chileno: se acepta sin RUT o con su identificador tributario tal cual. */
+export interface DatosCompraRapida { proveedorNombre: string; proveedorRut: string | null; precioUnitario: number; link?: string | null; motivo?: string | null; yaComprada?: boolean; sinRutChileno?: boolean }
 
 const sinTabla = (e: any) => e?.code === 'ER_NO_SUCH_TABLE';
 const MSG_MIGRACION = 'Falta aplicar la migración 151 (node scripts/aplicar-migration-151.mjs) para la compra rápida.';
@@ -72,8 +73,10 @@ export async function solicitarCompraRapida(
 ): Promise<void> {
   if (productoIds.length === 0) return;
   if (!datos.proveedorNombre?.trim()) throw new Error('Falta el nombre de la tienda o proveedor.');
-  if (!rutChilenoValido(datos.proveedorRut)) throw new Error('La compra rápida necesita el RUT de la tienda, válido (ej. 76.123.456-7).');
+  if (!datos.sinRutChileno && !rutChilenoValido(datos.proveedorRut)) throw new Error('La compra rápida necesita el RUT de la tienda, válido (ej. 76.123.456-7).');
   if (!(datos.precioUnitario > 0)) throw new Error('Falta el precio neto de la compra.');
+  const rutTxt = datos.proveedorRut?.trim() || null;
+  const rutAviso = rutTxt || 'proveedor extranjero, sin RUT';
   const ahora = ahoraChileSQL();
   try {
     for (const productoId of productoIds) {
@@ -83,7 +86,7 @@ export async function solicitarCompraRapida(
          ON DUPLICATE KEY UPDATE estado = 'PENDIENTE', proveedor_nombre = VALUES(proveedor_nombre), proveedor_rut = VALUES(proveedor_rut), precio_unitario = VALUES(precio_unitario),
            link = VALUES(link), motivo = VALUES(motivo), ya_comprada = VALUES(ya_comprada), comentario = NULL, solicitado_por = VALUES(solicitado_por), solicitado_por_nombre = VALUES(solicitado_por_nombre),
            solicitado_at = VALUES(solicitado_at), resuelto_por = NULL, resuelto_por_nombre = NULL, resuelto_at = NULL`,
-        [negocioId, productoId, datos.proveedorNombre.trim(), datos.proveedorRut.trim(), datos.precioUnitario, datos.link?.trim() || null, datos.motivo?.trim() || null, datos.yaComprada ? 1 : 0, userId, nombre, ahora]);
+        [negocioId, productoId, datos.proveedorNombre.trim(), rutTxt, datos.precioUnitario, datos.link?.trim() || null, datos.motivo?.trim() || null, datos.yaComprada ? 1 : 0, userId, nombre, ahora]);
       // Ya comprada en la tienda: el producto está comprado (la plata ya salió); el jefe de ventas la ratifica con su aprobación.
       if (datos.yaComprada) await cambiarSubestadoProducto(productoId, 'COMPRADO').catch(e => console.warn('[compra-rapida] no se pudo marcar Comprado:', String(e).slice(0, 120)));
     }
@@ -95,8 +98,8 @@ export async function solicitarCompraRapida(
   const nombres = productoIds.map(id => productos.find(p => p.id === id)?.descripcion?.split(' - ')[0] || `producto #${id}`).join(', ');
   await notificarJefesVentas(negocioId, 'COMPRAS_COMPRA_RAPIDA_POR_APROBAR',
     datos.yaComprada
-      ? `${nombre || 'El encargado'} YA COMPRÓ en ${datos.proveedorNombre.trim()} (${datos.proveedorRut.trim()}) sin aprobación previa: ${nombres}. Revísala y ratifícala o recházala.`
-      : `${nombre || 'El encargado'} pide aprobar una compra rápida en ${datos.proveedorNombre.trim()} (${datos.proveedorRut.trim()}): ${nombres}. Apruébala antes de comprar.`,
+      ? `${nombre || 'El encargado'} YA COMPRÓ en ${datos.proveedorNombre.trim()} (${rutAviso}) sin aprobación previa: ${nombres}. Revísala y ratifícala o recházala.`
+      : `${nombre || 'El encargado'} pide aprobar una compra rápida en ${datos.proveedorNombre.trim()} (${rutAviso}): ${nombres}. Apruébala antes de comprar.`,
     { id: userId, nombre }, null, `/compras/${negocioId}?fase=costeo&pestana=productos&producto=${productoIds[0]}`);
 }
 

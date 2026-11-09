@@ -16,7 +16,7 @@ import { listarAprobacionesLinea } from '@/app/lib/compras-aprobacion-lineas';
 import { listarProductosCompra, sincronizarTareaOcProveedores } from '@/app/lib/compras';
 import { productosConCompraRapidaAprobada, listarComprasRapidas, type CompraRapida } from '@/app/lib/compras-compra-rapida';
 import {
-  crearOrdenCompraObuma, listarFormasPago, centrosDeCostoCompleto, proveedorPorRut, crearProveedorObuma, buscarCentroCostoPorLicitacion,
+  crearOrdenCompraObuma, proveedorPorId, listarFormasPago, centrosDeCostoCompleto, proveedorPorRut, crearProveedorObuma, buscarCentroCostoPorLicitacion,
   listarComprasOc, listarComprasOcItems, mapaFormasPagoCompleto, listarMonedasExtranjerasObuma, type ObumaFormaPago, type DatosCrearProveedorObuma,
 } from '@/app/lib/obuma';
 import { METODOS_DESPACHO_OBUMA } from '@/app/lib/obuma-despacho';
@@ -502,8 +502,18 @@ export async function crearOrdenCompraParaProveedor(
   // El proveedor tiene que YA estar registrado en Obuma antes de emitir la OC — pedido explícito:
   // la creación del proveedor NUNCA es automática, la persona la hace a mano desde el modal (ver
   // verificarProveedorEnObuma/crearProveedorEnObumaExplicito). Acá solo se comprueba, no se crea.
-  if (!grupo.proveedorRut?.trim()) throw new Error('Este proveedor no tiene RUT registrado — complétalo en Proveedores antes de emitir la orden de compra.');
-  const ficha = await verificarProveedorEnObuma(grupo.proveedorRut);
+  // Proveedor extranjero sin RUT chileno (ej. Ningbo): si ya está en Obuma se busca por su id de Obuma y se emite con la ficha que Obuma tiene.
+  let ficha: FichaProveedorObuma | null;
+  if (grupo.proveedorRut?.trim()) ficha = await verificarProveedorEnObuma(grupo.proveedorRut);
+  else if (grupo.proveedorObumaId) {
+    const p = await proveedorPorId(grupo.proveedorObumaId).catch(() => null);
+    ficha = p ? {
+      proveedorId: p.proveedor_id, rut: p.proveedor_rut || '', razonSocial: p.proveedor_razon_social,
+      direccion: p.proveedor_direccion || null, comuna: p.proveedor_comuna || null,
+      telefono: (p.proveedor_telefono as string) || null, email: (p.proveedor_email as string) || null,
+      giro: p.proveedor_giro_comercial || null, contacto: p.proveedor_contacto || null,
+    } : null;
+  } else throw new Error('Este proveedor no tiene RUT ni está vinculado a Obuma — complétalo en Proveedores (RUT o proveedor de Obuma) antes de emitir la orden de compra.');
   if (!ficha) throw new Error('Este proveedor todavía no está creado en Obuma — créalo primero con el botón "Crear proveedor en Obuma".');
 
   // Centro de costo real, si esta licitación ya tiene un Proyecto armado en Obuma (ver

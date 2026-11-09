@@ -174,7 +174,8 @@ async function __POST(request: NextRequest, { params }: Params) {
 
     // Compra directa = compra rápida: lleva RUT válido de la tienda y se registra solo si se puede pedir la aprobación del jefe de ventas.
     if (datos.origen === 'directa') {
-      if (!rutChilenoValido(datos.proveedorRut)) return NextResponse.json({ error: 'La compra directa necesita el RUT de la tienda, válido (ej. 76.123.456-7).' }, { status: 400 });
+      // Proveedor extranjero (ej. Ningbo, ya creado en Obuma): no tiene RUT chileno y se acepta sin él.
+      if (!(datos as any).proveedorExtranjero && !rutChilenoValido(datos.proveedorRut)) return NextResponse.json({ error: 'La compra directa necesita el RUT de la tienda, válido (ej. 76.123.456-7).' }, { status: 400 });
       await exigirTablaCompraRapida();
     }
     let cotizacionId = await registrarCotizacion(id, datos, userId, nombre);
@@ -185,7 +186,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     if (datos.origen === 'directa' && Array.isArray(datos.itemsManual)) {
       for (const it of datos.itemsManual) {
         await solicitarCompraRapida(id, [Number(it.productoId)], {
-          proveedorNombre: datos.proveedorNombre, proveedorRut: datos.proveedorRut as string, precioUnitario: Number(it.precioUnitario ?? datos.precioUnitario),
+          proveedorNombre: datos.proveedorNombre, proveedorRut: (datos.proveedorRut as string | null) || null, sinRutChileno: (datos as any).proveedorExtranjero === true, precioUnitario: Number(it.precioUnitario ?? datos.precioUnitario),
           yaComprada: (datos as any).yaComprada === true,
           link: (String(datos.notas || '').match(/Link de referencia: (\S+)/)?.[1]) ?? null,
           motivo: (String(datos.notas || '').match(/Compra directa sin cotización: ([^.]+)\./)?.[1]) ?? null,

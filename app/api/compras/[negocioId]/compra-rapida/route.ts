@@ -5,7 +5,7 @@ import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
-import { listarComprasRapidas, resolverCompraRapida, solicitarCompraRapida } from '@/app/lib/compras-compra-rapida';
+import { listarComprasRapidas, resolverCompraRapida, solicitarCompraRapida, rutChilenoValido } from '@/app/lib/compras-compra-rapida';
 import { puedeVerCompras, puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 
@@ -48,7 +48,7 @@ async function __POST(request: NextRequest, { params }: Params) {
     const actual = compras.find(c => c.productoId === pid);
     if (!actual || actual.estado !== 'RECHAZADA') return NextResponse.json({ error: 'Solo se puede reenviar una compra rápida rechazada.' }, { status: 400 });
     await solicitarCompraRapida(id, [pid], {
-      proveedorNombre: actual.proveedorNombre || '', proveedorRut: actual.proveedorRut || '', precioUnitario: actual.precioUnitario || 0,
+      proveedorNombre: actual.proveedorNombre || '', proveedorRut: actual.proveedorRut || null, sinRutChileno: !rutChilenoValido(actual.proveedorRut), precioUnitario: actual.precioUnitario || 0,
       link: actual.link, yaComprada: actual.yaComprada, motivo: [actual.motivo, String(body.comentario || '').trim() && `Corregido: ${String(body.comentario).trim()}`].filter(Boolean).join(' · ') || null,
     }, userId, nombre);
     return NextResponse.json({ success: true, ...(await listarComprasRapidas(id)) });

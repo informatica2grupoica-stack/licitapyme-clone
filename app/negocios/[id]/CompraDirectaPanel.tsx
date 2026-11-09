@@ -62,6 +62,8 @@ export function CompraDirectaPanel({ negocioId, productos, inicial, onRegistrada
   // Solo se buscan sugerencias cuando se TIPEA el nombre (no al elegir uno ni al tocar el RUT).
   const [buscarNombre, setBuscarNombre] = useState(false);
   const [provId, setProvId] = useState<number | null>(null);
+  // Proveedor extranjero (ej. Ningbo): no tiene RUT chileno, así que el RUT deja de ser obligatorio (puede anotar su identificador tributario).
+  const [extranjero, setExtranjero] = useState(false);
   const [sugerencias, setSugerencias] = useState<Array<{ id: number; nombreEmpresa: string; nombreFantasia: string | null; rut: string | null; obumaProveedorId: string | null }>>([]);
   // Un proveedor que no existe en Obuma es «nuevo»: hay que crearlo ahí antes de emitir la OC y se le exige la factura antes de pagar.
   const [provObuma, setProvObuma] = useState<{ estado: 'idle' | 'cargando' | 'existe' | 'no_existe' | 'invalido' | 'error'; razonSocial?: string }>({ estado: 'idle' });
@@ -97,9 +99,12 @@ export function CompraDirectaPanel({ negocioId, productos, inicial, onRegistrada
 
   const elegirProveedor = (x: { id: number; nombreEmpresa: string; rut: string | null; obumaProveedorId: string | null }) => {
     setProvId(x.id); setSugerencias([]); setBuscarNombre(false);
-    setDirecta(d => ({ ...d, proveedor: x.nombreEmpresa, rut: x.rut ? formatearRutVivo(x.rut) : d.rut }));
+    // Del catálogo sin RUT (o con un identificador que no es RUT chileno): es un proveedor extranjero y se deja pasar sin RUT.
+    const sinRutCL = !x.rut || !rutValidoCL(x.rut);
+    setExtranjero(sinRutCL);
+    setDirecta(d => ({ ...d, proveedor: x.nombreEmpresa, rut: x.rut ? (sinRutCL ? x.rut : formatearRutVivo(x.rut)) : '' }));
     if (x.obumaProveedorId) setProvObuma({ estado: 'existe', razonSocial: x.nombreEmpresa });
-    else if (x.rut) verificarProveedorObuma(x.rut);
+    else if (x.rut && !sinRutCL) verificarProveedorObuma(x.rut);
     else setProvObuma({ estado: 'idle' });
   };
 
@@ -110,7 +115,7 @@ export function CompraDirectaPanel({ negocioId, productos, inicial, onRegistrada
   const fleteNeto = tieneFlete ? redondear2(fleteConIva ? fleteIngresado / 1.19 : fleteIngresado) : 0;
   const cantidad = Math.max(1, Number(producto?.cantidad) || 1);
   // Compra rápida: la tienda lleva RUT válido (obligatorio) y el jefe de ventas la aprueba antes de comprar.
-  const puedeRegistrar = !!producto && !!directa.proveedor.trim() && !!precio && rutValidoCL(directa.rut) && provObuma.estado !== 'invalido' && (!tieneFlete || fleteNeto > 0) && !guardando;
+  const puedeRegistrar = !!producto && !!directa.proveedor.trim() && !!precio && (extranjero || (rutValidoCL(directa.rut) && provObuma.estado !== 'invalido')) && (!tieneFlete || fleteNeto > 0) && !guardando;
 
   const registrar = async () => {
     if (!producto || !puedeRegistrar) return;
@@ -119,7 +124,7 @@ export function CompraDirectaPanel({ negocioId, productos, inicial, onRegistrada
       const res = await fetch(`/api/compras/${negocioId}/cotizaciones`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          origen: 'directa', yaComprada, proveedorId: provId, proveedorNombre: directa.proveedor.trim(), proveedorRut: directa.rut.trim() || null, precioUnitario: precio,
+          origen: 'directa', yaComprada, proveedorExtranjero: extranjero, proveedorId: provId, proveedorNombre: directa.proveedor.trim(), proveedorRut: directa.rut.trim() || null, precioUnitario: precio,
           descripcionLibre: [producto.descripcion, directa.modelo.trim() ? `Marca/modelo: ${directa.modelo.trim()}` : ''].filter(Boolean).join(' · '),
           notas: `Compra directa sin cotización${directa.motivo.trim() ? `: ${directa.motivo.trim()}` : ''}. Precio neto de referencia${conIva ? ` (el precio de la tienda, $${clp2(precioIngresado)}, incluye IVA)` : ''}.${directa.link.trim() ? ` Link de referencia: ${directa.link.trim()}` : ''}`,
           // Con flete: «aparte» con su monto neto. Sin flete: $0 explícito (retiro en tienda), para que no quede «por confirmar».
@@ -166,9 +171,12 @@ export function CompraDirectaPanel({ negocioId, productos, inicial, onRegistrada
           )}
         </div>
         <div>
-          <label className={labelCls} htmlFor="directa-rut">RUT de la tienda <span className="font-normal text-urgente">(obligatorio)</span></label>
-          <input id="directa-rut" value={directa.rut} onChange={e => { setDirecta(d => ({ ...d, rut: formatearRutVivo(e.target.value) })); setProvObuma({ estado: 'idle' }); setProvId(null); setBuscarNombre(false); setSugerencias([]); }}
-            onBlur={e => verificarProveedorObuma(e.target.value)} placeholder="Se verifica en Obuma" className={inputCls} />
+          <label className={labelCls} htmlFor="directa-rut">{extranjero ? 'RUT / ID tributario' : 'RUT de la tienda'} {extranjero ? <span className="font-normal text-tinta-3">(opcional)</span> : <span className="font-normal text-urgente">(obligatorio)</span>}</label>
+          <input id="directa-rut" value={directa.rut} onChange={e => { setDirecta(d => ({ ...d, rut: extranjero ? e.target.value : formatearRutVivo(e.target.value) })); setProvObuma({ estado: 'idle' }); setProvId(null); setBuscarNombre(false); setSugerencias([]); }}
+            onBlur={e => { if (!extranjero) verificarProveedorObuma(e.target.value); }} placeholder={extranjero ? 'Si no tiene, déjalo vacío' : 'Se verifica en Obuma'} className={inputCls} />
+          <label className="flex items-center gap-1.5 mt-2 text-xs text-tinta-2 cursor-pointer" data-testid="directa-extranjero">
+            <input type="checkbox" checked={extranjero} onChange={e => { setExtranjero(e.target.checked); setProvObuma({ estado: 'idle' }); }} className="accent-teal-600" /> Proveedor extranjero (sin RUT chileno)
+          </label>
         </div>
         <div>
           <label className={labelCls} htmlFor="directa-precio">{conIva ? 'Precio de la tienda (con IVA)' : 'Precio neto unitario'}</label>
@@ -228,7 +236,7 @@ export function CompraDirectaPanel({ negocioId, productos, inicial, onRegistrada
         <Boton variante="primario" onClick={registrar} disabled={!puedeRegistrar}>{guardando ? 'Guardando…' : 'Enviar a aprobación del jefe'}</Boton>
         <Boton variante="fantasma" onClick={onCerrar}>Cancelar</Boton>
         {!producto && <span className="text-xs text-tinta-3">Elige primero el producto.</span>}
-        {!!producto && !rutValidoCL(directa.rut) && <span className="text-xs text-urgente">Falta el RUT de la tienda (válido).</span>}
+        {!!producto && !extranjero && !rutValidoCL(directa.rut) && <span className="text-xs text-urgente">Falta el RUT de la tienda (válido).</span>}
       </div>
     </div>
   );

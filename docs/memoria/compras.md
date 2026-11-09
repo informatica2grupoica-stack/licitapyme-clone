@@ -3,6 +3,12 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-09 — Compra rápida: proveedor extranjero SIN RUT (ej. Ningbo, que ya está en Obuma) (`CompraDirectaPanel.tsx`, `compras-compra-rapida.ts`, rutas `cotizaciones` y `compra-rapida`; tsc sin errores propios, SIN ver en navegador ni desplegar)
+- Antes el RUT chileno válido era obligatorio y bloqueaba «Enviar a aprobación del jefe». Ahora hay un check «Proveedor extranjero (sin RUT chileno)»: el RUT pasa a opcional (acepta un ID tributario tal cual, sin formato chileno) y no se verifica en Obuma. Se marca solo al elegir del catálogo un proveedor sin RUT o con un RUT que no es chileno.
+- Se guarda `proveedor_rut` NULL (la columna ya era nullable; sin migración). El reenvío de una compra rechazada deja pasar si el RUT guardado no es chileno válido. El aviso al jefe dice «proveedor extranjero, sin RUT».
+- OC en Obuma sin RUT: `crearOCEnObuma` (`compras-oc-obuma.ts`) y `RepartoAdminCard.tsx` ya no exigen RUT si el proveedor del catálogo tiene `obumaProveedorId`: se trae la ficha con `proveedorPorId` y se emite con la razón social/RUT que Obuma tenga. Sin RUT ni vínculo a Obuma sigue bloqueado.
+- SIN probar contra Obuma real: falta emitir una OC a Ningbo y ver que Obuma la asocie bien al proveedor (si no, revisar qué `proveedor_rut` manda).
+
 ## 2026-11-09 — Permiso `costeo_ver` («Costeo — solo ver»): Carla (id 31) no podía abrir el costeo (`api-auth.ts`, `costeo-editor/route.ts`, `negocios/[id]/page.tsx`, `admin/usuarios`, `modulos.ts`; tsc sin errores propios, SIN probar con su sesión ni desplegar)
 - Causa: tenía `costeo_editor` → el GET la trataba de editora y exigía ser admin/asignada/`ver_otros_negocios` → 403 en negocios ajenos. Además `compras_todo` la hacía operadora (podía editar Costo REAL/Links por PATCH).
 - Regla: `costeo_ver` sin `costeo_editor` = solo lectura total (congelado, `modoCompras` false, `esOperadorCompras` false → PATCH 403). `costeo_editor` manda sobre `costeo_ver`. Admin lo hereda.

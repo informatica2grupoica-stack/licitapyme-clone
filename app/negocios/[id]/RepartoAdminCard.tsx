@@ -34,7 +34,7 @@ type Hito = 'ocEmitida' | 'pagoRegistrado' | 'anticipoPagado' | 'facturaCompraRe
 
 interface ItemOC { productoId: number; descripcion: string; cantidad: number; precioUnitario: number; subtotal: number; obumaProductoId: string | null; obumaCodigoComercial: string | null; aprobado?: boolean; estadoLinea?: 'APROBADA' | 'RECHAZADA' | 'SIN_DECIDIR' | null; compraRapida?: boolean }
 interface ProveedorOC {
-  proveedorNombre: string; proveedorId: number | null; proveedorRut: string | null;
+  proveedorNombre: string; proveedorId: number | null; proveedorRut: string | null; proveedorObumaId?: string | null;
   proveedorDireccion: string | null; proveedorComuna: string | null; proveedorEmail: string | null; proveedorTelefono: string | null;
   proveedorGiro: string | null; proveedorContacto: string | null;
   items: ItemOC[]; subtotal: number; fleteSugerido?: number | null;
@@ -208,7 +208,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
   }, [negocioId, parte]);
 
   const verificarTodosProveedores = useCallback(async (lista: ProveedorOC[]) => {
-    setEstadoProvs(Object.fromEntries(lista.map(p => [p.proveedorNombre, p.proveedorRut ? 'cargando' : 'sin_rut'])) as Record<string, EstadoProveedorObuma>);
+    setEstadoProvs(Object.fromEntries(lista.map(p => [p.proveedorNombre, p.proveedorRut ? 'cargando' : p.proveedorObumaId ? 'existe' : 'sin_rut'])) as Record<string, EstadoProveedorObuma>);   // extranjero sin RUT pero vinculado a Obuma: puede emitir
     await Promise.all(lista.filter(p => p.proveedorRut).map(async p => {
       let e: EstadoProveedorObuma = 'no_existe';
       try {

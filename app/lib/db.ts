@@ -19,7 +19,10 @@ import mysql from 'mysql2/promise';
 // Presupuesto: notebook 8 + Vercel (~4 instancias × 3 = 12) + margen ≈ 20 < 25. Ajustable con
 // DB_POOL_LIMIT si cambia la topología.
 const enVercel = !!process.env.VERCEL;
-const connectionLimit = enVercel ? 3 : Number(process.env.DB_POOL_LIMIT || 8);
+// Nov-2026: la BD ya está en el mismo VPS (MySQL max_connections=100, VPS 4 vCPU / 12 GB). Prueba de 100 usuarios entrando
+// en 5 s: con 8 + cola 24 fallaron 87 logins ("Queue limit reached"). Ver docs/memoria/infra.md.
+const connectionLimit = enVercel ? 3 : Number(process.env.DB_POOL_LIMIT || 20);
+const colaMaxima = enVercel ? 24 : Number(process.env.DB_QUEUE_LIMIT || 200);
 
 function crearPool() {
   return mysql.createPool({
@@ -31,7 +34,7 @@ function crearPool() {
     timezone: 'local',
     waitForConnections: true, // bajo ráfaga, ENCOLA (espera) en vez de fallar → mejor UX que un error duro
     connectionLimit,
-    queueLimit: 24,           // cola generosa: preferimos que una ráfaga espere a que se rechace
+    queueLimit: colaMaxima,         // cola generosa: preferimos que una ráfaga espere a que se rechace
     connectTimeout: 10000,
     // La base está lejos (~155 ms por consulta) y varias filas son JSON grandes (extracciones, verificaciones: cientos de KB por lectura).
     // Con compresión del protocolo esas lecturas bajan a la mitad o menos (medido 2-oct: 1,8 s → 0,3 s). DB_COMPRESS=0 la apaga.
