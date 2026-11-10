@@ -13,7 +13,7 @@ export const TODOS_LOS_MODULOS: Modulo[] = ['radar', 'negocios', 'viabilidad', '
 export const MODULOS_BASE: Modulo[] = ['radar', 'negocios'];
 /** Módulos que se pueden activar a una empresa-cliente HOY. Los demás todavía leen tablas sin separar por empresa (Compras, Auditor, Costeo…):
  *  activarlos le mostraría datos de Grupo ICA. Se agregan aquí uno por uno, DESPUÉS de separar sus tablas por empresa y probarlo. */
-export const MODULOS_ACTIVABLES: Modulo[] = ['radar', 'negocios', 'viabilidad'];
+export const MODULOS_ACTIVABLES: Modulo[] = ['radar', 'negocios', 'viabilidad', 'costeo']; // PRUEBA LOCAL: 'costeo' sin confirmar
 
 export const NOMBRE_MODULO: Record<Modulo, string> = {
   radar: 'Radar', negocios: 'Negocios', viabilidad: 'Viabilidad IA', ia_chat: 'Consulta a la IA', auditor: 'Auditor',

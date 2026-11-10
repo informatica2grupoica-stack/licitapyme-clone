@@ -101,11 +101,11 @@ export async function cargarItemLineaTecnica(negocioId: number, itemId: number) 
  * migration-82 / productosCrudosDeLinea). Se resuelve del informe cada vez en vez de guardarse:
  * si el informe se reprocesa, los nombres no quedan pisados a mano en linea_producto_ofertado.
  */
-export async function productosDeItem(item: { id: number; linea_numero: number | null }, licitacionCodigo: string): Promise<ProductoDeLinea[]> {
+export async function productosDeItem(item: { id: number; linea_numero: number | null }, licitacionCodigo: string, clienteId: number): Promise<ProductoDeLinea[]> {
   let nombres: string[] = [];
   if (item.linea_numero != null) {
     try {
-      const informe = await leerInforme(licitacionCodigo);
+      const informe = await leerInforme(licitacionCodigo, clienteId);
       if (informe) nombres = productosCrudosDeLinea(informe, item.linea_numero).map(p => p.nombre);
     } catch { /* sin informe → 1 producto sin nombre, mismo comportamiento que antes */ }
   }
@@ -308,7 +308,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!item) return NextResponse.json({ error: 'Línea no encontrada' }, { status: 404 });
 
     const caracteristicas = await leerCaracteristicas(item.id);
-    const productos = await productosDeItem(item, negocio.licitacion_codigo).catch(() => []);
+    const productos = await productosDeItem(item, negocio.licitacion_codigo, negocio.cliente_id).catch(() => []);
     // LO QUE EXIGEN LAS BASES, ANTES DE CLASIFICAR (03-sep-2026, pedido del usuario sobre
     // 1271359-92-LE26: "en el auditor no me muestra nada"). Hasta ahora, una línea sin comparación
     // corrida mostraba una pantalla vacía —"Sin características clasificadas todavía"— aunque el
@@ -318,7 +318,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     let exigencias: Array<{ index: number; nombre: string | null; items: string[] }> = [];
     if (caracteristicas.length === 0 && item.linea_numero != null) {
       try {
-        const informe = await leerInforme(negocio.licitacion_codigo);
+        const informe = await leerInforme(negocio.licitacion_codigo, negocio.cliente_id);
         if (informe) {
           exigencias = productosCrudosDeLinea(informe, item.linea_numero)
             .map((p, i) => ({ index: i, nombre: p.nombre || null, items: p.caracteristicas }))
@@ -371,7 +371,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         paisFabricacion: limpio(body.paisFabricacion), anioFabricacion: limpio(body.anioFabricacion),
       });
       publicarCambio('checklist_comercial');
-      return NextResponse.json({ success: true, productos: await productosDeItem(item, negocio.licitacion_codigo) });
+      return NextResponse.json({ success: true, productos: await productosDeItem(item, negocio.licitacion_codigo, negocio.cliente_id) });
     }
 
     // ── Confirmar la foto tal como quedó (la extracción automática la trajo bien) ───────────
@@ -387,7 +387,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         return NextResponse.json({ error: 'No hay ninguna foto que confirmar.' }, { status: 400 });
       await confirmarImagenProducto({ itemId: item.id, negocioId: negocio.id, productoIndex, imagenUrl: actual.imagenUrl });
       publicarCambio('checklist_comercial');
-      return NextResponse.json({ success: true, productos: await productosDeItem(item, negocio.licitacion_codigo) });
+      return NextResponse.json({ success: true, productos: await productosDeItem(item, negocio.licitacion_codigo, negocio.cliente_id) });
     }
 
     // ── Quitar la foto (la extracción trajo la equivocada y no hay con qué reemplazarla) ────
@@ -397,7 +397,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       const productoIndex = Number.isInteger(body.productoIndex) ? Number(body.productoIndex) : 0;
       await quitarImagenProducto(item.id, productoIndex);
       publicarCambio('checklist_comercial');
-      return NextResponse.json({ success: true, productos: await productosDeItem(item, negocio.licitacion_codigo) });
+      return NextResponse.json({ success: true, productos: await productosDeItem(item, negocio.licitacion_codigo, negocio.cliente_id) });
     }
 
     // ── Reiniciar: borra TODAS las características de la línea (ficha equivocada, prueba con
@@ -440,7 +440,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     // Línea normal (1 producto): productosCrudosDeLinea() devuelve el mismo LineaTecnica que antes
     // devolvía lineasTecnicasDelInforme() para esa línea — comportamiento idéntico al de siempre.
     if (accion === 'validar') {
-      const informe = await leerInforme(negocio.licitacion_codigo);
+      const informe = await leerInforme(negocio.licitacion_codigo, negocio.cliente_id);
       if (!informe) return NextResponse.json({ error: 'Esta licitación aún no tiene informe de viabilidad.' }, { status: 400 });
 
       const productos = item.linea_numero != null ? productosCrudosDeLinea(informe, item.linea_numero) : [];
@@ -521,7 +521,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       // Reparte la ficha por producto UNA sola vez — el mismo resultado alimenta tanto la
       // comparación de características (acá abajo) como marca/modelo/foto (procesarProductosDeLaFicha).
       const { segmentos, bufferPdf } = await prepararSegmentosDeLaFicha({
-        licitacionCodigo: negocio.licitacion_codigo, lineaNumero: item.linea_numero,
+        licitacionCodigo: negocio.licitacion_codigo, clienteId: negocio.cliente_id, lineaNumero: item.linea_numero,
         documentoUrl, documentoNombre, textoCompleto: extraido.texto,
       });
       const segmentosPorIndice = new Map(segmentos.map(s => [s.productoIndex, s]));
@@ -648,7 +648,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         const extraido = await descargarYExtraerTexto(doc.url, doc.nombre);
         if (!extraido?.texto || extraido.texto.trim().length < 30) return null;
         const { segmentos, bufferPdf } = await prepararSegmentosDeLaFicha({
-          licitacionCodigo: negocio.licitacion_codigo, lineaNumero: item.linea_numero,
+          licitacionCodigo: negocio.licitacion_codigo, clienteId: negocio.cliente_id, lineaNumero: item.linea_numero,
           documentoUrl: doc.url, documentoNombre: doc.nombre, textoCompleto: extraido.texto,
         });
         return { doc, textoCompleto: extraido.texto, segmentos, bufferPdf };
@@ -917,7 +917,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       const caracteristicas = await leerCaracteristicas(item.id);
       return NextResponse.json({
         success: true, escritas, caracteristicas,
-        productos: await productosDeItem(item, negocio.licitacion_codigo),
+        productos: await productosDeItem(item, negocio.licitacion_codigo, negocio.cliente_id),
       });
     }
 
@@ -954,15 +954,15 @@ interface SegmentoProducto {
  * sacarlo automáticamente, se completa a mano.
  */
 export async function prepararSegmentosDeLaFicha(args: {
-  licitacionCodigo: string; lineaNumero: number | null;
+  licitacionCodigo: string; clienteId: number; lineaNumero: number | null;
   documentoUrl: string; documentoNombre: string; textoCompleto: string;
 }): Promise<{ segmentos: SegmentoProducto[]; bufferPdf: Buffer | null }> {
-  const { licitacionCodigo, lineaNumero, documentoUrl, documentoNombre, textoCompleto } = args;
+  const { licitacionCodigo, clienteId, lineaNumero, documentoUrl, documentoNombre, textoCompleto } = args;
 
   let nombresProductos: string[] = [];
   if (lineaNumero != null) {
     try {
-      const informe = await leerInforme(licitacionCodigo);
+      const informe = await leerInforme(licitacionCodigo, clienteId);
       if (informe) nombresProductos = productosCrudosDeLinea(informe, lineaNumero).map(p => p.nombre);
     } catch { /* sin informe: se trata como 1 solo producto, comportamiento de siempre */ }
   }

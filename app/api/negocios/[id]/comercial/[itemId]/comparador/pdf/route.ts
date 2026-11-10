@@ -43,7 +43,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     const [comparador, productos, precioPlazo, documentos] = await Promise.all([
       armarEstado(item) as unknown as Promise<EstadoComparador>,
-      productosDeItem(item, negocio.licitacion_codigo),
+      productosDeItem(item, negocio.licitacion_codigo, negocio.cliente_id),
       pool.query(
         `SELECT tipo, titulo, valor_numero, valor_texto FROM checklist_comercial
           WHERE negocio_id = ? AND bloque = 'COMERCIAL'

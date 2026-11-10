@@ -96,7 +96,7 @@ export async function PATCH(req: NextRequest) {
     // nueva que escribir acá — solo hay que llamarlo. Nunca bloquea el drag & drop del usuario: si
     // falla, la categoría ya quedó guardada y el Auditor se pone al día la próxima vez que se abra.
     try {
-      const informe = (await clienteTieneModulo(clienteId, 'auditor')) ? await leerInforme(codigo) : null;
+      const informe = (await clienteTieneModulo(clienteId, 'auditor')) ? await leerInforme(codigo, clienteId) : null;
       if (informe) {
         const [negociosRows] = await pool.query(
           `SELECT id FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE AND cliente_id = ?`,

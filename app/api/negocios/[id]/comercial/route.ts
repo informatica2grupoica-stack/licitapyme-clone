@@ -11,6 +11,7 @@
 // un digest agrupado llegaría cuando la licitación ya cerró.
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
+import { leerInformeViabilidad, fechaInformeViabilidad } from '@/app/lib/informe-viabilidad';
 import pool from '@/app/lib/db';
 import { registrarEvento } from '@/app/lib/historial';
 import { publicarCambio } from '@/app/lib/sse-bus';
@@ -63,7 +64,7 @@ export const COLS = `id, negocio_id, bloque, tipo, titulo, descripcion, criticid
 export async function cargarNegocio(id: string) {
   const [rows] = await pool.query(
     `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.estado_pipeline, n.asignado_a,
-            n.empresa_id, n.licitacion_cierre, u.nombre AS asignado_nombre,
+            n.empresa_id, COALESCE(n.cliente_id, 1) AS cliente_id, n.licitacion_cierre, u.nombre AS asignado_nombre,
             e.razon_social, e.rut, e.direccion, e.region, e.giro, e.tipo_persona_juridica,
             e.representante_nombre, e.representante_rut, e.representante_cargo,
             e.email1, e.telefono1, e.banco_tipo_cuenta, e.banco_numero, e.banco_nombre
@@ -77,16 +78,9 @@ export async function cargarNegocio(id: string) {
   return (rows as any[])[0] || null;
 }
 
-/** Informe de viabilidad guardado (v3 preferido, v2 de respaldo) — misma lectura que usa el panel. */
-export async function leerInforme(codigo: string): Promise<any | null> {
-  try {
-    const [rows] = await pool.query(
-      `SELECT informe_ejecutivo FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);
-    const row = (rows as any[])[0];
-    if (!row) return null;
-    const ie = typeof row.informe_ejecutivo === 'string' ? JSON.parse(row.informe_ejecutivo) : row.informe_ejecutivo;
-    return ie?._informe_ia_v3 ?? ie?._informe_ia ?? null;
-  } catch { return null; }
+/** Informe de viabilidad guardado para ESA empresa (ICA: v3 preferido, v2 de respaldo; otra empresa: su propio informe v4). */
+export async function leerInforme(codigo: string, clienteId: number): Promise<any | null> {
+  try { return await leerInformeViabilidad(codigo, clienteId); } catch { return null; }
 }
 
 /** ¿Este usuario visa? Admin siempre; otro perfil solo con el permiso aprobar_comercial. */
@@ -185,7 +179,7 @@ async function leerResumenesTecnicos(negocioId: number): Promise<Map<number, any
 // el modal para saber que la línea trae más de un ítem. Los demás call-sites (acciones puntuales)
 // no lo necesitan — sus respuestas no repintan esa lista, así que no vale la pena leer el informe
 // en cada PATCH.
-export async function leerItems(negocioId: number, licitacionCodigo?: string) {
+export async function leerItems(negocioId: number, licitacionCodigo?: string, clienteId = 1) {
   // Independientes entre sí: en paralelo (la base es remota, ~155 ms por consulta).
   const [[rows], documentos, resumenesTecnicos, informe] = await Promise.all([
     pool.query(
@@ -194,7 +188,7 @@ export async function leerItems(negocioId: number, licitacionCodigo?: string) {
     ) as Promise<any>,
     leerDocumentosPorItem(negocioId),
     leerResumenesTecnicos(negocioId),
-    licitacionCodigo ? leerInforme(licitacionCodigo).catch(() => null) : null,
+    licitacionCodigo ? leerInforme(licitacionCodigo, clienteId).catch(() => null) : null,
   ]);
   return ordenarAnexosPorNumero(rows as any[]).map(r => ({
     ...r,
@@ -496,9 +490,9 @@ export async function reconciliarLineasTecnicas(negocioId: number, informe: any)
  * (1057448-45-LP26, 5-oct-2026). Hace lo mismo que el GET —sincronizar + reconciliar—, así que solo
  * agrega lo que falta y borra filas vírgenes de líneas que ya no existen; nunca toca trabajo cargado.
  */
-export async function sanarChecklistDeLicitacion(codigo: string): Promise<void> {
+export async function sanarChecklistDeLicitacion(codigo: string, clienteId: number): Promise<void> {
   try {
-    const informe = await leerInforme(codigo);
+    const informe = await leerInforme(codigo, clienteId);
     if (!informe) return;
     const [rows] = await pool.query(`SELECT DISTINCT negocio_id FROM checklist_comercial WHERE licitacion_codigo = ?`, [codigo]) as any;
     for (const r of rows as Array<{ negocio_id: number }>) {
@@ -570,16 +564,13 @@ async function reubicarExistentes(negocioId: number): Promise<void> {
 
 /** ¿El informe de viabilidad se guardó DESPUÉS de la última vez que se materializó el checklist?
  *  Dos lecturas de una fila cada una — mucho más barato que correr sincronizar() a ciegas. */
-async function viabilidadMasNuevaQueChecklist(negocioId: number, codigo: string): Promise<boolean> {
+async function viabilidadMasNuevaQueChecklist(negocioId: number, codigo: string, clienteId: number): Promise<boolean> {
   try {
-    const [rows] = await pool.query(
-      `SELECT (SELECT updated_at FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1) AS viabilidad,
-              (SELECT MAX(created_at) FROM checklist_comercial WHERE negocio_id = ?)            AS checklist`,
-      [codigo, negocioId],
-    );
-    const f = (rows as any[])[0];
-    if (!f?.viabilidad || !f?.checklist) return false;
-    return new Date(f.viabilidad).getTime() > new Date(f.checklist).getTime();
+    const viab = await fechaInformeViabilidad(codigo, clienteId);
+    const [rows] = await pool.query(`SELECT MAX(created_at) AS checklist FROM checklist_comercial WHERE negocio_id = ?`, [negocioId]);
+    const check = (rows as any[])[0]?.checklist;
+    if (!viab || !check) return false;
+    return viab.getTime() > new Date(check).getTime();
   } catch {
     return false;   // nunca romper la pantalla por esto: en el peor caso queda el botón manual
   }
@@ -649,7 +640,7 @@ async function decidirGeneracionDeBloques(negocio: any, itemsYa?: any[]) {
       [negocio.id],
     ) as Promise<any>,
     // Los items que el GET ya leyó (solo usa estado/bloque/ofertamos/valor_*): no se vuelven a pedir.
-    itemsYa ?? leerItems(negocio.id, negocio.licitacion_codigo),
+    itemsYa ?? leerItems(negocio.id, negocio.licitacion_codigo, negocio.cliente_id),
   ]);
   const documentos: DocumentoCandidato[] = (docRows as any[]).map(d => ({
     id: d.id, nombre: d.documento_nombre, url: d.documento_url_local,
@@ -691,7 +682,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     const activo = tieneInformacionComercial(negocio.estado_pipeline);
     // Tres lecturas independientes a la vez (la base es remota). La del foro es solo el caché que ya dejó el cron.
     const foroCacheP = activo ? leerCachePreguntas(negocio.licitacion_codigo).catch(() => null) : Promise.resolve(null);
-    const [migracionOk, informe] = await Promise.all([migracionAplicada(), leerInforme(negocio.licitacion_codigo)]);
+    const [migracionOk, informe] = await Promise.all([migracionAplicada(), leerInforme(negocio.licitacion_codigo, negocio.cliente_id)]);
     if (!migracionOk) {
       return NextResponse.json({
         success: true, migracionPendiente: true, activo: tieneInformacionComercial(negocio.estado_pipeline),
@@ -713,7 +704,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     // INSERT IGNORE contra la unique (negocio_id, clave_origen): agrega lo nuevo y jamás pisa lo
     // que el asesor ya cargó o aprobó. Se compara contra la fecha del informe para no correr los
     // ~20 INSERT en cada carga de pantalla, solo cuando de verdad hay algo más nuevo.
-    if (activo && informe && (items.length === 0 || await viabilidadMasNuevaQueChecklist(negocio.id, negocio.licitacion_codigo))) {
+    if (activo && informe && (items.length === 0 || await viabilidadMasNuevaQueChecklist(negocio.id, negocio.licitacion_codigo, negocio.cliente_id))) {
       await sincronizar(negocio.id, negocio.licitacion_codigo, informe);
       items = await leerItems(negocio.id);
     }
@@ -761,7 +752,7 @@ export async function GET(request: NextRequest, { params }: Params) {
           cambiosForo = await revisarDeltaForo({
             negocioId: negocio.id, licitacionCodigo: negocio.licitacion_codigo, licitacionNombre: negocio.licitacion_nombre,
             asignadoA: negocio.asignado_a, asignadoNombre: negocio.asignado_nombre,
-            preguntasActuales: foroCache.preguntas, bitacora, asesores,
+            preguntasActuales: foroCache.preguntas, bitacora, asesores: () => asesores(negocio.cliente_id),
           });
           if (cambiosForo.length > 0) items = await leerItems(negocio.id);
         }
@@ -857,7 +848,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const accion = String(body.accion || 'resincronizar');
 
     if (accion === 'resincronizar') {
-      const informe = await leerInforme(negocio.licitacion_codigo);
+      const informe = await leerInforme(negocio.licitacion_codigo, negocio.cliente_id);
       if (!informe) return NextResponse.json({ error: 'Esta licitación aún no tiene informe de viabilidad.' }, { status: 400 });
       const nuevos = await sincronizar(negocio.id, negocio.licitacion_codigo, informe);
       const items = await leerItems(negocio.id);
@@ -1146,7 +1137,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     const lic = { licitacionCodigo: negocio.licitacion_codigo, licitacionNombre: negocio.licitacion_nombre };
     if (accion === 'CARGAR') {
       // Al asesor: hay algo esperando su visto bueno. Uno por asesor, en el acto.
-      for (const a of await asesores()) {
+      for (const a of await asesores(negocio.cliente_id)) {
         if (Number(a.id) === Number(userId)) continue;   // no avisarse a sí mismo
         await registrarEvento({
           tipo: 'COMERCIAL_POR_APROBAR', ...lic,
@@ -1176,7 +1167,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     // — mostraba dos montos que ya no existían en ninguna parte. Ver motor-comercial-recalculo.ts.
     if (item.tipo === 'precio') {
       try {
-        const informe = await leerInforme(negocio.licitacion_codigo);
+        const informe = await leerInforme(negocio.licitacion_codigo, negocio.cliente_id);
         const lineasPublicadas = informe ? lineasDelInforme(informe) : [];
         const excluidas = await lineasExcluidasDeNegocio(negocio.id, lineasPublicadas.map(l => l.linea));
         await recalcularAlertasCosteo({

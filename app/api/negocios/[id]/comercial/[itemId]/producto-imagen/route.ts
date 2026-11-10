@@ -66,7 +66,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     await confirmarImagenProducto({ itemId: item.id, negocioId: negocio.id, productoIndex, imagenUrl: url });
     publicarCambio('checklist_comercial');
 
-    return NextResponse.json({ success: true, productos: await productosDeItem(item, negocio.licitacion_codigo) });
+    return NextResponse.json({ success: true, productos: await productosDeItem(item, negocio.licitacion_codigo, negocio.cliente_id) });
   } catch (error) {
     console.error('[comercial][producto-imagen][POST]', String(error));
     return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });

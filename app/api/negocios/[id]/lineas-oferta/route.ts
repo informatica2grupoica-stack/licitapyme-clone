@@ -60,7 +60,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
-    const informe = await leerInforme(negocio.licitacion_codigo);
+    const informe = await leerInforme(negocio.licitacion_codigo, negocio.cliente_id);
     const porLinea = !!informe && esPorLinea(informe);
     const disponibles = porLinea ? lineasOfertables(informe) : [];
     const decision = await leerDecisionLineas(negocio.id);
@@ -92,7 +92,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     // Si hay desfase se sana al vuelo (solo filas vírgenes; el trabajo cargado no se toca) y se vuelve a
     // medir: así el aviso solo queda cuando de verdad hay trabajo de una persona colgando de otra numeración.
     if (checklistDesalineado.length) {
-      await sanarChecklistDeLicitacion(negocio.licitacion_codigo);
+      await sanarChecklistDeLicitacion(negocio.licitacion_codigo, negocio.cliente_id);
       checklistDesalineado = await medirDesalineado();
     }
 
@@ -135,7 +135,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
     // El nombre se toma del informe, no del cliente: es una foto para poder leer la decisión
     // después, y no queremos que dependa de lo que el navegador tuviera en pantalla.
-    const informe = await leerInforme(negocio.licitacion_codigo);
+    const informe = await leerInforme(negocio.licitacion_codigo, negocio.cliente_id);
     const nombres = new Map(informe ? lineasOfertables(informe).map(l => [l.linea, l.nombre]) : []);
 
     const { ofertadas, descartadas, sinProyectar } = await guardarLineasOfertadas({

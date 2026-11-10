@@ -380,7 +380,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         void marcarJobError(codigoDecoded, runId, 'No hay documentos legibles para analizar. Descárgalos primero.');
       } else {
         void marcarJobListo(codigoDecoded, runId); // OK: el informe quedó guardado en BD, el GET ya lo devuelve.
-        void sanarChecklistDeLicitacion(codigoDecoded); // el checklist de los negocios queda al día con las líneas nuevas
+        void sanarChecklistDeLicitacion(codigoDecoded, 1); // esta ruta es la viabilidad de ICA (cliente 1) // el checklist de los negocios queda al día con las líneas nuevas
         // Marca la única re-análisis del usuario normal como usada — SOLO si el análisis terminó
         // bien de verdad (si falla, no le cobramos su oportunidad).
         if (negocioIdReanalisis != null) {

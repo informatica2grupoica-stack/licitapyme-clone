@@ -103,12 +103,12 @@ export interface OpcionesIngestaCosteo {
 }
 
 export async function ingresarVersionCosteo(
-  negocio: { id: number; licitacion_codigo: string; licitacion_nombre: string },
+  negocio: { id: number; licitacion_codigo: string; licitacion_nombre: string; cliente_id: number },
   filas: Awaited<ReturnType<typeof parsearCosteo>>,
   opts: OpcionesIngestaCosteo,
 ) {
   const { userId, nombreActor } = opts;
-  const informe = await leerInforme(negocio.licitacion_codigo);
+  const informe = await leerInforme(negocio.licitacion_codigo, negocio.cliente_id);
   // EL TOPE POR LÍNEA VIENE CON IVA y se compara contra un costeo NETO (03-sep-2026). El manifiesto
   // guarda `presupuesto_linea` tal como lo publican las bases —"viene IVA incluido en ambos
   // formatos soportados", ver el backfill de presupuesto en viabilidad-ia.ts— mientras que
@@ -218,7 +218,7 @@ export async function ingresarVersionCosteo(
   // aprobación la que quedó invalidada, así que les toca volver a visar — mismo tipo de evento
   // que cuando el asistente carga algo nuevo (comercial/route.ts, acción 'CARGAR').
   if (reabiertos.length > 0) {
-    for (const a of await asesores()) {
+    for (const a of await asesores(negocio.cliente_id)) {
       if (Number(a.id) === Number(userId)) continue;
       await registrarEvento({
         tipo: 'COMERCIAL_POR_APROBAR',
@@ -258,7 +258,7 @@ export async function ingresarVersionCosteo(
 
   // Aviso a los asesores solo si hay alertas — un costeo limpio no necesita interrumpir a nadie.
   if (alertas.length > 0) {
-    for (const a of await asesores()) {
+    for (const a of await asesores(negocio.cliente_id)) {
       if (Number(a.id) === Number(userId)) continue;
       await registrarEvento({
         tipo: 'COSTEO_CON_ALERTAS',

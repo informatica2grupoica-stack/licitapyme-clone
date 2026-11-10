@@ -125,7 +125,9 @@ export async function proxy(request: NextRequest) {
     }
     // Defensa en profundidad: aunque Compras hoy no se pueda activar a otras empresas (MODULOS_ACTIVABLES), el día que se active ningún
     // /compras/<id> ni /api/compras/<id>/… puede entregar un negocio que no sea de esa empresa.
-    const idNegocio = pathname.match(/^\/(?:api\/)?compras\/(\d+)(?:\/|$)/)?.[1];
+    // Lo mismo para Costeo: todas sus rutas cuelgan de /api/negocios/<id>/(comercial|lineas-oferta)/… (el itemId se valida contra ese negocio).
+    const idNegocio = pathname.match(/^\/(?:api\/)?compras\/(\d+)(?:\/|$)/)?.[1]
+      ?? pathname.match(/^\/api\/negocios\/(\d+)\/(?:comercial|lineas-oferta)(?:\/|$)/)?.[1];
     if (idNegocio && !(await negocioEsDeCliente(Number(idNegocio), clienteId))) {
       if (pathname.startsWith('/api/')) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
       return NextResponse.redirect(new URL('/dashboard', request.url));

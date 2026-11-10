@@ -4,8 +4,9 @@
 // GET  → verifica si ya existe uno generado.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { leerInformeViabilidad } from '@/app/lib/informe-viabilidad';
 import pool from '@/app/lib/db';
-import { getAuthedUser, puedeVerLicitacion } from '@/app/lib/api-auth';
+import { getAuthedUser, puedeVerLicitacion, clienteIdOrNull } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { generarCosteoExcel, adaptarViabilidadACosteo } from '@/app/lib/generar-costeo';
 import type { ViabilidadIAResult } from '@/app/lib/viabilidad-ia';
@@ -20,20 +21,8 @@ type Params = { params: Promise<{ codigo: string }> };
 
 const NOMBRE_DOC_PREFIX = 'COSTEO_';
 
-async function leerInformeIA(codigo: string): Promise<ViabilidadIAResult | null> {
-  const [rows] = await pool.query(
-    `SELECT informe_ejecutivo FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`,
-    [codigo],
-  );
-  const row = (rows as any[])[0];
-  if (!row) return null;
-  try {
-    const ie = typeof row.informe_ejecutivo === 'string'
-      ? JSON.parse(row.informe_ejecutivo)
-      : row.informe_ejecutivo;
-    // Prefiere el informe v3 (el ACTIVO); cae al v2 (_informe_ia) por compatibilidad.
-    return ie?._informe_ia_v3 ?? ie?._informe_ia ?? null;
-  } catch { return null; }
+async function leerInformeIA(codigo: string, clienteId: number): Promise<ViabilidadIAResult | null> {
+  try { return await leerInformeViabilidad(codigo, clienteId); } catch { return null; }
 }
 
 // Refresca el manifiesto con el PARSER de planilla sobre los documentos YA CACHEADOS
@@ -124,6 +113,10 @@ export async function GET(request: NextRequest, { params }: Params) {
   const codigoDecoded = decodeURIComponent(codigo);
   if (!(await puedeVerLicitacion(request, codigoDecoded)))
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
+  // El Excel se guarda en documentos_cache por código de licitación (compartido entre empresas): con precios y costos de ICA no puede verlo otra empresa.
+  // Solo ICA hasta que ese Excel tenga dueño por cliente. Las empresas-cliente usan el costeo del Auditor (editor), que sí es por negocio.
+  if (((await clienteIdOrNull(request)) ?? 1) !== 1)
+    return NextResponse.json({ error: 'No disponible para tu empresa.' }, { status: 403 });
 
   const [rows] = await pool.query(
     `SELECT documento_nombre, documento_url_local, created_at
@@ -145,9 +138,13 @@ export async function POST(request: NextRequest, { params }: Params) {
   const codigoDecoded = decodeURIComponent(codigo);
   if (!(await puedeVerLicitacion(request, codigoDecoded)))
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
+  // El Excel se guarda en documentos_cache por código de licitación (compartido entre empresas): con precios y costos de ICA no puede verlo otra empresa.
+  // Solo ICA hasta que ese Excel tenga dueño por cliente. Las empresas-cliente usan el costeo del Auditor (editor), que sí es por negocio.
+  if (((await clienteIdOrNull(request)) ?? 1) !== 1)
+    return NextResponse.json({ error: 'No disponible para tu empresa.' }, { status: 403 });
 
   // 1) Leer el informe IA desde la DB
-  const informeIA = await leerInformeIA(codigoDecoded);
+  const informeIA = await leerInformeIA(codigoDecoded, (await clienteIdOrNull(request)) ?? 1);
   if (!informeIA) {
     return NextResponse.json(
       { error: 'No hay informe de viabilidad IA para esta licitación. Ejecuta el análisis IA primero.' },

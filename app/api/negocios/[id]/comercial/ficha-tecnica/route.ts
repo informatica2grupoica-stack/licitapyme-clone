@@ -154,7 +154,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     // devuelve POR PRODUCTO — así el respaldo también queda repartido, no amontonado en el primero.
     // Vienen como texto suelto sin clasificar en PISO/TECHO/EXACTO/RANGO; para la ficha alcanza:
     // la columna es texto y se transcribe tal cual, una fila por especificación.
-    const informeFicha = await leerInforme(negocio.licitacion_codigo);
+    const informeFicha = await leerInforme(negocio.licitacion_codigo, negocio.cliente_id);
 
     // Un producto de la ficha = identidad (marca/modelo/foto, migración 79/82) + SUS
     // especificaciones (migración 83). Una línea normal trae uno solo; una línea-paquete (caso

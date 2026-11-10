@@ -96,7 +96,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         error: 'No pude separar el documento por ítem/producto (no encontré encabezados tipo "ÍTEM 1: …" ni pude agrupar sus páginas por producto). Para no cruzar productos, no comparé nada: arrastra el documento directo a la fila de su línea.',
       }, { status: 422 });
 
-    const informe = await leerInforme(negocio.licitacion_codigo).catch(() => null);
+    const informe = await leerInforme(negocio.licitacion_codigo, negocio.cliente_id).catch(() => null);
     const foro = foroDelInforme(informe);
 
     type Resultado = { linea: number; titulo: string; bloque: string; requisitos: number; comparados: number; cumple: number; noCumple: number; otros: number; aviso?: string };

@@ -249,14 +249,14 @@ export async function POST(request: NextRequest, { params }: Params) {
       }
 
       // L2 — por producto de la línea (una línea-paquete se compara producto por producto).
-      const informe = await leerInforme(negocio.licitacion_codigo).catch(() => null);
+      const informe = await leerInforme(negocio.licitacion_codigo, negocio.cliente_id).catch(() => null);
       const foro = foroDelInforme(informe);
       const segmentosPorUrl = new Map<string, Awaited<ReturnType<typeof prepararSegmentosDeLaFicha>>>();
       await Promise.all(mapa.map(async m => {
         const texto = textos.get(m.url);
         if (!texto) return;
         segmentosPorUrl.set(m.url, await prepararSegmentosDeLaFicha({
-          licitacionCodigo: negocio.licitacion_codigo, lineaNumero: item.linea_numero,
+          licitacionCodigo: negocio.licitacion_codigo, clienteId: negocio.cliente_id, lineaNumero: item.linea_numero,
           documentoUrl: m.url, documentoNombre: m.archivo, textoCompleto: texto,
         }));
       }));

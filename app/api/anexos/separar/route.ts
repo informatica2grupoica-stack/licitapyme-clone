@@ -27,7 +27,7 @@
 // organismo, así que recortarlo es correcto y reconstruirlo en Word no lo sería.
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { getAuthedUser, puedeVerLicitacion, tienePermiso } from '@/app/lib/api-auth';
+import { getAuthedUser, puedeVerLicitacion, tienePermiso, clienteIdOrNull } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { cargarDocumentoParaSeparar } from '@/app/lib/anexos-datos';
 import { abrirDocx, verificarXmlBienFormado, normalizarParaIds } from '@/app/lib/anexos-docx';
@@ -177,7 +177,7 @@ export async function POST(request: NextRequest) {
 
     // Cada anexo separado se llena: que aparezca ya en Pre-postulación, sin esperar a que algo más
     // vuelva a sincronizar el checklist (1057922-28-LP26). Nunca bloquea: los archivos ya quedaron.
-    await sanarChecklistDeLicitacion(codigo).catch(() => {});
+    await sanarChecklistDeLicitacion(codigo, (await clienteIdOrNull(request)) ?? 1).catch(() => {});
 
     return NextResponse.json({ success: true, separado: true, archivos });
   } catch (error: any) {

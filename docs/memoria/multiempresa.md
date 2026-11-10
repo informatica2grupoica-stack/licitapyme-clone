@@ -107,7 +107,7 @@ El cupo de IA por cliente (`clientes.cupo_ia_mensual`) solo se aplica en Viabili
 
 ### Etapa 3 — Abrir módulos, uno por uno (orden propuesto)
 Para cada módulo: tablas con dueño → todas sus rutas con chequeo de cliente → datos de ICA fuera del código → prueba de aislamiento en la BD local (3308) con un usuario del cliente 2 → recién ahí se suma a `MODULOS_ACTIVABLES`.
-- [ ] Costeo (`checklist_comercial*`, `negocio_costeo_editor`, `negocio_lineas_oferta`; 10 rutas `/api/negocios/[id]/comercial/*`).
+- [~] Costeo — rutas con dueño + lee viabilidad del cliente (2026-11-10); falta prueba visual y activar (`checklist_comercial*`, `negocio_costeo_editor`, `negocio_lineas_oferta`; 10 rutas `/api/negocios/[id]/comercial/*`).
 - [ ] Auditor (`auditor_*`; rutas `/api/negocios/[id]/auditor*` y `prepostulacion`).
 - [ ] Anexos (`empresa_documentos`, `empresa_firmas`, motor `anexos-*.ts` con datos de ICA escritos).
 - [ ] Compras (el más grande: 90 rutas, proveedores, historial OC, Obuma, OC propia de Comercial MP).
@@ -122,6 +122,26 @@ Para cada módulo: tablas con dueño → todas sus rutas con chequeo de cliente 
 ---
 
 ## Bitácora
+
+## 2026-11-10 (noche) — Etapa 3 (Costeo): prueba en local con la app levantada
+App en :3000 contra la BD local (3308) con `.env.development.local` (ignorado por git) y `'costeo'` sumado a `MODULOS_ACTIVABLES` **solo para probar (sin commitear)**. Usuario: admin del cliente 2 (id 23, `pruebas@admin.cl`; en local se le puso contraseña de prueba y se marcó su onboarding como hecho).
+**Resultado (HTTP, sesión real del cliente 2):** negocio 1578 con informe propio → checklist de 21 ítems armado desde SU `cliente_viabilidad_v4`; negocio 1589 sin informe → `sinViabilidad: true`; negocios de ICA (id 1) y un id inexistente → 404 en comercial, costeo y lineas-oferta; `generar-costeo` → 403; `/api/compras/…` → 403 (módulo no incluido). En el navegador (por JS, el panel estaba oculto): aparecen las pestañas Auditor y Costeo y el editor de Costeo carga con el ítem del manifiesto del cliente. **Guardar** (PUT costeo-editor): quedó solo en el negocio 1578 (negocio_costeo_editor y checklist_comercial_costeo +1), evento `COSTEO_GUARDADO` con cliente_id 2, checklist de ICA intacto (21.573); totales correctos.
+**Hallazgos:** (1) El tope «$58.614.285.714» de 1057472-143-LE26 viene del propio informe del cliente 2 (la IA lo leyó mal: `presupuesto.neto`), no del código de Costeo. (2) En local las tablas creadas con la collation por defecto de MySQL 8 (`utf8mb4_0900_ai_ci`, p. ej. `cliente_viabilidad_v4`) no se pueden comparar con `negocios.licitacion_codigo` (`utf8mb4_general_ci`) en un JOIN; en producción está unificado (migración utf8mb4). (3) La pestaña «Auditor» se ve aunque el módulo auditor no esté contratado: sus rutas darán 403 → falta ocultarla o decidir si el Auditor se abre también.
+**Pendiente:** ocultar/gestionar la pestaña Auditor para clientes sin ese módulo; revisar R2 por código de licitación; ver la pantalla con el panel del navegador visible; decidir si `costeo` entra a `MODULOS_ACTIVABLES` (hoy solo en local, sin commit).
+
+## 2026-11-10 (noche) — Etapa 3 (Costeo): ahora lee la viabilidad de CADA empresa
+Decisión del dueño: Costeo lee la viabilidad del cliente (no se junta con el Auditor). Nuevo `app/lib/informe-viabilidad.ts` (`leerInformeViabilidad(codigo, clienteId)`, `fechaInformeViabilidad`): ICA → `viabilidad_licitacion` (v3/v2); otra empresa → `cliente_viabilidad_v4.informe` (mismo esquema, sin envoltorio). `leerInforme(codigo, clienteId)` de `comercial/route.ts` ahora **exige** el cliente (así `tsc` marcó los ~20 sitios); `cargarNegocio` trae `cliente_id`; `leerItems`, `sanarChecklistDeLicitacion`, `productosDeItem`, `viabilidadMasNuevaQueChecklist`, costeo, costeo-editor, ficha-tecnica, documento-todas, comparador, lineas-oferta, clasificar y anexos/separar lo propagan.
+Dos fugas cerradas de paso: (1) `asesores()` tenía el cliente 1 por defecto y el control del foro le pasaba esa función: un aviso de una empresa habría llegado a admins de ICA; (2) `/api/documentos/generar-costeo/[codigo]` guarda su Excel en `documentos_cache` por código (compartido entre empresas) → solo ICA (403 al resto).
+**Verificado:** `tsc` limpio; 1.806 tests ok; `scripts/scratch/_probar_informe_viabilidad_cliente.mts` contra la BD local (3308) 8/8 (ICA lee su v3; la empresa no lee el de ICA aunque el código sea el mismo; cada una el suyo; sin informe → null). No visto en el navegador.
+**Pendiente antes de sumar `costeo` a `MODULOS_ACTIVABLES`:** prueba con la app levantada y un usuario del cliente 2 (la pantalla de Costeo vive dentro del Auditor); revisar datos de ICA en la UI de Costeo y subida de archivos a R2 (rutas por código, no por empresa). Nada se activó.
+**Multiempresa:** el código de Costeo ya no depende de datos de ICA; el módulo sigue cerrado a clientes hasta la prueba visual.
+
+## 2026-11-10 — Etapa 3 (Costeo): aislamiento de rutas hecho; falta decidir de dónde sale la viabilidad
+`proxy.ts`: el chequeo «el negocio es de tu empresa» (`negocioEsDeCliente`) ahora también cubre `/api/negocios/<id>/(comercial|lineas-oferta)/…` (las 16 rutas de Costeo; el `itemId` ya se valida contra el negocio en `cargarItemLineaTecnica`). Un id de otra empresa responde 404.
+**Verificado:** `scripts/scratch/_probar_costeo_aislamiento.mts` contra la BD local (3308) con 2 empresas desechables, 8/8 (patrón cubre las 16 rutas; negocio de A ≠ B; id inexistente igual de 404; negocio de ICA no es de A; no queda nada). No se probó con la app levantada ni en el navegador.
+**Bloqueo para sumar `costeo` a `MODULOS_ACTIVABLES`:** el checklist de Costeo se arma desde `viabilidad_licitacion` (viabilidad de ICA, motor v4) en `comercial/route.ts` (`leerInforme`, `viabilidadMasNuevaQueChecklist`) y `generar-costeo/[codigo]`. Una empresa-cliente guarda su viabilidad en `cliente_viabilidad*` (otro formato). Además en la UI el Costeo vive dentro del Auditor (`?seccion=costeo` abre el Auditor), y `asesores(clienteId = 1)` tiene el cliente 1 por defecto.
+**Pendiente / decisión del dueño:** (a) adaptar Costeo para leer la viabilidad del cliente, o (b) abrir Costeo + Auditor juntos como un solo módulo. Nada se activó para clientes.
+**Multiempresa:** las rutas de Costeo ya no se pueden abrir con un id de otra empresa; el módulo sigue cerrado a clientes.
 
 ## 2026-11-10 — Etapa 4: baja de empresa (exportar + borrar) y revisión del deploy de la Etapa 2
 Etapa 2 revisada en el VPS: commit d5af273, contenedores reiniciados, `INTEGRACIONES_CLAVE` dentro del contenedor, build con `cliente_integracion`; un análisis de viabilidad (3909-17-LE26) quedó «huérfano» por el reinicio (normal en un deploy).

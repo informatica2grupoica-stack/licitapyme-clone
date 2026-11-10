@@ -197,7 +197,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     const params2 = new URL(request.url).searchParams;
     const recargar = params2.get('recargar') === '1';
-    const informe = await leerInforme(negocio.licitacion_codigo);
+    const informe = await leerInforme(negocio.licitacion_codigo, negocio.cliente_id);
     // Mismo presupuesto que usa el Motor Comercial para su alerta "Sobre presupuesto"
     // (comercial/costeo/route.ts) — así el cuadro comparativo y la alerta hablan del mismo número.
     // El presupuesto del informe se publica CON IVA (`bruto`) y el `neto` es su derivado ÷1,19 —
@@ -440,7 +440,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
  * decisión "ofertamos todas" apagaría el banner del selector sin que nadie lo haya contestado.
  */
 async function propagarDecisionDeLineas(
-  negocio: { id: number; licitacion_codigo: string },
+  negocio: { id: number; licitacion_codigo: string; cliente_id: number },
   estado: EstadoCosteoEditor,
   userId: number,
 ): Promise<void> {
@@ -448,7 +448,7 @@ async function propagarDecisionDeLineas(
     const hojas = estado.grupos.filter(g => g.linea != null);
     if (!hojas.length) return; // costeo global o por categoría: no hay decisión de líneas que tomar
 
-    const informe = await leerInforme(negocio.licitacion_codigo);
+    const informe = await leerInforme(negocio.licitacion_codigo, negocio.cliente_id);
     const conocidas = new Map(informe ? lineasOfertablesDelInforme(informe).map(l => [l.linea, l.descripcion]) : []);
     if (!conocidas.size) return; // sin líneas en el informe no se puede validar contra qué se está decidiendo
 

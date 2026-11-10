@@ -3,6 +3,7 @@
 // destinatario (usuario_id) para su campana de notificaciones.
 import pool from '@/app/lib/db';
 import { publicar } from '@/app/lib/sse-bus';
+import { enviarPushAUsuario } from '@/app/lib/push';
 import { ahoraChileSQL } from '@/app/lib/tz';
 
 export interface EventoHistorial {
@@ -51,6 +52,12 @@ export async function registrarEvento(e: EventoHistorial): Promise<number | null
         id, tipo: e.tipo, mensaje: e.mensaje,
         licitacion_codigo: e.licitacionCodigo ?? null, metadata: e.metadata ?? null,
         leido: false, created_at: new Date().toISOString(),
+      });
+      // Teléfonos con la app móvil: el mismo aviso como push. Sin await: nunca demora ni rompe la acción.
+      void enviarPushAUsuario(Number(e.usuarioId), {
+        titulo: e.licitacionNombre ? String(e.licitacionNombre).slice(0, 60) : 'LICITANK',
+        cuerpo: e.mensaje,
+        datos: { codigo: e.licitacionCodigo ?? null, tipo: e.tipo },
       });
     }
     return id;
