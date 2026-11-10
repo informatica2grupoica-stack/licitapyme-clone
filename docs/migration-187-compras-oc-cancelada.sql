@@ -27,4 +27,4 @@ CREATE TABLE IF NOT EXISTS compras_oc_cancelacion (
   created_at               DATETIME     NOT NULL,
   UNIQUE KEY uq_oc_cancelacion (negocio_id, oc_codigo),
   KEY idx_oc_cancelacion_cliente_pend (cliente_id, fundamentado_at)
-);
+) DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;   -- igual que el resto de las tablas (si no, los JOIN por código fallan: «Illegal mix of collations»)
