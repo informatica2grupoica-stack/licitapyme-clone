@@ -12,6 +12,7 @@
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { leerInformeViabilidad, fechaInformeViabilidad } from '@/app/lib/informe-viabilidad';
+import { CLIENTE_ICA, clienteDeNegocio, docsVisiblesDeNegocio, filtroDocsVisibles } from '@/app/lib/tenant';
 import pool from '@/app/lib/db';
 import { registrarEvento } from '@/app/lib/historial';
 import { publicarCambio } from '@/app/lib/sse-bus';
@@ -231,12 +232,13 @@ export async function sincronizar(negocioId: number, codigo: string, informe: an
   // en lugar de la genérica del informe — ver casillasDeAnexosSeparados().
   let separados: ReturnType<typeof casillasDeAnexosSeparados> = { items: [], nombres: [], reemplazados: new Set() };
   try {
+    const fdSep = await docsVisiblesDeNegocio(negocioId, codigo, 'dc');   // oficiales + los de ESTA empresa (nunca los privados de ICA)
     const [sepRows] = await pool.query(
       `SELECT dc.documento_nombre FROM documentos_cache dc
          JOIN documentos_generados_separar gs ON gs.documento_id = dc.id
-        WHERE dc.licitacion_codigo = ?
+        WHERE ${fdSep.sql}
           AND dc.categoria IN ('ANEXOS_ADMINISTRATIVOS', 'ANEXOS_TECNICOS', 'ANEXOS_ECONOMICOS', 'ANEXOS_OFERENTE')`,
-      [codigo],
+      fdSep.params,
     ) as any;
     separados = casillasDeAnexosSeparados((sepRows as Array<{ documento_nombre: string }>).map(r => r.documento_nombre), items);
     items = items.filter(i => !separados.reemplazados.has(i.claveOrigen));
@@ -257,11 +259,12 @@ export async function sincronizar(negocioId: number, codigo: string, informe: an
   // Anexos Oferente lo saca de acá, y devolverlo a una de las 3 lo vuelve a traer (ver
   // limpiarCasillasDeArchivosMovidos más abajo para el sentido inverso).
   try {
+    const fdAnexos = await docsVisiblesDeNegocio(negocioId, codigo);
     const [anexoRows] = await pool.query(
       `SELECT documento_nombre, categoria FROM documentos_cache
-        WHERE licitacion_codigo = ?
+        WHERE ${fdAnexos.sql}
           AND categoria IN ('ANEXOS_ADMINISTRATIVOS', 'ANEXOS_TECNICOS', 'ANEXOS_ECONOMICOS', 'ANEXOS_OFERENTE')`,
-      [codigo],
+      fdAnexos.params,
     ) as any;
     const yaConCasilla = new Set(separados.nombres);
     items = items.concat(itemsDesdeArchivosDeAnexo(
@@ -311,7 +314,10 @@ export async function sincronizar(negocioId: number, codigo: string, informe: an
   await reproyectarDecisionGuardada(negocioId);
   // Word con varios anexos pegados → se cortan solos en segundo plano y vuelve a sincronizar para
   // que salgan sus casillas (ver anexos-separar-auto.ts).
-  void import('@/app/lib/anexos-separar-auto').then(m => m.separarAnexosAutomatico(codigo, async () => { await sincronizar(negocioId, codigo, informe); }));
+  // Solo ICA: ese corte lee y escribe documentos bajo el código a secas (espacio de ICA). Las empresas-cliente no tienen el módulo Anexos.
+  void clienteDeNegocio(negocioId).then(c => c === CLIENTE_ICA
+    ? import('@/app/lib/anexos-separar-auto').then(m => m.separarAnexosAutomatico(codigo, async () => { await sincronizar(negocioId, codigo, informe); }))
+    : undefined);
   return nuevos;
 }
 
@@ -377,11 +383,12 @@ async function limpiarCasillasDeArchivosMovidos(negocioId: number, codigo: strin
       && f.valor_numero == null && f.observacion == null && f.cargado_por == null && f.aprobado_por == null);
     if (!virgenes.length) return;
 
+    const fdDocs = await docsVisiblesDeNegocio(negocioId, codigo);
     const [docsRows] = await pool.query(
       `SELECT documento_nombre, categoria FROM documentos_cache
-        WHERE licitacion_codigo = ?
+        WHERE ${fdDocs.sql}
           AND categoria IN ('ANEXOS_ADMINISTRATIVOS', 'ANEXOS_TECNICOS', 'ANEXOS_ECONOMICOS', 'ANEXOS_OFERENTE')`,
-      [codigo],
+      fdDocs.params,
     ) as any;
     const slugsVigentes = new Set(
       nombresDeArchivosConCasilla(docsRows as Array<{ documento_nombre: string; categoria: string }>).map(n => slug(tituloDesdeNombreDeArchivo(n))),
@@ -628,12 +635,13 @@ const CATEGORIA_CAJA_A_ANEXO: Record<string, DocumentoCandidato['categoria']> = 
 };
 
 async function decidirGeneracionDeBloques(negocio: any, itemsYa?: any[]) {
+  const fdBloques = filtroDocsVisibles(Number(negocio.cliente_id) || 1, negocio.licitacion_codigo);
   const [[docRows], [costeoRows], items] = await Promise.all([
     pool.query(
       `SELECT id, documento_nombre, categoria, documento_url_local FROM documentos_cache
-        WHERE licitacion_codigo = ? AND categoria <> 'DOCUMENTOS_PROPIOS'
+        WHERE ${fdBloques.sql} AND categoria <> 'DOCUMENTOS_PROPIOS'
           AND (documento_nombre LIKE '%.docx' OR documento_nombre LIKE '%.doc')`,
-      [negocio.licitacion_codigo],
+      fdBloques.params,
     ) as Promise<any>,
     pool.query(
       `SELECT id FROM checklist_comercial_costeo WHERE negocio_id = ? AND vigente = 1 LIMIT 1`,

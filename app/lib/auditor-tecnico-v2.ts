@@ -7,6 +7,8 @@
 // Llamadas: L1 (comparación por lotes de requisitos + correspondencia + compromisos con costo) y L2 (segunda pasada de rojos sobre los
 // documentos ORIGINALES, en la pasada final). La búsqueda dirigida del Lector (L0-D) no hace falta: L1 lee el TEXTO COMPLETO de cada
 // documento, así que un dato que no aparece ya está buscado en todo el documento (ver `no_encontrado_en_extraccion`).
+import { leerInformeViabilidad } from '@/app/lib/informe-viabilidad';
+import { clienteDeNegocio } from '@/app/lib/tenant';
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { crearChatIA as crearChatIABase, MODELO_KIMI } from '@/app/lib/gemini';
@@ -61,16 +63,10 @@ async function llamarJSON(system: string, user: string, motor: MotorComparacion)
 }
 
 // ── Requisitos heredados de la línea (informe de viabilidad) ─────────────────────────────────────
-async function leerInforme(codigo: string): Promise<any | null> {
-  try {
-    const [rows] = await pool.query(`SELECT informe_ejecutivo FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`, [codigo]) as any;
-    const row = (rows as any[])[0];
-    if (!row) return null;
-    const ie = typeof row.informe_ejecutivo === 'string' ? JSON.parse(row.informe_ejecutivo) : row.informe_ejecutivo;
-    return ie?._informe_ia_v3 ?? ie?._informe_ia ?? null;
-  } catch { return null; }
+async function leerInforme(codigo: string, negocioId: number): Promise<any | null> {
+  // El informe de viabilidad es el de la EMPRESA dueña del negocio (ICA: viabilidad_licitacion; otra empresa: el suyo), nunca el de otra.
+  try { return await leerInformeViabilidad(codigo, await clienteDeNegocio(negocioId)); } catch { return null; }
 }
-
 // Viabilidad v4.0 (P8/P10): el bloque técnico-administrativo recibe los REQUISITOS GENERALES de los
 // productos (garantía, capacitación, manuales…), los DOCUMENTOS A CREAR (compromisos nuestros, con el
 // contenido que exigen las bases) y las causales de admisibilidad, sin el resto del bloque. Los
@@ -98,7 +94,7 @@ export interface ContextoRequisitos {
  *  prompt; PUNTAJE_CONDICIONANTE llega como INADMISIBLE (decisión CA 28-09-2026: "lo CONDICIONANTE debe llegar como INADMISIBLE"). */
 export async function requisitosDeLinea(negocioId: number, licitacionCodigo: string, lineaReal: number | null, producto?: string): Promise<ContextoRequisitos | null> {
   if (lineaReal == null) return null;
-  const informe = await leerInforme(licitacionCodigo);
+  const informe = await leerInforme(licitacionCodigo, negocioId);
   if (!informe) return null;
   // La línea del costeo puede no existir en el informe (re-análisis que renumeró: ver productoDeInformePorNombre): se busca el producto por nombre.
   let productos = productosCrudosDeLinea(informe, lineaReal), lineaInforme = lineaReal;
@@ -157,7 +153,7 @@ export const claveReqLinea = (lineaReal: number, producto: string) => `${lineaRe
  *  productos, cuenta solo los del producto (no los de todos). */
 export async function contarRequisitosPorLinea(negocioId: number, licitacionCodigo: string, lineas: Array<{ lineaReal: number | null; producto: string }>): Promise<Map<string, number>> {
   const out = new Map<string, number>();
-  const informe = await leerInforme(licitacionCodigo);
+  const informe = await leerInforme(licitacionCodigo, negocioId);
   if (!informe) return out;
   for (const l of lineas) {
     if (l.lineaReal == null) continue;

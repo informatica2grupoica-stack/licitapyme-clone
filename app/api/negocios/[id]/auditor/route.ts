@@ -11,6 +11,7 @@
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { codigoDocsDeNegocio } from '@/app/lib/tenant';
 import { invalidarEnVuelo } from '@/app/lib/en-vuelo';
 import { contextoAuditor } from '@/app/lib/auditor-acceso';
 import {
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         // Solo se leen documentos que de verdad están en la caja de cotizaciones de ESTA licitación.
         const [rows] = await pool.query(
           `SELECT documento_nombre FROM documentos_cache WHERE licitacion_codigo = ? AND subcategoria = 'cotizaciones' AND documento_url_local = ? LIMIT 1`,
-          [negocio.licitacion_codigo, url]) as any;
+          [await codigoDocsDeNegocio(negocio.id, negocio.licitacion_codigo), url]) as any;
         if (!(rows as any[]).length) return NextResponse.json({ error: 'Ese documento no es una cotización de esta licitación.' }, { status: 404 });
         const r = await leerDocumentoYCrearOpciones(negocio.id, url, (rows as any[])[0].documento_nombre, actor);
         return NextResponse.json({ ...r, success: !r.error });
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         const url = String(body.url || '');
         const [rows] = await pool.query(
           `SELECT documento_nombre FROM documentos_cache WHERE licitacion_codigo = ? AND subcategoria = 'cotizaciones' AND documento_url_local = ? LIMIT 1`,
-          [negocio.licitacion_codigo, url]) as any;
+          [await codigoDocsDeNegocio(negocio.id, negocio.licitacion_codigo), url]) as any;
         if (!(rows as any[]).length) return NextResponse.json({ error: 'Ese documento no es una cotización de esta licitación.' }, { status: 404 });
         const r = await releerDocumento(negocio.id, url, (rows as any[])[0].documento_nombre, actor);
         return NextResponse.json({ ...r, success: !r.error });
@@ -178,7 +179,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         const url = String(body.url || '');
         const [rows] = await pool.query(
           `SELECT documento_nombre FROM documentos_cache WHERE licitacion_codigo = ? AND subcategoria = 'fichas_tecnicas' AND documento_url_local = ? LIMIT 1`,
-          [negocio.licitacion_codigo, url]) as any;
+          [await codigoDocsDeNegocio(negocio.id, negocio.licitacion_codigo), url]) as any;
         if (!(rows as any[]).length) return NextResponse.json({ error: 'Ese documento no es una ficha técnica de esta licitación.' }, { status: 404 });
         // Ficha en texto: solo con la captura de dónde se copió (28-oct-2026). Mover una que ya está en uso no la pide de nuevo.
         if (esFichaDeTexto(String((rows as any[])[0].documento_nombre || '')) && !(Number(body.moverDe) > 0) && !(await origenesFichaTexto(negocio.id)).has(url)) {

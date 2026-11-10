@@ -324,6 +324,32 @@ export function precioPorUnidadDeProducto(conv: ConversionUnidadIA | null | unde
   return { precioLinea, factor, unidadLinea: unidad.toUpperCase(), precio: Math.round(precioLinea * factor * 100) / 100 };
 }
 
+const FAMILIA_MEDIDA = (u: string): string | null => {
+  const s = u.toLowerCase().replace(/\.$/, '');
+  if (/^(m|mt|mts|mtr|mtrs|metro|metros|ml)$/.test(s)) return 'm';
+  if (/^(kg|kgs|kilo|kilos|kilogramo|kilogramos)$/.test(s)) return 'kg';
+  if (/^(lt|lts|litro|litros)$/.test(s)) return 'l';
+  return null;
+};
+
+/**
+ * Respaldo SIN IA (la IA no siempre devuelve «conversionUnidad»): la línea del documento donde está el precio dice UNA sola medida
+ * (KG., MT.…) y la descripción del producto trae UN solo «N <esa medida>» (caja de 25 kilos). Si hay dudas (dos medidas en la línea,
+ * dos números en el producto: «68mts … abre a 4 mts») no convierte: ahí manda lo que diga la IA.
+ */
+export function conversionDesdeTexto(precioLinea: number | null | undefined, descProducto: string, textoDoc: string): ConversionUnidadIA | null {
+  if (precioLinea == null || !(precioLinea > 0)) return null;
+  const lineaDoc = String(textoDoc || '').split(/\r?\n/).find(l => numeroApareceEnTexto(precioLinea, l) && /(?:^|[\s|])(?:mts?|mtr|kgs?|lts?|ml)\.?(?=[\s|]|$)/i.test(l));
+  if (!lineaDoc) return null;
+  const medidasLinea = new Set([...lineaDoc.matchAll(/(?:^|[\s|])(mts?|mtr|kgs?|lts?|ml)\.?(?=[\s|]|$)/gi)].map(m => FAMILIA_MEDIDA(m[1])).filter(Boolean));
+  if (medidasLinea.size !== 1) return null;
+  const fam = [...medidasLinea][0] as string;
+  const cands = [...String(descProducto || '').matchAll(/(\d+(?:[.,]\d+)?)\s*(mts?|mtr|metros?|kgs?|kilos?|kilogramos?|lts?|litros?)\b/gi)]
+    .filter(m => FAMILIA_MEDIDA(m[2]) === fam).map(m => numeroDeTexto(m[1])).filter((n): n is number => n != null && n > 1);
+  if (new Set(cands).size !== 1) return null;
+  return { unidadLinea: fam === 'm' ? 'MT' : fam === 'kg' ? 'KG' : 'LT', precioLinea, cantidadPorUnidad: cands[0] };
+}
+
 // ─── ¿La línea cotizada es de verdad el producto pedido? Talla y tipo de chasis (1110) ────────────────────────────────────────────
 // Caso real (1110): "Silla de ruedas activa chasis plegable talla 42" quedó cubierta por "Silla de Ruedas Activa 43 cm Chasis Rígido":
 // otra talla y otro chasis, y el sistema la dio por buena. La IA decide por significado; esto es el freno determinista para lo medible.

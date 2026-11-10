@@ -18,6 +18,7 @@ import { extraerImagenesProducto } from '@/app/lib/ficha-imagen-extraer';
 import { construirFichaTecnicaDocx } from '@/app/lib/ficha-tecnica-docx';
 import { generarInformePdf } from '@/app/lib/generar-informe';
 import { subirDocumentoR2 } from '@/app/lib/r2';
+import { codigoAlmacenDocs } from '@/app/lib/tenant';
 
 /** Imagen remota → data: URI (el motor del PDF no carga recursos externos). null si no se puede: mejor sin foto que sin ficha. */
 async function comoDataUri(url: string | null | undefined): Promise<string | null> {
@@ -88,12 +89,14 @@ const TIPO = { docx: 'application/vnd.openxmlformats-officedocument.wordprocessi
  *  crear; si alguien lo movió a mano, regenerar no se lo cambia. */
 async function guardarEnAnexosTecnicos(licitacionCodigo: string, f: FichaArmada, usuarioId: number): Promise<FichaPropiaGenerada> {
   const tipo = TIPO[f.formato];
-  const url = await subirDocumentoR2(licitacionCodigo, f.nombre, f.archivo, tipo);
+  // Bajo el espacio de la empresa (ICA = código a secas): así ICA no ve la ficha de otra empresa ni se pisan archivos del mismo nombre.
+  const codigoDocs = codigoAlmacenDocs(f.clienteId, licitacionCodigo);
+  const url = await subirDocumentoR2(codigoDocs, f.nombre, f.archivo, tipo);
   await pool.query(
     `INSERT INTO documentos_cache (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, subcategoria, usuario_id, cliente_id)
      VALUES (?, ?, ?, ?, ?, 'DOCUMENTOS_PROPIOS', 'Anexos Técnicos', ?, ?)
      ON DUPLICATE KEY UPDATE documento_url_local = VALUES(documento_url_local), size_bytes = VALUES(size_bytes), content_type = VALUES(content_type), updated_at = CURRENT_TIMESTAMP`,
-    [licitacionCodigo, f.nombre, url, f.archivo.length, tipo, usuarioId, f.clienteId]);
+    [codigoDocs, f.nombre, url, f.archivo.length, tipo, usuarioId, f.clienteId]);
   return { url, nombre: f.nombre, productos: f.productos, sinCompletar: f.sinCompletar, fotoSinConfirmar: f.fotoSinConfirmar, sinFoto: f.sinFoto };
 }
 

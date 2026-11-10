@@ -136,3 +136,29 @@ export function filtroDocsVisibles(clienteId: number, codigo: string, alias = ''
     params: [codigo, codigoAlmacenDocs(clienteId, codigo)],
   };
 }
+
+// ── Cliente de un negocio (para librerías que reciben un negocioId y no el request) ─────────────────────────────────────────────────
+const clientePorNegocio = new Map<number, number>();
+
+/** Empresa dueña de un negocio. Un negocio no cambia de empresa, así que se recuerda. Si no existe → 0 (falla cerrado: solo ve lo oficial/compartido). */
+export async function clienteDeNegocio(negocioId: number): Promise<number> {
+  const c = clientePorNegocio.get(negocioId);
+  if (c !== undefined) return c;
+  try {
+    const [rows] = await pool.query('SELECT COALESCE(cliente_id, 1) AS c FROM negocios WHERE id = ? LIMIT 1', [negocioId]);
+    const f = (rows as any[])[0];
+    if (!f) return 0;               // no se guarda: el negocio podría crearse después
+    clientePorNegocio.set(negocioId, Number(f.c));
+    return Number(f.c);
+  } catch { return 0; }
+}
+
+/** Código bajo el que el dueño de un negocio guarda SUS documentos (cotizaciones, fichas, respaldos…): ICA = el código a secas; otra empresa = c<N>:<código>. */
+export async function codigoDocsDeNegocio(negocioId: number, codigo: string): Promise<string> {
+  return codigoAlmacenDocs(await clienteDeNegocio(negocioId), codigo);
+}
+
+/** Fragmento WHERE de los documentos que VE el dueño de un negocio de una licitación (oficiales compartidos + los suyos). */
+export async function docsVisiblesDeNegocio(negocioId: number, codigo: string, alias = ''): Promise<{ sql: string; params: string[] }> {
+  return filtroDocsVisibles(await clienteDeNegocio(negocioId), codigo, alias);
+}

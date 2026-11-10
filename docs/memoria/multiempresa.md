@@ -108,7 +108,7 @@ El cupo de IA por cliente (`clientes.cupo_ia_mensual`) solo se aplica en Viabili
 
 ### Etapa 3 — Abrir módulos, uno por uno (orden propuesto)
 Para cada módulo: tablas con dueño → todas sus rutas con chequeo de cliente → datos de ICA fuera del código → prueba de aislamiento en la BD local (3308) con un usuario del cliente 2 → recién ahí se suma a `MODULOS_ACTIVABLES`.
-- [~] Costeo — rutas con dueño + lee viabilidad del cliente (2026-11-10); falta prueba visual y activar (`checklist_comercial*`, `negocio_costeo_editor`, `negocio_lineas_oferta`; 10 rutas `/api/negocios/[id]/comercial/*`).
+- [x] Costeo — 2026-11-10: activable (rutas con dueño, lee viabilidad de la empresa, documentos por empresa); falta prueba visual con un cliente real (`checklist_comercial*`, `negocio_costeo_editor`, `negocio_lineas_oferta`; 10 rutas `/api/negocios/[id]/comercial/*`).
 - [ ] Auditor (`auditor_*`; rutas `/api/negocios/[id]/auditor*` y `prepostulacion`).
 - [ ] Anexos (`empresa_documentos`, `empresa_firmas`, motor `anexos-*.ts` con datos de ICA escritos).
 - [ ] Compras (el más grande: 90 rutas, proveedores, historial OC, Obuma, OC propia de Comercial MP).
@@ -123,6 +123,22 @@ Para cada módulo: tablas con dueño → todas sus rutas con chequeo de cliente 
 ---
 
 ## Bitácora
+
+## 2026-11-10 (noche) — Fase C: Costeo queda activable; Auditor preparado a medias; mapa de lo que falta en Anexos y Compras
+**Costeo → ACTIVABLE** (`MODULOS_ACTIVABLES` ya lo incluye, sin marca de prueba; requiere Viabilidad). Revisión profunda (`scripts/scratch/_acopla_ruta.mts costeo`: sigue los imports de cada ruta y dice qué tablas privadas de ICA alcanza) encontró y corrigió, además de lo ya hecho:
+- `comercial/route.ts` → `sincronizar` disparaba **el corte automático de anexos de ICA** (`separarAnexosAutomatico`: lee y escribe documentos bajo el código a secas, con `cliente_id` por defecto = 1) para CUALQUIER cliente. Ahora solo corre si el negocio es de ICA.
+- 4 consultas de anexos en `comercial/route.ts` leían `documentos_cache` por código a secas (una empresa-cliente habría visto nombres de archivos privados de ICA). Ahora usan `docsVisiblesDeNegocio` (oficiales + los suyos).
+- `auditor-tecnico-v2.ts` leía el informe de viabilidad **de ICA** por código para cualquier negocio: ahora el de la empresa dueña (`leerInformeViabilidad` + `clienteDeNegocio`).
+- Nuevos ayudantes en `tenant.ts`: `clienteDeNegocio(negocioId)` (falla cerrado → 0), `docsVisiblesDeNegocio`, `codigoDocsDeNegocio`.
+- Fallos de «guardar bajo el código a secas»: `auditor-ficha-propia.ts` (la ficha técnica de una empresa quedaba con su cliente_id pero bajo el código de ICA: ICA la veía y la empresa no) y las lecturas de cotizaciones/fichas/respaldos del panel del Auditor (`auditor/route.ts`, `auditor-opciones.ts`) → ahora usan el espacio de la empresa (`c<N>:<código>`).
+- Falsos positivos descartados (no se ejecutan para clientes): `generar-costeo.ts` solo importa tipos; los ganchos a Compras al guardar el costeo (`obtenerAsignacion`…) no hacen nada sin asignación de Compras y un cliente no puede crearla (su ruta da 403).
+- Reclasificadas como DERIVADA: `compras_cotizacion_item` y `compras_veredicto` (siempre se unen por negocio).
+**Verificado:** `tsc` limpio; 1.806 tests; `chequear-aislamiento` sin problemas; probes en BD local: costeo-aislamiento 8/8, informe por empresa 8/8, RUT 6/6, equipo 40/40 y la nueva `_probar_docs_por_negocio.mts` 7/7 (la empresa ve lo oficial + lo suyo y no lo privado de ICA; ICA ve lo suyo; negocio inexistente → solo oficial). No se probó con la app levantada ni en el navegador.
+**Auditor (siguiente) — falta:** `auditor-compras-datos.ts` (`rutsPropios` y `empresasPropias` leen las empresas de TODAS las empresas y las cachean globales → por cliente); `auditor/obuma` y `auditor-proveedor.ts` (Obuma es solo de Inversiones Claro → ocultar/negar a otros); `auditor-compras.ts` / pestaña Auditor de Compra (depende de Compras → exigir el módulo `compras`); `auditor-comparador-v3.ts` (busca respaldos por URL sin código); la IA del Auditor pasa por `crearChatIA` (ya topada por empresa). Luego probar con la app y un usuario del cliente 2.
+**Anexos — falta:** `anexos-datos.ts` (cargador común de ~10 rutas: lee el informe de viabilidad de ICA, `empresas` sin cliente y documentos por código a secas), `anexos-separar-auto.ts` (escribe con cliente_id por defecto), 5 rutas que escriben `documentos_cache` sin `codigoAlmacenDocs`, y datos de ICA en `anexos-docx.ts`. Más grande que el Auditor.
+**Compras — falta:** lo más grande (190 rutas, 23 avisos del chequeo, `compras_proveedor`/`compras_historial_oc`/`obuma_*`/`precios_mercado` sin dueño, OC propia de Comercial MP, Obuma opcional). Requiere dar `cliente_id` a esas tablas (migración) antes de abrirlo.
+**Para el dueño:** nada que desplegar aún en BD (sin migración nueva en esta fase). Para ofrecer Costeo a una empresa: `/admin/clientes` → marcar Costeo (necesita Viabilidad). Commit + `deploy.sh` cuando quieras subir Costeo, el equipo (Fase B) y el RUT por cliente (migration-189, ver arriba).
+**Multiempresa:** Costeo sirve para otras empresas; ICA no cambió de comportamiento (todos los cambios dejan el camino de ICA idéntico).
 
 ## 2026-11-10 (noche) — Fase B: el admin de cada empresa administra a su gente (Mi equipo)
 **Qué puede hacer ahora el admin de una empresa-cliente** (`/equipo`, `/api/equipo`): ver a las personas de SU empresa; agregarlas con un **perfil** (Administrador, Gestor, Analista, Consulta, Externo) o con permisos marcados a mano; cambiar perfil/rol/permisos; renombrar; **restablecer la clave** (clave temporal de 12 caracteres que se muestra UNA vez, solo queda el hash); desactivar/reactivar; nombrar a otro administrador. Antes solo podía agregar con 3 permisos fijos y activar/desactivar.

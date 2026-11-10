@@ -5,6 +5,7 @@
 // Spec: docs/ESPECIFICACION_AUDITOR_v1.md §4 (opción), §5 (vías), §11 (firma y aprobación).
 // Tablas: migration-131/132 (auditor_opcion, auditor_respaldo, auditor_extraccion, auditor_evento).
 import pool from '@/app/lib/db';
+import { codigoDocsDeNegocio } from '@/app/lib/tenant';
 import { leerLineasOfertadas } from '@/app/lib/lineas-oferta';
 import { sugerenciasDeComplementos, plegarComplementos, sumaPorUnidad, esPropiaEmpresa, type ComplementoGuardado, type SugerenciaComplemento } from '@/app/lib/auditor-complementos-core';
 import { ahoraChileSQL } from '@/app/lib/tz';
@@ -209,8 +210,8 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
       (texto LIKE '%disponibilidad=OutOfStock%' OR texto LIKE '%disponibilidad=SoldOut%' OR texto LIKE '%PRODUCTO AGOTADO%') AS agotado
       FROM auditor_captura WHERE negocio_id = ? ORDER BY id DESC`, [negocioId]) as Promise<any>,
     correccionesDeCosto(negocioId), ultimasSegundasPasadasV3(negocioId), respaldosDeCeldas(negocioId), ultimasVerificaciones(negocioId, true), habilitacionesYDeclaraciones(negocioId),
-    pool.query(`SELECT id, documento_nombre, documento_url_local, subcategoria, created_at FROM documentos_cache
-     WHERE licitacion_codigo = ? AND subcategoria IN ('cotizaciones', 'fichas_tecnicas') AND documento_url_local IS NOT NULL ORDER BY created_at ASC`, [licitacionCodigo]) as Promise<any>,
+    codigoDocsDeNegocio(negocioId, licitacionCodigo).then(cod => pool.query(`SELECT id, documento_nombre, documento_url_local, subcategoria, created_at FROM documentos_cache
+     WHERE licitacion_codigo = ? AND subcategoria IN ('cotizaciones', 'fichas_tecnicas') AND documento_url_local IS NOT NULL ORDER BY created_at ASC`, [cod])) as Promise<any>,
     pool.query(`SELECT id, documento_url, error FROM auditor_extraccion WHERE negocio_id = ? AND documento_url IS NOT NULL ORDER BY id DESC`, [negocioId]) as Promise<any>,
     decisionesSinLinea(negocioId),
     estadoP.then(e => linksPendientesDelCosteo(negocioId, lineasAuditables(e))),
@@ -671,7 +672,7 @@ export async function origenesFichaTexto(negocioId: number): Promise<Map<string,
 }
 export async function registrarOrigenFichaTexto(negocioId: number, licitacionCodigo: string, fichaUrl: string, imagenUrl: string, actor: Actor): Promise<void> {
   if (!imagenUrl || !esImagenRespaldo(imagenUrl)) throw new Error('Una ficha en texto necesita la captura (imagen PNG, JPG o WEBP) de dónde copiaste el texto.');
-  const [docs] = await pool.query(`SELECT 1 FROM documentos_cache WHERE licitacion_codigo = ? AND subcategoria = 'respaldos_auditor' AND documento_url_local = ? LIMIT 1`, [licitacionCodigo, imagenUrl]) as any;
+  const [docs] = await pool.query(`SELECT 1 FROM documentos_cache WHERE licitacion_codigo = ? AND subcategoria = 'respaldos_auditor' AND documento_url_local = ? LIMIT 1`, [await codigoDocsDeNegocio(negocioId, licitacionCodigo), imagenUrl]) as any;
   if (!(docs as any[]).length) throw new Error('La captura no se subió bien: vuelve a adjuntarla.');
   await pool.query(`INSERT INTO auditor_evento (negocio_id, opcion_id, tipo, emisor, detalle, creado_at) VALUES (?, 0, 'origen_ficha_texto', 'asistente', ?, ?)`,
     [negocioId, JSON.stringify({ ficha: fichaUrl, imagen: imagenUrl, por: actor.nombre }), ahoraChileSQL()]);

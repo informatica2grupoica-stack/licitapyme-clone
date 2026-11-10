@@ -11,9 +11,11 @@ export type Modulo =
 
 export const TODOS_LOS_MODULOS: Modulo[] = ['radar', 'negocios', 'viabilidad', 'ia_chat', 'auditor', 'costeo', 'anexos', 'compras', 'entregas', 'competencia'];
 export const MODULOS_BASE: Modulo[] = ['radar', 'negocios'];
-/** Módulos que se pueden activar a una empresa-cliente HOY. Los demás todavía leen tablas sin separar por empresa (Compras, Auditor, Costeo…):
- *  activarlos le mostraría datos de Grupo ICA. Se agregan aquí uno por uno, DESPUÉS de separar sus tablas por empresa y probarlo. */
-export const MODULOS_ACTIVABLES: Modulo[] = ['radar', 'negocios', 'viabilidad', 'costeo']; // PRUEBA LOCAL: 'costeo' sin confirmar
+/** Módulos que se pueden activar a una empresa-cliente HOY. Los demás todavía leen tablas sin separar por empresa (Compras, Auditor, Anexos…):
+ *  activarlos le mostraría datos de Grupo ICA. Se agregan aquí uno por uno, DESPUÉS de separar sus tablas por empresa y probarlo
+ *  (`npx tsx scripts/chequear-aislamiento.mts --simular=<módulo>` lista lo que todavía lo bloquea).
+ *  Costeo (2026-11-10): rutas con dueño (guardia en proxy.ts), lee la viabilidad de la empresa (`informe-viabilidad.ts`), sin datos de ICA. Requiere Viabilidad. */
+export const MODULOS_ACTIVABLES: Modulo[] = ['radar', 'negocios', 'viabilidad', 'costeo'];
 
 export const NOMBRE_MODULO: Record<Modulo, string> = {
   radar: 'Radar', negocios: 'Negocios', viabilidad: 'Viabilidad IA', ia_chat: 'Consulta a la IA', auditor: 'Auditor',

@@ -1,6 +1,7 @@
 // Chequeo de aislamiento multiempresa. Solo LEE: la BD LOCAL (3308) para el esquema y el código para las rutas. Se corre antes de cada deploy:
 //    npx tsx scripts/chequear-aislamiento.mts            → informe; sale con error (1) si hay algo que corregir
 //    npx tsx scripts/chequear-aislamiento.mts --avisos   → además lista, una por una, las rutas con aviso
+//    npx tsx scripts/chequear-aislamiento.mts --simular=auditor,anexos   → trata esos módulos como si ya estuvieran abiertos y lista lo que los bloquea
 //
 // 1) ESQUEMA  Toda tabla tiene dueño (cliente_id / negocio_id / empresa_id / usuario_id) o está clasificada en app/lib/tablas-dueno.ts.
 //             Una tabla nueva sin dueño y sin clasificar HACE FALLAR el chequeo (así nadie agrega datos de negocio sin separar por empresa).
@@ -44,7 +45,10 @@ console.log('   clasificación:', JSON.stringify(resumen));
 const archivos: string[] = [];
 const caminar = (d: string) => { for (const f of readdirSync(d)) { const p = join(d, f); statSync(p).isDirectory() ? caminar(p) : f === 'route.ts' && archivos.push(p); } };
 caminar('app/api');
-const abiertos = new Set<string>(['comun', ...MODULOS_ACTIVABLES]);
+const simular = (process.argv.find(a => a.startsWith('--simular='))?.split('=')[1] ?? '').split(',').filter(Boolean);
+const abiertos = new Set<string>(['comun', ...MODULOS_ACTIVABLES, ...simular]);
+if (simular.length) console.log(`
+(SIMULACIÓN: se tratan como abiertos también: ${simular.join(', ')})`);
 const MARCADOR = /cliente_id|clienteDeHeader|getClienteId|clienteIdOrNull|negocioEsDe|filtroDocsVisibles|puedeVerLicitacion|registroEsDeMiEmpresa|clienteActual|usaViabilidadDeICA|CLIENTE_ICA|fichaCliente|clienteTieneModulo|conCliente|negocioDelCliente|x-cliente-id/;
 const tablasDe = (src: string) => {
   const s = new Set<string>();

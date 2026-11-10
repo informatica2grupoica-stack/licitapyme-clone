@@ -30,7 +30,7 @@ export const CLASE_TABLA: Record<string, ClaseTabla> = Object.fromEntries([
     // Viabilidad de ICA (motor v4, reglas aprendidas, su perfil). Las empresas-cliente usan cliente_viabilidad*.
     'viabilidad_licitacion', 'analisis_ia_licitacion', 'viabilidad_config', 'viabilidad_jobs', 'prefiltro_licitacion',
     // Compras y proveedores de ICA
-    'compras_proveedor', 'compras_historial_oc', 'compras_historial_oc_item', 'compras_cotizacion_item', 'compras_veredicto',
+    'compras_proveedor', 'compras_historial_oc', 'compras_historial_oc_item',
     'compras_fletero', 'compras_fletero_zona', 'compras_gasto_categoria', 'compras_incidencia_tipo', 'compras_tarea_catalogo',
     'compras_tipo_cambio', 'compras_agente_uso_diario',
     // Obuma (solo Inversiones Claro) y precios de mercado reunidos por ICA
@@ -46,6 +46,8 @@ export const CLASE_TABLA: Record<string, ClaseTabla> = Object.fromEntries([
     'reportes_error_adjuntos',      // → reportes_error (cliente_id)
     'documentos_generados_separar', // → documentos_cache (cliente_id)
     'documentos_origen_manual',     // → documentos_cache (cliente_id)
+    'compras_cotizacion_item',      // → compras_cotizacion (negocio_id): siempre se une por ahí
+    'compras_veredicto',            // → compras_producto (negocio)
   ]),
   ...lista('LEGADO', ['doc_chunks', 'doc_files', 'doc_pipeline', 'documentos_licitacion', 'search_alerts']),
 ]);
