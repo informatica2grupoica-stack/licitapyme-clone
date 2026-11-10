@@ -12,6 +12,7 @@ import {
 import pool from '@/app/lib/db';
 import { ahoraChileSQL, minutosHastaMedianocheChile } from '@/app/lib/tz';
 import { registrarConsultaMpCliente, verificarTopeMP } from '@/app/lib/medidor-cliente';
+import { ticketMpPropio } from '@/app/lib/integraciones-cliente';
 
 const API_BASE = 'https://api.mercadopublico.cl/servicios/v1/publico';
 
@@ -43,7 +44,10 @@ export async function consultasHoyMP(): Promise<number> {
   }
 }
 
-async function registrarConsultaMP(): Promise<void> {
+// propio = la consulta salió con el ticket propio de la empresa-cliente: no gasta la cuota del ticket compartido (mp_api_uso_diario),
+// pero igual se anota a la empresa.
+async function registrarConsultaMP(propio = false): Promise<void> {
+  if (propio) { void registrarConsultaMpCliente(); return; }
   try {
     await pool.query(
       `INSERT INTO mp_api_uso_diario (fecha, consultas, actualizado_at) VALUES (?, 1, NOW())
@@ -107,6 +111,22 @@ export class MercadoPublicoClient {
   // Reemplaza el parámetro ticket= de una URL ya construida por el ticket ACTUAL (post-rotación).
   // Así los métodos que arman la URL con `${this.ticket}` en el momento de la llamada no quedan
   // pegados al ticket viejo si se rota a mitad de sus propios reintentos.
+  /** Con el ticket propio de la empresa-cliente si lo tiene; si no, con el compartido de turno. */
+  private conTicket(url: string, propio: string | null): string {
+    if (!propio) return this.conTicketActual(url);
+    const u = new URL(url);
+    u.searchParams.set('ticket', propio);
+    return u.toString();
+  }
+
+  /** Ticket propio de la empresa-cliente de este trabajo, o null. Sin ticket propio, se aplica el tope diario del ticket compartido
+   *  (lanza TopeClienteError). Con ticket propio no hay tope de LICITANK: la cuota es de la empresa. */
+  private async prepararTicket(): Promise<string | null> {
+    const propio = await ticketMpPropio();
+    if (!propio) await verificarTopeMP();
+    return propio;
+  }
+
   private conTicketActual(url: string): string {
     const u = new URL(url);
     u.searchParams.set('ticket', this.ticket);
@@ -150,7 +170,8 @@ export class MercadoPublicoClient {
     // justamente lo que hay que evitar (ver el freno en procesar-postuladas.ts).
     onFallo?: (motivo: 'rate-limit' | 'red' | 'http') => void,
   ): Promise<Licitacion | null> {
-    try { await verificarTopeMP(); } catch { onFallo?.('rate-limit'); return null; } // empresa-cliente sin cupo de MP hoy
+    let propio: string | null;
+    try { propio = await this.prepararTicket(); } catch { onFallo?.('rate-limit'); return null; } // empresa-cliente sin cupo de MP hoy
     const url = `${API_BASE}/licitaciones.json?codigo=${encodeURIComponent(codigo)}&ticket=${this.ticket}`;
     let ultimoMotivo = 'sin respuesta';
     let clase: 'rate-limit' | 'red' | 'http' = 'red';
@@ -159,17 +180,17 @@ export class MercadoPublicoClient {
       // diaria, así que esperar un momento suele bastar para que la siguiente pase.
       if (i > 0) await new Promise(r => setTimeout(r, 1200 * i));
       try {
-        const res = await globalThis.fetch(this.conTicketActual(url), {
+        const res = await globalThis.fetch(this.conTicket(url, propio), {
           headers: { Accept: 'application/json' },
           signal:  AbortSignal.timeout(timeoutMs),
         });
         if (res.status === 429) { ultimoMotivo = 'rate-limit (HTTP 429)'; clase = 'rate-limit'; continue; }
         if (!res.ok) { ultimoMotivo = `HTTP ${res.status}`; clase = 'http'; continue; }
-        registrarConsultaMP(); // fire-and-forget: cuenta contra la cuota diaria del ticket actual
+        registrarConsultaMP(!!propio); // fire-and-forget: cuenta contra la cuota diaria del ticket actual
         const data: LicitacionAPIResponse & { Codigo?: number } = await res.json();
-        // Cuota diaria agotada: rotar a ticket de respaldo si hay y reintentar de inmediato.
+        // Cuota diaria agotada: rotar a ticket de respaldo si hay y reintentar de inmediato (el ticket propio no rota).
         if (this.esCuotaSuperada(data)) {
-          if (this.rotarTicket()) { i--; continue; }
+          if (!propio && this.rotarTicket()) { i--; continue; }
           ultimoMotivo = 'cuota diaria superada (sin ticket de respaldo)'; clase = 'rate-limit'; continue;
         }
         // 200 con cuerpo de error: 10500 = rate-limit, reintentable.
@@ -196,20 +217,21 @@ export class MercadoPublicoClient {
     codigo: string,
     timeoutMs = 8_000,
   ): Promise<{ lic: Licitacion | null; status: number }> {
-    try { await verificarTopeMP(); } catch { return { lic: null, status: 429 }; } // empresa-cliente sin cupo de MP hoy
+    let propio: string | null;
+    try { propio = await this.prepararTicket(); } catch { return { lic: null, status: 429 }; } // empresa-cliente sin cupo de MP hoy
     try {
       const url = `${API_BASE}/licitaciones.json?codigo=${encodeURIComponent(codigo)}&ticket=${this.ticket}`;
-      const res = await globalThis.fetch(this.conTicketActual(url), {
+      const res = await globalThis.fetch(this.conTicket(url, propio), {
         headers: { Accept: 'application/json' },
         signal: AbortSignal.timeout(timeoutMs),
       });
       if (res.status === 429) return { lic: null, status: 429 };
       if (!res.ok) return { lic: null, status: res.status };
-      registrarConsultaMP(); // fire-and-forget: cuenta contra la cuota diaria del ticket actual
+      registrarConsultaMP(!!propio); // fire-and-forget: cuenta contra la cuota diaria del ticket actual
       const data: LicitacionAPIResponse & { Codigo?: number } = await res.json();
-      // Cuota diaria agotada: rotar a ticket de respaldo si hay y reintentar esta misma llamada.
+      // Cuota diaria agotada: rotar a ticket de respaldo si hay y reintentar esta misma llamada (el ticket propio no rota).
       if (this.esCuotaSuperada(data)) {
-        if (this.rotarTicket()) return this.obtenerDetalleConEstado(codigo, timeoutMs);
+        if (!propio && this.rotarTicket()) return this.obtenerDetalleConEstado(codigo, timeoutMs);
         return { lic: null, status: 429 };
       }
       // La API a veces devuelve 200 con un cuerpo de error (Codigo 10500 = rate-limit)
@@ -516,14 +538,14 @@ export class MercadoPublicoClient {
   // esto, un hipo transitorio de la API tumbaba en silencio TODA la tarjeta de datos de
   // Mercado Público en el resumen (el front no distinguía "no existe" de "falló una vez").
   private async fetch<T>(url: string, intentos = 3): Promise<T> {
-    await verificarTopeMP(); // lanza TopeClienteError si la empresa-cliente ya gastó su cupo diario de MP
+    const propio = await this.prepararTicket(); // lanza TopeClienteError si la empresa-cliente (sin ticket propio) ya gastó su cupo diario
     let ultimoError: Error = new Error('Error desconocido consultando la API de Mercado Público');
     for (let i = 0; i < intentos; i++) {
       if (i > 0) await new Promise(r => setTimeout(r, 1500 * i)); // espera 1.5s, luego 3s
 
       let res: Response;
       try {
-        res = await globalThis.fetch(this.conTicketActual(url), {
+        res = await globalThis.fetch(this.conTicket(url, propio), {
           headers: { Accept: 'application/json' },
           next: { revalidate: 300 },
         });
@@ -539,14 +561,14 @@ export class MercadoPublicoClient {
         continue;
       }
       if (!res.ok) throw new Error(`API error ${res.status}`);
-      registrarConsultaMP(); // fire-and-forget: cuenta contra la cuota diaria del ticket actual
+      registrarConsultaMP(!!propio); // fire-and-forget: cuenta contra la cuota diaria del ticket actual
 
       const data = await res.json();
       // Cuota diaria del ticket agotada: rotar a un ticket de respaldo si hay, y reintentar
       // ya mismo (no es rate-limit por ráfaga, esperar no sirve de nada).
       if (this.esCuotaSuperada(data)) {
         ultimoError = new Error(`API: ${data.Mensaje || 'cuota diaria superada'}`);
-        if (this.rotarTicket()) { i--; continue; }
+        if (!propio && this.rotarTicket()) { i--; continue; }
         throw ultimoError;
       }
       // La API a veces responde 200 con un cuerpo de error: Código 10500 = rate-limit

@@ -12,6 +12,7 @@
 import nodemailer, { type Transporter } from 'nodemailer';
 import { LOGO_CID, LOGO_PNG_BASE64 } from './email-logo';
 import { CLIENTE_ICA } from './tenant';
+import { correoDeCliente } from './integraciones-cliente';
 
 let _transporter: Transporter | null = null;
 function transporter(): Transporter | null {
@@ -995,17 +996,19 @@ export interface OcProveedorEmail {
   pdf: { nombre: string; contenido: Buffer };
 }
 export async function enviarOcAlProveedor(p: OcProveedorEmail): Promise<void> {
-  // Skill multiempresa-escalable: la cuenta SMTP de .env es de Grupo ICA. Otra empresa-cliente necesita su propia cuenta de envío
-  // (pendiente: configuración por cliente); mientras no exista, no se le manda nada a nombre de ICA.
-  if (p.clienteId !== CLIENTE_ICA) throw new Error('Tu empresa todavía no tiene configurado el correo de envío. Pídele al administrador de LICITANK que lo active.');
-  const t = transporter();
+  // Multiempresa (Etapa 2): va con la cuenta de correo propia de la empresa (Mi empresa → Integraciones). Sin cuenta propia, solo
+  // Grupo ICA usa la de .env; a otra empresa no se le manda nada a nombre de ICA.
+  const propia = await correoDeCliente(p.clienteId);
+  if (!propia && p.clienteId !== CLIENTE_ICA) throw new Error('Tu empresa todavía no tiene configurado el correo de envío. Configúralo en Mi empresa → Integraciones.');
+  const t = propia?.t ?? transporter();
   if (!t) throw new Error('El correo de la plataforma no está configurado (SMTP). Avísale al administrador.');
-  const cuenta = process.env.SMTP_USER || '';
+  const cuenta = propia?.cuenta.user ?? (process.env.SMTP_USER || '');
+  const remitentePorDefecto = propia?.cuenta.from || FROM();
   const nombre = (p.remitente.nombre || '').replace(/["<>\r\n]/g, '').trim();
   const html = `<div style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.55;color:#111827;">${
     esc(p.mensaje).replace(/\r?\n/g, '<br>')}</div>`;
   await t.sendMail({
-    from: nombre ? `"${nombre}" <${cuenta}>` : FROM(),
+    from: nombre ? `"${nombre}" <${cuenta}>` : remitentePorDefecto,
     replyTo: p.remitente.email || undefined,
     to: p.para, cc: p.cc.length ? p.cc : undefined,
     subject: p.asunto, text: p.mensaje, html,

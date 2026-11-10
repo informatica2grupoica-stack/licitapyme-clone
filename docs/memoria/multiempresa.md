@@ -14,11 +14,16 @@ Reglas técnicas: skill `multiempresa-escalable` (`.claude/skills/multiempresa-e
 ## Lo que tiene que hacer el dueño (pendiente)
 
 **En este orden** (el clasificador de Claude bloquea las migraciones en producción; a veces deja pasar una con OK explícito):
-- [ ] **1. migration-185 en el VPS, ANTES de desplegar** (agrega columnas/tabla, no borra nada): `node scripts/aplicar-migration-185.mjs --produccion`.
+- [x] 2026-11-09 (dueño) **1. migration-185 en el VPS, ANTES de desplegar** (agrega columnas/tabla, no borra nada): `node scripts/aplicar-migration-185.mjs --produccion`.
   Si se despliega sin ella, el gasto de IA se sigue guardando (sin la empresa) pero **/admin/clientes da error** (lee los topes).
-- [ ] **2. Commit + `deploy.sh`.** Lleva: pool 8→20 / cola 24→200 y caché del dashboard (ya en `master`), refresco por empresa (Etapa 0) y el medidor (Etapa 1).
+- [x] 2026-11-09 (dueño, commit 69897c0 «empresas», contenedores arriba 20:43) **2. Commit + `deploy.sh`.** Lleva: pool 8→20 / cola 24→200 y caché del dashboard (ya en `master`), refresco por empresa (Etapa 0) y el medidor (Etapa 1).
 - [x] 2026-11-09 migration-183 aplicada en el VPS (Claude, con OK del dueño; 2 índices creados).
 - [x] 2026-11-09 módulos del cliente 2 limpiados en el VPS → `["radar","negocios","viabilidad"]`. Valor anterior, por si se quiere volver: `["radar","negocios","ia_chat","anexos","competencia","auditor","compras","costeo","viabilidad"]`.
+**Etapa 2 (2026-11-10), en este orden:**
+- [x] 2026-11-10 (dueño; revisado por Claude: 1 línea, 32 bytes) **A. Clave de cifrado** en el `.env` del VPS (y en `.env.local` del PC si se prueba ahí). Se genera una vez y **no se cambia** (si se pierde o cambia, las cuentas guardadas no se pueden leer y cada empresa las tiene que volver a escribir):
+  `INTEGRACIONES_CLAVE=<salida de: openssl rand -base64 32>`. Sin ella todo sigue funcionando como hoy, pero nadie puede guardar cuentas propias.
+- [x] 2026-11-10 (Claude, a pedido del dueño; tabla verificada, 0 filas) **B. migration-186 en el VPS** (tabla nueva `cliente_integracion`): `node scripts/aplicar-migration-186.mjs --produccion`.
+- [ ] **C. Commit + `deploy.sh`.** (El código aguanta sin la tabla y sin la clave: se comporta como antes.)
 - [ ] Revisar los topes por defecto que dejó la migration-185 a los clientes que no son ICA: **10 USD de IA al mes y 500 consultas a MP al día**. Se cambian en /admin/clientes (vacío = sin tope). Es decisión comercial del dueño.
 
 ---
@@ -63,7 +68,7 @@ El cupo de IA por cliente (`clientes.cupo_ia_mensual`) solo se aplica en Viabili
 
 ### Etapa 0 — Ordenar la casa (que lo vendido aguante)
 - [x] 2026-11-09 — «Actualizar estados» de Negocios refresca solo la empresa de quien lo aprieta (antes, un usuario del cliente 2 sondeaba los 141 códigos de todos; ahora 14).
-- [ ] Desplegar pool + caché del dashboard → dueño (`deploy.sh`).
+- [x] 2026-11-09 — Desplegado por el dueño (commit 69897c0).
 - [x] 2026-11-09 — migration-183 aplicada en el VPS.
 - [x] 2026-11-09 — `clientes.modulos` del cliente 2 limpiado (antes tenía Costeo, Auditor, Compras… marcados; el día que se activaran le quedaban encendidos sin que nadie lo decidiera).
 - [x] 2026-11-09 — Rutas públicas (login, cron) ya no dejan pasar headers de identidad (`x-user-*`, `x-cliente-id`) mandados por el navegador (`proxy.ts`).
@@ -74,11 +79,15 @@ El cupo de IA por cliente (`clientes.cupo_ia_mensual`) solo se aplica en Viabili
 - [x] 2026-11-09 — Tope de IA mensual en USD por empresa (`clientes.tope_ia_usd_mes`) en `crearChatIA`, para todo (no solo Viabilidad). Consumo y topes editables en `/admin/clientes`.
 - [ ] El OCR (visión/PDF) y `analizarLicitacionConGemini` no pasan por `crearChatIA`: se anotan, pero el tope no los corta.
 - [ ] Lo que corre en crons para todas las empresas (intake del Radar, estados) queda anotado a 1 (ICA). Repartirlo si se cobra por consumo.
-- [ ] Ver /admin/clientes en el navegador (no se hizo: el dev server local apunta a la BD de producción, que aún no tiene la migration-185).
+- [ ] Ver /admin/clientes en el navegador con la sesión del superusuario (la migración ya está en el VPS; falta mirarlo).
+- [ ] Ver el medidor anotando a una empresa que no sea ICA (al 2026-11-09 los clientes 2 y 4 no habían usado nada después del deploy).
 
 ### Etapa 2 — Cuentas propias por cliente
-- [ ] Ticket de Mercado Público por cliente (la regla de MP es 1 ticket por persona): guardado cifrado, con el de ICA como respaldo **solo** para el cliente 1.
-- [ ] Correo: una función `enviarCorreo({clienteId|empresaId, …})` + proveedor con dominio verificado (Brevo / Resend / SES).
+- [x] 2026-11-10 — Ticket de Mercado Público por cliente, cifrado (`cliente_integracion`, migration-186). Con ticket propio: sus consultas van con SU ticket, sin tope de LICITANK y sin gastar la cuota compartida (sí se anotan a la empresa). Sin ticket: el compartido con el tope diario del plan. ICA: siempre el de `.env`.
+- [x] 2026-11-10 — Correo de envío por cliente (cualquier SMTP: Google Workspace, Microsoft 365, Brevo, Resend, SES, hosting). Conectado en «Enviar al proveedor» (OC): con cuenta propia sale desde ella; sin cuenta, otra empresa recibe «Configúralo en Mi empresa → Integraciones»; ICA sigue con `.env`.
+- [x] 2026-11-10 — Pantalla «Integraciones» en `/mi-empresa` (solo el admin de una empresa-cliente): agregar / cambiar / quitar; se prueba antes de guardar (ticket contra la API de MP; correo con `verify()` del SMTP). Las claves no vuelven al navegador.
+- [ ] Decisión del dueño: ¿obligar ticket propio a los clientes nuevos (sin ticket → sin consultas en vivo a MP)? Hoy se dejó «compartido con tope» para no cortar a los clientes 2 y 4.
+- [ ] Los avisos de la plataforma (alertas, recuperar clave, resultados) siguen saliendo por la cuenta de `.env`, que es una casilla de ICA (y está comprometida, ver infra.md 2026-11-06). Para vender: casilla propia de LICITANK con dominio verificado (SPF/DKIM/DMARC), p. ej. avisos@licitank.cl en Brevo o Resend.
 - [ ] Obuma opcional: lo que dependa de Obuma tiene camino propio o se oculta para el cliente que no lo usa.
 
 ### Etapa 3 — Abrir módulos, uno por uno (orden propuesto)
@@ -95,6 +104,19 @@ Para cada módulo: tablas con dueño → todas sus rutas con chequeo de cliente 
 ---
 
 ## Bitácora
+
+## 2026-11-10 — Etapa 2: ticket de MP y correo propios por cliente
+Nuevo `app/lib/integraciones-cliente.ts` (cifrado AES-256-GCM con `INTEGRACIONES_CLAVE`, leer/guardar/borrar con caché de 60 s, `ticketMpPropio`, `probarTicketMp`, `correoDeCliente`) + tabla `cliente_integracion` (migration-186).
+`mercado-publico.ts`: `prepararTicket()` en los 3 puntos que llaman a la API (ticket propio → sin tope y sin gastar la cuota compartida; el ticket propio no rota a los de respaldo). `email.ts` → `enviarOcAlProveedor` usa la cuenta de la empresa. API `/api/mi-empresa/integraciones` (GET/PUT/DELETE, solo el admin de una empresa-cliente) y sección `IntegracionesEmpresa` en `/mi-empresa`.
+**Regla / decisión:** Claude dejó «sin ticket propio = compartido con tope» para no cortar a los clientes 2 y 4; si se exige ticket propio, lo decide el dueño. Avisos de la plataforma siguen por `.env`.
+**Verificado:** `tsc` ok; 1.804 tests ok; `scripts/scratch/_probar_integraciones_mem.mts` 15/15 con la BD simulada en memoria y la API de MP simulada (cifrado, pista sin secretos, qué ticket sale en cada caso, que no cuenta en el total compartido, corte por tope sin salir a internet, correo propio / sin correo). La API real de MP responde `{"Codigo":203,"Mensaje":"Ticket no válido."}` a un ticket inventado → se rechaza. **No** se probó contra la BD local (Docker Desktop no arrancó el 2026-11-10; migration-186 sin aplicar ni en local ni en el VPS), ni la pantalla en el navegador, ni un envío SMTP real.
+**Pendiente:** dueño: INTEGRACIONES_CLAVE en el .env del VPS → migration-186 → deploy. Luego probar con un ticket real de una empresa-cliente y una casilla real.
+**Multiempresa:** cada empresa puede traer su cuota de MP y su casilla; ICA queda igual que antes.
+
+## 2026-11-09 — Revisión en el VPS tras el deploy del dueño
+Revisado en lectura (BD + `docker` + registros), sin cambiar nada: VPS en el commit 69897c0; el build trae `medidor-cliente`; migration-183 y 185 aplicadas (columnas, índices, tabla `mp_api_uso_cliente`); clientes 2 y 4 con topes 10 USD / 500 consultas e ICA sin tope; cliente 2 solo con radar/negocios/viabilidad. Desde las 20:43 `ia_uso` guarda `cliente_id` (86 filas de hoy, todas de ICA, 1,2 USD) y `mp_api_uso_cliente` cuenta (ICA). `licitank.cl/login` 200 en 0,11 s; `/api/negocios/refrescar-estados` sin sesión → 401. Registros de la app sin errores.
+Scheduler: 4 «fetch failed» a las 20:43:22.74, 0,12 s antes de que la app dijera «Ready» (carrera normal del arranque del deploy); las corridas siguientes, ok.
+**Pendiente:** ver /admin/clientes en el navegador y el primer gasto anotado a un cliente que no sea ICA.
 
 ## 2026-11-09 — Etapa 1: medidor por cliente (IA y Mercado Público) con topes
 Nuevo `app/lib/medidor-cliente.ts`: de qué empresa es el trabajo (`conCliente()` → header `x-cliente-id` → cliente del usuario → 1), contadores y topes con caché de 30 s.
