@@ -54,3 +54,8 @@ export async function estadoVigente(
 export async function rolVigente(userId: number, rolToken: Rol): Promise<Rol> {
   return (await estadoVigente(userId, rolToken)).rol;
 }
+
+/** Olvida el estado en caché de una persona: lo usa «Mi equipo» tras cambiarle rol/estado para que rija AL TIRO, no en hasta 30 s. */
+export function olvidarEstadoVigente(userId: number): void {
+  cache.delete(userId);
+}

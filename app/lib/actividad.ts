@@ -39,7 +39,9 @@ export type AccionActividad =
   | 'puente_agregar'  // empujó licitaciones del radar al puente (bandeja de reparto)
   | 'puente_quitar'   // sacó licitaciones del puente (vuelven al radar)
   | 'puente_repartir' // repartió una tanda del puente entre varios perfiles
-  | 'eliminacion';    // dio de baja un negocio (activo = FALSE)
+  | 'eliminacion'     // dio de baja un negocio (activo = FALSE)
+  | 'equipo_agregar'  // el admin de una empresa-cliente agregó a una persona (Mi equipo)
+  | 'equipo_cambiar'; // el admin de una empresa-cliente cambió perfil/permisos/clave/estado de una persona
 
 // Pestañas del detalle de la licitación que se registran como 'ver_seccion'.
 export const SECCIONES_ACTIVIDAD = [
@@ -58,7 +60,7 @@ export const LABEL_SECCION: Record<SeccionActividad, string> = {
 export interface EventoActividad {
   usuarioId: number | null;
   accion: AccionActividad;
-  entidadTipo?: 'licitacion' | 'negocio' | 'radar' | 'puente' | null;
+  entidadTipo?: 'licitacion' | 'negocio' | 'radar' | 'puente' | 'usuario' | null;
   entidadId?: string | null;
   descripcion?: string | null;
   metadata?: unknown;

@@ -23,6 +23,7 @@
 // cambia de estado. Por eso se guarda el estado anterior — es lo que permite avisar "la OC pasó a
 // Aceptada" en vez de repetir la misma notificación todos los días.
 import pool from '@/app/lib/db';
+import { CLIENTE_ICA } from '@/app/lib/tenant';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { publicar } from '@/app/lib/sse-bus';
 import { enviarAvisoOrdenesCompra } from '@/app/lib/email';
@@ -98,7 +99,9 @@ interface EmpresaNuestra { id: number; razon_social: string | null; rut: string 
 
 async function empresasNuestras(): Promise<EmpresaNuestra[]> {
   const [rows] = await pool.query(
-    `SELECT id, razon_social, rut FROM empresas WHERE activo = TRUE`,
+    // Solo las razones sociales de Grupo ICA: este cruce vincula OC de Mercado Público a negocios de ICA. Con el RUT único por cliente (migration-189),
+    // la razón social de otro cliente con el mismo RUT no puede ser candidata.
+    `SELECT id, razon_social, rut FROM empresas WHERE activo = TRUE AND cliente_id = ?`, [CLIENTE_ICA],
   ) as any[];
   return rows as EmpresaNuestra[];
 }

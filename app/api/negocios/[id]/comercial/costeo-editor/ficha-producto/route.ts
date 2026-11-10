@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { puedeVerNegocioAsignado, permisosCrudosDeUsuario } from '@/app/lib/api-auth';
+import { codigoAlmacenDocs } from '@/app/lib/tenant';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { extraerFichaDeUrl, generarFichaProductoPdf, slugArchivo } from '@/app/lib/costeo-ficha-producto';
 import { cargarNegocio } from '../../route';
@@ -73,7 +74,9 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     const pdf = await generarFichaProductoPdf(detalle, ficha);
     const nombre = `FICHA_TECNICA_${slugArchivo(detalle)}.pdf`;
-    const url = await subirDocumentoR2(negocio.licitacion_codigo, nombre, pdf, CONTENT_TYPE_PDF);
+    // Una empresa-cliente guarda lo suyo bajo `c<N>:<código>` (ICA, bajo el código a secas): así no aparece en los documentos de otra empresa ni pisa un archivo del mismo nombre.
+    const codigoDocs = codigoAlmacenDocs(Number(negocio.cliente_id) || 1, negocio.licitacion_codigo);
+    const url = await subirDocumentoR2(codigoDocs, nombre, pdf, CONTENT_TYPE_PDF);
 
     // subcategoria = 'Ficha Técnica' — misma columna que ya usa "Documentos Propios" para agrupar
     // en cajas libres (migración 45, arrastrar-y-soltar en DocumentosSection.tsx): sin esto,
@@ -89,7 +92,7 @@ export async function POST(request: NextRequest, { params }: Params) {
          size_bytes          = VALUES(size_bytes),
          subcategoria        = VALUES(subcategoria),
          updated_at          = CURRENT_TIMESTAMP`,
-      [negocio.licitacion_codigo, nombre, url, pdf.length, CONTENT_TYPE_PDF, SUBCATEGORIA_FICHA_TECNICA, userId],
+      [codigoDocs, nombre, url, pdf.length, CONTENT_TYPE_PDF, SUBCATEGORIA_FICHA_TECNICA, userId],
     );
 
     return NextResponse.json({

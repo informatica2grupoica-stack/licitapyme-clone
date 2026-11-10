@@ -297,6 +297,33 @@ export function lineasSinAsignar(lineas: LineaCotizacion[], asignados: string[])
   return lineas.filter(l => (l.total ?? l.precioUnitario ?? 0) !== 0 && !asignados.some(a => parecido(l.descripcion, a) >= 0.5));
 }
 
+// ─── Unidad de venta ≠ unidad del producto: línea por METRO/KILO, producto por ROLLO/CAJA ────────────────────────────────────────
+// Caso real (2736-44-LE26, negocio 1525, MCT cot. 621206, 10-nov-2026): "FOLIO INCOLORO 2 MTS X 0.20MM … 140 MT. a $2.000" es $2.000 el
+// METRO; el producto pedido es «Rollo nylon … 68mts». El sistema guardó $2.000 por rollo (el costeo decía $142.849: «98,6 % más barata»).
+// Igual con «CLAVOS VOLCANITA … KG a $3.300» vs «caja de 25 kilos» ($82.500 la caja, salía $3.300). La IA dice la conversión y este código
+// la VERIFICA: el factor tiene que estar escrito en la descripción del producto y el precio de la línea en el documento; la multiplicación la hace el código.
+
+export interface ConversionUnidadIA { unidadLinea?: unknown; precioLinea?: unknown; cantidadPorUnidad?: unknown }
+
+/** Medidas en que se vende «por metro / por kilo…»: solo con ellas se acepta convertir (no se multiplica por cualquier número). */
+const RE_MEDIDA = /^(?:m|mt|mts|mtr|mtrs|metro|metros|ml|kg|kgs|kilo|kilos|kilogramo|kilogramos|lt|lts|litro|litros|m2|mt2|mts2|m3)\.?$/i;
+
+/**
+ * Precio por UNIDAD DEL PRODUCTO (rollo, caja…) a partir del precio por metro/kilo de la línea. null = no se pudo comprobar (no se convierte).
+ * Condiciones: la línea se cobra en una medida (MT, KG, LT…); el factor N (>1) aparece como número en la descripción del producto;
+ * el precio de línea aparece en el documento.
+ */
+export function precioPorUnidadDeProducto(conv: ConversionUnidadIA | null | undefined, descProducto: string, textoDoc: string): { precioLinea: number; factor: number; unidadLinea: string; precio: number } | null {
+  if (!conv || typeof conv !== 'object') return null;
+  const unidad = String(conv.unidadLinea ?? '').trim();
+  const precioLinea = numeroDeTexto(conv.precioLinea);
+  const factor = numeroDeTexto(conv.cantidadPorUnidad);
+  if (!RE_MEDIDA.test(unidad) || precioLinea == null || !(precioLinea > 0) || factor == null || !(factor > 1)) return null;
+  if (!numeroApareceEnTexto(factor, descProducto)) return null;
+  if (!numeroApareceEnTexto(precioLinea, textoDoc) && !numeroApareceEnTexto(precioLinea * 1.19, textoDoc) && !numeroApareceEnTexto(precioLinea / 1.19, textoDoc)) return null;
+  return { precioLinea, factor, unidadLinea: unidad.toUpperCase(), precio: Math.round(precioLinea * factor * 100) / 100 };
+}
+
 // ─── ¿La línea cotizada es de verdad el producto pedido? Talla y tipo de chasis (1110) ────────────────────────────────────────────
 // Caso real (1110): "Silla de ruedas activa chasis plegable talla 42" quedó cubierta por "Silla de Ruedas Activa 43 cm Chasis Rígido":
 // otra talla y otro chasis, y el sistema la dio por buena. La IA decide por significado; esto es el freno determinista para lo medible.

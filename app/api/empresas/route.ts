@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, id: (result as any).insertId });
   } catch (error: any) {
     if (String(error).toLowerCase().includes('duplicate'))
-      return NextResponse.json({ error: 'Ya existe una empresa con ese RUT' }, { status: 409 });
+      return NextResponse.json({ error: 'Ya tienes una empresa con ese RUT en tu cuenta.' }, { status: 409 });
     return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo completar la operación.') }, { status: 500 });
   }
 }

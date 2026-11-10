@@ -651,7 +651,7 @@ function DetalleContent() {
   // Contador del menú: cuántos puntos comerciales esperan visto bueno. Solo se pide cuando
   // la etapa lo amerita, para no generar el checklist en licitaciones que aún están en análisis.
   // Se consulta para quien trabaje el Auditor (admin, Técnico o de Compra) — 05-oct-2026, antes solo admin.
-  const veAuditor = (isAdmin && conAuditor) || !!usuario?.permisos?.auditor_tecnico || !!usuario?.permisos?.auditor_compra;
+  const veAuditor = conAuditor && (isAdmin || !!usuario?.permisos?.auditor_tecnico || !!usuario?.permisos?.auditor_compra);
   useEffect(() => {
     if (!veAuditor || !negocio?.id || !tieneInformacionComercial(negocio.estado_pipeline)) { setComercialPorAprobar(0); return; }
     fetch(`/api/negocios/${negocio.id}/comercial`)
@@ -743,8 +743,8 @@ function DetalleContent() {
   // useFlujoNegocio es un hook: llamarlo después de un `return` condicional violaría las reglas de
   // hooks (se llamarían menos hooks mientras carga que una vez cargado el negocio).
   const infoComercialLista = tieneInformacionComercial(negocio?.estado_pipeline);
-  const hayCosteo = ((isAdmin && conCosteo) || !!usuario?.permisos?.costeo_editor || !!usuario?.permisos?.costeo_ver) && infoComercialLista;
-  const hayAuditorTecnico = ((isAdmin && conAuditor) || !!usuario?.permisos?.auditor_tecnico) && infoComercialLista;
+  const hayCosteo = conCosteo && (isAdmin || !!usuario?.permisos?.costeo_editor || !!usuario?.permisos?.costeo_ver) && infoComercialLista;
+  const hayAuditorTecnico = conAuditor && (isAdmin || !!usuario?.permisos?.auditor_tecnico) && infoComercialLista;
   // Costeo en un negocio DESCARTADO (19-oct-2026, pedido explícito): el admin lo sigue viendo en todo el
   // proceso, y lo puede editar igual que en las demás etapas.
   const verCosteoDescartado = isAdmin && conCosteo && normalizarEstado(negocio?.estado_pipeline) === 'DESCARTADA';
@@ -759,7 +759,7 @@ function DetalleContent() {
   // distintos, que no estén juntos"), pero activo en todo momento igual que él (pedido explícito,
   // 29-sep-2026: "eso no se debe de activar [recién al ganar]... se activa en todo momento al igual
   // que el auditor técnico" — más adelante se verá si se lo condiciona a algún estado puntual).
-  const puedeVerAuditorCompra = ((isAdmin && conAuditor) || !!usuario?.permisos?.auditor_compra) && infoComercialLista;
+  const puedeVerAuditorCompra = conAuditor && (isAdmin || !!usuario?.permisos?.auditor_compra) && infoComercialLista;
   const hayAuditorCompra = puedeVerAuditorCompra;
   // PRE-POSTULACIÓN (30-sep-2026, reemplaza a ANEXOS): certificado de admisibilidad + bloque técnico-administrativo sobre las opciones aprobadas del Auditor.
   // Pre-postulación reemplaza a Anexos (1-oct-2026): siempre visible, sin esperar a la etapa «ANEXOS» del pipeline.

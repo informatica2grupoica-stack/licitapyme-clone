@@ -14,7 +14,7 @@
 import { precioClpDeItemIA } from '@/app/lib/compras-precio-homologacion';
 import { borrarDocumentoR2 } from '@/app/lib/r2';
 import pool from '@/app/lib/db';
-import { numeroApareceEnTexto, lineasDesdeTabla, corregirAdicionalesConLineas, lineasSinAsignar, lineaDelProducto, desajustesProductoLinea, sinComponentesDeLaLineaPropia } from '@/app/lib/compras-cotizacion-lineas';
+import { precioPorUnidadDeProducto, numeroApareceEnTexto, lineasDesdeTabla, corregirAdicionalesConLineas, lineasSinAsignar, lineaDelProducto, desajustesProductoLinea, sinComponentesDeLaLineaPropia } from '@/app/lib/compras-cotizacion-lineas';
 import { conCupo } from '@/app/lib/cupo-ia';
 import { esRutPropio } from '@/app/lib/auditor-compras-datos';
 import { filasDeCotizacion, programarAuditoria } from '@/app/lib/auditor-compras';
@@ -580,9 +580,10 @@ Si una línea dice "N unidades ... $X" sin precio unitario ni "c/u" (ej. "18 ban
 Si el documento dice que un producto de la lista VA INCLUIDO en el precio de otro (ej. "Horno ... Incluye 1 carro 18x60x40"), devuelve ese producto en "items" con "incluidoEn": <número del producto que lo contiene>, sin precioUnitarioAsignado, y agrega "citaIncluido": el texto LITERAL del documento que lo dice (ej. "Incluye 1 carro 18x60x40"); sin esa cita literal no uses "incluidoEn". Sus componentes aparte (las bandejas) van en sus "adicionales".
 Si la descripción del producto EXIGE un componente ("con quemador", "con 18 bandejas") y el documento dice expresamente que NO lo incluye, que es opcional o que se vende aparte SIN dar precio, anótalo en "faltantes" ({"producto":"<código P1, P2…>","concepto":"<qué falta>","cita":"<texto LITERAL del documento, copiado tal cual, que dice que no se incluye / es opcional / se cotiza aparte / a consultar>"}). Sin esa cita literal NO lo anotes: si el documento simplemente no habla del componente, NO es un faltante. Tampoco si el componente ya va incluido o ya viene con precio en "adicionales".
 "precioUnitarioAsignado" es el precio de ESA línea tal como aparece en la tabla (precio unitario de la línea): NO uses el subtotal, el neto final, el total, ni nada que ya incluya flete, descuento o IVA agregados al pie del documento.
+UNIDAD DE MEDIDA (columna UMED / "UN" / "MT" / "KG" / "ROLL"…): el precio de la línea es POR ESA UNIDAD. Si la línea se cobra por METRO, KILO, LITRO o M2 ("140 MT. × $2.000" = $2.000 el metro) pero el producto de la lista se compra por ROLLO, CAJA, SACO, BOLSA o PLANCHA de N metros/kilos ("Rollo … 68mts", "caja de 25 kilos"), el precio de UNA unidad del producto es el precio de la línea × N. NO pongas el precio por metro como si fuera el del rollo. En ese caso agrega al item "conversionUnidad": {"unidadLinea":"MT","precioLinea":<precio de la línea tal como está impreso>,"cantidadPorUnidad":<N, que debe estar escrito en la descripción del producto de la lista>} y deja "precioUnitarioAsignado" en null (el sistema multiplica). Si el producto ya se pide por esa misma medida ("bolsa kilo" y la línea va por KG) NO hay conversión. Si el producto no dice cuántos metros/kilos trae, NO inventes N: no pongas conversionUnidad.
 
 Responde SOLO JSON, sin markdown:
-{"items":[{"producto":"<código de la lista: P1, P2…>","cumple":"CUMPLE"|"MEJORA"|"INFERIOR_NEGOCIABLE"|"INFERIOR_INSALVABLE"|"NO_ES_EL_PRODUCTO","detalle":"<frase o null>","precioUnitarioAsignado":<número o null, si la cotización trae precio por ese producto en particular>,"incluidoEn":"<código del producto que lo contiene o null>","citaIncluido":"<texto literal o null>","adicionales":[{"concepto":"<texto>","cantidadLinea":<número>,"precioUnitario":<número>}]}],"faltantes":[{"producto":"<código>","concepto":"<texto>","cita":"<texto literal>"}],"puntosCriticos":"<1-3 frases: qué es negociable y qué es insalvable en esta cotización, en general>"}`;
+{"items":[{"producto":"<código de la lista: P1, P2…>","cumple":"CUMPLE"|"MEJORA"|"INFERIOR_NEGOCIABLE"|"INFERIOR_INSALVABLE"|"NO_ES_EL_PRODUCTO","detalle":"<frase o null>","precioUnitarioAsignado":<número o null, si la cotización trae precio por ese producto en particular>,"conversionUnidad":{"unidadLinea":"<MT|KG|LT|M2>","precioLinea":<número>,"cantidadPorUnidad":<número N>}|null,"incluidoEn":"<código del producto que lo contiene o null>","citaIncluido":"<texto literal o null>","adicionales":[{"concepto":"<texto>","cantidadLinea":<número>,"precioUnitario":<número>}]}],"faltantes":[{"producto":"<código>","concepto":"<texto>","cita":"<texto literal>"}],"puntosCriticos":"<1-3 frases: qué es negociable y qué es insalvable en esta cotización, en general>"}`;
 
 /** Homologa UNA cotización contra los productos ganados del negocio (§8.6-§8.8), vía IA. Escribe
  *  compras_cotizacion_item y acumula el resumen en compras_veredicto por producto. No excluye
@@ -659,10 +660,13 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     if (!producto || !cumples.includes(it.cumple) || it.cumple === 'NO_ES_EL_PRODUCTO') return null;
     // "Va incluido en otro producto" sin cita literal verificada = invento: ese producto no se asigna a esta cotización.
     if (it.incluidoEn != null && !citaVerificada(it.citaIncluido, String(cotiz.descripcion_libre || ''))) return null;
+    // Línea por METRO/KILO y producto por ROLLO/CAJA (2736-44, MCT 621206): el código multiplica, con el factor sacado de la descripción del producto.
+    const conv = precioPorUnidadDeProducto(it.conversionUnidad, producto.descripcion, String(cotiz.descripcion_libre || ''));
+    if (conv) it.detalle = [it.detalle, `Precio por ${conv.unidadLinea} $${Math.round(conv.precioLinea).toLocaleString('es-CL')} × ${conv.factor} por unidad del producto = $${Math.round(conv.precio).toLocaleString('es-CL')} (la cotización cobra por ${conv.unidadLinea}, el producto se compra por rollo/caja).`].filter(Boolean).join(' · ');
     const precioClp = precioClpDeItemIA({
       // El precio que la IA lee de una línea tiene que EXISTIR en el documento: "121.000,85" se leyó como 121,00085 y quedó en $109.
       // Si no aparece (ni como número), se ignora y se usa el precio de la cotización en vez de guardar un valor inventado.
-      precioUnitarioAsignado: aNeto(precioEnDocumento(it.precioUnitarioAsignado, String(cotiz.descripcion_libre || '')) ? it.precioUnitarioAsignado : null), tipoCambio,
+      precioUnitarioAsignado: aNeto(conv ? conv.precio : precioEnDocumento(it.precioUnitarioAsignado, String(cotiz.descripcion_libre || '')) ? it.precioUnitarioAsignado : null), tipoCambio,
       precioClpCotizacion: cotiz.precio_unitario_clp != null ? Number(cotiz.precio_unitario_clp) : null,
       totalItemsAsignados: itemsValidos,
     });

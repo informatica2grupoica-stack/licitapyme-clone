@@ -23,7 +23,7 @@ const EMISORES_PROPIOS: Record<string, { prefijo: string; logo: string; proveedo
   '783881756': { prefijo: 'MP', logo: 'oc-mp/logo.png', proveedorRut: '76.902.659-2' },
 };
 
-interface EmpresaFila { id: number; razon_social: string; rut: string; giro: string | null; direccion: string | null; region: string | null; email1: string | null; telefono1: string | null }
+interface EmpresaFila { id: number; cliente_id: number; razon_social: string; rut: string; giro: string | null; direccion: string | null; region: string | null; email1: string | null; telefono1: string | null }
 
 export interface EmpresaOc { razonSocial: string; rut: string; giro: string; direccion: string; telefono: string; email: string }
 export interface ProveedorOc { nombre: string; rut: string; giro: string | null; direccion: string | null; email: string | null; telefono: string | null }
@@ -50,14 +50,14 @@ const redondear = (n: number) => Math.round(n);
 /** La empresa del negocio, si emite OC propias (Comercial MP). null = el negocio va por Obuma como siempre. */
 export async function emisorOcPropia(negocioId: number): Promise<{ empresa: EmpresaOc; prefijo: string; logo: string; proveedor: ProveedorOc | null } | null> {
   const [rows] = await pool.query(
-    `SELECT e.id, e.razon_social, e.rut, e.giro, e.direccion, e.region, e.email1, e.telefono1
+    `SELECT e.id, e.cliente_id, e.razon_social, e.rut, e.giro, e.direccion, e.region, e.email1, e.telefono1
        FROM negocios n JOIN empresas e ON e.id = n.empresa_id WHERE n.id = ? LIMIT 1`, [negocioId],
   ) as any;
   const e = (rows as EmpresaFila[])[0];
   const conf = e ? EMISORES_PROPIOS[rutComparable(e.rut)] : undefined;
   if (!e || !conf) return null;
   const [prov] = await pool.query(
-    `SELECT id, razon_social, rut, giro, direccion, region, email1, telefono1 FROM empresas WHERE activo = TRUE`,
+    `SELECT id, razon_social, rut, giro, direccion, region, email1, telefono1 FROM empresas WHERE activo = TRUE AND cliente_id = ?`, [e.cliente_id],
   ) as any;
   const p = (prov as EmpresaFila[]).find(x => rutComparable(x.rut) === rutComparable(conf.proveedorRut));
   return {
