@@ -34,6 +34,7 @@ import { calcularHitosGantt, planificarTarea, type AnclaTarea, type EntradaAncla
 import { emparejarProductos, type ProductoExistente } from '@/app/lib/compras-producto-sync';
 import { decidirNoAdjudicadas, esSubestadoFuera, type DecisionNoAdjudicadas } from '@/app/lib/compras-no-adjudicadas';
 import { listarPagosOc, ocsConFacturas, ocPagada } from '@/app/lib/compras-pagos-oc';
+import { esEstadoCancelada, procesarOcCancelada, reabrirSiOcVigente } from '@/app/lib/compras-oc-cancelada';
 
 // ── Aritmética de fechas "de pared" (sin reinterpretar zona horaria) ───────────────────────────
 // Se trabaja con Date "flotantes": los componentes de la hora de Chile (que ya vienen como texto de
@@ -747,7 +748,8 @@ export async function asignarEncargado(
   });
 }
 
-export type CierreLegado = 'ENTREGADA' | 'NO_REALIZADA' | 'PRECOMPRA_SIN_ADJUDICAR';
+// OC_CANCELADA (10-nov-2026): el organismo canceló la OC y no quedó otra vigente → «Compras cerradas» (compras-oc-cancelada.ts).
+export type CierreLegado = 'ENTREGADA' | 'NO_REALIZADA' | 'PRECOMPRA_SIN_ADJUDICAR' | 'OC_CANCELADA';
 
 /**
  * Marca rápida para el backlog histórico (migration-107, 11-sep-2026): negocios ADJUDICADA que se
@@ -1745,6 +1747,12 @@ export async function vincularOrdenCompraDeMP(
       );
     }
 
+    // OC cancelada por el organismo → sale a «Compras cerradas» y se pide fundamento; OC vigente → deshace ese cierre.
+    try {
+      if (esEstadoCancelada(oc.estado)) await procesarOcCancelada(Number(ficha.negocio_id));
+      else await reabrirSiOcVigente(Number(ficha.negocio_id), oc.codigo);
+    } catch (e) { console.error('[compras] cierre por OC cancelada falló:', String(e).slice(0, 200)); }
+
     await avisarOrdenCompraLlegada(Number(ficha.negocio_id), licitacionCodigo, ficha.asignado_a, oc, difierePorMonto);
     console.log(`[compras] OC ${oc.codigo} (${oc.estado || 'sin estado'}) enganchada al negocio ${ficha.negocio_id}${difierePorMonto ? ' · DIFIERE de lo adjudicado' : ''}`);
     // Tiempo real (pedido explícito, 11-sep-2026): quien tenga /compras o el dashboard abiertos
@@ -1815,6 +1823,7 @@ export async function avisarAceptacionOcPorVencer(): Promise<{ revisadas: number
     `SELECT ca.negocio_id, ca.licitacion_codigo, ca.asignado_a, ca.oc_codigo_mp, ca.oc_numero, ${SQL_ANCLAS}
        FROM compras_asignacion ca LEFT JOIN compras_reloj rl ON rl.negocio_id = ca.negocio_id
       WHERE ca.oc_emitida_at IS NOT NULL AND ca.oc_aceptada_at IS NULL
+        AND ca.cierre_legado IS NULL AND COALESCE(ca.oc_estado_mp, '') NOT LIKE 'Cancel%'
         AND NOT EXISTS (SELECT 1 FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id
                            AND t.catalogo_clave = 'aceptar_oc' AND t.estado = 'HECHA')`,
   ) as any;

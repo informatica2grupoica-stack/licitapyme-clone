@@ -15,6 +15,53 @@ interface Mov { cliente_id: number; accion: string; detalle: unknown; created_at
 
 const input = 'w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500';
 
+// Baja de una empresa (Ley 21.719): exportar sus datos y borrarlos. Solo con la empresa suspendida; se confirma con su nombre.
+function BajaEmpresa({ c, alTerminar }: { c: Cliente; alTerminar: () => void }) {
+  const toast = useToast();
+  const [plan, setPlan] = useState<{ pasos: { tabla: string; accion: string; filas: number }[]; negocios: number; usuarios: number; archivos: number } | null>(null);
+  const [nombre, setNombre] = useState('');
+  const [borrando, setBorrando] = useState(false);
+  const verPlan = async () => {
+    const d = await fetch(`/api/admin/clientes?borrado=${c.id}`).then(r => r.json()).catch(() => ({}));
+    if (d.error) toast.error('No se pudo revisar', d.error); else setPlan(d);
+  };
+  const borrar = async () => {
+    setBorrando(true);
+    const r = await fetch('/api/admin/clientes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accion: 'borrar', clienteId: c.id, confirmar: nombre }) });
+    const d = await r.json().catch(() => ({}));
+    setBorrando(false);
+    if (!r.ok) { toast.error('No se borró', d.error || `HTTP ${r.status}`); return; }
+    const a = d.archivos;
+    toast.success('Datos borrados', `${d.filas} filas de ${c.nombre}` + (a ? ` · archivos: ${a.borrados} borrados${a.compartidos ? `, ${a.compartidos} se dejan (los usa otra fila)` : ''}${a.fallidos ? `, ${a.fallidos} no se pudieron borrar` : ''}` : '')); alTerminar();
+  };
+  const total = plan?.pasos.filter(p => p.accion === 'borrar').reduce((a, p) => a + p.filas, 0) ?? 0;
+  return (
+    <div className="mt-3 border-t border-slate-100 pt-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] text-slate-500">Baja de la empresa</span>
+        <a href={`/api/admin/clientes?exportar=${c.id}`} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">Exportar datos (JSON)</a>
+        {!plan && <button onClick={verPlan} className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50">Borrar todos los datos…</button>}
+      </div>
+      {plan && (
+        <div className="mt-2 rounded-lg border border-red-200 bg-red-50/50 p-3">
+          <p className="text-sm text-red-800">Se borran <b>{total.toLocaleString('es-CL')}</b> filas ({plan.negocios} negocios, {plan.usuarios} usuarios) y sus <b>{plan.archivos}</b> archivos (los que ninguna otra fila use). No se puede deshacer: exporta antes si la empresa pidió sus datos.
+            El gasto de IA queda sin nombres y la ficha queda «de baja» sin datos de contacto.</p>
+          <ul className="mt-2 grid grid-cols-2 gap-x-4 text-xs text-slate-700 sm:grid-cols-3">
+            {plan.pasos.map(p => <li key={p.tabla + p.accion}>{p.tabla}: {p.filas}{p.accion !== 'borrar' ? ` (${p.accion})` : ''}</li>)}
+          </ul>
+          <label className="mt-3 block text-[11px] text-slate-600">Escribe <b>{c.nombre}</b> para confirmar
+            <input className={`${input} mt-0.5 max-w-sm`} value={nombre} onChange={e => setNombre(e.target.value)} />
+          </label>
+          <div className="mt-2 flex gap-2">
+            <button disabled={borrando || nombre.trim() !== c.nombre.trim()} onClick={borrar} className="rounded-lg bg-red-700 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-red-800 disabled:opacity-50">{borrando ? 'Borrando…' : 'Borrar definitivamente'}</button>
+            <button onClick={() => { setPlan(null); setNombre(''); }} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700">Cancelar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Evaluación por RUT (OC + actas de MP → palabras clave y perfil). Mientras corre se consulta cada 5 s.
 function EvaluacionRut({ clienteId }: { clienteId: number }) {
   const toast = useToast();
@@ -162,6 +209,7 @@ export default function ClientesPage() {
                   </button>
                 </div>
                 {c.rut && <EvaluacionRut clienteId={c.id} />}
+                {c.estado !== 'ACTIVO' && <BajaEmpresa c={c} alTerminar={cargar} />}
                 {otro?.id === c.id && (
                   <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2">
                     <label className="text-[11px] text-slate-500">Nombre<input className={`${input} mt-0.5`} value={otro.nombre} onChange={e => setOtro({ ...otro, nombre: e.target.value })} /></label>

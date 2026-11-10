@@ -11,6 +11,20 @@ Reglas técnicas: skill `multiempresa-escalable` (`.claude/skills/multiempresa-e
 
 ---
 
+## ▶ Próxima sesión: empieza aquí (dejado el 2026-11-10)
+
+**Estado:** Etapas 0, 1 y 2 en producción. Etapa 4 (baja de empresa: exportar + borrar datos + archivos R2) hecha en código, **sin desplegar**. Etapa 3 sin empezar.
+1. **Revisar si el dueño ya desplegó la baja de empresa** (paso D de abajo): en el VPS, `grep -rl borrado_archivos .next/server` dentro del contenedor `licitapyme`. Si está, marcar D.
+2. **Prueba real de la Etapa 2** con Comercial MP (cliente 4, es del dueño): que su admin ponga ticket de MP y casilla en Mi empresa → Integraciones; confirmar en `mp_api_uso_cliente` que sus consultas no suman en `mp_api_uso_diario`. Necesita al dueño (credenciales reales).
+3. **Etapa 3: abrir Costeo** a otras empresas (el más chico). Ver el detalle en «Etapa 3».
+4. **Decisiones del dueño abiertas:** ¿exigir ticket propio a clientes nuevos? · casilla propia de LICITANK (avisos@licitank.cl con SPF/DKIM/DMARC) · topes por defecto (10 USD / 500 consultas).
+5. **Legal (abogado):** contrato, política de privacidad, registro de tratamiento. Ley 21.719 rige el 2026-12-01.
+6. Menores: exportación pedida por la propia empresa desde Mi empresa; OCR fuera del tope de IA; crons anotados a ICA.
+
+Notas para quien siga: escribir en la BD del VPS a veces lo bloquea el clasificador → dejar el comando al dueño. Los túneles SSH abiertos en segundo plano pueden sobrevivir a TaskStop: revisar el puerto 3307 al terminar. Docker Desktop del PC a veces no arranca solo. `tsc` muestra un error viejo de `app/api/negocios/[id]/comercial/route.ts` (`export { bitacora }`) que no es de multiempresa.
+
+---
+
 ## Lo que tiene que hacer el dueño (pendiente)
 
 **En este orden** (el clasificador de Claude bloquea las migraciones en producción; a veces deja pasar una con OK explícito):
@@ -23,7 +37,8 @@ Reglas técnicas: skill `multiempresa-escalable` (`.claude/skills/multiempresa-e
 - [x] 2026-11-10 (dueño; revisado por Claude: 1 línea, 32 bytes) **A. Clave de cifrado** en el `.env` del VPS (y en `.env.local` del PC si se prueba ahí). Se genera una vez y **no se cambia** (si se pierde o cambia, las cuentas guardadas no se pueden leer y cada empresa las tiene que volver a escribir):
   `INTEGRACIONES_CLAVE=<salida de: openssl rand -base64 32>`. Sin ella todo sigue funcionando como hoy, pero nadie puede guardar cuentas propias.
 - [x] 2026-11-10 (Claude, a pedido del dueño; tabla verificada, 0 filas) **B. migration-186 en el VPS** (tabla nueva `cliente_integracion`): `node scripts/aplicar-migration-186.mjs --produccion`.
-- [ ] **C. Commit + `deploy.sh`.** (El código aguanta sin la tabla y sin la clave: se comporta como antes.)
+- [x] 2026-11-10 (dueño, commit d5af273; revisado: clave en el contenedor y build con integraciones) **C. Commit + `deploy.sh`.**
+- [ ] **D. Deploy de la baja de empresa (Etapa 4)**: commit + `deploy.sh` (sin migración).
 - [ ] Revisar los topes por defecto que dejó la migration-185 a los clientes que no son ICA: **10 USD de IA al mes y 500 consultas a MP al día**. Se cambian en /admin/clientes (vacío = sin tope). Es decisión comercial del dueño.
 
 ---
@@ -98,12 +113,24 @@ Para cada módulo: tablas con dueño → todas sus rutas con chequeo de cliente 
 - [ ] Compras (el más grande: 90 rutas, proveedores, historial OC, Obuma, OC propia de Comercial MP).
 
 ### Etapa 4 — Legal y alta sin intervención (en paralelo)
-- [ ] Ley 21.719 (rige desde el 2026-12-01): borrar todo lo de un cliente cuando se va, contrato, política de datos. Lo valida un abogado.
+- [x] 2026-11-10 — Baja de una empresa (`app/lib/borrar-cliente.ts`): vista previa, exportar todo en JSON (sin claves ni credenciales) y borrar en una transacción. En `/admin/clientes`, solo con la empresa SUSPENDIDA y escribiendo su nombre exacto. Tablas descubiertas solas (cliente_id / negocio_id / empresa_id / usuario_id); `ia_uso` se anonimiza, `mp_api_uso_cliente` se conserva, la ficha queda «BAJA» sin RUT ni contacto, bitácora con una línea del borrado.
+- [x] 2026-11-10 — Archivos en R2 de la empresa: se juntan las URLs de R2 de todas sus filas (también dentro de JSON) y, después de borrar los datos, se borra solo lo que ya no aparece en ninguna columna de archivos (`%url%`, `%archivo%`, `%adjunto%`, `%link%`) de la BD. Las keys van por código de licitación, no por empresa: un archivo que usa otra fila (p. ej. ICA) se deja. Resultado en la bitácora (`borrado_archivos`). Límite conocido: una URL que otra empresa guardó solo dentro de un JSON de una columna con otro nombre no se detecta (poco probable: cada subida lleva un timestamp único).
+- [ ] Que la propia empresa pueda pedir su exportación desde «Mi empresa» (hoy la hace el superusuario).
+- [ ] Contrato, política de privacidad y registro de tratamiento: los redacta un abogado.
 - [ ] Alta sola: formulario → cliente + admin + evaluación por RUT en cola (hoy corre dentro del proceso de la app; si se reinicia, se corta).
 
 ---
 
 ## Bitácora
+
+## 2026-11-10 — Etapa 4: baja de empresa (exportar + borrar) y revisión del deploy de la Etapa 2
+Etapa 2 revisada en el VPS: commit d5af273, contenedores reiniciados, `INTEGRACIONES_CLAVE` dentro del contenedor, build con `cliente_integracion`; un análisis de viabilidad (3909-17-LE26) quedó «huérfano» por el reinicio (normal en un deploy).
+Nuevo `app/lib/borrar-cliente.ts` (`planBorrado`, `exportarCliente`, `borrarCliente`) + `/api/admin/clientes` (`GET ?borrado=id`, `GET ?exportar=id`, `POST accion=borrar` con el nombre exacto) + bloque «Baja de la empresa» en `/admin/clientes` (aparece si la empresa no está ACTIVA).
+**Regla / decisión:** el dueño delegó en Claude («tú eres el ingeniero»). Primero suspender, después borrar; ICA nunca. Se conservan el costo de IA (sin nombres) y los conteos de MP para la contabilidad.
+**Verificado:** vista previa contra el VPS en solo lectura (cliente 2: 3.483 filas en 15 tablas; cliente 4: 17; ICA bloqueado). `scripts/scratch/_probar_borrado.mts` en la BD local con una empresa desechable, 11/11: exportar sin `password_hash` ni `datos_cifrados`, no borra si está ACTIVA, no queda nada de la empresa, IA anonimizada, MP conservado, ficha de BAJA, bitácora sin el correo del admin, y la foto de ICA y del cliente 2 idéntica antes y después. `tsc`: solo el error viejo de `comercial/route.ts` (`export { bitacora }`, de hace 6 días, aparece por los tipos de `next dev`). No visto en el navegador; nada borrado en producción.
+**Pendiente:** archivos en R2, exportación desde Mi empresa, lo legal (abogado).
+
+**2026-11-10 (tarde) — archivos en R2 agregados al borrado.** `archivosDelCliente()` + `urlsEnUso()` + `borrarArchivos()` en `borrar-cliente.ts`; vista previa muestra «y sus N archivos». Verificado: prueba local 14/14 con R2 simulado (borra el logo exclusivo y una captura dentro de un JSON, deja un documento que también usa una fila de ICA, bitácora `borrado` + `borrado_archivos`). En producción (solo lectura) los clientes 2 y 4 no tienen archivos en R2 hoy. No se borró nada real en R2.
 
 ## 2026-11-10 — Etapa 2: ticket de MP y correo propios por cliente
 Nuevo `app/lib/integraciones-cliente.ts` (cifrado AES-256-GCM con `INTEGRACIONES_CLAVE`, leer/guardar/borrar con caché de 60 s, `ticketMpPropio`, `probarTicketMp`, `correoDeCliente`) + tabla `cliente_integracion` (migration-186).

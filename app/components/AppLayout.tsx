@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconPackage as PackageCheck, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconFileInvoice as FileInvoice,IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders, IconBug as Bug, IconCoin as Coin, IconBrain as Brain, IconLock as Lock, IconBrandWhatsapp as Whatsapp } from '@tabler/icons-react';
+import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconPackage as PackageCheck, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconFileInvoice as FileInvoice,IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders, IconBug as Bug, IconCoin as Coin, IconBrain as Brain, IconLock as Lock, IconBrandWhatsapp as Whatsapp, IconArchive as Archive } from '@tabler/icons-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { Tooltip } from '@/app/components/ui/Tooltip';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
@@ -15,6 +15,7 @@ import { EntregaPendienteModal } from '@/app/components/EntregaPendienteModal';
 import { CierreVencidoModal } from '@/app/components/CierreVencidoModal';
 import { AprobacionPendienteModal } from '@/app/components/AprobacionPendienteModal';
 import { AvisoComprasModal } from '@/app/components/AvisoComprasModal';
+import { ModalFundamentoCancelacion } from '@/app/components/ModalFundamentoCancelacion';
 import { pedirResumenAprobaciones } from '@/app/lib/aprobaciones-resumen';
 
 function tiempoRel(iso?: string) {
@@ -64,6 +65,8 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'EJECUCIÓN',
     items: [
       { label: 'Compras',    href: '/compras',    icon: <ShoppingCart size={17} />, adminOnly: true },
+      // Compras cerradas (10-nov-2026): lo que salió de Compras — OC cancelada por el organismo, entregadas, no realizadas — por fecha.
+      { label: 'Compras cerradas', href: '/compras/cerradas', icon: <Archive size={17} />, adminOnly: true },
       // Proyectos (Obuma): puesto justo debajo de Compras a propósito (pedido del usuario,
       // 22-sep-2026: "no sé dónde lo metiste" cuando vivía en GESTIÓN, lejos de Compras).
       { label: 'Proyectos (Obuma)', href: '/compras/proyectos', icon: <Folders size={17} />, adminOnly: true },
@@ -143,7 +146,7 @@ const NAV_GROUPS: NavGroup[] = [
 
 // Perfil de Compras: ítems del menú visibles y prefijos de página permitidos. Las páginas de
 // detalle de negocio/licitación quedan permitidas (van enlazadas desde Compras) pero sin ítem propio.
-const HREFS_SOLO_COMPRAS = ['/compras', '/compras/proyectos', '/compras/proveedores', '/compras/oc-comercial-mp', '/logistica/fleteros', '/ordenes-compra', '/entregas', '/mis-reportes'];
+const HREFS_SOLO_COMPRAS = ['/compras', '/compras/cerradas', '/compras/proyectos', '/compras/proveedores', '/compras/oc-comercial-mp', '/logistica/fleteros', '/ordenes-compra', '/entregas', '/mis-reportes'];
 const PAGINAS_SOLO_COMPRAS = ['/compras', '/logistica', '/ordenes-compra', '/entregas', '/perfil', '/mis-reportes', '/negocios/', '/licitacion/'];
 
 const AVATAR_BG: Record<string, string> = {
@@ -408,6 +411,7 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
       if (i.href === '/compras/proveedores' && puedeVerCompras) return true;
       if (i.href === '/compras/proyectos' && puedeVerCompras) return true;
       if (i.href === '/compras/oc-comercial-mp' && puedeVerCompras) return true;
+      if (i.href === '/compras/cerradas' && puedeVerCompras) return true;
       return false;
     }),
   })).map(group => ({
@@ -829,6 +833,8 @@ export function AppLayout({ children, breadcrumb }: AppLayoutProps) {
       <AprobacionPendienteModal />
       <AvisoComprasModal />
       <EntregaPendienteModal />
+      {/* Bloqueante: la OC del cliente se canceló y los encargados tienen que fundamentar por qué */}
+      <ModalFundamentoCancelacion />
     </div>
   );
 }

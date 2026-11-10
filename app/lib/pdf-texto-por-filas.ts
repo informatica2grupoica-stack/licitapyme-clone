@@ -45,8 +45,13 @@ export function filasDeTrozos(trozos: Trozo[]): string {
 /** Para `pdfParse(buffer, { pagerender: renderPaginaPorFilas })`. */
 export async function renderPaginaPorFilas(pageData: any): Promise<string> {
   const tc = await pageData.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false });
-  const trozos: Trozo[] = (tc.items || []).map((it: any) => ({
-    x: it.transform?.[4] ?? 0, y: it.transform?.[5] ?? 0, w: it.width ?? 0, h: it.height ?? Math.abs(it.transform?.[3] ?? 8), s: String(it.str ?? ''),
-  }));
+  // Alto = tamaño real de la letra (de la matriz). Hay PDF exportados de Excel donde pdf.js da `height` = tamaño² (12 pt → 144): con eso la
+  // tolerancia de fila (½ alto = 72 pt) juntaba 7 filas de la tabla en una y desordenaba cantidades y totales (Comercial Gam 2057, 1426039-8-LE26).
+  const trozos: Trozo[] = (tc.items || []).map((it: any) => {
+    const tf = it.transform || [];
+    const letra = Math.hypot(tf[2] ?? 0, tf[3] ?? 0);
+    const h = letra > 0 && it.height > 0 ? Math.min(it.height, letra) : (letra || it.height || 8);
+    return { x: tf[4] ?? 0, y: tf[5] ?? 0, w: it.width ?? 0, h, s: String(it.str ?? '') };
+  });
   return filasDeTrozos(trozos);
 }

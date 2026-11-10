@@ -11,6 +11,7 @@ import { getAuthedUser } from '@/app/lib/api-auth';
 import { olvidarFichaCliente, CLIENTE_ICA } from '@/app/lib/tenant';
 import { evaluarEmpresaPorRut, leerEvaluacion } from '@/app/lib/evaluar-empresa-rut';
 import { gastoIaMesPorCliente, consultasMpHoyPorCliente } from '@/app/lib/medidor-cliente';
+import { planBorrado, exportarCliente, borrarCliente, archivosDelCliente } from '@/app/lib/borrar-cliente';
 import { TODOS_LOS_MODULOS, MODULOS_BASE, MODULOS_ACTIVABLES, modulosEfectivos } from '@/app/lib/modulos';
 
 export const runtime = 'nodejs';
@@ -35,6 +36,24 @@ export async function GET(req: NextRequest) {
   if (g.error) return g.error;
   const evId = Number(req.nextUrl.searchParams.get('evaluacion'));
   if (evId) return NextResponse.json({ success: true, evaluacion: await leerEvaluacion(evId) });
+  // Baja de una empresa (Ley 21.719): vista previa de lo que se borraría, o exportación de todos sus datos (JSON descargable).
+  const borradoId = Number(req.nextUrl.searchParams.get('borrado'));
+  if (borradoId) {
+    if (borradoId === CLIENTE_ICA) return NextResponse.json({ error: 'Grupo ICA no se puede borrar' }, { status: 400 });
+    const plan = await planBorrado(borradoId);
+    const archivos = (await archivosDelCliente(plan.pasos)).length;
+    return NextResponse.json({ success: true, ...plan, archivos, pasos: plan.pasos.filter(p => p.filas > 0).map(({ tabla, accion, filas }) => ({ tabla, accion, filas })) });
+  }
+  const exportarId = Number(req.nextUrl.searchParams.get('exportar'));
+  if (exportarId) {
+    if (exportarId === CLIENTE_ICA) return NextResponse.json({ error: 'No aplica a Grupo ICA' }, { status: 400 });
+    const datos = await exportarCliente(exportarId);
+    await bitacora(exportarId, g.u!.id, 'exportar', null);
+    return new NextResponse(JSON.stringify(datos, null, 1), { headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'content-disposition': `attachment; filename="licitank-empresa-${exportarId}-${new Date().toISOString().slice(0, 10)}.json"`,
+    } });
+  }
   const [clientes] = await pool.query(
     `SELECT c.id, c.nombre, c.rut, c.plan, c.estado, c.max_usuarios, c.cupo_ia_mensual, c.tope_ia_usd_mes, c.tope_mp_diario, c.modulos, c.notas, c.contacto_nombre, c.contacto_email,
             DATE_FORMAT(c.vence_at, '%Y-%m-%d') AS vence_at,
@@ -68,6 +87,21 @@ export async function POST(req: NextRequest) {
     void evaluarEmpresaPorRut(cid, c.rut);
     await bitacora(cid, g.u!.id, 'evaluar', { rut: c.rut });
     return NextResponse.json({ success: true });
+  }
+
+  // Borrar TODOS los datos de una empresa (tiene que estar suspendida; se confirma escribiendo su nombre exacto).
+  if (b.accion === 'borrar') {
+    const cid = Number(b.clienteId);
+    const [[c]] = await pool.query('SELECT nombre FROM clientes WHERE id = ?', [cid]) as any;
+    if (!cid || cid === CLIENTE_ICA || !c) return NextResponse.json({ error: 'Empresa no válida' }, { status: 400 });
+    if (String(b.confirmar || '').trim() !== String(c.nombre).trim()) return NextResponse.json({ error: 'Para confirmar, escribe el nombre exacto de la empresa.' }, { status: 400 });
+    try {
+      const { hechos, archivos } = await borrarCliente(cid, g.u!.id);
+      olvidarFichaCliente(cid);
+      return NextResponse.json({ success: true, filas: hechos.reduce((a, h) => a + (h.accion === 'borrar' ? h.filas : 0), 0), archivos });
+    } catch (e) {
+      return NextResponse.json({ error: String((e as Error)?.message ?? e).slice(0, 300) }, { status: 400 });
+    }
   }
 
   // Agregar una persona a una empresa existente (respeta el tope de usuarios del plan).

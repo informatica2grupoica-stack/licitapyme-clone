@@ -3,6 +3,12 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-10 — Cotización exportada de Excel leída con cantidades y totales cruzados (1426039-8-LE26, negocio 772, Comercial Gam #287 = su N° 2057; `pdf-texto-por-filas.ts`; test + 1805 tests ok, probado con el PDF real, SIN desplegar)
+- Reporte del dueño: dos cotizaciones del mismo proveedor (#286 = N° 2058, 8 ítems; #287 = N° 2057, 19 ítems) y pensaba que la regla «la más nueva del mismo proveedor deja en gris la vieja» le iba a molestar. **No aplica:** esa regla (`cotizacionesReemplazadas`, MatrizPrecios) ya es **por producto** (proveedor + producto), y #286/#287 no comparten ningún producto → ninguna queda reemplazada. Los #286/#287 son ids internos de Licitank, no del proveedor.
+- Lo que sí estaba mal: #287 quedó con precios inventados (silla sala cuna $15.110 en vez de $29.500; 17 de 19 líneas con «precio × cantidad no cuadra… se usó total ÷ cantidad»). La suma igual cuadraba con el neto, por eso no saltó como error.
+- Causa: en ese PDF pdf.js da `height` = tamaño de letra al cuadrado (12 pt → 144). El armador de filas usa ½ alto como tolerancia → juntaba 7 filas de la tabla (28 pt entre filas) en una y el orden dentro de cada columna quedaba al azar. Ahora el alto sale de la matriz de la letra (mínimo entre ambos). Sirve también al Lector del Auditor (`auditor-lector.ts` usa el mismo armador).
+- **Pendiente:** desplegar y después **borrar #287 y volver a subir la 2057** («Volver a leer con IA» no re-extrae el PDF: re-homologa con el texto ya guardado, que está malo). #286 quedó bien leída.
+
 ## 2026-11-09 — «Unidades para este negocio» en las líneas de una OC de Obuma (migration-184; `compras-oc-lineas-negocio.ts`, `obuma-compras.ts`, ruta `oc-lineas`, `ResumenGastosCard.tsx`; test `oc-unidades-negocio.test.mts` ok, tsc limpio, SIN ver en navegador ni desplegar)
 - Caso: OC 3811 (negocio 256) trae 2 rodillos y solo se vende 1: Licitank le cargaba el segundo ($3.300.400) al costo y el margen salía 64,6 % en vez de ~81 %.
 - En Resumen de gastos, al abrir una OC de Obuma, cada línea tiene «Para este negocio» (N de M). Lo que sobra no suma al costo del negocio (queda de stock / otro negocio, con nota). Igual al total = quita el ajuste. Solo cambia lo que cuenta Licitank; en Obuma no se toca nada.

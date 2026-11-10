@@ -22,6 +22,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { asignacionAutomaticaFallback, avisarAceptacionOcPorVencer, engancharOrdenesCompraPendientes } from '@/app/lib/compras';
 import { sincronizarOrdenesCompra } from '@/app/lib/ordenes-compra';
 import { licitacionesEnComprasSinActa, traerActaAutomatico } from '@/app/lib/acta-adjudicacion';
+import { barrerOcCanceladas } from '@/app/lib/compras-oc-cancelada';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -62,6 +63,15 @@ export async function GET(req: NextRequest) {
       console.warn('[cron/compras-asignacion] enganche de órdenes falló:', String(e).slice(0, 150));
     }
 
+    // OC del cliente cancelada: el negocio pasa a «Compras cerradas», aviso en la campana y fundamento
+    // obligatorio de los encargados (compras-oc-cancelada.ts). Recoge también las canceladas de antes.
+    let canceladas = { revisadas: 0, registradas: 0 };
+    try {
+      canceladas = await barrerOcCanceladas();
+    } catch (e: any) {
+      console.warn('[cron/compras-asignacion] barrido de OC canceladas falló:', String(e).slice(0, 150));
+    }
+
     // Recordatorio de aceptar la OC antes de que venza el plazo (<24 h, <3 h y «venció»).
     let aceptacion = { revisadas: 0, avisadas: 0 };
     try {
@@ -91,7 +101,7 @@ export async function GET(req: NextRequest) {
       console.warn('[cron/compras-asignacion] búsqueda de actas pendientes falló:', String(e).slice(0, 150));
     }
 
-    return NextResponse.json({ success: true, ...r, oc, aceptacion, acta, duracionMs: Date.now() - t0 });
+    return NextResponse.json({ success: true, ...r, oc, canceladas, aceptacion, acta, duracionMs: Date.now() - t0 });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e.message }, { status: 500 });
   }
