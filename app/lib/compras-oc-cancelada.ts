@@ -5,11 +5,11 @@
 //   1. Si el organismo cancela la orden y no queda otra vigente de esa licitación, el negocio sale de
 //      Compras a «Compras cerradas» (cierre_legado = 'OC_CANCELADA', «Sistema»). Si ya había compras a
 //      proveedores emitidas NO se saca solo: queda en Compras y el aviso lo dice (ahí hay plata en juego).
-//   2. Aviso en la campana a quienes reciben las alertas de OC (avisos-reglas.ts, 'oc'). El correo de
-//      «la OC pasó a Cancelada» ya lo manda el cron de órdenes (ordenes-compra.ts → avisarOrdenes).
-//   3. Los encargados de esa licitación (comercial que la postuló + encargado y coencargados de Compras)
-//      tienen que escribir por qué se canceló: mientras no lo hagan les sale un modal que no se cierra
-//      (ModalFundamentoCancelacion en AppLayout).
+//   2. Aviso por WhatsApp (regla 'oc_cancelada': comercial + encargados de Compras + admins). Las anteriores a
+//      AVISOS_NUEVOS_DESDE van solo a Compras y admins, como «pasadas, ya se están resolviendo». El correo de
+//      «la OC pasó a Cancelada» lo manda el cron de órdenes (ordenes-compra.ts → avisarOrdenes).
+//   3. SOLO quien tiene Área «Compras» en el perfil tiene que escribir por qué
+//      se canceló: les sale un modal que no se cierra (ModalFundamentoCancelacion en AppLayout). Los demás, solo el aviso.
 //   4. Si después llega una OC vigente, el cierre automático se deshace solo.
 //
 // No importa nada de compras.ts (compras.ts sí importa este archivo): así no se arma un ciclo.
@@ -17,7 +17,8 @@ import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { publicarCambio } from '@/app/lib/sse-bus';
-import { destinatariosDe } from '@/app/lib/avisos-destinatarios';
+import { destinatariosDe, personasDeEmpresa } from '@/app/lib/avisos-destinatarios';
+import { equipoDe } from '@/app/lib/avisos-reglas';
 import { encolarAvisoWhatsapp } from '@/app/lib/whatsapp-avisos';
 
 export const MIN_FUNDAMENTO = 20;
@@ -26,6 +27,19 @@ export const AVISAR_SOLO_POR_WHATSAPP = true;
 export const esEstadoCancelada = (estado: string | null | undefined) => /^cancel/i.test(String(estado || '').trim());
 
 const sinTabla = (e: any) => e?.code === 'ER_NO_SUCH_TABLE';
+
+/** Cancelaciones anteriores a esta fecha se avisan como «pasadas, ya se están resolviendo» y no como nuevas (decisión del dueño, 10-nov-2026). */
+export const AVISOS_NUEVOS_DESDE = '2026-11-10';
+
+/** Solo el equipo de Compras de ese negocio: encargado y coencargados (sin el comercial que postuló). */
+async function encargadosComprasDe(negocioId: number): Promise<number[]> {
+  const [rows] = await pool.query(
+    `SELECT ca.asignado_a AS uid FROM compras_asignacion ca WHERE ca.negocio_id = ? AND ca.asignado_a IS NOT NULL
+     UNION SELECT cc.usuario_id FROM compras_coencargado cc WHERE cc.negocio_id = ?`,
+    [negocioId, negocioId],
+  ) as any;
+  return [...new Set((rows as any[]).map(r => Number(r.uid)).filter(n => n > 0))];
+}
 
 /** Encargados de la licitación: comercial que la postuló + encargado y coencargados de Compras. */
 async function encargadosDe(negocioId: number): Promise<number[]> {
@@ -121,11 +135,24 @@ export async function procesarOcCancelada(negocioId: number): Promise<boolean> {
       });
     }
   }
+  // Pasada (cancelada antes de ${AVISOS_NUEVOS_DESDE}): solo Compras y admins, con el texto «no es nueva, se está resolviendo».
+  // Nueva: el comercial que postuló + encargado y coencargados de Compras + admins (regla 'oc_cancelada').
+  const pasada = !canceladaAt || canceladaAt < AVISOS_NUEVOS_DESDE;
+  const accion = cierra ? 'El negocio pasó a Compras cerradas.' : 'Ya hay compras a proveedores emitidas: el negocio sigue en Compras.';
+  let destinoIds: number[] | undefined;
+  if (pasada) {
+    const ids = new Set<number>(await encargadosComprasDe(negocioId));
+    for (const u of await personasDeEmpresa(Number(f.cliente_id))) {
+      if (u.rol === 'admin' || equipoDe(u.area) === 'compras') ids.add(Number(u.id));
+    }
+    destinoIds = [...ids];
+  }
   await encolarAvisoWhatsapp({
     tipo: 'oc_cancelada', codigo: f.licitacion_codigo, nombre: f.licitacion_nombre ?? null, asignadoId: null, encargadosIds: encargados,
-    clienteId: Number(f.cliente_id), ordenCodigo: f.oc_codigo_mp,
-    detalle: (cierra ? 'El negocio pasó a Compras cerradas.' : 'Ya hay compras a proveedores emitidas: el negocio sigue en Compras.')
-      + ' Hay que fundamentar por qué se canceló.',
+    clienteId: Number(f.cliente_id), ordenCodigo: f.oc_codigo_mp, destinoIds,
+    detalle: pasada
+      ? `Es una cancelación anterior, no es nueva: Compras ya la está resolviendo. ${accion} Desde ahora los avisos de cancelaciones nuevas saldrán así.`
+      : `${accion} Hay que fundamentar por qué se canceló.`,
   });
   publicarCambio('compras');
   console.log(`[compras] OC ${f.oc_codigo_mp} cancelada · negocio ${negocioId}${cierra ? ' → Compras cerradas' : conCompras ? ' (con compras emitidas, sigue abierto)' : ''}`);
@@ -173,9 +200,14 @@ export interface CancelacionPendiente {
   ocCodigo: string; canceladaAt: string | null; montoOc: number | null; cerroCompras: boolean;
 }
 
-/** Cancelaciones sin fundamento en las que este usuario es encargado (lo que dispara el modal). */
+/**
+ * Cancelaciones sin fundamento que le tocan a este usuario (lo que dispara el modal). SOLO quien tiene Área «Compras» en el perfil
+ * (decisión del dueño, 10-nov-2026): ve todas las de la empresa. Admins, comercial y los demás solo reciben el aviso.
+ */
 export async function cancelacionesPendientesDe(usuarioId: number, clienteId: number): Promise<CancelacionPendiente[]> {
   try {
+    const [[ur]] = await pool.query(`SELECT area FROM usuarios WHERE id = ? LIMIT 1`, [usuarioId]) as any;
+    if (equipoDe(ur?.area) !== 'compras') return [];
     const [rows] = await pool.query(
       `SELECT x.id, x.negocio_id, x.licitacion_codigo, x.oc_codigo, DATE_FORMAT(x.cancelada_at, '%Y-%m-%d') AS cancelada_at, x.cerro_compras,
               n.licitacion_nombre, COALESCE(NULLIF(n.licitacion_organismo, ''), o.comprador_organismo) AS organismo, o.total AS monto_oc
@@ -184,10 +216,8 @@ export async function cancelacionesPendientesDe(usuarioId: number, clienteId: nu
          JOIN compras_asignacion ca ON ca.negocio_id = x.negocio_id
          LEFT JOIN ordenes_compra o ON o.codigo = x.oc_codigo
         WHERE x.cliente_id = ? AND x.fundamentado_at IS NULL
-          AND (ca.asignado_a = ? OR n.asignado_a = ?
-               OR EXISTS (SELECT 1 FROM compras_coencargado cc WHERE cc.negocio_id = x.negocio_id AND cc.usuario_id = ?))
         ORDER BY x.cancelada_at, x.id`,
-      [clienteId, usuarioId, usuarioId, usuarioId],
+      [clienteId],
     ) as any;
     return (rows as any[]).map(r => ({
       id: Number(r.id), negocioId: Number(r.negocio_id), licitacionCodigo: r.licitacion_codigo, licitacionNombre: r.licitacion_nombre ?? null,
@@ -200,7 +230,7 @@ export async function cancelacionesPendientesDe(usuarioId: number, clienteId: nu
   }
 }
 
-/** Guarda el fundamento. Solo un encargado de esa licitación, una sola vez. */
+/** Guarda el fundamento. Solo Área Compras (ver cancelacionesPendientesDe), una sola vez. */
 export async function fundamentarCancelacion(
   id: number, usuarioId: number, usuarioNombre: string | null, clienteId: number, texto: string,
 ): Promise<void> {
@@ -208,7 +238,7 @@ export async function fundamentarCancelacion(
   if (fundamento.length < MIN_FUNDAMENTO) throw new Error(`Escribe al menos ${MIN_FUNDAMENTO} caracteres explicando por qué se canceló.`);
   const pendientes = await cancelacionesPendientesDe(usuarioId, clienteId);
   const c = pendientes.find(p => p.id === id);
-  if (!c) throw new Error('Esa cancelación no está pendiente o no eres encargado de esa licitación.');
+  if (!c) throw new Error('Esa cancelación no está pendiente o no eres del Área Compras.');
   const ahora = ahoraChileSQL();
   const [r] = await pool.query(
     `UPDATE compras_oc_cancelacion SET fundamento = ?, fundamentado_por = ?, fundamentado_por_nombre = ?, fundamentado_at = ?

@@ -1,8 +1,7 @@
 // app/api/compras/oc-canceladas/route.ts
 // Fundamento obligatorio cuando el organismo cancela la OC del cliente (migration-187, 10-nov-2026).
-// GET  = cancelaciones sin fundamento en las que el usuario es encargado (las pide el modal de AppLayout).
-// POST = { id, fundamento } guarda el fundamento. Solo encargados de esa licitación (se revisa en el servidor).
-// No exige permiso de Compras: el comercial que postuló la licitación también es encargado y también fundamenta.
+// GET  = cancelaciones sin fundamento que le tocan a alguien de Compras (las pide el modal de AppLayout).
+// POST = { id, fundamento } guarda el fundamento. Solo gente de Compras (se revisa en el servidor).
 import { NextRequest, NextResponse } from 'next/server';
 import { clienteIdOrNull } from '@/app/lib/api-auth';
 import { mensajeSeguro } from '@/app/lib/errores-api';
