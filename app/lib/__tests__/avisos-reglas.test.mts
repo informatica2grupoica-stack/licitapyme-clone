@@ -44,7 +44,13 @@ test('sin encargado (licitación sin asignar) solo quedan los grupos por rol o �
 
 test('el selector del perfil solo muestra los avisos que le corresponden', () => {
   const aplica = (rol: string, area?: string) => (Object.keys(REGLAS) as Array<keyof typeof REGLAS>).filter(a => alertaAplicaAPerfil(a, { rol, area }));
-  assert.deepEqual(aplica('usuario'), ['ganada', 'perdida', 'estado_mp', 'apertura', 'oc', 'oc_vencer', 'cierra_pronto']); // sin radar
+  assert.deepEqual(aplica('usuario'), ['ganada', 'perdida', 'estado_mp', 'apertura', 'oc', 'oc_vencer', 'oc_cancelada', 'cierra_pronto']); // sin radar
   assert.ok(aplica('admin').includes('radar'));
-  assert.deepEqual(aplica('externo'), ['ganada', 'perdida', 'estado_mp', 'apertura', 'oc', 'oc_vencer', 'cierra_pronto']);
+  assert.deepEqual(aplica('externo'), ['ganada', 'perdida', 'estado_mp', 'apertura', 'oc', 'oc_vencer', 'oc_cancelada', 'cierra_pronto']);
+});
+
+test('OC cancelada: encargados (comercial y de Compras) y admins; el Área Compras y Mercado Público en general no', () => {
+  // 1 = comercial, 4 = encargado de Compras (con Área Compras), 3 = admin; 6/7 = Mercado Público, 8 = Ventas, 2 = otro asistente.
+  assert.deepEqual(ids(elegirPersonas('oc_cancelada', equipo, [1, 4])), [1, 3, 4]);
+  assert.deepEqual(ids(elegirPersonas('oc_cancelada', equipo, [1])), [1, 3]);   // el Área Compras sin ser encargado no entra
 });

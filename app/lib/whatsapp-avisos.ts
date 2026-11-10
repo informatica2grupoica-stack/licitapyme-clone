@@ -89,7 +89,7 @@ export async function encolarAvisoWhatsapp(ev: EventoAviso): Promise<number> {
         tipo: ev.tipo, codigo: ev.codigo, licitacionNombre: ev.nombre, organismo: ev.organismo, monto: ev.monto,
         nombreDestinatario: d.nombre, urlBase: process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000', ordenCodigo: ev.ordenCodigo, detalle: ev.detalle,
       });
-      const base = ev.claveExtra ?? ((ev.tipo === 'oc' || ev.tipo === 'oc_vencer') && ev.ordenCodigo ? ev.ordenCodigo : ev.codigo);
+      const base = ev.claveExtra ?? ((ev.tipo === 'oc' || ev.tipo === 'oc_vencer' || ev.tipo === 'oc_cancelada') && ev.ordenCodigo ? ev.ordenCodigo : ev.codigo);
       const [r] = await pool.query(
         `INSERT IGNORE INTO whatsapp_cola (cliente_id, usuario_id, telefono, tipo, licitacion_codigo, clave, texto, creado_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [ev.clienteId, d.id, d.telefonoNormalizado, ev.tipo, ev.codigo, claveAviso(ev.tipo, base, Number(d.id)), texto, ahoraChileSQL()],

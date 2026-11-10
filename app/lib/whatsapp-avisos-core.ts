@@ -13,6 +13,7 @@ export const TIPOS_AVISO: { tipo: TipoAviso; label: string; desc: string }[] = [
   { tipo: 'apertura',      label: 'Apertura de ofertas',            desc: 'Cuando se abren las ofertas y ya se pueden revisar.' },
   { tipo: 'oc',            label: 'Orden de compra',                desc: 'Cuando llega una orden de compra nueva.' },
   { tipo: 'oc_vencer',     label: 'Orden de compra por vencer',     desc: 'A las 09:00 y 17:00, si queda poco para aceptar una orden en el portal.' },
+  { tipo: 'oc_cancelada', label: 'Orden de compra cancelada',      desc: 'Cuando el organismo cancela la orden de compra de una licitación nuestra.' },
   { tipo: 'cierra_pronto', label: 'Cierra pronto',                  desc: 'Resumen de las licitaciones asignadas que están por cerrar.' },
   { tipo: 'radar',         label: 'Licitaciones nuevas del radar',  desc: 'Resumen de lo nuevo que calza con las palabras clave (solo administradores).' },
 ];
@@ -22,7 +23,7 @@ export type Destinatario = Persona & { telefono: string | null };
 /** ¿Se manda por defecto cuando el perfil no eligió nada? Ganada, perdida y apertura sí (son los avisos de siempre);
  *  los demás los autoriza el admin perfil por perfil (decisión del dueño, 09-nov-2026). */
 export function porDefecto(_rol: string, tipo: TipoAviso): boolean {
-  return tipo === 'ganada' || tipo === 'perdida' || tipo === 'apertura';
+  return tipo === 'ganada' || tipo === 'perdida' || tipo === 'apertura' || tipo === 'oc_cancelada';
 }
 
 /**
@@ -78,6 +79,7 @@ const ENCABEZADO: Record<TipoAviso, { icono: string; titulo: string; frase: stri
   apertura:      { icono: '📂', titulo: 'Apertura de ofertas', frase: 'se realizó la apertura de esta licitación y ya se pueden revisar las ofertas:' },
   oc:            { icono: '🧾', titulo: 'Orden de compra recibida', frase: 'llegó una orden de compra de esta licitación:' },
   oc_vencer:     { icono: '⏰', titulo: 'Orden de compra por vencer', frase: 'se acaba el plazo para aceptar una orden de compra en el portal:' },
+  oc_cancelada:  { icono: '🚫', titulo: 'Orden de compra cancelada', frase: 'el organismo canceló la orden de compra de esta licitación:' },
   cierra_pronto: { icono: '⏰', titulo: 'Cierra pronto', frase: 'estas licitaciones asignadas están por cerrar:' },
   radar:         { icono: '📡', titulo: 'Licitaciones nuevas en el radar', frase: 'el radar encontró licitaciones nuevas:' },
 };
@@ -104,11 +106,11 @@ export function redactarAviso(d: DatosAviso): string {
     `Código: ${d.codigo}`,
   ];
   if (d.organismo) lineas.push(`Organismo: ${d.organismo.trim()}`);
-  if ((d.tipo === 'oc' || d.tipo === 'oc_vencer') && d.ordenCodigo) lineas.push(`Orden de compra: ${d.ordenCodigo}`);
+  if ((d.tipo === 'oc' || d.tipo === 'oc_vencer' || d.tipo === 'oc_cancelada') && d.ordenCodigo) lineas.push(`Orden de compra: ${d.ordenCodigo}`);
   if (d.tipo === 'ganada' && d.monto) lineas.push(`Monto adjudicado: ${clp(d.monto)}`);
   if (d.tipo === 'oc' && d.monto) lineas.push(`Monto: ${clp(d.monto)}`);
   if (d.tipo === 'estado_mp' && d.detalle) lineas.push(`Estado: ${d.detalle.trim()}`);
-  if (d.tipo === 'oc_vencer' && d.detalle) lineas.push(d.detalle.trim());
+  if ((d.tipo === 'oc_vencer' || d.tipo === 'oc_cancelada') && d.detalle) lineas.push(d.detalle.trim());
   lineas.push('', `Ver en Licitank: ${base}/licitacion/${encodeURIComponent(d.codigo)}`);
   return lineas.join('\n');
 }

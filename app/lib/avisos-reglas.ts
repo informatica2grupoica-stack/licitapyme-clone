@@ -11,12 +11,13 @@
 //   apertura         encargado de la licitación · Compras · Mercado Público
 //   oc               encargado (comercial y de Compras) · Compras · Mercado Público
 //   oc_vencer        encargado (comercial y de Compras) · Compras · Mercado Público
+//   oc_cancelada     encargado (comercial y de Compras) · admins   (el organismo canceló la OC del cliente; 10-nov-2026)
 //   cierra_pronto    encargado de la licitación · Mercado Público
 //   radar            admins
 //
 // El WhatsApp además exige que la persona tenga el aviso activado en su perfil (ver whatsapp-avisos-core.ts).
 
-export type Alerta = 'ganada' | 'perdida' | 'estado_mp' | 'apertura' | 'oc' | 'oc_vencer' | 'cierra_pronto' | 'radar';
+export type Alerta = 'ganada' | 'perdida' | 'estado_mp' | 'apertura' | 'oc' | 'oc_vencer' | 'oc_cancelada' | 'cierra_pronto' | 'radar';
 export type Grupo = 'encargado' | 'admin' | 'compras' | 'mp';
 
 export const REGLAS: Record<Alerta, Grupo[]> = {
@@ -26,6 +27,7 @@ export const REGLAS: Record<Alerta, Grupo[]> = {
   apertura:      ['encargado', 'compras', 'mp'],
   oc:            ['encargado', 'compras', 'mp'],
   oc_vencer:     ['encargado', 'compras', 'mp'],
+  oc_cancelada:  ['encargado', 'admin'],
   cierra_pronto: ['encargado', 'mp'],
   radar:         ['admin'],
 };

@@ -18,8 +18,11 @@ import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { destinatariosDe } from '@/app/lib/avisos-destinatarios';
+import { encolarAvisoWhatsapp } from '@/app/lib/whatsapp-avisos';
 
 export const MIN_FUNDAMENTO = 20;
+/** Decisión del dueño (10-nov-2026): por ahora la cancelación se avisa SOLO por WhatsApp (sin campana ni correo). Poner false para sumar la campana. */
+export const AVISAR_SOLO_POR_WHATSAPP = true;
 export const esEstadoCancelada = (estado: string | null | undefined) => /^cancel/i.test(String(estado || '').trim());
 
 const sinTabla = (e: any) => e?.code === 'ER_NO_SUCH_TABLE';
@@ -104,17 +107,26 @@ export async function procesarOcCancelada(negocioId: number): Promise<boolean> {
   const mensaje = cierra
     ? `🚫 El organismo canceló la orden de compra ${f.oc_codigo_mp} de ${f.licitacion_codigo}${fechaTxt}. El negocio pasó a Compras cerradas. Los encargados deben fundamentar por qué se canceló.`
     : `🚫 El organismo canceló la orden de compra ${f.oc_codigo_mp} de ${f.licitacion_codigo}${fechaTxt}, y ya hay compras a proveedores emitidas: el negocio sigue en Compras para resolverlas. Los encargados deben fundamentar por qué se canceló.`;
-  const destinatarios = new Set<number>(encargados);
-  try {
-    for (const d of await destinatariosDe('oc', Number(f.cliente_id), encargados)) destinatarios.add(Number(d.id));
-  } catch (e) { console.warn('[compras][oc-cancelada] destinatarios:', String(e).slice(0, 150)); }
-  for (const uid of destinatarios) {
-    await registrarEvento({
-      tipo: 'COMPRAS_OC_CANCELADA', licitacionCodigo: f.licitacion_codigo, licitacionNombre: f.licitacion_nombre ?? null,
-      usuarioId: uid, actorId: null, actorNombre: 'Mercado Público', mensaje,
-      metadata: { negocio_id: negocioId, oc_codigo: f.oc_codigo_mp, cancelada_at: canceladaAt, cerro_compras: cierra, con_compras: conCompras },
-    });
+  // Quién se entera: encargado de la licitación + encargado y coencargados de Compras + admins (regla 'oc_cancelada').
+  if (!AVISAR_SOLO_POR_WHATSAPP) {
+    const destinatarios = new Set<number>(encargados);
+    try {
+      for (const d of await destinatariosDe('oc_cancelada', Number(f.cliente_id), encargados)) destinatarios.add(Number(d.id));
+    } catch (e) { console.warn('[compras][oc-cancelada] destinatarios:', String(e).slice(0, 150)); }
+    for (const uid of destinatarios) {
+      await registrarEvento({
+        tipo: 'COMPRAS_OC_CANCELADA', licitacionCodigo: f.licitacion_codigo, licitacionNombre: f.licitacion_nombre ?? null,
+        usuarioId: uid, actorId: null, actorNombre: 'Mercado Público', mensaje,
+        metadata: { negocio_id: negocioId, oc_codigo: f.oc_codigo_mp, cancelada_at: canceladaAt, cerro_compras: cierra, con_compras: conCompras },
+      });
+    }
   }
+  await encolarAvisoWhatsapp({
+    tipo: 'oc_cancelada', codigo: f.licitacion_codigo, nombre: f.licitacion_nombre ?? null, asignadoId: null, encargadosIds: encargados,
+    clienteId: Number(f.cliente_id), ordenCodigo: f.oc_codigo_mp,
+    detalle: (cierra ? 'El negocio pasó a Compras cerradas.' : 'Ya hay compras a proveedores emitidas: el negocio sigue en Compras.')
+      + ' Hay que fundamentar por qué se canceló.',
+  });
   publicarCambio('compras');
   console.log(`[compras] OC ${f.oc_codigo_mp} cancelada · negocio ${negocioId}${cierra ? ' → Compras cerradas' : conCompras ? ' (con compras emitidas, sigue abierto)' : ''}`);
   return true;
