@@ -3,6 +3,13 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-10 — Cierre de la licitación cuando el organismo CANCELA la OC del cliente (`compras-oc-cancelada.ts`, `ModalFundamentoCancelacion`, `/compras/cerradas`, cron `compras-asignacion`; migration-187; código en el commit fa1fa42; SIN aplicar la migración en producción, sin probar con OC real)
+- Regla: OC del cliente «Cancelada» y sin otra OC nuestra vigente de esa licitación → `cierre_legado = 'OC_CANCELADA'` («Sistema»), el negocio sale de Compras a «Compras cerradas». Si ya hay compras a proveedores (OC Obuma/propia vigentes o compra rápida) NO se cierra solo: sigue en Compras y el aviso lo dice. Si llega una OC vigente después, la reapertura es automática.
+- Los encargados (comercial que postuló + encargado y coencargados de Compras) ven un modal que no se cierra hasta escribir el fundamento (mín. 20 caracteres). Aviso en campana a quienes reciben alertas de OC.
+- Revisado en producción el 10-nov (solo lectura): la tabla `compras_oc_cancelacion` NO existe aún. 7 negocios con la OC cancelada y ninguno con otra OC viva ni compras emitidas → el primer barrido cerraría los 7: 290, 369, 371, 442, 457, 1008, 1110. Todos recibirán el modal.
+- Migration-187 APLICADA en producción el 10-nov con OK del dueño (solo crea `compras_oc_cancelacion`). El barrido corre con el cron cuando se despliegue.
+- **Pendiente:** desplegar; ver la pantalla y el modal en navegador; confirmar que los 7 negocios quedaron en «Compras cerradas».
+
 ## 2026-11-10 — Cotización exportada de Excel leída con cantidades y totales cruzados (1426039-8-LE26, negocio 772, Comercial Gam #287 = su N° 2057; `pdf-texto-por-filas.ts`; test + 1805 tests ok, probado con el PDF real, SIN desplegar)
 - Reporte del dueño: dos cotizaciones del mismo proveedor (#286 = N° 2058, 8 ítems; #287 = N° 2057, 19 ítems) y pensaba que la regla «la más nueva del mismo proveedor deja en gris la vieja» le iba a molestar. **No aplica:** esa regla (`cotizacionesReemplazadas`, MatrizPrecios) ya es **por producto** (proveedor + producto), y #286/#287 no comparten ningún producto → ninguna queda reemplazada. Los #286/#287 son ids internos de Licitank, no del proveedor.
 - Lo que sí estaba mal: #287 quedó con precios inventados (silla sala cuna $15.110 en vez de $29.500; 17 de 19 líneas con «precio × cantidad no cuadra… se usó total ÷ cantidad»). La suma igual cuadraba con el neto, por eso no saltó como error.
