@@ -3,6 +3,15 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-10 — «Compras cerradas» rehecha con pestañas «Licitaciones entregadas» / «Licitaciones canceladas» (+ «Otras cerradas») y la OC dentro de cada licitación (`app/compras/cerradas/page.tsx`, `listarComprasCerradas`; skill licitank-ui; tsc ok; SIN desplegar ni ver en navegador)
+- Cada licitación abierta muestra su(s) orden(es) de compra nuestras (`ordenes_compra`, es_nuestra=1): estado, total con IVA, fechas de envío / aceptación / cancelación y la frase «Nunca se aceptó en Mercado Público: la canceló N días después de enviarla» (o «se aceptó el… y la canceló N días después»), más botones «Ver OC en Mercado Público» (DetailsPurchaseOrder) y «Ver la licitación en Mercado Público» (DetailsAcquisition), además de «Ver el negocio en Compras» y «Reabrir».
+- «Entregadas» = `cierre_legado = 'ENTREGADA'` (marca manual del equipo al terminar el ciclo). Hoy no hay ninguna marcada: la pestaña sale vacía con su mensaje. No existe todavía un cierre automático por ciclo completo: queda pendiente decidir si se marca sola.
+- Datos de las 7 canceladas (Mercado Público): nunca aceptadas 290, 371, 442, 1008, 1110; aceptadas y canceladas después 369 (aceptada 06-10, cancelada 03-11) y 457 (19-10 → 03-11).
+
+## 2026-11-10 — Encargados de Compras: Carolina Sepúlveda (21) y María Elena Álvarez (20) en TODAS las licitaciones abiertas (decisión del dueño; datos en el VPS, sin código)
+- Las 68 abiertas quedaron 34/34: una de las dos como encargada principal (`compras_asignacion.asignado_a`) y la otra como coencargada (`compras_coencargado`); se respetó a quien ya era una de ellas y las otras 52 se repartieron parejo. Se quitaron coencargados que no fueran la otra. Las 8 cerradas no se tocaron. Respaldo del estado anterior: `scripts/scratch/_respaldo_encargados_10nov.json`. Fue SQL directo (sin evento en la bitácora, `asignado_por` NULL). Efecto: Alexis, Asesor, Carolina González y el perfil de prueba ya no figuran como encargados de Compras.
+- Las nuevas asignaciones automáticas (fallback de 3 h hábiles, `asignacionAutomaticaFallback`) siguen eligiendo por menor carga: ver si se limita a Área Compras.
+
 ## 2026-11-10 — Cierre de la licitación cuando el organismo CANCELA la OC del cliente (`compras-oc-cancelada.ts`, `ModalFundamentoCancelacion`, `/compras/cerradas`, cron `compras-asignacion`; migration-187; código en el commit fa1fa42; SIN aplicar la migración en producción, sin probar con OC real)
 - Regla: OC del cliente «Cancelada» y sin otra OC nuestra vigente de esa licitación → `cierre_legado = 'OC_CANCELADA'` («Sistema»), el negocio sale de Compras a «Compras cerradas». Si ya hay compras a proveedores (OC Obuma/propia vigentes o compra rápida) NO se cierra solo: sigue en Compras y el aviso lo dice. Si llega una OC vigente después, la reapertura es automática.
 - Los encargados (comercial que postuló + encargado y coencargados de Compras) ven un modal que no se cierra hasta escribir el fundamento (mín. 20 caracteres). Aviso en campana a quienes reciben alertas de OC.

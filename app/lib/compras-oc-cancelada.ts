@@ -254,10 +254,17 @@ export async function fundamentarCancelacion(
   publicarCambio('compras');
 }
 
+/** Una orden de compra NUESTRA de esa licitación, con las fechas que informa Mercado Público (para ver si se aceptó y cuándo se cayó). */
+export interface OcDeCerrada {
+  codigo: string; estado: string | null; totalNeto: number | null; total: number | null; moneda: string | null;
+  enviadaAt: string | null; aceptadaAt: string | null; canceladaAt: string | null;
+}
+
 export interface CompraCerrada {
   negocioId: number; licitacionCodigo: string; licitacionNombre: string | null; organismo: string | null;
   motivo: string; nota: string | null; cerradaAt: string | null; cerradaPor: string | null;
   montoNuestro: number | null; encargado: string | null; postuladoPor: string | null; ganadoAt: string | null;
+  ordenes: OcDeCerrada[];
   cancelacion: { ocCodigo: string; canceladaAt: string | null; fundamento: string | null; fundamentadoPor: string | null; fundamentadoAt: string | null } | null;
 }
 
@@ -278,7 +285,21 @@ export async function listarComprasCerradas(clienteId: number): Promise<CompraCe
   const ids = (rows as any[]).map(r => Number(r.negocio_id));
   const canc = new Map<number, CompraCerrada['cancelacion']>();
   const orgOc = new Map<string, string>();
+  const ocsPorLic = new Map<string, OcDeCerrada[]>();
   if (ids.length) {
+    const lics = [...new Set((rows as any[]).map(r => String(r.licitacion_codigo)))];
+    const [ocs] = await pool.query(
+      `SELECT licitacion_codigo, codigo, estado, total_neto, total, moneda,
+              DATE_FORMAT(fecha_envio, '%Y-%m-%d') AS envio, DATE_FORMAT(fecha_aceptacion, '%Y-%m-%d') AS acepto, DATE_FORMAT(fecha_cancelacion, '%Y-%m-%d') AS cancelo
+         FROM ordenes_compra WHERE licitacion_codigo IN (?) AND es_nuestra = 1 ORDER BY fecha_creacion, id`, [lics]) as any;
+    for (const o of ocs as any[]) {
+      const l = ocsPorLic.get(o.licitacion_codigo) ?? [];
+      l.push({
+        codigo: o.codigo, estado: o.estado ?? null, totalNeto: o.total_neto == null ? null : Number(o.total_neto), total: o.total == null ? null : Number(o.total),
+        moneda: o.moneda ?? null, enviadaAt: o.envio ?? null, aceptadaAt: o.acepto ?? null, canceladaAt: o.cancelo ?? null,
+      });
+      ocsPorLic.set(o.licitacion_codigo, l);
+    }
     try {
       const [cr] = await pool.query(
         `SELECT negocio_id, oc_codigo, DATE_FORMAT(cancelada_at, '%Y-%m-%d') AS cancelada_at, fundamento, fundamentado_por_nombre,
@@ -305,7 +326,7 @@ export async function listarComprasCerradas(clienteId: number): Promise<CompraCe
       organismo: r.organismo ?? orgOc.get(r.licitacion_codigo) ?? null,
       motivo: r.cierre_legado, nota: r.cierre_legado_nota ?? null, cerradaAt: r.cerrada_at ?? null, cerradaPor: r.cierre_legado_por_nombre ?? null,
       montoNuestro: monto == null ? null : Number(monto), encargado: r.encargado ?? null, postuladoPor: r.postulado_por ?? null,
-      ganadoAt: r.ganado_at ?? null, cancelacion: canc.get(Number(r.negocio_id)) ?? null,
+      ganadoAt: r.ganado_at ?? null, ordenes: ocsPorLic.get(r.licitacion_codigo) ?? [], cancelacion: canc.get(Number(r.negocio_id)) ?? null,
     };
   });
 }

@@ -1,9 +1,11 @@
 'use client';
 
 // /compras/cerradas — menú «Compras cerradas», justo bajo «Compras» (pedido del dueño, 10-nov-2026).
-// Los negocios que salieron de Compras, agrupados por mes de cierre (lo más reciente arriba): OC cancelada
-// por el organismo (sale sola, compras-oc-cancelada.ts), entregadas y no realizadas (marca histórica) y
-// pre-compras sin adjudicar. Solo lectura; «Reabrir» (jefe de ventas) lo devuelve a Compras.
+// Los negocios que salieron de Compras, agrupados por mes de cierre (lo más reciente arriba), en dos pestañas:
+// «Licitaciones entregadas» (las que cerramos nosotros al terminar el ciclo) y «Licitaciones canceladas» (el organismo
+// canceló la OC; sale sola, compras-oc-cancelada.ts). Las no realizadas y pre-compras sin adjudicar van aparte, en «Otras».
+// Cada licitación abre su orden de compra (fechas de envío, aceptación y cancelación) y botones a Mercado Público.
+// Solo lectura; «Reabrir» (jefe de ventas) lo devuelve a Compras.
 // Skill licitank-ui: Encabezado, Indicador, Pestanas, Tarjeta + Datos, estados con punto, @container.
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
@@ -20,16 +22,23 @@ import { Tarjeta, Datos, Dato, Estado } from '@/app/components/ui/kit/Tarjeta';
 import { Boton } from '@/app/components/ui/kit/Boton';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { useToast } from '@/app/components/ui/toast';
-import { IconSearch as Search, IconArchive as Archive, IconChevronDown as ChevronDown, IconBuilding as Building2, IconUsers as Users } from '@tabler/icons-react';
+import { IconSearch as Search, IconArchive as Archive, IconChevronDown as ChevronDown, IconBuilding as Building2, IconUsers as Users, IconExternalLink as ExternalLink } from '@tabler/icons-react';
 
 type Motivo = 'OC_CANCELADA' | 'ENTREGADA' | 'NO_REALIZADA' | 'PRECOMPRA_SIN_ADJUDICAR';
+interface OcCerrada {
+  codigo: string; estado: string | null; totalNeto: number | null; total: number | null; moneda: string | null;
+  enviadaAt: string | null; aceptadaAt: string | null; canceladaAt: string | null;
+}
 interface Cerrada {
   negocioId: number; licitacionCodigo: string; licitacionNombre: string | null; organismo: string | null;
   motivo: Motivo; nota: string | null; cerradaAt: string | null; cerradaPor: string | null;
   montoNuestro: number | null; encargado: string | null; postuladoPor: string | null; ganadoAt: string | null;
+  ordenes: OcCerrada[];
   cancelacion: { ocCodigo: string; canceladaAt: string | null; fundamento: string | null; fundamentadoPor: string | null; fundamentadoAt: string | null } | null;
 }
-type Pestana = 'todas' | Motivo;
+type Pestana = 'entregadas' | 'canceladas' | 'otras';
+const GRUPO: Record<Motivo, Pestana> = { ENTREGADA: 'entregadas', OC_CANCELADA: 'canceladas', NO_REALIZADA: 'otras', PRECOMPRA_SIN_ADJUDICAR: 'otras' };
+const PESTANAS: Pestana[] = ['entregadas', 'canceladas', 'otras'];
 
 const MOTIVOS: Record<Motivo, { etiqueta: string; color: string; clase: string }> = {
   OC_CANCELADA: { etiqueta: 'OC cancelada por el organismo', color: '#ef4444', clase: 'text-red-700 dark:text-red-400' },
@@ -38,7 +47,16 @@ const MOTIVOS: Record<Motivo, { etiqueta: string; color: string; clase: string }
   PRECOMPRA_SIN_ADJUDICAR: { etiqueta: 'Pre-compra sin adjudicar', color: '#cbd5e1', clase: 'text-tinta-3' },
 };
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-const LS = 'compras-cerradas-filtros';
+const LS = 'compras-cerradas-filtros-v2';
+const VACIO: Record<Pestana, { titulo: string; texto: string }> = {
+  entregadas: { titulo: 'Todavía no hay licitaciones entregadas', texto: 'Aquí aparecen las licitaciones que se cierran como entregadas cuando termina su ciclo en Compras.' },
+  canceladas: { titulo: 'No hay licitaciones canceladas', texto: 'Aquí llegan solas las licitaciones cuya orden de compra cancela el organismo.' },
+  otras: { titulo: 'No hay otras compras cerradas', texto: 'Aquí van las marcadas como no realizadas y las pre-compras que no se adjudicaron.' },
+};
+const urlOcMp = (codigo: string) => `https://www.mercadopublico.cl/PurchaseOrder/Modules/PO/DetailsPurchaseOrder.aspx?codigoOC=${encodeURIComponent(codigo)}`;
+const urlLicitacionMp = (codigo: string) => `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(codigo)}`;
+const dias = (desde: string, hasta: string) => Math.round((Date.parse(hasta.slice(0, 10)) - Date.parse(desde.slice(0, 10))) / 86400000);
+const colorEstadoOc = (e: string | null) => /cancel/i.test(e || '') ? '#ef4444' : /acept/i.test(e || '') ? '#10b981' : /env/i.test(e || '') ? '#f59e0b' : '#94a3b8';
 
 const clp = (n: number | null | undefined) => (n == null ? '—' : `$${Math.round(n).toLocaleString('es-CL')}`);
 const fecha = (s: string | null | undefined) => (s ? s.slice(0, 10).split('-').reverse().join('-') : null);
@@ -55,7 +73,7 @@ export default function ComprasCerradasPage() {
   const [error, setError] = useState<string | null>(null);
   const [abierta, setAbierta] = useState<number | null>(null);
   // Filtros (se recuerdan entre visitas, como en Compras)
-  const [pestana, setPestana] = useState<Pestana>('todas');
+  const [pestana, setPestana] = useState<Pestana>('canceladas');
   const [q, setQ] = useState('');
   const [fOrg, setFOrg] = useState<string[]>([]);
   const [fEnc, setFEnc] = useState<string[]>([]);
@@ -82,7 +100,7 @@ export default function ComprasCerradasPage() {
   useEffect(() => {
     try {
       const g = JSON.parse(localStorage.getItem(LS) || '{}');
-      if (g.pestana) setPestana(g.pestana); if (g.q) setQ(g.q); if (Array.isArray(g.fOrg)) setFOrg(g.fOrg); if (Array.isArray(g.fEnc)) setFEnc(g.fEnc);
+      if (PESTANAS.includes(g.pestana)) setPestana(g.pestana); if (g.q) setQ(g.q); if (Array.isArray(g.fOrg)) setFOrg(g.fOrg); if (Array.isArray(g.fEnc)) setFEnc(g.fEnc);
       if (g.desde) setDesde(g.desde); if (g.hasta) setHasta(g.hasta); if (g.sinFundamento) setSinFundamento(true);
     } catch { /* sin filtros guardados */ }
     setHidratado(true);
@@ -117,7 +135,7 @@ export default function ComprasCerradasPage() {
       return true;
     });
   }, [todas, q, fOrg, fEnc, desde, hasta, sinFundamento]);
-  const visibles = useMemo(() => filtradas.filter(c => pestana === 'todas' || c.motivo === pestana), [filtradas, pestana]);
+  const visibles = useMemo(() => filtradas.filter(c => GRUPO[c.motivo] === pestana), [filtradas, pestana]);
 
   const grupos = useMemo(() => {
     const orden = [...visibles].sort((a, b) => (fechaCierre(b) || '').localeCompare(fechaCierre(a) || '') || b.negocioId - a.negocioId);
@@ -134,8 +152,9 @@ export default function ComprasCerradasPage() {
     }));
   }, [visibles]);
 
-  const nMotivo = (m: Motivo) => filtradas.filter(c => c.motivo === m).length;
+  const nGrupo = (g: Pestana) => filtradas.filter(c => GRUPO[c.motivo] === g).length;
   const canceladas = todas.filter(c => c.motivo === 'OC_CANCELADA');
+  const entregadas = todas.filter(c => c.motivo === 'ENTREGADA');
   const porFundamentar = todas.filter(c => c.cancelacion && !c.cancelacion.fundamento).length;
   const hayFiltro = !!q || fOrg.length > 0 || fEnc.length > 0 || !!desde || !!hasta || sinFundamento;
   const limpiar = () => { setQ(''); setFOrg([]); setFEnc([]); setDesde(''); setHasta(''); setSinFundamento(false); };
@@ -156,7 +175,7 @@ export default function ComprasCerradasPage() {
     <AppLayout breadcrumb={[{ label: 'Compras', href: '/compras' }, { label: 'Compras cerradas' }]}>
       <div className="@container max-w-6xl mx-auto px-4 py-6">
         <Encabezado titulo="Compras cerradas"
-          descripcion="Los negocios que salieron de Compras, por fecha de cierre. Cuando el organismo cancela la orden de compra y no queda otra vigente, el negocio llega aquí solo y sus encargados tienen que fundamentar por qué." />
+          descripcion="Los negocios que salieron de Compras, por fecha de cierre: las que entregamos y cerramos, y las que el organismo canceló (esas llegan solas y Compras tiene que fundamentar por qué)." />
 
         {error ? (
           <Vacio titulo="No se pudieron cargar las compras cerradas" texto={error} accion={<Boton tamano="sm" onClick={() => { setError(null); cargar(); }}>Reintentar</Boton>} />
@@ -168,19 +187,17 @@ export default function ComprasCerradasPage() {
         ) : (
           <>
             <Lista className="grid grid-cols-2 @3xl:grid-cols-4 gap-3">
-              <Indicador rotulo="Compras cerradas" valor={todas.length} detalle={`${nMotivo('ENTREGADA')} entregada${nMotivo('ENTREGADA') === 1 ? '' : 's'} con el filtro actual`} />
-              <Indicador rotulo="OC canceladas por el organismo" valor={canceladas.length} detalle={porFundamentar ? `${porFundamentar} sin fundamentar` : 'todas fundamentadas'} />
-              <Indicador rotulo="Monto adjudicado que se cayó" valor={canceladas.reduce((s, c) => s + (c.montoNuestro ?? 0), 0)} formato={clp} detalle="neto, de las OC canceladas" />
-              <Indicador rotulo="En el filtro actual" valor={visibles.length} detalle={clp(visibles.reduce((s, c) => s + (c.montoNuestro ?? 0), 0))} />
+              <Indicador rotulo="Licitaciones entregadas" valor={entregadas.length} detalle={clp(entregadas.reduce((t, c) => t + (c.montoNuestro ?? 0), 0)) + ' adjudicado, neto'} />
+              <Indicador rotulo="Licitaciones canceladas" valor={canceladas.length} detalle={porFundamentar ? `${porFundamentar} sin fundamentar` : 'todas fundamentadas'} />
+              <Indicador rotulo="Monto que se cayó" valor={canceladas.reduce((t, c) => t + (c.montoNuestro ?? 0), 0)} formato={clp} detalle="neto, de las OC canceladas" />
+              <Indicador rotulo="En esta pestaña" valor={visibles.length} detalle={clp(visibles.reduce((t, c) => t + (c.montoNuestro ?? 0), 0))} />
             </Lista>
 
             <div className="mt-6">
               <Pestanas id="cerradas" valor={pestana} onCambio={setPestana} opciones={[
-                { valor: 'todas', etiqueta: 'Todas', contador: filtradas.length },
-                { valor: 'OC_CANCELADA', etiqueta: 'OC cancelada', contador: nMotivo('OC_CANCELADA') },
-                { valor: 'ENTREGADA', etiqueta: 'Entregadas', contador: nMotivo('ENTREGADA') },
-                { valor: 'NO_REALIZADA', etiqueta: 'No realizadas', contador: nMotivo('NO_REALIZADA') },
-                { valor: 'PRECOMPRA_SIN_ADJUDICAR', etiqueta: 'Pre-compra sin adjudicar', contador: nMotivo('PRECOMPRA_SIN_ADJUDICAR') },
+                { valor: 'entregadas', etiqueta: 'Licitaciones entregadas', contador: nGrupo('entregadas') },
+                { valor: 'canceladas', etiqueta: 'Licitaciones canceladas', contador: nGrupo('canceladas') },
+                { valor: 'otras', etiqueta: 'Otras cerradas', contador: nGrupo('otras') },
               ]} />
             </div>
 
@@ -196,17 +213,17 @@ export default function ComprasCerradasPage() {
                 Cerrada desde <input type="date" value={desde} onChange={e => setDesde(e.target.value)} className="h-9 px-2 rounded-lg border border-linea bg-white text-[13px] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100" />
                 hasta <input type="date" value={hasta} onChange={e => setHasta(e.target.value)} className="h-9 px-2 rounded-lg border border-linea bg-white text-[13px] dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100" />
               </span>
-              <button type="button" onClick={() => setSinFundamento(v => !v)} aria-pressed={sinFundamento}
+              {pestana === 'canceladas' && <button type="button" onClick={() => setSinFundamento(v => !v)} aria-pressed={sinFundamento}
                 className={`h-9 px-3 rounded-lg border text-[13px] font-medium transition-colors duration-150 ${sinFundamento
                   ? 'border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300'
                   : 'border-linea bg-white text-tinta-2 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300'}`}>
                 Sin fundamentar
-              </button>
+              </button>}
               {hayFiltro && <Boton variante="fantasma" tamano="sm" onClick={limpiar}>Limpiar filtros</Boton>}
             </div>
 
             {visibles.length === 0 ? (
-              <div className="mt-5"><Vacio titulo="Ninguna compra cerrada calza con el filtro" texto="Cambia la búsqueda, las fechas o la pestaña." accion={hayFiltro ? <Boton tamano="sm" onClick={limpiar}>Limpiar filtros</Boton> : undefined} /></div>
+              <div className="mt-5"><Vacio titulo={hayFiltro ? 'Ninguna licitación calza con el filtro' : VACIO[pestana].titulo} texto={hayFiltro ? 'Cambia la búsqueda, las fechas o prueba otra pestaña.' : VACIO[pestana].texto} accion={hayFiltro ? <Boton tamano="sm" onClick={limpiar}>Limpiar filtros</Boton> : undefined} /></div>
             ) : (
               grupos.map(g => (
                 <section key={g.k} className="mt-7">
@@ -275,9 +292,8 @@ function FilaCerrada({ c, abierta, puedeReabrir, onAbrir, onReabrir }: {
                   )}
                 </div>
               )}
+              <BloqueOrdenes c={c} />
               <Datos columnas={4}>
-                <Dato rotulo="OC cancelada">{c.cancelacion?.ocCodigo}</Dato>
-                <Dato rotulo="Fecha de cancelación">{fecha(c.cancelacion?.canceladaAt)}</Dato>
                 <Dato rotulo="Cerrada">{[fecha(c.cerradaAt), c.cerradaPor].filter(Boolean).join(' · ') || undefined}</Dato>
                 <Dato rotulo="Ganada el">{fecha(c.ganadoAt)}</Dato>
                 <Dato rotulo="Encargado de Compras">{c.encargado}</Dato>
@@ -288,7 +304,10 @@ function FilaCerrada({ c, abierta, puedeReabrir, onAbrir, onReabrir }: {
               {c.nota && !c.cancelacion && <p className="mt-3 text-xs text-tinta-2 dark:text-slate-400 whitespace-pre-line">{c.nota}</p>}
               <div className="mt-4 flex flex-wrap gap-2">
                 <Link href={`/compras/${c.negocioId}`}
-                  className="inline-flex items-center h-8 px-3 text-[13px] font-medium rounded-lg border border-linea dark:border-slate-700 text-tinta dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800">Ver el negocio en Compras</Link>
+                  className={ENLACE}>Ver el negocio en Compras</Link>
+                <a href={urlLicitacionMp(c.licitacionCodigo)} target="_blank" rel="noopener noreferrer" className={ENLACE}>
+                  Ver la licitación en Mercado Público <ExternalLink size={14} className="ml-1.5 text-slate-400" />
+                </a>
                 {puedeReabrir && <Boton variante="fantasma" tamano="sm" onClick={onReabrir}>Reabrir en Compras</Boton>}
               </div>
             </div>
@@ -296,5 +315,58 @@ function FilaCerrada({ c, abierta, puedeReabrir, onAbrir, onReabrir }: {
         )}
       </AnimatePresence>
     </Tarjeta>
+  );
+}
+
+const ENLACE = 'inline-flex items-center h-8 px-3 text-[13px] font-medium rounded-lg border border-linea dark:border-slate-700 text-tinta dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-150';
+
+/** Las órdenes de compra de la licitación: estado, monto y qué pasó con ellas (enviada, aceptada, cancelada), con el botón a Mercado Público. */
+function BloqueOrdenes({ c }: { c: Cerrada }) {
+  // Si no tenemos la orden en Licitank pero sí la cancelación registrada, se arma una fila mínima con su código.
+  const ordenes: OcCerrada[] = c.ordenes.length > 0 ? c.ordenes
+    : c.cancelacion ? [{ codigo: c.cancelacion.ocCodigo, estado: 'Cancelada', totalNeto: null, total: null, moneda: null, enviadaAt: null, aceptadaAt: null, canceladaAt: c.cancelacion.canceladaAt }] : [];
+  return (
+    <div className="mt-3 pt-3 border-t border-linea/80 dark:border-slate-800">
+      <p className="text-[11px] text-tinta-2/80 dark:text-slate-400">{ordenes.length > 1 ? 'Órdenes de compra' : 'Orden de compra'}</p>
+      {ordenes.length === 0 ? (
+        <p className="mt-1 text-sm text-tinta-2 dark:text-slate-400">Esta licitación no tiene una orden de compra nuestra en Licitank.</p>
+      ) : (
+        <div className="mt-1.5 divide-y divide-linea/70 dark:divide-slate-800">
+          {ordenes.map(o => {
+            const cancelada = /cancel/i.test(o.estado || '') || !!o.canceladaAt;
+            const sinAceptar = !o.aceptadaAt;
+            const dEnv = o.enviadaAt && o.canceladaAt ? dias(o.enviadaAt, o.canceladaAt) : null;
+            const dAcep = o.aceptadaAt && o.canceladaAt ? dias(o.aceptadaAt, o.canceladaAt) : null;
+            return (
+              <div key={o.codigo} className="py-2.5 first:pt-0 last:pb-0">
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+                  <div className="min-w-0 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                    <span className="font-mono text-[13px] font-semibold text-tinta dark:text-slate-100">{o.codigo}</span>
+                    <span className="text-xs text-tinta-2 dark:text-slate-400"><Estado color={colorEstadoOc(o.estado)}>{o.estado || 'Sin estado'}</Estado></span>
+                    {o.total != null && <span className="text-xs text-tinta-3 tabular-nums">{clp(o.total)} con IVA</span>}
+                  </div>
+                  <a href={urlOcMp(o.codigo)} target="_blank" rel="noopener noreferrer" className={ENLACE}>
+                    Ver OC en Mercado Público <ExternalLink size={14} className="ml-1.5 text-slate-400" />
+                  </a>
+                </div>
+                <Datos columnas={4}>
+                  <Dato rotulo="Enviada al proveedor">{fecha(o.enviadaAt)}</Dato>
+                  <Dato rotulo="Aceptada por nosotros">{o.aceptadaAt ? fecha(o.aceptadaAt) : (o.enviadaAt || cancelada) ? 'No se aceptó' : undefined}</Dato>
+                  <Dato rotulo="Cancelada por el organismo">{fecha(o.canceladaAt)}</Dato>
+                  <Dato rotulo="Neto">{o.totalNeto != null ? clp(o.totalNeto) : undefined}</Dato>
+                </Datos>
+                {cancelada && (dEnv != null || dAcep != null) && (
+                  <p className={`mt-1.5 text-xs ${sinAceptar ? 'text-amber-700 dark:text-amber-400' : 'text-tinta-2 dark:text-slate-400'}`}>
+                    {sinAceptar
+                      ? `Nunca se aceptó en Mercado Público: el organismo la canceló ${dEnv} día${dEnv === 1 ? '' : 's'} después de enviarla.`
+                      : `Se aceptó el ${fecha(o.aceptadaAt)} y el organismo la canceló ${dAcep} día${dAcep === 1 ? '' : 's'} después.`}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
