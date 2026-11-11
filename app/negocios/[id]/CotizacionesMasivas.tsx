@@ -14,7 +14,7 @@ import { IconLoader2 as Loader2, IconUpload as Upload, IconCircleCheck as CheckC
 
 interface ProductoLite { id: number; descripcion: string }
 interface ItemCot { productoId: number; precioUnitario: number | null; cumple: string }
-interface CotServidor { id: number; proveedorNombre: string; precioUnitarioClp: number | null; homologadaAt: string | null; items: ItemCot[] }
+interface CotServidor { id: number; proveedorNombre: string; precioUnitarioClp: number | null; homologadaAt: string | null; items: ItemCot[]; notas?: string | null }
 
 type Estado = 'espera' | 'leyendo' | 'registrada' | 'sin_proveedor' | 'error';
 interface Fila { key: string; file: File; estado: Estado; mensaje?: string; cotizacionId?: number }
@@ -38,6 +38,22 @@ export function CotizacionesMasivas({ negocioId, productos, onTerminado }: {
   const [cotizaciones, setCotizaciones] = useState<Map<number, CotServidor>>(new Map());
   const [esperandoIA, setEsperandoIA] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [respondiendoIva, setRespondiendoIva] = useState<number | null>(null);
+
+  // «¿Los precios son netos o con IVA?»: solo se pregunta cuando el documento no lo decía (la lectura deja el aviso «IVA sin confirmar» en las notas).
+  const responderIva = async (cotizacionId: number, modo: 'neto' | 'con_iva') => {
+    setRespondiendoIva(cotizacionId);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/cotizaciones/${cotizacionId}/iva`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ modo }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar');
+      toast.success(modo === 'neto' ? 'Precios confirmados como netos' : 'Precios pasados a neto', modo === 'neto' ? 'Quedan tal como los dice el documento.' : 'Se dividieron por 1,19.');
+      const r = await fetch(`/api/compras/${negocioId}/cotizaciones`);
+      const d = await r.json().catch(() => ({}));
+      if (d.success) setCotizaciones(new Map<number, CotServidor>((d.cotizaciones as CotServidor[]).map(c => [c.id, c])));
+      await onTerminado();
+    } catch (e: any) { toast.error('No se pudo guardar la respuesta', e.message); } finally { setRespondiendoIva(null); }
+  };
 
   const actualizar = (key: string, patch: Partial<Fila>) =>
     setFilas(fs => fs.map(f => f.key === key ? { ...f, ...patch } : f));
@@ -169,6 +185,18 @@ export function CotizacionesMasivas({ negocioId, productos, onTerminado }: {
                     ) : cot.homologadaAt ? (
                       <p className="text-amber-700">La IA no identificó a qué producto corresponde: asígnala a mano con &quot;Asignar productos&quot;.</p>
                     ) : <p className="text-indigo-600">Asignando producto…</p>}
+                    {cot.homologadaAt && String(cot.notas || '').includes('IVA sin confirmar:') && !String(cot.notas || '').includes('÷ 1,19') && (
+                      <div className="mt-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5" data-testid={`masiva-iva-${cot.id}`}>
+                        <p className="text-[11.5px] font-bold text-amber-900">Este documento no dice si sus precios son netos o con IVA. ¿Cómo vienen?</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <button type="button" disabled={respondiendoIva === cot.id} onClick={() => responderIva(cot.id, 'neto')}
+                            className="text-[11px] font-semibold text-teal-700 border border-teal-200 bg-white hover:bg-teal-50 disabled:opacity-50 rounded-md px-2 py-0.5">Son netos (más IVA aparte)</button>
+                          <button type="button" disabled={respondiendoIva === cot.id} onClick={() => responderIva(cot.id, 'con_iva')}
+                            className="text-[11px] font-semibold text-teal-700 border border-teal-200 bg-white hover:bg-teal-50 disabled:opacity-50 rounded-md px-2 py-0.5">Llevan IVA: pasar a neto (÷ 1,19)</button>
+                          {respondiendoIva === cot.id && <Loader2 size={11} className="animate-spin text-amber-700" />}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

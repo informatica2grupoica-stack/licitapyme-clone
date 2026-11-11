@@ -1361,3 +1361,17 @@ export async function convertirCotizacionANeto(negocioId: number, cotizacionId: 
   });
   return { productos: Number(n?.n || 0) };
 }
+
+/** Respuesta a «¿los precios de esta cotización son netos o con IVA?» (solo cuando el documento no lo decía). «neto» solo confirma; «con_iva» los pasa a neto. */
+export async function confirmarIvaCotizacion(negocioId: number, cotizacionId: number, modo: 'neto' | 'con_iva', actorId: number, actorNombre: string | null): Promise<{ productos: number }> {
+  if (modo === 'con_iva') return convertirCotizacionANeto(negocioId, cotizacionId, actorId, actorNombre);
+  const [rows] = await pool.query(`SELECT notas FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cotizacionId, negocioId]) as any;
+  const c = (rows as any[])[0];
+  if (!c) throw new Error('Cotización no encontrada.');
+  const notas = [
+    ...String(c.notas || '').split(' · ').filter(t => t && !t.startsWith(AVISO_IVA_SIN_CONFIRMAR)),
+    `Precios confirmados como NETOS por ${actorNombre || 'el equipo'}.`,
+  ].join(' · ');
+  await pool.query(`UPDATE compras_cotizacion SET notas = ? WHERE id = ?`, [notas, cotizacionId]);
+  return { productos: 0 };
+}

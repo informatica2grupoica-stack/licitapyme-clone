@@ -124,6 +124,7 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
   const [agregando, setAgregando] = useState<string | null>(null);
   const [abiertas, setAbiertas] = useState<Set<number>>(new Set());   // filas con el detalle desplegado
   const [convirtiendo, setConvirtiendo] = useState<number | null>(null);
+  const [quitando, setQuitando] = useState<string | null>(null);
   const [filtro, setFiltro] = useState('');
 
   const agregar = async (c: CotizacionFilaUI, l: LineaCotizacion, productoId: number) => {
@@ -137,15 +138,34 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
       toast.error('No se pudo agregar la línea', e.message);
     } finally { setAgregando(null); }
   };
-  const pasarANeto = async (c: CotizacionFilaUI) => {
+  /** Quita UN extra (adicional) de un producto en esa cotización: el PUT reemplaza la lista, se manda la que queda. */
+  const quitarExtra = async (c: CotizacionFilaUI, productoId: number, indice: number) => {
     if (negocioId == null) return;
-    if (!window.confirm('¿Los precios de esta cotización incluyen IVA? Se dividirán por 1,19 (precio de cada producto y adicionales) y se invalidarán las aprobaciones de compra del negocio. Solo se puede hacer una vez.')) return;
+    const item = c.items.find(i => i.productoId === productoId);
+    const lista = (item?.adicionales ?? []) as AdicionalFila[];
+    const a = lista[indice];
+    if (!a || !window.confirm(`¿Quitar el extra «${a.concepto}» de esta cotización? El precio del producto vuelve a ser solo el del producto${lista.length > 1 ? ' más los otros extras' : ''}.`)) return;
+    setQuitando(`${c.id}|${productoId}|${indice}`);
+    try {
+      const restantes = lista.filter((_, k) => k !== indice).map(x => ({ concepto: x.concepto, cantidad: x.cantidad, precioUnitario: x.precioUnitario }));
+      const res = await fetch(`/api/compras/${negocioId}/cotizaciones/${c.id}/adicionales`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productoId, adicionales: restantes }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo quitar');
+      toast.success('Extra quitado', `«${a.concepto.slice(0, 50)}» ya no se suma al precio.`);
+      await onCambio?.();
+    } catch (e: any) { toast.error('No se pudo quitar el extra', e.message); } finally { setQuitando(null); }
+  };
+  const pasarANeto = async (c: CotizacionFilaUI, modo: 'neto' | 'con_iva' = 'con_iva') => {
+    if (negocioId == null) return;
+    if (modo === 'con_iva' && !window.confirm('¿Los precios de esta cotización incluyen IVA? Se dividirán por 1,19 (precio de cada producto y adicionales) y se invalidarán las aprobaciones de compra del negocio. Solo se puede hacer una vez.')) return;
     setConvirtiendo(c.id);
     try {
-      const res = await fetch(`/api/compras/${negocioId}/cotizaciones/${c.id}/iva`, { method: 'POST' });
+      const res = await fetch(`/api/compras/${negocioId}/cotizaciones/${c.id}/iva`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ modo }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo convertir');
-      toast.success('Precios pasados a neto', 'Se dividieron por 1,19.');
+      toast.success(modo === 'neto' ? 'Precios confirmados como netos' : 'Precios pasados a neto', modo === 'neto' ? 'Quedan tal como los dice el documento.' : 'Se dividieron por 1,19.');
       await onCambio?.();
     } catch (e: any) { toast.error('No se pudo pasar a neto', e.message); } finally { setConvirtiendo(null); }
   };
@@ -277,7 +297,10 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                           {convirtiendo === c.id ? 'Convirtiendo…' : 'Son con IVA: pasar a neto (÷ 1,19)'}
                         </button>
                       )}
-                      <span className="ml-2 text-[11px] text-amber-800">Si ya son netos, déjalo así.</span>
+                      {puedeOperar && negocioId != null && onCambio != null && (
+                        <button type="button" disabled={convirtiendo === c.id} onClick={() => pasarANeto(c, 'neto')}
+                          className="ml-2 mt-1.5 text-[11.5px] font-semibold text-teal-700 border border-teal-200 hover:bg-teal-50 disabled:opacity-50 rounded-md px-2 py-0.5">Son netos (quitar este aviso)</button>
+                      )}
                     </div>
                   )}
 
@@ -312,6 +335,31 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                           )}
                         </div>}
                   </div>
+
+                  {puedeOperar && negocioId != null && onCambio != null && c.items.some(i => i.adicionales.length > 0) && (
+                    <div className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5" data-testid={`cotizacion-extras-${c.id}`}>
+                      <p className="text-[11.5px] font-semibold text-zinc-700">Extras sumados al precio de un producto</p>
+                      <ul className="mt-1 space-y-1">
+                        {c.items.flatMap(i => (i.adicionales as AdicionalFila[]).map((a, k) => ({ i, a, k }))).map(({ i, a, k }) => {
+                          const prod = productos.find(q => q.id === i.productoId);
+                          const clave = `${c.id}|${i.productoId}|${k}`;
+                          return (
+                            <li key={clave} className="grid grid-cols-[1fr_auto_auto] items-center gap-x-3 text-[11.5px]">
+                              <span className="min-w-0">
+                                <span className="font-semibold text-zinc-800" title={a.concepto}>{corto(a.concepto, 60)}</span>
+                                <span className="block text-zinc-500 truncate" title={prod?.descripcion}>en «{corto(prod?.descripcion ?? '', 60)}»</span>
+                              </span>
+                              <span className="text-zinc-500 tabular-nums whitespace-nowrap">{a.cantidad.toLocaleString('es-CL')} × {clp(a.precioUnitario)} = <b className="text-zinc-900">{clp(a.cantidad * a.precioUnitario)}</b></span>
+                              <button type="button" disabled={quitando === clave} onClick={() => quitarExtra(c, i.productoId, k)} aria-label={`Quitar el extra ${a.concepto}`}
+                                className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-rose-600 hover:text-rose-800 border border-rose-200 hover:bg-rose-50 disabled:opacity-50 rounded-md px-2 py-0.5">
+                                <Trash size={12} /> {quitando === clave ? 'Quitando…' : 'Quitar'}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
 
                   {(() => {
                     const expl = explicarLineas(c, productos);

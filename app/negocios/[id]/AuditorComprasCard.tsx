@@ -242,29 +242,70 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
     setDirectasAplicadas(a => [...a, ...nuevas.map(c => c.id)]);
   }, [cotizaciones, directasAplicadas]);
   const [evaluando, setEvaluando] = useState(false);
-  // Lo que vas marcando en la matriz es un borrador hasta «Elegir esta compra»: se guarda en este navegador para que no se desmarque al
-  // actualizar o cambiar de página. Al volver se restauran solo las marcas que siguen valiendo (la cotización todavía cubre ese producto).
+  // Lo que vas marcando en la matriz es un borrador hasta «Elegir esta compra». Es COMPARTIDO (11-nov-2026, migration-190): se guarda en la base
+  // por negocio, así todos los del negocio ven las mismas marcas. No toca aprobaciones, SKU ni OC. Se restauran solo las marcas que siguen
+  // valiendo (la cotización todavía cubre ese producto). Si no hay borrador en la base se usa el que quedó en este navegador (una sola vez).
   const borradorKey = `compras-borrador-compra:${negocioId}`;
   const borradorListo = useRef(false);
+  const cotizacionesRef = useRef(cotizaciones);
+  cotizacionesRef.current = cotizaciones;
+  const compraRef = useRef(compra);
+  compraRef.current = compra;
+  const borradorRemotoJson = useRef('{}');   // lo último que sabemos que está en la base (para no guardar lo que acaba de llegar)
+  const borradorRemotoAt = useRef<string | null>(null);
+  const soloVigentes = useCallback((sel: Record<string, number>) => {
+    const vigente: Record<number, number> = {};
+    for (const [pid, cid] of Object.entries(sel)) {
+      if (cotizacionesRef.current.some(c => c.id === cid && c.items.some(i => i.productoId === Number(pid)))) vigente[Number(pid)] = cid;
+    }
+    return vigente;
+  }, []);
+  const json = (o: Record<number, number>) => JSON.stringify(Object.fromEntries(Object.entries(o).sort(([a], [b]) => Number(a) - Number(b))));
   useEffect(() => {
     if (borradorListo.current || cotizaciones.length === 0) return;
     borradorListo.current = true;
-    try {
-      const guardado = JSON.parse(localStorage.getItem(borradorKey) || '{}') as Record<string, number>;
-      const vigente: Record<number, number> = {};
-      for (const [pid, cid] of Object.entries(guardado)) {
-        if (cotizaciones.some(c => c.id === cid && c.items.some(i => i.productoId === Number(pid)))) vigente[Number(pid)] = cid;
-      }
-      if (Object.keys(vigente).length > 0) { setCompra(vigente); compraIniciada.current = true; }
-    } catch { /* sin borrador guardado: se usa la compra elegida, si hay */ }
-  }, [cotizaciones, borradorKey]);
+    (async () => {
+      try {
+        const d = await (await fetch(`/api/compras/${negocioId}/borrador-compra`)).json();
+        let sel: Record<number, number> = d?.success ? soloVigentes(d.seleccion || {}) : {};
+        if (d?.success) { borradorRemotoAt.current = d.at ?? null; borradorRemotoJson.current = json(sel); }
+        if (Object.keys(sel).length === 0) {
+          try { sel = soloVigentes(JSON.parse(localStorage.getItem(borradorKey) || '{}')); } catch { /* sin borrador local */ }
+        }
+        try { localStorage.removeItem(borradorKey); } catch { /* sin almacenamiento */ }
+        if (Object.keys(sel).length > 0) { setCompra(sel); compraIniciada.current = true; }
+      } catch { /* sin borrador guardado: se usa la compra elegida, si hay */ }
+    })();
+  }, [cotizaciones, borradorKey, negocioId, soloVigentes]);
+  // Guarda mis cambios (con una pequeña espera para no guardar en cada clic).
   useEffect(() => {
-    if (!borradorListo.current) return;
-    try {
-      if (Object.keys(compra).length === 0) localStorage.removeItem(borradorKey);
-      else localStorage.setItem(borradorKey, JSON.stringify(compra));
-    } catch { /* navegador sin almacenamiento: la marca dura hasta recargar */ }
-  }, [compra, borradorKey]);
+    if (!borradorListo.current || !puedeOperar) return;
+    const actual = json(compra);
+    if (actual === borradorRemotoJson.current) return;
+    const t = setTimeout(async () => {
+      try {
+        const r = await (await fetch(`/api/compras/${negocioId}/borrador-compra`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seleccion: compra }) })).json();
+        if (r?.success) { borradorRemotoJson.current = actual; borradorRemotoAt.current = r.at ?? null; }
+      } catch { /* se reintenta con el próximo cambio */ }
+    }, 600);
+    return () => clearTimeout(t);
+  }, [compra, negocioId, puedeOperar]);
+  // Trae las marcas de los demás cada 10 s (solo si no tengo cambios sin guardar y la pestaña está a la vista).
+  useEffect(() => {
+    const t = setInterval(async () => {
+      if (!borradorListo.current || document.hidden) return;
+      if (json(compraRef.current) !== borradorRemotoJson.current) return;
+      try {
+        const d = await (await fetch(`/api/compras/${negocioId}/borrador-compra`)).json();
+        if (!d?.success || (d.at ?? null) === borradorRemotoAt.current) return;
+        if (json(compraRef.current) !== borradorRemotoJson.current) return;
+        const sel = soloVigentes(d.seleccion || {});
+        borradorRemotoAt.current = d.at ?? null; borradorRemotoJson.current = json(sel);
+        setCompra(sel);
+      } catch { /* siguiente vuelta */ }
+    }, 10000);
+    return () => clearInterval(t);
+  }, [negocioId, soloVigentes]);
 
   const cargar = useCallback(async () => {
     // Cada bloque se pinta apenas llega (auditoría 07-oct-2026): antes todo esperaba a la consulta más lenta (las combinaciones

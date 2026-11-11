@@ -4,7 +4,7 @@ import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
-import { convertirCotizacionANeto } from '@/app/lib/compras-auditor';
+import { confirmarIvaCotizacion } from '@/app/lib/compras-auditor';
 import { puedeOperarPreAprobacion } from '@/app/api/compras/[negocioId]/route';
 
 export const runtime = 'nodejs';
@@ -24,7 +24,9 @@ async function __POST(request: NextRequest, { params }: Params) {
     if (!(await puedeOperarPreAprobacion(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
     const nombre = request.headers.get('x-user-nombre');
-    const r = await convertirCotizacionANeto(negId, parseInt(id), userId, nombre ? decodeURIComponent(nombre) : null);
+    const cuerpo = await request.json().catch(() => ({}));
+    const modo = cuerpo?.modo === 'neto' ? 'neto' : 'con_iva';
+    const r = await confirmarIvaCotizacion(negId, parseInt(id), modo, userId, nombre ? decodeURIComponent(nombre) : null);
     return NextResponse.json({ success: true, ...r });
   } catch (error: any) {
     console.error('[compras/cotizaciones/iva][POST]', String(error));
