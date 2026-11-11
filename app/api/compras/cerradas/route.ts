@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario, clienteIdOrNull } from '@/app/lib/api-auth';
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { listarComprasCerradas } from '@/app/lib/compras-oc-cancelada';
+import { obumaDeCerradas } from '@/app/lib/compras-obuma-cierre';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,7 +20,9 @@ export async function GET(request: NextRequest) {
   const clienteId = await clienteIdOrNull(request);
   if (!clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   try {
-    return NextResponse.json({ success: true, cerradas: await listarComprasCerradas(clienteId), puedeReabrir: !!(p.compras_todo || p.aprobar_comercial) });
+    const cerradas = await listarComprasCerradas(clienteId);
+    const obuma = await obumaDeCerradas(cerradas.map(c => ({ negocioId: c.negocioId, licitacionCodigo: c.licitacionCodigo })));
+    return NextResponse.json({ success: true, cerradas, obuma, puedeReabrir: !!(p.compras_todo || p.aprobar_comercial) });
   } catch (e) {
     console.error('[compras/cerradas][GET]', String(e));
     return NextResponse.json({ error: mensajeSeguro(e, 'No se pudieron cargar las compras cerradas.') }, { status: 500 });

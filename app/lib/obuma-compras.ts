@@ -62,7 +62,7 @@ export interface ResumenSyncObuma {
  * backfill inicial.
  */
 export async function sincronizarComprasObuma(
-  { paginas = 5, soloCodigo }: { paginas?: number; soloCodigo?: string } = {},
+  { paginas = 5, soloCodigo }: { paginas?: number; soloCodigo?: string | string[] } = {},
 ): Promise<ResumenSyncObuma> {
   const resumen: ResumenSyncObuma = { paginasBarridas: 0, vistas: 0, candidatas: 0, nuevasOActualizadas: 0, codigos: [] };
   const nuestras = await licitacionesOfertadas();
@@ -102,7 +102,7 @@ export async function sincronizarComprasObuma(
     resumen.vistas += lote.length;
     for (const c of lote) {
       const cod = codigoDe(c);
-      if (cod && (!soloCodigo || cod === soloCodigo)) candidatas.push(c);   // soloCodigo: sincronizar YA una sola licitación (botón de la pantalla)
+      if (cod && (!soloCodigo || (Array.isArray(soloCodigo) ? soloCodigo.includes(cod) : cod === soloCodigo))) candidatas.push(c);   // soloCodigo: sincronizar YA una sola licitación (botón de la pantalla)
     }
     await dormir(PAUSA_MS);
   }

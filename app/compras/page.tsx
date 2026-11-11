@@ -206,8 +206,82 @@ function AccionesCierreLegado({ f, onCambio }: { f: ComprasFila; onCambio: () =>
   );
 }
 
-function FilaCompras({ f, esJefeDeVentas, esAdmin, candidatos, onAsignado, ultimaUrgente }: {
-  f: ComprasFila; esJefeDeVentas: boolean; esAdmin: boolean; candidatos: Candidato[]; onAsignado: () => void; ultimaUrgente?: boolean;
+// Datos de Obuma de una licitación cerrada/cancelada (11-nov-2026): así su fila no sale vacía. Viene de /api/compras/cerradas (snapshot de proyectos + OC sincronizadas).
+interface ObumaDeCerrada {
+  proyecto: { folio: number | null; estado: string | null; nombre: string | null; cliente: string | null; fechaIngreso: string | null;
+    presupuesto: number | null; costo: number | null; precioNeto: number | null; facturadoMonto: number | null;
+    totalGastado: number; cantidadOc: number; totalFacturado: number; cantidadFacturas: number } | null;
+  ocs: { folio: string | null; fecha: string | null; estado: string | null; proveedor: string | null; total: number;
+    facturas: { tipo: string; folio: string; total: number | null; fecha: string | null; proveedor: string | null; xml: string | null }[] }[];
+  totalOc: number;
+  documentos: { folio: string; tipo: string; proveedor: string | null; total: number; fecha: string | null; observacion: string | null }[];
+}
+function PanelObumaCerrada({ o, negocioId }: { o: ObumaDeCerrada | undefined; negocioId: number }) {
+  if (!o) return <p className="text-[11.5px] text-zinc-400 border-t border-zinc-100 pt-2">Cargando datos de Obuma…</p>;
+  const p = o.proyecto;
+  if (!p && o.ocs.length === 0) return <p className="text-[11.5px] text-zinc-400 border-t border-zinc-100 pt-2">Sin datos en Obuma: no hay proyecto ni órdenes de compra de esta licitación.</p>;
+  const margen = p && p.precioNeto && p.costo != null ? p.precioNeto - p.costo : null;
+  const dato = (etq: string, v: string) => (
+    <div className="min-w-[92px]"><p className="text-[10px] uppercase tracking-wide text-zinc-400">{etq}</p><p className="text-[12.5px] font-semibold text-zinc-800 tabular-nums">{v}</p></div>
+  );
+  return (
+    <div className="border-t border-zinc-100 pt-2 space-y-2">
+      <p className="text-[11.5px] text-zinc-500">
+        <span className="font-semibold text-zinc-700">Obuma</span>
+        {p ? <> · Proyecto <span className="font-semibold text-zinc-700">#{p.folio ?? '—'}</span> · {p.estado ?? 'sin estado'}{p.fechaIngreso ? ` · creado ${fmtFecha(p.fechaIngreso)}` : ''}</> : ' · sin proyecto asociado'}
+        {p?.cliente ? <> · {p.cliente}</> : null}
+      </p>
+      <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+        {p && dato('Presupuesto', fmtCLP(p.presupuesto))}
+        {p && dato('Costo', fmtCLP(p.costo))}
+        {p && dato('Precio neto', fmtCLP(p.precioNeto))}
+        {p && dato('Facturado', fmtCLP(p.facturadoMonto))}
+        {margen != null && dato('Margen neto', fmtCLP(margen))}
+        {dato('OC a proveedores', `${o.ocs.length} · ${fmtCLP(o.totalOc)}`)}
+        {p && p.cantidadFacturas > 0 && dato('Facturas de compra', `${p.cantidadFacturas} · ${fmtCLP(p.totalFacturado)}`)}
+      </div>
+      {o.ocs.length > 0 && (
+        <details className="text-[11.5px]">
+          <summary className="cursor-pointer text-teal-700 font-semibold">Ver las {o.ocs.length} orden(es) de compra y sus facturas</summary>
+          <div className="mt-1.5 divide-y divide-zinc-100 border border-zinc-100 rounded-lg">
+            {o.ocs.map((c, i) => (
+              <div key={i} className="px-2.5 py-1.5">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-zinc-700 truncate">OC {c.folio ?? '—'}{c.fecha ? ` · ${fmtFecha(c.fecha)}` : ''} · {c.proveedor ?? 'sin proveedor'}{c.estado ? ` · ${c.estado}` : ''}</span>
+                  <span className="font-semibold text-zinc-800 tabular-nums flex-shrink-0">{fmtCLP(c.total)}</span>
+                </div>
+                {c.facturas.map((fa, j) => (
+                  <div key={j} className="flex items-center justify-between gap-3 pl-4 text-zinc-500">
+                    <span className="truncate">Factura {fa.tipo ? `T${fa.tipo} ` : ''}N° {fa.folio}{fa.fecha ? ` · ${fmtFecha(fa.fecha)}` : ''}{fa.xml ? <> · <a href={fa.xml} target="_blank" rel="noreferrer" className="text-teal-700 hover:underline">XML</a></> : null}</span>
+                    <span className="tabular-nums flex-shrink-0">{fmtCLP(fa.total)}</span>
+                  </div>
+                ))}
+                {c.facturas.length === 0 && <p className="pl-4 text-zinc-400">Sin factura enlazada en Obuma</p>}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+      {o.documentos.length > 0 && (
+        <details className="text-[11.5px]">
+          <summary className="cursor-pointer text-teal-700 font-semibold">Ver los {o.documentos.length} documento(s) contabilizados en el proyecto</summary>
+          <div className="mt-1.5 divide-y divide-zinc-100 border border-zinc-100 rounded-lg">
+            {o.documentos.map((d, i) => (
+              <div key={i} className="flex items-center justify-between gap-3 px-2.5 py-1.5">
+                <span className="text-zinc-600 truncate">{d.tipo === '61' ? 'Nota de crédito' : d.tipo === '33' ? 'Factura' : d.tipo === '0' ? 'Gasto' : `Doc ${d.tipo}`} {d.folio}{d.fecha ? ` · ${fmtFecha(d.fecha)}` : ''} · {d.proveedor ?? d.observacion ?? 'gasto propio'}</span>
+                <span className="font-semibold text-zinc-800 tabular-nums flex-shrink-0">{fmtCLP(d.total)}</span>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+      <Link href={`/compras/${negocioId}`} className="inline-block text-[11.5px] font-semibold text-teal-700 hover:underline">Abrir el resumen del negocio →</Link>
+    </div>
+  );
+}
+
+function FilaCompras({ f, esJefeDeVentas, esAdmin, candidatos, onAsignado, ultimaUrgente, obuma }: {
+  f: ComprasFila; esJefeDeVentas: boolean; esAdmin: boolean; candidatos: Candidato[]; onAsignado: () => void; ultimaUrgente?: boolean; obuma?: ObumaDeCerrada;
 }) {
   const toast = useToast();
   const [candidatoElegido, setCandidatoElegido] = useState('');
@@ -342,6 +416,7 @@ function FilaCompras({ f, esJefeDeVentas, esAdmin, candidatos, onAsignado, ultim
         )}
         {esJefeDeVentas && <AccionesCierreLegado f={f} onCambio={onAsignado} />}
       </div>
+      {f.cierreLegado && !f.precompra && <div className="px-4 pb-3"><PanelObumaCerrada o={obuma} negocioId={f.negocioId} /></div>}
     </div>
   );
 }
@@ -1290,6 +1365,7 @@ export default function ComprasPage() {
   const [soloUrgentes, setSoloUrgentes] = useState(false);
   const [soloSinAsignar, setSoloSinAsignar] = useState(false);
   const [estado, setEstado] = useState<EstadoCompra>('abiertas');
+  const [obumaCierre, setObumaCierre] = useState<Record<number, ObumaDeCerrada> | null>(null);
   const toast = useToast();
   const [exportando, setExportando] = useState(false);
   // Pestaña: ganadas en firme o pre-compras (POSIBLE ADJ, sin adjudicación firme).
@@ -1346,6 +1422,13 @@ export default function ComprasPage() {
   }, [hidratado, q, fAsignado, fOrganismo, fRegion, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
       soloUrgentes, soloSinAsignar, estado, fechaDesde, fechaHasta, orden, vista, mesesVista, ambito]);
 
+  // Datos de Obuma de lo cerrado/cancelado: se piden una sola vez, cuando se abre una pestaña que no es «Abiertas».
+  useEffect(() => {
+    if (estado === 'abiertas' || obumaCierre) return;
+    let vivo = true;
+    fetch('/api/compras/cerradas').then(r => r.json()).then(d => { if (vivo) setObumaCierre(d?.obuma ?? {}); }).catch(() => { if (vivo) setObumaCierre({}); });
+    return () => { vivo = false; };
+  }, [estado, obumaCierre]);
   const nPorEstado = useMemo(() => {
     const n = { abiertas: 0, cerradas: 0, canceladas: 0, todas: 0 };
     for (const f of negocios) { if (f.precompra) continue; n[estadoDeCompra(f)]++; n.todas++; }
@@ -1779,7 +1862,7 @@ export default function ComprasPage() {
                     {f.urgente ? <><AlertTriangle size={12} /> Entrega rápida · {urgentes.length}</> : <>Resto de las licitaciones · {filtrados.length - urgentes.length}</>}
                   </p>
                 )}
-                <FilaCompras f={f} esJefeDeVentas={esJefeDeVentas} esAdmin={esAdmin} candidatos={candidatos} onAsignado={cargar} ultimaUrgente={f.negocioId === ultimaUrgente?.negocioId} />
+                <FilaCompras f={f} esJefeDeVentas={esJefeDeVentas} esAdmin={esAdmin} candidatos={candidatos} onAsignado={cargar} ultimaUrgente={f.negocioId === ultimaUrgente?.negocioId} obuma={obumaCierre?.[f.negocioId]} />
               </Fragment>
             ))}
           </div>

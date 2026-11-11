@@ -5,7 +5,7 @@
 //   npx tsx --test app/lib/__tests__/costeo-editor-fusion-viabilidad.test.mts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fusionarConViabilidad, filasQueViabilidadYaNoTrae, corregirDesdeViabilidad, ordenarComoViabilidad, resumenCambiosCosteo, type EstadoCosteoEditor, type FilaEditorCosteo } from '../costeo-editor';
+import { fusionarConViabilidad, filasQueViabilidadYaNoTrae, quitarFilasQueViabilidadYaNoTrae, corregirDesdeViabilidad, ordenarComoViabilidad, resumenCambiosCosteo, type EstadoCosteoEditor, type FilaEditorCosteo } from '../costeo-editor';
 
 const fila = (detalle: string, cantidad: number): FilaEditorCosteo => ({
   id: detalle, item: 1, lineaReal: null, detalle, unidad: 'UN', skuProveedor: '',
@@ -53,8 +53,9 @@ test('3712-74-LP26: propone quitar pauta, plazo y copias; deja una fila por prod
   ]);
   const r = filasQueViabilidadYaNoTrae(guardado, fresco);
   assert.deepEqual(r.quitables.map(f => f.detalle), [
-    'X1', '“Prevención apoyo para equipos Servicios sanitarios rurales 2026”',
-    'Electrofusionadora 20-160 mm', 'Bomba sumergible de agotamiento monofásica 1,5 hp-750 l/m',
+    // Gana la coincidencia EXACTA («Electrofusionadora 20-160 mm»), no la primera de la hoja: sale la que trae texto de más.
+    'Electrofusionadora 20-160 mm Rango de operación: 20 a 160 mm.', 'X1', '“Prevención apoyo para equipos Servicios sanitarios rurales 2026”',
+    'Bomba sumergible de agotamiento monofásica 1,5 hp-750 l/m',
   ]);
   assert.equal(r.trabajadas, 0);
 });
@@ -261,4 +262,61 @@ test('resumenCambiosCosteo: anota hojas nuevas/eliminadas, detalle de ítems, li
   ] };
   const r = resumenCambiosCosteo(antes, despues).join(' | ');
   for (const t of ['Nueva hoja LINEA3', 'Hoja LINEA2 eliminada', 'Agregó el ítem "Flete" (costo adicional $5.000) en LINEA1', 'link 1 quitado, link 2 agregado', 'cambió el orden']) assert.ok(r.includes(t), t + ' ← ' + r);
+});
+
+// 2410-21-LE26 (11-nov-2026): el costeo se armó con una lectura mala (inhabilidades, presupuesto pegado al
+// nombre, duplicados, monturas cortadas). Al re-analizar con las 7 líneas bien leídas el costeo no cambiaba y
+// «Actualizar» proponía quitar la fila LIMPIA y dejar la sucia.
+const filaL = (detalle: string, cantidad: number, linea: number, extra: Partial<FilaEditorCosteo> = {}): FilaEditorCosteo =>
+  ({ ...fila(detalle, cantidad), id: `${linea}-${detalle}`, lineaReal: linea, ...extra });
+const hoja = (linea: number, filas: FilaEditorCosteo[]) => ({ nombre: `LINEA${linea}`, linea, ofertamos: true, filas });
+const LINEAS: [string, number][] = [['Cono tonómetro compatible con equipo Perkins Clement Clarke modelo mk3', 4], ['Maleta de lentes ópticos aro plástico', 1],
+  ['Montura de prueba de lentes adulto', 3], ['Montura de prueba de lentes pediátrica', 2], ['Campímetro computarizado', 1], ['Pantalla de optotipos led', 1], ['Tonómetro de rebote', 1]];
+const frescoUapo = (): EstadoCosteoEditor => ({ modalidad: 'por_linea', margenVenta: 27, grupos: LINEAS.map(([d, c], i) => hoja(i + 1, [filaL(d, c, i + 1)])) });
+const sucioUapo = (): EstadoCosteoEditor => ({ modalidad: 'por_linea', margenVenta: 27, grupos: [
+  hoja(1, [filaL('Haber sido condenado por cualquiera de los delitos de cohecho contemplados en el título V', 2, 1), filaL('CUMPLIMIENTO DE REQUISITOS FORMALES Se evaluará según lo indicado en cláusula N°14.4.', 4, 1), filaL(LINEAS[0][0], 4, 1)]),
+  hoja(2, [filaL(LINEAS[1][0], 1, 2), filaL('MONTURA DE PRUEBA DE', 3, 2), filaL('MONTURA DE PRUEBA DE', 2, 2)]),
+  hoja(4, [filaL('Montura de prueba de lentes pediátrica $1.100.000', 2, 4)]),
+  hoja(5, [filaL('Campímetro computarizado $32.000.000', 1, 5), filaL('Campímetro computarizado', 1, 5)]),
+  hoja(6, [filaL('Pantalla de optotipos led $6.000.000', 1, 6), filaL('Pantalla de optotipos led', 1, 6)]),
+  hoja(7, [filaL('Tonómetro de rebote $6.000.000', 100, 7), filaL('Tonómetro de rebote', 1, 7)]),
+] });
+
+test('Actualizar deja la fila LIMPIA y propone quitar la sucia (no al revés)', () => {
+  const { quitables } = filasQueViabilidadYaNoTrae(sucioUapo(), frescoUapo());
+  const nombres = quitables.map(f => f.detalle);
+  assert.ok(nombres.includes('Campímetro computarizado $32.000.000') && nombres.includes('Pantalla de optotipos led $6.000.000') && nombres.includes('Tonómetro de rebote $6.000.000'));
+  assert.ok(!nombres.includes('Campímetro computarizado') && !nombres.includes('Tonómetro de rebote'));
+  assert.equal(nombres.filter(n => n === 'MONTURA DE PRUEBA DE').length, 2, 'un nombre cortado que calza con dos líneas no dice cuál es: se quita');
+  assert.ok(!nombres.includes('Montura de prueba de lentes pediátrica $1.100.000'), 'es la única pediátrica: se queda (y se corrige el nombre)');
+});
+
+test('re-análisis: quita lo sin trabajo, agrega las monturas y deja 7 líneas limpias', () => {
+  const nuevo = frescoUapo();
+  const q = quitarFilasQueViabilidadYaNoTrae(sucioUapo(), nuevo);
+  assert.equal(q.quitadas.length, 7);
+  const f = fusionarConViabilidad(q.estado, nuevo);
+  assert.equal(f.agregados, 1, 'la montura de adulto (línea 3) no existía');
+  const c = corregirDesdeViabilidad(f.estado, nuevo, null);
+  const filas = c.estado.grupos.flatMap(g => g.filas);
+  assert.deepEqual(filas.map(x => [x.lineaReal, x.detalle, x.cantidad]).sort((a, b) => (a[0] as number) - (b[0] as number)), LINEAS.map(([d, n], i) => [i + 1, d, n]));
+  assert.deepEqual(c.estado.grupos.map(g => g.linea), [1, 2, 3, 4, 5, 6, 7], 'hojas en orden de línea');
+});
+
+test('re-análisis NO quita una fila con precio, link o SKU aunque el documento ya no la traiga', () => {
+  const sucio = sucioUapo();
+  sucio.grupos[0].filas[0] = { ...sucio.grupos[0].filas[0], valorConIva: 15000 };
+  const q = quitarFilasQueViabilidadYaNoTrae(sucio, frescoUapo());
+  assert.ok(q.estado.grupos[0].filas.some(f => f.detalle.startsWith('Haber sido condenado')), 'la fila trabajada se queda');
+  assert.equal(q.quitadas.length, 6);
+});
+
+test('re-análisis: una fila sin línea (agregada a mano, sin precio todavía) NO se quita sola', () => {
+  const sucio = sucioUapo();
+  sucio.grupos[0].filas.push({ ...fila('Fassi F95B.0.23', 3), id: 'manual', lineaReal: null });
+  const auto = quitarFilasQueViabilidadYaNoTrae(sucio, frescoUapo(), { soloDelDocumento: true });
+  assert.ok(auto.estado.grupos[0].filas.some(f => f.id === 'manual'), 'la fila manual se queda');
+  assert.equal(auto.quitadas.length, 7);
+  // «Actualizar» (pregunta antes) sí la ofrece.
+  assert.ok(filasQueViabilidadYaNoTrae(sucio, frescoUapo()).quitables.some(f => f.id === 'manual'));
 });

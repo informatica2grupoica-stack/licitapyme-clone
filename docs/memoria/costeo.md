@@ -3,6 +3,28 @@
 Costeo digital del negocio (editor + burbuja flotante) y Excel de costeo (plantilla V3).
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-11 — Re-analizar no ponía al día el costeo y «Actualizar» dejaba la fila sucia (2410-21-LE26)
+**Pedido del dueño:** «cuando re-analizo no se actualiza el costeo igual y tengo que dar a Actualizar, que lo hace mal».
+**Causas (reproducidas con el costeo real del negocio 1658 y el manifiesto bueno de 7 líneas):**
+1. El re-análisis nunca quitaba filas, así que la basura (inhabilidades, «Campímetro computarizado $32.000.000», duplicados)
+   se quedaba y, peor, «MONTURA DE PRUEBA DE» (cortada) calzaba por prefijo con adulto y pediátrica y bloqueaba su alta.
+2. `filasQueViabilidadYaNoTrae` emparejaba por ORDEN de la hoja, no por mejor coincidencia: dejaba la fila sucia y
+   proponía quitar la limpia. Además la pantalla tenía una COPIA vieja de esa lógica (sin nombres reescritos) que no era la del servidor.
+**Arreglo:** la lógica pura vive ahora en un solo módulo, `app/lib/costeo-editor-fusion.ts` (lo importan el servidor, que
+lo re-exporta desde `costeo-editor.ts`, y `CosteoEditorCard.tsx`; se borró la copia). Emparejamiento por mejor coincidencia
+(trabajadas primero; nombre exacto; misma línea; un nombre cortado que calza con dos líneas queda sin par). El re-análisis
+ahora quita ANTES de fusionar las filas que el documento ya no trae y nadie trabajó (sin precio, link, SKU, costo real,
+complemento ni foto) — SOLO las que tienen línea (vienen del documento): una fila sin línea es de una persona (neg 842: Fassi,
+carrocería, cajoneras sin precio) y no se borra sola. «Actualizar» sigue preguntando y ahora quita primero y fusiona después
+(las monturas buenas se agregan en el mismo clic). Un nombre con texto pegado en una fila sin trabajo se corrige al del
+documento («…pediátrica $1.100.000»). Hojas nuevas quedan ordenadas por línea.
+**Verificado:** simulación sobre el costeo real del 1658 (14 filas → 7, una por línea); barrido de los 193 costeos guardados:
+17 cambian (junk de formularios en 5040-11, copia en 564162-120, nombres reescritos en 1488-39), cantidad igual a la que
+proponía «Actualizar»; 1.812/1.812 tests, `tsc` limpio. Sin ver en navegador, sin desplegar, BD sin tocar.
+**Pendiente:** desplegar; volver a analizar 2410-21-LE26 (el costeo del 1658 tiene 0 filas con precio/link/SKU: se limpia solo).
+La tabla chica (3 a 7 líneas, «LÍNEA | DETALLE | CANTIDAD») ahora también gana el manifiesto en el análisis (`tablaChica` en
+el parser, línea = número) y las líneas salen 1 a 7.
+
 ## 2026-10-30 — El registro de cambios del costeo anota TODO lo que se modifica
 **Pedido del dueño:** el «Registro de cambios» solo mostraba «Primer guardado del costeo»; debe dejar constancia de todo.
 **Cambio** (`resumenCambiosCosteo`, `costeo-editor.ts`): ahora anota también hojas nuevas y hojas eliminadas/unidas, ítems

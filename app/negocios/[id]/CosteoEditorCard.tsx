@@ -37,6 +37,8 @@ import { useCosteoFlotante, type CosteoEstadoHeredado } from '@/app/components/C
 import { calcularComparativo, entradaComparativoDeFilas, costoRealDeFila, alertasDeDesvio, recargoParaMargen, margenDeRecargo, parsearRecargo, esLinkDeProducto, tieneRespaldoLink, IVA, type Comparativo } from '@/app/lib/costeo-comparativo';
 import { IconFilter, IconChevronDown, IconSortAscending, IconSortDescending, IconCalculator as Calculator,IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconRefresh as RefreshCw, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconShieldCheck as ShieldCheck, IconSparkles as Sparkles, IconMaximize as Maximize2, IconX as X, IconExternalLink as ExternalLink, IconArrowLeft as ArrowLeft, IconLayoutBoardSplit as SplitSquareHorizontal, IconArrowMerge as Combine, IconFileSearch as FileSearch, IconLink as LinkIcon, IconPictureInPicture as PictureInPicture2, IconMinimize as Minimize2, IconEye as Eye, IconPhotoPlus as PhotoPlus, IconFileSpreadsheet as FileSpreadsheet, IconDownload as Download, IconHistory as History } from '@tabler/icons-react';
 
+import { fusionarConViabilidad, filasQueViabilidadYaNoTrae, quitarFilasQueViabilidadYaNoTrae } from '@/app/lib/costeo-editor-fusion';
+
 const MARGEN_VENTA_DEFECTO = 27;
 
 interface FilaEditor {
@@ -131,149 +133,6 @@ function unirEnUnaHoja(estado: EstadoEditor): EstadoEditor {
   return { ...estado, modalidad: 'suma_alzada', grupos: [{ nombre: 'Costeo', linea: null, ofertamos: true, filas }] };
 }
 
-// Coma o punto entre dígitos y &quot; = mismo producto (misma regla que app/lib/costeo-editor.ts:normDesc).
-function normDesc(s: string): string {
-  return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/&quot;/g, '"').replace(/(\d),(?=\d)/g, '$1.').replace(/\s+/g, ' ').trim();
-}
-
-/** ¿"la misma fila", con texto exacto o no? BUG REAL (03-sep-2026, 1271359-92-LE26): al volver a
- *  analizar la viabilidad, la IA no solo reclasificó las líneas — también RECORTÓ las
- *  descripciones ("Locker metálicos colores 15 cuerpos - Sin marca/modelo de referencia
- *  explícito" pasó a solo "Locker metálicos colores"). Comparar por texto EXACTO hacía que
- *  ninguna fila ya guardada calzara con la fresca. Alcanza con que una sea prefijo largo de la
- *  otra (≥12 caracteres, para no confundir dos productos cortos que empiecen igual). MISMA
- *  función que app/lib/costeo-editor.ts:mismoProducto — duplicada acá porque este componente es
- *  cliente y se mantiene autocontenido. */
-function mismoProducto(a: string, b: string): boolean {
-  const na = normDesc(a), nb = normDesc(b);
-  if (!na || !nb) return false;
-  if (na === nb) return true;
-  const [corta, larga] = na.length <= nb.length ? [na, nb] : [nb, na];
-  if (corta.length >= 12 && larga.startsWith(corta)) return true;
-  // Mismo nombre escrito distinto: sin espacios ni signos, y hasta 2 letras distintas con los mismos
-  // números (3712-74-LP26: «Actualizar» agregaba 23 copias). Ver costeo-editor.ts:mismoProducto.
-  const ca = na.normalize('NFKD').replace(/[^a-z0-9]/g, ''), cb = nb.normalize('NFKD').replace(/[^a-z0-9]/g, '');
-  if (ca === cb) return true;
-  const [cc, cl] = ca.length <= cb.length ? [ca, cb] : [cb, ca];
-  if (cc.length >= 12 && cl.startsWith(cc)) return true;
-  const numeros = (s: string) => (s.match(/\d+(?:\.\d+)?/g) || []).join(' ');
-  return cc.length >= 15 && numeros(na.normalize('NFKD')) === numeros(nb.normalize('NFKD')) && distanciaHasta2(ca, cb);
-}
-function distanciaHasta2(a: string, b: string): boolean {
-  if (Math.abs(a.length - b.length) > 2) return false;
-  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
-  for (let i = 1; i <= a.length; i++) {
-    const cur = [i];
-    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-    if (Math.min(...cur) > 2) return false;
-    prev = cur;
-  }
-  return prev[b.length] <= 2;
-}
-function buscarMismoProducto<T extends { detalle: string }>(filas: T[], detalle: string): T | undefined {
-  return filas.find(f => mismoProducto(f.detalle, detalle));
-}
-/** Misma regla que costeo-editor.ts:mismoProductoEnSuLinea (2827-102-LE26: dos líneas «Barredora de suelos»). */
-function mismoProductoEnSuLinea<T extends { detalle: string; lineaReal?: number | null }>(
-  filas: T[], detalle: string, lineaReal: number | null | undefined,
-): T | undefined {
-  const candidatos = filas.filter(f => mismoProducto(f.detalle, detalle));
-  if (new Set(candidatos.map(f => f.lineaReal ?? null)).size <= 1) return candidatos[0];
-  return candidatos.find(f => (f.lineaReal ?? null) === (lineaReal ?? null));
-}
-
-/** RECONCILIA, no solo agrega — MISMA lógica que app/lib/costeo-editor.ts:fusionarConViabilidad
- *  (duplicada acá porque este componente es cliente y se mantiene autocontenido, y porque
- *  "Actualizar" tiene que fusionar contra lo que hay EN PANTALLA —que puede traer cambios sin
- *  guardar, como un recién hecho "Separar por línea"— no contra lo último guardado en el
- *  servidor). El generador del Excel siempre relee la viabilidad fresca, así que si el análisis se
- *  corrigió (caso real: pasó de "6 líneas sueltas" a "Pasto solo + los 5 muebles como UN paquete,
- *  línea 2") el Excel regenerado sale bien de inmediato. Este editor guarda una FOTO editable, así
- *  que sin esto la reclasificación nunca llegaba a una fila ya existente — solo se agregaba lo que
- *  faltaba, duplicando todo lo demás. */
-function fusionarLocal(actual: EstadoEditor, nuevo: EstadoEditor): { estado: EstadoEditor; agregados: number; reclasificados: number } {
-  const frescas = nuevo.grupos.flatMap(g => g.filas);
-  const lineasExcluidas = new Set(actual.grupos.filter(g => !g.ofertamos && g.linea != null).map(g => g.linea as number));
-  const organizadoPorLinea = actual.grupos.some(g => g.linea != null);
-
-  let reclasificados = 0;
-  const reubicar: FilaEditor[] = [];
-  let grupos: GrupoEditor[] = actual.grupos.map(g => {
-    const filas: FilaEditor[] = [];
-    for (const f of g.filas) {
-      const fresco = mismoProductoEnSuLinea(frescas, f.detalle, f.lineaReal);
-      const lineaFresca = fresco?.lineaReal ?? f.lineaReal;
-      if (lineaFresca === f.lineaReal) { filas.push(f); continue; }
-      reclasificados++;
-      const actualizada = { ...f, lineaReal: lineaFresca };
-      if (organizadoPorLinea) reubicar.push(actualizada); else filas.push(actualizada);
-    }
-    return { ...g, filas };
-  });
-
-  if (reubicar.length) {
-    const porLineaTmp = new Map(grupos.filter(g => g.linea != null).map(g => [g.linea as number, g]));
-    for (const f of reubicar) {
-      let destino = f.lineaReal != null ? porLineaTmp.get(f.lineaReal) : undefined;
-      if (!destino) {
-        destino = { nombre: f.lineaReal != null ? `Línea ${f.lineaReal}` : 'Sin línea', linea: f.lineaReal, ofertamos: true, filas: [] };
-        grupos.push(destino);
-        if (f.lineaReal != null) porLineaTmp.set(f.lineaReal, destino);
-      }
-      destino.filas.push(f);
-    }
-    grupos = grupos.filter(g => g.filas.length > 0).map(g => ({ ...g, filas: g.filas.map((f, i) => ({ ...f, item: i + 1 })) }));
-  }
-
-  const existentes = grupos.flatMap(g => g.filas);
-  const porNombre = new Map(grupos.map(g => [g.nombre, g]));
-  const porLinea = new Map(grupos.filter(g => g.linea != null).map(g => [g.linea as number, g]));
-  let agregados = 0;
-
-  for (const gNuevo of nuevo.grupos) {
-    for (const f of gNuevo.filas) {
-      if (f.lineaReal != null && lineasExcluidas.has(f.lineaReal)) continue;
-      if (!f.detalle?.trim() || buscarMismoProducto(existentes, f.detalle)) continue;
-      let destino = (f.lineaReal != null ? porLinea.get(f.lineaReal) : undefined) ?? porNombre.get(gNuevo.nombre);
-      if (!destino) {
-        destino = { nombre: gNuevo.nombre, linea: gNuevo.linea, ofertamos: true, filas: [] };
-        grupos.push(destino);
-        porNombre.set(gNuevo.nombre, destino);
-        if (gNuevo.linea != null) porLinea.set(gNuevo.linea, destino);
-      }
-      const nueva = { ...f, id: Math.random().toString(36).slice(2, 10), item: destino.filas.length + 1 };
-      destino.filas.push(nueva);
-      existentes.push(nueva);
-      agregados++;
-    }
-  }
-  return { estado: { ...actual, grupos }, agregados, reclasificados };
-}
-
-/** Filas que la viabilidad ya no trae y se pueden quitar (sin precio, link, SKU ni costo real) —
- *  MISMA lógica que app/lib/costeo-editor.ts:filasQueViabilidadYaNoTrae, duplicada acá como
- *  fusionarLocal. */
-function filaTrabajada(f: FilaEditor): boolean {
-  return f.valorConIva != null || f.costoRealUnitario != null || !!f.skuProveedor?.trim()
-    || !!(f.link1?.trim() || f.link2?.trim() || f.link3?.trim());
-}
-function filasQueViabilidadYaNoTrae(actual: EstadoEditor, nuevo: EstadoEditor): { quitables: FilaEditor[]; trabajadas: number } {
-  const libres = nuevo.grupos.flatMap(g => g.filas).filter(f => f.detalle?.trim());
-  const candidatas = actual.grupos.flatMap(g => g.filas)
-    .filter(f => f.detalle?.trim() && !f.esCostoAdicional && !f.agregadoPorCompras);
-  const orden = [...candidatas.filter(filaTrabajada), ...candidatas.filter(f => !filaTrabajada(f))];
-  const quitables: FilaEditor[] = [];
-  let trabajadas = 0;
-  for (const f of orden) {
-    const i = libres.findIndex(x => mismoProducto(x.detalle, f.detalle));
-    if (i >= 0) { libres.splice(i, 1); continue; }
-    if (filaTrabajada(f)) trabajadas++; else quitables.push(f);
-  }
-  const posicion = new Map(candidatas.map((f, i) => [f.id, i]));
-  quitables.sort((a, b) => posicion.get(a.id)! - posicion.get(b.id)!);
-  return { quitables, trabajadas };
-}
 
 /** MISMA cadena de fórmulas que la plantilla real (F→G→H→I→J→K) — ver cabecera del archivo. */
 function calcularFormulas(f: FilaEditor, margenVenta: number) {
@@ -1580,33 +1439,39 @@ export function CosteoEditorCard({
       const r = await fetch(`/api/negocios/${negocioId}/comercial/costeo-editor?soloViabilidad=1`);
       const d = await r.json();
       if (!r.ok || !d.estado) { toast.error('No se pudo leer la viabilidad'); return; }
-      const { estado: fusionado, agregados, reclasificados } = fusionarLocal(estado, d.estado);
+      // 1) Lo que el documento ya no trae y nadie trabajó se ofrece quitar ANTES de fusionar: una fila
+      //    cortada o sucia («MONTURA DE PRUEBA DE») calza por prefijo con el producto bueno y evita que se agregue.
+      //    Misma lógica que el re-análisis (app/lib/costeo-editor-fusion.ts, una sola copia).
+      const { quitables, trabajadas } = filasQueViabilidadYaNoTrae(estado, d.estado);
+      let base: EstadoEditor = estado;
+      let hojasVaciadas: string[] = [];
+      let quitadas = 0;
+      if (quitables.length) {
+        const ok = await confirmar({
+          titulo: `La viabilidad ya no trae ${quitables.length} fila(s) del costeo`,
+          mensaje: `Ninguna tiene precio, link, SKU, costo real, complemento ni foto. Se quitan al guardar.${trabajadas ? ` Otras ${trabajadas} que tampoco vienen ya tienen trabajo cargado y se dejan.` : ''}`,
+          lista: quitables.map(f => `${f.cantidad ?? '—'} · ${f.detalle.replace(/&quot;/g, '"')}`),
+          confirmarLabel: 'Quitar',
+          cancelarLabel: 'Dejarlas',
+          peligro: true,
+        });
+        if (ok) {
+          const q = quitarFilasQueViabilidadYaNoTrae(estado, d.estado);
+          base = q.estado; hojasVaciadas = q.hojasVaciadas; quitadas = q.quitadas.length;
+        }
+      }
+      // 2) Se agrega lo que falta y se reubica lo que cambió de línea.
+      const fus = fusionarConViabilidad(base, d.estado);
+      const fusionado: EstadoEditor = hojasVaciadas.length
+        ? { ...fus.estado, grupos: fus.estado.grupos.filter(g => g.filas.length > 0 || !hojasVaciadas.includes(g.nombre)) }
+        : fus.estado;
       setEstado(fusionado);
       const partes = [
-        agregados > 0 && `${agregados} ítem(s) nuevo(s)`,
-        reclasificados > 0 && `${reclasificados} reclasificado(s) a su línea correcta`,
+        quitadas > 0 && `${quitadas} fila(s) quitadas`,
+        fus.agregados > 0 && `${fus.agregados} ítem(s) nuevo(s)`,
+        fus.reclasificados > 0 && `${fus.reclasificados} reclasificado(s) a su línea correcta`,
       ].filter(Boolean);
-      const { quitables, trabajadas } = filasQueViabilidadYaNoTrae(fusionado, d.estado);
-      if (!quitables.length) {
-        toast.success(partes.length ? partes.join(' · ') : 'Ya estaba al día con la viabilidad');
-        return;
-      }
-      if (partes.length) toast.success(partes.join(' · '));
-      const ok = await confirmar({
-        titulo: `La viabilidad ya no trae ${quitables.length} fila(s) del costeo`,
-        mensaje: `Ninguna tiene precio, link, SKU ni costo real. Se quitan al guardar.${trabajadas ? ` Otras ${trabajadas} que tampoco vienen ya tienen trabajo cargado y se dejan.` : ''}`,
-        lista: quitables.map(f => `${f.cantidad ?? '—'} · ${f.detalle.replace(/&quot;/g, '"')}`),
-        confirmarLabel: 'Quitar',
-        cancelarLabel: 'Dejarlas',
-        peligro: true,
-      });
-      if (!ok) return;
-      const fuera = new Set(quitables.map(f => f.id));
-      setEstado(prev => prev && {
-        ...prev,
-        grupos: prev.grupos.map(g => ({ ...g, filas: g.filas.filter(f => !fuera.has(f.id)).map((f, k) => ({ ...f, item: k + 1 })) })),
-      });
-      toast.success(`${quitables.length} fila(s) quitadas — falta guardar`);
+      toast.success(partes.length ? `${partes.join(' · ')}${quitadas ? ' — falta guardar' : ''}` : 'Ya estaba al día con la viabilidad');
     } finally { setRecargando(false); }
   };
 

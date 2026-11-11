@@ -1860,7 +1860,7 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
     && new Set(planilla.items.map(i => i.linea || 1)).size === lineasApi;
   const planillaReconoceAlLLM = solape.reconoce || planillaDetallaLineasApi;
   const planillaGanaManifiesto = !!(planilla && planillaSana && !planillaDegradaLineas && planillaReconoceAlLLM
-      && planilla.items.length >= manifiesto.length && planilla.items.length >= 8);
+      && (planilla.tablaChica ? solape.reconoce : (planilla.items.length >= manifiesto.length && planilla.items.length >= 8)));
   if (planillaGanaManifiesto) {
     manifiesto = planilla!.items.map(it => ({
       linea: it.linea || 1, categoria: it.categoria, descripcion: it.descripcion, modelo: '',
@@ -1872,7 +1872,7 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
     console.log(`[viabilidad-ia-v4] ${codigo}: manifiesto desde planilla "${planilla!.fuenteDoc}" — ${planilla!.items.length} ítems (${planilla!.estructura}).`);
   }
   // EXTRACCIÓN DEDICADA para bases técnicas "LÍNEA DE PRODUCTO N°X" (el modelo resume cada línea a un ítem).
-  if (!(planilla && planilla.items.length >= 8)) {
+  if (!(planilla && (planilla.items.length >= 8 || planilla.tablaChica))) {
     try {
       const secciones = extraerSeccionesLineaProducto(leidos.map(d => ({ nombre: d.nombre, texto: d.texto })));
       const sonFichas = seccionesSonFichasDeCaracteristicas(secciones);

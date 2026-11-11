@@ -2,15 +2,16 @@
 // licitación se pone al día solo — decisión del dueño (28-oct-2026, 3712-74-LP26), que reemplaza la
 // del 27-oct («re-viabilidad no toca el costeo»). Agrega los productos nuevos y reubica líneas
 // (fusionarConViabilidad, lo mismo que el botón «Actualizar») y corrige nombre y cantidad de los que
-// ya están si el documento cambió y nadie los tocó (corregirDesdeViabilidad). Nunca borra filas ni
-// toca precios, links, SKU, costo real ni recargos: las filas que la viabilidad ya no trae se siguen
-// quitando con «Actualizar». No crea versión (eso es del equipo al guardar) y deja huella en el
+// ya están si el documento cambió y nadie los tocó (corregirDesdeViabilidad). Nunca toca precios,
+// links, SKU, costo real ni recargos. Desde el 11-nov-2026 también quita, igual que «Actualizar», las
+// filas que la viabilidad ya no trae y nadie trabajó (sin precio/link/SKU/costo/complemento/foto); las
+// trabajadas se dejan. No crea versión (eso es del equipo al guardar) y deja huella en el
 // registro de cambios del editor. Deja las filas en el orden del documento (ordenarComoViabilidad).
 // Un negocio ya postulado (congelado) no se toca.
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { adaptarViabilidadACosteo } from '@/app/lib/generar-costeo';
-import { datosCosteoAEditor, fusionarConViabilidad, corregirDesdeViabilidad, ordenarComoViabilidad, unirEnUnaHoja, resumenCambiosCosteo, MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor } from '@/app/lib/costeo-editor';
+import { datosCosteoAEditor, fusionarConViabilidad, quitarFilasQueViabilidadYaNoTrae, corregirDesdeViabilidad, ordenarComoViabilidad, unirEnUnaHoja, resumenCambiosCosteo, MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor } from '@/app/lib/costeo-editor';
 import { yaCongelado } from '@/app/lib/congelamiento';
 import { registrarEvento } from '@/app/lib/historial';
 
@@ -40,19 +41,28 @@ export async function actualizarCosteosTrasReanalisis(codigo: string, informeAnt
       // Si el re-análisis dejó la licitación global (una sola hoja) y el costeo seguía por línea, se unen
       // las hojas: solo mueve filas (no toca precios). Si alguna hoja está apagada a propósito, no se une.
       const unir = actual.modalidad === 'por_linea' && nuevo.modalidad === 'suma_alzada' && actual.grupos.length > 1 && actual.grupos.every(g => g.ofertamos);
-      const f = fusionarConViabilidad(unir ? unirEnUnaHoja(actual) : actual, nuevo);
-      const c = corregirDesdeViabilidad(f.estado, nuevo, anterior);
+      // 1) Se sacan las filas que el documento ya no trae y nadie trabajó (sin precio, link, SKU, costo real,
+      //    complemento ni foto): son puro espejo del documento y, si se quedan, bloquean el alta de la fila
+      //    buena (2410-21-LE26: «MONTURA DE PRUEBA DE» cortada calzaba por prefijo con adulto y pediátrica).
+      const base = unir ? unirEnUnaHoja(actual) : actual;
+      const q = quitarFilasQueViabilidadYaNoTrae(base, nuevo, { soloDelDocumento: true });
+      const f = fusionarConViabilidad(q.estado, nuevo);
+      // Una hoja que se vació y el documento no vuelve a llenar ya no aporta nada.
+      const sinHojasVacias = q.hojasVaciadas.length
+        ? { ...f.estado, grupos: f.estado.grupos.filter(g => g.filas.length > 0 || !q.hojasVaciadas.includes(g.nombre)) }
+        : f.estado;
+      const c = corregirDesdeViabilidad(sinHojasVacias, nuevo, anterior);
       const o = ordenarComoViabilidad(c.estado, nuevo);
-      if (!unir && !f.agregados && !f.reclasificados && !c.corregidos && !o.reordenados) continue;
+      if (!unir && !q.quitadas.length && !f.agregados && !f.reclasificados && !c.corregidos && !o.reordenados) continue;
       const cambios = resumenCambiosCosteo(actual, o.estado);
       await pool.query(
         `UPDATE negocio_costeo_editor SET modalidad = ?, datos_json = ?, actualizado_por = NULL, actualizado_por_nombre = ?, actualizado_at = ? WHERE negocio_id = ?`,
         [o.estado.modalidad, JSON.stringify(o.estado), ACTOR_REANALISIS, ahoraChileSQL(), row.negocio_id]);
-      const partes = [unir && 'hojas unidas en una (licitación global)', f.agregados && `${f.agregados} producto(s) nuevo(s)`, f.reclasificados && `${f.reclasificados} reubicado(s) de línea`, c.corregidos && `${c.corregidos} corregido(s) en nombre o cantidad`, o.reordenados && `${o.reordenados} fila(s) ordenada(s) como el anexo económico`].filter(Boolean);
+      const partes = [unir && 'hojas unidas en una (licitación global)', q.quitadas.length && `${q.quitadas.length} fila(s) sin trabajo que el documento ya no trae, quitadas`, f.agregados && `${f.agregados} producto(s) nuevo(s)`, f.reclasificados && `${f.reclasificados} reubicado(s) de línea`, c.corregidos && `${c.corregidos} corregido(s) en nombre o cantidad`, o.reordenados && `${o.reordenados} fila(s) ordenada(s) como el anexo económico`].filter(Boolean);
       await registrarEvento({
         tipo: 'COSTEO_ACTUALIZADO_VIABILIDAD', licitacionCodigo: codigo, actorNombre: ACTOR_REANALISIS,
         mensaje: `El costeo se actualizó con el re-análisis de viabilidad: ${partes.join(', ')}.`.slice(0, 500),
-        metadata: { negocio_id: row.negocio_id, cambios, agregados: f.agregados, reclasificados: f.reclasificados, corregidos: c.corregidos, reordenados: o.reordenados },
+        metadata: { negocio_id: row.negocio_id, cambios, quitadas: q.quitadas.length, agregados: f.agregados, reclasificados: f.reclasificados, corregidos: c.corregidos, reordenados: o.reordenados },
       });
       console.log(`[costeo-reanalisis] ${codigo} negocio ${row.negocio_id}: ${partes.join(', ')}.`);
     } catch (e) {

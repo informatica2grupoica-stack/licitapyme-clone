@@ -45,6 +45,8 @@ export interface PlanillaParseResult {
   // parsearPlanillaCosteo sobre el resultado ganador; los parsers individuales no las tocan.
   candidatos?: FuenteCandidata[];
   discrepancias?: string[];
+  // Tabla de oferta de 3 a 7 filas aceptada por esTablaChicaDeCompra (bajo el piso de 8 ítems de siempre).
+  tablaChica?: boolean;
 }
 
 export interface FuenteCandidata {
@@ -1281,6 +1283,7 @@ function parsearTablasHtml(doc: DocTexto): PlanillaParseResult | null {
 
   let col: ColMap | null = null;
   let vistoHeader = false;
+  let numEsLinea = false; // la columna numerada se llama «LÍNEA»: el número ES la línea de la licitación
   const porNumero = new Map<number, ItemPlanilla>();
   const vistosSinNumero = new Set<string>();
   const items: ItemPlanilla[] = [];
@@ -1293,7 +1296,7 @@ function parsearTablasHtml(doc: DocTexto): PlanillaParseResult | null {
   for (const celdas of filas) {
     if (esHeaderEspecificaciones(celdas)) { col = null; continue; }
     const h = detectarHeader(celdas);
-    if (h) { col = h; vistoHeader = true; continue; }
+    if (h) { col = h; vistoHeader = true; numEsLinea = h.num >= 0 && /^l[ií]nea/.test(normalizar(celdas[h.num] || '')); continue; }
     if (!col) continue; // fuera de una tabla de cotización (p.ej. tablas de puntajes de evaluación)
 
     const desc = limpiarCelda(celdas[col.desc] || '');
@@ -1425,10 +1428,17 @@ function parsearTablasHtml(doc: DocTexto): PlanillaParseResult | null {
   // criterios y el presupuesto referencial como «productos»). Entre 3 y 7 filas solo vale si es
   // inconfundiblemente un listado de compra: de un documento técnico o económico (no el omnibus),
   // correlativos 1..N seguidos y TODAS las filas con cantidad.
-  if (items.length < 8 && !esTablaChicaDeCompra(items, doc)) return null;
+  const chica = items.length < 8;
+  if (chica && !esTablaChicaDeCompra(items, doc)) return null;
   // Gate de cotización: una planilla real trae CANTIDADES (evita colar tablas de texto).
   const conCantidad = items.filter(i => i.cantidad != null && i.cantidad > 0).length;
   if (conCantidad < Math.max(3, Math.ceil(items.length * 0.25))) return null;
+  // «LÍNEA | DETALLE | CANTIDAD»: cada fila es una línea de la licitación (2410-21-LE26, adjudicación por línea).
+  if (chica && numEsLinea) {
+    const conLinea = items.map(i => ({ ...i, linea: i.numero as number }));
+    return { estructura: 'por_linea', lineas: conLinea.map(i => i.linea), categorias: [], items: conLinea, numeracion: 'indefinida', fuenteDoc: doc.nombre, tablaChica: true };
+  }
+  if (chica) return { estructura: 'plana', lineas: [1], categorias: [], items, numeracion: analizarNumeracion(items), fuenteDoc: doc.nombre, tablaChica: true };
 
   return { estructura: 'plana', lineas: [1], categorias: [], items, numeracion: analizarNumeracion(items), fuenteDoc: doc.nombre };
 }
