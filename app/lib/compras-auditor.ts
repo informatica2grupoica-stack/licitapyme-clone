@@ -326,6 +326,10 @@ export async function actualizarCotizacion(
 
   const plazoEntregaDias = parsearDiasDeTexto(datos.plazoEntregaTexto);
 
+  // Precio de cabecera ANTES de editar: los productos asignados que tenían ESE precio (cotización de un solo precio) lo siguen (ver más abajo).
+  const [[previo]]: any = await pool.query(`SELECT precio_unitario_clp FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cotizacionId, negocioId]);
+  const precioCabeceraPrevio = previo?.precio_unitario_clp != null ? Number(previo.precio_unitario_clp) : null;
+
   await pool.query(
     `UPDATE compras_cotizacion SET
        proveedor_id = ?, proveedor_nombre = ?, proveedor_rut = ?, descripcion_libre = ?,
@@ -344,6 +348,14 @@ export async function actualizarCotizacion(
   );
 
   await guardarDespacho(cotizacionId, datos);
+
+  // «Edité el precio y no se refleja» (#305, despachos de camas $84.034 → $84.123): el precio de cada producto asignado vive aparte (compras_cotizacion_item)
+  // y esta edición no lo tocaba. Si el producto tenía EXACTAMENTE el precio de cabecera de antes (cotización de un solo precio), ahora lo sigue.
+  // Los productos con precio propio (cotizaciones de varias líneas) no se mueven: su precio se corrige con «Editar adicionales / precio del producto».
+  if (precioUnitarioClp != null && precioCabeceraPrevio != null && Math.abs(precioUnitarioClp - precioCabeceraPrevio) >= 0.5) {
+    const [r]: any = await pool.query(`UPDATE compras_cotizacion_item SET precio_base = ? WHERE cotizacion_id = ? AND ABS(precio_base - ?) < 0.5`, [precioUnitarioClp, cotizacionId, precioCabeceraPrevio]);
+    if (Number(r?.affectedRows || 0) > 0) await recalcularPreciosDeCotizacion(cotizacionId);   // vuelve a sumar los adicionales sobre el base nuevo
+  }
 
   // Un precio o proveedor editado puede cambiar lo que ya se había aprobado a comprar — mismo
   // criterio que elegir un escenario distinto (§10.5): la aprobación vieja queda sobre un número

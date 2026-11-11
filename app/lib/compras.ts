@@ -360,8 +360,13 @@ export async function construirResumenEjecutivoCompras(
   // vigente en checklist_comercial_costeo, pero el Resumen Ejecutivo seguía diciendo "sin costeo"
   // y sin margen previsto, que es justo el número del que depende la Compuerta 2 (§10.3, piso del
   // 20%). Si el paquete no lo trae, se busca AHORA en la fuente viva.
+  // 11-nov-2026 (1004823-11-LE26, negocio 1382): el Resumen mostraba $36.646.234 de «Monto costeado»
+  // (v6 de 16-oct, las 3 líneas del llamado, congelada al postular) cuando el costeo vigente (v7,
+  // solo la línea ofertada) valía $19.915.714: el paquete mandaba aunque el costeo se hubiera editado
+  // después (permiso costeo_editar_postulado). Ahora manda SIEMPRE el vigente; el congelado queda
+  // solo de respaldo si no hay ninguno vivo.
   let costeo = base.costeo;
-  if (!costeo) {
+  {
     try {
       const [rows] = await pool.query(
         `SELECT version, archivo_nombre, total_costo_neto, total_precio_neto

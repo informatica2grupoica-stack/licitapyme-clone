@@ -4,7 +4,7 @@
 //   1. Recomendadas: pocas (todo a un proveedor, más barata, más rápida, equilibrada), cada una con su razón; «Usar esta» las marca en la matriz.
 //   2. Tu compra: lo que vas eligiendo en la matriz, con su costo, plazo, viajes y avisos; «Elegir esta compra» la deja para aprobación.
 //   3. Compra elegida → costeo: la compra elegida se carga al costeo («Costo unit. REAL» de cada línea) con un clic y a la vista.
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { ModalCombinacion, type Comb, type ItemComb } from './CombinacionesCompra';
 import { IconCircleCheck as CheckCircle2, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconTruck as Truck, IconClock as Clock, IconUsers as Users, IconArrowRight as Arrow, IconScale as Scale } from '@tabler/icons-react';
@@ -12,7 +12,7 @@ import { IconCircleCheck as CheckCircle2, IconLoader2 as Loader2, IconAlertTrian
 export type { Comb, ItemComb };
 export interface Recomendada { comb: Comb; etiquetas: string[] }
 export interface EvaluacionCompra { combinacion: Comb | null; faltan: Array<{ productoId: number; descripcion: string }>; sinOferta: Array<{ productoId: number; descripcion: string }>; errores: string[] }
-interface LineaTraslado { productoId: number; descripcion: string; proveedor: string; costoNeto: number; incluido: boolean; anterior: number | null; estado: 'CARGA' | 'IGUAL' | 'SIN_FILA' | 'SIN_LINK' }
+interface LineaTraslado { productoId: number; descripcion: string; proveedor: string; costoNeto: number; incluido: boolean; anterior: number | null; estado: 'CARGA' | 'IGUAL' | 'SIN_FILA' | 'SIN_LINK'; nota?: string | null }
 
 const clp = (n: number | null | undefined) => (n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n));
 const RAZON: Record<string, { t: string; c: string }> = {
@@ -165,13 +165,14 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
                   const resto = comb.costoTotal - sumaGrupos;
                   return (
                     <div className="space-y-2" data-testid="tu-compra-por-proveedor">
+                      <p className="text-[11.5px] text-zinc-400 px-1">Toca un proveedor para ver el detalle de lo que se le compra.</p>
                       {lista.map(g => (
-                        <section key={g.proveedor} className="rounded-lg border border-zinc-200 bg-white" data-testid={`tu-compra-proveedor-${g.proveedor}`}>
-                          <header className="flex items-baseline justify-between gap-3 px-3 py-1.5 bg-zinc-50 border-b border-zinc-200 rounded-t-lg">
-                            <p className="text-[13px] font-bold text-zinc-900 truncate">{g.proveedor}
+                        <details key={g.proveedor} className="group rounded-lg border border-zinc-200 bg-white [&[open]>summary]:border-b" data-testid={`tu-compra-proveedor-${g.proveedor}`}>
+                          <summary className="flex cursor-pointer list-none items-baseline justify-between gap-3 px-3 py-2 bg-zinc-50 border-zinc-200 rounded-lg group-open:rounded-b-none hover:bg-zinc-100 [&::-webkit-details-marker]:hidden">
+                            <p className="text-[13px] font-bold text-zinc-900 truncate"><span className="mr-1.5 inline-block text-zinc-400 transition-transform group-open:rotate-90" aria-hidden>▸</span>{g.proveedor}
                               <span className="ml-2 text-[11.5px] font-normal text-zinc-500">{g.items.filter(i => !i.esServicio).length} producto{g.items.filter(i => !i.esServicio).length === 1 ? '' : 's'}</span></p>
                             <p className="text-[13px] font-bold text-zinc-900 tabular-nums whitespace-nowrap"><span className="mr-1.5 text-[11px] font-normal text-zinc-500">Total a este proveedor</span>{clp(g.total)}</p>
-                          </header>
+                          </summary>
                           <ul className="px-3 py-1.5 text-[12.5px] text-zinc-700 divide-y divide-zinc-100">
                             {[...g.items].sort((a, b) => Number(!!a.esServicio) - Number(!!b.esServicio)).map(i => {
                               const r = rapidas[i.productoId];
@@ -206,7 +207,7 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
                               </li>
                             )}
                           </ul>
-                        </section>
+                        </details>
                       ))}
                       {Math.abs(resto) >= 1 && (
                         <p className="text-[11.5px] text-zinc-500 px-1">Otros costos de la compra (fletes por viaje u otros ajustes) que no son de un proveedor en particular: {clp(resto)}.</p>
@@ -299,7 +300,8 @@ export function CargarCompraAlCosteo({ negocioId, proveedores, costoTotal, refre
                 <thead><tr className="text-left text-zinc-400 text-[11px] uppercase"><th className="py-1 pr-3">Producto</th><th className="py-1 pr-3">Proveedor</th><th className="py-1 pr-3">Hoy en el costeo</th><th className="py-1 pr-3">Se carga</th><th className="py-1">Estado</th></tr></thead>
                 <tbody>
                   {plan.lineas.map(l => (
-                    <tr key={l.productoId} className="border-t border-zinc-100">
+                    <Fragment key={l.productoId}>
+                    <tr className="border-t border-zinc-100">
                       <td className="py-1.5 pr-3 max-w-[260px] truncate" title={l.descripcion}>{l.descripcion}</td>
                       <td className="py-1.5 pr-3">{l.proveedor}</td>
                       <td className="py-1.5 pr-3 text-zinc-500">{l.anterior != null ? clp(l.anterior) : 'vacío'}</td>
@@ -311,6 +313,8 @@ export function CargarCompraAlCosteo({ negocioId, proveedores, costoTotal, refre
                         {l.estado === 'SIN_LINK' && <span className="text-amber-700">falta el respaldo (archivo de la cotización)</span>}
                       </td>
                     </tr>
+                    {l.nota && <tr><td colSpan={5} className="pb-1.5 text-[11.5px] text-amber-800">↳ {l.nota}</td></tr>}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>

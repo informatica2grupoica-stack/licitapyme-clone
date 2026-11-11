@@ -27,6 +27,10 @@ export interface LineaTraslado {
   anterior: number | null;
   filaId: string | null; link: string | null;
   estado: EstadoTraslado;
+  /** Cantidad que se vende (la del costeo, intocable) y la que se compra, cuando Compras la cambió a mano. */
+  cantidadVendida?: number | null; cantidadComprada?: number | null;
+  /** Cómo se calculó el costo cuando se compra distinto de lo vendido (sobrante a stock, faltante desde stock). */
+  nota?: string | null;
 }
 
 export interface PlanTraslado { hayCompraElegida: boolean; lineas: LineaTraslado[]; aviso: string | null }
@@ -76,7 +80,30 @@ export async function planTrasladoCompraAlCosteo(negocioId: number): Promise<Pla
     const linea = lineas.find(l => prod.correlativo != null && l.lineaReal === prod.correlativo && lineas.filter(y => y.lineaReal === prod.correlativo).length === 1)
       ?? lineas.find(l => norm(l.detalle) === norm(String(prod.descripcion)));
     const link = linea?.links?.[0] ?? (esLinkDeProducto(cot.archivoUrl) ? cot.archivoUrl : null);
-    const costoNeto = Math.round(sel.precio + extraPorUnidad);
+    let costoNeto = Math.round(sel.precio + extraPorUnidad);
+    // Se COMPRA una cantidad distinta de la que se VENDE (migration-179; 2736-44-LE26: zinc 5V compran 10 de 50 «complementamos con stock», zinc acanalado
+    // compran 170 de 50). El costeo no cambia su cantidad (cambiaría la oferta), y su «Costo total REAL» es costo unitario × cantidad vendida: por eso el
+    // costo unitario que se carga es el costo por UNIDAD VENDIDA.
+    //   · se compra de MÁS: el sobrante va a stock, no es costo de esta venta → el costo por unidad es el de lo comprado;
+    //   · se compra de MENOS: el faltante sale de stock, valorado a lo costeado → promedio ponderado.
+    const vendida = prod.cantidadMotivo != null ? (prod.cantidadCosteo ?? linea?.cantidad ?? null) : null;
+    const comprada = prod.cantidad != null && prod.cantidad > 0 ? prod.cantidad : null;
+    let nota: string | null = null;
+    const f$ = (n: number) => '$' + Math.round(n).toLocaleString('es-CL');
+    if (vendida != null && vendida > 0 && comprada != null && Math.abs(comprada - vendida) > 1e-6) {
+      if (comprada > vendida) {
+        const sobra = comprada - vendida;
+        nota = `Se compran ${comprada} y se venden ${vendida}: el costo es el de las ${vendida} que se entregan (${f$(costoNeto)} c/u). Las ${sobra} que sobran (${f$(sobra * costoNeto)}) quedan en stock y no se cargan a esta venta.`;
+      } else {
+        const falta = vendida - comprada;
+        const costoStock = linea?.costoEstimadoNeto ?? null;
+        if (costoStock != null) {
+          const ponderado = Math.round((comprada * costoNeto + falta * costoStock) / vendida);
+          nota = `Se compran ${comprada} de ${vendida}: faltan ${falta} que salen de stock, valoradas a lo costeado (${f$(costoStock)} c/u). Costo por unidad vendida = (${comprada} × ${f$(costoNeto)} + ${falta} × ${f$(costoStock)}) ÷ ${vendida} = ${f$(ponderado)}.`;
+          costoNeto = ponderado;
+        } else nota = `Se compran ${comprada} de ${vendida}: faltan ${falta} de stock, pero la fila no tiene costo costeado para valorarlas; se cargó el precio de lo comprado.`;
+      }
+    }
     const incluido = item.precioBase === 0 && suyas.length === 0;
     const anterior = linea?.costoRealUnitario ?? null;
     out.push({
@@ -84,6 +111,7 @@ export async function planTrasladoCompraAlCosteo(negocioId: number): Promise<Pla
       proveedor: [cot.proveedorNombre, ...suyas.map(x => x.sel!.cot.proveedorNombre)].filter((v, i, a) => a.indexOf(v) === i).join(' + '),
       cotizacionId: cot.id, costoNeto, incluido, anterior,
       filaId: linea?.id ?? null, link: link ?? null,
+      cantidadVendida: vendida, cantidadComprada: comprada, nota,
       estado: !linea ? 'SIN_FILA' : !link ? 'SIN_LINK' : anterior === costoNeto ? 'IGUAL' : 'CARGA',
     });
   }
