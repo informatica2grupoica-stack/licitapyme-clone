@@ -46,8 +46,11 @@ export async function GET(req: NextRequest) {
   const [rows] = await pool.query(
     `SELECT id, nombre, email, rol, activo, ultimo_login, permisos FROM usuarios WHERE cliente_id = ? AND COALESCE(es_superadmin, 0) = 0 ORDER BY activo DESC, id`,
     [u.clienteId]) as any;
-  const personas = (rows as any[]).map(r => ({ id: r.id, nombre: r.nombre, email: r.email, rol: r.rol, activo: r.activo, ultimo_login: r.ultimo_login, permisos: leerPermisos(r.permisos) }));
   const admin = u.rol === 'admin';
+  // Solo el admin ve correo, último ingreso y permisos de cada persona; el resto de la empresa ve nombre y rol (QA de seguridad, 11-nov-2026).
+  const personas = (rows as any[]).map(r => admin
+    ? { id: r.id, nombre: r.nombre, email: r.email, rol: r.rol, activo: r.activo, ultimo_login: r.ultimo_login, permisos: leerPermisos(r.permisos) }
+    : { id: r.id, nombre: r.nombre, rol: r.rol, activo: r.activo });
   return NextResponse.json({
     success: true, personas, maxUsuarios: ficha.maxUsuarios, puedeAdministrar: admin, yo: u.id,
     // Solo el admin necesita el catálogo y los perfiles (para dibujar el editor).

@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionFromRequest } from '@/app/lib/auth-edge';
 import { estadoVigente } from '@/app/lib/rol-vigente';
+import { sesionRevocada } from '@/app/lib/sesiones-revocadas';
 import { fichaCliente, negocioEsDeCliente } from '@/app/lib/tenant';
 import { rutaPermitida, moduloDeRuta } from '@/app/lib/modulos';
 
@@ -88,6 +89,14 @@ export async function proxy(request: NextRequest) {
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('returnUrl', pathname);
     return NextResponse.redirect(loginUrl);
+  }
+
+  // Sesión cerrada (logout): el token todavía no vence, pero ya no vale.
+  if (await sesionRevocada(usuario.jti)) {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Sesión cerrada. Inicia sesión para continuar.', code: 'UNAUTHENTICATED' }, { status: 401 });
+    }
+    return NextResponse.redirect(new URL('/login', request.url));
   }
 
   // El rol del JWT puede estar viejo (7 días): se toma el vigente de la BD.

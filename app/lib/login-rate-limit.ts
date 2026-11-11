@@ -3,8 +3,10 @@
 // migration-36). NO depende de Redis/Upstash → funciona igual en Vercel y en el
 // notebook/Docker sin infraestructura extra.
 //
-// Dos umbrales, ambos sobre intentos FALLIDOS dentro de una ventana:
-//   · por EMAIL → frena el ataque contra UNA cuenta (probar muchas passwords).
+// Tres umbrales, todos sobre intentos FALLIDOS dentro de una ventana:
+//   · por EMAIL + IP → frena a QUIEN está probando passwords contra UNA cuenta. Es el límite fino (5): bloquea a esa IP para esa
+//     cuenta, pero NO al dueño de la cuenta que entra desde otro lugar (antes bastaba escribir 5 veces mal el correo ajeno para dejarlo fuera).
+//   · por EMAIL (todas las IP) → red de seguridad contra un ataque repartido entre muchas IP. Es alto (20) a propósito.
 //   · por IP    → frena el "password spraying" (1 password contra muchos emails).
 //
 // Filosofía del proyecto: fail-open ante error de infraestructura. Si la tabla no
@@ -15,7 +17,8 @@ import { type NextRequest } from 'next/server';
 import pool from '@/app/lib/db';
 
 const VENTANA_MIN   = 15;  // ventana de conteo, en minutos
-const MAX_POR_EMAIL = 5;   // fallidos por email en la ventana → bloqueo de esa cuenta
+const MAX_POR_PAR   = 5;   // fallidos del MISMO email desde la MISMA IP → bloqueo de esa IP para esa cuenta
+const MAX_POR_EMAIL = 20;  // fallidos del email sumando todas las IP → bloqueo de la cuenta (ataque distribuido)
 const MAX_POR_IP    = 30;  // fallidos por IP en la ventana → bloqueo de esa IP (spraying)
 
 /** IP del cliente. Cubre Vercel (x-forwarded-for), Cloudflare Tunnel (cf-connecting-ip)
@@ -41,15 +44,18 @@ export async function estaBloqueado(email: string, ip: string): Promise<EstadoBl
   try {
     const [rows] = await pool.query(
       `SELECT
+         SUM(email = ? AND ip = ? AND exito = 0) AS fails_par,
          SUM(email = ? AND exito = 0) AS fails_email,
          SUM(ip = ?    AND exito = 0) AS fails_ip
        FROM login_intentos
        WHERE creado_en > (NOW() - INTERVAL ? MINUTE)`,
-      [email, ip, VENTANA_MIN],
+      [email, ip, email, ip, VENTANA_MIN],
     );
     const r = (rows as any[])[0] || {};
+    const failsPar   = Number(r.fails_par || 0);
     const failsEmail = Number(r.fails_email || 0);
     const failsIp    = Number(r.fails_ip || 0);
+    if (failsPar   >= MAX_POR_PAR)   return { bloqueado: true, motivo: 'email', esperaMin: VENTANA_MIN };
     if (failsEmail >= MAX_POR_EMAIL) return { bloqueado: true, motivo: 'email', esperaMin: VENTANA_MIN };
     if (failsIp    >= MAX_POR_IP)    return { bloqueado: true, motivo: 'ip',    esperaMin: VENTANA_MIN };
     return { bloqueado: false, esperaMin: 0 };
@@ -71,8 +77,9 @@ export async function registrarIntento(email: string, ip: string, exito: boolean
       [email, ip, exito ? 1 : 0],
     );
     if (exito) {
+      // Solo los fallos de ESTA IP: los de otras IP (quizá un atacante) no se borran porque el dueño entró.
       await pool.query(
-        `DELETE FROM login_intentos WHERE email = ? AND exito = 0`, [email],
+        `DELETE FROM login_intentos WHERE email = ? AND ip = ? AND exito = 0`, [email, ip],
       );
     }
     // Auto-limpieza: quita lo más viejo que la ventana (mantiene la tabla pequeña).

@@ -38,6 +38,7 @@ export async function crearToken(usuario: UsuarioSession): Promise<string> {
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
+    .setJti(crypto.randomUUID())
     .setExpirationTime(`${EXPIRY_SECONDS}s`)
     .sign(getSecret());
 }

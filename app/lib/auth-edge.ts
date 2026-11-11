@@ -14,6 +14,8 @@ export interface UsuarioSession {
   rol: 'admin' | 'usuario' | 'externo';
   /** Empresa-cliente (1 = Grupo ICA). Del JWT es solo una pista: la fuente de verdad es estadoVigente(). */
   clienteId?: number;
+  /** Identificador de ESTA sesión (para poder cerrarla de verdad). Tokens viejos no lo traen. */
+  jti?: string;
 }
 
 export interface TokenPayload extends JWTPayload {
@@ -61,5 +63,6 @@ export async function getSessionFromRequest(req: NextRequest): Promise<UsuarioSe
     empresa: payload.empresa,
     rol:     payload.rol,
     clienteId: payload.clienteId,
+    jti: payload.jti,
   };
 }

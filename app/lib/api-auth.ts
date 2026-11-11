@@ -10,6 +10,7 @@ import { type NextRequest } from 'next/server';
 import { getSessionFromRequest, type UsuarioSession } from '@/app/lib/auth-edge';
 import pool from '@/app/lib/db';
 import { estadoVigente } from '@/app/lib/rol-vigente';
+import { sesionRevocada } from '@/app/lib/sesiones-revocadas';
 import { fichaCliente } from '@/app/lib/tenant';
 import { permisosPermitidos } from '@/app/lib/modulos';
 
@@ -17,6 +18,7 @@ import { permisosPermitidos } from '@/app/lib/modulos';
 export async function getAuthedUser(req: NextRequest): Promise<UsuarioSession | null> {
   const u = await getSessionFromRequest(req);
   if (!u) return null;
+  if (await sesionRevocada(u.jti)) return null; // sesión cerrada con «Salir»
   const v = await estadoVigente(u.id, u.rol, u.clienteId);
   if (!v.activo) return null; // cuenta desactivada: el JWT viejo ya no vale
   return { ...u, rol: v.rol, clienteId: v.clienteId };

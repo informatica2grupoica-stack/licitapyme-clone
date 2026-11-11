@@ -19,9 +19,9 @@ import { useRealtime } from '@/app/lib/use-realtime';
 import { fechaHoraParaExcel, hojaDeFilas } from '@/app/lib/exportar-fechas';
 import { GanttComprasCard } from '@/app/negocios/[id]/GanttComprasCard';
 import type { FaseTarea, HitosGantt as HitosPlan } from '@/app/lib/compras-plan';
-import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconBuilding as Building2, IconArrowUpRight as ArrowUpRight, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconUsers as Users, IconArrowsUpDown as ArrowUpDown, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconUserPlus as UserPlus, IconCircleCheck as CheckCircle2, IconChartBar as BarChart3, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconChevronsLeft as ChevronsLeft, IconChevronsRight as ChevronsRight, IconList as List, IconPackage as PackageCheck, IconCircleX as XCircle, IconArchive as Archive, IconArrowBackUp as Undo2, IconPencil as Pencil, IconTimeline as GanttChart, IconChartLine as LineChart, IconZoomIn as ZoomIn, IconZoomOut as ZoomOut, IconDiamond as Diamond, IconCalendarClock as CalendarClock, IconDownload as Download } from '@tabler/icons-react';
+import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconBuilding as Building2, IconArrowUpRight as ArrowUpRight, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconUsers as Users, IconArrowsUpDown as ArrowUpDown, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconUserPlus as UserPlus, IconCircleCheck as CheckCircle2, IconChartBar as BarChart3, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconChevronsLeft as ChevronsLeft, IconChevronsRight as ChevronsRight, IconList as List, IconPackage as PackageCheck, IconCircleX as XCircle, IconArrowBackUp as Undo2, IconPencil as Pencil, IconTimeline as GanttChart, IconChartLine as LineChart, IconZoomIn as ZoomIn, IconZoomOut as ZoomOut, IconDiamond as Diamond, IconCalendarClock as CalendarClock, IconDownload as Download } from '@tabler/icons-react';
 
-type CierreLegado = 'ENTREGADA' | 'NO_REALIZADA' | 'PRECOMPRA_SIN_ADJUDICAR';
+type CierreLegado = 'ENTREGADA' | 'NO_REALIZADA' | 'PRECOMPRA_SIN_ADJUDICAR' | 'OC_CANCELADA';
 type EstadoTareaGantt = 'PENDIENTE' | 'EN_CURSO' | 'HECHA';
 
 interface TareaGantt {
@@ -53,6 +53,10 @@ interface ComprasFila {
 interface Candidato { id: number; nombre: string | null; carga: number }
 
 const SS_COMPRAS_FILTROS = 'compras:filtros:v1';
+// Pestañas de Compras (11-nov-2026): abierta = sin marca de cierre; cerrada = entregada; cancelada = OC cancelada por el organismo o no realizada.
+type EstadoCompra = 'abiertas' | 'cerradas' | 'canceladas' | 'todas';
+const estadoDeCompra = (f: { cierreLegado: CierreLegado | null }): Exclude<EstadoCompra, 'todas'> =>
+  !f.cierreLegado ? 'abiertas' : f.cierreLegado === 'OC_CANCELADA' || f.cierreLegado === 'NO_REALIZADA' ? 'canceladas' : 'cerradas';
 
 // "Urgente" = Cadena de Urgencia (§3.7/§15.2): el plazo de entrega OFERTADO es menor a 3 días —
 // no es una cuenta regresiva desde hoy, es que el compromiso mismo era muy corto. Un solo texto
@@ -169,7 +173,7 @@ function AccionesCierreLegado({ f, onCambio }: { f: ComprasFila; onCambio: () =>
           f.cierreLegado === 'ENTREGADA' ? 'text-emerald-700' : 'text-zinc-500'
         }`}>
           {f.cierreLegado === 'ENTREGADA' ? <PackageCheck size={11} /> : <XCircle size={11} />}
-          {f.cierreLegado === 'ENTREGADA' ? 'Entregada (histórico)' : f.cierreLegado === 'PRECOMPRA_SIN_ADJUDICAR' ? 'Pre-compra sin adjudicar' : 'No realizada (histórico)'}
+          {f.cierreLegado === 'ENTREGADA' ? 'Cerrada (entregada)' : f.cierreLegado === 'PRECOMPRA_SIN_ADJUDICAR' ? 'Pre-compra sin adjudicar' : f.cierreLegado === 'OC_CANCELADA' ? 'Cancelada (OC cancelada)' : 'Cancelada (no realizada)'}
         </span>
         <button onClick={deshacer} disabled={cargando} title="Deshacer"
           className="text-zinc-400 hover:text-zinc-600 disabled:opacity-50"><Undo2 size={13} /></button>
@@ -394,7 +398,7 @@ function TarjetaDiaCompras({ f, compacta = false }: { f: ComprasFila; compacta?:
             f.cierreLegado === 'ENTREGADA' ? 'text-emerald-700' : 'text-zinc-500'
           }`}>
             {f.cierreLegado === 'ENTREGADA' ? <PackageCheck size={8} /> : <XCircle size={8} />}
-            {f.cierreLegado === 'ENTREGADA' ? 'Entregada' : 'No realizada'}
+            {f.cierreLegado === 'ENTREGADA' ? 'Cerrada' : 'Cancelada'}
           </span>
         ) : f.urgente ? (
           <span title={explicacionUrgente(f)}
@@ -703,6 +707,7 @@ function mk(texto: string, clase: string) {
 function estadoEntregaGantt(f: ComprasFila, h: HitosGantt): { texto: string; clase: string; texto_clase: string; punto: string } {
   if (f.cierreLegado === 'ENTREGADA') return mk('Entregada', 'bg-emerald-50 text-emerald-700 border-emerald-200');
   if (f.cierreLegado === 'NO_REALIZADA') return mk('No realizada', 'bg-zinc-100 text-zinc-500 border-zinc-200');
+  if (f.cierreLegado === 'OC_CANCELADA') return mk('OC cancelada', 'bg-rose-50 text-rose-700 border-rose-200');
   if (f.cierreLegado === 'PRECOMPRA_SIN_ADJUDICAR') return mk('Pre-compra sin adjudicar', 'bg-zinc-100 text-zinc-500 border-zinc-200');
   if (f.precompra) return mk('Pre-compra (sin adjudicar aún)', 'bg-slate-50 text-slate-700 border-slate-200');
   if (h.porValidar) return mk('Inicio del plazo por validar', 'bg-zinc-100 text-zinc-600 border-zinc-200');
@@ -1284,7 +1289,7 @@ export default function ComprasPage() {
   const [soloTareasVencidas, setSoloTareasVencidas] = useState(false);
   const [soloUrgentes, setSoloUrgentes] = useState(false);
   const [soloSinAsignar, setSoloSinAsignar] = useState(false);
-  const [verCerradas, setVerCerradas] = useState(false);
+  const [estado, setEstado] = useState<EstadoCompra>('abiertas');
   const toast = useToast();
   const [exportando, setExportando] = useState(false);
   // Pestaña: ganadas en firme o pre-compras (POSIBLE ADJ, sin adjudicación firme).
@@ -1317,7 +1322,7 @@ export default function ComprasPage() {
         if (typeof f.soloTareasVencidas === 'boolean') setSoloTareasVencidas(f.soloTareasVencidas);
         if (typeof f.soloUrgentes === 'boolean') setSoloUrgentes(f.soloUrgentes);
         if (typeof f.soloSinAsignar === 'boolean') setSoloSinAsignar(f.soloSinAsignar);
-        if (typeof f.verCerradas === 'boolean') setVerCerradas(f.verCerradas);
+        if (f.estado === 'abiertas' || f.estado === 'cerradas' || f.estado === 'canceladas' || f.estado === 'todas') setEstado(f.estado);
         if (typeof f.fechaDesde === 'string') setFechaDesde(f.fechaDesde);
         if (typeof f.fechaHasta === 'string') setFechaHasta(f.fechaHasta);
         if (f.orden === 'reciente' || f.orden === 'antiguo' || f.orden === 'monto_desc' || f.orden === 'monto_asc') setOrden(f.orden);
@@ -1335,14 +1340,18 @@ export default function ComprasPage() {
     try {
       sessionStorage.setItem(SS_COMPRAS_FILTROS, JSON.stringify({
         q, fAsignado, fOrganismo, fRegion, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
-        soloUrgentes, soloSinAsignar, verCerradas, fechaDesde, fechaHasta, orden, vista, mesesVista, ambito,
+        soloUrgentes, soloSinAsignar, estado, fechaDesde, fechaHasta, orden, vista, mesesVista, ambito,
       }));
     } catch { /* cuota llena */ }
   }, [hidratado, q, fAsignado, fOrganismo, fRegion, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
-      soloUrgentes, soloSinAsignar, verCerradas, fechaDesde, fechaHasta, orden, vista, mesesVista, ambito]);
+      soloUrgentes, soloSinAsignar, estado, fechaDesde, fechaHasta, orden, vista, mesesVista, ambito]);
 
-  const cerradasCount = useMemo(() => negocios.filter(f => f.cierreLegado).length, [negocios]);
-  const nGanadas = useMemo(() => negocios.filter(f => !f.precompra && !f.cierreLegado).length, [negocios]);
+  const nPorEstado = useMemo(() => {
+    const n = { abiertas: 0, cerradas: 0, canceladas: 0, todas: 0 };
+    for (const f of negocios) { if (f.precompra) continue; n[estadoDeCompra(f)]++; n.todas++; }
+    return n;
+  }, [negocios]);
+  const nGanadas = nPorEstado.abiertas;
   const nPrecompras = useMemo(() => negocios.filter(f => f.precompra && !f.cierreLegado).length, [negocios]);
   const hayFiltro = fAsignado.length > 0 || fOrganismo.length > 0 || fRegion.length > 0 || fPostulador.length > 0 || fOC !== 'todos'
     || !!montoMin || !!montoMax || !!plazoMin || !!plazoMax || soloTareasVencidas
@@ -1443,9 +1452,9 @@ export default function ComprasPage() {
       if (soloTareasVencidas && f.tareasVencidas <= 0) return false;
       if (soloUrgentes && !f.urgente) return false;
       if (soloSinAsignar && f.asignadoA != null) return false;
-      // El backlog histórico (marcado entregada/no realizada) no compite con el trabajo activo —
-      // queda oculto salvo que se pida explícitamente con "Ver cerradas".
-      if (!verCerradas && f.cierreLegado) return false;
+      // Pestañas Abiertas / Cerradas / Canceladas / Todas (11-nov-2026): lo cerrado o cancelado no compite con el trabajo activo.
+      if (ambito === 'precompras') { if (f.cierreLegado) return false; }
+      else if (estado !== 'todas' && estadoDeCompra(f) !== estado) return false;
       const dia = f.ganadoAt.slice(0, 10);
       if (fechaDesde && dia < fechaDesde) return false;
       if (fechaHasta && dia > fechaHasta) return false;
@@ -1464,7 +1473,7 @@ export default function ComprasPage() {
     arr.sort((a, b) => Number(b.urgente) - Number(a.urgente));
     return arr;
   }, [negocios, q, fAsignado, fOrganismo, fRegion, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
-      soloUrgentes, soloSinAsignar, verCerradas, fechaDesde, fechaHasta, orden, ambito]);
+      soloUrgentes, soloSinAsignar, estado, fechaDesde, fechaHasta, orden, ambito]);
   // Exporta la MISMA lista que se ve (filtros + pestaña Ganadas/Pre-compras), una fila por negocio.
   const exportarExcel = async () => {
     if (exportando) return;
@@ -1487,7 +1496,7 @@ export default function ComprasPage() {
         'Tareas hechas': f.tareasHechas,
         'Tareas totales': f.tareasTotal,
         'Tareas vencidas': f.tareasVencidas,
-        'Cierre': f.cierreLegado === 'ENTREGADA' ? 'Entregada' : f.cierreLegado === 'NO_REALIZADA' ? 'No realizada' : '',
+        'Cierre': f.cierreLegado === 'ENTREGADA' ? 'Cerrada' : f.cierreLegado ? 'Cancelada' : 'Abierta',
       }));
       const ws = hojaDeFilas(XLSX, filas);
       ws['!cols'] = [{ wch: 18 }, { wch: 48 }, { wch: 30 }, { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 9 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 14 }];
@@ -1529,8 +1538,8 @@ export default function ComprasPage() {
               <h1 className="text-[16px] font-bold text-zinc-900 leading-tight">Compras</h1>
               <p className="text-[12px] text-zinc-500">
                 {negocios.length === 0 ? 'Sin negocios ganados todavía'
-                  : hayFiltro || q || (!verCerradas && cerradasCount > 0) ? `${filtrados.length} de ${negocios.length} negocio(s)`
-                  : `${nGanadas} negocio(s) ganado(s)${nPrecompras > 0 ? ` · ${nPrecompras} pre-compra(s)` : ''}`}
+                  : hayFiltro || q || estado !== 'abiertas' ? `${filtrados.length} negocio(s)`
+                  : `${nGanadas} negocio(s) abierto(s)${nPrecompras > 0 ? ` · ${nPrecompras} pre-compra(s)` : ''}`}
               </p>
             </div>
           </div>
@@ -1602,17 +1611,24 @@ export default function ComprasPage() {
         {!loading && negocios.length > 0 && (
           <div className="flex items-center gap-1 border-b border-zinc-200" role="tablist">
             {([
-              { key: 'ganadas', label: 'Ganadas', n: nGanadas, clase: 'border-teal-600 text-teal-700' },
+              { key: 'abiertas', label: 'Abiertas', n: nPorEstado.abiertas, clase: 'border-teal-600 text-teal-700' },
+              { key: 'cerradas', label: 'Cerradas', n: nPorEstado.cerradas, clase: 'border-emerald-600 text-emerald-700' },
+              { key: 'canceladas', label: 'Canceladas', n: nPorEstado.canceladas, clase: 'border-rose-600 text-rose-700' },
+              { key: 'todas', label: 'Todas', n: nPorEstado.todas, clase: 'border-zinc-700 text-zinc-800' },
               { key: 'precompras', label: 'Pre-compras (POSIBLE ADJ)', n: nPrecompras, clase: 'border-slate-600 text-slate-700' },
-            ] as const).map(t => (
-              <button key={t.key} role="tab" aria-selected={ambito === t.key} onClick={() => setAmbito(t.key)}
+            ] as const).map(t => {
+              const activa = t.key === 'precompras' ? ambito === 'precompras' : ambito === 'ganadas' && estado === t.key;
+              return (
+              <button key={t.key} role="tab" aria-selected={activa}
+                onClick={() => { if (t.key === 'precompras') setAmbito('precompras'); else { setAmbito('ganadas'); setEstado(t.key); } }}
                 className={`inline-flex items-center gap-2 text-[13px] font-semibold px-3.5 py-2 -mb-px border-b-2 transition-colors ${
-                  ambito === t.key ? t.clase : 'border-transparent text-zinc-500 hover:text-zinc-700'
+                  activa ? t.clase : 'border-transparent text-zinc-500 hover:text-zinc-700'
                 }`}>
                 {t.label}
                 <span className={`text-xs font-semibold tabular-nums`}>{t.n}</span>
               </button>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -1661,14 +1677,6 @@ export default function ComprasPage() {
               }`}>
               <Clock size={12} /> Sin asignar
             </button>
-            {cerradasCount > 0 && (
-              <button onClick={() => setVerCerradas(v => !v)}
-                className={`inline-flex items-center gap-1 text-[12px] font-semibold px-2.5 py-2 rounded-lg border transition-colors ${
-                  verCerradas ? 'text-zinc-700 bg-zinc-100 border-zinc-300' : 'text-zinc-500 bg-white border-zinc-200 hover:bg-zinc-50'
-                }`}>
-                <Archive size={12} /> {verCerradas ? 'Ocultar' : 'Ver'} cerradas ({cerradasCount})
-              </button>
-            )}
             <div className="flex items-center gap-1.5 border border-zinc-200 rounded-lg px-2.5 py-1">
               <Calendar size={13} className="text-zinc-400 flex-shrink-0" />
               <span className="text-[11px] font-semibold text-zinc-500">Ganado</span>

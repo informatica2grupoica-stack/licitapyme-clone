@@ -3,6 +3,11 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-11 — Compras con pestañas Abiertas / Cerradas / Canceladas / Todas; «Compras cerradas» sale del menú (`app/compras/page.tsx`, `AppLayout.tsx`; tsc ok; SIN ver en navegador ni desplegar)
+- Pedido del dueño: todo en /compras. Principal = abiertas; pestañas Cerradas y Canceladas + «Todas» (reemplaza el botón «Ver cerradas»). «Pre-compras» sigue como pestaña aparte.
+- Regla (`estadoDeCompra`): abierta = sin `cierre_legado`; cerrada = ENTREGADA; cancelada = OC_CANCELADA o NO_REALIZADA. El menú «Compras cerradas» se quitó y `/compras/cerradas` redirige a /compras (se perdió la vista con detalle de la OC cancelada y el botón «Reabrir» de esa página; en /compras queda el «deshacer» de cada fila).
+- Los Excel del dueño (Obuma «Proyectos Abiertos» = 30 abiertas/en proceso; Compras de Licitank 11-nov = 67 abiertas) cruzados por código: 24 coinciden (22 por código + 1043-8-LE26 y 5251-16-LE26 por monto). 43 de Licitank NO están en Obuma abiertas: 10 son ganadas desde el 15-oct (Obuma puede no haberlas creado), 8 no tienen OC, 25 son más viejas. APLICADO en producción (11-nov, OK del dueño): las 25 antiguas con OC (ganadas antes del 15-oct) quedaron ENTREGADA con nota «según Excel de Obuma»; respaldo y cómo deshacer en scripts/scratch/_cerrar-antiguas-obuma.mjs y _respaldo_cierre_antiguas_11nov.json. PENDIENTE: 18 dudosas siguen abiertas (10 ganadas desde el 15-oct y 8 sin OC): el dueño dirá cuáles son cierre, cancelación o abiertas.
+
 ## 2026-11-11 — «Monto costeado» del Resumen leía el paquete congelado, no el costeo vigente (1004823-11-LE26 = negocio 1382; `compras.ts` ~l.368; tsc ok; SIN desplegar ni ver en navegador)
 - Síntoma: Resumen decía $36.646.234 (v6 del costeo, 16-oct, las 3 líneas) y margen −46,9 %; el costeo vigente (v7, guardado 11-nov) vale $19.915.714 con venta $24.954.390 (solo gafas, línea 1 de las bases).
 - Causa: solo se consultaba el costeo vivo si el paquete congelado no traía costeo. Ahora manda SIEMPRE el vigente; el congelado queda de respaldo.

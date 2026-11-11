@@ -2,6 +2,7 @@
 // Retorna el usuario de la sesión actual (para el cliente)
 import { NextResponse, type NextRequest } from 'next/server';
 import { verificarToken, tokenDeRequest } from '@/app/lib/auth-edge';
+import { sesionRevocada } from '@/app/lib/sesiones-revocadas';
 import { permisosDeUsuario, esCA } from '@/app/lib/api-auth';
 import { estadoVigente } from '@/app/lib/rol-vigente';
 import { fichaCliente } from '@/app/lib/tenant';
@@ -40,6 +41,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ autenticado: false, usuario: null });
     }
     const payload = await verificarToken(token);
+    if (payload && (await sesionRevocada(payload.jti))) return NextResponse.json({ autenticado: false, usuario: null });
     if (!payload) {
       return NextResponse.json({ autenticado: false, usuario: null });
     }

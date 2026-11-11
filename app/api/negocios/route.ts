@@ -46,9 +46,11 @@ export async function GET(request: NextRequest) {
     let whereClause = 'WHERE n.cliente_id = ? AND n.activo = TRUE';
     const params: any[] = [clienteId];
 
-    if (verOtros && filtroUsuario) {
+    // Un valor que no es número (p. ej. «abc» o código malicioso) se ignora en vez de romper la consulta con un error 500.
+    const filtroId = filtroUsuario && /^[0-9]{1,10}$/.test(filtroUsuario) ? parseInt(filtroUsuario, 10) : null;
+    if (verOtros && filtroId) {
       whereClause += ' AND n.asignado_a = ?';
-      params.push(parseInt(filtroUsuario));
+      params.push(filtroId);
     } else if (!verOtros) {
       whereClause += ' AND n.asignado_a = ?';
       params.push(userId);
