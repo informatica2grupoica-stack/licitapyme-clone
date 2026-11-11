@@ -302,6 +302,14 @@ export async function esCA(userId: number): Promise<boolean> {
   return !!p.reglas_ia;
 }
 
+/** ¿Es el DUEÑO del sistema (superadmin)? Solo él puede cerrar o cancelar licitaciones a mano en Compras (decisión del dueño, 11-nov-2026). */
+export async function esDueno(userId: number): Promise<boolean> {
+  try {
+    const [rows] = await pool.query("SELECT es_superadmin FROM usuarios WHERE id = ? AND activo = 1 LIMIT 1", [userId]);
+    return Number((rows as any[])[0]?.es_superadmin) === 1;
+  } catch { return false; }
+}
+
 // ─── Lock distribuido + rate-limit (best-effort sobre Upstash Redis) ─────────────
 // Si Redis no está configurado (p.ej. notebook sin Upstash), TODO degrada a permitir:
 // nunca bloqueamos al usuario por falta de infraestructura opcional.

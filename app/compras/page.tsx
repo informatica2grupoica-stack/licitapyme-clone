@@ -173,7 +173,7 @@ function AccionesCierreLegado({ f, onCambio }: { f: ComprasFila; onCambio: () =>
           f.cierreLegado === 'ENTREGADA' ? 'text-emerald-700' : 'text-zinc-500'
         }`}>
           {f.cierreLegado === 'ENTREGADA' ? <PackageCheck size={11} /> : <XCircle size={11} />}
-          {f.cierreLegado === 'ENTREGADA' ? 'Cerrada (entregada)' : f.cierreLegado === 'PRECOMPRA_SIN_ADJUDICAR' ? 'Pre-compra sin adjudicar' : f.cierreLegado === 'OC_CANCELADA' ? 'Cancelada (OC cancelada)' : 'Cancelada (no realizada)'}
+          {f.cierreLegado === 'ENTREGADA' ? 'Licitación cerrada' : f.cierreLegado === 'PRECOMPRA_SIN_ADJUDICAR' ? 'Pre-compra sin adjudicar' : f.cierreLegado === 'OC_CANCELADA' ? 'Cancelada (OC cancelada)' : 'Cancelada (no realizada)'}
         </span>
         <button onClick={deshacer} disabled={cargando} title="Deshacer"
           className="text-zinc-400 hover:text-zinc-600 disabled:opacity-50"><Undo2 size={13} /></button>
@@ -193,14 +193,14 @@ function AccionesCierreLegado({ f, onCambio }: { f: ComprasFila; onCambio: () =>
   };
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-[10.5px] text-zinc-400 mr-0.5">Cerrar como:</span>
-      <button onClick={() => pedir('ENTREGADA')} disabled={cargando} title="Marca el negocio como entregado (cierre histórico). Se puede deshacer."
+      <span className="text-[10.5px] text-zinc-400 mr-0.5">Solo tú:</span>
+      <button onClick={() => pedir('ENTREGADA')} disabled={cargando} title="Cierra la licitación (queda en la pestaña Cerradas). Se puede deshacer."
         className={`inline-flex items-center gap-1 text-[11px] font-semibold disabled:opacity-50 px-2 py-1 rounded-lg transition-colors ${confirmar === 'ENTREGADA' ? 'text-white bg-emerald-600' : 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'}`}>
-        <PackageCheck size={11} /> {confirmar === 'ENTREGADA' ? '¿Confirmar entregada?' : 'Entregada'}
+        <PackageCheck size={11} /> {confirmar === 'ENTREGADA' ? '¿Confirmar cierre?' : 'Cerrar licitación'}
       </button>
-      <button onClick={() => pedir('NO_REALIZADA')} disabled={cargando} title="Marca el negocio como no realizado (cierre histórico). Se puede deshacer."
+      <button onClick={() => pedir('NO_REALIZADA')} disabled={cargando} title="Marca la licitación como cancelada (queda en la pestaña Canceladas). Se puede deshacer."
         className={`inline-flex items-center gap-1 text-[11px] font-semibold disabled:opacity-50 px-2 py-1 rounded-lg transition-colors ${confirmar === 'NO_REALIZADA' ? 'text-white bg-zinc-600' : 'text-zinc-500 bg-zinc-100 hover:bg-zinc-200'}`}>
-        <XCircle size={11} /> {confirmar === 'NO_REALIZADA' ? '¿Confirmar no realizada?' : 'No realizada'}
+        <XCircle size={11} /> {confirmar === 'NO_REALIZADA' ? '¿Confirmar cancelación?' : 'Licitación cancelada'}
       </button>
     </div>
   );
@@ -280,8 +280,8 @@ function PanelObumaCerrada({ o, negocioId }: { o: ObumaDeCerrada | undefined; ne
   );
 }
 
-function FilaCompras({ f, esJefeDeVentas, esAdmin, candidatos, onAsignado, ultimaUrgente, obuma }: {
-  f: ComprasFila; esJefeDeVentas: boolean; esAdmin: boolean; candidatos: Candidato[]; onAsignado: () => void; ultimaUrgente?: boolean; obuma?: ObumaDeCerrada;
+function FilaCompras({ f, esJefeDeVentas, esAdmin, puedeCerrar, candidatos, onAsignado, ultimaUrgente, obuma }: {
+  f: ComprasFila; esJefeDeVentas: boolean; esAdmin: boolean; puedeCerrar: boolean; candidatos: Candidato[]; onAsignado: () => void; ultimaUrgente?: boolean; obuma?: ObumaDeCerrada;
 }) {
   const toast = useToast();
   const [candidatoElegido, setCandidatoElegido] = useState('');
@@ -414,7 +414,7 @@ function FilaCompras({ f, esJefeDeVentas, esAdmin, candidatos, onAsignado, ultim
             )}
           </div>
         )}
-        {esJefeDeVentas && <AccionesCierreLegado f={f} onCambio={onAsignado} />}
+        {puedeCerrar && <AccionesCierreLegado f={f} onCambio={onAsignado} />}
       </div>
       {f.cierreLegado && !f.precompra && <div className="px-4 pb-3"><PanelObumaCerrada o={obuma} negocioId={f.negocioId} /></div>}
     </div>
@@ -1450,6 +1450,7 @@ export default function ComprasPage() {
   const puedeVer = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial
     || !!usuario?.permisos?.compras_administracion || !!usuario?.permisos?.compras_bodega || !!usuario?.permisos?.compras_ver || !!usuario?.permisos?.compras_auditor;
   const esJefeDeVentas = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.aprobar_comercial;
+  const puedeCerrar = !!usuario?.permisos?.cerrar_licitaciones;   // solo el dueño: cerrar o cancelar una licitación a mano
   // Pedido explícito del usuario, 15-sep-2026: CAMBIAR un encargado que ya tiene otro asignado
   // es solo de admin (el backend en /api/compras/[negocioId]/asignar/route.ts hace el mismo
   // corte) — la asignación inicial (negocio sin nadie encima todavía) la sigue haciendo el jefe
@@ -1862,7 +1863,7 @@ export default function ComprasPage() {
                     {f.urgente ? <><AlertTriangle size={12} /> Entrega rápida · {urgentes.length}</> : <>Resto de las licitaciones · {filtrados.length - urgentes.length}</>}
                   </p>
                 )}
-                <FilaCompras f={f} esJefeDeVentas={esJefeDeVentas} esAdmin={esAdmin} candidatos={candidatos} onAsignado={cargar} ultimaUrgente={f.negocioId === ultimaUrgente?.negocioId} obuma={obumaCierre?.[f.negocioId]} />
+                <FilaCompras f={f} esJefeDeVentas={esJefeDeVentas} esAdmin={esAdmin} puedeCerrar={puedeCerrar} candidatos={candidatos} onAsignado={cargar} ultimaUrgente={f.negocioId === ultimaUrgente?.negocioId} obuma={obumaCierre?.[f.negocioId]} />
               </Fragment>
             ))}
           </div>

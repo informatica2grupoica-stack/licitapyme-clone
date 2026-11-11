@@ -122,7 +122,7 @@ export function TecnicoDeCelda({ negocioId, productoId, proveedor, proveedorRut,
         <OpcionFila key={op.opcionId} o={op} cotizados={[proveedor]} puedeOperar={puedeOperar}
           onProveedor={async (x, prov) => { try { await post({ accion: 'proveedor', opcionId: x.opcionId, proveedor: prov || null }); } catch (e: any) { toast.error('No se pudo cambiar el proveedor', e.message); } }}
           onQuitar={async x => { try { await post({ accion: 'quitar_modelo', opcionId: x.opcionId }); } catch (e: any) { toast.error('No se pudo quitar', e.message); } }}
-          onQuitarFicha={async (x, url) => { try { await post({ accion: 'quitar_ficha', opcionId: x.opcionId, url }); toast.success('Ficha quitada', 'Si quedaron otras fichas de este modelo, vuelve a comparar.'); } catch (e: any) { toast.error('No se pudo quitar la ficha', e.message); } }}
+          onQuitarFicha={async (x, url) => { try { await post({ accion: 'quitar_ficha', opcionId: x.opcionId, url }); toast.success('Ficha quitada', 'Si quedaron otras fichas de este modelo, vuelve a comparar.', { label: 'Deshacer', onClick: () => { void post({ accion: 'restaurar_ficha', opcionId: x.opcionId, url }).catch((e: any) => toast.error('No se pudo restaurar la ficha', e.message)); } }); } catch (e: any) { toast.error('No se pudo quitar la ficha', e.message); } }}
           onComplementar={async (x, n, resultado, dato, fuente, adjunto) => { try { await enviarComplemento(negocioId, { opcionId: x.opcionId, n, resultado, dato, fuente, adjunto }); toast.success(resultado ? 'Complemento guardado' : 'Complemento quitado'); } catch (e: any) { toast.error('No se pudo guardar el complemento', e.message); throw e; } }} />
       ))}
     </div>

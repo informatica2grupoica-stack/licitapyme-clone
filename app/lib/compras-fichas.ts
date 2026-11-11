@@ -581,6 +581,17 @@ export async function quitarFichaDeOpcion(negocioId: number, opcionId: number, u
   for (const x of rs as any[]) if (x.extraccion_id) await olvidarDocumentoDeCompras(negocioId, Number(x.extraccion_id));
 }
 
+/** Deshace «Quitar ficha»: vuelve a dejar vigente la ficha que se quitó de un modelo (el archivo y el historial nunca se borraron). */
+export async function restaurarFichaDeOpcion(negocioId: number, opcionId: number, url: string, actor: Actor): Promise<void> {
+  const [rs] = await pool.query(
+    `SELECT r.id, r.documento_nombre FROM auditor_respaldo r JOIN auditor_opcion o ON o.id = r.opcion_id
+      WHERE r.opcion_id = ? AND r.negocio_id = ? AND r.tipo = 'ficha_tecnica' AND r.vigente = 0 AND r.documento_url = ? AND o.fila_id LIKE 'cmp:%'`, [opcionId, negocioId, url]) as any;
+  if (!(rs as any[]).length) throw new Error('Esa ficha no está quitada de este modelo.');
+  await pool.query(`UPDATE auditor_respaldo SET vigente = 1 WHERE id IN (?)`, [(rs as any[]).map(r => r.id)]);
+  await pool.query(`INSERT INTO auditor_evento (negocio_id, opcion_id, tipo, emisor, detalle, creado_at) VALUES (?, ?, 'ficha_restaurada', 'compras', ?, ?)`,
+    [negocioId, opcionId, `Ficha técnica «${(rs as any[])[0].documento_nombre}» restaurada por ${actor.nombre}`, ahoraChileSQL()]).catch(() => {});
+}
+
 /** Saca un documento de las listas del panel (pendientes, «no son fichas», con error). Si ya tenía fichas asignadas, estas no se tocan. */
 export async function olvidarDocumentoDeCompras(negocioId: number, extraccionId: number): Promise<void> {
   await pool.query(`DELETE FROM auditor_evento WHERE negocio_id = ? AND tipo = 'ficha_compras' AND detalle = ?`, [negocioId, String(extraccionId)]);

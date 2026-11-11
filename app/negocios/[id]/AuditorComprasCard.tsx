@@ -126,7 +126,7 @@ function SiguientePasoBtn({ texto, onClick }: { texto: string; onClick: () => vo
   );
 }
 
-export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
+export function AuditorComprasCard({ negocioId, puedeOperar, soloLectura = false }: { negocioId: number; puedeOperar: boolean; soloLectura?: boolean }) {
   const toast = useToast();
   const confirmar = useConfirm();
   const { recargar: recargarCompartido } = useCompras();
@@ -570,11 +570,24 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
     setRevisionAgente({ estado: 'idle' });
   };
 
+  const restaurarCotizacion = async (deshacerId: number) => {
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/cotizaciones/restaurar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deshacerId }) });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo restaurar');
+      toast.success('Cotización restaurada', data.proveedor ? `${data.proveedor} volvió con sus productos y extras.` : undefined);
+      await cargar();
+      recargarCompartido();
+    } catch (e: any) {
+      toast.error('No se pudo restaurar la cotización', e.message);
+    }
+  };
+
   const eliminarCotizacion = async (id: number) => {
     const c = cotizaciones.find(x => x.id === id);
     const ok = await confirmar({
       titulo: '¿Eliminar esta cotización?',
-      mensaje: `${c?.proveedorNombre ?? 'Cotización'} (#${id}). Se borra también su auditoría. No se puede deshacer.`,
+      mensaje: `${c?.proveedorNombre ?? 'Cotización'} (#${id}). Se borra también su auditoría. Después puedes apretar «Deshacer» unos segundos.`,
       confirmarLabel: 'Eliminar', peligro: true,
     });
     if (!ok) return;
@@ -582,7 +595,10 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
       const res = await fetch(`/api/compras/${negocioId}/cotizaciones/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo eliminar');
-      toast.success('Cotización eliminada');
+      toast.success('Cotización eliminada', undefined, data.deshacerId ? {
+        label: 'Deshacer',
+        onClick: () => { void restaurarCotizacion(data.deshacerId); },
+      } : undefined);
       await cargar();
       recargarCompartido();
     } catch (e: any) {
@@ -797,6 +813,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
 
   return (
     <div className="space-y-3">
+      {soloLectura && <div role="note" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-900"><b>Solo lectura.</b> Tu perfil (Auditor de Compras) entra desde la aprobación de la compra; aquí no sube ni modifica cotizaciones ni fichas. Lo hace el encargado o el coencargado del negocio.</div>}
       <PasosCotizacion vista={vista} onElegir={setVista} cotizaciones={cotizaciones.length} paraNegociar={negociacion.length} elegida={!!elegidaComb} />
       <div className={vista === 'subir' ? 'space-y-3' : 'hidden'}>
       {(() => {

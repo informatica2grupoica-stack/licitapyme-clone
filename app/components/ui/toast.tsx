@@ -20,13 +20,17 @@ interface ToastItem {
   description?: string;
   variant:      Variant;
   duration:     number;
+  accion?:      ToastAccion;
 }
 
+/** Botón dentro del aviso (p. ej. «Deshacer»). Al apretarlo el aviso se cierra. */
+export interface ToastAccion { label: string; onClick: () => void }
+
 export interface ToastCtx {
-  success: (message: string, description?: string) => void;
-  error:   (message: string, description?: string) => void;
-  warning: (message: string, description?: string) => void;
-  info:    (message: string, description?: string) => void;
+  success: (message: string, description?: string, accion?: ToastAccion) => void;
+  error:   (message: string, description?: string, accion?: ToastAccion) => void;
+  warning: (message: string, description?: string, accion?: ToastAccion) => void;
+  info:    (message: string, description?: string, accion?: ToastAccion) => void;
 }
 
 const Ctx = createContext<ToastCtx | null>(null);
@@ -104,6 +108,14 @@ function Toast({
             {toast.description}
           </p>
         )}
+        {toast.accion && (
+          <button
+            onClick={() => { toast.accion!.onClick(); onDismiss(toast.id); }}
+            className="mt-1.5 text-[12px] font-semibold text-teal-300 hover:text-teal-200 underline underline-offset-2"
+          >
+            {toast.accion.label}
+          </button>
+        )}
       </div>
 
       <button
@@ -134,12 +146,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     return () => { map.forEach(clearTimeout); map.clear(); };
   }, []);
 
-  const show = useCallback((variant: Variant, message: string, description?: string) => {
+  const show = useCallback((variant: Variant, message: string, description?: string, accion?: ToastAccion) => {
     const id       = Math.random().toString(36).slice(2, 10);
-    const duration = variant === 'error' ? 6000 : variant === 'warning' ? 5000 : 4000;
+    const duration = accion ? 10000 : variant === 'error' ? 6000 : variant === 'warning' ? 5000 : 4000;
 
     setToasts(prev => {
-      const next = [...prev, { id, message, description, variant, duration }];
+      const next = [...prev, { id, message, description, variant, duration, accion }];
       return next.slice(-3);  // máximo 3 visibles
     });
 
@@ -150,10 +162,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   // Identidad estable: sin useMemo cada toast/auto-dismiss re-renderizaba TODOS los
   // consumidores de useToast (páginas completas) e invalidaba efectos que dependen de él.
   const ctx = useMemo<ToastCtx>(() => ({
-    success: (m, d) => show('success', m, d),
-    error:   (m, d) => show('error',   m, d),
-    warning: (m, d) => show('warning', m, d),
-    info:    (m, d) => show('info',    m, d),
+    success: (m, d, a) => show('success', m, d, a),
+    error:   (m, d, a) => show('error',   m, d, a),
+    warning: (m, d, a) => show('warning', m, d, a),
+    info:    (m, d, a) => show('info',    m, d, a),
   }), [show]);
 
   return (

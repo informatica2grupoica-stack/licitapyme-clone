@@ -74,7 +74,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   const flot = useCosteoFlotante();
   const {
     loading, error, asignacion, tareas, hitosGantt, candidatos, resumenFases, licitacionNombre, licitacionOrganismo, licitacionCodigoActual, ocMp, facturacionActa,
-    recargar, puedeOperar, esJefeDeVentas, esAdministracion, esBodega, esAdmin, soloDesdeAprobacion,
+    recargar, puedeOperar, puedeCotizar, esJefeDeVentas, esAdministracion, esBodega, esAdmin, soloDesdeAprobacion,
   } = useCompras();
 
   const [faseElegida, setFaseActiva] = useState<Fase>('tareas');
@@ -892,9 +892,9 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                   contenido: <ProductosCompraCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} /> },
                 { clave: 'cotizaciones', titulo: 'Cotizaciones', ayuda: 'Sube la cotización de cada proveedor. El sistema compara su PRECIO contra lo que se costeó al ofertar: más barata, igual o más cara, y por cuánto.',
                   badge: resumenFases?.costeo.productosSinCotizacion ? `${resumenFases.costeo.productosSinCotizacion} sin cotizar` : null, tono: 'pendiente',
-                  contenido: <AuditorComprasCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
+                  contenido: <AuditorComprasCard negocioId={negocioId} puedeOperar={puedeCotizar} soloLectura={puedeOperar && !puedeCotizar} /> },
                 { clave: 'fichas', titulo: 'Fichas técnicas', ayuda: 'Sube las fichas técnicas (todas juntas): el sistema detecta de qué producto y proveedor es cada una y compara lo que dice contra lo que exigen las bases.',
-                  contenido: <FichasTecnicasCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
+                  contenido: <FichasTecnicasCard negocioId={negocioId} puedeOperar={puedeCotizar} soloLectura={puedeOperar && !puedeCotizar} /> },
                 /* PROMPT 5: verifica cada línea de la tabla de costeo (respaldo real, producto, unidad, IVA, costos ocultos) y da la posición de precio. */
                 { clave: 'costo', titulo: 'Verificar el costo', ayuda: 'Revisa que cada costo del costeo tenga respaldo real (link o cotización), sea el mismo producto y no esconda costos.',
                   contenido: <AuditorCosteoCard negocioId={negocioId} puedeOperar={puedeOperar} /> },

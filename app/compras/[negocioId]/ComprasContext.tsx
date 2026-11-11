@@ -103,6 +103,8 @@ interface ComprasContextValue {
   facturacionActa: FacturacionActa | null;
   recargar: () => Promise<void>;
   puedeOperar: boolean;
+  /** Igual que el servidor para cotizaciones, fichas y escenarios: el perfil Auditor de Compras NO entra (solo lectura ahí). Incluye a los coencargados. */
+  puedeCotizar: boolean;
   esJefeDeVentas: boolean;
   esAdministracion: boolean;
   esBodega: boolean;
@@ -158,6 +160,7 @@ export function ComprasProvider({ negocioId, children }: { negocioId: number; ch
   // bypass, ninguno de los demás se auto-otorga por ser admin.
   const esJefeDeVentas = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.aprobar_comercial;
   const puedeOperar = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial || !!usuario?.permisos?.compras_auditor || asignacion?.asignadoA === usuario?.id;
+  const puedeCotizar = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial || asignacion?.asignadoA === usuario?.id || !!asignacion?.coencargados?.some(c => c.id === usuario?.id);
   const esAdministracion = !!usuario?.permisos?.compras_administracion;
   const esBodega = !!usuario?.permisos?.compras_bodega;
   const soloDesdeAprobacion = !!usuario?.permisos?.compras_auditor && !esJefeDeVentas && !usuario?.permisos?.compras;
@@ -170,7 +173,7 @@ export function ComprasProvider({ negocioId, children }: { negocioId: number; ch
     <Ctx.Provider value={{
       negocioId, loading, error, asignacion, tareas, hitosGantt, candidatos, resumenFases,
       licitacionNombre, licitacionOrganismo, licitacionCodigoActual, ocMp, facturacionActa, recargar,
-      puedeOperar, esJefeDeVentas, esAdministracion, esBodega, esAdmin, soloDesdeAprobacion,
+      puedeOperar, puedeCotizar, esJefeDeVentas, esAdministracion, esBodega, esAdmin, soloDesdeAprobacion,
     }}>
       {children}
     </Ctx.Provider>

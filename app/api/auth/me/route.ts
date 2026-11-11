@@ -3,7 +3,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { verificarToken, tokenDeRequest } from '@/app/lib/auth-edge';
 import { sesionRevocada } from '@/app/lib/sesiones-revocadas';
-import { permisosDeUsuario, esCA } from '@/app/lib/api-auth';
+import { permisosDeUsuario, esCA, esDueno } from '@/app/lib/api-auth';
 import { estadoVigente } from '@/app/lib/rol-vigente';
 import { fichaCliente } from '@/app/lib/tenant';
 import pool from '@/app/lib/db';
@@ -50,14 +50,15 @@ export async function GET(request: NextRequest) {
     // Multi-cliente: módulos contratados por la empresa. La UI los usa para mostrar en gris lo bloqueado (el servidor lo hace cumplir igual).
     const ficha = await fichaCliente(vigente.clienteId);
     // Permisos efectivos: admin → todos; usuario → los que el admin le otorgó.
-    const [permisosBase, ca, modoPrincipiante, contacto] = await Promise.all([
+    const [permisosBase, ca, dueno, modoPrincipiante, contacto] = await Promise.all([
       permisosDeUsuario(payload.userId as number, rol),
       esCA(payload.userId as number),
+      esDueno(payload.userId as number),
       leerModoPrincipiante(payload.userId as number),
       leerContacto(payload.userId as number),
     ]);
     // `reglas_ia` (CA) nunca viene gratis con admin: se lee lo guardado.
-    const permisos = { ...permisosBase, reglas_ia: ca };
+    const permisos = { ...permisosBase, reglas_ia: ca, cerrar_licitaciones: dueno };
     return NextResponse.json({
       autenticado: true,
       usuario: {

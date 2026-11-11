@@ -6,7 +6,7 @@
 // /asignar: es una decisión de jefatura, no del encargado de cada negocio en particular.
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
-import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
+import { esDueno } from '@/app/lib/api-auth';
 import { marcarCierreLegado, quitarCierreLegado, obtenerAsignacion, type CierreLegado } from '@/app/lib/compras';
 
 export const runtime = 'nodejs';
@@ -21,16 +21,12 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol, nombre };
 }
 
-async function esJefeDeVentas(userId: number): Promise<boolean> {
-  const p = await permisosCrudosDeUsuario(userId);
-  return !!(p.compras_todo || p.aprobar_comercial);
-}
 
 async function __POST(request: NextRequest, { params }: Params) {
   const { id: userId, nombre } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (!(await esJefeDeVentas(userId))) {
-    return NextResponse.json({ error: 'Solo el jefe de ventas puede cerrar backlog histórico.' }, { status: 403 });
+  if (!(await esDueno(userId))) {
+    return NextResponse.json({ error: 'Solo el dueño del sistema puede cerrar o cancelar una licitación a mano.' }, { status: 403 });
   }
   const { negocioId } = await params;
   const id = parseInt(negocioId);
@@ -58,8 +54,8 @@ async function __POST(request: NextRequest, { params }: Params) {
 async function __DELETE(request: NextRequest, { params }: Params) {
   const { id: userId } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (!(await esJefeDeVentas(userId))) {
-    return NextResponse.json({ error: 'Solo el jefe de ventas puede deshacer esta marca.' }, { status: 403 });
+  if (!(await esDueno(userId))) {
+    return NextResponse.json({ error: 'Solo el dueño del sistema puede deshacer el cierre o la cancelación.' }, { status: 403 });
   }
   const { negocioId } = await params;
   const id = parseInt(negocioId);

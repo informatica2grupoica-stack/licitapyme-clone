@@ -12,7 +12,6 @@
 // ORIGEN GEOGRÁFICO FIJO (§8.10.1): todas las distancias se calculan desde la bodega de Talagante
 // (Epeira 575), no desde Santiago ni la casa matriz. Viaje interno local = $40.000 (§8.10.2).
 import { precioClpDeItemIA } from '@/app/lib/compras-precio-homologacion';
-import { borrarDocumentoR2 } from '@/app/lib/r2';
 import pool from '@/app/lib/db';
 import { precioPorUnidadDeProducto, conversionDesdeTexto, productoQueCubreLaLinea, numeroApareceEnTexto, lineasDesdeTabla, corregirAdicionalesConLineas, lineasSinAsignar, lineaDelProducto, desajustesProductoLinea, sinComponentesDeLaLineaPropia } from '@/app/lib/compras-cotizacion-lineas';
 import { conCupo } from '@/app/lib/cupo-ia';
@@ -370,16 +369,32 @@ export async function actualizarCotizacion(
   });
 }
 
+/** ¿La compra elegida usaba esta cotización? Una combinación lo dice en su `clave` («producto:cotización|…»); un escenario clásico solo guarda el
+ *  proveedor por producto. Si el detalle no se puede leer, se asume que sí (más seguro: se pide elegir de nuevo). */
+export function escenarioElegidoUsaCotizacion(detalleJson: unknown, cotizacionId: number, proveedor: string | null, productosCubiertos: number[]): boolean {
+  let d: any;
+  try { d = typeof detalleJson === 'string' ? JSON.parse(detalleJson) : detalleJson; } catch { return true; }
+  if (!d || typeof d !== 'object') return true;
+  if (typeof d.clave === 'string' && d.clave) {
+    return d.clave.split('|').some((par: string) => Number(par.split(':')[1]) === cotizacionId);
+  }
+  if (Array.isArray(d.porProducto)) {
+    return d.porProducto.some((x: any) => x?.proveedor != null && x.proveedor === proveedor && productosCubiertos.includes(Number(x.productoId)));
+  }
+  return true;
+}
+
 /** Borra una cotización y sus ítems asignados. Mismo criterio que editar (§10.5): si esta
  *  cotización ya estaba metida en un escenario aprobado, borrarla invalida esa aprobación — nadie
  *  debe quedar con una compra aprobada sobre una cotización que ya no existe. */
-export async function eliminarCotizacion(negocioId: number, cotizacionId: number, actorId: number, actorNombre: string | null): Promise<void> {
+export async function eliminarCotizacion(negocioId: number, cotizacionId: number, actorId: number, actorNombre: string | null): Promise<{ deshacerId: number | null }> {
   const [rows] = await pool.query(`SELECT proveedor_nombre, origen, archivo_url, ficha_tecnica_url FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cotizacionId, negocioId]) as any;
   const c = (rows as any[])[0];
   if (!c) throw new Error('Cotización no encontrada.');
   const [itemsRows] = await pool.query(`SELECT producto_id FROM compras_cotizacion_item WHERE cotizacion_id = ?`, [cotizacionId]) as any;
   const productosCubiertos = (itemsRows as any[]).map(r => Number(r.producto_id));
-
+  const respaldo = await copiarCotizacionParaDeshacer(negocioId, cotizacionId);   // antes de borrar nada: «Deshacer» la vuelve a crear igual
+  const escenariosDesmarcados: number[] = [];
   // Auditor de Compras: las líneas que se apoyaban en esta cotización se re-auditan sin ella.
   const filasAfectadas = await filasDeCotizacion(negocioId, cotizacionId).catch(() => [] as string[]);
   await pool.query(`DELETE FROM compras_cotizacion_item WHERE cotizacion_id = ?`, [cotizacionId]);
@@ -390,7 +405,14 @@ export async function eliminarCotizacion(negocioId: number, cotizacionId: number
 
   // Lo que la cotización dejó atrás: la compra elegida que la usaba, el estado COMPRADO de una compra directa y los archivos subidos.
   if (productosCubiertos.length > 0) {
-    await pool.query(`UPDATE compras_escenario SET elegido = 0 WHERE negocio_id = ? AND elegido = 1`, [negocioId]).catch(() => {});
+    // Solo se desmarca la compra elegida si ESTA cotización participaba en ella (antes se desmarcaba siempre, aunque no tuviera relación).
+    const [elegidos] = await pool.query(`SELECT id, detalle_json FROM compras_escenario WHERE negocio_id = ? AND elegido = 1`, [negocioId]).catch(() => [[]] as any) as any;
+    for (const e of elegidos as any[]) {
+      if (escenarioElegidoUsaCotizacion(e.detalle_json, cotizacionId, c.proveedor_nombre, productosCubiertos)) {
+        await pool.query(`UPDATE compras_escenario SET elegido = 0 WHERE id = ?`, [e.id]).catch(() => {});
+        escenariosDesmarcados.push(Number(e.id));
+      }
+    }
     if (c.origen === 'directa') {
       const marcas = productosCubiertos.map(() => '?').join(',');
       await pool.query(
@@ -401,9 +423,16 @@ export async function eliminarCotizacion(negocioId: number, cotizacionId: number
       ).catch(() => {});
     }
   }
-  for (const url of new Set([c.archivo_url, c.ficha_tecnica_url].filter((u): u is string => !!u))) {
-    const [otras] = await pool.query(`SELECT COUNT(*) n FROM compras_cotizacion WHERE archivo_url = ? OR ficha_tecnica_url = ?`, [url, url]) as any;
-    if (Number((otras as any[])[0]?.n) === 0) await borrarDocumentoR2(url).catch(() => {});   // best-effort: si falla solo queda un archivo huérfano
+  // El archivo subido (R2) ya NO se borra aquí: si se aprieta «Deshacer», la cotización vuelve con su documento. Queda, como mucho, un archivo sin usar.
+
+  let deshacerId: number | null = null;
+  if (respaldo) {
+    try {
+      const [ins] = await pool.query(
+        `INSERT INTO auditor_evento (negocio_id, opcion_id, tipo, emisor, detalle, creado_at) VALUES (?, 0, 'cotizacion_eliminada', 'compras', ?, ?)`,
+        [negocioId, JSON.stringify({ ...respaldo, escenariosDesmarcados }), ahoraChileSQL()]) as any;
+      deshacerId = Number(ins.insertId) || null;
+    } catch (e) { console.warn('[compras] no se pudo guardar la copia para deshacer:', String(e).slice(0, 150)); }
   }
 
   await invalidarAprobacionesCompras(negocioId, 'Se eliminó una cotización que puede afectar el costo.');
@@ -412,6 +441,65 @@ export async function eliminarCotizacion(negocioId: number, cotizacionId: number
     mensaje: `Se eliminó la cotización de "${c.proveedor_nombre}".`,
     metadata: { negocio_id: negocioId, cotizacion_id: cotizacionId },
   });
+  return { deshacerId };
+}
+
+const FECHAS_COTIZACION = ['created_at', 'homologada_at', 'tomada_at'] as const;
+const LIMITE_COPIA = 60000;   // auditor_evento.detalle es TEXT (64 KB)
+
+/** Copia completa de una cotización (fila, productos asignados y extras) para poder devolverla. Null si no se pudo leer. */
+async function copiarCotizacionParaDeshacer(negocioId: number, cotizacionId: number) {
+  try {
+    const [[fila]]: any = await pool.query(
+      `SELECT c.*, ${FECHAS_COTIZACION.map(f => `DATE_FORMAT(c.${f}, '%Y-%m-%d %H:%i:%s') AS ${f}`).join(', ')}, DATE_FORMAT(c.vigencia_at, '%Y-%m-%d') AS vigencia_at
+         FROM compras_cotizacion c WHERE c.id = ? AND c.negocio_id = ?`, [cotizacionId, negocioId]);
+    if (!fila) return null;
+    const [items]: any = await pool.query(`SELECT * FROM compras_cotizacion_item WHERE cotizacion_id = ?`, [cotizacionId]);
+    const [adicionales]: any = await pool.query(`SELECT *, DATE_FORMAT(creado_at, '%Y-%m-%d %H:%i:%s') AS creado_at FROM compras_cotizacion_adicional WHERE cotizacion_id = ?`, [cotizacionId]).catch(() => [[]] as any);
+    let copia = { fila, items, adicionales, sinTexto: false };
+    if (JSON.stringify(copia).length > LIMITE_COPIA) copia = { ...copia, fila: { ...fila, texto_documento: null }, sinTexto: true };   // el texto leído del documento es lo más grande: si no cabe, se re-lee
+    return JSON.stringify(copia).length > LIMITE_COPIA ? null : copia;
+  } catch { return null; }
+}
+
+const COLUMNA_SEGURA = /^[a-z][a-z0-9_]{0,60}$/;
+async function insertarFila(tabla: string, fila: Record<string, unknown>): Promise<void> {
+  const cols = Object.keys(fila).filter(k => COLUMNA_SEGURA.test(k));
+  await pool.query(`INSERT INTO ${tabla} (${cols.map(c => `\`${c}\``).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`, cols.map(k => fila[k] ?? null));
+}
+
+/** Deshace «Eliminar cotización»: la vuelve a crear con los mismos datos, productos asignados y extras. Una sola vez por borrado. */
+export async function restaurarCotizacionEliminada(negocioId: number, deshacerId: number, actorId: number, actorNombre: string | null): Promise<{ proveedor: string }> {
+  const [[ev]]: any = await pool.query(`SELECT detalle, resuelto FROM auditor_evento WHERE id = ? AND negocio_id = ? AND tipo = 'cotizacion_eliminada'`, [deshacerId, negocioId]);
+  if (!ev) throw new Error('No encuentro la cotización eliminada (o es de otro negocio).');
+  if (ev.resuelto) throw new Error('Esa cotización ya se restauró.');
+  let copia: any;
+  try { copia = JSON.parse(ev.detalle); } catch { throw new Error('La copia de esa cotización está dañada: súbela de nuevo.'); }
+  const fila = copia?.fila;
+  if (!fila?.id) throw new Error('La copia de esa cotización está incompleta: súbela de nuevo.');
+  const [[existe]]: any = await pool.query(`SELECT id FROM compras_cotizacion WHERE id = ?`, [fila.id]);
+  if (existe) throw new Error('Esa cotización ya existe.');
+
+  await insertarFila('compras_cotizacion', fila);
+  // Solo los productos que siguen existiendo en este negocio (puede haberse quitado alguno mientras tanto).
+  const [prods]: any = await pool.query(`SELECT id FROM compras_producto WHERE negocio_id = ?`, [negocioId]);
+  const vivos = new Set((prods as any[]).map(p => Number(p.id)));
+  for (const it of copia.items ?? []) if (vivos.has(Number(it.producto_id))) await insertarFila('compras_cotizacion_item', { ...it, id: undefined });
+  for (const a of copia.adicionales ?? []) if (vivos.has(Number(a.producto_id))) await insertarFila('compras_cotizacion_adicional', { ...a, id: undefined });
+  // La compra elegida que se había desmarcado al borrar vuelve, si nadie eligió otra mientras tanto.
+  const [hay]: any = await pool.query(`SELECT 1 FROM compras_escenario WHERE negocio_id = ? AND elegido = 1 LIMIT 1`, [negocioId]);
+  if (!(hay as any[]).length && (copia.escenariosDesmarcados ?? []).length)
+    await pool.query(`UPDATE compras_escenario SET elegido = 1 WHERE negocio_id = ? AND id IN (?)`, [negocioId, copia.escenariosDesmarcados]).catch(() => {});
+  await pool.query(`UPDATE auditor_evento SET resuelto = 1, resuelto_at = ? WHERE id = ?`, [ahoraChileSQL(), deshacerId]);
+
+  await invalidarAprobacionesCompras(negocioId, 'Se restauró una cotización que puede afectar el costo.');
+  auditarCotizacionEnSegundoPlano(negocioId, Number(fila.id), { id: actorId, nombre: actorNombre });
+  await registrarEvento({
+    tipo: 'COMPRAS_COTIZACION_RESTAURADA', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
+    mensaje: `Se restauró la cotización de "${fila.proveedor_nombre}".`,
+    metadata: { negocio_id: negocioId, cotizacion_id: Number(fila.id) },
+  });
+  return { proveedor: String(fila.proveedor_nombre ?? '') };
 }
 
 /** §8.5: "lo determina el sistema, consultando en OBUMA si existe factura o algún pago previo." */

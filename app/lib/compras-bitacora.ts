@@ -12,7 +12,7 @@ const TIPO_APROB: Record<string, string> = { COMPRA: 'de compra', MARGEN: 'de ma
 const DECISION: Record<string, string> = { APROBAR: 'Aprobó', APROBAR_CON_MODIFICACION: 'Aprobó con modificación', RECHAZAR: 'Rechazó' };
 const FICHA: Record<string, string> = {
   procesar_url: 'Procesó un documento de fichas técnicas', texto: 'Pegó el texto de una ficha técnica', asignar: 'Asignó una ficha técnica a un producto',
-  complementar: 'Complementó un dato técnico de una ficha', quitar_modelo: 'Quitó un modelo del panel de fichas técnicas',
+  complementar: 'Complementó un dato técnico de una ficha', restaurar_ficha: 'Restauró una ficha técnica que se había quitado', quitar_modelo: 'Quitó un modelo del panel de fichas técnicas',
   olvidar_documento: 'Quitó un documento del panel de fichas técnicas', proveedor: 'Cambió el proveedor de una ficha técnica', comparar: 'Comparó las fichas técnicas de un producto con las bases',
 };
 const ENTREGA: Record<string, string> = { verificacion: 'Registró la verificación de la entrega' };
@@ -33,6 +33,7 @@ export function describirAccionCompras(metodo: string, ruta: string, cuerpo: Cue
       : `Propuso la aprobación ${TIPO_APROB[c.tipo] || ''} para el jefe de ventas`.trim();
     case 'cotizaciones':
       if (partes[1] === 'extraer') return 'Leyó cotizaciones con IA';
+      if (partes[1] === 'restaurar') return 'Restauró una cotización eliminada';
       if (!id) return 'Registró una cotización';
       if (partes[2] === 'items') return `Asignó productos a la cotización #${id}`;
       if (partes[2] === 'adicionales') return `Cambió los adicionales de la cotización #${id}`;

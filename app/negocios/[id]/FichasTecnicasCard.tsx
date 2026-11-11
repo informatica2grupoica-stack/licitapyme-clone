@@ -69,7 +69,7 @@ function Insignia({ estado }: { estado: string }) {
   return <span className="text-[12px] font-medium text-tinta-2 dark:text-slate-300"><Estado color={e.color}>{e.texto}</Estado></span>;
 }
 
-export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
+export function FichasTecnicasCard({ negocioId, puedeOperar, soloLectura = false }: { negocioId: number; puedeOperar: boolean; soloLectura?: boolean }) {
   const toast = useToast();
   const [panel, setPanel] = useState<PanelFichasDTO | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -245,11 +245,22 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
     catch (e: any) { toast.error('No se pudo guardar el complemento', e.message); throw e; }
   };
   const quitarFicha = async (o: OpcionFichaDTO, url: string) => {
-    try { await post({ accion: 'quitar_ficha', opcionId: o.opcionId, url }); toast.success('Ficha quitada', 'Si quedaron otras fichas de este modelo, vuelve a comparar para que cuenten solo esas.'); await cargar(); }
+    try {
+      await post({ accion: 'quitar_ficha', opcionId: o.opcionId, url });
+      toast.success('Ficha quitada', 'Si quedaron otras fichas de este modelo, vuelve a comparar para que cuenten solo esas.', {
+        label: 'Deshacer',
+        onClick: () => { void post({ accion: 'restaurar_ficha', opcionId: o.opcionId, url }).then(() => cargar()).catch((e: any) => toast.error('No se pudo restaurar la ficha', e.message)); },
+      });
+      await cargar();
+    }
     catch (e: any) { toast.error('No se pudo quitar la ficha', e.message); }
   };
   const quitarModelo = async (o: OpcionFichaDTO) => {
-    try { await post({ accion: 'quitar_modelo', opcionId: o.opcionId }); await cargar(); } catch (e: any) { toast.error('No se pudo quitar', e.message); }
+    try {
+      await post({ accion: 'quitar_modelo', opcionId: o.opcionId });
+      toast.success('Modelo quitado', undefined, { label: 'Deshacer', onClick: () => { void restaurarModelo(o.opcionId); } });
+      await cargar();
+    } catch (e: any) { toast.error('No se pudo quitar', e.message); }
   };
   const restaurarModelo = async (opcionId: number) => {
     try { await post({ accion: 'restaurar_modelo', opcionId }); toast.success('Modelo restaurado', 'Vuelve a comparar para que cuente contra las bases.'); await cargar(); }
@@ -338,6 +349,7 @@ export function FichasTecnicasCard({ negocioId, puedeOperar }: { negocioId: numb
   return (
     <div className="space-y-4" data-testid="fichas-tecnicas">
       {/* 1 · Subir */}
+      {soloLectura && <div role="note" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-900"><b>Solo lectura.</b> Tu perfil (Auditor de Compras) entra desde la aprobación de la compra; aquí no sube ni modifica cotizaciones ni fichas. Lo hace el encargado o el coencargado del negocio.</div>}
       {puedeOperar && (
         <div
           onDragOver={e => { e.preventDefault(); setArrastrando(true); }} onDragLeave={() => setArrastrando(false)}

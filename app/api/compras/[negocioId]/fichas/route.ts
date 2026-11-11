@@ -13,7 +13,7 @@ import { puedeOperarPreAprobacion, puedeVerPreAprobacion } from '@/app/api/compr
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { MAX_SUBIDA_BYTES, MAX_SUBIDA_MB } from '@/app/lib/subidas';
 import {
-  panelFichas, procesarFicha, asignarProductoDeFicha, cambiarProveedorDeOpcion, compararProducto, filaDeProductoCompra, quitarOpcionDeCompras, moverOpcionDeCompras, quitarFichaDeOpcion, olvidarDocumentoDeCompras, complementarRequisito, restaurarOpcionDeCompras,
+  panelFichas, procesarFicha, asignarProductoDeFicha, cambiarProveedorDeOpcion, compararProducto, filaDeProductoCompra, quitarOpcionDeCompras, moverOpcionDeCompras, quitarFichaDeOpcion, restaurarFichaDeOpcion, olvidarDocumentoDeCompras, complementarRequisito, restaurarOpcionDeCompras,
 } from '@/app/lib/compras-fichas';
 
 export const runtime = 'nodejs';
@@ -134,6 +134,10 @@ async function __POST(request: NextRequest, { params }: Params) {
       }
       case 'quitar_ficha': {
         await quitarFichaDeOpcion(c.id, Number(body.opcionId), String(body.url || ''), c.actor);
+        return NextResponse.json({ success: true });
+      }
+      case 'restaurar_ficha': {
+        await restaurarFichaDeOpcion(c.id, Number(body.opcionId), String(body.url || ''), c.actor);
         return NextResponse.json({ success: true });
       }
       case 'olvidar_documento': {
