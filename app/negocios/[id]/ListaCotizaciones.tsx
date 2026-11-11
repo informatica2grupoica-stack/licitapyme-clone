@@ -125,6 +125,7 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
   const [abiertas, setAbiertas] = useState<Set<number>>(new Set());   // filas con el detalle desplegado
   const [convirtiendo, setConvirtiendo] = useState<number | null>(null);
   const [quitando, setQuitando] = useState<string | null>(null);
+  const [quitandoFlete, setQuitandoFlete] = useState<number | null>(null);
   const [filtro, setFiltro] = useState('');
 
   const agregar = async (c: CotizacionFilaUI, l: LineaCotizacion, productoId: number) => {
@@ -156,6 +157,19 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
       toast.success('Extra quitado', `«${a.concepto.slice(0, 50)}» ya no se suma al precio.`);
       await onCambio?.();
     } catch (e: any) { toast.error('No se pudo quitar el extra', e.message); } finally { setQuitando(null); }
+  };
+  /** Quita el flete de una cotización en un clic (antes: Editar datos → cambiar la condición de flete). */
+  const quitarFlete = async (c: CotizacionFilaUI) => {
+    if (negocioId == null) return;
+    if (!window.confirm(`¿Quitar el flete (${clp(c.fleteMonto ?? 0)}) de esta cotización? Deja de sumarse al total.`)) return;
+    setQuitandoFlete(c.id);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/cotizaciones/${c.id}/flete`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo quitar');
+      toast.success('Flete quitado', 'Ya no se suma al total de esta cotización.');
+      await onCambio?.();
+    } catch (e: any) { toast.error('No se pudo quitar el flete', e.message); } finally { setQuitandoFlete(null); }
   };
   const pasarANeto = async (c: CotizacionFilaUI, modo: 'neto' | 'con_iva' = 'con_iva') => {
     if (negocioId == null) return;
@@ -331,6 +345,12 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                             <span className="inline-flex items-center gap-1.5 border border-zinc-200 rounded-md px-1.5 py-0.5 bg-white" data-testid={`cotizacion-flete-${c.id}`}>
                               <span className="text-zinc-600">Flete</span>
                               <span className="font-semibold text-zinc-900 tabular-nums">{clp(flete)}</span>
+                              {puedeOperar && negocioId != null && onCambio != null && (
+                                <button type="button" disabled={quitandoFlete === c.id} onClick={() => quitarFlete(c)} title="Quitar este flete" aria-label="Quitar el flete"
+                                  className="ml-0.5 inline-flex items-center gap-0.5 text-[10.5px] font-semibold text-rose-600 hover:text-rose-800 disabled:opacity-50">
+                                  <Trash size={11} /> {quitandoFlete === c.id ? 'Quitando…' : 'Quitar'}
+                                </button>
+                              )}
                             </span>
                           )}
                         </div>}

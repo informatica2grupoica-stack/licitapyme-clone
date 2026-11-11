@@ -1375,3 +1375,19 @@ export async function confirmarIvaCotizacion(negocioId: number, cotizacionId: nu
   await pool.query(`UPDATE compras_cotizacion SET notas = ? WHERE id = ?`, [notas, cotizacionId]);
   return { productos: 0 };
 }
+
+/** «Quitar el flete» de una cotización en un clic: borra el monto y la condición de flete (queda como si el documento no dijera nada).
+ *  Antes había que entrar a «Editar datos» y cambiar la condición de flete. Invalida las aprobaciones: cambia el costo. */
+export async function quitarFleteDeCotizacion(negocioId: number, cotizacionId: number, actorId: number, actorNombre: string | null): Promise<void> {
+  const [rows] = await pool.query(`SELECT proveedor_nombre, flete_monto FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cotizacionId, negocioId]) as any;
+  const c = (rows as any[])[0];
+  if (!c) throw new Error('Cotización no encontrada.');
+  await pool.query(`UPDATE compras_cotizacion SET flete_monto = NULL, incluye_flete = NULL WHERE id = ?`, [cotizacionId]);
+  await pool.query(`UPDATE compras_cotizacion SET flete_condicion = NULL WHERE id = ?`, [cotizacionId]).catch(() => {});   // sin la migration-141 no existe la columna
+  await invalidarAprobacionesCompras(negocioId, 'Se quitó el flete de una cotización: cambia el costo.');
+  await registrarEvento({
+    tipo: 'COMPRAS_COTIZACION_FLETE_QUITADO', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
+    mensaje: `Se quitó el flete${c.flete_monto != null ? ` (${fmtMonto(Number(c.flete_monto))})` : ''} de la cotización de "${c.proveedor_nombre}".`,
+    metadata: { negocio_id: negocioId, cotizacion_id: cotizacionId, flete_monto: c.flete_monto != null ? Number(c.flete_monto) : null },
+  });
+}

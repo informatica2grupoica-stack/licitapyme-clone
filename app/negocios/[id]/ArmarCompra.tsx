@@ -146,29 +146,77 @@ export function ArmarCompra({ negocioId, recomendadas, elegida, compra, setCompr
                   <Caja t="Proveedores / viajes" v={`${comb.nProveedores} / ${comb.viajes}`} />
                   <Caja t="Plazo mayor" v={comb.diasEstimados != null ? `${comb.diasEstimados} días` : 'sin declarar'} />
                 </div>
-                <ul className="text-[12.5px] text-zinc-700 space-y-0.5">
-                  {[...comb.items].sort((a, b) => Number(!!a.esServicio) - Number(!!b.esServicio)).map(i => {
-                    const r = rapidas[i.productoId];
-                    return (
-                      <li key={i.productoId} className="flex justify-between gap-3" data-testid={`tu-compra-${i.productoId}`}>
-                        <span className="truncate">{i.esServicio && <span className="mr-1.5 text-[10.5px] font-bold px-1.5 py-0.5 rounded border bg-sky-50 text-sky-800 border-sky-200">🚚 FLETE</span>}{i.descripcion}
-                          {r && (
-                            <span className={`ml-2 text-[10.5px] font-bold px-1.5 py-0.5 rounded border ${r.yaComprada ? 'bg-sky-50 text-sky-800 border-sky-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}
-                              title="Compra rápida: se compró (o se compra) en una tienda, sin cotización ni ficha">
-                              ⚡ {r.yaComprada ? 'Ya comprada' : 'Por comprar'} · {r.estado === 'APROBADA' ? (r.yaComprada ? 'ratificada' : 'aprobada') : r.estado === 'RECHAZADA' ? 'rechazada' : 'por aprobar'}
-                            </span>
-                          )}
-                          {cambioDe.has(i.productoId) && (
-                            <span className="ml-2 text-[10.5px] font-bold px-1.5 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-200" title={cambioDe.get(i.productoId)!.motivo}>
-                              {cambioDe.get(i.productoId)!.cantidad} en vez de {cambioDe.get(i.productoId)!.costeo ?? '—'}
-                            </span>
-                          )}
-                        </span>
-                        <span className="whitespace-nowrap"><b className="font-semibold">{i.proveedor}</b> · {clp(i.precioUnitario)}</span>
-                      </li>
-                    );
-                  })}
-                </ul>
+                {(() => {
+                  // Qué se le compra a cada proveedor y cuánto es el total de cada uno (mercadería + su flete + servicios de transporte).
+                  const grupos = new Map<string, { proveedor: string; items: ItemComb[]; fletes: Map<number, number> }>();
+                  for (const i of comb.items) {
+                    const g = grupos.get(i.proveedor) ?? { proveedor: i.proveedor, items: [], fletes: new Map<number, number>() };
+                    g.items.push(i);
+                    if (!i.esServicio && i.fleteMonto != null && i.fleteMonto > 0 && i.incluyeFlete !== true) g.fletes.set(i.cotizacionId, i.fleteMonto);   // un flete por cotización
+                    grupos.set(i.proveedor, g);
+                  }
+                  const lista = [...grupos.values()].map(g => {
+                    const mercaderia = g.items.filter(i => !i.esServicio).reduce((a, i) => a + (i.subtotal ?? 0), 0);
+                    const servicios = g.items.filter(i => i.esServicio).reduce((a, i) => a + (i.subtotal ?? 0), 0);
+                    const flete = [...g.fletes.values()].reduce((a, v) => a + v, 0);
+                    return { ...g, mercaderia, servicios, flete, total: mercaderia + servicios + flete };
+                  }).sort((a, b) => b.total - a.total);
+                  const sumaGrupos = lista.reduce((a, g) => a + g.total, 0);
+                  const resto = comb.costoTotal - sumaGrupos;
+                  return (
+                    <div className="space-y-2" data-testid="tu-compra-por-proveedor">
+                      {lista.map(g => (
+                        <section key={g.proveedor} className="rounded-lg border border-zinc-200 bg-white" data-testid={`tu-compra-proveedor-${g.proveedor}`}>
+                          <header className="flex items-baseline justify-between gap-3 px-3 py-1.5 bg-zinc-50 border-b border-zinc-200 rounded-t-lg">
+                            <p className="text-[13px] font-bold text-zinc-900 truncate">{g.proveedor}
+                              <span className="ml-2 text-[11.5px] font-normal text-zinc-500">{g.items.filter(i => !i.esServicio).length} producto{g.items.filter(i => !i.esServicio).length === 1 ? '' : 's'}</span></p>
+                            <p className="text-[13px] font-bold text-zinc-900 tabular-nums whitespace-nowrap"><span className="mr-1.5 text-[11px] font-normal text-zinc-500">Total a este proveedor</span>{clp(g.total)}</p>
+                          </header>
+                          <ul className="px-3 py-1.5 text-[12.5px] text-zinc-700 divide-y divide-zinc-100">
+                            {[...g.items].sort((a, b) => Number(!!a.esServicio) - Number(!!b.esServicio)).map(i => {
+                              const r = rapidas[i.productoId];
+                              return (
+                                <li key={i.productoId} className="grid grid-cols-[1fr_auto] gap-x-4 py-1" data-testid={`tu-compra-${i.productoId}`}>
+                                  <span className="min-w-0">
+                                    {i.esServicio && <span className="mr-1.5 text-[10.5px] font-bold px-1.5 py-0.5 rounded border bg-sky-50 text-sky-800 border-sky-200">🚚 FLETE</span>}
+                                    <span title={i.descripcion}>{i.descripcion.length > 110 ? `${i.descripcion.slice(0, 110).trim()}…` : i.descripcion}</span>
+                                    {r && (
+                                      <span className={`ml-2 text-[10.5px] font-bold px-1.5 py-0.5 rounded border ${r.yaComprada ? 'bg-sky-50 text-sky-800 border-sky-200' : 'bg-amber-50 text-amber-800 border-amber-200'}`}
+                                        title="Compra rápida: se compró (o se compra) en una tienda, sin cotización ni ficha">
+                                        ⚡ {r.yaComprada ? 'Ya comprada' : 'Por comprar'} · {r.estado === 'APROBADA' ? (r.yaComprada ? 'ratificada' : 'aprobada') : r.estado === 'RECHAZADA' ? 'rechazada' : 'por aprobar'}
+                                      </span>
+                                    )}
+                                    {cambioDe.has(i.productoId) && (
+                                      <span className="ml-2 text-[10.5px] font-bold px-1.5 py-0.5 rounded border bg-amber-50 text-amber-800 border-amber-200" title={cambioDe.get(i.productoId)!.motivo}>
+                                        {cambioDe.get(i.productoId)!.cantidad} en vez de {cambioDe.get(i.productoId)!.costeo ?? '—'}
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span className="text-right tabular-nums whitespace-nowrap text-zinc-500">
+                                    {i.cantidad != null && i.precioUnitario != null ? `${i.cantidad.toLocaleString('es-CL')} × ${clp(i.precioUnitario)} = ` : ''}
+                                    <b className="font-semibold text-zinc-900">{clp(i.subtotal ?? i.precioUnitario)}</b>
+                                  </span>
+                                </li>
+                              );
+                            })}
+                            {g.flete > 0 && (
+                              <li className="grid grid-cols-[1fr_auto] gap-x-4 py-1 text-zinc-600">
+                                <span>Flete que cobra este proveedor <span className="text-zinc-400">(aparte, neto)</span></span>
+                                <b className="font-semibold tabular-nums text-zinc-900">{clp(g.flete)}</b>
+                              </li>
+                            )}
+                          </ul>
+                        </section>
+                      ))}
+                      {Math.abs(resto) >= 1 && (
+                        <p className="text-[11.5px] text-zinc-500 px-1">Otros costos de la compra (fletes por viaje u otros ajustes) que no son de un proveedor en particular: {clp(resto)}.</p>
+                      )}
+                      <p className="flex items-baseline justify-between px-1 text-[13px] font-bold text-zinc-900">
+                        <span>Total de la compra ({lista.length} proveedor{lista.length === 1 ? '' : 'es'})</span><span className="tabular-nums">{clp(comb.costoTotal)}</span>
+                      </p>
+                    </div>
+                  );
+                })()}
                 {comb.avisos.map((a, i) => <p key={i} className="text-[12px] text-amber-800 bg-amber-50 border border-amber-100 rounded px-2 py-1">• {a}</p>)}
               </>
             )}
