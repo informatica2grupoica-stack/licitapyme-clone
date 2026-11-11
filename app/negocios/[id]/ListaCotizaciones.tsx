@@ -56,7 +56,7 @@ function productosDeItems(c: Pick<CotizacionFilaUI, 'items'>, productos: Array<{
   return c.items.map(i => ({ id: i.productoId, descripcion: String(productos.find(p => p.id === i.productoId)?.descripcion ?? ''), precioBase: i.precioBase ?? null }));
 }
 
-export interface LineaExplicada { linea: LineaCotizacion; destino: string | null; tipo: 'producto' | 'adicional' | 'doble' | 'sin'; nota: string | null; pedido?: number | null; cotizado?: number | null }
+export interface LineaExplicada { linea: LineaCotizacion; destino: string | null; tipo: 'producto' | 'adicional' | 'doble' | 'sin'; nota: string | null; pedido?: number | null; cotizado?: number | null; productoId?: number | null }
 
 /** Cómo se leyó el documento, línea por línea: a qué producto fue (y por qué), si es adicional de alguno, o si quedó sin asignar. */
 export function explicarLineas(c: Pick<CotizacionFilaUI, 'moneda' | 'descripcionLibre' | 'fleteMonto' | 'items'>, productos: Array<{ id: number; descripcion: string; cantidad?: number | string | null }>): LineaExplicada[] {
@@ -74,10 +74,10 @@ export function explicarLineas(c: Pick<CotizacionFilaUI, 'moneda' | 'descripcion
       const dup = cob.como !== 'nombre' && adics.some(x => l.precioUnitario != null && Math.abs(Number(x.a.precioUnitario) - l.precioUnitario) <= 1);
       const pedido = Number(productos.find(p => p.id === cob.productoId)?.cantidad);
       const cotizado = l.cantidad != null ? (cob.factor ? l.cantidad / cob.factor : l.cantidad) : null;
-      return { linea: l, destino, tipo: dup ? 'doble' as const : 'producto' as const, nota: dup ? 'ya está dentro del precio del producto y además va sumada como adicional: se cuenta DOS veces, quita ese adicional' : cob.nota, pedido: Number.isFinite(pedido) && pedido > 0 ? pedido : null, cotizado };
+      return { linea: l, destino, tipo: dup ? 'doble' as const : 'producto' as const, nota: dup ? 'ya está dentro del precio del producto y además va sumada como adicional: se cuenta DOS veces, quita ese adicional' : cob.nota, pedido: Number.isFinite(pedido) && pedido > 0 ? pedido : null, cotizado, productoId: cob.productoId };
     }
     const ad = adics.find(x => lineasSinAsignar([l], [String(x.a.concepto)]).length === 0);
-    if (ad) return { linea: l, destino: prods.find(p => p.id === ad.productoId)?.descripcion ?? null, tipo: 'adicional' as const, nota: 'va sumada como adicional de ese producto' };
+    if (ad) return { linea: l, destino: prods.find(p => p.id === ad.productoId)?.descripcion ?? null, tipo: 'adicional' as const, nota: 'va sumada como adicional de ese producto', productoId: ad.productoId };
     return { linea: l, destino: null, tipo: 'sin' as const, nota: null };   // flete aparte u otra que la lista no ofrece
   });
 }
@@ -190,6 +190,10 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
           const subtotal = cubiertos.length === 1 && c.precioTotalClp != null && Math.abs(suma - c.precioTotalClp) < 1 ? c.precioTotalClp : suma;
           const flete = subtotal > 0 && c.fleteMonto != null && c.fleteMonto > 0 ? c.fleteMonto : 0;
           const total = subtotal + flete;
+          // Lo que DICE el documento (suma de sus líneas, tal cual) frente a lo que se compara (precio por unidad × lo que pide la licitación).
+          const explicadas = explicarLineas(c, productos);
+          const totalDoc = explicadas.length ? explicadas.reduce((a, x) => a + (x.linea.total ?? 0), 0) + flete : null;
+          const lineaDeProducto = (id: number) => explicadas.find(x => x.productoId === id && x.tipo !== 'adicional')?.linea;
           const pendientes = lineasPendientes(c, productos).filter(l => !ignoradas.has(`${c.id}|${l.descripcion}`));
           const vencida = c.vigenciaAt != null && c.vigenciaAt < h;
           const avisos = avisosPorCotizacion[c.id] ?? 0;
@@ -216,7 +220,9 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                   {resumenCubre}
                   {pendientes.length > 0 && <span className="ml-2 text-amber-700 font-medium" title="El documento trae líneas que no están en ningún producto">⚠ {pendientes.length} sin asignar</span>}
                 </div>
-                <div className="text-right text-[13px] font-semibold text-zinc-900 tabular-nums whitespace-nowrap">{total > 0 ? clp(total) : <span className="text-zinc-300">—</span>}</div>
+                <div className="text-right text-[13px] font-semibold text-zinc-900 tabular-nums whitespace-nowrap">{totalDoc != null && totalDoc > 0 && Math.abs(totalDoc - total) >= 1
+                  ? <><div title="Suma de las líneas del documento, tal como las cotizó el proveedor">{clp(totalDoc)}</div><div className="text-[10.5px] font-normal text-zinc-400" title="Precio por unidad de cada producto × la cantidad que pide la licitación">licitación {clp(total)}</div></>
+                  : total > 0 ? clp(total) : <span className="text-zinc-300">—</span>}</div>
                 <div title={vencida ? 'Vencida' : undefined} className={`hidden @3xl:block text-[12px] tabular-nums whitespace-nowrap ${vencida ? 'font-semibold text-rose-600' : 'text-zinc-600'}`}>{c.vigenciaAt ? fmtFecha(c.vigenciaAt) : <span className="text-zinc-300">—</span>}</div>
                 <div className="hidden @3xl:flex justify-center text-[12px]">{avisos > 0 ? <span className="inline-flex items-center gap-0.5 font-semibold text-rose-600" title={`${avisos} aviso${avisos === 1 ? '' : 's'}`}><Alerta size={13} />{avisos}</span> : <span className="text-emerald-500" title="Sin avisos"><Check size={14} /></span>}</div>
                 <div className="hidden @3xl:flex items-center">
@@ -294,6 +300,7 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                                 <span className="text-zinc-600">{corto(p.descripcion, 60)}</span>
                                 <span className="font-semibold text-zinc-900 tabular-nums">{incluido && !it.adicionales.length ? 'incluido' : it.precioUnitario != null ? clp(it.precioUnitario) : 'sin precio'}</span>
                                 {it.adicionales.length > 0 && <span className="text-[10.5px] text-zinc-400">+{it.adicionales.length} adic.</span>}
+                                {(() => { const l = lineaDeProducto(p.id); return l && l.cantidad != null && l.precioUnitario != null ? <span className="text-[10.5px] text-zinc-400">· dice {l.cantidad.toLocaleString('es-CL')}{l.unidad ? ' ' + l.unidad : ''} × {clp(l.precioUnitario)}</span> : null; })()}
                               </Pill>
                             );
                           })}

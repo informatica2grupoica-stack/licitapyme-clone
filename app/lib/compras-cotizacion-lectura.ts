@@ -15,7 +15,8 @@ export const IVA_CHILE = 0.19;
 
 /** true = el documento dice que los precios YA incluyen IVA; false = dice que son netos / "+ IVA"; null = no dice. */
 export function ivaIncluidoDelTexto(texto: string): boolean | null {
-  const t = texto.replace(/\s+/g, ' ');
+  // «I.V.A.» (MCT: «La columna P.UNITARIO no incluye I.V.A.») es IVA: sin esto no se reconocía y se avisaba «IVA sin confirmar» de más.
+  const t = texto.replace(/\s+/g, ' ').replace(/\bi\.\s?v\.\s?a\b\.?/gi, 'IVA');
   // Netos explícitos primero: "+ IVA", "más IVA", "precios netos", "valores netos", columnas "Neto un." / "Total Neto"
   // (1110: el pie decía "VALOR OFERTA ESPECIAL · IVA INCLUIDO" sobre una tabla de precios netos y se les quitó el IVA de más).
   if (/(\+|m[aá]s)\s*iva\b|precios?\s+netos?|valores?\s+netos?|neto\s*\+\s*iva|no\s+incluye\s+iva|exento\s+de\s+iva|sin\s+iva|neto\s+un\b|neto\s+unitario|(?:precio|valor)\s+unitario\s+neto|total\s+neto/i.test(t)) return false;
