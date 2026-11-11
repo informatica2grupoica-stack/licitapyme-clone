@@ -6,7 +6,7 @@ import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
-import { verificarProveedorEnObuma, crearProveedorEnObumaExplicito, datosProveedorDesdeBody } from '@/app/lib/compras-oc-obuma';
+import { verificarProveedorEnObuma, crearProveedorEnObumaExplicito, datosProveedorDesdeBody, guardarRutDeProveedorYVerificar } from '@/app/lib/compras-oc-obuma';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 
 export const runtime = 'nodejs';
@@ -65,4 +65,22 @@ async function __POST(request: NextRequest, { params }: Params) {
   }
 }
 
+/** «Este proveedor no tiene RUT»: se escribe aquí, se guarda y se consulta Obuma (solo lectura en Obuma). */
+async function __PUT(request: NextRequest, { params }: Params) {
+  const { negocioId } = await params;
+  const id = parseInt(negocioId);
+  if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
+  const auth = await autorizar(request, id);
+  if ('error' in auth) return auth.error;
+  try {
+    const body = await request.json();
+    const r = await guardarRutDeProveedorYVerificar(id, String(body?.proveedorNombre || ''), String(body?.rut || ''));
+    return NextResponse.json({ success: true, ...r });
+  } catch (error: any) {
+    console.error('[orden-compra-obuma/proveedor][PUT]', String(error));
+    return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo guardar el RUT.') }, { status: 400 });
+  }
+}
+
 export const POST = conBitacoraCompras(__POST, 'POST');
+export const PUT = conBitacoraCompras(__PUT, 'PUT');

@@ -159,6 +159,8 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
   const [estadoProveedorObuma, setEstadoProveedorObuma] = useState<EstadoProveedorObuma>('idle');
   // ¿Cada proveedor ya existe en Obuma? Se consulta apenas se ve la lista (pedido 14-oct-2026: que se vea de entrada si falta crear el proveedor).
   const [estadoProvs, setEstadoProvs] = useState<Record<string, EstadoProveedorObuma>>({});
+  const [rutEscrito, setRutEscrito] = useState<Record<string, string>>({});   // proveedor → RUT que se está escribiendo (proveedor sin RUT)
+  const [buscandoRut, setBuscandoRut] = useState<string | null>(null);
   const [modalProveedorAbierto, setModalProveedorAbierto] = useState(false);
   const [provInicial, setProvInicial] = useState<Partial<FormProveedor>>({});
 
@@ -246,6 +248,25 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
     } catch {
       setEstadoProveedorObuma('no_existe');
     }
+  };
+
+  /** Proveedor sin RUT: se escribe aquí, se guarda y se busca en Obuma. Si no existe, se abre «Crear proveedor» ya con ese RUT. No bloquea la orden. */
+  const guardarRutYBuscar = async (p: ProveedorOC) => {
+    const rut = (rutEscrito[p.proveedorNombre] || '').trim();
+    if (!rut) { toast.error('Escribe el RUT del proveedor', ''); return; }
+    setBuscandoRut(p.proveedorNombre);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/orden-compra-obuma/proveedor`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proveedorNombre: p.proveedorNombre, rut }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar el RUT');
+      setEstadoProvs(prev => ({ ...prev, [data.nombre || p.proveedorNombre]: data.existe ? 'existe' : 'no_existe' }));
+      if (ocAbierta === p.proveedorNombre) setEstadoProveedorObuma(data.existe ? 'existe' : 'no_existe');
+      toast.success(data.existe ? 'Proveedor encontrado en Obuma' : 'RUT guardado: el proveedor no está en Obuma todavía', data.existe ? `Se llama «${data.nombre}» en Obuma: Licitank usará ese nombre. Ya puedes crear la orden.` : 'Puedes crearlo con el botón «Crear proveedor en Obuma».');
+      await cargar();
+      if (!data.existe) { setProvInicial({ rut: data.rut, razonSocial: p.proveedorNombre, giro: p.proveedorGiro || '', contacto: p.proveedorContacto || '', direccion: p.proveedorDireccion || '', comuna: p.proveedorComuna || '', telefono: p.proveedorTelefono || '', email: p.proveedorEmail || '' }); setModalProveedorAbierto(true); }
+    } catch (e: any) { toast.error('No se pudo guardar el RUT', e.message); } finally { setBuscandoRut(null); }
   };
 
   const abrirOC = (p: ProveedorOC) => {
@@ -541,8 +562,8 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                             <span aria-hidden className="w-1.5 h-1.5 rounded-full bg-red-600" />Posible duplicado
                           </span>
                         )}
-                        <button onClick={() => abrirOC(p)} disabled={idsSel(p).length === 0 || !puedeEmitirOC(p) || estadoProvs[p.proveedorNombre] === 'no_existe' || estadoProvs[p.proveedorNombre] === 'sin_rut'}
-                          title={!puedeEmitirOC(p) ? 'Falta aprobar la compra y el margen (o la compra rápida de estos productos)' : estadoProvs[p.proveedorNombre] === 'no_existe' || estadoProvs[p.proveedorNombre] === 'sin_rut' ? 'Primero crea el proveedor en Obuma' : undefined}
+                        <button onClick={() => abrirOC(p)} disabled={idsSel(p).length === 0 || !puedeEmitirOC(p)}
+                          title={!puedeEmitirOC(p) ? 'Falta aprobar la compra y el margen (o la compra rápida de estos productos)' : undefined}
                           className="flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-40 disabled:cursor-not-allowed px-3.5 py-2 rounded-lg">
                           <Zap size={13} /> Crear orden de compra
                         </button>
@@ -559,9 +580,20 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                     return (
                       <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 flex items-center gap-3 flex-wrap">
                         <p className="flex-1 min-w-[220px] text-[12.5px] text-amber-900">
-                          <b>{e === 'sin_rut' ? 'Este proveedor no tiene RUT en Licitank.' : 'Este proveedor todavía no está en Obuma.'}</b>{' '}
-                          {e === 'sin_rut' ? 'Sin RUT no se puede buscar ni crear: complétalo en Proveedores.' : 'Créalo primero y después podrás emitir la orden.'}
+                          <b>{e === 'sin_rut' ? 'Falta el RUT de este proveedor.' : 'Este proveedor todavía no está en Obuma.'}</b>{' '}
+                          {e === 'sin_rut' ? 'Escríbelo y lo busco en Obuma: si ya está, uso su nombre real; si no, lo puedes crear. No necesitas salir de aquí.' : 'Créalo y después emites la orden.'}
                         </p>
+                        {puedeOperar && e === 'sin_rut' && (
+                          <span className="flex items-center gap-1.5">
+                            <input value={rutEscrito[p.proveedorNombre] ?? ''} onChange={ev => setRutEscrito(r => ({ ...r, [p.proveedorNombre]: ev.target.value }))}
+                              onKeyDown={ev => { if (ev.key === 'Enter') void guardarRutYBuscar(p); }} placeholder="RUT, ej. 76.123.456-7" aria-label={`RUT de ${p.proveedorNombre}`}
+                              className="w-44 text-[12.5px] border border-amber-300 rounded-lg px-2.5 py-1.5 bg-white outline-none focus:ring-1 focus:ring-amber-500" />
+                            <button type="button" onClick={() => guardarRutYBuscar(p)} disabled={buscandoRut === p.proveedorNombre || !(rutEscrito[p.proveedorNombre] ?? '').trim()}
+                              className="text-[12.5px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
+                              {buscandoRut === p.proveedorNombre ? 'Buscando…' : 'Buscar en Obuma'}
+                            </button>
+                          </span>
+                        )}
                         {puedeOperar && e === 'no_existe' && <button type="button" onClick={() => abrirModalProveedor(p)} className="text-[12.5px] font-semibold text-white bg-amber-600 hover:bg-amber-700 px-3 py-1.5 rounded-lg">Crear proveedor en Obuma</button>}
                       </div>
                     );
@@ -771,7 +803,18 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                         <p className="text-[11px] text-zinc-400 flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> Verificando si el proveedor ya está en Obuma…</p>
                       )}
                       {estadoProveedorObuma === 'sin_rut' && (
-                        <p className="text-[11px] text-amber-600">Este proveedor no tiene RUT en Licitank — sin RUT no se puede buscar ni crear en Obuma. Complétalo en Proveedores primero.</p>
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2 space-y-1.5">
+                          <p className="text-[11px] text-amber-800">Falta el RUT de este proveedor. Escríbelo: lo busco en Obuma y, si ya está, la orden se crea con su nombre real.</p>
+                          <div className="flex items-center gap-1.5">
+                            <input value={rutEscrito[p.proveedorNombre] ?? ''} onChange={ev => setRutEscrito(r => ({ ...r, [p.proveedorNombre]: ev.target.value }))}
+                              onKeyDown={ev => { if (ev.key === 'Enter') void guardarRutYBuscar(p); }} placeholder="RUT, ej. 76.123.456-7" aria-label="RUT del proveedor"
+                              className="w-48 text-[12px] border border-amber-300 rounded-lg px-2 py-1 bg-white outline-none focus:ring-1 focus:ring-amber-500" />
+                            <button type="button" onClick={() => guardarRutYBuscar(p)} disabled={buscandoRut === p.proveedorNombre || !(rutEscrito[p.proveedorNombre] ?? '').trim()}
+                              className="text-[11.5px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 px-2.5 py-1 rounded-lg">
+                              {buscandoRut === p.proveedorNombre ? 'Buscando…' : 'Buscar en Obuma'}
+                            </button>
+                          </div>
+                        </div>
                       )}
                       {estadoProveedorObuma === 'no_existe' && (
                         <div className="bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2 flex items-center justify-between gap-2">

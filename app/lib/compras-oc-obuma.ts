@@ -560,6 +560,7 @@ export async function crearOrdenCompraParaProveedor(
     ? `${moneda!.codigo} ${creada.total.toLocaleString('es-CL', { maximumFractionDigits: 2 })} (internacional, TC ${tc}, ≈ ${new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(totalClp)})`
     : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(creada.total);
 
+  const nombreReal = (ficha.razonSocial || '').replace(/\s+/g, ' ').trim() || grupo.proveedorNombre;   // el de Obuma, no el del archivo
   const ahora = ahoraChileSQL();
   await pool.query(
     `INSERT INTO compras_orden_compra_obuma
@@ -568,7 +569,7 @@ export async function crearOrdenCompraParaProveedor(
         creado_por, creado_por_nombre, created_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
-      negocioId, grupo.proveedorId, grupo.proveedorNombre, grupo.proveedorRut,
+      negocioId, grupo.proveedorId, nombreReal, grupo.proveedorRut ?? (ficha.rut || null),
       creada.compraOcId, creada.folio, JSON.stringify(itemsOrden),
       opciones.incluirFlete ? 1 : 0, opciones.incluirFlete ? opciones.fleteMonto : null,
       subtotalClp, totalClp, opciones.formaPagoId, null, fecha,
@@ -576,9 +577,11 @@ export async function crearOrdenCompraParaProveedor(
     ],
   );
 
+  // Licitank pasa a llamar al proveedor como Obuma (cotizaciones, ficha y compra elegida); la OC ya quedó guardada con ese nombre.
+  await usarNombreRealDeObuma(negocioId, grupo.proveedorNombre, nombreReal).catch(() => {});
   await registrarEvento({
     tipo: 'COMPRAS_OC_OBUMA_CREADA', licitacionCodigo, actorId, actorNombre,
-    mensaje: `Se creó la orden de compra en Obuma para "${grupo.proveedorNombre}" — folio ${creada.folio ?? creada.compraOcId}, ${montoTexto}.`,
+    mensaje: `Se creó la orden de compra en Obuma para "${nombreReal}" — folio ${creada.folio ?? creada.compraOcId}, ${montoTexto}.`,
     metadata: { negocio_id: negocioId, proveedor: grupo.proveedorNombre, obuma_compra_oc_id: creada.compraOcId, internacional, moneda: moneda?.codigo ?? 'CLP', tipo_cambio: internacional ? tc : null },
   });
 
@@ -593,7 +596,7 @@ export async function crearOrdenCompraParaProveedor(
   // Antes faltaba y la OC quedaba creada en Obuma pero la pantalla mostraba «No se pudo crear la orden de compra».
   await marcarHitoReparto(negocioId, 'ocEmitida', {
     activo: true, ocNumero: resumenFolios,
-    nota: `OC emitida desde Licitank en Obuma: folio ${creada.folio ?? creada.compraOcId} a ${grupo.proveedorNombre}, ${internacional ? montoTexto : `${new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(creada.subtotalNeto)} neto`}.`,
+    nota: `OC emitida desde Licitank en Obuma: folio ${creada.folio ?? creada.compraOcId} a ${nombreReal}, ${internacional ? montoTexto : `${new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(creada.subtotalNeto)} neto`}.`,
   }, actorId, actorNombre);
   await sincronizarTrasCambioDeOc(negocioId);
 
@@ -837,4 +840,55 @@ export async function resumenGastosCompra(negocioId: number, montoCosteado: numb
     },
     montoCosteado, variacionPct,
   };
+}
+
+/**
+ * Si el proveedor está en Obuma, Licitank usa SU nombre real (razón social). Antes quedaba «(por completar) cot621206-8 MCT (1)», el nombre del archivo.
+ * Renombra, en este negocio, las cotizaciones de ese proveedor, su ficha del catálogo y el nombre guardado dentro de las compras elegidas (escenarios),
+ * para que todo siga encontrándose por nombre. Devuelve true si cambió algo. Nunca escribe en Obuma.
+ */
+export async function usarNombreRealDeObuma(negocioId: number, nombreActual: string, razonSocial: string | null | undefined): Promise<boolean> {
+  const nuevo = String(razonSocial || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  if (!nuevo || nuevo === nombreActual) return false;
+  const [cots] = await pool.query(`SELECT DISTINCT proveedor_id FROM compras_cotizacion WHERE negocio_id = ? AND proveedor_nombre = ?`, [negocioId, nombreActual]) as any;
+  if (!(cots as any[]).length) return false;
+  await pool.query(`UPDATE compras_cotizacion SET proveedor_nombre = ? WHERE negocio_id = ? AND proveedor_nombre = ?`, [nuevo, negocioId, nombreActual]);
+  const provIds = (cots as any[]).map(c => c.proveedor_id).filter((x: unknown): x is number => typeof x === 'number');
+  if (provIds.length) await pool.query(`UPDATE compras_proveedor SET nombre_empresa = ? WHERE id IN (${provIds.map(() => '?').join(',')}) AND nombre_empresa = ?`, [nuevo, ...provIds, nombreActual]).catch(() => {});
+  // El nombre también vive dentro del detalle de la compra elegida (JSON): solo se reemplaza si ninguno de los dos nombres necesita escapes de JSON.
+  if (!/["\\\u0000-\u001f]/.test(nombreActual + nuevo)) {
+    await pool.query(`UPDATE compras_escenario SET detalle_json = REPLACE(detalle_json, ?, ?) WHERE negocio_id = ?`, [nombreActual, nuevo, negocioId]).catch(() => {});
+  }
+  return true;
+}
+
+/** Formato con puntos y guion: 76123456K → «76.123.456-K». */
+export function formatearRut(rut: string): string {
+  const limpio = rut.replace(/[^0-9kK]/g, '').toUpperCase();
+  const cuerpo = limpio.slice(0, -1).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${cuerpo}-${limpio.slice(-1)}`;
+}
+
+/**
+ * «Este proveedor no tiene RUT»: se escribe el RUT desde la propia orden de compra (sin ir a Proveedores), se valida, se guarda en las cotizaciones
+ * de ese proveedor en este negocio y en su ficha del catálogo, y se consulta Obuma para saber si ya existe. No bloquea nada: si no existe en Obuma,
+ * la pantalla ofrece crearlo con ese RUT. Nunca crea nada en Obuma.
+ */
+export async function guardarRutDeProveedorYVerificar(negocioId: number, proveedorNombre: string, rutBruto: string): Promise<{ rut: string; existe: boolean; ficha: FichaProveedorObuma | null; nombre: string }> {
+  const { rutValido } = await import('@/app/lib/compras-auditoria-cotizacion');
+  if (!rutValido(rutBruto)) throw new Error('El RUT no es válido (revisa el dígito verificador).');
+  const rut = formatearRut(rutBruto);
+  const [cots] = await pool.query(`SELECT id, proveedor_id FROM compras_cotizacion WHERE negocio_id = ? AND proveedor_nombre = ?`, [negocioId, proveedorNombre]) as any;
+  if (!(cots as any[]).length) throw new Error('No encuentro cotizaciones de ese proveedor en este negocio.');
+  await pool.query(`UPDATE compras_cotizacion SET proveedor_rut = ? WHERE negocio_id = ? AND proveedor_nombre = ? AND (proveedor_rut IS NULL OR proveedor_rut = '')`, [rut, negocioId, proveedorNombre]);
+  const provIds = [...new Set((cots as any[]).map(c => c.proveedor_id).filter((x: unknown): x is number => typeof x === 'number'))];
+  if (provIds.length) {
+    // La ficha del catálogo también queda con el RUT (solo si no tenía). Si ya existe OTRA ficha con ese RUT, la restricción lo impide y se sigue igual.
+    await pool.query(`UPDATE compras_proveedor SET rut = ? WHERE id IN (${provIds.map(() => '?').join(',')}) AND (rut IS NULL OR rut = '')`, [rut, ...provIds]).catch(() => {});
+  }
+  const ficha = await verificarProveedorEnObuma(rut);
+  // Está en Obuma: Licitank pasa a usar su nombre real.
+  let nombre = proveedorNombre;
+  if (ficha && await usarNombreRealDeObuma(negocioId, proveedorNombre, ficha.razonSocial)) nombre = ficha.razonSocial.replace(/\s+/g, ' ').trim().slice(0, 300);
+  return { rut, existe: !!ficha, ficha, nombre };
 }
