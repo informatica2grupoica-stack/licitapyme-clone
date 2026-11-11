@@ -937,7 +937,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                     <FileText size={16} className="text-slate-500 shrink-0 mt-0.5" />
                     <div className="min-w-0 flex-1">
                       <p className="text-[13px] font-medium text-slate-900 truncate" title={fsa.nombre}>{fsa.nombre}</p>
-                      <p className="text-xs text-slate-600">{fsa.subidaAt ? `Subida el ${fsa.subidaAt.slice(0, 10).split('-').reverse().join('-')}` : 'Ficha técnica'}</p>
+                      <p className="text-xs text-slate-600">{fsa.subidoPorNombre ? `Subida por ${fsa.subidoPorNombre}` : 'Ficha técnica'}{fsa.subidaAt ? ` · ${fsa.subidaAt.slice(0, 10).split('-').reverse().join('-')}` : ''}</p>
                     </div>
                     <a href={fsa.url} target="_blank" rel="noopener noreferrer" title="Ver la ficha" className="p-1 rounded-md text-teal-700 hover:bg-teal-50"><Eye size={15} /></a>
                     <button data-no-pdf onClick={() => eliminarFicha(fsa.url, fsa.nombre, 0)} title="Eliminar esta ficha (borra el archivo)" className="p-1 rounded-md text-slate-500 hover:text-red-600 hover:bg-red-50"><Trash size={15} /></button>
@@ -1045,6 +1045,7 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
                       <p className="text-[13px] font-medium text-slate-900 truncate">{d.proveedor || d.nombre}</p>
                       {d.proveedorPropio && <p className="text-xs text-amber-700">Proveedor sin identificar: el documento nombra a nuestra empresa (es el cliente)</p>}
                       <p className="text-xs text-slate-600 truncate">{d.nombre}{d.fechaEmision ? ` · ${d.fechaEmision}` : ''}</p>
+                      {(d.subidoPorNombre || d.subidoAt) && <p className="text-xs text-slate-600 truncate">{d.subidoPorNombre ? `Subida por ${d.subidoPorNombre}` : 'Subida'}{d.subidoAt ? ` · ${d.subidoAt.slice(0, 10).split('-').reverse().join('-')}` : ''}</p>}
                     </div>
                   </div>
                   {leyendoEste ? <p className="mt-3 pt-3 border-t border-zinc-100 inline-flex items-center gap-1.5 text-[13px] font-medium text-amber-700"><Loader2 size={12} className="animate-spin" /> Leyendo…</p>

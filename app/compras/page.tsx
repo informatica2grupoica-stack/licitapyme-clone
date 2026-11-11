@@ -16,9 +16,10 @@ import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { Select } from '@/app/components/ui/Select';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { useRealtime } from '@/app/lib/use-realtime';
+import { fechaHoraParaExcel, hojaDeFilas } from '@/app/lib/exportar-fechas';
 import { GanttComprasCard } from '@/app/negocios/[id]/GanttComprasCard';
 import type { FaseTarea, HitosGantt as HitosPlan } from '@/app/lib/compras-plan';
-import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconBuilding as Building2, IconArrowUpRight as ArrowUpRight, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconUsers as Users, IconArrowsUpDown as ArrowUpDown, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconUserPlus as UserPlus, IconCircleCheck as CheckCircle2, IconChartBar as BarChart3, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconChevronsLeft as ChevronsLeft, IconChevronsRight as ChevronsRight, IconList as List, IconPackage as PackageCheck, IconCircleX as XCircle, IconArchive as Archive, IconArrowBackUp as Undo2, IconPencil as Pencil, IconTimeline as GanttChart, IconChartLine as LineChart, IconZoomIn as ZoomIn, IconZoomOut as ZoomOut, IconDiamond as Diamond, IconCalendarClock as CalendarClock } from '@tabler/icons-react';
+import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconBuilding as Building2, IconArrowUpRight as ArrowUpRight, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconUsers as Users, IconArrowsUpDown as ArrowUpDown, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconUserPlus as UserPlus, IconCircleCheck as CheckCircle2, IconChartBar as BarChart3, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconChevronsLeft as ChevronsLeft, IconChevronsRight as ChevronsRight, IconList as List, IconPackage as PackageCheck, IconCircleX as XCircle, IconArchive as Archive, IconArrowBackUp as Undo2, IconPencil as Pencil, IconTimeline as GanttChart, IconChartLine as LineChart, IconZoomIn as ZoomIn, IconZoomOut as ZoomOut, IconDiamond as Diamond, IconCalendarClock as CalendarClock, IconDownload as Download } from '@tabler/icons-react';
 
 type CierreLegado = 'ENTREGADA' | 'NO_REALIZADA' | 'PRECOMPRA_SIN_ADJUDICAR';
 type EstadoTareaGantt = 'PENDIENTE' | 'EN_CURSO' | 'HECHA';
@@ -1284,6 +1285,8 @@ export default function ComprasPage() {
   const [soloUrgentes, setSoloUrgentes] = useState(false);
   const [soloSinAsignar, setSoloSinAsignar] = useState(false);
   const [verCerradas, setVerCerradas] = useState(false);
+  const toast = useToast();
+  const [exportando, setExportando] = useState(false);
   // Pestaña: ganadas en firme o pre-compras (POSIBLE ADJ, sin adjudicación firme).
   const [ambito, setAmbito] = useState<'ganadas' | 'precompras'>('ganadas');
   const [fechaDesde, setFechaDesde] = useState('');
@@ -1462,6 +1465,42 @@ export default function ComprasPage() {
     return arr;
   }, [negocios, q, fAsignado, fOrganismo, fRegion, fPostulador, fOC, montoMin, montoMax, plazoMin, plazoMax, soloTareasVencidas,
       soloUrgentes, soloSinAsignar, verCerradas, fechaDesde, fechaHasta, orden, ambito]);
+  // Exporta la MISMA lista que se ve (filtros + pestaña Ganadas/Pre-compras), una fila por negocio.
+  const exportarExcel = async () => {
+    if (exportando) return;
+    if (filtrados.length === 0) { toast.error('No hay negocios para exportar', 'Ajusta o limpia los filtros.'); return; }
+    setExportando(true);
+    try {
+      const XLSX = await import('xlsx');
+      const filas = filtrados.map(f => ({
+        'Código': f.licitacionCodigo,
+        'Nombre': f.licitacionNombre || '',
+        'Organismo': f.licitacionOrganismo || '',
+        'Región': f.licitacionRegion || '',
+        'Encargado': f.asignadoNombre || 'Sin asignar',
+        'Postuló': f.postuladoPorNombre || '',
+        'Urgente': f.urgente ? 'Sí' : 'No',
+        'Ganado (fecha)': fechaHoraParaExcel(f.ganadoAt).fecha,
+        'Monto nuestro': f.montoNuestro ?? '',
+        'Plazo entrega (días)': f.plazoEntregaDias ?? '',
+        'Fecha OC': f.ocFecha ? fechaHoraParaExcel(f.ocFecha).fecha : '',
+        'Tareas hechas': f.tareasHechas,
+        'Tareas totales': f.tareasTotal,
+        'Tareas vencidas': f.tareasVencidas,
+        'Cierre': f.cierreLegado === 'ENTREGADA' ? 'Entregada' : f.cierreLegado === 'NO_REALIZADA' ? 'No realizada' : '',
+      }));
+      const ws = hojaDeFilas(XLSX, filas);
+      ws['!cols'] = [{ wch: 18 }, { wch: 48 }, { wch: 30 }, { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 9 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 14 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, ambito === 'precompras' ? 'Pre-compras' : 'Compras');
+      XLSX.writeFile(wb, `compras-${dayjs().format('DD-MM-YYYY')}.xlsx`);
+      toast.success(`Exportados ${filas.length} negocio(s)`, 'Se descargó el Excel con los filtros actuales.');
+    } catch (e: any) {
+      toast.error('No se pudo exportar el Excel', String(e?.message || e));
+    } finally {
+      setExportando(false);
+    }
+  };
   const urgentes = useMemo(() => filtrados.filter(f => f.urgente), [filtrados]);
   // La licitación que se ganó más recientemente (sea cual sea el orden elegido), urgente o no.
   const ultimaUrgente = useMemo(
@@ -1496,6 +1535,13 @@ export default function ComprasPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {negocios.length > 0 && (
+              <button onClick={exportarExcel} disabled={exportando || filtrados.length === 0}
+                className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-zinc-600 bg-white border border-zinc-200 hover:bg-zinc-50 disabled:opacity-50 px-3 py-2 rounded-lg transition-colors"
+                title="Descargar en Excel los negocios que se ven con los filtros actuales">
+                {exportando ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />} Exportar Excel
+              </button>
+            )}
             {esJefeDeVentas && (
               <Link href="/compras/dashboard"
                 className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-zinc-600 bg-white border border-zinc-200 hover:bg-zinc-50 px-3 py-2 rounded-lg transition-colors"

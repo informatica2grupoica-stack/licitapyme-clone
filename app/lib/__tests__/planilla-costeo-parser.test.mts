@@ -906,3 +906,30 @@ test('fila tabulada de Word con comas en la descripción no se lee como CSV', ()
   assert.deepEqual(r!.items.map(i => [i.numero, i.cantidad]), [[1, 10], [2, 2], [3, 2], [4, 2], [5, 1], [6, 1], [7, 2], [8, 5], [9, 20]]);
   assert.equal(r!.items[7].descripcion, 'Tineta látex amarillo rey, antihongos, inoloro, terminación mate');
 });
+
+// 2410-21-LE26 (UAPOftalmo, Los Ángeles): el Anexo N°4 y la Tabla n°1 de las bases técnicas traen solo
+// 7 líneas. El piso de 8 filas las descartaba y quedaba el parser de último recurso sobre el decreto:
+// salían las inhabilidades del proveedor, el presupuesto referencial pegado al nombre ($32.000.000) y
+// una cantidad 100 (las «100 sondas»). Una tabla chica vale si es de un documento técnico/económico,
+// con correlativos 1..N seguidos y cantidad en todas las filas.
+test('tabla de oferta de 7 líneas se lee completa y gana al decreto (regresión 2410-21-LE26)', () => {
+  const lin = [['Cono tonómetro compatible con equipo Perkins Clement Clarke modelo mk3', 4], ['Maleta de lentes ópticos aro plástico', 1],
+    ['Montura de prueba de lentes adulto', 3], ['Montura de prueba de lentes pediátrica', 2], ['Campímetro computarizado', 1],
+    ['Pantalla de optotipos led', 1], ['Tonómetro de rebote', 1]] as const;
+  const anexo = '<table><tr><td>LÍNEA</td><td>DETALLE</td><td>CANTIDAD</td><td>PRECIO UNITARIO NETO</td></tr>'
+    + lin.map(([p, c], i) => `<tr><td>${i + 1}</td><td>${p}</td><td>${c}</td><td></td></tr>`).join('') + '</table>';
+  const decreto = 'PRESUPUESTO REFERENCIAL\n5 Campímetro computarizado $32.000.000\n6 Pantalla de optotipos led $6.000.000\n'
+    + '1 .- Haber sido condenado por cualquiera de los delitos de cohecho contemplados en el título V del Libro Segundo\n';
+  const r = parsearPlanillaCosteo([
+    { nombre: 'Decreto_N°4507_Llama_a_licitación.pdf', categoria: 'BASES_ADMINISTRATIVAS', texto: decreto },
+    { nombre: 'Anexo_N°4_Tecnico_económico.docx', categoria: 'ANEXOS_OFERENTE', texto: anexo },
+  ]);
+  assert.ok(r);
+  assert.deepEqual(r!.items.map(i => [i.numero, i.descripcion, i.cantidad]), lin.map(([p, c], i) => [i + 1, p, c]));
+});
+
+test('tabla chica de un documento omnibus (decreto/bases administrativas) NO se toma como listado', () => {
+  const t = '<table><tr><td>N°</td><td>CRITERIO</td><td>CANTIDAD</td></tr><tr><td>1</td><td>Visita a terreno</td><td>1</td></tr>'
+    + '<tr><td>2</td><td>Reunión informativa</td><td>2</td></tr><tr><td>3</td><td>Entrega de muestras</td><td>3</td></tr></table>';
+  assert.equal(parsearPlanillaCosteo([{ nombre: 'Decreto_aprueba_llamado.pdf', categoria: 'BASES_ADMINISTRATIVAS', texto: t }]), null);
+});

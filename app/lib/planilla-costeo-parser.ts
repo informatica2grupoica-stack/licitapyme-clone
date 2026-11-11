@@ -1277,7 +1277,7 @@ function parsearTablasHtml(doc: DocTexto): PlanillaParseResult | null {
       .map(c => limpiarCelda(decodificarEntidades(c[1].replace(/<[^>]+>/g, ' '))));
     if (celdas.length >= 2) filas.push(celdas);
   }
-  if (filas.length < 8) return null;
+  if (filas.length < 4) return null;
 
   let col: ColMap | null = null;
   let vistoHeader = false;
@@ -1419,12 +1419,25 @@ function parsearTablasHtml(doc: DocTexto): PlanillaParseResult | null {
   }
   if (items.length < antes) console.log(`[planilla-costeo] ${doc.nombre}: ${antes - items.length} fila(s) repetían un producto ya listado (ficha sin número o copia de la tabla) — se quitaron.`);
 
-  if (!vistoHeader || items.length < 8) return null;
+  if (!vistoHeader) return null;
+  // TABLA CHICA (2410-21-LE26: Tabla n°1 de las Bases Técnicas y Anexo N°4, 7 líneas): antes el piso
+  // de 8 filas la descartaba y mandaba el parser de último recurso, que leyó el decreto (inhabilidades,
+  // criterios y el presupuesto referencial como «productos»). Entre 3 y 7 filas solo vale si es
+  // inconfundiblemente un listado de compra: de un documento técnico o económico (no el omnibus),
+  // correlativos 1..N seguidos y TODAS las filas con cantidad.
+  if (items.length < 8 && !esTablaChicaDeCompra(items, doc)) return null;
   // Gate de cotización: una planilla real trae CANTIDADES (evita colar tablas de texto).
   const conCantidad = items.filter(i => i.cantidad != null && i.cantidad > 0).length;
   if (conCantidad < Math.max(3, Math.ceil(items.length * 0.25))) return null;
 
   return { estructura: 'plana', lineas: [1], categorias: [], items, numeracion: analizarNumeracion(items), fuenteDoc: doc.nombre };
+}
+
+function esTablaChicaDeCompra(items: ItemPlanilla[], doc: DocTexto): boolean {
+  if (items.length < 3) return false;
+  if (autoridadDe(doc) >= AUTORIDAD_FUENTE.OMNIBUS) return false;
+  if (!items.every((it, k) => it.numero === k + 1 && it.cantidad != null && it.cantidad > 0)) return false;
+  return !items.some(it => esFilaNoProducto(it.descripcion));
 }
 
 // ITEMIZADO APLANADO DE PDF, EN SECCIONES ("Anexo N°1 … / Anexo N°2 …") — último recurso.
@@ -2074,7 +2087,7 @@ export const AUTORIDAD_FUENTE = {
 
 function autoridadDe(doc: DocTexto): number {
   const n = normalizar(doc.nombre);
-  if (/anexo.?econom|oferta.?econ|economic|itemiz|presupuesto.?ofert|formulario.?ofert/.test(n)) {
+  if (/anexo.?econom|oferta.?econ|economic|itemiz|presupuesto.?ofert|formulario.?ofert|tecnico.?econom/.test(n)) {
     return AUTORIDAD_FUENTE.ANEXO_ECONOMICO;
   }
   if (/ett|tecnic|especif/.test(n)) return AUTORIDAD_FUENTE.BASES_TECNICAS;

@@ -2,6 +2,24 @@
 
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-11 — Tabla de oferta de 7 líneas descartada (2410-21-LE26: 13 «productos» de basura)
+Caso real: UAPOftalmo, Los Ángeles. Las bases traen 7 líneas (Tabla n°1 de las Bases Técnicas y Anexo N°4),
+pero el manifiesto salió con 13: inhabilidades del proveedor («cohecho», «500 UTM»), un criterio de
+evaluación, el presupuesto referencial pegado al nombre («Campímetro computarizado $32.000.000», tipo
+Genérico), cantidad 100 en el tonómetro (las «100 sondas»), nombres cortados («Montura de prueba de») y
+sin el cono tonómetro. Causa: `parsearTablasHtml` exigía ≥ 8 filas; con 7 ningún documento calificaba y
+quedaba el parser de último recurso (`parsearItemizadoPdf`) sobre el decreto. Ahora una tabla de 3 a 7
+filas vale solo si (`esTablaChicaDeCompra`): documento técnico/económico (no el ómnibus), correlativos
+1..N seguidos, cantidad en todas las filas y ninguna fila de rótulo. Además «Anexo_N°4_Tecnico_económico»
+cuenta como anexo económico (autoridad 0).
+**Verificado:** 2410-21-LE26 sale con las 7 líneas y cantidades 4,1,3,2,1,1,1. Barrido solo lectura sobre
+1.366 licitaciones con tablas HTML (`scripts/scratch/_barrido_tabla_chica.mts`): 1.355 iguales, 11 cambian
+(revisadas a mano; 8 pasan de «sin planilla» a su tabla real, y 1057937-12-LP26 13→3, 852-32-LE26 12→6 y
+2410-21 13→7 dejan de usar listas del decreto). 2 tests nuevos; 1.808/1.808; `tsc` limpio.
+**Pendiente:** desplegar y volver a analizar 2410-21-LE26 (el informe guardado y el costeo digital siguen
+con los 13); las otras 10 licitaciones del barrido también quedan por re-analizar si están activas. No se
+tocó la BD.
+
 ## 2026-10-28 — Word: imágenes base64 inflaban el texto (1.289 caracteres → 1,27 M)
 Caso real: visto al habilitar .dotx en 3712-74-LP26. Las tablas de Word se anexan con
 `mammoth.convertToHtml()`, que por defecto incrusta cada imagen como `<img src="data:…;base64,…">`.

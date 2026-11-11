@@ -101,6 +101,8 @@ export interface LineaAuditorDTO {
 }
 export interface DocumentoCotizacionDTO {
   documentoId: number; nombre: string; url: string; extraccionId: number | null; leido: boolean; error: string | null;
+  /** Quién subió el archivo y cuándo (documentos_cache.usuario_id / created_at). */
+  subidoPorNombre?: string | null; subidoAt?: string | null;
   proveedor: string | null; rut: string | null; fechaEmision: string | null; formalidad: string | null;
   /** El Lector había anotado como proveedor a la propia empresa (era el destinatario): se muestra vacío y se pide revisar quién cotiza. */
   proveedorPropio?: boolean;
@@ -113,7 +115,7 @@ export interface DocumentoCotizacionDTO {
     complementoDe?: { opcionId: number; filaId: string; nombre: string } | null;
   }>;
 }
-export interface FichaSinAsignarDTO { documentoId: number; nombre: string; url: string; subidaAt: string | null; error: string | null }
+export interface FichaSinAsignarDTO { documentoId: number; nombre: string; url: string; subidaAt: string | null; subidoPorNombre?: string | null; error: string | null }
 export interface PanelAuditorDTO {
   lineas: LineaAuditorDTO[];
   documentos: DocumentoCotizacionDTO[];
@@ -210,8 +212,9 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
       (texto LIKE '%disponibilidad=OutOfStock%' OR texto LIKE '%disponibilidad=SoldOut%' OR texto LIKE '%PRODUCTO AGOTADO%') AS agotado
       FROM auditor_captura WHERE negocio_id = ? ORDER BY id DESC`, [negocioId]) as Promise<any>,
     correccionesDeCosto(negocioId), ultimasSegundasPasadasV3(negocioId), respaldosDeCeldas(negocioId), ultimasVerificaciones(negocioId, true), habilitacionesYDeclaraciones(negocioId),
-    codigoDocsDeNegocio(negocioId, licitacionCodigo).then(cod => pool.query(`SELECT id, documento_nombre, documento_url_local, subcategoria, created_at FROM documentos_cache
-     WHERE licitacion_codigo = ? AND subcategoria IN ('cotizaciones', 'fichas_tecnicas') AND documento_url_local IS NOT NULL ORDER BY created_at ASC`, [cod])) as Promise<any>,
+    codigoDocsDeNegocio(negocioId, licitacionCodigo).then(cod => pool.query(`SELECT dc.id, dc.documento_nombre, dc.documento_url_local, dc.subcategoria, dc.created_at, u.nombre AS subido_por_nombre FROM documentos_cache dc
+     LEFT JOIN usuarios u ON u.id = dc.usuario_id
+     WHERE dc.licitacion_codigo = ? AND dc.subcategoria IN ('cotizaciones', 'fichas_tecnicas') AND dc.documento_url_local IS NOT NULL ORDER BY dc.created_at ASC`, [cod])) as Promise<any>,
     pool.query(`SELECT id, documento_url, error FROM auditor_extraccion WHERE negocio_id = ? AND documento_url IS NOT NULL ORDER BY id DESC`, [negocioId]) as Promise<any>,
     decisionesSinLinea(negocioId),
     estadoP.then(e => linksPendientesDelCosteo(negocioId, lineasAuditables(e))),
@@ -382,7 +385,7 @@ export async function armarPanelAuditor(negocioId: number, licitacionCodigo: str
     && (opRows as any[]).some(o => o.id === r.opcion_id && o.estado !== 'descartada')).map(r => r.documento_url));
   const errorPorUrl = new Map((extsRes[0] as any[]).map(e => [e.documento_url, e.error]));
   const fichasSinAsignar: FichaSinAsignarDTO[] = (docsRes[0] as any[]).filter(d => d.subcategoria === 'fichas_tecnicas' && !fichasEnUso.has(d.documento_url_local))
-    .map(d => ({ documentoId: d.id, nombre: d.documento_nombre, url: d.documento_url_local, subidaAt: fechaS(d.created_at), error: errorPorUrl.get(d.documento_url_local) ?? null }));
+    .map(d => ({ documentoId: d.id, nombre: d.documento_nombre, url: d.documento_url_local, subidaAt: fechaS(d.created_at), subidoPorNombre: s(d.subido_por_nombre), error: errorPorUrl.get(d.documento_url_local) ?? null }));
   const margen = margenProyectoConOpciones(lineasVivas, lineasDTO.filter(l => !l.noOfertada).flatMap(l => l.opciones
     .filter(o => ['definitiva', 'en_aprobacion', 'aprobada'].includes(o.estado) && o.verificacion?.costoNetoUnitario != null)
     .map(o => ({ filaId: l.filaId, neto: o.verificacion!.costoNetoUnitario as number }))), totalAsociados);
@@ -418,6 +421,7 @@ function armarDocumentos(
     const e = ultimaPorUrl.get(d.documento_url_local) || null;
     const base: DocumentoCotizacionDTO = {
       documentoId: d.id, nombre: d.documento_nombre, url: d.documento_url_local, extraccionId: e?.id ?? null,
+      subidoPorNombre: d.subido_por_nombre || null, subidoAt: fechaS(d.created_at),
       leido: !!e && !e.error, error: e?.error ?? null, proveedor: null, rut: null, fechaEmision: null, formalidad: null, productos: [],
     };
     if (e && !e.error) {
