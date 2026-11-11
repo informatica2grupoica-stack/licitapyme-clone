@@ -20,6 +20,8 @@ export interface CotizacionFilaUI {
   fleteMonto?: number | null;
   /** Texto del documento (trae la tabla «LÍNEAS DEL DOCUMENTO»): de ahí salen las líneas que no quedaron en ningún producto. */
   descripcionLibre?: string | null;
+  /** Notas de la lectura (incluye «IVA sin confirmar: …» cuando el documento no dice si sus precios llevan IVA). */
+  notas?: string | null;
   items: Array<{ productoId: number; precioUnitario: number | null; precioBase?: number | null; adicionales: unknown[] }>;
 }
 
@@ -54,10 +56,10 @@ function productosDeItems(c: Pick<CotizacionFilaUI, 'items'>, productos: Array<{
   return c.items.map(i => ({ id: i.productoId, descripcion: String(productos.find(p => p.id === i.productoId)?.descripcion ?? ''), precioBase: i.precioBase ?? null }));
 }
 
-export interface LineaExplicada { linea: LineaCotizacion; destino: string | null; tipo: 'producto' | 'adicional' | 'doble' | 'sin'; nota: string | null }
+export interface LineaExplicada { linea: LineaCotizacion; destino: string | null; tipo: 'producto' | 'adicional' | 'doble' | 'sin'; nota: string | null; pedido?: number | null; cotizado?: number | null }
 
 /** Cómo se leyó el documento, línea por línea: a qué producto fue (y por qué), si es adicional de alguno, o si quedó sin asignar. */
-export function explicarLineas(c: Pick<CotizacionFilaUI, 'moneda' | 'descripcionLibre' | 'fleteMonto' | 'items'>, productos: Array<{ id: number; descripcion: string }>): LineaExplicada[] {
+export function explicarLineas(c: Pick<CotizacionFilaUI, 'moneda' | 'descripcionLibre' | 'fleteMonto' | 'items'>, productos: Array<{ id: number; descripcion: string; cantidad?: number | string | null }>): LineaExplicada[] {
   const lineas = lineasDesdeTabla(String(c.descripcionLibre || ''));
   if (!lineas.length) return [];
   const pend = new Set(lineasPendientes(c, productos));
@@ -70,7 +72,9 @@ export function explicarLineas(c: Pick<CotizacionFilaUI, 'moneda' | 'descripcion
       const destino = prods.find(p => p.id === cob.productoId)?.descripcion ?? null;
       // El precio del producto YA incluye esta línea y además hay un adicional con su mismo precio: se está contando dos veces.
       const dup = cob.como !== 'nombre' && adics.some(x => l.precioUnitario != null && Math.abs(Number(x.a.precioUnitario) - l.precioUnitario) <= 1);
-      return { linea: l, destino, tipo: dup ? 'doble' as const : 'producto' as const, nota: dup ? 'ya está dentro del precio del producto y además va sumada como adicional: se cuenta DOS veces, quita ese adicional' : cob.nota };
+      const pedido = Number(productos.find(p => p.id === cob.productoId)?.cantidad);
+      const cotizado = l.cantidad != null ? (cob.factor ? l.cantidad / cob.factor : l.cantidad) : null;
+      return { linea: l, destino, tipo: dup ? 'doble' as const : 'producto' as const, nota: dup ? 'ya está dentro del precio del producto y además va sumada como adicional: se cuenta DOS veces, quita ese adicional' : cob.nota, pedido: Number.isFinite(pedido) && pedido > 0 ? pedido : null, cotizado };
     }
     const ad = adics.find(x => lineasSinAsignar([l], [String(x.a.concepto)]).length === 0);
     if (ad) return { linea: l, destino: prods.find(p => p.id === ad.productoId)?.descripcion ?? null, tipo: 'adicional' as const, nota: 'va sumada como adicional de ese producto' };
@@ -119,6 +123,7 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
   const [destino, setDestino] = useState<Record<string, number>>({});   // línea → producto elegido (si la cotización cubre varios)
   const [agregando, setAgregando] = useState<string | null>(null);
   const [abiertas, setAbiertas] = useState<Set<number>>(new Set());   // filas con el detalle desplegado
+  const [convirtiendo, setConvirtiendo] = useState<number | null>(null);
   const [filtro, setFiltro] = useState('');
 
   const agregar = async (c: CotizacionFilaUI, l: LineaCotizacion, productoId: number) => {
@@ -131,6 +136,18 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
     } catch (e: any) {
       toast.error('No se pudo agregar la línea', e.message);
     } finally { setAgregando(null); }
+  };
+  const pasarANeto = async (c: CotizacionFilaUI) => {
+    if (negocioId == null) return;
+    if (!window.confirm('¿Los precios de esta cotización incluyen IVA? Se dividirán por 1,19 (precio de cada producto y adicionales) y se invalidarán las aprobaciones de compra del negocio. Solo se puede hacer una vez.')) return;
+    setConvirtiendo(c.id);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/cotizaciones/${c.id}/iva`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo convertir');
+      toast.success('Precios pasados a neto', 'Se dividieron por 1,19.');
+      await onCambio?.();
+    } catch (e: any) { toast.error('No se pudo pasar a neto', e.message); } finally { setConvirtiendo(null); }
   };
   if (cotizaciones.length === 0) return null;
   const num = (v: unknown) => { const n = typeof v === 'number' ? v : Number(v); return Number.isFinite(n) && n > 0 ? n : 1; };
@@ -244,6 +261,20 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                     {c.moneda !== 'CLP' && <div className="min-w-0"><dt className="text-[11px] text-zinc-500">Moneda</dt><dd className="mt-0.5 text-sky-700">{c.moneda}</dd></div>}
                   </dl>
 
+                  {String(c.notas || '').includes('IVA sin confirmar:') && !String(c.notas || '').includes('÷ 1,19') && (
+                    <div className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2" data-testid={`cotizacion-iva-aviso-${c.id}`}>
+                      <p className="text-[12px] font-bold text-amber-900">⚠ El documento no dice si sus precios son netos o con IVA</p>
+                      <p className="text-[11px] text-amber-800">Se tomaron como NETOS (sin tocarlos). Mira el documento: si los precios llevan IVA incluido, conviértelos a neto (÷ 1,19) para comparar bien con el costeo.</p>
+                      {puedeOperar && negocioId != null && onCambio != null && (
+                        <button type="button" disabled={convirtiendo === c.id} onClick={() => pasarANeto(c)}
+                          className="mt-1.5 text-[11.5px] font-semibold text-teal-700 border border-teal-200 hover:bg-teal-50 disabled:opacity-50 rounded-md px-2 py-0.5">
+                          {convirtiendo === c.id ? 'Convirtiendo…' : 'Son con IVA: pasar a neto (÷ 1,19)'}
+                        </button>
+                      )}
+                      <span className="ml-2 text-[11px] text-amber-800">Si ya son netos, déjalo así.</span>
+                    </div>
+                  )}
+
                   <div>
                     <p className="text-[11px] text-zinc-500 mb-1">Qué cubre y a qué precio</p>
                     {cubiertos.length === 0
@@ -280,7 +311,7 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                     if (!expl.length) return null;
                     const sumaLineas = expl.reduce((a, x) => a + (x.linea.total ?? 0), 0);
                     return (
-                      <details className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5" data-testid={`cotizacion-lectura-${c.id}`}>
+                      <details open className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5" data-testid={`cotizacion-lectura-${c.id}`}>
                         <summary className="cursor-pointer text-[11.5px] font-semibold text-zinc-700">Cómo se leyó el documento, línea por línea ({expl.length} líneas · suma {clp(sumaLineas)})</summary>
                         <ul className="mt-1.5 space-y-1">
                           {expl.map((x, i) => (
@@ -290,13 +321,35 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                                 <div className={x.tipo === 'sin' || x.tipo === 'doble' ? 'text-amber-700' : 'text-zinc-500'}>
                                   {x.tipo === 'sin' ? '⚠ Sin asignar a ningún producto' : <>{x.tipo === 'doble' ? '⚠ ' : ''}→ {x.tipo === 'adicional' ? 'Adicional de ' : ''}<span className="text-zinc-700">{corto(x.destino ?? '', 60)}</span></>}
                                   {x.nota ? <span> · {x.nota}</span> : null}
+                                  {x.pedido != null && x.cotizado != null && Math.abs(x.pedido - x.cotizado) > Math.max(0.5, x.pedido * 0.05)
+                                    ? <span className="text-amber-700"> · ⚠ el documento cotiza {x.cotizado.toLocaleString('es-CL', { maximumFractionDigits: 1 })} y la licitación pide {x.pedido.toLocaleString('es-CL')}</span> : null}
                                 </div>
                               </div>
-                              <span className="text-right text-zinc-500 tabular-nums whitespace-nowrap">{x.linea.cantidad != null && x.linea.precioUnitario != null ? `${x.linea.cantidad.toLocaleString('es-CL')} × ${clp(x.linea.precioUnitario)} = ` : ''}<b className="text-zinc-900">{x.linea.total != null ? clp(x.linea.total) : '—'}</b></span>
+                              <span className="text-right text-zinc-500 tabular-nums whitespace-nowrap">{x.linea.cantidad != null && x.linea.precioUnitario != null ? `${x.linea.cantidad.toLocaleString('es-CL')}${x.linea.unidad ? ' ' + x.linea.unidad : ''} × ${clp(x.linea.precioUnitario)}${x.linea.unidad ? ' el ' + x.linea.unidad : ''} = ` : ''}<b className="text-zinc-900">{x.linea.total != null ? clp(x.linea.total) : '—'}</b></span>
                             </li>
                           ))}
                         </ul>
-                        <p className="mt-1.5 text-[11px] text-zinc-500">El documento cotiza sus propias cantidades; en la comparación el precio por unidad de cada producto se multiplica por la cantidad que pide la licitación, así que el total de aquí no tiene por qué ser el de la comparación.</p>
+                        {(() => {
+                          const filas = c.items.map(i => { const p = productos.find(q => q.id === i.productoId); const cant = num(p?.cantidad); return { d: p?.descripcion ?? '', cant, pu: i.precioUnitario, sub: i.precioUnitario != null ? i.precioUnitario * cant : 0 }; });
+                          const totalFila = filas.reduce((a, f) => a + f.sub, 0);
+                          const dif = totalFila - sumaLineas;
+                          return (
+                            <div className="mt-2 border-t border-zinc-200 pt-1.5 text-[11.5px]" data-testid={`cotizacion-total-explicado-${c.id}`}>
+                              <p className="font-semibold text-zinc-700">Cómo se arma el total de la fila: precio por unidad × cantidad que pide la licitación</p>
+                              <ul className="mt-1 space-y-0.5">
+                                {filas.map((f, i) => (
+                                  <li key={i} className="grid grid-cols-[1fr_auto] gap-x-3 text-zinc-500">
+                                    <span className="truncate" title={f.d}>{corto(f.d, 62)}</span>
+                                    <span className="tabular-nums whitespace-nowrap">{f.pu != null ? `${f.cant.toLocaleString('es-CL')} × ${clp(f.pu)} = ` : ''}<b className="text-zinc-800">{clp(f.sub)}</b></span>
+                                  </li>
+                                ))}
+                              </ul>
+                              <p className="mt-1 grid grid-cols-[1fr_auto] gap-x-3 font-semibold text-zinc-800"><span>Total de la fila</span><span className="tabular-nums">{clp(totalFila)}</span></p>
+                              <p className="grid grid-cols-[1fr_auto] gap-x-3 text-zinc-500"><span>Suma de las líneas del documento (cantidades que cotizó el proveedor)</span><span className="tabular-nums">{clp(sumaLineas)}</span></p>
+                              {Math.abs(dif) >= 1 && <p className="mt-0.5 text-amber-700">Diferencia {dif > 0 ? '+' : '−'}{clp(Math.abs(dif))}: el proveedor cotizó cantidades distintas a las que pide la licitación (marcadas con ⚠ arriba) o hay precios por metro/kilo convertidos a rollo/caja. Se compara con lo que pide la licitación.</p>}
+                            </div>
+                          );
+                        })()}
                       </details>
                     );
                   })()}
@@ -313,7 +366,7 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                           return (
                             <li key={clave} className="flex flex-wrap items-center gap-x-2 gap-y-1 bg-white border border-amber-200 rounded-md px-2 py-1">
                               <span className="font-semibold text-zinc-800" title={l.descripcion}>{corto(l.descripcion, 40)}</span>
-                              <span className="text-zinc-500 tabular-nums">{l.cantidad != null && l.precioUnitario != null ? `${l.cantidad.toLocaleString('es-CL')} × ${clp(l.precioUnitario)} = ` : ''}<b className="text-zinc-900">{l.total != null ? clp(l.total) : '—'}</b></span>
+                              <span className="text-zinc-500 tabular-nums">{l.cantidad != null && l.precioUnitario != null ? `${l.cantidad.toLocaleString('es-CL')}${l.unidad ? ' ' + l.unidad : ''} × ${clp(l.precioUnitario)} = ` : ''}<b className="text-zinc-900">{l.total != null ? clp(l.total) : '—'}</b></span>
                               {puedeAgregar && (
                                 <span className="ml-auto flex items-center gap-1.5">
                                   {cubiertos.length > 1 && (

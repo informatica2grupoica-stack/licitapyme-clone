@@ -13,6 +13,8 @@
 export interface LineaCotizacion {
   descripcion: string;
   cantidad: number | null;
+  /** Unidad de medida tal como la imprime el documento (MT, KG, BOLS, UND, ROLL…): el precio de la línea es POR esa unidad. */
+  unidad?: string | null;
   /** Precio unitario FINAL (con el descuento de la línea ya aplicado), en la base del documento (neto o con IVA, tal como lo imprime). */
   precioUnitario: number | null;
   /** Descuento de la línea tal como lo imprime (solo informativo: el precioUnitario ya lo trae aplicado). */
@@ -40,6 +42,26 @@ export function numeroDeTexto(raw: unknown): number | null {
   }
   const n = Number(s);
   return Number.isFinite(n) ? (neg ? -n : n) : null;
+}
+
+const UNIDADES = ['MT', 'MTS', 'MTR', 'ML', 'M2', 'M3', 'KG', 'KGS', 'LT', 'LTS', 'UND', 'UNID', 'UN', 'U', 'BOLS', 'BOLSA', 'BOL', 'ROLL', 'ROLLO', 'PLS', 'PL', 'PLANCHA', 'CJ', 'CAJA', 'SACO', 'SET', 'PAR', 'GL', 'GLN', 'PZA', 'PZ', 'TAMB', 'TARRO', 'BDJ', 'PQT', 'PAQ'];
+/** «MT.» → «MT». Solo si parece una unidad (corta, letras); el resto se descarta. */
+export function limpiarUnidad(raw: unknown): string | null {
+  const u = String(raw ?? '').trim().replace(/[.\s]+$/g, '').toUpperCase();
+  return u && u.length <= 10 && /^[A-ZÁÉÍÓÚÑ0-9./]+$/.test(u) ? u : null;
+}
+/** Respaldo sin IA: la unidad (UMED) pegada a la cantidad de la línea en el texto («140.00 MT.», «100.00 BOLS»). */
+export function unidadDeLineaEnTexto(texto: string, cantidad: number | null, total: number | null): string | null {
+  if (cantidad == null || !(cantidad > 0)) return null;
+  const reUnidad = new RegExp('(\\d[\\d.,]*)\\s*\\|?\\s*(' + UNIDADES.join('|') + ')\\.?(?=[\\s|]|$)', 'gi');
+  const lineas = String(texto || '').split(/\r?\n/);
+  // Primero las líneas que traen el total de ESTA línea (dos líneas pueden tener la misma cantidad: 100 BOLS y 100 UND); si ninguna, por cantidad.
+  const conTotal = total != null && total > 0 ? lineas.filter(l => numeroApareceEnTexto(total, l)) : [];
+  for (const l of conTotal.length ? conTotal : lineas.filter(x => numeroApareceEnTexto(cantidad, x))) {
+    // la unidad va justo después de la cantidad ("140.00 MT."); la de otro número de la línea ("0.8065 KG.") no cuenta
+    for (const m of l.matchAll(reUnidad)) if (numeroDeTexto(m[1]) === cantidad) return m[2].toUpperCase();
+  }
+  return null;
 }
 
 /** Todos los números que aparecen en el texto (normalizados), para comprobar que un valor "leído" existe de verdad. */
@@ -96,9 +118,10 @@ export function normalizarLineas(entrada: unknown, textoDoc: string, netoDocumen
     let total = numeroDeTexto(o.total);
     let unit = numeroDeTexto(o.precioUnitario);
     const desc = numeroDeTexto(o.descuentoPct);
+    const unidad = limpiarUnidad(o.unidad) ?? unidadDeLineaEnTexto(textoDoc, cantidad, numeroDeTexto(o.total));
     if (cantidad != null && !(cantidad > 0)) cantidad = null;
     // "$0" impreso (despacho gratis, VENTUS EC-1214) es un total real: descartarlo dejaba la suma sin verificar y botaba el descuento.
-    if (total === 0 && CERO_IMPRESO.test(textoDoc)) { lineas.push({ descripcion, cantidad, precioUnitario: 0, descuentoPct: null, total: 0 }); continue; }
+    if (total === 0 && CERO_IMPRESO.test(textoDoc)) { lineas.push({ descripcion, cantidad, unidad, precioUnitario: 0, descuentoPct: null, total: 0 }); continue; }
     if (total != null && !numeroApareceEnTexto(total, textoDoc)) { avisos.push(`El total de «${descripcion.slice(0, 40)}» (${total}) no aparece en el documento: se ignoró.`); total = null; }
     if (unit != null && !numeroApareceEnTexto(unit, textoDoc)) {
       // Con descuento, el unitario final puede no estar impreso (solo "P. c/Desc"): se recalcula abajo desde el total.
@@ -115,7 +138,7 @@ export function normalizarLineas(entrada: unknown, textoDoc: string, netoDocumen
       total = Math.round(unit * (1 - d / 100) * cantidad);
       if (d) unit = Math.round(unit * (1 - d / 100) * 100) / 100;
     }
-    lineas.push({ descripcion, cantidad, precioUnitario: unit, descuentoPct: desc && desc > 0 && desc < 100 ? desc : null, total });
+    lineas.push({ descripcion, cantidad, unidad, precioUnitario: unit, descuentoPct: desc && desc > 0 && desc < 100 ? desc : null, total });
   }
   const conTotal = lineas.filter(l => l.total != null);
   const suma = conTotal.length ? conTotal.reduce((a, l) => a + (l.total as number), 0) : null;
@@ -145,7 +168,7 @@ export function tablaDeLineas(lineas: LineaCotizacion[]): string {
   if (!lineas.length) return '';
   const f = (n: number | null) => (n == null ? '—' : String(Math.round(n * 100) / 100));
   return 'LÍNEAS DEL DOCUMENTO (leídas y verificadas; el precio unitario ya trae el descuento de la línea):\n'
-    + lineas.map((l, i) => `${i + 1}. ${l.descripcion} | cantidad ${f(l.cantidad)} | precio unitario ${f(l.precioUnitario)} | total ${f(l.total)}`).join('\n')
+    + lineas.map((l, i) => `${i + 1}. ${l.descripcion} | cantidad ${f(l.cantidad)}${l.unidad ? ' ' + l.unidad : ''} | precio unitario ${f(l.precioUnitario)} | total ${f(l.total)}`).join('\n')
     + '\n\n';
 }
 
@@ -255,9 +278,9 @@ export function lineasDesdeTabla(texto: string): LineaCotizacion[] {
   const bloque = String(texto || '').split(/\n\s*\n/)[0] || '';
   if (!/^LÍNEAS DEL DOCUMENTO/i.test(bloque.trim())) return out;
   for (const l of bloque.split('\n')) {
-    const m = l.match(/^\s*\d+\.\s*(.+?)\s*\|\s*cantidad\s+([\d.,—-]+)\s*\|\s*precio unitario\s+([\d.,—-]+)\s*\|\s*total\s+([\d.,—-]+)\s*$/i);
+    const m = l.match(/^\s*\d+\.\s*(.+?)\s*\|\s*cantidad\s+([\d.,—-]+)(?:\s+([^|\s]{1,12}))?\s*\|\s*precio unitario\s+([\d.,—-]+)\s*\|\s*total\s+([\d.,—-]+)\s*$/i);
     if (!m) continue;
-    out.push({ descripcion: m[1].trim(), cantidad: numeroDeTexto(m[2]), precioUnitario: numeroDeTexto(m[3]), descuentoPct: null, total: numeroDeTexto(m[4]) });
+    out.push({ descripcion: m[1].trim(), cantidad: numeroDeTexto(m[2]), unidad: m[3] || null, precioUnitario: numeroDeTexto(m[4]), descuentoPct: null, total: numeroDeTexto(m[5]) });
   }
   return out;
 }
@@ -350,7 +373,7 @@ export function conversionDesdeTexto(precioLinea: number | null | undefined, des
   return { unidadLinea: fam === 'm' ? 'MT' : fam === 'kg' ? 'KG' : 'LT', precioLinea, cantidadPorUnidad: cands[0] };
 }
 
-export interface CoberturaLinea { productoId: number; como: 'nombre' | 'precio' | 'conversion'; nota: string | null }
+export interface CoberturaLinea { productoId: number; como: 'nombre' | 'precio' | 'conversion'; nota: string | null; /** Unidades de medida por unidad del producto (metros por rollo), solo en 'conversion'. */ factor?: number }
 
 /**
  * ¿Qué producto ya cubre esta línea del documento? Tres pruebas, de más a menos fuerte:
@@ -373,7 +396,7 @@ export function productoQueCubreLaLinea(l: LineaCotizacion, productos: Array<{ i
       if (p.precioBase == null || !(p.precioBase > pu)) continue;
       const r = p.precioBase / pu;
       const n = Math.round(r);
-      if (n >= 2 && Math.abs(r - n) < 0.01 && numeroApareceEnTexto(n, p.descripcion)) return { productoId: p.id, como: 'conversion', nota: `${f(pu)} por unidad de medida × ${n} por ${n > 1 ? 'rollo/caja' : 'unidad'} = ${f(p.precioBase)} por unidad del producto` };
+      if (n >= 2 && Math.abs(r - n) < 0.01 && numeroApareceEnTexto(n, p.descripcion)) return { productoId: p.id, como: 'conversion', factor: n, nota: `${f(pu)} el ${l.unidad ?? 'metro/kilo'} × ${n} ${l.unidad ?? ''} que trae cada unidad del producto = ${f(p.precioBase)} por unidad del producto` };
     }
   }
   let mejor: { id: number; p: number } | null = null;

@@ -140,7 +140,7 @@ export async function registrarCotizacion(
   datos.precioUnitario = precioONull(datos.precioUnitario);
   datos.precioTotal = precioONull(datos.precioTotal);
   // IVA incluido (solo pesos): se pasa a NETO antes que nada, para que descuento, bruto y todo lo de abajo trabajen en neto.
-  const notaIva = datos.ivaIncluido && (datos.moneda || 'CLP') === 'CLP' && (datos.precioUnitario != null || datos.precioTotal != null)
+  const notaIva = datos.ivaIncluido && (datos.moneda || 'CLP') === 'CLP'
     ? `El documento informa precios con IVA incluido${datos.precioUnitario != null ? ` (${fmtMonto(datos.precioUnitario)} c/u)` : ''}; se guardaron en neto (÷ 1,19).` : null;
   if (notaIva) {
     if (datos.precioUnitario != null) datos.precioUnitario = netoDesdeBruto(datos.precioUnitario);
@@ -469,7 +469,7 @@ export async function listarCotizaciones(negocioId: number): Promise<CotizacionF
   const despachoDe = new Map<number, { m: string | null; c: string | null }>((despRows as any[]).map(r => [r.id, { m: r.despacho_modalidad ?? null, c: r.flete_condicion ?? null }]));
   return cotizaciones.map(c => ({
     despachoModalidad: despachoDe.get(c.id)?.m ?? null, fleteCondicion: despachoDe.get(c.id)?.c ?? null,
-    registradoPorNombre: c.registrado_por_nombre ?? null, registradoAt: c.registrado_at ?? null, archivoNombre: c.archivo_nombre ?? null,
+    registradoPorNombre: c.registrado_por_nombre ?? null, registradoAt: c.registrado_at ?? null, archivoNombre: c.archivo_nombre ?? null, notas: c.notas ?? null,
     id: c.id, proveedorId: c.proveedor_id, proveedorNombre: c.proveedor_nombre, proveedorRut: c.proveedor_rut,
     proveedorNuevo: c.proveedor_nuevo == null ? null : !!c.proveedor_nuevo, origen: c.origen,
     descripcionLibre: c.descripcion_libre, vigenciaAt: c.vigencia_at ?? null,
@@ -1324,4 +1324,40 @@ export async function escenarioElegidoTipo(negocioId: number): Promise<{ tipo: T
   ) as any;
   const r = (rows as any[])[0];
   return r ? { tipo: r.tipo, costoTotal: Number(r.costo_total) } : null;
+}
+
+/** Marca que deja la lectura cuando los precios YA están en neto (la homologación la usa para pasar los precios por producto a neto). */
+export const MARCA_IVA_NETO = 'se guardaron en neto (÷ 1,19)';
+/** Aviso cuando el documento no dice si sus precios son netos o con IVA: se tomaron como NETOS y hay un botón para corregirlo. */
+export const AVISO_IVA_SIN_CONFIRMAR = 'IVA sin confirmar:';
+
+/**
+ * «Los precios de esta cotización incluyen IVA»: los pasa a NETO (÷ 1,19) después de leída — precio de la cotización, precio base y total
+ * de cada producto y adicionales. Solo pesos y solo una vez (la marca queda en las notas). Caso: cotización a mano en una hoja con
+ * precios con IVA, que el sistema tomó como netos (el documento no decía nada). Invalida las aprobaciones, como cualquier edición de precios.
+ */
+export async function convertirCotizacionANeto(negocioId: number, cotizacionId: number, actorId: number, actorNombre: string | null): Promise<{ productos: number }> {
+  const [rows] = await pool.query(`SELECT proveedor_nombre, moneda, notas FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cotizacionId, negocioId]) as any;
+  const c = (rows as any[])[0];
+  if (!c) throw new Error('Cotización no encontrada.');
+  if ((c.moneda || 'CLP') !== 'CLP') throw new Error('Solo se convierte el IVA de cotizaciones en pesos.');
+  if (String(c.notas || '').includes(MARCA_IVA_NETO)) throw new Error('Esta cotización ya está en neto.');
+  const div = (col: string) => `${col} = IF(${col} IS NULL, NULL, ROUND(${col} / 1.19))`;
+  await pool.query(`UPDATE compras_cotizacion SET ${['precio_unitario', 'precio_total', 'precio_unitario_clp', 'precio_total_clp', 'precio_unitario_bruto'].map(div).join(', ')} WHERE id = ?`, [cotizacionId]);
+  await pool.query(`UPDATE compras_cotizacion_item SET ${['precio_unitario', 'precio_base'].map(div).join(', ')} WHERE cotizacion_id = ?`, [cotizacionId]);
+  await pool.query(`UPDATE compras_cotizacion_adicional SET ${div('precio_unitario')} WHERE cotizacion_id = ?`, [cotizacionId]).catch(() => {});
+  await recalcularPreciosDeCotizacion(cotizacionId);   // vuelve a sumar los adicionales ya en neto
+  const notas = [
+    ...String(c.notas || '').split(' · ').filter(t => t && !t.startsWith(AVISO_IVA_SIN_CONFIRMAR)),
+    `Los precios incluían IVA (confirmado por ${actorNombre || 'el equipo'}); ${MARCA_IVA_NETO}.`,
+  ].join(' · ');
+  await pool.query(`UPDATE compras_cotizacion SET notas = ? WHERE id = ?`, [notas, cotizacionId]);
+  await invalidarAprobacionesCompras(negocioId, 'Se corrigió el IVA de una cotización: cambia el costo.');
+  const [[n]]: any = await pool.query(`SELECT COUNT(*) n FROM compras_cotizacion_item WHERE cotizacion_id = ?`, [cotizacionId]);
+  await registrarEvento({
+    tipo: 'COMPRAS_COTIZACION_IVA_A_NETO', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
+    mensaje: `Se pasaron a neto (÷ 1,19) los precios de la cotización de "${c.proveedor_nombre}": venían con IVA incluido.`,
+    metadata: { negocio_id: negocioId, cotizacion_id: cotizacionId },
+  });
+  return { productos: Number(n?.n || 0) };
 }

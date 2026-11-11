@@ -9,7 +9,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { solicitarCompraRapida, exigirTablaCompraRapida, rutChilenoValido } from '@/app/lib/compras-compra-rapida';
 import { listarAuditoriasNegocio, costeadoPorProducto, ventaPorProducto, costeoComprasPorProducto } from '@/app/lib/compras-auditoria-cotizacion';
-import { registrarCotizacion, listarCotizaciones, type DatosCotizacion, type OrigenCotizacion } from '@/app/lib/compras-auditor';
+import { registrarCotizacion, listarCotizaciones, AVISO_IVA_SIN_CONFIRMAR, type DatosCotizacion, type OrigenCotizacion } from '@/app/lib/compras-auditor';
+import { ivaIncluidoDelTexto } from '@/app/lib/compras-cotizacion-lectura';
 import { puedeOperarPreAprobacion, puedeVerPreAprobacion } from '@/app/api/compras/[negocioId]/route';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { errorDeArchivoSubido } from '@/app/lib/subidas';
@@ -80,6 +81,7 @@ async function __POST(request: NextRequest, { params }: Params) {
         archivoNombre = file.name;
       }
       const origen = String(form.get('origen') || 'texto') as OrigenCotizacion;
+      const modoIva: 'auto' | 'neto' | 'iva' = form.get('modoIva') === 'neto' ? 'neto' : form.get('ivaIncluido') === 'true' ? 'iva' : 'auto';
       datos = {
         proveedorNombre: String(form.get('proveedorNombre') || '').trim(),
         proveedorRut: (form.get('proveedorRut') as string) || null,
@@ -95,6 +97,7 @@ async function __POST(request: NextRequest, { params }: Params) {
         plazoEntregaTexto: (form.get('plazoEntregaTexto') as string) || null,
         plazoEntregaDias: form.get('plazoEntregaDias') ? Number(form.get('plazoEntregaDias')) : null,
         incluyeFlete: form.get('incluyeFlete') == null ? null : form.get('incluyeFlete') === 'true',
+        // «Los precios del documento son»: IA decide (por defecto) / NETO confirmado / CON IVA incluido. Lo que marca la persona manda sobre lo que lea la IA.
         ivaIncluido: form.get('ivaIncluido') === 'true' ? true : null,
         vigenciaAt: (form.get('vigenciaAt') as string) || null,
         fleteMonto: parsearMontoCL(form.get('fleteMonto') as string),
@@ -120,6 +123,7 @@ async function __POST(request: NextRequest, { params }: Params) {
       // OCR/IA no extrae nada con certeza, no cambia nada (extraerDatosCotizacionDeDocumento
       // devuelve null en ese caso — no inventa).
       if (buffer && archivoUrl) {
+        let precioDelDocumento = false;
         // Un fallo pasajero del proveedor de IA (429, timeout) dejaba la cotización sin leer; se reintenta una vez antes de rendirse.
         let extraido = await extraerDatosCotizacionDeDocumento(archivoUrl, buffer, file!.type).catch(() => null);
         if (!extraido) {
@@ -130,8 +134,9 @@ async function __POST(request: NextRequest, { params }: Params) {
           if (!datos.proveedorNombre && !datos.proveedorId && extraido.proveedorNombre) datos.proveedorNombre = extraido.proveedorNombre;
           if (!datos.proveedorRut && extraido.proveedorRut) datos.proveedorRut = extraido.proveedorRut;
           // El IVA incluido solo se descuenta de precios que vienen del DOCUMENTO: lo tipeado a mano no se toca.
-          if (datos.precioUnitario == null && extraido.precioUnitario != null) { datos.precioUnitario = extraido.precioUnitario; if (extraido.ivaIncluido) datos.ivaIncluido = true; }
-          if (datos.precioTotal == null && extraido.precioTotal != null) { datos.precioTotal = extraido.precioTotal; if (extraido.ivaIncluido) datos.ivaIncluido = true; }
+          if (datos.precioUnitario == null && extraido.precioUnitario != null) { datos.precioUnitario = extraido.precioUnitario; if (extraido.ivaIncluido && modoIva !== 'neto') datos.ivaIncluido = true; }
+          if (datos.precioTotal == null && extraido.precioTotal != null) { datos.precioTotal = extraido.precioTotal; if (extraido.ivaIncluido && modoIva !== 'neto') datos.ivaIncluido = true; }
+          precioDelDocumento = extraido.precioUnitario != null || extraido.precioTotal != null || (extraido.lineas?.length ?? 0) > 0;
           if (!datos.vigenciaAt && extraido.vigenciaAt) datos.vigenciaAt = extraido.vigenciaAt;
           if (datos.incluyeFlete == null && extraido.incluyeFlete != null && datos.fleteMonto == null && extraido.fleteMonto == null) datos.incluyeFlete = extraido.incluyeFlete;
           if (datos.descuentoPct == null && extraido.descuentoPct != null) datos.descuentoPct = extraido.descuentoPct;
@@ -155,6 +160,9 @@ async function __POST(request: NextRequest, { params }: Params) {
           // lee `descripcionLibre`, y esa quedaba vacía si el usuario no la retipeaba a mano.
           if (!datos.descripcionLibre && extraido.textoCompleto) datos.descripcionLibre = extraido.textoCompleto;
           if (extraido.avisosLectura?.length) datos.notas = [datos.notas, `Lectura: ${extraido.avisosLectura.join(' ')}`].filter(Boolean).join(' · ');
+          // El documento no dice si sus precios llevan IVA (hoja a mano, foto): se toman como NETOS pero se avisa, con botón para corregirlo.
+          if (modoIva === 'auto' && !datos.ivaIncluido && precioDelDocumento && (datos.moneda || 'CLP') === 'CLP' && ivaIncluidoDelTexto(extraido.textoCompleto || '') == null)
+            datos.notas = [datos.notas, `${AVISO_IVA_SIN_CONFIRMAR} el documento no dice si sus precios son netos o con IVA; se tomaron como NETOS.`].filter(Boolean).join(' · ');
         }
       }
     } else {

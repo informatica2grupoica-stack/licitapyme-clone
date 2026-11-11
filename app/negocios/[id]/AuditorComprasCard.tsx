@@ -170,7 +170,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   >({ estado: 'idle' });
   const [form, setForm] = useState({
     proveedorNombre: '', proveedorRut: '', origen: 'texto' as Origen, descripcionLibre: '',
-    precioUnitario: '', descuentoPct: '', moneda: 'CLP', plazoEntregaTexto: '', incluyeFlete: '' as '' | 'true' | 'false', fleteMonto: '', despacho: '', condicion: '', vigenciaAt: '', ivaIncluido: false,
+    precioUnitario: '', descuentoPct: '', moneda: 'CLP', plazoEntregaTexto: '', incluyeFlete: '' as '' | 'true' | 'false', fleteMonto: '', despacho: '', condicion: '', vigenciaAt: '', ivaIncluido: false, ivaNeto: false,
   });
   // Pedido explícito del usuario (11-sep-2026): esta pantalla es para REGISTRAR cotizaciones, no
   // para administrar el catálogo de proveedores (eso vive en /compras/proveedores, aparte). Se
@@ -498,7 +498,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   };
 
   const cancelarFormulario = () => {
-    setForm({ proveedorNombre: '', proveedorRut: '', origen: 'texto', descripcionLibre: '', precioUnitario: '', descuentoPct: '', moneda: 'CLP', plazoEntregaTexto: '', incluyeFlete: '', fleteMonto: '', despacho: '', condicion: '', vigenciaAt: '', ivaIncluido: false });
+    setForm({ proveedorNombre: '', proveedorRut: '', origen: 'texto', descripcionLibre: '', precioUnitario: '', descuentoPct: '', moneda: 'CLP', plazoEntregaTexto: '', incluyeFlete: '', fleteMonto: '', despacho: '', condicion: '', vigenciaAt: '', ivaIncluido: false, ivaNeto: false });
     setHistoricoProveedor({ estado: 'idle' });
     setArchivo(null);
     setArchivoExtraido({ estado: 'idle' });
@@ -521,7 +521,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
       incluyeFlete: c.incluyeFlete == null ? '' : (c.incluyeFlete ? 'true' : 'false'),
       fleteMonto: c.fleteMonto != null ? String(c.fleteMonto) : '',
       despacho: c.despachoModalidad ?? '', condicion: c.fleteCondicion ?? '',
-      vigenciaAt: c.vigenciaAt ?? '', ivaIncluido: false,
+      vigenciaAt: c.vigenciaAt ?? '', ivaIncluido: false, ivaNeto: false,
     });
     setEditandoId(c.id);
     setFormAbierto(true);
@@ -610,7 +610,8 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
         if (form.fleteMonto) fd.set('fleteMonto', form.fleteMonto);
         if (form.despacho) fd.set('despachoModalidad', form.despacho);
         if (form.condicion) fd.set('fleteCondicion', form.condicion);
-        if (form.ivaIncluido) fd.set('ivaIncluido', 'true');
+        if (form.ivaIncluido) fd.set("ivaIncluido", "true");
+        else if (form.ivaNeto) fd.set("modoIva", "neto");
         if (form.vigenciaAt) fd.set('vigenciaAt', form.vigenciaAt);
         if (items.length > 0) fd.set('items', JSON.stringify(items));
         res = await fetch(`/api/compras/${negocioId}/cotizaciones`, { method: 'POST', body: fd });
@@ -922,9 +923,16 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
                 placeholder="Plazo de entrega" className="h-10 text-sm text-tinta border border-linea rounded-lg px-3 bg-white outline-none transition-colors focus:border-marca focus:ring-2 focus:ring-marca/20 placeholder:text-tinta-3 dark:bg-slate-900 dark:border-slate-700" />
             </div>
             {editandoId == null && form.moneda === 'CLP' && (
-              <label className="flex items-center gap-2 text-xs text-tinta-2">
-                <input type="checkbox" checked={form.ivaIncluido} onChange={e => setForm(f => ({ ...f, ivaIncluido: e.target.checked }))} />
-                El precio de arriba incluye IVA (se guarda en neto, dividido por 1,19)
+              <label className="flex flex-wrap items-center gap-2 text-xs text-tinta-2" data-testid="cotizacion-modo-iva">
+                <span className="font-semibold">Los precios del documento son:</span>
+                <select value={form.ivaIncluido ? 'iva' : form.ivaNeto ? 'neto' : 'auto'}
+                  onChange={e => setForm(f => ({ ...f, ivaIncluido: e.target.value === 'iva', ivaNeto: e.target.value === 'neto' }))}
+                  className="h-8 text-xs border border-linea rounded-lg px-2 bg-white">
+                  <option value="auto">Que la IA lo deduzca del documento</option>
+                  <option value="neto">NETOS (+ IVA aparte)</option>
+                  <option value="iva">CON IVA incluido (se pasan a neto ÷ 1,19)</option>
+                </select>
+                <span className="text-tinta-3">Una hoja a mano o una foto casi nunca lo dice: confírmalo aquí o después con «Son con IVA».</span>
               </label>
             )}
             {form.precioUnitario.trim() && form.descuentoPct.trim() && parsearMontoCL(form.descuentoPct) != null && (parsearMontoCL(form.descuentoPct) as number) > 0 && (
