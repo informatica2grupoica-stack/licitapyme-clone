@@ -350,6 +350,37 @@ export function conversionDesdeTexto(precioLinea: number | null | undefined, des
   return { unidadLinea: fam === 'm' ? 'MT' : fam === 'kg' ? 'KG' : 'LT', precioLinea, cantidadPorUnidad: cands[0] };
 }
 
+export interface CoberturaLinea { productoId: number; como: 'nombre' | 'precio' | 'conversion'; nota: string | null }
+
+/**
+ * ¿Qué producto ya cubre esta línea del documento? Tres pruebas, de más a menos fuerte:
+ *  · mismo precio unitario que el precio base del producto (la línea ES ese producto aunque el nombre difiera: «PINO IMPREGNADO ROJO 2 X 2» = «Madera pino IPV 2x2»);
+ *  · el precio base del producto es el precio de la línea × N, con N escrito en la descripción del producto (metro × 68 = rollo; kilo × 25 = caja);
+ *  · nombre parecido (≥ 50 % de palabras).
+ * Sirve para no ofrecer como «línea sin asignar» algo que ya está en el precio de un producto (2736-44: el folio por metro se ofrecía de nuevo
+ * y se sumaba como adicional encima del rollo; el clavo volcanita aparecía como sin asignar con $82.500 ya cargados).
+ */
+export function productoQueCubreLaLinea(l: LineaCotizacion, productos: Array<{ id: number; descripcion: string; precioBase: number | null }>): CoberturaLinea | null {
+  const pu = l.precioUnitario;
+  const f = (n: number) => '$' + Math.round(n).toLocaleString('es-CL');
+  if (pu != null && pu > 0) {
+    // Con varios productos al mismo precio (clavo 3" y 4" a $1.490) se elige el de nombre más parecido.
+    const mismos = productos.filter(p => p.precioBase != null && p.precioBase > 0 && Math.abs(p.precioBase - pu) <= 1);
+    const nums = (s: string) => new Set(String(s).match(/\d+/g) ?? []);
+    const puntaje = (d: string) => parecido(l.descripcion, d) + [...nums(l.descripcion)].filter(n => nums(d).has(n)).length;   // los números (3" vs 4") desempatan
+    if (mismos.length) return { productoId: [...mismos].sort((a, b) => puntaje(b.descripcion) - puntaje(a.descripcion))[0].id, como: 'precio', nota: null };
+    for (const p of productos) {
+      if (p.precioBase == null || !(p.precioBase > pu)) continue;
+      const r = p.precioBase / pu;
+      const n = Math.round(r);
+      if (n >= 2 && Math.abs(r - n) < 0.01 && numeroApareceEnTexto(n, p.descripcion)) return { productoId: p.id, como: 'conversion', nota: `${f(pu)} por unidad de medida × ${n} por ${n > 1 ? 'rollo/caja' : 'unidad'} = ${f(p.precioBase)} por unidad del producto` };
+    }
+  }
+  let mejor: { id: number; p: number } | null = null;
+  for (const p of productos) { const s = parecido(l.descripcion, p.descripcion); if (s >= 0.5 && (!mejor || s > mejor.p)) mejor = { id: p.id, p: s }; }
+  return mejor ? { productoId: mejor.id, como: 'nombre', nota: null } : null;
+}
+
 // ─── ¿La línea cotizada es de verdad el producto pedido? Talla y tipo de chasis (1110) ────────────────────────────────────────────
 // Caso real (1110): "Silla de ruedas activa chasis plegable talla 42" quedó cubierta por "Silla de Ruedas Activa 43 cm Chasis Rígido":
 // otra talla y otro chasis, y el sistema la dio por buena. La IA decide por significado; esto es el freno determinista para lo medible.

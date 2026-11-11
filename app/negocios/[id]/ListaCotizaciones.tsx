@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { MenuAcciones } from '@/app/components/ui/MenuAcciones';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
-import { lineasDesdeTabla, lineasSinAsignar, type LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
+import { lineasDesdeTabla, lineasSinAsignar, productoQueCubreLaLinea, type LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
 import { adicionalesDesdeIA } from '@/app/lib/compras-adicionales-ia';
 import { useToast } from '@/app/components/ui/toast';
 import { IconEye as Eye, IconListCheck as ListChecks, IconSparkles as Sparkles, IconPencil as Pencil, IconTrash as Trash, IconLoader2 as Loader2, IconAlertTriangle as Alerta, IconChevronRight as Flecha, IconCheck as Check, IconFileText as Doc } from '@tabler/icons-react';
@@ -46,8 +46,36 @@ export function lineasPendientes(c: Pick<CotizacionFilaUI, 'moneda' | 'descripci
   const fleteAparte = c.fleteMonto != null && c.fleteMonto > 0;
   return lineasSinAsignar(lineas.filter(l => !tapadas.has(l)), asignados)
     .filter(l => !(fleteAparte && /flete|transport|despacho|env[ií]o/i.test(l.descripcion)))
-    // Segunda red: una línea con el mismo precio unitario que el producto ya asignado es ese producto, aunque el nombre difiera.
-    .filter(l => !(l.precioUnitario != null && c.items.some(i => i.precioBase != null && Math.abs(i.precioBase - l.precioUnitario!) <= 1)));
+    // Segunda red: la línea con el mismo precio que un producto asignado, o con ese precio × N (metro × 68 = rollo), es ese producto aunque el nombre difiera.
+    .filter(l => !productoQueCubreLaLinea(l, productosDeItems(c, productos)));
+}
+
+function productosDeItems(c: Pick<CotizacionFilaUI, 'items'>, productos: Array<{ id: number; descripcion: string }>) {
+  return c.items.map(i => ({ id: i.productoId, descripcion: String(productos.find(p => p.id === i.productoId)?.descripcion ?? ''), precioBase: i.precioBase ?? null }));
+}
+
+export interface LineaExplicada { linea: LineaCotizacion; destino: string | null; tipo: 'producto' | 'adicional' | 'doble' | 'sin'; nota: string | null }
+
+/** Cómo se leyó el documento, línea por línea: a qué producto fue (y por qué), si es adicional de alguno, o si quedó sin asignar. */
+export function explicarLineas(c: Pick<CotizacionFilaUI, 'moneda' | 'descripcionLibre' | 'fleteMonto' | 'items'>, productos: Array<{ id: number; descripcion: string }>): LineaExplicada[] {
+  const lineas = lineasDesdeTabla(String(c.descripcionLibre || ''));
+  if (!lineas.length) return [];
+  const pend = new Set(lineasPendientes(c, productos));
+  const prods = productosDeItems(c, productos);
+  const adics = c.items.flatMap(i => (i.adicionales as AdicionalFila[]).map(a => ({ a, productoId: i.productoId })));
+  return lineas.map(l => {
+    if (pend.has(l)) return { linea: l, destino: null, tipo: 'sin' as const, nota: null };
+    const cob = productoQueCubreLaLinea(l, prods);
+    if (cob) {
+      const destino = prods.find(p => p.id === cob.productoId)?.descripcion ?? null;
+      // El precio del producto YA incluye esta línea y además hay un adicional con su mismo precio: se está contando dos veces.
+      const dup = cob.como !== 'nombre' && adics.some(x => l.precioUnitario != null && Math.abs(Number(x.a.precioUnitario) - l.precioUnitario) <= 1);
+      return { linea: l, destino, tipo: dup ? 'doble' as const : 'producto' as const, nota: dup ? 'ya está dentro del precio del producto y además va sumada como adicional: se cuenta DOS veces, quita ese adicional' : cob.nota };
+    }
+    const ad = adics.find(x => lineasSinAsignar([l], [String(x.a.concepto)]).length === 0);
+    if (ad) return { linea: l, destino: prods.find(p => p.id === ad.productoId)?.descripcion ?? null, tipo: 'adicional' as const, nota: 'va sumada como adicional de ese producto' };
+    return { linea: l, destino: null, tipo: 'sin' as const, nota: null };   // flete aparte u otra que la lista no ofrece
+  });
 }
 
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
@@ -247,10 +275,36 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                         </div>}
                   </div>
 
+                  {(() => {
+                    const expl = explicarLineas(c, productos);
+                    if (!expl.length) return null;
+                    const sumaLineas = expl.reduce((a, x) => a + (x.linea.total ?? 0), 0);
+                    return (
+                      <details className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5" data-testid={`cotizacion-lectura-${c.id}`}>
+                        <summary className="cursor-pointer text-[11.5px] font-semibold text-zinc-700">Cómo se leyó el documento, línea por línea ({expl.length} líneas · suma {clp(sumaLineas)})</summary>
+                        <ul className="mt-1.5 space-y-1">
+                          {expl.map((x, i) => (
+                            <li key={i} className="grid grid-cols-[1fr_auto] gap-x-3 text-[11.5px] border-t border-zinc-100 pt-1 first:border-0 first:pt-0">
+                              <div className="min-w-0">
+                                <span className="font-semibold text-zinc-800" title={x.linea.descripcion}>{corto(x.linea.descripcion, 70)}</span>
+                                <div className={x.tipo === 'sin' || x.tipo === 'doble' ? 'text-amber-700' : 'text-zinc-500'}>
+                                  {x.tipo === 'sin' ? '⚠ Sin asignar a ningún producto' : <>{x.tipo === 'doble' ? '⚠ ' : ''}→ {x.tipo === 'adicional' ? 'Adicional de ' : ''}<span className="text-zinc-700">{corto(x.destino ?? '', 60)}</span></>}
+                                  {x.nota ? <span> · {x.nota}</span> : null}
+                                </div>
+                              </div>
+                              <span className="text-right text-zinc-500 tabular-nums whitespace-nowrap">{x.linea.cantidad != null && x.linea.precioUnitario != null ? `${x.linea.cantidad.toLocaleString('es-CL')} × ${clp(x.linea.precioUnitario)} = ` : ''}<b className="text-zinc-900">{x.linea.total != null ? clp(x.linea.total) : '—'}</b></span>
+                            </li>
+                          ))}
+                        </ul>
+                        <p className="mt-1.5 text-[11px] text-zinc-500">El documento cotiza sus propias cantidades; en la comparación el precio por unidad de cada producto se multiplica por la cantidad que pide la licitación, así que el total de aquí no tiene por qué ser el de la comparación.</p>
+                      </details>
+                    );
+                  })()}
+
                   {pendientes.length > 0 && (
                     <div className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2" data-testid={`cotizacion-lineas-sin-asignar-${c.id}`}>
                       <p className="text-[12px] font-bold text-amber-900">⚠ El documento trae {pendientes.length === 1 ? 'una línea' : `${pendientes.length} líneas`} que no está{pendientes.length === 1 ? '' : 'n'} en ningún producto ni adicional</p>
-                      <p className="text-[11px] text-amber-800">No se suman al precio hasta que tú las agregues, de a una.</p>
+                      <p className="text-[11px] text-amber-800">No coinciden con los productos de esta cotización ni por nombre ni por precio, y no se suman al precio. Si es un accesorio o servicio de un producto (instalación, repuesto), agrégala a ese producto; si ya está dentro de otro precio, pulsa «No agregar».</p>
                       <ul className="mt-1.5 space-y-1.5">
                         {pendientes.map(l => {
                           const clave = `${c.id}|${l.descripcion}`;

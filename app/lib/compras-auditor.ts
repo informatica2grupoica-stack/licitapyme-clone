@@ -14,7 +14,7 @@
 import { precioClpDeItemIA } from '@/app/lib/compras-precio-homologacion';
 import { borrarDocumentoR2 } from '@/app/lib/r2';
 import pool from '@/app/lib/db';
-import { precioPorUnidadDeProducto, conversionDesdeTexto,numeroApareceEnTexto, lineasDesdeTabla, corregirAdicionalesConLineas, lineasSinAsignar, lineaDelProducto, desajustesProductoLinea, sinComponentesDeLaLineaPropia } from '@/app/lib/compras-cotizacion-lineas';
+import { precioPorUnidadDeProducto, conversionDesdeTexto, productoQueCubreLaLinea, numeroApareceEnTexto, lineasDesdeTabla, corregirAdicionalesConLineas, lineasSinAsignar, lineaDelProducto, desajustesProductoLinea, sinComponentesDeLaLineaPropia } from '@/app/lib/compras-cotizacion-lineas';
 import { conCupo } from '@/app/lib/cupo-ia';
 import { esRutPropio } from '@/app/lib/auditor-compras-datos';
 import { filasDeCotizacion, programarAuditoria } from '@/app/lib/auditor-compras';
@@ -765,9 +765,10 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
   try {
     const [[a]]: any = await pool.query(`SELECT notas FROM compras_cotizacion WHERE id = ?`, [cotizacionId]);
     const [asig]: any = await pool.query(
-      `SELECT p.descripcion FROM compras_cotizacion_item i JOIN compras_producto p ON p.id = i.producto_id WHERE i.cotizacion_id = ?`, [cotizacionId]);
+      `SELECT p.id, p.descripcion, i.precio_base FROM compras_cotizacion_item i JOIN compras_producto p ON p.id = i.producto_id WHERE i.cotizacion_id = ?`, [cotizacionId]);
     const [adics]: any = await pool.query(`SELECT concepto FROM compras_cotizacion_adicional WHERE cotizacion_id = ?`, [cotizacionId]);
-    const sin = lineasSinAsignar(lineasDelDoc, [...(asig as any[]).flatMap(x => [String(x.descripcion), String(x.descripcion).split(' - ')[0]]), ...(adics as any[]).map(x => String(x.concepto))]);
+    const prodsCub = (asig as any[]).map(x => ({ id: Number(x.id), descripcion: String(x.descripcion), precioBase: x.precio_base == null ? null : Number(x.precio_base) }));
+    const sin = lineasSinAsignar(lineasDelDoc.filter(l => !productoQueCubreLaLinea(l, prodsCub)), [...(asig as any[]).flatMap(x => [String(x.descripcion), String(x.descripcion).split(' - ')[0]]), ...(adics as any[]).map(x => String(x.concepto))]);
     const marca = 'Revisa la asignación:';
     const marcaMismo = 'Revisa que sea el mismo producto:';
     const notasSinAviso = String(a?.notas || '').split(' · ').filter(t => !t.startsWith(marca) && !t.startsWith(marcaMismo)).join(' · ');
