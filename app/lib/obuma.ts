@@ -519,8 +519,14 @@ export async function crearProductoObuma(datos: DatosCrearProductoObuma): Promis
   // Precio de venta: el neto que llega del costeo/acta (nunca se inventa un margen); IVA 19 % y total derivados de ese neto.
   const precioNeto = Math.max(0, Math.round(datos.precioVentaClpNeto || 0));
   const precioIva = Math.round(precioNeto * 0.19);
+  // Obuma no escapa el apóstrofo (') del nombre: la API responde con error de SQL y el producto no se crea
+  // (2736-44-LE26, «1.5/8' X 13»). La comilla doble sí se acepta (hay cientos así en el catálogo), así que
+  // la pulgada pasa a ", y cualquier otro apóstrofo/acento suelto se quita.
+  const nombreSeguro = datos.nombre
+    .replace(/(\d)\s*['’´`]{1,2}/g, '$1"')
+    .replace(/['’´`\\]/g, '');
   const payload = {
-    producto_nombre: datos.nombre.toUpperCase().trim().slice(0, 200),
+    producto_nombre: nombreSeguro.toUpperCase().trim().slice(0, 200),
     producto_tipo: '0', // Producto (no Servicio)
     producto_activo: '1',
     producto_mostrar: '0', // nunca visible en el catálogo/tienda
@@ -539,7 +545,14 @@ export async function crearProductoObuma(datos: DatosCrearProductoObuma): Promis
     producto_vender_en_web: datos.venderEnWeb ? '1' : '0',
     sucursal_id: '1',
   };
-  const json = await llamarPost<any>(BASE_V1, '/productos.create.json', payload);
+  let json: any;
+  try {
+    json = await llamarPost<any>(BASE_V1, '/productos.create.json', payload);
+  } catch (e) {
+    // El detalle de Obuma puede traer texto de SQL (lo tapa mensajeSeguro y el usuario solo veía «No se pudo crear el SKU»).
+    console.error('[obuma] productos.create.json falló:', String(e).slice(0, 400), '| nombre:', payload.producto_nombre);
+    throw new Error('Obuma rechazó crear el producto. Revisa que el nombre no tenga caracteres raros (apóstrofes, barras) y vuelve a intentar; si sigue igual, avísale al equipo técnico.');
+  }
   // Verificado en vivo (10-sep-2026): la respuesta REAL de productos.create.json no trae
   // data.producto_id ni producto_id sueltos — el ID viene embebido como texto dentro de
   // result.result_detail: "producto creado. producto_id:1118883". Sin este parseo, la creación

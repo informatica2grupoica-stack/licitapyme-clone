@@ -1031,6 +1031,33 @@ export async function obtenerAsignacion(negocioId: number): Promise<AsignacionCo
   if (!r) return null;
   let resumen: ResumenEjecutivoCompras | null = null;
   try { resumen = JSON.parse(r.resumen_json); } catch { /* se muestra sin resumen antes que romper */ }
+  // El resumen es una foto guardada al ganar: el costeo se sigue editando después (negocio 1382,
+  // 11-nov-2026: foto con $36,6M y costeo vigente de $19,9M). Monto costeado y margen salen SIEMPRE
+  // del costeo vigente; el resto de la foto no se toca.
+  if (resumen) {
+    try {
+      const [[c]] = await pool.query(
+        `SELECT version, archivo_nombre, total_costo_neto, total_precio_neto
+           FROM checklist_comercial_costeo WHERE negocio_id = ? AND vigente = 1 LIMIT 1`,
+        [negocioId],
+      ) as any;
+      if (c) {
+        const costo = c.total_costo_neto != null ? Number(c.total_costo_neto) : null;
+        resumen.costeo = {
+          totalCostoNeto: costo,
+          totalPrecioNeto: c.total_precio_neto != null ? Number(c.total_precio_neto) : null,
+          archivoNombre: c.archivo_nombre, version: c.version,
+        };
+        resumen.existeCosteo = true;
+        resumen.montoCosteado = costo;
+        resumen.margenPrevisto = (resumen.montoNuestro && costo != null && resumen.montoNuestro > 0)
+          ? Math.round(((resumen.montoNuestro - costo) / resumen.montoNuestro) * 1000) / 10
+          : null;
+      }
+    } catch (e) {
+      console.error('[compras] costeo vigente no legible (asignación):', String(e).slice(0, 150));
+    }
+  }
   return {
     precompra,
     negocioId: r.negocio_id, licitacionCodigo: r.licitacion_codigo,
