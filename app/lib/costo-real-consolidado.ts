@@ -90,7 +90,8 @@ export function consolidarCostoReal(e: EntradaConsolidado): CostoRealConsolidado
     // se ignoraban las OC hechas directo en Obuma (387-55-LE26: 8 de 18 OC → «Obuma −57,6 %») y el respaldo venía con IVA.
     const gastado = e.obuma.comprasCruzadas || e.obuma.ocCreadas || 0;
     const productosCosteo = ofertado + extraCosteo + Math.max(0, e.gastosEnOc ?? 0);
-    const diferenciaPct = gastado > 0 && productosCosteo > 0 ? pct(gastado - productosCosteo, productosCosteo) : null;
+    // Con la base en las OC, Obuma y el costo real son el mismo número: 0 %. Antes salía «−12 %» en rojo (387-55-LE26) porque restaba los fletes con OC dos veces.
+    const diferenciaPct = usaOc ? 0 : (gastado > 0 && productosCosteo > 0 ? pct(gastado - productosCosteo, productosCosteo) : null);
     obuma = { gastado, facturas: e.obuma.facturas, diferenciaPct };
     // Solo con el costeo COMPLETO: a medio cargar, "Obuma compró más" es lo esperado, no un desvío.
     // Si la base YA son las OC, no hay dos números que contrastar: el aviso solo confundiría.

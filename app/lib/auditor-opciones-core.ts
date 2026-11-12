@@ -479,7 +479,16 @@ export function verificarOpcion(e: EntradaVerificacion): ResultadoVerificacion {
   if (!p.marca && !p.modelo && !p.sku) {
     bloqueos.push({ codigo: 'V1', mensaje: 'El respaldo no identifica marca, modelo ni SKU: no se puede verificar que sea el producto que se evalúa.', salida: 'Pide al proveedor la cotización con marca y modelo (o el SKU del fabricante).', accion: 'pedir_proveedor' });
   } else if ((marcaOpc && p.marca && marcaOpc !== p.marca.trim().toLowerCase()) || (modeloOpc && p.modelo && modeloOpc !== p.modelo.trim().toLowerCase())) {
-    bloqueos.push({ codigo: 'V1', mensaje: `El respaldo es de otro producto (${[p.marca, p.modelo].filter(Boolean).join(' ')}) que el de la opción (${[e.opcion.marca, e.opcion.modelo].filter(Boolean).join(' ')}).`, salida: 'Corrige la opción o crea una opción nueva con este producto (evento producto_cambiado).', accion: 'corregir_costeo' });
+    // 12-nov-2026 (2981-334-LE26): «TK905 4G LTE» vs «TK905 4G» es el mismo producto con una palabra de más. Si la marca calza y las
+    // palabras de un modelo están todas en el otro, solo se avisa (amarillo); bloquea solo cuando de verdad es otro modelo o marca.
+    const tok = (x: string) => x.toLowerCase().replace(/[^a-z0-9áéíóúñ]+/gi, ' ').trim().split(/\s+/).filter(Boolean);
+    // El modelo más corto tiene que traer un código propio (letras+número, ≥3), para no aceptar «4G» contra cualquier cosa.
+    const contenido = (a: string, b: string) => { const ta = tok(a), tb = tok(b); if (!ta.length || !tb.length) return true; const [c, l] = ta.length <= tb.length ? [ta, new Set(tb)] : [tb, new Set(ta)]; return c.some(t => t.length >= 3 && /\d/.test(t)) && c.every(t => l.has(t)); };
+    const mismaMarca = !marcaOpc || !p.marca || tok(marcaOpc).join('') === tok(p.marca).join('');
+    if (mismaMarca && contenido(e.opcion.modelo || '', p.modelo || '') && (e.opcion.modelo || p.modelo))
+      alertas.push({ codigo: 'V1', nivel: 'amarillo', mensaje: `El respaldo nombra el producto distinto (${[p.marca, p.modelo].filter(Boolean).join(' ')}) que la opción (${[e.opcion.marca, e.opcion.modelo].filter(Boolean).join(' ')}), pero es el mismo modelo.`, accion: 'revisar' });
+    else
+      bloqueos.push({ codigo: 'V1', mensaje: `El respaldo es de otro producto (${[p.marca, p.modelo].filter(Boolean).join(' ')}) que el de la opción (${[e.opcion.marca, e.opcion.modelo].filter(Boolean).join(' ')}).`, salida: 'Corrige la opción o crea una opción nueva con este producto (evento producto_cambiado).', accion: 'corregir_costeo' });
   }
 
   // ── V3 IVA y moneda ──
