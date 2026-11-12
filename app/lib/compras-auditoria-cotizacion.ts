@@ -269,6 +269,20 @@ export interface ResultadoAuditoria { productoId: number; dictamen: Dictamen; cu
  *  compras_auditoria_cotizacion y deja `compras_cotizacion_item.cumple` = override de una persona si
  *  lo hay, si no el que resulta del dictamen. Si el veredicto EMPEORA respecto al que había, invalida
  *  las aprobaciones de compra (§10.5): quedaron sobre una cotización que no es lo que parecía. */
+/** ¿La cotización está en la combinación de compra elegida? Si la compra elegida no es una combinación (o no se puede leer), se responde
+ *  true: sin saber qué se aprobó, se mantiene el comportamiento de siempre (anular por las dudas). */
+async function cotizacionEnCompraElegida(negocioId: number, cotizacionId: number): Promise<boolean> {
+  try {
+    const [rows] = await pool.query(`SELECT tipo, detalle_json FROM compras_escenario WHERE negocio_id = ? AND elegido = 1 ORDER BY generado_at DESC LIMIT 1`, [negocioId]) as any;
+    const r = (rows as any[])[0];
+    if (!r || r.tipo !== 'COMBINACION') return true;
+    const d = typeof r.detalle_json === 'string' ? JSON.parse(r.detalle_json) : r.detalle_json;
+    const clave: string | undefined = d?.clave;
+    if (!clave) return true;
+    return clave.split('|').some(par => Number(par.split(':')[1]) === Number(cotizacionId));
+  } catch { return true; }
+}
+
 export async function auditarCotizacion(
   negocioId: number, cotizacionId: number,
   opts: { productoId?: number; actor?: { id: number; nombre: string | null }; faltantes?: Map<number, string[]> } = {},
@@ -361,7 +375,10 @@ export async function auditarCotizacion(
     }).catch(() => {});
   }
 
-  if (empeoro) await invalidarAprobacionesCompras(negocioId, 'El auditor de cotizaciones dio un veredicto más exigente sobre una cotización.').catch(() => {});
+  // Solo anula si esa cotización es parte de la compra ELEGIDA (lo que se aprobó). Una cotización nueva fuera de la compra (387-55-LE26, 12-nov-2026:
+  // el flete cargado después de aprobar salió «SIN COMPARAR» y anuló la aprobación de 21 productos ya comprados) no cambia lo aprobado.
+  if (empeoro && await cotizacionEnCompraElegida(negocioId, cotizacionId))
+    await invalidarAprobacionesCompras(negocioId, 'El auditor de cotizaciones dio un veredicto más exigente sobre una cotización.').catch(() => {});
   return resultados;
 }
 

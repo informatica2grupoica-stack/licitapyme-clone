@@ -231,6 +231,9 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
   const usosSku = new Map<string, number>();
   for (const g of grupos.values()) for (const it of g.items) for (const k of [it.obumaProductoId, it.obumaCodigoComercial]) if (k) usosSku.set(String(k), (usosSku.get(String(k)) ?? 0) + 1);
   const skuUtil = (k: string | null | undefined): k is string => !!k && usosSku.get(String(k)) === 1 && !/^\d{1,4}$/.test(String(k));
+  // Un SKU genérico se descarta ENTERO: su código («100») y también su id de producto en Obuma (1078284), que es largo y pasaba el filtro.
+  // 387-55-LE26 (12-nov-2026): el flete de Juan Carlos Salinas se llevaba la OC 3998 de Punta Ranco (sillas + su línea de transporte SKU 100).
+  const esGenerico = (it: { obumaCodigoComercial?: string | null }) => !!it.obumaCodigoComercial && /^\d{1,4}$/.test(String(it.obumaCodigoComercial));
   for (const g of grupos.values()) {
     const rut = rutNormalizado(g.proveedorRut);
     // Se cruza por RUT y también por el id del proveedor en Obuma: cuando la sincronización no logra leer el RUT del proveedor
@@ -239,7 +242,7 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
     // Cuarta vía: la razón social. Obuma puede tener el mismo proveedor extranjero DOS veces (NINGBO BOPU: 198849 «SinRut» y 198850 con el RUT genérico),
     // y la OC hecha a mano quedó en el otro: ni RUT, ni id, ni SKU (línea suelta «fc-…» sin código) la reconocen. Solo entre OC ya cruzadas con ESTA licitación.
     const nombreGrupo = nombreComparable(g.proveedorNombre);
-    const skusDelGrupo = new Set(g.items.flatMap(it => [it.obumaProductoId, it.obumaCodigoComercial]).filter(skuUtil).map(String));
+    const skusDelGrupo = new Set(g.items.filter(it => !esGenerico(it)).flatMap(it => [it.obumaProductoId, it.obumaCodigoComercial]).filter(skuUtil).map(String));
     if (!rut && !obumaProvId && skusDelGrupo.size === 0 && nombreGrupo.length < 8) continue;
     // La OC que emitió Licitank (yaCreada) no cuenta como "real": la real es la que ya existía en Obuma antes.
     const delProveedor = realesObuma.filter(c => c.compraOcId !== g.yaCreada?.obumaCompraOcId

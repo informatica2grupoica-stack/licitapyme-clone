@@ -273,7 +273,9 @@ export function AuditorComprasCard({ negocioId, puedeOperar, soloLectura = false
           try { sel = soloVigentes(JSON.parse(localStorage.getItem(borradorKey) || '{}')); } catch { /* sin borrador local */ }
         }
         try { localStorage.removeItem(borradorKey); } catch { /* sin almacenamiento */ }
-        if (Object.keys(sel).length > 0) { setCompra(sel); compraIniciada.current = true; }
+        // Se SUMA a lo que ya hay (la compra elegida pudo llegar antes): un borrador incompleto no debe borrar productos ya elegidos
+        // (387-55-LE26, 12-nov-2026: borrador con 14 de 21 dejaba 7 productos comprados como «Sin elegir»).
+        if (Object.keys(sel).length > 0) { setCompra(prev => ({ ...prev, ...sel })); compraIniciada.current = true; }
       } catch { /* sin borrador guardado: se usa la compra elegida, si hay */ }
     })();
   }, [cotizaciones, borradorKey, negocioId, soloVigentes]);
@@ -319,7 +321,12 @@ export function AuditorComprasCard({ negocioId, puedeOperar, soloLectura = false
           setNegociacion(d.negociacion || []); setEscenarios(d.escenarios || []);
           setElegidoTipo(d.elegidoTipo || null); setElegidoCostoGuardado(d.elegidoCostoGuardado ?? null);
           setRecomendadas(d.combinaciones?.recomendadas || []); setElegidaComb(d.elegida ?? null);
-          if (d.elegida && !compraIniciada.current) { setCompra(Object.fromEntries((d.elegida as Comb).items.map(i => [i.productoId, i.cotizacionId]))); compraIniciada.current = true; }
+          // La compra elegida siempre completa los productos que el borrador no trae (lo marcado en el borrador manda).
+          if (d.elegida) {
+            const deLaElegida = Object.fromEntries((d.elegida as Comb).items.map(i => [i.productoId, i.cotizacionId]));
+            setCompra(prev => compraIniciada.current ? { ...deLaElegida, ...prev } : deLaElegida);
+            compraIniciada.current = true;
+          }
         }),
         traer(`/api/compras/${negocioId}/productos`, d => { setProductos((d.productos || []).filter((p: any) => !['RENUNCIADO', 'NO_ADJUDICADA'].includes(p.subestado))); setLinksCosteo(d.linksCosteo || {}); }),
         traer(`/api/compras/${negocioId}/sugerencias-historial`, d => setSugerenciasHistorial(d.productos || [])),

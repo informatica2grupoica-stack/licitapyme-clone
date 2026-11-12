@@ -3,6 +3,18 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-12 — SKU genérico de transporte (100) pegaba OC de otro proveedor (tsc ok, probado contra BD, SIN desplegar)
+Caso real: 387-55-LE26 (1191): la tarjeta de Juan Carlos Salinas (flete, OC 4015) mostraba también la OC 3998 de Punta Ranco (7 sillas + su línea de transporte SKU 100), con la factura y el pago de Punta Ranco.
+- `proveedoresParaOrdenCompra` (compras-oc-obuma.ts) ya descartaba el código genérico «100», pero no el id de producto Obuma de ese SKU (1078284): ahora un ítem con código genérico se descarta entero del cruce por SKU. Verificado: Salinas → solo 4015; Punta Ranco → 3998.
+**Regla / decisión (dueño):** el SKU 100 genérico de transporte se puede seguir usando en Obuma; un SKU genérico de servicio nunca identifica una OC: el cruce va por proveedor (RUT / id Obuma / razón social) o por SKU propio del proyecto.
+**Pendiente:** desplegar. OC 4015 de Salinas figura «Sin pagar» ($1.666.000 con IVA, factura N° 73): confirmar si se pagó y registrar el comprobante.
+
+## 2026-11-12 — «Sin elegir» por borrador incompleto + auditor que anulaba la aprobación por un flete nuevo (tsc ok, SIN desplegar)
+Caso real: 387-55-LE26 (1191).
+- «Compara y elige» mostraba 7 productos comprados como «Sin elegir»: el borrador compartido (`compras_borrador_compra`, migration-190) tenía 14 de 21 y tapaba la compra elegida. Se completó el borrador de 1191 con los 21 y `AuditorComprasCard.tsx` ahora SUMA borrador + compra elegida (la elegida rellena lo que falte).
+- Al cargar la cotización del flete «Transporte» (Juan Carlos Salinas $1.400.000, cotización #307, origen llamada) el auditor la dictaminó «SIN COMPARAR» y `auditarCotizacion` anuló COMPRA y MARGEN (aprobadas 21-oct) y borró las 11 líneas aprobadas. Arreglo: solo anula si la cotización está en la combinación elegida (`cotizacionEnCompraElegida`).
+**Pendiente:** restaurar en 1191 COMPRA/MARGEN APROBADA (Alexis, 2026-10-21 10:27:11 / 10:27:26), 11 líneas APROBADA (306,308,309,310,311,314,316,318,321,322,323) y tarea aprobar_compra HECHA — script `scripts/scratch/_387u.mjs`, pide autorización para escribir en la BD del VPS. Desplegar ambos arreglos. «Transporte y paletizado» (517) sigue sin cotización (podría ser Officenter $59.000, OC 3996).
+
 ## 2026-11-12 — Costo real y cierre sale de las OC cuando todo está comprado (tsc ok, pruebas 20/20, SIN desplegar)
 Caso real: 387-55-LE26 (1191): «Costo real y cierre» decía $9,53M / 49,5 % (cotizaciones del costeo) y «Comparativo» $11,02M / 41,6 % (OC reales); faltaba el transporte de las OC (4015 $1,4M + líneas de flete) y diferencias de factura.
 - `consolidarCostoReal` (costo-real-consolidado.ts) acepta `ocCubreTodo`: si TODOS los productos vigentes (no servicios) están Comprado o más, la base es lo gastado en OC (Obuma + propias, neto) + gastos SIN OC + importación; el aviso «costeo y Obuma no calzan» no sale. `costoRealDeNegocio` calcula `ocCubreTodo`; el dashboard (sin Obuma) sigue con el costeo. `CostoRealCard` muestra «Órdenes de compra» y «Gastos sin OC».
