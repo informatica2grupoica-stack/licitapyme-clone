@@ -636,6 +636,18 @@ export async function corregirCostoOpcion(negocioId: number, opcionId: number, d
   if (!(conDoc as any[]).length && (precio == null || !iva)) throw new Error('Esta opción no tiene un documento con precio: ingresa el precio unitario y si incluye IVA o es neto.');
   await evento(negocioId, opcionId, 'correccion_costo', 'asistente', JSON.stringify({ precio, iva, motivo, por: actor.nombre }));
 }
+// Corregir marca/modelo de la opción (12-nov-2026, 2981-334-LE26): el bloqueo V1 pide «corrige la opción» cuando el nombre
+// no calza con el del respaldo (p. ej. «TK905 4G LTE» vs «TK905 4G»). Queda evento con el nombre anterior y el motivo.
+export async function corregirProductoOpcion(negocioId: number, opcionId: number, d: { marca?: string | null; modelo?: string | null; motivo: string }, actor: Actor): Promise<void> {
+  const o = await opcionDe(negocioId, opcionId);
+  if (['en_aprobacion', 'aprobada'].includes(o.estado)) throw new Error('La opción ya está en aprobación: pide rechazarla antes de cambiarle el producto.');
+  const marca = (d.marca || '').trim().slice(0, 120), modelo = (d.modelo || '').trim().slice(0, 160);
+  const motivo = (d.motivo || '').trim().slice(0, 500);
+  if (!marca && !modelo) throw new Error('Indica al menos la marca o el modelo del producto.');
+  if (motivo.length < 8) throw new Error('Escribe el motivo (por ejemplo: «es el mismo SKU, el LTE sobraba en el nombre»).');
+  await pool.query(`UPDATE auditor_opcion SET marca = ?, modelo = ?, actualizado_at = ? WHERE id = ? AND negocio_id = ?`, [marca || null, modelo || null, ahoraChileSQL(), opcionId, negocioId]);
+  await evento(negocioId, opcionId, 'producto_corregido', 'asistente', JSON.stringify({ antes: { marca: o.marca, modelo: o.modelo }, ahora: { marca, modelo }, motivo, por: actor.nombre }));
+}
 export async function quitarCorreccionCosto(negocioId: number, opcionId: number, actor: Actor): Promise<void> {
   await opcionDe(negocioId, opcionId);
   await evento(negocioId, opcionId, 'correccion_costo', 'asistente', JSON.stringify({ quitar: true, por: actor.nombre }));

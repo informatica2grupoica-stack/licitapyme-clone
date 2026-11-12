@@ -18,7 +18,7 @@ import { precioPorUnidadDeProducto, conversionDesdeTexto, productoQueCubreLaLine
 import { conCupo } from '@/app/lib/cupo-ia';
 import { esRutPropio } from '@/app/lib/auditor-compras-datos';
 import { filasDeCotizacion, programarAuditoria } from '@/app/lib/auditor-compras';
-import { adicionalesDeCotizaciones, recalcularPreciosDeCotizacion, type AdicionalFila } from '@/app/lib/compras-adicionales';
+import { adicionalesDeCotizaciones, recalcularPreciosDeCotizacion, cargarFleteAProductos, type AdicionalFila } from '@/app/lib/compras-adicionales';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
@@ -644,6 +644,7 @@ export async function asignarItemsCotizacion(
   // Un producto que ya no está en la asignación pierde sus adicionales; los demás recuperan los suyos.
   await pool.query(`DELETE FROM compras_cotizacion_adicional WHERE cotizacion_id = ? AND producto_id NOT IN (${limpios.map(() => '?').join(',')})`, [cotizacionId, ...limpios.map(i => i.productoId)]).catch(() => {});
   await recalcularPreciosDeCotizacion(cotizacionId);
+  await cargarFleteAProductos(cotizacionId).catch(() => {});   // el despacho de la cotización va a sus productos
   await registrarEvento({
     tipo: 'COMPRAS_COTIZACION_ITEMS_ASIGNADOS', licitacionCodigo: await licitacionDeNegocio(negocioId),
     actorId, actorNombre,
@@ -863,6 +864,8 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     [cotizacionId],
   ).catch(() => {});
   await recalcularPreciosDeCotizacion(cotizacionId);   // los adicionales ya cargados se vuelven a sumar al precio base
+  // El flete/despacho que la cotización cobra aparte se carga a sus productos (adicional «Despacho del proveedor»), 12-nov-2026.
+  const fleteCargado = escritos > 0 ? (await cargarFleteAProductos(cotizacionId).catch(() => ({ repartido: 0, productos: 0 }))).repartido > 0 : false;
   // Ninguna línea con precio debe perderse en silencio: se avisa cuáles del documento no quedaron en ningún producto ni adicional.
   try {
     const [[a]]: any = await pool.query(`SELECT notas FROM compras_cotizacion WHERE id = ?`, [cotizacionId]);
@@ -870,7 +873,9 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
       `SELECT p.id, p.descripcion, i.precio_base FROM compras_cotizacion_item i JOIN compras_producto p ON p.id = i.producto_id WHERE i.cotizacion_id = ?`, [cotizacionId]);
     const [adics]: any = await pool.query(`SELECT concepto FROM compras_cotizacion_adicional WHERE cotizacion_id = ?`, [cotizacionId]);
     const prodsCub = (asig as any[]).map(x => ({ id: Number(x.id), descripcion: String(x.descripcion), precioBase: x.precio_base == null ? null : Number(x.precio_base) }));
-    const sin = lineasSinAsignar(lineasDelDoc.filter(l => !productoQueCubreLaLinea(l, prodsCub)), [...(asig as any[]).flatMap(x => [String(x.descripcion), String(x.descripcion).split(' - ')[0]]), ...(adics as any[]).map(x => String(x.concepto))]);
+    const sinTodas = lineasSinAsignar(lineasDelDoc.filter(l => !productoQueCubreLaLinea(l, prodsCub)), [...(asig as any[]).flatMap(x => [String(x.descripcion), String(x.descripcion).split(' - ')[0]]), ...(adics as any[]).map(x => String(x.concepto))]);
+    // Si el flete ya se cargó a los productos, su línea («DESPACHO», «Flete»…) no está perdida.
+    const sin = fleteCargado ? sinTodas.filter((l: any) => !/flete|transport|despacho|env[ií]o|shipping|freight/i.test(String(l.descripcion || ''))) : sinTodas;
     const marca = 'Revisa la asignación:';
     const marcaMismo = 'Revisa que sea el mismo producto:';
     const notasSinAviso = String(a?.notas || '').split(' · ').filter(t => !t.startsWith(marca) && !t.startsWith(marcaMismo)).join(' · ');

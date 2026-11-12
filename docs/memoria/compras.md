@@ -3,6 +3,13 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-12 — El flete/despacho de una cotización se carga a sus productos (tsc ok, SIN desplegar, sin aplicar en 1191)
+Caso real: 387-55-LE26 (1191), cotización #170 Industria de Camas: 40 sillas × $18.400 + «DESPACHO» $21.008. El despacho quedó en `flete_monto`, no se veía en «Compara y elige» ni en la aprobación, y la OC 3995 salió $21.008 sobre lo cotizado (parecía alza de precio; no lo era).
+- Nuevo `cargarFleteAProductos` (compras-adicionales.ts): reparte `flete_monto` entre los productos de la cotización como adicional «Despacho del proveedor» (proporcional al subtotal; la última línea cuadra al peso), marca la cotización `incluye_flete = 1` para que el motor de escenarios no lo sume otra vez como viaje. Idempotente. Se llama al homologar (IA) y al asignar a mano (compras-auditor.ts); el aviso «la línea DESPACHO no quedó en ningún producto» ya no sale si se cargó.
+**Regla / decisión (dueño):** si la cotización viene con flete, el flete va al ítem (más intuitivo); se ve desglosado en «Qué incluye este precio». Reemplaza la regla del 1120 de dejar el flete aparte.
+**Aplicado en 1191 (12-nov, autorizado):** cotización 170 con adicional «Despacho del proveedor» $525,20/u (precio $18.925) y la línea 323 de la compra elegida (`compras_escenario` 66) a $18.925,20 / $757.008. Comparativo: cotización elegida $10.614.384 vs OC $10.614.392 (solo $8 de redondeos). Aprobación intacta.
+**Pendiente:** desplegar. Las cotizaciones viejas con flete aparte solo cambian cuando se vuelven a homologar o asignar; en compras ya elegidas el precio guardado de la compra elegida no se actualiza solo.
+
 ## 2026-11-12 — SKU genérico de transporte (100) pegaba OC de otro proveedor (tsc ok, probado contra BD, SIN desplegar)
 Caso real: 387-55-LE26 (1191): la tarjeta de Juan Carlos Salinas (flete, OC 4015) mostraba también la OC 3998 de Punta Ranco (7 sillas + su línea de transporte SKU 100), con la factura y el pago de Punta Ranco.
 - `proveedoresParaOrdenCompra` (compras-oc-obuma.ts) ya descartaba el código genérico «100», pero no el id de producto Obuma de ese SKU (1078284): ahora un ítem con código genérico se descarta entero del cruce por SKU. Verificado: Salinas → solo 4015; Punta Ranco → 3998.

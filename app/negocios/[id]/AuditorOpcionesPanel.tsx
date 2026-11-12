@@ -1965,6 +1965,31 @@ function FotoParaFicha({ o, subiendo, onSubir, onQuitar }: { o: OpcionDTO; subie
   );
 }
 
+function CorregirProducto({ o, editable, ocupado, onAccion }: { o: OpcionDTO; editable: boolean; ocupado: boolean; onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void }) {
+  const [abierto, setAbierto] = useState(false);
+  const [marca, setMarca] = useState('');
+  const [modelo, setModelo] = useState('');
+  const [motivo, setMotivo] = useState('');
+  // Solo cuando el nombre de la opción no calza con el del respaldo (bloqueo V1 «otro producto»).
+  if (!editable || !o.verificacion?.bloqueos.some(b => b.codigo === 'V1' && b.accion === 'corregir_costeo')) return null;
+  const campo = 'text-[12.5px] border border-zinc-200 rounded-md px-2 py-1 outline-none focus:border-amber-400';
+  const abrir = () => { setMarca(o.producto?.marca || o.marca || ''); setModelo(o.producto?.modelo || o.modelo || ''); setAbierto(true); };
+  if (!abierto) return <button data-no-pdf onClick={abrir} className="mt-1.5 text-xs font-semibold text-teal-700 hover:underline">Corregir marca o modelo…</button>;
+  const guardar = () => { onAccion(o.id, 'corregir_producto', { marca: marca.trim(), modelo: modelo.trim(), motivo: motivo.trim() }, 'Producto corregido'); setAbierto(false); };
+  return (
+    <div data-no-pdf className="mt-1.5 space-y-1.5 rounded-md border border-amber-200 bg-amber-50/50 p-2 basis-full">
+      <p className="text-xs text-slate-600">Solo si es el mismo producto con otro nombre. Si es otro producto, crea una opción nueva.</p>
+      <input value={marca} onChange={e => setMarca(e.target.value)} placeholder="Marca" className={`${campo} block w-full`} />
+      <input value={modelo} onChange={e => setModelo(e.target.value)} placeholder="Modelo" className={`${campo} block w-full`} />
+      <textarea value={motivo} onChange={e => setMotivo(e.target.value)} rows={2} placeholder="Motivo (obligatorio): ej. «mismo SKU, el LTE sobraba en el nombre»" className={`${campo} block w-full`} />
+      <div className="flex gap-2">
+        <button onClick={guardar} disabled={ocupado || motivo.trim().length < 8 || (!marca.trim() && !modelo.trim())} className="px-2 py-0.5 rounded bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-40">Guardar</button>
+        <button onClick={() => setAbierto(false)} className="text-xs text-slate-500 hover:text-zinc-700">Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
 function CorregirCosto({ o, editable, ocupado, onAccion }: { o: OpcionDTO; editable: boolean; ocupado: boolean; onAccion: (opcionId: number, accion: string, extra?: Record<string, unknown>, ok?: string) => void }) {
   const [abierto, setAbierto] = useState(false);
   const [precio, setPrecio] = useState('');
@@ -2718,6 +2743,7 @@ function CuadroTecnico({ negocioId, linea, vista = 'todo', onIrAFicha, onVerific
                     <Acciones o={o} exigeViaCompleta={linea.exigeViaCompleta} ocupado={ocupado === o.id} puedeAprobar={puedeAprobar} onAccion={onAccion} onModal={onModal} enCurso={accionEnCurso} />
                     <div className="flex flex-wrap items-center gap-x-4">
                       <CorregirCosto o={o} editable={editable(o)} ocupado={ocupado === o.id} onAccion={onAccion} />
+                      <CorregirProducto o={o} editable={editable(o)} ocupado={ocupado === o.id} onAccion={onAccion} />
                       {editable(o) && <BotonSubirFicha ocupado={subiendoFicha.has(`o${o.id}`)} discreto etiqueta={o.respaldos.some(x => x.tipo === 'ficha_tecnica') ? 'Agregar otra ficha técnica' : 'Agregar ficha técnica'} onArchivos={f => onSubirFicha(o.id, f)} />}
                       {editable(o) && <PegarTextoFicha ocupado={subiendoFicha.has(`o${o.id}`)} nombreBase={nombreCorto(o)} onArchivo={(f, origen) => onSubirFicha(o.id, [f], origen)} />}
                       {!motivoFichaNoLista(o) && <FotoParaFicha o={o} subiendo={subiendoFicha.has(`foto${o.id}`)} onSubir={f => onFotoFicha(o.id, f)} onQuitar={() => onAccion(o.id, 'poner_foto_ficha', { url: null }, 'Foto quitada de la ficha')} />}

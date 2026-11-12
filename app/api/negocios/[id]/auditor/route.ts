@@ -7,7 +7,7 @@
 //   GET  → panel: líneas del costeo con sus opciones (respaldos + verificación), las cotizaciones de
 //          Documentos y el mensaje único por proveedor.
 //   POST → { accion, ... }: leer_documento · releer_documento · emparejar_documento · asignar_producto · cambiar_via ·
-//          crear_opcion · agregar_ficha · verificar_mercado · verificar_costo_ia · justificar_ahorro · posicion_precio · verificar_tecnico (compara la línea de la opción) · confirmar_celda · agregar_link · no_ofertar · reofertar · agregar/estimar/anular/restaurar_costo_asociado · descartar · restaurar · firmar · quitar_firma · solicitar_aprobacion · aprobar · rechazar
+//          crear_opcion · corregir_producto · agregar_ficha · verificar_mercado · verificar_costo_ia · justificar_ahorro · posicion_precio · verificar_tecnico (compara la línea de la opción) · confirmar_celda · agregar_link · no_ofertar · reofertar · agregar/estimar/anular/restaurar_costo_asociado · descartar · restaurar · firmar · quitar_firma · solicitar_aprobacion · aprobar · rechazar
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
@@ -16,7 +16,7 @@ import { invalidarEnVuelo } from '@/app/lib/en-vuelo';
 import { contextoAuditor } from '@/app/lib/auditor-acceso';
 import {
   armarPanelAuditorCompartido, cargarEstadoCosteo, leerDocumentoYCrearOpciones, crearOpcionesDesdeExtraccion, asignarProductoALinea, cambiarVia, descartarOpcion, restaurarOpcion, moverOpcionALinea,
-  firmarOpcion, quitarFirma, solicitarAprobacion, resolverAprobacion, agregarLinkALinea, revisitarLinkDeOpcion, sugerirLineasDelNegocio, ignorarProductoSinLinea, crearOpcionManual, agregarFichaAOpcion, corregirCostoOpcion, quitarCorreccionCosto, ponerFotoFicha, buscarFichaEnLink, traerFichaDeLink, verificarMercadoDeOpcion, justificarAhorroDeOpcion, verificarCostoIADeOpcion, releerDocumento,
+  firmarOpcion, quitarFirma, solicitarAprobacion, resolverAprobacion, agregarLinkALinea, revisitarLinkDeOpcion, sugerirLineasDelNegocio, ignorarProductoSinLinea, crearOpcionManual, agregarFichaAOpcion, corregirCostoOpcion, corregirProductoOpcion, quitarCorreccionCosto, ponerFotoFicha, buscarFichaEnLink, traerFichaDeLink, verificarMercadoDeOpcion, justificarAhorroDeOpcion, verificarCostoIADeOpcion, releerDocumento,
   verificarTecnicoDeOpcion, confirmarCeldaTecnica, respaldarCeldaTecnica, quitarFichaDeOpcion, ponerComplemento, quitarComplemento,
   esFichaDeTexto, origenesFichaTexto, registrarOrigenFichaTexto,
 } from '@/app/lib/auditor-opciones';
@@ -233,6 +233,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       case 'corregir_costo':
         // Precio y/o IVA fijado a mano, con motivo obligatorio (queda quién y cuándo; se puede deshacer).
         await corregirCostoOpcion(negocio.id, opcionId, { precio: body.precio != null && body.precio !== '' ? Number(body.precio) : null, iva: body.iva ? String(body.iva) : null, motivo: String(body.motivo || '') }, actor); break;
+      case 'corregir_producto':
+        await corregirProductoOpcion(negocio.id, opcionId, { marca: body.marca != null ? String(body.marca) : null, modelo: body.modelo != null ? String(body.modelo) : null, motivo: String(body.motivo || '') }, actor); break;
       case 'poner_foto_ficha': await ponerFotoFicha(negocio.id, opcionId, body.url ? String(body.url) : null, actor); break;
       case 'quitar_correccion_costo': await quitarCorreccionCosto(negocio.id, opcionId, actor); break;
       case 'agregar_link': {

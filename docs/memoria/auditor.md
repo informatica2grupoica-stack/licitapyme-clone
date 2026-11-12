@@ -415,3 +415,8 @@ en producción requiere el OK del dueño) y desplegar el arreglo.
 - `productoFichaDeOpcion` (auditor-ficha-propia-core.ts) saca la fila cuando lo ofertado, sin marca ni modelo, queda vacío. Una fila que no trae dato ofertado sigue saliendo vacía y se avisa, porque no se inventa el dato.
 - Test: «la fila cuyo ofertado es solo marca y modelo no va». Sin desplegar. Las fichas ya generadas siguen igual hasta volver a generarlas.
 - «X productos salieron sin foto» es solo un aviso: la foto sale de «Foto para la ficha», de la fila del costeo o del PDF del proveedor. Un respaldo que es solo link web no trae foto.
+
+## 2026-11-12 · Corregir marca/modelo de una opción (bloqueo V1)
+- Caso 2981-334-LE26 línea 1.2: opción «TkStar TK905 4G LTE» y respaldo «TK905 4G» → V1 «otro producto» y no se podía firmar; no había cómo corregir la opción desde pantalla.
+- Ahora: botón «Corregir marca o modelo…» en la tarjeta Cotizado, solo cuando hay V1 de identidad. Acción `corregir_producto` (motivo obligatorio, bloqueada en aprobación/aprobada), evento `producto_corregido` con el nombre anterior. Sin migración.
+- Pendiente: no probado en navegador ni desplegado.
