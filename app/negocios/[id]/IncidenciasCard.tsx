@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
-import { IconAlertTriangle as AlertTriangle, IconSparkles as Sparkles, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconCircleCheck as CheckCircle2, IconClock as Clock, IconSend as Send } from '@tabler/icons-react';
+import { IconAlertTriangle as AlertTriangle, IconBulb as Lightbulb, IconLoader2 as Loader2, IconX as X, IconCircleCheck as CheckCircle2, IconClock as Clock, IconSend as Send } from '@tabler/icons-react';
 
 type Naturaleza = 'DEFENSIVA' | 'OFENSIVA';
 type Origen = 'MANUAL' | 'AUTOMATICA';
@@ -28,6 +28,8 @@ interface Producto { id: number; descripcion: string; subestado: string }
 
 const fmtCLP = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 const fmtFecha = (s: string | null) => { if (!s) return '—'; try { return new Date(s.replace(' ', 'T')).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch { return s; } };
+
+const SUPERFICIE = 'bg-white border border-linea rounded-2xl shadow-tarjeta dark:bg-slate-900 dark:border-slate-800';
 
 export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { negocioId: number; puedeOperar: boolean; esJefeDeVentas: boolean }) {
   const toast = useToast();
@@ -159,176 +161,151 @@ export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { ne
 
   const abiertas = incidencias.filter(i => i.estado === 'ABIERTA');
   const cerradas = incidencias.filter(i => i.estado === 'CERRADA');
+  const campo = 'w-full text-[12.5px] text-tinta dark:text-slate-100 bg-white dark:bg-slate-950 border border-linea dark:border-slate-700 rounded-lg px-3 py-2 outline-none focus:border-marca';
+  const btnPrimario = 'text-xs font-medium text-white bg-marca hover:bg-marca-fuerte disabled:opacity-50 px-3.5 py-2 rounded-lg transition-colors duration-150';
 
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-      <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-100">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
+    <div className="@container space-y-3" data-testid="incidencias">
+      <section className={SUPERFICIE + ' p-5'}>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <p className="text-[13px] font-bold text-zinc-800 flex items-center gap-1.5"><AlertTriangle size={15} /> Incidencias y oportunidades</p>
-            <p className="text-[11.5px] text-zinc-500 mt-0.5">Para dejar escrito un problema con la compra o la entrega, o una forma más barata de cumplir. No es una tarea ni detiene el plazo de entrega.</p>
+            <p className="flex items-center gap-2 text-[12.5px] font-medium text-tinta-2 dark:text-slate-300"><AlertTriangle size={15} className="text-slate-400" /> Incidencias y oportunidades</p>
+            <p className="mt-1 text-xs text-tinta-2 dark:text-slate-400 max-w-2xl">Para dejar escrito un problema con la compra o la entrega, o una forma más barata de cumplir. No es una tarea ni detiene el plazo de entrega.</p>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className={`text-[11px] font-bold px-2 py-1 rounded-full border ${abiertas.length > 0 ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-zinc-400 bg-white border-zinc-200'}`}>{abiertas.length} abierta{abiertas.length === 1 ? '' : 's'}</span>
-            <span className="text-[11px] font-bold px-2 py-1 rounded-full border text-emerald-700 bg-emerald-50 border-emerald-200">{cerradas.length} cerrada{cerradas.length === 1 ? '' : 's'}</span>
+          <p className="text-xs text-tinta-2 dark:text-slate-400 tabular-nums">
+            <span className={abiertas.length > 0 ? 'font-medium text-urgente' : ''}>{abiertas.length} abierta{abiertas.length === 1 ? '' : 's'}</span> · {cerradas.length} cerrada{cerradas.length === 1 ? '' : 's'}
+          </p>
+        </div>
+        {puedeOperar && (
+          <div className="mt-4 grid gap-3 @2xl:grid-cols-2">
+            <button onClick={() => setFormAbierto(formAbierto === 'normal' ? null : 'normal')}
+              className={`text-left rounded-xl border p-4 transition-[border-color,box-shadow] duration-150 hover:shadow-tarjeta-hover ${formAbierto === 'normal' ? 'border-marca' : 'border-linea dark:border-slate-700'}`}>
+              <span className="flex items-center gap-2 text-[13px] font-medium text-tinta dark:text-slate-100"><AlertTriangle size={15} className="text-slate-400" /> Algo salió mal</span>
+              <span className="mt-1 block text-xs text-tinta-2 dark:text-slate-400">Sin stock, producto descontinuado, plazo imposible, el cliente rechazó algo al entregar.</span>
+            </button>
+            <button onClick={() => setFormAbierto(formAbierto === 'om' ? null : 'om')}
+              className={`text-left rounded-xl border p-4 transition-[border-color,box-shadow] duration-150 hover:shadow-tarjeta-hover ${formAbierto === 'om' ? 'border-marca' : 'border-linea dark:border-slate-700'}`}>
+              <span className="flex items-center gap-2 text-[13px] font-medium text-tinta dark:text-slate-100"><Lightbulb size={15} className="text-slate-400" /> Encontré algo mejor</span>
+              <span className="mt-1 block text-xs text-tinta-2 dark:text-slate-400">Un producto alternativo que cubre lo mismo a menor costo. Lo aprueba el jefe de ventas y luego el cliente.</span>
+            </button>
           </div>
-        </div>
-      </div>
+        )}
 
-      {puedeOperar && (
-        <div className="grid gap-3 md:grid-cols-2 px-4 py-3 border-b border-zinc-100">
-          <button onClick={() => setFormAbierto(formAbierto === 'normal' ? null : 'normal')}
-            className={`text-left rounded-xl border p-3 flex gap-3 transition-colors ${formAbierto === 'normal' ? 'border-amber-300 bg-amber-50' : 'border-zinc-200 hover:border-amber-300 hover:bg-amber-50/50'}`}>
-            <span className="flex-shrink-0 h-9 w-9 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center"><AlertTriangle size={18} /></span>
-            <span><span className="block text-[12.5px] font-semibold text-zinc-800">Algo salió mal</span>
-              <span className="block text-[11.5px] text-zinc-500">Sin stock, producto descontinuado, plazo imposible, el cliente rechazó algo al entregar.</span></span>
-          </button>
-          <button onClick={() => setFormAbierto(formAbierto === 'om' ? null : 'om')}
-            className={`text-left rounded-xl border p-3 flex gap-3 transition-colors ${formAbierto === 'om' ? 'border-teal-300 bg-teal-50' : 'border-zinc-200 hover:border-teal-300 hover:bg-teal-50/50'}`}>
-            <span className="flex-shrink-0 h-9 w-9 rounded-lg bg-teal-100 text-teal-700 flex items-center justify-center"><Sparkles size={18} /></span>
-            <span><span className="block text-[12.5px] font-semibold text-zinc-800">Encontré algo mejor</span>
-              <span className="block text-[11.5px] text-zinc-500">Un producto alternativo que cubre lo mismo a menor costo. Lo aprueba el jefe de ventas y luego el cliente.</span></span>
-          </button>
-        </div>
-      )}
+        {formAbierto === 'normal' && (
+          <div className="mt-4 pt-4 border-t border-linea/80 dark:border-slate-800 space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <Select value={form.naturaleza} onChange={v => setForm(f => ({ ...f, naturaleza: v as Naturaleza }))}
+                options={[{ value: 'DEFENSIVA', label: 'Defensiva (algo salió mal)' }, { value: 'OFENSIVA', label: 'Ofensiva (otro tipo)' }]} minWidth={200} />
+              <Select value={form.productoId} onChange={v => setForm(f => ({ ...f, productoId: v }))} placeholder="Producto afectado (opcional)" minWidth={200}
+                options={productos.map(p => ({ value: String(p.id), label: p.descripcion }))} />
+            </div>
+            <Select value={form.tipoClave} onChange={v => setForm(f => ({ ...f, tipoClave: v, tipoLibre: '' }))} placeholder="Tipo del catálogo…" minWidth={260}
+              options={tipos.filter(t => t.naturaleza === form.naturaleza).map(t => ({ value: t.clave, label: t.titulo }))} />
+            <input value={form.tipoLibre} onChange={e => setForm(f => ({ ...f, tipoLibre: e.target.value, tipoClave: '' }))} placeholder="…o un tipo que no está en la lista (texto libre)" className={campo} />
+            <textarea rows={2} value={form.descripcion} onChange={e => setForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Descripción de la incidencia…" className={campo} />
+            <div className="flex items-center gap-3">
+              <button onClick={abrir} disabled={guardando} className={btnPrimario}>{guardando ? <Loader2 size={13} className="animate-spin" /> : 'Abrir incidencia'}</button>
+              <button onClick={() => setFormAbierto(null)} className="text-xs font-medium text-tinta-2 hover:text-tinta dark:text-slate-400">Cancelar</button>
+            </div>
+          </div>
+        )}
 
-      {formAbierto === 'normal' && (
-        <div className="border-b border-zinc-100 px-4 py-3 space-y-2 bg-zinc-50/60">
-          <div className="grid grid-cols-2 gap-2">
-            <Select value={form.naturaleza} onChange={v => setForm(f => ({ ...f, naturaleza: v as Naturaleza }))}
-              options={[{ value: 'DEFENSIVA', label: 'Defensiva (algo salió mal)' }, { value: 'OFENSIVA', label: 'Ofensiva (otro tipo)' }]} minWidth={200} />
-            <Select value={form.productoId} onChange={v => setForm(f => ({ ...f, productoId: v }))} placeholder="Producto afectado (opcional)" minWidth={200}
+        {formAbierto === 'om' && (
+          <div className="mt-4 pt-4 border-t border-linea/80 dark:border-slate-800 space-y-2">
+            <p className="text-xs text-tinta-2 dark:text-slate-400">Nada salió mal: aparece un producto que cubre la necesidad real a un costo notoriamente menor.</p>
+            <Select value={formOm.productoId} onChange={v => setFormOm(f => ({ ...f, productoId: v }))} placeholder="Producto que se mejoraría" minWidth={260}
               options={productos.map(p => ({ value: String(p.id), label: p.descripcion }))} />
+            <input value={formOm.productoAlternativo} onChange={e => setFormOm(f => ({ ...f, productoAlternativo: e.target.value }))} placeholder="Producto alternativo propuesto" className={campo} />
+            <input inputMode="numeric" value={formOm.ahorroEstimado} onChange={e => setFormOm(f => ({ ...f, ahorroEstimado: e.target.value }))} placeholder="Ahorro estimado (opcional)" className={campo} />
+            <textarea rows={2} value={formOm.descripcion} onChange={e => setFormOm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Detalle de la oportunidad…" className={campo} />
+            <div className="flex items-center gap-3">
+              <button onClick={crearOm} disabled={guardando} className={btnPrimario}>{guardando ? <Loader2 size={13} className="animate-spin" /> : 'Registrar'}</button>
+              <button onClick={() => setFormAbierto(null)} className="text-xs font-medium text-tinta-2 hover:text-tinta dark:text-slate-400">Cancelar</button>
+            </div>
           </div>
-          <Select value={form.tipoClave} onChange={v => setForm(f => ({ ...f, tipoClave: v, tipoLibre: '' }))} placeholder="Tipo del catálogo…" minWidth={260}
-            options={tipos.filter(t => t.naturaleza === form.naturaleza).map(t => ({ value: t.clave, label: t.titulo }))} />
-          <input value={form.tipoLibre} onChange={e => setForm(f => ({ ...f, tipoLibre: e.target.value, tipoClave: '' }))}
-            placeholder="…o un tipo que no está en la lista (texto libre)"
-            className="w-full text-[12px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-          <textarea rows={2} value={form.descripcion} onChange={e => setForm(f => ({ ...f, descripcion: e.target.value }))}
-            placeholder="Descripción de la incidencia…" className="w-full text-[12px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-          <div className="flex items-center gap-2">
-            <button onClick={abrir} disabled={guardando} className="text-[12px] font-semibold text-white bg-zinc-800 hover:bg-zinc-900 disabled:opacity-50 px-3 py-1.5 rounded-lg">
-              {guardando ? <Loader2 size={13} className="animate-spin" /> : 'Abrir incidencia'}
-            </button>
-            <button onClick={() => setFormAbierto(null)} className="text-zinc-400 hover:text-zinc-600"><X size={16} /></button>
-          </div>
-        </div>
-      )}
-
-      {formAbierto === 'om' && (
-        <div className="border-b border-zinc-100 px-4 py-3 space-y-2 bg-teal-50/40">
-          <p className="text-[11px] text-zinc-500">Nada salió mal: aparece un producto que cubre la necesidad real a un costo notoriamente menor.</p>
-          <Select value={formOm.productoId} onChange={v => setFormOm(f => ({ ...f, productoId: v }))} placeholder="Producto que se mejoraría" minWidth={260}
-            options={productos.map(p => ({ value: String(p.id), label: p.descripcion }))} />
-          <input value={formOm.productoAlternativo} onChange={e => setFormOm(f => ({ ...f, productoAlternativo: e.target.value }))}
-            placeholder="Producto alternativo propuesto" className="w-full text-[12px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-          <input inputMode="numeric" value={formOm.ahorroEstimado} onChange={e => setFormOm(f => ({ ...f, ahorroEstimado: e.target.value }))}
-            placeholder="Ahorro estimado (opcional)" className="w-full text-[12px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-          <textarea rows={2} value={formOm.descripcion} onChange={e => setFormOm(f => ({ ...f, descripcion: e.target.value }))}
-            placeholder="Detalle de la oportunidad…" className="w-full text-[12px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-          <div className="flex items-center gap-2">
-            <button onClick={crearOm} disabled={guardando} className="text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
-              {guardando ? <Loader2 size={13} className="animate-spin" /> : 'Registrar'}
-            </button>
-            <button onClick={() => setFormAbierto(null)} className="text-zinc-400 hover:text-zinc-600"><X size={16} /></button>
-          </div>
-        </div>
-      )}
+        )}
+      </section>
 
       {incidencias.length === 0 ? (
-        <div className="px-4 py-10 text-center">
-          <span className="inline-flex h-11 w-11 rounded-full bg-emerald-50 text-emerald-600 items-center justify-center mb-2"><CheckCircle2 size={22} /></span>
-          <p className="text-[13px] font-semibold text-zinc-700">Sin incidencias: el proyecto avanza limpio</p>
-          <p className="text-[11.5px] text-zinc-400 mt-1 max-w-md mx-auto">Si algo se complica, regístralo arriba. Queda en la franja roja del negocio, en Actividad y en el tablero de Compras, y se cierra aquí diciendo cómo se resolvió.</p>
-        </div>
+        <section className={SUPERFICIE + ' px-5 py-10 text-center'}>
+          <span className="inline-flex text-exito mb-2"><CheckCircle2 size={22} /></span>
+          <p className="text-[13px] font-medium text-tinta dark:text-slate-100">Sin incidencias: el proyecto avanza limpio</p>
+          <p className="mt-1 text-xs text-tinta-2 dark:text-slate-400 max-w-md mx-auto">Si algo se complica, regístralo arriba. Queda en la franja roja del negocio, en Actividad y en el tablero de Compras, y se cierra aquí diciendo cómo se resolvió.</p>
+        </section>
       ) : (
-        <div className="divide-y divide-zinc-100">
-          {[...abiertas, ...cerradas].map(i => (
-            <div key={i.id} className={`px-4 py-3 border-l-4 ${i.estado === 'CERRADA' ? 'border-l-emerald-300' : i.naturaleza === 'OFENSIVA' ? 'border-l-teal-400' : 'border-l-amber-400'}`}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${i.naturaleza === 'OFENSIVA' ? 'text-teal-700 bg-teal-50 border-teal-200' : 'text-amber-700 bg-amber-50 border-amber-200'}`}>
-                      {i.tituloTipo || i.tipoLibre || (i.naturaleza === 'OFENSIVA' ? 'Oportunidad de Mejora' : 'Incidencia')}
-                    </span>
-                    {i.origen === 'AUTOMATICA' && <span className="text-[9.5px] font-bold text-zinc-400 bg-zinc-100 px-1.5 py-0.5 rounded-full">Automática</span>}
-                    {i.estado === 'CERRADA' && <span className="text-[9.5px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"><CheckCircle2 size={9} /> Cerrada</span>}
-                  </div>
-                  <p className="text-[12px] text-zinc-700 mt-1">{i.descripcion}</p>
-                  <p className="text-[10.5px] text-zinc-400 mt-0.5">Abierta por {i.abiertaPorNombre || 'Sistema'} · {fmtFecha(i.abiertaAt)}</p>
-                  {i.resolucion && <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-2 py-1 mt-1.5">{i.resolucion}</p>}
-                </div>
-                {i.estado === 'ABIERTA' && puedeOperar && i.naturaleza !== 'OFENSIVA' && (cerrandoId === i.id ? (
-                  <div className="flex-shrink-0 w-[260px] space-y-1.5" data-testid={`incidencia-cierre-${i.id}`}>
-                    <input value={textoCierre} onChange={e => setTextoCierre(e.target.value)} placeholder="¿Cómo se resolvió? (opcional)" autoFocus
-                      className="w-full rounded-lg border border-zinc-200 px-2 py-1 text-[11.5px] outline-none focus:border-teal-400" />
-                    <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => { setCerrandoId(null); setTextoCierre(''); }} className="text-[11px] font-semibold text-zinc-400 hover:text-zinc-600">Cancelar</button>
-                      <button onClick={() => cerrar(i.id, textoCierre.trim() || null)} className="text-[11px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-2 py-1 rounded-lg">Confirmar cierre</button>
-                    </div>
-                  </div>
-                ) : (
-                  <button onClick={() => { setCerrandoId(i.id); setTextoCierre(''); }} className="flex-shrink-0 text-[11px] font-semibold text-zinc-500 hover:text-zinc-700">Cerrar</button>
-                ))}
-              </div>
-
-              {i.om && i.estado === 'ABIERTA' && (
-                <div className="mt-2 bg-zinc-50 border border-zinc-100 rounded-lg p-2.5 space-y-1.5">
-                  <p className="text-[11.5px] text-zinc-700"><b>Propuesta:</b> {i.om.productoAlternativo}{i.om.ahorroEstimado != null && ` — ahorro estimado ${fmtCLP(i.om.ahorroEstimado)}`}</p>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full border ${i.om.aprobadaJefeVentas ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-amber-700 bg-amber-50 border-amber-200'}`}>
-                      {i.om.aprobadaJefeVentas ? `Aprobada por jefe de ventas (${i.om.aprobadaJefeVentasPorNombre})` : 'Pendiente jefe de ventas'}
-                    </span>
-                    {i.om.aprobadaJefeVentas && (
-                      <span className={`text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full border ${i.om.planteadaClienteAt ? 'text-teal-700 bg-teal-50 border-teal-200' : 'text-zinc-400 bg-zinc-100 border-zinc-200'}`}>
-                        {i.om.planteadaClienteAt ? `Planteada al cliente ${fmtFecha(i.om.planteadaClienteAt)}` : 'Sin plantear al cliente'}
+        <section className={SUPERFICIE + ' overflow-hidden'}>
+          <div className="divide-y divide-linea/70 dark:divide-slate-800">
+            {[...abiertas, ...cerradas].map(i => (
+              <div key={i.id} className="px-5 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-x-3 gap-y-1 flex-wrap text-[13px] font-medium text-tinta dark:text-slate-100">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span aria-hidden className={`w-1.5 h-1.5 rounded-full ${i.estado === 'CERRADA' ? 'bg-exito' : i.naturaleza === 'OFENSIVA' ? 'bg-marca' : 'bg-alerta'}`} />
+                        {i.tituloTipo || i.tipoLibre || (i.naturaleza === 'OFENSIVA' ? 'Oportunidad de Mejora' : 'Incidencia')}
                       </span>
-                    )}
+                      {i.origen === 'AUTOMATICA' && <span className="text-xs font-normal text-tinta-3 dark:text-slate-500">Automática</span>}
+                      {i.estado === 'CERRADA' && <span className="text-xs font-normal text-exito">Cerrada</span>}
+                    </p>
+                    <p className="mt-1 text-xs text-tinta-2 dark:text-slate-400">{i.descripcion}</p>
+                    <p className="mt-1 text-xs text-tinta-3 dark:text-slate-500">Abierta por {i.abiertaPorNombre || 'Sistema'} · {fmtFecha(i.abiertaAt)}</p>
+                    {i.resolucion && <p className="mt-2 text-xs text-exito">{i.resolucion}</p>}
                   </div>
-                  {puedeOperar && (
-                    <div className="flex items-center gap-2 pt-0.5">
-                      {!i.om.aprobadaJefeVentas && esJefeDeVentas && (
-                        <button onClick={() => accionOm(i.id, 'aprobar_jefe_ventas')} className="flex items-center gap-1 text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 px-2.5 py-1.5 rounded-lg">
-                          <CheckCircle2 size={12} /> Aprobar (jefe de ventas)
-                        </button>
-                      )}
-                      {i.om.aprobadaJefeVentas && !i.om.planteadaClienteAt && (
-                        <button onClick={() => accionOm(i.id, 'plantear_cliente')} className="flex items-center gap-1 text-[11px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-2.5 py-1.5 rounded-lg">
-                          <Send size={12} /> Ya se le planteó al cliente
-                        </button>
-                      )}
-                      {i.om.planteadaClienteAt && respondiendoOmId !== i.id && (
-                        <button onClick={() => { setRespondiendoOmId(i.id); setRespuestaConstancia(''); }} className="flex items-center gap-1 text-[11px] font-semibold text-white bg-zinc-800 hover:bg-zinc-900 px-2.5 py-1.5 rounded-lg">
-                          <Clock size={12} /> Registrar respuesta del cliente
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  {i.om.planteadaClienteAt && respondiendoOmId === i.id && (
-                    <div className="mt-1.5 bg-white border border-zinc-200 rounded-lg p-2.5 space-y-1.5">
-                      <p className="text-[10px] font-bold text-zinc-500 uppercase">Constancia mínima — quién autorizó, con quién se habló y cuándo</p>
-                      <textarea rows={2} value={respuestaConstancia} onChange={e => setRespuestaConstancia(e.target.value)}
-                        placeholder="Ej: autorizó Juan Pérez (jefe de ventas), hablado con la contraparte técnica el 11-09-2026…"
-                        className="w-full text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <button onClick={() => responderCliente(i.id, true)} disabled={!respuestaConstancia.trim()}
-                          className="flex items-center gap-1 text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">
-                          <CheckCircle2 size={12} /> Cliente aprobó
-                        </button>
-                        <button onClick={() => responderCliente(i.id, false)} disabled={!respuestaConstancia.trim()}
-                          className="flex items-center gap-1 text-[11px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">
-                          <X size={12} /> Cliente rechazó
-                        </button>
-                        <button onClick={() => setRespondiendoOmId(null)} className="text-[11px] text-zinc-400 hover:text-zinc-600">Cancelar</button>
+                  {i.estado === 'ABIERTA' && puedeOperar && i.naturaleza !== 'OFENSIVA' && (cerrandoId === i.id ? (
+                    <div className="flex-shrink-0 w-[260px] space-y-2" data-testid={`incidencia-cierre-${i.id}`}>
+                      <input value={textoCierre} onChange={e => setTextoCierre(e.target.value)} placeholder="¿Cómo se resolvió? (opcional)" autoFocus className={campo} />
+                      <div className="flex items-center justify-end gap-3">
+                        <button onClick={() => { setCerrandoId(null); setTextoCierre(''); }} className="text-xs font-medium text-tinta-2 hover:text-tinta dark:text-slate-400">Cancelar</button>
+                        <button onClick={() => cerrar(i.id, textoCierre.trim() || null)} className={btnPrimario}>Confirmar cierre</button>
                       </div>
                     </div>
-                  )}
+                  ) : (
+                    <button onClick={() => { setCerrandoId(i.id); setTextoCierre(''); }} className="flex-shrink-0 text-xs font-medium text-marca hover:text-marca-fuerte">Cerrar</button>
+                  ))}
                 </div>
-              )}
-            </div>
-          ))}
-        </div>
+
+                {i.om && i.estado === 'ABIERTA' && (
+                  <div className="mt-3 pt-3 border-t border-linea/80 dark:border-slate-800 space-y-2">
+                    <p className="text-[13px] text-tinta dark:text-slate-100"><span className="font-medium">Propuesta:</span> {i.om.productoAlternativo}{i.om.ahorroEstimado != null && ` — ahorro estimado ${fmtCLP(i.om.ahorroEstimado)}`}</p>
+                    <div className="flex items-center gap-x-5 gap-y-1 flex-wrap text-xs text-tinta-2 dark:text-slate-400">
+                      <span className="inline-flex items-center gap-1.5"><span aria-hidden className={`w-1.5 h-1.5 rounded-full ${i.om.aprobadaJefeVentas ? 'bg-exito' : 'bg-alerta'}`} />
+                        {i.om.aprobadaJefeVentas ? `Aprobada por el jefe de ventas (${i.om.aprobadaJefeVentasPorNombre})` : 'Pendiente del jefe de ventas'}</span>
+                      {i.om.aprobadaJefeVentas && (
+                        <span className="inline-flex items-center gap-1.5"><span aria-hidden className={`w-1.5 h-1.5 rounded-full ${i.om.planteadaClienteAt ? 'bg-marca' : 'bg-slate-300'}`} />
+                          {i.om.planteadaClienteAt ? `Planteada al cliente ${fmtFecha(i.om.planteadaClienteAt)}` : 'Sin plantear al cliente'}</span>
+                      )}
+                    </div>
+                    {puedeOperar && (
+                      <div className="flex items-center gap-3 pt-1">
+                        {!i.om.aprobadaJefeVentas && esJefeDeVentas && (
+                          <button onClick={() => accionOm(i.id, 'aprobar_jefe_ventas')} className={btnPrimario + ' inline-flex items-center gap-1.5'}><CheckCircle2 size={13} /> Aprobar (jefe de ventas)</button>
+                        )}
+                        {i.om.aprobadaJefeVentas && !i.om.planteadaClienteAt && (
+                          <button onClick={() => accionOm(i.id, 'plantear_cliente')} className={btnPrimario + ' inline-flex items-center gap-1.5'}><Send size={13} /> Ya se le planteó al cliente</button>
+                        )}
+                        {i.om.planteadaClienteAt && respondiendoOmId !== i.id && (
+                          <button onClick={() => { setRespondiendoOmId(i.id); setRespuestaConstancia(''); }} className={btnPrimario + ' inline-flex items-center gap-1.5'}><Clock size={13} /> Registrar respuesta del cliente</button>
+                        )}
+                      </div>
+                    )}
+                    {i.om.planteadaClienteAt && respondiendoOmId === i.id && (
+                      <div className="pt-2 space-y-2">
+                        <p className="text-xs text-tinta-2 dark:text-slate-400">Constancia mínima: quién autorizó, con quién se habló y cuándo.</p>
+                        <textarea rows={2} value={respuestaConstancia} onChange={e => setRespuestaConstancia(e.target.value)}
+                          placeholder="Ej: autorizó Juan Pérez (jefe de ventas), hablado con la contraparte técnica el 11-09-2026…" className={campo} />
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <button onClick={() => responderCliente(i.id, true)} disabled={!respuestaConstancia.trim()} className={btnPrimario + ' inline-flex items-center gap-1.5'}><CheckCircle2 size={13} /> Cliente aprobó</button>
+                          <button onClick={() => responderCliente(i.id, false)} disabled={!respuestaConstancia.trim()} className="text-xs font-medium text-white bg-urgente hover:opacity-90 disabled:opacity-50 px-3.5 py-2 rounded-lg inline-flex items-center gap-1.5"><X size={13} /> Cliente rechazó</button>
+                          <button onClick={() => setRespondiendoOmId(null)} className="text-xs font-medium text-tinta-2 hover:text-tinta dark:text-slate-400">Cancelar</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );

@@ -114,7 +114,17 @@ function esEncabezadoFormulario(linea: string): boolean {
 // Línea completa (^…$), así que «Anexo 1 debe presentarse…» nunca calza. Solo en párrafos sueltos,
 // NO en celdas de tabla: una tabla de «documentos requeridos» trae «Anexo 1», «Anexo 2»… uno por
 // celda, sin repetirse, y el filtro de repetidos de candidatosTabla no los atajaría.
-const RE_ENCABEZADO_SIN_N = /^(FORMULARIO|ANEXO|FORMATO)\s+(?:\p{L}{3,15}\s+)?(\d+)\s*:?\.?$/iu;
+const RE_ENCABEZADO_SIN_N_NUMERO = /^(FORMULARIO|ANEXO|FORMATO)\s+(?:\p{L}{3,15}\s+)?(\d+)\s*:?\.?$/iu;
+
+// UNDÉCIMA forma (12-nov-2026, caso real 2981-334-LE26, ANEXOS_EDITABLES.doc — «no me separa los
+// anexos»): el organismo rotula con UNA LETRA sola, sin «N°» ni número («ANEXO A», «ANEXO B»…, con
+// el título «“PROPUESTA ECONÓMICA”» en la línea de abajo) y varios formularios abren con la palabra
+// «ANEXO» SOLA en su párrafo y el título debajo. Ninguna de las diez formas anteriores lo cubría:
+// 0 encabezados. Sin flag 'i' a propósito (igual que RE_FORMATO_TIPO): una línea que es SOLO
+// «ANEXO» o «ANEXO A» en mayúsculas es un rótulo, no prosa. Solo en párrafos sueltos (no tablas),
+// porque el índice de «documentos requeridos» trae «ANEXO A», «ANEXO B» uno por celda.
+const RE_ENCABEZADO_LETRA_O_SOLO = /^(?:FORMULARIO|ANEXO|FORMATO)(?:\s+[A-Z])?\s*:?\.?$/u;
+const RE_ENCABEZADO_SIN_N = { test: (l: string) => RE_ENCABEZADO_SIN_N_NUMERO.test(l) || RE_ENCABEZADO_LETRA_O_SOLO.test(l) };
 
 // Solo la forma "FORMULARIO/ANEXO N°X" al INICIO (sin la alternativa "(ANEXO X)" al final) — se usa
 // como fallback cuando la línea completa es demasiado larga para el chequeo normal de arriba. Ver
@@ -552,6 +562,7 @@ function buscarSubtituloTrasEncabezadoPelado(
     const texto = b.textoPlano.trim();
     if (!texto) continue; // párrafo vacío de por medio: se sigue buscando, no corta
     if (cortaSubtitulo(texto, repetidas)) break;
+    if (partes.length && texto.length > LARGO_MAX_ENCABEZADO) break; // prosa tras el título, no subtítulo
     // Membrete repetido («LICITACIÓN PÚBLICA», el nombre de la licitación sin comillas): se salta
     // hasta dar con la primera línea propia del anexo, y después de ella corta. Si no aparece
     // ninguna propia, el repetido ES el título de un anexo que el organismo repite por línea de
@@ -585,6 +596,35 @@ function parrafosDeTabla(xmlTabla: string): { texto: string; offset: number }[] 
     offset++;
   }
   return out;
+}
+
+// DUODÉCIMA (12-nov-2026, 2981-334-LE26): banners de sección «ANEXOS A COMPLETAR POR EL OFERENTE» /
+// «OTROS ANEXOS A COMPLETAR…» (+ «(OBLIGATORIOS Y EVALUABLES)» debajo) que abren un grupo de anexos.
+// Sin esto el banner quedaba al final del anexo anterior (título pegado al anterior). Si un
+// encabezado ya detectado viene justo después del banner, el corte sube al banner; si no viene
+// ninguno (el anexo del grupo no trae «ANEXO» en su título: «IDENTIFICACIÓN Y DECLARACIÓN JURADA»),
+// la primera línea con texto tras el banner es el título. Banner en mayúsculas y solo en su párrafo.
+const RE_BANNER_SECCION_ANEXOS = /^(?:OTROS\s+)?ANEXOS\s+A\s+COMPLETAR\b[^\n]{0,40}$/u;
+function ajustarPorBannersDeSeccion(bloques: BloqueCrudo[], encabezados: { indice: number; titulo: string }[]): void {
+  for (let bi = 0; bi < bloques.length; bi++) {
+    const b = bloques[bi];
+    if (b.tipo !== 'parrafo' || b.enCuadroFlotante || !RE_BANNER_SECCION_ANEXOS.test(b.textoPlano.trim())) continue;
+    const siguientes: BloqueCrudo[] = [];
+    for (let j = bi + 1; j < bloques.length && siguientes.length < 2; j++) {
+      const c = bloques[j];
+      if (c.tipo !== 'parrafo' || c.enCuadroFlotante) break;
+      const t = c.textoPlano.trim();
+      if (!t || /^\(.*\)$/.test(t)) continue; // vacío o «(OBLIGATORIOS Y EVALUABLES)»
+      siguientes.push(c);
+    }
+    if (!siguientes.length) continue;
+    const limite = siguientes[0].ordinalInicio;
+    const ya = encabezados.find(h => h.indice > b.ordinalInicio && h.indice <= limite);
+    if (ya) { ya.indice = b.ordinalInicio; continue; }
+    if (encabezados.some(h => h.indice === b.ordinalInicio)) continue;
+    const titulo = siguientes.map(c => c.textoPlano.trim()).filter(t => t.length <= LARGO_MAX_ENCABEZADO && !RE_LINEA_CON_RELLENO.test(t)).join(' ').slice(0, 120);
+    if (titulo) encabezados.push({ indice: b.ordinalInicio, titulo });
+  }
 }
 
 export function detectarFormularios(xml: string): FormularioDetectado[] {
@@ -694,6 +734,7 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
   // Octava forma (ver detectarEncabezadosTrasCierreDeSeccion): va ÚLTIMA a propósito — es la señal
   // más débil de todas, así que solo recoge lo que ninguna de las siete anteriores alcanzó a cubrir.
   encabezados.push(...detectarEncabezadosTrasCierreDeSeccion(bloques, encabezados));
+  ajustarPorBannersDeSeccion(bloques, encabezados);
   encabezados.sort((a, b) => a.indice - b.indice);
   // El mismo título escrito dos veces seguidas, sin nada entre medio («ANEXO N.º 4» dos veces,
   // 2827-102-LE26): es un anexo, no dos. Se cortaba en ambos y el primero salía como un archivo con
@@ -737,7 +778,8 @@ function sufijoDeArchivo(titulo: string): string {
   // la vez, si no el encabezado se detecta pero el archivo sale con nombre feo.
   const cat = !m ? titulo.match(/(?:FORMULARIO|ANEXO|FORMATO)\s*([A-Z]{1,8})\s*-\s*(\d+)/i) : null;
   const sinN = !m && !cat ? titulo.match(/^(?:FORMULARIO|ANEXO|FORMATO)\s+(?:\p{L}{3,15}\s+)?(\d+)\b/iu) : null;
-  const base = m ? `N${m[1]}` : cat ? `${cat[1].toUpperCase()}-${cat[2]}` : sinN ? `N${sinN[1]}` : titulo.slice(0, 20);
+  const letra = !m && !cat && !sinN ? titulo.match(/^(?:FORMULARIO|ANEXO|FORMATO)\s+([A-Z])(?![\p{L}\p{N}])/u) : null;
+  const base = m ? `N${m[1]}` : cat ? `${cat[1].toUpperCase()}-${cat[2]}` : sinN ? `N${sinN[1]}` : letra ? letra[1] : titulo.slice(0, 20);
   return base.replace(/[^\w-]/g, '_');
 }
 

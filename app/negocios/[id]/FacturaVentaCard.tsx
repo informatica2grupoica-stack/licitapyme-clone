@@ -71,14 +71,14 @@ export function FacturaVentaCard({ negocioId, puedeOperar, razonSocialFactura }:
   if (cargando) return null;
 
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden mb-3" data-testid="factura-venta">
-      <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-100">
-        <p className="text-[13px] font-bold text-zinc-800 flex items-center gap-1.5"><Receipt size={15} /> Factura de venta al cliente</p>
-        <p className="text-[11.5px] text-zinc-500 mt-0.5">
+    <div className="bg-white border border-linea rounded-2xl shadow-tarjeta dark:bg-slate-900 dark:border-slate-800 overflow-hidden mb-3" data-testid="factura-venta">
+      <div className="px-5 pt-4">
+        <p className="flex items-center gap-2 text-[12.5px] font-medium text-tinta-2 dark:text-slate-300"><Receipt size={15} className="text-slate-400" /> Factura de venta al cliente</p>
+        <p className="text-xs text-tinta-2 dark:text-slate-400 mt-1">
           Sube aquí la factura emitida{razonSocialFactura ? ` a nombre de ${razonSocialFactura}` : ''}. Al subirla, la tarea «Factura y cierre del proyecto» se marca sola como hecha.
         </p>
       </div>
-      <div className="p-4 space-y-4">
+      <div className="p-5 space-y-4">
         {facturas.length > 0 && (
           <div className="flex gap-4 flex-wrap">
             {facturas.map(f => (

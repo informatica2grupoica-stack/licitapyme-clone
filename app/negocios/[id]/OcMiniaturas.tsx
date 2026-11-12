@@ -49,8 +49,8 @@ export function OcMiniaturas({ negocioId }: { negocioId: number }) {
 
   if (!datos || (datos.cliente.length === 0 && datos.proveedores.length === 0)) return null;
   return (
-    <div className="bg-white rounded-xl border border-zinc-200 p-4 mb-3" data-testid="oc-miniaturas">
-      <p className="text-[11px] font-bold text-zinc-500 uppercase mb-2.5">Órdenes de compra · pincha una para verla</p>
+    <div className="bg-white border border-linea rounded-2xl shadow-tarjeta dark:bg-slate-900 dark:border-slate-800 p-5 mb-3" data-testid="oc-miniaturas">
+      <p className="text-[12.5px] font-medium text-tinta-2 dark:text-slate-300 mb-3">Órdenes de compra <span className="text-xs font-normal text-tinta-3 dark:text-slate-500">· pincha una para verla</span></p>
       <div className="flex gap-3 overflow-x-auto pb-1">
         {datos.cliente.map(c => (
           <MiniaturaDoc key={c.nombre} src={urlInline(c.url)} titulo={c.nombre.replace(/\.pdf$/i, '')} detalle="Del cliente" onAbrir={() => setVisor({ nombre: c.nombre, url: c.url })} />

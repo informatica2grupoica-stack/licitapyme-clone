@@ -66,6 +66,7 @@ export function ResumenCierreCard({ negocioId }: { negocioId: number }) {
   const [d, setD] = useState<Datos | null>(CACHE.get(negocioId) ?? null);
   const [folio, setFolio] = useState<string | null>(null);
   const [lineasAbiertas, setLineasAbiertas] = useState(false);
+  const [ocsAbiertas, setOcsAbiertas] = useState(false);
 
   useEffect(() => {
     let vivo = true;
@@ -102,6 +103,7 @@ export function ResumenCierreCard({ negocioId }: { negocioId: number }) {
   const ocs = porOc.filter(o => o.estado !== 'ANULADA');
   const totOc = ocs.reduce((s, o) => s + o.obumaNeto, 0);
   const totFac = ocs.reduce((s, o) => s + o.facturadoNeto, 0);
+  const sinFactura = ocs.filter(o => !(o.facturadoNeto >= o.obumaNeto * 0.99 && o.facturas > 0));
 
   const th = 'px-3 py-2 text-[11px] font-medium text-tinta-2/80 dark:text-slate-400 text-left whitespace-nowrap';
   const td = 'px-3 py-2 text-[12.5px] text-tinta-2 dark:text-slate-300';
@@ -140,39 +142,58 @@ export function ResumenCierreCard({ negocioId }: { negocioId: number }) {
         </section>
       </div>
 
-      {/* Órdenes de compra y sus facturas */}
+      {/* Órdenes de compra y sus facturas: resumen de una línea; el detalle se abre a pedido */}
       <section className={`${SUPERFICIE} overflow-hidden`}>
-        <div className="px-5 pt-4 pb-3 flex items-baseline justify-between gap-3 flex-wrap">
-          <Rotulo>Órdenes de compra y sus facturas</Rotulo>
-          <p className="text-xs text-tinta-2 dark:text-slate-400 tabular-nums">Comprado {clp(totOc)} · facturado {clp(totFac)}</p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead><tr className="border-t border-linea/80 dark:border-slate-800">
-              <th className={th}>OC</th><th className={th}>Proveedor</th><th className={`${th} text-right`}>Comprado (neto)</th><th className={`${th} text-right`}>Facturado (neto)</th><th className={th}>Facturas</th><th className={th} />
-            </tr></thead>
-            <tbody>
-              {ocs.map(o => {
-                const ok = o.facturadoNeto >= o.obumaNeto * 0.99 && o.facturas > 0;
-                return (
-                  <tr key={o.ocFolio} className="border-t border-linea/60 dark:border-slate-800">
-                    <td className={`${td} font-medium text-tinta dark:text-slate-100 tabular-nums`}>{o.ocFolio}</td>
-                    <td className={td}>{o.proveedor ?? '—'}</td>
-                    <td className={tdN}>{clp(o.obumaNeto)}</td>
-                    <td className={tdN}>{clp(o.facturadoNeto)}</td>
-                    <td className={td}>
-                      <span className="inline-flex items-center gap-1.5"><span aria-hidden className={`w-1.5 h-1.5 rounded-full ${ok ? 'bg-exito' : 'bg-alerta'}`} />{ok ? `Facturada${o.facturas > 1 ? ` (${o.facturas})` : ''}` : o.facturas > 0 ? 'Facturada en parte' : 'Sin factura'}</span>
-                    </td>
-                    <td className={`${td} text-right`}>
-                      {!o.ocPropia && <button type="button" onClick={() => setFolio(o.ocFolio)} className="inline-flex items-center gap-1 text-xs font-medium text-marca hover:text-marca-fuerte"><Eye size={14} /> Ver OC</button>}
-                    </td>
-                  </tr>
-                );
-              })}
-              {ocs.length === 0 && <tr><td colSpan={6} className="px-5 py-6 text-center text-xs text-tinta-2 dark:text-slate-400">Este proyecto no tiene órdenes de compra a proveedores.</td></tr>}
-            </tbody>
-          </table>
-        </div>
+        <button type="button" onClick={() => setOcsAbiertas(a => !a)} aria-expanded={ocsAbiertas}
+          className="w-full px-5 py-4 text-left hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
+          <div className="flex items-center justify-between gap-3">
+            <Rotulo>Órdenes de compra y sus facturas</Rotulo>
+            <span className="flex items-center gap-2 text-xs text-tinta-2 dark:text-slate-400 tabular-nums">
+              {ocs.length} órdenes <ChevronDown size={16} className={`transition-transform duration-150 ${ocsAbiertas ? 'rotate-180' : ''}`} />
+            </span>
+          </div>
+          <div className="mt-3 flex items-center gap-4 flex-wrap">
+            <div className="flex-1 min-w-[200px]">
+              <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                <div className="h-full rounded-full bg-exito" style={{ width: `${Math.min(100, totOc > 0 ? (totFac / totOc) * 100 : 0)}%`, transition: 'width 0.6s cubic-bezier(0.22,1,0.36,1)' }} />
+              </div>
+              <p className="mt-1.5 text-xs text-tinta-2 dark:text-slate-400 tabular-nums">Facturado {clp(totFac)} de {clp(totOc)} comprado (neto)</p>
+            </div>
+            <p className="text-[13px] font-medium text-tinta dark:text-slate-100">
+              <span className="inline-flex items-center gap-1.5"><span aria-hidden className={`w-1.5 h-1.5 rounded-full ${sinFactura.length === 0 ? 'bg-exito' : 'bg-alerta'}`} />
+                {sinFactura.length === 0 ? 'Todas facturadas' : `${sinFactura.length} sin factura completa`}</span>
+            </p>
+          </div>
+        </button>
+        {ocsAbiertas && (
+          <div className="overflow-auto max-h-[380px] border-t border-linea/80 dark:border-slate-800">
+            <table className="w-full">
+              <thead><tr className="sticky top-0 bg-white dark:bg-slate-900">
+                <th className={th}>OC</th><th className={th}>Proveedor</th><th className={`${th} text-right`}>Comprado</th><th className={`${th} text-right`}>Facturado</th><th className={th}>Estado</th><th className={th} />
+              </tr></thead>
+              <tbody>
+                {ocs.map(o => {
+                  const ok = o.facturadoNeto >= o.obumaNeto * 0.99 && o.facturas > 0;
+                  return (
+                    <tr key={o.ocFolio} className="border-t border-linea/60 dark:border-slate-800">
+                      <td className={`${td} font-medium text-tinta dark:text-slate-100 tabular-nums`}>{o.ocFolio}</td>
+                      <td className={`${td} max-w-[260px] truncate`}>{o.proveedor ?? '—'}</td>
+                      <td className={tdN}>{clp(o.obumaNeto)}</td>
+                      <td className={tdN}>{clp(o.facturadoNeto)}</td>
+                      <td className={td}>
+                        <span className="inline-flex items-center gap-1.5"><span aria-hidden className={`w-1.5 h-1.5 rounded-full ${ok ? 'bg-exito' : 'bg-alerta'}`} />{ok ? 'Facturada' : o.facturas > 0 ? 'En parte' : 'Sin factura'}</span>
+                      </td>
+                      <td className={`${td} text-right`}>
+                        {!o.ocPropia && <button type="button" onClick={() => setFolio(o.ocFolio)} className="inline-flex items-center gap-1 text-xs font-medium text-marca hover:text-marca-fuerte"><Eye size={14} /> Ver</button>}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {ocs.length === 0 && <tr><td colSpan={6} className="px-5 py-6 text-center text-xs text-tinta-2 dark:text-slate-400">Este proyecto no tiene órdenes de compra a proveedores.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       {/* Lo ganado, línea por línea */}

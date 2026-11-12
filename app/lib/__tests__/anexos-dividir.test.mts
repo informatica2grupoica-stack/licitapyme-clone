@@ -943,3 +943,23 @@ test('dividirPorFormularios: si un fragmento saliera mal formado, no divide (nun
     assert.equal(verificarXmlBienFormado(fxml).valido, true);
   }
 });
+
+// Regresión 2981-334-LE26 (ANEXOS_EDITABLES.doc, 12-nov-2026): rótulos «ANEXO A/B» con letra sola,
+// «ANEXO» pelado con el título debajo, y banners «ANEXOS A COMPLETAR POR EL OFERENTE».
+test('detectarFormularios: «ANEXO A», «ANEXO» pelado y banner de sección separan 5 anexos (2981-334-LE26)', () => {
+  const xml = NS
+    + p('ANEXO') + p('“CUADRO PRESENTACIÓN DE OFERTA TÉCNICA”') + p('Para completar el siguiente Anexo deberá rellenar cada recuadro con la información solicitada por la entidad.')
+    + p('ANEXOS A COMPLETAR POR EL OFERENTE') + p('(OBLIGATORIOS Y EVALUABLES)') + p('') + p('ANEXO A') + p('“PROPUESTA ECONÓMICA”') + p('CANTIDAD')
+    + p('ANEXO B') + p('“PLAZO DE ENTREGA”') + p('Plazo __________ días')
+    + p('OTROS ANEXOS A COMPLETAR POR EL OFERENTE') + p('') + p('IDENTIFICACIÓN Y DECLARACIÓN JURADA') + p('PERSONAS JURÍDICAS') + p('Razón social:')
+    + p('ANEXO') + p('IDENTIFICACIÓN Y DECLARACIÓN JURADA') + p('PERSONAS NATURALES') + p('Razón social:')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const f = detectarFormularios(norm);
+  assert.equal(f.length, 5);
+  assert.deepEqual(f.map(x => x.indiceInicio), [0, 3, 9, 12, 17]); // el banner viaja con el anexo que presenta
+  assert.match(f[1].titulo, /^ANEXO A PROPUESTA ECONÓMICA/);
+  assert.match(f[3].titulo, /^IDENTIFICACIÓN Y DECLARACIÓN JURADA/);
+  assert.doesNotMatch(f[0].titulo, /Para completar/);
+  assert.equal(nombreArchivoDesdeTitulo(f[1].titulo).includes('ANEXO_A'), true);
+});

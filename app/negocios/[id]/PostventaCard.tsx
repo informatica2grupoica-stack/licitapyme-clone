@@ -17,6 +17,8 @@ interface Garantia { titulo: string; descripcion: string | null }
 // Caché de la sesión: la pestaña sale al instante al volver y se refresca por detrás.
 const CACHE_PV = new Map<number, any>();
 
+const SUPERFICIE = 'bg-white border border-linea rounded-2xl shadow-tarjeta dark:bg-slate-900 dark:border-slate-800';
+
 export function PostventaCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
   const toast = useToast();
   const { recargar: recargarCompartido } = useCompras();
@@ -80,95 +82,96 @@ export function PostventaCard({ negocioId, puedeOperar }: { negocioId: number; p
   const pendientes = compromisos.filter(c => !c.resuelto).length;
 
   return (
-    <div className="space-y-3" data-testid="postventa">
+    <div className="@container space-y-3" data-testid="postventa">
       <DocumentViewerModal doc={visor} onClose={() => setVisor(null)} />
       {garantias.length > 0 && (
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid gap-3 @2xl:grid-cols-2">
           {garantias.map((g, i) => {
             const meses = g.descripcion?.match(/(\d+)\s*meses/i)?.[1];
             const v = g.descripcion?.match(/vence\s+(\d{2})-(\d{2})-(\d{4})/i);
             const vence = v ? new Date(Number(v[3]), Number(v[2]) - 1, Number(v[1])) : null;
             const dias = vence ? Math.ceil((vence.getTime() - Date.now()) / 86400000) : null;
             return (
-              <div key={`g-${i}`} className="bg-white rounded-xl border border-zinc-200 p-4 flex gap-3">
-                <div className="flex-shrink-0 h-10 w-10 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center"><ShieldCheck size={20} /></div>
-                <div className="min-w-0">
-                  <p className="text-[11px] font-bold text-zinc-500 uppercase">{g.titulo}</p>
-                  {meses && <p className="text-[20px] font-bold text-zinc-900 leading-tight">{meses} meses</p>}
-                  <p className="text-[12px] text-zinc-600 mt-0.5">{g.descripcion}</p>
-                  {dias != null && (
-                    <p className={`mt-2 inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full border ${dias < 0 ? 'bg-zinc-100 text-zinc-500 border-zinc-200' : dias <= 30 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+              <section key={`g-${i}`} className={SUPERFICIE + ' p-5'}>
+                <p className="flex items-center gap-2 text-[12.5px] font-medium text-tinta-2 dark:text-slate-300"><ShieldCheck size={15} className="text-slate-400" />{g.titulo}</p>
+                {meses && <p className="mt-2 text-[30px] leading-none font-semibold tracking-tight tabular-nums text-tinta dark:text-slate-50">{meses} meses</p>}
+                <p className="mt-2 text-xs text-tinta-2 dark:text-slate-400">{g.descripcion}</p>
+                {dias != null && (
+                  <p className="mt-3 pt-3 border-t border-linea/80 dark:border-slate-800 text-[13px] font-medium text-tinta dark:text-slate-100">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span aria-hidden className={`w-1.5 h-1.5 rounded-full ${dias < 0 ? 'bg-slate-400' : dias <= 30 ? 'bg-alerta' : 'bg-exito'}`} />
                       {dias < 0 ? 'Vencida' : `Vigente · quedan ${dias} días`}
-                    </p>
-                  )}
-                </div>
-              </div>
+                    </span>
+                  </p>
+                )}
+              </section>
             );
           })}
         </div>
       )}
       {deDocs.length > 0 && (
-        <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-          <p className="px-4 py-2.5 text-[11px] font-bold text-zinc-500 uppercase bg-zinc-50 border-b border-zinc-100">Lo que dicen las bases y nuestra oferta · leído de los documentos, se puede corregir</p>
-          <div className="px-4 py-3 border-b border-zinc-100">
-            <p className="text-[11px] text-zinc-500 mb-2">Documentos de donde se leyó (pincha para verlos):</p>
-            <div className="flex gap-3 overflow-x-auto pb-1">
-              {Array.from(new Map(deDocs.filter(d => d.fuenteUrl).map(d => [d.fuente, d])).values()).map(d => (
-                <MiniaturaDoc key={d.fuente} src={urlInline(d.fuenteUrl!)} titulo={d.fuente.replace(/\.pdf$/i, '')} onAbrir={() => setVisor({ nombre: d.fuente, url: d.fuenteUrl! })} />
-              ))}
-            </div>
+        <section className={SUPERFICIE + ' overflow-hidden'}>
+          <div className="px-5 pt-4">
+            <p className="text-[12.5px] font-medium text-tinta-2 dark:text-slate-300">Lo que dicen las bases y nuestra oferta</p>
+            <p className="mt-1 text-xs text-tinta-2 dark:text-slate-400">Leído de los documentos. Si algo está mal, se corrige aquí.</p>
           </div>
-          <div className="divide-y divide-zinc-100">
+          <div className="px-5 py-4 flex gap-3 overflow-x-auto">
+            {Array.from(new Map(deDocs.filter(d => d.fuenteUrl).map(d => [d.fuente, d])).values()).map(d => (
+              <MiniaturaDoc key={d.fuente} src={urlInline(d.fuenteUrl!)} titulo={d.fuente.replace(/\.pdf$/i, '')} onAbrir={() => setVisor({ nombre: d.fuente, url: d.fuenteUrl! })} />
+            ))}
+          </div>
+          <div className="divide-y divide-linea/70 dark:divide-slate-800 border-t border-linea/80 dark:border-slate-800">
             {deDocs.map(d => (
-              <div key={d.clave} className="px-4 py-2.5">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="text-[12.5px] font-semibold text-zinc-800">{d.titulo}</p>
-                  {d.corregido && <span className="text-[10px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded-full">Corregido{d.corregidoPor ? ` por ${d.corregidoPor}` : ''}</span>}
+              <div key={d.clave} className="px-5 py-3">
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <p className="text-[13px] font-medium text-tinta dark:text-slate-100">{d.titulo}</p>
+                  {d.corregido && <span className="text-xs text-marca">Corregido{d.corregidoPor ? ` por ${d.corregidoPor}` : ''}</span>}
                 </div>
                 {editando?.clave === d.clave ? (
                   <div className="mt-1.5">
                     <textarea value={editando.texto} onChange={e => setEditando({ clave: d.clave, texto: e.target.value })} rows={3}
-                      className="w-full text-[12px] text-zinc-800 border border-zinc-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-teal-500" />
-                    <div className="flex gap-3 mt-1.5 text-[11.5px] font-semibold">
-                      <button type="button" onClick={() => corregir(d.clave, editando.texto)} className="text-teal-700 hover:text-teal-900">Guardar</button>
-                      <button type="button" onClick={() => setEditando(null)} className="text-zinc-500 hover:text-zinc-700">Cancelar</button>
+                      className="w-full text-[12.5px] text-tinta dark:text-slate-100 bg-white dark:bg-slate-950 border border-linea dark:border-slate-700 rounded-lg px-3 py-2 focus:outline-none focus:border-marca" />
+                    <div className="flex gap-4 mt-1.5 text-xs font-medium">
+                      <button type="button" onClick={() => corregir(d.clave, editando.texto)} className="text-marca hover:text-marca-fuerte">Guardar</button>
+                      <button type="button" onClick={() => setEditando(null)} className="text-tinta-2 hover:text-tinta dark:text-slate-400">Cancelar</button>
                     </div>
                   </div>
                 ) : (
-                  <p className="text-[12px] text-zinc-600">{d.texto}</p>
+                  <p className="mt-0.5 text-xs text-tinta-2 dark:text-slate-400">{d.texto}</p>
                 )}
-                <div className="flex gap-3 mt-1 text-[11px] flex-wrap">
+                <div className="flex gap-4 mt-1.5 text-xs flex-wrap">
                   {d.fuenteUrl
-                    ? <button type="button" onClick={() => setVisor({ nombre: d.fuente, url: d.fuenteUrl! })} className="text-teal-700 hover:text-teal-900 font-medium">Ver en {d.fuente}</button>
-                    : <span className="text-zinc-400">Fuente: {d.fuente}</span>}
-                  {puedeOperar && editando?.clave !== d.clave && <button type="button" onClick={() => setEditando({ clave: d.clave, texto: d.texto })} className="text-zinc-500 hover:text-zinc-800 font-medium">Corregir</button>}
-                  {puedeOperar && d.corregido && <button type="button" onClick={() => corregir(d.clave, '')} className="text-zinc-400 hover:text-zinc-700">Volver a lo que dice el documento</button>}
+                    ? <button type="button" onClick={() => setVisor({ nombre: d.fuente, url: d.fuenteUrl! })} className="text-marca hover:text-marca-fuerte font-medium">Ver en el documento</button>
+                    : <span className="text-tinta-3 dark:text-slate-500">Fuente: {d.fuente}</span>}
+                  {puedeOperar && editando?.clave !== d.clave && <button type="button" onClick={() => setEditando({ clave: d.clave, texto: d.texto })} className="text-tinta-2 hover:text-tinta dark:text-slate-400 font-medium">Corregir</button>}
+                  {puedeOperar && d.corregido && <button type="button" onClick={() => corregir(d.clave, '')} className="text-tinta-3 hover:text-tinta-2 dark:text-slate-500">Volver a lo que dice el documento</button>}
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </section>
       )}
       {compromisos.length > 0 && (
-        <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-          <p className="px-4 py-2.5 text-[11px] font-bold text-zinc-500 uppercase bg-zinc-50 border-b border-zinc-100">
-            Compromisos después de entregar · {pendientes === 0 ? 'todos cumplidos' : `${pendientes} pendiente${pendientes === 1 ? '' : 's'}`}
-          </p>
-          <div className="divide-y divide-zinc-100">
+        <section className={SUPERFICIE + ' overflow-hidden'}>
+          <div className="px-5 pt-4 pb-3 flex items-baseline justify-between gap-3">
+            <p className="text-[12.5px] font-medium text-tinta-2 dark:text-slate-300">Compromisos después de entregar</p>
+            <p className="text-xs text-tinta-2 dark:text-slate-400 tabular-nums">{pendientes === 0 ? 'Todos cumplidos' : `${pendientes} pendiente${pendientes === 1 ? '' : 's'}`}</p>
+          </div>
+          <div className="divide-y divide-linea/70 dark:divide-slate-800 border-t border-linea/80 dark:border-slate-800">
             {compromisos.map(c => (
-              <div key={c.titulo} className="px-4 py-2.5 flex items-start gap-2">
-                <button onClick={() => puedeOperar && alternar(c.titulo, c.resuelto)} disabled={!puedeOperar} className="flex-shrink-0 mt-0.5">
-                  {c.resuelto ? <CheckCircle2 size={16} className="text-emerald-500" /> : <Circle size={16} className="text-zinc-300" />}
+              <div key={c.titulo} className="px-5 py-3 flex items-start gap-3">
+                <button onClick={() => puedeOperar && alternar(c.titulo, c.resuelto)} disabled={!puedeOperar} className="flex-shrink-0 mt-0.5" aria-label={c.resuelto ? 'Marcar como pendiente' : 'Marcar como cumplido'}>
+                  {c.resuelto ? <CheckCircle2 size={17} className="text-exito" /> : <Circle size={17} className="text-slate-300 dark:text-slate-600" />}
                 </button>
                 <div>
-                  <p className={`text-[12.5px] ${c.resuelto ? 'text-zinc-400 line-through' : 'text-zinc-800'}`}>{c.titulo}</p>
-                  {c.descripcion && <p className="text-[11.5px] text-zinc-500">{c.descripcion}</p>}
-                  {c.resuelto && c.resueltoPorNombre && <p className="text-[10.5px] text-zinc-400">Cumplido por {c.resueltoPorNombre}</p>}
+                  <p className={`text-[13px] ${c.resuelto ? 'text-tinta-3 dark:text-slate-500 line-through' : 'text-tinta dark:text-slate-100'}`}>{c.titulo}</p>
+                  {c.descripcion && <p className="text-xs text-tinta-2 dark:text-slate-400">{c.descripcion}</p>}
+                  {c.resuelto && c.resueltoPorNombre && <p className="text-xs text-tinta-3 dark:text-slate-500">Cumplido por {c.resueltoPorNombre}</p>}
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </section>
       )}
     </div>
   );
