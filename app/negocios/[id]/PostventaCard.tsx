@@ -14,21 +14,25 @@ interface Compromiso { titulo: string; descripcion: string | null; resuelto: boo
 interface DeDocumento { titulo: string; texto: string; fuente: string; fuenteUrl: string | null; clave: string; textoLeido: string; corregido: boolean; corregidoPor: string | null }
 interface Garantia { titulo: string; descripcion: string | null }
 
+// Caché de la sesión: la pestaña sale al instante al volver y se refresca por detrás.
+const CACHE_PV = new Map<number, any>();
+
 export function PostventaCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
   const toast = useToast();
   const { recargar: recargarCompartido } = useCompras();
-  const [compromisos, setCompromisos] = useState<Compromiso[]>([]);
-  const [garantias, setGarantias] = useState<Garantia[]>([]);
-  const [deDocs, setDeDocs] = useState<DeDocumento[]>([]);
+  const [compromisos, setCompromisos] = useState<Compromiso[]>(CACHE_PV.get(negocioId)?.compromisos || []);
+  const [garantias, setGarantias] = useState<Garantia[]>(CACHE_PV.get(negocioId)?.garantias || []);
+  const [deDocs, setDeDocs] = useState<DeDocumento[]>(CACHE_PV.get(negocioId)?.deDocumentos || []);
   const [visor, setVisor] = useState<VisorDoc | null>(null);
   const [editando, setEditando] = useState<{ clave: string; texto: string } | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!CACHE_PV.has(negocioId));
 
   const cargar = useCallback(async () => {
     try {
       const res = await fetch(`/api/compras/${negocioId}/postventa`);
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cargar');
+      CACHE_PV.set(negocioId, data);
       setCompromisos(data.compromisos || []); setGarantias(data.garantias || []); setDeDocs(data.deDocumentos || []);
     } catch (e: any) {
       toast.error('No se pudo cargar la postventa', e.message);
@@ -172,10 +176,12 @@ export function PostventaCard({ negocioId, puedeOperar }: { negocioId: number; p
 
 // Para que ComprasChrome oculte la pestaña cuando el negocio no tiene nada que cumplir después de entregar.
 export function useHayPostventa(negocioId: number): boolean {
-  const [hay, setHay] = useState(false);
+  const c0 = CACHE_PV.get(negocioId);
+  const [hay, setHay] = useState(!!c0 && ((c0.compromisos?.length || 0) + (c0.garantias?.length || 0) + (c0.deDocumentos?.length || 0) > 0));
   useEffect(() => {
     let vivo = true;
     fetch(`/api/compras/${negocioId}/postventa`).then(r => r.json()).then(d => {
+      if (d?.success) CACHE_PV.set(negocioId, d);
       if (vivo) setHay(!!d?.success && ((d.compromisos?.length || 0) + (d.garantias?.length || 0) + (d.deDocumentos?.length || 0) > 0));
     }).catch(() => {});
     return () => { vivo = false; };

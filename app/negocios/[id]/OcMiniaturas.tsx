@@ -8,9 +8,14 @@ import { MiniaturaDoc, urlInline } from './MiniaturaDoc';
 
 interface Datos { cliente: Array<{ nombre: string; url: string }>; proveedores: Array<{ folio: string; proveedor: string | null; estado: string | null }> }
 
+// Caché de la sesión: al cambiar de pestaña y volver, o al reentrar al negocio, las miniaturas salen al instante (y el navegador revalida por ETag).
+const LISTAS = new Map<string, Datos>();
+const BLOBS = new Map<string, string>();
+
 // La OC de proveedor la arma Licitank como PDF (no hay archivo guardado): se pide una vez y se usa de miniatura.
 function MiniaturaOcProveedor({ negocioId, folio, proveedor, estado, onAbrir }: { negocioId: number; folio: string; proveedor: string | null; estado: string | null; onAbrir: () => void }) {
-  const [src, setSrc] = useState<string | null>(null);
+  const clave = `${negocioId}:${folio}`;
+  const [src, setSrc] = useState<string | null>(BLOBS.get(clave) ?? null);
   const [visible, setVisible] = useState(false);
   const caja = useRef<HTMLDivElement>(null);
   // Hay OC que son 15 o más: la miniatura se arma solo cuando la tarjeta aparece en pantalla.
@@ -20,25 +25,25 @@ function MiniaturaOcProveedor({ negocioId, folio, proveedor, estado, onAbrir }: 
     o.observe(el); return () => o.disconnect();
   }, []);
   useEffect(() => {
-    if (!visible) return;
-    let vivo = true; let objeto: string | null = null;
+    if (!visible || BLOBS.has(clave)) return;
+    let vivo = true;
     fetch(`/api/compras/${negocioId}/orden-compra-obuma/documento?folio=${encodeURIComponent(folio)}`)
       .then(r => (r.ok ? r.blob() : Promise.reject()))
-      .then(b => { if (vivo) { objeto = URL.createObjectURL(b); setSrc(objeto); } })
+      .then(b => { const u = URL.createObjectURL(b); BLOBS.set(clave, u); if (vivo) setSrc(u); })
       .catch(() => {});
-    return () => { vivo = false; if (objeto) URL.revokeObjectURL(objeto); };
-  }, [negocioId, folio, visible]);
+    return () => { vivo = false; };
+  }, [negocioId, folio, visible, clave]);
   return <div ref={caja}><MiniaturaDoc src={src} titulo={`OC ${folio}`} detalle={[proveedor, estado].filter(Boolean).join(' · ') || null} onAbrir={onAbrir} /></div>;
 }
 
 export function OcMiniaturas({ negocioId }: { negocioId: number }) {
-  const [datos, setDatos] = useState<Datos | null>(null);
+  const [datos, setDatos] = useState<Datos | null>(LISTAS.get(String(negocioId)) ?? null);
   const [visor, setVisor] = useState<VisorDoc | null>(null);
   const [folio, setFolio] = useState<string | null>(null);
 
   useEffect(() => {
     let vivo = true;
-    fetch(`/api/compras/${negocioId}/ocs`).then(r => r.json()).then(d => { if (vivo && d?.success) setDatos(d); }).catch(() => {});
+    fetch(`/api/compras/${negocioId}/ocs`).then(r => r.json()).then(d => { if (vivo && d?.success) { LISTAS.set(String(negocioId), d); setDatos(d); } }).catch(() => {});
     return () => { vivo = false; };
   }, [negocioId]);
 

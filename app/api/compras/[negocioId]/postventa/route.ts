@@ -54,6 +54,18 @@ async function leerPostventaDeDocumentos(codigo: string): Promise<DatoLeido[]> {
   return out;
 }
 
+// Los documentos casi no cambian: se leen una vez cada 10 minutos por licitación (antes: 4 textos de hasta 30 KB en cada visita).
+const gl = globalThis as any;
+const LEIDOS: Map<string, { t: number; d: DatoLeido[] }> = gl.__postventaLeidos || (gl.__postventaLeidos = new Map());
+async function leerPostventaCacheado(codigo: string): Promise<DatoLeido[]> {
+  const hit = LEIDOS.get(codigo);
+  if (hit && Date.now() - hit.t < 600_000) return hit.d;
+  const d = await leerPostventaDeDocumentos(codigo).catch(() => null);
+  if (!d) return hit?.d ?? [];
+  LEIDOS.set(codigo, { t: Date.now(), d });
+  return d;
+}
+
 export async function GET(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
@@ -79,7 +91,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       .map((g: any) => ({ titulo: g.titulo, descripcion: valorDe.get(String(g.titulo).trim()) ?? g.descripcion ?? null }))
       .filter((g: any) => g.descripcion && String(g.descripcion).trim());
     const resueltos = await listarPostventa(id);
-    const leidos = await leerPostventaDeDocumentos(asignacion.licitacionCodigo).catch(() => [] as DatoLeido[]);
+    const leidos = await leerPostventaCacheado(asignacion.licitacionCodigo);
     // Correcciones del equipo (migration-192): si hay una, manda sobre lo leído del documento.
     const [corr] = await pool.query(`SELECT clave, texto, actor_nombre FROM compras_postventa_correccion WHERE negocio_id = ?`, [id]).catch(() => [[]] as any) as any;
     const corregidoDe = new Map((corr as any[]).map(c => [String(c.clave), c]));
