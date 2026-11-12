@@ -1,12 +1,15 @@
 'use client';
 
 // ESTADO DE FRACASO (spec §14.6) — doble registro deliberadamente separado: el encargado declara
-// SU motivo, el jefe de ventas dictamina el motivo REAL tras un análisis independiente. Colapsado
-// por defecto: es una acción rara y seria, no algo que deba competir visualmente con el resto.
+// SU motivo, el jefe de ventas dictamina el motivo REAL tras un análisis independiente. Es una acción
+// seria: el formulario se ve siempre en la pestaña, pero declarar pide una confirmación explícita.
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
-import { IconAlertOctagon as AlertOctagon, IconLoader2 as Loader2, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp } from '@tabler/icons-react';
+import { IconAlertOctagon as AlertOctagon, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2 } from '@tabler/icons-react';
+
+// Causas habituales: solo rellenan el motivo (el texto sigue siendo libre).
+const CAUSAS = ['El proveedor no puede despachar', 'Sin stock y sin alternativa', 'Producto descontinuado', 'El cliente canceló o no recibe', 'Plazo de entrega vencido', 'Problema con el pago o la factura'];
 
 interface Fracaso {
   motivoDeclarado: string; declaradoPorNombre: string | null; declaradoAt: string;
@@ -18,7 +21,7 @@ export function FracasoCard({ negocioId, puedeOperar, esJefeDeVentas }: { negoci
   const { recargar: recargarCompartido } = useCompras();
   const [fracaso, setFracaso] = useState<Fracaso | null>(null);
   const [loading, setLoading] = useState(true);
-  const [abierto, setAbierto] = useState(false);
+  const [confirmando, setConfirmando] = useState(false);
   const [motivo, setMotivo] = useState('');
   const [dictamen, setDictamen] = useState('');
   const [guardando, setGuardando] = useState(false);
@@ -43,7 +46,7 @@ export function FracasoCard({ negocioId, puedeOperar, esJefeDeVentas }: { negoci
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo declarar');
-      setFracaso(data.fracaso); setMotivo('');
+      setFracaso(data.fracaso); setMotivo(''); setConfirmando(false);
       recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo declarar el fracaso', e.message);
@@ -72,60 +75,68 @@ export function FracasoCard({ negocioId, puedeOperar, esJefeDeVentas }: { negoci
   };
 
   if (loading) return null;
-  if (!abierto && !fracaso) {
-    return puedeOperar ? (
-      <button onClick={() => setAbierto(true)} className="text-[11px] font-semibold text-zinc-400 hover:text-rose-600 flex items-center gap-1 px-1">
-        <AlertOctagon size={12} /> Este proyecto no se pudo entregar…
-      </button>
-    ) : null;
+
+  // Sin registro y sin permiso: se dice claro, en vez de dejar la pestaña casi vacía.
+  if (!fracaso && !puedeOperar) {
+    return <div className="bg-white rounded-xl border border-zinc-200 px-4 py-6 text-center text-[12.5px] text-zinc-500">Este proyecto no tiene un registro de fracaso.</div>;
   }
 
   return (
-    <div className="bg-white rounded-xl border border-rose-200 overflow-hidden">
-      <button onClick={() => setAbierto(v => !v)} className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-rose-50 border-b border-rose-100">
-        <p className="text-[12.5px] font-bold text-rose-800 flex items-center gap-1.5"><AlertOctagon size={14} /> Estado de fracaso</p>
-        {abierto ? <ChevronUp size={15} className="text-rose-400" /> : <ChevronDown size={15} className="text-rose-400" />}
-      </button>
-      {abierto && (
-        <div className="p-4 space-y-3">
-          {!fracaso ? (
-            puedeOperar && (
+    <div className="bg-white rounded-xl border border-rose-200 overflow-hidden" data-testid="fracaso">
+      <div className="px-4 py-3 bg-rose-50 border-b border-rose-100">
+        <p className="text-[13px] font-bold text-rose-800 flex items-center gap-1.5"><AlertOctagon size={15} /> {fracaso ? 'Proyecto declarado como no entregable' : 'Si el proyecto no se puede entregar'}</p>
+        <p className="text-[11.5px] text-rose-700/80 mt-0.5">Se hace en dos pasos separados: el encargado declara el motivo y el jefe de ventas dictamina la causa real tras revisar qué se hizo y qué no.</p>
+      </div>
+      <div className="p-4 space-y-3">
+        {!fracaso ? (
+          <div className="space-y-3">
+            <p className="text-[12px] font-semibold text-zinc-700">¿Por qué no se puede entregar?</p>
+            <div className="flex flex-wrap gap-1.5">
+              {CAUSAS.map(c => (
+                <button key={c} type="button" onClick={() => setMotivo(m => (m.trim() ? m : c + '. '))}
+                  className="text-[11.5px] font-medium text-zinc-600 border border-zinc-200 rounded-full px-2.5 py-1 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 transition-colors">{c}</button>
+              ))}
+            </div>
+            <textarea rows={3} value={motivo} onChange={e => { setMotivo(e.target.value); setConfirmando(false); }} placeholder="Explica el motivo: qué pasó, con quién se habló y cuándo…"
+              className="w-full text-[12.5px] border border-zinc-200 rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-rose-500" />
+            {confirmando ? (
+              <div className="flex items-center gap-3 flex-wrap bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+                <p className="text-[12px] text-rose-800 font-medium flex-1 min-w-[200px]">Esto deja registrado el fracaso del proyecto y queda pendiente el dictamen del jefe de ventas. ¿Confirmas?</p>
+                <button onClick={declarar} disabled={guardando} className="text-[12px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
+                  {guardando ? <Loader2 size={13} className="animate-spin" /> : 'Sí, declarar fracaso'}
+                </button>
+                <button onClick={() => setConfirmando(false)} className="text-[12px] font-semibold text-zinc-500 hover:text-zinc-700">Cancelar</button>
+              </div>
+            ) : (
+              <button onClick={() => setConfirmando(true)} disabled={!motivo.trim()} className="text-[12px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-40 px-3.5 py-2 rounded-lg">Declarar que no se puede entregar</button>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="bg-zinc-50 rounded-lg p-3">
+              <p className="text-[10px] font-bold text-zinc-400 uppercase">1 · Motivo declarado por {fracaso.declaradoPorNombre}</p>
+              <p className="text-[12.5px] text-zinc-700 mt-0.5">{fracaso.motivoDeclarado}</p>
+            </div>
+            {fracaso.dictamenJefeVentas ? (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <p className="text-[10px] font-bold text-amber-600 uppercase flex items-center gap-1"><CheckCircle2 size={11} /> 2 · Dictamen del jefe de ventas — {fracaso.dictaminadoPorNombre}</p>
+                <p className="text-[12.5px] text-amber-800 mt-0.5">{fracaso.dictamenJefeVentas}</p>
+              </div>
+            ) : esJefeDeVentas ? (
               <div className="space-y-2">
-                <p className="text-[11.5px] text-zinc-500">El encargado de entrega verifica que no se puede entregar y declara los motivos.</p>
-                <textarea rows={2} value={motivo} onChange={e => setMotivo(e.target.value)} placeholder="Motivo declarado…"
-                  className="w-full text-[12px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-rose-500" />
-                <button onClick={declarar} disabled={!motivo.trim() || guardando} className="text-[12px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
-                  {guardando ? <Loader2 size={13} className="animate-spin" /> : 'Declarar fracaso'}
+                <p className="text-[11.5px] text-zinc-500">2 · Análisis independiente: revisa el histórico de tareas realizadas y no realizadas antes de dictaminar.</p>
+                <textarea rows={3} value={dictamen} onChange={e => setDictamen(e.target.value)} placeholder="Dictamen — el motivo real…"
+                  className="w-full text-[12.5px] border border-zinc-200 rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-amber-500" />
+                <button onClick={dictaminarAccion} disabled={!dictamen.trim() || guardando} className="text-[12px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
+                  {guardando ? <Loader2 size={13} className="animate-spin" /> : 'Registrar dictamen'}
                 </button>
               </div>
-            )
-          ) : (
-            <>
-              <div className="bg-zinc-50 rounded-lg p-2.5">
-                <p className="text-[10px] font-bold text-zinc-400 uppercase">Declarado por {fracaso.declaradoPorNombre}</p>
-                <p className="text-[12px] text-zinc-700 mt-0.5">{fracaso.motivoDeclarado}</p>
-              </div>
-              {fracaso.dictamenJefeVentas ? (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5">
-                  <p className="text-[10px] font-bold text-amber-600 uppercase">Dictamen del jefe de ventas — {fracaso.dictaminadoPorNombre}</p>
-                  <p className="text-[12px] text-amber-800 mt-0.5">{fracaso.dictamenJefeVentas}</p>
-                </div>
-              ) : esJefeDeVentas ? (
-                <div className="space-y-2">
-                  <p className="text-[11.5px] text-zinc-500">Análisis independiente: revisa el histórico de tareas realizadas y no realizadas antes de dictaminar.</p>
-                  <textarea rows={2} value={dictamen} onChange={e => setDictamen(e.target.value)} placeholder="Dictamen — el motivo real…"
-                    className="w-full text-[12px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-amber-500" />
-                  <button onClick={dictaminarAccion} disabled={!dictamen.trim() || guardando} className="text-[12px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
-                    {guardando ? <Loader2 size={13} className="animate-spin" /> : 'Registrar dictamen'}
-                  </button>
-                </div>
-              ) : (
-                <p className="text-[11px] text-zinc-400">Pendiente de dictamen del jefe de ventas.</p>
-              )}
-            </>
-          )}
-        </div>
-      )}
+            ) : (
+              <p className="text-[11.5px] text-zinc-500 bg-zinc-50 rounded-lg px-3 py-2">2 · Pendiente del dictamen del jefe de ventas.</p>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
