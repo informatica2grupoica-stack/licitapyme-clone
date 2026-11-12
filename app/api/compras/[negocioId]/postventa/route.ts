@@ -21,6 +21,38 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol, nombre };
 }
 
+// Lo que dicen los documentos YA LEÍDOS (documentos_cache.texto_extraido): secciones de garantía / postventa / capacitación
+// de las bases, y el canal de postventa y plazo de respuesta que ofertamos en el anexo técnico.
+const RE_TITULO_POSTVENTA = /garant[ií]a|post-?venta|capacitaci|manten[cs]i|servicio t[eé]cnico|repuesto/i;
+async function leerPostventaDeDocumentos(codigo: string): Promise<Array<{ titulo: string; texto: string; fuente: string }>> {
+  const [rows] = await pool.query(
+    `SELECT documento_nombre n, categoria c, texto_extraido t FROM documentos_cache
+      WHERE licitacion_codigo = ? AND texto_extraido IS NOT NULL AND LENGTH(texto_extraido) > 200
+        AND (categoria IN ('BASES_TECNICAS','BASES_ADMINISTRATIVAS') OR (categoria = 'DOCUMENTOS_PROPIOS' AND documento_nombre LIKE '%ANEXO%' AND documento_nombre LIKE '%.pdf'))`, [codigo]) as any;
+  const out: Array<{ titulo: string; texto: string; fuente: string }> = [];
+  for (const r of rows as any[]) {
+    const t = String(r.t);
+    if (r.c !== 'DOCUMENTOS_PROPIOS') {
+      for (const sec of t.split(/\n(?=#{1,4}\s)/)) {
+        const m = sec.match(/^#{1,4}\s*([^\n]+)\n([\s\S]*)/);
+        if (!m || !RE_TITULO_POSTVENTA.test(m[1])) continue;
+        const cuerpo = m[2].replace(/\s+/g, ' ').trim();
+        if (cuerpo.length < 40) continue;
+        out.push({ titulo: m[1].replace(/^\d+[.)]?\s*/, '').trim(), texto: cuerpo.slice(0, 900), fuente: r.n });
+      }
+    } else {
+      const tn = t.replace(/\s+/g, ' ');
+      const m = tn.match(/Canal de postventa (.{3,120}?) Plazo de respuesta (.{2,40}?) Exclusiones/i);
+      const g = tn.match(/Garant[ií]a com[uú]n ofrecida\s+(\d+\s*meses)/i);
+      if (g) out.push({ titulo: 'Garantía ofertada', texto: g[1], fuente: r.n });
+      const gd = tn.match(/Garant[ií]a (Todos los productos ofertados.{20,500}?)(?= Despacho| Entrega|$)/i);
+      if (gd) out.push({ titulo: 'Condiciones de la garantía ofertada', texto: gd[1].replace(/\s+/g, ' ').trim(), fuente: r.n });
+      if (m) out.push({ titulo: 'Canal de postventa ofertado', texto: `${m[1].trim()} — respuesta en ${m[2].trim()}`, fuente: r.n });
+    }
+  }
+  return out;
+}
+
 export async function GET(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
@@ -41,10 +73,15 @@ export async function GET(request: NextRequest, { params }: Params) {
       `SELECT titulo, valor_texto FROM checklist_comercial WHERE negocio_id = ? AND valor_texto IS NOT NULL AND valor_texto <> '' AND (titulo LIKE '%garant%' OR titulo LIKE '%postventa%')`, [id],
     ).catch(() => [[]] as any) as any;
     const valorDe = new Map((vivos as any[]).map(v => [String(v.titulo).trim(), String(v.valor_texto)]));
-    const garantias = garantiasResumen.map((g: any) => ({ titulo: g.titulo, descripcion: valorDe.get(String(g.titulo).trim()) ?? g.descripcion ?? null }));
+    // Solo garantías con contenido real: un título suelto («ANEXO N° 5 — …») es el nombre de un documento, no una garantía.
+    const garantias = garantiasResumen
+      .map((g: any) => ({ titulo: g.titulo, descripcion: valorDe.get(String(g.titulo).trim()) ?? g.descripcion ?? null }))
+      .filter((g: any) => g.descripcion && String(g.descripcion).trim());
     const resueltos = await listarPostventa(id);
+    const deDocumentos = await leerPostventaDeDocumentos(asignacion.licitacionCodigo).catch(() => []);
     return NextResponse.json({
       success: true,
+      deDocumentos,
       compromisos: compromisos.map((c: any) => ({ titulo: c.titulo, descripcion: c.descripcion ?? null, ...(resueltos.get(c.titulo) || { resuelto: false, resueltoPorNombre: null, resueltoAt: null, notas: null }) })),
       garantias,
     });

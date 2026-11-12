@@ -38,7 +38,7 @@ import { RelojEntregaCard } from '@/app/negocios/[id]/RelojEntregaCard';
 import { RELOJ_ENTREGA_ACTIVO } from '@/app/lib/compras-reloj-activo';
 import { IncidenciasCard } from '@/app/negocios/[id]/IncidenciasCard';
 import { EntregaCard } from '@/app/negocios/[id]/EntregaCard';
-import { PostventaCard } from '@/app/negocios/[id]/PostventaCard';
+import { PostventaCard, useHayPostventa } from '@/app/negocios/[id]/PostventaCard';
 import { FracasoCard } from '@/app/negocios/[id]/FracasoCard';
 import { ActividadComprasCard } from '@/app/negocios/[id]/ActividadComprasCard';
 import { GanttComprasCard } from '@/app/negocios/[id]/GanttComprasCard';
@@ -82,6 +82,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   const faseActiva: Fase = soloDesdeAprobacion && (faseElegida === 'tareas' || faseElegida === 'costeo') ? 'aprobacion' : faseElegida;
   // El botón «Obuma» abre un resumen de lo creado en Obuma desde Licitank (ya no lleva a otra pantalla).
   const [resumenObumaAbierto, setResumenObumaAbierto] = useState(false);
+  const hayPostventa = useHayPostventa(negocioId);
   // Otras tarjetas pueden mandar al encargado a otro paso (ej. «Ir a crear proveedor» desde una compra directa).
   useEffect(() => {
     const h = (e: Event) => {
@@ -956,8 +957,10 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                     contenido: <EntregaCard negocioId={negocioId} puedeOperar={puedeOperar} puedeVerificar={esBodega} /> },
                   { clave: 'costoreal', titulo: 'Costo real y cierre', ayuda: 'Resultado final del proyecto: lo costeado contra lo realmente gastado.',
                     contenido: <CostoRealCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
-                  { clave: 'postventa', titulo: 'Postventa y pagos', ayuda: 'Garantías, capacitación y los datos de quien paga la factura (deben capturarse mientras hay contacto).',
-                    contenido: <PostventaCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
+                  ...(hayPostventa ? [
+                  { clave: 'postventa', titulo: 'Garantías y postventa', ayuda: 'Las garantías ofertadas con su vencimiento y lo que hay que cumplir después de entregar.',
+                    contenido: <PostventaCard negocioId={negocioId} puedeOperar={puedeOperar} /> }
+                  ] : []),
                   { clave: 'incidencias', titulo: 'Si hay un problema · Incidencias', ayuda: 'Problemas u oportunidades que pueden aparecer en cualquier etapa: sin stock, plazo incompatible, una alternativa más barata.',
                     badge: (resumenFases?.entrega.incidenciasAbiertas ?? 0) || null, tono: 'alerta',
                     contenido: <IncidenciasCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} /> },
