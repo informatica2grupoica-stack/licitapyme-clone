@@ -162,21 +162,35 @@ export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { ne
 
   return (
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-      <div className="flex items-center justify-between gap-3 px-4 py-3 bg-zinc-50 border-b border-zinc-100">
-        <p className="text-[12.5px] font-bold text-zinc-700 flex items-center gap-1.5">
-          <AlertTriangle size={14} /> Incidencias {abiertas.length > 0 && <span className="text-[10.5px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full">{abiertas.length} abierta(s)</span>}
-        </p>
-        {puedeOperar && (
-          <div className="flex items-center gap-2">
-            <button onClick={() => setFormAbierto(formAbierto === 'normal' ? null : 'normal')} className="flex items-center gap-1 text-[11.5px] font-semibold text-zinc-600 hover:text-zinc-800">
-              <Plus size={13} /> Incidencia
-            </button>
-            <button onClick={() => setFormAbierto(formAbierto === 'om' ? null : 'om')} className="flex items-center gap-1 text-[11.5px] font-semibold text-teal-700 hover:text-teal-800">
-              <Sparkles size={13} /> Oportunidad de Mejora
-            </button>
+      <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-100">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <p className="text-[13px] font-bold text-zinc-800 flex items-center gap-1.5"><AlertTriangle size={15} /> Incidencias y oportunidades</p>
+            <p className="text-[11.5px] text-zinc-500 mt-0.5">Para dejar escrito un problema con la compra o la entrega, o una forma más barata de cumplir. No es una tarea ni detiene el plazo de entrega.</p>
           </div>
-        )}
+          <div className="flex items-center gap-1.5">
+            <span className={`text-[11px] font-bold px-2 py-1 rounded-full border ${abiertas.length > 0 ? 'text-rose-700 bg-rose-50 border-rose-200' : 'text-zinc-400 bg-white border-zinc-200'}`}>{abiertas.length} abierta{abiertas.length === 1 ? '' : 's'}</span>
+            <span className="text-[11px] font-bold px-2 py-1 rounded-full border text-emerald-700 bg-emerald-50 border-emerald-200">{cerradas.length} cerrada{cerradas.length === 1 ? '' : 's'}</span>
+          </div>
+        </div>
       </div>
+
+      {puedeOperar && (
+        <div className="grid gap-3 md:grid-cols-2 px-4 py-3 border-b border-zinc-100">
+          <button onClick={() => setFormAbierto(formAbierto === 'normal' ? null : 'normal')}
+            className={`text-left rounded-xl border p-3 flex gap-3 transition-colors ${formAbierto === 'normal' ? 'border-amber-300 bg-amber-50' : 'border-zinc-200 hover:border-amber-300 hover:bg-amber-50/50'}`}>
+            <span className="flex-shrink-0 h-9 w-9 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center"><AlertTriangle size={18} /></span>
+            <span><span className="block text-[12.5px] font-semibold text-zinc-800">Algo salió mal</span>
+              <span className="block text-[11.5px] text-zinc-500">Sin stock, producto descontinuado, plazo imposible, el cliente rechazó algo al entregar.</span></span>
+          </button>
+          <button onClick={() => setFormAbierto(formAbierto === 'om' ? null : 'om')}
+            className={`text-left rounded-xl border p-3 flex gap-3 transition-colors ${formAbierto === 'om' ? 'border-teal-300 bg-teal-50' : 'border-zinc-200 hover:border-teal-300 hover:bg-teal-50/50'}`}>
+            <span className="flex-shrink-0 h-9 w-9 rounded-lg bg-teal-100 text-teal-700 flex items-center justify-center"><Sparkles size={18} /></span>
+            <span><span className="block text-[12.5px] font-semibold text-zinc-800">Encontré algo mejor</span>
+              <span className="block text-[11.5px] text-zinc-500">Un producto alternativo que cubre lo mismo a menor costo. Lo aprueba el jefe de ventas y luego el cliente.</span></span>
+          </button>
+        </div>
+      )}
 
       {formAbierto === 'normal' && (
         <div className="border-b border-zinc-100 px-4 py-3 space-y-2 bg-zinc-50/60">
@@ -223,11 +237,15 @@ export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { ne
       )}
 
       {incidencias.length === 0 ? (
-        <p className="px-4 py-8 text-center text-[12px] text-zinc-400">Sin incidencias — el proyecto avanza limpio.</p>
+        <div className="px-4 py-10 text-center">
+          <span className="inline-flex h-11 w-11 rounded-full bg-emerald-50 text-emerald-600 items-center justify-center mb-2"><CheckCircle2 size={22} /></span>
+          <p className="text-[13px] font-semibold text-zinc-700">Sin incidencias: el proyecto avanza limpio</p>
+          <p className="text-[11.5px] text-zinc-400 mt-1 max-w-md mx-auto">Si algo se complica, regístralo arriba. Queda en la franja roja del negocio, en Actividad y en el tablero de Compras, y se cierra aquí diciendo cómo se resolvió.</p>
+        </div>
       ) : (
         <div className="divide-y divide-zinc-100">
           {[...abiertas, ...cerradas].map(i => (
-            <div key={i.id} className="px-4 py-3">
+            <div key={i.id} className={`px-4 py-3 border-l-4 ${i.estado === 'CERRADA' ? 'border-l-emerald-300' : i.naturaleza === 'OFENSIVA' ? 'border-l-teal-400' : 'border-l-amber-400'}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
