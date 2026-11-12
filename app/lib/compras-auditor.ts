@@ -12,6 +12,7 @@
 // ORIGEN GEOGRÁFICO FIJO (§8.10.1): todas las distancias se calculan desde la bodega de Talagante
 // (Epeira 575), no desde Santiago ni la casa matriz. Viaje interno local = $40.000 (§8.10.2).
 import { precioClpDeItemIA } from '@/app/lib/compras-precio-homologacion';
+import { marcarCotizandoSiHayCotizacion } from '@/app/lib/compras-avance-estados';
 import pool from '@/app/lib/db';
 import { precioPorUnidadDeProducto, conversionDesdeTexto, productoQueCubreLaLinea, numeroApareceEnTexto, lineasDesdeTabla, corregirAdicionalesConLineas, lineasSinAsignar, lineaDelProducto, desajustesProductoLinea, sinComponentesDeLaLineaPropia } from '@/app/lib/compras-cotizacion-lineas';
 import { conCupo } from '@/app/lib/cupo-ia';
@@ -653,6 +654,7 @@ export async function asignarItemsCotizacion(
   // apenas se asigna, el auditor compara la cotización contra lo exigido y fija el veredicto con su
   // evidencia (una decisión manual distinta exige motivo, ver registrarOverrideAuditoria).
   auditarCotizacionEnSegundoPlano(negocioId, cotizacionId, actorId ? { id: actorId, nombre: actorNombre ?? null } : undefined);
+  await marcarCotizandoSiHayCotizacion(negocioId);
 }
 
 export const SYS_HOMOLOGACION = `Eres el Auditor de Compras de una empresa que revende productos adjudicados en licitaciones públicas chilenas.
@@ -893,6 +895,7 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     if (pr) faltantesPorProducto.set(pr.id, [...(faltantesPorProducto.get(pr.id) || []), f.concepto]);
   }
   if (escritos > 0) auditarCotizacionEnSegundoPlano(cotiz.negocio_id, cotizacionId, undefined, { faltantes: faltantesPorProducto });
+  if (escritos > 0) await marcarCotizandoSiHayCotizacion(cotiz.negocio_id);
   return { items: escritos };
 }
 

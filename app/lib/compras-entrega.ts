@@ -8,6 +8,13 @@ import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { obtenerAsignacion, listarProductosCompra, coberturaProyecto, cerrarTareaDeCatalogo } from '@/app/lib/compras';
 import { esSubestadoFuera } from '@/app/lib/compras-no-adjudicadas';
+import { avanzarSubestados } from '@/app/lib/compras-avance-estados';
+
+/** Los avances logísticos automáticos solo valen para la entrega TOTAL: en una parcial no se sabe qué producto salió. */
+async function esEntregaTotal(negocioId: number): Promise<boolean> {
+  const r = await filaEntrega(negocioId);
+  return !r || r.modalidad !== 'PARCIAL';
+}
 
 async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
   const [rows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
@@ -112,7 +119,10 @@ export async function registrarVerificacion(negocioId: number, conforme: boolean
     `UPDATE compras_entrega SET verificacion_conforme = ?, verificacion_por = ?, verificacion_por_nombre = ?, verificacion_at = ?, updated_at = ? WHERE negocio_id = ?`,
     [conforme ? 1 : 0, actorId, actorNombre, ahora, ahora, negocioId],
   );
-  if (conforme) await cerrarTareaDeCatalogo(negocioId, 'recepcion_mercaderia', { id: actorId, nombre: actorNombre }, 'Verificación en bodega conforme registrada.');
+  if (conforme) {
+    await cerrarTareaDeCatalogo(negocioId, 'recepcion_mercaderia', { id: actorId, nombre: actorNombre }, 'Verificación en bodega conforme registrada.');
+    if (await esEntregaTotal(negocioId)) await avanzarSubestados(negocioId, 'EN_BODEGA', { desdeMinimo: 'COMPRADO', motivo: 'verificación en bodega conforme', actorId, actorNombre });
+  }
 }
 
 /** §16.4 — el módulo solo REGISTRA los números que emite OBUMA, no los genera. */
@@ -122,12 +132,18 @@ export async function registrarNumeros(negocioId: number, notaVentaNumero: strin
     `UPDATE compras_entrega SET nota_venta_numero = COALESCE(?, nota_venta_numero), guia_despacho_numero = COALESCE(?, guia_despacho_numero), updated_at = ? WHERE negocio_id = ?`,
     [notaVentaNumero?.trim() || null, guiaDespachoNumero?.trim() || null, ahoraChileSQL(), negocioId],
   );
+  if (guiaDespachoNumero?.trim() && await esEntregaTotal(negocioId))
+    await avanzarSubestados(negocioId, 'LISTO_ENTREGA', { desdeMinimo: 'COMPRADO', motivo: `se registró la guía de despacho N° ${guiaDespachoNumero.trim()}` });
 }
 
 /** §16.5 — "la genera automáticamente el módulo. Único documento oficial que produce." Requiere
  *  cobertura total (§14.2: "cobertura total o nada") — no tiene sentido generar el acta de un
  *  proyecto que todavía no está completo. Guarda un snapshot de qué se entregó. */
 export async function generarActa(negocioId: number, actorId: number, actorNombre: string | null): Promise<void> {
+  // Guía firmada antes de existir el avance automático (387-55-LE26): se ponen al día los productos antes de exigir cobertura.
+  const previa = await filaEntrega(negocioId);
+  if (previa?.guia_firma_nombre && previa.modalidad !== 'PARCIAL')
+    await avanzarSubestados(negocioId, 'ENTREGADO', { desdeMinimo: 'COMPRADO', motivo: `guía de despacho firmada por ${previa.guia_firma_nombre}`, actorId, actorNombre });
   const cobertura = await coberturaProyecto(negocioId);
   if (!cobertura.cobertura) throw new Error(`El proyecto no tiene cobertura total todavía (${cobertura.listos}/${cobertura.total} listos) — spec §14.2, el acta requiere el proyecto completo.`);
   const productos = await listarProductosCompra(negocioId);
@@ -216,6 +232,8 @@ export async function firmarGuia(negocioId: number, firma: FirmaDatos, timbre: b
       : [firma.nombre.trim(), firma.rut.trim(), firma.cargo.trim(), firma.recinto.trim(), firma.fecha, timbre ? 1 : 0, ahora, negocioId],
   );
   await cerrarTareaDeCatalogo(negocioId, 'despacho_mercaderia', { id: actorId, nombre: actorNombre }, 'Guía de despacho firmada por el cliente.');
+  if (entrega?.modalidad !== 'PARCIAL')
+    await avanzarSubestados(negocioId, 'ENTREGADO', { desdeMinimo: 'COMPRADO', motivo: `guía de despacho firmada por ${firma.nombre.trim()} el ${firma.fecha}`, actorId, actorNombre });
   if (yaCierra) {
     await registrarEvento({
       tipo: 'COMPRAS_ENTREGA_CERRADA', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,

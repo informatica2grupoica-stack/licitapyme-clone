@@ -58,6 +58,8 @@ export function ModalidadRetiroCard({ negocioId, puedeOperar }: { negocioId: num
   const [form, setForm] = useState<FormTransporte | null>(null);
   const [catalogo, setCatalogo] = useState<FleteroCatalogo[] | null>(null);
   const [buscandoRut, setBuscandoRut] = useState(false);
+  // Estado de cada producto: para saber si lo de un proveedor ya está en bodega (avance automático, 12-nov-2026).
+  const [subestados, setSubestados] = useState<Record<number, string>>({});
 
   const cargar = useCallback(async () => {
     try {
@@ -66,6 +68,7 @@ export function ModalidadRetiroCard({ negocioId, puedeOperar }: { negocioId: num
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cargar');
       setPorProv(data.porProveedor || {});
       setTransportes(data.transportes || {});
+      setSubestados(data.subestados || {});
     } catch { /* no bloquea el resto de la pantalla */ }
     finally { setLoading(false); }
   }, [negocioId]);
@@ -96,6 +99,25 @@ export function ModalidadRetiroCard({ negocioId, puedeOperar }: { negocioId: num
       if (v === 'INTERNA' && editando === proveedor) cerrarForm();
     } catch (e: any) {
       toast.error('No se pudo definir el retiro', e.message);
+    } finally {
+      setGuardando(null);
+    }
+  };
+
+  const marcarRecibido = async (p: ProveedorRetiro) => {
+    if (!puedeOperar || guardando) return;
+    setGuardando(p.proveedorNombre);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/modalidad-retiro`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proveedor: p.proveedorNombre, recibido: true, productoIds: p.items.map(it => it.productoId) }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo registrar');
+      setSubestados(data.subestados || {});
+      recargarCompartido();
+    } catch (e: any) {
+      toast.error('No se pudo marcar como recibido', e.message);
     } finally {
       setGuardando(null);
     }
@@ -250,6 +272,24 @@ export function ModalidadRetiroCard({ negocioId, puedeOperar }: { negocioId: num
                         );
                       })}
                     </div>
+
+                    {/* Recepción en bodega: mueve sus productos comprados a «En bodega» (avance automático de estados) */}
+                    {(() => {
+                      const estados = p.items.map(it => subestados[it.productoId]).filter(Boolean);
+                      if (!estados.length) return null;
+                      const yaEnBodega = estados.every(s => ['EN_BODEGA', 'LISTO_ENTREGA', 'ENTREGADO'].includes(s));
+                      const hayComprados = estados.some(s => s === 'COMPRADO');
+                      if (yaEnBodega) return <p className="mt-2.5">{conPunto('#059669', 'Recibido en bodega')}</p>;
+                      if (!hayComprados || !puedeOperar) return null;
+                      return (
+                        <button type="button" onClick={() => marcarRecibido(p)} disabled={!!guardando} data-testid={`retiro-recibido-${p.proveedorNombre}`}
+                          title="Pasa a «En bodega» los productos comprados a este proveedor"
+                          className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:border-teal-600 hover:text-teal-800 disabled:opacity-50">
+                          {guardando === p.proveedorNombre && <Loader2 size={12} className="animate-spin text-slate-400" />}
+                          Recibido en bodega
+                        </button>
+                      );
+                    })()}
 
                     {/* Datos del transporte (migration-158): resumen rotulado, o el formulario */}
                     {elegida === 'EXTERNA' && (

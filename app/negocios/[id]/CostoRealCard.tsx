@@ -17,7 +17,7 @@ interface Comparativo {
 }
 interface Resultado {
   tieneCosteo: boolean; gastosOtraMoneda: number; comparativo: Comparativo;
-  lineas: { costeoOfertado: number; costeoGastosExtra: number; gastosRegistrados: number; importacion: number; total: number };
+  lineas: { costeoOfertado: number; costeoGastosExtra: number; gastosRegistrados: number; importacion: number; total: number; fuente?: 'oc' | 'costeo' };
   obuma: { gastado: number; facturas: number; diferenciaPct: number | null } | null;
   alertas: { codigo: string; mensaje: string }[];
 }
@@ -109,9 +109,18 @@ export function CostoRealCard({ negocioId, puedeOperar, permitirCierre = true }:
       <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div>
           <p className="text-[10.5px] font-semibold text-zinc-500 uppercase tracking-wide mb-1">De dónde sale el costo real</p>
-          <Linea etiqueta="Ítems del costeo" valor={res.lineas.costeoOfertado} nota={`${c.filasConCostoReal} de ${c.filasTotales} con costo real`} />
-          <Linea etiqueta="Gastos extra del costeo" valor={res.lineas.costeoGastosExtra} nota="flete, horas extra, imprevistos" />
-          <Linea etiqueta="Gastos registrados" valor={res.lineas.gastosRegistrados} nota="flete, horas extra…" />
+          {res.lineas.fuente === 'oc' ? (
+            <>
+              <Linea etiqueta="Órdenes de compra" valor={res.lineas.costeoOfertado} nota="todo lo comprado, con fletes y armado que van en las OC" />
+              <Linea etiqueta="Gastos sin OC" valor={res.lineas.gastosRegistrados} nota="horas extra, colación, salidas…" />
+            </>
+          ) : (
+            <>
+              <Linea etiqueta="Ítems del costeo" valor={res.lineas.costeoOfertado} nota={`${c.filasConCostoReal} de ${c.filasTotales} con costo real`} />
+              <Linea etiqueta="Gastos extra del costeo" valor={res.lineas.costeoGastosExtra} nota="flete, horas extra, imprevistos" />
+              <Linea etiqueta="Gastos registrados" valor={res.lineas.gastosRegistrados} nota="flete, horas extra…" />
+            </>
+          )}
           <Linea etiqueta="Importación" valor={res.lineas.importacion} nota="flete, aduana, logística" />
           <Linea etiqueta="Costo real total" valor={res.lineas.total} fuerte />
           {(!res.obuma || res.obuma.gastado === 0) && (

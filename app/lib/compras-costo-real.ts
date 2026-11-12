@@ -72,6 +72,7 @@ async function costoServiciosPorNegocio(ids: number[]): Promise<Map<number, { to
 export async function costoRealDeNegocios(
   ids: number[],
   obumaPorNegocio: Map<number, EntradaConsolidado['obuma']> = new Map(),
+  ocCubreTodoPorNegocio: Map<number, boolean> = new Map(),
 ): Promise<Map<number, ResultadoCostoReal>> {
   const out = new Map<number, ResultadoCostoReal>();
   if (ids.length === 0) return out;
@@ -118,6 +119,7 @@ export async function costoRealDeNegocios(
         costeo, gastosRegistrados: (gastosClp.get(id) || 0) + (serviciosDe.get(id)?.total || 0),
         gastosEnOc: (gastosEnOcClp.get(id) || 0) + (serviciosDe.get(id)?.enOc || 0), importacion: importacionDe.get(id) || 0,
         obuma: obumaPorNegocio.get(id) ?? null,
+        ocCubreTodo: ocCubreTodoPorNegocio.get(id) ?? false,
       }),
       negocioId: id, licitacionCodigo: codigoDe.get(id) ?? null, tieneCosteo: !!estado,
       gastosOtraMoneda: gastosOtra.get(id) || 0,
@@ -137,7 +139,14 @@ export async function costoRealDeNegocio(negocioId: number): Promise<ResultadoCo
       obuma = { ocCreadas: r.ocCreadas.totalNeto, comprasCruzadas: r.gastadoNeto ?? 0, facturas: r.facturas.total };
     }
   } catch { /* Obuma sin datos: el consolidado se arma igual, solo sin contraste */ }
-  const m = await costoRealDeNegocios([negocioId], new Map([[negocioId, obuma]]));
+  // ¿Todos los productos (no servicios) vigentes ya tienen OC? Entonces el costo real sale de las OC, no de la cotización.
+  let ocCubreTodo = false;
+  try {
+    const [prods] = await pool.query(
+      `SELECT subestado FROM compras_producto WHERE negocio_id = ? AND COALESCE(es_servicio, 0) = 0 AND subestado NOT IN ('RENUNCIADO', 'NO_ADJUDICADA')`, [negocioId]) as any;
+    ocCubreTodo = (prods as any[]).length > 0 && (prods as any[]).every(p => SUBESTADOS_CON_COMPRA.has(String(p.subestado)));
+  } catch { /* sin datos: se queda con el costeo */ }
+  const m = await costoRealDeNegocios([negocioId], new Map([[negocioId, obuma]]), new Map([[negocioId, ocCubreTodo]]));
   return m.get(negocioId) as ResultadoCostoReal;
 }
 

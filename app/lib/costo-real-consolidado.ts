@@ -27,6 +27,9 @@ export interface EntradaConsolidado {
   gastosEnOc?: number;
   /** Lo que dice Obuma. null = no hay datos o no se consultó. */
   obuma: { ocCreadas: number; comprasCruzadas: number; facturas: number } | null;
+  /** true = TODOS los productos vigentes ya tienen su OC. Entonces el costo real sale de las OC (lo que de verdad se compró, con los fletes
+   *  y armados que van en ellas) y no de la cotización del costeo (387-55-LE26: el costeo decía 49,5 % y lo real era 41,6 %, 12-nov-2026). */
+  ocCubreTodo?: boolean;
 }
 
 export type CodigoAlertaConsolidado = AlertaDesvio['codigo'] | 'obuma_difiere';
@@ -40,6 +43,8 @@ export interface CostoRealConsolidado {
     gastosRegistrados: number;
     importacion: number;
     total: number;
+    /** De dónde sale la base: 'oc' = órdenes de compra reales (Obuma + propias); 'costeo' = «Costo unit. REAL» del costeo. */
+    fuente?: 'oc' | 'costeo';
   };
   obuma: {
     gastado: number;             // OC creadas, o si no hay, compras cruzadas
@@ -60,12 +65,19 @@ const pct = (n: number, d: number): number | null => (d === 0 ? null : (n / d) *
 export const UMBRAL_DIFERENCIA_OBUMA_PCT = UMBRAL_DESVIO_PCT;
 
 export function consolidarCostoReal(e: EntradaConsolidado): CostoRealConsolidado {
-  const ofertado = e.costeo.costoNetoReal ?? 0;
-  const extraCosteo = e.costeo.gastosAdicionales ?? 0;
-  const gastosExternos = Math.max(0, e.gastosRegistrados) + Math.max(0, e.importacion);
+  const gastadoOc = e.obuma ? (e.obuma.comprasCruzadas || e.obuma.ocCreadas || 0) : 0;
+  // Con todos los productos comprados, las OC mandan: ya traen los productos, los ítems extra y los gastos que tienen OC.
+  // Se suman solo los gastos SIN OC (horas extra, colación…) y la importación, para no contar dos veces.
+  const usaOc = !!e.ocCubreTodo && gastadoOc > 0;
+  const ofertado = usaOc ? gastadoOc : (e.costeo.costoNetoReal ?? 0);
+  const extraCosteo = usaOc ? 0 : (e.costeo.gastosAdicionales ?? 0);
+  const gastosReg = Math.max(0, e.gastosRegistrados);
+  const gastosFuera = usaOc ? Math.max(0, gastosReg - Math.max(0, e.gastosEnOc ?? 0)) : gastosReg;
+  const gastosExternos = gastosFuera + Math.max(0, e.importacion);
 
   const comparativo = calcularComparativo({
     ...e.costeo,
+    ...(usaOc ? { costoNetoReal: gastadoOc } : {}),
     gastosAdicionales: extraCosteo + gastosExternos,
   });
 
@@ -81,7 +93,8 @@ export function consolidarCostoReal(e: EntradaConsolidado): CostoRealConsolidado
     const diferenciaPct = gastado > 0 && productosCosteo > 0 ? pct(gastado - productosCosteo, productosCosteo) : null;
     obuma = { gastado, facturas: e.obuma.facturas, diferenciaPct };
     // Solo con el costeo COMPLETO: a medio cargar, "Obuma compró más" es lo esperado, no un desvío.
-    if (diferenciaPct != null && comparativo.realCompleto && Math.abs(diferenciaPct) > UMBRAL_DIFERENCIA_OBUMA_PCT) {
+    // Si la base YA son las OC, no hay dos números que contrastar: el aviso solo confundiría.
+    if (!usaOc && diferenciaPct != null && comparativo.realCompleto && Math.abs(diferenciaPct) > UMBRAL_DIFERENCIA_OBUMA_PCT) {
       alertas.push({
         codigo: 'obuma_difiere',
         mensaje: `El costeo y Obuma no calzan: Obuma registra ${diferenciaPct > 0 ? '+' : ''}${diferenciaPct.toFixed(1).replace('.', ',')}% respecto al costo real del costeo (umbral ${UMBRAL_DIFERENCIA_OBUMA_PCT}%). Revisa cuál está mal.`,
@@ -91,7 +104,7 @@ export function consolidarCostoReal(e: EntradaConsolidado): CostoRealConsolidado
 
   return {
     comparativo,
-    lineas: { costeoOfertado: ofertado, costeoGastosExtra: extraCosteo, gastosRegistrados: Math.max(0, e.gastosRegistrados), importacion: Math.max(0, e.importacion), total },
+    lineas: { costeoOfertado: ofertado, costeoGastosExtra: extraCosteo, gastosRegistrados: gastosFuera, importacion: Math.max(0, e.importacion), total, fuente: usaOc ? 'oc' : 'costeo' },
     obuma, alertas,
   };
 }
