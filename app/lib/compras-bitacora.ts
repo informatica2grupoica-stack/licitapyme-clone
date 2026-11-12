@@ -55,6 +55,7 @@ export function describirAccionCompras(metodo: string, ruta: string, cuerpo: Cue
     case 'orden-compra-obuma': return partes[1] === 'proveedor' ? 'Creó o verificó un proveedor para la orden de compra' : 'Emitió una orden de compra en Obuma';
     case 'sincronizar-obuma': return 'Sincronizó con Obuma';
     case 'factura': return 'Registró una factura';
+    case 'factura-venta': return m === 'DELETE' ? 'Quitó la factura de venta' : m === 'PATCH' ? 'Actualizó la factura de venta' : 'Subió la factura de venta al cliente';
     case 'entrega': return ENTREGA[c.accion] || `Actualizó la entrega${c.accion ? ` (${String(c.accion).replace(/_/g, ' ')})` : ''}`;
     case 'reparto': return 'Actualizó el reparto administrativo';
     case 'reloj': return partes[1] === 'prorroga' ? (m === 'DELETE' ? 'Quitó una prórroga del plazo' : 'Registró una prórroga del plazo')

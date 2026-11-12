@@ -38,6 +38,8 @@ import { RelojEntregaCard } from '@/app/negocios/[id]/RelojEntregaCard';
 import { RELOJ_ENTREGA_ACTIVO } from '@/app/lib/compras-reloj-activo';
 import { IncidenciasCard } from '@/app/negocios/[id]/IncidenciasCard';
 import { EntregaCard } from '@/app/negocios/[id]/EntregaCard';
+import { ResumenCierreCard } from '@/app/negocios/[id]/ResumenCierreCard';
+import { FacturaVentaCard } from '@/app/negocios/[id]/FacturaVentaCard';
 import { OcMiniaturas } from '@/app/negocios/[id]/OcMiniaturas';
 import { PostventaCard, useHayPostventa } from '@/app/negocios/[id]/PostventaCard';
 import { FracasoCard } from '@/app/negocios/[id]/FracasoCard';
@@ -956,8 +958,8 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                   ] : []),
                   { clave: 'entrega', titulo: 'Entrega y acta', ayuda: 'Preparación, despacho y el acta de entrega que firma el cliente. El acta cierra el proyecto.',
                     contenido: <><OcMiniaturas negocioId={negocioId} /><EntregaCard negocioId={negocioId} puedeOperar={puedeOperar} puedeVerificar={esBodega} /></> },
-                  { clave: 'costoreal', titulo: 'Costo real y cierre', ayuda: 'Resultado final del proyecto: lo costeado contra lo realmente gastado.',
-                    contenido: <CostoRealCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
+                  { clave: 'costoreal', titulo: 'Factura y cierre', ayuda: 'La factura de venta al cliente (al subirla se marca sola la tarea de cierre) y el resultado final: lo costeado contra lo realmente gastado.',
+                    contenido: <><FacturaVentaCard negocioId={negocioId} puedeOperar={puedeOperar} /><ResumenCierreCard negocioId={negocioId} /><CostoRealCard negocioId={negocioId} puedeOperar={puedeOperar} /></> },
                   ...(hayPostventa ? [
                   { clave: 'postventa', titulo: 'Garantías y postventa', ayuda: 'Las garantías ofertadas con su vencimiento y lo que hay que cumplir después de entregar.',
                     contenido: <PostventaCard negocioId={negocioId} puedeOperar={puedeOperar} /> }
