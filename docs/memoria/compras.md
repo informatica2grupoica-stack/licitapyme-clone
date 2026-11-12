@@ -3,6 +3,16 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-12 — 4152-22-LE26 (256): revisión para cerrar, con importación (solo lectura, nada escrito)
+Venta $20.300.000 neto (OC 4152-750-SE26 aceptada 05-11, $24.157.000 bruto). Rodillo de la OC internacional 3811 (NINGBO, julio, exenta en CLP con TC 0, DIN 2850014688): trae **2 rodillos** + 6 filtros + 6 cables + 2 comisiones swift = $6.942.245, y se vende 1. Otras OC: 4049 capacitación $50.000, 4050 sonda ERUX $193.269, 4053 grúa $60.000 (netos). Aprobado: costo $3.790.422 / 81,3 %. 7 de 16 tareas hechas.
+**Para cerrar falta:** «Para este negocio» en la 3811 (rodillo 1 de 2; decidir filtros/cables/swift) o el costo real cuenta $6,94M; origen = Importación + embarque con flete, agente de aduana, almacenaje y traslado (los datos del DIN NO vienen por la API y en Obuma no hay OC de internación en el centro 24232; el embarque solo suma si la moneda es CLP; IVA de importación no es costo); boleta de fiel cumplimiento y firma de contrato (las bases las exigen); reloj de entrega con plazo «1 día» desde el decreto (dato dudoso, fijarlo a mano); 3 validaciones viejas abiertas; contacto de pagos (Manuel Parra); 0 pagos registrados en las 4 OC; despacho, guía, acta, factura de venta.
+**Hallazgo:** Obuma pegó a la OC 4049 una factura de Entel ($5.950, folio 54725467) además de la del proveedor (folio 540): el equipo ya la sacó en Obuma (12-nov); la sync la quita de `facturas_json` en la próxima pasada.
+
+## 2026-11-12 — 2415-19-LE26 (1154): lista para cerrar, falta la factura de venta
+Recorrido guiado en Chrome con el dueño. Hecho: validación técnica, contacto de pagos, punto de entrega, nota de venta 997/998/999 y guías 1909/1910/1911 (Obuma, 09-11, suman $13.066.057 = OC 2415-283-SE26), verificación Conforme, firma de guía y acta (Lucas Miranda 21.145.912-3; cargo «No indicado en el acta»; el acta en papel no trae cargo). 12/14 tareas. Costo real $6.185.000 completo (OC 4035/4036/4044), utilidad 43,7 %: el ítem era 30 barreras pero con 20 de BOTTAI se cubrió la misma longitud (decisión del 05-11). Decisión del dueño: NO cerrar hasta tener la factura final al cliente.
+**Pendiente:** emitir factura de venta en Obuma (guías «Por facturar»), subirla en «Factura y cierre», marcar a mano «Entrega al cliente» (el reloj está apagado, `RELOJ_ENTREGA_ACTIVO=false`, así que esa tarea no se cierra sola), pagar la grúa OC 4044 ($71.400), «Cerrar resultado» (pedirá motivo por el aviso «faltan 1 ítem con costo real»). Entrega 1 día tarde (plazo 08-11).
+**Hallazgos sin arreglar:** panel «Lo creado en Obuma» dice «Falta emitir: BOTTAI» aunque la OC 4036 existe (hecha directo en Obuma); en «Lo ganado, producto por producto» la fila de barreras muestra 20 vendidas/$5.769.920 (eran 30/$8.654.880) y «comprado» $4.160.000 en vez de $4.660.000 de la OC (los $500.000 de transporte de BOTTAI quedan fuera del desglose, el total sí cuadra); la alerta «OC vence en <24 h» se repitió ~100 veces el 04-11 (4 cada 20 min).
+
 ## 2026-11-12 — 387-55-LE26 (1191): resultado CERRADO
 Cerrado por Alexis Tobar el 12-nov: venta $18.865.472, costo real $11.021.443 (OC $10.614.392 + gastos sin OC $407.051), utilidad $7.844.029 (41,58 %), completo. 14 de 15 tareas hechas; acta y guías firmadas (30-10-2026); 18 pagos a proveedores = facturas. **Único pendiente:** factura de venta a Gobierno Regional de Los Lagos (RUT 72.221.800-0, con autorización municipal previa) → luego marcar la tarea «Factura y cierre del proyecto».
 
@@ -649,3 +659,9 @@ re-homologarlas** (y lo hecho antes en otros negocios con cantidades no exactas 
 - Causa (probable, sin reproducir contra Obuma para no crear en producción): Obuma no escapa el apóstrofo `'` en `producto_nombre` por API → error SQL → `mensajeSeguro` lo tapaba con el genérico. El catálogo de Obuma tiene nombres con `"` sin problema (y los con `'` guardados como `\'`, creados desde su pantalla).
 - Arreglo en `crearProductoObuma` (`obuma.ts`): pulgada `'` pegada a un número → `"`; otros apóstrofos/backslash se quitan. Si Obuma rechaza igual, el mensaje al usuario ahora lo dice (antes «No se pudo crear el SKU») y el detalle va a la consola del servidor.
 - Pendiente: desplegar y reintentar el SKU del producto 486 (negocio 1525); confirmar que ahora crea.
+
+## 2026-11-12 · Cancelar a mano pide el motivo a Compras (botón «Licitación cancelada»)
+- Decisión del dueño: cuando cancela una licitación a mano, a los de Área Compras les salta el mismo modal bloqueante de «OC cancelada» para escribir el motivo.
+- Cambio: `marcarCierreLegado(NO_REALIZADA)` crea una fila en `compras_oc_cancelacion` con `oc_codigo = ''` (`registrarCancelacionManual`); deshacer la borra si nadie la fundamentó (`quitarCancelacionManual`). El modal dice «Se canceló la licitación» cuando no hay OC. Sin migración.
+- Canceladas a mano el 12-nov a pedido del dueño: 2408-179-LE26 (1243; su OC 2408-1106-SE26 figura «En proceso» en MP) y 4494-69-LE26 (1333; sin OC). Quedaron NO_REALIZADA.
+- Pendiente: desplegar; dueño dijo que son «OC cancelada» → decidir si pasan a OC_CANCELADA. 2446-88-LE26 (320) estaba NO_REALIZADA desde el backfill del 22-sep; el dueño dijo que no es cancelada → devuelta a Abiertas el 12-nov. Sin ver en navegador.

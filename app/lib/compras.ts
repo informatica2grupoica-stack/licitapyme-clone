@@ -34,7 +34,7 @@ import { calcularHitosGantt, planificarTarea, type AnclaTarea, type EntradaAncla
 import { emparejarProductos, type ProductoExistente } from '@/app/lib/compras-producto-sync';
 import { decidirNoAdjudicadas, esSubestadoFuera, type DecisionNoAdjudicadas } from '@/app/lib/compras-no-adjudicadas';
 import { listarPagosOc, ocsConFacturas, ocPagada } from '@/app/lib/compras-pagos-oc';
-import { esEstadoCancelada, procesarOcCancelada, reabrirSiOcVigente } from '@/app/lib/compras-oc-cancelada';
+import { esEstadoCancelada, procesarOcCancelada, reabrirSiOcVigente, registrarCancelacionManual, quitarCancelacionManual } from '@/app/lib/compras-oc-cancelada';
 
 // ── Aritmética de fechas "de pared" (sin reinterpretar zona horaria) ───────────────────────────
 // Se trabaja con Date "flotantes": los componentes de la hora de Chile (que ya vienen como texto de
@@ -778,6 +778,8 @@ export async function marcarCierreLegado(
 
   const [rows] = await pool.query(`SELECT licitacion_codigo FROM compras_asignacion WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
   const licitacionCodigo = (rows as any[])[0]?.licitacion_codigo || null;
+  // Cancelada a mano (12-nov-2026): a los de Compras les salta el modal para escribir el motivo.
+  if (estado === 'NO_REALIZADA') { await registrarCancelacionManual(negocioId); publicarCambio('compras'); }
 
   await registrarEvento({
     tipo: 'COMPRAS_CIERRE_LEGADO',
@@ -795,6 +797,7 @@ export async function quitarCierreLegado(negocioId: number): Promise<void> {
       WHERE negocio_id = ?`,
     [negocioId],
   );
+  await quitarCancelacionManual(negocioId);
 }
 
 

@@ -87,7 +87,7 @@ export function ModalFundamentoCancelacion() {
               </div>
               <div className="min-w-0">
                 <h2 id="fundamento-titulo" className="text-[17px] font-semibold tracking-tight text-tinta dark:text-slate-50">
-                  El organismo canceló la orden de compra
+                  {actual.ocCodigo ? 'El organismo canceló la orden de compra' : 'Se canceló la licitación'}
                 </h2>
                 <p className="mt-1 text-sm text-tinta-2 dark:text-slate-400">
                   Eres encargado de esta licitación. Para seguir usando Licitank escribe por qué se canceló.
@@ -99,7 +99,7 @@ export function ModalFundamentoCancelacion() {
               <p className="text-[15px] font-semibold text-tinta dark:text-slate-100 leading-snug">{actual.licitacionNombre || actual.licitacionCodigo}</p>
               <Datos columnas={2}>
                 <Dato rotulo="Licitación"><span className="tabular-nums">{actual.licitacionCodigo}</span></Dato>
-                <Dato rotulo="Orden de compra cancelada"><span className="tabular-nums">{actual.ocCodigo}</span></Dato>
+                <Dato rotulo="Orden de compra cancelada"><span className="tabular-nums">{actual.ocCodigo || 'Cancelada a mano, sin OC cancelada'}</span></Dato>
                 <Dato rotulo="Organismo">{actual.organismo && <span title={actual.organismo}>{actual.organismo}</span>}</Dato>
                 <Dato rotulo="Fecha de cancelación">{fecha(actual.canceladaAt)}</Dato>
                 <Dato rotulo="Monto de la OC (con IVA)">{clp(actual.montoOc)}</Dato>

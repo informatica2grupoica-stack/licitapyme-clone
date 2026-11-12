@@ -195,6 +195,29 @@ export async function barrerOcCanceladas(): Promise<{ revisadas: number; registr
   return res;
 }
 
+/**
+ * Cancelación a mano del dueño (botón «Licitación cancelada», 12-nov-2026): no hay OC cancelada de por medio
+ * (oc_codigo = ''), pero Compras igual tiene que escribir el motivo: les sale el mismo modal.
+ */
+export async function registrarCancelacionManual(negocioId: number): Promise<void> {
+  const ahora = ahoraChileSQL();
+  try {
+    await pool.query(
+      `INSERT IGNORE INTO compras_oc_cancelacion (cliente_id, negocio_id, licitacion_codigo, oc_codigo, cancelada_at, cerro_compras, created_at)
+       SELECT COALESCE(n.cliente_id, 1), ca.negocio_id, ca.licitacion_codigo, '', ?, 1, ?
+         FROM compras_asignacion ca JOIN negocios n ON n.id = ca.negocio_id WHERE ca.negocio_id = ?`,
+      [ahora.slice(0, 10), ahora, negocioId],
+    );
+  } catch (e) { if (!sinTabla(e)) throw e; }
+}
+
+/** Si el dueño deshace la cancelación, el motivo que nadie alcanzó a escribir ya no se pide. */
+export async function quitarCancelacionManual(negocioId: number): Promise<void> {
+  try {
+    await pool.query(`DELETE FROM compras_oc_cancelacion WHERE negocio_id = ? AND oc_codigo = '' AND fundamentado_at IS NULL`, [negocioId]);
+  } catch (e) { if (!sinTabla(e)) throw e; }
+}
+
 export interface CancelacionPendiente {
   id: number; negocioId: number; licitacionCodigo: string; licitacionNombre: string | null; organismo: string | null;
   ocCodigo: string; canceladaAt: string | null; montoOc: number | null; cerroCompras: boolean;
@@ -248,7 +271,7 @@ export async function fundamentarCancelacion(
   if (!Number(r?.affectedRows)) throw new Error('Otro encargado ya fundamentó esta cancelación.');
   await registrarEvento({
     tipo: 'COMPRAS_OC_CANCELADA_FUNDAMENTO', licitacionCodigo: c.licitacionCodigo, actorId: usuarioId, actorNombre: usuarioNombre,
-    mensaje: `${usuarioNombre || 'Un encargado'} fundamentó la cancelación de la OC ${c.ocCodigo}: "${fundamento.slice(0, 300)}"`,
+    mensaje: `${usuarioNombre || 'Un encargado'} fundamentó la cancelación de ${c.ocCodigo ? `la OC ${c.ocCodigo}` : `la licitación ${c.licitacionCodigo}`}: "${fundamento.slice(0, 300)}"`,
     metadata: { negocio_id: c.negocioId, oc_codigo: c.ocCodigo, cancelacion_id: id },
   });
   publicarCambio('compras');
