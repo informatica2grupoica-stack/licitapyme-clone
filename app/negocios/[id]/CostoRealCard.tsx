@@ -39,6 +39,93 @@ function Linea({ etiqueta, valor, nota, fuerte }: { etiqueta: string; valor: num
   );
 }
 
+// ── Detalle del costo real (pedido del dueño, 12-nov-2026: «que sea más entendible y me muestre detallado el costo real») ──────────
+// Sale de «Seguimiento · Comparativo» (mismos datos): cada producto con su OC, los fletes/armado que van en OC y los gastos sin OC.
+interface FilaComp { productoId: number; producto: string; cantidad: number | null; ventaNeto: number | null; costeoNeto: number | null; planNeto: number | null; obumaProveedor: string | null; planProveedor: string | null; obumaOc: string | null; obumaNeto: number | null }
+interface GastoComp { id: number; categoria: string; descripcion: string; monto: number; moneda: string; fecha: string | null }
+
+function Bloque({ titulo, total, nota, children }: { titulo: string; total: number; nota: string; children: React.ReactNode }) {
+  const [abierto, setAbierto] = useState(false);
+  return (
+    <div className="border border-zinc-200 rounded-xl overflow-hidden">
+      <button type="button" onClick={() => setAbierto(a => !a)} aria-expanded={abierto}
+        className="w-full flex items-center justify-between gap-3 px-3 py-2 bg-zinc-50 hover:bg-zinc-100 text-left">
+        <span className="text-[12.5px] font-semibold text-zinc-800">{abierto ? '▾' : '▸'} {titulo} <span className="text-[11px] font-normal text-zinc-500">· {nota}</span></span>
+        <span className="text-[13px] font-bold tabular-nums text-zinc-900">{fmtCLP(total)}</span>
+      </button>
+      {abierto && <div className="overflow-x-auto">{children}</div>}
+    </div>
+  );
+}
+
+function DetalleCostoReal({ negocioId, venta, costoTotal, utilidad, margen }: { negocioId: number; venta: number; costoTotal: number; utilidad: number; margen: number | null }) {
+  const [d, setD] = useState<{ filas: FilaComp[]; gastos: GastoComp[] } | null>(null);
+  useEffect(() => {
+    fetch(`/api/compras/${negocioId}/resumen-comparativo`).then(r => r.json())
+      .then(j => { if (j?.success) setD({ filas: j.resumen.filas || [], gastos: (j.resumen.gastosExtra || []).filter((g: GastoComp) => String(g.moneda || 'CLP').toUpperCase() === 'CLP') }); })
+      .catch(() => {});
+  }, [negocioId, costoTotal]);
+  if (!d) return null;
+  const real = (f: FilaComp) => f.obumaNeto ?? f.planNeto ?? 0;
+  const productos = d.filas.filter(f => (f.ventaNeto ?? 0) > 0);
+  const fletes = d.filas.filter(f => !((f.ventaNeto ?? 0) > 0) && real(f) > 0);
+  const totProd = productos.reduce((s, f) => s + real(f), 0);
+  const totCost = productos.reduce((s, f) => s + (f.costeoNeto ?? 0), 0);
+  const totFlete = fletes.reduce((s, f) => s + real(f), 0);
+  const totGasto = d.gastos.reduce((s, g) => s + Number(g.monto || 0), 0);
+  const th = 'px-3 py-1.5 text-[10.5px] font-semibold text-zinc-500 uppercase tracking-wide text-left';
+  const td = 'px-3 py-1.5 text-[12px] text-zinc-700';
+  const tdN = `${td} text-right tabular-nums`;
+  return (
+    <div className="px-4 pb-4 space-y-2">
+      <p className="text-[12.5px] text-zinc-700 bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 leading-relaxed">
+        Vendiste <b>{fmtCLP(venta)}</b> neto. Gastaste <b>{fmtCLP(costoTotal)}</b>: <b>{fmtCLP(totProd)}</b> en los {productos.length} productos,{' '}
+        <b>{fmtCLP(totFlete)}</b> en fletes y armado, y <b>{fmtCLP(totGasto)}</b> en gastos sin OC. Te quedan <b className="text-emerald-700">{fmtCLP(utilidad)}</b> de utilidad
+        {margen != null && <> (<b>{fmtPct(margen)}</b> de la venta)</>}.
+      </p>
+      <Bloque titulo="Productos comprados" total={totProd} nota={`${productos.length} productos · costeado ${fmtCLP(totCost)} · ${totProd <= totCost ? 'ahorro' : 'sobrecosto'} ${fmtCLP(Math.abs(totCost - totProd))}`}>
+        <table className="w-full">
+          <thead><tr><th className={th}>Producto</th><th className={th}>Proveedor</th><th className={th}>OC</th><th className={`${th} text-right`}>Cant.</th><th className={`${th} text-right`}>Costeado</th><th className={`${th} text-right`}>Real (OC)</th><th className={`${th} text-right`}>Diferencia</th></tr></thead>
+          <tbody>{productos.map(f => {
+            const dif = real(f) - (f.costeoNeto ?? 0);
+            return (
+              <tr key={f.productoId} className="border-t border-zinc-100">
+                <td className={td}>{f.producto}</td><td className={td}>{f.obumaProveedor ?? f.planProveedor ?? '—'}</td><td className={td}>{f.obumaOc ?? '—'}</td>
+                <td className={tdN}>{f.cantidad ?? '—'}</td><td className={tdN}>{fmtCLP(f.costeoNeto)}</td><td className={`${tdN} font-semibold`}>{fmtCLP(real(f))}</td>
+                <td className={`${tdN} ${Math.abs(dif) < 1 ? 'text-zinc-400' : dif < 0 ? 'text-emerald-700' : 'text-rose-600'}`}>{Math.abs(dif) < 1 ? 'igual' : `${dif > 0 ? '+' : '−'}${fmtCLP(Math.abs(dif))}`}</td>
+              </tr>
+            );
+          })}</tbody>
+        </table>
+      </Bloque>
+      {fletes.length > 0 && (
+        <Bloque titulo="Fletes y armado" total={totFlete} nota={`${fletes.length} · van dentro de las OC`}>
+          <table className="w-full">
+            <thead><tr><th className={th}>Concepto</th><th className={th}>Proveedor</th><th className={th}>OC</th><th className={`${th} text-right`}>Monto</th></tr></thead>
+            <tbody>{fletes.map(f => (
+              <tr key={f.productoId} className="border-t border-zinc-100">
+                <td className={td}>{f.producto}</td><td className={td}>{f.obumaProveedor ?? f.planProveedor ?? '—'}</td><td className={td}>{f.obumaOc ?? '—'}</td><td className={`${tdN} font-semibold`}>{fmtCLP(real(f))}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </Bloque>
+      )}
+      {d.gastos.length > 0 && (
+        <Bloque titulo="Gastos sin OC" total={totGasto} nota={`${d.gastos.length} · horas extra, colación, salidas…`}>
+          <table className="w-full">
+            <thead><tr><th className={th}>Categoría</th><th className={th}>Descripción</th><th className={th}>Fecha</th><th className={`${th} text-right`}>Monto</th></tr></thead>
+            <tbody>{d.gastos.map(g => (
+              <tr key={g.id} className="border-t border-zinc-100">
+                <td className={td}>{g.categoria}</td><td className={td}>{g.descripcion}</td><td className={td}>{g.fecha ? String(g.fecha).slice(0, 10) : '—'}</td><td className={`${tdN} font-semibold`}>{fmtCLP(Number(g.monto))}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </Bloque>
+      )}
+    </div>
+  );
+}
+
 /** `permitirCierre=false`: solo se ve el comparativo. El cierre con resultado final vive en la pestaña
  *  "Entrega y Cierre" — cerrar en plena compra congelaría un costo que todavía se está cargando. */
 export function CostoRealCard({ negocioId, puedeOperar, permitirCierre = true }: { negocioId: number; puedeOperar: boolean; permitirCierre?: boolean }) {
@@ -135,12 +222,12 @@ export function CostoRealCard({ negocioId, puedeOperar, permitirCierre = true }:
         <div>
           <p className="text-[10.5px] font-semibold text-zinc-500 uppercase tracking-wide mb-1">Contra lo vendido</p>
           <Linea etiqueta="Venta neta" valor={c.ventaNeta} />
-          <Linea etiqueta="Costo estimado" valor={c.costoNetoEstimado} nota={`utilidad ${fmtCLP(c.utilidadEstimada)} · ${fmtPct(c.margenEstimado)}`} />
+          <Linea etiqueta="Costo estimado al postular" valor={c.costoNetoEstimado} nota={`utilidad ${fmtCLP(c.utilidadEstimada)} · ${fmtPct(c.margenEstimado)}`} />
           {hayReal ? (
             <>
               <Linea etiqueta="Utilidad real" valor={c.utilidadReal ?? 0} nota={`${fmtPct(c.margenReal)} de margen`} fuerte />
               <p className={`text-[11.5px] mt-1 ${c.variacionCosto != null && c.variacionCosto > 0 ? 'text-rose-600 font-semibold' : 'text-emerald-700 font-semibold'}`}>
-                Costo real {fmtPct(c.variacionCosto)} {c.variacionCosto != null && c.variacionCosto > 0 ? 'sobre' : 'bajo'} lo cotizado
+                Costo real {fmtPct(c.variacionCosto != null ? Math.abs(c.variacionCosto) : null)} {c.variacionCosto != null && c.variacionCosto > 0 ? 'sobre' : 'bajo'} lo estimado al postular
               </p>
             </>
           ) : <p className="text-[11.5px] text-zinc-400 mt-2">Sin costo real cargado todavía: se carga ítem por ítem en el Costeo (columna &quot;Costo unit. REAL&quot;).</p>}
@@ -149,6 +236,10 @@ export function CostoRealCard({ negocioId, puedeOperar, permitirCierre = true }:
           )}
         </div>
       </div>
+
+      {res.lineas.fuente === 'oc' && hayReal && (
+        <DetalleCostoReal negocioId={negocioId} venta={c.ventaNeta} costoTotal={res.lineas.total} utilidad={c.utilidadReal ?? 0} margen={c.margenReal} />
+      )}
 
       {res.obuma && (
         <p className="px-4 pb-3 text-[11.5px] text-zinc-500">

@@ -3,6 +3,9 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-12 — «Costo real y cierre» con detalle entendible (tsc ok, SIN desplegar, sin ver en navegador)
+Pedido del dueño: «que sea más entendible y me muestre detallado el costo real». `CostoRealCard.tsx` (cuando la base son las OC): frase resumen (vendiste / gastaste en productos, fletes y gastos / te quedan) + 3 bloques desplegables con tabla: Productos comprados (proveedor, OC, cant., costeado, real, diferencia), Fletes y armado (en OC), Gastos sin OC. Datos de `/resumen-comparativo`. «Costo estimado» → «Costo estimado al postular»; «bajo lo cotizado» → «bajo lo estimado al postular». Verificado con datos de 1191: 21 productos $9.144.722 + 3 fletes $1.469.670 + 5 gastos $407.051 = $11.021.443.
+
 ## 2026-11-12 — El flete/despacho de una cotización se carga a sus productos (tsc ok, SIN desplegar, sin aplicar en 1191)
 Caso real: 387-55-LE26 (1191), cotización #170 Industria de Camas: 40 sillas × $18.400 + «DESPACHO» $21.008. El despacho quedó en `flete_monto`, no se veía en «Compara y elige» ni en la aprobación, y la OC 3995 salió $21.008 sobre lo cotizado (parecía alza de precio; no lo era).
 - Nuevo `cargarFleteAProductos` (compras-adicionales.ts): reparte `flete_monto` entre los productos de la cotización como adicional «Despacho del proveedor» (proporcional al subtotal; la última línea cuadra al peso), marca la cotización `incluye_flete = 1` para que el motor de escenarios no lo sume otra vez como viaje. Idempotente. Se llama al homologar (IA) y al asignar a mano (compras-auditor.ts); el aviso «la línea DESPACHO no quedó en ningún producto» ya no sale si se cargó.

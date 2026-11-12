@@ -420,3 +420,7 @@ en producción requiere el OK del dueño) y desplegar el arreglo.
 - Caso 2981-334-LE26 línea 1.2: opción «TkStar TK905 4G LTE» y respaldo «TK905 4G» → V1 «otro producto» y no se podía firmar; no había cómo corregir la opción desde pantalla.
 - Ahora: botón «Corregir marca o modelo…» en la tarjeta Cotizado, solo cuando hay V1 de identidad. Acción `corregir_producto` (motivo obligatorio, bloqueada en aprobación/aprobada), evento `producto_corregido` con el nombre anterior. Sin migración.
 - Pendiente: no probado en navegador ni desplegado.
+- Mismo día, regla del dueño: «que no bloquee para seguir, pero que no se salte que cumpla todo para aprobar».
+  - V1 tolerante: misma marca y las palabras de un modelo contenidas en el otro (el corto con un código letras+número) → aviso amarillo, no bloqueo.
+  - Firmar ya no espera los ❓: solo frena un T_NO_CUMPLE. Con ❓ abiertos el botón dice «Firmar» (sin aprobar). `solicitarAprobacion` sigue exigiendo TODO cerrado.
+  - En la tarjeta «Cotizado» se listan los requisitos pendientes (hasta 5) con confirmar/respaldar ahí mismo, sin ir a «Ficha y requisitos».

@@ -847,7 +847,10 @@ export async function firmarOpcion(negocioId: number, licitacionCodigo: string, 
   if (v.bloqueos.length) throw new Error(`No se puede firmar con bloqueos abiertos: ${v.bloqueos.map(b => b.codigo).join(', ')}.`);
   const t = actual.tecnico;
   if (t.estado === 'NO_CORRIDO') throw new Error('La verificación técnica todavía no corrió sobre esta opción: córrela antes de firmar (o pásala a vía liviana si la línea lo permite).');
-  if (t.resultado && t.resultado.bloqueos.length) throw new Error(`No se puede firmar con bloqueos técnicos abiertos: ${t.resultado.bloqueos.slice(0, 4).map(b => `ítem ${b.item}`).join(', ')}${t.resultado.bloqueos.length > 4 ? '…' : ''}.`);
+  // 12-nov-2026: firmar ya no espera los ❓ (por confirmar): se firma y se siguen respaldando. Solo frena un NO CUMPLE.
+  // La aprobación (solicitarAprobacion) sigue exigiendo que TODO cumpla.
+  const noCumple = (t.resultado?.bloqueos ?? []).filter(b => b.codigo === 'T_NO_CUMPLE');
+  if (noCumple.length) throw new Error(`No se puede firmar con requisitos que no cumplen: ${noCumple.slice(0, 4).map(b => `ítem ${b.item}`).join(', ')}${noCumple.length > 4 ? '…' : ''}.`);
   if (v.requiereHabilitacion && !esEM) throw new Error('El respaldo es informal: la firma requiere habilitación del EM (jefe de ventas o admin).');
   await pool.query(`UPDATE auditor_opcion SET estado = 'definitiva', firmada_por = ?, firmada_por_nombre = ?, firmada_at = ?, actualizado_at = ? WHERE id = ?`,
     [actor.id, actor.nombre, ahoraChileSQL(), ahoraChileSQL(), opcionId]);

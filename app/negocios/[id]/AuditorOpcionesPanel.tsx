@@ -2727,7 +2727,27 @@ function CuadroTecnico({ negocioId, linea, vista = 'todo', onIrAFicha, onVerific
                   {c != null && o.producto?.ivaSupuesto && <p className="mt-1 text-xs text-slate-500">IVA asumido (página web): ya descontado</p>}
                   {bloqueos.slice(0, 2).map((b, i) => <p key={i} className="mt-1.5 text-[12.5px] text-red-600 leading-snug">{b.mensaje}<span className="block text-red-500/80">→ {b.salida}</span></p>)}
                   {bloqueos.length > 2 && <p className="text-xs text-slate-500">+{bloqueos.length - 2} más en el detalle avanzado</p>}
-                  {r && (k.falta > 0 || k.no > 0) && <p className="mt-1.5 text-[12.5px] text-slate-600">{k.no > 0 ? `${k.no} requisito${k.no === 1 ? '' : 's'} no cumple${k.no === 1 ? '' : 'n'}` : `${k.falta} requisito${k.falta === 1 ? '' : 's'} por confirmar`}: {vista === 'todo' || !onIrAFicha ? 'revísalos abajo, en «Requisitos de las bases».' : <>revísalos en <button data-no-pdf onClick={onIrAFicha} className="font-medium text-teal-700 hover:underline">Ficha y requisitos</button>.</>}</p>}
+                  {r && (k.falta > 0 || k.no > 0) && (() => {
+                    // 12-nov-2026 (2981-334-LE26): lo que falta se respalda AQUÍ, sin ir a otra pestaña. Aprobar sigue exigiendo que todo cumpla.
+                    const pend = (r.filas || []).filter((f: any) => !f.cerrada && estadoVisible(f) !== 'CUMPLE');
+                    return (
+                      <div className="mt-1.5 space-y-2">
+                        <p className="text-[12.5px] text-slate-600">{k.no > 0 ? `${k.no} requisito${k.no === 1 ? '' : 's'} no cumple${k.no === 1 ? '' : 'n'}` : `${k.falta} requisito${k.falta === 1 ? '' : 's'} por confirmar`}{pend.length ? ': confírmalo o súbele el respaldo aquí mismo.' : '.'}</p>
+                        {pend.slice(0, 5).map((f: any) => (
+                          <div key={f.n} className="rounded-lg border border-amber-200 bg-amber-50/40 px-2.5 py-2 text-[12.5px]">
+                            <p className="text-slate-800 leading-snug line-clamp-2" title={f.requeridoTexto}><span className="tabular-nums text-slate-500 mr-1">{f.n}.</span>{f.requeridoTexto}</p>
+                            <div className="mt-1">
+                              <CeldaTecnica f={f} editable={editable(o)} puedeEM={puedeAprobar} onConfirmar={(cf, motivo, valor) => onAccion(o.id, 'confirmar_celda', { n: f.n, confirmada: cf, motivo: motivo || '', valor: valor || '' }, cf ? 'Requisito dado por cumplido' : 'Cambio deshecho')}
+                                respaldos={o.tecnico.respaldosCelda?.[f.n] ?? []} onRespaldar={fs => { void onRespaldarCelda(o.id, f.n, fs); }}
+                                onQuitarRespaldo={rr => onAccion(o.id, 'respaldar_celda', { n: f.n, url: rr.url, nombre: rr.nombre, quitar: true }, 'Complemento quitado')}
+                                onComplementar={fs => onSubirFicha(o.id, fs)} subiendo={subiendoFicha.has(`o${o.id}`)} />
+                            </div>
+                          </div>
+                        ))}
+                        {pend.length > 5 && onIrAFicha && <button data-no-pdf onClick={onIrAFicha} className="text-[12.5px] font-medium text-teal-700 hover:underline">Ver los {pend.length} en Ficha y requisitos</button>}
+                      </div>
+                    );
+                  })()}
                   {r && k.complementadas > 0 && <p className="mt-1.5 text-[12.5px] text-teal-800">{k.complementadas} requisito{k.complementadas === 1 ? '' : 's'} ya complementado{k.complementadas === 1 ? '' : 's'}: {puedeAprobar ? 'revísalo y acéptalo con «Lo confirmo» (o «Sí cumple…»).' : 'lo revisa el EM.'}</p>}
                   {notas.length > 0 && <ul className="mt-2 space-y-0.5">{notas.map((t, i) => <li key={i} className="text-[12.5px] leading-snug text-slate-600">• {t}</li>)}</ul>}
                   {o.tecnico.legado && <p className="mt-1 text-xs italic text-slate-500">Comparación anterior, hecha antes del comparador nuevo. Se conserva como estaba.</p>}
@@ -3095,7 +3115,7 @@ function motivoNoFirmable(o: OpcionDTO): string | null {
   if (v?.bloqueos.some(b => b.codigo === 'LECTURA')) return 'falta confirmar el precio: el número del documento se leyó dudoso (mira la fila «Costo unit. neto»)';
   if ((v?.bloqueos.length ?? 0) > 0) return `el costo tiene ${v!.bloqueos.length === 1 ? '1 problema' : `${v!.bloqueos.length} problemas`} por resolver (mira la fila «Costo»)`;
   if (t.estado === 'NO_CORRIDO') return 'Falta comparar la línea';
-  if (t.resultado?.bloqueos.length) return t.resultado.estado === 'NO_CUMPLE' ? 'No cumple un requisito' : 'Falta confirmar un ❓ o pedir el dato al proveedor';
+  if (t.resultado?.bloqueos.some(b => b.codigo === 'T_NO_CUMPLE')) return 'No cumple un requisito';
   if (o.estado !== 'verificada' && v?.veredicto !== 'REQUIERE_HABILITACION') return 'Todavía no está verificada';
   return null;
 }
@@ -3121,14 +3141,16 @@ function Acciones({ o, exigeViaCompleta, ocupado, puedeAprobar, onAccion, onModa
     </select>
   ) : <span className="text-slate-500">{o.via === 'liviana' ? 'Liviana' : 'Completa'}</span>;
   const motivo = ['tanteo', 'formalizada', 'verificada'].includes(o.estado) ? motivoNoFirmable(o) : null;
+  const pendTec = (o.tecnico.resultado?.bloqueos ?? []).filter(b => b.codigo !== 'T_NO_CUMPLE').length;   // ❓ abiertos: se firma, pero no se aprueba
   return (
     <div className="flex flex-wrap gap-1.5">
       {o.estado === 'descartada' && <button className={`${btn} border border-zinc-200 text-zinc-600`} onClick={() => onAccion(o.id, 'restaurar')}>Restaurar</button>}
       {['tanteo', 'formalizada', 'verificada'].includes(o.estado) && (
         <button className={`${btn} bg-teal-700 text-white hover:bg-teal-800`} disabled={!!motivo}
           title={motivo ?? (puedeAprobar ? 'Firma la opción a ofertar, hace la pasada final y la deja aprobada' : 'Firma la opción a ofertar, hace la pasada final y la manda al EM')}
-          onClick={() => onAccion(o.id, 'firmar_y_enviar', {}, puedeAprobar ? 'Opción firmada y aprobada' : 'Opción firmada y enviada al EM')}>{puedeAprobar ? 'Firmar y aprobar' : 'Firmar y enviar al EM'}</button>
+          onClick={() => pendTec ? onAccion(o.id, 'firmar', {}, 'Opción firmada: confirma lo que falta para aprobarla') : onAccion(o.id, 'firmar_y_enviar', {}, puedeAprobar ? 'Opción firmada y aprobada' : 'Opción firmada y enviada al EM')}>{pendTec ? 'Firmar' : puedeAprobar ? 'Firmar y aprobar' : 'Firmar y enviar al EM'}</button>
       )}
+      {pendTec > 0 && ['tanteo', 'formalizada', 'verificada', 'definitiva'].includes(o.estado) && <span className="basis-full text-xs text-amber-800">Para aprobar falta confirmar {pendTec} requisito{pendTec === 1 ? '' : 's'} (❓).</span>}
       {o.estado === 'definitiva' && <>
         <button className={`${btn} bg-amber-600 text-white hover:bg-amber-700`} onClick={() => onAccion(o.id, 'solicitar_aprobacion', {}, 'Pasada final correcta: en aprobación')}>Solicitar aprobación</button>
         <button className={`${btn} border border-zinc-200 text-zinc-600`} onClick={() => onAccion(o.id, 'quitar_firma')}>Quitar firma</button>
