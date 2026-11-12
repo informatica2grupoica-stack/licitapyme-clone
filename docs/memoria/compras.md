@@ -3,6 +3,12 @@
 Pantalla principal: `/compras/[negocioId]` (`ComprasChrome.tsx`). Traspasado desde la memoria
 personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-12 — 387-55-LE26 (1191): resultado CERRADO
+Cerrado por Alexis Tobar el 12-nov: venta $18.865.472, costo real $11.021.443 (OC $10.614.392 + gastos sin OC $407.051), utilidad $7.844.029 (41,58 %), completo. 14 de 15 tareas hechas; acta y guías firmadas (30-10-2026); 18 pagos a proveedores = facturas. **Único pendiente:** factura de venta a Gobierno Regional de Los Lagos (RUT 72.221.800-0, con autorización municipal previa) → luego marcar la tarea «Factura y cierre del proyecto».
+
+## 2026-11-12 — «Postventa y pagos» muestra el detalle de la garantía (387-55-LE26; SIN desplegar)
+Garantía de 1191 anotada: «12 meses — fallas de fabricación o de materialidad no atribuibles a mala manipulación (Anexo 5). Desde la recepción conforme 30-10-2026, vence 30-10-2027» (campo «Garantía común ofrecida (meses)» del Auditor Técnico). La tarjeta mostraba solo el título porque leía `resumen.garantias` (foto vieja). Ahora `app/api/compras/[negocioId]/postventa/route.ts` lee el valor EN VIVO de `checklist_comercial.valor_texto` (títulos con «garant»/«postventa») y `PostventaCard.tsx` lo pinta bajo el título. Pendiente: desplegar esos 2 archivos. Propuestas sin hacer: pasar sola a «Cerradas» al estar entrega+resultado+factura; registrar factura de venta y cobro; acta en PDF; dejar «Comprado» un flete ya pagado dentro de una OC.
+
 ## 2026-11-12 — «Costo real y cierre» con detalle entendible (tsc ok, SIN desplegar, sin ver en navegador)
 Pedido del dueño: «que sea más entendible y me muestre detallado el costo real». `CostoRealCard.tsx` (cuando la base son las OC): frase resumen (vendiste / gastaste en productos, fletes y gastos / te quedan) + 3 bloques desplegables con tabla: Productos comprados (proveedor, OC, cant., costeado, real, diferencia), Fletes y armado (en OC), Gastos sin OC. Datos de `/resumen-comparativo`. «Costo estimado» → «Costo estimado al postular»; «bajo lo cotizado» → «bajo lo estimado al postular». Verificado con datos de 1191: 21 productos $9.144.722 + 3 fletes $1.469.670 + 5 gastos $407.051 = $11.021.443.
 

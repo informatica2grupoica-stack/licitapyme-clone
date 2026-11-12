@@ -64,7 +64,7 @@ export function PostventaCard({ negocioId, puedeOperar }: { negocioId: number; p
         {garantias.map((g, i) => (
           <div key={`g-${i}`} className="px-4 py-2 flex items-center gap-2">
             <span className="text-[9.5px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">Garantía</span>
-            <span className="text-[12px] text-zinc-700">{g.titulo}</span>
+            <span className="text-[12px] text-zinc-700">{g.titulo}{g.descripcion && <span className="block text-[11.5px] text-zinc-500">{g.descripcion}</span>}</span>
           </div>
         ))}
         {compromisos.map(c => (
