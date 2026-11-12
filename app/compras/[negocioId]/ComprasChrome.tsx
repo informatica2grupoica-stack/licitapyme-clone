@@ -38,6 +38,7 @@ import { RelojEntregaCard } from '@/app/negocios/[id]/RelojEntregaCard';
 import { RELOJ_ENTREGA_ACTIVO } from '@/app/lib/compras-reloj-activo';
 import { IncidenciasCard } from '@/app/negocios/[id]/IncidenciasCard';
 import { EntregaCard } from '@/app/negocios/[id]/EntregaCard';
+import { OcMiniaturas } from '@/app/negocios/[id]/OcMiniaturas';
 import { PostventaCard, useHayPostventa } from '@/app/negocios/[id]/PostventaCard';
 import { FracasoCard } from '@/app/negocios/[id]/FracasoCard';
 import { ActividadComprasCard } from '@/app/negocios/[id]/ActividadComprasCard';
@@ -954,7 +955,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                     contenido: <RelojEntregaCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} /> }
                   ] : []),
                   { clave: 'entrega', titulo: 'Entrega y acta', ayuda: 'Preparación, despacho y el acta de entrega que firma el cliente. El acta cierra el proyecto.',
-                    contenido: <EntregaCard negocioId={negocioId} puedeOperar={puedeOperar} puedeVerificar={esBodega} /> },
+                    contenido: <><OcMiniaturas negocioId={negocioId} /><EntregaCard negocioId={negocioId} puedeOperar={puedeOperar} puedeVerificar={esBodega} /></> },
                   { clave: 'costoreal', titulo: 'Costo real y cierre', ayuda: 'Resultado final del proyecto: lo costeado contra lo realmente gastado.',
                     contenido: <CostoRealCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
                   ...(hayPostventa ? [

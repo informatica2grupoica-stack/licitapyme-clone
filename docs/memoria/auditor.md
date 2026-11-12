@@ -424,3 +424,8 @@ en producción requiere el OK del dueño) y desplegar el arreglo.
   - V1 tolerante: misma marca y las palabras de un modelo contenidas en el otro (el corto con un código letras+número) → aviso amarillo, no bloqueo.
   - Firmar ya no espera los ❓: solo frena un T_NO_CUMPLE. Con ❓ abiertos el botón dice «Firmar» (sin aprobar). `solicitarAprobacion` sigue exigiendo TODO cerrado.
   - En la tarjeta «Cotizado» se listan los requisitos pendientes (hasta 5) con confirmar/respaldar ahí mismo, sin ir a «Ficha y requisitos».
+
+## 2026-11-12 · Tabla de requisitos muestra lo que complementó el asistente
+- Caso 2981-334-LE26: la celda decía solo «confirmado por X 📎1»; había que abrir el panel del requisito para ver el complemento.
+- `CeldaCompacta` (AuditorOpcionesPanel.tsx) ahora recibe la lista de respaldos y debajo del estado muestra hasta 2 (💬 nota o 📎 nombre de archivo + nota, con «+N más») y, si está confirmada, «Ofertamos: …». Solo presentación, sin migración.
+- Pendiente: no visto en navegador ni desplegado.

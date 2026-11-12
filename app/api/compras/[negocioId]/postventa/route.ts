@@ -24,12 +24,13 @@ function getUser(req: NextRequest) {
 // Lo que dicen los documentos YA LEÍDOS (documentos_cache.texto_extraido): secciones de garantía / postventa / capacitación
 // de las bases, y el canal de postventa y plazo de respuesta que ofertamos en el anexo técnico.
 const RE_TITULO_POSTVENTA = /garant[ií]a|post-?venta|capacitaci|manten[cs]i|servicio t[eé]cnico|repuesto/i;
-async function leerPostventaDeDocumentos(codigo: string): Promise<Array<{ titulo: string; texto: string; fuente: string }>> {
+type DatoLeido = { titulo: string; texto: string; fuente: string; fuenteUrl: string | null };
+async function leerPostventaDeDocumentos(codigo: string): Promise<DatoLeido[]> {
   const [rows] = await pool.query(
-    `SELECT documento_nombre n, categoria c, texto_extraido t FROM documentos_cache
+    `SELECT documento_nombre n, documento_url_local u, categoria c, texto_extraido t FROM documentos_cache
       WHERE licitacion_codigo = ? AND texto_extraido IS NOT NULL AND LENGTH(texto_extraido) > 200
         AND (categoria IN ('BASES_TECNICAS','BASES_ADMINISTRATIVAS') OR (categoria = 'DOCUMENTOS_PROPIOS' AND documento_nombre LIKE '%ANEXO%' AND documento_nombre LIKE '%.pdf'))`, [codigo]) as any;
-  const out: Array<{ titulo: string; texto: string; fuente: string }> = [];
+  const out: DatoLeido[] = [];
   for (const r of rows as any[]) {
     const t = String(r.t);
     if (r.c !== 'DOCUMENTOS_PROPIOS') {
@@ -38,16 +39,16 @@ async function leerPostventaDeDocumentos(codigo: string): Promise<Array<{ titulo
         if (!m || !RE_TITULO_POSTVENTA.test(m[1])) continue;
         const cuerpo = m[2].replace(/\s+/g, ' ').trim();
         if (cuerpo.length < 40) continue;
-        out.push({ titulo: m[1].replace(/^\d+[.)]?\s*/, '').trim(), texto: cuerpo.slice(0, 900), fuente: r.n });
+        out.push({ titulo: m[1].replace(/^\d+[.)]?\s*/, '').trim(), texto: cuerpo.slice(0, 900), fuente: r.n, fuenteUrl: r.u || null });
       }
     } else {
       const tn = t.replace(/\s+/g, ' ');
       const m = tn.match(/Canal de postventa (.{3,120}?) Plazo de respuesta (.{2,40}?) Exclusiones/i);
       const g = tn.match(/Garant[ií]a com[uú]n ofrecida\s+(\d+\s*meses)/i);
-      if (g) out.push({ titulo: 'Garantía ofertada', texto: g[1], fuente: r.n });
+      if (g) out.push({ titulo: 'Garantía ofertada', texto: g[1], fuente: r.n, fuenteUrl: r.u || null });
       const gd = tn.match(/Garant[ií]a (Todos los productos ofertados.{20,500}?)(?= Despacho| Entrega|$)/i);
-      if (gd) out.push({ titulo: 'Condiciones de la garantía ofertada', texto: gd[1].replace(/\s+/g, ' ').trim(), fuente: r.n });
-      if (m) out.push({ titulo: 'Canal de postventa ofertado', texto: `${m[1].trim()} — respuesta en ${m[2].trim()}`, fuente: r.n });
+      if (gd) out.push({ titulo: 'Condiciones de la garantía ofertada', texto: gd[1].replace(/\s+/g, ' ').trim(), fuente: r.n, fuenteUrl: r.u || null });
+      if (m) out.push({ titulo: 'Canal de postventa ofertado', texto: `${m[1].trim()} — respuesta en ${m[2].trim()}`, fuente: r.n, fuenteUrl: r.u || null });
     }
   }
   return out;
@@ -78,7 +79,15 @@ export async function GET(request: NextRequest, { params }: Params) {
       .map((g: any) => ({ titulo: g.titulo, descripcion: valorDe.get(String(g.titulo).trim()) ?? g.descripcion ?? null }))
       .filter((g: any) => g.descripcion && String(g.descripcion).trim());
     const resueltos = await listarPostventa(id);
-    const deDocumentos = await leerPostventaDeDocumentos(asignacion.licitacionCodigo).catch(() => []);
+    const leidos = await leerPostventaDeDocumentos(asignacion.licitacionCodigo).catch(() => [] as DatoLeido[]);
+    // Correcciones del equipo (migration-192): si hay una, manda sobre lo leído del documento.
+    const [corr] = await pool.query(`SELECT clave, texto, actor_nombre FROM compras_postventa_correccion WHERE negocio_id = ?`, [id]).catch(() => [[]] as any) as any;
+    const corregidoDe = new Map((corr as any[]).map(c => [String(c.clave), c]));
+    const deDocumentos = leidos.map(d => {
+      const clave = `${d.fuente}|${d.titulo}`;
+      const c = corregidoDe.get(clave);
+      return { ...d, clave, textoLeido: d.texto, texto: c ? String(c.texto) : d.texto, corregido: !!c, corregidoPor: c?.actor_nombre ?? null };
+    });
     return NextResponse.json({
       success: true,
       deDocumentos,
@@ -105,6 +114,16 @@ async function __PATCH(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const body = await request.json();
+    if (body.accion === 'corregir') {
+      const clave = String(body.clave || '').slice(0, 300);
+      const texto = String(body.texto ?? '').trim().slice(0, 2000);
+      if (!clave) return NextResponse.json({ error: 'Falta qué dato corregir.' }, { status: 400 });
+      if (texto) await pool.query(
+        `INSERT INTO compras_postventa_correccion (negocio_id, clave, texto, actor_id, actor_nombre) VALUES (?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE texto=VALUES(texto), actor_id=VALUES(actor_id), actor_nombre=VALUES(actor_nombre)`, [id, clave, texto, userId, nombre]);
+      else await pool.query(`DELETE FROM compras_postventa_correccion WHERE negocio_id = ? AND clave = ?`, [id, clave]);
+      return NextResponse.json({ success: true });
+    }
     if (body.resuelto) await marcarPostventaResuelta(id, body.compromisoTexto, body.notas || null, userId, nombre);
     else await desmarcarPostventa(id, body.compromisoTexto);
     return NextResponse.json({ success: true });

@@ -2831,7 +2831,7 @@ function CuadroTecnico({ negocioId, linea, vista = 'todo', onIrAFicha, onVerific
                   <td className="px-4 py-2 text-slate-700 leading-snug">
                     <span className="line-clamp-2" title={f0.requeridoTexto}><span className="tabular-nums text-slate-500 mr-1">{f0.n}.</span>{f0.requeridoTexto}</span>
                   </td>
-                  {columnas.map(o => <td key={o.id} className="px-3 py-2 border-l border-zinc-100"><CeldaCompacta f={fila(o, f0.n)} respaldos={o.tecnico.respaldosCelda?.[f0.n]?.length ?? 0} /></td>)}
+                  {columnas.map(o => <td key={o.id} className="px-3 py-2 border-l border-zinc-100"><CeldaCompacta f={fila(o, f0.n)} respaldos={o.tecnico.respaldosCelda?.[f0.n] ?? []} /></td>)}
                 </tr>
               ))}
               {filas.length === 0 && <tr><td colSpan={columnas.length + 1} className="px-4 py-4 text-center text-[13px] text-slate-600">{q ? `Ningún requisito contiene «${busqueda}».` : 'No hay requisitos en los que las opciones difieran.'}</td></tr>}
@@ -2996,20 +2996,33 @@ function estadoVisible(f: any): 'NO_CUMPLE' | 'FALTA_DATO' | 'CUMPLE' | null {
 }
 
 /** Celda de la tabla, solo para leer: el estado y el dato ofertado. Las acciones viven en el panel del requisito. */
-function CeldaCompacta({ f, respaldos }: { f: any; respaldos: number }) {
+function CeldaCompacta({ f, respaldos: lista }: { f: any; respaldos: { url: string; nombre: string; nota?: string; por: string; at: string }[] }) {
   if (!f) return <span className="text-zinc-300">—</span>;
   const e = estadoVisible(f);
+  const respaldos = lista.length;
+  // Qué complementó el asistente, a la vista en la tabla (nota o nombre del archivo), sin abrir el panel del requisito.
+  const queComplemento = respaldos > 0 ? (
+    <span className="mt-0.5 block space-y-0.5 text-xs font-normal text-slate-600">
+      {lista.slice(0, 2).map(r => {
+        const esNota = r.url.startsWith('nota:');
+        const texto = [!esNota && r.nombre, r.nota && `«${r.nota}»`].filter(Boolean).join(' · ') || (esNota ? 'Nota' : 'Archivo');
+        return <span key={r.url} className="block line-clamp-2" title={`${texto} — ${r.por}`}>{esNota ? '💬' : '📎'} {texto}</span>;
+      })}
+      {respaldos > 2 && <span className="block text-slate-500">+{respaldos - 2} más</span>}
+    </span>
+  ) : null;
   // ❓/❌ con complemento del asistente: ya no es «falta dato», está en manos del EM.
   if (e !== 'CUMPLE' && respaldos > 0) return (
     <span className="text-[13px] font-medium text-teal-700">📎 Complementado <span className="font-normal text-slate-600">· espera al EM</span>
-      {e === 'NO_CUMPLE' && <span className="block text-xs font-normal text-red-600">la IA lo marcó como «no cumple»</span>}</span>
+      {e === 'NO_CUMPLE' && <span className="block text-xs font-normal text-red-600">la IA lo marcó como «no cumple»</span>}{queComplemento}</span>
   );
   const dato = f.valorCorto && !f.confirmada ? f.valorCorto : '';
   const clip = respaldos > 0 ? <span title={`${respaldos} complemento${respaldos === 1 ? '' : 's'}`} className="ml-1.5 text-xs text-slate-600">📎{respaldos}</span> : null;
-  if (f.confirmada) return <span className="text-[13px] text-emerald-700">✅ <span className="text-slate-600">confirmado por {f.confirmada.por || 'el asistente'}</span>{clip}</span>;
+  if (f.confirmada) return <span className="text-[13px] text-emerald-700">✅ <span className="text-slate-600">confirmado por {f.confirmada.por || 'el asistente'}</span>{clip}
+    {f.confirmada.valor && <span className="block text-xs text-slate-700"><b className="font-semibold">Ofertamos:</b> {f.confirmada.valor}</span>}{queComplemento}</span>;
   if (e === 'NO_CUMPLE') return <span className="text-[13px] font-medium text-red-600">❌ No cumple{dato && <span className="font-normal"> ({dato})</span>}{clip}</span>;
   if (e === 'FALTA_DATO') return <span className="text-[13px] font-medium text-amber-700">❓ Falta dato{f.rojo && <span className="font-normal text-slate-600"> · lo aprueba el EM</span>}{clip}</span>;
-  return <span className="text-[13px] text-slate-600">{f.sobrecumple || f.estadoCelda === 'SOBRECUMPLE' ? '🟩' : '✅'}{dato && <> ({dato})</>}{f.revisar && <span title="Número sin unidad que no calza con lo exigido: revisa el dato." className="ml-1 text-amber-600">⚠</span>}{clip}</span>;
+  return <span className="text-[13px] text-slate-600">{f.sobrecumple || f.estadoCelda === 'SOBRECUMPLE' ? '🟩' : '✅'}{dato && <> ({dato})</>}{f.revisar && <span title="Número sin unidad que no calza con lo exigido: revisa el dato." className="ml-1 text-amber-600">⚠</span>}{clip}{queComplemento}</span>;
 }
 
 /** Panel lateral de UN requisito: texto completo de la base, la cita del documento por opción y las acciones. No tapa la tabla (sin fondo oscuro), se recorre con Anterior/Siguiente. */

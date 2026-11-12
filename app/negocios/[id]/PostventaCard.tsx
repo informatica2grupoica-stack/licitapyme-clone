@@ -6,10 +6,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
+import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
+import { MiniaturaDoc, urlInline } from './MiniaturaDoc';
 import { IconShieldCheck as ShieldCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircle as Circle } from '@tabler/icons-react';
 
 interface Compromiso { titulo: string; descripcion: string | null; resuelto: boolean; resueltoPorNombre: string | null }
-interface DeDocumento { titulo: string; texto: string; fuente: string }
+interface DeDocumento { titulo: string; texto: string; fuente: string; fuenteUrl: string | null; clave: string; textoLeido: string; corregido: boolean; corregidoPor: string | null }
 interface Garantia { titulo: string; descripcion: string | null }
 
 export function PostventaCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
@@ -18,6 +20,8 @@ export function PostventaCard({ negocioId, puedeOperar }: { negocioId: number; p
   const [compromisos, setCompromisos] = useState<Compromiso[]>([]);
   const [garantias, setGarantias] = useState<Garantia[]>([]);
   const [deDocs, setDeDocs] = useState<DeDocumento[]>([]);
+  const [visor, setVisor] = useState<VisorDoc | null>(null);
+  const [editando, setEditando] = useState<{ clave: string; texto: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
   const cargar = useCallback(async () => {
@@ -34,6 +38,21 @@ export function PostventaCard({ negocioId, puedeOperar }: { negocioId: number; p
   }, [negocioId]);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  // Corregir lo que se leyó del documento (texto vacío = volver a lo que dice el documento).
+  const corregir = async (clave: string, texto: string) => {
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/postventa`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'corregir', clave, texto }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar');
+      setEditando(null);
+      await cargar();
+    } catch (e: any) {
+      toast.error('No se pudo guardar la corrección', e.message);
+    }
+  };
 
   const alternar = async (titulo: string, resuelto: boolean) => {
     try {
@@ -58,6 +77,7 @@ export function PostventaCard({ negocioId, puedeOperar }: { negocioId: number; p
 
   return (
     <div className="space-y-3" data-testid="postventa">
+      <DocumentViewerModal doc={visor} onClose={() => setVisor(null)} />
       {garantias.length > 0 && (
         <div className="grid gap-3 md:grid-cols-2">
           {garantias.map((g, i) => {
@@ -85,13 +105,41 @@ export function PostventaCard({ negocioId, puedeOperar }: { negocioId: number; p
       )}
       {deDocs.length > 0 && (
         <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-          <p className="px-4 py-2.5 text-[11px] font-bold text-zinc-500 uppercase bg-zinc-50 border-b border-zinc-100">Lo que dicen las bases y nuestra oferta</p>
+          <p className="px-4 py-2.5 text-[11px] font-bold text-zinc-500 uppercase bg-zinc-50 border-b border-zinc-100">Lo que dicen las bases y nuestra oferta · leído de los documentos, se puede corregir</p>
+          <div className="px-4 py-3 border-b border-zinc-100">
+            <p className="text-[11px] text-zinc-500 mb-2">Documentos de donde se leyó (pincha para verlos):</p>
+            <div className="flex gap-3 overflow-x-auto pb-1">
+              {Array.from(new Map(deDocs.filter(d => d.fuenteUrl).map(d => [d.fuente, d])).values()).map(d => (
+                <MiniaturaDoc key={d.fuente} src={urlInline(d.fuenteUrl!)} titulo={d.fuente.replace(/\.pdf$/i, '')} onAbrir={() => setVisor({ nombre: d.fuente, url: d.fuenteUrl! })} />
+              ))}
+            </div>
+          </div>
           <div className="divide-y divide-zinc-100">
-            {deDocs.map((d, i) => (
-              <div key={i} className="px-4 py-2.5">
-                <p className="text-[12.5px] font-semibold text-zinc-800">{d.titulo}</p>
-                <p className="text-[12px] text-zinc-600">{d.texto}</p>
-                <p className="text-[10.5px] text-zinc-400 mt-0.5">Fuente: {d.fuente}</p>
+            {deDocs.map(d => (
+              <div key={d.clave} className="px-4 py-2.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-[12.5px] font-semibold text-zinc-800">{d.titulo}</p>
+                  {d.corregido && <span className="text-[10px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded-full">Corregido{d.corregidoPor ? ` por ${d.corregidoPor}` : ''}</span>}
+                </div>
+                {editando?.clave === d.clave ? (
+                  <div className="mt-1.5">
+                    <textarea value={editando.texto} onChange={e => setEditando({ clave: d.clave, texto: e.target.value })} rows={3}
+                      className="w-full text-[12px] text-zinc-800 border border-zinc-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-teal-500" />
+                    <div className="flex gap-3 mt-1.5 text-[11.5px] font-semibold">
+                      <button type="button" onClick={() => corregir(d.clave, editando.texto)} className="text-teal-700 hover:text-teal-900">Guardar</button>
+                      <button type="button" onClick={() => setEditando(null)} className="text-zinc-500 hover:text-zinc-700">Cancelar</button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[12px] text-zinc-600">{d.texto}</p>
+                )}
+                <div className="flex gap-3 mt-1 text-[11px] flex-wrap">
+                  {d.fuenteUrl
+                    ? <button type="button" onClick={() => setVisor({ nombre: d.fuente, url: d.fuenteUrl! })} className="text-teal-700 hover:text-teal-900 font-medium">Ver en {d.fuente}</button>
+                    : <span className="text-zinc-400">Fuente: {d.fuente}</span>}
+                  {puedeOperar && editando?.clave !== d.clave && <button type="button" onClick={() => setEditando({ clave: d.clave, texto: d.texto })} className="text-zinc-500 hover:text-zinc-800 font-medium">Corregir</button>}
+                  {puedeOperar && d.corregido && <button type="button" onClick={() => corregir(d.clave, '')} className="text-zinc-400 hover:text-zinc-700">Volver a lo que dice el documento</button>}
+                </div>
               </div>
             ))}
           </div>
