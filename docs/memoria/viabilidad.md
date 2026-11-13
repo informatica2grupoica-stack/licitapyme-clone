@@ -2,6 +2,37 @@
 
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
+## 2026-11-13 — «La o las propuestas» se leía como adjudicación parcial; regla 8 (total único = GLOBAL)
+Caso real: 1024-61-LP26 (Vialidad Tarapacá, 466 barreras tipo F + 466 captafaros). El informe la daba POR_LINEAS
+(regla 3) con la frase tipo de las bases MOP «Se adjudicará a la o las propuestas más ventajosas», etiquetada
+TOTAL_O_PARCIAL. Las bases no permiten repartir: Anexo 2 con un único «VALOR TOTAL DE SU OFERTA», precio evaluado
+sobre el total, un solo plazo «para la totalidad del producto», garantía 5 % del total, sin variación de cantidades.
+**Regla / decisión (dueño, 13-nov: «que diga global y que el sistema aprenda, sin eliminar conocimiento»):**
+1. TOTAL_O_PARCIAL cuenta solo si la frase dice que se puede adjudicar UNA PARTE (parcial, parte, alguna/s, varias,
+   línea, ítem, lote, categoría, cobertura, múltiple, más de un, uno o más oferentes/proveedores, independiente,
+   separado, distinto) y no habla de descargos, multas, sanciones, incumplimiento o inadmisibilidad.
+   `hablaDeAdjudicarParte` en `viabilidad-v4/adjudicacion.ts` (copia idéntica en `cv/v4/`). Revisadas las 73 frases
+   guardadas: además de 1024 no cuentan «aceptar cualquiera… o rechazarlas todas» (2744-38), «adjudicar a cualquiera
+   de las ofertas» (3748-24) y los «total o parcial» de descargos/multas/inadmisible (3587-24, 3996-47, 4559-37,
+   634-96, 2711-27).
+2. Regla 8 nueva (antes de la 7): formulario económico de total único CON frase encontrada (no el detector sin frase)
+   y NINGUNA evidencia válida hacia por línea → GLOBAL. Cualquier señal por línea, aunque sea débil, la deja NO_CLARO.
+   Las reglas 1–7 no cambiaron; solo se agregó el filtro y la regla 8.
+**Medido** (decisor anterior vs nuevo sobre las evidencias de 403 informes v4, `scripts/scratch/_adj_antes_despues_1311.mts`):
+1024-61 POR_LINEAS → GLOBAL; 3587-24-LP26 y 3996-47-LE26 POR_LINEAS → NO_CLARO (decidían por frases de descargos;
+3587 probablemente sí es por ítem —«Se adjudicará cada ítem al proponente…», la IA la marcó PARCIAL— y queda para
+confirmar en el visor). Las demás que pasan a regla 8 ya estaban guardadas GLOBAL. 3328-82 y 1024-47 (total solo del
+detector) siguen NO_CLARO.
+**Hecho:** 1024-61 re-decidida en la BD SIN IA (`scripts/scratch/_1024_redecidir.mts`, respaldo
+`_respaldo_viab_1024-61-LP26_131126.json`): GLOBAL regla 8, cotizar 100 %, costeo suma_alzada, nivel MUY_ALTO; el
+resultado anterior queda en `adjudicacion.historial`. Caso agregado a `scripts/regresion/gold-v4.json`.
+**Verificado:** test nuevo `adjudicacion-total-o-parcial.test.mts` (frases reales), 1.818 tests, tsc. NO desplegado:
+los análisis nuevos en el VPS siguen con el decisor viejo hasta desplegar. 3587-24 y 3996-47 no se tocaron en la BD.
+**Costeo regenerado (dueño, 13-nov, «sí, regenéralo»):** el COSTEO_1024-61-LP26_2026-11-13.xlsx automático venía en
+2 hojas (LINEA1/LINEA2). Se regeneró con la misma secuencia de la ruta, desde el PC (`scripts/scratch/_regenerar_costeo.mts`,
+sin precios de mercado): ahora es 1 hoja «Costeo» con los 2 ítems y total único. Respaldo del anterior en
+`scripts/scratch/_respaldo_COSTEO_1024-61-LP26_2026-11-13.xlsx`.
+
 ## 2026-10-29 — PDF escaneado sin leer contaba como «leído»: nunca iba a OCR y el informe decía «lectura completa»
 Pedido del dueño: «que lea siempre los documentos en su totalidad; si falla, que reintente con GLM o Kimi».
 `largoTextoReal` (`viabilidad-ia.ts` y `cv/viabilidad-ia.ts`, desde 88076a6 del 22-oct) tenía la regex sin

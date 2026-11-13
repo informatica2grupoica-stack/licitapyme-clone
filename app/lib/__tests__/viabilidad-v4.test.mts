@@ -197,12 +197,14 @@ test('P1 · Cholchol: OFERTA_POR_BIEN decisiva + SUMA_ALZADA débil → POR LÍN
   assert.equal(d.resultado, 'POR_LINEAS'); assert.equal(d.regla_aplicada, 3);
 });
 test('P1 · Arica: TOTAL_O_PARCIAL → POR LÍNEA, cotizar 100 % no', () => {
-  const d = decidirAdjudicacion(marcarEvidenciasQueCuentan([ev('TOTAL_O_PARCIAL')]), 2);
+  const d = decidirAdjudicacion(marcarEvidenciasQueCuentan([ev('TOTAL_O_PARCIAL', { cita: { frase: 'se reserva el derecho de adjudicar total o parcialmente', verificada: true, semantica: 'SI' } })]), 2);
   assert.equal(d.resultado, 'POR_LINEAS'); assert.equal(d.cotizar_100, 'POR_LINEA');
 });
 test('P1 · decisivas en conflicto, solo débiles o nada → NO CLARO (sin default GLOBAL)', () => {
   assert.equal(decidirAdjudicacion(marcarEvidenciasQueCuentan([ev('ADJUDICA_GLOBAL'), ev('ADJUDICA_POR_LINEA')]), 2).regla_aplicada, 4);
-  assert.equal(decidirAdjudicacion(marcarEvidenciasQueCuentan([ev('SUMA_ALZADA'), ev('FORMULARIO_TOTAL')]), 2).resultado, 'NO_CLARO');
+  assert.equal(decidirAdjudicacion(marcarEvidenciasQueCuentan([ev('SUMA_ALZADA')]), 2).resultado, 'NO_CLARO');
+  // Regla 8 (13-nov-2026, 1024-61-LP26): formulario de total único con frase y sin ninguna señal por línea → GLOBAL.
+  assert.equal(decidirAdjudicacion(marcarEvidenciasQueCuentan([ev('SUMA_ALZADA'), ev('FORMULARIO_TOTAL')]), 2).regla_aplicada, 8);
   const nada = decidirAdjudicacion([], 2);
   assert.equal(nada.resultado, 'NO_CLARO'); assert.ok(nada.pregunta_foro);
 });

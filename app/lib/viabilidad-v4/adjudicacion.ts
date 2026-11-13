@@ -54,7 +54,7 @@ export type ResultadoAdj = 'GLOBAL' | 'POR_LINEAS' | 'NO_CLARO';
 
 export interface DecisionAdjudicacion {
   resultado: ResultadoAdj;
-  regla_aplicada: number;            // 1..7 de la tabla
+  regla_aplicada: number;            // 1..8 de la tabla (8: total único sin señal por línea)
   motivo: string;
   cotizar_100: 'SI' | 'POR_LINEA' | 'POR_CONFIRMAR';
   cotizar_100_texto: string;
@@ -95,6 +95,18 @@ export function hablaDeTotalidad(frase: string): boolean {
 // (1057898-103-LP26: «seleccionando a un solo oferente por familia de equipos y/o equipamiento»).
 const UNO_POR_LINEA = /un (solo|[uú]nico) (oferente|proveedor) por (cada )?(l[ií]nea|lote|familia|[ií]tem|grupo)/i;
 
+// TOTAL_O_PARCIAL tiene que decir que se puede adjudicar UNA PARTE. Caso real 1024-61-LP26 (13-nov-2026): la IA
+// etiquetó así la frase tipo de las bases MOP «Se adjudicará a la o las propuestas más ventajosas» y la licitación
+// salió POR_LINEAS, aunque el Anexo 2 pide un solo «VALOR TOTAL DE SU OFERTA». Revisadas las 73 frases guardadas:
+// «aceptar cualquiera de las ofertas o rechazarlas todas» (2744-38), «adjudicar a cualquiera de las ofertas»
+// (3748-24) tampoco lo dicen; y «total o parcial» de descargos, multas, incumplimientos o inadmisibilidad
+// (3587-24, 3996-47, 4559-37, 634-96, 2711-27) no habla de adjudicar.
+const HABLA_DE_PARTE = /parcial|\bparte\b|\balgun[oa]s?\b|\bvari[oa]s\b|l[ií]neas?\b|[ií]tems?\b|\blotes?\b|categor[ií]a|cobertura|m[uú]ltiple|m[aá]s de un[oa]?\b|\b(dos|uno|una) o m[aá]s (oferentes|proveedores|proponentes)|independiente|separad|distint/i;
+const PARCIAL_DE_OTRA_COSA = /descargo|acog|multa|sanci[oó]n|incumplim|inadmisib|temerari|riesgos/i;
+export function hablaDeAdjudicarParte(frase: string): boolean {
+  return HABLA_DE_PARTE.test(frase) && !PARCIAL_DE_OTRA_COSA.test(frase);
+}
+
 /** Marca qué evidencias cuentan: frase verificada en los documentos y semántica no negativa. */
 export function marcarEvidenciasQueCuentan(evs: EvidenciaAdj[]): EvidenciaAdj[] {
   for (const e of evs) {
@@ -106,6 +118,9 @@ export function marcarEvidenciasQueCuentan(evs: EvidenciaAdj[]): EvidenciaAdj[] 
     if (e.cita.semantica === 'NO' || e.cita.semantica === 'PARCIAL') { e.cuenta = false; e.motivo_no_cuenta = 'la frase no sostiene lo que dice el tipo de evidencia'; continue; }
     if (e.tipo === 'ADJUDICA_GLOBAL' && UNO_POR_LINEA.test(e.cita.frase)) {
       e.cuenta = false; e.motivo_no_cuenta = 'adjudica un oferente por cada línea, no todo a uno'; continue;
+    }
+    if (e.tipo === 'TOTAL_O_PARCIAL' && !hablaDeAdjudicarParte(e.cita.frase)) {
+      e.cuenta = false; e.motivo_no_cuenta = 'la frase no dice que se pueda adjudicar una parte'; continue;
     }
     if (e.tipo === 'COTIZAR_TOTALIDAD' && !hablaDeTotalidad(e.cita.frase)) {
       e.cuenta = false; e.motivo_no_cuenta = 'la frase no dice que haya que ofertar todo'; continue;
@@ -155,6 +170,14 @@ export function decidirAdjudicacion(evs: EvidenciaAdj[], lineasApi: number): Dec
   const forms = de(e => e.tipo === 'FORMULARIOS_SEPARADOS');
   const respaldo = de(e => e.tipo !== 'FORMULARIOS_SEPARADOS' && CATALOGO[e.tipo].lado === 'POR_LINEAS');
   if (forms.length && respaldo.length) return res('POR_LINEAS', 6, 'Hay un formulario económico por línea y otra señal que lo respalda.', [...forms, ...respaldo]);
+  // 8. El formulario económico pide UN solo total (frase encontrada en el documento) y ninguna evidencia que cuente
+  // permite repartir → GLOBAL. Caso real 1024-61-LP26 (13-nov-2026, el dueño): Anexo 2 con un único «VALOR TOTAL DE
+  // SU OFERTA» para los 2 ítems, precio evaluado sobre el total y un solo plazo «para la totalidad del producto».
+  // El total que solo ve el detector (sin frase) no basta: 3328-82-LE26 y 1024-47-LP26 siguen NO_CLARO.
+  const totalConFrase = de(e => e.tipo === 'FORMULARIO_TOTAL' && e.origen !== 'detector' && !!String(e.cita?.frase || '').trim());
+  if (totalConFrase.length && !validas.some(e => CATALOGO[e.tipo].lado === 'POR_LINEAS')) {
+    return res('GLOBAL', 8, 'El formulario económico pide un solo total y nada en las bases permite repartir las líneas.', totalConFrase);
+  }
   // 7. Solo débiles, formularios sin respaldo o nada.
   return res('NO_CLARO', 7, validas.length ? 'Solo hay señales débiles: no alcanzan para decidir.' : 'Las bases no dicen cómo se adjudica.');
 }
