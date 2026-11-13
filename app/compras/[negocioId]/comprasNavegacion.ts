@@ -2,7 +2,7 @@
 // El stepper de ComprasChrome escucha 'compras:ir'; la acción pendiente (qué hacer al llegar) se deja en memoria del navegador
 // para que la pestaña destino, que recién se monta, la consuma una sola vez.
 
-export type FaseCompras = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega' | 'obuma' | 'documentos' | 'actividad';
+export type FaseCompras = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega' | 'gestion' | 'obuma' | 'documentos' | 'actividad';
 export interface AccionPendiente { accion: 'crear-proveedor'; rut?: string; nombre?: string }
 
 const g = () => (typeof window !== 'undefined' ? (window as unknown as { __comprasPendiente?: AccionPendiente | null }) : null);

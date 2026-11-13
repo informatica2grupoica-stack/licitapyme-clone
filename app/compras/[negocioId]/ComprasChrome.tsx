@@ -44,6 +44,7 @@ import { OcMiniaturas } from '@/app/negocios/[id]/OcMiniaturas';
 import { PostventaCard, useHayPostventa } from '@/app/negocios/[id]/PostventaCard';
 import { FracasoCard } from '@/app/negocios/[id]/FracasoCard';
 import { ActividadComprasCard } from '@/app/negocios/[id]/ActividadComprasCard';
+import { GestionDocumentosCard } from '@/app/negocios/[id]/GestionDocumentosCard';
 import { GanttComprasCard } from '@/app/negocios/[id]/GanttComprasCard';
 import { TareasComprasCard } from './TareasComprasCard';
 import { Seccion } from './Seccion';
@@ -53,18 +54,19 @@ import { siguientePaso, type SiguientePaso } from '@/app/lib/compras-siguiente-p
 import { useCompras, fmtCLP, fmtFecha, type OrdenCompra } from './ComprasContext';
 import { CoencargadosCompras } from './CoencargadosCompras';
 import { ResumenObumaModal } from './ResumenObumaModal';
-import { IconBolt as ObumaIcon, IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconUserPlus as UserPlus, IconClock as Clock, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCurrencyDollar as DollarSign, IconFileAlert as FileWarning, IconBuilding as Building2, IconFileText as FileText, IconDeviceFloppy as Save, IconClipboardList as ClipboardList, IconRefresh as RefreshCw, IconBolt as Zap, IconExternalLink as ExternalLink, IconArrowUpRight as ArrowUpRight, IconCalculator as Calculator, IconClipboardCheck as ClipboardCheck, IconPackage as Package, IconTruck as Truck, IconHistory as History, IconGauge as Gauge, IconWallet as Wallet, IconCalendarTime as CalendarTime, IconHourglassHigh as Hourglass, IconMail as Mail, IconPhone as Phone, IconUserCircle as UserCircle, IconCheck as Check, IconArrowRight as ArrowRight, IconTarget as Target } from '@tabler/icons-react';
+import { IconBolt as ObumaIcon, IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconUserPlus as UserPlus, IconClock as Clock, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCurrencyDollar as DollarSign, IconFileAlert as FileWarning, IconBuilding as Building2, IconFileText as FileText, IconDeviceFloppy as Save, IconClipboardList as ClipboardList, IconRefresh as RefreshCw, IconBolt as Zap, IconExternalLink as ExternalLink, IconArrowUpRight as ArrowUpRight, IconCalculator as Calculator, IconClipboardCheck as ClipboardCheck, IconPackage as Package, IconTruck as Truck, IconHistory as History, IconGauge as Gauge, IconWallet as Wallet, IconCalendarTime as CalendarTime, IconHourglassHigh as Hourglass, IconMail as Mail, IconPhone as Phone, IconUserCircle as UserCircle, IconCheck as Check, IconArrowRight as ArrowRight, IconTarget as Target, IconFilePlus as FilePlus } from '@tabler/icons-react';
 
 // Gantt SALIÓ del stepper (pedido explícito, 17-sep-2026: "es aparte de todo ese flujo y es lo
 // primero que se debe ver") — ahora es una tarjeta propia, arriba de todo, no una pestaña más.
 // Documentos entró en su lugar como pestaña (antes era tarjeta fija, ocupaba mucho espacio arriba).
-type Fase = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega' | 'obuma' | 'documentos' | 'actividad';
+type Fase = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega' | 'gestion' | 'obuma' | 'documentos' | 'actividad';
 const FASES: { key: Fase; label: string; icon: typeof ClipboardList; descripcion: string; secundaria?: boolean }[] = [
   { key: 'tareas', label: 'Tareas', icon: ClipboardList, descripcion: 'Lo primero: las tareas del proyecto con su plazo. El plazo de entrega y las incidencias están siempre a la vista en la franja de arriba.' },
   { key: 'costeo', label: 'Costeo y auditoría', icon: Calculator, descripcion: 'Aquí se cotiza: verifica el costo de cada producto, carga las cotizaciones de los proveedores y compara para elegir la mejor compra.' },
   { key: 'aprobacion', label: 'Aprobación y SKU', icon: ClipboardCheck, descripcion: 'El jefe de ventas aprueba la compra y el margen (mínimo 20 %). Después se crea el código (SKU) de lo que se va a comprar.' },
   { key: 'compra', label: 'Compra y logística', icon: Package, descripcion: 'Lo que pasa después de aprobar: cómo se retira la mercadería, órdenes de compra a proveedores y facturas, importación si corresponde y los gastos del proyecto.' },
   { key: 'entrega', label: 'Entrega y cierre', icon: Truck, descripcion: 'Plazo de entrega, incidencias, entrega al cliente, acta firmada, costo real final, postventa y cierre del proyecto.' },
+  { key: 'gestion', label: 'Gestionar documentos', icon: FilePlus, descripcion: 'Certificados, actas y otros documentos hechos desde plantillas: los datos de la licitación se llenan solos.' },
   { key: 'obuma', label: 'Obuma', icon: ObumaIcon, descripcion: 'Un solo lugar para lo que se crea en Obuma: primero el proveedor, después el SKU de cada producto y por último las órdenes de compra.', secundaria: true },
   { key: 'documentos', label: 'Documentos', icon: FileText, descripcion: 'Bases y acta de la licitación, más la revisión automática del agente sobre este negocio.', secundaria: true },
   { key: 'actividad', label: 'Actividad', icon: History, descripcion: 'Línea de tiempo del proyecto: qué se hizo día a día, desde que se ganó hasta ahora.', secundaria: true },
@@ -86,6 +88,9 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   // El botón «Obuma» abre un resumen de lo creado en Obuma desde Licitank (ya no lleva a otra pantalla).
   const [resumenObumaAbierto, setResumenObumaAbierto] = useState(false);
   const hayPostventa = useHayPostventa(negocioId);
+  // El paso «Gestionar documentos» solo existe si la empresa del negocio tiene plantillas (hoy Comercial MP).
+  const [hayGestionDocs, setHayGestionDocs] = useState(false);
+  useEffect(() => { fetch(`/api/compras/${negocioId}/documentos-generados`).then(r => r.json()).then(d => setHayGestionDocs(!!d?.habilitado)).catch(() => {}); }, [negocioId]);
   // Otras tarjetas pueden mandar al encargado a otro paso (ej. «Ir a crear proveedor» desde una compra directa).
   useEffect(() => {
     const h = (e: Event) => {
@@ -101,7 +106,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     const fase = q.get('fase');
-    if (fase && ['tareas', 'costeo', 'aprobacion', 'compra', 'entrega', 'obuma', 'documentos', 'actividad'].includes(fase)) {
+    if (fase && ['tareas', 'costeo', 'aprobacion', 'compra', 'entrega', 'gestion', 'obuma', 'documentos', 'actividad'].includes(fase)) {
       irAFase(fase as Fase);
       const pid = Number(q.get('producto'));
       if (q.get('pestana') || pid) enfocarProducto(q.get('pestana'), pid > 0 ? pid : null);
@@ -315,7 +320,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
     return { badge: null, estado: 'neutral' };
   };
 
-  const pasosFlujo = FASES.filter(f => !f.secundaria && !(soloDesdeAprobacion && (f.key === 'tareas' || f.key === 'costeo')));
+  const pasosFlujo = FASES.filter(f => (f.key !== 'gestion' || hayGestionDocs) && !f.secundaria && !(soloDesdeAprobacion && (f.key === 'tareas' || f.key === 'costeo')));
   const irAFaseFlujo = (k: Fase) => { setFaseActiva(k); setTimeout(() => document.getElementById('compras-flujo')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); };
 
   return (
@@ -976,6 +981,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
         <ResumenObumaModal negocioId={negocioId} onCerrar={() => setResumenObumaAbierto(false)}
           onIrGestion={() => irAFase('obuma')} onIrSku={() => setFaseActiva('aprobacion')} />
       )}
+            {faseActiva === 'gestion' && <GestionDocumentosCard negocioId={negocioId} />}
             {faseActiva === 'documentos' && (
               <div className="space-y-3">
                 <DocumentosLicitacionCard licitacionCodigo={licitacionCodigoActual || asignacion.licitacionCodigo} />

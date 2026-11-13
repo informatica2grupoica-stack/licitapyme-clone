@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 18 684 264" width="684" height="264">
+  <defs>
+    <linearGradient id="az" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1b4fb8"/><stop offset="1" stop-color="#0a2463"/></linearGradient>
+    <linearGradient id="or" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffd54a"/><stop offset="1" stop-color="#f5a300"/></linearGradient>
+  </defs>
+  <!-- emblema: una C abierta (azul) que abraza un sol naciente (dorado) -->
+  <path d="M 236 82 A 118 118 0 1 0 236 218 L 205 190 A 76 76 0 1 1 205 110 Z" fill="url(#az)"/>
+  <circle cx="158" cy="150" r="40" fill="url(#or)"/>
+  <!-- texto, pegado al emblema -->
+  <text x="256" y="112" font-family="Segoe UI, Arial, Helvetica, sans-serif" font-size="30" font-weight="600" letter-spacing="19.5" fill="#5b6b8c">INVERSIONES</text>
+  <text x="248" y="214" font-family="Segoe UI, Arial, Helvetica, sans-serif" font-size="118" font-weight="800" letter-spacing="3" fill="#0a2463">CLARO</text>
+  <rect x="256" y="236" width="150" height="8" rx="4" fill="url(#or)"/>
+  <rect x="414" y="236" width="48" height="8" rx="4" fill="#1b4fb8"/>
+</svg>

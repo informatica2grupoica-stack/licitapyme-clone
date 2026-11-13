@@ -23,6 +23,11 @@ const EMISORES_PROPIOS: Record<string, { prefijo: string; logo: string; proveedo
   '783881756': { prefijo: 'MP', logo: 'oc-mp/logo.png', proveedorRut: '76.902.659-2' },
 };
 
+/** Logo (ruta bajo public/) con que una empresa del grupo imprime sus documentos; el mismo de su OC propia. */
+// Inversiones Claro (76.902.659-2) no emite OC propias (va por Obuma), así que su logo va aparte de EMISORES_PROPIOS.
+const LOGOS_OTRAS_EMPRESAS: Record<string, string> = { '769026592': 'oc-claro/logo.png' };
+export function logoDeEmpresaPorRut(rut: string | null | undefined): string | null { const r = rutComparable(rut || ''); return EMISORES_PROPIOS[r]?.logo ?? LOGOS_OTRAS_EMPRESAS[r] ?? null; }
+
 interface EmpresaFila { id: number; cliente_id: number; razon_social: string; rut: string; giro: string | null; direccion: string | null; region: string | null; email1: string | null; telefono1: string | null }
 
 export interface EmpresaOc { razonSocial: string; rut: string; giro: string; direccion: string; telefono: string; email: string }
