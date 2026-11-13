@@ -8,6 +8,7 @@ import { ahoraChileSQL } from '@/app/lib/tz';
 import {
   listarComprasOcItems, listarBodegasObuma, listarSucursalesObuma, listarRegionesComunasObuma, ultimasGuiasObuma,
   crearVentaIntegracionExterna, clientesObumaCompleto, centrosDeCostoCompleto, buscarCentroCostoPorLicitacion,
+  guiasRecientesObuma, pdfYEstadoDte,
 } from '@/app/lib/obuma';
 
 // Precio de cada línea = precio de VENTA neto del costeo/acta (compras_producto.monto_unitario, el mismo que se manda al crear el SKU),
@@ -228,6 +229,37 @@ export async function crearGuiaDespachoObuma(doc: Record<string, unknown>, permi
     console.error('[obuma][guía 52] falló:', String(e?.message || e).slice(0, 1500));
     throw new Error(`Obuma rechazó la guía: ${String(e?.message || e).replace(/^Obuma\s+\S+:\s*/, '')}`.slice(0, 280));
   }
+}
+
+export interface GuiaDelNegocio {
+  folio: string; fecha: string; neto: number; total: number; anulada: boolean; facturada: boolean;
+  pdf: string | null; xml: string | null; entregadoSii: boolean; aceptadoSii: boolean; enviadoReceptor: boolean; aceptadoReceptor: boolean;
+}
+
+/** Guías 52 emitidas en Obuma para este negocio (desde LICITANK o a mano), con PDF y estado ante el SII.
+ *  Se reconocen por el centro de costo de la licitación, o porque la observación nombra la licitación o una OC de Obuma del negocio. */
+export async function guiasDelNegocio(negocioId: number): Promise<GuiaDelNegocio[]> {
+  const codigo = await licitacionDelNegocio(negocioId);
+  if (!codigo) return [];
+  const [cc, centros, guias, [ocRows]] = await Promise.all([
+    buscarCentroCostoPorLicitacion(codigo).catch(() => null),
+    centrosDeCostoCompleto().catch(() => []),
+    guiasRecientesObuma(),
+    pool.query(`SELECT obuma_folio FROM compras_orden_compra_obuma WHERE negocio_id = ? AND obuma_folio IS NOT NULL`, [negocioId]) as any,
+  ]);
+  const ccFull = cc ? centros.find(c => c.id === cc.id) : undefined;
+  const marcasCc = new Set([ccFull?.codigo, cc?.id, cc?.nombre].filter((x): x is string => !!x && x !== '0'));
+  const folios = (ocRows as any[]).map(r => String(r.obuma_folio));
+  const esDelNegocio = (g: { centroCosto: string; observacion: string }) =>
+    marcasCc.has(g.centroCosto.trim())
+    || g.observacion.includes(codigo)
+    || folios.some(f => new RegExp(`OC Obuma ${f}(?!\\d)`).test(g.observacion));
+  const propias = guias.filter(esDelNegocio).slice(0, 15);
+  // 2 consultas por guía (cupo diario de 1.500 por endpoint): se limita a las 15 más recientes.
+  return Promise.all(propias.map(async g => ({
+    folio: g.folio, fecha: g.fecha, neto: g.neto, total: g.total, anulada: g.anulada, facturada: g.facturada,
+    ...(await pdfYEstadoDte(52, g.folio).catch(() => ({ pdf: null, xml: null, entregadoSii: false, aceptadoSii: false, enviadoReceptor: false, aceptadoReceptor: false }))),
+  })));
 }
 
 // Obuma de Grupo ICA funciona solo con Inversiones Claro (dueño, 13-nov-2026): las guías se ofrecen únicamente en sus negocios.

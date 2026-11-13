@@ -1050,15 +1050,56 @@ export async function ultimasGuiasObuma(limite = 20): Promise<Array<{ folio: str
 
 /** Crea UNA venta/DTE de verdad. Respuesta documentada: result.result = "OK" y result.result_dte[] con dte_folio, dte_id_obuma, dte_pdf. */
 export async function crearVentaIntegracionExterna(doc: Record<string, unknown>): Promise<{ folio: string | null; idObuma: string | null; pdf: string | null; detalle: string }> {
+  cacheGuias = null;   // la lista de guías emitidas cambia (o pudo cambiar aunque la respuesta falle)
   const json = await llamarPost<any>(BASE_V1, '/ventasIntegracionExternas.create.json', { docs: [doc] });
   if (Array.isArray(json?.errors) && json.errors.length) throw new Error(`Obuma: ${json.errors.map((e: any) => `${e.code} ${e.message}`).join(' · ')}`);
   const res = json?.result || {};
   const dte = Array.isArray(res.result_dte) ? res.result_dte[0] : null;
-  if (String(res.result).toUpperCase() !== 'OK') throw new Error(`Obuma no confirmó la guía: ${JSON.stringify(res.result_detail ?? json).slice(0, 600)}`);
+  // La doc dice "OK", pero los endpoints de DTE responden result "0" (ventasConsultaDte, leído en vivo 13-nov): se aceptan ambos.
+  if (!['OK', '0'].includes(String(res.result).toUpperCase())) throw new Error(`Obuma no confirmó la guía: ${JSON.stringify(res.result_detail ?? json).slice(0, 600)}`);
   return {
     folio: dte?.dte_folio != null ? String(dte.dte_folio) : null,
     idObuma: dte?.dte_id_obuma != null ? String(dte.dte_id_obuma) : null,
     pdf: dte?.dte_pdf ? String(dte.dte_pdf) : null,
     detalle: typeof res.result_detail === 'string' ? res.result_detail.slice(0, 600) : JSON.stringify(res.result_detail ?? '').slice(0, 600),
+  };
+}
+
+export interface ObumaGuiaEmitida {
+  folio: string; idObuma: string; fecha: string; neto: number; total: number;
+  centroCosto: string; observacion: string; anulada: boolean; facturada: boolean;
+}
+let cacheGuias: { en: number; datos: ObumaGuiaEmitida[] } | null = null;
+/** Guías 52 más recientes (Obuma las entrega de la más nueva a la más vieja). Cacheadas 5 min: el listado no filtra por centro de costo. */
+export async function guiasRecientesObuma(paginas = 3, porPagina = 100): Promise<ObumaGuiaEmitida[]> {
+  if (cacheGuias && Date.now() - cacheGuias.en < 5 * 60_000) return cacheGuias.datos;
+  const datos: ObumaGuiaEmitida[] = [];
+  for (let page = 1; page <= paginas; page++) {
+    const r = await llamar<ObumaListado<any>>(BASE_V1, '/ventas.list.json', { tipo_dcto: 52, limit: porPagina, page });
+    const lote = (r.data || []).filter(v => String(v.venta_tipo_dcto) === '52');
+    datos.push(...lote.map(v => ({
+      folio: String(v.venta_nro_dcto || ''), idObuma: String(v.venta_id || ''), fecha: String(v.venta_fecha_ingreso || '').slice(0, 10),
+      neto: Math.round(Number(v.venta_neto) || 0), total: Math.round(Number(v.venta_total) || 0),
+      centroCosto: String(v.venta_centro_costo ?? ''), observacion: String(v.venta_observacion ?? ''),
+      anulada: String(v.venta_guia_anulada) === '1' || String(v.venta_anulada) === '1', facturada: String(v.venta_guia_facturada) === '1',
+    })));
+    if ((r.data || []).length < porPagina || page >= (Number(r['data-total-pages']) || 1)) break;
+  }
+  cacheGuias = { en: Date.now(), datos };
+  return datos;
+}
+
+/** PDF/XML y estado ante el SII de un DTE emitido (probado en vivo con la guía 1913, 13-nov-2026). */
+export async function pdfYEstadoDte(tipoDte: number, folio: string): Promise<{ pdf: string | null; xml: string | null; entregadoSii: boolean; aceptadoSii: boolean; enviadoReceptor: boolean; aceptadoReceptor: boolean }> {
+  const [a, b] = await Promise.all([
+    llamarPost<any>(BASE_V1, '/ventasConsultaDte.listPdfXml.json', { tipoDte, folio }).catch(() => null),
+    llamarPost<any>(BASE_V1, '/ventasConsultaDte.estadoDTEenSII.json', { tipoDte, folio }).catch(() => null),
+  ]);
+  const p = a?.result?.result_dte?.[0] || {};
+  const e = b?.result?.result_dte?.[0] || {};
+  return {
+    pdf: p.dte_pdf || p.dte_pdf_url || null, xml: p.dte_xml || p.dte_xml_url || null,
+    entregadoSii: String(e.dte_entregado_sii) === '1', aceptadoSii: String(e.dte_aceptado_sii) === '1',
+    enviadoReceptor: String(e.dte_enviado_receptor) === '1', aceptadoReceptor: String(e.dte_aceptado_receptor) === '1',
   };
 }

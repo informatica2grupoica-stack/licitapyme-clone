@@ -32,6 +32,64 @@ function Campo({ label, value, onChange, ancho = '' }: { label: string; value: s
   );
 }
 
+interface GuiaEmitida {
+  folio: string; fecha: string; neto: number; total: number; anulada: boolean; facturada: boolean;
+  pdf: string | null; xml: string | null; entregadoSii: boolean; aceptadoSii: boolean; enviadoReceptor: boolean; aceptadoReceptor: boolean;
+}
+
+function estadoSii(g: GuiaEmitida): { texto: string; clase: string } {
+  if (g.anulada) return { texto: 'Anulada', clase: 'bg-zinc-100 text-zinc-600' };
+  if (g.aceptadoSii) return { texto: 'Aceptada por el SII', clase: 'bg-teal-50 text-teal-800' };
+  if (g.entregadoSii) return { texto: 'En revisión en el SII', clase: 'bg-amber-50 text-amber-800' };
+  return { texto: 'Aún no llega al SII', clase: 'bg-amber-50 text-amber-800' };
+}
+
+/** Guías de despacho ya emitidas en Obuma para este negocio (desde aquí o a mano), con su PDF y estado ante el SII. */
+function GuiasEmitidas({ url, recargar }: { url: string; recargar: number }) {
+  const [guias, setGuias] = useState<GuiaEmitida[] | null>(null);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    setGuias(null); setError(false);
+    fetch(`${url}?guias=1`).then(x => x.json()).then(d => { if (d?.success) setGuias(d.guias); else setError(true); }).catch(() => setError(true));
+  }, [url, recargar]);
+
+  if (error) return <p className="text-[12px] text-zinc-500">No se pudieron consultar las guías emitidas en Obuma.</p>;
+  if (guias === null) return <p className="inline-flex items-center gap-2 text-[12px] text-zinc-500"><Loader2 size={13} className="animate-spin" /> Buscando guías emitidas en Obuma…</p>;
+  if (guias.length === 0) return <p className="text-[12px] text-zinc-500">Todavía no hay guías de despacho emitidas en Obuma para esta licitación.</p>;
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[12.5px] font-semibold text-zinc-800">Guías emitidas en Obuma</p>
+      <div className="overflow-x-auto rounded-lg border border-zinc-200">
+        <table className="w-full text-[12.5px]">
+          <thead className="bg-zinc-50 text-zinc-500 text-left"><tr>
+            <th className="px-3 py-2">Folio</th><th className="px-3 py-2">Fecha</th><th className="px-3 py-2 text-right">Neto</th>
+            <th className="px-3 py-2 text-right">Total</th><th className="px-3 py-2">Estado</th><th className="px-3 py-2" />
+          </tr></thead>
+          <tbody>{guias.map(g => {
+            const e = estadoSii(g);
+            return (
+              <tr key={g.folio} className="border-t border-zinc-100">
+                <td className="px-3 py-1.5 font-semibold tabular-nums">{g.folio}</td>
+                <td className="px-3 py-1.5 tabular-nums">{g.fecha.split('-').reverse().join('-')}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{clp(g.neto)}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{clp(g.total)}</td>
+                <td className="px-3 py-1.5">
+                  <span className={`inline-block rounded-md px-2 py-0.5 text-[11.5px] font-medium ${e.clase}`}>{e.texto}</span>
+                  {g.facturada && <span className="ml-1.5 inline-block rounded-md bg-slate-100 px-2 py-0.5 text-[11.5px] text-zinc-600">Facturada</span>}
+                </td>
+                <td className="px-3 py-1.5 text-right whitespace-nowrap">
+                  {g.pdf ? <a href={g.pdf} target="_blank" rel="noreferrer" className="font-semibold text-teal-700 hover:underline">Ver PDF</a> : <span className="text-zinc-400">sin PDF</span>}
+                  {g.xml && <a href={g.xml} target="_blank" rel="noreferrer" className="ml-3 text-zinc-500 hover:underline">XML</a>}
+                </td>
+              </tr>
+            );
+          })}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export function GuiaDespachoObumaCard({ negocioId }: { negocioId: number }) {
   const toast = useToast();
   const [ocs, setOcs] = useState<Oc[] | null>(null);
@@ -44,6 +102,7 @@ export function GuiaDespachoObumaCard({ negocioId }: { negocioId: number }) {
   const [confirmo, setConfirmo] = useState(false);
   const [creada, setCreada] = useState<{ folio: string | null; pdf: string | null; simulada: boolean } | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  const [recargarGuias, setRecargarGuias] = useState(0);
   const url = `/api/compras/${negocioId}/guia-despacho-obuma`;
 
   useEffect(() => {
@@ -72,6 +131,7 @@ export function GuiaDespachoObumaCard({ negocioId }: { negocioId: number }) {
       if (enviar && d.envio) {
         setCreada({ folio: d.envio.folio, pdf: d.envio.pdf, simulada: d.envio.simulada });
         setConfirmo(false);
+        if (!d.envio.simulada) setRecargarGuias(n => n + 1);
         toast.success(d.envio.simulada ? 'Guía simulada' : 'Guía creada en Obuma', `Folio ${d.envio.folio ?? '(sin folio en la respuesta)'}`);
       }
     } catch (e: any) { toast.error(enviar ? 'No se pudo crear la guía' : 'No se pudo armar el borrador', e.message); }
@@ -84,6 +144,7 @@ export function GuiaDespachoObumaCard({ negocioId }: { negocioId: number }) {
     <section className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50/60 p-4">
       <div className="flex items-center gap-2"><Truck size={18} className="text-zinc-400" /><h3 className="text-[14px] font-semibold text-zinc-700">Guía de despacho en Obuma</h3></div>
       <p className="mt-1 text-[12.5px] text-zinc-500">Este negocio aún no tiene una orden de compra de Obuma con folio. Cuando la tenga (créala en «Compra y logística» o anota su N°), aquí podrás armar la guía con sus productos y SKU.</p>
+      <div className="mt-3"><GuiasEmitidas url={url} recargar={recargarGuias} /></div>
     </section>
   );
 
@@ -98,6 +159,7 @@ export function GuiaDespachoObumaCard({ negocioId }: { negocioId: number }) {
     <section className="rounded-xl border border-zinc-200 bg-white p-4 space-y-3">
       <div className="flex items-center gap-2"><Truck size={18} className="text-teal-700" /><h3 className="text-[14px] font-semibold text-zinc-900">Guía de despacho en Obuma</h3></div>
       <p className="text-[12.5px] text-zinc-500">Se arma con los productos y SKU de una orden de compra de Obuma de este negocio, con el <b>precio de venta</b> del costeo.</p>
+      <GuiasEmitidas url={url} recargar={recargarGuias} />
       <div className="flex flex-wrap items-center gap-2">
         <select value={folio} onChange={e => { setFolio(e.target.value); setR(null); setDatos(null); setManual({}); setCreada(null); setConfirmo(false); }}
           className="text-[13px] px-3 py-2 rounded-lg border border-zinc-300 bg-white min-w-[260px]">

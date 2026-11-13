@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { puedeOperarReparto } from '@/app/api/compras/[negocioId]/reparto/route';
 import {
-  armarGuiaDesdeOcObuma, armarDocumentoGuia, crearGuiaDespachoObuma, datosSugeridosGuia, negocioEsDeClaro, ocsParaGuia, type DatosGuia,
+  armarGuiaDesdeOcObuma, armarDocumentoGuia, crearGuiaDespachoObuma, datosSugeridosGuia, guiasDelNegocio, negocioEsDeClaro, ocsParaGuia, type DatosGuia,
 } from '@/app/lib/compras-guia-despacho-obuma';
 
 export const runtime = 'nodejs';
@@ -33,6 +33,8 @@ export async function GET(request: NextRequest, { params }: Params) {
   try {
     const a = await acceso(request, (await params).negocioId);
     if ('error' in a) return a.error;
+    // ?guias=1 → guías ya emitidas en Obuma para este negocio, con PDF y estado SII (consulta aparte: es la más lenta).
+    if (request.nextUrl.searchParams.get('guias') === '1') return NextResponse.json({ success: true, guias: await guiasDelNegocio(a.id) });
     return NextResponse.json({ success: true, ocs: await ocsParaGuia(a.id), simulando: process.env.OBUMA_SIMULAR === '1' });
   } catch (error) {
     console.error('[compras/guia-despacho-obuma][GET]', String(error));
