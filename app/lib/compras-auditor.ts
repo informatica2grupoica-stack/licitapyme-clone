@@ -985,6 +985,8 @@ export interface Escenario {
   // VIAJE_INTERNO_CLP (ver armar() más abajo): queda en $0 y esta bandera avisa que ese $0 no es un
   // dato confirmado, es solo "todavía no se sabe".
   fleteSinConfirmar: boolean;
+  /** Proveedores elegidos con algo dudoso (RUT inválido, plazo sin informar): QA 13-nov, el más barato elegía uno así sin aviso. */
+  avisos?: string[];
 }
 
 interface EleccionPorProducto { productoId: number; descripcion: string; cantidad: number | null; item: CotizacionFila['items'][number] & { despachoModalidad?: string | null; cotizacionId: number; moneda: string; tipoCambioUsado: number | null; proveedor: string; plazoEntregaDias: number | null; incluyeFlete: boolean | null; fleteMonto: number | null } }
@@ -1038,6 +1040,7 @@ export async function calcularEscenarios(negocioId: number): Promise<Escenario[]
   const cotizaciones = await listarCotizaciones(negocioId);
   if (cotizaciones.length === 0) return []; // sin ninguna cotización todavía: no hay nada que ponderar
   const porProducto = elegirCandidatos(productos, cotizaciones);
+  const rutPorProveedor = new Map(cotizaciones.map(c => [c.proveedorNombre, c.proveedorRut] as [string, string | null]));
 
   function armar(tipo: TipoEscenario, elegir: (candidatos: EleccionPorProducto['item'][]) => EleccionPorProducto['item'] | undefined): Escenario | null {
     const porProductoDetalle: DetalleEscenario['porProducto'] = [];
@@ -1091,8 +1094,17 @@ export async function calcularEscenarios(negocioId: number): Promise<Escenario[]
     // todavía nadie lo cargó — mismo criterio "avisa, no adivina" que el resto del módulo.
     const fleteSinConfirmar = !hayFleteContratado && [...proveedoresNecesitanViaje.values()].some(monto => monto == null);
     const costoLogistico = [...proveedoresNecesitanViaje.values()].reduce((s: number, monto) => s + (monto ?? 0), 0) + costoFleteContratado;
+    const elegidos = porProductoDetalle.filter(d => d.proveedor != null);
+    const sinPlazo = [...new Set(elegidos.filter(d => d.plazoEntregaDias == null).map(d => d.proveedor as string))];
+    const rutMalo = [...new Set(elegidos.map(d => d.proveedor as string))].filter(pv => { const rut = rutPorProveedor.get(pv); return !!rut && !rutValido(rut); });
+    const avisos = [
+      ...rutMalo.map(pv => `${pv}: el RUT de la cotización no es válido.`),
+      ...sinPlazo.map(pv => `${pv}: no informó plazo de entrega.`),
+    ];
     return {
-      tipo, costoTotal: costoMercaderia + costoLogistico, diasEstimados: diasMax || null, viajesEstimados: viajes,
+      avisos,
+      // Con algún proveedor sin plazo, «N días» sería falso: queda desconocido.
+      tipo, costoTotal: costoMercaderia + costoLogistico, diasEstimados: sinPlazo.length ? null : (diasMax || null), viajesEstimados: viajes,
       detalle: { porProducto: porProductoDetalle, proveedoresInvolucrados: [...proveedoresSet] },
       esPrincipal: tipo === 'MAS_RAPIDO', fleteSinConfirmar,
     };
@@ -1201,7 +1213,7 @@ export async function enumerarCombinaciones(negocioId: number): Promise<Resultad
     if (i === cubiertos.length) {
       // «Va incluido» solo vale si el proveedor también vende, en esta misma combinación, algún producto con precio (el que lo contiene).
       const ok = elegidos.every(e => !(e.precioBase === 0) || elegidos.some(o => o !== e && o.cotizacionId === e.cotizacionId && (o.precioBase ?? 1) > 0));
-      if (ok) todas.push(armarCombinacion(cubiertos, elegidos));
+      if (ok) todas.push(armarCombinacion(cubiertos, elegidos, cotizaciones));
       return;
     }
     for (const c of listas[i]) { elegidos[i] = c; recorrer(i + 1); }
@@ -1275,7 +1287,7 @@ export async function evaluarSeleccion(negocioId: number, seleccion: Record<numb
     }
   }
   if (elegidos.length === 0 || errores.length > 0) return { combinacion: null, faltan, sinOferta, errores };
-  const comb = armarCombinacion(elegidosProd, elegidos);
+  const comb = armarCombinacion(elegidosProd, elegidos, cotizaciones);
   await etiquetarConClasicos(negocioId, [comb]);
   return { combinacion: comb, faltan, sinOferta, errores };
 }
@@ -1300,7 +1312,7 @@ export async function elegirSeleccion(
 }
 
 
-function armarCombinacion(productos: ProductoCompra[], elegidos: EleccionPorProducto['item'][]): Combinacion {
+function armarCombinacion(productos: ProductoCompra[], elegidos: EleccionPorProducto['item'][], cotizaciones: Array<{ id: number; proveedorRut: string | null }> = []): Combinacion {
   const items: ItemCombinacion[] = productos.map((p, i) => {
     const e = elegidos[i];
     return {
@@ -1327,6 +1339,9 @@ function armarCombinacion(productos: ProductoCompra[], elegidos: EleccionPorProd
 
   const avisos: string[] = [];
   if (fleteSinConfirmar) avisos.push('Hay proveedores que necesitan viaje y nadie cargó cuánto cuesta: el flete cuenta como $0 sin confirmar.');
+  // QA 13-nov: el más barato elegía un proveedor con RUT inválido sin decir nada.
+  const rutMalo = [...new Set(items.filter(x => { const rut = cotizaciones.find(c => c.id === x.cotizacionId)?.proveedorRut; return !!rut && !rutValido(rut); }).map(x => x.proveedor))];
+  if (rutMalo.length) avisos.push(`RUT inválido en la cotización de: ${rutMalo.join(', ')} (revisa que sea el proveedor correcto antes de comprarle).`);
   if (sinPlazo.length) avisos.push(`Sin plazo de entrega declarado: ${sinPlazo.join(', ')} (los días de esta combinación pueden ser mayores).`);
   const ext = [...new Set(items.filter(x => x.moneda !== 'CLP').map(x => x.moneda))];
   if (ext.length) avisos.push(`Incluye precios en ${ext.join('/')} convertidos a pesos con el tipo de cambio de la cotización: es una importación (internación, flete y plazos aparte).`);
@@ -1334,7 +1349,7 @@ function armarCombinacion(productos: ProductoCompra[], elegidos: EleccionPorProd
 
   const clave = items.map(x => `${x.productoId}:${x.cotizacionId}`).join('|');
   return {
-    clave, costoFleteContratado, costoMercaderia, costoLogistico, costoTotal: costoMercaderia + costoLogistico, diasEstimados: dias || null, viajes: [...viaje.keys()].filter(pv => modalViaje.get(pv) !== 'PROVEEDOR').length,
+    clave, costoFleteContratado, costoMercaderia, costoLogistico, costoTotal: costoMercaderia + costoLogistico, diasEstimados: sinPlazo.length ? null : (dias || null), viajes: [...viaje.keys()].filter(pv => modalViaje.get(pv) !== 'PROVEEDOR').length,
     nProveedores: proveedores.length, proveedores, peorCumple: peor, fleteSinConfirmar, proveedoresSinPlazo: sinPlazo, items, etiquetas: [],
     diferenciaVsMasBarata: 0, diferenciaPctVsMasBarata: null, avisos,
     detalle: {

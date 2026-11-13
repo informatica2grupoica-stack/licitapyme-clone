@@ -703,9 +703,18 @@ function datosFacturacion(raw: any, rutRespaldo: string | null): DatosFacturacio
     direccion: t(c.DireccionUnidad), comuna: t(c.ComunaUnidad), region: t(c.RegionUnidad),
     contactoNombre: t(c.NombreContacto), contactoCargo: t(c.CargoContacto),
     contactoFono: t(c.FonoContacto), contactoMail: t(c.MailContacto),
-    formaPago: t(raw?.FormaPago), direccionDespacho: t(raw?.DireccionDespacho),
+    formaPago: formaPagoMp(t(raw?.FormaPago)), direccionDespacho: t(raw?.DireccionDespacho),
   };
   return Object.values(d).some(Boolean) ? d : null;
+}
+
+/** Mercado Público entrega la forma de pago como código («2»): en pantalla se mostraba el número (QA 13-nov). */
+function formaPagoMp(v: string | null): string | null {
+  const codigos: Record<string, string> = {
+    '1': '15 días contra la recepción de la factura', '2': '30 días contra la recepción de la factura',
+    '39': 'Otra forma de pago', '46': '50 días contra la recepción de la factura', '47': '60 días contra la recepción de la factura',
+  };
+  return v && /^\d+$/.test(v) ? (codigos[v] ?? `Código ${v} de Mercado Público`) : v;
 }
 
 export interface OrdenCompraListaFila extends OrdenCompraFila {

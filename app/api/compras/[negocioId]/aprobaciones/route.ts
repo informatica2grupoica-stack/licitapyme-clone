@@ -6,7 +6,7 @@ import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
-import {
+import { validacionesPendientesCompra,
   obtenerAprobaciones, calcularMargenPrevisto, calcularPresupuestoCompra, obtenerEscenarioElegido,
   proponerAprobacionCompra, proponerAprobacionMargen,
   resolverAprobacion, deshacerAprobacion, type TipoAprobacion, type DecisionAprobacion,
@@ -51,8 +51,8 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!(await puedeVerCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
-    const [aprobaciones, margen, presupuesto, escenarioElegido, jefe] = await Promise.all([
-      obtenerAprobaciones(id), calcularMargenPrevisto(id), calcularPresupuestoCompra(id), obtenerEscenarioElegido(id), esJefeDeVentas(userId, rol),
+    const [aprobaciones, margen, presupuesto, escenarioElegido, jefe, validacionesPendientes] = await Promise.all([
+      obtenerAprobaciones(id), calcularMargenPrevisto(id), calcularPresupuestoCompra(id), obtenerEscenarioElegido(id), esJefeDeVentas(userId, rol), validacionesPendientesCompra(id),
     ]);
     // Pedido explícito del usuario (11-sep-2026): la Compuerta 1 "Pendiente" mostraba el snapshot
     // CONGELADO al proponerse (spec §10.2), que puede haber quedado viejo si después se eligió otro
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     // elegido EN VIVO aparte para que la pantalla pueda avisar "esto está desactualizado" en vez de
     // mostrar el número viejo como si fuera el vigente.
     return NextResponse.json({
-      success: true, ...aprobaciones, margenActual: margen, presupuestoActual: presupuesto,
+      success: true, ...aprobaciones, margenActual: margen, presupuestoActual: presupuesto, validacionesPendientes,
       escenarioElegidoActual: escenarioElegido ? { tipo: escenarioElegido.tipo, costoTotal: Number(escenarioElegido.costo_total) } : null,
       esJefeDeVentas: jefe,
       puedeDeshacer: jefe,

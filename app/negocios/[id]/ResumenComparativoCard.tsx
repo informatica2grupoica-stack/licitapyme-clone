@@ -19,7 +19,7 @@ interface Fila {
   obumaProveedor: string | null; obumaOc: string | null; obumaEstado: string | null; obumaSku: string | null;
   obumaUnit: number | null; obumaNeto: number | null; otroProveedor: boolean; ocPropia?: boolean;
 }
-interface PorOc { ocFolio: string; proveedor: string | null; estado: string | null; planNeto: number | null; obumaNeto: number; facturadoNeto: number; facturas: number; ocPropia?: boolean; din?: string[] }
+interface PorOc { ocFolio: string; proveedor: string | null; estado: string | null; planNeto: number | null; obumaNeto: number; facturadoNeto: number; facturas: number; ocPropia?: boolean; respaldoInternoNeto?: number; din?: string[] }
 interface CuadreLado { obumaCantidad: number; obumaTotal: number; licitankCantidad: number; licitankTotal: number; diferencias: { concepto: string; monto: number; gastoPropio?: { descripcion: string; categoria: string } }[]; sinExplicar: number }
 interface Resumen {
   cuadre: { proyectoFolio: number | null; proyectoNombre: string | null; oc: CuadreLado; facturas: CuadreLado; soloEnOc: string[]; cuadra: boolean } | null;
@@ -326,7 +326,7 @@ export function ResumenComparativoCard({ negocioId }: { negocioId: number }) {
             <tbody className="text-tinta-2 dark:text-slate-300">
               {r.porOc.map(o => (
                 <tr key={o.ocFolio} className={`${TR} align-middle`}>
-                  <td className="px-3 py-2 tabular-nums whitespace-nowrap">OC {o.ocFolio}{o.ocPropia && <span className="block text-[11px] text-tinta-3">propia (Licitank)</span>}</td>
+                  <td className="px-3 py-2 tabular-nums whitespace-nowrap">OC {o.ocFolio}{o.ocPropia && <span className="block text-[11px] text-tinta-3 whitespace-normal max-w-[220px]">propia (Licitank){o.respaldoInternoNeto ? ` · respaldo interno, ${fmt(o.respaldoInternoNeto)} no suma (ya está en las OC de Obuma)` : ""}</span>}</td>
                   <td className="px-3 py-2 font-semibold text-tinta dark:text-slate-100">{o.proveedor || '—'}</td>
                   <td className="px-3 py-2 whitespace-nowrap"><Estado color={colorEstadoOc(o.estado)}>{estadoLegible(o.estado)}</Estado></td>
                   <td className="px-3 py-2 text-right tabular-nums">{fmt(o.planNeto)}</td>

@@ -8,6 +8,7 @@
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { registrarEvento } from '@/app/lib/historial';
 import { cambiarEstadoTarea, guardarRegistroTarea, obtenerAsignacion, type EstadoTarea } from '@/app/lib/compras';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 
@@ -61,6 +62,23 @@ async function __PATCH(request: NextRequest, { params }: Params) {
       }, { id: userId, nombre: actorNombre });
     }
     if (estado !== null) {
+      // QA 13-nov: §5.1 «cierre sin ejecución: no permitido» no se cumplía (se cerraba una validación vacía) y una tarea hecha
+      // se reabría sin dejar rastro. Ahora: tarea con formulario → cerrar exige lo anotado (o una nota de 10+ letras);
+      // reabrir una HECHA exige motivo, que queda en la bitácora.
+      const [trows] = await pool.query(
+        `SELECT t.estado, t.titulo, t.registro_json, c.campos_json FROM compras_tarea t
+           LEFT JOIN compras_tarea_catalogo c ON c.clave = t.catalogo_clave WHERE t.id = ? LIMIT 1`, [id]) as any;
+      const t = (trows as any[])[0];
+      const nota = String(body.notaCierre || '').trim();
+      if (estado === 'HECHA' && t?.campos_json && !t.registro_json && nota.length < 10)
+        return NextResponse.json({ error: 'Esta tarea tiene formulario: anota lo que se hizo antes de cerrarla (o escribe una nota de cierre de al menos 10 caracteres).' }, { status: 400 });
+      if (t?.estado === 'HECHA' && estado !== 'HECHA') {
+        if (nota.length < 5) return NextResponse.json({ error: 'Para reabrir una tarea hecha, escribe el motivo.' }, { status: 400 });
+        await registrarEvento({
+          tipo: 'COMPRAS_TAREA_REABIERTA', licitacionCodigo: asignacion.licitacionCodigo, actorId: userId, actorNombre,
+          mensaje: `Se reabrió la tarea «${t.titulo}»: ${nota.slice(0, 300)}`, metadata: { negocio_id: negocioId, tarea_id: id },
+        }).catch(() => {});
+      }
       await cambiarEstadoTarea(id, estado, {
         actorId: userId, actorNombre,
         notaCierre: body.notaCierre ? String(body.notaCierre).slice(0, 2000) : null,

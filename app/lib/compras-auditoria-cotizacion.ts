@@ -189,6 +189,15 @@ export function revisionesPorCodigo(
       explicacion: `El proveedor solo vende desde ${minimo} unidades y se necesitan ${necesarias}: el precio unitario cotizado puede no aplicar, o habría que comprar de más.` });
   }
 
+  // Cantidad parcial (QA 13-nov, Q09: «Stock disponible: 15» de 25). La cantidad por línea no se guarda por producto: se toma de
+  // las líneas leídas del documento, solo cuando trae UNA línea (sin riesgo de mirar la cantidad de otro producto).
+  const lineasDoc = [...String(cot.descripcion_libre || '').matchAll(/^\d+\. .*?\| cantidad ([\d.,]+)/gm)].map(m => Number(m[1].replace(/\./g, '').replace(',', '.')));
+  if (lineasDoc.length === 1 && necesarias != null && lineasDoc[0] > 0 && lineasDoc[0] < necesarias) {
+    out.push({ ...base, area: 'cantidad', criterio: 'Cantidad cotizada', requerido: `${necesarias} unidad(es)`, cotizado: `${lineasDoc[0]} unidad(es)`,
+      resultado: 'NO_CUMPLE', gravedad: 'aviso',
+      explicacion: `El proveedor cotiza ${lineasDoc[0]} de las ${necesarias} unidades: cubre solo una parte, hay que comprar el resto a otro proveedor.` });
+  }
+
   // RUT del proveedor.
   if (cot.proveedor_rut && !rutValido(String(cot.proveedor_rut))) {
     out.push({ ...base, area: 'proveedor', criterio: 'RUT del proveedor', requerido: 'RUT con dígito verificador correcto', cotizado: String(cot.proveedor_rut),

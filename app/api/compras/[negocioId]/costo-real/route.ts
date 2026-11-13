@@ -5,7 +5,7 @@ import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
-import { costoRealDeNegocio, obtenerCierre, cerrarResultado } from '@/app/lib/compras-costo-real';
+import { costoRealDeNegocio, obtenerCierre, cerrarResultado, faltantesDeCierre } from '@/app/lib/compras-costo-real';
 import { puedeOperarCompras, puedeVerCompras } from '@/app/api/compras/[negocioId]/route';
 
 export const runtime = 'nodejs';
@@ -29,8 +29,8 @@ export async function GET(request: NextRequest, { params }: Params) {
     const asignacion = await obtenerAsignacion(id);
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
     if (!(await puedeVerCompras(userId, rol, asignacion.asignadoA, asignacion.coencargados))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
-    const [resultado, cierre] = await Promise.all([costoRealDeNegocio(id), obtenerCierre(id)]);
-    return NextResponse.json({ success: true, resultado, cierre });
+    const [resultado, cierre, faltantesCierre] = await Promise.all([costoRealDeNegocio(id), obtenerCierre(id), faltantesDeCierre(id)]);
+    return NextResponse.json({ success: true, resultado, cierre, faltantesCierre });
   } catch (error: any) {
     console.error('[compras/costo-real][GET]', String(error));
     return NextResponse.json({ error: mensajeSeguro(error, 'No se pudo calcular el costo real.') }, { status: 500 });

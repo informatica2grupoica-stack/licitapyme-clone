@@ -133,6 +133,7 @@ export function CostoRealCard({ negocioId, puedeOperar, permitirCierre = true }:
   const { recargar: recargarCompartido } = useCompras();
   const [res, setRes] = useState<Resultado | null>(null);
   const [cierre, setCierre] = useState<Cierre | null>(null);
+  const [faltaCierre, setFaltaCierre] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [motivo, setMotivo] = useState('');
   const [cerrando, setCerrando] = useState(false);
@@ -141,7 +142,7 @@ export function CostoRealCard({ negocioId, puedeOperar, permitirCierre = true }:
     try {
       const r = await fetch(`/api/compras/${negocioId}/costo-real`);
       const d = await r.json();
-      if (d.success) { setRes(d.resultado); setCierre(d.cierre); }
+      if (d.success) { setRes(d.resultado); setCierre(d.cierre); setFaltaCierre(d.faltantesCierre || []); }
     } catch (e: any) {
       toast.error('No se pudo calcular el costo real', e.message);
     } finally { setLoading(false); }
@@ -183,7 +184,9 @@ export function CostoRealCard({ negocioId, puedeOperar, permitirCierre = true }:
   const c = res.comparativo;
   const hayReal = c.costoNetoReal != null;
   const faltan = c.filasTotales - c.filasConCostoReal;
-  const motivoCorto = !c.realCompleto && motivo.trim().length < 10;
+  // Además de ítems sin costo real, el cierre pide respaldo (compra, entrega firmada, factura de venta): si falta, pide motivo.
+  const pideMotivo = !c.realCompleto || faltaCierre.length > 0;
+  const motivoCorto = pideMotivo && motivo.trim().length < 10;
 
   return (
     <div className="bg-white rounded-2xl border border-zinc-200 overflow-hidden">
@@ -261,11 +264,11 @@ export function CostoRealCard({ negocioId, puedeOperar, permitirCierre = true }:
       {!permitirCierre && !cierre ? null : cierre ? (
         <div className="px-4 py-3 border-t border-zinc-100 bg-emerald-50/40 text-[11.5px] text-zinc-600">
           Cerrado el <b>{cierre.cerradoAt}</b>{cierre.cerradoPorNombre && <> por <b>{cierre.cerradoPorNombre}</b></>}: costo real <b>{fmtCLP(cierre.costoReal)}</b>, utilidad real <b>{fmtCLP(cierre.utilidadReal)}</b> ({fmtPct(cierre.margenRealPct)}).
-          {cierre.incompleto && <span className="text-amber-700"> Se cerró con ítems sin costo real: &quot;{cierre.motivoIncompleto}&quot;.</span>}
+          {cierre.incompleto && <span className="text-amber-700"> Se cerró incompleto: &quot;{cierre.motivoIncompleto}&quot;.</span>}
           {puedeOperar && permitirCierre && hayReal && (
             <span className="inline-flex items-center gap-2 ml-2 flex-wrap">
-              {!c.realCompleto && (
-                <input value={motivo} onChange={e => setMotivo(e.target.value)} placeholder="Motivo de cerrar con ítems sin costo real"
+              {pideMotivo && (
+                <input value={motivo} onChange={e => setMotivo(e.target.value)} placeholder="Motivo de cerrar con lo que falta"
                   className="min-w-[200px] text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:border-indigo-400" />
               )}
               <button onClick={cerrar} disabled={cerrando || motivoCorto}
@@ -277,8 +280,13 @@ export function CostoRealCard({ negocioId, puedeOperar, permitirCierre = true }:
         </div>
       ) : puedeOperar && permitirCierre && hayReal && (
         <div className="px-4 py-3 border-t border-zinc-100 flex items-center gap-2 flex-wrap">
-          {!c.realCompleto && (
-            <input value={motivo} onChange={e => setMotivo(e.target.value)} placeholder={`Faltan ${faltan} ítem(s) con costo real: ¿por qué se cierra igual?`}
+          {faltaCierre.length > 0 && (
+            <p className="w-full flex items-start gap-1.5 text-[11.5px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
+              <AlertTriangle size={13} className="flex-shrink-0 mt-px" /> Antes de cerrar falta: {faltaCierre.join(' · ')}. Se puede cerrar igual con motivo y queda marcado incompleto.
+            </p>
+          )}
+          {pideMotivo && (
+            <input value={motivo} onChange={e => setMotivo(e.target.value)} placeholder={faltaCierre.length ? '¿Por qué se cierra igual?' : `Faltan ${faltan} ítem(s) con costo real: ¿por qué se cierra igual?`}
               className="flex-1 min-w-[220px] text-[12px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:border-indigo-400" />
           )}
           <button onClick={cerrar} disabled={cerrando || motivoCorto}

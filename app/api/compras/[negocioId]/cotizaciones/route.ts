@@ -185,6 +185,10 @@ async function __POST(request: NextRequest, { params }: Params) {
       // Proveedor extranjero (ej. Ningbo, ya creado en Obuma): no tiene RUT chileno y se acepta sin él.
       if (!(datos as any).proveedorExtranjero && !rutChilenoValido(datos.proveedorRut)) return NextResponse.json({ error: 'La compra directa necesita el RUT de la tienda, válido (ej. 76.123.456-7).' }, { status: 400 });
       await exigirTablaCompraRapida();
+      // QA 13-nov: el precio se validaba recién al pedir la compra rápida, DESPUÉS de crear la cotización: quedaba una vacía.
+      const items = Array.isArray(datos.itemsManual) ? datos.itemsManual : [];
+      if (items.some((it: any) => !(Number(it.precioUnitario ?? datos.precioUnitario) > 0)))
+        return NextResponse.json({ error: 'Falta el precio neto de la compra (mayor que cero).' }, { status: 400 });
     }
     let cotizacionId = await registrarCotizacion(id, datos, userId, nombre);
     // Compras directas del mismo proveedor (mismo RUT o nombre) van en UNA sola cotización/columna de la matriz.

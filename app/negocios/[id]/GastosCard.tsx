@@ -187,7 +187,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
               <Select value={form.moneda} onChange={v => setForm(f => ({ ...f, moneda: v }))} minWidth={90}
                 options={[{ value: 'CLP', label: 'Pesos (CLP)' }, { value: 'USD', label: 'Dólares (USD)' }]} />
             </div>
-            {form.moneda !== 'CLP' && <p className="mt-1 text-[11.5px] text-amber-700">Un gasto en dólares queda visible en la lista, pero no se suma al total (no se convierte solo).</p>}
+            {form.moneda !== 'CLP' && <p className="mt-1 text-[11.5px] text-amber-700">Se guarda en pesos con el tipo de cambio del día (el monto original queda en las notas) y suma al total.</p>}
           </div>
           <div>
             <p className="text-[12.5px] font-bold text-zinc-800 mb-1">4. Datos opcionales</p>

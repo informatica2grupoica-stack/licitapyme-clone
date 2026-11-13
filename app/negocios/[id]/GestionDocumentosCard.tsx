@@ -8,6 +8,7 @@ import { armarHtml } from '@/app/lib/compras-documentos-render';
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { Modal } from '@/app/components/ui/Modal';
+import { GuiaDespachoObumaCard } from './GuiaDespachoObumaCard';
 import { IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconDownload as Download, IconFilePlus as FilePlus, IconUsers as Users, IconFileText as FileText } from '@tabler/icons-react';
 
 interface Campo { clave: string; etiqueta: string; tipo: 'texto' | 'lista' | 'fecha'; valorPorDefecto?: string; ayuda?: string; donde?: string }
@@ -83,6 +84,8 @@ export function GestionDocumentosCard({ negocioId }: { negocioId: number }) {
 
   return (
     <div className="space-y-4">
+      {/* Guías de despacho: solo Inversiones Claro (RUT 76.902.659-2), la única empresa con Obuma. La ruta también lo exige. */}
+      {ctx?.rutEmpresa.replace(/[^0-9kK]/g, '') === '769026592' && <GuiaDespachoObumaCard negocioId={negocioId} />}
       <div className="flex flex-wrap items-center gap-2">
         {plantillas.map(p => (
           <button key={p.id} onClick={() => abrir(p)} title={p.descripcion || undefined}

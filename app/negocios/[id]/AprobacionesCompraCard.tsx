@@ -218,6 +218,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
   const [margen, setMargen] = useState<Aprobacion | null>(null);
   const [margenActual, setMargenActual] = useState<Margen | null>(null);
   const [presupuestoActual, setPresupuestoActual] = useState<Presupuesto | null>(null);
+  const [validacionesPendientes, setValidacionesPendientes] = useState<string[]>([]);
   const [escenarioElegidoActual, setEscenarioElegidoActual] = useState<{ tipo: string; costoTotal: number } | null>(null);
   const [esJefeDeVentas, setEsJefeDeVentas] = useState(false);
   const [puedeDeshacer, setPuedeDeshacer] = useState(false);
@@ -299,7 +300,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
       if (miCarga !== cargaActual.current) return;
       const dA = rA.status === 'fulfilled' ? rA.value : null;
       if (dA?.success) {
-        setCompra(dA.compra); setMargen(dA.margen); setMargenActual(dA.margenActual); setPresupuestoActual(dA.presupuestoActual);
+        setCompra(dA.compra); setMargen(dA.margen); setMargenActual(dA.margenActual); setPresupuestoActual(dA.presupuestoActual); setValidacionesPendientes(dA.validacionesPendientes || []);
         setEscenarioElegidoActual(dA.escenarioElegidoActual); setEsJefeDeVentas(dA.esJefeDeVentas); setPuedeDeshacer(!!dA.puedeDeshacer);
         setErrorAprobaciones(null);
       } else {
@@ -617,7 +618,10 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar, parte = 'todo' 
         <BloqueCompuerta
           tipo="COMPRA" titulo="1 · Aprobar la compra (a quién y cuánto se compra)" aprobacion={compra} esJefeDeVentas={esJefeDeVentas} puedeOperar={puedeOperar}
           onProponer={(motivo) => proponer('COMPRA', motivo)} onResolver={(d, c) => resolver('COMPRA', d, c)} puedeDeshacer={puedeDeshacer} onDeshacer={(c) => resolver('COMPRA', 'DESHACER', c)}
-          requiereMotivo={!!presupuestoActual?.excede} motivoLabel="¿Por qué se compra sobre el presupuesto costeado?"
+          requiereMotivo={!!presupuestoActual?.excede || validacionesPendientes.length > 0}
+          motivoLabel={validacionesPendientes.length
+            ? `Faltan validaciones (${validacionesPendientes.join(', ')}): ¿por qué se envía igual? (mínimo 10 letras)`
+            : '¿Por qué se compra sobre el presupuesto costeado?'}
           desactualizada={compraDesactualizada}
           detalleAprobar={<DetalleCompuerta negocioId={negocioId} tipo="COMPRA" refresco={`${compra?.estado}|${compra?.propuestoAt}`} />}
           resumen={<>

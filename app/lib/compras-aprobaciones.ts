@@ -134,6 +134,16 @@ export async function calcularPresupuestoCompra(negocioId: number): Promise<Pres
 
 /** §10.2 — el encargado propone la compra sobre el escenario que ya eligió (elegirEscenario).
  *  `motivoSiExcedePresupuesto` es obligatorio SOLO si el costo real queda por sobre lo costeado. */
+/** Tareas de validación (técnica, cotización, costeo) que siguen sin hacer: proponer la compra con ellas pendientes pide motivo. */
+export async function validacionesPendientesCompra(negocioId: number): Promise<string[]> {
+  const [pend] = await pool.query(
+    `SELECT titulo FROM compras_tarea WHERE negocio_id = ? AND estado <> 'HECHA'
+       AND catalogo_clave IN ('validacion_tecnica_real', 'validacion_cotizacion', 'validacion_costeo') ORDER BY orden`,
+    [negocioId],
+  ) as any;
+  return (pend as any[]).map(r => String(r.titulo));
+}
+
 export async function proponerAprobacionCompra(
   negocioId: number, actorId: number, actorNombre: string | null, motivoSiExcedePresupuesto: string | null = null,
 ): Promise<void> {
@@ -147,8 +157,14 @@ export async function proponerAprobacionCompra(
       + `(${fmt(presupuesto.presupuestoOriginal!)}) — control de gasto: requiere motivo antes de proponerse.`,
     );
   }
+  // QA 13-nov: se aprobaba la compra con las validaciones técnica/cotización/costeo sin hacer. Ahora se puede proponer igual,
+  // pero con motivo, y la lista viaja en el detalle para que quien aprueba la vea.
+  const validacionesPendientes = await validacionesPendientesCompra(negocioId);
+  if (validacionesPendientes.length && (motivoSiExcedePresupuesto || '').trim().length < 10)
+    throw new Error(`Faltan validaciones: ${validacionesPendientes.join(', ')}. Hazlas antes o explica en el motivo por qué se propone igual (mínimo 10 caracteres).`);
   const ahora = ahoraChileSQL();
   const detalle = {
+    validacionesPendientes,
     escenarioTipo: escenario.tipo, costoTotal: Number(escenario.costo_total),
     diasEstimados: escenario.dias_estimados, viajesEstimados: escenario.viajes_estimados,
     presupuestoOriginal: presupuesto.presupuestoOriginal, excedePresupuestoPct: presupuesto.excedePct,
@@ -329,6 +345,9 @@ export async function resolverAprobacion(
   negocioId: number, tipo: TipoAprobacion, decision: DecisionAprobacion, comentario: string | null,
   actorId: number, actorNombre: string | null,
 ): Promise<void> {
+  // QA 13-nov: una decisión mal escrita («APROBADA») dejaba la compuerta con estado vacío y trabada.
+  if (!['APROBAR', 'APROBAR_CON_MODIFICACION', 'RECHAZAR'].includes(decision)) throw new Error('Decisión inválida.');
+  if (!['COMPRA', 'MARGEN'].includes(tipo)) throw new Error('Compuerta inválida.');
   if (decision === 'RECHAZAR' && !comentario?.trim()) throw new Error('Rechazar requiere comentario (spec §10.4).');
   if (decision === 'APROBAR_CON_MODIFICACION' && !comentario?.trim()) throw new Error('Aprobar con cambios requiere escribir qué hay que ajustar: el encargado recibe ese texto.');
 
@@ -675,6 +694,12 @@ export async function crearSku(negocioId: number, productoId: number, datos: Dat
   let costoManualUsado: number | null = null;
 
   if (datos.crearEnObuma) {
+    // QA 13-nov: pedirlo de nuevo (doble clic, reintento) creaba OTRO producto en Obuma y el primero quedaba huérfano (#415).
+    const [ya] = await pool.query(
+      `SELECT sku_propio, obuma_producto_id FROM compras_sku WHERE negocio_id = ? AND producto_id = ? AND obuma_producto_id IS NOT NULL LIMIT 1`,
+      [negocioId, productoId],
+    ) as any;
+    if ((ya as any[])[0]) throw new Error(`Este producto ya tiene el SKU ${(ya as any[])[0].sku_propio} creado en Obuma: no se crea otro. Si ese producto ya no existe en Obuma, usa «Verificar en Obuma» para limpiar el vínculo.`);
     if (!datos.obumaSubcategoriaId?.trim()) throw new Error('Falta elegir la categoría y la subcategoría de Obuma para crear el producto.');
     if (!datos.nombreObuma?.trim()) throw new Error('Falta el nombre del producto (Tipo/Atributo/Medida/Marca) — es lo que se está cotizando, no la línea de la licitación.');
 
@@ -741,9 +766,15 @@ export async function crearSku(negocioId: number, productoId: number, datos: Dat
   const [r] = await pool.query(
     `INSERT INTO compras_sku (negocio_id, producto_id, sku_propio, sku_proveedor, proveedor_nombre, marca, modelo, obuma_producto_id, obuma_codigo_comercial, verificado_obuma, creado_por, creado_por_nombre, created_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-     ON DUPLICATE KEY UPDATE sku_propio=VALUES(sku_propio), sku_proveedor=VALUES(sku_proveedor), proveedor_nombre=VALUES(proveedor_nombre),
-       marca=VALUES(marca), modelo=VALUES(modelo), obuma_producto_id=VALUES(obuma_producto_id),
-       obuma_codigo_comercial=VALUES(obuma_codigo_comercial), verificado_obuma=VALUES(verificado_obuma)`,
+     ON DUPLICATE KEY UPDATE
+       -- QA 13-nov: editar el SKU sin mandar el ID de Obuma borraba el vínculo que ya tenía. Se conserva mientras el SKU sea el
+       -- mismo (las columnas de Obuma van ANTES de sku_propio: MySQL evalúa en orden y ahí sku_propio todavía es el valor viejo).
+       verificado_obuma=IF(VALUES(obuma_producto_id) IS NULL AND VALUES(sku_propio) = sku_propio, verificado_obuma, VALUES(verificado_obuma)),
+       obuma_codigo_comercial=IF(VALUES(obuma_producto_id) IS NULL AND VALUES(sku_propio) = sku_propio, obuma_codigo_comercial, VALUES(obuma_codigo_comercial)),
+       obuma_producto_id=IF(VALUES(obuma_producto_id) IS NULL AND VALUES(sku_propio) = sku_propio, obuma_producto_id, VALUES(obuma_producto_id)),
+       sku_propio=VALUES(sku_propio), sku_proveedor=COALESCE(VALUES(sku_proveedor), sku_proveedor),
+       proveedor_nombre=COALESCE(VALUES(proveedor_nombre), proveedor_nombre),
+       marca=COALESCE(VALUES(marca), marca), modelo=COALESCE(VALUES(modelo), modelo)`,
     [negocioId, productoId, skuPropioFinal.slice(0, 80), datos.skuProveedor?.trim() || null,
      datos.proveedorNombre?.trim() || null, datos.marca?.trim() || null, datos.modelo?.trim() || null,
      obumaProductoId, obumaCodigoComercial, verificadoObuma ? 1 : 0, actorId, actorNombre, ahora],

@@ -2,6 +2,7 @@
 // Lectura de base del COSTO REAL CONSOLIDADO y CIERRE CON RESULTADO FINAL (24-sep-2026).
 // La aritmética vive en costo-real-consolidado.ts (pura, con pruebas); acá solo se juntan los datos:
 // costeo guardado, gastos registrados, importación y —para un solo negocio— lo que dice Obuma.
+import { hayCompraRegistrada, hayEntregaFirmada, hayFacturaVenta } from '@/app/lib/compras-respaldo';
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
@@ -215,6 +216,16 @@ export async function obtenerCierre(negocioId: number): Promise<CierreResultado 
 
 export type ResultadoCerrar = { ok: true; cierre: CierreResultado } | { ok: false; error: string };
 
+/** Respaldo mínimo para cerrar el resultado: alguna compra registrada, la entrega firmada y la factura de venta. */
+export async function faltantesDeCierre(negocioId: number): Promise<string[]> {
+  const [compra, firmada, factura] = await Promise.all([hayCompraRegistrada(negocioId), hayEntregaFirmada(negocioId), hayFacturaVenta(negocioId)]);
+  const faltan: string[] = [];
+  if (!compra) faltan.push('ninguna orden de compra ni compra directa registrada');
+  if (!firmada) faltan.push('guía o acta de entrega firmada');
+  if (!factura) faltan.push('factura de venta');
+  return faltan;
+}
+
 export async function cerrarResultado(
   negocioId: number, motivoIncompleto: string | null, actorId: number, actorNombre: string | null,
 ): Promise<ResultadoCerrar> {
@@ -222,6 +233,15 @@ export async function cerrarResultado(
   if (!cr.tieneCosteo) return { ok: false, error: 'Este negocio no tiene costeo guardado: no hay resultado que cerrar.' };
   const v = validarCierre(cr.comparativo, motivoIncompleto);
   if (!v.ok) return { ok: false, error: v.error };
+  // QA 13-nov: el cierre quedaba «completo» sin ninguna compra, entrega ni factura de venta (bastaba el escenario elegido).
+  // Si falta algo, solo se cierra con motivo y queda marcado incompleto, con lo que faltaba al frente del motivo.
+  const faltan = await faltantesDeCierre(negocioId);
+  if (faltan.length) {
+    if ((motivoIncompleto || '').trim().length < 10)
+      return { ok: false, error: `Falta: ${faltan.join('; ')}. Para cerrar igual, explica el motivo (mínimo 10 caracteres).` };
+    v.incompleto = true;
+    motivoIncompleto = `Falta: ${faltan.join('; ')}. ${(motivoIncompleto || '').trim()}`;
+  }
 
   const c = cr.comparativo;
   const ahora = ahoraChileSQL();

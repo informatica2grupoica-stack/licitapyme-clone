@@ -64,7 +64,8 @@ function primeraFecha(texto: string, desde = 0): { fecha: Date; fin: number } | 
  *    documento, con "Fecha:" o escrita como "05 DE OCTUBRE DE 2026") → emisión + 15 días corridos.
  *  Sin fecha de emisión no se inventa una (null). */
 export function vigenciaDelTexto(texto: string): string | null {
-  const t = texto.replace(/\s+/g, ' ');
+  // El lector de PDF a veces parte la palabra («V alidez de la oferta», QA 13-nov Q09): se toleran esos espacios.
+  const t = texto.replace(/\s+/g, ' ').replace(/\b([Vv]) (alid|igen|álid)/g, '$1$2');
   const hasta = /(?:v[aá]lid[ao]|vigente|vigencia)[^.\d]{0,30}hasta(?:\s+el)?\s*:?\s*/i.exec(t);
   if (hasta) { const f = primeraFecha(t.slice(hasta.index + hasta[0].length, hasta.index + hasta[0].length + 40)); if (f) return aISO(f.fecha); }
   const dias = /(?:validez|vigencia|v[aá]lid[ao]\s+por|duraci[oó]n)\s+(?:de\s+(?:la\s+)?)?(?:oferta|cotizaci[oó]n|presupuesto)?[^.\d]{0,25}?(\d{1,3})\s*d[ií]as?/i.exec(t)
@@ -88,7 +89,7 @@ export function incluyeFleteDelTexto(texto: string): boolean | null {
 /** Cantidad mínima de venta ("mínimo 2 unidades", "solo comprando 2 unidades"): null si no hay. */
 export function minimoDeVentaDelTexto(texto: string): number | null {
   const t = texto.replace(/\s+/g, ' ');
-  const m = t.match(/(?:m[ií]nimo(?:\s+de\s+(?:venta|compra))?|solo\s+comprando|compra\s+m[ií]nima)[^.\d]{0,25}(\d{1,5})\s*(?:unidades?|un\b|u\b|piezas?)/i);
+  const m = t.match(/(?:m[ií]nimo(?:\s+de\s+(?:venta|compra))?|solo\s+comprando|compra\s+m[ií]nima)[^.\d]{0,25}(\d{1,5})\s*(?:unidades?|unid\b\.?|und\b\.?|uds?\b\.?|un\b|u\b|piezas?)/i); // «minimo 500 unid» (WhatsApp, QA 13-nov)
   const n = m ? Number(m[1]) : NaN;
   return Number.isFinite(n) && n > 1 ? n : null;
 }

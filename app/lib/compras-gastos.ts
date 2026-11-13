@@ -11,6 +11,7 @@ import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { comprasObumaDeLicitacion } from '@/app/lib/obuma-compras';
 import { ocsDisponiblesParaGasto, type OcDisponibleParaGasto } from '@/app/lib/compras-gastos-oc';
+import { obtenerTipoCambio } from '@/app/lib/tipo-cambio';
 
 async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
   const [rows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
@@ -71,6 +72,20 @@ export async function registrarGasto(
     const libres = await listarOcsDisponiblesParaGasto(negocioId);
     if (!libres.some(o => o.folio === ocFolio && o.monto === Math.round(datos.monto)))
       throw new Error(`La OC ${ocFolio} no tiene una línea de gasto libre por ese monto: revisa el folio y el monto, o si ya está anotada.`);
+  }
+  // QA 13-nov: una clave que no existe se guardaba igual y salía «Sin categoría».
+  if (datos.categoriaClave) {
+    const [cat] = await pool.query(`SELECT 1 FROM compras_gasto_categoria WHERE clave = ? AND activo = 1 LIMIT 1`, [datos.categoriaClave]) as any;
+    if (!(cat as any[]).length) throw new Error('Esa categoría de gasto no existe.');
+  }
+  // QA 13-nov: un gasto en USD/EUR quedaba fuera del total (y del costo real) sin que nadie lo notara. Se guarda en pesos
+  // con el dólar/euro del día y el monto original en las notas; sin tipo de cambio no se registra (nunca un valor inventado).
+  const moneda = (datos.moneda || 'CLP').toUpperCase();
+  if (moneda !== 'CLP') {
+    const tc = await obtenerTipoCambio(moneda);
+    if (!tc) throw new Error(`No hay tipo de cambio de ${moneda} para hoy: registra el gasto en pesos.`);
+    const original = `Monto original: ${moneda} ${datos.monto} × ${tc.valor} (${tc.fuente}, ${tc.fecha}).`;
+    datos = { ...datos, monto: Math.round(datos.monto * tc.valor), moneda: 'CLP', notas: [datos.notas, original].filter(Boolean).join(' · ') };
   }
   const ahora = ahoraChileSQL();
   // La columna del enlace solo entra al INSERT cuando hay OC: sin migration-176 los gastos normales se siguen guardando.

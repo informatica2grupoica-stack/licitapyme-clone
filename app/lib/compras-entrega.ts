@@ -3,6 +3,7 @@
 // venta, guía de despacho ni factura — todo eso lo emite OBUMA (§16.4/§17.2); acá solo se
 // REGISTRAN esos números y las firmas. El único documento oficial que este módulo SÍ genera es el
 // acta de entrega (§16.5), y con acta + guía firmadas se cierra el ciclo (§16.7).
+import { hayCompraRegistrada } from '@/app/lib/compras-respaldo';
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
@@ -85,6 +86,7 @@ async function asegurarFila(negocioId: number): Promise<void> {
 
 /** §16.2 — entrega parcial es EXCEPCIONAL, a petición del cliente. */
 export async function definirModalidadEntrega(negocioId: number, modalidad: ModalidadEntrega, motivo: string | null): Promise<void> {
+  if (modalidad !== 'TOTAL' && modalidad !== 'PARCIAL') throw new Error('Modalidad de entrega inválida.');
   if (modalidad === 'PARCIAL' && !motivo?.trim()) throw new Error('La entrega parcial es excepcional — falta el motivo (a petición del cliente, spec §16.2).');
   await asegurarFila(negocioId);
   await pool.query(`UPDATE compras_entrega SET modalidad = ?, modalidad_motivo = ?, updated_at = ? WHERE negocio_id = ?`,
@@ -113,6 +115,8 @@ export async function quitarPuntoEntrega(negocioId: number, id: number): Promise
 
 /** §16.4 — la verificación "hoy la ejecuta el propio encargado de compras". */
 export async function registrarVerificacion(negocioId: number, conforme: boolean, actorId: number, actorNombre: string | null): Promise<void> {
+  // QA 13-nov: la recepción conforme se marcaba (y cerraba su tarea) sin nada comprado.
+  if (conforme && !(await hayCompraRegistrada(negocioId))) throw new Error('Todavía no hay ninguna compra registrada (OC, línea de OC asignada o compra rápida aprobada): no se puede ' + 'dar por recibida la mercadería.');
   await asegurarFila(negocioId);
   const ahora = ahoraChileSQL();
   await pool.query(
@@ -127,6 +131,8 @@ export async function registrarVerificacion(negocioId: number, conforme: boolean
 
 /** §16.4 — el módulo solo REGISTRA los números que emite OBUMA, no los genera. */
 export async function registrarNumeros(negocioId: number, notaVentaNumero: string | null, guiaDespachoNumero: string | null): Promise<void> {
+  // QA 13-nov: la guía cerraba «Despacho de la mercadería» sin nada comprado.
+  if (guiaDespachoNumero?.trim() && !(await hayCompraRegistrada(negocioId))) throw new Error('Todavía no hay ninguna compra registrada (OC, línea de OC asignada o compra rápida aprobada): no se puede ' + 'registrar la guía de despacho.');
   await asegurarFila(negocioId);
   await pool.query(
     `UPDATE compras_entrega SET nota_venta_numero = COALESCE(?, nota_venta_numero), guia_despacho_numero = COALESCE(?, guia_despacho_numero), updated_at = ? WHERE negocio_id = ?`,
@@ -236,8 +242,11 @@ export async function firmarGuia(negocioId: number, firma: FirmaDatos, timbre: b
       : [firma.nombre.trim(), firma.rut.trim(), firma.cargo.trim(), firma.recinto.trim(), firma.fecha, timbre ? 1 : 0, ahora, negocioId],
   );
   await cerrarTareaDeCatalogo(negocioId, 'despacho_mercaderia', { id: actorId, nombre: actorNombre }, 'Guía de despacho firmada por el cliente.');
-  if (entrega?.modalidad !== 'PARCIAL')
+  if (entrega?.modalidad !== 'PARCIAL') {
     await avanzarSubestados(negocioId, 'ENTREGADO', { desdeMinimo: 'COMPRADO', motivo: `guía de despacho firmada por ${firma.nombre.trim()} el ${firma.fecha}`, actorId, actorNombre });
+    // La guía firmada de una entrega total ES la entrega: antes «Entrega al cliente» solo la cerraba el reloj (apagado) y quedaba vencida (4152-22-LE26, 13-nov-2026).
+    await cerrarTareaDeCatalogo(negocioId, 'entrega_cliente', { id: actorId, nombre: actorNombre }, `Entregado: guía firmada por ${firma.nombre.trim()} el ${firma.fecha}.`);
+  }
   if (yaCierra) {
     await registrarEvento({
       tipo: 'COMPRAS_ENTREGA_CERRADA', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,

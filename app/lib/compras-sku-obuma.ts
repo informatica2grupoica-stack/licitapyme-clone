@@ -46,6 +46,11 @@ export async function emparejarPlanConObuma(negocioId: number): Promise<Empareja
 
   const lineas = ocs.flatMap(oc => oc.items.map(linea => ({ oc, linea })));
   const usada = new Set<number>();
+  // Con «Para este negocio» marcado, la línea cuenta solo esas unidades (OC 3811 de 4152-22-LE26: 2 rodillos, 1 es de este negocio).
+  // Las líneas con 0 unidades para este negocio son stock u otro uso: ni se emparejan ni salen como «línea sin plan».
+  const cantidadDe = (l: ItemCompraObuma) => l.cantidadNegocio ?? l.cantidad;
+  lineas.forEach((x, i) => { if (x.linea.cantidadNegocio === 0) usada.add(i); });
+  const excluidas = new Set(usada);
   const pares: ParPlanObuma[] = [];
   const pendientes: { item: ItemOrdenCompra; grupo: ProveedorOrdenCompra }[] = [];
 
@@ -53,7 +58,7 @@ export async function emparejarPlanConObuma(negocioId: number): Promise<Empareja
     let mejor = -1; let mejorDif = Infinity;
     for (const i of candidatas) {
       const { linea } = lineas[i];
-      if (usada.has(i) || linea.cantidad !== item.cantidad || linea.precio == null) continue;
+      if (usada.has(i) || cantidadDe(linea) !== item.cantidad || linea.precio == null) continue;
       const dif = Math.abs(linea.precio - item.precioUnitario) / (item.precioUnitario || 1);
       if (dif <= tolerancia && dif < mejorDif) { mejor = i; mejorDif = dif; }
     }
@@ -83,7 +88,7 @@ export async function emparejarPlanConObuma(negocioId: number): Promise<Empareja
     pares.push({ item: p.item, grupo: p.grupo, oc: lineas[i].oc, linea: lineas[i].linea, exacto: false });
   }
 
-  return { pares, planSinOc, lineasSinPlan: lineas.filter((_, i) => !usada.has(i)), ocs };
+  return { pares, planSinOc, lineasSinPlan: lineas.filter((_, i) => !usada.has(i) && !excluidas.has(i)), ocs };
 }
 
 export interface SkuObumaDetectado {

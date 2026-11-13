@@ -202,7 +202,9 @@ export function leerPlazosDelInforme(informe: any): PlazosDelInforme {
   // Plazo para aceptar la OC: el de ESTAS bases si el informe lo identificó.
   const ac = p?.aceptacion_oc;
   if (ac?.duracion != null) {
-    out.plazoAceptacionOC = `${ac.duracion} ${ac.unidad || 'días'}`.trim()
+    // La IA a veces trae la unidad con el número adentro («48 horas hábiles»): salía «48 48 horas hábiles» (QA 13-nov).
+    const unidad = String(ac.unidad || 'días').trim();
+    out.plazoAceptacionOC = (unidad.startsWith(String(ac.duracion)) ? unidad : `${ac.duracion} ${unidad}`).trim()
       + (ac.inferido ? ' (inferido de las bases)' : '');
   }
 

@@ -29,6 +29,8 @@ export interface FilaPorOc {
   ocFolio: string; proveedor: string | null; estado: string | null;
   planNeto: number | null; obumaNeto: number; facturadoNeto: number; facturas: number;
   ocPropia?: boolean;
+  /** OC interna a una empresa del grupo: neto que es solo respaldo (los productos ya tienen OC externa) y no suma. */
+  respaldoInternoNeto?: number;
   /** N° de DIN (declaración de ingreso, importación) enlazada a la OC: no es factura. */
   din?: string[];
 }
@@ -68,6 +70,10 @@ export interface ResumenComparativo {
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 const corto = (s: string) => s.replace(/\s+/g, ' ').trim().split(' - ')[0].slice(0, 70);
 const r0 = (n: number) => Math.round(n);
+const nombreSimple = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+/** true/false si se pueden comparar los dos nombres; null si falta alguno. */
+const mismoNombre = (a: string | null | undefined, b: string | null | undefined): boolean | null =>
+  a && b ? nombreSimple(a) === nombreSimple(b) : null;
 
 export async function resumenComparativoCompra(negocioId: number): Promise<ResumenComparativo> {
   const [productos, costeo, emp, gastos, gastosRows, propiasTodas, ocCliente] = await Promise.all([
@@ -121,8 +127,10 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
       planProveedor: plan?.grupo ?? null, planUnit: plan?.unit ?? null, planNeto: plan ? r0(plan.neto) : null,
       obumaProveedor: par?.oc.proveedorRazonSocial ?? null, obumaOc: par ? (par.oc.folio || par.oc.compraOcId) : null,
       obumaEstado: par?.oc.estado ?? null, obumaSku: par?.linea.codigoComercial ?? null,
-      obumaUnit, obumaNeto: par?.linea.subtotal != null ? r0(par.linea.subtotal) : (obumaUnit != null ? r0(cant * obumaUnit) : null),
-      otroProveedor: !!par && !par.exacto,
+      obumaUnit, obumaNeto: par?.linea.cantidadNegocio != null && obumaUnit != null ? r0(par.linea.cantidadNegocio * obumaUnit)
+        : par?.linea.subtotal != null ? r0(par.linea.subtotal) : (obumaUnit != null ? r0(cant * obumaUnit) : null),
+      // Mismo nombre = mismo proveedor aunque Obuma lo tenga creado dos veces (NINGBO «SinRut» y 55.555.555-5 en 4152-22-LE26).
+      otroProveedor: !!par && !par.exacto && mismoNombre(par.oc.proveedorRazonSocial, plan?.grupo) === false,
     };
   });
 
@@ -147,10 +155,15 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
       facturadoNeto: r0(fs.reduce((s, f) => s + (f.total || 0), 0) / 1.19), facturas: fs.length, din: oc.din,
     };
   });
+  // OC interna (empresa del grupo) por productos que ya tienen OC externa: se muestra, pero su respaldo no suma al costo ni al facturado.
+  const respaldo = propias.length ? await (await import('@/app/lib/compras-oc-propia-respaldo')).netoRespaldoInterno(negocioId, propias) : new Map<string, number>();
   for (const o of propias) {
+    const resp = respaldo.get(o.folio) ?? 0;
+    const facNeto = o.factura ? r0(o.factura.neto ?? (o.factura.total != null ? o.factura.total / 1.19 : 0)) : 0;
     porOc.push({
-      ocFolio: o.folio, proveedor: o.proveedor.nombre, estado: o.estado, planNeto: null, obumaNeto: r0(o.neto),
-      facturadoNeto: o.factura ? r0(o.factura.neto ?? (o.factura.total != null ? o.factura.total / 1.19 : 0)) : 0, facturas: o.factura ? 1 : 0, ocPropia: true,
+      ocFolio: o.folio, proveedor: o.proveedor.nombre, estado: o.estado, planNeto: null, obumaNeto: r0(o.neto - resp),
+      facturadoNeto: o.neto > 0 ? r0(facNeto * (1 - resp / o.neto)) : facNeto, facturas: o.factura ? 1 : 0, ocPropia: true,
+      ...(resp > 0 ? { respaldoInternoNeto: resp } : {}),
     });
   }
 
@@ -178,10 +191,14 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
   const avisos: string[] = [];
   // Si no calzan, los números por producto están mal (979: costeo $34.680.000 contra OC del cliente $40.560.000; la línea 2 valía la
   // mitad en el costeo).
-  if (ventaOc != null && ventaOc > 0 && Math.abs(ventaOc - venta) > 1) {
+  // Sin costeo digital (venta $0 en todo) no hay nada que «no calce»: se dice una vez y se usa la OC del cliente (4152-22-LE26, 13-nov-2026).
+  const sinCosteo = venta === 0 && filas.every(f => f.ventaNeto == null);
+  if (sinCosteo) {
+    if (ventaOc) avisos.push(`Este negocio no tiene costeo digital: la venta se toma de la OC del cliente (${clp(ventaOc)} neto) y el costo, de las OC.`);
+  } else if (ventaOc != null && ventaOc > 0 && Math.abs(ventaOc - venta) > 1) {
     avisos.push(`La venta del costeo (${clp(venta)}) no calza con la OC del cliente${ocCliente?.oc_codigo_mp ? ` ${ocCliente.oc_codigo_mp}` : ''} (${clp(ventaOc)} neto): diferencia de ${clp(Math.abs(ventaOc - venta))}. Revisa los precios de venta del costeo; el margen real depende de eso.`);
   }
-  const sinVenta = filas.filter(f => f.ventaNeto == null);
+  const sinVenta = sinCosteo ? [] : filas.filter(f => f.ventaNeto == null);
   if (sinVenta.length) avisos.push(`${sinVenta.length} producto(s) sin precio de venta en el costeo (no suman a la venta): ${sinVenta.map(f => f.producto).join(', ')}.`);
   const sinOc = filas.filter(f => !f.obumaOc);
   if (sinOc.length) avisos.push(`${sinOc.length} producto(s) de la cotización elegida no tienen OC (ni en Obuma ni propia): ${sinOc.map(f => f.producto).join(', ')}.`);
@@ -220,6 +237,9 @@ export async function resumenComparativoCompra(negocioId: number): Promise<Resum
           if (cod && neg?.licitacion_codigo && cod !== neg.licitacion_codigo) ocDif.push({ concepto: `OC ${o.folio} ${o.proveedorNombre || ''} — es de otra licitación (${cod}): Obuma la tiene en este proyecto por error, no es gasto de este negocio`, monto: Math.round(o.total) });
         }
       }
+      // Unidades de una OC marcadas «no son de este negocio» (stock u otro uso, migration-184): Obuma las suma, Licitank no. Explicadas, no «sin explicar»
+      // (4152-22-LE26: OC 3811 con 2 rodillos + repuestos, se usa 1 rodillo → +$3.641.845 salía «sin explicar», 13-nov-2026).
+      for (const o of vigentes) if (o.excluidoNeto) ocDif.push({ concepto: `OC ${o.folio || o.compraOcId} ${o.proveedorRazonSocial || ''} — unidades que no son de este negocio (stock u otro uso, marcadas en «Para este negocio»)`, monto: Math.round((o.totalOriginal ?? 0) - (o.total ?? 0)) });
       const ocSin = Math.round(proy.totalGastado - ocDif.reduce((s, d) => s + d.monto, 0) - licOcTotal);
 
       // Facturas: se compara documento a documento lo que Obuma contabilizó en el centro de costo del proyecto.

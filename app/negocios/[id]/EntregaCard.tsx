@@ -23,8 +23,9 @@ interface Entrega {
 
 const firmaVacia: FirmaDatos = { nombre: '', rut: '', cargo: '', recinto: '', fecha: '' };
 
-function FormFirma({ onGuardar, guardando }: { onGuardar: (f: FirmaDatos, extra?: Record<string, unknown>) => void; guardando: boolean }) {
-  const [f, setF] = useState<FirmaDatos>(firmaVacia);
+function FormFirma({ onGuardar, guardando, inicial }: { onGuardar: (f: FirmaDatos, extra?: Record<string, unknown>) => void; guardando: boolean; inicial?: FirmaDatos | null }) {
+  // Casi siempre la misma persona firma guía y acta: se precarga lo ya firmado (editable) para no escribirlo dos veces (4152-22-LE26, 13-nov-2026).
+  const [f, setF] = useState<FirmaDatos>(inicial ? { ...inicial } : firmaVacia);
   return (
     <div className="grid grid-cols-2 gap-2">
       <input value={f.nombre} onChange={e => setF(v => ({ ...v, nombre: e.target.value }))} placeholder="Nombre"
@@ -198,7 +199,7 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
                 <div className="space-y-1.5">
                   <Select value={conformidad} onChange={v => setConformidad(v as any)} minWidth={140}
                     options={[{ value: 'CONFORME', label: 'Conforme' }, { value: 'NO_CONFORME', label: 'No conforme' }]} />
-                  <FormFirma guardando={guardando} onGuardar={f => accion({ accion: 'firmar_acta', firma: f, conformidad })} />
+                  <FormFirma guardando={guardando} inicial={entrega.guiaFirma} onGuardar={f => accion({ accion: 'firmar_acta', firma: f, conformidad })} />
                 </div>
               )}
             </>
@@ -211,7 +212,7 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
         <div className="pt-2 border-t border-zinc-100 space-y-2">
           <p className="text-[10.5px] font-bold text-zinc-400 uppercase">Firma de la guía de despacho</p>
           {!entrega.guiaFirma ? (
-            puedeOperar && <FormFirma guardando={guardando} onGuardar={f => accion({ accion: 'firmar_guia', firma: f, timbre: false })} />
+            puedeOperar && <FormFirma guardando={guardando} inicial={entrega.actaFirma} onGuardar={f => accion({ accion: 'firmar_guia', firma: f, timbre: false })} />
           ) : (
             <p className="text-[11.5px] text-zinc-600">Firmada por <b>{entrega.guiaFirma.nombre}</b> ({entrega.guiaFirma.cargo}) — {entrega.guiaFirma.fecha}{entrega.guiaTimbre && ' · con timbre'}</p>
           )}

@@ -69,11 +69,18 @@ export function TareasComprasCard() {
     estado === 'PENDIENTE' ? 'EN_CURSO' : estado === 'EN_CURSO' ? 'HECHA' : 'PENDIENTE';
 
   const cambiarEstado = async (tareaId: number, estado: Tarea['estado']) => {
+    // Volver a PENDIENTE desde el ciclo = reabrir una tarea HECHA: el servidor pide el motivo y lo deja en la bitácora.
+    let notaCierre: string | undefined;
+    if (estado === 'PENDIENTE') {
+      const motivo = window.prompt('¿Por qué se reabre esta tarea?');
+      if (!motivo?.trim()) return;
+      notaCierre = motivo.trim();
+    }
     setGuardandoTarea(tareaId);
     try {
       const res = await fetch(`/api/compras/tarea/${tareaId}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ estado }),
+        body: JSON.stringify({ estado, ...(notaCierre ? { notaCierre } : {}) }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo actualizar');

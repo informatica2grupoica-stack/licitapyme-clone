@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200" width="600" height="200">
+  <rect x="22" y="32" width="136" height="136" fill="none" stroke="#0b2545" stroke-width="5"/>
+  <path d="M 121.52043014426889 75.37354098697367 A 40 40 0 1 0 121.52043014426889 124.62645901302633 L 112.06430110098822 117.23852130911843 A 28 28 0 1 1 112.06430110098822 82.76147869088157 Z" fill="#0b2545"/>
+  <rect x="186" y="46" width="2" height="108" fill="#c9a227"/>
+  <text x="212" y="104" text-anchor="start" font-family="Segoe UI, Arial, Helvetica, sans-serif" font-size="74" font-weight="600" letter-spacing="6" fill="#0b2545">CLARO</text>
+  <text x="214" y="140" text-anchor="start" font-family="Segoe UI, Arial, Helvetica, sans-serif" font-size="20" font-weight="500" letter-spacing="9" fill="#6b7280">INVERSIONES</text></svg>

@@ -131,7 +131,7 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
       [negocioId, ...productoIds],
     ) as any,
     pool.query(
-      `SELECT proveedor_nombre, proveedor_id, proveedor_rut, origen, flete_monto, moneda, tipo_cambio_usado FROM compras_cotizacion WHERE negocio_id = ?`,
+      `SELECT proveedor_nombre, proveedor_id, proveedor_rut, origen, flete_monto, incluye_flete, moneda, tipo_cambio_usado FROM compras_cotizacion WHERE negocio_id = ?`,
       [negocioId],
     ) as any,
     pool.query(
@@ -154,7 +154,9 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
   const monedaPorProveedor = new Map<string, { moneda: string; tipoCambio: number | null }>();
   for (const c of cotRows as any[]) {
     fichaPorNombre.set(c.proveedor_nombre, { proveedorId: c.proveedor_id, rut: c.proveedor_rut });
-    if (c.origen === 'directa' && Number(c.flete_monto) > 0) fletePorDirecta.set(c.proveedor_nombre, Number(c.flete_monto));
+    // QA 13-nov: con incluye_flete=1 el flete ya va repartido en el precio de los productos (cargarFleteAProductos); sugerirlo otra vez
+    // como línea aparte de la OC lo cobraba dos veces.
+    if (c.origen === 'directa' && Number(c.flete_monto) > 0 && !Number(c.incluye_flete)) fletePorDirecta.set(c.proveedor_nombre, Number(c.flete_monto));
     if (c.moneda && c.moneda !== 'CLP') monedaPorProveedor.set(c.proveedor_nombre, { moneda: c.moneda, tipoCambio: Number(c.tipo_cambio_usado) > 0 ? Number(c.tipo_cambio_usado) : null });
   }
 
@@ -731,7 +733,7 @@ export interface ResumenGastosCompra {
   // con los SKU (código comercial) de sus líneas — para mostrarlas aparte de las que emite Licitank.
   ocsObuma: { din: string[]; compraOcId: string; excluidoNeto: number; folio: string; proveedor: string | null; estado: string | null; fecha: string | null; neto: number; total: number; skus: string[]; lineas: { lineaId: string | null; cantidadNegocio: number | null; producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }[] }[];
   // OC propias (Comercial MP: se emiten en Licitank, no pasan por Obuma), sin anuladas. También son gasto (979: las vacuolavadoras, $10,5M, quedaban fuera).
-  ocsPropias: { folio: string; proveedor: string; estado: string; fecha: string; neto: number; total: number; lineas: { producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }[] }[];
+  ocsPropias: { folio: string; proveedor: string; estado: string; fecha: string; neto: number; total: number; /** Parte de una OC interna (empresa del grupo) que es solo respaldo: no suma al costo. */ respaldoInternoNeto?: number; lineas: { producto: string; sku: string | null; cantidad: number | null; precio: number | null; subtotal: number | null }[] }[];
   /** Gasto real NETO: lo de Obuma sin anuladas (si Obuma aún no trae nada, lo emitido por Licitank) + las OC propias. */
   gastadoNeto: number | null;
   facturas: {
@@ -766,7 +768,9 @@ export async function resumenGastosCompra(negocioId: number, montoCosteado: numb
     .map(r => ({ nombre: r.proveedor_nombre, folio: r.obuma_folio, total: Number(r.total_neto), fecha: r.fecha_oc }));
   const totalOcCreadas = ocCreadas.reduce((s, o) => s + o.total, 0);
   const propias = (await propiasP).filter(o => o.estado !== 'ANULADA');
-  const netoPropias = propias.reduce((s, o) => s + o.neto, 0);
+  // OC interna a una empresa del grupo por productos que ya tienen su OC externa en Obuma: respaldo, no costo (4152-22-LE26).
+  const respaldo = propias.length ? await (await import('@/app/lib/compras-oc-propia-respaldo')).netoRespaldoInterno(negocioId, propias) : new Map<string, number>();
+  const netoPropias = propias.reduce((s, o) => s + o.neto - (respaldo.get(o.folio) ?? 0), 0);
   const totalCruzadas = cruzadas.reduce((s, c) => s + (c.total || 0), 0);
   const netoCruzadas = cruzadas.reduce((s, c) => s + netoDeCompra(c), 0);
 
@@ -830,6 +834,7 @@ export async function resumenGastosCompra(negocioId: number, montoCosteado: numb
     })),
     ocsPropias: propias.map(o => ({
       folio: o.folio, proveedor: o.proveedor.nombre, estado: o.estado, fecha: o.fechaOc, neto: Math.round(o.neto), total: Math.round(o.total),
+      respaldoInternoNeto: respaldo.get(o.folio) ?? 0,
       lineas: o.items.map(i => ({ producto: i.descripcion, sku: i.codigo, cantidad: i.cantidad, precio: i.precio, subtotal: Math.round(i.cantidad * i.precio) })),
     })),
     gastadoNeto: gastadoRealNeto != null ? Math.round(gastadoRealNeto) : null,

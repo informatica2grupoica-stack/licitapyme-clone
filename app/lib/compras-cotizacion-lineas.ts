@@ -118,7 +118,7 @@ export function normalizarLineas(entrada: unknown, textoDoc: string, netoDocumen
     let total = numeroDeTexto(o.total);
     let unit = numeroDeTexto(o.precioUnitario);
     const desc = numeroDeTexto(o.descuentoPct);
-    const unidad = limpiarUnidad(o.unidad) ?? unidadDeLineaEnTexto(textoDoc, cantidad, numeroDeTexto(o.total));
+    let unidad = limpiarUnidad(o.unidad) ?? unidadDeLineaEnTexto(textoDoc, cantidad, numeroDeTexto(o.total));
     if (cantidad != null && !(cantidad > 0)) cantidad = null;
     // "$0" impreso (despacho gratis, VENTUS EC-1214) es un total real: descartarlo dejaba la suma sin verificar y botaba el descuento.
     if (total === 0 && CERO_IMPRESO.test(textoDoc)) { lineas.push({ descripcion, cantidad, unidad, precioUnitario: 0, descuentoPct: null, total: 0 }); continue; }
@@ -137,6 +137,16 @@ export function normalizarLineas(entrada: unknown, textoDoc: string, netoDocumen
       const d = desc && desc > 0 && desc < 100 ? desc : 0;
       total = Math.round(unit * (1 - d / 100) * cantidad);
       if (d) unit = Math.round(unit * (1 - d / 100) * 100) / 100;
+    }
+    // Precio por pack/caja de N unidades (QA 13-nov, Q12: «Frazada polar (pack x 10 unidades)», 30 packs × $59.000): se pasa a
+    // unidades sueltas (300 u × $5.900) para que se compare con lo licitado; el total no cambia.
+    const pack = descripcion.match(/\b(?:pack|paquete|caja|display|bolsa|set)\s*(?:de|x|×)\s*(\d{1,4})\s*(?:u\b|un\b|und|unid|unidades|piezas|pzas)/i);
+    const porPack = pack ? Number(pack[1]) : 0;
+    if (porPack > 1 && unit != null && cantidad) {
+      avisos.push(`«${descripcion.slice(0, 40)}»: precio por pack de ${porPack}; se pasó a ${cantidad * porPack} unidades a $${Math.round((unit / porPack) * 100) / 100} c/u.`);
+      cantidad = cantidad * porPack;
+      unit = Math.round((unit / porPack) * 100) / 100;
+      unidad = 'UND';
     }
     lineas.push({ descripcion, cantidad, unidad, precioUnitario: unit, descuentoPct: desc && desc > 0 && desc < 100 ? desc : null, total });
   }
@@ -203,7 +213,10 @@ export function descuentoMontoDelTexto(texto: string): number | null {
 export function descuentoGlobalPorAplicar(
   norm: LineasNormalizadas, pct: number | null, monto: number | null, netoDoc: number | null, textoDoc: string,
 ): { pct: number | null; aviso: string | null } {
-  if (norm.lineas.some(l => l.descuentoPct != null)) return { pct: null, aviso: null };
+  // Con descuento por línea el global suele ser el mismo repetido (caso 30464), SALVO que los totales prueben que va además, después de
+  // las líneas (QA 13-nov, Q03: 10 % y 5 % por línea + «descuento comercial adicional 3 %»; se perdía el 3 %).
+  const probadoDespues = norm.ajuste === 'descuento' || norm.ajuste === 'descuento+flete';
+  if (norm.lineas.some(l => l.descuentoPct != null) && !probadoDespues) return { pct: null, aviso: null };
   const suma = norm.suma;
   if (pct == null && monto && suma && monto < suma
       && ((netoDoc != null && cerca(suma - monto, netoDoc, 0.005)) || numeroApareceEnTexto(suma - monto, textoDoc))) {

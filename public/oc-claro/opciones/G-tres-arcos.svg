@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 580 250" width="580" height="250"><defs>
+  <linearGradient id="az" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1b4fb8"/><stop offset="1" stop-color="#0a2463"/></linearGradient>
+  <linearGradient id="or" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffd54a"/><stop offset="1" stop-color="#f5a300"/></linearGradient>
+</defs>
+  <path d="M 106.79479153066063 111.3564690751755 A 52 52 0 1 0 106.79479153066063 188.64353092482452 L 98.76522425435434 179.72579301909576 A 40 40 0 1 1 98.76522425435434 120.27420698090424 Z" fill="url(#az)"/>
+  <path d="M 95.14035394871541 122.42240004771679 A 36 36 0 1 0 95.14035394871541 177.5775999522832 L 88.06969024216349 169.15111107797446 A 25 25 0 1 1 88.06969024216349 130.84888892202554 Z" fill="url(#or)"/>
+  <path d="M 84.31322950651317 134.23978492786557 A 20 20 0 1 0 84.31322950651317 165.76021507213443 L 78.77227622858224 158.66811828967394 A 11 11 0 1 1 78.77227622858224 141.33188171032606 Z" fill="#5aa0ff"/>
+  <text x="130" y="192" text-anchor="start" font-family="Segoe UI, Arial, Helvetica, sans-serif" font-size="118" font-weight="800" letter-spacing="3" fill="#0a2463">LARO</text>
+  <text x="134" y="88" text-anchor="start" font-family="Segoe UI, Arial, Helvetica, sans-serif" font-size="29" font-weight="600" letter-spacing="15.5" fill="#5b6b8c">INVERSIONES</text>
+  <rect x="134" y="214" width="150" height="7" rx="3.5" fill="url(#or)"/><rect x="292" y="214" width="46" height="7" rx="3.5" fill="#1b4fb8"/></svg>

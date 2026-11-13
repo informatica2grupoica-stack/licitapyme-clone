@@ -545,6 +545,8 @@ export async function crearProductoObuma(datos: DatosCrearProductoObuma): Promis
     producto_vender_en_web: datos.venderEnWeb ? '1' : '0',
     sucursal_id: '1',
   };
+  // Solo QA local: OBUMA_SIMULAR=1 no escribe en Obuma, registra lo que habría mandado.
+  if (process.env.OBUMA_SIMULAR === '1') { console.warn('[obuma][SIMULADO] productos.create', JSON.stringify(payload).slice(0, 500)); return { productoId: `SIM${Date.now()}`, codigoComercial: datos.codigoComercial }; }
   let json: any;
   try {
     json = await llamarPost<any>(BASE_V1, '/productos.create.json', payload);
@@ -863,6 +865,7 @@ export async function crearOrdenCompraObuma(
   // Obuma lo calcula como la SUMA de cantidades (4003: 1 línea de 85 → 85; 3998: 2 líneas → 8).
   doc.oc_cantidad_items = String(itemsPayload.reduce((s, it) => s + Number(it.cantidad), 0));
 
+  if (process.env.OBUMA_SIMULAR === '1') { console.warn('[obuma][SIMULADO] comprasOc.create', JSON.stringify(doc).slice(0, 800)); return { compraOcId: `SIM${Date.now()}`, folio: `SIM-${Date.now() % 100000}`, subtotalNeto, iva, total }; }
   const json = await llamarPost<any>(BASE_V1, '/comprasOc.create.json', { docs: [doc] });
   // Mismo patrón que productos.create.json: la respuesta no siempre trae el ID en un campo
   // predecible — se busca en las formas conocidas antes de rendirse.
@@ -979,6 +982,7 @@ export async function crearProveedorObuma(datos: DatosCrearProveedorObuma): Prom
   if (datos.plazoPago) payload.proveedor_plazodepago = datos.plazoPago;
   if (datos.permitirDteSinOc) payload.proveedor_permitir_dte_sin_referencia = '1';
 
+  if (process.env.OBUMA_SIMULAR === '1') { console.warn('[obuma][SIMULADO] proveedores.create', JSON.stringify(payload).slice(0, 500)); return { proveedorId: `SIM${Date.now()}`, noGuardados: [] }; }
   const json = await llamarPost<any>(BASE_V1, '/proveedores.create.json', payload);
   const detalle: string = json.result?.result_detail || json.result_detail || '';
   const proveedorId = json.data?.proveedor_id || json.proveedor_id || detalle.match(/proveedor_id\s*:\s*(\d+)/i)?.[1];

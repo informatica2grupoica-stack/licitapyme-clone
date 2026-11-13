@@ -215,17 +215,45 @@ Responde SOLO JSON: {"proveedorNombre":<string o null>,"proveedorRut":<string o 
 /** Lee un archivo de cotización (PDF por URL pública, imagen por buffer) y extrae los campos que
  *  la spec pide (§8.2). Devuelve todo en null si el OCR no logró transcribir nada legible — nunca
  *  se le pasa texto vacío a la IA para que no "complete" con una adivinanza. */
+/** Una línea CSV (con celdas entre comillas) → celdas no vacías unidas por « | ». */
+function celdasCsvConBarras(linea: string): string {
+  const celdas: string[] = [];
+  let actual = '', comillas = false;
+  for (const ch of linea) {
+    if (ch === '"') comillas = !comillas;
+    else if (ch === ',' && !comillas) { celdas.push(actual); actual = ''; }
+    else actual += ch;
+  }
+  celdas.push(actual);
+  return celdas.map(c => c.trim()).filter(Boolean).join(' | ');
+}
+
 export async function extraerDatosCotizacionDeDocumento(
   archivoUrl: string, buffer: Buffer, mimeType: string,
 ): Promise<DatosExtraidosCotizacion | null> {
   const esPdf = mimeType === 'application/pdf' || archivoUrl.toLowerCase().endsWith('.pdf');
   const esTextoPlano = mimeType.startsWith('text/') || /\.(txt|eml)$/i.test(archivoUrl);
-  const esImagen = mimeType.startsWith('image/');
+  // También por extensión: hay navegadores que suben la foto con tipo vacío y se quedaba sin leer (QA 13-nov).
+  const esImagen = mimeType.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp|tiff?)(?:\?|$)/i.test(archivoUrl);
   // Hallazgo 07-oct-2026: un .xlsx/.txt iba a Tesseract como si fuera imagen y su worker reventaba el proceso entero.
   // Texto pegado (WhatsApp, correo) se lee tal cual; lo que no es PDF/imagen/texto no pasa por ningún OCR.
-  if (!esPdf && !esTextoPlano && !esImagen) return null;
+  // QA 13-nov: Excel y Word devolvían null y la cotización quedaba «(por completar)». Se pasan a texto con el mismo
+  // lector del resto del sistema (mammoth / xlsx) y siguen el camino del texto plano.
+  const extOffice = archivoUrl.toLowerCase().match(/\.(xlsx|xls|docx|doc)(?:\?|$)/)?.[1] || null;
+  if (!esPdf && !esTextoPlano && !esImagen && !extOffice) return null;
   let texto = '';
-  if (esTextoPlano) {
+  if (extOffice) {
+    try {
+      const { extractTextFromDocument } = await import('@/app/lib/document-extraction');
+      texto = ((await extractTextFromDocument(buffer, extOffice, archivoUrl, { omitirOCR: true })).texto || '').trim();
+      // El Excel sale como CSV: «100,23.100,2.310.000» se leía como UN número y el control «el precio no aparece en el
+      // documento» descartaba precios reales. Se separan las celdas con « | », como las filas de tabla de un PDF.
+      if (extOffice === 'xlsx' || extOffice === 'xls') texto = texto.split('\n').map(celdasCsvConBarras).join('\n');
+    } catch (e) {
+      console.warn('[compras-cotizacion-ocr] no se pudo leer el Excel/Word:', String(e).slice(0, 150));
+    }
+    if (!texto) return null;
+  } else if (esTextoPlano) {
     texto = buffer.toString('utf8');
   } else {
     // Un PDF con capa de texto real se lee DIRECTO (exacto, gratis y con las filas de las tablas bien armadas): el OCR por URL
@@ -244,7 +272,7 @@ export async function extraerDatosCotizacionDeDocumento(
       try {
         texto = esPdf
           ? await extraerTextoPdfPorUrlConGlmOcr(archivoUrl, 0)
-          : await ocrImagenConGlmOcr(buffer, mimeType);
+          : await ocrImagenConGlmOcr(buffer, mimeType.startsWith('image/') ? mimeType : /\.png(?:\?|$)/i.test(archivoUrl) ? 'image/png' : 'image/jpeg');
       } catch (e) {
         console.error('[compras-cotizacion-ocr] GLM-OCR falló:', String(e).slice(0, 200));
       }

@@ -229,3 +229,37 @@ test('2906-19-LE26: la línea del propio estanque no es «sin asignar» (se comp
   assert.equal(lineasSinAsignar(lineas, [producto.split(' - ')[0]]).length, 2);
   assert.deepEqual(lineasSinAsignar(lineas, [producto, producto.split(' - ')[0]]).map(l => l.descripcion), ['Flete']);
 });
+
+// QA 13-nov-2026 (scripts/scratch/qa-compras-1113): casos que el lector fallaba; quedan como regresión para todas las lecturas.
+test('Q03: descuento por línea + descuento global adicional 3 % → el 3 % SÍ se aplica (totales lo prueban)', () => {
+  const texto = 'FZ | Frazada polar 150x200 | 300 | $7.000 | 10% | $1.890.000\nCL | Colchón 1 plaza | 25 | $72.000 | 5% | $1.710.000\n'
+    + 'Subtotal: $3.600.000\nDescuento comercial adicional 3%: -$108.000\nNeto: $3.492.000\nFlete a Los Ángeles: $85.000';
+  const lineas = [
+    { descripcion: 'Frazada polar 150x200', cantidad: 300, precioUnitario: 6300, descuentoPct: 10, total: 1890000 },
+    { descripcion: 'Colchón 1 plaza', cantidad: 25, precioUnitario: 68400, descuentoPct: 5, total: 1710000 },
+  ];
+  const r = normalizarLineas(lineas, texto, 3492000, { descuentoPct: 3, fleteMonto: 85000 });
+  assert.equal(r.ajuste, 'descuento');
+  assert.equal(descuentoGlobalPorAplicar(r, 3, null, 3492000, texto).pct, 3);
+});
+
+test('Q03 inverso: descuento por línea que ya suma el neto → el global NO se aplica otra vez', () => {
+  const texto = 'Frazada | 300 | $7.000 | 10% | $1.890.000\nNeto: $1.890.000\nDescuento 10%';
+  const r = normalizarLineas([{ descripcion: 'Frazada', cantidad: 300, precioUnitario: 6300, descuentoPct: 10, total: 1890000 }], texto, 1890000, { descuentoPct: 10, fleteMonto: null });
+  assert.equal(descuentoGlobalPorAplicar(r, 10, null, 1890000, texto).pct, null);
+});
+
+test('Q05 Excel: con celdas separadas por « | » cada precio aparece en el documento (en CSV «100,23.100» era un solo número)', () => {
+  const texto = '2 | Set plumón 2 plazas | 100 | 23.100 | 2.310.000\n3 | Colchón | 25 | 65.990 | 1.649.750';
+  assert.ok(numeroApareceEnTexto(23100, texto));
+  assert.ok(numeroApareceEnTexto(65990, texto));
+  assert.ok(!numeroApareceEnTexto(23100, '2,Set plumón 2 plazas,100,23.100,2.310.000'));
+});
+
+test('Q12: precio por pack de 10 → 300 unidades a $5.900 (el total no cambia)', () => {
+  const texto = 'MP-10 | Frazada polar (pack x 10 unidades) | 30 packs | $59.000 / pack | $1.770.000';
+  const r = normalizarLineas([{ descripcion: 'Frazada polar (pack x 10 unidades)', cantidad: 30, unidad: 'PACKS', precioUnitario: 59000, total: 1770000 }], texto, null);
+  assert.equal(r.lineas[0].cantidad, 300);
+  assert.equal(r.lineas[0].precioUnitario, 5900);
+  assert.equal(r.lineas[0].total, 1770000);
+});

@@ -6,7 +6,7 @@ import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
-import { subirDocumentoR2 } from '@/app/lib/r2';
+import { subirDocumentoR2, borrarDocumentoR2 } from '@/app/lib/r2';
 import { errorDeArchivoSubido } from '@/app/lib/subidas';
 import { listarFacturasVenta, registrarFacturaVenta, actualizarFacturaVenta, quitarFacturaVenta, fechaValida } from '@/app/lib/compras-factura-venta';
 
@@ -50,9 +50,10 @@ async function __POST(request: NextRequest, { params }: Params) {
     if (errArchivo) return NextResponse.json({ error: errArchivo }, { status: 400 });
     const url = await subirDocumentoR2(`compras/${a.asignacion.licitacionCodigo}/factura-venta`, f.name, Buffer.from(await f.arrayBuffer()), f.type);
     const numero = String(form.get('numero') || '').trim().slice(0, 40) || null;
+    // Si no se puede guardar en la BD, el archivo recién subido no queda huérfano en R2 (QA 13-nov).
     const r = await registrarFacturaVenta(a.id, {
       archivoUrl: url, archivoNombre: f.name, numero, emitidaAt: fechaValida(form.get('emitidaAt')), pagadaAt: fechaValida(form.get('pagadaAt')),
-    }, a.userId, a.nombre);
+    }, a.userId, a.nombre).catch(async (e) => { await borrarDocumentoR2(url).catch(() => {}); throw e; });
     return NextResponse.json({ success: true, tareaMarcada: r.tareaMarcada, facturas: await listarFacturasVenta(a.id) });
   } catch (e: any) {
     console.error('[compras/factura-venta][POST]', String(e));

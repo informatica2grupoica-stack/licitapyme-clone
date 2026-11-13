@@ -124,7 +124,12 @@ async function opcionParaFicha(negocioId: number, filaId: string, p: ProductoNor
   const [existentes] = await pool.query(
     `SELECT id, marca, modelo, sku_proveedor, proveedor_razon_social FROM auditor_opcion WHERE negocio_id = ? AND fila_id = ? AND estado NOT IN ('descartada','en_aprobacion','aprobada')`,
     [negocioId, filaCmp(filaId)]) as any;
-  const mismas = (existentes as any[]).filter(o => coincidenciaIdentidad({ marca: o.marca, modelo: o.modelo, sku: o.sku_proveedor }, p) === 'coincide');
+  // Sin marca, el «modelo» es solo el nombre genérico («Frazada polar» vs «Frazada polar económica»): el parecido no basta,
+  // tiene que ser el mismo nombre. Antes dos fichas distintas sin marca caían en la misma opción (QA 13-nov, F3 + F5).
+  const norm = (x: unknown) => String(x || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const mismas = (existentes as any[]).filter(o => (!p.marca && !o.marca)
+    ? norm(o.modelo) === norm(p.modelo) && !!norm(p.modelo)
+    : coincidenciaIdentidad({ marca: o.marca, modelo: o.modelo, sku: o.sku_proveedor }, p) === 'coincide');
   const prov = (proveedor || '').trim().toLowerCase();
   // La misma marca/modelo del mismo proveedor, o la que todavía no tenía proveedor (se le pone): nunca se duplica la opción.
   const elegida = mismas.find(o => (o.proveedor_razon_social || '').trim().toLowerCase() === prov && prov)
