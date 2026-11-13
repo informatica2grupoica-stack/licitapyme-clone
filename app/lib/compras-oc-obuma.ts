@@ -115,7 +115,15 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
   // Compras rápidas APROBADAS por el jefe de ventas: entran a la OC con su tienda y su precio aunque no haya un escenario de compra elegido
   // (o aunque el escenario no las traiga). Pendientes o rechazadas no entran.
   for (const r of rapidas) {
-    if (r.estado !== 'APROBADA' || r.precioUnitario == null || !r.proveedorNombre || cubiertos.some(c => c.productoId === r.productoId)) continue;
+    if (r.estado !== 'APROBADA' || r.precioUnitario == null || !r.proveedorNombre) continue;
+    // QA 13-nov (1723): si el escenario ya traía el producto con otro proveedor, la OC salía a ese proveedor y precio
+    // pero marcada «Compra rápida aprobada». Manda lo que aprobó el jefe de ventas.
+    const yaCubierto = cubiertos.find(c => c.productoId === r.productoId);
+    if (yaCubierto) {
+      yaCubierto.proveedor = r.proveedorNombre; yaCubierto.precioUnitario = r.precioUnitario;
+      yaCubierto.subtotal = r.precioUnitario * (yaCubierto.cantidad ?? 1);
+      continue;
+    }
     const prod = productosCompra.find(x => x.id === r.productoId);
     const cant = prod?.cantidad != null && Number(prod.cantidad) > 0 ? Number(prod.cantidad) : 1;
     cubiertos.push({ productoId: r.productoId, descripcion: prod?.descripcion ?? `Producto #${r.productoId}`, proveedor: r.proveedorNombre, precioUnitario: r.precioUnitario, cantidad: cant, subtotal: r.precioUnitario * cant });
@@ -161,6 +169,8 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
     if (c.moneda && c.moneda !== 'CLP') monedaPorProveedor.set(c.proveedor_nombre, { moneda: c.moneda, tipoCambio: Number(c.tipo_cambio_usado) > 0 ? Number(c.tipo_cambio_usado) : null });
   }
 
+  // Tienda de una compra rápida sin cotización: su RUT viene de la compra rápida.
+  for (const r of rapidas) if (r.estado === 'APROBADA' && r.proveedorNombre && !fichaPorNombre.has(r.proveedorNombre)) fichaPorNombre.set(r.proveedorNombre, { proveedorId: null, rut: r.proveedorRut });
   const idsProveedor = [...new Set([...fichaPorNombre.values()].map(f => f.proveedorId).filter((v): v is number => v != null))];
   const fichaCompleta = new Map<number, { direccion: string | null; comuna: string | null; email: string | null; telefono: string | null; giro: string | null; contacto: string | null; obumaProveedorId: string | null }>();
   if (idsProveedor.length) {
