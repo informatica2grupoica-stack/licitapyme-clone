@@ -1,6 +1,6 @@
 // app/api/compras/[negocioId]/guia-despacho-obuma/route.ts
 // SOLO negocios de Inversiones Claro (la única empresa con Obuma). GET = OC del negocio que sirven de base para la guía.
-// POST {folioOc, enviar?}: arma las líneas de la guía desde la OC de Obuma. Con enviar=true intenta crearla (hoy solo OBUMA_SIMULAR=1).
+// POST {folioOc, preciosManual?, enviar?}: arma el borrador (productos de la OC de Obuma, precios de VENTA del costeo). Con enviar=true intenta crearla (hoy solo OBUMA_SIMULAR=1).
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
@@ -29,7 +29,8 @@ export async function GET(request: NextRequest, { params }: Params) {
   try {
     const a = await acceso(request, (await params).negocioId);
     if ('error' in a) return a.error;
-    return NextResponse.json({ success: true, ocs: await ocsParaGuia(a.id) });
+    // creacionHabilitada: hoy solo con OBUMA_SIMULAR=1 (ver crearGuiaDespachoObuma). La UI deja el botón apagado y lo explica.
+    return NextResponse.json({ success: true, ocs: await ocsParaGuia(a.id), creacionHabilitada: process.env.OBUMA_SIMULAR === '1' });
   } catch (error) {
     console.error('[compras/guia-despacho-obuma][GET]', String(error));
     return NextResponse.json({ error: mensajeSeguro(error, 'No se pudieron cargar las órdenes de compra.') }, { status: 500 });
@@ -41,7 +42,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     const a = await acceso(request, (await params).negocioId);
     if ('error' in a) return a.error;
     const body = await request.json().catch(() => ({}));
-    const guia = await armarGuiaDesdeOcObuma(String(body?.folioOc || ''));
+    const preciosManual = body?.preciosManual && typeof body.preciosManual === 'object' ? body.preciosManual : {};
+    const guia = await armarGuiaDesdeOcObuma(a.id, String(body?.folioOc || ''), preciosManual);
     const envio = body?.enviar === true ? await crearGuiaDespachoObuma(guia) : null;
     return NextResponse.json({ success: true, guia, envio });
   } catch (error) {

@@ -100,6 +100,13 @@ function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar
       )}
 
       {aprobacion?.motivo && <p className="mt-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">{aprobacion.motivo}</p>}
+      {/* Se envió con validaciones sin hacer (QA 13-nov): quien aprueba lo ve, con el motivo que escribió el encargado. */}
+      {((aprobacion?.detalle as any)?.validacionesPendientes?.length ?? 0) > 0 && (
+        <p className="mt-1.5 text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2 py-1">
+          <b>Se envió con validaciones sin hacer:</b> {(aprobacion!.detalle as any).validacionesPendientes.join(', ')}.
+          {(aprobacion!.detalle as any).motivoExcesoPresupuesto && <> Motivo del encargado: «{(aprobacion!.detalle as any).motivoExcesoPresupuesto}».</>}
+        </p>
+      )}
       {aprobacion?.estado === 'RECHAZADA' && (
         <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2" data-testid="aprobacion-rechazada">
           <p className="text-[12.5px] font-bold text-rose-800">✖ Rechazada por {aprobacion.resueltoPorNombre || 'el jefe de ventas'}</p>

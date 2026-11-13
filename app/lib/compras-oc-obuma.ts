@@ -124,7 +124,7 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
 
   const productoIds = cubiertos.map(p => p.productoId);
   const codigoLicP = licitacionDeNegocio(negocioId);
-  const [[skuRows], [cotRows], [ocRows], aprob, todasObuma] = await Promise.all([
+  const [[skuRows], [cotRows], [ocRows], aprob, todasObuma, compuertas] = await Promise.all([
     pool.query(
       `SELECT producto_id, obuma_producto_id, obuma_codigo_comercial FROM compras_sku
         WHERE negocio_id = ? AND producto_id IN (${productoIds.map(() => '?').join(',')})`,
@@ -142,6 +142,7 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
     listarAprobacionesLinea(negocioId).catch(() => ({ tablaOk: false, lineas: [] as Array<{ productoId: number; estado: string }> })),
     // OC reales ya hechas en Obuma para esta licitación (lectura de base, sin llamar a Obuma). Ver más abajo.
     codigoLicP.then(c => c ? comprasObumaDeLicitacion(c) : []).catch(() => []),
+    obtenerAprobaciones(negocioId).catch(() => ({ compra: null, margen: null })),
   ]);
   const skuPorProducto = new Map<number, { obumaProductoId: string | null; obumaCodigoComercial: string | null }>(
     (skuRows as any[]).map(r => [r.producto_id, { obumaProductoId: r.obuma_producto_id, obumaCodigoComercial: r.obuma_codigo_comercial }]),
@@ -177,6 +178,8 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
   // Qué productos están aprobados: los que el jefe de ventas aprobó uno a uno. Si no hubo decisiones por producto (flujo anterior),
   // se considera aprobado todo lo de la compra aprobada.
   const hayDecisiones = aprob.tablaOk && aprob.lineas.length > 0;
+  // QA 13-nov (negocio 1723): sin decisiones por producto y con la compra aún sin aprobar, todo salía «Aprobado» en la OC.
+  const compraAprobada = ['APROBADA', 'APROBADA_CON_MODIFICACION'].includes(compuertas.compra?.estado ?? '');
   const estadoPorProducto = new Map(aprob.lineas.map(l => [l.productoId, l.estado]));
   // Compra rápida aprobada por el jefe de ventas: ese producto cuenta como aprobado aunque no esté en la aprobación de la compra.
   const rapidasAprobadas = new Set(rapidas.filter(c => c.estado === 'APROBADA').map(c => c.productoId));
@@ -207,7 +210,7 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
       obumaProductoId: sku?.obumaProductoId ?? null, obumaCodigoComercial: sku?.obumaCodigoComercial ?? null,
       compraRapida: rapidasAprobadas.has(p.productoId),
       // Una compra rápida solo entra en la OC cuando el jefe de ventas la aprobó (o ratificó); pendiente o rechazada, no.
-      aprobado: rapidasSinAprobar.has(p.productoId) ? false : (!hayDecisiones || estadoPorProducto.get(p.productoId) === 'APROBADA' || rapidasAprobadas.has(p.productoId)),
+      aprobado: rapidasSinAprobar.has(p.productoId) ? false : ((!hayDecisiones && compraAprobada) || estadoPorProducto.get(p.productoId) === 'APROBADA' || rapidasAprobadas.has(p.productoId)),
       estadoLinea: rapidasAprobadas.has(p.productoId) ? 'APROBADA' : rapidasSinAprobar.get(p.productoId) === 'RECHAZADA' ? 'RECHAZADA' : rapidasSinAprobar.has(p.productoId) ? 'SIN_DECIDIR' : hayDecisiones ? ((estadoPorProducto.get(p.productoId) as 'APROBADA' | 'RECHAZADA' | undefined) ?? 'SIN_DECIDIR') : null,
     });
     grupo.subtotal += subtotal;
