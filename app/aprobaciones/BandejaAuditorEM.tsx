@@ -96,7 +96,7 @@ export function BandejaAuditorEM({ onConteo }: { onConteo?: (n: number) => void 
   return (
     <section className="space-y-3" aria-label="Opciones del Auditor" data-testid="aprob-seccion-auditor-em">
       <div className="flex items-baseline gap-2 flex-wrap">
-        <h2 className="text-[16px] font-medium text-zinc-900 dark:text-zinc-100">Opciones del Auditor</h2>
+        <h2 className="text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-100">Opciones del Auditor</h2>
         <span className="text-[13px] text-slate-600">
           {[negocios.reduce((s, n) => s + n.opciones.length, 0) && `${negocios.reduce((s, n) => s + n.opciones.length, 0)} por aprobar`,
             negocios.reduce((s, n) => s + n.requisitos.length, 0) && `${negocios.reduce((s, n) => s + n.requisitos.length, 0)} requisito(s) complementado(s)`].filter(Boolean).join(' · ')} en {negocios.length} {negocios.length === 1 ? 'licitación' : 'licitaciones'}
@@ -108,7 +108,7 @@ export function BandejaAuditorEM({ onConteo }: { onConteo?: (n: number) => void 
       </div>
 
       {negocios.map(n => (
-        <div key={n.negocioId} className="rounded-xl border border-zinc-200 bg-white shadow-sm overflow-hidden">
+        <div key={n.negocioId} className="rounded-xl border border-linea bg-white shadow-tarjeta overflow-hidden dark:bg-slate-900 dark:border-slate-800">
           <div className="px-4 py-3 border-b border-zinc-100 flex items-start gap-3 flex-wrap">
             <div className="min-w-0 flex-1">
               <p className="text-[13px] text-slate-600 tabular-nums">{n.licitacionCodigo}{n.asignadoNombre ? ` · ${n.asignadoNombre}` : ''}{n.cierre ? ` · cierra ${fecha(n.cierre)}` : ''}</p>

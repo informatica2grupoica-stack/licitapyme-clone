@@ -1010,3 +1010,55 @@ export async function crearProveedorObuma(datos: DatosCrearProveedorObuma): Prom
   // cuenta, tipo de despacho ni cuenta corriente; hay que completarlos a mano en la ficha web.
   return { proveedorId: String(proveedorId), noGuardados: discrepancias };
 }
+
+// ── Guía de despacho (DTE 52) — 13-nov-2026 ─────────────────────────────────
+// Se crea con /ventasIntegracionExternas.create.json (obuma.cl/ayuda/articulo/141): Obuma pone el folio, la timbra y la manda al SII.
+// Catálogos leídos en vivo (13-nov): empresaBodegas.list.json, empresaSucursales.list.json, pg-regiones.list.json, pg-comunas.list.json.
+
+export interface ObumaBodega { id: string; codigo: string; nombre: string; activa: boolean; sucursalId: string }
+export async function listarBodegasObuma(): Promise<ObumaBodega[]> {
+  const r = await llamar<ObumaListado<any>>(BASE_V1, '/empresaBodegas.list.json');
+  return (r.data || []).map(b => ({
+    id: String(b.empresa_bodega_id), codigo: String(b.empresa_bodega_codigo || ''), nombre: String(b.empresa_bodega_nombre || ''),
+    activa: String(b.empresa_bodega_activo) === '1', sucursalId: String(b.rel_empresa_sucursal_id || ''),
+  }));
+}
+
+export async function listarSucursalesObuma(): Promise<{ id: string; codigo: string; nombre: string }[]> {
+  const r = await llamar<ObumaListado<any>>(BASE_V1, '/empresaSucursales.list.json');
+  return (r.data || []).map(s => ({ id: String(s.empresa_sucursal_id), codigo: String(s.empresa_sucursal_codigo || ''), nombre: String(s.empresa_sucursal_nombre || '') }));
+}
+
+export async function listarRegionesComunasObuma(): Promise<{ regiones: { id: string; nombre: string }[]; comunas: { id: string; nombre: string; regionId: string }[] }> {
+  const [r, c] = await Promise.all([
+    llamar<ObumaListado<any>>(BASE_V1, '/pg-regiones.list.json'),
+    llamar<ObumaListado<any>>(BASE_V1, '/pg-comunas.list.json'),
+  ]);
+  return {
+    regiones: (r.data || []).map(x => ({ id: String(x.pg_region_id), nombre: String(x.pg_region_nombre || '') })),
+    comunas: (c.data || []).map(x => ({ id: String(x.pg_comuna_id), nombre: String(x.pg_comuna_nombre || ''), regionId: String(x.rel_pg_region_id || '') })),
+  };
+}
+
+/** Últimas guías de despacho emitidas (para sugerir la bodega y frenar un doble envío). */
+export async function ultimasGuiasObuma(limite = 20): Promise<Array<{ folio: string; fechaIngreso: string; bodegaId: string; neto: number }>> {
+  const r = await llamar<ObumaListado<any>>(BASE_V1, '/ventas.list.json', { tipo_dcto: 52, limit: limite });
+  return (r.data || []).filter(v => String(v.venta_tipo_dcto) === '52').map(v => ({
+    folio: String(v.venta_nro_dcto || ''), fechaIngreso: String(v.venta_fecha_ingreso || ''), bodegaId: String(v.rel_bodega_id || ''), neto: Math.round(Number(v.venta_neto) || 0),
+  }));
+}
+
+/** Crea UNA venta/DTE de verdad. Respuesta documentada: result.result = "OK" y result.result_dte[] con dte_folio, dte_id_obuma, dte_pdf. */
+export async function crearVentaIntegracionExterna(doc: Record<string, unknown>): Promise<{ folio: string | null; idObuma: string | null; pdf: string | null; detalle: string }> {
+  const json = await llamarPost<any>(BASE_V1, '/ventasIntegracionExternas.create.json', { docs: [doc] });
+  if (Array.isArray(json?.errors) && json.errors.length) throw new Error(`Obuma: ${json.errors.map((e: any) => `${e.code} ${e.message}`).join(' · ')}`);
+  const res = json?.result || {};
+  const dte = Array.isArray(res.result_dte) ? res.result_dte[0] : null;
+  if (String(res.result).toUpperCase() !== 'OK') throw new Error(`Obuma no confirmó la guía: ${JSON.stringify(res.result_detail ?? json).slice(0, 600)}`);
+  return {
+    folio: dte?.dte_folio != null ? String(dte.dte_folio) : null,
+    idObuma: dte?.dte_id_obuma != null ? String(dte.dte_id_obuma) : null,
+    pdf: dte?.dte_pdf ? String(dte.dte_pdf) : null,
+    detalle: typeof res.result_detail === 'string' ? res.result_detail.slice(0, 600) : JSON.stringify(res.result_detail ?? '').slice(0, 600),
+  };
+}

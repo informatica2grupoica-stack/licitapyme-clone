@@ -1,11 +1,17 @@
 'use client';
 
 // TARJETA de un negocio (licitación en preparación) dentro de la bandeja de aprobación transversal (/aprobaciones).
-// Rediseñada el 19-oct-2026 porque la fila compacta era chica y poco clara: ahora la tarjeta muestra de entrada los dos bloques
-// (Técnico y Comercial) con su avance y su propio Aprobar/Rechazar, las alertas a la vista, y un solo botón grande «Aprobar todo».
+// 13-nov-2026 (skill licitank-ui): la tarjeta dice arriba QUÉ hay que aprobar («Falta tu visto bueno en Comercial»), los dos bloques
+// son filas dentro de la misma tarjeta (sin cajas dentro de cajas) y solo el bloque listo muestra Aprobar/Rechazar — el que aún
+// prepara el asistente queda como una línea tenue, sin botones grises deshabilitados. El botón «Aprobar técnico y comercial» aparece
+// solo cuando los DOS están listos (con uno solo era el mismo botón repetido).
 import { useState } from 'react';
 import Link from 'next/link';
+import { motion } from 'framer-motion';
 import { IconTool as Wrench, IconCurrencyDollar as DollarSign, IconCheck as Check, IconX as X, IconLoader2 as Loader2, IconArrowUpRight as ArrowUpRight, IconTrash as Trash2, IconAlertTriangle as AlertTriangle, IconCircleCheck as CheckCircle2 } from '@tabler/icons-react';
+import { Boton } from '@/app/components/ui/kit/Boton';
+import { Estado } from '@/app/components/ui/kit/Tarjeta';
+import { item } from '@/app/components/ui/kit/movimiento';
 
 export interface CausalBloqueo { codigo: string; descripcion: string; rutaDesbloqueo: string }
 
@@ -28,27 +34,50 @@ export interface NegocioAprobacion {
   alertasMotorComercial: Array<{ codigo: string; descripcion: string; detalle: string }>;
 }
 
-// Semáforo del Auditor Técnico (spec §9.4) — verde >72h y sin bloqueantes, amarillo <72h o sin aprobación vigente, rojo <24h o algo
-// bloqueante. Ver app/lib/semaforo-auditor.ts.
-const SEMAFORO_STYLE: Record<string, { chip: string; texto: (h: number | null) => string }> = {
-  ROJO: { chip: 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:border-rose-500/30', texto: h => h != null && h < 0 ? 'Cierre vencido' : `Cierra en ${Math.max(1, Math.round(h ?? 0))} h` },
-  AMARILLO: { chip: 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/30', texto: h => h == null ? 'Sin fecha de cierre' : `Cierra en ${Math.max(1, Math.round((h ?? 0) / 24))} d` },
-  VERDE: { chip: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/30', texto: h => h == null ? 'Sin fecha de cierre' : `Cierra en ${Math.max(1, Math.round((h ?? 0) / 24))} d` },
-};
+const COLOR = { rojo: '#dc2626', ambar: '#d97706', verde: '#16a34a', gris: '#94a3b8', marca: '#0f766e', naranja: '#ea580c' };
+// Semáforo del Auditor Técnico (spec §9.4, app/lib/semaforo-auditor.ts): el color sale del semáforo, el texto en días de calendario.
+const COLOR_SEMAFORO: Record<string, string> = { ROJO: COLOR.rojo, AMARILLO: COLOR.ambar, VERDE: COLOR.verde };
+const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
-const ESTADO_BLOQUE: Record<string, { chip: string; label: string }> = {
-  SIN_ITEMS: { chip: 'bg-zinc-100 text-zinc-500 dark:bg-white/5 dark:text-zinc-500', label: 'Sin puntos' },
-  PENDIENTE: { chip: 'bg-zinc-100 text-zinc-600 dark:bg-white/5 dark:text-zinc-400', label: 'En preparación' },
-  POR_APROBAR: { chip: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300', label: 'Por aprobar' },
-  OBSERVADO: { chip: 'bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300', label: 'Observado' },
-  APROBADO: { chip: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300', label: 'Aprobado' },
+/** «Cierra hoy 15:00», «Cierra mañana 15:00», «Cierra el lunes 17», «Cierra el 2 dic». Calculado desde las horas que faltan. */
+function textoCierre(h: number | null): string {
+  if (h == null) return 'Sin fecha de cierre';
+  if (h < 0) return 'Cierre vencido';
+  const cierre = new Date(Date.now() + h * 3_600_000);
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const dia = new Date(cierre); dia.setHours(0, 0, 0, 0);
+  const dias = Math.round((dia.getTime() - hoy.getTime()) / 86_400_000);
+  const hora = cierre.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+  if (dias === 0) return `Cierra hoy ${hora}`;
+  if (dias === 1) return `Cierra mañana ${hora}`;
+  if (dias < 7) return `Cierra el ${DIAS[cierre.getDay()]} ${cierre.getDate()}`;
+  return `Cierra el ${cierre.getDate()} ${MESES[cierre.getMonth()]}`;
+}
+
+const ESTADO_BLOQUE: Record<string, { color: string; label: string }> = {
+  SIN_ITEMS: { color: COLOR.gris, label: 'Sin puntos cargados' },
+  PENDIENTE: { color: COLOR.gris, label: 'El asistente lo está preparando' },
+  POR_APROBAR: { color: COLOR.marca, label: 'Listo para tu aprobación' },
+  OBSERVADO: { color: COLOR.naranja, label: 'Observado, vuelve al asistente' },
+  APROBADO: { color: COLOR.verde, label: 'Aprobado' },
 };
 
 const fmtCLP = (n: number | null) =>
   n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 const iniciales = (n: string | null) => (n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(x => x[0]!.toUpperCase()).join('');
 
-function PanelBloque({
+function Dato({ rotulo, children, tono }: { rotulo: string; children: React.ReactNode; tono?: 'alerta' | 'urgente' | 'exito' }) {
+  const color = tono === 'alerta' ? 'text-alerta dark:text-amber-400' : tono === 'urgente' ? 'text-urgente dark:text-red-400' : tono === 'exito' ? 'text-exito dark:text-green-400' : 'text-tinta dark:text-slate-100';
+  return (
+    <div className="min-w-0">
+      <dt className="text-[11px] text-tinta-2/80 dark:text-slate-400">{rotulo}</dt>
+      <dd className={`mt-0.5 text-[13px] font-semibold tabular-nums ${color}`}>{children}</dd>
+    </div>
+  );
+}
+
+function FilaBloque({
   negocio, bloque, icon: Icon, label, onAprobar, onRechazar, cargando,
 }: {
   negocio: NegocioAprobacion; bloque: 'TECNICO' | 'COMERCIAL'; icon: React.ElementType; label: string;
@@ -58,76 +87,77 @@ function PanelBloque({
   const [comentario, setComentario] = useState('');
   const info = negocio.bloques[bloque];
   const est = ESTADO_BLOQUE[info.estado] || ESTADO_BLOQUE.PENDIENTE;
-  const puedeAprobar = info.estado === 'POR_APROBAR';
+  const listo = info.estado === 'POR_APROBAR';
   const pct = info.total > 0 ? Math.round((info.aprobados / info.total) * 100) : 0;
   const v = negocio.veredictoTecnico;
+  const hayVeredicto = v.cumplen + v.noCumplen + v.conComplemento + v.sinEvaluar > 0;
 
   return (
-    <div className="flex-1 min-w-0 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3.5 bg-zinc-50/60 dark:bg-white/[0.03]">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-[14px] font-bold text-zinc-800 dark:text-zinc-100"><Icon size={16} className="text-zinc-400" /> {label}</div>
-        <span className={`text-[11.5px] font-bold px-2.5 py-0.5 rounded-full ${est.chip}`}>{est.label}</span>
-      </div>
-
-      {info.total > 0 ? (
-        <div className="mt-2.5">
-          <div className="h-2 rounded-full bg-zinc-200 dark:bg-white/10 overflow-hidden" role="img" aria-label={`${info.aprobados} de ${info.total} aprobados`}>
-            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+    <div className={`px-4 py-3.5 border-t border-linea dark:border-slate-800 ${listo ? '' : 'opacity-80'}`}>
+      <div className="flex items-start gap-3 flex-wrap">
+        <span className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${listo ? 'bg-marca-suave text-marca dark:bg-teal-500/10 dark:text-teal-300' : 'bg-slate-100 text-slate-400 dark:bg-slate-800'}`}>
+          <Icon size={16} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-x-3 gap-y-0.5 flex-wrap">
+            <p className="text-[14px] font-semibold text-tinta dark:text-slate-100">{label}</p>
+            <span className={`text-[12.5px] ${listo ? 'font-medium text-marca dark:text-teal-300' : 'text-tinta-2 dark:text-slate-400'}`}><Estado color={est.color}>{est.label}</Estado></span>
           </div>
-          <p className="text-[12.5px] text-zinc-600 dark:text-zinc-300 mt-1.5">
-            <b className="text-zinc-900 dark:text-zinc-100">{info.aprobados} de {info.total}</b> puntos aprobados
-            {info.porAprobar > 0 && <span className="text-indigo-600 dark:text-indigo-400 font-semibold"> · {info.porAprobar} por aprobar</span>}
-            {info.observados > 0 && <span className="text-orange-600 dark:text-orange-400 font-semibold"> · {info.observados} observado(s)</span>}
-          </p>
-        </div>
-      ) : <p className="text-[12.5px] text-zinc-400 mt-2.5">Todavía no hay puntos cargados.</p>}
 
-      {bloque === 'TECNICO' && (v.cumplen + v.noCumplen + v.conComplemento + v.sinEvaluar > 0) && (
-        <p className="text-[12.5px] text-zinc-600 dark:text-zinc-300 mt-1">
-          <b className="text-emerald-700 dark:text-emerald-400">{v.cumplen} cumple</b>
-          {v.noCumplen > 0 && <span className="text-rose-600 dark:text-rose-400 font-semibold"> · {v.noCumplen} no cumple</span>}
-          {v.conComplemento > 0 && <span className="text-amber-600 dark:text-amber-400 font-semibold"> · {v.conComplemento} con complemento</span>}
-          {v.sinEvaluar > 0 && <span className="text-zinc-500"> · {v.sinEvaluar} sin evaluar</span>}
-        </p>
-      )}
-      {bloque === 'TECNICO' && negocio.decisionesEstrategicas.especificacionesCorregidas > 0 && (
-        <p className="text-[12.5px] text-amber-700 dark:text-amber-400 font-semibold mt-1">{negocio.decisionesEstrategicas.especificacionesCorregidas} especificación(es) corregida(s) por el asesor</p>
-      )}
-      {bloque === 'COMERCIAL' && (
-        <div className="text-[12.5px] text-zinc-600 dark:text-zinc-300 mt-1 space-y-0.5">
-          <p>Precio total: <b className="text-zinc-900 dark:text-zinc-100">{fmtCLP(negocio.comercial.precioTotal)}</b></p>
-          {negocio.comercial.plazoOfertado && <p>Plazo: <b className="text-zinc-900 dark:text-zinc-100">{negocio.comercial.plazoOfertado}</b></p>}
-          {negocio.decisionesEstrategicas.lineasNoOfertadas > 0 && <p className="text-amber-700 dark:text-amber-400 font-semibold">{negocio.decisionesEstrategicas.lineasNoOfertadas} línea(s) no ofertada(s)</p>}
-        </div>
-      )}
-
-      <div className="mt-3">
-        {rechazando ? (
-          <div className="space-y-2">
-            <textarea value={comentario} onChange={e => setComentario(e.target.value)} rows={2} placeholder="Motivo del rechazo (obligatorio)…" autoFocus
-              className="w-full border border-zinc-200 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 rounded-lg px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-rose-400 resize-none" />
-            <div className="flex gap-2">
-              <button onClick={() => { onRechazar(comentario.trim()); setRechazando(false); setComentario(''); }} disabled={!comentario.trim() || cargando}
-                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-semibold bg-rose-600 text-white hover:bg-rose-700 disabled:bg-zinc-300 transition-colors">
-                {cargando ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />} Confirmar rechazo
-              </button>
-              <button onClick={() => { setRechazando(false); setComentario(''); }} className="px-3 py-2 rounded-lg text-[13px] font-medium text-zinc-500 hover:bg-zinc-100 dark:hover:bg-white/[0.06]">Cancelar</button>
+          {info.total > 0 && (
+            <div className="mt-2 flex items-center gap-3 max-w-md">
+              <div className="h-1.5 flex-1 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden" role="img" aria-label={`${info.aprobados} de ${info.total} puntos aprobados`}>
+                <motion.div className="h-full rounded-full bg-exito" initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }} />
+              </div>
+              <p className="text-xs text-tinta-2 dark:text-slate-400 tabular-nums whitespace-nowrap">
+                <b className="font-semibold text-tinta dark:text-slate-200">{info.aprobados}/{info.total}</b> puntos
+                {info.porAprobar > 0 && <> · <span className="text-marca dark:text-teal-300 font-medium">{info.porAprobar} por aprobar</span></>}
+                {info.observados > 0 && <> · <span className="text-orange-600 dark:text-orange-400 font-medium">{info.observados} observado{info.observados === 1 ? '' : 's'}</span></>}
+              </p>
             </div>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <button onClick={onAprobar} disabled={!puedeAprobar || cargando}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-zinc-200 disabled:text-zinc-400 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-600 transition-colors">
-              {cargando ? <Loader2 size={13} className="animate-spin" /> : <Check size={14} />} Aprobar {label.toLowerCase()}
-            </button>
-            <button onClick={() => setRechazando(true)} disabled={!puedeAprobar || cargando}
-              className="px-3 py-2 rounded-lg text-[13px] font-semibold text-rose-700 border border-rose-200 hover:bg-rose-50 dark:text-rose-300 dark:border-rose-500/30 dark:hover:bg-rose-500/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-              Rechazar
-            </button>
+          )}
+
+          {(bloque === 'COMERCIAL' || (bloque === 'TECNICO' && (hayVeredicto || negocio.decisionesEstrategicas.especificacionesCorregidas > 0))) && (
+            <dl className="mt-2.5 flex flex-wrap gap-x-6 gap-y-2">
+              {bloque === 'COMERCIAL' && <>
+                <Dato rotulo="Precio total">{fmtCLP(negocio.comercial.precioTotal)}</Dato>
+                {negocio.comercial.plazoOfertado && <Dato rotulo="Plazo de entrega">{negocio.comercial.plazoOfertado}</Dato>}
+                {negocio.decisionesEstrategicas.lineasNoOfertadas > 0 && <Dato rotulo="Líneas no ofertadas" tono="alerta">{negocio.decisionesEstrategicas.lineasNoOfertadas}</Dato>}
+              </>}
+              {bloque === 'TECNICO' && <>
+                {hayVeredicto && <Dato rotulo="Cumplen" tono="exito">{v.cumplen}</Dato>}
+                {v.noCumplen > 0 && <Dato rotulo="No cumplen" tono="urgente">{v.noCumplen}</Dato>}
+                {v.conComplemento > 0 && <Dato rotulo="Con complemento" tono="alerta">{v.conComplemento}</Dato>}
+                {v.sinEvaluar > 0 && <Dato rotulo="Sin evaluar">{v.sinEvaluar}</Dato>}
+                {negocio.decisionesEstrategicas.especificacionesCorregidas > 0 && <Dato rotulo="Especificaciones corregidas" tono="alerta">{negocio.decisionesEstrategicas.especificacionesCorregidas}</Dato>}
+              </>}
+            </dl>
+          )}
+        </div>
+
+        {/* Solo el bloque listo tiene botones: nada de botones grises que no se pueden usar */}
+        {listo && !rechazando && (
+          <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
+            <Boton variante="fantasma" tamano="sm" onClick={() => setRechazando(true)} disabled={cargando} icono={<X size={14} />}>Rechazar</Boton>
+            <Boton variante="primario" tamano="sm" onClick={onAprobar} disabled={cargando}
+              icono={cargando ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}>Aprobar {label.toLowerCase()}</Boton>
           </div>
         )}
-        {!puedeAprobar && !rechazando && <p className="text-[11.5px] text-zinc-400 mt-1.5">{info.estado === 'APROBADO' ? 'Este bloque ya está aprobado.' : 'Se puede aprobar cuando el asistente lo deje listo.'}</p>}
       </div>
+
+      {rechazando && (
+        <div className="mt-3 ml-11 space-y-2">
+          <textarea value={comentario} onChange={e => setComentario(e.target.value)} rows={2} autoFocus
+            placeholder={`¿Qué debe corregir el asistente en ${label.toLowerCase()}? (obligatorio)`}
+            className="w-full border border-linea dark:border-slate-700 bg-white dark:bg-slate-950 dark:text-slate-100 rounded-lg px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-red-300 resize-none" />
+          <div className="flex items-center gap-2">
+            <Boton variante="peligro" tamano="sm" disabled={!comentario.trim() || cargando}
+              onClick={() => { onRechazar(comentario.trim()); setRechazando(false); setComentario(''); }}
+              icono={cargando ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />}>Rechazar y devolver al asistente</Boton>
+            <Boton variante="fantasma" tamano="sm" onClick={() => { setRechazando(false); setComentario(''); }}>Cancelar</Boton>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -146,92 +176,90 @@ export function TarjetaNegocioAprobacion({
   const [cargando, setCargando] = useState<'TECNICO' | 'COMERCIAL' | null>(null);
   const [aprobandoTodo, setAprobandoTodo] = useState(false);
   const [eliminando, setEliminando] = useState(false);
-  const sem = SEMAFORO_STYLE[negocio.semaforo] || SEMAFORO_STYLE.AMARILLO;
 
   const aprobar = async (bloque: 'TECNICO' | 'COMERCIAL') => { setCargando(bloque); try { await onAprobarBloque(negocio.negocioId, bloque); } finally { setCargando(null); } };
   const rechazar = async (bloque: 'TECNICO' | 'COMERCIAL', comentario: string) => { setCargando(bloque); try { await onRechazarBloque(negocio.negocioId, bloque, comentario); } finally { setCargando(null); } };
   const aprobarTodo = async () => { if (!onAprobarTodo) return; setAprobandoTodo(true); try { await onAprobarTodo(negocio.negocioId); } finally { setAprobandoTodo(false); } };
   const eliminar = async () => { if (!onEliminar) return; setEliminando(true); try { await onEliminar(negocio.negocioId, negocio.licitacionNombre); } finally { setEliminando(false); } };
 
-  const puedeAprobarTodo = negocio.bloques.TECNICO.estado === 'POR_APROBAR' || negocio.bloques.COMERCIAL.estado === 'POR_APROBAR';
-  const hayDosPorAprobar = negocio.bloques.TECNICO.estado === 'POR_APROBAR' && negocio.bloques.COMERCIAL.estado === 'POR_APROBAR';
+  const tecListo = negocio.bloques.TECNICO.estado === 'POR_APROBAR';
+  const comListo = negocio.bloques.COMERCIAL.estado === 'POR_APROBAR';
+  const listos = [tecListo && 'Técnico', comListo && 'Comercial'].filter(Boolean) as string[];
+  const colorCierre = COLOR_SEMAFORO[negocio.semaforo] || COLOR.ambar;
+  const hayAlertas = negocio.alertasMotorComercial.length > 0 || (negocio.semaforo === 'ROJO' && negocio.causalesBloqueo.length > 0);
+  // El bloque listo va primero: es lo que hay que mirar.
+  const orden: Array<'TECNICO' | 'COMERCIAL'> = !tecListo && comListo ? ['COMERCIAL', 'TECNICO'] : ['TECNICO', 'COMERCIAL'];
 
   if (aprobadoFlash) {
     return (
-      <div className="flex items-center gap-3 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-300 dark:border-emerald-500/40 rounded-2xl px-4 py-4 fade-in">
-        <CheckCircle2 size={22} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-        <p className="text-[14px] font-semibold text-emerald-800 dark:text-emerald-300 truncate flex-1">{negocio.licitacionNombre || negocio.licitacionCodigo}</p>
-        <span className="text-[13px] font-bold text-emerald-700 dark:text-emerald-400 flex-shrink-0">Aprobado</span>
+      <div className="flex items-center gap-3 bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/30 rounded-xl px-4 py-4 fade-in">
+        <CheckCircle2 size={22} className="text-exito dark:text-green-400 flex-shrink-0" />
+        <p className="text-[14px] font-semibold text-green-900 dark:text-green-200 truncate flex-1">{negocio.licitacionNombre || negocio.licitacionCodigo}</p>
+        <span className="text-[13px] font-semibold text-exito dark:text-green-400 flex-shrink-0">Aprobado</span>
       </div>
     );
   }
 
   return (
-    <div className="relative overflow-hidden bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800" data-testid={`aprob-negocio-${negocio.negocioId}`}>
-      <div className="px-4 py-4 space-y-3">
-        {/* Encabezado: qué licitación es y cuánto falta para que cierre */}
+    <motion.div variants={item} layout className="bg-white dark:bg-slate-900 rounded-xl border border-linea dark:border-slate-800 shadow-tarjeta overflow-hidden" data-testid={`aprob-negocio-${negocio.negocioId}`}>
+      {/* Encabezado: qué licitación es, cuándo cierra y qué te toca aprobar */}
+      <div className="px-4 pt-4 pb-3.5">
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap text-[12px] text-zinc-500 dark:text-zinc-400">
-              <span className="font-mono font-semibold bg-zinc-100 dark:bg-white/10 text-zinc-600 dark:text-zinc-300 px-2 py-0.5 rounded-md">{negocio.licitacionCodigo}</span>
-              {negocio.licitacionOrganismo && <span className="truncate">{negocio.licitacionOrganismo}</span>}
-            </div>
+            <p className="text-xs text-tinta-2 dark:text-slate-400 truncate">
+              <span className="font-mono font-medium text-tinta dark:text-slate-300">{negocio.licitacionCodigo}</span>
+              {negocio.licitacionOrganismo && <> · {negocio.licitacionOrganismo}</>}
+            </p>
             <Link href={`/negocios/${negocio.negocioId}?seccion=comercial`} className="group inline-flex items-start gap-1 mt-1">
-              <span className="text-[15px] font-bold text-zinc-900 dark:text-zinc-100 leading-snug group-hover:text-indigo-600 dark:group-hover:text-indigo-400">{negocio.licitacionNombre || negocio.licitacionCodigo}</span>
-              <ArrowUpRight size={15} className="mt-0.5 flex-shrink-0 text-zinc-300 group-hover:text-indigo-500" />
+              <span className="text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-50 leading-snug group-hover:text-marca dark:group-hover:text-teal-300">{negocio.licitacionNombre || negocio.licitacionCodigo}</span>
+              <ArrowUpRight size={15} className="mt-0.5 flex-shrink-0 text-slate-300 group-hover:text-marca" />
             </Link>
           </div>
-          <span className={`flex-shrink-0 text-[12.5px] font-bold px-3 py-1 rounded-full border ${sem.chip}`}>{sem.texto(negocio.cierre.horasRestantes)}</span>
+          <span className="flex-shrink-0 text-[12.5px] font-medium text-tinta dark:text-slate-200 mt-0.5"><Estado color={colorCierre}>{textoCierre(negocio.cierre.horasRestantes)}</Estado></span>
         </div>
 
-        {/* Alertas siempre a la vista */}
-        {(negocio.alertasMotorComercial.length > 0 || (negocio.semaforo === 'ROJO' && negocio.causalesBloqueo.length > 0)) && (
-          <div className="space-y-1.5">
-            {negocio.alertasMotorComercial.length > 0 && (
-              <div className="flex gap-2.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 rounded-xl px-3.5 py-2.5">
-                <AlertTriangle size={16} className="flex-shrink-0 mt-0.5 text-amber-600" />
-                <div className="space-y-1">
-                  {negocio.alertasMotorComercial.map(a => <p key={a.codigo} className="text-[12.5px] text-amber-900 dark:text-amber-200 leading-snug"><b>{a.descripcion}.</b> {a.detalle}</p>)}
-                </div>
-              </div>
-            )}
-            {negocio.semaforo === 'ROJO' && negocio.causalesBloqueo.length > 0 && (
-              <div className="flex gap-2.5 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/25 rounded-xl px-3.5 py-2.5">
-                <AlertTriangle size={16} className="flex-shrink-0 mt-0.5 text-rose-600" />
-                <div className="space-y-1">
-                  {negocio.causalesBloqueo.map(c => <p key={c.codigo} className="text-[12.5px] text-rose-800 dark:text-rose-200 leading-snug"><b>{c.descripcion}.</b> {c.rutaDesbloqueo}</p>)}
-                </div>
-              </div>
-            )}
+        <p className="mt-2.5 text-[13px] text-tinta-2 dark:text-slate-400">
+          {listos.length === 0 ? 'Nada listo para aprobar todavía.'
+            : <>Falta tu visto bueno en <b className="font-semibold text-tinta dark:text-slate-100">{listos.join(' y ')}</b>.</>}
+        </p>
+
+        {hayAlertas && (
+          <div className="mt-3 space-y-1.5">
+            {negocio.alertasMotorComercial.map(a => (
+              <p key={a.codigo} className="flex gap-2 text-[12.5px] leading-snug text-amber-900 dark:text-amber-200 bg-amber-50 dark:bg-amber-500/10 rounded-lg px-3 py-2">
+                <AlertTriangle size={15} className="flex-shrink-0 mt-px text-alerta" /><span><b className="font-semibold">{a.descripcion}.</b> {a.detalle}</span>
+              </p>
+            ))}
+            {negocio.semaforo === 'ROJO' && negocio.causalesBloqueo.map(c => (
+              <p key={c.codigo} className="flex gap-2 text-[12.5px] leading-snug text-red-900 dark:text-red-200 bg-red-50 dark:bg-red-500/10 rounded-lg px-3 py-2">
+                <AlertTriangle size={15} className="flex-shrink-0 mt-px text-urgente" /><span><b className="font-semibold">{c.descripcion}.</b> {c.rutaDesbloqueo}</span>
+              </p>
+            ))}
           </div>
         )}
-
-        {/* Los dos bloques, siempre visibles, cada uno con su decisión */}
-        <div className="flex flex-col md:flex-row gap-3">
-          <PanelBloque negocio={negocio} bloque="TECNICO" icon={Wrench} label="Técnico" onAprobar={() => aprobar('TECNICO')} onRechazar={c => rechazar('TECNICO', c)} cargando={cargando === 'TECNICO'} />
-          <PanelBloque negocio={negocio} bloque="COMERCIAL" icon={DollarSign} label="Comercial" onAprobar={() => aprobar('COMERCIAL')} onRechazar={c => rechazar('COMERCIAL', c)} cargando={cargando === 'COMERCIAL'} />
-        </div>
-
-        {/* Pie: quién lo prepara y el atajo de aprobar todo */}
-        <div className="flex items-center gap-3 flex-wrap pt-1">
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <span className="flex-shrink-0 w-7 h-7 rounded-full bg-zinc-200 dark:bg-white/10 text-zinc-600 dark:text-zinc-300 text-[11px] font-bold flex items-center justify-center" aria-hidden>{iniciales(negocio.asignadoNombre)}</span>
-            <p className="text-[12.5px] text-zinc-500 dark:text-zinc-400 truncate">{negocio.asignadoNombre ? <>Lo prepara <b className="text-zinc-700 dark:text-zinc-200">{negocio.asignadoNombre}</b></> : 'Sin asistente asignado'}</p>
-          </div>
-          {esAdmin && onEliminar && (
-            <button onClick={eliminar} disabled={eliminando} title="Sacar de esta bandeja (el negocio no se toca)"
-              className="p-2 rounded-lg text-zinc-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:text-rose-400 dark:hover:bg-rose-500/10 transition-colors disabled:opacity-50">
-              {eliminando ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
-            </button>
-          )}
-          {onAprobarTodo && (
-            <button onClick={aprobarTodo} disabled={!puedeAprobarTodo || aprobandoTodo}
-              className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-[14px] font-semibold bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm disabled:bg-zinc-100 disabled:text-zinc-300 disabled:shadow-none dark:disabled:bg-white/5 dark:disabled:text-zinc-600 transition-colors">
-              {aprobandoTodo ? <Loader2 size={15} className="animate-spin" /> : <Check size={16} />} {hayDosPorAprobar ? 'Aprobar técnico y comercial' : 'Aprobar todo lo pendiente'}
-            </button>
-          )}
-        </div>
       </div>
-    </div>
+
+      {orden.map(b => b === 'TECNICO'
+        ? <FilaBloque key={b} negocio={negocio} bloque="TECNICO" icon={Wrench} label="Técnico" onAprobar={() => aprobar('TECNICO')} onRechazar={c => rechazar('TECNICO', c)} cargando={cargando === 'TECNICO' || aprobandoTodo} />
+        : <FilaBloque key={b} negocio={negocio} bloque="COMERCIAL" icon={DollarSign} label="Comercial" onAprobar={() => aprobar('COMERCIAL')} onRechazar={c => rechazar('COMERCIAL', c)} cargando={cargando === 'COMERCIAL' || aprobandoTodo} />)}
+
+      {/* Pie: quién lo prepara; el atajo «aprobar los dos» solo cuando los dos están listos */}
+      <div className="px-4 py-3 border-t border-linea dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/30 flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-semibold flex items-center justify-center" aria-hidden>{iniciales(negocio.asignadoNombre)}</span>
+          <p className="text-xs text-tinta-2 dark:text-slate-400 truncate">{negocio.asignadoNombre ? <>Lo prepara <b className="font-medium text-tinta dark:text-slate-200">{negocio.asignadoNombre}</b></> : 'Sin asistente asignado'}</p>
+        </div>
+        {esAdmin && onEliminar && (
+          <button onClick={eliminar} disabled={eliminando} title="Sacar de esta bandeja (el negocio no se toca)" aria-label="Sacar de esta bandeja"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-urgente hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50">
+            {eliminando ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+          </button>
+        )}
+        {onAprobarTodo && tecListo && comListo && (
+          <Boton variante="primario" onClick={aprobarTodo} disabled={aprobandoTodo || cargando != null}
+            icono={aprobandoTodo ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}>Aprobar técnico y comercial</Boton>
+        )}
+      </div>
+    </motion.div>
   );
 }

@@ -4,6 +4,17 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
 
 ## Decisiones vigentes del dueño
 
+- **licitank-ui aplicada a `/aprobaciones`** (2026-11-13, pedido del dueño: «poco intuitivo para aprobar lo que mandan
+  Negocios o Compras»). Solo lo visual, misma API y mismas acciones. Tarjeta de licitación
+  (`TarjetaNegocioAprobacion.tsx`): arriba dice «Falta tu visto bueno en Técnico/Comercial»; los bloques son filas
+  (el listo primero, con Rechazar + Aprobar teal); el bloque que aún prepara el asistente queda sin botones
+  (antes salían grises deshabilitados); «Aprobar técnico y comercial» solo si los DOS están listos (con uno era
+  el mismo botón repetido); cierre en días de calendario («Cierra el lunes 17») con punto de color.
+  Compras (`ItemAprobacionCompras.tsx`): tipo = ícono gris + texto, cada fila dice dónde se aprueba, botón teal
+  «Revisar y aprobar en Compras». Página: `Encabezado`, 4 cuadros que hacen de pestañas (se quitó la fila de
+  pestañas repetida), filtros de cierre «Urgentes / Cierran pronto / Con tiempo» (antes Rojo/Amarillo/Verde),
+  carga con esqueleto, vacíos con `Vacio`. Sin índigo/violeta. `tsc` ok; NO visto en navegador (pedía login).
+
 - **Barra de gestión del negocio en vez de columna derecha** (2026-11-09, pedido del dueño): en `/negocios/[id]`
   la columna de Estado/Responsable/Historial pasó a una franja fija (`sticky`) bajo el título, con
   `GestionAside variante="barra"`: Estado (se abre hacia abajo), En proceso, Descartar, Responsable
