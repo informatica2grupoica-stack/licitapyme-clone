@@ -54,7 +54,7 @@ export type ResultadoAdj = 'GLOBAL' | 'POR_LINEAS' | 'NO_CLARO';
 
 export interface DecisionAdjudicacion {
   resultado: ResultadoAdj;
-  regla_aplicada: number;            // 1..8 de la tabla (8: total único sin señal por línea)
+  regla_aplicada: number;            // 1..7 de la tabla
   motivo: string;
   cotizar_100: 'SI' | 'POR_LINEA' | 'POR_CONFIRMAR';
   cotizar_100_texto: string;
@@ -107,6 +107,16 @@ export function hablaDeAdjudicarParte(frase: string): boolean {
   return HABLA_DE_PARTE.test(frase) && !PARCIAL_DE_OTRA_COSA.test(frase);
 }
 
+// ADJUDICA_POR_LINEA tiene que nombrar la unidad que se adjudica aparte. Caso real 1024-61-LP26 (13-nov-2026, 2.º
+// análisis): la IA citó la tabla de ACOPIO («Rol Camino … A-65 … 333 un Barreras de hormigón A-760 … 133 un») como
+// «se adjudica por línea». De 234 frases guardadas que cuentan, solo 4 no nombran línea/ítem/lote/rubro/grupo/
+// familia/categoría/partida/opción ni «más de un proveedor»: esa tabla y «se adjudicará a la que ofrezca…»
+// (2403-77-LE26). Las frases de los detectores ya salen de patrones curados: no pasan por este filtro.
+const NOMBRA_UNIDAD = /l[ií]neas?\b|[ií]tems?\b|\blotes?\b|rubro|\bgrupos?\b|familia|categor[ií]a|partida|opci[oó]n(es)?\s*(n[°º.]?\s*)?\d|m[uú]ltiple|separad|independiente|m[aá]s de un[oa]?\s+(oferente|proveedor|proponente)|distintos\s+(oferentes|proveedores)|por\s+(cada\s+)?(bien|producto|equipo)/i;
+export function nombraUnidadDeAdjudicacion(frase: string): boolean {
+  return NOMBRA_UNIDAD.test(frase);
+}
+
 /** Marca qué evidencias cuentan: frase verificada en los documentos y semántica no negativa. */
 export function marcarEvidenciasQueCuentan(evs: EvidenciaAdj[]): EvidenciaAdj[] {
   for (const e of evs) {
@@ -118,6 +128,9 @@ export function marcarEvidenciasQueCuentan(evs: EvidenciaAdj[]): EvidenciaAdj[] 
     if (e.cita.semantica === 'NO' || e.cita.semantica === 'PARCIAL') { e.cuenta = false; e.motivo_no_cuenta = 'la frase no sostiene lo que dice el tipo de evidencia'; continue; }
     if (e.tipo === 'ADJUDICA_GLOBAL' && UNO_POR_LINEA.test(e.cita.frase)) {
       e.cuenta = false; e.motivo_no_cuenta = 'adjudica un oferente por cada línea, no todo a uno'; continue;
+    }
+    if (e.tipo === 'ADJUDICA_POR_LINEA' && e.origen !== 'detector' && !nombraUnidadDeAdjudicacion(e.cita.frase)) {
+      e.cuenta = false; e.motivo_no_cuenta = 'la frase no nombra qué se adjudica por separado (línea, ítem, lote…)'; continue;
     }
     if (e.tipo === 'TOTAL_O_PARCIAL' && !hablaDeAdjudicarParte(e.cita.frase)) {
       e.cuenta = false; e.motivo_no_cuenta = 'la frase no dice que se pueda adjudicar una parte'; continue;
@@ -170,16 +183,40 @@ export function decidirAdjudicacion(evs: EvidenciaAdj[], lineasApi: number): Dec
   const forms = de(e => e.tipo === 'FORMULARIOS_SEPARADOS');
   const respaldo = de(e => e.tipo !== 'FORMULARIOS_SEPARADOS' && CATALOGO[e.tipo].lado === 'POR_LINEAS');
   if (forms.length && respaldo.length) return res('POR_LINEAS', 6, 'Hay un formulario económico por línea y otra señal que lo respalda.', [...forms, ...respaldo]);
-  // 8. El formulario económico pide UN solo total (frase encontrada en el documento) y ninguna evidencia que cuente
-  // permite repartir → GLOBAL. Caso real 1024-61-LP26 (13-nov-2026, el dueño): Anexo 2 con un único «VALOR TOTAL DE
-  // SU OFERTA» para los 2 ítems, precio evaluado sobre el total y un solo plazo «para la totalidad del producto».
-  // El total que solo ve el detector (sin frase) no basta: 3328-82-LE26 y 1024-47-LP26 siguen NO_CLARO.
-  const totalConFrase = de(e => e.tipo === 'FORMULARIO_TOTAL' && e.origen !== 'detector' && !!String(e.cita?.frase || '').trim());
-  if (totalConFrase.length && !validas.some(e => CATALOGO[e.tipo].lado === 'POR_LINEAS')) {
-    return res('GLOBAL', 8, 'El formulario económico pide un solo total y nada en las bases permite repartir las líneas.', totalConFrase);
-  }
   // 7. Solo débiles, formularios sin respaldo o nada.
+  // NO hay regla «total único = GLOBAL» (probada y retirada el 13-nov-2026): 3328-82-LE26 cierra su anexo con un solo
+  // NETO/IVA/TOTAL y se adjudicó a 4 proveedores (4 OC). El total al pie dice cómo se COTIZA, no a cuántos se adjudica.
   return res('NO_CLARO', 7, validas.length ? 'Solo hay señales débiles: no alcanzan para decidir.' : 'Las bases no dicen cómo se adjudica.');
+}
+
+// ─── La confirmación de una persona sobrevive al re-análisis ──────────────────────────────
+// El visor permite confirmar la adjudicación (regla_aplicada = 'CONFIRMADA', ruta …/nivel). Hasta el 13-nov-2026
+// el re-análisis pisaba el informe entero y esa confirmación se perdía (3328-82-LE26: confirmada POR_LINEAS por el
+// equipo y bien confirmada, 4 OC). Ahora se conserva; lo que dijo la IA queda en `segun_ia` para comparar.
+// Devuelve true si aplicó la confirmación (el llamador recalcula el nivel).
+export function conservarConfirmacionAdjudicacion(nuevo: any, anterior: any): boolean {
+  const prev = anterior?.adjudicacion;
+  const valor = String(prev?.resultado || '').toUpperCase();
+  if (!nuevo || prev?.regla_aplicada !== 'CONFIRMADA' || (valor !== 'GLOBAL' && valor !== 'POR_LINEAS')) return false;
+  const adj = nuevo.adjudicacion || (nuevo.adjudicacion = {});
+  adj.segun_ia = { resultado: adj.resultado ?? null, regla_aplicada: adj.regla_aplicada ?? null, motivo: adj.motivo ?? null };
+  adj.resultado = valor;
+  adj.regla_aplicada = 'CONFIRMADA';
+  adj.motivo = String(prev.motivo || 'Confirmado en el visor.');
+  if (prev.resultado_original) adj.resultado_original = prev.resultado_original;
+  adj.cotizar_100 = valor === 'GLOBAL' ? 'SI' : 'POR_LINEA';
+  adj.cotizar_100_texto = valor === 'GLOBAL' ? 'Cotizar el 100 % de las líneas' : 'Completar cada línea que se oferte';
+  adj.pregunta_foro = null;
+  if (nuevo.modalidad && typeof nuevo.modalidad === 'object') {
+    if (valor === 'POR_LINEAS') nuevo.modalidad.tipo = 'por_linea';
+    delete nuevo.modalidad.estado;
+  }
+  const conf = Array.isArray(anterior?.score_confirmaciones) ? anterior.score_confirmaciones.find((c: any) => c?.clave === 'adjudicacion') : null;
+  if (conf) {
+    const ya: any[] = Array.isArray(nuevo.score_confirmaciones) ? nuevo.score_confirmaciones : [];
+    nuevo.score_confirmaciones = [...ya.filter(c => c?.clave !== 'adjudicacion'), conf];
+  }
+  return true;
 }
 
 // ─── Detectores existentes → evidencias tipadas ───────────────────────────────────────────

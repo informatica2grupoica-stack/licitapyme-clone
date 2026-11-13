@@ -51,7 +51,7 @@ import { nombresFamilias } from '@/app/lib/viabilidad-v4/config';
 import { cargarConfigViabilidad } from '@/app/lib/viabilidad-v4/cargar-config';
 import { PROMPT_VERSION_V4, SYSTEM_PROMPT_V4, BLOQUE_BARRIDO_V4, construirUserPromptV4 } from '@/app/lib/viabilidad-v4/prompt-v4';
 import { LocalizadorCitas, localizarCitasInforme } from '@/app/lib/viabilidad-v4/citas';
-import { CATALOGO, decidirAdjudicacion, deduplicarEvidencias, evidenciasDeDetectores, evidenciasDelModelo, marcarEvidenciasQueCuentan, type EvidenciaAdj, type SenalesDetectores } from '@/app/lib/viabilidad-v4/adjudicacion';
+import { CATALOGO, conservarConfirmacionAdjudicacion, decidirAdjudicacion, deduplicarEvidencias, evidenciasDeDetectores, evidenciasDelModelo, marcarEvidenciasQueCuentan, type EvidenciaAdj, type SenalesDetectores } from '@/app/lib/viabilidad-v4/adjudicacion';
 import { HITO_LABEL, NOTA_ACEPTACION_OC, calcularPlazoPrevio, detectarNegaciones, feriadosPara, normalizarHitos, type HitoInforme } from '@/app/lib/viabilidad-v4/plazo-previo';
 import { calcularMulta, indicadorNecesario } from '@/app/lib/viabilidad-v4/multa';
 import { extraerPasajesPlazosMultas, necesitaLecturaDirigida, aplicarLecturaDirigida, repararGarantiaPorTexto, SYSTEM_LECTURA_DIRIGIDA, promptUsuarioLecturaDirigida } from '@/app/lib/viabilidad-v4/lectura-dirigida';
@@ -2361,6 +2361,13 @@ async function analizarYGuardarViabilidadIAImpl(codigo: string, onFase?: (fase: 
   const informeAnterior = await pool.query(`SELECT informe_ejecutivo FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`, [codigo])
     .then(([rows]: any) => { const ie = rows[0]?.informe_ejecutivo; return (typeof ie === 'string' ? JSON.parse(ie) : ie)?._informe_ia_v3 ?? null; })
     .catch(() => null);
+  // Lo que una persona confirmó en el visor (cómo se adjudica) no se pierde al re-analizar.
+  try {
+    if (conservarConfirmacionAdjudicacion(rv3, informeAnterior)) {
+      console.log(`[viabilidad-ia-v4] ${codigo}: adjudicación ${rv3.adjudicacion?.resultado} confirmada por el equipo — se mantiene (la IA dijo ${rv3.adjudicacion?.segun_ia?.resultado}).`);
+      await aplicarNivel(rv3, codigo);
+    }
+  } catch (e) { console.warn(`[viabilidad-ia-v4] ${codigo}: no se pudo conservar la confirmación:`, String(e).slice(0, 160)); }
   try { await guardarViabilidadIAV4(codigo, rv3); }
   catch (e) { console.error('[viabilidad-ia-v4] guardar falló:', String(e).slice(0, 200)); }
   // Vuelca ítems al negocio y genera el Excel de costeo.

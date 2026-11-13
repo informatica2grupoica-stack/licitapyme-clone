@@ -2,7 +2,7 @@
 
 Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se decidió.
 
-## 2026-11-13 — «La o las propuestas» se leía como adjudicación parcial; regla 8 (total único = GLOBAL)
+## 2026-11-13 — «La o las propuestas» y una tabla de acopio se leían como «por línea»; la confirmación ya no se pierde
 Caso real: 1024-61-LP26 (Vialidad Tarapacá, 466 barreras tipo F + 466 captafaros). El informe la daba POR_LINEAS
 (regla 3) con la frase tipo de las bases MOP «Se adjudicará a la o las propuestas más ventajosas», etiquetada
 TOTAL_O_PARCIAL. Las bases no permiten repartir: Anexo 2 con un único «VALOR TOTAL DE SU OFERTA», precio evaluado
@@ -15,23 +15,34 @@ sobre el total, un solo plazo «para la totalidad del producto», garantía 5 % 
    guardadas: además de 1024 no cuentan «aceptar cualquiera… o rechazarlas todas» (2744-38), «adjudicar a cualquiera
    de las ofertas» (3748-24) y los «total o parcial» de descargos/multas/inadmisible (3587-24, 3996-47, 4559-37,
    634-96, 2711-27).
-2. Regla 8 nueva (antes de la 7): formulario económico de total único CON frase encontrada (no el detector sin frase)
-   y NINGUNA evidencia válida hacia por línea → GLOBAL. Cualquier señal por línea, aunque sea débil, la deja NO_CLARO.
-   Las reglas 1–7 no cambiaron; solo se agregó el filtro y la regla 8.
-**Medido** (decisor anterior vs nuevo sobre las evidencias de 403 informes v4, `scripts/scratch/_adj_antes_despues_1311.mts`):
-1024-61 POR_LINEAS → GLOBAL; 3587-24-LP26 y 3996-47-LE26 POR_LINEAS → NO_CLARO (decidían por frases de descargos;
-3587 probablemente sí es por ítem —«Se adjudicará cada ítem al proponente…», la IA la marcó PARCIAL— y queda para
-confirmar en el visor). Las demás que pasan a regla 8 ya estaban guardadas GLOBAL. 3328-82 y 1024-47 (total solo del
-detector) siguen NO_CLARO.
-**Hecho:** 1024-61 re-decidida en la BD SIN IA (`scripts/scratch/_1024_redecidir.mts`, respaldo
-`_respaldo_viab_1024-61-LP26_131126.json`): GLOBAL regla 8, cotizar 100 %, costeo suma_alzada, nivel MUY_ALTO; el
-resultado anterior queda en `adjudicacion.historial`. Caso agregado a `scripts/regresion/gold-v4.json`.
-**Verificado:** test nuevo `adjudicacion-total-o-parcial.test.mts` (frases reales), 1.818 tests, tsc. NO desplegado:
-los análisis nuevos en el VPS siguen con el decisor viejo hasta desplegar. 3587-24 y 3996-47 no se tocaron en la BD.
-**Costeo regenerado (dueño, 13-nov, «sí, regenéralo»):** el COSTEO_1024-61-LP26_2026-11-13.xlsx automático venía en
-2 hojas (LINEA1/LINEA2). Se regeneró con la misma secuencia de la ruta, desde el PC (`scripts/scratch/_regenerar_costeo.mts`,
-sin precios de mercado): ahora es 1 hoja «Costeo» con los 2 ítems y total único. Respaldo del anterior en
-`scripts/scratch/_respaldo_COSTEO_1024-61-LP26_2026-11-13.xlsx`.
+2. ADJUDICA_POR_LINEA (del modelo o del lector de cláusulas) cuenta solo si la frase NOMBRA qué se adjudica aparte:
+   línea, ítem, lote, rubro, grupo, familia, categoría, partida, «opción N», múltiple, «más de un proveedor»…
+   (`nombraUnidadDeAdjudicacion`). El 2.º análisis de 1024 citó la tabla de ACOPIO («Rol Camino … A-65 … 333 un
+   Barreras de hormigón») como «se adjudica por línea». De 234 frases guardadas que cuentan, solo salen esa y «se
+   adjudicará a la que ofrezca…» (2403-77-LE26). Las de los detectores no pasan por el filtro.
+3. `detectarOfertaTotalUnico` (`planilla-costeo-parser.ts`) reconoce el pie «VALOR TOTAL OFERTA NETO / VALOR TOTAL
+   OFERTA CON IVA» (exige «oferta» en los dos: sin eso calzaban encabezados de columna por ítem, 1191688-75-LP26).
+   Sobre 408 licitaciones solo cambian 1024-48, -58 y -61-LP26 (misma plantilla Vialidad Tarapacá). Solo afecta cómo se
+   COTIZA (costeo de total único), no la adjudicación.
+4. **La confirmación del equipo sobrevive al re-análisis** (`conservarConfirmacionAdjudicacion`, llamada en
+   `analizarYGuardarViabilidadIAImpl` de `viabilidad-ia.ts`): antes el re-análisis pisaba el informe entero y se
+   perdía lo confirmado en el visor (regla CONFIRMADA). Ahora se mantiene y lo que dijo la IA queda en
+   `adjudicacion.segun_ia`. La copia `cv/` no tiene confirmación de adjudicación: no se tocó su flujo.
+**Probado y RETIRADO el mismo día: «regla 8» (total único sin señal por línea = GLOBAL).** Se alcanzó a desplegar
+(a94a2b3). Lo desmiente 3328-82-LE26: su anexo cierra con un solo NETO/IVA/TOTAL y se adjudicó a 4 proveedores
+(4 OC), y Alexis Tobar ya la había confirmado POR_LINEAS en el visor. El total al pie dice cómo se COTIZA, no a
+cuántos se adjudica (regla madre de los dos ejes). No volver a proponerla.
+**Medido** (`scripts/scratch/_adj_antes_despues_1311.mts`, decisor de 8920bef vs el nuevo sobre 408 informes v4):
+cambian 3, todas POR_LINEAS → NO_CLARO: 1024-61 (frase tipo + tabla de acopio), 3587-24-LP26 y 3996-47-LE26 (decidían
+por «total o parcial» de descargos de multas; 3587 probablemente sí es por ítem —«Se adjudicará cada ítem…», la IA lo
+marcó PARCIAL—). 3587 y 3996 están DESCARTADAS: no se re-analizaron ni se tocaron en la BD.
+**Hecho con 1024-61:** re-análisis con IA desde el PC (dio POR_LINEAS por la tabla de acopio → origen del filtro 2);
+luego otro análisis en el VPS dio GLOBAL por la regla 8; al final se re-decidió sin IA con el código nuevo
+(NO_CLARO) y se registró la confirmación GLOBAL del dueño (regla CONFIRMADA, «Dueño (pedido a Claude)», sin
+usuario_id; `scripts/scratch/_1024_confirmar.mts`, respaldos `_respaldo_viab_1024-61-LP26_*_131126.json`). Costeo
+de 1 hoja «Costeo» con los 2 ítems (respaldo del de 2 hojas en `_respaldo_COSTEO_1024-61-LP26_2026-11-13.xlsx`).
+`gold-v4.json`: 1024-61 espera NO_CLARO por código (nunca POR_LINEAS).
+**Verificado:** test `adjudicacion-total-o-parcial.test.mts` (frases reales, detector, confirmación), 1.822 tests, tsc.
 
 ## 2026-10-29 — PDF escaneado sin leer contaba como «leído»: nunca iba a OCR y el informe decía «lectura completa»
 Pedido del dueño: «que lea siempre los documentos en su totalidad; si falla, que reintente con GLM o Kimi».

@@ -463,6 +463,12 @@ export function detectarOfertaTotalUnico(docs: { texto: string }[]): boolean {
       // Es distinto de una columna "TOTAL IVA INCLUIDO" por fila (por_linea): ahí NO hay
       // "Subtotal". Cubre el formato hiper-común "Ítem|Precio Unitario| … Subtotal/IVA/Total".
       if (/\bsub\s*total\b[\s\S]{0,60}\biva\b[\s\S]{0,60}\btotal\b/i.test(ventana)) return true;
+      // PAR DE CIERRE «TOTAL (OFERTA) NETO … TOTAL (OFERTA) CON IVA»: misma idea que el trío, con otra redacción.
+      // Caso real 1024-61-LP26 (13-nov-2026): Anexo 2 cierra con «VALOR TOTAL OFERTA NETO / VALOR TOTAL OFERTA
+      // CON IVA» justo bajo la columna «Precio Unitario | Precio Total», y el guard de cálculo por ítem de abajo
+      // lo descartaba. Exige «oferta» en los dos: sin esa palabra calzan encabezados de columna por ítem («Precio
+      // Unitario Total Neto Total con IVA», 1191688-75-LP26, por línea) — medido sobre 408 licitaciones.
+      if (/\btotal\s+(?:de\s+la\s+|de\s+su\s+)?oferta\s+neto\b[\s\S]{0,60}?\btotal\s+(?:de\s+la\s+|de\s+su\s+)?oferta\s+(?:con\s+iva|iva\s+incluido|bruto)\b/i.test(ventana)) return true;
       let t: RegExpExecArray | null;
       reTotal.lastIndex = 0;
       while ((t = reTotal.exec(ventana)) !== null) {

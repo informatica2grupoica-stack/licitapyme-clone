@@ -55,9 +55,9 @@
   },
   {
     "codigo": "1024-61-LP26",
-    "nota": "Vialidad Tarapacá · barreras tipo F + captafaros (13-nov-2026: Anexo 2 con un solo VALOR TOTAL; «la o las propuestas» es frase tipo, no adjudicación parcial)",
+    "nota": "Vialidad Tarapacá · barreras tipo F + captafaros (13-nov-2026): sin frase que permita repartir → NO_CLARO por código (nunca POR_LINEAS); el dueño la confirmó GLOBAL en el visor. «la o las propuestas» y la tabla de acopio no cuentan.",
     "esperado": {
-      "adjudicacion": "GLOBAL"
+      "adjudicacion": "NO_CLARO"
     }
   }
 ]
