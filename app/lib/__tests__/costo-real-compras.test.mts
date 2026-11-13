@@ -214,3 +214,11 @@ test('resumen del dashboard sin datos no revienta', () => {
   assert.equal(r.margenRealPct, null);
   assert.deepEqual(r.peoresDesvios, []);
 });
+
+test('consolidado: costeo vacío pero todo comprado en OC → el real sale completo de las OC (4152-22-LE26)', () => {
+  const vacio = { ventaNeta: 20_300_000, costoNetoEstimado: 4_240_422, costoNetoReal: null, filasConCostoReal: 0, filasTotales: 0, presupuestoNeto: null };
+  const c = consolidarCostoReal({ costeo: vacio, gastosRegistrados: 0, importacion: 0, ocCubreTodo: true, obuma: { ocCreadas: 0, comprasCruzadas: 4_053_669, facturas: 0 } });
+  assert.equal(c.comparativo.costoNetoReal, 4_053_669);
+  assert.equal(c.comparativo.utilidadReal, 16_246_331);
+  assert.equal(c.comparativo.realCompleto, true);
+});

@@ -116,6 +116,8 @@ export interface ResumenEjecutivoCompras extends ResumenEjecutivo {
   existeCosteo: boolean;
   montoCosteado: number | null;
   margenPrevisto: number | null;             // % — (precio de venta neto − costo neto) / precio de venta neto
+  /** El negocio no tiene costeo con monto: montoCosteado es el costo de la compra aprobada. */
+  costoDesdeCompraAprobada?: boolean;
 }
 
 /** Lo que el informe de viabilidad sabe de plazos, ya normalizado. Todo puede venir null: una
@@ -1044,7 +1046,9 @@ export async function obtenerAsignacion(negocioId: number): Promise<AsignacionCo
            FROM checklist_comercial_costeo WHERE negocio_id = ? AND vigente = 1 LIMIT 1`,
         [negocioId],
       ) as any;
-      if (c) {
+      // Un costeo vigente en $0 (editor abierto y nunca llenado) no es un costo: daba «$0 neto» y
+      // margen 100 % (4152-22-LE26, 13-nov-2026). En ese caso manda la compra aprobada, más abajo.
+      if (c && Number(c.total_costo_neto) > 0) {
         const costo = c.total_costo_neto != null ? Number(c.total_costo_neto) : null;
         resumen.costeo = {
           totalCostoNeto: costo,
@@ -1059,6 +1063,28 @@ export async function obtenerAsignacion(negocioId: number): Promise<AsignacionCo
       }
     } catch (e) {
       console.error('[compras] costeo vigente no legible (asignación):', String(e).slice(0, 150));
+    }
+    // Sin costeo con monto: el costo previsto es el de la compra aprobada por el jefe de ventas.
+    if (!(resumen.montoCosteado && resumen.montoCosteado > 0)) {
+      try {
+        const [[a]] = await pool.query(
+          `SELECT detalle_json FROM compras_aprobacion WHERE negocio_id = ? AND tipo = 'COMPRA' AND estado = 'APROBADA' LIMIT 1`,
+          [negocioId],
+        ) as any;
+        const costo = a ? Number(JSON.parse(a.detalle_json || '{}').costoTotal) : NaN;
+        if (costo > 0) {
+          resumen.existeCosteo = true;
+          resumen.montoCosteado = costo;
+          resumen.costoDesdeCompraAprobada = true;
+          resumen.margenPrevisto = (resumen.montoNuestro && resumen.montoNuestro > 0)
+            ? Math.round(((resumen.montoNuestro - costo) / resumen.montoNuestro) * 1000) / 10
+            : null;
+        } else if (resumen.montoCosteado === 0) {
+          resumen.existeCosteo = false; resumen.montoCosteado = null; resumen.margenPrevisto = null;
+        }
+      } catch (e) {
+        console.error('[compras] compra aprobada no legible (asignación):', String(e).slice(0, 150));
+      }
     }
   }
   return {

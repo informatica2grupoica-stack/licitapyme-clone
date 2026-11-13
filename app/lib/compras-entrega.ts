@@ -134,6 +134,10 @@ export async function registrarNumeros(negocioId: number, notaVentaNumero: strin
   );
   if (guiaDespachoNumero?.trim() && await esEntregaTotal(negocioId))
     await avanzarSubestados(negocioId, 'LISTO_ENTREGA', { desdeMinimo: 'COMPRADO', motivo: `se registró la guía de despacho N° ${guiaDespachoNumero.trim()}` });
+  // La tarea «Despacho de la mercadería» pide la guía de despacho: con su N° registrado ya está hecha
+  // (antes esperaba la firma del cliente y quedaba «vencida» con la guía emitida; 4152-22-LE26, 13-nov-2026).
+  if (guiaDespachoNumero?.trim())
+    await cerrarTareaDeCatalogo(negocioId, 'despacho_mercaderia', null, `Guía de despacho N° ${guiaDespachoNumero.trim()} registrada.`);
 }
 
 /** §16.5 — "la genera automáticamente el módulo. Único documento oficial que produce." Requiere

@@ -19,7 +19,7 @@ export interface ResumenCompras {
   presupuestoProyecto: number | null; fechaCierreLicitacion: string | null;
   plazoEntregaOfertado: string | null; hitoInicioPlazo: string | null;
   requiereBoletaFielCumplimiento: boolean; requiereFirmaContrato: boolean; plazoAceptacionOC: string;
-  existeCosteo: boolean; montoCosteado: number | null; margenPrevisto: number | null;
+  existeCosteo: boolean; montoCosteado: number | null; margenPrevisto: number | null; costoDesdeCompraAprobada?: boolean;
   contactosCliente: {
     organismo: string | null; unidad: string | null; direccion: string | null; comuna: string | null;
     region?: string | null; rut?: string | null;

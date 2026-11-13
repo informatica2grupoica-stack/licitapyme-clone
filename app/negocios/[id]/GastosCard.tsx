@@ -179,11 +179,11 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
               placeholder="Ej: flete de Santiago a Coyhaique, camión de la empresa X" className="w-full text-[12.5px] border border-zinc-300 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
           </div>
           <div>
-            <p className="text-[12.5px] font-bold text-zinc-800 mb-1">3. ¿Cuánto fue?</p>
+            <p className="text-[12.5px] font-bold text-zinc-800 mb-1">3. ¿Cuánto fue? <span className="font-normal text-zinc-500">neto, sin IVA (con factura, el IVA no es costo)</span></p>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[13px] text-zinc-400">$</span>
               <input inputMode="numeric" value={form.monto} onChange={e => setForm(f => ({ ...f, monto: e.target.value }))}
-                placeholder="Monto, solo números" className="w-44 text-[13px] border border-zinc-300 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+                placeholder="Monto neto, solo números" className="w-44 text-[13px] border border-zinc-300 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
               <Select value={form.moneda} onChange={v => setForm(f => ({ ...f, moneda: v }))} minWidth={90}
                 options={[{ value: 'CLP', label: 'Pesos (CLP)' }, { value: 'USD', label: 'Dólares (USD)' }]} />
             </div>

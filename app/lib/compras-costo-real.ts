@@ -79,7 +79,7 @@ export async function costoRealDeNegocios(
   const ph = placeholders(ids);
 
   // Las 4 lecturas son independientes: van a la vez (antes en serie, 22-oct-2026).
-  const [[negRows], [costeoRows], [gastoRows], embRows]: any = await Promise.all([
+  const [[negRows], [costeoRows], [gastoRows], embRows, respaldoRows]: any = await Promise.all([
     pool.query(`SELECT id, licitacion_codigo FROM negocios WHERE id IN (${ph})`, ids),
     pool.query(`SELECT negocio_id, modalidad, datos_json FROM negocio_costeo_editor WHERE negocio_id IN (${ph})`, ids),
     // `en_oc` = parte del gasto que ya tiene su OC en Obuma (migration-176); sin la columna cae a la consulta de antes.
@@ -91,7 +91,23 @@ export async function costoRealDeNegocios(
          FROM compras_importacion_embarque WHERE negocio_id IN (${ph}) AND UPPER(moneda) = 'CLP' GROUP BY negocio_id`, ids)
       .then(([r]) => r as any[])
       .catch(() => [] as any[]),   // migration-160 pendiente en un entorno viejo: sin importación, el resto sigue
+    // Respaldo cuando el costeo digital está vacío (4152-22-LE26, 13-nov-2026: «venta $0» y utilidad negativa en el cierre):
+    // la venta es el neto de la OC del cliente y el costo estimado, el de la compra aprobada por el jefe de ventas.
+    pool.query(
+      `SELECT ca.negocio_id, ca.oc_total_neto, ca.resumen_json, ap.detalle_json AS compra_aprobada
+         FROM compras_asignacion ca
+         LEFT JOIN compras_aprobacion ap ON ap.negocio_id = ca.negocio_id AND ap.tipo = 'COMPRA' AND ap.estado = 'APROBADA'
+        WHERE ca.negocio_id IN (${ph})`, ids)
+      .then(([r]) => r as any[])
+      .catch(() => [] as any[]),
   ]);
+  const respaldoDe = new Map<number, { venta: number; costo: number }>();
+  for (const r of respaldoRows as any[]) {
+    let montoNuestro = 0, costo = 0;
+    try { montoNuestro = num(JSON.parse(r.resumen_json || '{}').montoNuestro); } catch { /* resumen ilegible */ }
+    try { costo = num(JSON.parse(r.compra_aprobada || '{}').costoTotal); } catch { /* aprobación ilegible */ }
+    respaldoDe.set(Number(r.negocio_id), { venta: num(r.oc_total_neto) || montoNuestro, costo });
+  }
   const codigoDe = new Map((negRows as any[]).map(r => [Number(r.id), r.licitacion_codigo as string]));
   const costeoDe = new Map((costeoRows as any[]).map(r => [Number(r.negocio_id), estadoDeFila(r)]));
 
@@ -114,6 +130,9 @@ export async function costoRealDeNegocios(
     const costeo = estado ? entradaComparativoDeEstado(estado) : {
       ventaNeta: 0, costoNetoEstimado: 0, costoNetoReal: null, filasConCostoReal: 0, filasTotales: 0, presupuestoNeto: null,
     };
+    const respaldo = respaldoDe.get(id);
+    if (respaldo && !(costeo.ventaNeta > 0) && respaldo.venta > 0) costeo.ventaNeta = respaldo.venta;
+    if (respaldo && !(costeo.costoNetoEstimado > 0) && respaldo.costo > 0) costeo.costoNetoEstimado = respaldo.costo;
     out.set(id, {
       ...consolidarCostoReal({
         costeo, gastosRegistrados: (gastosClp.get(id) || 0) + (serviciosDe.get(id)?.total || 0),

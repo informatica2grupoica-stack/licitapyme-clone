@@ -4,7 +4,7 @@
 // (11-sep-2026) para vivir en su propia página (/compras/[negocioId]/tareas). Consume `tareas` y
 // `recargar()` del contexto compartido; el resto (qué campo mostrar, abrir/cerrar el registro de
 // una tarea) es estado propio de esta pantalla.
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { useCompras, fmtFecha, type Tarea } from './ComprasContext';
 import { IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconPlayerPlay as PlayCircle, IconCircle as Circle, IconFlag as Flag, IconCalendar as Calendar, IconClipboardList as ClipboardList, IconDeviceFloppy as Save, IconPlus as Plus, IconX as X } from '@tabler/icons-react';
@@ -41,6 +41,8 @@ export function TareasComprasCard() {
   // Vista: por defecto lo PENDIENTE (lo que hay que hacer); las hechas quedan a un clic y con su registro plegado.
   const [filtro, setFiltro] = useState<'pendientes' | 'hechas' | 'todas' | null>(null);
   const [registrosVisibles, setRegistrosVisibles] = useState<Set<number>>(new Set());
+  // Borradores sin guardar de cada tarea: al abrir otra tarea no se pierde lo escrito (13-nov-2026, 4152-22-LE26).
+  const borradores = useRef(new Map<number, { registro: Record<string, string>; hallazgo: boolean }>());
 
   // Validación técnica real: trae lo que el Auditor Técnico ya comprobó. Solo rellena los campos
   // VACÍOS del borrador (lo que la persona ya escribió no se pisa) y no guarda nada por sí solo.
@@ -84,11 +86,13 @@ export function TareasComprasCard() {
   };
 
   const alternarRegistro = (t: Tarea) => {
+    if (tareaAbierta !== null) borradores.current.set(tareaAbierta, { registro: registroBorrador, hallazgo: hallazgoBorrador });
     if (tareaAbierta === t.id) { setTareaAbierta(null); return; }
     setTareaAbierta(t.id);
     setAvisosSugerencia([]);
-    setRegistroBorrador({ ...(t.registro || {}) });
-    setHallazgoBorrador(t.hallazgo);
+    const guardado = borradores.current.get(t.id);
+    setRegistroBorrador(guardado ? { ...guardado.registro } : { ...(t.registro || {}) });
+    setHallazgoBorrador(guardado ? guardado.hallazgo : t.hallazgo);
   };
 
   const guardarRegistro = async (t: Tarea, cerrar: boolean) => {
@@ -104,6 +108,7 @@ export function TareasComprasCard() {
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar');
+      borradores.current.delete(t.id);
       if (cerrar) setTareaAbierta(null);
       await recargar();
     } catch (e: any) {

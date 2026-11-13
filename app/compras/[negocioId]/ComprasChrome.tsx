@@ -492,7 +492,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                   <p className="text-[21px] leading-tight font-extrabold text-zinc-900 mt-1 tabular-nums">
                     {r.existeCosteo ? <>{fmtCLP(r.montoCosteado)} <span className="text-[12px] font-semibold text-zinc-400">neto</span></> : <span className="text-[18px] text-zinc-400">Sin costeo</span>}
                   </p>
-                  {r.existeCosteo && r.montoCosteado != null && <p className="text-[12px] text-zinc-500 mt-0.5 tabular-nums">{fmtCLP(Math.round(r.montoCosteado * 1.19))} con IVA</p>}
+                  {r.existeCosteo && r.montoCosteado != null && <p className="text-[12px] text-zinc-500 mt-0.5 tabular-nums">{fmtCLP(Math.round(r.montoCosteado * 1.19))} con IVA{r.costoDesdeCompraAprobada && <span className="text-zinc-400"> · según la compra aprobada (sin costeo)</span>}</p>}
                 </div>
                 <div className={`rounded-xl px-3.5 py-3 border ${margenBajo ? 'bg-rose-50/60 border-rose-300' : 'bg-white border-zinc-200'}`}>
                   <p className="text-[12px] font-semibold text-zinc-500 flex items-center gap-1.5">

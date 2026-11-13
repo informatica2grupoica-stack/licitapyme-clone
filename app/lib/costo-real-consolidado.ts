@@ -77,7 +77,8 @@ export function consolidarCostoReal(e: EntradaConsolidado): CostoRealConsolidado
 
   const comparativo = calcularComparativo({
     ...e.costeo,
-    ...(usaOc ? { costoNetoReal: gastadoOc } : {}),
+    // Con todo comprado en OC el real está completo aunque el costeo no tenga filas con «Costo unit. REAL» (4152-22-LE26: costeo vacío → real null).
+    ...(usaOc ? { costoNetoReal: gastadoOc, filasConCostoReal: Math.max(1, e.costeo.filasTotales), filasTotales: Math.max(1, e.costeo.filasTotales) } : {}),
     gastosAdicionales: extraCosteo + gastosExternos,
   });
 
