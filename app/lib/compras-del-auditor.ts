@@ -10,7 +10,7 @@
 import pool from '@/app/lib/db';
 import { armarPanelAuditorCompartido, cargarEstadoCosteo, lineasAuditables, type Actor, type OpcionDTO } from '@/app/lib/auditor-opciones';
 import { listarProductosCompra } from '@/app/lib/compras';
-import { lineaDeProducto, asignarProductoDeFicha } from '@/app/lib/compras-fichas';
+import { lineaDeProducto, asignarProductoDeFicha, filaDeProductoCompra } from '@/app/lib/compras-fichas';
 import { registrarCotizacion, listarCotizaciones, asignarItemsCotizacion, type AsignacionItemManual } from '@/app/lib/compras-auditor';
 import {
   esElegida, etiquetaEstado, respaldoQueSostiene, fichasUsables, origenDeArchivo, motivoCotizacionNoUsable, textoCumple,
@@ -41,8 +41,10 @@ export interface ProductoDelAuditor {
 }
 export interface PanelDelAuditor {
   productos: ProductoDelAuditor[];
-  /** Productos del Auditor que no calzan con ninguno de Compras (no se pueden pasar): solo se avisa. */
-  sinProducto: Array<{ filaId: string; descripcion: string; items: number }>;
+  /** Líneas del Auditor que no calzan con ningún producto de Compras (renunciado, creado a mano, parte que se compra aparte…): la persona elige a qué producto va cada documento. */
+  sinProducto: Array<{ filaId: string; item: number; descripcion: string; items: ItemDelAuditor[] }>;
+  /** Todos los productos de Compras a los que se puede mandar un documento (incluye los que no vienen del costeo). `conLinea` = admite fichas técnicas. */
+  destinos: Array<{ productoId: number; descripcion: string; cantidad: number | null; conLinea: boolean }>;
   compraAprobada: boolean;
   porUsar: number;
   sinCosteo: boolean;
@@ -121,33 +123,43 @@ export async function panelDelAuditor(negocioId: number, licitacionCodigo: strin
       else vistos.add(k);
     }
     if (items.length === 0) continue;
-    if (!prod) { sinProducto.push({ filaId: ld.filaId, descripcion: corto(ld.detalle), items: items.length }); continue; }
+    if (!prod) { sinProducto.push({ filaId: ld.filaId, item: ld.item, descripcion: corto(ld.detalle), items }); continue; }
     porUsar += items.filter(i => !i.yaEnCompras && !i.motivoNoUsable).length;
     salida.push({ productoId: prod.id, filaId: ld.filaId, item: ld.item, descripcion: corto(prod.descripcion), cantidad: prod.cantidad, costeadoNeto: ld.costeadoNeto, items });
   }
-  return { productos: salida, sinProducto, compraAprobada, porUsar, sinCosteo: lineas.length === 0 };
+  const destinos = vigentes.map(p => ({ productoId: p.id, descripcion: corto(p.descripcion), cantidad: p.cantidad, conLinea: !!lineaDeProducto(p, lineas) }));
+  return { productos: salida, sinProducto, destinos, compraAprobada, porUsar, sinCosteo: lineas.length === 0 };
 }
 
 export class ConfirmarCompraAprobada extends Error {
   constructor() { super('La compra de este negocio ya está aprobada. Una cotización nueva puede cambiar lo que se aprobó: confírmalo para seguir.'); this.name = 'ConfirmarCompraAprobada'; }
 }
 
-async function buscarItem(negocioId: number, licitacionCodigo: string, clave: string): Promise<{ item: ItemDelAuditor; prod: ProductoDelAuditor; panel: PanelDelAuditor }> {
+async function buscarItem(negocioId: number, licitacionCodigo: string, clave: string): Promise<{ item: ItemDelAuditor; prod: ProductoDelAuditor | null; panel: PanelDelAuditor }> {
   const panel = await panelDelAuditor(negocioId, licitacionCodigo);
   for (const prod of panel.productos) {
     const item = prod.items.find(i => i.clave === clave);
     if (item) return { item, prod, panel };
   }
+  for (const g of panel.sinProducto) {
+    const item = g.items.find(i => i.clave === clave);
+    if (item) return { item, prod: null, panel };
+  }
   throw new Error('Ese documento ya no está en el Auditor (se quitó o cambió). Actualiza la pestaña.');
 }
 
 /** Pasa una cotización del Auditor a las cotizaciones de Compras, para ese producto. */
-export async function usarCotizacionDelAuditor(p: { negocioId: number; licitacionCodigo: string; clave: string; actor: Actor; confirmarCompraAprobada?: boolean }): Promise<{ cotizacionId: number; creada: boolean; yaEstaba?: boolean }> {
+export async function usarCotizacionDelAuditor(p: { negocioId: number; licitacionCodigo: string; clave: string; actor: Actor; confirmarCompraAprobada?: boolean;
+  /** Producto de Compras al que va (por defecto el que corresponde a la línea del Auditor). Obligatorio si la línea no tiene producto en Compras. */
+  productoId?: number | null }): Promise<{ cotizacionId: number; creada: boolean; yaEstaba?: boolean }> {
   const { negocioId, actor } = p;
   const { item, prod, panel } = await buscarItem(negocioId, p.licitacionCodigo, p.clave);
   if (item.tipo !== 'cotizacion') throw new Error('Eso no es una cotización.');
   if (item.motivoNoUsable) throw new Error(item.motivoNoUsable);
-  if (item.yaEnCompras) return { cotizacionId: 0, creada: false, yaEstaba: true };
+  const destinoId = p.productoId ?? prod?.productoId ?? null;
+  if (destinoId == null) throw new Error('Elige a qué producto de Compras va esta cotización.');
+  if (!panel.destinos.some(d => d.productoId === destinoId)) throw new Error('Ese producto no está disponible en Compras (renunciado o no adjudicado).');
+  if ((await listarCotizaciones(negocioId)).some(c => c.archivoUrl === item.url && c.items.some(i => i.productoId === destinoId))) return { cotizacionId: 0, creada: false, yaEstaba: true };
   if (panel.compraAprobada && !p.confirmarCompraAprobada) throw new ConfirmarCompraAprobada();
   const precio = Math.round(item.precioNeto as number);
   const nota = `Traída del Auditor (${item.estadoTexto.toLowerCase()}): precio neto verificado por el equipo.`;
@@ -160,7 +172,7 @@ export async function usarCotizacionDelAuditor(p: { negocioId: number; licitacio
       productoId: i.productoId, precioUnitario: i.precioBase, cumple: i.cumple, detalleDesviacion: i.detalleDesviacion,
       incluido: i.precioBase === 0 && /^Va incluido/i.test(i.detalleDesviacion || ''),
     }));
-    items.push({ productoId: prod.productoId, precioUnitario: precio, cumple: 'CUMPLE' });
+    items.push({ productoId: destinoId, precioUnitario: precio, cumple: 'CUMPLE' });
     await asignarItemsCotizacion(negocioId, misma.id, items, actor.id, actor.nombre);
     return { cotizacionId: misma.id, creada: false };
   }
@@ -168,22 +180,29 @@ export async function usarCotizacionDelAuditor(p: { negocioId: number; licitacio
     proveedorNombre: item.proveedor || '(por completar) proveedor del Auditor', proveedorRut: item.proveedorRut,
     origen: origenDeArchivo(item.nombre, item.url), precioUnitario: precio, ivaIncluido: false,
     archivoUrl: item.url, archivoNombre: item.nombre, notas: nota,
-    itemsManual: [{ productoId: prod.productoId, precioUnitario: precio, cumple: 'CUMPLE' }],
+    itemsManual: [{ productoId: destinoId, precioUnitario: precio, cumple: 'CUMPLE' }],
   }, actor.id, actor.nombre);
   return { cotizacionId, creada: true };
 }
 
 /** Pasa una ficha técnica del Auditor al panel de fichas de Compras, en su producto y proveedor. */
-export async function usarFichaDelAuditor(p: { negocioId: number; licitacionCodigo: string; clave: string; actor: Actor }): Promise<{ opcionId: number | null; proveedor: string | null; yaEstaba?: boolean }> {
+export async function usarFichaDelAuditor(p: { negocioId: number; licitacionCodigo: string; clave: string; actor: Actor; productoId?: number | null }): Promise<{ opcionId: number | null; proveedor: string | null; yaEstaba?: boolean }> {
   const { negocioId, actor } = p;
-  const { item, prod } = await buscarItem(negocioId, p.licitacionCodigo, p.clave);
+  const { item, prod, panel } = await buscarItem(negocioId, p.licitacionCodigo, p.clave);
   if (item.tipo !== 'ficha') throw new Error('Eso no es una ficha técnica.');
-  if (item.yaEnCompras) return { opcionId: null, proveedor: item.proveedor, yaEstaba: true };
+  const otroProducto = p.productoId != null && p.productoId !== prod?.productoId;
+  if (!otroProducto && item.yaEnCompras) return { opcionId: null, proveedor: item.proveedor, yaEstaba: true };
+  const destinoId = p.productoId ?? prod?.productoId ?? null;
+  if (destinoId == null) throw new Error('Elige a qué producto de Compras va esta ficha.');
+  if (!panel.destinos.some(d => d.productoId === destinoId)) throw new Error('Ese producto no está disponible en Compras (renunciado o no adjudicado).');
+  // Las fichas de Compras cuelgan de una línea del costeo: un producto creado fuera del costeo no puede tenerlas.
+  const filaId = otroProducto || !prod ? await filaDeProductoCompra(negocioId, destinoId) : prod.filaId;
+  if (!filaId) throw new Error('Ese producto no viene del costeo, así que en Compras no admite fichas técnicas (sí admite cotizaciones).');
   const [rows] = await pool.query(`SELECT extraccion_id, producto_idx FROM auditor_respaldo WHERE id = ? AND negocio_id = ? AND tipo = 'ficha_tecnica' AND vigente = 1`, [item.respaldoId, negocioId]) as any;
   const resp = (rows as any[])[0];
   if (!resp || resp.extraccion_id == null || resp.producto_idx == null) throw new Error('No se encontró la lectura de esa ficha en el Auditor.');
   // La persona ya la aceptó en el Auditor: aunque no traiga marca ni modelo, el nombre hace de identidad (sinMarca).
-  const r = await asignarProductoDeFicha({ negocioId, extraccionId: Number(resp.extraccion_id), productoIdx: Number(resp.producto_idx), filaId: prod.filaId, proveedor: item.proveedor, actor, sinMarca: true });
+  const r = await asignarProductoDeFicha({ negocioId, extraccionId: Number(resp.extraccion_id), productoIdx: Number(resp.producto_idx), filaId, proveedor: item.proveedor, actor, sinMarca: true });
   if (!r.ok) throw new Error(r.error || 'No se pudo pasar la ficha.');
   return { opcionId: r.opcionId ?? null, proveedor: r.proveedor };
 }

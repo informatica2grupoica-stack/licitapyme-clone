@@ -1,7 +1,7 @@
 // app/api/compras/[negocioId]/del-auditor/route.ts
 // PESTAÑA «REVISADO DEL AUDITOR» (Costeo y auditoría). Ver app/lib/compras-del-auditor.ts.
 //   GET  → por producto: las cotizaciones y fichas técnicas que el asistente ya cargó y revisó en el Auditor. Solo lectura.
-//   POST → { accion: 'cotizacion' | 'ficha', clave, confirmar? } pasa UNO de esos documentos a Compras (cotización o ficha del producto).
+//   POST → { accion: 'cotizacion' | 'ficha', clave, productoId?, confirmar? } pasa UNO de esos documentos a Compras (cotización o ficha del producto).
 //          409 { confirmar: true } si la compra ya está aprobada y falta que la persona lo confirme.
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
@@ -48,11 +48,11 @@ async function __POST(request: NextRequest, { params }: Params) {
     const clave = String(body.clave || '');
     if (!/^[cf]:\d+$/.test(clave)) return NextResponse.json({ error: 'Falta el documento.' }, { status: 400 });
     if (body.accion === 'cotizacion') {
-      const r = await usarCotizacionDelAuditor({ negocioId: c.id, licitacionCodigo: c.codigo, clave, actor: c.actor, confirmarCompraAprobada: body.confirmar === true });
+      const r = await usarCotizacionDelAuditor({ negocioId: c.id, licitacionCodigo: c.codigo, clave, actor: c.actor, confirmarCompraAprobada: body.confirmar === true, productoId: Number(body.productoId) > 0 ? Number(body.productoId) : null });
       return NextResponse.json({ success: true, resultado: r });
     }
     if (body.accion === 'ficha') {
-      const r = await usarFichaDelAuditor({ negocioId: c.id, licitacionCodigo: c.codigo, clave, actor: c.actor });
+      const r = await usarFichaDelAuditor({ negocioId: c.id, licitacionCodigo: c.codigo, clave, actor: c.actor, productoId: Number(body.productoId) > 0 ? Number(body.productoId) : null });
       return NextResponse.json({ success: true, resultado: r });
     }
     return NextResponse.json({ error: 'Acción desconocida.' }, { status: 400 });

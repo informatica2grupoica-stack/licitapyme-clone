@@ -28,6 +28,9 @@ export function RevisadoDelAuditorCard({ negocioId, puedeOperar, soloLectura = f
   const [trabajando, setTrabajando] = useState<Set<string>>(new Set());
   const [todo, setTodo] = useState(false);
   const [visor, setVisor] = useState<VisorDoc | null>(null);
+  /** Producto elegido a mano para un documento (clave → productoId) y filas con el selector abierto. */
+  const [destino, setDestino] = useState<Record<string, number>>({});
+  const [cambiando, setCambiando] = useState<Set<string>>(new Set());
   const puede = puedeOperar && !soloLectura;
 
   const cargar = useCallback(async () => {
@@ -47,7 +50,7 @@ export function RevisadoDelAuditorCard({ negocioId, puedeOperar, soloLectura = f
   const enviar = useCallback(async (i: ItemDelAuditor, confirmado = false): Promise<{ ok: boolean; error?: string; ya?: boolean }> => {
     const res = await fetch(`/api/compras/${negocioId}/del-auditor`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accion: i.tipo === 'cotizacion' ? 'cotizacion' : 'ficha', clave: i.clave, confirmar: confirmado }),
+      body: JSON.stringify({ accion: i.tipo === 'cotizacion' ? 'cotizacion' : 'ficha', clave: i.clave, productoId: destino[i.clave] ?? null, confirmar: confirmado }),
     });
     const d = await res.json().catch(() => ({}));
     if (res.status === 409 && d.confirmar) {
@@ -55,7 +58,7 @@ export function RevisadoDelAuditorCard({ negocioId, puedeOperar, soloLectura = f
       return enviar(i, true);
     }
     return res.ok && d.success ? { ok: true, ya: !!d.resultado?.yaEstaba } : { ok: false, error: d.error || 'No se pudo pasar el documento.' };
-  }, [negocioId]);
+  }, [negocioId, destino]);
 
   const usar = async (i: ItemDelAuditor) => {
     setTrabajando(s => new Set(s).add(i.clave));
@@ -93,6 +96,54 @@ export function RevisadoDelAuditorCard({ negocioId, puedeOperar, soloLectura = f
   if (error || !panel) return <div className="text-[13px] text-rose-700 py-3">{error || 'No se pudo cargar.'} <button type="button" className="underline" onClick={() => { setCargando(true); cargar(); }}>Reintentar</button></div>;
   const hayElegidos = panel.productos.some(p => p.items.some(i => i.elegida && !i.yaEnCompras && !i.motivoNoUsable));
 
+  const fila = (i: ItemDelAuditor, productoPorDefecto: number | null) => {
+    const ocupado = trabajando.has(i.clave);
+    const nombreOpcion = [i.marca, i.modelo].filter(Boolean).join(' ');
+    const elegido = destino[i.clave] ?? productoPorDefecto;
+    const abierto = productoPorDefecto == null || cambiando.has(i.clave);
+    const destinosValidos = panel.destinos.filter(d => i.tipo === 'cotizacion' || d.conLinea);
+    return (
+      <div key={i.clave} className="grid grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-3 border-t border-zinc-100 px-4 py-2.5" data-testid={`del-auditor-${i.clave}`}>
+        {i.tipo === 'cotizacion' ? <Receipt size={18} className="text-zinc-500" /> : <FileText size={18} className="text-zinc-500" />}
+        <div className="min-w-0">
+          <div className="text-[13px] font-medium text-zinc-900 truncate">
+            {i.tipo === 'cotizacion'
+              ? <>Cotización {i.proveedor || 'sin proveedor identificado'}{i.precioNeto != null ? <> · {clp(i.precioNeto)} neto</> : null}</>
+              : <>Ficha {nombreOpcion || i.nombre}{i.proveedor ? <> · {i.proveedor}</> : null}</>}
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-zinc-500">
+            <Estado color={COLOR_ESTADO[i.estadoOpcion] ?? '#71717a'}>{i.estadoTexto}</Estado>
+            {i.tipo === 'cotizacion' && i.ivaDeclarado != null && <span>{i.ivaDeclarado ? 'IVA declarado' : 'IVA sin declarar'}</span>}
+            {i.tipo === 'ficha' && i.cumple && <span>{i.cumple}{i.noCumple ? ` · ${i.noCumple} no cumple` : ''}{i.sinVeredicto ? ` · ${i.sinVeredicto} falta dato` : ''}</span>}
+            {i.subidoPor && <span>subió {i.subidoPor}{i.subidoAt ? `, ${fechaCorta(i.subidoAt)}` : ''}</span>}
+            <button type="button" className="inline-flex items-center gap-1 text-teal-700 hover:underline" onClick={() => setVisor({ nombre: i.nombre, url: i.url })}><Eye size={12} /> Ver</button>
+            {puede && !i.motivoNoUsable && !i.yaEnCompras && productoPorDefecto != null && !abierto && (
+              <button type="button" className="text-zinc-500 hover:underline" onClick={() => setCambiando(s => new Set(s).add(i.clave))}>Cambiar producto</button>
+            )}
+          </div>
+          {puede && !i.motivoNoUsable && !i.yaEnCompras && abierto && (
+            <label className="mt-1.5 flex items-center gap-2 text-[12px] text-zinc-600">
+              <span className="flex-shrink-0">Va en</span>
+              <select value={elegido ?? ''} onChange={e => setDestino(d => ({ ...d, [i.clave]: Number(e.target.value) }))}
+                className="min-w-0 max-w-full rounded-md border border-zinc-300 bg-white px-2 py-1 text-[12px] text-zinc-900" data-testid={`destino-${i.clave}`}>
+                <option value="" disabled>Elige el producto…</option>
+                {destinosValidos.map(d => <option key={d.productoId} value={d.productoId}>{d.descripcion}{d.cantidad != null ? ` (${d.cantidad})` : ''}</option>)}
+              </select>
+            </label>
+          )}
+          {i.motivoNoUsable && <div className="mt-0.5 text-[12px] text-amber-800">{i.motivoNoUsable}</div>}
+        </div>
+        <div className="flex-shrink-0 text-right">
+          {i.yaEnCompras
+            ? <span className="inline-flex items-center gap-1 text-[12px] text-emerald-700"><Check size={14} /> Ya está en Compras</span>
+            : puede && !i.motivoNoUsable
+              ? <Boton tamano="sm" disabled={ocupado || todo || elegido == null} title={elegido == null ? 'Elige primero el producto' : undefined} icono={ocupado ? <Loader2 size={13} className="animate-spin" /> : undefined} onClick={() => usar(i)}>{i.tipo === 'cotizacion' ? 'Usar en cotizaciones' : 'Usar en fichas'}</Boton>
+              : null}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-3" data-testid="revisado-del-auditor">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -110,7 +161,7 @@ export function RevisadoDelAuditorCard({ negocioId, puedeOperar, soloLectura = f
         </div>
       )}
 
-      {panel.productos.length === 0 && (
+      {panel.productos.length === 0 && panel.sinProducto.length === 0 && (
         <div className="rounded-lg border border-zinc-200 bg-white px-4 py-6 text-center text-[13px] text-zinc-500">
           {panel.sinCosteo ? 'Este negocio todavía no tiene costeo guardado, así que no hay nada que cruzar con el Auditor.' : 'El Auditor todavía no tiene cotizaciones ni fichas técnicas de los productos de este negocio.'}
         </div>
@@ -122,44 +173,20 @@ export function RevisadoDelAuditorCard({ negocioId, puedeOperar, soloLectura = f
             <h4 className="text-[13.5px] font-semibold text-zinc-900">L{p.item} · {p.descripcion}</h4>
             <span className="text-[12px] text-zinc-500">{p.cantidad != null ? `cant. ${p.cantidad}` : ''}{p.costeadoNeto != null ? ` · costeado ${clp(p.costeadoNeto)} neto` : ''}</span>
           </header>
-          {p.items.map(i => {
-            const ocupado = trabajando.has(i.clave);
-            const nombreOpcion = [i.marca, i.modelo].filter(Boolean).join(' ');
-            return (
-              <div key={i.clave} className="grid grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-3 border-t border-zinc-100 px-4 py-2.5" data-testid={`del-auditor-${i.clave}`}>
-                {i.tipo === 'cotizacion' ? <Receipt size={18} className="text-zinc-500" /> : <FileText size={18} className="text-zinc-500" />}
-                <div className="min-w-0">
-                  <div className="text-[13px] font-medium text-zinc-900 truncate">
-                    {i.tipo === 'cotizacion'
-                      ? <>Cotización {i.proveedor || 'sin proveedor identificado'}{i.precioNeto != null ? <> · {clp(i.precioNeto)} neto</> : null}</>
-                      : <>Ficha {nombreOpcion || i.nombre}{i.proveedor ? <> · {i.proveedor}</> : null}</>}
-                  </div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-zinc-500">
-                    <Estado color={COLOR_ESTADO[i.estadoOpcion] ?? '#71717a'}>{i.estadoTexto}</Estado>
-                    {i.tipo === 'cotizacion' && i.ivaDeclarado != null && <span>{i.ivaDeclarado ? 'IVA declarado' : 'IVA sin declarar'}</span>}
-                    {i.tipo === 'ficha' && i.cumple && <span>{i.cumple}{i.noCumple ? ` · ${i.noCumple} no cumple` : ''}{i.sinVeredicto ? ` · ${i.sinVeredicto} falta dato` : ''}</span>}
-                    {i.subidoPor && <span>subió {i.subidoPor}{i.subidoAt ? `, ${fechaCorta(i.subidoAt)}` : ''}</span>}
-                    <button type="button" className="inline-flex items-center gap-1 text-teal-700 hover:underline" onClick={() => setVisor({ nombre: i.nombre, url: i.url })}><Eye size={12} /> Ver</button>
-                  </div>
-                  {i.motivoNoUsable && <div className="mt-0.5 text-[12px] text-amber-800">{i.motivoNoUsable}</div>}
-                </div>
-                <div className="flex-shrink-0 text-right">
-                  {i.yaEnCompras
-                    ? <span className="inline-flex items-center gap-1 text-[12px] text-emerald-700"><Check size={14} /> Ya está en Compras</span>
-                    : puede && !i.motivoNoUsable
-                      ? <Boton tamano="sm" disabled={ocupado || todo} icono={ocupado ? <Loader2 size={13} className="animate-spin" /> : undefined} onClick={() => usar(i)}>{i.tipo === 'cotizacion' ? 'Usar en cotizaciones' : 'Usar en fichas'}</Boton>
-                      : null}
-                </div>
-              </div>
-            );
-          })}
+          {p.items.map(i => fila(i, p.productoId))}
         </section>
       ))}
 
       {panel.sinProducto.length > 0 && (
-        <p className="text-[12px] text-zinc-500">
-          Hay documentos del Auditor en {panel.sinProducto.map(s => `«${s.descripcion}»`).join(', ')} que no calzan con ningún producto de Compras (renunciado, no adjudicado o fuera del costeo), por eso no se ofrecen.
-        </p>
+        <div className="space-y-2">
+          <p className="text-[12.5px] text-zinc-600">Estas líneas del Auditor no calzan con un producto de Compras (se renunció, no se adjudicó o el producto se creó por otro lado). Elige a qué producto va cada documento.</p>
+          {panel.sinProducto.map(g => (
+            <section key={g.filaId} className="rounded-xl border border-dashed border-zinc-300 bg-white overflow-hidden">
+              <header className="bg-zinc-50 px-4 py-2.5"><h4 className="text-[13.5px] font-semibold text-zinc-900">Auditor · L{g.item} · {g.descripcion}</h4></header>
+              {g.items.map(i => fila(i, null))}
+            </section>
+          ))}
+        </div>
       )}
       <DocumentViewerModal doc={visor} onClose={() => setVisor(null)} />
     </div>
