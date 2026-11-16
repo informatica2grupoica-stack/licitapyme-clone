@@ -67,7 +67,7 @@ const ESTADOS_QUE_SE_APRUEBAN = ['ASIGNADO', 'EN_PROCESO', 'ANEXOS', 'ANEXO_LIST
 export async function construirBandeja() {
   const [rows] = await pool.query(
     `SELECT n.id AS negocio_id, n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo,
-            n.licitacion_cierre, n.asignado_a, u.nombre AS asignado_nombre,
+            n.licitacion_cierre, n.licitacion_monto, n.asignado_a, u.nombre AS asignado_nombre,
             c.id, c.bloque, c.tipo, c.estado, c.ofertamos, c.valor_numero, c.valor_texto, c.titulo,
             c.clave_origen
        FROM negocios n
@@ -129,6 +129,11 @@ export async function construirBandeja() {
         estado: estadoDeBloque(itemsBloque as any),
         total: resumen.total, aprobados: resumen.aprobados,
         porAprobar: resumen.porAprobar, observados: resumen.observados,
+        // Qué se aprueba, punto por punto (solo para mostrarlo en la bandeja; no cambia el estado).
+        puntos: itemsBloque.map(i => ({
+          id: i.id, titulo: i.titulo, tipo: i.tipo, estado: i.estado, ofertamos: i.ofertamos,
+          valorNumero: i.valor_numero == null ? null : Number(i.valor_numero), valorTexto: i.valor_texto,
+        })),
       };
       if (bloque === 'COMERCIAL') {
         const precios = itemsBloque.filter(i => i.tipo === 'precio' && i.ofertamos !== false && i.valor_numero != null);
@@ -163,6 +168,7 @@ export async function construirBandeja() {
       licitacionCodigo: info.licitacion_codigo,
       licitacionNombre: info.licitacion_nombre,
       licitacionOrganismo: info.licitacion_organismo,
+      licitacionMonto: info.licitacion_monto == null ? null : Number(info.licitacion_monto) || null,
       asignadoNombre: info.asignado_nombre,
       cierre: { fecha: info.licitacion_cierre, horasRestantes },
       semaforo, causalesBloqueo: causales,

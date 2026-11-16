@@ -1051,6 +1051,7 @@ export async function ultimasGuiasObuma(limite = 20): Promise<Array<{ folio: str
 /** Crea UNA venta/DTE de verdad. Respuesta documentada: result.result = "OK" y result.result_dte[] con dte_folio, dte_id_obuma, dte_pdf. */
 export async function crearVentaIntegracionExterna(doc: Record<string, unknown>): Promise<{ folio: string | null; idObuma: string | null; pdf: string | null; detalle: string }> {
   cacheGuias = null;   // la lista de guías emitidas cambia (o pudo cambiar aunque la respuesta falle)
+  cacheRefsGuias = null;
   const json = await llamarPost<any>(BASE_V1, '/ventasIntegracionExternas.create.json', { docs: [doc] });
   if (Array.isArray(json?.errors) && json.errors.length) throw new Error(`Obuma: ${json.errors.map((e: any) => `${e.code} ${e.message}`).join(' · ')}`);
   const res = json?.result || {};
@@ -1090,7 +1091,7 @@ export async function guiasRecientesObuma(paginas = 3, porPagina = 100): Promise
 }
 
 /** PDF/XML y estado ante el SII de un DTE emitido (probado en vivo con la guía 1913, 13-nov-2026). */
-export async function pdfYEstadoDte(tipoDte: number, folio: string): Promise<{ pdf: string | null; xml: string | null; entregadoSii: boolean; aceptadoSii: boolean; enviadoReceptor: boolean; aceptadoReceptor: boolean }> {
+export async function pdfYEstadoDte(tipoDte: number, folio: string): Promise<{ pdf: string | null; xml: string | null; pdfPideSesion: boolean; entregadoSii: boolean; aceptadoSii: boolean; enviadoReceptor: boolean; aceptadoReceptor: boolean }> {
   const [a, b] = await Promise.all([
     llamarPost<any>(BASE_V1, '/ventasConsultaDte.listPdfXml.json', { tipoDte, folio }).catch(() => null),
     llamarPost<any>(BASE_V1, '/ventasConsultaDte.estadoDTEenSII.json', { tipoDte, folio }).catch(() => null),
@@ -1098,8 +1099,24 @@ export async function pdfYEstadoDte(tipoDte: number, folio: string): Promise<{ p
   const p = a?.result?.result_dte?.[0] || {};
   const e = b?.result?.result_dte?.[0] || {};
   return {
-    pdf: p.dte_pdf || p.dte_pdf_url || null, xml: p.dte_xml || p.dte_xml_url || null,
+    // Probado 13-nov (guías 1911/1907/1842): `dte_pdf` redirige a app.obuma.cl → solo abre con sesión de Obuma iniciada; `dte_pdf_url`
+    // vino vacío; `dte_xml_url` (S3) abre sin sesión. Se prefiere siempre el link público si viene.
+    pdf: p.dte_pdf_url || p.dte_pdf || null, xml: p.dte_xml_url || p.dte_xml || null,
+    pdfPideSesion: !p.dte_pdf_url && !!p.dte_pdf,
     entregadoSii: String(e.dte_entregado_sii) === '1', aceptadoSii: String(e.dte_aceptado_sii) === '1',
     enviadoReceptor: String(e.dte_enviado_receptor) === '1', aceptadoReceptor: String(e.dte_aceptado_receptor) === '1',
   };
+}
+
+let cacheRefsGuias: { en: number; datos: Array<{ folioGuia: string; tipo: string; folioRef: string; razon: string }> } | null = null;
+/** Referencias de las guías 52 más recientes (ventas.listReferencias.json; el filtro tipo_dcto SÍ filtra, venta_id NO — probado 16-nov).
+ *  Sirven para reconocer de qué licitación es una guía hecha a mano: 801 = OC de Mercado Público, razón «LICITACION ID<código>». */
+export async function referenciasGuiasObuma(): Promise<Array<{ folioGuia: string; tipo: string; folioRef: string; razon: string }>> {
+  if (cacheRefsGuias && Date.now() - cacheRefsGuias.en < 5 * 60_000) return cacheRefsGuias.datos;
+  const r = await llamar<ObumaListado<any>>(BASE_V1, '/ventas.listReferencias.json', { tipo_dcto: 52, limit: 1000 });
+  const datos = (r.data || []).filter(x => String(x.venta_tipo_dcto) === '52').map(x => ({
+    folioGuia: String(x.venta_nro_dcto || ''), tipo: String(x.tipo_dcto_ref || ''), folioRef: String(x.folio_dcto_ref || '').trim(), razon: String(x.razon_ref || ''),
+  }));
+  cacheRefsGuias = { en: Date.now(), datos };
+  return datos;
 }

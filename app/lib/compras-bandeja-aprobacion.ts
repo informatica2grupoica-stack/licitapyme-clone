@@ -9,6 +9,7 @@ export interface ItemBandejaCompras {
   id: string;
   tipo: TipoItemCompras;
   negocioId: number; licitacionCodigo: string | null; licitacionNombre: string | null;
+  licitacionOrganismo: string | null; licitacionMonto: number | null;
   productoId: number | null; productoNombre: string | null;
   titulo: string; detalle: string;
   /** Los datos clave ya separados (etiqueta/valor) para mostrarlos ordenados en la tarjeta. */
@@ -25,6 +26,7 @@ export interface ItemBandejaCompras {
 const sinTabla = (e: any) => e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR';
 const corto = (d: string | null) => (d || '').split(' - ')[0].slice(0, 90);
 const clp = (n: number | null | undefined) => n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
+const extraLicitacion = (r: any) => ({ licitacionOrganismo: r.licitacion_organismo ?? null, licitacionMonto: r.licitacion_monto == null ? null : Number(r.licitacion_monto) || null });
 const ruta = (negocioId: number, fase: string, productoId?: number | null) => `/compras/${negocioId}?fase=${fase}${productoId ? `&producto=${productoId}` : ''}`;
 
 async function consulta(sql: string): Promise<any[]> {
@@ -38,13 +40,13 @@ export async function construirBandejaCompras(): Promise<ItemBandejaCompras[]> {
   // 1. Compras rápidas pendientes (por producto).
   for (const r of await consulta(
     `SELECT r.negocio_id, r.producto_id, r.proveedor_nombre, r.proveedor_rut, r.precio_unitario, r.ya_comprada, r.solicitado_por_nombre,
-            DATE_FORMAT(r.solicitado_at, '%Y-%m-%d %H:%i:%s') AS solicitado_at, p.descripcion, p.cantidad, n.licitacion_codigo, n.licitacion_nombre
+            DATE_FORMAT(r.solicitado_at, '%Y-%m-%d %H:%i:%s') AS solicitado_at, p.descripcion, p.cantidad, n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo, n.licitacion_monto
        FROM compras_compra_rapida r JOIN compras_producto p ON p.id = r.producto_id JOIN negocios n ON n.id = r.negocio_id
       WHERE r.estado = 'PENDIENTE' AND n.activo = TRUE ORDER BY r.solicitado_at`)) {
     const ya = !!r.ya_comprada;
     items.push({
       id: `rapida:${r.negocio_id}:${r.producto_id}`, tipo: 'COMPRA_RAPIDA', negocioId: r.negocio_id,
-      licitacionCodigo: r.licitacion_codigo, licitacionNombre: r.licitacion_nombre, productoId: r.producto_id, productoNombre: corto(r.descripcion),
+      licitacionCodigo: r.licitacion_codigo, licitacionNombre: r.licitacion_nombre, ...extraLicitacion(r), productoId: r.producto_id, productoNombre: corto(r.descripcion),
       titulo: `${ya ? 'Compra rápida ya hecha' : 'Compra rápida por aprobar'}: ${corto(r.descripcion)}`,
       detalle: `${r.proveedor_nombre} · RUT ${r.proveedor_rut} · ${clp(Number(r.precio_unitario))} neto c/u${r.cantidad ? ` · ${Number(r.cantidad)} un.` : ''}${ya ? ' · se ratifica' : ' · aprobar ANTES de comprar'}`,
       hechos: [{ etiqueta: 'Tienda', valor: String(r.proveedor_nombre) }, { etiqueta: 'RUT', valor: String(r.proveedor_rut) }, { etiqueta: 'Precio neto c/u', valor: clp(Number(r.precio_unitario)) },
@@ -57,7 +59,7 @@ export async function construirBandejaCompras(): Promise<ItemBandejaCompras[]> {
   // 2. Compuertas propuestas: la compra elegida (cuadro comparativo) y el margen.
   for (const r of await consulta(
     `SELECT a.negocio_id, a.tipo, a.detalle_json, a.motivo, a.propuesto_por_nombre, DATE_FORMAT(a.propuesto_at, '%Y-%m-%d %H:%i:%s') AS propuesto_at,
-            n.licitacion_codigo, n.licitacion_nombre
+            n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo, n.licitacion_monto
        FROM compras_aprobacion a JOIN negocios n ON n.id = a.negocio_id
       WHERE a.estado = 'PENDIENTE' AND a.propuesto_at IS NOT NULL AND n.activo = TRUE ORDER BY a.propuesto_at`)) {
     let d: any = null;
@@ -65,14 +67,14 @@ export async function construirBandejaCompras(): Promise<ItemBandejaCompras[]> {
     const esCompra = r.tipo === 'COMPRA';
     items.push({
       id: `${esCompra ? 'compra' : 'margen'}:${r.negocio_id}`, tipo: esCompra ? 'COMPRA' : 'MARGEN', negocioId: r.negocio_id,
-      licitacionCodigo: r.licitacion_codigo, licitacionNombre: r.licitacion_nombre, productoId: null, productoNombre: null,
+      licitacionCodigo: r.licitacion_codigo, licitacionNombre: r.licitacion_nombre, ...extraLicitacion(r), productoId: null, productoNombre: null,
       titulo: esCompra ? 'Compra completa por aprobar (cuadro comparativo)' : 'Margen por aprobar',
       detalle: esCompra
         ? `${d?.costoTotal != null ? `Costo total ${clp(Number(d.costoTotal))}` : 'Compra elegida'}${d?.escenarioTipo ? ` · escenario ${String(d.escenarioTipo).toLowerCase()}` : ''}${r.motivo ? ` · «${String(r.motivo).slice(0, 80)}»` : ''}`
         : `${d?.margenPct != null ? `Margen previsto ${d.margenPct}%` : 'Margen previsto'}${d?.ventaNeta != null ? ` · venta ${clp(Number(d.ventaNeta))}` : ''}${r.motivo ? ` · «${String(r.motivo).slice(0, 80)}»` : ''}`,
       hechos: esCompra
         ? [...(d?.costoTotal != null ? [{ etiqueta: 'Costo total', valor: clp(Number(d.costoTotal)) }] : []), ...(d?.escenarioTipo ? [{ etiqueta: 'Escenario', valor: String(d.escenarioTipo).toLowerCase().replace(/_/g, ' ') }] : []),
-           ...(d?.excedePresupuestoPct ? [{ etiqueta: 'Sobre el presupuesto', valor: `${d.excedePresupuestoPct}%` }] : []), ...(r.motivo ? [{ etiqueta: 'Motivo', valor: String(r.motivo).slice(0, 120) }] : [])]
+           ...(d?.excedePresupuestoPct ? [{ etiqueta: Number(d.excedePresupuestoPct) > 0 ? 'Sobre el presupuesto' : 'Bajo el presupuesto', valor: `${Math.abs(Number(d.excedePresupuestoPct))}%` }] : []), ...(r.motivo ? [{ etiqueta: 'Motivo', valor: String(r.motivo).slice(0, 120) }] : [])]
         : [...(d?.margenPct != null ? [{ etiqueta: 'Margen previsto', valor: `${d.margenPct}%` }] : []), ...(d?.ventaNeta != null ? [{ etiqueta: 'Venta neta', valor: clp(Number(d.ventaNeta)) }] : []),
            ...(d?.costoNeto != null ? [{ etiqueta: 'Costo neto', valor: clp(Number(d.costoNeto)) }] : []), ...(r.motivo ? [{ etiqueta: 'Motivo', valor: String(r.motivo).slice(0, 120) }] : [])],
       solicitadoPorNombre: r.propuesto_por_nombre, solicitadoAt: r.propuesto_at,
@@ -83,12 +85,12 @@ export async function construirBandejaCompras(): Promise<ItemBandejaCompras[]> {
   // 3. Productos que el encargado corrigió tras un rechazo y esperan una nueva revisión.
   for (const r of await consulta(
     `SELECT l.negocio_id, l.producto_id, l.corregido_por_nombre, l.nota_correccion, DATE_FORMAT(l.corregido_at, '%Y-%m-%d %H:%i:%s') AS corregido_at,
-            p.descripcion, n.licitacion_codigo, n.licitacion_nombre
+            p.descripcion, n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo, n.licitacion_monto
        FROM compras_aprobacion_linea l JOIN compras_producto p ON p.id = l.producto_id JOIN negocios n ON n.id = l.negocio_id
       WHERE l.estado = 'CORREGIDA' AND n.activo = TRUE ORDER BY l.corregido_at`)) {
     items.push({
       id: `corregido:${r.negocio_id}:${r.producto_id}`, tipo: 'PRODUCTO_CORREGIDO', negocioId: r.negocio_id,
-      licitacionCodigo: r.licitacion_codigo, licitacionNombre: r.licitacion_nombre, productoId: r.producto_id, productoNombre: corto(r.descripcion),
+      licitacionCodigo: r.licitacion_codigo, licitacionNombre: r.licitacion_nombre, ...extraLicitacion(r), productoId: r.producto_id, productoNombre: corto(r.descripcion),
       titulo: `Producto corregido, por revisar de nuevo: ${corto(r.descripcion)}`,
       detalle: r.nota_correccion ? `Lo que hizo: ${String(r.nota_correccion).slice(0, 140)}` : 'El encargado dice que ya lo corrigió.',
       hechos: r.nota_correccion ? [{ etiqueta: 'Lo que corrigió', valor: String(r.nota_correccion).slice(0, 160) }] : [],
@@ -100,13 +102,13 @@ export async function construirBandejaCompras(): Promise<ItemBandejaCompras[]> {
   // 4. Renuncias a una línea propuestas por el encargado.
   for (const r of await consulta(
     `SELECT p.negocio_id, p.id AS producto_id, p.descripcion, p.renuncia_motivo, p.renuncia_propuesta_por_nombre,
-            DATE_FORMAT(p.renuncia_propuesta_at, '%Y-%m-%d %H:%i:%s') AS propuesta_at, n.licitacion_codigo, n.licitacion_nombre
+            DATE_FORMAT(p.renuncia_propuesta_at, '%Y-%m-%d %H:%i:%s') AS propuesta_at, n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo, n.licitacion_monto
        FROM compras_producto p JOIN negocios n ON n.id = p.negocio_id
       WHERE p.renuncia_motivo IS NOT NULL AND p.renuncia_aprobada_at IS NULL AND p.subestado NOT IN ('RENUNCIADO', 'NO_ADJUDICADA') AND n.activo = TRUE
       ORDER BY p.renuncia_propuesta_at`)) {
     items.push({
       id: `renuncia:${r.negocio_id}:${r.producto_id}`, tipo: 'RENUNCIA', negocioId: r.negocio_id,
-      licitacionCodigo: r.licitacion_codigo, licitacionNombre: r.licitacion_nombre, productoId: r.producto_id, productoNombre: corto(r.descripcion),
+      licitacionCodigo: r.licitacion_codigo, licitacionNombre: r.licitacion_nombre, ...extraLicitacion(r), productoId: r.producto_id, productoNombre: corto(r.descripcion),
       titulo: `Renuncia a una línea por aprobar: ${corto(r.descripcion)}`,
       detalle: `Motivo: ${String(r.renuncia_motivo).slice(0, 140)}`,
       hechos: [{ etiqueta: 'Motivo de la renuncia', valor: String(r.renuncia_motivo).slice(0, 160) }],

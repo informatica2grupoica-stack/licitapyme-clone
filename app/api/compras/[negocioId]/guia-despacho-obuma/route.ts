@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { puedeOperarReparto } from '@/app/api/compras/[negocioId]/reparto/route';
 import {
-  armarGuiaDesdeOcObuma, armarDocumentoGuia, crearGuiaDespachoObuma, datosSugeridosGuia, guiasDelNegocio, negocioEsDeClaro, ocsParaGuia, type DatosGuia,
+  armarGuiaDesdeOcObuma, armarDocumentoGuia, crearGuiaDespachoObuma, datosSugeridosGuia, guiasDelNegocio, negocioEsDeClaro, pdfGuiaDelNegocio, ocsParaGuia, type DatosGuia,
 } from '@/app/lib/compras-guia-despacho-obuma';
 
 export const runtime = 'nodejs';
@@ -35,6 +35,14 @@ export async function GET(request: NextRequest, { params }: Params) {
     if ('error' in a) return a.error;
     // ?guias=1 → guías ya emitidas en Obuma para este negocio, con PDF y estado SII (consulta aparte: es la más lenta).
     if (request.nextUrl.searchParams.get('guias') === '1') return NextResponse.json({ success: true, guias: await guiasDelNegocio(a.id) });
+    // ?pdf=<folio> → copia de consulta en PDF armada desde el XML de la guía (se ve sin sesión de Obuma; sin timbre del SII).
+    const folioPdf = request.nextUrl.searchParams.get('pdf');
+    if (folioPdf) {
+      const { pdf, folio } = await pdfGuiaDelNegocio(a.id, folioPdf);
+      return new NextResponse(Buffer.from(pdf), {
+        headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="guia-despacho-${folio}.pdf"`, 'Cache-Control': 'private, no-store' },
+      });
+    }
     return NextResponse.json({ success: true, ocs: await ocsParaGuia(a.id), simulando: process.env.OBUMA_SIMULAR === '1' });
   } catch (error) {
     console.error('[compras/guia-despacho-obuma][GET]', String(error));
@@ -56,6 +64,7 @@ function leerDatos(b: any): DatosGuia | null {
     tipoDespacho: [1, 2, 3].includes(Number(b.tipoDespacho)) ? Number(b.tipoDespacho) : 2,
     choferRut: texto(b.choferRut), choferNombre: texto(b.choferNombre), patente: texto(b.patente),
     rebajarStock: b.rebajarStock === true, observacion: texto(b.observacion),
+    ocMpCodigo: texto(b.ocMpCodigo), ocMpFecha: texto(b.ocMpFecha),
   };
 }
 

@@ -15,7 +15,10 @@ type Dictamen = 'PRECIO_MEJOR' | 'PRECIO_IGUAL' | 'PRECIO_PEOR' | 'SIN_COMPARAR'
 export interface AdicionalUI { id: number; concepto: string; cantidad: number; precioUnitario: number }
 export interface ItemPrecioUI { precioUnitario: number | null; precioBase: number | null; adicionales: AdicionalUI[] }
 const CONCEPTOS = ['Quemador a gas', 'Bandejas', 'Carro', 'Puesta en marcha', 'Flete', 'Accesorios', 'Instalación'];
-const fmt = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+/** Con centavos cuando los hay ($5.181,30): redondear cada línea descuadraba el total de la cotización (3789-30-LE26). */
+const fmt = (n: number) => `$${n.toLocaleString('es-CL', Number.isInteger(Math.round(n * 100) / 100) ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** Número para el campo de texto, con coma decimal (el lector quita los puntos de miles: «5181.3» se leía 51.813). */
+const aCampo = (n: number) => String(Math.round(n * 100) / 100).replace('.', ',');
 
 export interface RevisionUI {
   area: string; criterio: string; requerido: string | null; cotizado: string | null;
@@ -56,8 +59,8 @@ export function AuditoriaCotizacionPanel({ negocioId, cotizacionId, productoId, 
   const [filas, setFilas] = useState<Array<{ concepto: string; cantidad: string; precio: string }>>([]);
 
   const abrirEditor = () => {
-    setBaseTxt(item?.precioBase != null ? String(Math.round(item.precioBase)) : '');
-    const actuales = (item?.adicionales || []).map(a => ({ concepto: a.concepto, cantidad: String(a.cantidad), precio: String(Math.round(a.precioUnitario)) }));
+    setBaseTxt(item?.precioBase != null ? aCampo(item.precioBase) : '');
+    const actuales = (item?.adicionales || []).map(a => ({ concepto: a.concepto, cantidad: aCampo(a.cantidad), precio: aCampo(a.precioUnitario) }));
     setFilas(actuales.length ? actuales : [{ concepto: '', cantidad: '1', precio: '' }]);   // parte con una fila lista para escribir
     setEditando(true);
   };
@@ -156,7 +159,7 @@ export function AuditoriaCotizacionPanel({ negocioId, cotizacionId, productoId, 
           <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50/50 p-3 space-y-2.5">
             <p className="text-[12.5px] text-indigo-900">La cotización a veces trae el producto solo y lo demás aparte. Agrega aquí lo que hace falta para <b>entregar este producto</b>: se suma al precio que se compara. Valores netos, por unidad del producto.</p>
             <label className="block text-[12px] font-semibold text-zinc-600">Precio del producto solo (neto)
-              <input value={baseTxt} onChange={e => setBaseTxt(e.target.value)} inputMode="numeric" placeholder="Ej.: 12000000"
+              <input value={baseTxt} onChange={e => setBaseTxt(e.target.value)} inputMode="decimal" placeholder="Ej.: 12000000"
                 className="mt-0.5 w-full sm:w-56 text-[13px] font-normal border border-zinc-300 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-1 focus:ring-indigo-500" />
             </label>
             <datalist id={`conceptos-${cotizacionId}-${productoId}`}>{CONCEPTOS.map(c => <option key={c} value={c} />)}</datalist>
@@ -169,7 +172,7 @@ export function AuditoriaCotizacionPanel({ negocioId, cotizacionId, productoId, 
                   <input value={f.cantidad} onChange={e => setFilas(fs => fs.map((x, j) => j === i ? { ...x, cantidad: e.target.value } : x))} inputMode="decimal"
                     className="mt-0.5 w-full text-[13px] font-normal border border-zinc-300 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-1 focus:ring-indigo-500" /></label>
                 <label className="col-span-6 sm:col-span-3 text-[11.5px] font-semibold text-zinc-500">Precio neto c/u
-                  <input value={f.precio} onChange={e => setFilas(fs => fs.map((x, j) => j === i ? { ...x, precio: e.target.value } : x))} inputMode="numeric" placeholder="800000"
+                  <input value={f.precio} onChange={e => setFilas(fs => fs.map((x, j) => j === i ? { ...x, precio: e.target.value } : x))} inputMode="decimal" placeholder="800000"
                     className="mt-0.5 w-full text-[13px] font-normal border border-zinc-300 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-1 focus:ring-indigo-500" /></label>
                 <button type="button" onClick={() => setFilas(fs => fs.filter((_, j) => j !== i))} title="Quitar" className="col-span-2 sm:col-span-1 pb-2 text-rose-500 hover:text-rose-700"><Trash size={15} /></button>
               </div>

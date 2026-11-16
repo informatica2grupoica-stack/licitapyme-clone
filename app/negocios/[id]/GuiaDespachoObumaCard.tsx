@@ -15,6 +15,7 @@ interface Datos {
   clienteRut: string; clienteRazonSocial: string; clienteGiro: string; clienteDireccion: string; clienteComuna: string; clienteRegion: string;
   clienteEmail: string; clienteTelefono: string; clienteContacto: string; direccionDespacho: string; bodegaCodigo: string;
   tipoTraslado: number; tipoDespacho: number; choferRut: string; choferNombre: string; patente: string; rebajarStock: boolean; observacion: string;
+  ocMpCodigo: string; ocMpFecha: string;
 }
 interface Respuesta { guia: Guia; datos: Datos; bodegas: { codigo: string; nombre: string }[]; avisos: string[]; doc: Record<string, unknown>; faltan: string[]; clienteEnObuma: boolean }
 
@@ -34,7 +35,7 @@ function Campo({ label, value, onChange, ancho = '' }: { label: string; value: s
 
 interface GuiaEmitida {
   folio: string; fecha: string; neto: number; total: number; anulada: boolean; facturada: boolean;
-  pdf: string | null; xml: string | null; entregadoSii: boolean; aceptadoSii: boolean; enviadoReceptor: boolean; aceptadoReceptor: boolean;
+  pdf: string | null; xml: string | null; pdfPideSesion: boolean; entregadoSii: boolean; aceptadoSii: boolean; enviadoReceptor: boolean; aceptadoReceptor: boolean;
 }
 
 function estadoSii(g: GuiaEmitida): { texto: string; clase: string } {
@@ -78,7 +79,13 @@ function GuiasEmitidas({ url, recargar }: { url: string; recargar: number }) {
                   {g.facturada && <span className="ml-1.5 inline-block rounded-md bg-slate-100 px-2 py-0.5 text-[11.5px] text-zinc-600">Facturada</span>}
                 </td>
                 <td className="px-3 py-1.5 text-right whitespace-nowrap">
-                  {g.pdf ? <a href={g.pdf} target="_blank" rel="noreferrer" className="font-semibold text-teal-700 hover:underline">Ver PDF</a> : <span className="text-zinc-400">sin PDF</span>}
+                  {/* PDF propio desde el XML: abre sin sesión de Obuma (copia de consulta, sin timbre). El oficial queda como enlace a Obuma. */}
+                  {g.xml && <a href={`${url}?pdf=${encodeURIComponent(g.folio)}`} target="_blank" rel="noreferrer" className="font-semibold text-teal-700 hover:underline"
+                    title="Copia de consulta armada desde el XML de la guía. No lleva el timbre del SII.">Ver PDF</a>}
+                  {g.pdf && <a href={g.pdf} target="_blank" rel="noreferrer" className={`${g.xml ? 'ml-3 text-zinc-500' : 'font-semibold text-teal-700'} hover:underline`}
+                    title={g.pdfPideSesion ? 'Se abre en Obuma: necesitas tener la sesión de Obuma iniciada en este navegador.' : undefined}>
+                    {g.pdfPideSesion ? 'Oficial en Obuma' : 'PDF oficial'}</a>}
+                  {!g.pdf && !g.xml && <span className="text-zinc-400">sin PDF</span>}
                   {g.xml && <a href={g.xml} target="_blank" rel="noreferrer" className="ml-3 text-zinc-500 hover:underline">XML</a>}
                 </td>
               </tr>
@@ -220,6 +227,22 @@ export function GuiaDespachoObumaCard({ negocioId }: { negocioId: number }) {
               <Campo label="Dirección de despacho" value={datos.direccionDespacho} onChange={v => set('direccionDespacho', v)} ancho="sm:col-span-2" />
               <label className="flex items-center gap-2 text-[12.5px] text-zinc-700 pt-4">
                 <input type="checkbox" checked={datos.rebajarStock} onChange={e => set('rebajarStock', e.target.checked)} /> Rebajar stock en la bodega
+              </label>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-zinc-200 p-3 space-y-2">
+            <p className="text-[13px] font-semibold text-zinc-800">Referencia <span className="ml-2 text-[11.5px] font-medium text-zinc-500">va en la guía como «Orden de compra», con «LICITACION ID…» en la razón</span></p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <label className="block">
+                <span className="block text-[11.5px] font-semibold text-zinc-500">OC de Mercado Público</span>
+                <input value={datos.ocMpCodigo} onChange={e => set('ocMpCodigo', e.target.value)} placeholder="Ej: 2736-443-SE26"
+                  className="mt-0.5 w-full text-[13px] border border-zinc-300 rounded-md px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+              </label>
+              <label className="block">
+                <span className="block text-[11.5px] font-semibold text-zinc-500">Fecha de la OC (envío)</span>
+                <input type="date" value={datos.ocMpFecha} onChange={e => set('ocMpFecha', e.target.value)}
+                  className="mt-0.5 w-full text-[13px] border border-zinc-300 rounded-md px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
               </label>
             </div>
           </div>

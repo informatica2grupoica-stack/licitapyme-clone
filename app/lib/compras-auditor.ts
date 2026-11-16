@@ -32,6 +32,7 @@ import { obtenerTipoCambio } from '@/app/lib/tipo-cambio';
 import { parsearDiasDeTexto } from '@/app/lib/numeros';
 import { auditarCotizacionEnSegundoPlano, rutValido } from '@/app/lib/compras-auditoria-cotizacion';
 import { netoDesdeBruto, precioONull, conDescuento } from '@/app/lib/compras-cotizacion-lectura';
+import { vaIncluidoEnOtro } from '@/app/lib/compras-precio-vs-costeo';
 import { adicionalesDesdeIA, cotizacionEsPorUnidad, baseDeCotizacionPorUnidad, faltantesDesdeIA, incluidosDesdeIA, citaVerificada } from '@/app/lib/compras-adicionales-ia';
 import { recomendarCombinaciones, type EtiquetaRecomendada } from '@/app/lib/compras-recomendaciones';
 import { esSubestadoFuera } from '@/app/lib/compras-no-adjudicadas';
@@ -817,7 +818,10 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     let adic = adicionalesDesdeIA(adicCorregidos, cantProducto, aNetoClp);
     // TIPO «cotización de UNA unidad» (set/kit: 14 instrumentos para 1 set, el producto pide 30): cada línea ya es por unidad y la línea del
     // precio de cabecera no cuenta dos veces. Generalizado a partir de 3789-30-LE26 (#278: $15.623 en vez de $171.671).
-    if (!esIncluido && cotizacionEsPorUnidad(adicCorregidos, cantProducto)) {
+    // Lo mismo con un KIT cotizado para el lote completo (Sinergia #319: 150 alicates, 90 pinzas… para 30 sets): el producto no tiene línea
+    // propia en el documento, el precio de cabecera es el de la primera pieza y esa pieza además venía como adicional (salía $113.765 = $5.181
+    // de «producto solo» + los 15 componentes). Esa pieza pasa a ser la base con su cantidad por set; si ninguna coincide, no cambia nada.
+    if (!esIncluido && (cotizacionEsPorUnidad(adicCorregidos, cantProducto) || (adic.length > 0 && !lineaDelProducto(producto.descripcion, lineasDelDoc)))) {
       const k = baseDeCotizacionPorUnidad(adic, precioClp);
       adic = k.adicionales; precioClp = k.base;
     }
@@ -1019,7 +1023,7 @@ function elegirCandidatos(productos: ProductoCompra[], cotizaciones: CotizacionF
     for (const it of c.items) {
       // Un $0 no es un precio, salvo que sea un producto marcado «va incluido en otro» (base $0 explícita): esos solo entran
       // a las combinaciones, que exigen comprar también el producto que lo contiene al mismo proveedor.
-      const incluido = it.precioBase === 0;
+      const incluido = vaIncluidoEnOtro(it);
       if (it.cumple === 'NO_ES_EL_PRODUCTO' || it.precioUnitario == null || (!(it.precioUnitario > 0) && !(permitirIncluidos && incluido))) continue;
       const arr = porProducto.get(it.productoId) || [];
       arr.push({ ...it, cotizacionId: c.id, moneda: c.moneda, tipoCambioUsado: c.tipoCambioUsado, proveedor: c.proveedorNombre, plazoEntregaDias: c.plazoEntregaDias, incluyeFlete: c.incluyeFlete, fleteMonto: c.fleteMonto, despachoModalidad: c.despachoModalidad ?? null });
@@ -1212,7 +1216,7 @@ export async function enumerarCombinaciones(negocioId: number): Promise<Resultad
   const recorrer = (i: number) => {
     if (i === cubiertos.length) {
       // «Va incluido» solo vale si el proveedor también vende, en esta misma combinación, algún producto con precio (el que lo contiene).
-      const ok = elegidos.every(e => !(e.precioBase === 0) || elegidos.some(o => o !== e && o.cotizacionId === e.cotizacionId && (o.precioBase ?? 1) > 0));
+      const ok = elegidos.every(e => !vaIncluidoEnOtro(e) || elegidos.some(o => o !== e && o.cotizacionId === e.cotizacionId && !vaIncluidoEnOtro(o)));
       if (ok) todas.push(armarCombinacion(cubiertos, elegidos, cotizaciones));
       return;
     }
@@ -1281,7 +1285,7 @@ export async function evaluarSeleccion(negocioId: number, seleccion: Record<numb
     elegidosProd.push(p); elegidos.push(cand);
   }
   for (const e of elegidos) {
-    if (e.precioBase === 0 && !elegidos.some(o => o !== e && o.cotizacionId === e.cotizacionId && (o.precioBase ?? 1) > 0)) {
+    if (vaIncluidoEnOtro(e) && !elegidos.some(o => o !== e && o.cotizacionId === e.cotizacionId && !vaIncluidoEnOtro(o))) {
       const p = elegidosProd[elegidos.indexOf(e)];
       errores.push(`«${p.descripcion.slice(0, 50)}» va incluido en el precio de otro producto de ${e.proveedor}: para elegirlo, ese otro producto también tiene que comprarse a ${e.proveedor}.`);
     }

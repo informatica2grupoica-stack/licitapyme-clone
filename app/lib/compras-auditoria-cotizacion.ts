@@ -323,7 +323,7 @@ export async function auditarCotizacion(
     const costeado = costeadoDeProducto(lineasCosteo, producto);
     const cmp = compararPrecioConCosteo(precioCosto, costeado);
     const extra = it.precio_base != null && precioCosto != null ? Math.round(precioCosto - Number(it.precio_base)) : 0;
-    const frase = textoComparacionPrecio(cmp, precioCosto, costeado) + (extra > 0 ? ` Incluye ${fmtCLP(extra)} de adicionales (el producto solo cuesta ${fmtCLP(Number(it.precio_base))}).` : '');
+    const frase = textoComparacionPrecio(cmp, precioCosto, costeado) + (extra > 0 ? (Number(it.precio_base) === 0 ? ` Es un kit: el precio es la suma de sus componentes.` : ` Incluye ${fmtCLP(extra)} de adicionales (el producto solo cuesta ${fmtCLP(Number(it.precio_base))}).`) : '');
     const base = { origen: 'codigo' as const, citaCotizacion: null, citaCotizacionVerificada: false, citaRequisito: null, citaRequisitoVerificada: false };
     const revisionPrecio: Revision = {
       ...base, area: 'precio', criterio: 'Precio vs. lo costeado',

@@ -63,8 +63,8 @@ test('set cotizado por unidad: no se divide por 30 y la línea de cabecera no cu
   assert.equal(adic.length, 14);
   assert.ok(adic.every(a => a.cantidad >= 1));                       // nada de 0,1 caja por set
   const { base, adicionales } = baseDeCotizacionPorUnidad(adic, 9900);   // el precio de cabecera era el del alicate
-  assert.equal(base, 49500);                                          // 5 alicates
-  assert.equal(adicionales.length, 13);
+  assert.equal(base, 0);                                              // kit: sin «producto solo», todas las piezas son componentes
+  assert.equal(adicionales.length, 14);
   const total = (base ?? 0) + adicionales.reduce((s, a) => s + a.cantidad * a.precioUnitario, 0);
   assert.ok(Math.abs(total - 171671) <= 2, `total ${total}`);         // = neto del documento, no $15.623
 });
@@ -82,4 +82,24 @@ test('pocas líneas o solo servicios (flete, instalación): no se confunde con �
 test('base por unidad: sin línea de igual precio no se toca nada', () => {
   const a = [{ concepto: 'x', cantidad: 1, precioUnitario: 500 }];
   assert.deepEqual(baseDeCotizacionPorUnidad(a, 9900), { base: 9900, adicionales: a });
+});
+
+// Caso real 3789-30-LE26, Sinergia #319: el KIT cotizado para el LOTE (150 alicates, 90 pinzas… = 30 sets), descuento 5 % del documento.
+// Antes: «producto solo» $5.181 (el alicate de cabecera) + los 15 componentes = $113.765, y cada precio a peso entero.
+const SINERGIA = [
+  ['Alicate recto 14 cm', 150, 5454], ['Pinza Anatómica 14,5 cm', 90, 1672], ['Pinza Quirúrgica 1x2 dtes', 90, 1168], ['Pinza Kelly Recta 14 cm', 30, 2436.97],
+  ['Pinza mosquito recta 14', 30, 1672.27], ['Mango Bisturí N°4', 60, 831.93], ['Mango Bisturí N°3', 60, 831.93], ['Tijera ROMA 14CM', 120, 3101],
+  ['Tijera Mayo Curva 17 cm', 90, 3101], ['Tijera Mayo Recta 17 cm', 90, 3101], ['Escariador Fino 17 cm', 60, 1672.27], ['Copela 9cm', 60, 924.37],
+  ['Gubia podología', 150, 1336], ['alicates podológico pediatrico', 60, 5285.72], ['Caja quirúrgica 17 cm x 7', 90, 5873.94],
+].map(([concepto, cantidadLinea, precioUnitario]) => ({ concepto, cantidadLinea, precioUnitario }));
+test('kit cotizado para el lote: se divide por 30, con centavos, y la pieza de cabecera no cuenta dos veces', () => {
+  assert.equal(cotizacionEsPorUnidad(SINERGIA, 30), false);
+  const adic = adicionalesDesdeIA(SINERGIA, 30, n => n * 0.95);
+  assert.equal(adic.length, 15);
+  assert.equal(adic[0].cantidad, 5);
+  assert.equal(adic[0].precioUnitario, 5181.3);                       // $5.454 − 5 %, sin redondear a $5.181
+  const { base, adicionales } = baseDeCotizacionPorUnidad(adic, 5181.3);
+  assert.equal(base, 0);
+  const total = adicionales.reduce((s, a) => s + a.cantidad * a.precioUnitario, 0);
+  assert.ok(Math.abs(total - 3257647.76 / 30) <= 0.2, `total ${total}`);   // = neto del documento ÷ 30 sets ($108.588,26)
 });

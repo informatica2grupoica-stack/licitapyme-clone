@@ -238,13 +238,15 @@ export function fusionarReadjudicacion(original: RespuestaAdjudicacion, nueva: R
 }
 
 /** Como construirDesdeLicitacion, pero si la ficha dice «Readjudicada en Id X» trae X y mezcla. Si X no responde,
- *  devuelve la original (se reintenta en la próxima consulta; nunca se inventa un resultado). */
+ *  LANZA error: la ficha original sola muestra el acta vieja (ya reemplazada) y darla por buena cambia el resultado
+ *  (4777-25-LE26, 16-nov-2026: readjudicada a otro en R126, la R126 no respondió y volvió a «ganada» con aviso a todos).
+ *  Los llamadores ya capturan el error y reintentan en la próxima corrida. */
 export async function construirConReadjudicacion(lic: Licitacion, codigo: string): Promise<RespuestaAdjudicacion> {
   const base = construirDesdeLicitacion(lic, codigo);
   const destino = codigoReadjudicadaEn(lic.Nombre);
   if (!destino || destino === codigo.toUpperCase() || !base.esAdjudicada) return base;
   const licNueva = await getMercadoPublicoClient().obtenerPorCodigoRapido(destino).catch(() => null);
-  if (!licNueva) return base;
+  if (!licNueva) throw new Error(`readjudicación ${destino} de ${codigo} no respondió; se reintenta después`);
   return fusionarReadjudicacion(base, construirDesdeLicitacion(licNueva, destino));
 }
 
@@ -252,7 +254,7 @@ export async function construirConReadjudicacion(lic: Licitacion, codigo: string
 export async function consultarMP(codigo: string): Promise<RespuestaAdjudicacion | null> {
   const lic = await getMercadoPublicoClient().obtenerPorCodigo(codigo);
   if (!lic) return null;
-  return construirConReadjudicacion(lic, codigo);
+  return construirConReadjudicacion(lic, codigo).catch(() => null); // sin la readjudicación → como si MP no respondiera (queda la caché)
 }
 
 // ── Cache: lectura ────────────────────────────────────────────────────────────

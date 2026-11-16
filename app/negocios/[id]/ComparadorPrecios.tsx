@@ -8,7 +8,7 @@ import { useMemo, useState } from 'react';
 import { IconStar as Star, IconCheck as Check, IconChevronDown as ChevronDown, IconChevronRight as ChevronRight, IconSearch as Search } from '@tabler/icons-react';
 import { MenuAcciones } from '@/app/components/ui/MenuAcciones';
 import { LinksProducto } from './LinksProducto';
-import { compararPrecioConCosteo, totalAdicionales, DIFERENCIA_SOSPECHOSA_PCT, type AdicionalCotizacion } from '@/app/lib/compras-precio-vs-costeo';
+import { compararPrecioConCosteo, totalAdicionales, vaIncluidoEnOtro, DIFERENCIA_SOSPECHOSA_PCT, type AdicionalCotizacion } from '@/app/lib/compras-precio-vs-costeo';
 import { esLinkDeProducto } from '@/app/lib/costeo-comparativo';
 import { margenCosteoVsCotizaciones, GASTO_ENTREGA_PCT } from '@/app/lib/compras-margen-vs-costeo';
 import { MargenCosteoVsCotizaciones } from './MargenCosteoVsCotizaciones';
@@ -18,6 +18,8 @@ import { lineasPendientes } from './ListaCotizaciones';
 import type { LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
 
 const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+/** Con centavos cuando los hay ($5.181,30): el desglose tiene que cuadrar al peso con la cotización (3789-30-LE26). */
+const clpExacto = (n: number) => `$${n.toLocaleString('es-CL', Number.isInteger(Math.round(n * 100) / 100) ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const num = (v: unknown) => { const n = typeof v === 'number' ? v : Number(v); return Number.isFinite(n) && n > 0 ? n : 1; };
 
 const fechaCorta = (s: string) => { const [d, h] = s.split(' '); const [y, m, dd] = d.split('-'); return `${dd}-${m}-${y}${h ? ` ${h.slice(0, 5)}` : ''}`; };
@@ -166,7 +168,7 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
   const filaOferta = (p: typeof productos[number], { c, item }: { c: typeof cotizaciones[number]; item: typeof cotizaciones[number]['items'][number] }, base: number | null, mejor: number | null) => {
     const cmp = compararPrecioConCosteo(item.precioUnitario, base);
     const est = ESTILO_VEREDICTO[cmp.veredicto];
-    const incluido = item.precioBase === 0;
+    const incluido = vaIncluidoEnOtro(item);
     const esElegida = compra?.[p.id] === c.id;
     // Una oferta ≥ 50 % bajo lo costeado casi nunca es una ganga: otro producto, otra unidad (¿cotizó 1 set y no 30?) o mal leída.
     // No se corona «Mejor precio» ni se pinta de verde: se pide revisar primero.
@@ -180,6 +182,8 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
     const bloqueada = reemplazadaPor != null && !esElegida;   // si ya estaba elegida se deja quitarla, no volver a elegirla
     const ads = item.adicionales as AdicionalCotizacion[];
     const sumaAds = totalAdicionales(ads);
+    // Kit cotizado por componentes (base $0 + piezas): no hay «producto solo», el precio ES la suma de las piezas.
+    const esKit = item.precioBase === 0 && ads.length > 0;
     const soloProducto = item.precioBase != null ? item.precioBase : item.precioUnitario != null ? item.precioUnitario - sumaAds : null;
     const pendientes = onAgregarLinea && !bloqueada ? (pendientesPorCot.get(c.id) ?? []) : [];
     const acc = [
@@ -200,7 +204,7 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
             <p className="text-[13px] font-semibold text-zinc-900 leading-tight" title={c.proveedorNombre}>{c.proveedorNombre}</p>
             <p className="text-[11.5px] text-zinc-500">
               Cotización #{c.id}{c.plazoEntregaTexto ? ` · ${c.plazoEntregaTexto}` : ''}
-              {' · '}{incluido ? 'va incluido en otro producto' : ads.length > 0 ? <b className="font-semibold text-zinc-700">producto + {ads.length} adicional{ads.length === 1 ? '' : 'es'}</b> : 'solo el producto, sin adicionales'}
+              {' · '}{incluido ? 'va incluido en otro producto' : esKit ? <b className="font-semibold text-zinc-700">kit de {ads.length} componente{ads.length === 1 ? '' : 's'}</b> : ads.length > 0 ? <b className="font-semibold text-zinc-700">producto + {ads.length} adicional{ads.length === 1 ? '' : 'es'}</b> : 'solo el producto, sin adicionales'}
             </p>
             {reemplazadaPor != null && <p className="text-[11px] font-semibold text-zinc-500">Reemplazada por la #{reemplazadaPor} del mismo proveedor</p>}
           </div>
@@ -210,7 +214,7 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
           <div className="flex flex-col items-end">
             <span className="flex items-center gap-1.5">
               {esMejor && <span title="Mejor precio de este producto" className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-amber-600"><Star size={12} className="fill-amber-400" /> Mejor precio</span>}
-              <span className="text-[14px] font-bold text-zinc-900 tabular-nums">{item.precioUnitario != null ? clp(item.precioUnitario) : 'sin precio'}</span>
+              <span className="text-[14px] font-bold text-zinc-900 tabular-nums">{item.precioUnitario != null ? clpExacto(item.precioUnitario) : 'sin precio'}</span>
             </span>
             {incluido
               ? <span className="text-[11.5px] font-semibold text-sky-700">Incluido en otro producto</span>
@@ -223,17 +227,17 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
         {al.length > 0 && <div className="mt-1 pl-8 flex flex-wrap gap-x-3">{al.map(x => <span key={x} className="text-[11.5px] font-bold text-rose-600">⚠ {x}</span>)}</div>}
         {ads.length > 0 && (
           <div className={`mt-2 border-t border-dashed border-zinc-200 pt-1.5 ${onElegirCelda ? 'pl-8' : ''}`} data-testid={`desglose-${c.id}-${p.id}`}>
-            <p className="text-[11px] text-zinc-500 mb-0.5">Qué incluye este precio, por unidad</p>
+            <p className="text-[11px] text-zinc-500 mb-0.5">{esKit ? 'Qué trae el kit, por unidad' : 'Qué incluye este precio, por unidad'}</p>
             <table className="w-full max-w-[520px] text-[12px] tabular-nums">
               <tbody>
-                <tr><td className="py-0.5 text-zinc-800">{incluido ? 'Producto (va incluido en otro)' : 'Producto solo'}</td><td className="py-0.5 text-right text-zinc-800">{soloProducto != null ? clp(soloProducto) : '—'}</td></tr>
+                {!esKit && <tr><td className="py-0.5 text-zinc-800">{incluido ? 'Producto (va incluido en otro)' : 'Producto solo'}</td><td className="py-0.5 text-right text-zinc-800">{soloProducto != null ? clpExacto(soloProducto) : '—'}</td></tr>}
                 {ads.map((a, i) => (
                   <tr key={`${a.concepto}-${i}`}>
-                    <td className="py-0.5 text-zinc-600">+ {a.concepto}{a.cantidad !== 1 && <span className="text-zinc-400"> · {a.cantidad.toLocaleString('es-CL')} × {clp(a.precioUnitario)}</span>}</td>
-                    <td className="py-0.5 text-right text-zinc-600">{clp(a.cantidad * a.precioUnitario)}</td>
+                    <td className="py-0.5 text-zinc-600">{esKit ? '' : '+ '}{a.concepto}{a.cantidad !== 1 && <span className="text-zinc-400"> · {a.cantidad.toLocaleString('es-CL')} × {clpExacto(a.precioUnitario)}</span>}</td>
+                    <td className="py-0.5 text-right text-zinc-600">{clpExacto(a.cantidad * a.precioUnitario)}</td>
                   </tr>
                 ))}
-                <tr className="border-t border-zinc-200"><td className="pt-1 font-semibold text-zinc-900">Total por unidad</td><td className="pt-1 text-right font-semibold text-zinc-900">{item.precioUnitario != null ? clp(item.precioUnitario) : '—'}</td></tr>
+                <tr className="border-t border-zinc-200"><td className="pt-1 font-semibold text-zinc-900">{esKit ? 'Total por kit' : 'Total por unidad'}</td><td className="pt-1 text-right font-semibold text-zinc-900">{item.precioUnitario != null ? clpExacto(item.precioUnitario) : '—'}</td></tr>
               </tbody>
             </table>
           </div>

@@ -59,6 +59,15 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
   (SMTP)? Son fallas independientes.
 - Si una POSTULADA parece atascada sin pasar a Ganada/Perdida, revisar si la caché quedó sin
   promover (causa real de sep-2026).
+- **Readjudicada que no responde = no hay resultado** (2026-11-16, 4777-25-LE26): la ficha original dice
+  «Readjudicada en Id …-R126» pero sigue mostrando el acta VIEJA. El 26-oct la municipalidad la readjudicó a
+  OpenCluster Tech (decreto 6401) y el 27-oct quedó bien en PERDIDA; el 16-nov a las 04:10 la R126 no respondió,
+  `construirConReadjudicacion` devolvió la ficha original sola y la reconfirmación de 12 h la volvió a «ganada»
+  con alerta a todos (falsa). Ahora, si la readjudicación no responde, lanza error y se reintenta después.
+  Sin desplegar: hasta el deploy el VPS puede repetirlo si una R126 falla. El negocio 1110 se devolvió a PERDIDA en
+  silencio el mismo día (decisión del dueño; caché con R126/OpenCluster, sin avisos). Antes se simuló sin escribir
+  con el código arreglado sobre las 11 readjudicadas (9 con `readjudicada_en`, 4777 y la marca manual 1426039-8-LE26):
+  todas dan el estado que tienen. Simulador: `scripts/scratch/dbg-readj-simular.mts` (tsx --env-file=.env.local).
 
 ## Pendientes conocidos
 

@@ -12,7 +12,7 @@ import type React from 'react';
 import { IconStar as Star, IconDotsVertical as Dots, IconCheck as Check, IconPaperclip as Clip, IconListCheck as ListChecks, IconSparkles as Sparkles, IconPencil as Pencil, IconTrash as Trash, IconInfoCircle as Info } from '@tabler/icons-react';
 import { LinksProducto, type LinksCosteo } from './LinksProducto';
 import type { useLinksLeidos } from './LinksLeidos';
-import { compararPrecioConCosteo, type VeredictoPrecio } from '@/app/lib/compras-precio-vs-costeo';
+import { compararPrecioConCosteo, vaIncluidoEnOtro, type VeredictoPrecio } from '@/app/lib/compras-precio-vs-costeo';
 
 export interface SeleccionCelda { cotizacionId: number; productoId: number }
 export interface CotizacionMin {
@@ -278,7 +278,7 @@ export function MatrizPrecios({ productos, cotizaciones, costeado, linksCosteo =
                     );
                     const cmp = compararPrecioConCosteo(item.precioUnitario, base);
                     const est = ESTILO_VEREDICTO[cmp.veredicto];
-                    const incluido = item.precioBase === 0;
+                    const incluido = vaIncluidoEnOtro(item);
                     const elegida = compra?.[p.id] === c.id;
                     const esMejor = mejor != null && precios[i] === mejor;
                     const detalleActivo = seleccion?.cotizacionId === c.id && seleccion.productoId === p.id;

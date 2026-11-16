@@ -38,7 +38,23 @@ function hace(min: number | null): string {
   const d = Math.round(min / 1440);
   return `hace ${d} ${d === 1 ? 'día' : 'días'}`;
 }
-const iniciales = (n: string | null) => (n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(x => x[0]!.toUpperCase()).join('');
+const clp = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
+/** «1 cuadro comparativo · 1 margen» */
+function resumenTipos(items: ItemBandejaCompras[]): string {
+  const cuenta = new Map<TipoItemCompras, number>();
+  for (const i of items) cuenta.set(i.tipo, (cuenta.get(i.tipo) ?? 0) + 1);
+  return ORDEN.filter(t => cuenta.has(t)).map(t => `${cuenta.get(t)} ${TIPO[t].etiqueta.toLowerCase()}`).join(' · ');
+}
+/** Celda de la franja de datos (misma forma que en la tarjeta de licitación). */
+function Celda({ rotulo, valor, contexto, tenue, urgente }: { rotulo: string; valor: string; contexto?: string; tenue?: boolean; urgente?: boolean }) {
+  return (
+    <div className="min-w-0 rounded-lg bg-slate-50 dark:bg-slate-800/50 px-3 py-2.5">
+      <p className="text-[11px] text-tinta-2/80 dark:text-slate-400">{rotulo}</p>
+      <p className={`mt-0.5 text-[15px] font-semibold tracking-tight tabular-nums truncate ${urgente ? 'text-urgente dark:text-red-400' : tenue ? 'text-tinta-3 dark:text-slate-500' : 'text-tinta dark:text-slate-50'}`} title={valor}>{valor}</p>
+      {contexto && <p className="mt-1 text-[11.5px] text-tinta-2 dark:text-slate-400 truncate" title={contexto}>{contexto}</p>}
+    </div>
+  );
+}
 
 /** Agrupa los ítems por licitación: la que lleva más tiempo esperando primero. */
 export function agruparPorLicitacion(items: ItemBandejaCompras[]): Array<{ negocioId: number; items: ItemBandejaCompras[] }> {
@@ -130,19 +146,29 @@ export function GrupoAprobacionCompras({ items, onResuelto }: { items: ItemBande
   const hayNoRapidas = items.some(i => !i.accionRapida);
 
   return (
-    <motion.div variants={itemMov} layout className="bg-white dark:bg-slate-900 border border-linea dark:border-slate-800 rounded-xl shadow-tarjeta overflow-hidden" data-testid={`aprob-grupo-${primero.negocioId}`}>
+    <motion.div variants={itemMov} layout className="@container bg-white dark:bg-slate-900 border border-linea dark:border-slate-800 rounded-xl shadow-tarjeta overflow-hidden" data-testid={`aprob-grupo-${primero.negocioId}`}>
       {/* Encabezado: la licitación (una sola vez) */}
-      <div className="px-4 pt-4 pb-3.5 flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs text-tinta-2 dark:text-slate-400"><span className="font-mono font-medium text-tinta dark:text-slate-300">{primero.licitacionCodigo}</span></p>
-          <p className="text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-50 leading-snug mt-1">{primero.licitacionNombre || primero.licitacionCodigo}</p>
-          <p className="mt-1.5 text-[13px] text-tinta-2 dark:text-slate-400">
-            <b className="font-semibold text-tinta dark:text-slate-100 tabular-nums">{items.length}</b> {items.length === 1 ? 'cosa por aprobar' : 'cosas por aprobar'}
-          </p>
+      <div className="px-4 pt-4 pb-4">
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-tinta-2 dark:text-slate-400 truncate">
+              <span className="font-mono font-medium text-tinta dark:text-slate-300">{primero.licitacionCodigo}</span>
+              {primero.licitacionOrganismo && <> · {primero.licitacionOrganismo}</>}
+            </p>
+            <p className="text-[16px] font-semibold tracking-tight text-tinta dark:text-slate-50 leading-snug mt-1">{primero.licitacionNombre || primero.licitacionCodigo}</p>
+          </div>
+          <span className={`flex-shrink-0 text-[12.5px] font-medium mt-0.5 ${antiguo ? 'text-urgente dark:text-red-400' : 'text-tinta-2 dark:text-slate-400'}`}>
+            <Estado color={antiguo ? '#dc2626' : '#94a3b8'}>{antiguo ? `Espera ${hace(esperaMax).replace('hace ', '')}` : `Llegó ${hace(esperaMax)}`}</Estado>
+          </span>
         </div>
-        <span className={`flex-shrink-0 text-[12.5px] font-medium mt-0.5 ${antiguo ? 'text-urgente dark:text-red-400' : 'text-tinta-2 dark:text-slate-400'}`}>
-          <Estado color={antiguo ? '#dc2626' : '#94a3b8'}>{antiguo ? `Espera ${hace(esperaMax).replace('hace ', '')}` : `Llegó ${hace(esperaMax)}`}</Estado>
-        </span>
+
+        {/* Franja de datos: de qué se trata */}
+        <div className="mt-3.5 grid grid-cols-2 @2xl:grid-cols-4 gap-2">
+          <Celda rotulo="Presupuesto publicado" valor={primero.licitacionMonto != null ? clp(primero.licitacionMonto) : 'No publicado'} tenue={primero.licitacionMonto == null} />
+          <Celda rotulo="Por aprobar" valor={`${items.length} ${items.length === 1 ? 'cosa' : 'cosas'}`} contexto={resumenTipos(items)} />
+          <Celda rotulo="Lo manda" valor={solicitantes.join(', ') || 'Sin dato'} tenue={solicitantes.length === 0} />
+          <Celda rotulo="Esperando" valor={hace(esperaMax).replace('hace ', '') || '—'} urgente={antiguo} contexto={antiguo ? 'Lleva más de un día' : undefined} />
+        </div>
       </div>
 
       {/* Lo pendiente de esa licitación */}
@@ -150,10 +176,7 @@ export function GrupoAprobacionCompras({ items, onResuelto }: { items: ItemBande
 
       {/* Pie: quién lo manda y un solo botón para ir a decidir en Compras */}
       <div className="px-4 py-3 border-t border-linea dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/30 flex items-center gap-3 flex-wrap">
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <span className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-semibold flex items-center justify-center" aria-hidden>{iniciales(solicitantes[0] ?? null)}</span>
-          <p className="text-xs text-tinta-2 dark:text-slate-400 truncate">{solicitantes.length > 0 ? <>Lo manda <b className="font-medium text-tinta dark:text-slate-200">{solicitantes.join(', ')}</b></> : 'Mandado a aprobar'}</p>
-        </div>
+        <p className="min-w-0 flex-1 text-xs text-tinta-2 dark:text-slate-400">{hayNoRapidas ? 'Se decide en Compras, con el cuadro y los productos a la vista.' : 'Puedes aprobar aquí o abrir el producto en Compras.'}</p>
         <Boton variante={hayNoRapidas ? 'primario' : 'secundario'} onClick={() => router.push(rutaGrupo)}>
           {hayNoRapidas ? 'Revisar y aprobar en Compras' : 'Abrir en Compras'} <Flecha size={15} />
         </Boton>

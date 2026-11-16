@@ -16,7 +16,7 @@ import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { AuditoriaCotizacionPanel, type AuditoriaUI } from './AuditoriaCotizacionPanel';
 import { ComparadorPrecios } from './ComparadorPrecios';
 import { MatrizPrecios, cotizacionesReemplazadas, ESTILO_VEREDICTO, ETIQUETA_ALERTA, type SeleccionCelda } from './MatrizPrecios';
-import { compararPrecioConCosteo } from '@/app/lib/compras-precio-vs-costeo';
+import { compararPrecioConCosteo, vaIncluidoEnOtro } from '@/app/lib/compras-precio-vs-costeo';
 import { CotizacionesMasivas } from './CotizacionesMasivas';
 import { ProveedorFichaModal, type ProveedorRef } from './ProveedorFichaModal';
 import { CompraDirectaPanel,type InicialDirecta } from './CompraDirectaPanel';
@@ -737,7 +737,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar, soloLectura = false
       const existente = c.items.find(it => it.productoId === p.id);
       // Antes, al marcar un producto sin cotizar se le precargaba el precio de la cotización (el del horno al carro). Ahora arranca vacío.
       const base = existente?.precioBase ?? existente?.precioUnitario ?? null;
-      draft[p.id] = { activo: !!existente, incluido: existente?.precioBase === 0, precioUnitario: base != null && base !== 0 ? String(base) : '', cumple: existente?.cumple || 'CUMPLE' };
+      draft[p.id] = { activo: !!existente, incluido: existente ? vaIncluidoEnOtro(existente) : false, precioUnitario: base != null && (base !== 0 || (existente?.adicionales.length ?? 0) > 0) ? String(base).replace('.', ',') : '', /* un kit (base $0 + componentes) conserva su 0: en blanco el servidor le ponía el precio de la cotización y la pieza contaba dos veces */ cumple: existente?.cumple || 'CUMPLE' };
     }
     setBorradorAsignacion(draft);
   };

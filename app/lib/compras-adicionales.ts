@@ -9,7 +9,7 @@ import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { invalidarAprobacionesCompras } from '@/app/lib/compras';
-import { precioEfectivo, type AdicionalCotizacion } from '@/app/lib/compras-precio-vs-costeo';
+import { precioEfectivo, aCentavos, type AdicionalCotizacion } from '@/app/lib/compras-precio-vs-costeo';
 
 export interface AdicionalFila extends AdicionalCotizacion { id: number }
 export interface AdicionalEntrada { concepto: string; cantidad: number; precioUnitario: number }
@@ -69,14 +69,14 @@ export async function guardarAdicionales(
     if (!concepto) throw new Error('Cada adicional necesita un nombre (por ejemplo «Quemador a gas»).');
     if (!Number.isFinite(cantidad) || cantidad <= 0 || cantidad > 10_000) throw new Error(`«${concepto}»: la cantidad debe ser mayor que 0.`);
     if (!Number.isFinite(precio) || precio < 0) throw new Error(`«${concepto}»: el precio neto no es válido.`);
-    limpios.push({ concepto, cantidad, precioUnitario: Math.round(precio) });
+    limpios.push({ concepto, cantidad, precioUnitario: aCentavos(precio) });   // con centavos: el total cuadra al peso con el documento
   }
   if (limpios.length > MAX_ADICIONALES) throw new Error(`Máximo ${MAX_ADICIONALES} adicionales por producto.`);
 
   const antes = item.precio_unitario != null ? Number(item.precio_unitario) : null;
   if (datos.precioBase != null) {
     if (!Number.isFinite(datos.precioBase) || datos.precioBase < 0) throw new Error('El precio base no es válido.');
-    await pool.query(`UPDATE compras_cotizacion_item SET precio_base = ? WHERE cotizacion_id = ? AND producto_id = ?`, [Math.round(datos.precioBase), cotizacionId, productoId]);
+    await pool.query(`UPDATE compras_cotizacion_item SET precio_base = ? WHERE cotizacion_id = ? AND producto_id = ?`, [aCentavos(datos.precioBase), cotizacionId, productoId]);
   }
   await pool.query(`DELETE FROM compras_cotizacion_adicional WHERE cotizacion_id = ? AND producto_id = ?`, [cotizacionId, productoId]);
   const ahora = ahoraChileSQL();

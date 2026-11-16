@@ -6,6 +6,7 @@
 // venga con quemador y el carro con sus bandejas. Esas líneas no son productos nuestros: son COMPONENTES de uno. Se unen
 // al producto como adicionales (suman al precio efectivo) y, si la bases exigen algo que la cotización no trae, se avisa.
 import type { AdicionalEntrada } from '@/app/lib/compras-adicionales';
+import { aCentavos } from '@/app/lib/compras-precio-vs-costeo';
 
 const MAX_POR_PRODUCTO = 20;
 /** "P2" → 2 (la IA responde con el código del producto; también se acepta el número solo). */
@@ -40,14 +41,12 @@ export function cotizacionEsPorUnidad(raw: unknown, cantidadProducto: number | n
   return piezas.length >= 4 && piezas.every(n => n < cantidadProducto);
 }
 
-/** En una cotización por unidad el precio de cabecera es el de UNA línea (la primera: 9.900 del alicate). Esa misma línea no puede
- *  contar otra vez como adicional: pasa a ser la base, con toda su cantidad (5 alicates = $49.500). Sin línea igual, no cambia nada. */
+/** En una cotización de un KIT el precio de cabecera es el de UNA pieza (la primera: 9.900 del alicate) y esa pieza ya está entre los
+ *  componentes: no puede contar dos veces. El kit queda con base $0 y TODAS sus piezas como componentes (así se lee «qué trae el set»,
+ *  sin una pieza disfrazada de «producto solo»; 3789-30-LE26, pedido del dueño 16-nov-2026). Sin pieza de igual precio, no cambia nada. */
 export function baseDeCotizacionPorUnidad(adicionales: AdicionalEntrada[], precioBase: number | null): { base: number | null; adicionales: AdicionalEntrada[] } {
   if (precioBase == null) return { base: precioBase, adicionales };
-  const i = adicionales.findIndex(a => Math.abs(a.precioUnitario - precioBase) <= 1);
-  if (i < 0) return { base: precioBase, adicionales };
-  const l = adicionales[i];
-  return { base: Math.round(l.precioUnitario * l.cantidad), adicionales: adicionales.filter((_, j) => j !== i) };
+  return adicionales.some(a => Math.abs(a.precioUnitario - precioBase) <= 1) ? { base: 0, adicionales } : { base: precioBase, adicionales };
 }
 
 /** Limpia lo que devolvió la IA y lo deja como adicionales por unidad del producto, con el precio en NETO.
@@ -67,8 +66,8 @@ export function adicionalesDesdeIA(raw: unknown, cantidadProducto: number | null
     // La cantidad se guarda con 2 decimales: 1 instalación para 200 basureros (0,005) quedaba en 0,01 y cobraba el doble
     // (1202333-67-LE26: $400.000 → $800.000). Si no cabe exacta, se reparte el MONTO: 1 × ($400.000 ÷ 200) por unidad.
     if (Math.abs(Math.round(porUnidad * 100) / 100 - porUnidad) > 1e-9) {
-      out.push({ concepto: `${concepto} (${cant} × $${Math.round(aNeto(precio)).toLocaleString('es-CL')} repartido en ${divisor} u)`.slice(0, 160), cantidad: 1, precioUnitario: Math.round(aNeto(precio) * porUnidad) });
-    } else out.push({ concepto, cantidad: porUnidad, precioUnitario: Math.round(aNeto(precio)) });
+      out.push({ concepto: `${concepto} (${cant} × $${Math.round(aNeto(precio)).toLocaleString('es-CL')} repartido en ${divisor} u)`.slice(0, 160), cantidad: 1, precioUnitario: aCentavos(aNeto(precio) * porUnidad) });
+    } else out.push({ concepto, cantidad: porUnidad, precioUnitario: aCentavos(aNeto(precio)) });   // con centavos ($5.181,30), no a peso entero
     if (out.length >= MAX_POR_PRODUCTO) break;
   }
   return out;

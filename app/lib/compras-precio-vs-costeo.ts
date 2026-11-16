@@ -53,8 +53,17 @@ export function textoComparacionPrecio(c: ComparacionPrecio, cotizadoNeto: numbe
 
 export interface AdicionalCotizacion { concepto: string; cantidad: number; precioUnitario: number }
 
+/** Redondeo a centavos: los precios de una cotización con descuento llevan decimales ($5.454 − 5 % = $5.181,30) y redondear cada línea
+ *  a peso entero descuadraba el total del documento (3789-30-LE26, Sinergia #319: $108.584 por set en vez de $108.588,26). */
+export const aCentavos = (n: number): number => Math.round(n * 100) / 100;
+
 export const totalAdicionales = (ads: AdicionalCotizacion[]): number =>
-  Math.round(ads.reduce((s, a) => s + (Number.isFinite(a.cantidad) && Number.isFinite(a.precioUnitario) ? a.cantidad * a.precioUnitario : 0), 0));
+  aCentavos(ads.reduce((s, a) => s + (Number.isFinite(a.cantidad) && Number.isFinite(a.precioUnitario) ? a.cantidad * a.precioUnitario : 0), 0));
+
+/** «Va incluido en otro producto» = base $0 y SIN precio propio. Un kit cotizado por componentes (base $0 + adicionales que suman el
+ *  precio, 3789-30-LE26) tiene precio y se compra solo: no va incluido en nada. */
+export const vaIncluidoEnOtro = (it: { precioBase?: number | null; precioUnitario: number | null }): boolean =>
+  it.precioBase === 0 && !((it.precioUnitario ?? 0) > 0);
 
 /** Precio efectivo por unidad del producto. Sin precio base no hay precio efectivo (no se inventa uno solo con los adicionales). */
 export function precioEfectivo(base: number | null | undefined, ads: AdicionalCotizacion[]): number | null {

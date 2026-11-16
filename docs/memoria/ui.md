@@ -13,7 +13,17 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
   Compras (`ItemAprobacionCompras.tsx`): tipo = ícono gris + texto, cada fila dice dónde se aprueba, botón teal
   «Revisar y aprobar en Compras». Página: `Encabezado`, 4 cuadros que hacen de pestañas (se quitó la fila de
   pestañas repetida), filtros de cierre «Urgentes / Cierran pronto / Con tiempo» (antes Rojo/Amarillo/Verde),
-  carga con esqueleto, vacíos con `Vacio`. Sin índigo/violeta. `tsc` ok; NO visto en navegador (pedía login).
+  carga con esqueleto, vacíos con `Vacio`. Sin índigo/violeta. `tsc` ok; visto en localhost:3000 el 16-nov (BD Docker :3308) en claro y oscuro, sin pulsar
+  aprobar/rechazar. Falta que el dueño lo apruebe. Detalle: la causal «el bloque comercial no tiene aprobación vigente…
+  apruebe en /aprobaciones» sale en la misma bandeja (texto del backend, `semaforo-auditor.ts`); queda redundante ahí.
+- **`/aprobaciones` con información de qué se trata** (2026-11-16, pedido del dueño: «que entregue información relevante»).
+  Cada tarjeta trae una franja de 4 datos (`@container`, 2 o 4 columnas): Licitación = presupuesto publicado
+  (`negocios.licitacion_monto`), nuestra oferta con barra contra el presupuesto (rojo si se pasa), cierre con fecha y
+  hora, quién lo prepara; Compras = presupuesto, cuántas cosas y de qué tipo, quién lo manda, cuánto espera. El bloque
+  listo lista sus puntos (título + valor, `puntos` nuevo en `GET /api/aprobaciones`, solo lectura); el que aún prepara
+  el asistente no los muestra. Se ocultan en la tarjeta las causales `BLOQUE_*_SIN_APROBAR` (se resuelven ahí mismo).
+  Compras: «Bajo el presupuesto 20,5 %» en vez de «Sobre el presupuesto −20,5 %» (`compras-bandeja-aprobacion.ts`).
+  Visto en localhost a 800 y 1366 px, claro y oscuro; sin pulsar aprobar. Falta que el dueño lo apruebe.
 
 - **Barra de gestión del negocio en vez de columna derecha** (2026-11-09, pedido del dueño): en `/negocios/[id]`
   la columna de Estado/Responsable/Historial pasó a una franja fija (`sticky`) bajo el título, con

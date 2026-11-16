@@ -5,10 +5,11 @@
 // y la creación la confirma una persona en pantalla. Con OBUMA_SIMULAR=1 no se envía nada.
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
+import { generarPdfGuia, leerXmlGuia } from '@/app/lib/compras-guia-pdf';
 import {
   listarComprasOcItems, listarBodegasObuma, listarSucursalesObuma, listarRegionesComunasObuma, ultimasGuiasObuma,
   crearVentaIntegracionExterna, clientesObumaCompleto, centrosDeCostoCompleto, buscarCentroCostoPorLicitacion,
-  guiasRecientesObuma, pdfYEstadoDte,
+  guiasRecientesObuma, pdfYEstadoDte, referenciasGuiasObuma,
 } from '@/app/lib/obuma';
 
 // Precio de cada línea = precio de VENTA neto del costeo/acta (compras_producto.monto_unitario, el mismo que se manda al crear el SKU),
@@ -33,7 +34,12 @@ export interface DatosGuia {
   choferRut: string; choferNombre: string; patente: string;
   rebajarStock: boolean;
   observacion: string;
+  // Referencia 801 (orden de compra) como en las guías hechas en Obuma: OC de Mercado Público + «LICITACION ID<código>».
+  ocMpCodigo: string; ocMpFecha: string;   // fecha = envío de la OC (YYYY-MM-DD, hora Chile), como la ponen a mano
 }
+
+/** Fecha (YYYY-MM-DD) en hora de Chile de un instante ISO; '' si no hay. */
+const fechaChile = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' }) : '';
 
 /** Precio de venta neto por producto de Obuma, sacado del costeo del negocio. */
 async function preciosVentaDelNegocio(negocioId: number): Promise<{ porId: Map<string, number>; porCodigo: Map<string, number> }> {
@@ -121,7 +127,8 @@ export async function datosSugeridosGuia(negocioId: number): Promise<{ datos: Da
       tipoTraslado: 1, tipoDespacho: 2,
       choferRut: '', choferNombre: '', patente: '',
       rebajarStock: false,
-      observacion: ocMp ? `OC Mercado Público ${ocMp.codigo}` : '',
+      observacion: '',
+      ocMpCodigo: ocMp?.codigo || '', ocMpFecha: fechaChile(ocMp?.fechaEnvio ?? ocMp?.fechaCreacion),
     },
     bodegas: activas.map(b => ({ codigo: b.codigo, nombre: b.nombre })),
     avisos,
@@ -138,6 +145,7 @@ export async function armarDocumentoGuia(negocioId: number, g: GuiaDespachoBorra
     ['bodegaCodigo', 'bodega'], ['choferRut', 'RUT del chofer'], ['choferNombre', 'nombre del chofer'], ['patente', 'patente'],
   ];
   for (const [k, nombre] of req) if (!String(d[k] ?? '').trim()) faltan.push(nombre);
+  if (d.ocMpCodigo.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(d.ocMpFecha.trim())) faltan.push('fecha de la OC de Mercado Público (AAAA-MM-DD)');
 
   const [{ regiones, comunas }, bodegas, sucursales, clientes] = await Promise.all([
     listarRegionesComunasObuma(), listarBodegasObuma(), listarSucursalesObuma(), clientesObumaCompleto().catch(() => []),
@@ -195,6 +203,13 @@ export async function armarDocumentoGuia(negocioId: number, g: GuiaDespachoBorra
     cliente_telefono: d.clienteTelefono.trim(),
     cliente_contacto: d.clienteContacto.trim(),
     venta_observacion: [`Guía desde OC Obuma ${g.folioOc}`, d.observacion.trim()].filter(Boolean).join(' · '),
+    // Mismo formato que las guías hechas a mano en Obuma (ventas.listReferencias.json de la 1913: 801 · 2736-443-SE26 · «LICITACION ID2736-44-LE26»).
+    ...(d.ocMpCodigo.trim() ? {
+      venta_referencias: [{
+        tipo_dcto_ref: '801', folio_dcto_ref: d.ocMpCodigo.trim(), fecha_dcto_ref: d.ocMpFecha.trim(),
+        razon_ref: codigo ? `LICITACION ID${codigo}` : '',
+      }],
+    } : {}),
     venta_detalle: g.lineas.map(l => ({
       producto_nombre: l.nombre,
       codigo_comercial: l.sku ?? '',
@@ -233,33 +248,65 @@ export async function crearGuiaDespachoObuma(doc: Record<string, unknown>, permi
 
 export interface GuiaDelNegocio {
   folio: string; fecha: string; neto: number; total: number; anulada: boolean; facturada: boolean;
-  pdf: string | null; xml: string | null; entregadoSii: boolean; aceptadoSii: boolean; enviadoReceptor: boolean; aceptadoReceptor: boolean;
+  pdf: string | null; xml: string | null; pdfPideSesion: boolean; entregadoSii: boolean; aceptadoSii: boolean; enviadoReceptor: boolean; aceptadoReceptor: boolean;
 }
 
 /** Guías 52 emitidas en Obuma para este negocio (desde LICITANK o a mano), con PDF y estado ante el SII.
  *  Se reconocen por el centro de costo de la licitación, o porque la observación nombra la licitación o una OC de Obuma del negocio. */
 export async function guiasDelNegocio(negocioId: number): Promise<GuiaDelNegocio[]> {
+  const propias = (await guiasPropiasDelNegocio(negocioId)).slice(0, 15);
+  // 2 consultas por guía (cupo diario de 1.500 por endpoint): se limita a las 15 más recientes.
+  return Promise.all(propias.map(async g => ({
+    folio: g.folio, fecha: g.fecha, neto: g.neto, total: g.total, anulada: g.anulada, facturada: g.facturada,
+    ...(await pdfYEstadoDte(52, g.folio).catch(() => ({ pdf: null, xml: null, pdfPideSesion: false, entregadoSii: false, aceptadoSii: false, enviadoReceptor: false, aceptadoReceptor: false }))),
+  })));
+}
+
+/** PDF propio (copia de consulta) de una guía del negocio, desde su XML público. Solo guías que se reconocen como de este negocio. */
+export async function pdfGuiaDelNegocio(negocioId: number, folio: string): Promise<{ pdf: Uint8Array; folio: string }> {
+  const g = (await guiasPropiasDelNegocio(negocioId)).find(x => x.folio === String(folio).trim());
+  if (!g) throw new Error(`La guía ${folio} no aparece entre las guías de este negocio en Obuma.`);
+  const { xml } = await pdfYEstadoDte(52, g.folio);
+  const u = xml ? new URL(xml) : null;
+  // Solo el XML público del almacenamiento de Obuma (S3): nunca se sigue otro enlace.
+  if (!u || u.protocol !== 'https:' || !u.hostname.endsWith('.amazonaws.com')) throw new Error(`Obuma no entregó el XML de la guía ${g.folio}.`);
+  const r = await fetch(u, { signal: AbortSignal.timeout(15_000) });
+  if (!r.ok) throw new Error(`No se pudo descargar el XML de la guía ${g.folio}.`);
+  const texto = Buffer.from(await r.arrayBuffer()).toString('latin1');   // los DTE del SII vienen en ISO-8859-1
+  const datos = leerXmlGuia(texto);
+  if (datos.folio !== g.folio) throw new Error(`El XML descargado no corresponde a la guía ${g.folio}.`);
+  // Logo: el mismo del PDF de OC de Obuma (Inversiones Claro es la única empresa con Obuma; ver negocioEsDeClaro).
+  return { pdf: await generarPdfGuia(datos, { logo: 'oc-obuma/logo.png' }), folio: g.folio };
+}
+
+/** Guías 52 recientes que se reconocen como de este negocio (sin consultar PDF ni estado). */
+async function guiasPropiasDelNegocio(negocioId: number) {
   const codigo = await licitacionDelNegocio(negocioId);
   if (!codigo) return [];
-  const [cc, centros, guias, [ocRows]] = await Promise.all([
+  const { ordenesDeLicitacion } = await import('@/app/lib/ordenes-compra');   // dinámico: evita ciclos de importación
+  const [cc, centros, guias, refs, ocsMp, [ocRows]] = await Promise.all([
     buscarCentroCostoPorLicitacion(codigo).catch(() => null),
     centrosDeCostoCompleto().catch(() => []),
     guiasRecientesObuma(),
+    referenciasGuiasObuma().catch(() => []),
+    ordenesDeLicitacion(codigo).catch(() => []),
     pool.query(`SELECT obuma_folio FROM compras_orden_compra_obuma WHERE negocio_id = ? AND obuma_folio IS NOT NULL`, [negocioId]) as any,
   ]);
   const ccFull = cc ? centros.find(c => c.id === cc.id) : undefined;
   const marcasCc = new Set([ccFull?.codigo, cc?.id, cc?.nombre].filter((x): x is string => !!x && x !== '0'));
   const folios = (ocRows as any[]).map(r => String(r.obuma_folio));
-  const esDelNegocio = (g: { centroCosto: string; observacion: string }) =>
+  const esc = codigo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const reCodigo = new RegExp(`(?<![0-9-])${esc}(?![0-9A-Za-z-])`, 'i');
+  // Guías hechas a mano en Obuma (ej. 1913 de 2736-44-LE26 con centro de costo «TECNOMAQ»): se reconocen por su referencia
+  // 801 = OC de Mercado Público de este negocio, o por la razón «LICITACION ID<código>».
+  const codigosOcMp = new Set(ocsMp.filter(o => o.esNuestra).map(o => o.codigo.toUpperCase()));
+  const foliosPorReferencia = new Set(refs.filter(r => codigosOcMp.has(r.folioRef.toUpperCase()) || reCodigo.test(r.razon)).map(r => r.folioGuia));
+  const esDelNegocio = (g: { folio: string; centroCosto: string; observacion: string }) =>
     marcasCc.has(g.centroCosto.trim())
-    || g.observacion.includes(codigo)
+    || foliosPorReferencia.has(g.folio)
+    || reCodigo.test(g.observacion)
     || folios.some(f => new RegExp(`OC Obuma ${f}(?!\\d)`).test(g.observacion));
-  const propias = guias.filter(esDelNegocio).slice(0, 15);
-  // 2 consultas por guía (cupo diario de 1.500 por endpoint): se limita a las 15 más recientes.
-  return Promise.all(propias.map(async g => ({
-    folio: g.folio, fecha: g.fecha, neto: g.neto, total: g.total, anulada: g.anulada, facturada: g.facturada,
-    ...(await pdfYEstadoDte(52, g.folio).catch(() => ({ pdf: null, xml: null, entregadoSii: false, aceptadoSii: false, enviadoReceptor: false, aceptadoReceptor: false }))),
-  })));
+  return guias.filter(esDelNegocio);
 }
 
 // Obuma de Grupo ICA funciona solo con Inversiones Claro (dueño, 13-nov-2026): las guías se ofrecen únicamente en sus negocios.
