@@ -101,16 +101,18 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
 }) {
   const [abiertos, setAbiertos] = useState<Set<number>>(() => new Set(productos.length <= 4 ? productos.map(p => p.id) : []));
   const [agregandoLinea, setAgregandoLinea] = useState<string | null>(null);
-  // Precio de un componente en edición dentro del cuadro: clave «cotización:producto:índice».
+  // Precio de un componente en edición dentro del cuadro: clave «cotización:producto:índice:unit|total». Se puede escribir el precio
+  // unitario o el TOTAL de la línea (el que imprime la cotización: $25.906,50 por 5 alicates → $5.181,30 c/u). Con decimales.
   const [editPrecio, setEditPrecio] = useState<{ clave: string; valor: string } | null>(null);
   const [guardandoPrecio, setGuardandoPrecio] = useState<string | null>(null);
   const cancelarPrecio = useRef(false);   // Escape: el blur que sigue no guarda
   const guardarPrecio = async (cotizacionId: number, productoId: number, ads: AdicionalCotizacion[], i: number) => {
     if (cancelarPrecio.current) { cancelarPrecio.current = false; return; }
     if (!editPrecio || !onEditarAdicionales) return;
-    const nuevo = leerNumero(editPrecio.valor.replace(/\$/g, ''));
+    const escrito = leerNumero(editPrecio.valor.replace(/\$/g, ''));
     const clave = editPrecio.clave;
     setEditPrecio(null);
+    const nuevo = clave.endsWith(':total') ? Math.round((escrito / (ads[i].cantidad || 1)) * 100) / 100 : escrito;
     if (!Number.isFinite(nuevo) || nuevo < 0 || nuevo === ads[i].precioUnitario) return;
     setGuardandoPrecio(clave);
     try { await onEditarAdicionales(cotizacionId, productoId, ads.map((a, j) => ({ concepto: a.concepto, cantidad: a.cantidad, precioUnitario: j === i ? nuevo : a.precioUnitario }))); }
@@ -249,28 +251,32 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
               <tbody>
                 {!esKit && <tr><td className="py-0.5 text-zinc-800">{incluido ? 'Producto (va incluido en otro)' : 'Producto solo'}</td><td className="py-0.5 text-right text-zinc-800">{soloProducto != null ? clpExacto(soloProducto) : '—'}</td></tr>}
                 {ads.map((a, i) => {
-                  const clave = `${c.id}:${p.id}:${i}`;
                   const editable = !!onEditarAdicionales && !bloqueada;
-                  const enEdicion = editPrecio?.clave === clave;
+                  // Un monto del cuadro: texto, botón para editarlo o el campo abierto. modo = precio unitario o total de la línea.
+                  const monto = (modo: 'unit' | 'total', valor: number, etiqueta: string) => {
+                    const clave = `${c.id}:${p.id}:${i}:${modo}`;
+                    if (editPrecio?.clave === clave) return (
+                      <input autoFocus value={editPrecio.valor} inputMode="decimal" aria-label={`${etiqueta} de ${a.concepto}`}
+                        onChange={e => setEditPrecio({ clave, valor: e.target.value })}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } if (e.key === 'Escape') { cancelarPrecio.current = true; setEditPrecio(null); } }}
+                        onBlur={() => void guardarPrecio(c.id, p.id, ads, i)}
+                        className={`w-28 rounded border border-teal-400 bg-white px-1 py-0 text-[12px] text-zinc-900 tabular-nums outline-none focus:ring-1 focus:ring-teal-500 ${modo === 'total' ? 'text-right' : ''}`} />
+                    );
+                    if (!editable) return clpExacto(valor);
+                    const conCentavos = String(Math.round(valor * 100) / 100).replace('.', ',');
+                    return (
+                      <button type="button" onClick={() => { cancelarPrecio.current = false; setEditPrecio({ clave, valor: conCentavos }); }} disabled={guardandoPrecio != null}
+                        title={`Cambiar ${etiqueta.toLowerCase()} (acepta decimales con coma)`} className="underline decoration-dotted underline-offset-2 hover:text-teal-700 disabled:opacity-50">
+                        {guardandoPrecio === clave ? 'Guardando…' : clpExacto(valor)}
+                      </button>
+                    );
+                  };
                   return (
                     <tr key={`${a.concepto}-${i}`}>
                       <td className="py-0.5 text-zinc-600">{esKit ? '' : '+ '}{a.concepto}
-                        {(a.cantidad !== 1 || editable) && <span className="text-zinc-400"> · {a.cantidad !== 1 && <>{a.cantidad.toLocaleString('es-CL')} × </>}
-                          {enEdicion
-                            ? <input autoFocus value={editPrecio.valor} inputMode="decimal" aria-label={`Precio unitario de ${a.concepto}`}
-                                onChange={e => setEditPrecio({ clave, valor: e.target.value })}
-                                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } if (e.key === 'Escape') { cancelarPrecio.current = true; setEditPrecio(null); } }}
-                                onBlur={() => void guardarPrecio(c.id, p.id, ads, i)}
-                                className="w-24 rounded border border-teal-400 bg-white px-1 py-0 text-[12px] text-zinc-900 tabular-nums outline-none focus:ring-1 focus:ring-teal-500" />
-                            : editable
-                              ? <button type="button" onClick={() => { cancelarPrecio.current = false; setEditPrecio({ clave, valor: String(a.precioUnitario).replace('.', ',') }); }} disabled={guardandoPrecio != null}
-                                  title="Cambiar el precio unitario de esta pieza" className="text-zinc-500 underline decoration-dotted underline-offset-2 hover:text-teal-700 disabled:opacity-50">
-                                  {guardandoPrecio === clave ? 'Guardando…' : clpExacto(a.precioUnitario)}
-                                </button>
-                              : clpExacto(a.precioUnitario)}
-                        </span>}
+                        {(a.cantidad !== 1 || editable) && <span className="text-zinc-400"> · {a.cantidad !== 1 && <>{a.cantidad.toLocaleString('es-CL')} × </>}{monto('unit', a.precioUnitario, 'El precio unitario')}</span>}
                       </td>
-                      <td className="py-0.5 text-right text-zinc-600">{clpExacto(a.cantidad * a.precioUnitario)}</td>
+                      <td className="py-0.5 text-right text-zinc-600">{monto('total', a.cantidad * a.precioUnitario, 'El total de la línea')}</td>
                     </tr>
                   );
                 })}

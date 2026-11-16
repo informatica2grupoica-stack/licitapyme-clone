@@ -1360,7 +1360,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar, soloLectura = false
             const r = await fetch(`/api/compras/${negocioId}/cotizaciones/${cotizacionId}/adicionales`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productoId, adicionales }) });
             const d = await r.json().catch(() => ({}));
             if (!r.ok || !d.success) throw new Error(d.error || 'No se pudo guardar el precio.');
-            toast.success('Precio guardado', 'El total del producto ya lo incluye (a peso entero, hacia arriba).');
+            toast.success('Precio guardado', 'El total del producto ya lo incluye.');
             await cargar(); recargarCompartido();
           } catch (e: any) { toast.error('No se pudo guardar el precio', e.message); }
         } : undefined}
