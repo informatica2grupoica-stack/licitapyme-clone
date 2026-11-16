@@ -92,6 +92,9 @@ export function FichasTecnicasCard({ negocioId, puedeOperar, soloLectura = false
   const subirRef = useRef<HTMLInputElement>(null);
   const [destino, setDestino] = useState<ProductoFichasDTO | null>(null);
   const [subiendoA, setSubiendoA] = useState<number | null>(null);
+  // «Completar a mano»: no hay ficha del proveedor; una persona escribe las características y se guardan como la ficha de ESE producto.
+  const [manual, setManual] = useState<{ p: ProductoFichasDTO; marca: string; modelo: string; texto: string } | null>(null);
+  useCerrarConEsc(() => setManual(null), !!manual);
 
   const [linksCosteo, setLinksCosteo] = useState<LinksCosteo>({});
   const [incidenciaDe, setIncidenciaDe] = useState<ProductoFichasDTO[]>([]);
@@ -229,6 +232,16 @@ export function FichasTecnicasCard({ negocioId, puedeOperar, soloLectura = false
       if (asignadas > 0) { toast.info('Ficha agregada', 'Comparando con las bases…'); await comparar(p, true); toast.success('Comparación lista', 'Mira abajo qué ficha cumple más.'); }
     } catch (e: any) { toast.error('No se pudo agregar la ficha', e.message); }
     finally { setSubiendoA(null); }
+  };
+  const enviarManual = async () => {
+    if (!manual) return;
+    const { p, marca, modelo, texto } = manual;
+    setManual(null);
+    // Se guarda como un .txt (igual que «Pegar texto») y entra por el mismo camino que una ficha subida a este producto.
+    const cabecera = [marca.trim() && `Marca: ${marca.trim()}`, modelo.trim() && `Modelo: ${modelo.trim()}`, `Producto: ${p.descripcion}`].filter(Boolean).join('\n');
+    const cuerpo = `${cabecera}\n\n${texto.trim()}`;
+    const nombre = `${p.descripcion.replace(/[^\w\- áéíóúñÁÉÍÓÚÑ]/g, '').trim().slice(0, 60) || 'producto'} - ficha completada a mano.txt`;
+    await subirParaProducto(p, [new File([cuerpo], nombre, { type: 'text/plain' })]);
   };
   const compararTodos = async () => {
     const lista = (panel?.productos || []).filter(p => p.opciones.some(o => o.fichas.length > 0));
@@ -546,6 +559,11 @@ export function FichasTecnicasCard({ negocioId, puedeOperar, soloLectura = false
                           icono={subiendoA === p.productoId ? <Loader2 size={13} className="animate-spin" /> : <Upload size={14} />}>{conFichas.length > 0 ? 'Subir otra ficha' : 'Subir ficha'}</Boton>
                       )}
                       {puedeOperar && (
+                        <Boton tamano="sm" onClick={() => setManual({ p, marca: '', modelo: '', texto: '' })} disabled={subiendoA === p.productoId} data-testid={`ficha-manual-${p.productoId}`}
+                          title="Si no tienes la ficha del proveedor, escribe tú las características del producto: se guardan como su ficha y se comparan con las bases."
+                          icono={<Doc size={14} />}>Completar a mano</Boton>
+                      )}
+                      {puedeOperar && (
                         <Boton tamano="sm" variante="fantasma" onClick={() => setIncidenciaDe([p])} data-testid={`ficha-incidencia-${p.productoId}`}
                           title="Levanta una o más incidencias de este ítem: quedan como tareas de la licitación y se avisa a los encargados."
                           icono={<Alerta size={14} />}>Incidencias</Boton>
@@ -613,6 +631,38 @@ export function FichasTecnicasCard({ negocioId, puedeOperar, soloLectura = false
             <div className="flex justify-end gap-2 px-5 py-3 border-t border-zinc-200">
               <button type="button" onClick={() => confirmaSinMarca.responder(false)} className="px-3 py-1.5 text-[13px] font-semibold text-zinc-700 hover:text-zinc-950">Cancelar</button>
               <button type="button" autoFocus onClick={() => confirmaSinMarca.responder(true)} className="px-3 py-1.5 rounded-lg text-[13px] font-semibold text-white bg-teal-700 hover:bg-teal-800">Asignar igual</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: completar la ficha de un producto a mano */}
+      {manual && (
+        <div className="fixed inset-0 z-[90] bg-black/50 flex items-start justify-center overflow-y-auto p-4" role="dialog" aria-modal="true" onClick={() => setManual(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl my-10" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-200">
+              <p className="text-[14px] font-semibold text-zinc-800">Completar a mano: {manual.p.descripcion}</p>
+              <button onClick={() => setManual(null)} aria-label="Cerrar" className="text-zinc-500 hover:text-zinc-900"><X size={18} /></button>
+            </div>
+            <div className="p-4 space-y-3">
+              <p className="text-[12px] text-zinc-500">Escribe las características del producto que vas a ofertar, una por línea (por ejemplo «Capacidad de soporte: 150 kg»). Se guarda como su ficha y se compara con lo que piden las bases.</p>
+              {manual.p.requisitosBase.length > 0 && (
+                <details className="rounded-lg border border-teal-200 bg-teal-50/50 px-3 py-2">
+                  <summary className="cursor-pointer text-[12px] font-semibold text-teal-900">Lo que piden las bases ({manual.p.requisitosBase.length})</summary>
+                  <ol className="mt-1.5 space-y-1 max-h-[200px] overflow-y-auto">
+                    {manual.p.requisitosBase.map(r => <li key={r.n} className="flex gap-2 text-[12px] text-zinc-800"><span className="text-zinc-400 tabular-nums w-5 text-right flex-shrink-0">{r.n}.</span><span>{r.texto}</span></li>)}
+                  </ol>
+                </details>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <input value={manual.marca} onChange={e => setManual(m => m && { ...m, marca: e.target.value })} placeholder="Marca" data-testid="ficha-manual-marca" className="text-[13px] border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
+                <input value={manual.modelo} onChange={e => setManual(m => m && { ...m, modelo: e.target.value })} placeholder="Modelo" data-testid="ficha-manual-modelo" className="text-[13px] border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
+              </div>
+              <textarea value={manual.texto} onChange={e => setManual(m => m && { ...m, texto: e.target.value })} rows={10} data-testid="ficha-manual-texto" placeholder={'Material: cuero sintético PVC lavable\nRelleno: espuma de alta densidad\nCapacidad de soporte: 150 kg\n…'} className="w-full text-[13px] border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-teal-500" />
+              <div className="flex items-center justify-end gap-3">
+                <button onClick={() => setManual(null)} className="text-[13px] text-zinc-500 hover:text-zinc-800">Cancelar</button>
+                <button onClick={enviarManual} disabled={manual.texto.trim().length < 20} data-testid="ficha-manual-guardar" className="text-[13px] font-semibold text-white bg-marca hover:bg-marca-fuerte disabled:opacity-50 px-4 py-2 rounded-lg">Guardar como ficha</button>
+              </div>
             </div>
           </div>
         </div>
