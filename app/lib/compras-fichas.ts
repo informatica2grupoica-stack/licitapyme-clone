@@ -66,7 +66,7 @@ export function lineaDeProducto(prod: ProductoCompra, lineas: LineaCosteo[]): Li
 }
 // Se cruza contra TODAS las líneas: con varias líneas del costeo bajo el mismo ítem (correlativo repetido) el número no decide y manda la
 // descripción; mirando una sola línea, «L1» valía para cualquier producto (la ficha de los fonos caía en el pantalón cargo).
-const productoDeLinea = (linea: LineaCosteo, productos: ProductoCompra[], lineas: LineaCosteo[]): ProductoCompra | null =>
+export const productoDeLinea = (linea: LineaCosteo, productos: ProductoCompra[], lineas: LineaCosteo[]): ProductoCompra | null =>
   productos.find(p => lineaDeProducto(p, lineas)?.id === linea.id) ?? null;
 
 /** Lo que dice la ficha del producto (color, material, norma…) para que la IA que decide la línea no dependa solo del nombre: «Parka VF-P500» sola no dice que es amarilla con reflectante. */

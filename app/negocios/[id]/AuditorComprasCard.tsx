@@ -340,6 +340,12 @@ export function AuditorComprasCard({ negocioId, puedeOperar, soloLectura = false
   }, [negocioId]);
 
   useEffect(() => { cargar(); }, [cargar]);
+  // «Revisado del Auditor» pasó una cotización a Compras: esta lista la muestra sin recargar la página.
+  useEffect(() => {
+    const h = () => { cargar(); };
+    window.addEventListener('compras:cotizaciones-cambio', h);
+    return () => window.removeEventListener('compras:cotizaciones-cambio', h);
+  }, [cargar]);
 
   // El auditor corre en segundo plano apenas se asigna/edita una cotización y tarda unos segundos:
   // mientras haya productos asignados sin dictamen, se consulta solo la lista de cotizaciones (liviano)

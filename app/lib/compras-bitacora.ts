@@ -42,6 +42,7 @@ export function describirAccionCompras(metodo: string, ruta: string, cuerpo: Cue
       if (partes[2] === 'homologar') return `Homologó la cotización #${id}`;
       return m === 'DELETE' ? `Eliminó la cotización #${id}` : `Editó la cotización #${id}`;
     case 'fichas': return FICHA[c.accion] || 'Subió fichas técnicas';
+    case 'del-auditor': return c.accion === 'ficha' ? 'Pasó una ficha técnica del Auditor a Compras' : 'Pasó una cotización del Auditor a Compras';
     case 'escenarios': return m === 'PATCH' ? 'Modificó el escenario de compra' : (c.tipo === 'SELECCION' ? 'Armó la compra a mano (proveedor por producto)' : 'Eligió el escenario de compra');
     case 'gastos': return m === 'DELETE' ? 'Eliminó un gasto extra' : 'Agregó un gasto extra';
     case 'costo-real': return 'Registró el costo real de un producto';

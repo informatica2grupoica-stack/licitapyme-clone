@@ -29,6 +29,7 @@ import { irAFase, enfocarProducto } from './comprasNavegacion';
 import { ResumenGastosCard } from '@/app/negocios/[id]/ResumenGastosCard';
 import { ResumenComparativoCard } from '@/app/negocios/[id]/ResumenComparativoCard';
 import { FichasTecnicasCard } from '@/app/negocios/[id]/FichasTecnicasCard';
+import { RevisadoDelAuditorCard } from './RevisadoDelAuditorCard';
 import { CostoRealCard } from '@/app/negocios/[id]/CostoRealCard';
 import { ImportacionCard } from '@/app/negocios/[id]/ImportacionCard';
 import { ModalidadRetiroCard } from '@/app/negocios/[id]/ModalidadRetiroCard';
@@ -907,6 +908,9 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                 /* PROMPT 5: verifica cada línea de la tabla de costeo (respaldo real, producto, unidad, IVA, costos ocultos) y da la posición de precio. */
                 { clave: 'costo', titulo: 'Verificar el costo', ayuda: 'Revisa que cada costo del costeo tenga respaldo real (link o cotización), sea el mismo producto y no esconda costos.',
                   contenido: <AuditorCosteoCard negocioId={negocioId} puedeOperar={puedeOperar} /> },
+                /* Lo que el asistente ya cargó y revisó en el Auditor: «Usar» lo pasa a las cotizaciones y fichas de Compras. */
+                { clave: 'del-auditor', titulo: 'Revisado del Auditor', ayuda: 'Lo que el asistente ya cargó y revisó en el Auditor, por producto. «Usar» pasa la cotización a Cotizaciones o la ficha a Fichas técnicas, sin volver a subirlas.',
+                  contenido: <RevisadoDelAuditorCard negocioId={negocioId} puedeOperar={puedeOperar} soloLectura={puedeOperar && !puedeCotizar} /> },
               ]} />
             )}
             {faseActiva === 'aprobacion' && (
