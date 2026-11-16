@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { lineasDesdeTabla, precioPorUnidadDeProducto, conversionDesdeTexto } from '../compras-cotizacion-lineas';
 import { adicionalesDesdeIA, baseDeCotizacionPorUnidad, cotizacionEsPorUnidad } from '../compras-adicionales-ia';
-import { vaIncluidoEnOtro, precioEfectivo } from '../compras-precio-vs-costeo';
+import { vaIncluidoEnOtro, precioEfectivo, descuentoDelPrecio, CONCEPTO_DESPACHO } from '../compras-precio-vs-costeo';
 
 // ── 3789-30-LE26 (negocio 1089), Sinergia Trade #319, 16-nov-2026 ─────────────────────────────────────────────────────────────────────
 // 30 «Set Instrumental de Podología». La cotización trae las piezas de los 30 sets (150 alicates, 90 pinzas…) y 5 % de descuento al final:
@@ -34,7 +34,7 @@ DESCUENTO 5% | $171.455,15
 $3.257.647,76`;
 const NETO_DOC = 3257647.76;
 const SETS = 30;
-const desc5 = (n: number) => n * 0.95;
+const igual = (n: number) => n;   // el 5 % NO se descuenta pieza por pieza: se aplica una vez al total (migration-195)
 
 test('3789-30-LE26 Sinergia: se leen las 15 piezas con su cantidad y precio', () => {
   const lineas = lineasDesdeTabla(TEXTO_SINERGIA);
@@ -47,16 +47,20 @@ test('3789-30-LE26 Sinergia: kit del lote → base $0, 15 componentes por set, i
   const lineas = lineasDesdeTabla(TEXTO_SINERGIA);
   const raw = lineas.map(l => ({ concepto: l.descripcion, cantidadLinea: l.cantidad, precioUnitario: l.precioUnitario }));
   assert.equal(cotizacionEsPorUnidad(raw, SETS), false);            // trae el lote completo: se divide por 30
-  const adic = adicionalesDesdeIA(raw, SETS, desc5);
+  const adic = adicionalesDesdeIA(raw, SETS, igual);
   assert.equal(adic.length, 15);
   assert.deepEqual(adic.slice(0, 3).map(a => a.cantidad), [5, 3, 3]);
-  const k = baseDeCotizacionPorUnidad(adic, desc5(5454));            // precio de cabecera = el alicate
+  const k = baseDeCotizacionPorUnidad(adic, 5454);                   // precio de cabecera (de lista) = el alicate
   assert.equal(k.base, 0);                                           // sin «producto solo» que repita el alicate
   assert.equal(k.adicionales.length, 15);
-  const efectivo = precioEfectivo(k.base, k.adicionales)!;
+  const efectivo = precioEfectivo(k.base, k.adicionales, 5)!;       // lista × 0,95 UNA vez
   const exacto = NETO_DOC / SETS;                                    // $108.588,26 por set
-  assert.equal(efectivo, 108588.3);                                  // lo que dice la cotización, sin redondear (no $108.609)
-  assert.ok(Math.abs(efectivo * SETS - NETO_DOC) <= 2, `lote ${efectivo * SETS}`);   // $3.257.649 vs $3.257.647,76: solo los centavos de sus totales de línea
+  assert.equal(adic[0].precioUnitario, 5454);                        // las piezas quedan a precio de lista, como vienen impresas
+  // Neto del lote = (suma de las líneas impresas $3.429.105) − 5 % una vez = $3.257.649,75; el documento imprime $3.257.647,76 porque su
+  // subtotal ($3.429.102,90) usa decimales internos que el PDF no muestra: esos $2 no se pueden recuperar, y no se acumulan por pieza.
+  assert.ok(Math.abs(efectivo * SETS - NETO_DOC) <= 3, `lote ${efectivo * SETS}`);
+  assert.ok(Math.abs(efectivo - 108588.26) <= 0.1, `por set ${efectivo}`);   // antes $108.588,30 (centavos acumulados pieza por pieza)
+  assert.ok(Math.abs(descuentoDelPrecio(k.base, k.adicionales, 5) - 5715.17) <= 0.01);   // la fila «Descuento 5 %» del cuadro
   assert.ok(efectivo < 113765 - 4000, 'el alicate volvió a contarse dos veces');
   // Un kit con precio no «va incluido en otro producto» (se puede elegir solo); un producto en $0 sin precio sí.
   assert.equal(vaIncluidoEnOtro({ precioBase: 0, precioUnitario: efectivo }), false);
@@ -76,4 +80,12 @@ test('2736-44-LE26 MCT: precio por metro/kilo se pasa a rollo/caja solo si el fa
   const conv = conversionDesdeTexto(3300, caja, doc);
   assert.equal(conv?.cantidadPorUnidad, 25);
   assert.equal(precioPorUnidadDeProducto(conv, caja, doc)?.precio, 82500);
+});
+
+// El despacho que cobra el proveedor aparte no lleva el descuento de los productos.
+test('descuento sobre el total: el despacho del proveedor no se descuenta', () => {
+  const ads = [{ concepto: 'Pieza', cantidad: 2, precioUnitario: 1000 }, { concepto: CONCEPTO_DESPACHO, cantidad: 1, precioUnitario: 500 }];
+  assert.equal(precioEfectivo(0, ads, 10), 2300);                    // (2 × 1.000) × 0,90 + 500
+  assert.equal(precioEfectivo(0, ads), 2500);                        // sin descuento sobre el total: como antes
+  assert.equal(precioEfectivo(1000, [], 5), 950);                    // producto simple: base de lista − 5 %
 });

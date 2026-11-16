@@ -9,7 +9,7 @@ import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
 import { invalidarAprobacionesCompras } from '@/app/lib/compras';
-import { precioEfectivo, aCentavos, type AdicionalCotizacion } from '@/app/lib/compras-precio-vs-costeo';
+import { precioEfectivo, aCentavos, CONCEPTO_DESPACHO, type AdicionalCotizacion } from '@/app/lib/compras-precio-vs-costeo';
 
 export interface AdicionalFila extends AdicionalCotizacion { id: number }
 export interface AdicionalEntrada { concepto: string; cantidad: number; precioUnitario: number }
@@ -31,7 +31,16 @@ export async function adicionalesDeCotizaciones(cotizacionIds: number[]): Promis
   return out;
 }
 
-/** Deja precio_unitario = base + adicionales para UN producto de una cotización. Devuelve el precio efectivo. */
+/** % de descuento del documento que se aplica SOBRE EL TOTAL de cada producto (migration-195, `descuento_sobre_total = 1`): la base y las
+ *  piezas de esa cotización están a PRECIO DE LISTA. null = cotización antigua (precios ya descontados pieza por pieza) o sin descuento.
+ *  Sin la migración aplicada responde null y todo sigue como antes. */
+export async function descuentoSobreTotal(cotizacionId: number): Promise<number | null> {
+  const [rows] = await pool.query(`SELECT descuento_pct FROM compras_cotizacion WHERE id = ? AND descuento_sobre_total = 1`, [cotizacionId]).catch(() => [[]] as any) as any;
+  const d = (rows as any[])[0]?.descuento_pct;
+  return d != null && Number(d) > 0 && Number(d) < 100 ? Number(d) : null;
+}
+
+/** Deja precio_unitario = base + adicionales (menos el descuento sobre el total, si corresponde) para UN producto. Devuelve el precio efectivo. */
 export async function recalcularPrecioItem(cotizacionId: number, productoId: number): Promise<number | null> {
   const [items] = await pool.query(`SELECT precio_unitario, precio_base FROM compras_cotizacion_item WHERE cotizacion_id = ? AND producto_id = ?`, [cotizacionId, productoId]) as any;
   const it = (items as any[])[0];
@@ -39,7 +48,7 @@ export async function recalcularPrecioItem(cotizacionId: number, productoId: num
   const base = it.precio_base != null ? Number(it.precio_base) : (it.precio_unitario != null ? Number(it.precio_unitario) : null);
   if (base == null) return null;
   const mapa = await adicionalesDeCotizaciones([cotizacionId]);
-  const efectivo = precioEfectivo(base, mapa.get(`${cotizacionId}:${productoId}`) || []);
+  const efectivo = precioEfectivo(base, mapa.get(`${cotizacionId}:${productoId}`) || [], await descuentoSobreTotal(cotizacionId));
   await pool.query(`UPDATE compras_cotizacion_item SET precio_base = ?, precio_unitario = ? WHERE cotizacion_id = ? AND producto_id = ?`, [base, efectivo, cotizacionId, productoId]);
   return efectivo;
 }
@@ -104,7 +113,7 @@ export async function guardarAdicionales(
 // Ahora el flete de la cotización se reparte entre SUS productos como un adicional visible, «Despacho del proveedor», en proporción al
 // subtotal de cada uno (en una cotización de un solo producto va entero a ese producto). La cotización queda «incluye flete» para que
 // el motor de escenarios no lo vuelva a sumar como viaje aparte. Es idempotente: se rehace cada vez desde flete_monto.
-export const CONCEPTO_DESPACHO = 'Despacho del proveedor';
+export { CONCEPTO_DESPACHO };
 
 export async function cargarFleteAProductos(cotizacionId: number): Promise<{ repartido: number; productos: number }> {
   const [cRows] = await pool.query(`SELECT negocio_id, flete_monto FROM compras_cotizacion WHERE id = ?`, [cotizacionId]) as any;

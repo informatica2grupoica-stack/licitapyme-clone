@@ -520,6 +520,8 @@ export interface CotizacionFila {
   id: number; proveedorId: number | null; proveedorNombre: string; proveedorRut: string | null; proveedorNuevo: boolean | null;
   origen: OrigenCotizacion; precioUnitario: number | null; precioTotal: number | null;
   precioUnitarioBruto: number | null; descuentoPct: number | null;
+  /** true = piezas a precio de lista y el descuentoPct se aplica una vez al total de cada producto (migration-195). */
+  descuentoSobreTotal?: boolean;
   moneda: string; tipoCambioUsado: number | null; precioUnitarioClp: number | null; precioTotalClp: number | null;
   plazoEntregaTexto: string | null; plazoEntregaDias: number | null; incluyeFlete: boolean | null; fleteMonto: number | null;
   /** migration-141. null = cotización anterior a la separación «quién despacha» / «cuánto cuesta el flete». */
@@ -540,6 +542,8 @@ export interface CotizacionFila {
 export async function listarCotizaciones(negocioId: number): Promise<CotizacionFila[]> {
   // 2 viajes a la base en vez de 4 en serie (la usan casi todas las pantallas de Compras, 22-oct-2026).
   const despachoP = pool.query(`SELECT id, despacho_modalidad, flete_condicion FROM compras_cotizacion WHERE negocio_id = ?`, [negocioId]).catch(() => [[]] as any);
+  // migration-195: descuento global aplicado sobre el total de cada producto (sin la migración: ninguna cotización lo usa).
+  const sobreTotalP = pool.query(`SELECT id FROM compras_cotizacion WHERE negocio_id = ? AND descuento_sobre_total = 1`, [negocioId]).catch(() => [[]] as any);
   const [rows] = await pool.query(
     `SELECT id, proveedor_id, proveedor_nombre, proveedor_rut, proveedor_nuevo, origen, descripcion_libre, precio_unitario, precio_total,
             precio_unitario_bruto, descuento_pct,
@@ -555,7 +559,7 @@ export async function listarCotizaciones(negocioId: number): Promise<CotizacionF
   const cotizaciones = rows as any[];
   if (cotizaciones.length === 0) return [];
   const ids = cotizaciones.map(c => c.id);
-  const [[itemRows], adicionales, [despRows]] = await Promise.all([
+  const [[itemRows], adicionales, [despRows], [sobreRows]] = await Promise.all([
     pool.query(
       `SELECT cotizacion_id, producto_id, precio_unitario, precio_base, cumple, detalle_desviacion
          FROM compras_cotizacion_item WHERE cotizacion_id IN (${ids.map(() => '?').join(',')})`,
@@ -563,13 +567,16 @@ export async function listarCotizaciones(negocioId: number): Promise<CotizacionF
     ) as any,
     adicionalesDeCotizaciones(ids),
     despachoP as any,
+    sobreTotalP as any,
   ]);
   const itemsPorCotiz = new Map<number, any[]>();
   for (const it of itemRows as any[]) {
     const arr = itemsPorCotiz.get(it.cotizacion_id) || []; arr.push(it); itemsPorCotiz.set(it.cotizacion_id, arr);
   }
+  const sobreTotalIds = new Set<number>((sobreRows as any[]).map(r => r.id));
   const despachoDe = new Map<number, { m: string | null; c: string | null }>((despRows as any[]).map(r => [r.id, { m: r.despacho_modalidad ?? null, c: r.flete_condicion ?? null }]));
   return cotizaciones.map(c => ({
+    descuentoSobreTotal: sobreTotalIds.has(c.id),
     despachoModalidad: despachoDe.get(c.id)?.m ?? null, fleteCondicion: despachoDe.get(c.id)?.c ?? null,
     registradoPorNombre: c.registrado_por_nombre ?? null, registradoAt: c.registrado_at ?? null, archivoNombre: c.archivo_nombre ?? null, notas: c.notas ?? null,
     id: c.id, proveedorId: c.proveedor_id, proveedorNombre: c.proveedor_nombre, proveedorRut: c.proveedor_rut,
@@ -613,7 +620,7 @@ export interface AsignacionItemManual {
 export async function asignarItemsCotizacion(
   negocioId: number, cotizacionId: number, items: AsignacionItemManual[], actorId?: number, actorNombre?: string | null,
 ): Promise<void> {
-  const [cotizRows] = await pool.query(`SELECT id, precio_unitario_clp FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cotizacionId, negocioId]) as any;
+  const [cotizRows] = await pool.query(`SELECT id, precio_unitario_clp, precio_unitario_bruto, descuento_sobre_total FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cotizacionId, negocioId]).catch(() => pool.query(`SELECT id, precio_unitario_clp FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cotizacionId, negocioId])) as any;
   const cotiz = (cotizRows as any[])[0];
   if (!cotiz) throw new Error('Cotización no encontrada para este negocio.');
 
@@ -634,7 +641,9 @@ export async function asignarItemsCotizacion(
     // «Va incluido en otro producto»: base $0 EXPLÍCITA (no se le copia el precio de la cotización, que es el del otro producto).
     const precio = it.incluido ? 0
       : it.precioUnitario != null && Number.isFinite(it.precioUnitario) ? it.precioUnitario
-      : (cotiz.precio_unitario_clp != null ? Number(cotiz.precio_unitario_clp) : null);
+      // Con descuento sobre el total (migration-195) el precio del producto va a PRECIO DE LISTA: recalcularPreciosDeCotizacion aplica el %.
+      : (Number(cotiz.descuento_sobre_total) === 1 && cotiz.precio_unitario_bruto != null ? Number(cotiz.precio_unitario_bruto)
+        : cotiz.precio_unitario_clp != null ? Number(cotiz.precio_unitario_clp) : null);
     return [cotizacionId, it.productoId, precio, precio, it.cumple, it.incluido ? 'Va incluido en el precio de otro producto.' : (it.detalleDesviacion || null)];
   });
   const ph = filas.map(() => '(?,?,?,?,?,?)').join(',');
@@ -704,7 +713,7 @@ function precioEnDocumento(v: unknown, texto: string): boolean {
 
 export async function homologarCotizacionIA(cotizacionId: number): Promise<{ items: number }> {
   const [rows] = await pool.query(
-    `SELECT negocio_id, proveedor_nombre, descripcion_libre, precio_unitario, precio_total, moneda, tipo_cambio_usado, precio_unitario_clp, descuento_pct, notas, flete_monto
+    `SELECT negocio_id, proveedor_nombre, descripcion_libre, precio_unitario, precio_total, moneda, tipo_cambio_usado, precio_unitario_clp, precio_unitario_bruto, descuento_pct, notas, flete_monto
        FROM compras_cotizacion WHERE id = ? LIMIT 1`,
     [cotizacionId],
   ) as any;
@@ -753,13 +762,29 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
   // documento dice "IVA incluido", con IVA. Se lleva a NETO igual que el precio de cabecera (registrarCotizacion).
   const ivaIncluido = /se guardaron en neto \(÷ 1,19\)/.test(String(cotiz.notas || '')) && (cotiz.moneda || 'CLP') === 'CLP';
   const dscto = cotiz.descuento_pct != null ? Number(cotiz.descuento_pct) : null;
+  // DESCUENTO SOBRE EL TOTAL (migration-195, 16-nov-2026): con descuento global, la base y las piezas se guardan a PRECIO DE LISTA y el %
+  // se aplica una vez al total de cada producto (recalcularPrecioItem), como la cotización y la factura. Una cotización antigua que ya tiene
+  // piezas cargadas a mano (precios ya descontados) se queda como estaba, para no descontar dos veces.
+  const sobreTotal = dscto != null && dscto > 0 && dscto < 100 && await (async () => {
+    const [m] = await pool.query(`SELECT descuento_sobre_total AS m FROM compras_cotizacion WHERE id = ?`, [cotizacionId]).catch(() => [null] as any) as any;
+    if (!m) return false;                                                  // sin la migración: modo antiguo
+    if (Number((m as any[])[0]?.m) === 1) return true;
+    const [[h]] = await pool.query(`SELECT COUNT(*) n FROM compras_cotizacion_adicional WHERE cotizacion_id = ? AND creado_por IS NOT NULL`, [cotizacionId]) as any;
+    if (Number(h?.n || 0) > 0) return false;
+    await pool.query(`UPDATE compras_cotizacion SET descuento_sobre_total = 1 WHERE id = ?`, [cotizacionId]);
+    return true;
+  })();
   const aNeto = (v: unknown): unknown => {
     const n = v == null || v === '' || typeof v === 'boolean' ? NaN : Number(v);
     if (!Number.isFinite(n) || n <= 0) return v;
     let x = ivaIncluido ? netoDesdeBruto(n) : n;
-    if (dscto != null && dscto > 0 && dscto < 100) x = conDescuento(x, dscto, 'unitario');
+    if (!sobreTotal && dscto != null && dscto > 0 && dscto < 100) x = conDescuento(x, dscto, 'unitario');
     return x;
   };
+  // Precio de cabecera en el mismo modo: a precio de lista si el descuento va sobre el total.
+  const cabeceraClp = sobreTotal && cotiz.precio_unitario_bruto != null
+    ? Number(cotiz.precio_unitario_bruto) * (cotiz.moneda && cotiz.moneda !== 'CLP' && cotiz.tipo_cambio_usado ? Number(cotiz.tipo_cambio_usado) : 1)
+    : (cotiz.precio_unitario_clp != null ? Number(cotiz.precio_unitario_clp) : null);
   const lineasDelDoc = lineasDesdeTabla(String(cotiz.descripcion_libre || ''));
   const resueltos = items.map((it: any) => {
     const producto = productos[codigo(it?.producto) - 1];
@@ -774,7 +799,7 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
       // El precio que la IA lee de una línea tiene que EXISTIR en el documento: "121.000,85" se leyó como 121,00085 y quedó en $109.
       // Si no aparece (ni como número), se ignora y se usa el precio de la cotización en vez de guardar un valor inventado.
       precioUnitarioAsignado: aNeto(conv ? conv.precio : precioEnDocumento(it.precioUnitarioAsignado, String(cotiz.descripcion_libre || '')) ? it.precioUnitarioAsignado : null), tipoCambio,
-      precioClpCotizacion: cotiz.precio_unitario_clp != null ? Number(cotiz.precio_unitario_clp) : null,
+      precioClpCotizacion: cabeceraClp,
       totalItemsAsignados: itemsValidos,
     });
     return { it, producto, precioClp, conv };

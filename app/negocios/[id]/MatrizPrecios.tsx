@@ -19,6 +19,8 @@ export interface CotizacionMin {
   id: number; proveedorNombre: string; proveedorRut?: string | null; plazoEntregaTexto?: string | null; archivoUrl?: string | null;
   /** Flete cobrado aparte por el proveedor (neto). null/0 = incluido o sin costo. */
   fleteMonto?: number | null;
+  /** Descuento global del documento y si va sobre el total de cada producto (piezas a precio de lista, migration-195). */
+  descuentoPct?: number | null; descuentoSobreTotal?: boolean;
   items: Array<{ productoId: number; precioUnitario: number | null; precioBase?: number | null; adicionales: unknown[] }>;
 }
 export interface AccionesCotizacion {

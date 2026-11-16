@@ -64,8 +64,25 @@ export const totalAdicionales = (ads: AdicionalCotizacion[]): number =>
 export const vaIncluidoEnOtro = (it: { precioBase?: number | null; precioUnitario: number | null }): boolean =>
   it.precioBase === 0 && !((it.precioUnitario ?? 0) > 0);
 
-/** Precio efectivo por unidad del producto. Sin precio base no hay precio efectivo (no se inventa uno solo con los adicionales). */
-export function precioEfectivo(base: number | null | undefined, ads: AdicionalCotizacion[]): number | null {
+/** El despacho que la cotización cobra aparte (lo reparte `cargarFleteAProductos`) no lleva el descuento de los productos. */
+export const CONCEPTO_DESPACHO = 'Despacho del proveedor';
+
+/** Precio efectivo por unidad del producto. Sin precio base no hay precio efectivo (no se inventa uno solo con los adicionales).
+ *  DESCUENTO SOBRE EL TOTAL (cómo lo hace la cotización y la factura, 16-nov-2026): si se pasa `descuentoPct`, el producto y sus piezas
+ *  vienen a PRECIO DE LISTA y el descuento se aplica UNA vez a la suma, redondeando a centavos solo el resultado. Descontar pieza por pieza
+ *  y redondear cada una acumulaba centavos (Sinergia: $108.588,30 por set en vez de $108.588,26 → $1,24 de más en el lote). */
+export function precioEfectivo(base: number | null | undefined, ads: AdicionalCotizacion[], descuentoPct?: number | null): number | null {
   if (base == null || !Number.isFinite(base)) return null;
-  return Math.round((base + totalAdicionales(ads)) * 100) / 100;   // con centavos: 52.597 − 7 % = 48.915,21 (× 250 = total impreso)
+  const d = descuentoPct != null && descuentoPct > 0 && descuentoPct < 100 ? descuentoPct : 0;
+  if (!d) return aCentavos(base + totalAdicionales(ads));   // con centavos: 52.597 − 7 % = 48.915,21 (× 250 = total impreso)
+  const despacho = totalAdicionales(ads.filter(a => a.concepto === CONCEPTO_DESPACHO));
+  const lista = base + ads.filter(a => a.concepto !== CONCEPTO_DESPACHO).reduce((s, a) => s + (Number.isFinite(a.cantidad) && Number.isFinite(a.precioUnitario) ? a.cantidad * a.precioUnitario : 0), 0);
+  return aCentavos(lista * (100 - d) / 100 + despacho);
+}
+
+/** Monto del descuento del documento dentro del precio efectivo (para mostrarlo como una fila: «Descuento 5 % −$5.715,17»). */
+export function descuentoDelPrecio(base: number | null | undefined, ads: AdicionalCotizacion[], descuentoPct: number | null | undefined): number {
+  if (base == null || descuentoPct == null || !(descuentoPct > 0 && descuentoPct < 100)) return 0;
+  const sinDesc = precioEfectivo(base, ads), conDesc = precioEfectivo(base, ads, descuentoPct);
+  return sinDesc != null && conDesc != null ? aCentavos(sinDesc - conDesc) : 0;
 }

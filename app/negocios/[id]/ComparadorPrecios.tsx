@@ -8,7 +8,7 @@ import { useMemo, useRef, useState } from 'react';
 import { IconStar as Star, IconCheck as Check, IconChevronDown as ChevronDown, IconChevronRight as ChevronRight, IconSearch as Search } from '@tabler/icons-react';
 import { MenuAcciones } from '@/app/components/ui/MenuAcciones';
 import { LinksProducto } from './LinksProducto';
-import { compararPrecioConCosteo, totalAdicionales, vaIncluidoEnOtro, DIFERENCIA_SOSPECHOSA_PCT, type AdicionalCotizacion } from '@/app/lib/compras-precio-vs-costeo';
+import { compararPrecioConCosteo, totalAdicionales, descuentoDelPrecio, vaIncluidoEnOtro, DIFERENCIA_SOSPECHOSA_PCT, type AdicionalCotizacion } from '@/app/lib/compras-precio-vs-costeo';
 import { esLinkDeProducto } from '@/app/lib/costeo-comparativo';
 import { margenCosteoVsCotizaciones, GASTO_ENTREGA_PCT } from '@/app/lib/compras-margen-vs-costeo';
 import { MargenCosteoVsCotizaciones } from './MargenCosteoVsCotizaciones';
@@ -203,6 +203,9 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
     const sumaAds = totalAdicionales(ads);
     // Kit cotizado por componentes (base $0 + piezas): no hay «producto solo», el precio ES la suma de las piezas.
     const esKit = item.precioBase === 0 && ads.length > 0;
+    // Descuento del documento sobre el total (migration-195): piezas a precio de lista, el % se descuenta UNA vez al final, como la factura.
+    const pctDesc = c.descuentoSobreTotal && c.descuentoPct ? c.descuentoPct : null;
+    const montoDesc = pctDesc != null && item.precioBase != null ? descuentoDelPrecio(item.precioBase, ads, pctDesc) : 0;
     const soloProducto = item.precioBase != null ? item.precioBase : item.precioUnitario != null ? item.precioUnitario - sumaAds : null;
     const pendientes = onAgregarLinea && !bloqueada ? (pendientesPorCot.get(c.id) ?? []) : [];
     // Redondeo A PEDIDO (dueño, 16-11): el sistema guarda siempre lo que dice la cotización; solo una persona redondea, por oferta,
@@ -295,6 +298,12 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
                     </tr>
                   );
                 })}
+                {montoDesc > 0 && (
+                  <tr data-testid={`descuento-${c.id}-${p.id}`}>
+                    <td className="pt-1 text-zinc-600">Descuento {String(pctDesc).replace('.', ',')} % <span className="text-zinc-400">· sobre el total, como el documento</span></td>
+                    <td className="pt-1 text-right text-emerald-700">−{clpExacto(montoDesc)}</td>
+                  </tr>
+                )}
                 <tr className="border-t border-zinc-200"><td className="pt-1 font-semibold text-zinc-900">{esKit ? 'Total por kit' : 'Total por unidad'}</td><td className="pt-1 text-right font-semibold text-zinc-900">{item.precioUnitario != null ? clpExacto(item.precioUnitario) : '—'}</td></tr>
               </tbody>
             </table>

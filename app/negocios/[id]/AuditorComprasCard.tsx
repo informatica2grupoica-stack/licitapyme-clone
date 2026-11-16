@@ -38,7 +38,7 @@ type TipoEscenario = 'MAS_RAPIDO' | 'MINIMO_PRECIO' | 'MINIMOS_VIAJES' | 'EQUILI
 interface Cotizacion {
   id: number; proveedorNombre: string; proveedorRut: string | null; proveedorNuevo: boolean | null;
   origen: Origen; descripcionLibre: string | null; precioUnitario: number | null; precioTotal: number | null; precioTotalClp?: number | null;
-  precioUnitarioBruto: number | null; descuentoPct: number | null; vigenciaAt?: string | null;
+  precioUnitarioBruto: number | null; descuentoPct: number | null; descuentoSobreTotal?: boolean; vigenciaAt?: string | null;
   moneda: string; tipoCambioUsado: number | null; precioUnitarioClp: number | null;
   plazoEntregaTexto: string | null; incluyeFlete: boolean | null; fleteMonto: number | null; despachoModalidad?: string | null; fleteCondicion?: string | null; homologadaAt: string | null; archivoUrl: string | null;
   items: Array<{ productoId: number; precioUnitario: number | null; precioBase: number | null; adicionales: Array<{ id: number; concepto: string; cantidad: number; precioUnitario: number }>; cumple: Cumple; detalleDesviacion: string | null }>;

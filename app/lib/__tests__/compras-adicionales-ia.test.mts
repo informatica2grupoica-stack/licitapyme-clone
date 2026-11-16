@@ -92,18 +92,18 @@ const SINERGIA = [
   ['Tijera Mayo Curva 17 cm', 90, 3101], ['Tijera Mayo Recta 17 cm', 90, 3101], ['Escariador Fino 17 cm', 60, 1672.27], ['Copela 9cm', 60, 924.37],
   ['Gubia podología', 150, 1336], ['alicates podológico pediatrico', 60, 5285.72], ['Caja quirúrgica 17 cm x 7', 90, 5873.94],
 ].map(([concepto, cantidadLinea, precioUnitario]) => ({ concepto, cantidadLinea, precioUnitario }));
-test('kit cotizado para el lote: se divide por 30, precio EXACTO con centavos, y la pieza de cabecera no cuenta dos veces', () => {
+test('kit cotizado para el lote: se divide por 30, piezas a PRECIO DE LISTA y la pieza de cabecera no cuenta dos veces', () => {
   assert.equal(cotizacionEsPorUnidad(SINERGIA, 30), false);
-  const adic = adicionalesDesdeIA(SINERGIA, 30, n => n * 0.95);
+  const adic = adicionalesDesdeIA(SINERGIA, 30, n => n);              // el descuento global se aplica al total, no a cada pieza
   assert.equal(adic.length, 15);
   assert.equal(adic[0].cantidad, 5);
-  assert.equal(adic[0].precioUnitario, 5181.3);                       // $5.454 − 5 %, sin redondear (ni hacia arriba ni hacia abajo)
-  assert.equal(adic[12].precioUnitario, 1269.2);
-  assert.equal(adic[3].precioUnitario, 2315.12);
-  const { base, adicionales } = baseDeCotizacionPorUnidad(adic, 5181.3);
+  assert.equal(adic[0].precioUnitario, 5454);
+  assert.equal(adic[3].precioUnitario, 2436.97);                      // los decimales de lista se respetan
+  const { base, adicionales } = baseDeCotizacionPorUnidad(adic, 5454);
   assert.equal(base, 0);
-  const total = adicionales.reduce((s, a) => s + a.cantidad * a.precioUnitario, 0);
-  assert.ok(Math.abs(total * 30 - 3257647.76) <= 2, `lote ${total * 30}`);   // = neto del documento (solo los centavos de sus totales de línea)
+  const lista = adicionales.reduce((s, a) => s + a.cantidad * a.precioUnitario, 0);
+  assert.equal(lista * 30, 3429105);                                  // suma de las líneas impresas (el subtotal del documento, $3.429.102,90, usa decimales internos)
+  assert.ok(Math.abs(lista * 0.95 * 30 - 3257647.76) <= 3);          // − 5 % una vez ≈ neto del documento
 });
 test('sin redondeo: un precio entero queda entero y los decimales se respetan', () => {
   assert.equal(adicionalesDesdeIA([{ concepto: 'Pieza', cantidadLinea: 1, precioUnitario: 1000 }], 1, n => n * 1.1)[0].precioUnitario, 1100);     // 1100,0000000002 → 1100
