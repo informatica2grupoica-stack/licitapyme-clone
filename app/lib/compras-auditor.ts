@@ -713,12 +713,35 @@ function precioEnDocumento(v: unknown, texto: string): boolean {
 
 export async function homologarCotizacionIA(cotizacionId: number): Promise<{ items: number }> {
   const [rows] = await pool.query(
-    `SELECT negocio_id, proveedor_nombre, descripcion_libre, precio_unitario, precio_total, moneda, tipo_cambio_usado, precio_unitario_clp, precio_unitario_bruto, descuento_pct, notas, flete_monto
+    `SELECT negocio_id, proveedor_nombre, descripcion_libre, archivo_url, precio_unitario, precio_total, moneda, tipo_cambio_usado, precio_unitario_clp, precio_unitario_bruto, descuento_pct, notas, flete_monto
        FROM compras_cotizacion WHERE id = ? LIMIT 1`,
     [cotizacionId],
   ) as any;
   const cotiz = (rows as any[])[0];
   if (!cotiz) throw new Error('Cotización no encontrada.');
+
+  // 16-nov (INSTRU #324): una cotización leída ANTES del arreglo de tablas en imagen solo guardó el membrete (sin un solo precio) y
+  // «Volver a leer» no podía hacer nada porque relee ese texto guardado. Si el texto no trae precios y hay archivo, se lee el
+  // archivo de nuevo (con OCR de la imagen) y se guarda el texto completo antes de homologar.
+  if (cotiz.archivo_url && /\.(pdf|jpe?g|png|webp)(?:\?|$)/i.test(String(cotiz.archivo_url))) {
+    const { textoPdfSinPrecios, extraerDatosCotizacionDeDocumento } = await import('@/app/lib/compras-cotizacion-ocr');
+    if (textoPdfSinPrecios(String(cotiz.descripcion_libre || ''))) {
+      try {
+        const resp = await fetch(String(cotiz.archivo_url));
+        if (resp.ok) {
+          const url = String(cotiz.archivo_url);
+          const mime = /\.pdf(?:\?|$)/i.test(url) ? 'application/pdf' : /\.png(?:\?|$)/i.test(url) ? 'image/png' : /\.webp(?:\?|$)/i.test(url) ? 'image/webp' : 'image/jpeg';
+          const extraido = await extraerDatosCotizacionDeDocumento(url, Buffer.from(await resp.arrayBuffer()), mime);
+          if (extraido?.textoCompleto && !textoPdfSinPrecios(extraido.textoCompleto)) {
+            await pool.query(`UPDATE compras_cotizacion SET descripcion_libre = ? WHERE id = ?`, [extraido.textoCompleto, cotizacionId]);
+            cotiz.descripcion_libre = extraido.textoCompleto;
+          }
+        }
+      } catch (e) {
+        console.warn('[compras-auditor] no se pudo releer el archivo de la cotización', cotizacionId, String(e).slice(0, 150));
+      }
+    }
+  }
 
   const productos = (await listarProductosCompra(cotiz.negocio_id)).filter(p => !esSubestadoFuera(p.subestado));
   if (productos.length === 0) return { items: 0 };
