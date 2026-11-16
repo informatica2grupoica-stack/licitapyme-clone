@@ -4,7 +4,7 @@
 // desplazarse a los lados. Aquí el eje es el PRODUCTO: cada uno es una tarjeta con TODAS sus ofertas en una lista vertical, de la más
 // barata a la más cara (crece hacia abajo, no hacia el lado). Elegir = el círculo de la oferta. El cuadro «Por proveedor» resume cada
 // cotización (qué cubre, total, plazo, avisos) y permite «Comprar todo aquí». Mismos datos, mismas acciones y mismas reglas que la matriz.
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { IconStar as Star, IconCheck as Check, IconChevronDown as ChevronDown, IconChevronRight as ChevronRight, IconSearch as Search } from '@tabler/icons-react';
 import { MenuAcciones } from '@/app/components/ui/MenuAcciones';
 import { LinksProducto } from './LinksProducto';
@@ -90,7 +90,9 @@ function CantidadAComprar({ p, base, onGuardar }: { p: ProductoCmp; base: number
   );
 }
 
-export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, linksCosteo = {}, lecturaLink: lecLink, onCompraPorLink, seleccion, onSeleccionar, alertas, tecnico, onAgregar, compra, onElegirCelda, onComprarTodoAqui, acciones, onVerMatriz, costeoCompras = {}, onAgregarLinea, onCambiarCantidad }: MatrizProps & {
+export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, linksCosteo = {}, lecturaLink: lecLink, onCompraPorLink, seleccion, onSeleccionar, alertas, tecnico, onAgregar, compra, onElegirCelda, onComprarTodoAqui, acciones, onVerMatriz, costeoCompras = {}, onAgregarLinea, onCambiarCantidad, onEditarAdicionales }: MatrizProps & {
+  /** Guarda la lista completa de componentes/adicionales de un producto en una cotización (editar un precio en el cuadro «Qué trae el kit»). */
+  onEditarAdicionales?: (cotizacionId: number, productoId: number, adicionales: AdicionalCotizacion[]) => Promise<void>;
   onVerMatriz?: () => void; costeoCompras?: Record<number, { costo: number | null; link: string }>;
   /** Cambia la cantidad a comprar de un producto con observación, sin tocar el costeo (migration-179). */
   onCambiarCantidad?: (productoId: number, cantidad: number, motivo: string) => Promise<void>;
@@ -99,6 +101,21 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
 }) {
   const [abiertos, setAbiertos] = useState<Set<number>>(() => new Set(productos.length <= 4 ? productos.map(p => p.id) : []));
   const [agregandoLinea, setAgregandoLinea] = useState<string | null>(null);
+  // Precio de un componente en edición dentro del cuadro: clave «cotización:producto:índice».
+  const [editPrecio, setEditPrecio] = useState<{ clave: string; valor: string } | null>(null);
+  const [guardandoPrecio, setGuardandoPrecio] = useState<string | null>(null);
+  const cancelarPrecio = useRef(false);   // Escape: el blur que sigue no guarda
+  const guardarPrecio = async (cotizacionId: number, productoId: number, ads: AdicionalCotizacion[], i: number) => {
+    if (cancelarPrecio.current) { cancelarPrecio.current = false; return; }
+    if (!editPrecio || !onEditarAdicionales) return;
+    const nuevo = leerNumero(editPrecio.valor.replace(/\$/g, ''));
+    const clave = editPrecio.clave;
+    setEditPrecio(null);
+    if (!Number.isFinite(nuevo) || nuevo < 0 || nuevo === ads[i].precioUnitario) return;
+    setGuardandoPrecio(clave);
+    try { await onEditarAdicionales(cotizacionId, productoId, ads.map((a, j) => ({ concepto: a.concepto, cantidad: a.cantidad, precioUnitario: j === i ? nuevo : a.precioUnitario }))); }
+    finally { setGuardandoPrecio(null); }
+  };
   // Líneas del documento sin usar, por cotización (las cotizaciones llegan completas, con el texto del documento).
   const pendientesPorCot = useMemo(() => new Map(cotizaciones.map(c => [c.id, lineasPendientes(c as unknown as Parameters<typeof lineasPendientes>[0], productos)] as const)), [cotizaciones, productos]);
   const [buscaProducto, setBuscaProducto] = useState('');
@@ -231,12 +248,32 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
             <table className="w-full max-w-[520px] text-[12px] tabular-nums">
               <tbody>
                 {!esKit && <tr><td className="py-0.5 text-zinc-800">{incluido ? 'Producto (va incluido en otro)' : 'Producto solo'}</td><td className="py-0.5 text-right text-zinc-800">{soloProducto != null ? clpExacto(soloProducto) : '—'}</td></tr>}
-                {ads.map((a, i) => (
-                  <tr key={`${a.concepto}-${i}`}>
-                    <td className="py-0.5 text-zinc-600">{esKit ? '' : '+ '}{a.concepto}{a.cantidad !== 1 && <span className="text-zinc-400"> · {a.cantidad.toLocaleString('es-CL')} × {clpExacto(a.precioUnitario)}</span>}</td>
-                    <td className="py-0.5 text-right text-zinc-600">{clpExacto(a.cantidad * a.precioUnitario)}</td>
-                  </tr>
-                ))}
+                {ads.map((a, i) => {
+                  const clave = `${c.id}:${p.id}:${i}`;
+                  const editable = !!onEditarAdicionales && !bloqueada;
+                  const enEdicion = editPrecio?.clave === clave;
+                  return (
+                    <tr key={`${a.concepto}-${i}`}>
+                      <td className="py-0.5 text-zinc-600">{esKit ? '' : '+ '}{a.concepto}
+                        {(a.cantidad !== 1 || editable) && <span className="text-zinc-400"> · {a.cantidad !== 1 && <>{a.cantidad.toLocaleString('es-CL')} × </>}
+                          {enEdicion
+                            ? <input autoFocus value={editPrecio.valor} inputMode="decimal" aria-label={`Precio unitario de ${a.concepto}`}
+                                onChange={e => setEditPrecio({ clave, valor: e.target.value })}
+                                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } if (e.key === 'Escape') { cancelarPrecio.current = true; setEditPrecio(null); } }}
+                                onBlur={() => void guardarPrecio(c.id, p.id, ads, i)}
+                                className="w-24 rounded border border-teal-400 bg-white px-1 py-0 text-[12px] text-zinc-900 tabular-nums outline-none focus:ring-1 focus:ring-teal-500" />
+                            : editable
+                              ? <button type="button" onClick={() => { cancelarPrecio.current = false; setEditPrecio({ clave, valor: String(a.precioUnitario).replace('.', ',') }); }} disabled={guardandoPrecio != null}
+                                  title="Cambiar el precio unitario de esta pieza" className="text-zinc-500 underline decoration-dotted underline-offset-2 hover:text-teal-700 disabled:opacity-50">
+                                  {guardandoPrecio === clave ? 'Guardando…' : clpExacto(a.precioUnitario)}
+                                </button>
+                              : clpExacto(a.precioUnitario)}
+                        </span>}
+                      </td>
+                      <td className="py-0.5 text-right text-zinc-600">{clpExacto(a.cantidad * a.precioUnitario)}</td>
+                    </tr>
+                  );
+                })}
                 <tr className="border-t border-zinc-200"><td className="pt-1 font-semibold text-zinc-900">{esKit ? 'Total por kit' : 'Total por unidad'}</td><td className="pt-1 text-right font-semibold text-zinc-900">{item.precioUnitario != null ? clpExacto(item.precioUnitario) : '—'}</td></tr>
               </tbody>
             </table>

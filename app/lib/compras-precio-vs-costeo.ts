@@ -57,6 +57,10 @@ export interface AdicionalCotizacion { concepto: string; cantidad: number; preci
  *  a peso entero descuadraba el total del documento (3789-30-LE26, Sinergia #319: $108.584 por set en vez de $108.588,26). */
 export const aCentavos = (n: number): number => Math.round(n * 100) / 100;
 
+/** Precio de un componente: a peso entero HACIA ARRIBA ($5.181,30 → $5.182). Decisión del dueño 16-nov-2026: nunca quedar bajo lo que cobra
+ *  el proveedor; si hace falta el valor exacto se corrige a mano en el cuadro «Qué trae el kit». Primero a centavos (5.181,30 no sube a 5.182 por ruido de coma flotante en 5181,3000001). */
+export const pesoArriba = (n: number): number => Math.ceil(aCentavos(n));
+
 export const totalAdicionales = (ads: AdicionalCotizacion[]): number =>
   aCentavos(ads.reduce((s, a) => s + (Number.isFinite(a.cantidad) && Number.isFinite(a.precioUnitario) ? a.cantidad * a.precioUnitario : 0), 0));
 

@@ -6,7 +6,7 @@
 // venga con quemador y el carro con sus bandejas. Esas líneas no son productos nuestros: son COMPONENTES de uno. Se unen
 // al producto como adicionales (suman al precio efectivo) y, si la bases exigen algo que la cotización no trae, se avisa.
 import type { AdicionalEntrada } from '@/app/lib/compras-adicionales';
-import { aCentavos } from '@/app/lib/compras-precio-vs-costeo';
+import { pesoArriba } from '@/app/lib/compras-precio-vs-costeo';
 
 const MAX_POR_PRODUCTO = 20;
 /** "P2" → 2 (la IA responde con el código del producto; también se acepta el número solo). */
@@ -66,8 +66,8 @@ export function adicionalesDesdeIA(raw: unknown, cantidadProducto: number | null
     // La cantidad se guarda con 2 decimales: 1 instalación para 200 basureros (0,005) quedaba en 0,01 y cobraba el doble
     // (1202333-67-LE26: $400.000 → $800.000). Si no cabe exacta, se reparte el MONTO: 1 × ($400.000 ÷ 200) por unidad.
     if (Math.abs(Math.round(porUnidad * 100) / 100 - porUnidad) > 1e-9) {
-      out.push({ concepto: `${concepto} (${cant} × $${Math.round(aNeto(precio)).toLocaleString('es-CL')} repartido en ${divisor} u)`.slice(0, 160), cantidad: 1, precioUnitario: aCentavos(aNeto(precio) * porUnidad) });
-    } else out.push({ concepto, cantidad: porUnidad, precioUnitario: aCentavos(aNeto(precio)) });   // con centavos ($5.181,30), no a peso entero
+      out.push({ concepto: `${concepto} (${cant} × $${Math.round(aNeto(precio)).toLocaleString('es-CL')} repartido en ${divisor} u)`.slice(0, 160), cantidad: 1, precioUnitario: pesoArriba(aNeto(precio) * porUnidad) });
+    } else out.push({ concepto, cantidad: porUnidad, precioUnitario: pesoArriba(aNeto(precio)) });   // a peso entero hacia arriba ($5.181,30 → $5.182)
     if (out.length >= MAX_POR_PRODUCTO) break;
   }
   return out;

@@ -66,7 +66,7 @@ test('set cotizado por unidad: no se divide por 30 y la línea de cabecera no cu
   assert.equal(base, 0);                                              // kit: sin «producto solo», todas las piezas son componentes
   assert.equal(adicionales.length, 14);
   const total = (base ?? 0) + adicionales.reduce((s, a) => s + a.cantidad * a.precioUnitario, 0);
-  assert.ok(Math.abs(total - 171671) <= 2, `total ${total}`);         // = neto del documento, no $15.623
+  assert.ok(total >= 171670 && total - 171671 <= 15, `total ${total}`);   // ≈ neto del documento (piezas a peso hacia arriba), no $15.623
 });
 test('lote cotizado completo: se sigue dividiendo (no es por unidad)', () => {
   const lote = [{ concepto: 'Silla ruedas', cantidadLinea: 30, precioUnitario: 100 }, { concepto: 'Cojín', cantidadLinea: 30, precioUnitario: 10 }, { concepto: 'Freno', cantidadLinea: 60, precioUnitario: 5 }, { concepto: 'Bolso', cantidadLinea: 30, precioUnitario: 3 }];
@@ -92,14 +92,20 @@ const SINERGIA = [
   ['Tijera Mayo Curva 17 cm', 90, 3101], ['Tijera Mayo Recta 17 cm', 90, 3101], ['Escariador Fino 17 cm', 60, 1672.27], ['Copela 9cm', 60, 924.37],
   ['Gubia podología', 150, 1336], ['alicates podológico pediatrico', 60, 5285.72], ['Caja quirúrgica 17 cm x 7', 90, 5873.94],
 ].map(([concepto, cantidadLinea, precioUnitario]) => ({ concepto, cantidadLinea, precioUnitario }));
-test('kit cotizado para el lote: se divide por 30, con centavos, y la pieza de cabecera no cuenta dos veces', () => {
+test('kit cotizado para el lote: se divide por 30, precio a peso hacia arriba, y la pieza de cabecera no cuenta dos veces', () => {
   assert.equal(cotizacionEsPorUnidad(SINERGIA, 30), false);
   const adic = adicionalesDesdeIA(SINERGIA, 30, n => n * 0.95);
   assert.equal(adic.length, 15);
   assert.equal(adic[0].cantidad, 5);
-  assert.equal(adic[0].precioUnitario, 5181.3);                       // $5.454 − 5 %, sin redondear a $5.181
+  assert.equal(adic[0].precioUnitario, 5182);                         // $5.454 − 5 % = $5.181,30 → hacia arriba
+  assert.equal(adic[12].precioUnitario, 1270);                        // $1.336 − 5 % = $1.269,20 → $1.270
+  assert.ok(adic.every(a => Number.isInteger(a.precioUnitario)));
   const { base, adicionales } = baseDeCotizacionPorUnidad(adic, 5181.3);
   assert.equal(base, 0);
   const total = adicionales.reduce((s, a) => s + a.cantidad * a.precioUnitario, 0);
-  assert.ok(Math.abs(total - 3257647.76 / 30) <= 0.2, `total ${total}`);   // = neto del documento ÷ 30 sets ($108.588,26)
+  assert.ok(total >= 3257647.76 / 30 && total - 3257647.76 / 30 < 40, `total ${total}`);   // nunca bajo el neto del documento ÷ 30
+});
+test('peso hacia arriba: un precio ya entero no sube por ruido de coma flotante', () => {
+  assert.equal(adicionalesDesdeIA([{ concepto: 'Tijera', cantidadLinea: 1, precioUnitario: 3101 }], 1, n => n * 0.95)[0].precioUnitario, 2946);   // 2945,95 → 2946
+  assert.equal(adicionalesDesdeIA([{ concepto: 'Pieza', cantidadLinea: 1, precioUnitario: 1000 }], 1, n => n * 1.1)[0].precioUnitario, 1100);     // 1100,0000000002 → 1100
 });
