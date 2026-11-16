@@ -306,6 +306,14 @@ function parecido(a: string, b: string): number {
   return n / Math.min(A.size, B.size);
 }
 
+/** Palabras en común sobre el total de palabras de ambos textos: desempata entre líneas que contienen todo el concepto. */
+function jaccard(a: string, b: string): number {
+  const A = tokens(a), B = tokens(b);
+  if (!A.size || !B.size) return 0;
+  let n = 0; for (const t of A) if (B.has(t)) n++;
+  return n / (A.size + B.size - n);
+}
+
 /**
  * Corrige los adicionales que devolvió la IA con las líneas verificadas: si el concepto calza (≥ 60 % de palabras) con una línea del
  * documento, la cantidad de la línea y su precio unitario mandan sobre lo que dijo la IA.
@@ -316,8 +324,14 @@ export function corregirAdicionalesConLineas(raw: unknown, lineas: LineaCotizaci
   let corregidos = 0;
   const out = raw.map((a: any) => {
     if (!a || typeof a !== 'object' || typeof a.concepto !== 'string') return a;
-    let mejor: LineaCotizacion | null = null, mejorP = 0;
-    for (const l of lineas) { const p = parecido(a.concepto, l.descripcion); if (p > mejorP) { mejorP = p; mejor = l; } }
+    let mejor: LineaCotizacion | null = null, mejorP = 0, mejorJ = 0;
+    // Empate de puntaje (16-nov, Cila #310): «Filtro HEPA aspirador de polvo» calzaba 100 % con la línea del ASPIRADOR (que dice «incluye 1 filtro
+    // HEPA») y con la línea exacta del filtro; ganaba la primera y el filtro quedaba al precio del aspirador ($151.261 en vez de $10.084).
+    // En un empate manda la línea más específica: la que tiene menos palabras de más (Jaccard).
+    for (const l of lineas) {
+      const p = parecido(a.concepto, l.descripcion), j = jaccard(a.concepto, l.descripcion);
+      if (p > mejorP + 1e-9 || (Math.abs(p - mejorP) <= 1e-9 && p > 0 && j > mejorJ)) { mejorP = p; mejorJ = j; mejor = l; }
+    }
     if (!mejor || mejorP < 0.6 || mejor.cantidad == null || mejor.precioUnitario == null) return a;
     const cambia = Number(a.cantidadLinea ?? a.cantidad) !== mejor.cantidad || Math.abs(Number(a.precioUnitario) - mejor.precioUnitario) > 1;
     if (cambia) corregidos++;
