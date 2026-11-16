@@ -10,7 +10,7 @@
 import pool from '@/app/lib/db';
 import { armarPanelAuditorCompartido, cargarEstadoCosteo, lineasAuditables, type Actor, type OpcionDTO } from '@/app/lib/auditor-opciones';
 import { listarProductosCompra } from '@/app/lib/compras';
-import { lineaDeProducto, asignarProductoDeFicha, filaDeProductoCompra } from '@/app/lib/compras-fichas';
+import { lineaDeProducto, filaDeProducto, asignarProductoDeFicha, filaDeProductoCompra } from '@/app/lib/compras-fichas';
 import { registrarCotizacion, listarCotizaciones, asignarItemsCotizacion, type AsignacionItemManual } from '@/app/lib/compras-auditor';
 import {
   esElegida, etiquetaEstado, respaldoQueSostiene, fichasUsables, origenDeArchivo, motivoCotizacionNoUsable, textoCumple,
@@ -32,6 +32,8 @@ export interface ItemDelAuditor {
   cumple: string | null; noCumple: number; sinVeredicto: number;
   /** Ya está en Compras (cotización con ese archivo y ese producto, o ficha de ese producto). */
   yaEnCompras: boolean;
+  /** Ficha que ya está en Compras en OTROS productos (por ejemplo la del biombo guardada en el biombo y no en la unidad). */
+  tambienEn: string[];
   /** null = se puede usar. Si no, la razón en palabras de la persona. */
   motivoNoUsable: string | null;
 }
@@ -43,8 +45,8 @@ export interface PanelDelAuditor {
   productos: ProductoDelAuditor[];
   /** Líneas del Auditor que no calzan con ningún producto de Compras (renunciado, creado a mano, parte que se compra aparte…): la persona elige a qué producto va cada documento. */
   sinProducto: Array<{ filaId: string; item: number; descripcion: string; items: ItemDelAuditor[] }>;
-  /** Todos los productos de Compras a los que se puede mandar un documento (incluye los que no vienen del costeo). `conLinea` = admite fichas técnicas. */
-  destinos: Array<{ productoId: number; descripcion: string; cantidad: number | null; conLinea: boolean }>;
+  /** Todos los productos de Compras a los que se puede mandar un documento (incluye los que no vienen del costeo). `admiteFicha` = no es un servicio. */
+  destinos: Array<{ productoId: number; descripcion: string; cantidad: number | null; admiteFicha: boolean }>;
   compraAprobada: boolean;
   porUsar: number;
   sinCosteo: boolean;
@@ -59,12 +61,14 @@ async function compraAprobadaDe(negocioId: number): Promise<boolean> {
   } catch { return false; }
 }
 
-/** Fichas que Compras ya tiene (espacio `cmp:`): `<filaId>|<url>`. */
-async function fichasYaEnCompras(negocioId: number): Promise<Set<string>> {
+/** Fichas que Compras ya tiene (espacio `cmp:`): archivo → productos (por su fila) donde está. */
+async function fichasYaEnCompras(negocioId: number): Promise<Map<string, Set<string>>> {
   const [rows] = await pool.query(
     `SELECT o.fila_id, r.documento_url FROM auditor_respaldo r JOIN auditor_opcion o ON o.id = r.opcion_id
       WHERE r.negocio_id = ? AND r.tipo = 'ficha_tecnica' AND r.vigente = 1 AND o.estado <> 'descartada' AND o.fila_id LIKE 'cmp:%'`, [negocioId]) as any;
-  return new Set((rows as any[]).map(r => `${String(r.fila_id).replace(/^cmp:/, '')}|${r.documento_url}`));
+  const m = new Map<string, Set<string>>();
+  for (const r of rows as any[]) { const u = String(r.documento_url); (m.get(u) || m.set(u, new Set()).get(u)!).add(String(r.fila_id).replace(/^cmp:/, '')); }
+  return m;
 }
 
 function itemsDeOpcion(o: OpcionDTO, yaCot: (url: string) => boolean, yaFicha: (url: string) => boolean): ItemDelAuditor[] {
@@ -81,7 +85,7 @@ function itemsDeOpcion(o: OpcionDTO, yaCot: (url: string) => boolean, yaFicha: (
       ...base, clave: `c:${sostiene.id}`, tipo: 'cotizacion', respaldoId: sostiene.id, nombre: sostiene.documentoNombre || 'cotización', url: sostiene.documentoUrl,
       subidoPor: sostiene.cargadoPorNombre, subidoAt: sostiene.cargadoAt || null, precioNeto,
       ivaDeclarado: o.producto ? o.producto.iva !== 'no_declarado' : null, cumple: null, noCumple: 0, sinVeredicto: 0,
-      yaEnCompras: yaCot(sostiene.documentoUrl), motivoNoUsable: motivoCotizacionNoUsable({ respaldo: sostiene, precioNeto }),
+      yaEnCompras: yaCot(sostiene.documentoUrl), tambienEn: [], motivoNoUsable: motivoCotizacionNoUsable({ respaldo: sostiene, precioNeto }),
     });
   }
   for (const f of fichasUsables(o.respaldos)) {
@@ -89,7 +93,7 @@ function itemsDeOpcion(o: OpcionDTO, yaCot: (url: string) => boolean, yaFicha: (
       ...base, clave: `f:${f.id}`, tipo: 'ficha', respaldoId: f.id, nombre: f.documentoNombre || 'ficha técnica', url: f.documentoUrl!,
       subidoPor: f.cargadoPorNombre, subidoAt: f.cargadoAt || null, precioNeto: null, ivaDeclarado: null,
       cumple: textoCumple(res), noCumple: res?.noCumple ?? 0, sinVeredicto: res?.sinVeredicto ?? 0,
-      yaEnCompras: yaFicha(f.documentoUrl!), motivoNoUsable: null,
+      yaEnCompras: yaFicha(f.documentoUrl!), tambienEn: [], motivoNoUsable: null,
     });
   }
   return out;
@@ -112,7 +116,7 @@ export async function panelDelAuditor(negocioId: number, licitacionCodigo: strin
     const items = opciones.flatMap(o => itemsDeOpcion(
       o,
       url => !!prod && cotizaciones.some(c => c.archivoUrl === url && c.items.some(i => i.productoId === prod.id)),
-      url => fichasCmp.has(`${ld.filaId}|${url}`),
+      url => !!fichasCmp.get(url)?.has(ld.filaId),
     )).sort((a, b) => Number(b.elegida) - Number(a.elegida) || (a.tipo === b.tipo ? 0 : a.tipo === 'cotizacion' ? -1 : 1));
     // Un mismo documento con varias opciones (variantes) del MISMO producto: en Compras una cotización guarda un solo precio por producto,
     // así que se ofrece la elegida (o la primera) y las otras quedan explicadas.
@@ -127,7 +131,13 @@ export async function panelDelAuditor(negocioId: number, licitacionCodigo: strin
     porUsar += items.filter(i => !i.yaEnCompras && !i.motivoNoUsable).length;
     salida.push({ productoId: prod.id, filaId: ld.filaId, item: ld.item, descripcion: corto(prod.descripcion), cantidad: prod.cantidad, costeadoNeto: ld.costeadoNeto, items });
   }
-  const destinos = vigentes.map(p => ({ productoId: p.id, descripcion: corto(p.descripcion), cantidad: p.cantidad, conLinea: !!lineaDeProducto(p, lineas) }));
+  const destinos = vigentes.map(p => ({ productoId: p.id, descripcion: corto(p.descripcion), cantidad: p.cantidad, admiteFicha: !p.esServicio }));
+  // Una ficha que ya está en Compras en otro producto (no en el que el Auditor tenía): se avisa dónde, para no ofrecerla como si faltara.
+  const nombreDeFila = new Map(vigentes.map(p => [filaDeProducto(p, lineas), corto(p.descripcion)] as const));
+  for (const g of [...salida, ...sinProducto]) for (const it of g.items) if (it.tipo === 'ficha') {
+    const propia = 'productoId' in g ? g.filaId : null;
+    it.tambienEn = [...(fichasCmp.get(it.url) ?? [])].filter(fl => fl !== propia).map(fl => nombreDeFila.get(fl)).filter((x): x is string => !!x);
+  }
   return { productos: salida, sinProducto, destinos, compraAprobada, porUsar, sinCosteo: lineas.length === 0 };
 }
 
@@ -195,9 +205,9 @@ export async function usarFichaDelAuditor(p: { negocioId: number; licitacionCodi
   const destinoId = p.productoId ?? prod?.productoId ?? null;
   if (destinoId == null) throw new Error('Elige a qué producto de Compras va esta ficha.');
   if (!panel.destinos.some(d => d.productoId === destinoId)) throw new Error('Ese producto no está disponible en Compras (renunciado o no adjudicado).');
-  // Las fichas de Compras cuelgan de una línea del costeo: un producto creado fuera del costeo no puede tenerlas.
+  // Un producto sin línea del costeo (el biombo, una parte aparte…) guarda su ficha con un id propio; solo los servicios no llevan ficha.
   const filaId = otroProducto || !prod ? await filaDeProductoCompra(negocioId, destinoId) : prod.filaId;
-  if (!filaId) throw new Error('Ese producto no viene del costeo, así que en Compras no admite fichas técnicas (sí admite cotizaciones).');
+  if (!filaId) throw new Error('Un servicio (flete, armado…) no lleva ficha técnica.');
   const [rows] = await pool.query(`SELECT extraccion_id, producto_idx FROM auditor_respaldo WHERE id = ? AND negocio_id = ? AND tipo = 'ficha_tecnica' AND vigente = 1`, [item.respaldoId, negocioId]) as any;
   const resp = (rows as any[])[0];
   if (!resp || resp.extraccion_id == null || resp.producto_idx == null) throw new Error('No se encontró la lectura de esa ficha en el Auditor.');

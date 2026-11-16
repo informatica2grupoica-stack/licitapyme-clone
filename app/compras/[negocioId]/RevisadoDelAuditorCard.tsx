@@ -101,7 +101,7 @@ export function RevisadoDelAuditorCard({ negocioId, puedeOperar, soloLectura = f
     const nombreOpcion = [i.marca, i.modelo].filter(Boolean).join(' ');
     const elegido = destino[i.clave] ?? productoPorDefecto;
     const abierto = productoPorDefecto == null || cambiando.has(i.clave);
-    const destinosValidos = panel.destinos.filter(d => i.tipo === 'cotizacion' || d.conLinea);
+    const destinosValidos = panel.destinos.filter(d => i.tipo === 'cotizacion' || d.admiteFicha);
     return (
       <div key={i.clave} className="grid grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-3 border-t border-zinc-100 px-4 py-2.5" data-testid={`del-auditor-${i.clave}`}>
         {i.tipo === 'cotizacion' ? <Receipt size={18} className="text-zinc-500" /> : <FileText size={18} className="text-zinc-500" />}
@@ -131,6 +131,7 @@ export function RevisadoDelAuditorCard({ negocioId, puedeOperar, soloLectura = f
               </select>
             </label>
           )}
+          {i.tipo === 'ficha' && i.tambienEn.length > 0 && <div className="mt-0.5 text-[12px] text-emerald-700">También está en Compras en: {i.tambienEn.join(', ')}</div>}
           {i.motivoNoUsable && <div className="mt-0.5 text-[12px] text-amber-800">{i.motivoNoUsable}</div>}
         </div>
         <div className="flex-shrink-0 text-right">
@@ -147,7 +148,7 @@ export function RevisadoDelAuditorCard({ negocioId, puedeOperar, soloLectura = f
   return (
     <div className="space-y-3" data-testid="revisado-del-auditor">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[12.5px] text-zinc-500 max-w-[62ch]">Lo que el asistente ya cargó y revisó en el Auditor. «Usar» lo pasa a Compras sin volver a subirlo ni a leerlo.</p>
+        <span />
         <div className="flex items-center gap-2">
           <Boton tamano="sm" variante="fantasma" icono={<Refresh size={14} />} onClick={() => { setCargando(true); cargar(); }}>Actualizar</Boton>
           {puede && <Boton tamano="sm" variante="primario" icono={todo ? <Loader2 size={14} className="animate-spin" /> : <Flecha size={14} />} disabled={todo || !hayElegidos} onClick={usarTodo}>Usar todo lo elegido</Boton>}

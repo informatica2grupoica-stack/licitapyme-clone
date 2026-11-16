@@ -55,3 +55,23 @@ test('la ruta exige permiso de operar para pasar documentos y la bitácora lo an
   const bit = readFileSync(new URL('../compras-bitacora.ts', import.meta.url), 'utf8');
   assert.match(bit, /case 'del-auditor'/);
 });
+
+test('un producto sin línea del costeo (el biombo, una parte aparte) guarda su ficha con id propio; un servicio no', async () => {
+  const { filaDeProducto, esFilaSinLinea, filaDeProductoSinLinea, lineaRealDe } = await import('../compras-fichas');
+  const lineas: any[] = [{ id: 'abc12345', lineaReal: 2, detalle: 'Unidad Podológico' }];
+  const prod = (o: any) => ({ id: 682, correlativo: 9, descripcion: 'Biombo hospitalario', productoPadreId: null, esServicio: false, ...o });
+  assert.equal(filaDeProducto(prod({ correlativo: 2, descripcion: 'Unidad Podológico', id: 562 }) as any, lineas), 'abc12345');   // con línea: como siempre
+  assert.equal(filaDeProducto(prod({}) as any, lineas), 'prod:682');
+  assert.equal(esFilaSinLinea('prod:682'), true); assert.equal(esFilaSinLinea('abc12345'), false); assert.equal(esFilaSinLinea('prod:x'), false);
+  assert.equal(filaDeProductoSinLinea(7), 'prod:7');
+  assert.equal(filaDeProducto(prod({ esServicio: true }) as any, lineas), null);
+  assert.equal(lineaRealDe(prod({}) as any, lineas), 9);                         // sin línea: el correlativo del acta busca los requisitos de las bases
+  assert.equal(lineaRealDe(prod({ productoPadreId: 562 }) as any, lineas), null);   // una parte aparte no hereda requisitos que no se sabe si le tocan
+});
+
+test('el motor de fichas ya no exige línea del costeo para asignar ni comparar', () => {
+  const src = readFileSync(new URL('../compras-fichas.ts', import.meta.url), 'utf8');
+  assert.doesNotMatch(src, /Este producto no tiene una línea en el Costeo/);
+  assert.doesNotMatch(src, /Ese producto no tiene línea en el Costeo/);
+  assert.match(src, /filaCmp\(fila\)/);
+});

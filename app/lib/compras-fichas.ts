@@ -64,6 +64,20 @@ export function lineaDeProducto(prod: ProductoCompra, lineas: LineaCosteo[]): Li
   const d = (x: string) => x.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 80);
   return lineas.find(l => d(l.detalle) === d(String(prod.descripcion))) ?? null;
 }
+/** Producto SIN línea del costeo (creado a mano, parte que se compra aparte, producto del acta que el costeo agrupó…): sus fichas cuelgan de un id
+ *  propio `prod:<id>` dentro del espacio de Compras, en vez de la línea. Los servicios (flete, armado) no son productos de las bases: sin ficha. */
+export const filaDeProductoSinLinea = (productoId: number) => `prod:${productoId}`;
+export const esFilaSinLinea = (filaId: string) => /^prod:\d+$/.test(filaId);
+export function filaDeProducto(prod: ProductoCompra, lineas: LineaCosteo[]): string | null {
+  const l = lineaDeProducto(prod, lineas);
+  if (l) return l.id;
+  return prod.esServicio ? null : filaDeProductoSinLinea(prod.id);
+}
+/** Número de línea del informe de viabilidad para buscar los requisitos de las bases. Sin línea del costeo se usa el correlativo del acta
+ *  (una parte que se compra aparte no tiene: sus requisitos no se adivinan). */
+export const lineaRealDe = (prod: ProductoCompra, lineas: LineaCosteo[]): number | null =>
+  lineaDeProducto(prod, lineas)?.lineaReal ?? (prod.productoPadreId == null && !prod.esServicio ? prod.correlativo : null);
+
 // Se cruza contra TODAS las líneas: con varias líneas del costeo bajo el mismo ítem (correlativo repetido) el número no decide y manda la
 // descripción; mirando una sola línea, «L1» valía para cualquier producto (la ficha de los fonos caía en el pantalón cargo).
 export const productoDeLinea = (linea: LineaCosteo, productos: ProductoCompra[], lineas: LineaCosteo[]): ProductoCompra | null =>
@@ -189,11 +203,13 @@ export async function asignarProductoDeFicha(params: {
     p = { ...p, modelo: (p.nombre || p.sku || 'Sin modelo').slice(0, 160) };
   }
   const lineas = lineasAuditables(await cargarEstadoCosteo(negocioId));
-  const linea = lineas.find(l => l.id === filaId);
-  if (!linea) return { ok: false, proveedor: null, motivoProveedor: '', candidatosProveedor: [], error: 'Ese producto no tiene línea en el Costeo.' };
+  const sinLinea = esFilaSinLinea(filaId);
+  const linea = sinLinea ? null : lineas.find(l => l.id === filaId);
+  if (!linea && !sinLinea) return { ok: false, proveedor: null, motivoProveedor: '', candidatosProveedor: [], error: 'Ese producto no existe en este negocio.' };
 
   const [productos, cotizaciones] = await Promise.all([listarProductosCompra(negocioId), listarCotizaciones(negocioId)]);
-  const prodCompra = productoDeLinea(linea, productos, lineas);
+  const prodCompra = linea ? productoDeLinea(linea, productos, lineas) : (productos.find(x => filaDeProductoSinLinea(x.id) === filaId && !x.esServicio) ?? null);
+  if (sinLinea && !prodCompra) return { ok: false, proveedor: null, motivoProveedor: '', candidatosProveedor: [], error: 'Ese producto no existe en este negocio o es un servicio (no lleva ficha técnica).' };
   const cubren = prodCompra ? cotizaciones.filter(c => c.items.some(i => i.productoId === prodCompra.id && i.precioUnitario != null)) : [];
   let prov: ProveedorElegido;
   if (params.proveedor?.trim()) {
@@ -330,16 +346,19 @@ export async function compararProducto(params: { negocioId: number; licitacionCo
   const [productos, estado] = await Promise.all([listarProductosCompra(negocioId), cargarEstadoCosteo(negocioId)]);
   const prod = productos.find(p => p.id === productoCompraId);
   if (!prod) throw new Error('Ese producto no pertenece a este negocio.');
-  const linea = lineaDeProducto(prod, lineasAuditables(estado));
-  if (!linea) throw new Error('Este producto no tiene una línea en el Costeo: no hay requisitos de las bases contra los que comparar.');
+  const lineas = lineasAuditables(estado);
+  const linea = lineaDeProducto(prod, lineas);
+  const fila = filaDeProducto(prod, lineas);
+  if (!fila) throw new Error('Un servicio no lleva ficha técnica: no hay nada que comparar contra las bases.');
+  if (lineaRealDe(prod, lineas) == null) throw new Error(`«${corto(String(prod.descripcion))}» es una parte que se compra aparte: las bases no le dan exigencias propias, así que su ficha queda guardada pero no hay contra qué compararla.`);
   const [ops] = await pool.query(
     `SELECT o.id FROM auditor_opcion o WHERE o.negocio_id = ? AND o.fila_id = ? AND o.via = 'completa' AND o.estado IN ('tanteo','formalizada','verificada','definitiva')
-        AND EXISTS (SELECT 1 FROM auditor_respaldo r WHERE r.opcion_id = o.id AND r.tipo = 'ficha_tecnica' AND r.vigente = 1) ORDER BY o.id`, [negocioId, filaCmp(linea.id)]) as any;
+        AND EXISTS (SELECT 1 FROM auditor_respaldo r WHERE r.opcion_id = o.id AND r.tipo = 'ficha_tecnica' AND r.vigente = 1) ORDER BY o.id`, [negocioId, filaCmp(fila)]) as any;
   if ((ops as any[]).length === 0) throw new Error('Este producto todavía no tiene fichas técnicas asignadas.');
   // Una sola llamada compara a TODAS las opciones de Compras de la línea entre sí contra los mismos requisitos de las bases.
   return verificarLineaV3({
-    negocioId, licitacionCodigo, filaId: filaCmp(linea.id), lineaReal: linea.lineaReal, nombreLinea: linea.detalle.split(' - ')[0] || linea.detalle,
-    cantidad: linea.cantidad, unidad: linea.unidad, actor, soloProducto: corto(String(prod.descripcion)),
+    negocioId, licitacionCodigo, filaId: filaCmp(fila), lineaReal: lineaRealDe(prod, lineas), nombreLinea: linea ? (linea.detalle.split(' - ')[0] || linea.detalle) : corto(String(prod.descripcion)),
+    cantidad: linea?.cantidad ?? prod.cantidad, unidad: linea?.unidad ?? prod.unidad ?? 'un', actor, soloProducto: corto(String(prod.descripcion)),
   });
 }
 
@@ -412,16 +431,17 @@ export async function panelFichas(negocioId: number, licitacionCodigo: string): 
   // Requisitos de las bases por línea del informe (una lectura por línea). Una línea que agrupa varios productos rotula cada requisito con el
   // suyo: cada producto muestra y se compara SOLO contra los suyos.
   const reqPorLinea = new Map<number, RequisitoHeredado[]>();
-  for (const lr of new Set(vigentes.map(p => lineaDeProducto(p, lineas)?.lineaReal).filter((x): x is number => x != null))) {
+  for (const lr of new Set(vigentes.map(p => lineaRealDe(p, lineas)).filter((x): x is number => x != null))) {
     reqPorLinea.set(lr, (await requisitosDeLinea(negocioId, licitacionCodigo, lr).catch(() => null))?.requisitos ?? []);
   }
   const salida: ProductoFichasDTO[] = vigentes.map(p => {
-    const linea = lineaDeProducto(p, lineas);
-    const reqLinea = linea?.lineaReal != null ? (reqPorLinea.get(linea.lineaReal) ?? []) : [];
+    const fila = filaDeProducto(p, lineas);
+    const lineaReal = lineaRealDe(p, lineas);
+    const reqLinea = lineaReal != null ? (reqPorLinea.get(lineaReal) ?? []) : [];
     const rotulada = reqLinea.some(r => r.producto);
     const reqProducto = requisitosDelProducto(reqLinea, corto(p.descripcion));
     const textosProducto = new Set(reqProducto.map(r => norm(r.texto)));
-    const opciones: OpcionFichaDTO[] = (opsRows as any[]).filter(o => linea && o.fila_id === filaCmp(linea.id)).map(o => {
+    const opciones: OpcionFichaDTO[] = (opsRows as any[]).filter(o => fila && o.fila_id === filaCmp(fila)).map(o => {
       const t = estadoTecnicoV3(corridas.get(o.id), conf.get(o.id), segundas.get(o.id)?.celdas);
       const r = t.resultado;
       // Un «Falta dato» o un «No cumple» que una persona complementó pasa a Cumple / No cumple (con su nombre y fecha). Solo se aplica
@@ -453,7 +473,7 @@ export async function panelFichas(negocioId: number, licitacionCodigo: string): 
     });
     const cubren = cotizaciones.filter(c => c.items.some(i => i.productoId === p.id && i.precioUnitario != null));
     return {
-      productoId: p.id, descripcion: corto(p.descripcion), cantidad: p.cantidad, filaId: linea?.id ?? null, lineaReal: linea?.lineaReal ?? null,
+      productoId: p.id, descripcion: corto(p.descripcion), cantidad: p.cantidad, filaId: fila, lineaReal,
       requisitosBase: reqProducto.map(r => ({ n: r.n, texto: r.texto, criticidad: r.criticidad })),
       cotizados: cubren.map(c => ({ proveedor: c.proveedorNombre, proveedorRut: c.proveedorRut ?? null, precioUnit: c.items.find(i => i.productoId === p.id)?.precioUnitario ?? null })),
       opciones,
@@ -504,7 +524,7 @@ export async function panelFichas(negocioId: number, licitacionCodigo: string): 
   // Modelos quitados que conservan su ficha (solo del espacio de Compras y de productos que siguen vigentes).
   const quitados: PanelFichasDTO['quitados'] = [];
   for (const o of quitRows as any[]) {
-    const prod = vigentes.find(p => { const l = lineaDeProducto(p, lineas); return l && filaCmp(l.id) === o.fila_id; });
+    const prod = vigentes.find(p => { const fl = filaDeProducto(p, lineas); return !!fl && filaCmp(fl) === o.fila_id; });
     if (!prod) continue;
     quitados.push({ opcionId: o.id, productoDescripcion: corto(prod.descripcion), marca: o.marca, modelo: o.modelo, proveedor: o.proveedor_razon_social,
       fichas: (respRows as any[]).filter(x => x.opcion_id === o.id).map(x => x.documento_nombre || 'ficha') });
@@ -608,5 +628,5 @@ export async function olvidarDocumentoDeCompras(negocioId: number, extraccionId:
 export async function filaDeProductoCompra(negocioId: number, productoCompraId: number): Promise<string | null> {
   const [productos, estado] = await Promise.all([listarProductosCompra(negocioId), cargarEstadoCosteo(negocioId)]);
   const prod = productos.find(p => p.id === productoCompraId);
-  return prod ? (lineaDeProducto(prod, lineasAuditables(estado))?.id ?? null) : null;
+  return prod ? filaDeProducto(prod, lineasAuditables(estado)) : null;
 }
