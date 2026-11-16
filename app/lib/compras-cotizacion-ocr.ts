@@ -228,6 +228,12 @@ function celdasCsvConBarras(linea: string): string {
   return celdas.map(c => c.trim()).filter(Boolean).join(' | ');
 }
 
+/** true si el texto de un PDF no muestra ningún precio ni palabra de tabla de cotización: el membrete es texto pero la tabla es una
+ *  imagen pegada (caso INSTRU PRODUCTOS, 16-nov). Un texto con «$ 123», «total», «neto», «cantidad», «precio» ya trae su tabla. */
+export function textoPdfSinPrecios(t: string): boolean {
+  return !/(\$|US\$|USD|€|EUR)\s?\d/i.test(t) && !/\b(sub ?total|neto|total|cantidad|cant\.|precio|p\. ?unit)\b/i.test(t);
+}
+
 export async function extraerDatosCotizacionDeDocumento(
   archivoUrl: string, buffer: Buffer, mimeType: string,
 ): Promise<DatosExtraidosCotizacion | null> {
@@ -264,6 +270,17 @@ export async function extraerDatosCotizacionDeDocumento(
         const { renderPaginaPorFilas } = await import('@/app/lib/pdf-texto-por-filas');
         const t = ((await pdfParse(buffer, { pagerender: renderPaginaPorFilas })).text || '').trim();
         if (t.length >= 150) texto = t;
+        // 16-nov (3789-30-LE26, INSTRU PRODUCTOS #324): el membrete era texto pero la TABLA venía pegada como imagen. Con 150+
+        // caracteres de membrete se daba por leído y quedaba «sin precio». Si el texto no muestra ningún precio, se lee también
+        // la imagen (GLM-OCR; si no trae precios, Tesseract local) y se suma al texto del membrete.
+        if (texto && textoPdfSinPrecios(texto)) {
+          let ocrExtra = '';
+          try { ocrExtra = (await extraerTextoPdfPorUrlConGlmOcr(archivoUrl, 0)) || ''; } catch (e) { console.warn('[compras-cotizacion-ocr] OCR de la tabla en imagen falló:', String(e).slice(0, 120)); }
+          if (textoPdfSinPrecios(ocrExtra)) {
+            try { ocrExtra = await ocrPdfLocalTesseract(buffer); } catch (e) { console.warn('[compras-cotizacion-ocr] Tesseract de la tabla en imagen falló:', String(e).slice(0, 120)); }
+          }
+          if (!textoPdfSinPrecios(ocrExtra)) texto = `${texto}\n${ocrExtra.trim()}`;
+        }
       } catch (e) {
         console.warn('[compras-cotizacion-ocr] lectura directa del PDF falló, se usa OCR:', String(e).slice(0, 120));
       }
