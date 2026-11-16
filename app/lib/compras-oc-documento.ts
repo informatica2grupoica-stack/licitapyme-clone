@@ -4,7 +4,7 @@
 // Obuma no entrega el PDF por API y proveedores.findById tiene cuota diaria (se agotó en las pruebas), así que los datos del
 // proveedor salen de la ficha local y lo que no esté queda en blanco, como Obuma.
 import pool from '@/app/lib/db';
-import { centrosDeCostoCompleto, listarProductosObuma } from '@/app/lib/obuma';
+import { centrosDeCostoCompleto, listarProductosObuma, proveedorPorId, proveedoresObumaCompleto, type ObumaProveedor } from '@/app/lib/obuma';
 
 export interface OcDocumento {
   folio: string; fecha: string | null; estado: string | null;
@@ -42,6 +42,17 @@ async function fotoProducto(productoId: string | null): Promise<string | null> {
   } catch { return null; }
 }
 
+// Catálogo de proveedores de Obuma en memoria (10 min): proveedores.findById tiene cuota diaria y se agota; proveedores.list no.
+let catalogoProv: { at: number; porId: Map<string, ObumaProveedor> } | null = null;
+async function proveedorDeObuma(id: string): Promise<ObumaProveedor | null> {
+  try { return await proveedorPorId(id); } catch { /* cuota diaria agotada: se usa el catálogo completo */ }
+  if (!catalogoProv || Date.now() - catalogoProv.at > 10 * 60_000) {
+    const todos = await proveedoresObumaCompleto();
+    catalogoProv = { at: Date.now(), porId: new Map(todos.map(p => [String(p.proveedor_id), p])) };
+  }
+  return catalogoProv.porId.get(id) ?? null;
+}
+
 const n = (v: unknown) => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
 const texto = (v: unknown) => { const s = String(v ?? '').trim(); return s || null; };
 const fechaIso = (v: unknown) => { const s = String(v ?? '').trim(); return !s || s.startsWith('0000') ? null : s.slice(0, 10); };
@@ -60,11 +71,38 @@ export async function documentoOcObuma(licitacionCodigo: string, folio: string):
   let items: any[] = [];
   try { items = JSON.parse(r.items_json || '[]'); } catch { /* sin ítems */ }
 
+  // El id del proveedor puede faltar en la fila si la sincronización no pudo resolverlo (OC creada por nosotros): la cabecera de
+  // Obuma lo trae en rel_proveedor_id.
+  const proveedorId = texto(r.proveedor_id) || texto(raw.rel_proveedor_id);
   const [pv] = await pool.query(
-    `SELECT giro, direccion, comuna, telefono, correo, contacto_nombre FROM compras_proveedor WHERE obuma_proveedor_id = ? LIMIT 1`,
-    [r.proveedor_id],
+    `SELECT nombre_empresa, rut, giro, direccion, comuna, telefono, correo, contacto_nombre FROM compras_proveedor WHERE obuma_proveedor_id = ? LIMIT 1`,
+    [proveedorId],
   ) as any[];
   const p = (pv as any[])[0] || {};
+  let nombreProv = texto(r.proveedor_razon_social) || texto(p.nombre_empresa);
+  let rutProv = texto(r.proveedor_rut) || texto(p.rut);
+  // Último recurso: preguntarle a Obuma por el proveedor (tiene cuota diaria: si falla, queda en blanco como antes).
+  if ((!nombreProv || !rutProv || !p.direccion || !p.giro || !p.telefono || !p.correo) && proveedorId && proveedorId !== '0') {
+    try {
+      const o = await proveedorDeObuma(proveedorId);
+      if (o) {
+        nombreProv = nombreProv || texto(o.proveedor_razon_social) || texto(o.proveedor_nombre_fantasia);
+        rutProv = rutProv || texto(o.proveedor_rut);
+        p.giro = p.giro || texto(o.proveedor_giro_comercial);
+        p.direccion = p.direccion || texto(o.proveedor_direccion);
+        p.comuna = p.comuna || texto(o.proveedor_comuna);
+        p.contacto_nombre = p.contacto_nombre || texto(o.proveedor_contacto);
+        p.telefono = p.telefono || texto(o.proveedor_telefono) || texto(o.proveedor_celular);
+        p.correo = p.correo || texto(o.proveedor_email) || texto(o.proveedor_correo);
+        if ((nombreProv || rutProv) && (!r.proveedor_razon_social || !r.proveedor_rut)) {
+          await pool.query(
+            `UPDATE obuma_compras SET proveedor_id = COALESCE(proveedor_id, ?), proveedor_rut = COALESCE(proveedor_rut, ?), proveedor_razon_social = COALESCE(proveedor_razon_social, ?) WHERE licitacion_codigo = ? AND folio = ?`,
+            [proveedorId, rutProv, nombreProv, licitacionCodigo, folio],
+          ).catch(() => {});
+        }
+      }
+    } catch { /* Obuma sin respuesta: queda en blanco */ }
+  }
 
   // Nombre del centro de costo: viene como id; el catálogo de Obuma está cacheado en memoria.
   let centroCosto: string | null = null;
@@ -85,7 +123,7 @@ export async function documentoOcObuma(licitacionCodigo: string, folio: string):
     folio: String(r.folio), fecha: fechaIso(raw.compra_oc_fecha_ingreso), estado: r.estado ?? null,
     emisor: EMISORES[String(raw.rel_empresa_id)] ?? null,
     proveedor: {
-      nombre: r.proveedor_razon_social || '', rut: r.proveedor_rut ?? null, giro: texto(p.giro), direccion: texto(p.direccion),
+      nombre: nombreProv || '', rut: rutProv, giro: texto(p.giro), direccion: texto(p.direccion),
       comuna: comuna && !/^\d+$/.test(comuna) ? comuna : null, telefono: texto(p.telefono), email: texto(p.correo), contacto: texto(p.contacto_nombre),
     },
     fechaEntrega: texto(raw.compra_oc_fecha_entrega_productos), direccionEnvioFactura: texto(raw.compra_oc_direccion_envio_factura),
