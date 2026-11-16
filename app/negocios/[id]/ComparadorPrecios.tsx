@@ -92,7 +92,7 @@ function CantidadAComprar({ p, base, onGuardar }: { p: ProductoCmp; base: number
 
 export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, linksCosteo = {}, lecturaLink: lecLink, onCompraPorLink, seleccion, onSeleccionar, alertas, tecnico, onAgregar, compra, onElegirCelda, onComprarTodoAqui, acciones, onVerMatriz, costeoCompras = {}, onAgregarLinea, onCambiarCantidad, onEditarAdicionales }: MatrizProps & {
   /** Guarda la lista completa de componentes/adicionales de un producto en una cotización (editar un precio en el cuadro «Qué trae el kit»). */
-  onEditarAdicionales?: (cotizacionId: number, productoId: number, adicionales: AdicionalCotizacion[]) => Promise<void>;
+  onEditarAdicionales?: (cotizacionId: number, productoId: number, adicionales: AdicionalCotizacion[], precioBase?: number) => Promise<void>;
   onVerMatriz?: () => void; costeoCompras?: Record<number, { costo: number | null; link: string }>;
   /** Cambia la cantidad a comprar de un producto con observación, sin tocar el costeo (migration-179). */
   onCambiarCantidad?: (productoId: number, cantidad: number, motivo: string) => Promise<void>;
@@ -205,10 +205,25 @@ export function ComparadorPrecios({ productos, cotizaciones, costeado, venta, li
     const esKit = item.precioBase === 0 && ads.length > 0;
     const soloProducto = item.precioBase != null ? item.precioBase : item.precioUnitario != null ? item.precioUnitario - sumaAds : null;
     const pendientes = onAgregarLinea && !bloqueada ? (pendientesPorCot.get(c.id) ?? []) : [];
+    // Redondeo A PEDIDO (dueño, 16-11): el sistema guarda siempre lo que dice la cotización; solo una persona redondea, por oferta,
+    // las piezas y el precio del producto a peso entero, hacia arriba o hacia abajo.
+    const precioProducto = item.precioBase ?? (ads.length === 0 ? item.precioUnitario : null);
+    const conDecimales = (n: number | null | undefined) => n != null && Math.abs(Math.round(n * 100) / 100 - Math.round(n)) >= 0.005;
+    const baseConDecimales = precioProducto != null && precioProducto !== 0 && conDecimales(precioProducto);
+    const hayDecimales = baseConDecimales || ads.some(a => conDecimales(a.precioUnitario));
+    const redondear = (modo: 'arriba' | 'abajo') => {
+      if (!onEditarAdicionales) return;
+      const f = (n: number) => { const x = Math.round(n * 100) / 100; return modo === 'arriba' ? Math.ceil(x) : Math.floor(x); };
+      void onEditarAdicionales(c.id, p.id, ads.map(a => ({ concepto: a.concepto, cantidad: a.cantidad, precioUnitario: f(a.precioUnitario) })), baseConDecimales ? f(precioProducto!) : undefined);
+    };
     const acc = [
       ...(c.archivoUrl ? [{ label: 'Ver cotización', onClick: () => window.open(c.archivoUrl!, '_blank', 'noopener,noreferrer') }] : []),
       { label: 'Ver detalle del precio', onClick: () => onSeleccionar({ cotizacionId: c.id, productoId: p.id }) },
       ...(acciones ? [{ label: 'Cambiar producto', onClick: () => acciones.onAsignar(c.id) }] : []),
+      ...(onEditarAdicionales && !bloqueada ? [
+        { label: hayDecimales ? 'Redondear precios hacia arriba' : 'Redondear (no hay decimales)', onClick: () => redondear('arriba'), disabled: !hayDecimales },
+        ...(hayDecimales ? [{ label: 'Redondear precios hacia abajo', onClick: () => redondear('abajo') }] : []),
+      ] : []),
     ];
     return (
       <div key={c.id} className={`rounded-lg border px-3 py-2 transition-colors ${reemplazadaPor != null ? 'opacity-60 bg-zinc-50 ' : ''}${esElegida ? 'border-teal-500 bg-teal-50/60 ring-1 ring-teal-200' : detalleActivo ? 'border-teal-300 bg-teal-50/20' : 'border-zinc-200 hover:border-zinc-300'}`}>

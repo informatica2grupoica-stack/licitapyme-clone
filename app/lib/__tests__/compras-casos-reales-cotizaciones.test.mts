@@ -11,7 +11,7 @@ import { vaIncluidoEnOtro, precioEfectivo } from '../compras-precio-vs-costeo';
 // ── 3789-30-LE26 (negocio 1089), Sinergia Trade #319, 16-nov-2026 ─────────────────────────────────────────────────────────────────────
 // 30 «Set Instrumental de Podología». La cotización trae las piezas de los 30 sets (150 alicates, 90 pinzas…) y 5 % de descuento al final:
 // subtotal $3.429.102,90 − 5 % = neto $3.257.647,76. Errores reparados: el alicate de cabecera contado dos veces como «producto solo»
-// ($113.765 por set), el kit con base $0 tomado como «va incluido en otro producto», y cada pieza a peso entero hacia abajo.
+// ($113.765 por set), el kit con base $0 tomado como «va incluido en otro producto», y cada pieza redondeada (debe quedar EXACTA, con centavos).
 const TEXTO_SINERGIA = `LÍNEAS DEL DOCUMENTO (leídas y verificadas; el precio unitario ya trae el descuento de la línea):
 1. Alicate recto 14 cm (±1cm) | cantidad 150 | precio unitario 5454 | total 818100
 2. Pinza Anatómica 14,5 cm | cantidad 90 | precio unitario 1672 | total 150480
@@ -43,7 +43,7 @@ test('3789-30-LE26 Sinergia: se leen las 15 piezas con su cantidad y precio', ()
   assert.equal(lineas[3].precioUnitario, 2436.97);                  // los decimales del documento no se pierden al leer
 });
 
-test('3789-30-LE26 Sinergia: kit del lote → base $0, 15 componentes por set, nunca bajo el neto del documento', () => {
+test('3789-30-LE26 Sinergia: kit del lote → base $0, 15 componentes por set, igual al neto del documento', () => {
   const lineas = lineasDesdeTabla(TEXTO_SINERGIA);
   const raw = lineas.map(l => ({ concepto: l.descripcion, cantidadLinea: l.cantidad, precioUnitario: l.precioUnitario }));
   assert.equal(cotizacionEsPorUnidad(raw, SETS), false);            // trae el lote completo: se divide por 30
@@ -55,7 +55,8 @@ test('3789-30-LE26 Sinergia: kit del lote → base $0, 15 componentes por set, n
   assert.equal(k.adicionales.length, 15);
   const efectivo = precioEfectivo(k.base, k.adicionales)!;
   const exacto = NETO_DOC / SETS;                                    // $108.588,26 por set
-  assert.ok(efectivo >= exacto && efectivo - exacto < 40, `por set ${efectivo}`);   // piezas a peso hacia arriba: hoy $108.609
+  assert.equal(efectivo, 108588.3);                                  // lo que dice la cotización, sin redondear (no $108.609)
+  assert.ok(Math.abs(efectivo * SETS - NETO_DOC) <= 2, `lote ${efectivo * SETS}`);   // $3.257.649 vs $3.257.647,76: solo los centavos de sus totales de línea
   assert.ok(efectivo < 113765 - 4000, 'el alicate volvió a contarse dos veces');
   // Un kit con precio no «va incluido en otro producto» (se puede elegir solo); un producto en $0 sin precio sí.
   assert.equal(vaIncluidoEnOtro({ precioBase: 0, precioUnitario: efectivo }), false);

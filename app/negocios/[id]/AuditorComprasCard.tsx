@@ -1355,9 +1355,9 @@ export function AuditorComprasCard({ negocioId, puedeOperar, soloLectura = false
           toast.success('Cantidad a comprar guardada', 'El costeo no se tocó. Si la compra estaba aprobada, hay que volver a mandarla.');
           await cargar(); recargarCompartido();
         } : undefined}
-        onEditarAdicionales={puedeOperar ? async (cotizacionId, productoId, adicionales) => {
+        onEditarAdicionales={puedeOperar ? async (cotizacionId, productoId, adicionales, precioBase) => {
           try {
-            const r = await fetch(`/api/compras/${negocioId}/cotizaciones/${cotizacionId}/adicionales`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productoId, adicionales }) });
+            const r = await fetch(`/api/compras/${negocioId}/cotizaciones/${cotizacionId}/adicionales`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ productoId, adicionales, ...(precioBase != null ? { precioBase } : {}) }) });
             const d = await r.json().catch(() => ({}));
             if (!r.ok || !d.success) throw new Error(d.error || 'No se pudo guardar el precio.');
             toast.success('Precio guardado', 'El total del producto ya lo incluye.');
