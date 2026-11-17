@@ -141,6 +141,7 @@ PISTAS:
 - "Competencia": agrupa oferta_competencia por proveedor_nombre (cuántas ofertas, cuántas veces ganó = estado de la oferta / adjudicación); excluye es_nuestra=1.
 - "Ganadas/perdidas nuestras": negocios con estado_pipeline='ADJUDICADA' / 'PERDIDA', activo=1.
 - Fechas relativas: usa CURDATE() y DATE_SUB.
+- Carga de trabajo («cuántos negocios tiene cada persona», «en qué etapa están»): cuenta solo los VIGENTES (ASIGNADO, EN_PROCESO, ANEXOS, VISADO, POSTULADA, POSIBLE_ADJ) y dilo en la respuesta; cuenta todos solo si piden «todos», «históricos» o «descartados».
 - Para «sin X», «que no tienen X» o «pendientes de X»: LEFT JOIN a X y WHERE X.id IS NULL (o NOT EXISTS). NUNCA un INNER JOIN con IS NULL: devuelve 0 filas siempre.`;
 
 const SYS_SQL = `Eres el analista de datos de LICITANK. Conviertes la pregunta del usuario en UNA consulta SQL de solo lectura sobre el esquema dado.
@@ -163,6 +164,7 @@ Respondes con los DATOS que se te entregan: son el resultado real de una consult
 - Los rankings largos van en lista numerada; resalta los números y deja claro en una frase qué se contó (ej. "licitaciones que mencionan 'retroexcavadora'").
 - Si la respuesta depende de datos que la COBERTURA muestra incompletos (documentos sin texto leído, pocas ofertas de competidores, pocas adjudicaciones guardadas), añade una línea "Lo que no tenemos:" con la cifra concreta de lo que falta. No lo digas si no afecta a esta respuesta.
 - Si se buscó por contenido, cita siempre licitación y documento de cada hallazgo y reproduce el fragmento relevante entre comillas, sin completar lo que el fragmento no dice.
+- Respuesta corta: si hay más de 10 filas, muestra solo las 10 más relevantes, di el total y ofrece el resto («¿quieres el listado completo?»). Máximo unas 150 palabras, salvo que pidan el listado completo.
 - Si ayuda, cierra con una frase natural que proponga el siguiente paso útil.`;
 
 let tablasBD: Set<string> | null = null;
@@ -303,6 +305,7 @@ const PISTAS_SECCION = `PISTAS:
 - negocios: una fila por licitación que tomamos; usa activo = 1. estado_pipeline: 'ASIGNADO','EN_PROCESO','ANEXOS','VISADO','POSTULADA','POSIBLE_ADJ','ADJUDICADA' (= GANADA),'PERDIDA','DESIERTA','REVOCADA','DESCARTADA'. negocios.licitacion_codigo = licitaciones_cache.codigo.
 - Las tablas con negocio_id se unen con negocios.id. Las que traen licitacion_codigo se unen con licitaciones_cache.codigo.
 - Fechas relativas: CURDATE() y DATE_SUB. Para totales usa SUM/COUNT; los números los pone la base, no tú.
+- Carga de trabajo («cuántos negocios tiene cada persona», «en qué etapa están»): cuenta solo los VIGENTES (ASIGNADO, EN_PROCESO, ANEXOS, VISADO, POSTULADA, POSIBLE_ADJ) y dilo en la respuesta; cuenta todos solo si piden «todos», «históricos» o «descartados».
 - Para «sin X», «que no tienen X» o «pendientes de X»: LEFT JOIN a X y WHERE X.id IS NULL (o NOT EXISTS). NUNCA un INNER JOIN con IS NULL: devuelve 0 filas siempre.
 - Los textos largos se recortan con SUBSTRING; nunca los selecciones enteros.`;
 

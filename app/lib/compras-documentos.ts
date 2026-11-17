@@ -14,7 +14,7 @@ import { clienteDeNegocio } from '@/app/lib/tenant';
 import fs from 'fs';
 import path from 'path';
 
-import { armarHtml, fechaLarga, type CampoPlantilla, type Plantilla, type DocumentoGenerado, type ContextoDocumento, type PersonaDoc } from '@/app/lib/compras-documentos-render';
+import { armarHtml, fechaLarga, derivarCampos, HOJA_MM, type LayoutDoc, type ElementoLayout, type TipoElemento, type CampoPlantilla, type Plantilla, type DocumentoGenerado, type ContextoDocumento, type PersonaDoc } from '@/app/lib/compras-documentos-render';
 export type { CampoPlantilla, Plantilla, DocumentoGenerado, ContextoDocumento, PersonaDoc };
 export { fechaLarga, armarHtml };
 
@@ -123,7 +123,10 @@ async function empresaDelNegocio(negocioId: number) {
 
 function filaAPlantilla(r: any): Plantilla {
   let campos: CampoPlantilla[] = []; try { campos = JSON.parse(r.campos_json || '[]'); } catch { /* sin campos */ }
-  return { id: r.id, clave: r.clave, nombre: r.nombre, descripcion: r.descripcion, porPersona: !!r.por_persona, campos, cuerpoHtml: r.cuerpo_html };
+  // Plantilla hecha en el editor: el cuerpo es el JSON del diseño (las escritas a mano en el código guardan HTML).
+  let layout: LayoutDoc | null = null;
+  if (String(r.cuerpo_html || '').startsWith('{')) { try { layout = JSON.parse(r.cuerpo_html); } catch { layout = null; } }
+  return { id: r.id, clave: r.clave, nombre: r.nombre, descripcion: r.descripcion, porPersona: !!r.por_persona, campos, cuerpoHtml: layout ? '' : r.cuerpo_html, layout, editable: String(r.clave).startsWith('custom-') && !!layout };
 }
 
 export async function plantillasDelNegocio(negocioId: number): Promise<{ habilitado: boolean; plantillas: Plantilla[]; contexto: ContextoDocumento | null }> {
@@ -182,16 +185,19 @@ export async function pdfDeDocumento(negocioId: number, docId: number): Promise<
   const [rows] = await pool.query(`SELECT * FROM compras_doc_generado WHERE id = ? AND negocio_id = ? LIMIT 1`, [docId, negocioId]) as any;
   const r = (rows as any[])[0]; if (!r) throw new Error('Ese documento no es de este negocio.');
   const { plantillas, contexto } = await plantillasDelNegocio(negocioId);
-  const p = plantillas.find(x => x.id === r.plantilla_id); if (!p || !contexto) throw new Error('La plantilla de este documento ya no está disponible.');
+  // Una plantilla que se quitó de la lista sigue sirviendo para regenerar los documentos que ya hizo.
+  let p = plantillas.find(x => x.id === r.plantilla_id);
+  if (!p) { const [pr] = await pool.query('SELECT * FROM compras_doc_plantilla WHERE id = ? LIMIT 1', [r.plantilla_id]) as any; if ((pr as any[])[0]) p = filaAPlantilla((pr as any[])[0]); }
+  if (!p || !contexto) throw new Error('La plantilla de este documento ya no está disponible.');
   const datos = JSON.parse(r.datos_json) as { valores: Record<string, string>; personas: PersonaDoc[] };
   // El navegador que imprime no sale a internet: los logos del banco que usa este documento se incrustan.
   const logos = { ...(contexto.logos || {}) };
   for (const campo of p.campos) {
     if (campo.tipo !== 'logo') continue;
     const sel = datos.valores[campo.clave] ?? campo.valorPorDefecto ?? '';
-    if (/^bd+$/.test(sel) && logos[sel]) { const uri = await imagenComoUri(logos[sel]); if (uri) logos[sel] = uri; else delete logos[sel]; }
+    if (/^b\d+$/.test(sel) && logos[sel]) { const uri = await imagenComoUri(logos[sel]); if (uri) logos[sel] = uri; else delete logos[sel]; }
   }
-  const pdf = await generarInformePdf(armarHtml(p, datos.valores, { ...contexto, logos }, datos.personas));
+  const pdf = await generarInformePdf(armarHtml(p, datos.valores, { ...contexto, logos }, datos.personas), { sinMargen: !!p.layout });
   const res = { pdf, nombre: `${p.clave}-${contexto.licitacionCodigo || negocioId}.pdf` };
   cachePdf.set(clave, res); if (cachePdf.size > 40) cachePdf.delete(cachePdf.keys().next().value as string);
   return res;
@@ -218,7 +224,7 @@ export async function eliminarDocumento(negocioId: number, docId: number): Promi
 
 // ── Banco de logos (por cliente): cualquier logo que el equipo quiera poner en certificados, actas y otros documentos ──────────────────
 export interface LogoBanco { id: number; nombre: string; url: string }
-const MIME_LOGO = /.(png|jpe?g|webp)$/i;
+const MIME_LOGO = /\.(png|jpe?g|webp)$/i;
 
 export async function listarLogos(clienteId: number): Promise<LogoBanco[]> {
   await asegurarTablas();
@@ -241,4 +247,65 @@ export async function eliminarLogo(clienteId: number, id: number): Promise<void>
   await asegurarTablas();
   const [res] = await pool.query('DELETE FROM compras_doc_logo WHERE id = ? AND cliente_id = ?', [id, clienteId]) as any;
   if (!res.affectedRows) throw new Error('Ese logo no es de tu empresa.');
+}
+
+// ── Editor de plantillas ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+const TIPOS_ELEMENTO: TipoElemento[] = ['texto', 'logo', 'linea', 'caja', 'tabla', 'firma'];
+const mm = (n: unknown, max: number) => { const v = Number(n); return Number.isFinite(v) ? Math.min(max, Math.max(0, Math.round(v * 100) / 100)) : 0; };
+const colorOk = (c: unknown) => (typeof c === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(c) ? c : undefined);
+
+/** Deja solo lo que el editor sabe dibujar (nunca HTML ni estilos libres): el diseño viene del navegador y se vuelve a pintar en el PDF. */
+export function limpiarLayout(entrada: any): LayoutDoc {
+  const lista = Array.isArray(entrada?.elementos) ? entrada.elementos.slice(0, 80) : [];
+  const ids = new Set<string>();
+  const elementos: ElementoLayout[] = [];
+  for (const e of lista) {
+    if (!TIPOS_ELEMENTO.includes(e?.tipo)) continue;
+    const id = /^[a-z0-9]{3,10}$/.test(String(e.id)) && !ids.has(e.id) ? String(e.id) : Math.random().toString(36).slice(2, 8);
+    ids.add(id);
+    const el: ElementoLayout = { id, tipo: e.tipo, x: mm(e.x, HOJA_MM.w), y: mm(e.y, HOJA_MM.h), w: Math.max(2, mm(e.w, HOJA_MM.w)), h: Math.max(0, mm(e.h, HOJA_MM.h)) };
+    if (e.tipo === 'texto') {
+      el.texto = String(e.texto ?? '').slice(0, 3000); el.tam = Math.min(60, Math.max(5, Number(e.tam) || 11));
+      el.negrita = !!e.negrita; el.cursiva = !!e.cursiva; el.subrayado = !!e.subrayado; el.serif = !!e.serif;
+      el.alinea = ['left', 'center', 'right'].includes(e.alinea) ? e.alinea : 'left'; el.color = colorOk(e.color);
+    } else if (e.tipo === 'logo') {
+      el.logo = /^(empresa|b\d+)?$/.test(String(e.logo ?? '')) ? String(e.logo ?? '') : ''; el.etiqueta = String(e.etiqueta || 'Logo').slice(0, 80);
+    } else if (e.tipo === 'tabla') {
+      el.etiqueta = String(e.etiqueta || 'Tabla').slice(0, 80);
+      el.columnas = (Array.isArray(e.columnas) ? e.columnas : []).slice(0, 8).map((c: unknown) => String(c ?? '').slice(0, 40));
+      if (!el.columnas?.length) el.columnas = ['Detalle']; el.filasMin = Math.min(40, Math.max(0, Math.round(Number(e.filasMin) || 0)));
+    } else if (e.tipo === 'linea' || e.tipo === 'caja') {
+      el.grosor = Math.min(3, Math.max(0.25, Number(e.grosor) || 0.5)); el.color = colorOk(e.color); if (e.tipo === 'caja') el.relleno = colorOk(e.relleno);
+    }
+    elementos.push(el);
+  }
+  return { v: 1, elementos };
+}
+
+export async function guardarPlantilla(negocioId: number, d: { id?: number; nombre: string; descripcion?: string; porPersona: boolean; layout: any }): Promise<number> {
+  await asegurarTablas();
+  const e = await empresaDelNegocio(negocioId); if (!e) throw new Error('Negocio no encontrado.');
+  const rut = rutComparable(e.rut);
+  const nombre = String(d.nombre || '').trim().slice(0, 200); if (!nombre) throw new Error('Ponle un nombre a la plantilla.');
+  const layout = limpiarLayout(d.layout); if (!layout.elementos.length) throw new Error('La hoja está vacía: agrega al menos un elemento.');
+  const campos = derivarCampos(layout);
+  const descripcion = String(d.descripcion || '').trim().slice(0, 400) || null;
+  if (d.id) {
+    const [r] = await pool.query("UPDATE compras_doc_plantilla SET nombre = ?, descripcion = ?, por_persona = ?, campos_json = ?, cuerpo_html = ? WHERE id = ? AND empresa_rut = ? AND clave LIKE 'custom-%'",
+      [nombre, descripcion, d.porPersona ? 1 : 0, JSON.stringify(campos), JSON.stringify(layout), d.id, rut]) as any;
+    if (!r.affectedRows) throw new Error('Esa plantilla no se puede editar.');
+    for (const k of [...cachePdf.keys()]) cachePdf.delete(k); // los PDF de esta plantilla se rehacen con el diseño nuevo
+    return d.id;
+  }
+  const [r] = await pool.query('INSERT INTO compras_doc_plantilla (empresa_rut, clave, nombre, descripcion, por_persona, campos_json, cuerpo_html, created_at) VALUES (?,?,?,?,?,?,?,?)',
+    [rut, 'custom-' + Date.now().toString(36), nombre, descripcion, d.porPersona ? 1 : 0, JSON.stringify(campos), JSON.stringify(layout), ahoraChileSQL()]) as any;
+  return r.insertId as number;
+}
+
+/** Se quita de la lista (activa = 0): los documentos que ya se hicieron con ella se pueden seguir viendo. */
+export async function eliminarPlantilla(negocioId: number, id: number): Promise<void> {
+  await asegurarTablas();
+  const e = await empresaDelNegocio(negocioId); if (!e) throw new Error('Negocio no encontrado.');
+  const [r] = await pool.query("UPDATE compras_doc_plantilla SET activa = 0 WHERE id = ? AND empresa_rut = ? AND clave LIKE 'custom-%'", [id, rutComparable(e.rut)]) as any;
+  if (!r.affectedRows) throw new Error('Esa plantilla no se puede quitar.');
 }

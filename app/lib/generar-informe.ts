@@ -30,7 +30,7 @@ async function resolverChromium(): Promise<{ executablePath: string; args: strin
 }
 
 /** Renderiza un HTML autocontenido a PDF A4 (buffer). */
-export async function generarInformePdf(html: string): Promise<Buffer> {
+export async function generarInformePdf(html: string, opciones: { sinMargen?: boolean } = {}): Promise<Buffer> {
   const { executablePath, args } = await resolverChromium();
   const browser = await puppeteerCore.launch({ args, executablePath, headless: true });
   try {
@@ -39,7 +39,7 @@ export async function generarInformePdf(html: string): Promise<Buffer> {
     await page.setContent(html, { waitUntil: 'load', timeout: 30_000 });
     const pdf = await page.pdf({
       format: 'A4', printBackground: true,
-      margin: { top: '14mm', bottom: '14mm', left: '12mm', right: '12mm' },
+      margin: opciones.sinMargen ? { top: '0', bottom: '0', left: '0', right: '0' } : { top: '14mm', bottom: '14mm', left: '12mm', right: '12mm' },
     });
     return Buffer.from(pdf);
   } finally {

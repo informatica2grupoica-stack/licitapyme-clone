@@ -21,6 +21,10 @@ import { idsEquivalentes } from '@/app/lib/pipeline';
 // IDs (vigente + legados) que cuentan como "postulada" — ver misma nota en detectar-aperturas.ts.
 const ESTADOS_POSTULADA = idsEquivalentes('POSTULADA');
 const IN_POSTULADA = ESTADOS_POSTULADA.map(() => '?').join(', ');
+// Estados cuyas ofertas se LEEN (nov-2026): también los ya resueltos. Antes solo se leían las postuladas, y un negocio que pasaba a PERDIDA/ADJUDICADA antes de
+// leerse quedaba sin competencia para siempre (188 negocios sin ofertas; el chat no podía responder quién ganó). El AVISO sigue siendo solo para postuladas.
+const ESTADOS_LEER = [...new Set([...ESTADOS_POSTULADA, ...idsEquivalentes('POSIBLE_ADJ'), ...idsEquivalentes('PERDIDA'), ...idsEquivalentes('ADJUDICADA')])];
+const IN_LEER = ESTADOS_LEER.map(() => '?').join(', ');
 
 const CONCURRENCIA     = 2;        // la apertura es más pesada que la ficha: sé gentil con MP
 const PRESUPUESTO_MS   = 260_000;  // margen bajo maxDuration=300
@@ -224,11 +228,11 @@ export async function contarPendientesOfertas(): Promise<number> {
          FROM licitacion_apertura la
          JOIN negocios n
            ON n.licitacion_codigo = la.licitacion_codigo
-          AND n.activo = TRUE AND n.estado_pipeline IN (${IN_POSTULADA})
+          AND n.activo = TRUE AND n.estado_pipeline IN (${IN_LEER})
         WHERE la.aperturada = 1
           AND la.ofertas_leidas_en IS NULL
           AND la.ofertas_intentos < 6`,
-      ESTADOS_POSTULADA,
+      ESTADOS_LEER,
     ) as any;
     return Number((rows as any[])[0]?.n) || 0;
   } catch (e) {
@@ -250,13 +254,13 @@ export async function procesarOfertasPendientes(lote = 10): Promise<{
          FROM licitacion_apertura la
          JOIN negocios n
            ON n.licitacion_codigo = la.licitacion_codigo
-          AND n.activo = TRUE AND n.estado_pipeline IN (${IN_POSTULADA})
+          AND n.activo = TRUE AND n.estado_pipeline IN (${IN_LEER})
         WHERE la.aperturada = 1
           AND la.ofertas_leidas_en IS NULL
           AND la.ofertas_intentos < 6
         ORDER BY la.detectada_en DESC
         LIMIT ${Math.max(1, Math.min(lote, 50))}`,
-      ESTADOS_POSTULADA,
+      ESTADOS_LEER,
     ) as any;
     codigos = (rows as any[]).map(r => String(r.codigo));
   } catch (e) {

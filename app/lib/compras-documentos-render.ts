@@ -4,6 +4,63 @@ export interface CampoPlantilla { clave: string; etiqueta: string; tipo: 'texto'
 export interface Plantilla {
   id: number; clave: string; nombre: string; descripcion: string | null; porPersona: boolean;
   campos: CampoPlantilla[]; cuerpoHtml: string;
+  /** Plantillas hechas en el editor: el diseño es un JSON (elementos con posición en mm sobre una hoja A4) y se puede volver a editar. */
+  layout?: LayoutDoc | null; editable?: boolean;
+}
+
+// ── Plantillas diseñadas en el editor ────────────────────────────────────────────────────────────────────────────────────────────
+export type TipoElemento = 'texto' | 'logo' | 'linea' | 'caja' | 'tabla' | 'firma';
+export interface ElementoLayout {
+  id: string; tipo: TipoElemento; x: number; y: number; w: number; h: number; // mm sobre la hoja A4 (210 x 297)
+  texto?: string; tam?: number; negrita?: boolean; cursiva?: boolean; subrayado?: boolean; alinea?: 'left' | 'center' | 'right'; color?: string; serif?: boolean;
+  logo?: string; etiqueta?: string; columnas?: string[]; filasMin?: number; grosor?: number; relleno?: string;
+}
+export interface LayoutDoc { v: 1; elementos: ElementoLayout[] }
+export const HOJA_MM = { w: 210, h: 297 };
+/** Variables que se llenan solas (o por persona); cualquier otra {{palabra}} escrita en un texto se vuelve un campo del formulario. */
+export const VARIABLES_FIJAS: { k: string; n: string }[] = [
+  { k: 'empresa', n: 'Empresa' }, { k: 'rut_empresa', n: 'RUT de la empresa' }, { k: 'licitacion_codigo', n: 'Código de la licitación' },
+  { k: 'licitacion_nombre', n: 'Nombre de la licitación' }, { k: 'organismo', n: 'Organismo comprador' }, { k: 'fecha_larga', n: 'Fecha (en letras)' },
+  { k: 'representante', n: 'Representante' }, { k: 'representante_cargo', n: 'Cargo del representante' }, { k: 'nombre', n: 'Nombre de la persona' }, { k: 'rut', n: 'RUT de la persona' },
+];
+const RESERVADAS = new Set([...VARIABLES_FIJAS.map(v => v.k), 'unidad_de', 'logo_img', 'emp_der', 'timbre_img', 'firma_img']);
+const humanizar = (k: string) => { const t = k.replace(/_/g, ' ').trim(); return t.charAt(0).toUpperCase() + t.slice(1); };
+const num = (n: number) => Math.round(n * 100) / 100;
+
+/** Campos del formulario que salen del diseño: una variable propia por cada {{palabra}}, un selector por logo, una tabla por tabla. */
+export function derivarCampos(layout: LayoutDoc): CampoPlantilla[] {
+  const campos: CampoPlantilla[] = []; const vistos = new Set<string>();
+  const ordenados = [...layout.elementos].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  const agregar = (c: CampoPlantilla) => { if (vistos.has(c.clave)) return; vistos.add(c.clave); campos.push(c); };
+  for (const el of ordenados) {
+    if (el.tipo === 'logo') agregar({ clave: 'logo_' + el.id, etiqueta: el.etiqueta || 'Logo', tipo: 'logo', valorPorDefecto: el.logo || '', donde: 'Se elige del banco de logos.' });
+    else if (el.tipo === 'tabla') agregar({ clave: 'tabla_' + el.id, etiqueta: el.etiqueta || 'Tabla', tipo: 'tabla', columnas: el.columnas || [], filasMin: el.filasMin || 0, donde: 'Una fila por línea; las celdas se separan con «|».', ayuda: (el.columnas || []).slice(0, -1).map(c => c || '…').join(' | ') });
+    else if (el.tipo === 'texto') {
+      for (const m of String(el.texto || '').matchAll(/\{\{(\w+)\}\}/g)) {
+        const k = m[1];
+        if (k === 'fecha_larga') agregar({ clave: 'fecha', etiqueta: 'Fecha del documento', tipo: 'fecha', donde: 'Se escribe en letras donde pusiste la fecha.' });
+        else if (!RESERVADAS.has(k)) agregar({ clave: k, etiqueta: humanizar(k), tipo: 'texto' });
+      }
+    }
+  }
+  return campos;
+}
+
+/** HTML de la hoja diseñada. Los datos van como {{variable}} y los resuelve armarHtml (igual que en las plantillas escritas a mano). */
+export function htmlLayout(layout: LayoutDoc): string {
+  return layout.elementos.map(el => {
+    const pos = `left:${num(el.x)}mm;top:${num(el.y)}mm;width:${num(el.w)}mm;height:${num(el.h)}mm`;
+    const col = /^#[0-9a-fA-F]{3,8}$/.test(el.color || '') ? el.color : '#1f1f1f';
+    if (el.tipo === 'texto') {
+      const est = `font-size:${el.tam || 11}pt;font-weight:${el.negrita ? 700 : 400};font-style:${el.cursiva ? 'italic' : 'normal'};text-decoration:${el.subrayado ? 'underline' : 'none'};text-align:${el.alinea || 'left'};color:${col};font-family:${el.serif ? "Georgia,'Times New Roman',serif" : "Arial,Helvetica,sans-serif"}`;
+      return `<div class="el" style="${pos};${est}">${esc(el.texto || '').replace(/\n/g, '<br>')}</div>`;
+    }
+    if (el.tipo === 'logo') return `<div class="el logoel" style="${pos}">{{logo_${el.id}}}</div>`;
+    if (el.tipo === 'linea') return `<div class="el" style="left:${num(el.x)}mm;top:${num(el.y)}mm;width:${num(el.w)}mm;height:0;border-top:${Math.max(0.25, el.grosor || 0.5)}mm solid ${col}"></div>`;
+    if (el.tipo === 'caja') return `<div class="el" style="${pos};border:${Math.max(0.25, el.grosor || 0.4)}mm solid ${col};${/^#[0-9a-fA-F]{3,8}$/.test(el.relleno || '') ? 'background:' + el.relleno : ''}"></div>`;
+    if (el.tipo === 'tabla') return `<div class="el" style="${pos}">{{tabla_${el.id}}}</div>`;
+    return `<div class="el firmael" style="${pos}"><div class="fw">{{firma_img}}{{timbre_img}}</div><div class="linea"></div><b>{{representante}}</b><br>{{representante_cargo}}<br>{{empresa}}</div>`;
+  }).join('');
 }
 export interface DocumentoGenerado { id: number; plantillaId: number; plantillaNombre: string; titulo: string; personas: number; creadoPor: string | null; createdAt: string }
 export interface LogoOpcion { clave: string; nombre: string }
@@ -25,10 +82,10 @@ export function armarHtml(p: Plantilla, valores: Record<string, string>, ctx: Co
   const marca = (txt: string, etiqueta: string) => vista ? (txt ? `<span class="v">${txt}</span>` : `<span class="v vacio">[${esc(etiqueta)}]</span>`) : txt;
   const hojas = (p.porPersona ? personas : [{ nombre: '', rut: '' }]).map(per => {
     const base: Record<string, string> = {
-      empresa: ctx.empresa, rut_empresa: ctx.rutEmpresa, licitacion_codigo: ctx.licitacionCodigo, organismo: ctx.organismo,
+      empresa: ctx.empresa, rut_empresa: ctx.rutEmpresa, licitacion_codigo: ctx.licitacionCodigo, licitacion_nombre: ctx.licitacionNombre, organismo: ctx.organismo,
       unidad_de: valores.unidad?.trim() ? ' de ' + valores.unidad.trim() : '', representante: ctx.representante || '', representante_cargo: ctx.representanteCargo || '', nombre: per.nombre, rut: per.rut, fecha_larga: fechaLarga(valores.fecha || ctx.hoy),
     };
-    return p.cuerpoHtml.replace(/\{\{(\w+)\}\}/g, (_m, k: string) => {
+    return (p.layout ? htmlLayout(p.layout) : p.cuerpoHtml).replace(/\{\{(\w+)\}\}/g, (_m, k: string) => {
       // Imágenes de la empresa (data URI armado por el servidor): único HTML que no se escapa.
       if (k === 'logo_img') return ctx.logoUri ? `<img src="${ctx.logoUri}" alt="">` : ''; // sin logo (Inversiones Claro) el encabezado queda igual, con ese lado vacío
       if (k === 'emp_der') return `<b>${esc(ctx.empresa)}</b><br>`;
@@ -36,7 +93,7 @@ export function armarHtml(p: Plantilla, valores: Record<string, string>, ctx: Co
       if (k === 'firma_img') return ctx.firmaUri ? `<img class="firmaimg" src="${ctx.firmaUri}" alt="">` : '<div style="height:56px"></div>';
       const campo = p.campos.find(c => c.clave === k);
       // Logos elegidos del banco: clave de la opción → imagen (en el PDF ya viene como data URI). Sin valor guardado vale el de la plantilla.
-      if (/^logo_(izq|centro|der)$/.test(k)) { const src = ctx.logos?.[valores[k] ?? campo?.valorPorDefecto ?? '']; return src ? `<img src="${src}" alt="">` : ''; }
+      if (/^logo_\w+$/.test(k) && !['logo_img'].includes(k)) { const src = ctx.logos?.[valores[k] ?? campo?.valorPorDefecto ?? '']; return src ? `<img src="${src}" alt="">` : ''; }
       const v = k in base ? base[k] : (valores[k] ?? '');
       if (k in base && !['nombre', 'rut', 'unidad_de'].includes(k)) return esc(v); // lo que se llena solo no se marca
       const etiqueta = campo?.etiqueta || ETIQUETAS_FIJAS[k] || k;
@@ -81,7 +138,9 @@ export function armarHtml(p: Plantilla, valores: Record<string, string>, ctx: Co
   .tabla{width:100%;border-collapse:collapse;margin-top:2px;font-size:12px;border:2px solid #222} .tabla th,.tabla td{border:1.5px solid #222;padding:4px 6px;text-align:center;height:20px} .tabla th{font-weight:400;font-size:13px} .tabla td:nth-child(4){text-align:left}
   .acta .datos{margin:20px 0 0 130px;font-size:11.5px} .acta .datos div{display:flex;margin:5px 0} .acta .datos b.k{font-weight:400;width:160px} .acta .datos .val{font-size:13px;font-weight:700}
   .acta .rec{margin:34px 0 0 130px;font-size:11.5px} .acta .rec .fila{display:flex;align-items:flex-end;margin-top:32px} .acta .rec .fila .k{width:160px;padding-bottom:2px} .acta .rec .fila .raya{flex:1;border-bottom:1px solid #222;height:24px;max-width:430px} .acta .rec .fila .fr{margin-left:28px;white-space:nowrap;font-size:12.5px}
+  .hoja.lay{height:296.6mm;width:210mm;position:relative;overflow:hidden}
+  .el{position:absolute;box-sizing:border-box;overflow:hidden;line-height:1.35;word-wrap:break-word} .logoel img{width:100%;height:100%;object-fit:contain;display:block;object-position:left center} .el.firmael{overflow:visible;text-align:center;font-size:12px;line-height:1.4;color:#555} .firmael b{color:#2b2b2b;font-size:13px} .firmael .fw{width:100%;max-width:250px} .firmael .linea{width:100%;max-width:250px}
   .v{background:#fff3b0;border-radius:3px;padding:0 2px;box-decoration-break:clone}.bloque{display:block;padding:2px 6px}.vacio{background:#eceff1;color:#78909c;font-style:normal;font-weight:400;letter-spacing:0;text-transform:none}
-  </style></head><body>${hojas.map(h => `<div class="hoja">${h}</div>`).join('')}</body></html>`;
+  </style></head><body>${hojas.map(h => `<div class="hoja${p.layout ? ' lay' : ''}">${h}</div>`).join('')}</body></html>`;
 }
 

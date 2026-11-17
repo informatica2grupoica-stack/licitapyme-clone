@@ -9,10 +9,11 @@ import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { Modal } from '@/app/components/ui/Modal';
 import { GuiaDespachoObumaCard } from './GuiaDespachoObumaCard';
-import { IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconDownload as Download, IconFilePlus as FilePlus, IconUsers as Users, IconFileText as FileText, IconPhoto as Photo, IconUpload as Upload } from '@tabler/icons-react';
+import { EditorPlantillaDocumento } from './EditorPlantillaDocumento';
+import { IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconDownload as Download, IconFilePlus as FilePlus, IconUsers as Users, IconFileText as FileText, IconPhoto as Photo, IconPencil as Pencil, IconLayoutDashboard as Diseno, IconUpload as Upload } from '@tabler/icons-react';
 
 interface Campo { clave: string; etiqueta: string; tipo: 'texto' | 'lista' | 'fecha' | 'tabla' | 'logo'; valorPorDefecto?: string; ayuda?: string; donde?: string }
-interface Plantilla { id: number; nombre: string; descripcion: string | null; porPersona: boolean; campos: Campo[]; cuerpoHtml: string }
+interface Plantilla { id: number; nombre: string; descripcion: string | null; porPersona: boolean; campos: Campo[]; cuerpoHtml: string; layout?: any; editable?: boolean }
 interface Contexto { logos?: Record<string, string>; logosOpciones?: { clave: string; nombre: string }[]; empresa: string; rutEmpresa: string; licitacionCodigo: string; licitacionNombre: string; organismo: string; hoy: string; representante?: string; representanteCargo?: string; logoUri?: string | null; firmaUri?: string | null; timbreUri?: string | null }
 interface Generado { id: number; titulo: string; plantillaNombre: string; personas: number; creadoPor: string | null; createdAt: string }
 interface Persona { nombre: string; rut: string }
@@ -32,6 +33,7 @@ export function GestionDocumentosCard({ negocioId }: { negocioId: number }) {
   const [personas, setPersonas] = useState<Persona[]>([{ nombre: '', rut: '' }]);
   const [generando, setGenerando] = useState(false);
   const [visor, setVisor] = useState<{ url: string; titulo: string } | null>(null);
+  const [editor, setEditor] = useState<{ plantilla: Plantilla | null } | null>(null);
   const [bancoAbierto, setBancoAbierto] = useState(false);
   const [logoNombre, setLogoNombre] = useState('');
   const [logoArchivo, setLogoArchivo] = useState<File | null>(null);
@@ -96,6 +98,17 @@ export function GestionDocumentosCard({ negocioId }: { negocioId: number }) {
     } catch (e: any) { toast.error('No se pudo quitar el logo', e.message); }
   };
 
+  const quitarPlantilla = async (p: Plantilla) => {
+    const ok = await confirmar({ titulo: '¿Quitar esta plantilla?', mensaje: `«${p.nombre}» dejará de aparecer en «Nuevo:». Los documentos que ya hiciste con ella siguen guardados.`, confirmarLabel: 'Quitar', peligro: true });
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/documentos-plantillas?id=${p.id}`, { method: 'DELETE' });
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'No se pudo quitar.');
+      await cargar();
+    } catch (e: any) { toast.error('No se pudo quitar la plantilla', e.message); }
+  };
+
   const eliminar = async (h: Generado) => {
     const ok = await confirmar({ titulo: '¿Eliminar este documento?', mensaje: `${h.titulo} dejará de estar en este negocio. Se puede volver a generar, pero esta acción no se puede deshacer.`, confirmarLabel: 'Eliminar', peligro: true });
     if (!ok) return;
@@ -117,11 +130,20 @@ export function GestionDocumentosCard({ negocioId }: { negocioId: number }) {
       {ctx?.rutEmpresa.replace(/[^0-9kK]/g, '') === '769026592' && <GuiaDespachoObumaCard negocioId={negocioId} />}
       <div className="flex flex-wrap items-center gap-2">
         {plantillas.map(p => (
-          <button key={p.id} onClick={() => abrir(p)} title={p.descripcion || undefined}
-            className="inline-flex items-center gap-2 text-[13px] font-semibold px-3.5 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition-colors">
-            <FilePlus size={16} /> Nuevo: {p.nombre}
-          </button>
+          <span key={p.id} className="inline-flex items-stretch rounded-lg overflow-hidden bg-teal-600">
+            <button onClick={() => abrir(p)} title={p.descripcion || undefined}
+              className="inline-flex items-center gap-2 text-[13px] font-semibold px-3.5 py-2 text-white hover:bg-teal-700 transition-colors">
+              <FilePlus size={16} /> Nuevo: {p.nombre}
+            </button>
+            {p.editable && <>
+              <button onClick={() => setEditor({ plantilla: p })} title="Editar el diseño de esta plantilla" aria-label="Editar plantilla" className="px-2 text-white/90 border-l border-white/25 hover:bg-teal-700"><Pencil size={14} /></button>
+              <button onClick={() => quitarPlantilla(p)} title="Quitar esta plantilla" aria-label="Quitar plantilla" className="px-2 text-white/90 border-l border-white/25 hover:bg-teal-700"><Trash2 size={14} /></button>
+            </>}
+          </span>
         ))}
+        <button onClick={() => setEditor({ plantilla: null })} className="inline-flex items-center gap-2 text-[13px] font-semibold px-3.5 py-2 rounded-lg border border-teal-300 text-teal-800 bg-teal-50 hover:bg-teal-100 transition-colors">
+          <Diseno size={16} /> Diseñar plantilla
+        </button>
         <button onClick={() => setBancoAbierto(true)} className="inline-flex items-center gap-2 text-[13px] font-semibold px-3.5 py-2 rounded-lg border border-zinc-300 text-zinc-700 hover:bg-zinc-50 transition-colors">
           <Photo size={16} /> Banco de logos
         </button>
@@ -232,7 +254,7 @@ export function GestionDocumentosCard({ negocioId }: { negocioId: number }) {
             </button>
           </div>
           {(() => {
-            const delBanco = (ctx?.logosOpciones || []).filter(o => /^bd+$/.test(o.clave));
+            const delBanco = (ctx?.logosOpciones || []).filter(o => /^b\d+$/.test(o.clave));
             return delBanco.length === 0
               ? <p className="text-[13px] text-zinc-500 text-center py-4">Todavía no hay logos en el banco.</p>
               : <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">{delBanco.map(o => (
@@ -244,6 +266,10 @@ export function GestionDocumentosCard({ negocioId }: { negocioId: number }) {
           })()}
         </div>
       </Modal>
+
+      {editor && ctx && (
+        <EditorPlantillaDocumento negocioId={negocioId} ctx={ctx as any} plantilla={editor.plantilla as any} onCerrar={() => setEditor(null)} onGuardado={async () => { setEditor(null); await cargar(); }} />
+      )}
 
       {/* Visor propio: el PDF sale de nuestra ruta (no de una URL externa), así que va directo a un iframe. */}
       <Modal open={!!visor} onClose={() => setVisor(null)} title={visor?.titulo} size="xl">
