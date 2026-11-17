@@ -9,12 +9,12 @@
 | Área | Semáforo | Por qué |
 |---|---|---|
 | Seguridad (auth/aislamiento) | 🟡 | Diseño sólido (sesión en proxy + lista blanca de módulos + guardia por negocio). Un hueco real: SSRF en 2 rutas. |
-| Datos / BD | ⚪ sin evaluar | BD local apagada; solo se vio numeración de migraciones. |
+| Datos / BD | 🟡 | Sin huérfanos en lo probado; collations mezcladas, 6 FK, sin purga (ver 3b). Falta restore y carga. |
 | QA funcional | ⚪ sin evaluar | No se hicieron recorridos. |
 | IA / Documentos | ⚪ sin evaluar | Sin banco de anexos corrido. |
 | Rendimiento | ⚪ sin evaluar | Sin medición. |
 | Operación | 🟡 | Tests verdes; lint con 4.561 errores sin triage; sin CSP completa. |
-| Legal | ⚪ sin evaluar | Pendiente (Ley 21.719 desde 1-dic-2026). |
+| Legal | 🔴 | No hay política de privacidad, términos ni canal de derechos; la Ley 21.719 rige el 1-dic-2026 (LEG-001). |
 | UX | ⚪ sin evaluar | Sin revisar. |
 
 **¿Se puede vender hoy a un segundo cliente? Condicionado**: el aislamiento está bien pensado (los clientes ≠ Grupo ICA solo llegan a Radar, Negocios, Viabilidad y Costeo; Auditor/Compras/Anexos están bloqueados por lista blanca), pero hay que cerrar SEC-001 y confirmar el aislamiento con la BD local arriba antes de firmar.
@@ -71,6 +71,45 @@ Aviso moderado; fix en 16.4.6 (fuera del rango declarado). Impacto real depende 
 - DB-001: renombradas a `migration-117b-…` y `migration-148b-…` (y el script de 148 actualizado). Son archivos ya aplicados en prod: solo cambia el nombre.
 - `/api/debug/*` borradas (3 rutas). Los tipos generados viejos de `.next/` dan error en `tsc` hasta el próximo build; el código fuente no.
 
+### SEC-005 — IDOR entre clientes en `/api/empresas/[id]/documentos` y `/firmas` (verificado leyendo el código)
+**Severidad: Crítico (fuga y modificación entre clientes). Estado: CORREGIDO en código, sin desplegar.**
+- **Evidencia**: `app/api/empresas/[id]/documentos/route.ts` (GET/POST/DELETE) y `app/api/empresas/[id]/firmas/route.ts` (GET/POST/PATCH/DELETE) solo comprobaban `rol === 'admin'` y hacían `SELECT id FROM empresas WHERE id = ?` sin `cliente_id`. `/api/empresas` está en la lista blanca del módulo Negocios, o sea abierta a clientes. El resto de `/api/empresas/[id]` (GET/PATCH) sí usa `registroEsDeMiEmpresa`.
+- **Reproducir (teórico, no ejecutado: BD local apagada)**: admin de la empresa-cliente B llama `GET /api/empresas/<id de Grupo ICA>/firmas` o `DELETE …/documentos?documentoId=N`.
+- **Impacto**: otro cliente podría ver, reemplazar o borrar la firma, el timbre, el logo y los certificados de Grupo ICA (las firmas se estampan en anexos de licitación).
+- **Corrección (S, aplicada)**: `registroEsDeMiEmpresa(request,'empresas',id)` al inicio de los 7 handlers (404 si no es de la empresa del usuario). tsc limpio y 1848 tests verdes; **falta probarlo con 2 empresas en BD local**.
+- Barrido siguiente: todas las rutas de los módulos abiertos a clientes (negocios, licitación, documentos, empresas, postuladas, radar, viabilidad…) se revisaron por marca de tenant; las únicas sin marca eran estas dos y `negocios/[id]/comentarios` (falso positivo: usa `negocioEsDeMiEmpresa`).
+
+**PRUEBA DE AISLAMIENTO (BD local :3308, sin tocar el VPS; Docker Desktop levantado para esto):**
+- `scripts/scratch/probar-aislamiento-empresas.mts` llama a los handlers como admin del cliente 2 sobre la empresa 1 (Grupo ICA). **Código anterior (`git show HEAD`): 5 de 5 acciones ajenas respondieron 200** (leer/borrar documentos, leer/editar/borrar firmas) → vulnerabilidad reproducida. **Código corregido: 8/8 como se esperaba** (5 ajenas → 404, 3 controles propios → 200, incluido ICA sobre su propia empresa).
+- `scripts/chequear-aislamiento.mts` (revisor estático ya existente): 156 tablas, 87 rutas abiertas. Falló por una tabla nueva sin clasificar (`compras_doc_plantilla`, migration-194): clasificada como `PRIVADA_ICA` en `app/lib/tablas-dueno.ts`; ahora pasa. **Límite del revisor**: la regla «muestra algún filtro de empresa en el archivo» no detectó SEC-005 (la palabra «cliente» aparecía en un comentario); conviene endurecerla para exigir el helper de dueño en cada handler con `[id]`.
+- No se probó con navegador/login real ni con los usuarios SIM (clientes 5–9); la prueba es a nivel de handler con los headers que inyecta `proxy.ts`.
+
+### Otros sondeos (sin hallazgo)
+- **XSS**: los 3 `dangerouslySetInnerHTML` de contenido de terceros están escapados (`formatNegritas`) o saneados (`sanearHtmlExcel`).
+- **Comandos**: único `execFile` es `soffice` con argumentos fijos y archivo temporal propio; sin `eval`.
+- **Admin/interno**: `/api/admin|cron|memoria|obuma-compras` están clasificados «interno» (bloqueados a clientes).
+- **Subidas**: 17 rutas con `formData`; hay tope de tamaño en varias (documentos 250 MB, firma 5 MB, reporte 8 MB) pero **no hay verificación de tipo real (magic bytes)** y el MIME se deriva de la extensión: riesgo bajo (R2 es otro origen) → recomendación Ola 2.
+- **TZ**: `app` y `scheduler` en `America/Santiago`; el contenedor de BD en `America/Denver` pero con `SET PERSIST time_zone` (pendiente conocido).
+
+## 3b. Sondeos F2–F10 (hechos con la BD local y lectura de código; NO son auditorías completas)
+
+| ID | Hallazgo | Sev. | Evidencia | Corrección mínima | Estado |
+|---|---|---|---|---|---|
+| LEG-001 **(PARCIAL 2026-11-17: páginas públicas `/privacidad` y `/terminos` creadas, con enlaces en login y landing; faltan datos legales por env, revisión de abogado, canal de derechos y procedimiento de brechas)** | No hay política de privacidad, términos ni mecanismo de derechos del titular (acceso, rectificación, supresión, portabilidad) en la app. Solo existe la baja de empresa en `/admin/clientes` (exportar JSON + borrar). La Ley 21.719 rige desde el **1-dic-2026** (14 días). | Alto | `app/` no tiene páginas de privacidad/términos; búsqueda de texto sin resultados reales | Redactar aviso y términos, página pública, correo/formulario de solicitudes y procedimiento escrito de brechas (L) | nuevo |
+| OP-002 **(CORREGIDO en código 17-nov, sin desplegar)** | El scheduler llama a la app con `fetch` **sin timeout** (`scheduler.mjs:llamar`). Si la app se cuelga, el job queda pegado y los jobs con `sinSolapar` se saltan para siempre. | Medio | `scheduler/scheduler.mjs:42-60`, `82-96` | `AbortSignal.timeout(…)` por llamada (S) | nuevo (pariente del crash-loop de jobPostuladas) |
+| OP-003 **(CORREGIDO en código 17-nov, sin desplegar; límite: si la app está caída el aviso tampoco llega, queda el log)** | Un job que falla solo escribe `console.error`; nadie recibe aviso (fallo silencioso). | Medio | `scheduler.mjs:55-58`, `loop()` corta sin avisar | Aviso por campana/correo al admin tras N fallas seguidas (M) | nuevo |
+| OP-004 **(CORREGIDO en código 17-nov, sin desplegar; probado con docker simulado, no en el VPS)** | `deploy.sh` no aplica migraciones, no tiene rollback ni healthcheck; las migraciones se aplican a mano con `aplicar-migration-N.mjs`, así que se puede desplegar código sin su migración. `docker-compose.yml` sin `healthcheck` ni límites de memoria. | Medio | `deploy.sh`, `docker-compose.yml` | Paso de verificación de migraciones pendientes + healthcheck de `app` (M) | nuevo |
+| DB-002 | La clave única de `negocios` es `(asignado_a, licitacion_codigo)`, no incluye cliente; hay 1 caso con 2 negocios activos para `2408-179-LE26` en el mismo cliente (ids 1243 y 1723, distinto asignado). | Bajo | `SHOW INDEX FROM negocios`; consulta de duplicados | Confirmar con el dueño si es intencional (dos personas, una licitación) | por confirmar |
+| DB-003 | Solo 6 claves foráneas en 156 tablas: la integridad (huérfanos, borrados en cascada) depende 100 % del código. Huérfanos probados: 0 en `comentarios_negocio` y `checklist_comercial`; 0 negocios/usuarios sin `cliente_id`; 0 correos duplicados. | Informativo | information_schema | Mantener el revisor de huérfanos como script periódico | nuevo |
+| DB-004 | Collations mezcladas en la copia local: `utf8mb4_0900_ai_ci` (134 tablas), `general_ci` (12), `unicode_ci` (8) y 2 tablas utf8mb3. Mezclarlas en un JOIN de textos da «Illegal mix of collations» (ya pasó: migration-24). No verificado en producción. | Medio | `information_schema.TABLES` (local) | Comparar con producción; unificar en una sola collation (L) | por verificar |
+| DB-005 | Sin purga: `actividad_usuario` (53 mil filas desde junio), `historial_eventos`, `password_resets`, `licitaciones_cache` (96 MB). Con otros clientes crecerán más rápido. | Bajo | `grep DELETE FROM` en app/scheduler | Retención por tabla (S–M) | nuevo |
+| COD-001 | Deuda de código: 3.702 usos de `any`, 338 TODO/FIXME, 2 `catch {}` vacíos, 0 `@ts-ignore`; 87 archivos con datos de empresa/correo/RUT escritos en el código (ya registrado en `multiempresa.md`, 82 antes); solo ~10 de 64 `fetch` llevan timeout. | Medio | greps en `app/` | Timeout por defecto en un `fetchSeguro` común; seguir el plan multiempresa | pendiente conocido (multiempresa) / timeouts nuevo |
+| UX-001 | Accesibilidad por teclado: 58 `<div onClick>` (no son enfocables); 394 usos de `aria-`; 1 `<img>` sin `alt` de 20. No se revisó contraste ni lector de pantalla. | Bajo | greps en `app/**/*.tsx` | Cambiar a `button` o agregar `role`/`tabIndex`/teclado (M) | nuevo |
+
+Medidas útiles: 143 archivos de test (todos de tipo unitario, 1.848 casos); el motor de anexos (`anexos-*.ts`) tiene 18.155 líneas, el mayor `anexos-detectar.ts` con 3.215. EXPLAIN de las 2 consultas probadas (negocios por cliente/estado; alertas por usuario no leídas) sin problemas: usan índice o la tabla es chica (1.615 negocios).
+
+**No se pudo ejecutar**: el golden set de anexos (`scripts/anexos-golden.mts`) lee anexos llenados a mano desde `C:\Users\droku\Downloads\anexos-20260803…`, que no existe en este PC; los otros bancos de anexos necesitan `documentos_cache`, que la copia local no trae. Por eso F5 queda sin medir (casillas rotas/ciegas desconocidas).
+
 ## 4. Matriz ruta × rol / aislamiento (parcial)
 
 Cobertura real: de 271 rutas API, el script `scripts/scratch/auditoria-rutas.sh` marcó **19 sin ninguna marca de auth propia**; se leyeron las 14 relevantes:
@@ -98,7 +137,7 @@ Cookies: `httpOnly`, `secure` en prod, `sameSite: lax` ✅. Historial git: búsq
 
 ## 6. Lo que NO se auditó (para no dar falsa tranquilidad)
 
-F2 (legal), F3 (EXPLAIN, integridad, restore), F4 (validación de entrada por ruta, idempotencia, concurrencia), F5 (banco de anexos, fuzz), F6 (todos los recorridos), F7 (UX/accesibilidad/web vitals), F8 (carga), F9 (logs/alertas/deploy.sh), F10 (código muerto, `any`, catch vacíos). Tampoco: subidas de archivos (magic bytes), XSS en HTML de IA, inyección de prompt, Caddy/HSTS/SSH/respaldos del VPS (no hay Caddyfile en el repo), webhooks de Evolution. Pendientes conocidos de la memoria (SMTP, licitaciones@ comprometida, CRON_SECRET a rotar) no se re-verificaron.
+(Actualizado tras los sondeos 3b.) Sin hacer: F2 a fondo (inventario de datos personales, retención, encargados, transferencias, WhatsApp no oficial, términos de MP), F3 (restauración de respaldos, EXPLAIN de las 20 consultas, bloqueos), F4 (validación de entrada ruta por ruta, idempotencia de OC/correos, concurrencia), F5 (banco de anexos y fuzz de lectores: faltan los archivos), F6 (todos los recorridos de navegador), F7 (contraste, web vitals, bundle, responsive), F8 (carga y capacidad: ya hay una prueba de 100 usuarios del 09-nov en `infra.md`), F9 (logs/rotación/auditoría de acciones), F10 (código muerto, duplicación). Tampoco: subidas de archivos (magic bytes), XSS en HTML de IA, inyección de prompt, Caddy/HSTS/SSH/respaldos del VPS (no hay Caddyfile en el repo), webhooks de Evolution. Pendientes conocidos de la memoria (SMTP, licitaciones@ comprometida, CRON_SECRET a rotar) no se re-verificaron.
 
 ## 7. Anexo de pruebas
 

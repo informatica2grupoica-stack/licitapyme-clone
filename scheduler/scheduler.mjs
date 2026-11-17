@@ -39,8 +39,16 @@ function ahora() {
   return new Date().toLocaleString('es-CL', { timeZone: TZ });
 }
 
+// Tope de espera por llamada (auditoría 2026-11-17, OP-002): sin él, una app colgada dejaba el job pegado para siempre y los jobs con
+// `sinSolapar` se saltaban todas las corridas siguientes. Debe superar el `maxDuration` más largo de las rutas (300 s).
+const TIMEOUT_MS = Number(process.env.SCHEDULER_TIMEOUT_MS) || 10 * 60 * 1000;
+// Avisa a los admin (campana) cuando un job lleva este número de corridas seguidas fallando (y luego cada 24 más).
+const FALLAS_PARA_AVISAR = Number(process.env.SCHEDULER_FALLAS_AVISO) || 3;
+
+let ultimoError = '';
+
 // POST a un endpoint con el CRON_SECRET. Devuelve el JSON o null si falla.
-async function llamar(path, body = {}) {
+async function llamar(path, body = {}, timeoutMs = TIMEOUT_MS) {
   try {
     const r = await fetch(`${BASE}${path}`, {
       method: 'POST',
@@ -50,16 +58,32 @@ async function llamar(path, body = {}) {
         'x-cron-secret': SECRET,
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const json = await r.json().catch(() => ({}));
     if (!r.ok) {
+      ultimoError = `HTTP ${r.status}`;
       console.error(`[scheduler] ${path} → HTTP ${r.status}`, JSON.stringify(json).slice(0, 300));
       return null;
     }
     return json;
   } catch (e) {
-    console.error(`[scheduler] ${path} → error de red:`, String(e).slice(0, 200));
+    ultimoError = e?.name === 'TimeoutError' ? `sin respuesta tras ${Math.round(timeoutMs / 1000)} s` : `error de red: ${String(e).slice(0, 120)}`;
+    console.error(`[scheduler] ${path} → ${ultimoError}`);
     return null;
+  }
+}
+
+// Fallas seguidas por job. Antes un job caído solo escribía en el log y nadie se enteraba (OP-003).
+const fallasSeguidas = new Map();
+async function registrarResultado(nombre, ok) {
+  if (ok) { fallasSeguidas.delete(nombre); return; }
+  const n = (fallasSeguidas.get(nombre) || 0) + 1;
+  fallasSeguidas.set(nombre, n);
+  if (n === FALLAS_PARA_AVISAR || (n > FALLAS_PARA_AVISAR && n % 24 === 0)) {
+    // Si la app está caída este aviso tampoco llega: queda el log. Con la app arriba, sale a la campana de los admin.
+    const r = await llamar('/api/cron/aviso-fallo', { job: nombre, fallas: n, detalle: ultimoError }, 30_000);
+    console.log(`[scheduler] 🔔 aviso de fallo «${nombre}» (${n} seguidas): ${r ? 'enviado' : 'no se pudo enviar'}`);
   }
 }
 
@@ -68,14 +92,16 @@ async function loop(nombre, path, { lote, maxPasadas = 30, body = {} } = {}) {
   if (PAUSADA) { console.log(`[scheduler] ⏸ ${nombre} omitido (AUTOMATIZACION_PAUSADA)`); return; }
   console.log(`[scheduler] ▶ ${nombre} — ${ahora()}`);
   let pasada = 0;
+  let fallo = false;
   while (pasada < maxPasadas) {
     pasada++;
     const res = await llamar(path, { ...(lote ? { lote } : {}), ...body });
-    if (!res) break; // error → cortar, se reintenta en la próxima corrida programada
+    if (!res) { fallo = true; break; } // error → cortar, se reintenta en la próxima corrida programada
     const pend = res.pendientes ?? 0;
     console.log(`[scheduler]   ${nombre} pasada ${pasada}: ${JSON.stringify(res).slice(0, 200)}`);
     if (res.completado || pend === 0) break;
   }
+  await registrarResultado(nombre, !fallo);
   console.log(`[scheduler] ✔ ${nombre} listo (${pasada} pasada/s) — ${ahora()}`);
 }
 

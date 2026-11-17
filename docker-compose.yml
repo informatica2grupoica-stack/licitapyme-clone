@@ -28,6 +28,13 @@ services:
     env_file: .env                   # inyecta TODAS las variables al runtime del contenedor
     ports:
       - "3003:3000"                  # opcional: probar en el propio notebook (http://localhost:3003)
+    # Auditoría 2026-11-17 (OP-004): sin esto Docker no sabe si la app responde. deploy.sh espera este estado tras levantar.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
 
   # Scheduler: dispara intake (cada 4h), prefiltro (+1h) y reintento de descarga de
   # documentos de Negocios (cada 2h) contra la app INTERNA (http://app:3000) con CRON_SECRET.

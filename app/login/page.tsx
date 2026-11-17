@@ -170,7 +170,11 @@ function LoginContent() {
 
       <footer className="relative z-10 border-t border-white/10">
         <div className="mx-auto flex max-w-[1200px] flex-col items-center justify-between gap-3 px-5 py-5 text-[12.5px] text-slate-500 sm:flex-row sm:px-8">
-          <p>© {new Date().getFullYear()} LICITANK</p>
+          <p className="flex items-center gap-4">
+            <span>© {new Date().getFullYear()} LICITANK</span>
+            <Link href="/privacidad" className="transition-colors hover:text-slate-300">Privacidad</Link>
+            <Link href="/terminos" className="transition-colors hover:text-slate-300">Términos</Link>
+          </p>
           <span className="flex items-center gap-3">
             Datos públicos de
             <MercadoPublicoMark size={22} tone="light" />

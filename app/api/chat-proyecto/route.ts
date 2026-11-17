@@ -15,6 +15,7 @@ import {
   obtenerHistorial,
   guardarTurno,
   responderChat,
+  sesionDeEmpresa,
 } from '@/app/lib/chat-licitacion';
 import { registrarActividadDiaria } from '@/app/lib/actividad';
 
@@ -22,11 +23,11 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
-async function resolverCodigo(codigo: unknown, negocioId: unknown): Promise<string | null> {
+async function resolverCodigo(codigo: unknown, negocioId: unknown, clienteId: number): Promise<string | null> {
   if (codigo) return String(codigo).slice(0, 100);
   const id = Number(negocioId);
   if (!Number.isInteger(id) || id <= 0) return null;
-  const [rows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [id]);
+  const [rows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? AND COALESCE(cliente_id, 1) = ? LIMIT 1`, [id, clienteId]);
   return (rows as any[])[0]?.licitacion_codigo ?? null;
 }
 
@@ -34,34 +35,36 @@ async function resolverCodigo(codigo: unknown, negocioId: unknown): Promise<stri
 const SIN_PERMISO = () => NextResponse.json({ error: 'No tienes permiso para usar el chat IA de la licitación.' }, { status: 403 });
 
 export async function GET(request: NextRequest) {
-  if (!(await getAuthedUser(request))) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  const u = await getAuthedUser(request);
+  if (!u?.clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   if (!(await tienePermiso(request, 'chat_licitacion'))) return SIN_PERMISO();
   const sp = request.nextUrl.searchParams;
-  const codigo = await resolverCodigo(sp.get('codigo'), sp.get('negocioId'));
+  const codigo = await resolverCodigo(sp.get('codigo'), sp.get('negocioId'), u.clienteId);
   if (!codigo) return NextResponse.json({ mensajes: [] });
   if (!(await puedeChatearLicitacion(request, codigo)))
     return NextResponse.json({ error: 'Esta licitación está asignada a otro perfil: solo puedes usar el chat en tus licitaciones.' }, { status: 403 });
-  const sesionId = (sp.get('sesionId') || 'corpus').slice(0, 64);
+  const sesionId = sesionDeEmpresa(u.clienteId, (sp.get('sesionId') || 'corpus').slice(0, 40));
   return NextResponse.json({ codigo, mensajes: await obtenerHistorial(codigo, sesionId) });
 }
 
 export async function POST(request: NextRequest) {
   const usuario = await getAuthedUser(request);
-  if (!usuario) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  if (!usuario?.clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   if (!(await tienePermiso(request, 'chat_licitacion'))) return SIN_PERMISO();
+  const clienteId = usuario.clienteId;
 
   const body = await request.json().catch(() => ({}));
   const pregunta = String(body.pregunta || '').trim();
-  const sesionId = String(body.sesionId || 'corpus').slice(0, 64);
+  const sesionId = sesionDeEmpresa(clienteId, String(body.sesionId || 'corpus').slice(0, 40));
   if (!pregunta) return NextResponse.json({ error: 'La pregunta está vacía.' }, { status: 400 });
 
-  const codigo = await resolverCodigo(body.codigo, body.negocioId);
+  const codigo = await resolverCodigo(body.codigo, body.negocioId, clienteId);
   if (!codigo) return NextResponse.json({ error: 'No se encontró la licitación.' }, { status: 404 });
   if (!(await puedeChatearLicitacion(request, codigo)))
     return NextResponse.json({ error: 'Esta licitación está asignada a otro perfil: solo puedes usar el chat en tus licitaciones.' }, { status: 403 });
 
-  const { texto: docs, encontrado, actualizadoEn } = await construirContextoChat(codigo);
-  const analisis = await construirContextoProyecto(codigo);
+  const { texto: docs, encontrado, actualizadoEn } = await construirContextoChat(codigo, clienteId);
+  const analisis = await construirContextoProyecto(codigo, clienteId);
   if (!encontrado && !analisis) {
     return NextResponse.json({
       respuesta: 'Todavía no hay documentos ni análisis para esta licitación. Descarga las bases y corre el análisis de viabilidad para poder consultarla.',

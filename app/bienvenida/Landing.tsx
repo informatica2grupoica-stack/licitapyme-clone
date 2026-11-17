@@ -724,6 +724,10 @@ export default function Landing() {
             <span className="font-bold text-white">LICITANK</span>
             <span>© {new Date().getFullYear()}</span>
           </span>
+          <span className="flex items-center gap-4">
+            <Link href="/privacidad" className="transition-colors hover:text-white">Privacidad</Link>
+            <Link href="/terminos" className="transition-colors hover:text-white">Términos</Link>
+          </span>
           <span className="flex items-center gap-3">
             Datos públicos de
             <MercadoPublicoMark size={22} tone="light" />

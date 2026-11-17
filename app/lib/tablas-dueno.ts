@@ -33,6 +33,7 @@ export const CLASE_TABLA: Record<string, ClaseTabla> = Object.fromEntries([
     'compras_proveedor', 'compras_historial_oc', 'compras_historial_oc_item',
     'compras_fletero', 'compras_fletero_zona', 'compras_gasto_categoria', 'compras_incidencia_tipo', 'compras_tarea_catalogo',
     'compras_tipo_cambio', 'compras_agente_uso_diario',
+    'compras_doc_plantilla',          // plantillas de documentos de Compras por empresa_rut (migration-194): Compras no se abre a otras empresas
     // Obuma (solo Inversiones Claro) y precios de mercado reunidos por ICA
     'obuma_proyectos_reales', 'obuma_proyectos_snapshot', 'precios_mercado',
     // Avisos y chat de ICA; el contexto del chat se arma con documentos que ICA subió

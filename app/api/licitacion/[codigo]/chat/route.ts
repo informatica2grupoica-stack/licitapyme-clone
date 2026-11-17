@@ -15,6 +15,7 @@ import {
   obtenerHistorial,
   guardarTurno,
   responderChat,
+  sesionDeEmpresa,
 } from '@/app/lib/chat-licitacion';
 import { registrarActividadDiaria } from '@/app/lib/actividad';
 
@@ -25,15 +26,17 @@ export const maxDuration = 300;
 type Params = { params: Promise<{ codigo: string }> };
 
 export async function GET(request: NextRequest, { params }: Params) {
-  if (!(await getAuthedUser(request))) {
+  const u = await getAuthedUser(request);
+  if (!u?.clienteId) {
     return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   }
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
   if (!(await puedeVerLicitacion(request, codigoDecoded)))
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
-  const sesionId = (request.nextUrl.searchParams.get('sesionId') || '').slice(0, 64);
-  if (!sesionId) return NextResponse.json({ mensajes: [] });
+  const sesionBruta = (request.nextUrl.searchParams.get('sesionId') || '').slice(0, 64);
+  if (!sesionBruta) return NextResponse.json({ mensajes: [] });
+  const sesionId = sesionDeEmpresa(u.clienteId, sesionBruta);
 
   const mensajes = await obtenerHistorial(codigoDecoded, sesionId);
   return NextResponse.json({ mensajes });
@@ -41,7 +44,8 @@ export async function GET(request: NextRequest, { params }: Params) {
 
 export async function POST(request: NextRequest, { params }: Params) {
   const usuario = await getAuthedUser(request);
-  if (!usuario) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  if (!usuario?.clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  const clienteId = usuario.clienteId;
 
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
@@ -50,16 +54,17 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   const body = await request.json().catch(() => ({}));
   const pregunta = String(body.pregunta || '').trim();
-  const sesionId = String(body.sesionId || '').slice(0, 64);
+  const sesionBruta = String(body.sesionId || '').slice(0, 64);
+  const sesionId = sesionDeEmpresa(clienteId, sesionBruta);
   const documento = body.documento ? String(body.documento) : null;
 
   if (!pregunta) return NextResponse.json({ error: 'La pregunta está vacía.' }, { status: 400 });
-  if (!sesionId) return NextResponse.json({ error: 'Falta el identificador de sesión.' }, { status: 400 });
+  if (!sesionBruta) return NextResponse.json({ error: 'Falta el identificador de sesión.' }, { status: 400 });
 
   // Contexto: corpus completo o un solo documento.
   const { texto: contexto, encontrado, actualizadoEn } = documento
-    ? await construirContextoDocumento(codigoDecoded, documento)
-    : await construirContextoChat(codigoDecoded);
+    ? await construirContextoDocumento(codigoDecoded, documento, clienteId)
+    : await construirContextoChat(codigoDecoded, clienteId);
 
   if (!encontrado) {
     const respuesta = documento

@@ -1,9 +1,7 @@
 // app/api/analizar-documento/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTextFromDocument, descargarYExtraerTexto } from '@/app/lib/document-extraction';
-import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
-import { conModuloIA } from '@/app/lib/ia-uso';
-const crearChatIA = conModuloIA('consultas', crearChatIABase);
+import { crearChatIAChatbot as crearChatIA } from '@/app/lib/chat-ia'; // chatbot: Kimi económico, respaldo GLM
 import { esUrlR2Propia, fetchHostSeguro } from '@/app/lib/url-propia';
 
 // ======================================================

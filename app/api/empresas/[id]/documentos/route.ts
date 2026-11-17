@@ -12,6 +12,7 @@
 import { errorDeArchivoSubido } from '@/app/lib/subidas';
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
+import { registroEsDeMiEmpresa } from '@/app/lib/tenant';
 import pool from '@/app/lib/db';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { agregarFirmaEmpresa, listarFirmasEmpresa, sincronizarFirmaPrincipal } from '@/app/lib/empresa-firmas';
@@ -36,6 +37,8 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (!userId || rol !== 'admin')
     return NextResponse.json({ error: 'Solo el admin puede editar la identidad de la empresa' }, { status: 403 });
   const { id } = await params;
+  // SEC-005: la empresa tiene que ser de la empresa-cliente de quien consulta (antes cualquier admin podía tocar la de otro cliente por id).
+  if (!(await registroEsDeMiEmpresa(request, 'empresas', id))) return NextResponse.json({ error: 'Empresa no encontrada' }, { status: 404 });
 
   try {
     const [rows] = await pool.query(`SELECT id FROM empresas WHERE id = ?`, [id]) as any;
@@ -90,6 +93,8 @@ export async function GET(request: NextRequest, { params }: Params) {
   const { id: userId } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { id } = await params;
+  // SEC-005: la empresa tiene que ser de la empresa-cliente de quien consulta (antes cualquier admin podía tocar la de otro cliente por id).
+  if (!(await registroEsDeMiEmpresa(request, 'empresas', id))) return NextResponse.json({ error: 'Empresa no encontrada' }, { status: 404 });
 
   try {
     const [rows] = await pool.query(
@@ -109,6 +114,8 @@ export async function DELETE(request: NextRequest, { params }: Params) {
   if (!userId || rol !== 'admin')
     return NextResponse.json({ error: 'Solo el admin puede eliminar documentos de la empresa' }, { status: 403 });
   const { id } = await params;
+  // SEC-005: la empresa tiene que ser de la empresa-cliente de quien consulta (antes cualquier admin podía tocar la de otro cliente por id).
+  if (!(await registroEsDeMiEmpresa(request, 'empresas', id))) return NextResponse.json({ error: 'Empresa no encontrada' }, { status: 404 });
 
   try {
     const documentoId = request.nextUrl.searchParams.get('documentoId');

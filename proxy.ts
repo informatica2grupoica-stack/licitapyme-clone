@@ -10,9 +10,12 @@ import { rutaPermitida, moduloDeRuta } from '@/app/lib/modulos';
 // Rutas que NO requieren autenticación
 const RUTAS_PUBLICAS = [
   '/bienvenida',                // landing pública de presentación (antes del login)
+  '/privacidad',                // política de privacidad (Ley 21.719): pública
+  '/terminos',                  // términos y condiciones: públicos
   '/login',
-  '/recuperar',                 // solicitar recuperación de contraseña
+  '/recuperar',               // solicitar recuperación de contraseña
   '/restablecer',               // fijar la contraseña nueva con el token del correo
+  '/api/health',                // healthcheck de Docker y deploy.sh: solo ok/db, sin datos
   '/api/auth/login',
   '/api/auth/recuperar',        // envía el enlace de reseteo
   '/api/auth/restablecer',      // valida el token y cambia la clave

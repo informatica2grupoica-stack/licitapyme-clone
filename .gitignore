@@ -54,3 +54,5 @@ scripts/_anexos-actual.json
 # un error de tipos rompe el DEPLOY entero, aunque no sea parte de la app (pasó el 18-ago-2026).
 # Está además en el "exclude" de tsconfig.json — las dos cosas, para que no se cuele por ninguna.
 scripts/scratch/
+.deploy-anterior
+.deploy-migraciones-pendientes

@@ -18,10 +18,10 @@
 // DeepSeek. Gemini está RETIRADO (dormido salvo GEMINI_HABILITADO=1 + key).
 
 import pool from './db';
-import { crearChatIA as crearChatIABase, geminiHabilitado } from './gemini';
-import { conModuloIA } from '@/app/lib/ia-uso';
-const crearChatIA = conModuloIA('consultas', crearChatIABase);
+import { geminiHabilitado } from './gemini';
+import { crearChatIAChatbot, MOTOR_CHAT } from './chat-ia';
 import { ocrTieneHuecos } from './zai-ocr';
+import { filtroDocsVisibles, codigoAlmacenDocs, CLIENTE_ICA } from './tenant';
 
 // AUDITORÍA ago-2026 (alucinaciones reportadas por el dueño): medido en BD, 27.6% de las
 // licitaciones (291/1053) tenían un corpus > 180_000 chars y se truncaban — perdiendo bases
@@ -87,16 +87,20 @@ export interface MensajeHistorial {
 // ─── Contexto: corpus completo de la licitación (cacheado) ──────────────────────
 export async function construirContextoChat(
   codigo: string,
+  clienteId: number = CLIENTE_ICA,
 ): Promise<{ texto: string; encontrado: boolean; numDocumentos: number; actualizadoEn: Date | null }> {
   // Firma barata de las fuentes: cuántos documentos tienen texto y cuándo se extrajo
   // el más nuevo. Sirve para invalidar el cache sin leer todos los LONGTEXT, y también
   // para saber desde cuándo el historial de chat deja de ser confiable (ver `actualizadoEn`).
+  // Multiempresa: los documentos oficiales son de todos; los que subió una empresa solo los ve ella (tenant.ts).
+  const docs0 = filtroDocsVisibles(clienteId, codigo);
+  const claveCache = codigoAlmacenDocs(clienteId, codigo);
   const [srcRows] = await pool.query(
     `SELECT COUNT(*) AS n, MAX(texto_extraido_at) AS max_dt, COALESCE(MAX(UNIX_TIMESTAMP(texto_extraido_at)), 0) AS maxts
        FROM documentos_cache
-      WHERE licitacion_codigo = ? AND texto_extraido IS NOT NULL AND texto_extraido <> ''
+      WHERE ${docs0.sql} AND texto_extraido IS NOT NULL AND texto_extraido <> ''
         ${FILTRO_NO_PROPIOS}`,
-    [codigo],
+    docs0.params,
   );
   const src = (srcRows as any[])[0];
   const nDocs = Number(src?.n || 0);
@@ -107,7 +111,7 @@ export async function construirContextoChat(
   const [cacheRows] = await pool.query(
     `SELECT contexto_texto, num_documentos, UNIX_TIMESTAMP(actualizado_en) AS act
        FROM licitacion_contexto_chat WHERE licitacion_codigo = ? LIMIT 1`,
-    [codigo],
+    [claveCache],
   );
   const cache = (cacheRows as any[])[0];
   if (
@@ -125,10 +129,10 @@ export async function construirContextoChat(
   const [docRows] = await pool.query(
     `SELECT documento_nombre AS nombre, categoria, texto_extraido AS texto, metodo_extraccion AS metodo
        FROM documentos_cache
-      WHERE licitacion_codigo = ? AND texto_extraido IS NOT NULL AND texto_extraido <> ''
+      WHERE ${docs0.sql} AND texto_extraido IS NOT NULL AND texto_extraido <> ''
         ${FILTRO_NO_PROPIOS}
       ORDER BY id ASC`,
-    [codigo],
+    docs0.params,
   );
   // Orden por PRECEDENCIA (aclaraciones/bases primero) para que un eventual truncado
   // sacrifique lo de menor jerarquía (anexos/planos) y nunca las bases con el presupuesto.
@@ -159,7 +163,7 @@ export async function construirContextoChat(
        num_chars      = VALUES(num_chars),
        num_documentos = VALUES(num_documentos),
        actualizado_en = CURRENT_TIMESTAMP`,
-    [codigo, texto, texto.length, docs.length],
+    [claveCache, texto, texto.length, docs.length],
   );
 
   return { texto, encontrado: true, numDocumentos: docs.length, actualizadoEn };
@@ -175,21 +179,23 @@ const MAX_CHARS_BLOQUE = 40_000;
 const recortar = (s: string) =>
   s.length > MAX_CHARS_BLOQUE ? `${s.slice(0, MAX_CHARS_BLOQUE)}\n[[BLOQUE RECORTADO por tamaño]]` : s;
 
-export async function construirContextoProyecto(codigo: string): Promise<string> {
+export async function construirContextoProyecto(codigo: string, clienteId: number = CLIENTE_ICA): Promise<string> {
   const bloques: string[] = [];
+  // Multiempresa: el negocio, el costeo y el historial son los de ESTA empresa; la viabilidad v4 y las reglas son solo de Grupo ICA.
+  const MI = `COALESCE(cliente_id, 1) = ${Number(clienteId)}`;
 
   try {
     const [rows] = await pool.query(
       `SELECT licitacion_nombre, licitacion_organismo, licitacion_monto, licitacion_cierre,
               licitacion_estado, monto_ofertado
-         FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE ORDER BY id ASC LIMIT 1`,
+         FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE AND ${MI} ORDER BY id ASC LIMIT 1`,
       [codigo],
     );
     const n = (rows as any[])[0];
     if (n) bloques.push(`[[ANÁLISIS: FICHA DEL NEGOCIO]]\n${recortar(JSON.stringify(n))}`);
   } catch { /* sin negocio */ }
 
-  try {
+  if (clienteId === CLIENTE_ICA) try {
     const [rows] = await pool.query(
       `SELECT score_total, semaforo, informe_ejecutivo, notas_analista, updated_at
          FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`,
@@ -204,11 +210,27 @@ export async function construirContextoProyecto(codigo: string): Promise<string>
     }
   } catch { /* sin viabilidad */ }
 
+  // Viabilidad PROPIA de otra empresa (cliente_viabilidad / _v4): la última de esa licitación, solo la suya.
+  if (clienteId !== CLIENTE_ICA) {
+    try {
+      const [rows] = await pool.query(
+        `SELECT veredicto, puntaje, dictamen, created_at FROM cliente_viabilidad WHERE cliente_id = ? AND licitacion_codigo = ? ORDER BY id DESC LIMIT 1`, [clienteId, codigo]);
+      const v = (rows as any[])[0];
+      if (v) bloques.push(`[[ANÁLISIS: VIABILIDAD (generada ${v.created_at ? new Date(v.created_at).toISOString().slice(0, 10) : 's/f'}; veredicto ${v.veredicto ?? 's/d'}, puntaje ${v.puntaje ?? 's/d'})]]\n${recortar(typeof v.dictamen === 'string' ? v.dictamen : JSON.stringify(v.dictamen ?? {}))}`);
+    } catch { /* sin viabilidad propia */ }
+    try {
+      const [rows] = await pool.query(
+        `SELECT informe, nivel_atractivo, created_at FROM cliente_viabilidad_v4 WHERE cliente_id = ? AND licitacion_codigo = ? ORDER BY id DESC LIMIT 1`, [clienteId, codigo]);
+      const v = (rows as any[])[0];
+      if (v?.informe) bloques.push(`[[ANÁLISIS: VIABILIDAD V4 (generada ${v.created_at ? new Date(v.created_at).toISOString().slice(0, 10) : 's/f'}; atractivo ${v.nivel_atractivo ?? 's/d'})]]\n${recortar(String(v.informe))}`);
+    } catch { /* sin viabilidad v4 propia */ }
+  }
+
   try {
     const [rows] = await pool.query(
       `SELECT c.modalidad, c.datos_json, c.actualizado_at
          FROM negocio_costeo_editor c JOIN negocios n ON n.id = c.negocio_id
-        WHERE n.licitacion_codigo = ? AND n.activo = TRUE ORDER BY c.actualizado_at DESC LIMIT 1`,
+        WHERE n.licitacion_codigo = ? AND n.activo = TRUE AND COALESCE(n.cliente_id, 1) = ${Number(clienteId)} ORDER BY c.actualizado_at DESC LIMIT 1`,
       [codigo],
     );
     const c = (rows as any[])[0];
@@ -223,19 +245,26 @@ export async function construirContextoProyecto(codigo: string): Promise<string>
       if ((rows as any[]).length) bloques.push(`[[ANÁLISIS: ${titulo}]]\n${recortar(JSON.stringify(rows))}`);
     } catch { /* tabla o columna ausente */ }
   };
-  const NEG = `(SELECT id FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE ORDER BY id ASC LIMIT 1)`;
+  const NEG = `(SELECT id FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE AND ${MI} ORDER BY id ASC LIMIT 1)`;
 
   await filas('LÍNEAS DE LA LICITACIÓN (¿ofertamos cada una?)',
-    `SELECT linea_numero, nombre_linea, ofertamos FROM negocio_lineas_oferta WHERE licitacion_codigo = ? ORDER BY linea_numero`, [codigo]);
+    `SELECT linea_numero, nombre_linea, ofertamos FROM negocio_lineas_oferta WHERE negocio_id = ${NEG} ORDER BY linea_numero`, [codigo]);
 
   await filas('RESULTADO: ADJUDICACIÓN',
     `SELECT es_adjudicada, estado, fecha_adjudicacion, fecha_estimada_adjudicacion, tipo_adjudicacion, numero_resolucion,
             numero_oferentes, monto_adjudicado_total, lineas, readjudicada_en
        FROM adjudicacion_cache WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);
 
+  // `oferta_competencia.es_nuestra` se grabó con las razones sociales de Grupo ICA: a otra empresa se le calcula con SUS RUT (tabla empresas).
+  const rutNorm = (c: string) => `REPLACE(REPLACE(LOWER(CONVERT(${c} USING utf8mb4)), '.', ''), ' ', '') COLLATE utf8mb4_unicode_ci`;
   await filas('RESULTADO: OFERTAS DE LA COMPETENCIA (es_nuestra=1 es la nuestra)',
-    `SELECT proveedor_nombre, proveedor_rut, linea_numero, linea_descripcion, monto, estado, es_nuestra
-       FROM oferta_competencia WHERE licitacion_codigo = ? ORDER BY linea_numero, monto`, [codigo]);
+    clienteId === CLIENTE_ICA
+      ? `SELECT proveedor_nombre, proveedor_rut, linea_numero, linea_descripcion, monto, estado, es_nuestra
+           FROM oferta_competencia WHERE licitacion_codigo = ? ORDER BY linea_numero, monto`
+      : `SELECT proveedor_nombre, proveedor_rut, linea_numero, linea_descripcion, monto, estado,
+                (${rutNorm('proveedor_rut')} IN (SELECT ${rutNorm('rut')} FROM empresas WHERE cliente_id = ${Number(clienteId)} AND rut IS NOT NULL AND rut <> '')) AS es_nuestra
+           FROM oferta_competencia WHERE licitacion_codigo = ? ORDER BY linea_numero, monto`,
+    [codigo]);
 
   await filas('PREGUNTAS Y RESPUESTAS DEL FORO',
     `SELECT n_preguntas, respondido, fecha_publicacion_respuestas, preguntas FROM preguntas_respuestas_cache WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);
@@ -271,7 +300,7 @@ export async function construirContextoProyecto(codigo: string): Promise<string>
 
   await filas('RECORRIDO DEL NEGOCIO (eventos, más recientes primero)',
     `SELECT tipo, mensaje, actor_nombre, created_at FROM historial_eventos
-      WHERE licitacion_codigo = ? ORDER BY created_at DESC LIMIT 60`, [codigo]);
+      WHERE licitacion_codigo = ? AND ${MI} ORDER BY created_at DESC LIMIT 60`, [codigo]);
 
   await filas('COMPRAS: PRODUCTOS A COMPRAR',
     `SELECT id, correlativo, descripcion, cantidad, unidad, monto_unitario, subestado, renuncia_motivo
@@ -300,12 +329,14 @@ export async function construirContextoProyecto(codigo: string): Promise<string>
 export async function construirContextoDocumento(
   codigo: string,
   documentoNombre: string,
+  clienteId: number = CLIENTE_ICA,
 ): Promise<{ texto: string; encontrado: boolean; actualizadoEn: Date | null }> {
+  const dv = filtroDocsVisibles(clienteId, codigo);
   const [rows] = await pool.query(
     `SELECT texto_extraido AS texto, texto_extraido_at AS actualizadoEn, metodo_extraccion AS metodo
        FROM documentos_cache
-      WHERE licitacion_codigo = ? AND documento_nombre = ? LIMIT 1`,
-    [codigo, documentoNombre],
+      WHERE ${dv.sql} AND documento_nombre = ? LIMIT 1`,
+    [...dv.params, documentoNombre],
   );
   const fila = (rows as any[])[0];
   const raw = (fila?.texto || '').trim();
@@ -383,6 +414,7 @@ PROCEDIMIENTO OBLIGATORIO (síguelo en orden antes de responder):
 9. Los documentos rotulados "DOCUMENTO PROPIO" los subimos NOSOTROS (anexos ya rellenados, órdenes de compra, planillas): muestran qué ofertamos o qué hemos avanzado, NO lo que exige la licitación. Nunca los uses para decir qué pide la licitación; sí para decir qué hicimos o qué falta respecto de lo que ella pide.
 
 Estilo de respuesta:
+- Cita el documento en paréntesis y sin los corchetes del marcador: (Nombre del documento, pág. N). Nunca copies "[[DOCUMENTO: …]]" tal cual.
 - Habla como una persona del equipo que ya leyó todo el expediente y conversa con un colega: español chileno natural, en primera persona ("revisé", "no encuentro"), tuteando, sin fórmulas de robot ("Según los documentos proporcionados…", "Espero que esto ayude").
 - Parte por la respuesta, en una o dos frases, y después da el detalle si hace falta. Prosa corrida por defecto; viñetas o tabla solo cuando haya 4 o más elementos que de verdad se leen mejor en lista.
 - Sin emojis, sin encabezados con # y sin "Sugerencia:" al final. Negrita solo para cifras, plazos y fechas clave.
@@ -457,10 +489,12 @@ async function responderConGemini(contexto: string, historial: MensajeHistorial[
 // Trade-off asumido: ~5-8x más caro por token que flashx (glm-4.7 $0.60/$2.20 vs flashx
 // $0.07/$0.4 por M) — aceptable porque el chat es interactivo (una llamada por pregunta de un
 // humano), no una corrida batch sobre miles de licitaciones como la viabilidad.
-const MODELO_CHAT_PRINCIPAL = 'glm-4.7';
+// DECISIÓN 2026-11-17: el motor de los chatbots es Kimi económico (K2.6) y el respaldo GLM (chat-ia.ts). Esta etiqueta solo se usa si la
+// respuesta no trae el nombre del modelo.
+const MODELO_CHAT_PRINCIPAL = MOTOR_CHAT;
 
 // Respaldo con el proveedor de texto activo (GLM de Z.AI por defecto; DeepSeek si se revierte).
-async function responderConIA(contexto: string, historial: MensajeHistorial[], pregunta: string): Promise<string> {
+async function responderConIA(contexto: string, historial: MensajeHistorial[], pregunta: string): Promise<{ texto: string; modelo: string }> {
   const messages = [
     { role: 'system' as const, content: `${REGLAS}\n\nDOCUMENTOS DE LA LICITACIÓN:\n\n${contexto}` },
     ...historialParaModelo(historial).map(h => ({
@@ -472,19 +506,21 @@ async function responderConIA(contexto: string, historial: MensajeHistorial[], p
   // Una respuesta larga (p. ej. "todas las características de cada equipo") se cortaba a mitad de tabla por el tope de salida. Si el modelo
   // termina por largo (finish_reason=length), se le pide que continúe exactamente donde quedó y se unen los tramos.
   let texto = '';
+  let modeloUsado = MODELO_CHAT_PRINCIPAL;
   for (let ronda = 0; ronda < 5; ronda++) {
-    const completion: any = await crearChatIA(
+    const completion: any = await crearChatIAChatbot(
       { messages: ronda === 0 ? messages : [...messages, { role: 'assistant' as const, content: texto }, { role: 'user' as const, content: 'Continúa EXACTAMENTE donde quedaste, sin repetir lo ya escrito ni saludar. Si estabas dentro de una tabla, sigue con la siguiente fila.' }],
         temperature: 0.1, stream: false, max_tokens: 8_000 },
-      { modeloPreferido: MODELO_CHAT_PRINCIPAL },
+      { timeoutMs: 120_000 },
     );
+    modeloUsado = String(completion.model || MODELO_CHAT_PRINCIPAL);
     const tramo = (completion.choices[0]?.message?.content ?? '').trim();
     if (!tramo && ronda === 0) throw new Error(`${MODELO_CHAT_PRINCIPAL}: respuesta vacía`);
     texto = ronda === 0 ? tramo : `${texto}
 ${tramo}`;
     if (!tramo || completion.choices[0]?.finish_reason !== 'length') break;
   }
-  return texto;
+  return { texto, modelo: modeloUsado };
 }
 
 export async function responderChat(opts: {
@@ -496,12 +532,18 @@ export async function responderChat(opts: {
   // Principal: GLM de Z.AI (crearChatIA ya trae respaldo DeepSeek automático). Gemini está
   // RETIRADO: su respaldo solo corre si se reactiva a propósito (GEMINI_HABILITADO=1 + key).
   try {
-    const respuesta = await responderConIA(contexto, historial, pregunta);
-    return { respuesta, modelo: MODELO_CHAT_PRINCIPAL };
+    const { texto: respuesta, modelo } = await responderConIA(contexto, historial, pregunta);
+    return { respuesta, modelo };
   } catch (e) {
     if (!geminiHabilitado()) throw e;
     console.warn('[chat-licitacion] GLM falló, uso Gemini de respaldo:', e instanceof Error ? e.message : e);
     const respuesta = await responderConGemini(contexto, historial, pregunta);
     return { respuesta, modelo: MODELO_GEMINI };
   }
+}
+
+/** Multiempresa: la conversación de una empresa-cliente nunca se mezcla con la de otra aunque hablen de la misma licitación
+ *  (Grupo ICA conserva sus ids de siempre). Cabe en el varchar(64) de `sesion_id`. */
+export function sesionDeEmpresa(clienteId: number, sesionId: string): string {
+  return clienteId === CLIENTE_ICA ? sesionId.slice(0, 64) : `c${clienteId}:${sesionId}`.slice(0, 64);
 }

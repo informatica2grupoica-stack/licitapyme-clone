@@ -6,8 +6,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthedUser, permisosDeUsuario } from '@/app/lib/api-auth';
+import { fichaCliente } from '@/app/lib/tenant';
 import { obtenerHistorial, guardarTurno } from '@/app/lib/chat-licitacion';
-import { responderGlobal } from '@/app/lib/chat-global';
+import { responderGlobal, restringidoPara, ETIQUETA_MOTOR_SQL } from '@/app/lib/chat-global';
 import { registrarActividadDiaria } from '@/app/lib/actividad';
 
 export const runtime = 'nodejs';
@@ -15,12 +16,6 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 const CODIGO_GLOBAL = '__GLOBAL__';
-
-// Admin y Compras (permiso `compras`, `compras_todo` o `aprobar_comercial`) consultan todo; el resto, solo el mercado y lo suyo.
-async function esPrivilegiado(u: { id: number; rol?: string | null }) {
-  const p = await permisosDeUsuario(u.id, u.rol);
-  return !!(p.compras || p.compras_todo || p.aprobar_comercial);
-}
 
 async function autorizar(request: NextRequest) {
   const u = await getAuthedUser(request);
@@ -30,7 +25,11 @@ async function autorizar(request: NextRequest) {
     if (!p.chat_global)
       return { error: NextResponse.json({ error: 'No tienes permiso para usar el chat general.' }, { status: 403 }) };
   }
-  return { usuario: u, restringido: u.rol !== 'admin' && !(await esPrivilegiado(u)) };
+  if (!u.clienteId) return { error: NextResponse.json({ error: 'Tu cuenta no tiene empresa asignada.' }, { status: 403 }) };
+  // Una empresa-cliente solo lo usa si tiene contratado el módulo de consultas a la IA.
+  if (u.clienteId !== 1 && !(await fichaCliente(u.clienteId)).modulos.includes('ia_chat'))
+    return { error: NextResponse.json({ error: 'Este chat no está incluido en tu plan.' }, { status: 403 }) };
+  return { usuario: u, clienteId: u.clienteId, restringido: await restringidoPara(u) };
 }
 
 export async function GET(request: NextRequest) {
@@ -50,8 +49,8 @@ export async function POST(request: NextRequest) {
   const sesionId = `g-${usuario.id}`;
   try {
     const historial = await obtenerHistorial(CODIGO_GLOBAL, sesionId);
-    const { respuesta, sql, filas } = await responderGlobal(pregunta, historial, a.restringido ? usuario.id : null);
-    await guardarTurno(CODIGO_GLOBAL, sesionId, pregunta, respuesta, 'glm-4.7+sql', usuario.id ?? null);
+    const { respuesta, sql, filas } = await responderGlobal(pregunta, historial, { seccion: 'dashboard', clienteId: a.clienteId!, restringidoUserId: a.restringido });
+    await guardarTurno(CODIGO_GLOBAL, sesionId, pregunta, respuesta, ETIQUETA_MOTOR_SQL, usuario.id ?? null);
     registrarActividadDiaria({
       usuarioId: usuario.id, accion: 'chat_ia',
       descripcion: 'Consultó al chat general de licitaciones', metadata: { filas },

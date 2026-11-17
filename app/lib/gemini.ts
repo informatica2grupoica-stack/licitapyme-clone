@@ -181,7 +181,7 @@ const PROVEEDORES_TEXTO: Record<string, ProveedorTexto> = {
   //     Medido en vivo: apagar el razonamiento sí funciona en Kimi (thinking:disabled + temperature 0.6) y deja la
   //     salida en ~12 tokens donde razonando gastaba ~130.
   // Variables NUEVAS a propósito (KIMI_MODELO / KIMI_MODELO_RAPIDO): la vieja KIMI_TEXT_MODEL sigue en los .env de los servidores.
-  kimi:        { baseURL: 'https://api.moonshot.ai/v1', keyEnv: 'KIMI_API_KEY', model: process.env.KIMI_MODELO || 'kimi-k3', sinThinking: false, reasoningEffort: process.env.KIMI_REASONING_EFFORT || 'high', kimi: true },
+  kimi:        { baseURL: 'https://api.moonshot.ai/v1', keyEnv: 'KIMI_API_KEY', model: process.env.KIMI_MODELO || 'kimi-k2.6', sinThinking: false, reasoningEffort: process.env.KIMI_REASONING_EFFORT || 'high', kimi: true },
   kimi_rapido: { baseURL: 'https://api.moonshot.ai/v1', keyEnv: 'KIMI_API_KEY', model: process.env.KIMI_MODELO_RAPIDO || 'kimi-k2.6', sinThinking: true, kimi: true },
 };
 export const IA_TEXT_PROVIDER = (process.env.IA_TEXT_PROVIDER ?? 'zai').toLowerCase();

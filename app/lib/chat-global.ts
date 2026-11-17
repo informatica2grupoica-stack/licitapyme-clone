@@ -9,22 +9,101 @@
 // MySQL 5.7: sin JSON_TABLE ni CTE; los ítems se buscan con LIKE sobre items_json (texto).
 
 import pool from './db';
-import { crearChatIA as crearChatIABase } from './gemini';
-import { conModuloIA } from '@/app/lib/ia-uso';
+import { crearChatIAChatbot, MOTOR_CHAT } from './chat-ia';
 import type { MensajeHistorial } from './chat-licitacion';
+import { seccionPorId, type SeccionChat } from './chat-secciones';
 
-const crearChatIA = conModuloIA('consultas', crearChatIABase);
-const MODELO = 'glm-4.7';
+export const ETIQUETA_MOTOR_SQL = `${MOTOR_CHAT}+sql`;
 const MAX_FILAS = 200;
 const MAX_CHARS_FILAS = 30_000;
 const MAX_TURNOS = 6;
 
-// Solo estas tablas pueden aparecer en la consulta. Nada de usuarios, contraseñas ni tokens.
+// Solo estas tablas pueden aparecer en la consulta del chat GENERAL (Dashboard). Nada de contraseñas ni tokens.
+// Los chats de cada menú traen sus propias tablas (chat-secciones.ts).
 const TABLAS_PERMITIDAS = [
   'licitaciones_cache', 'negocios', 'oferta_competencia', 'adjudicacion_cache',
   'viabilidad_licitacion', 'compras_producto', 'compras_historial_oc', 'compras_historial_oc_item',
   'precios_mercado', 'documentos_cache', 'checklist_comercial', 'auditor_opcion', 'preguntas_respuestas_cache',
 ];
+
+// ─── Separación por empresa-cliente (multiempresa) ───────────────────────────────
+// Datos de Mercado Público que son iguales para todas las empresas: se leen sin filtro.
+const TABLAS_COMPARTIDAS = new Set(['licitaciones_cache', 'adjudicacion_cache', 'oferta_competencia', 'preguntas_respuestas_cache', 'precios_mercado', 'licitacion_apertura']);
+// Análisis de mercado de Grupo ICA (viabilidad v4, prefiltro): sin dueño por empresa; los ve todo perfil de ICA, ninguna empresa-cliente.
+const TABLAS_MERCADO_ICA = new Set(['viabilidad_licitacion', 'prefiltro_licitacion', 'analisis_ia_licitacion']);
+// Columnas que jamás llegan al modelo aunque la tabla esté permitida.
+const COLUMNA_SENSIBLE = /pass|token|secret|clave|api_?key|hash|cookie|credencial|certificado|pfx|salt/i;
+// Tablas que se exponen por una vista reducida (sin datos privados).
+const VISTAS_REDUCIDAS: Record<string, (clienteId: number) => string> = {
+  usuarios: c => `SELECT id, nombre, cargo, area, rol, activo FROM usuarios WHERE cliente_id = ${c}`,
+};
+
+interface ColumnaInfo { nombre: string; tipo: string; comentario: string }
+let columnasBD: Map<string, ColumnaInfo[]> | null = null;
+async function columnasPorTabla(): Promise<Map<string, ColumnaInfo[]>> {
+  if (columnasBD) return columnasBD;
+  const [rows] = await pool.query(
+    `SELECT TABLE_NAME t, COLUMN_NAME c, DATA_TYPE d, COLUMN_COMMENT k FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, ORDINAL_POSITION`);
+  const m = new Map<string, ColumnaInfo[]>();
+  for (const r of rows as any[]) {
+    const t = String(r.t).toLowerCase();
+    if (!m.has(t)) m.set(t, []);
+    m.get(t)!.push({ nombre: String(r.c), tipo: String(r.d), comentario: String(r.k || '') });
+  }
+  columnasBD = m;
+  return m;
+}
+
+/** Filtros por tabla: reemplazan `FROM tabla` por una subconsulta que solo deja ver lo de esta empresa (y, para perfiles
+ *  normales, solo lo asignado a ellos). Una tabla que no se puede separar por empresa no se entrega a ninguna empresa-cliente. */
+interface Alcance { clienteId: number; restringidoUserId?: number | null }
+async function filtrosDeAcceso(tablas: string[], a: Alcance): Promise<{ filtros: Record<string, string>; accesibles: string[] }> {
+  const cols = await columnasPorTabla();
+  const c = a.clienteId;
+  const u = a.restringidoUserId ?? null;
+  const misNegocios = `SELECT id FROM negocios WHERE COALESCE(cliente_id, 1) = ${c}${u ? ` AND asignado_a = ${u}` : ''}`;
+  const filtros: Record<string, string> = {};
+  const accesibles: string[] = [];
+  for (const t of tablas) {
+    const nombres = new Set((cols.get(t) || []).map(x => x.nombre));
+    if (!nombres.size) continue; // la tabla no existe en esta base
+    if (VISTAS_REDUCIDAS[t]) { filtros[t] = VISTAS_REDUCIDAS[t](c); accesibles.push(t); continue; }
+    if (t === 'negocios') {
+      filtros[t] = `SELECT * FROM negocios WHERE COALESCE(cliente_id, 1) = ${c}${u ? ` AND asignado_a = ${u} AND activo = 1` : ''}`;
+    } else if (t === 'documentos_cache') {
+      // oficiales (cliente_id 0, compartidos) + los de esta empresa; el perfil normal no ve los documentos propios de otros.
+      filtros[t] = `SELECT * FROM documentos_cache WHERE cliente_id IN (0, ${c})${u ? ` AND (categoria IS NULL OR categoria <> 'DOCUMENTOS_PROPIOS' OR licitacion_codigo IN (SELECT licitacion_codigo FROM negocios WHERE asignado_a = ${u}))` : ''}`;
+    } else if (t === 'oferta_competencia' && c !== 1) {
+      // es_nuestra se grabó con las razones sociales de Grupo ICA: a otra empresa se le recalcula con SUS RUT.
+      const rn = (x: string) => `REPLACE(REPLACE(LOWER(CONVERT(${x} USING utf8mb4)), '.', ''), ' ', '') COLLATE utf8mb4_unicode_ci`;
+      const resto = (cols.get(t) || []).map(x => x.nombre).filter(n => n !== 'es_nuestra').join(', ');
+      filtros[t] = `SELECT ${resto}, (${rn('proveedor_rut')} IN (SELECT ${rn('rut')} FROM empresas WHERE cliente_id = ${c} AND rut IS NOT NULL AND rut <> '')) AS es_nuestra FROM oferta_competencia`;
+    } else if (TABLAS_COMPARTIDAS.has(t)) {
+      // sin filtro
+    } else if (nombres.has('cliente_id')) {
+      filtros[t] = `SELECT * FROM ${t} WHERE COALESCE(cliente_id, 1) = ${c}`;
+    } else if (nombres.has('negocio_id')) {
+      filtros[t] = `SELECT * FROM ${t} WHERE negocio_id IN (${misNegocios})`;
+    } else if (c === 1 && (!u || TABLAS_MERCADO_ICA.has(t))) {
+      // tabla global de Grupo ICA: solo el cliente 1. Compras/Obuma, además, solo perfiles con acceso total; los análisis de mercado los ven todos los perfiles de ICA
+    } else {
+      continue; // no se puede separar por empresa → no se entrega
+    }
+    accesibles.push(t);
+  }
+  return { filtros, accesibles };
+}
+
+/** Esquema de las tablas de un menú, armado desde la base real (columnas exactas) + notas de la sección. */
+async function esquemaAutomatico(tablas: string[], notas: Record<string, string> = {}): Promise<string> {
+  const cols = await columnasPorTabla();
+  return tablas.map(t => {
+    const lista = (cols.get(t) || []).filter(x => !COLUMNA_SENSIBLE.test(x.nombre) && !(VISTAS_REDUCIDAS[t] && !/^(id|nombre|cargo|area|rol|activo)$/.test(x.nombre)));
+    const largos = lista.filter(x => /text|json|blob/.test(x.tipo)).map(x => x.nombre);
+    const detalle = lista.map(x => `${x.nombre}${x.comentario ? ` (${x.comentario.slice(0, 60)})` : ''}`).join(', ');
+    return `${t}: ${detalle}${largos.length ? `\n  campos de texto largo (no los selecciones enteros; usa SUBSTRING): ${largos.join(', ')}` : ''}${notas[t] ? `\n  ${notas[t]}` : ''}`;
+  }).join('\n');
+}
 
 const ESQUEMA = `BASE DE DATOS (MySQL 5.7, solo lectura). Tablas y columnas disponibles:
 
@@ -96,26 +175,11 @@ async function todasLasTablas(): Promise<Set<string>> {
 const PALABRAS_PROHIBIDAS =
   /\b(insert|update|delete|drop|alter|create|truncate|replace|grant|revoke|call|handler|lock|unlock|load_file|outfile|dumpfile|sleep|benchmark|information_schema|performance_schema|mysql|sys|into|prepare|execute|set|with|json_table)\b/i;
 
-// Perfiles normales (no admin ni Compras): ven el mercado completo (licitaciones, competencia, adjudicaciones,
-// viabilidad) pero de lo interno SOLO lo suyo. Cada tabla restringida se reemplaza por una subconsulta filtrada
-// y se exige que aparezca solo tras FROM/JOIN (así una coma-join no la esquiva).
-const TABLAS_BLOQUEADAS_RESTRINGIDO = ['compras_historial_oc', 'compras_historial_oc_item'];
-const filtrosRestringido = (id: number): Record<string, string> => {
-  const mis = `SELECT id FROM negocios WHERE asignado_a = ${id}`;
-  return {
-    negocios: `SELECT * FROM negocios WHERE asignado_a = ${id} AND activo = 1`,
-    checklist_comercial: `SELECT * FROM checklist_comercial WHERE negocio_id IN (${mis})`,
-    auditor_opcion: `SELECT * FROM auditor_opcion WHERE negocio_id IN (${mis})`,
-    compras_producto: `SELECT * FROM compras_producto WHERE negocio_id IN (${mis})`,
-    documentos_cache: `SELECT * FROM documentos_cache WHERE categoria IS NULL OR categoria <> 'DOCUMENTOS_PROPIOS' OR licitacion_codigo IN (SELECT licitacion_codigo FROM negocios WHERE asignado_a = ${id})`,
-  };
-};
 const PALABRAS_NO_ALIAS = new Set(['on', 'where', 'join', 'left', 'right', 'inner', 'cross', 'group', 'order', 'limit', 'using', 'natural', 'having', 'union', 'straight_join']);
 
-function restringirSql(sql: string, sinLiterales: string, userId: number): string {
-  const bloqueada = TABLAS_BLOQUEADAS_RESTRINGIDO.find(t => new RegExp(`\\b${t}\\b`, 'i').test(sinLiterales));
-  if (bloqueada) throw new Error(`La tabla ${bloqueada} no está disponible para tu perfil.`);
-  const filtros = filtrosRestringido(userId);
+/** Cada tabla con filtro (empresa / perfil) se reemplaza por una subconsulta filtrada y se exige que aparezca solo tras
+ *  FROM/JOIN (así una coma-join no la esquiva). */
+function aplicarFiltros(sql: string, sinLiterales: string, filtros: Record<string, string>): string {
   const bajo = sinLiterales.toLowerCase();
   for (const t of Object.keys(filtros)) {
     for (const m of bajo.matchAll(new RegExp(`\\b${t}\\b`, 'g'))) {
@@ -130,8 +194,9 @@ function restringirSql(sql: string, sinLiterales: string, userId: number): strin
 }
 
 /** Devuelve la SQL lista para ejecutar, o lanza Error con el motivo del rechazo.
- *  `restringidoUserId`: perfil normal → solo ve lo suyo en las tablas internas (ver arriba). */
-export async function validarSqlSoloLectura(sqlCruda: string, restringidoUserId?: number | null): Promise<string> {
+ *  `tablas`: las que este chat puede leer. `alcance`: empresa de quien pregunta y, para perfiles normales, su id
+ *  (solo ven lo asignado a ellos). */
+export async function validarSqlSoloLectura(sqlCruda: string, tablas: string[], alcance: Alcance): Promise<string> {
   let sql = String(sqlCruda || '').trim().replace(/;+\s*$/, '');
   if (!/^select\b/i.test(sql)) throw new Error('La consulta debe empezar con SELECT.');
   if (/;|--|\/\*|\*\/|#/.test(sql)) throw new Error('Consulta con caracteres no permitidos (; -- /* #).');
@@ -139,12 +204,13 @@ export async function validarSqlSoloLectura(sqlCruda: string, restringidoUserId?
   const sinLiterales = sql.replace(/'(?:[^'\\]|\\.|'')*'/g, "''").replace(/"(?:[^"\\]|\\.)*"/g, '""');
   const mala = sinLiterales.match(PALABRAS_PROHIBIDAS);
   if (mala) throw new Error(`Palabra no permitida en la consulta: ${mala[1]}.`);
-  const permitidas = new Set(TABLAS_PERMITIDAS);
+  const { filtros, accesibles } = await filtrosDeAcceso(tablas, alcance);
+  const permitidas = new Set(accesibles);
   const ajenas = [...(await todasLasTablas())].filter(t => !permitidas.has(t));
   const tokens = sinLiterales.toLowerCase().match(/[a-z_][a-z0-9_]*/g) || [];
   const usada = tokens.find(t => ajenas.includes(t));
   if (usada) throw new Error(`Tabla no permitida: ${usada}.`);
-  if (restringidoUserId) sql = restringirSql(sql, sinLiterales, restringidoUserId);
+  sql = aplicarFiltros(sql, sinLiterales, filtros);
   const lim = sql.match(/\blimit\s+(\d+)(?!.*\blimit\b)/i);
   if (!lim) sql += ` LIMIT ${MAX_FILAS}`;
   else if (Number(lim[1]) > MAX_FILAS) sql = sql.replace(/(\blimit\s+)\d+(?!.*\blimit\b)/i, `$1${MAX_FILAS}`);
@@ -164,12 +230,13 @@ async function ejecutarSolo(sql: string): Promise<any[]> {
 }
 
 async function llamar(system: string, user: string, maxTokens: number, temperature = 0): Promise<string> {
-  const c: any = await crearChatIA(
+  // Kimi económico primero, GLM de respaldo (chat-ia.ts). Kimi ignora la temperatura (fija 0.6).
+  const c: any = await crearChatIAChatbot(
     { messages: [{ role: 'system', content: system }, { role: 'user', content: user }], temperature, stream: false, max_tokens: maxTokens },
-    { modeloPreferido: MODELO },
+    { timeoutMs: 60_000 },
   );
   const txt = String(c.choices[0]?.message?.content ?? '').trim();
-  // glm-4.7 a temperatura 0 llegó a entrar en bucle ("c!c!c!…" hasta el tope de tokens): se corta
+  // glm-4.7 (el respaldo) a temperatura 0 llegó a entrar en bucle ("c!c!c!…" hasta el tope de tokens): se corta
   // en el primer tramo de 1-4 caracteres repetido 15+ veces.
   const bucle = txt.match(/([\s\S]{1,4})\1{14,}/);
   return bucle?.index !== undefined ? txt.slice(0, bucle.index).trim() : txt;
@@ -202,7 +269,7 @@ export async function textoCobertura(): Promise<string> {
     partes.push(`Resultados: adjudicaciones guardadas ${n(a.adj_guardadas)}; ofertas de competidores guardadas ${n(c.ofertas)} en solo ${n(c.lics)} licitaciones. Todo análisis de competencia, precios ganadores o proveedores adjudicados está limitado a esas.`);
   } catch { /* sigue */ }
   try {
-    const neg = await q(`SELECT estado_pipeline e, COUNT(*) c FROM negocios WHERE activo=1 GROUP BY estado_pipeline ORDER BY c DESC`);
+    const neg = await q(`SELECT estado_pipeline e, COUNT(*) c FROM negocios WHERE activo=1 AND COALESCE(cliente_id,1)=1 GROUP BY estado_pipeline ORDER BY c DESC`);
     partes.push(`Nuestros negocios activos por etapa: ${neg.map(x => `${x.e}=${n(x.c)}`).join(', ')}.`);
     const [v] = await q(`SELECT COUNT(*) c FROM viabilidad_licitacion`);
     const [p] = await q(`SELECT COUNT(*) c FROM precios_mercado`);
@@ -229,22 +296,62 @@ function extraerJson(txt: string): { sql?: string; respuesta?: string; inventari
 const resumenHistorial = (h: MensajeHistorial[]) =>
   h.slice(-MAX_TURNOS * 2).map(x => `${x.rol === 'usuario' ? 'Usuario' : 'Asistente'}: ${x.mensaje.slice(0, 600)}`).join('\n');
 
-const NOTA_RESTRINGIDO = `\n\nACCESO LIMITADO DE ESTE USUARIO: en negocios, checklist_comercial, auditor_opcion, compras_producto y documentos_cache solo existen SUS negocios (y de los demás, solo documentos que no son propios). Las tablas compras_historial_oc y compras_historial_oc_item NO están disponibles. Si preguntan por negocios, comentarios, costeos o compras de otros perfiles, responde que tu acceso solo cubre sus propias licitaciones y el mercado general.`;
+const NOTA_RESTRINGIDO = `\n\nACCESO LIMITADO DE ESTE USUARIO: en negocios y en todo lo que cuelga de un negocio (checklist, opciones, productos, comentarios, entregas…) solo existen SUS negocios; de los demás, solo documentos que no son propios. Las tablas globales de Compras (proveedores, historial de órdenes de compra, Obuma) NO están disponibles. Si preguntan por negocios, comentarios, costeos o compras de otros perfiles, responde que tu acceso solo cubre sus propias licitaciones y el mercado general.`;
 
-export async function responderGlobal(pregunta: string, historial: MensajeHistorial[], restringidoUserId?: number | null): Promise<{ respuesta: string; sql?: string; filas?: number }> {
+const PISTAS_SECCION = `PISTAS:
+- negocios: una fila por licitación que tomamos; usa activo = 1. estado_pipeline: 'ASIGNADO','EN_PROCESO','ANEXOS','VISADO','POSTULADA','POSIBLE_ADJ','ADJUDICADA' (= GANADA),'PERDIDA','DESIERTA','REVOCADA','DESCARTADA'. negocios.licitacion_codigo = licitaciones_cache.codigo.
+- Las tablas con negocio_id se unen con negocios.id. Las que traen licitacion_codigo se unen con licitaciones_cache.codigo.
+- Fechas relativas: CURDATE() y DATE_SUB. Para totales usa SUM/COUNT; los números los pone la base, no tú.
+- Los textos largos se recortan con SUBSTRING; nunca los selecciones enteros.`;
+
+function sysSqlSeccion(s: SeccionChat, esquema: string): string {
+  return `Eres el analista de datos de LICITANK. Conviertes la pregunta del usuario en UNA consulta SQL de solo lectura sobre el esquema dado.
+El usuario está en el menú «${s.nombre}» (${s.que}). Prioriza esos datos, pero puedes cruzar con cualquiera de las tablas listadas.
+
+BASE DE DATOS (MySQL 5.7, solo lectura). Tablas y columnas disponibles:
+${esquema}
+
+${PISTAS_SECCION}
+
+REGLAS:
+- Responde SOLO con un JSON: {"sql":"SELECT ..."} para preguntas que se resuelven con datos, o {"respuesta":"texto"} si es un saludo, una aclaración, o no se puede responder con estas tablas (dilo: "eso no lo tengo guardado en este menú").
+- Una sola sentencia SELECT, sin punto y coma, sin comentarios. Solo las tablas listadas. Sin CTE (WITH), sin JSON_TABLE (MySQL 5.7).
+- Usa nombres de columna EXACTOS del esquema. Pon alias legibles en español.
+- Agrega siempre ORDER BY y LIMIT (máximo ${MAX_FILAS}).
+- Si la pregunta es ambigua en un punto clave, igual intenta la interpretación más razonable y deja que la respuesta lo aclare.`;
+}
+
+export interface OpcionesChat {
+  /** Sección del chat (por defecto el general del Dashboard). */
+  seccion?: string;
+  /** Empresa-cliente de quien pregunta (sale de la sesión, nunca del navegador). */
+  clienteId: number;
+  /** Perfil normal: solo ve lo asignado a él. */
+  restringidoUserId?: number | null;
+}
+
+export async function responderGlobal(pregunta: string, historial: MensajeHistorial[], opts: OpcionesChat): Promise<{ respuesta: string; sql?: string; filas?: number }> {
+  const sec = opts.seccion && opts.seccion !== 'dashboard' ? seccionPorId(opts.seccion) : null;
+  const alcance: Alcance = { clienteId: opts.clienteId, restringidoUserId: opts.restringidoUserId ?? null };
+  const tablas = sec ? sec.tablas : TABLAS_PERMITIDAS;
+  const { accesibles } = await filtrosDeAcceso(tablas, alcance);
+  if (!accesibles.length) return { respuesta: 'En este menú no tengo datos a los que tu perfil pueda acceder, así que no te puedo ayudar con eso por aquí.' };
+
+  const sistemaSql = (sec ? sysSqlSeccion(sec, await esquemaAutomatico(accesibles, sec.notas)) : SYS_SQL) + (alcance.restringidoUserId ? NOTA_RESTRINGIDO : '');
   const contexto = historial.length ? `CONVERSACIÓN PREVIA:\n${resumenHistorial(historial)}\n\n` : '';
+  const persona = sec ? `${SYS_RESPUESTA}\nEstás en el menú «${sec.nombre}» (${sec.que}); contesta desde ahí.` : SYS_RESPUESTA;
   let pedido = `${contexto}PREGUNTA: ${pregunta}`;
   let sqlFinal: string | undefined;
   let filas: any[] | null = null;
   let ultimoError = '';
 
   for (let intento = 0; intento < 2 && !filas; intento++) {
-    const salida = extraerJson(await llamar(restringidoUserId ? SYS_SQL + NOTA_RESTRINGIDO : SYS_SQL, pedido, 1500));
+    const salida = extraerJson(await llamar(sistemaSql, pedido, 1500));
     if (!salida) { ultimoError = 'El modelo no devolvió JSON.'; pedido += `\n\nTu respuesta anterior no era un JSON válido. Responde solo con {"sql":"..."} o {"respuesta":"..."}.`; continue; }
-    if (salida.inventario) {
-      const cob = await textoCobertura();
+    if (salida.inventario && !sec) {
+      const cob = opts.clienteId === 1 ? await textoCobertura() : 'Solo puedo ver los datos de tu empresa y los públicos de Mercado Público; el inventario completo de la base no está disponible para tu cuenta.';
       const resp = await llamar(
-        SYS_RESPUESTA,
+        persona,
         `${contexto}PREGUNTA: ${pregunta}\n\nEl usuario pregunta qué datos tenemos y cuáles faltan. Responde con este INVENTARIO REAL de la base (cifras exactas), ordenado en: "Lo que sí tenemos", "Lo que nos falta o está incompleto" y "Cómo completarlo" (p. ej. leer los documentos sin texto, guardar más resultados de adjudicación y ofertas de la competencia).\n\nINVENTARIO:\n${cob}`,
         2000,
         0.3,
@@ -253,7 +360,7 @@ export async function responderGlobal(pregunta: string, historial: MensajeHistor
     }
     if (!salida.sql) return { respuesta: String(salida.respuesta || 'No tengo ese dato guardado.') };
     try {
-      sqlFinal = await validarSqlSoloLectura(salida.sql, restringidoUserId);
+      sqlFinal = await validarSqlSoloLectura(salida.sql, tablas, alcance);
       filas = await ejecutarSolo(sqlFinal);
     } catch (e) {
       ultimoError = e instanceof Error ? e.message : String(e);
@@ -265,12 +372,21 @@ export async function responderGlobal(pregunta: string, historial: MensajeHistor
   let datos = JSON.stringify(recortarCampos(filas));
   if (datos.length > MAX_CHARS_FILAS) datos = `${datos.slice(0, MAX_CHARS_FILAS)} …[recortado]`;
   const tope = filas.length >= MAX_FILAS ? `\nOJO: el resultado llegó al tope de ${MAX_FILAS} filas (puede haber más).` : '';
-  const cob = await textoCobertura().catch(() => '');
+  // La cobertura del mercado (cifras globales) solo aplica al chat general y a empresas con acceso total.
+  const cob = !sec && opts.clienteId === 1 ? await textoCobertura().catch(() => '') : '';
   const respuesta = await llamar(
-    SYS_RESPUESTA,
-    `${contexto}PREGUNTA: ${pregunta}\n\nCONSULTA EJECUTADA:\n${sqlFinal}\n\nFILAS (${filas.length}):\n${datos}${tope}\n\nCOBERTURA DE LA BASE (para decir hasta dónde llegan los datos):\n${cob}`,
+    persona,
+    `${contexto}PREGUNTA: ${pregunta}\n\nCONSULTA EJECUTADA:\n${sqlFinal}\n\nFILAS (${filas.length}):\n${datos}${tope}${cob ? `\n\nCOBERTURA DE LA BASE (para decir hasta dónde llegan los datos):\n${cob}` : ''}`,
     2000,
     0.3,
   );
   return { respuesta: respuesta || 'La consulta no devolvió información para responder.', sql: sqlFinal, filas: filas.length };
+}
+
+/** Perfil normal (no admin ni Compras): el chat solo le muestra lo asignado a él. Devuelve su id, o null si tiene acceso completo. */
+export async function restringidoPara(u: { id: number; rol?: string | null }): Promise<number | null> {
+  if (u.rol === 'admin') return null;
+  const { permisosDeUsuario } = await import('@/app/lib/api-auth');
+  const p = await permisosDeUsuario(u.id, u.rol);
+  return p.compras || p.compras_todo || p.aprobar_comercial ? null : u.id;
 }

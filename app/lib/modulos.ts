@@ -14,8 +14,11 @@ export const MODULOS_BASE: Modulo[] = ['radar', 'negocios'];
 /** Módulos que se pueden activar a una empresa-cliente HOY. Los demás todavía leen tablas sin separar por empresa (Compras, Auditor, Anexos…):
  *  activarlos le mostraría datos de Grupo ICA. Se agregan aquí uno por uno, DESPUÉS de separar sus tablas por empresa y probarlo
  *  (`npx tsx scripts/chequear-aislamiento.mts --simular=<módulo>` lista lo que todavía lo bloquea).
+ *  Consulta a la IA (ia_chat, 2026-11-17): ADICIONAL, no viene de inicio (un cliente nuevo parte con radar y negocios). Solo cubre los chats
+ *  (Dashboard, uno por menú y el de cada licitación), todos separados por empresa (chat-global.ts / chat-licitacion.ts); el de cada menú además
+ *  exige el módulo de ese menú. Las otras rutas de IA que colgaban de él siguen solo para ICA (ver REGLAS).
  *  Costeo (2026-11-10): rutas con dueño (guardia en proxy.ts), lee la viabilidad de la empresa (`informe-viabilidad.ts`), sin datos de ICA. Requiere Viabilidad. */
-export const MODULOS_ACTIVABLES: Modulo[] = ['radar', 'negocios', 'viabilidad', 'costeo'];
+export const MODULOS_ACTIVABLES: Modulo[] = ['radar', 'negocios', 'viabilidad', 'costeo', 'ia_chat'];
 
 export const NOMBRE_MODULO: Record<Modulo, string> = {
   radar: 'Radar', negocios: 'Negocios', viabilidad: 'Viabilidad IA', ia_chat: 'Consulta a la IA', auditor: 'Auditor',
@@ -58,7 +61,9 @@ const REGLAS: Regla[] = [
   { modulo: 'interno', re: /^\/(analizadas|reglas-ia|analisis-licitacion)(\/|$)/ },
   { modulo: 'interno', re: /^\/api\/(licitacion-viabilidad|licitacion-viabilidad-ia|viabilidad|viabilidad-feedback|analizadas|prefiltro|reglas-ia)(\/|$)/ },
   { modulo: 'viabilidad', re: /^\/api\/cv\// },
-  { modulo: 'ia_chat',    re: /^\/api\/(licitacion-ia|licitacion-preguntas|chat-global|chat-proyecto|analizar-documento|buscar-productos)(\/|$)/ },
+  // Estas rutas de IA leen análisis y documentos sin separar por empresa: siguen solo para ICA hasta separarlas.
+  { modulo: 'interno',    re: /^\/api\/(licitacion-ia|licitacion-preguntas|analizar-documento|buscar-productos)(\/|$)/ },
+  { modulo: 'ia_chat',    re: /^\/api\/(chat-global|chat-proyecto|chat-seccion)(\/|$)/ },
   { modulo: 'ia_chat',    re: /^\/api\/licitacion\/[^/]+\/chat(\/|$)/ },
   { modulo: 'auditor',    re: /^\/api\/negocios\/[^/]+\/(auditor|prepostulacion)(\/|$)/ },
   { modulo: 'costeo',     re: /^\/api\/negocios\/[^/]+\/(comercial|lineas-oferta)(\/|$)/ },
