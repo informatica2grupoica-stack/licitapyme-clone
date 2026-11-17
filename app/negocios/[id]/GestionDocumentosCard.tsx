@@ -9,11 +9,11 @@ import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { Modal } from '@/app/components/ui/Modal';
 import { GuiaDespachoObumaCard } from './GuiaDespachoObumaCard';
-import { IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconDownload as Download, IconFilePlus as FilePlus, IconUsers as Users, IconFileText as FileText } from '@tabler/icons-react';
+import { IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconDownload as Download, IconFilePlus as FilePlus, IconUsers as Users, IconFileText as FileText, IconPhoto as Photo, IconUpload as Upload } from '@tabler/icons-react';
 
-interface Campo { clave: string; etiqueta: string; tipo: 'texto' | 'lista' | 'fecha' | 'tabla'; valorPorDefecto?: string; ayuda?: string; donde?: string }
+interface Campo { clave: string; etiqueta: string; tipo: 'texto' | 'lista' | 'fecha' | 'tabla' | 'logo'; valorPorDefecto?: string; ayuda?: string; donde?: string }
 interface Plantilla { id: number; nombre: string; descripcion: string | null; porPersona: boolean; campos: Campo[]; cuerpoHtml: string }
-interface Contexto { empresa: string; rutEmpresa: string; licitacionCodigo: string; licitacionNombre: string; organismo: string; hoy: string; representante?: string; representanteCargo?: string; logoUri?: string | null; firmaUri?: string | null; timbreUri?: string | null }
+interface Contexto { logos?: Record<string, string>; logosOpciones?: { clave: string; nombre: string }[]; empresa: string; rutEmpresa: string; licitacionCodigo: string; licitacionNombre: string; organismo: string; hoy: string; representante?: string; representanteCargo?: string; logoUri?: string | null; firmaUri?: string | null; timbreUri?: string | null }
 interface Generado { id: number; titulo: string; plantillaNombre: string; personas: number; creadoPor: string | null; createdAt: string }
 interface Persona { nombre: string; rut: string }
 
@@ -32,6 +32,10 @@ export function GestionDocumentosCard({ negocioId }: { negocioId: number }) {
   const [personas, setPersonas] = useState<Persona[]>([{ nombre: '', rut: '' }]);
   const [generando, setGenerando] = useState(false);
   const [visor, setVisor] = useState<{ url: string; titulo: string } | null>(null);
+  const [bancoAbierto, setBancoAbierto] = useState(false);
+  const [logoNombre, setLogoNombre] = useState('');
+  const [logoArchivo, setLogoArchivo] = useState<File | null>(null);
+  const [subiendoLogo, setSubiendoLogo] = useState(false);
 
   const urlPdf = (id: number) => `/api/compras/${negocioId}/documentos-generados?pdf=${id}`;
 
@@ -67,6 +71,31 @@ export function GestionDocumentosCard({ negocioId }: { negocioId: number }) {
     finally { setGenerando(false); }
   };
 
+  const subirLogo = async () => {
+    if (!logoArchivo) return;
+    setSubiendoLogo(true);
+    try {
+      const fd = new FormData(); fd.append('nombre', logoNombre); fd.append('file', logoArchivo);
+      const res = await fetch(`/api/compras/${negocioId}/documentos-logos`, { method: 'POST', body: fd });
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'No se pudo subir el logo.');
+      toast.success('Logo guardado en el banco');
+      setLogoNombre(''); setLogoArchivo(null); await cargar();
+    } catch (e: any) { toast.error('No se pudo subir el logo', e.message); }
+    finally { setSubiendoLogo(false); }
+  };
+
+  const quitarLogo = async (clave: string, nombre: string) => {
+    const ok = await confirmar({ titulo: '¿Quitar este logo del banco?', mensaje: `${nombre} dejará de estar disponible para documentos nuevos. Los documentos que ya lo usan quedan guardados, pero al volver a abrirlos saldrán sin ese logo.`, confirmarLabel: 'Quitar', peligro: true });
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/documentos-logos?id=${clave.slice(1)}`, { method: 'DELETE' });
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'No se pudo quitar.');
+      await cargar();
+    } catch (e: any) { toast.error('No se pudo quitar el logo', e.message); }
+  };
+
   const eliminar = async (h: Generado) => {
     const ok = await confirmar({ titulo: '¿Eliminar este documento?', mensaje: `${h.titulo} dejará de estar en este negocio. Se puede volver a generar, pero esta acción no se puede deshacer.`, confirmarLabel: 'Eliminar', peligro: true });
     if (!ok) return;
@@ -93,6 +122,9 @@ export function GestionDocumentosCard({ negocioId }: { negocioId: number }) {
             <FilePlus size={16} /> Nuevo: {p.nombre}
           </button>
         ))}
+        <button onClick={() => setBancoAbierto(true)} className="inline-flex items-center gap-2 text-[13px] font-semibold px-3.5 py-2 rounded-lg border border-zinc-300 text-zinc-700 hover:bg-zinc-50 transition-colors">
+          <Photo size={16} /> Banco de logos
+        </button>
       </div>
 
       {historial.length === 0 ? (
@@ -151,7 +183,9 @@ export function GestionDocumentosCard({ negocioId }: { negocioId: number }) {
                     </span>
                     {c.donde && <span className="block text-[12px] text-zinc-500 mb-1.5 ml-7">{c.donde}</span>}
                     <span className="block ml-7">
-                      {c.tipo === 'lista' || c.tipo === 'tabla'
+                      {c.tipo === 'logo'
+                        ? <span className="flex items-center gap-2"><select className={entrada} value={valores[c.clave] || ''} onChange={e => setValores(v => ({ ...v, [c.clave]: e.target.value }))}>{(ctx.logosOpciones || []).map(o => <option key={o.clave} value={o.clave}>{o.nombre}</option>)}</select><button type="button" onClick={() => setBancoAbierto(true)} className="text-[12px] font-semibold text-teal-700 hover:text-teal-800 whitespace-nowrap">Subir logo</button></span>
+                        : c.tipo === 'lista' || c.tipo === 'tabla'
                         ? <textarea rows={6} className={entrada} placeholder={c.tipo === 'tabla' ? c.ayuda : undefined} value={valores[c.clave] || ''} onChange={e => setValores(v => ({ ...v, [c.clave]: e.target.value }))} />
                         : <input type={c.tipo === 'fecha' ? 'date' : 'text'} className={entrada} placeholder={c.ayuda} value={valores[c.clave] || ''} onChange={e => setValores(v => ({ ...v, [c.clave]: e.target.value }))} />}
                     </span>
@@ -184,6 +218,31 @@ export function GestionDocumentosCard({ negocioId }: { negocioId: number }) {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal open={bancoAbierto} onClose={() => !subiendoLogo && setBancoAbierto(false)} title="Banco de logos" subtitle="Sube aquí los logos (empresas, marcas, mandantes). Después los eliges en cada certificado o acta." size="lg">
+        <div className="space-y-5">
+          <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 space-y-2">
+            <p className="text-[13px] font-semibold text-zinc-800">Agregar un logo</p>
+            <input className={entrada} placeholder="Nombre (ej.: Tecnomaq, Grupo ICA)" value={logoNombre} onChange={e => setLogoNombre(e.target.value)} />
+            <input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => setLogoArchivo(e.target.files?.[0] || null)} className="block w-full text-[12.5px] text-zinc-600" />
+            <p className="text-[11.5px] text-zinc-500">PNG, JPG o WEBP, hasta 5 MB. Mejor con fondo transparente o blanco y de buena calidad.</p>
+            <button onClick={subirLogo} disabled={!logoArchivo || !logoNombre.trim() || subiendoLogo} className="inline-flex items-center gap-2 text-[13px] font-semibold px-4 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50">
+              {subiendoLogo ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Guardar en el banco
+            </button>
+          </div>
+          {(() => {
+            const delBanco = (ctx?.logosOpciones || []).filter(o => /^bd+$/.test(o.clave));
+            return delBanco.length === 0
+              ? <p className="text-[13px] text-zinc-500 text-center py-4">Todavía no hay logos en el banco.</p>
+              : <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">{delBanco.map(o => (
+                  <div key={o.clave} className="rounded-lg border border-zinc-200 bg-white p-2 flex flex-col gap-2">
+                    <div className="h-20 flex items-center justify-center bg-zinc-50 rounded"><img src={ctx?.logos?.[o.clave]} alt={o.nombre} className="max-h-16 max-w-full object-contain" /></div>
+                    <div className="flex items-center justify-between gap-2"><span className="text-[12.5px] font-semibold text-zinc-800 truncate">{o.nombre}</span>
+                      <button onClick={() => quitarLogo(o.clave, o.nombre)} aria-label="Quitar logo" title="Quitar" className="p-1 rounded text-zinc-400 hover:text-rose-600 hover:bg-rose-50"><Trash2 size={15} /></button></div>
+                  </div>))}</div>;
+          })()}
+        </div>
       </Modal>
 
       {/* Visor propio: el PDF sale de nuestra ruta (no de una URL externa), así que va directo a un iframe. */}

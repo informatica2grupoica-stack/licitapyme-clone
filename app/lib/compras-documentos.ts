@@ -9,6 +9,8 @@ import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { generarInformePdf } from '@/app/lib/generar-informe';
 import { logoDeEmpresaPorRut } from '@/app/lib/compras-oc-propia';
+import { subirDocumentoR2 } from '@/app/lib/r2';
+import { clienteDeNegocio } from '@/app/lib/tenant';
 import fs from 'fs';
 import path from 'path';
 
@@ -30,6 +32,10 @@ async function asegurarTablas() {
     id INT AUTO_INCREMENT PRIMARY KEY, negocio_id INT NOT NULL, plantilla_id INT NOT NULL, titulo VARCHAR(300) NOT NULL,
     datos_json MEDIUMTEXT NOT NULL, creado_por INT NULL, creado_por_nombre VARCHAR(160) NULL, created_at DATETIME NOT NULL, KEY ix_negocio (negocio_id)
   ) DEFAULT CHARSET=utf8mb4`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS compras_doc_logo (
+    id INT AUTO_INCREMENT PRIMARY KEY, cliente_id INT NOT NULL, nombre VARCHAR(120) NOT NULL, url VARCHAR(600) NOT NULL, archivo VARCHAR(200) NULL,
+    creado_por_nombre VARCHAR(160) NULL, created_at DATETIME NOT NULL, KEY ix_cliente (cliente_id)
+  ) DEFAULT CHARSET=utf8mb4`);
   tablasListas = true;
 }
 
@@ -38,6 +44,8 @@ const CERTIFICADO_CAPACITACION: Omit<Plantilla, 'id'> = {
   clave: 'certificado-capacitacion', nombre: 'Certificado de capacitación', porPersona: true,
   descripcion: 'Una página por persona capacitada, con los contenidos vistos y la licitación.',
   campos: [
+    { clave: 'logo_izq', etiqueta: 'Logo de la izquierda', donde: 'Arriba a la izquierda.', tipo: 'logo', valorPorDefecto: 'empresa' },
+    { clave: 'logo_der', etiqueta: 'Logo de la derecha (opcional)', donde: 'Arriba a la derecha, sobre el nombre de la empresa.', tipo: 'logo', valorPorDefecto: '' },
     { clave: 'titulo_equipo', etiqueta: 'Subtítulo', donde: 'Aparece bajo el título «CAPACITACIÓN».', tipo: 'texto', ayuda: 'Ej.: Rodillo Compactador Tecnomaq Modelo D75E-1' },
     { clave: 'equipo', etiqueta: 'Qué equipo se capacitó', donde: 'Va en la frase «ha recibido capacitación sobre …».', tipo: 'texto', ayuda: 'Ej.: el rodillo compactador Tecnomaq D75E-1' },
     { clave: 'nombre_licitacion', etiqueta: 'Nombre de la licitación', donde: 'Va entre comillas junto al ID de la licitación.', tipo: 'texto', ayuda: 'Ej.: Rodillo Compactador y Sonda Vibradora' },
@@ -47,7 +55,7 @@ const CERTIFICADO_CAPACITACION: Omit<Plantilla, 'id'> = {
     { clave: 'fecha', etiqueta: 'Fecha de la capacitación', donde: 'Se escribe en letras: «9 de noviembre de 2026».', tipo: 'fecha' },
   ],
   cuerpoHtml: `<div class="marco">
-<div class="cab"><div class="logo">{{logo_img}}</div><div class="emp">{{emp_der}}RUT {{rut_empresa}}</div></div>
+<div class="cab"><div class="logo">{{logo_izq}}</div><div class="emp">{{logo_der}}{{emp_der}}RUT {{rut_empresa}}</div></div>
 <div class="titulo"><span class="sup">Certificado de</span><span class="gran">CAPACITACIÓN</span><span class="sub">{{titulo_equipo}}</span></div>
 <p class="otorga">Se certifica que</p>
 <p class="nombre">{{nombre}}</p><p class="rutp">RUT {{rut}}</p>
@@ -57,12 +65,15 @@ const CERTIFICADO_CAPACITACION: Omit<Plantilla, 'id'> = {
 <div class="firma"><div class="fw">{{firma_img}}{{timbre_img}}</div><div class="linea"></div><b>{{representante}}</b><br>{{representante_cargo}}<br>{{empresa}}</div>
 </div>`,
 };
-// Acta de entrega tomada del acta firmada por la Municipalidad de Concepción (2415-19-LE26, 9-nov-2026). Tecnomaq a la izquierda, empresa al centro,
-// logo de la empresa (Mi empresa) a la derecha. Recepción conforme (nombre, RUT, cargo, fecha, firma) queda en blanco: lo llena quien recibe.
+// Acta de entrega tomada del acta firmada por la Municipalidad de Concepción (2415-19-LE26, 9-nov-2026). Los logos se eligen del banco de logos
+// (en el acta firmada: Tecnomaq a la izquierda, empresa al centro, Grupo ICA / logo de la empresa a la derecha). Recepción conforme (nombre, RUT, cargo, fecha, firma) queda en blanco: lo llena quien recibe.
 const ACTA_ENTREGA: Omit<Plantilla, 'id'> = {
   clave: 'acta-entrega', nombre: 'Acta de entrega', porPersona: false,
   descripcion: 'Acta con el detalle de lo entregado, guía de despacho y recepción conforme para firmar.',
   campos: [
+    { clave: 'logo_izq', etiqueta: 'Logo de la izquierda', donde: 'Arriba a la izquierda.', tipo: 'logo', valorPorDefecto: '' },
+    { clave: 'logo_centro', etiqueta: 'Logo del centro (opcional)', donde: 'Arriba al centro, sobre el nombre de la empresa.', tipo: 'logo', valorPorDefecto: '' },
+    { clave: 'logo_der', etiqueta: 'Logo de la derecha', donde: 'Arriba a la derecha.', tipo: 'logo', valorPorDefecto: 'empresa' },
     { clave: 'oc', etiqueta: 'Licitación OC', donde: 'Sale arriba a la izquierda, bajo «Licitación OC».', tipo: 'texto', ayuda: 'Ej.: 2415-283-SE26' },
     { clave: 'unidad_compra', etiqueta: 'Unidad de compra', donde: 'Segunda caja bajo el título «ACTA DE ENTREGA».', tipo: 'texto', ayuda: 'Ej.: IMUNI Concepción Adquisiciones' },
     { clave: 'fecha', etiqueta: 'Fecha del acta', donde: 'Sale arriba a la derecha.', tipo: 'fecha' },
@@ -72,7 +83,7 @@ const ACTA_ENTREGA: Omit<Plantilla, 'id'> = {
     { clave: 'pendiente', etiqueta: 'Pendiente de entrega (opcional)', donde: 'Va bajo el ID de licitación.', tipo: 'texto' },
   ],
   cuerpoHtml: `<div class="acta">
-<div class="cab2"><div>{{logo_tecnomaq}}</div><div class="cen">{{empresa}} {{rut_empresa}}</div><div>{{logo_img}}</div></div>
+<div class="cab2"><div>{{logo_izq}}</div><div class="cen">{{logo_centro}}{{empresa}} {{rut_empresa}}</div><div>{{logo_der}}</div></div>
 <div class="bloque1"><div class="izq"><u>Licitación OC</u>{{oc}}<br>Unidad de Compra</div>
 <div class="med"><div class="tit">Acta de entrega</div><div class="caja">{{organismo}}</div><div class="caja">{{unidad_compra}}</div></div>
 <div class="der">{{fecha_larga}}</div></div>
@@ -130,14 +141,19 @@ export async function plantillasDelNegocio(negocioId: number): Promise<{ habilit
   }
   const [rows] = await pool.query(`SELECT * FROM compras_doc_plantilla WHERE empresa_rut = ? AND activa = 1 ORDER BY id`, [rut]) as any;
   const plantillas = (rows as any[]).map(filaAPlantilla);
+  const logoEmpresa = (/timbre/i.test(`${e.logo_nombre || ''} ${e.logo_url || ''}`) ? null : await imagenComoUri(e.logo_url)) || (await imagenComoUri(logoDeEmpresaPorRut(e.rut), true));
+  const banco = await listarLogos(await clienteDeNegocio(negocioId));
+  const logos: Record<string, string> = {}; if (logoEmpresa) logos.empresa = logoEmpresa;
+  for (const l of banco) logos['b' + l.id] = l.url;
+  const logosOpciones = [{ clave: '', nombre: 'Ninguno' }, { clave: 'empresa', nombre: `Logo de la empresa (${e.razon_social})` }, ...banco.map(l => ({ clave: 'b' + l.id, nombre: l.nombre }))];
   return {
     habilitado: plantillas.length > 0, plantillas,
     contexto: {
+      logos, logosOpciones,
       representante: e.representante_nombre || '', representanteRut: e.representante_rut || '', representanteCargo: e.representante_cargo || '',
       // Logo, firma y timbre son los cargados en la ficha de la empresa (Mi empresa). Si el «logo» cargado es en realidad la foto del timbre
       // (pasó con Comercial MP) no sirve de encabezado: se usa el logo del sistema hasta que suban el verdadero.
       logoUri: (/timbre/i.test(`${e.logo_nombre || ''} ${e.logo_url || ''}`) ? null : await imagenComoUri(e.logo_url)) || (await imagenComoUri(logoDeEmpresaPorRut(e.rut), true)),
-      logoTecnomaqUri: await imagenComoUri('docs-logos/tecnomaq.png', true),
       timbreUri: await imagenComoUri(e.timbre_url),
       firmaUri: await imagenComoUri(e.firma_url),
       empresa: e.razon_social, rutEmpresa: e.rut, licitacionCodigo: e.licitacion_codigo || '', licitacionNombre: e.licitacion_nombre || '', organismo: e.licitacion_organismo || '', hoy: ahoraChileSQL().slice(0, 10) },
@@ -168,7 +184,14 @@ export async function pdfDeDocumento(negocioId: number, docId: number): Promise<
   const { plantillas, contexto } = await plantillasDelNegocio(negocioId);
   const p = plantillas.find(x => x.id === r.plantilla_id); if (!p || !contexto) throw new Error('La plantilla de este documento ya no está disponible.');
   const datos = JSON.parse(r.datos_json) as { valores: Record<string, string>; personas: PersonaDoc[] };
-  const pdf = await generarInformePdf(armarHtml(p, datos.valores, contexto, datos.personas));
+  // El navegador que imprime no sale a internet: los logos del banco que usa este documento se incrustan.
+  const logos = { ...(contexto.logos || {}) };
+  for (const campo of p.campos) {
+    if (campo.tipo !== 'logo') continue;
+    const sel = datos.valores[campo.clave] ?? campo.valorPorDefecto ?? '';
+    if (/^bd+$/.test(sel) && logos[sel]) { const uri = await imagenComoUri(logos[sel]); if (uri) logos[sel] = uri; else delete logos[sel]; }
+  }
+  const pdf = await generarInformePdf(armarHtml(p, datos.valores, { ...contexto, logos }, datos.personas));
   const res = { pdf, nombre: `${p.clave}-${contexto.licitacionCodigo || negocioId}.pdf` };
   cachePdf.set(clave, res); if (cachePdf.size > 40) cachePdf.delete(cachePdf.keys().next().value as string);
   return res;
@@ -191,4 +214,31 @@ export async function eliminarDocumento(negocioId: number, docId: number): Promi
   const [res] = await pool.query(`DELETE FROM compras_doc_generado WHERE id = ? AND negocio_id = ?`, [docId, negocioId]) as any;
   if (!res.affectedRows) throw new Error('Ese documento no es de este negocio.');
   cachePdf.delete(negocioId + ':' + docId);
+}
+
+// ── Banco de logos (por cliente): cualquier logo que el equipo quiera poner en certificados, actas y otros documentos ──────────────────
+export interface LogoBanco { id: number; nombre: string; url: string }
+const MIME_LOGO = /.(png|jpe?g|webp)$/i;
+
+export async function listarLogos(clienteId: number): Promise<LogoBanco[]> {
+  await asegurarTablas();
+  const [rows] = await pool.query('SELECT id, nombre, url FROM compras_doc_logo WHERE cliente_id = ? ORDER BY nombre, id', [clienteId]) as any;
+  return rows as LogoBanco[];
+}
+
+export async function agregarLogo(clienteId: number, nombre: string, archivo: { name: string; type: string; buffer: Buffer }, userNombre: string | null): Promise<number> {
+  await asegurarTablas();
+  const limpio = nombre.trim().slice(0, 120); if (!limpio) throw new Error('Ponle un nombre al logo (por ejemplo: Tecnomaq).');
+  if (!MIME_LOGO.test(archivo.name)) throw new Error('El logo debe ser una imagen PNG, JPG o WEBP.');
+  if (archivo.buffer.length > 5_000_000) throw new Error('El logo pesa más de 5 MB.');
+  const url = await subirDocumentoR2('logos-docs/c' + clienteId, archivo.name, archivo.buffer, archivo.type);
+  const [res] = await pool.query('INSERT INTO compras_doc_logo (cliente_id, nombre, url, archivo, creado_por_nombre, created_at) VALUES (?,?,?,?,?,?)',
+    [clienteId, limpio, url, archivo.name.slice(0, 200), userNombre, ahoraChileSQL()]) as any;
+  return res.insertId as number;
+}
+
+export async function eliminarLogo(clienteId: number, id: number): Promise<void> {
+  await asegurarTablas();
+  const [res] = await pool.query('DELETE FROM compras_doc_logo WHERE id = ? AND cliente_id = ?', [id, clienteId]) as any;
+  if (!res.affectedRows) throw new Error('Ese logo no es de tu empresa.');
 }

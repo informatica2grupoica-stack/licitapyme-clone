@@ -1,12 +1,13 @@
 // app/lib/compras-documentos-render.ts
 // Armado del HTML de un documento desde su plantilla. Sin dependencias de servidor: lo usan el PDF (servidor) y la vista previa del formulario (navegador).
-export interface CampoPlantilla { clave: string; etiqueta: string; tipo: 'texto' | 'lista' | 'fecha' | 'tabla'; valorPorDefecto?: string; ayuda?: string; donde?: string; columnas?: string[]; filasMin?: number }
+export interface CampoPlantilla { clave: string; etiqueta: string; tipo: 'texto' | 'lista' | 'fecha' | 'tabla' | 'logo'; valorPorDefecto?: string; ayuda?: string; donde?: string; columnas?: string[]; filasMin?: number }
 export interface Plantilla {
   id: number; clave: string; nombre: string; descripcion: string | null; porPersona: boolean;
   campos: CampoPlantilla[]; cuerpoHtml: string;
 }
 export interface DocumentoGenerado { id: number; plantillaId: number; plantillaNombre: string; titulo: string; personas: number; creadoPor: string | null; createdAt: string }
-export interface ContextoDocumento { empresa: string; rutEmpresa: string; licitacionCodigo: string; licitacionNombre: string; organismo: string; hoy: string; representante?: string; representanteRut?: string; representanteCargo?: string; logoUri?: string | null; logoTecnomaqUri?: string | null; firmaUri?: string | null; timbreUri?: string | null }
+export interface LogoOpcion { clave: string; nombre: string }
+export interface ContextoDocumento { logos?: Record<string, string>; logosOpciones?: LogoOpcion[]; empresa: string; rutEmpresa: string; licitacionCodigo: string; licitacionNombre: string; organismo: string; hoy: string; representante?: string; representanteRut?: string; representanteCargo?: string; logoUri?: string | null; firmaUri?: string | null; timbreUri?: string | null }
 export interface PersonaDoc { nombre: string; rut: string }
 
 const esc = (x: unknown) => String(x ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -30,11 +31,12 @@ export function armarHtml(p: Plantilla, valores: Record<string, string>, ctx: Co
     return p.cuerpoHtml.replace(/\{\{(\w+)\}\}/g, (_m, k: string) => {
       // Imágenes de la empresa (data URI armado por el servidor): único HTML que no se escapa.
       if (k === 'logo_img') return ctx.logoUri ? `<img src="${ctx.logoUri}" alt="">` : ''; // sin logo (Inversiones Claro) el encabezado queda igual, con ese lado vacío
-      if (k === 'logo_tecnomaq') return ctx.logoTecnomaqUri ? `<img src="${ctx.logoTecnomaqUri}" alt="">` : '';
       if (k === 'emp_der') return `<b>${esc(ctx.empresa)}</b><br>`;
       if (k === 'timbre_img') return ctx.timbreUri ? `<img class="timbreimg" src="${ctx.timbreUri}" alt="">` : '';
       if (k === 'firma_img') return ctx.firmaUri ? `<img class="firmaimg" src="${ctx.firmaUri}" alt="">` : '<div style="height:56px"></div>';
       const campo = p.campos.find(c => c.clave === k);
+      // Logos elegidos del banco: clave de la opción → imagen (en el PDF ya viene como data URI). Sin valor guardado vale el de la plantilla.
+      if (/^logo_(izq|centro|der)$/.test(k)) { const src = ctx.logos?.[valores[k] ?? campo?.valorPorDefecto ?? '']; return src ? `<img src="${src}" alt="">` : ''; }
       const v = k in base ? base[k] : (valores[k] ?? '');
       if (k in base && !['nombre', 'rut', 'unidad_de'].includes(k)) return esc(v); // lo que se llena solo no se marca
       const etiqueta = campo?.etiqueta || ETIQUETAS_FIJAS[k] || k;
@@ -59,7 +61,7 @@ export function armarHtml(p: Plantilla, valores: Record<string, string>, ctx: Co
   .hoja{page-break-after:always;box-sizing:border-box;height:268mm;padding:0} .hoja:last-child{page-break-after:auto}
   .marco{height:100%;box-sizing:border-box;border:1.5px solid #3a3a3a;outline:0.5px solid #b8b8b8;outline-offset:-7px;padding:34px 46px 26px;display:flex;flex-direction:column}
   .cab{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #3a3a3a;padding-bottom:14px}
-  .logo img{height:74px;display:block} .nom{font-size:22px;font-weight:700;letter-spacing:.5px;color:#2b2b2b} .emp{text-align:right;font-size:11.5px;line-height:1.45;color:#555} .emp b{font-size:13px;color:#2b2b2b}
+  .emp img{height:52px;display:block;margin:0 0 6px auto} .logo img{height:74px;display:block} .nom{font-size:22px;font-weight:700;letter-spacing:.5px;color:#2b2b2b} .emp{text-align:right;font-size:11.5px;line-height:1.45;color:#555} .emp b{font-size:13px;color:#2b2b2b}
   .titulo{text-align:center;margin:44px 0 34px} .titulo span{display:block}
   .sup{font-size:12px;letter-spacing:5px;text-transform:uppercase;color:#777} .gran{font-size:34px;font-weight:700;letter-spacing:4px;color:#2b2b2b;margin-top:2px}
   .sub{font-size:13.5px;color:#555;margin-top:8px;font-style:italic}
