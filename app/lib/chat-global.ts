@@ -141,6 +141,8 @@ PISTAS:
 - "Competencia": agrupa oferta_competencia por proveedor_nombre (cuántas ofertas, cuántas veces ganó = estado de la oferta / adjudicación); excluye es_nuestra=1.
 - "Ganadas/perdidas nuestras": negocios con estado_pipeline='ADJUDICADA' / 'PERDIDA', activo=1.
 - Fechas relativas: usa CURDATE() y DATE_SUB.
+- Órdenes de compra: compras_historial_oc (folio, fecha, total; historial de Obuma) NO tiene negocio_id ni licitacion_codigo: NUNCA la unas a negocios. Las OC de un negocio están en compras_orden_compra_obuma (negocio_id) y las del cliente en ordenes_compra (licitacion_codigo = licitaciones_cache.codigo). «OC sin pagar» = compras_orden_compra_obuma LEFT JOIN compras_oc_pago por oc_folio = obuma_folio, WHERE pago IS NULL.
+- Todo JOIN une por una columna clave de AMBAS tablas (negocio_id = negocios.id, licitacion_codigo = codigo…); jamás por una condición constante, IS NOT NULL o una subconsulta que repite la misma tabla: multiplica filas.
 - Carga de trabajo («cuántos negocios tiene cada persona», «en qué etapa están»): cuenta solo los VIGENTES (ASIGNADO, EN_PROCESO, ANEXOS, VISADO, POSTULADA, POSIBLE_ADJ) y dilo en la respuesta; cuenta todos solo si piden «todos», «históricos» o «descartados». NO aplica a Compras. Muestra siempre el NOMBRE de la persona (JOIN usuarios u ON u.id = n.asignado_a), nunca el id; arma UNA fila por persona con una columna por etapa (SUM(CASE ...)) y una columna total, para que los totales los sume la base.
 - Compras abiertas/pendientes: compras_asignacion con cierre_legado IS NULL AND precompra = 0 (cerrada = 'ENTREGADA'; cancelada = 'OC_CANCELADA' o 'NO_REALIZADA').
 - Para «sin X», «que no tienen X» o «pendientes de X»: LEFT JOIN a X y WHERE X.id IS NULL (o NOT EXISTS). NUNCA un INNER JOIN con IS NULL: devuelve 0 filas siempre.`;
@@ -321,6 +323,8 @@ const PISTAS_SECCION = `PISTAS:
 - negocios: una fila por licitación que tomamos; usa activo = 1. estado_pipeline: 'ASIGNADO','EN_PROCESO','ANEXOS','VISADO','POSTULADA','POSIBLE_ADJ','ADJUDICADA' (= GANADA),'PERDIDA','DESIERTA','REVOCADA','DESCARTADA'. negocios.licitacion_codigo = licitaciones_cache.codigo.
 - Las tablas con negocio_id se unen con negocios.id. Las que traen licitacion_codigo se unen con licitaciones_cache.codigo.
 - Fechas relativas: CURDATE() y DATE_SUB. Para totales usa SUM/COUNT; los números los pone la base, no tú.
+- Órdenes de compra: compras_historial_oc (folio, fecha, total; historial de Obuma) NO tiene negocio_id ni licitacion_codigo: NUNCA la unas a negocios. Las OC de un negocio están en compras_orden_compra_obuma (negocio_id) y las del cliente en ordenes_compra (licitacion_codigo = licitaciones_cache.codigo). «OC sin pagar» = compras_orden_compra_obuma LEFT JOIN compras_oc_pago por oc_folio = obuma_folio, WHERE pago IS NULL.
+- Todo JOIN une por una columna clave de AMBAS tablas (negocio_id = negocios.id, licitacion_codigo = codigo…); jamás por una condición constante, IS NOT NULL o una subconsulta que repite la misma tabla: multiplica filas.
 - Carga de trabajo del pipeline de licitaciones («cuántos negocios tiene cada persona», «en qué etapa están»): cuenta solo los VIGENTES (ASIGNADO, EN_PROCESO, ANEXOS, VISADO, POSTULADA, POSIBLE_ADJ) y dilo en la respuesta; cuenta todos solo si piden «todos», «históricos» o «descartados». NO aplica a Compras. Muestra siempre el NOMBRE de la persona (JOIN usuarios u ON u.id = n.asignado_a), nunca el id; arma UNA fila por persona con una columna por etapa (SUM(CASE ...)) y una columna total, para que los totales los sume la base.
 - Compras (proyectos de compra, compras pendientes/abiertas): una compra = una fila de compras_asignacion. Abierta = cierre_legado IS NULL AND precompra = 0 (pre-compra = precompra = 1 AND cierre_legado IS NULL); cerrada = cierre_legado = 'ENTREGADA'; cancelada = cierre_legado IN ('OC_CANCELADA','NO_REALIZADA'). Atrasadas = con tareas de compras_tarea con estado <> 'HECHA' AND plazo_at < NOW(). La fecha de entrega vencida se calcula en la pantalla y no está guardada: si la piden, responde con las tareas atrasadas y dilo.
 - Para «sin X», «que no tienen X» o «pendientes de X»: LEFT JOIN a X y WHERE X.id IS NULL (o NOT EXISTS). NUNCA un INNER JOIN con IS NULL: devuelve 0 filas siempre.
@@ -424,10 +428,15 @@ export async function responderGlobal(pregunta: string, historial: MensajeHistor
       sqlFinal = await validarSqlSoloLectura(salida.sql, tablas, alcance);
       filas = await ejecutarSolo(sqlFinal);
       // 0 filas: casi siempre es un JOIN que anula el resultado o un filtro inexistente. Una segunda mirada antes de decir «no hay».
-      if (filas.length === 0 && !vacio) {
+      // Resultado que repite la misma fila (JOIN que multiplica: p. ej. una OC cruzada con todos los negocios): también se revisa una vez.
+      const repetida = filas.length >= 50 && /\bjoin\b/i.test(sqlFinal) && new Set(filas.map(f => JSON.stringify(Object.values(f).slice(0, 2)))).size <= filas.length * 0.1;
+      if ((filas.length === 0 || repetida) && !vacio) {
+        const motivo = filas.length === 0
+          ? 'devolvió 0 filas. Revisa que ningún INNER JOIN anule el resultado (para «sin X» usa LEFT JOIN + IS NULL) y que los valores de los filtros existan'
+          : 'devolvió filas casi idénticas entre sí: un JOIN está multiplicando el resultado. Une cada tabla por su columna clave real (revisa las PISTAS de relaciones) y no unas tablas que no se relacionan';
         vacio = { sql: sqlFinal, filas };
         filas = null;
-        pedido += `\n\nTu consulta devolvió 0 filas: ${salida.sql}\nRevisa que ningún INNER JOIN anule el resultado (para «sin X» usa LEFT JOIN + IS NULL) y que los valores de los filtros existan. Si la consulta era correcta, repítela igual; si no, corrígela.${await columnasDeLasTablas(salida.sql, accesibles)}`;
+        pedido += `\n\nTu consulta ${motivo}. Consulta: ${salida.sql}\nSi la consulta era correcta, repítela igual; si no, corrígela.${await columnasDeLasTablas(salida.sql, accesibles)}`;
       }
     } catch (e) {
       ultimoError = e instanceof Error ? e.message : String(e);
