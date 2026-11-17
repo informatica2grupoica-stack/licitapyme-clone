@@ -1,3 +1,4 @@
+import { fetchConTimeout } from '@/app/lib/fetch-timeout';
 import { esUrlR2Propia, fetchHostSeguro } from '@/app/lib/url-propia';
 // app/lib/document-extraction.ts
 // Extracción de texto de documentos de licitación (PDF/Word/Excel), con OCR
@@ -71,7 +72,7 @@ export async function extraerConOCRSpace(buffer: Buffer, fileName: string): Prom
 
   try {
     const ocrKey = process.env.OCRSPACE_API_KEY || 'helloworld';
-    const response = await fetch('https://api.ocr.space/parse/image', {
+    const response = await fetchConTimeout('https://api.ocr.space/parse/image', {
       method: 'POST',
       headers: { 'apikey': ocrKey },
       body: formData,
@@ -742,7 +743,7 @@ async function _descargarYExtraerTextoImpl(url: string, nombre: string, opts: { 
   }
 
   const initDescarga = { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LicitapymeBot/1.0)' } };
-  const res = esUrlPropia ? await fetchHostSeguro(fetchUrl, initDescarga) : await fetch(fetchUrl, initDescarga);
+  const res = esUrlPropia ? await fetchHostSeguro(fetchUrl, initDescarga) : await fetchConTimeout(fetchUrl, initDescarga);
   if (!res.ok) return null;
 
   const buffer = Buffer.from(await res.arrayBuffer());

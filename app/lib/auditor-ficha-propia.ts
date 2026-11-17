@@ -3,6 +3,7 @@
 // Una ficha por opción pedida (una por producto), con logo, firma y timbre de la empresa del negocio. Queda
 // en Documentos Propios, caja «Anexos Técnicos» (no en «fichas_tecnicas»: esa caja es de las fichas de los
 // PROVEEDORES y el Auditor las compararía como si fueran una más).
+import { fetchConTimeout } from '@/app/lib/fetch-timeout';
 import { fetchSeguro } from '@/app/lib/url-segura';
 import pool from '@/app/lib/db';
 import { armarPanelAuditor, cargarEstadoCosteo } from '@/app/lib/auditor-opciones';
@@ -45,7 +46,7 @@ async function fotosDeOpcion(fotosPuestas: (string | null | undefined)[], pdfsPr
   for (const url of pdfsProveedor) {
     if (fotos.length >= MAX_FOTOS) break;
     try {
-      const r = await fetch(url);
+      const r = await fetchConTimeout(url);
       if (!r.ok) continue;
       for (const img of await extraerImagenesProducto(Buffer.from(await r.arrayBuffer()), MAX_FOTOS - fotos.length))
         fotos.push(`data:image/png;base64,${img.png.toString('base64')}`);

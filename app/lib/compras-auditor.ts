@@ -11,6 +11,7 @@
 //
 // ORIGEN GEOGRÁFICO FIJO (§8.10.1): todas las distancias se calculan desde la bodega de Talagante
 // (Epeira 575), no desde Santiago ni la casa matriz. Viaje interno local = $40.000 (§8.10.2).
+import { fetchConTimeout } from '@/app/lib/fetch-timeout';
 import { precioClpDeItemIA } from '@/app/lib/compras-precio-homologacion';
 import { marcarCotizandoSiHayCotizacion } from '@/app/lib/compras-avance-estados';
 import pool from '@/app/lib/db';
@@ -727,7 +728,7 @@ export async function homologarCotizacionIA(cotizacionId: number): Promise<{ ite
     const { textoPdfSinPrecios, extraerDatosCotizacionDeDocumento } = await import('@/app/lib/compras-cotizacion-ocr');
     if (textoPdfSinPrecios(String(cotiz.descripcion_libre || ''))) {
       try {
-        const resp = await fetch(String(cotiz.archivo_url));
+        const resp = await fetchConTimeout(String(cotiz.archivo_url));
         if (resp.ok) {
           const url = String(cotiz.archivo_url);
           const mime = /\.pdf(?:\?|$)/i.test(url) ? 'application/pdf' : /\.png(?:\?|$)/i.test(url) ? 'image/png' : /\.webp(?:\?|$)/i.test(url) ? 'image/webp' : 'image/jpeg';

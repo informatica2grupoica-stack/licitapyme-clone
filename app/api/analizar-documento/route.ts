@@ -1,4 +1,5 @@
 // app/api/analizar-documento/route.ts
+import { fetchConTimeout } from '@/app/lib/fetch-timeout';
 import { NextRequest, NextResponse } from 'next/server';
 import { extractTextFromDocument, descargarYExtraerTexto } from '@/app/lib/document-extraction';
 import { crearChatIAChatbot as crearChatIA } from '@/app/lib/chat-ia'; // chatbot: Kimi económico, respaldo GLM
@@ -396,7 +397,7 @@ export async function POST(request: NextRequest) {
 
     console.log(`📥 Descargando documento: ${documentoNombre}`);
     const initDescarga = { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LicitapymeBot/1.0)' } };
-    const pdfResponse = esUrlPropia ? await fetchHostSeguro(fetchUrl, initDescarga) : await fetch(fetchUrl, initDescarga);
+    const pdfResponse = esUrlPropia ? await fetchHostSeguro(fetchUrl, initDescarga) : await fetchConTimeout(fetchUrl, initDescarga);
 
     if (!pdfResponse.ok) {
       return NextResponse.json(

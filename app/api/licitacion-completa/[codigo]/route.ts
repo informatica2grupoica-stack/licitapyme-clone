@@ -1,4 +1,5 @@
 // src/app/api/licitacion-completa/[codigo]/route.ts
+import { fetchRapido } from '@/app/lib/fetch-timeout';
 import { NextRequest, NextResponse } from 'next/server';
 import * as cheerio from 'cheerio';
 import { puedeVerLicitacion } from '@/app/lib/api-auth';
@@ -23,7 +24,7 @@ export async function GET(
     console.log(`🔍 Scrapeando ficha: ${fichaUrl}`);
 
     // 2. Obtener el HTML de la ficha
-    const response = await fetch(fichaUrl, {
+    const response = await fetchRapido(fichaUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       },

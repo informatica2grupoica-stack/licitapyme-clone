@@ -1,3 +1,4 @@
+import { fetchRapido } from '@/app/lib/fetch-timeout';
 import {
   Licitacion,
   LicitacionItem,
@@ -545,7 +546,7 @@ export class MercadoPublicoClient {
 
       let res: Response;
       try {
-        res = await globalThis.fetch(this.conTicket(url, propio), {
+        res = await fetchRapido(this.conTicket(url, propio), {
           headers: { Accept: 'application/json' },
           next: { revalidate: 300 },
         });

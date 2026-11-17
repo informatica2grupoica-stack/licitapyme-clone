@@ -2,6 +2,7 @@
 // Frente E.1 — puente entre las rutas de la app (DB + R2) y el módulo puro de relleno
 // (anexos-rellenar.ts, que solo trabaja con buffers en memoria). Aísla las dos rutas
 // (analizar/generar) de tener que duplicar la misma consulta y el mismo fetch.
+import { fetchConTimeout } from '@/app/lib/fetch-timeout';
 import pool from '@/app/lib/db';
 import type { EmpresaCampos } from '@/app/lib/anexos-ia-motor';
 import { conCamposDerivados, fechaLargaChile, camposDelCodigoLicitacion } from '@/app/lib/anexos-derivados';
@@ -45,7 +46,7 @@ export async function cargarDocumentoBase(codigo: string, documentoId: string): 
     throw new Error('Solo se soportan documentos Word (.doc o .docx), este no lo es');
   }
 
-  const resDoc = await fetch(doc.documento_url_local);
+  const resDoc = await fetchConTimeout(doc.documento_url_local);
   if (!resDoc.ok) throw new Error(`No se pudo bajar el documento original (HTTP ${resDoc.status})`);
   const bufferDescargado = Buffer.from(await resDoc.arrayBuffer());
 
@@ -74,7 +75,7 @@ export async function cargarDocumentoXlsx(codigo: string, documentoId: string): 
     throw new Error('Solo se soportan planillas Excel (.xlsx/.xlsm), esta no lo es');
   }
 
-  const resDoc = await fetch(doc.documento_url_local);
+  const resDoc = await fetchConTimeout(doc.documento_url_local);
   if (!resDoc.ok) throw new Error(`No se pudo bajar el documento original (HTTP ${resDoc.status})`);
   const bufferOriginal = Buffer.from(await resDoc.arrayBuffer());
 
@@ -115,7 +116,7 @@ export async function cargarDocumentoParaSeparar(codigo: string, documentoId: st
     throw new Error('Solo se soportan documentos Word (.doc/.docx) o PDF, este no lo es');
   }
 
-  const resDoc = await fetch(doc.documento_url_local);
+  const resDoc = await fetchConTimeout(doc.documento_url_local);
   if (!resDoc.ok) throw new Error(`No se pudo bajar el documento original (HTTP ${resDoc.status})`);
   const bufferDescargado = Buffer.from(await resDoc.arrayBuffer());
 
@@ -267,7 +268,7 @@ export async function cargarDocumentoPdfYEmpresa(
   const nombreOriginal: string = doc.documento_nombre || '';
   if (!/\.pdf$/i.test(nombreOriginal)) throw new Error('Solo se soporta PDF en este camino, este documento no lo es');
 
-  const resDoc = await fetch(doc.documento_url_local);
+  const resDoc = await fetchConTimeout(doc.documento_url_local);
   if (!resDoc.ok) throw new Error(`No se pudo bajar el documento original (HTTP ${resDoc.status})`);
   const bufferOriginal = Buffer.from(await resDoc.arrayBuffer());
 
@@ -537,7 +538,7 @@ const MAX_COSTEOS_PROPIOS = 4;
 // devuelve lista vacía y el que llama sigue probando el siguiente candidato.
 async function itemsDeUnCosteo(url: string): Promise<ItemCosteoPrecio[]> {
   try {
-    const res = await fetch(url);
+    const res = await fetchConTimeout(url);
     if (!res.ok) return [];
     const buffer = Buffer.from(await res.arrayBuffer());
     const filas = await parsearCosteo(buffer);

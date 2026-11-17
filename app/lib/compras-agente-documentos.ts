@@ -24,6 +24,7 @@
 // NUNCA INVENTAR DATOS: si un documento no se pudo leer o no dice algo, el agente debe decirlo
 // explícito ("no está en los documentos que tengo") en vez de adivinar — mismo criterio que el
 // resto del proyecto (parser de manifiestos, chat de licitación, etc.).
+import { fetchConTimeout } from '@/app/lib/fetch-timeout';
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 // Auditoría de negocio COMPLETO (pedido explícito, 15-sep-2026: "tiene que leer todos estos
@@ -176,7 +177,7 @@ async function documentosCacheParaCompras(licitacionCodigo: string): Promise<Doc
       // texto_extraido — se extrae acá y se cachea, para no volver a gastar créditos con el
       // mismo archivo en la próxima cotización de este mismo negocio.
       try {
-        const res = await fetch(r.url);
+        const res = await fetchConTimeout(r.url);
         const buf = Buffer.from(await res.arrayBuffer());
         texto = await extraerTextoPdf(buf, r.nombre);
         if (texto) {
@@ -204,7 +205,7 @@ async function documentoActaParaCompras(licitacionCodigo: string): Promise<Docum
   const r = (rows as any[])[0];
   if (!r) return null;
   try {
-    const res = await fetch(r.url_r2);
+    const res = await fetchConTimeout(r.url_r2);
     const buf = Buffer.from(await res.arrayBuffer());
     const texto = await extraerTextoPdf(buf, r.nombre);
     return texto ? { nombre: r.nombre, categoria: 'ACTA', texto, url: r.url_r2 ?? null } : null;

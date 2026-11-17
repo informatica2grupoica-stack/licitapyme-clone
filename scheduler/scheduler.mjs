@@ -207,6 +207,8 @@ async function jobComprasObuma() { await loop('compras Obuma', '/api/cron/obuma-
 async function jobComprasAsignacion() { await loop('compras asignación', '/api/cron/compras-asignacion', { maxPasadas: 1 }); }
 
 // Avisos por WhatsApp: reintenta los que quedaron pendientes (emisor desconectado o servicio caído). Barato: solo BD si no hay nada.
+// Retención de tablas que crecen sin límite (app/lib/purga.ts). Sin PURGA_ACTIVA=1 en el .env solo simula y deja el conteo en el log.
+async function jobPurga() { await loop('purga', '/api/cron/purga', { maxPasadas: 1 }); }
 async function jobWhatsappCola() { await loop('whatsapp cola', '/api/cron/whatsapp-cola', { maxPasadas: 1 }); }
 
 // ── Programación (hora Chile) ───────────────────────────────────────────────────
@@ -237,6 +239,7 @@ cron.schedule('45 7 * * *',     jobComprasObuma, opts);
 // cron.schedule('50 7 * * *',  jobObumaProyectos, opts);
 // CADA 20 MINUTOS: fallback de asignación de Compras (§3.3). Barato (sin llamadas externas, solo BD).
 cron.schedule('*/20 * * * *',   () => sinSolapar('compras-asignacion', jobComprasAsignacion), opts);
+cron.schedule('20 3 * * *',     () => sinSolapar('purga', jobPurga), opts);  // 03:20 todos los días
 cron.schedule('*/5 * * * *',    () => sinSolapar('whatsapp-cola', jobWhatsappCola), opts); // cada 5 min: reintenta avisos de WhatsApp pendientes
 
 console.log(`[scheduler] 🚀 iniciado — base=${BASE} TZ=${TZ} pausada=${PAUSADA} — ${ahora()}`);

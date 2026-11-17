@@ -1,4 +1,5 @@
 // src/app/api/proxy/route.ts
+import { fetchConTimeout } from '@/app/lib/fetch-timeout';
 import { NextRequest, NextResponse } from 'next/server';
 import { mimeDeNombre } from '@/app/lib/r2';
 
@@ -45,7 +46,7 @@ export async function GET(request: NextRequest) {
     let destino = parsed;
     let response: Response | null = null;
     for (let salto = 0; salto <= 3; salto++) {
-      response = await fetch(destino.href, {
+      response = await fetchConTimeout(destino.href, {
         redirect: 'manual',
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',

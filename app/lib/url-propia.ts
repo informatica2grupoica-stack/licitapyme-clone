@@ -1,3 +1,4 @@
+import { fetchConTimeout } from '@/app/lib/fetch-timeout';
 // app/lib/url-propia.ts
 // ¿Esta URL apunta a NUESTRO bucket R2 o a Mercado Público? Se valida el HOSTNAME real (no `includes` sobre la cadena:
 // `http://169.254.169.254/?x=.r2.dev` pasaba el chequeo viejo y se descargaba directo = SSRF).
@@ -43,7 +44,7 @@ export async function fetchHostSeguro(url: string, init: RequestInit = {}): Prom
     if ((destino.protocol !== 'https:' && destino.protocol !== 'http:') || !(hostR2Propio(host) || hostMercadoPublico(host))) {
       throw new Error('Host no permitido');
     }
-    const res = await fetch(destino.href, { ...init, redirect: 'manual' });
+    const res = await fetchConTimeout(destino.href, { ...init, redirect: 'manual' });
     if (res.status < 300 || res.status >= 400) return res;
     const sig = res.headers.get('location');
     if (!sig) return res;

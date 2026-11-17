@@ -25,6 +25,7 @@
 // porque el único camino que la refresca estaba roto. Ahora se lee según el origen: archivo → baja
 // y parsea el Excel (como siempre); editor → relee el estado vivo (negocio_costeo_editor) y lo
 // convierte con la MISMA función que usa el editor al guardar (editorAFilasCosteo).
+import { fetchConTimeout } from '@/app/lib/fetch-timeout';
 import pool from '@/app/lib/db';
 import { parsearCosteo, calcularAlertasMotorComercial, type AlertaMotorComercial, type FilaCosteo } from '@/app/lib/motor-comercial';
 import { editorAFilasCosteo, type EstadoCosteoEditor } from '@/app/lib/costeo-editor';
@@ -82,7 +83,7 @@ export async function recalcularAlertasCosteo(args: {
         filas = editorAFilasCosteo({ ...datos, grupos } as EstadoCosteoEditor);
       }
     } else {
-      const res = await fetch(costeo.archivo_url);
+      const res = await fetchConTimeout(costeo.archivo_url);
       if (res.ok) filas = await parsearCosteo(Buffer.from(await res.arrayBuffer()));
     }
   } catch {

@@ -6,6 +6,7 @@
 // Límite conocido: se resuelve el DNS para revisar y `fetch` vuelve a resolverlo (un dominio que cambia de IP entre las dos
 // consultas, «DNS rebinding»). Con las revisiones en cada salto y el tope de tamaño/tiempo queda en riesgo bajo; cerrarlo del todo
 // exigiría un agente HTTP que fije la IP.
+import { fetchConTimeout } from '@/app/lib/fetch-timeout';
 import { isIP } from 'node:net';
 
 /** ¿Es una dirección que NO debe tocar el servidor? (loopback, redes privadas, link-local/metadata, CGNAT, multicast, IPv6 locales) */
@@ -45,7 +46,7 @@ export async function fetchSeguro(url: string, init: RequestInit = {}): Promise<
   let destino = url;
   for (let salto = 0; salto <= MAX_SALTOS; salto++) {
     if (!(await urlPublicaSegura(destino))) throw new Error('Esa dirección no se puede descargar desde el servidor.');
-    const res = await fetch(destino, { ...init, redirect: 'manual' });
+    const res = await fetchConTimeout(destino, { ...init, redirect: 'manual' });
     if (res.status < 300 || res.status >= 400) return res;
     const sig = res.headers.get('location');
     if (!sig) return res;

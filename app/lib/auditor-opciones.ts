@@ -4,6 +4,7 @@
 // el panel por línea con la verificación calculada por código y el ciclo firma → aprobación.
 // Spec: docs/ESPECIFICACION_AUDITOR_v1.md §4 (opción), §5 (vías), §11 (firma y aprobación).
 // Tablas: migration-131/132 (auditor_opcion, auditor_respaldo, auditor_extraccion, auditor_evento).
+import { fetchRapido } from '@/app/lib/fetch-timeout';
 import pool from '@/app/lib/db';
 import { codigoDocsDeNegocio } from '@/app/lib/tenant';
 import { leerLineasOfertadas } from '@/app/lib/lineas-oferta';
@@ -1214,7 +1215,7 @@ export async function traerFichaDeLink(negocioId: number, opcionId: number, urlF
   const ofrecida = c && Date.now() - c.at < 10 * 60_000 ? c.fichas.find(f => f.url === urlFicha) : null;
   if (!ofrecida) throw new Error('Esa ficha no figura en la búsqueda reciente: vuelve a buscar las fichas de la página.');
   if (!(await urlPublicaSegura(urlFicha))) throw new Error('Esa dirección no se puede descargar desde el servidor.');
-  const head = await fetch(urlFicha, { method: 'GET', headers: { Range: 'bytes=0-0' }, redirect: 'follow' }).catch(() => null);
+  const head = await fetchRapido(urlFicha, { method: 'GET', headers: { Range: 'bytes=0-0' }, redirect: 'follow' }).catch(() => null);
   if (!head || !head.ok && head.status !== 206) throw new Error('El archivo no se pudo descargar (la página lo rechazó).');
   const tipo = (head.headers.get('content-type') || '').toLowerCase();
   const total = Number((head.headers.get('content-range') || '').split('/')[1] || head.headers.get('content-length') || 0);

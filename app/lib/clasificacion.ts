@@ -16,6 +16,7 @@
 //   • Agrega campo criterios_ubicados al resumen.
 //   • Preview aumentado a 2000 chars. Sin omitirOCR.
 
+import { fetchConTimeout } from '@/app/lib/fetch-timeout';
 import pool from '@/app/lib/db';
 import { esUrlR2Propia, fetchHostSeguro } from '@/app/lib/url-propia';
 import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
@@ -372,7 +373,7 @@ async function extraerParaClasificar(
       const fetchUrl = esUrlR2Propia(url)
         ? url
         : `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/proxy?url=${encodeURIComponent(url)}`;
-      const res = esUrlR2Propia(url) ? await fetchHostSeguro(fetchUrl) : await fetch(fetchUrl);
+      const res = esUrlR2Propia(url) ? await fetchHostSeguro(fetchUrl) : await fetchConTimeout(fetchUrl);
       if (res.ok) {
         const buf = Buffer.from(await res.arrayBuffer());
         textoPrimeraPagina = await extraerPrimeraPaginaEscaneada(buf);

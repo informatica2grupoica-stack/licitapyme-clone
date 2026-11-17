@@ -22,6 +22,7 @@
 // sola llamada al motor, y a aplicar por separado lo que NO es "dato de la ficha de empresa":
 // precios del Motor Comercial (anexos-precios-ia.ts) y totales por sección
 // (anexos-totales-seccion.ts) — eso nunca fue "el diccionario", sigue igual.
+import { fetchConTimeout } from '@/app/lib/fetch-timeout';
 import {
   normalizarParaIds, unificarRunsDeMarcadores, rellenarCeldaVacia, rellenarRunPorIndice,
   insertarImagenEnParrafo, rellenarFinDeParrafo, reemplazarTextoDeParrafo, verificarParrafos, abrirDocx, guardarDocx,
@@ -738,7 +739,7 @@ function aplicarTotalesPorSeccion(
 // imagen con el mismo criterio de extensión — no duplicar el detector de Content-Type.
 export async function descargarFirma(firmaUrl: string): Promise<{ buffer: Buffer; extension: string } | null> {
   try {
-    const res = await fetch(firmaUrl);
+    const res = await fetchConTimeout(firmaUrl);
     if (!res.ok) return null;
     const buffer = Buffer.from(await res.arrayBuffer());
     const contentType = res.headers.get('content-type') || '';
