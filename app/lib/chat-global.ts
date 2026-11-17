@@ -165,6 +165,7 @@ Respondes con los DATOS que se te entregan: son el resultado real de una consult
 - Los rankings largos van en lista numerada; resalta los números y deja claro en una frase qué se contó (ej. "licitaciones que mencionan 'retroexcavadora'").
 - Si la respuesta depende de datos que la COBERTURA muestra incompletos (documentos sin texto leído, pocas ofertas de competidores, pocas adjudicaciones guardadas), añade una línea "Lo que no tenemos:" con la cifra concreta de lo que falta. No lo digas si no afecta a esta respuesta.
 - Si se buscó por contenido, cita siempre licitación y documento de cada hallazgo y reproduce el fragmento relevante entre comillas, sin completar lo que el fragmento no dice.
+- No hagas preguntas de aclaración cuando puedes responder con una suposición razonable: responde, di en una frase qué supusiste y ofrece la otra opción. Nunca muestres nombres de columnas, tablas ni códigos internos (como es_nuestra): habla de «las OC que nos envían los organismos (clientes)» para la tabla ordenes_compra, y de «las que emitimos a proveedores» solo para compras_orden_compra_obuma; nunca digas que ordenes_compra son OC emitidas por nosotros. Siempre tuteo chileno («te refieres», «quieres»), nunca voseo («te referís»).
 - Respuesta corta: si hay más de 10 filas, muestra solo las 10 más relevantes, di el total y ofrece el resto («¿quieres el listado completo?»). Máximo unas 150 palabras, salvo que pidan el listado completo. Si muestras una tabla, no repitas sus cifras en prosa: una frase de resumen antes y listo. Nunca hables de «registros», «filas» ni «combinaciones» del resultado: di qué son (negocios, licitaciones, OC) y cuenta esas.
 - Si ayuda, cierra con una frase natural que proponga el siguiente paso útil.`;
 
@@ -250,10 +251,11 @@ async function llamar(system: string, user: string, maxTokens: number, temperatu
 const VOSEO: Record<string, string> = {
   tenés: 'tienes', querés: 'quieres', podés: 'puedes', necesitás: 'necesitas', sabés: 'sabes', hacés: 'haces', decís: 'dices',
   preferís: 'prefieres', buscás: 'buscas', mirás: 'miras', revisás: 'revisas', pensás: 'piensas', vos: 'tú',
+  referís: 'refieres', entendés: 'entiendes', ponés: 'pones', sos: 'eres', avisás: 'avisas', cruzás: 'cruzas', filtrás: 'filtras',
 };
 function tutear(t: string): string {
   // Kimi escapa el signo peso («\$1.488 millones») y la burbuja lo mostraba con la barra.
-  return t.replace(/\\\$/g, '$').replace(/(?<!\p{L})(tenés|querés|podés|necesitás|sabés|hacés|decís|preferís|buscás|mirás|revisás|pensás|vos)(?!\p{L})/giu, m => {
+  return t.replace(/\\\$/g, '$').replace(/(?<!\p{L})(tenés|querés|podés|necesitás|sabés|hacés|decís|preferís|buscás|mirás|revisás|pensás|vos|referís|entendés|ponés|sos|avisás|cruzás|filtrás)(?!\p{L})/giu, m => {
     const r = VOSEO[m.toLowerCase()] || m;
     return m[0] === m[0].toUpperCase() ? r[0].toUpperCase() + r.slice(1) : r;
   });
@@ -440,9 +442,13 @@ export async function responderGlobal(pregunta: string, historial: MensajeHistor
   const tope = filas.length >= MAX_FILAS ? `\nOJO: el resultado llegó al tope de ${MAX_FILAS} filas (puede haber más).` : '';
   // La cobertura del mercado (cifras globales) solo aplica al chat general y a empresas con acceso total.
   const cob = !sec && opts.clienteId === 1 && /documentos_cache|adjudicacion_cache|oferta_competencia|licitaciones_cache/i.test(sqlFinal || '') ? await textoCobertura().catch(() => '') : '';
+  // La tabla ordenes_compra son las OC que los organismos NOS envían; el modelo las llamaba «emitidas a proveedores».
+  const aclaraOC = /\bordenes_compra\b/i.test(sqlFinal || '') && !/compras_orden_compra_obuma/i.test(sqlFinal || '')
+    ? '\n\nACLARACIÓN: estas órdenes de compra son las que los organismos (clientes) nos envían por Mercado Público. NO son órdenes que nosotros emitimos a proveedores; no lo digas así.'
+    : '';
   const respuesta = await llamar(
     persona,
-    `${contexto}PREGUNTA: ${pregunta}\n\nCONSULTA EJECUTADA:\n${sqlFinal}\n\nFILAS (${filas.length}):\n${datos}${tope}${cob ? `\n\nCOBERTURA DE LA BASE (para decir hasta dónde llegan los datos):\n${cob}` : ''}`,
+    `${contexto}PREGUNTA: ${pregunta}\n\nCONSULTA EJECUTADA:\n${sqlFinal}${aclaraOC}\n\nFILAS (${filas.length}):\n${datos}${tope}${cob ? `\n\nCOBERTURA DE LA BASE (para decir hasta dónde llegan los datos):\n${cob}` : ''}`,
     2000,
     0.3,
   );
