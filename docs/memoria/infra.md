@@ -3,7 +3,7 @@
 ## 2026-11-17 — Auditoría integral PARCIAL (F0 + F1), solo lectura
 Informe: `docs/auditoria/INFORME_AUDITORIA_2026-11-17.md`. tsc limpio, 1848 tests verdes, lint con 4.561 errores sin triage, `npm audit` 9 moderadas (next 16.4.4 → 16.4.6).
 - **SEC-001 (CORREGIDO en código el mismo día, FALTA DESPLEGAR; `url-propia.ts` → `fetchHostSeguro`):** SSRF en `/api/analizar-documento` (vía `esUrlR2Propia`, acepta `<cuenta>.sitio-ajeno.com`) y `/api/pdf-pagina` (`includes` + redirecciones automáticas). Arreglo: host estricto + `redirect:'manual'` como en `/api/proxy`.
-- Migraciones duplicadas 117 y 148 (DB-001). Rutas `/api/debug/*` conviene borrarlas.
+- Ola 1 hecha en código el mismo día (sin desplegar): next 16.4.6, jobId con `clienteId` + UUID (SEC-003), migraciones renombradas `117b` y `148b` (DB-001), `/api/debug/*` borradas.
 - NO auditado aún: F2–F10 (legal, BD/EXPLAIN, QA, anexos, UX, carga, operación). La BD local :3308 estaba apagada, no se corrió `chequear-aislamiento.mts` con 2 empresas.
 
 ## 2026-11-09 — Prueba de carga de 100 usuarios (local, sin arreglar nada aún)

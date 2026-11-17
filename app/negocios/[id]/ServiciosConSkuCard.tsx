@@ -205,7 +205,7 @@ export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: num
                   {puedeOperar && r.estado === 'RECHAZADA' && (
                     <button type="button" disabled={reenviando === s.id} onClick={() => reenviar(s)} className="text-[11.5px] font-semibold text-teal-700 hover:text-teal-900 disabled:opacity-50">Reenviar</button>
                   )}
-                  {puedeOperar && s.subestado === 'PENDIENTE' && (
+                  {puedeOperar && ['PENDIENTE', 'COTIZANDO'].includes(s.subestado) && (
                     <button type="button" disabled={quitando === s.id} onClick={() => quitar(s)} data-testid={`borrar-servicio-${s.id}`} className="text-[11.5px] font-semibold text-rose-600 hover:text-rose-800 disabled:opacity-50">Borrar</button>
                   )}
                 </div>

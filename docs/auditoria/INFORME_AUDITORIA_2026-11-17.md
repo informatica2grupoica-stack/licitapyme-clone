@@ -65,6 +65,12 @@ Aviso moderado; fix en 16.4.6 (fuera del rango declarado). Impacto real depende 
 ### DB-001 — Migraciones duplicadas
 `migration-117-compras-agente-plazo-detectado.sql` y `migration-117-compras-reparto-oc-monto.sql`; `migration-148-compras-aprobacion-linea-correccion.sql` y `migration-148-reportes-error-solucion-imagen.sql`. Ambas parejas ya están aplicadas en prod (suposición: no verificado). Riesgo: al montar un cliente/BD nueva, el orden no es determinista. **S**: renombrar a sufijos `117a/117b` y documentar.
 
+**ESTADO OLA 1 (2026-11-17, en código, sin desplegar ni commitear):**
+- SEC-002: `next` fijado en 16.4.6 (`package.json` + lock). `npm audit` baja de 9 a 8 (queda `uuid` vía `exceljs`, requiere cambio mayor). Build: ver nota abajo.
+- SEC-003: el job guarda `clienteId` y `/api/documentos/estado` responde 404 a otra empresa; el id usa UUID (antes timestamp + 5 caracteres de `Math.random`).
+- DB-001: renombradas a `migration-117b-…` y `migration-148b-…` (y el script de 148 actualizado). Son archivos ya aplicados en prod: solo cambia el nombre.
+- `/api/debug/*` borradas (3 rutas). Los tipos generados viejos de `.next/` dan error en `tsc` hasta el próximo build; el código fuente no.
+
 ## 4. Matriz ruta × rol / aislamiento (parcial)
 
 Cobertura real: de 271 rutas API, el script `scripts/scratch/auditoria-rutas.sh` marcó **19 sin ninguna marca de auth propia**; se leyeron las 14 relevantes:

@@ -2557,7 +2557,7 @@ export async function eliminarParteProducto(productoId: number, actorId: number,
   };
   // Un flete (servicio) nace con su cotización, así que las cotizaciones no lo bloquean: se van con él. Lo que sí lo bloquea es una
   // compra o un veredicto, que son historial.
-  if (p.subestado !== 'PENDIENTE'
+  if (!(p.subestado === 'PENDIENTE' || (esServicio && p.subestado === 'COTIZANDO'))
     || (!esServicio && await tiene(`SELECT 1 FROM compras_cotizacion_item WHERE producto_id = ? LIMIT 1`))
     || (!esServicio && await tiene(`SELECT 1 FROM compras_compra_rapida WHERE producto_id = ? LIMIT 1`))
     || (!esServicio && await tiene(`SELECT 1 FROM compras_veredicto WHERE producto_id = ? LIMIT 1`))
