@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { IconMessageCircle2 as Chat, IconX as X, IconArrowUp as Enviar, IconGripVertical as Grip } from '@tabler/icons-react';
+import { IconMessageCircle2 as Chat, IconX as X, IconArrowUp as Enviar, IconGripVertical as Grip, IconTrash as Papelera, IconListDetails as Rapidas } from '@tabler/icons-react';
 import { useSession } from '@/app/lib/session-context';
 import { useCosteoFlotante } from '@/app/components/CosteoFlotanteContext';
 import { Esqueleto } from '@/app/components/ui/kit/Estructura';
@@ -141,6 +141,8 @@ export function ChatFlotante() {
   const [texto, setTexto] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmaBorrar, setConfirmaBorrar] = useState(false);
+  const [verRapidas, setVerRapidas] = useState(false);
   const finRef = useRef<HTMLDivElement>(null);
   const claveAlcance = !alcance ? '' : alcance.tipo === 'licitacion' ? `${alcance.param}:${alcance.clave}` : `${alcance.tipo}:${alcance.sec.id}`;
 
@@ -170,7 +172,7 @@ export function ChatFlotante() {
 
   // Al cambiar de menú o de licitación se carga SU historial.
   useEffect(() => {
-    setMensajes([]); setError(null);
+    setMensajes([]); setError(null); setConfirmaBorrar(false); setVerRapidas(false);
     if (!usuario || !alcance || !habilitado) return;
     let vivo = true;
     const url = alcance.tipo === 'licitacion'
@@ -213,13 +215,24 @@ export function ChatFlotante() {
   const bottomBoton = costeoActivo ? 148 : 80;
   const nombre = usuario.nombre?.trim().split(/\s+/)[0] || '';
   const lugar = alcance.tipo === 'licitacion' ? alcance.etiqueta : alcance.sec.nombre;
-  const alcanceTexto = alcance.tipo === 'licitacion' ? 'Esta licitación: documentos y análisis' : alcance.tipo === 'global' ? 'Todas las licitaciones' : `Datos de ${alcance.sec.nombre}`;
+  const alcanceTexto = alcance.tipo === 'licitacion' ? 'Esta licitación: documentos y análisis' : alcance.tipo === 'global' ? 'Toda la aplicación' : `Datos de ${alcance.sec.nombre}`;
   const saludo = alcance.tipo === 'licitacion'
     ? `Ya leí los documentos de esta licitación y lo que tenemos analizado${nombre ? `, ${nombre}` : ''}. ¿Qué quieres saber?`
     : alcance.tipo === 'global'
-      ? `Hola${nombre ? `, ${nombre}` : ''}. Tengo a la vista todas las licitaciones que ha visto el sistema: qué ganamos, quién compite y qué se repite. ¿Qué te interesa?`
+      ? `Hola${nombre ? `, ${nombre}` : ''}. Puedo mirar toda la aplicación: licitaciones, negocios, compras, órdenes de compra, entregas, proveedores, costeo y competencia, y cruzarlos. ¿Qué te interesa?`
       : `Hola${nombre ? `, ${nombre}` : ''}. Estás en ${alcance.sec.nombre}: puedo mirar ${alcance.sec.que}. ¿Qué necesitas?`;
   const sugerencias = alcance.tipo === 'licitacion' ? SUGERENCIAS_LICITACION : alcance.sec.sugerencias;
+  const urlHistorial = alcance.tipo === 'licitacion'
+    ? `/api/chat-proyecto?${alcance.param}=${encodeURIComponent(alcance.clave)}&sesionId=corpus`
+    : alcance.tipo === 'global' ? '/api/chat-global' : `/api/chat-seccion?seccion=${alcance.sec.id}`;
+  const borrarConversacion = async () => {
+    setConfirmaBorrar(false);
+    try {
+      const res = await fetch(urlHistorial, { method: 'DELETE' });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'No se pudo borrar.');
+      setMensajes([]); setError(null);
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo borrar.'); }
+  };
   const pensando = alcance.tipo === 'licitacion' ? 'Leyendo la licitación…' : 'Revisando la base…';
 
   return (
@@ -260,12 +273,26 @@ export function ChatFlotante() {
                 <p className="truncate text-[15px] font-semibold tracking-tight text-tinta dark:text-slate-100">ankIA <span className="font-normal text-tinta-3">· {lugar}</span></p>
                 <p className="truncate text-[11px] text-tinta-3">{alcanceTexto}</p>
               </div>
+              {mensajes.length > 0 && (
+                <button type="button" onPointerDown={e => e.stopPropagation()} onClick={() => setConfirmaBorrar(c => !c)}
+                  className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-urgente dark:hover:bg-slate-800" aria-label="Borrar la conversación" title="Borrar la conversación">
+                  <Papelera size={16} />
+                </button>
+              )}
               <Grip size={16} className="shrink-0 text-slate-300 dark:text-slate-600" />
               <button type="button" onPointerDown={e => e.stopPropagation()} onClick={() => setAbierto(false)}
                 className="-mr-1 rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-tinta dark:hover:bg-slate-800 dark:hover:text-slate-100" aria-label="Cerrar el chat" title="Cerrar (Esc)">
                 <X size={16} />
               </button>
             </div>
+
+            {confirmaBorrar && (
+              <div className="flex items-center gap-2 border-b border-linea bg-slate-50 px-4 py-2 text-xs text-tinta-2 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-300">
+                <span className="flex-1">¿Borrar tu conversación en este chat? No se puede deshacer.</span>
+                <button type="button" onClick={borrarConversacion} className="rounded-md bg-urgente px-2.5 py-1 font-medium text-white transition-colors hover:bg-red-700">Borrar</button>
+                <button type="button" onClick={() => setConfirmaBorrar(false)} className="rounded-md px-2.5 py-1 text-tinta-2 transition-colors hover:bg-slate-200 dark:hover:bg-slate-700">Cancelar</button>
+              </div>
+            )}
 
             <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
               {mensajes.length === 0 && !enviando && (
@@ -305,6 +332,17 @@ export function ChatFlotante() {
               <div ref={finRef} />
             </div>
 
+            {verRapidas && (
+              <div className="flex max-h-40 flex-col items-start gap-1.5 overflow-y-auto border-t border-linea px-4 py-3 dark:border-slate-800">
+                {sugerencias.map(s => (
+                  <button key={s} type="button" disabled={enviando} onClick={() => { setVerRapidas(false); enviar(s); }}
+                    className="rounded-lg border border-linea bg-white px-3 py-1.5 text-left text-xs text-tinta-2 transition duration-150 hover:border-marca/40 hover:bg-marca-suave hover:text-marca disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-teal-950/40 dark:hover:text-teal-300">
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <form onSubmit={e => { e.preventDefault(); enviar(); }} className="border-t border-linea p-3 dark:border-slate-800">
               <div className="flex items-end gap-2 rounded-xl border border-linea bg-white p-1.5 pl-3 transition-colors focus-within:border-marca dark:border-slate-700 dark:bg-slate-900">
                 <textarea
@@ -320,7 +358,13 @@ export function ChatFlotante() {
                   <Enviar size={16} stroke={2} />
                 </button>
               </div>
-              <p className="mt-1.5 px-1 text-[11px] text-tinta-3">Enter envía · Shift+Enter salta de línea · Ctrl+J abre y cierra</p>
+              <div className="mt-1.5 flex items-center justify-between gap-2 px-1">
+                <p className="text-[11px] text-tinta-3">Enter envía · Shift+Enter salta de línea · Ctrl+J abre y cierra</p>
+                <button type="button" onClick={() => setVerRapidas(v => !v)} aria-expanded={verRapidas}
+                  className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-marca transition-colors hover:bg-marca-suave dark:text-teal-300 dark:hover:bg-teal-950/40">
+                  <Rapidas size={13} /> Preguntas rápidas
+                </button>
+              </div>
             </form>
           </motion.div>
         )}

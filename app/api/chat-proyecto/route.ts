@@ -14,6 +14,7 @@ import {
   construirContextoProyecto,
   obtenerHistorial,
   guardarTurno,
+  borrarHistorial,
   responderChat,
   sesionDeEmpresa,
 } from '@/app/lib/chat-licitacion';
@@ -45,6 +46,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Esta licitación está asignada a otro perfil: solo puedes usar el chat en tus licitaciones.' }, { status: 403 });
   const sesionId = sesionDeEmpresa(u.clienteId, (sp.get('sesionId') || 'corpus').slice(0, 40));
   return NextResponse.json({ codigo, mensajes: await obtenerHistorial(codigo, sesionId) });
+}
+
+export async function DELETE(request: NextRequest) {
+  const u = await getAuthedUser(request);
+  if (!u?.clienteId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  if (!(await tienePermiso(request, 'chat_licitacion'))) return SIN_PERMISO();
+  const sp = request.nextUrl.searchParams;
+  const codigo = await resolverCodigo(sp.get('codigo'), sp.get('negocioId'), u.clienteId);
+  if (!codigo) return NextResponse.json({ ok: true, borrados: 0 });
+  const n = await borrarHistorial(codigo, sesionDeEmpresa(u.clienteId, (sp.get('sesionId') || 'corpus').slice(0, 40)), u.id);
+  return NextResponse.json({ ok: true, borrados: n });
 }
 
 export async function POST(request: NextRequest) {

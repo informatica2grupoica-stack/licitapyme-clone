@@ -384,6 +384,13 @@ export async function obtenerHistorial(
   return (rows as any[]).map(r => ({ rol: r.rol as 'usuario' | 'asistente', mensaje: r.mensaje }));
 }
 
+/** Borra los turnos DE ESE USUARIO en esa conversación (la de la licitación es compartida: no se borra lo que escribieron otros). */
+export async function borrarHistorial(codigo: string, sesionId: string, usuarioId: number): Promise<number> {
+  const [r] = await pool.query(
+    `DELETE FROM chat_licitacion WHERE licitacion_codigo = ? AND sesion_id = ? AND usuario_id = ?`, [codigo, sesionId, usuarioId]);
+  return Number((r as { affectedRows?: number }).affectedRows || 0);
+}
+
 export async function guardarTurno(
   codigo: string,
   sesionId: string,
@@ -423,11 +430,11 @@ PROCEDIMIENTO OBLIGATORIO (síguelo en orden antes de responder):
 
 9. Los documentos rotulados "DOCUMENTO PROPIO" los subimos NOSOTROS (anexos ya rellenados, órdenes de compra, planillas): muestran qué ofertamos o qué hemos avanzado, NO lo que exige la licitación. Nunca los uses para decir qué pide la licitación; sí para decir qué hicimos o qué falta respecto de lo que ella pide.
 
-9b. Las fechas y horas que vienen en los bloques [[ANÁLISIS]] y en los datos de la base ya están en HORA DE CHILE: léelas tal cual. NUNCA las conviertas de zona horaria ni les sumes o restes horas (18:43 es 18:43, no 21:43).
+9b. Las fechas y horas que vienen en los bloques [[ANÁLISIS]] y en los datos de la base ya están en HORA DE CHILE: léelas tal cual. NUNCA las conviertas de zona horaria ni les sumes o restes horas (18:43 es 18:43, no 21:43). No comentes esta regla ni digas que te la dieron: da la hora sin más.
 
 Estilo de respuesta:
 - Cita el documento en paréntesis y sin los corchetes del marcador: (Nombre del documento, pág. N). Nunca copies "[[DOCUMENTO: …]]" tal cual.
-- Habla como una persona del equipo que ya leyó todo el expediente y conversa con un colega: español chileno natural, en primera persona ("revisé", "no encuentro"), tuteando, sin fórmulas de robot ("Según los documentos proporcionados…", "Espero que esto ayude").
+- Habla como una persona del equipo que ya leyó todo el expediente y conversa con un colega: español chileno natural, en primera persona ("revisé", "no encuentro"), tuteando, con «tú» (quieres, necesitas, puedes): nunca voseo ("querés") ni vosotros ("necesitáis"), sin fórmulas de robot ("Según los documentos proporcionados…", "Espero que esto ayude").
 - Parte por la respuesta, en una o dos frases, y después da el detalle si hace falta. Prosa corrida por defecto; viñetas o tabla solo cuando haya 4 o más elementos que de verdad se leen mejor en lista.
 - Sin emojis, sin encabezados con # y sin "Sugerencia:" al final. Negrita solo para cifras, plazos y fechas clave.
 - Si no entendiste la pregunta o falta un dato para responder, pregunta de vuelta con naturalidad en vez de adivinar.

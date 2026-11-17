@@ -77,3 +77,8 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
 - Licitaciones NO postuladas que quedan Revocadas solo cambian `licitacion_estado`, no el pipeline
   (a propósito).
 - Foro de preguntas de MP solo por scraping de la ficha (la API no lo trae).
+
+## 2026-11-17 — PDF de la OC sin captcha: copia de la ficha pública (tsc ok; SIN desplegar)
+- MP protege `PDFReport.aspx` (PDF oficial) con reCAPTCHA y no se resuelve. La ficha `DetailsPurchaseOrder.aspx` es pública: `app/lib/mp-oc-ficha-pdf.ts` la abre con el navegador headless (espera «TOTAL OC», abre el panel con scroll de 700 px) y la imprime a PDF (2 páginas, 3 s).
+- `descargarPdfOrdenCompra` usa esa copia cuando el oficial falla; se marca en `ordenes_compra.pdf_error` = «Copia de la ficha pública de MP (no es el PDF oficial)». Subir el «PDF oficial» a mano la reemplaza (pdf_error vuelve a NULL; mismo nombre `OC_<código>.pdf`, no duplica en Documentos).
+- Corrido local contra el VPS el 17-nov: 29 OC sin PDF → 29 con copia, 0 fallas. Falta desplegar para que el cron diario lo haga solo con las nuevas. Pendiente: mostrar la marca «copia» en `/ordenes-compra`; las OC que el barrido nunca encontró (no nombran la licitación) siguen sin estar.

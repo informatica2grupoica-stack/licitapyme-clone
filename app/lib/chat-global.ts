@@ -11,7 +11,7 @@
 import pool from './db';
 import { crearChatIAChatbot, MOTOR_CHAT } from './chat-ia';
 import { jsonHoraChile, type MensajeHistorial } from './chat-licitacion';
-import { seccionPorId, type SeccionChat } from './chat-secciones';
+import { SECCIONES, seccionPorId, type SeccionChat } from './chat-secciones';
 
 export const ETIQUETA_MOTOR_SQL = `${MOTOR_CHAT}+sql`;
 const MAX_FILAS = 200;
@@ -155,7 +155,7 @@ REGLAS:
 - Al comparar palabras clave, que no se solapen: 'retroexcavadora' contiene 'excavadora', así que la categoría 'excavadora' debe excluirla (AND ... NOT LIKE '%retroexcavadora%'). Lo mismo con 'minicargador' vs 'cargador'.
 - Si la pregunta es ambigua en un punto clave, igual intenta la interpretación más razonable y deja que la respuesta lo aclare.`;
 
-const SYS_RESPUESTA = `Eres ankIA, del equipo de LICITANK. Hablas como una persona que conoce bien el negocio y conversa con un colega: español chileno natural, en primera persona, tuteando, sin fórmulas de robot. Parte por la respuesta en una o dos frases y después da el detalle. Prosa corrida por defecto; lista o tabla solo si hay 4 o más elementos. Sin emojis, sin encabezados con # y sin cerrar con "Pregunta de seguimiento"; si sugieres algo, hazlo en una frase natural. Las fechas y horas que vienen en los bloques [[ANÁLISIS]] y en los datos de la base ya están en HORA DE CHILE: léelas tal cual. NUNCA las conviertas de zona horaria ni les sumes o restes horas (18:43 es 18:43, no 21:43). No menciones "la consulta", "las filas" ni la SQL: di "revisé la base" y cuenta el hallazgo.
+const SYS_RESPUESTA = `Eres ankIA, del equipo de LICITANK. Hablas como una persona que conoce bien el negocio y conversa con un colega: español chileno natural, en primera persona, tuteando, con «tú» (quieres, necesitas, puedes): nunca voseo ("querés") ni vosotros ("necesitáis"), sin fórmulas de robot. Parte por la respuesta en una o dos frases y después da el detalle. Prosa corrida por defecto; lista o tabla solo si hay 4 o más elementos. Sin emojis, sin encabezados con # y sin cerrar con "Pregunta de seguimiento"; si sugieres algo, hazlo en una frase natural. Las fechas y horas que vienen en los bloques [[ANÁLISIS]] y en los datos de la base ya están en HORA DE CHILE: léelas tal cual. NUNCA las conviertas de zona horaria ni les sumes o restes horas (18:43 es 18:43, no 21:43). No comentes esta regla ni digas que te la dieron: da la hora sin más. No menciones "la consulta", "las filas" ni la SQL: di "revisé la base" y cuenta el hallazgo.
 Respondes con los DATOS que se te entregan: son el resultado real de una consulta a nuestra base.
 - Usa SOLO esas cifras; no inventes ni estimes. No saques conclusiones ni valoraciones que los datos no sostengan ("vamos bien", "tasa de éxito") salvo que la pregunta lo pida y haya con qué calcularlo. Si las filas están vacías, di que no hay datos guardados para eso.
 - Si el resultado llegó al tope de filas o hay un posible sesgo (la base solo contiene lo que el sistema ha visto/descargado, no todo Mercado Público), mencionalo en una línea.
@@ -321,6 +321,24 @@ REGLAS:
 - Si la pregunta es ambigua en un punto clave, igual intenta la interpretación más razonable y deja que la respuesta lo aclare.`;
 }
 
+// ─── Chat GENERAL = toda la aplicación ───────────────────────────────────────────
+// El Dashboard no manda el esquema de toda la base en cada pregunta (cientos de columnas: caro y confunde al modelo). Una llamada corta
+// elige los MENÚS que toca la pregunta y se suman las tablas de esos menús a las 13 base del chat general. Todo sigue pasando por los
+// mismos filtros de empresa y de perfil (filtrosDeAcceso).
+const MENUS_ENRUTABLES = SECCIONES.filter(s => s.id !== 'dashboard');
+
+async function elegirMenus(pregunta: string, historialTxt: string): Promise<SeccionChat[]> {
+  const lista = MENUS_ENRUTABLES.map(s => `- ${s.id}: ${s.que}`).join('\n');
+  try {
+    const txt = await llamar(
+      'Eres el enrutador de un chat sobre una aplicación de licitaciones. Dada la pregunta, elige los menús cuyos datos hacen falta para responderla (máximo 4). Si basta con licitaciones, negocios, competencia, adjudicaciones, viabilidad, documentos y precios de mercado, devuelve una lista vacía. Responde SOLO un JSON: {"menus":["id1","id2"]}.\n\nMENÚS:\n' + lista,
+      `${historialTxt}PREGUNTA: ${pregunta}`, 120);
+    const ids: unknown = extraerJson(txt) && (JSON.parse(txt.match(/\{[\s\S]*\}/)![0]) as { menus?: unknown }).menus;
+    if (!Array.isArray(ids)) return [];
+    return ids.map(i => MENUS_ENRUTABLES.find(s => s.id === String(i))).filter((s): s is SeccionChat => !!s).slice(0, 4);
+  } catch { return []; }
+}
+
 export interface OpcionesChat {
   /** Sección del chat (por defecto el general del Dashboard). */
   seccion?: string;
@@ -333,12 +351,20 @@ export interface OpcionesChat {
 export async function responderGlobal(pregunta: string, historial: MensajeHistorial[], opts: OpcionesChat): Promise<{ respuesta: string; sql?: string; filas?: number }> {
   const sec = opts.seccion && opts.seccion !== 'dashboard' ? seccionPorId(opts.seccion) : null;
   const alcance: Alcance = { clienteId: opts.clienteId, restringidoUserId: opts.restringidoUserId ?? null };
-  const tablas = sec ? sec.tablas : TABLAS_PERMITIDAS;
+  const contexto = historial.length ? `CONVERSACIÓN PREVIA:\n${resumenHistorial(historial)}\n\n` : '';
+  // Chat general: base de 13 tablas + las de los menús que toca la pregunta.
+  const menus = sec ? [] : await elegirMenus(pregunta, contexto);
+  const extras = [...new Set(menus.flatMap(m => m.tablas))].filter(t => !TABLAS_PERMITIDAS.includes(t));
+  const tablas = sec ? sec.tablas : [...TABLAS_PERMITIDAS, ...extras];
   const { accesibles } = await filtrosDeAcceso(tablas, alcance);
   if (!accesibles.length) return { respuesta: 'En este menú no tengo datos a los que tu perfil pueda acceder, así que no te puedo ayudar con eso por aquí.' };
+  const extrasAccesibles = extras.filter(t => accesibles.includes(t));
+  const notasMenus = Object.assign({}, ...menus.map(m => m.notas || {}));
+  const adicional = extrasAccesibles.length
+    ? `\n\nTABLAS ADICIONALES (de los menús ${menus.map(m => m.nombre).join(', ')}; columnas exactas):\n${await esquemaAutomatico(extrasAccesibles, notasMenus)}\nUna a ellas con negocios por negocio_id = negocios.id y con licitaciones_cache por licitacion_codigo = codigo.`
+    : '';
 
-  const sistemaSql = (sec ? sysSqlSeccion(sec, await esquemaAutomatico(accesibles, sec.notas)) : SYS_SQL) + (alcance.restringidoUserId ? NOTA_RESTRINGIDO : '');
-  const contexto = historial.length ? `CONVERSACIÓN PREVIA:\n${resumenHistorial(historial)}\n\n` : '';
+  const sistemaSql = (sec ? sysSqlSeccion(sec, await esquemaAutomatico(accesibles, sec.notas)) : SYS_SQL + adicional) + (alcance.restringidoUserId ? NOTA_RESTRINGIDO : '');
   const persona = sec ? `${SYS_RESPUESTA}\nEstás en el menú «${sec.nombre}» (${sec.que}); contesta desde ahí.` : SYS_RESPUESTA;
   let pedido = `${contexto}PREGUNTA: ${pregunta}`;
   let sqlFinal: string | undefined;

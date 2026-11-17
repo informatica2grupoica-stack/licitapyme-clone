@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthedUser, permisosDeUsuario } from '@/app/lib/api-auth';
-import { obtenerHistorial, guardarTurno } from '@/app/lib/chat-licitacion';
+import { obtenerHistorial, guardarTurno, borrarHistorial } from '@/app/lib/chat-licitacion';
 import { responderGlobal, restringidoPara, ETIQUETA_MOTOR_SQL } from '@/app/lib/chat-global';
 import { seccionPorId } from '@/app/lib/chat-secciones';
 import { fichaCliente } from '@/app/lib/tenant';
@@ -46,6 +46,13 @@ export async function GET(request: NextRequest) {
   const a = await autorizar(request, request.nextUrl.searchParams.get('seccion'));
   if (a.error) return a.error;
   return NextResponse.json({ mensajes: await obtenerHistorial(codigoDe(a.sec!.id), sesionDe(a.usuario!.id)) });
+}
+
+export async function DELETE(request: NextRequest) {
+  const a = await autorizar(request, request.nextUrl.searchParams.get('seccion'));
+  if (a.error) return a.error;
+  const n = await borrarHistorial(codigoDe(a.sec!.id), sesionDe(a.usuario!.id), a.usuario!.id);
+  return NextResponse.json({ ok: true, borrados: n });
 }
 
 export async function POST(request: NextRequest) {
