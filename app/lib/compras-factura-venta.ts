@@ -2,6 +2,8 @@
 // Factura de venta al cliente final (migration-193). Al subirla se marca sola la tarea «Factura y cierre del proyecto» (clave factura_cierre).
 import pool from '@/app/lib/db';
 import { cambiarEstadoTarea } from '@/app/lib/compras';
+import { facturasConOcObuma, pdfDteObuma, type ObumaFacturaEmitida } from '@/app/lib/obuma';
+import { subirDocumentoR2, borrarDocumentoR2 } from '@/app/lib/r2';
 
 export interface FacturaVenta {
   id: number; archivoUrl: string; archivoNombre: string; numero: string | null;
@@ -37,6 +39,39 @@ export async function registrarFacturaVenta(negocioId: number, d: {
     actorId, actorNombre, notaCierre: `Factura de venta subida${d.numero ? ` (N° ${d.numero})` : ''}: ${d.archivoNombre}`.slice(0, 2000),
   });
   return { tareaMarcada: true };
+}
+
+/** Factura de venta tal como está en Obuma, para la tarjeta «Factura de venta al cliente». */
+export interface FacturaObumaDeNegocio extends ObumaFacturaEmitida { yaCargada: boolean }
+
+/** Facturas de Obuma cuya referencia es una OC del cliente de esta licitación (las nuestras de Mercado Público). */
+export async function facturasObumaDeNegocio(negocioId: number): Promise<{ ocs: string[]; facturas: FacturaObumaDeNegocio[] }> {
+  const [oc] = await pool.query(
+    `SELECT o.codigo FROM ordenes_compra o JOIN compras_asignacion ca ON ca.licitacion_codigo = o.licitacion_codigo
+      WHERE ca.negocio_id = ? AND o.es_nuestra = 1`, [negocioId]) as any;
+  const ocs = (oc as any[]).map(r => String(r.codigo).trim().toUpperCase()).filter(Boolean);
+  if (ocs.length === 0) return { ocs, facturas: [] };
+  // Igual que la ruta de facturas: tolera que la migration-193 aún no esté aplicada en esa base.
+  const cargadas = new Set((await listarFacturasVenta(negocioId).catch(() => [])).map(f => (f.numero || '').trim()));
+  const facturas = (await facturasConOcObuma())
+    .filter(f => f.ocReferida && ocs.includes(f.ocReferida))
+    .map(f => ({ ...f, yaCargada: cargadas.has(f.folio) }))
+    .sort((a, b) => b.fecha.localeCompare(a.fecha));
+  return { ocs, facturas };
+}
+
+/** Carga a Licitank una factura que está en Obuma (baja el PDF y lo guarda como si se hubiera subido a mano). */
+export async function cargarFacturaDesdeObuma(negocioId: number, licitacionCodigo: string, tipo: number, folio: string, actorId: number, actorNombre: string | null): Promise<{ tareaMarcada: boolean }> {
+  const { facturas } = await facturasObumaDeNegocio(negocioId);
+  const f = facturas.find(x => x.tipo === tipo && x.folio === folio);
+  if (!f) throw new Error('Esa factura no está en Obuma con la OC de esta licitación.');
+  if (f.yaCargada) throw new Error(`La factura ${folio} ya está cargada.`);
+  if (f.anulada) throw new Error(`La factura ${folio} tiene nota de crédito en Obuma: no se carga.`);
+  const pdf = await pdfDteObuma(tipo, folio);
+  const nombre = `Factura ${folio}.pdf`;
+  const url = await subirDocumentoR2(`compras/${licitacionCodigo}/factura-venta`, nombre, pdf, 'application/pdf');
+  return registrarFacturaVenta(negocioId, { archivoUrl: url, archivoNombre: nombre, numero: folio, emitidaAt: fechaValida(f.fecha), pagadaAt: null }, actorId, actorNombre)
+    .catch(async (e) => { await borrarDocumentoR2(url).catch(() => {}); throw e; });
 }
 
 export async function actualizarFacturaVenta(negocioId: number, id: number, p: { numero?: string | null; emitidaAt?: string | null; pagadaAt?: string | null }): Promise<void> {

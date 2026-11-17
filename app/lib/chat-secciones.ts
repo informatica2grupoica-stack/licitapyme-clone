@@ -71,7 +71,7 @@ export const SECCIONES: SeccionChat[] = [
     // Mismo conteo que la pantalla (resultadoDe/esResuelta en app/adjudicadas/page.tsx): 74 ganadas / 201 perdidas al 17-nov-2026.
     notas: {
       negocios: 'Ganadas = estado_pipeline \'ADJUDICADA\'; perdidas = \'PERDIDA\'; siempre activo = 1 y LEFT JOIN adjudicacion_cache a ON a.licitacion_codigo = negocios.licitacion_codigo con (a.licitacion_codigo IS NULL OR a.es_adjudicada = 1): así cuenta la pantalla. Sin período en la pregunta = total histórico, no «este año».',
-      adjudicacion_cache: 'Quién ganó: lineas es un arreglo JSON, una entrada por línea con proveedor (nombre del ganador), rutProveedor, montoUnitario, cantidad y esNuestra. MySQL 5.7 no lo desarma: para «quién nos ganó» arma un UNION ALL de JSON_UNQUOTE(JSON_EXTRACT(lineas, \'$[i].proveedor\')) con i = 0..9, filtra IS NOT NULL y JSON_EXTRACT(lineas, \'$[i].esNuestra\') = false, y agrupa por proveedor contando licitaciones distintas.',
+      adjudicacion_cache: 'Quién ganó: lineas es un arreglo JSON, una entrada por línea con proveedor (nombre del ganador), rutProveedor, montoUnitario, cantidad y esNuestra. MySQL 5.7 no lo desarma: para «quién nos ganó» arma un UNION ALL de JSON_UNQUOTE(JSON_EXTRACT(lineas, \'$[i].proveedor\')) con i = 0..4 (consulta corta; si además piden cuántas ganamos/perdimos, resuélvelo con una subconsulta aparte y simple, sin repetir el UNION), filtra IS NOT NULL y JSON_EXTRACT(lineas, \'$[i].esNuestra\') = false, y agrupa por proveedor contando licitaciones distintas.',
     },
   },
   {

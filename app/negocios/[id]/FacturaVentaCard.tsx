@@ -6,11 +6,15 @@ import { useToast } from '@/app/components/ui/toast';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { MiniaturaDoc, urlInline } from './MiniaturaDoc';
-import { IconReceipt as Receipt, IconUpload as Upload, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconTrash as Trash2 } from '@tabler/icons-react';
+import { IconReceipt as Receipt, IconUpload as Upload, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconTrash as Trash2, IconDownload as Download } from '@tabler/icons-react';
 
 interface Factura { id: number; archivoUrl: string; archivoNombre: string; numero: string | null; emitidaAt: string | null; pagadaAt: string | null; subidaPorNombre: string | null; creadaAt: string }
 
+interface FacturaObuma { tipo: 33 | 34; folio: string; fecha: string; neto: number; total: number; pagado: boolean; anulada: boolean; ocReferida: string | null; yaCargada: boolean }
+
 const esPdf = (n: string) => /\.pdf$/i.test(n);
+const pesos = (n: number) => `$${n.toLocaleString('es-CL')}`;
+const fechaCl = (f: string) => f.split('-').reverse().join('-');
 
 export function FacturaVentaCard({ negocioId, puedeOperar, razonSocialFactura }: { negocioId: number; puedeOperar: boolean; razonSocialFactura?: string | null }) {
   const toast = useToast();
@@ -23,13 +27,34 @@ export function FacturaVentaCard({ negocioId, puedeOperar, razonSocialFactura }:
   const [emitidaAt, setEmitidaAt] = useState('');
   const [pagadaAt, setPagadaAt] = useState('');
   const archivo = useRef<HTMLInputElement>(null);
+  const [obuma, setObuma] = useState<{ ocs: string[]; facturas: FacturaObuma[]; error?: string } | null>(null);
+  const [cargandoFolio, setCargandoFolio] = useState<string | null>(null);
 
   useEffect(() => {
     let vivo = true;
     fetch(`/api/compras/${negocioId}/factura-venta`).then(r => r.json()).then(d => { if (vivo && d?.success) setFacturas(d.facturas || []); })
       .catch(() => {}).finally(() => vivo && setCargando(false));
+    // Aparte: Obuma tarda unos segundos y no debe atrasar la tarjeta.
+    fetch(`/api/compras/${negocioId}/factura-venta/obuma`).then(r => r.json())
+      .then(d => { if (vivo) setObuma(d?.success ? { ocs: d.ocs || [], facturas: d.facturas || [] } : { ocs: [], facturas: [], error: d?.error || 'No se pudo consultar Obuma.' }); })
+      .catch(() => { if (vivo) setObuma({ ocs: [], facturas: [], error: 'No se pudo consultar Obuma.' }); });
     return () => { vivo = false; };
   }, [negocioId]);
+
+  const cargarDeObuma = async (f: FacturaObuma) => {
+    setCargandoFolio(f.folio);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/factura-venta/obuma`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tipo: f.tipo, folio: f.folio }) });
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'No se pudo cargar');
+      setFacturas(d.facturas || []);
+      if (d.obuma) setObuma({ ocs: d.obuma.ocs || [], facturas: d.obuma.facturas || [] });
+      toast.success(`Factura ${f.folio} cargada desde Obuma`, d.tareaMarcada ? 'La tarea «Factura y cierre del proyecto» quedó marcada como hecha.' : undefined);
+      recargar();
+    } catch (e: any) {
+      toast.error('No se pudo cargar la factura', e.message);
+    } finally { setCargandoFolio(null); }
+  };
 
   const subir = async (f: File) => {
     setSubiendo(true);
@@ -79,6 +104,37 @@ export function FacturaVentaCard({ negocioId, puedeOperar, razonSocialFactura }:
         </p>
       </div>
       <div className="p-5 space-y-4">
+        <div className="rounded-xl border border-linea dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 px-4 py-3" data-testid="factura-venta-obuma">
+          <p className="text-[12px] font-semibold text-tinta dark:text-slate-200">En Obuma</p>
+          {!obuma && <p className="flex items-center gap-1.5 text-[11.5px] text-tinta-2 mt-1"><Loader2 size={12} className="animate-spin" /> Buscando la factura en Obuma…</p>}
+          {obuma?.error && <p className="text-[11.5px] text-amber-700 mt-1">{obuma.error}</p>}
+          {obuma && !obuma.error && obuma.ocs.length === 0 && <p className="text-[11.5px] text-tinta-2 mt-1">Esta licitación todavía no tiene OC del cliente, así que no hay factura que buscar.</p>}
+          {obuma && !obuma.error && obuma.ocs.length > 0 && obuma.facturas.length === 0 && (
+            <p className="text-[11.5px] text-tinta-2 mt-1">Obuma todavía no tiene una factura con la OC {obuma.ocs.join(', ')}.</p>
+          )}
+          {obuma && obuma.facturas.length > 0 && (
+            <ul className="mt-2 divide-y divide-linea dark:divide-slate-800">
+              {obuma.facturas.map(f => (
+                <li key={`${f.tipo}-${f.folio}`} className={`flex flex-wrap items-center gap-x-4 gap-y-1 py-2 text-[12px] ${f.anulada ? 'text-slate-400' : 'text-tinta dark:text-slate-200'}`}>
+                  <span className="font-semibold tabular-nums min-w-[110px]">{f.tipo === 34 ? 'Exenta' : 'Factura'} {f.folio}</span>
+                  <span className="tabular-nums">{fechaCl(f.fecha)}</span>
+                  <span className="tabular-nums">{pesos(f.neto)} neto</span>
+                  <span className="text-tinta-2">OC {f.ocReferida}</span>
+                  {f.anulada ? <span>Anulada con nota de crédito</span>
+                    : <span className={f.pagado ? 'text-emerald-700' : 'text-amber-700'}>{f.pagado ? 'Pagada' : 'Por cobrar'}</span>}
+                  <span className="ml-auto">
+                    {f.yaCargada ? <span className="flex items-center gap-1 text-emerald-700 font-medium"><CheckCircle2 size={13} /> Cargada</span>
+                      : !f.anulada && puedeOperar && (
+                        <button type="button" onClick={() => cargarDeObuma(f)} disabled={cargandoFolio !== null}
+                          className="flex items-center gap-1.5 text-[12px] font-semibold text-teal-700 hover:text-teal-800 border border-teal-200 hover:bg-teal-50 disabled:opacity-50 px-3 py-1.5 rounded-lg">
+                          {cargandoFolio === f.folio ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />} Cargar esta factura
+                        </button>)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         {facturas.length > 0 && (
           <div className="flex gap-4 flex-wrap">
             {facturas.map(f => (

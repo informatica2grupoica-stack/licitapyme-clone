@@ -381,7 +381,9 @@ export interface OpcionesChat {
 export async function responderGlobal(pregunta: string, historial: MensajeHistorial[], opts: OpcionesChat): Promise<{ respuesta: string; sql?: string; filas?: number }> {
   const sec = opts.seccion && opts.seccion !== 'dashboard' ? seccionPorId(opts.seccion) : null;
   const alcance: Alcance = { clienteId: opts.clienteId, restringidoUserId: opts.restringidoUserId ?? null };
-  const contexto = historial.length ? `CONVERSACIÓN PREVIA:\n${resumenHistorial(historial)}\n\n` : '';
+  // Las respuestas viejas pueden estar equivocadas (visto en licitank.cl: repetía «162 compras» de una respuesta anterior a un arreglo).
+  // El historial sirve para entender a qué se refiere la pregunta; las cifras salen siempre de la consulta nueva.
+  const contexto = historial.length ? `CONVERSACIÓN PREVIA (solo para entender la pregunta; sus cifras pueden estar equivocadas: NO las copies, vuelve a calcular todo con la base):\n${resumenHistorial(historial)}\n\n` : '';
   // Chat general: base de 13 tablas + las de los menús que toca la pregunta.
   const menus = sec ? [] : await elegirMenus(pregunta, contexto);
   const extras = [...new Set(menus.flatMap(m => m.tablas))].filter(t => !TABLAS_PERMITIDAS.includes(t));
@@ -403,7 +405,7 @@ export async function responderGlobal(pregunta: string, historial: MensajeHistor
   let vacio: { sql: string; filas: any[] } | null = null;
 
   for (let intento = 0; intento < 3 && !filas; intento++) {
-    const salida = extraerJson(await llamar(sistemaSql, pedido, 1500));
+    const salida = extraerJson(await llamar(sistemaSql, pedido, 3000));
     if (!salida) { ultimoError = 'El modelo no devolvió JSON.'; pedido += `\n\nTu respuesta anterior no era un JSON válido. Responde solo con {"sql":"..."} o {"respuesta":"..."}.`; continue; }
     if (salida.inventario && !sec) {
       const cob = opts.clienteId === 1 ? await textoCobertura() : 'Solo puedo ver los datos de tu empresa y los públicos de Mercado Público; el inventario completo de la base no está disponible para tu cuenta.';

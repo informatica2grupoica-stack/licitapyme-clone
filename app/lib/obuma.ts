@@ -1108,6 +1108,58 @@ export async function pdfYEstadoDte(tipoDte: number, folio: string): Promise<{ p
   };
 }
 
+export interface ObumaFacturaEmitida {
+  tipo: 33 | 34; folio: string; fecha: string; neto: number; total: number; pagado: boolean;
+  anulada: boolean; ocReferida: string | null;
+}
+let cacheFacturas: { en: number; datos: ObumaFacturaEmitida[] } | null = null;
+/** Facturas de venta (33 afecta, 34 exenta) que tienen como referencia una OC de Mercado Público (tipo 801).
+ *  Probado en vivo el 17-nov-2026: ventas.list y ventas.listReferencias filtran por tipo_dcto y vienen de la más nueva a la más vieja.
+ *  `anulada` = tiene nota de crédito (`venta_notacredito`) o está anulada: hay que usar la siguiente. Cacheadas 5 min. */
+export async function facturasConOcObuma(): Promise<ObumaFacturaEmitida[]> {
+  if (cacheFacturas && Date.now() - cacheFacturas.en < 5 * 60_000) return cacheFacturas.datos;
+  const datos: ObumaFacturaEmitida[] = [];
+  for (const tipo of [33, 34] as const) {
+    const refs = new Map<string, string>();
+    for (let page = 1; page <= 3; page++) {
+      const r = await llamar<ObumaListado<any>>(BASE_V1, '/ventas.listReferencias.json', { tipo_dcto: tipo, limit: 1000, page });
+      for (const x of r.data || []) {
+        if (String(x.venta_tipo_dcto) === String(tipo) && String(x.tipo_dcto_ref) === '801' && String(x.folio_dcto_ref || '').trim())
+          refs.set(String(x.venta_nro_dcto), String(x.folio_dcto_ref).trim().toUpperCase());
+      }
+      if ((r.data || []).length < 1000 || page >= (Number(r['data-total-pages']) || 1)) break;
+    }
+    for (let page = 1; page <= 5; page++) {
+      const r = await llamar<ObumaListado<any>>(BASE_V1, '/ventas.list.json', { tipo_dcto: tipo, limit: 200, page });
+      for (const v of r.data || []) {
+        if (String(v.venta_tipo_dcto) !== String(tipo)) continue;
+        const folio = String(v.venta_nro_dcto || '');
+        const oc = refs.get(folio);
+        if (!oc) continue;
+        const total = Math.round(Number(v.venta_total) || 0);
+        datos.push({
+          tipo, folio, fecha: String(v.venta_fecha_ingreso || '').slice(0, 10), neto: Math.round(Number(v.venta_neto) || Number(v.venta_total_exento) || 0), total,
+          pagado: total > 0 && Math.round(Number(v.venta_total_pagado) || 0) >= total,
+          anulada: String(v.venta_notacredito) === '1' || String(v.venta_anulada) === '1', ocReferida: oc,
+        });
+      }
+      if ((r.data || []).length < 200 || page >= (Number(r['data-total-pages']) || 1)) break;
+    }
+  }
+  cacheFacturas = { en: Date.now(), datos };
+  return datos;
+}
+
+/** Baja el PDF de un DTE emitido. El link `dte_pdf` (app.obuma.cl) entregó el PDF sin sesión el 17-nov-2026 con facturas. */
+export async function pdfDteObuma(tipoDte: number, folio: string): Promise<Buffer> {
+  const { pdf } = await pdfYEstadoDte(tipoDte, folio);
+  if (!pdf) throw new Error(`Obuma no entregó el PDF de la factura ${folio}.`);
+  const res = await fetch(pdf, { redirect: 'follow', signal: AbortSignal.timeout(30_000) });
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (!res.ok || buf.subarray(0, 4).toString() !== '%PDF') throw new Error(`Obuma no dejó bajar el PDF de la factura ${folio} (puede pedir iniciar sesión).`);
+  return buf;
+}
+
 let cacheRefsGuias: { en: number; datos: Array<{ folioGuia: string; tipo: string; folioRef: string; razon: string }> } | null = null;
 /** Referencias de las guías 52 más recientes (ventas.listReferencias.json; el filtro tipo_dcto SÍ filtra, venta_id NO — probado 16-nov).
  *  Sirven para reconocer de qué licitación es una guía hecha a mano: 801 = OC de Mercado Público, razón «LICITACION ID<código>». */
