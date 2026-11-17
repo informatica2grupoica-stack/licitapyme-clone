@@ -32,7 +32,7 @@ interface Reparto {
 }
 type Hito = 'ocEmitida' | 'pagoRegistrado' | 'anticipoPagado' | 'facturaCompraRegistrada' | 'carpetaProyectoCreada' | 'provisionFondos';
 
-interface ItemOC { productoId: number; descripcion: string; cantidad: number; precioUnitario: number; subtotal: number; obumaProductoId: string | null; obumaCodigoComercial: string | null; aprobado?: boolean; estadoLinea?: 'APROBADA' | 'RECHAZADA' | 'SIN_DECIDIR' | null; compraRapida?: boolean }
+interface ItemOC { productoId: number; descripcion: string; cantidad: number; precioUnitario: number; subtotal: number; obumaProductoId: string | null; obumaCodigoComercial: string | null; aprobado?: boolean; estadoLinea?: 'APROBADA' | 'RECHAZADA' | 'SIN_DECIDIR' | null; compraRapida?: boolean; enOcObuma?: boolean }
 interface ProveedorOC {
   proveedorNombre: string; proveedorId: number | null; proveedorRut: string | null; proveedorObumaId?: string | null;
   proveedorDireccion: string | null; proveedorComuna: string | null; proveedorEmail: string | null; proveedorTelefono: string | null;
@@ -459,7 +459,8 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
   // Selección de productos de una orden: lo marcado a mano, o por defecto lo aprobado (nunca lo rechazado).
   // Sin las dos compuertas de la compra, por defecto solo entran las compras rápidas aprobadas (lo único que se puede emitir antes).
   const compuertasOk = compraOk && margenAprobado;
-  const idsSel = (p: ProveedorOC): number[] => seleccion[p.proveedorNombre] ?? p.items.filter(it => it.aprobado !== false && it.estadoLinea !== 'RECHAZADA' && (compuertasOk || it.compraRapida)).map(it => it.productoId);
+  // Con una OC ya hecha en Obuma que solo cubre parte de los productos, por defecto se marca lo que le falta (enOcObuma === false).
+  const idsSel = (p: ProveedorOC): number[] => seleccion[p.proveedorNombre] ?? p.items.filter(it => it.aprobado !== false && it.estadoLinea !== 'RECHAZADA' && (compuertasOk || it.compraRapida) && !(p.ocRealObuma && p.items.some(x => x.enOcObuma === false) && it.enOcObuma !== false)).map(it => it.productoId);
   // ¿Se puede emitir esta orden? Con las dos compuertas, siempre; si no, solo si TODO lo marcado es compra rápida aprobada.
   const puedeEmitirOC = (p: ProveedorOC) => compuertasOk || (idsSel(p).length > 0 && idsSel(p).every(id => p.items.find(it => it.productoId === id)?.compraRapida));
   const subtotalSel = (p: ProveedorOC) => p.items.filter(it => idsSel(p).includes(it.productoId)).reduce((s, it) => s + it.subtotal, 0);
@@ -552,7 +553,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                       <button onClick={() => abrirOC(p)} disabled={!puedeEmitirOC(p)} data-testid={`oc-crear-otra-${p.proveedorNombre}`}
                         title="Ya hay una OC de este proveedor en Obuma. Esto crea OTRA orden aparte (compra adicional o de prueba)."
                         className="self-center text-[12px] font-medium text-slate-500 hover:text-teal-700 disabled:opacity-40 whitespace-nowrap">
-                        + Otra orden adicional
+                        {p.items.some(it => it.enOcObuma === false) ? `Crear OC de lo que falta (${p.items.filter(it => it.enOcObuma === false).length})` : '+ Otra orden adicional'}
                       </button>
                     ) : !p.yaCreada && !p.ocRealObuma && puedeOperar && ocAbierta !== p.proveedorNombre ? (
                       <div className="self-center flex-shrink-0 flex items-center gap-2">
@@ -631,7 +632,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                                   {editable && (
                                     <td className="px-3 py-2"><input type="checkbox" checked={marcado} disabled={rech || !puedeOperar} onChange={() => alternarItem(p, it.productoId)} className="accent-teal-600" aria-label={`Incluir ${it.descripcion.split(' - ')[0]} en la orden`} /></td>
                                   )}
-                                  <td className="px-2 py-2 whitespace-nowrap">{folios ? <span className="font-bold tabular-nums text-slate-900">{folios}</span> : <span className="text-amber-700 font-medium">Sin emitir</span>}</td>
+                                  <td className="px-2 py-2 whitespace-nowrap">{folios && it.enOcObuma !== false ? <span className="font-bold tabular-nums text-slate-900">{folios}</span> : <span className="text-amber-700 font-medium">Sin emitir</span>}</td>
                                   <td className="px-2 py-2 font-medium text-slate-800">{it.descripcion.split(' - ')[0]}</td>
                                   <td className="px-2 py-2 whitespace-nowrap tabular-nums">{it.obumaCodigoComercial ? <span className="text-slate-700">{it.obumaCodigoComercial}</span> : <span className="text-amber-700">sin SKU todavía</span>}</td>
                                   <td className="px-2 py-2 text-right tabular-nums">{it.cantidad}</td>

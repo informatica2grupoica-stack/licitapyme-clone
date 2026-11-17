@@ -36,6 +36,8 @@ export interface ItemOrdenCompra {
   aprobado?: boolean; estadoLinea?: 'APROBADA' | 'RECHAZADA' | 'SIN_DECIDIR' | null;
   /** Compra rápida aprobada por el jefe de ventas: puede emitirse sin las compuertas 1 y 2 (migration-151). */
   compraRapida?: boolean;
+  /** false = el proveedor tiene OC en Obuma pero ESTE producto (su SKU) no está en ninguna de sus líneas: falta emitirle orden. */
+  enOcObuma?: boolean;
 }
 export interface ProveedorOrdenCompra {
   proveedorNombre: string; proveedorId: number | null; proveedorRut: string | null;
@@ -265,6 +267,17 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
         || c.items.some(i => (!!i.productoId && skusDelGrupo.has(String(i.productoId))) || (!!i.codigoComercial && skusDelGrupo.has(String(i.codigoComercial))))
         || (nombreGrupo.length >= 8 && nombreComparable(c.proveedorRazonSocial) === nombreGrupo)));
     if (delProveedor.length === 0) continue;
+    // Cobertura por producto (4043 de REPAMAQ, 1095439-8-LP26): la OC solo traía el armado, pero el cruce por proveedor daba «emitida»
+    // a los 3 productos. Un producto con SKU propio que no aparece en ninguna línea de esas OC NO está cubierto.
+    const skusEnOc = new Set(delProveedor.flatMap(c => c.items.flatMap(i => [i.productoId, i.codigoComercial])).filter((k): k is string => !!k).map(String));
+    if (skusEnOc.size > 0) {
+      for (const it of g.items) {
+        const ks = [it.obumaProductoId, it.obumaCodigoComercial].filter(skuUtil).map(String);
+        if (ks.length > 0) it.enOcObuma = ks.some(k => skusEnOc.has(k));
+      }
+      // Ninguno de los productos con SKU está en esas OC: no hay OC real de lo que compramos, solo de otro asunto del mismo proveedor.
+      if (g.items.some(it => it.enOcObuma === false) && !g.items.some(it => it.enOcObuma !== false)) continue;
+    }
     g.ocRealObuma = {
       folios: delProveedor.map(c => c.folio || c.compraOcId),
       totalNeto: Math.round(delProveedor.reduce((s, c) => s + netoDeCompra(c), 0)),
@@ -357,7 +370,7 @@ async function marcarCompradosConOcInterno(negocioId: number, grupos?: Proveedor
   for (const r of ocRows as any[]) leer(r.items_json, /anulad/i.test(r.estado || '') ? enAnulada : ids);
   for (const r of propRows as any[]) leer(r.items_json, r.estado === 'ANULADA' ? enAnulada : ids);
   for (const g of gs) {
-    if (!g.yaCreada && g.ocRealObuma) for (const it of g.items) if (it.aprobado && it.estadoLinea !== 'RECHAZADA') ids.add(it.productoId);
+    if (!g.yaCreada && g.ocRealObuma) for (const it of g.items) if (it.aprobado && it.estadoLinea !== 'RECHAZADA' && it.enOcObuma !== false) ids.add(it.productoId);
   }
 
   // Vuelta atrás: un producto que quedó «Comprado» por una OC que después se anuló, y que no está en ninguna OC vigente ni tiene compra
