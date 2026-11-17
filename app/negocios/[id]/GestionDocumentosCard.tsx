@@ -11,7 +11,7 @@ import { Modal } from '@/app/components/ui/Modal';
 import { GuiaDespachoObumaCard } from './GuiaDespachoObumaCard';
 import { IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconDownload as Download, IconFilePlus as FilePlus, IconUsers as Users, IconFileText as FileText } from '@tabler/icons-react';
 
-interface Campo { clave: string; etiqueta: string; tipo: 'texto' | 'lista' | 'fecha'; valorPorDefecto?: string; ayuda?: string; donde?: string }
+interface Campo { clave: string; etiqueta: string; tipo: 'texto' | 'lista' | 'fecha' | 'tabla'; valorPorDefecto?: string; ayuda?: string; donde?: string }
 interface Plantilla { id: number; nombre: string; descripcion: string | null; porPersona: boolean; campos: Campo[]; cuerpoHtml: string }
 interface Contexto { empresa: string; rutEmpresa: string; licitacionCodigo: string; licitacionNombre: string; organismo: string; hoy: string; representante?: string; representanteCargo?: string; logoUri?: string | null; firmaUri?: string | null; timbreUri?: string | null }
 interface Generado { id: number; titulo: string; plantillaNombre: string; personas: number; creadoPor: string | null; createdAt: string }
@@ -127,7 +127,7 @@ export function GestionDocumentosCard({ negocioId }: { negocioId: number }) {
         </div>
       )}
 
-      <Modal open={!!elegida} onClose={() => !generando && setElegida(null)} title={elegida?.nombre} subtitle="Completa los datos de la izquierda: a la derecha ves cómo va quedando el certificado." size="xl"
+      <Modal open={!!elegida} onClose={() => !generando && setElegida(null)} title={elegida?.nombre} subtitle="Completa los datos de la izquierda: a la derecha ves cómo va quedando el documento." size="xl"
         footer={
           <div className="flex items-center justify-end gap-2">
             <button onClick={() => setElegida(null)} disabled={generando} className="text-[13px] font-semibold px-4 py-2 rounded-lg border border-zinc-300 text-zinc-700 hover:bg-zinc-50 disabled:opacity-60">Cancelar</button>
@@ -151,8 +151,8 @@ export function GestionDocumentosCard({ negocioId }: { negocioId: number }) {
                     </span>
                     {c.donde && <span className="block text-[12px] text-zinc-500 mb-1.5 ml-7">{c.donde}</span>}
                     <span className="block ml-7">
-                      {c.tipo === 'lista'
-                        ? <textarea rows={6} className={entrada} value={valores[c.clave] || ''} onChange={e => setValores(v => ({ ...v, [c.clave]: e.target.value }))} />
+                      {c.tipo === 'lista' || c.tipo === 'tabla'
+                        ? <textarea rows={6} className={entrada} placeholder={c.tipo === 'tabla' ? c.ayuda : undefined} value={valores[c.clave] || ''} onChange={e => setValores(v => ({ ...v, [c.clave]: e.target.value }))} />
                         : <input type={c.tipo === 'fecha' ? 'date' : 'text'} className={entrada} placeholder={c.ayuda} value={valores[c.clave] || ''} onChange={e => setValores(v => ({ ...v, [c.clave]: e.target.value }))} />}
                     </span>
                   </label>

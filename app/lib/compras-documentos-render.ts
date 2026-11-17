@@ -1,12 +1,12 @@
 // app/lib/compras-documentos-render.ts
 // Armado del HTML de un documento desde su plantilla. Sin dependencias de servidor: lo usan el PDF (servidor) y la vista previa del formulario (navegador).
-export interface CampoPlantilla { clave: string; etiqueta: string; tipo: 'texto' | 'lista' | 'fecha'; valorPorDefecto?: string; ayuda?: string; donde?: string }
+export interface CampoPlantilla { clave: string; etiqueta: string; tipo: 'texto' | 'lista' | 'fecha' | 'tabla'; valorPorDefecto?: string; ayuda?: string; donde?: string; columnas?: string[]; filasMin?: number }
 export interface Plantilla {
   id: number; clave: string; nombre: string; descripcion: string | null; porPersona: boolean;
   campos: CampoPlantilla[]; cuerpoHtml: string;
 }
 export interface DocumentoGenerado { id: number; plantillaId: number; plantillaNombre: string; titulo: string; personas: number; creadoPor: string | null; createdAt: string }
-export interface ContextoDocumento { empresa: string; rutEmpresa: string; licitacionCodigo: string; licitacionNombre: string; organismo: string; hoy: string; representante?: string; representanteRut?: string; representanteCargo?: string; logoUri?: string | null; firmaUri?: string | null; timbreUri?: string | null }
+export interface ContextoDocumento { empresa: string; rutEmpresa: string; licitacionCodigo: string; licitacionNombre: string; organismo: string; hoy: string; representante?: string; representanteRut?: string; representanteCargo?: string; logoUri?: string | null; logoTecnomaqUri?: string | null; firmaUri?: string | null; timbreUri?: string | null }
 export interface PersonaDoc { nombre: string; rut: string }
 
 const esc = (x: unknown) => String(x ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -30,6 +30,7 @@ export function armarHtml(p: Plantilla, valores: Record<string, string>, ctx: Co
     return p.cuerpoHtml.replace(/\{\{(\w+)\}\}/g, (_m, k: string) => {
       // Imágenes de la empresa (data URI armado por el servidor): único HTML que no se escapa.
       if (k === 'logo_img') return ctx.logoUri ? `<img src="${ctx.logoUri}" alt="">` : ''; // sin logo (Inversiones Claro) el encabezado queda igual, con ese lado vacío
+      if (k === 'logo_tecnomaq') return ctx.logoTecnomaqUri ? `<img src="${ctx.logoTecnomaqUri}" alt="">` : '';
       if (k === 'emp_der') return `<b>${esc(ctx.empresa)}</b><br>`;
       if (k === 'timbre_img') return ctx.timbreUri ? `<img class="timbreimg" src="${ctx.timbreUri}" alt="">` : '';
       if (k === 'firma_img') return ctx.firmaUri ? `<img class="firmaimg" src="${ctx.firmaUri}" alt="">` : '<div style="height:56px"></div>';
@@ -37,6 +38,14 @@ export function armarHtml(p: Plantilla, valores: Record<string, string>, ctx: Co
       const v = k in base ? base[k] : (valores[k] ?? '');
       if (k in base && !['nombre', 'rut', 'unidad_de'].includes(k)) return esc(v); // lo que se llena solo no se marca
       const etiqueta = campo?.etiqueta || ETIQUETAS_FIJAS[k] || k;
+      if (campo?.tipo === 'tabla') {
+        // Una fila por línea; las celdas van separadas por «|» y se llenan en el orden de las columnas (las que sobran quedan en blanco, a mano).
+        const cols = campo.columnas || [];
+        const filas = String(v).split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(s => s.split('|').map(c => c.trim()));
+        while (filas.length < (campo.filasMin || 0)) filas.push([]);
+        const cuerpo = filas.map(f => `<tr>${cols.map((_, i) => `<td>${esc(f[i] ?? '')}</td>`).join('')}</tr>`).join('');
+        return `<table class="tabla"><thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${cuerpo}</tbody></table>`;
+      }
       if (campo?.tipo === 'lista') {
         const li = String(v).split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(s => `<li>${esc(s)}</li>`).join('');
         return li ? (vista ? `<div class="v bloque"><ul>${li}</ul></div>` : `<ul>${li}</ul>`) : marca('', etiqueta);
@@ -62,6 +71,14 @@ export function armarHtml(p: Plantilla, valores: Record<string, string>, ctx: Co
   .firma{text-align:center;margin-top:8px;font-size:12px;line-height:1.45;color:#555} .firma b{color:#2b2b2b;font-size:13px} .fw{position:relative;width:250px;margin:0 auto} .timbreimg{position:absolute;right:-86px;top:6px;width:96px;height:96px;object-fit:contain;mix-blend-mode:multiply;opacity:.88;transform:rotate(-7deg)}
   .firmaimg{mix-blend-mode:multiply;height:84px;display:block;margin:0 auto -6px}
   .linea{border-top:1px solid #2b2b2b;width:250px;margin:0 auto 6px}
+  .acta{height:100%;display:flex;flex-direction:column;font-family:Arial,Helvetica,sans-serif;font-size:12.5px;line-height:1.5;color:#1a1a1a;padding:8px 6px}
+  .acta .cab2{display:flex;justify-content:space-between;align-items:flex-start} .acta .cab2 img{height:56px;display:block;mix-blend-mode:multiply} .acta .cab2 .cen{text-align:center;font-weight:700;font-size:13px;padding-top:2px;text-transform:uppercase}
+  .acta .bloque1{display:flex;gap:18px;margin-top:26px;align-items:flex-start} .acta .izq{width:150px;text-align:center;font-size:13.5px;line-height:1.45;padding-top:14px} .acta .izq u{display:block;margin-bottom:2px}
+  .acta .med{flex:1;text-align:center} .acta .med .tit{font-weight:700;text-decoration:underline;font-size:14px;text-transform:uppercase} .acta .med .caja{border:1px dotted #777;font-style:italic;font-weight:700;padding:3px 8px;margin-top:3px;min-height:20px;text-transform:uppercase} .acta .der{width:90px;text-align:right;padding-top:30px;font-size:13px}
+  .acta .sec{margin-top:22px;font-size:13.5px} .acta .cat{text-align:center;font-weight:700;margin-top:4px;text-transform:uppercase}
+  .tabla{width:100%;border-collapse:collapse;margin-top:2px;font-size:12px;border:2px solid #222} .tabla th,.tabla td{border:1.5px solid #222;padding:4px 6px;text-align:center;height:20px} .tabla th{font-weight:400;font-size:13px} .tabla td:nth-child(4){text-align:left}
+  .acta .datos{margin:20px 0 0 130px;font-size:11.5px} .acta .datos div{display:flex;margin:5px 0} .acta .datos b.k{font-weight:400;width:160px} .acta .datos .val{font-size:13px;font-weight:700}
+  .acta .rec{margin:34px 0 0 130px;font-size:11.5px} .acta .rec .fila{display:flex;align-items:flex-end;margin-top:32px} .acta .rec .fila .k{width:160px;padding-bottom:2px} .acta .rec .fila .raya{flex:1;border-bottom:1px solid #222;height:24px;max-width:430px} .acta .rec .fila .fr{margin-left:28px;white-space:nowrap;font-size:12.5px}
   .v{background:#fff3b0;border-radius:3px;padding:0 2px;box-decoration-break:clone}.bloque{display:block;padding:2px 6px}.vacio{background:#eceff1;color:#78909c;font-style:normal;font-weight:400;letter-spacing:0;text-transform:none}
   </style></head><body>${hojas.map(h => `<div class="hoja">${h}</div>`).join('')}</body></html>`;
 }

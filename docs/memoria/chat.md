@@ -37,6 +37,8 @@ documentos con `filtroDocsVisibles`; contexto cacheado bajo `codigoAlmacenDocs`.
 
 **Chat General = toda la aplicación (2026-11-17, pedido del dueño):** se llama «General» (no «Dashboard») y vive solo en el Dashboard. Una llamada corta de Kimi elige los menús que toca la pregunta (`elegirMenus` en `chat-global.ts`) y se suman sus tablas a las 13 base; todo pasa por los mismos filtros de empresa y de perfil. Probado cruzando Compras y Órdenes de compra. También: botón para borrar la conversación (DELETE en las 3 rutas; borra solo los turnos de quien la borra, la de la licitación es compartida) y «Preguntas rápidas» siempre disponibles en el pie de la burbuja.
 
+**Robustez del SQL del chat (2026-11-17, visto en licitank.cl):** «OC sin pagar» falló dos veces por columna inventada y, ya con 3 intentos, respondió «no hay» por un INNER JOIN con IS NULL (0 filas; la respuesta correcta son 28 OC). Ahora: 3 intentos; tras un error de columna se le muestran las columnas reales; un resultado de 0 filas se revisa una vez antes de decir «no hay» (pista: «sin X» = LEFT JOIN + IS NULL); la cobertura de la base solo se adjunta si la consulta toca documentos/adjudicaciones/ofertas/licitaciones. Falta desplegar y repetir en el sitio.
+
 **Verificado (solo lectura sobre la BD del VPS):** `scripts/scratch/_chat_probar_alcance.mts` — cliente 1 ve 1.710
 negocios y el cliente 2 solo sus 14; tabla ajena, coma-join y tabla global de ICA rechazadas para otra empresa;
 documentos del cliente 2 = solo los oficiales. `_chat_probar_respuesta.mts` — respuestas reales con modelo

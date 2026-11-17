@@ -140,7 +140,8 @@ PISTAS:
 - "Tipos de licitación": agrupa por tipo, organismo, region o por palabras de nombre.
 - "Competencia": agrupa oferta_competencia por proveedor_nombre (cuántas ofertas, cuántas veces ganó = estado de la oferta / adjudicación); excluye es_nuestra=1.
 - "Ganadas/perdidas nuestras": negocios con estado_pipeline='ADJUDICADA' / 'PERDIDA', activo=1.
-- Fechas relativas: usa CURDATE() y DATE_SUB.`;
+- Fechas relativas: usa CURDATE() y DATE_SUB.
+- Para «sin X», «que no tienen X» o «pendientes de X»: LEFT JOIN a X y WHERE X.id IS NULL (o NOT EXISTS). NUNCA un INNER JOIN con IS NULL: devuelve 0 filas siempre.`;
 
 const SYS_SQL = `Eres el analista de datos de LICITANK. Conviertes la pregunta del usuario en UNA consulta SQL de solo lectura sobre el esquema dado.
 
@@ -302,6 +303,7 @@ const PISTAS_SECCION = `PISTAS:
 - negocios: una fila por licitación que tomamos; usa activo = 1. estado_pipeline: 'ASIGNADO','EN_PROCESO','ANEXOS','VISADO','POSTULADA','POSIBLE_ADJ','ADJUDICADA' (= GANADA),'PERDIDA','DESIERTA','REVOCADA','DESCARTADA'. negocios.licitacion_codigo = licitaciones_cache.codigo.
 - Las tablas con negocio_id se unen con negocios.id. Las que traen licitacion_codigo se unen con licitaciones_cache.codigo.
 - Fechas relativas: CURDATE() y DATE_SUB. Para totales usa SUM/COUNT; los números los pone la base, no tú.
+- Para «sin X», «que no tienen X» o «pendientes de X»: LEFT JOIN a X y WHERE X.id IS NULL (o NOT EXISTS). NUNCA un INNER JOIN con IS NULL: devuelve 0 filas siempre.
 - Los textos largos se recortan con SUBSTRING; nunca los selecciones enteros.`;
 
 function sysSqlSeccion(s: SeccionChat, esquema: string): string {
@@ -380,6 +382,7 @@ export async function responderGlobal(pregunta: string, historial: MensajeHistor
   let sqlFinal: string | undefined;
   let filas: any[] | null = null;
   let ultimoError = '';
+  let vacio: { sql: string; filas: any[] } | null = null;
 
   for (let intento = 0; intento < 3 && !filas; intento++) {
     const salida = extraerJson(await llamar(sistemaSql, pedido, 1500));
@@ -398,18 +401,25 @@ export async function responderGlobal(pregunta: string, historial: MensajeHistor
     try {
       sqlFinal = await validarSqlSoloLectura(salida.sql, tablas, alcance);
       filas = await ejecutarSolo(sqlFinal);
+      // 0 filas: casi siempre es un JOIN que anula el resultado o un filtro inexistente. Una segunda mirada antes de decir «no hay».
+      if (filas.length === 0 && !vacio) {
+        vacio = { sql: sqlFinal, filas };
+        filas = null;
+        pedido += `\n\nTu consulta devolvió 0 filas: ${salida.sql}\nRevisa que ningún INNER JOIN anule el resultado (para «sin X» usa LEFT JOIN + IS NULL) y que los valores de los filtros existan. Si la consulta era correcta, repítela igual; si no, corrígela.${await columnasDeLasTablas(salida.sql, accesibles)}`;
+      }
     } catch (e) {
       ultimoError = e instanceof Error ? e.message : String(e);
       pedido += `\n\nTu consulta anterior falló: ${ultimoError}\nConsulta: ${salida.sql}\nCorrígela usando solo las tablas y columnas del esquema.${await columnasDeLasTablas(salida.sql, accesibles)}`;
     }
   }
+  if (!filas && vacio) { filas = vacio.filas; sqlFinal = vacio.sql; }
   if (!filas) return { respuesta: `No pude armar una consulta válida para esa pregunta (${ultimoError}). Intenta reformularla con más detalle.` };
 
   let datos = jsonHoraChile(recortarCampos(filas));
   if (datos.length > MAX_CHARS_FILAS) datos = `${datos.slice(0, MAX_CHARS_FILAS)} …[recortado]`;
   const tope = filas.length >= MAX_FILAS ? `\nOJO: el resultado llegó al tope de ${MAX_FILAS} filas (puede haber más).` : '';
   // La cobertura del mercado (cifras globales) solo aplica al chat general y a empresas con acceso total.
-  const cob = !sec && opts.clienteId === 1 ? await textoCobertura().catch(() => '') : '';
+  const cob = !sec && opts.clienteId === 1 && /documentos_cache|adjudicacion_cache|oferta_competencia|licitaciones_cache/i.test(sqlFinal || '') ? await textoCobertura().catch(() => '') : '';
   const respuesta = await llamar(
     persona,
     `${contexto}PREGUNTA: ${pregunta}\n\nCONSULTA EJECUTADA:\n${sqlFinal}\n\nFILAS (${filas.length}):\n${datos}${tope}${cob ? `\n\nCOBERTURA DE LA BASE (para decir hasta dónde llegan los datos):\n${cob}` : ''}`,

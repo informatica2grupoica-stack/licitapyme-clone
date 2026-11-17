@@ -57,7 +57,37 @@ const CERTIFICADO_CAPACITACION: Omit<Plantilla, 'id'> = {
 <div class="firma"><div class="fw">{{firma_img}}{{timbre_img}}</div><div class="linea"></div><b>{{representante}}</b><br>{{representante_cargo}}<br>{{empresa}}</div>
 </div>`,
 };
-const PLANTILLAS_BASE = [CERTIFICADO_CAPACITACION];
+// Acta de entrega tomada del acta firmada por la Municipalidad de Concepción (2415-19-LE26, 9-nov-2026). Tecnomaq a la izquierda, empresa al centro,
+// logo de la empresa (Mi empresa) a la derecha. Recepción conforme (nombre, RUT, cargo, fecha, firma) queda en blanco: lo llena quien recibe.
+const ACTA_ENTREGA: Omit<Plantilla, 'id'> = {
+  clave: 'acta-entrega', nombre: 'Acta de entrega', porPersona: false,
+  descripcion: 'Acta con el detalle de lo entregado, guía de despacho y recepción conforme para firmar.',
+  campos: [
+    { clave: 'oc', etiqueta: 'Licitación OC', donde: 'Sale arriba a la izquierda, bajo «Licitación OC».', tipo: 'texto', ayuda: 'Ej.: 2415-283-SE26' },
+    { clave: 'unidad_compra', etiqueta: 'Unidad de compra', donde: 'Segunda caja bajo el título «ACTA DE ENTREGA».', tipo: 'texto', ayuda: 'Ej.: IMUNI Concepción Adquisiciones' },
+    { clave: 'fecha', etiqueta: 'Fecha del acta', donde: 'Sale arriba a la derecha.', tipo: 'fecha' },
+    { clave: 'categoria', etiqueta: 'Tipo de artículos', donde: 'Título sobre la tabla.', tipo: 'texto', ayuda: 'Ej.: Materiales de construcción' },
+    { clave: 'items', etiqueta: 'Artículos entregados (uno por línea)', donde: 'Cada línea es una fila: código | cantidad | formato | detalle. La columna «Recibido Sí/No» queda en blanco.', tipo: 'tabla', columnas: ['Items', 'Cantidad', 'Formato', 'Detalle producto', 'Recibido Sí/No'], filasMin: 5, ayuda: '60264231353 | 500 | SACOS | CEMENTO 25KG SECADO RÁPIDO' },
+    { clave: 'guia_despacho', etiqueta: 'Guía de despacho N°', donde: 'Va bajo la tabla.', tipo: 'texto', ayuda: 'Ej.: 1910-1911' },
+    { clave: 'pendiente', etiqueta: 'Pendiente de entrega (opcional)', donde: 'Va bajo el ID de licitación.', tipo: 'texto' },
+  ],
+  cuerpoHtml: `<div class="acta">
+<div class="cab2"><div>{{logo_tecnomaq}}</div><div class="cen">{{empresa}} {{rut_empresa}}</div><div>{{logo_img}}</div></div>
+<div class="bloque1"><div class="izq"><u>Licitación OC</u>{{oc}}<br>Unidad de Compra</div>
+<div class="med"><div class="tit">Acta de entrega</div><div class="caja">{{organismo}}</div><div class="caja">{{unidad_compra}}</div></div>
+<div class="der">{{fecha_larga}}</div></div>
+<div class="sec">A. &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Descripción Artículos :</div>
+<div class="cat">{{categoria}}</div>
+{{items}}
+<div class="datos"><div><b class="k">Guía Despacho N° &nbsp;:</b><span class="val">{{guia_despacho}}</span></div><div><b class="k">ID de Licitación &nbsp;&nbsp;&nbsp;:</b><span class="val">{{licitacion_codigo}}</span></div><div><b class="k">Pendiente de Entrega:</b><span class="val">{{pendiente}}</span></div></div>
+<div class="rec"><div style="color:#444">RECEPCIÓN CONFORME:</div>
+<div class="fila"><span class="k">NOMBRE</span><span class="raya"></span></div>
+<div class="fila"><span class="k">Rut</span><span class="raya" style="max-width:200px"></span></div>
+<div class="fila"><span class="k">OBSERVACIONES:</span><span class="raya"></span></div>
+<div class="fila"><span class="k">Cargo</span><span class="raya" style="max-width:260px"></span><span class="fr">Fecha Recepcion: ____/____/____</span></div></div>
+</div>`,
+};
+const PLANTILLAS_BASE = [CERTIFICADO_CAPACITACION, ACTA_ENTREGA];
 /** Empresas que reciben las plantillas base (por RUT, como EMISORES_PROPIOS). Las demás empiezan sin plantillas = sin el paso. */
 const EMPRESAS_CON_BASE = new Set(['783881756', '769026592']); // Comercial MP e Inversiones Claro
 
@@ -107,6 +137,7 @@ export async function plantillasDelNegocio(negocioId: number): Promise<{ habilit
       // Logo, firma y timbre son los cargados en la ficha de la empresa (Mi empresa). Si el «logo» cargado es en realidad la foto del timbre
       // (pasó con Comercial MP) no sirve de encabezado: se usa el logo del sistema hasta que suban el verdadero.
       logoUri: (/timbre/i.test(`${e.logo_nombre || ''} ${e.logo_url || ''}`) ? null : await imagenComoUri(e.logo_url)) || (await imagenComoUri(logoDeEmpresaPorRut(e.rut), true)),
+      logoTecnomaqUri: await imagenComoUri('docs-logos/tecnomaq.png', true),
       timbreUri: await imagenComoUri(e.timbre_url),
       firmaUri: await imagenComoUri(e.firma_url),
       empresa: e.razon_social, rutEmpresa: e.rut, licitacionCodigo: e.licitacion_codigo || '', licitacionNombre: e.licitacion_nombre || '', organismo: e.licitacion_organismo || '', hoy: ahoraChileSQL().slice(0, 10) },
