@@ -17,7 +17,8 @@ export async function POST(request: NextRequest) {
     if (!(await puedeVerLicitacion(request, String(licitacionCodigo))))
       return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
     // Multi-cliente: una empresa-cliente solo reutiliza documentos OFICIALES compartidos.
-    const soloOficial = (await getClienteId(request)) !== CLIENTE_ICA;
+    const clienteId = await getClienteId(request);
+    const soloOficial = clienteId !== CLIENTE_ICA;
 
     // Verificar si ya está descargado
     const yaDescargado = await documentoYaDescargado(licitacionCodigo, documentoNombre, soloOficial);
@@ -36,6 +37,7 @@ export async function POST(request: NextRequest) {
       licitacionCodigo,
       documentoUrl,
       documentoNombre,
+      clienteId,
     });
 
     return NextResponse.json({

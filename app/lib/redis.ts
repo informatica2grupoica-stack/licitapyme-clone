@@ -1,5 +1,6 @@
 // src/lib/redis.ts
 import { Redis } from '@upstash/redis';
+import { randomUUID } from 'node:crypto';
 
 export const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -11,6 +12,8 @@ export interface DocumentJob {
   licitacionCodigo: string;
   documentoUrl: string;
   documentoNombre: string;
+  /** Empresa que lo pidió (SEC-003): /api/documentos/estado solo lo entrega a esa empresa. */
+  clienteId?: number;
   status: 'pending' | 'processing' | 'completed' | 'failed';
   resultUrl?: string;
   error?: string;
@@ -18,7 +21,7 @@ export interface DocumentJob {
 }
 
 export async function crearJob(job: Omit<DocumentJob, 'id' | 'status' | 'createdAt'>): Promise<string> {
-  const id = `${job.licitacionCodigo}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+  const id = `${job.licitacionCodigo}_${Date.now()}_${randomUUID()}`;
 
   const fullJob: DocumentJob = {
     ...job,
