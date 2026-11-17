@@ -284,7 +284,13 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
     }
     for (const it of g.items) {
       const ks = [it.obumaProductoId, it.obumaCodigoComercial].filter(skuUtil).map(String);
-      if (ks.length === 0) continue;
+      if (ks.length === 0) {
+        // SKU genérico (fletes «100 · TRANSPORTE»: las OC de Obuma no distinguen un flete de otro): se cruza por el monto de la línea.
+        // Si el monto no calza con ninguna OC no se adivina: se dejan todos los folios (foliosOc ausente).
+        const porMonto = delProveedor.filter(c => c.items.some(i => [i.subtotal, i.precio].some(m => m != null && Math.abs(m - it.subtotal) <= 1)));
+        if (porMonto.length > 0) it.foliosOc = porMonto.map(c => c.folio || c.compraOcId);
+        continue;
+      }
       it.foliosOc = delProveedor.filter(c => c.items.some(i => ks.includes(String(i.productoId)) || ks.includes(String(i.codigoComercial)))).map(c => c.folio || c.compraOcId);
     }
     g.ocRealObuma = {
