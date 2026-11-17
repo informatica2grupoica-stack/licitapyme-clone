@@ -2559,7 +2559,7 @@ export async function eliminarParteProducto(productoId: number, actorId: number,
   // compra o un veredicto, que son historial.
   if (p.subestado !== 'PENDIENTE'
     || (!esServicio && await tiene(`SELECT 1 FROM compras_cotizacion_item WHERE producto_id = ? LIMIT 1`))
-    || await tiene(`SELECT 1 FROM compras_compra_rapida WHERE producto_id = ? LIMIT 1`)
+    || (!esServicio && await tiene(`SELECT 1 FROM compras_compra_rapida WHERE producto_id = ? LIMIT 1`))
     || (!esServicio && await tiene(`SELECT 1 FROM compras_veredicto WHERE producto_id = ? LIMIT 1`))
     || (esServicio && await tiene(`SELECT 1 FROM compras_sku WHERE producto_id = ? LIMIT 1`)))
     throw new Error(esServicio
@@ -2567,9 +2567,21 @@ export async function eliminarParteProducto(productoId: number, actorId: number,
       : 'Esta parte ya tiene cotizaciones o una compra: no se puede quitar. Si ya no va, usa «Renunciar».');
   if (esServicio) {
     // El veredicto de la IA y la decisión de aprobación sobre este flete eran de una compra que ya no lo incluye.
-    for (const t of ['compras_cotizacion_item', 'compras_cotizacion_adicional', 'compras_veredicto', 'compras_aprobacion_linea']) {
+    let cotIds: number[] = [];
+    try {
+      const [cr] = await pool.query(`SELECT DISTINCT cotizacion_id FROM compras_cotizacion_item WHERE producto_id = ?`, [productoId]) as any;
+      cotIds = (cr as any[]).map(x => Number(x.cotizacion_id)).filter(Boolean);
+    } catch (e: any) { if (e?.code !== 'ER_NO_SUCH_TABLE' && e?.code !== 'ER_BAD_FIELD_ERROR') throw e; }
+    for (const t of ['compras_cotizacion_item', 'compras_cotizacion_adicional', 'compras_veredicto', 'compras_aprobacion_linea', 'compras_compra_rapida']) {
       try { await pool.query(`DELETE FROM ${t} WHERE producto_id = ?`, [productoId]); }
       catch (e: any) { if (e?.code !== 'ER_NO_SUCH_TABLE') throw e; }
+    }
+    // La cotización «directa» que nació solo para este gasto queda huérfana: se va con él.
+    for (const cid of cotIds) {
+      try {
+        const [rest] = await pool.query(`SELECT 1 FROM compras_cotizacion_item WHERE cotizacion_id = ? LIMIT 1`, [cid]) as any;
+        if ((rest as any[]).length === 0) await pool.query(`DELETE FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cid, p.negocio_id]);
+      } catch { /* si no se puede limpiar, la cotización queda sin ítems: inofensivo */ }
     }
   }
   await pool.query(`DELETE FROM compras_producto WHERE id = ?`, [productoId]);

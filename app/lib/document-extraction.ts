@@ -1,4 +1,4 @@
-import { esUrlR2Propia } from '@/app/lib/url-propia';
+import { esUrlR2Propia, fetchHostSeguro } from '@/app/lib/url-propia';
 // app/lib/document-extraction.ts
 // Extracción de texto de documentos de licitación (PDF/Word/Excel), con OCR
 // como fallback para PDFs escaneados. Usado por /api/analizar-documento y
@@ -741,9 +741,8 @@ async function _descargarYExtraerTextoImpl(url: string, nombre: string, opts: { 
     fetchUrl = `${baseUrl}/api/proxy?url=${encodeURIComponent(url)}`;
   }
 
-  const res = await fetch(fetchUrl, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LicitapymeBot/1.0)' }
-  });
+  const initDescarga = { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LicitapymeBot/1.0)' } };
+  const res = esUrlPropia ? await fetchHostSeguro(fetchUrl, initDescarga) : await fetch(fetchUrl, initDescarga);
   if (!res.ok) return null;
 
   const buffer = Buffer.from(await res.arrayBuffer());

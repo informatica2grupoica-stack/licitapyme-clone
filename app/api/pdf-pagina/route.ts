@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { createHash } from 'crypto';
 import { r2Client } from '@/app/lib/r2';
+import { hostMercadoPublico, hostR2Propio, fetchHostSeguro } from '@/app/lib/url-propia';
 
 export const runtime = 'nodejs';   // mupdf usa WASM + Buffer: requiere runtime Node, no edge.
 
@@ -45,14 +46,9 @@ function palabrasClave(q: string): string[] {
 }
 
 // Mismo anti-SSRF que /api/proxy: solo Mercado Público y R2.
+// SEC-001: antes `h.includes(r2AccountId)` dejaba pasar `<id>.sitio-ajeno.com`. Ahora igualdad estricta de host (url-propia.ts).
 function hostPermitido(host: string): boolean {
-  const h = host.toLowerCase();
-  const r2AccountId = (process.env.R2_ACCOUNT_ID || '').toLowerCase();
-  return (
-    h === 'mercadopublico.cl' || h.endsWith('.mercadopublico.cl') ||
-    h.endsWith('.r2.dev') || h.endsWith('.r2.cloudflarestorage.com') ||
-    (!!r2AccountId && h.includes(r2AccountId))
-  );
+  return hostMercadoPublico(host) || hostR2Propio(host);
 }
 
 // ─── Fallback OCR para PDFs ESCANEADOS (sin capa de texto) ───────────────────────
@@ -147,7 +143,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // 2) Descargar el PDF.
-    const res = await fetch(url, {
+    const res = await fetchHostSeguro(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': 'application/pdf,*/*',

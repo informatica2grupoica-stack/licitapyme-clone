@@ -4,7 +4,7 @@ import { extractTextFromDocument, descargarYExtraerTexto } from '@/app/lib/docum
 import { crearChatIA as crearChatIABase } from '@/app/lib/gemini';
 import { conModuloIA } from '@/app/lib/ia-uso';
 const crearChatIA = conModuloIA('consultas', crearChatIABase);
-import { esUrlR2Propia } from '@/app/lib/url-propia';
+import { esUrlR2Propia, fetchHostSeguro } from '@/app/lib/url-propia';
 
 // ======================================================
 // TIPOS - DEFINICIONES COMPLETAS Y FLEXIBLES
@@ -397,9 +397,8 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`📥 Descargando documento: ${documentoNombre}`);
-    const pdfResponse = await fetch(fetchUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LicitapymeBot/1.0)' }
-    });
+    const initDescarga = { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LicitapymeBot/1.0)' } };
+    const pdfResponse = esUrlPropia ? await fetchHostSeguro(fetchUrl, initDescarga) : await fetch(fetchUrl, initDescarga);
 
     if (!pdfResponse.ok) {
       return NextResponse.json(

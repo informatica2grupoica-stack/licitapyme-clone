@@ -1,5 +1,11 @@
 # Infraestructura, stack, seguridad y multi-cliente
 
+## 2026-11-17 — Auditoría integral PARCIAL (F0 + F1), solo lectura
+Informe: `docs/auditoria/INFORME_AUDITORIA_2026-11-17.md`. tsc limpio, 1848 tests verdes, lint con 4.561 errores sin triage, `npm audit` 9 moderadas (next 16.4.4 → 16.4.6).
+- **SEC-001 (CORREGIDO en código el mismo día, FALTA DESPLEGAR; `url-propia.ts` → `fetchHostSeguro`):** SSRF en `/api/analizar-documento` (vía `esUrlR2Propia`, acepta `<cuenta>.sitio-ajeno.com`) y `/api/pdf-pagina` (`includes` + redirecciones automáticas). Arreglo: host estricto + `redirect:'manual'` como en `/api/proxy`.
+- Migraciones duplicadas 117 y 148 (DB-001). Rutas `/api/debug/*` conviene borrarlas.
+- NO auditado aún: F2–F10 (legal, BD/EXPLAIN, QA, anexos, UX, carga, operación). La BD local :3308 estaba apagada, no se corrió `chequear-aislamiento.mts` con 2 empresas.
+
 ## 2026-11-09 — Prueba de carga de 100 usuarios (local, sin arreglar nada aún)
 Montaje: copia de producción (sin `documentos_cache` ni capturas) en la BD dev (3308) + imagen Docker `licitank-carga` (4 CPU / 4 GB, puerto 3010, env en el scratchpad); script `scripts/scratch/carga-100.mjs` (`sembrar` / `correr` / `limpiar`; solo corre contra el puerto 3308). Siembra: 5 empresas «SIM Empresa n» + 100 usuarios `uNNN@sim.licitank.test` (clave en el script) — borrar con `limpiar`.
 - **100 logins en 5 s: 87 fallan con 500 «Queue limit reached»** (pool 8 + cola 24 = 32). Con los logins repartidos en 60 s: 100/100 ok, p95 343 ms; el resto de las pantallas p95 < 200 ms, p99 < 400 ms, 0 errores 5xx, MySQL 17 conexiones máx. y 52 consultas/s. CPU del proceso Node llega a ~97 % de UN núcleo (event loop saturado en la llegada; bcryptjs es JS puro).

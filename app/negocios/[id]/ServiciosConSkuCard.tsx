@@ -32,6 +32,7 @@ export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: num
   const [archivo, setArchivo] = useState<File | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [reenviando, setReenviando] = useState<number | null>(null);
+  const [quitando, setQuitando] = useState<number | null>(null);
   const [leyendo, setLeyendo] = useState<{ estado: 'leyendo' | 'ok' | 'sin_precio' | 'error'; texto?: string } | null>(null);
   const [provInfo, setProvInfo] = useState<{ estado: 'cargando' | 'sistema' | 'obuma' | 'no_existe' | 'error'; nombre?: string } | null>(null);
 
@@ -152,6 +153,19 @@ export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: num
     finally { setReenviando(null); }
   };
 
+  const quitar = async (s: Servicio) => {
+    if (!window.confirm(`¿Borrar «${s.descripcion}»? Se elimina el gasto y su cotización. No se puede deshacer.`)) return;
+    setQuitando(s.id);
+    try {
+      const r = await fetch(`/api/compras/${negocioId}/productos`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'quitar_parte', productoId: s.id }) });
+      const d = await r.json();
+      if (!r.ok || !d.success) throw new Error(d.error || 'No se pudo borrar');
+      toast.success('Gasto borrado');
+      await cargar(); recargarCompartido();
+    } catch (e: any) { toast.error('No se pudo borrar', e.message); }
+    finally { setQuitando(null); }
+  };
+
   const campo = 'text-[12.5px] border border-zinc-300 rounded-lg px-2.5 py-1.5 bg-white outline-none focus:ring-1 focus:ring-teal-500';
   return (
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden" data-testid="servicios-con-sku">
@@ -190,6 +204,9 @@ export function ServiciosConSkuCard({ negocioId, puedeOperar }: { negocioId: num
                   </span>
                   {puedeOperar && r.estado === 'RECHAZADA' && (
                     <button type="button" disabled={reenviando === s.id} onClick={() => reenviar(s)} className="text-[11.5px] font-semibold text-teal-700 hover:text-teal-900 disabled:opacity-50">Reenviar</button>
+                  )}
+                  {puedeOperar && s.subestado === 'PENDIENTE' && (
+                    <button type="button" disabled={quitando === s.id} onClick={() => quitar(s)} data-testid={`borrar-servicio-${s.id}`} className="text-[11.5px] font-semibold text-rose-600 hover:text-rose-800 disabled:opacity-50">Borrar</button>
                   )}
                 </div>
               </li>
