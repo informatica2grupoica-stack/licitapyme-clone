@@ -19,6 +19,35 @@ const clp = (n: number | null | undefined) => (n == null ? '—' : `$${Math.roun
 const COLOR_ESTADO: Record<string, string> = { aprobada: '#16a34a', en_aprobacion: '#16a34a', definitiva: '#16a34a', verificada: '#0d9488', formalizada: '#d97706', tanteo: '#d97706' };
 const fechaCorta = (s: string | null) => (s ? s.slice(0, 10).split('-').reverse().join('-') : null);
 
+/** Lo que hizo el asistente en el Auditor de este negocio, y qué pasó solo a Compras al ganar. */
+function ResumenTrabajo({ r }: { r: PanelDelAuditor['resumen'] }) {
+  const f = (s: string | null) => (s ? s.slice(0, 10).split('-').reverse().join('-') : '');
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-white px-4 py-3 space-y-2" data-testid="resumen-del-auditor">
+      <h4 className="text-[13.5px] font-semibold text-zinc-900">Lo que hizo el asistente en el Auditor</h4>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
+        {[
+          { t: 'Líneas con opción elegida', v: `${r.conElegida} de ${r.lineas}` },
+          { t: 'Con opción aprobada', v: String(r.aprobadas) },
+          { t: 'Cotizaciones y fichas', v: `${r.cotizaciones} · ${r.fichas}` },
+          { t: 'Margen del Auditor', v: r.margenFinal != null ? `${r.margenFinal} %` : '—' },
+        ].map(m => (<div key={m.t}><div className="text-[11px] text-zinc-500">{m.t}</div><div className="text-[14px] font-medium text-zinc-900 tabular-nums">{m.v}</div></div>))}
+      </div>
+      <p className="text-[12px] text-zinc-600">
+        {r.trabajo.length ? <>Trabajaron: {r.trabajo.map(t => `${t.nombre} (${t.acciones})`).join(', ')}{r.ultimoAt ? ` · última actividad ${f(r.ultimoAt)}` : ''}. </> : 'Nadie ha cargado nada en el Auditor de este negocio. '}
+        {r.bloqueadas > 0 ? `${r.bloqueadas} línea(s) con bloqueos. ` : ''}
+      </p>
+      {r.sinOpcion.length > 0 && <p className="text-[12px] text-amber-800">Sin ninguna cotización ni ficha: {r.sinOpcion.join(', ')}.</p>}
+      {r.sinElegida.length > 0 && <p className="text-[12px] text-amber-800">Con opciones pero sin elegir una: {r.sinElegida.join(', ')}.</p>}
+      <p className="text-[12px] text-zinc-600" data-testid="traspaso-auditor">
+        {r.traspaso
+          ? <>Al ganar la licitación pasaron solos a Compras {r.traspaso.cotizaciones} cotización(es) y {r.traspaso.fichas} ficha(s) que cargó el asistente ({f(r.traspaso.at)}){r.traspaso.fallas ? `; ${r.traspaso.fallas} no se pudieron pasar` : ''}. Lo que se cargue después se pasa con «Usar».</>
+          : 'Al ganar la licitación, las cotizaciones y fichas que el asistente cargó en el Auditor pasan solas a Compras. Aquí aún no pasó nada solo: usa «Usar» en lo que quieras.'}
+      </p>
+    </section>
+  );
+}
+
 export function RevisadoDelAuditorCard({ negocioId, puedeOperar, soloLectura = false }: { negocioId: number; puedeOperar: boolean; soloLectura?: boolean }) {
   const toast = useToast();
   const { recargar: recargarCompras } = useCompras();
@@ -72,14 +101,14 @@ export function RevisadoDelAuditorCard({ negocioId, puedeOperar, soloLectura = f
     } finally { setTrabajando(s => { const n = new Set(s); n.delete(i.clave); return n; }); }
   };
 
-  // «Usar todo lo elegido»: primero las cotizaciones (la ficha de un proveedor se ve en Compras cuando ese proveedor ya cotizó) y después las fichas.
+  // «Usar todo lo pendiente»: primero las cotizaciones (la ficha de un proveedor se ve en Compras cuando ese proveedor ya cotizó) y después las fichas.
   const usarTodo = async () => {
     if (!panel) return;
-    const lista = panel.productos.flatMap(p => p.items).filter(i => i.elegida && !i.yaEnCompras && !i.motivoNoUsable)
+    const lista = panel.productos.flatMap(p => p.items).filter(i => !i.yaEnCompras && !i.motivoNoUsable)
       .sort((a, b) => Number(b.tipo === 'cotizacion') - Number(a.tipo === 'cotizacion'));
-    if (lista.length === 0) { toast.info('Nada por pasar', 'No hay documentos elegidos en el Auditor pendientes.'); return; }
+    if (lista.length === 0) { toast.info('Nada por pasar', 'No hay documentos del Auditor pendientes.'); return; }
     const hayCot = lista.some(i => i.tipo === 'cotizacion');
-    if (!window.confirm(`Se van a pasar ${lista.length} documento(s) elegidos en el Auditor a Compras.${hayCot && panel.compraAprobada ? '\n\nLa compra de este negocio ya está aprobada: las cotizaciones nuevas pueden cambiar lo aprobado.' : ''}`)) return;
+    if (!window.confirm(`Se van a pasar ${lista.length} documento(s) del Auditor a Compras.${hayCot && panel.compraAprobada ? '\n\nLa compra de este negocio ya está aprobada: las cotizaciones nuevas pueden cambiar lo aprobado.' : ''}`)) return;
     setTodo(true);
     let ok = 0; const fallas: string[] = [];
     for (const i of lista) {
@@ -94,7 +123,7 @@ export function RevisadoDelAuditorCard({ negocioId, puedeOperar, soloLectura = f
 
   if (cargando) return <div className="flex items-center gap-2 text-[13px] text-zinc-500 py-6"><Loader2 size={15} className="animate-spin" /> Leyendo lo que revisó el Auditor…</div>;
   if (error || !panel) return <div className="text-[13px] text-rose-700 py-3">{error || 'No se pudo cargar.'} <button type="button" className="underline" onClick={() => { setCargando(true); cargar(); }}>Reintentar</button></div>;
-  const hayElegidos = panel.productos.some(p => p.items.some(i => i.elegida && !i.yaEnCompras && !i.motivoNoUsable));
+  const hayElegidos = panel.productos.some(p => p.items.some(i => !i.yaEnCompras && !i.motivoNoUsable));
 
   const fila = (i: ItemDelAuditor, productoPorDefecto: number | null) => {
     const ocupado = trabajando.has(i.clave);
@@ -151,7 +180,7 @@ export function RevisadoDelAuditorCard({ negocioId, puedeOperar, soloLectura = f
         <span />
         <div className="flex items-center gap-2">
           <Boton tamano="sm" variante="fantasma" icono={<Refresh size={14} />} onClick={() => { setCargando(true); cargar(); }}>Actualizar</Boton>
-          {puede && <Boton tamano="sm" variante="primario" icono={todo ? <Loader2 size={14} className="animate-spin" /> : <Flecha size={14} />} disabled={todo || !hayElegidos} onClick={usarTodo}>Usar todo lo elegido</Boton>}
+          {puede && <Boton tamano="sm" variante="primario" icono={todo ? <Loader2 size={14} className="animate-spin" /> : <Flecha size={14} />} disabled={todo || !hayElegidos} onClick={usarTodo}>Usar todo lo pendiente</Boton>}
         </div>
       </div>
 
@@ -161,6 +190,8 @@ export function RevisadoDelAuditorCard({ negocioId, puedeOperar, soloLectura = f
           <span>La compra de este negocio ya está aprobada. Pasar una cotización nueva puede cambiar lo aprobado, por eso se te pedirá confirmar cada vez.</span>
         </div>
       )}
+
+      <ResumenTrabajo r={panel.resumen} />
 
       {panel.productos.length === 0 && panel.sinProducto.length === 0 && (
         <div className="rounded-lg border border-zinc-200 bg-white px-4 py-6 text-center text-[13px] text-zinc-500">
@@ -174,6 +205,13 @@ export function RevisadoDelAuditorCard({ negocioId, puedeOperar, soloLectura = f
             <h4 className="text-[13.5px] font-semibold text-zinc-900">L{p.item} · {p.descripcion}</h4>
             <span className="text-[12px] text-zinc-500">{p.cantidad != null ? `cant. ${p.cantidad}` : ''}{p.costeadoNeto != null ? ` · costeado ${clp(p.costeadoNeto)} neto` : ''}</span>
           </header>
+          <div className="border-t border-zinc-100 px-4 py-1.5 text-[12px] text-zinc-600" data-testid={`resumen-linea-${p.productoId}`}>
+            {p.resumen.elegida
+              ? <>Eligió el asistente: <strong className="font-medium text-zinc-800">{p.resumen.elegida.proveedor || 'proveedor sin identificar'}</strong>{p.resumen.elegida.modelo ? ` · ${p.resumen.elegida.modelo}` : ''}
+                  {p.resumen.elegida.precioNeto != null ? <> · {clp(p.resumen.elegida.precioNeto)} neto{p.resumen.elegida.diffPct != null ? ` (${p.resumen.elegida.diffPct > 0 ? '+' : ''}${p.resumen.elegida.diffPct} % vs costeado)` : ''}</> : null}
+                  {p.resumen.elegida.cumple ? ` · ${p.resumen.elegida.cumple}` : ''}{p.resumen.elegida.bloqueos ? <span className="text-rose-700"> · {p.resumen.elegida.bloqueos} bloqueo(s)</span> : null}{p.resumen.elegida.alertas ? ` · ${p.resumen.elegida.alertas} alerta(s)` : ''}</>
+              : <span className="text-amber-800">El asistente no eligió una opción para este producto todavía ({p.resumen.opciones} cargada{p.resumen.opciones === 1 ? '' : 's'}).</span>}
+          </div>
           {p.items.map(i => fila(i, p.productoId))}
         </section>
       ))}

@@ -547,6 +547,8 @@ async function promoverPrecompraAGanada(negocioId: number, licitacionCodigo: str
   }
   publicarCambio('compras');
   console.log(`[compras] pre-compra confirmada como ganada: negocio ${negocioId} (${licitacionCodigo})`);
+  // Llegó la adjudicación firme: lo que el asistente eligió en el Auditor pasa solo a Compras (una vez; en segundo plano).
+  void import('@/app/lib/compras-del-auditor').then(m => m.traspasarDelAuditorAlGanar(negocioId)).catch(() => {});
 }
 
 /** La licitación volvió a POSIBLE ADJ: se quita el cierre «sin adjudicar» que se había puesto. */
@@ -745,8 +747,11 @@ export async function asignarEncargado(
   const licitacionCodigo = (rows as any[])[0]?.licitacion_codigo || null;
 
   await crearTareasCatalogoSiCorresponde(negocioId, encargadoId, encargadoNombre);
+  const [yaTeniaProductos] = await pool.query(`SELECT 1 FROM compras_producto WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
   await poblarProductosCompra(negocioId).catch(e =>
     console.error(`[compras] no se pudieron poblar los productos del negocio ${negocioId}:`, String(e).slice(0, 200)));
+  // Primera asignación (los productos recién nacen): lo que el asistente eligió en el Auditor pasa solo a Compras. En segundo plano y sin bloquear.
+  if (!(yaTeniaProductos as any[]).length) void import('@/app/lib/compras-del-auditor').then(m => m.traspasarDelAuditorAlGanar(negocioId)).catch(() => {});
 
   await registrarEvento({
     tipo: 'COMPRAS_ASIGNADO',

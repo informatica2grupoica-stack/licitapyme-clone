@@ -75,3 +75,24 @@ test('el motor de fichas ya no exige línea del costeo para asignar ni comparar'
   assert.doesNotMatch(src, /Ese producto no tiene línea en el Costeo/);
   assert.match(src, /filaCmp\(fila\)/);
 });
+
+test('al ganar, lo que cargó el asistente pasa solo a Compras: una vez, nunca en pre-compra, sin bloquear la asignación', () => {
+  const src = readFileSync(new URL('../compras-del-auditor.ts', import.meta.url), 'utf8');
+  assert.match(src, /export async function traspasarDelAuditorAlGanar/);
+  assert.match(src, /esPrecompra\(negocioId\)\) return null/);                  // en pre-compra espera la adjudicación firme
+  assert.match(src, /!opts\.forzar && \(await ultimoTraspaso/);                  // una sola vez por negocio
+  assert.match(src, /i\.tipo === 'ficha' \|\| !panel\.compraAprobada/);          // con la compra aprobada solo fichas
+  assert.match(src, /pausa\(1500\)/);                                            // sin lanzar decenas de auditorías de golpe
+  assert.match(src, /catch \(e\) \{\s*\n?\s*console\.error\(`\[compras-del-auditor\] traspaso al ganar falló/);   // nunca lanza
+  const compras = readFileSync(new URL('../compras.ts', import.meta.url), 'utf8');
+  assert.equal((compras.match(/traspasarDelAuditorAlGanar\(negocioId\)/g) || []).length, 2);   // al asignar encargado (productos recién creados) y al confirmar la pre-compra
+  assert.match(compras, /if \(!\(yaTeniaProductos as any\[\]\)\.length\) void import/);        // reasignar encargado no lo repite
+});
+
+test('el resumen del trabajo del asistente sale en el panel (líneas elegidas, quiénes trabajaron, último traspaso)', () => {
+  const src = readFileSync(new URL('../compras-del-auditor.ts', import.meta.url), 'utf8');
+  for (const k of ['conElegida', 'sinElegida', 'sinOpcion', 'trabajo', 'ultimoAt', 'traspaso', 'diffPct']) assert.ok(src.includes(k), k);
+  const ui = readFileSync(new URL('../../compras/[negocioId]/RevisadoDelAuditorCard.tsx', import.meta.url), 'utf8');
+  assert.match(ui, /Lo que hizo el asistente en el Auditor/);
+  assert.match(ui, /data-testid="traspaso-auditor"/);
+});

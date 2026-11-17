@@ -8,6 +8,8 @@
 //   · USAR una ficha → `asignarProductoDeFicha` (queda en el espacio `cmp:` de Compras, igual que una ficha subida allá).
 // El panel de fichas de Compras sigue sin leer el Auditor: lo único que cruza es lo que la persona decide usar.
 import pool from '@/app/lib/db';
+import { registrarEvento } from '@/app/lib/historial';
+import { publicarCambio } from '@/app/lib/sse-bus';
 import { armarPanelAuditorCompartido, cargarEstadoCosteo, lineasAuditables, type Actor, type OpcionDTO } from '@/app/lib/auditor-opciones';
 import { listarProductosCompra } from '@/app/lib/compras';
 import { lineaDeProducto, filaDeProducto, asignarProductoDeFicha, filaDeProductoCompra } from '@/app/lib/compras-fichas';
@@ -37,9 +39,28 @@ export interface ItemDelAuditor {
   /** null = se puede usar. Si no, la razón en palabras de la persona. */
   motivoNoUsable: string | null;
 }
+/** Lo que el asistente decidió en el Auditor para una línea (la opción elegida, o que no hay). */
+export interface ResumenLineaAuditor {
+  opciones: number;
+  /** null = ninguna opción elegida todavía. */
+  elegida: { proveedor: string | null; modelo: string; estadoTexto: string; precioNeto: number | null; diffPct: number | null; cumple: string | null; bloqueos: number; alertas: number } | null;
+}
 export interface ProductoDelAuditor {
   productoId: number; filaId: string; item: number; descripcion: string; cantidad: number | null; costeadoNeto: number | null;
+  resumen: ResumenLineaAuditor;
   items: ItemDelAuditor[];
+}
+/** Resumen de lo que hizo el asistente en el Auditor de este negocio. */
+export interface ResumenDelAuditor {
+  lineas: number; conOpcion: number; conElegida: number; aprobadas: number; bloqueadas: number;
+  cotizaciones: number; fichas: number;
+  /** Líneas sin ninguna opción cargada, y con opciones pero sin una elegida. */
+  sinOpcion: string[]; sinElegida: string[];
+  margenFinal: number | null; margenBase: number | null;
+  /** Quiénes cargaron o firmaron algo en el Auditor, y cuándo fue lo último. */
+  trabajo: Array<{ nombre: string; acciones: number }>; ultimoAt: string | null;
+  /** Último traspaso automático (al ganar la licitación). null = nunca corrió. */
+  traspaso: { at: string; cotizaciones: number; fichas: number; fallas: number } | null;
 }
 export interface PanelDelAuditor {
   productos: ProductoDelAuditor[];
@@ -50,6 +71,7 @@ export interface PanelDelAuditor {
   compraAprobada: boolean;
   porUsar: number;
   sinCosteo: boolean;
+  resumen: ResumenDelAuditor;
 }
 
 const corto = (s: string) => s.replace(/\s+/g, ' ').trim().split(' - ')[0].slice(0, 90);
@@ -109,6 +131,39 @@ export async function panelDelAuditor(negocioId: number, licitacionCodigo: strin
   const vigentes = productos.filter(p => !['RENUNCIADO', 'NO_ADJUDICADA'].includes(p.subestado));
   const salida: ProductoDelAuditor[] = []; const sinProducto: PanelDelAuditor['sinProducto'] = [];
   let porUsar = 0;
+  // Resumen de lo que hizo el asistente en el Auditor.
+  const sinOpcion: string[] = []; const sinElegida: string[] = [];
+  let lineasVivas = 0, conOpcion = 0, conElegida = 0, aprobadas = 0, bloqueadas = 0, nCot = 0, nFic = 0;
+  const trabajo = new Map<string, number>(); let ultimoAt: string | null = null;
+  const anota = (nombre: string | null, at: string | null) => {
+    if (nombre) trabajo.set(nombre, (trabajo.get(nombre) ?? 0) + 1);
+    if (at && (!ultimoAt || at > ultimoAt)) ultimoAt = at;
+  };
+  const resumenes = new Map<string, ResumenLineaAuditor>();
+  for (const ld of panel.lineas) {
+    if (ld.noOfertada) continue;
+    lineasVivas++;
+    const vivas = ld.opciones.filter(o => o.estado !== 'descartada');
+    for (const o of vivas) {
+      for (const r of o.respaldos) if (r.vigente) anota(r.cargadoPorNombre, r.cargadoAt || null);
+      if (o.firmadaPorNombre) anota(o.firmadaPorNombre, o.firmadaAt);
+    }
+    const elegidas = vivas.filter(o => esElegida(o.estado)).sort((a, b) => Number(b.estado === 'aprobada') - Number(a.estado === 'aprobada'));
+    const el = elegidas[0] ?? null;
+    if (vivas.length) conOpcion++; else sinOpcion.push(corto(ld.detalle));
+    if (el) conElegida++; else if (vivas.length) sinElegida.push(corto(ld.detalle));
+    if (vivas.some(o => o.estado === 'aprobada')) aprobadas++;
+    if (vivas.some(o => o.verificacion?.bloqueos.length)) bloqueadas++;
+    const precioEl = el?.verificacion?.costoNetoUnitario ?? null;
+    resumenes.set(ld.filaId, {
+      opciones: vivas.length,
+      elegida: el ? {
+        proveedor: el.proveedorRazonSocial, modelo: [el.marca, el.modelo].filter(Boolean).join(' '), estadoTexto: etiquetaEstado(el.estado), precioNeto: precioEl,
+        diffPct: precioEl != null && ld.costeadoNeto ? Math.round(((precioEl - ld.costeadoNeto) / ld.costeadoNeto) * 1000) / 10 : null,
+        cumple: textoCumple(el.tecnico.resultado?.resumen ?? null), bloqueos: el.verificacion?.bloqueos.length ?? 0, alertas: el.verificacion?.alertas.length ?? 0,
+      } : null,
+    });
+  }
   for (const ld of panel.lineas) {
     if (ld.noOfertada) continue;
     const prod = vigentes.find(p => lineaDeProducto(p, lineas)?.id === ld.filaId) ?? null;
@@ -126,10 +181,11 @@ export async function panelDelAuditor(negocioId: number, licitacionCodigo: strin
       if (vistos.has(k)) it.motivoNoUsable = 'Este mismo documento ya tiene otra opción para este producto; usa la elegida.';
       else vistos.add(k);
     }
+    nCot += items.filter(i => i.tipo === 'cotizacion').length; nFic += items.filter(i => i.tipo === 'ficha').length;
     if (items.length === 0) continue;
     if (!prod) { sinProducto.push({ filaId: ld.filaId, item: ld.item, descripcion: corto(ld.detalle), items }); continue; }
     porUsar += items.filter(i => !i.yaEnCompras && !i.motivoNoUsable).length;
-    salida.push({ productoId: prod.id, filaId: ld.filaId, item: ld.item, descripcion: corto(prod.descripcion), cantidad: prod.cantidad, costeadoNeto: ld.costeadoNeto, items });
+    salida.push({ productoId: prod.id, filaId: ld.filaId, item: ld.item, descripcion: corto(prod.descripcion), cantidad: prod.cantidad, costeadoNeto: ld.costeadoNeto, resumen: resumenes.get(ld.filaId)!, items });
   }
   const destinos = vigentes.map(p => ({ productoId: p.id, descripcion: corto(p.descripcion), cantidad: p.cantidad, admiteFicha: !p.esServicio }));
   // Una ficha que ya está en Compras en otro producto (no en el que el Auditor tenía): se avisa dónde, para no ofrecerla como si faltara.
@@ -138,7 +194,27 @@ export async function panelDelAuditor(negocioId: number, licitacionCodigo: strin
     const propia = 'productoId' in g ? g.filaId : null;
     it.tambienEn = [...(fichasCmp.get(it.url) ?? [])].filter(fl => fl !== propia).map(fl => nombreDeFila.get(fl)).filter((x): x is string => !!x);
   }
-  return { productos: salida, sinProducto, destinos, compraAprobada, porUsar, sinCosteo: lineas.length === 0 };
+  const resumen: ResumenDelAuditor = {
+    lineas: lineasVivas, conOpcion, conElegida, aprobadas, bloqueadas, cotizaciones: nCot, fichas: nFic, sinOpcion, sinElegida,
+    margenFinal: panel.margen?.margenFinal ?? null, margenBase: panel.margen?.margenBase ?? null,
+    trabajo: [...trabajo].map(([nombre, acciones]) => ({ nombre, acciones })).sort((a, b) => b.acciones - a.acciones), ultimoAt,
+    traspaso: await ultimoTraspaso(licitacionCodigo, negocioId),
+  };
+  return { productos: salida, sinProducto, destinos, compraAprobada, porUsar, sinCosteo: lineas.length === 0, resumen };
+}
+
+const TIPO_TRASPASO = 'COMPRAS_AUDITOR_TRASPASO';
+async function ultimoTraspaso(licitacionCodigo: string, negocioId: number): Promise<ResumenDelAuditor['traspaso']> {
+  try {
+    const [rows] = await pool.query(
+      `SELECT metadata, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS at FROM historial_eventos
+        WHERE tipo = ? AND licitacion_codigo = ? ORDER BY id DESC LIMIT 20`, [TIPO_TRASPASO, licitacionCodigo]) as any;
+    for (const r of rows as any[]) {
+      const m = typeof r.metadata === 'string' ? JSON.parse(r.metadata) : r.metadata;
+      if (Number(m?.negocio_id) === negocioId) return { at: r.at, cotizaciones: Number(m.cotizaciones) || 0, fichas: Number(m.fichas) || 0, fallas: Number(m.fallas) || 0 };
+    }
+  } catch { /* sin historial legible: se muestra como «nunca corrió» */ }
+  return null;
 }
 
 export class ConfirmarCompraAprobada extends Error {
@@ -215,4 +291,46 @@ export async function usarFichaDelAuditor(p: { negocioId: number; licitacionCodi
   const r = await asignarProductoDeFicha({ negocioId, extraccionId: Number(resp.extraccion_id), productoIdx: Number(resp.producto_idx), filaId, proveedor: item.proveedor, actor, sinMarca: true });
   if (!r.ok) throw new Error(r.error || 'No se pudo pasar la ficha.');
   return { opcionId: r.opcionId ?? null, proveedor: r.proveedor };
+}
+
+const pausa = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+/** AL GANAR la licitación: pasa a Compras TODAS las cotizaciones y fichas que el asistente cargó en el Auditor y que se pueden usar (con archivo y
+ *  precio neto), sin que nadie pulse nada. En la práctica casi nadie «elige/firma» una opción en el Auditor (en 1089, 751 y 142 hay 0, 0 y 1 elegidas),
+ *  así que pasar solo lo elegido dejaba Compras vacío; la elegida va primera y queda marcada en el resumen.
+ *  Una sola vez por negocio (queda un evento `COMPRAS_AUDITOR_TRASPASO` que lo recuerda).
+ *  Nunca lanza: un fallo acá no debe romper la asignación de Compras. En pre-compra no corre (espera la adjudicación firme).
+ *  Con la compra ya aprobada solo pasa fichas (una cotización nueva podría cambiar lo aprobado). */
+export async function traspasarDelAuditorAlGanar(negocioId: number, opts: { forzar?: boolean } = {}): Promise<{ cotizaciones: number; fichas: number; fallas: number } | null> {
+  try {
+    const { obtenerAsignacion, esPrecompra } = await import('@/app/lib/compras');
+    const asg = await obtenerAsignacion(negocioId);
+    if (!asg || asg.asignadoA == null) return null;
+    if (await esPrecompra(negocioId)) return null;
+    if (!opts.forzar && (await ultimoTraspaso(asg.licitacionCodigo, negocioId))) return null;
+    const panel = await panelDelAuditor(negocioId, asg.licitacionCodigo);
+    const actor = { id: Number(asg.asignadoA), nombre: 'Auditor (traspaso automático)' };
+    const lista = panel.productos.flatMap(p => p.items).filter(i => !i.yaEnCompras && !i.motivoNoUsable)
+      .filter(i => i.tipo === 'ficha' || !panel.compraAprobada)
+      .sort((a, b) => Number(b.tipo === 'cotizacion') - Number(a.tipo === 'cotizacion') || Number(b.elegida) - Number(a.elegida));
+    let cotizaciones = 0, fichas = 0, fallas = 0;
+    for (const i of lista) {
+      try {
+        if (i.tipo === 'cotizacion') { const r = await usarCotizacionDelAuditor({ negocioId, licitacionCodigo: asg.licitacionCodigo, clave: i.clave, actor, confirmarCompraAprobada: true }); if (!r.yaEstaba) cotizaciones++; await pausa(1500); }   // la pausa evita lanzar de golpe decenas de auditorías de cotización
+        else { const r = await usarFichaDelAuditor({ negocioId, licitacionCodigo: asg.licitacionCodigo, clave: i.clave, actor }); if (!r.yaEstaba) fichas++; }
+      } catch (e) { fallas++; console.error(`[compras-del-auditor] traspaso ${i.clave} (negocio ${negocioId}):`, String(e).slice(0, 200)); }
+    }
+    await registrarEvento({
+      tipo: TIPO_TRASPASO, licitacionCodigo: asg.licitacionCodigo, usuarioId: Number(asg.asignadoA), actorId: null, actorNombre: 'Sistema',
+      mensaje: lista.length === 0
+        ? `Al ganar ${asg.licitacionCodigo} no había cotizaciones ni fichas cargadas en el Auditor para pasar a Compras (revisa «Revisado del Auditor»).`
+        : `Del Auditor pasaron a Compras ${cotizaciones} cotización(es) y ${fichas} ficha(s) que cargó el asistente (${asg.licitacionCodigo})${fallas ? `; ${fallas} no se pudieron pasar` : ''}.`,
+      metadata: { negocio_id: negocioId, cotizaciones, fichas, fallas },
+    });
+    publicarCambio('compras');
+    return { cotizaciones, fichas, fallas };
+  } catch (e) {
+    console.error(`[compras-del-auditor] traspaso al ganar falló (negocio ${negocioId}):`, String(e).slice(0, 300));
+    return null;
+  }
 }
