@@ -14,6 +14,51 @@ import { MP_UA } from '@/app/lib/mp-adjuntos';
 const puppeteer = addExtra(puppeteerCore as any);
 puppeteer.use(StealthPlugin());
 
+/**
+ * PDF OFICIAL de la OC: abre la ficha en un Chrome con ventana (NO headless: el reCAPTCHA invisible de
+ * MP da puntaje bajo al headless y no entrega el archivo; con ventana entrega el PDF solo, igual que
+ * al hacer clic una persona) y pulsa el botón PDF. En Linux sin pantalla levanta un Xvfb propio.
+ * No resuelve ningún desafío: si MP no lo entrega, devuelve null y se cae a la copia de la ficha.
+ */
+export async function descargarPdfOficialOrdenCompra(codigoOC: string): Promise<Buffer | null> {
+  const { promises: fs } = await import('fs');
+  const os = await import('os');
+  const path = await import('path');
+  const { spawn } = await import('child_process');
+  const { executablePath, args } = await resolverChromium();
+  let xvfb: ReturnType<typeof spawn> | null = null;
+  const env = { ...process.env } as Record<string, string>;
+  if (process.platform === 'linux' && !process.env.DISPLAY) {
+    xvfb = spawn('Xvfb', [':99', '-screen', '0', '1280x800x24', '-nolisten', 'tcp'], { stdio: 'ignore' });
+    xvfb.on('error', () => {});
+    env.DISPLAY = ':99';
+    await new Promise(r => setTimeout(r, 1500));
+  }
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'oc-pdf-'));
+  const browser = await puppeteer.launch({ args, executablePath, headless: false, env });
+  try {
+    const sesion = await browser.target().createCDPSession();
+    await sesion.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: dir });
+    const page = await browser.newPage();
+    await page.goto(urlFichaOrdenCompra(codigoOC), { waitUntil: 'networkidle2', timeout: 30_000 });
+    if (!(await page.$('[id*="imgPDF"]'))) return null;
+    await page.click('[id*="imgPDF"]');
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      const listos = (await fs.readdir(dir)).filter(n => !n.endsWith('.crdownload'));
+      if (listos.length) {
+        const buf = await fs.readFile(path.join(dir, listos[0]));
+        return buf.subarray(0, 5).toString('latin1') === '%PDF-' ? buf : null;
+      }
+    }
+    return null;
+  } finally {
+    await browser.close().catch(() => {});
+    xvfb?.kill();
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 export function urlFichaOrdenCompra(codigoOC: string): string {
   return `https://www.mercadopublico.cl/PurchaseOrder/Modules/PO/DetailsPurchaseOrder.aspx?codigoOC=${encodeURIComponent(codigoOC)}`;
 }

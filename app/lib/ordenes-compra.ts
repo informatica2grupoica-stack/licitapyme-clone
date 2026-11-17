@@ -509,7 +509,14 @@ export async function descargarPdfOrdenCompra(
       // Plan B (nov-2026): la ficha pública SÍ abre sin captcha → se imprime a PDF con el navegador
       // y se guarda marcada como copia. «PDF oficial» (subida manual) la reemplaza cuando alguien la baje.
       try {
-        const { imprimirFichaOrdenCompra } = await import('@/app/lib/mp-oc-ficha-pdf');
+        // 1) PDF OFICIAL con un Chrome con ventana (el captcha invisible lo deja pasar).
+        const { imprimirFichaOrdenCompra, descargarPdfOficialOrdenCompra } = await import('@/app/lib/mp-oc-ficha-pdf');
+        const oficial = await descargarPdfOficialOrdenCompra(codigoOC).catch(() => null);
+        if (oficial) {
+          const url = await guardarPdfOrdenCompra(codigoOC, licitacionCodigo, oficial, false);
+          return { ok: true, url };
+        }
+        // 2) Si no, copia de la ficha.
         const copia = await imprimirFichaOrdenCompra(codigoOC);
         const url = await guardarPdfOrdenCompra(codigoOC, licitacionCodigo, copia, true);
         return { ok: true, url };
@@ -532,8 +539,9 @@ export async function descargarPdfsPendientes(max = 20): Promise<{ ok: number; f
   const stats = { ok: 0, fallidos: 0 };
   const [rows] = await pool.query(
     `SELECT codigo, licitacion_codigo FROM ordenes_compra
-      WHERE es_nuestra = 1 AND pdf_url IS NULL
+      WHERE es_nuestra = 1 AND (pdf_url IS NULL OR pdf_error = ?)
       ORDER BY created_at DESC LIMIT ${Math.max(1, Math.min(max, 50))}`,
+    [AVISO_COPIA_FICHA],
   ) as any[];
   for (const r of rows as any[]) {
     const res = await descargarPdfOrdenCompra(String(r.codigo), r.licitacion_codigo ? String(r.licitacion_codigo) : null);

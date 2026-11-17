@@ -8,6 +8,7 @@ WORKDIR /app
 # tzdata: el contenedor debe correr en hora de Chile (ver ENV TZ abajo).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
+    xvfb \
     ca-certificates \
     fonts-liberation \
     fonts-freefont-ttf \

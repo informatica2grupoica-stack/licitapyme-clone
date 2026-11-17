@@ -339,6 +339,16 @@ async function elegirMenus(pregunta: string, historialTxt: string): Promise<Secc
   } catch { return []; }
 }
 
+/** Tras un error por columna inexistente: las columnas REALES de las tablas que usó la consulta (el modelo suele inventar una, p. ej. proveedor_nombre). */
+async function columnasDeLasTablas(sql: string, accesibles: string[]): Promise<string> {
+  try {
+    const cols = await columnasPorTabla();
+    const usadas = accesibles.filter(t => new RegExp('\\b' + t + '\\b', 'i').test(sql));
+    if (!usadas.length) return '';
+    return '\nColumnas REALES de las tablas que usaste:\n' + usadas.map(t => `${t}: ${(cols.get(t) || []).map(c => c.nombre).filter(n => !COLUMNA_SENSIBLE.test(n)).join(', ')}`).join('\n');
+  } catch { return ''; }
+}
+
 export interface OpcionesChat {
   /** Sección del chat (por defecto el general del Dashboard). */
   seccion?: string;
@@ -371,7 +381,7 @@ export async function responderGlobal(pregunta: string, historial: MensajeHistor
   let filas: any[] | null = null;
   let ultimoError = '';
 
-  for (let intento = 0; intento < 2 && !filas; intento++) {
+  for (let intento = 0; intento < 3 && !filas; intento++) {
     const salida = extraerJson(await llamar(sistemaSql, pedido, 1500));
     if (!salida) { ultimoError = 'El modelo no devolvió JSON.'; pedido += `\n\nTu respuesta anterior no era un JSON válido. Responde solo con {"sql":"..."} o {"respuesta":"..."}.`; continue; }
     if (salida.inventario && !sec) {
@@ -390,7 +400,7 @@ export async function responderGlobal(pregunta: string, historial: MensajeHistor
       filas = await ejecutarSolo(sqlFinal);
     } catch (e) {
       ultimoError = e instanceof Error ? e.message : String(e);
-      pedido += `\n\nTu consulta anterior falló: ${ultimoError}\nConsulta: ${salida.sql}\nCorrígela usando solo las tablas y columnas del esquema.`;
+      pedido += `\n\nTu consulta anterior falló: ${ultimoError}\nConsulta: ${salida.sql}\nCorrígela usando solo las tablas y columnas del esquema.${await columnasDeLasTablas(salida.sql, accesibles)}`;
     }
   }
   if (!filas) return { respuesta: `No pude armar una consulta válida para esa pregunta (${ultimoError}). Intenta reformularla con más detalle.` };
