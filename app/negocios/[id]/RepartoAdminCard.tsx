@@ -32,7 +32,7 @@ interface Reparto {
 }
 type Hito = 'ocEmitida' | 'pagoRegistrado' | 'anticipoPagado' | 'facturaCompraRegistrada' | 'carpetaProyectoCreada' | 'provisionFondos';
 
-interface ItemOC { productoId: number; descripcion: string; cantidad: number; precioUnitario: number; subtotal: number; obumaProductoId: string | null; obumaCodigoComercial: string | null; aprobado?: boolean; estadoLinea?: 'APROBADA' | 'RECHAZADA' | 'SIN_DECIDIR' | null; compraRapida?: boolean; enOcObuma?: boolean }
+interface ItemOC { productoId: number; descripcion: string; cantidad: number; precioUnitario: number; subtotal: number; obumaProductoId: string | null; obumaCodigoComercial: string | null; aprobado?: boolean; estadoLinea?: 'APROBADA' | 'RECHAZADA' | 'SIN_DECIDIR' | null; compraRapida?: boolean; enOcObuma?: boolean; foliosOc?: string[] }
 interface ProveedorOC {
   proveedorNombre: string; proveedorId: number | null; proveedorRut: string | null; proveedorObumaId?: string | null;
   proveedorDireccion: string | null; proveedorComuna: string | null; proveedorEmail: string | null; proveedorTelefono: string | null;
@@ -634,7 +634,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                                   {editable && (
                                     <td className="px-3 py-2"><input type="checkbox" checked={marcado} disabled={rech || !puedeOperar} onChange={() => alternarItem(p, it.productoId)} className="accent-teal-600" aria-label={`Incluir ${it.descripcion.split(' - ')[0]} en la orden`} /></td>
                                   )}
-                                  <td className="px-2 py-2 whitespace-nowrap">{folios && it.enOcObuma !== false ? <span className="font-bold tabular-nums text-slate-900">{folios}</span> : <span className="text-amber-700 font-medium">Sin emitir</span>}</td>
+                                  <td className="px-2 py-2 whitespace-nowrap">{(it.foliosOc ? it.foliosOc.join(' · ') : folios) ? <span className="font-bold tabular-nums text-slate-900">{it.foliosOc ? it.foliosOc.join(' · ') : folios}</span> : <span className="text-amber-700 font-medium">Sin emitir</span>}</td>
                                   <td className="px-2 py-2 font-medium text-slate-800">{it.descripcion.split(' - ')[0]}</td>
                                   <td className="px-2 py-2 whitespace-nowrap tabular-nums">{it.obumaCodigoComercial ? <span className="text-slate-700">{it.obumaCodigoComercial}</span> : <span className="text-amber-700">sin SKU todavía</span>}</td>
                                   <td className="px-2 py-2 text-right tabular-nums">{it.cantidad}</td>

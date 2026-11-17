@@ -38,6 +38,8 @@ export interface ItemOrdenCompra {
   compraRapida?: boolean;
   /** false = el proveedor tiene OC en Obuma pero ESTE producto (su SKU) no está en ninguna de sus líneas: falta emitirle orden. */
   enOcObuma?: boolean;
+  /** Folios de las OC que de verdad traen este producto (por SKU / lo que emitió Licitank). Vacío = ninguna. Ausente = no se pudo verificar. */
+  foliosOc?: string[];
 }
 export interface ProveedorOrdenCompra {
   proveedorNombre: string; proveedorId: number | null; proveedorRut: string | null;
@@ -145,7 +147,7 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
       [negocioId],
     ) as any,
     pool.query(
-      `SELECT proveedor_nombre, obuma_compra_oc_id, obuma_folio, total_neto, DATE_FORMAT(fecha_oc, '%Y-%m-%d') AS fecha_oc
+      `SELECT proveedor_nombre, obuma_compra_oc_id, obuma_folio, total_neto, items_json, DATE_FORMAT(fecha_oc, '%Y-%m-%d') AS fecha_oc
          FROM compras_orden_compra_obuma WHERE negocio_id = ?`,
       [negocioId],
     ) as any,
@@ -183,6 +185,8 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
     for (const p of provRows as any[]) fichaCompleta.set(p.id, { direccion: p.direccion, comuna: p.comuna, email: p.correo, telefono: p.telefono, giro: p.giro, contacto: p.contacto_nombre, obumaProveedorId: p.obuma_proveedor_id });
   }
 
+  const productosDeOcPropia = new Map<string, Set<number>>();
+  for (const r of ocRows as any[]) { try { productosDeOcPropia.set(r.proveedor_nombre, new Set((JSON.parse(r.items_json || '[]') as any[]).map(i => Number(i.productoId)))); } catch { /* items_json corrupto */ } }
   const ocPorProveedor = new Map<string, { obumaCompraOcId: string; folio: string | null; total: number; fechaOc: string }>(
     (ocRows as any[]).map(r => [r.proveedor_nombre, { obumaCompraOcId: r.obuma_compra_oc_id, folio: r.obuma_folio, total: Number(r.total_neto), fechaOc: r.fecha_oc }]),
   );
@@ -278,12 +282,25 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
       // Ninguno de los productos con SKU está en esas OC: no hay OC real de lo que compramos, solo de otro asunto del mismo proveedor.
       if (g.items.some(it => it.enOcObuma === false) && !g.items.some(it => it.enOcObuma !== false)) continue;
     }
+    for (const it of g.items) {
+      const ks = [it.obumaProductoId, it.obumaCodigoComercial].filter(skuUtil).map(String);
+      if (ks.length === 0) continue;
+      it.foliosOc = delProveedor.filter(c => c.items.some(i => ks.includes(String(i.productoId)) || ks.includes(String(i.codigoComercial)))).map(c => c.folio || c.compraOcId);
+    }
     g.ocRealObuma = {
       folios: delProveedor.map(c => c.folio || c.compraOcId),
       totalNeto: Math.round(delProveedor.reduce((s, c) => s + netoDeCompra(c), 0)),
       estados: [...new Set(delProveedor.map(c => c.estado || '—'))],
       fecha: delProveedor.map(c => c.fechaIngreso).filter(Boolean).sort()[0] ?? null,
     };
+  }
+
+  // Producto incluido en la OC que emitió Licitank: suma su folio.
+  for (const g of grupos.values()) {
+    const propios = g.yaCreada ? productosDeOcPropia.get(g.proveedorNombre) : null;
+    if (!g.yaCreada || !propios) continue;
+    const folio = g.yaCreada.folio ?? g.yaCreada.obumaCompraOcId;
+    for (const it of g.items) if (propios.has(it.productoId)) it.foliosOc = [...(it.foliosOc ?? []), folio];
   }
 
   if (buscarDuplicados) await Promise.all([...grupos.values()].filter(g => !g.yaCreada && !g.ocRealObuma && g.proveedorId != null).map(async g => {
