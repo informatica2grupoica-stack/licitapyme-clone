@@ -14,6 +14,7 @@ import { join } from 'node:path';
 const { default: pool } = await import('../app/lib/db');
 const { CLASE_TABLA } = await import('../app/lib/tablas-dueno');
 const { moduloDeRuta, MODULOS_ACTIVABLES } = await import('../app/lib/modulos');
+const { handlersSinGuardia } = await import('./lib/aislamiento-handlers');
 
 const [[h]] = await pool.query('SELECT DATABASE() d') as any;
 if (h.d !== 'licitank_dev') throw new Error('no es la BD local');
@@ -86,6 +87,27 @@ else {
   if (process.argv.includes('--avisos')) for (const a of avisos) console.log('     -', a);
   else console.log('     (usa --avisos para verlas)');
 }
+
+// ── 4) Handlers con id en la URL ─────────────────────────────────────────────────────────────
+// Nació de SEC-005 (auditoría 2026-11-17): /api/empresas/[id]/documentos y /firmas dejaban tocar empresas ajenas por id. Aquí SÍ falla (antes era un
+// aviso a nivel de archivo, que se tolera). Excepciones revisadas a mano: «<ruta> <MÉTODO>» → por qué está bien. Cada una necesita razón escrita.
+const EXCEPCIONES_HANDLER: Record<string, string> = {
+  '/api/cv/viabilidad-ia/[codigo]/nivel POST': 'stub que responde 501 y no lee ni escribe datos (confirmación de datos dudosos, aún no disponible para clientes); al implementarlo debe verificar el dueño y salir de esta lista',
+};
+console.log('\n4) Handlers con id en la URL: ¿cada uno verifica que el recurso es de la empresa?');
+let conId = 0;
+for (const f of archivos) {
+  const url = '/' + f.replace(/\\/g, '/').replace(/^app\//, '').replace(/\/route\.ts$/, '');
+  const mod = moduloDeRuta(url);
+  if (!mod || !abiertos.has(mod)) continue;
+  if (!/\[[^\]]+\]/.test(url)) continue;
+  conId++;
+  for (const m of handlersSinGuardia(readFileSync(f, 'utf8'), url)) {
+    if (EXCEPCIONES_HANDLER[`${url} ${m}`]) continue;
+    falla(`${m} ${url} [${mod}] no verifica que el id sea de la empresa (SEC-005): usa registroEsDeMiEmpresa / negocioEsDeMiEmpresa / puedeVerLicitacion, o agrega una excepción con razón en EXCEPCIONES_HANDLER`);
+  }
+}
+console.log(`   ${conId} rutas con id revisadas`);
 
 console.log(errores ? `\n✘ ${errores} problema(s) por corregir.\n` : '\n✔ Aislamiento sin problemas bloqueantes.\n');
 await pool.end();

@@ -10,7 +10,7 @@
 
 import pool from './db';
 import { crearChatIAChatbot, MOTOR_CHAT } from './chat-ia';
-import type { MensajeHistorial } from './chat-licitacion';
+import { jsonHoraChile, type MensajeHistorial } from './chat-licitacion';
 import { seccionPorId, type SeccionChat } from './chat-secciones';
 
 export const ETIQUETA_MOTOR_SQL = `${MOTOR_CHAT}+sql`;
@@ -369,7 +369,7 @@ export async function responderGlobal(pregunta: string, historial: MensajeHistor
   }
   if (!filas) return { respuesta: `No pude armar una consulta válida para esa pregunta (${ultimoError}). Intenta reformularla con más detalle.` };
 
-  let datos = JSON.stringify(recortarCampos(filas));
+  let datos = jsonHoraChile(recortarCampos(filas));
   if (datos.length > MAX_CHARS_FILAS) datos = `${datos.slice(0, MAX_CHARS_FILAS)} …[recortado]`;
   const tope = filas.length >= MAX_FILAS ? `\nOJO: el resultado llegó al tope de ${MAX_FILAS} filas (puede haber más).` : '';
   // La cobertura del mercado (cifras globales) solo aplica al chat general y a empresas con acceso total.

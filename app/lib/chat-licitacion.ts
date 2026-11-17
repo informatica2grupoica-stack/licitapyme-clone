@@ -176,6 +176,16 @@ export async function construirContextoChat(
 // best-effort: una tabla ausente o un JSON roto no debe tumbar el chat.
 const MAX_CHARS_BLOQUE = 40_000;
 
+// JSON.stringify convierte las fechas a UTC con «Z» (cierre 18:43 en Chile salía «21:43Z» y el chat respondía 21:43: 3 h de más, caso real
+// 1410-37-LE26). Las fechas de la base están en hora de Chile: aquí se escriben tal cual, «AAAA-MM-DD HH:mm:ss».
+const FECHA_CHILE = new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Santiago', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
+export function jsonHoraChile(v: unknown): string {
+  return JSON.stringify(v, function (this: any, k: string, val: unknown) {
+    const orig = this[k];
+    return orig instanceof Date && !Number.isNaN(orig.getTime()) ? FECHA_CHILE.format(orig) : val;
+  });
+}
+
 const recortar = (s: string) =>
   s.length > MAX_CHARS_BLOQUE ? `${s.slice(0, MAX_CHARS_BLOQUE)}\n[[BLOQUE RECORTADO por tamaño]]` : s;
 
@@ -192,7 +202,7 @@ export async function construirContextoProyecto(codigo: string, clienteId: numbe
       [codigo],
     );
     const n = (rows as any[])[0];
-    if (n) bloques.push(`[[ANÁLISIS: FICHA DEL NEGOCIO]]\n${recortar(JSON.stringify(n))}`);
+    if (n) bloques.push(`[[ANÁLISIS: FICHA DEL NEGOCIO]]\n${recortar(jsonHoraChile(n))}`);
   } catch { /* sin negocio */ }
 
   if (clienteId === CLIENTE_ICA) try {
@@ -242,7 +252,7 @@ export async function construirContextoProyecto(codigo: string, clienteId: numbe
   const filas = async (titulo: string, sql: string, params: unknown[]) => {
     try {
       const [rows] = await pool.query(sql, params);
-      if ((rows as any[]).length) bloques.push(`[[ANÁLISIS: ${titulo}]]\n${recortar(JSON.stringify(rows))}`);
+      if ((rows as any[]).length) bloques.push(`[[ANÁLISIS: ${titulo}]]\n${recortar(jsonHoraChile(rows))}`);
     } catch { /* tabla o columna ausente */ }
   };
   const NEG = `(SELECT id FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE AND ${MI} ORDER BY id ASC LIMIT 1)`;

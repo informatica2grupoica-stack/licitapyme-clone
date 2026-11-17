@@ -81,7 +81,7 @@ Aviso moderado; fix en 16.4.6 (fuera del rango declarado). Impacto real depende 
 
 **PRUEBA DE AISLAMIENTO (BD local :3308, sin tocar el VPS; Docker Desktop levantado para esto):**
 - `scripts/scratch/probar-aislamiento-empresas.mts` llama a los handlers como admin del cliente 2 sobre la empresa 1 (Grupo ICA). **Código anterior (`git show HEAD`): 5 de 5 acciones ajenas respondieron 200** (leer/borrar documentos, leer/editar/borrar firmas) → vulnerabilidad reproducida. **Código corregido: 8/8 como se esperaba** (5 ajenas → 404, 3 controles propios → 200, incluido ICA sobre su propia empresa).
-- `scripts/chequear-aislamiento.mts` (revisor estático ya existente): 156 tablas, 87 rutas abiertas. Falló por una tabla nueva sin clasificar (`compras_doc_plantilla`, migration-194): clasificada como `PRIVADA_ICA` en `app/lib/tablas-dueno.ts`; ahora pasa. **Límite del revisor**: la regla «muestra algún filtro de empresa en el archivo» no detectó SEC-005 (la palabra «cliente» aparecía en un comentario); conviene endurecerla para exigir el helper de dueño en cada handler con `[id]`.
+- `scripts/chequear-aislamiento.mts` (revisor estático ya existente): 156 tablas, 87 rutas abiertas. Falló por una tabla nueva sin clasificar (`compras_doc_plantilla`, migration-194): clasificada como `PRIVADA_ICA` en `app/lib/tablas-dueno.ts`; ahora pasa. **Límite del revisor (CORREGIDO en la nota del 17-nov, más tarde)**: el aviso 3 («ningún filtro de empresa en el archivo») SÍ habría marcado las versiones viejas de `/empresas/[id]/documentos` y `/firmas` (verificado después con `git show`), pero solo como **aviso** que no bloquea, y a nivel de archivo (un helper en un solo handler bastaba). *Una versión anterior de este informe decía que no lo detectaba por una palabra en un comentario: era incorrecto.* **Endurecido**: nueva sección 4 en `scripts/chequear-aislamiento.mts` (lógica en `scripts/lib/aislamiento-handlers.ts`): cada handler de una ruta con `[id]` en módulos abiertos debe nombrar un guardia de dueño o falla; las excepciones llevan razón escrita. Probado: marca 7 de 7 handlers de las versiones previas a SEC-005 y deja pasar las actuales (`scripts/scratch/probar-revisor-handlers.mts`); sobre el código actual revisa 35 rutas con id y solo exige una excepción (stub 501 de `cv/viabilidad-ia/[codigo]/nivel`). Límite que queda: comprueba que el guardia se nombre, no que esté bien usado.
 - No se probó con navegador/login real ni con los usuarios SIM (clientes 5–9); la prueba es a nivel de handler con los headers que inyecta `proxy.ts`.
 
 ### Otros sondeos (sin hallazgo)
@@ -109,6 +109,16 @@ Aviso moderado; fix en 16.4.6 (fuera del rango declarado). Impacto real depende 
 Medidas útiles: 143 archivos de test (todos de tipo unitario, 1.848 casos); el motor de anexos (`anexos-*.ts`) tiene 18.155 líneas, el mayor `anexos-detectar.ts` con 3.215. EXPLAIN de las 2 consultas probadas (negocios por cliente/estado; alertas por usuario no leídas) sin problemas: usan índice o la tabla es chica (1.615 negocios).
 
 **No se pudo ejecutar**: el golden set de anexos (`scripts/anexos-golden.mts`) lee anexos llenados a mano desde `C:\Users\droku\Downloads\anexos-20260803…`, que no existe en este PC; los otros bancos de anexos necesitan `documentos_cache`, que la copia local no trae. Por eso F5 queda sin medir (casillas rotas/ciegas desconocidas).
+
+## 3c. Verificación en producción (https://licitank.cl, Chrome, solo lecturas, tras el despliegue del 17-nov)
+
+- ✅ `/privacidad` y `/terminos` abren sin sesión (muestran «[por completar]» en razón social, RUT, domicilio y correo, pendiente del dueño); enlaces presentes en la landing.
+- ✅ `/api/health` → 200 `{"ok":true,"db":true}`. `/api/debug/*` ya no existe (404 con sesión, 401 sin ella).
+- ✅ Sin sesión: `/api/negocios`, `/api/empresas/1/firmas`, `/api/documentos/estado`, `/api/proxy?url=…` → 401; `/api/cron/alertas`, `/api/cron/aviso-fallo` y `/api/admin/prefiltro` sin secreto → 401.
+- ✅ Con sesión (admin ICA): `/dashboard` carga con datos, sin errores de consola.
+- ✅ Cabeceras presentes: CSP parcial, `X-Frame-Options: SAMEORIGIN`, `nosniff`, `Referrer-Policy`.
+- ⚠ **SEC-006 (Bajo-Medio, nuevo): no se ve cabecera `Strict-Transport-Security` (HSTS)** en licitank.cl. Puede faltar en Caddy/Cloudflare (no hay Caddyfile en el repo; no se revisó el VPS). Corrección: activarla en Caddy o Cloudflare (S), con `max-age` corto al inicio.
+- **No verificado en producción** (a propósito, no se atacó producción): SSRF, aislamiento entre empresas, scheduler y su aviso de fallos, `healthy` de Docker, `deploy.sh --volver`. SEC-001/SEC-005 solo están probados en la BD local.
 
 ## 4. Matriz ruta × rol / aislamiento (parcial)
 

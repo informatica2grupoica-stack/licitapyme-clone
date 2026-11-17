@@ -31,6 +31,8 @@ exige además el módulo de ese menú. Historial por licitación de otra empresa
 documentos con `filtroDocsVisibles`; contexto cacheado bajo `codigoAlmacenDocs`. A otra empresa se le entrega SU viabilidad (`cliente_viabilidad` y `_v4`, no la v4 de ICA) y `es_nuestra` se recalcula con los RUT de SU tabla `empresas` (en el chat de la licitación y en las consultas SQL; ICA conserva la columna grabada: 162 de 1.238 ofertas; el cliente 2 sale en 0). Los conteos de «cobertura» del chat general son solo ICA.
 **Falta para otras empresas:** nada conocido en los chats; probar con un usuario real de otra empresa con `ia_chat` activado.
 
+**Hora de cierre (2026-11-17, visto en licitank.cl):** el chat de la licitación decía 21:43 cuando la base tiene 18:43 (hora de Chile): `JSON.stringify` pasaba las fechas a UTC con «Z» y el modelo las leía tal cual (3 h de más). Ahora las fechas llegan al modelo como «AAAA-MM-DD HH:mm:ss» en hora de Chile (`jsonHoraChile` en `chat-licitacion.ts`, usado también por el chat SQL). Verificado contra 1410-37-LE26; falta desplegar.
+
 **Verificado (solo lectura sobre la BD del VPS):** `scripts/scratch/_chat_probar_alcance.mts` — cliente 1 ve 1.710
 negocios y el cliente 2 solo sus 14; tabla ajena, coma-join y tabla global de ICA rechazadas para otra empresa;
 documentos del cliente 2 = solo los oficiales. `_chat_probar_respuesta.mts` — respuestas reales con modelo
