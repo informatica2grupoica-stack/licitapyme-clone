@@ -11,7 +11,6 @@ import { useEffect, useState } from 'react';
 import { IconReceipt as Receipt, IconExternalLink as ExternalLink, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconBuilding as Building2, IconPackage as Package, IconLoader2 as Loader2, IconEye as Eye, IconDownload as Download } from '@tabler/icons-react';
 import { useRealtime } from '@/app/lib/use-realtime';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
-import { SubirPdfOficialOC } from '@/app/components/SubirPdfOficialOC';
 
 interface ItemOC { descripcion: string; cantidad: number | null; precioNeto: number | null; total: number | null }
 interface OrdenCompra {
@@ -59,9 +58,9 @@ const fmtFecha = (f: string | null) => {
 // licitación (DocumentosSection). El PDF puede no estar en R2 todavía (el cron lo baja una vez
 // al día): en ese caso el primer clic lo pide al toque en vez de obligar a esperar al barrido.
 function AccionesDocumentoOC({
-  codigo, nombre, pdfUrlInicial, urlFicha, onVer,
+  codigo, nombre, pdfUrlInicial, onVer,
 }: {
-  codigo: string; nombre: string; pdfUrlInicial: string | null; urlFicha: string; onVer: (doc: VisorDoc) => void;
+  codigo: string; nombre: string; pdfUrlInicial: string | null; onVer: (doc: VisorDoc) => void;
 }) {
   const [url, setUrl] = useState(pdfUrlInicial);
   const [cargando, setCargando] = useState<'ver' | 'descargar' | null>(null);
@@ -113,9 +112,6 @@ function AccionesDocumentoOC({
         className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors disabled:opacity-50">
         {cargando === 'descargar' ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
       </button>
-      <SubirPdfOficialOC codigoOC={codigo} urlFicha={urlFicha}
-        onSubido={u => { setUrl(u); setError(null); onVer({ nombre, url: u }); }}
-        className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-indigo-600 hover:text-indigo-700">PDF oficial</SubirPdfOficialOC>
       {error && <span className="text-[10.5px] text-rose-500" title={error}>PDF no disponible</span>}
     </div>
   );
@@ -169,7 +165,7 @@ function FilaOrden({ oc, onVer }: { oc: OrdenCompra; onVer: (doc: VisorDoc) => v
           </button>
         )}
         <div className="ml-auto flex items-center gap-3">
-          <AccionesDocumentoOC codigo={oc.codigo} nombre={`OC_${oc.codigo}.pdf`} pdfUrlInicial={oc.pdfUrl} urlFicha={oc.url} onVer={onVer} />
+          <AccionesDocumentoOC codigo={oc.codigo} nombre={`OC_${oc.codigo}.pdf`} pdfUrlInicial={oc.pdfUrl} onVer={onVer} />
           <a href={oc.url} target="_blank" rel="noopener noreferrer"
             className="text-[11.5px] font-semibold text-indigo-600 hover:text-indigo-700 inline-flex items-center gap-1">
             <ExternalLink size={12} /> Ver en Mercado Público

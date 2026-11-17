@@ -141,7 +141,8 @@ PISTAS:
 - "Competencia": agrupa oferta_competencia por proveedor_nombre (cuántas ofertas, cuántas veces ganó = estado de la oferta / adjudicación); excluye es_nuestra=1.
 - "Ganadas/perdidas nuestras": negocios con estado_pipeline='ADJUDICADA' / 'PERDIDA', activo=1.
 - Fechas relativas: usa CURDATE() y DATE_SUB.
-- Carga de trabajo («cuántos negocios tiene cada persona», «en qué etapa están»): cuenta solo los VIGENTES (ASIGNADO, EN_PROCESO, ANEXOS, VISADO, POSTULADA, POSIBLE_ADJ) y dilo en la respuesta; cuenta todos solo si piden «todos», «históricos» o «descartados».
+- Carga de trabajo («cuántos negocios tiene cada persona», «en qué etapa están»): cuenta solo los VIGENTES (ASIGNADO, EN_PROCESO, ANEXOS, VISADO, POSTULADA, POSIBLE_ADJ) y dilo en la respuesta; cuenta todos solo si piden «todos», «históricos» o «descartados». NO aplica a Compras. Muestra siempre el NOMBRE de la persona (JOIN usuarios u ON u.id = n.asignado_a), nunca el id; arma UNA fila por persona con una columna por etapa (SUM(CASE ...)) y una columna total, para que los totales los sume la base.
+- Compras abiertas/pendientes: compras_asignacion con cierre_legado IS NULL AND precompra = 0 (cerrada = 'ENTREGADA'; cancelada = 'OC_CANCELADA' o 'NO_REALIZADA').
 - Para «sin X», «que no tienen X» o «pendientes de X»: LEFT JOIN a X y WHERE X.id IS NULL (o NOT EXISTS). NUNCA un INNER JOIN con IS NULL: devuelve 0 filas siempre.`;
 
 const SYS_SQL = `Eres el analista de datos de LICITANK. Conviertes la pregunta del usuario en UNA consulta SQL de solo lectura sobre el esquema dado.
@@ -164,7 +165,7 @@ Respondes con los DATOS que se te entregan: son el resultado real de una consult
 - Los rankings largos van en lista numerada; resalta los números y deja claro en una frase qué se contó (ej. "licitaciones que mencionan 'retroexcavadora'").
 - Si la respuesta depende de datos que la COBERTURA muestra incompletos (documentos sin texto leído, pocas ofertas de competidores, pocas adjudicaciones guardadas), añade una línea "Lo que no tenemos:" con la cifra concreta de lo que falta. No lo digas si no afecta a esta respuesta.
 - Si se buscó por contenido, cita siempre licitación y documento de cada hallazgo y reproduce el fragmento relevante entre comillas, sin completar lo que el fragmento no dice.
-- Respuesta corta: si hay más de 10 filas, muestra solo las 10 más relevantes, di el total y ofrece el resto («¿quieres el listado completo?»). Máximo unas 150 palabras, salvo que pidan el listado completo. Si muestras una tabla, no repitas sus cifras en prosa: una frase de resumen antes y listo. Nunca hables de «registros» o «filas» del resultado: di qué son (negocios, licitaciones, OC) y cuenta esas.
+- Respuesta corta: si hay más de 10 filas, muestra solo las 10 más relevantes, di el total y ofrece el resto («¿quieres el listado completo?»). Máximo unas 150 palabras, salvo que pidan el listado completo. Si muestras una tabla, no repitas sus cifras en prosa: una frase de resumen antes y listo. Nunca hables de «registros», «filas» ni «combinaciones» del resultado: di qué son (negocios, licitaciones, OC) y cuenta esas.
 - Si ayuda, cierra con una frase natural que proponga el siguiente paso útil.`;
 
 let tablasBD: Set<string> | null = null;
@@ -245,6 +246,19 @@ async function llamar(system: string, user: string, maxTokens: number, temperatu
   return bucle?.index !== undefined ? txt.slice(0, bucle.index).trim() : txt;
 }
 
+// Kimi vosea aunque el prompt pida «tú» (visto en licitank.cl: «Tenés», «querés»). Se corrigen las formas que aparecen en la práctica.
+const VOSEO: Record<string, string> = {
+  tenés: 'tienes', querés: 'quieres', podés: 'puedes', necesitás: 'necesitas', sabés: 'sabes', hacés: 'haces', decís: 'dices',
+  preferís: 'prefieres', buscás: 'buscas', mirás: 'miras', revisás: 'revisas', pensás: 'piensas', vos: 'tú',
+};
+function tutear(t: string): string {
+  // Kimi escapa el signo peso («\$1.488 millones») y la burbuja lo mostraba con la barra.
+  return t.replace(/\\\$/g, '$').replace(/(?<!\p{L})(tenés|querés|podés|necesitás|sabés|hacés|decís|preferís|buscás|mirás|revisás|pensás|vos)(?!\p{L})/giu, m => {
+    const r = VOSEO[m.toLowerCase()] || m;
+    return m[0] === m[0].toUpperCase() ? r[0].toUpperCase() + r.slice(1) : r;
+  });
+}
+
 // ─── Cobertura: qué hay y qué NO hay en la base ──────────────────────────────────
 // Se calcula una vez cada 10 min. Sirve para (a) responder "¿qué nos falta?" y (b) que cada
 // respuesta diga hasta dónde llegan los datos (ej. la competencia solo existe en unas pocas licitaciones).
@@ -305,7 +319,8 @@ const PISTAS_SECCION = `PISTAS:
 - negocios: una fila por licitación que tomamos; usa activo = 1. estado_pipeline: 'ASIGNADO','EN_PROCESO','ANEXOS','VISADO','POSTULADA','POSIBLE_ADJ','ADJUDICADA' (= GANADA),'PERDIDA','DESIERTA','REVOCADA','DESCARTADA'. negocios.licitacion_codigo = licitaciones_cache.codigo.
 - Las tablas con negocio_id se unen con negocios.id. Las que traen licitacion_codigo se unen con licitaciones_cache.codigo.
 - Fechas relativas: CURDATE() y DATE_SUB. Para totales usa SUM/COUNT; los números los pone la base, no tú.
-- Carga de trabajo («cuántos negocios tiene cada persona», «en qué etapa están»): cuenta solo los VIGENTES (ASIGNADO, EN_PROCESO, ANEXOS, VISADO, POSTULADA, POSIBLE_ADJ) y dilo en la respuesta; cuenta todos solo si piden «todos», «históricos» o «descartados».
+- Carga de trabajo del pipeline de licitaciones («cuántos negocios tiene cada persona», «en qué etapa están»): cuenta solo los VIGENTES (ASIGNADO, EN_PROCESO, ANEXOS, VISADO, POSTULADA, POSIBLE_ADJ) y dilo en la respuesta; cuenta todos solo si piden «todos», «históricos» o «descartados». NO aplica a Compras. Muestra siempre el NOMBRE de la persona (JOIN usuarios u ON u.id = n.asignado_a), nunca el id; arma UNA fila por persona con una columna por etapa (SUM(CASE ...)) y una columna total, para que los totales los sume la base.
+- Compras (proyectos de compra, compras pendientes/abiertas): una compra = una fila de compras_asignacion. Abierta = cierre_legado IS NULL AND precompra = 0 (pre-compra = precompra = 1 AND cierre_legado IS NULL); cerrada = cierre_legado = 'ENTREGADA'; cancelada = cierre_legado IN ('OC_CANCELADA','NO_REALIZADA'). Atrasadas = con tareas de compras_tarea con estado <> 'HECHA' AND plazo_at < NOW(). La fecha de entrega vencida se calcula en la pantalla y no está guardada: si la piden, responde con las tareas atrasadas y dilo.
 - Para «sin X», «que no tienen X» o «pendientes de X»: LEFT JOIN a X y WHERE X.id IS NULL (o NOT EXISTS). NUNCA un INNER JOIN con IS NULL: devuelve 0 filas siempre.
 - Los textos largos se recortan con SUBSTRING; nunca los selecciones enteros.`;
 
@@ -398,9 +413,9 @@ export async function responderGlobal(pregunta: string, historial: MensajeHistor
         2000,
         0.3,
       );
-      return { respuesta: resp || cob };
+      return { respuesta: tutear(resp) || cob };
     }
-    if (!salida.sql) return { respuesta: String(salida.respuesta || 'No tengo ese dato guardado.') };
+    if (!salida.sql) return { respuesta: tutear(String(salida.respuesta || 'No tengo ese dato guardado.')) };
     try {
       sqlFinal = await validarSqlSoloLectura(salida.sql, tablas, alcance);
       filas = await ejecutarSolo(sqlFinal);
@@ -429,7 +444,7 @@ export async function responderGlobal(pregunta: string, historial: MensajeHistor
     2000,
     0.3,
   );
-  return { respuesta: respuesta || 'La consulta no devolvió información para responder.', sql: sqlFinal, filas: filas.length };
+  return { respuesta: tutear(respuesta) || 'La consulta no devolvió información para responder.', sql: sqlFinal, filas: filas.length };
 }
 
 /** Perfil normal (no admin ni Compras): el chat solo le muestra lo asignado a él. Devuelve su id, o null si tiene acceso completo. */

@@ -51,3 +51,14 @@ activado; no se activó `ia_chat` a ningún cliente. Sin desplegar.
 - Ofertas de la competencia (`ofertas-competencia.ts`): el poller ahora lee también negocios POSIBLE_ADJ/PERDIDA/ADJUDICADA (antes solo POSTULADA → 188 sin ofertas). El aviso al perfil sigue solo para postuladas. Desde el PC se leyeron 12 de 111; las otras 99 dan 403 (MP bloquea IP), quedaron con 1 intento sumado (tope 6) y las lee el servidor **cuando se despliegue**.
 - Texto de documentos: OCR de escaneados en negocios (`_sanar_ocr_salida.txt`, 10 recuperados de 20; los 10 restantes son Word/Excel rotos, logos o QR). Documentos propios (anexos rellenados, OC), que el saneador normal excluye, con `scripts/scratch/_sanar_propios.mts --aplicar --con-ocr` (1.260 pendientes).
 - **Falta:** desplegar y repetir en licitank.cl las preguntas por menú (no se probó en el sitio).
+
+**Prueba en licitank.cl con el dueño (2026-11-17 tarde, tras desplegar `fb49ba9`):** se compararon las cifras del chat de cada menú con las de su pantalla. Fallaban y se corrigieron en local (**falta desplegar**):
+- Compras: decía «162 pendientes, ninguno vencido» (contaba el pipeline de licitaciones). Ahora compra = `compras_asignacion` (abierta = `cierre_legado IS NULL AND precompra = 0`) → 43, igual que la pantalla, y 38 con tareas vencidas. La «entrega vencida» se calcula en la pantalla y no está en la base: responde con tareas atrasadas.
+- Ganadas/Perdidas: 72/221 «este año» → nota con la regla de la pantalla (LEFT JOIN `adjudicacion_cache`, `es_adjudicada = 1` o sin caché) → 74/201. «Quién nos ganó»: decía que no había dato; el ganador está en `adjudicacion_cache.lineas[i].proveedor` (JSON, MySQL 5.7 → UNION ALL de `$[0..9]`). Funciona, pero tarda ~86 s.
+- Postuladas: 39 → 41 en evaluación (la pantalla suma negocios marcados PERDIDA que Mercado Público aún no adjudica).
+- Órdenes de compra: 282 «último año» y «nuestras = emitidas a proveedores» → nota: `ordenes_compra` = OC de los organismos, pantalla = `es_nuestra = 1` → 267 / $5.413.588.493; las nuestras a proveedores son `compras_orden_compra_obuma` (28 sin pagar).
+- General: «cuántos negocios por persona» mostraba ids o «24 negocios» (filas) → una fila por persona con total, nombre por JOIN → 9 personas, 162.
+- Kimi vosea pese al prompt y escapa el peso (`\$`): `tutear()` en `chat-global.ts` corrige el texto final.
+- Las notas por menú van en `notas` de `chat-secciones.ts`, con la cifra de la pantalla al 17-nov como referencia.
+**Ofertas:** el poller del servidor (cron `:15` cada hora) no había leído ninguna de las 101 perdidas/ganadas pendientes a las 13:30 pese a estar desplegado (`8ec2955`); quedaron con 1 intento (el del PC). Revisar el log del scheduler en el VPS.
+**Documentos propios:** OCR/lectura terminó: 1.081 de 1.092 recuperados; 11 fallan (PDF «OC_…_experiencia» de 986278-14-LE26).

@@ -450,8 +450,8 @@ const RE_TOKEN_PDF = /imgPDF[\s\S]{0,400}?PDFReport\.aspx\?qs=([^'"&]+)/;
 /**
  * Guarda el PDF de una OC: lo sube a R2, lo deja en ordenes_compra.pdf_url y lo enlaza como documento
  * de la licitación (Documentos Propios → Orden de compra, categoria_manual=1 para que una
- * re-clasificación IA no lo mueva). Lo usan la descarga automática (cuando MP lo entrega sin captcha)
- * y la subida del PDF oficial que bajó una persona.
+ * re-clasificación IA no lo mueva). Lo usa la descarga automática (oficial o copia de la ficha).
+ * La subida a mano del «PDF oficial» se quitó el 17-nov-2026: el oficial ya baja solo.
  */
 export const AVISO_COPIA_FICHA = 'Copia de la ficha pública de MP (no es el PDF oficial)';
 
@@ -459,7 +459,7 @@ export async function guardarPdfOrdenCompra(
   codigoOC: string, licitacionCodigo: string | null, buffer: Buffer, esCopiaFicha = false,
 ): Promise<string> {
   const url = await subirDocumentoR2(licitacionCodigo || codigoOC, `OC_${codigoOC}.pdf`, buffer, 'application/pdf');
-  // pdf_error marca la copia; al subir el PDF oficial (esCopiaFicha=false) queda NULL y la reemplaza.
+  // pdf_error marca la copia; cuando el cron baja el oficial (esCopiaFicha=false) queda NULL y la reemplaza.
   await pool.query(
     `UPDATE ordenes_compra SET pdf_url = ?, pdf_descargado_at = ?, pdf_error = ? WHERE codigo = ?`,
     [url, ahoraChileSQL(), esCopiaFicha ? AVISO_COPIA_FICHA : null, codigoOC],
@@ -503,11 +503,10 @@ export async function descargarPdfOrdenCompra(
     const buffer = Buffer.from(await resPdf.arrayBuffer());
     // Desde oct-2026 MP protege PDFReport.aspx con reCAPTCHA Enterprise: sin token responde 200 con
     // una página HTML (~3 KB) que antes se guardaba como si fuera el PDF. Se exige la firma %PDF y
-    // el captcha NO se resuelve (misma regla que mp-descarga-browser.ts): el PDF oficial lo baja una
-    // persona y se sube con «PDF oficial» (SubirPdfOficialOC → /api/ordenes-compra/pdf/subir).
+    // el captcha NO se resuelve (misma regla que mp-descarga-browser.ts).
     if (buffer.subarray(0, 5).toString('latin1') !== '%PDF-') {
-      // Plan B (nov-2026): la ficha pública SÍ abre sin captcha → se imprime a PDF con el navegador
-      // y se guarda marcada como copia. «PDF oficial» (subida manual) la reemplaza cuando alguien la baje.
+      // Plan B (nov-2026): el oficial con un Chrome con ventana; si no, la ficha pública (abre sin
+      // captcha) impresa a PDF y marcada como copia, que el cron diario reintenta pasar a oficial.
       try {
         // 1) PDF OFICIAL con un Chrome con ventana (el captcha invisible lo deja pasar).
         const { imprimirFichaOrdenCompra, descargarPdfOficialOrdenCompra } = await import('@/app/lib/mp-oc-ficha-pdf');
@@ -521,7 +520,7 @@ export async function descargarPdfOrdenCompra(
         const url = await guardarPdfOrdenCompra(codigoOC, licitacionCodigo, copia, true);
         return { ok: true, url };
       } catch (e: any) {
-        return { ok: false, error: `Mercado Público pide reCAPTCHA para el PDF y la copia de la ficha falló (${String(e?.message || e).slice(0, 120)}): bájalo con «PDF oficial»` };
+        return { ok: false, error: `Mercado Público pide reCAPTCHA para el PDF y la copia de la ficha falló (${String(e?.message || e).slice(0, 120)}); se reintenta en el cron diario` };
       }
     }
 

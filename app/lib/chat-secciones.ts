@@ -58,12 +58,21 @@ export const SECCIONES: SeccionChat[] = [
     tablas: [...TABLAS_NEGOCIO, 'preguntas_respuestas_cache', 'oferta_competencia_documento', 'oferta_competencia_garantia', 'licitacion_apertura', 'acta_documento'],
     que: 'las licitaciones a las que ya postulamos y a la espera de resultado',
     sugerencias: ['¿A qué licitaciones postulamos y siguen sin resultado?', '¿Cuál es la próxima fecha de adjudicación?', '¿Con quién competimos en las postuladas?'],
+    // Mismo conteo que la pantalla (resultadoDeNegocio en app/postuladas/page.tsx): 41 en evaluación al 17-nov-2026.
+    notas: {
+      negocios: 'Postuladas de la pantalla = activo = 1 y estado_pipeline IN (\'POSTULADA\',\'POSIBLE_ADJ\',\'ADJUDICADA\',\'PERDIDA\'). «En evaluación» (sin resultado) usa EXACTAMENTE esta condición, que incluye PERDIDA (hay negocios marcados PERDIDA que Mercado Público aún no adjudica): LEFT JOIN adjudicacion_cache a ON a.licitacion_codigo = n.licitacion_codigo WHERE n.activo = 1 AND n.estado_pipeline IN (\'POSTULADA\',\'POSIBLE_ADJ\',\'ADJUDICADA\',\'PERDIDA\') AND ((a.licitacion_codigo IS NULL AND n.estado_pipeline IN (\'POSTULADA\',\'POSIBLE_ADJ\')) OR (a.licitacion_codigo IS NOT NULL AND a.es_adjudicada = 0 AND COALESCE(a.estado, \'\') NOT REGEXP \'desiert|revocad|suspend\')).',
+    },
   },
   {
     id: 'adjudicadas', nombre: 'Ganadas / Perdidas', ruta: /^\/adjudicadas(\/|$)/, rutaModulo: '/adjudicadas',
     tablas: [...TABLAS_NEGOCIO, 'compras_cierre_resultado', 'oferta_competencia_documento', 'oferta_competencia_garantia', 'licitacion_apertura', 'acta_documento'],
     que: 'las licitaciones ya resueltas: ganadas, perdidas, desiertas y revocadas',
     sugerencias: ['¿Cuántas ganamos y cuántas perdimos este año?', '¿A quién perdimos más veces?', '¿Cuánto monto hemos ganado en total?'],
+    // Mismo conteo que la pantalla (resultadoDe/esResuelta en app/adjudicadas/page.tsx): 74 ganadas / 201 perdidas al 17-nov-2026.
+    notas: {
+      negocios: 'Ganadas = estado_pipeline \'ADJUDICADA\'; perdidas = \'PERDIDA\'; siempre activo = 1 y LEFT JOIN adjudicacion_cache a ON a.licitacion_codigo = negocios.licitacion_codigo con (a.licitacion_codigo IS NULL OR a.es_adjudicada = 1): así cuenta la pantalla. Sin período en la pregunta = total histórico, no «este año».',
+      adjudicacion_cache: 'Quién ganó: lineas es un arreglo JSON, una entrada por línea con proveedor (nombre del ganador), rutProveedor, montoUnitario, cantidad y esNuestra. MySQL 5.7 no lo desarma: para «quién nos ganó» arma un UNION ALL de JSON_UNQUOTE(JSON_EXTRACT(lineas, \'$[i].proveedor\')) con i = 0..9, filtra IS NOT NULL y JSON_EXTRACT(lineas, \'$[i].esNuestra\') = false, y agrupa por proveedor contando licitaciones distintas.',
+    },
   },
   {
     id: 'proyectos', nombre: 'Proyectos (Obuma)', ruta: /^\/compras\/proyectos(\/|$)/, rutaModulo: '/compras/proyectos',
@@ -98,6 +107,11 @@ export const SECCIONES: SeccionChat[] = [
     tablas: ['ordenes_compra', 'compras_orden_compra_obuma', 'compras_oc_pago', 'compras_historial_oc', 'compras_historial_oc_item', 'negocios'],
     que: 'las órdenes de compra de los clientes y las que emitimos a proveedores, con sus pagos',
     sugerencias: ['¿Qué órdenes de compra llegaron esta semana?', '¿Qué OC están sin pagar?', '¿Cuál es la OC más grande de este año?'],
+    // Mismo conteo que la pantalla (listarOrdenesCompra en app/lib/ordenes-compra.ts): 267 OC al 17-nov-2026.
+    notas: {
+      ordenes_compra: 'OC que los ORGANISMOS nos emiten por Mercado Público (no son las que emitimos a proveedores). es_nuestra = 1 = OC a una de nuestras empresas; la pantalla muestra solo es_nuestra = 1 salvo que pidan «de terceros». Sin período en la pregunta = total histórico. Monto: total; fecha: COALESCE(fecha_envio, fecha_creacion).',
+      compras_orden_compra_obuma: 'OC que NOSOTROS emitimos a proveedores (vía Obuma). Sus pagos están en compras_oc_pago; «sin pagar» = sin filas en compras_oc_pago (LEFT JOIN + IS NULL).',
+    },
   },
   {
     id: 'entregas', nombre: 'Entregas', ruta: /^\/entregas(\/|$)/, rutaModulo: '/entregas',

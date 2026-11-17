@@ -14,7 +14,6 @@ import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { Banner } from '@/app/components/ui/Banner';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
-import { SubirPdfOficialOC } from '@/app/components/SubirPdfOficialOC';
 import { useCosteoFlotante } from '@/app/components/CosteoFlotanteContext';
 import { DocumentosLicitacionCard } from '@/app/negocios/[id]/DocumentosLicitacionCard';
 import { AuditoriaAgenteNegocioCard } from '@/app/negocios/[id]/AuditoriaAgenteNegocioCard';
@@ -666,16 +665,11 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                       <ExternalLink size={13} /> Ver en Mercado Público
                     </a>
                   )}
-                  {ocMp?.pdfUrl && (
+                  {ocMp?.codigo && (
                     <button type="button" onClick={verPdfOC} disabled={cargandoPdfOC}
                       className="inline-flex items-center gap-1.5 text-xs font-semibold text-teal-700 hover:text-teal-800 disabled:opacity-50 whitespace-nowrap">
                       {cargandoPdfOC ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />} PDF de la orden
                     </button>
-                  )}
-                  {ocMp?.codigo && ocMp.url && puedeOperar && (
-                    <SubirPdfOficialOC codigoOC={ocMp.codigo} urlFicha={ocMp.url}
-                      onSubido={url => { recargar(); setVisorOC({ nombre: `OC_${ocMp.codigo}.pdf`, url }); }}
-                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-teal-700 hover:text-teal-800 whitespace-nowrap" />
                   )}
                 </div>
               </>
