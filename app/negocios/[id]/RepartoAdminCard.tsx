@@ -463,6 +463,8 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
   const idsSel = (p: ProveedorOC): number[] => seleccion[p.proveedorNombre] ?? p.items.filter(it => it.aprobado !== false && it.estadoLinea !== 'RECHAZADA' && (compuertasOk || it.compraRapida) && !(p.ocRealObuma && p.items.some(x => x.enOcObuma === false) && it.enOcObuma !== false)).map(it => it.productoId);
   // ¿Se puede emitir esta orden? Con las dos compuertas, siempre; si no, solo si TODO lo marcado es compra rápida aprobada.
   const puedeEmitirOC = (p: ProveedorOC) => compuertasOk || (idsSel(p).length > 0 && idsSel(p).every(id => p.items.find(it => it.productoId === id)?.compraRapida));
+  // ¿Lo marcado repite algo que la OC de Obuma ya trae? Si solo va lo que a esa OC le falta, no es duplicado.
+  const ocRealDuplica = (p: ProveedorOC) => !!p.ocRealObuma && !(idsSel(p).length > 0 && idsSel(p).every(id => p.items.find(it => it.productoId === id)?.enOcObuma === false));
   const subtotalSel = (p: ProveedorOC) => p.items.filter(it => idsSel(p).includes(it.productoId)).reduce((s, it) => s + it.subtotal, 0);
   // Las OC de un proveedor (la hecha en Obuma y/o la emitida desde Licitank), para mostrarlas rotuladas.
   const ocsDe = (p: ProveedorOC) => [
@@ -792,9 +794,9 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                       footer={<>
                         <Boton variante="fantasma" onClick={() => setOcAbierta(null)}>Cancelar</Boton>
                         {estadoProveedorObuma === 'existe' && (
-                          <Boton variante="primario" onClick={() => crearOC(p.proveedorNombre, !!p.posibleDuplicadoObuma || !!p.ocRealObuma, idsSel(p))}
+                          <Boton variante="primario" onClick={() => crearOC(p.proveedorNombre, !!p.posibleDuplicadoObuma || ocRealDuplica(p), idsSel(p))}
                             icono={creandoOC === p.proveedorNombre ? <Loader2 size={15} className="animate-spin" /> : undefined}
-                            disabled={creandoOC === p.proveedorNombre || idsSel(p).length === 0 || !formaPagoId || !fechaEntrega || !metodoDespacho || !confirmadoOC || (ocInternacional && (!monedaOcId || !(tcNumero(tipoCambioOc) > 0))) || !puedeEmitirOC(p) || ((!!p.posibleDuplicadoObuma || !!p.ocRealObuma) && !confirmadoPeseADuplicado)}>
+                            disabled={creandoOC === p.proveedorNombre || idsSel(p).length === 0 || !formaPagoId || !fechaEntrega || !metodoDespacho || !confirmadoOC || (ocInternacional && (!monedaOcId || !(tcNumero(tipoCambioOc) > 0))) || !puedeEmitirOC(p) || ((!!p.posibleDuplicadoObuma || ocRealDuplica(p)) && !confirmadoPeseADuplicado)}>
                             Crear en Obuma
                           </Boton>
                         )}
@@ -831,9 +833,12 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                       {/* Pedido explícito, 14-sep-2026: caso real donde el encargado de compras ya
                           había creado esta misma OC directo en Obuma — Licitank no se enteraba
                           porque solo miraba su propia tabla, nunca las OC reales de Obuma. */}
-                      {p.ocRealObuma && (
+                      {p.ocRealObuma && !ocRealDuplica(p) && (
+                        <p className="text-[11px] text-emerald-700">La OC {p.ocRealObuma.folios.join(', ')} de Obuma no incluye estos productos: esta orden cubre solo lo que falta, no es un duplicado.</p>
+                      )}
+                      {ocRealDuplica(p) && (
                         <div className="bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-2 space-y-1" data-testid="oc-aviso-adicional">
-                          <p className="text-[11px] font-semibold text-rose-700">⚠ Este proveedor ya tiene la OC {p.ocRealObuma.folios.join(', ')} en Obuma ({fmtCLP(p.ocRealObuma.totalNeto)} neto). Esto crea OTRA orden aparte, de verdad, en Obuma.</p>
+                          <p className="text-[11px] font-semibold text-rose-700">⚠ Este proveedor ya tiene la OC {p.ocRealObuma!.folios.join(', ')} en Obuma ({fmtCLP(p.ocRealObuma!.totalNeto)} neto). Esto crea OTRA orden aparte, de verdad, en Obuma.</p>
                           <label className="flex items-center gap-1.5 text-[10.5px] text-rose-700 pt-0.5">
                             <input type="checkbox" checked={confirmadoPeseADuplicado} onChange={e => setConfirmadoPeseADuplicado(e.target.checked)} className="accent-rose-600" />
                             Entiendo que ya existe esa OC: esta es una compra adicional o una prueba, igual quiero crearla

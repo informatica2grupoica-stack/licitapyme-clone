@@ -492,7 +492,9 @@ export async function crearOrdenCompraParaProveedor(
   const grupo = grupos.find(g => g.proveedorNombre === proveedorNombre);
   if (!grupo) throw new Error('Ese proveedor no tiene ítems en el escenario elegido.');
   if (grupo.yaCreada) throw new Error(`Ya existe una orden de compra para este proveedor en Obuma (folio ${grupo.yaCreada.folio ?? grupo.yaCreada.obumaCompraOcId}).`);
-  if (grupo.ocRealObuma && !opciones.confirmarPeseADuplicado) {
+  // Si lo que se emite es solo lo que la OC de Obuma no trae (enOcObuma === false), no es un duplicado: no pide confirmación.
+  const soloLoQueFalta = !!opciones.productoIds?.length && opciones.productoIds.every(id => grupo.items.find(it => it.productoId === id)?.enOcObuma === false);
+  if (grupo.ocRealObuma && !soloLoQueFalta && !opciones.confirmarPeseADuplicado) {
     throw new Error(`Este proveedor ya tiene OC realizada directo en Obuma para esta licitación (folio ${grupo.ocRealObuma.folios.join(', ')}). No se crea otra; si de verdad es una compra adicional, confirma para continuar igual.`);
   }
   // Segundo freno (no solo el aviso en pantalla): caso real, 14-sep-2026 — el encargado de compras
