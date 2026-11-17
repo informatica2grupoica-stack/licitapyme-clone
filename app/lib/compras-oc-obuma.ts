@@ -76,7 +76,7 @@ function nombreComparable(n: string | null | undefined): string {
  *  el módulo (margen bajo, presupuesto excedido): mejor avisar y dejar decidir que bloquear de
  *  plano cuando la coincidencia podría ser casualidad. */
 async function buscarOcRealSimilar(
-  proveedorObumaId: string, descripciones: string[],
+  proveedorObumaId: string, descripciones: string[], excluirOcIds: Set<string> = new Set(),
 ): Promise<{ folio: string | null; referencia: string; fecha: string; total: number } | null> {
   const normalizar = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
   const palabrasClave = descripciones
@@ -86,6 +86,7 @@ async function buscarOcRealSimilar(
 
   const r = await listarComprasOc({ proveedor: proveedorObumaId, limit: 20 }).catch(() => null);
   for (const oc of r?.data || []) {
+    if (excluirOcIds.has(String(oc.compra_oc_id))) continue;   // una OC que emitió Licitank para este negocio no es duplicado de lo que falta
     if (/anulad/i.test(String(oc.compra_oc_estado || ''))) continue;   // una OC anulada no es duplicado (negocio 256: la 3810 anulada hacía saltar el aviso de la 3811)
     const texto = normalizar(`${oc.compra_oc_referencia || ''} ${oc.compra_oc_observacion || ''}`);
     if (palabrasClave.some(p => texto.includes(p))) {
@@ -148,7 +149,7 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
     ) as any,
     pool.query(
       `SELECT proveedor_nombre, obuma_compra_oc_id, obuma_folio, total_neto, items_json, DATE_FORMAT(fecha_oc, '%Y-%m-%d') AS fecha_oc
-         FROM compras_orden_compra_obuma WHERE negocio_id = ?`,
+         FROM compras_orden_compra_obuma WHERE negocio_id = ? ORDER BY created_at, id`,
       [negocioId],
     ) as any,
     listarAprobacionesLinea(negocioId).catch(() => ({ tablaOk: false, lineas: [] as Array<{ productoId: number; estado: string }> })),
@@ -185,11 +186,18 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
     for (const p of provRows as any[]) fichaCompleta.set(p.id, { direccion: p.direccion, comuna: p.comuna, email: p.correo, telefono: p.telefono, giro: p.giro, contacto: p.contacto_nombre, obumaProveedorId: p.obuma_proveedor_id });
   }
 
-  const productosDeOcPropia = new Map<string, Set<number>>();
-  for (const r of ocRows as any[]) { try { productosDeOcPropia.set(r.proveedor_nombre, new Set((JSON.parse(r.items_json || '[]') as any[]).map(i => Number(i.productoId)))); } catch { /* items_json corrupto */ } }
-  const ocPorProveedor = new Map<string, { obumaCompraOcId: string; folio: string | null; total: number; fechaOc: string }>(
-    (ocRows as any[]).map(r => [r.proveedor_nombre, { obumaCompraOcId: r.obuma_compra_oc_id, folio: r.obuma_folio, total: Number(r.total_neto), fechaOc: r.fecha_oc }]),
-  );
+  // Las OC que emitió Licitank, por proveedor y con los productos que de verdad llevan (items_json). Un proveedor puede tener más de una:
+  // 1089 (17-nov-2026): la 4062 de SINERGIA solo llevaba el Set Instrumental y la Mesa auxiliar quedó marcada «4062» sin poder emitirse.
+  type OcLicitank = { obumaCompraOcId: string; folio: string | null; total: number; fechaOc: string; productos: Set<number> | null };
+  const ocsLicitankPorProveedor = new Map<string, OcLicitank[]>();
+  for (const r of ocRows as any[]) {
+    let productos: Set<number> | null = null;
+    try { productos = new Set((JSON.parse(r.items_json || '[]') as any[]).map(i => Number(i.productoId)).filter(n => Number.isFinite(n))); } catch { /* items_json corrupto: se asume que cubre todo */ }
+    const lista = ocsLicitankPorProveedor.get(r.proveedor_nombre) ?? [];
+    lista.push({ obumaCompraOcId: r.obuma_compra_oc_id, folio: r.obuma_folio, total: Number(r.total_neto), fechaOc: r.fecha_oc, productos: productos?.size ? productos : null });
+    ocsLicitankPorProveedor.set(r.proveedor_nombre, lista);
+  }
+  const idsOcLicitank = new Set((ocRows as any[]).map(r => String(r.obuma_compra_oc_id)));
 
   // Qué productos están aprobados: los que el jefe de ventas aprobó uno a uno. Si no hubo decisiones por producto (flujo anterior),
   // se considera aprobado todo lo de la compra aprobada.
@@ -215,7 +223,7 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
         proveedorGiro: extra?.giro ?? null, proveedorContacto: extra?.contacto ?? null,
         items: [], subtotal: 0, fleteSugerido: fletePorDirecta.get(nombre) ?? null,
         monedaCotizacion: monedaPorProveedor.get(nombre)?.moneda ?? null, tipoCambioCotizacion: monedaPorProveedor.get(nombre)?.tipoCambio ?? null,
-        yaCreada: ocPorProveedor.get(nombre) ?? null, posibleDuplicadoObuma: null, ocRealObuma: null,
+        yaCreada: null, posibleDuplicadoObuma: null, ocRealObuma: null,
       });
     }
     const grupo = grupos.get(nombre)!;
@@ -239,11 +247,37 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
   // OC reales ya hechas en Obuma para esta licitación (lectura de base, sin llamar a Obuma). Las
   // ANULADAS no cuentan. Se cruzan por RUT del proveedor, no por nombre (la razón social cambia).
   const realesObuma = todasObuma.filter(c => !/anulad/i.test(c.estado || ''));
+  // Cada OC vigente que emitió Licitank queda como su propia tarjeta, con SOLO los productos que lleva; lo del mismo proveedor que no va en
+  // ninguna queda en una tarjeta «Sin emitir» aparte, para poder emitirle otra orden. Una OC nuestra ANULADA en Obuma ya no cuenta.
+  const lista: ProveedorOrdenCompra[] = [];
   for (const g of grupos.values()) {
-    // Una OC nuestra que en Obuma quedó ANULADA ya no es la orden del proveedor: no se muestra como "creada".
-    if (g.yaCreada && todasObuma.some(c => c.compraOcId === g.yaCreada!.obumaCompraOcId && /anulad/i.test(c.estado || ''))) g.yaCreada = null;
-    // Estado real en Obuma de la OC nuestra (SOLICITADA, FACTURADA…), para no mostrarla siempre como "emitida".
-    if (g.yaCreada) g.yaCreada.estado = todasObuma.find(c => c.compraOcId === g.yaCreada!.obumaCompraOcId)?.estado ?? null;
+    const vigentes = (ocsLicitankPorProveedor.get(g.proveedorNombre) ?? [])
+      .filter(oc => !todasObuma.some(c => c.compraOcId === oc.obumaCompraOcId && /anulad/i.test(c.estado || '')));
+    if (vigentes.length === 0) { lista.push(g); continue; }
+    const conOc = (oc: OcLicitank) => g.items.filter(it => !oc.productos || oc.productos.has(it.productoId));
+    // Ninguna OC calza por producto (escenario cambiado después de emitir): como antes, la OC se queda con todo el proveedor.
+    const calzan = vigentes.filter(oc => conOc(oc).length > 0);
+    const asignados = new Set<number>();
+    const tarjetas = (calzan.length ? calzan : [vigentes[0]]).map(oc => {
+      const items = (calzan.length ? conOc(oc) : g.items).filter(it => !asignados.has(it.productoId)).map(it => ({ ...it }));
+      for (const it of items) asignados.add(it.productoId);
+      // Estado real en Obuma de la OC nuestra (SOLICITADA, FACTURADA…), para no mostrarla siempre como "emitida".
+      const estado = todasObuma.find(c => c.compraOcId === oc.obumaCompraOcId)?.estado ?? null;
+      return { ...g, items, subtotal: items.reduce((s, it) => s + it.subtotal, 0),
+        yaCreada: { obumaCompraOcId: oc.obumaCompraOcId, folio: oc.folio, total: oc.total, fechaOc: oc.fechaOc, estado } };
+    });
+    const faltan = g.items.filter(it => !asignados.has(it.productoId));
+    // Lo que falta solo abre otra orden si queda algo por comprar. Un producto rechazado, o ya comprado por otra vía (fletes agregados
+    // después como producto sin SKU, p. ej. «Transporte Punta Ranco (OC 3998)» de 1191), se queda mostrado en la última OC, como antes.
+    const subestado = new Map(productosCompra.map((x: any) => [Number(x.id), String(x.subestado ?? '')]));
+    const porComprar = (it: ItemOrdenCompra) => it.estadoLinea !== 'RECHAZADA' && ['', 'PENDIENTE', 'COTIZANDO'].includes(subestado.get(it.productoId) ?? '');
+    if (faltan.some(porComprar)) {
+      lista.push(...tarjetas, { ...g, items: faltan, subtotal: faltan.reduce((s, it) => s + it.subtotal, 0), yaCreada: null });
+    } else {
+      const ultima = tarjetas[tarjetas.length - 1];
+      ultima.items.push(...faltan); ultima.subtotal += faltan.reduce((s, it) => s + it.subtotal, 0);
+      lista.push(...tarjetas);
+    }
   }
   // Tercera vía de reconocimiento: por SKU de los productos. Cuando el proveedor de la ficha no tiene RUT ni id de Obuma (cotización
   // leída de un PDF, proveedor extranjero «SinRut») el cruce por proveedor falla aunque la OC ya exista en Obuma con los mismos SKU
@@ -255,7 +289,7 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
   // Un SKU genérico se descarta ENTERO: su código («100») y también su id de producto en Obuma (1078284), que es largo y pasaba el filtro.
   // 387-55-LE26 (12-nov-2026): el flete de Juan Carlos Salinas se llevaba la OC 3998 de Punta Ranco (sillas + su línea de transporte SKU 100).
   const esGenerico = (it: { obumaCodigoComercial?: string | null }) => !!it.obumaCodigoComercial && /^\d{1,4}$/.test(String(it.obumaCodigoComercial));
-  for (const g of grupos.values()) {
+  for (const g of lista) {
     const rut = rutNormalizado(g.proveedorRut);
     // Se cruza por RUT y también por el id del proveedor en Obuma: cuando la sincronización no logra leer el RUT del proveedor
     // (caso 387-55-LE26: las 22 OC quedaron sin RUT) el RUT solo no alcanza y la OC ya hecha en Obuma aparecía «Sin emitir».
@@ -265,8 +299,8 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
     const nombreGrupo = nombreComparable(g.proveedorNombre);
     const skusDelGrupo = new Set(g.items.filter(it => !esGenerico(it)).flatMap(it => [it.obumaProductoId, it.obumaCodigoComercial]).filter(skuUtil).map(String));
     if (!rut && !obumaProvId && skusDelGrupo.size === 0 && nombreGrupo.length < 8) continue;
-    // La OC que emitió Licitank (yaCreada) no cuenta como "real": la real es la que ya existía en Obuma antes.
-    const delProveedor = realesObuma.filter(c => c.compraOcId !== g.yaCreada?.obumaCompraOcId
+    // Las OC que emitió Licitank (de cualquier tarjeta del proveedor) no cuentan como "reales": la real es la que se hizo directo en Obuma.
+    const delProveedor = realesObuma.filter(c => !idsOcLicitank.has(String(c.compraOcId))
       && ((!!rut && rutNormalizado(c.proveedorRut) === rut) || (!!obumaProvId && c.proveedorObumaId === String(obumaProvId))
         || c.items.some(i => (!!i.productoId && skusDelGrupo.has(String(i.productoId))) || (!!i.codigoComercial && skusDelGrupo.has(String(i.codigoComercial))))
         || (nombreGrupo.length >= 8 && nombreComparable(c.proveedorRazonSocial) === nombreGrupo)));
@@ -302,20 +336,21 @@ export async function proveedoresParaOrdenCompra(negocioId: number, { buscarDupl
   }
 
   // Producto incluido en la OC que emitió Licitank: suma su folio.
-  for (const g of grupos.values()) {
-    const propios = g.yaCreada ? productosDeOcPropia.get(g.proveedorNombre) : null;
-    if (!g.yaCreada || !propios) continue;
+  for (const g of lista) {
+    if (!g.yaCreada) continue;
+    const propios = (ocsLicitankPorProveedor.get(g.proveedorNombre) ?? []).find(oc => oc.obumaCompraOcId === g.yaCreada!.obumaCompraOcId)?.productos;
+    if (!propios) continue;
     const folio = g.yaCreada.folio ?? g.yaCreada.obumaCompraOcId;
     for (const it of g.items) if (propios.has(it.productoId)) it.foliosOc = [...(it.foliosOc ?? []), folio];
   }
 
-  if (buscarDuplicados) await Promise.all([...grupos.values()].filter(g => !g.yaCreada && !g.ocRealObuma && g.proveedorId != null).map(async g => {
+  if (buscarDuplicados) await Promise.all(lista.filter(g => !g.yaCreada && !g.ocRealObuma && g.proveedorId != null).map(async g => {
     const obumaProveedorId = g.proveedorId != null ? fichaCompleta.get(g.proveedorId)?.obumaProveedorId : null;
     if (!obumaProveedorId) return;
-    g.posibleDuplicadoObuma = await buscarOcRealSimilar(obumaProveedorId, g.items.map(it => it.descripcion)).catch(() => null);
+    g.posibleDuplicadoObuma = await buscarOcRealSimilar(obumaProveedorId, g.items.map(it => it.descripcion), idsOcLicitank).catch(() => null);
   }));
 
-  return [...grupos.values()];
+  return lista;
 }
 
 /** Un producto con OC emitida pasa a «Comprado». Misma regla que «Órdenes y facturas»: la OC que emitió Licitank (sus productos marcados) o
@@ -512,7 +547,8 @@ export async function crearOrdenCompraParaProveedor(
   if (errorCompuertas && rapidasAprobadas.size === 0) throw new Error(errorCompuertas);
 
   const grupos = await proveedoresParaOrdenCompra(negocioId);
-  const grupo = grupos.find(g => g.proveedorNombre === proveedorNombre);
+  // Un proveedor puede tener su OC ya emitida y otra tarjeta con lo que le falta: se emite sobre la que está pendiente.
+  const grupo = grupos.find(g => g.proveedorNombre === proveedorNombre && !g.yaCreada) ?? grupos.find(g => g.proveedorNombre === proveedorNombre);
   if (!grupo) throw new Error('Ese proveedor no tiene ítems en el escenario elegido.');
   if (grupo.yaCreada) throw new Error(`Ya existe una orden de compra para este proveedor en Obuma (folio ${grupo.yaCreada.folio ?? grupo.yaCreada.obumaCompraOcId}).`);
   // Si lo que se emite es solo lo que la OC de Obuma no trae (enOcObuma === false), no es un duplicado: no pide confirmación.

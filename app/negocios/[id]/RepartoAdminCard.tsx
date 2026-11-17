@@ -516,10 +516,10 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
           <div className="p-3 mt-3 space-y-3 bg-slate-50/70 border-t border-slate-100">
             {proveedoresOC.map(p => {
               const previewFlete = incluirFlete ? parsearMontoCL(fleteMonto) : null;
-              const total = subtotalSel(p) + (ocAbierta === p.proveedorNombre && previewFlete ? previewFlete : 0);
+              const total = subtotalSel(p) + (ocAbierta === p.proveedorNombre && !p.yaCreada && previewFlete ? previewFlete : 0);
               const ocs = ocsDe(p);
               return (
-                <div key={p.proveedorNombre} className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3">
+                <div key={`${p.proveedorNombre}#${p.yaCreada?.obumaCompraOcId ?? 'pendiente'}`} className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3">
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="min-w-[220px] sm:w-80 flex-shrink-0">
                       <p className="text-[13.5px] font-medium text-slate-900">{p.proveedorNombre}</p>
@@ -788,7 +788,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar, parte = 'todo' }: { n
                     </div>
                   )}
 
-                  {ocAbierta === p.proveedorNombre && (
+                  {ocAbierta === p.proveedorNombre && !p.yaCreada && (
                     <Modal open onClose={() => setOcAbierta(null)} size="md" title={`Crear orden de compra en Obuma · ${p.proveedorNombre}`}
                       subtitle="Revisa los datos: al confirmar se crea de verdad en Obuma."
                       footer={<>
