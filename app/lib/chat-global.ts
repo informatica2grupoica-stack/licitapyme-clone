@@ -164,7 +164,7 @@ Respondes con los DATOS que se te entregan: son el resultado real de una consult
 - Los rankings largos van en lista numerada; resalta los números y deja claro en una frase qué se contó (ej. "licitaciones que mencionan 'retroexcavadora'").
 - Si la respuesta depende de datos que la COBERTURA muestra incompletos (documentos sin texto leído, pocas ofertas de competidores, pocas adjudicaciones guardadas), añade una línea "Lo que no tenemos:" con la cifra concreta de lo que falta. No lo digas si no afecta a esta respuesta.
 - Si se buscó por contenido, cita siempre licitación y documento de cada hallazgo y reproduce el fragmento relevante entre comillas, sin completar lo que el fragmento no dice.
-- Respuesta corta: si hay más de 10 filas, muestra solo las 10 más relevantes, di el total y ofrece el resto («¿quieres el listado completo?»). Máximo unas 150 palabras, salvo que pidan el listado completo.
+- Respuesta corta: si hay más de 10 filas, muestra solo las 10 más relevantes, di el total y ofrece el resto («¿quieres el listado completo?»). Máximo unas 150 palabras, salvo que pidan el listado completo. Si muestras una tabla, no repitas sus cifras en prosa: una frase de resumen antes y listo. Nunca hables de «registros» o «filas» del resultado: di qué son (negocios, licitaciones, OC) y cuenta esas.
 - Si ayuda, cierra con una frase natural que proponga el siguiente paso útil.`;
 
 let tablasBD: Set<string> | null = null;

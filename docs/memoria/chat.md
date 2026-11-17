@@ -45,3 +45,9 @@ documentos del cliente 2 = solo los oficiales. `_chat_probar_respuesta.mts` — 
 (~10 s) en negocios y compras, ICA y cliente 2. `tsc` limpio.
 **NO verificado:** la burbuja en el navegador (requiere sesión) ni un usuario real de otra empresa con el módulo
 activado; no se activó `ia_chat` a ningún cliente. Sin desplegar.
+
+**Respuestas cortas + vigentes + huecos de datos (2026-11-17, continuación):**
+- Prompts (`chat-global.ts`): «carga de trabajo» cuenta solo negocios VIGENTES (ASIGNADO…POSIBLE_ADJ) y lo dice; respuestas de máx. ~150 palabras, top 10 + total + «¿quieres el listado completo?»; si hay tabla no se repite en prosa; nunca «registros/filas». Medido: «negocios por persona y etapa» bajó de 302 a 155-221 palabras (con tabla), ~18-23 s. En 1 de 3 corridas el SQL no agrupó por persona (variación de Kimi, no del cambio).
+- Ofertas de la competencia (`ofertas-competencia.ts`): el poller ahora lee también negocios POSIBLE_ADJ/PERDIDA/ADJUDICADA (antes solo POSTULADA → 188 sin ofertas). El aviso al perfil sigue solo para postuladas. Desde el PC se leyeron 12 de 111; las otras 99 dan 403 (MP bloquea IP), quedaron con 1 intento sumado (tope 6) y las lee el servidor **cuando se despliegue**.
+- Texto de documentos: OCR de escaneados en negocios (`_sanar_ocr_salida.txt`, 10 recuperados de 20; los 10 restantes son Word/Excel rotos, logos o QR). Documentos propios (anexos rellenados, OC), que el saneador normal excluye, con `scripts/scratch/_sanar_propios.mts --aplicar --con-ocr` (1.260 pendientes).
+- **Falta:** desplegar y repetir en licitank.cl las preguntas por menú (no se probó en el sitio).
