@@ -154,6 +154,10 @@ export const SECCIONES: SeccionChat[] = [
     id: 'descartadas', nombre: 'Descartadas', ruta: /^\/descartadas(\/|$)/, rutaModulo: '/descartadas',
     tablas: ['licitaciones_descartadas', 'licitaciones_cache', 'negocios'],
     que: 'las licitaciones que descartamos y por qué',
+    notas: {
+      licitaciones_descartadas: 'Descartes del radar: la columna motivo casi siempre está vacía; sirve para contar y fechar.',
+      negocios: 'Los MOTIVOS de descarte están aquí: estado_pipeline = \'DESCARTADA\', con descarte_motivo, descarte_at y descarte_por (usuarios.id).',
+    },
     sugerencias: ['¿Por qué motivos descartamos más?', '¿Cuántas descartamos este mes?'],
   },
   {

@@ -192,7 +192,7 @@ function aplicarFiltros(sql: string, sinLiterales: string, filtros: Record<strin
     for (const m of bajo.matchAll(new RegExp(`\\b${t}\\b`, 'g'))) {
       if (!/(from|join)\s+`?$/.test(bajo.slice(0, m.index))) throw new Error(`La tabla ${t} solo puede usarse tras FROM o JOIN.`);
     }
-    sql = sql.replace(new RegExp('\\b(from|join)\\s+`?' + t + '`?(?:\\s+(?:as\\s+)?([a-z_][a-z0-9_]*))?', 'gi'), (_m, kw: string, alias?: string) => {
+    sql = sql.replace(new RegExp('\\b(from|join)\\s+`?' + t + '(?![a-z0-9_])`?(?:\\s+(?:as\\s+)?([a-z_][a-z0-9_]*))?', 'gi'), (_m, kw: string, alias?: string) => {
       const esAlias = !!alias && !PALABRAS_NO_ALIAS.has(alias.toLowerCase());
       return `${kw} (${filtros[t]}) AS ${esAlias ? alias : t}${alias && !esAlias ? ' ' + alias : ''}`;
     });
