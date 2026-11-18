@@ -12,6 +12,8 @@ import { getAuthedUser } from '@/app/lib/api-auth';
 import { olvidarFichaCliente, CLIENTE_ICA } from '@/app/lib/tenant';
 import { encolarEvaluacion, leerEvaluacion, rutsDeCliente, rutValido, formatearRut } from '@/app/lib/evaluar-empresa-rut';
 import { guardarOpciones } from '@/app/lib/opciones-empresa';
+import { guardarConfigEmpresa } from '@/app/lib/cv/viabilidad-empresa';
+import { normalizarConfigEmpresa } from '@/app/lib/cv/viabilidad-empresa-core';
 import { normalizarOpciones } from '@/app/lib/opciones-empresa-core';
 import { gastoIaMesPorCliente, consultasMpHoyPorCliente } from '@/app/lib/medidor-cliente';
 import { planBorrado, exportarCliente, borrarCliente, archivosDelCliente } from '@/app/lib/borrar-cliente';
@@ -79,7 +81,11 @@ export async function GET(req: NextRequest) {
        FROM clientes_bitacora b LEFT JOIN usuarios u ON u.id = b.usuario_id ORDER BY b.id DESC LIMIT 60`).catch(() => [[]] as unknown as [unknown]);
   // Medidor (migration-185): gasto de IA del mes y consultas a MP de hoy, por empresa.
   const [iaMes, mpHoy] = await Promise.all([gastoIaMesPorCliente(), consultasMpHoyPorCliente()]).catch(() => [new Map<number, number>(), new Map<number, number>()]);
+  // Configuración de la Viabilidad IA de cada empresa (migration-201): una consulta para todas.
+  const cfgViab = new Map<number, unknown>();
+  try { const [fv] = await pool.query('SELECT cliente_id, config FROM cliente_viabilidad_config'); for (const f of fv as Array<{ cliente_id: number; config: unknown }>) cfgViab.set(Number(f.cliente_id), f.config); } catch { /* sin migration-201 */ }
   const lista = (clientes as Array<Record<string, unknown>>).map(c => ({
+    viabilidad: normalizarConfigEmpresa(cfgViab.get(Number(c.id))),
     ...c, plan: normalizarPlan(c.plan), opciones: normalizarOpciones(c.config_json), config_json: undefined,
     // adicionales = lo marcado a mano que el plan no trae; modulos = lo que de verdad usa (plan + adicionales)
     adicionales: (c.modulos == null ? [] : modulosEfectivos(c.modulos)).filter(m => MODULOS_ACTIVABLES.includes(m) && !MODULOS_DEL_PLAN[normalizarPlan(c.plan)].includes(m)),
@@ -223,6 +229,12 @@ export async function PATCH(req: NextRequest) {
     if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
     det.aprobacionesAuditor = r.opciones.aprobaciones_auditor;
     if (!sets.length) { olvidarFichaCliente(id); await bitacora(id, g.u!.id, 'cambio', det); return NextResponse.json({ success: true }); }
+  }
+  if (b.viabilidadCalce !== undefined || b.viabilidadMinimoNeto !== undefined) {
+    const r = await guardarConfigEmpresa(id, { calce: b.viabilidadCalce, minimo_neto: b.viabilidadMinimoNeto });
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    det.viabilidad = r.config;
+    if (!sets.length) { await bitacora(id, g.u!.id, 'cambio', det); return NextResponse.json({ success: true }); }
   }
   if (typeof b.notas === 'string') { sets.push('notas = ?'); vals.push(b.notas.slice(0, 2000)); det.notas = true; }
   if (!sets.length) return NextResponse.json({ error: 'Nada que cambiar' }, { status: 400 });

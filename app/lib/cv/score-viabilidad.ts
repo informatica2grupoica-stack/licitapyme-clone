@@ -15,6 +15,7 @@
 // Función PURA: recibe el informe y la configuración; no lee BD ni llama a nadie.
 
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
+import { evaluarCalce, efectoCalce, type ModoCalce, type PerfilCalce, type ResultadoCalce } from '@/app/lib/cv/viabilidad-empresa-core';
 import { NIVELES, calzaCatalogo, type ConfigViabilidadV4, type Complejidad, type NivelAtractivo } from '@/app/lib/cv/v4/config';
 
 export type AccionAsistente = 'SEGUIR' | 'CONSULTAR_CA' | 'SOLTAR' | 'REVISAR_SALIDA' | 'CONFIRMAR_DATO';
@@ -32,6 +33,8 @@ export interface ScoreV4 {
   lineas: LineaNivel[];
   pasos: PasoNivel[];
   datos_dudosos: DatoDudoso[];
+  /** Calce con lo que la empresa-cliente vende (viabilidad de clientes). */
+  calce?: ResultadoCalce & { modo: ModoCalce };
   avisos: string[];
   accion_asistente: AccionAsistente;
   accion_texto: string;
@@ -48,6 +51,8 @@ export interface CtxNivel {
   /** Datos clave que el asistente ya confirmó en el visor (claves de DatoDudoso). */
   confirmados?: string[];
   ahora?: Date;
+  /** Perfil y modo de calce de la empresa-cliente: ajustan el nivel según lo que ella vende. Sin esto, el nivel no mira el perfil. */
+  calce?: { modo: ModoCalce; perfil: PerfilCalce | null };
 }
 
 const LABEL: Record<NivelAtractivo, string> = {
@@ -293,7 +298,21 @@ export function calcularNivel(inf: any, cfg: ConfigViabilidadV4, ctx: CtxNivel):
     return excluido('F3', texto, pres.cita, { lineas: r.lineas, supuesto_no_claro: supuestoNoClaro, unidad_evaluada: supuesto === 'POR_LINEAS' ? 'LINEA' : 'PROYECTO' } as any);
   }
 
-  const { u, n } = r.mejor;
+  const { u } = r.mejor;
+  let n = r.mejor.n;
+  // Calce con lo que la empresa vende (solo clientes): baja el nivel si la licitación no calza con su perfil.
+  let calce: ScoreV4['calce'];
+  if (ctx.calce && ctx.calce.modo !== 'ninguno') {
+    const res = evaluarCalce(ctx.calce.perfil, u.productos, u.neto);
+    calce = { ...res, modo: ctx.calce.modo };
+    const ef = efectoCalce(ctx.calce.modo, res);
+    if (ef.escalones > 0) {
+      n = Math.max(1, n - ef.escalones);
+      pasos.push({ regla: 'Calce con tu empresa', efecto: `-${ef.escalones}`, dato: [res.detalle, res.montoFuera === 'BAJO_MINIMO' ? 'El monto está bajo lo que tú buscas.' : res.montoFuera === 'SOBRE_MAXIMO' ? 'El monto está sobre lo que tú buscas.' : ''].filter(Boolean).join(' ') });
+    }
+    if (ef.techoBajo && n > 1) { n = 1; pasos.push({ regla: 'Calce con tu empresa', efecto: `techo ${etiquetaNivel(nivelDe(1))}`, dato: [res.detalle, res.montoFuera ? 'El monto está fuera de lo que tú buscas.' : ''].filter(Boolean).join(' ') }); }
+    if (res.coincidencia === 'SIN_DATO') avisos.push(res.detalle);
+  }
   const nivel = nivelDe(n);
   const accion: AccionAsistente = n >= 5 ? 'SEGUIR' : n >= 2 ? 'CONSULTAR_CA' : 'SOLTAR';
   // Resumen comercial: "MUY ALTO · Línea 1: $732,8M neto · maquinaria · 1 producto".
@@ -306,6 +325,7 @@ export function calcularNivel(inf: any, cfg: ConfigViabilidadV4, ctx: CtxNivel):
     famTop ? (FAMILIA_LEGIBLE[famTop] ?? famTop.toLowerCase().replace(/_/g, ' ')) : '',
     nProd ? `${nProd} producto${nProd === 1 ? '' : 's'}` : '',
   ].filter(Boolean);
+  if (calce && calce.coincidencia !== 'SIN_DATO') partes.push(calce.coincidencia === 'SI' ? 'calza con lo que vendes' : calce.coincidencia === 'PARCIAL' ? 'calza en parte con lo que vendes' : 'no calza con lo que vendes');
   if (nivel === 'BAJO') partes.push('presupuesto y producto poco atractivos');
 
   return fin({
@@ -314,5 +334,6 @@ export function calcularNivel(inf: any, cfg: ConfigViabilidadV4, ctx: CtxNivel):
     supuesto_no_claro: supuestoNoClaro, lineas: r.lineas,
     presupuesto_neto_orden: u.neto, accion_asistente: accion,
     resumen_pantalla: resumenBase(nivel, partes.join(' · ')),
-  });
+    ...(calce ? { calce } : {}),
+  } as any);
 }

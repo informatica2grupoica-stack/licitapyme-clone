@@ -50,6 +50,8 @@ import { obtenerTipoCambio } from '@/app/lib/tipo-cambio';
 import { calcularNivel } from '@/app/lib/cv/score-viabilidad';
 import { nombresFamilias } from '@/app/lib/cv/v4/config';
 import { cargarConfigViabilidad } from '@/app/lib/cv/v4/cargar-config';
+import { leerConfigEmpresa } from '@/app/lib/cv/viabilidad-empresa';
+import { leerPerfil } from '@/app/lib/cliente-viabilidad';
 import { PROMPT_VERSION_V4, SYSTEM_PROMPT_V4, BLOQUE_BARRIDO_V4, construirUserPromptV4 } from '@/app/lib/cv/v4/prompt-v4';
 import { LocalizadorCitas, localizarCitasInforme } from '@/app/lib/cv/v4/citas';
 import { CATALOGO, decidirAdjudicacion, deduplicarEvidencias, evidenciasDeDetectores, evidenciasDelModelo, marcarEvidenciasQueCuentan, type EvidenciaAdj, type SenalesDetectores } from '@/app/lib/cv/v4/adjudicacion';
@@ -1409,7 +1411,7 @@ async function _analizarViabilidadIAV4Intento(codigo: string, onFase?: (fase: Fa
   }
 
   const ctx = await cargarContexto(codigo);
-  const cfg = await cargarConfigViabilidad();
+  const cfg = await cargarConfigViabilidad(clienteCv());
 
   // FUENTES OFICIALES para las señales deterministas: NUNCA nuestros propios archivos (el Excel de
   // costeo que genera este sistema trae un total al pie por construcción y confirmaría lo que
@@ -2219,11 +2221,15 @@ function construirParesSemanticos(inf: any, evidencias: EvidenciaAdj[]): ParSema
 // Agrega al informe el NIVEL DE ATRACTIVO v4.1 (y su chequeo V-27). Se usa al terminar el análisis
 // y cada vez que cambia un dato que el nivel lee (confirmación del asistente, configuración).
 export async function aplicarNivel(inf: any, codigo: string, cfg?: Awaited<ReturnType<typeof cargarConfigViabilidad>>): Promise<void> {
-  const config = cfg ?? await cargarConfigViabilidad();
+  const cid = clienteCv();
+  const config = cfg ?? await cargarConfigViabilidad(cid);
+  // Calce con lo que ESTA empresa vende (migration-201): su perfil y el modo que eligió.
+  const empresa = await leerConfigEmpresa(cid);
+  const perfil = empresa.calce === 'ninguno' ? null : await leerPerfil(cid).catch(() => null);
   let utm: number | null = null;
   try { utm = (await obtenerTipoCambio('UTM'))?.valor ?? null; } catch { /* sin UTM: solo afecta el aviso de rango */ }
   const confirmados: string[] = Array.isArray(inf?.score_confirmaciones) ? inf.score_confirmaciones.map((c: any) => String(c?.clave || '')).filter(Boolean) : [];
-  inf.score = calcularNivel(inf, config, { codigo, utm, confirmados });
+  inf.score = calcularNivel(inf, config, { codigo, utm, confirmados, calce: { modo: empresa.calce, perfil } });
   const v27 = validarNivelV27(inf);
   if (v27 && inf._validador && Array.isArray(inf._validador.hallazgos)) {
     inf._validador.hallazgos = inf._validador.hallazgos.filter((h: any) => h?.regla !== 'V-27').concat(v27);
