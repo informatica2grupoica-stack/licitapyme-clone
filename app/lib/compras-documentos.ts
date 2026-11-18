@@ -11,6 +11,8 @@ import { generarInformePdf } from '@/app/lib/generar-informe';
 import { logoDeEmpresaPorRut } from '@/app/lib/compras-oc-propia';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { clienteDeNegocio } from '@/app/lib/tenant';
+import { listarProductosCompra } from '@/app/lib/compras';
+import { esSubestadoFuera } from '@/app/lib/compras-no-adjudicadas';
 import fs from 'fs';
 import path from 'path';
 
@@ -114,6 +116,19 @@ async function imagenComoUri(origen: string | null | undefined, local = false): 
   } catch { return null; }
 }
 
+/** Lo ya sabido de la entrega para llenar el acta: un artículo por línea (SKU | cantidad | formato | detalle) y el N° de la guía de despacho. */
+async function entregaSugerida(negocioId: number): Promise<{ items: string; guiaDespacho: string }> {
+  try {
+    const productos = (await listarProductosCompra(negocioId)).filter(p => !esSubestadoFuera(p.subestado) && !p.esServicio);
+    const [skus] = await pool.query('SELECT producto_id, sku_propio FROM compras_sku WHERE negocio_id = ? ORDER BY id', [negocioId]) as any;
+    const skuDe = new Map<number, string>(); for (const r of skus as any[]) if (r.sku_propio && !skuDe.has(r.producto_id)) skuDe.set(r.producto_id, String(r.sku_propio));
+    const limpia = (t: unknown) => String(t ?? '').replace(/[|\r\n]+/g, ' ').trim();
+    const items = productos.map(p => [skuDe.get(p.id) || '', p.cantidad ?? '', limpia(p.unidad), limpia(p.descripcion)].join(' | ')).join('\n');
+    const [g] = await pool.query('SELECT guia_despacho_numero FROM compras_entrega WHERE negocio_id = ? LIMIT 1', [negocioId]) as any;
+    return { items, guiaDespacho: String((g as any[])[0]?.guia_despacho_numero || '') };
+  } catch { return { items: '', guiaDespacho: '' }; }
+}
+
 async function empresaDelNegocio(negocioId: number) {
   const [rows] = await pool.query(
     `SELECT e.razon_social, e.rut, e.logo_url, e.logo_nombre, e.firma_url, e.timbre_url, e.representante_nombre, e.representante_rut, e.representante_cargo, n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo
@@ -159,7 +174,7 @@ export async function plantillasDelNegocio(negocioId: number): Promise<{ habilit
       logoUri: (/timbre/i.test(`${e.logo_nombre || ''} ${e.logo_url || ''}`) ? null : await imagenComoUri(e.logo_url)) || (await imagenComoUri(logoDeEmpresaPorRut(e.rut), true)),
       timbreUri: await imagenComoUri(e.timbre_url),
       firmaUri: await imagenComoUri(e.firma_url),
-      empresa: e.razon_social, rutEmpresa: e.rut, licitacionCodigo: e.licitacion_codigo || '', licitacionNombre: e.licitacion_nombre || '', organismo: e.licitacion_organismo || '', hoy: ahoraChileSQL().slice(0, 10) },
+      empresa: e.razon_social, rutEmpresa: e.rut, licitacionCodigo: e.licitacion_codigo || '', licitacionNombre: e.licitacion_nombre || '', organismo: e.licitacion_organismo || '', hoy: ahoraChileSQL().slice(0, 10), entregaSugerida: await entregaSugerida(negocioId) },
   };
 }
 

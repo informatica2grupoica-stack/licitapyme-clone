@@ -14,7 +14,7 @@ import { IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconDown
 
 interface Campo { clave: string; etiqueta: string; tipo: 'texto' | 'lista' | 'fecha' | 'tabla' | 'logo'; valorPorDefecto?: string; ayuda?: string; donde?: string }
 interface Plantilla { id: number; nombre: string; descripcion: string | null; porPersona: boolean; campos: Campo[]; cuerpoHtml: string; layout?: any; editable?: boolean }
-interface Contexto { logos?: Record<string, string>; logosOpciones?: { clave: string; nombre: string }[]; empresa: string; rutEmpresa: string; licitacionCodigo: string; licitacionNombre: string; organismo: string; hoy: string; representante?: string; representanteCargo?: string; logoUri?: string | null; firmaUri?: string | null; timbreUri?: string | null }
+interface Contexto { logos?: Record<string, string>; logosOpciones?: { clave: string; nombre: string }[]; empresa: string; rutEmpresa: string; licitacionCodigo: string; licitacionNombre: string; organismo: string; hoy: string; representante?: string; representanteCargo?: string; logoUri?: string | null; firmaUri?: string | null; timbreUri?: string | null; entregaSugerida?: { items: string; guiaDespacho: string } }
 interface Generado { id: number; titulo: string; plantillaNombre: string; personas: number; creadoPor: string | null; createdAt: string }
 interface Persona { nombre: string; rut: string }
 
@@ -53,7 +53,9 @@ export function GestionDocumentosCard({ negocioId }: { negocioId: number }) {
     const v: Record<string, string> = {};
     for (const c of p.campos) v[c.clave] = c.tipo === 'fecha' ? (ctx?.hoy || '') : (c.valorPorDefecto || '');
     // Lo que ya sabemos de la licitación entra escrito (editable), para que no se vea todo vacío.
-    if (ctx) { if ('nombre_licitacion' in v) v.nombre_licitacion = ctx.licitacionNombre; if ('unidad' in v) v.unidad = ctx.organismo; }
+    if (ctx) { if ('nombre_licitacion' in v) v.nombre_licitacion = ctx.licitacionNombre; if ('unidad' in v) v.unidad = ctx.organismo;
+      // Acta de entrega: los artículos (SKU, cantidad, detalle) y la guía de despacho ya registrados en Compras entran escritos, editables.
+      if (ctx.entregaSugerida) { if ('items' in v && !v.items) v.items = ctx.entregaSugerida.items; if ('guia_despacho' in v && !v.guia_despacho) v.guia_despacho = ctx.entregaSugerida.guiaDespacho; } }
     setValores(v); setPersonas([{ nombre: '', rut: '' }]); setElegida(p);
   };
 

@@ -11,7 +11,12 @@ Reglas técnicas: skill `multiempresa-escalable` (`.claude/skills/multiempresa-e
 
 ---
 
-## ▶ Próxima sesión: empieza aquí (dejado el 2026-11-18, la sesión se cortó a mitad de la Fase 3)
+## ▶ Próxima sesión: empieza aquí (actualizado el 2026-11-18: Fases 1, 2 y 3 PROBADAS en local; falta solo desplegar)
+
+**migration-197 YA APLICADA EN PRODUCCIÓN (2026-11-18; repetida sin cambios, idempotente). Queda commit + deploy.sh.** 
+
+**ESTADO FINAL (2026-11-18, tarde):** la BD local ya estaba limpia; `_probar_cruce_oc_empresas.mts` pasa 16/16 (el único ✘ era un bug del script: `metadata` llega como objeto, ahora usa JSON.stringify; el código de avisos estaba bien); tsc solo el error viejo de `.next/types/validator.ts`; 1.865/1.865 tests; aislamiento sin bloqueantes; `_probar_evaluacion_cola.mts` OK. **Lo que sigue es el deploy** (guía en el paso 4 de abajo). Los pasos 1-3 siguientes ya están HECHOS (se dejan como historia).
+
 
 **Qué se pidió (dueño, 2026-11-18):** planes Básico/Pro (Fase 1, HECHA), alta por RUT en cola (Fase 2, HECHA), **cruce de OC por empresa (Fase 3, CÓDIGO HECHO, FALTA PROBAR)**, y después desplegar. Pruebas en producción: después del deploy, con Claude in Chrome («el plugin de Google»); el dueño solo quiere que le digan qué probar.
 **Nada de esto está commiteado ni desplegado.** El dueño sube a git; no ofrecer commit.
@@ -145,6 +150,9 @@ Para cada módulo: tablas con dueño → todas sus rutas con chequeo de cliente 
 ---
 
 ## Bitácora
+
+## 2026-11-18 — Fase 3: cruce de OC por empresa, probado en local
+Código de la Fase 3 (ver lista arriba) verificado: OC al RUT de la empresa-cliente queda suya, al RUT de ICA sigue de ICA, del competidor sin dueño; avisos solo a la gente de cada empresa; listados y «nuestra» filtrados por empresa; segunda corrida sin avisos repetidos. Sin cambios de código en esta pasada (solo se corrigió el script de prueba). Falta: migration-197 en producción, commit y deploy.sh.
 
 ## 2026-11-18 — Fase 2: alta por RUT como cola que sobrevive a un deploy (migration-197)
 **Qué cambió:** `evaluar-empresa-rut.ts` reescrito como COLA en `cliente_evaluacion` (PENDIENTE → EN_CURSO → LISTO/ERROR) con el avance en `cursor` (JSON; **CURSOR es palabra reservada en MySQL: siempre con comillas invertidas**). Cada pasada trabaja ~4 min y guarda; un EN_CURSO sin señales hace 3 min se da por caído y se retoma; dos procesos no toman la misma (UPDATE con condición). La mueve `/api/cron/evaluar-empresas` (scheduler cada 5 min) y además arranca al tiro al encolar. Evalúa **todos los RUT** de la empresa (cada razón social activa de `empresas` + `clientes.rut`, sin repetir), junta las OC de todos y cuenta como ganadas las líneas de acta de cualquiera de sus RUT; guarda el `mp_codigo_proveedor` en cada razón social. Sin cupo de MP del día → PENDIENTE con `reintentar_at` = mañana (no es error); tope de IA → ERROR con el mensaje. Caché PÚBLICA nueva: `mp_oc_publica` (detalle de OC) y `mp_oc_proveedor_dia` (listado por proveedor de días ya cerrados, >2 días); las actas usan `adjudicacion_cache`. Alta en /admin/clientes: valida el dígito verificador, guarda el RUT con formato, **crea la razón social** de la empresa (si el RUT ya lo usa otra empresa y falta la migration-189, no se crea y se sigue con `clientes.rut`) y encola. «Volver a evaluar» re-encola (forzado). Mi empresa y el panel muestran «En cola…». Se corrigió que el panel mostraba `res.palabras` (no existía: son `sugeridas`).

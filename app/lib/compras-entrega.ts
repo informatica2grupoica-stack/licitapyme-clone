@@ -226,6 +226,33 @@ export async function firmarActa(negocioId: number, firma: FirmaDatos, conformid
   }
 }
 
+/** Escaneo del acta o de la guía firmada subido (compras_entrega_archivo): vale como la firma registrada a mano. Cierra las mismas tareas y,
+ *  cuando acta y guía están firmadas (a mano o por escaneo), cierra el ciclo; si se quita un escaneo y el ciclo deja de estar completo, lo reabre. */
+export async function aplicarEscaneoFirmado(negocioId: number, tipo: 'acta' | 'guia', quitado: boolean, escaneos: { acta: boolean; guia: boolean }, actorId: number, actorNombre: string | null): Promise<void> {
+  await asegurarFila(negocioId);
+  const actor = { id: actorId, nombre: actorNombre };
+  if (!quitado && tipo === 'acta') await cerrarTareaDeCatalogo(negocioId, 'acta_entrega_firmada', actor, 'Acta de entrega firmada subida (escaneo).');
+  if (!quitado && tipo === 'guia') {
+    await cerrarTareaDeCatalogo(negocioId, 'despacho_mercaderia', actor, 'Guía de despacho firmada subida (escaneo).');
+    if (await esEntregaTotal(negocioId)) {
+      await avanzarSubestados(negocioId, 'ENTREGADO', { desdeMinimo: 'COMPRADO', motivo: 'guía de despacho firmada subida (escaneo)', actorId, actorNombre });
+      await cerrarTareaDeCatalogo(negocioId, 'entrega_cliente', actor, 'Entregado: guía firmada subida (escaneo).');
+    }
+  }
+  const r = await filaEntrega(negocioId);
+  const completo = (!!r?.acta_firma_nombre || escaneos.acta) && (!!r?.guia_firma_nombre || escaneos.guia);
+  const ahora = ahoraChileSQL();
+  if (completo && !r?.cerrada_at) {
+    await pool.query(`UPDATE compras_entrega SET cerrada_at = ?, updated_at = ? WHERE negocio_id = ?`, [ahora, ahora, negocioId]);
+    await registrarEvento({
+      tipo: 'COMPRAS_ENTREGA_CERRADA', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
+      mensaje: 'Acta y guía firmadas — se cierra el ciclo de entrega (spec §16.7).', metadata: { negocio_id: negocioId },
+    });
+  } else if (!completo && r?.cerrada_at) {
+    await pool.query(`UPDATE compras_entrega SET cerrada_at = NULL, updated_at = ? WHERE negocio_id = ?`, [ahora, negocioId]);
+  }
+}
+
 /** §16.6 — nombre, RUT, cargo, fecha, recinto, recepción y timbre si es posible. */
 export async function firmarGuia(negocioId: number, firma: FirmaDatos, timbre: boolean, actorId: number, actorNombre: string | null): Promise<void> {
   validarFirma(firma);

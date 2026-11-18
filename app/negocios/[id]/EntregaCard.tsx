@@ -3,12 +3,15 @@
 // ENTREGA DEL PROYECTO Y ACTA (spec §16). Único documento oficial que genera el módulo. Secuencia:
 // verificación → números de OBUMA (nota de venta / guía) → generar acta → aprobar → firmar acta y
 // guía → cierre (§16.7, cuando ambas firmas existen).
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { Banner } from '@/app/components/ui/Banner';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
-import { IconPackage as PackageCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconSignature as FileSignature, IconPlus as Plus, IconX as X, IconTrash as Trash2 } from '@tabler/icons-react';
+import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
+import { MiniaturaDoc, urlInline } from './MiniaturaDoc';
+import { irAFase } from '@/app/compras/[negocioId]/comprasNavegacion';
+import { IconUpload as Upload, IconPackage as PackageCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconSignature as FileSignature, IconPlus as Plus, IconX as X, IconTrash as Trash2 } from '@tabler/icons-react';
 
 type Modalidad = 'TOTAL' | 'PARCIAL';
 interface FirmaDatos { nombre: string; rut: string; cargo: string; recinto: string; fecha: string }
@@ -19,6 +22,44 @@ interface Entrega {
   actaGeneradaAt: string | null; actaAprobadaPorNombre: string | null; actaAprobadaAt: string | null;
   actaConformidad: string | null; actaFirma: FirmaDatos | null; guiaFirma: FirmaDatos | null; guiaTimbre: boolean;
   cerradaAt: string | null; puntos: Punto[];
+}
+
+interface Escaneo { id: number; tipo: 'acta' | 'guia' | 'capacitacion'; archivoUrl: string; archivoNombre: string; subidoPorNombre: string | null; creadoAt: string }
+interface DocGenerado { id: number; titulo: string; plantillaNombre: string; createdAt: string }
+const esPdf = (n: string) => /.pdf$/i.test(n);
+
+/** Un documento firmado de la entrega: se sube el escaneo, se ve en miniatura y se puede quitar. */
+function CasillaEscaneo({ titulo, ayuda, tipo, escaneos, puedeOperar, subiendo, onSubir, onQuitar, onAbrir }: {
+  titulo: string; ayuda: string; tipo: Escaneo['tipo']; escaneos: Escaneo[]; puedeOperar: boolean; subiendo: boolean;
+  onSubir: (tipo: Escaneo['tipo'], f: File) => void; onQuitar: (id: number) => void; onAbrir: (d: VisorDoc) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const mios = escaneos.filter(e => e.tipo === tipo);
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11.5px] font-semibold text-zinc-700">{titulo} {mios.length > 0 && <span className="ml-1 text-[10.5px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">Cargada</span>}</p>
+        {puedeOperar && (
+          <>
+            <button onClick={() => input.current?.click()} disabled={subiendo} className="text-[11px] font-semibold text-teal-700 hover:text-teal-800 disabled:opacity-50 flex items-center gap-1">
+              {subiendo ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} {mios.length ? 'Subir otra' : 'Subir escaneo'}
+            </button>
+            <input ref={input} type="file" accept="application/pdf,image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) onSubir(tipo, f); e.target.value = ''; }} />
+          </>
+        )}
+      </div>
+      {mios.length === 0 ? <p className="text-[11px] text-zinc-400">{ayuda}</p> : (
+        <div className="flex flex-wrap gap-2">
+          {mios.map(e => (
+            <div key={e.id} className="relative">
+              <MiniaturaDoc src={esPdf(e.archivoNombre) ? urlInline(e.archivoUrl) : null} titulo={titulo} detalle={e.creadoAt} onAbrir={() => onAbrir({ nombre: e.archivoNombre, url: e.archivoUrl, titulo })} />
+              {puedeOperar && <button onClick={() => onQuitar(e.id)} aria-label="Quitar" title="Quitar" className="absolute top-1 right-1 p-1 rounded bg-white/90 text-zinc-400 hover:text-rose-600"><Trash2 size={12} /></button>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 const firmaVacia: FirmaDatos = { nombre: '', rut: '', cargo: '', recinto: '', fecha: '' };
@@ -82,6 +123,52 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
   }, [negocioId]);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  // Documentos firmados de la entrega (escaneos) y actas hechas en Gestionar documentos. Los hooks van antes del return temprano de abajo.
+  const [escaneos, setEscaneos] = useState<Escaneo[]>([]);
+  const [subiendoTipo, setSubiendoTipo] = useState<string | null>(null);
+  const [visor, setVisor] = useState<VisorDoc | null>(null);
+  const [actasGeneradas, setActasGeneradas] = useState<DocGenerado[]>([]);
+  const [hayPlantillas, setHayPlantillas] = useState(false);
+
+  const cargarDocumentos = useCallback(async () => {
+    try {
+      const [a, g] = await Promise.all([
+        fetch(`/api/compras/${negocioId}/entrega-archivos`).then(r => r.json()).catch(() => null),
+        fetch(`/api/compras/${negocioId}/documentos-generados`).then(r => r.json()).catch(() => null),
+      ]);
+      if (a?.success) setEscaneos(a.archivos || []);
+      if (g?.success && g.habilitado) {
+        setHayPlantillas(true);
+        setActasGeneradas((g.historial || []).filter((h: any) => /acta/i.test(h.plantillaNombre || h.titulo || '')));
+      }
+    } catch { /* la tarjeta sigue sirviendo sin esto */ }
+  }, [negocioId]);
+  useEffect(() => { cargarDocumentos(); }, [cargarDocumentos]);
+
+  const subirEscaneo = async (tipo: Escaneo['tipo'], f: File) => {
+    setSubiendoTipo(tipo);
+    try {
+      const fd = new FormData(); fd.append('file', f); fd.append('tipo', tipo);
+      const res = await fetch(`/api/compras/${negocioId}/entrega-archivos`, { method: 'POST', body: fd });
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'No se pudo subir');
+      setEscaneos(d.archivos || []);
+      toast.success('Documento cargado');
+      await cargar(); recargarCompartido();
+    } catch (e: any) { toast.error('No se pudo subir el documento', e.message); }
+    finally { setSubiendoTipo(null); }
+  };
+
+  const quitarEscaneo = async (id: number) => {
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/entrega-archivos?id=${id}`, { method: 'DELETE' });
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'No se pudo quitar');
+      setEscaneos(d.archivos || []);
+      await cargar(); recargarCompartido();
+    } catch (e: any) { toast.error('No se pudo quitar el documento', e.message); }
+  };
 
   const accion = async (body: Record<string, unknown>) => {
     setGuardando(true);
@@ -182,44 +269,80 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
             className="text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
         </div>
 
-        {/* Acta de entrega (§16.5) */}
-        <div className="pt-2 border-t border-zinc-100 space-y-2">
-          <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1"><FileSignature size={11} /> Acta de entrega</p>
-          {!entrega.actaGeneradaAt ? (
-            puedeOperar && <button onClick={() => accion({ accion: 'generar_acta' })} disabled={guardando} className="text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">Generar acta</button>
-          ) : !entrega.actaAprobadaAt ? (
-            <>
-              <Banner variante="info">Acta generada {entrega.actaGeneradaAt}.</Banner>
-              {puedeOperar && <button onClick={() => accion({ accion: 'aprobar_acta' })} disabled={guardando} className="text-[11.5px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">Aprobar acta (encargado de compras)</button>}
-            </>
-          ) : !entrega.actaFirma ? (
-            <>
-              <Banner variante="info">Acta aprobada por {entrega.actaAprobadaPorNombre} — lista para firmarse.</Banner>
-              {puedeOperar && (
-                <div className="space-y-1.5">
-                  <Select value={conformidad} onChange={v => setConformidad(v as any)} minWidth={140}
-                    options={[{ value: 'CONFORME', label: 'Conforme' }, { value: 'NO_CONFORME', label: 'No conforme' }]} />
-                  <FormFirma guardando={guardando} inicial={entrega.guiaFirma} onGuardar={f => accion({ accion: 'firmar_acta', firma: f, conformidad })} />
+        {/* Documentos de la entrega: el acta se genera formal en Gestionar documentos y lo firmado se carga acá (escaneo). */}
+        <div className="pt-2 border-t border-zinc-100 space-y-3">
+          <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1"><FileSignature size={11} /> Acta de entrega y documentos firmados</p>
+
+          {hayPlantillas && (
+            <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 p-2.5 space-y-2">
+              <p className="text-[11.5px] text-zinc-600">El acta se arma en <b>Gestionar documentos</b> (con los artículos y la guía ya cargados), se imprime y la firma el cliente. El escaneo firmado se sube abajo.</p>
+              {actasGeneradas.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {actasGeneradas.map(a => (
+                    <MiniaturaDoc key={a.id} src={`/api/compras/${negocioId}/documentos-generados?pdf=${a.id}`} titulo={a.plantillaNombre || a.titulo} detalle={a.createdAt.slice(0, 10)}
+                      onAbrir={() => setVisor({ nombre: `acta-${a.id}.pdf`, url: `/api/compras/${negocioId}/documentos-generados?pdf=${a.id}`, titulo: a.plantillaNombre || a.titulo })} />
+                  ))}
                 </div>
               )}
-            </>
-          ) : (
-            <p className="text-[11.5px] text-zinc-600">Firmado por <b>{entrega.actaFirma.nombre}</b> ({entrega.actaFirma.cargo}) — {entrega.actaConformidad === 'CONFORME' ? 'Conforme' : 'No conforme'}, {entrega.actaFirma.fecha}</p>
+              {puedeOperar && <button onClick={() => irAFase('gestion')} className="text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-2.5 py-1.5 rounded-lg">{actasGeneradas.length ? 'Ir a Gestionar documentos' : 'Generar el acta en Gestionar documentos'}</button>}
+            </div>
           )}
-        </div>
 
-        {/* Firma de la guía (§16.6) */}
-        <div className="pt-2 border-t border-zinc-100 space-y-2">
-          <p className="text-[10.5px] font-bold text-zinc-400 uppercase">Firma de la guía de despacho</p>
-          {!entrega.guiaFirma ? (
-            puedeOperar && <FormFirma guardando={guardando} inicial={entrega.actaFirma} onGuardar={f => accion({ accion: 'firmar_guia', firma: f, timbre: false })} />
-          ) : (
-            <p className="text-[11.5px] text-zinc-600">Firmada por <b>{entrega.guiaFirma.nombre}</b> ({entrega.guiaFirma.cargo}) — {entrega.guiaFirma.fecha}{entrega.guiaTimbre && ' · con timbre'}</p>
+          <CasillaEscaneo titulo="Acta de entrega firmada" tipo="acta" ayuda="Sube el acta con la firma y el timbre del cliente (PDF o foto). Al cargarla se da por hecha la tarea del acta."
+            escaneos={escaneos} puedeOperar={puedeOperar} subiendo={subiendoTipo === 'acta'} onSubir={subirEscaneo} onQuitar={quitarEscaneo} onAbrir={setVisor} />
+          <CasillaEscaneo titulo="Guía de despacho firmada" tipo="guia" ayuda="Sube la guía de despacho firmada por quien recibió. Al cargarla la entrega queda hecha."
+            escaneos={escaneos} puedeOperar={puedeOperar} subiendo={subiendoTipo === 'guia'} onSubir={subirEscaneo} onQuitar={quitarEscaneo} onAbrir={setVisor} />
+          <CasillaEscaneo titulo="Listado de asistentes a la capacitación" tipo="capacitacion" ayuda="Si hubo capacitación, sube el listado firmado por los asistentes."
+            escaneos={escaneos} puedeOperar={puedeOperar} subiendo={subiendoTipo === 'capacitacion'} onSubir={subirEscaneo} onQuitar={quitarEscaneo} onAbrir={setVisor} />
+
+          {(entrega.actaFirma || entrega.guiaFirma) && (
+            <div className="text-[11.5px] text-zinc-600 space-y-0.5">
+              {entrega.actaFirma && <p>Acta registrada a mano: <b>{entrega.actaFirma.nombre}</b> ({entrega.actaFirma.cargo}) — {entrega.actaConformidad === 'CONFORME' ? 'Conforme' : 'No conforme'}, {entrega.actaFirma.fecha}</p>}
+              {entrega.guiaFirma && <p>Guía registrada a mano: <b>{entrega.guiaFirma.nombre}</b> ({entrega.guiaFirma.cargo}) — {entrega.guiaFirma.fecha}{entrega.guiaTimbre && ' · con timbre'}</p>}
+            </div>
+          )}
+
+          {/* Forma anterior (acta interna + firma tecleada): queda para quien no tenga escaneo o no use plantillas. */}
+          {puedeOperar && (!entrega.actaFirma || !entrega.guiaFirma) && (
+            <details className="text-[11.5px]">
+              <summary className="cursor-pointer text-zinc-500 hover:text-zinc-700 font-semibold">Registrar la firma a mano (sin escaneo)</summary>
+              <div className="mt-2 space-y-3">
+                {!entrega.actaFirma && (
+                  <div className="space-y-2">
+                    <p className="text-[10.5px] font-bold text-zinc-400 uppercase">Acta interna</p>
+                    {!entrega.actaGeneradaAt ? (
+                      <button onClick={() => accion({ accion: 'generar_acta' })} disabled={guardando} className="text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">Generar acta</button>
+                    ) : !entrega.actaAprobadaAt ? (
+                      <>
+                        <Banner variante="info">Acta generada {entrega.actaGeneradaAt}.</Banner>
+                        <button onClick={() => accion({ accion: 'aprobar_acta' })} disabled={guardando} className="text-[11.5px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">Aprobar acta (encargado de compras)</button>
+                      </>
+                    ) : (
+                      <>
+                        <Banner variante="info">Acta aprobada por {entrega.actaAprobadaPorNombre} — lista para firmarse.</Banner>
+                        <div className="space-y-1.5">
+                          <Select value={conformidad} onChange={v => setConformidad(v as any)} minWidth={140}
+                            options={[{ value: 'CONFORME', label: 'Conforme' }, { value: 'NO_CONFORME', label: 'No conforme' }]} />
+                          <FormFirma guardando={guardando} inicial={entrega.guiaFirma} onGuardar={f => accion({ accion: 'firmar_acta', firma: f, conformidad })} />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+                {!entrega.guiaFirma && (
+                  <div className="space-y-2">
+                    <p className="text-[10.5px] font-bold text-zinc-400 uppercase">Firma de la guía de despacho</p>
+                    <FormFirma guardando={guardando} inicial={entrega.actaFirma} onGuardar={f => accion({ accion: 'firmar_guia', firma: f, timbre: false })} />
+                  </div>
+                )}
+              </div>
+            </details>
           )}
         </div>
 
         {entrega.cerradaAt && <Banner variante="success">Ciclo de entrega cerrado {entrega.cerradaAt}.</Banner>}
       </div>
+      <DocumentViewerModal doc={visor} onClose={() => setVisor(null)} />
     </div>
   );
 }

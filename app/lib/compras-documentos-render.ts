@@ -64,7 +64,7 @@ export function htmlLayout(layout: LayoutDoc): string {
 }
 export interface DocumentoGenerado { id: number; plantillaId: number; plantillaNombre: string; titulo: string; personas: number; creadoPor: string | null; createdAt: string }
 export interface LogoOpcion { clave: string; nombre: string }
-export interface ContextoDocumento { logos?: Record<string, string>; logosOpciones?: LogoOpcion[]; empresa: string; rutEmpresa: string; licitacionCodigo: string; licitacionNombre: string; organismo: string; hoy: string; representante?: string; representanteRut?: string; representanteCargo?: string; logoUri?: string | null; firmaUri?: string | null; timbreUri?: string | null }
+export interface ContextoDocumento { logos?: Record<string, string>; logosOpciones?: LogoOpcion[]; empresa: string; rutEmpresa: string; licitacionCodigo: string; licitacionNombre: string; organismo: string; hoy: string; representante?: string; representanteRut?: string; representanteCargo?: string; logoUri?: string | null; firmaUri?: string | null; timbreUri?: string | null; entregaSugerida?: { items: string; guiaDespacho: string } }
 export interface PersonaDoc { nombre: string; rut: string }
 
 const esc = (x: unknown) => String(x ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
