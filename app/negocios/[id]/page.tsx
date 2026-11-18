@@ -8,7 +8,9 @@ import { useToast }   from '@/app/components/ui/toast';
 import { useSession, tieneModulo } from '@/app/lib/session-context';
 import { ModuloBloqueadoPanel } from '@/app/components/ModuloBloqueadoPanel';
 import { ViabilidadIAPanel as ViabilidadIAPanelCliente } from '@/app/components/cv/viabilidad/ViabilidadIAPanel';
-import { getEstadoPipeline, esGanado, tieneResultado, normalizarEstado } from '@/app/lib/pipeline';
+import { getEstadoPipeline, esGanado, tieneResultado, normalizarEstado, claveVisibleDeNegocio } from '@/app/lib/pipeline';
+import { esClaveEtapa } from '@/app/lib/etapas-core';
+import { useEtapasPropias } from '@/app/lib/use-etapas-propias';
 import { estadoEfectivoCodigo, estadoEfectivoNombre } from '@/app/lib/estado-mp';
 
 // Colores del badge de estado de Mercado Público (por código efectivo).
@@ -63,6 +65,7 @@ interface Negocio {
   licitacion_region:    string | null;
   licitacion_descripcion: string | null;
   estado_pipeline:      string | null;
+  etapa_clave?:         string | null;   // etapa PROPIA de la empresa que se muestra (E<id>)
   monto_ofertado:       number;
   empresa_id:           number | null;
   empresa_nombre:       string | null;
@@ -214,6 +217,7 @@ function getTipo(codigo: string): string | null {
 
 // ── Pipeline Badge ─────────────────────────────────────────────────────────────
 function PipelineBadge({ estadoId }: { estadoId: string | null }) {
+  useEtapasPropias();
   const estado = getEstadoPipeline(estadoId);
   if (!estado) return null;
   return (
@@ -734,7 +738,7 @@ function DetalleContent() {
   // Sincroniza estado_pipeline en pantalla tras un cambio hecho DESDE otro flujo (comentario con
   // cambio de etapa adjunto). El PATCH real ya lo hizo /api/negocios/[id]/comentarios.
   const sincronizarEstadoPipeline = (estadoId: string) =>
-    setNegocio(prev => prev ? { ...prev, estado_pipeline: estadoId } : prev);
+    setNegocio(prev => prev ? { ...prev, estado_pipeline: normalizarEstado(estadoId), etapa_clave: esClaveEtapa(estadoId) ? estadoId : null } : prev);
 
   // Costeo y Auditor Técnico eran 100% admin-only "mientras se seguía trabajando" (24-jul-2026).
   // 28-sep-2026, pedido explícito: en vez de abrirlos a todos, cada uno se habilita por separado a
@@ -1029,7 +1033,7 @@ function DetalleContent() {
                   <ComentariosSection
                     codigoDecoded={negocio.licitacion_codigo}
                     negocioId={negocio.id}
-                    estadoActual={negocio.estado_pipeline}
+                    estadoActual={claveVisibleDeNegocio(negocio)}
                     isAdmin={isAdmin}
                     onEstadoChanged={sincronizarEstadoPipeline}
                   />

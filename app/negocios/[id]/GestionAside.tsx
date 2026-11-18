@@ -14,7 +14,9 @@ import { IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCheck a
 import { Select } from '@/app/components/ui/Select';
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
-import { ESTADOS_PIPELINE, getEstadoPipeline, normalizarEstado, puedeCambiarEstadoPipeline } from '@/app/lib/pipeline';
+import { estadosParaSelector, getEstadoPipeline, normalizarEstado, puedeCambiarEstadoPipeline, claveVisibleDeNegocio } from '@/app/lib/pipeline';
+import { esClaveEtapa } from '@/app/lib/etapas-core';
+import { useEtapasPropias } from '@/app/lib/use-etapas-propias';
 import { semaforoRevision } from '@/app/lib/asignacion';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { motivosParaEstado, nivelPorEstado, NIVEL_LABEL, componerMotivo } from '@/app/lib/motivos-descarte';
@@ -204,6 +206,7 @@ export function HistorialLicitacion({ eventos }: { eventos: EventoLic[] }) {
 
 // ── Pipeline Selector ─────────────────────────────────────────────────────────
 function PipelineSelector({ current, onChange, isAdmin }: { current: string | null; onChange: (id: string) => void; isAdmin: boolean }) {
+  useEtapasPropias(); // etapas propias de la empresa: se repinta al cargarlas
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const estado = getEstadoPipeline(current);
@@ -228,7 +231,7 @@ function PipelineSelector({ current, onChange, isAdmin }: { current: string | nu
       </button>
       {open && (
         <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-zinc-200 rounded-xl shadow-xl z-50 overflow-hidden scale-in max-h-72 overflow-y-auto">
-          {ESTADOS_PIPELINE.map(est => {
+          {estadosParaSelector().map(est => {
             const chequeo = puedeCambiarEstadoPipeline(current, est.id, isAdmin);
             return (
               <button key={est.id} disabled={!chequeo.permitido}
@@ -259,6 +262,7 @@ export interface NegocioGestion {
   licitacion_monto: number | null;
   licitacion_cierre: string | null;
   estado_pipeline: string | null;
+  etapa_clave?: string | null;   // etapa PROPIA de la empresa que se muestra (E<id>), si tiene una vigente
   monto_ofertado: number;
   empresa_id: number | null;
   empresa_nombre: string | null;
@@ -299,6 +303,7 @@ export function GestionAside({
   const [motivoSel, setMotivoSel] = useState('');
   const [motivoDescarte, setMotivoDescarte] = useState('');
   const [postularOpen, setPostularOpen] = useState(false);
+  const [etapaPostular, setEtapaPostular] = useState('');   // etapa propia (E<id>) con la que se postula, si eligió una que equivale a Postulada
   const [montoPostular, setMontoPostular] = useState('');
   const [empresaPostular, setEmpresaPostular] = useState('');
   const [empresas, setEmpresas] = useState<{ id: number; razon_social: string }[]>([]);
@@ -335,20 +340,22 @@ export function GestionAside({
 
   const cambiarEstado = async (estadoId: string, motivo?: string) => {
     // "En proceso" EXIGE viabilidad IA realizada (el servidor tiene el mismo guard).
-    if (estadoId === 'EN_PROCESO' && !viabIA) {
+    const base = normalizarEstado(estadoId);   // una etapa propia (E<id>) se comporta como su etapa base
+    if (base === 'EN_PROCESO' && !viabIA) {
       toast.error('Primero realiza la viabilidad IA', 'El análisis de viabilidad debe estar hecho antes de pasar a "En proceso".');
       onIrAViabilidad?.();
       return;
     }
     if (estadoId === 'DESCARTADA' && !motivo) { setDescarteOpen(true); return; }
-    if (estadoId === 'POSTULADA') {
+    if (base === 'POSTULADA') {
+      setEtapaPostular(estadoId);
       setMontoPostular(String(negocio.monto_ofertado || ''));
       setEmpresaPostular(String(negocio.empresa_id || ''));
       setPostularOpen(true);
       return;
     }
-    const estadoAnterior = negocio.estado_pipeline;
-    onNegocioChange({ estado_pipeline: estadoId || null });
+    const estadoAnterior = { estado_pipeline: negocio.estado_pipeline, etapa_clave: negocio.etapa_clave ?? null };
+    onNegocioChange({ estado_pipeline: estadoId ? base : null, etapa_clave: esClaveEtapa(estadoId) ? estadoId : null });
     try {
       const res = await fetch(`/api/negocios/${negocio.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -357,7 +364,7 @@ export function GestionAside({
       const data = await res.json();
       if (data.migration_needed) {
         toast.error('Falta ejecutar migration-4-pipeline.sql en Bluehost phpMyAdmin');
-        onNegocioChange({ estado_pipeline: estadoAnterior });
+        onNegocioChange(estadoAnterior);
         return;
       }
       if (!res.ok) throw new Error(data.error || 'Error');
@@ -365,7 +372,7 @@ export function GestionAside({
       toast.success(estadoInfo ? `Etapa: ${estadoInfo.label}` : 'Etapa removida');
       fetchHistorial();
     } catch (e: any) {
-      onNegocioChange({ estado_pipeline: estadoAnterior });
+      onNegocioChange(estadoAnterior);
       toast.error('Error al actualizar etapa', e?.message);
     }
   };
@@ -393,20 +400,20 @@ export function GestionAside({
     setPostularOpen(false);
     const empresaId = empresaPostular ? Number(empresaPostular) : null;
     const empresaNombre = empresas.find(e => e.id === empresaId)?.razon_social ?? null;
-    const estadoAnterior = negocio.estado_pipeline;
+    const estadoAnterior = { estado_pipeline: negocio.estado_pipeline, etapa_clave: negocio.etapa_clave ?? null };
     const montoAnterior = negocio.monto_ofertado;
     const empresaAnterior = { id: negocio.empresa_id, nombre: negocio.empresa_nombre };
-    onNegocioChange({ estado_pipeline: 'POSTULADA', monto_ofertado: monto, empresa_id: empresaId, empresa_nombre: empresaNombre });
+    onNegocioChange({ estado_pipeline: 'POSTULADA', etapa_clave: esClaveEtapa(etapaPostular) ? etapaPostular : null, monto_ofertado: monto, empresa_id: empresaId, empresa_nombre: empresaNombre });
     try {
       const res = await fetch(`/api/negocios/${negocio.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ estado_pipeline: 'POSTULADA', monto_ofertado: monto, empresa_id: empresaId }),
+        body: JSON.stringify({ estado_pipeline: etapaPostular || 'POSTULADA', monto_ofertado: monto, empresa_id: empresaId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error');
       toast.success('Marcada como Postulada');
     } catch (e: any) {
-      onNegocioChange({ estado_pipeline: estadoAnterior, monto_ofertado: montoAnterior, empresa_id: empresaAnterior.id, empresa_nombre: empresaAnterior.nombre });
+      onNegocioChange({ ...estadoAnterior, monto_ofertado: montoAnterior, empresa_id: empresaAnterior.id, empresa_nombre: empresaAnterior.nombre });
       toast.error('Error al postular', e?.message);
     }
   };
@@ -452,7 +459,7 @@ export function GestionAside({
     <div className="flex items-center gap-x-4 gap-y-3 flex-wrap bg-white dark:bg-slate-900 border border-linea dark:border-slate-800 rounded-xl shadow-tarjeta px-4 py-2.5">
       <div className="w-44">
         <span className={rotulo}>Estado</span>
-        <div className="mt-0.5"><PipelineSelector current={negocio.estado_pipeline} onChange={cambiarEstado} isAdmin={isAdmin} /></div>
+        <div className="mt-0.5"><PipelineSelector current={claveVisibleDeNegocio(negocio)} onChange={cambiarEstado} isAdmin={isAdmin} /></div>
       </div>
 
       <div className="flex items-center gap-2 self-end">
@@ -610,7 +617,7 @@ export function GestionAside({
 
         <div>
           <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Estado</p>
-          <PipelineSelector current={negocio.estado_pipeline} onChange={cambiarEstado} isAdmin={isAdmin} />
+          <PipelineSelector current={claveVisibleDeNegocio(negocio)} onChange={cambiarEstado} isAdmin={isAdmin} />
           <div className="flex gap-1.5 mt-2">
             {negocio.estado_pipeline !== 'EN_PROCESO' && (
               <button onClick={() => cambiarEstado('EN_PROCESO')}

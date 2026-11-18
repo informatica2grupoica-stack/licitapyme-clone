@@ -7,7 +7,8 @@ import { IconMessage as MessageSquare, IconSend as Send, IconLoader2 as Loader2,
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
 import { formatDateTime } from '../utils';
-import { ESTADOS_PIPELINE, getEstadoPipeline, puedeCambiarEstadoPipeline } from '@/app/lib/pipeline';
+import { estadosParaSelector, getEstadoPipeline, puedeCambiarEstadoPipeline } from '@/app/lib/pipeline';
+import { useEtapasPropias } from '@/app/lib/use-etapas-propias';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { Boton } from '@/app/components/ui/kit/Boton';
 
@@ -59,6 +60,7 @@ interface ComentariosSectionProps {
 }
 
 export function ComentariosSection({ codigoDecoded, negocioId, estadoActual, isAdmin, onEstadoChanged }: ComentariosSectionProps) {
+  useEtapasPropias(); // etapas propias de la empresa: se repinta al cargarlas
   const { usuario } = useSession();
   const { success: toastSuccess, error: toastError } = useToast();
   const [comentarios, setComentarios] = useState<Comentario[]>([]);
@@ -238,7 +240,7 @@ export function ComentariosSection({ codigoDecoded, negocioId, estadoActual, isA
                     >
                       Sin cambio de etapa
                     </button>
-                    {ESTADOS_PIPELINE.map(est => {
+                    {estadosParaSelector().map(est => {
                       const sel = pipelineSel === est.id;
                       const chequeo = puedeCambiarEstadoPipeline(estadoActual, est.id, !!isAdmin);
                       return (

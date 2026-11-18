@@ -5,6 +5,7 @@
 import { AppLayout } from '@/app/components/AppLayout';
 import { ConfigurarEmpresa } from '@/app/components/ConfigurarEmpresa';
 import { IntegracionesEmpresa } from '@/app/components/IntegracionesEmpresa';
+import { EtapasEmpresa } from '@/app/components/EtapasEmpresa';
 
 export default function MiEmpresaPage() {
   return (
@@ -15,6 +16,7 @@ export default function MiEmpresaPage() {
           <p className="text-sm text-slate-500">Revisamos lo que ya le vendiste al Estado y te proponemos tus palabras clave y tu perfil. Marca lo que sirva, corrige lo que no y guarda.</p>
         </header>
         <ConfigurarEmpresa />
+        <EtapasEmpresa />
         <IntegracionesEmpresa />
       </div>
     </AppLayout>

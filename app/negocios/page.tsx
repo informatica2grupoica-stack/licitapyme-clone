@@ -11,7 +11,8 @@ import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { IconBriefcase as Briefcase, IconPlus as Plus, IconSearch as Search, IconTrash as Trash2, IconCalendar as Calendar, IconCurrencyDollar as DollarSign, IconAlertCircle as AlertCircle, IconLoader2 as Loader2, IconChevronDown as ChevronDown, IconX as X, IconRefresh as RefreshCw, IconUsers as Users, IconList as List, IconLayoutGrid as LayoutGrid, IconCalendarWeek as CalendarDays, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconArrowRight as ArrowRight, IconFileText as FileText, IconAdjustmentsHorizontal as SlidersHorizontal, IconClock as Clock, IconCheck as Check, IconDownload as Download, IconSortAscending2 as ArrowUpNarrowWide, IconSortDescending2 as ArrowDownWideNarrow, IconTrophy as Trophy } from '@tabler/icons-react';
 import dayjs from 'dayjs';
-import { getEstadoPipeline, ESTADOS_PIPELINE, normalizarEstado } from '@/app/lib/pipeline';
+import { getEstadoPipeline, ESTADOS_PIPELINE, normalizarEstado, claveVisibleDeNegocio } from '@/app/lib/pipeline';
+import { useEtapasPropias } from '@/app/lib/use-etapas-propias';
 import { estadoEfectivoNombre } from '@/app/lib/estado-mp';
 import { extractTipoFromCodigo, getTipoLicitacion, TIPOS_LICITACION } from '@/app/lib/tipos-licitacion';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
@@ -33,6 +34,7 @@ interface Negocio {
   licitacion_tipo: string | null;
   licitacion_region: string | null;
   estado_pipeline: string | null;
+  etapa_clave?: string | null;   // etapa PROPIA de la empresa que se muestra (E<id>)
   monto_ofertado: number;
   usuario_nombre: string;
   usuario_email: string;
@@ -104,6 +106,7 @@ function viabilidadDe(n: Negocio): { label: string; color: string; puntaje: numb
 const TIPOS_FILTRO = TIPOS_LICITACION.map(t => t.codigo);
 
 function PipelineBadge({ estadoId }: { estadoId: string | null }) {
+  useEtapasPropias();
   const e = getEstadoPipeline(estadoId || 'ASIGNADO');
   if (!e) return null;
   return (
@@ -385,7 +388,7 @@ function NegocioCard({ neg, isAdmin, onEliminar }: {
         {neg.licitacion_nombre || 'Sin nombre'}
       </p>
       <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-        <PipelineBadge estadoId={neg.estado_pipeline} />
+        <PipelineBadge estadoId={claveVisibleDeNegocio(neg)} />
         <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} />
         {viab && (
           <span
@@ -475,7 +478,7 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
           {neg.licitacion_nombre || neg.licitacion_codigo}
         </p>
         <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-          <PipelineBadge estadoId={neg.estado_pipeline} />
+          <PipelineBadge estadoId={claveVisibleDeNegocio(neg)} />
           <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} adjEsAdjudicada={neg.adj_es_adjudicada} adjGanamos={neg.adj_ganamos} />
           {neg.licitacion_organismo && (
             <span className="text-[10.5px] text-slate-500 truncate max-w-[240px]" title={neg.licitacion_organismo}>{neg.licitacion_organismo}</span>
@@ -874,7 +877,7 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
       : horas < 1 ? 'Cambio de etapa hace menos de 1 h' : `${horas} h sin cambios de etapa`;
   }
   // Tinte de la tarjeta = color de la etapa del pipeline (suave, para que el texto se lea igual).
-  const colorEtapa = getEstadoPipeline(neg.estado_pipeline || 'ASIGNADO')?.color || '#94a3b8';
+  const colorEtapa = getEstadoPipeline(claveVisibleDeNegocio(neg))?.color || '#94a3b8';
 
   return (
     <button
@@ -917,7 +920,7 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
       <dl className="mt-3 pt-3 border-t border-[color-mix(in_srgb,var(--etapa)_22%,white)] grid grid-cols-2 gap-x-3 gap-y-2">
         <div>
           <dt className="text-[11px] text-slate-500">Etapa</dt>
-          <dd className="mt-0.5"><PipelineBadge estadoId={neg.estado_pipeline} /></dd>
+          <dd className="mt-0.5"><PipelineBadge estadoId={claveVisibleDeNegocio(neg)} /></dd>
         </div>
         {viab && (
           <div>
@@ -991,7 +994,7 @@ function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Nego
   const col    = colorUsuario(neg.usuario_email || neg.usuario_nombre);
   const cierre = neg.licitacion_cierre ? dayjs(neg.licitacion_cierre) : null;
   const dias   = cierre ? diasCalendarioChile(neg.licitacion_cierre) : null;
-  const e = getEstadoPipeline(neg.estado_pipeline || 'ASIGNADO');
+  const e = getEstadoPipeline(claveVisibleDeNegocio(neg));
   const viab = viabilidadDe(neg);
   const inf  = extra?.viabilidad_informe;
 
@@ -1516,7 +1519,7 @@ function NegociosContent() {
         'Aperturada':        n.aperturada ? 'Sí' : 'No',
         'Apertura detectada (fecha)': apertura.fecha,
         'Apertura detectada (hora)':  apertura.hora,
-        'Estado gestión':    getEstadoPipeline(n.estado_pipeline || 'ASIGNADO')?.label || n.estado_pipeline || '',
+        'Estado gestión':    getEstadoPipeline(claveVisibleDeNegocio(n))?.label || n.estado_pipeline || '',
         'Viabilidad':        viabilidadDe(n)?.label ?? (n.viabilidad_semaforo || ''),
         'Score viabilidad':  n.viabilidad_score ?? '',
         'Tiene documentos':  n.tiene_documentos ? 'Sí' : 'No',
@@ -1865,7 +1868,7 @@ function NegociosContent() {
                         <div className="flex items-center gap-1.5 mb-1.5">
                           <span className="text-xs font-mono text-slate-400">{neg.licitacion_codigo}</span>
                           {tipo && <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-semibold">{tipo}</span>}
-                          <PipelineBadge estadoId={neg.estado_pipeline} />
+                          <PipelineBadge estadoId={claveVisibleDeNegocio(neg)} />
                           <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} />
                         </div>
                         <p className="text-sm font-semibold text-slate-800 line-clamp-2">{neg.licitacion_nombre || 'Sin nombre'}</p>

@@ -68,6 +68,7 @@ export async function GET(request: NextRequest) {
            n.licitacion_monto, n.licitacion_cierre, n.fecha_fin_preguntas, n.licitacion_estado,
            n.licitacion_tipo, n.licitacion_region, n.monto_ofertado,
            COALESCE(n.estado_pipeline, 'ASIGNADO') AS estado_pipeline,
+           (SELECT CONCAT('E', ec.id) FROM etapas_cliente ec WHERE ec.id = n.etapa_id AND ec.activo = 1 AND ec.base = n.estado_pipeline COLLATE utf8mb4_general_ci) AS etapa_clave,
            n.empresa_id, emp.razon_social AS empresa_nombre,
            n.created_at, n.updated_at,
            u.nombre AS usuario_nombre, u.email AS usuario_email,

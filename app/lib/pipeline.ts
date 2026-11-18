@@ -6,6 +6,8 @@
 // texto visible (puede llevar espacios). Nunca comparar/guardar por el label:
 // siempre por el id. La columna negocios.estado_pipeline guarda el id.
 
+import { type EtapaPropia, claveEtapa, esClaveEtapa, idDeClave } from './etapas-core';
+
 export interface EstadoPipeline {
   id:    string;
   label: string;
@@ -61,9 +63,35 @@ const ALIAS_LEGADO: Record<string, string> = {
 // Clave por DEFECTO cuando un negocio no tiene estado_pipeline.
 export const ESTADO_DEFECTO = 'ASIGNADO';
 
-// Normaliza cualquier id (nuevo o legado) a la clave vigente.
+// ─── Etapas propias de la empresa (migration-199) ─────────────────────────────────────────
+// Cada empresa puede crear etapas con su nombre y color; cada una EQUIVALE a una etapa base del sistema, que es lo que se guarda en
+// negocios.estado_pipeline (así alertas, KPIs y cron no cambian). La pantalla las identifica con la clave `E<id>`. El navegador carga
+// la lista de su empresa una vez (use-etapas-propias.ts) y la registra aquí; en el servidor el registro queda vacío y cada ruta traduce
+// la clave con resolverClaveEtapa() (etapas-cliente.ts).
+let ETAPAS_PROPIAS: EtapaPropia[] = [];
+export function registrarEtapasPropias(lista: EtapaPropia[]) { ETAPAS_PROPIAS = lista; }
+export function etapasPropiasRegistradas(): EtapaPropia[] { return ETAPAS_PROPIAS; }
+
+/** Etapas para un selector: las del sistema, y cada etapa propia justo después de la etapa del sistema a la que equivale. */
+export function estadosParaSelector(): EstadoPipeline[] {
+  const propias = ETAPAS_PROPIAS.slice().sort((a, b) => a.orden - b.orden);
+  const salida: EstadoPipeline[] = [];
+  for (const e of ESTADOS_PIPELINE) {
+    salida.push(e);
+    for (const p of propias) if (p.base === e.id) salida.push({ id: claveEtapa(p.id), label: p.nombre.toUpperCase(), color: p.color });
+  }
+  return salida;
+}
+
+/** Clave que se MUESTRA de un negocio: su etapa propia si tiene una vigente (de acuerdo con su etapa base), si no la del sistema. */
+export function claveVisibleDeNegocio(n: { estado_pipeline?: string | null; etapa_clave?: string | null }): string {
+  return n.etapa_clave || n.estado_pipeline || ESTADO_DEFECTO;
+}
+
+// Normaliza cualquier id (nuevo o legado) a la clave vigente. Una etapa propia (`E<id>`) se normaliza a su etapa base.
 export function normalizarEstado(id: string | null | undefined): string {
   if (!id) return ESTADO_DEFECTO;
+  if (esClaveEtapa(id)) return ETAPAS_PROPIAS.find(e => e.id === idDeClave(id))?.base ?? id;
   return ALIAS_LEGADO[id] ?? id;
 }
 
@@ -97,6 +125,11 @@ export function tieneResultado(_id: string | null | undefined): boolean {
 
 export function getEstadoPipeline(id: string | null | undefined): EstadoPipeline | null {
   if (!id) return null;
+  if (esClaveEtapa(id)) {
+    const p = ETAPAS_PROPIAS.find(e => e.id === idDeClave(id));
+    // Etapa borrada o aún sin cargar: se muestra la etapa del sistema a la que equivalía, si se conoce
+    return p ? { id, label: p.nombre.toUpperCase(), color: p.color } : null;
+  }
   const key = ALIAS_LEGADO[id] ?? id;
   return ESTADOS_PIPELINE.find(e => e.id === key) ?? null;
 }

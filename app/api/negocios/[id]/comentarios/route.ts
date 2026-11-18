@@ -1,6 +1,7 @@
 // app/api/negocios/[id]/comentarios/route.ts
 // Hilo de comentarios de un negocio
 // pipeline_estado: cuando se envía, también actualiza negocios.estado_pipeline
+import { resolverClaveEtapa } from '@/app/lib/etapas-cliente';
 import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import { negocioEsDeMiEmpresa } from '@/app/lib/tenant';
@@ -89,7 +90,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     // Verificar acceso
     const [negRows] = await pool.query(
-      `SELECT asignado_a, licitacion_codigo, licitacion_nombre, estado_pipeline FROM negocios WHERE id = ? AND activo = TRUE`, [id]
+      `SELECT asignado_a, cliente_id, licitacion_codigo, licitacion_nombre, estado_pipeline FROM negocios WHERE id = ? AND activo = TRUE`, [id]
     ) as any;
     if (!(negRows as any[]).length)
       return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
@@ -97,10 +98,19 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
+    // Etapa propia de la empresa (`E<id>`, migration-199): la lógica usa su etapa BASE; el comentario guarda la clave tal cual para mostrarla.
+    let estadoBase: string | null = pipeline_estado || null;
+    let etapaIdNueva: number | null = null;
+    if (pipeline_estado) {
+      const r = await resolverClaveEtapa(Number(negocio.cliente_id ?? 1), pipeline_estado);
+      if ('error' in r) return NextResponse.json({ error: r.error }, { status: 400 });
+      estadoBase = r.base; etapaIdNueva = r.etapaId;
+    }
+
     // Los asistentes (no admin) solo pueden AVANZAR en el pipeline al comentar — misma regla
     // que el PATCH de /api/negocios/[id] (ver puedeCambiarEstadoPipeline).
     if (pipeline_estado && rol !== 'admin') {
-      const chequeo = puedeCambiarEstadoPipeline(negocio.estado_pipeline, pipeline_estado, false);
+      const chequeo = puedeCambiarEstadoPipeline(negocio.estado_pipeline, estadoBase, false);
       if (!chequeo.permitido) {
         return NextResponse.json({ error: chequeo.motivo }, { status: 403 });
       }
@@ -131,8 +141,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (pipeline_estado) {
       try {
         await pool.query(
-          `UPDATE negocios SET estado_pipeline = ?, updated_at = ? WHERE id = ?`,
-          [pipeline_estado, ahoraChileSQL(), id]
+          `UPDATE negocios SET estado_pipeline = ?, etapa_id = ?, updated_at = ? WHERE id = ?`,
+          [estadoBase, etapaIdNueva, ahoraChileSQL(), id]
         );
         nuevoEstado = pipeline_estado;
       } catch {
@@ -147,14 +157,14 @@ export async function POST(request: NextRequest, { params }: Params) {
       usuarioId: userId, accion: 'comentario_negocio',
       entidadTipo: 'negocio', entidadId: String(id),
       descripcion: `Comentó en "${negocio.licitacion_nombre || negocio.licitacion_codigo}"`,
-      metadata: { licitacion_codigo: negocio.licitacion_codigo, comentario: comentario.trim().slice(0, 200), pipeline_estado: nuevoEstado },
+      metadata: { licitacion_codigo: negocio.licitacion_codigo, comentario: comentario.trim().slice(0, 200), pipeline_estado: estadoBase && nuevoEstado ? estadoBase : nuevoEstado },
     });
     if (nuevoEstado) {
       registrarActividad({
         usuarioId: userId, accion: 'cambio_pipeline',
         entidadTipo: 'negocio', entidadId: String(id),
-        descripcion: `Cambió el estado de "${negocio.licitacion_nombre || negocio.licitacion_codigo}" a ${nuevoEstado}`,
-        metadata: { licitacion_codigo: negocio.licitacion_codigo, estado_pipeline: nuevoEstado },
+        descripcion: `Cambió el estado de "${negocio.licitacion_nombre || negocio.licitacion_codigo}" a ${estadoBase}`,
+        metadata: { licitacion_codigo: negocio.licitacion_codigo, estado_pipeline: estadoBase },
       });
     }
 

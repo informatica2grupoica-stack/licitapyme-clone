@@ -9,6 +9,7 @@ import { registrarEvento } from '@/app/lib/historial';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { enviarCorreoCambio, enviarCorreoAsignacion, enviarCorreoEtapaAnexos } from '@/app/lib/email';
 import { getEstadoPipeline, normalizarEstado, puedeCambiarEstadoPipeline } from '@/app/lib/pipeline';
+import { resolverClaveEtapa } from '@/app/lib/etapas-cliente';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 import { congelarAuditorSiCorresponde } from '@/app/lib/congelamiento';
 import { sincronizarPrecompraConEstado } from '@/app/lib/compras';
@@ -98,6 +99,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     const [rows] = await pool.query(
       `SELECT n.*,
               COALESCE(n.estado_pipeline, 'ASIGNADO') AS estado_pipeline,
+              (SELECT CONCAT('E', ec.id) FROM etapas_cliente ec WHERE ec.id = n.etapa_id AND ec.activo = 1 AND ec.base = n.estado_pipeline COLLATE utf8mb4_general_ci) AS etapa_clave,
               u.nombre AS usuario_nombre, u.email AS usuario_email,
               a.nombre AS admin_nombre,
               d.nombre AS descarte_por_nombre
@@ -207,7 +209,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
   try {
     const body = await request.json();
-    const { monto_ofertado, etiqueta_ids, estado_pipeline, asignado_a, empresa_id } = body;
+    const { monto_ofertado, etiqueta_ids, estado_pipeline: estadoPedido, asignado_a, empresa_id } = body;
+    let estado_pipeline: string | null | undefined = estadoPedido;   // desde aquí: la etapa BASE del sistema (la etapa propia se traduce abajo)
+    let etapaIdNueva: number | null = null;
     const motivo = typeof body.motivo === 'string' ? body.motivo.trim() : '';
 
     // Multi-cliente: lo que llega en el cuerpo (a quién reasignar, con qué empresa postular, qué etiquetas) debe ser de la MISMA empresa.
@@ -231,6 +235,15 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     const neg = (rows as any[])[0];
     if (rol !== 'admin' && neg.asignado_a !== userId)
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
+
+    // Etapa PROPIA de la empresa (`E<id>`, migration-199): se guarda su etapa base en estado_pipeline (así toda la lógica sigue igual)
+    // y cuál etapa propia es en etapa_id. Una etapa de otra empresa se rechaza.
+    if (estadoPedido !== undefined) {
+      const r = await resolverClaveEtapa(Number(neg.cliente_id ?? clienteDeHeader(request)), estadoPedido || null);
+      if ('error' in r) return NextResponse.json({ error: r.error }, { status: 400 });
+      estado_pipeline = r.base ?? (estadoPedido || null);
+      etapaIdNueva = r.etapaId;
+    }
 
     // Cambios de esta petición → un correo consolidado al perfil asignado (al final).
     const cambios: { tipo: string; detalle: string }[] = [];
@@ -316,7 +329,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         const ahora = ahoraChileSQL();
         if (estado_pipeline === 'DESCARTADA') {
           await pool.query(
-            `UPDATE negocios SET estado_pipeline = 'DESCARTADA', descarte_motivo = ?,
+            `UPDATE negocios SET estado_pipeline = 'DESCARTADA', etapa_id = NULL, descarte_motivo = ?,
                     descarte_por = ?, descarte_at = ?, updated_at = ? WHERE id = ?`,
             [motivo.slice(0, 500), userId, ahora, ahora, id]
           );
@@ -330,9 +343,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         } else {
           // Cualquier otro estado limpia los metadatos de descarte previos.
           await pool.query(
-            `UPDATE negocios SET estado_pipeline = ?, descarte_motivo = NULL,
+            `UPDATE negocios SET estado_pipeline = ?, etapa_id = ?, descarte_motivo = NULL,
                     descarte_por = NULL, descarte_at = NULL, updated_at = ? WHERE id = ?`,
-            [estado_pipeline || null, ahora, id]
+            [estado_pipeline || null, etapaIdNueva, ahora, id]
           );
         }
         registrarActividad({
