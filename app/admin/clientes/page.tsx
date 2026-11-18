@@ -121,7 +121,7 @@ const PESTANAS: { valor: Tab; etiqueta: string }[] = [
 ];
 // Lo que trae cada plan, en palabras del cliente (no los nombres internos de los módulos).
 const BASICO_INCLUYE = ['Dashboard', 'Buscador', 'Radar y Puente', 'Negocios', 'Postuladas', 'Ganadas y perdidas', 'Descartadas', 'Órdenes de compra', 'Empresas', 'Avisos por WhatsApp', 'Administración de su empresa (equipo y datos)'];
-const PRO_SUMA = ['Viabilidad IA', 'Resultado', 'Costeo', 'Auditor, Postulación y Ofertas de la competencia (cuando estén disponibles)'];
+const PRO_SUMA = ['Viabilidad IA y sus criterios de evaluación', 'Resultado', 'Costeo', 'Auditor con aprobación simple'];
 
 const DIA = 86400000;
 function diasHasta(f: string | null): number | null {
@@ -556,7 +556,7 @@ export default function ClientesPage() {
                 <button key={p} type="button" aria-pressed={nuevo.plan === p} onClick={() => setNuevo({ ...nuevo, plan: p, modulos: nuevo.modulos.filter(m => !planes[p].includes(m)) })}
                   className={`rounded-lg border p-3 text-left transition ${nuevo.plan === p ? 'border-teal-600 bg-teal-50/60 dark:bg-teal-900/10' : 'border-slate-200 hover:border-slate-300 dark:border-slate-700'}`}>
                   <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{NOMBRE_PLAN[p]}</p>
-                  <p className="mt-0.5 text-xs text-slate-500">{p === 'BASICO' ? 'Dashboard, Buscador, Negocios, Postuladas, Ganadas y perdidas, Descartadas, Órdenes de compra y administración de su empresa.' : 'Todo el Básico más Viabilidad IA, Resultado y Costeo.'}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{p === 'BASICO' ? 'Dashboard, Buscador, Negocios, Postuladas, Ganadas y perdidas, Descartadas, Órdenes de compra y administración de su empresa.' : 'Todo el Básico más Viabilidad IA, Resultado, Costeo y Auditor.'}</p>
                 </button>
               ))}
             </div>
