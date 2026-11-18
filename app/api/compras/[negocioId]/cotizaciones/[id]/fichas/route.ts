@@ -6,6 +6,7 @@ import { conBitacoraCompras } from '@/app/lib/compras-bitacora';
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { fichasDesdeCotizacion } from '@/app/lib/compras-cotizacion-specs';
+import { compartirEnVuelo } from '@/app/lib/en-vuelo';
 import { puedeOperarPreAprobacion } from '@/app/api/compras/[negocioId]/route';
 
 export const runtime = 'nodejs';
@@ -29,7 +30,9 @@ async function __POST(request: NextRequest, { params }: Params) {
     if (!(await puedeOperarPreAprobacion(userId, rol, asignacion.asignadoA, asignacion.coencargados)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
-    const r = await fichasDesdeCotizacion({ negocioId: negId, cotizacionId: cotId, actor: { id: userId, nombre: nombre || 'Compras' }, forzar: true });
+    // Dos pulsaciones sobre la misma cotización comparten UNA sola lectura (cada lectura con IA puede tardar minutos).
+    const r = await compartirEnVuelo(`fichas-cotizacion:${negId}:${cotId}`, () =>
+      fichasDesdeCotizacion({ negocioId: negId, cotizacionId: cotId, actor: { id: userId, nombre: nombre || 'Compras' }, forzar: true }));
     const n = (x: string) => r.ruteo?.productos.filter(p => p.resultado === x).length ?? 0;
     return NextResponse.json({ success: true, hecho: r.hecho, motivo: r.motivo, asignadas: n('asignada'), porAsignar: n('por_confirmar') + n('sin_producto'), yaEstaban: n('ya_asignada'), soloPrecio: n('no_es_ficha') });
   } catch (error: any) {

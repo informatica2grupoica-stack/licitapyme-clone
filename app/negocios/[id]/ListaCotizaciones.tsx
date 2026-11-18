@@ -130,8 +130,9 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
   const [leyendoSpecs, setLeyendoSpecs] = useState<number | null>(null);
   /** «Leer specs»: si la cotización trae especificaciones técnicas, esos productos pasan también a Fichas técnicas. */
   const leerSpecs = async (id: number) => {
-    if (!negocioId) return;
+    if (!negocioId || leyendoSpecs != null) return;   // una lectura a la vez: cada una puede tardar minutos
     setLeyendoSpecs(id);
+    toast.info('Leyendo specs…', 'Puede tardar unos minutos. Te aviso cuando termine.');
     try {
       const res = await fetch(`/api/compras/${negocioId}/cotizaciones/${id}/fichas`, { method: 'POST' });
       const data = await res.json();
@@ -288,6 +289,7 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                 <div className="flex items-center justify-end gap-0.5">
                   {avisos > 0 && <span className="@3xl:hidden inline-flex items-center gap-0.5 text-[12px] font-semibold text-rose-600 mr-1"><Alerta size={13} />{avisos}</span>}
                   {puedeOperar && <>
+                    {leyendoSpecs === c.id && <span role="status" className="inline-flex items-center gap-1 text-[11.5px] font-medium text-teal-700 mr-2"><Loader2 size={13} className="animate-spin" /> Leyendo specs… puede tardar unos minutos</span>}
                     {c.archivoUrl && <button type="button" onClick={() => setVisor(docsTodos.find(d => d.url === c.archivoUrl) ?? { nombre: nombreDeArchivo(c.archivoUrl!), url: c.archivoUrl! })} title="Abrir la cotización que se subió" aria-label="Ver cotización"
                       className="@3xl:hidden inline-flex items-center gap-1 text-[11.5px] font-semibold text-teal-700 hover:bg-teal-50 border border-teal-200 rounded-md px-1.5 py-0.5 mr-1"><Doc size={13} /> Ver</button>}
                     <button type="button" onClick={() => onAsignar(c.id)} title="Asignar a productos" aria-label="Asignar a productos" className="p-1.5 rounded-md text-teal-700 hover:text-teal-900 hover:bg-teal-50"><ListChecks size={15} /></button>
