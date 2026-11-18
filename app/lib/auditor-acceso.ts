@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { puedeVerNegocioAsignado, permisosCrudosDeUsuario } from '@/app/lib/api-auth';
+import { negocioEsDeMiEmpresa } from '@/app/lib/tenant';
 
 // Consultas mínimas propias (en vez de importar ../comercial/route, que arrastra todo el Auditor Técnico).
 async function cargarNegocio(id: string) {
@@ -36,6 +37,8 @@ export async function contextoAuditor(request: NextRequest, params: Promise<{ id
   // cualquiera de los dos permisos, pero estas rutas le respondían 403.
   if (!perm.acceso) return NextResponse.json({ error: 'El Auditor requiere ser administrador o tener el permiso "Auditor Técnico" o "Auditor de Compra".' }, { status: 403 });
   const { id } = await params;
+  // Multiempresa: el negocio tiene que ser de la empresa de quien pide (no basta con el permiso del Auditor).
+  if (!(await negocioEsDeMiEmpresa(request, id))) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
   const negocio = await cargarNegocio(id);
   if (!negocio) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
   if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a))) return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });

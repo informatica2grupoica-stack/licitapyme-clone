@@ -12,6 +12,8 @@ import { mensajeSeguro } from '@/app/lib/errores-api';
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { codigoDocsDeNegocio } from '@/app/lib/tenant';
+import { aprobacionesAuditorActivas } from '@/app/lib/opciones-empresa';
+import { clienteDeNegocio } from '@/app/lib/auditor-compras-datos';
 import { invalidarEnVuelo } from '@/app/lib/en-vuelo';
 import { contextoAuditor } from '@/app/lib/auditor-acceso';
 import {
@@ -57,6 +59,8 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   invalidarEnVuelo(negocio.id);
   try {
+    // Opción de la empresa «Aprobaciones del Auditor» (migration-200): sin aprobaciones, lo firmado queda aprobado al instante.
+    const sinAprobaciones = (accion === 'firmar_y_enviar' || accion === 'solicitar_aprobacion') && !(await aprobacionesAuditorActivas(await clienteDeNegocio(negocio.id)));
     switch (accion) {
       case 'leer_documento': {
         const url = String(body.url || '');
@@ -108,13 +112,17 @@ export async function POST(request: NextRequest, { params }: Params) {
         let r: { cambios: string[] };
         try { r = await solicitarAprobacion(negocio.id, negocio.licitacion_codigo, opcionId, actor); }
         catch (e) { throw new Error(`Quedó firmada, pero no pasó a aprobación: ${e instanceof Error ? e.message : String(e)}`); }
-        if (perm.esEM) await resolverAprobacion(negocio.id, opcionId, 'aprobar', 'Firmada y aprobada en un paso por el EM.', actor);
+        if (perm.esEM || sinAprobaciones) await resolverAprobacion(negocio.id, opcionId, 'aprobar', perm.esEM ? 'Firmada y aprobada en un paso por el EM.' : 'Firmada y aprobada en un paso: la empresa no usa aprobaciones.', actor);
         else await avisarAlEM(negocio.id, `${actor.nombre} pidió aprobar una opción del Auditor (${negocio.licitacion_codigo}). Está en Aprobaciones → Opciones del Auditor.`, actor);
-        return NextResponse.json({ success: true, cambios: r.cambios, aprobada: perm.esEM });
+        return NextResponse.json({ success: true, cambios: r.cambios, aprobada: perm.esEM || sinAprobaciones });
       }
       case 'quitar_firma': await quitarFirma(negocio.id, opcionId); break;
       case 'solicitar_aprobacion': {
         const r = await solicitarAprobacion(negocio.id, negocio.licitacion_codigo, opcionId, actor);
+        if (sinAprobaciones) {
+          await resolverAprobacion(negocio.id, opcionId, 'aprobar', 'Aprobada al instante: la empresa no usa aprobaciones.', actor);
+          return NextResponse.json({ success: true, cambios: r.cambios, aprobada: true });
+        }
         // Aviso a los EM (campana): antes nadie se enteraba de que había algo esperando su aprobación.
         await avisarAlEM(negocio.id, `${actor.nombre} pidió aprobar una opción del Auditor (${negocio.licitacion_codigo}). Está en Aprobaciones → Opciones del Auditor.`, actor);
         return NextResponse.json({ success: true, cambios: r.cambios });

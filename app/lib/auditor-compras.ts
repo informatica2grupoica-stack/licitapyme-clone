@@ -19,7 +19,7 @@ import { obtenerEstadoReloj } from '@/app/lib/compras-reloj';
 import { construirResumenEjecutivoCompras } from '@/app/lib/compras';
 import { capturarLinks, type CapturaGuardada } from '@/app/lib/auditor-compras-captura';
 import { createHash } from 'node:crypto';
-import { dolarDelDia, esRutPropio, historialProveedorMP, buscarReferencias, preciosMercadoPublico, type CandidataBusqueda, type HistorialProveedorMP } from '@/app/lib/auditor-compras-datos';
+import { dolarDelDia, esRutPropio, clienteDeNegocio, historialProveedorMP, buscarReferencias, preciosMercadoPublico, type CandidataBusqueda, type HistorialProveedorMP } from '@/app/lib/auditor-compras-datos';
 import * as P from '@/app/lib/auditor-compras-prompts';
 import {
   PARAMS, aplicarGuardarrailes, calcularPosicionPrecio, calcularSistemaLinea, cambiosEntreAuditorias, derivarLinea, lineasDelCosteo,
@@ -154,7 +154,8 @@ async function cotizacionesDeLaLinea(negocioId: number, l: LineaCosteo, prodsLei
         WHERE c.negocio_id = ? AND i.producto_id = ? ORDER BY c.tomada_at DESC LIMIT 3`,
       [negocioId, p.id],
     ) as any;
-    const propio = await Promise.all((rows as any[]).map(r => esRutPropio(r.proveedor_rut)));
+    const clienteNeg = await clienteDeNegocio(negocioId);
+    const propio = await Promise.all((rows as any[]).map(r => esRutPropio(r.proveedor_rut, clienteNeg)));
     return (rows as any[]).map((r, i) => ({
       id: r.id, proveedor: r.proveedor_nombre, rut: propio[i] ? null : r.proveedor_rut, rutEsPropio: propio[i],
       precioOriginal: r.precio_original != null ? Number(r.precio_original) : null, tipoCambio: r.tipo_cambio_usado != null ? Number(r.tipo_cambio_usado) : null,
@@ -172,9 +173,11 @@ async function cotizacionesDeLaLinea(negocioId: number, l: LineaCosteo, prodsLei
 }
 
 /** HISTORICO_INTERNO: compras reales nuestras (Obuma) del mismo producto — solo si el SKU calza de forma exacta. */
-async function historicoInterno(l: LineaCosteo): Promise<Array<{ id: number; nombre: string; precio: number; fecha: string | null; folio: string | null }>> {
+async function historicoInterno(l: LineaCosteo, negocioId: number): Promise<Array<{ id: number; nombre: string; precio: number; fecha: string | null; folio: string | null }>> {
   const sku = l.sku.trim();
   if (sku.length < 4) return [];
+  // Las compras del Obuma de Grupo ICA son SOLO de ICA: una empresa-cliente no ve precios de compra ajenos.
+  if ((await clienteDeNegocio(negocioId)) !== 1) return [];
   try {
     const [rows] = await pool.query(
       `SELECT it.id, it.producto_nombre, it.precio_unitario, DATE_FORMAT(o.fecha, '%Y-%m-%d') AS fecha, o.folio
@@ -291,7 +294,7 @@ export async function auditarLinea(negocioId: number, filaId: string, opts: Opci
     capturarLinks(negocioId, filaId, linea.links),
     dolarDelDia(),
     cotizacionesDeLaLinea(negocioId, linea),
-    historicoInterno(linea),
+    historicoInterno(linea, negocioId),
     productoTecnico(negocioId, linea),
     lineaDeLaLicitacion(licitacionCodigo, linea.lineaReal),
     obtenerEstadoReloj(negocioId).catch(() => null),

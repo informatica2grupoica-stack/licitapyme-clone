@@ -18,14 +18,15 @@ export const MODULOS_BASE: Modulo[] = ['radar', 'negocios'];
  *  (Dashboard, uno por menú y el de cada licitación), todos separados por empresa (chat-global.ts / chat-licitacion.ts); el de cada menú además
  *  exige el módulo de ese menú. Las otras rutas de IA que colgaban de él siguen solo para ICA (ver REGLAS).
  *  Costeo (2026-11-10): rutas con dueño (guardia en proxy.ts), lee la viabilidad de la empresa (`informe-viabilidad.ts`), sin datos de ICA. Requiere Viabilidad. */
-export const MODULOS_ACTIVABLES: Modulo[] = ['radar', 'negocios', 'viabilidad', 'resultado', 'costeo', 'ia_chat'];
+export const MODULOS_ACTIVABLES: Modulo[] = ['radar', 'negocios', 'viabilidad', 'resultado', 'costeo', 'auditor', 'ia_chat'];
 
 // ── Planes (2026-11-18, regla del dueño) ──────────────────────────────────────────────────────────────────────────────
 // Todas las empresas ven el MISMO LICITANK; el plan solo decide qué aparece en los menús. Módulos efectivos = los del plan + los
 // adicionales marcados a mano en /admin/clientes (`clientes.modulos`), y nunca más que MODULOS_ACTIVABLES.
 // Básico: Buscador, Radar, Puente, Dashboard (módulo radar), Negocios, Postuladas, Ganadas/Perdidas, Descartadas, Órdenes de compra (desde 2026-11-18, van con Negocios), Empresas y la administración de su empresa; dentro del negocio sin Viabilidad, Resultado, Auditor ni Postulación.
-// Pro: Básico + Viabilidad, Resultado, Costeo, Auditor, Postulación (anexos) y Competencia. Auditor, Anexos y Competencia entran solos
-// al Pro el día que se sumen a MODULOS_ACTIVABLES. Consulta a la IA (ia_chat), Compras y Entregas van aparte, como adicionales.
+// Pro (2026-11-18, decisión del dueño): Básico + Viabilidad IA (con sus criterios), Resultado, Costeo y Auditor (con aprobación simple, configurable por empresa).
+// NO incluye Postulación (anexos), Compras ni el conector con el ERP (Obuma); Competencia queda fuera por ahora. Consulta a la IA (ia_chat), Compras y Entregas van aparte.
+// Auditor: su pre-postulación depende de Anexos (no se vende) y la exportación a Obuma es solo de ICA (ver REGLAS).
 // «Resultado» (pestaña Resultado del negocio) es solo de la pantalla: su API (/api/licitacion-adjudicacion) es de Negocios porque
 // también la usa /adjudicadas, y son datos públicos de Mercado Público.
 export type Plan = 'BASICO' | 'PRO';
@@ -33,7 +34,7 @@ export const PLANES: Plan[] = ['BASICO', 'PRO'];
 export const NOMBRE_PLAN: Record<Plan, string> = { BASICO: 'Básico', PRO: 'Pro' };
 export const MODULOS_DEL_PLAN: Record<Plan, Modulo[]> = {
   BASICO: ['radar', 'negocios'],
-  PRO:    ['radar', 'negocios', 'viabilidad', 'resultado', 'costeo', 'auditor', 'anexos', 'competencia'],
+  PRO:    ['radar', 'negocios', 'viabilidad', 'resultado', 'costeo', 'auditor'],
 };
 
 /** `clientes.plan` → plan vigente. Lo viejo ('BASE', 'EQUIPO', vacío) cuenta como Básico. */
@@ -93,7 +94,9 @@ const REGLAS: Regla[] = [
   { modulo: 'interno',    re: /^\/api\/(licitacion-ia|licitacion-preguntas|analizar-documento|buscar-productos)(\/|$)/ },
   { modulo: 'ia_chat',    re: /^\/api\/(chat-global|chat-proyecto|chat-seccion)(\/|$)/ },
   { modulo: 'ia_chat',    re: /^\/api\/licitacion\/[^/]+\/chat(\/|$)/ },
-  { modulo: 'auditor',    re: /^\/api\/negocios\/[^/]+\/(auditor|prepostulacion)(\/|$)/ },
+  { modulo: 'interno',    re: /^\/api\/negocios\/[^/]+\/auditor\/obuma(\/|$)/ },   // conector con el ERP: solo Grupo ICA
+  { modulo: 'anexos',     re: /^\/api\/negocios\/[^/]+\/prepostulacion(\/|$)/ },    // certificado y candado de anexos: va con Postulación
+  { modulo: 'auditor',    re: /^\/api\/negocios\/[^/]+\/auditor(\/|$)/ },
   { modulo: 'costeo',     re: /^\/api\/negocios\/[^/]+\/(comercial|lineas-oferta)(\/|$)/ },
   { modulo: 'costeo',     re: /^\/api\/documentos\/generar-costeo(\/|$)/ },
   { modulo: 'anexos',     re: /^\/api\/anexos(\/|$)/ },

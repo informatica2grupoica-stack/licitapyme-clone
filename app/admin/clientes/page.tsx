@@ -8,11 +8,13 @@ import { useToast } from '@/app/components/ui/toast';
 import { Modal } from '@/app/components/ui/Modal';
 import { Boton } from '@/app/components/ui/kit/Boton';
 import { Pestanas } from '@/app/components/ui/kit/Pestanas';
+import { SelectorAprobaciones } from '@/app/components/AprobacionesAuditor';
+import type { OpcionesEmpresa } from '@/app/lib/opciones-empresa-core';
 import { NOMBRE_MODULO, NOMBRE_PLAN, PLANES, type Modulo, type Plan } from '@/app/lib/modulos';
 
 interface Cliente {
   id: number; nombre: string; rut: string | null; plan: Plan; estado: string; max_usuarios: number | null;
-  modulos: Modulo[]; adicionales: Modulo[]; cupo_ia_mensual: number; tope_ia_usd_mes: string | number | null; tope_mp_diario: number | null; ia_usd_mes: number; mp_hoy: number; vence_at: string | null; usuarios: number; contacto_email: string | null; notas: string | null;
+  modulos: Modulo[]; adicionales: Modulo[]; opciones: OpcionesEmpresa; cupo_ia_mensual: number; tope_ia_usd_mes: string | number | null; tope_mp_diario: number | null; ia_usd_mes: number; mp_hoy: number; vence_at: string | null; usuarios: number; contacto_email: string | null; notas: string | null;
 }
 interface Mov { cliente_id: number; accion: string; detalle: unknown; created_at: string; por: string | null }
 
@@ -239,6 +241,12 @@ function Ficha({ c, tab, setTab, catalogo, activables, planes, puedeBorrar, bita
               )}
               {proximos.length > 0 && <p className="mt-2 text-xs text-slate-400">Próximamente: {proximos.map(m => NOMBRE_MODULO[m]).join(', ')}.</p>}
             </div>
+            {c.modulos.includes('auditor') && (
+              <div className="border-t border-slate-100 pt-3 dark:border-slate-800">
+                <p className="mb-1.5 text-[11px] text-slate-500">Aprobaciones del Auditor (también las cambia la empresa en Mi empresa)</p>
+                <SelectorAprobaciones valor={c.opciones?.aprobaciones_auditor ?? 'auto'} onCambio={m => cambiar(c.id, { aprobacionesAuditor: m })} />
+              </div>
+            )}
             <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
               <label className="text-[11px] text-slate-500">Vence
                 <input key={`v${c.id}-${c.vence_at}`} type="date" defaultValue={c.vence_at || ''} className={`${input} mt-0.5 w-40`} onBlur={e => e.target.value !== (c.vence_at || '') && cambiar(c.id, { venceAt: e.target.value || null })} />

@@ -64,7 +64,9 @@ interface FilaChecklist {
 // desierta no tiene nada que aprobar — antes la bandeja las listaba igual y hasta dejaba el botón «Aprobar» activo (1-oct-2026).
 const ESTADOS_QUE_SE_APRUEBAN = ['ASIGNADO', 'EN_PROCESO', 'ANEXOS', 'ANEXO_LISTO', 'VISADO'];
 
-export async function construirBandeja() {
+// Multiempresa (2026-11-18): solo los negocios de UNA empresa (por defecto Grupo ICA, único dueño de esta bandeja de Compras): con el Auditor abierto a
+// clientes, sus negocios también tienen checklist y no deben aparecer en la bandeja de ICA.
+export async function construirBandeja(clienteId = 1) {
   const [rows] = await pool.query(
     `SELECT n.id AS negocio_id, n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo,
             n.licitacion_cierre, n.licitacion_monto, n.asignado_a, u.nombre AS asignado_nombre,
@@ -73,10 +75,10 @@ export async function construirBandeja() {
        FROM negocios n
        JOIN checklist_comercial c ON c.negocio_id = n.id AND c.bloque IN ('TECNICO','COMERCIAL')
        LEFT JOIN usuarios u ON u.id = n.asignado_a
-      WHERE n.activo = TRUE AND n.oculto_aprobaciones = 0
+      WHERE n.activo = TRUE AND n.oculto_aprobaciones = 0 AND COALESCE(n.cliente_id, 1) = ?
         AND COALESCE(n.estado_pipeline, 'ASIGNADO') IN (?)
       ORDER BY n.id, c.bloque, c.orden`,
-    [ESTADOS_QUE_SE_APRUEBAN.flatMap(idsEquivalentes)],
+    [clienteId, ESTADOS_QUE_SE_APRUEBAN.flatMap(idsEquivalentes)],
   ) as any;
 
   // Las características de las líneas técnicas ya no se cuentan acá (27-oct-2026): salieron del Checklist, las resuelve el Auditor.

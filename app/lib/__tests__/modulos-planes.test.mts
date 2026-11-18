@@ -14,9 +14,20 @@ test('Básico = radar y negocios: sin viabilidad, resultado, auditor ni postulac
   for (const no of ['viabilidad', 'resultado', 'auditor', 'anexos', 'costeo'] as const) assert.ok(!m.includes(no), no);
 });
 
-test('Pro trae viabilidad, resultado y costeo; nunca lo que todavía no está separado por empresa', () => {
+test('Auditor del Pro: el conector con el ERP es solo de ICA y la pre-postulación va con Anexos', () => {
+  const pro = modulosDeCliente('PRO', null);
+  assert.equal(rutaPermitida('/api/negocios/5/auditor', 2, pro).ok, true);
+  assert.equal(rutaPermitida('/api/negocios/5/auditor/informe', 2, pro).ok, true);
+  assert.equal(rutaPermitida('/api/negocios/5/auditor/obuma', 2, pro).ok, false);
+  assert.equal(rutaPermitida('/api/negocios/5/prepostulacion', 2, pro).ok, false);
+  assert.equal(rutaPermitida('/api/negocios/5/auditor', 2, modulosDeCliente('BASICO', null)).ok, false);
+  assert.equal(rutaPermitida('/api/negocios/5/auditor/obuma', 1, pro).ok, true); // ICA entra a todo
+});
+
+test('Pro trae viabilidad, resultado, costeo y auditor; sin postulación, compras ni competencia', () => {
   const m = modulosDeCliente('PRO', null);
-  for (const si of ['radar', 'negocios', 'viabilidad', 'resultado', 'costeo'] as const) assert.ok(m.includes(si), si);
+  for (const si of ['radar', 'negocios', 'viabilidad', 'resultado', 'costeo', 'auditor'] as const) assert.ok(m.includes(si), si);
+  for (const no of ['anexos', 'compras', 'competencia', 'entregas'] as const) assert.ok(!m.includes(no), no);
   for (const x of m) assert.ok(MODULOS_ACTIVABLES.includes(x), x);
   assert.ok(!m.includes('ia_chat'), 'la Consulta a la IA es adicional');
 });

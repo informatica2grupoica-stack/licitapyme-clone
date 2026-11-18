@@ -19,19 +19,28 @@ function variantesRut(rut: string): string[] {
 // ── RUT de NUESTRAS empresas ──────────────────────────────────────────────────────────────────────
 // En las proformas y cotizaciones el RUT del COMPRADOR (nosotros) aparece junto al del proveedor; si el lector
 // se equivoca, el "proveedor" queda con nuestro propio RUT (caso real PanTai en #994) y se le ve como competidor.
-let cacheRutsPropios: { at: number; ruts: Set<string> } | null = null;
-export async function rutsPropios(): Promise<Set<string>> {
-  if (cacheRutsPropios && Date.now() - cacheRutsPropios.at < 5 * 60_000) return cacheRutsPropios.ruts;
+// Multiempresa: con `clienteId` solo cuentan los RUT de ESA empresa (el auditor de una empresa-cliente no debe tratar como «propios» los RUT de otras).
+const cacheRutsPropios = new Map<number, { at: number; ruts: Set<string> }>();
+export async function rutsPropios(clienteId?: number): Promise<Set<string>> {
+  const k = clienteId ?? 0, c = cacheRutsPropios.get(k);
+  if (c && Date.now() - c.at < 5 * 60_000) return c.ruts;
   const ruts = new Set<string>();
   try {
-    const [rows] = await pool.query(`SELECT rut FROM empresas WHERE rut IS NOT NULL AND rut <> ''`) as any;
+    const [rows] = await pool.query(`SELECT rut FROM empresas WHERE rut IS NOT NULL AND rut <> ''${clienteId ? ' AND cliente_id = ?' : ''}`, clienteId ? [clienteId] : []) as any;
     for (const r of rows as any[]) ruts.add(normRut(r.rut));
   } catch { /* sin tabla de empresas: no se filtra nada */ }
-  cacheRutsPropios = { at: Date.now(), ruts };
+  cacheRutsPropios.set(k, { at: Date.now(), ruts });
   return ruts;
 }
-export async function esRutPropio(rut: string | null | undefined): Promise<boolean> {
-  return !!rut && (await rutsPropios()).has(normRut(rut));
+export async function esRutPropio(rut: string | null | undefined, clienteId?: number): Promise<boolean> {
+  return !!rut && (await rutsPropios(clienteId)).has(normRut(rut));
+}
+/** Empresa-cliente dueña de un negocio (1 = Grupo ICA). */
+export async function clienteDeNegocio(negocioId: number): Promise<number> {
+  try {
+    const [rows] = await pool.query('SELECT cliente_id FROM negocios WHERE id = ? LIMIT 1', [negocioId]) as any;
+    return Number((rows as any[])[0]?.cliente_id) || 1;
+  } catch { return 1; }
 }
 
 // ── S2 · Dólar ────────────────────────────────────────────────────────────────────────────────────

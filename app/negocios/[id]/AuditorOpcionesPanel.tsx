@@ -56,8 +56,10 @@ async function post(negocioId: number, body: Record<string, unknown>) {
 /** Modo impresión (?imprimir=1): el servidor abre esta MISMA pantalla y la imprime a PDF. Todo se muestra desplegado, tal cual la vista. */
 const ImprimirCtx = createContext(false);
 
-export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar, panelInicial, onIrAPrePostulacion }: {
+export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar, panelInicial, onIrAPrePostulacion, puedeERP = true }: {
   negocioId: number; licitacionCodigo: string; puedeAprobar: boolean;
+  /** Exportación de datos al ERP (Obuma): solo Grupo ICA; las empresas-cliente no la tienen (plan Pro). */
+  puedeERP?: boolean;
   /** Último paso del recorrido: con todas las líneas aprobadas, el «Siguiente paso» lleva a la pestaña Pre-postulación. */
   onIrAPrePostulacion?: () => void;
   /** Solo para revisar la pantalla sin sesión (script de vista previa): si viene, no se pide el panel al servidor. */
@@ -1317,11 +1319,13 @@ export function AuditorOpcionesPanel({ negocioId, licitacionCodigo, puedeAprobar
       <CostosAsociados costos={panel.costosAsociados} total={panel.totalCostosAsociados} lineas={panel.lineas}
         onAccion={accionLinea} onAnular={id => { setTexto(''); setModal({ tipo: 'anular_costo', ref: id }); }} />
 
-          <div className="flex items-center gap-3 text-[12.5px]">
-            <span className="text-slate-500">Datos OBUMA (opciones firmadas):</span>
-            <a href={`/api/negocios/${negocioId}/auditor/obuma?tipo=proveedores&incluir=firmadas`} className="text-teal-700 hover:underline">Proveedores CSV</a>
-            <a href={`/api/negocios/${negocioId}/auditor/obuma?tipo=productos&incluir=firmadas`} className="text-teal-700 hover:underline">Productos CSV</a>
-          </div>
+          {puedeERP && (
+            <div className="flex items-center gap-3 text-[12.5px]">
+              <span className="text-slate-500">Datos OBUMA (opciones firmadas):</span>
+              <a href={`/api/negocios/${negocioId}/auditor/obuma?tipo=proveedores&incluir=firmadas`} className="text-teal-700 hover:underline">Proveedores CSV</a>
+              <a href={`/api/negocios/${negocioId}/auditor/obuma?tipo=productos&incluir=firmadas`} className="text-teal-700 hover:underline">Productos CSV</a>
+            </div>
+          )}
         </div>
       </details>
 

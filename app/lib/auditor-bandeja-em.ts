@@ -40,20 +40,20 @@ function etiquetasDeLineas(lineas: LineaAuditorDTO[]): Map<string, string> {
 }
 
 /** Negocios en preparación con algo para el EM: una opción en aprobación o un complemento de requisito (los que ya se cerraron se filtran después). */
-async function negociosCandidatos(): Promise<Array<{ id: number; licitacion_codigo: string; licitacion_nombre: string | null; licitacion_cierre: unknown; asignado_nombre: string | null }>> {
+async function negociosCandidatos(clienteId: number): Promise<Array<{ id: number; licitacion_codigo: string; licitacion_nombre: string | null; licitacion_cierre: unknown; asignado_nombre: string | null }>> {
   const [rows] = await pool.query(
     `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.licitacion_cierre, u.nombre AS asignado_nombre
        FROM negocios n LEFT JOIN usuarios u ON u.id = n.asignado_a
-      WHERE n.activo = TRUE AND COALESCE(n.estado_pipeline, 'ASIGNADO') IN (?)
+      WHERE n.activo = TRUE AND COALESCE(n.cliente_id, 1) = ? AND COALESCE(n.estado_pipeline, 'ASIGNADO') IN (?)
         AND (EXISTS (SELECT 1 FROM auditor_opcion o WHERE o.negocio_id = n.id AND o.estado = 'en_aprobacion')
           OR EXISTS (SELECT 1 FROM auditor_evento e WHERE e.negocio_id = n.id AND e.tipo = 'respaldo_celda'))
       ORDER BY n.licitacion_cierre IS NULL, n.licitacion_cierre ASC`,
-    [ESTADOS_EN_PREPARACION.flatMap(idsEquivalentes)]) as any;
+    [clienteId, ESTADOS_EN_PREPARACION.flatMap(idsEquivalentes)]) as any;
   return rows as any[];
 }
 
-export async function construirBandejaEM(): Promise<NegocioBandejaEM[]> {
-  const candidatos = await negociosCandidatos();
+export async function construirBandejaEM(clienteId = 1): Promise<NegocioBandejaEM[]> {   // multiempresa: solo los negocios de esa empresa
+  const candidatos = await negociosCandidatos(clienteId);
   const salida: NegocioBandejaEM[] = [];
   // De a uno: cada panel hace ~20 consultas en paralelo; varios negocios juntos saturarían el pool.
   for (const n of candidatos) {
@@ -154,7 +154,8 @@ export async function avisarAlEM(negocioId: number, mensaje: string, actor: { id
     const [neg] = await pool.query(`SELECT licitacion_codigo, licitacion_nombre FROM negocios WHERE id = ?`, [negocioId]) as any;
     const n = (neg as any[])[0];
     if (!n) return;
-    const [us] = await pool.query(`SELECT id, nombre, rol, permisos FROM usuarios WHERE activo = 1`) as any;
+    // Multiempresa: solo quienes aprueban EN LA MISMA EMPRESA del negocio (antes avisaba a los admin de todas las empresas).
+    const [us] = await pool.query(`SELECT id, nombre, rol, permisos FROM usuarios WHERE activo = 1 AND cliente_id = COALESCE((SELECT cliente_id FROM negocios WHERE id = ?), 1)`, [negocioId]) as any;
     for (const u of us as any[]) {
       if (Number(u.id) === Number(actor.id)) continue;
       let p: Record<string, unknown> = {};

@@ -481,6 +481,7 @@ function DetalleContent() {
   const conViabilidad  = tieneModulo(usuario, 'viabilidad');
   const esICA          = (usuario?.clienteId ?? 1) === 1; // la viabilidad de ICA es solo de ICA; el cliente usa la suya (ViabilidadClientePanel)
   const conAuditor     = tieneModulo(usuario, 'auditor');
+  const conAnexos      = tieneModulo(usuario, 'anexos');   // Postulación y la pre-postulación del Auditor: fuera del plan Pro
   const conCosteo      = tieneModulo(usuario, 'costeo');
   const conCompetencia = tieneModulo(usuario, 'competencia');
   const conIA          = tieneModulo(usuario, 'ia_chat');
@@ -770,7 +771,7 @@ function DetalleContent() {
   const hayAuditorCompra = puedeVerAuditorCompra;
   // PRE-POSTULACIÓN (30-sep-2026, reemplaza a ANEXOS): certificado de admisibilidad + bloque técnico-administrativo sobre las opciones aprobadas del Auditor.
   // Pre-postulación reemplaza a Anexos (1-oct-2026): siempre visible, sin esperar a la etapa «ANEXOS» del pipeline.
-  const hayPrePostulacion = hayAuditorCompra || hayAuditorTecnico;
+  const hayPrePostulacion = (hayAuditorCompra || hayAuditorTecnico) && conAnexos;
   // Resultado/Competencia/Preguntas quedan ocultas hasta que el negocio pase a Ganada o Perdida
   // (antes de eso no hay nada real que mostrar ahí). Fechas, Criterios y Comentarios ya no son
   // ítems propios del menú: son pestañas DENTRO de "Resumen" (ver más abajo, sección de render).
@@ -1124,7 +1125,8 @@ function DetalleContent() {
                   />
                   {tab === 'auditor_compra' && hayAuditorCompra && (
                     <AuditorOpcionesPanel negocioId={negocio.id} licitacionCodigo={negocio.licitacion_codigo} puedeAprobar={isAdmin || !!usuario?.permisos?.aprobar_comercial || !!usuario?.permisos?.auditor_aprobar}
-                      onIrAPrePostulacion={hayPrePostulacion ? () => setSeccion('prepostulacion') : undefined} />
+                      onIrAPrePostulacion={hayPrePostulacion ? () => setSeccion('prepostulacion') : undefined}
+                      puedeERP={tieneModulo(usuario, 'compras')} />
                   )}
                   {tab === 'prepostulacion' && hayPrePostulacion && (
                     <PrePostulacionPanel negocioId={negocio.id} empresaId={negocio.empresa_id} onIrAlAuditor={() => setSeccion('auditor_compra')}

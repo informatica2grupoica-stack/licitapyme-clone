@@ -11,6 +11,8 @@ import pool from '@/app/lib/db';
 import { getAuthedUser } from '@/app/lib/api-auth';
 import { olvidarFichaCliente, CLIENTE_ICA } from '@/app/lib/tenant';
 import { encolarEvaluacion, leerEvaluacion, rutsDeCliente, rutValido, formatearRut } from '@/app/lib/evaluar-empresa-rut';
+import { guardarOpciones } from '@/app/lib/opciones-empresa';
+import { normalizarOpciones } from '@/app/lib/opciones-empresa-core';
 import { gastoIaMesPorCliente, consultasMpHoyPorCliente } from '@/app/lib/medidor-cliente';
 import { planBorrado, exportarCliente, borrarCliente, archivosDelCliente } from '@/app/lib/borrar-cliente';
 import { TODOS_LOS_MODULOS, MODULOS_ACTIVABLES, MODULOS_DEL_PLAN, PLANES, modulosEfectivos, modulosDeCliente, normalizarPlan, type Plan } from '@/app/lib/modulos';
@@ -68,7 +70,7 @@ export async function GET(req: NextRequest) {
     } });
   }
   const [clientes] = await pool.query(
-    `SELECT c.id, c.nombre, c.rut, c.plan, c.estado, c.max_usuarios, c.cupo_ia_mensual, c.tope_ia_usd_mes, c.tope_mp_diario, c.modulos, c.notas, c.contacto_nombre, c.contacto_email,
+    `SELECT c.id, c.nombre, c.rut, c.plan, c.estado, c.max_usuarios, c.cupo_ia_mensual, c.tope_ia_usd_mes, c.tope_mp_diario, c.modulos, c.notas, c.contacto_nombre, c.contacto_email, c.config_json,
             DATE_FORMAT(c.vence_at, '%Y-%m-%d') AS vence_at,
             (SELECT COUNT(*) FROM usuarios u WHERE u.cliente_id = c.id AND u.activo = TRUE) AS usuarios
        FROM clientes c WHERE c.activo = TRUE ORDER BY c.id`);
@@ -78,7 +80,7 @@ export async function GET(req: NextRequest) {
   // Medidor (migration-185): gasto de IA del mes y consultas a MP de hoy, por empresa.
   const [iaMes, mpHoy] = await Promise.all([gastoIaMesPorCliente(), consultasMpHoyPorCliente()]).catch(() => [new Map<number, number>(), new Map<number, number>()]);
   const lista = (clientes as Array<Record<string, unknown>>).map(c => ({
-    ...c, plan: normalizarPlan(c.plan),
+    ...c, plan: normalizarPlan(c.plan), opciones: normalizarOpciones(c.config_json), config_json: undefined,
     // adicionales = lo marcado a mano que el plan no trae; modulos = lo que de verdad usa (plan + adicionales)
     adicionales: (c.modulos == null ? [] : modulosEfectivos(c.modulos)).filter(m => MODULOS_ACTIVABLES.includes(m) && !MODULOS_DEL_PLAN[normalizarPlan(c.plan)].includes(m)),
     modulos: modulosDeCliente(c.plan, c.modulos),
@@ -216,6 +218,12 @@ export async function PATCH(req: NextRequest) {
   // Topes del medidor: vacío o null = sin tope.
   if ('topeIaUsd' in b) { const v = b.topeIaUsd === null || b.topeIaUsd === '' ? null : Math.max(0, Number(b.topeIaUsd) || 0); sets.push('tope_ia_usd_mes = ?'); vals.push(v); det.topeIaUsd = v; }
   if ('topeMp' in b) { const v = b.topeMp === null || b.topeMp === '' ? null : Math.max(0, Math.round(Number(b.topeMp) || 0)); sets.push('tope_mp_diario = ?'); vals.push(v); det.topeMp = v; }
+  if (b.aprobacionesAuditor !== undefined) {
+    const r = await guardarOpciones(id, { aprobaciones_auditor: b.aprobacionesAuditor });
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    det.aprobacionesAuditor = r.opciones.aprobaciones_auditor;
+    if (!sets.length) { olvidarFichaCliente(id); await bitacora(id, g.u!.id, 'cambio', det); return NextResponse.json({ success: true }); }
+  }
   if (typeof b.notas === 'string') { sets.push('notas = ?'); vals.push(b.notas.slice(0, 2000)); det.notas = true; }
   if (!sets.length) return NextResponse.json({ error: 'Nada que cambiar' }, { status: 400 });
   vals.push(id);

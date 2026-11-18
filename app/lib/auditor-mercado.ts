@@ -6,7 +6,7 @@
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { tokensDeProducto } from '@/app/lib/auditor-compras-core';
-import { buscarReferencias, historialProveedorMP, preciosMercadoPublico, esRutPropio } from '@/app/lib/auditor-compras-datos';
+import { buscarReferencias, historialProveedorMP, preciosMercadoPublico, esRutPropio, clienteDeNegocio } from '@/app/lib/auditor-compras-datos';
 import { clasificarReferencias, tokensDeIdentidad, type ResultadoMercado } from '@/app/lib/auditor-mercado-core';
 
 const hostDe = (url: string) => { try { return new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`).hostname.replace(/^www\./, ''); } catch { return ''; } };
@@ -35,7 +35,7 @@ export async function verificarMercadoOpcion(params: { negocioId: number; opcion
     resultado.mercadoPublico = await preciosMercadoPublico(tokens).catch(() => null);
   }
   const rut = (o.proveedor_rut || '').trim();
-  if (rut && !(await esRutPropio(rut))) {
+  if (rut && !(await esRutPropio(rut, await clienteDeNegocio(negocioId)))) {
     const h = await historialProveedorMP(rut).catch(() => null);
     if (h) resultado.competidor = { venteAlEstado: h.venteAlEstado, nLicitaciones: h.nLicitaciones, nOrdenesCompra: h.nOrdenesCompra, rubros: h.rubros, ejemplos: h.ejemplos.map(e => `${e.licitacion}: ${e.producto}`), limitacion: h.limitacion };
   }

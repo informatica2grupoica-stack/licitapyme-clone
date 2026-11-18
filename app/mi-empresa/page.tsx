@@ -6,6 +6,7 @@ import { AppLayout } from '@/app/components/AppLayout';
 import { ConfigurarEmpresa } from '@/app/components/ConfigurarEmpresa';
 import { IntegracionesEmpresa } from '@/app/components/IntegracionesEmpresa';
 import { EtapasEmpresa } from '@/app/components/EtapasEmpresa';
+import { AprobacionesEmpresa } from '@/app/components/AprobacionesAuditor';
 
 export default function MiEmpresaPage() {
   return (
@@ -17,6 +18,7 @@ export default function MiEmpresaPage() {
         </header>
         <ConfigurarEmpresa />
         <EtapasEmpresa />
+        <AprobacionesEmpresa />
         <IntegracionesEmpresa />
       </div>
     </AppLayout>
