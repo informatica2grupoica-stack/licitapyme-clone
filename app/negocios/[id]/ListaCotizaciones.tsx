@@ -141,6 +141,7 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
       else if (data.porAsignar > 0) toast.success('Fichas por asignar', `${data.porAsignar} ficha(s) leídas: asígnalas a su producto en Fichas técnicas.`);
       else if (data.yaEstaban > 0) toast.info('Ya estaban en Fichas técnicas', 'Esta cotización ya se había leído como ficha.');
       else toast.info('Sin especificaciones', data.motivo || 'La cotización no trae especificaciones técnicas de sus productos.');
+      window.dispatchEvent(new CustomEvent('compras:fichas-cambio'));   // la pestaña Fichas técnicas ya está montada: que se refresque sin recargar la página
       await onCambio?.();
     } catch (e: any) {
       toast.error('No se pudo leer la cotización', e.message);
@@ -289,7 +290,7 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                 <div className="flex items-center justify-end gap-0.5">
                   {avisos > 0 && <span className="@3xl:hidden inline-flex items-center gap-0.5 text-[12px] font-semibold text-rose-600 mr-1"><Alerta size={13} />{avisos}</span>}
                   {puedeOperar && <>
-                    {leyendoSpecs === c.id && <span role="status" className="inline-flex items-center gap-1 text-[11.5px] font-medium text-teal-700 mr-2"><Loader2 size={13} className="animate-spin" /> Leyendo specs… puede tardar unos minutos</span>}
+                    {leyendoSpecs === c.id && <span role="status" className="inline-flex items-center gap-1 text-[11.5px] font-medium text-teal-700 mr-2 whitespace-nowrap"><Loader2 size={13} className="animate-spin" /> Leyendo specs…</span>}
                     {c.archivoUrl && <button type="button" onClick={() => setVisor(docsTodos.find(d => d.url === c.archivoUrl) ?? { nombre: nombreDeArchivo(c.archivoUrl!), url: c.archivoUrl! })} title="Abrir la cotización que se subió" aria-label="Ver cotización"
                       className="@3xl:hidden inline-flex items-center gap-1 text-[11.5px] font-semibold text-teal-700 hover:bg-teal-50 border border-teal-200 rounded-md px-1.5 py-0.5 mr-1"><Doc size={13} /> Ver</button>}
                     <button type="button" onClick={() => onAsignar(c.id)} title="Asignar a productos" aria-label="Asignar a productos" className="p-1.5 rounded-md text-teal-700 hover:text-teal-900 hover:bg-teal-50"><ListChecks size={15} /></button>
