@@ -319,6 +319,12 @@ function Ficha({ c, tab, setTab, catalogo, activables, planes, puedeBorrar, bita
   );
 }
 
+// Empresa nueva: parte en Básico, 2 usuarios y un año de vigencia (editable).
+function nuevoVacio() {
+  const v = new Date(); v.setFullYear(v.getFullYear() + 1);
+  return { nombre: '', rut: '', adminNombre: '', adminEmail: '', clave: '', venceAt: v.toISOString().slice(0, 10), plan: 'BASICO' as Plan, maxUsuarios: 2, modulos: [] as Modulo[] };
+}
+
 export default function ClientesPage() {
   const toast = useToast();
   const [clientes, setClientes] = useState<Cliente[]>([]);
@@ -334,7 +340,7 @@ export default function ClientesPage() {
   const [selId, setSelId] = useState<number | null>(null);
   const [tab, setTab] = useState<Tab>('plan');
   const [nuevoAbierto, setNuevoAbierto] = useState(false);
-  const [nuevo, setNuevo] = useState({ nombre: '', rut: '', adminNombre: '', adminEmail: '', clave: '', venceAt: '', plan: 'BASICO' as Plan });
+  const [nuevo, setNuevo] = useState(nuevoVacio);
   const [creando, setCreando] = useState(false);
 
   const cargar = useCallback(async () => {
@@ -366,29 +372,42 @@ export default function ClientesPage() {
     setCreando(false);
     if (!r.ok) { toast.error('No se creó', d.error || `HTTP ${r.status}`); return; }
     toast.success('Empresa creada', 'Entra con el mismo login. Entrega la clave temporal por un canal seguro.');
-    setNuevo({ nombre: '', rut: '', adminNombre: '', adminEmail: '', clave: '', venceAt: '', plan: 'BASICO' });
+    setNuevo(nuevoVacio());
     setNuevoAbierto(false); cargar();
     if (d.id) { setSelId(d.id); setTab('plan'); }
   };
 
+  const clientesReales = clientes.filter(c => c.id !== 1);
+  const conteo = {
+    todas: clientesReales.length,
+    activa: clientesReales.filter(c => estadoVisual(c) === 'activa').length,
+    por_vencer: clientesReales.filter(c => estadoVisual(c) === 'por_vencer').length,
+    vencida: clientesReales.filter(c => estadoVisual(c) === 'vencida').length,
+    suspendida: clientesReales.filter(c => estadoVisual(c) === 'suspendida').length,
+  };
+  // Lo urgente primero: vencidas, por vencer, activas, suspendidas; dentro de cada grupo, por nombre.
+  const ORDEN: Record<EstadoVisual, number> = { vencida: 0, por_vencer: 1, activa: 2, suspendida: 3 };
   const filtradas = useMemo(() => {
     const q = busca.trim().toLowerCase();
-    return clientes.filter(c => (!q || [c.nombre, c.rut, c.contacto_email].some(x => String(x ?? '').toLowerCase().includes(q)))
-      && (!fPlan || (c.id === 1 ? false : c.plan === fPlan))
-      && (!fEstado || (fEstado === 'VENCE' ? (c.id !== 1 && (diasHasta(c.vence_at) ?? 999) <= 14) : c.estado === fEstado)));
+    return clientesReales
+      .filter(c => (!q || [c.nombre, c.rut, c.contacto_email].some(x => String(x ?? '').toLowerCase().includes(q)))
+        && (!fPlan || c.plan === fPlan) && (!fEstado || estadoVisual(c) === fEstado))
+      .sort((a, b) => ORDEN[estadoVisual(a)] - ORDEN[estadoVisual(b)] || a.nombre.localeCompare(b.nombre, 'es'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientes, busca, fPlan, fEstado]);
-  const clientesReales = clientes.filter(c => c.id !== 1);
-  const resumen = {
-    activas: clientesReales.filter(c => c.estado === 'ACTIVO').length,
-    porVencer: clientesReales.filter(c => (diasHasta(c.vence_at) ?? 999) <= 14).length,
-    suspendidas: clientesReales.filter(c => c.estado !== 'ACTIVO').length,
-    sinUsuarios: clientesReales.filter(c => c.usuarios === 0).length,
-  };
+  const ica = clientes.find(c => c.id === 1);
   const sel = clientes.find(c => c.id === selId) || null;
+  const extrasNuevo = catalogo.filter(m => !planes[nuevo.plan]?.includes(m) && activables.includes(m));
+  const nuevoValido = !!nuevo.nombre.trim() && /.+@.+\..+/.test(nuevo.adminEmail) && nuevo.clave.length >= 8;
+  const generarClave = () => {
+    const abc = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    const b = new Uint32Array(12); crypto.getRandomValues(b);
+    setNuevo(n => ({ ...n, clave: Array.from(b, x => abc[x % abc.length]).join('') }));
+  };
 
   return (
     <AppLayout breadcrumb={[{ label: 'Empresas-cliente' }]}>
-      <div className="mx-auto max-w-6xl space-y-4 px-4 py-6">
+      <div className="mx-auto max-w-6xl space-y-5 px-4 py-6">
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-[22px] font-semibold tracking-tight text-slate-900 dark:text-slate-100">Empresas-cliente <span className="font-normal text-slate-400">· {clientesReales.length}</span></h1>
@@ -397,53 +416,64 @@ export default function ClientesPage() {
           <Boton variante="primario" onClick={() => setNuevoAbierto(true)}>Nueva empresa</Boton>
         </header>
 
-        <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500">
-          <span><b className="tabular-nums text-slate-700">{resumen.activas}</b> activas</span>
-          <span><b className={`tabular-nums ${resumen.porVencer ? 'text-amber-600' : 'text-slate-700'}`}>{resumen.porVencer}</b> por vencer o vencidas</span>
-          <span><b className={`tabular-nums ${resumen.suspendidas ? 'text-red-600' : 'text-slate-700'}`}>{resumen.suspendidas}</b> suspendidas</span>
-          <span><b className="tabular-nums text-slate-700">{resumen.sinUsuarios}</b> sin usuarios</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative w-full sm:w-72">
+            <svg aria-hidden viewBox="0 0 20 20" className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="9" cy="9" r="5.5" /><path d="m13.5 13.5 3.5 3.5" strokeLinecap="round" /></svg>
+            <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar por nombre, RUT o correo" aria-label="Buscar empresa"
+              className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-8 pr-3 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" />
+          </div>
+          <Pestanas id="filtro-estado" valor={fEstado} onCambio={setFEstado} opciones={[
+            { valor: '', etiqueta: 'Todas', contador: conteo.todas }, { valor: 'activa', etiqueta: 'Activas', contador: conteo.activa },
+            { valor: 'por_vencer', etiqueta: 'Por vencer', contador: conteo.por_vencer }, { valor: 'vencida', etiqueta: 'Vencidas', contador: conteo.vencida },
+            { valor: 'suspendida', etiqueta: 'Suspendidas', contador: conteo.suspendida },
+          ]} />
+          <Pestanas id="filtro-plan" valor={fPlan} onCambio={setFPlan} opciones={[
+            { valor: '', etiqueta: 'Todos los planes' }, ...PLANES.map(p => ({ valor: p as string, etiqueta: NOMBRE_PLAN[p] })),
+          ]} />
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar por nombre, RUT o correo" className={`${input} max-w-sm`} />
-          <select value={fPlan} onChange={e => setFPlan(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-            <option value="">Todos los planes</option>{PLANES.map(p => <option key={p} value={p}>{NOMBRE_PLAN[p]}</option>)}
-          </select>
-          <select value={fEstado} onChange={e => setFEstado(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-            <option value="">Todos los estados</option><option value="ACTIVO">Activas</option><option value="SUSPENDIDO">Suspendidas</option><option value="VENCE">Por vencer o vencidas</option>
-          </select>
-        </div>
-
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          {cargando ? <p className="p-4 text-sm text-slate-500">Cargando…</p> : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 text-left text-[11px] text-slate-500 dark:border-slate-800">
-                  <th className="px-4 py-2 font-normal">Empresa</th><th className="px-3 py-2 font-normal">Plan</th><th className="px-3 py-2 font-normal">Usuarios</th>
-                  <th className="px-3 py-2 font-normal">IA del mes</th><th className="px-3 py-2 font-normal">Vence</th><th className="px-3 py-2 font-normal">Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtradas.map(c => (
-                  <tr key={c.id} onClick={c.id === 1 ? undefined : () => { setSelId(c.id); setTab('plan'); }}
-                    className={`border-b border-slate-100 last:border-0 dark:border-slate-800 ${c.id === 1 ? '' : 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50'} ${selId === c.id ? 'bg-teal-50/60 dark:bg-teal-900/10' : ''}`}>
-                    <td className="px-4 py-2.5"><p className="font-medium text-slate-900 dark:text-slate-100">{c.nombre}</p><p className="text-xs text-slate-500">{c.rut || 'sin RUT'}</p></td>
-                    {c.id === 1 ? <td colSpan={5} className="px-3 py-2.5 text-xs text-slate-500">Grupo ICA · todos los módulos · {c.usuarios} usuarios</td> : (
-                      <>
-                        <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300">{NOMBRE_PLAN[c.plan]}{c.adicionales.length > 0 && <span className="text-xs text-slate-400"> +{c.adicionales.length}</span>}</td>
-                        <td className="px-3 py-2.5 tabular-nums text-slate-700 dark:text-slate-300">{c.usuarios} de {c.max_usuarios ?? '∞'}</td>
-                        <td className="px-3 py-2.5 tabular-nums text-slate-700 dark:text-slate-300">US$ {c.ia_usd_mes ?? 0}</td>
-                        <td className="px-3 py-2.5 text-xs"><Vence f={c.vence_at} /></td>
-                        <td className="px-3 py-2.5"><EstadoEmpresa estado={c.estado} /></td>
-                      </>
-                    )}
-                  </tr>
-                ))}
-                {filtradas.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">Ninguna empresa coincide con la búsqueda. Cambia los filtros o crea una nueva.</td></tr>}
-              </tbody>
-            </table>
-          )}
-        </div>
+        {cargando ? <p className="text-sm text-slate-500">Cargando…</p> : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {ica && (
+              <div className="rounded-xl border border-dashed border-slate-300 bg-white/60 p-4 dark:border-slate-700 dark:bg-slate-900/50">
+                <p className="font-medium text-slate-900 dark:text-slate-100">{ica.nombre}</p>
+                <p className="text-xs text-slate-500">Grupo ICA · todos los módulos</p>
+                <p className="mt-3 text-xs text-slate-500">{ica.usuarios} usuarios</p>
+              </div>
+            )}
+            {filtradas.map(c => {
+              const ev = estadoVisual(c);
+              const d = diasHasta(c.vence_at);
+              const venceColor = ev === 'vencida' ? 'text-red-600' : ev === 'por_vencer' ? 'text-orange-600' : 'text-slate-800 dark:text-slate-200';
+              return (
+                <button key={c.id} type="button" onClick={() => { setSelId(c.id); setTab('plan'); }}
+                  className={`group rounded-xl border bg-white p-4 text-left shadow-sm transition duration-150 hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 dark:bg-slate-900 ${selId === c.id ? 'border-teal-600' : 'border-slate-200 dark:border-slate-800'}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-slate-900 dark:text-slate-100">{c.nombre}</p>
+                      <p className="text-xs text-slate-500">{c.rut || 'sin RUT'}</p>
+                    </div>
+                    <EstadoEmpresa c={c} />
+                  </div>
+                  <dl className="mt-4 grid grid-cols-3 gap-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+                    <div><dt className="text-[11px] text-slate-500">Plan</dt><dd className="text-sm font-medium text-slate-800 dark:text-slate-200">{NOMBRE_PLAN[c.plan]}{c.adicionales.length > 0 && <span className="text-xs font-normal text-slate-400"> +{c.adicionales.length}</span>}</dd></div>
+                    <div><dt className="text-[11px] text-slate-500">Usuarios</dt><dd className={`text-sm font-medium tabular-nums ${c.usuarios === 0 ? 'text-orange-600' : 'text-slate-800 dark:text-slate-200'}`}>{c.usuarios} de {c.max_usuarios ?? '∞'}</dd></div>
+                    <div><dt className="text-[11px] text-slate-500">Vence</dt>
+                      <dd className={`text-sm font-medium tabular-nums ${venceColor}`}>{c.vence_at ? c.vence_at.split('-').reverse().join('-') : 'Sin fecha'}</dd>
+                      {d != null && <dd className={`text-[11px] ${venceColor}`}>{d < 0 ? `hace ${-d} ${d === -1 ? 'día' : 'días'}` : d === 0 ? 'hoy' : `en ${d} ${d === 1 ? 'día' : 'días'}`}</dd>}
+                    </div>
+                  </dl>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {!cargando && filtradas.length === 0 && (
+          <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center">
+            <p className="text-sm font-medium text-slate-700">Ninguna empresa coincide</p>
+            <p className="mt-1 text-xs text-slate-500">Cambia la búsqueda o los filtros, o crea una empresa nueva.</p>
+          </div>
+        )}
       </div>
 
       {sel && (
@@ -455,21 +485,70 @@ export default function ClientesPage() {
         </div>
       )}
 
-      <Modal open={nuevoAbierto} onClose={() => setNuevoAbierto(false)} title="Nueva empresa" subtitle="Parte con el plan elegido y un perfil admin. Todo se cambia después desde su ficha."
-        footer={<div className="flex justify-end gap-2"><Boton onClick={() => setNuevoAbierto(false)}>Cancelar</Boton>
-          <Boton variante="primario" disabled={creando || !nuevo.nombre || !nuevo.adminEmail || nuevo.clave.length < 8} onClick={crear}>{creando ? 'Creando…' : 'Crear empresa'}</Boton></div>}>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="text-[11px] text-slate-500">Razón social<input className={`${input} mt-0.5`} value={nuevo.nombre} onChange={e => setNuevo({ ...nuevo, nombre: e.target.value })} /></label>
-          <label className="text-[11px] text-slate-500">RUT<input className={`${input} mt-0.5`} value={nuevo.rut} onChange={e => setNuevo({ ...nuevo, rut: e.target.value })} /></label>
-          <label className="text-[11px] text-slate-500">Nombre del admin<input className={`${input} mt-0.5`} value={nuevo.adminNombre} onChange={e => setNuevo({ ...nuevo, adminNombre: e.target.value })} /></label>
-          <label className="text-[11px] text-slate-500">Correo del admin (su usuario)<input type="email" className={`${input} mt-0.5`} value={nuevo.adminEmail} onChange={e => setNuevo({ ...nuevo, adminEmail: e.target.value })} /></label>
-          <label className="text-[11px] text-slate-500">Clave temporal (mín. 8)<input type="text" className={`${input} mt-0.5`} value={nuevo.clave} onChange={e => setNuevo({ ...nuevo, clave: e.target.value })} /></label>
-          <label className="text-[11px] text-slate-500">Vence (opcional)<input type="date" className={`${input} mt-0.5`} value={nuevo.venceAt} onChange={e => setNuevo({ ...nuevo, venceAt: e.target.value })} /></label>
-          <label className="text-[11px] text-slate-500">Plan
-            <select className={`${input} mt-0.5`} value={nuevo.plan} onChange={e => setNuevo({ ...nuevo, plan: e.target.value as Plan })}>
-              {PLANES.map(p => <option key={p} value={p}>{NOMBRE_PLAN[p]}</option>)}
-            </select>
-          </label>
+      <Modal open={nuevoAbierto} onClose={() => setNuevoAbierto(false)} size="lg" title="Nueva empresa" subtitle="Crea la empresa, su administrador y su plan. Todo se puede cambiar después desde su ficha."
+        footer={<div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-slate-500">{nuevoValido ? 'Listo para crear.' : 'Faltan razón social, un correo válido o una clave de 8 caracteres o más.'}</p>
+          <div className="flex gap-2"><Boton onClick={() => setNuevoAbierto(false)}>Cancelar</Boton>
+            <Boton variante="primario" disabled={creando || !nuevoValido} onClick={crear}>{creando ? 'Creando…' : 'Crear empresa'}</Boton></div></div>}>
+        <div className="space-y-5">
+          <section>
+            <h3 className="text-[13px] font-semibold text-slate-900 dark:text-slate-100">Empresa</h3>
+            <div className="mt-2 grid gap-3 sm:grid-cols-2">
+              <label className="text-[11px] text-slate-500">Razón social
+                <input className={`${input} mt-0.5`} value={nuevo.nombre} onChange={e => setNuevo({ ...nuevo, nombre: e.target.value })} placeholder="Ej.: Comercial Andes SpA" /></label>
+              <label className="text-[11px] text-slate-500">RUT
+                <input className={`${input} mt-0.5`} value={nuevo.rut} onChange={e => setNuevo({ ...nuevo, rut: e.target.value })} placeholder="76.123.456-7" /></label>
+            </div>
+            <p className="mt-1.5 text-xs text-slate-500">Con RUT, LICITANK la evalúa en Mercado Público y le sugiere palabras clave y perfil de compra.</p>
+          </section>
+
+          <section className="border-t border-slate-100 pt-4 dark:border-slate-800">
+            <h3 className="text-[13px] font-semibold text-slate-900 dark:text-slate-100">Administrador de la empresa</h3>
+            <div className="mt-2 grid gap-3 sm:grid-cols-2">
+              <label className="text-[11px] text-slate-500">Nombre
+                <input className={`${input} mt-0.5`} value={nuevo.adminNombre} onChange={e => setNuevo({ ...nuevo, adminNombre: e.target.value })} /></label>
+              <label className="text-[11px] text-slate-500">Correo (será su usuario)
+                <input type="email" className={`${input} mt-0.5`} value={nuevo.adminEmail} onChange={e => setNuevo({ ...nuevo, adminEmail: e.target.value })} /></label>
+              <label className="text-[11px] text-slate-500 sm:col-span-2">Clave temporal (mínimo 8 caracteres)
+                <div className="mt-0.5 flex gap-2">
+                  <input className={input} value={nuevo.clave} onChange={e => setNuevo({ ...nuevo, clave: e.target.value })} />
+                  <Boton tamano="sm" type="button" className="shrink-0 self-stretch" onClick={generarClave}>Generar</Boton>
+                </div></label>
+            </div>
+          </section>
+
+          <section className="border-t border-slate-100 pt-4 dark:border-slate-800">
+            <h3 className="text-[13px] font-semibold text-slate-900 dark:text-slate-100">Plan y vigencia</h3>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {PLANES.map(p => (
+                <button key={p} type="button" aria-pressed={nuevo.plan === p} onClick={() => setNuevo({ ...nuevo, plan: p, modulos: nuevo.modulos.filter(m => !planes[p].includes(m)) })}
+                  className={`rounded-lg border p-3 text-left transition ${nuevo.plan === p ? 'border-teal-600 bg-teal-50/60 dark:bg-teal-900/10' : 'border-slate-200 hover:border-slate-300 dark:border-slate-700'}`}>
+                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{NOMBRE_PLAN[p]}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{p === 'BASICO' ? 'Dashboard, Buscador, Negocios, Postuladas, Ganadas y perdidas, Descartadas, Órdenes de compra y administración de su empresa.' : 'Todo el Básico más Viabilidad IA, Resultado y Costeo.'}</p>
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="text-[11px] text-slate-500">Vence
+                <input type="date" className={`${input} mt-0.5`} value={nuevo.venceAt} onChange={e => setNuevo({ ...nuevo, venceAt: e.target.value })} /></label>
+              <label className="text-[11px] text-slate-500">Usuarios máximos
+                <input type="number" min={1} className={`${input} mt-0.5`} value={nuevo.maxUsuarios} onChange={e => setNuevo({ ...nuevo, maxUsuarios: Math.max(1, Number(e.target.value) || 1) })} /></label>
+            </div>
+            {extrasNuevo.length > 0 && (
+              <div className="mt-3">
+                <p className="text-[11px] text-slate-500">Adicionales (se suman al plan)</p>
+                <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2">
+                  {extrasNuevo.map(m => (
+                    <label key={m} className="flex items-center gap-2 text-[13px] text-slate-700 dark:text-slate-300">
+                      <input type="checkbox" className="accent-teal-700" checked={nuevo.modulos.includes(m)}
+                        onChange={() => setNuevo({ ...nuevo, modulos: nuevo.modulos.includes(m) ? nuevo.modulos.filter(x => x !== m) : [...nuevo.modulos, m] })} />
+                      {NOMBRE_MODULO[m]}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
         </div>
       </Modal>
     </AppLayout>
