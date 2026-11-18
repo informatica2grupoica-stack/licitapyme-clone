@@ -137,11 +137,27 @@ function Vence({ f }: { f: string | null }) {
   if (d <= 14) return <span className="text-amber-600">En {d} {d === 1 ? 'día' : 'días'}</span>;
   return <span className="text-slate-600">{fecha}</span>;
 }
-function EstadoEmpresa({ estado }: { estado: string }) {
-  const ok = estado === 'ACTIVO';
+// Estado a la vista: verde = al día, naranjo = vence en 14 días o menos, rojo = vencida, gris = suspendida o de baja.
+type EstadoVisual = 'activa' | 'por_vencer' | 'vencida' | 'suspendida';
+function estadoVisual(c: { estado: string; vence_at: string | null }): EstadoVisual {
+  if (c.estado !== 'ACTIVO') return 'suspendida';
+  const d = diasHasta(c.vence_at);
+  if (d != null && d < 0) return 'vencida';
+  if (d != null && d <= 14) return 'por_vencer';
+  return 'activa';
+}
+const ESTADO_UI: Record<EstadoVisual, { texto: string; punto: string; color: string }> = {
+  activa: { texto: 'Activa', punto: 'bg-emerald-500', color: 'text-emerald-700' },
+  por_vencer: { texto: 'Por vencer', punto: 'bg-orange-500', color: 'text-orange-600' },
+  vencida: { texto: 'Vencida', punto: 'bg-red-500', color: 'text-red-600' },
+  suspendida: { texto: 'Suspendida', punto: 'bg-slate-400', color: 'text-slate-500' },
+};
+function EstadoEmpresa({ c }: { c: { estado: string; vence_at: string | null } }) {
+  const e = ESTADO_UI[estadoVisual(c)];
+  const texto = c.estado === 'BAJA' ? 'De baja' : e.texto;
   return (
-    <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${ok ? 'text-slate-700' : 'text-red-600'}`}>
-      <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-emerald-500' : 'bg-red-500'}`} />{ok ? 'Activa' : estado === 'SUSPENDIDO' ? 'Suspendida' : 'De baja'}
+    <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${e.color}`}>
+      <span aria-hidden className={`h-2 w-2 rounded-full ${e.punto}`} />{texto}
     </span>
   );
 }
@@ -171,7 +187,7 @@ function Ficha({ c, tab, setTab, catalogo, activables, planes, puedeBorrar, bita
           <p className="mt-0.5 text-xs text-slate-500">{c.rut || 'sin RUT'} · {c.contacto_email || 'sin contacto'}</p>
         </div>
         <div className="flex items-center gap-3">
-          <EstadoEmpresa estado={c.estado} />
+          <EstadoEmpresa c={c} />
           <button onClick={cerrar} aria-label="Cerrar" className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700">✕</button>
         </div>
       </div>
@@ -390,10 +406,10 @@ export default function ClientesPage() {
 
         <div className="flex flex-wrap gap-2">
           <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar por nombre, RUT o correo" className={`${input} max-w-sm`} />
-          <select value={fPlan} onChange={e => setFPlan(e.target.value)} className={`${input} w-auto`}>
+          <select value={fPlan} onChange={e => setFPlan(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
             <option value="">Todos los planes</option>{PLANES.map(p => <option key={p} value={p}>{NOMBRE_PLAN[p]}</option>)}
           </select>
-          <select value={fEstado} onChange={e => setFEstado(e.target.value)} className={`${input} w-auto`}>
+          <select value={fEstado} onChange={e => setFEstado(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
             <option value="">Todos los estados</option><option value="ACTIVO">Activas</option><option value="SUSPENDIDO">Suspendidas</option><option value="VENCE">Por vencer o vencidas</option>
           </select>
         </div>

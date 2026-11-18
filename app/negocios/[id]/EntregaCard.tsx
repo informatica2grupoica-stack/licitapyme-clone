@@ -26,7 +26,7 @@ interface Entrega {
   actaConformidad: string | null; actaFirma: FirmaDatos | null; guiaFirma: FirmaDatos | null; guiaTimbre: boolean;
   cerradaAt: string | null; puntos: Punto[];
 }
-interface Escaneo { id: number; tipo: 'acta' | 'guia' | 'capacitacion'; archivoUrl: string; archivoNombre: string; subidoPorNombre: string | null; creadoAt: string }
+interface Escaneo { id: number; tipo: 'acta' | 'guia' | 'capacitacion' | 'otro'; archivoUrl: string; archivoNombre: string; subidoPorNombre: string | null; creadoAt: string }
 interface DocGenerado { id: number; titulo: string; plantillaNombre: string; createdAt: string }
 
 const esPdf = (n: string) => /\.pdf$/i.test(n);
@@ -66,7 +66,7 @@ function TarjetaDoc({ titulo, vacio, tipo, escaneos, puedeOperar, subiendo, onSu
           {puedeOperar && (
             <>
               <button onClick={() => input.current?.click()} disabled={subiendo} className="text-[11.5px] font-semibold text-teal-700 hover:text-teal-800 disabled:opacity-50 flex items-center gap-1">
-                {subiendo ? <><Loader2 size={12} className="animate-spin" /> Leyendo…</> : <><Upload size={12} /> {ultimo ? 'Reemplazar' : 'Subir'}</>}
+                {subiendo ? <><Loader2 size={12} className="animate-spin" /> Leyendo…</> : <><Upload size={12} /> {ultimo ? 'Subir otro' : 'Subir'}</>}
               </button>
               <input ref={input} type="file" accept="application/pdf,image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) onSubir(tipo, f); e.target.value = ''; }} />
             </>
@@ -75,6 +75,36 @@ function TarjetaDoc({ titulo, vacio, tipo, escaneos, puedeOperar, subiendo, onSu
           {puedeOperar && ultimo && <button onClick={() => onQuitar(ultimo.id)} title="Quitar" aria-label="Quitar" className="text-zinc-400 hover:text-rose-600 ml-auto"><Trash2 size={13} /></button>}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Documentos extra de la entrega (fotos, correos, constancias…): se suben los que hagan falta, cada uno se abre o se quita. */
+function OtrosDocumentos({ escaneos, puedeOperar, subiendo, onSubir, onQuitar, onAbrir }: {
+  escaneos: Escaneo[]; puedeOperar: boolean; subiendo: boolean; onSubir: (tipo: Escaneo['tipo'], f: File) => void; onQuitar: (id: number) => void; onAbrir: (d: VisorDoc) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const otros = escaneos.filter(e => e.tipo === 'otro');
+  if (!puedeOperar && otros.length === 0) return null;
+  return (
+    <div className="flex items-center gap-2 flex-wrap text-[12px]">
+      <span className="text-[10.5px] font-bold text-zinc-400 uppercase">Otros documentos</span>
+      {otros.map(e => (
+        <span key={e.id} className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white pl-2 pr-1.5 py-1 max-w-[260px]">
+          <FileText size={12} className="text-zinc-400 flex-shrink-0" />
+          <button onClick={() => onAbrir({ nombre: e.archivoNombre, url: e.archivoUrl, titulo: e.archivoNombre })} title={e.archivoNombre} className="truncate text-zinc-700 hover:text-teal-700">{e.archivoNombre}</button>
+          {puedeOperar && <button onClick={() => onQuitar(e.id)} title="Quitar" aria-label="Quitar" className="text-zinc-400 hover:text-rose-600 flex-shrink-0"><Trash2 size={12} /></button>}
+        </span>
+      ))}
+      {puedeOperar && (
+        <>
+          <button onClick={() => input.current?.click()} disabled={subiendo} className="font-semibold text-teal-700 hover:text-teal-800 disabled:opacity-50 flex items-center gap-1">
+            {subiendo ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} Agregar documento
+          </button>
+          <input ref={input} type="file" accept="application/pdf,image/*" multiple className="hidden"
+            onChange={async e => { const fs = Array.from(e.target.files || []); e.target.value = ''; for (const f of fs) await onSubir('otro', f); }} />
+        </>
+      )}
     </div>
   );
 }
@@ -260,6 +290,9 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
             extra={puedeOperar && guiaCargada ? <button onClick={() => releer(guiaCargada.id)} disabled={leyendo} title="Volver a leer el documento" className="text-[11.5px] font-semibold text-zinc-500 hover:text-teal-700 flex items-center gap-1 disabled:opacity-50">{leyendo ? <Loader2 size={12} className="animate-spin" /> : <Leer size={12} />} Leer datos</button> : null} />
           <TarjetaDoc titulo="Capacitación (listado de asistentes)" tipo="capacitacion" vacio="Si hubo capacitación, sube el listado firmado." subiendo={subiendoTipo === 'capacitacion'} {...comunes} />
         </div>
+
+        {/* Otros documentos: fotos de la entrega, correos, constancias… los que haga falta */}
+        <OtrosDocumentos escaneos={escaneos} puedeOperar={puedeOperar} subiendo={subiendoTipo === 'otro'} onSubir={subirEscaneo} onQuitar={quitarEscaneo} onAbrir={setVisor} />
 
         {/* Quién recibió + guía (se llena solo con el acta) */}
         {editandoRecepcion ? (

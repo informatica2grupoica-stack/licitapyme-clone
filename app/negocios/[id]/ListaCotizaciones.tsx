@@ -290,7 +290,7 @@ export function ListaCotizaciones({ negocioId, cotizaciones, productos, avisosPo
                 <div className="flex items-center justify-end gap-0.5">
                   {avisos > 0 && <span className="@3xl:hidden inline-flex items-center gap-0.5 text-[12px] font-semibold text-rose-600 mr-1"><Alerta size={13} />{avisos}</span>}
                   {puedeOperar && <>
-                    {leyendoSpecs === c.id && <span role="status" className="inline-flex items-center gap-1 text-[11.5px] font-medium text-teal-700 mr-2 whitespace-nowrap"><Loader2 size={13} className="animate-spin" /> Leyendo specs…</span>}
+                    {leyendoSpecs === c.id && <span role="status" aria-label="Leyendo specs, puede tardar unos minutos" title="Leyendo specs… puede tardar unos minutos" className="inline-flex items-center text-teal-700 mr-2"><Loader2 size={15} className="animate-spin" /></span>}
                     {c.archivoUrl && <button type="button" onClick={() => setVisor(docsTodos.find(d => d.url === c.archivoUrl) ?? { nombre: nombreDeArchivo(c.archivoUrl!), url: c.archivoUrl! })} title="Abrir la cotización que se subió" aria-label="Ver cotización"
                       className="@3xl:hidden inline-flex items-center gap-1 text-[11.5px] font-semibold text-teal-700 hover:bg-teal-50 border border-teal-200 rounded-md px-1.5 py-0.5 mr-1"><Doc size={13} /> Ver</button>}
                     <button type="button" onClick={() => onAsignar(c.id)} title="Asignar a productos" aria-label="Asignar a productos" className="p-1.5 rounded-md text-teal-700 hover:text-teal-900 hover:bg-teal-50"><ListChecks size={15} /></button>
