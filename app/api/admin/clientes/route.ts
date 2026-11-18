@@ -119,6 +119,28 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Activar/desactivar a una persona de una empresa-cliente, o ponerle una clave temporal nueva. Solo usuarios de empresas-cliente (nunca de ICA).
+  if (b.accion === 'usuario_estado' || b.accion === 'usuario_clave') {
+    const uid = Number(b.usuarioId);
+    const [[uu]] = await pool.query('SELECT u.id, u.email, u.activo, u.cliente_id, c.max_usuarios FROM usuarios u JOIN clientes c ON c.id = u.cliente_id WHERE u.id = ? LIMIT 1', [uid]) as any;
+    if (!uu || Number(uu.cliente_id) === CLIENTE_ICA) return NextResponse.json({ error: 'Usuario no válido' }, { status: 400 });
+    if (b.accion === 'usuario_estado') {
+      const activar = !!b.activo;
+      if (activar && !uu.activo && uu.max_usuarios != null) {
+        const [[{ n }]] = await pool.query('SELECT COUNT(*) AS n FROM usuarios WHERE cliente_id = ? AND activo = TRUE', [uu.cliente_id]) as any;
+        if (Number(n) >= Number(uu.max_usuarios)) return NextResponse.json({ error: `El plan permite ${uu.max_usuarios} usuario(s). Sube el tope primero.` }, { status: 409 });
+      }
+      await pool.query('UPDATE usuarios SET activo = ? WHERE id = ?', [activar ? 1 : 0, uid]);
+      await bitacora(Number(uu.cliente_id), g.u!.id, activar ? 'usuario_activar' : 'usuario_desactivar', { email: uu.email });
+      return NextResponse.json({ success: true });
+    }
+    const cl = String(b.clave || '');
+    if (cl.length < 8) return NextResponse.json({ error: 'La clave necesita al menos 8 caracteres' }, { status: 400 });
+    await pool.query('UPDATE usuarios SET password_hash = ? WHERE id = ?', [await bcrypt.hash(cl, 10), uid]);
+    await bitacora(Number(uu.cliente_id), g.u!.id, 'usuario_clave', { email: uu.email }); // la clave nunca se guarda en la bitácora
+    return NextResponse.json({ success: true });
+  }
+
   // Agregar una persona a una empresa existente (respeta el tope de usuarios del plan).
   if (b.accion === 'usuario') {
     const cid = Number(b.clienteId), em = String(b.email || '').toLowerCase().trim(), cl = String(b.clave || '');

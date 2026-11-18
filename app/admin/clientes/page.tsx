@@ -170,6 +170,20 @@ function Ficha({ c, tab, setTab, catalogo, activables, planes, puedeBorrar, bita
   const toast = useToast();
   const [equipo, setEquipo] = useState<{ id: number; nombre: string; email: string; rol: string; activo: number }[] | null>(null);
   const [otro, setOtro] = useState<{ nombre: string; email: string; clave: string; rol: string } | null>(null);
+  const [claveNueva, setClaveNueva] = useState<{ id: number; clave: string } | null>(null);
+  const accionUsuario = async (cuerpo: Record<string, unknown>, ok: string) => {
+    const r = await fetch('/api/admin/clientes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cuerpo) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { toast.error('No se pudo', d.error || `HTTP ${r.status}`); return false; }
+    toast.success(ok); cargar(); leerEquipo(); return true;
+  };
+  const poner = async (u: { id: number; email?: string }) => {
+    if (!window.confirm('Esto cambia la clave de ' + (u.email || 'este usuario') + ' ahora mismo. ¿Continuar?')) return;
+    const abc = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    const b = new Uint32Array(12); crypto.getRandomValues(b);
+    const clave = Array.from(b, x => abc[x % abc.length]).join('');
+    if (await accionUsuario({ accion: 'usuario_clave', usuarioId: u.id, clave }, 'Clave cambiada')) setClaveNueva({ id: u.id, clave });
+  };
   const leerEquipo = useCallback(async () => {
     const d = await fetch(`/api/admin/clientes?usuarios=${c.id}`).then(r => r.json()).catch(() => ({}));
     setEquipo(d.usuarios || []);
@@ -250,9 +264,19 @@ function Ficha({ c, tab, setTab, catalogo, activables, planes, puedeBorrar, bita
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                 {equipo.map(u => (
-                  <li key={u.id} className="flex items-center justify-between gap-3 py-2">
+                  <li key={u.id} className="flex flex-wrap items-center justify-between gap-3 py-2">
                     <div className="min-w-0"><p className="truncate text-[13px] font-medium text-slate-800 dark:text-slate-200">{u.nombre}</p><p className="truncate text-xs text-slate-500">{u.email}</p></div>
-                    <span className="shrink-0 text-xs text-slate-500">{u.rol === 'admin' ? 'Admin' : 'Usuario'}{u.activo ? '' : ' · inactivo'}</span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="text-xs text-slate-500">{u.rol === 'admin' ? 'Admin' : 'Usuario'}{u.activo ? '' : ' · inactivo'}</span>
+                      <Boton tamano="sm" onClick={() => poner(u)}>Nueva clave</Boton>
+                      <Boton tamano="sm" variante={u.activo ? 'secundario' : 'primario'} onClick={() => accionUsuario({ accion: 'usuario_estado', usuarioId: u.id, activo: !u.activo }, u.activo ? 'Usuario desactivado' : 'Usuario activado')}>{u.activo ? 'Desactivar' : 'Activar'}</Boton>
+                    </div>
+                    {claveNueva?.id === u.id && (
+                      <div className="basis-full rounded-lg border border-teal-200 bg-teal-50/60 p-2.5 text-xs text-slate-700 dark:border-teal-900 dark:bg-teal-900/10 dark:text-slate-300">
+                        Clave temporal de {u.email}: <b className="select-all font-mono text-[13px]">{claveNueva.clave}</b>
+                        <span className="block text-slate-500">Se muestra una sola vez. Entrégala por un canal seguro; pueden cambiarla desde su perfil.</span>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
