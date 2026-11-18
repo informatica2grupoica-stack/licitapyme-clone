@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { esRechazoPorFiltro } from '../auditor-lector';
+import { esRechazoPorFiltro, topeKimiMs } from '../auditor-lector';
 
 // Caso real 26-oct-2026 (2427-98-LE26): la ficha técnica de un notebook rugerizado (Getac B360) volvió de los CUATRO modelos GLM con este 400.
 const REAL = 'glm-4.7: 400 System detected potentially unsafe or sensitive content in input or generation. Please avoid using prompts that may generate sensitive content.';
@@ -34,4 +34,12 @@ test('a Kimi nunca se le manda response_format (guardia sobre gemini.ts)', () =>
   const bloque = fuente.slice(fuente.indexOf('if (cfg.kimi) {'), fuente.indexOf('if (cfg.kimi) {') + 900);
   assert.match(bloque, /delete body\.response_format/);
   assert.match(fuente, /const \{ _esfuerzoKimi, \.\.\.resto \} = params/, '_esfuerzoKimi nunca le llega a otro proveedor');
+});
+
+test('topeKimiMs: documento corto espera poco a Kimi y el largo conserva los 240 s', () => {
+  assert.equal(topeKimiMs(2_558), 90_000);
+  assert.equal(topeKimiMs(8_000), 90_000);
+  assert.equal(topeKimiMs(8_001), 150_000);
+  assert.equal(topeKimiMs(25_000), 150_000);
+  assert.equal(topeKimiMs(60_000), 240_000);
 });

@@ -23,6 +23,7 @@ import { verificarLineaV3, ultimasCorridasV3, confirmacionesTecnicas, ultimasSeg
 import { leerYGuardarDocumento, extraccionPorId, extraccionesPorIds } from '@/app/lib/auditor-lector';
 import { normalizarExtraccion, emparejarProductos, coincidenciaIdentidad, puntuar, type ProductoNormalizado } from '@/app/lib/auditor-opciones-core';
 import { sugerirLineas } from '@/app/lib/auditor-sugerir-linea';
+import { compartirEnVuelo } from '@/app/lib/en-vuelo';
 import { requisitosDeLinea, requisitosDelProducto } from '@/app/lib/auditor-tecnico-v2';
 import type { RequisitoHeredado } from '@/app/lib/auditor-tecnico-v2-core';
 import { listarCotizaciones, type CotizacionFila } from '@/app/lib/compras-auditor';
@@ -262,7 +263,9 @@ export async function procesarFicha(params: { negocioId: number; url: string; no
   let extraccionId: number;
   if ((previas as any[]).length) extraccionId = (previas as any[])[0].id;
   else {
-    const lectura = await leerYGuardarDocumento({ negocioId, url, nombre, modo: 'completo' });
+    // Una lectura con IA tarda minutos: la lectura automática de la subida y el botón «Leer specs» del MISMO archivo comparten UNA sola
+    // (en producción, 18-nov-2026, el mismo PDF se leyó 3 veces a la vez porque ninguna había terminado todavía).
+    const lectura = await compartirEnVuelo(`lectura-ficha:${negocioId}:${url}`, () => leerYGuardarDocumento({ negocioId, url, nombre, modo: 'completo' }));
     if (!desdeCotizacion) await marcarFichaCompras(negocioId, lectura.id);   // una cotización solo se marca como ficha si algún producto trae specs (más abajo)
     if (lectura.error) return vacio(`No se pudo leer: ${lectura.error}`, lectura.id);
     extraccionId = lectura.id;

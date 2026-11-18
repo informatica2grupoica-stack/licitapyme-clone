@@ -225,6 +225,14 @@ export function esRechazoPorFiltro(mensaje: string): boolean {
   return /unsafe or sensitive content|sensitive content|contenido (inseguro|sensible)|\b1301\b/i.test(mensaje);
 }
 
+/** Cuánto esperar a Kimi antes de pasar a GLM, según el largo del texto. Una cotización corta no necesita 4 min de Kimi: en producción
+ *  (18-nov-2026) Kimi se agotaba a los 240 s con un PDF de 2,5 mil caracteres y luego GLM leía 90 s más (~5,5 min por lectura). */
+export function topeKimiMs(largoTexto: number): number {
+  if (largoTexto <= 8_000) return 90_000;
+  if (largoTexto <= 25_000) return 150_000;
+  return 240_000;
+}
+
 async function llamarLector(texto: string, nombre: string, modo: ModoLector, esWeb = false): Promise<{ salida: SalidaLector; motor: string }> {
   const system = promptSistema(modo, esWeb);
   const combinado = texto.includes(MARCA_OCR_COMBINADO);
@@ -240,7 +248,7 @@ async function llamarLector(texto: string, nombre: string, modo: ModoLector, esW
   const pedir = async (): Promise<any> => {
     if (motor !== MOTOR_LECTOR) return crearChatIA(params, { timeoutMs: 240_000, modeloPreferido: MODELO_RESPALDO_GLM, soloGlm: true });
     // max_tokens 16k: el razonamiento de Kimi gasta del MISMO presupuesto que el JSON (margen como el del comparador).
-    try { return await crearChatIA({ ...params, max_tokens: 16_000, _esfuerzoKimi: 'low' }, { timeoutMs: 240_000, proveedorPreferido: MOTOR_LECTOR, sinRespaldo: true }); }
+    try { return await crearChatIA({ ...params, max_tokens: 16_000, _esfuerzoKimi: 'low' }, { timeoutMs: topeKimiMs(texto.length), proveedorPreferido: MOTOR_LECTOR, sinRespaldo: true }); }
     catch (e) {
       const msgKimi = (e instanceof Error ? e.message : String(e)).slice(0, 200);
       console.warn(`[auditor-lector] Kimi no pudo leer «${nombre}» (${msgKimi}): se lee con ${MODELO_RESPALDO_GLM}`);
