@@ -150,6 +150,14 @@ export async function adjudicacionPorCliente<T extends { cliente_id?: number | n
   return out;
 }
 
+/** Cantidad que se multiplica por el precio unitario. Normalmente la ADJUDICADA. Excepción (759-30-LE26,
+ *  18-nov-2026): adjudicación TOTAL (tipo 2) donde el organismo dejó la cantidad adjudicada en 1 pero se pidieron
+ *  425 → monto $74.116 en vez de $31.499.158 (neto del Anexo 4 = 425 × precio unitario). Ahí vale la pedida. */
+export function cantidadGanada(adjudicada: number | null | undefined, pedida: number | null | undefined, tipoAdjudicacion: number | null | undefined): number | undefined {
+  if (adjudicada === 1 && tipoAdjudicacion === 2 && Number(pedida) > 1) return Number(pedida);
+  return adjudicada ?? pedida ?? undefined;
+}
+
 // ── Construir la respuesta a partir de una Licitacion ya normalizada ──────────
 // Separado de la consulta de red para reutilizarlo cuando ya se tiene el detalle
 // (p.ej. el cron obtiene UNA vez el detalle y de ahí saca adjudicación + apertura).
@@ -167,7 +175,7 @@ export function construirDesdeLicitacion(lic: Licitacion, codigo: string): Respu
       producto:     it.NombreProducto,
       descripcion:  it.Descripcion,
       // Cantidad ADJUDICADA (lo que realmente ganó el proveedor); si falta, la pedida.
-      cantidad:     it.CantidadAdjudicada ?? it.Cantidad,
+      cantidad:     cantidadGanada(it.CantidadAdjudicada, it.Cantidad, lic.Adjudicacion?.Tipo),
       unidad:       it.Unidad,
       montoUnitario: it.MontoUnitario ?? null,
       rutProveedor:  it.RutProveedorAdjudicado ?? null,

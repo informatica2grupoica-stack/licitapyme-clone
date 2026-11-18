@@ -20,16 +20,27 @@ const PALABRAS_VACIAS = new Set(['con', 'para', 'del', 'las', 'los', 'una', 'uno
 /** Raíz burda (singular, sin tildes) para que «coplas» y «copla», «codos» y «codo» se junten. */
 const raiz = (t: string) => (t.length >= 5 && t.endsWith('es') ? t.slice(0, -2) : t.length >= 4 && t.endsWith('s') ? t.slice(0, -1) : t);
 export function palabrasClave(s: string): Set<string> {
+  // Los nombres que vienen de PDF o de bases mal copiadas traen palabras pegadas («CoplaHDPE», «de110mm»): se separan en el cambio de minúscula a
+  // mayúscula y entre letras y números antes de pasar a minúsculas.
+  const separado = String(s ?? '').replace(/([a-záéíóúñ])([A-ZÁÉÍÓÚÑ])/g, '$1 $2').replace(/([A-Za-z])(\d)/g, '$1 $2').replace(/(\d)([A-Za-z])/g, '$1 $2');
   return new Set(
-    sinTildes(s).replace(/[^a-z0-9ñ]+/g, ' ').split(' ')
+    sinTildes(separado).replace(/[^a-z0-9ñ]+/g, ' ').split(' ')
       .filter(t => t.length >= 3 && !/^\d+$/.test(t) && !PALABRAS_VACIAS.has(t))
       .map(raiz),
   );
 }
+/** Dos palabras son «la misma» si son iguales o una larga contiene a la otra («paraelectrofusion» ⊃ «electrofusion», «termofusion» ⊃ «fusion»). */
+function mismaPalabra(t: string, b: Set<string>): boolean {
+  if (b.has(t)) return true;
+  if (t.length < 6) return false;
+  for (const u of b) if (u.length >= 6 && (u.includes(t) || t.includes(u))) return true;
+  return false;
+}
+/** Mezcla de cobertura del más corto (no perder un producto de nombre breve) y de Dice (no premiar a un nombre de una sola palabra por sobre uno completo). */
 function dice(a: Set<string>, b: Set<string>): number {
   if (!a.size || !b.size) return 0;
-  let n = 0; for (const t of a) if (b.has(t)) n++;
-  return n / Math.min(a.size, b.size);
+  let n = 0; for (const t of a) if (mismaPalabra(t, b)) n++;
+  return 0.5 * (n / Math.min(a.size, b.size)) + 0.5 * ((2 * n) / (a.size + b.size));
 }
 
 // ─── Medidas con unidad ───────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -59,6 +70,17 @@ export function atributosDe(textoOriginal: string): Atributos {
   const medidas = new Map<ClaseMedida, Rango[]>();
   const t = sinTildes(textoOriginal).replace(/[”″“]/g, '"').replace(/×/g, 'x');
   let m: RegExpExecArray | null;
+  // Número + unidad suelto. Si el número va pegado a un código con guion o letras («SS642-14,30 HP»), «14,30» puede ser 14,3 o 30: se guardan
+  // las dos lecturas y solo hay choque si ninguna coincide con el otro texto.
+  const simple = (clase: ClaseMedida, unidad: string, mult = 1) => {
+    for (const x of t.matchAll(new RegExp(N + String.raw`\s*` + unidad + String.raw`\b`, 'g'))) {
+      const previo = x.index > 0 ? t[x.index - 1] : '';
+      if (/[\d.]/.test(previo)) continue;                                   // mitad de otro número
+      const alt = x[1].includes(',') && /[-\w]/.test(previo) ? Number(x[1].split(',')[1]) : null;
+      sumar(medidas, clase, num(x[1]) * mult);
+      if (alt != null && Number.isFinite(alt) && alt > 0) sumar(medidas, clase, alt * mult);
+    }
+  };
 
   // Pulgadas: 3", 1/2", 4 1/2", 4-1/2", 5/8"x3", «3 pulg».
   const rePulg = new RegExp(String.raw`(?:(\d+)[\s-]+)?(\d+)\s*/\s*(\d+)\s*(?:"|pulg\w*|in\b)|${N}\s*(?:"|pulg\w*\b)`, 'g');
@@ -71,20 +93,20 @@ export function atributosDe(textoOriginal: string): Atributos {
   // Diámetro o largo en mm: «63 mm», «20-160 mm», «20 x 63 mm», «115Mm», «d= 90» (diámetro), «ø90».
   for (const x of t.matchAll(new RegExp(String.raw`${N}\s*(?:-|a)\s*${N}\s*mm\b`, 'g'))) sumar(medidas, 'mm', num(x[1]), num(x[2]));
   for (const x of t.matchAll(new RegExp(String.raw`${N}\s*x\s*${N}\s*mm\b`, 'g'))) { sumar(medidas, 'mm', num(x[1])); sumar(medidas, 'mm', num(x[2])); }
-  for (const x of t.matchAll(new RegExp(String.raw`${N}\s*mm\b`, 'g'))) sumar(medidas, 'mm', num(x[1]));
-  for (const x of t.matchAll(new RegExp(String.raw`${N}\s*cm\b`, 'g'))) sumar(medidas, 'mm', num(x[1]) * 10);
+  simple('mm', 'mm');
+  simple('mm', 'cm', 10);
   for (const x of t.matchAll(new RegExp(String.raw`(?:\bd\s*=\s*|\bdiametro\s*|ø\s*)${N}(?!\s*(?:mm|cm|"|m\b|mt|metro))`, 'g'))) sumar(medidas, 'mm', num(x[1]));
   // Presión y diámetro nominal: PN10, PN-16, DN100, DN 80.
   for (const x of t.matchAll(/\bpn\s*-?\s*(\d{1,3})\b/g)) sumar(medidas, 'pn', Number(x[1]));
   for (const x of t.matchAll(/\bdn\s*-?\s*(\d{2,4})\b/g)) sumar(medidas, 'dn', Number(x[1]));
   // Potencia: kW → W (un «6000 KW» mal escrito se tolera al comparar, ver compatibles()).
-  for (const x of t.matchAll(new RegExp(String.raw`${N}\s*kw\b`, 'g'))) sumar(medidas, 'w', num(x[1]) * 1000);
-  for (const x of t.matchAll(new RegExp(String.raw`${N}\s*w\b`, 'g'))) sumar(medidas, 'w', num(x[1]));
-  for (const x of t.matchAll(new RegExp(String.raw`${N}\s*hp\b`, 'g'))) sumar(medidas, 'hp', num(x[1]));
-  for (const x of t.matchAll(new RegExp(String.raw`${N}\s*kva\b`, 'g'))) sumar(medidas, 'kva', num(x[1]));
-  for (const x of t.matchAll(new RegExp(String.raw`${N}\s*btu\b`, 'g'))) sumar(medidas, 'btu', num(x[1]));
-  for (const x of t.matchAll(new RegExp(String.raw`${N}\s*ah\b`, 'g'))) sumar(medidas, 'ah', num(x[1]));
-  for (const x of t.matchAll(new RegExp(String.raw`${N}\s*bar\b`, 'g'))) sumar(medidas, 'bar', num(x[1]));
+  simple('w', 'kw', 1000);
+  simple('w', 'w');
+  simple('hp', 'hp');
+  simple('kva', 'kva');
+  simple('btu', 'btu');
+  simple('ah', 'ah');
+  simple('bar', 'bar');
   // Tensión: «220V», «100-240 V», «220-240V».
   for (const x of t.matchAll(new RegExp(String.raw`${N}\s*-\s*${N}\s*v\b`, 'g'))) sumar(medidas, 'v', num(x[1]), num(x[2]));
   for (const x of t.matchAll(new RegExp(String.raw`(?<![-\d.,])${N}\s*v\b(?!a)`, 'g'))) sumar(medidas, 'v', num(x[1]));
@@ -147,7 +169,7 @@ export function medidasEnComun(a: string, b: string): number {
 // ─── Puntaje línea ↔ producto ─────────────────────────────────────────────────────────────────────────────────────────────────────
 export interface ProductoParaEmparejar { id: number; descripcion: string; cantidad?: number | null }
 
-export function puntajeLineaProducto(linea: LineaCotizacion, producto: ProductoParaEmparejar, cache?: { lineaPal: Set<string>; lineaAttr: Atributos }): { puntaje: number; choca: boolean } {
+export function puntajeLineaProducto(linea: LineaCotizacion, producto: ProductoParaEmparejar, cache?: { lineaPal: Set<string>; lineaAttr: Atributos }, opts?: { penalizar?: boolean }): { puntaje: number; choca: boolean } {
   const lp = cache?.lineaPal ?? palabrasClave(linea.descripcion);
   const la = cache?.lineaAttr ?? atributosDe(linea.descripcion);
   const pa = atributosDe(producto.descripcion);
@@ -155,10 +177,12 @@ export function puntajeLineaProducto(linea: LineaCotizacion, producto: ProductoP
   const modeloComun = [...pa.modelos].some(a => [...la.modelos].some(b => a === b || a.startsWith(b) || b.startsWith(a)));
   if (modeloComun) s += 0.6;
   const comunes = medidasEnComun(producto.descripcion, linea.descripcion);
-  s += Math.min(comunes, 3) * 0.12;
+  s += Math.min(comunes, 3) * 0.06;
   if (linea.cantidad != null && producto.cantidad != null && Number(linea.cantidad) === Number(producto.cantidad) && Number(linea.cantidad) > 1) s += 0.08;
-  const choca = conflictosMedibles(producto.descripcion, linea.descripcion).some(c => c.grave || c.clase === 'modelo');
-  return { puntaje: s, choca };
+  // Un proveedor SÍ puede ofrecer un equivalente de otra marca o modelo: eso solo resta un poco. Una medida física distinta (63 mm ≠ 75 mm) resta mucho.
+  const conflictos = conflictosMedibles(producto.descripcion, linea.descripcion);
+  if (opts?.penalizar !== false) s -= 0.6 * conflictos.filter(c => c.grave).length + 0.1 * conflictos.filter(c => !c.grave).length;
+  return { puntaje: s, choca: conflictos.some(c => c.grave) };
 }
 
 /**
@@ -173,11 +197,22 @@ export function productosCandidatos(lineas: LineaCotizacion[], productos: Produc
     if ((l.total ?? l.precioUnitario ?? 0) === 0) continue;   // sin precio: título, total o «ACCESORIOS»
     const cache = { lineaPal: palabrasClave(l.descripcion), lineaAttr: atributosDe(l.descripcion) };
     const ptj = productos.map(p => ({ id: p.id, ...puntajeLineaProducto(l, p, cache) }));
-    const buenos = ptj.filter(x => !x.choca).sort((a, b) => b.puntaje - a.puntaje);
+    const buenos = [...ptj].sort((a, b) => b.puntaje - a.puntaje);   // los que chocan en medida ya vienen con puntaje bajo
     const mejor = buenos[0]?.puntaje ?? 0;
-    let sel = buenos.filter(x => x.puntaje > 0 && x.puntaje >= Math.max(0.25, mejor * 0.7)).slice(0, maxPorLinea);
+    if (mejor <= 0) {
+      // Ni una palabra ni una medida en común: o es flete/total («SHIPPING-COST»), o el proveedor nombra distinto («bombeo» ~ «bomba»):
+      // se prueba con los primeros 4 caracteres de cada palabra. Si tampoco, no hay qué ofrecerle a la IA.
+      if (/flete|transport|despacho|env[ií]o|shipping|freight|descuento|\biva\b|total/i.test(l.descripcion)) continue;
+      const pref = (t: Set<string>) => new Set([...t].filter(x => x.length >= 5).map(x => x.slice(0, 4)));
+      const pl = pref(cache.lineaPal);
+      const porPrefijo = productos.map(p => ({ id: p.id, s: dice(pref(palabrasClave(p.descripcion)), pl) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s).slice(0, minimo + 2);
+      for (const x of porPrefijo) elegidos.add(x.id);
+      continue;
+    }
+    let sel = buenos.filter(x => x.puntaje > 0 && x.puntaje >= Math.max(0.1, mejor * 0.7)).slice(0, maxPorLinea);
     if (sel.length < minimo) sel = [...sel, ...buenos.filter(x => !sel.includes(x))].slice(0, minimo);
-    if (!sel.length) sel = ptj.sort((a, b) => b.puntaje - a.puntaje).slice(0, minimo);   // todo choca: que decida la IA con lo menos malo
+    // Empates con el último elegido (varias filas iguales del mismo producto) entran también.
+    if (sel.length) { const corte = sel[sel.length - 1].puntaje; for (const x of buenos) if (!sel.includes(x) && x.puntaje > 0 && x.puntaje >= corte && sel.length < maxPorLinea) sel.push(x); }
     for (const x of sel) elegidos.add(x.id);
   }
   return elegidos;
@@ -202,7 +237,40 @@ export function lineaDeLaAsignacion(descProducto: string, lineas: LineaCotizacio
   const porPrecio = precioDocumento != null && precioDocumento > 0 ? lineas.filter(l => l.precioUnitario != null && Math.abs(l.precioUnitario - precioDocumento) <= 1.5) : [];
   const pool = porPrecio.length ? porPrecio : lineas;
   let mejor: LineaCotizacion | null = null, mejorP = -1;
-  for (const l of pool) { const p = puntajeLineaProducto(l, prod).puntaje; if (p > mejorP) { mejorP = p; mejor = l; } }
+  // Sin restar choques: la línea que respalda el precio puede ser justamente la que choca (75 mm pedido, línea de 63 mm).
+  for (const l of pool) { const p = puntajeLineaProducto(l, prod, undefined, { penalizar: false }).puntaje; if (p > mejorP) { mejorP = p; mejor = l; } }
   if (!mejor) return null;
-  return porPrecio.length || mejorP >= 0.5 ? mejor : null;
+  return porPrecio.length || mejorP >= 0.3 ? mejor : null;
+}
+
+/**
+ * ¿La línea que trae el precio asignado a un producto se parece AL MENOS algo a ese producto (una palabra, una medida o un modelo en común)?
+ * Caso real (prueba con el modelo de respaldo, 727202-72-LP26): a una bomba de pozo le asignó $3.222, que SÍ existe en la cotización pero es el de
+ * la tubería de 63 mm. Que el precio exista en el documento no basta; la línea dueña de ese precio tiene que ser algo del producto.
+ * Devuelve null si no se puede juzgar (el precio no corresponde a una sola línea: IVA, conversión, total).
+ */
+export function respaldoDelPrecio(descProducto: string, lineas: LineaCotizacion[], precioDocumento: number | null | undefined): { linea: LineaCotizacion; puntaje: number; plausible: boolean } | null {
+  if (precioDocumento == null || !(precioDocumento > 0)) return null;
+  const delPrecio = lineas.filter(l => l.precioUnitario != null && Math.abs(l.precioUnitario - precioDocumento) <= 1.5);
+  if (!delPrecio.length) return null;
+  const prod: ProductoParaEmparejar = { id: 0, descripcion: descProducto };
+  let mejor = delPrecio[0], mejorP = -Infinity;
+  for (const l of delPrecio) { const sc = puntajeLineaProducto(l, prod).puntaje; if (sc > mejorP) { mejorP = sc; mejor = l; } }
+  // El puntaje ya resta choques de medida; para «¿se parecen algo?» se mira lo que comparten, sin restas.
+  const comparte = dice(palabrasClave(descProducto), palabrasClave(mejor.descripcion)) > 0 || medidasEnComun(descProducto, mejor.descripcion) > 0
+    || [...atributosDe(descProducto).modelos].some(a => [...atributosDe(mejor.descripcion).modelos].some(b => a === b || a.startsWith(b) || b.startsWith(a)));
+  return { linea: mejor, puntaje: mejorP, plausible: comparte };
+}
+
+/**
+ * Si el producto lleva un código de modelo («...PQ128C-PQWT») y UNA sola línea del documento trae ese mismo código, esa línea es el producto:
+ * manda sobre lo que la IA haya elegido (a ese geófono le asignó el precio de otro modelo, L2000, habiendo una línea PQ128C).
+ * Con dos o más líneas con ese código no se decide (puede ser el mismo modelo en dos presentaciones).
+ */
+export function lineaConElMismoModelo(descProducto: string, lineas: LineaCotizacion[]): LineaCotizacion | null {
+  const mp = atributosDe(descProducto).modelos;
+  if (!mp.size) return null;
+  const c = lineas.filter(l => (l.total ?? l.precioUnitario ?? 0) !== 0 && l.precioUnitario != null
+    && [...atributosDe(l.descripcion).modelos].some(b => [...mp].some(a => a === b || a.startsWith(b) || b.startsWith(a))));
+  return c.length === 1 ? c[0] : null;
 }

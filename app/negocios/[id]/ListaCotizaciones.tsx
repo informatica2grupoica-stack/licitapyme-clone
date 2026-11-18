@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { MenuAcciones } from '@/app/components/ui/MenuAcciones';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
-import { lineasDesdeTabla, lineasSinAsignar, productoQueCubreLaLinea, type LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
+import { lineasDesdeTabla, lineasSinAsignar, productoQueCubreLaLinea, factoresPrecioDeCotizacion, type LineaCotizacion } from '@/app/lib/compras-cotizacion-lineas';
 import { adicionalesDesdeIA } from '@/app/lib/compras-adicionales-ia';
 import { useToast } from '@/app/components/ui/toast';
 import { IconEye as Eye, IconListCheck as ListChecks, IconSparkles as Sparkles, IconPencil as Pencil, IconTrash as Trash, IconLoader2 as Loader2, IconAlertTriangle as Alerta, IconChevronRight as Flecha, IconCheck as Check, IconFileText as Doc } from '@tabler/icons-react';
@@ -22,13 +22,14 @@ export interface CotizacionFilaUI {
   descripcionLibre?: string | null;
   /** Notas de la lectura (incluye «IVA sin confirmar: …» cuando el documento no dice si sus precios llevan IVA). */
   notas?: string | null;
+  tipoCambioUsado?: number | null;
   items: Array<{ productoId: number; precioUnitario: number | null; precioBase?: number | null; adicionales: unknown[] }>;
 }
 
 interface AdicionalFila { concepto: string; cantidad: number; precioUnitario: number }
 
 /** Líneas del documento que no calzan con ningún producto asignado ni adicional. Con flete aparte ya cargado, su línea de flete no se ofrece (se suma sola). */
-export function lineasPendientes(c: Pick<CotizacionFilaUI, 'moneda' | 'descripcionLibre' | 'fleteMonto' | 'items'>, productos: Array<{ id: number; descripcion: string }>): LineaCotizacion[] {
+export function lineasPendientes(c: Pick<CotizacionFilaUI, 'moneda' | 'descripcionLibre' | 'fleteMonto' | 'items' | 'notas' | 'tipoCambioUsado'>, productos: Array<{ id: number; descripcion: string }>): LineaCotizacion[] {
   if (c.moneda !== 'CLP') return [];
   const lineas = lineasDesdeTabla(String(c.descripcionLibre || ''));
   if (!lineas.length) return [];
@@ -49,7 +50,7 @@ export function lineasPendientes(c: Pick<CotizacionFilaUI, 'moneda' | 'descripci
   return lineasSinAsignar(lineas.filter(l => !tapadas.has(l)), asignados)
     .filter(l => !(fleteAparte && /flete|transport|despacho|env[ií]o/i.test(l.descripcion)))
     // Segunda red: la línea con el mismo precio que un producto asignado, o con ese precio × N (metro × 68 = rollo), es ese producto aunque el nombre difiera.
-    .filter(l => !productoQueCubreLaLinea(l, productosDeItems(c, productos)));
+    .filter(l => !productoQueCubreLaLinea(l, productosDeItems(c, productos), { factoresPrecio: factoresPrecioDeCotizacion(c) }));
 }
 
 function productosDeItems(c: Pick<CotizacionFilaUI, 'items'>, productos: Array<{ id: number; descripcion: string }>) {
@@ -59,7 +60,7 @@ function productosDeItems(c: Pick<CotizacionFilaUI, 'items'>, productos: Array<{
 export interface LineaExplicada { linea: LineaCotizacion; destino: string | null; tipo: 'producto' | 'adicional' | 'doble' | 'sin'; nota: string | null; pedido?: number | null; cotizado?: number | null; productoId?: number | null }
 
 /** Cómo se leyó el documento, línea por línea: a qué producto fue (y por qué), si es adicional de alguno, o si quedó sin asignar. */
-export function explicarLineas(c: Pick<CotizacionFilaUI, 'moneda' | 'descripcionLibre' | 'fleteMonto' | 'items'>, productos: Array<{ id: number; descripcion: string; cantidad?: number | string | null }>): LineaExplicada[] {
+export function explicarLineas(c: Pick<CotizacionFilaUI, 'moneda' | 'descripcionLibre' | 'fleteMonto' | 'items' | 'notas' | 'tipoCambioUsado'>, productos: Array<{ id: number; descripcion: string; cantidad?: number | string | null }>): LineaExplicada[] {
   const lineas = lineasDesdeTabla(String(c.descripcionLibre || ''));
   if (!lineas.length) return [];
   const pend = new Set(lineasPendientes(c, productos));
@@ -67,7 +68,7 @@ export function explicarLineas(c: Pick<CotizacionFilaUI, 'moneda' | 'descripcion
   const adics = c.items.flatMap(i => (i.adicionales as AdicionalFila[]).map(a => ({ a, productoId: i.productoId })));
   return lineas.map(l => {
     if (pend.has(l)) return { linea: l, destino: null, tipo: 'sin' as const, nota: null };
-    const cob = productoQueCubreLaLinea(l, prods);
+    const cob = productoQueCubreLaLinea(l, prods, { factoresPrecio: factoresPrecioDeCotizacion(c) });
     if (cob) {
       const destino = prods.find(p => p.id === cob.productoId)?.descripcion ?? null;
       // El precio del producto YA incluye esta línea y además hay un adicional con su mismo precio: se está contando dos veces.

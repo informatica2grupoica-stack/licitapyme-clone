@@ -10,6 +10,8 @@
 // Regla de este módulo: lo que lee la IA se VERIFICA contra el texto del documento y contra su propia aritmética
 // (cantidad × unitario = total de línea; suma de líneas = neto del documento). Lo que no cuadra no se da por bueno.
 
+import { conflictosMedibles, medidasEnComun } from '@/app/lib/compras-cotizacion-emparejar';
+
 export interface LineaCotizacion {
   descripcion: string;
   cantidad: number | null;
@@ -321,7 +323,7 @@ function jaccard(a: string, b: string): number {
  */
 export function corregirAdicionalesConLineas(raw: unknown, lineas: LineaCotizacion[]): { adicionales: unknown; corregidos: number } {
   if (!Array.isArray(raw) || !lineas.length) return { adicionales: raw, corregidos: 0 };
-  let corregidos = 0;
+  let corregidos = 0, descartados = 0;
   const out = raw.map((a: any) => {
     if (!a || typeof a !== 'object' || typeof a.concepto !== 'string') return a;
     let mejor: LineaCotizacion | null = null, mejorP = 0, mejorJ = 0;
@@ -333,18 +335,27 @@ export function corregirAdicionalesConLineas(raw: unknown, lineas: LineaCotizaci
       if (p > mejorP + 1e-9 || (Math.abs(p - mejorP) <= 1e-9 && p > 0 && j > mejorJ)) { mejorP = p; mejorJ = j; mejor = l; }
     }
     if (!mejor || mejorP < 0.6 || mejor.cantidad == null || mejor.precioUnitario == null) return a;
+    // «INCLUYE: Set reducciones + Mordaza + Adaptador de bridas»: son parte de esa línea, no líneas con precio propio. Tomarles el precio de la línea que
+    // los menciona los multiplicaba (Vorwerk: una soldadora de $5,3 M quedó en $17,8 M). Se descartan.
+    // Solo si el concepto está en la parte DESPUÉS del «incluye» y no en la cabeza de la línea (el «aspirador» es la cabeza de su línea y sí tiene precio).
+    const iInc = sinTildes(mejor.descripcion).search(/\bincluy/);
+    if (iInc > 0) {
+      const cab = mejor.descripcion.slice(0, iInc), cola = mejor.descripcion.slice(iInc);
+      if (parecido(a.concepto, cola) >= 0.6 && parecido(a.concepto, cab) < 0.6) { descartados++; return null; }
+    }
     const cambia = Number(a.cantidadLinea ?? a.cantidad) !== mejor.cantidad || Math.abs(Number(a.precioUnitario) - mejor.precioUnitario) > 1;
     if (cambia) corregidos++;
     return { ...a, cantidadLinea: mejor.cantidad, cantidad: undefined, precioUnitario: mejor.precioUnitario };
   });
-  return { adicionales: out, corregidos };
+  return { adicionales: descartados ? out.filter(x => x != null) : out, corregidos };
 }
 
 /** Líneas del documento que no calzan con ningún producto asignado ni adicional (por palabras en común): se avisan, no se pierden en silencio. */
 export function lineasSinAsignar(lineas: LineaCotizacion[], asignados: string[]): LineaCotizacion[] {
   if (!lineas.length) return [];
   // Sin precio no hay nada que perder («ACCESORIOS», resto de una celda «INSTALACIÓN ACCESORIOS» partida en dos renglones).
-  return lineas.filter(l => (l.total ?? l.precioUnitario ?? 0) !== 0 && !asignados.some(a => parecido(l.descripcion, a) >= 0.5));
+  // Un nombre parecido NO tapa la línea si la medida es otra (la de 20 mm no queda «asignada» por la tubería de 63 mm: parecido() ignora los números cortos).
+  return lineas.filter(l => (l.total ?? l.precioUnitario ?? 0) !== 0 && !asignados.some(a => parecido(l.descripcion, a) >= 0.5 && !conflictosMedibles(a, l.descripcion).some(c => c.grave)));
 }
 
 // ─── Unidad de venta ≠ unidad del producto: línea por METRO/KILO, producto por ROLLO/CAJA ────────────────────────────────────────
@@ -387,17 +398,38 @@ const FAMILIA_MEDIDA = (u: string): string | null => {
  * (KG., MT.…) y la descripción del producto trae UN solo «N <esa medida>» (caja de 25 kilos). Si hay dudas (dos medidas en la línea,
  * dos números en el producto: «68mts … abre a 4 mts») no convierte: ahí manda lo que diga la IA.
  */
+/** Palabras que dicen que el producto se compra en un envase de N metros/kilos. */
+const RE_ENVASE = /\b(?:rollos?|cajas?|sacos?|bolsas?|bobinas?|tiras?|planchas?|paquetes?|unidad(?:es)? de|r\/\d+)/i;
+
 export function conversionDesdeTexto(precioLinea: number | null | undefined, descProducto: string, textoDoc: string): ConversionUnidadIA | null {
   if (precioLinea == null || !(precioLinea > 0)) return null;
-  const lineaDoc = String(textoDoc || '').split(/\r?\n/).find(l => numeroApareceEnTexto(precioLinea, l) && /(?:^|[\s|])(?:mts?|mtr|kgs?|lts?|ml)\.?(?=[\s|]|$)/i.test(l));
+  // «Rollo 100 metros»: la palabra completa también cuenta como medida de la línea.
+  const reMedidaLinea = /(?:^|[\s|(])(mts?|mtr|metros?|kgs?|lts?|ml)\.?(?=[\s|)]|$)/gi;
+  const lineaDoc = String(textoDoc || '').split(/\r?\n/).find(l => numeroApareceEnTexto(precioLinea, l) && new RegExp(reMedidaLinea.source, 'i').test(l));
   if (!lineaDoc) return null;
-  const medidasLinea = new Set([...lineaDoc.matchAll(/(?:^|[\s|])(mts?|mtr|kgs?|lts?|ml)\.?(?=[\s|]|$)/gi)].map(m => FAMILIA_MEDIDA(m[1])).filter(Boolean));
+  const medidasLinea = new Set([...lineaDoc.matchAll(reMedidaLinea)].map(m => FAMILIA_MEDIDA(m[1])).filter(Boolean));
   if (medidasLinea.size !== 1) return null;
   const fam = [...medidasLinea][0] as string;
   const cands = [...String(descProducto || '').matchAll(/(\d+(?:[.,]\d+)?)\s*(mts?|mtr|metros?|kgs?|kilos?|kilogramos?|lts?|litros?)\b/gi)]
     .filter(m => FAMILIA_MEDIDA(m[2]) === fam).map(m => numeroDeTexto(m[1])).filter((n): n is number => n != null && n > 1);
+  // «unidad de 100m», «(50 m)», «R/100»: el producto se vende por rollo/caja… de N metros. Una «m» suelta o «R/N» solo vale si el producto dice que
+  // es un envase (rollo, caja, bolsa, tira, «unidad de»…): «Pozómetro de 100 m con carrete» es un largo del aparato, no un rollo de 100 m.
+  if (!cands.length && fam === 'm' && (RE_ENVASE.test(String(descProducto || '')) || RE_ENVASE.test(lineaDoc))) {
+    for (const m of String(descProducto || '').matchAll(/(\d+(?:[.,]\d+)?)\s*m(?![a-z0-9²³])|\br\/(\d+)/gi)) { const n = numeroDeTexto(m[1] ?? m[2]); if (n != null && n > 1) cands.push(n); }
+  }
   if (new Set(cands).size !== 1) return null;
   return { unidadLinea: fam === 'm' ? 'MT' : fam === 'kg' ? 'KG' : 'LT', precioLinea, cantidadPorUnidad: cands[0] };
+}
+
+/**
+ * Por cuánto hay que multiplicar el precio impreso de una línea para compararlo con el del producto (CLP neto):
+ * el tipo de cambio si el documento está en otra moneda, y ÷ 1,19 si se guardó sin IVA. Sin esto, una cotización en USD o con IVA incluido
+ * daba todas sus líneas como «no quedó en ningún producto» aunque sí estuvieran (Vorwerk en USD, Makita con IVA; 727202-72-LP26).
+ */
+export function factoresPrecioDeCotizacion(c: { moneda?: string | null; tipoCambioUsado?: number | null; notas?: string | null }): number[] {
+  const tc = c.moneda && c.moneda !== 'CLP' && c.tipoCambioUsado && c.tipoCambioUsado > 0 ? Number(c.tipoCambioUsado) : 1;
+  const conIva = /se guardaron en neto (÷ 1,19)/.test(String(c.notas || ''));
+  return [...new Set([tc, ...(conIva ? [tc / 1.19] : [])])];
 }
 
 export interface CoberturaLinea { productoId: number; como: 'nombre' | 'precio' | 'conversion'; nota: string | null; /** Unidades de medida por unidad del producto (metros por rollo), solo en 'conversion'. */ factor?: number }
@@ -410,15 +442,19 @@ export interface CoberturaLinea { productoId: number; como: 'nombre' | 'precio' 
  * Sirve para no ofrecer como «línea sin asignar» algo que ya está en el precio de un producto (2736-44: el folio por metro se ofrecía de nuevo
  * y se sumaba como adicional encima del rollo; el clavo volcanita aparecía como sin asignar con $82.500 ya cargados).
  */
-export function productoQueCubreLaLinea(l: LineaCotizacion, productos: Array<{ id: number; descripcion: string; precioBase: number | null }>): CoberturaLinea | null {
-  const pu = l.precioUnitario;
+export function productoQueCubreLaLinea(l: LineaCotizacion, productos: Array<{ id: number; descripcion: string; precioBase: number | null }>, opts?: { factoresPrecio?: number[] }): CoberturaLinea | null {
+  const pu0 = l.precioUnitario;
   const f = (n: number) => '$' + Math.round(n).toLocaleString('es-CL');
-  if (pu != null && pu > 0) {
-    // Con varios productos al mismo precio (clavo 3" y 4" a $1.490) se elige el de nombre más parecido.
-    const mismos = productos.filter(p => p.precioBase != null && p.precioBase > 0 && Math.abs(p.precioBase - pu) <= 1);
-    const nums = (s: string) => new Set(String(s).match(/\d+/g) ?? []);
+  // El precio de la línea está en la base del documento (otra moneda, con IVA); el del producto, en CLP neto: se prueban las conversiones que el llamador conoce.
+  const variantes = pu0 != null && pu0 > 0 ? [...new Set([1, ...(opts?.factoresPrecio ?? [])])].map(k => ({ k, pu: pu0 * k })) : [];
+  for (const { k, pu } of variantes) {
+    // Con varios productos al mismo precio unitario (clavo 3" y 4" a $1.490) se elige el de nombre más parecido.
+    const mismos = productos.filter(p => p.precioBase != null && p.precioBase > 0 && Math.abs(p.precioBase - pu) <= (k === 1 ? 1 : Math.max(2, pu * 0.0005)));
+    const nums = (s: string) => new Set(String(s).match(/d+/g) ?? []);
     const puntaje = (d: string) => parecido(l.descripcion, d) + [...nums(l.descripcion)].filter(n => nums(d).has(n)).length;   // los números (3" vs 4") desempatan
     if (mismos.length) return { productoId: [...mismos].sort((a, b) => puntaje(b.descripcion) - puntaje(a.descripcion))[0].id, como: 'precio', nota: null };
+  }
+  for (const { pu } of variantes.slice(0, 1)) {
     for (const p of productos) {
       if (p.precioBase == null || !(p.precioBase > pu)) continue;
       const r = p.precioBase / pu;
@@ -426,8 +462,16 @@ export function productoQueCubreLaLinea(l: LineaCotizacion, productos: Array<{ i
       if (n >= 2 && Math.abs(r - n) < 0.01 && numeroApareceEnTexto(n, p.descripcion)) return { productoId: p.id, como: 'conversion', factor: n, nota: `${f(pu)} el ${l.unidad ?? 'metro/kilo'} × ${n} ${l.unidad ?? ''} que trae cada unidad del producto = ${f(p.precioBase)} por unidad del producto` };
     }
   }
+  // Por nombre. Las palabras de menos de 3 letras («63», «mm») no cuentan en parecido(): una línea de 20 mm se daba por cubierta por la tubería de 63 mm.
+  // Por eso una medida física distinta (mm, pulgadas, V, HP…) descarta al producto, y compartir 2 o más medidas rescata un nombre que se parece poco.
   let mejor: { id: number; p: number } | null = null;
-  for (const p of productos) { const s = parecido(l.descripcion, p.descripcion); if (s >= 0.5 && (!mejor || s > mejor.p)) mejor = { id: p.id, p: s }; }
+  for (const p of productos) {
+    const s = parecido(l.descripcion, p.descripcion);
+    const graves = conflictosMedibles(p.descripcion, l.descripcion).filter(c => c.grave).length;
+    if (graves > 0) continue;
+    const ok = s >= 0.5 || (s >= 0.2 && medidasEnComun(p.descripcion, l.descripcion) >= 2);
+    if (ok && (!mejor || s > mejor.p)) mejor = { id: p.id, p: s };
+  }
   return mejor ? { productoId: mejor.id, como: 'nombre', nota: null } : null;
 }
 

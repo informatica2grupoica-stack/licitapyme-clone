@@ -78,6 +78,9 @@ Traspasado desde la memoria personal el 2026-10-27; las fechas son de cuando se 
   (a propósito).
 - Foro de preguntas de MP solo por scraping de la ficha (la API no lo trae).
 
+## 2026-11-18 — Monto ganado de 759-30-LE26 salía $74.116 en vez de $31.499.158 (SIN desplegar)
+La API de MP trae Cantidad pedida 425 y CantidadAdjudicada 1 (adjudicación TOTAL, precio unitario 74.115,665; el Anexo 4 dice neto $31.499.158 = 425 × unitario). `construirDesdeLicitacion` usaba la adjudicada. Ahora `cantidadGanada()` (adjudicacion.ts): si adjudicada = 1, tipo = 2 y pedida > 1, vale la pedida. La fila de `adjudicacion_cache` era definitiva (adjudicada no se reconsulta): corregida a mano en el VPS (respaldo en scripts/scratch/_respaldo_adjudicacion_cache_759-30-LE26_181126.json). Sin desplegar: otras licitaciones con ese patrón seguirían mal al cachearse; las ya cacheadas no se revisaron una por una (24 con una línea de cantidad 1 tienen montos plausibles).
+
 ## 2026-11-17 — PDF de la OC sin captcha: copia de la ficha pública (tsc ok; SIN desplegar)
 - MP protege `PDFReport.aspx` (PDF oficial) con reCAPTCHA y no se resuelve. La ficha `DetailsPurchaseOrder.aspx` es pública: `app/lib/mp-oc-ficha-pdf.ts` la abre con el navegador headless (espera «TOTAL OC», abre el panel con scroll de 700 px) y la imprime a PDF (2 páginas, 3 s).
 - `descargarPdfOrdenCompra` usa esa copia cuando el oficial falla; se marca en `ordenes_compra.pdf_error` = «Copia de la ficha pública de MP (no es el PDF oficial)». Subir el «PDF oficial» a mano la reemplaza (pdf_error vuelve a NULL; mismo nombre `OC_<código>.pdf`, no duplica en Documentos).
