@@ -7,10 +7,11 @@ import { obtenerAsignacion } from '@/app/lib/compras';
 import { puedeOperarCompras, puedeVerCompras } from '@/app/api/compras/[negocioId]/route';
 import { subirDocumentoR2, borrarDocumentoR2 } from '@/app/lib/r2';
 import { errorDeArchivoSubido } from '@/app/lib/subidas';
-import { listarEscaneosEntrega, registrarEscaneoEntrega, quitarEscaneoEntrega, TIPOS_ESCANEO, type TipoEscaneoEntrega } from '@/app/lib/compras-entrega-archivos';
+import { listarEscaneosEntrega, registrarEscaneoEntrega, quitarEscaneoEntrega, releerEscaneoEntrega, TIPOS_ESCANEO, type TipoEscaneoEntrega } from '@/app/lib/compras-entrega-archivos';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 120; // al subir se lee el documento (OCR + IA)
 
 type Params = { params: Promise<{ negocioId: string }> };
 
@@ -44,6 +45,13 @@ async function __POST(request: NextRequest, { params }: Params) {
   try {
     const a = await acceso(request, (await params).negocioId, true);
     if ('error' in a) return a.error;
+    const ct = request.headers.get('content-type') || '';
+    if (ct.includes('application/json')) { // «Leer datos» de un escaneo ya cargado
+      const b = await request.json(); const id = parseInt(b?.releer);
+      if (!Number.isFinite(id)) return NextResponse.json({ error: 'Falta el documento.' }, { status: 400 });
+      const llenado = await releerEscaneoEntrega(a.id, id);
+      return NextResponse.json({ success: true, llenado, archivos: await listarEscaneosEntrega(a.id) });
+    }
     const form = await request.formData();
     const tipo = String(form.get('tipo') || '') as TipoEscaneoEntrega;
     if (!TIPOS_ESCANEO.includes(tipo)) return NextResponse.json({ error: 'Falta decir qué documento es (acta, guía o capacitación).' }, { status: 400 });
@@ -53,8 +61,9 @@ async function __POST(request: NextRequest, { params }: Params) {
     if (errArchivo) return NextResponse.json({ error: errArchivo }, { status: 400 });
     const url = await subirDocumentoR2(`compras/${a.asignacion.licitacionCodigo}/entrega-${tipo}`, f.name, Buffer.from(await f.arrayBuffer()), f.type);
     // Si no se puede guardar en la BD, el archivo recién subido no queda huérfano en R2.
-    await registrarEscaneoEntrega(a.id, tipo, { url, nombre: f.name }, a.userId, a.nombre).catch(async (e) => { await borrarDocumentoR2(url).catch(() => {}); throw e; });
-    return NextResponse.json({ success: true, archivos: await listarEscaneosEntrega(a.id) });
+    const buffer = Buffer.from(await f.arrayBuffer());
+    const llenado = await registrarEscaneoEntrega(a.id, tipo, { url, nombre: f.name, buffer }, a.userId, a.nombre).catch(async (e) => { await borrarDocumentoR2(url).catch(() => {}); throw e; });
+    return NextResponse.json({ success: true, llenado, archivos: await listarEscaneosEntrega(a.id) });
   } catch (e: any) {
     console.error('[compras/entrega-archivos][POST]', String(e));
     return NextResponse.json({ error: mensajeSeguro(e, 'No se pudo subir el documento.') }, { status: 400 });

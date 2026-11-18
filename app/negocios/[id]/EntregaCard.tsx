@@ -1,17 +1,20 @@
 'use client';
 
-// ENTREGA DEL PROYECTO Y ACTA (spec §16). Único documento oficial que genera el módulo. Secuencia:
-// verificación → números de OBUMA (nota de venta / guía) → generar acta → aprobar → firmar acta y
-// guía → cierre (§16.7, cuando ambas firmas existen).
+// ENTREGA DEL PROYECTO (spec §16), versión compacta (18-nov-2026, pedido del dueño: «mucho espacio, feo»). Una sola tarjeta:
+// franja con verificación y modalidad → tres documentos en fila (acta firmada, guía firmada, capacitación) → quién recibió.
+// Al subir el acta o la guía firmada se LEEN solas y llenan el N° de guía y quién recibió; se corrige acá mismo.
+// El acta formal se arma en Gestionar documentos. Ya no se pide el N° de nota de venta (nadie lo usaba).
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
-import { Banner } from '@/app/components/ui/Banner';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
-import { MiniaturaDoc, urlInline } from './MiniaturaDoc';
+import { urlInline } from './MiniaturaDoc';
 import { irAFase } from '@/app/compras/[negocioId]/comprasNavegacion';
-import { IconUpload as Upload, IconPackage as PackageCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconSignature as FileSignature, IconPlus as Plus, IconX as X, IconTrash as Trash2 } from '@tabler/icons-react';
+import {
+  IconPackage as PackageCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconPlus as Plus, IconX as X, IconTrash as Trash2,
+  IconUpload as Upload, IconFileText as FileText, IconPencil as Pencil, IconWand as Leer, IconFilePlus as FilePlus,
+} from '@tabler/icons-react';
 
 type Modalidad = 'TOTAL' | 'PARCIAL';
 interface FirmaDatos { nombre: string; rut: string; cargo: string; recinto: string; fecha: string }
@@ -23,74 +26,82 @@ interface Entrega {
   actaConformidad: string | null; actaFirma: FirmaDatos | null; guiaFirma: FirmaDatos | null; guiaTimbre: boolean;
   cerradaAt: string | null; puntos: Punto[];
 }
-
 interface Escaneo { id: number; tipo: 'acta' | 'guia' | 'capacitacion'; archivoUrl: string; archivoNombre: string; subidoPorNombre: string | null; creadoAt: string }
 interface DocGenerado { id: number; titulo: string; plantillaNombre: string; createdAt: string }
-const esPdf = (n: string) => /.pdf$/i.test(n);
 
-/** Un documento firmado de la entrega: se sube el escaneo, se ve en miniatura y se puede quitar. */
-function CasillaEscaneo({ titulo, ayuda, tipo, escaneos, puedeOperar, subiendo, onSubir, onQuitar, onAbrir }: {
-  titulo: string; ayuda: string; tipo: Escaneo['tipo']; escaneos: Escaneo[]; puedeOperar: boolean; subiendo: boolean;
-  onSubir: (tipo: Escaneo['tipo'], f: File) => void; onQuitar: (id: number) => void; onAbrir: (d: VisorDoc) => void;
+const esPdf = (n: string) => /\.pdf$/i.test(n);
+const fmtFecha = (s: string) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || ''); return m ? `${m[3]}-${m[2]}-${m[1]}` : s; };
+const entrada = 'text-[12px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500 bg-white';
+
+/** Primera página chica del escaneo (PDF) o un ícono (foto). */
+function Mini({ e, titulo, onAbrir }: { e: Escaneo; titulo: string; onAbrir: () => void }) {
+  return (
+    <button type="button" onClick={onAbrir} title={`Abrir ${titulo}`} className="relative flex-shrink-0 w-[52px] h-[68px] rounded-md border border-zinc-200 bg-zinc-50 overflow-hidden hover:border-teal-400">
+      {esPdf(e.archivoNombre)
+        ? <iframe src={`${urlInline(e.archivoUrl)}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`} title={titulo} tabIndex={-1} loading="lazy" className="absolute top-0 left-0 border-0 pointer-events-none" style={{ width: 208, height: 272, transform: 'scale(0.25)', transformOrigin: 'top left' }} />
+        : <span className="absolute inset-0 flex items-center justify-center text-zinc-300"><FileText size={20} /></span>}
+    </button>
+  );
+}
+
+/** Un documento de la entrega: miniatura + estado + acciones, en una tarjeta baja. */
+function TarjetaDoc({ titulo, vacio, tipo, escaneos, puedeOperar, subiendo, onSubir, onQuitar, onAbrir, extra }: {
+  titulo: string; vacio: string; tipo: Escaneo['tipo']; escaneos: Escaneo[]; puedeOperar: boolean; subiendo: boolean;
+  onSubir: (tipo: Escaneo['tipo'], f: File) => void; onQuitar: (id: number) => void; onAbrir: (d: VisorDoc) => void; extra?: React.ReactNode;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const mios = escaneos.filter(e => e.tipo === tipo);
+  const ultimo = mios[mios.length - 1];
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[11.5px] font-semibold text-zinc-700">{titulo} {mios.length > 0 && <span className="ml-1 text-[10.5px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">Cargada</span>}</p>
-        {puedeOperar && (
-          <>
-            <button onClick={() => input.current?.click()} disabled={subiendo} className="text-[11px] font-semibold text-teal-700 hover:text-teal-800 disabled:opacity-50 flex items-center gap-1">
-              {subiendo ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} {mios.length ? 'Subir otra' : 'Subir escaneo'}
-            </button>
-            <input ref={input} type="file" accept="application/pdf,image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) onSubir(tipo, f); e.target.value = ''; }} />
-          </>
-        )}
-      </div>
-      {mios.length === 0 ? <p className="text-[11px] text-zinc-400">{ayuda}</p> : (
-        <div className="flex flex-wrap gap-2">
-          {mios.map(e => (
-            <div key={e.id} className="relative">
-              <MiniaturaDoc src={esPdf(e.archivoNombre) ? urlInline(e.archivoUrl) : null} titulo={titulo} detalle={e.creadoAt} onAbrir={() => onAbrir({ nombre: e.archivoNombre, url: e.archivoUrl, titulo })} />
-              {puedeOperar && <button onClick={() => onQuitar(e.id)} aria-label="Quitar" title="Quitar" className="absolute top-1 right-1 p-1 rounded bg-white/90 text-zinc-400 hover:text-rose-600"><Trash2 size={12} /></button>}
-            </div>
-          ))}
+    <div className={`rounded-xl border p-2.5 flex gap-2.5 min-w-0 ${ultimo ? 'border-emerald-200 bg-emerald-50/30' : 'border-dashed border-zinc-300 bg-zinc-50/50'}`}>
+      {ultimo
+        ? <Mini e={ultimo} titulo={titulo} onAbrir={() => onAbrir({ nombre: ultimo.archivoNombre, url: ultimo.archivoUrl, titulo })} />
+        : <span className="flex-shrink-0 w-[52px] h-[68px] rounded-md border border-dashed border-zinc-300 flex items-center justify-center text-zinc-300"><FileText size={20} /></span>}
+      <div className="min-w-0 flex-1 flex flex-col">
+        <p className="text-[12.5px] font-semibold text-zinc-800 leading-tight">{titulo}</p>
+        <p className="text-[11px] text-zinc-500 leading-snug mt-0.5">
+          {ultimo ? <>Cargada {fmtFecha(ultimo.creadoAt.slice(0, 10))}{mios.length > 1 && ` · ${mios.length} archivos`}</> : vacio}
+        </p>
+        <div className="mt-auto pt-1.5 flex items-center gap-3 flex-wrap">
+          {puedeOperar && (
+            <>
+              <button onClick={() => input.current?.click()} disabled={subiendo} className="text-[11.5px] font-semibold text-teal-700 hover:text-teal-800 disabled:opacity-50 flex items-center gap-1">
+                {subiendo ? <><Loader2 size={12} className="animate-spin" /> Leyendo…</> : <><Upload size={12} /> {ultimo ? 'Reemplazar' : 'Subir'}</>}
+              </button>
+              <input ref={input} type="file" accept="application/pdf,image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) onSubir(tipo, f); e.target.value = ''; }} />
+            </>
+          )}
+          {extra}
+          {puedeOperar && ultimo && <button onClick={() => onQuitar(ultimo.id)} title="Quitar" aria-label="Quitar" className="text-zinc-400 hover:text-rose-600 ml-auto"><Trash2 size={13} /></button>}
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
-const firmaVacia: FirmaDatos = { nombre: '', rut: '', cargo: '', recinto: '', fecha: '' };
-
-function FormFirma({ onGuardar, guardando, inicial }: { onGuardar: (f: FirmaDatos, extra?: Record<string, unknown>) => void; guardando: boolean; inicial?: FirmaDatos | null }) {
-  // Casi siempre la misma persona firma guía y acta: se precarga lo ya firmado (editable) para no escribirlo dos veces (4152-22-LE26, 13-nov-2026).
-  const [f, setF] = useState<FirmaDatos>(inicial ? { ...inicial } : firmaVacia);
+function FormRecepcion({ inicial, guiaInicial, recintoPorDefecto, guardando, onGuardar, onCancelar }: {
+  inicial: FirmaDatos | null; guiaInicial: string; recintoPorDefecto: string; guardando: boolean; onGuardar: (f: FirmaDatos, guia: string) => void; onCancelar: () => void;
+}) {
+  const [f, setF] = useState<FirmaDatos>(inicial ? { ...inicial } : { nombre: '', rut: '', cargo: '', recinto: recintoPorDefecto, fecha: '' });
+  const [guia, setGuia] = useState(guiaInicial);
   return (
-    <div className="grid grid-cols-2 gap-2">
-      <input value={f.nombre} onChange={e => setF(v => ({ ...v, nombre: e.target.value }))} placeholder="Nombre"
-        className="text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-      <input value={f.rut} onChange={e => setF(v => ({ ...v, rut: e.target.value }))} placeholder="RUT"
-        className="text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-      <input value={f.cargo} onChange={e => setF(v => ({ ...v, cargo: e.target.value }))} placeholder="Cargo"
-        className="text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-      <input value={f.recinto} onChange={e => setF(v => ({ ...v, recinto: e.target.value }))} placeholder="Recinto de recepción"
-        className="text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-      <input type="date" value={f.fecha} onChange={e => setF(v => ({ ...v, fecha: e.target.value }))}
-        className="text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500 col-span-2" />
-      <button onClick={() => onGuardar(f)} disabled={guardando || !f.nombre || !f.rut || !f.cargo || !f.recinto || !f.fecha}
-        className="col-span-2 text-[11.5px] font-semibold text-white bg-zinc-800 hover:bg-zinc-900 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">
-        {guardando ? <Loader2 size={13} className="animate-spin mx-auto" /> : 'Guardar firma'}
-      </button>
+    <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-center">
+      <input value={f.nombre} onChange={e => setF(v => ({ ...v, nombre: e.target.value }))} placeholder="Quién recibió" className={`${entrada} sm:col-span-2`} />
+      <input value={f.rut} onChange={e => setF(v => ({ ...v, rut: e.target.value }))} placeholder="RUT" className={entrada} />
+      <input value={f.cargo} onChange={e => setF(v => ({ ...v, cargo: e.target.value }))} placeholder="Cargo" className={entrada} />
+      <input type="date" value={f.fecha} onChange={e => setF(v => ({ ...v, fecha: e.target.value }))} className={entrada} />
+      <input value={guia} onChange={e => setGuia(e.target.value)} placeholder="N° guía" className={entrada} />
+      <div className="col-span-2 sm:col-span-6 flex items-center gap-2">
+        <button onClick={() => onGuardar(f, guia)} disabled={guardando || !f.nombre.trim() || !f.fecha} className="text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-1.5 rounded-lg">
+          {guardando ? <Loader2 size={13} className="animate-spin" /> : 'Guardar'}
+        </button>
+        <button onClick={onCancelar} className="text-[11.5px] text-zinc-500 hover:text-zinc-700">Cancelar</button>
+      </div>
     </div>
   );
 }
 
-// `puedeVerificar`: además del encargado (`puedeOperar`), el perfil "bodega" (§2.2) puede marcar
-// Conforme/No conforme (§16.4) aunque no sea el encargado del negocio. El resto de la tarjeta
-// (modalidad, puntos de entrega, acta, firmas) sigue exclusivo de `puedeOperar` — bodega no genera
-// ni firma nada, solo constata que el producto llegó bien.
+// `puedeVerificar`: además del encargado (`puedeOperar`), el perfil "bodega" (§2.2) puede marcar Conforme/No conforme (§16.4). Lo demás es solo del encargado.
 export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: { negocioId: number; puedeOperar: boolean; puedeVerificar?: boolean }) {
   const toast = useToast();
   const { recargar: recargarCompartido } = useCompras();
@@ -99,14 +110,16 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
   const [guardando, setGuardando] = useState(false);
   const [formPunto, setFormPunto] = useState(false);
   const [punto, setPunto] = useState({ direccion: '', comuna: '', contactoNombre: '', contactoTelefono: '' });
-  const [numeros, setNumeros] = useState({ notaVentaNumero: '', guiaDespachoNumero: '' });
-  const [firmandoActa, setFirmandoActa] = useState(false);
-  const [firmandoGuia, setFirmandoGuia] = useState(false);
-  const [conformidad, setConformidad] = useState<'CONFORME' | 'NO_CONFORME'>('CONFORME');
-  // Antes `window.prompt` para el motivo de entrega parcial — se reemplaza por un campo real que
-  // aparece al elegir "Entrega parcial", mismo criterio que el resto de la pantalla.
   const [modalidadPendiente, setModalidadPendiente] = useState(false);
   const [motivoParcial, setMotivoParcial] = useState('');
+  const [escaneos, setEscaneos] = useState<Escaneo[]>([]);
+  const [subiendoTipo, setSubiendoTipo] = useState<string | null>(null);
+  const [visor, setVisor] = useState<VisorDoc | null>(null);
+  const [actasGeneradas, setActasGeneradas] = useState<DocGenerado[]>([]);
+  const [hayPlantillas, setHayPlantillas] = useState(false);
+  const [organismo, setOrganismo] = useState('');
+  const [editandoRecepcion, setEditandoRecepcion] = useState(false);
+  const [leyendo, setLeyendo] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
@@ -114,22 +127,13 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cargar');
       setEntrega(data.entrega);
-      setNumeros({ notaVentaNumero: data.entrega.notaVentaNumero || '', guiaDespachoNumero: data.entrega.guiaDespachoNumero || '' });
     } catch (e: any) {
       toast.error('No se pudo cargar la entrega', e.message);
     } finally {
       setLoading(false);
     }
   }, [negocioId]);
-
   useEffect(() => { cargar(); }, [cargar]);
-
-  // Documentos firmados de la entrega (escaneos) y actas hechas en Gestionar documentos. Los hooks van antes del return temprano de abajo.
-  const [escaneos, setEscaneos] = useState<Escaneo[]>([]);
-  const [subiendoTipo, setSubiendoTipo] = useState<string | null>(null);
-  const [visor, setVisor] = useState<VisorDoc | null>(null);
-  const [actasGeneradas, setActasGeneradas] = useState<DocGenerado[]>([]);
-  const [hayPlantillas, setHayPlantillas] = useState(false);
 
   const cargarDocumentos = useCallback(async () => {
     try {
@@ -139,12 +143,29 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
       ]);
       if (a?.success) setEscaneos(a.archivos || []);
       if (g?.success && g.habilitado) {
-        setHayPlantillas(true);
+        setHayPlantillas(true); setOrganismo(g.contexto?.organismo || '');
         setActasGeneradas((g.historial || []).filter((h: any) => /acta/i.test(h.plantillaNombre || h.titulo || '')));
       }
     } catch { /* la tarjeta sigue sirviendo sin esto */ }
   }, [negocioId]);
   useEffect(() => { cargarDocumentos(); }, [cargarDocumentos]);
+
+  const accion = async (body: Record<string, unknown>) => {
+    setGuardando(true);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/entrega`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo actualizar');
+      setEntrega(data.entrega);
+      recargarCompartido();
+      return true;
+    } catch (e: any) {
+      toast.error('No se pudo actualizar', e.message);
+      return false;
+    } finally {
+      setGuardando(false);
+    }
+  };
 
   const subirEscaneo = async (tipo: Escaneo['tipo'], f: File) => {
     setSubiendoTipo(tipo);
@@ -154,7 +175,7 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
       const d = await res.json();
       if (!res.ok || !d.success) throw new Error(d.error || 'No se pudo subir');
       setEscaneos(d.archivos || []);
-      toast.success('Documento cargado');
+      toast.success('Documento cargado', d.llenado?.length ? `Se llenó solo: ${d.llenado.join(', ')}. Revisa lo escrito a mano: la letra no siempre se lee bien.` : (tipo === 'capacitacion' ? undefined : 'No se pudieron leer datos: puedes escribirlos con «Corregir».'));
       await cargar(); recargarCompartido();
     } catch (e: any) { toast.error('No se pudo subir el documento', e.message); }
     finally { setSubiendoTipo(null); }
@@ -170,177 +191,111 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
     } catch (e: any) { toast.error('No se pudo quitar el documento', e.message); }
   };
 
-  const accion = async (body: Record<string, unknown>) => {
-    setGuardando(true);
+  const releer = async (id: number) => {
+    setLeyendo(true);
     try {
-      const res = await fetch(`/api/compras/${negocioId}/entrega`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo actualizar');
-      setEntrega(data.entrega);
-      recargarCompartido();
-      return true;
-    } catch (e: any) {
-      toast.error('No se pudo actualizar', e.message);
-      return false;
-    } finally {
-      setGuardando(false);
-    }
+      const res = await fetch(`/api/compras/${negocioId}/entrega-archivos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ releer: id }) });
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error || 'No se pudo leer');
+      toast.success(d.llenado?.length ? 'Datos leídos' : 'No se encontró nada nuevo', d.llenado?.length ? `Se llenó: ${d.llenado.join(', ')}.` : 'El documento no trae datos claros o ya estaban llenos.');
+      await cargar();
+    } catch (e: any) { toast.error('No se pudo leer el documento', e.message); }
+    finally { setLeyendo(false); }
   };
 
   if (loading || !entrega) return <div className="flex items-center justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-zinc-400" /></div>;
 
+  const actaCargada = escaneos.find(e => e.tipo === 'acta');
+  const guiaCargada = escaneos.find(e => e.tipo === 'guia');
+  const recibio = entrega.actaFirma;
+  const comunes = { escaneos, puedeOperar, onSubir: subirEscaneo, onQuitar: quitarEscaneo, onAbrir: setVisor };
+
   return (
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-      <div className="flex items-center justify-between gap-3 px-4 py-3 bg-zinc-50 border-b border-zinc-100">
+      <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-zinc-50 border-b border-zinc-100 flex-wrap">
         <p className="text-[12.5px] font-bold text-zinc-700 flex items-center gap-1.5">
           <PackageCheck size={14} /> Entrega del proyecto
-          {entrega.cerradaAt && <span className="text-[10.5px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">Cerrada</span>}
+          {entrega.cerradaAt && <span className="text-[10.5px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full">Cerrada {fmtFecha(entrega.cerradaAt.slice(0, 10))}</span>}
         </p>
-      </div>
-
-      <div className="p-4 space-y-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          <Select value={entrega.modalidad} disabled={!puedeOperar} minWidth={140}
+        <div className="flex items-center gap-3 flex-wrap">
+          {entrega.verificacionConforme != null ? (
+            <span className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded-full border ${entrega.verificacionConforme ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-rose-700 bg-rose-50 border-rose-200'}`}>
+              Bodega: {entrega.verificacionConforme ? 'conforme' : 'no conforme'} — {entrega.verificacionPorNombre}
+            </span>
+          ) : (puedeOperar || puedeVerificar) ? (
+            <span className="flex items-center gap-1.5">
+              <span className="text-[11px] text-zinc-500">Verificación en bodega:</span>
+              <button onClick={() => accion({ accion: 'verificacion', conforme: true })} className="flex items-center gap-1 text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-2 py-1 rounded-lg"><CheckCircle2 size={11} /> Conforme</button>
+              <button onClick={() => accion({ accion: 'verificacion', conforme: false })} className="flex items-center gap-1 text-[11px] font-semibold text-white bg-rose-600 hover:bg-rose-700 px-2 py-1 rounded-lg"><XCircle size={11} /> No conforme</button>
+            </span>
+          ) : <span className="text-[11px] text-zinc-400">Verificación pendiente</span>}
+          <Select value={entrega.modalidad} disabled={!puedeOperar} minWidth={130}
             onChange={v => { if (v === 'PARCIAL') { setModalidadPendiente(true); setMotivoParcial(''); } else { setModalidadPendiente(false); accion({ accion: 'modalidad', modalidad: v }); } }}
             options={[{ value: 'TOTAL', label: 'Entrega total' }, { value: 'PARCIAL', label: 'Entrega parcial' }]} />
-          {entrega.modalidadMotivo && !modalidadPendiente && <span className="text-[11px] text-zinc-400">{entrega.modalidadMotivo}</span>}
-          {modalidadPendiente && (
-            <div className="w-full flex items-center gap-1.5">
-              <input value={motivoParcial} onChange={e => setMotivoParcial(e.target.value)} placeholder="Motivo (excepcional, a petición del cliente)"
-                className="flex-1 text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+        </div>
+      </div>
+
+      <div className="p-3 space-y-3">
+        {(modalidadPendiente || (entrega.modalidadMotivo && entrega.modalidad === 'PARCIAL')) && (
+          modalidadPendiente ? (
+            <div className="flex items-center gap-1.5">
+              <input value={motivoParcial} onChange={e => setMotivoParcial(e.target.value)} placeholder="Motivo de la entrega parcial (excepcional, a petición del cliente)" className={`flex-1 ${entrada}`} />
               <button onClick={async () => { if (await accion({ accion: 'modalidad', modalidad: 'PARCIAL', motivo: motivoParcial.trim() })) setModalidadPendiente(false); }}
                 disabled={!motivoParcial.trim()} className="text-[11px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">Guardar</button>
               <button onClick={() => setModalidadPendiente(false)} className="text-zinc-400 hover:text-zinc-600"><X size={14} /></button>
             </div>
-          )}
+          ) : <p className="text-[11px] text-zinc-500">Entrega parcial: {entrega.modalidadMotivo}</p>
+        )}
+
+        {/* Tres documentos en fila */}
+        <div className="grid gap-2.5 grid-cols-1 md:grid-cols-3">
+          <TarjetaDoc titulo="Acta de entrega firmada" tipo="acta" vacio="Sube el acta con la firma del cliente: se leen sola la guía y quién recibió."
+            subiendo={subiendoTipo === 'acta'} {...comunes}
+            extra={<>
+              {puedeOperar && actaCargada && <button onClick={() => releer(actaCargada.id)} disabled={leyendo} title="Volver a leer el documento" className="text-[11.5px] font-semibold text-zinc-500 hover:text-teal-700 flex items-center gap-1 disabled:opacity-50">{leyendo ? <Loader2 size={12} className="animate-spin" /> : <Leer size={12} />} Leer datos</button>}
+              {puedeOperar && hayPlantillas && <button onClick={() => irAFase('gestion')} className="text-[11.5px] font-semibold text-zinc-500 hover:text-teal-700 flex items-center gap-1"><FilePlus size={12} /> {actasGeneradas.length ? `Acta formal (${actasGeneradas.length})` : 'Armar acta'}</button>}
+            </>} />
+          <TarjetaDoc titulo="Guía de despacho firmada" tipo="guia" vacio="Sube la guía firmada por quien recibió: la entrega queda hecha."
+            subiendo={subiendoTipo === 'guia'} {...comunes}
+            extra={puedeOperar && guiaCargada ? <button onClick={() => releer(guiaCargada.id)} disabled={leyendo} title="Volver a leer el documento" className="text-[11.5px] font-semibold text-zinc-500 hover:text-teal-700 flex items-center gap-1 disabled:opacity-50">{leyendo ? <Loader2 size={12} className="animate-spin" /> : <Leer size={12} />} Leer datos</button> : null} />
+          <TarjetaDoc titulo="Capacitación (listado de asistentes)" tipo="capacitacion" vacio="Si hubo capacitación, sube el listado firmado." subiendo={subiendoTipo === 'capacitacion'} {...comunes} />
         </div>
 
-        {/* Puntos de entrega múltiples (§16.2) */}
-        <div>
-          <div className="flex items-center justify-between">
-            <p className="text-[10.5px] font-bold text-zinc-400 uppercase">Puntos de entrega</p>
-            {puedeOperar && <button onClick={() => setFormPunto(v => !v)} className="text-[11px] font-semibold text-teal-700 hover:text-teal-800 flex items-center gap-0.5"><Plus size={11} /> Agregar</button>}
+        {/* Quién recibió + guía (se llena solo con el acta) */}
+        {editandoRecepcion ? (
+          <FormRecepcion inicial={recibio} guiaInicial={entrega.guiaDespachoNumero || ''} recintoPorDefecto={organismo} guardando={guardando} onCancelar={() => setEditandoRecepcion(false)}
+            onGuardar={async (f, guia) => { if (await accion({ accion: 'recepcion', firma: f, guiaNumero: guia })) setEditandoRecepcion(false); }} />
+        ) : (recibio || entrega.guiaDespachoNumero) ? (
+          <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-[12px] text-zinc-600 rounded-lg bg-zinc-50 px-3 py-2">
+            {entrega.guiaDespachoNumero && <span>Guía de despacho <b className="text-zinc-800">N° {entrega.guiaDespachoNumero}</b></span>}
+            {recibio && <span>Recibió <b className="text-zinc-800">{recibio.nombre}</b>{recibio.rut && ` · ${recibio.rut}`}{recibio.cargo && ` · ${recibio.cargo}`} · {fmtFecha(recibio.fecha)}</span>}
+            {puedeOperar && <button onClick={() => setEditandoRecepcion(true)} className="ml-auto text-[11.5px] font-semibold text-zinc-500 hover:text-teal-700 flex items-center gap-1"><Pencil size={11} /> Corregir</button>}
           </div>
-          {entrega.puntos.map(p => (
-            <div key={p.id} className="flex items-center justify-between gap-2 bg-zinc-50 rounded-lg px-2 py-1 mt-1">
-              <span className="text-[11.5px] text-zinc-600">{p.direccion}{p.comuna && `, ${p.comuna}`}</span>
-              {puedeOperar && <button onClick={() => accion({ accion: 'punto_quitar', puntoId: p.id })} className="text-zinc-400 hover:text-rose-600"><Trash2 size={12} /></button>}
-            </div>
-          ))}
-          {formPunto && (
-            <div className="mt-1.5 space-y-1.5">
-              <input value={punto.direccion} onChange={e => setPunto(f => ({ ...f, direccion: e.target.value }))} placeholder="Dirección"
-                className="w-full text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-              <div className="flex items-center gap-1.5">
+        ) : puedeOperar && (actaCargada || guiaCargada) ? (
+          <button onClick={() => setEditandoRecepcion(true)} className="text-[11.5px] font-semibold text-teal-700 hover:text-teal-800 flex items-center gap-1"><Pencil size={11} /> Escribir quién recibió y el N° de guía</button>
+        ) : null}
+
+        {/* Puntos de entrega: solo si hay o se agregan (caso menor, §16.2) */}
+        {(entrega.puntos.length > 0 || formPunto || puedeOperar) && (
+          <div className="flex items-start gap-2 flex-wrap text-[11.5px]">
+            <span className="text-[10.5px] font-bold text-zinc-400 uppercase pt-0.5">Puntos de entrega</span>
+            {entrega.puntos.map(p => (
+              <span key={p.id} className="inline-flex items-center gap-1 bg-zinc-50 rounded-lg px-2 py-0.5 text-zinc-600">
+                {p.direccion}{p.comuna && `, ${p.comuna}`}
+                {puedeOperar && <button onClick={() => accion({ accion: 'punto_quitar', puntoId: p.id })} className="text-zinc-400 hover:text-rose-600"><Trash2 size={11} /></button>}
+              </span>
+            ))}
+            {puedeOperar && !formPunto && <button onClick={() => setFormPunto(true)} className="font-semibold text-teal-700 hover:text-teal-800 flex items-center gap-0.5"><Plus size={11} /> Agregar</button>}
+            {formPunto && (
+              <span className="inline-flex items-center gap-1.5">
+                <input value={punto.direccion} onChange={e => setPunto(f => ({ ...f, direccion: e.target.value }))} placeholder="Dirección" className={entrada} />
                 <button onClick={async () => { if (await accion({ accion: 'punto_agregar', ...punto })) { setPunto({ direccion: '', comuna: '', contactoNombre: '', contactoTelefono: '' }); setFormPunto(false); } }}
                   disabled={!punto.direccion.trim()} className="text-[11px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1 rounded-lg">Guardar</button>
                 <button onClick={() => setFormPunto(false)} className="text-zinc-400 hover:text-zinc-600"><X size={14} /></button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Verificación (§16.4) */}
-        <div className="flex items-center gap-2">
-          <p className="text-[10.5px] font-bold text-zinc-400 uppercase">Verificación</p>
-          {entrega.verificacionConforme != null ? (
-            <span className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded-full border ${entrega.verificacionConforme ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-rose-700 bg-rose-50 border-rose-200'}`}>
-              {entrega.verificacionConforme ? 'Conforme' : 'No conforme'} — {entrega.verificacionPorNombre}
-            </span>
-          ) : (puedeOperar || puedeVerificar) ? (
-            <div className="flex items-center gap-1.5">
-              <button onClick={() => accion({ accion: 'verificacion', conforme: true })} className="flex items-center gap-1 text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-2 py-1 rounded-lg"><CheckCircle2 size={11} /> Conforme</button>
-              <button onClick={() => accion({ accion: 'verificacion', conforme: false })} className="flex items-center gap-1 text-[11px] font-semibold text-white bg-rose-600 hover:bg-rose-700 px-2 py-1 rounded-lg"><XCircle size={11} /> No conforme</button>
-            </div>
-          ) : <span className="text-[11px] text-zinc-400">Pendiente</span>}
-        </div>
-
-        {/* Números de OBUMA (§16.4/§17.2 — el módulo solo los registra) */}
-        <div className="grid grid-cols-2 gap-2">
-          <input value={numeros.notaVentaNumero} onChange={e => setNumeros(f => ({ ...f, notaVentaNumero: e.target.value }))}
-            onBlur={() => numeros.notaVentaNumero && accion({ accion: 'numeros', notaVentaNumero: numeros.notaVentaNumero })}
-            placeholder="N° nota de venta (OBUMA)" disabled={!puedeOperar}
-            className="text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-          <input value={numeros.guiaDespachoNumero} onChange={e => setNumeros(f => ({ ...f, guiaDespachoNumero: e.target.value }))}
-            onBlur={() => numeros.guiaDespachoNumero && accion({ accion: 'numeros', guiaDespachoNumero: numeros.guiaDespachoNumero })}
-            placeholder="N° guía de despacho (OBUMA)" disabled={!puedeOperar}
-            className="text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-        </div>
-
-        {/* Documentos de la entrega: el acta se genera formal en Gestionar documentos y lo firmado se carga acá (escaneo). */}
-        <div className="pt-2 border-t border-zinc-100 space-y-3">
-          <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1"><FileSignature size={11} /> Acta de entrega y documentos firmados</p>
-
-          {hayPlantillas && (
-            <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 p-2.5 space-y-2">
-              <p className="text-[11.5px] text-zinc-600">El acta se arma en <b>Gestionar documentos</b> (con los artículos y la guía ya cargados), se imprime y la firma el cliente. El escaneo firmado se sube abajo.</p>
-              {actasGeneradas.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {actasGeneradas.map(a => (
-                    <MiniaturaDoc key={a.id} src={`/api/compras/${negocioId}/documentos-generados?pdf=${a.id}`} titulo={a.plantillaNombre || a.titulo} detalle={a.createdAt.slice(0, 10)}
-                      onAbrir={() => setVisor({ nombre: `acta-${a.id}.pdf`, url: `/api/compras/${negocioId}/documentos-generados?pdf=${a.id}`, titulo: a.plantillaNombre || a.titulo })} />
-                  ))}
-                </div>
-              )}
-              {puedeOperar && <button onClick={() => irAFase('gestion')} className="text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-2.5 py-1.5 rounded-lg">{actasGeneradas.length ? 'Ir a Gestionar documentos' : 'Generar el acta en Gestionar documentos'}</button>}
-            </div>
-          )}
-
-          <CasillaEscaneo titulo="Acta de entrega firmada" tipo="acta" ayuda="Sube el acta con la firma y el timbre del cliente (PDF o foto). Al cargarla se da por hecha la tarea del acta."
-            escaneos={escaneos} puedeOperar={puedeOperar} subiendo={subiendoTipo === 'acta'} onSubir={subirEscaneo} onQuitar={quitarEscaneo} onAbrir={setVisor} />
-          <CasillaEscaneo titulo="Guía de despacho firmada" tipo="guia" ayuda="Sube la guía de despacho firmada por quien recibió. Al cargarla la entrega queda hecha."
-            escaneos={escaneos} puedeOperar={puedeOperar} subiendo={subiendoTipo === 'guia'} onSubir={subirEscaneo} onQuitar={quitarEscaneo} onAbrir={setVisor} />
-          <CasillaEscaneo titulo="Listado de asistentes a la capacitación" tipo="capacitacion" ayuda="Si hubo capacitación, sube el listado firmado por los asistentes."
-            escaneos={escaneos} puedeOperar={puedeOperar} subiendo={subiendoTipo === 'capacitacion'} onSubir={subirEscaneo} onQuitar={quitarEscaneo} onAbrir={setVisor} />
-
-          {(entrega.actaFirma || entrega.guiaFirma) && (
-            <div className="text-[11.5px] text-zinc-600 space-y-0.5">
-              {entrega.actaFirma && <p>Acta registrada a mano: <b>{entrega.actaFirma.nombre}</b> ({entrega.actaFirma.cargo}) — {entrega.actaConformidad === 'CONFORME' ? 'Conforme' : 'No conforme'}, {entrega.actaFirma.fecha}</p>}
-              {entrega.guiaFirma && <p>Guía registrada a mano: <b>{entrega.guiaFirma.nombre}</b> ({entrega.guiaFirma.cargo}) — {entrega.guiaFirma.fecha}{entrega.guiaTimbre && ' · con timbre'}</p>}
-            </div>
-          )}
-
-          {/* Forma anterior (acta interna + firma tecleada): queda para quien no tenga escaneo o no use plantillas. */}
-          {puedeOperar && (!entrega.actaFirma || !entrega.guiaFirma) && (
-            <details className="text-[11.5px]">
-              <summary className="cursor-pointer text-zinc-500 hover:text-zinc-700 font-semibold">Registrar la firma a mano (sin escaneo)</summary>
-              <div className="mt-2 space-y-3">
-                {!entrega.actaFirma && (
-                  <div className="space-y-2">
-                    <p className="text-[10.5px] font-bold text-zinc-400 uppercase">Acta interna</p>
-                    {!entrega.actaGeneradaAt ? (
-                      <button onClick={() => accion({ accion: 'generar_acta' })} disabled={guardando} className="text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">Generar acta</button>
-                    ) : !entrega.actaAprobadaAt ? (
-                      <>
-                        <Banner variante="info">Acta generada {entrega.actaGeneradaAt}.</Banner>
-                        <button onClick={() => accion({ accion: 'aprobar_acta' })} disabled={guardando} className="text-[11.5px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">Aprobar acta (encargado de compras)</button>
-                      </>
-                    ) : (
-                      <>
-                        <Banner variante="info">Acta aprobada por {entrega.actaAprobadaPorNombre} — lista para firmarse.</Banner>
-                        <div className="space-y-1.5">
-                          <Select value={conformidad} onChange={v => setConformidad(v as any)} minWidth={140}
-                            options={[{ value: 'CONFORME', label: 'Conforme' }, { value: 'NO_CONFORME', label: 'No conforme' }]} />
-                          <FormFirma guardando={guardando} inicial={entrega.guiaFirma} onGuardar={f => accion({ accion: 'firmar_acta', firma: f, conformidad })} />
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-                {!entrega.guiaFirma && (
-                  <div className="space-y-2">
-                    <p className="text-[10.5px] font-bold text-zinc-400 uppercase">Firma de la guía de despacho</p>
-                    <FormFirma guardando={guardando} inicial={entrega.actaFirma} onGuardar={f => accion({ accion: 'firmar_guia', firma: f, timbre: false })} />
-                  </div>
-                )}
-              </div>
-            </details>
-          )}
-        </div>
-
-        {entrega.cerradaAt && <Banner variante="success">Ciclo de entrega cerrado {entrega.cerradaAt}.</Banner>}
+              </span>
+            )}
+          </div>
+        )}
       </div>
       <DocumentViewerModal doc={visor} onClose={() => setVisor(null)} />
     </div>

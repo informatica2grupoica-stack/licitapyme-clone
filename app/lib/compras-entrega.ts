@@ -253,6 +253,37 @@ export async function aplicarEscaneoFirmado(negocioId: number, tipo: 'acta' | 'g
   }
 }
 
+/** Lo leído del escaneo (acta o guía) llena lo que está VACÍO: N° de guía y, del acta, quién recibió. Nunca pisa lo ya escrito. Devuelve qué llenó. */
+export async function aplicarLecturaEntrega(negocioId: number, tipo: 'acta' | 'guia', l: { guiaNumero: string | null; fecha: string | null; recibeNombre: string | null; recibeRut: string | null; recibeCargo: string | null }): Promise<string[]> {
+  await asegurarFila(negocioId);
+  const r = await filaEntrega(negocioId);
+  const llenado: string[] = [];
+  const ahora = ahoraChileSQL();
+  if (l.guiaNumero && !r?.guia_despacho_numero) {
+    await pool.query(`UPDATE compras_entrega SET guia_despacho_numero = ?, updated_at = ? WHERE negocio_id = ? AND guia_despacho_numero IS NULL`, [l.guiaNumero, ahora, negocioId]);
+    llenado.push(`guía N° ${l.guiaNumero}`);
+  }
+  if (tipo === 'acta' && !r?.acta_firma_nombre && l.recibeNombre && l.fecha) {
+    const [[n]]: any = await pool.query(`SELECT licitacion_organismo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]);
+    await pool.query(
+      `UPDATE compras_entrega SET acta_firma_nombre = ?, acta_firma_rut = ?, acta_firma_cargo = ?, acta_firma_recinto = ?, acta_firma_fecha = ?, acta_conformidad = COALESCE(acta_conformidad, 'CONFORME'), updated_at = ?
+        WHERE negocio_id = ? AND acta_firma_nombre IS NULL`,
+      [l.recibeNombre, l.recibeRut || '', l.recibeCargo || '', n?.licitacion_organismo || '', l.fecha, ahora, negocioId]);
+    llenado.push(`recibió ${l.recibeNombre}`);
+  }
+  return llenado;
+}
+
+/** Corrección a mano de lo que leyó el acta (o carga cuando no se pudo leer): quién recibió y el N° de guía. No pide acta aprobada. */
+export async function corregirRecepcion(negocioId: number, firma: FirmaDatos, guiaNumero: string | null): Promise<void> {
+  if (!firma.nombre?.trim() || !firma.fecha) throw new Error('Faltan el nombre de quien recibió y la fecha.');
+  await asegurarFila(negocioId);
+  await pool.query(
+    `UPDATE compras_entrega SET acta_firma_nombre = ?, acta_firma_rut = ?, acta_firma_cargo = ?, acta_firma_recinto = ?, acta_firma_fecha = ?, acta_conformidad = COALESCE(acta_conformidad, 'CONFORME'),
+            guia_despacho_numero = COALESCE(?, guia_despacho_numero), updated_at = ? WHERE negocio_id = ?`,
+    [firma.nombre.trim(), firma.rut?.trim() || '', firma.cargo?.trim() || '', firma.recinto?.trim() || '', firma.fecha, guiaNumero?.trim() || null, ahoraChileSQL(), negocioId]);
+}
+
 /** §16.6 — nombre, RUT, cargo, fecha, recinto, recepción y timbre si es posible. */
 export async function firmarGuia(negocioId: number, firma: FirmaDatos, timbre: boolean, actorId: number, actorNombre: string | null): Promise<void> {
   validarFirma(firma);

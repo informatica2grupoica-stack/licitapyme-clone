@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import {
   obtenerEntrega, definirModalidadEntrega, agregarPuntoEntrega, quitarPuntoEntrega,
-  registrarVerificacion, registrarNumeros, generarActa, aprobarActa, firmarActa, firmarGuia,
+  registrarVerificacion, registrarNumeros, generarActa, aprobarActa, firmarActa, firmarGuia, corregirRecepcion,
   type ModalidadEntrega, type FirmaDatos,
 } from '@/app/lib/compras-entrega';
 import { puedeOperarCompras, puedeVerCompras } from '@/app/api/compras/[negocioId]/route';
@@ -84,6 +84,8 @@ async function __PATCH(request: NextRequest, { params }: Params) {
         await registrarVerificacion(id, !!body.conforme, userId, nombre); break;
       case 'numeros':
         await registrarNumeros(id, body.notaVentaNumero || null, body.guiaDespachoNumero || null); break;
+      case 'recepcion':
+        await corregirRecepcion(id, body.firma as FirmaDatos, body.guiaNumero || null); break;
       case 'generar_acta':
         await generarActa(id, userId, nombre); break;
       case 'aprobar_acta':
