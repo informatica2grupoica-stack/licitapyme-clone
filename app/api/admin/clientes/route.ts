@@ -41,6 +41,12 @@ export async function GET(req: NextRequest) {
   if (g.error) return g.error;
   const evId = Number(req.nextUrl.searchParams.get('evaluacion'));
   if (evId) return NextResponse.json({ success: true, evaluacion: await leerEvaluacion(evId) });
+  // Equipo de una empresa (pestaña Usuarios de la ficha).
+  const usrId = Number(req.nextUrl.searchParams.get('usuarios'));
+  if (usrId) {
+    const [us] = await pool.query('SELECT id, nombre, email, rol, activo FROM usuarios WHERE cliente_id = ? ORDER BY activo DESC, rol, nombre', [usrId]);
+    return NextResponse.json({ success: true, usuarios: us });
+  }
   // Baja de una empresa (Ley 21.719): vista previa de lo que se borraría, o exportación de todos sus datos (JSON descargable).
   const borradoId = Number(req.nextUrl.searchParams.get('borrado'));
   const exportarId = Number(req.nextUrl.searchParams.get('exportar'));

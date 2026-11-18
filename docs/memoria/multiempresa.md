@@ -151,6 +151,9 @@ Para cada módulo: tablas con dueño → todas sus rutas con chequeo de cliente 
 
 ## Bitácora
 
+## 2026-11-18 — Panel /admin/clientes rehecho (lista + ficha lateral) y Órdenes de compra pasan al plan Básico
+Pedido del dueño: con 40 clientes la pantalla de tarjetas no sirve; el Básico «Radar y Negocios» sonaba poco profesional. Hecho (sin desplegar, sin ver en navegador): `/admin/clientes` es una tabla con búsqueda, filtros (plan, estado, por vencer), resumen (activas, por vencer, suspendidas, sin usuarios) y una ficha lateral con pestañas Plan, Usuarios, Límites, Evaluación RUT e Historial; «Nueva empresa» en ventana; el plan muestra qué incluye en palabras del cliente. API: `GET ?usuarios=<id>`. `modulos.ts`: `/ordenes-compra` y `/api/ordenes-compra` pasan de `compras` a `negocios` (ya filtran por empresa desde la Fase 3); Compras, logística y aprobaciones siguen fuera. Test nuevo en modulos-planes. WhatsApp: el aviso sigue saliendo del número de ICA (el cliente activa el suyo en su perfil). Pendiente: verlo en el navegador tras el deploy; usar Comercial MP (cliente 4, venció 15-11-2026) como cliente de prueba.
+
 ## 2026-11-18 — Fase 3: cruce de OC por empresa, probado en local
 Código de la Fase 3 (ver lista arriba) verificado: OC al RUT de la empresa-cliente queda suya, al RUT de ICA sigue de ICA, del competidor sin dueño; avisos solo a la gente de cada empresa; listados y «nuestra» filtrados por empresa; segunda corrida sin avisos repetidos. Sin cambios de código en esta pasada (solo se corrigió el script de prueba). Falta: migration-197 en producción, commit y deploy.sh.
 

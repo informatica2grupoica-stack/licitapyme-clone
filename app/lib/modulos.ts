@@ -23,7 +23,7 @@ export const MODULOS_ACTIVABLES: Modulo[] = ['radar', 'negocios', 'viabilidad', 
 // ── Planes (2026-11-18, regla del dueño) ──────────────────────────────────────────────────────────────────────────────
 // Todas las empresas ven el MISMO LICITANK; el plan solo decide qué aparece en los menús. Módulos efectivos = los del plan + los
 // adicionales marcados a mano en /admin/clientes (`clientes.modulos`), y nunca más que MODULOS_ACTIVABLES.
-// Básico: Buscador, Radar, Puente, Dashboard (módulo radar) y Negocios; dentro del negocio sin Viabilidad, Resultado, Auditor ni Postulación.
+// Básico: Buscador, Radar, Puente, Dashboard (módulo radar), Negocios, Postuladas, Ganadas/Perdidas, Descartadas, Órdenes de compra (desde 2026-11-18, van con Negocios), Empresas y la administración de su empresa; dentro del negocio sin Viabilidad, Resultado, Auditor ni Postulación.
 // Pro: Básico + Viabilidad, Resultado, Costeo, Auditor, Postulación (anexos) y Competencia. Auditor, Anexos y Competencia entran solos
 // al Pro el día que se sumen a MODULOS_ACTIVABLES. Consulta a la IA (ia_chat), Compras y Entregas van aparte, como adicionales.
 // «Resultado» (pestaña Resultado del negocio) es solo de la pantalla: su API (/api/licitacion-adjudicacion) es de Negocios porque
@@ -98,8 +98,10 @@ const REGLAS: Regla[] = [
   { modulo: 'costeo',     re: /^\/api\/documentos\/generar-costeo(\/|$)/ },
   { modulo: 'anexos',     re: /^\/api\/anexos(\/|$)/ },
   { modulo: 'anexos',     re: /^\/api\/empresas\/[^/]+\/(documentos|firmas)(\/|$)/ },
-  { modulo: 'compras',    re: /^\/(compras|logistica|ordenes-compra|aprobaciones)(\/|$)/ },
-  { modulo: 'compras',    re: /^\/api\/(compras|logistica|ordenes-compra|aprobaciones)(\/|$)/ },
+  // Órdenes de compra (2026-11-18, plan Básico): cada empresa ve solo las suyas (ordenes_compra.cliente_id, migration-197), así que viene con Negocios.
+  { modulo: 'negocios',   re: /^\/(api\/)?ordenes-compra(\/|$)/ },
+  { modulo: 'compras',    re: /^\/(compras|logistica|aprobaciones)(\/|$)/ },
+  { modulo: 'compras',    re: /^\/api\/(compras|logistica|aprobaciones)(\/|$)/ },
   { modulo: 'competencia', re: /^\/api\/postuladas\/ofertas(\/|$)/ },
   { modulo: 'entregas',   re: /^\/entregas(\/|$)/ },
   { modulo: 'entregas',   re: /^\/api\/entregas(\/|$)/ },

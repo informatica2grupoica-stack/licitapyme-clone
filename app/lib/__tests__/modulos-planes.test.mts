@@ -34,5 +34,8 @@ test('el servidor niega a un Básico las rutas de lo que no contrató', () => {
   assert.equal(rutaPermitida('/puente', 2, basico).ok, true);
   assert.equal(rutaPermitida('/dashboard', 2, basico).ok, true);
   assert.equal(rutaPermitida('/', 2, basico).ok, true);
+  assert.equal(rutaPermitida('/ordenes-compra', 2, basico).ok, true);
+  assert.equal(rutaPermitida('/api/ordenes-compra/listado', 2, basico).ok, true);
+  assert.equal(rutaPermitida('/compras', 2, basico).ok, false);
   assert.equal(rutaPermitida('/api/cv/viabilidad-ia/123', 2, modulosDeCliente('PRO', null)).ok, true);
 });
